@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, test, vi } from 'vitest'
-import { ProblemsPill } from '@/components/topology/ProblemsPill'
+import { CanvasBar, ProblemsPill } from '@/components/topology/ProblemsPill'
 import { nextProblem, problemsOf, type Problem } from '@/lib/problems'
 import type { TopoNode } from '@/lib/graph'
 
@@ -48,17 +48,27 @@ describe('ProblemsPill', () => {
 
   test('says how many, with an accessible name, and singular for one', () => {
     const { rerender } = render(<ProblemsPill problems={ps} selectedId={null} onGo={() => {}} onShow={() => {}} />)
-    expect(screen.getByRole('button', { name: /^3 need attention/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /^3 places need attention/ })).toBeTruthy()
     rerender(<ProblemsPill problems={[ps[0]]} selectedId={null} onGo={() => {}} onShow={() => {}} />)
-    expect(screen.getByRole('button', { name: /^1 needs attention/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /^1 place needs attention/ })).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Previous problem' })).toBeNull()
+  })
+
+  test('says what it counts: the noun the problems share, else places', () => {
+    const svc = (id: string, alert: Problem['alert']): Problem => ({ id, alert, noun: 'service' })
+    const { rerender } = render(<ProblemsPill problems={[svc('a', 'bad'), svc('b', 'warn'), svc('c', 'warn')]} selectedId={null} onGo={() => {}} onShow={() => {}} />)
+    expect(screen.getByRole('button', { name: /^3 services need attention/ })).toBeTruthy()
+    rerender(<ProblemsPill problems={[{ id: 'a', alert: 'bad', noun: 'cluster' }]} selectedId={null} onGo={() => {}} onShow={() => {}} />)
+    expect(screen.getByRole('button', { name: /^1 cluster needs attention/ }).getAttribute('title')).toContain('Counts the clusters in this layer')
+    rerender(<ProblemsPill problems={[svc('a', 'bad'), { id: 'b', alert: 'warn', noun: 'cluster' }]} selectedId={null} onGo={() => {}} onShow={() => {}} />)
+    expect(screen.getByRole('button', { name: /^2 places need attention/ })).toBeTruthy()
   })
 
   test('the label shows the problem, the chevrons walk to the next and previous, and the position shows once one is selected', () => {
     const onGo = vi.fn()
     const onShow = vi.fn()
     render(<ProblemsPill problems={ps} selectedId="b" onGo={onGo} onShow={onShow} />)
-    expect(screen.getByText('2 of 3 need attention')).toBeTruthy()
+    expect(screen.getByText('2 of 3 places need attention')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: /need attention/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Next problem' }))
     fireEvent.click(screen.getByRole('button', { name: 'Previous problem' }))
@@ -71,5 +81,17 @@ describe('ProblemsPill', () => {
     expect(screen.getByTestId('problems-pill')).toHaveAttribute('data-worst', 'bad')
     rerender(<ProblemsPill problems={ps.slice(1)} selectedId={null} onGo={() => {}} onShow={() => {}} />)
     expect(screen.getByTestId('problems-pill')).toHaveAttribute('data-worst', 'warn')
+  })
+})
+
+describe('CanvasBar', () => {
+  test('answers "is anything wrong?" before anything else: the pill when something is, "No problems" with a Healthy glyph when not', () => {
+    const { rerender } = render(<CanvasBar problems={[]} selectedId={null} onGo={() => {}} onShow={() => {}} />)
+    const bar = screen.getByTestId('canvas-status')
+    expect(bar).toHaveTextContent('No problems')
+    expect(bar.querySelector('[role="img"][data-status="healthy"]')).not.toBeNull()
+    rerender(<CanvasBar problems={[{ id: 'a', alert: 'bad', noun: 'service' }, { id: 'b', alert: 'warn', noun: 'service' }]} selectedId={null} onGo={() => {}} onShow={() => {}} />)
+    expect(screen.getByTestId('problems-pill')).toHaveTextContent('2 services need attention')
+    expect(screen.getByTestId('canvas-status')).toHaveTextContent('Shift N')
   })
 })

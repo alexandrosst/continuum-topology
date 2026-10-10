@@ -1,8 +1,13 @@
 import clsx from 'clsx'
-import { Plug } from 'lucide-react'
-import { Fragment, type ReactNode } from 'react'
+import { CircleHelp, Filter, Plug } from 'lucide-react'
+import { Fragment, useState, type ReactNode } from 'react'
 import { PLATFORM_ICON, PlatformNode, StatusGlyph } from '@/components/topology/PlatformNode'
-import { ProblemsPill } from '@/components/topology/ProblemsPill'
+import { SIGNAL_ICON } from '@/components/topology/signalIcons'
+import { ProblemsPill, WalkHint } from '@/components/topology/ProblemsPill'
+import { StatusKey } from '@/components/topology/StatusMark'
+import { readFlag, writeFlag } from '@/lib/remember'
+import { MODALITY_WORD } from '@/lib/platformLayer'
+import type { Modality } from '@/lib/install'
 import { Button, ICON_SM } from '@/components/ui/primitives'
 import type { PlatformEntity, PlatformKind } from '@/lib/platformLayer'
 import { aside, headline, type TelemetrySummary } from '@/lib/telemetrySummary'
@@ -30,25 +35,51 @@ export function SummaryBar({ summary, selectedId, problemsOnly, onGo, onShow, on
 }) {
   const note = aside(summary)
   const lead = summary.waiting > 0 || summary.clusters === 0 ? 'unknown' : 'healthy'
+  const [keyOpen, setKeyOpen] = useState(() => readFlag(KEY_FLAG, false))
+  const ghost = 'inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs transition-colors duration-150 motion-reduce:transition-none focus-visible:outline-2 focus-visible:outline-accent/60'
+  const on = 'border-nb-700 bg-nb-850 text-nb-300'
+  const off = 'border-transparent text-nb-400 hover:bg-nb-925 hover:text-nb-300'
   return (
-    <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-nb-850 px-4 py-2 sm:px-6" data-testid="telemetry-summary">
-      <p className="flex min-h-8 items-center gap-2 text-[13px] tabular-nums text-nb-300">
-        {summary.places.length === 0 && <StatusGlyph status={lead} />}
-        <span><span className="font-medium">{headline(summary)}</span>{note && <span className="text-nb-500"> · {note}</span>}</span>
-      </p>
-      <ProblemsPill problems={summary.places} selectedId={selectedId} onGo={onGo} onShow={onShow} hint="a cluster's agent and its local operator count as one" />
-      {(summary.places.length > 0 || problemsOnly) && (
-        <button
-          type="button"
-          onClick={onToggle}
-          aria-pressed={problemsOnly}
-          data-testid="problems-only"
-          className={clsx('ml-auto h-8 rounded-lg px-2.5 text-xs transition-colors duration-150 motion-reduce:transition-none focus-visible:outline-2 focus-visible:outline-accent/60', problemsOnly ? 'bg-accent-soft text-accent' : 'text-nb-400 hover:bg-nb-925 hover:text-nb-300')}
-          title="Keep only the clusters where something needs attention or is not working"
-        >
-          Only problems
-        </button>
-      )}
+    <div className="shrink-0 border-b border-nb-850" data-testid="telemetry-summary">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2 sm:px-6">
+        <p className="flex min-h-8 items-center gap-2 text-[13px] tabular-nums text-nb-300">
+          {summary.places.length === 0 && <StatusGlyph status={lead} />}
+          <span><span className="font-medium">{headline(summary)}</span>{note && <span className="text-nb-500"> · {note}</span>}</span>
+        </p>
+        <ProblemsPill problems={summary.places} selectedId={selectedId} onGo={onGo} onShow={onShow} hint="a cluster's agent and its local operator count as one" />
+        <div className="ml-auto flex items-center gap-1.5">
+          {summary.places.length > 1 && <WalkHint className="mr-2" />}
+          {(summary.places.length > 0 || problemsOnly) && (
+            <button type="button" onClick={onToggle} aria-pressed={problemsOnly} data-testid="problems-only" className={clsx(ghost, problemsOnly ? on : off)} title="Keep only the clusters where something needs attention or is not working">
+              <Filter size={ICON_SM} aria-hidden /> Only problems
+            </button>
+          )}
+          <button type="button" onClick={() => { writeFlag(KEY_FLAG, !keyOpen); setKeyOpen(!keyOpen) }} aria-expanded={keyOpen} aria-controls="telemetry-key" data-testid="telemetry-key-toggle" className={clsx(ghost, keyOpen ? on : off)} title="What the glyphs and lines mean">
+            <CircleHelp size={ICON_SM} aria-hidden /> Key
+          </button>
+        </div>
+      </div>
+      {keyOpen && <TelemetryKey />}
+    </div>
+  )
+}
+
+const KEY_FLAG = 'continuum:telemetry-key'
+
+/** The glyphs of the grid, in words: the four states (the same as on the canvas), the three signal types, and how to read a line. */
+function TelemetryKey() {
+  return (
+    <div id="telemetry-key" className="flex flex-wrap items-center gap-x-5 gap-y-1.5 px-4 pb-2.5 text-xs text-nb-400 sm:px-6" data-testid="telemetry-key">
+      <StatusKey />
+      <span className="h-3 w-px bg-nb-800" aria-hidden />
+      <span className="flex items-center gap-3">
+        {(['metrics', 'logs', 'traces'] as Modality[]).map((m) => {
+          const Icon = SIGNAL_ICON[m]
+          return <span key={m} className="flex items-center gap-1.5"><Icon size={ICON_SM} className="text-nb-500" aria-hidden />{MODALITY_WORD[m]}</span>
+        })}
+      </span>
+      <span className="h-3 w-px bg-nb-800" aria-hidden />
+      <span>A line is still while all is well; one that is amber or red carries how long ago data last crossed it.</span>
     </div>
   )
 }
@@ -121,7 +152,7 @@ export function PhoneList({ layout, facts, selectedId, onSelect }: { layout: Lan
   const rows = layout.lanes.map((l) => ({ lane: l, parts: layout.nodes.filter((n) => n.entity.clusterId === l.clusterId).sort((a, b) => a.x - b.x) }))
   const shared = layout.nodes.filter((n) => !n.entity.clusterId).sort((a, b) => a.x - b.x || a.y - b.y)
   const node = (n: NonNullable<ReturnType<typeof at>>) => (
-    <PlatformNode key={n.entity.id} entity={n.entity} selected={n.entity.id === selectedId} label={nodeLabel(n.entity)} senders={n.senders} withRole className="relative h-12" onClick={() => onSelect(n.entity.id)} />
+    <PlatformNode key={n.entity.id} entity={n.entity} selected={n.entity.id === selectedId} label={nodeLabel(n.entity)} senders={n.senders} withRole className="relative min-h-12" onClick={() => onSelect(n.entity.id)} />
   )
   return (
     <div className="flex flex-col gap-6 px-4 py-4" data-testid="telemetry-list">

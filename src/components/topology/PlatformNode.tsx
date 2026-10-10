@@ -1,13 +1,13 @@
 import clsx from 'clsx'
-import { Activity, Cable, Database, DoorOpen, FileText, Funnel, Merge, Waypoints, type LucideIcon } from 'lucide-react'
+import { Cable, Database, DoorOpen, Funnel, Merge, type LucideIcon } from 'lucide-react'
+import { SIGNAL_ICON } from '@/components/topology/signalIcons'
 import { ICON_SM } from '@/components/ui/primitives'
 import { StatusMark } from '@/components/topology/StatusMark'
-import { MODALITY_WORD, PLATFORM_STATUS_WORD, type PlatformEntity, type PlatformKind, type PlatformStatus } from '@/lib/platformLayer'
+import { MODALITY_WORD, PLATFORM_STATUS_WORD, platformFacts, type PlatformEntity, type PlatformKind, type PlatformStatus } from '@/lib/platformLayer'
 import type { Modality } from '@/lib/install'
 
 export const PLATFORM_ICON: Record<PlatformKind, LucideIcon> = { agent: Cable, local: Funnel, regional: Merge, central: DoorOpen, fusion: Database }
 export const KIND_WORD: Record<PlatformKind, string> = { agent: 'Discovery agent', local: 'Local operator', regional: 'Regional operator', central: 'Central operator', fusion: 'FUSION' }
-const SIGNAL_ICON: Record<Modality, LucideIcon> = { metrics: Activity, logs: FileText, traces: Waypoints }
 
 const TONE: Record<PlatformStatus, string> = { healthy: 'text-ok', attention: 'text-warn', down: 'text-bad', unknown: 'text-nb-500' }
 
@@ -16,17 +16,19 @@ export function StatusGlyph({ status, className }: { status: PlatformStatus; cla
   return <StatusMark state={status} className={className} />
 }
 
-/** What a part collects or keeps, as small glyphs instead of a sentence that has to be cut short: the words are in its tooltip and its name. */
-function Signals({ of }: { of: Modality[] }) {
+/** What a part collects or keeps, as small glyphs instead of a sentence that has to be cut short: each says its word when hovered, and the words are in the
+ *  box's name for assistive technology, in its tooltip and in the key. */
+export function Signals({ of }: { of: Modality[] }) {
   return (
     <span className="flex h-[18px] items-center gap-1.5 text-nb-500" data-testid="signals">
       {of.map((m) => {
         const Icon = SIGNAL_ICON[m]
-        return <Icon key={m} size={ICON_SM} aria-hidden />
+        return <span key={m} title={MODALITY_WORD[m]} data-signal={m} className="grid place-items-center"><Icon size={ICON_SM} aria-hidden /></span>
       })}
     </span>
   )
 }
+
 
 /**
  * What a box says about itself. In a column the column's header already names the role, so a box leads with what is specific to it: an
@@ -76,7 +78,10 @@ export function PlatformNode({ entity, selected, label, senders, withRole, tip, 
 }) {
   const f = face(entity, senders, !!withRole)
   const bad = entity.status === 'attention' || entity.status === 'down'
-  const meta = bad ? PLATFORM_STATUS_WORD[entity.status] : f.meta
+  // Not well: the state in words, and in a list (no line on a canvas says why) the reason beside it, with what it sends to kept on a line of its own.
+  const reason = withRole && bad ? entity.sentence.replace(/\.$/, '') : undefined
+  const meta = bad ? (reason ? `${PLATFORM_STATUS_WORD[entity.status]} · ${reason}` : PLATFORM_STATUS_WORD[entity.status]) : f.meta
+  const sub = reason ? f.meta : undefined
   return (
     <div className={clsx('group/node', className ?? 'relative')} style={style}>
       <button
@@ -87,8 +92,8 @@ export function PlatformNode({ entity, selected, label, senders, withRole, tip, 
         aria-label={label}
         aria-pressed={selected}
         className={clsx(
-          'flex h-full w-full items-center gap-2 rounded-xl border px-3 text-left transition-[background-color,border-color] duration-150 motion-reduce:transition-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
-          selected ? 'border-accent bg-nb-925 shadow-[inset_0_0_0_1px_var(--color-accent)]' : bad ? (entity.status === 'down' ? 'border-bad/35 bg-bad/5 hover:bg-bad/10' : 'border-warn/35 bg-warn/5 hover:bg-warn/10') : 'border-nb-850 bg-nb-925 hover:border-nb-800 hover:bg-nb-930',
+          'flex h-full w-full items-center gap-2 rounded-xl border px-3 py-1.5 text-left transition-[background-color,border-color] duration-150 motion-reduce:transition-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
+          selected ? 'border-nb-100 bg-nb-925 shadow-[inset_0_0_0_1px_var(--color-nb-100)]' : bad ? (entity.status === 'down' ? 'border-bad/35 bg-bad/5 hover:bg-bad/10' : 'border-warn/35 bg-warn/5 hover:bg-warn/10') : 'border-nb-850 bg-nb-925 hover:border-nb-800 hover:bg-nb-930',
           entity.off && 'border-dashed bg-transparent',
         )}
         {...handlers}
@@ -96,7 +101,8 @@ export function PlatformNode({ entity, selected, label, senders, withRole, tip, 
         <span className="min-w-0 flex-1">
           {f.title !== undefined && <span className={clsx('block truncate text-[13px] leading-[18px]', f.muted ? 'font-medium text-nb-400' : 'font-semibold text-nb-300')}>{f.title}</span>}
           {f.signals && !(f.title !== undefined && meta) && <Signals of={f.signals} />}
-          {meta && <span className={clsx('block truncate text-[11px] leading-4', bad ? TONE[entity.status] : 'text-nb-500')}>{meta}</span>}
+          {meta && <span className={clsx('block truncate text-[11px] leading-4', bad ? TONE[entity.status] : 'text-nb-500')} title={reason ? meta : undefined}>{meta}</span>}
+          {sub && <span className="block truncate text-[11px] leading-4 text-nb-500">{sub}</span>}
         </span>
         {!entity.off && <StatusGlyph status={entity.status} />}
       </button>
@@ -112,6 +118,7 @@ export function PlatformNode({ entity, selected, label, senders, withRole, tip, 
         >
           <span className="block text-[11px] font-medium uppercase tracking-wide text-nb-500">{KIND_WORD[entity.kind]}{entity.clusterName ? ` · ${entity.clusterName}` : ''}</span>
           <span className={clsx('mt-1 block text-xs', entity.status === 'attention' ? 'text-warn' : entity.status === 'down' ? 'text-bad' : 'text-nb-300')}>{entity.off ? 'Not turned on.' : entity.sentence}</span>
+          {platformFacts(entity) && <span className="mt-1 block text-xs text-nb-500">{platformFacts(entity)}</span>}
           {entity.todo && <span className="mt-1 block text-xs text-nb-500">{entity.todo}</span>}
         </span>
       )}

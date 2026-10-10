@@ -21,6 +21,8 @@ export interface TelemetrySummary {
 
 const isBad = (s: PlatformStatus) => s === 'attention' || s === 'down'
 const alertOf = (s: PlatformStatus): Problem['alert'] => (s === 'down' ? 'bad' : 'warn')
+/** A cluster's agent or local operator is the place "cluster"; a shared operator is an "operator", and FUSION is just a place. */
+const nounOf = (e: PlatformEntity) => (e.kind === 'agent' || e.kind === 'local' ? 'cluster' : e.kind === 'fusion' ? undefined : 'operator')
 
 const RANK: Record<PlatformStatus, number> = { healthy: 0, unknown: 0, attention: 1, down: 2 }
 
@@ -41,16 +43,16 @@ export function summarize(model: PlatformModel, order: (id: string) => number = 
     const local = byId.get(`local:${agent.agentId}`)
     // The part to open for a cluster is the worst of its two, the agent when they are as bad (it is the cause of its local operator's silence).
     const culprit = [agent, local].filter((e): e is PlatformEntity => !!e && isBad(e.status)).sort((a, b) => RANK[b.status] - RANK[a.status])[0]
-    if (culprit) places.push({ id: culprit.id, alert: alertOf(culprit.status), at: order(culprit.id) })
+    if (culprit) places.push({ id: culprit.id, alert: alertOf(culprit.status), noun: nounOf(culprit), at: order(culprit.id) })
     if (!local) continue
     clusters++
     const broken = [...downstream(local.id)].some((id) => byId.get(id)?.status === 'down')
     if (agent.status === 'healthy' && local.status === 'healthy' && !broken) flowing++
     else if (!isBad(agent.status) && !isBad(local.status) && (agent.status === 'unknown' || local.status === 'unknown')) waiting++
   }
-  for (const e of model.entities) if ((e.kind === 'regional' || e.kind === 'central' || e.kind === 'fusion') && isBad(e.status)) places.push({ id: e.id, alert: alertOf(e.status), at: order(e.id) })
+  for (const e of model.entities) if ((e.kind === 'regional' || e.kind === 'central' || e.kind === 'fusion') && isBad(e.status)) places.push({ id: e.id, alert: alertOf(e.status), noun: nounOf(e), at: order(e.id) })
   places.sort((a, b) => Number(b.alert === 'bad') - Number(a.alert === 'bad') || a.at - b.at)
-  return { clusters, flowing, waiting, places: places.map(({ id, alert }) => ({ id, alert })), fusionOff: byId.get('fusion')?.off === true }
+  return { clusters, flowing, waiting, places: places.map(({ id, alert, noun }) => ({ id, alert, noun })), fusionOff: byId.get('fusion')?.off === true }
 }
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`

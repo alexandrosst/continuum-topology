@@ -5,7 +5,7 @@
  * Lines are orthogonal: each runs along the gutters between the columns, never across a box, and merges into one trunk per receiver.
  * Plain data in, plain coordinates out; the component only draws them.
  */
-import { PLATFORM_STATUS_WORD, type PlatformEntity, type PlatformKind, type PlatformModel, type PlatformStatus } from './platformLayer'
+import { PLATFORM_STATUS_WORD, platformFacts, type PlatformEntity, type PlatformKind, type PlatformModel, type PlatformStatus } from './platformLayer'
 
 /** One spacing scale: boxes 48 high on a 64 pitch (a 16 gap), a cluster's name column 128 wide, boxes 156 wide; the gutters give where there is room. */
 export const LANE = { nodeW: 156, nodeH: 48, pitch: 64, maxPitch: 80, head: 40, nameW: 128, nameGap: 8, agentGap: 64, fusionGap: 48, minGap: 16, gutterMin: 56, gutterMax: 120, corner: 8 } as const
@@ -61,10 +61,11 @@ export interface LaneOptions {
 
 const isBad = (s: PlatformStatus) => s === 'attention' || s === 'down'
 
-/** What a screen reader hears for a part: its name and cluster, its state, and the sentence that says what that means. */
+/** What a screen reader hears for a part: its name and cluster, its state, the sentence that says what that means, and what it carries and where it sends. */
 export function nodeLabel(e: PlatformEntity): string {
   const state = e.off ? 'Not turned on' : PLATFORM_STATUS_WORD[e.status]
-  return `${e.name}${e.clusterName ? `, ${e.clusterName}` : ''}: ${state}${e.sentence && !e.off ? `. ${e.sentence}` : ''}`
+  const facts = platformFacts(e)
+  return `${e.name}${e.clusterName ? `, ${e.clusterName}` : ''}: ${state}${e.sentence && !e.off ? `. ${e.sentence}` : ''}${facts ? ` ${facts}` : ''}`
 }
 
 /** A hop is as bad as the thing that sends: the label of a hop is only worth showing when something is wrong with it. */
@@ -182,11 +183,29 @@ export function layoutLanes(model: PlatformModel, opts: LaneOptions = {}): LaneL
   const fusion = model.entities.find((e) => e.kind === 'fusion' && shown(e))
   if (fusion) put(fusion, central ? centreOf(central.id) : rowY(rowOf(mean(into.get(fusion.id) ?? []) ?? middle)))
 
-  // Each receiver gets its own trunk in the gutter in front of it, spread across the gutter so two trunks never lie on one another.
-  const trunk = new Map<string, number>()
-  for (let col = 2; col < cols.length; col++) {
+  // Every line has a track of its own in the gutter in front of its receiver and its own place on the receiver's edge, so two lines never lie on
+  // one another and each arrow can be told from the next. Within a receiver the sender farthest away takes the track nearest the receiver, which is
+  // what keeps the lines from crossing; the places on the edge run in the order of the senders, top to bottom. Receivers of a column share its
+  // gutter side by side, in the order they stand.
+  const track = new Map<string, number>()
+  const arrive = new Map<string, number>()
+  for (let col = 1; col < cols.length; col++) {
     const receivers = nodes.filter((n) => COL.get(n.entity.kind) === col && (into.get(n.entity.id) ?? []).some((id) => placed.has(id))).sort((a, b) => a.y - b.y)
-    receivers.forEach((n, i) => trunk.set(n.entity.id, colLeft[col] - gapAfter(col - 1) + (gapAfter(col - 1) * (i + 1)) / (receivers.length + 1)))
+    const gap = gapAfter(col - 1)
+    receivers.forEach((n, k) => {
+      const mid = n.y + LANE.nodeH / 2
+      const senders = model.edges.filter((h) => h.to === n.entity.id && placed.has(h.from))
+      const m = senders.length
+      const step = Math.min(8, (LANE.nodeH - 16) / Math.max(1, m - 1))
+      const ordered = [...senders].sort((a, b) => centreOf(a.from) - centreOf(b.from) || a.id.localeCompare(b.id))
+      // A sender on the receiver's own row arrives straight, in the middle; the others take the places above and below it, in the order they stand.
+      const level = ordered.findIndex((h) => Math.abs(centreOf(h.from) - mid) < 1)
+      ordered.forEach((h, i) => arrive.set(h.id, mid + (level < 0 ? i - (m - 1) / 2 : i - level) * step))
+      const band = gap / receivers.length
+      const centre = colLeft[col] - gap + band * (k + 0.5)
+      const apart = Math.min(10, (band - 12) / Math.max(1, m - 1))
+      ;[...senders].sort((a, b) => Math.abs(centreOf(b.from) - mid) - Math.abs(centreOf(a.from) - mid) || a.id.localeCompare(b.id)).forEach((h, i) => track.set(h.id, centre + ((m - 1) / 2 - i) * apart))
+    })
   }
   // A run across columns in between must clear their boxes: the nearest height to the sender's that none of them is on.
   const clearY = (between: number[], y: number) => {
@@ -196,6 +215,7 @@ export function layoutLanes(model: PlatformModel, opts: LaneOptions = {}): LaneL
   }
 
   const hops: LaneHop[] = []
+  const skipping = new Map<number, number>()
   for (const h of model.edges) {
     const a = placed.get(h.from)
     const b = placed.get(h.to)
@@ -203,15 +223,16 @@ export function layoutLanes(model: PlatformModel, opts: LaneOptions = {}): LaneL
     const [ca, cb] = [COL.get(a.entity.kind)!, COL.get(b.entity.kind)!]
     const x1 = a.x + LANE.nodeW
     const y1 = a.y + LANE.nodeH / 2
-    const y2 = b.y + LANE.nodeH / 2
+    const y2 = arrive.get(h.id) ?? b.y + LANE.nodeH / 2
     let pts: Pt[]
     if (y1 === y2 && cb === ca + 1) pts = [[x1, y1], [b.x, y2]]
     else {
-      // From the sender along its row to the trunk, along the trunk to the receiver's row (by a clear row if columns lie between), in.
-      const bx = trunk.get(h.to) ?? (x1 + b.x) / 2
+      // From the sender along its row to its track, along the track to the receiver's row (by a clear row if columns lie between), in.
+      const bx = track.get(h.id) ?? (x1 + b.x) / 2
       const skipped = Array.from({ length: Math.max(0, cb - ca - 1) }, (_, i) => ca + 1 + i)
+      const out = skipped.length ? x1 + 16 + (skipping.set(ca, (skipping.get(ca) ?? -1) + 1), skipping.get(ca)!) * 8 : 0
       const yc = skipped.length ? clearY(skipped, y1) : y2
-      pts = skipped.length ? [[x1, y1], [(x1 + colLeft[ca + 1]) / 2, y1], [(x1 + colLeft[ca + 1]) / 2, yc], [bx, yc], [bx, y2], [b.x, y2]] : [[x1, y1], [bx, y1], [bx, y2], [b.x, y2]]
+      pts = skipped.length ? [[x1, y1], [out, y1], [out, yc], [bx, yc], [bx, y2], [b.x, y2]] : [[x1, y1], [bx, y1], [bx, y2], [b.x, y2]]
       pts = pts.filter((p, i) => i === 0 || p[0] !== pts[i - 1][0] || p[1] !== pts[i - 1][1])
     }
     hops.push({

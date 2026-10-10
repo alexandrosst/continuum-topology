@@ -11,16 +11,16 @@ import { summarize } from '@/lib/telemetrySummary'
 import type { Agent, Cluster } from '@/lib/types'
 
 /**
- * A hop's line. Quiet while all is well: a thin neutral line whose slow dashes say data is moving. Loud only when something is wrong: amber
- * or red, still and a little thicker, with its age on a pill sitting on the line. Not known is a fine grey dotted line.
+ * A hop's line. Quiet while all is well: a thin, still, neutral line (data moves on it, in slow dashes, only while its chain is hovered or selected).
+ * Loud only when something is wrong: amber or red, still and a little thicker, with its age on a pill sitting on the line. Not known is a fine grey dotted line.
  */
 const HOP_LINE: Record<LaneHop['status'], string> = {
-  healthy: 'flow-dash stroke-nb-600/60',
+  healthy: 'stroke-nb-600/85',
   attention: 'stroke-warn',
   down: 'stroke-bad',
-  unknown: 'stroke-nb-600/60 [stroke-dasharray:1.5_5]',
+  unknown: 'stroke-nb-600/85 [stroke-dasharray:1.5_5]',
 }
-const HOP_TIP: Record<LaneHop['status'], string> = { healthy: 'stroke-nb-600/60', attention: 'stroke-warn', down: 'stroke-bad', unknown: 'stroke-nb-600/60' }
+const HOP_TIP: Record<LaneHop['status'], string> = { healthy: 'stroke-nb-600/85', attention: 'stroke-warn', down: 'stroke-bad', unknown: 'stroke-nb-600/85' }
 const HOP_PILL: Record<LaneHop['status'], string> = { healthy: 'border-nb-800 text-nb-500', attention: 'border-warn/40 text-warn', down: 'border-bad/40 text-bad', unknown: 'border-nb-800 text-nb-500' }
 const LOUD = { healthy: 0, unknown: 0, attention: 1, down: 2 } as const
 
@@ -59,7 +59,7 @@ function Lanes({ layout, facts, selectedId, onSelect }: { layout: LaneLayout; fa
         <svg className="absolute left-0 top-0" width={layout.width} height={layout.height - oy} viewBox={`0 ${oy} ${layout.width} ${layout.height - oy}`} aria-hidden>
           {hops.map((h) => (
             <g key={h.id} data-testid="hop" data-status={h.status} data-flowing={h.flowing} fill="none" strokeLinecap="round" strokeLinejoin="round" className="transition-opacity duration-150 motion-reduce:transition-none">
-              <path d={h.d} strokeWidth={h.status === 'healthy' || h.status === 'unknown' ? 1.25 : 1.75} className={clsx(HOP_LINE[h.status], lit.has(h.id) && (h.status === 'healthy' || h.status === 'unknown') && '!stroke-nb-400')} />
+              <path d={h.d} strokeWidth={h.status === 'healthy' || h.status === 'unknown' ? 1.25 : 1.75} className={clsx(HOP_LINE[h.status], lit.has(h.id) && (h.status === 'healthy' || h.status === 'unknown') && '!stroke-nb-400', lit.has(h.id) && h.status === 'healthy' && 'flow-dash')} />
               <path d={h.tip} strokeWidth={h.status === 'healthy' || h.status === 'unknown' ? 1.25 : 1.75} className={clsx(HOP_TIP[h.status], lit.has(h.id) && (h.status === 'healthy' || h.status === 'unknown') && '!stroke-nb-400')} />
             </g>
           ))}

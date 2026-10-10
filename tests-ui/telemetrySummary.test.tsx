@@ -23,10 +23,10 @@ describe('summarize', () => {
 
   test('a place is a cluster or a shared operator: an agent and its local operator that are both wrong count once, as the worse of the two', () => {
     const s = summarize(model({ 'agent:a': 'down', 'local:a': 'attention', 'regional:eu': 'attention' }))
-    expect(s.places).toEqual([{ id: 'agent:a', alert: 'bad' }, { id: 'regional:eu', alert: 'warn' }])
+    expect(s.places).toEqual([{ id: 'agent:a', alert: 'bad', noun: 'cluster' }, { id: 'regional:eu', alert: 'warn', noun: 'operator' }])
     // As bad as each other: the agent, which is the cause.
-    expect(summarize(model({ 'agent:a': 'attention', 'local:a': 'attention' })).places).toEqual([{ id: 'agent:a', alert: 'warn' }])
-    expect(summarize(model({ 'agent:a': 'attention', 'local:a': 'down' })).places).toEqual([{ id: 'local:a', alert: 'bad' }])
+    expect(summarize(model({ 'agent:a': 'attention', 'local:a': 'attention' })).places).toEqual([{ id: 'agent:a', alert: 'warn', noun: 'cluster' }])
+    expect(summarize(model({ 'agent:a': 'attention', 'local:a': 'down' })).places).toEqual([{ id: 'local:a', alert: 'bad', noun: 'cluster' }])
   })
 
   test('worst first, then in the order the grid shows them; not known is not a problem', () => {

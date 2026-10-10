@@ -30,7 +30,8 @@ import GettingStarted, { useGettingStarted } from '@/components/GettingStarted'
 import Inspector, { type Selection } from '@/components/topology/Inspector'
 import OverflowMenu from '@/components/topology/OverflowMenu'
 import { PodLegend } from '@/components/topology/Pods'
-import { ProblemsPill } from '@/components/topology/ProblemsPill'
+import { CanvasBar } from '@/components/topology/ProblemsPill'
+import { StatusKey } from '@/components/topology/StatusMark'
 import { nextProblem, problemsOf } from '@/lib/problems'
 // Lazily loaded, not a plain top-level import: MapView pulls in d3-geo, topojson-client and the
 // placement-suggestion engine (usePlacementSuggestions) at its own module top level - real weight
@@ -53,7 +54,7 @@ import { Button, EmptyState, ICON_MD, ICON_SM, MenuPanel, Select, SkeletonBlock,
 import { PRESS_CLASS } from '@/components/ui/buttonClass'
 import FilterMenu from '@/components/topology/FilterMenu'
 import { extrasOf, TELEMETRY_SIGNALS } from '@/lib/consent'
-import { DETAIL_KEY, DetailContext, resolveDetail, type Alert } from '@/lib/detail'
+import { DETAIL_KEY, DetailContext, resolveDetail } from '@/lib/detail'
 import { narrowFitZoom } from '@/lib/fit'
 import { applyFilter, encodeList, filterActive, hopNeighborhood, isFreshApplicationView, knownOnly, parseFilter } from '@/lib/filter'
 import { applyGraphUpdate, buildGraph, cardId, groupId, sameLayout, selectedServiceIds, syncPickEligibility, syncSelected, type TopoEdge, type TopoNode } from '@/lib/graph'
@@ -63,7 +64,7 @@ import { anyMesh, VERDICT_COLOR } from '@/lib/mesh'
 import { useAutoPlaceClusters } from '@/lib/usePlacement'
 import { usePlanHints } from '@/lib/placement/usePlacement'
 import { parseSel } from '@/lib/search'
-import { STATUS_COLOR, TIER_COLOR, TIERS, type ClusterLink, type Tier, type GroupBy, type ViewKind } from '@/lib/types'
+import { TIER_COLOR, TIERS, type ClusterLink, type Tier, type GroupBy, type ViewKind } from '@/lib/types'
 import { useServer } from '@/store/server'
 import { useHistoryView } from '@/store/history'
 import { useClusterLinks, usePaths, useTopology } from '@/store/topology'
@@ -135,8 +136,6 @@ function Canvas() {
   const topology = useTopology()
   const { fitView, getInternalNode, getNodes, setViewport } = useReactFlow()
   const store = useStoreApi()
-  // Room kept clear at the top-left for the problems pill, so a graph that starts at the very top does not run under it.
-  const topRoom = useRef(0)
   // Fit the whole graph, but never below FIT_MIN_ZOOM: a graph bigger than the window then starts at its top
   // left (cropping only the far side, which scrolls into view) instead of cropping both ends equally.
   const fit = useCallback((duration: number) => {
@@ -152,13 +151,7 @@ function Canvas() {
     // (the graph's own left edge is a smaller box centred in its row, and starting there cropped the big one on the right).
     const widestBox = zoom === v.zoom ? undefined : getNodes().filter((n) => n.type === 'boundary' && !n.parentId).sort((a, b) => (b.measured?.width ?? 0) - (a.measured?.width ?? 0))[0]
     const x = widestBox ? width * 0.04 - widestBox.position.x * zoom : Math.max(zoom === v.zoom ? v.x : -Infinity, width * 0.04 - bounds.x * zoom)
-    let y = Math.max(zoom === v.zoom ? v.y : -Infinity, height * 0.04 - bounds.y * zoom)
-    // The pill sits at the top left: make room for it only when a box would actually be under it (its top inside the pill's band, its left
-    // inside the pill's width), so a graph that starts lower, or further right, keeps every pixel it has.
-    if (topRoom.current) {
-      const under = getNodes().filter((n) => !n.parentId && n.position.x * zoom + x < PILL_WIDTH && n.position.y * zoom + y < topRoom.current)
-      if (under.length) y += topRoom.current - Math.min(...under.map((n) => n.position.y * zoom + y))
-    }
+    const y = Math.max(zoom === v.zoom ? v.y : -Infinity, height * 0.04 - bounds.y * zoom)
     void setViewport({ x, y, zoom }, { duration })
   }, [store, fitView, getNodes, setViewport])
   const [sp, setSp] = useSearchParams()
@@ -413,26 +406,20 @@ function Canvas() {
   const toggleLegend = () => setLegendOpen((v) => { writeFlag(LEGEND_KEY, !v); return !v })
   const onCanvas = useMemo(() => {
     const tiers = new Set<Tier>()
-    let warn = false
-    let bad = false
     for (const n of graph.nodes) {
-      const d = n.data as { tier?: Tier; alert?: Alert }
+      const d = n.data as { tier?: Tier }
       if (d.tier) tiers.add(d.tier)
-      if (d.alert === 'warn') warn = true
-      if (d.alert === 'bad') bad = true
     }
     const seen = graph.edges.some((e) => e.data?.observed && !e.data?.stale)
     const notSeen = graph.edges.some((e) => !e.data?.clusterLink && !(e.data?.observed && !e.data?.stale))
     const networks = graph.nodes.some((n) => n.type === 'boundary' && n.data.networks)
     const bundles = graph.edges.some((e) => e.data?.role === 'bundle')
     const lossy = graph.edges.some((e) => e.data?.aggregated && e.data?.problem)
-    return { tiers, warn, bad, seen, notSeen, networks, bundles, lossy }
+    return { tiers, seen, notSeen, networks, bundles, lossy }
   }, [graph])
 
-  // What the Calm canvas tints, in the order the pill walks them (Full does not tint, so it has no pill either).
-  const problems = useMemo(() => (calm && isCanvas ? problemsOf(graph.nodes) : []), [calm, isCanvas, graph.nodes])
-
-  useEffect(() => { topRoom.current = problems.length ? 52 : 0 }, [problems.length])
+  // What the canvas says is wrong, in the order the pill walks them: the same in Calm and in Full (Full only draws more of everything else).
+  const problems = useMemo(() => (isCanvas ? problemsOf(graph.nodes) : []), [isCanvas, graph.nodes])
 
   const [nodes, setNodes, onNodesChange] = useNodesState<TopoNode>(graph.nodes)
   const resetLayout = () => {
@@ -1194,6 +1181,8 @@ function Canvas() {
           onClose={() => setSelection(null)}
         />
       ) : (
+      <>
+      {isCanvas && !empty && !nothingMatches && <CanvasBar problems={problems} selectedId={selectedRfId} onGo={goToProblem} onShow={showProblem} />}
       <div className="flex min-h-0 flex-1">
         <div className="relative min-w-0 flex-1" ref={setHost}>
           {!empty && nothingMatches ? (
@@ -1383,14 +1372,12 @@ function Canvas() {
                   onScope={telemetry.start}
                 />
               </NodeToolbar>
-              {problems.length > 0 && (
-                <Panel position="top-left" className="!m-3">
-                  <ProblemsPill problems={problems} selectedId={selectedRfId} onGo={goToProblem} onShow={showProblem} />
-                </Panel>
-              )}
               <Panel position="bottom-left" className={clsx('hidden sm:block', calm ? 'legend-above flex-col items-start sm:!flex' : '!mb-3 !ml-16')}>
                 {(!calm || legendOpen) && (
                 <div id="topology-legend" className="flex max-w-[min(92vw,720px)] flex-wrap items-center gap-x-4 gap-y-1.5 whitespace-nowrap rounded-lg border border-nb-850 bg-nb-925/95 px-3.5 py-2 text-xs text-nb-400">
+                  {/* The one status language, taught here: the same four glyphs and words every box and card carries. */}
+                  <StatusKey />
+                  <span className="h-3 w-px bg-nb-800" />
                   {TIERS.filter((t) => !calm || onCanvas.tiers.has(t.value)).map((t) => {
                     // Calm boxes carry the tier as a glyph, so the legend shows that glyph rather than a dot.
                     const Glyph = TIER_ICON[t.value]
@@ -1519,27 +1506,18 @@ function Canvas() {
                       )}
                     </>
                   )}
-                  {calm && (onCanvas.warn || onCanvas.bad) && (
-                    <>
-                      <span className="h-3 w-px bg-nb-800" />
-                      {onCanvas.warn && (
-                        <span className="flex items-center gap-1.5" title="Not fully healthy: degraded, pods not ready, or under pressure. Its details stay on show.">
-                          <span className="size-2.5 rounded-sm border" style={{ borderColor: STATUS_COLOR.degraded, background: `color-mix(in srgb, ${STATUS_COLOR.degraded} 18%, transparent)` }} />
-                          Needs a look
-                        </span>
-                      )}
-                      {onCanvas.bad && (
-                        <span className="flex items-center gap-1.5" title="Offline, crash-looping or out of room. Its details stay on show.">
-                          <span className="size-2.5 rounded-sm border" style={{ borderColor: STATUS_COLOR.offline, background: `color-mix(in srgb, ${STATUS_COLOR.offline} 18%, transparent)` }} />
-                          Broken
-                        </span>
-                      )}
-                    </>
-                  )}
                   {!calm && graph.nodes.some((n) => n.type === 'card' && n.data.pods) && (
                     <>
                       <span className="h-3 w-px bg-nb-800" />
                       <PodLegend />
+                    </>
+                  )}
+                  {problems.length > 1 && (
+                    <>
+                      <span className="h-3 w-px bg-nb-800" />
+                      <span className="flex items-center gap-1.5" title="Walk the problems, worst first: N for the next, Shift N for the previous">
+                        <kbd className="rounded border border-nb-800 px-1 text-[10.5px] leading-4 text-nb-400">N</kbd> Next problem
+                      </span>
                     </>
                   )}
                   {!calm && localOperatorByCluster.size > 0 && (
@@ -1571,6 +1549,7 @@ function Canvas() {
 
         <Inspector selection={selection} onSelect={select} onEdit={editSelection} onClose={() => setSelection(null)} localOperators={localOperatorByCluster} onConfigureTelemetry={telemetry.start} />
       </div>
+      </>
       )}
 
       {form?.type === 'cluster' && <ClusterForm initial={clusters.find((c) => c.id === form.id) ?? null} onClose={closeForm} />}
@@ -1600,8 +1579,6 @@ const FIT_PADDING = { top: '4%', left: '4%', right: '4%', bottom: '72px' } as co
 // Fitting a big graph into the window never zooms out past 0.5: below that even the far presentation's names
 // are too small to read. A graph that does not fit then runs past the window; pan or zoom out to see it all.
 const FIT_MIN_ZOOM = 0.5
-/** How far from the left the problems pill reaches (px), for keeping a fitted graph from sitting under it. */
-const PILL_WIDTH = 270
 const FIT_VIEW_OPTIONS = { padding: FIT_PADDING, minZoom: FIT_MIN_ZOOM }
 const PRO_OPTIONS = { hideAttribution: true }
 // Whether the canvas has already animated its initial fitView once this session - see the effect above.

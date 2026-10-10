@@ -1,7 +1,22 @@
 import type { TopoNode } from './graph'
 import type { Alert } from './detail'
 
-export type Problem = { id: string; alert: Alert }
+/** `noun` is what the place is called ("service", "node", "cluster"): the pill counts them by it. */
+export type Problem = { id: string; alert: Alert; noun?: string }
+
+const CARD_NOUN = { service: 'service', machine: 'node', device: 'device', external: 'endpoint' } as const
+
+/** What a counted place is: a service, a node, a cluster (or tier, or site), by what the canvas draws it as. */
+const nounOf = (n: TopoNode): string | undefined => {
+  const d = n.data as { kind?: string; extra?: string; groupBy?: string }
+  return d.kind === 'group' ? (d.extra === 'devices' ? 'site' : d.extra ? 'endpoint' : d.groupBy === 'tier' ? 'tier' : 'cluster') : CARD_NOUN[d.kind as keyof typeof CARD_NOUN]
+}
+
+/** The one word for what a list of problems counts: the noun they share, else "place". "3 services need attention", "1 cluster needs attention", "3 places". */
+export const unitOf = (problems: Pick<Problem, 'noun'>[]): string => {
+  const nouns = new Set(problems.map((p) => p.noun))
+  return nouns.size === 1 && problems[0]?.noun ? problems[0].noun : 'place'
+}
 
 /**
  * The places the Calm canvas tints because something is wrong with them, counted once each and the same way in every layer: the innermost node
@@ -28,10 +43,10 @@ export function problemsOf(nodes: TopoNode[]): Problem[] {
     .flatMap((n) => {
       const alert = alertOf(n)
       const framing = inside.has(n.id) && !(alert === 'bad' && inside.get(n.id) !== 'bad')
-      return alert && !framing ? [{ id: n.id, alert, ...at(n) }] : []
+      return alert && !framing ? [{ id: n.id, alert, noun: nounOf(n), ...at(n) }] : []
     })
     .sort((a, b) => Number(b.alert === 'bad') - Number(a.alert === 'bad') || a.y - b.y || a.x - b.x || a.id.localeCompare(b.id))
-    .map(({ id, alert }) => ({ id, alert }))
+    .map(({ id, alert, noun }) => ({ id, alert, noun }))
 }
 
 /** The problem after (or, going back, before) the one selected, wrapping around; the first (or last) when none of them is selected. */

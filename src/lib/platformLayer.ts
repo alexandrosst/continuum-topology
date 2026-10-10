@@ -87,6 +87,20 @@ const MODALITIES: Modality[] = ['metrics', 'logs', 'traces']
 const MODALITY_OF = new Map(TELEMETRY_SIGNALS.map((x) => [x.id, x.modality]))
 export const MODALITY_WORD: Record<Modality, string> = { metrics: 'Metrics', logs: 'Logs', traces: 'Traces' }
 
+const words = (xs: string[]) => (xs.length > 1 ? `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}` : xs[0] ?? '')
+
+/** The signal types a part carries: what a local operator collects, what FUSION keeps (it keeps all three, whether or not any has arrived). */
+export function signalsOf(e: PlatformEntity): Modality[] | undefined {
+  return e.kind === 'fusion' ? (e.off ? undefined : ['metrics', 'logs', 'traces']) : e.kind === 'local' && e.collecting?.length ? e.collecting : undefined
+}
+
+/** What a part carries and where it sends, as sentences: the facts its box shows as glyphs or leaves to the lines, said in words. */
+export function platformFacts(e: PlatformEntity): string {
+  const sig = signalsOf(e)
+  const to = [...e.sendsTo.map((t) => t.name), ...(e.elsewhere ? [e.elsewhere] : [])]
+  return [sig ? `${e.kind === 'fusion' ? 'Keeps' : 'Collects'} ${words(sig.map((m) => MODALITY_WORD[m].toLowerCase()))}.` : '', to.length ? `Sends to ${words(to)}.` : ''].filter(Boolean).join(' ')
+}
+
 /** "2 s", "14 min", "3 h", "2 d". */
 export function shortAge(iso: string | undefined, now: number): string | undefined {
   if (!iso) return undefined

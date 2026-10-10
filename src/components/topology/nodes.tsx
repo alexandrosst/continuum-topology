@@ -29,6 +29,7 @@ import { ICON_MD, ICON_SM, TIER_ICON } from '@/components/ui/primitives'
 import { createElement, memo, useCallback, useContext, useEffect, useState, type ComponentProps, type ReactNode } from 'react'
 import { PodPopover, PodRail } from '@/components/topology/Pods'
 import { NodeFace } from '@/components/topology/NodeFace'
+import { StatusMark } from '@/components/topology/StatusMark'
 import { LoadRow } from '@/components/topology/Load'
 import { peakLoad } from '@/lib/metrics'
 import { DistroIcon, Flag } from '@/components/ui/brand'
@@ -36,7 +37,7 @@ import { hostName, middleTruncate } from '@/lib/present'
 import { SIDES, type CardData, type CardNode, type GroupData, type GroupNode, type NamespaceNode } from '@/lib/graph'
 import { DetailContext, shownStatus, type Alert } from '@/lib/detail'
 import { activeId, useCanvasFocus } from '@/store/canvasFocus'
-import { STATUS_COLOR, TIER_COLOR, type DeviceKind, type ServiceKind } from '@/lib/types'
+import { TIER_COLOR, type DeviceKind, type ServiceKind } from '@/lib/types'
 
 export const DEVICE_ICON: Record<DeviceKind, LucideIcon> = {
   sensor: Gauge,
@@ -78,8 +79,8 @@ export function ZoomVar() {
   return null
 }
 
-/** The state colours of a problem card or cluster: the same two the status dot and the rest of the app use. */
-const ALERT_COLOR: Record<Alert, string> = { warn: STATUS_COLOR.degraded, bad: STATUS_COLOR.offline }
+/** The state colours of a problem card or cluster: the theme's own warn and bad steps, so a problem is the same hue in every layer and holds 3:1 as a border on a light surface. */
+const ALERT_COLOR: Record<Alert, string> = { warn: 'var(--color-warn)', bad: 'var(--color-bad)' }
 /** What a problem's words are drawn in: the theme's own text steps (amber and red that hold 4.5:1 on a light surface as well as a dark one), not the
  *  vivid fills the tint, the border and the dot use. */
 const ALERT_TEXT: Record<Alert, string> = { warn: 'text-warn', bad: 'text-bad' }
@@ -179,7 +180,7 @@ function FullGroupBox({ data, selected }: NodeProps<GroupNode>) {
       <div className="flex items-start justify-between gap-3 px-5 pt-4">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <span className="size-2 shrink-0 rounded-full" style={{ background: STATUS_COLOR[data.status] }} />
+            <StatusMark state={shownStatus(data.status, data.alert).state} />
             {data.distribution && <DistroIcon distribution={data.distribution} size={ICON_SM} />}
             <span className={clsx('truncate font-medium text-nb-300', far ? 'text-[26px] leading-8' : 'text-sm')} title={data.title}>{data.title}</span>
             {far && peak !== undefined && peak >= 70 && (
@@ -395,7 +396,7 @@ export const NamespaceBox = memo(function NamespaceBox({ data }: NodeProps<Names
     <div className="h-full w-full rounded-lg border border-dashed border-nb-800 bg-black/10">
       <AllHandles />
       <div className="flex items-center gap-1.5 px-3 pt-2">
-        <span className="size-1.5 shrink-0 rounded-full" style={{ background: STATUS_COLOR[data.status] }} />
+        <StatusMark state={shownStatus(data.status).state} />
         <span className="truncate text-[11px] font-medium uppercase tracking-wide text-nb-500">{data.namespace}</span>
         {!calm && <span className="ml-auto shrink-0 text-[10.5px] normal-case tracking-normal text-nb-600">{data.count}</span>}
       </div>
@@ -538,7 +539,7 @@ function FullCard({ data, selected }: NodeProps<CardNode>) {
           {!far && isMachine && <div className="truncate text-[11px] text-nb-500" title={data.meta}>{data.meta}</div>}
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1.5">
-          <span className={clsx('rounded-full', far ? 'size-3' : 'size-2')} style={{ background: STATUS_COLOR[data.status] }} title={data.status} />
+          <StatusMark state={shownStatus(data.status, data.alert).state} far={far} />
           {!far && !isMachine && <span className="text-[11px] text-nb-500">{data.meta}</span>}
           {far && (data.hint || data.notReady) && <span className={clsx('size-2.5 rounded-sm', data.notReady ? 'bg-warn' : 'bg-accent')} title={data.notReady ?? `Better in ${data.hint}`} />}
         </div>

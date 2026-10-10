@@ -171,4 +171,22 @@ describe('labels', () => {
     expect(nodeLabel(part('local:a', 'local', { name: 'Local operator', clusterName: 'apple', status: 'attention', sentence: 'Quiet: no data for 14 min.' }))).toBe('Local operator, apple: Needs attention. Quiet: no data for 14 min.')
     expect(nodeLabel(part('fusion', 'fusion', { name: 'FUSION', status: 'unknown', off: true }))).toBe('FUSION: Not turned on')
   })
+
+  test('a part says what it collects or keeps and where it sends in its name, not only in glyphs', () => {
+    const local = part('local:a', 'local', { name: 'Local operator', clusterName: 'apple', sentence: 'Sending, last data just now.', collecting: ['metrics', 'logs', 'traces'], sendsTo: [{ id: 'regional:eu', name: 'eu-west' }] })
+    expect(nodeLabel(local)).toBe('Local operator, apple: Healthy. Sending, last data just now. Collects metrics, logs and traces. Sends to eu-west.')
+    expect(nodeLabel(part('fusion', 'fusion', { name: 'FUSION', sentence: 'Running.' }))).toBe('FUSION: Healthy. Running. Keeps metrics, logs and traces.')
+  })
+
+  test('every line into a receiver has its own track and its own place on its edge, so no two share a line or an arrowhead', () => {
+    const l = layoutLanes(model())
+    const into = l.hops.filter((h) => h.to === 'regional:eu')
+    expect(into).toHaveLength(2)
+    const tipY = (h: (typeof into)[number]) => Number(h.tip.match(/L[\d.]+ ([\d.]+)/)![1])
+    expect(new Set(into.map(tipY)).size).toBe(2)
+    const trunk = (h: (typeof into)[number]) => Number(h.d.match(/L(\d+(?:\.\d+)?) /)?.[1])
+    expect(new Set(into.map(trunk)).size).toBe(2)
+    // The sender on the receiver's own row (banana: eu stands on its row) arrives straight in the middle.
+    expect(tipY(l.hops.find((h) => h.id === 'local:b>regional:eu')!)).toBe(centre(l, 'regional:eu'))
+  })
 })
