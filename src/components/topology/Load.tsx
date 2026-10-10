@@ -31,9 +31,3 @@ export function LoadRow({ load, className }: { load: ClusterLoad; className?: st
     </div>
   )
 }
-
-/** The highest utilisation a cluster reports, for a warning marker; undefined when it reports none. */
-export const peakLoad = (l: ClusterLoad): number | undefined => {
-  const xs = [l.cpuPct, l.memPct, l.podPct].filter((x): x is number => x !== undefined)
-  return xs.length ? Math.max(...xs) : undefined
-}

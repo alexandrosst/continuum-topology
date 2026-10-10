@@ -16,6 +16,8 @@ const OPTIONS: Record<string, string> = {
   mesh: '0',
   namespaces: '0',
   chain: '0',
+  detail: 'calm',
+  minimap: '',
   clusters: '',
   apps: '',
   kinds: '',
@@ -50,6 +52,8 @@ export function describeView(params: string): string {
     if (sp.get('mesh') === '1') bits.push('service mesh')
     if (sp.get('namespaces') === '1') bits.push('namespace sub-boxes')
     if (sp.get('chain') === '1') bits.push('chain layout')
+    if (sp.get('detail') === 'full') bits.push('full detail')
+    if (sp.get('minimap') === '1') bits.push('minimap')
   }
   const n = (k: string) => (sp.get(k) ? sp.get(k)!.split(',').filter(Boolean).length : 0)
   if (n('clusters')) bits.push(`${n('clusters')} cluster${n('clusters') === 1 ? '' : 's'} only`)

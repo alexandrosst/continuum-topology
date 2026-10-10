@@ -159,6 +159,12 @@ body {
    more expensive (layout, not just compositing) and reads as the box "breathing" rather than moving. */
 .react-flow__node:not(.dragging) { transition: transform 220ms ease-out; }
 
+/* Calm detail: what a card reveals on hover or focus is drawn over the gap below it, so the card being read comes
+   first. React Flow sets each node's z-index inline, hence !important. Cards only: lifting a cluster box would put it
+   over its own cards. The reveal fades in over 120 ms; the reduced-motion rule further down turns that into a cut. */
+.react-flow__node-card:hover, .react-flow__node-card:focus-within { z-index: 1000 !important; }
+@keyframes quiet-in { from { opacity: 0; } }
+
 /* "Pick from canvas" mode (TopologyPage's pickMode toggle, className="topology-pick-mode" on <ReactFlow>):
    every entity dims and every edge fades, and whatever the pointer is over reads back at full strength - the
    browser's own :hover does the highlighting, no per-node hover state needed in React. A quick, direct

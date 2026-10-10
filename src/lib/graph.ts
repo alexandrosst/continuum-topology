@@ -11,7 +11,8 @@ import { MarkerType, Position, type Edge, type Node } from '@xyflow/react'
 import { deepEqual } from './discovered'
 import { isObserved } from './observed'
 import { clusterMeshLine, connectionVerdict, inMesh, meshName, proxyWords, type MeshVerdict } from './mesh'
-import { clusterLoad, pathQuality, type ClusterLoad, type PathQuality } from './metrics'
+import { clusterLoad, nodeLoad, pathQuality, peakLoad, type ClusterLoad, type NodeLoad, type PathQuality } from './metrics'
+import { alertOfLoad, alertOfPods, alertOfStatus, worstAlert, type Alert, type Detail } from './detail'
 import {
   DEVICE_KINDS,
   TIER_ORDER,
@@ -55,6 +56,9 @@ export type GroupData = {
   empty: string
   /** How loaded a cluster is, from what its nodes report. Only cluster groups have it. */
   load?: ClusterLoad
+  /** Set when the box is not fine (its own or a card's status, a resource under pressure, a node or service down):
+   *  the Calm presentation then keeps the header's extra line up instead of waiting for a hover. */
+  alert?: Alert
   /** Service mesh overlay: what mesh the cluster runs, e.g. "Istio 1.22 · sidecar · mTLS permissive". */
   mesh?: { label: string; tone: 'good' | 'warn' | 'bad'; title: string }
   /** Set on a real cluster box (groupBy 'cluster' only) when one of its approved agents has at least one
@@ -101,6 +105,11 @@ export type CardData = {
    *  MachineNode.networkInterfaces' speedMbps, not any one interface in particular - which one is fastest
    *  is a detail the Inspector's own per-interface list already covers). */
   hardware?: { hasBattery?: boolean; nicMbps?: number }
+  /** Set when the card is not fine (status, pods not ready, a machine under pressure): Calm draws it in full and in the
+   *  state colour, and the layout gives it its whole height; a card without one is as small as its name. */
+  alert?: Alert
+  /** Machine cards only: how much of the machine's CPU, memory and pod slots is already promised. */
+  load?: NodeLoad
   /** `service` cards only: the pod rail, the "27/30 ready" summary and the popover's rows (see lib/pods.ts).
    *  Absent when no per-pod facts were collected (older agent tier, or no pods up): the card then keeps just
    *  the replica count and, if some are not ready, the "x/y ready" chip. */
@@ -222,6 +231,8 @@ export type EdgeData = {
 export type TopoEdge = Edge<EdgeData>
 
 export interface GraphOptions {
+  /** 'calm' (the default) sizes a card that is fine to its name alone; 'full' gives every card the room for everything. */
+  detail?: Detail
   view: ViewKind
   groupBy: GroupBy
   servicesOnNodes: boolean
@@ -293,6 +304,22 @@ const ROW_GAP = 150
 // arbitrary name, which is exactly why the native `title=` tooltip (added in an earlier pass) exists as the
 // fallback rather than chasing zero truncation by growing every card to accommodate the longest outlier.
 export const APP_CARD = { w: 300, h: 68 }
+/** Calm: what a card that is fine needs - its icon, name and status dot. Everything else is drawn over the gap below it, on hover. */
+export const CALM_CARD_H = 52
+// A card with a problem keeps the rest in view, so its box is the calm header plus the parts it shows, measured in
+// the browser at normal zoom (the revealed block in nodes.tsx: 10px of padding, 6px between parts).
+const CALM_BLOCK = 10
+const CALM_GAP = 6
+export const CALM_LINE = 16
+const CALM_BADGES = 18
+const CALM_RAIL = 17
+// CPU, Mem and Pods do not fit one line of a machine card, so the bars take two.
+const CALM_LOAD = 35
+/** The height of a calm card that shows `parts` (each a height in px, falsy ones skipped) under its header. */
+export const calmPinnedH = (...parts: (number | false | undefined)[]): number => {
+  const shown = parts.filter((p): p is number => !!p)
+  return CALM_CARD_H + CALM_BLOCK + shown.reduce((sum, p) => sum + p, 0) + CALM_GAP * Math.max(0, shown.length - 1)
+}
 // Exported so a test can assert a card's own height reserves room for whichever extra badge row(s) its data ends up rendering.
 export const MACHINE_CARD = { w: 288, h: 84 }
 const CHIP_ROW = 22
@@ -420,6 +447,7 @@ const worstStatus = (ss: Status[]): Status => {
 export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNode[]; edges: TopoEdge[] } {
   // Machinery traffic (DNS, kube-system) would bury the applications' own edges; it is opt-in.
   const t: Topology = o.noise ? topology : { ...topology, dependencies: topology.dependencies.filter((d) => !d.noise) }
+  const calm = o.detail === 'calm'
   if (o.view === 'application' && o.chain) return buildChainGraph(t, o)
   const clusterById = new Map(t.clusters.map((c) => [c.id, c]))
   const serviceById = new Map(t.services.map((w) => [w.id, w]))
@@ -476,7 +504,7 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
       // The mesh's own workloads (istiod, ztunnel, gateways) are machinery: shown only with the mesh overlay.
       if (w.mesh?.controlPlane && !o.mesh) continue
       const g = ensureGroup(c)
-      g.items.push(serviceItem(w, c, o.groupBy === 'tier', o.hints?.get(w.id), o.mesh, nodeById, serviceById))
+      g.items.push(serviceItem(w, c, o.groupBy === 'tier', o.hints?.get(w.id), o.mesh, nodeById, serviceById, calm))
       groupOfEntity.set(w.id, g.key)
     }
 
@@ -502,7 +530,7 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
             items: [],
           })
         }
-        groups.get(key)!.items.push(deviceItem(dv, s, !perSite))
+        groups.get(key)!.items.push(deviceItem(dv, s, !perSite, calm))
         groupOfEntity.set(dv.id, key)
       }
 
@@ -513,7 +541,7 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
         const key = 'ext:all'
         groups.set(key, { key, row: EXTERNAL_ROW, tier: 'cloud', extra: { kind: 'external', entityId: 'all', title: 'External', subtitle: 'Outside every onboarded cluster' }, items: [] })
         for (const e of ext) {
-          groups.get(key)!.items.push(externalItem(e))
+          groups.get(key)!.items.push(externalItem(e, calm))
           groupOfEntity.set(e.id, key)
         }
       }
@@ -524,7 +552,7 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
       const c = clusterById.get(n.clusterId)
       if (!c) continue
       const chips = o.servicesOnNodes ? (servicesByNodeId.get(n.id) ?? []) : undefined
-      ensureGroup(c).items.push(machineItem(n, c, chips, o.groupBy === 'tier'))
+      ensureGroup(c).items.push(machineItem(n, c, chips, o.groupBy === 'tier', calm))
     }
   }
 
@@ -567,6 +595,7 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
       const ex = g.extra
       const units = g.items.reduce((s, i) => s + (i.data.units ?? 1), 0)
       const siteCount = new Set(g.items.map((i) => i.data.clusterName).filter(Boolean)).size
+      const groupLoad = cl ? clusterLoad(cl, nodesByCluster.get(cl.id) ?? [], shownServices(cl.id, g.items, o.view, servicesByCluster)) : undefined
       nodes.push({
         id: gid,
         type: 'boundary',
@@ -589,7 +618,12 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
           country: ex ? ex.country : cl ? siteById.get(cl.siteId ?? '')?.country : undefined,
           tier: g.tier,
           status: groupStatus,
-          load: cl ? clusterLoad(cl, nodesByCluster.get(cl.id) ?? [], shownServices(cl.id, g.items, o.view, servicesByCluster)) : undefined,
+          load: groupLoad,
+          alert: worstAlert(
+            alertOfStatus(groupStatus),
+            alertOfLoad(groupLoad && peakLoad(groupLoad)),
+            groupLoad && (groupLoad.ready < groupLoad.nodes || groupLoad.unready > 0) ? 'warn' : undefined,
+          ),
           mesh: o.mesh && o.view === 'application' && cl?.mesh ? groupMesh(cl.mesh) : undefined,
           localTelemetry: cl && o.groupBy === 'cluster' ? o.localOperators?.get(cl.id) : undefined,
           networking: cl && o.groupBy === 'cluster' && (cl.cni || cl.ingress) ? { cni: cl.cni, ingress: cl.ingress } : undefined,
@@ -1008,6 +1042,7 @@ function layoutChain(
 /** The Application view's alternate layout: every service (across every cluster) placed in one flat
  * left-to-right dependency chain instead of nested inside cluster/tier boxes. See `chain` on GraphOptions. */
 function buildChainGraph(t: Topology, o: GraphOptions): { nodes: TopoNode[]; edges: TopoEdge[] } {
+  const calm = o.detail === 'calm'
   const clusterById = new Map(t.clusters.map((c) => [c.id, c]))
   const siteById = new Map(t.sites.map((s) => [s.id, s]))
   const serviceById = new Map(t.services.map((w) => [w.id, w]))
@@ -1041,11 +1076,11 @@ function buildChainGraph(t: Topology, o: GraphOptions): { nodes: TopoNode[]; edg
   const items: Item[] = [
     ...services.map((w) => {
       const c = clusterById.get(w.clusterId)!
-      const item = serviceItem(w, c, true, o.hints?.get(w.id), o.mesh, nodeById, serviceById)
+      const item = serviceItem(w, c, true, o.hints?.get(w.id), o.mesh, nodeById, serviceById, calm)
       return (names.get(w.name) ?? 0) > 1 ? { ...item, data: { ...item.data, clusterTag: c.name } } : item
     }),
-    ...deviceLeaves.map((dv) => deviceItem(dv, dv.siteId ? siteById.get(dv.siteId) : undefined, true)),
-    ...externalLeaves.map((e) => externalItem(e)),
+    ...deviceLeaves.map((dv) => deviceItem(dv, dv.siteId ? siteById.get(dv.siteId) : undefined, true, calm)),
+    ...externalLeaves.map((e) => externalItem(e, calm)),
   ]
   const ids = [...serviceIds, ...leafIds]
   const itemById = new Map(ids.map((id, i) => [id, items[i]]))
@@ -1098,7 +1133,7 @@ function tierLabel(t: Tier) {
   return t === 'far-edge' ? 'Far edge' : t[0].toUpperCase() + t.slice(1)
 }
 
-function serviceItem(w: Service, c: Cluster, withCluster: boolean, hint: string | undefined, mesh: boolean | undefined, nodeById: Map<string, MachineNode>, serviceById: Map<string, Service>): Item {
+function serviceItem(w: Service, c: Cluster, withCluster: boolean, hint: string | undefined, mesh: boolean | undefined, nodeById: Map<string, MachineNode>, serviceById: Map<string, Service>, calm: boolean): Item {
   const pods = buildPodsView(w.pods, w.name, nodeById, serviceById)
   // With per-pod facts the pod summary says it ("27/30 ready"), so the chip is only for a service without them.
   const notReady = !pods && w.readyReplicas !== undefined && w.readyReplicas < w.replicas
@@ -1107,10 +1142,11 @@ function serviceItem(w: Service, c: Cluster, withCluster: boolean, hint: string 
   const badgeRow = !!(hint || notReady || (mesh && w.mesh))
   const podsRow = !!pods
   const extraRows = (badgeRow ? 1 : 0) + (podsRow ? 1 : 0)
+  const alert = worstAlert(alertOfStatus(w.status), alertOfPods(pods), notReady ? 'warn' : undefined)
   return {
     id: cardId(w.id),
     w: APP_CARD.w,
-    h: APP_CARD.h + (extraRows === 2 ? 46 : extraRows === 1 ? 24 : 0),
+    h: calm ? (alert ? calmPinnedH(CALM_LINE, badgeRow && CALM_BADGES, podsRow && CALM_RAIL) : CALM_CARD_H) : APP_CARD.h + (extraRows === 2 ? 46 : extraRows === 1 ? 24 : 0),
     namespace: w.namespace,
     data: {
       kind: 'service',
@@ -1119,6 +1155,7 @@ function serviceItem(w: Service, c: Cluster, withCluster: boolean, hint: string 
       subtitle: [withCluster ? c.name : '', w.namespace, w.kind].filter(Boolean).join(' · '),
       meta: `×${w.replicas}`,
       status: w.status,
+      alert,
       tier: c.tier,
       clusterName: c.name,
       serviceKind: w.kind,
@@ -1145,11 +1182,12 @@ function meshChip(w: Service): NonNullable<CardData['mesh']> {
 
 const DEVICE_LABEL = Object.fromEntries(DEVICE_KINDS.map((k) => [k.value, k.label])) as Record<DeviceKind, string>
 
-function deviceItem(dv: Device, s: Site | undefined, withSite: boolean): Item {
+function deviceItem(dv: Device, s: Site | undefined, withSite: boolean, calm: boolean): Item {
+  const alert = alertOfStatus(dv.status)
   return {
     id: cardId(dv.id),
     w: APP_CARD.w,
-    h: APP_CARD.h,
+    h: calm ? (alert ? calmPinnedH(CALM_LINE) : CALM_CARD_H) : APP_CARD.h,
     data: {
       kind: 'device',
       entityId: dv.id,
@@ -1157,6 +1195,7 @@ function deviceItem(dv: Device, s: Site | undefined, withSite: boolean): Item {
       subtitle: [withSite ? s?.name : '', DEVICE_LABEL[dv.kind], dv.protocol].filter(Boolean).join(' · '),
       meta: dv.count > 1 ? `×${dv.count}` : '',
       status: dv.status,
+      alert,
       tier: 'far-edge',
       clusterName: s?.name ?? '',
       deviceKind: dv.kind,
@@ -1165,11 +1204,11 @@ function deviceItem(dv: Device, s: Site | undefined, withSite: boolean): Item {
   }
 }
 
-function externalItem(e: ExternalEndpoint): Item {
+function externalItem(e: ExternalEndpoint, calm: boolean): Item {
   return {
     id: cardId(e.id),
     w: APP_CARD.w,
-    h: APP_CARD.h,
+    h: calm ? CALM_CARD_H : APP_CARD.h,
     data: {
       kind: 'external',
       entityId: e.id,
@@ -1183,7 +1222,9 @@ function externalItem(e: ExternalEndpoint): Item {
   }
 }
 
-function machineItem(n: MachineNode, c: Cluster, chips: { id: string; name: string }[] | undefined, withCluster: boolean): Item {
+function machineItem(n: MachineNode, c: Cluster, chips: { id: string; name: string }[] | undefined, withCluster: boolean, calm: boolean): Item {
+  const load = nodeLoad(n)
+  const alert = worstAlert(alertOfStatus(n.status), alertOfLoad(load && peakLoad(load)))
   const chipRows = chips && chips.length ? Math.ceil(chips.length / 2) : 0
   const nicMbps = n.networkInterfaces?.reduce((max, i) => (i.speedMbps !== undefined && i.speedMbps > max ? i.speedMbps : max), 0)
   const hardware = n.hasBattery || nicMbps ? { hasBattery: n.hasBattery, nicMbps: nicMbps || undefined } : undefined
@@ -1195,7 +1236,12 @@ function machineItem(n: MachineNode, c: Cluster, chips: { id: string; name: stri
     // notReady/mesh badges. This was missing here, so a machine with a fast-NIC or battery badge got no
     // headroom for it at all and the pill sat flush against (visually indistinguishable from spilling past)
     // the card's own bottom border.
-    h: MACHINE_CARD.h + (hardware ? 24 : 0) + (chips ? (chipRows ? chipRows * CHIP_ROW + 14 : 26) : 0),
+    // Services-on-nodes is a choice to see them, so a card that lists them keeps the room for the list.
+    h: calm
+      ? alert || chips
+        ? calmPinnedH(2 * CALM_LINE, load && CALM_LOAD, hardware && CALM_BADGES, chips && (chipRows ? chipRows * (CALM_BADGES + CALM_GAP) + 5 : 25))
+        : CALM_CARD_H
+      : MACHINE_CARD.h + (hardware ? 24 : 0) + (chips ? (chipRows ? chipRows * CHIP_ROW + 14 : 26) : 0),
     data: {
       kind: 'machine',
       entityId: n.id,
@@ -1203,6 +1249,8 @@ function machineItem(n: MachineNode, c: Cluster, chips: { id: string; name: stri
       subtitle: [withCluster ? c.name : '', n.role === 'control-plane' ? 'Control plane' : 'Worker', n.ip].filter(Boolean).join(' · '),
       meta: `${n.cpu} vCPU · ${n.memoryGb} GB`,
       status: n.status,
+      alert,
+      load,
       tier: c.tier,
       clusterName: c.name,
       machineKind: n.kind,

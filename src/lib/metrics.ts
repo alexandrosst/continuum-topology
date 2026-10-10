@@ -18,8 +18,28 @@ export interface ClusterLoad {
   unready: number
 }
 
+/** The same three shares for one machine: what its pods request of what it can give, and how many of its pod slots are used. */
+export type NodeLoad = Pick<ClusterLoad, 'cpuPct' | 'memPct' | 'podPct'>
+
 const live = <T extends { deletedAt?: string }>(xs: T[]) => xs.filter((x) => !x.deletedAt)
 const pct = (used: number, of: number) => (of > 0 ? Math.min(100, Math.round((used / of) * 100)) : undefined)
+
+/** The highest utilisation a cluster reports, for a warning marker; undefined when it reports none. */
+export const peakLoad = (l: NodeLoad): number | undefined => {
+  const xs = [l.cpuPct, l.memPct, l.podPct].filter((x): x is number => x !== undefined)
+  return xs.length ? Math.max(...xs) : undefined
+}
+
+export function nodeLoad(n: Pick<MachineNode, 'allocatable' | 'requested' | 'podCount' | 'podCapacity'>): NodeLoad | undefined {
+  const a = n.allocatable
+  const r = n.requested
+  const load: NodeLoad = {
+    cpuPct: a && r ? pct(r.cpu, a.cpu) : undefined,
+    memPct: a && r ? pct(r.memoryGb, a.memoryGb) : undefined,
+    podPct: n.podCount !== undefined && n.podCapacity ? pct(n.podCount, n.podCapacity) : undefined,
+  }
+  return load.cpuPct === undefined && load.memPct === undefined && load.podPct === undefined ? undefined : load
+}
 
 export function clusterLoad(cluster: Pick<Cluster, 'id'>, nodes: MachineNode[], services: Service[]): ClusterLoad {
   const ns = live(nodes).filter((n) => n.clusterId === cluster.id)

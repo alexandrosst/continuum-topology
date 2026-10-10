@@ -25,12 +25,14 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { ICON_MD, ICON_SM, TIER_ICON } from '@/components/ui/primitives'
-import { memo, useCallback, useState, type ComponentProps, type ReactNode } from 'react'
+import { createElement, memo, useCallback, useContext, useState, type ComponentProps, type ReactNode } from 'react'
 import { PodPopover, PodRail } from '@/components/topology/Pods'
-import { LoadRow, peakLoad } from '@/components/topology/Load'
+import { LoadRow, MiniBar } from '@/components/topology/Load'
+import { peakLoad } from '@/lib/metrics'
 import { DistroIcon, Flag } from '@/components/ui/brand'
 import { middleTruncate } from '@/lib/present'
-import { SIDES, type CardNode, type GroupNode, type NamespaceNode } from '@/lib/graph'
+import { SIDES, type CardData, type CardNode, type GroupNode, type NamespaceNode } from '@/lib/graph'
+import { DetailContext, type Alert } from '@/lib/detail'
 import { STATUS_COLOR, TIER_COLOR, type DeviceKind, type ServiceKind } from '@/lib/types'
 
 export const DEVICE_ICON: Record<DeviceKind, LucideIcon> = {
@@ -259,22 +261,80 @@ export const WORKLOAD_ICON: Record<ServiceKind, LucideIcon> = {
   Job: Clock,
 }
 
-export const Card = memo(function Card({ data, selected }: NodeProps<CardNode>) {
+/** The icon a card wears: what kind of thing it is. */
+function iconOf(data: CardData): LucideIcon {
+  return data.kind === 'device'
+    ? DEVICE_ICON[data.deviceKind ?? 'other']
+    : data.kind === 'external'
+      ? Globe
+      : data.kind === 'machine'
+        ? MACHINE_ICON[data.machineKind ?? 'vm']
+        : data.serviceKind
+          ? WORKLOAD_ICON[data.serviceKind]
+          : Box
+}
+
+/** The small chips under a card's name: mesh state, replicas not ready, placement advice, hardware facts. */
+function BadgeRow({ data }: { data: CardData }) {
+  if (!(data.hint || data.notReady || data.mesh || data.hardware)) return null
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 text-[10.5px]">
+      {data.mesh && (
+        <Badge tone={MESH_TONE[data.mesh.tone]} title={data.mesh.title} data-testid="mesh-chip" className="max-w-full">
+          {data.mesh.label}
+        </Badge>
+      )}
+      {data.notReady && <Badge tone="bg-warn/10 text-warn" title="Fewer replicas are ready than wanted">{data.notReady}</Badge>}
+      {data.hint && (
+        <Badge tone="bg-accent-soft text-accent" icon={ArrowUpRight} title={`The placement advice would move this to ${data.hint}. Open it for the evidence.`} data-testid="placement-hint" className="max-w-full">
+          better in {data.hint}
+        </Badge>
+      )}
+      {data.hardware?.hasBattery && (
+        <Badge tone={NEUTRAL_TONE} icon={BatteryCharging} title="Node probe: this machine can run without mains power (has a battery)" data-testid="battery-badge">
+          Battery
+        </Badge>
+      )}
+      {data.hardware?.nicMbps !== undefined && (
+        <Badge tone={NEUTRAL_TONE} icon={Cable} title={`Node probe: fastest physical network interface seen on this machine is ${nicSpeedLabel(data.hardware.nicMbps)}`} data-testid="nic-badge">
+          {nicSpeedLabel(data.hardware.nicMbps)}
+        </Badge>
+      )}
+    </div>
+  )
+}
+
+/** The services a machine runs (the Infrastructure view's "Services on nodes"), capped at CHIP_LIMIT. */
+function ChipRow({ chips }: { chips: NonNullable<CardData['chips']> }) {
+  return (
+    <div className="flex flex-wrap gap-1.5 border-t border-nb-850 pt-2">
+      {chips.length === 0 && <span className="text-[11px] text-nb-500">No services</span>}
+      {chips.slice(0, CHIP_LIMIT).map((c) => (
+        <Badge key={c.id} tone={NEUTRAL_TONE} icon={Box} title={c.name} className="max-w-[48%]">
+          {c.name}
+        </Badge>
+      ))}
+      {chips.length > CHIP_LIMIT && (
+        <Badge tone={NEUTRAL_TONE} title={chips.slice(CHIP_LIMIT).map((c) => c.name).join(', ')} data-testid="chip-overflow">
+          +{chips.length - CHIP_LIMIT} more
+        </Badge>
+      )}
+    </div>
+  )
+}
+
+/** The pod rail and the popover it opens. The popover is local, transient UI state: nothing else on the canvas needs to know a card has it open. */
+function usePodPopover() {
+  const [open, setOpen] = useState(false)
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null)
+  const close = useCallback(() => setOpen(false), [])
+  return { open, anchor, setAnchor, close, toggle: () => setOpen((v) => !v) }
+}
+
+/** The card as it has always been: everything it knows, all the time (the "Full" detail). */
+function FullCard({ data, selected }: NodeProps<CardNode>) {
   const isMachine = data.kind === 'machine'
-  // The pod popover is local, transient UI state: nothing else on the canvas needs to know a card has it open.
-  const [podsOpen, setPodsOpen] = useState(false)
-  const [podsAnchor, setPodsAnchor] = useState<HTMLElement | null>(null)
-  const closePods = useCallback(() => setPodsOpen(false), [])
-  const Icon =
-    data.kind === 'device'
-      ? DEVICE_ICON[data.deviceKind ?? 'other']
-      : data.kind === 'external'
-        ? Globe
-        : isMachine
-          ? MACHINE_ICON[data.machineKind ?? 'vm']
-          : data.serviceKind
-            ? WORKLOAD_ICON[data.serviceKind]
-            : Box
+  const pods = usePodPopover()
   const far = useFar()
   const color = TIER_COLOR[data.tier]
   return (
@@ -294,7 +354,7 @@ export const Card = memo(function Card({ data, selected }: NodeProps<CardNode>) 
           className="grid size-9 shrink-0 place-items-center rounded-lg"
           style={{ background: `color-mix(in srgb, ${color} 14%, transparent)`, color }}
         >
-          <Icon size={ICON_SM} />
+          {createElement(iconOf(data), { size: ICON_SM })}
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
@@ -323,60 +383,102 @@ export const Card = memo(function Card({ data, selected }: NodeProps<CardNode>) 
           {far && (data.hint || data.notReady) && <span className={clsx('size-2.5 rounded-sm', data.notReady ? 'bg-warn' : 'bg-accent')} title={data.notReady ?? `Better in ${data.hint}`} />}
         </div>
       </div>
-      {!far && (data.hint || data.notReady || data.mesh || data.hardware) && (
-        <div className="flex flex-wrap items-center gap-1.5 text-[10.5px]">
-          {data.mesh && (
-            <Badge tone={MESH_TONE[data.mesh.tone]} title={data.mesh.title} data-testid="mesh-chip" className="max-w-full">
-              {data.mesh.label}
-            </Badge>
-          )}
-          {data.notReady && <Badge tone="bg-warn/10 text-warn" title="Fewer replicas are ready than wanted">{data.notReady}</Badge>}
-          {data.hint && (
-            <Badge tone="bg-accent-soft text-accent" icon={ArrowUpRight} title={`The placement advice would move this to ${data.hint}. Open it for the evidence.`} data-testid="placement-hint" className="max-w-full">
-              better in {data.hint}
-            </Badge>
-          )}
-          {data.hardware?.hasBattery && (
-            <Badge tone={NEUTRAL_TONE} icon={BatteryCharging} title="Node probe: this machine can run without mains power (has a battery)" data-testid="battery-badge">
-              Battery
-            </Badge>
-          )}
-          {data.hardware?.nicMbps !== undefined && (
-            <Badge tone={NEUTRAL_TONE} icon={Cable} title={`Node probe: fastest physical network interface seen on this machine is ${nicSpeedLabel(data.hardware.nicMbps)}`} data-testid="nic-badge">
-              {nicSpeedLabel(data.hardware.nicMbps)}
-            </Badge>
-          )}
-        </div>
-      )}
+      {!far && <BadgeRow data={data} />}
 
       {data.pods && (
         <>
-          <PodRail pods={data.pods} far={far} open={podsOpen} onToggle={() => setPodsOpen((v) => !v)} buttonRef={setPodsAnchor} />
-          {podsOpen && podsAnchor && <PodPopover pods={data.pods} name={data.title} anchor={podsAnchor} onClose={closePods} />}
+          <PodRail pods={data.pods} far={far} open={pods.open} onToggle={pods.toggle} buttonRef={pods.setAnchor} />
+          {pods.open && pods.anchor && <PodPopover pods={data.pods} name={data.title} anchor={pods.anchor} onClose={pods.close} />}
         </>
       )}
 
-      {!far && data.chips && (
-        <div className="flex flex-wrap gap-1.5 border-t border-nb-850 pt-2">
-          {data.chips.length === 0 && <span className="text-[11px] text-nb-500">No services</span>}
-          {data.chips.slice(0, CHIP_LIMIT).map((c) => (
-            <Badge key={c.id} tone={NEUTRAL_TONE} icon={Box} title={c.name} className="max-w-[48%]">
-              {c.name}
-            </Badge>
-          ))}
-          {data.chips.length > CHIP_LIMIT && (
-            <Badge
-              tone={NEUTRAL_TONE}
-              title={data.chips.slice(CHIP_LIMIT).map((c) => c.name).join(', ')}
-              data-testid="chip-overflow"
-            >
-              +{data.chips.length - CHIP_LIMIT} more
-            </Badge>
-          )}
-        </div>
-      )}
+      {!far && data.chips && <ChipRow chips={data.chips} />}
     </div>
   )
+}
+
+/* ---------- Calm card ---------- */
+// The Calm presentation draws a card that is fine as its name, its icon and its status dot, and keeps everything
+// else (the line under the name, the badges, the pod rail, a machine's load) for hover, keyboard focus and
+// selection, and always for a card with a problem. The layout gives a fine card only its own small height
+// (graph.ts, CALM_CARD_H); what a hover or a selection reveals is drawn over the gap below it, so it never moves
+// anything else. `group/card` is the card's own surface: CSS alone decides what a hover shows, no state.
+/** A part of a card that waits for hover or focus. Whole class names, so Tailwind finds them. */
+const QUIET = 'hidden group-hover/card:flex group-hover/card:animate-[quiet-in_120ms_ease-out] [.react-flow__node:focus-within_&]:flex [.react-flow__node:focus-within_&]:animate-[quiet-in_120ms_ease-out]'
+/** The state colours of a problem card: the same two the status dot and the rest of the app use. */
+const ALERT_COLOR: Record<Alert, string> = { warn: STATUS_COLOR.degraded, bad: STATUS_COLOR.offline }
+
+function CalmCard({ data, selected }: NodeProps<CardNode>) {
+  const isMachine = data.kind === 'machine'
+  const pods = usePodPopover()
+  const far = useFar()
+  const color = TIER_COLOR[data.tier]
+  const alert = data.alert
+  // A services-on-nodes list is something the person asked to see, so it keeps the whole card up.
+  const out = !!alert || selected || !!data.chips || pods.open
+  const tone = alert ? ALERT_COLOR[alert] : undefined
+  return (
+    <div data-far={far ? '1' : undefined} data-alert={alert} className="relative h-full w-full">
+      <AllHandles />
+      {/* The surface is at least the card's own box and grows downward over the gap when it has more to show. */}
+      <div
+        className={clsx(
+          'group/card absolute inset-x-0 top-0 min-h-full rounded-xl border bg-nb-925 px-3.5 py-[7px] transition-colors',
+          selected ? 'border-accent shadow-[inset_0_0_0_1px_var(--color-accent)]' : alert ? '' : 'border-nb-800 hover:border-nb-700',
+        )}
+        style={tone && !selected ? { borderColor: `color-mix(in srgb, ${tone} 70%, transparent)`, background: `color-mix(in srgb, ${tone} 7%, var(--color-nb-925))` } : undefined}
+      >
+        <div className="flex h-9 items-center gap-3">
+          <div className="grid size-8 shrink-0 place-items-center rounded-lg" style={{ background: `color-mix(in srgb, ${color} 14%, transparent)`, color }}>
+            {createElement(iconOf(data), { size: ICON_SM })}
+          </div>
+          <div className="min-w-0 flex-1">
+            {isMachine ? (
+              <>
+                <span className={clsx('block truncate font-medium text-nb-300', far ? 'text-[21px] leading-tight' : 'text-[13px]')} title={data.title} aria-hidden="true">{middleTruncate(data.title, far ? 15 : 24)}</span>
+                <span className="sr-only">{data.title}</span>
+              </>
+            ) : (
+              <span className={clsx('block truncate font-medium text-nb-300', far ? 'text-[21px] leading-tight' : 'text-[13px]')} title={data.title}>{data.title}</span>
+            )}
+            {far && data.clusterTag && <div className="truncate text-[14px] leading-4 text-nb-500">{data.clusterTag}</div>}
+          </div>
+          {far && data.notReady && <span className="size-2.5 shrink-0 rounded-sm bg-warn" title={data.notReady} />}
+          <span className={clsx('shrink-0 rounded-full', far ? 'size-3' : 'size-2')} style={{ background: STATUS_COLOR[data.status] }} title={data.status} />
+        </div>
+        <div className={clsx('flex-col gap-1.5 pb-1 pt-1.5', out ? 'flex' : QUIET)}>
+          {!far && (
+            <div className="text-[11px] text-nb-500">
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="truncate" title={data.subtitle}>{data.subtitle}</span>
+                {!isMachine && data.meta && <span className="shrink-0">{data.meta}</span>}
+              </div>
+              {isMachine && <div className="truncate" title={data.meta}>{data.meta}</div>}
+            </div>
+          )}
+          {!far && <BadgeRow data={data} />}
+          {data.load && !far && (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5" data-testid="machine-load">
+              <MiniBar label="CPU" pct={data.load.cpuPct} />
+              <MiniBar label="Mem" pct={data.load.memPct} />
+              <MiniBar label="Pods" pct={data.load.podPct} />
+            </div>
+          )}
+          {data.pods && (
+            <>
+              <PodRail pods={data.pods} far={far} open={pods.open} onToggle={pods.toggle} buttonRef={pods.setAnchor} />
+              {pods.open && pods.anchor && <PodPopover pods={data.pods} name={data.title} anchor={pods.anchor} onClose={pods.close} />}
+            </>
+          )}
+          {!far && data.chips && <ChipRow chips={data.chips} />}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export const Card = memo(function Card(props: NodeProps<CardNode>) {
+  return useContext(DetailContext) === 'calm' ? <CalmCard {...props} /> : <FullCard {...props} />
 })
 
 export const nodeTypes = { boundary: GroupBox, card: Card, namespace: NamespaceBox }

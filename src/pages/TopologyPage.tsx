@@ -47,6 +47,7 @@ import { Button, EmptyState, ICON_MD, ICON_SM, MenuPanel, Select, SkeletonBlock 
 import { PRESS_CLASS } from '@/components/ui/buttonClass'
 import FilterMenu, { FilterChip } from '@/components/topology/FilterMenu'
 import { extrasOf, TELEMETRY_SIGNALS } from '@/lib/consent'
+import { DetailContext, parseDetail } from '@/lib/detail'
 import { narrowFitZoom } from '@/lib/fit'
 import { applyFilter, encodeList, filterActive, hopNeighborhood, isFreshApplicationView, knownOnly, parseFilter } from '@/lib/filter'
 import { applyGraphUpdate, buildGraph, cardId, groupId, sameLayout, selectedServiceIds, syncPickEligibility, syncSelected, type TopoEdge, type TopoNode } from '@/lib/graph'
@@ -151,6 +152,8 @@ function Canvas() {
   const isCanvas = !isMap && !isTelemetry
   const view: ViewKind = isMap || isTelemetry ? 'application' : mode
   const groupBy: GroupBy = sp.get('group') === 'tier' ? 'tier' : 'cluster'
+  // How much the canvas says at rest: 'calm' (default) draws names and what is wrong, 'full' everything (lib/detail.ts).
+  const detail = parseDetail(sp.get('detail'))
   const servicesOnNodes = sp.get('services') === '1'
   const links = sp.get('links') !== '0'
   const showDevices = sp.get('devices') !== '0'
@@ -181,7 +184,7 @@ function Canvas() {
   // The Telemetry tab's own filter: only the lanes where something needs attention or is not working.
   const problemsOnly = isTelemetry && sp.get('problems') === '1'
   // How many options differ from the defaults, so a hidden option is never a mystery.
-  const changedOptions = [!showDevices, showNoise, servicesOnNodes, !links, showLabels, groupBy === 'tier', showMesh, showNamespaces, showChain, edgeStyle === 'elbow', !showClusterLinks, showHealthLens].filter(Boolean).length
+  const changedOptions = [detail === 'full', !showDevices, showNoise, servicesOnNodes, !links, showLabels, groupBy === 'tier', showMesh, showNamespaces, showChain, edgeStyle === 'elbow', !showClusterLinks, showHealthLens].filter(Boolean).length
   const setParam = (k: string, v: string | null) =>
     setSp((p) => {
       const n = new URLSearchParams(p)
@@ -360,10 +363,10 @@ function Canvas() {
   const graph = useMemo(
     () =>
       buildGraph(shown, {
-        view, groupBy, servicesOnNodes, links, devices: showDevices, noise: showNoise, mesh: showMesh, namespaces: showNamespaces, chain: showChain, paths, hints, localOperators: localOperatorByCluster,
+        view, detail, groupBy, servicesOnNodes, links, devices: showDevices, noise: showNoise, mesh: showMesh, namespaces: showNamespaces, chain: showChain, paths, hints, localOperators: localOperatorByCluster,
         clusterLinks: showClusterLinks ? clusterLinks : [],
       }),
-    [shown, view, groupBy, servicesOnNodes, links, showDevices, showNoise, showMesh, showNamespaces, showChain, paths, hints, localOperatorByCluster, clusterLinks, showClusterLinks],
+    [shown, view, detail, groupBy, servicesOnNodes, links, showDevices, showNoise, showMesh, showNamespaces, showChain, paths, hints, localOperatorByCluster, clusterLinks, showClusterLinks],
   )
   const nothingMatches = filtering && shown.clusters.length === 0 && shown.devices.length === 0
 
@@ -800,7 +803,20 @@ function Canvas() {
                     one family instead of two different menus; "Lenses" follows the identical pattern
                     rather than inventing a new one, since a grouped, labelled subsection was already this
                     page's own way of telling two kinds of option apart. */}
-                <div className="px-2 pb-1 pt-1 text-xs uppercase tracking-wide text-nb-500">Show</div>
+                <div className="flex items-center justify-between gap-3 px-2 py-1.5 text-sm text-nb-400">
+                  Detail
+                  <Select
+                    className="h-8 w-32"
+                    value={detail}
+                    title="Calm draws names and whatever is wrong, and keeps the rest for hover, selection and zoom. Full draws everything, all the time."
+                    onChange={(e) => setParam('detail', e.target.value === 'full' ? 'full' : null)}
+                    data-testid="detail-select"
+                  >
+                    <option value="calm">Calm</option>
+                    <option value="full">Full</option>
+                  </Select>
+                </div>
+                <div className="mt-1 border-t border-nb-850 px-2 pb-1 pt-2.5 text-xs uppercase tracking-wide text-nb-500">Show</div>
                 {mode === 'application' && (
                   <Toggle
                     checked={showDevices}
@@ -1048,6 +1064,7 @@ function Canvas() {
               <MapView selection={selection} onSelect={select} filter={filter} />
             </Suspense>
           ) : (
+            <DetailContext.Provider value={detail}>
             <EdgeStyleContext.Provider value={edgeStyle}>
             <ReactFlow<TopoNode, Edge>
               className={pickMode ? 'topology-pick-mode' : undefined}
@@ -1291,6 +1308,7 @@ function Canvas() {
               </Panel>
             </ReactFlow>
             </EdgeStyleContext.Provider>
+            </DetailContext.Provider>
           )}
           {hoveredEdge && hoverPos && (
             <EdgeHoverCard
