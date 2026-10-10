@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, test, vi } from 'vitest'
 import { PlatformNode, StatusGlyph } from '@/components/topology/PlatformNode'
 import { PLATFORM_STATUS_WORD, type PlatformEntity, type PlatformStatus } from '@/lib/platformLayer'
@@ -11,42 +11,51 @@ function renderNode(e: PlatformEntity, props: Partial<React.ComponentProps<typeo
 }
 
 describe('PlatformNode', () => {
-  test('in a column it leads with what is specific to it, not with its role: an agent its version, a local operator what it collects as glyphs', () => {
-    const agent = renderNode(entity({ kind: 'agent', name: 'Discovery agent', detail: 'v0.19.3', collecting: undefined }))
-    expect(agent.textContent).toBe('v0.19.3')
-    expect(agent.textContent).not.toContain('Discovery agent')
+  test('every box has the same anatomy: a name, a line under it, and a row of chips, with its state as a glyph', () => {
+    const agent = renderNode(entity({ kind: 'agent', name: 'Discovery agent', detail: 'v0.19.3', collecting: undefined }), { age: '8 s' })
+    expect(agent.textContent).toBe('Discovery agentv0.19.3Heard 8 s ago')
     expect(agent.querySelector('[role="img"][data-status="healthy"]')?.getAttribute('aria-label')).toBe('Healthy')
+    expect(agent.querySelector('[data-testid="chips"]')).not.toBeNull()
   })
 
-  test('what a local operator collects is two glyphs, never a sentence that has to be cut short', () => {
+  test('a local operator says where it sends to, and what it collects as labelled chips', () => {
     const node = renderNode(entity())
-    expect(node.textContent).toBe('')
-    expect(node.querySelectorAll('[data-testid="signals"] svg')).toHaveLength(2)
+    expect(node.textContent).toBe('Local operator\u2192 eu-westMetricsLogs')
+    expect(Array.from(node.querySelectorAll('[data-testid="chips"] [data-signal]')).map((c) => c.getAttribute('data-signal'))).toEqual(['metrics', 'logs'])
+    expect(node.querySelectorAll('[data-testid="chips"] svg')).toHaveLength(2)
     expect(node.getAttribute('aria-label')).toBe('Local operator: label')
   })
 
-  test('a shared operator is its name, with how many send to it under it', () => {
-    expect(renderNode(entity({ id: 'regional:eu', kind: 'regional', name: 'eu-west', detail: 'Regional operator', sendsTo: [] }), { senders: 3 }).textContent).toBe('eu-west3 clusters')
+  test('a shared operator is its name and its role, with how many send to it as a chip', () => {
+    expect(renderNode(entity({ id: 'regional:eu', kind: 'regional', name: 'eu-west', detail: 'Regional operator', sendsTo: [] }), { senders: 3 }).textContent).toBe('eu-westRegional operator3 clusters')
   })
 
-  test('anything but Healthy takes the line under the name, in words, and tints the box; Healthy is only the glyph', () => {
+  test('the central operator and FUSION say what they are, and how many send to the one and what the other keeps', () => {
+    expect(renderNode(entity({ id: 'central', kind: 'central', name: 'Central operator', sendsTo: [] }), { senders: 2 }).textContent).toBe('Central operatorFUSION gateway2 operators')
+    cleanup()
+    expect(renderNode(entity({ id: 'fusion', kind: 'fusion', name: 'FUSION', sendsTo: [] })).textContent).toBe('FUSIONTelemetry storeMetricsLogsTraces')
+  })
+
+  test('anything but Healthy takes the line under the name, in words, and tints the box; the chips stay', () => {
     const node = renderNode(entity({ status: 'attention' }))
-    expect(node.textContent).toBe('Needs attention')
+    expect(node.textContent).toBe('Local operatorNeeds attentionMetricsLogs')
     expect(node.className).toContain('border-warn')
     expect(node.querySelector('[role="img"][data-status="attention"]')?.getAttribute('aria-label')).toBe('Needs attention')
   })
 
-  test('in a list there is no column header, so the role leads, and where it sends to follows', () => {
-    const node = renderNode(entity(), { withRole: true })
-    expect(node.textContent).toBe('Local operatorMetrics, Logs → eu-west')
+  test('in a list the reason sits beside the state, and where it sends to follows on a line of its own', () => {
+    expect(renderNode(entity(), { withRole: true }).textContent).toBe('Local operator\u2192 eu-westMetricsLogs')
+    cleanup()
+    const bad = renderNode(entity({ status: 'attention', sentence: 'Quiet: no data for 14 min.' }), { withRole: true })
+    expect(bad.textContent).toBe('Local operatorNeeds attention \u00b7 Quiet: no data for 14 min\u2192 eu-westMetricsLogs')
   })
 
   test('a part that is not turned on says so, quietly, instead of Unknown, and has no state glyph', () => {
     const node = renderNode(entity({ kind: 'fusion', name: 'FUSION', detail: 'Not turned on', status: 'unknown', off: true, collecting: undefined, sendsTo: [] }))
-    expect(node.textContent).toBe('FUSIONOff')
+    expect(node.textContent).toBe('FUSIONNot turned on')
     expect(node.textContent).not.toContain('Unknown')
     expect(node.className).toContain('border-dashed')
-    expect(node.querySelector('svg[data-status]')).toBeNull()
+    expect(node.querySelector('[data-status]')).toBeNull()
   })
 
   test('is a button with the name it is given, and a click selects it', () => {

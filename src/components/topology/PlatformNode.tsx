@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { Cable, Database, DoorOpen, Funnel, Merge, type LucideIcon } from 'lucide-react'
+import { Cable, Clock, Database, DoorOpen, Funnel, Merge, type LucideIcon } from 'lucide-react'
 import { SIGNAL_ICON } from '@/components/topology/signalIcons'
 import { ICON_SM } from '@/components/ui/primitives'
 import { StatusMark } from '@/components/topology/StatusMark'
@@ -16,54 +16,50 @@ export function StatusGlyph({ status, className }: { status: PlatformStatus; cla
   return <StatusMark state={status} className={className} />
 }
 
-/** What a part collects or keeps, as small glyphs instead of a sentence that has to be cut short: each says its word when hovered, and the words are in the
- *  box's name for assistive technology, in its tooltip and in the key. */
-export function Signals({ of }: { of: Modality[] }) {
-  return (
-    <span className="flex h-[18px] items-center gap-1.5 text-nb-500" data-testid="signals">
-      {of.map((m) => {
-        const Icon = SIGNAL_ICON[m]
-        return <span key={m} title={MODALITY_WORD[m]} data-signal={m} className="grid place-items-center"><Icon size={ICON_SM} aria-hidden /></span>
-      })}
-    </span>
-  )
+/** What a box says about itself, as the same anatomy in every column: a name, one line under it, and a row of small chips. The column header names the role too, but a
+ *  box stands on its own (in a list, in a screenshot, to a screen reader), so the role leads wherever it is not the part's own name. Whatever is not Healthy takes the
+ *  second line, in words, in its colour; the chips stay. */
+interface Chip { text: string; icon?: LucideIcon; title?: string; tone?: 'warn' | 'bad' }
+interface Face { title: string; meta?: string; chips: Chip[] }
+
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
+const signal = (m: Modality): Chip => ({ text: MODALITY_WORD[m], icon: SIGNAL_ICON[m] })
+
+/** Where a part sends to, in a few words: the part, how many, or the address of a backend of the organisation's own. */
+function sendsTo(e: PlatformEntity): string | undefined {
+  const to = [...e.sendsTo.map((t) => t.name), ...(e.elsewhere ? [e.elsewhere] : [])]
+  return to.length ? `→ ${to.length === 1 ? to[0] : plural(to.length, 'destination', 'destinations')}` : undefined
 }
 
-
-/**
- * What a box says about itself. In a column the column's header already names the role, so a box leads with what is specific to it: an
- * agent its version, a local operator what it collects, a shared operator its name and how many send to it. In a list there are no
- * columns, so the role leads. Whatever is not Healthy takes the second line, in words.
- */
-function face(e: PlatformEntity, senders: number | undefined, withRole: boolean): { title?: string; /** Not a name (a version): set quieter. */ muted?: boolean; meta?: string; signals?: Modality[] } {
-  const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
-  const all: Modality[] = ['metrics', 'logs', 'traces']
-  if (withRole && (e.kind === 'agent' || e.kind === 'local')) {
-    const to = e.sendsTo.length ? ` → ${e.sendsTo.length === 1 ? e.sendsTo[0].name : plural(e.sendsTo.length, 'destination', 'destinations')}` : ''
-    return { title: KIND_WORD[e.kind], meta: e.kind === 'local' ? `${(e.collecting ?? []).map((m) => MODALITY_WORD[m]).join(', ') || e.detail}${to}` : e.detail }
-  }
+function face(e: PlatformEntity, senders: number | undefined, age: string | undefined): Face {
+  const stale = e.status === 'attention' || e.status === 'down' ? e.status === 'down' ? 'bad' : 'warn' : undefined
   switch (e.kind) {
-    case 'agent': return { title: e.detail, muted: true }
-    case 'local': return e.collecting?.length ? { signals: e.collecting } : { title: e.detail }
-    case 'regional': return { title: e.name, meta: [withRole ? 'Regional operator' : '', senders ? plural(senders, 'cluster', 'clusters') : ''].filter(Boolean).join(' · ') || undefined }
-    case 'central': return { title: e.name, meta: senders ? plural(senders, 'operator', 'operators') : undefined }
-    case 'fusion': return e.off ? { title: e.name, meta: 'Off' } : { title: e.name, signals: all }
+    case 'agent': return { title: KIND_WORD.agent, meta: e.detail, chips: age ? [{ text: `Heard ${age} ago`, icon: Clock, tone: stale }] : [] }
+    case 'local': return { title: KIND_WORD.local, meta: sendsTo(e) ?? 'No destination yet', chips: (e.collecting ?? []).map(signal) }
+    case 'regional': return { title: e.name, meta: KIND_WORD.regional, chips: senders ? [{ text: plural(senders, 'cluster', 'clusters') }] : [] }
+    case 'central': return { title: KIND_WORD.central, meta: 'FUSION gateway', chips: senders ? [{ text: plural(senders, 'operator', 'operators') }] : [] }
+    case 'fusion': return e.off ? { title: e.name, meta: 'Not turned on', chips: [] } : { title: e.name, meta: 'Telemetry store', chips: (['metrics', 'logs', 'traces'] as Modality[]).map(signal) }
   }
 }
 
+const CHIP_TONE = { warn: 'bg-warn/10 text-warn', bad: 'bg-bad/10 text-bad', none: 'bg-nb-900 text-nb-400' } as const
+
 /**
- * A part of the telemetry platform: one calm box, the same anatomy as a cluster's header and a service card. A name or what is specific to
- * it, at most one muted line under it, and its state as a single glyph; everything else is in its tooltip (on hover and on focus) and in
- * the Inspector. A box that is not well is tinted, so that is what the eye finds.
+ * A part of the telemetry platform, in the node language of a service card: a bordered box with an icon tile, a name and a line under it,
+ * its state as a glyph, and a row of chips (what it collects, how many send to it, when it last reported). A box that is not well is
+ * tinted and says its state in words, so that is what the eye finds; the rest of what there is to know is in its tooltip (on hover and
+ * on focus) and in the Inspector.
  */
-export function PlatformNode({ entity, selected, label, senders, withRole, tip, tipAlign = 'left', className, style, ...handlers }: {
+export function PlatformNode({ entity, selected, label, senders, age, withRole, tip, tipAlign = 'left', className, style, ...handlers }: {
   entity: PlatformEntity
   selected?: boolean
   /** What a screen reader hears: the whole sentence, since the visible text is not all of it. */
   label: string
-  /** How many parts send to it, for the line under a shared operator. */
+  /** How many parts send to it, for the chip on a shared operator. */
   senders?: number
-  /** In a list, where no column header names the role: lead with it. */
+  /** How long ago it last reported ("8 s"), when something knows. */
+  age?: string
+  /** In a list, where there is room and no line to say why: the reason beside the state, and where it sends to on a line of its own. */
   withRole?: boolean
   /** The tooltip: the part's own sentence, and what to do about it. Left out where the text is already all on show. */
   tip?: boolean
@@ -76,11 +72,12 @@ export function PlatformNode({ entity, selected, label, senders, withRole, tip, 
   onFocus?: () => void
   onBlur?: () => void
 }) {
-  const f = face(entity, senders, !!withRole)
   const bad = entity.status === 'attention' || entity.status === 'down'
-  // Not well: the state in words, and in a list (no line on a canvas says why) the reason beside it, with what it sends to kept on a line of its own.
   const reason = withRole && bad ? entity.sentence.replace(/\.$/, '') : undefined
-  const meta = bad ? (reason ? `${PLATFORM_STATUS_WORD[entity.status]} · ${reason}` : PLATFORM_STATUS_WORD[entity.status]) : f.meta
+  // The reason beside the state already says when it was last heard from.
+  const f = face(entity, senders, reason ? undefined : age)
+  const Icon = PLATFORM_ICON[entity.kind]
+  const meta = bad ? (reason ? `${PLATFORM_STATUS_WORD[entity.status]} \u00b7 ${reason}` : PLATFORM_STATUS_WORD[entity.status]) : f.meta
   const sub = reason ? f.meta : undefined
   return (
     <div className={clsx('group/node', className ?? 'relative')} style={style}>
@@ -92,19 +89,33 @@ export function PlatformNode({ entity, selected, label, senders, withRole, tip, 
         aria-label={label}
         aria-pressed={selected}
         className={clsx(
-          'flex h-full w-full items-center gap-2 rounded-xl border px-3 py-1.5 text-left transition-[background-color,border-color] duration-150 motion-reduce:transition-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
-          selected ? 'border-nb-100 bg-nb-925 shadow-[inset_0_0_0_1px_var(--color-nb-100)]' : bad ? (entity.status === 'down' ? 'border-bad/35 bg-bad/5 hover:bg-bad/10' : 'border-warn/35 bg-warn/5 hover:bg-warn/10') : 'border-nb-850 bg-nb-925 hover:border-nb-800 hover:bg-nb-930',
+          'flex h-full w-full flex-col justify-center gap-1.5 rounded-xl border px-2.5 py-1.5 text-left transition-[background-color,border-color] duration-150 motion-reduce:transition-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
+          selected ? 'border-accent bg-nb-925 shadow-[inset_0_0_0_1px_var(--color-accent)]' : bad ? (entity.status === 'down' ? 'border-bad/35 bg-bad/5 hover:bg-bad/10' : 'border-warn/35 bg-warn/5 hover:bg-warn/10') : 'border-nb-800 bg-nb-925 hover:border-nb-700',
           entity.off && 'border-dashed bg-transparent',
         )}
         {...handlers}
       >
-        <span className="min-w-0 flex-1">
-          {f.title !== undefined && <span className={clsx('block truncate text-[13px] leading-[18px]', f.muted ? 'font-medium text-nb-400' : 'font-semibold text-nb-300')}>{f.title}</span>}
-          {f.signals && !(f.title !== undefined && meta) && <Signals of={f.signals} />}
-          {meta && <span className={clsx('block truncate text-[11px] leading-4', bad ? TONE[entity.status] : 'text-nb-500')} title={reason ? meta : undefined}>{meta}</span>}
-          {sub && <span className="block truncate text-[11px] leading-4 text-nb-500">{sub}</span>}
+        <span className="flex w-full items-center gap-2">
+          <span className={clsx('grid size-8 shrink-0 place-items-center rounded-lg', bad ? (entity.status === 'down' ? 'bg-bad/10 text-bad' : 'bg-warn/10 text-warn') : 'bg-nb-900 text-nb-400')}>
+            <Icon size={ICON_SM} aria-hidden />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-[13px] font-semibold leading-[18px] text-nb-300" title={f.title}>{f.title}</span>
+            {meta && <span className={clsx('block truncate text-[11px] leading-4', bad ? TONE[entity.status] : 'text-nb-500')} title={meta}>{meta}</span>}
+            {sub && <span className="block truncate text-[11px] leading-4 text-nb-500">{sub}</span>}
+          </span>
+          {!entity.off && <StatusGlyph status={entity.status} className="self-start" />}
         </span>
-        {!entity.off && <StatusGlyph status={entity.status} />}
+        {f.chips.length > 0 && (
+          <span className="flex w-full items-center gap-[3px] overflow-hidden" data-testid="chips">
+            {f.chips.map((c) => (
+              <span key={c.text} title={c.title} data-signal={c.icon && !c.tone ? c.text.toLowerCase() : undefined} className={clsx('inline-flex shrink-0 items-center gap-[3px] whitespace-nowrap rounded px-1 py-px text-[10.5px] leading-4', CHIP_TONE[c.tone ?? 'none'])}>
+                {c.icon && <c.icon size={10} aria-hidden />}
+                {c.text}
+              </span>
+            ))}
+          </span>
+        )}
       </button>
       {tip && (
         <span
