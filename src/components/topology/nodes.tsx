@@ -33,7 +33,7 @@ import { peakLoad } from '@/lib/metrics'
 import { DistroIcon, Flag } from '@/components/ui/brand'
 import { middleTruncate } from '@/lib/present'
 import { SIDES, type CardData, type CardNode, type GroupData, type GroupNode, type NamespaceNode } from '@/lib/graph'
-import { DetailContext, type Alert } from '@/lib/detail'
+import { DetailContext, shownStatus, type Alert } from '@/lib/detail'
 import { activeId, useCanvasFocus } from '@/store/canvasFocus'
 import { STATUS_COLOR, TIER_COLOR, type DeviceKind, type ServiceKind } from '@/lib/types'
 
@@ -293,6 +293,7 @@ function CalmGroupBox({ id, data, selected }: NodeProps<GroupNode>) {
   const color = TIER_COLOR[data.tier]
   const peak = data.load ? peakLoad(data.load) : undefined
   const alert = data.alert
+  const shown = shownStatus(data.status, alert)
   const kind = data.extra ? BOX_KIND[data.extra] : undefined
   const Glyph = kind?.Glyph ?? TIER_ICON[data.tier]
   const kindLabel = kind?.label ?? `${data.tier === 'far-edge' ? 'Far edge' : data.tier[0].toUpperCase() + data.tier.slice(1)} tier`
@@ -312,7 +313,7 @@ function CalmGroupBox({ id, data, selected }: NodeProps<GroupNode>) {
       <div className="flex items-start justify-between gap-3 px-5 pt-4">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <span className={clsx('shrink-0 rounded-full', far ? 'size-3' : 'size-2')} style={{ background: STATUS_COLOR[data.status] }} />
+            <span className={clsx('shrink-0 rounded-full', far ? 'size-3' : 'size-2')} style={{ background: shown.color }} title={shown.word} />
             {data.distribution && <DistroIcon distribution={data.distribution} size={ICON_SM} />}
             <span className={clsx('truncate font-medium text-nb-300', far ? 'text-[26px] leading-8' : 'text-sm')} title={data.title}>{data.title}</span>
             {far && peak !== undefined && peak >= 70 && (
@@ -543,6 +544,7 @@ function CalmCard({ data, selected }: NodeProps<CardNode>) {
   const color = TIER_COLOR[data.tier]
   const alert = data.alert
   const tone = alert ? ALERT_COLOR[alert] : undefined
+  const shown = shownStatus(data.status, alert)
   const more = !far && (data.pods || data.hint || data.mesh || data.chips)
   // A services-on-nodes list is something the person asked to see, so it stays up.
   const out = !!data.chips || selected || near || pods.open
@@ -573,7 +575,7 @@ function CalmCard({ data, selected }: NodeProps<CardNode>) {
             {far && data.clusterTag && <div className="truncate text-[14px] leading-4 text-nb-500">{data.clusterTag}</div>}
           </div>
           {!far && data.kind === 'device' && data.meta && <span className="shrink-0 text-[11px] text-nb-500" title="Devices in this group">{data.meta}</span>}
-          <span className={clsx('shrink-0 rounded-full', far ? 'size-3' : 'size-2')} style={{ background: STATUS_COLOR[data.status] }} title={data.status} />
+          <span className={clsx('shrink-0 rounded-full', far ? 'size-3' : 'size-2')} style={{ background: shown.color }} title={shown.word} />
         </div>
         {!far && alert && data.note && (
           <div className={clsx('-mt-0.5 truncate pl-11 text-[11px]', ALERT_TEXT[alert])} data-testid="card-note">{data.note}</div>

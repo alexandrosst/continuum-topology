@@ -3,7 +3,7 @@
 // existed. A person's choice lives in the URL like every other view option (?detail=full) and in saved views.
 import { createContext } from 'react'
 import type { PodsView } from './pods'
-import type { Status } from './types'
+import { STATUS_COLOR, type Status } from './types'
 
 export type Detail = 'calm' | 'full'
 
@@ -38,3 +38,14 @@ export function alertOfPods(pods: PodsView | undefined): Alert | undefined {
 }
 
 export const worstAlert = (...xs: (Alert | undefined)[]): Alert | undefined => (xs.includes('bad') ? 'bad' : xs.includes('warn') ? 'warn' : undefined)
+
+/**
+ * The one state a thing is told to be in, on the canvas and in the Inspector alike: what it reports (offline, degraded) or, when it reports well
+ * and something inside it is wrong (pods crash-looping, nodes down, a full cluster), that. A green dot never sits on a card tinted for a problem.
+ */
+export function shownStatus(status: Status, alert?: Alert): { color: string; word: string } {
+  if (status === 'offline' || status === 'degraded') return { color: STATUS_COLOR[status], word: status }
+  if (alert === 'bad') return { color: STATUS_COLOR.offline, word: 'broken' }
+  if (alert === 'warn') return { color: STATUS_COLOR.degraded, word: 'needs a look' }
+  return { color: STATUS_COLOR[status], word: status }
+}

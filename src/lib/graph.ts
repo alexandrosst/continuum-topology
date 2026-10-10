@@ -583,8 +583,7 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
     const cl = g.cluster
     if (!cl) continue
     const load = clusterLoad(cl, nodesByCluster.get(cl.id) ?? [], shownServices(cl.id, g.items, o.view, servicesByCluster))
-    const down = load.nodes > load.ready || load.unready > 0
-    const alert = worstAlert(alertOfStatus(cl.status), alertOfLoad(peakLoad(load)), down ? 'warn' : undefined)
+    const alert = clusterAlert(cl, load)
     const parts = [load.nodes > load.ready && `${load.ready}/${load.nodes} nodes ready`, load.unready > 0 && `${count(load.unready, 'service')} not fully up`, pressureNote(load)]
     infoOf.set(g.key, { load, alert, note: alert ? parts.filter(Boolean).join(' · ') || STATUS_WORD[cl.status] || undefined : undefined })
   }
@@ -1238,6 +1237,22 @@ function tierLabel(t: Tier) {
   return t === 'far-edge' ? 'Far edge' : t[0].toUpperCase() + t.slice(1)
 }
 
+/** What is wrong with a cluster as a whole: it reports badly, a node or a service is not up, or it is running out of room. */
+export function clusterAlert(cl: Pick<Cluster, 'status'>, load: ClusterLoad): Alert | undefined {
+  return worstAlert(alertOfStatus(cl.status), alertOfLoad(peakLoad(load)), load.nodes > load.ready || load.unready > 0 ? 'warn' : undefined)
+}
+
+/** What is wrong with a service: it reports badly, its pods are not all ready (or crash-looping), or fewer replicas are ready than wanted. */
+export function serviceAlert(w: Service, pods: PodsView | undefined): Alert | undefined {
+  return worstAlert(alertOfStatus(w.status), alertOfPods(pods), !pods && w.readyReplicas !== undefined && w.readyReplicas < w.replicas ? 'warn' : undefined)
+}
+
+/** What is wrong with a machine: it reports badly, or it is running out of room. */
+export function machineAlert(n: MachineNode): Alert | undefined {
+  const load = nodeLoad(n)
+  return worstAlert(alertOfStatus(n.status), alertOfLoad(load && peakLoad(load)))
+}
+
 function serviceItem(w: Service, c: Cluster, withCluster: boolean, hint: string | undefined, mesh: boolean | undefined, nodeById: Map<string, MachineNode>, serviceById: Map<string, Service>, calm: boolean): Item {
   const pods = buildPodsView(w.pods, w.name, nodeById, serviceById)
   // With per-pod facts the pod summary says it ("27/30 ready"), so the chip is only for a service without them.
@@ -1247,7 +1262,7 @@ function serviceItem(w: Service, c: Cluster, withCluster: boolean, hint: string 
   const badgeRow = !!(hint || notReady || (mesh && w.mesh))
   const podsRow = !!pods
   const extraRows = (badgeRow ? 1 : 0) + (podsRow ? 1 : 0)
-  const alert = worstAlert(alertOfStatus(w.status), alertOfPods(pods), notReady ? 'warn' : undefined)
+  const alert = serviceAlert(w, pods)
   const note = alert ? serviceNote(w, pods, notReady) : undefined
   return {
     id: cardId(w.id),
@@ -1349,7 +1364,7 @@ function externalItem(e: ExternalEndpoint, calm: boolean): Item {
 
 function machineItem(n: MachineNode, c: Cluster, chips: { id: string; name: string }[] | undefined, withCluster: boolean, calm: boolean): Item {
   const load = nodeLoad(n)
-  const alert = worstAlert(alertOfStatus(n.status), alertOfLoad(load && peakLoad(load)))
+  const alert = machineAlert(n)
   const note = alert ? STATUS_WORD[n.status] || pressureNote(load) : undefined
   const chipRows = chips && chips.length ? Math.ceil(chips.length / 2) : 0
   const nicMbps = n.networkInterfaces?.reduce((max, i) => (i.speedMbps !== undefined && i.speedMbps > max ? i.speedMbps : max), 0)

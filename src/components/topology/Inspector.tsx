@@ -8,6 +8,8 @@ import { EvidenceSection, WeakValues } from '@/components/EvidenceSection'
 import MobilityPanel from '@/components/MobilityPanel'
 import PlacementHint from '@/components/PlacementHint'
 import { LoadMeters } from '@/components/topology/Load'
+import { clusterAlert, machineAlert, serviceAlert } from '@/lib/graph'
+import { buildPodsView } from '@/lib/pods'
 import { LinkRow, Section } from '@/components/topology/InspectorParts'
 import PlatformPanel, { PlatformSubtitle } from '@/components/topology/PlatformPanel'
 import { DistroIcon, Flag, Place, ProviderIcon, WithIcon } from '@/components/ui/brand'
@@ -339,6 +341,7 @@ export default function Inspector({
   // Id -> node, built once per `nodes` change instead of fresh on every render just to resolve the one or
   // two nodes a selected dependency's caller-interface lookup actually needs (see callerIfaceSpeedMbps below).
   const nodeById = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes])
+  const serviceById = useMemo(() => new Map(services.map((w) => [w.id, w])), [services])
   // Grouping every dependency by its `from`/`to` end, and sorting each group, is a full scan of the
   // topology's dependencies - worth doing once per `dependencies` change rather than redoing on every
   // render regardless of whether the selection (or anything else) actually changed. depSections below
@@ -415,7 +418,7 @@ export default function Inspector({
     title = c.name
     subtitle = (
       <span className="flex flex-wrap items-center gap-2">
-        <StatusDot status={c.status} withLabel />
+        <StatusDot status={c.status} alert={clusterAlert(c, clusterLoad(c, ns, ws))} withLabel />
         <TierBadge tier={c.tier} />
       </span>
     )
@@ -717,7 +720,7 @@ export default function Inspector({
     title = n.name
     subtitle = (
       <span className="flex flex-wrap items-center gap-2">
-        <StatusDot status={n.status} withLabel />
+        <StatusDot status={n.status} alert={machineAlert(n)} withLabel />
         <Pill>{n.role === 'control-plane' ? 'Control plane' : 'Worker'}</Pill>
       </span>
     )
@@ -876,7 +879,7 @@ export default function Inspector({
     title = w.name
     subtitle = (
       <span className="flex flex-wrap items-center gap-2">
-        <StatusDot status={w.status} withLabel />
+        <StatusDot status={w.status} alert={serviceAlert(w, buildPodsView(w.pods, w.name, nodeById, serviceById))} withLabel />
         <Pill>{w.kind}</Pill>
       </span>
     )
