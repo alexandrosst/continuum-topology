@@ -39,13 +39,18 @@ export function alertOfPods(pods: PodsView | undefined): Alert | undefined {
 
 export const worstAlert = (...xs: (Alert | undefined)[]): Alert | undefined => (xs.includes('bad') ? 'bad' : xs.includes('warn') ? 'warn' : undefined)
 
+/** The four states a thing is ever in, and the four words it is ever given, on every canvas, page and list: glyph, word and colour together. */
+export type Shown = 'healthy' | 'attention' | 'down' | 'unknown'
+export const SHOWN_WORD: Record<Shown, string> = { healthy: 'Healthy', attention: 'Needs attention', down: 'Not working', unknown: 'Unknown' }
+const SHOWN_OF_STATUS: Record<Status, Shown> = { healthy: 'healthy', degraded: 'attention', offline: 'down', unknown: 'unknown' }
+const SHOWN_COLOR: Record<Shown, string> = { healthy: STATUS_COLOR.healthy, attention: STATUS_COLOR.degraded, down: STATUS_COLOR.offline, unknown: STATUS_COLOR.unknown }
+
 /**
  * The one state a thing is told to be in, on the canvas and in the Inspector alike: what it reports (offline, degraded) or, when it reports well
  * and something inside it is wrong (pods crash-looping, nodes down, a full cluster), that. A green dot never sits on a card tinted for a problem.
+ * The words are the four of the Agents and Operators pages: Healthy, Needs attention, Not working, Unknown.
  */
-export function shownStatus(status: Status, alert?: Alert): { color: string; word: string } {
-  if (status === 'offline' || status === 'degraded') return { color: STATUS_COLOR[status], word: status }
-  if (alert === 'bad') return { color: STATUS_COLOR.offline, word: 'broken' }
-  if (alert === 'warn') return { color: STATUS_COLOR.degraded, word: 'needs a look' }
-  return { color: STATUS_COLOR[status], word: status }
+export function shownStatus(status: Status, alert?: Alert): { state: Shown; color: string; word: string } {
+  const state: Shown = status === 'offline' || status === 'degraded' ? SHOWN_OF_STATUS[status] : alert === 'bad' ? 'down' : alert === 'warn' ? 'attention' : SHOWN_OF_STATUS[status]
+  return { state, color: SHOWN_COLOR[state], word: SHOWN_WORD[state] }
 }

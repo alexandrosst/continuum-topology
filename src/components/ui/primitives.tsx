@@ -674,7 +674,7 @@ export function StatusDot({ status, alert, withLabel, notCurrent }: { status: St
   return (
     <span className="inline-flex items-center gap-2 text-sm" title={notCurrent ? `Last known: ${status}. ${notCurrent}` : undefined}>
       <span className={clsx('size-2 rounded-full', flash && 'flash-ring', notCurrent && 'border bg-transparent')} style={notCurrent ? { borderColor: shown.color } : { background: shown.color }} />
-      {withLabel && <span className={clsx('capitalize', notCurrent ? 'text-nb-500' : 'text-nb-400')}>{notCurrent ? `was ${status}` : shown.word}</span>}
+      {withLabel && <span className={notCurrent ? 'capitalize text-nb-500' : 'text-nb-400'}>{notCurrent ? `was ${status}` : shown.word}</span>}
     </span>
   )
 }
