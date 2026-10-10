@@ -316,7 +316,7 @@ describe('Inspector · external endpoint', () => {
     expect(sheet.className).toContain('max-h-[65vh]')
     fireEvent.click(toggle)
     expect(toggle).toHaveAttribute('aria-expanded', 'false')
-    expect(sheet.className).toContain('max-h-[30vh]')
+    expect(sheet.className).toContain('max-h-[9.5rem]')
     expect(sheet.className).not.toContain('max-h-[65vh]')
     fireEvent.click(toggle)
     expect(toggle).toHaveAttribute('aria-expanded', 'true')

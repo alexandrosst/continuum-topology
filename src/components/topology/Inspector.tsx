@@ -332,7 +332,8 @@ export default function Inspector({
   const placement = usePlacementSuggestions().byCluster
   const inPast = useHistoryView((s) => s.at !== null)
   // On a narrow screen the details are a sheet over the canvas; "peek" shrinks it to its header so the selected thing stays in view.
-  const [peek, setPeek] = useState(false)
+  // It opens as a header only, so what was selected is still in view above it; a press on the handle opens it.
+  const [peek, setPeek] = useState(() => !(window.matchMedia?.('(min-width: 1024px)').matches ?? true))
   const measured = usePaths()
   const clusterPairConnectivity = useClusterPairConnectivity()
   const clusterLinks = useClusterLinks()
@@ -1451,7 +1452,7 @@ export default function Inspector({
     // the whole canvas appearing to "jump" the moment the sidebar finished scrolling, since nothing told
     // the browser this panel's own scroll boundary was the end of the gesture, not a handoff to whatever's
     // underneath it.
-    <aside className={clsx('modal-pop fixed inset-x-0 bottom-0 z-30 flex flex-col overflow-y-auto overscroll-contain rounded-t-xl border-t border-nb-850 bg-nb-920 shadow-2xl transition-[max-height] duration-200 motion-reduce:transition-none lg:static lg:max-h-none lg:w-80 lg:min-h-0 lg:shrink-0 lg:rounded-none lg:border-l lg:border-t-0 lg:shadow-none', peek ? 'max-h-[30vh]' : 'max-h-[65vh]')}>
+    <aside className={clsx('modal-pop fixed inset-x-0 bottom-0 z-30 flex flex-col overflow-y-auto overscroll-contain rounded-t-xl border-t border-nb-850 bg-nb-920 shadow-2xl transition-[max-height] duration-200 motion-reduce:transition-none lg:static lg:max-h-none lg:w-80 lg:min-h-0 lg:shrink-0 lg:rounded-none lg:border-l lg:border-t-0 lg:shadow-none', peek ? 'max-h-[9.5rem]' : 'max-h-[65vh]')}>
       <button
         type="button"
         onClick={() => setPeek((v) => !v)}

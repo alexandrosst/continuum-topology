@@ -64,7 +64,7 @@ export default function FilterMenu({
         <FilterIcon size={ICON_SM} className={filterActive(filter) ? 'text-accent' : ''} />
         <span className="hidden sm:inline">Filter</span>
         {count > 0 && (
-          <span className="rounded-full bg-accent/20 px-1.5 text-xs text-accent" data-testid="filter-count">
+          <span className="hidden rounded-full bg-accent/20 px-1.5 text-xs text-accent sm:inline" data-testid="filter-count">
             {count}
           </span>
         )}

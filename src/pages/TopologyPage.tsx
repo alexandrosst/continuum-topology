@@ -12,6 +12,7 @@ import {
   ReactFlowProvider,
   useNodesState,
   useReactFlow,
+  useStore,
   useStoreApi,
   type Edge,
 } from '@xyflow/react'
@@ -146,7 +147,15 @@ function Canvas() {
     // On a phone the widest cluster box sets the zoom instead of the whole graph (see narrowFitZoom).
     const widest = Math.max(0, ...getNodes().filter((n) => n.type === 'boundary' && !n.parentId).map((n) => n.measured?.width ?? 0))
     const zoom = narrowFitZoom(width, v.zoom, widest)
-    void setViewport({ x: Math.max(zoom === v.zoom ? v.x : -Infinity, width * 0.04 - bounds.x * zoom), y: Math.max(zoom === v.zoom ? v.y : -Infinity, Math.max(height * 0.04, topRoom.current) - bounds.y * zoom), zoom }, { duration })
+    const x = Math.max(zoom === v.zoom ? v.x : -Infinity, width * 0.04 - bounds.x * zoom)
+    let y = Math.max(zoom === v.zoom ? v.y : -Infinity, height * 0.04 - bounds.y * zoom)
+    // The pill sits at the top left: make room for it only when a box would actually be under it (its top inside the pill's band, its left
+    // inside the pill's width), so a graph that starts lower, or further right, keeps every pixel it has.
+    if (topRoom.current) {
+      const under = getNodes().filter((n) => !n.parentId && n.position.x * zoom + x < PILL_WIDTH && n.position.y * zoom + y < topRoom.current)
+      if (under.length) y += topRoom.current - Math.min(...under.map((n) => n.position.y * zoom + y))
+    }
+    void setViewport({ x, y, zoom }, { duration })
   }, [store, fitView, getNodes, setViewport])
   const [sp, setSp] = useSearchParams()
   const connect = useConnectFlow()
@@ -412,7 +421,8 @@ function Canvas() {
     const notSeen = graph.edges.some((e) => !e.data?.clusterLink && !(e.data?.observed && !e.data?.stale))
     const networks = graph.nodes.some((n) => n.type === 'boundary' && n.data.networks)
     const bundles = graph.edges.some((e) => e.data?.role === 'bundle')
-    return { tiers, warn, bad, seen, notSeen, networks, bundles }
+    const lossy = graph.edges.some((e) => e.data?.aggregated && e.data?.problem)
+    return { tiers, warn, bad, seen, notSeen, networks, bundles, lossy }
   }, [graph])
 
   // What the Calm canvas tints, in the order the pill walks them (Full does not tint, so it has no pill either).
@@ -679,9 +689,13 @@ function Canvas() {
     return { kind: d.kind === 'machine' ? 'node' : d.kind, id: d.entityId }
   }
 
-  // The problems pill: select the next problem and bring it to the middle of the canvas. The move waits two frames so it measures the
-  // canvas after the Inspector has taken its share of the width, and it does not animate for a person who asked for less motion.
-  const [panTo, setPanTo] = useState<{ id: string; n: number } | null>(null)
+  // Bringing a node into view. The part of the canvas a person can see is the canvas less whatever sheet covers it (on a phone the Inspector
+  // is a sheet over the bottom of it), so a node is centred in that band, never behind the sheet. The move waits two frames so it measures
+  // the canvas after the Inspector has taken its share, and it does not animate for a person who asked for less motion.
+  //   pill: the problems pill took the person here, so the node should be readable: keep the zoom if it is already comfortable (0.7 or more),
+  //         otherwise come to about 1, never further than the node fits.
+  //   soft: a tap on a phone selected it: only move if it is not already clear of the sheet, and keep the zoom.
+  const [panTo, setPanTo] = useState<{ id: string; n: number; soft?: boolean } | null>(null)
   const goToProblem = (back: boolean) => {
     const p = nextProblem(problems, selectedRfId, back)
     const n = p && graph.nodes.find((x) => x.id === p.id)
@@ -689,6 +703,27 @@ function Canvas() {
     select(fromNode(n))
     setPanTo((cur) => ({ id: p.id, n: (cur?.n ?? 0) + 1 }))
   }
+  // The pill's label: the problem already selected again (centred where it was lost), or the first when none is.
+  const showProblem = () => {
+    if (problems.some((p) => p.id === selectedRfId)) setPanTo((cur) => ({ id: selectedRfId!, n: (cur?.n ?? 0) + 1 }))
+    else goToProblem(false)
+  }
+  // N and Shift+N walk the problems, away from anything being typed in.
+  const walk = useRef(goToProblem)
+  walk.current = goToProblem
+  const anyProblem = problems.length > 0
+  useEffect(() => {
+    if (!anyProblem) return
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.key !== 'n' && e.key !== 'N') || e.metaKey || e.ctrlKey || e.altKey) return
+      const el = document.activeElement
+      if (el instanceof HTMLElement && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable)) return
+      e.preventDefault()
+      walk.current(e.shiftKey)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [anyProblem])
   useEffect(() => {
     if (!panTo) return
     let second = 0
@@ -697,13 +732,50 @@ function Canvas() {
         const n = getInternalNode(panTo.id)
         if (!n?.measured.width || !n.measured.height) return
         const calmMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
-        const { width, height } = store.getState()
-        const v = getViewportForBounds({ x: n.internals.positionAbsolute.x, y: n.internals.positionAbsolute.y, width: n.measured.width, height: n.measured.height }, width, height, FIT_MIN_ZOOM, 1.1, 0.6)
-        void setViewport(v, { duration: calmMotion ? 0 : 450 })
+        const { width, height, transform, domNode } = store.getState()
+        const sheet = document.querySelector('aside.modal-pop')
+        const covered = domNode && sheet && getComputedStyle(sheet).position === 'fixed' ? Math.max(0, domNode.getBoundingClientRect().bottom - sheet.getBoundingClientRect().top) : 0
+        const band = Math.max(120, height - covered)
+        const box = { x: n.internals.positionAbsolute.x, y: n.internals.positionAbsolute.y, w: n.measured.width, h: n.measured.height }
+        const cur = transform[2]
+        const fits = Math.min((width * 0.9) / box.w, (band * 0.78) / box.h)
+        if (panTo.soft) {
+          const top = box.y * cur + transform[1]
+          const left = box.x * cur + transform[0]
+          if (top >= 8 && top + box.h * cur <= band - 8 && left >= 0 && left + box.w * cur <= width) return
+        }
+        const zoom = Math.max(FIT_MIN_ZOOM, Math.min(panTo.soft || cur >= 0.7 ? cur : 1, fits, 1.75))
+        const x = width / 2 - (box.x + box.w / 2) * zoom
+        const y = band / 2 - (box.y + box.h / 2) * zoom
+        void setViewport({ x, y, zoom }, { duration: calmMotion ? 0 : 450 })
       })
     })
     return () => { cancelAnimationFrame(first); cancelAnimationFrame(second) }
   }, [panTo, store, setViewport, getInternalNode])
+  // The quick action sits outside what is selected: below it (a card's header is at its top, and a tap lands there), or above it when below
+  // would run off the canvas or under a sheet. A boolean from the store, so a pan only re-renders this when the side changes.
+  const selectedIdsKey = [...highlightedIds].join('\n')
+  const toolbarBelow = useStore((st) => {
+    if (!selectedIdsKey) return true
+    let bottom = -Infinity
+    for (const id of selectedIdsKey.split('\n')) {
+      const n = st.nodeLookup.get(id)
+      if (n?.measured.height) bottom = Math.max(bottom, n.internals.positionAbsolute.y + n.measured.height)
+    }
+    if (bottom === -Infinity) return true
+    const sheet = typeof document !== 'undefined' ? document.querySelector('aside.modal-pop') : null
+    const covered = st.domNode && sheet && getComputedStyle(sheet).position === 'fixed' ? Math.max(0, st.domNode.getBoundingClientRect().bottom - sheet.getBoundingClientRect().top) : 0
+    return bottom * st.transform[2] + st.transform[1] + 56 < st.height - covered
+  })
+  // On a phone a selection opens a sheet over the canvas: make sure what was selected is not under it.
+  const selectedPanned = useRef<string | null>(null)
+  useEffect(() => {
+    if (!selectedRfId) { selectedPanned.current = null; return }
+    if (selectedPanned.current === selectedRfId) return
+    selectedPanned.current = selectedRfId
+    if (window.matchMedia?.('(min-width: 1024px)').matches ?? true) return
+    setPanTo((cur) => (cur?.id === selectedRfId ? cur : { id: selectedRfId, n: (cur?.n ?? 0) + 1, soft: true }))
+  }, [selectedRfId])
 
   // "Pick from canvas": dims every entity and un-dims whatever's under the pointer (topology-pick-mode in
   // index.css does the dimming, driven only by this boolean), so a single hover-then-click goes straight to
@@ -792,7 +864,7 @@ function Canvas() {
         are actually a page of content.
       */}
       {/* Toolbar */}
-      <div className="flex min-h-14 shrink-0 flex-wrap items-center gap-x-4 gap-y-2 border-b border-nb-850 bg-nb-920 px-4 py-2 sm:px-5">
+      <div className="flex min-h-14 shrink-0 flex-wrap items-center gap-x-3 gap-y-2 sm:gap-x-4 border-b border-nb-850 bg-nb-920 px-4 py-2 sm:px-5">
         <h1 className="order-1 text-base font-medium text-nb-300">Topology</h1>
         <div className="order-3 flex basis-full overflow-x-auto rounded-lg border border-nb-800 bg-nb-925 p-0.5 sm:order-2 sm:basis-auto sm:overflow-visible" role="tablist" aria-label="View">
           {VIEWS.map((v) => (
@@ -816,11 +888,11 @@ function Canvas() {
           ))}
         </div>
 
-        <div className="order-2 ml-auto flex flex-wrap items-center gap-2 sm:order-3 sm:gap-3">
+        <div className="order-2 ml-auto flex flex-wrap items-center gap-1.5 sm:order-3 sm:gap-3">
           <LiveStatus />
           {mode === 'application' && selection?.kind === 'service' && (
             <div
-              className="flex items-center gap-1 rounded-md border border-nb-800 bg-nb-925 px-1.5 py-1"
+              className="hidden items-center gap-1 rounded-md border border-nb-800 bg-nb-925 px-1.5 py-1 sm:flex"
               title="Show only this service's neighborhood: what it calls and what calls it, this many steps out"
               data-testid="hops-control"
             >
@@ -1297,7 +1369,7 @@ function Canvas() {
                   itself over their combined bounding box, so this works the same for one clicked service, a
                   shift/ctrl-click group, or a whole box-selected cluster. Hidden on the map plane, same as
                   the toolbar button it replaces was. */}
-              <NodeToolbar nodeId={[...highlightedIds]} isVisible={!isMap && selectedServices.length > 0} position={Position.Top} offset={14}>
+              <NodeToolbar nodeId={[...highlightedIds]} isVisible={!isMap && selectedServices.length > 0} position={toolbarBelow ? Position.Bottom : Position.Top} offset={10}>
                 <ScopeFromSelection
                   selected={selectedServices}
                   clusters={clusters.filter((c) => !c.deletedAt)}
@@ -1309,7 +1381,7 @@ function Canvas() {
               </NodeToolbar>
               {problems.length > 0 && (
                 <Panel position="top-left" className="!m-3">
-                  <ProblemsPill problems={problems} selectedId={selectedRfId} onGo={goToProblem} />
+                  <ProblemsPill problems={problems} selectedId={selectedRfId} onGo={goToProblem} onShow={showProblem} />
                 </Panel>
               )}
               <Panel position="bottom-left" className={clsx('!mb-3 !ml-16 hidden sm:block', calm && 'flex-col items-start gap-2 sm:!flex')}>
@@ -1328,8 +1400,10 @@ function Canvas() {
                   {calm && onCanvas.networks && (
                     <>
                       <span className="h-3 w-px bg-nb-800" />
-                      <span className="flex items-center gap-1.5" title="Clusters on the same subnet, or joined by the same overlay or tunnel, share a network. Hover the chip to see which; it is a fact about the cluster, not a line.">
-                        <span className="inline-flex items-center gap-1 rounded bg-info/10 px-1.5 py-px text-[10.5px] text-info"><Network size={ICON_SM} aria-hidden="true" />Shared network</span>
+                      <span className="flex items-center gap-1.5" title="Clusters on the same subnet, or joined by the same overlay or tunnel, share a network. It is a fact about the cluster, never a line: the chip names it, and hovering or selecting a cluster rings every other cluster on it.">
+                        <span className="inline-flex items-center gap-1 rounded bg-info/10 px-1.5 py-px text-[10.5px] text-info"><Network size={ICON_SM} aria-hidden="true" />Network</span>
+                        <span className="size-3 rounded-[3px] border-2 border-info" aria-hidden="true" />
+                        Same network
                       </span>
                     </>
                   )}
@@ -1340,6 +1414,12 @@ function Canvas() {
                         <svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke="#8a96a0" strokeWidth="1.2" /></svg>
                         Dependencies between clusters
                       </span>
+                      {onCanvas.lossy && (
+                        <span className="flex items-center gap-1.5" title="Connection attempts on this path are being lost. The line says how long it takes and how much is lost.">
+                          <svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke="#f87171" strokeWidth="2" /></svg>
+                          Losing connections
+                        </span>
+                      )}
                     </>
                   )}
                   {!calm && (
@@ -1452,7 +1532,7 @@ function Canvas() {
                       )}
                     </>
                   )}
-                  {graph.nodes.some((n) => n.type === 'card' && n.data.pods) && (
+                  {!calm && graph.nodes.some((n) => n.type === 'card' && n.data.pods) && (
                     <>
                       <span className="h-3 w-px bg-nb-800" />
                       <PodLegend />
@@ -1528,6 +1608,8 @@ const FIT_PADDING = { top: '4%', left: '4%', right: '4%', bottom: '72px' } as co
 // Fitting a big graph into the window never zooms out past 0.5: below that even the far presentation's names
 // are too small to read. A graph that does not fit then runs past the window; pan or zoom out to see it all.
 const FIT_MIN_ZOOM = 0.5
+/** How far from the left the problems pill reaches (px), for keeping a fitted graph from sitting under it. */
+const PILL_WIDTH = 270
 const FIT_VIEW_OPTIONS = { padding: FIT_PADDING, minZoom: FIT_MIN_ZOOM }
 const PRO_OPTIONS = { hideAttribution: true }
 // Whether the canvas has already animated its initial fitView once this session - see the effect above.
