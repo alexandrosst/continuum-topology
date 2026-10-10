@@ -60,16 +60,24 @@ export function WalkHint({ className }: { className?: string }) {
 
 /**
  * The thin line under the toolbar on the Application and Infrastructure tabs, where the Telemetry tab has its summary: the answer to "is anything
- * wrong?" before anything else on the screen, in the same place whatever the layer. The pill when something is, "No problems" when not.
+ * wrong?" before anything else on the screen, in the same place whatever the layer. The pill when something is, "No problems" when not. A line that
+ * is losing connections is a fact about the path between two boxes, not a box, so the pill does not count it: the bar says it beside the pill
+ * (and instead of "No problems", which a red line on the canvas would contradict).
  */
-export function CanvasBar({ problems, selectedId, onGo, onShow, trailing }: { problems: Problem[]; selectedId: string | null; onGo: (back: boolean) => void; onShow: () => void; trailing?: ReactNode }) {
+export function CanvasBar({ problems, selectedId, onGo, onShow, trailing, lossy = 0 }: { problems: Problem[]; selectedId: string | null; onGo: (back: boolean) => void; onShow: () => void; trailing?: ReactNode; /** How many lines on the canvas are losing connections. */ lossy?: number }) {
+  const lines = lossy > 0 && (
+    <p className="flex min-h-7 items-center gap-1.5 text-[13px] text-nb-300" data-testid="lossy-lines" title="A line that loses connection attempts is red on the canvas. It is a path between boxes, so the count of boxes that need attention leaves it out: select the line to see it.">
+      <StatusMark state="down" /> {lossy === 1 ? '1 line is losing connections' : `${lossy} lines are losing connections`}
+    </p>
+  )
   return (
-    <div className="flex min-h-12 shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-nb-850 px-4 py-2 sm:px-6" data-testid="canvas-status">
+    <div className="flex min-h-10 shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-nb-850 px-4 py-1.5 sm:px-6" data-testid="canvas-status">
       {problems.length > 0 ? (
         <ProblemsPill problems={problems} selectedId={selectedId} onGo={onGo} onShow={onShow} />
       ) : (
-        <p className="flex min-h-8 items-center gap-2 text-[13px] text-nb-300"><StatusMark state="healthy" /> No problems</p>
+        !lines && <p className="flex min-h-7 items-center gap-2 text-[13px] text-nb-300"><StatusMark state="healthy" /> No problems</p>
       )}
+      {lines}
       <div className="ml-auto flex flex-wrap items-center gap-x-4 gap-y-2">
         {trailing}
         {problems.length > 1 && <WalkHint />}

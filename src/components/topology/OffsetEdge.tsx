@@ -616,6 +616,10 @@ function longestRun(points: Pt[]): { x: number; y: number } {
  *  obstacle for it - generous enough to cover the widest bow curvedPath's own escalation ever tries (see
  *  its doc comment), so nothing that could plausibly end up under the curve gets missed, while still
  *  skipping the large majority of an even moderately busy canvas that's nowhere near this one edge's route. */
+/** A pill is half cut off by the edge of the canvas when its middle is within its own half-width of it (a phone pans a wide graph), and a cut pill reads as a fault: leave it out until the line is panned into view. */
+const pillInView = (x: number, width: number) => !width || (x > PILL_HALF && x < width - PILL_HALF)
+const PILL_HALF = 56
+
 export function OffsetEdge({ id, source, target, sourceX, sourceY, targetX, targetY, data, label, labelStyle, labelBgStyle, labelBgPadding, labelBgBorderRadius, labelShowBg, markerEnd, style, interactionWidth }: EdgeProps<TopoEdge>) {
   const sourceNode = useInternalNode(source)
   const targetNode = useInternalNode(target)
@@ -673,7 +677,8 @@ export function OffsetEdge({ id, source, target, sourceX, sourceY, targetX, targ
   // current zoom - a flat flow-space constant would shrink to sub-pixel, invisible nothing at the ~0.5-0.6x
   // zoom this app's own overview layouts commonly fit to, which is exactly the zoom level this was first
   // reported unnoticeable at.
-  const { zoom } = useViewport()
+  const { zoom, x: panX } = useViewport()
+  const paneW = useStore((st) => st.width)
   const GAP = 5 / zoom
   const pulled = pullBackEnds(sx, sy, tx, ty, GAP, !!markerEnd)
   sx = pulled.sx
@@ -744,7 +749,7 @@ export function OffsetEdge({ id, source, target, sourceX, sourceY, targetX, targ
         style={style}
         interactionWidth={calm ? 20 / zoom : interactionWidth}
       />
-      {calm && label && (lane || Math.hypot(x2 - x1, y2 - y1) * zoom >= PILL_MIN_LINE) && (
+      {calm && label && (data?.role !== 'detail' || lit) && pillInView(labelX * zoom + panX, paneW) && (lane || Math.hypot(x2 - x1, y2 - y1) * zoom >= PILL_MIN_LINE) && (
         // Calm names a line with a pill in the layer above every line (an SVG label is painted with its own line, so a line drawn after it strikes
         // it through), opaque so no line shows through, and the same size on screen at every zoom.
         <EdgeLabelRenderer>

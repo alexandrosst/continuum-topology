@@ -94,6 +94,14 @@ describe('CanvasBar', () => {
     expect(screen.getByTestId('problems-pill')).toHaveTextContent('2 services need attention')
     expect(screen.getByTestId('canvas-status')).toHaveTextContent('Shift N')
   })
+  test('says a line that is losing connections beside the pill, and never "No problems" over a red line (the pill counts boxes, not paths)', () => {
+    const { rerender } = render(<CanvasBar problems={[]} selectedId={null} onGo={() => {}} onShow={() => {}} lossy={1} />)
+    expect(screen.getByTestId('lossy-lines')).toHaveTextContent('1 line is losing connections')
+    expect(screen.getByTestId('canvas-status')).not.toHaveTextContent('No problems')
+    rerender(<CanvasBar problems={[{ id: 'a', alert: 'warn', noun: 'service' }]} selectedId={null} onGo={() => {}} onShow={() => {}} lossy={2} />)
+    expect(screen.getByTestId('problems-pill')).toHaveTextContent('1 service needs attention')
+    expect(screen.getByTestId('lossy-lines')).toHaveTextContent('2 lines are losing connections')
+  })
   test('carries the view-wide control (the neighbourhood steps) on its right, beside the status', () => {
     render(<CanvasBar problems={[]} selectedId={null} onGo={() => {}} onShow={() => {}} trailing={<div data-testid="hops-control">Steps out</div>} />)
     expect(screen.getByTestId('canvas-status')).toContainElement(screen.getByTestId('hops-control'))

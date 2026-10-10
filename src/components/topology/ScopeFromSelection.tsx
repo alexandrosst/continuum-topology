@@ -56,7 +56,7 @@ export default function ScopeFromSelection({
 
   if (targets.length === 1) {
     return (
-      <Button onClick={() => goTo(targets[0].cluster.name, targets[0].agent.id)} data-testid="scope-from-selection">
+      <Button className="shadow-md" onClick={() => goTo(targets[0].cluster.name, targets[0].agent.id)} data-testid="scope-from-selection">
         <Crosshair size={ICON_SM} /> <span className="hidden sm:inline">{label}</span>
       </Button>
     )
@@ -64,7 +64,7 @@ export default function ScopeFromSelection({
 
   return (
     <div className="relative">
-      <Button onClick={() => onOpenChange(!open)} aria-haspopup="dialog" aria-expanded={open} data-testid="scope-from-selection">
+      <Button className="shadow-md" onClick={() => onOpenChange(!open)} aria-haspopup="dialog" aria-expanded={open} data-testid="scope-from-selection">
         <Crosshair size={ICON_SM} /> <span className="hidden sm:inline">{label}</span>
       </Button>
       <MenuPanel open={open} onClose={() => onOpenChange(false)} className="w-72 overflow-hidden" role="dialog" aria-label="Which cluster's telemetry to scope">

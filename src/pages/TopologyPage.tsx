@@ -2,6 +2,7 @@ import {
   Background,
   BackgroundVariant,
   ControlButton,
+  type FitViewOptions,
   Controls,
   getNodesBounds,
   getViewportForBounds,
@@ -137,14 +138,16 @@ function Canvas() {
   const topology = useTopology()
   const { fitView, getInternalNode, getNodes, setViewport } = useReactFlow()
   const store = useStoreApi()
+  // Where the graph sits in the window: Calm leaves room under it for one row of buttons, Full for its legend (set once the Detail is known).
+  const fitOptions = useRef<FitViewOptions>(CALM_FIT_OPTIONS)
   // Fit the whole graph, but never below FIT_MIN_ZOOM: a graph bigger than the window then starts at its top
   // left (cropping only the far side, which scrolls into view) instead of cropping both ends equally.
   const fit = useCallback((duration: number) => {
     const { width, height } = store.getState()
     const bounds = getNodesBounds(getNodes())
     // Nothing measured yet: let React Flow wait for it.
-    if (!width || !height || !bounds.width) { void fitView({ ...FIT_VIEW_OPTIONS, duration }); return }
-    const v = getViewportForBounds(bounds, width, height, FIT_MIN_ZOOM, 1.75, FIT_PADDING)
+    if (!width || !height || !bounds.width) { void fitView({ ...fitOptions.current, duration }); return }
+    const v = getViewportForBounds(bounds, width, height, FIT_MIN_ZOOM, 1.75, fitOptions.current.padding ?? FIT_PADDING)
     // On a phone the widest cluster box sets the zoom instead of the whole graph (see narrowFitZoom).
     const widest = Math.max(0, ...getNodes().filter((n) => n.type === 'boundary' && !n.parentId).map((n) => n.measured?.width ?? 0))
     const zoom = narrowFitZoom(width, v.zoom, widest)
@@ -175,6 +178,7 @@ function Canvas() {
   const detailParam = sp.get('detail')
   const detail = resolveDetail(detailParam, storedDetail)
   const calm = detail === 'calm'
+  fitOptions.current = calm ? CALM_FIT_OPTIONS : FIT_VIEW_OPTIONS
   // Minimap: on for a big graph and on Full as ever; otherwise one Options choice away.
   // ?minimap=1 / 0 is the person's own choice and beats that default.
   const minimapChoice = sp.get('minimap') === '1' ? true : sp.get('minimap') === '0' ? false : null
@@ -415,7 +419,7 @@ function Canvas() {
     const notSeen = graph.edges.some((e) => !e.data?.clusterLink && !(e.data?.observed && !e.data?.stale))
     const networks = graph.nodes.some((n) => n.type === 'boundary' && n.data.networks)
     const bundles = graph.edges.some((e) => e.data?.role === 'bundle')
-    const lossy = graph.edges.some((e) => e.data?.aggregated && e.data?.problem)
+    const lossy = graph.edges.filter((e) => e.data?.aggregated && e.data?.problem).length
     return { tiers, seen, notSeen, networks, bundles, lossy }
   }, [graph])
 
@@ -580,9 +584,9 @@ function Canvas() {
       // (cluster-link colours, the lighter cross-cluster grey, weight and the conntrack dash) come back on Full, or on a line that is the focus.
       const problem = !!e.data?.problem
       const band = q && (!calm || problem) ? lossBand(q.lossPct) : 'ok'
-      // A call between two cards names itself when it is the focus (or when labels are asked for): a failing one inside a cluster is told by its colour,
-      // since its pill would sit on the card at its end.
-      const showLabel = showLabels || hot
+      // A failing call between clusters carries its name, as it always did (OffsetEdge shows it only while the call is lit, and only on a line long enough
+      // to hold a pill, so a failing one inside a cluster is told by its colour instead of a pill sitting on the card at its end).
+      const showLabel = showLabels || hot || (problem && e.data?.role === 'detail')
       // A line that stands for several says nothing at rest unless it is failing, and then why: the path's round trip and loss. How many it
       // stands for is the hover card's to say, and the Inspector's.
       const label = e.data?.aggregated && calm ? (problem && q ? qualityLabel(q) : undefined) : showLabel ? e.label : undefined
@@ -1180,7 +1184,7 @@ function Canvas() {
         />
       ) : (
       <>
-      {isCanvas && !empty && !nothingMatches && <CanvasBar problems={problems} selectedId={selectedRfId} onGo={goToProblem} onShow={showProblem} trailing={hopsControl || undefined} />}
+      {isCanvas && !empty && !nothingMatches && <CanvasBar problems={problems} selectedId={selectedRfId} onGo={goToProblem} onShow={showProblem} trailing={hopsControl || undefined} lossy={onCanvas.lossy} />}
       <div className="flex min-h-0 flex-1">
         <div className="relative min-w-0 flex-1" ref={setHost}>
           {!empty && nothingMatches ? (
@@ -1336,16 +1340,18 @@ function Canvas() {
               minZoom={0.1}
               maxZoom={1.75}
               fitView
-              fitViewOptions={FIT_VIEW_OPTIONS}
+              fitViewOptions={fitOptions.current}
               proOptions={PRO_OPTIONS}
               colorMode="dark"
             >
               <Background variant={BackgroundVariant.Dots} gap={22} size={1.2} color="var(--color-nb-850)" />
               <Controls showInteractive={false} orientation={calm ? 'horizontal' : 'vertical'} className={calm ? 'controls-quiet' : undefined}>
-                {/* The legend is the fourth button of the one control bar (zoom in, zoom out, fit, legend), not a widget of its own. */}
-                <ControlButton onClick={toggleLegend} aria-expanded={legendOpen} aria-controls="topology-legend" className={clsx('legend-button', !calm && 'legend-icon')} data-testid="legend-toggle" title="What the colours, lines and badges mean">
-                  <CircleHelp size={ICON_SM} aria-hidden /> <span className={calm ? undefined : 'sr-only'}>Legend</span>
-                </ControlButton>
+                {/* Calm: the legend is the fourth button of the one control bar (zoom in, zoom out, fit, legend), open on request. Full keeps its legend on show, as ever. */}
+                {calm && (
+                  <ControlButton onClick={toggleLegend} aria-expanded={legendOpen} aria-controls="topology-legend" className="legend-button" data-testid="legend-toggle" title="What the colours, lines and badges mean">
+                    <CircleHelp size={ICON_SM} aria-hidden /> Legend
+                  </ControlButton>
+                )}
               </Controls>
               <ZoomVar />
               {/* Hidden while the Inspector is open: the canvas is narrower then and the map would sit on the legend. The mask is themed in index.css. */}
@@ -1358,7 +1364,7 @@ function Canvas() {
                   itself over their combined bounding box, so this works the same for one clicked service, a
                   shift/ctrl-click group, or a whole box-selected cluster. Hidden on the map plane, same as
                   the toolbar button it replaces was. */}
-              <NodeToolbar nodeId={[...highlightedIds]} isVisible={!isMap && selectedServices.length > 0} position={toolbarBelow ? Position.Bottom : Position.Top} offset={10}>
+              <NodeToolbar nodeId={[...highlightedIds]} isVisible={!isMap && selectedServices.length > 0} position={toolbarBelow ? Position.Bottom : Position.Top} offset={10} style={{ zIndex: 1002 }}>
                 <ScopeFromSelection
                   selected={selectedServices}
                   clusters={clusters.filter((c) => !c.deletedAt)}
@@ -1369,7 +1375,7 @@ function Canvas() {
                 />
               </NodeToolbar>
               <Panel position="bottom-left" className={clsx('hidden sm:block', calm ? 'legend-above flex-col items-start sm:!flex' : '!mb-3 !ml-16')}>
-                {legendOpen && (
+                {(!calm || legendOpen) && (
                 <div id="topology-legend" className="flex max-w-[min(92vw,720px)] flex-wrap items-center gap-x-4 gap-y-1.5 whitespace-nowrap rounded-lg border border-nb-850 bg-nb-925 px-3.5 py-2 text-xs text-nb-400">
                   {/* The one status language, taught here: the same four glyphs and words every box and card carries. */}
                   <StatusKey />
@@ -1401,7 +1407,7 @@ function Canvas() {
                         <svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke="#8a96a0" strokeWidth="1.2" /></svg>
                         Dependencies between clusters
                       </span>
-                      {onCanvas.lossy && (
+                      {onCanvas.lossy > 0 && (
                         <span className="flex items-center gap-1.5" title="Connection attempts on this path are being lost. The line says how long it takes and how much is lost.">
                           <svg width="18" height="6"><line x1="0" y1="3" x2="18" y2="3" stroke="var(--color-bad)" strokeWidth="2" /></svg>
                           Losing connections
@@ -1576,6 +1582,8 @@ const FIT_PADDING = { top: '4%', left: '4%', right: '4%', bottom: '72px' } as co
 // are too small to read. A graph that does not fit then runs past the window; pan or zoom out to see it all.
 const FIT_MIN_ZOOM = 0.5
 const FIT_VIEW_OPTIONS = { padding: FIT_PADDING, minZoom: FIT_MIN_ZOOM }
+// Calm has no legend panel in the way (its key opens above the one row of buttons), so the graph gets the room back that the status line took.
+const CALM_FIT_OPTIONS = { padding: { top: '16px', left: '4%', right: '4%', bottom: '48px' } as const, minZoom: FIT_MIN_ZOOM }
 const PRO_OPTIONS = { hideAttribution: true }
 // Whether the canvas has already animated its initial fitView once this session - see the effect above.
 let hasEverFit = false
