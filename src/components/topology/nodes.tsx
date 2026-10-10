@@ -328,7 +328,7 @@ function CalmGroupBox({ id, data, selected }: NodeProps<GroupNode>) {
     <div
       className={clsx(
         'group/box relative h-full w-full rounded-2xl border transition-shadow',
-        selected ? 'shadow-[inset_0_0_0_2px_var(--color-accent)]' : ringed && 'shadow-[inset_0_0_0_2px_var(--color-info)]',
+        selected ? 'shadow-[inset_0_0_0_2px_var(--color-nb-100)]' : ringed && 'shadow-[inset_0_0_0_2px_var(--color-info)]',
       )}
       style={{
         // The network ring is the one blue on the canvas whatever the box's own tier or alert colour, so it reads the same on every box.
@@ -588,7 +588,7 @@ function CalmCard({ data, selected }: NodeProps<CardNode>) {
       <div
         className={clsx(
           'group/card absolute inset-x-0 top-0 min-h-full rounded-xl border bg-nb-925 px-3.5 py-[7px] transition-colors',
-          selected ? 'border-accent shadow-[inset_0_0_0_1px_var(--color-accent)]' : alert ? '' : 'border-nb-800 hover:border-nb-700',
+          selected ? 'border-nb-100 shadow-[inset_0_0_0_1px_var(--color-nb-100)]' : alert ? '' : 'border-nb-800 hover:border-nb-700',
         )}
         title={alert && data.note ? `${data.title}: ${data.note}` : undefined}
         style={tone && !selected ? { borderColor: `color-mix(in srgb, ${tone} 70%, transparent)`, background: `color-mix(in srgb, ${tone} 7%, var(--color-nb-925))` } : undefined}
