@@ -49,7 +49,7 @@ import TelemetryTab from '@/components/topology/TelemetryTab'
 import { edgeTypes, EdgeStyleContext } from '@/components/topology/OffsetEdge'
 import { Button, EmptyState, ICON_MD, ICON_SM, MenuPanel, Select, SkeletonBlock, TIER_ICON } from '@/components/ui/primitives'
 import { PRESS_CLASS } from '@/components/ui/buttonClass'
-import FilterMenu, { FilterChip } from '@/components/topology/FilterMenu'
+import FilterMenu from '@/components/topology/FilterMenu'
 import { extrasOf, TELEMETRY_SIGNALS } from '@/lib/consent'
 import { DETAIL_KEY, DetailContext, resolveDetail, type Alert } from '@/lib/detail'
 import { narrowFitZoom } from '@/lib/fit'
@@ -793,8 +793,8 @@ function Canvas() {
       */}
       {/* Toolbar */}
       <div className="flex min-h-14 shrink-0 flex-wrap items-center gap-x-4 gap-y-2 border-b border-nb-850 bg-nb-920 px-4 py-2 sm:px-5">
-        <h1 className="text-base font-medium text-nb-300">Topology</h1>
-        <div className="flex rounded-lg border border-nb-800 bg-nb-925 p-0.5" role="tablist" aria-label="View">
+        <h1 className="order-1 text-base font-medium text-nb-300">Topology</h1>
+        <div className="order-3 flex basis-full overflow-x-auto rounded-lg border border-nb-800 bg-nb-925 p-0.5 sm:order-2 sm:basis-auto sm:overflow-visible" role="tablist" aria-label="View">
           {VIEWS.map((v) => (
             <button
               key={v.value}
@@ -806,7 +806,7 @@ function Canvas() {
                 setSelection(null)
               }}
               className={clsx(
-                'rounded-md px-2.5 py-1.5 text-sm sm:px-3.5',
+                'flex-1 rounded-md px-2.5 py-1.5 text-sm sm:flex-none sm:px-3.5',
                 PRESS_CLASS,
                 mode === v.value ? 'bg-nb-850 text-nb-300' : 'text-nb-400 hover:text-nb-300',
               )}
@@ -816,7 +816,7 @@ function Canvas() {
           ))}
         </div>
 
-        <div className="ml-auto flex flex-wrap items-center gap-2 sm:gap-3">
+        <div className="order-2 ml-auto flex flex-wrap items-center gap-2 sm:order-3 sm:gap-3">
           <LiveStatus />
           {mode === 'application' && selection?.kind === 'service' && (
             <div
@@ -866,7 +866,6 @@ function Canvas() {
             </Button>
           ) : (
             <>
-          <FilterChip filter={filter} onClear={() => { setSp((p) => { const n = new URLSearchParams(p); for (const k of ['clusters', 'apps', 'kinds']) n.delete(k); return n }, { replace: true }); setSelection(null) }} />
           <FilterMenu
             disabled={empty}
             open={openMenu === 'filter'}
@@ -1062,9 +1061,9 @@ function Canvas() {
             </div>
           )}
 
-          {isCanvas && calm && (
+          {isCanvas && (
             <>
-              {/* Calm keeps the toolbar to what is used on most visits (Filter, Views, Options, Add); the three canvas actions live
+              {/* The toolbar keeps to what is used on most visits (Filter, Views, Options, Add) in both Details; the three canvas actions live
                   under "...". Picking is a mode, so while it is on its way out stays one click away, in the toolbar. */}
               {pickMode && (
                 <Button variant="primary" onClick={() => setPickMode(false)} aria-pressed title="Cancel - click a service or cluster to scope it, or press Escape" data-testid="pick-scope">
@@ -1086,44 +1085,9 @@ function Canvas() {
             </>
           )}
 
-          {isCanvas && !calm && (
-            <Button
-              disabled={empty}
-              onClick={resetLayout}
-              title="Reset the canvas layout - snaps every entity back to its computed position. Your view options (filters, grouping, toggles) are untouched."
-              data-testid="reset-layout"
-            >
-              <RotateCcw size={ICON_SM} /> <span className="hidden sm:inline">Reset layout</span>
-            </Button>
-          )}
-
-          {isCanvas && !calm && (
-            <Button
-              onClick={exportPng}
-              disabled={exportingPng || empty}
-              title="Save the current canvas as a PNG image, at its full extent (not just what's on screen)"
-              data-testid="export-png"
-            >
-              <Download size={ICON_SM} /> <span className="hidden sm:inline">{exportingPng ? 'Exporting…' : 'Export PNG'}</span>
-            </Button>
-          )}
-
-          {isCanvas && !calm && (
-            <Button
-              variant={pickMode ? 'primary' : undefined}
-              onClick={() => setPickMode((v) => !v)}
-              disabled={empty}
-              aria-pressed={pickMode}
-              title={pickMode ? 'Cancel - click a service or cluster to scope it, or press Escape' : 'Pick a service or cluster on the canvas to configure its telemetry, without selecting it first'}
-              data-testid="pick-scope"
-            >
-              <Target size={ICON_SM} /> <span className="hidden sm:inline">Pick from canvas</span>
-            </Button>
-          )}
-
           <div className="relative">
-            <Button variant="primary" onClick={() => toggleMenu('add')} disabled={inPast} title={inPast ? 'Return to now to add or change things' : undefined}>
-              <Plus size={ICON_SM} /> Add <ChevronDown size={ICON_SM} />
+            <Button variant="primary" onClick={() => toggleMenu('add')} aria-label="Add" disabled={inPast} title={inPast ? 'Return to now to add or change things' : undefined}>
+              <Plus size={ICON_SM} /> <span className="hidden sm:inline">Add</span> <ChevronDown size={ICON_SM} className="hidden sm:block" />
             </Button>
             <MenuPanel open={openMenu === 'add'} onClose={() => setOpenMenu(null)} className="w-48 overflow-hidden p-1">
               {[

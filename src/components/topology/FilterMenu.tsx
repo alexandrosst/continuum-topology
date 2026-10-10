@@ -60,9 +60,9 @@ export default function FilterMenu({
 
   return (
     <div className="relative">
-      <Button onClick={() => onOpenChange(!open)} disabled={disabled} aria-haspopup="dialog" aria-expanded={open} aria-label="Filter the topology" data-testid="filter-button">
+      <Button onClick={() => onOpenChange(!open)} disabled={disabled} aria-haspopup="dialog" aria-expanded={open} aria-label={filterSummary(filter) ? `Filter the topology (showing ${filterSummary(filter)})` : 'Filter the topology'} title={filterSummary(filter)} data-testid="filter-button">
         <FilterIcon size={ICON_SM} className={filterActive(filter) ? 'text-accent' : ''} />
-        <span>Filter</span>
+        <span className="hidden sm:inline">Filter</span>
         {count > 0 && (
           <span className="rounded-full bg-accent/20 px-1.5 text-xs text-accent" data-testid="filter-count">
             {count}
@@ -92,20 +92,5 @@ export default function FilterMenu({
         <p className="border-t border-nb-850 px-3 py-2 text-xs text-nb-500">Nothing ticked in a list means all of it. A dependency is shown only if both ends are.</p>
       </MenuPanel>
     </div>
-  )
-}
-
-/** What the filter is doing, said next to the button ("Deployments only"), so a default or a shared link that hides
- *  things is never a mystery; the cross clears it. Nothing when nothing is filtered. */
-export function FilterChip({ filter, onClear }: { filter: Filter; onClear: () => void }) {
-  const text = filterSummary(filter)
-  if (!text) return null
-  return (
-    <span className="inline-flex h-8 max-w-48 items-center gap-1 rounded-lg bg-accent-soft pl-2.5 pr-1 text-xs text-accent" data-testid="filter-chip">
-      <span className="truncate" title={text}>{text}</span>
-      <button type="button" onClick={onClear} className="grid size-5 shrink-0 place-items-center rounded hover:bg-accent/20" aria-label={`Clear the filter (${text})`} data-testid="filter-chip-clear">
-        <X size={12} />
-      </button>
-    </span>
   )
 }

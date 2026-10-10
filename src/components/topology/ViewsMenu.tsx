@@ -40,7 +40,7 @@ export default function ViewsMenu({
     <div className="relative">
       <Button onClick={() => onOpenChange(!open)} aria-haspopup="dialog" aria-expanded={open} aria-label={current ? `Saved views, current: ${current.name}` : 'Saved views'} title={current?.name} data-testid="views-button">
         <Bookmark size={ICON_SM} className={current ? 'fill-accent text-accent' : ''} />
-        <span>Views</span>
+        <span className="hidden sm:inline">Views</span>
       </Button>
       <MenuPanel open={open} onClose={close} className="w-80 overflow-hidden" role="dialog" aria-label="Saved views">
         <div className="max-h-64 overflow-y-auto p-1">
