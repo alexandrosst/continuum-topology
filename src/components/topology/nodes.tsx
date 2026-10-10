@@ -26,7 +26,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { ICON_MD, ICON_SM, TIER_ICON } from '@/components/ui/primitives'
-import { createElement, memo, useCallback, useContext, useState, type ComponentProps, type ReactNode } from 'react'
+import { createElement, memo, useCallback, useContext, useEffect, useState, type ComponentProps, type ReactNode } from 'react'
 import { PodPopover, PodRail } from '@/components/topology/Pods'
 import { LoadRow } from '@/components/topology/Load'
 import { peakLoad } from '@/lib/metrics'
@@ -67,6 +67,15 @@ export function AllHandles() {
  */
 export const FAR_ZOOM = 0.62
 const useFar = () => useStore((s) => s.transform[2] < FAR_ZOOM)
+
+/** Keeps the canvas's zoom where CSS can read it (`--zoom`), so the few things that must stay readable however far out the canvas is drawn (what is
+ *  wrong, which network) are sized in screen pixels by the `fine` class. It draws nothing; render it inside the canvas. */
+export function ZoomVar() {
+  const zoom = useStore((s) => s.transform[2])
+  const dom = useStore((s) => s.domNode)
+  useEffect(() => { dom?.style.setProperty('--zoom', String(zoom)) }, [dom, zoom])
+  return null
+}
 
 /** The state colours of a problem card or cluster: the same two the status dot and the rest of the app use. */
 const ALERT_COLOR: Record<Alert, string> = { warn: STATUS_COLOR.degraded, bad: STATUS_COLOR.offline }
@@ -280,16 +289,33 @@ function NetworkChips({ networks }: { networks: NonNullable<GroupData['networks'
   )
 }
 
+/** What a box on a network shows when its chips are not drawn (zoomed out): the network's glyph, as large on screen as a line of text. */
+function NetworkPip({ networks }: { networks: NonNullable<GroupData['networks']> }) {
+  const text = networks.map((n) => n.text).join('. ')
+  const Glyph = networks[0].kind === 'overlay' ? Cable : Network
+  return (
+    <span role="img" aria-label={text} title={text} data-testid="network-pip" className="fine inline-flex shrink-0 items-center rounded bg-info/10 px-1 text-info">
+      <Glyph className="size-[1.1em]" aria-hidden="true" />
+    </span>
+  )
+}
+
+/** The networks lit by what the pointer or the selection is on: a hovered chip's network, else the networks the active box is a member of. `peer` is
+ *  whether this box is one of the others on it (the active box itself is named, not ringed). */
+function litNetworks(s: Parameters<typeof activeId>[0] & { network: string | null }, id: string, networks: GroupData['networks']) {
+  const a = activeId(s)
+  const nets = s.network ? networks?.filter((n) => n.id === s.network) : a ? networks?.filter((n) => n.members.includes(a)) : undefined
+  return { nets: nets ?? [], peer: !!nets?.length && (!!s.network || a !== id) }
+}
+
 /** Calm: the header is what identifies the box (its name, its logo, its status dot), where it is, and what is wrong with it. The tier is a
  *  small glyph with its name on hover; the distribution, counts, load bars and telemetry control are the Inspector's. */
 function CalmGroupBox({ id, data, selected }: NodeProps<GroupNode>) {
   const far = useFar()
-  // Rings this box when it shares a network with whatever is hovered or selected, or when one of its own network chips is lit.
-  const ringed = useCanvasFocus((s) => {
-    if (s.network && data.networks?.some((n) => n.id === s.network)) return true
-    const a = activeId(s)
-    return !!a && a !== id && !!data.peers?.includes(a)
-  })
+  // Rings this box when it shares a network with whatever is hovered or selected, or when one of its own network chips is lit, and names that
+  // network on the box so a ring is never a mystery (the box that is hovered itself is named too, but not ringed).
+  const ringed = useCanvasFocus((s) => litNetworks(s, id, data.networks).peer)
+  const ringName = useCanvasFocus((s) => litNetworks(s, id, data.networks).nets.map((n) => `${n.via} · shared by ${n.members.length}`).join(', '))
   const color = TIER_COLOR[data.tier]
   const peak = data.load ? peakLoad(data.load) : undefined
   const alert = data.alert
@@ -301,14 +327,20 @@ function CalmGroupBox({ id, data, selected }: NodeProps<GroupNode>) {
     // Inset ring: see the note in FullGroupBox.
     <div
       className={clsx(
-        'group/box h-full w-full rounded-2xl border transition-shadow',
-        selected ? 'shadow-[inset_0_0_0_2px_var(--color-accent)]' : ringed && 'shadow-[inset_0_0_0_2px_color-mix(in_srgb,var(--color-info)_55%,transparent)]',
+        'group/box relative h-full w-full rounded-2xl border transition-shadow',
+        selected ? 'shadow-[inset_0_0_0_2px_var(--color-accent)]' : ringed && 'shadow-[inset_0_0_0_2px_var(--color-info)]',
       )}
       style={{
-        borderColor: alert && !selected ? `color-mix(in srgb, ${ALERT_COLOR[alert]} 55%, transparent)` : `color-mix(in srgb, ${color} ${selected ? 70 : 32}%, transparent)`,
+        // The network ring is the one blue on the canvas whatever the box's own tier or alert colour, so it reads the same on every box.
+        borderColor: ringed && !selected ? 'var(--color-info)' : alert && !selected ? `color-mix(in srgb, ${ALERT_COLOR[alert]} 55%, transparent)` : `color-mix(in srgb, ${color} ${selected ? 70 : 32}%, transparent)`,
         background: `color-mix(in srgb, ${color} 5%, var(--color-nb-920))`,
       }}
     >
+      {ringName && (
+        <span className="fine pointer-events-none absolute left-5 top-full z-10 flex -translate-y-1/2 items-center gap-1 whitespace-nowrap rounded-full border border-info bg-nb-900 px-2 py-px text-info" data-testid="network-ring-name">
+          <Network className="size-[1.1em]" aria-hidden="true" />{ringName}
+        </span>
+      )}
       <AllHandles />
       <div className="flex items-start justify-between gap-3 px-5 pt-4">
         <div className="min-w-0">
@@ -316,6 +348,7 @@ function CalmGroupBox({ id, data, selected }: NodeProps<GroupNode>) {
             <span className={clsx('shrink-0 rounded-full', far ? 'size-3' : 'size-2')} style={{ background: shown.color }} title={shown.word} />
             {data.distribution && <DistroIcon distribution={data.distribution} size={ICON_SM} />}
             <span className={clsx('truncate font-medium text-nb-300', far ? 'text-[26px] leading-8' : 'text-sm')} title={data.title}>{data.title}</span>
+            {far && data.networks && <NetworkPip networks={data.networks} />}
             {far && peak !== undefined && peak >= 70 && (
               <span className={clsx('rounded px-1.5 py-0.5 text-[15px] font-medium', peak >= 90 ? 'bg-bad/15 text-bad' : 'bg-warn/15 text-warn')} title="Busiest resource: share requested by pods">{peak}%</span>
             )}
@@ -331,8 +364,8 @@ function CalmGroupBox({ id, data, selected }: NodeProps<GroupNode>) {
               )}
             </div>
           )}
-          {!far && alert && data.note && (
-            <div className={clsx('mt-0.5 truncate pl-4 text-[11px]', ALERT_TEXT[alert])} data-testid="box-note">{data.note}</div>
+          {alert && data.note && (
+            <div className={clsx('fine mt-0.5 truncate pl-4', ALERT_TEXT[alert])} title={data.note} data-testid="box-note">{data.note}</div>
           )}
           {!far && data.networks && <NetworkChips networks={data.networks} />}
         </div>
@@ -557,6 +590,7 @@ function CalmCard({ data, selected }: NodeProps<CardNode>) {
           'group/card absolute inset-x-0 top-0 min-h-full rounded-xl border bg-nb-925 px-3.5 py-[7px] transition-colors',
           selected ? 'border-accent shadow-[inset_0_0_0_1px_var(--color-accent)]' : alert ? '' : 'border-nb-800 hover:border-nb-700',
         )}
+        title={alert && data.note ? `${data.title}: ${data.note}` : undefined}
         style={tone && !selected ? { borderColor: `color-mix(in srgb, ${tone} 70%, transparent)`, background: `color-mix(in srgb, ${tone} 7%, var(--color-nb-925))` } : undefined}
       >
         <div className="flex h-9 items-center gap-3">
@@ -577,8 +611,8 @@ function CalmCard({ data, selected }: NodeProps<CardNode>) {
           {!far && data.kind === 'device' && data.meta && <span className="shrink-0 text-[11px] text-nb-500" title="Devices in this group">{data.meta}</span>}
           <span className={clsx('shrink-0 rounded-full', far ? 'size-3' : 'size-2')} style={{ background: shown.color }} title={shown.word} />
         </div>
-        {!far && alert && data.note && (
-          <div className={clsx('-mt-0.5 truncate pl-11 text-[11px]', ALERT_TEXT[alert])} data-testid="card-note">{data.note}</div>
+        {alert && data.note && (
+          <div className={clsx('fine -mt-0.5 truncate pl-11', ALERT_TEXT[alert])} title={data.note} data-testid="card-note">{data.note}</div>
         )}
         {more && (
           <div className={clsx('flex-col gap-1.5 pb-1 pt-1.5', out ? 'flex' : QUIET)}>

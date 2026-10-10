@@ -77,10 +77,9 @@ export type GroupData = {
    *  behind it to actually draw), but the already-detected name is cheap to show here. */
   networking?: { cni?: string; ingress?: string }
   /** Calm: the networks this box sits on (a shared subnet, an overlay), drawn as quiet chips in its header rather than as lines.
-   *  `text` is the sentence to read ("Shares subnet 10.30.0.0/16 with polaris-edge"). */
-  networks?: { id: string; kind: 'overlay' | 'subnet'; via: string; text: string }[]
-  /** Calm: the other boxes (React Flow ids) that share any of those networks - what rings when this box is hovered or selected. */
-  peers?: string[]
+   *  `text` is the sentence to read ("Shares subnet 10.30.0.0/16 with polaris-edge"); `members` are the boxes (React Flow ids, this one
+   *  included) on the network, which light together when it is hovered or one of them is hovered or selected. */
+  networks?: { id: string; kind: 'overlay' | 'subnet'; via: string; text: string; members: string[] }[]
 }
 
 export type CardData = {
@@ -598,7 +597,7 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
       }
     }
   }
-  const peersOf = (k: string) => [...new Set((netsOf.get(k) ?? []).flatMap((n) => n.members.map((m) => groupKeyOfCluster(m.id))))].filter((x): x is string => !!x && x !== k && groups.has(x)).map(groupId)
+  const drawnMembers = (n: Network) => [...new Set(n.members.map((m) => groupKeyOfCluster(m.id)))].filter((k): k is string => !!k && groups.has(k)).map(groupId)
 
   /* 2. Lay out: tiers are rows (cloud on top → far edge at the bottom), groups sit side by side. */
   const rows = new Map<number, GroupAcc[]>()
@@ -671,8 +670,7 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
           mesh: o.mesh && o.view === 'application' && cl?.mesh ? groupMesh(cl.mesh) : undefined,
           localTelemetry: cl && o.groupBy === 'cluster' ? o.localOperators?.get(cl.id) : undefined,
           networking: cl && o.groupBy === 'cluster' && (cl.cni || cl.ingress) ? { cni: cl.cni, ingress: cl.ingress } : undefined,
-          networks: netsOf.get(g.key)?.map((n) => ({ id: n.id, kind: n.kind, via: n.via, text: networkSentence(n, g.cluster?.id ?? '') })),
-          peers: netsOf.has(g.key) ? peersOf(g.key) : undefined,
+          networks: netsOf.get(g.key)?.map((n) => ({ id: n.id, kind: n.kind, via: n.via, text: networkSentence(n, g.cluster?.id ?? ''), members: drawnMembers(n) })),
           stats:
             ex?.kind === 'devices'
               ? count(units, 'device')

@@ -1721,7 +1721,7 @@ test('networks: pair links that name the same evidence are one network, and the 
   assert.deepEqual(buildNetworks(undefined), [])
 })
 
-test('calm detail: network membership is a fact on the boxes (chips, peers), never a line; Full still draws the pair line', () => {
+test('calm detail: network membership is a fact on the boxes (chips, members), never a line; Full still draws the pair line', () => {
   const opts = { view: 'application' as const, groupBy: 'cluster' as const, servicesOnNodes: false, links: true, devices: false }
   const links: ClusterLink[] = [
     { fromCluster: 'cl-edge-a', fromName: 'Edge A', toCluster: 'cl-cloud', toName: 'Cloud', kind: 'subnet', via: '10.30.0.0/16', redundancy: 1 },
@@ -1729,10 +1729,10 @@ test('calm detail: network membership is a fact on the boxes (chips, peers), nev
   ]
   const calm = buildGraph(seed, { ...opts, detail: 'calm', clusterLinks: links })
   assert.ok(!calm.edges.some((e) => e.data?.clusterLink), 'no line for a network')
-  const box = (id: string) => calm.nodes.find((n) => n.id === groupId(id))!.data as { networks?: { id: string; text: string }[]; peers?: string[] }
+  const box = (id: string) => calm.nodes.find((n) => n.id === groupId(id))!.data as { networks?: { id: string; text: string; members: string[] }[] }
   assert.equal(box('cl-cloud').networks?.length, 1, 'one network, however many pairs')
   assert.match(box('cl-cloud').networks![0].text, /^Shares subnet 10\.30\.0\.0\/16 with /)
-  assert.deepEqual([...box('cl-edge-a').peers!].sort(), [groupId('cl-cloud'), groupId('cl-edge-b')].sort(), 'every other member rings with it')
+  assert.deepEqual([...box('cl-edge-a').networks![0].members].sort(), [groupId('cl-cloud'), groupId('cl-edge-a'), groupId('cl-edge-b')].sort(), 'the network names every box on it')
   assert.equal(box('cl-region').networks, undefined, 'a cluster on no network says nothing')
   const full = buildGraph(seed, { ...opts, detail: 'full', clusterLinks: links })
   assert.ok(full.edges.some((e) => e.data?.clusterLink), 'Full is as it was')

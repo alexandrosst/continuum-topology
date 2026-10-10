@@ -43,7 +43,7 @@ import EdgeHoverCard, { type EdgeHoverPos } from '@/components/topology/EdgeHove
 import ScopeFromSelection from '@/components/topology/ScopeFromSelection'
 import ViewsMenu from '@/components/topology/ViewsMenu'
 import LiveStatus from '@/components/LiveStatus'
-import { nodeTypes } from '@/components/topology/nodes'
+import { nodeTypes, ZoomVar } from '@/components/topology/nodes'
 import { useCanvasFocus } from '@/store/canvasFocus'
 import TelemetryTab from '@/components/topology/TelemetryTab'
 import { edgeTypes, EdgeStyleContext } from '@/components/topology/OffsetEdge'
@@ -1319,6 +1319,7 @@ function Canvas() {
             >
               <Background variant={BackgroundVariant.Dots} gap={22} size={1.2} color="var(--color-nb-850)" />
               <Controls showInteractive={false} className={calm ? 'controls-quiet' : undefined} />
+              <ZoomVar />
               {/* Hidden while the Inspector is open: the canvas is narrower then and the map would sit on the legend. The mask is themed in index.css. */}
               {showMinimap && <MiniMap className={selection ? '!hidden' : '!hidden sm:!block'} pannable zoomable nodeColor={miniColor} nodeStrokeWidth={0} />}
               {/* Follows the current selection instead of sitting in the fixed toolbar: the accent halo

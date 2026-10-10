@@ -162,6 +162,10 @@ body {
    more expensive (layout, not just compositing) and reads as the box "breathing" rather than moving. */
 .react-flow__node:not(.dragging) { transition: transform 220ms ease-out; }
 
+/* What a Calm canvas says about a problem or a network stays readable however far out it is drawn: 11 px on screen (the canvas's zoom is --zoom,
+   kept by ZoomVar), and never smaller than 11 px once zoomed in. */
+.fine { font-size: max(11px, calc(11px / var(--zoom, 1))); line-height: 1.25; }
+
 /* Calm detail: what a card reveals on hover or focus is drawn over the gap below it, so the card being read comes
    first. React Flow sets each node's z-index inline, hence !important. Cards only: lifting a cluster box would put it
    over its own cards. The reveal fades in over 120 ms; the reduced-motion rule further down turns that into a cut. */
