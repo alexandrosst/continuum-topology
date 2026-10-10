@@ -212,3 +212,11 @@ if (failed) {
   console.log(`${failed} failed`)
   process.exit(1)
 }
+
+test('saved views keep the Detail and Minimap choices, and drop them at their defaults', () => {
+  assert.equal(viewParams('view=application&detail=full'), 'detail=full')
+  assert.match(describeView('view=application&detail=full'), /full detail/)
+  assert.equal(viewParams('view=application&detail=calm'), '')
+  assert.equal(viewParams('view=application&minimap=1'), 'minimap=1')
+  assert.match(describeView('view=application&minimap=1'), /minimap/)
+})
