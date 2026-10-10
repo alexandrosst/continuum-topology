@@ -30,6 +30,13 @@ describe('laneRoute: lines that stay in the gutters', () => {
     expect(laneRoute(A, B, [])).toEqual([{ x: 150, y: 100 }, { x: 150, y: 250 }])
   })
 
+  test('side by side boxes whose ends differ by a few pixels are joined by one straight line, not a Z with a jog', () => {
+    const B: Rect = { x: 400, y: 4, w: 300, h: 100 }
+    const r = laneRoute(A, B, [], 0, 3)!
+    expect(r).toHaveLength(2)
+    expect(r[0].y).toBe(r[1].y)
+  })
+
   test('a box in the way is gone round through the gutters, never across', () => {
     const middle: Rect = { x: -20, y: 150, w: 340, h: 100 }
     const B: Rect = { x: 0, y: 400, w: 300, h: 100 }

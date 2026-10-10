@@ -17,6 +17,8 @@ const MIN_GAP = 2 * CLEAR + 4
 /** How far a line may leave the canvas's own extent to get round everything, and the room kept inside a box's edge for where it attaches. */
 const OUTSIDE = 48
 const EDGE_ROOM = 20
+/** A jog between two ends that is smaller than this is a misalignment, not a route (px). */
+const JOG = 16
 
 /** The middle of every gap between two neighbouring edges on one axis, and the outside of the lot. `nudge` moves a line off the middle of each gap
  *  (never closer than CLEAR to a box), so lines that run in the same gutter can each have a track of their own. */
@@ -162,12 +164,20 @@ export function laneRoute(from: Rect, to: Rect, others: Rect[], fromShift = 0, t
   }
   cells.reverse()
   // Drop the points that sit in the middle of a straight run.
-  return cells.filter((p, i) => {
+  const pts = cells.filter((p, i) => {
     if (i === 0 || i === cells.length - 1) return true
     const o = cells[i - 1]
     const n = cells[i + 1]
     return !((o.x === p.x && p.x === n.x) || (o.y === p.y && p.y === n.y))
   })
+  // Two boxes side by side whose attachment points differ by a few pixels would be joined by a Z with a jog too small to read as anything but a
+  // glitch: if both ends can move to a common line inside the two sides they face, draw the one straight run instead.
+  if (pts.length === 4 && a.normal.y === 0 && b.normal.y === 0 && Math.abs(pts[0].y - pts[3].y) <= JOG) {
+    const y = Math.round((pts[0].y + pts[3].y) / 2)
+    const inside = (r: Rect) => y >= r.y + EDGE_ROOM && y <= r.y + r.h - EDGE_ROOM
+    if (inside(from) && inside(to) && !blocked({ x: pts[0].x, y }, { x: pts[3].x, y }, [...others])) return [{ x: pts[0].x, y }, { x: pts[3].x, y }]
+  }
+  return pts
 }
 
 /** A key that says whether two routes are the same problem, so a route is worked out once however many times a line is redrawn. The boxes that are in
