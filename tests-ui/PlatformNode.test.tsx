@@ -15,7 +15,7 @@ describe('PlatformNode', () => {
     const agent = renderNode(entity({ kind: 'agent', name: 'Discovery agent', detail: 'v0.19.3', collecting: undefined }))
     expect(agent.textContent).toBe('v0.19.3')
     expect(agent.textContent).not.toContain('Discovery agent')
-    expect(agent.querySelector('svg[data-status="healthy"]')?.getAttribute('aria-label')).toBe('Healthy')
+    expect(agent.querySelector('[role="img"][data-status="healthy"]')?.getAttribute('aria-label')).toBe('Healthy')
   })
 
   test('what a local operator collects is two glyphs, never a sentence that has to be cut short', () => {
@@ -33,7 +33,7 @@ describe('PlatformNode', () => {
     const node = renderNode(entity({ status: 'attention' }))
     expect(node.textContent).toBe('Needs attention')
     expect(node.className).toContain('border-warn')
-    expect(node.querySelector('svg[data-status="attention"]')?.getAttribute('aria-label')).toBe('Needs attention')
+    expect(node.querySelector('[role="img"][data-status="attention"]')?.getAttribute('aria-label')).toBe('Needs attention')
   })
 
   test('in a list there is no column header, so the role leads, and where it sends to follows', () => {
@@ -71,8 +71,10 @@ describe('StatusGlyph', () => {
   test('each of the four states has its own shape and its word as the name', () => {
     const states: PlatformStatus[] = ['healthy', 'attention', 'down', 'unknown']
     const { container } = render(<>{states.map((s) => <StatusGlyph key={s} status={s} />)}</>)
-    const names = Array.from(container.querySelectorAll('svg')).map((el) => el.getAttribute('aria-label'))
-    expect(names).toEqual(states.map((s) => PLATFORM_STATUS_WORD[s]))
-    expect(new Set(Array.from(container.querySelectorAll('svg')).map((el) => el.getAttribute('class')?.match(/lucide-[a-z-]+/)?.[0])).size).toBe(4)
+    const marks = Array.from(container.querySelectorAll('[role="img"]'))
+    expect(marks.map((el) => el.getAttribute('aria-label'))).toEqual(states.map((s) => PLATFORM_STATUS_WORD[s]))
+    // The same marks as the canvas draws (StatusMark), each with its own shape.
+    expect(marks.map((el) => el.getAttribute('data-status'))).toEqual(states)
+    expect(new Set(marks.map((el) => el.innerHTML)).size).toBe(4)
   })
 })

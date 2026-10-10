@@ -119,7 +119,7 @@ describe('TelemetryTab', () => {
     expect(within(bar).getByText('Telemetry is flowing from all 2 clusters')).toBeInTheDocument()
     expect(within(bar).queryByTestId('problems-pill')).toBeNull()
     expect(within(bar).queryByTestId('problems-only')).toBeNull()
-    expect(bar.querySelector('svg[data-status="healthy"]')).not.toBeNull()
+    expect(bar.querySelector('[role="img"][data-status="healthy"]')).not.toBeNull()
   })
 
   test('N walks the problems from the keyboard, away from a field being typed in', () => {

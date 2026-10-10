@@ -1,6 +1,7 @@
 import clsx from 'clsx'
-import { Activity, Cable, CircleCheck, CircleHelp, CircleX, Database, DoorOpen, FileText, Funnel, Merge, TriangleAlert, Waypoints, type LucideIcon } from 'lucide-react'
+import { Activity, Cable, Database, DoorOpen, FileText, Funnel, Merge, Waypoints, type LucideIcon } from 'lucide-react'
 import { ICON_SM } from '@/components/ui/primitives'
+import { StatusMark } from '@/components/topology/StatusMark'
 import { MODALITY_WORD, PLATFORM_STATUS_WORD, type PlatformEntity, type PlatformKind, type PlatformStatus } from '@/lib/platformLayer'
 import type { Modality } from '@/lib/install'
 
@@ -8,17 +9,11 @@ export const PLATFORM_ICON: Record<PlatformKind, LucideIcon> = { agent: Cable, l
 export const KIND_WORD: Record<PlatformKind, string> = { agent: 'Discovery agent', local: 'Local operator', regional: 'Regional operator', central: 'Central operator', fusion: 'FUSION' }
 const SIGNAL_ICON: Record<Modality, LucideIcon> = { metrics: Activity, logs: FileText, traces: Waypoints }
 
-const GLYPH: Record<PlatformStatus, { icon: LucideIcon; tone: string }> = {
-  healthy: { icon: CircleCheck, tone: 'text-ok' },
-  attention: { icon: TriangleAlert, tone: 'text-warn' },
-  down: { icon: CircleX, tone: 'text-bad' },
-  unknown: { icon: CircleHelp, tone: 'text-nb-500' },
-}
+const TONE: Record<PlatformStatus, string> = { healthy: 'text-ok', attention: 'text-warn', down: 'text-bad', unknown: 'text-nb-500' }
 
-/** One of the four states as a glyph - its shape says it as well as its colour - with the word as its name, for a screen reader and the tooltip. */
-export function StatusGlyph({ status, size = ICON_SM, className }: { status: PlatformStatus; size?: number; className?: string }) {
-  const { icon: Icon, tone } = GLYPH[status]
-  return <Icon size={size} className={clsx('shrink-0', tone, className)} role="img" aria-label={PLATFORM_STATUS_WORD[status]} data-status={status} />
+/** The state as the canvas draws it (the same StatusMark: a dot, a triangle, a crossed circle, a ring), so a state reads the same in every layer. */
+export function StatusGlyph({ status, className }: { status: PlatformStatus; className?: string }) {
+  return <StatusMark state={status} className={className} />
 }
 
 /** What a part collects or keeps, as small glyphs instead of a sentence that has to be cut short: the words are in its tooltip and its name. */
@@ -101,9 +96,9 @@ export function PlatformNode({ entity, selected, label, senders, withRole, tip, 
         <span className="min-w-0 flex-1">
           {f.title !== undefined && <span className={clsx('block truncate text-[13px] leading-[18px]', f.muted ? 'font-medium text-nb-400' : 'font-semibold text-nb-300')}>{f.title}</span>}
           {f.signals && !(f.title !== undefined && meta) && <Signals of={f.signals} />}
-          {meta && <span className={clsx('block truncate text-[11px] leading-4', bad ? GLYPH[entity.status].tone : 'text-nb-500')}>{meta}</span>}
+          {meta && <span className={clsx('block truncate text-[11px] leading-4', bad ? TONE[entity.status] : 'text-nb-500')}>{meta}</span>}
         </span>
-        {!entity.off && <StatusGlyph status={entity.status} size={ICON_SM + 2} />}
+        {!entity.off && <StatusGlyph status={entity.status} />}
       </button>
       {tip && (
         <span
