@@ -336,8 +336,8 @@ export const APP_CARD = { w: 300, h: 68 }
 /** The one card of the Calm canvas: a 32px icon tile between two 8px margins, and wide enough for a name like "event-aggregator" at the size the zoomed-out canvas draws it. A problem's line fits inside it, so a card never changes height. */
 export const CALM_CARD = { w: 304, h: 48 }
 export const CALM_CARD_H = CALM_CARD.h
-/** A box's header: the same anatomy as a card (tile, name, one line, status), then 16px of air before the first row of cards. */
-export const CALM_HEADER = 64
+/** A box's header: the same anatomy as a card (tile, name, one line, status), then 24px of air before the first row of cards, room for the note line of a box that has one. */
+export const CALM_HEADER = 72
 const CALM_PAD = 16
 const CALM_GAP_X = 40
 const CALM_GAP_Y = 24

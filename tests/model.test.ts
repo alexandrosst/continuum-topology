@@ -4,7 +4,7 @@ import { completeness } from '../src/lib/completeness'
 import { mergeDiscovered, normalizeServerState, type ServerAgent, type ServerState } from '../src/lib/discovered'
 import { applyEdit, applyEffective, confirmOverride, effective } from '../src/lib/effective'
 import { normalize, upgrade } from '../src/lib/migrate'
-import { accelSummary, ageLabel, autoscalerRange, callerIfaceSpeedMbps, count, countryName, middleTruncate, disruptionLabel, ipScope, linkUtilizationPct, podsLabel, podsPercent, distroKey, formatCpu, formatMemory, loadBand, placeLabel, providerKey, requestedPercent, shortVersion } from '../src/lib/present'
+import { accelSummary, ageLabel, autoscalerRange, callerIfaceSpeedMbps, count, countryName, middleTruncate, hostName, disruptionLabel, ipScope, linkUtilizationPct, podsLabel, podsPercent, distroKey, formatCpu, formatMemory, loadBand, placeLabel, providerKey, requestedPercent, shortVersion } from '../src/lib/present'
 import { buildMapSites, clampPan, dominantTier, exitIps, groupByProximity, groupLabel, siteConnections, unplacedClusters, worstStatus } from '../src/lib/geo'
 import { buildIndex, countryAt, countryShapes, derivePlacementSuggestions, distanceKm, findCities, fold, nearestCity, parseCities, placementCandidates, siteFromCandidate, siteLocationIssue } from '../src/lib/places'
 import { EXONYMS } from '../src/data/exonyms'
@@ -2124,6 +2124,13 @@ test('cluster stats: singular and plural, and "not fully up" counts only the ser
   assert.equal(box.load?.services, 1)
   const infra = buildGraph(t, { ...opts, view: 'infrastructure' }).nodes.find((n) => n.id === groupId(one.clusterId))!.data as { load?: { services: number } }
   assert.equal(infra.load?.services, 2, 'the Infrastructure view draws no service cards, so it keeps the whole cluster')
+})
+
+test('hostName: the machine without the domain every machine of a cloud shares; a bare name or an address stays whole', () => {
+  assert.equal(hostName('ip-10-100-1-14.eu-central-1.compute.internal'), 'ip-10-100-1-14')
+  assert.equal(hostName('atlas-cp-1'), 'atlas-cp-1')
+  assert.equal(hostName('10.100.1.14'), '10.100.1.14')
+  assert.equal(hostName('a.b.c'), 'a.b.c')
 })
 
 test('middleTruncate: keeps the start and the end of a long name, leaves a short one whole', () => {

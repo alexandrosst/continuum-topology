@@ -592,7 +592,8 @@ function Canvas() {
       // (cluster-link colours, the lighter cross-cluster grey, weight and the conntrack dash) come back on Full, or on a line that is the focus.
       const problem = !!e.data?.problem
       const band = q && (!calm || problem) ? lossBand(q.lossPct) : 'ok'
-      const showLabel = showLabels || hot || (calm && problem)
+      // Calm names a line only when it is the focus or failing: a protocol word does not fit in the 40px between two cards, and a quiet line stays quiet.
+      const showLabel = calm ? hot || problem : showLabels || hot
       // A line that stands for several says nothing at rest unless it is failing, and then why: the path's round trip and loss. How many it
       // stands for is the hover card's to say, and the Inspector's.
       const label = e.data?.aggregated && calm ? (problem && q ? qualityLabel(q) : undefined) : showLabel ? e.label : undefined

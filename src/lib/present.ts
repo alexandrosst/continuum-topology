@@ -14,6 +14,13 @@ export function middleTruncate(s: string, max: number): string {
   return `${s.slice(0, max - 1 - tail)}\u2026${s.slice(s.length - tail)}`
 }
 
+/** The machine in a fully qualified host name: "ip-10-100-1-14.eu-central-1.compute.internal" is "ip-10-100-1-14" (the rest is the same on every machine of a
+ *  cloud, so it only crowds out the part that tells them apart). A bare name, or an address, stays whole. */
+export function hostName(s: string): string {
+  const head = s.split('.')[0]
+  return head.length >= 4 && head !== s && !/^\d+$/.test(head) ? head : s
+}
+
 /* ---------- places ---------- */
 
 /** "Greece" for "GR"; the code itself when the runtime does not know it. */

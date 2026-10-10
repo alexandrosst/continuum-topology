@@ -218,6 +218,8 @@ body {
 
 .react-flow__edge-text { fill: var(--color-nb-400); font-size: 10px; }
 /* Calm's label of a line: an opaque pill on the line, 11px on screen whatever the zoom (OffsetEdge scales it back by 1/zoom). */
+/* The label layer sits over every line and card (a hovered card is 1000): a pill names a line, so it is never the part that is cut off. */
+.react-flow__edgelabel-renderer { z-index: 1001; }
 .edge-pill { position: absolute; pointer-events: none; white-space: nowrap; border: 1px solid var(--color-nb-800); border-radius: 999px; background: var(--color-nb-910); padding: 1px 8px; font-size: 11px; line-height: 16px; transition: opacity 120ms ease-out; }
 .react-flow__edge-textbg { fill: var(--color-nb-910); }
 

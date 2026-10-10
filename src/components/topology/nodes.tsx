@@ -32,7 +32,7 @@ import { NodeFace } from '@/components/topology/NodeFace'
 import { LoadRow } from '@/components/topology/Load'
 import { peakLoad } from '@/lib/metrics'
 import { DistroIcon, Flag } from '@/components/ui/brand'
-import { middleTruncate } from '@/lib/present'
+import { hostName, middleTruncate } from '@/lib/present'
 import { SIDES, type CardData, type CardNode, type GroupData, type GroupNode, type NamespaceNode } from '@/lib/graph'
 import { DetailContext, shownStatus, type Alert } from '@/lib/detail'
 import { activeId, useCanvasFocus } from '@/store/canvasFocus'
@@ -66,7 +66,7 @@ export function AllHandles() {
  * so it stays legible) and any warning; the detail returns as soon as you zoom in. Selecting the store value
  * as a boolean means only a crossing of the threshold re-renders the nodes, not every step of a zoom.
  */
-export const FAR_ZOOM = 0.62
+export const FAR_ZOOM = 0.8
 const useFar = () => useStore((s) => s.transform[2] < FAR_ZOOM)
 
 /** Keeps the canvas's zoom where CSS can read it (`--zoom`), so the few things that must stay readable however far out the canvas is drawn (what is
@@ -599,10 +599,10 @@ function CalmCard({ data, selected }: NodeProps<CardNode>) {
           title={data.title}
           name={
             isMachine ? (
-              // A machine name is often a long generated one whose start and end both matter, so the middle goes, not the end; the full name
-              // stays in the tooltip and for screen readers.
+              // A machine name is often a long generated one: the host without its shared domain, and when that is still long the middle goes, not
+              // the end. The full name stays in the tooltip and for screen readers.
               <>
-                <span aria-hidden="true">{middleTruncate(data.title, far ? 15 : 24)}</span>
+                <span aria-hidden="true">{middleTruncate(hostName(data.title), far ? 21 : 30)}</span>
                 <span className="sr-only">{data.title}</span>
               </>
             ) : (
