@@ -347,7 +347,7 @@ function CalmGroupBox({ id, data, selected }: NodeProps<GroupNode>) {
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <StatusMark state={shown.state} far={far} />
-            {data.distribution && <DistroIcon distribution={data.distribution} size={ICON_SM} />}
+            {data.distribution && <span className="flex w-[26px] shrink-0 justify-start"><DistroIcon distribution={data.distribution} size={ICON_SM} /></span>}
             <span className={clsx('truncate font-medium text-nb-300', far ? 'text-[26px] leading-8' : 'text-sm')} title={data.title}>{data.title}</span>
             {far && data.networks && <NetworkPip networks={data.networks} />}
             {far && peak !== undefined && peak >= 70 && (
@@ -527,7 +527,7 @@ function FullCard({ data, selected }: NodeProps<CardNode>) {
               // A machine name is often a long generated one whose start and end both matter ("ip-10-0-12-34.eu-west-1...internal"), so
               // the middle goes, not the end; the full name stays in the tooltip and for screen readers.
               <>
-                <span className={clsx('truncate font-medium text-nb-300', far ? 'text-[21px] leading-tight' : 'text-[13px]')} title={data.title} aria-hidden="true">{middleTruncate(data.title, far ? 15 : 24)}</span>
+                <span className={clsx('truncate font-medium text-nb-300', far ? 'text-[21px] leading-tight' : 'text-[13px]')} title={data.title} aria-hidden="true">{middleTruncate(hostName(data.title), far ? 15 : 24)}</span>
                 <span className="sr-only">{data.title}</span>
               </>
             ) : (
@@ -539,7 +539,8 @@ function FullCard({ data, selected }: NodeProps<CardNode>) {
           {!far && isMachine && <div className="truncate text-[11px] text-nb-500" title={data.meta}>{data.meta}</div>}
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1.5">
-          <StatusMark state={shownStatus(data.status, data.alert).state} far={far} />
+          {/* The mark takes the room the dot had (see CalmCard), so a name truncates where it did. */}
+          <StatusMark state={shownStatus(data.status, data.alert).state} far={far} className={far ? '-mx-1.5' : '-mx-1'} />
           {!far && !isMachine && <span className="text-[11px] text-nb-500">{data.meta}</span>}
           {far && (data.hint || data.notReady) && <span className={clsx('size-2.5 rounded-sm', data.notReady ? 'bg-warn' : 'bg-accent')} title={data.notReady ?? `Better in ${data.hint}`} />}
         </div>
