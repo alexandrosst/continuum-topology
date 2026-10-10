@@ -9,6 +9,12 @@ export type Detail = 'calm' | 'full'
 
 export const parseDetail = (v: string | null | undefined): Detail => (v === 'full' ? 'full' : 'calm')
 
+/** Where a person's own Detail choice is kept in this browser (a convenience, never state that matters). */
+export const DETAIL_KEY = 'continuum:topology-detail'
+
+/** What the canvas draws: the URL when it says (a shared link, a saved view), else what this person chose last time, else Calm. */
+export const resolveDetail = (url: string | null, stored: string | null): Detail => (url === 'calm' || url === 'full' ? url : parseDetail(stored))
+
 /** Which presentation the canvas is drawing, for the nodes and edges React Flow renders far from the page. */
 export const DetailContext = createContext<Detail>('calm')
 

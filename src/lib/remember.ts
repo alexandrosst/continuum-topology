@@ -16,3 +16,20 @@ export function writeFlag(key: string, value: boolean): void {
     /* storage blocked: the choice lasts until the page is closed */
   }
 }
+
+/** A short text choice (a presentation, not data) kept in this browser: null when none was made or storage is blocked. */
+export function readText(key: string): string | null {
+  try {
+    return localStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+export function writeText(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value)
+  } catch {
+    /* storage blocked: the choice lasts until the page is closed */
+  }
+}

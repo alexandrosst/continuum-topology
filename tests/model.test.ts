@@ -16,7 +16,7 @@ import { activeView, describeView, sameView, viewParams } from '../src/lib/views
 import { emptyScope, scopeProblems, splitNames, withFlowObserver, withMeasurements, withNodeProbe, withScope } from '../src/lib/install'
 import { anyMesh, connectionVerdict } from '../src/lib/mesh'
 import { ago, bytesPerSec, bytesTotal, isObserved, trafficSummary, withObserved } from '../src/lib/observed'
-import { alertOfLoad, alertOfPods, alertOfStatus, worstAlert, parseDetail } from '../src/lib/detail'
+import { alertOfLoad, alertOfPods, alertOfStatus, worstAlert, parseDetail, resolveDetail } from '../src/lib/detail'
 import { applyGraphUpdate, APP_CARD, CALM_CARD_H, CALM_HEADER, CALM_NOTE, sameLayout, buildGraph, cardId, groupId, HEADER, MACHINE_CARD, MIN_GROUP_HEADER_WIDTH, NS_HEADER, NS_PAD, PAD, pickSides, resyncNodes, selectedServiceIds, syncPickEligibility, syncSelected } from '../src/lib/graph'
 import { seedTopology } from '../src/lib/seed'
 import { buildNetworks, networkSentence } from '../src/lib/networks'
@@ -2153,4 +2153,15 @@ test('calm detail: only a seen link losing connection attempts is a problem, on 
   assert.ok(declared.edges.every((e) => !e.data?.problem), 'nothing was measured on a declared link, so it is never a problem')
   const fine = buildGraph({ ...seed, dependencies: [seenDep({ id: 'x1', from: a.id, to: b.id })] }, { ...opts, paths: lossy.map((p) => ({ ...p, lossPct: 0.2 })) })
   assert.ok(fine.edges.every((e) => !e.data?.problem))
+})
+
+test('detail: the URL wins, else the remembered choice, else Calm; an explicit calm beats a remembered full', () => {
+  assert.equal(resolveDetail(null, null), 'calm')
+  assert.equal(resolveDetail(null, 'full'), 'full')
+  assert.equal(resolveDetail('calm', 'full'), 'calm')
+  assert.equal(resolveDetail('full', 'calm'), 'full')
+  assert.equal(resolveDetail('nonsense', 'full'), 'full', 'a URL that says nothing sensible does not decide')
+  assert.equal(resolveDetail(null, 'nonsense'), 'calm')
+  assert.equal(viewParams('detail=calm&view=application'), '', 'an explicit calm is still the default spelling of a saved view')
+  assert.equal(sameView('detail=calm', ''), true)
 })

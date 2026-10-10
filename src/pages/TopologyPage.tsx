@@ -51,12 +51,12 @@ import { Button, EmptyState, ICON_MD, ICON_SM, MenuPanel, Select, SkeletonBlock,
 import { PRESS_CLASS } from '@/components/ui/buttonClass'
 import FilterMenu, { FilterChip } from '@/components/topology/FilterMenu'
 import { extrasOf, TELEMETRY_SIGNALS } from '@/lib/consent'
-import { DetailContext, parseDetail, type Alert } from '@/lib/detail'
+import { DETAIL_KEY, DetailContext, resolveDetail, type Alert } from '@/lib/detail'
 import { narrowFitZoom } from '@/lib/fit'
 import { applyFilter, encodeList, filterActive, hopNeighborhood, isFreshApplicationView, knownOnly, parseFilter } from '@/lib/filter'
 import { applyGraphUpdate, buildGraph, cardId, groupId, sameLayout, selectedServiceIds, syncPickEligibility, syncSelected, type TopoEdge, type TopoNode } from '@/lib/graph'
 import { lossBand } from '@/lib/metrics'
-import { readFlag, writeFlag } from '@/lib/remember'
+import { readFlag, readText, writeFlag, writeText } from '@/lib/remember'
 import { anyMesh, VERDICT_COLOR } from '@/lib/mesh'
 import { useAutoPlaceClusters } from '@/lib/usePlacement'
 import { usePlanHints } from '@/lib/placement/usePlacement'
@@ -164,7 +164,9 @@ function Canvas() {
   const view: ViewKind = isMap || isTelemetry ? 'application' : mode
   const groupBy: GroupBy = sp.get('group') === 'tier' ? 'tier' : 'cluster'
   // How much the canvas says at rest: 'calm' (default) draws names and what is wrong, 'full' everything (lib/detail.ts).
-  const detail = parseDetail(sp.get('detail'))
+  const [storedDetail, setStoredDetail] = useState(() => readText(DETAIL_KEY))
+  const detailParam = sp.get('detail')
+  const detail = resolveDetail(detailParam, storedDetail)
   const calm = detail === 'calm'
   // Minimap: on for a big graph (an overview helps most there) and on Full as ever; otherwise one Options choice away.
   // ?minimap=1 / 0 is the person's own choice and beats that default.
@@ -207,6 +209,12 @@ function Canvas() {
       else n.set(k, v)
       return n
     }, { replace: true })
+
+  // A Detail remembered from before is put in the URL, so the address, the saved-view highlight and a shared link all say what is drawn.
+  useEffect(() => {
+    if (!isCanvas || detailParam !== null || detail !== 'full') return
+    setSp((p) => { const n = new URLSearchParams(p); n.set('detail', 'full'); return n }, { replace: true })
+  }, [isCanvas, detailParam, detail, setSp])
 
   // The Application view defaults to "real services" (Deployment) rather than "everything": a fresh visit
   // with no filter chosen yet is the common case, and starting there with just Deployment makes the canvas
@@ -597,6 +605,9 @@ function Canvas() {
       // this only ever fires for a real conntrack-only edge - one whose traffic numbers, if it shows any,
       // are connection counts only (see EdgeData.via's own comment): a long, open dash reads as "mostly
       // solid but not fully confirmed" without competing with the short, tight '2 5' used for "not seen".
+      // Calm: a line nobody has seen traffic on (declared, entered by a person, or gone quiet) is dotted and faint, so it never competes with
+      // a real one. It is never a problem either: nothing was measured on it. The focus's lines stay as clear as ever.
+      const faint = calm && !seen && !cl && !hot && !problem
       const conntrackOnly = seen && e.data?.via === 'conntrack' && !calm
       return {
         ...e,
@@ -607,12 +618,12 @@ function Canvas() {
         style: {
           stroke,
           strokeWidth: width,
-          opacity: dim ? 0.15 : e.data?.stale ? 0.55 : 1,
+          opacity: dim ? 0.15 : faint ? 0.5 : e.data?.stale ? 0.55 : 1,
           // A cluster link is solid for "subnet" (a direct, physical network fact - no tunnel in the way)
           // and dashed for "overlay" (traffic actually travels through a tunnel interface to get there) -
           // a deliberate, different dash from the traffic seen/not-seen convention below, since this was
           // never a question of whether anything was observed.
-          strokeDasharray: cl ? (cl.kind === 'overlay' ? '6 4' : undefined) : !e.data?.aggregated && !seen ? '2 5' : conntrackOnly ? '8 4' : undefined,
+          strokeDasharray: cl ? (cl.kind === 'overlay' ? '6 4' : undefined) : (calm ? !cl : !e.data?.aggregated) && !seen ? '2 5' : conntrackOnly ? '8 4' : undefined,
           // Busier links run their dashes faster (a quiet one takes 2.4 s for a period, the busiest 0.7 s).
           animationDuration: e.className === 'edge-animated' && (!calm || hot) ? `${(2.4 - 1.7 * (e.data?.weight ?? 0)).toFixed(2)}s` : undefined,
         },
@@ -878,7 +889,10 @@ function Canvas() {
             onOpenChange={(o) => setOpenMenu(o ? 'views' : null)}
             sp={sp}
             onApply={(params) => {
-              setSp(new URLSearchParams(params), { replace: true })
+              // A saved view pins its Detail: one that does not say is Calm, whatever this browser remembers.
+              const next = new URLSearchParams(params)
+              if (!next.has('detail')) next.set('detail', 'calm')
+              setSp(next, { replace: true })
               setSelection(null)
             }}
           />
@@ -904,7 +918,13 @@ function Canvas() {
                     className="h-8 w-32"
                     value={detail}
                     title="Calm draws names and whatever is wrong, and keeps the rest for hover, selection and zoom. Full draws everything, all the time."
-                    onChange={(e) => setParam('detail', e.target.value === 'full' ? 'full' : null)}
+                    onChange={(e) => {
+                      // The choice is written out whichever it is: Calm is a choice too, and must beat a Full remembered from before.
+                      const next = e.target.value === 'full' ? 'full' : 'calm'
+                      writeText(DETAIL_KEY, next)
+                      setStoredDetail(next)
+                      setParam('detail', next)
+                    }}
                     data-testid="detail-select"
                   >
                     <option value="calm">Calm</option>
