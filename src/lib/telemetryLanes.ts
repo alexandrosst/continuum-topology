@@ -1,14 +1,17 @@
 /**
- * The Telemetry tab of the topology: the platform (see platformLayer.ts) as a grid. One row per cluster, left to right in the order
- * data travels - the cluster, its Discovery agent, its Local operator - and then the shared parts: Regional operators, the Central
- * operator and FUSION, each drawn once, on the row nearest the middle of what sends to it, so every box sits on the same grid.
- * Lines are orthogonal: each runs along the gutters between the columns, never across a box, and merges into one trunk per receiver.
- * Plain data in, plain coordinates out; the component only draws them.
+ * The Telemetry tab of the topology: the platform (see platformLayer.ts) as lanes. One lane per cluster - a tinted band with the cluster's
+ * name on top - and left to right the order data travels: Discovery agent, Local operator, Regional operator, Central operator, FUSION. The
+ * regional operators, the central one and FUSION are shared: each is drawn once, on the row nearest the middle of what sends to it.
+ * Lines are smooth curves that leave a box by its right edge and arrive at the left edge of the next, floating along that edge: where two
+ * lines share an edge, each takes its own place on it, in the order of the boxes at their other ends (so lines never cross at a box), and
+ * a line that skips a column runs straight through the gap between that column's boxes. Plain data in, plain coordinates out.
  */
 import { PLATFORM_STATUS_WORD, platformFacts, type PlatformEntity, type PlatformKind, type PlatformModel, type PlatformStatus } from './platformLayer'
 
-/** One spacing scale: boxes 48 high on a 64 pitch (a 16 gap), a cluster's name column 128 wide, boxes 156 wide; the gutters give where there is room. */
-export const LANE = { nodeW: 156, nodeH: 48, pitch: 64, maxPitch: 80, head: 40, nameW: 128, nameGap: 8, agentGap: 64, fusionGap: 48, minGap: 16, gutterMin: 56, gutterMax: 120, corner: 8 } as const
+/** One scale: boxes 192 x 68, a lane's band 22 for its name above the row and 6 below it, bands 8 apart; the gutters between columns give where there is room. */
+export const LANE = { nodeW: 192, nodeH: 68, head: 40, caption: 22, bandBelow: 6, bandGap: 8, padX: 8, gutterMin: 40, gutterMax: 96, minGap: 16, edgeMargin: 12, edgeStep: 10 } as const
+const BAND_H = LANE.caption + LANE.nodeH + LANE.bandBelow
+const PITCH = BAND_H + LANE.bandGap
 
 export const LANE_COLUMNS: { kind: PlatformKind; label: string }[] = [
   { kind: 'agent', label: 'Discovery agent' },
@@ -33,11 +36,11 @@ export interface LaneHop {
   status: PlatformStatus
   /** When the last data crossed it ("27 s"), when something knows. */
   age?: string
-  /** SVG path, from the sender's right edge to the receiver's left edge: straight, or square with rounded corners. */
+  /** SVG path, from the sender's right edge to the receiver's left edge: a straight line, or a smooth curve. */
   d: string
-  /** The small arrow at the receiver's end. */
+  /** The small arrow at the receiver's end, on the box's edge. */
   tip: string
-  /** Where its label sits: the middle of its longest straight run. */
+  /** Where its label sits: the middle of the curve (or of the first, when it skips a column). */
   mid: { x: number; y: number }
   /** Only a healthy hop has data moving on it. */
   flowing: boolean
@@ -47,16 +50,15 @@ export interface LaneLayout {
   height: number
   nodeW: number
   columns: { kind: PlatformKind; label: string; x: number }[]
-  /** `y` is the middle of the row, which is where its boxes are centred. */
-  lanes: { clusterId: string; name: string; y: number }[]
+  /** `top` and `height` are the lane's band; `y` is the middle of its row, which is where its boxes are centred. */
+  lanes: { clusterId: string; name: string; top: number; height: number; y: number }[]
   nodes: LaneNode[]
   hops: LaneHop[]
 }
 export interface LaneOptions {
   problemsOnly?: boolean
-  /** The room there is: the gutters between the columns (not the boxes) take what the boxes leave, up to a limit; rows take a little more height. */
+  /** The room there is: the gutters between the columns (not the boxes) take what the boxes leave, up to a limit. */
   width?: number
-  height?: number
 }
 
 const isBad = (s: PlatformStatus) => s === 'attention' || s === 'down'
@@ -71,37 +73,19 @@ export function nodeLabel(e: PlatformEntity): string {
 /** A hop is as bad as the thing that sends: the label of a hop is only worth showing when something is wrong with it. */
 export const hopNeedsLabel = (h: Pick<LaneHop, 'status' | 'age'>) => !!h.age && h.status !== 'healthy'
 
-type Pt = [number, number]
 const r1 = (n: number) => Math.round(n * 10) / 10
 
-/** A path through the points, square, with each corner rounded as far as its two straight runs allow (at most `corner`). */
-export function roundedPath(pts: Pt[], corner: number = LANE.corner): string {
-  if (pts.length === 2 && pts[0][1] === pts[1][1]) return `M${r1(pts[0][0])} ${r1(pts[0][1])}H${r1(pts[1][0])}`
-  let d = `M${r1(pts[0][0])} ${r1(pts[0][1])}`
-  for (let i = 1; i < pts.length - 1; i++) {
-    const [p, c, n] = [pts[i - 1], pts[i], pts[i + 1]]
-    const a = Math.hypot(c[0] - p[0], c[1] - p[1])
-    const b = Math.hypot(n[0] - c[0], n[1] - c[1])
-    const r = Math.min(corner, a / 2, b / 2)
-    d += `L${r1(c[0] - ((c[0] - p[0]) / a) * r)} ${r1(c[1] - ((c[1] - p[1]) / a) * r)}Q${r1(c[0])} ${r1(c[1])} ${r1(c[0] + ((n[0] - c[0]) / b) * r)} ${r1(c[1] + ((n[1] - c[1]) / b) * r)}`
-  }
-  const last = pts[pts.length - 1]
-  return `${d}${pts.length > 1 ? `L${r1(last[0])} ${r1(last[1])}` : ''}`
+/** The way on from (x1, y1) to (x2, y2): a straight run when level, else a smooth curve, level where it leaves and where it arrives. */
+const run = (x1: number, y1: number, x2: number, y2: number) => {
+  const m = (x1 + x2) / 2
+  return Math.abs(y1 - y2) < 0.5 ? `H${r1(x2)}` : `C${r1(m)} ${r1(y1)} ${r1(m)} ${r1(y2)} ${r1(x2)} ${r1(y2)}`
 }
-
-/** The middle of the longest straight run of a path given as points, so a label sits on a line and not on a corner. */
-function middleOf(pts: Pt[]): { x: number; y: number } {
-  let best = { len: -1, x: pts[0][0], y: pts[0][1] }
-  for (let i = 1; i < pts.length; i++) {
-    const len = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1])
-    if (len > best.len) best = { len, x: (pts[i][0] + pts[i - 1][0]) / 2, y: (pts[i][1] + pts[i - 1][1]) / 2 }
-  }
-  return { x: r1(best.x), y: r1(best.y) }
-}
+/** A line from one box's edge to the next. */
+export const curve = (x1: number, y1: number, x2: number, y2: number) => `M${r1(x1)} ${r1(y1)}${run(x1, y1, x2, y2)}`
 
 /**
- * Places the platform on the grid. A row is a cluster with a Discovery agent; "problems only" keeps the rows where something on the way
- * to FUSION needs attention or is not working (the shared parts it goes through included), and the shared parts those rows reach.
+ * Places the platform in lanes. A lane is a cluster with a Discovery agent; "problems only" keeps the lanes where something on the way
+ * to FUSION needs attention or is not working (the shared parts it goes through included), and the shared parts those lanes reach.
  */
 export function layoutLanes(model: PlatformModel, opts: LaneOptions = {}): LaneLayout {
   const byId = new Map(model.entities.map((e) => [e.id, e]))
@@ -122,31 +106,25 @@ export function layoutLanes(model: PlatformModel, opts: LaneOptions = {}): LaneL
     .map((agent) => {
       const local = model.entities.find((e) => e.kind === 'local' && e.agentId === agent.agentId)
       const path = [agent, ...(local ? [local, ...[...downstream(local.id)].map((id) => byId.get(id)!)] : [])]
-      // Rows that send to the same regional operator sit together, so it can stand level with them.
+      // Lanes that send to the same regional operator sit together, so it can stand level with them.
       const rank = Math.min(...(local ? out.get(local.id) ?? [] : []).map((id) => regionalIndex.get(id) ?? Infinity), Infinity)
       return { agent, local, path, rank, name: agent.clusterName ?? agent.clusterId! }
     })
     .sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name))
   if (opts.problemsOnly) lanes = lanes.filter((l) => l.path.some((e) => isBad(e.status)))
 
-  // Columns: the gutters between them take the room left over, so the grid fills the space it is given without stretching a box. With no
+  // Columns: the gutters between them take the room left over, so the lanes fill the space they are given without stretching a box. With no
   // central operator (FUSION off) there is no such column, so FUSION stands next to the regional operators instead of behind a gap.
   const cols = LANE_COLUMNS.filter((c) => c.kind !== 'central' || model.entities.some((e) => e.kind === 'central'))
   const COL = new Map(cols.map((c, i) => [c.kind, i]))
-  const withCentral = cols.length === LANE_COLUMNS.length
-  const fixed = LANE.nameW + LANE.nameGap + cols.length * LANE.nodeW + LANE.agentGap + (withCentral ? LANE.fusionGap : 0)
-  const open = cols.length - 1 - (withCentral ? 2 : 1) // the gutters that give
-  const gutter = Math.round(Math.min(LANE.gutterMax, Math.max(LANE.gutterMin, ((opts.width ?? 0) - fixed) / open)))
-  const gapAfter = (i: number) => (cols[i].kind === 'agent' ? LANE.agentGap : cols[i + 1].kind === 'fusion' && cols[i].kind === 'central' ? LANE.fusionGap : gutter)
-  const colLeft: number[] = []
-  cols.forEach((_, i) => colLeft.push(i === 0 ? LANE.nameW + LANE.nameGap : colLeft[i - 1] + LANE.nodeW + gapAfter(i - 1)))
+  const gutter = Math.round(Math.min(LANE.gutterMax, Math.max(LANE.gutterMin, ((opts.width ?? 0) - 2 * LANE.padX - cols.length * LANE.nodeW) / (cols.length - 1))))
+  const colLeft = cols.map((_, i) => LANE.padX + i * (LANE.nodeW + gutter))
   const colX = (kind: PlatformKind) => colLeft[COL.get(kind)!]
-  const width = colLeft[colLeft.length - 1] + LANE.nodeW
+  const width = colLeft[colLeft.length - 1] + LANE.nodeW + LANE.padX
 
-  // Rows: a little taller when the space allows, never shorter than the pitch of the scale.
-  const pitch = opts.height && lanes.length > 0 ? Math.max(LANE.pitch, Math.min(LANE.maxPitch, Math.floor((opts.height - LANE.head - 24) / lanes.length))) : LANE.pitch
-  const rowY = (i: number) => LANE.head + i * pitch + LANE.nodeH / 2 + (pitch - LANE.pitch) / 2
-  const rowOf = (y: number) => Math.max(0, Math.round((y - rowY(0)) / pitch))
+  // Rows: a band each, its boxes on the line under the name.
+  const rowY = (i: number) => LANE.head + i * PITCH + LANE.caption + LANE.nodeH / 2
+  const rowOf = (y: number) => Math.max(0, Math.round((y - rowY(0)) / PITCH))
 
   const nodes: LaneNode[] = []
   const placed = new Map<string, LaneNode>()
@@ -166,7 +144,7 @@ export function layoutLanes(model: PlatformModel, opts: LaneOptions = {}): LaneL
     if (l.local) put(l.local, rowY(i))
   })
   const reached = new Set(lanes.flatMap((l) => l.path.map((e) => e.id)))
-  // "Problems only" leaves out the shared parts no kept row goes through, unless they are a problem of their own.
+  // "Problems only" leaves out the shared parts no kept lane goes through, unless they are a problem of their own.
   const shown = (e: PlatformEntity) => !opts.problemsOnly || reached.has(e.id) || (isBad(e.status) && !into.has(e.id))
 
   // Shared parts sit on the row nearest the middle of what sends to them, and move down a row where two would share one.
@@ -183,29 +161,24 @@ export function layoutLanes(model: PlatformModel, opts: LaneOptions = {}): LaneL
   const fusion = model.entities.find((e) => e.kind === 'fusion' && shown(e))
   if (fusion) put(fusion, central ? centreOf(central.id) : rowY(rowOf(mean(into.get(fusion.id) ?? []) ?? middle)))
 
-  // Every line has a track of its own in the gutter in front of its receiver and its own place on the receiver's edge, so two lines never lie on
-  // one another and each arrow can be told from the next. Within a receiver the sender farthest away takes the track nearest the receiver, which is
-  // what keeps the lines from crossing; the places on the edge run in the order of the senders, top to bottom. Receivers of a column share its
-  // gutter side by side, in the order they stand.
-  const track = new Map<string, number>()
-  const arrive = new Map<string, number>()
-  for (let col = 1; col < cols.length; col++) {
-    const receivers = nodes.filter((n) => COL.get(n.entity.kind) === col && (into.get(n.entity.id) ?? []).some((id) => placed.has(id))).sort((a, b) => a.y - b.y)
-    const gap = gapAfter(col - 1)
-    receivers.forEach((n, k) => {
-      const mid = n.y + LANE.nodeH / 2
-      const senders = model.edges.filter((h) => h.to === n.entity.id && placed.has(h.from))
-      const m = senders.length
-      const step = Math.min(8, (LANE.nodeH - 16) / Math.max(1, m - 1))
-      const ordered = [...senders].sort((a, b) => centreOf(a.from) - centreOf(b.from) || a.id.localeCompare(b.id))
-      // A sender on the receiver's own row arrives straight, in the middle; the others take the places above and below it, in the order they stand.
-      const level = ordered.findIndex((h) => Math.abs(centreOf(h.from) - mid) < 1)
-      ordered.forEach((h, i) => arrive.set(h.id, mid + (level < 0 ? i - (m - 1) / 2 : i - level) * step))
-      const band = gap / receivers.length
-      const centre = colLeft[col] - gap + band * (k + 0.5)
-      const apart = Math.min(10, (band - 12) / Math.max(1, m - 1))
-      ;[...senders].sort((a, b) => Math.abs(centreOf(b.from) - mid) - Math.abs(centreOf(a.from) - mid) || a.id.localeCompare(b.id)).forEach((h, i) => track.set(h.id, centre + ((m - 1) / 2 - i) * apart))
-    })
+  // Where a line meets a box: it floats along the edge towards the box at its other end, and two lines on one edge keep apart, in the order of
+  // those boxes, so each arrow can be told from the next and they never cross there. Alone, a line to a box on the same row is level.
+  const wired = model.edges.filter((h) => placed.has(h.from) && placed.has(h.to))
+  const slot = new Map<string, { out: number; in: number }>()
+  const spread = (ends: { id: string; other: number }[], mine: number): Map<string, number> => {
+    const room = LANE.nodeH / 2 - LANE.edgeMargin
+    const sorted = [...ends].sort((a, b) => a.other - b.other || a.id.localeCompare(b.id))
+    const at = sorted.map((e) => Math.max(-room, Math.min(room, (e.other - mine) * 0.12)))
+    for (let i = 1; i < at.length; i++) at[i] = Math.max(at[i], at[i - 1] + LANE.edgeStep)
+    const over = at.length ? Math.max(0, at[at.length - 1] - room) : 0
+    return new Map(sorted.map((e, i) => [e.id, mine + at[i] - over]))
+  }
+  for (const n of nodes) {
+    const mine = n.y + LANE.nodeH / 2
+    const outs = spread(wired.filter((h) => h.from === n.entity.id).map((h) => ({ id: h.id, other: centreOf(h.to) })), mine)
+    const ins = spread(wired.filter((h) => h.to === n.entity.id).map((h) => ({ id: h.id, other: centreOf(h.from) })), mine)
+    outs.forEach((y, id) => slot.set(id, { out: y, in: slot.get(id)?.in ?? 0 }))
+    ins.forEach((y, id) => slot.set(id, { in: y, out: slot.get(id)?.out ?? 0 }))
   }
   // A run across columns in between must clear their boxes: the nearest height to the sender's that none of them is on.
   const clearY = (between: number[], y: number) => {
@@ -215,40 +188,41 @@ export function layoutLanes(model: PlatformModel, opts: LaneOptions = {}): LaneL
   }
 
   const hops: LaneHop[] = []
-  const skipping = new Map<number, number>()
-  for (const h of model.edges) {
-    const a = placed.get(h.from)
-    const b = placed.get(h.to)
-    if (!a || !b) continue
+  for (const h of wired) {
+    const a = placed.get(h.from)!
+    const b = placed.get(h.to)!
     const [ca, cb] = [COL.get(a.entity.kind)!, COL.get(b.entity.kind)!]
     const x1 = a.x + LANE.nodeW
-    const y1 = a.y + LANE.nodeH / 2
-    const y2 = arrive.get(h.id) ?? b.y + LANE.nodeH / 2
-    let pts: Pt[]
-    if (y1 === y2 && cb === ca + 1) pts = [[x1, y1], [b.x, y2]]
-    else {
-      // From the sender along its row to its track, along the track to the receiver's row (by a clear row if columns lie between), in.
-      const bx = track.get(h.id) ?? (x1 + b.x) / 2
-      const skipped = Array.from({ length: Math.max(0, cb - ca - 1) }, (_, i) => ca + 1 + i)
-      const out = skipped.length ? x1 + 16 + (skipping.set(ca, (skipping.get(ca) ?? -1) + 1), skipping.get(ca)!) * 8 : 0
-      const yc = skipped.length ? clearY(skipped, y1) : y2
-      pts = skipped.length ? [[x1, y1], [out, y1], [out, yc], [bx, yc], [bx, y2], [b.x, y2]] : [[x1, y1], [bx, y1], [bx, y2], [b.x, y2]]
-      pts = pts.filter((p, i) => i === 0 || p[0] !== pts[i - 1][0] || p[1] !== pts[i - 1][1])
+    const y1 = slot.get(h.id)!.out
+    const y2 = slot.get(h.id)!.in
+    const skipped = Array.from({ length: Math.max(0, cb - ca - 1) }, (_, i) => ca + 1 + i)
+    let d: string
+    let mid: { x: number; y: number }
+    if (skipped.length === 0) {
+      d = curve(x1, y1, b.x, y2)
+      mid = { x: (x1 + b.x) / 2, y: (y1 + y2) / 2 }
+    } else {
+      // Out along a curve to the gap the skipped column leaves between its boxes, straight through it, and in along a curve.
+      const yc = clearY(skipped, y1)
+      const xs = colLeft[skipped[0]]
+      const xe = colLeft[skipped[skipped.length - 1]] + LANE.nodeW
+      d = `${curve(x1, y1, xs, yc)}H${r1(xe)}${run(xe, yc, b.x, y2)}`
+      mid = { x: (x1 + xs) / 2, y: (y1 + yc) / 2 }
     }
     hops.push({
       id: h.id, from: h.from, to: h.to, status: h.status, age: h.age, flowing: h.status === 'healthy',
-      d: roundedPath(pts),
+      d,
       tip: `M${r1(b.x - 5)} ${r1(y2 - 3.5)}L${r1(b.x)} ${r1(y2)}L${r1(b.x - 5)} ${r1(y2 + 3.5)}`,
-      mid: middleOf(pts),
+      mid: { x: r1(mid.x), y: r1(mid.y) },
     })
   }
 
   return {
     width,
-    height: Math.max(LANE.head + lanes.length * pitch, ...nodes.map((n) => n.y + LANE.nodeH + LANE.minGap)) + 8,
+    height: Math.max(LANE.head + lanes.length * PITCH, ...nodes.map((n) => n.y + LANE.nodeH + LANE.bandBelow)) + 8,
     nodeW: LANE.nodeW,
     columns: cols.map((c) => ({ ...c, x: colX(c.kind) })),
-    lanes: lanes.map((l, i) => ({ clusterId: l.agent.clusterId!, name: l.name, y: rowY(i) })),
+    lanes: lanes.map((l, i) => ({ clusterId: l.agent.clusterId!, name: l.name, top: LANE.head + i * PITCH, height: BAND_H, y: rowY(i) })),
     nodes,
     hops,
   }

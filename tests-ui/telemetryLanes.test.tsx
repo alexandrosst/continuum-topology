@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import type { PlatformEntity, PlatformModel, PlatformStatus } from '@/lib/platformLayer'
-import { hopNeedsLabel, LANE, layoutLanes, nodeLabel, roundedPath } from '@/lib/telemetryLanes'
+import { curve, hopNeedsLabel, LANE, layoutLanes, nodeLabel } from '@/lib/telemetryLanes'
 
 const part = (id: string, kind: PlatformEntity['kind'], over: Partial<PlatformEntity> = {}): PlatformEntity => ({ id, kind, name: kind, detail: '', status: 'healthy', sentence: '', sendsTo: [], ...over })
 const hop = (from: string, to: string, status: PlatformStatus = 'healthy', age?: string) => ({ id: `${from}>${to}`, from, to, status, age })
@@ -27,6 +27,8 @@ const model = (status: Partial<Record<string, PlatformStatus>> = {}): PlatformMo
 }
 const at = (l: ReturnType<typeof layoutLanes>, id: string) => l.nodes.find((n) => n.entity.id === id)!
 const centre = (l: ReturnType<typeof layoutLanes>, id: string) => at(l, id).y + LANE.nodeH / 2
+const BAND = LANE.caption + LANE.nodeH + LANE.bandBelow
+const PITCH = BAND + LANE.bandGap
 
 describe('layoutLanes', () => {
   test('one lane per cluster, those that send to the same regional operator together; the pipeline reads as columns', () => {
@@ -40,8 +42,9 @@ describe('layoutLanes', () => {
     expect(xs).toEqual([...xs].sort((p, q) => p - q))
     expect(l.nodes.filter((n) => n.entity.kind === 'regional')).toHaveLength(2)
     expect(centre(l, 'agent:a')).toBe(centre(l, 'local:a'))
-    // The boxes are the same width everywhere and the grid is as wide as the columns and the gutters between them.
-    expect(l.width).toBe(xs[4] + LANE.nodeW)
+    // The boxes are the same width everywhere and the grid is as wide as the columns and the gutters between them, with a little air at each end.
+    expect(l.width).toBe(xs[4] + LANE.nodeW + LANE.padX)
+    expect(xs[0]).toBe(LANE.padX)
   })
 
   test('the gutters take the room there is, up to a limit, and the boxes never stretch', () => {
@@ -50,15 +53,17 @@ describe('layoutLanes', () => {
     const huge = layoutLanes(model(), { width: 4000 })
     expect(roomy.width).toBeGreaterThan(tight.width)
     expect(roomy.width).toBeLessThanOrEqual(1600)
-    expect(huge.width).toBe(LANE.nameW + LANE.nameGap + 5 * LANE.nodeW + LANE.agentGap + LANE.fusionGap + 2 * LANE.gutterMax)
+    expect(huge.width).toBe(2 * LANE.padX + 5 * LANE.nodeW + 4 * LANE.gutterMax)
     expect(roomy.nodeW).toBe(LANE.nodeW)
   })
 
-  test('rows are on a pitch, a little taller when there is height for it, and every box is centred on its row', () => {
+  test('a lane is a band with its name on top; bands are on a pitch and every box is centred on the row under the name', () => {
     const l = layoutLanes(model())
-    expect(l.lanes.map((x) => x.y)).toEqual([0, 1, 2].map((i) => LANE.head + i * LANE.pitch + LANE.nodeH / 2))
-    expect(layoutLanes(model(), { height: 2000 }).lanes[1].y - layoutLanes(model(), { height: 2000 }).lanes[0].y).toBe(LANE.maxPitch)
+    expect(l.lanes.map((x) => x.top)).toEqual([0, 1, 2].map((i) => LANE.head + i * PITCH))
+    expect(l.lanes.every((x) => x.height === BAND)).toBe(true)
+    expect(l.lanes.map((x) => x.y)).toEqual(l.lanes.map((x) => x.top + LANE.caption + LANE.nodeH / 2))
     for (const n of l.nodes.filter((x) => x.entity.kind === 'agent')) expect(l.lanes.map((x) => x.y)).toContain(n.y + LANE.nodeH / 2)
+    expect(l.height).toBeGreaterThanOrEqual(l.lanes[2].top + BAND)
   })
 
   test('a shared part is drawn once, on the row nearest the middle of what sends to it, so it sits on the same grid as the rest', () => {
@@ -80,7 +85,7 @@ describe('layoutLanes', () => {
     expect(Math.abs(eu - ap)).toBeGreaterThanOrEqual(LANE.nodeH + LANE.minGap)
     expect(l.height).toBeGreaterThanOrEqual(Math.max(eu, ap) + LANE.nodeH / 2)
     // ... and onto the next row, not between two.
-    expect((Math.max(eu, ap) - Math.min(eu, ap)) % LANE.pitch).toBe(0)
+    expect((Math.max(eu, ap) - Math.min(eu, ap)) % PITCH).toBe(0)
   })
 
   test('a hop runs from the right edge of the sender to the left edge of the receiver and carries the sender’s state; only a healthy one flows', () => {
@@ -94,37 +99,48 @@ describe('layoutLanes', () => {
     expect(l.hops).toHaveLength(9)
   })
 
-  test('a line that changes row runs along the gutters and turns with rounded corners: it never crosses a box that is not its own', () => {
+  test('a line that changes row is a smooth curve, level where it leaves and where it arrives, with its pill in the gutter between the two columns', () => {
     const l = layoutLanes(model())
     const hop = l.hops.find((x) => x.id === 'local:a>regional:eu')!
-    expect(hop.d).toMatch(/^M\d+ [\d.]+L[\d. ]+Q/)
-    expect(hop.d).not.toContain('C')
-    // The pill that carries its age sits on the line, in a gutter between two columns, never on a box.
+    expect(hop.d).toMatch(/^M[\d.]+ [\d.]+C/)
     const [local, regional] = [at(l, 'local:a'), at(l, 'regional:eu')]
+    const [c1, c2] = hop.d.match(/C([\d.]+) ([\d.]+) ([\d.]+) ([\d.]+)/)!.slice(1).map(Number).reduce<number[][]>((acc, n, i) => (i % 2 ? (acc[acc.length - 1].push(n), acc) : [...acc, [n]]), [])
+    const [sy, ey] = [hop.d.match(/^M[\d.]+ ([\d.]+)/)![1], hop.tip.match(/L[\d.]+ ([\d.]+)/)![1]].map(Number)
+    expect(c1[1]).toBe(sy)
+    expect(c2[1]).toBe(ey)
     expect(hop.mid.x).toBeGreaterThan(local.x + LANE.nodeW)
     expect(hop.mid.x).toBeLessThan(regional.x)
-    // Two receivers in a column have a trunk each: the lines into them do not lie on one another.
-    const trunk = (id: string) => Number(l.hops.find((x) => x.id === id)!.d.match(/L(\d+(?:\.\d+)?) /)?.[1])
-    expect(trunk('local:a>regional:eu')).not.toBe(trunk('local:c>regional:ap'))
   })
 
-  test('a line that skips a column goes by a row no box of that column is on', () => {
+  test('a line starts on the right edge of its sender and its arrow is on the left edge of its receiver, on the box, never inside it', () => {
+    const l = layoutLanes(model())
+    for (const h of l.hops) {
+      const [a, b] = [at(l, h.from), at(l, h.to)]
+      expect(h.d.startsWith(`M${a.x + LANE.nodeW} `)).toBe(true)
+      expect(h.tip).toContain(`L${b.x} `)
+      const tipY = Number(h.tip.match(/L[\d.]+ ([\d.]+)/)![1])
+      expect(tipY).toBeGreaterThan(b.y)
+      expect(tipY).toBeLessThan(b.y + LANE.nodeH)
+    }
+  })
+
+  test('a line that skips a column runs straight through the gap between that column\'s boxes, and curves in and out beside it', () => {
     const m = model()
     // cherry sends straight to the central operator, past the regional column.
     const skip: PlatformModel = { ...m, edges: m.edges.map((e) => (e.id === 'local:c>regional:ap' ? { ...e, id: 'local:c>central', to: 'central' } : e)) }
     const l = layoutLanes(skip)
     const hop = l.hops.find((x) => x.id === 'local:c>central')!
-    const ys = [...hop.d.matchAll(/(?:^|[LM])\d+(?:\.\d+)? (\d+(?:\.\d+)?)/g)].map((x) => Number(x[1]))
-    const regionalBoxes = l.nodes.filter((n) => n.entity.kind === 'regional')
-    // The long horizontal run is at the height of the sender's row, or beside it where a box is in the way, and in no case through a regional operator.
-    for (const n of regionalBoxes) expect(ys.slice(0, -1).every((y) => y < n.y || y > n.y + LANE.nodeH) || hop.d.length > 0).toBe(true)
-    expect(hop.mid.x).toBeGreaterThan(at(l, 'local:c').x)
+    const run = hop.d.match(/([\d.]+) ([\d.]+)H([\d.]+)/)!
+    const y = Number(run[2])
+    for (const n of l.nodes.filter((x) => x.entity.kind === 'regional')) expect(y < n.y || y > n.y + LANE.nodeH).toBe(true)
+    expect(Number(run[3])).toBe(at(l, 'regional:eu').x + LANE.nodeW)
+    expect(hop.mid.x).toBeGreaterThan(at(l, 'local:c').x + LANE.nodeW)
+    expect(hop.mid.x).toBeLessThan(at(l, 'regional:eu').x)
   })
 
-  test('rounded corners never take more than the straight run next to them allows', () => {
-    expect(roundedPath([[0, 0], [100, 0], [100, 100]], 8)).toBe('M0 0L92 0Q100 0 100 8L100 100')
-    expect(roundedPath([[0, 0], [10, 0], [10, 10]], 8)).toBe('M0 0L5 0Q10 0 10 5L10 10')
-    expect(roundedPath([[0, 0], [50, 0]])).toBe('M0 0H50')
+  test('a line between two boxes on one row is straight; otherwise it is a curve', () => {
+    expect(curve(10, 20, 100, 20)).toBe('M10 20H100')
+    expect(curve(0, 0, 100, 50)).toBe('M0 0C50 0 50 50 100 50')
   })
 
   test('problems only keeps the lanes where something on the way to FUSION is wrong, and the shared parts they reach', () => {
@@ -178,15 +194,28 @@ describe('labels', () => {
     expect(nodeLabel(part('fusion', 'fusion', { name: 'FUSION', sentence: 'Running.' }))).toBe('FUSION: Healthy. Running. Keeps metrics, logs and traces.')
   })
 
-  test('every line into a receiver has its own track and its own place on its edge, so no two share a line or an arrowhead', () => {
+  test('every line into a receiver has its own place on its edge, in the order of the boxes they come from, so no two share an arrowhead', () => {
     const l = layoutLanes(model())
     const into = l.hops.filter((h) => h.to === 'regional:eu')
     expect(into).toHaveLength(2)
     const tipY = (h: (typeof into)[number]) => Number(h.tip.match(/L[\d.]+ ([\d.]+)/)![1])
-    expect(new Set(into.map(tipY)).size).toBe(2)
-    const trunk = (h: (typeof into)[number]) => Number(h.d.match(/L(\d+(?:\.\d+)?) /)?.[1])
-    expect(new Set(into.map(trunk)).size).toBe(2)
-    // The sender on the receiver's own row (banana: eu stands on its row) arrives straight in the middle.
-    expect(tipY(l.hops.find((h) => h.id === 'local:b>regional:eu')!)).toBe(centre(l, 'regional:eu'))
+    expect(Math.abs(tipY(into[0]) - tipY(into[1]))).toBeGreaterThanOrEqual(LANE.edgeStep)
+    // The one from the higher row arrives above the one from the lower row, so they never cross at the box.
+    expect(tipY(l.hops.find((h) => h.id === 'local:a>regional:eu')!)).toBeLessThan(tipY(l.hops.find((h) => h.id === 'local:b>regional:eu')!))
+    // A single line to a box on its own row is level, and in the middle.
+    expect(tipY(l.hops.find((h) => h.id === 'agent:a>local:a')!)).toBe(centre(l, 'local:a'))
+  })
+
+  test('a line floats along the edge towards the box at its other end, never past the edge\'s margin', () => {
+    const l = layoutLanes(model())
+    const out = Number(l.hops.find((h) => h.id === 'local:a>regional:eu')!.d.match(/^M[\d.]+ ([\d.]+)/)![1])
+    // apple's row is above eu's: its line leaves a little below the middle of its box, towards eu.
+    expect(out).toBeGreaterThan(centre(l, 'local:a'))
+    for (const h of l.hops) {
+      const y = Number(h.d.match(/^M[\d.]+ ([\d.]+)/)![1])
+      const n = at(l, h.from)
+      expect(y).toBeGreaterThanOrEqual(n.y + LANE.edgeMargin - 0.1)
+      expect(y).toBeLessThanOrEqual(n.y + LANE.nodeH - LANE.edgeMargin + 0.1)
+    }
   })
 })
