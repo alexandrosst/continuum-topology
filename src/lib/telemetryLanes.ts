@@ -9,7 +9,7 @@
 import { PLATFORM_STATUS_WORD, platformFacts, type PlatformEntity, type PlatformKind, type PlatformModel, type PlatformStatus } from './platformLayer'
 
 /** One scale: boxes 192 x 68, a lane's band 22 for its name above the row and 6 below it, bands 8 apart; the gutters between columns give where there is room. */
-export const LANE = { nodeW: 192, nodeH: 68, head: 40, caption: 22, bandBelow: 6, bandGap: 8, padX: 8, gutterMin: 40, gutterMax: 96, minGap: 16, edgeMargin: 12, edgeStep: 10 } as const
+export const LANE = { nodeW: 192, nodeH: 68, head: 40, caption: 22, bandBelow: 6, bandGap: 8, padX: 8, gutterMin: 44, gutterMax: 96, minGap: 16, edgeMargin: 12, edgeStep: 10 } as const
 const BAND_H = LANE.caption + LANE.nodeH + LANE.bandBelow
 const PITCH = BAND_H + LANE.bandGap
 
@@ -40,7 +40,7 @@ export interface LaneHop {
   d: string
   /** The small arrow at the receiver's end, on the box's edge. */
   tip: string
-  /** Where its label sits: the middle of the curve (or of the first, when it skips a column). */
+  /** Where its label sits: the middle of the curve (or of the first, when it skips a column), just above a line that is level. */
   mid: { x: number; y: number }
   /** Only a healthy hop has data moving on it. */
   flowing: boolean
@@ -201,6 +201,8 @@ export function layoutLanes(model: PlatformModel, opts: LaneOptions = {}): LaneL
     if (skipped.length === 0) {
       d = curve(x1, y1, b.x, y2)
       mid = { x: (x1 + b.x) / 2, y: (y1 + y2) / 2 }
+      // A line that is all but level would be hidden, arrow and all, under its own pill in a gutter this narrow: the pill rides just above it.
+      if (Math.abs(y1 - y2) < 12) mid.y -= 14
     } else {
       // Out along a curve to the gap the skipped column leaves between its boxes, straight through it, and in along a curve.
       const yc = clearY(skipped, y1)

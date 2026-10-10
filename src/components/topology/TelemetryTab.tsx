@@ -73,7 +73,7 @@ function Lanes({ layout, facts, selectedId, onSelect }: { layout: LaneLayout; fa
           })}
         </svg>
         {layout.hops.filter((h) => hopNeedsLabel(h) || (h.age && lit.has(h.id))).map((h) => (
-          <span key={h.id} aria-hidden className={clsx('pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 whitespace-nowrap rounded-full border bg-nb-900 px-1.5 py-px text-[11px] leading-4 tabular-nums', HOP_PILL[h.status])} style={{ left: h.mid.x, top: h.mid.y - oy }} data-testid="hop-age">{h.age}</span>
+          <span key={h.id} aria-hidden className={clsx('pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 whitespace-nowrap rounded-full border bg-nb-900 px-1.5 py-px text-[10.5px] leading-4 tabular-nums', HOP_PILL[h.status])} style={{ left: h.mid.x, top: h.mid.y - oy }} data-testid="hop-age">{h.age}</span>
         ))}
         {layout.nodes.map(({ entity, x, y, senders }) => (
           <PlatformNode

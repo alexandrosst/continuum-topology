@@ -77,7 +77,8 @@ export function PlatformNode({ entity, selected, label, senders, age, withRole, 
   // The reason beside the state already says when it was last heard from.
   const f = face(entity, senders, reason ? undefined : age)
   const Icon = PLATFORM_ICON[entity.kind]
-  const meta = bad ? (reason ? `${PLATFORM_STATUS_WORD[entity.status]} \u00b7 ${reason}` : PLATFORM_STATUS_WORD[entity.status]) : f.meta
+  // Not well, or not known: the state in words (a hollow ring says it too, but the word is what is read). Not turned on is quieter than Unknown, and says so.
+  const meta = bad ? (reason ? `${PLATFORM_STATUS_WORD[entity.status]} \u00b7 ${reason}` : PLATFORM_STATUS_WORD[entity.status]) : entity.status === 'unknown' && !entity.off ? PLATFORM_STATUS_WORD.unknown : f.meta
   const sub = reason ? f.meta : undefined
   return (
     <div className={clsx('group/node', className ?? 'relative')} style={style}>

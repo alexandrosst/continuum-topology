@@ -43,6 +43,13 @@ describe('PlatformNode', () => {
     expect(node.querySelector('[role="img"][data-status="attention"]')?.getAttribute('aria-label')).toBe('Needs attention')
   })
 
+  test('a part whose state is not known says Unknown on the line under the name, untinted, with a hollow ring', () => {
+    const node = renderNode(entity({ status: 'unknown' }))
+    expect(node.textContent).toBe('Local operatorUnknownMetricsLogs')
+    expect(node.className).not.toContain('border-warn')
+    expect(node.querySelector('[role="img"][data-status="unknown"]')?.getAttribute('aria-label')).toBe('Unknown')
+  })
+
   test('in a list the reason sits beside the state, and where it sends to follows on a line of its own', () => {
     expect(renderNode(entity(), { withRole: true }).textContent).toBe('Local operator\u2192 eu-westMetricsLogs')
     cleanup()

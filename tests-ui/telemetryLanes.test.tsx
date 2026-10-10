@@ -112,6 +112,15 @@ describe('layoutLanes', () => {
     expect(hop.mid.x).toBeLessThan(regional.x)
   })
 
+  test('the pill of a level line rides just above it, so the line and its arrow stay in view; on a curve it sits on the middle of the curve', () => {
+    const l = layoutLanes(model())
+    const level = l.hops.find((h) => h.id === 'agent:a>local:a')!
+    expect(level.mid.y).toBe(centre(l, 'agent:a') - 14)
+    const curved = l.hops.find((h) => h.id === 'local:a>regional:eu')!
+    const [y1, y2] = [Number(curved.d.match(/^M[\d.]+ ([\d.]+)/)![1]), Number(curved.tip.match(/L[\d.]+ ([\d.]+)/)![1])]
+    expect(curved.mid.y).toBeCloseTo((y1 + y2) / 2, 0)
+  })
+
   test('a line starts on the right edge of its sender and its arrow is on the left edge of its receiver, on the box, never inside it', () => {
     const l = layoutLanes(model())
     for (const h of l.hops) {
