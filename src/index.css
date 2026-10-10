@@ -145,7 +145,7 @@ body {
 .react-flow__controls-button svg { width: 16px; height: 16px; max-width: 16px; max-height: 16px; }
 @media (pointer: coarse) { .react-flow__controls-button { width: 44px; height: 44px; } }
 @media (max-width: 639px) {
-  .react-flow__panel.bottom.left:has(.react-flow__controls) { left: auto; right: 0; }
+  .react-flow__controls.react-flow__panel.bottom.left { left: auto; right: 0; }
 }
 /* Calm: the zoom buttons rest quietly and come up when the pointer or the keyboard is on them. */
 .react-flow__controls.controls-quiet { opacity: 0.55; transition: opacity 120ms ease-out; }

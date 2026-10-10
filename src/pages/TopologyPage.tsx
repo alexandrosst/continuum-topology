@@ -147,7 +147,10 @@ function Canvas() {
     // On a phone the widest cluster box sets the zoom instead of the whole graph (see narrowFitZoom).
     const widest = Math.max(0, ...getNodes().filter((n) => n.type === 'boundary' && !n.parentId).map((n) => n.measured?.width ?? 0))
     const zoom = narrowFitZoom(width, v.zoom, widest)
-    const x = Math.max(zoom === v.zoom ? v.x : -Infinity, width * 0.04 - bounds.x * zoom)
+    // On a phone the graph is wider than the screen: start at the widest box's left edge, so the box that sets the zoom is the one in full
+    // (the graph's own left edge is a smaller box centred in its row, and starting there cropped the big one on the right).
+    const widestBox = zoom === v.zoom ? undefined : getNodes().filter((n) => n.type === 'boundary' && !n.parentId).sort((a, b) => (b.measured?.width ?? 0) - (a.measured?.width ?? 0))[0]
+    const x = widestBox ? width * 0.04 - widestBox.position.x * zoom : Math.max(zoom === v.zoom ? v.x : -Infinity, width * 0.04 - bounds.x * zoom)
     let y = Math.max(zoom === v.zoom ? v.y : -Infinity, height * 0.04 - bounds.y * zoom)
     // The pill sits at the top left: make room for it only when a box would actually be under it (its top inside the pill's band, its left
     // inside the pill's width), so a graph that starts lower, or further right, keeps every pixel it has.
