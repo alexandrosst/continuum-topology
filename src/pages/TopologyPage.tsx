@@ -20,7 +20,7 @@ import {
 import '@xyflow/react/dist/style.css'
 import clsx from 'clsx'
 import { toPng } from 'html-to-image'
-import { Funnel, Boxes, ChevronDown, CircleHelp, Download, Filter as FilterIcon, Network, Package, Plug, Plus, Radio, RotateCcw, ScanEye, Server, SlidersHorizontal, Target, TriangleAlert, X } from 'lucide-react'
+import { Funnel, Boxes, ChevronDown, CircleHelp, Download, Filter as FilterIcon, Network, Package, Plug, Plus, Radio, RotateCcw, ScanEye, Server, SlidersHorizontal, Target, X } from 'lucide-react'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useConnectFlow } from '@/components/discovery/ConnectFlow'
@@ -717,7 +717,7 @@ function Canvas() {
   // N and Shift+N walk the problems, away from anything being typed in.
   const walk = useRef(goToProblem)
   walk.current = goToProblem
-  const anyProblem = problems.length > 0
+  const anyProblem = problems.length > 0 && !isTelemetry // the Telemetry tab walks its own problems (TelemetryTab.tsx)
   useEffect(() => {
     if (!anyProblem) return
     const onKey = (e: KeyboardEvent) => {
@@ -932,17 +932,7 @@ function Canvas() {
               )}
             </div>
           )}
-          {isTelemetry ? (
-            <Button
-              variant={problemsOnly ? 'primary' : undefined}
-              onClick={() => { setParam('problems', problemsOnly ? null : '1'); setSelection(null) }}
-              aria-pressed={problemsOnly}
-              title="Show only the clusters where something needs attention or is not working"
-              data-testid="problems-only"
-            >
-              <TriangleAlert size={ICON_SM} /> <span className="hidden sm:inline">Problems only</span>
-            </Button>
-          ) : (
+          {isTelemetry ? null : (
             <>
           <FilterMenu
             disabled={empty}
@@ -1199,6 +1189,7 @@ function Canvas() {
           selection={selection}
           onSelect={select}
           onShowAll={() => setParam('problems', null)}
+          onSetProblemsOnly={() => { setParam('problems', '1'); setSelection(null) }}
           onConnect={connect.start}
           onClose={() => setSelection(null)}
         />

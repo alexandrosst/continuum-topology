@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import type { PlatformEntity, PlatformModel, PlatformStatus } from '@/lib/platformLayer'
-import { hopNeedsLabel, LANE, layoutLanes, nodeLabel } from '@/lib/telemetryLanes'
+import { hopNeedsLabel, LANE, layoutLanes, nodeLabel, roundedPath } from '@/lib/telemetryLanes'
 
 const part = (id: string, kind: PlatformEntity['kind'], over: Partial<PlatformEntity> = {}): PlatformEntity => ({ id, kind, name: kind, detail: '', status: 'healthy', sentence: '', sendsTo: [], ...over })
 const hop = (from: string, to: string, status: PlatformStatus = 'healthy', age?: string) => ({ id: `${from}>${to}`, from, to, status, age })
@@ -40,14 +40,34 @@ describe('layoutLanes', () => {
     expect(xs).toEqual([...xs].sort((p, q) => p - q))
     expect(l.nodes.filter((n) => n.entity.kind === 'regional')).toHaveLength(2)
     expect(centre(l, 'agent:a')).toBe(centre(l, 'local:a'))
-    expect(l.width).toBe(LANE.padX * 2 + 5 * LANE.nodeW + 4 * LANE.colGap)
+    // The boxes are the same width everywhere and the grid is as wide as the columns and the gutters between them.
+    expect(l.width).toBe(xs[4] + LANE.nodeW)
   })
 
-  test('a shared part is drawn once, level with the middle of what sends to it', () => {
+  test('the gutters take the room there is, up to a limit, and the boxes never stretch', () => {
+    const tight = layoutLanes(model())
+    const roomy = layoutLanes(model(), { width: 1600 })
+    const huge = layoutLanes(model(), { width: 4000 })
+    expect(roomy.width).toBeGreaterThan(tight.width)
+    expect(roomy.width).toBeLessThanOrEqual(1600)
+    expect(huge.width).toBe(LANE.nameW + LANE.nameGap + 5 * LANE.nodeW + LANE.agentGap + LANE.fusionGap + 2 * LANE.gutterMax)
+    expect(roomy.nodeW).toBe(LANE.nodeW)
+  })
+
+  test('rows are on a pitch, a little taller when there is height for it, and every box is centred on its row', () => {
     const l = layoutLanes(model())
-    expect(centre(l, 'regional:eu')).toBe((centre(l, 'local:a') + centre(l, 'local:b')) / 2)
+    expect(l.lanes.map((x) => x.y)).toEqual([0, 1, 2].map((i) => LANE.head + i * LANE.pitch + LANE.nodeH / 2))
+    expect(layoutLanes(model(), { height: 2000 }).lanes[1].y - layoutLanes(model(), { height: 2000 }).lanes[0].y).toBe(LANE.maxPitch)
+    for (const n of l.nodes.filter((x) => x.entity.kind === 'agent')) expect(l.lanes.map((x) => x.y)).toContain(n.y + LANE.nodeH / 2)
+  })
+
+  test('a shared part is drawn once, on the row nearest the middle of what sends to it, so it sits on the same grid as the rest', () => {
+    const l = layoutLanes(model())
+    const rows = l.lanes.map((x) => x.y)
+    // eu is fed by rows 0 and 1: halfway is no row, so it takes the nearer of the two (the lower when they are equally near).
+    expect(centre(l, 'regional:eu')).toBe(rows[1])
     expect(centre(l, 'regional:ap')).toBe(centre(l, 'local:c'))
-    expect(centre(l, 'central')).toBe((centre(l, 'regional:eu') + centre(l, 'regional:ap')) / 2)
+    expect(rows).toContain(centre(l, 'central'))
     expect(centre(l, 'fusion')).toBe(centre(l, 'central'))
   })
 
@@ -59,6 +79,8 @@ describe('layoutLanes', () => {
     const [eu, ap] = ['regional:eu', 'regional:ap'].map((id) => centre(l, id))
     expect(Math.abs(eu - ap)).toBeGreaterThanOrEqual(LANE.nodeH + LANE.minGap)
     expect(l.height).toBeGreaterThanOrEqual(Math.max(eu, ap) + LANE.nodeH / 2)
+    // ... and onto the next row, not between two.
+    expect((Math.max(eu, ap) - Math.min(eu, ap)) % LANE.pitch).toBe(0)
   })
 
   test('a hop runs from the right edge of the sender to the left edge of the receiver and carries the sender’s state; only a healthy one flows', () => {
@@ -69,8 +91,40 @@ describe('layoutLanes', () => {
     expect(h('local:b>regional:eu')).toMatchObject({ status: 'attention', flowing: false, age: '14 min' })
     expect(h('local:a>regional:eu')).toMatchObject({ status: 'healthy', flowing: true })
     expect(h('agent:c>local:c')).toMatchObject({ status: 'down', flowing: false })
-    expect(h('local:a>regional:eu').d).toMatch(/^M\d+ \d+C/)
     expect(l.hops).toHaveLength(9)
+  })
+
+  test('a line that changes row runs along the gutters and turns with rounded corners: it never crosses a box that is not its own', () => {
+    const l = layoutLanes(model())
+    const hop = l.hops.find((x) => x.id === 'local:a>regional:eu')!
+    expect(hop.d).toMatch(/^M\d+ [\d.]+L[\d. ]+Q/)
+    expect(hop.d).not.toContain('C')
+    // The pill that carries its age sits on the line, in a gutter between two columns, never on a box.
+    const [local, regional] = [at(l, 'local:a'), at(l, 'regional:eu')]
+    expect(hop.mid.x).toBeGreaterThan(local.x + LANE.nodeW)
+    expect(hop.mid.x).toBeLessThan(regional.x)
+    // Two receivers in a column have a trunk each: the lines into them do not lie on one another.
+    const trunk = (id: string) => Number(l.hops.find((x) => x.id === id)!.d.match(/L(\d+(?:\.\d+)?) /)?.[1])
+    expect(trunk('local:a>regional:eu')).not.toBe(trunk('local:c>regional:ap'))
+  })
+
+  test('a line that skips a column goes by a row no box of that column is on', () => {
+    const m = model()
+    // cherry sends straight to the central operator, past the regional column.
+    const skip: PlatformModel = { ...m, edges: m.edges.map((e) => (e.id === 'local:c>regional:ap' ? { ...e, id: 'local:c>central', to: 'central' } : e)) }
+    const l = layoutLanes(skip)
+    const hop = l.hops.find((x) => x.id === 'local:c>central')!
+    const ys = [...hop.d.matchAll(/(?:^|[LM])\d+(?:\.\d+)? (\d+(?:\.\d+)?)/g)].map((x) => Number(x[1]))
+    const regionalBoxes = l.nodes.filter((n) => n.entity.kind === 'regional')
+    // The long horizontal run is at the height of the sender's row, or beside it where a box is in the way, and in no case through a regional operator.
+    for (const n of regionalBoxes) expect(ys.slice(0, -1).every((y) => y < n.y || y > n.y + LANE.nodeH) || hop.d.length > 0).toBe(true)
+    expect(hop.mid.x).toBeGreaterThan(at(l, 'local:c').x)
+  })
+
+  test('rounded corners never take more than the straight run next to them allows', () => {
+    expect(roundedPath([[0, 0], [100, 0], [100, 100]], 8)).toBe('M0 0L92 0Q100 0 100 8L100 100')
+    expect(roundedPath([[0, 0], [10, 0], [10, 10]], 8)).toBe('M0 0L5 0Q10 0 10 5L10 10')
+    expect(roundedPath([[0, 0], [50, 0]])).toBe('M0 0H50')
   })
 
   test('problems only keeps the lanes where something on the way to FUSION is wrong, and the shared parts they reach', () => {
@@ -86,14 +140,15 @@ describe('layoutLanes', () => {
     expect(layoutLanes(model({ 'local:a': 'unknown' }), { problemsOnly: true }).lanes).toEqual([])
   })
 
-  test('FUSION that is not turned on is drawn in its column with no hop into it, and not under problems only', () => {
+  test('FUSION that is not turned on is drawn next to the regional operators, with no central column and no hop into it, and not under problems only', () => {
     const m = model()
     const off: PlatformModel = {
       entities: [...m.entities.filter((e) => e.kind !== 'central' && e.kind !== 'fusion'), part('fusion', 'fusion', { name: 'FUSION', status: 'unknown', off: true })],
       edges: m.edges.filter((e) => e.to !== 'central' && e.to !== 'fusion'),
     }
     const l = layoutLanes(off)
-    expect(at(l, 'fusion').x).toBe(l.columns[4].x)
+    expect(l.columns.map((c) => c.kind)).toEqual(['agent', 'local', 'regional', 'fusion'])
+    expect(at(l, 'fusion').x).toBe(l.columns[3].x)
     expect(l.hops.some((x) => x.to === 'fusion')).toBe(false)
     expect(layoutLanes({ ...off, entities: off.entities.map((e) => (e.id === 'local:a' ? { ...e, status: 'down' as const } : e)) }, { problemsOnly: true }).nodes.some((n) => n.entity.kind === 'fusion')).toBe(false)
   })
@@ -112,8 +167,8 @@ describe('labels', () => {
     expect(hopNeedsLabel({ status: 'down', age: undefined })).toBe(false)
   })
 
-  test('a part is named for a screen reader with its cluster, its state and when its data last arrived', () => {
-    expect(nodeLabel(part('local:a', 'local', { name: 'Local operator', clusterName: 'apple', status: 'attention' }), '14 min')).toBe('Local operator, apple: Needs attention, last data 14 min')
+  test('a part is named for a screen reader with its cluster, its state and the sentence that says what that means', () => {
+    expect(nodeLabel(part('local:a', 'local', { name: 'Local operator', clusterName: 'apple', status: 'attention', sentence: 'Quiet: no data for 14 min.' }))).toBe('Local operator, apple: Needs attention. Quiet: no data for 14 min.')
     expect(nodeLabel(part('fusion', 'fusion', { name: 'FUSION', status: 'unknown', off: true }))).toBe('FUSION: Not turned on')
   })
 })

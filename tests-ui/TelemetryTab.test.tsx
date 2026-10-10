@@ -23,7 +23,7 @@ const twoLanes = (): PlatformModel => ({
 })
 
 function renderTab(over: Partial<React.ComponentProps<typeof TelemetryTab>> = {}) {
-  const props = { clusters: [], agents: [], problemsOnly: false, selection: null, onSelect: vi.fn(), onShowAll: vi.fn(), onConnect: vi.fn(), onClose: vi.fn(), ...over }
+  const props = { clusters: [], agents: [], problemsOnly: false, selection: null, onSelect: vi.fn(), onShowAll: vi.fn(), onSetProblemsOnly: vi.fn(), onConnect: vi.fn(), onClose: vi.fn(), ...over }
   render(<MemoryRouter><TelemetryTab {...props} /></MemoryRouter>)
   return props
 }
@@ -36,32 +36,37 @@ describe('TelemetryTab', () => {
   test('draws one lane per cluster, the stages as column headers, and the shared operator once', () => {
     renderTab()
     expect(screen.getAllByTestId('lane').map((l) => l.textContent)).toEqual(['apple', 'banana'])
-    expect(screen.getByText('Regional operator')).toBeInTheDocument()
+    // The role is named once, in the column header; the boxes lead with what is theirs.
+    expect(within(screen.getByTestId('telemetry-columns')).getAllByText(/operator|agent|FUSION/i).map((e) => e.textContent)).toEqual(['Discovery agent', 'Local operator', 'Regional operator', 'FUSION'])
     expect(screen.getAllByTestId('platform-node').filter((n) => n.getAttribute('data-platform') === 'regional')).toHaveLength(1)
   })
 
-  test('a healthy hop flows and says nothing; one that stalled is still and says how long ago data last arrived', () => {
+  test('a healthy hop is a quiet line whose dashes move; one that stalled is loud and still, with its age on a pill on the line', () => {
     renderTab()
     const hops = screen.getAllByTestId('hop')
     expect(hops.filter((h) => h.getAttribute('data-flowing') === 'true')).toHaveLength(3)
     expect(hops.filter((h) => h.getAttribute('data-status') === 'attention' && h.getAttribute('data-flowing') === 'false')).toHaveLength(1)
     expect(hops.filter((h) => h.getAttribute('data-flowing') === 'true').every((h) => h.querySelector('path')?.getAttribute('class')?.includes('flow-dash'))).toBe(true)
     expect(hops.find((h) => h.getAttribute('data-status') === 'attention')!.querySelector('path')?.getAttribute('class')).not.toContain('flow-dash')
+    // Loud ones are drawn last, so a neutral line never lies over a coloured one.
+    expect(hops[hops.length - 1].getAttribute('data-status')).toBe('attention')
     expect(screen.getAllByTestId('hop-age').map((a) => a.textContent)).toEqual(['14 min'])
   })
 
-  test('the age of a healthy hop shows while its sender is focused, and goes again', () => {
+  test('hovering or focusing a part lights up the line it is on, and only that', () => {
     renderTab()
+    const lit = () => screen.getAllByTestId('hop').filter((h) => h.querySelector('path')?.getAttribute('class')?.includes('!stroke-nb-400')).map((h) => h.getAttribute('data-status'))
+    expect(lit()).toEqual([])
     const local = screen.getByRole('button', { name: /^Local operator, apple/ })
     fireEvent.focus(local)
-    expect(screen.getAllByTestId('hop-age').map((a) => a.textContent)).toEqual(['2 s', '14 min'])
+    expect(lit()).toHaveLength(2) // apple's agent to its local operator, and on to the regional operator
     fireEvent.blur(local)
-    expect(screen.getAllByTestId('hop-age').map((a) => a.textContent)).toEqual(['14 min'])
+    expect(lit()).toEqual([])
   })
 
   test('every part is a button named with its state and its last data, and a click selects it as a platform part', () => {
     const { onSelect } = renderTab()
-    const node = screen.getByRole('button', { name: 'Local operator, banana: Needs attention, last data 14 min' })
+    const node = screen.getByRole('button', { name: 'Local operator, banana: Needs attention' })
     fireEvent.click(node)
     expect(onSelect).toHaveBeenCalledWith({ kind: 'platform', id: 'local:b' })
   })
@@ -71,9 +76,11 @@ describe('TelemetryTab', () => {
     expect(within(screen.getByTestId('telemetry-lanes')).getByRole('button', { pressed: true }).getAttribute('data-platform')).toBe('regional')
   })
 
-  test('no cluster with an agent: points to connecting one', () => {
+  test('no cluster with an agent: says there is no data yet, once, and points to connecting one', () => {
     model = { entities: [], edges: [] }
     const { onConnect } = renderTab()
+    expect(screen.getByText('No data yet')).toBeInTheDocument()
+    expect(screen.queryByTestId('telemetry-summary')).toBeNull()
     fireEvent.click(screen.getByTestId('telemetry-connect'))
     expect(onConnect).toHaveBeenCalledOnce()
     expect(screen.queryByTestId('telemetry-lanes')).toBeNull()
@@ -87,9 +94,45 @@ describe('TelemetryTab', () => {
     expect(onShowAll).toHaveBeenCalledOnce()
   })
 
+  test('one sentence says where the pipeline stands, and the problems pill counts places with a problem, not parts', () => {
+    renderTab()
+    const bar = screen.getByTestId('telemetry-summary')
+    // banana's local operator needs attention and the shared operator is well: one place, and one of two clusters is not flowing.
+    expect(within(bar).getByText('Telemetry is flowing from 1 of 2 clusters')).toBeInTheDocument()
+    expect(within(bar).getByTestId('problems-pill')).toHaveTextContent('1 needs attention')
+    expect(within(bar).getByTestId('problems-pill').getAttribute('data-worst')).toBe('warn')
+    expect(within(bar).getByRole('button', { name: /^1 needs attention/ }).getAttribute('title')).toContain('Counts places, each once')
+  })
+
+  test('the pill walks to the problem and opens it; the switch keeps only the problem places and says so when pressed', () => {
+    const { onSelect, onSetProblemsOnly } = renderTab()
+    fireEvent.click(within(screen.getByTestId('telemetry-summary')).getByRole('button', { name: /^1 needs attention/ }))
+    expect(onSelect).toHaveBeenCalledWith({ kind: 'platform', id: 'local:b' })
+    fireEvent.click(screen.getByTestId('problems-only'))
+    expect(onSetProblemsOnly).toHaveBeenCalledWith(true)
+  })
+
+  test('with everything well there is no pill and no switch, only the sentence with a Healthy glyph', () => {
+    model = { entities: twoLanes().entities.map((e) => ({ ...e, status: 'healthy' as const })), edges: twoLanes().edges.map((e) => ({ ...e, status: 'healthy' as const })) }
+    renderTab()
+    const bar = screen.getByTestId('telemetry-summary')
+    expect(within(bar).getByText('Telemetry is flowing from all 2 clusters')).toBeInTheDocument()
+    expect(within(bar).queryByTestId('problems-pill')).toBeNull()
+    expect(within(bar).queryByTestId('problems-only')).toBeNull()
+    expect(bar.querySelector('svg[data-status="healthy"]')).not.toBeNull()
+  })
+
+  test('N walks the problems from the keyboard, away from a field being typed in', () => {
+    const { onSelect } = renderTab()
+    fireEvent.keyDown(window, { key: 'n' })
+    expect(onSelect).toHaveBeenCalledWith({ kind: 'platform', id: 'local:b' })
+  })
+
   test('problems only leaves out the healthy lane', () => {
     renderTab({ problemsOnly: true })
     expect(screen.getAllByTestId('lane').map((l) => l.textContent)).toEqual(['banana'])
+    // The count is the whole pipeline's, whatever the filter keeps.
+    expect(screen.getByTestId('problems-pill')).toHaveTextContent('1 needs attention')
   })
 
   test('until what the person may read has arrived there are no lanes to draw', () => {
