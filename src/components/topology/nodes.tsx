@@ -349,7 +349,8 @@ function CalmGroupBox({ id, data, selected }: NodeProps<GroupNode>) {
           state={shown.state}
           far={far}
           nameSize="box"
-          title={data.title}
+          // Zoomed out the place, the tier and the networks are not drawn: the name says them on hover (and for keyboard focus, through the same title).
+          title={[data.title, [kindLabel, data.place].filter(Boolean).join(' · '), data.networks?.length ? `Networks: ${data.networks.map((n) => n.via).join(', ')}` : '', data.note ?? ''].filter(Boolean).join('\n')}
           name={data.title}
           tileLabel={kindLabel}
           tile={<Glyph size={ICON_SM} aria-hidden="true" />}
@@ -610,7 +611,7 @@ function CalmCard({ id, data, selected }: NodeProps<CardNode>) {
               // A machine name is often a long generated one: the host without its shared domain, and when that is still long the middle goes, not
               // the end. The full name stays in the tooltip and for screen readers.
               <>
-                <span aria-hidden="true">{middleTruncate(hostName(data.title), far ? 21 : 30)}</span>
+                <span aria-hidden="true">{middleTruncate(hostName(data.title), far ? 17 : 28)}</span>
                 <span className="sr-only">{data.title}</span>
               </>
             ) : (
