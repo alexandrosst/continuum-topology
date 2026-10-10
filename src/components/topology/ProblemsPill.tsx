@@ -30,7 +30,7 @@ export function ProblemsPill({ problems, selectedId, onGo, onShow }: { problems:
         onClick={onShow}
         className={clsx('flex items-center gap-1.5 px-2.5 py-1.5 text-nb-200 hover:text-nb-100', PRESS_CLASS)}
         aria-label={`${words}. Go to ${at ? 'it again' : n === 1 ? 'it' : 'the first one'}.`}
-        title={n === 1 ? 'Take me to it' : 'Take me to the worst one (N: next, Shift+N: previous)'}
+        title={`${n === 1 ? 'Take me to it' : 'Take me to the worst one (N: next, Shift+N: previous)'}. Counts places, each once: a cluster whose cards show the trouble is not counted again.`}
       >
         <TriangleAlert size={ICON_SM} className={worst === 'bad' ? 'text-bad' : 'text-warn'} aria-hidden />
         <span className="tabular-nums">{at && n > 1 ? `${at} of ${words}` : words}</span>

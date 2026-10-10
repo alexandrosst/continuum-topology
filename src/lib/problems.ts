@@ -4,8 +4,10 @@ import type { Alert } from './detail'
 export type Problem = { id: string; alert: Alert }
 
 /**
- * The boxes and cards the Calm canvas tints because something is wrong with them: exactly the nodes carrying an alert, so the count a person
- * is told is the count they can see. Worst first, then top to bottom and left to right, so cycling through them reads the way the canvas does.
+ * The places the Calm canvas tints because something is wrong with them, counted once each and the same way in every layer: the innermost node
+ * carrying an alert. A cluster whose cards already show the trouble is a frame around it, not a second problem; it counts only when it is worse
+ * than everything inside it (the cluster itself is not working while its cards are merely warned). Worst first, then top to bottom and left to
+ * right, so cycling through them reads the way the canvas does.
  */
 export function problemsOf(nodes: TopoNode[]): Problem[] {
   const byId = new Map(nodes.map((n) => [n.id, n]))
@@ -14,10 +16,19 @@ export function problemsOf(nodes: TopoNode[]): Problem[] {
     const o = p ? at(p) : { x: 0, y: 0 }
     return { x: o.x + n.position.x, y: o.y + n.position.y }
   }
+  const alertOf = (n: TopoNode) => (n.data as { alert?: Alert }).alert
+  // The worst alert drawn somewhere inside each ancestor: what makes a box a frame around a problem rather than a problem of its own.
+  const inside = new Map<string, Alert>()
+  for (const n of nodes) {
+    const a = alertOf(n)
+    if (!a) continue
+    for (let p = n.parentId ? byId.get(n.parentId) : undefined; p; p = p.parentId ? byId.get(p.parentId) : undefined) if (inside.get(p.id) !== 'bad') inside.set(p.id, a)
+  }
   return nodes
     .flatMap((n) => {
-      const alert = (n.data as { alert?: Alert }).alert
-      return alert ? [{ id: n.id, alert, ...at(n) }] : []
+      const alert = alertOf(n)
+      const framing = inside.has(n.id) && !(alert === 'bad' && inside.get(n.id) !== 'bad')
+      return alert && !framing ? [{ id: n.id, alert, ...at(n) }] : []
     })
     .sort((a, b) => Number(b.alert === 'bad') - Number(a.alert === 'bad') || a.y - b.y || a.x - b.x || a.id.localeCompare(b.id))
     .map(({ id, alert }) => ({ id, alert }))

@@ -11,6 +11,10 @@ describe('problemsOf', () => {
     const nodes = [node('g', 0, 500), node('a', 300, 10, 'warn', 'g'), node('b', 10, 10, 'warn', 'g'), node('top', 900, 0, 'warn'), node('boom', 0, 900, 'bad'), node('fine', 0, 0)]
     expect(problemsOf(nodes).map((p) => p.id)).toEqual(['boom', 'top', 'b', 'a'])
   })
+  test('counts the innermost place: a box whose cards show the trouble is a frame, not a second problem, unless it is worse than they are', () => {
+    const nodes = [node('box', 0, 0, 'warn'), node('card', 10, 10, 'warn', 'box'), node('lone', 500, 0, 'bad'), node('inner', 10, 10, 'warn', 'lone'), node('same', 900, 0, 'bad'), node('hurt', 10, 10, 'bad', 'same')]
+    expect(problemsOf(nodes).map((p) => p.id)).toEqual(['lone', 'hurt', 'card', 'inner'])
+  })
   test('is empty when nothing is wrong', () => {
     expect(problemsOf([node('a', 0, 0), node('b', 1, 1)])).toEqual([])
   })
