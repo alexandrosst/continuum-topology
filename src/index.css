@@ -139,27 +139,6 @@ body {
   color: var(--color-nb-400);
 }
 .react-flow__controls-button:hover { background: var(--color-nb-940); }
-/* Zoom buttons are a target, not a glyph: 36px with a pointer, 44px on touch. On a phone they sit bottom right, clear of the bottom-left
-   where the canvas starts and of the sheet's handle. */
-.react-flow__controls-button { width: 36px; height: 36px; }
-.react-flow__controls-button svg { width: 16px; height: 16px; max-width: 16px; max-height: 16px; }
-@media (pointer: coarse) { .react-flow__controls-button { width: 44px; height: 44px; } }
-@media (max-width: 639px) {
-  .react-flow__controls.react-flow__panel.bottom.left { left: auto; right: 0; }
-}
-/* Calm: one control bar, laid out in a row; its last button is the legend, wider than a zoom button because it carries a word. */
-.react-flow__controls.horizontal .react-flow__controls-button { border-bottom: 0; border-right: 1px solid var(--color-nb-850); }
-.react-flow__controls.horizontal .react-flow__controls-button:last-child { border-right: 0; }
-.react-flow__controls-button.legend-button { width: auto; gap: 6px; padding: 0 12px; font-size: 12px; line-height: 16px; }
-.react-flow__controls-button.legend-button svg { fill: none; }
-.react-flow__controls-button.legend-button[aria-expanded='true'] { background: var(--color-nb-940); color: var(--color-nb-200); }
-@media (max-width: 639px) { .react-flow__controls-button.legend-button { display: none; } }
-/* The legend sits just above that bar: the bar's own 15px margin and height, and 8px of air. */
-.react-flow__panel.legend-above { margin: 0 0 59px 15px; }
-@media (pointer: coarse) { .react-flow__panel.legend-above { margin-bottom: 67px; } }
-/* Calm: the zoom buttons rest quietly and come up when the pointer or the keyboard is on them. */
-.react-flow__controls.controls-quiet { opacity: 0.55; transition: opacity 120ms ease-out; }
-.react-flow__controls.controls-quiet:hover, .react-flow__controls.controls-quiet:focus-within { opacity: 1; }
 .react-flow__minimap {
   /* Through React Flow's own variables (its stylesheet sets `background` after ours, so a plain background loses): the map is
      the page surface and the dimmed part outside the viewport a recessed one, in whichever theme is on. A fixed dark rgba was a black box in light. */
@@ -178,28 +157,7 @@ body {
    so an active drag stays instant and never fights the transition timer. Width/height are deliberately left
    alone: those are triggered by content reflow (a box gaining/losing a sibling), and animating them is both
    more expensive (layout, not just compositing) and reads as the box "breathing" rather than moving. */
-.react-flow__node:not(.dragging) { transition: transform 160ms ease-out; }
-
-/* What a Calm canvas says about a problem or a network stays readable however far out it is drawn: 11 px on screen (the canvas's zoom is --zoom,
-   kept by ZoomVar), and never smaller than 11 px once zoomed in. */
-.fine { font-size: max(11px, calc(11px / var(--zoom, 1))); line-height: 1.25; }
-
-/* Calm detail: what a card reveals on hover or focus is drawn over the gap below it, so the card being read comes
-   first. React Flow sets each node's z-index inline, hence !important. Cards only: lifting a cluster box would put it
-   over its own cards. The reveal fades in over 120 ms; the reduced-motion rule further down turns that into a cut. */
-.react-flow__node-card:hover, .react-flow__node-card:focus-within { z-index: 1000 !important; }
-@keyframes quiet-in { from { opacity: 0; } }
-/* Calm, application view: the calls across two boxes are one bundle line between them; the calls themselves belong to the focus. A 'detail' line waits
-   (hidden, so it cannot be hovered either) until the hover or selection reaches either box or either end; its bundle steps
-   back while they show. The short delay on the way in keeps a pointer crossing the canvas from flickering lines. */
-.edge-detail { opacity: 0; visibility: hidden; transition: opacity 120ms ease-out, visibility 0s linear 120ms; }
-.edge-detail.edge-lit { opacity: 1; visibility: visible; transition: opacity 140ms ease-out 80ms; }
-.edge-bundle { transition: opacity 120ms ease-out; }
-.edge-bundle.edge-lit { opacity: 0.25; transition: opacity 140ms ease-out 80ms; }
-/* The pipe around an overlay cluster link is part of the focus, not of the resting canvas: it shows when the line is hovered,
-   selected or is the focus's line. !important because the edge's own opacity is set inline. */
-.calm-pipe { opacity: 0 !important; transition: opacity 120ms ease-out; }
-.react-flow__edge:hover .calm-pipe, .react-flow__edge.selected .calm-pipe, .react-flow__edge.edge-hot .calm-pipe { opacity: 0.35 !important; }
+.react-flow__node:not(.dragging) { transition: transform 220ms ease-out; }
 
 /* "Pick from canvas" mode (TopologyPage's pickMode toggle, className="topology-pick-mode" on <ReactFlow>):
    every entity dims and every edge fades, and whatever the pointer is over reads back at full strength - the
@@ -217,10 +175,6 @@ body {
 .topology-pick-mode .react-flow__node.pick-ineligible:hover { opacity: 0.32; filter: grayscale(0.7); cursor: not-allowed; }
 
 .react-flow__edge-text { fill: var(--color-nb-400); font-size: 10px; }
-/* Calm's label of a line: an opaque pill on the line, 11px on screen whatever the zoom (OffsetEdge scales it back by 1/zoom). */
-/* The label layer sits over every line and card (a hovered card is 1000): a pill names a line, so it is never the part that is cut off. */
-.react-flow__edgelabel-renderer { z-index: 1001; }
-.edge-pill { position: absolute; pointer-events: none; white-space: nowrap; border: 1px solid var(--color-nb-800); border-radius: 999px; background: var(--color-nb-910); padding: 1px 8px; font-size: 11px; line-height: 16px; transition: opacity 120ms ease-out; }
 .react-flow__edge-textbg { fill: var(--color-nb-910); }
 
 @keyframes dash { to { stroke-dashoffset: -20; } }
@@ -331,7 +285,6 @@ body {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
-    transition-delay: 0s !important;
     scroll-behavior: auto !important;
   }
 }
