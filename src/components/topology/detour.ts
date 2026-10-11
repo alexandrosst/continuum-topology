@@ -14,9 +14,9 @@ export type Pt = { x: number; y: number }
 export type Rect = { x: number; y: number; w: number; h: number }
 
 /** Clear space kept between a detour and the box it goes around (px). */
-export const DETOUR_MARGIN = 12
+export const DETOUR_MARGIN = 14
 /** How far a detour runs straight out of a box before it may turn (px), so it leaves and arrives square. */
-export const DETOUR_STUB = 18
+export const DETOUR_STUB = 16
 /** Past this many boxes in the way, no detour is attempted and the caller keeps its own best effort: the search
  *  grows with the square of the corners, and a canvas this crowded has no clear channel to find anyway. */
 export const DETOUR_MAX_OBSTACLES = 40

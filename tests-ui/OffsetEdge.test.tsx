@@ -1,17 +1,20 @@
 import { describe, expect, test } from 'vitest'
 import {
   avoidHeaderSide,
-  clampTowardNormal,
   collectObstacles,
   curvedPath,
   elbowPath,
+  ARRIVAL_DEPTH,
+  insetFromCorners,
   intersection,
   outwardNormal,
   OBSTACLE_MARGIN,
   pickClearSide,
   pullBackEnds,
+  SIDE_INSET,
   sideIsClear,
   sideMidpoint,
+  slideOnSide,
 } from '@/components/topology/OffsetEdge'
 import { HEADER } from '@/lib/graph'
 
@@ -83,133 +86,6 @@ describe('outwardNormal (which side of a box a boundary point sits on, as a unit
     expect(outwardNormal(box, { x: 200, y: 200 })).toEqual({ x: 0, y: 1 })
   })
 })
-
-describe('clampTowardNormal (keeps a direction within a cone of another, per the UI/UX pass)', () => {
-  const maxAngle = (30 * Math.PI) / 180
-
-  test('a direction already inside the cone is returned unchanged', () => {
-    // 10 degrees off (1,0) - well inside a 30 degree cone.
-    const dir = { x: Math.cos((10 * Math.PI) / 180), y: Math.sin((10 * Math.PI) / 180) }
-    expect(clampTowardNormal(dir, { x: 1, y: 0 }, maxAngle)).toEqual(dir)
-  })
-
-  test('exactly at the cone\'s own edge is left unchanged too (the check is inclusive)', () => {
-    const dir = { x: Math.cos(maxAngle), y: Math.sin(maxAngle) }
-    expect(clampTowardNormal(dir, { x: 1, y: 0 }, maxAngle)).toEqual(dir)
-  })
-
-  test('a direction outside the cone is rotated back to exactly the cone\'s edge, on the same side it was on', () => {
-    // 80 degrees off (1,0), on the +y side - clamped to exactly 30 degrees off (1,0), same (+y) side.
-    const dir = { x: Math.cos((80 * Math.PI) / 180), y: Math.sin((80 * Math.PI) / 180) }
-    const result = clampTowardNormal(dir, { x: 1, y: 0 }, maxAngle)
-    expect(result.x).toBeCloseTo(Math.cos(maxAngle), 5)
-    expect(result.y).toBeCloseTo(Math.sin(maxAngle), 5) // positive: stayed on dir's own side, not flipped
-  })
-
-  test('clamps toward the other side too, symmetrically', () => {
-    const dir = { x: Math.cos((-80 * Math.PI) / 180), y: Math.sin((-80 * Math.PI) / 180) }
-    const result = clampTowardNormal(dir, { x: 1, y: 0 }, maxAngle)
-    expect(result.x).toBeCloseTo(Math.cos(maxAngle), 5)
-    expect(result.y).toBeCloseTo(-Math.sin(maxAngle), 5)
-  })
-
-  test('a direction pointing the opposite way (180 degrees off) still lands exactly on the cone, not somewhere undefined', () => {
-    const result = clampTowardNormal({ x: -1, y: 0 }, { x: 1, y: 0 }, maxAngle)
-    expect(Math.hypot(result.x, result.y)).toBeCloseTo(1, 5) // still a unit vector
-    const angle = Math.acos(result.x * 1 + result.y * 0)
-    expect(angle).toBeCloseTo(maxAngle, 5)
-  })
-})
-
-describe('curvedPath (OffsetEdge\'s asymmetric cubic-bow path math)', () => {
-  const outUp = { x: 0, y: -1 }
-  const outRight = { x: 1, y: 0 }
-  // The target box's own outward normal for every test below except the shallow-angle ones: these all run
-  // a line from (0,0) to (300,0), i.e. a target approached head-on from the left, so the box's outward
-  // normal at that entry point faces left - comfortably far from every natural tangent these tests exercise,
-  // so passing it never triggers the MAX_ARROWHEAD_APPROACH_ANGLE clamp and these keep testing exactly the
-  // un-clamped math they did before curvedPath grew a target-angle clamp at all.
-  const outLeft = { x: -1, y: 0 }
-
-  test('starts and ends exactly at the given anchor points, and is a genuine cubic (two control points)', () => {
-    const { path } = curvedPath(0, 0, 300, 0, 0, 1, outUp, outLeft)
-    expect(path.startsWith('M0,0 ')).toBe(true)
-    expect(path.endsWith(' 300,0')).toBe(true)
-    expect(path).toMatch(/^M[\d.,-]+ C[\d.,-]+ [\d.,-]+ [\d.,-]+$/)
-  })
-
-  test('the initial tangent leaves straight out along sourceNormal, not toward the target', () => {
-    // sourceNormal points straight "up" - away from the target, which is off to the right - so the
-    // near-source control point should sit directly above the source anchor, not pulled sideways at all.
-    const { path } = curvedPath(0, 0, 300, 0, 0, 1, outUp, outLeft)
-    const [, c1x, c1y] = path.match(/C([\d.-]+),([\d.-]+)/)!
-    expect(Number(c1x)).toBeCloseTo(0, 5) // no sideways pull toward the target
-    expect(Number(c1y)).toBeLessThan(0) // straight up, per outUp
-  })
-
-  test('the target-end control point is unaffected by sourceNormal - still the old gentle bow toward nx/ny', () => {
-    const up = curvedPath(0, 0, 300, 0, 0, 1, outUp, outLeft)
-    const right = curvedPath(0, 0, 300, 0, 0, 1, outRight, outLeft)
-    const secondControl = (p: { path: string }) => p.path.match(/C[\d.-]+,[\d.-]+ ([\d.-]+),([\d.-]+)/)!.slice(1).map(Number)
-    expect(secondControl(up)).toEqual(secondControl(right)) // same regardless of the source's own exit direction
-  })
-
-  test('bow (the target-side control offset) is proportional to length but capped, so a very long edge stays a subtle arc', () => {
-    const short = curvedPath(0, 0, 100, 0, 0, 1, outUp, outLeft)
-    const long = curvedPath(0, 0, 100_000, 0, 0, 1, outUp, outLeft)
-    const bowOf = (p: { path: string }) => Number(p.path.match(/C[\d.-]+,[\d.-]+ [\d.-]+,([\d.-]+)/)![1])
-    expect(bowOf(short)).toBeCloseTo(100 * 0.12, 5) // under the cap: exactly proportional
-    expect(bowOf(long)).toBeCloseTo(36, 5) // over the cap: clamped, not thousands of pixels
-  })
-
-  test('the source-side exit stub is proportional to length but capped, independent of the bow', () => {
-    const short = curvedPath(0, 0, 100, 0, 0, 1, outUp, outLeft)
-    const long = curvedPath(0, 0, 100_000, 0, 0, 1, outUp, outLeft)
-    const exitOf = (p: { path: string }) => -Number(p.path.match(/C([\d.-]+),([\d.-]+)/)![2]) // outUp: c1y = y1 - exit
-    expect(exitOf(short)).toBeCloseTo(100 * 0.35, 5) // under the cap: exactly proportional
-    expect(exitOf(long)).toBeCloseTo(40, 5) // over the cap: clamped
-  })
-
-  test('label sits on the actual cubic curve at t=0.5, not the straight-line midpoint', () => {
-    const { path, labelX, labelY } = curvedPath(0, 0, 300, 0, 0, 1, outRight, outLeft)
-    const [, c1x, c1y, mx, my] = path.match(/C([\d.-]+),([\d.-]+) ([\d.-]+),([\d.-]+)/)!.map(Number)
-    // Cubic Bezier at t=0.5: (P0 + 3*C1 + 3*C2 + P2) / 8
-    expect(labelX).toBeCloseTo((0 + 3 * c1x + 3 * mx + 300) / 8, 5)
-    expect(labelY).toBeCloseTo((0 + 3 * c1y + 3 * my + 0) / 8, 5)
-    expect(labelY).toBeGreaterThan(0) // pulled toward the bow (+y), not sitting on the straight line's y=0
-  })
-
-  test('when both the bow and the source\'s own exit direction lie exactly along the line, the whole curve sits on that line', () => {
-    // outRight is parallel to the source->target direction itself here, and nx=ny=0 means no perpendicular
-    // bow either - so every point of the cubic, including the label, has y=0, even though (being an
-    // asymmetric cubic, not a symmetric one) the label isn't exactly at the line's geometric midpoint.
-    const { labelX, labelY } = curvedPath(0, 0, 300, 0, 0, 0, outRight, outLeft)
-    expect(labelY).toBeCloseTo(0, 5)
-    expect(labelX).toBeCloseTo(108.75, 5)
-  })
-
-  test('a target-end tangent that would otherwise graze near-tangential to the target box is clamped, so the arrowhead can\'t dip inside it', () => {
-    // The target box's outward normal points straight up here (approached from underneath), but nx/ny bows
-    // the curve hard off to the side (perpendicular to the source->target line, which itself runs straight
-    // right) - so the *natural*, unclamped tangent would arrive almost sideways-on to the box, well past
-    // MAX_ARROWHEAD_APPROACH_ANGLE off the box's own inward direction (straight down).
-    const targetNormal = { x: 0, y: 1 } // box's own outward normal: straight down in SVG's y-down space
-    const inward = { x: 0, y: -1 }
-    const { path } = curvedPath(0, 0, 300, 0, 0, 1, outUp, targetNormal)
-    const [x2, y2] = [300, 0]
-    const [, , , mx, my] = path.match(/C([\d.-]+),([\d.-]+) ([\d.-]+),([\d.-]+)/)!.map(Number)
-    // The tip itself never moves - only the curve's approach to it does.
-    expect(path.endsWith(` ${x2},${y2}`)).toBe(true)
-    const tdx = x2 - mx
-    const tdy = y2 - my
-    const tlen = Math.hypot(tdx, tdy)
-    const angle = Math.acos((tdx / tlen) * inward.x + (tdy / tlen) * inward.y)
-    const MAX_ARROWHEAD_APPROACH_ANGLE = (38 * Math.PI) / 180
-    expect(angle).toBeLessThanOrEqual(MAX_ARROWHEAD_APPROACH_ANGLE + 1e-9) // clamped, not left grazing
-    expect(angle).toBeCloseTo(MAX_ARROWHEAD_APPROACH_ANGLE, 5) // and clamped exactly to the limit, not overcorrected
-  })
-})
-
 
 describe('elbowPath (the opt-in squared-but-soft alternative to curvedPath)', () => {
   const outUp = { x: 0, y: -1 }
@@ -336,81 +212,6 @@ describe('elbowPath (the opt-in squared-but-soft alternative to curvedPath)', ()
 })
 
 
-describe('pullBackEnds (keeps only an arrowhead\'s own tip touching a box, per the UI/UX pass)', () => {
-  test('pulls the source end back toward the target, and leaves the target end untouched when it has a marker', () => {
-    const { sx, sy, tx, ty } = pullBackEnds(0, 0, 300, 0, 5, true)
-    expect(sx).toBeCloseTo(5, 5) // moved 5px toward the target
-    expect(sy).toBeCloseTo(0, 5)
-    expect(tx).toBe(300) // untouched: a real markerEnd's own tip belongs exactly here
-    expect(ty).toBe(0)
-  })
-
-  test('pulls the target end back too when it has no marker (an aggregated edge, with nothing pointed to place there)', () => {
-    const { tx, ty } = pullBackEnds(0, 0, 300, 0, 5, false)
-    expect(tx).toBeCloseTo(295, 5) // moved 5px back toward the source
-    expect(ty).toBeCloseTo(0, 5)
-  })
-
-  test('pulls back along whatever direction the segment actually runs, not just axis-aligned', () => {
-    // A 3-4-5 triangle: length 10, so a gap of 2 is exactly 20% of the way along each axis.
-    const { sx, sy } = pullBackEnds(0, 0, 6, 8, 2, true)
-    expect(sx).toBeCloseTo(1.2, 5)
-    expect(sy).toBeCloseTo(1.6, 5)
-  })
-
-  test('never produces a degenerate (zero-length) segment: source and target still land on the same point for a zero-length input', () => {
-    const { sx, sy, tx, ty } = pullBackEnds(50, 50, 50, 50, 5, false)
-    expect(sx).toBe(50)
-    expect(sy).toBe(50)
-    expect(tx).toBe(50)
-    expect(ty).toBe(50)
-  })
-})
-
-describe('curvedPath obstacle avoidance (task #382: keeps an arrowhead\'s curve from sweeping into an unrelated card)', () => {
-  const outUp = { x: 0, y: -1 }
-  const outDown = { x: 0, y: 1 }
-
-  test('with no obstacles in the way, the curve is identical to the no-obstacle-argument call', () => {
-    const withoutArg = curvedPath(0, 0, 300, 0, 0, 1, outUp, outUp)
-    const withEmpty = curvedPath(0, 0, 300, 0, 0, 1, outUp, outUp, [])
-    const farAway = curvedPath(0, 0, 300, 0, 0, 1, outUp, outUp, [{ x: 10_000, y: 10_000, w: 10, h: 10 }])
-    expect(withEmpty.path).toBe(withoutArg.path)
-    expect(farAway.path).toBe(withoutArg.path)
-  })
-
-  test('an obstacle squarely in the default curve\'s path pushes the bow wide enough to clear it', () => {
-    // A box sitting right on the straight-line midpoint between source and target, where the default
-    // (unescalated) bow would otherwise sweep through it.
-    const obstacle = { x: 130, y: -20, w: 40, h: 40 }
-    const { path } = curvedPath(0, 0, 300, 0, 0, 1, outUp, outDown, [obstacle])
-    const [, , , mx, my] = path.match(/C([\d.-]+),([\d.-]+) ([\d.-]+),([\d.-]+)/)!.map(Number)
-    // The escalation search should have moved the bow's middle control point away from the obstacle's
-    // vertical span (y: -20 to 20) rather than leaving it at the tiny default bow (which sits inside it).
-    expect(Math.abs(my)).toBeGreaterThan(20)
-  })
-
-  test('an obstacle far off to the side never perturbs the curve at all', () => {
-    const clear = curvedPath(0, 0, 300, 0, 0, 1, outUp, outDown)
-    const withSideObstacle = curvedPath(0, 0, 300, 0, 0, 1, outUp, outDown, [{ x: 130, y: 5000, w: 40, h: 40 }])
-    expect(withSideObstacle.path).toBe(clear.path)
-  })
-
-  test('when every escalation candidate still collides, it settles on the one with the fewest hits rather than the raw default', () => {
-    // A obstacle wide enough to straddle the entire route corridor - no sideways bow can fully dodge it,
-    // matching the "obstacle wider than the route" case documented in OffsetEdge (now routed around, see detour.ts).
-    const wideObstacle = { x: -50, y: -15, w: 400, h: 30 }
-    const defaultBow = curvedPath(0, 0, 300, 0, 0, 1, outUp, outDown)
-    const withObstacle = curvedPath(0, 0, 300, 0, 0, 1, outUp, outDown, [wideObstacle])
-    // It's still a valid, well-formed path anchored at the same two points - escalation degrades to
-    // "least bad" (or, when a way around exists, to that detour) rather than throwing or leaving it malformed.
-    expect(withObstacle.path.startsWith('M0,0 ')).toBe(true)
-    expect(withObstacle.path).toMatch(/[ L]300,0$/)
-    // And it actually tried something different from the plain default, even though it couldn't fully clear it.
-    expect(withObstacle.path).not.toBe(defaultBow.path)
-  })
-})
-
 describe('collectObstacles (which nodeLookup entries count as a routing obstacle)', () => {
   // A minimal fake InternalNode - just the fields collectObstacles itself reads.
   const node = (type: string, parentId: string | undefined, x: number, y: number, w = 100, h = 60) => ({
@@ -532,7 +333,7 @@ describe('pickClearSide (falls back to a different entry side when the natural o
   })
 
   test('when the natural (top) side is blocked, falls back to a perpendicular side (left or right) before the opposite one', () => {
-    const blockingTop = { x: 100, y: 100 - OBSTACLE_MARGIN / 2, w: 200, h: 40 }
+    const blockingTop = { x: 100, y: 100 - ARRIVAL_DEPTH / 2, w: 200, h: 40 }
     const result = pickClearSide(box, naturalTop, [blockingTop])
     expect(result).not.toEqual(naturalTop)
     // Should land on left or right, not bottom (the opposite side is only tried after both perpendiculars).
@@ -542,16 +343,24 @@ describe('pickClearSide (falls back to a different entry side when the natural o
   })
 
   test('when top, left, and right are all blocked, falls back to the opposite (bottom) side', () => {
-    const blockTop = { x: 100, y: 100 - OBSTACLE_MARGIN / 2, w: 200, h: 40 }
-    const blockLeft = { x: 100 - OBSTACLE_MARGIN / 2, y: 100, w: 40, h: 80 }
-    const blockRight = { x: 300 - 40 + OBSTACLE_MARGIN / 2, y: 100, w: 40, h: 80 }
+    const blockTop = { x: 100, y: 100 - ARRIVAL_DEPTH / 2, w: 200, h: 40 }
+    const blockLeft = { x: 100 - ARRIVAL_DEPTH / 2, y: 100, w: 40, h: 80 }
+    const blockRight = { x: 300 - 40 + ARRIVAL_DEPTH / 2, y: 100, w: 40, h: 80 }
     const result = pickClearSide(box, naturalTop, [blockTop, blockLeft, blockRight])
     expect(result.point).toEqual(sideMidpoint(box, 'bottom'))
     expect(result.normal).toEqual({ x: 0, y: 1 })
   })
 
+  test('given the other end, a fallback side is slid to be level with it, not pinned to the middle', () => {
+    const blockingTop = { x: 100, y: 100 - ARRIVAL_DEPTH / 2, w: 200, h: 40 }
+    const blockingLeft = { x: 100 - ARRIVAL_DEPTH / 2, y: 100, w: 40, h: 80 }
+    const r = pickClearSide(box, naturalTop, [blockingTop, blockingLeft], { x: 5000, y: 120 })
+    expect(r.normal).toEqual({ x: 1, y: 0 })
+    expect(r.point).toEqual({ x: 300, y: 120 })
+  })
+
   test('when every side is blocked, falls back to the natural point rather than picking an obstructed one', () => {
-    const depth = OBSTACLE_MARGIN
+    const depth = ARRIVAL_DEPTH
     const blockAll = [
       { x: box.x, y: box.y - depth / 2, w: box.w, h: 20 },
       { x: box.x, y: box.y + box.h + depth / 2 - 10, w: box.w, h: 20 },
@@ -569,28 +378,146 @@ describe('avoidHeaderSide (keeps a line off a cluster header\'s text by leaving 
   const top = { point: { x: 70, y: HEADER }, normal: { x: 0, y: -1 } }
 
   test('a top exit from a first-row card moves to the side facing the other end', () => {
-    const r = avoidHeaderSide(firstRow, parent, top, 900, [])
+    const r = avoidHeaderSide(firstRow, parent, top, { x: 900, y: 0 }, [])
     expect(r.normal).toEqual({ x: 1, y: 0 })
-    expect(r.point).toEqual({ x: 120, y: HEADER + 25 })
-    expect(avoidHeaderSide(firstRow, parent, top, -500, []).normal).toEqual({ x: -1, y: 0 })
+    expect(r.point).toEqual({ x: 120, y: HEADER + SIDE_INSET }) // level with the other end (here far above), kept off the corner
+    expect(avoidHeaderSide(firstRow, parent, top, { x: -500, y: 0 }, []).normal).toEqual({ x: -1, y: 0 })
   })
 
   test('falls to the other side when the near one is taken by a neighbouring card, and keeps the top when both are', () => {
     const neighbour = { x: 125, y: HEADER, w: 100, h: 50 }
-    expect(avoidHeaderSide(firstRow, parent, top, 900, [neighbour]).normal).toEqual({ x: -1, y: 0 })
+    expect(avoidHeaderSide(firstRow, parent, top, { x: 900, y: 0 }, [neighbour]).normal).toEqual({ x: -1, y: 0 })
     const other = { x: -60, y: HEADER, w: 55, h: 50 }
-    expect(avoidHeaderSide(firstRow, parent, top, 900, [neighbour, other])).toEqual(top)
+    expect(avoidHeaderSide(firstRow, parent, top, { x: 900, y: 0 }, [neighbour, other])).toEqual(top)
   })
 
   test('only a top exit from a first-row card is touched', () => {
-    expect(avoidHeaderSide(secondRow, parent, { point: { x: 70, y: HEADER + 90 }, normal: { x: 0, y: -1 } }, 900, [])).toEqual({ point: { x: 70, y: HEADER + 90 }, normal: { x: 0, y: -1 } })
+    expect(avoidHeaderSide(secondRow, parent, { point: { x: 70, y: HEADER + 90 }, normal: { x: 0, y: -1 } }, { x: 900, y: 0 }, [])).toEqual({ point: { x: 70, y: HEADER + 90 }, normal: { x: 0, y: -1 } })
     const side = { point: { x: 120, y: HEADER + 25 }, normal: { x: 1, y: 0 } }
-    expect(avoidHeaderSide(firstRow, parent, side, 900, [])).toEqual(side)
+    expect(avoidHeaderSide(firstRow, parent, side, { x: 900, y: 0 }, [])).toEqual(side)
     const bottom = { point: { x: 70, y: HEADER + 50 }, normal: { x: 0, y: 1 } }
-    expect(avoidHeaderSide(firstRow, parent, bottom, 900, [])).toEqual(bottom)
+    expect(avoidHeaderSide(firstRow, parent, bottom, { x: 900, y: 0 }, [])).toEqual(bottom)
   })
 
   test('a card with no cluster around it (a device or an external box) is left alone', () => {
-    expect(avoidHeaderSide(firstRow, undefined, top, 900, [])).toEqual(top)
+    expect(avoidHeaderSide(firstRow, undefined, top, { x: 900, y: 0 }, [])).toEqual(top)
+  })
+})
+
+describe('curvedPath (a line that leaves and arrives square to its boxes)', () => {
+  const nums = (path: string) => path.match(/-?\d+(?:\.\d+)?/g)!.map(Number)
+  const right = { x: 1, y: 0 }
+  const left = { x: -1, y: 0 }
+  const up = { x: 0, y: -1 }
+
+  test('starts and ends exactly at the anchors, with a short straight leg out of each and a cubic between them', () => {
+    const { path } = curvedPath(0, 0, 300, 100, right, left)
+    expect(path).toMatch(/^M0,0 L[\d.]+,0 C/)
+    expect(path).toMatch(/ L300,100$/)
+    expect(path.match(/ C/g)).toHaveLength(1)
+  })
+
+  test('leaves straight out along the source normal and arrives straight in along the target normal, whatever the offset', () => {
+    for (const [x2, y2] of [[300, 100], [300, -250], [120, 40]]) {
+      const [, , l1x, l1y, , , , , s2x, s2y] = nums(curvedPath(0, 0, x2, y2, right, left).path)
+      expect(l1y).toBe(0) // first leg runs along +x only
+      expect(l1x).toBeGreaterThan(0)
+      expect(s2y).toBe(y2) // last leg runs along x only: the arrowhead comes in square
+      expect(s2x).toBeLessThan(x2)
+    }
+  })
+
+  test('the curve between the legs also leaves each end along its normal (the control points sit on the normals)', () => {
+    const n = nums(curvedPath(0, 0, 300, 100, right, left).path) // M x y L x y C c1x c1y c2x c2y x y L x y
+    const [, , s1x, s1y, c1x, c1y, c2x, c2y, s2x, s2y] = n
+    expect(c1y).toBe(s1y)
+    expect(c1x).toBeGreaterThan(s1x)
+    expect(c2y).toBe(s2y)
+    expect(c2x).toBeLessThan(s2x)
+  })
+
+  test('the legs are shortened on a very short edge, so they never run past the other end', () => {
+    const [, , l1x] = nums(curvedPath(0, 0, 20, 0, right, left).path)
+    expect(l1x).toBeLessThan(10)
+    expect(l1x).toBeGreaterThan(0)
+  })
+
+  test('the label sits on the curve, halfway', () => {
+    const { labelX, labelY } = curvedPath(0, 0, 300, 100, right, left)
+    expect(labelX).toBeCloseTo(150, 5)
+    expect(labelY).toBeCloseTo(50, 5)
+  })
+
+  test('works for ends facing the same way (an exit and an arrival on the same side)', () => {
+    const { path } = curvedPath(0, 0, 200, 0, up, up)
+    expect(path).toMatch(/^M0,0 L0,-[\d.]+ C/)
+    expect(path).toMatch(/ L200,0$/)
+  })
+
+  test('a box that is nowhere near leaves the curve exactly as it was', () => {
+    const plain = curvedPath(0, 0, 300, 100, right, left)
+    expect(curvedPath(0, 0, 300, 100, right, left, [{ x: 10_000, y: 10_000, w: 10, h: 10 }])).toEqual(plain)
+    expect(curvedPath(0, 0, 300, 100, right, left, [])).toEqual(plain)
+  })
+
+  test('a box across the way is gone around, still leaving and arriving square, and the label is on the route', () => {
+    const wall = { x: 120, y: -400, w: 60, h: 800 }
+    const { path, labelX, labelY } = curvedPath(0, 0, 300, 0, right, left, [wall])
+    expect(path).not.toMatch(/ C/) // a routed detour, not the plain curve
+    const [, , a, b, , , c, d] = nums(path) // M0,0 L a,b ...: the first leg stays on y=0
+    expect([b]).toEqual([0])
+    expect(a).toBeGreaterThan(0)
+    expect(path).toMatch(/ L300,0$/)
+    const inside = labelX > wall.x && labelX < wall.x + wall.w && labelY > wall.y && labelY < wall.y + wall.h
+    expect(inside).toBe(false)
+    expect([c, d]).toBeDefined()
+  })
+
+  test('with no way round (an end boxed in) it still returns a well-formed path between the same anchors', () => {
+    const boxedIn = { x: 5, y: -50, w: 10, h: 100 } // right across the first leg, nowhere to turn
+    const { path } = curvedPath(0, 0, 300, 100, right, left, [boxedIn])
+    expect(path.startsWith('M0,0 ')).toBe(true)
+    expect(path.endsWith(' L300,100')).toBe(true)
+  })
+})
+
+describe('pullBackEnds (keeps only an arrowhead\'s own tip touching a box)', () => {
+  test('moves the source end straight out along its normal, and leaves the target end where a marker belongs', () => {
+    const r = pullBackEnds({ x: 100, y: 50 }, { x: 1, y: 0 }, { x: 400, y: 80 }, { x: -1, y: 0 }, 5, true)
+    expect(r).toEqual({ sx: 105, sy: 50, tx: 400, ty: 80 })
+  })
+
+  test('moves the target end back off its box too when it has no marker', () => {
+    const r = pullBackEnds({ x: 100, y: 50 }, { x: 1, y: 0 }, { x: 400, y: 80 }, { x: -1, y: 0 }, 5, false)
+    expect(r.tx).toBe(395)
+    expect(r.ty).toBe(80)
+  })
+
+  test('the gap is square-on whatever the angle between the two ends', () => {
+    const r = pullBackEnds({ x: 0, y: 0 }, { x: 0, y: -1 }, { x: 300, y: 300 }, { x: 0, y: 1 }, 4, false)
+    expect(r).toEqual({ sx: 0, sy: -4, tx: 300, ty: 304 })
+  })
+})
+
+describe('slideOnSide / insetFromCorners (an end keeps sliding along its side, off the corners)', () => {
+  const box = { x: 100, y: 100, w: 200, h: 80 }
+
+  test('slides along top and bottom with the other end\'s x, and along left and right with its y', () => {
+    expect(slideOnSide(box, 'top', { x: 180, y: -500 })).toEqual({ x: 180, y: 100 })
+    expect(slideOnSide(box, 'bottom', { x: 250, y: 900 })).toEqual({ x: 250, y: 180 })
+    expect(slideOnSide(box, 'left', { x: -500, y: 140 })).toEqual({ x: 100, y: 140 })
+    expect(slideOnSide(box, 'right', { x: 900, y: 120 })).toEqual({ x: 300, y: 120 })
+  })
+
+  test('stops short of the corners by the inset', () => {
+    expect(slideOnSide(box, 'top', { x: -9000, y: 0 })).toEqual({ x: 100 + SIDE_INSET, y: 100 })
+    expect(slideOnSide(box, 'top', { x: 9000, y: 0 })).toEqual({ x: 300 - SIDE_INSET, y: 100 })
+    expect(slideOnSide(box, 'right', { x: 0, y: -9000 })).toEqual({ x: 300, y: 100 + SIDE_INSET })
+  })
+
+  test('a point already on a side is moved along it off a corner, and left alone otherwise', () => {
+    expect(insetFromCorners(box, { x: 101, y: 100 }, { x: 0, y: -1 })).toEqual({ x: 100 + SIDE_INSET, y: 100 })
+    expect(insetFromCorners(box, { x: 300, y: 179 }, { x: 1, y: 0 })).toEqual({ x: 300, y: 180 - SIDE_INSET })
+    expect(insetFromCorners(box, { x: 200, y: 100 }, { x: 0, y: -1 })).toEqual({ x: 200, y: 100 })
   })
 })

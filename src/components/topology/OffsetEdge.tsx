@@ -1,7 +1,7 @@
 import { BaseEdge, useInternalNode, useStore, useViewport, type EdgeProps } from '@xyflow/react'
 import { createContext, useContext } from 'react'
 import { HEADER, type TopoEdge } from '@/lib/graph'
-import { detourRoute, polylineMidpoint } from './detour'
+import { DETOUR_STUB, detourRoute, polylineMidpoint } from './detour'
 
 /** Which path generator OffsetEdge draws with - 'curved' (the default hand-built bow, see curvedPath below)
  *  or 'elbow' (the opt-in rounded-orthogonal style, see elbowPath below). Read via context rather than a
@@ -57,41 +57,6 @@ export function outwardNormal(box: { x: number; y: number; w: number; h: number 
   return { x: 0, y: 1 }
 }
 
-/** The steepest an arrowhead's own two back corners can be off the tip's straight-in direction before one
- *  of them ends up on the wrong side of the target box's boundary - i.e. before the marker would visibly
- *  poke into the box it's pointing at, rather than just touching it with its tip. React Flow's built-in
- *  `ArrowClosed` marker is a fixed triangle (see its own `points`, "-5,-4 0,0 -5,4 -5,-4", in
- *  @xyflow/react's MarkerSymbols) with a back half-width of 4 and a back length of 5 in its own local
- *  (rotation-relative) space; at approach angle theta off dead-on, the corner on the box's own inward side
- *  sits `5*cos(theta) - 4*sin(theta)` past the tip along the box's own outward normal, which crosses zero -
- *  the corner crosses the boundary - at theta = atan(4/5) ~= 38.66 deg off dead-on, i.e. at
- *  90 - atan(4/5) ~= 51.34 deg off the box's own edge (a near-tangential, grazing approach). Kept with a
- *  margin below that hard limit rather than exactly at it, both so floating-point/zoom rounding near the
- *  boundary can't tip a corner over anyway, and because a somewhat steeper minimum just reads better - an
- *  arrowhead arriving nearly edge-on never looks like it's "pointing at" the box it grazes past.
- */
-const MAX_ARROWHEAD_APPROACH_ANGLE = (38 * Math.PI) / 180
-
-/** Rotates unit vector `dir` no more than `maxAngle` (radians) away from unit vector `toward`: returns
- *  `dir` unchanged when it's already within that cone, otherwise the closest vector on the cone's edge -
- *  `toward` itself rotated by exactly `maxAngle`, on whichever side `dir` was on. Used to keep
- *  curvedPath's target-end tangent from ever approaching so close to tangential-to-the-box (see
- *  MAX_ARROWHEAD_APPROACH_ANGLE's own doc comment) that the arrowhead's own back corners would dip inside
- *  the box's boundary, while still letting it vary continuously - not snap to one of 4 cardinal angles -
- *  everywhere short of that limit, which is the whole reason curvedPath treats the target end differently
- *  from the source end in the first place (see curvedPath's own doc comment). */
-export function clampTowardNormal(dir: { x: number; y: number }, toward: { x: number; y: number }, maxAngle: number): { x: number; y: number } {
-  const cos = Math.min(1, Math.max(-1, dir.x * toward.x + dir.y * toward.y))
-  const angle = Math.acos(cos)
-  if (angle <= maxAngle) return dir
-  const cross = toward.x * dir.y - toward.y * dir.x // >0: dir is counter-clockwise from toward
-  const sign = cross >= 0 ? 1 : -1
-  const rot = sign * maxAngle
-  const cosR = Math.cos(rot)
-  const sinR = Math.sin(rot)
-  return { x: toward.x * cosR - toward.y * sinR, y: toward.x * sinR + toward.y * cosR }
-}
-
 /** A box `curvedPath` should route its curve clear of - any OTHER card (not this edge's own source or
  *  target) whose own boundary the bow might otherwise sweep through on the way between them. Passed in
  *  by OffsetEdge, which is the one with a live view of every node on the canvas; curvedPath itself stays a
@@ -99,7 +64,7 @@ export function clampTowardNormal(dir: { x: number; y: number }, toward: { x: nu
 export type PathObstacle = { x: number; y: number; w: number; h: number }
 
 /** How round a detour's turns are (px): enough to read as a route, not a wiring diagram. */
-const DETOUR_CORNER_RADIUS = 34
+const DETOUR_CORNER_RADIUS = 40
 
 // A detour is a search over the boxes' corners, and an edge is redrawn on every frame of a drag or a zoom while its
 // geometry has not changed, so the answer for the same geometry is kept (the last few hundred).
@@ -114,131 +79,85 @@ function cachedDetour(p1: { x: number; y: number }, n1: { x: number; y: number }
   return route
 }
 
-/** The cubic Bezier `C` path, and label position, for a gentle bow between two anchor points - the math half
- *  of OffsetEdge's own curve-building (see its doc comment for why a hand-built curve and not `getBezierPath`
- *  at all), pulled out so it's testable without rendering anything.
+/** The path, and label position, for a line between two anchors that each sit on a box's side: it leaves the source
+ *  straight out along the side's normal and arrives at the target straight in along its normal, so the arrowhead
+ *  always meets a box square-on, and the two ends are free to slide along the sides (the caller computes them from
+ *  where the other end is). Between a short straight leg at each end the line is one cubic Bezier whose control
+ *  points follow those same normals: an S when the ends are offset, almost straight when they are not.
  *
- *  Cubic rather than the single-control-point quadratic this used to be: a shared control point gives BOTH
- *  ends a tangent pointing roughly toward each other (nudged sideways by the bow), which looks fine at the
- *  target end but reads badly at the source - an edge leaving a wide box near one corner would leave at a
- *  shallow angle, grazing along the box's own edge for a stretch before actually separating from it, rather
- *  than looking like it flows straight out. The two control points here split that: `c1`, near the source,
- *  is offset from (x1,y1) along `sourceNormal` (the box's own outward-facing direction at that exact exit
- *  point, from `outwardNormal` above) - so the curve always leaves perpendicular-ish to the box it came from,
- *  however off-center that exit point is. `c2`, near the target, is built the way the old shared control
- *  point was (the straight-line midpoint nudged by `nx`/`ny`*bow) - keeping the target end's own tangent
- *  continuous, not snapped to one of 4 cardinal angles, which is what OffsetEdge's own arrowhead design
- *  depends on (see its doc comment) - EXCEPT that tangent is then clamped so it never gets so close to
- *  tangential-to-the-target-box that the arrowhead marker's own fixed-width back corners would dip inside
- *  the box (see MAX_ARROWHEAD_APPROACH_ANGLE and clampTowardNormal below): a shallow enough approach angle
- *  left uncorrected would put part of the marker's shape past the boundary, not just its tip.
+ *  When that curve would run through a box (`obstacles`: every card, group and namespace box it must not cross, the
+ *  ends' own containers excluded), the line is routed round it instead: straight segments between the corners of the
+ *  boxes in the way (see detour.ts), joined with rounded turns so it still reads as one line, and still leaving and
+ *  arriving square. A curve that clears everything keeps its shape; the anchors never move.
  *
- *  That angle clamp only ever looks at the box the arrowhead is actually pointing at - it says nothing
- *  about some OTHER, unrelated card the curve's own bow happens to sweep across on the way there (two
- *  cards packed into the same row with an edge between them, or a distant cross-cluster edge whose natural
- *  bow passes straight over whatever sits in the tier between source and target). `obstacles`, when given,
- *  covers that: after building the curve at the normal bow, if any sampled point along it - not just the
- *  tip - lands inside one of them, the bow is escalated (wider, then the mirrored side) until a candidate
- *  clears everything, or the least-bad one if none fully does. This only ever changes the *shape* of the
- *  bow, never the two anchor points themselves - `x1,y1`/`x2,y2` (and so the tip's own touch point) stay
- *  exactly where the caller put them either way. */
+ *  `sourceNormal`/`targetNormal` are unit vectors pointing out of their boxes. Pure, so it is testable without
+ *  rendering anything. */
 export function curvedPath(
   x1: number,
   y1: number,
   x2: number,
   y2: number,
-  nx: number,
-  ny: number,
   sourceNormal: { x: number; y: number },
   targetNormal: { x: number; y: number },
   obstacles: PathObstacle[] = [],
 ): { path: string; labelX: number; labelY: number } {
-  const segLen = Math.hypot(x2 - x1, y2 - y1) || 1
-  const baseBow = Math.min(segLen * 0.12, 36)
-  // How far the curve travels straight out from the source before c2 starts pulling it toward the target -
-  // proportional to length (a short edge shouldn't get a stub longer than the edge itself) but capped so a
-  // long edge doesn't get an oddly long straight run before it starts curving.
-  const exit = Math.min(segLen * 0.35, 40)
-  const c1x = x1 + sourceNormal.x * exit
-  const c1y = y1 + sourceNormal.y * exit
+  const dist = Math.hypot(x2 - x1, y2 - y1) || 1
+  // A short edge must not have legs longer than itself.
+  const leg = Math.min(DETOUR_STUB, dist * 0.22)
+  const s1 = { x: x1 + sourceNormal.x * leg, y: y1 + sourceNormal.y * leg }
+  const s2 = { x: x2 + targetNormal.x * leg, y: y2 + targetNormal.y * leg }
+  const span = Math.hypot(s2.x - s1.x, s2.y - s1.y)
 
-  // Builds the curve's own end control point (c2) for one bow strength ("scale" multiplies baseBow, sign
-  // and all - negative bows the curve to the mirrored side), including the arrowhead-approach-angle clamp
-  // curvedPath always applied here (see the doc comment above) - so every candidate this tries is already a
-  // fully valid curve on its own, not just a raw, unclamped bow.
-  function build(scale: number): { mx: number; my: number } {
-    let mx = (x1 + x2) / 2 + nx * baseBow * scale
-    let my = (y1 + y2) / 2 + ny * baseBow * scale
-    const tdx = x2 - mx
-    const tdy = y2 - my
-    const tlen = Math.hypot(tdx, tdy) || 1
-    const naturalDir = { x: tdx / tlen, y: tdy / tlen }
-    const inward = { x: -targetNormal.x, y: -targetNormal.y }
-    const clamped = clampTowardNormal(naturalDir, inward, MAX_ARROWHEAD_APPROACH_ANGLE)
-    if (clamped !== naturalDir) {
-      mx = x2 - clamped.x * tlen
-      my = y2 - clamped.y * tlen
+  const build = (scale: number) => {
+    const reach = Math.min(Math.max(span * 0.42 * scale, 16), 150 * scale)
+    return {
+      c1: { x: s1.x + sourceNormal.x * reach, y: s1.y + sourceNormal.y * reach },
+      c2: { x: s2.x + targetNormal.x * reach, y: s2.y + targetNormal.y * reach },
     }
-    return { mx, my }
   }
-
-  // How many of curvedPath's own sample points (excluding the two anchors, which are meant to sit exactly
-  // on the source/target boundary) fall inside any obstacle - 0 means this candidate's curve is clear.
-  // SAMPLES needs to be high enough that a narrow graze (the curve clipping a box's corner for only a short
-  // arc-length) can't slip through between two consecutive samples and get scored as a false 0 - 14 was
-  // fine for the roughly-diagonal sweeps this was first tuned against, but a curve that runs close to and
-  // nearly parallel with an obstacle edge for a while (seen after dragging cards into tight, non-default
-  // layouts) can dip in and out of the box within a much narrower t-window than 1/14 of the curve.
-  function hits(mx: number, my: number): number {
+  const at = (c: { c1: { x: number; y: number }; c2: { x: number; y: number } }, t: number) => {
+    const mt = 1 - t
+    return {
+      x: mt * mt * mt * s1.x + 3 * mt * mt * t * c.c1.x + 3 * mt * t * t * c.c2.x + t * t * t * s2.x,
+      y: mt * mt * mt * s1.y + 3 * mt * mt * t * c.c1.y + 3 * mt * t * t * c.c2.y + t * t * t * s2.y,
+    }
+  }
+  // How many sample points of a candidate curve fall inside any obstacle. 40 samples keep a narrow graze from slipping
+  // between two of them.
+  const hits = (c: ReturnType<typeof build>) => {
     if (obstacles.length === 0) return 0
     let n = 0
-    const SAMPLES = 40
-    for (let i = 1; i < SAMPLES; i++) {
-      const t = i / SAMPLES
-      const mt = 1 - t
-      const px = mt * mt * mt * x1 + 3 * mt * mt * t * c1x + 3 * mt * t * t * mx + t * t * t * x2
-      const py = mt * mt * mt * y1 + 3 * mt * mt * t * c1y + 3 * mt * t * t * my + t * t * t * y2
-      for (const b of obstacles) {
-        if (px > b.x && px < b.x + b.w && py > b.y && py < b.y + b.h) n++
-      }
+    for (let i = 0; i <= 40; i++) {
+      const p = at(c, i / 40)
+      for (const b of obstacles) if (p.x > b.x && p.x < b.x + b.w && p.y > b.y && p.y < b.y + b.h) n++
     }
     return n
   }
-
-  let { mx, my } = build(1)
-  if (obstacles.length > 0 && hits(mx, my) > 0) {
-    // Escalate the bow until something clears every obstacle: wider on the same side first (the least
-    // visually surprising change from the default), then the mirrored side. Picks whichever candidate has
-    // the fewest remaining hits (0 if anything manages it), preferring the smallest, same-side change on a
-    // tie so an edge that's already fine doesn't visibly jump around as its neighbors move.
-    let best = { mx, my, n: hits(mx, my) }
-    for (const scale of [1, -1, 1.8, -1.8, 2.6, -2.6, 3.4, -3.4, 4.2, -4.2]) {
-      const c = build(scale)
-      const n = hits(c.mx, c.my)
-      if (n < best.n) best = { mx: c.mx, my: c.my, n }
-      if (n === 0) break
-    }
-    mx = best.mx
-    my = best.my
-    // No bow clears them (a box between the two ends that is wider than any bow can swing): go around it, through
-    // the gaps between boxes. Only when the best bow still runs through something, so a line that is fine keeps its
-    // gentle curve; and the two ends stay exactly where the caller put them.
-    if (best.n > 0) {
-      const route = cachedDetour({ x: x1, y: y1 }, sourceNormal, { x: x2, y: y2 }, targetNormal, obstacles)
-      if (route) {
-        const mid = polylineMidpoint(route)
-        return { path: roundedPolylinePath(route, DETOUR_CORNER_RADIUS), labelX: mid.x, labelY: mid.y }
-      }
-    }
+  const curve = (c: ReturnType<typeof build>) => {
+    const mid = at(c, 0.5)
+    return { path: `M${x1},${y1} L${s1.x},${s1.y} C${c.c1.x},${c.c1.y} ${c.c2.x},${c.c2.y} ${s2.x},${s2.y} L${x2},${y2}`, labelX: mid.x, labelY: mid.y }
   }
 
-  return {
-    path: `M${x1},${y1} C${c1x},${c1y} ${mx},${my} ${x2},${y2}`,
-    // Cubic Bezier at t=0.5: (P0 + 3*C1 + 3*C2 + P2) / 8 - the label sits along the actual curve, not the
-    // straight-line midpoint, so it doesn't appear to float off to one side of a strongly bowed edge.
-    labelX: (x1 + 3 * c1x + 3 * mx + x2) / 8,
-    labelY: (y1 + 3 * c1y + 3 * my + y2) / 8,
+  let best = build(1)
+  let bestHits = hits(best)
+  if (bestHits === 0) return curve(best)
+  // Something is in the way: go round it if there is a way, through the gaps between boxes. The route keeps this
+  // line's own legs, so it still leaves and arrives square.
+  const route = cachedDetour({ x: x1, y: y1 }, sourceNormal, { x: x2, y: y2 }, targetNormal, obstacles)
+  if (route) {
+    const mid = polylineMidpoint(route)
+    return { path: roundedPolylinePath(route, DETOUR_CORNER_RADIUS), labelX: mid.x, labelY: mid.y }
   }
+  // No way round (an end boxed in, or too many boxes to search): the longer sweep that collides least.
+  for (const scale of [1.6, 2.4]) {
+    const c = build(scale)
+    const n = hits(c)
+    if (n < bestHits) {
+      best = c
+      bestHits = n
+    }
+  }
+  return curve(best)
 }
 
 /** A polyline through `points`, with each interior corner rounded off by `radius` (clamped to at most half
@@ -406,33 +325,58 @@ export function elbowPath(
   return { path: roundedPolylinePath(points, radius), labelX, labelY }
 }
 
-/** Shrinks the segment from (sx,sy) to (tx,ty) by `gap` px at the source end, and at the target end too
- *  unless `hasTargetMarker` is set. The source end never has an arrowhead in this app - dependencies only
- *  point one way - so its plain line-end always gets pulled back off whatever box it would otherwise run
- *  flush into. The target end only needs the same treatment when it has nothing pointed to place there
+/** Moves the line's two ends off their boxes by `gap` px, straight out along each box's own normal, so the gap is
+ *  the same square-on distance wherever on a side the end sits. The source end never has an arrowhead in this app -
+ *  dependencies only point one way - so its plain line-end always gets pulled back off whatever box it would
+ *  otherwise run flush into. The target end only needs the same treatment when it has nothing pointed to place there
  *  instead (an aggregated edge, with no markerEnd - see graph.ts's buildGraph): a real arrowhead's own tip is
- *  already exactly on (tx,ty) by construction (its SVG marker's refX=0 puts the tip at the path's own
- *  endpoint), so pulling the line back there too would just open a visible gap between the tip and the
- *  boundary it's meant to touch. Kept as its own pure function for the same reason as intersection/curvedPath
- *  above: testable in isolation, without rendering anything. */
-export function pullBackEnds(sx: number, sy: number, tx: number, ty: number, gap: number, hasTargetMarker: boolean): { sx: number; sy: number; tx: number; ty: number } {
-  const dx = tx - sx
-  const dy = ty - sy
-  const len = Math.hypot(dx, dy) || 1
-  const ux = dx / len
-  const uy = dy / len
+ *  already exactly on (tx,ty) by construction (its SVG marker's refX=0 puts the tip at the path's own endpoint), so
+ *  pulling the line back there too would just open a visible gap between the tip and the boundary it is meant to
+ *  touch. Pure, for the same reason as `intersection` and `curvedPath`: testable without rendering anything. */
+export function pullBackEnds(
+  s: { x: number; y: number },
+  sourceNormal: { x: number; y: number },
+  t: { x: number; y: number },
+  targetNormal: { x: number; y: number },
+  gap: number,
+  hasTargetMarker: boolean,
+): { sx: number; sy: number; tx: number; ty: number } {
   return {
-    sx: sx + ux * gap,
-    sy: sy + uy * gap,
-    tx: hasTargetMarker ? tx : tx - ux * gap,
-    ty: hasTargetMarker ? ty : ty - uy * gap,
+    sx: s.x + sourceNormal.x * gap,
+    sy: s.y + sourceNormal.y * gap,
+    tx: hasTargetMarker ? t.x : t.x + targetNormal.x * gap,
+    ty: hasTargetMarker ? t.y : t.y + targetNormal.y * gap,
   }
+}
+
+/** Where on `box`'s `side` a line toward `toward` should touch: level with it, so the end keeps sliding along the
+ *  side as the other end moves, but kept `inset` px in from the corners so a line never leaves from the very corner
+ *  of a rounded box. */
+export function slideOnSide(box: PathObstacle, side: 'top' | 'bottom' | 'left' | 'right', toward: { x: number; y: number }, inset = SIDE_INSET): { x: number; y: number } {
+  const clamp = (v: number, lo: number, hi: number) => (hi < lo ? (lo + hi) / 2 : Math.min(hi, Math.max(lo, v)))
+  if (side === 'top' || side === 'bottom') return { x: clamp(toward.x, box.x + inset, box.x + box.w - inset), y: side === 'top' ? box.y : box.y + box.h }
+  return { x: side === 'left' ? box.x : box.x + box.w, y: clamp(toward.y, box.y + inset, box.y + box.h - inset) }
+}
+
+/** How far in from a corner (px) an end may sit on a side. */
+export const SIDE_INSET = 12
+
+/** `p`, a point on the perimeter of `box`, moved along its side to be at least `SIDE_INSET` from the corners. */
+export function insetFromCorners(box: PathObstacle, p: { x: number; y: number }, normal: { x: number; y: number }): { x: number; y: number } {
+  const clamp = (v: number, lo: number, hi: number) => (hi < lo ? (lo + hi) / 2 : Math.min(hi, Math.max(lo, v)))
+  if (normal.y !== 0) return { x: clamp(p.x, box.x + SIDE_INSET, box.x + box.w - SIDE_INSET), y: p.y }
+  return { x: p.x, y: clamp(p.y, box.y + SIDE_INSET, box.y + box.h - SIDE_INSET) }
 }
 
 /** How far past the straight-line span between an edge's two anchors to still consider a card a possible
  *  obstacle for it - generous enough to cover the widest bow curvedPath's own escalation ever tries (see
  *  its doc comment), and reused as pickClearSide's own "is this side's approach corridor clear" depth. */
 export const OBSTACLE_MARGIN = 160
+
+/** How much clear room in front of a side (px) a line needs to arrive there: its straight leg, the turn out of the
+ *  curve, and a little air. The line arrives square-on, so it needs a short run in front of the side, not the wide
+ *  cone an inclined arrowhead needed. */
+export const ARRIVAL_DEPTH = 40
 
 /** The 4 cardinal sides a box can be entered from, and the boundary point/outward-normal `intersection`/
  *  `outwardNormal` would compute for each - used only as a fallback (see `pickClearSide` below) when the
@@ -485,10 +429,11 @@ export function pickClearSide(
   box: PathObstacle,
   natural: { point: { x: number; y: number }; normal: { x: number; y: number } },
   obstacles: PathObstacle[],
+  toward?: { x: number; y: number },
 ): { point: { x: number; y: number }; normal: { x: number; y: number } } {
   if (obstacles.length === 0) return natural
   const naturalSide = CARDINAL_SIDES.find((s) => s.normal.x === natural.normal.x && s.normal.y === natural.normal.y)?.side ?? 'top'
-  const depth = OBSTACLE_MARGIN
+  const depth = ARRIVAL_DEPTH
   if (sideIsClear(box, naturalSide, obstacles, depth)) return natural
   const perpendicular = naturalSide === 'top' || naturalSide === 'bottom' ? (['left', 'right'] as const) : (['top', 'bottom'] as const)
   const opposite: 'top' | 'bottom' | 'left' | 'right' =
@@ -496,7 +441,7 @@ export function pickClearSide(
   for (const side of [...perpendicular, opposite]) {
     if (sideIsClear(box, side, obstacles, depth)) {
       const normal = CARDINAL_SIDES.find((s) => s.side === side)!.normal
-      return { point: sideMidpoint(box, side), normal }
+      return { point: toward ? slideOnSide(box, side, toward) : sideMidpoint(box, side), normal }
     }
   }
   // Every side is obstructed - no fallback helps, so keep the natural one (curvedPath's own bow escalation
@@ -526,14 +471,14 @@ export function avoidHeaderSide(
   box: PathObstacle,
   parent: PathObstacle | undefined,
   natural: { point: { x: number; y: number }; normal: { x: number; y: number } },
-  towardX: number,
+  toward: { x: number; y: number },
   obstacles: PathObstacle[],
 ): { point: { x: number; y: number }; normal: { x: number; y: number } } {
   if (!parent || natural.normal.x !== 0 || natural.normal.y !== -1) return natural
   if (box.y - (parent.y + HEADER) > FIRST_ROW_SLACK) return natural
-  const sides = towardX >= box.x + box.w / 2 ? (['right', 'left'] as const) : (['left', 'right'] as const)
+  const sides = toward.x >= box.x + box.w / 2 ? (['right', 'left'] as const) : (['left', 'right'] as const)
   for (const side of sides) {
-    if (sideIsClear(box, side, obstacles, SIDE_EXIT_DEPTH)) return { point: sideMidpoint(box, side), normal: CARDINAL_SIDES.find((c) => c.side === side)!.normal }
+    if (sideIsClear(box, side, obstacles, SIDE_EXIT_DEPTH)) return { point: slideOnSide(box, side, toward), normal: CARDINAL_SIDES.find((c) => c.side === side)!.normal }
   }
   return natural
 }
@@ -671,57 +616,67 @@ export function OffsetEdge({ id, source, target, sourceX, sourceY, targetX, targ
     const sourceCenter = { x: sourceBox.x + sourceBox.w / 2, y: sourceBox.y + sourceBox.h / 2 }
     const from = intersection(sourceBox, targetCenter)
     const naturalTo = intersection(targetBox, sourceCenter)
-    // Each end first takes the side the straight line to the other end would use; a target whose natural side is
-    // blocked gets another (pickClearSide), and a first-row card in a cluster keeps its line off the cluster's header
-    // text by using a side instead of its top (avoidHeaderSide). Not when both ends sit in the same cluster: then the
-    // line never has to cross that header.
+    // Each end first takes the side the straight line to the other end would use, then slides along it as the other
+    // end moves. A target whose natural side is blocked gets another (pickClearSide), and a first-row card in a cluster
+    // keeps its line off the cluster's header text by using a side instead of its top (avoidHeaderSide); not when both
+    // ends sit in the same cluster, as the line then never has to cross that header. Whichever side wins, the line
+    // meets the box square-on, along that side's normal.
     const sourceCluster = clusterBoxOf(nodeLookup, source)
     const targetCluster = clusterBoxOf(nodeLookup, target)
     const sameCluster = sourceCluster !== undefined && sourceCluster.id === targetCluster?.id
-    const fromSide = sameCluster ? { point: from, normal: outwardNormal(sourceBox, from) } : avoidHeaderSide(sourceBox, sourceCluster, { point: from, normal: outwardNormal(sourceBox, from) }, targetCenter.x, obstacles)
+    const sourceNatural = { point: from, normal: outwardNormal(sourceBox, from) }
+    const fromSide = sameCluster ? sourceNatural : avoidHeaderSide(sourceBox, sourceCluster, sourceNatural, targetCenter, obstacles)
+    const picked = pickClearSide(targetBox, { point: naturalTo, normal: outwardNormal(targetBox, naturalTo) }, obstacles, sourceCenter)
+    const chosen = sameCluster ? picked : avoidHeaderSide(targetBox, targetCluster, picked, sourceCenter, obstacles)
     sourceNormal = fromSide.normal
-    const picked = pickClearSide(targetBox, { point: naturalTo, normal: outwardNormal(targetBox, naturalTo) }, obstacles)
-    const chosen = sameCluster ? picked : avoidHeaderSide(targetBox, targetCluster, picked, sourceCenter.x, obstacles)
     targetNormal = chosen.normal
-    sx = fromSide.point.x
-    sy = fromSide.point.y
-    tx = chosen.point.x
-    ty = chosen.point.y
+    const fromPoint = insetFromCorners(sourceBox, fromSide.point, sourceNormal)
+    const toPoint = insetFromCorners(targetBox, chosen.point, targetNormal)
+    sx = fromPoint.x
+    sy = fromPoint.y
+    tx = toPoint.x
+    ty = toPoint.y
   }
 
-  // The bare line-end itself should never be the thing touching a box - per this round's UI/UX pass, the
-  // only contact anywhere on an edge is meant to be an arrowhead's own tip. `intersection()` above already
-  // placed sx/sy and tx/ty exactly ON each box's boundary; pullBackEnds shrinks that back off, by GAP, at
-  // whichever end(s) have no arrowhead tip of their own to place there instead (see its own doc comment).
+  // The bare line-end itself should never be the thing touching a box - the only contact anywhere on an edge is meant
+  // to be an arrowhead's own tip. The ends above sit exactly ON each box's boundary; pullBackEnds shrinks that back
+  // off, by GAP straight out along the box's normal, at whichever end(s) have no arrowhead tip of their own to place
+  // there instead (see its doc comment).
   //
   // GAP is expressed as a target *screen* size (a gap that reads the same whether the canvas is zoomed in or
   // fit-to-view zoomed way out over a big multi-cluster graph) and converted to flow-space by dividing by the
   // current zoom - a flat flow-space constant would shrink to sub-pixel, invisible nothing at the ~0.5-0.6x
-  // zoom this app's own overview layouts commonly fit to, which is exactly the zoom level this was first
-  // reported unnoticeable at.
+  // zoom this app's own overview layouts commonly fit to.
   const { zoom } = useViewport()
   const GAP = 5 / zoom
-  const pulled = pullBackEnds(sx, sy, tx, ty, GAP, !!markerEnd)
+  const pulled = pullBackEnds({ x: sx, y: sy }, sourceNormal, { x: tx, y: ty }, targetNormal, GAP, !!markerEnd)
   sx = pulled.sx
   sy = pulled.sy
   tx = pulled.tx
   ty = pulled.ty
 
+  // A fan of lines between the same two boxes is spread along the boxes' own sides, not across the line, so an end
+  // never slides off its box.
+  const spread = (p: { x: number; y: number }, normal: { x: number; y: number }, amount: number) => {
+    if (!amount) return p
+    const tangent = { x: -normal.y, y: normal.x }
+    const sign = tangent.x * (ty - sy) * -1 + tangent.y * (tx - sx) >= 0 ? 1 : -1 // the same side of the line as before
+    return { x: p.x + tangent.x * sign * amount, y: p.y + tangent.y * sign * amount }
+  }
   const sourceOff = data?.sourceOffset ?? 0
   const targetOff = data?.targetOffset ?? 0
-  const dx = tx - sx
-  const dy = ty - sy
-  const len = Math.hypot(dx, dy) || 1
-  const nx = -dy / len
-  const ny = dx / len
-  const x1 = sx + nx * sourceOff
-  const y1 = sy + ny * sourceOff
-  const x2 = tx + nx * targetOff
-  const y2 = ty + ny * targetOff
+  const a1 = spread({ x: sx, y: sy }, sourceNormal, sourceOff)
+  const a2 = spread({ x: tx, y: ty }, targetNormal, targetOff)
+  const x1 = a1.x
+  const y1 = a1.y
+  const x2 = a2.x
+  const y2 = a2.y
 
+  // The line must not run across its own two boxes either (leaving by one side and arriving by another would otherwise
+  // let it graze along a box's edge on the way); only the curved style routes by this, so it is passed there alone.
   const edgeStyle = useContext(EdgeStyleContext)
   const { path, labelX, labelY } =
-    edgeStyle === 'elbow' ? elbowPath(x1, y1, x2, y2, sourceNormal, targetNormal, obstacles) : curvedPath(x1, y1, x2, y2, nx, ny, sourceNormal, targetNormal, obstacles)
+    edgeStyle === 'elbow' ? elbowPath(x1, y1, x2, y2, sourceNormal, targetNormal, obstacles) : curvedPath(x1, y1, x2, y2, sourceNormal, targetNormal, sourceBox && targetBox ? [...obstacles, sourceBox, targetBox] : obstacles)
   return (
     <BaseEdge
       id={id}

@@ -1,5 +1,4 @@
 import { describe, expect, test } from 'vitest'
-import { curvedPath } from '@/components/topology/OffsetEdge'
 import { DETOUR_MARGIN, DETOUR_MAX_OBSTACLES, detourRoute, polylineMidpoint, segmentCrosses, type Pt, type Rect } from '@/components/topology/detour'
 
 const box: Rect = { x: 100, y: 100, w: 100, h: 100 }
@@ -76,22 +75,5 @@ describe('polylineMidpoint', () => {
   test('is halfway along the length, not halfway between the ends', () => {
     expect(polylineMidpoint([{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }])).toEqual({ x: 100, y: 0 })
     expect(polylineMidpoint([{ x: 0, y: 0 }, { x: 100, y: 0 }])).toEqual({ x: 50, y: 0 })
-  })
-})
-
-describe('curvedPath with a box no bow can clear', () => {
-  test('goes around it and puts its label on the route', () => {
-    // A wall too tall for any bow to swing past, between two ends that are themselves clear of it.
-    const wide: Rect = { x: 120, y: -400, w: 60, h: 800 }
-    const { path, labelX, labelY } = curvedPath(0, 0, 300, 0, 0, 1, { x: 0, y: -1 }, { x: 0, y: -1 }, [wide])
-    expect(path.startsWith('M0,0 L')).toBe(true)
-    expect(path.endsWith('L300,0')).toBe(true)
-    const outside = labelY < wide.y || labelY > wide.y + wide.h || labelX < wide.x || labelX > wide.x + wide.w
-    expect(outside).toBe(true)
-  })
-
-  test('a box a bow does clear keeps the gentle curve, with no detour', () => {
-    const small: Rect = { x: 130, y: -20, w: 40, h: 40 }
-    expect(curvedPath(0, 0, 300, 0, 0, 1, { x: 0, y: -1 }, { x: 0, y: 1 }, [small]).path).toMatch(/ C/)
   })
 })
