@@ -1615,64 +1615,56 @@ test('service card: cards sharing a packed row are all as tall as the row\'s tal
   assert.equal(orch.position.y, gw.position.y, 'both start at the same top')
 })
 
-test('cluster links: a confirmed overlay/subnet edge is drawn directly between the two clusters, with no arrowhead', () => {
+test('cluster links: only a measured link is drawn, directly between the two clusters, with no arrowhead', () => {
   const opts = { view: 'application' as const, groupBy: 'cluster' as const, servicesOnNodes: false, links: true, devices: false }
   const overlay: ClusterLink = { fromCluster: 'cl-edge-a', fromName: 'Edge A', toCluster: 'cl-cloud', toName: 'Cloud', kind: 'overlay', via: 'wg0 (wireguard)' }
-  const g = buildGraph(seed, { ...opts, clusterLinks: [overlay] })
-  const edge = g.edges.find((e) => e.source === groupId('cl-edge-a') && e.target === groupId('cl-cloud'))
-  assert.ok(edge, 'a real edge is drawn straight between the two cluster boxes - no third box involved')
-  assert.equal(edge!.data?.clusterLink?.kind, 'overlay')
-  assert.equal(edge!.data?.clusterLink?.via, 'wg0 (wireguard)')
-  assert.ok(!edge!.markerEnd, 'undirected in reality (two clusters either are or are not joined this way), so no arrowhead')
-  assert.equal(edge!.data?.clusterLink?.flowsObserved, undefined, 'no rollup data on this link: nothing to show, not a fabricated 0')
-  assert.equal(edge!.data?.clusterLink?.avgRttMs, undefined)
-  assert.equal(edge!.data?.clusterLink?.avgLossPct, undefined)
+  const between = (g: ReturnType<typeof buildGraph>) => g.edges.find((e) => e.source === groupId('cl-edge-a') && e.target === groupId('cl-cloud') && e.data?.clusterLink)
 
-  const overlayWithRollup: ClusterLink = {
-    ...overlay,
-    flowsObserved: 3,
-    avgRttMs: 42,
-    avgLossPct: 0.2,
-  }
-  const gRollup = buildGraph(seed, { ...opts, clusterLinks: [overlayWithRollup] })
-  const edgeRollup = gRollup.edges.find((e) => e.source === groupId('cl-edge-a') && e.target === groupId('cl-cloud'))
-  assert.equal(edgeRollup?.data?.clusterLink?.flowsObserved, 3, 'the flow-rollup fields pass straight through onto the edge, same as via/redundancy do')
-  assert.equal(edgeRollup?.data?.clusterLink?.avgRttMs, 42)
-  assert.equal(edgeRollup?.data?.clusterLink?.avgLossPct, 0.2)
+  // A tunnel with nothing measured on it is a fact (the header chips and Inspector say it), not a line.
+  assert.ok(!between(buildGraph(seed, { ...opts, clusterLinks: [overlay] })), 'an unmeasured tunnel draws no edge')
 
-  assert.equal(edge!.data?.clusterLink?.encryption, undefined, 'no encryption classification on this fixture link')
+  const rttOnly = between(buildGraph(seed, { ...opts, clusterLinks: [{ ...overlay, flowsObserved: 1, avgRttMs: 42 }] }))
+  assert.ok(rttOnly, 'a round trip alone is a measurement: the line is drawn straight between the two cluster boxes')
+  assert.ok(!rttOnly!.markerEnd, 'undirected in reality, so no arrowhead')
+  assert.equal(rttOnly!.label, 'measured link')
 
-  const overlayEncrypted: ClusterLink = { ...overlay, encryption: 'encrypted' }
-  const gEnc = buildGraph(seed, { ...opts, clusterLinks: [overlayEncrypted] })
-  const edgeEnc = gEnc.edges.find((e) => e.source === groupId('cl-edge-a') && e.target === groupId('cl-cloud'))
-  assert.equal(edgeEnc?.data?.clusterLink?.encryption, 'encrypted', 'the encryption classification passes straight through onto the edge, same as the flow-rollup fields do')
+  const edge = between(buildGraph(seed, { ...opts, clusterLinks: [{ ...overlay, flowsObserved: 3, avgRttMs: 42, avgLossPct: 0.2, encryption: 'encrypted' }] }))
+  assert.equal(edge?.data?.clusterLink?.via, 'wg0 (wireguard)')
+  assert.equal(edge?.data?.clusterLink?.flowsObserved, 3, 'the flow-rollup fields pass straight through onto the edge, same as via/redundancy do')
+  assert.equal(edge?.data?.clusterLink?.avgRttMs, 42)
+  assert.equal(edge?.data?.clusterLink?.avgLossPct, 0.2)
+  assert.equal(edge?.data?.clusterLink?.encryption, 'encrypted')
 
+  // A loss figure alone (0% is a real measurement) counts as measured too.
+  assert.ok(between(buildGraph(seed, { ...opts, clusterLinks: [{ ...overlay, avgLossPct: 0 }] })), 'a measured 0% loss is still measured')
+
+  // Sharing a subnet is never an edge, whatever else the record carries.
   const subnet: ClusterLink = { fromCluster: 'cl-edge-a', fromName: 'Edge A', toCluster: 'cl-cloud', toName: 'Cloud', kind: 'subnet', via: '10.20.30.0/24' }
   const g2 = buildGraph(seed, { ...opts, clusterLinks: [subnet] })
-  const edge2 = g2.edges.find((e) => e.source === groupId('cl-edge-a') && e.target === groupId('cl-cloud'))
-  assert.equal(edge2?.data?.clusterLink?.kind, 'subnet')
-  assert.equal(edge2?.data?.clusterLink?.via, '10.20.30.0/24')
+  assert.ok(!g2.edges.some((e) => e.data?.clusterLink), 'a shared subnet draws no edge')
+  const gInfra = buildGraph(seed, { ...opts, view: 'infrastructure' as const, clusterLinks: [subnet, overlay] })
+  assert.ok(!gInfra.edges.some((e) => e.data?.clusterLink), 'neither does an unmeasured link in the infrastructure layer')
 
   // Grouped by tier, cl-edge-a and cl-edge-b collapse into the one far-edge box - no distinct "other end"
   // to draw a line to, so the link is simply not drawn rather than becoming a nonsensical self-loop.
-  const sameTier: ClusterLink = { fromCluster: 'cl-edge-a', fromName: 'Edge A', toCluster: 'cl-edge-b', toName: 'Edge B', kind: 'subnet', via: '10.20.30.0/24' }
+  const sameTier: ClusterLink = { fromCluster: 'cl-edge-a', fromName: 'Edge A', toCluster: 'cl-edge-b', toName: 'Edge B', kind: 'overlay', via: 'wg0 (wireguard)', avgRttMs: 20 }
   const byTier = buildGraph(seed, { ...opts, groupBy: 'tier' as const, clusterLinks: [sameTier] })
   assert.ok(!byTier.edges.some((e) => e.data?.clusterLink), 'same-tier ends collapse to one box; no self-loop is drawn')
 
   // A cluster that doesn't exist (or was filtered off the canvas) draws nothing either.
-  const orphan: ClusterLink = { fromCluster: 'cl-edge-a', fromName: 'Edge A', toCluster: 'does-not-exist', toName: 'Ghost', kind: 'overlay', via: 'wg0 (wireguard)' }
+  const orphan: ClusterLink = { fromCluster: 'cl-edge-a', fromName: 'Edge A', toCluster: 'does-not-exist', toName: 'Ghost', kind: 'overlay', via: 'wg0 (wireguard)', avgRttMs: 20 }
   const g3 = buildGraph(seed, { ...opts, clusterLinks: [orphan] })
   assert.ok(!g3.edges.some((e) => e.data?.clusterLink), 'an end not on the canvas draws nothing')
 })
 
-test('cluster links: a dependency edge whose own tunnelLink matches the overlay link suppresses the standalone line, but only when it is the sole match', () => {
+test('cluster links: a dependency edge whose own tunnelLink matches the measured overlay link suppresses the standalone line, but only when it is the sole match', () => {
   const opts = { view: 'application' as const, groupBy: 'cluster' as const, servicesOnNodes: false, links: true, devices: false }
-  const overlay: ClusterLink = { fromCluster: 'cl-edge-a', fromName: 'Edge A', toCluster: 'cl-cloud', toName: 'Cloud', kind: 'overlay', via: 'wg0 (wireguard)' }
+  const overlay: ClusterLink = { fromCluster: 'cl-edge-a', fromName: 'Edge A', toCluster: 'cl-cloud', toName: 'Cloud', kind: 'overlay', via: 'wg0 (wireguard)', flowsObserved: 2, avgRttMs: 38, avgLossPct: 6.5 }
   const tunnelLink = { fromCluster: 'cl-edge-a', toCluster: 'cl-cloud', via: 'wg0 (wireguard)', redundancy: 1, encryption: 'encrypted' as const }
 
-  // Zero dependencies cross the tunnel: nothing to suppress it with, so the standalone overlay line still shows.
+  // Zero dependencies cross the tunnel: nothing to suppress it with, so the measured line still shows.
   const g0 = buildGraph({ ...seed, dependencies: [] }, { ...opts, clusterLinks: [overlay] })
-  assert.ok(g0.edges.some((e) => e.data?.clusterLink), 'no annotated dependency edge exists yet - the overlay line is the only evidence, so it must stay')
+  assert.ok(g0.edges.some((e) => e.data?.clusterLink), 'no annotated dependency edge exists yet - the measured line is the only evidence, so it must stay')
 
   // Exactly one dependency crosses it: that edge already shows everything the standalone line would, so
   // the standalone line is redundant and gets suppressed.
@@ -1692,12 +1684,6 @@ test('cluster links: a dependency edge whose own tunnelLink matches the overlay 
   assert.ok(g2.edges.some((e) => e.data?.clusterLink), 'two distinct dependencies share the tunnel - no single edge fully represents it, so the standalone line stays')
   assert.equal(g2.edges.find((e) => e.id === 'dep-tun-1')?.data?.tunnelLink?.via, 'wg0 (wireguard)')
   assert.equal(g2.edges.find((e) => e.id === 'dep-tun-2')?.data?.tunnelLink?.via, 'wg0 (wireguard)')
-
-  // A subnet link never produces a tunnelLink match (only overlay tunnels do), so a dependency carrying
-  // one never suppresses a subnet-kind standalone line even if the clusters happen to coincide.
-  const subnet: ClusterLink = { fromCluster: 'cl-edge-a', fromName: 'Edge A', toCluster: 'cl-cloud', toName: 'Cloud', kind: 'subnet', via: '10.20.30.0/24' }
-  const g3 = buildGraph({ ...seed, dependencies: [oneDep] }, { ...opts, clusterLinks: [subnet] })
-  assert.ok(g3.edges.some((e) => e.data?.clusterLink?.kind === 'subnet'), 'a subnet link is never fully represented by a tunnelLink match, so it is never suppressed')
 })
 
 test("edge interface capacity reaches EdgeData alongside its throughput, never guessed when the caller's own nodes disagree", () => {

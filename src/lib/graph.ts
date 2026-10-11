@@ -757,35 +757,30 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
     }
   }
 
-  // Cluster links: a confirmed overlay/subnet relationship, drawn directly between the two clusters' own
-  // group boxes (never a third box, unlike regional operators above - the relationship IS the two
-  // clusters themselves), independent of whether anything actually calls between the two clusters - it
-  // is a network-level fact, not a traffic one. Two clusters that collapsed into the very same group
-  // (both in the same tier, when groupBy is 'tier') have no distinct "other end" to draw a line to.
+  // Cluster links: only a MEASURED one is drawn - a confirmed tunnel whose matched flows carry a round trip
+  // or loss figure, shown directly between the two clusters' own group boxes (never a third box, unlike
+  // regional operators above). That is a status, and it only exists on the overlay link's flow rollup. That
+  // a pair merely shares a subnet or is joined by a tunnel is a fact, not a line: the cluster's header chips
+  // and the Inspector say it (see clusterNets). Two clusters that collapsed into the very same group (both
+  // in the same tier, when groupBy is 'tier') have no distinct "other end" to draw a line to.
   //
   // Suppressed, though, when exactly one already-drawn dependency edge's own tunnelLink (see
   // EdgeData.tunnelLink) names this exact overlay link: that one edge already shows everything this line
   // would (via/redundancy/encryption), so drawing both would just look like a duplicate relationship
-  // between the same two boxes. Zero matching dependency edges (nothing is using the tunnel right now, or
-  // the detailed per-dependency edges aren't even drawn in this view/groupBy) still draws this line on its
-  // own - that is the one place a quiet tunnel stays visible at all. More than one matching edge also
-  // keeps this line: no single dependency edge can stand in for the aggregate (flowsObserved/avgRttMs/
-  // avgLossPct) only this line carries. A "subnet" link is never suppressed - dependencies never carry a
-  // tunnelLink for one (see Dependency.tunnelLink's own doc), so there is nothing to check.
+  // between the same two boxes. More than one matching edge keeps this line: no single dependency edge can
+  // stand in for the aggregate (flowsObserved/avgRttMs/avgLossPct) only this line carries.
   for (const cl of o.clusterLinks ?? []) {
     const a = groupKeyOfCluster(cl.fromCluster)
     const b = groupKeyOfCluster(cl.toCluster)
     if (!a || !b || a === b) continue
+    if (cl.avgRttMs === undefined && cl.avgLossPct === undefined) continue
     const ga = groupId(a)
     const gb = groupId(b)
     if (!abs.has(ga) || !abs.has(gb)) continue
-    const matchingDependencyEdges =
-      cl.kind === 'overlay'
-        ? edges.filter((e) => e.data?.tunnelLink?.fromCluster === cl.fromCluster && e.data?.tunnelLink?.toCluster === cl.toCluster).length
-        : 0
+    const matchingDependencyEdges = edges.filter((e) => e.data?.tunnelLink?.fromCluster === cl.fromCluster && e.data?.tunnelLink?.toCluster === cl.toCluster).length
     if (matchingDependencyEdges === 1) continue
     edges.push(makeEdge(`cl:${cl.fromCluster}:${cl.toCluster}:${cl.kind}`, ga, gb, abs, {
-      label: cl.kind === 'overlay' ? 'overlay' : 'same subnet',
+      label: 'measured link',
       cross: true,
       aggregated: false,
       groupLevel: true,
