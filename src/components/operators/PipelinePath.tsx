@@ -1,10 +1,10 @@
 import clsx from 'clsx'
-import { Cable, ChevronDown, ChevronRight, Database, DoorOpen, Funnel, Merge, type LucideIcon } from 'lucide-react'
+import { Cable, Database, DoorOpen, Funnel, Merge, type LucideIcon } from 'lucide-react'
 import { Fragment } from 'react'
 import { Link } from 'react-router-dom'
 import StateChip from '@/components/operators/StateChip'
 import { MeterBar, type BarTone } from '@/components/ui/MeterBar'
-import { ICON_MD, ICON_SM } from '@/components/ui/primitives'
+import { ICON_MD } from '@/components/ui/primitives'
 import { lastDataText, type Hop, type Kind } from '@/lib/operatorsView'
 import { EXPECTED_MS, freshness, hopChip, linkState, type FreshnessLevel, type LinkState } from '@/lib/pipelineFlow'
 
@@ -17,8 +17,33 @@ function figure(h: Hop): string {
 }
 
 const TONE: Record<LinkState, string> = { flowing: 'text-ok', stalled: 'text-warn', broken: 'text-bad', unknown: 'text-nb-700' }
-/** The line itself: dashes that move, a still bar, or a still dashed rule (a border, so it has no fill). `v` is the vertical, narrow-screen one. */
-const line = (l: LinkState, v: boolean) => ({ flowing: v ? 'flow-dash-bg-v' : 'flow-dash-bg', stalled: 'bg-current', broken: 'bg-current', unknown: v ? 'w-0 border-l-2 border-dashed border-current' : 'h-0 border-t-2 border-dashed border-current' })[l]
+/**
+ * The line from one node to the next, arrowhead included, as one SVG: shaft and head share a stroke (same colour, same 2px weight), so they
+ * join without a seam and stay sharp at any zoom. The drawing is `LEN` long, far more than any gap between nodes, and pinned to the end of its
+ * box ("max" + slice), the part that does not fit cropped away at the node it starts from, so on every hop the tip stops `GAP` short of the next node, and the dashes of a moving or
+ * unknown line are laid out backwards from the tip, so the last one always ends in the head instead of mid-dash. `v` is the narrow-screen,
+ * downward one: the same drawing with its two axes swapped.
+ */
+const LEN = 3000, GAP = 4, ARM = 4, MID = 6, DASH = 5, PERIOD = 9
+const TIP = LEN - GAP - 1 // the corner of the head; its round join reaches one more
+function Arrow({ link, v }: { link: LinkState; v: boolean }) {
+  const pt = (along: number, across: number) => (v ? `${across} ${along}` : `${along} ${across}`)
+  const dashed = link === 'flowing' || link === 'unknown'
+  return (
+    <svg
+      viewBox={v ? `0 0 ${2 * MID} ${LEN}` : `0 0 ${LEN} ${2 * MID}`}
+      preserveAspectRatio={v ? 'xMidYMax slice' : 'xMaxYMid slice'}
+      className={v ? 'absolute inset-y-0 left-[15px] h-full w-3 xl:hidden' : 'absolute left-0 top-[19px] hidden h-3 w-full xl:block'}
+      aria-hidden
+      focusable="false"
+    >
+      <g fill="none" stroke="currentColor" strokeWidth={2} strokeLinejoin="round">
+        <path d={`M${pt(dashed ? (TIP - DASH) % PERIOD : 0, MID)}L${pt(TIP, MID)}`} className={link === 'flowing' ? 'flow-dash' : undefined} strokeDasharray={link === 'unknown' ? `${DASH} ${PERIOD - DASH}` : undefined} />
+        <path d={`M${pt(TIP - ARM, MID - ARM)}L${pt(TIP, MID)}L${pt(TIP - ARM, MID + ARM)}`} />
+      </g>
+    </svg>
+  )
+}
 const BAR: Record<FreshnessLevel, BarTone> = { fresh: 'ok', late: 'warn', stale: 'bad', none: 'neutral' }
 const AGE_TEXT: Record<LinkState, string> = { flowing: 'hidden text-nb-500 group-hover:block group-focus-within:block', stalled: 'text-warn', broken: 'text-bad', unknown: 'text-nb-500' }
 
@@ -43,7 +68,7 @@ function Node({ h, selected, onSelect }: { h: Hop; selected: boolean; onSelect: 
   )
 }
 
-/** The line from one hop to the next carries the sender's state: it moves while data is arriving and is still, amber, red or grey dashed
+/** The arrow from one hop to the next carries the sender's state: it moves while data is arriving and is still, amber, red or grey dashed
  *  otherwise. Under it a thin freshness bar says how recent the data is; the age itself shows on hover or focus, and always when not fine. */
 function Connector({ from, to, now }: { from: Hop; to: Hop; now: number }) {
   // Data into FUSION is judged by FUSION's own last data; every other line by the newest data its sender reports.
@@ -54,10 +79,8 @@ function Connector({ from, to, now }: { from: Hop; to: Hop; now: number }) {
   const age = lastDataText(lastData, now)
   return (
     <li className={clsx('group relative h-10 xl:h-auto xl:min-w-14 xl:flex-1', TONE[link])} data-testid={`link-${from.key}`} data-link={link} aria-hidden={measured ? undefined : true}>
-      <span className={clsx('absolute bottom-3 left-5 top-0 w-0.5 xl:hidden', line(link, true))} />
-      <span className={clsx('absolute left-0 right-3 top-6 hidden h-0.5 xl:block', line(link, false))} />
-      <ChevronDown size={ICON_SM} className="absolute bottom-0 left-3.5 xl:hidden" aria-hidden />
-      <ChevronRight size={ICON_SM} className="absolute right-0 top-6 hidden -translate-y-1/2 xl:block" aria-hidden />
+      <Arrow link={link} v />
+      <Arrow link={link} v={false} />
       {measured && (
         <div className="absolute left-10 top-1/2 flex -translate-y-1/2 items-center gap-2 xl:left-1/2 xl:top-8 xl:-translate-x-1/2 xl:translate-y-0 xl:flex-col xl:gap-1">
           <MeterBar pct={f.fraction * 100} tone={BAR[f.level]} label={`Data from ${from.label} to ${to.label}`} valueText={`Last data ${age}`} title={`Last data ${age}`} tabIndex={0} className="w-10" />
