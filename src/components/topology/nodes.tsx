@@ -72,6 +72,9 @@ const MESH_TONE = { in: 'bg-ok/10 text-ok', control: 'bg-violet-400/10 text-viol
 // service chips, which previously used two adjacent-but-different grays (bg-nb-900 vs bg-nb-940) that never
 // meant anything different from each other, just drifted independently.
 const NEUTRAL_TONE = 'bg-nb-900 text-nb-400'
+// A cluster header's own chips (networks, CNI/ingress): a faint wash of the text colour, not a white pill, so they sit in the box's tint
+// instead of reading as separate stickers.
+const HEADER_TONE = 'bg-[color-mix(in_srgb,var(--color-nb-300)_8%,transparent)] text-nb-500'
 
 /** "1000" reads worse on a small badge than "1 Gbps" - the Inspector's own full interface list (Inspector.tsx)
  *  keeps raw Mbps since it has room to be exact about every interface; this is a single at-a-glance number
@@ -146,7 +149,7 @@ function NetChips({ nets }: { nets: ClusterNet[] }) {
         return (
           <Badge
             key={`${n.kind}:${n.via}`}
-            tone={NEUTRAL_TONE}
+            tone={HEADER_TONE}
             dense
             icon={n.kind === 'subnet' ? Network : Cable}
             title={netSentence(n)}
@@ -164,7 +167,7 @@ function NetChips({ nets }: { nets: ClusterNet[] }) {
         )
       })}
       {more.length > 0 && (
-        <Badge tone={NEUTRAL_TONE} dense title={more.map(netSentence).join('\n')}>
+        <Badge tone={HEADER_TONE} dense title={more.map(netSentence).join('\n')}>
           +{more.length}
         </Badge>
       )}
@@ -250,7 +253,7 @@ export const GroupBox = memo(function GroupBox({ data, selected }: NodeProps<Gro
               )}
               {data.networking && (
                 <Badge
-                  tone={NEUTRAL_TONE}
+                  tone={HEADER_TONE}
                   dense
                   icon={Router}
                   title={`Detected in this cluster: ${[data.networking.cni && `${data.networking.cni} (CNI)`, data.networking.ingress && `${data.networking.ingress} (ingress)`].filter(Boolean).join(' · ')}`}
@@ -284,11 +287,11 @@ export const GroupBox = memo(function GroupBox({ data, selected }: NodeProps<Gro
               // (mesh, networking, the status dot) reads as "a label" because it has a tinted fill behind
               // it - this one was border-only, so at default zoom it nearly disappeared against the box's
               // own faint tier-tinted background. Same color-mix approach as the border, just lower opacity.
-              className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide"
+              className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[9.5px] font-semibold uppercase tracking-[0.08em]"
               style={{
                 color,
-                borderColor: `color-mix(in srgb, ${color} 35%, transparent)`,
-                background: `color-mix(in srgb, ${color} 14%, transparent)`,
+                borderColor: `color-mix(in srgb, ${color} 22%, transparent)`,
+                background: `color-mix(in srgb, ${color} 11%, transparent)`,
               }}
             >
               {TierGlyph && <TierGlyph size={ICON_SM - 2} aria-hidden="true" />}

@@ -93,6 +93,22 @@ function ArrowDefs({ colors }: { colors: string[] }) {
   )
 }
 
+/**
+ * While a line is hovered it is drawn heavier and the two things it joins get an accent ring. Done with a tiny stylesheet rather than
+ * node/edge state, so a mouse crossing the canvas re-renders nothing on the graph (see `edges` below).
+ */
+const cssStr = (v: string) => v.replace(/[\\"]/g, '\\$&')
+function HoverStyle({ edge }: { edge: { id: string; source: string; target: string } | undefined }) {
+  if (!edge) return null
+  const ends = [edge.source, edge.target].map((id) => `.react-flow__node[data-id="${cssStr(id)}"] > div`).join(', ')
+  return (
+    <style>{`
+      .react-flow__edge[data-id="${cssStr(edge.id)}"] .react-flow__edge-path { stroke-width: 3px !important; opacity: 1 !important; }
+      ${ends} { box-shadow: inset 0 0 0 1.5px var(--color-accent) !important; }
+    `}</style>
+  )
+}
+
 function Toggle({ checked, onChange, label, disabled, title, lens }: { checked: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean; title?: string; lens?: boolean }) {
   return (
     <button
@@ -336,11 +352,18 @@ function Canvas() {
     // only localOperatorsSig should force a rebuild - see its own comment above
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [localOperatorsSig])
+  // Set when a selection arrives from search or a shared link: the view then goes to the entity (see the reveal effect below).
+  const revealRef = useRef(false)
+  // The entity the view just arrived at (from search): it glows for a moment so the eye finds it.
+  const [landed, setLanded] = useState<string | null>(null)
   useEffect(() => {
     if (!selParam || !observedReady) return
     const want = parseSel(selParam)
     const pool: Record<string, { id: string }[]> = { cluster: clusters, node: machines, service: services, device: devices, site: sites, external: externalEndpoints }
-    if (want && pool[want.kind].some((x) => x.id === want.id)) setSelection(want)
+    if (want && pool[want.kind].some((x) => x.id === want.id)) {
+      setSelection(want)
+      revealRef.current = true
+    }
     setSp((p) => {
       const n = new URLSearchParams(p)
       n.delete('sel')
@@ -529,12 +552,13 @@ function Canvas() {
 
   // The canvas nodes with the fade applied (a class and a delay; the transition is in index.css).
   const displayNodes = useMemo<TopoNode[]>(() => {
-    if (!focusView) return nodes
+    if (!focusView && !landed) return nodes
     return nodes.map((n) => {
-      if (focusView.keep.has(n.id)) return n
+      if (n.id === landed) return { ...n, className: n.className ? `${n.className} topo-land` : 'topo-land' }
+      if (!focusView || focusView.keep.has(n.id)) return n
       return { ...n, className: n.className ? `${n.className} topo-dim` : 'topo-dim', style: { ...n.style, '--ripple': `${focusView.ripple.get(n.id) ?? 0}ms` } as React.CSSProperties }
     })
-  }, [nodes, focusView])
+  }, [nodes, focusView, landed])
 
   // The canvas can be panned only so far past the graph (and zoomed only between 0.2x and 1.5x), so the structure is never
   // lost off screen or shrunk into a smudge.
@@ -586,6 +610,28 @@ function Canvas() {
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on which entities are in focus, not on every node move
   }, [focusCoreKey])
+
+  // Arriving from search: go to the entity, not just open the Inspector. The card is centred at a readable zoom (with what its
+  // lines reach, when it has any), and its pop plays as it lands.
+  useEffect(() => {
+    if (!revealRef.current || !selectedRfId) return
+    const id = selectedRfId
+    const t = setTimeout(() => {
+      if (!revealRef.current) return
+      const { width, height, transform } = store.getState()
+      if (!width || !height) return
+      const box = instanceBounds(focusView ? [...focusView.core] : [id])
+      if (!box.width || !box.height) return
+      revealRef.current = false
+      const v = getViewportForBounds(box, width, height, 0.2, Math.max(transform[2], 0.9), 0.3)
+      const calm = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      void setViewport(v, { duration: calm ? 0 : 520 })
+      window.setTimeout(() => setLanded(id), calm ? 0 : 480)
+      window.setTimeout(() => setLanded((cur) => (cur === id ? null : cur)), calm ? 0 : 480 + 1500)
+    }, 450)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs when a new entity is selected; the rest is read when it fires
+  }, [selectedRfId])
 
   // Edge styling for the current selection (colour, width, dashing, opacity, and whether the label shows for a reason other
   // than hover). Deliberately NOT keyed on `hoverEdge`: see `edges` below for why.
@@ -1277,6 +1323,7 @@ function Canvas() {
             </SquareRoutes>
             </PeerRingContext.Provider>
           )}
+          <HoverStyle edge={hoveredEdge} />
           {hoveredEdge && hoverPos && (
             <EdgeHoverCard
               edge={hoveredEdge}

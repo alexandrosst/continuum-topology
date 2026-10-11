@@ -168,6 +168,8 @@ body {
 .react-flow__edge-path { transition: opacity 320ms ease-out, stroke-width 200ms ease-out, stroke 200ms ease-out; }
 /* A faded cluster or group box keeps its name readable; only cards fade right down. */
 .react-flow__node-boundary.topo-dim:not(.dragging), .react-flow__node-namespace.topo-dim:not(.dragging) { opacity: 0.5; }
+@keyframes topo-land { 0%, 100% { filter: drop-shadow(0 0 0 transparent); } 35% { filter: drop-shadow(0 0 10px color-mix(in srgb, var(--color-accent) 80%, transparent)); } 70% { filter: drop-shadow(0 0 2px color-mix(in srgb, var(--color-accent) 40%, transparent)); } }
+.react-flow__node.topo-land { animation: topo-land 1500ms ease-in-out; }
 /* Polish: resting depth (an outward ring would sit on top of an arrowhead, so a status glow is inset), status halo and glow, replica cells. Shadows are neutral black at low alpha so they read in both themes. */
 .topo-card { box-shadow: 0 1px 2px rgb(0 0 0 / 0.10), 0 6px 14px -8px rgb(0 0 0 / 0.20); transition: box-shadow 180ms ease-out, border-color 180ms ease-out, background-color 180ms ease-out; }
 .topo-card:hover { box-shadow: 0 2px 4px rgb(0 0 0 / 0.12), 0 10px 20px -10px rgb(0 0 0 / 0.26); }
@@ -179,7 +181,7 @@ body {
 .topo-dot-bad { animation: topo-beat 2.4s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) { .topo-dot-bad { animation: none; } }
 @media (prefers-reduced-motion: reduce) {
-  .topo-pop { animation: none; }
+  .topo-pop, .react-flow__node.topo-land { animation: none; }
   .react-flow__node:not(.dragging), .react-flow__node.topo-dim:not(.dragging), .react-flow__edge-path { transition: none; }
 }
 
