@@ -24,6 +24,9 @@ const CLUSTER_COLUMNS: ColumnDef[] = [
   { key: 'nodes', label: 'Nodes' },
   { key: 'services', label: 'Services' },
   { key: 'discovered', label: 'Discovered' },
+  { key: 'network', label: 'Pod / service CIDR' },
+  { key: 'platform', label: 'CNI · ingress · storage' },
+  { key: 'endpoints', label: 'API endpoint · exit IP' },
 ]
 
 export default function ClustersPage() {
@@ -36,7 +39,7 @@ export default function ClustersPage() {
   const [q, setQ] = useState('')
   const [editing, setEditing] = useState<Cluster | null | 'new'>(null)
   const [deleting, setDeleting] = useState<Cluster | null>(null)
-  const { isVisible, toggle } = useColumnVisibility('clusters')
+  const { isVisible, toggle } = useColumnVisibility('clusters', ['network', 'platform', 'endpoints'])
 
   const rows = clusters.filter((c) => matches(q, c.name, c.distribution, c.provider, c.region, c.tier, sites.find((x) => x.id === c.siteId)?.name))
 
@@ -78,6 +81,9 @@ export default function ClustersPage() {
               {isVisible('nodes') && <Th>Nodes</Th>}
               {isVisible('services') && <Th>Services</Th>}
               {isVisible('discovered') && <Th>Discovered</Th>}
+              {isVisible('network') && <Th>Pod / service CIDR</Th>}
+              {isVisible('platform') && <Th>CNI · ingress · storage</Th>}
+              {isVisible('endpoints') && <Th>API endpoint · exit IP</Th>}
               <Th>Status</Th>
               <Th className="sticky right-0 bg-nb-925" />
             </tr>
@@ -138,6 +144,27 @@ export default function ClustersPage() {
                 {isVisible('nodes') && <Td>{nodes.filter((n) => n.clusterId === c.id).length}</Td>}
                 {isVisible('services') && <Td>{services.filter((w) => w.clusterId === c.id).length}</Td>}
                 {isVisible('discovered') && <Td><CompletenessBadge compact c={completeness(c, nodes, services, dependencies)} /></Td>}
+                {isVisible('network') && (
+                  <Td>
+                    <div className="font-mono text-xs text-nb-300">{c.podCidr || '—'}</div>
+                    <div className="font-mono text-xs text-nb-500">{c.serviceCidr || '—'}</div>
+                    {c.podCidr && clusters.some((o) => o.id !== c.id && o.podCidr === c.podCidr) && (
+                      <div className="mt-0.5 text-[11px] text-warn" title="Another cluster uses the same pod CIDR, which can break direct cross-cluster routing.">overlaps {clusters.filter((o) => o.id !== c.id && o.podCidr === c.podCidr).map((o) => o.name).join(', ')}</div>
+                    )}
+                  </Td>
+                )}
+                {isVisible('platform') && (
+                  <Td>
+                    <div className="text-sm text-nb-300">{[c.cni, c.ingress].filter(Boolean).join(' · ') || '—'}</div>
+                    <div className="text-xs text-nb-500">{(c.storageClasses ?? []).join(', ') || '—'}</div>
+                  </Td>
+                )}
+                {isVisible('endpoints') && (
+                  <Td>
+                    <div className="font-mono text-xs text-nb-300">{c.apiEndpoint || '—'}</div>
+                    <div className="font-mono text-xs text-nb-500">{c.egressIp || '—'}</div>
+                  </Td>
+                )}
                 <Td><StatusDot status={c.status} withLabel notCurrent={obs && obs.kind !== 'live' ? (obs.reason ?? obs.label) : undefined} /></Td>
                 <Td className="sticky right-0 bg-nb-925 group-hover:bg-nb-930"><RowActions onEdit={() => setEditing(c)} onDelete={() => setDeleting(c)} /></Td>
               </tr>
