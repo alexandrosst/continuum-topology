@@ -2,7 +2,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, test, vi } from 'vitest'
 import Inspector from '@/components/topology/Inspector'
-import type { ExternalEndpoint, MachineNode } from '@/lib/types'
+import type { Cluster, ClusterLink, ClusterPairConnectivity, ExternalEndpoint, MachineNode } from '@/lib/types'
 
 // A focused Inspector test: only the 'external' selection branch is exercised here, so every store/hook
 // Inspector (and usePlacementSuggestions, which it calls into) reads from is faked with just enough shape
@@ -22,11 +22,13 @@ let topologyState: {
   suggestions: never[]
 }
 
+let pairsState: ClusterPairConnectivity[] = []
+
 vi.mock('@/store/topology', () => ({
   useTopology: () => topologyState,
   useRawTopology: (selector: (s: { upsertExternalEndpoint: () => void }) => unknown) => selector({ upsertExternalEndpoint: vi.fn() }),
   usePaths: () => ({}),
-  useClusterPairConnectivity: () => [],
+  useClusterPairConnectivity: () => pairsState,
   useDiscoveryAgents: () => [],
 }))
 vi.mock('@/store/history', () => ({
@@ -317,5 +319,43 @@ describe('Inspector · external endpoint', () => {
     expect(sheet.className).not.toContain('max-h-[65vh]')
     fireEvent.click(toggle)
     expect(toggle).toHaveAttribute('aria-expanded', 'true')
+  })
+})
+
+describe('Inspector · cluster networks', () => {
+  const cluster = (id: string, name: string) => ({ id, name, status: 'ready', tier: 'edge', distribution: 'k3s', version: 'v1', source: 'discovered', orgId: 'o', labels: {} }) as unknown as Cluster
+  const link = (over: Partial<ClusterLink>): ClusterLink => ({ fromCluster: 'a', fromName: 'atlas', toCluster: 'b', toName: 'kestrel-cluster', kind: 'subnet', via: '10.30.0.0/16', redundancy: 1, ...over })
+  const pair = (l: ClusterLink): ClusterPairConnectivity => ({ fromCluster: l.fromCluster, fromName: l.fromName, toCluster: l.toCluster, toName: l.toName, status: l.kind === 'overlay' ? 'tunnel' : 'subnet', links: [l], dependencyFlows: 0 })
+
+  function renderCluster(links: ClusterLink[], onSelect = vi.fn()) {
+    pairsState = links.map(pair)
+    topologyState = { ...topologyState, clusters: [cluster('a', 'atlas')] as never[], nodes: [], externalEndpoints: [] }
+    render(
+      <MemoryRouter>
+        <Inspector selection={{ kind: 'cluster', id: 'a' }} onSelect={onSelect} onEdit={() => {}} onClose={() => {}} />
+      </MemoryRouter>,
+    )
+    return onSelect
+  }
+
+  test('says the shared network and who is on it, and a peer name selects that cluster', () => {
+    const onSelect = renderCluster([link({}), link({ toCluster: 'c', toName: 'polaris-edge' })])
+    const line = screen.getByTestId('cluster-net')
+    expect(line.textContent).toBe('Network 10.30.0.0/16 — shared with kestrel-cluster, polaris-edge')
+    fireEvent.click(within(line).getByRole('button', { name: 'polaris-edge' }))
+    expect(onSelect).toHaveBeenCalledWith({ kind: 'cluster', id: 'c' })
+  })
+
+  test('says the tunnel with its peers, next to the pair connectivity it reuses rather than repeats', () => {
+    renderCluster([link({ kind: 'overlay', via: 'wg0 (wireguard)', flowsObserved: 3, avgRttMs: 38, avgLossPct: 0.1 })])
+    expect(screen.getByTestId('cluster-net').textContent).toBe('Tunnel wg0 (wireguard) — to kestrel-cluster')
+    expect(screen.getByText('Cluster connectivity (1)')).toBeInTheDocument()
+    expect(screen.getAllByText(/38 ms avg RTT/)).toHaveLength(1)
+    expect(screen.queryByText('Via')).not.toBeInTheDocument()
+  })
+
+  test('says nothing when the cluster shares no network or tunnel', () => {
+    renderCluster([])
+    expect(screen.queryByTestId('cluster-net')).not.toBeInTheDocument()
   })
 })

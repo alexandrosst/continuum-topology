@@ -1069,6 +1069,7 @@ export function ConnectivityStatusBadge({ status }: { status: 'tunnel' | 'subnet
  */
 export function TunnelEvidence({
   dense,
+  hideVia,
   via,
   encryption,
   redundancy,
@@ -1083,6 +1084,8 @@ export function TunnelEvidence({
   avgMssBytes,
 }: {
   dense?: boolean
+  /** Leave out the Via row where the surrounding text already names the subnet or tunnel. */
+  hideVia?: boolean
   via: string
   encryption?: 'encrypted' | 'plaintext' | 'unknown'
   redundancy: number
@@ -1098,13 +1101,15 @@ export function TunnelEvidence({
 }) {
   return (
     <>
-      <DetailRow
-        dense={dense}
-        label="Via"
-        labelTitle="The specific evidence behind this link - a tunnel interface's name and kind, or the shared subnet prefix - confirmed from both clusters' own routing/address data, never a guess"
-      >
-        <span title={via}>{via}</span>
-      </DetailRow>
+      {!hideVia && (
+        <DetailRow
+          dense={dense}
+          label="Via"
+          labelTitle="The specific evidence behind this link - a tunnel interface's name and kind, or the shared subnet prefix - confirmed from both clusters' own routing/address data, never a guess"
+        >
+          <span title={via}>{via}</span>
+        </DetailRow>
+      )}
       {encryption && (
         <DetailRow
           dense={dense}

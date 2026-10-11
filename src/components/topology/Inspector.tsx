@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { ChevronDown, ChevronUp, Pencil, X } from 'lucide-react'
-import { useEffect, useMemo, useState, type ComponentProps, type ReactNode } from 'react'
+import { Fragment, useEffect, useMemo, useState, type ComponentProps, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { CheckLine } from '@/components/discovery/AgentParts'
 import EntityHistory from '@/components/EntityHistory'
@@ -11,6 +11,7 @@ import { LinkRow, Section } from '@/components/topology/InspectorParts'
 import PlatformPanel, { PlatformSubtitle } from '@/components/topology/PlatformPanel'
 import { DistroIcon, Flag, Place, ProviderIcon, WithIcon } from '@/components/ui/brand'
 import { Button, CompletenessBadge, ConnectivityStatusBadge, DetailRow, ICON_MD, ICON_SM, Input, IpAddress, Pill, Provenance as ProvenanceStrip, Select, Sparkline, SourceBadge, StatusDot, TierBadge, TunnelEvidence } from '@/components/ui/primitives'
+import { clusterNets } from '@/lib/clusterNets'
 import { completeness } from '@/lib/completeness'
 import { CONFIDENCE_TONE, dependencyProvenance, observation } from '@/lib/provenance'
 import { hasOverrides } from '@/lib/effective'
@@ -493,8 +494,23 @@ export default function Inspector({
           // ever showed the two cases a ClusterLink can positively confirm. See
           // ClusterPairConnectivity's own doc for what each status means and is backed by.
           const pairs = clusterPairConnectivity.filter((p) => p.fromCluster === c.id || p.toCluster === c.id)
+          // The shared subnets and tunnels, said once up front now that no line draws them on the canvas; the
+          // per-pair blocks below keep the evidence (nodes, addresses, measured round trip and loss). Both come
+          // from the same pair links, so the header chips (from the store's cluster links) and these lines agree.
+          const nets = clusterNets(pairs.flatMap((p) => p.links ?? [])).get(c.id) ?? []
           return pairs.length > 0 && (
             <Section title={`Cluster connectivity (${pairs.length})`}>
+              {nets.map((n) => (
+                <p key={`${n.kind}:${n.via}`} className="mb-2 px-2 text-xs text-nb-400" data-testid="cluster-net">
+                  {n.kind === 'subnet' ? 'Network' : 'Tunnel'} <span className="font-mono text-nb-300">{n.via}</span> — {n.kind === 'subnet' ? 'shared with' : 'to'}{' '}
+                  {n.peers.map((peer, i) => (
+                    <Fragment key={peer.id}>
+                      {i > 0 && ', '}
+                      <button type="button" className="text-accent hover:underline" onClick={() => onSelect({ kind: 'cluster', id: peer.id })}>{peer.name}</button>
+                    </Fragment>
+                  ))}
+                </p>
+              ))}
               {pairs.map((p) => {
                 const otherId = p.fromCluster === c.id ? p.toCluster : p.fromCluster
                 const otherName = p.fromCluster === c.id ? p.toName : p.fromName
@@ -539,6 +555,7 @@ export default function Inspector({
                                 <div className="text-[11px] uppercase tracking-wide text-nb-600">{l.kind === 'overlay' ? 'Overlay' : 'Same subnet'}</div>
                               )}
                               <TunnelEvidence
+                                hideVia
                                 via={l.via}
                                 encryption={l.encryption}
                                 redundancy={l.redundancy}
