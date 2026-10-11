@@ -172,6 +172,27 @@ function NetChips({ nets }: { nets: ClusterNet[] }) {
   )
 }
 
+/** The status dot, with a soft halo of its own colour; an offline one breathes slowly (still when motion is reduced). */
+function StatusDot({ status, className, title }: { status: keyof typeof STATUS_COLOR; className?: string; title?: string }) {
+  return <span className={clsx('topo-dot shrink-0 rounded-full', status === 'offline' && 'topo-dot-bad', className)} style={{ background: STATUS_COLOR[status], color: STATUS_COLOR[status] }} title={title} />
+}
+
+/** A service's replicas as small cells: green ready, amber not (yet) ready. Past EIGHT it falls back to the plain count. */
+const REPLICA_CELLS = 8
+function ReplicaCells({ replicas, label, far }: { replicas: { total: number; ready?: number }; label: string; far: boolean }) {
+  const { total, ready } = replicas
+  if (total > REPLICA_CELLS || total < 1) return <span className={clsx('text-nb-500', far ? 'text-[15px]' : 'text-[11px]')}>{label}</span>
+  const up = ready === undefined ? total : Math.min(ready, total)
+  return (
+    <span className="flex items-center gap-[3px]" title={ready === undefined ? `${total} replica${total === 1 ? '' : 's'}` : `${up} of ${total} replica${total === 1 ? '' : 's'} ready`}>
+      {Array.from({ length: total }, (_, i) => (
+        <span key={i} className={clsx('rounded-[2px]', far ? 'h-3 w-1.5' : 'h-2.5 w-1.5', i < up ? 'bg-ok/80' : 'bg-warn')} />
+      ))}
+      <span className="sr-only">{label}</span>
+    </span>
+  )
+}
+
 /* ---------- Cluster / tier boundary ---------- */
 export const GroupBox = memo(function GroupBox({ data, selected }: NodeProps<GroupNode>) {
   const far = useFar()
@@ -198,21 +219,21 @@ export const GroupBox = memo(function GroupBox({ data, selected }: NodeProps<Gro
     // very tip of any edge pointing at it. Inset keeps the identical highlight look without ever drawing
     // outside the box OffsetEdge's own math already treats as this card's exact, true extent.
     <div
-      className={clsx('h-full w-full rounded-2xl border transition-shadow', selected ? 'topo-pop shadow-[0_10px_30px_-12px_rgb(0_0_0/0.35)]' : peer && 'shadow-[inset_0_0_0_1.5px_var(--color-nb-500)]')}
+      className={clsx('topo-box h-full w-full rounded-2xl border transition-shadow', selected ? 'topo-pop shadow-[0_10px_30px_-12px_rgb(0_0_0/0.35)]' : peer && 'shadow-[inset_0_0_0_1.5px_var(--color-nb-500)]')}
       style={{
         '--pop': 1.012,
         // Selected is a change of colour and a small lift, not a heavier border.
         borderColor: selected ? 'var(--color-accent)' : `color-mix(in srgb, ${color} 32%, transparent)`,
-        background: `color-mix(in srgb, ${color} 5%, var(--color-nb-920))`,
+        background: `linear-gradient(180deg, color-mix(in srgb, ${color} 9%, var(--color-nb-920)), color-mix(in srgb, ${color} 4%, var(--color-nb-920)) 38%)`,
       } as React.CSSProperties}
     >
       <AllHandles />
       <div className="flex items-start justify-between gap-3 px-5 pt-4">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <span className="size-2 shrink-0 rounded-full" style={{ background: STATUS_COLOR[data.status] }} />
+            <StatusDot status={data.status} className="size-2" />
             {data.distribution && <DistroIcon distribution={data.distribution} size={ICON_SM} />}
-            <span className={clsx('truncate font-medium text-nb-300', far ? 'text-[26px] leading-8' : 'text-sm')} title={data.title}>{data.title}</span>
+            <span className={clsx('truncate font-semibold tracking-tight text-nb-200', far ? 'text-[26px] leading-8' : 'text-sm')} title={data.title}>{data.title}</span>
             {!far && data.nets && <NetChips nets={data.nets} />}
             {far && peak !== undefined && peak >= 70 && (
               <span className={clsx('rounded px-1.5 py-0.5 text-[15px] font-medium', peak >= 90 ? 'bg-bad/15 text-bad' : 'bg-warn/15 text-warn')} title="Busiest resource: share requested by pods">{peak}%</span>
@@ -332,12 +353,12 @@ export const Card = memo(function Card({ data, selected }: NodeProps<CardNode>) 
     <div
       data-far={far ? '1' : undefined}
       className={clsx(
-        'flex h-full w-full flex-col justify-start gap-2 rounded-xl border bg-nb-925 px-3.5 pb-2.5 pt-4 transition-colors',
+        'flex h-full w-full flex-col justify-start gap-2 rounded-xl border bg-nb-925 px-3.5 pb-2.5 pt-4',
         // inset, not outward - see the identical note on the group/boundary box above: an outward ring
         // here would bleed past this card's own true boundary and sit on top of any edge arrowhead
         // pointing at it, since edges always render beneath every node regardless of z-index.
         // Selected: the border changes colour (not weight), the card lifts a little and pops once (index.css).
-        selected ? 'topo-pop border-accent shadow-[0_10px_26px_-12px_rgb(0_0_0/0.4)]' : 'border-nb-800 hover:border-nb-700',
+        selected ? 'topo-pop border-accent shadow-[0_10px_26px_-12px_rgb(0_0_0/0.4)]' : ['topo-card', data.status === 'degraded' ? 'topo-sev-warn' : data.status === 'offline' ? 'topo-sev-bad' : 'border-nb-800 hover:border-nb-700'],
       )}
       style={{ '--pop': 1.04 } as React.CSSProperties}
     >
@@ -371,8 +392,8 @@ export const Card = memo(function Card({ data, selected }: NodeProps<CardNode>) 
           {!far && isMachine && <div className="truncate text-[11px] text-nb-500" title={data.meta}>{data.meta}</div>}
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1.5">
-          <span className={clsx('rounded-full', far ? 'size-3' : 'size-2')} style={{ background: STATUS_COLOR[data.status] }} title={data.status} />
-          {!far && !isMachine && <span className="text-[11px] text-nb-500">{data.meta}</span>}
+          <StatusDot status={data.status} className={far ? 'size-3' : 'size-2'} title={data.status} />
+          {!far && !isMachine && (data.replicas ? <ReplicaCells replicas={data.replicas} label={data.meta} far={false} /> : <span className="text-[11px] text-nb-500">{data.meta}</span>)}
           {far && (data.hint || data.notReady) && <span className={clsx('size-2.5 rounded-sm', data.notReady ? 'bg-warn' : 'bg-accent')} title={data.notReady ?? `Better in ${data.hint}`} />}
         </div>
       </div>

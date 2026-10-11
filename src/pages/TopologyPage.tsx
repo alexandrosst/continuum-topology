@@ -76,6 +76,23 @@ const VIEWS: { value: Mode; label: string; hint: string }[] = [
 // (never a second, differently-shaped control: a lens is still switched the same way any other toggle
 // here is, it's what it DOES that differs) and keeps the switch itself the same accent colour on, so the
 // distinction reads at a glance without the page growing a second control shape to learn.
+/** Marker id for the open-chevron arrowhead in a given line colour. */
+const arrowId = (color: string) => `topo-ah-${color.replace(/[^0-9a-z]/gi, '')}`
+/** One open-chevron marker per line colour (an SVG marker cannot take the colour of the line it sits on in every browser). */
+function ArrowDefs({ colors }: { colors: string[] }) {
+  return (
+    <svg width="0" height="0" style={{ position: 'absolute' }} aria-hidden>
+      <defs>
+        {colors.filter(Boolean).map((c) => (
+          <marker key={c} id={arrowId(c)} viewBox="0 0 12 12" refX="8.5" refY="6" markerWidth="12" markerHeight="12" markerUnits="userSpaceOnUse" orient="auto-start-reverse">
+            <path d="M1.5,1.5 L8.5,6 L1.5,10.5" fill="none" stroke={c} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+          </marker>
+        ))}
+      </defs>
+    </svg>
+  )
+}
+
 function Toggle({ checked, onChange, label, disabled, title, lens }: { checked: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean; title?: string; lens?: boolean }) {
   return (
     <button
@@ -617,7 +634,7 @@ function Canvas() {
         labelBgStyle: { fill: 'var(--color-nb-910)', fillOpacity: 0.95 },
         labelBgPadding: [6, 3] as [number, number],
         labelBgBorderRadius: 4,
-        markerEnd: e.markerEnd && typeof e.markerEnd === 'object' ? { ...e.markerEnd, color: stroke } : e.markerEnd,
+        markerEnd: e.markerEnd ? arrowId(stroke) : undefined,
       }
     })
   }, [graph.edges, focusView, showLabels, showHealthLens])
@@ -1032,6 +1049,7 @@ function Canvas() {
             </Suspense>
           ) : (
             <PeerRingContext.Provider value={peerRing}>
+            <ArrowDefs colors={[...new Set(edges.map((e) => String(e.style?.stroke ?? '')))]} />
             <SquareRoutes edges={edges} enabled={squared}>
             <ReactFlow<TopoNode, Edge>
               nodes={displayNodes}

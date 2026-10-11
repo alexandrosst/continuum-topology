@@ -125,6 +125,9 @@ async function viewToggleWhileClicking(page: Page) {
   await page.getByRole('tab', { name: /^Application$/i }).first().click({ force: true, timeout: 800 }).catch(() => {})
 }
 
+/** A plain click re-centres the canvas on what was clicked (about 600 ms: a short delay, then a pan). Let it finish before the next click. */
+const settle = (page: import('@playwright/test').Page) => page.waitForTimeout(800)
+
 test.describe('topology canvas', () => {
   test('heavy interaction never produces a console error or an uncaught exception', async ({ page }) => {
     // The interaction sequence below is deliberately long and repeats the riskiest combination several
@@ -264,9 +267,9 @@ test.describe('topology canvas', () => {
 
     // Build a two-node multi-selection, same gesture as the pane-click test above.
     await nodeA.click({ force: true })
-    await page.waitForTimeout(100)
+    await settle(page)
     await nodeB.click({ modifiers: ['Shift'], force: true })
-    await page.waitForTimeout(500)
+    await settle(page)
     await expect(page.locator('.react-flow__node.selected')).toHaveCount(2)
 
     // A single plain click on a THIRD, not-yet-selected node - no modifier at all - should leave exactly
@@ -274,20 +277,20 @@ test.describe('topology canvas', () => {
     // The Inspector panel is open at this point and the canvas re-centres on the focused entity, so the third card can sit
     // under the panel or off screen; dispatch the click on the card itself instead of at a screen position.
     await nodeC.dispatchEvent('click')
-    await page.waitForTimeout(500)
+    await settle(page)
     await expect(page.locator('.react-flow__node.selected')).toHaveCount(1)
     await expect(nodeC).toHaveClass(/selected/)
 
     // The narrower variant of the same bug: re-clicking A, which was ALSO the single-click selection
     // before the shift-click ever happened - a case where selectedRfId's own VALUE never actually
     // changes, so the usual "selectedRfId changed" trigger for repainting .selected doesn't fire either.
-    await nodeA.click({ force: true })
-    await page.waitForTimeout(100)
-    await nodeB.click({ modifiers: ['Shift'], force: true })
-    await page.waitForTimeout(500)
+    await nodeA.dispatchEvent('click')
+    await settle(page)
+    await nodeB.dispatchEvent('click', { shiftKey: true })
+    await settle(page)
     await expect(page.locator('.react-flow__node.selected')).toHaveCount(2)
-    await nodeA.click({ force: true })
-    await page.waitForTimeout(500)
+    await nodeA.dispatchEvent('click')
+    await settle(page)
     await expect(page.locator('.react-flow__node.selected')).toHaveCount(1)
     await expect(nodeA).toHaveClass(/selected/)
   })

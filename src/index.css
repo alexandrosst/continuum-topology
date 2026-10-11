@@ -168,6 +168,16 @@ body {
 .react-flow__edge-path { transition: opacity 320ms ease-out, stroke-width 200ms ease-out, stroke 200ms ease-out; }
 /* A faded cluster or group box keeps its name readable; only cards fade right down. */
 .react-flow__node-boundary.topo-dim:not(.dragging), .react-flow__node-namespace.topo-dim:not(.dragging) { opacity: 0.5; }
+/* Polish: resting depth (an outward ring would sit on top of an arrowhead, so a status glow is inset), status halo and glow, replica cells. Shadows are neutral black at low alpha so they read in both themes. */
+.topo-card { box-shadow: 0 1px 2px rgb(0 0 0 / 0.10), 0 6px 14px -8px rgb(0 0 0 / 0.20); transition: box-shadow 180ms ease-out, border-color 180ms ease-out, background-color 180ms ease-out; }
+.topo-card:hover { box-shadow: 0 2px 4px rgb(0 0 0 / 0.12), 0 10px 20px -10px rgb(0 0 0 / 0.26); }
+.topo-card.topo-sev-warn { border-color: color-mix(in srgb, var(--color-warn) 55%, transparent); box-shadow: 0 1px 2px rgb(0 0 0 / 0.14), inset 0 0 16px -6px color-mix(in srgb, var(--color-warn) 38%, transparent), 0 6px 18px -8px color-mix(in srgb, var(--color-warn) 45%, transparent); }
+.topo-card.topo-sev-bad { border-color: color-mix(in srgb, var(--color-bad) 60%, transparent); box-shadow: 0 1px 2px rgb(0 0 0 / 0.14), inset 0 0 16px -6px color-mix(in srgb, var(--color-bad) 42%, transparent), 0 6px 18px -8px color-mix(in srgb, var(--color-bad) 55%, transparent); }
+.topo-box { box-shadow: 0 1px 0 rgb(255 255 255 / 0.04) inset, 0 12px 28px -18px rgb(0 0 0 / 0.35); }
+.topo-dot { box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 16%, transparent); }
+@keyframes topo-beat { 0%, 100% { box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 16%, transparent); } 50% { box-shadow: 0 0 0 5px color-mix(in srgb, currentColor 0%, transparent); } }
+.topo-dot-bad { animation: topo-beat 2.4s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .topo-dot-bad { animation: none; } }
 @media (prefers-reduced-motion: reduce) {
   .topo-pop { animation: none; }
   .react-flow__node:not(.dragging), .react-flow__node.topo-dim:not(.dragging), .react-flow__edge-path { transition: none; }

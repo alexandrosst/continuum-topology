@@ -95,6 +95,8 @@ export type CardData = {
   hint?: string
   /** Replicas wanted and ready, for a service that is not fully up. */
   notReady?: string
+  /** Replica count of a service, with how many are ready when known: drawn as a strip of small cells on the card. */
+  replicas?: { total: number; ready?: number }
   /** Service mesh overlay: how the mesh treats this service. `tone` picks the chip's colour. */
   mesh?: { label: string; tone: 'in' | 'control' | 'out'; title: string }
   /** Chain layout only, on a service whose name another service shares: its cluster, drawn under the title
@@ -1119,6 +1121,7 @@ function serviceItem(w: Service, c: Cluster, withCluster: boolean, hint: string 
       title: w.name,
       subtitle: [withCluster ? c.name : '', w.namespace, w.kind].filter(Boolean).join(' · '),
       meta: `×${w.replicas}`,
+      replicas: { total: w.replicas, ready: pods ? pods.ready : w.readyReplicas },
       status: w.status,
       tier: c.tier,
       clusterName: c.name,
