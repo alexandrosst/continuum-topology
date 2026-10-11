@@ -174,7 +174,7 @@ export function curvedPath(
  *  past the line's own endpoints). Built from straight `L` segments that stop `radius` short of each corner
  *  and a `Q` quadratic through the corner itself - the standard "rounded polyline" construction, kept as its
  *  own pure function (same reasoning as curvedPath below: testable without rendering anything, and reusable
- *  for any n-point route, not just the 4-point one elbowPath happens to build). */
+ *  for any n-point route, such as the ones SquareRoutes builds). */
 export function roundedPolylinePath(points: { x: number; y: number }[], radius: number): string {
   if (points.length < 2) return ''
   let d = `M${points[0].x},${points[0].y}`

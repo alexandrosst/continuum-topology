@@ -91,4 +91,16 @@ describe('nudgeRoutes', () => {
     nudgeRoutes([a, b], [])
     expect(Math.abs(a.pts[1].x - b.pts[1].x)).toBeCloseTo(LANE_GAP, 5)
   })
+
+  test('two lines that run opposite ways between the same boxes are ordered so they do not cross', () => {
+    // Both leave the lower box (y 470) at the left and meet the upper one (y 336) at the right, the second drawn from the upper end.
+    const a: Route = { id: 'a', pts: [{ x: 618, y: 470 }, { x: 618, y: 403 }, { x: 835, y: 403 }, { x: 835, y: 336 }] }
+    const o: Route = { id: 'o', pts: [{ x: 865, y: 336 }, { x: 865, y: 403 }, { x: 632, y: 403 }, { x: 632, y: 470 }] }
+    nudgeRoutes([a, o], [])
+    // `a` has the lower ends at both sides, so its run takes the lane nearer the upper box; crossing would need the reverse.
+    expect(a.pts[1].y).toBeLessThan(o.pts[1].y)
+    // And so a's lower vertical (x 618, rising to its run) never meets o's run, nor o's vertical a's run.
+    const crossesO = a.pts[1].y >= o.pts[1].y && a.pts[1].y <= 470
+    expect(crossesO).toBe(false)
+  })
 })

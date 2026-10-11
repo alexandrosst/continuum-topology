@@ -5,6 +5,7 @@ import { polylineMidpoint } from './detour'
 import { cachedOrtho, layoutEdge, useNodeGeometryKey, roundedPolylinePath, SQUARE_CORNER_RADIUS, SquareRoutesContext, type RoutedPath } from './OffsetEdge'
 import { nudgeRoutes, type Pt, type Rect } from './nudge'
 import { simpleOrthoRoute } from './ortho'
+import { straightenJog } from './straighten'
 
 type Laid = { id: string; pts: Pt[]; n1: Pt; n2: Pt; hasMarker: boolean }
 
@@ -15,21 +16,23 @@ type Laid = { id: string; pts: Pt[]; n1: Pt; n2: Pt; hasMarker: boolean }
  * all of them are given to `nudgeRoutes`, which spaces apart the runs that would overlap or crowd. The ends are pulled back
  * off the boxes last, by a screen-sized gap, so zooming only redoes that cheap last step, not the search.
  */
-export function SquareRoutes({ edges, enabled, children }: { edges: TopoEdge[]; enabled: boolean; children: ReactNode }) {
+export function SquareRoutes({ edges, children }: { edges: TopoEdge[]; children: ReactNode }) {
   const nodeLookup = useStore((s) => s.nodeLookup)
   const geometry = useNodeGeometryKey()
   const { zoom } = useViewport()
   // Selection and styling change the edge objects but not where a line goes.
-  const key = enabled ? edges.map((e) => `${e.id}|${e.source}|${e.target}|${e.data?.sourceOffset ?? 0}|${e.data?.targetOffset ?? 0}|${e.markerEnd ? 1 : 0}`).join(';') : ''
+  const key = edges.map((e) => `${e.id}|${e.source}|${e.target}|${e.data?.sourceOffset ?? 0}|${e.data?.targetOffset ?? 0}|${e.markerEnd ? 1 : 0}`).join(';')
 
   const laid = useMemo<Laid[]>(() => {
-    if (!enabled) return []
     const routes: Laid[] = []
     for (const e of edges) {
       const l = layoutEdge(nodeLookup, e.source, e.target, e.data?.sourceOffset ?? 0, e.data?.targetOffset ?? 0, true)
       if (!l) continue
       const route = cachedOrtho(l.p1, l.n1, l.p2, l.n2, [...l.obstacles, l.sourceBox, l.targetBox, ...l.soft]) ?? simpleOrthoRoute(l.p1, l.n1, l.p2, l.n2)
-      routes.push({ id: e.id, pts: route.map((p) => ({ ...p })), n1: l.n1, n2: l.n2, hasMarker: !!e.markerEnd })
+      const pts = route.map((p) => ({ ...p }))
+      // A route that is only a few px of sideways jog becomes one straight run (see straighten.ts).
+      if (straightenJog(pts, { source: l.sourceBox, target: l.targetBox, sourceOffset: e.data?.sourceOffset ?? 0, targetOffset: e.data?.targetOffset ?? 0 })) pts.splice(1, 2)
+      routes.push({ id: e.id, pts, n1: l.n1, n2: l.n2, hasMarker: !!e.markerEnd })
     }
     // What a lane must not enter: every card, and the header strip of every cluster and namespace.
     const boxes: Rect[] = []
@@ -47,11 +50,10 @@ export function SquareRoutes({ edges, enabled, children }: { edges: TopoEdge[]; 
     if (!geometry.includes('d;')) nudgeRoutes(routes, boxes)
     return routes
     // eslint-disable-next-line react-hooks/exhaustive-deps -- `key` stands for the parts of `edges` that matter
-  }, [nodeLookup, geometry, key, enabled])
+  }, [nodeLookup, geometry, key])
 
   const zoomStep = Math.max(0.1, Math.round(zoom * 25) / 25)
-  const paths = useMemo<Map<string, RoutedPath> | null>(() => {
-    if (!enabled) return null
+  const paths = useMemo<Map<string, RoutedPath>>(() => {
     const gap = 5 / zoomStep
     const out = new Map<string, RoutedPath>()
     for (const r of laid) {
@@ -66,7 +68,7 @@ export function SquareRoutes({ edges, enabled, children }: { edges: TopoEdge[]; 
       out.set(r.id, { path: roundedPolylinePath(pts, SQUARE_CORNER_RADIUS), labelX: mid.x, labelY: mid.y })
     }
     return out
-  }, [laid, zoomStep, enabled])
+  }, [laid, zoomStep])
 
   return <SquareRoutesContext.Provider value={paths}>{children}</SquareRoutesContext.Provider>
 }

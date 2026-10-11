@@ -186,9 +186,6 @@ function Canvas() {
   // Chain lays every service out in one flat left-to-right order across every cluster, so it replaces the
   // cluster/tier boxes and namespace sub-boxes rather than combining with them.
   const showChain = sp.get('chain') === '1' && mode === 'application'
-  // Lines are squared (right angles, routed together so parallel lines keep apart). `?lines=curved` brings back the old
-  // curved lines, as an escape hatch for one release.
-  const squared = sp.get('lines') !== 'curved'
   // Off by default: recolours the measured line between two clusters (ClusterLink.avgLossPct, see
   // tunnels.go's correlateClusterLinks) by its live flow-rollup loss. A link with nothing measured is not
   // drawn at all (see graph.ts), so this only ever has measured lines to colour.
@@ -1096,7 +1093,7 @@ function Canvas() {
           ) : (
             <PeerRingContext.Provider value={peerRing}>
             <ArrowDefs colors={[...new Set(edges.map((e) => String(e.style?.stroke ?? '')))]} />
-            <SquareRoutes edges={edges} enabled={squared}>
+            <SquareRoutes edges={edges}>
             <ReactFlow<TopoNode, Edge>
               nodes={displayNodes}
               edges={edges}

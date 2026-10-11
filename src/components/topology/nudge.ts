@@ -26,7 +26,8 @@ const BOX_CLEARANCE = 3
 /** A moved run must leave at least this much of the leg that joins it to a box. */
 const MIN_LEG = 8
 
-type Run = { r: number; i: number; at: number; lo: number; hi: number; before: number; after: number }
+/** `lo`/`hi` are the run's extent along its direction; `low` and `high` the side (-1 or +1, across) its neighbouring points lie on at the lo end and at the hi end. */
+type Run = { r: number; i: number; at: number; lo: number; hi: number; low: number; high: number }
 
 /** Move the horizontal (`horizontal`) or vertical runs of `routes` apart; returns how many runs moved. Mutates the points. */
 function spreadRuns(routes: Route[], boxes: Rect[], horizontal: boolean): number {
@@ -54,9 +55,11 @@ function spreadRuns(routes: Route[], boxes: Rect[], horizontal: boolean): number
         at: across(a),
         lo: Math.min(along(a), along(b)),
         hi: Math.max(along(a), along(b)),
-        // Which side of the run the line comes from and goes to (-1 below the coordinate, +1 above... in the run's own axis).
-        before: Math.sign(across(prev) - across(a)),
-        after: Math.sign(across(next) - across(b)),
+        // Which side of the run the line comes from and goes to, by the end of the run it is at (not by the direction the line
+        // travels: two lines running opposite ways between the same boxes must still be ordered alike).
+        ...(along(a) <= along(b)
+          ? { low: Math.sign(across(prev) - across(a)), high: Math.sign(across(next) - across(b)) }
+          : { low: Math.sign(across(next) - across(b)), high: Math.sign(across(prev) - across(a)) }),
       })
     }
   })
@@ -125,8 +128,16 @@ function spreadRuns(routes: Route[], boxes: Rect[], horizontal: boolean): number
     const half = ((k - 1) * gap) / 2
     const mid = Math.min(Math.max(center, floor + half), ceil - half)
 
-    // Runs that come from and go to the low side take the low lanes; ties keep a stable order by line id.
-    const sorted = [...group].sort((a, b) => a.before + a.after - (b.before + b.after) || a.before - b.before || routes[a.r].id.localeCompare(routes[b.r].id))
+    // Runs that come from and go to the low side take the low lanes. Two runs that both rise (or both fall) across the band
+    // stay uncrossed when the one whose ends lie further toward the low end of the run takes the lane on the side it rises from;
+    // what is still tied keeps a stable order by line id.
+    const sorted = [...group].sort(
+      (a, b) =>
+        a.low + a.high - (b.low + b.high) ||
+        a.low - b.low ||
+        a.low * (a.lo + a.hi) - b.low * (b.lo + b.hi) ||
+        routes[a.r].id.localeCompare(routes[b.r].id),
+    )
     sorted.forEach((g, idx) => {
       const v = mid - half + idx * gap
       if (Math.abs(v - g.at) < 1e-6) return
