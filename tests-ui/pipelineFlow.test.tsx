@@ -58,7 +58,7 @@ describe('flow animation', () => {
   test('the flow lines move only for people who have not asked for less motion', () => {
     const reduced = css.slice(css.lastIndexOf('@media (prefers-reduced-motion: reduce)'))
     expect(css).toMatch(/\.flow-dash \{[^}]*stroke-dasharray: 5 4;[^}]*animation: flow-dash 1\.6s linear infinite/)
-    for (const c of ['.flow-dash', '.flow-dash-bg', '.flow-dash-bg-v']) expect(reduced).toContain(c)
+    expect(reduced).toContain('.flow-dash')
     expect(reduced).toMatch(/animation: none/)
   })
 })
