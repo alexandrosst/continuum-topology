@@ -403,6 +403,10 @@ type WebAuthnCredential struct {
 	// SignCount is bumped on every successful login; a count that fails to advance is how a cloned
 	// authenticator gets caught, so it is the caller's job to reject a login where it does not.
 	SignCount uint32
+	// Flags is the authenticator-data flags byte seen at registration (user present/verified, backup
+	// eligible/state). WebAuthn requires the backup-eligible bit to match on every later login, so a synced
+	// passkey cannot sign in unless it is stored and handed back. Zero for rows written before it was kept.
+	Flags byte
 	// Transports is the authenticator's own best-effort hints (usb, nfc, ble, internal, hybrid), passed back
 	// to the browser on a later login so it can skip straight to the right one instead of guessing.
 	Transports []string

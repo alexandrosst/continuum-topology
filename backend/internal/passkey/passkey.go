@@ -9,6 +9,7 @@ package passkey
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -58,9 +59,12 @@ func (u wuser) WebAuthnCredentials() []webauthn.Credential {
 			transports[j] = protocol.AuthenticatorTransport(t)
 		}
 		out[i] = webauthn.Credential{
-			ID:            c.CredentialID,
-			PublicKey:     c.PublicKey,
-			Transport:     transports,
+			ID:        c.CredentialID,
+			PublicKey: c.PublicKey,
+			Transport: transports,
+			// go-webauthn rejects a login whose backup-eligible bit differs from the credential's, so a
+			// zero Flags here would lock out every synced passkey.
+			Flags:         webauthn.NewCredentialFlags(protocol.AuthenticatorFlags(c.Flags)),
 			Authenticator: webauthn.Authenticator{SignCount: c.SignCount},
 		}
 	}
@@ -125,6 +129,7 @@ func (p *Provider) FinishRegistration(rp server.RelyingParty, user server.WebAut
 		CredentialID: cred.ID,
 		PublicKey:    cred.PublicKey,
 		SignCount:    cred.Authenticator.SignCount,
+		Flags:        byte(cred.Flags.ProtocolValue()),
 		Transports:   transports,
 	}, nil
 }
@@ -165,6 +170,11 @@ func (p *Provider) FinishLogin(rp server.RelyingParty, user server.WebAuthnUser,
 	cred, err := w.FinishLogin(wuser{user}, session, req)
 	if err != nil {
 		return nil, 0, err
+	}
+	// go-webauthn leaves the counter unchanged and sets CloneWarning when it fails to advance (both zero, as
+	// synced passkeys report, does not); it is the relying party's job to refuse, and the caller only sees err.
+	if cred.Authenticator.CloneWarning {
+		return nil, 0, errors.New("passkey sign counter did not advance; possible cloned authenticator")
 	}
 	return cred.ID, cred.Authenticator.SignCount, nil
 }

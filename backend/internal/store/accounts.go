@@ -36,6 +36,7 @@ type webauthnCredentialJSON struct {
 	CredentialID string   `json:"credentialId"`
 	PublicKey    string   `json:"publicKey"`
 	SignCount    uint32   `json:"signCount"`
+	Flags        uint8    `json:"flags,omitempty"` // authenticator-data flags from registration; absent in rows written before they were kept
 	Transports   []string `json:"transports,omitempty"`
 	Name         string   `json:"name"`
 	CreatedAt    int64    `json:"createdAt"`
@@ -57,6 +58,7 @@ func webauthnCredentialsJSON(creds []WebAuthnCredential) string {
 			CredentialID: base64.RawURLEncoding.EncodeToString(c.CredentialID),
 			PublicKey:    base64.RawURLEncoding.EncodeToString(c.PublicKey),
 			SignCount:    c.SignCount,
+			Flags:        c.Flags,
 			Transports:   c.Transports,
 			Name:         c.Name,
 			CreatedAt:    ms(c.CreatedAt),
@@ -85,7 +87,7 @@ func parseWebAuthnCredentials(s string) []WebAuthnCredential {
 		if err != nil {
 			continue
 		}
-		c := WebAuthnCredential{CredentialID: credID, PublicKey: pub, SignCount: r.SignCount, Transports: r.Transports, Name: r.Name, CreatedAt: fromMS(r.CreatedAt)}
+		c := WebAuthnCredential{CredentialID: credID, PublicKey: pub, SignCount: r.SignCount, Flags: r.Flags, Transports: r.Transports, Name: r.Name, CreatedAt: fromMS(r.CreatedAt)}
 		if r.LastUsedAt != nil {
 			c.LastUsedAt = fromNullMS(sql.NullInt64{Int64: *r.LastUsedAt, Valid: true})
 		}
