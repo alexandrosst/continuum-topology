@@ -3,9 +3,15 @@
  * Client-side only: nothing is sent back to the server, it just serialises what is already on screen.
  */
 
-/** RFC 4180 field escaping: wrap in quotes (doubling any inner quote) whenever that's required to stay a single field. */
+/**
+ * RFC 4180 field escaping: wrap in quotes (doubling any inner quote) whenever that's required to stay a single field.
+ * A text cell that opens with = + - @ tab or CR is evaluated as a formula by Excel and Sheets, and the audit detail
+ * carries text people and agents typed, so such a cell gets a leading apostrophe (shown literally, which is the
+ * lesser evil in an export). Numbers are left alone: a genuine -5 is data, not a formula.
+ */
 function csvField(value: string | number | null | undefined): string {
-  const s = value === null || value === undefined ? '' : String(value)
+  let s = value === null || value === undefined ? '' : String(value)
+  if (typeof value === 'string' && /^[=+\-@\t\r]/.test(s)) s = "'" + s
   return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
 }
 

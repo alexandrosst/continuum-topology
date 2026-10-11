@@ -139,6 +139,9 @@ const messageOf = (e: unknown) => (e instanceof Error ? e.message : 'Something w
 // single stall used to leave every later tick piling another request on top, forever, for the rest of the
 // session: idle network waits, no CPU cost, no error, which is exactly what makes it easy to miss.
 let refreshing: Promise<void> | undefined
+// Which connection (url|org) `refreshing` was started for: a fetch for the organisation just left must not be handed
+// back to a caller that wants the one just entered, or that caller gets nothing (its result is dropped as stale).
+let refreshingKey: string | undefined
 let boostTimer: ReturnType<typeof setTimeout> | undefined
 
 export const useServer = create<ServerStore>((set, get) => {
@@ -597,8 +600,10 @@ export const useServer = create<ServerStore>((set, get) => {
       const { status, user } = get()
       const c = get().conn()
       if (status !== 'connected' || !c || !user) return Promise.resolve()
-      if (refreshing) return refreshing
-      refreshing = (async () => {
+      const key = `${c.url}|${c.org}`
+      if (refreshing && refreshingKey === key) return refreshing
+      refreshingKey = key
+      const mine: Promise<void> = (async () => {
         try {
           const state = await api.state(c)
           // The connection this response was for may no longer be the current one (an org switch, or a
@@ -612,12 +617,19 @@ export const useServer = create<ServerStore>((set, get) => {
           useRawTopology.setState(mergeDiscovered(raw, state))
           void useWorkspace.getState().poll()
         } catch (e) {
+          // A failure for a connection that is no longer current says nothing about the one in use now, so it
+          // must not set its error or send the person looking for their organisations. A 401 is the exception:
+          // the sign-in is shared by every organisation.
+          const now = get().conn()
+          const stale = !now || now.url !== c.url || now.org !== c.org
           if (e instanceof ApiError && e.status === 401) {
             // The session ended (expired, revoked, or the account was disabled).
             await leave(false)
             useObserved.getState().clear()
             useHistoryView.getState().live()
             set({ status: 'signin', user: undefined, orgs: [], orgId: undefined, role: undefined, state: undefined, error: 'Your session ended. Sign in again.' })
+          } else if (stale) {
+            return
           } else if (e instanceof ApiError && e.status === 404) {
             // The organisation is gone, or the person was removed from it: find out where they still belong.
             void get().reloadOrgs()
@@ -629,9 +641,14 @@ export const useServer = create<ServerStore>((set, get) => {
           }
         }
       })().finally(() => {
-        refreshing = undefined
+        // Only the newest call clears the slot: a stale one finishing late must not release a newer one's.
+        if (refreshing === mine) {
+          refreshing = undefined
+          refreshingKey = undefined
+        }
       })
-      return refreshing
+      refreshing = mine
+      return mine
     },
   }
 })
