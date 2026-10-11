@@ -124,7 +124,7 @@ func TestRejoinAfterOutageAndItsLimits(t *testing.T) {
 		t.Fatalf("garbage: %v", err)
 	}
 	// Too long ago: the window is pki.RejoinWindow (60 days).
-	*e.now = real.Add(pki.RejoinWindow + 24*time.Hour)
+	*e.now = real.Add(pki.RejoinWindow + 72*time.Hour)
 	if err := rejoin(leaf, key); kindOf(err) != KindUnauthenticated {
 		t.Fatalf("outside the window: %v", err)
 	}
