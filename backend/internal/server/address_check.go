@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/netip"
 	"strconv"
 	"strings"
 	"sync"
@@ -83,7 +84,7 @@ func gatewayServiceWarnings(host, port string, svc KubeService) []string {
 type AddressProbe struct {
 	// State is reachable (a TLS server answered with this operator's own certificate), no-tls (a server answered, but not
 	// with TLS), wrong-certificate (something answered with a certificate that is not this operator's), refused (nothing
-	// listens on that port), no-answer (the connection timed out), unresolved (the name has no address) or error.
+	// listens on that port), no-answer (the connection timed out), unresolved (the name has no address), blocked (the name leads somewhere this server will not connect to) or error.
 	State     string `json:"state"`
 	Message   string `json:"message"`
 	CheckedAt string `json:"checkedAt"`
@@ -129,7 +130,7 @@ func probeAddress(ctx context.Context, addr string, caPEM []byte, serverName str
 		case errors.As(err, &recHdr):
 			res.State, res.Message = "no-tls", fmt.Sprintf("something answers on %s, but not with TLS: it is not a receiver that uses a certificate. A sender that verifies the receiver (every command this server prints does) cannot connect.", addr)
 		case errors.As(err, &unknown), errors.As(err, &hostErr), errors.As(err, &invalid), errors.As(err, &certVeri):
-			res.State, res.Message = "wrong-certificate", fmt.Sprintf("something answers on %s, but its certificate is not this operator's (%v). The address points at something else, or at a receiver that was installed with other certificates.", addr, err)
+			res.State, res.Message = "wrong-certificate", fmt.Sprintf("something answers on %s, but its certificate is not this operator's. The address points at something else, or at a receiver that was installed with other certificates.", addr)
 		case strings.Contains(err.Error(), "bad certificate") || strings.Contains(err.Error(), "certificate required"):
 			// The server certificate was accepted and the server then asked for the client certificate this probe does not
 			// hold: that is what a receiver which requires mutual TLS does.
@@ -146,6 +147,9 @@ func probeAddress(ctx context.Context, addr string, caPEM []byte, serverName str
 func classifyDialError(err error, addr string) (state, msg string) {
 	var dns *net.DNSError
 	switch {
+	case isDeciderDenied(err):
+		// Say nothing of the address it resolved to or why: that would be the answer to the scan.
+		return "blocked", "this server will not connect to that address."
 	case errors.As(err, &dns):
 		return "unresolved", fmt.Sprintf("the name in %s does not resolve to an address.", addr)
 	case errors.Is(err, syscall.ECONNREFUSED):
@@ -153,7 +157,9 @@ func classifyDialError(err error, addr string) (state, msg string) {
 	case errors.Is(err, context.DeadlineExceeded), isTimeout(err):
 		return "no-answer", fmt.Sprintf("%s did not answer within %d seconds: nothing routes there, or a firewall drops the connection.", addr, int(probeTimeout/time.Second))
 	}
-	return "error", fmt.Sprintf("could not connect to %s: %v", addr, err)
+	// No raw error text: what a dial or a handshake says about an address that is not the operator's is a window onto this
+	// server's network.
+	return "error", fmt.Sprintf("could not connect to %s.", addr)
 }
 
 func isTimeout(err error) bool {
@@ -193,6 +199,53 @@ func (p *addressProbes) put(id, addr string, now time.Time, res AddressProbe) {
 		p.last = map[string]probed{}
 	}
 	p.last[id] = probed{addr, now, res}
+}
+
+// probeReachable are the private ranges the probe may still connect to by default. A receiver on a private address is
+// what a cluster-internal or VPN-fronted operator looks like (validOperatorAddress accepts them and addressWarnings only
+// warns), so unlike the external decider the probe does not refuse them. Loopback stays out: the only thing there is
+// this server itself.
+var probeReachable = mustPrefixes(
+	"10.0.0.0/8",
+	"172.16.0.0/12",
+	"192.168.0.0/16",
+	"100.64.0.0/10",
+	"fc00::/7",
+)
+
+// probePolicy is the decider's address policy (dp: nil is the default one) with probeReachable opened on top, so the
+// probe is held to the same rules as every other connection this server makes on a person's behalf: link-local, cloud
+// metadata and multicast never, loopback unless the operator listed it in --decider-allow-cidrs.
+func probePolicy(dp *DeciderPolicy) *DeciderPolicy {
+	p := &DeciderPolicy{}
+	if dp != nil {
+		p.resolver = dp.resolver
+		p.allow = append(p.allow, dp.allow...)
+	}
+	p.allow = append(p.allow, probeReachable...)
+	return p
+}
+
+// probeDialer is the probe's dialer. The address is checked after name resolution, on the address actually dialed: the
+// recorded address is only checked as text when it is saved, and a name that resolves to this server's own network
+// would otherwise let an administrator scan it from here, told apart by refused, no-answer and reachable.
+func probeDialer(dp *DeciderPolicy) func(ctx context.Context, network, addr string) (net.Conn, error) {
+	p := probePolicy(dp)
+	d := net.Dialer{Resolver: p.resolver, Control: func(network, address string, _ syscall.RawConn) error {
+		host, _, err := net.SplitHostPort(address)
+		if err != nil {
+			return errDeciderDenied{err}
+		}
+		a, err := netip.ParseAddr(host)
+		if err != nil {
+			return errDeciderDenied{fmt.Errorf("cannot check the address %q", host)}
+		}
+		if err := p.CheckAddr(a); err != nil {
+			return errDeciderDenied{err}
+		}
+		return nil
+	}}
+	return d.DialContext
 }
 
 // probeSettings is what looking at an operator's address needs: where it is (the address recorded for it - never its
@@ -237,7 +290,7 @@ func (a *Admin) checkOperatorAddress(w http.ResponseWriter, r *http.Request) {
 	}
 	dial := a.probeDial
 	if dial == nil {
-		dial = (&net.Dialer{}).DialContext
+		dial = probeDialer(c.Decider)
 	}
 	res := probeAddress(r.Context(), addr, caPEM, serverName, now, dial)
 	a.probes.put(op.ID, addr, now, res)

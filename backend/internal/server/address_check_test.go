@@ -6,7 +6,10 @@ import (
 	"crypto/x509"
 	"net"
 	"net/http"
+	"net/netip"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -287,5 +290,88 @@ func TestAddressCheckTellsWhatAnswersThere(t *testing.T) {
 	_, viewer := a.user(t, "vi", RoleEditor)
 	if r := a.do("POST", "/api/v1/operators/"+id+"/address/check", nil, withCookie(viewer)); r.Code != 403 {
 		t.Fatalf("an editor: %d", r.Code)
+	}
+}
+
+// The probe dials whatever address the administrator recorded, so a name that merely resolves to this server's own
+// network must not turn "check this address" into a port scan of it.
+func TestAddressCheckRefusesNamesThatResolveToTheServersOwnNetwork(t *testing.T) {
+	var target atomic.Value
+	target.Store(net.ParseIP("127.0.0.1"))
+	dns := fakeDNS(t, func() net.IP { return target.Load().(net.IP) })
+	res := &net.Resolver{PreferGo: true, Dial: func(ctx context.Context, _, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, "udp", dns)
+	}}
+
+	var hits atomic.Int32
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			hits.Add(1)
+			c.Close()
+		}
+	}()
+	port := strconv.Itoa(ln.Addr().(*net.TCPAddr).Port)
+	look := func(dp *DeciderPolicy, addr string) AddressProbe {
+		return probeAddress(context.Background(), addr, nil, "", time.Now(), probeDialer(dp))
+	}
+
+	name := "receiver.rebind.test.:" + port
+	got := look(&DeciderPolicy{resolver: res}, name)
+	if got.State != "blocked" {
+		t.Fatalf("a name that resolves to loopback: %+v", got)
+	}
+	if strings.Contains(got.Message, "127.0.0.1") {
+		t.Fatalf("the message names the address it resolved to: %q", got.Message)
+	}
+	if hits.Load() != 0 {
+		t.Fatal("the loopback listener received a connection")
+	}
+	// An IP literal goes through the same check.
+	if got := look(nil, "127.0.0.1:"+port); got.State != "blocked" || hits.Load() != 0 {
+		t.Fatalf("a loopback literal: %+v", got)
+	}
+
+	// Cloud metadata is refused even when the operator opened every range.
+	target.Store(net.ParseIP("169.254.169.254"))
+	all, err := NewDeciderPolicy("0.0.0.0/0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	all.resolver = res
+	if got := look(all, "receiver.rebind.test.:80"); got.State != "blocked" {
+		t.Fatalf("a name that resolves to the metadata address: %+v", got)
+	}
+
+	// What the decider policy opens stays open here: the same name is looked at once loopback is listed.
+	target.Store(net.ParseIP("127.0.0.1"))
+	allowed, err := NewDeciderPolicy("127.0.0.0/8")
+	if err != nil {
+		t.Fatal(err)
+	}
+	allowed.resolver = res
+	if got := look(allowed, name); got.State != "reachable" {
+		t.Fatalf("loopback listed in the decider policy: %+v", got)
+	}
+
+	// Receivers on private addresses are still checked by default.
+	p := probePolicy(nil)
+	for _, s := range []string{"10.1.2.3", "172.16.0.9", "192.168.1.1", "100.64.0.1", "fd00::5"} {
+		if err := p.CheckAddr(netip.MustParseAddr(s)); err != nil {
+			t.Errorf("%s should stay probeable: %v", s, err)
+		}
+	}
+	for _, s := range []string{"127.0.0.1", "::1", "169.254.169.254", "fe80::1", "224.0.0.1", "0.0.0.0"} {
+		if err := p.CheckAddr(netip.MustParseAddr(s)); err == nil {
+			t.Errorf("%s should be refused", s)
+		}
 	}
 }

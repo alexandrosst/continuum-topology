@@ -19,9 +19,15 @@ import (
 // an unreasonable amount in a single request. The engine caps a single baseline run at 40 moves
 // (MAX_MOVES in engine.ts); maxDecisionMovesTotal leaves generous headroom for comparing several
 // deciders (built-in and external) in the same run without trusting the client's own count of them.
+//
+// maxDecisionPolicyBytes bounds the policy an entry carries. The policy is copied onto every move row of that
+// entry (so each row stands alone), which multiplies its size by the move count: without a cap a request within
+// the body limit could write tens of megabytes. The frontend's Policy is a handful of numeric weights, well under
+// 1 KiB, so this leaves room for it to grow.
 const (
-	maxDecisionEntries    = 20
-	maxDecisionMovesTotal = 500
+	maxDecisionEntries     = 20
+	maxDecisionMovesTotal  = 500
+	maxDecisionPolicyBytes = 4 << 10
 )
 
 // DecisionMove is one service a decider proposed moving, exactly as the browser scored it.
@@ -60,6 +66,9 @@ func (c *Core) RecordDecisions(ctx context.Context, actor string, entries []Deci
 	for _, e := range entries {
 		if e.DeciderID == "" || (e.DeciderKind != "builtin" && e.DeciderKind != "external") {
 			return 0, errf(KindInvalid, "each entry needs a decider id and a decider kind of \"builtin\" or \"external\"")
+		}
+		if len(e.Policy) > maxDecisionPolicyBytes {
+			return 0, errf(KindInvalid, "a decider's policy is too large to record")
 		}
 		if len(rows)+len(e.Moves) > maxDecisionMovesTotal {
 			return 0, errf(KindInvalid, "too many proposed moves in one call")

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -123,5 +124,18 @@ func TestRecordDecisionsRejectsMalformedOrOversizedInput(t *testing.T) {
 	}
 	if r := a.do("POST", "/api/v1/decisions", map[string]any{"entries": many}, withCookie(editor)); r.Code != 400 {
 		t.Fatalf("too many entries: %d %s", r.Code, r.Body.String())
+	}
+
+	// The policy is copied onto every move row, so one that is large is refused rather than multiplied by the move count.
+	bigPolicy := map[string]any{"entries": []map[string]any{{
+		"deciderId": "x", "deciderKind": "builtin",
+		"input": map[string]any{"policy": map[string]any{"note": strings.Repeat("a", maxDecisionPolicyBytes)}},
+		"moves": []map[string]any{{"serviceId": "svc", "to": "cl-a"}},
+	}}}
+	if r := a.do("POST", "/api/v1/decisions", bigPolicy, withCookie(editor)); r.Code != 400 {
+		t.Fatalf("an oversized policy: %d %s", r.Code, r.Body.String())
+	}
+	if r := a.do("GET", "/api/v1/decisions", nil, withCookie(editor)); len(r.json(t)["decisions"].([]any)) != 0 {
+		t.Fatalf("a row was written for a refused policy: %s", r.Body.String())
 	}
 }
