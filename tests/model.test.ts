@@ -16,7 +16,7 @@ import { activeView, describeView, sameView, viewParams } from '../src/lib/views
 import { emptyScope, scopeProblems, splitNames, withFlowObserver, withMeasurements, withNodeProbe, withScope } from '../src/lib/install'
 import { anyMesh, connectionVerdict } from '../src/lib/mesh'
 import { ago, bytesPerSec, bytesTotal, isObserved, trafficSummary, withObserved } from '../src/lib/observed'
-import { applyGraphUpdate, APP_CARD, sameLayout, buildGraph, cardId, groupId, HEADER, MACHINE_CARD, MIN_GROUP_HEADER_WIDTH, NS_HEADER, NS_PAD, PAD, pickSides, resyncNodes, selectedServiceIds, syncPickEligibility, syncSelected } from '../src/lib/graph'
+import { applyGraphUpdate, APP_CARD, sameLayout, buildGraph, cardId, groupId, HEADER, MACHINE_CARD, MIN_GROUP_HEADER_WIDTH, NS_HEADER, NS_PAD, PAD, pickSides, resyncNodes, syncSelected } from '../src/lib/graph'
 import { seedTopology } from '../src/lib/seed'
 import { applySuggestion, groupingAlternativesFor } from '../src/lib/suggestions'
 import { DEFAULT_ORG, SCHEMA_VERSION, type Cluster, type ClusterLink, type ClusterMesh, type Dependency, type Device, type ExternalEndpoint, type Model, type Service, type Suggestion } from '../src/lib/types'
@@ -1297,24 +1297,6 @@ test('pickSides also works on two bare points (zero-size boxes) - used only to p
   assert.deepEqual(pickSides({ x: 0, y: 100, w: 0, h: 0 }, { x: 0, y: 0, w: 0, h: 0 }), ['top', 'bottom'])
 })
 
-test('selectedServiceIds: resolves a canvas selection to service ids, expanding group/namespace boxes, dropping anything not selected', () => {
-  const [a, b] = inCluster
-  const t = { ...seed, dependencies: [seenDep({ from: a.id, to: b.id })] }
-  const g = buildGraph(t, { view: 'application', groupBy: 'cluster', servicesOnNodes: false, links: true, devices: false })
-  const clusterBoxId = g.nodes.find((n) => n.data.kind === 'group')!.id
-  const clusterServiceIds = new Set(g.nodes.filter((n) => n.data.kind === 'service' && n.parentId === clusterBoxId).map((n) => n.data.entityId))
-
-  const cardsOnly = [cardId(a.id), cardId(b.id), 'not-a-real-node-id']
-  assert.deepEqual(new Set(selectedServiceIds(g.nodes, cardsOnly)), new Set([a.id, b.id]), 'the two selected service cards, not the unknown id')
-  assert.deepEqual(selectedServiceIds(g.nodes, []), [], 'an empty selection resolves to nothing')
-  // Selecting the cluster box itself (rather than each service inside it one at a time) resolves to every
-  // service nested under it - this is what lets a shift/ctrl-click or box-select on a whole cluster build a
-  // scope out of it directly, instead of only ever working service-by-service. Selecting a card that's
-  // already inside the selected box too changes nothing (a Set either way).
-  assert.deepEqual(new Set(selectedServiceIds(g.nodes, [clusterBoxId])), clusterServiceIds, 'selecting a group box resolves to every service nested under it')
-  assert.deepEqual(new Set(selectedServiceIds(g.nodes, [clusterBoxId, cardId(a.id)])), clusterServiceIds, 'a card already covered by a selected ancestor box adds nothing new')
-})
-
 test('chain layout: services rank strictly by dependency depth, across clusters, with no cluster/tier boxes', () => {
   const [a, b] = inCluster
   const other = seed.services.find((w) => w.clusterId !== meshCluster.id)!
@@ -1826,34 +1808,6 @@ test('syncSelected: a node mid-drag is left untouched, and nothing is re-allocat
   assert.equal(partial[0], settled[0], 'a node whose selected flag was already correct keeps its own object')
   assert.notEqual(partial[1], settled[1], 'the node that actually changed gets a fresh object')
   assert.equal(partial[1].selected, true)
-})
-
-test('syncPickEligibility: dims ineligible nodes, leaves eligible ones alone, is a no-op once settled', () => {
-  const node = (id: string, overrides: Record<string, unknown> = {}) =>
-    ({ id, type: 'card', position: { x: 0, y: 0 }, parentId: 'g:cl-a', data: {}, ...overrides }) as unknown as ReturnType<typeof buildGraph>['nodes'][number]
-
-  // null (pick mode off) clears the class from every node, same as syncSelected's "nothing highlighted" case.
-  const withStaleClass = [node('c:svc-a', { className: 'pick-ineligible' })]
-  assert.equal(syncPickEligibility(withStaleClass, null)[0].className, undefined)
-
-  const a = node('c:svc-a')
-  const b = node('c:svc-b')
-  const out = syncPickEligibility([a, b], new Set(['c:svc-a']))
-  assert.equal(out[0].className, undefined, 'eligible nodes are left alone')
-  assert.equal(out[1].className, 'pick-ineligible', 'everything outside the eligible set gets dimmed')
-
-  // A node mid-drag is left completely untouched, same reason syncSelected skips one - a write from outside
-  // React Flow's own drag tracking here would fight the gesture the same way it did for `selected`.
-  const dragging = node('c:svc-c', { dragging: true, className: undefined })
-  const out2 = syncPickEligibility([dragging], new Set([]))
-  assert.equal(out2[0], dragging, 'the dragging node is returned completely unchanged')
-  assert.equal(out2[0].className, undefined, 'its class is not touched while dragging, even though it would otherwise become ineligible')
-
-  // Once settled, calling this again with the same eligibility returns the exact same array - not a fresh
-  // one with identical contents - so a steady pick-mode toggle never forces an extra render.
-  const settled = syncPickEligibility([node('c:svc-a'), node('c:svc-b')], new Set(['c:svc-a']))
-  const noop = syncPickEligibility(settled, new Set(['c:svc-a']))
-  assert.equal(noop, settled, 'nothing changed, so the identical array reference is returned')
 })
 
 test('applyGraphUpdate: an explicit change (a filter, a view toggle) gets a clean fresh layout, not the stale poll-time merge', () => {
