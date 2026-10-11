@@ -1229,31 +1229,6 @@ export function pickSides(a: Box, b: Box): [Side, Side] {
   return dx >= 0 ? ['right', 'left'] : ['left', 'right']
 }
 
-/** Which service entity ids a canvas selection (a set of React Flow node ids, e.g. from a shift-drag
- * box-select) resolves to - the topology's "Define scope from selection" quick action (ScopeFromSelection.tsx)
- * uses this to turn a raw selection into a telemetry scope draft, silently dropping anything selected that
- * isn't a service card: a cluster/tier box, a namespace sub-box, or a machine/device/external card. Order
- * follows `nodes`, not `selectedIds`, so a scope built from the same selection is stable across re-renders. */
-/** Resolves a canvas multi-selection (a mix of individually-clicked service cards and, now that box/click
- * multi-select is easy to reach, whole cluster/tier/namespace boxes selected the same way) down to the flat
- * list of service entity ids it implies - the shape ScopeFromSelection.tsx actually needs. Selecting a
- * group or namespace box directly (rather than each service inside it one at a time) pulls in every service
- * card nested under it, walking the parentId chain rather than requiring a direct parent match, since a
- * service inside a namespace sub-box is two levels below its cluster's own group box. */
-export function selectedServiceIds(nodes: TopoNode[], selectedIds: string[]): string[] {
-  const ids = new Set(selectedIds)
-  const byId = new Map(nodes.map((n) => [n.id, n]))
-  const underSelectedAncestor = (n: TopoNode): boolean => {
-    let p = n.parentId
-    while (p) {
-      if (ids.has(p)) return true
-      p = byId.get(p)?.parentId
-    }
-    return false
-  }
-  return nodes.filter((n) => n.data.kind === 'service' && (ids.has(n.id) || underSelectedAncestor(n))).map((n) => n.data.entityId)
-}
-
 /** Folds a freshly computed layout (`next`, e.g. from a poll refresh or a toggled view option) onto
  * whatever React Flow currently has on screen (`prev`), instead of just returning `next` outright - this
  * is what lets `TopologyPage.tsx`'s node-resync effect run on every poll without fighting a manual drag or
@@ -1326,27 +1301,6 @@ export function syncSelected(nodes: TopoNode[], highlighted: ReadonlySet<string>
     if (n.selected === want) return n
     changed = true
     return { ...n, selected: want }
-  })
-  return changed ? next : nodes
-}
-
-/**
- * Sync a `pick-ineligible` class onto every node "Pick from canvas" mode (TopologyPage's pickMode) can't
- * actually target - a device, a namespace sub-box, a cluster/service with no connected+approved agent -
- * so index.css can keep it dimmed and show a not-allowed cursor even on hover, instead of un-dimming every
- * node the same way and only discovering after a click that it led nowhere. `eligible` is null when
- * pickMode itself is off, which clears the class from every node (same as `syncSelected`'s "nothing
- * highlighted" case). Mirrors syncSelected exactly: skip a node mid-drag, and return the SAME array when
- * nothing actually changed so a settled pick-mode toggle doesn't force an extra render.
- */
-export function syncPickEligibility(nodes: TopoNode[], eligible: ReadonlySet<string> | null): TopoNode[] {
-  let changed = false
-  const next = nodes.map((n) => {
-    if (n.dragging) return n
-    const want = eligible !== null && !eligible.has(n.id) ? 'pick-ineligible' : undefined
-    if ((n.className ?? undefined) === want) return n
-    changed = true
-    return { ...n, className: want }
   })
   return changed ? next : nodes
 }

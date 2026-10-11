@@ -95,7 +95,7 @@ describe('GroupBox network chips', () => {
     expect(ring('b')).toBe(false)
   })
 
-  test('a ringed box that is selected keeps its own accent ring, and a device group is never ringed', () => {
+  test('a ringed box that is selected shows the selection (accent border, a pop) instead of the peer ring, and a device group is never ringed', () => {
     render(
       <ReactFlowProvider>
         <PeerRingContext.Provider value={{ ring: new Set(['s', 'd']), show: () => {} }}>
@@ -105,7 +105,8 @@ describe('GroupBox network chips', () => {
       </ReactFlowProvider>,
     )
     const cls = (id: string) => (screen.getByTestId(id).firstElementChild as HTMLElement).className
-    expect(cls('sel')).toContain('var(--color-accent)')
+    expect(cls('sel')).toContain('topo-pop')
+    expect((screen.getByTestId('sel').firstElementChild as HTMLElement).style.borderColor).toContain('var(--color-accent)')
     expect(cls('sel')).not.toContain('1.5px')
     expect(cls('dev')).not.toContain('1.5px')
   })

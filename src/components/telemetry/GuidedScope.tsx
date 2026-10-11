@@ -95,8 +95,8 @@ export default function GuidedScope({
   testIdPrefix: string
   /** The cluster whose discovered workloads the picker offers; without one (or without discovery data) names are typed. */
   clusterId?: string
-  /** A scope pre-filled from outside the wizard, e.g. a topology-canvas selection handed off via
-   * ScopeFromSelection.tsx - consumed once, at first mount, same as `value`'s own seeded drafts below.
+  /** A scope pre-filled from outside the wizard, e.g. a topology-canvas pick handed off from
+   * the topology page - consumed once, at first mount, same as `value`'s own seeded drafts below.
    * Deliberately only adds a draft, never auto-attaches it to a signal: attaching stays the person's own
    * explicit step, exactly as it already is for a hand-built draft. */
   initialDraft?: { name: string; namespaces: string[] }

@@ -4,10 +4,7 @@ import {
   Controls,
   getNodesBounds,
   getViewportForBounds,
-  MiniMap,
-  NodeToolbar,
   Panel,
-  Position,
   ReactFlow,
   ReactFlowProvider,
   useNodesState,
@@ -18,7 +15,7 @@ import {
 import '@xyflow/react/dist/style.css'
 import clsx from 'clsx'
 import { toPng } from 'html-to-image'
-import { Funnel, Boxes, ChevronDown, Download, Filter as FilterIcon, Package, Plug, Plus, Radio, RotateCcw, ScanEye, Server, SlidersHorizontal, Target, TriangleAlert, X } from 'lucide-react'
+import { Funnel, Boxes, ChevronDown, Download, Ellipsis, Filter as FilterIcon, Info, Package, Plug, Plus, Radio, RotateCcw, ScanEye, Server, SlidersHorizontal, Target, TriangleAlert, X } from 'lucide-react'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useConnectFlow } from '@/components/discovery/ConnectFlow'
@@ -37,20 +34,22 @@ import { PodLegend } from '@/components/topology/Pods'
 // here didn't previously cover.
 const MapView = lazy(() => import('@/components/topology/MapView'))
 import EdgeHoverCard, { type EdgeHoverPos } from '@/components/topology/EdgeHoverCard'
-import ScopeFromSelection from '@/components/topology/ScopeFromSelection'
 import ViewsMenu from '@/components/topology/ViewsMenu'
 import LiveStatus from '@/components/LiveStatus'
 import { nodeTypes } from '@/components/topology/nodes'
 import { PeerRingContext, peerIds } from '@/lib/clusterNets'
 import TelemetryTab from '@/components/topology/TelemetryTab'
-import { edgeTypes, EdgeStyleContext } from '@/components/topology/OffsetEdge'
+import { edgeTypes } from '@/components/topology/OffsetEdge'
+import { AutoMiniMap } from '@/components/topology/AutoMiniMap'
+import { SquareRoutes } from '@/components/topology/SquareRoutes'
 import { Button, EmptyState, ICON_MD, ICON_SM, MenuPanel, Select, SkeletonBlock } from '@/components/ui/primitives'
 import { PRESS_CLASS } from '@/components/ui/buttonClass'
 import FilterMenu, { FilterChip } from '@/components/topology/FilterMenu'
 import { extrasOf, TELEMETRY_SIGNALS } from '@/lib/consent'
+import { computeFocus } from '@/lib/focus'
 import { narrowFitZoom } from '@/lib/fit'
 import { applyFilter, encodeList, filterActive, hopNeighborhood, isFreshApplicationView, knownOnly, parseFilter } from '@/lib/filter'
-import { applyGraphUpdate, buildGraph, cardId, groupId, sameLayout, selectedServiceIds, syncPickEligibility, syncSelected, type TopoEdge, type TopoNode } from '@/lib/graph'
+import { applyGraphUpdate, buildGraph, cardId, groupId, sameLayout, syncSelected, type TopoEdge, type TopoNode } from '@/lib/graph'
 import { lossBand } from '@/lib/metrics'
 import { anyMesh, VERDICT_COLOR } from '@/lib/mesh'
 import { useAutoPlaceClusters } from '@/lib/usePlacement'
@@ -107,11 +106,11 @@ type FormState =
 /** The toolbar's popovers (filter, saved views, options, add) all hang off the same row: at most one may be
  * open at a time, so opening one always closes any other that was already open, instead of both fighting over
  * their own click-outside backdrop. */
-type MenuKey = 'filter' | 'views' | 'options' | 'add' | 'scope'
+type MenuKey = 'filter' | 'views' | 'options' | 'add' | 'more'
 
 function Canvas() {
   const topology = useTopology()
-  const { fitView, getNodes, setViewport } = useReactFlow()
+  const { fitView, getNodes, setViewport, getNodesBounds: instanceBounds } = useReactFlow()
   const store = useStoreApi()
   // Fit the whole graph, but never below FIT_MIN_ZOOM: a graph bigger than the window then starts at its top
   // left (cropping only the far side, which scrolls into view) instead of cropping both ends equally.
@@ -154,10 +153,9 @@ function Canvas() {
   // Chain lays every service out in one flat left-to-right order across every cluster, so it replaces the
   // cluster/tier boxes and namespace sub-boxes rather than combining with them.
   const showChain = sp.get('chain') === '1' && mode === 'application'
-  // The default 'curved' bow, or the opt-in rounded-orthogonal 'elbow' style (OffsetEdge.tsx) - a pure
-  // rendering preference for every edge on the canvas, not tied to any one of them, so it lives in the same
-  // URL-param "view option" family as the toggles above rather than on graph/edge data.
-  const edgeStyle: 'curved' | 'elbow' = sp.get('edges') === 'elbow' ? 'elbow' : 'curved'
+  // Lines are squared (right angles, routed together so parallel lines keep apart). `?lines=curved` brings back the old
+  // curved lines, as an escape hatch for one release.
+  const squared = sp.get('lines') !== 'curved'
   // Off by default: recolours the measured line between two clusters (ClusterLink.avgLossPct, see
   // tunnels.go's correlateClusterLinks) by its live flow-rollup loss. A link with nothing measured is not
   // drawn at all (see graph.ts), so this only ever has measured lines to colour.
@@ -165,7 +163,7 @@ function Canvas() {
   // The Telemetry tab's own filter: only the lanes where something needs attention or is not working.
   const problemsOnly = isTelemetry && sp.get('problems') === '1'
   // How many options differ from the defaults, so a hidden option is never a mystery.
-  const changedOptions = [!showDevices, showNoise, servicesOnNodes, !links, showLabels, groupBy === 'tier', showMesh, showNamespaces, showChain, edgeStyle === 'elbow', showHealthLens].filter(Boolean).length
+  const changedOptions = [!showDevices, showNoise, servicesOnNodes, !links, showLabels, groupBy === 'tier', showMesh, showNamespaces, showChain, showHealthLens].filter(Boolean).length
   const setParam = (k: string, v: string | null) =>
     setSp((p) => {
       const n = new URLSearchParams(p)
@@ -195,6 +193,22 @@ function Canvas() {
   const [form, setForm] = useState<FormState>(null)
   const inPast = useHistoryView((s) => s.at !== null)
   const [openMenu, setOpenMenu] = useState<MenuKey | null>(null)
+  // The legend is a small chip until someone wants it, so it does not sit on top of the graph; the choice is remembered.
+  const [legendOpen, setLegendOpen] = useState(() => {
+    try {
+      return localStorage.getItem('continuum:topology-legend') === '1'
+    } catch {
+      return false
+    }
+  })
+  const toggleLegend = (open: boolean) => {
+    setLegendOpen(open)
+    try {
+      localStorage.setItem('continuum:topology-legend', open ? '1' : '0')
+    } catch {
+      /* private mode: the choice just isn't remembered */
+    }
+  }
   const toggleMenu = (key: MenuKey) => setOpenMenu((cur) => (cur === key ? null : key))
   const [hoverEdge, setHoverEdge] = useState<string | null>(null)
   // Cursor position for EdgeHoverCard (the throughput/latency popover a hovered edge shows - same anchoring
@@ -412,10 +426,6 @@ function Canvas() {
     return s
   }, [selectedRfId, multiSelectedIds])
 
-  const selectedServices = useMemo(() => {
-    const entityIds = new Set(selectedServiceIds(nodes, [...highlightedIds]))
-    return services.filter((s) => entityIds.has(s.id))
-  }, [highlightedIds, nodes, services])
 
   // Re-sync when the model / plane changes (keeps selection highlight). On an ordinary background poll, a
   // node that was already on the canvas keeps the position it has there (a manual drag, or a prior layout
@@ -484,21 +494,89 @@ function Canvas() {
   // Edge styling for the current selection (color, width, dashing, opacity, and whether the label is shown
   // for a reason other than hover - selection/showLabels). Deliberately NOT keyed on `hoverEdge`: see `edges`
   // below for why.
-  const styledEdges = useMemo<TopoEdge[]>(() => {
-    const focus =
-      selection?.kind === 'service' || selection?.kind === 'device' || selection?.kind === 'external'
+  // The entity a click focused, by the id the edges refer to it with.
+  const focusEntity =
+    selection?.kind === 'service' || selection?.kind === 'device' || selection?.kind === 'external'
+      ? selection.id
+      : selection?.kind === 'cluster' && groupBy === 'cluster'
         ? selection.id
-        : selection?.kind === 'cluster' && groupBy === 'cluster'
+        : selection?.kind === 'tier'
           ? selection.id
-          : selection?.kind === 'tier'
-            ? selection.id
-            : null
-    const pickedEdge = selection?.kind === 'dependency' ? selection.id : null
-    const related = (e: TopoEdge) => (!!focus && (e.data?.from === focus || e.data?.to === focus)) || e.id === pickedEdge
-    const anyRelated = (!!focus || !!pickedEdge) && graph.edges.some(related)
+          : null
+  const pickedEdgeId = selection?.kind === 'dependency' ? selection.id : null
+
+  // Focus: what stays lit while everything else fades - the focused entity, the entities its lines reach, and the boxes they
+  // sit in (and, for a lit cluster or group box, what is inside it). `ripple` is how long each node waits before it fades,
+  // growing with its distance from the focus, so the fade spreads outward from what was clicked.
+  const focusView = useMemo(() => computeFocus(nodes, graph.edges, focusEntity ? selectedRfId : null, pickedEdgeId), [graph.edges, nodes, focusEntity, pickedEdgeId, selectedRfId])
+
+  // The canvas nodes with the fade applied (a class and a delay; the transition is in index.css).
+  const displayNodes = useMemo<TopoNode[]>(() => {
+    if (!focusView) return nodes
+    return nodes.map((n) => {
+      if (focusView.keep.has(n.id)) return n
+      return { ...n, className: n.className ? `${n.className} topo-dim` : 'topo-dim', style: { ...n.style, '--ripple': `${focusView.ripple.get(n.id) ?? 0}ms` } as React.CSSProperties }
+    })
+  }, [nodes, focusView])
+
+  // The canvas can be panned only so far past the graph (and zoomed only between 0.2x and 1.5x), so the structure is never
+  // lost off screen or shrunk into a smudge.
+  const graphBounds = useMemo(() => {
+    let minX = Infinity
+    let minY = Infinity
+    let maxX = -Infinity
+    let maxY = -Infinity
+    const byId = new Map(nodes.map((n) => [n.id, n]))
+    for (const n of nodes) {
+      let x = 0
+      let y = 0
+      for (let m: TopoNode | undefined = n; m; m = m.parentId ? byId.get(m.parentId) : undefined) {
+        x += m.position.x
+        y += m.position.y
+      }
+      minX = Math.min(minX, x)
+      minY = Math.min(minY, y)
+      maxX = Math.max(maxX, x + (n.measured?.width ?? n.width ?? 0))
+      maxY = Math.max(maxY, y + (n.measured?.height ?? n.height ?? 0))
+    }
+    return Number.isFinite(minX) ? { minX, minY, maxX, maxY } : null
+  }, [nodes])
+  const panExtent = useMemo<[[number, number], [number, number]]>(() => {
+    if (!graphBounds) return [[-Infinity, -Infinity], [Infinity, Infinity]]
+    const pad = 600
+    return [[graphBounds.minX - pad, graphBounds.minY - pad], [graphBounds.maxX + pad, graphBounds.maxY + pad]]
+  }, [graphBounds])
+
+  // Focusing an entity brings what it connects to into view: when the entity and the things its lines reach do not all fit
+  // on screen (the Inspector takes a third of the width as it opens), the view pans, and zooms out only if it must.
+  const focusCoreKey = focusView ? [...focusView.core].sort().join('|') : ''
+  useEffect(() => {
+    if (!focusView || !focusCoreKey) return
+    const core = [...focusView.core]
+    const t = setTimeout(() => {
+      const { width, height, transform } = store.getState()
+      if (!width || !height) return
+      const box = instanceBounds(core)
+      if (!box.width || !box.height) return
+      const [tx, ty, zoom] = transform
+      const margin = 32
+      const inView = box.x * zoom + tx >= margin && box.y * zoom + ty >= margin && (box.x + box.width) * zoom + tx <= width - margin && (box.y + box.height) * zoom + ty <= height - margin
+      if (inView) return
+      const v = getViewportForBounds(box, width, height, 0.2, zoom, 0.16)
+      const calm = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      void setViewport(v, { duration: calm ? 0 : 380 })
+    }, 220)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on which entities are in focus, not on every node move
+  }, [focusCoreKey])
+
+  // Edge styling for the current selection (colour, width, dashing, opacity, and whether the label shows for a reason other
+  // than hover). Deliberately NOT keyed on `hoverEdge`: see `edges` below for why.
+  const styledEdges = useMemo<TopoEdge[]>(() => {
     return graph.edges.map((e) => {
-      const hot = related(e)
-      const dim = anyRelated && !hot
+      const hot = !!focusView?.hotIds.has(e.id)
+      // A line fades unless it is one of the focus's own, or joins two things that both stay lit.
+      const dim = !!focusView && !hot && !(focusView.keep.has(e.source) && focusView.keep.has(e.target))
       const showLabel = showLabels || hot
       const q = e.data?.quality
       const band = q ? lossBand(q.lossPct) : 'ok'
@@ -528,6 +606,8 @@ function Canvas() {
           stroke,
           strokeWidth: width,
           opacity: dim ? 0.15 : e.data?.stale ? 0.55 : 1,
+          // The fade spreads out from the focus: a line goes when the nearer of the two things it joins does.
+          transitionDelay: dim && focusView ? `${Math.min(focusView.ripple.get(e.source) ?? 0, focusView.ripple.get(e.target) ?? 0)}ms` : undefined,
           // A measured cluster link is always solid: whether anything was observed is not what it says.
           strokeDasharray: cl ? undefined : !e.data?.aggregated && !seen ? '2 5' : conntrackOnly ? '8 4' : undefined,
           // Busier links run their dashes faster (a quiet one takes 2.4 s for a period, the busiest 0.7 s).
@@ -540,7 +620,7 @@ function Canvas() {
         markerEnd: e.markerEnd && typeof e.markerEnd === 'object' ? { ...e.markerEnd, color: stroke } : e.markerEnd,
       }
     })
-  }, [graph.edges, selection, groupBy, showLabels, showHealthLens])
+  }, [graph.edges, focusView, showLabels, showHealthLens])
 
   // The raw (un-hidden) label text for every edge, so the hover-only reveal below can put one back without
   // needing to keep the whole graph.edges array around.
@@ -580,65 +660,6 @@ function Canvas() {
     if (d.kind === 'namespace') return null // a visual grouping only, nothing to inspect on its own
     return { kind: d.kind === 'machine' ? 'node' : d.kind, id: d.entityId }
   }
-
-  // "Pick from canvas": dims every entity and un-dims whatever's under the pointer (topology-pick-mode in
-  // index.css does the dimming, driven only by this boolean), so a single hover-then-click goes straight to
-  // that entity's telemetry wizard - a quicker, more direct alternative to box-selecting one or more service
-  // cards first and then using the floating "Define scope" action (ScopeFromSelection below), which stays
-  // for the multi-service case this can't cover (one click = one target).
-  const [pickMode, setPickMode] = useState(false)
-
-  // What clicking `n` while pickMode is on should do, or null if `n` isn't a valid scope target (a device,
-  // an external endpoint, a namespace sub-box, a cluster/service with no connected+approved agent yet).
-  // Resolved from the same Selection fromNode already computes, so this stays in sync with whatever a plain
-  // click would have selected, rather than re-deriving node kinds a second way.
-  const pickTarget = useCallback(
-    (n: TopoNode): { agentId: string; scope?: { name: string; namespaces: string[] } } | null => {
-      const sel = fromNode(n)
-      if (!sel) return null
-      if (sel.kind === 'service') {
-        const svc = services.find((s) => s.id === sel.id)
-        const agent = svc && agents.find((a) => a.clusterId === svc.clusterId && a.status === 'approved')
-        return svc && agent ? { agentId: agent.id, scope: { name: `${svc.name} (from topology)`, namespaces: [svc.namespace] } } : null
-      }
-      if (sel.kind === 'cluster') {
-        const agent = agents.find((a) => a.clusterId === sel.id && a.status === 'approved')
-        return agent ? { agentId: agent.id } : null
-      }
-      return null
-    },
-    // fromNode is intentionally left out: it's a pure function of its argument alone (no closed-over
-    // component state), so its identity changing every render never changes what this returns for the same
-    // node - including it here would just make pickEligibleIds below recompute on every render for no
-    // reason, the exact thing wrapping this in useCallback is meant to avoid.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [services, agents],
-  )
-  // Escape backs out of pick mode without picking anything - same "give up on this" affordance as every
-  // other transient canvas mode (the toolbar popovers above, via their own effect).
-  useEffect(() => {
-    if (!pickMode) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setPickMode(false)
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [pickMode])
-
-  // Which nodes pickMode could actually do something with, recomputed whenever pick mode turns on or the
-  // canvas' own nodes change under it - null while pick mode is off (syncPickEligibility below treats that
-  // as "nothing to mark"). Kept separate from pickTarget's own per-click call so hover feedback (index.css's
-  // pick-ineligible rule) can show BEFORE a click, not just explain a dead end after one.
-  const pickEligibleIds = useMemo(() => {
-    if (!pickMode) return null
-    const ids = new Set<string>()
-    for (const n of nodes) if (pickTarget(n)) ids.add(n.id)
-    return ids
-  }, [pickMode, nodes, pickTarget])
-
-  useEffect(() => {
-    setNodes((ns) => syncPickEligibility(ns, pickEligibleIds))
-  }, [pickEligibleIds, setNodes])
 
   const editSelection = (s: NonNullable<Selection>) => {
     if (s.kind === 'cluster') setForm({ type: 'cluster', id: s.id })
@@ -883,61 +904,47 @@ function Canvas() {
                     <option value="tier">Tier</option>
                   </Select>
                 </div>
-                <div className="flex items-center justify-between gap-3 px-2 py-1.5 text-sm text-nb-400">
-                  Edge style
-                  <Select
-                    className="h-8 w-32"
-                    value={edgeStyle}
-                    title="Curved: a gentle bow between boxes. Squared: rounded right-angle routing, closer to a classic flowchart connector."
-                    onChange={(e) => setParam('edges', e.target.value === 'elbow' ? 'elbow' : null)}
-                  >
-                    <option value="curved">Curved</option>
-                    <option value="elbow">Squared</option>
-                  </Select>
-                </div>
               </MenuPanel>
             </div>
           )}
 
+          {/* Reset layout and Export PNG are used now and then, so they live in one "more" menu instead of two buttons. */}
           {isCanvas && (
-            <Button
-              disabled={empty}
-              onClick={() => {
-                setNodes(graph.nodes)
-                // The `shape` effect above only re-fits when node ids/sizes change, which a layout reset
-                // never does (same nodes, new positions) - without this, a reset whose new positions happen
-                // to land outside the current viewport looked like the button did nothing at all.
-                fit(200)
-              }}
-              title="Reset the canvas layout - snaps every entity back to its computed position. Your view options (filters, grouping, toggles) are untouched."
-              data-testid="reset-layout"
-            >
-              <RotateCcw size={ICON_SM} /> <span className="hidden sm:inline">Reset layout</span>
-            </Button>
-          )}
-
-          {isCanvas && (
-            <Button
-              onClick={exportPng}
-              disabled={exportingPng || empty}
-              title="Save the current canvas as a PNG image, at its full extent (not just what's on screen)"
-              data-testid="export-png"
-            >
-              <Download size={ICON_SM} /> <span className="hidden sm:inline">{exportingPng ? 'Exporting…' : 'Export PNG'}</span>
-            </Button>
-          )}
-
-          {isCanvas && (
-            <Button
-              variant={pickMode ? 'primary' : undefined}
-              onClick={() => setPickMode((v) => !v)}
-              disabled={empty}
-              aria-pressed={pickMode}
-              title={pickMode ? 'Cancel - click a service or cluster to scope it, or press Escape' : 'Pick a service or cluster on the canvas to configure its telemetry, without selecting it first'}
-              data-testid="pick-scope"
-            >
-              <Target size={ICON_SM} /> <span className="hidden sm:inline">Pick from canvas</span>
-            </Button>
+            <div className="relative">
+              <Button onClick={() => toggleMenu('more')} disabled={empty} aria-expanded={openMenu === 'more'} aria-haspopup="true" aria-label="More canvas actions" title="Reset layout, export as PNG" data-testid="canvas-more">
+                <Ellipsis size={ICON_SM} />
+              </Button>
+              <MenuPanel open={openMenu === 'more'} onClose={() => setOpenMenu(null)} className="w-52 overflow-hidden p-1">
+                <button
+                  disabled={empty}
+                  onClick={() => {
+                    setOpenMenu(null)
+                    setNodes(graph.nodes)
+                    // The `shape` effect above only re-fits when node ids/sizes change, which a layout reset never does
+                    // (same nodes, new positions): without this, a reset whose new positions land outside the current
+                    // viewport looked like the button did nothing at all.
+                    fit(200)
+                  }}
+                  title="Snap every entity back to its computed position. Your view options (filters, grouping, toggles) are untouched."
+                  data-testid="reset-layout"
+                  className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm text-nb-300 hover:bg-nb-940 disabled:opacity-40 disabled:hover:bg-transparent"
+                >
+                  <RotateCcw size={ICON_SM} className="text-nb-500" /> Reset layout
+                </button>
+                <button
+                  onClick={() => {
+                    setOpenMenu(null)
+                    exportPng()
+                  }}
+                  disabled={exportingPng || empty}
+                  title="Save the whole canvas as a PNG image, not just what is on screen"
+                  data-testid="export-png"
+                  className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm text-nb-300 hover:bg-nb-940 disabled:opacity-40 disabled:hover:bg-transparent"
+                >
+                  <Download size={ICON_SM} className="text-nb-500" /> {exportingPng ? 'Exporting…' : 'Export PNG'}
+                </button>
+              </MenuPanel>
+            </div>
           )}
 
           <div className="relative">
@@ -1024,11 +1031,10 @@ function Canvas() {
               <MapView selection={selection} onSelect={select} filter={filter} />
             </Suspense>
           ) : (
-            <EdgeStyleContext.Provider value={edgeStyle}>
             <PeerRingContext.Provider value={peerRing}>
+            <SquareRoutes edges={edges} enabled={squared}>
             <ReactFlow<TopoNode, Edge>
-              className={pickMode ? 'topology-pick-mode' : undefined}
-              nodes={nodes}
+              nodes={displayNodes}
               edges={edges}
               nodeTypes={nodeTypes}
               edgeTypes={edgeTypes}
@@ -1041,11 +1047,7 @@ function Canvas() {
                 const badge = (e.target as HTMLElement).closest?.('[data-local-telemetry-cluster]')
                 const clusterId = badge?.getAttribute('data-local-telemetry-cluster')
                 const agentId = clusterId ? localOperatorByCluster.get(clusterId)?.agentId : undefined
-                // Exit pick mode here too, even though this branch doesn't go through pickTarget - the
-                // badge is reachable while pick mode is on (it isn't excluded from the dim/hover CSS), and
-                // leaving pickMode true after it opens the telemetry wizard used to strand the canvas dimmed
-                // with no visible cause once the wizard closed.
-                if (agentId) { setPickMode(false); telemetry.start(agentId); return }
+                if (agentId) { telemetry.start(agentId); return }
                 // Same technique, for the per-pod expand panel's own node-name buttons (nodes.tsx's Card):
                 // those live inside a SERVICE card but need to select a DIFFERENT entity (the node that
                 // pod happens to be scheduled on) - something only this handler, not the card component
@@ -1058,14 +1060,6 @@ function Canvas() {
                   // syncSelected checks React Flow node ids, which are cardId(...)-prefixed - not the
                   // raw MachineNode id data-select-node carries (see cardId's call sites in graph.ts).
                   setNodes((ns) => syncSelected(ns, new Set([cardId(selectNodeId)])))
-                  return
-                }
-                // Pick mode takes over the click entirely - one click picks (or, for an ineligible node,
-                // just cancels) rather than also falling through to a normal select.
-                if (pickMode) {
-                  setPickMode(false)
-                  const picked = pickTarget(n)
-                  if (picked) telemetry.start(picked.agentId, picked.scope)
                   return
                 }
                 // A multi-select click (shift/ctrl/cmd, matching multiSelectionKeyCode below) has already
@@ -1098,7 +1092,6 @@ function Canvas() {
                 setNodes((ns) => syncSelected(ns, new Set([n.id])))
               }}
               onPaneClick={() => {
-                if (pickMode) { setPickMode(false); return }
                 // Closes the Inspector (the single-click `selection`) - but a prior shift/ctrl-click or
                 // box-drag multi-selection is tracked entirely separately (`multiSelectedIds`, populated
                 // from React Flow's own selection via onSelectionChange - see its doc comment) and
@@ -1120,10 +1113,10 @@ function Canvas() {
               onEdgeMouseMove={(e) => setHoverPos({ cx: e.clientX, cy: e.clientY })}
               onEdgeMouseLeave={() => { setHoverEdge(null); setHoverPos(null) }}
               nodesConnectable={false}
-              nodesDraggable={!pickMode}
               multiSelectionKeyCode={['Shift', 'Meta', 'Control']}
-              minZoom={0.1}
-              maxZoom={1.75}
+              minZoom={0.2}
+              maxZoom={1.5}
+              translateExtent={panExtent}
               fitView
               fitViewOptions={FIT_VIEW_OPTIONS}
               proOptions={PRO_OPTIONS}
@@ -1132,32 +1125,15 @@ function Canvas() {
               <Background variant={BackgroundVariant.Dots} gap={22} size={1.2} color="var(--color-nb-850)" />
               <Controls showInteractive={false} />
               {/* Hidden while the Inspector is open: the canvas is narrower then and the map would sit on the legend. The mask is themed in index.css. */}
-              <MiniMap className={selection ? '!hidden' : '!hidden sm:!block'} pannable zoomable nodeColor={miniColor} nodeStrokeWidth={0} />
-              {/* Follows the current selection instead of sitting in the fixed toolbar: the accent halo
-                  (nodes.tsx, driven by highlightedIds above) marks *what* is selected, this sits right next
-                  to it as the *action* for it - one click or box-drag, then the thing to do about it is right
-                  there, rather than a person having to look away to a toolbar button that may not even be
-                  visible depending on scroll/viewport. NodeToolbar accepts an array of node ids and centers
-                  itself over their combined bounding box, so this works the same for one clicked service, a
-                  shift/ctrl-click group, or a whole box-selected cluster. Hidden on the map plane, same as
-                  the toolbar button it replaces was. */}
-              <NodeToolbar nodeId={[...highlightedIds]} isVisible={!isMap && selectedServices.length > 0} position={Position.Top} offset={14}>
-                <ScopeFromSelection
-                  selected={selectedServices}
-                  clusters={clusters.filter((c) => !c.deletedAt)}
-                  agents={agents}
-                  open={openMenu === 'scope'}
-                  onOpenChange={(o) => setOpenMenu(o ? 'scope' : null)}
-                  onScope={telemetry.start}
-                />
-              </NodeToolbar>
+              <AutoMiniMap bounds={graphBounds} hidden={!!selection} className="!hidden sm:!block" pannable zoomable nodeColor={miniColor} nodeStrokeWidth={0} />
               <Panel position="bottom-left" className="!mb-3 !ml-16 hidden sm:block">
                 {/* flex-wrap (plus the max-w below) lets a long legend - everything explained can be on at
                     once: tiers, cross-group, mesh, traffic, telemetry, measured links - wrap onto a second
                     line on a narrower viewport or with the Inspector open, rather than running off the
                     right edge of the canvas with no way to see the rest of it. whitespace-nowrap is kept on
                     the row so wrapping only ever happens between entries, never mid-label. */}
-                <div className="flex max-w-[min(92vw,720px)] flex-wrap items-center gap-x-4 gap-y-1.5 whitespace-nowrap rounded-lg border border-nb-850 bg-nb-925/95 px-3.5 py-2 text-xs text-nb-400">
+                {legendOpen ? (
+                  <div className="flex max-w-[min(92vw,720px)] flex-wrap items-center gap-x-4 gap-y-1.5 whitespace-nowrap rounded-lg border border-nb-850 bg-nb-925/95 px-3.5 py-2 text-xs text-nb-400">
                   {TIERS.map((t) => (
                     <span key={t.value} className="flex items-center gap-1.5">
                       <span className="size-2 rounded-full" style={{ background: TIER_COLOR[t.value] }} />
@@ -1256,11 +1232,32 @@ function Canvas() {
                       </span>
                     </>
                   )}
+                <button
+                    type="button"
+                    onClick={() => toggleLegend(false)}
+                    className="ml-auto rounded p-0.5 text-nb-500 hover:bg-nb-900 hover:text-nb-200"
+                    aria-label="Hide legend"
+                    title="Hide legend"
+                  >
+                    <X size={ICON_SM} />
+                  </button>
                 </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => toggleLegend(true)}
+                    className="flex items-center gap-1.5 rounded-lg border border-nb-850 bg-nb-925/95 px-2.5 py-1.5 text-xs text-nb-400 hover:text-nb-200"
+                    aria-label="Show legend"
+                    title="What the colours and line styles mean"
+                    data-testid="legend-toggle"
+                  >
+                    <Info size={ICON_SM} /> Legend
+                  </button>
+                )}
               </Panel>
             </ReactFlow>
+            </SquareRoutes>
             </PeerRingContext.Provider>
-            </EdgeStyleContext.Provider>
           )}
           {hoveredEdge && hoverPos && (
             <EdgeHoverCard

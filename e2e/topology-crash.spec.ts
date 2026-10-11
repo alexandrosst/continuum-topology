@@ -210,17 +210,11 @@ test.describe('topology canvas', () => {
     // state) via `select(null)`. A shift/ctrl-click or box-drag multi-selection lives in a separate piece
     // of state (`multiSelectedIds`, mirrored from React Flow's own selection) that `select(null)` never
     // touched, so clicking empty canvas after multi-selecting a few cards left them all still highlighted
-    // and the floating scope toolbar (NodeToolbar/ScopeFromSelection) still open.
+    // and their React Flow `.selected` flags still set.
     await loadSampleTopology(page)
     await goToTopologyCanvas(page)
 
-    // Two services on the same cluster (cl-edge-a), which - unlike the cloud cluster - has an
-    // *approved* agent in the sample data. ScopeFromSelection only renders real toolbar content
-    // once every selected service's cluster has an approved agent (see its own `targets` gate);
-    // picking two arbitrary nodes can land on a cluster with no agent at all and leave the
-    // toolbar an empty, zero-size element that toBeVisible() correctly reports as not visible.
-    // That's a property of ScopeFromSelection's own business logic, not of the pane-click fix
-    // this test guards, so the nodes are chosen deliberately rather than by DOM order.
+    // Two arbitrary service cards.
     const nodeA = page.locator('.react-flow__node[data-id="c:w-mqtt-a"]')
     const nodeB = page.locator('.react-flow__node[data-id="c:w-infer-a"]')
     await expect(nodeA).toBeVisible()
@@ -230,8 +224,6 @@ test.describe('topology canvas', () => {
     await nodeB.click({ modifiers: ['Shift'], force: true })
     await page.waitForTimeout(1000)
 
-    const toolbar = page.locator('.react-flow__node-toolbar')
-    await expect(toolbar).toBeVisible({ timeout: 5000 })
     await expect(page.locator('.react-flow__node.selected')).toHaveCount(2)
 
     // A spot of the pane with nothing on it. It is looked up, not fixed: how the cards, pods and cluster boxes fall on the
@@ -249,7 +241,6 @@ test.describe('topology canvas', () => {
     expect(spot, 'there is a free spot on the canvas to click').not.toBeNull()
     await page.mouse.click(spot!.x, spot!.y)
 
-    await expect(toolbar).toBeHidden()
     await expect(page.locator('.react-flow__node.selected')).toHaveCount(0)
     await expect(page.locator('aside.modal-pop')).toBeHidden()
   })
@@ -280,7 +271,9 @@ test.describe('topology canvas', () => {
 
     // A single plain click on a THIRD, not-yet-selected node - no modifier at all - should leave exactly
     // that one selected, not it plus the leftover multi-selection.
-    await nodeC.click({ force: true })
+    // The Inspector panel is open at this point and the canvas re-centres on the focused entity, so the third card can sit
+    // under the panel or off screen; dispatch the click on the card itself instead of at a screen position.
+    await nodeC.dispatchEvent('click')
     await page.waitForTimeout(500)
     await expect(page.locator('.react-flow__node.selected')).toHaveCount(1)
     await expect(nodeC).toHaveClass(/selected/)
@@ -310,6 +303,7 @@ test('Export PNG downloads a PNG file from the graph canvas', async ({ page }) =
   await loadSampleTopology(page)
   await goToTopologyCanvas(page)
 
+  await page.getByTestId('canvas-more').click()
   const [download] = await Promise.all([
     page.waitForEvent('download', { timeout: 15_000 }),
     page.getByTestId('export-png').click(),

@@ -198,11 +198,13 @@ export const GroupBox = memo(function GroupBox({ data, selected }: NodeProps<Gro
     // very tip of any edge pointing at it. Inset keeps the identical highlight look without ever drawing
     // outside the box OffsetEdge's own math already treats as this card's exact, true extent.
     <div
-      className={clsx('h-full w-full rounded-2xl border transition-shadow', selected ? 'shadow-[inset_0_0_0_2px_var(--color-accent)]' : peer && 'shadow-[inset_0_0_0_1.5px_var(--color-nb-500)]')}
+      className={clsx('h-full w-full rounded-2xl border transition-shadow', selected ? 'topo-pop shadow-[0_10px_30px_-12px_rgb(0_0_0/0.35)]' : peer && 'shadow-[inset_0_0_0_1.5px_var(--color-nb-500)]')}
       style={{
-        borderColor: `color-mix(in srgb, ${color} ${selected ? 70 : 32}%, transparent)`,
+        '--pop': 1.012,
+        // Selected is a change of colour and a small lift, not a heavier border.
+        borderColor: selected ? 'var(--color-accent)' : `color-mix(in srgb, ${color} 32%, transparent)`,
         background: `color-mix(in srgb, ${color} 5%, var(--color-nb-920))`,
-      }}
+      } as React.CSSProperties}
     >
       <AllHandles />
       <div className="flex items-start justify-between gap-3 px-5 pt-4">
@@ -334,8 +336,10 @@ export const Card = memo(function Card({ data, selected }: NodeProps<CardNode>) 
         // inset, not outward - see the identical note on the group/boundary box above: an outward ring
         // here would bleed past this card's own true boundary and sit on top of any edge arrowhead
         // pointing at it, since edges always render beneath every node regardless of z-index.
-        selected ? 'border-accent shadow-[inset_0_0_0_1px_var(--color-accent)]' : 'border-nb-800 hover:border-nb-700',
+        // Selected: the border changes colour (not weight), the card lifts a little and pops once (index.css).
+        selected ? 'topo-pop border-accent shadow-[0_10px_26px_-12px_rgb(0_0_0/0.4)]' : 'border-nb-800 hover:border-nb-700',
       )}
+      style={{ '--pop': 1.04 } as React.CSSProperties}
     >
       <AllHandles />
       <div className="flex items-center gap-3">

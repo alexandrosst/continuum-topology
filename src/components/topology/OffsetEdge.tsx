@@ -1,19 +1,12 @@
-import { BaseEdge, useInternalNode, useStore, useViewport, type EdgeProps } from '@xyflow/react'
+import { BaseEdge, useStore, useViewport, type EdgeProps, type InternalNode } from '@xyflow/react'
 import { createContext, useContext } from 'react'
-import { HEADER, type TopoEdge } from '@/lib/graph'
+import { HEADER, NS_HEADER, type TopoEdge } from '@/lib/graph'
 import { DETOUR_STUB, detourRoute, polylineMidpoint } from './detour'
-
-/** Which path generator OffsetEdge draws with - 'curved' (the default hand-built bow, see curvedPath below)
- *  or 'elbow' (the opt-in rounded-orthogonal style, see elbowPath below). Read via context rather than a
- *  per-edge data field: it's a single canvas-wide view preference (the Options menu\'s "Edge style" control
- *  in TopologyPage.tsx), not something that varies edge to edge, so there is no reason for every edge object
- *  passing through graph.ts to carry its own copy. TopologyPage wraps its <ReactFlow> in this context\'s
- *  Provider; OffsetEdge (rendered by React Flow for every edge, still within that same tree) reads it back. */
-export const EdgeStyleContext = createContext<'curved' | 'elbow'>('curved')
+import { orthoRoute } from './ortho'
 
 /** A node's absolute (canvas-space, parent offsets already applied) bounding box, or null while React Flow
  *  hasn't measured it yet (the very first render or two after it mounts). */
-function boxOf(n: ReturnType<typeof useInternalNode>): { x: number; y: number; w: number; h: number } | null {
+function boxOf(n: InternalNode | undefined): { x: number; y: number; w: number; h: number } | null {
   if (!n?.measured.width || !n.measured.height) return null
   return { x: n.internals.positionAbsolute.x, y: n.internals.positionAbsolute.y, w: n.measured.width, h: n.measured.height }
 }
@@ -61,7 +54,23 @@ export function outwardNormal(box: { x: number; y: number; w: number; h: number 
  *  target) whose own boundary the bow might otherwise sweep through on the way between them. Passed in
  *  by OffsetEdge, which is the one with a live view of every node on the canvas; curvedPath itself stays a
  *  pure function of whatever obstacles it's handed, so it's still testable without rendering anything. */
-export type PathObstacle = { x: number; y: number; w: number; h: number }
+export type PathObstacle = { x: number; y: number; w: number; h: number; soft?: boolean }
+
+/** How round a squared route's corners are (px): a tidy wiring diagram, not a curve. */
+export const SQUARE_CORNER_RADIUS = 12
+
+const orthoCache = new Map<string, Pt[] | null>()
+export function cachedOrtho(p1: Pt, n1: Pt, p2: Pt, n2: Pt, obstacles: PathObstacle[]) {
+  const hard = obstacles.filter((o) => !o.soft)
+  const soft = obstacles.filter((o) => o.soft)
+  const r = (v: number) => Math.round(v * 2) / 2
+  const key = [p1.x, p1.y, n1.x, n1.y, p2.x, p2.y, n2.x, n2.y, ...hard.flatMap((o) => [o.x, o.y, o.w, o.h]), -99999, ...soft.flatMap((o) => [o.x, o.y, o.w, o.h])].map(r).join(',')
+  if (orthoCache.has(key)) return orthoCache.get(key)!
+  const route = orthoRoute(p1, n1, p2, n2, hard, soft)
+  if (orthoCache.size >= 400) orthoCache.delete(orthoCache.keys().next().value!)
+  orthoCache.set(key, route)
+  return route
+}
 
 /** How round a detour's turns are (px): enough to read as a route, not a wiring diagram. */
 const DETOUR_CORNER_RADIUS = 40
@@ -187,143 +196,7 @@ export function roundedPolylinePath(points: { x: number; y: number }[], radius: 
   return d
 }
 
-/** How far a squared route runs out of a box before it turns (px): inside the gap between rows of cards, so the first
- *  turn never clips a neighbour. */
-const ELBOW_STUB = 22
-/** Clear space kept between a squared route and any box it passes. */
-const ELBOW_CLEARANCE = 8
-
 type Pt = { x: number; y: number }
-const flip = (pts: Pt[]): Pt[] => pts.map((p) => ({ x: p.y, y: p.x }))
-const flip1 = (v: Pt): Pt => ({ x: v.y, y: v.x })
-const flip1R = (o: PathObstacle): PathObstacle => ({ x: o.y, y: o.x, w: o.h, h: o.w })
-
-/** How many boxes the axis-aligned legs of a route run through. */
-function routeHits(points: Pt[], obstacles: PathObstacle[]): number {
-  const c = ELBOW_CLEARANCE / 2
-  let n = 0
-  for (const o of obstacles) {
-    for (let i = 1; i < points.length; i++) {
-      const a = points[i - 1]
-      const b = points[i]
-      if (Math.min(a.x, b.x) < o.x + o.w + c && Math.max(a.x, b.x) > o.x - c && Math.min(a.y, b.y) < o.y + o.h + c && Math.max(a.y, b.y) > o.y - c) {
-        n++
-        break
-      }
-    }
-  }
-  return n
-}
-
-/** A squared route that runs through a box it should go around (a long vertical leg down a column of cards, say) is replaced
- *  by one that steps out of the source, runs along a free channel between boxes and steps into the target: the channel is
- *  tried at the sides of every box in the way, and the route with the fewest boxes crossed wins (the shortest on a tie), the
- *  given one if nothing is better. Two vertical ends only; the horizontal case calls it with the axes swapped. */
-function clearJog(points: Pt[], sourceNormal: Pt, targetNormal: Pt, obstacles: PathObstacle[]): Pt[] {
-  if (points.length !== 4 || obstacles.length === 0) return points
-  let best = points
-  let bestHits = routeHits(points, obstacles)
-  if (bestHits === 0) return points
-  const [a, , , b] = points
-  const ya = a.y + (sourceNormal.y || -1) * ELBOW_STUB
-  const yb = b.y + (targetNormal.y || -1) * ELBOW_STUB
-  const length = (r: Pt[]) => r.reduce((sum, p, i) => (i ? sum + Math.abs(p.x - r[i - 1].x) + Math.abs(p.y - r[i - 1].y) : 0), 0)
-  let bestLen = length(points)
-  const channels = new Set<number>([(a.x + b.x) / 2])
-  for (const o of obstacles) {
-    channels.add(o.x - ELBOW_CLEARANCE)
-    channels.add(o.x + o.w + ELBOW_CLEARANCE)
-  }
-  for (const cx of channels) {
-    const route = [a, { x: a.x, y: ya }, { x: cx, y: ya }, { x: cx, y: yb }, { x: b.x, y: yb }, b]
-    const hits = routeHits(route, obstacles)
-    const len = length(route)
-    if (hits < bestHits || (hits === bestHits && len < bestLen)) {
-      best = route
-      bestHits = hits
-      bestLen = len
-    }
-  }
-  return best
-}
-
-/** The "squared but soft" alternative to curvedPath, added per the UI/UX pass's arrow-style review: two
- *  or three axis-aligned legs joined by short rounded jogs between the two anchors, the same general shape
- *  React Flow's own built-in `smoothstep` edge type draws - except computed from OffsetEdge's own
- *  continuously-floating anchor points AND their actual box-relative exit/entry sides (`sourceNormal`,
- *  `targetNormal` - the same two curvedPath itself takes, from `outwardNormal`/`pickClearSide`) rather than
- *  from a fixed cardinal `sourcePosition`/`targetPosition` or a naive dx-vs-dy guess.
- *
- *  An earlier version of this picked its route shape purely from whichever axis carried more of the raw
- *  distance between the two anchor points, ignoring which side of each box they actually sat on. That reads
- *  fine when the dominant axis happens to agree with both normals (the common case - two boxes stacked in
- *  different rows, both normals vertical), but breaks visibly the moment it doesn't: an anchor correctly
- *  placed on a box's TOP edge (because that's the clear, unobstructed side - see pickClearSide) could still
- *  end up approached HORIZONTALLY if the two anchors happened to be more spread out sideways than vertically
- *  - the route runs the last leg sideways into a point that's meant to be entered from above, so it skims
- *  along just outside the box's own edge for a stretch rather than visibly plunging into it. Building the
- *  route from the normals themselves instead - matching curvedPath's own approach, just with hard corners
- *  instead of a bow - fixes that: the leg touching each anchor always runs along that anchor's own normal
- *  axis, so the line always looks like it leaves/arrives perpendicular to the box it touches, exactly like
- *  the curved style already does.
- *
- *  Both normals on the same axis (both vertical, or both horizontal - two boxes in different rows/columns,
- *  the common case) still gets the original two-bend "jog" shape, just keyed off the normals' axis instead
- *  of dx-vs-dy. Normals on different axes (a corner-ish relationship - leaving a box's side but entering
- *  another's top, say) gets a single-bend "L" instead: there's no room for a jog when one end's own leg
- *  already has to run along the other axis, so a two-bend shape there would only add a redundant corner
- *  without changing which side either end is entered from.
- *
- *  Still deliberately an opt-in look (the Options menu's "Edge style" control), not a replacement for
- *  curvedPath: a real orthogonal route reintroduces a small set of fixed angles, and a graph as dense and
- *  cross-crossing as this app's can end up busier, not cleaner, with hard elbows everywhere - it's a genuine
- *  style choice, not a strict upgrade. */
-export function elbowPath(
-  x1: number,
-  y1: number,
-  x2: number,
-  y2: number,
-  sourceNormal: { x: number; y: number },
-  targetNormal: { x: number; y: number },
-  obstacles: PathObstacle[] = [],
-  radius = 14,
-): { path: string; labelX: number; labelY: number } {
-  const sourceVertical = sourceNormal.x === 0
-  const targetVertical = targetNormal.x === 0
-  const points =
-    sourceVertical && targetVertical
-      ? clearJog([{ x: x1, y: y1 }, { x: x1, y: (y1 + y2) / 2 }, { x: x2, y: (y1 + y2) / 2 }, { x: x2, y: y2 }], sourceNormal, targetNormal, obstacles)
-      : !sourceVertical && !targetVertical
-        ? flip(clearJog(flip([{ x: x1, y: y1 }, { x: (x1 + x2) / 2, y: y1 }, { x: (x1 + x2) / 2, y: y2 }, { x: x2, y: y2 }]), flip1(sourceNormal), flip1(targetNormal), obstacles.map(flip1R)))
-        : sourceVertical
-          ? // Leaves vertically (along sourceNormal), arrives horizontally (along targetNormal): a single
-            // bend at the point directly below/above the source and level with the target.
-            [{ x: x1, y: y1 }, { x: x1, y: y2 }, { x: x2, y: y2 }]
-          : // The mirror: leaves horizontally, arrives vertically - single bend level with the source and
-            // directly above/below the target.
-            [{ x: x1, y: y1 }, { x: x2, y: y1 }, { x: x2, y: y2 }]
-  const jog = points.length === 4 ? 1 : points.length === 6 ? 2 : 0
-  const mid = jog ? points[jog] : undefined
-  const mid2 = jog ? points[jog + 1] : undefined
-  // For the 4-point jog shape, the label sits on the short middle leg - the one part of the path that's
-  // never right on top of either box, unlike curvedPath's true midpoint label placement. The 3-point single-
-  // bend shape has no such middle leg (the two legs meet directly at the bend), so the label instead goes on
-  // the midpoint of whichever of the two legs is longer - the one more likely to actually clear both boxes.
-  let labelX: number
-  let labelY: number
-  if (mid && mid2) {
-    labelX = (mid.x + mid2.x) / 2
-    labelY = (mid.y + mid2.y) / 2
-  } else {
-    const [p0, p1, p2] = points
-    const leg1 = Math.hypot(p1.x - p0.x, p1.y - p0.y)
-    const leg2 = Math.hypot(p2.x - p1.x, p2.y - p1.y)
-    const [a, b] = leg1 >= leg2 ? [p0, p1] : [p1, p2]
-    labelX = (a.x + b.x) / 2
-    labelY = (a.y + b.y) / 2
-  }
-  return { path: roundedPolylinePath(points, radius), labelX, labelY }
-}
 
 /** Moves the line's two ends off their boxes by `gap` px, straight out along each box's own normal, so the gap is
  *  the same square-on distance wherever on a side the end sits. The source end never has an arrowhead in this app -
@@ -514,6 +387,11 @@ export function collectObstacles(
   source: string,
   target: string,
   bounds: { minX: number; maxX: number; minY: number; maxY: number },
+  /** When true a cluster or namespace box is not a wall: only its header strip (the text) is an obstacle, so a line may
+   *  cross the empty space between the cards inside it. */
+  through = false,
+  /** Also return each such box whole, flagged `soft`, for a router that wants to keep off its border. */
+  soft = false,
 ): PathObstacle[] {
   const ancestorsOf = (id: string): Set<string> => {
     const out = new Set<string>()
@@ -535,7 +413,12 @@ export function collectObstacles(
     if (!w || !h) continue
     const bx = n.internals.positionAbsolute.x
     const by = n.internals.positionAbsolute.y
-    if (bx < bounds.maxX && bx + w > bounds.minX && by < bounds.maxY && by + h > bounds.minY) obstacles.push({ x: bx, y: by, w, h })
+    if (!(bx < bounds.maxX && bx + w > bounds.minX && by < bounds.maxY && by + h > bounds.minY)) continue
+    if (through && n.type !== 'card') {
+      obstacles.push({ x: bx, y: by, w, h: Math.min(h, n.type === 'boundary' ? HEADER : NS_HEADER) })
+      if (soft) obstacles.push({ x: bx, y: by, w, h, soft: true })
+    }
+    else obstacles.push({ x: bx, y: by, w, h })
   }
   return obstacles
 }
@@ -578,111 +461,140 @@ export function collectObstacles(
  *  obstacle for it - generous enough to cover the widest bow curvedPath's own escalation ever tries (see
  *  its doc comment), so nothing that could plausibly end up under the curve gets missed, while still
  *  skipping the large majority of an even moderately busy canvas that's nowhere near this one edge's route. */
-export function OffsetEdge({ id, source, target, sourceX, sourceY, targetX, targetY, data, label, labelStyle, labelBgStyle, labelBgPadding, labelBgBorderRadius, labelShowBg, markerEnd, style, interactionWidth }: EdgeProps<TopoEdge>) {
-  const sourceNode = useInternalNode(source)
-  const targetNode = useInternalNode(target)
-  const sourceBox = boxOf(sourceNode)
-  const targetBox = boxOf(targetNode)
-  // Every other card on the canvas, live - reused below both to pick a different entry side when the
-  // target's natural one is blocked (pickClearSide) and by curvedPath's own bow escalation (see
-  // PathObstacle's doc comment). Reads the whole node lookup reactively (not just this edge's own source/
-  // target, the way useInternalNode above does), so every edge re-renders on any node moving, not only its
-  // own two ends - a broader subscription than the rest of this component needs, but cheap at this app's
-  // scale (the actual per-render work below is a handful of point-in-rect checks), and it's what keeps a
-  // dragged card's already-avoiding edges from lagging a stale detour behind it.
-  const nodeLookup = useStore((s) => s.nodeLookup)
+/** Everything a line needs to be routed, worked out from the live node boxes: the anchors on each box's boundary (sliding
+ *  along the side, fanned by the edge's offsets), the outward normals there, and the boxes in the way. */
+export type EdgeLayout = {
+  sourceBox: PathObstacle
+  targetBox: PathObstacle
+  p1: { x: number; y: number }
+  n1: { x: number; y: number }
+  p2: { x: number; y: number }
+  n2: { x: number; y: number }
+  obstacles: PathObstacle[]
+  soft: PathObstacle[]
+}
 
-  let sx = sourceX
-  let sy = sourceY
-  let tx = targetX
-  let ty = targetY
-  // The direction curvedPath's cubic leaves the source in, and the box side the target's own tip sits on -
-  // both default to "up" (a reasonable guess for the very first render or two before a node is measured)
-  // and get replaced with the real answer below the moment both boxes are.
-  let sourceNormal = { x: 0, y: -1 }
-  let targetNormal = { x: 0, y: -1 }
-  const obstacles: PathObstacle[] = []
-  if (sourceBox && targetBox) {
-    // A generous box around both ends' own boxes, not just the eventual touch points - available before
-    // those are computed, and this component's one obstacle list ends up reused for both pickClearSide
-    // (which runs before the touch points are final) and curvedPath's escalation (which runs after).
-    const minX = Math.min(sourceBox.x, targetBox.x) - OBSTACLE_MARGIN
-    const maxX = Math.max(sourceBox.x + sourceBox.w, targetBox.x + targetBox.w) + OBSTACLE_MARGIN
-    const minY = Math.min(sourceBox.y, targetBox.y) - OBSTACLE_MARGIN
-    const maxY = Math.max(sourceBox.y + sourceBox.h, targetBox.y + targetBox.h) + OBSTACLE_MARGIN
-    obstacles.push(...collectObstacles(nodeLookup, source, target, { minX, maxX, minY, maxY }))
+export function layoutEdge(
+  nodeLookup: Map<string, InternalNode>,
+  source: string,
+  target: string,
+  sourceOffset: number,
+  targetOffset: number,
+  /** The squared style: a cluster or namespace box is not a wall (only its header is), and its border is reported as `soft`. */
+  squared: boolean,
+): EdgeLayout | null {
+  const sourceBox = boxOf(nodeLookup.get(source))
+  const targetBox = boxOf(nodeLookup.get(target))
+  if (!sourceBox || !targetBox) return null
+  // A generous box around both ends' own boxes, not just the eventual touch points - the one obstacle list is reused for
+  // pickClearSide (which runs before the touch points are final) and for routing (which runs after).
+  const minX = Math.min(sourceBox.x, targetBox.x) - OBSTACLE_MARGIN
+  const maxX = Math.max(sourceBox.x + sourceBox.w, targetBox.x + targetBox.w) + OBSTACLE_MARGIN
+  const minY = Math.min(sourceBox.y, targetBox.y) - OBSTACLE_MARGIN
+  const maxY = Math.max(sourceBox.y + sourceBox.h, targetBox.y + targetBox.h) + OBSTACLE_MARGIN
+  const all = collectObstacles(nodeLookup, source, target, { minX, maxX, minY, maxY }, squared, squared)
+  const obstacles = all.filter((o) => !o.soft)
+  const soft = all.filter((o) => o.soft)
 
-    const targetCenter = { x: targetBox.x + targetBox.w / 2, y: targetBox.y + targetBox.h / 2 }
-    const sourceCenter = { x: sourceBox.x + sourceBox.w / 2, y: sourceBox.y + sourceBox.h / 2 }
-    const from = intersection(sourceBox, targetCenter)
-    const naturalTo = intersection(targetBox, sourceCenter)
-    // Each end first takes the side the straight line to the other end would use, then slides along it as the other
-    // end moves. A target whose natural side is blocked gets another (pickClearSide), and a first-row card in a cluster
-    // keeps its line off the cluster's header text by using a side instead of its top (avoidHeaderSide); not when both
-    // ends sit in the same cluster, as the line then never has to cross that header. Whichever side wins, the line
-    // meets the box square-on, along that side's normal.
-    const sourceCluster = clusterBoxOf(nodeLookup, source)
-    const targetCluster = clusterBoxOf(nodeLookup, target)
-    const sameCluster = sourceCluster !== undefined && sourceCluster.id === targetCluster?.id
-    const sourceNatural = { point: from, normal: outwardNormal(sourceBox, from) }
-    const fromSide = sameCluster ? sourceNatural : avoidHeaderSide(sourceBox, sourceCluster, sourceNatural, targetCenter, obstacles)
-    const picked = pickClearSide(targetBox, { point: naturalTo, normal: outwardNormal(targetBox, naturalTo) }, obstacles, sourceCenter)
-    const chosen = sameCluster ? picked : avoidHeaderSide(targetBox, targetCluster, picked, sourceCenter, obstacles)
-    sourceNormal = fromSide.normal
-    targetNormal = chosen.normal
-    const fromPoint = insetFromCorners(sourceBox, fromSide.point, sourceNormal)
-    const toPoint = insetFromCorners(targetBox, chosen.point, targetNormal)
-    sx = fromPoint.x
-    sy = fromPoint.y
-    tx = toPoint.x
-    ty = toPoint.y
-  }
+  const targetCenter = { x: targetBox.x + targetBox.w / 2, y: targetBox.y + targetBox.h / 2 }
+  const sourceCenter = { x: sourceBox.x + sourceBox.w / 2, y: sourceBox.y + sourceBox.h / 2 }
+  const from = intersection(sourceBox, targetCenter)
+  const naturalTo = intersection(targetBox, sourceCenter)
+  // Each end first takes the side the straight line to the other end would use, then slides along it as the other end
+  // moves. A target whose natural side is blocked gets another (pickClearSide), and a first-row card in a cluster keeps
+  // its line off the cluster's header text by using a side instead of its top (avoidHeaderSide); not when both ends sit in
+  // the same cluster, as the line then never has to cross that header. Whichever side wins, the line meets the box
+  // square-on, along that side's normal.
+  const sourceCluster = clusterBoxOf(nodeLookup, source)
+  const targetCluster = clusterBoxOf(nodeLookup, target)
+  const sameCluster = sourceCluster !== undefined && sourceCluster.id === targetCluster?.id
+  const sourceNatural = { point: from, normal: outwardNormal(sourceBox, from) }
+  const fromSide = sameCluster ? sourceNatural : avoidHeaderSide(sourceBox, sourceCluster, sourceNatural, targetCenter, obstacles)
+  const picked = pickClearSide(targetBox, { point: naturalTo, normal: outwardNormal(targetBox, naturalTo) }, obstacles, sourceCenter)
+  const chosen = sameCluster ? picked : avoidHeaderSide(targetBox, targetCluster, picked, sourceCenter, obstacles)
+  const n1 = fromSide.normal
+  const n2 = chosen.normal
+  const a = insetFromCorners(sourceBox, fromSide.point, n1)
+  const b = insetFromCorners(targetBox, chosen.point, n2)
 
-  // The bare line-end itself should never be the thing touching a box - the only contact anywhere on an edge is meant
-  // to be an arrowhead's own tip. The ends above sit exactly ON each box's boundary; pullBackEnds shrinks that back
-  // off, by GAP straight out along the box's normal, at whichever end(s) have no arrowhead tip of their own to place
-  // there instead (see its doc comment).
-  //
-  // GAP is expressed as a target *screen* size (a gap that reads the same whether the canvas is zoomed in or
-  // fit-to-view zoomed way out over a big multi-cluster graph) and converted to flow-space by dividing by the
-  // current zoom - a flat flow-space constant would shrink to sub-pixel, invisible nothing at the ~0.5-0.6x
-  // zoom this app's own overview layouts commonly fit to.
-  const { zoom } = useViewport()
-  const GAP = 5 / zoom
-  const pulled = pullBackEnds({ x: sx, y: sy }, sourceNormal, { x: tx, y: ty }, targetNormal, GAP, !!markerEnd)
-  sx = pulled.sx
-  sy = pulled.sy
-  tx = pulled.tx
-  ty = pulled.ty
-
-  // A fan of lines between the same two boxes is spread along the boxes' own sides, not across the line, so an end
-  // never slides off its box.
+  // A fan of lines between the same two boxes is spread along the boxes' own sides, not across the line, so an end never
+  // slides off its box.
   const spread = (p: { x: number; y: number }, normal: { x: number; y: number }, amount: number) => {
     if (!amount) return p
     const tangent = { x: -normal.y, y: normal.x }
-    const sign = tangent.x * (ty - sy) * -1 + tangent.y * (tx - sx) >= 0 ? 1 : -1 // the same side of the line as before
+    const sign = tangent.x * (b.y - a.y) * -1 + tangent.y * (b.x - a.x) >= 0 ? 1 : -1 // the same side of the line as before
     return { x: p.x + tangent.x * sign * amount, y: p.y + tangent.y * sign * amount }
   }
-  const sourceOff = data?.sourceOffset ?? 0
-  const targetOff = data?.targetOffset ?? 0
-  const a1 = spread({ x: sx, y: sy }, sourceNormal, sourceOff)
-  const a2 = spread({ x: tx, y: ty }, targetNormal, targetOff)
-  const x1 = a1.x
-  const y1 = a1.y
-  const x2 = a2.x
-  const y2 = a2.y
+  return { sourceBox, targetBox, p1: spread(a, n1, sourceOffset), n1, p2: spread(b, n2, targetOffset), n2, obstacles, soft }
+}
 
-  // The line must not run across its own two boxes either (leaving by one side and arriving by another would otherwise
-  // let it graze along a box's edge on the way); only the curved style routes by this, so it is passed there alone.
-  const edgeStyle = useContext(EdgeStyleContext)
-  const { path, labelX, labelY } =
-    edgeStyle === 'elbow' ? elbowPath(x1, y1, x2, y2, sourceNormal, targetNormal, obstacles) : curvedPath(x1, y1, x2, y2, sourceNormal, targetNormal, sourceBox && targetBox ? [...obstacles, sourceBox, targetBox] : obstacles)
+/** React Flow keeps `nodeLookup` as one Map it edits in place, so reading it never re-renders anything by itself. This is a
+ *  string that changes exactly when some node moves or is resized, to subscribe to alongside it. */
+export function useNodeGeometryKey(): string {
+  return useStore((s) => {
+    let k = ''
+    for (const n of s.nodeLookup.values()) k += `${n.id}:${n.internals.positionAbsolute.x},${n.internals.positionAbsolute.y},${n.measured.width ?? 0},${n.measured.height ?? 0}${n.dragging ? 'd' : ''};`
+    return k
+  })
+}
+
+/** A squared line already routed together with all the others (see SquareRoutes.tsx), by edge id. */
+export type RoutedPath = { path: string; labelX: number; labelY: number }
+export const SquareRoutesContext = createContext<Map<string, RoutedPath> | null>(null)
+
+/**
+ * A line between two boxes, with its source end moved sideways by `data.sourceOffset` pixels and its target end by
+ * `data.targetOffset`, independently (equal values keep two lines between the same pair parallel; different values fan one
+ * out of a busy node while it still lands cleanly at a quiet one).
+ *
+ * The anchors are computed fresh every render from each node's live geometry (React Flow's own "floating edges" pattern),
+ * not from the fixed handle sides the graph build guessed at, so an end tracks a drag live and slides along its box side.
+ * The line is hand-built rather than drawn with `getBezierPath` so it can leave and arrive square-on (see curvedPath), and
+ * the arrowhead (an SVG marker, `orient="auto"`) follows whatever tangent the path really has.
+ *
+ * In the squared style the line comes from SquareRoutesContext: every line is routed together, so parallel lines can be
+ * spaced apart. Without it (the curved fallback, or before the first measure) the line is routed on its own.
+ */
+export function OffsetEdge({ id, source, target, sourceX, sourceY, targetX, targetY, data, label, labelStyle, labelBgStyle, labelBgPadding, labelBgBorderRadius, labelShowBg, markerEnd, style, interactionWidth }: EdgeProps<TopoEdge>) {
+  // Every other card on the canvas, live. Read reactively (not just this edge's own two ends), so every edge re-routes on
+  // any node moving; cheap at this app's scale, and it keeps a dragged card's already-avoiding edges from lagging.
+  const nodeLookup = useStore((s) => s.nodeLookup)
+  useNodeGeometryKey()
+  const { zoom } = useViewport()
+  const routed = useContext(SquareRoutesContext)?.get(id)
+
+  let result: RoutedPath
+  if (routed) {
+    result = routed
+  } else {
+    const layout = layoutEdge(nodeLookup, source, target, data?.sourceOffset ?? 0, data?.targetOffset ?? 0, false)
+    let p1 = { x: sourceX, y: sourceY }
+    let p2 = { x: targetX, y: targetY }
+    // "Up" is a reasonable guess for the very first render or two before a node is measured.
+    let n1 = { x: 0, y: -1 }
+    let n2 = { x: 0, y: -1 }
+    let obstacles: PathObstacle[] = []
+    if (layout) {
+      p1 = layout.p1
+      p2 = layout.p2
+      n1 = layout.n1
+      n2 = layout.n2
+      obstacles = layout.obstacles
+    }
+    // The bare line-end itself should never be the thing touching a box - the only contact is meant to be an arrowhead's
+    // own tip. The ends sit exactly ON each box's boundary; pullBackEnds shrinks that back off by GAP along the normal at
+    // whichever end(s) have no arrowhead tip (see its doc comment). GAP is a *screen* size, converted to flow space by
+    // the zoom, so it reads the same fit-to-view zoomed out as it does close up.
+    const pulled = pullBackEnds(p1, n1, p2, n2, 5 / zoom, !!markerEnd)
+    // The line must not run across its own two boxes either.
+    result = curvedPath(pulled.sx, pulled.sy, pulled.tx, pulled.ty, n1, n2, layout ? [...obstacles, layout.sourceBox, layout.targetBox] : obstacles)
+  }
   return (
     <BaseEdge
       id={id}
-      path={path}
-      labelX={labelX}
-      labelY={labelY}
+      path={result.path}
+      labelX={result.labelX}
+      labelY={result.labelY}
       label={label}
       labelStyle={labelStyle}
       labelShowBg={labelShowBg}

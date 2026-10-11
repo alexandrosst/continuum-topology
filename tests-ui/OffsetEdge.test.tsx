@@ -3,7 +3,6 @@ import {
   avoidHeaderSide,
   collectObstacles,
   curvedPath,
-  elbowPath,
   ARRIVAL_DEPTH,
   insetFromCorners,
   intersection,
@@ -16,7 +15,7 @@ import {
   sideMidpoint,
   slideOnSide,
 } from '@/components/topology/OffsetEdge'
-import { HEADER } from '@/lib/graph'
+import { HEADER, NS_HEADER } from '@/lib/graph'
 
 // A pure-math test, no rendering needed - kept in tests-ui/ (not tests/) purely because that's where the
 // vitest config's include glob looks; nothing here touches the DOM.
@@ -84,205 +83,6 @@ describe('outwardNormal (which side of a box a boundary point sits on, as a unit
   test('points up/down for a point on the box\'s own top/bottom edge', () => {
     expect(outwardNormal(box, { x: 200, y: 100 })).toEqual({ x: 0, y: -1 })
     expect(outwardNormal(box, { x: 200, y: 200 })).toEqual({ x: 0, y: 1 })
-  })
-})
-
-describe('elbowPath (the opt-in squared-but-soft alternative to curvedPath)', () => {
-  const outUp = { x: 0, y: -1 }
-  const outDown = { x: 0, y: 1 }
-  const outLeft = { x: -1, y: 0 }
-  const outRight = { x: 1, y: 0 }
-
-  test('starts and ends exactly at the given anchor points', () => {
-    const { path } = elbowPath(0, 0, 300, 200, outDown, outUp)
-    expect(path.startsWith('M0,0 ')).toBe(true)
-    expect(path.endsWith('L300,200')).toBe(true) // the final point is never touched by corner-rounding
-  })
-
-  test('both normals vertical: routes with a vertical-jog-vertical shape regardless of which axis the raw distance favors', () => {
-    // dx (300) far exceeds dy (20) here - the old dx-vs-dy heuristic would have picked a horizontal-jog
-    // route and approached the target sideways, even though targetNormal (top) means it should be entered
-    // from directly above. This is the exact shape of the reported bug: an edge to a target sitting in
-    // roughly the same row, but whose own natural entry side is still its top edge.
-    const { path } = elbowPath(0, 0, 300, 20, outDown, outUp)
-    const nums = path.match(/-?[\d.]+/g)!.map(Number)
-    const pts: [number, number][] = []
-    for (let i = 0; i < nums.length; i += 2) pts.push([nums[i], nums[i + 1]])
-    // The very first and very last points of the path are still the true anchors.
-    expect(pts[0]).toEqual([0, 0])
-    expect(pts.at(-1)).toEqual([300, 20])
-    // The final approach into the target is vertical (same x as the target for the point just before it),
-    // not horizontal - i.e. it arrives from above, matching outUp, rather than skimming in from the side.
-    const penultimate = pts.at(-2)!
-    expect(penultimate[0]).toBeCloseTo(300, 5)
-  })
-
-  test('both normals horizontal: routes with a horizontal-jog-horizontal shape regardless of which axis the raw distance favors', () => {
-    // Mirror of the above: dy (300) far exceeds dx (20), but both normals are horizontal, so the route
-    // must still approach the target sideways (same y as the target just before the end), not from above.
-    const { path } = elbowPath(0, 0, 20, 300, outRight, outLeft)
-    const nums = path.match(/-?[\d.]+/g)!.map(Number)
-    const pts: [number, number][] = []
-    for (let i = 0; i < nums.length; i += 2) pts.push([nums[i], nums[i + 1]])
-    expect(pts[0]).toEqual([0, 0])
-    expect(pts.at(-1)).toEqual([20, 300])
-    const penultimate = pts.at(-2)!
-    expect(penultimate[1]).toBeCloseTo(300, 5)
-  })
-
-  test('mixed normals (vertical source, horizontal target): a single-bend L route, no redundant jog', () => {
-    const { path } = elbowPath(0, 0, 300, 200, outDown, outLeft)
-    // Exactly one interior corner (one Q command), not the two a jog route would have - a single bend is
-    // all a mixed-axis route needs, since each leg already runs along a different anchor's own normal.
-    expect((path.match(/Q/g) ?? []).length).toBe(1)
-    // The corner sits directly below the source (same x) and level with the target (same y): the first
-    // leg is vertical (per sourceNormal=down), the last leg horizontal (per targetNormal=left). A Q
-    // command's own first coordinate pair is the exact, un-rounded corner point.
-    const [, cx, cy] = path.match(/Q(-?[\d.]+),(-?[\d.]+)/)!
-    expect(Number(cx)).toBeCloseTo(0, 5)
-    expect(Number(cy)).toBeCloseTo(200, 5)
-    expect(path.endsWith('L300,200')).toBe(true)
-  })
-
-  test('mixed normals (horizontal source, vertical target): the mirrored single-bend L route', () => {
-    const { path } = elbowPath(0, 0, 300, 200, outRight, outUp)
-    expect((path.match(/Q/g) ?? []).length).toBe(1)
-    const [, cx, cy] = path.match(/Q(-?[\d.]+),(-?[\d.]+)/)!
-    expect(Number(cx)).toBeCloseTo(300, 5)
-    expect(Number(cy)).toBeCloseTo(0, 5)
-    expect(path.endsWith('L300,200')).toBe(true)
-  })
-
-  test('label sits on the middle leg for a 4-point jog route, clear of either anchor', () => {
-    const { labelX, labelY } = elbowPath(0, 0, 300, 200, outDown, outUp)
-    expect(labelY).toBeCloseTo(100, 5) // the jog's own y, between 0 and 200
-    expect(labelX).toBeGreaterThan(0)
-    expect(labelX).toBeLessThan(300)
-  })
-
-  test('label sits on the longer leg for a 3-point single-bend route', () => {
-    // Source-to-corner leg (0,0)->(0,200): length 200. Corner-to-target leg (0,200)->(300,200): length 300.
-    // The longer one wins, so the label should be the midpoint of the second leg, not the first.
-    const { labelX, labelY } = elbowPath(0, 0, 300, 200, outDown, outLeft)
-    expect(labelX).toBeCloseTo(150, 5)
-    expect(labelY).toBeCloseTo(200, 5)
-  })
-  describe('with boxes in the way', () => {
-    // Every vertex of the route, read back out of the SVG path (corners are rounded, so only the straight parts matter: the
-    // first and last of each leg are enough to see which boxes the legs run through).
-    const legs = (path: string) => {
-      const nums = path.match(/-?[\d.]+/g)!.map(Number)
-      const pts: { x: number; y: number }[] = []
-      for (let i = 0; i < nums.length; i += 2) pts.push({ x: nums[i], y: nums[i + 1] })
-      return pts
-    }
-    const crosses = (pts: { x: number; y: number }[], o: { x: number; y: number; w: number; h: number }) => {
-      // Straight legs only: the rounded corners add `Q` control points that sit on the vertices, so consecutive points are the legs.
-      for (let i = 1; i < pts.length; i++) {
-        const a = pts[i - 1]
-        const b = pts[i]
-        if (Math.min(a.x, b.x) < o.x + o.w && Math.max(a.x, b.x) > o.x && Math.min(a.y, b.y) < o.y + o.h && Math.max(a.y, b.y) > o.y) return true
-      }
-      return false
-    }
-
-    test('a box straight down the vertical leg is gone around, through a gap beside it', () => {
-      const wall = { x: -60, y: 80, w: 120, h: 80 } // sits across x=0, between the two rows
-      const plain = elbowPath(0, 0, 0, 300, outDown, outUp)
-      expect(crosses(legs(plain.path), wall)).toBe(true) // what the unaware route did
-      const { path, labelX } = elbowPath(0, 0, 0, 300, outDown, outUp, [wall])
-      expect(crosses(legs(path), wall)).toBe(false)
-      expect(path.startsWith('M0,0 ')).toBe(true)
-      expect(path.endsWith('L0,300')).toBe(true) // still ends exactly on the anchor
-      expect(Math.abs(labelX)).toBeGreaterThan(60) // the label rides the channel, not the box
-    })
-
-    test('the horizontal case is the same, with the axes swapped', () => {
-      const wall = { x: 80, y: -60, w: 80, h: 120 }
-      const { path } = elbowPath(0, 0, 300, 0, outRight, outLeft, [wall])
-      expect(crosses(legs(path), wall)).toBe(false)
-      expect(path.endsWith('L300,0')).toBe(true)
-    })
-
-    test('a route nothing is in the way of is left exactly as it was', () => {
-      const away = { x: 500, y: 0, w: 50, h: 50 }
-      expect(elbowPath(0, 0, 300, 200, outDown, outUp, [away])).toEqual(elbowPath(0, 0, 300, 200, outDown, outUp))
-    })
-  })
-})
-
-
-describe('collectObstacles (which nodeLookup entries count as a routing obstacle)', () => {
-  // A minimal fake InternalNode - just the fields collectObstacles itself reads.
-  const node = (type: string, parentId: string | undefined, x: number, y: number, w = 100, h = 60) => ({
-    type,
-    parentId,
-    measured: { width: w, height: h },
-    internals: { positionAbsolute: { x, y } },
-  })
-  const bounds = { minX: -1000, maxX: 1000, minY: -1000, maxY: 1000 }
-
-  test('a group/namespace box that contains the source or target is excluded, not counted against itself', () => {
-    const nodeLookup = new Map(
-      Object.entries({
-        'grp-a': node('boundary', undefined, 0, 0, 400, 400),
-        'ns-a': node('namespace', 'grp-a', 10, 10, 200, 200),
-        src: node('card', 'ns-a', 20, 20),
-        'grp-b': node('boundary', undefined, 600, 0, 400, 400),
-        tgt: node('card', 'grp-b', 620, 20),
-      }),
-    )
-    const obstacles = collectObstacles(nodeLookup, 'src', 'tgt', bounds)
-    expect(obstacles).toEqual([])
-  })
-
-  test('a sibling group/namespace box neither end is inside counts as a real obstacle', () => {
-    const nodeLookup = new Map(
-      Object.entries({
-        'grp-a': node('boundary', undefined, 0, 0, 200, 200),
-        src: node('card', 'grp-a', 20, 20),
-        'grp-mid': node('boundary', undefined, 250, 0, 200, 200), // between src and tgt, neither's ancestor
-        'grp-b': node('boundary', undefined, 500, 0, 200, 200),
-        tgt: node('card', 'grp-b', 520, 20),
-      }),
-    )
-    const obstacles = collectObstacles(nodeLookup, 'src', 'tgt', bounds)
-    expect(obstacles).toContainEqual({ x: 250, y: 0, w: 200, h: 200 })
-    // Neither end's own container (nor the ends themselves) is in the result.
-    expect(obstacles).toHaveLength(1)
-  })
-
-  test('a node type that is none of card/boundary/namespace is never an obstacle (e.g. a cluster-link group box)', () => {
-    const nodeLookup = new Map(
-      Object.entries({
-        src: node('card', undefined, 0, 0),
-        tgt: node('card', undefined, 500, 0),
-        other: node('regionalOperator', undefined, 250, 0),
-      }),
-    )
-    expect(collectObstacles(nodeLookup, 'src', 'tgt', bounds)).toEqual([])
-  })
-
-  test('a candidate outside the given bounds is skipped even though it would otherwise qualify', () => {
-    const nodeLookup = new Map(
-      Object.entries({
-        src: node('card', undefined, 0, 0),
-        tgt: node('card', undefined, 500, 0),
-        far: node('card', undefined, 5000, 5000),
-      }),
-    )
-    expect(collectObstacles(nodeLookup, 'src', 'tgt', bounds)).toEqual([])
-  })
-
-  test('an unmeasured node (width/height not yet known) is skipped rather than producing a zero-size obstacle', () => {
-    const nodeLookup = new Map(
-      Object.entries({
-        src: node('card', undefined, 0, 0),
-        tgt: node('card', undefined, 500, 0),
-        unmeasured: { type: 'card', parentId: undefined, measured: {}, internals: { positionAbsolute: { x: 250, y: 0 } } },
-      }),
-    )
-    expect(collectObstacles(nodeLookup, 'src', 'tgt', bounds)).toEqual([])
   })
 })
 
@@ -519,5 +319,39 @@ describe('slideOnSide / insetFromCorners (an end keeps sliding along its side, o
     expect(insetFromCorners(box, { x: 101, y: 100 }, { x: 0, y: -1 })).toEqual({ x: 100 + SIDE_INSET, y: 100 })
     expect(insetFromCorners(box, { x: 300, y: 179 }, { x: 1, y: 0 })).toEqual({ x: 300, y: 180 - SIDE_INSET })
     expect(insetFromCorners(box, { x: 200, y: 100 }, { x: 0, y: -1 })).toEqual({ x: 200, y: 100 })
+  })
+})
+
+describe('collectObstacles (what a line must keep out of)', () => {
+  const node = (type: string, x: number, y: number, w: number, h: number, parentId?: string) => ({ type, parentId, measured: { width: w, height: h }, internals: { positionAbsolute: { x, y } } })
+  const lookup = new Map([
+    ['g1', node('boundary', 0, 0, 400, 300)], // holds the source
+    ['src', node('card', 20, 120, 100, 50, 'g1')],
+    ['g2', node('boundary', 600, 0, 400, 300)], // holds the target
+    ['dst', node('card', 620, 120, 100, 50, 'g2')],
+    ['g3', node('boundary', 0, 400, 400, 300)], // someone else's cluster
+    ['mid', node('card', 20, 500, 100, 50, 'g3')],
+    ['ns', node('namespace', 10, 440, 200, 120, 'g3')],
+  ]) as never
+  const everything = { minX: -1e6, maxX: 1e6, minY: -1e6, maxY: 1e6 }
+
+  test('skips the two ends and the boxes that hold them; another cluster counts as a whole wall by default', () => {
+    const o = collectObstacles(lookup, 'src', 'dst', everything)
+    expect(o).toContainEqual({ x: 0, y: 400, w: 400, h: 300 })
+    expect(o).toContainEqual({ x: 20, y: 500, w: 100, h: 50 })
+    expect(o).toHaveLength(3) // g3, the namespace and the card; not src, dst, g1, g2
+  })
+
+  test('squared: a cluster or namespace is only its header (the text), and its whole box is returned apart, as soft', () => {
+    const o = collectObstacles(lookup, 'src', 'dst', everything, true, true)
+    expect(o).toContainEqual({ x: 0, y: 400, w: 400, h: HEADER })
+    expect(o).toContainEqual({ x: 10, y: 440, w: 200, h: NS_HEADER })
+    expect(o).toContainEqual({ x: 20, y: 500, w: 100, h: 50 }) // a card is always solid
+    expect(o.filter((b) => b.soft)).toEqual([{ x: 0, y: 400, w: 400, h: 300, soft: true }, { x: 10, y: 440, w: 200, h: 120, soft: true }])
+  })
+
+  test('only boxes near the two ends are looked at', () => {
+    const o = collectObstacles(lookup, 'src', 'dst', { minX: 0, maxX: 700, minY: 0, maxY: 300 })
+    expect(o).toEqual([])
   })
 })

@@ -157,22 +157,21 @@ body {
    so an active drag stays instant and never fights the transition timer. Width/height are deliberately left
    alone: those are triggered by content reflow (a box gaining/losing a sibling), and animating them is both
    more expensive (layout, not just compositing) and reads as the box "breathing" rather than moving. */
-.react-flow__node:not(.dragging) { transition: transform 220ms ease-out; }
-
-/* "Pick from canvas" mode (TopologyPage's pickMode toggle, className="topology-pick-mode" on <ReactFlow>):
-   every entity dims and every edge fades, and whatever the pointer is over reads back at full strength - the
-   browser's own :hover does the highlighting, no per-node hover state needed in React. A quick, direct
-   hover-then-click path to a single entity's telemetry wizard, alongside (not replacing) box-select-then-
-   "Define scope" for picking several services at once. */
-.topology-pick-mode .react-flow__node { opacity: 0.32; filter: grayscale(0.7); transition: opacity 200ms ease-out, filter 200ms ease-out; }
-.topology-pick-mode .react-flow__node:hover { opacity: 1; filter: none; cursor: pointer; }
-.topology-pick-mode .react-flow__edge { opacity: 0.12; transition: opacity 200ms ease-out; }
-.topology-pick-mode .react-flow__pane { cursor: crosshair; }
-/* pick-ineligible (TopologyPage's syncPickEligibility): a device, namespace box, or agent-less cluster/
-   service pickMode can't do anything with. Stays dimmed even on hover, with a not-allowed cursor, so a
-   dead-end click is visibly ruled out beforehand instead of silently exiting pick mode after the fact. The
-   extra specificity (three selectors) is what lets this win over the plain :hover rule above. */
-.topology-pick-mode .react-flow__node.pick-ineligible:hover { opacity: 0.32; filter: grayscale(0.7); cursor: not-allowed; }
+.react-flow__node:not(.dragging) { transition: transform 220ms ease-out, opacity 220ms ease-out, filter 220ms ease-out; }
+/* Selecting an entity: it pops once, like a key being pressed (--pop is how far it swells: less for a big box). */
+@keyframes topo-pop { 0% { transform: scale(1); } 38% { transform: scale(var(--pop, 1.04)); } 100% { transform: scale(1); } }
+.topo-pop { animation: topo-pop 340ms cubic-bezier(0.34, 1.56, 0.64, 1); }
+/* Focus: a click lights the entity, what its lines reach and the boxes they sit in, and fades the rest. Each faded node waits
+   --ripple (set by TopologyPage from its distance to the focus), so the fade spreads outward from what was clicked; coming
+   back is quick and all at once. Lines fade with the same delay (inline), and are drawn thicker when lit. */
+.react-flow__node.topo-dim:not(.dragging) { opacity: 0.24; filter: saturate(0.3); transition: transform 220ms ease-out, opacity 460ms cubic-bezier(0.2, 0.7, 0.2, 1) var(--ripple, 0ms), filter 460ms cubic-bezier(0.2, 0.7, 0.2, 1) var(--ripple, 0ms); }
+.react-flow__edge-path { transition: opacity 320ms ease-out, stroke-width 200ms ease-out, stroke 200ms ease-out; }
+/* A faded cluster or group box keeps its name readable; only cards fade right down. */
+.react-flow__node-boundary.topo-dim:not(.dragging), .react-flow__node-namespace.topo-dim:not(.dragging) { opacity: 0.5; }
+@media (prefers-reduced-motion: reduce) {
+  .topo-pop { animation: none; }
+  .react-flow__node:not(.dragging), .react-flow__node.topo-dim:not(.dragging), .react-flow__edge-path { transition: none; }
+}
 
 .react-flow__edge-text { fill: var(--color-nb-400); font-size: 10px; }
 .react-flow__edge-textbg { fill: var(--color-nb-910); }
