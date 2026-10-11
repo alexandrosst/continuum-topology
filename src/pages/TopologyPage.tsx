@@ -41,6 +41,7 @@ import ScopeFromSelection from '@/components/topology/ScopeFromSelection'
 import ViewsMenu from '@/components/topology/ViewsMenu'
 import LiveStatus from '@/components/LiveStatus'
 import { nodeTypes } from '@/components/topology/nodes'
+import { PeerRingContext, peerIds } from '@/lib/clusterNets'
 import TelemetryTab from '@/components/topology/TelemetryTab'
 import { edgeTypes, EdgeStyleContext } from '@/components/topology/OffsetEdge'
 import { Button, EmptyState, ICON_MD, ICON_SM, MenuPanel, Select, SkeletonBlock } from '@/components/ui/primitives'
@@ -349,6 +350,15 @@ function Canvas() {
     [shown, view, groupBy, servicesOnNodes, links, showDevices, showNoise, showMesh, showNamespaces, showChain, paths, hints, localOperatorByCluster, clusterLinks],
   )
   const nothingMatches = filtering && shown.clusters.length === 0 && shown.devices.length === 0
+
+  // The clusters ringed as peers (see PeerRingContext): those of the network or tunnel chip being hovered or
+  // focused, else those sharing a network or tunnel with the selected cluster.
+  const [chipPeers, setChipPeers] = useState<ReadonlySet<string> | null>(null)
+  const selectedPeers = useMemo(() => {
+    const box = selection?.kind === 'cluster' ? graph.nodes.find((n) => n.type === 'boundary' && n.data.entityId === selection.id) : undefined
+    return peerIds(box?.type === 'boundary' ? box.data.nets : undefined)
+  }, [graph.nodes, selection])
+  const peerRing = useMemo(() => ({ ring: chipPeers ?? selectedPeers, show: setChipPeers }), [chipPeers, selectedPeers])
 
   const [nodes, setNodes, onNodesChange] = useNodesState<TopoNode>(graph.nodes)
 
@@ -1015,6 +1025,7 @@ function Canvas() {
             </Suspense>
           ) : (
             <EdgeStyleContext.Provider value={edgeStyle}>
+            <PeerRingContext.Provider value={peerRing}>
             <ReactFlow<TopoNode, Edge>
               className={pickMode ? 'topology-pick-mode' : undefined}
               nodes={nodes}
@@ -1248,6 +1259,7 @@ function Canvas() {
                 </div>
               </Panel>
             </ReactFlow>
+            </PeerRingContext.Provider>
             </EdgeStyleContext.Provider>
           )}
           {hoveredEdge && hoverPos && (

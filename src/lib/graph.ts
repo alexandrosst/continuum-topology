@@ -9,6 +9,7 @@ import { callerIfaceSpeedMbps, count, placeLabel } from './present'
 import { buildPodsView, type PodsView } from './pods'
 import { MarkerType, Position, type Edge, type Node } from '@xyflow/react'
 import { deepEqual } from './discovered'
+import { clusterNets, type ClusterNet } from './clusterNets'
 import { isObserved } from './observed'
 import { clusterMeshLine, connectionVerdict, inMesh, meshName, proxyWords, type MeshVerdict } from './mesh'
 import { clusterLoad, pathQuality, type ClusterLoad, type PathQuality } from './metrics'
@@ -67,6 +68,9 @@ export type GroupData = {
    *  session's own note on why a full separate networking view isn't warranted yet (no routing-rule data
    *  behind it to actually draw), but the already-detected name is cheap to show here. */
   networking?: { cni?: string; ingress?: string }
+  /** The subnets this cluster shares and the tunnels it is joined through, with who is on them - drawn as chips
+   *  on a real cluster box (see nodes.tsx), since that is a fact and no longer a line between clusters. */
+  nets?: ClusterNet[]
 }
 
 export type CardData = {
@@ -425,6 +429,7 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
   const serviceById = new Map(t.services.map((w) => [w.id, w]))
   const siteById = new Map(t.sites.map((s) => [s.id, s]))
   const nodeById = new Map(t.nodes.map((n) => [n.id, n]))
+  const clusterNetsById = clusterNets(o.clusterLinks ?? [])
 
   // Per-cluster/per-node indices, built once (O(nodes+services)) instead of the per-group `.filter()` over
   // the FULL nodes/services arrays this used to do below (O(groups * (nodes+services)) - noticeable once a
@@ -593,6 +598,7 @@ export function buildGraph(topology: Topology, o: GraphOptions): { nodes: TopoNo
           mesh: o.mesh && o.view === 'application' && cl?.mesh ? groupMesh(cl.mesh) : undefined,
           localTelemetry: cl && o.groupBy === 'cluster' ? o.localOperators?.get(cl.id) : undefined,
           networking: cl && o.groupBy === 'cluster' && (cl.cni || cl.ingress) ? { cni: cl.cni, ingress: cl.ingress } : undefined,
+          nets: cl && o.groupBy === 'cluster' ? clusterNetsById.get(cl.id) : undefined,
           stats:
             ex?.kind === 'devices'
               ? count(units, 'device')

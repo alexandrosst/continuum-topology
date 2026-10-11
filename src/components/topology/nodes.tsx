@@ -16,6 +16,7 @@ import {
   Globe,
   HardDrive,
   Layers,
+  Network,
   Radio,
   Router,
   Server,
@@ -25,10 +26,11 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { ICON_MD, ICON_SM, TIER_ICON } from '@/components/ui/primitives'
-import { memo, useCallback, useState, type ComponentProps, type ReactNode } from 'react'
+import { memo, useCallback, useContext, useState, type ComponentProps, type ReactNode } from 'react'
 import { PodPopover, PodRail } from '@/components/topology/Pods'
 import { LoadRow, peakLoad } from '@/components/topology/Load'
 import { DistroIcon, Flag } from '@/components/ui/brand'
+import { netLabel, netSentence, PeerRingContext, peerIds, type ClusterNet } from '@/lib/clusterNets'
 import { middleTruncate } from '@/lib/present'
 import { SIDES, type CardNode, type GroupNode, type NamespaceNode } from '@/lib/graph'
 import { STATUS_COLOR, TIER_COLOR, type DeviceKind, type ServiceKind } from '@/lib/types'
@@ -103,6 +105,7 @@ function Badge({
   icon: Icon,
   title,
   className,
+  suffix,
   children,
   ...rest
 }: {
@@ -111,6 +114,8 @@ function Badge({
   icon?: LucideIcon
   title?: string
   className?: string
+  /** A qualifier that gives up its room first when the badge is squeezed, so `children` keeps its text. */
+  suffix?: ReactNode
   children: ReactNode
 } & ComponentProps<'span'>) {
   return (
@@ -120,14 +125,57 @@ function Badge({
       {...rest}
     >
       {Icon && <Icon size={ICON_SM} className="shrink-0" aria-hidden="true" />}
-      <span className="truncate">{children}</span>
+      <span className={clsx('truncate', suffix && 'shrink-[0.01]')}>{children}</span>
+      {suffix && <span className="min-w-0 shrink-[100] truncate">{suffix}</span>}
     </span>
+  )
+}
+
+/** A cluster's networks and tunnels as chips, the same two readable facts in both layers, on the title's own line
+ *  so the header keeps its height: they take the room the name leaves and truncate (the full sentence is the
+ *  tooltip) rather than push it, and only the first two are drawn. */
+function NetChips({ nets }: { nets: ClusterNet[] }) {
+  const { show } = useContext(PeerRingContext)
+  const shown = nets.slice(0, 2)
+  const more = nets.slice(2)
+  return (
+    <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden" data-testid="net-chips">
+      {shown.map((n) => {
+        const peers = peerIds([n])
+        const [label, suffix] = netLabel(n)
+        return (
+          <Badge
+            key={`${n.kind}:${n.via}`}
+            tone={NEUTRAL_TONE}
+            dense
+            icon={n.kind === 'subnet' ? Network : Cable}
+            title={netSentence(n)}
+            className="min-w-0 !shrink"
+            suffix={suffix}
+            data-testid="net-chip"
+            tabIndex={0}
+            onMouseEnter={() => show(peers)}
+            onMouseLeave={() => show(null)}
+            onFocus={() => show(peers)}
+            onBlur={() => show(null)}
+          >
+            {label}
+          </Badge>
+        )
+      })}
+      {more.length > 0 && (
+        <Badge tone={NEUTRAL_TONE} dense title={more.map(netSentence).join('\n')}>
+          +{more.length}
+        </Badge>
+      )}
+    </div>
   )
 }
 
 /* ---------- Cluster / tier boundary ---------- */
 export const GroupBox = memo(function GroupBox({ data, selected }: NodeProps<GroupNode>) {
   const far = useFar()
+  const peer = useContext(PeerRingContext).ring.has(data.entityId) && data.groupBy === 'cluster' && !data.extra
   const color = TIER_COLOR[data.tier]
   const peak = data.load ? peakLoad(data.load) : undefined
   const tierLabel =
@@ -150,7 +198,7 @@ export const GroupBox = memo(function GroupBox({ data, selected }: NodeProps<Gro
     // very tip of any edge pointing at it. Inset keeps the identical highlight look without ever drawing
     // outside the box OffsetEdge's own math already treats as this card's exact, true extent.
     <div
-      className={clsx('h-full w-full rounded-2xl border transition-shadow', selected && 'shadow-[inset_0_0_0_2px_var(--color-accent)]')}
+      className={clsx('h-full w-full rounded-2xl border transition-shadow', selected ? 'shadow-[inset_0_0_0_2px_var(--color-accent)]' : peer && 'shadow-[inset_0_0_0_1.5px_var(--color-nb-500)]')}
       style={{
         borderColor: `color-mix(in srgb, ${color} ${selected ? 70 : 32}%, transparent)`,
         background: `color-mix(in srgb, ${color} 5%, var(--color-nb-920))`,
@@ -163,6 +211,7 @@ export const GroupBox = memo(function GroupBox({ data, selected }: NodeProps<Gro
             <span className="size-2 shrink-0 rounded-full" style={{ background: STATUS_COLOR[data.status] }} />
             {data.distribution && <DistroIcon distribution={data.distribution} size={ICON_SM} />}
             <span className={clsx('truncate font-medium text-nb-300', far ? 'text-[26px] leading-8' : 'text-sm')} title={data.title}>{data.title}</span>
+            {!far && data.nets && <NetChips nets={data.nets} />}
             {far && peak !== undefined && peak >= 70 && (
               <span className={clsx('rounded px-1.5 py-0.5 text-[15px] font-medium', peak >= 90 ? 'bg-bad/15 text-bad' : 'bg-warn/15 text-warn')} title="Busiest resource: share requested by pods">{peak}%</span>
             )}

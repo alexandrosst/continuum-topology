@@ -1686,6 +1686,27 @@ test('cluster links: a dependency edge whose own tunnelLink matches the measured
   assert.equal(g2.edges.find((e) => e.id === 'dep-tun-2')?.data?.tunnelLink?.via, 'wg0 (wireguard)')
 })
 
+test("cluster nets: a cluster's box carries what it shares with the others in both layers, and no edge says it", () => {
+  const base = { view: 'application' as const, groupBy: 'cluster' as const, servicesOnNodes: false, links: true, devices: false }
+  const links: ClusterLink[] = [
+    { fromCluster: 'cl-edge-a', fromName: 'Edge A', toCluster: 'cl-cloud', toName: 'Cloud', kind: 'subnet', via: '10.30.0.0/16', redundancy: 1 },
+    { fromCluster: 'cl-edge-b', fromName: 'Edge B', toCluster: 'cl-cloud', toName: 'Cloud', kind: 'subnet', via: '10.30.0.0/16', redundancy: 1 },
+    { fromCluster: 'cl-edge-a', fromName: 'Edge A', toCluster: 'cl-cloud', toName: 'Cloud', kind: 'overlay', via: 'wg0 (wireguard)', redundancy: 1 },
+  ]
+  for (const view of ['application', 'infrastructure'] as const) {
+    const g = buildGraph(seed, { ...base, view, clusterLinks: links })
+    const nets = (id: string) => (g.nodes.find((n) => n.id === groupId(id))!.data as { nets?: { kind: string; via: string; peers: { name: string }[] }[] }).nets
+    assert.deepEqual(nets('cl-cloud')?.[0].peers.map((p) => p.name), ['Edge A', 'Edge B'], `${view}: the network is shared with the two other clusters on it`)
+    assert.deepEqual(nets('cl-cloud')?.map((n) => n.via), ['10.30.0.0/16', 'wg0 (wireguard)'], `${view}: the subnet first, then the tunnel`)
+    assert.deepEqual(nets('cl-edge-b')?.map((n) => n.via), ['10.30.0.0/16'], `${view}: a cluster not on the tunnel does not get its chip`)
+    assert.ok(!g.edges.some((e) => e.data?.clusterLink), `${view}: neither the shared subnet nor the unmeasured tunnel is drawn`)
+  }
+  const none = buildGraph(seed, { ...base, clusterLinks: [] })
+  assert.ok(none.nodes.every((n) => n.type !== 'boundary' || (n.data as { nets?: unknown }).nets === undefined), 'no links, no chips')
+  const byTier = buildGraph(seed, { ...base, groupBy: 'tier' as const, clusterLinks: links })
+  assert.ok(byTier.nodes.every((n) => n.type !== 'boundary' || (n.data as { nets?: unknown }).nets === undefined), 'a tier box is not a cluster: it has no network of its own')
+})
+
 test("edge interface capacity reaches EdgeData alongside its throughput, never guessed when the caller's own nodes disagree", () => {
   // w-gw runs on n-c2 and n-c3 (both cl-cloud) - give both the same eth0 speed first.
   const dep = seenDep({ id: 'dep-iface', from: 'w-gw', to: 'w-orch', iface: 'eth0' })
