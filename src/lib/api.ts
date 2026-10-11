@@ -1,5 +1,5 @@
 import { normalizeServerState, type ServerState } from './discovered'
-import type { OperatorDestination, OperatorDestinationEntry, ReceiverAuth, RegionalOperator, SignalGrant, TelemetryIntent } from './types'
+import type { AddressCandidates, OperatorDestination, OperatorDestinationEntry, ReceiverAuth, RegionalOperator, SignalGrant, TelemetryIntent } from './types'
 import { normalizeSettings, normalizeSnapshot, type AppSettings, type ChangeEvent, type DependencySeriesPoint, type HistoryIndex, type Snapshot, type TrafficRate } from './history'
 import type { DecisionLogEntry } from './placement/deciders'
 import type { SelfTelemetryEntity } from './selfHealth'
@@ -769,6 +769,8 @@ export const api = {
   getOperator: (c: Conn, id: string) => call<RegionalOperator>(c, 'GET', `/api/v1/operators/${encodeURIComponent(id)}`),
   createOperator: (c: Conn, name: string, sourceClusterIds: string[], destination: OperatorDestination, options: CreateOperatorOptions = {}) =>
     call<CreatedOperator>(c, 'POST', '/api/v1/operators', { name, sourceClusterIds, destination, heartbeat: options.heartbeat === true, labels: options.labels ?? [], exposure: options.exposure ?? 'cluster' }),
+  /** The addresses discovery says the operator can be reached at (adminRole): to pick from instead of typing one. */
+  operatorAddressCandidates: (c: Conn, id: string) => call<AddressCandidates>(c, 'GET', `/api/v1/operators/${encodeURIComponent(id)}/address-candidates`),
   /** Records where other clusters reach the operator ('' clears it). The server checks it is a host:port. */
   setOperatorAddress: (c: Conn, id: string, address: string) => call<RegionalOperator>(c, 'POST', `/api/v1/operators/${encodeURIComponent(id)}/address`, { address }),
   /** Mints (or rotates) the operator's heartbeat credential: adminRole, audited, and the credential is shown

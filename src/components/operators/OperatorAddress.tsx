@@ -1,10 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { CopyCommand } from '@/components/agents/AgentInsight'
 import { Button, ErrorBanner, Field, Input, Modal } from '@/components/ui/primitives'
 import { api, ApiError, type OperatorExposure } from '@/lib/api'
 import { shArg } from '@/lib/install'
 import { operatorServiceName } from '@/lib/operatorsView'
-import type { RegionalOperator } from '@/lib/types'
+import type { AddressCandidate, AddressCandidates, RegionalOperator } from '@/lib/types'
 import { useServer } from '@/store/server'
 
 /** What a person picks when creating an operator: whether clusters other than its own must be able to reach it.
@@ -73,6 +73,65 @@ export function FindTheAddress({ id, exposure, service, testId }: { id: string; 
   )
 }
 
+const CANDIDATE_KIND: Record<AddressCandidate['kind'], string> = {
+  'load-balancer': 'Load balancer',
+  'node-port': 'Node port',
+  'external-ip': 'External IP',
+  recorded: 'Recorded',
+}
+
+/** The addresses Ikhnos found for an operator from what its cluster's agent reports, to pick from instead of typing.
+ *  Picking one only fills the field below; nothing is saved until Save. A failed lookup shows nothing: typing still works. */
+function AddressCandidatesList({ operatorId, value, onPick }: { operatorId: string; value: string; onPick: (address: string) => void }) {
+  const conn = useServer((s) => s.conn)
+  const [found, setFound] = useState<AddressCandidates | null>(null)
+  useEffect(() => {
+    let live = true
+    void (async () => {
+      const c = conn()
+      if (!c) return
+      try {
+        const r = await api.operatorAddressCandidates(c, operatorId)
+        if (live) setFound(r)
+      } catch {
+        // No list is a convenience lost, not an error: the field below still takes an address.
+      }
+    })()
+    return () => {
+      live = false
+    }
+  }, [conn, operatorId])
+  if (!found) return null
+  const discovered = found.candidates.filter((x) => x.kind !== 'recorded')
+  return (
+    <div data-testid="operator-address-candidates">
+      <div className="mb-1 text-xs font-medium uppercase tracking-wide text-nb-500">Addresses found{found.hostClusterName ? ` in ${found.hostClusterName}` : ''}</div>
+      {discovered.length === 0 ? (
+        <p className="text-sm leading-relaxed text-nb-400" data-testid="operator-address-candidates-none">
+          {found.found
+            ? 'Its Service has no address outside the cluster yet. Install it as a load balancer or a node port, then it appears here.'
+            : 'No agent has reported this operator in a cluster yet. Once one does, the addresses it can be reached at appear here.'}
+        </p>
+      ) : (
+        <ul className="space-y-1.5">
+          {discovered.map((x) => {
+            const chosen = x.address === value.trim() || x.address === withDefaultPort(value)
+            return (
+              <li key={x.id} className="flex items-center justify-between gap-3 rounded-md border border-nb-800 px-3 py-2" data-testid="operator-address-candidate">
+                <div className="min-w-0">
+                  <div className="truncate font-mono text-sm text-nb-100">{x.address}</div>
+                  <div className="text-xs text-nb-500">{CANDIDATE_KIND[x.kind]} · {x.source}{x.recorded ? ' In use.' : ''}</div>
+                </div>
+                <Button type="button" onClick={() => onPick(x.address)} disabled={chosen} aria-label={`Use ${x.address}`}>{chosen ? 'Selected' : 'Use'}</Button>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 /** Records where other clusters reach an operator. Nothing on the operator changes - no certificate is reissued and
  *  nothing is restarted: callers dial the address and verify the operator by its stable name. */
 export function OperatorAddressModal({ operator, central, onClose, onDone }: { operator: RegionalOperator; /** Set for the central operator (FUSION's gateway): the Service its address is read from. */ central?: { service: string; namespace: string }; onClose: () => void; onDone: () => void }) {
@@ -107,6 +166,7 @@ export function OperatorAddressModal({ operator, central, onClose, onDone }: { o
         <p className="text-sm leading-relaxed text-nb-400" data-testid="operator-address-explain">
           Once this is set, every command that points a cluster or another operator at this one uses it, so nobody has to work the address out. It changes nothing on the operator itself: no certificate is reissued and nothing restarts. A cluster that already points at this operator keeps the address it was given until you run its command again. Leave it empty if only this operator&apos;s own cluster sends to it.
         </p>
+        {!central && <AddressCandidatesList operatorId={operator.id} value={value} onPick={setValue} />}
         <Field label="Reachable at" hint="A DNS name or an IP address, with a port if it is not 4317: otlp.eu.example.com, otlp.eu.example.com:4317 or 203.0.113.7:4317.">
           <Input value={value} onChange={(e) => setValue(e.target.value)} placeholder="otlp.eu.example.com:4317" spellCheck={false} data-testid="operator-address-input" />
         </Field>

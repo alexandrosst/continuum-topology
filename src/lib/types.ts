@@ -1273,6 +1273,27 @@ export interface OperatorDestination {
  * this server the way Agent does, unless its opt-in heartbeat (health) is on - not extending Provenance for the same reason Agent does not: this is
  * control-plane bookkeeping a person created directly, not a discovered record.
  */
+/** One host:port a regional operator can be reached at, worked out from what discovery reports about its cluster. */
+export interface AddressCandidate {
+  id: string
+  address: string
+  /** load-balancer | node-port | external-ip | recorded (typed in earlier). */
+  kind: 'load-balancer' | 'node-port' | 'external-ip' | 'recorded'
+  /** Where the address comes from, in words. */
+  source: string
+  node?: string
+  /** True for the address currently recorded for the operator. */
+  recorded?: boolean
+}
+
+export interface AddressCandidates {
+  /** Whether discovery has seen the operator's Deployment. When false the list holds the recorded address only. */
+  found: boolean
+  hostClusterId?: string
+  hostClusterName?: string
+  candidates: AddressCandidate[]
+}
+
 export interface RegionalOperator {
   id: string
   /** The server's operator document carries no organisation (the request's own is the organisation); only fixtures set it. */

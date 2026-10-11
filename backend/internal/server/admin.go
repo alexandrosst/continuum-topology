@@ -271,6 +271,8 @@ func (a *Admin) Handler() http.Handler {
 	route("POST "+o+"/operators/{id}/address", adminRole, a.setOperatorAddress)
 	// One look at that address from this server: does anything answer there, and is it this operator.
 	route("POST "+o+"/operators/{id}/address/check", adminRole, a.checkOperatorAddress)
+	// The addresses discovery says this operator can be reached at, to pick from instead of typing one.
+	route("GET "+o+"/operators/{id}/address-candidates", adminRole, a.listOperatorAddressCandidates)
 	// Mints (or rotates) the operator's heartbeat secret: credential material, so adminRole like the rest.
 	route("POST "+o+"/operators/{id}/heartbeat", adminRole, a.enableOperatorHeartbeat)
 	route("POST "+o+"/operators/{id}/revoke", adminRole, a.revokeOperator)
