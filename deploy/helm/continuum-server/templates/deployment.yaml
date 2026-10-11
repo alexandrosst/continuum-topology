@@ -64,7 +64,7 @@ spec:
             # The bundled FUSION's name: the shared data API reads its stores by it, and the switch (when allowed) scales it.
             - --fusion-name={{ include "continuum.fusionName" . }}
             {{- with .Values.fusionControl.centralAddress }}
-            - --fusion-central-address={{ . }}
+            - {{ printf "--fusion-central-address=%s" . | quote }}
             {{- end }}
             {{- end }}
             {{- with .Values.agent.extraHosts }}
@@ -82,27 +82,27 @@ spec:
             - --admin-behind-tls-proxy
             {{- end }}
             {{- with .Values.admin.sso.headerName }}
-            - --admin-sso-header={{ . }}
+            - {{ printf "--admin-sso-header=%s" . | quote }}
             {{- end }}
             - --registration={{ .Values.registration }}
-            - --org={{ .Values.org }}
+            - {{ printf "--org=%s" .Values.org | quote }}
             {{- with .Values.agentInstall.imageRegistry }}
-            - --image-registry={{ . }}
+            - {{ printf "--image-registry=%s" . | quote }}
             {{- end }}
             {{- with .Values.agentInstall.imageTag }}
-            - --image-tag={{ . }}
+            - {{ printf "--image-tag=%s" . | quote }}
             {{- end }}
             {{- with .Values.agentInstall.chartRef }}
-            - --chart-ref={{ . }}
+            - {{ printf "--chart-ref=%s" . | quote }}
             {{- end }}
             {{- with .Values.geoip.path }}
-            - --geoip-db={{ . }}
+            - {{ printf "--geoip-db=%s" . | quote }}
             {{- end }}
             {{- with .Values.geoip.publicIpService }}
-            - --geoip-public-ip-service={{ . }}
+            - {{ printf "--geoip-public-ip-service=%s" . | quote }}
             {{- end }}
             {{- with .Values.geoip.asnPath }}
-            - --geoip-asn-db={{ . }}
+            - {{ printf "--geoip-asn-db=%s" . | quote }}
             {{- end }}
             {{- with .Values.decider.allowCIDRs }}
             - --decider-allow-cidrs={{ join "," . }}

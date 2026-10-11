@@ -14,22 +14,22 @@ Builds, vets and race-tests the Go backend; lints, type-checks, builds and unit-
 
 ## `release.yml` — a push to `main`, or a version tag
 
-Builds and publishes the `continuum` and `server` images (multi-arch for the agent image; amd64 for the server) and both Helm charts to this repository's own `ghcr.io/<owner>` namespace, signs everything keylessly with cosign, and bakes that GHCR namespace into the published chart's own defaults — which is what lets every install command on this site skip `--set image.repository=...` entirely.
+Builds and publishes the `continuum` and `server` images (multi-arch for the agent image; amd64 for the server) and the four Helm charts (`continuum-agent`, `continuum-regional-operator`, `continuum-fusion`, `continuum-server`) to this repository's own `ghcr.io/<owner>` namespace, signs everything keylessly with cosign, and bakes that GHCR namespace into the agent and server charts' own defaults — which is what lets every install command on this site skip `--set image.repository=...` entirely.
 
-- A push straight to `main` publishes the **`edge`** tag and a chart version like `0.0.0-edge.<sha>` — always whatever `main` currently is, never meant to be depended on for anything you'd call a release.
+- A push straight to `main` publishes the **`edge`** tag and a chart version like `0.0.0-edge.g<sha>` — always whatever `main` currently is, never meant to be depended on for anything you'd call a release.
 
   :::info[`edge` is a moving tag]
-  Pinning `--version 0.0.0-edge.<sha>` pins the *chart* to an exact commit, but `image.tag` still resolves to the plain `edge` tag — and a node that already has anything named `edge` locally wouldn't normally re-pull it even after the registry moves on. Both charts handle this for you: `image.pullPolicy` defaults to `Always` whenever the resolved tag is `edge` (and to the ordinary `IfNotPresent` otherwise), so every install or upgrade of an edge build always gets today's image. You only need `--set image.pullPolicy=...` yourself to override that behavior.
+  Pinning `--version 0.0.0-edge.g<sha>` pins the *chart* to an exact commit, but `image.tag` still resolves to the plain `edge` tag — and a node that already has anything named `edge` locally wouldn't normally re-pull it even after the registry moves on. Both charts that carry an image (agent and server) handle this for you: `image.pullPolicy` defaults to `Always` whenever the resolved tag is `edge` (and to the ordinary `IfNotPresent` otherwise), so every install or upgrade of an edge build always gets today's image. You only need `--set image.pullPolicy=...` yourself to override that behavior.
   :::
 
-- Pushing a tag matching `v*.*.*` (for example `v0.3.0`) publishes that exact version and moves `latest` to it. This is a real release, and it's what every install command in this documentation assumes:
+- Pushing a tag matching `v*.*.*` (for example `v0.3.0`) publishes that exact version and moves `latest` to it (a pre-release tag such as `v0.3.0-rc1` is published under its own version but leaves `latest` alone). This is a real release, and it's what every install command in this documentation assumes:
 
   ```bash
   git tag v0.3.0
   git push origin v0.3.0
   ```
 
-**The one manual step:** the very first time this workflow runs, GitHub creates its four packages (`continuum`, `server`, `continuum-agent`, `continuum-server`) as **private**, even in a public repository. Flip each to public once, from the repo's **Packages** sidebar → **Package settings** → **Change visibility**. Nothing after that needs repeating — every later push publishes into the same, already-public packages. See [Common errors](../troubleshooting/common-errors.md) if you hit this after the fact.
+**The one manual step:** the very first time this workflow runs, GitHub creates its six packages (`continuum`, `server`, `continuum-agent`, `continuum-regional-operator`, `continuum-fusion`, `continuum-server`) as **private**, even in a public repository. Flip each to public once, from the repo's **Packages** sidebar → **Package settings** → **Change visibility**. Nothing after that needs repeating — every later push publishes into the same, already-public packages. See [Common errors](../troubleshooting/common-errors.md) if you hit this after the fact.
 
 ## `docs.yml` — a push to `main` that touches `docs-site/**`
 

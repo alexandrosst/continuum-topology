@@ -14,6 +14,7 @@ name: Release
 #   - a push to main publishes the "edge" tag (and a sha-<short> one) - always pullable, always whatever main
 #     currently is, not meant to be depended on for anything you'd call a release.
 #   - pushing a tag like v0.3.0 publishes that exact version (and moves "latest" to it) - this is a real release.
+#     A pre-release tag like v1.2.3-rc1 publishes its own version but leaves "latest" where it was.
 #   - workflow_dispatch, for a manual re-run without needing a new commit or tag.
 #
 # One-time setup this workflow cannot do for you: the first time this runs, GHCR creates the six packages
@@ -44,6 +45,7 @@ jobs:
     outputs:
       version: ${{ steps.v.outputs.version }}
       is_release: ${{ steps.v.outputs.is_release }}
+      is_stable: ${{ steps.v.outputs.is_stable }}
       owner: ${{ steps.v.outputs.owner }}
       chart_version: ${{ steps.v.outputs.chart_version }}
     steps:
@@ -55,10 +57,15 @@ jobs:
           if [[ "${{ github.ref_type }}" == "tag" ]]; then
             version="${GITHUB_REF_NAME#v}"
             is_release=true
+            # A SemVer pre-release (v1.2.3-rc1) also matches the v*.*.* trigger; it is published under its own
+            # version but must not take "latest" away from the last stable release.
+            is_stable=true
+            if [[ "$version" == *-* ]]; then is_stable=false; fi
             chart_version="$version"
           else
             version="edge"
             is_release=false
+            is_stable=false
             # A valid SemVer 2 pre-release identifier (Helm requires a chart's own `version` to be SemVer 2),
             # distinguishable at a glance from a real release and naming the exact commit it came from. Computed
             # once here, not separately in each job that needs it: the images job bakes it into the server binary
@@ -74,8 +81,9 @@ jobs:
           echo "owner=$owner" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "is_release=$is_release" >> "$GITHUB_OUTPUT"
+          echo "is_stable=$is_stable" >> "$GITHUB_OUTPUT"
           echo "chart_version=$chart_version" >> "$GITHUB_OUTPUT"
-          echo "Publishing as $owner, version=$version, is_release=$is_release, chart_version=$chart_version"
+          echo "Publishing as $owner, version=$version, is_release=$is_release, is_stable=$is_stable, chart_version=$chart_version"
 
   images:
     name: Build and sign ${{ matrix.image }}
@@ -112,7 +120,10 @@ jobs:
           ref="ghcr.io/${{ needs.version.outputs.owner }}/${{ matrix.image }}"
           version="${{ needs.version.outputs.version }}"
           if [[ "${{ needs.version.outputs.is_release }}" == "true" ]]; then
-            tags="$ref:$version,$ref:latest"
+            tags="$ref:$version"
+            if [[ "${{ needs.version.outputs.is_stable }}" == "true" ]]; then
+              tags="$tags,$ref:latest"
+            fi
           else
             tags="$ref:edge,$ref:sha-$(echo "$GITHUB_SHA" | cut -c1-7)"
           fi

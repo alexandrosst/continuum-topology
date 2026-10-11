@@ -42,9 +42,9 @@ This guide covers the **server** (control plane and web UI) and its databases. T
 
 ### Using this repo's own published images (zero-config)
 
-Every push to `main` and every `vX.Y.Z` tag runs [`.github/workflows/release.yml`](../.github/workflows/release.yml): it builds and pushes the `continuum` image (agent, node probe and flow collector - one binary, three roles) and the `server` image, packages both Helm charts, and pushes everything to **this repository's own GitHub Container Registry namespace**, `ghcr.io/<owner>` (lower-cased automatically; `<owner>` is the GitHub user or organisation the repo lives under). Everything it pushes is signed with cosign, keylessly, off the workflow's own OIDC token - nothing to generate or store as a secret (see [Signing and verifying releases](#signing-and-verifying-releases)).
+Every push to `main` and every `vX.Y.Z` tag runs [`.github/workflows/release.yml`](../.github/workflows/release.yml): it builds and pushes the `continuum` image (agent, node probe and flow collector - one binary, three roles) and the `server` image, packages the four Helm charts (`continuum-agent`, `continuum-regional-operator`, `continuum-fusion`, `continuum-server`), and pushes everything to **this repository's own GitHub Container Registry namespace**, `ghcr.io/<owner>` (lower-cased automatically; `<owner>` is the GitHub user or organisation the repo lives under). Everything it pushes is signed with cosign, keylessly, off the workflow's own OIDC token - nothing to generate or store as a secret (see [Signing and verifying releases](#signing-and-verifying-releases)).
 
-The part that actually makes this zero-config: packaging bakes that same `ghcr.io/<owner>` namespace into the chart's own default values (`image.repository` in both charts, and the server chart's `agentInstall.imageRegistry`) before pushing the `.tgz`, rather than leaving the source tree's placeholder names (`continuum/continuum`, `continuum/server`) in the published chart. That means:
+The part that actually makes this zero-config: packaging bakes that same `ghcr.io/<owner>` namespace into the chart's own default values (`image.repository` in the agent and server charts, the only two that carry an image, and the server chart's `agentInstall.imageRegistry`) before pushing the `.tgz`, rather than leaving the source tree's placeholder names (`continuum/continuum`, `continuum/server`) in the published chart. That means:
 
 * Installing the **server** straight from the published chart needs no `--set image.repository=...` at all:
 
@@ -382,8 +382,8 @@ These are starting points, not measurements; watch memory and the `/api/v1/orgs/
 
 ## Signing and verifying releases
 
-`scripts/publish.sh` (builds and pushes the `continuum` agent/probe/flow image, the `server` image, and both Helm
-charts) signs everything it pushes with [cosign](https://docs.sigstore.dev/), automatically when cosign is on your
+`scripts/publish.sh` (builds and pushes the `continuum` agent/probe/flow image, the `server` image, and the four Helm
+charts: agent, regional operator, FUSION and server) signs everything it pushes with [cosign](https://docs.sigstore.dev/), automatically when cosign is on your
 `PATH`. It signs keylessly by default: cosign gets a short-lived certificate from Sigstore's public Fulcio CA off
 an OIDC login (your GitHub/Google/Microsoft account interactively, or the CI provider's own OIDC token in GitHub
 Actions, GitLab CI, etc. - nothing to generate, rotate or leak as a long-lived private key) and records the
