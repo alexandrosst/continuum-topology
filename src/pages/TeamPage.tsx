@@ -1,5 +1,5 @@
 import { ChevronRight, Copy, Link2, Trash2, UserPlus } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useHoldReload } from '@/lib/useHoldReload'
 import { Button, CopyValue, ErrorBanner, Field, ICON_SM, Input, Modal, PageHeader, Pill, Select, Table, TableSkeleton, Td, Th } from '@/components/ui/primitives'
 import { api, ApiError, grantable, ROLE_HELP, ROLE_LABEL, type Invite, type Member, type Role } from '@/lib/api'
@@ -124,17 +124,25 @@ export default function TeamPage() {
   const mine = grantable(role)
   const canInvite = mine.length > 0
 
+  // Only the newest request may land: after an organisation switch the previous one's members and invites must not appear in the new view.
+  const newest = useRef(0)
   const load = useCallback(async () => {
     const c = conn()
     if (!c) return
+    const mine = ++newest.current
     try {
-      setMembers(await api.members(c))
-      setInvites(canInvite ? await api.invites(c) : [])
+      const m = await api.members(c)
+      if (mine !== newest.current) return
+      setMembers(m)
+      const i = canInvite ? await api.invites(c) : []
+      if (mine !== newest.current) return
+      setInvites(i)
       setError('')
     } catch (e) {
+      if (mine !== newest.current) return
       setError(problem(e, 'Could not load the members.'))
     } finally {
-      setLoaded(true)
+      if (mine === newest.current) setLoaded(true)
     }
   }, [conn, canInvite])
   useEffect(() => {

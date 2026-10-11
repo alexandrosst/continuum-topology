@@ -1,5 +1,5 @@
 import { Download, ScrollText } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Button, EmptyState, ErrorBanner, ICON_SM, Input, PageHeader, Select, Table, TableSkeleton, Td, Th } from '@/components/ui/primitives'
 import { api, atLeast, type AuditRow, type WorkspaceRevision } from '@/lib/api'
 import { downloadCsv, toCsv } from '@/lib/csv'
@@ -37,15 +37,20 @@ export default function ActivityPage() {
   const [error, setError] = useState<string>()
   const allowed = status === 'connected' && atLeast(role, 'admin')
 
+  // Only the newest request may land: a slow answer for a filter that has since changed must not replace the rows shown for the current one.
+  const newest = useRef(0)
   const load = useCallback(async () => {
+    const mine = ++newest.current
     try {
       const since = hours ? new Date(Date.now() - hours * 3600_000).toISOString() : undefined
       const [a, r] = await Promise.all([api.audit(conn, { actor: actor.trim(), action: action.trim(), since, limit: 300 }), api.workspaceRevisions(conn).catch(() => [])])
+      if (mine !== newest.current) return
       setRows(a.rows)
       setSource(a.source)
       setRevs(r)
       setError(undefined)
     } catch (e) {
+      if (mine !== newest.current) return
       setError(e instanceof Error ? e.message : 'The activity could not be read.')
     }
   }, [conn, actor, action, hours])

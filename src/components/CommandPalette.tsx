@@ -16,6 +16,9 @@ function Dialog({ onClose }: { onClose: () => void }) {
   const [q, setQ] = useState('')
   const [cursor, setCursor] = useState(0)
   const list = useRef<HTMLUListElement>(null)
+  const input = useRef<HTMLInputElement>(null)
+  // Read while rendering: by the time an effect runs, the input's autoFocus has already moved focus off the opener.
+  const [opener] = useState(() => (document.activeElement instanceof HTMLElement ? document.activeElement : null))
   const index = useMemo(
     () => buildSearchIndex({ clusters, nodes, services, devices, applications, sites, externalEndpoints, savedViews }),
     [clusters, nodes, services, devices, applications, sites, externalEndpoints, savedViews],
@@ -26,6 +29,27 @@ function Dialog({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     list.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest' })
   }, [at, results])
+
+  // An aria-modal dialog has to behave like one: Escape closes it wherever focus is, Tab cannot leave it (the input is
+  // its only tabbable element, so staying put is the whole trap), and closing hands focus back to what opened it.
+  const closeRef = useRef(onClose)
+  useEffect(() => {
+    closeRef.current = onClose
+  })
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closeRef.current()
+      else if (e.key === 'Tab') {
+        e.preventDefault()
+        input.current?.focus()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      opener?.focus?.()
+    }
+  }, [opener])
 
   const go = (i: number) => {
     const r = results[i]
@@ -46,6 +70,7 @@ function Dialog({ onClose }: { onClose: () => void }) {
         <div className="flex items-center gap-3 border-b border-nb-850 px-4">
           <Search size={ICON_MD} className="shrink-0 text-nb-500" aria-hidden />
           <input
+            ref={input}
             autoFocus
             role="combobox"
             aria-expanded
@@ -59,8 +84,7 @@ function Dialog({ onClose }: { onClose: () => void }) {
               setCursor(0)
             }}
             onKeyDown={(e) => {
-              if (e.key === 'Escape') onClose()
-              else if (e.key === 'ArrowDown') {
+              if (e.key === 'ArrowDown') {
                 e.preventDefault()
                 setCursor(Math.min(results.length - 1, at + 1))
               } else if (e.key === 'ArrowUp') {

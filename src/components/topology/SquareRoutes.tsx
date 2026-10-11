@@ -2,7 +2,7 @@ import { useStore, useViewport } from '@xyflow/react'
 import { useMemo, type ReactNode } from 'react'
 import { HEADER, NS_HEADER, type TopoEdge } from '@/lib/graph'
 import { polylineMidpoint } from './detour'
-import { cachedOrtho, layoutEdge, useNodeGeometryKey, roundedPolylinePath, SQUARE_CORNER_RADIUS, SquareRoutesContext, type RoutedPath } from './OffsetEdge'
+import { cachedOrtho, layoutEdge, orthoCacheCapFor, setOrthoCacheCap, useNodeGeometryKey, roundedPolylinePath, SQUARE_CORNER_RADIUS, SquareRoutesContext, type RoutedPath } from './OffsetEdge'
 import { nudgeRoutes, type Pt, type Rect } from './nudge'
 import { simpleOrthoRoute } from './ortho'
 import { straightenJog } from './straighten'
@@ -24,6 +24,7 @@ export function SquareRoutes({ edges, children }: { edges: TopoEdge[]; children:
   const key = edges.map((e) => `${e.id}|${e.source}|${e.target}|${e.data?.sourceOffset ?? 0}|${e.data?.targetOffset ?? 0}|${e.markerEnd ? 1 : 0}`).join(';')
 
   const laid = useMemo<Laid[]>(() => {
+    setOrthoCacheCap(orthoCacheCapFor(edges.length))
     const routes: Laid[] = []
     for (const e of edges) {
       const l = layoutEdge(nodeLookup, e.source, e.target, e.data?.sourceOffset ?? 0, e.data?.targetOffset ?? 0, true)

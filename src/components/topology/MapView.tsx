@@ -36,8 +36,17 @@ const toCountries = (t: unknown): Countries => {
   const topo = t as Topology<{ countries: GeometryCollection<{ name?: string }> }>
   return feature(topo, topo.objects.countries) as unknown as Countries
 }
-const loadCoarse = () => (coarse ??= import('world-atlas/countries-110m.json').then((m) => toCountries(m.default)))
-const loadFine = () => (fine ??= import('world-atlas/countries-50m.json').then((m) => toCountries(m.default)))
+// A failed load (a dropped connection, a chunk replaced by a deploy) must not stay cached: the next mount or zoom retries it.
+export const loadCoarse = () =>
+  (coarse ??= import('world-atlas/countries-110m.json').then((m) => toCountries(m.default)).catch((e) => {
+    coarse = undefined
+    throw e
+  }))
+export const loadFine = () =>
+  (fine ??= import('world-atlas/countries-50m.json').then((m) => toCountries(m.default)).catch((e) => {
+    fine = undefined
+    throw e
+  }))
 
 const projection = geoNaturalEarth1().fitExtent([[8, 8], [W - 8, H - 8]], { type: 'Sphere' })
 const pathGen = geoPath(projection)
@@ -92,7 +101,7 @@ export default function MapView({ selection, onSelect, filter }: { selection: Se
 
   useEffect(() => {
     let live = true
-    loadCoarse().then((c) => live && setCountries((cur) => cur ?? c))
+    loadCoarse().then((c) => live && setCountries((cur) => cur ?? c)).catch(() => {}) // no land is a cosmetic loss: the dots still work
     return () => { live = false }
   }, [])
   useEffect(() => {
@@ -102,7 +111,7 @@ export default function MapView({ selection, onSelect, filter }: { selection: Se
       if (!live) return
       setCountries(c)
       setDetailed(true)
-    })
+    }).catch(() => {}) // the coarse land stays; the next zoom change retries
     return () => { live = false }
   }, [view.k, detailed])
 

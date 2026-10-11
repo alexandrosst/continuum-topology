@@ -1,8 +1,8 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, test, vi } from 'vitest'
-import { RecordingSettings } from '@/pages/HistoryPage'
-import { DEFAULT_SETTINGS, type AppSettings } from '@/lib/history'
+import HistoryPage, { RecordingSettings } from '@/pages/HistoryPage'
+import { DEFAULT_SETTINGS, type AppSettings, type ChangeEvent, type HistoryIndex } from '@/lib/history'
 
 // RecordingSettings is the "recording and checks" settings form on the History page. This file covers
 // just the "Link is quiet after" field's unit picker (flowStaleSeconds) - the point of this whole feature
@@ -14,8 +14,41 @@ let settings: AppSettings
 let save: ReturnType<typeof vi.fn>
 
 vi.mock('@/store/settings', () => ({
-  useSettings: () => ({ settings, loaded: true, error: undefined, save }),
+  useSettings: Object.assign(
+    (selector?: (s: unknown) => unknown) => {
+      const s = { settings, loaded: true, error: undefined, save }
+      return selector ? selector(s) : s
+    },
+    { getState: () => ({ clear: () => {} }) },
+  ),
 }))
+
+// The page-level loader below talks to the server through these.
+const history = vi.fn()
+const events = vi.fn()
+const recordNow = vi.fn(async () => undefined)
+// One stable object: a fresh one per render would change `load` on every render and refetch forever.
+const CONN = { url: 'https://example.test', org: 'o' }
+vi.mock('@/store/server', () => ({
+  useServer: (selector: (s: unknown) => unknown) => selector({ status: 'connected', role: 'admin', state: undefined }),
+  useConn: () => CONN,
+}))
+vi.mock('@/lib/api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/api')>()
+  return {
+    ...actual,
+    api: {
+      ...actual.api,
+      history: (...a: unknown[]) => history(...a),
+      events: (...a: unknown[]) => events(...a),
+      recordNow: (...a: unknown[]) => recordNow(...(a as [])),
+      traffic: async () => ({ hours: 24, snapshots: 0, rates: [] }),
+      storage: async () => {
+        throw new Error('not under test')
+      },
+    },
+  }
+})
 
 function renderField(over: Partial<AppSettings> = {}) {
   settings = { ...DEFAULT_SETTINGS, ...over }
@@ -74,5 +107,59 @@ describe('RecordingSettings · Link is quiet after (flowStaleSeconds)', () => {
         expect.objectContaining({ flowStaleSeconds: 90 }),
       ),
     )
+  })
+})
+
+describe('HistoryPage loading', () => {
+  const index: HistoryIndex = { points: [], snapshotMinutes: 5, retentionDays: 30 }
+  const ev = (name: string): ChangeEvent => ({ id: name, at: '2026-01-02T03:04:05Z', kind: 'cluster-added', targetKind: 'service', targetId: name, name, detail: '', severity: 'info' })
+  // The Select is a custom listbox, not a native <select>: open it and pick the option.
+  const pickKind = (label: string) => {
+    fireEvent.click(screen.getByRole('combobox', { name: 'Kind of change' }))
+    fireEvent.click(screen.getByRole('option', { name: label }))
+  }
+  const renderPage = () => render(<MemoryRouter><HistoryPage /></MemoryRouter>)
+
+  test('a filter change after a refresh sends one request per source, not two', async () => {
+    settings = { ...DEFAULT_SETTINGS }
+    history.mockReset().mockResolvedValue(index)
+    events.mockReset().mockResolvedValue([])
+    recordNow.mockClear()
+    renderPage()
+    await waitFor(() => expect(events).toHaveBeenCalledTimes(1))
+
+    // "Record now" bumps the tick the cards below depend on; before the fix that also armed a second loader effect.
+    fireEvent.click(await screen.findByRole('button', { name: /record now/i }))
+    await waitFor(() => expect(events).toHaveBeenCalledTimes(2))
+    expect(history).toHaveBeenCalledTimes(2)
+
+    history.mockClear()
+    events.mockClear()
+    pickKind('Cluster appeared')
+    await waitFor(() => expect(events).toHaveBeenCalled())
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50))
+    })
+    expect(events).toHaveBeenCalledTimes(1)
+    expect(history).toHaveBeenCalledTimes(1)
+  })
+
+  test('a slow answer for an earlier filter does not replace the changes for the current one', async () => {
+    settings = { ...DEFAULT_SETTINGS }
+    history.mockReset().mockResolvedValue(index)
+    let finishOld!: (v: ChangeEvent[]) => void
+    events.mockReset().mockImplementationOnce(() => new Promise<ChangeEvent[]>((res) => { finishOld = res }))
+    renderPage()
+    await waitFor(() => expect(events).toHaveBeenCalledTimes(1)) // the unfiltered request, still out
+
+    events.mockResolvedValueOnce([ev('newer-change')])
+    pickKind('Cluster appeared')
+    await screen.findByText('newer-change')
+
+    await act(async () => {
+      finishOld([ev('older-change')])
+    })
+    expect(screen.queryByText('older-change')).toBeNull()
+    expect(screen.getByText('newer-change')).toBeInTheDocument()
   })
 })

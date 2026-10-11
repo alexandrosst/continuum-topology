@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import ActivityPage from '@/pages/ActivityPage'
@@ -7,9 +7,11 @@ import type { AuditRow } from '@/lib/api'
 const audit = vi.fn(async (): Promise<{ rows: AuditRow[]; source: 'graph' | 'local' }> => ({ source: 'local', rows: [] }))
 const workspaceRevisions = vi.fn(async () => [])
 
+// One stable object: a fresh one per render would change `load` on every render and refetch forever.
+const CONN = { url: '', org: 'o' }
 vi.mock('@/store/server', () => ({
   useServer: (selector: (s: { status: string; role: string }) => unknown) => selector({ status: 'connected', role: 'admin' }),
-  useConn: () => ({ url: '', org: 'o' }),
+  useConn: () => CONN,
 }))
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>()
@@ -63,5 +65,24 @@ describe('ActivityPage: CSV export', () => {
     )
     expect(clickSpy).toHaveBeenCalledTimes(1)
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:fake')
+  })
+})
+
+describe('ActivityPage: overlapping requests', () => {
+  test('a slow answer for an earlier filter does not replace the rows for the current one', async () => {
+    let finishOld!: (v: { rows: AuditRow[]; source: 'graph' | 'local' }) => void
+    audit.mockImplementationOnce(() => new Promise((res) => { finishOld = res }))
+    render(<ActivityPage />)
+    await waitFor(() => expect(audit).toHaveBeenCalledTimes(1)) // the unfiltered request, still out
+
+    audit.mockResolvedValueOnce({ source: 'local', rows: [row({ id: 2, actor: 'newer-actor' })] })
+    await userEvent.type(screen.getByTestId('audit-actor'), 'n')
+    await screen.findByText('newer-actor')
+
+    await act(async () => {
+      finishOld({ source: 'local', rows: [row({ id: 1, actor: 'older-actor' })] })
+    })
+    expect(screen.queryByText('older-actor')).toBeNull()
+    expect(screen.getByText('newer-actor')).toBeInTheDocument()
   })
 })

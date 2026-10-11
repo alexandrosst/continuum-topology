@@ -1,4 +1,4 @@
-import { BaseEdge, useStore, useViewport, type EdgeProps, type InternalNode } from '@xyflow/react'
+import { BaseEdge, useStore, type EdgeProps, type InternalNode } from '@xyflow/react'
 import { createContext, useContext } from 'react'
 import { HEADER, NS_HEADER, type TopoEdge } from '@/lib/graph'
 import { DETOUR_STUB, detourRoute, polylineMidpoint } from './detour'
@@ -59,15 +59,28 @@ export type PathObstacle = { x: number; y: number; w: number; h: number; soft?: 
 /** How round a squared route's corners are (px): a tidy wiring diagram, not a curve. */
 export const SQUARE_CORNER_RADIUS = 12
 
+// Least recently used goes first: a drag changes the key of the few lines near the dragged card on every frame, and the
+// untouched lines must keep their entries (read below re-inserts a hit) instead of aging out with them. The cap has to
+// cover every line on the canvas, or one pass over them all evicts each entry before it is read again (SquareRoutes sizes it).
 const orthoCache = new Map<string, Pt[] | null>()
+let orthoCap = 400
+export const orthoCacheCapFor = (edgeCount: number) => Math.max(400, edgeCount * 3)
+export function setOrthoCacheCap(n: number) {
+  orthoCap = n
+}
 export function cachedOrtho(p1: Pt, n1: Pt, p2: Pt, n2: Pt, obstacles: PathObstacle[]) {
   const hard = obstacles.filter((o) => !o.soft)
   const soft = obstacles.filter((o) => o.soft)
   const r = (v: number) => Math.round(v * 2) / 2
   const key = [p1.x, p1.y, n1.x, n1.y, p2.x, p2.y, n2.x, n2.y, ...hard.flatMap((o) => [o.x, o.y, o.w, o.h]), -99999, ...soft.flatMap((o) => [o.x, o.y, o.w, o.h])].map(r).join(',')
-  if (orthoCache.has(key)) return orthoCache.get(key)!
+  if (orthoCache.has(key)) {
+    const hit = orthoCache.get(key)!
+    orthoCache.delete(key)
+    orthoCache.set(key, hit)
+    return hit
+  }
   const route = orthoRoute(p1, n1, p2, n2, hard, soft)
-  if (orthoCache.size >= 400) orthoCache.delete(orthoCache.keys().next().value!)
+  while (orthoCache.size >= orthoCap) orthoCache.delete(orthoCache.keys().next().value!)
   orthoCache.set(key, route)
   return route
 }
@@ -555,40 +568,15 @@ export const SquareRoutesContext = createContext<Map<string, RoutedPath> | null>
  * In the squared style the line comes from SquareRoutesContext: every line is routed together, so parallel lines can be
  * spaced apart. Without it (the curved fallback, or before the first measure) the line is routed on its own.
  */
-export function OffsetEdge({ id, source, target, sourceX, sourceY, targetX, targetY, data, label, labelStyle, labelBgStyle, labelBgPadding, labelBgBorderRadius, labelShowBg, markerEnd, style, interactionWidth }: EdgeProps<TopoEdge>) {
-  // Every other card on the canvas, live. Read reactively (not just this edge's own two ends), so every edge re-routes on
-  // any node moving; cheap at this app's scale, and it keeps a dragged card's already-avoiding edges from lagging.
-  const nodeLookup = useStore((s) => s.nodeLookup)
-  useNodeGeometryKey()
-  const { zoom } = useViewport()
-  const routed = useContext(SquareRoutesContext)?.get(id)
+export function OffsetEdge(props: EdgeProps<TopoEdge>) {
+  // The squared style is the normal case and needs nothing from the store, so it must not subscribe to anything that
+  // changes on a pan or a node moving: that would run an O(nodes) selector per edge on every frame. Only the fallback
+  // (an edge SquareRoutes could not lay out yet) reads the live geometry.
+  const routed = useContext(SquareRoutesContext)?.get(props.id)
+  return routed ? <EdgeLine {...props} result={routed} /> : <UnroutedOffsetEdge {...props} />
+}
 
-  let result: RoutedPath
-  if (routed) {
-    result = routed
-  } else {
-    const layout = layoutEdge(nodeLookup, source, target, data?.sourceOffset ?? 0, data?.targetOffset ?? 0, false)
-    let p1 = { x: sourceX, y: sourceY }
-    let p2 = { x: targetX, y: targetY }
-    // "Up" is a reasonable guess for the very first render or two before a node is measured.
-    let n1 = { x: 0, y: -1 }
-    let n2 = { x: 0, y: -1 }
-    let obstacles: PathObstacle[] = []
-    if (layout) {
-      p1 = layout.p1
-      p2 = layout.p2
-      n1 = layout.n1
-      n2 = layout.n2
-      obstacles = layout.obstacles
-    }
-    // The bare line-end itself should never be the thing touching a box - the only contact is meant to be an arrowhead's
-    // own tip. The ends sit exactly ON each box's boundary; pullBackEnds shrinks that back off by GAP along the normal at
-    // whichever end(s) have no arrowhead tip (see its doc comment). GAP is a *screen* size, converted to flow space by
-    // the zoom, so it reads the same fit-to-view zoomed out as it does close up.
-    const pulled = pullBackEnds(p1, n1, p2, n2, 5 / zoom, !!markerEnd)
-    // The line must not run across its own two boxes either.
-    result = curvedPath(pulled.sx, pulled.sy, pulled.tx, pulled.ty, n1, n2, layout ? [...obstacles, layout.sourceBox, layout.targetBox] : obstacles)
-  }
+function EdgeLine({ id, result, label, labelStyle, labelBgStyle, labelBgPadding, labelBgBorderRadius, labelShowBg, markerEnd, style, interactionWidth }: EdgeProps<TopoEdge> & { result: RoutedPath }) {
   return (
     <BaseEdge
       id={id}
@@ -606,6 +594,39 @@ export function OffsetEdge({ id, source, target, sourceX, sourceY, targetX, targ
       interactionWidth={interactionWidth}
     />
   )
+}
+
+function UnroutedOffsetEdge(props: EdgeProps<TopoEdge>) {
+  const { source, target, sourceX, sourceY, targetX, targetY, data, markerEnd } = props
+  // Every other card on the canvas, live. Read reactively (not just this edge's own two ends), so every edge re-routes on
+  // any node moving; cheap at this app's scale, and it keeps a dragged card's already-avoiding edges from lagging.
+  const nodeLookup = useStore((s) => s.nodeLookup)
+  useNodeGeometryKey()
+  // Only the zoom matters here; useViewport() would also re-render the line on every pan.
+  const zoom = useStore((s) => s.transform[2])
+
+  const layout = layoutEdge(nodeLookup, source, target, data?.sourceOffset ?? 0, data?.targetOffset ?? 0, false)
+  let p1 = { x: sourceX, y: sourceY }
+  let p2 = { x: targetX, y: targetY }
+  // "Up" is a reasonable guess for the very first render or two before a node is measured.
+  let n1 = { x: 0, y: -1 }
+  let n2 = { x: 0, y: -1 }
+  let obstacles: PathObstacle[] = []
+  if (layout) {
+    p1 = layout.p1
+    p2 = layout.p2
+    n1 = layout.n1
+    n2 = layout.n2
+    obstacles = layout.obstacles
+  }
+  // The bare line-end itself should never be the thing touching a box - the only contact is meant to be an arrowhead's
+  // own tip. The ends sit exactly ON each box's boundary; pullBackEnds shrinks that back off by GAP along the normal at
+  // whichever end(s) have no arrowhead tip (see its doc comment). GAP is a *screen* size, converted to flow space by
+  // the zoom, so it reads the same fit-to-view zoomed out as it does close up.
+  const pulled = pullBackEnds(p1, n1, p2, n2, 5 / zoom, !!markerEnd)
+  // The line must not run across its own two boxes either.
+  const result = curvedPath(pulled.sx, pulled.sy, pulled.tx, pulled.ty, n1, n2, layout ? [...obstacles, layout.sourceBox, layout.targetBox] : obstacles)
+  return <EdgeLine {...props} result={result} />
 }
 
 export const edgeTypes = { offset: OffsetEdge }

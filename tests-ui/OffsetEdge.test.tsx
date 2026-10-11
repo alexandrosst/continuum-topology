@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import {
   avoidHeaderSide,
+  cachedOrtho,
   collectObstacles,
   curvedPath,
   ARRIVAL_DEPTH,
@@ -8,8 +9,10 @@ import {
   intersection,
   outwardNormal,
   OBSTACLE_MARGIN,
+  orthoCacheCapFor,
   pickClearSide,
   pullBackEnds,
+  setOrthoCacheCap,
   SIDE_INSET,
   sideIsClear,
   sideMidpoint,
@@ -353,5 +356,27 @@ describe('collectObstacles (what a line must keep out of)', () => {
   test('only boxes near the two ends are looked at', () => {
     const o = collectObstacles(lookup, 'src', 'dst', { minX: 0, maxX: 700, minY: 0, maxY: 300 })
     expect(o).toEqual([])
+  })
+})
+
+describe('cachedOrtho', () => {
+  // A hit hands back the very array it stored, so identity tells a hit from a fresh search.
+  const route = (i: number) => cachedOrtho({ x: i * 10, y: 0 }, { x: 1, y: 0 }, { x: i * 10 + 400, y: 100 }, { x: -1, y: 0 }, [])
+
+  test('a line that is read again stays cached while other lines churn past the cap', () => {
+    setOrthoCacheCap(5)
+    const kept = route(1000)
+    for (let i = 0; i < 50; i++) {
+      route(i) // a line near the dragged card: a new key every frame
+      expect(route(1000)).toBe(kept) // an untouched line, read every frame
+    }
+  })
+
+  test('the cap follows the edge count, so a pass over 500 lines is all hits the next time', () => {
+    expect(orthoCacheCapFor(10)).toBe(400)
+    expect(orthoCacheCapFor(500)).toBeGreaterThanOrEqual(500)
+    setOrthoCacheCap(orthoCacheCapFor(500))
+    const first = Array.from({ length: 500 }, (_, i) => route(2000 + i))
+    first.forEach((r, i) => expect(route(2000 + i)).toBe(r))
   })
 })

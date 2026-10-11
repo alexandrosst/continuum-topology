@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { Bell, CheckCircle2, ChevronRight, CircleAlert, Clock, History as HistoryIcon, Info, Radio, Save, TriangleAlert } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Button, EmptyState, ErrorBanner, Field, ICON_SM, Input, PageHeader, Pill, PulseDot, SavedNote, Select, Table, TableSkeleton, Td, Th } from '@/components/ui/primitives'
 import { api, atLeast, type Conn, type StorageInfo } from '@/lib/api'
@@ -55,32 +55,40 @@ function Connected({ conn, admin }: { conn: Conn; admin: boolean }) {
   const { clusters } = useTopology()
   const [tick, setTick] = useState(0)
 
+  // Only the newest request may land: a slow answer (a poll in flight when a filter changed) must not replace what the current filter asked for.
+  const newest = useRef(0)
   const load = useCallback(async () => {
+    const mine = ++newest.current
     const since = new Date(Date.now() - hours * 3600_000).toISOString()
     try {
       const [i, e] = await Promise.all([api.history(conn, since), api.events(conn, { since, kind, cluster: clusterId, limit: 400 })])
+      if (mine !== newest.current) return
       setIndex(i)
       setEvents(e)
       setError(undefined)
     } catch (err) {
+      if (mine !== newest.current) return
       setError(err instanceof Error ? err.message : 'The history could not be read.')
     }
   }, [conn, hours, kind, clusterId])
   useEffect(() => {
     void load()
-    const id = setInterval(() => document.visibilityState === 'visible' && setTick((t) => t + 1), 15000)
+    // The poll loads here and only then bumps `tick` for the cards that follow it; a second effect that reloaded on `tick`
+    // as well as on `load` sent every request twice once a filter changed after the first tick.
+    const id = setInterval(() => {
+      if (document.visibilityState !== 'visible') return
+      void load()
+      setTick((t) => t + 1)
+    }, 15000)
     return () => clearInterval(id)
   }, [load])
-  useEffect(() => {
-    if (tick > 0) void load()
-  }, [tick, load])
 
   return (
     <>
       <PageHeader
         title="History"
         description="Every change Ikhnos noticed, with its likely cause, and a recording of the estate you can go back to. For who made a change, see Activity; for changes still waiting on a decision, see Discovery."
-        actions={admin ? <RecordNow onDone={() => setTick((t) => t + 1)} conn={conn} /> : undefined}
+        actions={admin ? <RecordNow onDone={() => { void load(); setTick((t) => t + 1) }} conn={conn} /> : undefined}
       />
       {error && <ErrorBanner className="mb-4">{error}</ErrorBanner>}
       <div className="mb-6 grid gap-4 xl:grid-cols-[1fr_22rem]">
