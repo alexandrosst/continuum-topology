@@ -13,25 +13,29 @@ export interface ColumnDef {
 
 const PREFIX = 'continuum:columns:'
 
-function readHidden(storageKey: string): Set<string> {
+function readHidden(storageKey: string, defaultHidden: readonly string[]): Set<string> {
   try {
     const raw = localStorage.getItem(PREFIX + storageKey)
-    const arr = raw ? (JSON.parse(raw) as unknown) : []
+    // Nothing remembered yet: the page's own default. Once a person has touched the picker their choice is what counts.
+    if (raw === null) return new Set(defaultHidden)
+    const arr = JSON.parse(raw) as unknown
     return new Set(Array.isArray(arr) ? arr.filter((x): x is string => typeof x === 'string') : [])
   } catch {
-    return new Set()
+    return new Set(defaultHidden)
   }
 }
 
 /**
  * Which of a list page's optional columns are hidden, remembered per browser under `storageKey` - the
  * same per-browser convenience the theme toggle and the collapsed sidebar already use, not an account
- * setting shared with anyone else. Every column starts visible; a person trims the ones they don't look
+ * setting shared with anyone else. Columns start visible; a person trims the ones they don't look
  * at instead of being stuck with whichever set the page shipped with, the way Nodes/Clusters/Applications
- * and similar dense tables tend to grow more columns than fit a laptop screen at once.
+ * and similar dense tables tend to grow more columns than fit a laptop screen at once. A page may list
+ * `defaultHidden` columns that start off for someone who has not chosen anything yet (detail that is there
+ * to compare across rows, not to read at a glance); they are one click away in the picker.
  */
-export function useColumnVisibility(storageKey: string) {
-  const [hidden, setHidden] = useState<Set<string>>(() => readHidden(storageKey))
+export function useColumnVisibility(storageKey: string, defaultHidden: readonly string[] = []) {
+  const [hidden, setHidden] = useState<Set<string>>(() => readHidden(storageKey, defaultHidden))
 
   useEffect(() => {
     try {

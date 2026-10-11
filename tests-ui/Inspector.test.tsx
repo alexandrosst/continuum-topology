@@ -44,8 +44,8 @@ vi.mock('@/store/server', () => ({
 // out entirely rather than wired up for real: what it shows isn't what these tests are about, and doing so
 // for real would mean also faking useEffectiveModel's server-polling/etag machinery for no benefit here.
 vi.mock('@/components/EvidenceSection', () => ({
-  EvidenceSection: () => null,
-  WeakValues: () => null,
+  NeedsLook: () => null,
+  SourcesFooter: () => null,
 }))
 
 const ext = (over: Partial<ExternalEndpoint> = {}): ExternalEndpoint => ({
@@ -357,5 +357,68 @@ describe('Inspector · cluster networks', () => {
   test('says nothing when the cluster shares no network or tunnel', () => {
     renderCluster([])
     expect(screen.queryByTestId('cluster-net')).not.toBeInTheDocument()
+  })
+})
+
+describe('Inspector · cluster layout', () => {
+  const cl = { id: 'a', name: 'atlas', status: 'ready', tier: 'edge', distribution: 'k3s', version: 'v1', podCidr: '10.42.0.0/16', serviceCidr: '10.43.0.0/16', cni: 'canal', ingress: 'nginx', storageClasses: ['longhorn'], source: 'discovered', orgId: 'o', labels: {} }
+  const agent = { id: 'ag', name: 'atlas-agent', clusterId: 'a', accessTier: 2, link: { bytes: 690_000_000, syncs: 490, flows: 12_600, measurements: 950, heartbeats: 5_900 } }
+
+  function renderCluster(nodeCount = 2) {
+    pairsState = [{ fromCluster: 'a', fromName: 'atlas', toCluster: 'b', toName: 'kestrel', status: 'subnet', dependencyFlows: 0, links: [] }] as never
+    topologyState = {
+      ...topologyState,
+      clusters: [cl] as never[],
+      nodes: Array.from({ length: nodeCount }, (_, i) => node({ id: `n${i}`, name: `edge-${i}`, clusterId: 'a' })),
+      agents: [agent] as never[],
+      externalEndpoints: [],
+    }
+    return render(
+      <MemoryRouter>
+        <Inspector selection={{ kind: 'cluster', id: 'a' }} onSelect={() => {}} onEdit={() => {}} onClose={() => {}} />
+      </MemoryRouter>,
+    )
+  }
+
+  test('groups what it says as Identity, Location and Network, with the platform under Identity', () => {
+    renderCluster()
+    for (const t of ['Identity', 'Location', 'Network']) expect(screen.getByText(t, { selector: 'div.uppercase' })).toBeInTheDocument()
+    expect(screen.queryByText('Location & network')).not.toBeInTheDocument()
+    const network = screen.getByText('Network', { selector: 'div.uppercase' }).parentElement!
+    expect(within(network).getByText('10.42.0.0/16')).toBeInTheDocument()
+    expect(within(network).queryByText('canal · nginx')).not.toBeInTheDocument()
+    expect(screen.getByText('canal · nginx')).toBeInTheDocument()
+  })
+
+  test('the agent section links to the Agents page and leaves the message counters to it', () => {
+    renderCluster()
+    expect(screen.queryByText('Access & discovery')).not.toBeInTheDocument()
+    expect(screen.getByText('Agent', { selector: 'div.uppercase' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'atlas-agent' })).toHaveAttribute('href', '/agents')
+    expect(screen.getByRole('link', { name: /Agents page/ })).toHaveAttribute('href', '/agents')
+    expect(screen.queryByText(/heartbeats/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/flow batches/)).not.toBeInTheDocument()
+  })
+
+  test('the long explanation of connectivity is a tooltip on the heading, not a paragraph', () => {
+    renderCluster()
+    expect(screen.getByLabelText('What this means').parentElement).toHaveAttribute('title', expect.stringContaining('never a guess'))
+    expect(screen.queryByText(/Unexplained means traffic crosses/)).not.toBeInTheDocument()
+  })
+
+  test('a long node list shows the first five, and the rest on request', () => {
+    renderCluster(8)
+    expect(screen.getByText('Nodes (8)')).toBeInTheDocument()
+    expect(screen.getByText('edge-4')).toBeInTheDocument()
+    expect(screen.queryByText('edge-5')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Show all 8' }))
+    expect(screen.getByText('edge-7')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Show fewer' }))
+    expect(screen.queryByText('edge-7')).not.toBeInTheDocument()
+  })
+
+  test('a short list has no "Show all"', () => {
+    renderCluster(3)
+    expect(screen.queryByRole('button', { name: /Show all/ })).not.toBeInTheDocument()
   })
 })

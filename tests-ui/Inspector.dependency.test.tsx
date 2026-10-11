@@ -39,8 +39,8 @@ vi.mock('@/store/server', () => ({
   useConn: () => ({ url: '', org: 'o' }),
 }))
 vi.mock('@/components/EvidenceSection', () => ({
-  EvidenceSection: () => null,
-  WeakValues: () => null,
+  NeedsLook: () => null,
+  SourcesFooter: () => null,
 }))
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>()

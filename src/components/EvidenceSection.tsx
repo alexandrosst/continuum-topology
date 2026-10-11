@@ -71,37 +71,74 @@ export function EvidenceSection({ kind, id }: { kind: string; id: string }) {
 }
 
 /**
- * The values of a discovered record that are guessed or not known, each with its evidence chip. Nothing when
- * there are none. A "guess" carries a real value discovery is unsure of, so it can be confirmed as-is in one
- * click (see `confirmOverride`); an "unknown" has no value to freeze and genuinely needs the edit form instead.
+ * The values of a discovered record that are guessed or not known, at the top of the sidebar where a person
+ * will see them, each with the signal it rests on. Nothing when there are none (the section is not drawn).
+ * A "guess" carries a real value discovery is unsure of, so it can be kept as it is in one click (see
+ * `confirmField`); an "unknown" has no value to freeze and genuinely needs the edit form instead.
  */
-export function WeakValues({ kind, rec }: { kind: 'cluster' | 'node' | 'service'; rec: Provenance & { id: string } }) {
+export function NeedsLook({ kind, rec }: { kind: 'cluster' | 'node' | 'service'; rec: Provenance & { id: string } }) {
   const weak = weakAttributes(kind, rec as unknown as Provenance & Record<string, unknown>)
   const confirmField = useTopology((s) => s.confirmField)
   const by = useServer((s) => s.user?.username)
   if (weak.length === 0) return null
   return (
-    <div className="py-1.5 text-sm" data-testid="weak-values">
-      <div className="mb-1 text-nb-500">Guessed or not known</div>
-      <ul className="space-y-1">
+    <div className="border-t border-nb-850 bg-warn/5 px-5 py-4" data-testid="needs-look">
+      <div className="mb-2 text-xs font-medium uppercase tracking-wide text-nb-500">Needs a look ({weak.length})</div>
+      <ul className="space-y-2.5">
         {weak.map((w) => (
-          <li key={w.field} className="flex items-baseline justify-between gap-3" title={w.why}>
-            <span className="text-nb-400">{w.label}</span>
-            <span className="flex items-center gap-2">
+          <li key={w.field} className="text-sm">
+            <div className="flex items-baseline justify-between gap-3">
+              <span className="text-nb-400">{w.label}</span>
               <EvidenceChip level={w.level} always why={w.why} />
+            </div>
+            <div className="mt-0.5 flex items-baseline justify-between gap-3 text-[11px] leading-4 text-nb-500">
+              <span>{w.why}</span>
               {w.level === 'guess' && by && (
                 <button
                   onClick={() => confirmField(kind, rec.id, w.field, by)}
-                  className="text-[11px] text-accent hover:underline"
+                  className="shrink-0 text-accent hover:underline"
                   title="Keep this value as it is; it will not be overwritten by rediscovery."
                 >
-                  confirm
+                  Keep as is
                 </button>
               )}
-            </span>
+            </div>
           </li>
         ))}
       </ul>
+    </div>
+  )
+}
+
+/**
+ * One quiet line saying where a record's facts come from, with the full list (the Evidence rows above) opening
+ * only on request. What needs attention is NeedsLook's job at the top of the sidebar; repeating every confirmed
+ * value here as well was noise.
+ */
+export function SourcesFooter({ kind, id }: { kind: string; id: string }) {
+  const entity = useEntityEvidence(kind, id)
+  const agents = useServer((s) => s.state?.agents)
+  const [open, setOpen] = useState(false)
+  if (!entity) return null
+  const rows = evidenceRows(entity, (a) => agents?.find((x) => x.id === a)?.name)
+  if (rows.length === 0) return null
+  const count = (levels: string[]) => rows.filter((r) => levels.includes(r.confidence)).length
+  const parts = [
+    [count(['reported', 'measured']), 'reported or measured'],
+    [count(['inferred']), 'inferred'],
+    [count(['guess', 'unknown']), 'to check'],
+  ]
+    .filter(([n]) => n)
+    .map(([n, label]) => `${n} ${label}`)
+  return (
+    <div className="border-t border-nb-850 px-5 py-3" data-testid="sources-footer">
+      <div className="flex items-center justify-between gap-3 text-xs text-nb-500">
+        <span>{rows.length} {rows.length === 1 ? 'fact' : 'facts'} · {parts.join(' · ')}</span>
+        <button onClick={() => setOpen(!open)} aria-expanded={open} className="shrink-0 text-accent hover:underline">
+          {open ? 'Hide sources' : 'Show sources'}
+        </button>
+      </div>
+      {open && <div className="-mx-5 mt-2"><EvidenceSection kind={kind} id={id} /></div>}
     </div>
   )
 }

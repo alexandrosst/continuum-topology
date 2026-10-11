@@ -2,12 +2,11 @@ import clsx from 'clsx'
 import { ChevronDown, ChevronUp, Pencil, X } from 'lucide-react'
 import { Fragment, useEffect, useMemo, useState, type ComponentProps, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { CheckLine } from '@/components/discovery/AgentParts'
 import EntityHistory from '@/components/EntityHistory'
-import { EvidenceSection, WeakValues } from '@/components/EvidenceSection'
+import { NeedsLook, SourcesFooter } from '@/components/EvidenceSection'
 import MobilityPanel from '@/components/MobilityPanel'
 import PlacementHint from '@/components/PlacementHint'
-import { LinkRow, Section } from '@/components/topology/InspectorParts'
+import { LinkRow, Section, ShortList } from '@/components/topology/InspectorParts'
 import PlatformPanel, { PlatformSubtitle } from '@/components/topology/PlatformPanel'
 import { DistroIcon, Flag, Place, ProviderIcon, WithIcon } from '@/components/ui/brand'
 import { Button, CompletenessBadge, ConnectivityStatusBadge, DetailRow, ICON_MD, ICON_SM, Input, IpAddress, Pill, Provenance as ProvenanceStrip, Select, Sparkline, SourceBadge, StatusDot, TierBadge, TunnelEvidence } from '@/components/ui/primitives'
@@ -134,7 +133,7 @@ function fieldProvenance(ev?: Evidence): ComponentProps<typeof ProvenanceStrip> 
  *  device): the origin words this file's old Origin showed, the aggregate "Edited" badge SourceBadge
  *  already carries for a person's override, confidence from the record's own observation state
  *  (live/stale/disconnected/revoked/gone - the only "how sure" a whole record carries; a single value's own
- *  guess/unknown is WeakValues' job and stays separate from this), and when it was last seen. */
+ *  guess/unknown is NeedsLook's job and stays separate from this), and when it was last seen. */
 function recordProvenance(e: Provenance): ComponentProps<typeof ProvenanceStrip> {
   const obs = observation(e)
   return {
@@ -412,6 +411,7 @@ export default function Inspector({
     )
     body = (
       <>
+        <NeedsLook kind="cluster" rec={c} />
         <Section title="Identity">
           <Row label="Distribution" badge={!!c.overrides?.distribution && <Confirmed meta={c.overrideMeta?.distribution} />}>
             <WithIcon icon={<DistroIcon distribution={c.distribution} size={ICON_SM} />}>{c.distribution} {c.version}</WithIcon>
@@ -420,6 +420,8 @@ export default function Inspector({
             {c.provider ? <WithIcon icon={<ProviderIcon provider={c.provider} size={ICON_SM} />}>{c.provider}</WithIcon> : '—'}
           </Row>
           <Maybe label="Age">{c.createdAt ? `${ageLabel(c.createdAt)} (${new Date(c.createdAt).toLocaleDateString()})` : undefined}</Maybe>
+          <Maybe label="CNI · Ingress">{[c.cni, c.ingress].filter(Boolean).join(' · ')}</Maybe>
+          <Chips label="Storage" items={c.storageClasses} />
           <Maybe label="Trust zone · residency">{[c.trustZone, c.dataResidency].filter(Boolean).join(' · ')}</Maybe>
           {!c.trustZone && !clusterSite?.trustZone && (
             <Row label="Trust zone" wrap>
@@ -429,23 +431,11 @@ export default function Inspector({
             </Row>
           )}
         </Section>
-        <Section title="Location & network">
+        <Section title="Location">
           <Row label="Location"><Place site={sites.find((x) => x.id === c.siteId)} fallback={c.region} /></Row>
           {!sites.some((x) => x.id === c.siteId) && <PlacementHint suggestion={placement.get(c.id)} egressIp={c.egressIp} />}
           <Maybe label="Site">{siteName(c.siteId)}</Maybe>
           <Maybe label="Region label">{c.region}</Maybe>
-          <Maybe label="CNI · Ingress">{[c.cni, c.ingress].filter(Boolean).join(' · ')}</Maybe>
-          <Maybe label="Pod CIDR" copy={c.podCidr}><span className="font-mono text-xs">{c.podCidr}</span></Maybe>
-          <Chips label="CIDR overlap" items={overlap.map((o) => o.name)} tone="warn" title="Overlapping pod CIDRs can break direct cross-cluster routing." />
-          <Maybe label="Service CIDR" copy={c.serviceCidr}><span className="font-mono text-xs">{c.serviceCidr}</span></Maybe>
-          <Chips label="Storage" items={c.storageClasses} />
-          {c.apiEndpoint && <Row label="API endpoint" copy={c.apiEndpoint}><IpAddress ip={c.apiEndpoint} inline /></Row>}
-          {c.apiEndpoint && ipInCidr(c.apiEndpoint, c.serviceCidr) && (
-            <p className="-mt-1 text-xs text-nb-500">
-              This is the cluster's own API service address (inside its Service CIDR) - it works for the agent and other in-cluster clients, but is not reachable from outside the cluster.
-            </p>
-          )}
-          {c.egressIp && <Row label="Exit IP" copy={c.egressIp}><IpAddress ip={c.egressIp} inline /></Row>}
           {agent?.connectingGeo && (
             <div className="mt-2 rounded-md border border-nb-850 bg-nb-930/40 px-2.5 py-2 text-xs">
               <div className="mb-1 text-nb-500">GeoIP says</div>
@@ -488,6 +478,18 @@ export default function Inspector({
             </div>
           )}
         </Section>
+        <Section title="Network">
+          <Maybe label="Pod CIDR" copy={c.podCidr}><span className="font-mono text-xs">{c.podCidr}</span></Maybe>
+          <Chips label="CIDR overlap" items={overlap.map((o) => o.name)} tone="warn" title="Overlapping pod CIDRs can break direct cross-cluster routing." />
+          <Maybe label="Service CIDR" copy={c.serviceCidr}><span className="font-mono text-xs">{c.serviceCidr}</span></Maybe>
+          {c.apiEndpoint && <Row label="API endpoint" copy={c.apiEndpoint}><IpAddress ip={c.apiEndpoint} inline /></Row>}
+          {c.apiEndpoint && ipInCidr(c.apiEndpoint, c.serviceCidr) && (
+            <p className="-mt-1 text-xs text-nb-500">
+              This is the cluster's own API service address (inside its Service CIDR) - it works for the agent and other in-cluster clients, but is not reachable from outside the cluster.
+            </p>
+          )}
+          {c.egressIp && <Row label="Exit IP" copy={c.egressIp}><IpAddress ip={c.egressIp} inline /></Row>}
+        </Section>
         {(() => {
           // Every cluster pair c has SOME relationship with (a confirmed ClusterLink, or observed
           // cross-cluster traffic) - a strict superset of the old "Cluster links" section, which only
@@ -499,7 +501,7 @@ export default function Inspector({
           // from the same pair links, so the header chips (from the store's cluster links) and these lines agree.
           const nets = clusterNets(pairs.flatMap((p) => p.links ?? [])).get(c.id) ?? []
           return pairs.length > 0 && (
-            <Section title={`Cluster connectivity (${pairs.length})`}>
+            <Section title={`Cluster connectivity (${pairs.length})`} hint="Whether each related cluster is actually reachable, and how - confirmed from both sides' own routing and address data where possible, never a guess from naming or a declared exposure setting. Unexplained means traffic crosses with nothing here to explain how; unknown means not enough was collected from one or both sides to say either way.">
               {nets.map((n) => (
                 <p key={`${n.kind}:${n.via}`} className="mb-2 px-2 text-xs text-nb-400" data-testid="cluster-net">
                   {n.kind === 'subnet' ? 'Network' : 'Tunnel'} <span className="font-mono text-nb-300">{n.via}</span> — {n.kind === 'subnet' ? 'shared with' : 'to'}{' '}
@@ -579,44 +581,24 @@ export default function Inspector({
                   </div>
                 )
               })}
-              <p className="mt-1.5 text-xs text-nb-500">
-                Whether each related cluster is actually reachable, and how - confirmed from both sides' own routing/address data where possible, never a guess from naming or a declared exposure setting. "Unexplained" means traffic crosses with nothing here to explain how; "unknown" means not enough was collected from one or both sides to say either way.
-              </p>
             </Section>
           )
         })()}
-        <Section title="Access & discovery">
-          <Row label="Discovered"><CompletenessBadge c={completeness(c, nodes, services, dependencies)} /></Row>
+        <Section title="Agent">
           {agent && (
             <Row label="Agent">
-              <Link to="/discovery" className="text-accent hover:underline">{agent.name}</Link> <span className="text-nb-500">tier {agent.accessTier}</span>
+              <Link to="/agents" className="text-accent hover:underline">{agent.name}</Link> <span className="text-nb-500">tier {agent.accessTier}</span>
             </Row>
           )}
+          <Row label="Discovered"><CompletenessBadge c={completeness(c, nodes, services, dependencies)} /></Row>
           {agent && <ObserverRow agent={agent} nodeNames={ns.map((n) => n.name)} />}
           {agent?.scope && (
             <Row label="Namespaces read" wrap>
               <span title={agent.scope.description}>{agent.scope.inScope} of {agent.scope.namespaces}</span>
             </Row>
           )}
-          {agent?.link && (
-            <Row label="Connection" wrap>
-              <span title="Everything this agent has sent since the server itself last started - not this connection's own lifetime, and not reset by a reconnect.">
-                {bytesTotal(agent.link.bytes)} sent
-                {agent.link.connectedSince && <> · connected {ago(agent.link.connectedSince)}</>}
-              </span>
-              <span className="ml-1 text-nb-500">
-                ({[
-                  agent.link.syncs ? `${agent.link.syncs.toLocaleString()} sync${agent.link.syncs === 1 ? '' : 's'}` : '',
-                  agent.link.flows ? `${agent.link.flows.toLocaleString()} flow batch${agent.link.flows === 1 ? '' : 'es'}` : '',
-                  agent.link.measurements ? `${agent.link.measurements.toLocaleString()} measurement${agent.link.measurements === 1 ? '' : 's'}` : '',
-                  agent.link.heartbeats ? `${agent.link.heartbeats.toLocaleString()} heartbeat${agent.link.heartbeats === 1 ? '' : 's'}` : '',
-                ].filter(Boolean).join(', ')})
-              </span>
-            </Row>
-          )}
-          {agent && <CheckLine agent={agent} />}
           <ProvenanceStrip {...recordProvenance(c)} />
-          <WeakValues kind="cluster" rec={c} />
+          {agent && <Link to="/agents" className="mt-1 inline-block text-xs text-accent hover:underline">Connection, counters and checks on the Agents page</Link>}
         </Section>
         {c.mesh && (
           <Section title="Service mesh">
@@ -641,7 +623,7 @@ export default function Inspector({
           </Section>
         )}
         <Section title={`Nodes (${ns.length})`}>
-          {ns.map((n) => <LinkRow key={n.id} label={n.name} sub={n.role === 'control-plane' ? 'control plane' : ''} onClick={() => onSelect({ kind: 'node', id: n.id })} />)}
+          <ShortList items={ns.map((n) => <LinkRow key={n.id} label={n.name} sub={n.role === 'control-plane' ? 'control plane' : ''} onClick={() => onSelect({ kind: 'node', id: n.id })} />)} />
           {ns.length === 0 && <p className="text-sm text-nb-500">{c.source === 'discovered' ? 'No node has been reported for this cluster (the agent may read below the Infrastructure access level).' : 'No nodes declared.'}</p>}
         </Section>
         <Section title={`Services (${ws.length})`}>
@@ -652,12 +634,12 @@ export default function Inspector({
               </span>
             ) : undefined}
           </Maybe>
-          {ws.map((w) => <LinkRow key={w.id} label={w.name} sub={w.namespace} onClick={() => onSelect({ kind: 'service', id: w.id })} />)}
+          <ShortList items={ws.map((w) => <LinkRow key={w.id} label={w.name} sub={w.namespace} onClick={() => onSelect({ kind: 'service', id: w.id })} />)} />
           {ws.length === 0 && <p className="text-sm text-nb-500">{c.source === 'discovered' ? 'No service has been reported for this cluster (the agent may read below the Services access level).' : 'No services declared.'}</p>}
         </Section>
         {spaces.length > 0 && (
           <Section title={`Namespaces (${spaces.length})`}>
-            {spaces.map((n) => <LinkRow key={n.id} label={n.name} sub={appName(n.applicationId)} />)}
+            <ShortList items={spaces.map((n) => <LinkRow key={n.id} label={n.name} sub={appName(n.applicationId)} />)} />
           </Section>
         )}
       </>
@@ -697,6 +679,7 @@ export default function Inspector({
     )
     body = (
       <>
+        <NeedsLook kind="node" rec={n} />
         <Section title="Identity">
           <Row label="Cluster">
             <button className="text-accent hover:underline" onClick={() => onSelect({ kind: 'cluster', id: n.clusterId })}>{clusterName(n.clusterId)}</button>
@@ -823,7 +806,6 @@ export default function Inspector({
         </Section>
         <Section title="Discovery">
           <ProvenanceStrip {...recordProvenance(n)} />
-          <WeakValues kind="node" rec={n} />
         </Section>
         <Section title={`Services on this node (${ws.length})`}>
           {ws.map((w) => <LinkRow key={w.id} label={w.name} sub={w.namespace} onClick={() => onSelect({ kind: 'service', id: w.id })} />)}
@@ -852,6 +834,7 @@ export default function Inspector({
     )
     body = (
       <>
+        <NeedsLook kind="service" rec={w} />
         <Section title="Identity">
           <Row label="Cluster">
             <button className="text-accent hover:underline" onClick={() => onSelect({ kind: 'cluster', id: w.clusterId })}>{clusterName(w.clusterId)}</button>
@@ -896,7 +879,6 @@ export default function Inspector({
         </Section>
         <Section title="Discovery">
           <ProvenanceStrip {...recordProvenance(w)} />
-          <WeakValues kind="service" rec={w} />
         </Section>
         {w.mesh && (
           <Section title="Service mesh">
@@ -1446,7 +1428,7 @@ export default function Inspector({
         </div>
       </div>
       {body}
-      {(selection.kind === 'cluster' || selection.kind === 'node' || selection.kind === 'service') && <EvidenceSection key={`ev:${selection.kind}:${selection.id}`} kind={selection.kind} id={selection.id} />}
+      {(selection.kind === 'cluster' || selection.kind === 'node' || selection.kind === 'service') && <SourcesFooter key={`ev:${selection.kind}:${selection.id}`} kind={selection.kind} id={selection.id} />}
       {selection.kind !== 'platform' && <EntityHistory key={`${selection.kind}:${selection.id}`} kind={selection.kind} id={selection.id} />}
     </aside>
   )
