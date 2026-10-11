@@ -1,6 +1,6 @@
 import { BaseEdge, useInternalNode, useStore, useViewport, type EdgeProps } from '@xyflow/react'
 import { createContext, useContext } from 'react'
-import type { TopoEdge } from '@/lib/graph'
+import { HEADER, type TopoEdge } from '@/lib/graph'
 import { detourRoute, polylineMidpoint } from './detour'
 
 /** Which path generator OffsetEdge draws with - 'curved' (the default hand-built bow, see curvedPath below)
@@ -508,6 +508,44 @@ export function pickClearSide(
  *  to find each node's type, parent and live absolute box, without importing its full internal type. */
 type ObstacleCandidate = { type?: string; parentId?: string; measured: { width?: number; height?: number }; internals: { positionAbsolute: { x: number; y: number } } }
 
+/** How far below its cluster's header (px) a card may sit and still count as being in the cluster's first row. */
+const FIRST_ROW_SLACK = 20
+/** How much clear room a side needs to leave from (px): enough to get past a neighbouring card and out into the gap,
+ *  not the long corridor an arrowhead needs to arrive along. */
+const SIDE_EXIT_DEPTH = 36
+
+/**
+ * A card in the first row of its cluster sits right under the cluster's header (its name, chips, load meters and
+ * "N services"), so a line that leaves or arrives through the top of that card, on its way to somewhere above or
+ * beside, runs straight across that text. When that is where `natural` puts it, take the nearer free side instead,
+ * the one toward the other end first, so the line goes out into the gap beside the card and round, not over the
+ * words. Only when such a side has room; otherwise the natural one stays (and the line may cross the header).
+ * Anything but a top exit from a first-row card is returned unchanged.
+ */
+export function avoidHeaderSide(
+  box: PathObstacle,
+  parent: PathObstacle | undefined,
+  natural: { point: { x: number; y: number }; normal: { x: number; y: number } },
+  towardX: number,
+  obstacles: PathObstacle[],
+): { point: { x: number; y: number }; normal: { x: number; y: number } } {
+  if (!parent || natural.normal.x !== 0 || natural.normal.y !== -1) return natural
+  if (box.y - (parent.y + HEADER) > FIRST_ROW_SLACK) return natural
+  const sides = towardX >= box.x + box.w / 2 ? (['right', 'left'] as const) : (['left', 'right'] as const)
+  for (const side of sides) {
+    if (sideIsClear(box, side, obstacles, SIDE_EXIT_DEPTH)) return { point: sideMidpoint(box, side), normal: CARDINAL_SIDES.find((c) => c.side === side)!.normal }
+  }
+  return natural
+}
+
+/** The cluster or group box a node sits directly in, when it is one. */
+function clusterBoxOf(nodeLookup: Map<string, ObstacleCandidate>, id: string): (PathObstacle & { id: string }) | undefined {
+  const parentId = nodeLookup.get(id)?.parentId
+  const p = parentId === undefined ? undefined : nodeLookup.get(parentId)
+  if (!p || parentId === undefined || p.type !== 'boundary' || !p.measured.width || !p.measured.height) return undefined
+  return { id: parentId, x: p.internals.positionAbsolute.x, y: p.internals.positionAbsolute.y, w: p.measured.width, h: p.measured.height }
+}
+
 /** Every node in `nodeLookup` that should count as a routing obstacle for the edge from `source` to
  *  `target`, restricted to `bounds` (the same generous margin-expanded box around both ends OffsetEdge
  *  already builds, reused here so this never has to re-derive it) - pulled out of OffsetEdge's own body so
@@ -633,11 +671,20 @@ export function OffsetEdge({ id, source, target, sourceX, sourceY, targetX, targ
     const sourceCenter = { x: sourceBox.x + sourceBox.w / 2, y: sourceBox.y + sourceBox.h / 2 }
     const from = intersection(sourceBox, targetCenter)
     const naturalTo = intersection(targetBox, sourceCenter)
-    sourceNormal = outwardNormal(sourceBox, from)
-    const chosen = pickClearSide(targetBox, { point: naturalTo, normal: outwardNormal(targetBox, naturalTo) }, obstacles)
+    // Each end first takes the side the straight line to the other end would use; a target whose natural side is
+    // blocked gets another (pickClearSide), and a first-row card in a cluster keeps its line off the cluster's header
+    // text by using a side instead of its top (avoidHeaderSide). Not when both ends sit in the same cluster: then the
+    // line never has to cross that header.
+    const sourceCluster = clusterBoxOf(nodeLookup, source)
+    const targetCluster = clusterBoxOf(nodeLookup, target)
+    const sameCluster = sourceCluster !== undefined && sourceCluster.id === targetCluster?.id
+    const fromSide = sameCluster ? { point: from, normal: outwardNormal(sourceBox, from) } : avoidHeaderSide(sourceBox, sourceCluster, { point: from, normal: outwardNormal(sourceBox, from) }, targetCenter.x, obstacles)
+    sourceNormal = fromSide.normal
+    const picked = pickClearSide(targetBox, { point: naturalTo, normal: outwardNormal(targetBox, naturalTo) }, obstacles)
+    const chosen = sameCluster ? picked : avoidHeaderSide(targetBox, targetCluster, picked, sourceCenter.x, obstacles)
     targetNormal = chosen.normal
-    sx = from.x
-    sy = from.y
+    sx = fromSide.point.x
+    sy = fromSide.point.y
     tx = chosen.point.x
     ty = chosen.point.y
   }

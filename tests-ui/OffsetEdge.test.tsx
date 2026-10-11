@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import {
+  avoidHeaderSide,
   clampTowardNormal,
   collectObstacles,
   curvedPath,
@@ -12,6 +13,7 @@ import {
   sideIsClear,
   sideMidpoint,
 } from '@/components/topology/OffsetEdge'
+import { HEADER } from '@/lib/graph'
 
 // A pure-math test, no rendering needed - kept in tests-ui/ (not tests/) purely because that's where the
 // vitest config's include glob looks; nothing here touches the DOM.
@@ -557,5 +559,38 @@ describe('pickClearSide (falls back to a different entry side when the natural o
       { x: box.x + box.w + depth / 2 - 10, y: box.y, w: 20, h: box.h },
     ]
     expect(pickClearSide(box, naturalTop, blockAll)).toEqual(naturalTop)
+  })
+})
+
+describe('avoidHeaderSide (keeps a line off a cluster header\'s text by leaving a first-row card through a side)', () => {
+  const parent = { x: 0, y: 0, w: 400, h: 300 }
+  const firstRow = { x: 20, y: HEADER, w: 100, h: 50 } // sits right under the header
+  const secondRow = { x: 20, y: HEADER + 90, w: 100, h: 50 }
+  const top = { point: { x: 70, y: HEADER }, normal: { x: 0, y: -1 } }
+
+  test('a top exit from a first-row card moves to the side facing the other end', () => {
+    const r = avoidHeaderSide(firstRow, parent, top, 900, [])
+    expect(r.normal).toEqual({ x: 1, y: 0 })
+    expect(r.point).toEqual({ x: 120, y: HEADER + 25 })
+    expect(avoidHeaderSide(firstRow, parent, top, -500, []).normal).toEqual({ x: -1, y: 0 })
+  })
+
+  test('falls to the other side when the near one is taken by a neighbouring card, and keeps the top when both are', () => {
+    const neighbour = { x: 125, y: HEADER, w: 100, h: 50 }
+    expect(avoidHeaderSide(firstRow, parent, top, 900, [neighbour]).normal).toEqual({ x: -1, y: 0 })
+    const other = { x: -60, y: HEADER, w: 55, h: 50 }
+    expect(avoidHeaderSide(firstRow, parent, top, 900, [neighbour, other])).toEqual(top)
+  })
+
+  test('only a top exit from a first-row card is touched', () => {
+    expect(avoidHeaderSide(secondRow, parent, { point: { x: 70, y: HEADER + 90 }, normal: { x: 0, y: -1 } }, 900, [])).toEqual({ point: { x: 70, y: HEADER + 90 }, normal: { x: 0, y: -1 } })
+    const side = { point: { x: 120, y: HEADER + 25 }, normal: { x: 1, y: 0 } }
+    expect(avoidHeaderSide(firstRow, parent, side, 900, [])).toEqual(side)
+    const bottom = { point: { x: 70, y: HEADER + 50 }, normal: { x: 0, y: 1 } }
+    expect(avoidHeaderSide(firstRow, parent, bottom, 900, [])).toEqual(bottom)
+  })
+
+  test('a card with no cluster around it (a device or an external box) is left alone', () => {
+    expect(avoidHeaderSide(firstRow, undefined, top, 900, [])).toEqual(top)
   })
 })
