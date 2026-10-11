@@ -276,7 +276,7 @@ function Canvas() {
       // paints behind everything) - read live rather than hardcoded so the export matches whichever theme
       // is actually on screen. The literal fallback is that same token's default (dark) value, for the
       // vanishingly unlikely case the variable isn't resolvable at all.
-      const bg = getComputedStyle(document.documentElement).getPropertyValue('--color-nb-910').trim() || '#16181a'
+      const bg = getComputedStyle(document.documentElement).getPropertyValue('--color-nb-910').trim() || '#1b1f25'
       const dataUrl = await toPng(viewportEl, {
         backgroundColor: bg,
         width: imageWidth,

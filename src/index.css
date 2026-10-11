@@ -1,6 +1,6 @@
 @import "tailwindcss";
 
-/* NetBird-inspired palette: near-black neutrals + orange accent (dark, the default look) - see the
+/* NetBird-inspired palette: soft charcoal neutrals (a lifted dark, not near-black) + orange accent (dark, the default look) - see the
  * data-theme=light block below for the light-mode values of the same tokens. The theme block has to
  * declare *a* value for Tailwind to generate the bg-nb-900/text-accent utilities (and similar) at all;
  * which theme value it declares here only matters as the fallback before src/lib/theme.ts and index.html
@@ -14,19 +14,19 @@
   /* The NETMODE lab logo's lettering. Its brand navy (#323660) is 1.5:1 on the dark surface, so dark mode uses the neutral nb-400 grey (8+:1) to sit quietly
    beside the rest of the UI; light mode uses the brand navy itself (11.5:1). The gold of the mark is the same in both. */
   --color-lab-ink: #a7b1b9;
-  --color-nb-900: #181a1d;
-  --color-nb-920: #1b1d20;
-  --color-nb-925: #1c1e22;
-  --color-nb-930: #1f2124;
-  --color-nb-940: #25282c;
-  --color-nb-910: #16181a;
-  --color-nb-950: #101214; /* a true "recessed" surface, darker than the canvas (nb-910) itself - fingerprint/command code blocks only */
-  --color-nb-850: #2b2f33;
-  --color-nb-800: #32363d;
-  --color-nb-700: #3f444b;
-  --color-nb-600: #86929d; /* tertiary text: a shade dimmer than nb-500, still at least 4.5:1 on nb-900 to nb-940 (and nb-850) */
-  --color-nb-500: #8a97a2; /* secondary text: at least 4.5:1 on nb-900 to nb-850 */
-  --color-nb-400: #a7b1b9;
+  --color-nb-900: #1f2329;
+  --color-nb-920: #212630;
+  --color-nb-925: #252a33;
+  --color-nb-930: #282e37;
+  --color-nb-940: #2f3640;
+  --color-nb-910: #1b1f25;
+  --color-nb-950: #161a1f; /* a true "recessed" surface, darker than the canvas (nb-910) itself - fingerprint/command code blocks only */
+  --color-nb-850: #343b45;
+  --color-nb-800: #3e4651;
+  --color-nb-700: #4f5864;
+  --color-nb-600: #9aa5b0; /* tertiary text: a shade dimmer than nb-500, still at least 4.5:1 on nb-900 to nb-940 (and nb-850) */
+  --color-nb-500: #a0abb6; /* secondary text: at least 4.5:1 on nb-900 to nb-850 */
+  --color-nb-400: #b4bec6;
   --color-nb-300: #e4e7e9;
 
   --color-accent: #f68330;
