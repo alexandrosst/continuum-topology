@@ -1,6 +1,7 @@
 import { BaseEdge, useInternalNode, useStore, useViewport, type EdgeProps } from '@xyflow/react'
 import { createContext, useContext } from 'react'
 import type { TopoEdge } from '@/lib/graph'
+import { detourRoute, polylineMidpoint } from './detour'
 
 /** Which path generator OffsetEdge draws with - 'curved' (the default hand-built bow, see curvedPath below)
  *  or 'elbow' (the opt-in rounded-orthogonal style, see elbowPath below). Read via context rather than a
@@ -96,6 +97,22 @@ export function clampTowardNormal(dir: { x: number; y: number }, toward: { x: nu
  *  by OffsetEdge, which is the one with a live view of every node on the canvas; curvedPath itself stays a
  *  pure function of whatever obstacles it's handed, so it's still testable without rendering anything. */
 export type PathObstacle = { x: number; y: number; w: number; h: number }
+
+/** How round a detour's turns are (px): enough to read as a route, not a wiring diagram. */
+const DETOUR_CORNER_RADIUS = 34
+
+// A detour is a search over the boxes' corners, and an edge is redrawn on every frame of a drag or a zoom while its
+// geometry has not changed, so the answer for the same geometry is kept (the last few hundred).
+const detourCache = new Map<string, ReturnType<typeof detourRoute>>()
+function cachedDetour(p1: { x: number; y: number }, n1: { x: number; y: number }, p2: { x: number; y: number }, n2: { x: number; y: number }, obstacles: PathObstacle[]) {
+  const r = (v: number) => Math.round(v * 2) / 2
+  const key = [p1.x, p1.y, n1.x, n1.y, p2.x, p2.y, n2.x, n2.y, ...obstacles.flatMap((o) => [o.x, o.y, o.w, o.h])].map(r).join(',')
+  if (detourCache.has(key)) return detourCache.get(key)!
+  const route = detourRoute(p1, n1, p2, n2, obstacles)
+  if (detourCache.size >= 300) detourCache.delete(detourCache.keys().next().value!)
+  detourCache.set(key, route)
+  return route
+}
 
 /** The cubic Bezier `C` path, and label position, for a gentle bow between two anchor points - the math half
  *  of OffsetEdge's own curve-building (see its doc comment for why a hand-built curve and not `getBezierPath`
@@ -203,6 +220,16 @@ export function curvedPath(
     }
     mx = best.mx
     my = best.my
+    // No bow clears them (a box between the two ends that is wider than any bow can swing): go around it, through
+    // the gaps between boxes. Only when the best bow still runs through something, so a line that is fine keeps its
+    // gentle curve; and the two ends stay exactly where the caller put them.
+    if (best.n > 0) {
+      const route = cachedDetour({ x: x1, y: y1 }, sourceNormal, { x: x2, y: y2 }, targetNormal, obstacles)
+      if (route) {
+        const mid = polylineMidpoint(route)
+        return { path: roundedPolylinePath(route, DETOUR_CORNER_RADIUS), labelX: mid.x, labelY: mid.y }
+      }
+    }
   }
 
   return {

@@ -396,14 +396,14 @@ describe('curvedPath obstacle avoidance (task #382: keeps an arrowhead\'s curve 
 
   test('when every escalation candidate still collides, it settles on the one with the fewest hits rather than the raw default', () => {
     // A obstacle wide enough to straddle the entire route corridor - no sideways bow can fully dodge it,
-    // matching the genuinely-unavoidable "obstacle wider than the route" case documented in OffsetEdge.
+    // matching the "obstacle wider than the route" case documented in OffsetEdge (now routed around, see detour.ts).
     const wideObstacle = { x: -50, y: -15, w: 400, h: 30 }
     const defaultBow = curvedPath(0, 0, 300, 0, 0, 1, outUp, outDown)
     const withObstacle = curvedPath(0, 0, 300, 0, 0, 1, outUp, outDown, [wideObstacle])
-    // It's still a valid, well-formed curve anchored at the same two points - escalation degrades to
-    // "least bad" rather than throwing or leaving the path malformed.
+    // It's still a valid, well-formed path anchored at the same two points - escalation degrades to
+    // "least bad" (or, when a way around exists, to that detour) rather than throwing or leaving it malformed.
     expect(withObstacle.path.startsWith('M0,0 ')).toBe(true)
-    expect(withObstacle.path.endsWith(' 300,0')).toBe(true)
+    expect(withObstacle.path).toMatch(/[ L]300,0$/)
     // And it actually tried something different from the plain default, even though it couldn't fully clear it.
     expect(withObstacle.path).not.toBe(defaultBow.path)
   })
