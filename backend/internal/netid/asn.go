@@ -3,6 +3,7 @@ package netid
 import (
 	"context"
 	"net"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -150,7 +151,37 @@ func resolveASN(ip string, lookup func(ctx context.Context, name string) ([]stri
 	asnCacheMu.Lock()
 	asnCache[ip] = asnCacheEntry{org: org, asn: asnLabel, ok: ok, expires: time.Now().Add(ttl)}
 	delete(asnInFlight, ip)
+	evictASNLocked()
 	asnCacheMu.Unlock()
+}
+
+// evictASNLocked keeps asnCache under maxCacheEntries, the same way and for the same reason evictLocked
+// keeps the PTR cache bounded: nothing else ever deletes an entry, so a server that sees a long tail of
+// distinct external addresses would otherwise grow this map without limit. Called with asnCacheMu held;
+// does nothing until the cap is reached. Expired entries go first, then the soonest-expiring down to
+// evictTargetFrac of the cap.
+func evictASNLocked() {
+	if len(asnCache) <= maxCacheEntries {
+		return
+	}
+	now := time.Now()
+	for ip, e := range asnCache {
+		if now.After(e.expires) {
+			delete(asnCache, ip)
+		}
+	}
+	target := int(float64(maxCacheEntries) * evictTargetFrac)
+	if len(asnCache) <= target {
+		return
+	}
+	ips := make([]string, 0, len(asnCache))
+	for ip := range asnCache {
+		ips = append(ips, ip)
+	}
+	sort.Slice(ips, func(i, j int) bool { return asnCache[ips[i]].expires.Before(asnCache[ips[j]].expires) })
+	for _, ip := range ips[:len(ips)-target] {
+		delete(asnCache, ip)
+	}
 }
 
 // SetLookupTXTForTest swaps the function ResolveASNCached uses to perform a DNS TXT query, so tests can

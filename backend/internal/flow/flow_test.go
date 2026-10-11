@@ -2,6 +2,7 @@ package flow
 
 import (
 	"bytes"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -9,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -210,6 +212,35 @@ func TestResolveRemembersPodsThatAreGone(t *testing.T) {
 	if _, ok := r.Resolve(raw(true, "10.42.0.5", "10.43.0.21", 5432), "ebpf", true); ok {
 		t.Fatal("an old mapping must expire")
 	}
+}
+
+// Resolve reads the "recent" map index() hands it after r.mu is released, while another Resolve may be
+// rebuilding the index. Run under -race: a rebuild that wrote the handed-out map in place is a data race
+// (and in production a fatal "concurrent map read and map write").
+func TestResolveIsSafeWhileTheIndexRebuildsConcurrently(t *testing.T) {
+	var calls int // only touched from source(), which index() calls with r.mu held
+	source := func() *collect.Index {
+		calls++
+		pods := map[string]string{fmt.Sprintf("10.42.1.%d", calls%250): "shop/Deployment/other"}
+		if calls == 1 {
+			pods["10.42.0.99"] = "shop/Deployment/cart" // then churns away, so lookups fall back to "recent"
+		}
+		return &collect.Index{Pods: pods, Services: map[string][]string{"10.43.0.21": {"shop/Deployment/db"}}}
+	}
+	r := NewResolver(source)
+	now := time.Now()
+	r.now = func() time.Time { now = now.Add(6 * time.Second); return now } // every call is past the 5s rebuild window
+	var wg sync.WaitGroup
+	for g := 0; g < 4; g++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < 500; i++ {
+				r.Resolve(raw(true, "10.42.0.99", "10.43.0.21", 5432), "ebpf", true)
+			}
+		}()
+	}
+	wg.Wait()
 }
 
 func TestAggregatorSumsAndBounds(t *testing.T) {

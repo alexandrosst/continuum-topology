@@ -3,6 +3,7 @@ package netid
 import (
 	"context"
 	"net"
+	"net/netip"
 	"sort"
 	"strings"
 	"sync"
@@ -19,7 +20,18 @@ var (
 	lookupAddr   = func(ctx context.Context, ip string) ([]string, error) {
 		return net.DefaultResolver.LookupAddr(ctx, ip)
 	}
+	// lookupHost is the forward (A/AAAA) query that confirms a PTR name; same stubbing pattern and the
+	// same mutex as lookupAddr. nil means "do not confirm" and is only ever set by SetLookupAddrForTest,
+	// so tests that stub just the PTR side keep working; production always has the real resolver here.
+	lookupHost = func(ctx context.Context, host string) ([]string, error) {
+		return net.DefaultResolver.LookupHost(ctx, host)
+	}
 )
+
+// maxPTRNames bounds how many of an address's PTR names are forward-checked (each is a DNS query under the
+// one resolveTimeout): the address's owner chooses how many records to publish, so it must not choose how
+// much work this does.
+const maxPTRNames = 4
 
 const (
 	resolveTimeout = 3 * time.Second  // bounds one query; a hung/slow resolver can't leak a goroutine forever
@@ -84,9 +96,9 @@ func ResolveCached(ip string) (host string, ok bool) {
 			// back to. Snapshotting the function reference at spawn time ties each goroutine permanently to
 			// whichever lookupAddr was current when ResolveCached decided to start it.
 			lookupAddrMu.Lock()
-			lookup := lookupAddr
+			lookup, forward := lookupAddr, lookupHost
 			lookupAddrMu.Unlock()
-			go resolve(ip, lookup)
+			go resolve(ip, lookup, forward)
 		default:
 			// Already at maxInFlight: drop this attempt rather than queue it unboundedly. It'll be retried
 			// next time this IP shows up, which - given the poll cadence - is soon.
@@ -98,14 +110,14 @@ func ResolveCached(ip string) (host string, ok bool) {
 	return e.host, hit && e.ok
 }
 
-func resolve(ip string, lookup func(ctx context.Context, ip string) ([]string, error)) {
+func resolve(ip string, lookup, forward func(ctx context.Context, name string) ([]string, error)) {
 	defer func() { <-sem }()
 	ctx, cancel := context.WithTimeout(context.Background(), resolveTimeout)
 	defer cancel()
 	names, err := lookup(ctx, ip)
 	host, ok := "", false
-	if err == nil && len(names) > 0 && names[0] != "" {
-		host, ok = strings.TrimSuffix(names[0], "."), true
+	if err == nil {
+		host, ok = confirmedName(ctx, ip, names, forward)
 	}
 	ttl := negativeTTL
 	if ok {
@@ -116,6 +128,41 @@ func resolve(ip string, lookup func(ctx context.Context, ip string) ([]string, e
 	delete(inFlight, ip)
 	evictLocked()
 	cacheMu.Unlock()
+}
+
+// confirmedName picks the first PTR name that also resolves forward to ip. A PTR record is set by whoever
+// controls the address block, not by the owner of the name it points at, so on its own it proves nothing:
+// anyone can publish "x.1e100.net" for their own IP and MatchHost would then fold that IP into Google's
+// node. Only a name whose own A/AAAA records include ip is evidence that the name's owner agrees. A name
+// that does not confirm (or a forward lookup that fails) is treated as no name at all, so the caller falls
+// through to the ASN tier. forward == nil skips the check (see lookupHost).
+func confirmedName(ctx context.Context, ip string, names []string, forward func(ctx context.Context, name string) ([]string, error)) (string, bool) {
+	want, perr := netip.ParseAddr(ip)
+	for i, n := range names {
+		if i == maxPTRNames {
+			break
+		}
+		n = strings.TrimSuffix(n, ".")
+		if n == "" {
+			continue
+		}
+		if forward == nil {
+			return n, true
+		}
+		if perr != nil {
+			return "", false
+		}
+		addrs, err := forward(ctx, n)
+		if err != nil {
+			continue
+		}
+		for _, a := range addrs {
+			if got, err := netip.ParseAddr(a); err == nil && got.Unmap() == want.Unmap() {
+				return n, true
+			}
+		}
+	}
+	return "", false
 }
 
 // evictLocked keeps the cache under maxCacheEntries. Called with cacheMu already held, and cheap to call on
@@ -156,15 +203,35 @@ func evictLocked() {
 // this package or another) can control DNS results without ever touching the real network. It returns a
 // function that restores the previous behavior and clears all cached/in-flight state; callers should always
 // `defer` it. Test-only - never call this from non-test code.
+//
+// It also turns forward confirmation off (lookupHost = nil), so a test that only stubs the PTR answer gets
+// that name back as-is; a test of the confirmation itself follows this with SetLookupHostForTest.
 func SetLookupAddrForTest(fn func(ctx context.Context, ip string) ([]string, error)) (restore func()) {
 	lookupAddrMu.Lock()
-	prev := lookupAddr
-	lookupAddr = fn
+	prev, prevHost := lookupAddr, lookupHost
+	lookupAddr, lookupHost = fn, nil
 	lookupAddrMu.Unlock()
 	resetForTest()
 	return func() {
 		lookupAddrMu.Lock()
-		lookupAddr = prev
+		lookupAddr, lookupHost = prev, prevHost
+		lookupAddrMu.Unlock()
+		resetForTest()
+	}
+}
+
+// SetLookupHostForTest swaps the forward (A/AAAA) lookup that confirms a PTR name, turning confirmation on
+// with the given stub. Same contract as SetLookupAddrForTest: always `defer` the returned restore, and call
+// this after SetLookupAddrForTest (which turns confirmation off). Test-only.
+func SetLookupHostForTest(fn func(ctx context.Context, host string) ([]string, error)) (restore func()) {
+	lookupAddrMu.Lock()
+	prev := lookupHost
+	lookupHost = fn
+	lookupAddrMu.Unlock()
+	resetForTest()
+	return func() {
+		lookupAddrMu.Lock()
+		lookupHost = prev
 		lookupAddrMu.Unlock()
 		resetForTest()
 	}

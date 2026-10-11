@@ -53,14 +53,18 @@ func (r *Resolver) index() (*collect.Index, map[string]recent) {
 	if r.ix == nil || r.now().Sub(r.builtAt) > 5*time.Second {
 		if ix := r.source(); ix != nil {
 			r.ix, r.builtAt = ix, r.now()
-			for ip, key := range ix.Pods {
-				r.recent[ip] = recent{key, r.builtAt}
-			}
+			// Copy-on-write: Resolve keeps the map index() returns and reads it after r.mu is released, so a
+			// map that has been handed out must never be written again. Each rebuild builds a fresh one.
+			next := make(map[string]recent, len(r.recent)+len(ix.Pods))
 			for ip, e := range r.recent {
-				if r.builtAt.Sub(e.at) > remember {
-					delete(r.recent, ip)
+				if r.builtAt.Sub(e.at) <= remember {
+					next[ip] = e
 				}
 			}
+			for ip, key := range ix.Pods {
+				next[ip] = recent{key, r.builtAt}
+			}
+			r.recent = next
 		}
 	}
 	if r.ix == nil {

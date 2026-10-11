@@ -164,3 +164,121 @@ func TestResolveCachedBoundsCacheSizeUnderSustainedNewAddresses(t *testing.T) {
 		t.Fatalf("cache has %d entries after a resolve pushed it over the cap, want <= %d", n, maxCacheEntries)
 	}
 }
+
+// waitForCacheEntry blocks until the background resolution of ip has written its cache entry (positive or
+// negative - ResolveCached's return value cannot tell "not yet" from "resolved to nothing").
+func waitForCacheEntry(t *testing.T, ip string) cacheEntry {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		cacheMu.Lock()
+		e, hit := cache[ip]
+		cacheMu.Unlock()
+		if hit {
+			return e
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("no cache entry for %s after 2s", ip)
+	return cacheEntry{}
+}
+
+// A PTR record is controlled by whoever owns the address block, so a name it carries is only trusted when
+// that name resolves forward to the same address. Otherwise anyone could publish "x.1e100.net" for their
+// own IP and be merged into Google's topology node.
+func TestResolveCachedTrustsAPTRNameOnlyWhenItResolvesForwardToTheAddress(t *testing.T) {
+	defer SetLookupAddrForTest(func(ctx context.Context, ip string) ([]string, error) {
+		return []string{"evil.1e100.net."}, nil
+	})()
+
+	t.Run("a name that resolves back to the queried IP is trusted", func(t *testing.T) {
+		defer SetLookupHostForTest(func(ctx context.Context, host string) ([]string, error) {
+			if host != "evil.1e100.net" {
+				t.Errorf("forward lookup of %q, want the trailing-dot-trimmed PTR name", host)
+			}
+			return []string{"198.51.100.1", "192.0.2.77"}, nil
+		})()
+		ResolveCached("192.0.2.77")
+		if e := waitForCacheEntry(t, "192.0.2.77"); !e.ok || e.host != "evil.1e100.net" {
+			t.Fatalf("cache entry = %+v, want the confirmed name", e)
+		}
+	})
+
+	t.Run("a name that resolves elsewhere is treated as no name", func(t *testing.T) {
+		defer SetLookupHostForTest(func(ctx context.Context, host string) ([]string, error) {
+			return []string{"142.250.0.1"}, nil // the real owner of the name, not the queried address
+		})()
+		ResolveCached("192.0.2.78")
+		e := waitForCacheEntry(t, "192.0.2.78")
+		if e.ok || e.host != "" {
+			t.Fatalf("cache entry = %+v, want ok=false with no host for an unconfirmed PTR name", e)
+		}
+		if host, ok := ResolveCached("192.0.2.78"); ok {
+			t.Fatalf("ResolveCached = %q, true; an unconfirmed PTR name must not be returned", host)
+		}
+		if got := time.Until(e.expires); got > negativeTTL {
+			t.Errorf("unconfirmed name cached for %v, want at most the negative TTL %v", got, negativeTTL)
+		}
+	})
+
+	t.Run("a failed forward lookup is treated as no name", func(t *testing.T) {
+		defer SetLookupHostForTest(func(ctx context.Context, host string) ([]string, error) {
+			return nil, errors.New("NXDOMAIN")
+		})()
+		ResolveCached("192.0.2.79")
+		if e := waitForCacheEntry(t, "192.0.2.79"); e.ok {
+			t.Fatalf("cache entry = %+v, want ok=false", e)
+		}
+	})
+
+	t.Run("an IPv4-mapped address in the answer still confirms", func(t *testing.T) {
+		defer SetLookupHostForTest(func(ctx context.Context, host string) ([]string, error) {
+			return []string{"::ffff:192.0.2.80"}, nil
+		})()
+		ResolveCached("192.0.2.80")
+		if e := waitForCacheEntry(t, "192.0.2.80"); !e.ok {
+			t.Fatalf("cache entry = %+v, want ok=true", e)
+		}
+	})
+}
+
+// The owner of an address picks which PTR names it publishes, so a bogus first name must not hide a genuine
+// later one, and the number of forward queries must stay bounded.
+func TestResolveCachedPicksTheFirstPTRNameThatConfirmsAndBoundsTheQueries(t *testing.T) {
+	var names []string
+	for i := 0; i < 20; i++ {
+		names = append(names, fmt.Sprintf("n%d.example.com.", i))
+	}
+	defer SetLookupAddrForTest(func(ctx context.Context, ip string) ([]string, error) { return names, nil })()
+
+	var queried int32
+	defer SetLookupHostForTest(func(ctx context.Context, host string) ([]string, error) {
+		atomic.AddInt32(&queried, 1)
+		if host == "n2.example.com" {
+			return []string{"192.0.2.90"}, nil
+		}
+		return []string{"203.0.113.1"}, nil
+	})()
+	ResolveCached("192.0.2.90")
+	if e := waitForCacheEntry(t, "192.0.2.90"); !e.ok || e.host != "n2.example.com" {
+		t.Fatalf("cache entry = %+v, want the first confirming name n2.example.com", e)
+	}
+
+	// Only the last of many names would confirm: beyond maxPTRNames it is never asked about.
+	late := names[len(names)-1]
+	defer SetLookupHostForTest(func(ctx context.Context, host string) ([]string, error) {
+		atomic.AddInt32(&queried, 1)
+		if host+"." == late {
+			return []string{"192.0.2.91"}, nil
+		}
+		return nil, errors.New("NXDOMAIN")
+	})()
+	atomic.StoreInt32(&queried, 0)
+	ResolveCached("192.0.2.91")
+	if e := waitForCacheEntry(t, "192.0.2.91"); e.ok {
+		t.Fatalf("cache entry = %+v, want ok=false: the confirming name is past the maxPTRNames bound", e)
+	}
+	if got := atomic.LoadInt32(&queried); got != maxPTRNames {
+		t.Errorf("forward lookups = %d, want exactly %d", got, maxPTRNames)
+	}
+}

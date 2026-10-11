@@ -132,7 +132,9 @@ func Run(ctx context.Context, cfg Config) {
 		wait := cfg.Every
 		if failed := Once(ctx, cfg); failed > 0 {
 			wait = min(retry, cfg.Every)
-			retry *= 2
+			// Capped here, not only in wait: left to double it overflows int64 after ~28 failures and wraps to
+			// zero, and time.After(0) turns the loop into a hot spin.
+			retry = min(retry*2, cfg.Every)
 		} else {
 			retry = time.Minute
 		}

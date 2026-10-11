@@ -209,29 +209,57 @@ func TestReadPressure(t *testing.T) {
 	}
 }
 
-// TestReadOomKillCount covers oomKillTotal's own walk: unlike the three PSI files above, which live at
-// one fixed path at the cgroup root, memory.events only exists on non-root cgroups - so this builds a
-// small nested tree (mirroring kubepods.slice-style nesting) and checks the sum comes back right, that
-// a cgroup with no oom_kill line at all (e.g. one with only "full"-less content, or a sibling never
-// touched by the memory controller) contributes nothing rather than erroring the whole walk, and that
-// the root cgroup's own absence of memory.events is not itself treated as "no cgroup v2 here".
+// TestReadOomKillCount covers oomKillTotal: unlike the three PSI files above, which live at one fixed path
+// at the cgroup root, memory.events only exists on non-root cgroups, and it is hierarchical (a parent's
+// count already includes its children's). So this builds a small nested tree the way a real kernel fills
+// it in, and checks each kill is counted once - the top-level count alone - not once per ancestor; that a
+// cgroup with no oom_kill line at all contributes nothing rather than erroring the walk; and that the
+// root cgroup's own absence of memory.events is not itself treated as "no cgroup v2 here".
 func TestReadOomKillCount(t *testing.T) {
 	root := t.TempDir()
 	sys := filepath.Join(root, "sys")
 	// Real cgroup v2 roots never have their own memory.events (confirmed in TestReadEmptyHostIsNotAnError's
 	// sibling package-level empirical note - see oomKillTotal's own doc) - only non-root cgroups do.
 	write(t, sys, "fs/cgroup/cpu.pressure", "some avg10=0.00 avg60=0.00 avg300=0.00 total=0\n")
+	// kubepods.slice saw 3 kills, 2 of them inside pod-a, so pod-a's own file says 2 and its parent's says 3
+	// (not 5): the parent's count includes the child's.
 	write(t, sys, "fs/cgroup/kubepods.slice/memory.events", "low 0\nhigh 0\nmax 0\noom 0\noom_kill 3\noom_group_kill 0\n")
 	write(t, sys, "fs/cgroup/kubepods.slice/pod-a/memory.events", "low 0\nhigh 0\nmax 2\noom 2\noom_kill 2\noom_group_kill 0\n")
+	write(t, sys, "fs/cgroup/kubepods.slice/pod-a/ctr.scope/memory.events", "low 0\nhigh 0\nmax 2\noom 2\noom_kill 2\noom_group_kill 0\n")
 	// A sibling cgroup whose memory.events exists but has never recorded a kill - oom_kill 0 must still
 	// fold into the sum as 0, not be skipped or mistaken for "unreadable".
 	write(t, sys, "fs/cgroup/kubepods.slice/pod-b/memory.events", "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n")
+	// A second top-level cgroup adds its own, independent count.
+	write(t, sys, "fs/cgroup/system.slice/memory.events", "low 0\nhigh 0\nmax 1\noom 1\noom_kill 1\noom_group_kill 0\n")
 	// A non-memory.events file that happens to sit in the same tree must never be mistaken for one.
 	write(t, sys, "fs/cgroup/kubepods.slice/pod-b/cpu.pressure", "some avg10=0.00 avg60=0.00 avg300=0.00 total=0\n")
 
 	h := Read(Paths{Sys: sys, Proc: t.TempDir()})
-	if h.OomKillCount == nil || *h.OomKillCount != 5 {
-		t.Fatalf("oomKillCount = %v, want a real, present 5 (3 + 2 + 0)", h.OomKillCount)
+	if h.OomKillCount == nil || *h.OomKillCount != 4 {
+		t.Fatalf("oomKillCount = %v, want a real, present 4 (kubepods.slice's 3 + system.slice's 1; descendants are already inside their ancestor's count)", h.OomKillCount)
+	}
+
+	// A kill inside a pod that is then deleted must not make the total go down: the ancestor keeps it.
+	if err := os.RemoveAll(filepath.Join(sys, "fs/cgroup/kubepods.slice/pod-a")); err != nil {
+		t.Fatal(err)
+	}
+	h = Read(Paths{Sys: sys, Proc: t.TempDir()})
+	if h.OomKillCount == nil || *h.OomKillCount != 4 {
+		t.Fatalf("oomKillCount after a pod's cgroup was deleted = %v, want it unchanged at 4 (monotonic)", h.OomKillCount)
+	}
+}
+
+// TestReadOomKillCountInAPrivateCgroupNamespace covers a probe whose cgroup mount root is itself a non-root
+// cgroup (a container with its own cgroup namespace): the root then has a memory.events that already
+// includes every descendant, so it must be read alone and not added to its children.
+func TestReadOomKillCountInAPrivateCgroupNamespace(t *testing.T) {
+	sys := filepath.Join(t.TempDir(), "sys")
+	write(t, sys, "fs/cgroup/memory.events", "low 0\nhigh 0\nmax 4\noom 4\noom_kill 4\noom_group_kill 0\n")
+	write(t, sys, "fs/cgroup/child.slice/memory.events", "low 0\nhigh 0\nmax 3\noom 3\noom_kill 3\noom_group_kill 0\n")
+
+	h := Read(Paths{Sys: sys, Proc: t.TempDir()})
+	if h.OomKillCount == nil || *h.OomKillCount != 4 {
+		t.Fatalf("oomKillCount = %v, want 4 (the root's own file, not 4 + 3)", h.OomKillCount)
 	}
 }
 

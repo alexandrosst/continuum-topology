@@ -11,7 +11,6 @@ package probe
 
 import (
 	"bufio"
-	"io/fs"
 	"math"
 	"net/netip"
 	"os"
@@ -130,30 +129,33 @@ func Read(p Paths) *continuumv1.HostProbe {
 	return h
 }
 
-// maxCgroupWalkDepth bounds oomKillTotal's own tree walk below, purely as a self-protective limit
-// against a pathologically deep cgroup hierarchy (there is no cgroup.max.depth guarantee this probe can
-// rely on) - real cgroup v2 nesting on a Kubernetes node (root -> kubepods.slice -> a pod's own slice ->
-// its container scope) never comes close to this.
-const maxCgroupWalkDepth = 24
-
-// oomKillTotal returns how many OOM kills cgroup v2's own per-cgroup accounting has recorded across
-// every cgroup on this host, right now - a live, monotonically increasing total (the server diffs two
-// readings a report-window apart into "this many new kills" the same way it already diffs every other
-// cumulative counter this package is not itself responsible for diffing). Unlike the three PSI
-// percentages right above, which read one fixed file at the root cgroup, this walks the whole cgroup
-// tree (bounded by maxCgroupWalkDepth) summing the "oom_kill" field out of every memory.events file it
-// finds: the root cgroup itself has no memory.events at all - confirmed empirically in this sandbox,
-// and consistent with the kernel's own cgroup v2 model (the root cgroup has no memory.max of its own to
-// ever trigger an OOM kill against; only a non-root cgroup with the memory controller attached gets one)
-// - so there is no single root-level file to read the way psiSomeAvg60 reads one. A node-wide sum needs
-// no cgroup-path resolution at all, unlike a specific pod's own attribution would (see the PSI commit
-// this builds on for why that is a gap this package does not try to close): it never needs to know which
-// cgroup belongs to which pod, only to add up every oom_kill field that exists on the host right now.
+// oomKillTotal returns how many OOM kills cgroup v2's own per-cgroup accounting has recorded on this
+// host, right now - a live, monotonically increasing total (the server diffs two readings a report-window
+// apart into "this many new kills" the same way it already diffs every other cumulative counter this
+// package is not itself responsible for diffing). Unlike the three PSI percentages right above, which
+// read one fixed file at the root cgroup, it sums the "oom_kill" field out of memory.events files:
+// the root cgroup itself has no memory.events at all - confirmed empirically in this sandbox, and
+// consistent with the kernel's own cgroup v2 model (the root cgroup has no memory.max of its own to ever
+// trigger an OOM kill against) - so there is no single root-level file to read the way psiSomeAvg60
+// reads one.
+//
+// Only the top-level cgroups' files are read, never a deeper level, because memory.events is
+// hierarchical: the kernel counts a kill in the victim's cgroup and in every non-root ancestor
+// (Documentation/cgroup-v2.rst, "all fields in this file are hierarchical"), so a node-wide walk that
+// added every level would count one kill once per ancestor (4x for a container scope under kubepods) and
+// would also drop a deleted pod's kills from the sum while its ancestors kept theirs. A top-level
+// cgroup's count already includes all its descendants, deleted ones too, so summing just those counts
+// each kill once and never goes down. If cgroupRoot has a memory.events of its own (a container with a
+// private cgroup namespace, where the mount root is itself a non-root cgroup) that file is already the
+// whole total, so it is returned alone rather than added to its children.
+//
+// A node-wide sum needs no cgroup-path resolution at all, unlike a specific pod's own attribution would
+// (see the PSI commit this builds on for why that is a gap this package does not try to close).
 //
 // This is the file-read half of this change's two options (the other being an eBPF fentry/kprobe hook
 // on oom_kill_process giving an exact timestamp+pid, see flow.c's SNAT-exhaustion comment for the
 // general "internal kernel function, not a stable ABI" tradeoff that route would carry) - chosen because
-// it is zero new kernel code, bounded cost (one directory walk per probe read, not a new always-on
+// it is zero new kernel code, bounded cost (one directory listing per probe read, not a new always-on
 // hook), and already gives a real, correlatable node-level fact without guessing at kernel internals
 // that could silently break on a future kernel refactor. The cost is precision: this cannot say which
 // pod, or when, a kill happened within the probe's own polling interval - see HostProbe.oom_kill_count's
@@ -161,31 +163,22 @@ const maxCgroupWalkDepth = 24
 //
 // Returns nil only when no cgroup v2 hierarchy is mounted at cgroupRoot at all (a cgroup v1 host, a
 // kernel with cgroups disabled, or the empty-fixture case TestReadEmptyHostIsNotAnError covers) - 0 is a
-// real, common reading ("every cgroup walked had 0 oom_kill"), never confused with "not read".
+// real, common reading ("every top-level cgroup had 0 oom_kill"), never confused with "not read".
 func oomKillTotal(cgroupRoot string) *uint64 {
 	if !exists(cgroupRoot) {
 		return nil
 	}
+	if own := filepath.Join(cgroupRoot, "memory.events"); exists(own) {
+		n := oomKillFromEvents(own)
+		return &n
+	}
 	var total uint64
-	_ = filepath.WalkDir(cgroupRoot, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil // an unreadable subtree (permissions, a cgroup that disappeared mid-walk) - skip it, not fatal
+	entries, _ := os.ReadDir(cgroupRoot) // unreadable root: report 0, same as an unreadable child contributes nothing
+	for _, e := range entries {
+		if e.IsDir() {
+			total += oomKillFromEvents(filepath.Join(cgroupRoot, e.Name(), "memory.events"))
 		}
-		if d.IsDir() {
-			if path != cgroupRoot {
-				rel, relErr := filepath.Rel(cgroupRoot, path)
-				if relErr == nil && strings.Count(rel, string(filepath.Separator))+1 > maxCgroupWalkDepth {
-					return filepath.SkipDir
-				}
-			}
-			return nil
-		}
-		if d.Name() != "memory.events" {
-			return nil
-		}
-		total += oomKillFromEvents(path)
-		return nil
-	})
+	}
 	return &total
 }
 

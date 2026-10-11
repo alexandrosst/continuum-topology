@@ -3,6 +3,7 @@ package netid
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -170,5 +171,45 @@ func TestResolveASNCachedSkipsIPv6(t *testing.T) {
 	}
 	if called {
 		t.Fatal("ResolveASNCached should not even attempt a DNS query for an IPv6 address")
+	}
+}
+
+// Pins the bound on asnCache, mirroring TestResolveCachedBoundsCacheSizeUnderSustainedNewAddresses for the
+// PTR cache: nothing else ever deletes an ASN entry, so without eviction a long tail of distinct external
+// addresses grows the map forever. Primes it past maxCacheEntries directly (real lookups to get there
+// would be absurdly slow) so the next resolution has eviction work to do.
+func TestResolveASNCachedBoundsCacheSizeUnderSustainedNewAddresses(t *testing.T) {
+	defer stubTXT(func(ctx context.Context, name string) ([]string, error) {
+		return nil, errors.New("offline")
+	})()
+
+	now := time.Now()
+	asnCacheMu.Lock()
+	for i := 0; i < maxCacheEntries+50; i++ {
+		ip := fmt.Sprintf("10.0.%d.%d", i/256, i%256)
+		asnCache[ip] = asnCacheEntry{org: "old", asn: "AS1", ok: true, expires: now.Add(time.Hour + time.Duration(i)*time.Millisecond)}
+	}
+	asnCacheMu.Unlock()
+
+	ResolveASNCached("192.0.2.1")
+
+	deadline := time.Now().Add(2 * time.Second)
+	var n int
+	for time.Now().Before(deadline) {
+		asnCacheMu.Lock()
+		n = len(asnCache)
+		_, resolved := asnCache["192.0.2.1"]
+		inFlight := asnInFlight["192.0.2.1"]
+		asnCacheMu.Unlock()
+		if !inFlight && n <= maxCacheEntries && (resolved || n < maxCacheEntries) {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if n > maxCacheEntries {
+		t.Fatalf("asnCache has %d entries after a resolve pushed it over the cap, want <= %d", n, maxCacheEntries)
+	}
+	if want := int(float64(maxCacheEntries) * evictTargetFrac); n > want {
+		t.Errorf("asnCache has %d entries, want eviction to bring it down to the target %d", n, want)
 	}
 }

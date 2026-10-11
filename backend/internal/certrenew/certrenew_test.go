@@ -9,6 +9,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -20,7 +21,9 @@ import (
 	"google.golang.org/grpc/status"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/fake"
+	k8stesting "k8s.io/client-go/testing"
 )
 
 // fakeServer answers RenewTelemetryCert the way the real one does when the holder is entitled: it checks the proof with
@@ -213,5 +216,24 @@ func TestParseTargets(t *testing.T) {
 	}
 	if len(ParseTargets("ns", "")) != 0 {
 		t.Fatal("empty list")
+	}
+}
+
+// The retry delay doubles after each failed round. It used to double without bound, overflowing int64 after
+// about 28 failures (53 to reach exactly zero), after which time.After(<=0) made Run check in a hot loop.
+func TestRunBackoffStaysCappedAfterManyFailures(t *testing.T) {
+	cl := fake.NewSimpleClientset()
+	cl.PrependReactor("get", "secrets", func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, errors.New("apiserver unavailable")
+	})
+	var checks atomic.Int64
+	// 2ms rounds pass the 53 doublings that reach zero within ~110ms; the rest of the window is the spin.
+	every, window := 2*time.Millisecond, 600*time.Millisecond
+	ctx, cancel := context.WithTimeout(context.Background(), window)
+	defer cancel()
+	Run(ctx, Config{Every: every, Client: cl, Targets: []Target{{"ns", "s"}}, Report: func(Result) { checks.Add(1) }})
+	// At most one check per Every (plus the first); the spin makes tens of thousands.
+	if n, max := checks.Load(), int64(window/every)+1; n > max {
+		t.Fatalf("%d checks in %s with Every=%s, want at most %d", n, window, every, max)
 	}
 }
