@@ -37,7 +37,7 @@ describe('the arrow between two nodes', () => {
         expect(g).toHaveAttribute('fill', 'none')
         // Nothing in it sets a colour or a weight of its own, so the shaft and the head cannot differ.
         for (const p of svg.querySelectorAll('path')) for (const a of ['stroke', 'stroke-width', 'fill']) expect(p).not.toHaveAttribute(a)
-        expect(g.querySelectorAll('path')).toHaveLength(2)
+        expect(g.querySelectorAll('path')).toHaveLength(['flowing', 'unknown'].includes(STATES[key]) ? 3 : 2) // dashed ones add the solid dash at the head
       }
     }
   })
@@ -57,7 +57,8 @@ describe('the arrow between two nodes', () => {
     const tips = new Set<number>()
     for (const key of Object.keys(STATES)) {
       for (const [i, svg] of svgs(key).entries()) {
-        const [shaft, head] = [...svg.querySelectorAll('path')].map((p) => nums(p.getAttribute('d')))
+        const paths = [...svg.querySelectorAll('path')].map((p) => nums(p.getAttribute('d')))
+        const [shaft, head] = [paths[0], paths[paths.length - 1]]
         const across = i === 1 // [vertical, horizontal]
         const [along, mid] = across ? [(n: number[], k: number) => n[2 * k], (n: number[], k: number) => n[2 * k + 1]] : [(n: number[], k: number) => n[2 * k + 1], (n: number[], k: number) => n[2 * k]]
         // Shaft: start -> end. Head: wing, corner, wing; the corner is where the shaft ends, on the middle of the drawing.
@@ -96,6 +97,25 @@ describe('the arrow between two nodes', () => {
         // 5 on, 4 off, from the start of the line: the end falls where a dash ends (5 into a period of 9).
         if (state === 'unknown') expect(shaft).toHaveAttribute('stroke-dasharray', '5 4')
         expect((end - start) % 9).toBe(5)
+      }
+    }
+  })
+
+  test('a dashed line ends in one solid dash fixed to the head, so the moving dashes run into it; the others have none', () => {
+    renderPath()
+    for (const [key, state] of Object.entries(STATES)) {
+      for (const [i, svg] of svgs(key).entries()) {
+        const paths = [...svg.querySelectorAll('path')]
+        const dashed = state === 'flowing' || state === 'unknown'
+        expect(paths).toHaveLength(dashed ? 3 : 2)
+        if (!dashed) continue
+        const stem = nums(paths[1].getAttribute('d'))
+        const head = nums(paths[2].getAttribute('d'))
+        const [from, to, corner] = i === 1 ? [stem[0], stem[2], head[2]] : [stem[1], stem[3], head[3]]
+        expect(to - from).toBe(5)
+        expect(to).toBe(corner)
+        expect(paths[1]).not.toHaveAttribute('stroke-dasharray')
+        expect(paths[1].classList.contains('flow-dash')).toBe(false)
       }
     }
   })
