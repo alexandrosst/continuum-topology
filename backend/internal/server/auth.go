@@ -393,14 +393,17 @@ func (c *Core) Login(ctx context.Context, ip, username, password string) (secret
 		c.auditOrg(ctx, "", "anonymous", "login-failed", "user", printable(name, 64), "from "+ip)
 		return "", store.User{}, errf(KindUnauthenticated, "wrong username or password")
 	}
-	c.auth.failures.succeed(name)
 	if methods := twoFactorMethods(u); len(methods) > 0 {
+		// The password alone is not a finished sign-in, so it must not clear the account's backoff: Login2FA clears
+		// it once a second factor matches. Clearing it here would let someone who knows the password start over
+		// after every few wrong codes, and the per-account limit on guessing the second factor would never grow.
 		pending, perr := c.beginTwoFactor(u.ID, methods)
 		if perr != nil {
 			return "", store.User{}, perr
 		}
 		return "", store.User{}, errTwoFactorRequired(pending, methods)
 	}
+	c.auth.failures.succeed(name)
 	secret, err = c.openSession(ctx, u, ip)
 	if err != nil {
 		return "", store.User{}, err

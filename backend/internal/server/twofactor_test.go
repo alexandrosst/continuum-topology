@@ -203,3 +203,45 @@ func TestTwoFactorCannotBeSetUpTwice(t *testing.T) {
 		t.Fatalf("enable while already on: %d %s", r.Code, r.Body.String())
 	}
 }
+
+// A correct password is only the first half of a sign-in, so it must not clear the account's backoff for wrong
+// second-factor codes. Otherwise someone who knows the password could start a fresh pending sign-in after every
+// few wrong guesses and the per-account wait would never grow.
+func TestTwoFactorCorrectPasswordDoesNotClearTheBackoff(t *testing.T) {
+	a := newAdminRig(t)
+	a.account(t, "carol")
+	cookie := a.login(t, "carol", goodPW)
+	secret := a.do("POST", "/api/v1/auth/2fa/setup", nil, withCookie(cookie)).json(t)["secret"].(string)
+	if r := a.do("POST", "/api/v1/auth/2fa/enable", map[string]string{"code": mustTOTPCode(t, secret, *a.now)}, withCookie(cookie)); r.Code != 200 {
+		t.Fatalf("enable: %d %s", r.Code, r.Body.String())
+	}
+
+	// failFree wrong codes are free; the one after earns a wait. Every call has its own address so the
+	// per-address limits stay out of it.
+	_, body := a.doLogin(t, "10.9.3.1", "carol", goodPW)
+	pending, _ := body["pending"].(string)
+	for i := 0; i <= failFree; i++ {
+		ip := "10.9.3." + string(rune('2'+i))
+		if r, _ := a.doLogin2FA(t, ip, pending, "000000"); r.Code != 401 {
+			t.Fatalf("wrong code %d: %d %s", i, r.Code, r.Body.String())
+		}
+	}
+	if r, _ := a.doLogin2FA(t, "10.9.3.20", pending, "000000"); r.Code != 429 {
+		t.Fatalf("the wait after %d wrong codes did not apply: %d %s", failFree+1, r.Code, r.Body.String())
+	}
+
+	// Once it has passed, entering the right password again starts a new pending sign-in...
+	*a.now = a.now.Add(failBaseInterval + time.Second)
+	r, body := a.doLogin(t, "10.9.3.21", "carol", goodPW)
+	if r.Code != 401 {
+		t.Fatalf("login after the wait: %d %s", r.Code, r.Body.String())
+	}
+	pending, _ = body["pending"].(string)
+	// ...but the next wrong code carries on from the old count (a longer wait) instead of starting from zero.
+	if r, _ := a.doLogin2FA(t, "10.9.3.22", pending, "000000"); r.Code != 401 {
+		t.Fatalf("wrong code after the password: %d %s", r.Code, r.Body.String())
+	}
+	if r, _ := a.doLogin2FA(t, "10.9.3.23", pending, "000000"); r.Code != 429 {
+		t.Fatalf("a correct password cleared the second-factor backoff: %d %s", r.Code, r.Body.String())
+	}
+}
