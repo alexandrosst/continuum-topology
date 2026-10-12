@@ -106,6 +106,19 @@ func (h *Hub) operatorHost(ctx context.Context, operatorID string) (operatorHost
 // The regional operators are all in continuum-system under a name worked out from their id; the central operator's
 // gateway is the server's own install, in the server's namespace under FUSION's name.
 func (h *Hub) workloadHost(ctx context.Context, namespace, want string) (operatorHost, bool) {
+	return h.hostWhere(ctx, func(w *continuumv1.WorkloadFacts) bool { return w.Namespace == namespace && w.Name == want })
+}
+
+// namespaceHost finds a cluster by something else running in a namespace, for when the Deployment itself is not among
+// what an agent reports (the agent is there, but has not been told to read that Deployment or its Service). It says which
+// cluster, and so which nodes; it says nothing about the Deployment's Service, which the caller must get another way.
+func (h *Hub) namespaceHost(ctx context.Context, namespace string) (operatorHost, bool) {
+	host, ok := h.hostWhere(ctx, func(w *continuumv1.WorkloadFacts) bool { return w.Namespace == namespace })
+	host.Reachable, host.PodNodes = nil, nil
+	return host, ok
+}
+
+func (h *Hub) hostWhere(ctx context.Context, match func(*continuumv1.WorkloadFacts) bool) (operatorHost, bool) {
 	agents, err := h.C.Store.ListAgents(ctx, h.C.OrgID)
 	if err != nil {
 		return operatorHost{}, false
@@ -118,7 +131,7 @@ func (h *Hub) workloadHost(ctx context.Context, namespace, want string) (operato
 			continue
 		}
 		for _, w := range v.state.Workloads {
-			if w.Namespace != namespace || w.Name != want {
+			if !match(w) {
 				continue
 			}
 			host := operatorHost{ClusterID: a.ClusterID, ClusterName: a.Name, PodNodes: append([]string(nil), w.NodeNames...)}
@@ -486,8 +499,17 @@ func (a *Admin) listOperatorAddressCandidates(w http.ResponseWriter, r *http.Req
 		gateway = a.Fusion.gatewayService(r.Context())
 	}
 	host, found := a.tn(r).Hub.workloadHost(r.Context(), namespace, workload)
+	if !found && gateway != nil {
+		// The Service is read by the server, so the cluster is all that is needed from an agent: any workload of the
+		// server's namespace says which one the gateway is in.
+		host, found = a.tn(r).Hub.namespaceHost(r.Context(), namespace)
+	}
 	if found {
 		res.Found, res.HostClusterID, res.HostClusterName = true, host.ClusterID, host.ClusterName
+	}
+	if gateway != nil && gateway.NodePort != 0 {
+		// A node port is open on every node: the server read it from the Service, whatever an agent reports.
+		host.Reachable = append(host.Reachable, reachableAddr{Port: int32(gateway.NodePort), Kind: "node-port"})
 	}
 	if gateway != nil && gateway.LoadBalancer != "" {
 		if h, p, err := net.SplitHostPort(gateway.LoadBalancer); err == nil {

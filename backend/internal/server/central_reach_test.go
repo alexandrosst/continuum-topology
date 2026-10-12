@@ -106,3 +106,44 @@ func TestCentralOperatorAddressCandidatesAndSendersComeFromTheGatewayAndFusion(t
 		t.Fatalf("the address this cluster chose: %v", addrs)
 	}
 }
+
+func TestCentralNodeAddressesNeedOnlyTheClusterAndTheServicesNodePort(t *testing.T) {
+	a := newIntentRig(t)
+	f, k := newFusion(t, a.adminRig)
+	f.Kube = &inspectingKube{fakeKube: k, svc: KubeService{Type: "LoadBalancer", Port: 4317, NodePort: 31999, LoadBalancer: "203.0.113.50:4317"}}
+	a.a.Fusion = f
+	if _, err := f.Enable(a.ctx, a.core, "alex"); err != nil {
+		t.Fatal(err)
+	}
+	k.allReady()
+
+	// The agent reports nothing about the gateway itself, only that it runs in the server's namespace: that names the
+	// cluster, and the Service the server read gives the port.
+	agentID := a.agent(t)
+	v := liveView(*a.now, "server-node-1")
+	v.state.Nodes["server-node-1"].InternalIps = []string{"10.0.0.7"}
+	v.state.Nodes["server-node-1"].Probe = &continuumv1.HostProbe{HostAddresses: []*continuumv1.HostAddress{
+		{Interface: "eth0", Address: "10.0.0.7/24"}, {Interface: "wg0", Kind: "wireguard", Address: "10.8.0.3/24"},
+	}}
+	key := f.Namespace + "/Deployment/continuum-server"
+	v.state.Workloads[key] = &continuumv1.WorkloadFacts{Key: key, Namespace: f.Namespace, Kind: "Deployment", Name: "continuum-server"}
+	a.hub().mu.Lock()
+	a.hub().views[agentID] = v
+	a.hub().mu.Unlock()
+
+	got := a.do("GET", "/api/v1/operators/"+CentralOperatorID+"/address-candidates", nil, withCookie(a.cookie)).json(t)
+	by := map[string]map[string]any{}
+	for _, c := range got["candidates"].([]any) {
+		m := c.(map[string]any)
+		by[m["address"].(string)] = m
+	}
+	if m := by["10.8.0.3:31999"]; m == nil || m["network"] != "mesh" || m["interface"] != "wg0" {
+		t.Fatalf("the node's mesh address on the Service's node port: %v", got["candidates"])
+	}
+	if by["10.0.0.7:31999"] == nil || by["203.0.113.50:4317"] == nil {
+		t.Fatalf("the LAN address and the load balancer too: %v", got["candidates"])
+	}
+	if got["hints"] != nil {
+		t.Fatalf("nothing to suggest: %v", got["hints"])
+	}
+}
