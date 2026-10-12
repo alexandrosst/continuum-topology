@@ -48,6 +48,12 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe('the sender picks the address of a regional operator it dials', () => {
+  it('says why nothing is listed when the operator is not exposed, instead of showing nothing', async () => {
+    candidates.mockResolvedValue({ found: true, candidates: [], hints: ['FUSION’s gateway is only reachable inside its own cluster. Expose it with fusion.central.service.type=NodePort.'] })
+    render(<Harness />)
+    expect((await screen.findByTestId('sa-hint')).textContent).toContain('fusion.central.service.type')
+  })
+
   it('starts on the recorded address, lists what discovery found once, and a pick is the draft value', async () => {
     render(<Harness />)
     await screen.findByRole('radio', { name: '10.20.0.14:31317' })

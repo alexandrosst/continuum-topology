@@ -105,7 +105,7 @@ function AddressCandidatesList({ operatorId, value, onPick }: { operatorId: stri
           })}
         </ul>
       )}
-      {(found.hints ?? []).map((h) => <p key={h} className="mt-2 text-xs leading-relaxed text-nb-500" data-testid="operator-address-hint">{h}</p>)}
+      {discovered.length > 0 && (found.hints ?? []).map((h) => <p key={h} className="mt-2 text-xs leading-relaxed text-nb-500" data-testid="operator-address-hint">{h}</p>)}
     </div>
   )
 }

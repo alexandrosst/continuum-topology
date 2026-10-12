@@ -392,16 +392,42 @@ func (h operatorHost) hints(candidates []AddressCandidate) []string {
 			}
 		}
 	}
+	hasNodePort := false
+	for _, c := range candidates {
+		if c.Kind == candidateNodePort {
+			hasNodePort = true
+		}
+	}
 	probed := false
 	for _, n := range h.Nodes {
 		if len(n.Interfaces) > 0 {
 			probed = true
 		}
 	}
-	if len(h.Nodes) > 0 && !probed {
+	if hasNodePort && len(h.Nodes) > 0 && !probed {
 		out = append(out, "No node reports its network interfaces, so only the addresses Kubernetes knows are listed. Turn on the node probe in the agent to also offer each node's mesh and other addresses.")
 	}
 	return out
+}
+
+// exposureHint says why nothing is listed when no address outside the cluster is known, and what to change. A node's own
+// addresses are offered only with a port to dial them on, so a Service that is only reachable inside its cluster has none.
+func exposureHint(candidates []AddressCandidate, found, central bool) string {
+	for _, c := range candidates {
+		switch c.Kind {
+		case candidateLoadBalancer, candidateNodePort, candidateExternalIP:
+			return ""
+		}
+	}
+	switch {
+	case central && found:
+		return "FUSION's gateway is only reachable inside its own cluster, so there is no node or load balancer address to offer yet. Expose it with fusion.central.service.type=NodePort (or LoadBalancer) in the server chart; the node addresses, mesh ones included, then appear here."
+	case central:
+		return "Nothing outside the server's cluster is known about FUSION's gateway. Expose it with fusion.central.service.type=NodePort (or LoadBalancer) in the server chart. Its node addresses are listed once an agent in the server's cluster reports it."
+	case found:
+		return "This operator's Service is only reachable inside its own cluster, so there is no node or load balancer address to offer yet. Install it with a node port or a load balancer; the node addresses, mesh ones included, then appear here."
+	}
+	return "No agent has reported this operator in a cluster yet. Once one does, the addresses it can be reached at appear here."
 }
 
 // listOperatorAddressCandidates answers GET .../operators/{id}/address-candidates.
@@ -441,6 +467,9 @@ func (a *Admin) listOperatorAddressCandidates(w http.ResponseWriter, r *http.Req
 	}
 	if res.Found {
 		res.Hints = host.hints(res.Candidates)
+	}
+	if h := exposureHint(res.Candidates, res.Found, op.ID == CentralOperatorID); h != "" {
+		res.Hints = append(res.Hints, h)
 	}
 	writeJSON(w, 200, res)
 }

@@ -213,7 +213,7 @@ func TestAddressCandidatesAreBoundedWhateverTheNodesReport(t *testing.T) {
 
 func TestHintsSuggestTheNodeProbeAndTheProviderTheClusterAlreadyHas(t *testing.T) {
 	bare := operatorHost{Nodes: []hostNode{{Name: "a", Ready: true}}, Providers: []string{"metallb"}}
-	hints := bare.hints(nil)
+	hints := bare.hints([]AddressCandidate{{Kind: candidateNodePort}})
 	if len(hints) != 2 || !strings.Contains(hints[0], "MetalLB") || !strings.Contains(hints[1], "node probe") {
 		t.Fatalf("hints: %v", hints)
 	}
@@ -234,5 +234,28 @@ func TestProvidersAreFoundAmongTheClustersWorkloads(t *testing.T) {
 	})
 	if !reflect.DeepEqual(got, []string{"kube-vip", "metallb", "tailscale"}) {
 		t.Fatalf("providers: %v", got)
+	}
+}
+
+func TestAnUnexposedServiceIsSaidToBeSoAndWhatToChange(t *testing.T) {
+	node := []AddressCandidate{{Kind: candidateNodePort}}
+	if h := exposureHint(node, true, true); h != "" {
+		t.Fatalf("a node port is on offer: %q", h)
+	}
+	if h := exposureHint(nil, true, true); !strings.Contains(h, "fusion.central.service.type") || !strings.Contains(h, "only reachable inside") {
+		t.Fatalf("central, seen: %q", h)
+	}
+	if h := exposureHint(nil, false, true); !strings.Contains(h, "fusion.central.service.type") {
+		t.Fatalf("central, not seen: %q", h)
+	}
+	if h := exposureHint(nil, true, false); !strings.Contains(h, "node port or a load balancer") {
+		t.Fatalf("regional, seen: %q", h)
+	}
+	if h := exposureHint([]AddressCandidate{{Kind: candidateRecorded}}, false, false); !strings.Contains(h, "No agent has reported") {
+		t.Fatalf("regional, not seen: %q", h)
+	}
+	// The probe is only worth asking for when there is a node port to dial on the node's addresses.
+	if got := (operatorHost{Nodes: []hostNode{{Name: "a", Ready: true}}}).hints(nil); len(got) != 0 {
+		t.Fatalf("no node port, so no talk of the probe: %v", got)
 	}
 }
