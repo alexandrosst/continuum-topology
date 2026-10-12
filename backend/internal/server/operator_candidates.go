@@ -407,7 +407,42 @@ func (h operatorHost) hints(candidates []AddressCandidate) []string {
 	if hasNodePort && len(h.Nodes) > 0 && !probed {
 		out = append(out, "No node reports its network interfaces, so only the addresses Kubernetes knows are listed. Turn on the node probe in the agent to also offer each node's mesh and other addresses.")
 	}
+	// An address outside the cluster is listed but no node port: the nodes' own addresses have nothing to be dialled on.
+	if !hasNodePort && len(h.Nodes) > 0 {
+		for _, c := range candidates {
+			if c.Kind == candidateLoadBalancer || c.Kind == candidateExternalIP {
+				out = append(out, "The Service has no node port (a load balancer Service installed without one), so the nodes' own addresses, a mesh one included, are not offered. Allow node ports on the Service to have them listed.")
+				break
+			}
+		}
+	}
+	// The probe is on and no node has a mesh interface: say what it did see, so a missing mesh address can be told from a missing probe.
+	if hasNodePort && probed {
+		var seen []string
+		mesh := false
+		for _, n := range h.Nodes {
+			for _, a := range n.Interfaces {
+				if classifyNetwork(a.Interface, a.Kind, a.IP) == networkMesh {
+					mesh = true
+				}
+				if len(seen) < 6 {
+					seen = append(seen, n.Name+": "+a.Interface+" "+a.IP)
+				}
+			}
+		}
+		if !mesh {
+			out = append(out, "No node reports a mesh interface (WireGuard, Tailscale, Netbird and the like), so no mesh address is offered. The nodes report: "+strings.Join(seen, "; ")+". A mesh that runs on a machine outside the cluster's nodes is not seen from here: type its address under Another address.")
+		}
+	}
 	return out
+}
+
+// noHostHint says why the nodes' own addresses are missing when no agent has reported where the Deployment runs.
+func noHostHint(central bool) string {
+	if central {
+		return "No agent has reported FUSION's gateway, so the nodes' own addresses (a mesh one, say) cannot be listed; only the load balancer's is known, from the Service. Run an agent with the node probe on in the server's cluster to have them offered."
+	}
+	return "No agent has reported where this operator runs, so the nodes' own addresses (a mesh one, say) cannot be listed. Run an agent with the node probe on in its cluster to have them offered."
 }
 
 // exposureHint says why nothing is listed when no address outside the cluster is known, and what to change. A node's own
@@ -465,11 +500,13 @@ func (a *Admin) listOperatorAddressCandidates(w http.ResponseWriter, r *http.Req
 	if list := addressCandidates(host, recorded); list != nil {
 		res.Candidates = list
 	}
-	if res.Found {
+	if found {
 		res.Hints = host.hints(res.Candidates)
 	}
-	if h := exposureHint(res.Candidates, res.Found, op.ID == CentralOperatorID); h != "" {
+	if h := exposureHint(res.Candidates, found, op.ID == CentralOperatorID); h != "" {
 		res.Hints = append(res.Hints, h)
+	} else if !found {
+		res.Hints = append(res.Hints, noHostHint(op.ID == CentralOperatorID))
 	}
 	writeJSON(w, 200, res)
 }

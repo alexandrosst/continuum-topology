@@ -218,8 +218,8 @@ func TestHintsSuggestTheNodeProbeAndTheProviderTheClusterAlreadyHas(t *testing.T
 		t.Fatalf("hints: %v", hints)
 	}
 	// A load balancer address already there needs no suggestion about one, and a node that reports its interfaces none about the probe.
-	done := operatorHost{Nodes: []hostNode{{Name: "a", Ready: true, Interfaces: []hostAddr{{Interface: "eth0", IP: "10.0.0.5"}}}}, Providers: []string{"metallb"}}
-	if got := done.hints([]AddressCandidate{{Kind: candidateLoadBalancer}}); len(got) != 0 {
+	done := operatorHost{Nodes: []hostNode{{Name: "a", Ready: true, Interfaces: []hostAddr{{Interface: "tailscale0", Kind: "tun", IP: "100.64.3.7"}}}}, Providers: []string{"metallb"}}
+	if got := done.hints([]AddressCandidate{{Kind: candidateLoadBalancer}, {Kind: candidateNodePort}}); len(got) != 0 {
 		t.Fatalf("nothing to suggest: %v", got)
 	}
 	if got := (operatorHost{}).hints(nil); len(got) != 0 {
@@ -257,5 +257,25 @@ func TestAnUnexposedServiceIsSaidToBeSoAndWhatToChange(t *testing.T) {
 	// The probe is only worth asking for when there is a node port to dial on the node's addresses.
 	if got := (operatorHost{Nodes: []hostNode{{Name: "a", Ready: true}}}).hints(nil); len(got) != 0 {
 		t.Fatalf("no node port, so no talk of the probe: %v", got)
+	}
+}
+
+func TestHintsSayWhyNoMeshAddressIsOffered(t *testing.T) {
+	np := []AddressCandidate{{Kind: candidateNodePort}}
+	// The probe is on and sees a LAN only: what it saw is listed, so a missing mesh can be told from a missing probe.
+	lan := operatorHost{Nodes: []hostNode{{Name: "a", Ready: true, Interfaces: []hostAddr{{Interface: "eth0", IP: "10.0.0.5"}}}}}
+	if got := lan.hints(np); len(got) != 1 || !strings.Contains(got[0], "no mesh address") || !strings.Contains(got[0], "a: eth0 10.0.0.5") {
+		t.Fatalf("lan only: %v", got)
+	}
+	mesh := operatorHost{Nodes: []hostNode{{Name: "a", Ready: true, Interfaces: []hostAddr{{Interface: "tailscale0", Kind: "tun", IP: "100.64.3.7"}}}}}
+	if got := mesh.hints(np); len(got) != 0 {
+		t.Fatalf("a mesh interface is offered, nothing to explain: %v", got)
+	}
+	// A load balancer address without a node port: the nodes' addresses have nothing to be dialled on.
+	if got := lan.hints([]AddressCandidate{{Kind: candidateLoadBalancer}}); len(got) != 1 || !strings.Contains(got[0], "no node port") {
+		t.Fatalf("load balancer only: %v", got)
+	}
+	if !strings.Contains(noHostHint(true), "FUSION's gateway") || !strings.Contains(noHostHint(false), "this operator") {
+		t.Fatal("the unseen-host hint names what is missing")
 	}
 }
