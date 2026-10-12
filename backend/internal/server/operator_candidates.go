@@ -78,11 +78,17 @@ type hostNode struct {
 // operatorHost finds the cluster the operator with this id runs in. The second result is false when no approved
 // agent has reported its Deployment.
 func (h *Hub) operatorHost(ctx context.Context, operatorID string) (operatorHost, bool) {
+	return h.workloadHost(ctx, operatorNamespace, operatorServiceName(operatorID))
+}
+
+// workloadHost finds the cluster a Deployment runs in, from what the approved agents report about their clusters.
+// The regional operators are all in continuum-system under a name worked out from their id; the central operator's
+// gateway is the server's own install, in the server's namespace under FUSION's name.
+func (h *Hub) workloadHost(ctx context.Context, namespace, want string) (operatorHost, bool) {
 	agents, err := h.C.Store.ListAgents(ctx, h.C.OrgID)
 	if err != nil {
 		return operatorHost{}, false
 	}
-	want := operatorServiceName(operatorID)
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for _, a := range agents {
@@ -91,7 +97,7 @@ func (h *Hub) operatorHost(ctx context.Context, operatorID string) (operatorHost
 			continue
 		}
 		for _, w := range v.state.Workloads {
-			if w.Namespace != operatorNamespace || w.Name != want {
+			if w.Namespace != namespace || w.Name != want {
 				continue
 			}
 			host := operatorHost{ClusterID: a.ClusterID, ClusterName: a.Name, PodNodes: append([]string(nil), w.NodeNames...)}
@@ -202,11 +208,30 @@ func (a *Admin) listOperatorAddressCandidates(w http.ResponseWriter, r *http.Req
 		return
 	}
 	res := AddressCandidates{Candidates: []AddressCandidate{}}
-	host, found := a.tn(r).Hub.operatorHost(r.Context(), op.ID)
+	namespace, workload, recorded := operatorNamespace, operatorServiceName(op.ID), op.Address
+	var gateway *KubeService
+	if op.ID == CentralOperatorID && a.Fusion != nil {
+		// The gateway is the server's own install: its Deployment is in the server's namespace, and the server reads its
+		// Service itself, which is how a load balancer's address is found even where no agent runs in that cluster.
+		namespace, workload = a.Fusion.Namespace, a.Fusion.ServiceName()
+		if a.Fusion.Exposed() {
+			recorded = a.Fusion.CentralEndpoint()
+		}
+		gateway = a.Fusion.gatewayService(r.Context())
+	}
+	host, found := a.tn(r).Hub.workloadHost(r.Context(), namespace, workload)
 	if found {
 		res.Found, res.HostClusterID, res.HostClusterName = true, host.ClusterID, host.ClusterName
 	}
-	if list := addressCandidates(host, op.Address); list != nil {
+	if gateway != nil && gateway.LoadBalancer != "" {
+		if h, p, err := net.SplitHostPort(gateway.LoadBalancer); err == nil {
+			if port, err := strconv.Atoi(p); err == nil {
+				host.Reachable = append(host.Reachable, reachableAddr{IP: h, Port: int32(port), Kind: "load-balancer"})
+				res.Found = true
+			}
+		}
+	}
+	if list := addressCandidates(host, recorded); list != nil {
 		res.Candidates = list
 	}
 	writeJSON(w, 200, res)

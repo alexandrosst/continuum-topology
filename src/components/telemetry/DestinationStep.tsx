@@ -139,7 +139,7 @@ export default function DestinationStep({
   // in-cluster name, which resolves in the operator's own cluster alone - said on the card, not behind a disclosure, since it decides
   // whether this works at all.
   // This sender's own choice of address counts as reachable: it is what the commands dial, whatever is recorded for the operator.
-  const chosenAddress = operator && !isFusion ? withDefaultPort(value.exportOperatorAddress) : ''
+  const chosenAddress = operator ? withDefaultPort(value.exportOperatorAddress) : ''
   const reachable = !!operator && (chosenAddress !== '' || (operator.reachableFromOtherClusters === true && !!operator.address))
   const dialled = operator?.endpoint
 
@@ -245,7 +245,7 @@ export default function DestinationStep({
                 )}
               </p>
             )}
-            {operator && !isFusion && catalog.canDeployOperator && (
+            {operator && catalog.canDeployOperator && (
               <SenderAddress operator={operator} value={value.exportOperatorAddress} onChange={(a) => set('exportOperatorAddress', a)} testId={`${p}-destination-sender-address`} agentId={agentId} clusterName={clusterName} />
             )}
             {unresolved && (

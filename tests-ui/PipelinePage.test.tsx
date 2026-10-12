@@ -329,7 +329,7 @@ describe('PipelinePage', () => {
     expect(screen.getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['Open in Agents'])
   })
 
-  test('the central operator is managed by FUSION: Reachable at and Open FUSION, no disconnect, no remove, no certificates to renew', async () => {
+  test('the central operator is managed by FUSION: Reachable at, who sends here and Open FUSION, no disconnect, no remove, no certificates to renew', async () => {
     fusionStatus = fusionRunning()
     listOperators.mockResolvedValue([centralOp({ health: { state: 'online', reporting: false, lastSeenAt: minutesAgo(1) } })])
     const user = userEvent.setup()
@@ -337,7 +337,7 @@ describe('PipelinePage', () => {
     const row = await screen.findByTestId('operator-Central (FUSION)')
     expect(within(row).getByText('Healthy')).toBeInTheDocument()
     await user.click(within(row).getByTestId('operator-menu-Central (FUSION)'))
-    expect(screen.getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['Reachable at…', 'Open FUSION'])
+    expect(screen.getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['Reachable at…', 'Clusters sending here', 'Open FUSION'])
   })
 
   test('a disconnected operator is Not working with its reason, is not counted, offers no What to do, and can only be removed', async () => {

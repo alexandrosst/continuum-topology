@@ -150,7 +150,13 @@ export default function PipelinePage() {
     const remove: RowMenuItem = { key: 'delete', label: 'Stop and remove…', danger: true, onSelect: () => setRemoving({ operator: op, mode: 'delete' }), testId: `operator-delete-${op.name}` }
     if (r.ended) return [remove]
     const address: RowMenuItem = { key: 'address', label: 'Reachable at…', onSelect: () => setAddressFor(op), testId: `operator-address-open-${op.name}` }
-    if (r.kind === 'central') return [address, { key: 'fusion', label: 'Open FUSION', onSelect: () => navigate('/fusion'), testId: 'operator-open-fusion' }]
+    if (r.kind === 'central') {
+      return [
+        address,
+        ...(admin ? [{ key: 'senders', label: 'Clusters sending here', onSelect: () => setSendersFor(op), testId: `operator-senders-open-${op.name}` }] : []),
+        { key: 'fusion', label: 'Open FUSION', onSelect: () => navigate('/fusion'), testId: 'operator-open-fusion' },
+      ]
+    }
     return [
       ...sourcesOf(op).map((s) => ({ key: `connect-${s.id}`, label: `Connect ${s.name}…`, onSelect: () => connect(s.agent!.id, op.id), disabled: !canConsent, title: canConsent ? undefined : 'Connecting a cluster needs permission to edit', testId: `operator-connect-${op.name}-${s.id}` })),
       address,

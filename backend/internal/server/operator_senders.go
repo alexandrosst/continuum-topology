@@ -167,6 +167,9 @@ type diagnosisInput struct {
 	AddrSource   string
 	OperatorID   string
 	OperatorName string
+	// Central says the operator is the central one, whose health is FUSION's own (online, starting, attention, off) and
+	// which has no certificates of its own to renew from a row.
+	Central bool
 	// OperatorState is the operator's own health; OperatorSeen is when it last reported, when it ever has.
 	OperatorState string
 	OperatorSeen  string
@@ -210,6 +213,20 @@ func diagnoseSender(in diagnosisInput) *SenderDiagnosisDoc {
 		}
 	}
 	operatorUp := len(working) > 0 || in.OperatorState == HealthOnline
+	if in.Central && len(working) == 0 {
+		// FUSION says itself whether its gateway can take anything: nothing a path could do is the first thing to look at.
+		switch in.OperatorState {
+		case HealthOff:
+			return &SenderDiagnosisDoc{Where: "operator", Title: "FUSION is off",
+				Detail: "The gateway that receives what this cluster sends is not running, so nothing is accepted anywhere. Turn FUSION on from its section; collectors keep what they cannot deliver and send it once it is up."}
+		case HealthStarting:
+			return &SenderDiagnosisDoc{Where: "operator", Title: "FUSION is still starting",
+				Detail: "The gateway is not ready yet. This takes a minute or two after FUSION is turned on; collectors keep what they cannot deliver and send it once it is up."}
+		case HealthAttention:
+			return &SenderDiagnosisDoc{Where: "operator", Title: "FUSION reports a problem",
+				Detail: "One of its parts is not working, and the gateway may not be taking anything. Open FUSION: its overview says which part and what to do."}
+		}
+	}
 	seen := ""
 	if in.OperatorSeen != "" {
 		seen = " (last heard from " + in.OperatorSeen + ")"
@@ -230,13 +247,17 @@ func diagnoseSender(in diagnosisInput) *SenderDiagnosisDoc {
 	switch {
 	case has("x509", "certificate", "tls:", "handshake", "unknown authority"):
 		d := "The connection was made, but the certificate was refused. The sender checks the operator by its name " + in.OperatorID + ".continuum-system.svc whatever address it dials, so the address itself is not the problem unless it leads to a different service."
+		renew := " (Renew certificates on the operator's row)"
+		if in.Central {
+			renew = ""
+		}
 		switch {
 		case len(working) > 0:
 			d = peerLine + " That points at this cluster's own client certificate (expired, or from another operator): run its generated command again to install a fresh one."
 		case in.OperatorState == HealthOffline:
-			d += " The operator has also stopped reporting" + seen + ": check that its receiver certificate has not expired (Renew certificates on its row)."
+			d += " The operator has also stopped reporting" + seen + ": check that its receiver certificate has not expired" + renew + "."
 		default:
-			d += " Common causes: the operator's or this cluster's certificate has expired (Renew certificates on the operator's row), this cluster's certificate Secret is missing or belongs to another operator."
+			d += " Common causes: the operator's or this cluster's certificate has expired" + renew + ", this cluster's certificate Secret is missing or belongs to another operator."
 		}
 		return &SenderDiagnosisDoc{Where: "certificate", Title: "The certificate was refused", Detail: d + quote}
 	case has("unauthenticated", "unauthorized", "401", "403", "permission denied", "forbidden"):
@@ -306,7 +327,7 @@ func (a *Admin) listOperatorSenders(w http.ResponseWriter, r *http.Request) {
 	}
 	hub := a.tn(r).Hub
 	now := c.Now()
-	health := operatorHealthAt(op, now)
+	health := a.sendersHealth(r, op, now)
 	seen := ""
 	if health.LastSeenAt != nil {
 		seen = health.LastSeenAt.UTC().Format(time.RFC3339)
@@ -337,7 +358,7 @@ func (a *Admin) listOperatorSenders(w http.ResponseWriter, r *http.Request) {
 	for i := range ps {
 		d := &ps[i].doc
 		in := diagnosisInput{ClusterName: d.AgentName, Connected: d.Connected, Delivery: d.Delivery, Address: d.Addresses[0].Address, AddrSource: d.Addresses[0].Source,
-			OperatorID: op.ID, OperatorName: op.Name, OperatorState: health.State, OperatorSeen: seen}
+			OperatorID: op.ID, OperatorName: op.Name, OperatorState: health.State, OperatorSeen: seen, Central: op.ID == CentralOperatorID}
 		for j := range ps {
 			if j != i && ps[j].doc.Delivery != nil {
 				in.Peers = append(in.Peers, peerOutcome{Name: ps[j].doc.AgentName, Address: ps[j].doc.Addresses[0].Address, State: ps[j].doc.Delivery.State})
@@ -350,6 +371,18 @@ func (a *Admin) listOperatorSenders(w http.ResponseWriter, r *http.Request) {
 		out.Senders = append(out.Senders, p.doc)
 	}
 	writeJSON(w, 200, out)
+}
+
+// sendersHealth is the health a diagnosis reads: a regional operator's heartbeat, and for the central operator, which has
+// none, FUSION's own state (the same as its row shows).
+func (a *Admin) sendersHealth(r *http.Request, op store.Operator, now time.Time) OperatorHealth {
+	if op.ID != CentralOperatorID {
+		return operatorHealthAt(op, now)
+	}
+	fusion := a.fusionState(r)
+	h := centralHealth(fusion)
+	h.LastSeenAt = fusion.LastDataAt
+	return h
 }
 
 // exportHealthOf is whether the agent is connected and what it reports about its exporters.

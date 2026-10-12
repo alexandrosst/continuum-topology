@@ -75,3 +75,15 @@ describe('the address dialog offers what discovery found', () => {
     expect(screen.getByTestId('operator-address-input')).toBeTruthy()
   })
 })
+
+describe('the central operator is offered what was found for its gateway too', () => {
+  it('lists the gateway\'s addresses in its own dialog', async () => {
+    candidates.mockResolvedValue({ found: true, candidates: [{ id: 'load-balancer|203.0.113.50:4317', address: '203.0.113.50:4317', kind: 'load-balancer', source: 'The address the load balancer gave the operator\'s Service.' }] })
+    render(<OperatorAddressModal operator={{ id: 'op-central', name: 'Central (FUSION)' } as RegionalOperator} central={{ service: 'continuum-fusion-central', namespace: 'continuum' }} onClose={() => {}} onDone={() => {}} />)
+    expect(await screen.findAllByTestId('operator-address-candidate')).toHaveLength(1)
+    expect(candidates).toHaveBeenCalledWith(expect.anything(), 'op-central')
+    await userEvent.click(screen.getByRole('button', { name: 'Use 203.0.113.50:4317' }))
+    expect((screen.getByTestId('operator-address-input') as HTMLInputElement).value).toBe('203.0.113.50:4317')
+    expect(screen.getByTestId('operator-address-central')).toBeInTheDocument()
+  })
+})

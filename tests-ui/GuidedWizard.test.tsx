@@ -363,6 +363,20 @@ describe('GuidedWizard destination step: the merged catalog', () => {
     expect(latest.exportOperatorId).toBe('op-central')
   })
 
+  test('FUSION is reached at an address this cluster chooses, like a regional operator: the picker is offered for it too', async () => {
+    const user = userEvent.setup()
+    role = 'admin'
+    getFusion.mockResolvedValue(RUNNING)
+    listOperators.mockResolvedValue([operator({ id: 'op-central', name: 'Central (FUSION)', address: 'fusion.example.com:4317', reachableFromOtherClusters: true })])
+    renderWizard()
+    await gotoDestination(user)
+    await waitFor(() => expect(screen.getByTestId('t-guided-destination-name')).toHaveTextContent('FUSION - this server'))
+    const picker = await screen.findByTestId('t-guided-destination-sender-address')
+    expect(picker).toHaveTextContent('Address this cluster dials')
+    // Starts on what is recorded for FUSION; nothing is chosen until this cluster says so.
+    expect(screen.getByTestId('t-guided-destination-operator-address')).toHaveTextContent('Sends to fusion.example.com:4317, the address an administrator recorded')
+  })
+
   test('an operator pick records its id and describes the real flow; a custom endpoint afterwards clears it', async () => {
     const user = userEvent.setup()
     role = 'admin'
