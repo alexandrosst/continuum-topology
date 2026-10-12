@@ -170,7 +170,6 @@ async function renewFromWhatToDo(user: User, rowId: string) {
 async function toDestination(user: User, name = 'athens-regional') {
   await user.click(screen.getByTestId('operator-open'))
   await user.type(screen.getByTestId('operator-name'), name)
-  await user.click(screen.getByTestId('checkbox-c1'))
   await user.click(screen.getByTestId('operator-next'))
 }
 async function chooseBackend(user: User, endpoint = 'backend.example.com:4317') {
@@ -427,28 +426,27 @@ describe('PipelinePage', () => {
     expect(screen.getByTestId('component-reason-regional:op-c')).toHaveTextContent('Health reporting is off')
   })
 
-  test('only clusters with a currently-approved agent are offered as source clusters', async () => {
+  test('the dialog does not ask which clusters send to the operator: a cluster picks its operator in its own wizard', async () => {
     const user = userEvent.setup()
-    topologyState = { agents: [ag({ status: 'pending' })], clusters: [cl()] }
+    topologyState = { agents: [ag()], clusters: [cl()] }
     renderPage()
     await user.click(await screen.findByTestId('operator-open'))
-    expect(screen.getByText('No cluster has an approved agent yet - approve one on the Agents page first.')).toBeInTheDocument()
+    expect(screen.queryByTestId('checkbox-c1')).not.toBeInTheDocument()
+    expect(screen.queryByText('Source clusters')).not.toBeInTheDocument()
   })
 
-  test('the dialog is three steps - name and sources, destination, create - and each Next waits for what its step needs', async () => {
+  test('the dialog is three steps - name, destination, create - and each Next waits for what its step needs', async () => {
     const user = userEvent.setup()
     renderPage()
     await user.click(await screen.findByTestId('operator-open'))
-    expect(screen.getByTestId('operator-steps')).toHaveTextContent('Name and sources')
+    expect(screen.getByTestId('operator-steps')).toHaveTextContent('Name')
     expect(screen.getByTestId('operator-steps')).toHaveTextContent('Destination')
     expect(screen.getByTestId('operator-steps')).toHaveTextContent('Create')
     const next = screen.getByTestId('operator-next')
     expect(next).toBeDisabled()
 
     await user.type(screen.getByTestId('operator-name'), 'athens-regional')
-    // Source clusters are optional: a name is all this step needs.
-    expect(next).toBeEnabled()
-    await user.click(screen.getByTestId('checkbox-c1'))
+    // A name is all this step needs.
     expect(next).toBeEnabled()
     await user.click(next)
 
@@ -459,7 +457,7 @@ describe('PipelinePage', () => {
     await user.click(screen.getByTestId('operator-next'))
     expect(screen.getByTestId('operator-step-create')).toBeInTheDocument()
     expect(screen.getByTestId('operator-summary')).toHaveTextContent('athens-regional')
-    expect(screen.getByTestId('operator-summary')).toHaveTextContent('edge-1')
+    expect(screen.getByTestId('operator-summary')).not.toHaveTextContent('Collects from')
     expect(screen.getByTestId('operator-summary')).toHaveTextContent('backend.example.com:4317')
     expect(screen.getByTestId('operator-create')).toBeEnabled()
     // Back keeps what was typed.
@@ -468,7 +466,7 @@ describe('PipelinePage', () => {
     expect(screen.getByTestId('operator-name')).toHaveValue('athens-regional')
   })
 
-  test('source clusters are optional: a name alone lets the dialog move on', async () => {
+  test('a name alone lets the dialog move on', async () => {
     const user = userEvent.setup()
     renderPage()
     await user.click(await screen.findByTestId('operator-open'))
@@ -476,7 +474,7 @@ describe('PipelinePage', () => {
     expect(screen.getByTestId('operator-next')).toBeEnabled()
   })
 
-  test('Exposure, Heartbeat, Labels and Processors are under Advanced on the last step, not in the way before it', async () => {
+  test('how other clusters reach it is on the last step in the open, node port first; Heartbeat, Labels and Processors are under Advanced', async () => {
     const user = userEvent.setup()
     renderPage()
     await toDestination(user)
@@ -485,8 +483,16 @@ describe('PipelinePage', () => {
     await user.click(screen.getByTestId('operator-next'))
     const advanced = screen.getByTestId('operator-advanced')
     expect(within(advanced).getByText('Advanced')).toBeInTheDocument()
-    for (const id of ['operator-exposure', 'operator-heartbeat', 'operator-labels-explain', 'operator-processor-add-filter']) expect(within(advanced).getByTestId(id)).toBeInTheDocument()
+    expect(within(advanced).queryByTestId('operator-exposure')).not.toBeInTheDocument()
+    expect(screen.getByTestId('operator-exposure')).toBeInTheDocument()
+    for (const id of ['operator-heartbeat', 'operator-labels-explain', 'operator-processor-add-filter']) expect(within(advanced).getByTestId(id)).toBeInTheDocument()
     expect(advanced).not.toHaveAttribute('open')
+    // Node port is preselected and marked; the other two are a click away, each with what it means.
+    const radios = within(screen.getByTestId('operator-exposure')).getAllByRole('radio')
+    expect(radios.map((r) => r.getAttribute('data-testid'))).toEqual(['operator-exposure-nodeport', 'operator-exposure-loadbalancer', 'operator-exposure-cluster'])
+    expect(screen.getByTestId('operator-exposure-nodeport')).toBeChecked()
+    expect(screen.getByTestId('operator-exposure')).toHaveTextContent('Recommended')
+    expect(screen.getByTestId('operator-exposure-note')).toHaveTextContent('port, 4317, on every node')
   })
 
   test('labels are typed as name = value rows, sent trimmed, and half-filled rows are not sent', async () => {
@@ -500,7 +506,7 @@ describe('PipelinePage', () => {
     await user.click(screen.getByTestId('operator-label-tag-add'))
     await user.click(screen.getByTestId('operator-create'))
     await waitFor(() => expect(createOperator).toHaveBeenCalled())
-    expect(createOperator.mock.calls[0][4]).toEqual({ heartbeat: true, labels: [{ key: 'region', value: 'eu-south' }], exposure: 'cluster' })
+    expect(createOperator.mock.calls[0][4]).toEqual({ heartbeat: true, labels: [{ key: 'region', value: 'eu-south' }], exposure: 'nodeport' })
   })
 
   test('a reserved or half-filled label blocks Create and says why', async () => {
@@ -533,15 +539,17 @@ describe('PipelinePage', () => {
     await waitFor(() => expect(createOperator).toHaveBeenCalledWith(
       { url: '', org: 'o' },
       'athens-regional',
-      ['c1'],
+      [],
       expect.objectContaining({ endpoint: 'backend.example.com:4317', kind: 'external' }),
-      { heartbeat: true, labels: [], exposure: 'cluster' },
+      { heartbeat: true, labels: [], exposure: 'nodeport' },
     ))
     expect(screen.getByText(/kubectl create secret generic op-1-receiver-auth/)).toBeInTheDocument()
     expect(screen.getByText(/helm install op-1/)).toBeInTheDocument()
     const steps = within(screen.getByTestId('operator-created-steps')).getAllByRole('listitem')
     expect(steps[0]).toHaveTextContent('1Create the receiver token Secret')
-    expect(steps[steps.length - 1]).toHaveTextContent(`${steps.length}Install the operator`)
+    // A node port is the default, so the last step tells where to record the address, after the install.
+    expect(steps[steps.length - 2]).toHaveTextContent(`${steps.length - 1}Install the operator`)
+    expect(steps[steps.length - 1]).toHaveTextContent('Tell Ikhnos where other clusters reach it')
   })
 
   test('when the server also minted a receiver TLS certificate, its Secret is a step of its own, before the install', async () => {
@@ -717,6 +725,9 @@ describe('PipelinePage - the destination is picked from a list', () => {
 
   test('the created screen offers Connect <cluster> for each source cluster with an agent, starting the wizard with the new operator chosen', async () => {
     const user = userEvent.setup()
+    // Clusters are not asked for in the dialog; one the server holds for the operator (a cluster it was made for) is still offered.
+    const base = await createOperator({}, 'athens-regional', ['c1'], { endpoint: 'backend.example.com:4317' })
+    createOperator.mockResolvedValueOnce(base)
     renderPage()
     await fillCreateForm(user)
     await user.click(screen.getByTestId('operator-create'))
@@ -1153,7 +1164,7 @@ describe('PipelinePage - creating with and without health reporting', () => {
     expect(screen.getByTestId('operator-heartbeat-explain')).toHaveTextContent('turn it on later')
     await user.click(screen.getByTestId('operator-create'))
     await waitFor(() => expect(createOperator).toHaveBeenCalledTimes(1))
-    expect(createOperator.mock.calls[0][4]).toEqual({ heartbeat: true, labels: [], exposure: 'cluster' })
+    expect(createOperator.mock.calls[0][4]).toEqual({ heartbeat: true, labels: [], exposure: 'nodeport' })
   })
 
   test('unchecking it sends heartbeat: false and the created screen says the operator never contacts the server', async () => {
@@ -1163,7 +1174,7 @@ describe('PipelinePage - creating with and without health reporting', () => {
     await user.click(screen.getByTestId('operator-heartbeat'))
     await user.click(screen.getByTestId('operator-create'))
     await waitFor(() => expect(createOperator).toHaveBeenCalledTimes(1))
-    expect(createOperator.mock.calls[0][4]).toEqual({ heartbeat: false, labels: [], exposure: 'cluster' })
+    expect(createOperator.mock.calls[0][4]).toEqual({ heartbeat: false, labels: [], exposure: 'nodeport' })
     expect(await screen.findByTestId('operator-no-rbac-note')).toHaveTextContent('never contacts this server')
     expect(screen.queryByTestId('operator-created-heartbeat')).not.toBeInTheDocument()
   })
@@ -1242,8 +1253,7 @@ describe('PipelinePage - where other clusters reach an operator', () => {
     const user = userEvent.setup()
     renderPage()
     await fillCreateForm(user)
-    await user.click(screen.getByTestId('operator-exposure'))
-    await user.click(screen.getByRole('option', { name: /load balancer/ }))
+    await user.click(screen.getByTestId('operator-exposure-loadbalancer'))
     await user.click(screen.getByTestId('operator-create'))
     await waitFor(() => expect(createOperator).toHaveBeenCalledTimes(1))
     expect(createOperator.mock.calls[0][4]).toMatchObject({ exposure: 'loadbalancer' })
@@ -1254,13 +1264,26 @@ describe('PipelinePage - where other clusters reach an operator', () => {
     expect(screen.queryByTestId('operator-created-find-np')).not.toBeInTheDocument()
   })
 
-  test('the default is this cluster only: nothing about addresses on the created screen', async () => {
+  test('the default is a node port: the created screen says how to read the node port, not the load balancer', async () => {
     const user = userEvent.setup()
     renderPage()
     await fillCreateForm(user)
-    expect(screen.getByTestId('operator-exposure')).toHaveTextContent('This cluster only')
+    expect(screen.getByTestId('operator-exposure-nodeport')).toBeChecked()
+    await user.click(screen.getByTestId('operator-create'))
+    await waitFor(() => expect(createOperator).toHaveBeenCalledTimes(1))
+    expect(createOperator.mock.calls[0][4]).toMatchObject({ exposure: 'nodeport' })
+    expect(await screen.findByTestId('operator-created-find-np')).toHaveTextContent('kubectl get svc op-1-regional-operator')
+    expect(screen.queryByTestId('operator-created-find-lb')).not.toBeInTheDocument()
+  })
+
+  test('this cluster only is a choice: nothing about addresses on the created screen', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await fillCreateForm(user)
+    await user.click(screen.getByTestId('operator-exposure-cluster'))
     await user.click(screen.getByTestId('operator-create'))
     await screen.findByText(/helm install op-1/)
+    expect(createOperator.mock.calls[0][4]).toMatchObject({ exposure: 'cluster' })
     expect(screen.queryByTestId('operator-created-address')).not.toBeInTheDocument()
   })
 

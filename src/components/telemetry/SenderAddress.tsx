@@ -1,5 +1,5 @@
 import { Button, Input } from '@/components/ui/primitives'
-import { withDefaultPort } from '@/components/operators/OperatorAddress'
+import { ExposeCard, withDefaultPort } from '@/components/operators/OperatorAddress'
 import type { RegionalOperator } from '@/lib/types'
 import { candidateSub, useAddressCandidates } from '@/lib/useAddressCandidates'
 import { useAddressTests, type AddressTestView } from '@/lib/useAddressTests'
@@ -73,6 +73,7 @@ export default function SenderAddress({ operator, value, onChange, testId, agent
         {row('recorded', chosen === '', () => onChange(''), recorded || 'The operator’s recorded address', recorded ? 'The address recorded for this operator. Every cluster without a choice of its own uses it.' : 'No address is recorded for this operator yet, so commands dial its name inside its own cluster.', recorded)}
         {discovered.map((x) => row(x.id, chosen === x.address, () => onChange(x.address), x.address, candidateSub(x), x.address))}
       </ul>
+      {found?.expose && <ExposeCard expose={found.expose} testId={`${testId}-expose`} />}
       {(found?.hints ?? []).map((h) => <p key={h} className="text-xs leading-relaxed text-nb-500" data-testid={`${testId}-hint`}>{h}</p>)}
       <label className="block text-xs text-nb-400">
         Another address (host:port)

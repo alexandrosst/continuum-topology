@@ -48,6 +48,17 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe('the sender picks the address of a regional operator it dials', () => {
+  it('shows the card with the exposing command when the central gateway is not reachable from other clusters', async () => {
+    candidates.mockResolvedValue({
+      found: true,
+      candidates: [],
+      expose: { service: 'fusion-central', namespace: 'continuum-system', value: 'fusion.central.service.type', commands: { nodePort: 'kubectl patch NODEPORT', loadBalancer: 'kubectl patch LB' } },
+    })
+    render(<Harness />)
+    expect((await screen.findByTestId('sa-expose')).textContent).toContain('not reachable from other clusters yet')
+    expect(screen.getByTestId('sa-expose-command').textContent).toContain('kubectl patch NODEPORT')
+  })
+
   it('says why nothing is listed when the operator is not exposed, instead of showing nothing', async () => {
     candidates.mockResolvedValue({ found: true, candidates: [], hints: ['FUSION’s gateway is only reachable inside its own cluster. Expose it with fusion.central.service.type=NodePort.'] })
     render(<Harness />)

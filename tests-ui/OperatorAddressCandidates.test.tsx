@@ -70,6 +70,33 @@ describe('the address dialog offers what discovery found', () => {
     expect((await screen.findByTestId('operator-address-hint')).textContent).toContain('node probe')
   })
 
+  it('shows a card with the command that exposes the central gateway, and the one for a load balancer on a click', async () => {
+    candidates.mockResolvedValue({
+      found: true,
+      candidates: [],
+      expose: {
+        service: 'fusion-central',
+        namespace: 'continuum-system',
+        value: 'fusion.central.service.type',
+        commands: {
+          nodePort: `kubectl --namespace continuum-system patch svc fusion-central -p '{"spec":{"type":"NodePort"}}'`,
+          loadBalancer: `kubectl --namespace continuum-system patch svc fusion-central -p '{"spec":{"type":"LoadBalancer"}}'`,
+        },
+      },
+    })
+    open()
+    const card = await screen.findByTestId('operator-address-expose')
+    expect(card).toHaveTextContent('not reachable from other clusters yet')
+    expect(screen.getByTestId('operator-address-expose-command')).toHaveTextContent('"type":"NodePort"')
+    expect(card).toHaveTextContent('fusion.central.service.type=NodePort')
+    expect(card).toHaveTextContent('restarts nothing')
+    await userEvent.click(screen.getByTestId('operator-address-expose-loadBalancer'))
+    expect(screen.getByTestId('operator-address-expose-command')).toHaveTextContent('"type":"LoadBalancer"')
+    expect(card).toHaveTextContent('fusion.central.service.type=LoadBalancer')
+    // The card says it, so the generic empty sentence is not repeated under it.
+    expect(screen.queryByTestId('operator-address-candidates-none')).toBeNull()
+  })
+
   it('says why the list is empty, in the two ways it can be', async () => {
     candidates.mockResolvedValue({ found: false, candidates: [] })
     const first = open()

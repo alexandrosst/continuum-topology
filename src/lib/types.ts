@@ -1356,6 +1356,8 @@ export interface AddressCandidates {
   candidates: AddressCandidate[]
   /** Suggestions in words for getting a better address: turn on the node probe, or use a load balancer provider the cluster has. */
   hints?: string[]
+  /** Set for the central operator while its gateway cannot be reached from other clusters: the Service and the kubectl commands that expose it. */
+  expose?: { service: string; namespace: string; commands: { nodePort: string; loadBalancer: string }; value: string }
 }
 
 export interface RegionalOperator {

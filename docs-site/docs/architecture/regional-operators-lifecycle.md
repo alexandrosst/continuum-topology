@@ -30,7 +30,7 @@ Revoking stops the server from handing out commands for the operator and erases 
 
 ## Source clusters are optional
 
-An operator is a place to send to. It can be created with no source clusters at all and clusters pointed at it afterwards, from **Connect a cluster** on its row or from the telemetry wizard's destination step, which issues each one its own client certificate. When you do name sources at creation, the commands for them carry one Secret per cluster, each with that cluster's own certificate.
+An operator is a place to send to, so the create dialog asks only for a name and where it sends; it does not ask which clusters send to it. Clusters are pointed at it afterwards, from **Connect a cluster** on its row or from the telemetry wizard's destination step, which issues each one its own client certificate. A dialog opened for one cluster (from that cluster's wizard) still carries that cluster in, and its commands then include a Secret with that cluster's own certificate.
 
 ## Delivery when something is down
 

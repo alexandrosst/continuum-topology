@@ -4,16 +4,16 @@ import { Button, ErrorBanner, Field, Input, Modal } from '@/components/ui/primit
 import { api, ApiError, type OperatorExposure } from '@/lib/api'
 import { shArg } from '@/lib/install'
 import { operatorServiceName } from '@/lib/operatorsView'
-import type { RegionalOperator } from '@/lib/types'
+import type { AddressCandidates, RegionalOperator } from '@/lib/types'
 import { candidateSub, useAddressCandidates } from '@/lib/useAddressCandidates'
 import { useServer } from '@/store/server'
 
 /** What a person picks when creating an operator: whether clusters other than its own must be able to reach it.
  *  It only decides the Service type in the install command - the address that results is recorded afterwards. */
-export const EXPOSURE_OPTIONS: { id: OperatorExposure; label: string; hint: string }[] = [
-  { id: 'cluster', label: 'This cluster only', hint: 'Only workloads in the same cluster can send to it (the default).' },
-  { id: 'loadbalancer', label: 'Other clusters, through a load balancer', hint: 'The install command makes its Service a LoadBalancer; the cloud gives it an address.' },
-  { id: 'nodeport', label: 'Other clusters, through a node port', hint: 'The install command makes its Service a NodePort; other clusters dial any node on that port.' },
+export const EXPOSURE_OPTIONS: { id: OperatorExposure; label: string; hint: string; recommended?: boolean }[] = [
+  { id: 'nodeport', label: 'Node port', recommended: true, hint: 'Works on any cluster. Other clusters dial any node on one port, over its LAN, mesh or public address.' },
+  { id: 'loadbalancer', label: 'Load balancer', hint: 'The cluster gives it one address of its own. Needs a load balancer provider; without one it waits for an address forever.' },
+  { id: 'cluster', label: 'This cluster only', hint: 'Only workloads in the same cluster can send to it. Nothing outside can.' },
 ]
 
 /** The kubectl line that reads the address a Service ended up with. */
@@ -74,6 +74,39 @@ export function FindTheAddress({ id, exposure, service, testId }: { id: string; 
   )
 }
 
+/** Why the central operator's gateway lists no address, and the command that fixes it. The Service is changed in place - no pod restarts and
+ *  its cluster address stays - and a later `helm upgrade` puts the type back unless the chart value is set to match, which the card says. */
+export function ExposeCard({ expose, testId }: { expose: NonNullable<AddressCandidates['expose']>; testId: string }) {
+  const [kind, setKind] = useState<'nodePort' | 'loadBalancer'>('nodePort')
+  const value = kind === 'nodePort' ? 'NodePort' : 'LoadBalancer'
+  return (
+    <div role="note" className="space-y-2.5 rounded-lg border border-warn/30 bg-warn/10 px-3.5 py-3" data-testid={testId}>
+      <div className="text-sm font-medium text-warn">FUSION&apos;s gateway is not reachable from other clusters yet</div>
+      <p className="text-xs leading-relaxed text-nb-300">
+        Its Service is only open inside its own cluster, so there is no node or load balancer address to list. Run this against the server&apos;s cluster, then come back: the nodes&apos; addresses, mesh ones included, appear here.
+      </p>
+      <div className="flex gap-1.5" role="group" aria-label="How to expose it">
+        {([['nodePort', 'Node port'], ['loadBalancer', 'Load balancer']] as const).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            aria-pressed={kind === id}
+            onClick={() => setKind(id)}
+            className={`h-7 rounded-full border px-3 text-xs ${kind === id ? 'border-accent bg-accent/15 text-accent' : 'border-nb-800 text-nb-400 hover:text-nb-200'}`}
+            data-testid={`${testId}-${id}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <CopyCommand text={expose.commands[kind]} testId={`${testId}-command`} />
+      <p className="text-[11px] leading-relaxed text-nb-500">
+        Takes effect at once and restarts nothing. It opens port 4317 on {kind === 'nodePort' ? 'every node of the server’s cluster' : 'a load balancer address of its own'}; senders still need a certificate from this server. Also set <span className="font-mono">{expose.value}={value}</span> in your Helm values, or the next upgrade puts it back.
+      </p>
+    </div>
+  )
+}
+
 /** The addresses Ikhnos found for an operator from what its cluster's agent reports, to pick from instead of typing.
  *  Picking one only fills the field below; nothing is saved until Save. A failed lookup shows nothing: typing still works. */
 function AddressCandidatesList({ operatorId, value, onPick }: { operatorId: string; value: string; onPick: (address: string) => void }) {
@@ -83,8 +116,9 @@ function AddressCandidatesList({ operatorId, value, onPick }: { operatorId: stri
   return (
     <div data-testid="operator-address-candidates">
       <div className="mb-1 text-xs font-medium uppercase tracking-wide text-nb-500">Addresses found{found.hostClusterName ? ` in ${found.hostClusterName}` : ''}</div>
+      {found.expose && <div className="mb-2"><ExposeCard expose={found.expose} testId="operator-address-expose" /></div>}
       {discovered.length === 0 ? (
-        <p className="text-sm leading-relaxed text-nb-400" data-testid="operator-address-candidates-none">
+        found.expose ? null : <p className="text-sm leading-relaxed text-nb-400" data-testid="operator-address-candidates-none">
           {found.found
             ? 'Its Service has no address outside the cluster yet. Install it as a load balancer or a node port, then it appears here.'
             : 'No agent has reported this operator in a cluster yet. Once one does, the addresses it can be reached at appear here.'}

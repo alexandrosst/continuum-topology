@@ -53,7 +53,7 @@ export default function ComponentsTable({ rows, now, menuFor, onWhatToDo }: { ro
                 <div className="mt-0.5 truncate text-xs text-nb-500">
                   {r.kind === 'central' ? 'Receives data for FUSION' : KIND_LABEL[r.kind]}
                   {r.cluster ? ` · ${r.cluster.name}` : ''}
-                  {r.operator && r.kind === 'regional' ? ` · ${r.operator.sourceClusterIds.length} cluster${r.operator.sourceClusterIds.length === 1 ? '' : 's'}` : ''}
+                  {r.operator && r.kind === 'regional' && r.operator.sourceClusterIds.length > 0 ? ` · ${r.operator.sourceClusterIds.length} cluster${r.operator.sourceClusterIds.length === 1 ? '' : 's'}` : ''}
                 </div>
                 {addr?.kind === 'set' && (
                   <div className="mt-0.5 flex items-center gap-1 text-xs" data-testid={`component-address-${r.id}`}>

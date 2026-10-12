@@ -148,3 +148,26 @@ func TestCentralNodeAddressesNeedOnlyTheClusterAndTheServicesNodePort(t *testing
 		t.Fatalf("hints: %v", got["hints"])
 	}
 }
+
+func TestAnUnexposedGatewayComesWithTheCommandThatExposesIt(t *testing.T) {
+	a := newIntentRig(t)
+	f, k := newFusion(t, a.adminRig)
+	f.Kube = &inspectingKube{fakeKube: k, svc: KubeService{Type: "ClusterIP", Port: 4317}}
+	a.a.Fusion = f
+	if _, err := f.Enable(a.ctx, a.core, "alex"); err != nil {
+		t.Fatal(err)
+	}
+	k.allReady()
+	got := a.do("GET", "/api/v1/operators/"+CentralOperatorID+"/address-candidates", nil, withCookie(a.cookie)).json(t)
+	e, _ := got["expose"].(map[string]any)
+	if e == nil || e["service"] != f.ServiceName() || e["namespace"] != f.Namespace || e["value"] != "fusion.central.service.type" {
+		t.Fatalf("expose: %v", got["expose"])
+	}
+	cmds := e["commands"].(map[string]any)
+	if !strings.Contains(cmds["nodePort"].(string), `patch svc `+f.ServiceName()) || !strings.Contains(cmds["nodePort"].(string), `"type":"NodePort"`) || !strings.Contains(cmds["loadBalancer"].(string), `"type":"LoadBalancer"`) {
+		t.Fatalf("commands: %v", cmds)
+	}
+	if h, _ := got["hints"].([]any); len(h) != 0 {
+		t.Fatalf("the card replaces the sentence: %v", h)
+	}
+}

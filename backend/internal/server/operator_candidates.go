@@ -64,6 +64,28 @@ type AddressCandidates struct {
 	// Hints are suggestions in words about getting a better address: turning on the node probe, or using a load
 	// balancer provider the cluster already has. Empty when there is nothing to suggest.
 	Hints []string `json:"hints,omitempty"`
+	// Expose is set when the central operator's gateway cannot be reached from other clusters yet: the Service to change
+	// and the commands that change it. Regional operators are exposed by their install command instead.
+	Expose *ExposeDoc `json:"expose,omitempty"`
+}
+
+// ExposeDoc names the gateway's Service and the kubectl command that makes it reachable from other clusters.
+type ExposeDoc struct {
+	Service   string `json:"service"`
+	Namespace string `json:"namespace"`
+	// Commands change the Service's type in place: no pod restarts and its cluster address stays. A later helm upgrade puts
+	// the type back to the chart's value unless fusion.central.service.type is set to match.
+	Commands struct {
+		NodePort     string `json:"nodePort"`
+		LoadBalancer string `json:"loadBalancer"`
+	} `json:"commands"`
+	// Value is the chart value that keeps the change across upgrades.
+	Value string `json:"value"`
+}
+
+// exposeCommand is the kubectl line that gives a Service the type.
+func exposeCommand(namespace, service, typ string) string {
+	return "kubectl --namespace " + shellArg(namespace) + " patch svc " + shellArg(service) + ` -p '{"spec":{"type":"` + typ + `"}}'`
 }
 
 // operatorHost is what discovery reports about the cluster an operator runs in, copied out of the hub's state.
@@ -533,7 +555,12 @@ func (a *Admin) listOperatorAddressCandidates(w http.ResponseWriter, r *http.Req
 			res.Hints = append(res.Hints, "No agent reports which node runs the pod, so the nodes are listed in name order. Any of them works, since its node port forwards to the pod, but the pod's own node saves a hop.")
 		}
 	}
-	if h := exposureHint(res.Candidates, found, op.ID == CentralOperatorID); h != "" {
+	if h := exposureHint(res.Candidates, found, op.ID == CentralOperatorID); h != "" && op.ID == CentralOperatorID && a.Fusion != nil {
+		// The page shows this as a card with the command in it, so the sentence is not repeated as a hint.
+		e := &ExposeDoc{Service: workload, Namespace: namespace, Value: "fusion.central.service.type"}
+		e.Commands.NodePort, e.Commands.LoadBalancer = exposeCommand(namespace, workload, "NodePort"), exposeCommand(namespace, workload, "LoadBalancer")
+		res.Expose = e
+	} else if h != "" {
 		res.Hints = append(res.Hints, h)
 	} else if !found {
 		res.Hints = append(res.Hints, noHostHint(op.ID == CentralOperatorID))

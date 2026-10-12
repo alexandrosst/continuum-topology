@@ -7,7 +7,7 @@ import { EXPOSURE_OPTIONS } from '@/components/operators/OperatorAddress'
 import DestinationPicker, { useEnableAndUse } from '@/components/telemetry/DestinationPicker'
 import { TagRows } from '@/components/telemetry/ProcessOptions'
 import ProcessorEditor from '@/components/telemetry/ProcessorEditor'
-import { Button, CheckboxList, ComboField, ErrorBanner, Field, ICON_SM, Input, Modal, Select, WizardSteps } from '@/components/ui/primitives'
+import { Button, ComboField, ErrorBanner, Field, ICON_SM, Input, Modal, WizardSteps } from '@/components/ui/primitives'
 import { api, ApiError, type CreatedOperator, type OperatorExposure } from '@/lib/api'
 import { buildDestinationCatalog, catalogOperators, destinationKey, fusionForCatalog, layoutDestinations, type DestinationCatalogEntry } from '@/lib/destinationCatalog'
 import { EXPORT_PRESETS, unsupportedDestinationNote } from '@/lib/exportPresets'
@@ -42,20 +42,22 @@ interface Draft {
   /** Opt in to the heartbeat that lets this server say online/offline. On by default - it is the point of asking - but always
    *  stated next to the box, and sent explicitly either way. */
   heartbeat: boolean
-  /** Whether clusters other than the operator's own must reach it; decides the Service type in the install command. */
+  /** How clusters other than the operator's own reach it; decides the Service type in the install command. Node port unless
+   *  changed: it works on every cluster, where a load balancer waits forever on one without a provider. */
   exposure: OperatorExposure
 }
 
-const STEPS = ['Name and sources', 'Destination', 'Create']
+const STEPS = ['Name', 'Destination', 'Create']
 const ALL_SIGNALS = new Set(['metrics', 'logs', 'traces'] as const)
 
 /**
- * "New operator", in three steps: who it collects from, where it sends (picked from a list - FUSION first, then the other operators; any
+ * "New operator", in three steps: its name, where it sends (picked from a list - FUSION first, then the other operators; any
  * other backend is one disclosure away), and a last screen that says what will be made, with the settings few people change under
  * "Advanced". It is a controlled dialog so the telemetry wizard can open it in place and pick the new operator afterwards: nothing
  * underneath it is lost. After creating, the same dialog turns into the ordered commands to run (OperatorCreated).
  *
- * Source clusters stay required: the server refuses an operator with none, whatever it sends to.
+ * Which clusters send to it is not asked here: a cluster picks its operator in its own telemetry wizard (and the server issues its
+ * certificate then). Clusters are carried in only when the dialog is opened for one (initialSourceClusterIds), as before.
  */
 export default function CreateOperatorModal({
   operators,
@@ -76,19 +78,14 @@ export default function CreateOperatorModal({
   onClose: () => void
 }) {
   const conn = useServer((s) => s.conn)
-  const { agents, clusters } = useTopology()
+  const { clusters } = useTopology()
   const [step, setStep] = useState(0)
-  const [draft, setDraft] = useState<Draft>({ name: '', sourceClusterIds: initialSourceClusterIds, destination: emptyDestination, extraProcessors: [], labels: [], heartbeat: true, exposure: 'cluster' })
+  const [draft, setDraft] = useState<Draft>({ name: '', sourceClusterIds: initialSourceClusterIds, destination: emptyDestination, extraProcessors: [], labels: [], heartbeat: true, exposure: 'nodeport' })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [created, setCreated] = useState<{ result: CreatedOperator; extraProcessors: ProcessorEntry[]; exposure: OperatorExposure } | null>(null)
   const [otherOpen, setOtherOpen] = useState(false)
   const set = (patch: Partial<Draft>) => setDraft((d) => ({ ...d, ...patch }))
-
-  // Only clusters a currently-approved agent actually reports, by cluster id - the set the server checks a source cluster against.
-  const clusterOptions = clusters
-    .filter((cl) => agents.some((a) => a.status === 'approved' && a.clusterId === cl.id))
-    .map((cl) => ({ value: cl.id, label: cl.name, hint: cl.region || undefined }))
 
   // The picker offers FUSION and the other operators; every other backend is the disclosure below it.
   const catalog = useMemo(() => {
@@ -203,9 +200,6 @@ export default function CreateOperatorModal({
         {step === 0 && (
           <div className="space-y-4" data-testid="operator-step-sources">
             <Field label="Name"><Input value={draft.name} onChange={(e) => set({ name: e.target.value })} maxLength={80} autoFocus data-testid="operator-name" /></Field>
-            <Field label="Source clusters" hint="Optional. Clusters whose already-exported telemetry this operator gathers; you can point more clusters at it later. Only clusters with a connected agent are listed.">
-              <CheckboxList options={clusterOptions} value={draft.sourceClusterIds} onChange={(v) => set({ sourceClusterIds: v })} emptyLabel="No cluster has an approved agent yet - approve one on the Agents page first." />
-            </Field>
           </div>
         )}
 
@@ -266,9 +260,30 @@ export default function CreateOperatorModal({
           <div className="space-y-4" data-testid="operator-step-create">
             <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm" data-testid="operator-summary">
               <dt className="text-nb-500">Name</dt><dd className="text-nb-200">{draft.name.trim()}</dd>
-              <dt className="text-nb-500">Collects from</dt><dd className="text-nb-200">{draft.sourceClusterIds.length > 0 ? draft.sourceClusterIds.map((id) => clusters.find((c) => c.id === id)?.name ?? id).join(', ') : <span className="text-nb-500">No cluster yet - you can point clusters at it later</span>}</dd>
+              {draft.sourceClusterIds.length > 0 && <><dt className="text-nb-500">Collects from</dt><dd className="text-nb-200">{draft.sourceClusterIds.map((id) => clusters.find((c) => c.id === id)?.name ?? id).join(', ')}</dd></>}
               <dt className="text-nb-500">Sends to</dt><dd className="break-all text-nb-200">{destinationName}</dd>
             </dl>
+            <fieldset className="space-y-2" data-testid="operator-exposure">
+              <legend className="mb-2 text-xs font-medium uppercase tracking-wide text-nb-500">How other clusters reach it</legend>
+              {EXPOSURE_OPTIONS.map((o) => {
+                const on = draft.exposure === o.id
+                return (
+                  <label key={o.id} className={`flex cursor-pointer items-start gap-3 rounded-lg border px-3.5 py-3 ${on ? 'border-accent bg-accent/10' : 'border-nb-850 bg-nb-930 hover:border-nb-800'}`}>
+                    <input type="radio" name="operator-exposure" className="mt-1 size-4 accent-[var(--color-accent)]" checked={on} onChange={() => set({ exposure: o.id })} data-testid={`operator-exposure-${o.id}`} />
+                    <span className="min-w-0">
+                      <span className="flex items-center gap-2 text-sm font-medium text-nb-100">
+                        {o.label}
+                        {o.recommended && <span className="rounded-full bg-accent/15 px-2 py-px text-[11px] font-medium text-accent">Recommended</span>}
+                      </span>
+                      <span className="mt-0.5 block text-xs leading-relaxed text-nb-400">{o.hint}</span>
+                    </span>
+                  </label>
+                )
+              })}
+              <p className="text-xs leading-relaxed text-nb-500" data-testid="operator-exposure-note">
+                Node port opens one port, 4317, on every node of the cluster you install it in. Senders must still present a certificate from this server. You can change this later by running the install command again.
+              </p>
+            </fieldset>
             <p className="rounded-md border border-nb-850 bg-nb-930 px-3 py-2 text-xs leading-relaxed text-nb-400" data-testid="operator-create-no-rbac-note">
               This needs no Kubernetes API access at all - no RBAC is applied and no ServiceAccount token is requested. Where it sends, how its receiver
               authenticates agents (normally a client certificate issued by this server) and the health reporting below are the complete list of what it is granted.
@@ -279,11 +294,6 @@ export default function CreateOperatorModal({
                 Advanced
               </summary>
               <div className="space-y-4 border-t border-nb-850 p-3">
-                <Field label="Reachable from other clusters" hint={EXPOSURE_OPTIONS.find((o) => o.id === draft.exposure)?.hint}>
-                  <Select value={draft.exposure} onChange={(e) => set({ exposure: e.target.value as OperatorExposure })} data-testid="operator-exposure">
-                    {EXPOSURE_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
-                  </Select>
-                </Field>
                 <label className="flex cursor-pointer items-start gap-2 text-sm">
                   <input type="checkbox" className="mt-0.5 size-4 accent-[var(--color-accent)]" checked={draft.heartbeat} onChange={(e) => set({ heartbeat: e.target.checked })} data-testid="operator-heartbeat" />
                   <span>
