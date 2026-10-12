@@ -1285,6 +1285,10 @@ export interface AddressCandidate {
   /** Where the address comes from, in words. */
   source: string
   node?: string
+  /** What sort of network the address is on - a mesh (VPN or overlay), a private LAN, or public - when it is known. */
+  network?: 'mesh' | 'private' | 'public'
+  /** The node's network interface the address was read from, when its node probe reported it. */
+  interface?: string
   /** True for the address currently recorded for the operator. */
   recorded?: boolean
 }
@@ -1311,6 +1315,8 @@ export interface OperatorSenderAddress {
   address: string
   source: 'chosen' | 'recorded' | 'in-cluster'
   signals: string[]
+  /** The last connection test of this address from the sending cluster, which the server repeats on its own. Absent without a recent one. */
+  reach?: { state: 'reachable' | 'unreachable'; at: string; rttP50Ms?: number }
 }
 export interface OperatorSenderDelivery {
   state: 'waiting' | 'exporting' | 'silent' | 'failing'
@@ -1348,6 +1354,8 @@ export interface AddressCandidates {
   hostClusterId?: string
   hostClusterName?: string
   candidates: AddressCandidate[]
+  /** Suggestions in words for getting a better address: turn on the node probe, or use a load balancer provider the cluster has. */
+  hints?: string[]
 }
 
 export interface RegionalOperator {

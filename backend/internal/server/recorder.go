@@ -48,6 +48,8 @@ func (h *Hub) Run(ctx context.Context) {
 	defer t.Stop()
 	self := time.NewTicker(selfStatsSampleEvery)
 	defer self.Stop()
+	drift := time.NewTicker(driftTick)
+	defer drift.Stop()
 	for {
 		select {
 		case <-ctx.Done():
@@ -60,6 +62,8 @@ func (h *Hub) Run(ctx context.Context) {
 			h.twinTick(ctx)
 		case <-self.C:
 			h.sampleSelfStats(h.C.Now())
+		case <-drift.C:
+			h.driftSweep(ctx)
 		}
 	}
 }

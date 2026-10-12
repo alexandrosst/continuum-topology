@@ -39,6 +39,8 @@ type addressTest struct {
 	Host    string
 	Port    int
 	Created time.Time
+	// Quiet marks a test the server started itself (see address_drift.go), not one an administrator asked for.
+	Quiet bool
 
 	Done            bool
 	Samples, Failed int
@@ -104,6 +106,7 @@ func (h *Hub) noteAddressTest(v *view, t issuedTarget, samples, failed uint32, m
 	}
 	if x := v.addrTests[t.ID]; x != nil {
 		x.Done, x.Samples, x.Failed, x.Min, x.P50, x.P95, x.At = true, int(samples), int(failed), min, p50, p95, now
+		v.noteReach(x)
 	}
 	return true
 }
@@ -114,6 +117,12 @@ func (h *Hub) StartAddressTests(ctx context.Context, actor, agentID string, addr
 	if err != nil {
 		return nil, err
 	}
+	return h.startAddressTests(ctx, actor, a, addrs, false)
+}
+
+// startAddressTests is StartAddressTests for an agent already looked up. A quiet test is the server's own check (see
+// address_drift.go): an address that cannot be tested is skipped rather than refused, and nothing is audited.
+func (h *Hub) startAddressTests(ctx context.Context, actor string, a store.Agent, addrs []string, quiet bool) ([]AddressTestDoc, error) {
 	if a.Status != store.StatusApproved {
 		return nil, errf(KindConflict, "agent is %s: only an approved agent can test an address", a.Status)
 	}
@@ -126,6 +135,9 @@ func (h *Hub) StartAddressTests(ctx context.Context, actor, agentID string, addr
 	for _, in := range addrs {
 		addr, err := validOperatorAddress(in)
 		if err != nil {
+			if quiet {
+				continue
+			}
 			return nil, err
 		}
 		if addr == "" || seen[addr] {
@@ -135,6 +147,9 @@ func (h *Hub) StartAddressTests(ctx context.Context, actor, agentID string, addr
 		host, ps, _ := net.SplitHostPort(addr)
 		port, _ := strconv.Atoi(ps)
 		if err := measure.CheckTarget(host, port); err != nil {
+			if quiet {
+				continue
+			}
 			return nil, errf(KindInvalid, "%s cannot be tested from a cluster: %v", addr, err)
 		}
 		wants = append(wants, want{addr, host, port})
@@ -168,8 +183,10 @@ func (h *Hub) StartAddressTests(ctx context.Context, actor, agentID string, addr
 	}
 	h.pruneAddressTests(v, now)
 	for id, t := range v.addrTests {
-		if seen[t.Address] {
-			delete(v.addrTests, id) // tested again: the old result must not pass for the new one
+		// Tested again: the old result must not pass for the new one. A person's test also takes the place of the server's
+		// own quiet ones, which come back at the next sweep, so that checking in the background never uses up the room.
+		if seen[t.Address] || (t.Quiet && !quiet) {
+			delete(v.addrTests, id)
 		}
 	}
 	if len(v.addrTests)+len(wants) > maxAddressTests {
@@ -179,7 +196,7 @@ func (h *Hub) StartAddressTests(ctx context.Context, actor, agentID string, addr
 	// A fresh id each time: the agent re-times when its targets change, and an unchanged list would wait for its next round.
 	out := make([]AddressTestDoc, 0, len(wants))
 	for _, w := range wants {
-		t := &addressTest{ID: "at-" + interpret.Hash(w.addr, strconv.FormatInt(now.UnixNano(), 10))[:12], Address: w.addr, Host: w.host, Port: w.port, Created: now}
+		t := &addressTest{ID: "at-" + interpret.Hash(w.addr, strconv.FormatInt(now.UnixNano(), 10))[:12], Address: w.addr, Host: w.host, Port: w.port, Created: now, Quiet: quiet}
 		v.addrTests[t.ID] = t
 		out = append(out, t.doc())
 	}
@@ -189,8 +206,10 @@ func (h *Hub) StartAddressTests(ctx context.Context, actor, agentID string, addr
 	for _, w := range wants {
 		names = append(names, w.addr)
 	}
-	detail := fmt.Sprintf("%q: asked to test %s", a.Name, strings.Join(names, ", "))
-	h.C.audit(ctx, actor, "address-test-started", "agent", a.ID, detail)
+	if !quiet {
+		detail := fmt.Sprintf("%q: asked to test %s", a.Name, strings.Join(names, ", "))
+		h.C.audit(ctx, actor, "address-test-started", "agent", a.ID, detail)
+	}
 	h.pushOne(a.ID)
 	// When the test expires its target has to leave the agent's list too.
 	time.AfterFunc(addressTestTTL+time.Second, func() { h.pushOne(a.ID) })
@@ -210,7 +229,9 @@ func (h *Hub) AddressTests(ctx context.Context, agentID string) ([]AddressTestDo
 	h.pruneAddressTests(v, now)
 	ts := make([]*addressTest, 0, len(v.addrTests))
 	for _, t := range v.addrTests {
-		ts = append(ts, t)
+		if !t.Quiet {
+			ts = append(ts, t)
+		}
 	}
 	sort.Slice(ts, func(i, j int) bool {
 		if !ts[i].Created.Equal(ts[j].Created) {

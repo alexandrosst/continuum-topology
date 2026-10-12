@@ -25,6 +25,9 @@ type SenderAddressDoc struct {
 	// recorded, so the sender dials the operator's name inside its own cluster).
 	Source  string   `json:"source"`
 	Signals []string `json:"signals"`
+	// Reach is the last connection test of the address from the sending cluster, which the server repeats on its own
+	// (see address_drift.go). Absent when there is no recent one.
+	Reach *AddressReachDoc `json:"reach,omitempty"`
 }
 
 // SenderDeliveryDoc is what the sending agent reports about exporting to this operator.
@@ -174,6 +177,8 @@ type diagnosisInput struct {
 	OperatorState string
 	OperatorSeen  string
 	Peers         []peerOutcome
+	// Reach is the last test of Address from the sending cluster, when there is a recent one.
+	Reach *AddressReachDoc
 }
 
 func hostOf(addr string) string {
@@ -192,6 +197,12 @@ func diagnoseSender(in diagnosisInput) *SenderDiagnosisDoc {
 	if !in.Connected {
 		return &SenderDiagnosisDoc{Where: "sender", Title: who + "'s agent is not connected",
 			Detail: "Ikhnos cannot see how exporting is going until the agent reconnects, so nothing here says whether the operator or the address is at fault."}
+	}
+	// The address was tested from this cluster and nothing answered, and data is not flowing: the address is what to look at,
+	// and it can be said before the exporter has failed at all.
+	if in.Reach != nil && in.Reach.State == "unreachable" && (in.Delivery == nil || in.Delivery.State != "exporting") {
+		return &SenderDiagnosisDoc{Where: "sender-network", Title: who + " cannot reach " + in.Address,
+			Detail: "A connection test from " + who + " at " + in.Reach.At + " found nothing answering at " + in.Address + ". An address can change under a running install (a node replaced, a Service recreated with a new node port, a mesh peer renumbered): choose another in the telemetry wizard under Address this cluster dials, and use Test to try it before installing."}
 	}
 	if in.Delivery == nil || in.Delivery.State != "failing" {
 		return nil
@@ -296,6 +307,9 @@ func diagnoseSender(in diagnosisInput) *SenderDiagnosisDoc {
 		if len(working) > 0 && working[0].Address != in.Address {
 			d += " " + working[0].Name + " reaches it at " + working[0].Address + ": try that one from " + who + "."
 		}
+		if in.Reach != nil && in.Reach.State == "reachable" {
+			d += " A connection test from " + who + " at " + in.Reach.At + " did connect to it, so the failure may be passing: check again shortly."
+		}
 		d += " Pick another address under Address this cluster dials in the telemetry wizard and use Test to try it from " + who + " before installing."
 		return &SenderDiagnosisDoc{Where: "sender-network", Title: who + " cannot reach " + in.Address, Detail: d + quote}
 	}
@@ -347,6 +361,9 @@ func (a *Admin) listOperatorSenders(w http.ResponseWriter, r *http.Request) {
 		if len(addrs) == 0 {
 			continue
 		}
+		for i := range addrs {
+			addrs[i].Reach = hub.reachOf(ti.AgentID, addrs[i].Address, now)
+		}
 		ag := agentOf[ti.AgentID]
 		d := SenderDoc{IntentID: ti.ID, IntentName: ti.Name, AgentID: ti.AgentID, AgentName: ag.Name, ClusterID: ag.ClusterID, Addresses: addrs}
 		var export *ExportHealthDoc
@@ -358,7 +375,7 @@ func (a *Admin) listOperatorSenders(w http.ResponseWriter, r *http.Request) {
 	for i := range ps {
 		d := &ps[i].doc
 		in := diagnosisInput{ClusterName: d.AgentName, Connected: d.Connected, Delivery: d.Delivery, Address: d.Addresses[0].Address, AddrSource: d.Addresses[0].Source,
-			OperatorID: op.ID, OperatorName: op.Name, OperatorState: health.State, OperatorSeen: seen, Central: op.ID == CentralOperatorID}
+			OperatorID: op.ID, OperatorName: op.Name, OperatorState: health.State, OperatorSeen: seen, Central: op.ID == CentralOperatorID, Reach: d.Addresses[0].Reach}
 		for j := range ps {
 			if j != i && ps[j].doc.Delivery != nil {
 				in.Peers = append(in.Peers, peerOutcome{Name: ps[j].doc.AgentName, Address: ps[j].doc.Addresses[0].Address, State: ps[j].doc.Delivery.State})

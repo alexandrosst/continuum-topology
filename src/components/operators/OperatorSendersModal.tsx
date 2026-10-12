@@ -86,6 +86,11 @@ export default function OperatorSendersModal({ operator, onClose }: { operator: 
                   {s.addresses.map((a) => (
                     <li key={a.address} data-testid="operator-sender-address">
                       <span className="font-mono text-nb-200">{a.address}</span> · {SOURCE[a.source]} · {a.signals.join(', ')}
+                      {a.reach && (
+                        <span className={a.reach.state === 'reachable' ? 'text-nb-500' : 'text-bad'} data-testid="operator-sender-reach" data-state={a.reach.state} title={`Tested from ${s.agentName || 'this cluster'} at ${new Date(a.reach.at).toLocaleString()}`}>
+                          {' · '}{a.reach.state === 'reachable' ? `answers from there${a.reach.rttP50Ms ? ` (${Math.round(a.reach.rttP50Ms)} ms)` : ''}` : 'no answer from there'}
+                        </span>
+                      )}
                     </li>
                   ))}
                 </ul>

@@ -41,6 +41,21 @@ describe('the clusters sending to an operator', () => {
     expect((await screen.findByTestId('operator-senders-empty')).textContent).toContain('No cluster is set up')
   })
 
+  it('shows the last connection test of an address from the sending cluster', async () => {
+    senders.mockResolvedValue({
+      operatorState: 'online',
+      senders: [
+        sender({ addresses: [{ address: '10.20.0.14:31317', source: 'chosen', signals: ['metrics'], reach: { state: 'unreachable', at: '2026-10-12T10:00:00Z' } }] }),
+        sender({ intentId: 'ti-2', agentName: 'corinth-edge', addresses: [{ address: '10.20.0.15:31317', source: 'chosen', signals: ['metrics'], reach: { state: 'reachable', at: '2026-10-12T10:00:00Z', rttP50Ms: 3.6 } }] }),
+      ],
+    })
+    render(<OperatorSendersModal operator={op} onClose={() => {}} />)
+    const reach = await screen.findAllByTestId('operator-sender-reach')
+    expect(reach[0].textContent).toContain('no answer from there')
+    expect(reach[0].getAttribute('data-state')).toBe('unreachable')
+    expect(reach[1].textContent).toContain('answers from there (4 ms)')
+  })
+
   it('lists each sender with the address it dials, who chose it, and how delivery goes', async () => {
     senders.mockResolvedValue({
       operatorState: 'online',

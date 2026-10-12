@@ -74,6 +74,9 @@ type view struct {
 	targets map[string]issuedTarget
 	// addrTests are the addresses an administrator asked this agent to try (see address_reach.go), keyed by test id.
 	addrTests map[string]*addressTest
+	// reach is the last result of testing each address from this cluster, kept after the test itself has expired so the
+	// senders list can show it (see address_drift.go). Keyed by address, bounded.
+	reach map[string]*addrReach
 	// cfgHash identifies the last Config pushed on the stream, so a new one is sent only when it differs.
 	cfgHash string
 
