@@ -113,6 +113,7 @@ test('localVerdict: judged by what its agent reports exporting - and Unknown, ne
   const failing = v(row({ diagnostics: withRoutes([{ state: 'failing' }]) }))
   assert.equal(failing.verdict.state, 'down')
   assert.equal(failing.verdict.reason, 'Sending to eu-west is failing.')
+  // Waiting for a first data with no request on record is not "setting up": there is nothing to say it is new.
   assert.equal(v(row({ diagnostics: withRoutes([{ state: 'waiting' }]) })).verdict.state, 'unknown')
   assert.equal(v(row({ diagnostics: undefined })).verdict.state, 'unknown')
   assert.equal(v(row({ drifted: true })).verdict.state, 'attention')
@@ -121,9 +122,12 @@ test('localVerdict: judged by what its agent reports exporting - and Unknown, ne
   assert.equal(offline.verdict.reason, 'Its agent has not reported for 2 h 8 min, so what this collector is doing is not known.')
 })
 
-test('localVerdict: a request nothing has answered is Unknown at first and Needs attention once the command has had time to be run', () => {
+test('localVerdict: a request nothing has answered is Setting up at first and Needs attention once the command has had time to be run', () => {
   const pending = (createdAt: string) => localVerdict(row({ pending: true, installed: [], intent: intent({ createdAt }) }), ag(), 'eu-west', NOW).verdict
-  assert.equal(pending(ago(5 * MIN)).state, 'unknown')
+  const fresh = pending(ago(5 * MIN))
+  assert.equal(fresh.state, 'setup')
+  assert.deepEqual(fresh.setup!.steps.map((x) => [x.label, x.state]), [['Asked for', 'done'], ['Collector reports running', 'now'], ['First data', 'todo']])
+  assert.match(fresh.reason!, /^Asked to run telemetry 5 min ago\./)
   const late = pending(ago(3 * 60 * MIN))
   assert.equal(late.state, 'attention')
   assert.match(late.reason!, /3 h ago, but nothing is running/)
@@ -160,7 +164,28 @@ test('operatorVerdict: the worst thing wins and is said once, each with what to 
   assert.equal(v(op({ addressState: 'pending' })).todo?.action?.kind, 'address')
   // No health reporting is not a fault: Unknown, with the reason.
   assert.equal(v(op({ health: { state: 'unknown', reporting: false } })).state, 'unknown')
-  assert.equal(v(op({ health: { state: 'waiting', reporting: true } })).reason, 'Waiting for its first health report.')
+})
+
+test('operatorVerdict: a new operator that has not reported is Setting up for the first hour, then Needs attention; the central one never is', () => {
+  const v = (o: RegionalOperator, lastData?: string) => operatorVerdict(o, certCell(o), NOW, lastData)
+  // Heartbeat on, none received yet.
+  const waiting = (createdAt: string) => op({ createdAt, health: { state: 'waiting', reporting: false, heartbeatEnabledAt: createdAt } })
+  const fresh = v(waiting(ago(5 * MIN)))
+  assert.equal(fresh.state, 'setup')
+  assert.deepEqual(fresh.setup!.steps.map((x) => [x.label, x.state]), [['Created', 'done'], ['Operator reports in', 'now'], ['First data', 'todo']])
+  assert.match(fresh.reason!, /^Created 5 min ago\. Waiting for its first health report/)
+  const late = v(waiting(ago(2 * 60 * MIN)))
+  assert.equal(late.state, 'attention')
+  assert.match(late.reason!, /^Created 2 h ago and it has not sent its first health report/)
+  assert.equal(late.todo?.action?.kind, 'renew')
+  // No health reporting: only data arriving can say it is alive.
+  const silent = (createdAt: string) => op({ createdAt, health: { state: 'unknown', reporting: false } })
+  assert.equal(v(silent(ago(5 * MIN))).state, 'setup')
+  assert.deepEqual(v(silent(ago(5 * MIN))).setup!.steps.map((x) => x.label), ['Created', 'First data'])
+  assert.equal(v(silent(ago(5 * MIN)), ago(10_000)).state, 'unknown')
+  assert.equal(v(silent(ago(2 * 60 * MIN))).state, 'unknown')
+  // The central operator exists from the start: it is FUSION's state, never "setting up".
+  assert.equal(v(op({ id: 'op-central', createdAt: ago(MIN), health: { state: 'off', reporting: false } })).state, 'unknown')
 })
 
 test('operatorVerdict: the central operator is as healthy as FUSION; its renewals are the server\'s own, so there is no renew action', () => {
@@ -209,10 +234,46 @@ test('buildHops: counts, worst state and newest data per hop, ended components l
   const hops = buildHops(rows, { kind: 'running', lastDataAt: ago(3_000) })
   assert.deepEqual(hops.map((h) => [h.key, h.total, h.healthy, h.state]), [['agent', 2, 1, 'down'], ['local', 0, 0, undefined], ['regional', 0, 0, undefined], ['central', 0, 0, undefined], ['fusion', 1, 1, 'healthy']])
   assert.equal(hops[0].lastData, ago(10_000))
-  assert.deepEqual(buildHops([], { kind: 'off' }).at(-1), { key: 'fusion', label: 'FUSION', total: 0, healthy: 0, state: undefined, worst: 0, lastData: undefined })
+  assert.deepEqual(buildHops([], { kind: 'off' }).at(-1), { key: 'fusion', label: 'FUSION', total: 0, healthy: 0, state: undefined, worst: 0, lastData: undefined, settingUp: 0 })
   assert.equal(buildHops([], { kind: 'starting' }).at(-1)?.state, 'unknown')
   assert.equal(buildHops([], { kind: 'attention' }).at(-1)?.state, 'attention')
   // Not known yet, or not something this server can run: no hop for it.
   assert.equal(buildHops([], undefined).at(-1)?.key, 'central')
   assert.equal(buildHops([], { kind: 'unavailable' }).length, 4)
+})
+
+test('buildHops: local operators that send straight to central are a group of their own; ones being set up are counted, not judged', () => {
+  const clusters = [{ id: 'c1', name: 'a', tier: 'edge' }, { id: 'c2', name: 'b', tier: 'edge' }, { id: 'c3', name: 'c', tier: 'edge' }] as never
+  const agents = [ag({ id: 'a1', clusterId: 'c1' }), ag({ id: 'a2', name: 'b', clusterId: 'c2' }), ag({ id: 'a3', name: 'c', clusterId: 'c3' })]
+  const to = (id: string) => ({ kind: 'operator', endpoint: 'x', targetOperatorId: id }) as never
+  const rows = buildComponents({
+    agents, clusters,
+    rawAgents: [
+      { id: 'a1', diagnostics: withRoutes([{ state: 'exporting', lastSentAt: ago(5_000) }]) },
+      { id: 'a2', diagnostics: withRoutes([{ state: 'failing' }]) },
+    ],
+    intents: [
+      intent({ id: 'i1', agentId: 'a1', destination: to('op-eu') }),
+      intent({ id: 'i2', agentId: 'a2', destination: to('op-central') }),
+      intent({ id: 'i3', agentId: 'a3', destination: to('op-central'), createdAt: ago(2 * MIN) }),
+    ],
+    operators: [op(), op({ id: 'op-central', name: 'central', health: { state: 'online', reporting: false } }), op({ id: 'op-new', name: 'new', createdAt: ago(3 * MIN), health: { state: 'waiting', reporting: false } })],
+    known: [], now: NOW,
+  })
+  const local = rows.filter((r) => r.kind === 'local')
+  assert.deepEqual(local.map((r) => [r.agentId, !!r.sendsDirect, !!r.sendsOnward]).sort(), [['a1', false, true], ['a2', true, false], ['a3', true, false]])
+  const hops = buildHops(rows, undefined)
+  const l = hops.find((h) => h.key === 'local')!
+  // a3 was asked for 2 minutes ago and has not reported: set up, not judged.
+  assert.equal(l.total, 3)
+  assert.equal(l.settingUp, 1)
+  assert.equal(l.state, 'down')
+  assert.deepEqual([l.direct!.total, l.direct!.state, l.direct!.worst], [2, 'down', 1])
+  assert.deepEqual([l.onward!.total, l.onward!.state], [1, 'healthy'])
+  // The regional hop counts the new operator without letting it make the hop unknown.
+  const r = hops.find((h) => h.key === 'regional')!
+  assert.deepEqual([r.total, r.settingUp, r.state], [2, 1, 'healthy'])
+  // Nothing sends direct: no group, so the strip is drawn as before.
+  const plain = buildHops(buildComponents({ agents: [agents[0]], clusters, rawAgents: [{ id: 'a1', diagnostics: withRoutes([{ state: 'exporting', lastSentAt: ago(5_000) }]) }], intents: [intent({ id: 'i1', agentId: 'a1', destination: to('op-eu') })], operators: [op()], known: [], now: NOW }), undefined)
+  assert.equal(plain.find((h) => h.key === 'local')!.direct, undefined)
 })

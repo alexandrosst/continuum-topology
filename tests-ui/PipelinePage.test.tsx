@@ -962,18 +962,80 @@ describe('PipelinePage - local operators', () => {
     expect(listOperators).not.toHaveBeenCalled()
   })
 
-  test('an agent asked for telemetry that has not reported it yet is Unknown for the first hour, and Needs attention after that', async () => {
+  test('an agent asked for telemetry that has not reported it yet is Setting up for the first hour, with what it is waiting for, and Needs attention after that', async () => {
     listTelemetryIntents.mockResolvedValue([intent({ createdAt: minutesAgo(5) })])
     topologyState = { agents: [ag()], clusters: [cl()] }
     const { unmount } = renderPage()
-    expect(await screen.findByTestId('component-local:a1')).toHaveAttribute('data-state', 'unknown')
-    expect(screen.getByTestId('component-reason-local:a1')).toHaveTextContent('Asked to run telemetry. Nothing is reported running yet.')
+    const row = await screen.findByTestId('component-local:a1')
+    expect(row).toHaveAttribute('data-state', 'setup')
+    expect(screen.getByTestId('component-reason-local:a1')).toHaveTextContent('Asked to run telemetry 5 min ago. Waiting for its agent to say it is running')
+    const steps = within(row).getByTestId('setup-steps')
+    expect(Array.from(steps.children).map((li) => [li.textContent?.replace(/, (done|waiting for this|not yet)$/, ''), li.getAttribute('data-step')])).toEqual([['Asked for', 'done'], ['Collector reports running', 'now'], ['First data', 'todo']])
+    // Being set up is not a problem: nothing to fix, nothing on the strip, and the hop says so without turning amber.
+    expect(screen.queryByTestId('pipeline-attention')).not.toBeInTheDocument()
+    expect(screen.getByTestId('hop-local')).toHaveTextContent('1 setting up')
     unmount()
 
     listTelemetryIntents.mockResolvedValue([intent({ createdAt: minutesAgo(180) })])
     renderPage()
     await waitFor(() => expect(screen.getByTestId('component-local:a1')).toHaveAttribute('data-state', 'attention'))
     expect(screen.getByTestId('component-reason-local:a1')).toHaveTextContent('the command may not have been run')
+    expect(screen.queryByTestId('setup-steps')).not.toBeInTheDocument()
+  })
+
+  test('local operators that send straight to the central operator get an arc over the strip, and clicking it lists just those', async () => {
+    const user = userEvent.setup()
+    fusionStatus = fusionRunning()
+    listOperators.mockResolvedValue([op({ id: 'op-eu', name: 'eu-west', health: { state: 'online', lastSeenAt: minutesAgo(1), reporting: true } }), centralOp({ health: { state: 'online', reporting: false, lastSeenAt: minutesAgo(1) } })])
+    const installed = { installedTelemetry: ['resourceUsage'], reportedAt: minutesAgo(1), exportHealth: { podsReached: 1, podsFailed: 0, routes: [{ exporter: 'otlp', signal: 'metrics', sent: 5, failed: 0, state: 'exporting', lastSentAt: minutesAgo(0) }] } }
+    topologyState = {
+      agents: [ag({ id: 'a1', name: 'edge-1', diagnostics: installed } as Partial<Agent>), ag({ id: 'a2', name: 'edge-2', clusterId: 'c2', diagnostics: installed } as Partial<Agent>)],
+      clusters: [cl(), cl({ id: 'c2', name: 'edge-2' })],
+    }
+    listTelemetryIntents.mockResolvedValue([
+      intent({ id: 'ti-1', agentId: 'a1' }),
+      intent({ id: 'ti-2', agentId: 'a2', destination: { kind: 'operator', endpoint: 'c:4317', targetOperatorId: 'op-central' } }),
+    ])
+    renderPage()
+    const arc = await screen.findByTestId('link-direct')
+    expect(within(arc).getByTestId('pipeline-direct')).toHaveTextContent('1 sends direct to central')
+    // The line to the regional operators is about the one that really goes there.
+    expect(screen.getByTestId('hop-local')).toHaveTextContent(/^2Local operators/)
+    expect(screen.getByTestId('component-local:a1')).toBeInTheDocument()
+    await user.click(within(arc).getByTestId('pipeline-direct'))
+    expect(screen.queryByTestId('component-local:a1')).not.toBeInTheDocument()
+    expect(screen.getByTestId('component-local:a2')).toBeInTheDocument()
+    expect(screen.getByTestId('pipeline-direct')).toHaveAttribute('aria-pressed', 'true')
+    await user.click(screen.getByTestId('pipeline-filter-direct'))
+    expect(screen.getByTestId('component-local:a1')).toBeInTheDocument()
+    expect(screen.queryByTestId('pipeline-filter-direct')).not.toBeInTheDocument()
+  })
+
+  test('with nobody sending direct to central, the strip has no arc', async () => {
+    fusionStatus = fusionRunning()
+    listOperators.mockResolvedValue([op({ id: 'op-eu', name: 'eu-west' }), centralOp()])
+    listTelemetryIntents.mockResolvedValue([intent()])
+    topologyState = { agents: [installedAgent()], clusters: [cl()] }
+    renderPage()
+    await screen.findByTestId('component-local:a1')
+    expect(screen.queryByTestId('link-direct')).not.toBeInTheDocument()
+  })
+
+  test('a regional operator just created is Setting up, not Unknown: its steps show, it is counted on the strip without turning it amber, and an hour of silence makes it Needs attention', async () => {
+    listOperators.mockResolvedValue([op({ createdAt: minutesAgo(3), health: { state: 'waiting', reporting: false } })])
+    const { unmount } = renderPage()
+    const row = await screen.findByTestId('operator-athens-regional')
+    expect(row).toHaveAttribute('data-state', 'setup')
+    expect(within(row).getByTestId('setup-steps')).toHaveTextContent('Created')
+    expect(within(row).getByTestId('setup-steps')).toHaveTextContent('Operator reports in')
+    expect(screen.getByTestId('hop-regional')).toHaveTextContent('1 setting up')
+    expect(screen.queryByTestId('pipeline-attention')).not.toBeInTheDocument()
+    unmount()
+
+    listOperators.mockResolvedValue([op({ createdAt: minutesAgo(130), health: { state: 'waiting', reporting: false } })])
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('operator-athens-regional')).toHaveAttribute('data-state', 'attention'))
+    expect(screen.getByTestId('pipeline-attention')).toHaveTextContent('has not sent its first health report')
   })
 
   test('a revoked request is not what was asked, and an agent with only that has no collector row', async () => {

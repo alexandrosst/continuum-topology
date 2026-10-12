@@ -1,6 +1,7 @@
 import { ShieldCheck } from 'lucide-react'
 import { MeterBar } from '@/components/ui/MeterBar'
 import RowMenu, { type RowMenuItem } from '@/components/operators/RowMenu'
+import SetupSteps from '@/components/operators/SetupSteps'
 import StateChip from '@/components/operators/StateChip'
 import { Button, ChipList, CopyIconButton, ICON_SM, Pill, Table, Td, Th, TierBadge } from '@/components/ui/primitives'
 import { certLife } from '@/lib/certLifetime'
@@ -41,7 +42,7 @@ export default function ComponentsTable({ rows, now, menuFor, onWhatToDo }: { ro
       <tbody>
         {rows.map((r) => {
           const addr = r.operator && !r.ended && r.kind === 'regional' ? addressCell(r.operator) : undefined
-          const { state, reason, todo } = r.verdict
+          const { state, reason, todo, setup } = r.verdict
           return (
             <tr key={r.id} className="group relative hover:bg-nb-930/60 max-md:border-b max-md:border-nb-850/60 max-md:px-1 max-md:py-3" data-testid={r.operator ? `operator-${r.operator.name}` : `component-${r.id}`} data-kind={r.kind} data-state={state}>
               <Td valign="top" className="max-md:block max-md:border-0 max-md:py-0 max-md:pr-12">
@@ -65,6 +66,7 @@ export default function ComponentsTable({ rows, now, menuFor, onWhatToDo }: { ro
               <Td valign="top" className="max-md:block max-md:border-0 max-md:pb-0 max-md:pt-2">
                 <StateChip state={state} />
                 {reason && state !== 'healthy' && <p className="mt-1 text-xs leading-relaxed text-nb-400" data-testid={`component-reason-${r.id}`}>{reason}</p>}
+                {setup && <SetupSteps steps={setup.steps} className="mt-2" />}
                 {todo && (
                   <Button size="sm" className="mt-2" onClick={() => onWhatToDo(r)} aria-label={`What to do about ${r.name}`} data-testid={`component-todo-${r.id}`}>What to do</Button>
                 )}

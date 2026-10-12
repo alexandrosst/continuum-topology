@@ -5,9 +5,9 @@ import { ago } from './observed'
 import type { Agent, Cluster, OperatorDestination, RegionalOperator, TelemetryIntent } from './types'
 
 /** The four words a status is ever given, on this page and in the table, the path and the list of what needs attention. */
-export type State = 'healthy' | 'attention' | 'down' | 'unknown'
-export const STATE_WORD: Record<State, string> = { healthy: 'Healthy', attention: 'Needs attention', down: 'Not working', unknown: 'Unknown' }
-const SEVERITY: Record<State, number> = { down: 0, attention: 1, unknown: 2, healthy: 3 }
+export type State = 'healthy' | 'attention' | 'down' | 'setup' | 'unknown'
+export const STATE_WORD: Record<State, string> = { healthy: 'Healthy', attention: 'Needs attention', down: 'Not working', setup: 'Setting up', unknown: 'Unknown' }
+const SEVERITY: Record<State, number> = { down: 0, attention: 1, setup: 2, unknown: 3, healthy: 4 }
 
 export type Kind = 'agent' | 'local' | 'regional' | 'central'
 export const KINDS: Kind[] = ['agent', 'local', 'regional', 'central']
@@ -20,11 +20,25 @@ export interface Todo {
   action?: { kind: 'configure' | 'address' | 'renew' | 'fusion' | 'agents'; label: string }
 }
 
+/** One step of getting a new component going, for the row that shows it while it is 'setup'. `now` is the one it is waiting on. */
+export interface SetupStep {
+  label: string
+  detail?: string
+  state: 'done' | 'now' | 'todo'
+}
+
+/** What a component that has never reported is waiting for. Only a verdict in the 'setup' state carries one. */
+export interface SetupProgress {
+  steps: SetupStep[]
+}
+
 /** One component's status: a state, and for anything amber or red the sentence that says what is wrong and what to do about it. */
 export interface Verdict {
   state: State
   reason?: string
   todo?: Todo
+  /** Set with the 'setup' state: where a new component is on its way to its first data. */
+  setup?: SetupProgress
 }
 
 /** What the certificate column says. Operator certificates last 30 days and renew themselves, so only a failing renewal is a problem.
@@ -45,13 +59,19 @@ export interface ComponentRow {
   cert: CertCell
   sendsTo: string
   lastData?: string
+  /** Local operators only: its telemetry has the central operator as a destination, so it skips the regional hop. */
+  sendsDirect?: boolean
+  /** Local operators only: it also (or only) sends to something other than the central operator - a regional operator or an endpoint. */
+  sendsOnward?: boolean
 }
 
 const MIN = 60_000
 /** Agents send a heartbeat every 30 seconds; two missed is "late". */
 const LATE_AFTER_MS = 75_000
-/** A telemetry request nothing has answered for this long is no longer "just run the command". */
+/** A new component nothing has been heard from for this long is no longer "just run the command": it stops being 'setup' and needs attention. */
 const PENDING_AFTER_MS = 60 * MIN
+
+const step = (label: string, state: SetupStep['state'], detail?: string): SetupStep => ({ label, state, detail })
 
 /** "2 h 8 min", "14 min", "40 s": how long, for a sentence. */
 export function duration(ms: number): string {
@@ -207,7 +227,10 @@ export function localVerdict(r: LocalRow, agent: Agent | undefined, destination:
   }
   if (r.pending) {
     const asked = r.intent ? now - Date.parse(r.intent.createdAt) : 0
-    if (asked < PENDING_AFTER_MS) return { verdict: { state: 'unknown', reason: 'Asked to run telemetry. Nothing is reported running yet.' } }
+    if (asked < PENDING_AFTER_MS) {
+      const reason = `Asked to run telemetry${r.intent ? ` ${duration(asked)} ago` : ''}. Waiting for its agent to say it is running; after an hour of silence this becomes “Needs attention”.`
+      return { verdict: { state: 'setup', reason, setup: { steps: [step('Asked for', 'done'), step('Collector reports running', 'now', 'Turns on when the install command has run.'), step('First data', 'todo')] } } }
+    }
     const todo: Todo = { steps: [{ title: 'Run the install command in the cluster', text: 'The wizard shows it again, ready to copy.' }], action: configure }
     return { verdict: { state: 'attention', reason: `Asked to run telemetry ${duration(asked)} ago, but nothing is running: the command may not have been run.`, todo } }
   }
@@ -221,7 +244,11 @@ export function localVerdict(r: LocalRow, agent: Agent | undefined, destination:
   const todo: Todo = { steps: [...agentSteps(agent, 'the collector'), { title: `Check that ${destination} is reachable from the cluster` }], action: configure }
   if (rows.some((x) => x.state === 'failing')) return { lastData, verdict: { state: 'down', reason: `Sending to ${destination} is failing.`, todo } }
   if (rows.some((x) => x.state === 'silent')) return { lastData, verdict: { state: 'attention', reason: lastData ? `No data has been sent for ${duration(now - Date.parse(lastData))}.` : 'No data has been sent recently.', todo } }
-  if (rows.every((x) => x.state === 'waiting')) return { lastData, verdict: { state: 'unknown', reason: 'Waiting for its first data.' } }
+  if (rows.every((x) => x.state === 'waiting')) {
+    const asked = r.intent ? now - Date.parse(r.intent.createdAt) : Infinity
+    if (asked < PENDING_AFTER_MS) return { lastData, verdict: { state: 'setup', reason: 'Running. Waiting for its first data.', setup: { steps: [step('Asked for', 'done'), step('Collector reports running', 'done'), step('First data', 'now')] } } }
+    return { lastData, verdict: { state: 'unknown', reason: 'Waiting for its first data.' } }
+  }
   if (rows.some((x) => x.state === 'waiting')) return { lastData, verdict: { state: 'attention', reason: 'Some signal types have not sent anything yet.', todo } }
   return { lastData, verdict: { state: 'healthy' } }
 }
@@ -237,7 +264,7 @@ export function certCell(op: Pick<RegionalOperator, 'certs' | 'certState'>): Cer
 
 /** A regional or central operator. The worst thing wins and is said once: an ended one, an expired certificate, silence, a failing renewal,
  *  a missing address, and only then what its heartbeat says. */
-export function operatorVerdict(op: RegionalOperator, cert: CertCell, now: number): Verdict {
+export function operatorVerdict(op: RegionalOperator, cert: CertCell, now: number, /** The newest data any sender reports sending to it: proof of life for an operator that reports no health. */ lastData?: string): Verdict {
   const central = op.id === CENTRAL_OPERATOR_ID
   if (op.status !== 'active') return { state: 'down', reason: `Disconnected${op.reason ? `: ${op.reason}` : ''}. It no longer counts as part of the path.` }
   const h = op.health
@@ -260,7 +287,22 @@ export function operatorVerdict(op: RegionalOperator, cert: CertCell, now: numbe
     return h?.state === 'online' ? { state: 'healthy' } : { state: 'unknown', reason: 'FUSION is off, so nothing is saved there.' }
   }
   if (h?.state === 'online' && h.reporting) return { state: 'healthy' }
-  if (h?.state === 'waiting') return { state: 'unknown', reason: 'Waiting for its first health report.' }
+  const age = now - Date.parse(op.createdAt)
+  const fresh = Number.isFinite(age) && age < PENDING_AFTER_MS
+  if (h?.state === 'waiting') {
+    if (fresh) {
+      return { state: 'setup', reason: `Created ${duration(age)} ago. Waiting for its first health report; after an hour of silence this becomes “Needs attention”.`, setup: { steps: [step('Created', 'done'), step('Operator reports in', 'now', 'Turns on when the install command has run and it reaches this server.'), step('First data', 'todo')] } }
+    }
+    const todo: Todo = {
+      steps: [{ title: 'Run the install command in the cluster', text: 'It is shown once, when the operator is created. Renewing its certificates gives a new one.' }, ...operatorSteps(op)],
+      action: { kind: 'renew', label: 'Get a new install command' },
+    }
+    return { state: 'attention', reason: `Created ${Number.isFinite(age) ? `${duration(age)} ago` : 'a while ago'} and it has not sent its first health report: the command may not have been run, or the cluster cannot reach this server.`, todo }
+  }
+  // No health reporting: all there is to go on is data arriving. A new operator with none yet is being set up, not unknown.
+  if (fresh && !lastData && op.status === 'active') {
+    return { state: 'setup', reason: `Created ${duration(age)} ago. Health reporting is off, so the first sign of life is the first data a sender delivers to it.`, setup: { steps: [step('Created', 'done'), step('First data', 'now', 'A cluster has to send to it first.')] } }
+  }
   return { state: 'unknown', reason: 'Health reporting is off, so it is not known whether it is running.' }
 }
 
@@ -292,14 +334,16 @@ export function buildComponents({ agents, clusters, rawAgents, intents, operator
   for (const l of locals) {
     // Its client certificate towards an operator renews with the agent's own; sending to an endpoint has none.
     const cert: CertCell = intentTargets(l.r.intent).length > 0 ? { kind: 'auto' } : { kind: 'none' }
-    rows.push({ id: `local:${l.r.agent.id}`, kind: 'local', name: `${l.r.agent.name} collector`, cluster: cluster(l.r.agent.clusterId), agentId: l.r.agent.id, verdict: l.verdict, cert, sendsTo: l.sendsTo, lastData: l.lastData })
+    const targets = intentTargets(l.r.intent)
+    const direct = targets.includes(CENTRAL_OPERATOR_ID)
+    rows.push({ id: `local:${l.r.agent.id}`, kind: 'local', name: `${l.r.agent.name} collector`, cluster: cluster(l.r.agent.clusterId), agentId: l.r.agent.id, verdict: l.verdict, cert, sendsTo: l.sendsTo, lastData: l.lastData, sendsDirect: direct, sendsOnward: !direct || targets.some((t) => t !== CENTRAL_OPERATOR_ID) })
   }
   for (const op of operators) {
     const central = op.id === CENTRAL_OPERATOR_ID
     const cert: CertCell = op.status === 'active' ? certCell(op) : { kind: 'none' }
     // A regional operator says nothing about the data passing through it: the newest data a local operator reports sending to it is the evidence.
     const lastData = central ? op.health?.lastSeenAt : newest(locals.filter((l) => intentTargets(l.r.intent).includes(op.id)).map((l) => l.lastData))
-    rows.push({ id: `${central ? 'central' : 'regional'}:${op.id}`, kind: central ? 'central' : 'regional', name: central ? 'Central operator' : op.name, operator: op, verdict: operatorVerdict(op, cert, now), ended: op.status !== 'active', cert, sendsTo: central ? 'FUSION' : destinationLabel(op.destination, operators), lastData })
+    rows.push({ id: `${central ? 'central' : 'regional'}:${op.id}`, kind: central ? 'central' : 'regional', name: central ? 'Central operator' : op.name, operator: op, verdict: operatorVerdict(op, cert, now, lastData), ended: op.status !== 'active', cert, sendsTo: central ? 'FUSION' : destinationLabel(op.destination, operators), lastData })
   }
   return rows.sort((x, y) => SEVERITY[x.verdict.state] - SEVERITY[y.verdict.state] || KINDS.indexOf(x.kind) - KINDS.indexOf(y.kind) || x.name.localeCompare(y.name))
 }
@@ -307,7 +351,16 @@ export function buildComponents({ agents, clusters, rawAgents, intents, operator
 /** What needs attention: every amber or red component that has something to do about it (worst first, as the rows are). */
 export const needAttention = (rows: ComponentRow[]): ComponentRow[] => rows.filter((r) => !r.ended && SEVERITY[r.verdict.state] <= SEVERITY.attention && r.verdict.todo)
 
-/** One hop of the data path: how many of this kind there are, how many are healthy, the worst state among them and the newest data. */
+/** A group of components of one hop - the ones that share a route - with the same figures a hop has. */
+export interface HopGroup {
+  total: number
+  state?: State
+  worst: number
+  lastData?: string
+}
+
+/** One hop of the data path: how many of this kind there are, how many are healthy, the worst state among them and the newest data.
+ *  Components that are still being set up are counted in `total` and `settingUp`, but never judged: they do not make a hop amber. */
 export interface Hop {
   key: Kind | 'fusion'
   label: string
@@ -317,9 +370,21 @@ export interface Hop {
   /** How many of them are in that worst state. */
   worst: number
   lastData?: string
+  /** How many have never reported and are still within the first hour. */
+  settingUp: number
+  /** Local operators only, and only when some send straight to the central operator: those that do. */
+  direct?: HopGroup
+  /** Local operators only: those that go on to a regional operator or an endpoint, which is what the line to the next hop is about. */
+  onward?: HopGroup
 }
 
 const worstState = (states: State[]): State | undefined => [...states].sort((a, b) => SEVERITY[a] - SEVERITY[b])[0]
+
+function group(of: ComponentRow[]): HopGroup {
+  const judged = of.filter((r) => r.verdict.state !== 'setup')
+  const state = worstState(judged.map((r) => r.verdict.state))
+  return { total: of.length, state, worst: judged.filter((r) => r.verdict.state === state).length, lastData: newest(of.map((r) => r.lastData)) }
+}
 
 /** The path from the discovery agents to FUSION. FUSION is not a row of the table (it has a section of its own): its hop is its own state,
  *  and is left out while it is not known or this server cannot run it at all. */
@@ -327,10 +392,18 @@ export function buildHops(rows: ComponentRow[], fusion: { kind: FusionKind; last
   const live = rows.filter((r) => !r.ended)
   const hops: Hop[] = KINDS.map((k) => {
     const of = live.filter((r) => r.kind === k)
-    const state = worstState(of.map((r) => r.verdict.state))
-    return { key: k, label: KIND_PLURAL[k], total: of.length, healthy: of.filter((r) => r.verdict.state === 'healthy').length, state, worst: of.filter((r) => r.verdict.state === state).length, lastData: newest(of.map((r) => r.lastData)) }
+    const g = group(of)
+    const hop: Hop = { key: k, label: KIND_PLURAL[k], total: of.length, healthy: of.filter((r) => r.verdict.state === 'healthy').length, state: g.state, worst: g.worst, lastData: g.lastData, settingUp: of.filter((r) => r.verdict.state === 'setup').length }
+    if (k === 'local') {
+      const direct = of.filter((r) => r.sendsDirect)
+      if (direct.length > 0) {
+        hop.direct = group(direct)
+        hop.onward = group(of.filter((r) => r.sendsOnward))
+      }
+    }
+    return hop
   })
   if (!fusion || fusion.kind === 'checking' || fusion.kind === 'unavailable') return hops
   const state = ({ running: 'healthy', attention: 'attention', starting: 'unknown', off: undefined } as const)[fusion.kind]
-  return [...hops, { key: 'fusion', label: 'FUSION', total: state ? 1 : 0, healthy: state === 'healthy' ? 1 : 0, state, worst: state ? 1 : 0, lastData: fusion.lastDataAt }]
+  return [...hops, { key: 'fusion', label: 'FUSION', total: state ? 1 : 0, healthy: state === 'healthy' ? 1 : 0, state, worst: state ? 1 : 0, lastData: fusion.lastDataAt, settingUp: 0 }]
 }

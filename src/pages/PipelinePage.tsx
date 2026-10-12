@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { ChevronRight, Plus, Radio } from 'lucide-react'
+import { ChevronRight, Plus, Radio, X } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { ConfirmModal } from '@/components/forms'
@@ -106,9 +106,12 @@ export default function PipelinePage() {
 
   const asked = sp.get('kind')
   const filter: Kind | 'all' = KINDS.find((k) => k === asked) ?? 'all'
-  const setFilter = (k: Kind | 'all') => setSp((p) => { const n = new URLSearchParams(p); if (k === 'all') n.delete('kind'); else n.set('kind', k); return n }, { replace: true })
+  const setFilter = (k: Kind | 'all') => setSp((p) => { const n = new URLSearchParams(p); if (k === 'all') n.delete('kind'); else n.set('kind', k); n.delete('via'); return n }, { replace: true })
+  const showDirect = () => setSp((p) => { const n = new URLSearchParams(p); if (n.get('kind') === 'local' && n.get('via') === 'central') { n.delete('kind'); n.delete('via') } else { n.set('kind', 'local'); n.set('via', 'central') } return n }, { replace: true })
   const counts = { all: rows.length, ...Object.fromEntries(KINDS.map((k) => [k, rows.filter((r) => r.kind === k).length])) } as Record<Kind | 'all', number>
-  const shown = filter === 'all' ? rows : rows.filter((r) => r.kind === filter)
+  // "Sending direct to central" narrows the local operators to those that skip the regional hop (the arc over the strip sets it).
+  const directOnly = filter === 'local' && sp.get('via') === 'central'
+  const shown = filter === 'all' ? rows : rows.filter((r) => r.kind === filter && (!directOnly || r.sendsDirect))
 
   // `loaded` is true once a read has finished, answered or failed: with nothing to show and an error, the list is unknown, not empty.
   const ready = !admin || loaded
@@ -217,7 +220,7 @@ export default function PipelinePage() {
             </section>
           )}
 
-          <PipelinePath hops={hops} now={now} selected={filter} onSelect={(k) => setFilter(filter === k ? 'all' : k)} />
+          <PipelinePath hops={hops} now={now} selected={filter} onSelect={(k) => setFilter(filter === k ? 'all' : k)} directActive={directOnly} onSelectDirect={showDirect} />
 
           <div className="mb-4 flex flex-wrap items-center gap-1.5" role="group" aria-label="Show components">
             {chips.map((k) => (
@@ -231,6 +234,11 @@ export default function PipelinePage() {
                 {k === 'all' ? 'All' : KIND_PLURAL[k]} <span className="text-nb-500">{counts[k]}</span>
               </button>
             ))}
+            {directOnly && (
+              <button onClick={() => setFilter('local')} className="inline-flex items-center gap-1 rounded-full border border-accent/40 bg-accent-soft px-3 py-1 text-xs text-accent" aria-label="Stop showing only those sending direct to central" data-testid="pipeline-filter-direct">
+                Sending direct to central <X size={ICON_SM} aria-hidden />
+              </button>
+            )}
           </div>
 
           <ComponentsTable rows={shown} now={now} menuFor={menuFor} onWhatToDo={setTodoFor} />

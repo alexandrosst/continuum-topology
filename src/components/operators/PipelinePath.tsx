@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { Cable, Database, DoorOpen, Funnel, Merge, type LucideIcon } from 'lucide-react'
-import { Fragment } from 'react'
+import { Fragment, type CSSProperties } from 'react'
 import { Link } from 'react-router-dom'
 import StateChip from '@/components/operators/StateChip'
 import { MeterBar, type BarTone } from '@/components/ui/MeterBar'
@@ -60,6 +60,8 @@ function Node({ h, selected, onSelect }: { h: Hop; selected: boolean; onSelect: 
       </span>
       <span className="min-w-0 flex-1 truncate text-xs text-nb-500 xl:w-full xl:flex-none">{h.label}</span>
       {chip && <StateChip state={chip.state} count={chip.count} compact className="xl:mt-0.5" />}
+      {/* New ones are counted beside the health chip, never in it: a component that has not said anything yet is not a problem. */}
+      {h.settingUp > 0 && <StateChip state="setup" count={h.settingUp} className="xl:mt-0.5" />}
     </div>
   )
   const focus = 'block h-full w-full rounded-xl text-left'
@@ -73,11 +75,13 @@ function Node({ h, selected, onSelect }: { h: Hop; selected: boolean; onSelect: 
 /** The arrow from one hop to the next carries the sender's state: it moves while data is arriving and is still, amber, red or grey dashed
  *  otherwise. Under it a thin freshness bar says how recent the data is; the age itself shows on hover or focus, and always when not fine. */
 function Connector({ from, to, now }: { from: Hop; to: Hop; now: number }) {
+  // Local operators that send straight to the central operator have a line of their own (DirectArc): this one is about the rest.
+  const sender = from.onward ?? from
   // Data into FUSION is judged by FUSION's own last data; every other line by the newest data its sender reports.
-  const lastData = to.key === 'fusion' ? to.lastData : from.lastData
+  const lastData = to.key === 'fusion' ? to.lastData : sender.lastData
   const f = freshness(lastData, now, EXPECTED_MS[from.key])
-  const link = linkState(from.state, from.total, f)
-  const measured = from.total > 0 && to.total > 0
+  const link = linkState(sender.state, sender.total, f)
+  const measured = sender.total > 0 && to.total > 0
   const age = lastDataText(lastData, now)
   return (
     <li className={clsx('group relative h-10 xl:h-auto xl:min-w-14 xl:flex-1', TONE[link])} data-testid={`link-${from.key}`} data-link={link} aria-hidden={measured ? undefined : true}>
@@ -93,22 +97,81 @@ function Connector({ from, to, now }: { from: Hop; to: Hop; now: number }) {
   )
 }
 
+/** Half of a node's width (`xl:w-36`): the arc starts and ends at the middle of its tiles. */
+const HALF_NODE = 'mx-[4.5rem]'
+
+/**
+ * Local operators that send straight to the central operator, without a regional one: a second route that leaves the Local tile, passes over
+ * the Regional one and enters the Central tile from above. It is coloured, counted and aged for its own senders, so a failure on the direct
+ * route shows on this line and not on the regional one; clicking it lists those senders in the table.
+ */
+function DirectArc({ hop, now, active, onSelect, style }: { hop: Hop; now: number; active: boolean; onSelect: () => void; style: CSSProperties }) {
+  const g = hop.direct!
+  const f = freshness(g.lastData, now, EXPECTED_MS.local)
+  const link = linkState(g.state, g.total, f)
+  const age = lastDataText(g.lastData, now)
+  const text = `${g.total} ${g.total === 1 ? 'sends' : 'send'} direct to central`
+  return (
+    <div className={clsx('group relative h-12', HALF_NODE, TONE[link])} style={style} data-testid="link-direct" data-link={link}>
+      <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="absolute inset-0 h-full w-full overflow-visible" aria-hidden focusable="false">
+        <path d="M0 100L0 0L100 0L100 100" fill="none" stroke="currentColor" strokeWidth={2} strokeLinejoin="round" vectorEffect="non-scaling-stroke" className={link === 'flowing' ? 'flow-dash' : undefined} strokeDasharray={link === 'unknown' ? '5 4' : undefined} />
+      </svg>
+      <svg viewBox="0 0 10 10" className="absolute -bottom-px -right-[5px] size-2.5" aria-hidden focusable="false">
+        <path d="M1 2L5 8L9 2" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+      <button
+        type="button"
+        onClick={onSelect}
+        aria-pressed={active}
+        aria-label={`${text}: show them in the table`}
+        className={clsx('absolute left-1/2 top-0 flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 whitespace-nowrap rounded-full border bg-nb-910 px-3 py-1 text-xs text-nb-300 transition-colors', active ? 'border-accent/50 ring-1 ring-accent/40' : 'border-nb-850 hover:border-nb-800')}
+        data-testid="pipeline-direct"
+      >
+        <span>{text}</span>
+        {g.state && g.state !== 'healthy' && <StateChip state={g.state} count={g.worst} compact />}
+        {g.total > 0 && <MeterBar pct={f.fraction * 100} tone={BAR[f.level]} label="Data sent direct to the central operator" valueText={`Last data ${age}`} title={`Last data ${age}`} className="w-10" />}
+        <span className={clsx('text-[11px] tabular-nums', AGE_TEXT[link])}>{age}</span>
+      </button>
+    </div>
+  )
+}
+
 /**
  * The path telemetry takes, as one connected strip: discovery agents, local operators, regional operators, the central operator, FUSION. Each
  * node says how many there are and the worst state among them, and chooses just its components in the table below (FUSION's opens its
- * section); each line between two carries the sender's state and how fresh its data is. Stacks vertically on a narrow screen.
+ * section); each line between two carries the sender's state and how fresh its data is. Local operators that skip the regional hop get a
+ * line of their own over it. Stacks vertically on a narrow screen.
  */
-export default function PipelinePath({ hops, now, selected, onSelect }: { hops: Hop[]; now: number; selected: string; onSelect: (kind: Kind) => void }) {
+export default function PipelinePath({ hops, now, selected, onSelect, directActive = false, onSelectDirect }: { hops: Hop[]; now: number; selected: string; onSelect: (kind: Kind) => void; /** The table is already listing the direct senders. */ directActive?: boolean; onSelectDirect?: () => void }) {
+  const localAt = hops.findIndex((h) => h.key === 'local')
+  const centralAt = hops.findIndex((h) => h.key === 'central')
+  const local = localAt >= 0 ? hops[localAt] : undefined
+  // One grid for the strip and for the arc above it, so the arc's ends line up with the middle of its two tiles whatever the width.
+  const columns = hops.flatMap((_, i) => (i === 0 ? ['9rem'] : ['minmax(3.5rem,1fr)', '9rem'])).join(' ')
+  const direct = local?.direct && centralAt > localAt ? local : undefined
   return (
-    <ol className="mb-6 flex flex-col xl:flex-row xl:items-stretch" aria-label="Data path" data-testid="pipeline-path">
-      {hops.map((h, i) => (
-        <Fragment key={h.key}>
-          {i > 0 && <Connector from={hops[i - 1]} to={h} now={now} />}
-          <li className="min-w-0 xl:w-36 xl:shrink-0" data-testid={`hop-${h.key}`}>
-            <Node h={h} selected={selected === h.key} onSelect={onSelect} />
-          </li>
-        </Fragment>
-      ))}
-    </ol>
+    <div className="mb-6" data-testid="pipeline-path-wrap">
+      {direct && (
+        <div className="mb-1 hidden xl:grid" style={{ gridTemplateColumns: columns }}>
+          <DirectArc hop={direct} now={now} active={directActive} onSelect={() => onSelectDirect?.()} style={{ gridColumn: `${2 * localAt + 1} / ${2 * centralAt + 2}` }} />
+        </div>
+      )}
+      <ol className="flex flex-col xl:grid" style={{ gridTemplateColumns: columns }} aria-label="Data path" data-testid="pipeline-path">
+        {hops.map((h, i) => (
+          <Fragment key={h.key}>
+            {i > 0 && <Connector from={hops[i - 1]} to={h} now={now} />}
+            <li className="min-w-0 xl:w-36 xl:shrink-0" data-testid={`hop-${h.key}`}>
+              <Node h={h} selected={selected === h.key} onSelect={onSelect} />
+            </li>
+          </Fragment>
+        ))}
+      </ol>
+      {direct?.direct && (
+        // On a narrow screen the strip is a column and has no room for an arc: the same fact, as one line under it.
+        <button type="button" onClick={() => onSelectDirect?.()} aria-pressed={directActive} className="mt-3 text-xs text-nb-400 underline-offset-2 hover:text-nb-300 hover:underline xl:hidden" data-testid="pipeline-direct-narrow">
+          {direct.direct.total} {direct.direct.total === 1 ? 'local operator sends' : 'local operators send'} direct to central
+        </button>
+      )}
+    </div>
   )
 }
