@@ -242,6 +242,8 @@ func (a *Admin) Handler() http.Handler {
 	route("POST "+o+"/agents/{id}/reject", adminRole, a.reject)
 	route("POST "+o+"/agents/{id}/revoke", adminRole, a.revoke)
 	// Narrowing an agent's tier or consent is an editor's; widening either is an administrator's, like approving (checked in the hub).
+	route("POST "+o+"/agents/{id}/address-tests", adminRole, a.startAddressTests)
+	route("GET "+o+"/agents/{id}/address-tests", adminRole, a.listAddressTests)
 	route("POST "+o+"/agents/{id}/tier", editorRole, a.setAgentTier)
 	route("POST "+o+"/agents/{id}/consent", editorRole, a.setAgentConsent)
 

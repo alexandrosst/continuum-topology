@@ -78,6 +78,7 @@ export default function GuidedWizard({
   testIdPrefix,
   initialScope,
   initialDestination,
+  agentId,
   clusterId,
   clusterName,
   runSection,
@@ -294,6 +295,8 @@ export default function GuidedWizard({
                 catalogFor={catalogFor}
                 catalogReady={operatorsReady}
                 clusterId={clusterId}
+                agentId={agentId}
+                clusterName={clusterName}
                 choices={laneChoices}
                 onChoose={(m, key) => setLaneChoices((c) => ({ ...c, [m]: key }))}
                 shared={{ fusion: fusionControls, onSetUpOperator: isAdmin ? (lane) => setCreatingFor({ lane }) : undefined, onRecordAddress: setAddressFor }}
@@ -306,6 +309,8 @@ export default function GuidedWizard({
                 catalog={catalog}
                 catalogReady={operatorsReady}
                 clusterId={clusterId}
+                agentId={agentId}
+                clusterName={clusterName}
                 choice={destChoice}
                 onChoose={setDestChoice}
                 fusion={fusionControls}

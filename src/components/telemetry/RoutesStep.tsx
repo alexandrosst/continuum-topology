@@ -24,6 +24,8 @@ export default function RoutesStep({
   catalogFor,
   catalogReady,
   clusterId,
+  agentId,
+  clusterName,
   choices,
   onChoose,
   shared,
@@ -35,6 +37,8 @@ export default function RoutesStep({
   catalogFor: (m: Modality) => DestinationCatalog
   catalogReady: boolean
   clusterId?: string
+  agentId?: string
+  clusterName?: string
   choices: Record<Modality, string | null>
   onChoose: (m: Modality, key: string | null) => void
   /** What every lane's picker does about FUSION and about setting up or addressing an operator: one wizard, so one answer. */
@@ -77,6 +81,8 @@ export default function RoutesStep({
               catalog={catalogFor(m)}
               catalogReady={catalogReady}
               clusterId={clusterId}
+              agentId={agentId}
+              clusterName={clusterName}
               choice={choices[m]}
               onChoose={(k) => onChoose(m, k)}
               fusion={shared?.fusion}

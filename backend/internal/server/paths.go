@@ -25,7 +25,7 @@ type issuedTarget struct {
 	Host   string
 	Port   int
 	Label  string
-	Source string // observed | manual
+	Source string // observed | manual | address-test
 }
 
 // pathTrack keeps the last few rounds of samples for one target.
@@ -149,6 +149,7 @@ func (h *Hub) configFor(a store.Agent, v *view) *continuumv1.Config {
 			ts = append(ts, issuedTarget{ID: p.ID, Host: p.Host, Port: p.Port, Label: p.Label, Source: "manual"})
 		}
 	}
+	ts = append(ts, h.addressTestTargets(v, h.C.Now())...)
 	if a.AccessTier >= 2 {
 		ts = append(ts, deriveTargets(v.flows)...)
 	}
@@ -253,6 +254,9 @@ func (h *Hub) noteMeasurements(agentID string, m *continuumv1.Measurements) {
 		t, ok := v.targets[r.TargetId]
 		if !ok || r.Samples == 0 || r.Samples > 100 || r.Failed > r.Samples {
 			continue
+		}
+		if h.noteAddressTest(v, t, r.Samples, r.Failed, sane(r.RttMinMs), sane(r.RttP50Ms), sane(r.RttP95Ms), now) {
+			continue // a test's result is read back on its own, never added to the measured paths
 		}
 		tr := v.paths[t.ID]
 		if tr == nil {

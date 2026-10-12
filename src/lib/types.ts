@@ -1289,6 +1289,22 @@ export interface AddressCandidate {
   recorded?: boolean
 }
 
+/** One address being tried from the cluster that will dial it (see lib/useAddressTests.ts). `pending` until the agent has timed
+ *  a connection; then `reachable` (a connection was made) or `unreachable` (every attempt failed). A TCP connection only: it shows the
+ *  address answers on its port from that cluster, not that the operator is what answers. */
+export interface AddressTest {
+  id: string
+  address: string
+  state: 'pending' | 'reachable' | 'unreachable'
+  samples?: number
+  failed?: number
+  rttMinMs?: number
+  rttP50Ms?: number
+  rttP95Ms?: number
+  at?: string
+  created: string
+}
+
 export interface AddressCandidates {
   /** Whether discovery has seen the operator's Deployment. When false the list holds the recorded address only. */
   found: boolean

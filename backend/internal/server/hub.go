@@ -72,6 +72,8 @@ type view struct {
 	// Measured network paths, keyed by the target id the server issued for them.
 	paths   map[string]*pathTrack
 	targets map[string]issuedTarget
+	// addrTests are the addresses an administrator asked this agent to try (see address_reach.go), keyed by test id.
+	addrTests map[string]*addressTest
 	// cfgHash identifies the last Config pushed on the stream, so a new one is sent only when it differs.
 	cfgHash string
 

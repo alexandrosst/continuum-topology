@@ -124,3 +124,30 @@ func withoutDiagnostics(doc *StateDoc) {
 		doc.Agents[i].Diagnostics, doc.Agents[i].Consent, doc.Agents[i].Teardown = nil, nil, nil
 	}
 }
+
+// startAddressTests answers POST .../agents/{id}/address-tests: the cluster this agent is in tries each address.
+func (a *Admin) startAddressTests(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Addresses []string `json:"addresses"`
+	}
+	if err := decode(r, &req); err != nil {
+		a.fail(w, err)
+		return
+	}
+	tests, err := a.tn(r).Hub.StartAddressTests(r.Context(), actor(r), r.PathValue("id"), req.Addresses)
+	if err != nil {
+		a.fail(w, err)
+		return
+	}
+	writeJSON(w, 202, map[string]any{"tests": tests})
+}
+
+// listAddressTests answers GET .../agents/{id}/address-tests: the tests still held and what they found so far.
+func (a *Admin) listAddressTests(w http.ResponseWriter, r *http.Request) {
+	tests, err := a.tn(r).Hub.AddressTests(r.Context(), r.PathValue("id"))
+	if err != nil {
+		a.fail(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"tests": tests})
+}

@@ -1,11 +1,13 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import SenderAddress from '@/components/telemetry/SenderAddress'
-import type { AddressCandidates, RegionalOperator } from '@/lib/types'
+import type { AddressCandidates, AddressTest, RegionalOperator } from '@/lib/types'
 
 const candidates = vi.fn(async (..._a: unknown[]): Promise<AddressCandidates> => ({ found: false, candidates: [] }))
+const startTests = vi.fn(async (..._a: unknown[]): Promise<{ tests: AddressTest[] }> => ({ tests: [] }))
+const listTests = vi.fn(async (..._a: unknown[]): Promise<{ tests: AddressTest[] }> => ({ tests: [] }))
 const connFn = () => ({ url: '', org: 'o' })
 vi.mock('@/store/server', () => ({
   useServer: (selector?: (s: { conn: typeof connFn }) => unknown) => {
@@ -15,22 +17,24 @@ vi.mock('@/store/server', () => ({
 }))
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>()
-  return { ...actual, api: { ...actual.api, operatorAddressCandidates: (...a: unknown[]) => candidates(...a) } }
+  return { ...actual, api: { ...actual.api, operatorAddressCandidates: (...a: unknown[]) => candidates(...a), startAddressTests: (...a: unknown[]) => startTests(...a), addressTests: (...a: unknown[]) => listTests(...a) } }
 })
 
 const op = { id: 'site-athens', name: 'site-athens', address: 'otlp.example.com:4317' } as RegionalOperator
 
-function Harness({ initial = '' }: { initial?: string }) {
+function Harness({ initial = '', agentId }: { initial?: string; agentId?: string }) {
   const [v, setV] = useState(initial)
   return (
     <>
-      <SenderAddress operator={op} value={v} onChange={setV} testId="sa" />
+      <SenderAddress operator={op} value={v} onChange={setV} testId="sa" agentId={agentId} clusterName="patras-edge" />
       <output data-testid="out">{v}</output>
     </>
   )
 }
 
 beforeEach(() => {
+  startTests.mockReset()
+  listTests.mockReset()
   candidates.mockReset()
   candidates.mockResolvedValue({
     found: true,
@@ -67,5 +71,52 @@ describe('the sender picks the address of a regional operator it dials', () => {
     candidates.mockRejectedValue(new Error('network'))
     render(<Harness initial="10.0.0.5:4317" />)
     expect((screen.getByTestId('sa-other') as HTMLInputElement).value).toBe('10.0.0.5:4317')
+  })
+})
+
+const pending = (address: string): AddressTest => ({ id: 'at-1', address, state: 'pending', created: '2026-10-12T10:00:00Z' })
+
+describe('trying an address from the cluster that will dial it', () => {
+  it('offers no test without an agent to run it from', async () => {
+    render(<Harness />)
+    await screen.findByRole('radio', { name: '10.20.0.14:31317' })
+    expect(screen.queryByTestId('sa-test')).toBeNull()
+  })
+
+  it('starts a test for the row, shows it pending, and then what the cluster found', async () => {
+    startTests.mockResolvedValue({ tests: [pending('10.20.0.14:31317')] })
+    listTests.mockResolvedValue({ tests: [{ ...pending('10.20.0.14:31317'), state: 'reachable', samples: 5, failed: 0, rttP50Ms: 4.2 }] })
+    render(<Harness agentId="agent-1" />)
+    await screen.findByRole('radio', { name: '10.20.0.14:31317' })
+    await userEvent.click(screen.getByRole('button', { name: 'Test 10.20.0.14:31317 from this cluster' }))
+    expect(startTests).toHaveBeenCalledWith(expect.anything(), 'agent-1', ['10.20.0.14:31317'])
+    expect((await screen.findByTestId('sa-result')).getAttribute('data-state')).toBe('pending')
+    expect(screen.getByTestId('sa-result').textContent).toContain('patras-edge')
+    await waitFor(() => expect(screen.getByTestId('sa-result').getAttribute('data-state')).toBe('reachable'), { timeout: 5000 })
+    expect(screen.getByTestId('sa-result').textContent).toContain('4.2 ms')
+    // It does not claim the operator answered.
+    expect(screen.getByTestId('sa-test-note').textContent).toContain('not that the operator is what answers')
+  })
+
+  it('says plainly when every attempt failed, and shows a refusal from the server', async () => {
+    startTests.mockResolvedValueOnce({ tests: [{ ...pending('otlp.example.com:4317'), state: 'unreachable', samples: 5, failed: 5 }] })
+    render(<Harness agentId="agent-1" />)
+    await screen.findByRole('radio', { name: '10.20.0.14:31317' })
+    await userEvent.click(screen.getByRole('button', { name: 'Test otlp.example.com:4317 from this cluster' }))
+    const r = await screen.findByTestId('sa-result')
+    expect(r.getAttribute('data-state')).toBe('unreachable')
+    expect(r.textContent).toContain('all 5 attempts failed')
+    startTests.mockRejectedValueOnce(new Error('this agent is not connected right now'))
+    await userEvent.click(screen.getByRole('button', { name: 'Test 10.20.0.14:31317 from this cluster' }))
+    expect((await screen.findByRole('alert')).textContent).toContain('not connected')
+  })
+
+  it('tests an address typed in, with the receiver\'s port when none was given', async () => {
+    startTests.mockResolvedValue({ tests: [pending('10.9.9.9:4317')] })
+    render(<Harness agentId="agent-1" />)
+    await screen.findByRole('radio', { name: '10.20.0.14:31317' })
+    await userEvent.type(screen.getByTestId('sa-other'), '10.9.9.9')
+    await userEvent.click(screen.getByRole('button', { name: 'Test 10.9.9.9:4317 from this cluster' }))
+    expect(startTests).toHaveBeenCalledWith(expect.anything(), 'agent-1', ['10.9.9.9:4317'])
   })
 })

@@ -39,6 +39,8 @@ export default function DestinationStep({
   catalog,
   catalogReady,
   clusterId,
+  agentId,
+  clusterName,
   choice,
   onChoose,
   fusion,
@@ -55,6 +57,9 @@ export default function DestinationStep({
   catalogReady: boolean
   /** The cluster this telemetry is for, when known - lets the list recommend the operator that already receives it. */
   clusterId?: string
+  /** The agent (and its cluster's name) that will send, when known: the sender's address for an operator can then be tried from it. */
+  agentId?: string
+  clusterName?: string
   choice: string | null
   onChoose: (key: string | null) => void
   /** What an administrator can do about FUSION from here: switch it on and use it in one step. */
@@ -241,7 +246,7 @@ export default function DestinationStep({
               </p>
             )}
             {operator && !isFusion && catalog.canDeployOperator && (
-              <SenderAddress operator={operator} value={value.exportOperatorAddress} onChange={(a) => set('exportOperatorAddress', a)} testId={`${p}-destination-sender-address`} />
+              <SenderAddress operator={operator} value={value.exportOperatorAddress} onChange={(a) => set('exportOperatorAddress', a)} testId={`${p}-destination-sender-address`} agentId={agentId} clusterName={clusterName} />
             )}
             {unresolved && (
               <p role="alert" className="text-xs text-warn" data-testid={`${p}-destination-placeholder`}>
