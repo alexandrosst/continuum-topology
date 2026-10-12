@@ -11,6 +11,14 @@ export const CANDIDATE_KIND: Record<AddressCandidate['kind'], string> = {
   recorded: 'Recorded',
 }
 
+const NETWORK_LABEL: Record<NonNullable<AddressCandidate['network']>, string> = { mesh: 'Mesh', private: 'Private network', public: 'Public' }
+
+/** The line under a candidate: what kind it is, which network and interface it is on, and where it was found. */
+export function candidateSub(x: AddressCandidate): string {
+  const net = x.network ? ` · ${NETWORK_LABEL[x.network]}${x.interface ? ` (${x.interface})` : ''}` : ''
+  return `${CANDIDATE_KIND[x.kind]}${net} · ${x.source}`
+}
+
 /** The addresses Ikhnos found for a regional operator from what its cluster's agent reports. `null` until the answer
  *  arrives, and for good when the lookup fails: a missing list is a convenience lost, never an error to show. */
 export function useAddressCandidates(operatorId: string | undefined): AddressCandidates | null {

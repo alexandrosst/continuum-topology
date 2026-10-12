@@ -1,7 +1,7 @@
 import { Button, Input } from '@/components/ui/primitives'
 import { withDefaultPort } from '@/components/operators/OperatorAddress'
 import type { RegionalOperator } from '@/lib/types'
-import { CANDIDATE_KIND, useAddressCandidates } from '@/lib/useAddressCandidates'
+import { candidateSub, useAddressCandidates } from '@/lib/useAddressCandidates'
 import { useAddressTests, type AddressTestView } from '@/lib/useAddressTests'
 
 /**
@@ -71,8 +71,9 @@ export default function SenderAddress({ operator, value, onChange, testId, agent
       <p className="text-xs text-nb-400">Pick one this cluster can reach: an address on the operator&apos;s own network answers only from clusters on that network.</p>
       <ul className="space-y-1.5">
         {row('recorded', chosen === '', () => onChange(''), recorded || 'The operator’s recorded address', recorded ? 'The address recorded for this operator. Every cluster without a choice of its own uses it.' : 'No address is recorded for this operator yet, so commands dial its name inside its own cluster.', recorded)}
-        {discovered.map((x) => row(x.id, chosen === x.address, () => onChange(x.address), x.address, `${CANDIDATE_KIND[x.kind]} · ${x.source}`, x.address))}
+        {discovered.map((x) => row(x.id, chosen === x.address, () => onChange(x.address), x.address, candidateSub(x), x.address))}
       </ul>
+      {(found?.hints ?? []).map((h) => <p key={h} className="text-xs leading-relaxed text-nb-500" data-testid={`${testId}-hint`}>{h}</p>)}
       <label className="block text-xs text-nb-400">
         Another address (host:port)
         <span className="mt-1 flex items-center gap-2">

@@ -5,7 +5,7 @@ import { api, ApiError, type OperatorExposure } from '@/lib/api'
 import { shArg } from '@/lib/install'
 import { operatorServiceName } from '@/lib/operatorsView'
 import type { RegionalOperator } from '@/lib/types'
-import { CANDIDATE_KIND, useAddressCandidates } from '@/lib/useAddressCandidates'
+import { candidateSub, useAddressCandidates } from '@/lib/useAddressCandidates'
 import { useServer } from '@/store/server'
 
 /** What a person picks when creating an operator: whether clusters other than its own must be able to reach it.
@@ -97,7 +97,7 @@ function AddressCandidatesList({ operatorId, value, onPick }: { operatorId: stri
               <li key={x.id} className="flex items-center justify-between gap-3 rounded-md border border-nb-800 px-3 py-2" data-testid="operator-address-candidate">
                 <div className="min-w-0">
                   <div className="truncate font-mono text-sm text-nb-100">{x.address}</div>
-                  <div className="text-xs text-nb-500">{CANDIDATE_KIND[x.kind]} · {x.source}{x.recorded ? ' In use.' : ''}</div>
+                  <div className="text-xs text-nb-500">{candidateSub(x)}{x.recorded ? ' In use.' : ''}</div>
                 </div>
                 <Button type="button" onClick={() => onPick(x.address)} disabled={chosen} aria-label={`Use ${x.address}`}>{chosen ? 'Selected' : 'Use'}</Button>
               </li>
@@ -105,6 +105,7 @@ function AddressCandidatesList({ operatorId, value, onPick }: { operatorId: stri
           })}
         </ul>
       )}
+      {(found.hints ?? []).map((h) => <p key={h} className="mt-2 text-xs leading-relaxed text-nb-500" data-testid="operator-address-hint">{h}</p>)}
     </div>
   )
 }

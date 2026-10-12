@@ -3,6 +3,7 @@ package probe
 import (
 	"net"
 	"reflect"
+	"strconv"
 	"testing"
 
 	"github.com/jsimonetti/rtnetlink/v2"
@@ -208,5 +209,73 @@ func TestBuildHostSubnetsDedupsRepeatedAddresses(t *testing.T) {
 	want := []string{"10.0.5.12/24"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("got %v, want deduped to %v", got, want)
+	}
+}
+
+func linkUp(index uint32, name, kind string) rtnetlink.LinkMessage {
+	return linkUpWithMtu(index, name, kind, 1500, true)
+}
+
+func TestBuildHostAddressesOffersTheNodesOwnLanMeshAndPublicAddresses(t *testing.T) {
+	links := []rtnetlink.LinkMessage{
+		linkUp(1, "eth0", ""), linkUp(2, "wg0", "wireguard"), linkUp(3, "tailscale0", "tun"), linkUp(4, "ens5", ""),
+	}
+	addrs := []rtnetlink.AddressMessage{addr(1, "10.0.5.12", 24), addr(2, "10.8.0.3", 24), addr(3, "100.64.3.7", 32), addr(4, "203.0.113.20", 28), addr(1, "10.0.5.12", 24)}
+	got := buildHostAddresses(links, addrs)
+	var have []string
+	for _, h := range got {
+		have = append(have, h.Interface+" "+h.Address)
+	}
+	// Sorted by interface, an address listed twice once.
+	if want := []string{"ens5 203.0.113.20/28", "eth0 10.0.5.12/24", "tailscale0 100.64.3.7/32", "wg0 10.8.0.3/24"}; !reflect.DeepEqual(have, want) {
+		t.Fatalf("got %v, want %v", have, want)
+	}
+	if got[len(got)-1].Kind != "wireguard" {
+		t.Fatalf("the link driver is kept: %+v", got)
+	}
+}
+
+func TestBuildHostAddressesLeavesOutWhatOnlyMeansSomethingInsideTheCluster(t *testing.T) {
+	links := []rtnetlink.LinkMessage{
+		linkUp(1, "eth0", ""),
+		linkUp(2, "lo", ""), // loopback by name only: the flag is what counts, set below
+		linkUp(3, "cni0", "bridge"), linkUp(4, "docker0", "bridge"), linkUp(5, "flannel.1", "vxlan"), linkUp(6, "kube-ipvs0", "dummy"),
+		linkUp(7, "cilium_host", ""), linkUp(8, "veth1a2b", "veth"), linkUp(9, "tunl0", "ipip"), linkUp(10, "br0", "bridge"),
+		linkUpWithMtu(11, "eth1", "", 1500, false), // down
+	}
+	links[1].Flags |= unix.IFF_LOOPBACK
+	addrs := []rtnetlink.AddressMessage{
+		addr(1, "10.0.5.12", 24), addr(1, "fe80::1", 64), addr(2, "127.0.0.1", 8), addr(3, "10.244.0.1", 24), addr(4, "172.17.0.1", 16),
+		addr(5, "10.244.1.0", 32), addr(6, "10.96.0.1", 32), addr(7, "10.0.0.5", 32), addr(8, "10.244.0.9", 32), addr(9, "10.244.2.1", 32),
+		addr(10, "192.168.1.2", 24), addr(11, "10.9.9.9", 24),
+	}
+	var have []string
+	for _, h := range buildHostAddresses(links, addrs) {
+		have = append(have, h.Interface+" "+h.Address)
+	}
+	// The host's own bridge (br0 on a machine whose NIC is enslaved to it) is a real address; every container one is not.
+	if want := []string{"br0 192.168.1.2/24", "eth0 10.0.5.12/24"}; !reflect.DeepEqual(have, want) {
+		t.Fatalf("got %v, want %v", have, want)
+	}
+}
+
+func TestBuildHostAddressesIsBounded(t *testing.T) {
+	links := []rtnetlink.LinkMessage{linkUp(1, "eth0", "")}
+	var addrs []rtnetlink.AddressMessage
+	for i := 1; i <= 40; i++ {
+		addrs = append(addrs, addr(1, "10.0.0."+strconv.Itoa(i), 24))
+	}
+	if got := buildHostAddresses(links, addrs); len(got) != maxHostAddresses {
+		t.Fatalf("%d addresses", len(got))
+	}
+}
+
+func TestSanitizeKeepsOnlyValidOfferableHostAddresses(t *testing.T) {
+	s := Sanitize(&continuumv1.HostProbe{HostAddresses: []*continuumv1.HostAddress{
+		{Interface: "wg0", Kind: "wireguard", Address: "10.8.0.3/24"},
+		{Interface: "lo", Address: "127.0.0.1/8"}, {Interface: "eth0", Address: "fe80::1/64"}, {Interface: "eth0", Address: "not-an-ip"}, {Interface: "", Address: "10.0.0.1/24"}, nil,
+	}})
+	if len(s.HostAddresses) != 1 || s.HostAddresses[0].Interface != "wg0" || s.HostAddresses[0].Address != "10.8.0.3/24" {
+		t.Fatalf("sanitized: %v", s.HostAddresses)
 	}
 }

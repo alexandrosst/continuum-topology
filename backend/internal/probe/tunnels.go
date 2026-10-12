@@ -3,6 +3,7 @@ package probe
 import (
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/jsimonetti/rtnetlink/v2"
 	"golang.org/x/sys/unix"
@@ -55,16 +56,16 @@ const maxTunnelRoutes = 8
 // readers already treat a missing file - never a fatal error for the rest of the probe. The three dumps
 // (links, addresses, routes) are kept as thin, untestable I/O here; buildTunnels and buildHostSubnets
 // below, which do the actual matching and shaping, take plain data and are what tunnels_test.go exercises.
-func networkEvidence() ([]*continuumv1.TunnelInterface, []string) {
+func networkEvidence() ([]*continuumv1.TunnelInterface, []string, []*continuumv1.HostAddress) {
 	conn, err := rtnetlink.Dial(nil)
 	if err != nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 	defer conn.Close()
 
 	links, err := conn.Link.List()
 	if err != nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 	var addrs []rtnetlink.AddressMessage
 	if a, err := conn.Address.List(); err == nil {
@@ -74,7 +75,7 @@ func networkEvidence() ([]*continuumv1.TunnelInterface, []string) {
 	if r, err := conn.Route.List(); err == nil {
 		routes = r
 	}
-	return buildTunnels(links, addrs, routes), buildHostSubnets(addrs, routes)
+	return buildTunnels(links, addrs, routes), buildHostSubnets(addrs, routes), buildHostAddresses(links, addrs)
 }
 
 // buildTunnels matches a netlink link/address/route dump into one TunnelInterface per link whose kind is
@@ -181,5 +182,78 @@ func buildHostSubnets(addrs []rtnetlink.AddressMessage, routes []rtnetlink.Route
 		out = append(out, prefix)
 	}
 	sort.Strings(out)
+	return out
+}
+
+// containerLinkKinds are the link drivers a container network creates on a node. Their addresses are the cluster's own
+// (a pod's veth peer, a CNI bridge, a pod-network overlay) and mean nothing to anything outside it. WireGuard is not here:
+// a CNI may use it, but so does a person's mesh, and a mesh address is exactly what is worth offering.
+var containerLinkKinds = map[string]bool{"veth": true, "dummy": true, "vxlan": true, "geneve": true, "ipip": true, "ifb": true}
+
+// containerLinkPrefixes are the names the common container networks give their interfaces (docker0, cni0, br-<id>, flannel.1,
+// cali*, cilium_host, kube-ipvs0, ...), for the ones that are an ordinary bridge or ethernet link to the kernel.
+var containerLinkPrefixes = []string{"docker", "cni", "br-", "virbr", "kube-", "flannel", "cali", "vxlan.", "cilium", "lxc", "veth", "nodelocaldns", "weave", "tunl", "antrea", "ovs-", "genev_sys"}
+
+// maxHostAddresses bounds how many addresses one node reports: a node with more is not a place anyone chooses among.
+const maxHostAddresses = 16
+
+// buildHostAddresses lists the addresses on the node's own interfaces worth offering as a place something on it can be
+// reached (see HostAddress): every address of an interface that is up, other than the loopback, link-local and multicast
+// ones and the interfaces a container network makes. Pure data shaping, like buildTunnels, so it is tested with hand-built
+// messages. Which of them a given sender can actually reach is a different question, answered by trying (the address test).
+func buildHostAddresses(links []rtnetlink.LinkMessage, addrs []rtnetlink.AddressMessage) []*continuumv1.HostAddress {
+	usable := map[uint32]*continuumv1.HostAddress{}
+	for _, l := range links {
+		if l.Attributes == nil || l.Flags&unix.IFF_UP == 0 || l.Flags&unix.IFF_LOOPBACK != 0 {
+			continue
+		}
+		name, kind := Clean(l.Attributes.Name), ""
+		if l.Attributes.Info != nil {
+			kind = l.Attributes.Info.Kind
+		}
+		if name == "" || containerLinkKinds[kind] {
+			continue
+		}
+		skip := false
+		for _, p := range containerLinkPrefixes {
+			if strings.HasPrefix(name, p) {
+				skip = true
+				break
+			}
+		}
+		if !skip {
+			usable[l.Index] = &continuumv1.HostAddress{Interface: name, Kind: kind}
+		}
+	}
+	var out []*continuumv1.HostAddress
+	seen := map[string]bool{}
+	for _, a := range addrs {
+		h, ok := usable[a.Index]
+		if !ok || a.Attributes == nil {
+			continue
+		}
+		ip := a.Attributes.Address
+		if ip == nil {
+			ip = a.Attributes.Local
+		}
+		if ip == nil || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() || ip.IsUnspecified() {
+			continue
+		}
+		key := h.Interface + "|" + ip.String()
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, &continuumv1.HostAddress{Interface: h.Interface, Kind: h.Kind, Address: ip.String() + "/" + strconv.Itoa(int(a.PrefixLength))})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Interface != out[j].Interface {
+			return out[i].Interface < out[j].Interface
+		}
+		return out[i].Address < out[j].Address
+	})
+	if len(out) > maxHostAddresses {
+		out = out[:maxHostAddresses]
+	}
 	return out
 }

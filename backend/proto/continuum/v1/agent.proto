@@ -417,6 +417,9 @@ message HostProbe {
   // kernel was not built with RAPL support - absence here is the expected, common case, never an error,
   // the same discipline cpu_pressure_pct/oom_kill_count above already apply to their own absence.
   optional double host_watts = 24;
+  // Addresses on the node's own interfaces worth offering as a place to reach a workload on it (see HostAddress): the node's
+  // LAN, mesh and public addresses, which the Node object does not list. Bounded and validated like everything else here.
+  repeated HostAddress host_addresses = 25;
 }
 
 // One physical network interface the node probe found up (see HostProbe.interfaces). Everything here is
@@ -484,6 +487,22 @@ message TunnelInterface {
   // not the kernel's operational-state field: several common tunnel drivers (WireGuard among them) never
   // report anything but "unknown" there even while fully up and carrying traffic.
   bool up = 6;
+}
+
+// One address configured on one of the node's own network interfaces, as the host sees it. This is what lets the server
+// offer a node's mesh (WireGuard, Tailscale, NetBird...), LAN and public addresses as places a workload on that node can be
+// reached, which the Node object alone cannot say: it carries only the address the kubelet registered.
+//
+// Read from the same unprivileged netlink dump as TunnelInterface, so it needs the same host network namespace and nothing
+// more. Only addresses worth offering are listed: loopback, link-local and multicast addresses never are, and neither are the
+// interfaces a container network creates on the node (veth pairs, bridges and tunnels of the CNI, docker0, kube-ipvs0), whose
+// addresses mean something inside the cluster only.
+message HostAddress {
+  string interface = 1;
+  // The kernel link driver (netlink's IFLA_INFO_KIND: "wireguard", "tun", "bridge", ...), empty for a physical link.
+  string kind = 2;
+  // "ip/prefixlen", e.g. "100.64.3.7/32".
+  string address = 3;
 }
 
 message NamespaceFacts {

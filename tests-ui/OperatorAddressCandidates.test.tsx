@@ -52,6 +52,24 @@ describe('the address dialog offers what discovery found', () => {
     await waitFor(() => expect(setAddress).toHaveBeenCalledWith(expect.anything(), 'site-athens', '10.20.0.14:31317'))
   })
 
+  it('names the network and interface of a node address, and shows the hints', async () => {
+    candidates.mockResolvedValue({
+      found: true,
+      hostClusterName: 'athens-edge',
+      candidates: [
+        { id: 'node-port|100.64.3.7:31317', address: '100.64.3.7:31317', kind: 'node-port', source: 'Node a, mesh address on tailscale0.', node: 'a', network: 'mesh', interface: 'tailscale0' },
+        { id: 'node-port|10.20.0.14:31317', address: '10.20.0.14:31317', kind: 'node-port', source: 'Node a, internal address.', node: 'a', network: 'private' },
+      ],
+      hints: ['Turn on the node probe in the agent to also offer each node’s mesh and other addresses.'],
+    })
+    open()
+    const rows = await screen.findAllByTestId('operator-address-candidate')
+    expect(rows[0].textContent).toContain('Mesh (tailscale0)')
+    expect(rows[1].textContent).toContain('Private network')
+    expect(rows[1].textContent).not.toContain('(')
+    expect((await screen.findByTestId('operator-address-hint')).textContent).toContain('node probe')
+  })
+
   it('says why the list is empty, in the two ways it can be', async () => {
     candidates.mockResolvedValue({ found: false, candidates: [] })
     const first = open()

@@ -6,7 +6,10 @@
 // disk's own identity (serial, WWN) - only its capacity and type (see Disk). It needs no capabilities:
 // sysfs and /proc/cpuinfo are world-readable, and so - confirmed, not just documented - is the netlink
 // link/address/route dump networkEvidence() reads to find overlay/tunnel interfaces and host subnets
-// (see TunnelInterface and HostProbe.host_subnets).
+// (see TunnelInterface and HostProbe.host_subnets). The same dump also yields the addresses on the node's
+// own interfaces (HostProbe.host_addresses): a LAN, a mesh and a public address are what a person picking
+// where a regional operator can be reached needs to choose from, and the Kubernetes API reports only two.
+// Interfaces a container network creates (veth, cni, docker0, kube-ipvs0 and the like) are left out.
 package probe
 
 import (
@@ -96,7 +99,7 @@ func Read(p Paths) *continuumv1.HostProbe {
 	hyp := cpuHypervisorBit(filepath.Join(p.Proc, "cpuinfo"))
 	cpuinfo := filepath.Join(p.Proc, "cpuinfo")
 	ifaces := interfaces(filepath.Join(p.Sys, "class", "net"))
-	tuns, hostSubnets := networkEvidence()
+	tuns, hostSubnets, hostAddrs := networkEvidence()
 	h := &continuumv1.HostProbe{
 		ProbeVersion:       Version,
 		HypervisorBit:      hyp,
@@ -116,6 +119,7 @@ func Read(p Paths) *continuumv1.HostProbe {
 		Disks:              disks(filepath.Join(p.Sys, "block")),
 		Tunnels:            tuns,
 		HostSubnets:        hostSubnets,
+		HostAddresses:      hostAddrs,
 	}
 	if n, err := strconv.Atoi(strings.TrimSpace(readText(filepath.Join(dmi, "chassis_type")))); err == nil && n > 0 && n < 64 {
 		h.ChassisType = int32(n)
@@ -672,6 +676,22 @@ func Sanitize(h *continuumv1.HostProbe) *continuumv1.HostProbe {
 			}
 		}
 		out.Tunnels = append(out.Tunnels, nt)
+	}
+	// HostAddresses: the same treatment - a bounded count, a name, and an address that parses and is one worth offering at all
+	// (never loopback or link-local, whatever a sender claims).
+	for _, a := range h.HostAddresses {
+		if a == nil || len(out.HostAddresses) >= maxHostAddresses {
+			break
+		}
+		name := Clean(a.Interface)
+		pfx, err := netip.ParsePrefix(a.Address)
+		if name == "" || err != nil {
+			continue
+		}
+		if ip := pfx.Addr(); ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() || ip.IsUnspecified() {
+			continue
+		}
+		out.HostAddresses = append(out.HostAddresses, &continuumv1.HostAddress{Interface: name, Kind: Clean(a.Kind), Address: pfx.String()})
 	}
 	return out
 }
