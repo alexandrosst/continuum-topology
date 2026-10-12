@@ -274,8 +274,13 @@ func addressCandidates(h operatorHost, recorded string) []AddressCandidate {
 			}
 			return nodes[i].Name < nodes[j].Name
 		})
-		if len(nodes) > maxNodePortNodes {
-			nodes = nodes[:maxNodePortNodes]
+		// With the pod's node unknown there is no telling which of the nodes it is, so more of them are listed.
+		limit := maxNodePortNodes
+		if len(h.PodNodes) == 0 {
+			limit = 2 * maxNodePortNodes
+		}
+		if len(nodes) > limit {
+			nodes = nodes[:limit]
 		}
 	}
 	nodeAddrs := func(pick func(hostNode) []nodeAddr) {
@@ -524,6 +529,9 @@ func (a *Admin) listOperatorAddressCandidates(w http.ResponseWriter, r *http.Req
 	}
 	if found {
 		res.Hints = host.hints(res.Candidates)
+		if len(host.PodNodes) == 0 && len(host.Nodes) > 0 {
+			res.Hints = append(res.Hints, "No agent reports which node runs the pod, so the nodes are listed in name order. Any of them works, since its node port forwards to the pod, but the pod's own node saves a hop.")
+		}
 	}
 	if h := exposureHint(res.Candidates, found, op.ID == CentralOperatorID); h != "" {
 		res.Hints = append(res.Hints, h)

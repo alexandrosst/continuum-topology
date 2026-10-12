@@ -143,7 +143,8 @@ func TestCentralNodeAddressesNeedOnlyTheClusterAndTheServicesNodePort(t *testing
 	if by["10.0.0.7:31999"] == nil || by["203.0.113.50:4317"] == nil {
 		t.Fatalf("the LAN address and the load balancer too: %v", got["candidates"])
 	}
-	if got["hints"] != nil {
-		t.Fatalf("nothing to suggest: %v", got["hints"])
+	// The gateway's own Deployment is not reported, so which node holds its pod is not known, and it says so.
+	if h, _ := got["hints"].([]any); len(h) != 1 || !strings.Contains(h[0].(string), "which node runs the pod") {
+		t.Fatalf("hints: %v", got["hints"])
 	}
 }

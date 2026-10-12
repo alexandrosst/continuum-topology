@@ -45,7 +45,7 @@ func TestAddressCandidatesAreRankedAndDeduplicated(t *testing.T) {
 }
 
 func TestAddressCandidatesBracketIPv6AndLimitNodes(t *testing.T) {
-	host := operatorHost{Reachable: []reachableAddr{{Port: 31317, Kind: "node-port"}}}
+	host := operatorHost{Reachable: []reachableAddr{{Port: 31317, Kind: "node-port"}}, PodNodes: []string{"a"}}
 	for i, ip := range []string{"fd00::1", "10.0.0.2", "10.0.0.3", "10.0.0.4", "10.0.0.5"} {
 		host.Nodes = append(host.Nodes, hostNode{Name: string(rune('a' + i)), Ready: true, Internal: []string{ip}})
 	}
@@ -277,5 +277,20 @@ func TestHintsSayWhyNoMeshAddressIsOffered(t *testing.T) {
 	}
 	if !strings.Contains(noHostHint(true), "FUSION's gateway") || !strings.Contains(noHostHint(false), "this operator") {
 		t.Fatal("the unseen-host hint names what is missing")
+	}
+}
+
+func TestWhenThePodsNodeIsUnknownMoreNodesAreListed(t *testing.T) {
+	host := operatorHost{Reachable: []reachableAddr{{Port: 31317, Kind: "node-port"}}}
+	for _, ip := range []string{"10.0.0.1", "10.0.0.2", "10.0.0.3", "10.0.0.4", "10.0.0.5"} {
+		host.Nodes = append(host.Nodes, hostNode{Name: "n" + ip, Ready: true, Internal: []string{ip}})
+	}
+	if got := addressCandidates(host, ""); len(got) != 5 {
+		t.Fatalf("pod node unknown: %d listed", len(got))
+	}
+	host.PodNodes = []string{"n10.0.0.5"}
+	got := addressCandidates(host, "")
+	if len(got) != maxNodePortNodes || got[0].Node != "n10.0.0.5" {
+		t.Fatalf("pod node known: the pod's node first, and no more than %d: %v", maxNodePortNodes, got)
 	}
 }
