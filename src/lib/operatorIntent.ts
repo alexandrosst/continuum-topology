@@ -159,12 +159,20 @@ export function operatorCommandBlock(opts: { install: InstallInfo | undefined; d
   return chainCommands([...opts.result.secretCommands, ...(cred ? [cred] : []), upgrade])
 }
 
+/** A regional operator as the intent records it, with the address this sender dials when it chose one. */
+const operatorDestination = (id: string, address: string): OperatorDestination => ({
+  kind: 'operator',
+  endpoint: operatorReceiverEndpoint({ id }),
+  targetOperatorId: id,
+  ...(address.trim() ? { address: address.trim() } : {}),
+})
+
 /** One signal type's destination as the intent records it: the regional operator, or the external endpoint with the
  *  names (never the values) of its credential. */
 function laneDestination(t: TelemetryInput, m: Modality): OperatorDestination {
   const id = laneOperatorId(t, m)
   const lane: ExportTarget = t.exportLanes[m]
-  if (id) return { kind: 'operator', endpoint: operatorReceiverEndpoint({ id }), targetOperatorId: id }
+  if (id) return operatorDestination(id, lane.exportOperatorAddress)
   const secret = lane.exportAuthSecretName.trim()
   return {
     kind: 'external',
@@ -178,22 +186,22 @@ function laneDestination(t: TelemetryInput, m: Modality): OperatorDestination {
  *  signal type separately, one route per active signal type - every one, the external ones too, so the intent says
  *  where all of it goes - and the first of them as the default, which no signal is then checked against. */
 export function intentDestinations(t: TelemetryInput, operatorId: string): { destination: OperatorDestination; routes?: NonNullable<TelemetryIntent['routes']> } {
-  if (!t.exportSplit) return { destination: { kind: 'operator', endpoint: operatorReceiverEndpoint({ id: operatorId }), targetOperatorId: operatorId } }
+  if (!t.exportSplit) return { destination: operatorDestination(operatorId, t.exportOperatorAddress) }
   const lanes = activeLanes(t)
   const routes: NonNullable<TelemetryIntent['routes']> = {}
   for (const m of lanes) routes[m] = laneDestination(t, m)
-  return { destination: routes[lanes[0]] ?? { kind: 'operator', endpoint: operatorReceiverEndpoint({ id: operatorId }), targetOperatorId: operatorId }, routes }
+  return { destination: routes[lanes[0]] ?? operatorDestination(operatorId, t.exportOperatorAddress), routes }
 }
 
 const sameDestination1 = (a: OperatorDestination | undefined, b: OperatorDestination | undefined) =>
-  !!a && !!b && a.kind === b.kind && a.endpoint === b.endpoint && (a.targetOperatorId ?? '') === (b.targetOperatorId ?? '') && !!a.insecure === !!b.insecure && (a.authSecretName ?? '') === (b.authSecretName ?? '')
+  !!a && !!b && a.kind === b.kind && a.endpoint === b.endpoint && (a.targetOperatorId ?? '') === (b.targetOperatorId ?? '') && (a.address ?? '') === (b.address ?? '') && !!a.insecure === !!b.insecure && (a.authSecretName ?? '') === (b.authSecretName ?? '')
 
 function sameDestinations(existing: TelemetryIntent, destination: OperatorDestination, routes?: NonNullable<TelemetryIntent['routes']>): boolean {
   const have = existing.routes ?? {}
   const want = routes ?? {}
   const keys = new Set([...Object.keys(have), ...Object.keys(want)])
   for (const k of keys) if (!sameDestination1(have[k as Modality], want[k as Modality])) return false
-  return routes ? true : existing.destination.kind === 'operator' && existing.destination.targetOperatorId === destination.targetOperatorId
+  return routes ? true : sameDestination1(existing.destination, destination)
 }
 
 const sameList = (a: string[], b: string[]) => a.length === b.length && a.every((x, i) => x === b[i])

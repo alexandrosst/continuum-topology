@@ -1,6 +1,7 @@
 import { Layers } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { FusionDot } from '@/components/fusion/useFusion'
+import { withDefaultPort } from '@/components/operators/OperatorAddress'
 import { OperatorHealth } from '@/components/operators/OperatorHealth'
 import { Button, Field, ICON_SM, InfoTip, Input, SectionLabel, Select, Waiting } from '@/components/ui/primitives'
 import { applyDestination, defaultDestination, destinationEndpoint, destinationIsPlain, destinationKey, destinationNeedsCredential, layoutDestinations, type DestinationCatalog, type DestinationCatalogEntry } from '@/lib/destinationCatalog'
@@ -10,6 +11,7 @@ import { operatorLiveness, receiverAuthOf } from '@/lib/operatorHealth'
 import type { RegionalOperator } from '@/lib/types'
 import DestinationPicker, { type FusionControls, useEnableAndUse } from './DestinationPicker'
 import Disclosure from './Disclosure'
+import SenderAddress from './SenderAddress'
 
 const PROTOCOLS = (
   <>
@@ -131,7 +133,9 @@ export default function DestinationStep({
   // Reachable from other clusters only with a recorded address (the central operator: once exposed). Otherwise the commands dial the
   // in-cluster name, which resolves in the operator's own cluster alone - said on the card, not behind a disclosure, since it decides
   // whether this works at all.
-  const reachable = !!operator && operator.reachableFromOtherClusters === true && !!operator.address
+  // This sender's own choice of address counts as reachable: it is what the commands dial, whatever is recorded for the operator.
+  const chosenAddress = operator && !isFusion ? withDefaultPort(value.exportOperatorAddress) : ''
+  const reachable = !!operator && (chosenAddress !== '' || (operator.reachableFromOtherClusters === true && !!operator.address))
   const dialled = operator?.endpoint
 
   const connSummary = isOperator
@@ -143,7 +147,7 @@ export default function DestinationStep({
   const custom = {
     active: isCustom,
     onPick: () => {
-      onChange({ ...value, exportEndpoint: isCustom ? value.exportEndpoint : '', exportOperatorId: '' })
+      onChange({ ...value, exportEndpoint: isCustom ? value.exportEndpoint : '', exportOperatorId: '', exportOperatorAddress: '' })
       onChoose('custom')
       setAutoPicked(false)
     },
@@ -176,7 +180,7 @@ export default function DestinationStep({
               <Field label="Endpoint" hint={isCustom ? 'Host and port of an OTLP receiver your cluster can reach.' : undefined}>
                 <Input
                   value={value.exportEndpoint}
-                  onChange={(e) => onChange({ ...value, exportEndpoint: e.target.value, exportOperatorId: '' })}
+                  onChange={(e) => onChange({ ...value, exportEndpoint: e.target.value, exportOperatorId: '', exportOperatorAddress: '' })}
                   placeholder={isCustom ? 'otel-gateway.example.com:4317' : undefined}
                   className="font-mono text-xs"
                   data-testid={isCustom ? `${p}-destination-custom-endpoint` : `${p}-destination-endpoint`}
@@ -229,8 +233,15 @@ export default function DestinationStep({
             )}
             {operator && reachable && (
               <p className="text-xs text-nb-400" data-testid={`${p}-destination-operator-address`}>
-                Sends to <span className="font-mono">{operator.address}</span>, the address an administrator recorded for this operator. This page cannot tell that anything answers there: it works only from a cluster that can reach that address, and the check after the command shows whether data arrives.
+                {chosenAddress ? (
+                  <>Sends to <span className="font-mono">{chosenAddress}</span>, the address chosen for this cluster below. This page cannot tell that anything answers there: it works only from a cluster that can reach it, and the check after the command shows whether data arrives.</>
+                ) : (
+                  <>Sends to <span className="font-mono">{operator.address}</span>, the address an administrator recorded for this operator. This page cannot tell that anything answers there: it works only from a cluster that can reach that address, and the check after the command shows whether data arrives.</>
+                )}
               </p>
+            )}
+            {operator && !isFusion && catalog.canDeployOperator && (
+              <SenderAddress operator={operator} value={value.exportOperatorAddress} onChange={(a) => set('exportOperatorAddress', a)} testId={`${p}-destination-sender-address`} />
             )}
             {unresolved && (
               <p role="alert" className="text-xs text-warn" data-testid={`${p}-destination-placeholder`}>

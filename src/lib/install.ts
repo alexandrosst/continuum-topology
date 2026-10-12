@@ -234,6 +234,11 @@ export interface TelemetryInput {
    *  freshly issued client certificate only the server can mint (the panel's "Generate commands" action,
    *  see lib/operatorIntent.ts). Every edit of the endpoint by hand clears it. */
   exportOperatorId: string
+  /** The address the SENDING cluster dials to reach that regional operator (host:port), or '' for the operator's own recorded one.
+   *  The sender picks it because only it knows which of the operator's addresses it can reach (same network, same VPN, public). It
+   *  is stored with the destination and the server composes the endpoint from it; the certificate is still verified by the
+   *  operator's stable name. Cleared with the operator id. */
+  exportOperatorAddress: string
   /** Send each signal type to its own destination (`telemetry.export.routes.<metrics|logs|traces>`) instead
    *  of all of them to the one above. The one above stays what it is - the default every signal falls back to
    *  - and a route only overrides it, so turning this off again never loses the single choice. */
@@ -296,7 +301,7 @@ export type KeptGroup = 'destination' | 'scopeShared' | 'scope:applicationMetric
 function groupValue(t: TelemetryInput, g: KeptGroup): string {
   switch (g) {
     case 'destination':
-      return JSON.stringify([t.exportSplit, t.exportEndpoint.trim(), t.exportProtocol, t.exportInsecure, t.exportAuthHeaderName.trim(), t.exportAuthSecretName.trim(), t.exportAuthSecretKey.trim(), t.exportOperatorId])
+      return JSON.stringify([t.exportSplit, t.exportEndpoint.trim(), t.exportProtocol, t.exportInsecure, t.exportAuthHeaderName.trim(), t.exportAuthSecretName.trim(), t.exportAuthSecretKey.trim(), t.exportOperatorId, t.exportOperatorAddress.trim()])
     case 'scopeShared':
       return JSON.stringify([t.scopeInfrastructure, t.applicationMetricsScope, t.applicationLogsScope, t.tracesScope])
     case 'scope:applicationMetrics':
@@ -354,7 +359,7 @@ export type ExportProtocol = 'grpc' | 'http' | 'zipkin'
  *  destination has on TelemetryInput itself, and what each signal type's own destination carries. */
 export type ExportTarget = Pick<
   TelemetryInput,
-  'exportEndpoint' | 'exportProtocol' | 'exportInsecure' | 'exportAuthHeaderName' | 'exportAuthSecretName' | 'exportAuthSecretKey' | 'exportOperatorId'
+  'exportEndpoint' | 'exportProtocol' | 'exportInsecure' | 'exportAuthHeaderName' | 'exportAuthSecretName' | 'exportAuthSecretKey' | 'exportOperatorId' | 'exportOperatorAddress'
 >
 export const emptyExportTarget: ExportTarget = {
   exportEndpoint: '',
@@ -364,6 +369,7 @@ export const emptyExportTarget: ExportTarget = {
   exportAuthSecretName: '',
   exportAuthSecretKey: '',
   exportOperatorId: '',
+  exportOperatorAddress: '',
 }
 export const exportProtocolLabel = (p: ExportProtocol): string => (p === 'http' ? 'OTLP/HTTP' : p === 'zipkin' ? 'Zipkin (HTTP, traces only)' : 'OTLP/gRPC')
 
@@ -405,6 +411,7 @@ export const emptyTelemetry: TelemetryInput = {
   exportAuthSecretName: '',
   exportAuthSecretKey: '',
   exportOperatorId: '',
+  exportOperatorAddress: '',
   exportSplit: false,
   exportLanes: { metrics: emptyExportTarget, logs: emptyExportTarget, traces: emptyExportTarget },
   exportRoutesInstalled: false,
@@ -524,8 +531,8 @@ export const laneView = (t: TelemetryInput, m: Modality): TelemetryInput => ({ .
 
 /** Write back what was edited on a `laneView`: only the destination fields, never anything else of the draft. */
 export function withLane(t: TelemetryInput, m: Modality, edited: TelemetryInput): TelemetryInput {
-  const { exportEndpoint, exportProtocol, exportInsecure, exportAuthHeaderName, exportAuthSecretName, exportAuthSecretKey, exportOperatorId } = edited
-  const next: ExportTarget = { exportEndpoint, exportProtocol, exportInsecure, exportAuthHeaderName, exportAuthSecretName, exportAuthSecretKey, exportOperatorId }
+  const { exportEndpoint, exportProtocol, exportInsecure, exportAuthHeaderName, exportAuthSecretName, exportAuthSecretKey, exportOperatorId, exportOperatorAddress } = edited
+  const next: ExportTarget = { exportEndpoint, exportProtocol, exportInsecure, exportAuthHeaderName, exportAuthSecretName, exportAuthSecretKey, exportOperatorId, exportOperatorAddress }
   const prev = t.exportLanes[m]
   // Touching a route that was kept as installed makes it this draft's to state, in full.
   const changed = (Object.keys(next) as (keyof ExportTarget)[]).some((k) => next[k] !== prev[k])
@@ -556,6 +563,7 @@ export function startLanes(t: TelemetryInput): TelemetryInput {
       exportAuthSecretName: t.exportAuthSecretName,
       exportAuthSecretKey: t.exportAuthSecretKey,
       exportOperatorId: t.exportOperatorId,
+      exportOperatorAddress: t.exportOperatorAddress,
     }
   }
   return { ...t, exportSplit: true, exportLanes: lanes }

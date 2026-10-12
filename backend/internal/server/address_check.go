@@ -29,6 +29,13 @@ import (
 // addressWarnings are the doubts about a recorded address, in plain words; empty when there is nothing to say. svc is
 // the gateway's Service when the address is the central operator's and the server could read it, nil otherwise.
 func addressWarnings(addr string, svc *KubeService) []string {
+	return addressWarningsFor(addr, svc, true)
+}
+
+// addressWarningsFor is addressWarnings, with the private-address note optional. That note speaks of "a cluster
+// elsewhere", which is right for the address recorded for an operator (every other cluster is told it) and wrong for
+// one a single sender chose for itself on a network it shares with the operator.
+func addressWarningsFor(addr string, svc *KubeService, notePrivate bool) []string {
 	if addr == "" {
 		return nil
 	}
@@ -40,7 +47,7 @@ func addressWarnings(addr string, svc *KubeService) []string {
 	if port == "4318" {
 		out = append(out, "4318 is the OTLP/HTTP port. Every command this server prints exports over gRPC, which is on 4317: unless a load balancer or an Ingress maps 4318 to a receiver's gRPC port, exports to this address fail.")
 	}
-	if why := unreachableHostWhy(host); why == "a private address" {
+	if why := unreachableHostWhy(host); notePrivate && why == "a private address" {
 		out = append(out, fmt.Sprintf("%s is a private address: only a network that can route to it (the same network, a VPN, peering) reaches it. A cluster elsewhere cannot.", host))
 	}
 	if svc != nil {

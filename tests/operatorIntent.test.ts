@@ -212,3 +212,15 @@ test('operatorCommandBlock drops the client placeholder of every route the serve
   const single = operatorCommandBlock({ install: undefined, draft: operatorDraft(), result: { installFragment: '--set telemetry.export.otlp.endpoint=op-eu.example.net:443', secretCommands: [] } })
   assert.doesNotMatch(single, /--set-string telemetry\.export\.otlp\.endpoint=/)
 })
+
+test('the address this sender chose is recorded with the operator destination, one or per signal type, and left out when none was chosen', () => {
+  const chosen = intentDestinations(operatorDraft({ exportOperatorAddress: ' 10.20.0.14:31317 ' }), 'op-eu')
+  assert.deepEqual(chosen.destination, { kind: 'operator', endpoint: 'op-eu.continuum-system.svc:4317', targetOperatorId: 'op-eu', address: '10.20.0.14:31317' })
+  assert.deepEqual(intentDestinations(operatorDraft(), 'op-eu').destination, { kind: 'operator', endpoint: 'op-eu.continuum-system.svc:4317', targetOperatorId: 'op-eu' })
+  // Each signal type keeps the address of its own lane.
+  const lane = (address: string) => ({ ...emptyExportTarget, exportEndpoint: 'op-eu.continuum-system.svc:4317', exportOperatorId: 'op-eu', exportOperatorAddress: address })
+  const split = { ...emptyTelemetry, resourceUsage: true, systemLogs: true, exportSplit: true, exportLanes: { metrics: lane('10.20.0.14:31317'), logs: lane(''), traces: emptyExportTarget } } as TelemetryInput
+  const d = intentDestinations(split, 'op-eu')
+  assert.equal(d.routes?.metrics?.address, '10.20.0.14:31317')
+  assert.equal(d.routes?.logs?.address, undefined)
+})

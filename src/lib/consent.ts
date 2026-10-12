@@ -450,6 +450,7 @@ export function seedTelemetryFromInstalled(installed: string[], config?: AgentTe
       if (d.kind === 'operator' && d.targetOperatorId) {
         next.exportEndpoint = operatorReceiverEndpoint({ id: d.targetOperatorId })
         next.exportOperatorId = d.targetOperatorId
+        next.exportOperatorAddress = d.address ?? ''
       } else if (d.endpoint) {
         next.exportEndpoint = d.endpoint
         next.exportInsecure = !!d.insecure

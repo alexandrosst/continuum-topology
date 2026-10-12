@@ -126,6 +126,11 @@ type Destination struct {
 	// this organisation to export into, checked by Core.validateDestination the same way an external
 	// destination's Endpoint is.
 	TargetOperatorID string
+	// Address is only meaningful for DestinationOperator: the host:port THIS sender dials to reach the target, when it
+	// is not the one the target has recorded. Two senders on different networks can reach the same operator at
+	// different addresses, so the choice is the sender's. Empty means the target's recorded address (or, with none, its
+	// in-cluster name). The target's certificate is verified by its stable name whatever the address.
+	Address string
 	// FusionRelease and FusionNamespace are only meaningful for DestinationFusion: the Helm release name and
 	// the namespace of the continuum-fusion install the operator exports into. The stores' Service names
 	// follow from them (see the chart's fusion.name helper and server.fusionName), so nothing else is stored.

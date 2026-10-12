@@ -24,6 +24,8 @@ type destinationDoc struct {
 	// TargetOperatorID is only meaningful for destination kind "operator" - see store.Destination's own
 	// field.
 	TargetOperatorID string `json:"targetOperatorId,omitempty"`
+	// Address is only meaningful for destination kind "operator" - see store.Destination's own field.
+	Address string `json:"address,omitempty"`
 	// FusionRelease and FusionNamespace are only meaningful for destination kind "fusion" - see
 	// store.Destination's own fields. Both default (to "fusion" and "continuum-system") when left empty.
 	FusionRelease   string `json:"fusionRelease,omitempty"`
@@ -31,11 +33,11 @@ type destinationDoc struct {
 }
 
 func toDestinationDoc(d store.Destination) destinationDoc {
-	return destinationDoc{Kind: string(d.Kind), Endpoint: d.Endpoint, Insecure: d.Insecure, CAFile: d.CAFile, AuthHeaderName: d.AuthHeaderName, AuthSecretName: d.AuthSecretName, AuthSecretKey: d.AuthSecretKey, TargetOperatorID: d.TargetOperatorID, FusionRelease: d.FusionRelease, FusionNamespace: d.FusionNamespace}
+	return destinationDoc{Kind: string(d.Kind), Endpoint: d.Endpoint, Insecure: d.Insecure, CAFile: d.CAFile, AuthHeaderName: d.AuthHeaderName, AuthSecretName: d.AuthSecretName, AuthSecretKey: d.AuthSecretKey, TargetOperatorID: d.TargetOperatorID, Address: d.Address, FusionRelease: d.FusionRelease, FusionNamespace: d.FusionNamespace}
 }
 
 func (d destinationDoc) toStore() store.Destination {
-	return store.Destination{Kind: store.DestinationKind(d.Kind), Endpoint: d.Endpoint, Insecure: d.Insecure, CAFile: d.CAFile, AuthHeaderName: d.AuthHeaderName, AuthSecretName: d.AuthSecretName, AuthSecretKey: d.AuthSecretKey, TargetOperatorID: d.TargetOperatorID, FusionRelease: d.FusionRelease, FusionNamespace: d.FusionNamespace}
+	return store.Destination{Kind: store.DestinationKind(d.Kind), Endpoint: d.Endpoint, Insecure: d.Insecure, CAFile: d.CAFile, AuthHeaderName: d.AuthHeaderName, AuthSecretName: d.AuthSecretName, AuthSecretKey: d.AuthSecretKey, TargetOperatorID: d.TargetOperatorID, Address: d.Address, FusionRelease: d.FusionRelease, FusionNamespace: d.FusionNamespace}
 }
 
 // operatorHealthDoc is an operator's liveness as the UI reads it: computed at read time from the stored
@@ -690,6 +692,32 @@ func (a *Admin) operatorEndpoint(op store.Operator) string {
 	return operatorInClusterEndpoint(op)
 }
 
+// destEndpoint is the endpoint a sender dials to reach op as its destination d: the address that sender chose
+// (d.Address) when it chose one, else op's own (operatorEndpoint). Only a destination that names op counts.
+func (a *Admin) destEndpoint(op store.Operator, d store.Destination) string {
+	if d.Kind == store.DestinationOperator && d.TargetOperatorID == op.ID && d.Address != "" {
+		return d.Address
+	}
+	return a.operatorEndpoint(op)
+}
+
+// destWarnings are the doubts about sending to op as destination d. An address the sender chose is held to the
+// same checks as a recorded one; without one, targetWarnings says what the operator's own address allows.
+func (a *Admin) destWarnings(ctx context.Context, op store.Operator, d store.Destination) []string {
+	if d.Kind == store.DestinationOperator && d.TargetOperatorID == op.ID && d.Address != "" {
+		name := op.Name
+		if op.ID == CentralOperatorID && name == "" {
+			name = centralOperatorName
+		}
+		var out []string
+		for _, w := range addressWarningsFor(d.Address, nil, false) {
+			out = append(out, name+": "+w)
+		}
+		return out
+	}
+	return a.targetWarnings(ctx, op)
+}
+
 // targetWarnings are the doubts about pointing something at op, for the commands that do: an operator with no address
 // recorded is dialled by its in-cluster name, which resolves only inside the cluster it runs in, and an address that
 // is recorded is only what a person typed (see addressWarnings). Empty when there is nothing to say.
@@ -732,8 +760,9 @@ func (a *Admin) addOperatorTargetExport(r *http.Request, resp map[string]any, op
 		return
 	}
 	resp["exportSecretCommand"] = withNamespace("continuum-system", operatorClientSecretCommand(target, certPEM, keyPEM, caPEM, "continuum-system"))
-	exportTarget := map[string]any{"operatorId": target.ID, "name": target.Name, "endpoint": a.operatorEndpoint(target), "reachableFromOtherClusters": target.Address != ""}
-	if w := a.targetWarnings(r.Context(), target); len(w) > 0 {
+	endpoint := a.destEndpoint(target, op.Destination)
+	exportTarget := map[string]any{"operatorId": target.ID, "name": target.Name, "endpoint": endpoint, "reachableFromOtherClusters": target.Address != "" || endpoint != a.operatorEndpoint(target)}
+	if w := a.destWarnings(r.Context(), target, op.Destination); len(w) > 0 {
 		exportTarget["warnings"] = w
 	}
 	resp["exportTarget"] = exportTarget
@@ -801,7 +830,7 @@ func (a *Admin) operatorInstallCommandWith(img ImageConfig, secret string, op st
 		if target != nil {
 			tgt = *target
 		}
-		flag(setFlag("export.otlp.endpoint", a.operatorEndpoint(tgt)))
+		flag(setFlag("export.otlp.endpoint", a.destEndpoint(tgt, op.Destination)))
 		if reissue {
 			flag(setFlag("export.otlp.protocol", "grpc"))
 			flag(setFlag("export.otlp.tls.insecure", "false"))

@@ -340,6 +340,7 @@ export function applyDestination(value: TelemetryInput, e: DestinationCatalogEnt
       exportInsecure: !!e.preset.plain,
       exportAuthHeaderName: e.preset.headerName ? e.preset.headerName : value.exportAuthHeaderName,
       exportOperatorId: '',
+      exportOperatorAddress: '',
     }
   }
   if (e.kind === 'operator' || e.kind === 'fusion') {
@@ -352,6 +353,8 @@ export function applyDestination(value: TelemetryInput, e: DestinationCatalogEnt
       exportAuthSecretName: '',
       exportAuthSecretKey: '',
       exportOperatorId: e.id,
+      // The address is this sender's choice for one operator: another pick starts without one.
+      exportOperatorAddress: value.exportOperatorId === e.id ? value.exportOperatorAddress : '',
     }
   }
   return {
@@ -363,6 +366,7 @@ export function applyDestination(value: TelemetryInput, e: DestinationCatalogEnt
     exportAuthSecretName: '',
     exportAuthSecretKey: '',
     exportOperatorId: '',
+    exportOperatorAddress: '',
   }
 }
 

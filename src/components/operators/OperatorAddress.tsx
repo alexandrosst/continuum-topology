@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { CopyCommand } from '@/components/agents/AgentInsight'
 import { Button, ErrorBanner, Field, Input, Modal } from '@/components/ui/primitives'
 import { api, ApiError, type OperatorExposure } from '@/lib/api'
 import { shArg } from '@/lib/install'
 import { operatorServiceName } from '@/lib/operatorsView'
-import type { AddressCandidate, AddressCandidates, RegionalOperator } from '@/lib/types'
+import type { RegionalOperator } from '@/lib/types'
+import { CANDIDATE_KIND, useAddressCandidates } from '@/lib/useAddressCandidates'
 import { useServer } from '@/store/server'
 
 /** What a person picks when creating an operator: whether clusters other than its own must be able to reach it.
@@ -73,34 +74,10 @@ export function FindTheAddress({ id, exposure, service, testId }: { id: string; 
   )
 }
 
-const CANDIDATE_KIND: Record<AddressCandidate['kind'], string> = {
-  'load-balancer': 'Load balancer',
-  'node-port': 'Node port',
-  'external-ip': 'External IP',
-  recorded: 'Recorded',
-}
-
 /** The addresses Ikhnos found for an operator from what its cluster's agent reports, to pick from instead of typing.
  *  Picking one only fills the field below; nothing is saved until Save. A failed lookup shows nothing: typing still works. */
 function AddressCandidatesList({ operatorId, value, onPick }: { operatorId: string; value: string; onPick: (address: string) => void }) {
-  const conn = useServer((s) => s.conn)
-  const [found, setFound] = useState<AddressCandidates | null>(null)
-  useEffect(() => {
-    let live = true
-    void (async () => {
-      const c = conn()
-      if (!c) return
-      try {
-        const r = await api.operatorAddressCandidates(c, operatorId)
-        if (live) setFound(r)
-      } catch {
-        // No list is a convenience lost, not an error: the field below still takes an address.
-      }
-    })()
-    return () => {
-      live = false
-    }
-  }, [conn, operatorId])
+  const found = useAddressCandidates(operatorId)
   if (!found) return null
   const discovered = found.candidates.filter((x) => x.kind !== 'recorded')
   return (

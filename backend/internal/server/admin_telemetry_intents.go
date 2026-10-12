@@ -243,10 +243,10 @@ func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 	// What the printed endpoints are only taken on trust for (see targetWarnings), once per operator.
 	var warnings []string
 	warned := map[string]bool{}
-	warn := func(op store.Operator) {
-		if !warned[op.ID] {
-			warned[op.ID] = true
-			warnings = append(warnings, a.targetWarnings(r.Context(), op)...)
+	warn := func(op store.Operator, d store.Destination) {
+		if key := op.ID + "|" + d.Address; !warned[key] {
+			warned[key] = true
+			warnings = append(warnings, a.destWarnings(r.Context(), op, d)...)
 		}
 	}
 	if len(ti.Routes) > 0 {
@@ -292,8 +292,8 @@ func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 				a.fail(w, err)
 				return
 			}
-			warn(op)
-			installFragment += " " + operatorRouteFlags(op, a.operatorEndpoint(op), m)
+			warn(op, d)
+			installFragment += " " + operatorRouteFlags(op, a.destEndpoint(op, d), m)
 		}
 		if len(unrouted) > 0 {
 			// The signal types without a route of their own go to the intent's default destination. When that is a
@@ -310,8 +310,8 @@ func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 					a.fail(w, err)
 					return
 				}
-				warn(op)
-				installFragment += " " + exportBlockFlags("telemetry.export.otlp", op, a.operatorEndpoint(op), true)
+				warn(op, ti.Destination)
+				installFragment += " " + exportBlockFlags("telemetry.export.otlp", op, a.destEndpoint(op, ti.Destination), true)
 			}
 			installFragment += " " + clearRouteFlags(unrouted...)
 		}
@@ -330,8 +330,8 @@ func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 			a.fail(w, err)
 			return
 		}
-		warn(op)
-		setFlags, secretCmd := operatorDestinationCommand(op, a.operatorEndpoint(op), certPEM, keyPEM, caPEM, rns)
+		warn(op, ti.Destination)
+		setFlags, secretCmd := operatorDestinationCommand(op, a.destEndpoint(op, ti.Destination), certPEM, keyPEM, caPEM, rns)
 		// Every signal type goes to this one destination, so no per-signal route may stay: a route outranks the default,
 		// and one an earlier command set (--reset-then-reuse-values keeps it) would keep sending to the old destination.
 		installFragment += " " + setFlags + " " + clearRouteFlags(routeModalities...)

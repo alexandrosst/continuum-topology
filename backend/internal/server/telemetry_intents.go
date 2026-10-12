@@ -111,7 +111,7 @@ func (c *Core) cleanRoutes(ctx context.Context, routes map[store.Modality]store.
 		if err := c.validateDestination(ctx, d); err != nil {
 			return nil, err
 		}
-		out[m] = d
+		out[m] = normalizeDestination(d)
 	}
 	return out, nil
 }
@@ -218,6 +218,7 @@ func (c *Core) CreateTelemetryIntentWithRoutes(ctx context.Context, actor, agent
 	if err := c.validateDestination(ctx, dest); err != nil {
 		return store.TelemetryIntent{}, err
 	}
+	dest = normalizeDestination(dest)
 	routes, err = c.cleanRoutes(ctx, routes)
 	if err != nil {
 		return store.TelemetryIntent{}, err
@@ -309,6 +310,7 @@ func (c *Core) UpdateTelemetryIntentDestination(ctx context.Context, actor, id s
 	if err := c.validateDestination(ctx, dest); err != nil {
 		return err
 	}
+	dest = normalizeDestination(dest)
 	if err := c.checkDestinationsAcceptSignals(ctx, dest, ti.Routes, ti.Signals); err != nil {
 		return err
 	}
@@ -337,6 +339,7 @@ func (c *Core) UpdateTelemetryIntentDestinations(ctx context.Context, actor, id 
 	if err := c.validateDestination(ctx, dest); err != nil {
 		return err
 	}
+	dest = normalizeDestination(dest)
 	routes, err = c.cleanRoutes(ctx, routes)
 	if err != nil {
 		return err

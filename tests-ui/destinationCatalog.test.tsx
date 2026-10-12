@@ -444,3 +444,14 @@ describe('defaultDestination: what a wizard that was not told picks on its own',
     expect(pick(buildDestinationCatalog({ ...base, operators: [], fusion: fusionOf('off') }), 'c1')).toBeUndefined()
   })
 })
+
+describe('applyDestination: the sender-chosen operator address', () => {
+  const entryFor = (id: string) => buildDestinationCatalog({ operators: [operator({ id })], enabledModalities: new Set(['metrics']), quickStartBackends: [], isAdmin: true }).entries.find((e) => e.kind === 'operator')!
+  test('is kept when the same operator is picked again, and dropped for another operator or a different kind of destination', () => {
+    const withAddress = { ...emptyTelemetry, exportOperatorId: 'op-1', exportOperatorAddress: '10.20.0.14:31317' }
+    expect(applyDestination(withAddress, entryFor('op-1')).exportOperatorAddress).toBe('10.20.0.14:31317')
+    expect(applyDestination(withAddress, entryFor('op-2')).exportOperatorAddress).toBe('')
+    const preset = buildDestinationCatalog({ operators: [], enabledModalities: new Set(['metrics']), quickStartBackends: [], isAdmin: true }).entries.find((e) => e.kind === 'external-preset')!
+    expect(applyDestination(withAddress, preset).exportOperatorAddress).toBe('')
+  })
+})

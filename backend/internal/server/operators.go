@@ -139,6 +139,9 @@ func (c *Core) validateDestination(ctx context.Context, dest store.Destination) 
 		if strings.TrimSpace(dest.Endpoint) == "" {
 			return errf(KindInvalid, "destination.endpoint is required")
 		}
+		if dest.Address != "" {
+			return errf(KindInvalid, "destination.address only applies to a destination that is a regional operator: an external one is dialled at its endpoint")
+		}
 		return validExternalDestination(dest)
 	case store.DestinationOperator:
 		if strings.TrimSpace(dest.TargetOperatorID) == "" {
@@ -151,10 +154,27 @@ func (c *Core) validateDestination(ctx context.Context, dest store.Destination) 
 		if op.Status != store.OperatorActive {
 			return errf(KindInvalid, "operator %q is not active", dest.TargetOperatorID)
 		}
+		// The address this sender dials, when it is not the one recorded for the operator. It gets the same checks as a
+		// recorded address (a host and a port, nothing that is only this server's own network).
+		if _, err := validOperatorAddress(dest.Address); err != nil {
+			return err
+		}
 		return nil
 	default:
 		return errf(KindInvalid, "destination.kind must be %q or %q", store.DestinationExternal, store.DestinationOperator)
 	}
+}
+
+// normalizeDestination writes the address a destination carries the way a recorded address is stored (a bare host gets
+// the receiver's port, a host name is lower-cased). Call it after validateDestination, which has already refused one
+// that cannot be normalized.
+func normalizeDestination(d store.Destination) store.Destination {
+	if d.Address != "" {
+		if a, err := validOperatorAddress(d.Address); err == nil {
+			d.Address = a
+		}
+	}
+	return d
 }
 
 // operatorDestination validates the destination of a regional operator: another operator (the central one, or
@@ -172,6 +192,7 @@ func (c *Core) operatorDestination(ctx context.Context, selfID string, dest stor
 	if err := c.validateDestination(ctx, dest); err != nil {
 		return dest, err
 	}
+	dest = normalizeDestination(dest)
 	return dest, c.checkOperatorChain(ctx, selfID, dest)
 }
 

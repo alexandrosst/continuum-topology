@@ -1260,6 +1260,9 @@ export interface OperatorDestination {
   /** Only meaningful for kind 'operator': the id of the active regional operator in this org this
    *  destination chains to. The server rejects a kind 'operator' destination that doesn't name one. */
   targetOperatorId?: string
+  /** Only meaningful for kind 'operator' on a telemetry intent: the host:port THIS sender dials to reach that operator, chosen on the
+   *  sending side. Absent means the address recorded for the operator. The certificate is verified by the operator's stable name either way. */
+  address?: string
   /** Only meaningful for kind 'fusion', which only the server's own central operator carries (it is how that
    *  operator is described, never something to create): the release and namespace of the FUSION bundled with the
    *  server, whose three stores it saves into. */
