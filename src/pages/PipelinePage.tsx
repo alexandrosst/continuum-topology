@@ -10,6 +10,7 @@ import HealthModal from '@/components/operators/HealthModal'
 import { HEARTBEAT_WHAT } from '@/components/operators/HeartbeatCommands'
 import { OperatorAddressModal } from '@/components/operators/OperatorAddress'
 import OperatorCertificatesModal from '@/components/operators/OperatorCertificatesModal'
+import OperatorSendersModal from '@/components/operators/OperatorSendersModal'
 import OperatorCreated from '@/components/operators/OperatorCreated'
 import PipelinePath from '@/components/operators/PipelinePath'
 import RemoveOperatorModal from '@/components/operators/RemoveOperatorModal'
@@ -90,6 +91,7 @@ export default function PipelinePage() {
   const [healthFor, setHealthFor] = useState<RegionalOperator | null>(null)
   const [addressFor, setAddressFor] = useState<RegionalOperator | null>(null)
   const [certsFor, setCertsFor] = useState<RegionalOperator | null>(null)
+  const [sendersFor, setSendersFor] = useState<RegionalOperator | null>(null)
   const [todoFor, setTodoFor] = useState<ComponentRow | null>(null)
 
   // What a destination can be named by: the full list for an administrator, the read model for anyone else.
@@ -149,6 +151,7 @@ export default function PipelinePage() {
     return [
       ...sourcesOf(op).map((s) => ({ key: `connect-${s.id}`, label: `Connect ${s.name}…`, onSelect: () => connect(s.agent!.id, op.id), disabled: !canConsent, title: canConsent ? undefined : 'Connecting a cluster needs permission to edit', testId: `operator-connect-${op.name}-${s.id}` })),
       address,
+      ...(admin ? [{ key: 'senders', label: 'Clusters sending here', onSelect: () => setSendersFor(op), testId: `operator-senders-open-${op.name}` }] : []),
       { key: 'certs', label: 'Issued certificates', onSelect: () => setCertsFor(op), testId: `operator-certs-${op.name}` },
       // Dimmed while any renewal runs (not only this row's): one at a time, and the reason is visible rather than a click that does nothing.
       { key: 'renew', label: 'Renew certificates…', onSelect: () => setConfirmRenew(op), disabled: renewing !== null, title: renewing !== null ? 'Another renewal is in progress' : undefined, testId: `operator-renew-${op.name}` },
@@ -296,6 +299,7 @@ export default function PipelinePage() {
         />
       )}
 
+      {sendersFor && <OperatorSendersModal operator={sendersFor} onClose={() => setSendersFor(null)} />}
       {certsFor && <OperatorCertificatesModal operator={certsFor} clusterName={(id) => clusters.find((c) => c.id === id)?.name ?? ''} onClose={() => setCertsFor(null)} />}
       {addressFor && (
         <OperatorAddressModal operator={addressFor} central={addressFor.id === CENTRAL_OPERATOR_ID ? { service: fusion.status?.central?.service ?? '', namespace: fusion.status?.central?.namespace ?? '' } : undefined} onClose={() => setAddressFor(null)} onDone={() => { actionDone(); void fusion.refresh() }} />

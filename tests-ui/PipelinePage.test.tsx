@@ -322,7 +322,7 @@ describe('PipelinePage', () => {
     const button = screen.getByRole('button', { name: 'Actions for one' })
     await user.click(button)
     expect(button).toHaveAttribute('aria-expanded', 'true')
-    expect(within(screen.getByRole('menu', { name: 'Actions for one' })).getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['Connect edge-1…', 'Reachable at…', 'Issued certificates', 'Renew certificates…', 'Enable health reporting', 'Disconnect…', 'Stop and remove…'])
+    expect(within(screen.getByRole('menu', { name: 'Actions for one' })).getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['Connect edge-1…', 'Reachable at…', 'Clusters sending here', 'Issued certificates', 'Renew certificates…', 'Enable health reporting', 'Disconnect…', 'Stop and remove…'])
     await user.keyboard('{Escape}')
     expect(screen.queryByRole('menu')).not.toBeInTheDocument()
     await user.click(screen.getByTestId('component-menu-agent:a1'))

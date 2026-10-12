@@ -1305,6 +1305,43 @@ export interface AddressTest {
   created: string
 }
 
+/** A cluster that sends to a regional operator (admin: GET /operators/{id}/senders). `source` is who chose the address: the sender
+ *  itself, the one recorded for the operator, or - with none recorded - the operator's name inside its own cluster. */
+export interface OperatorSenderAddress {
+  address: string
+  source: 'chosen' | 'recorded' | 'in-cluster'
+  signals: string[]
+}
+export interface OperatorSenderDelivery {
+  state: 'waiting' | 'exporting' | 'silent' | 'failing'
+  sent: number
+  failed: number
+  lastError?: string
+  lastSentAt?: string
+  lastFailedAt?: string
+}
+/** Where the fault is likely to be, from the evidence the server holds; `unclear` says the evidence does not settle it. */
+export interface OperatorSenderDiagnosis {
+  where: 'sender-network' | 'address' | 'certificate' | 'credential' | 'operator' | 'sender' | 'unclear'
+  title: string
+  detail: string
+}
+export interface OperatorSender {
+  intentId: string
+  intentName: string
+  agentId: string
+  agentName: string
+  clusterId?: string
+  connected: boolean
+  addresses: OperatorSenderAddress[]
+  delivery?: OperatorSenderDelivery
+  diagnosis?: OperatorSenderDiagnosis
+}
+export interface OperatorSenders {
+  operatorState: string
+  senders: OperatorSender[]
+}
+
 export interface AddressCandidates {
   /** Whether discovery has seen the operator's Deployment. When false the list holds the recorded address only. */
   found: boolean
