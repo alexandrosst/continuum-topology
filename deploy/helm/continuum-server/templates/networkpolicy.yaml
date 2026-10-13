@@ -22,6 +22,17 @@ spec:
       {{- with $np.ingress.agent.from }}
       from: {{- toYaml . | nindent 8 }}
       {{- end }}
+    {{- if .Values.nodeProbe.enabled }}
+    # The node probes (signed reports). A hostNetwork pod has no pod identity, so the rule names node ranges, or any source.
+    - ports:
+        - {port: {{ .Values.nodeProbe.port }}, protocol: TCP}
+      {{- with .Values.nodeProbe.allowedCIDRs }}
+      from:
+        {{- range . }}
+        - ipBlock: {cidr: {{ . | quote }}}
+        {{- end }}
+      {{- end }}
+    {{- end }}
     # The UI and admin API. Restrict to your Gateway's namespace (and the pods you port-forward from).
     - ports:
         - {port: {{ .Values.admin.port }}, protocol: TCP}

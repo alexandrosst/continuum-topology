@@ -1363,10 +1363,12 @@ export interface AddressCandidates {
 }
 
 export interface ServerCluster {
-  /** `known`: an agent there reports its nodes. `noAgent`: the cluster is known but nothing there can read its nodes. `unknown`: nothing could say. */
+  /** `known`: an agent or the server's own node probes report its nodes. `noAgent`: the cluster is known but nothing there can read its nodes. `unknown`: nothing could say. */
   state: 'known' | 'noAgent' | 'unknown'
-  /** How a known cluster is known: the install passed its identity, a person chose it, or it was matched from what agents report. */
-  source?: 'install' | 'chosen' | 'matched'
+  /** How a known cluster is known: the install passed its identity, a person chose it, or it was matched from what agents report, or the server's own node probes reported from it. */
+  source?: 'install' | 'chosen' | 'matched' | 'probe'
+  /** Where the nodes listed come from: an agent registered in the cluster, or the node probes that ship with the server's chart. */
+  nodes?: 'agent' | 'probe'
   clusterId?: string
   /** The registered clusters, to choose among. */
   options?: { id: string; name: string }[]

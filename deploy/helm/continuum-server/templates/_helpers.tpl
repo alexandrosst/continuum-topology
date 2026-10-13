@@ -277,3 +277,28 @@ is non-empty. */}}
 {{- define "continuum.fusionControl" -}}
 {{- if and .Values.fusion.enabled .Values.fusionControl.enabled -}}true{{- end -}}
 {{- end -}}
+
+{{/* ---- Node probes (see values.yaml nodeProbe) ---- */}}
+{{- define "continuum.probeName" -}}{{- printf "%s-probe" (include "continuum.fullname" .) | trunc 63 | trimSuffix "-" -}}{{- end -}}
+
+{{/* The shared secret: the one given, else the one already in the cluster, else a new random one - so an upgrade never
+     changes it (the pods read it only at start) and nobody types it. */}}
+{{- define "continuum.probeSecret" -}}
+{{- $existing := lookup "v1" "Secret" .Release.Namespace (include "continuum.probeName" .) -}}
+{{- if .Values.nodeProbe.secret -}}{{- .Values.nodeProbe.secret -}}
+{{- else if and $existing $existing.data (hasKey $existing.data "secret") -}}{{- index $existing.data "secret" | b64dec -}}
+{{- else -}}{{- randAlphaNum 48 -}}
+{{- end -}}
+{{- end -}}
+{{- define "continuum.probeSecretRevision" -}}{{ .Values.nodeProbe.secret | default "generated" | sha256sum }}{{- end -}}
+
+{{/* The probes' image, as an image block for continuum.imageRef / continuum.imagePullPolicy. */}}
+{{- define "continuum.probeImage" -}}
+{{- $i := .Values.nodeProbe.image -}}
+{{- $repo := $i.repository -}}
+{{- if not $repo -}}
+{{- $repo = ternary (printf "%s/continuum" .Values.agentInstall.imageRegistry) "continuum/continuum" (not (empty .Values.agentInstall.imageRegistry)) -}}
+{{- end -}}
+{{- $tag := $i.tag | default .Values.agentInstall.imageTag | default .Chart.AppVersion | toString -}}
+{{- dict "repository" $repo "tag" $tag "digest" $i.digest "pullPolicy" $i.pullPolicy | toJson -}}
+{{- end -}}

@@ -55,6 +55,46 @@ org: default
 # the chart reads it itself at install and upgrade time. Set it only where the chart cannot (helm template, GitOps rendering).
 clusterId: ""
 
+# Node probes. A tiny read-only DaemonSet (the agent's own node probe: the same image, with the argument `probe`) that tells the
+# server what addresses each node of ITS OWN cluster has, on every network interface, mesh ones included. The central operator's
+# address picker lists them, so a cluster the server is in needs no agent just for that. They report to the server over the
+# cluster network, signed with a secret this chart generates and keeps across upgrades, and have no Kubernetes API access and no
+# capabilities. A real agent in the same cluster always outranks them.
+#
+# On by default because an address nobody asked a person to look up is the point. hostNetwork is what lets them see the node's real
+# interfaces (a pod's own network namespace has only its own veth): a namespace enforcing the Pod Security "baseline" or
+# "restricted" profile refuses it, and the pods then do not start (the rest of the install is unaffected). Label the namespace
+# privileged, or set enabled to false and let an agent in this cluster provide the addresses instead.
+nodeProbe:
+  enabled: true
+  # The image: the same `continuum` image the agent chart runs. Left empty, the repository follows agentInstall.imageRegistry
+  # (<registry>/continuum), else continuum/continuum, and the tag follows agentInstall.imageTag, else this chart's appVersion.
+  image:
+    repository: ""
+    tag: ""
+    digest: ""
+    pullPolicy: ""
+  interval: 3m
+  # Where the server listens for their reports (plain HTTP inside the cluster; every report is signed).
+  port: 8083
+  # Needed for the node's real interface addresses; see above.
+  hostNetwork: true
+  # Also mount the host's /sys read-only (a hostPath), which adds the board model of ARM devices. Addresses do not need it.
+  hostSys: false
+  # Leave empty to generate one on first install and keep it across upgrades.
+  secret: ""
+  # Who may send reports to the server's pod when networkPolicy.enabled is on. A hostNetwork pod's traffic carries no pod identity,
+  # so this is a list of node address ranges (ipBlock CIDRs); empty means from anywhere in the cluster (reports are signed).
+  allowedCIDRs: []
+  resources:
+    requests: {cpu: 5m, memory: 12Mi}
+    limits: {memory: 32Mi}
+  # Run on every Linux node, including tainted control-plane and edge nodes.
+  tolerations:
+    - operator: Exists
+  nodeSelector:
+    kubernetes.io/os: linux
+
 # ---------------------------------------------------------------------------------------------------------------------
 # Agents: how they reach this server. Agents connect OUT to this address over mutual TLS.
 # ---------------------------------------------------------------------------------------------------------------------

@@ -23,6 +23,7 @@ import (
 	"continuum/internal/graph"
 	"continuum/internal/passkey"
 	"continuum/internal/pki"
+	"continuum/internal/probe"
 	"continuum/internal/server"
 	"continuum/internal/store"
 )
@@ -63,6 +64,9 @@ func main() {
 			os.Exit(restoreCmd(os.Args[2:], os.Stdout, os.Stderr))
 		}
 	}
+	probeListen := flag.String("probe-listen", os.Getenv("CONTINUUM_PROBE_LISTEN"), "address to listen on for the reports of the node probes the server's chart runs, e.g. :8083 (empty: no node probes). Plain HTTP inside the cluster; every report is signed with the secret in --probe-secret-file. env CONTINUUM_PROBE_LISTEN")
+	probeSecretFile := flag.String("probe-secret-file", os.Getenv("CONTINUUM_PROBE_SECRET_FILE"), "file holding the secret shared with those node probes (at least 16 characters). env CONTINUUM_PROBE_SECRET_FILE")
+	probeEvery := flag.Duration("probe-interval", 3*time.Minute, "how often those node probes were told to report (the chart's nodeProbe.interval); one silent for three of these is no longer believed")
 	var origins multi
 	dataDir := flag.String("data-dir", "./data", "where the database and CA live")
 	agentListen := flag.String("agent-listen", ":8443", "address the agents connect to (mTLS)")
@@ -169,12 +173,47 @@ func main() {
 		}
 		mail = server.MailConfig{Host: *smtpHost, Port: *smtpPort, Username: *smtpUser, Password: pw, From: *smtpFrom}
 	}
-	if err := run(log, *dataDir, *agentListen, *agentAddr, *agentExposure, *releaseName, *releaseNamespace, *fusionName, *fusionCentralAddress, *extraHosts, *adminListen, *adminCert, *adminKey, *behindProxy, *agentBehindProxy, *ssoHeader, *uiDir, *chartRef, img, *org, regMode, *geoDB, *geoPublicIP, *geoASNDB, decider, neo, mail, keyOpts{PassphraseFile: *caPassFile, AutoPassphrase: *caAutoPass, AllowLoose: *looseOK}, origins); err != nil {
+	if (*probeListen == "") != (*probeSecretFile == "") {
+		fatal(log, errors.New("--probe-listen and --probe-secret-file must be given together"))
+	}
+	if err := run(log, probeOpts{Listen: *probeListen, SecretFile: *probeSecretFile, Every: *probeEvery}, *dataDir, *agentListen, *agentAddr, *agentExposure, *releaseName, *releaseNamespace, *fusionName, *fusionCentralAddress, *extraHosts, *adminListen, *adminCert, *adminKey, *behindProxy, *agentBehindProxy, *ssoHeader, *uiDir, *chartRef, img, *org, regMode, *geoDB, *geoPublicIP, *geoASNDB, decider, neo, mail, keyOpts{PassphraseFile: *caPassFile, AutoPassphrase: *caAutoPass, AllowLoose: *looseOK}, origins); err != nil {
 		fatal(log, err)
 	}
 }
 
 // keyOpts is how the operator asked for the CA key and the data directory to be protected.
+// probeOpts is where the server hears from the node probes its own chart runs (see server/self_probe.go).
+type probeOpts struct {
+	Listen, SecretFile string
+	Every              time.Duration
+}
+
+// serveSelfProbe starts the receiver for those probes. Nil, nil when the server has none. The secret is checked here, so a
+// server that is told to listen refuses to start with one it could not verify anything with.
+func serveSelfProbe(log *slog.Logger, o probeOpts) (*probe.Receiver, *http.Server, error) {
+	if o.Listen == "" {
+		return nil, nil, nil
+	}
+	b, err := os.ReadFile(o.SecretFile)
+	secret := []byte(strings.TrimSpace(string(b)))
+	if err != nil || len(secret) < 16 {
+		return nil, nil, fmt.Errorf("--probe-secret-file must hold a secret of at least 16 characters: %v", err)
+	}
+	ln, err := net.Listen("tcp", o.Listen)
+	if err != nil {
+		return nil, nil, fmt.Errorf("--probe-listen: %w", err)
+	}
+	rcv := probe.NewReceiver(secret, log)
+	srv := &http.Server{Handler: rcv.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8 << 10}
+	go func() {
+		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Error("node probe receiver stopped", "err", err)
+		}
+	}()
+	log.Info("listening for node probe reports", "addr", ln.Addr().String())
+	return rcv, srv, nil
+}
+
 type keyOpts struct {
 	PassphraseFile string
 	AutoPassphrase bool
@@ -209,7 +248,7 @@ func fatal(log *slog.Logger, err error) {
 	os.Exit(1)
 }
 
-func run(log *slog.Logger, dataDir, agentListen, agentAddr, agentExposure, releaseName, releaseNamespace, fusionName, fusionCentralAddress, extraHosts, adminListen, adminCert, adminKey string, behindProxy, agentBehindProxy bool, ssoHeader, uiDir, chartRef string, img server.ImageConfig, org, registration, geoPath, geoPublicIP, geoASNPath string, decider *server.DeciderPolicy, neo *graph.Config, mail server.MailConfig, keys keyOpts, origins []string) error {
+func run(log *slog.Logger, selfProbe probeOpts, dataDir, agentListen, agentAddr, agentExposure, releaseName, releaseNamespace, fusionName, fusionCentralAddress, extraHosts, adminListen, adminCert, adminKey string, behindProxy, agentBehindProxy bool, ssoHeader, uiDir, chartRef string, img server.ImageConfig, org, registration, geoPath, geoPublicIP, geoASNPath string, decider *server.DeciderPolicy, neo *graph.Config, mail server.MailConfig, keys keyOpts, origins []string) error {
 	if err := checkSSOHeader(ssoHeader, behindProxy); err != nil {
 		return err
 	}
@@ -356,6 +395,11 @@ func run(log *slog.Logger, dataDir, agentListen, agentAddr, agentExposure, relea
 		// are given it as a series of its own.
 		go admin.RunApplicationInfo(context.Background(), log)
 	}
+	probes, probeSrv, err := serveSelfProbe(log, selfProbe)
+	if err != nil {
+		return err
+	}
+	admin.SelfProbe, admin.SelfProbeEvery = probes, selfProbe.Every
 	admin.Readiness = &server.Readiness{AgentsListening: grpcSrv.Serving}
 	if graphStore != nil {
 		admin.Readiness.Graph = func() (bool, bool) { return true, graphStore.Ready() }
@@ -403,6 +447,9 @@ func run(log *slog.Logger, dataDir, agentListen, agentAddr, agentExposure, relea
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = httpSrv.Shutdown(ctx)
+	if probeSrv != nil {
+		_ = probeSrv.Shutdown(ctx)
+	}
 	if metricsSrv != nil {
 		_ = metricsSrv.Shutdown(ctx)
 	}

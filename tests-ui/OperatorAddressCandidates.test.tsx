@@ -175,6 +175,21 @@ describe('the central operator says which cluster the server runs in', () => {
     expect(screen.queryByTestId('operator-address-hint')).toBeNull()
   })
 
+  it('says the nodes come from the server\u2019s own node probes when no agent is there', async () => {
+    candidates.mockResolvedValue({
+      found: true,
+      candidates: [lb],
+      serverCluster: { state: 'known', source: 'probe', nodes: 'probe' },
+    })
+    openCentral()
+    const card = await screen.findByTestId('operator-address-server-cluster')
+    expect(card).toHaveAttribute('data-state', 'known')
+    expect(card).toHaveTextContent('because its own node probes report from it')
+    expect(card).toHaveTextContent('no agent is needed')
+    // Nothing to ask the person to connect.
+    expect(screen.queryByTestId('operator-address-server-cluster-connect')).toBeNull()
+  })
+
   it('asks which cluster the server is in when nothing could say, and saves the choice', async () => {
     candidates.mockResolvedValue({
       found: false,

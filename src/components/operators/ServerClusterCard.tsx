@@ -9,6 +9,7 @@ const SOURCE: Record<NonNullable<NonNullable<AddressCandidates['serverCluster']>
   install: 'from its install',
   chosen: 'because you chose it',
   matched: 'matched from what the agents report',
+  probe: 'because its own node probes report from it',
 }
 
 /** Which cluster the server, and so FUSION's gateway, runs in. The nodes of that cluster are the ones to list, so the card says
@@ -58,7 +59,7 @@ export default function ServerClusterCard({ found, operatorId, onChanged, testId
     return (
       <div className="space-y-2" data-testid={testId} data-state="known">
         <p className="text-[11px] leading-relaxed text-nb-500">
-          The server knows it runs in {name} {sc.source ? SOURCE[sc.source] : ''}.{' '}
+          The server knows it runs in {name} {sc.source ? SOURCE[sc.source] : ''}.{sc.nodes === 'probe' ? ' Its nodes\u2019 addresses come from the node probes that ship with the server, so no agent is needed.' : ''}{' '}
           <button type="button" className="text-accent underline" onClick={() => { setPick(sc.source === 'chosen' ? sc.clusterId ?? '' : ''); setChanging((v) => !v) }} data-testid={`${testId}-change`}>Change</button>
         </p>
         {changing && chooser}
@@ -71,7 +72,7 @@ export default function ServerClusterCard({ found, operatorId, onChanged, testId
       <div role="note" className="space-y-2.5 rounded-lg border border-warn/30 bg-warn/10 px-3.5 py-3" data-testid={testId} data-state="noAgent">
         <div className="text-sm font-medium text-warn">The server&apos;s cluster has no agent</div>
         <p className="text-xs leading-relaxed text-nb-300">
-          FUSION runs in the same cluster as this server, and only an agent can read that cluster&apos;s nodes and their network interfaces. Connect it with the node probe on, and its nodes&apos; addresses, mesh ones included, appear here.
+          FUSION runs in the same cluster as this server, but nothing there reports that cluster&apos;s nodes and their network interfaces yet. The node probes the server&apos;s chart runs normally do (they may be switched off, or not started); so does an agent connected with the node probe on. Either way the nodes&apos; addresses, mesh ones included, appear here.
         </p>
         <div>
           <Button type="button" variant="primary" onClick={() => navigate('/agents?connect=1&probe=1')} data-testid={`${testId}-connect`}>Connect the server&apos;s cluster</Button>

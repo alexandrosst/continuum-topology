@@ -867,6 +867,78 @@
       "type": "string",
       "pattern": "^$|^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
       "description": "UID of the kube-system namespace of the cluster this server runs in. Empty: read at install time."
+    },
+    "nodeProbe": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "repository": {
+              "type": "string"
+            },
+            "tag": {
+              "type": [
+                "string",
+                "number"
+              ]
+            },
+            "digest": {
+              "type": "string",
+              "pattern": "^(sha256:[a-f0-9]{64})?$"
+            },
+            "pullPolicy": {
+              "type": "string",
+              "enum": [
+                "",
+                "Always",
+                "IfNotPresent",
+                "Never"
+              ]
+            }
+          }
+        },
+        "interval": {
+          "type": "string",
+          "pattern": "^[0-9]+(s|m|h)$"
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "hostNetwork": {
+          "type": "boolean"
+        },
+        "hostSys": {
+          "type": "boolean"
+        },
+        "secret": {
+          "type": "string",
+          "pattern": "^$|^[A-Za-z0-9._~-]{16,}$",
+          "description": "Shared secret with the node probes (at least 16 characters). Empty: generated."
+        },
+        "allowedCIDRs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "resources": {
+          "type": "object"
+        },
+        "tolerations": {
+          "type": "array"
+        },
+        "nodeSelector": {
+          "type": "object"
+        }
+      }
     }
   }
 }

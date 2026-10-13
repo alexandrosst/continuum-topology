@@ -18,6 +18,7 @@ import (
 
 	"continuum/internal/chart"
 	"continuum/internal/fusionapi"
+	"continuum/internal/probe"
 	"continuum/internal/store"
 	"continuum/internal/workspace"
 )
@@ -26,6 +27,11 @@ import (
 // port. Everything except sign-in needs a session cookie, and what a person may do depends on
 // their role.
 type Admin struct {
+	// SelfProbe receives the reports of the node probes that ship with the server's own chart, and SelfProbeEvery is how
+	// often they were told to report. Both are nil/zero on an install without those probes. See self_probe.go.
+	SelfProbe      *probe.Receiver
+	SelfProbeEvery time.Duration
+
 	P         *Platform
 	C         *Core  // the platform-wide core (accounts, sign-in); an organisation's own is a.core(r)
 	AgentAddr string // host:port agents dial, shown in the install command

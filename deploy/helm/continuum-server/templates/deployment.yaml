@@ -28,8 +28,14 @@ spec:
         {{- with .Values.podLabels }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
-      {{- with .Values.podAnnotations }}
-      annotations: {{- toYaml . | nindent 8 }}
+      {{- if or .Values.podAnnotations .Values.nodeProbe.enabled }}
+      annotations:
+        {{- if .Values.nodeProbe.enabled }}
+        checksum/node-probe-secret: {{ include "continuum.probeSecretRevision" . }}   # the server reads the secret at start
+        {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       {{- end }}
     spec:
       {{- with .Values.imagePullSecrets }}
@@ -124,6 +130,11 @@ spec:
             {{- else if .Values.pki.encryptAtRest }}
             - --ca-key-auto-passphrase
             {{- end }}
+            {{- if .Values.nodeProbe.enabled }}
+            - --probe-listen=:{{ .Values.nodeProbe.port }}
+            - --probe-secret-file=/etc/continuum/probe/secret
+            - --probe-interval={{ .Values.nodeProbe.interval }}
+            {{- end }}
             {{- range .Values.extraArgs }}
             - {{ . | quote }}
             {{- end }}
@@ -178,6 +189,9 @@ spec:
           ports:
             - {name: agent, containerPort: {{ .Values.agent.port }}, protocol: TCP}
             - {name: admin, containerPort: {{ .Values.admin.port }}, protocol: TCP}
+            {{- if .Values.nodeProbe.enabled }}
+            - {name: probe, containerPort: {{ .Values.nodeProbe.port }}, protocol: TCP}
+            {{- end }}
           {{- $probe := dict "path" "/healthz" "port" "admin" "scheme" (ternary "HTTPS" "HTTP" (not (empty $tls))) }}
           startupProbe:
             httpGet: {{- toYaml $probe | nindent 14 }}
@@ -201,6 +215,9 @@ spec:
             {{- end }}
             {{- if $passName }}
             - {name: ca-passphrase, mountPath: /etc/continuum/ca, readOnly: true}
+            {{- end }}
+            {{- if .Values.nodeProbe.enabled }}
+            - {name: node-probe-secret, mountPath: /etc/continuum/probe, readOnly: true}
             {{- end }}
             {{- with .Values.extraVolumeMounts }}
             {{- toYaml . | nindent 12 }}
@@ -234,6 +251,10 @@ spec:
             items:
               - key: {{ $passKey }}
                 path: {{ $passKey }}
+        {{- end }}
+        {{- if .Values.nodeProbe.enabled }}
+        - name: node-probe-secret
+          secret: {secretName: {{ include "continuum.probeName" . }}, defaultMode: 0440}
         {{- end }}
         {{- with .Values.extraVolumes }}
         {{- toYaml . | nindent 8 }}

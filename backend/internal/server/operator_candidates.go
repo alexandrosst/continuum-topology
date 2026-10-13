@@ -94,6 +94,9 @@ type ServerClusterDoc struct {
 	ClusterID string `json:"clusterId,omitempty"`
 	// Options are the registered clusters to choose from (to set the cluster, or to change it).
 	Options []ClusterOption `json:"options,omitempty"`
+	// Nodes says where the nodes listed come from: "agent" (an agent registered in the cluster) or "probe" (the node probes
+	// that ship with the server's chart, which need no agent). Empty when no nodes are listed.
+	Nodes string `json:"nodes,omitempty"`
 }
 
 // ExposeDoc names the gateway's Service and the kubectl command that makes it reachable from other clusters.
@@ -693,6 +696,13 @@ func exposureHint(candidates []AddressCandidate, found, central bool) string {
 // list). Failing both, it is worked out from what agents report: a workload of the server's namespace, then a node that has
 // the load balancer's address; and when that finds nothing the state is unknown, with the registered clusters to choose from.
 func (a *Admin) serverClusterHost(ctx context.Context, c *Core, hub *Hub, namespace, workload string, gateway *KubeService) (operatorHost, bool, *ServerClusterDoc) {
+	host, ok, doc := a.serverClusterFromAgents(ctx, c, hub, namespace, workload, gateway)
+	return a.withSelfProbe(host, ok, doc)
+}
+
+// serverClusterFromAgents is serverClusterHost before the server's own node probes are looked at: what the install, a
+// person's choice and the registered agents say.
+func (a *Admin) serverClusterFromAgents(ctx context.Context, c *Core, hub *Hub, namespace, workload string, gateway *KubeService) (operatorHost, bool, *ServerClusterDoc) {
 	gatewayWorkload := func(w *continuumv1.WorkloadFacts) bool { return w.Namespace == namespace && w.Name == workload }
 	id, source := c.Settings().ServerClusterID, "chosen"
 	if id == "" {

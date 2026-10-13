@@ -65,6 +65,27 @@ func (r *Receiver) Get(node string) *continuumv1.HostProbe {
 	return nil
 }
 
+// Snapshot returns a copy of what every node reported within the last `within`, by node name: the nodes that are still
+// talking, not those that reported once and went quiet. Empty while paused.
+func (r *Receiver) Snapshot(within time.Duration) map[string]*continuumv1.HostProbe {
+	if r == nil {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := map[string]*continuumv1.HostProbe{}
+	if r.paused {
+		return out
+	}
+	now := r.now()
+	for name, h := range r.nodes {
+		if at, ok := r.seen[name]; ok && now.Sub(at) <= within {
+			out[name] = proto.Clone(h).(*continuumv1.HostProbe)
+		}
+	}
+	return out
+}
+
 // Prune forgets nodes that no longer exist, so the map cannot grow without bound.
 func (r *Receiver) Prune(keep map[string]bool) {
 	if r == nil {

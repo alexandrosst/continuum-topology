@@ -49,6 +49,7 @@ type serverRender struct {
 	sets        map[string]appsv1.StatefulSet
 	policies    map[string]networkingv1.NetworkPolicy
 	services    map[string]corev1.Service
+	daemonsets  map[string]appsv1.DaemonSet
 }
 
 // serverRenderWith renders deploy/helm/continuum-server with the FUSION subchart in place, as `helm package -u` would
@@ -68,7 +69,7 @@ func serverRenderWith(t *testing.T, release string, extra ...string) serverRende
 	if err != nil {
 		t.Fatalf("helm template %v: %v\n%s", extra, err, out)
 	}
-	r := serverRender{map[string]rbacv1.Role{}, map[string]rbacv1.RoleBinding{}, map[string]appsv1.Deployment{}, map[string]appsv1.StatefulSet{}, map[string]networkingv1.NetworkPolicy{}, map[string]corev1.Service{}}
+	r := serverRender{map[string]rbacv1.Role{}, map[string]rbacv1.RoleBinding{}, map[string]appsv1.Deployment{}, map[string]appsv1.StatefulSet{}, map[string]networkingv1.NetworkPolicy{}, map[string]corev1.Service{}, map[string]appsv1.DaemonSet{}}
 	dec := yaml.NewYAMLOrJSONDecoder(strings.NewReader(string(out)), 4096)
 	for {
 		var raw json.RawMessage
@@ -100,6 +101,10 @@ func serverRenderWith(t *testing.T, release string, extra ...string) serverRende
 			var v appsv1.Deployment
 			json.Unmarshal(raw, &v)
 			r.deployments[n] = v
+		case "DaemonSet":
+			var v appsv1.DaemonSet
+			json.Unmarshal(raw, &v)
+			r.daemonsets[n] = v
 		case "StatefulSet":
 			var v appsv1.StatefulSet
 			json.Unmarshal(raw, &v)
