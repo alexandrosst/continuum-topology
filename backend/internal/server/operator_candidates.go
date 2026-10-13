@@ -67,6 +67,30 @@ type AddressCandidates struct {
 	// Expose is set when the central operator's gateway cannot be reached from other clusters yet: the Service to change
 	// and the commands that change it. Regional operators are exposed by their install command instead.
 	Expose *ExposeDoc `json:"expose,omitempty"`
+	// ServerCluster is set for the central operator only: whether the server knows which cluster it, and so FUSION's
+	// gateway, runs in, and how.
+	ServerCluster *ServerClusterDoc `json:"serverCluster,omitempty"`
+}
+
+// Server cluster states.
+const (
+	// serverClusterKnown: the cluster is known and an agent there reports its nodes.
+	serverClusterKnown = "known"
+	// serverClusterNoAgent: the cluster is known, but no agent is registered in it, so its nodes cannot be listed.
+	serverClusterNoAgent = "noAgent"
+	// serverClusterUnknown: neither the install, a person nor what agents report says which cluster it is.
+	serverClusterUnknown = "unknown"
+)
+
+// ServerClusterDoc says which cluster the server runs in and how that is known.
+type ServerClusterDoc struct {
+	State string `json:"state"`
+	// Source is how a known cluster is known: "install" (the chart passed its identity), "chosen" (a person picked it) or
+	// "matched" (worked out from what agents report, and a person may correct it).
+	Source    string `json:"source,omitempty"`
+	ClusterID string `json:"clusterId,omitempty"`
+	// Options are the registered clusters to choose from when the state is unknown.
+	Options []ClusterOption `json:"options,omitempty"`
 }
 
 // ExposeDoc names the gateway's Service and the kubectl command that makes it reachable from other clusters.
@@ -159,6 +183,66 @@ func (h *Hub) hostWhere(ctx context.Context, match func(*continuumv1.WorkloadFac
 		}
 	}
 	return operatorHost{}, false
+}
+
+// clusterHost finds a cluster by its id. It is found whenever an approved agent is registered there, even one that has
+// reported nothing yet (then it has no nodes to list). A workload that match accepts, if the agent reports one, says which
+// node the pod is on.
+func (h *Hub) clusterHost(ctx context.Context, clusterID string, match func(*continuumv1.WorkloadFacts) bool) (operatorHost, bool) {
+	agents, err := h.C.Store.ListAgents(ctx, h.C.OrgID)
+	if err != nil {
+		return operatorHost{}, false
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	var out operatorHost
+	found := false
+	for _, a := range agents {
+		if a.Status != store.StatusApproved || a.ClusterID != clusterID {
+			continue
+		}
+		v := h.views[a.ID]
+		if v == nil || v.state == nil {
+			if !found {
+				out, found = operatorHost{ClusterID: a.ClusterID, ClusterName: a.Name}, true
+			}
+			continue
+		}
+		var wl *continuumv1.WorkloadFacts
+		for _, w := range v.state.Workloads {
+			if match != nil && match(w) {
+				wl = w
+				break
+			}
+		}
+		return clusterHost(a, v, wl), true
+	}
+	return out, found
+}
+
+// ClusterOption is a cluster an agent is registered in, for choosing among.
+type ClusterOption struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// clusterOptions lists the clusters approved agents are registered in, one entry per cluster, by name.
+func (h *Hub) clusterOptions(ctx context.Context) []ClusterOption {
+	agents, err := h.C.Store.ListAgents(ctx, h.C.OrgID)
+	if err != nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	out := []ClusterOption{}
+	for _, a := range agents {
+		if a.Status != store.StatusApproved || a.ClusterID == "" || seen[a.ClusterID] {
+			continue
+		}
+		seen[a.ClusterID] = true
+		out = append(out, ClusterOption{ID: a.ClusterID, Name: a.Name})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
 }
 
 // nodeHost finds a cluster by an address one of its nodes has: the one Kubernetes gives it or one on its own interfaces.
@@ -535,7 +619,7 @@ func (h operatorHost) hints(candidates []AddressCandidate) []string {
 // noHostHint says why the nodes' own addresses are missing when no agent has reported where the Deployment runs.
 func noHostHint(central bool) string {
 	if central {
-		return "No agent has reported FUSION's gateway, so the nodes' own addresses (a mesh one, say) cannot be listed; only the load balancer's is known, from the Service. Run an agent with the node probe on in the server's cluster to have them offered."
+		return "The server does not know which cluster FUSION's gateway runs in, or that cluster has no agent, so the nodes' own addresses (a mesh one, say) cannot be listed; only the load balancer's is known, from the Service. Connect the server's cluster with the node probe on to have them offered."
 	}
 	return "No agent has reported where this operator runs, so the nodes' own addresses (a mesh one, say) cannot be listed. Run an agent with the node probe on in its cluster to have them offered."
 }
@@ -560,6 +644,42 @@ func exposureHint(candidates []AddressCandidate, found, central bool) string {
 	return "No agent has reported this operator in a cluster yet. Once one does, the addresses it can be reached at appear here."
 }
 
+// serverClusterHost finds the cluster FUSION's gateway runs in, and says how it is known. A cluster a person chose, or the
+// install named, is the answer even when no agent is registered there (then the state is noAgent, and there are no nodes to
+// list). Failing both, it is worked out from what agents report: a workload of the server's namespace, then a node that has
+// the load balancer's address; and when that finds nothing the state is unknown, with the registered clusters to choose from.
+func (a *Admin) serverClusterHost(ctx context.Context, c *Core, hub *Hub, namespace, workload string, gateway *KubeService) (operatorHost, bool, *ServerClusterDoc) {
+	gatewayWorkload := func(w *continuumv1.WorkloadFacts) bool { return w.Namespace == namespace && w.Name == workload }
+	id, source := c.Settings().ServerClusterID, "chosen"
+	if id == "" {
+		id, source = "", "install"
+		if cid, ok := ClusterIDForUID(c.OrgID, a.Fusion.ClusterUID); ok {
+			id = cid
+		}
+	}
+	if id != "" {
+		if host, ok := hub.clusterHost(ctx, id, gatewayWorkload); ok {
+			return host, true, &ServerClusterDoc{State: serverClusterKnown, Source: source, ClusterID: id}
+		}
+		return operatorHost{}, false, &ServerClusterDoc{State: serverClusterNoAgent, Source: source, ClusterID: id}
+	}
+	host, ok := hub.workloadHost(ctx, namespace, workload)
+	if !ok {
+		host, ok = hub.namespaceHost(ctx, namespace)
+	}
+	if !ok && gateway != nil && gateway.LoadBalancer != "" {
+		// No agent reports anything of that namespace. A load balancer address that is one of a cluster's nodes' own
+		// (k3s's built-in load balancer, MetalLB on a node) still says which cluster the gateway is in.
+		if lbHost, _, err := net.SplitHostPort(gateway.LoadBalancer); err == nil {
+			host, ok = hub.nodeHost(ctx, lbHost)
+		}
+	}
+	if ok {
+		return host, true, &ServerClusterDoc{State: serverClusterKnown, Source: "matched", ClusterID: host.ClusterID}
+	}
+	return operatorHost{}, false, &ServerClusterDoc{State: serverClusterUnknown, Options: hub.clusterOptions(ctx)}
+}
+
 // listOperatorAddressCandidates answers GET .../operators/{id}/address-candidates.
 func (a *Admin) listOperatorAddressCandidates(w http.ResponseWriter, r *http.Request) {
 	c := a.core(r)
@@ -580,18 +700,15 @@ func (a *Admin) listOperatorAddressCandidates(w http.ResponseWriter, r *http.Req
 		}
 		gateway = a.Fusion.gatewayService(r.Context())
 	}
-	host, found := a.tn(r).Hub.workloadHost(r.Context(), namespace, workload)
-	if !found && gateway != nil {
-		// The Service is read by the server, so the cluster is all that is needed from an agent: any workload of the
-		// server's namespace says which one the gateway is in.
-		host, found = a.tn(r).Hub.namespaceHost(r.Context(), namespace)
-		if !found && gateway.LoadBalancer != "" {
-			// No agent reports anything of that namespace. A load balancer address that is one of a cluster's nodes' own
-			// (k3s's built-in one, MetalLB on a node) still says which cluster the gateway is in.
-			if lbHost, _, err := net.SplitHostPort(gateway.LoadBalancer); err == nil {
-				host, found = a.tn(r).Hub.nodeHost(r.Context(), lbHost)
-			}
-		}
+	hub := a.tn(r).Hub
+	var host operatorHost
+	var found bool
+	if op.ID == CentralOperatorID && a.Fusion != nil {
+		// The gateway lies in the server's own cluster, so which cluster that is comes first from what is known of the
+		// server: a person's choice, else what the install told it. Only then is it worked out from what agents report.
+		host, found, res.ServerCluster = a.serverClusterHost(r.Context(), c, hub, namespace, workload, gateway)
+	} else {
+		host, found = hub.workloadHost(r.Context(), namespace, workload)
 	}
 	if found {
 		res.Found, res.HostClusterID, res.HostClusterName = true, host.ClusterID, host.ClusterName
@@ -628,4 +745,39 @@ func (a *Admin) listOperatorAddressCandidates(w http.ResponseWriter, r *http.Req
 		res.Hints = append(res.Hints, noHostHint(op.ID == CentralOperatorID))
 	}
 	writeJSON(w, 200, res)
+}
+
+// putServerCluster answers PUT .../operators/central/server-cluster: a person says which cluster the server, and so FUSION's
+// gateway, runs in, for when the install did not tell it. An empty cluster id takes the choice back.
+func (a *Admin) putServerCluster(w http.ResponseWriter, r *http.Request) {
+	c := a.core(r)
+	if r.PathValue("id") != CentralOperatorID || a.Fusion == nil {
+		writeErr(w, 404, "only the central operator has a server cluster")
+		return
+	}
+	var body struct {
+		ClusterID string `json:"clusterId"`
+	}
+	if err := decode(r, &body); err != nil {
+		writeErr(w, 400, err.Error())
+		return
+	}
+	id := strings.TrimSpace(body.ClusterID)
+	if id != "" {
+		known := false
+		for _, o := range a.tn(r).Hub.clusterOptions(r.Context()) {
+			known = known || o.ID == id
+		}
+		if !known {
+			writeErr(w, 400, "no approved agent is registered in that cluster")
+			return
+		}
+	}
+	s := c.Settings()
+	s.ServerClusterID = id
+	if _, err := c.SaveSettings(r.Context(), actor(r), s); err != nil {
+		a.fail(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]string{"clusterId": id})
 }

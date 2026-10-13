@@ -224,3 +224,124 @@ func TestAnUnexposedGatewayComesWithTheCommandThatExposesIt(t *testing.T) {
 		t.Fatalf("the card replaces the sentence: %v", h)
 	}
 }
+
+// centralRig is a server whose gateway is a LoadBalancer Service, with one agent in the cluster whose kube-system UID is uid.
+func centralRig(t *testing.T, uid string) (*intentRig, *FusionControl, string) {
+	t.Helper()
+	a := newIntentRig(t)
+	f, k := newFusion(t, a.adminRig)
+	f.Kube = &inspectingKube{fakeKube: k, svc: KubeService{Type: "LoadBalancer", Port: 4317, NodePort: 31999, LoadBalancer: "203.0.113.50:4317"}}
+	a.a.Fusion = f
+	if _, err := f.Enable(a.ctx, a.core, "alex"); err != nil {
+		t.Fatal(err)
+	}
+	k.allReady()
+	agentID := a.approvedAgentID(t, uid)
+	v := liveView(*a.now, "nuc-1")
+	v.state.Nodes["nuc-1"].InternalIps = []string{"10.0.0.7"}
+	v.state.Nodes["nuc-1"].Probe = &continuumv1.HostProbe{HostAddresses: []*continuumv1.HostAddress{
+		{Interface: "eth0", Address: "10.0.0.7/24"}, {Interface: "wt0", Kind: "wireguard", Address: "100.64.0.139/24"},
+	}}
+	// Nothing in the server's namespace is reported: only the cluster's identity can say where the gateway is.
+	v.state.Workloads = map[string]*continuumv1.WorkloadFacts{}
+	a.hub().mu.Lock()
+	a.hub().views[agentID] = v
+	a.hub().mu.Unlock()
+	return a, f, agentID
+}
+
+func centralCandidates(t *testing.T, a *intentRig) map[string]any {
+	t.Helper()
+	return a.do("GET", "/api/v1/operators/"+CentralOperatorID+"/address-candidates", nil, withCookie(a.cookie)).json(t)
+}
+
+func serverCluster(t *testing.T, got map[string]any) map[string]any {
+	t.Helper()
+	sc, _ := got["serverCluster"].(map[string]any)
+	if sc == nil {
+		t.Fatalf("no serverCluster in %v", got)
+	}
+	return sc
+}
+
+func TestTheServerKnowsItsClusterFromItsInstall(t *testing.T) {
+	const uid = "3f2b6c1e-9a4d-4e7b-8c55-0d1e2f3a4b5c"
+	a, f, _ := centralRig(t, uid)
+	f.ClusterUID = uid
+	got := centralCandidates(t, a)
+	if sc := serverCluster(t, got); sc["state"] != "known" || sc["source"] != "install" {
+		t.Fatalf("server cluster: %v", sc)
+	}
+	by := map[string]bool{}
+	for _, c := range got["candidates"].([]any) {
+		by[c.(map[string]any)["address"].(string)] = true
+	}
+	if !by["100.64.0.139:31999"] || !by["10.0.0.7:31999"] || !by["203.0.113.50:4317"] {
+		t.Fatalf("the node's mesh and LAN addresses on the node port, and the load balancer: %v", got["candidates"])
+	}
+}
+
+func TestAKnownClusterWithoutAnAgentSaysSoInsteadOfGuessing(t *testing.T) {
+	a, f, _ := centralRig(t, "3f2b6c1e-9a4d-4e7b-8c55-0d1e2f3a4b5c")
+	// The server is installed in another cluster than the one that has an agent; one node of this one even has the load
+	// balancer's address, which would match by address, but the identity is known and decides.
+	f.ClusterUID = "11111111-2222-4333-8444-555555555555"
+	got := centralCandidates(t, a)
+	if sc := serverCluster(t, got); sc["state"] != "noAgent" || sc["source"] != "install" {
+		t.Fatalf("server cluster: %v", sc)
+	}
+	for _, c := range got["candidates"].([]any) {
+		if c.(map[string]any)["kind"] == "node-port" {
+			t.Fatalf("no cluster, so no node addresses: %v", got["candidates"])
+		}
+	}
+	if got["found"] != true { // the load balancer's address is still known, from the Service
+		t.Fatalf("found: %v", got)
+	}
+}
+
+func TestTheClusterIsFoundByWhatAgentsReportWhenTheServerWasNotTold(t *testing.T) {
+	a, _, _ := centralRig(t, "3f2b6c1e-9a4d-4e7b-8c55-0d1e2f3a4b5c")
+	// No identity from the install and no workload of the namespace reported: no match by address either (the load
+	// balancer's address is no node's), so the server asks which cluster it is in, offering the registered ones.
+	sc := serverCluster(t, centralCandidates(t, a))
+	opts, _ := sc["options"].([]any)
+	if sc["state"] != "unknown" || len(opts) != 1 {
+		t.Fatalf("server cluster: %v", sc)
+	}
+}
+
+func TestAPersonCanSayWhichClusterTheServerIsInAndItWins(t *testing.T) {
+	const uid = "3f2b6c1e-9a4d-4e7b-8c55-0d1e2f3a4b5c"
+	a, f, _ := centralRig(t, uid)
+	f.ClusterUID = "11111111-2222-4333-8444-555555555555" // the install names a cluster with no agent
+	id, _ := ClusterIDForUID(a.core.OrgID, uid)
+
+	if r := a.do("PUT", "/api/v1/operators/"+CentralOperatorID+"/server-cluster", map[string]any{"clusterId": "cl-0000000000"}, withCookie(a.cookie)); r.Code != 400 {
+		t.Fatalf("a cluster no agent is in: %d %s", r.Code, r.Body.String())
+	}
+	if r := a.do("PUT", "/api/v1/operators/"+CentralOperatorID+"/server-cluster", map[string]any{"clusterId": id}, withCookie(a.cookie)); r.Code != 200 {
+		t.Fatalf("choose: %d %s", r.Code, r.Body.String())
+	}
+	if sc := serverCluster(t, centralCandidates(t, a)); sc["state"] != "known" || sc["source"] != "chosen" || sc["clusterId"] != id {
+		t.Fatalf("after choosing: %v", sc)
+	}
+	// It survives a save of the settings page, which does not carry it.
+	if r := a.do("PUT", "/api/v1/settings", a.core.Settings(), withCookie(a.cookie)); r.Code != 200 {
+		t.Fatalf("settings: %d %s", r.Code, r.Body.String())
+	}
+	if sc := serverCluster(t, centralCandidates(t, a)); sc["source"] != "chosen" || sc["clusterId"] != id {
+		t.Fatalf("the choice was lost: %v", sc)
+	}
+	// Taking it back falls to the install's.
+	if r := a.do("PUT", "/api/v1/operators/"+CentralOperatorID+"/server-cluster", map[string]any{"clusterId": ""}, withCookie(a.cookie)); r.Code != 200 {
+		t.Fatalf("clear: %d", r.Code)
+	}
+	if sc := serverCluster(t, centralCandidates(t, a)); sc["state"] != "noAgent" {
+		t.Fatalf("after clearing: %v", sc)
+	}
+	// Another operator has none.
+	if r := a.do("PUT", "/api/v1/operators/op-123456/server-cluster", map[string]any{"clusterId": id}, withCookie(a.cookie)); r.Code != 404 {
+		t.Fatalf("a regional operator: %d", r.Code)
+	}
+}

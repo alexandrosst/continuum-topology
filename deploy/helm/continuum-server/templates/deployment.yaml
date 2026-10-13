@@ -166,6 +166,12 @@ spec:
               value: {{ .Values.neo4j.user | quote }}
             {{- end }}
             {{- end }}
+            {{- /* The cluster's identity (its kube-system UID), so the server knows which agent's cluster it, and FUSION's gateway, are in. lookup finds nothing under helm template; clusterId is for that case. */}}
+            {{- $clusterId := .Values.clusterId | default (dig "metadata" "uid" "" (lookup "v1" "Namespace" "" "kube-system")) }}
+            {{- if $clusterId }}
+            - name: CONTINUUM_CLUSTER_ID
+              value: {{ $clusterId | quote }}
+            {{- end }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

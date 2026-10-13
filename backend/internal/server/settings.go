@@ -65,6 +65,9 @@ type Settings struct {
 	ImageRegistry string `json:"imageRegistry"`
 	ImageTag      string `json:"imageTag"`
 	ImageDigest   string `json:"imageDigest"`
+	// ServerClusterID is the cluster (an agent's cluster id) this server, and so FUSION's gateway, runs in, when a person
+	// chose it. Empty: the install told the server (CONTINUUM_CLUSTER_ID), or it is worked out from what agents report.
+	ServerClusterID string `json:"serverClusterId,omitempty"`
 }
 
 // ProbeTarget is a place an administrator wants measured from one cluster.
@@ -325,6 +328,9 @@ func (s Settings) NormalizeFor(ctx context.Context, dp *DeciderPolicy) (Settings
 		return s, err
 	}
 	s.ImageRegistry, s.ImageTag, s.ImageDigest = img.Registry, img.Tag, img.Digest
+	if s.ServerClusterID = strings.TrimSpace(s.ServerClusterID); s.ServerClusterID != "" && !clusterIDRe.MatchString(s.ServerClusterID) {
+		return s, fmt.Errorf("the server's cluster is a cluster id like cl-0123456789")
+	}
 	if s.DeciderURL = strings.TrimSpace(s.DeciderURL); s.DeciderURL != "" {
 		if len(s.DeciderURL) > 2048 {
 			return s, fmt.Errorf("the decider address is at most 2048 characters")
@@ -466,6 +472,9 @@ func settingsDiff(a, b Settings) string {
 		if c[1] != c[2] {
 			d = append(d, fmt.Sprintf("%s %s → %s", c[0], shown(c[1]), shown(c[2])))
 		}
+	}
+	if a.ServerClusterID != b.ServerClusterID {
+		d = append(d, fmt.Sprintf("the server's cluster %s → %s", shown(a.ServerClusterID), shown(b.ServerClusterID)))
 	}
 	return strings.Join(d, "; ")
 }

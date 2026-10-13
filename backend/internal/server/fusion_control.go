@@ -45,7 +45,10 @@ type FusionControl struct {
 	Name          string
 	Namespace     string
 	PublicAddress string // host:port other clusters dial to reach the gateway ("" = reachable inside this cluster only)
-	Kube          KubeAPI
+	// ClusterUID is the UID of this server's own kube-system namespace, which the chart passes in (CONTINUUM_CLUSTER_ID): the
+	// cluster the gateway runs in is the server's, so the agent whose cluster has this identity is the one that reports it.
+	ClusterUID string
+	Kube       KubeAPI
 	// Data reads what FUSION saved (the shared API, fusion_data.go). Nil means the stores' in-cluster addresses by the
 	// chart's naming convention (see dataClient); tests point it at fakes.
 	Data *fusionapi.Client

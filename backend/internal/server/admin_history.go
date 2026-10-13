@@ -67,6 +67,8 @@ func (a *Admin) putSettings(w http.ResponseWriter, r *http.Request) {
 	case s.DeciderSecret == "":
 		s.DeciderSecret = a.core(r).Settings().DeciderSecret
 	}
+	// Which cluster the server runs in is changed where it is shown (the central operator's address picker), not here.
+	s.ServerClusterID = a.core(r).Settings().ServerClusterID
 	n, err := a.core(r).SaveSettings(r.Context(), actor(r), s)
 	if err != nil {
 		a.fail(w, err)

@@ -49,6 +49,12 @@ registration: invite
 # Id of the organization that is created together with the first account, on a fresh database only (--org).
 org: default
 
+# The cluster this server is installed in, as the UID of its kube-system namespace (kubectl get namespace kube-system -o
+# jsonpath='{.metadata.uid}'). FUSION's central operator runs in this same cluster, and the address picker uses it to find
+# that cluster among the agents' (the one whose agent reports the same UID) and list its nodes' addresses. Empty (default):
+# the chart reads it itself at install and upgrade time. Set it only where the chart cannot (helm template, GitOps rendering).
+clusterId: ""
+
 # ---------------------------------------------------------------------------------------------------------------------
 # Agents: how they reach this server. Agents connect OUT to this address over mutual TLS.
 # ---------------------------------------------------------------------------------------------------------------------

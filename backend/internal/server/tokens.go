@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"regexp"
 	"strings"
 )
 
@@ -148,4 +149,17 @@ func newTelemetryIntentID() string { return "ti-" + randHex(6) }
 func ClusterIDFor(org, fingerprint string) string {
 	sum := sha256.Sum256([]byte(org + "\x00" + fingerprint))
 	return "cl-" + hex.EncodeToString(sum[:5])
+}
+
+// clusterIDRe is what ClusterIDFor makes: "cl-" and ten hex digits.
+var clusterIDRe = regexp.MustCompile(`^cl-[0-9a-f]{10}$`)
+
+// ClusterIDForUID is the cluster id of the cluster whose kube-system namespace has this UID, as the agents there get it.
+// False when the UID is not one (a lowercase UUID).
+func ClusterIDForUID(org, uid string) (string, bool) {
+	uid = strings.ToLower(strings.TrimSpace(uid))
+	if !fingerprintRe.MatchString(uid) {
+		return "", false
+	}
+	return ClusterIDFor(org, uid), true
 }

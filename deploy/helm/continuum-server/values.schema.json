@@ -862,6 +862,11 @@
           "type": "string"
         }
       }
+    },
+    "clusterId": {
+      "type": "string",
+      "pattern": "^$|^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+      "description": "UID of the kube-system namespace of the cluster this server runs in. Empty: read at install time."
     }
   }
 }

@@ -575,6 +575,12 @@ func renewFusionCertificate(log *slog.Logger, f *server.FusionControl, core *ser
 // API: the screen then says FUSION cannot be switched from here instead of hiding that FUSION exists.
 func fusionControl(log *slog.Logger, name, namespace, publicAddress, org string) *server.FusionControl {
 	f := &server.FusionControl{Name: name, Namespace: namespace, PublicAddress: strings.TrimSpace(publicAddress), Org: org}
+	// The chart passes the UID of the kube-system namespace it was installed into: the cluster this server, and FUSION, are in.
+	f.ClusterUID = strings.TrimSpace(os.Getenv("CONTINUUM_CLUSTER_ID"))
+	if _, ok := server.ClusterIDForUID(org, f.ClusterUID); f.ClusterUID != "" && !ok {
+		log.Warn("CONTINUUM_CLUSTER_ID is not a namespace UID; ignored", "value", f.ClusterUID)
+		f.ClusterUID = ""
+	}
 	if f.Namespace == "" {
 		if b, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace"); err == nil {
 			f.Namespace = strings.TrimSpace(string(b))
