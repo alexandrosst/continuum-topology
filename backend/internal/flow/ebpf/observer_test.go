@@ -66,19 +66,25 @@ func exchange(t *testing.T, ln net.Listener, n, out, in int) {
 	}
 }
 
+// collectFor collects until `want` connections have been counted on both sides, then until the port has been quiet for a while.
+// A connection is counted when it starts (SYN_SENT/SYN_RECV) but its bytes, round-trip time and the rest are added when it closes,
+// which happens later on a busy machine: stopping at the count alone returns a half-finished picture, and the closes that land
+// afterwards show up in the next Collect as if the counters had not been emptied.
 func collectFor(t *testing.T, o *Observer, port uint32, want int) (client, server *continuumv1.RawFlow) {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
-	var cn, sn uint64
-	for time.Now().Before(deadline) && (cn < uint64(want) || sn < uint64(want)) {
+	// poll collects once and adds what it found for the port; it says whether anything was.
+	poll := func() bool {
 		flows, _, err := o.Collect()
 		if err != nil {
 			t.Fatal(err)
 		}
+		found := false
 		for _, f := range flows {
 			if f.Port != port {
 				continue
 			}
+			found = true
 			tgt := &server
 			if f.Client {
 				tgt = &client
@@ -95,14 +101,23 @@ func collectFor(t *testing.T, o *Observer, port uint32, want int) (client, serve
 				}
 			}
 		}
-		cn, sn = 0, 0
-		if client != nil {
-			cn = client.Connections
-		}
-		if server != nil {
-			sn = server.Connections
-		}
+		return found
+	}
+	counted := func() bool {
+		return client != nil && server != nil && client.Connections >= uint64(want) && server.Connections >= uint64(want)
+	}
+	for time.Now().Before(deadline) && !counted() {
+		poll()
 		time.Sleep(200 * time.Millisecond)
+	}
+	// Settled: three polls in a row, 150ms apart, found nothing more for the port.
+	for quiet := 0; quiet < 3 && time.Now().Before(deadline); {
+		time.Sleep(150 * time.Millisecond)
+		if poll() {
+			quiet = 0
+		} else {
+			quiet++
+		}
 	}
 	return
 }
