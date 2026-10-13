@@ -1036,7 +1036,9 @@ telemetry:
         tolerations:
           - {operator: Exists}   # peers may try any node address, so it runs on every node, tainted or not
         nodeSelector: {}
-      # Throughput tests with iperf3 (off by default). Where the probe above says whether a link is healthy, these say how much
+      # Throughput tests with iperf3 (off by default). This switch gives the cluster the ability: the iperf3 server, and the
+      # client in the prober. Which pairs are actually tested is chosen per pair on the server (a pair that does not ask for them
+      # gets none, and only one cluster of a pair runs them). Where the probe above says whether a link is healthy, these say how much
       # it carries and where it starts to drop: TCP with one stream and with several, in each direction, and a UDP ramp. They
       # are heavy, so they run rarely, one at a time (never beside the probe), within a daily byte budget, and they wait while
       # real traffic is using the link. Each responder pod then also runs an iperf3 server on `port`: open TCP and UDP `port`

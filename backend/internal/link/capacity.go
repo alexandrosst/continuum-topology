@@ -93,6 +93,7 @@ type Capacity struct {
 	ledger   *Ledger
 
 	mu        sync.Mutex
+	pairs     map[string]*Ledger // peer -> its own daily budget, for the peers that have one
 	peers     map[string]*capPeer
 	good      map[string]string
 	lastBytes map[string]uint64
@@ -250,6 +251,18 @@ func (c *Capacity) Start() error {
 		}
 	}
 	c.Meter.SetBudget(func() (uint64, uint64) { return c.ledger.Used(c.Now()), c.ledger.Limit })
+	c.Meter.SetPairBudgets(func(peer string) (used, limit uint64, ok bool) {
+		c.mu.Lock()
+		l := c.pairs[peer]
+		c.mu.Unlock()
+		if l == nil {
+			return 0, 0, false
+		}
+		l.mu.Lock()
+		limit = l.Limit
+		l.mu.Unlock()
+		return l.Used(c.Now()), limit, true
+	})
 	return nil
 }
 
@@ -305,6 +318,9 @@ func (c *Capacity) sync(peers []Peer, now time.Time) {
 	}
 	live := map[string]bool{}
 	for _, p := range peers {
+		if !p.Throughput {
+			continue // the server did not ask for throughput tests towards this one (or the other side runs them)
+		}
 		live[p.ID] = true
 		if c.peers[p.ID] == nil {
 			spread := c.StartAfter
@@ -322,6 +338,7 @@ func (c *Capacity) sync(peers []Peer, now time.Time) {
 		if !live[id] {
 			delete(c.peers, id)
 			delete(c.good, id)
+			delete(c.pairs, id)
 		}
 	}
 }
@@ -329,7 +346,12 @@ func (c *Capacity) sync(peers []Peer, now time.Time) {
 // step runs at most one test and returns how long to wait before the next look.
 func (c *Capacity) step(ctx context.Context) time.Duration {
 	now := c.Now()
-	peers := c.Meter.Peers.List()
+	var peers []Peer
+	for _, p := range c.Meter.Peers.List() {
+		if p.Throughput {
+			peers = append(peers, p)
+		}
+	}
 	c.sync(peers, now)
 	if !c.Window.Contains(now) {
 		return min(c.Window.Opens(now), time.Minute)
@@ -381,7 +403,11 @@ func (c *Capacity) step(ctx context.Context) time.Duration {
 	default:
 		st.queue = st.queue[1:]
 		if len(st.queue) == 0 {
-			st.next = now.Add(time.Duration(float64(c.Every) * (0.9 + 0.2*rand.Float64())))
+			every := c.Every
+			if pick.ThroughputEvery > 0 {
+				every = pick.ThroughputEvery
+			}
+			st.next = now.Add(time.Duration(float64(every) * (0.9 + 0.2*rand.Float64())))
 		} else {
 			st.retryAt = now
 		}
@@ -397,7 +423,7 @@ type outcome struct {
 
 func (c *Capacity) runTest(ctx context.Context, p Peer, t capTest) outcome {
 	now := c.Now()
-	if est := c.estimate(p, t); !c.ledger.Allows(now, est) {
+	if est := c.estimate(p, t); !c.allows(p, now, est) {
 		c.warnOversized(p, t, est)
 		return outcome{skip: "budget", retry: 30 * time.Minute}
 	}
@@ -444,7 +470,7 @@ func (c *Capacity) runTest(ctx context.Context, p Peer, t capTest) outcome {
 	}
 	// The omitted start was sent too, at about the same rate.
 	total += uint64(float64(total) * c.Omit.Seconds() / c.Duration.Seconds())
-	c.ledger.Charge(c.Now(), total)
+	c.charge(p, c.Now(), total)
 	c.mu.Lock()
 	c.lastBytes[t.key(p.ID)] = total
 	c.mu.Unlock()
@@ -480,7 +506,7 @@ func (c *Capacity) runRamp(ctx context.Context, p Peer, t capTest) outcome {
 			if !sleep(ctx, c.Pause) {
 				return outcome{skip: "server_busy", retry: time.Minute} // stopping; nothing is reported
 			}
-			if !c.ledger.Allows(c.Now(), rate*uint64(c.UDP.Step.Seconds())/8) {
+			if !c.allows(p, c.Now(), rate*uint64(c.UDP.Step.Seconds())/8) {
 				return outcome{skip: "budget", retry: 30 * time.Minute}
 			}
 		}
@@ -492,7 +518,7 @@ func (c *Capacity) runRamp(ctx context.Context, p Peer, t capTest) outcome {
 		if !ok {
 			return outcome{fail: "other"}
 		}
-		c.ledger.Charge(c.Now(), f.Bytes)
+		c.charge(p, c.Now(), f.Bytes)
 		c.Meter.AddTestBytes(p.ID, t.dir, f.Bytes)
 		steps = append(steps, UDPStep{Rate: rate, Loss: f.LossRatio(), Jitter: f.Jitter})
 		if f.LossRatio() > c.UDP.Loss {
@@ -637,7 +663,11 @@ func (c *Capacity) estimate(p Peer, t capTest) uint64 {
 
 // warnOversized says once that a test can never run because it would not fit the budget even when the window is empty.
 func (c *Capacity) warnOversized(p Peer, t capTest, est uint64) {
-	if c.ledger.Limit == 0 || est <= c.ledger.Limit {
+	limit := c.ledger.Limit
+	if pl := c.pairLedger(p); pl != nil && (limit == 0 || pl.Limit < limit) {
+		limit = pl.Limit
+	}
+	if limit == 0 || est <= limit {
 		return
 	}
 	k := t.key(p.ID)
@@ -649,7 +679,48 @@ func (c *Capacity) warnOversized(p Peer, t capTest, est uint64) {
 	c.warned[k] = true
 	c.mu.Unlock()
 	if !done {
-		c.Log.Warn("a throughput test is larger than the whole byte budget and will never run; raise the budget or cap the rate", "peer", p.ID, "test", t.kind, "direction", t.dir, "expected_bytes", est, "budget", c.ledger.Limit)
+		c.Log.Warn("a throughput test is larger than the whole byte budget and will never run; raise the budget or cap the rate", "peer", p.ID, "test", t.kind, "direction", t.dir, "expected_bytes", est, "budget", limit)
+	}
+}
+
+// pairLedger is the daily budget of one peer, or nil when the server set none for it. It is kept between calls so that
+// what was carried stays counted; a changed limit takes effect at once.
+func (c *Capacity) pairLedger(p Peer) *Ledger {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if p.ThroughputBudget == 0 {
+		delete(c.pairs, p.ID)
+		return nil
+	}
+	if c.pairs == nil {
+		c.pairs = map[string]*Ledger{}
+	}
+	l := c.pairs[p.ID]
+	if l == nil {
+		l = &Ledger{Window: c.BudgetWindow}
+		c.pairs[p.ID] = l
+	}
+	l.mu.Lock()
+	l.Limit = p.ThroughputBudget
+	l.mu.Unlock()
+	return l
+}
+
+// allows says whether a test expected to carry est bytes fits both the cluster's budget and the peer's own.
+func (c *Capacity) allows(p Peer, now time.Time, est uint64) bool {
+	if !c.ledger.Allows(now, est) {
+		return false
+	}
+	if pl := c.pairLedger(p); pl != nil {
+		return pl.Allows(now, est)
+	}
+	return true
+}
+
+func (c *Capacity) charge(p Peer, now time.Time, n uint64) {
+	c.ledger.Charge(now, n)
+	if pl := c.pairLedger(p); pl != nil {
+		pl.Charge(now, n)
 	}
 }
 

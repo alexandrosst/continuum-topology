@@ -180,6 +180,9 @@ func sleep(ctx context.Context, d time.Duration) bool {
 func (r *Runner) Round(ctx context.Context) {
 	r.Defaults()
 	for _, p := range r.Meter.Peers.List() {
+		if p.NoProbe {
+			continue
+		}
 		for _, d := range directions {
 			if ctx.Err() != nil {
 				return

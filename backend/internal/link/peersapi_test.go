@@ -136,3 +136,34 @@ func TestThePeersDocumentCarriesTheTrafficTotalsForTheLoadCheck(t *testing.T) {
 		t.Errorf("%+v", d)
 	}
 }
+
+func TestWhatToMeasureTravelsFromTheConfigThroughThePeersDocumentAndIsBounded(t *testing.T) {
+	p := NewPeers()
+	p.Set("cl-me", []*continuumv1.LinkPeer{
+		{ClusterId: "cl-a", Name: "A", Addresses: []string{"10.0.0.1"}, NoProbe: true, Throughput: true, ThroughputIntervalSeconds: 3600, ThroughputBudgetBytes: 5 << 30},
+		{ClusterId: "cl-b", Name: "B", Addresses: []string{"10.0.1.1"}, Throughput: true, ThroughputIntervalSeconds: 5, ThroughputBudgetBytes: 1 << 50},
+		{ClusterId: "cl-c", Name: "C", Addresses: []string{"10.0.2.1"}, ThroughputIntervalSeconds: 3600, ThroughputBudgetBytes: 99}, // not asked to run: the extras mean nothing
+	})
+	got := map[string]Peer{}
+	for _, x := range p.List() {
+		got[x.ID] = x
+	}
+	a, b, c := got["cl-a"], got["cl-b"], got["cl-c"]
+	if !a.NoProbe || !a.Throughput || a.ThroughputEvery != time.Hour || a.ThroughputBudget != 5<<30 {
+		t.Errorf("a = %+v", a)
+	}
+	if b.ThroughputEvery != MinThroughputEvery || b.ThroughputBudget != MaxThroughputBudget {
+		t.Errorf("b was not clamped: %+v", b)
+	}
+	if c.Throughput || c.ThroughputEvery != 0 || c.ThroughputBudget != 0 || c.NoProbe {
+		t.Errorf("c = %+v", c)
+	}
+	// agent -> prober
+	q := NewPeers()
+	q.SetFromDoc(p.Doc())
+	for _, x := range q.List() {
+		if x.NoProbe != got[x.ID].NoProbe || x.Throughput != got[x.ID].Throughput || x.ThroughputEvery != got[x.ID].ThroughputEvery || x.ThroughputBudget != got[x.ID].ThroughputBudget {
+			t.Errorf("%s changed on the way: %+v vs %+v", x.ID, x, got[x.ID])
+		}
+	}
+}

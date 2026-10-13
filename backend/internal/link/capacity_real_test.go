@@ -22,7 +22,9 @@ func TestAgainstARealIperfServer(t *testing.T) {
 	}
 	host, port, _ := strings.Cut(hp, ":")
 	p := NewPeers()
-	p.Set("cl-me", []*continuumv1.LinkPeer{peer("cl-a", "A", host)})
+	lp := peer("cl-a", "A", host)
+	lp.Throughput = true
+	p.Set("cl-me", []*continuumv1.LinkPeer{lp})
 	m := NewMeter(p)
 	m.EnableProbes()
 	c := &Capacity{

@@ -190,6 +190,9 @@ func configHash(c *continuumv1.Config) string {
 	s += "|cluster:" + c.ClusterId
 	for _, p := range c.LinkPeers {
 		s += fmt.Sprintf("|link:%s=%s@%s", p.ClusterId, p.Name, strings.Join(p.Addresses, ","))
+		if p.NoProbe || p.Throughput {
+			s += fmt.Sprintf("|linkopt:%t,%t,%d,%d", p.NoProbe, p.Throughput, p.ThroughputIntervalSeconds, p.ThroughputBudgetBytes)
+		}
 	}
 	return interpret.Hash("cfg", s)
 }

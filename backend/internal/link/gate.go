@@ -77,10 +77,13 @@ func (l *Ledger) Charge(now time.Time, n uint64) {
 
 // Allows says whether a test expected to carry est bytes fits what is left of the budget.
 func (l *Ledger) Allows(now time.Time, est uint64) bool {
-	if l.Limit == 0 {
+	l.mu.Lock()
+	limit := l.Limit
+	l.mu.Unlock()
+	if limit == 0 {
 		return true
 	}
-	return l.Used(now)+est <= l.Limit
+	return l.Used(now)+est <= limit
 }
 
 // TimeWindow is a daily span (UTC) in which the tests may run; the zero value is always.

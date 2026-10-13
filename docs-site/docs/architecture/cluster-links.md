@@ -16,6 +16,20 @@ Only pairs an administrator turns on. The setting is `links` in the organisation
 
 The server is the only place that knows which address belongs to which cluster, so it tells each agent about its peers in the `Config` it already pushes: the peer's id, its name for display, and the addresses its traffic comes from or goes to (its nodes' addresses, including overlay and tunnel addresses, and the address its agent connects from). A cluster only ever learns the addresses of the clusters it was paired with. An address the two clusters share, such as two clusters on the same private range, is left out rather than mislabelled, and an address claimed by two different peers is dropped by the agent. Peers are sent only at access tier 2, because the measurements are derived from observed traffic, and are withdrawn while the flow collector is paused for that agent. The list is re-sent when settings change and at least once a minute, so a node added to a peer cluster reaches its partners without anyone doing anything.
 
+## Choices per pair
+
+Each entry of `links` can carry choices of its own, the same for both clusters of the pair:
+
+```json
+{"a": "cl-eu", "b": "cl-us", "noProbe": false, "throughput": {"intervalMinutes": 720, "budgetMB": 4096}}
+```
+
+- `noProbe: true` turns the one-way probe and the route trace off for the pair. The passive metrics stay, and the pair has no active series at all (not counters that read zero).
+- `throughput` asks for the [throughput tests](#throughput-tests-how-much-a-link-carries) on the pair. Without it the pair gets none, even where the cluster has them enabled in the chart: the chart says what a cluster *can* do, the pair says what it *should*, because those tests load the link. Only one cluster of the pair runs them, in both directions: the one whose id sorts first, so the link is not loaded twice. The other cluster only serves them, so it needs the iperf3 server (the same chart setting) but runs no tests, and has no throughput series for the pair; the results are in the first cluster's metrics, labelled with the pair.
+- `throughput.intervalMinutes` (10 minutes to 7 days) replaces the cluster's interval between two sets of tests for this pair, and `throughput.budgetMB` (up to 1 TiB) is the most the tests may carry on this link in a day, in addition to the cluster's own budget: a test has to fit both. The pair's use and limit are exported as `continuum_link_throughput_pair_budget_used_bytes` and `..._pair_budget_bytes`.
+
+The agent holds each value to the same bounds as the server, whatever a Config says. The options are part of the settings and are saved with them; there is no screen for them yet.
+
 ## What exists today: passive link metrics
 
 The first source is the node flow collector that was already there. Its eBPF programs read the kernel's own per-connection counters: round-trip time, jitter, retransmits, connection time and failed attempts. The agent labels each report row by the peer cluster its far end belongs to, and keeps running totals per cluster pair. Nothing about addresses, ports or workloads is kept, so the number of series depends only on how many peers are configured.
@@ -86,7 +100,7 @@ Limits: routers that do not send ICMP answers appear as silent hops and are left
 
 ## Throughput tests: how much a link carries
 
-The probes above send a trickle of packets, so they say whether a link is healthy but not how much it can carry or where it starts to drop. For that, the prober also runs [iperf3](https://github.com/esnet/iperf) against the other clusters, rarely and within limits. It is off by default: `telemetry.clusterLinks.probe.capacity.enabled`. Each responder pod then also runs an iperf3 server, on `capacity.port` (8862), and the prober, which already has the peer list, runs these tests per peer, in this order:
+The probes above send a trickle of packets, so they say whether a link is healthy but not how much it can carry or where it starts to drop. For that, the prober also runs [iperf3](https://github.com/esnet/iperf) against the other clusters, rarely and within limits. It is off by default: `telemetry.clusterLinks.probe.capacity.enabled`. Each responder pod then also runs an iperf3 server, on `capacity.port` (8862), and the prober, which already has the peer list, runs these tests for the pairs that [ask for them](#choices-per-pair), in this order:
 
 - **TCP, one stream**, in each direction (`reverse: true`): what one connection reaches, the retransmits the test itself provoked, and the round-trip time under load. Compare the last with the idle round-trip time from the passive series: the difference is queueing delay (bufferbloat). The round-trip time is only available for the direction this cluster sends in.
 - **TCP, several streams** (`parallel`, 4): what the link carries when one connection is not enough. A single stream far below it points at the window or at loss on a long path; the same figure means the link is the limit.
@@ -142,4 +156,4 @@ The servers mount only `private.pem` and `users.csv`, and the prober only `publi
 The other sources fill what these cannot see. None of them exists yet.
 
 - **A constant baseline** to each peer: ICMP round-trip time and loss with [smokeping_prober](https://github.com/SuperQ/smokeping_prober), and TCP connect time with the agent's existing measurement code, which works where ICMP is blocked.
-- **Options per pair** chosen on the server (which pairs get the baseline, which the throughput tests, and their budgets), instead of one setting for the whole cluster.
+- **A screen for the per-pair choices.** Today they are set in the settings document; a visual design for choosing them per pair needs to be agreed first.

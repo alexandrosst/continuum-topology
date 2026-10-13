@@ -3867,9 +3867,22 @@ type LinkPeer struct {
 	Name string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
 	// Addresses the peer's traffic comes from or goes to (its nodes' addresses and the address it reaches the
 	// internet from). IPv4 and IPv6 literals, never a host name.
-	Addresses     []string `protobuf:"bytes,3,rep,name=addresses,proto3" json:"addresses,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Addresses []string `protobuf:"bytes,3,rep,name=addresses,proto3" json:"addresses,omitempty"`
+	// What to measure towards this peer, as the administrator chose for the pair. The defaults (everything unset) are the
+	// one-way probe on, throughput tests off, so a Config from a server that does not know these fields behaves as before.
+	//
+	// no_probe turns the one-way probe and the route trace off for the pair.
+	NoProbe bool `protobuf:"varint,4,opt,name=no_probe,json=noProbe,proto3" json:"no_probe,omitempty"`
+	// throughput: this cluster runs the throughput tests towards the peer. The server sets it on one side of a pair only (the
+	// other side serves the tests), so a link is not loaded twice.
+	Throughput bool `protobuf:"varint,5,opt,name=throughput,proto3" json:"throughput,omitempty"`
+	// throughput_interval_seconds replaces the cluster's own interval between two sets of throughput tests (0: keep it).
+	ThroughputIntervalSeconds uint32 `protobuf:"varint,6,opt,name=throughput_interval_seconds,json=throughputIntervalSeconds,proto3" json:"throughput_interval_seconds,omitempty"`
+	// throughput_budget_bytes is the most the throughput tests may carry towards this peer in a day (0: only the cluster's
+	// own budget applies).
+	ThroughputBudgetBytes uint64 `protobuf:"varint,7,opt,name=throughput_budget_bytes,json=throughputBudgetBytes,proto3" json:"throughput_budget_bytes,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *LinkPeer) Reset() {
@@ -3921,6 +3934,34 @@ func (x *LinkPeer) GetAddresses() []string {
 		return x.Addresses
 	}
 	return nil
+}
+
+func (x *LinkPeer) GetNoProbe() bool {
+	if x != nil {
+		return x.NoProbe
+	}
+	return false
+}
+
+func (x *LinkPeer) GetThroughput() bool {
+	if x != nil {
+		return x.Throughput
+	}
+	return false
+}
+
+func (x *LinkPeer) GetThroughputIntervalSeconds() uint32 {
+	if x != nil {
+		return x.ThroughputIntervalSeconds
+	}
+	return 0
+}
+
+func (x *LinkPeer) GetThroughputBudgetBytes() uint64 {
+	if x != nil {
+		return x.ThroughputBudgetBytes
+	}
+	return 0
 }
 
 // An address to time. The agent only honours it when it was started with measurements allowed, and
@@ -7021,12 +7062,18 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"cluster_id\x18\t \x01(\tR\tclusterId\x125\n" +
 	"\n" +
 	"link_peers\x18\n" +
-	" \x03(\v2\x16.continuum.v1.LinkPeerR\tlinkPeers\"[\n" +
+	" \x03(\v2\x16.continuum.v1.LinkPeerR\tlinkPeers\"\x8e\x02\n" +
 	"\bLinkPeer\x12\x1d\n" +
 	"\n" +
 	"cluster_id\x18\x01 \x01(\tR\tclusterId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1c\n" +
-	"\taddresses\x18\x03 \x03(\tR\taddresses\"E\n" +
+	"\taddresses\x18\x03 \x03(\tR\taddresses\x12\x19\n" +
+	"\bno_probe\x18\x04 \x01(\bR\anoProbe\x12\x1e\n" +
+	"\n" +
+	"throughput\x18\x05 \x01(\bR\n" +
+	"throughput\x12>\n" +
+	"\x1bthroughput_interval_seconds\x18\x06 \x01(\rR\x19throughputIntervalSeconds\x126\n" +
+	"\x17throughput_budget_bytes\x18\a \x01(\x04R\x15throughputBudgetBytes\"E\n" +
 	"\vProbeTarget\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04host\x18\x02 \x01(\tR\x04host\x12\x12\n" +

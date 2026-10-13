@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"sync/atomic"
+	"time"
 
 	continuumv1 "continuum/gen/continuumv1"
 )
@@ -26,7 +27,25 @@ type Peer struct {
 	ID        string
 	Name      string
 	Addresses []netip.Addr
+
+	// What the server asked to be measured towards this peer. The defaults, all zero, are the one-way probe on and no
+	// throughput tests, so a Config that does not say is read as before.
+	NoProbe bool
+	// Throughput says this cluster runs the throughput tests towards the peer. ThroughputEvery replaces the cluster's own
+	// interval between sets of tests (zero: keep it) and ThroughputBudget limits what they may carry towards this peer in a
+	// day (zero: only the cluster's budget).
+	Throughput       bool
+	ThroughputEvery  time.Duration
+	ThroughputBudget uint64
 }
+
+// Bounds on what a Config may ask for, whatever the server sends: the same as the server enforces, so a bug or a hostile
+// server cannot make the agent test a link every few seconds.
+const (
+	MinThroughputEvery  = 10 * time.Minute
+	MaxThroughputEvery  = 7 * 24 * time.Hour
+	MaxThroughputBudget = 1 << 40
+)
 
 // Peers is the set of clusters this one measures its links to. It is replaced as a whole when a new Config arrives and
 // read without locks by the flow path.
@@ -64,7 +83,13 @@ func (p *Peers) Set(own string, in []*continuumv1.LinkPeer) (dropped []string) {
 			break
 		}
 		seen[lp.ClusterId] = true
-		pe := Peer{ID: lp.ClusterId, Name: lp.Name}
+		pe := Peer{ID: lp.ClusterId, Name: lp.Name, NoProbe: lp.NoProbe, Throughput: lp.Throughput}
+		if pe.Throughput {
+			if s := lp.ThroughputIntervalSeconds; s > 0 {
+				pe.ThroughputEvery = min(max(time.Duration(s)*time.Second, MinThroughputEvery), MaxThroughputEvery)
+			}
+			pe.ThroughputBudget = min(lp.ThroughputBudgetBytes, MaxThroughputBudget)
+		}
 		for i, s := range lp.Addresses {
 			if i >= MaxAddresses {
 				dropped = append(dropped, "link peer "+lp.ClusterId+" has more than "+strconv.Itoa(MaxAddresses)+" addresses; the rest were left out")

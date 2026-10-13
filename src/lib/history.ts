@@ -7,6 +7,15 @@ import type { AccessTier, Agent, Cluster, Dependency, ExternalEndpoint, MachineN
 export interface LinkPair {
   a: string
   b: string
+  /** Turns the one-way probe and the route trace off for the pair; the passive metrics stay. Default: the probe runs. */
+  noProbe?: boolean
+  /** Asks for the throughput tests on the pair (default: none). Only the cluster whose id sorts first runs them. */
+  throughput?: {
+    /** Replaces the cluster's own time between two sets of tests, in minutes (10 to 10080; omitted: keep it). */
+    intervalMinutes?: number
+    /** Most the tests may carry on this link in a day, in MB (up to 1048576; omitted: only the cluster's budget applies). */
+    budgetMB?: number
+  }
 }
 
 export interface AppSettings {

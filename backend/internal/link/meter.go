@@ -70,6 +70,7 @@ type Meter struct {
 	paths      map[string]*pathStats
 	tp         map[string]*tpStats
 	budget     func() (used, limit uint64)
+	pairBudget func(peer string) (used, limit uint64, ok bool)
 
 	peersSecret []byte
 	peersReplay *probe.ReplayCache
@@ -154,18 +155,22 @@ func (m *Meter) Forget() {
 			delete(m.per, id)
 		}
 	}
+	probed, tested := map[string]bool{}, map[string]bool{}
+	for _, p := range m.Peers.List() {
+		probed[p.ID], tested[p.ID] = !p.NoProbe, p.Throughput
+	}
 	for id := range m.paths {
-		if !keep[id] {
+		if !probed[id] {
 			delete(m.paths, id)
 		}
 	}
 	for id := range m.tp {
-		if !keep[id] {
+		if !tested[id] {
 			delete(m.tp, id)
 		}
 	}
 	for k := range m.probes {
-		if id, _, _ := strings.Cut(k, "\x00"); !keep[id] {
+		if id, _, _ := strings.Cut(k, "\x00"); !probed[id] {
 			delete(m.probes, k)
 		}
 	}
@@ -204,13 +209,7 @@ func (m *Meter) Write(w io.Writer) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.probesOnly {
-		ids := make([]string, len(peers))
-		for i, p := range peers {
-			ids[i] = p.ID
-		}
-		m.writeProbes(w, own, ids)
-		m.writePaths(w, own, ids)
-		m.writeThroughput(w, own, ids)
+		m.writeActive(w, own, peers)
 		return
 	}
 	lbl := func(peer string, extra ...string) string {
@@ -280,14 +279,26 @@ func (m *Meter) Write(w io.Writer) {
 		}
 	}
 	if m.probing {
-		ids := make([]string, len(peers))
-		for i, p := range peers {
-			ids[i] = p.ID
-		}
-		m.writeProbes(w, own, ids)
-		m.writePaths(w, own, ids)
-		m.writeThroughput(w, own, ids)
+		m.writeActive(w, own, peers)
 	}
+}
+
+// writeActive renders the series of the active measurements, each for the peers it was asked for: the one-way probe and the
+// route trace for those not switched off, the throughput tests for those they run towards. A peer that is not measured has no
+// series at all, rather than counters that read zero because nothing was ever tried. Called with m.mu held.
+func (m *Meter) writeActive(w io.Writer, own string, peers []Peer) {
+	var probed, tested []string
+	for _, p := range peers {
+		if !p.NoProbe {
+			probed = append(probed, p.ID)
+		}
+		if p.Throughput {
+			tested = append(tested, p.ID)
+		}
+	}
+	m.writeProbes(w, own, probed)
+	m.writePaths(w, own, probed)
+	m.writeThroughput(w, own, tested)
 }
 
 func trimFloat(f float64) string { return fmt.Sprintf("%g", f) }

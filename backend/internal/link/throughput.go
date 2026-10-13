@@ -71,6 +71,16 @@ func (m *Meter) SetBudget(f func() (used, limit uint64)) {
 	m.mu.Unlock()
 }
 
+// SetPairBudgets tells the meter where to read the budget of a peer that has one of its own.
+func (m *Meter) SetPairBudgets(f func(peer string) (used, limit uint64, ok bool)) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	m.pairBudget = f
+	m.mu.Unlock()
+}
+
 func (m *Meter) throughput(peer string) *tpStats {
 	s := m.tp[peer]
 	if s == nil {
@@ -286,6 +296,28 @@ func (m *Meter) writeThroughput(w io.Writer, own string, peerIDs []string) {
 	for _, p := range peerIDs {
 		if s := m.tp[p]; s != nil && !s.lastOK.IsZero() {
 			fmt.Fprintf(w, "continuum_link_throughput_last_success_timestamp_seconds{%s} %d\n", lbl(p), s.lastOK.Unix())
+		}
+	}
+	if m.pairBudget != nil {
+		type row struct {
+			peer        string
+			used, limit uint64
+		}
+		var rows []row
+		for _, p := range peerIDs {
+			if used, limit, ok := m.pairBudget(p); ok {
+				rows = append(rows, row{p, used, limit})
+			}
+		}
+		if len(rows) > 0 {
+			head("continuum_link_throughput_pair_budget_used_bytes", "gauge", "Bytes the throughput tests carried towards this peer in the budget window, for a peer with a budget of its own.")
+			for _, r := range rows {
+				fmt.Fprintf(w, "continuum_link_throughput_pair_budget_used_bytes{%s} %d\n", lbl(r.peer), r.used)
+			}
+			head("continuum_link_throughput_pair_budget_bytes", "gauge", "The daily byte budget of the peer's throughput tests.")
+			for _, r := range rows {
+				fmt.Fprintf(w, "continuum_link_throughput_pair_budget_bytes{%s} %d\n", lbl(r.peer), r.limit)
+			}
 		}
 	}
 	if m.budget != nil {

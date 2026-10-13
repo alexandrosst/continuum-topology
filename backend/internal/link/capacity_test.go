@@ -135,7 +135,9 @@ func capFor(t *testing.T, f *fakeIperf, mut func(*Capacity), addrs ...string) (*
 		addrs = []string{"10.0.0.1"}
 	}
 	p := NewPeers()
-	p.Set("cl-me", []*continuumv1.LinkPeer{peer("cl-a", "A", addrs...)})
+	lp := peer("cl-a", "A", addrs...)
+	lp.Throughput = true
+	p.Set("cl-me", []*continuumv1.LinkPeer{lp})
 	m := NewMeter(p)
 	m.EnableProbes()
 	ck := &clock{t: time.Unix(1_700_000_000, 0)}
@@ -683,3 +685,99 @@ func TestSeriesAreSilentUntilATestRanAndHaveOneHeaderPerFamily(t *testing.T) {
 }
 
 func newTestLog(w *bytes.Buffer) *slog.Logger { return slog.New(slog.NewTextHandler(w, nil)) }
+
+func TestOnlyThePeersTheServerAskedForAreTested(t *testing.T) {
+	f := &fakeIperf{}
+	c, _ := capFor(t, f, func(c *Capacity) { c.Reverse, c.Parallel = false, 0 })
+	b := peer("cl-b", "B", "10.0.1.1") // not asked for: the other side runs the tests
+	a := peer("cl-a", "A", "10.0.0.1")
+	a.Throughput = true
+	c.Meter.Peers.Set("cl-me", []*continuumv1.LinkPeer{a, b})
+	settle(c)
+	if f.count() != 1 || !strings.Contains(f.argsOf(0), "10.0.0.1") {
+		t.Fatalf("runs: %v", f.calls)
+	}
+	got := render(c.Meter)
+	for k := range got {
+		if strings.Contains(k, "throughput") && strings.Contains(k, `peer="cl-b"`) {
+			t.Errorf("a series for a peer that is not tested: %s", k)
+		}
+	}
+	// Switching the tests off for a peer takes its series away on the next peer update.
+	a.Throughput = false
+	c.Meter.Peers.Set("cl-me", []*continuumv1.LinkPeer{a, b})
+	c.Meter.Forget()
+	for k := range render(c.Meter) {
+		if strings.Contains(k, "throughput") && strings.Contains(k, `peer="cl-a"`) {
+			t.Errorf("series stayed after the tests were switched off: %s", k)
+		}
+	}
+	n := f.count()
+	settle(c)
+	if f.count() != n {
+		t.Error("kept testing a peer that is no longer asked for")
+	}
+}
+
+func TestAPairsOwnIntervalReplacesTheClusters(t *testing.T) {
+	f := &fakeIperf{}
+	c, ck := capFor(t, f, func(c *Capacity) { c.Reverse, c.Parallel = false, 0; c.Every = 12 * time.Hour })
+	a := peer("cl-a", "A", "10.0.0.1")
+	a.Throughput, a.ThroughputIntervalSeconds = true, 3600
+	c.Meter.Peers.Set("cl-me", []*continuumv1.LinkPeer{a})
+	settle(c)
+	if f.count() != 1 {
+		t.Fatalf("%d", f.count())
+	}
+	ck.add(30 * time.Minute)
+	settle(c)
+	if f.count() != 1 {
+		t.Fatal("ran again before the pair's interval")
+	}
+	ck.add(45 * time.Minute) // 75 min in: past 1h + 10%, far below the cluster's 12h
+	settle(c)
+	if f.count() != 2 {
+		t.Errorf("did not run at the pair's interval: %d runs", f.count())
+	}
+}
+
+func TestAPairCanHaveABudgetOfItsOwnBesideTheClustersAndItsSeriesSayHowMuchIsUsed(t *testing.T) {
+	f := &fakeIperf{}
+	c, ck := capFor(t, f, func(c *Capacity) { c.Reverse, c.Parallel = false, 0; c.Budget = 100 << 30 })
+	a := peer("cl-a", "A", "10.0.0.1")
+	a.Throughput, a.ThroughputBudgetBytes = true, 7<<30 // room for one fixture test (about 5.5 GB), not two
+	b := peer("cl-b", "B", "10.0.1.1")
+	b.Throughput = true // no budget of its own: only the cluster's
+	c.Meter.Peers.Set("cl-me", []*continuumv1.LinkPeer{a, b})
+	if err := c.Start(); err != nil {
+		t.Fatal(err)
+	}
+	settle(c)
+	ck.add(13 * time.Hour)
+	settle(c) // the second cycle of cl-a does not fit its budget; cl-b's does
+	got := render(c.Meter)
+	skip := `continuum_link_throughput_tests_skipped_total{cluster="cl-me",peer="%s",method="iperf3",reason="budget"}`
+	if got[fmt.Sprintf(skip, "cl-a")] != "1" || got[fmt.Sprintf(skip, "cl-b")] != "0" {
+		t.Errorf("skips: a=%s b=%s", got[fmt.Sprintf(skip, "cl-a")], got[fmt.Sprintf(skip, "cl-b")])
+	}
+	if got[`continuum_link_throughput_pair_budget_bytes{cluster="cl-me",peer="cl-a",method="iperf3"}`] != strconv.Itoa(7<<30) {
+		t.Errorf("pair budget gauge: %v", got)
+	}
+	if v, _ := strconv.ParseUint(got[`continuum_link_throughput_pair_budget_used_bytes{cluster="cl-me",peer="cl-a",method="iperf3"}`], 10, 64); v < 5<<30 || v > 7<<30 {
+		t.Errorf("pair budget used = %d", v)
+	}
+	for k := range got {
+		if strings.Contains(k, "pair_budget") && strings.Contains(k, `peer="cl-b"`) {
+			t.Errorf("a peer without a budget of its own has one: %s", k)
+		}
+	}
+	// Dropping the budget lifts the limit at once.
+	a.ThroughputBudgetBytes = 0
+	c.Meter.Peers.Set("cl-me", []*continuumv1.LinkPeer{a, b})
+	ck.add(31 * time.Minute)
+	n := f.count()
+	settle(c)
+	if f.count() <= n {
+		t.Error("the peer stayed held back after its budget was removed")
+	}
+}

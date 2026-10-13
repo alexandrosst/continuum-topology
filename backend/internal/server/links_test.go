@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
@@ -166,4 +167,96 @@ func hasAddr(xs []string, s string) bool {
 		}
 	}
 	return false
+}
+
+func TestEachPairKeepsItsOwnChoicesAndTheLastEntryOfAPairStands(t *testing.T) {
+	got, err := normalizeLinks([]LinkSetting{
+		{A: "cl-b", B: "cl-a"},
+		{A: "cl-a", B: "cl-b", NoProbe: true, Throughput: &LinkThroughput{IntervalMinutes: 60, BudgetMB: 2048}},
+		{A: "cl-a", B: "cl-c", Throughput: &LinkThroughput{}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || !got[0].NoProbe || got[0].Throughput == nil || got[0].Throughput.IntervalMinutes != 60 || got[0].Throughput.BudgetMB != 2048 {
+		t.Fatalf("the later entry of the pair did not win: %+v", got)
+	}
+	if got[1].NoProbe || got[1].Throughput == nil {
+		t.Fatalf("%+v", got[1])
+	}
+	// What was returned does not alias the caller's value.
+	in := &LinkThroughput{BudgetMB: 1}
+	out, _ := normalizeLinks([]LinkSetting{{A: "a", B: "b", Throughput: in}})
+	in.BudgetMB = 99
+	if out[0].Throughput.BudgetMB != 1 {
+		t.Error("the stored setting shares memory with the request")
+	}
+	for name, th := range map[string]*LinkThroughput{
+		"interval too short": {IntervalMinutes: 5},
+		"interval too long":  {IntervalMinutes: 7*24*60 + 1},
+		"budget too big":     {BudgetMB: 1<<20 + 1},
+	} {
+		if _, err := normalizeLinks([]LinkSetting{{A: "a", B: "b", Throughput: th}}); err == nil {
+			t.Errorf("%s accepted", name)
+		}
+	}
+}
+
+func TestThroughputTestsAreAskedOfOneSideOfThePairAndTheChoicesReachBoth(t *testing.T) {
+	a, b := ag("ag-a", "cl-a", "alpha", "203.0.113.1", 2), ag("ag-b", "cl-b", "beta", "203.0.113.2", 2)
+	h := linkHub(map[string]*view{"ag-a": {state: nodeState("10.0.0.1")}, "ag-b": {state: nodeState("10.1.0.1")}})
+	links := []LinkSetting{{A: "cl-a", B: "cl-b", NoProbe: true, Throughput: &LinkThroughput{IntervalMinutes: 90, BudgetMB: 512}}}
+	fromA := h.linkPeers(a, []store.Agent{a, b}, links, false)
+	fromB := h.linkPeers(b, []store.Agent{a, b}, links, false)
+	if len(fromA) != 1 || len(fromB) != 1 {
+		t.Fatalf("%v / %v", fromA, fromB)
+	}
+	if !fromA[0].Throughput || fromA[0].ThroughputIntervalSeconds != 90*60 || fromA[0].ThroughputBudgetBytes != 512<<20 {
+		t.Errorf("the side that sorts first does not run the tests: %+v", fromA[0])
+	}
+	if fromB[0].Throughput || fromB[0].ThroughputIntervalSeconds != 0 || fromB[0].ThroughputBudgetBytes != 0 {
+		t.Errorf("the serving side is asked to run them too: %+v", fromB[0])
+	}
+	if !fromA[0].NoProbe || !fromB[0].NoProbe {
+		t.Error("the probe choice did not reach both sides")
+	}
+	plain := h.linkPeers(a, []store.Agent{a, b}, []LinkSetting{{A: "cl-a", B: "cl-b"}}, false)
+	if plain[0].NoProbe || plain[0].Throughput {
+		t.Errorf("a plain pair must get the probe and no throughput tests: %+v", plain[0])
+	}
+}
+
+func TestTheConfigHashChangesWithThePairChoices(t *testing.T) {
+	mk := func(lp *continuumv1.LinkPeer) string {
+		lp.ClusterId, lp.Name, lp.Addresses = "cl-b", "beta", []string{"10.1.0.1"}
+		return configHash(&continuumv1.Config{ApprovedAccessTier: 2, ClusterId: "cl-a", LinkPeers: []*continuumv1.LinkPeer{lp}})
+	}
+	base := mk(&continuumv1.LinkPeer{})
+	seen := map[string]bool{base: true}
+	for name, lp := range map[string]*continuumv1.LinkPeer{
+		"no probe": {NoProbe: true}, "throughput": {Throughput: true}, "interval": {Throughput: true, ThroughputIntervalSeconds: 600}, "budget": {Throughput: true, ThroughputBudgetBytes: 1 << 20},
+	} {
+		h := mk(lp)
+		if seen[h] {
+			t.Errorf("%s does not change the hash, so it would never be pushed", name)
+		}
+		seen[h] = true
+	}
+}
+
+func TestPairChoicesAreSavedWithTheSettingsUnderTheNamesTheUIUses(t *testing.T) {
+	var s Settings
+	in := `{"links":[{"a":"cl-b","b":"cl-a","noProbe":true,"throughput":{"intervalMinutes":120,"budgetMB":4096}},{"a":"cl-a","b":"cl-c"}]}`
+	if err := json.Unmarshal([]byte(in), &s); err != nil {
+		t.Fatal(err)
+	}
+	links, err := normalizeLinks(s.Links)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Links = links
+	out, _ := json.Marshal(s.Links)
+	if string(out) != `[{"a":"cl-a","b":"cl-b","noProbe":true,"throughput":{"intervalMinutes":120,"budgetMB":4096}},{"a":"cl-a","b":"cl-c"}]` {
+		t.Errorf("%s", out)
+	}
 }

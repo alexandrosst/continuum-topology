@@ -236,3 +236,29 @@ func TestAgainstARealResponder(t *testing.T) {
 		}
 	}
 }
+
+func TestAPairWithTheProbeSwitchedOffIsNotProbedAndHasNoProbeSeries(t *testing.T) {
+	f := &fakeOwping{run: func([]string) ([]byte, []byte, error) { return summary(t, "owping_to.txt"), nil, nil }}
+	p := NewPeers()
+	off := peer("cl-a", "A", "10.0.0.1")
+	off.NoProbe = true
+	p.Set("cl-me", []*continuumv1.LinkPeer{off, peer("cl-b", "B", "10.0.1.1")})
+	m := NewMeter(p)
+	m.EnableProbes()
+	r := &Runner{Meter: m, Exec: f.exec, PathEvery: -1}
+	r.Defaults()
+	r.Round(context.Background())
+	for _, c := range f.calls {
+		if strings.Contains(strings.Join(c, " "), "10.0.0.1") {
+			t.Errorf("probed a pair that has the probe off: %v", c)
+		}
+	}
+	if len(f.calls) == 0 {
+		t.Fatal("the other pair was not probed")
+	}
+	for k := range render(m) {
+		if strings.Contains(k, "probe") && strings.Contains(k, `peer="cl-a"`) {
+			t.Errorf("series for a pair that is not probed: %s", k)
+		}
+	}
+}

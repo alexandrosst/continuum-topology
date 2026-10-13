@@ -678,6 +678,19 @@ message LinkPeer {
   // Addresses the peer's traffic comes from or goes to (its nodes' addresses and the address it reaches the
   // internet from). IPv4 and IPv6 literals, never a host name.
   repeated string addresses = 3;
+  // What to measure towards this peer, as the administrator chose for the pair. The defaults (everything unset) are the
+  // one-way probe on, throughput tests off, so a Config from a server that does not know these fields behaves as before.
+  //
+  // no_probe turns the one-way probe and the route trace off for the pair.
+  bool no_probe = 4;
+  // throughput: this cluster runs the throughput tests towards the peer. The server sets it on one side of a pair only (the
+  // other side serves the tests), so a link is not loaded twice.
+  bool throughput = 5;
+  // throughput_interval_seconds replaces the cluster's own interval between two sets of throughput tests (0: keep it).
+  uint32 throughput_interval_seconds = 6;
+  // throughput_budget_bytes is the most the throughput tests may carry towards this peer in a day (0: only the cluster's
+  // own budget applies).
+  uint64 throughput_budget_bytes = 7;
 }
 
 // An address to time. The agent only honours it when it was started with measurements allowed, and
