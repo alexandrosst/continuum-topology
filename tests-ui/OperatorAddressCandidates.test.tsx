@@ -1,10 +1,12 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { OperatorAddressModal } from '@/components/operators/OperatorAddress'
 import type { AddressCandidates, RegionalOperator } from '@/lib/types'
 
 const candidates = vi.fn(async (..._a: unknown[]): Promise<AddressCandidates> => ({ found: false, candidates: [] }))
+const setCluster = vi.fn(async (..._a: unknown[]): Promise<{ clusterId: string }> => ({ clusterId: '' }))
 const setAddress = vi.fn(async (..._a: unknown[]): Promise<RegionalOperator> => ({}) as RegionalOperator)
 
 const connFn = () => ({ url: '', org: 'o' })
@@ -16,7 +18,7 @@ vi.mock('@/store/server', () => ({
 }))
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>()
-  return { ...actual, api: { ...actual.api, operatorAddressCandidates: (...a: unknown[]) => candidates(...a), setOperatorAddress: (...a: unknown[]) => setAddress(...a) } }
+  return { ...actual, api: { ...actual.api, operatorAddressCandidates: (...a: unknown[]) => candidates(...a), setOperatorAddress: (...a: unknown[]) => setAddress(...a), setServerCluster: (...a: unknown[]) => setCluster(...a) } }
 })
 
 const op = { id: 'site-athens', name: 'site-athens', exposure: 'nodeport' } as RegionalOperator
@@ -24,6 +26,8 @@ const op = { id: 'site-athens', name: 'site-athens', exposure: 'nodeport' } as R
 const open = () => render(<OperatorAddressModal operator={op} onClose={() => {}} onDone={() => {}} />)
 
 beforeEach(() => {
+  setCluster.mockReset()
+  setCluster.mockResolvedValue({ clusterId: '' })
   candidates.mockReset()
   setAddress.mockReset()
   setAddress.mockResolvedValue({} as RegionalOperator)
@@ -130,5 +134,61 @@ describe('the central operator is offered what was found for its gateway too', (
     await userEvent.click(screen.getByRole('button', { name: 'Use 203.0.113.50:4317' }))
     expect((screen.getByTestId('operator-address-input') as HTMLInputElement).value).toBe('203.0.113.50:4317')
     expect(screen.getByTestId('operator-address-central')).toBeInTheDocument()
+  })
+})
+
+describe('the central operator says which cluster the server runs in', () => {
+  const central = { id: 'op-central', name: 'Central (FUSION)', exposure: 'nodeport' } as RegionalOperator
+  const openCentral = () => render(<MemoryRouter><OperatorAddressModal operator={central} central={{ service: 'fusion-central', namespace: 'continuum' }} onClose={() => {}} onDone={() => {}} /></MemoryRouter>)
+  const lb = { id: 'load-balancer|203.0.113.9:4317', address: '203.0.113.9:4317', kind: 'load-balancer' as const, source: 'The address the load balancer gave the Service.' }
+
+  it('marks the cluster the server runs in, says how it knows, and lets it be changed', async () => {
+    candidates.mockResolvedValue({
+      found: true,
+      hostClusterId: 'cl-1',
+      hostClusterName: 'nuc-edge',
+      candidates: [lb],
+      serverCluster: { state: 'known', source: 'install', clusterId: 'cl-1', options: [{ id: 'cl-1', name: 'nuc-edge' }, { id: 'cl-2', name: 'patras-edge' }] },
+    })
+    openCentral()
+    expect((await screen.findByTestId('operator-address-server-cluster-pill')).textContent).toBe('Where the server runs')
+    expect(screen.getByTestId('operator-address-server-cluster')).toHaveTextContent('runs in nuc-edge from its install')
+    await userEvent.click(screen.getByTestId('operator-address-server-cluster-change'))
+    await userEvent.click(screen.getByTestId('operator-address-server-cluster-save'))
+    // Nothing chosen in the list: the server is asked to work it out again.
+    expect(setCluster).toHaveBeenCalledWith(expect.anything(), 'op-central', '')
+    await waitFor(() => expect(candidates).toHaveBeenCalledTimes(2))
+  })
+
+  it('asks to connect the cluster when it has no agent, instead of a sentence about hints', async () => {
+    candidates.mockResolvedValue({
+      found: true,
+      candidates: [lb],
+      hints: ['The server does not know which cluster FUSION’s gateway runs in, or that cluster has no agent, so …'],
+      serverCluster: { state: 'noAgent', source: 'install', clusterId: 'cl-9' },
+    })
+    openCentral()
+    const card = await screen.findByTestId('operator-address-server-cluster')
+    expect(card).toHaveTextContent("The server's cluster has no agent")
+    expect(screen.getByTestId('operator-address-server-cluster-connect')).toBeTruthy()
+    // The card says it, so the generic sentence is not repeated.
+    expect(screen.queryByTestId('operator-address-hint')).toBeNull()
+  })
+
+  it('asks which cluster the server is in when nothing could say, and saves the choice', async () => {
+    candidates.mockResolvedValue({
+      found: false,
+      candidates: [lb],
+      serverCluster: { state: 'unknown', options: [{ id: 'cl-1', name: 'nuc-edge' }, { id: 'cl-2', name: 'patras-edge' }] },
+    })
+    openCentral()
+    const card = await screen.findByTestId('operator-address-server-cluster')
+    expect(card).toHaveTextContent('Which cluster is the server in?')
+    // Nothing to save until a cluster is picked.
+    expect(screen.getByTestId('operator-address-server-cluster-save')).toBeDisabled()
+    await userEvent.click(screen.getByRole('combobox', { name: 'Cluster' }))
+    await userEvent.click(screen.getByRole('option', { name: 'nuc-edge' }))
+    await userEvent.click(screen.getByTestId('operator-address-server-cluster-save'))
+    expect(setCluster).toHaveBeenCalledWith(expect.anything(), 'op-central', 'cl-1')
   })
 })

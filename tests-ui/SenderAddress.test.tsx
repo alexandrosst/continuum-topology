@@ -1,6 +1,7 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
+import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import SenderAddress from '@/components/telemetry/SenderAddress'
 import type { AddressCandidates, AddressTest, RegionalOperator } from '@/lib/types'
@@ -135,5 +136,19 @@ describe('trying an address from the cluster that will dial it', () => {
     await userEvent.type(screen.getByTestId('sa-other'), '10.9.9.9')
     await userEvent.click(screen.getByRole('button', { name: 'Test 10.9.9.9:4317 from this cluster' }))
     expect(startTests).toHaveBeenCalledWith(expect.anything(), 'agent-1', ['10.9.9.9:4317'])
+  })
+})
+
+describe('the sender picker of the central operator shows where the server runs', () => {
+  it('shows the card for a server whose cluster has no agent, in place of the generic sentence', async () => {
+    candidates.mockResolvedValue({
+      found: true,
+      candidates: [{ id: 'load-balancer|203.0.113.9:4317', address: '203.0.113.9:4317', kind: 'load-balancer', source: 'The address the load balancer gave the Service.' }],
+      hints: ['The server does not know which cluster FUSION’s gateway runs in'],
+      serverCluster: { state: 'noAgent', source: 'install', clusterId: 'cl-9' },
+    })
+    render(<MemoryRouter><Harness /></MemoryRouter>)
+    expect(await screen.findByTestId('sa-server-cluster')).toHaveTextContent("The server's cluster has no agent")
+    expect(screen.queryByTestId('sa-hint')).toBeNull()
   })
 })

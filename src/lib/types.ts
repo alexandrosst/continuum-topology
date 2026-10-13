@@ -1358,6 +1358,18 @@ export interface AddressCandidates {
   hints?: string[]
   /** Set for the central operator while its gateway cannot be reached from other clusters: the Service and the kubectl commands that expose it. */
   expose?: { service: string; namespace: string; commands: { nodePort: string; loadBalancer: string }; value: string }
+  /** Set for the central operator only: whether the server knows which cluster it (and so FUSION's gateway) runs in, and how. */
+  serverCluster?: ServerCluster
+}
+
+export interface ServerCluster {
+  /** `known`: an agent there reports its nodes. `noAgent`: the cluster is known but nothing there can read its nodes. `unknown`: nothing could say. */
+  state: 'known' | 'noAgent' | 'unknown'
+  /** How a known cluster is known: the install passed its identity, a person chose it, or it was matched from what agents report. */
+  source?: 'install' | 'chosen' | 'matched'
+  clusterId?: string
+  /** The registered clusters, to choose among. */
+  options?: { id: string; name: string }[]
 }
 
 export interface RegionalOperator {

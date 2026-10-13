@@ -770,6 +770,8 @@ export const api = {
   createOperator: (c: Conn, name: string, sourceClusterIds: string[], destination: OperatorDestination, options: CreateOperatorOptions = {}) =>
     call<CreatedOperator>(c, 'POST', '/api/v1/operators', { name, sourceClusterIds, destination, heartbeat: options.heartbeat === true, labels: options.labels ?? [], exposure: options.exposure ?? 'cluster' }),
   /** The addresses discovery says the operator can be reached at (adminRole): to pick from instead of typing one. */
+  /** Says which cluster the server runs in (central operator only); an empty id takes the choice back. */
+  setServerCluster: (c: Conn, operatorId: string, clusterId: string) => call<{ clusterId: string }>(c, 'PUT', `/api/v1/operators/${encodeURIComponent(operatorId)}/server-cluster`, { clusterId }),
   operatorAddressCandidates: (c: Conn, id: string) => call<AddressCandidates>(c, 'GET', `/api/v1/operators/${encodeURIComponent(id)}/address-candidates`),
   /** The clusters sending to the operator, the address each dials, how delivery goes and, where it fails, which end is likely at fault (adminRole). */
   operatorSenders: (c: Conn, id: string) => call<OperatorSenders>(c, 'GET', `/api/v1/operators/${encodeURIComponent(id)}/senders`),

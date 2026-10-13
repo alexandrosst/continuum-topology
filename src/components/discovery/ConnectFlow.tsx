@@ -29,6 +29,7 @@ export function useConnectFlow(): { start: () => void; dialogs: ReactNode; canSt
   const server = useServer()
   const [connecting, setConnecting] = useState(false)
   const [wizard, setWizard] = useState(false)
+  const [withProbe, setWithProbe] = useState(false)
   const [sp, setSp] = useSearchParams()
   const connected = server.status === 'connected'
   // Viewers can read everything but the server refuses their changes, so the flow is not offered.
@@ -44,8 +45,10 @@ export function useConnectFlow(): { start: () => void; dialogs: ReactNode; canSt
     if (!asked) return
     // A full page load starts before the server has answered: wait, or a signed-in person is asked for the address.
     if (!server.checked || server.status === 'connecting') return
+    // `&probe=1` opens the wizard with the node probe already on (the central operator's card asks for it: the probe is what reports a node's addresses).
+    setWithProbe(sp.get('probe') === '1')
     start()
-    setSp((p) => { const n = new URLSearchParams(p); n.delete('connect'); return n }, { replace: true })
+    setSp((p) => { const n = new URLSearchParams(p); n.delete('connect'); n.delete('probe'); return n }, { replace: true })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [asked, server.checked, server.status])
 
@@ -54,7 +57,7 @@ export function useConnectFlow(): { start: () => void; dialogs: ReactNode; canSt
       <ServerConnect open={connecting} onClose={() => setConnecting(false)} />
       {wizard && (
         <Suspense fallback={<WizardLoading />}>
-          <ConnectClusterWizard open={wizard} onClose={() => setWizard(false)} />
+          <ConnectClusterWizard open={wizard} onClose={() => setWizard(false)} nodeProbe={withProbe} />
         </Suspense>
       )}
     </>

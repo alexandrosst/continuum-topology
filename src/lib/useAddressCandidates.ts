@@ -19,9 +19,9 @@ export function candidateSub(x: AddressCandidate): string {
   return `${CANDIDATE_KIND[x.kind]}${net} · ${x.source}`
 }
 
-/** The addresses Ikhnos found for a regional operator from what its cluster's agent reports. `null` until the answer
+/** The addresses Ikhnos found for a regional operator from what its cluster's agent reports. `refresh` is bumped to ask again. `null` until the answer
  *  arrives, and for good when the lookup fails: a missing list is a convenience lost, never an error to show. */
-export function useAddressCandidates(operatorId: string | undefined): AddressCandidates | null {
+export function useAddressCandidates(operatorId: string | undefined, refresh = 0): AddressCandidates | null {
   const conn = useServer((s) => s.conn)
   const [found, setFound] = useState<{ id: string; r: AddressCandidates } | null>(null)
   useEffect(() => {
@@ -40,7 +40,13 @@ export function useAddressCandidates(operatorId: string | undefined): AddressCan
     return () => {
       live = false
     }
-  }, [conn, operatorId])
+  }, [conn, operatorId, refresh])
   // An answer for another operator is not this one's.
   return found && found.id === operatorId ? found.r : null
+}
+
+/** The hints worth showing as sentences: the card says why the nodes are missing when the server's cluster is not known. */
+export function visibleHints(found: AddressCandidates | null): string[] {
+  const sc = found?.serverCluster
+  return sc && sc.state !== 'known' ? [] : found?.hints ?? []
 }

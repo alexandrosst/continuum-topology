@@ -1,7 +1,9 @@
+import { useState } from 'react'
 import { Button, Input } from '@/components/ui/primitives'
 import { ExposeCard, withDefaultPort } from '@/components/operators/OperatorAddress'
 import type { RegionalOperator } from '@/lib/types'
-import { candidateSub, useAddressCandidates } from '@/lib/useAddressCandidates'
+import ServerClusterCard from '@/components/operators/ServerClusterCard'
+import { candidateSub, useAddressCandidates, visibleHints } from '@/lib/useAddressCandidates'
 import { useAddressTests, type AddressTestView } from '@/lib/useAddressTests'
 
 /**
@@ -38,7 +40,8 @@ function TestResult({ test, from, testId }: { test: AddressTestView; from: strin
 }
 
 export default function SenderAddress({ operator, value, onChange, testId, agentId, clusterName }: { operator: RegionalOperator; value: string; onChange: (address: string) => void; testId: string; /** The agent of the cluster that will send: when known, an address can be tried from it. */ agentId?: string; clusterName?: string }) {
-  const found = useAddressCandidates(operator.id)
+  const [refresh, setRefresh] = useState(0)
+  const found = useAddressCandidates(operator.id, refresh)
   const t = useAddressTests(agentId)
   const recorded = operator.address ?? ''
   const chosen = withDefaultPort(value)
@@ -74,7 +77,8 @@ export default function SenderAddress({ operator, value, onChange, testId, agent
         {discovered.map((x) => row(x.id, chosen === x.address, () => onChange(x.address), x.address, candidateSub(x), x.address))}
       </ul>
       {found?.expose && <ExposeCard expose={found.expose} testId={`${testId}-expose`} />}
-      {(found?.hints ?? []).map((h) => <p key={h} className="text-xs leading-relaxed text-nb-500" data-testid={`${testId}-hint`}>{h}</p>)}
+      {found?.serverCluster && <ServerClusterCard found={found} operatorId={operator.id} onChanged={() => setRefresh((n) => n + 1)} testId={`${testId}-server-cluster`} />}
+      {visibleHints(found).map((h) => <p key={h} className="text-xs leading-relaxed text-nb-500" data-testid={`${testId}-hint`}>{h}</p>)}
       <label className="block text-xs text-nb-400">
         Another address (host:port)
         <span className="mt-1 flex items-center gap-2">

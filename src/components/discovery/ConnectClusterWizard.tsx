@@ -140,7 +140,7 @@ const STEPS: { key: Phase; label: string }[] = [
 ]
 
 /** Create a token, show the install command, then follow the agent through approval to first discovery. */
-export default function ConnectClusterWizard({ open, onClose }: { open: boolean; onClose: () => void }) {
+export default function ConnectClusterWizard({ open, onClose, nodeProbe }: { open: boolean; onClose: () => void; /** Opens with the node probe on (and "More options" expanded): the central operator's card asks for it, since the probe is what reports a node's addresses. */ nodeProbe?: boolean }) {
   const conn = useServer((s) => s.conn)
   const baseUrl = useServer((s) => s.url)
   const refresh = useServer((s) => s.refresh)
@@ -191,7 +191,8 @@ export default function ConnectClusterWizard({ open, onClose }: { open: boolean;
   // Deliberately keyed on `open` alone too, for the same reason: seed once per open from whatever was left
   // over from before, not on every change to the values it's seeded from (see `moreOpen` above).
   useEffect(() => {
-    if (open) setMoreOpen((v) => v || tier !== 2 || probe || flows || measure || scopeOn)
+    if (open && nodeProbe) setProbe(true)
+    if (open) setMoreOpen((v) => v || nodeProbe === true || tier !== 2 || probe || flows || measure || scopeOn)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 

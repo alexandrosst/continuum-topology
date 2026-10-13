@@ -5,7 +5,8 @@ import { api, ApiError, type OperatorExposure } from '@/lib/api'
 import { shArg } from '@/lib/install'
 import { operatorServiceName } from '@/lib/operatorsView'
 import type { AddressCandidates, RegionalOperator } from '@/lib/types'
-import { candidateSub, useAddressCandidates } from '@/lib/useAddressCandidates'
+import { candidateSub, useAddressCandidates, visibleHints } from '@/lib/useAddressCandidates'
+import ServerClusterCard from './ServerClusterCard'
 import { useServer } from '@/store/server'
 
 /** What a person picks when creating an operator: whether clusters other than its own must be able to reach it.
@@ -110,15 +111,22 @@ export function ExposeCard({ expose, testId }: { expose: NonNullable<AddressCand
 /** The addresses Ikhnos found for an operator from what its cluster's agent reports, to pick from instead of typing.
  *  Picking one only fills the field below; nothing is saved until Save. A failed lookup shows nothing: typing still works. */
 function AddressCandidatesList({ operatorId, value, onPick }: { operatorId: string; value: string; onPick: (address: string) => void }) {
-  const found = useAddressCandidates(operatorId)
+  const [refresh, setRefresh] = useState(0)
+  const found = useAddressCandidates(operatorId, refresh)
   if (!found) return null
   const discovered = found.candidates.filter((x) => x.kind !== 'recorded')
+  const sc = found.serverCluster
+  const needsCluster = !!sc && sc.state !== 'known'
   return (
     <div data-testid="operator-address-candidates">
-      <div className="mb-1 text-xs font-medium uppercase tracking-wide text-nb-500">Addresses found{found.hostClusterName ? ` in ${found.hostClusterName}` : ''}</div>
+      <div className="mb-1 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-nb-500">
+        Addresses found{found.hostClusterName ? ` in ${found.hostClusterName}` : ''}
+        {sc?.state === 'known' && <span className="rounded-full bg-ok/10 px-2 py-px text-[11px] font-medium normal-case tracking-normal text-ok" data-testid="operator-address-server-cluster-pill">Where the server runs</span>}
+      </div>
+      {needsCluster && <div className="mb-2"><ServerClusterCard found={found} operatorId={operatorId} onChanged={() => setRefresh((n) => n + 1)} testId="operator-address-server-cluster" /></div>}
       {found.expose && <div className="mb-2"><ExposeCard expose={found.expose} testId="operator-address-expose" /></div>}
       {discovered.length === 0 ? (
-        found.expose ? null : <p className="text-sm leading-relaxed text-nb-400" data-testid="operator-address-candidates-none">
+        found.expose || needsCluster ? null : <p className="text-sm leading-relaxed text-nb-400" data-testid="operator-address-candidates-none">
           {found.found
             ? 'Its Service has no address outside the cluster yet. Install it as a load balancer or a node port, then it appears here.'
             : 'No agent has reported this operator in a cluster yet. Once one does, the addresses it can be reached at appear here.'}
@@ -139,7 +147,8 @@ function AddressCandidatesList({ operatorId, value, onPick }: { operatorId: stri
           })}
         </ul>
       )}
-      {discovered.length > 0 && (found.hints ?? []).map((h) => <p key={h} className="mt-2 text-xs leading-relaxed text-nb-500" data-testid="operator-address-hint">{h}</p>)}
+      {sc?.state === 'known' && <div className="mt-2"><ServerClusterCard found={found} operatorId={operatorId} onChanged={() => setRefresh((n) => n + 1)} testId="operator-address-server-cluster" /></div>}
+      {discovered.length > 0 && visibleHints(found).map((h) => <p key={h} className="mt-2 text-xs leading-relaxed text-nb-500" data-testid="operator-address-hint">{h}</p>)}
     </div>
   )
 }

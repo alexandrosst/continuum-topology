@@ -89,7 +89,7 @@ type ServerClusterDoc struct {
 	// "matched" (worked out from what agents report, and a person may correct it).
 	Source    string `json:"source,omitempty"`
 	ClusterID string `json:"clusterId,omitempty"`
-	// Options are the registered clusters to choose from when the state is unknown.
+	// Options are the registered clusters to choose from (to set the cluster, or to change it).
 	Options []ClusterOption `json:"options,omitempty"`
 }
 
@@ -659,9 +659,9 @@ func (a *Admin) serverClusterHost(ctx context.Context, c *Core, hub *Hub, namesp
 	}
 	if id != "" {
 		if host, ok := hub.clusterHost(ctx, id, gatewayWorkload); ok {
-			return host, true, &ServerClusterDoc{State: serverClusterKnown, Source: source, ClusterID: id}
+			return host, true, &ServerClusterDoc{State: serverClusterKnown, Source: source, ClusterID: id, Options: hub.clusterOptions(ctx)}
 		}
-		return operatorHost{}, false, &ServerClusterDoc{State: serverClusterNoAgent, Source: source, ClusterID: id}
+		return operatorHost{}, false, &ServerClusterDoc{State: serverClusterNoAgent, Source: source, ClusterID: id, Options: hub.clusterOptions(ctx)}
 	}
 	host, ok := hub.workloadHost(ctx, namespace, workload)
 	if !ok {
@@ -675,7 +675,7 @@ func (a *Admin) serverClusterHost(ctx context.Context, c *Core, hub *Hub, namesp
 		}
 	}
 	if ok {
-		return host, true, &ServerClusterDoc{State: serverClusterKnown, Source: "matched", ClusterID: host.ClusterID}
+		return host, true, &ServerClusterDoc{State: serverClusterKnown, Source: "matched", ClusterID: host.ClusterID, Options: hub.clusterOptions(ctx)}
 	}
 	return operatorHost{}, false, &ServerClusterDoc{State: serverClusterUnknown, Options: hub.clusterOptions(ctx)}
 }
