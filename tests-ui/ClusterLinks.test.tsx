@@ -19,7 +19,7 @@ const save = vi.fn(async (_c: unknown, s: { links?: LinkPair[] }) => {
   return true
 })
 
-function seed(role: 'admin' | 'viewer', links: LinkPair[]) {
+function seed(role: 'admin' | 'viewer', links: LinkPair[], opts: { loaded?: boolean } = {}) {
   saved = undefined
   save.mockClear()
   useServer.setState({ status: 'connected', role, orgId: 'org1', orgs: [{ id: 'org1', name: 'Acme', role }], checked: true } as never)
@@ -27,7 +27,7 @@ function seed(role: 'admin' | 'viewer', links: LinkPair[]) {
     clusters: [cluster('c-eu', 'cloud-eu'), cluster('c-us', 'cloud-us'), cluster('c-gr', 'edge-athens')],
     agents: [agent('c-eu'), agent('c-us'), agent('c-gr', 1)],
   } as never)
-  useSettings.setState({ settings: { ...DEFAULT_SETTINGS, links }, loaded: true, save: save as never })
+  useSettings.setState({ settings: { ...DEFAULT_SETTINGS, links }, loaded: opts.loaded ?? true, error: undefined, save: save as never })
 }
 
 const pick = (label: string, option: string) => {
@@ -124,5 +124,104 @@ describe('ClusterLinks', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Remove pair' }))
     fireEvent.click(screen.getAllByRole('button', { name: 'Remove pair' }).at(-1)!)
     await vi.waitFor(() => expect(saved).toEqual([{ a: 'c-eu', b: 'c-gr' }]))
+  })
+
+  it('offers nothing to change, and sends nothing, until the settings have loaded', () => {
+    seed('admin', [], { loaded: false })
+    render(<ClusterLinks />)
+    expect(screen.queryByTestId('add-pair')).toBeNull()
+    expect(screen.queryByTestId('no-pairs')).toBeNull()
+    expect(screen.queryByTestId('pair-row')).toBeNull()
+    expect(save).not.toHaveBeenCalled()
+  })
+
+  it('says when the settings could not be read, and retries', () => {
+    seed('admin', [], { loaded: false })
+    useSettings.setState({ error: 'boom' })
+    const load = vi.fn(async () => {})
+    useSettings.setState({ load: load as never })
+    render(<ClusterLinks />)
+    expect(screen.getByTestId('links-load-error')).toHaveTextContent('boom')
+    expect(screen.queryByTestId('no-pairs')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    expect(load).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows the reason and keeps the panel open when a save fails', async () => {
+    seed('admin', [{ a: 'c-eu', b: 'c-us' }])
+    save.mockImplementationOnce(async () => {
+      useSettings.setState({ error: 'too many pairs' })
+      return false
+    })
+    render(<ClusterLinks />)
+    fireEvent.click(screen.getByRole('button', { name: 'Edit cloud-eu and cloud-us' }))
+    fireEvent.click(screen.getByRole('switch', { name: 'Probing' }))
+    fireEvent.click(screen.getByTestId('save-pair'))
+    expect(await screen.findByText('too many pairs')).toBeInTheDocument()
+    expect(screen.getByTestId('save-pair')).toBeEnabled()
+  })
+
+  it('cannot be cancelled or dismissed while a save is in flight', async () => {
+    seed('admin', [])
+    let finish: (ok: boolean) => void = () => {}
+    save.mockImplementationOnce(() => new Promise<boolean>((r) => { finish = r }))
+    render(<ClusterLinks />)
+    fireEvent.click(screen.getByTestId('add-pair'))
+    pick('First cluster', 'cloud-us')
+    pick('Second cluster', 'cloud-eu')
+    fireEvent.click(screen.getByTestId('confirm-add-pair'))
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled()
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.getByTestId('confirm-add-pair')).toBeInTheDocument()
+    finish(true)
+    await vi.waitFor(() => expect(screen.queryByTestId('confirm-add-pair')).toBeNull())
+  })
+
+  it('builds the saved list from the store at save time, not from the render before', async () => {
+    seed('admin', [{ a: 'c-eu', b: 'c-gr' }])
+    render(<ClusterLinks />)
+    fireEvent.click(screen.getByTestId('add-pair'))
+    pick('First cluster', 'cloud-us')
+    pick('Second cluster', 'cloud-eu')
+    useSettings.setState({ settings: { ...DEFAULT_SETTINGS, links: [{ a: 'c-eu', b: 'c-gr' }, { a: 'c-gr', b: 'c-us' }] } })
+    fireEvent.click(screen.getByTestId('confirm-add-pair'))
+    await vi.waitFor(() => expect(saved).toEqual([{ a: 'c-eu', b: 'c-gr' }, { a: 'c-gr', b: 'c-us' }, { a: 'c-eu', b: 'c-us' }]))
+  })
+
+  it('does not pin explicit throughput numbers on a pair that has none set', async () => {
+    seed('admin', [{ a: 'c-eu', b: 'c-us', throughput: {} }])
+    render(<ClusterLinks />)
+    fireEvent.click(screen.getByRole('button', { name: 'Edit cloud-eu and cloud-us' }))
+    fireEvent.click(screen.getByRole('switch', { name: 'Probing' }))
+    fireEvent.click(screen.getByTestId('save-pair'))
+    await vi.waitFor(() => expect(saved).toEqual([{ a: 'c-eu', b: 'c-us', noProbe: true, throughput: {} }]))
+  })
+
+  it('marks a row whose clusters cannot be measured yet', () => {
+    seed('admin', [{ a: 'c-eu', b: 'c-us' }, { a: 'c-eu', b: 'c-gr' }])
+    render(<ClusterLinks />)
+    const rows = screen.getAllByTestId('pair-row')
+    expect(within(rows[0]).queryByTestId('pair-warning')).toBeNull()
+    expect(within(rows[1]).getByTestId('pair-warning')).toHaveTextContent('Needs attention: edge-athens is at access level 1')
+  })
+
+  it('ties each throughput error to its own field', () => {
+    seed('admin', [{ a: 'c-eu', b: 'c-us', throughput: { intervalMinutes: 360, budgetMB: 500 } }])
+    render(<ClusterLinks />)
+    fireEvent.click(screen.getByRole('button', { name: 'Edit cloud-eu and cloud-us' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Custom' }))
+    fireEvent.change(screen.getByTestId('tp-hours'), { target: { value: '0.01' } })
+    const hours = screen.getByTestId('tp-hours')
+    expect(hours).toHaveAttribute('aria-invalid', 'true')
+    expect(document.getElementById(hours.getAttribute('aria-describedby')!)).toHaveTextContent('time between tests')
+    expect(screen.getByTestId('tp-budget')).toHaveAttribute('aria-invalid', 'false')
+    expect(screen.getByTestId('tp-budget')).not.toHaveAttribute('aria-describedby')
+  })
+
+  it('describes a switch by its explanation', () => {
+    seed('admin', [{ a: 'c-eu', b: 'c-us' }])
+    render(<ClusterLinks />)
+    fireEvent.click(screen.getByRole('button', { name: 'Edit cloud-eu and cloud-us' }))
+    expect(screen.getByRole('switch', { name: 'Probing' })).toHaveAccessibleDescription(/Small packets, both ways/)
   })
 })

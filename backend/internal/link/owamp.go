@@ -29,19 +29,22 @@ type OwampResult struct {
 	Sent, Lost, Duplicates uint64
 	HasDelay               bool
 	Min, Median, Max       float64
-	// Jitter is the packet delay variation the tool reports (95th percentile minus median); HasJitter says it was present.
-	Jitter    float64
-	HasJitter bool
 	// Synchronized is the tool's own judgement that both clocks were disciplined (its SYNC field), and ClockError the error
-	// bound it derived from them, in seconds. Absolute delay is only meaningful when Synchronized.
-	Synchronized bool
-	ClockError   float64
+	// bound it derived from them, in seconds (HasClockError says it was printed). Absolute delay is only meaningful when
+	// Synchronized.
+	Synchronized  bool
+	ClockError    float64
+	HasClockError bool
 	// Hops is how many routers the packets crossed, from the TTL they arrived with (they leave with 255); 0 when unknown.
 	Hops int
 }
 
 // initialTTL is the TTL OWAMP sends its test packets with.
 const initialTTL = 255
+
+// maxOwampCount bounds the packet counts read from the summary, so a corrupt value can never wrap a counter. A run is at most
+// 10000 packets.
+const maxOwampCount = math.MaxInt32
 
 // ParseOwping reads the machine-readable summary `owping -M` prints (KEY, a tab, a value; bucket tables between tags).
 // Lines the tool prints around it, such as the "results available" notice, are skipped. It fails when the summary is
@@ -50,7 +53,7 @@ func ParseOwping(r io.Reader) (OwampResult, error) {
 	var res OwampResult
 	sc := bufio.NewScanner(io.LimitReader(r, 1<<20))
 	sc.Buffer(make([]byte, 0, 64<<10), 256<<10)
-	var seenSummary, seenSent, inTable bool
+	var seenSummary, seenSent, inTable, haveMin, haveMed, haveMax bool
 	var minTTL int
 	var haveTTL bool
 	for sc.Scan() {
@@ -82,39 +85,39 @@ func ParseOwping(r io.Reader) (OwampResult, error) {
 			return f, true
 		}
 		switch key {
-		case "SENT":
-			if f, ok := num(); ok && f >= 0 {
+		case "SENT", "LOST", "DUPS":
+			f, ok := num()
+			if !ok {
+				break
+			}
+			if f < 0 || f > maxOwampCount {
+				return OwampResult{}, fmt.Errorf("owping reports an implausible %s of %v", key, f)
+			}
+			switch key {
+			case "SENT":
 				res.Sent, seenSent = uint64(f), true
-			}
-		case "LOST":
-			if f, ok := num(); ok && f >= 0 {
+			case "LOST":
 				res.Lost = uint64(f)
-			}
-		case "DUPS":
-			if f, ok := num(); ok && f >= 0 {
+			default:
 				res.Duplicates = uint64(f)
 			}
 		case "SYNC":
 			res.Synchronized = val == "1"
 		case "MAXERR":
 			if f, ok := num(); ok && f >= 0 {
-				res.ClockError = f
+				res.ClockError, res.HasClockError = f, true
 			}
 		case "MIN":
 			if f, ok := num(); ok {
-				res.Min, res.HasDelay = f, true
+				res.Min, haveMin = f, true
 			}
 		case "MEDIAN":
 			if f, ok := num(); ok {
-				res.Median = f
+				res.Median, haveMed = f, true
 			}
 		case "MAX":
 			if f, ok := num(); ok {
-				res.Max = f
-			}
-		case "PDV":
-			if f, ok := num(); ok && f >= 0 {
-				res.Jitter, res.HasJitter = f, true
+				res.Max, haveMax = f, true
 			}
 		case "MINTTL":
 			if f, ok := num(); ok && f > 0 && f <= initialTTL {
@@ -131,8 +134,13 @@ func ParseOwping(r io.Reader) (OwampResult, error) {
 	if res.Lost > res.Sent {
 		return OwampResult{}, fmt.Errorf("owping reports %d lost of %d sent", res.Lost, res.Sent)
 	}
+	// The delay figures count only as a set: a partial or out-of-order one is dropped, and the loss counts are kept.
+	res.HasDelay = haveMin && haveMed && haveMax && res.Min <= res.Median && res.Median <= res.Max
 	if res.Lost == res.Sent {
 		res.HasDelay = false // nothing arrived; any delay printed is not about this run
+	}
+	if !res.HasDelay {
+		res.Min, res.Median, res.Max = 0, 0, 0
 	}
 	if haveTTL {
 		res.Hops = initialTTL - minTTL
@@ -146,8 +154,12 @@ var probeFailReasons = []string{"unreachable", "refused", "timeout", "auth", "ot
 type probeStats struct {
 	sent, lost, dups uint64
 	failed           map[string]uint64
-	last             *OwampResult
-	lastOK           time.Time
+	// last is the latest run's reading; nil when there is none or the latest attempt failed, so a dead link never keeps
+	// showing the figures of its last good run.
+	last   *OwampResult
+	lastOK time.Time
+	// tried says an attempt has been recorded, and failedLast that the latest one failed.
+	tried, failedLast bool
 }
 
 func probeKey(peer string, d Direction) string { return peer + "\x00" + string(d) }
@@ -177,10 +189,11 @@ func (m *Meter) ObserveProbe(peer string, d Direction, r OwampResult) {
 	cp := r
 	s.last = &cp
 	s.lastOK = m.now()
+	s.tried, s.failedLast = true, false
 }
 
 // ProbeFailed counts a test that could not be run or finished, by reason (one of the probe failure reasons; anything else
-// is "other").
+// is "other"), and withdraws the per-run readings of that direction: they described a run that is no longer the latest.
 func (m *Meter) ProbeFailed(peer string, d Direction, reason string) {
 	if m == nil {
 		return
@@ -196,7 +209,10 @@ func (m *Meter) ProbeFailed(peer string, d Direction, reason string) {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.probe(peer, d).failed[reason]++
+	s := m.probe(peer, d)
+	s.failed[reason]++
+	s.last = nil
+	s.tried, s.failedLast = true, true
 }
 
 func (m *Meter) probe(peer string, d Direction) *probeStats {
@@ -285,7 +301,6 @@ func (m *Meter) writeProbes(w io.Writer, own string, peerIDs []string) {
 		}
 		return one(float64(r.Lost)/float64(r.Sent), true)
 	})
-	gauge("continuum_link_probe_jitter_seconds", "Packet delay variation in the most recent run (95th percentile minus median of the one-way delay). Valid whether or not the clocks agree, because a constant clock offset cancels out of it.", func(r *OwampResult) []sample { return one(r.Jitter, r.HasJitter) })
 	gauge("continuum_link_probe_delay_variation_seconds", "How far the one-way delay rose above its minimum in the most recent run. Valid whether or not the clocks agree.", func(r *OwampResult) []sample {
 		if !r.HasDelay {
 			return nil
@@ -304,8 +319,18 @@ func (m *Meter) writeProbes(w io.Writer, own string, peerIDs []string) {
 		}
 		return one(0, true)
 	})
-	gauge("continuum_link_probe_clock_error_seconds", "The bound on the clock error the tool derived for the most recent run.", func(r *OwampResult) []sample { return one(r.ClockError, true) })
+	gauge("continuum_link_probe_clock_error_seconds", "The bound on the clock error the tool derived for the most recent run. Present only when the clocks were synchronised.", func(r *OwampResult) []sample { return one(r.ClockError, r.HasClockError && r.Synchronized) })
 	gauge("continuum_link_probe_path_hops", "Routers crossed by the test packets in the most recent run, from the TTL they arrived with.", func(r *OwampResult) []sample { return one(float64(r.Hops), r.Hops > 0) })
+	head("continuum_link_probe_up", "gauge", "1 if the latest probe run in this direction completed, 0 if it failed (the per-run gauges are then absent). Absent until the first attempt.")
+	each(func(p string, d Direction, s *probeStats) {
+		if s != nil && s.tried {
+			v := 1
+			if s.failedLast {
+				v = 0
+			}
+			fmt.Fprintf(w, "continuum_link_probe_up{%s} %d\n", lbl(p, d), v)
+		}
+	})
 	head("continuum_link_probe_last_success_timestamp_seconds", "gauge", "When a probe run in this direction last completed. Absent until the first time.")
 	each(func(p string, d Direction, s *probeStats) {
 		if s != nil && !s.lastOK.IsZero() {

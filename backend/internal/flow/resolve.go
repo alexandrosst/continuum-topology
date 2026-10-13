@@ -117,6 +117,30 @@ func inClusterRange(ix *collect.Index, addr string) bool {
 	return ix.ServiceCIDR.IsValid() && ix.ServiceCIDR.Contains(a)
 }
 
+// admit is the first test every observation must pass, the one Resolve and Admits share: both addresses parse, the
+// protocol is tcp or udp, the port is a real one, and neither end belongs to a namespace the agent was told to leave out.
+// It returns the normalized addresses.
+func admit(raw *continuumv1.RawFlow, ix *collect.Index) (local, peer string, ok bool) {
+	local, ok1 := normalize(raw.LocalIp)
+	peer, ok2 := normalize(raw.PeerIp)
+	if !ok1 || !ok2 || (raw.Protocol != "tcp" && raw.Protocol != "udp") || raw.Port == 0 || raw.Port > 65535 {
+		return "", "", false
+	}
+	if ix.Hidden[local] || ix.Hidden[peer] {
+		return "", "", false // a namespace the agent was told to leave out
+	}
+	return local, peer, true
+}
+
+// Admits reports whether an observation may be counted at all anywhere: it is well formed and does not touch an excluded
+// namespace. It says nothing about whether the observation can be attributed to workloads, which Resolve decides and which
+// has no bearing on the link statistics (traffic to a peer cluster is real whether or not both ends are known).
+func (r *Resolver) Admits(raw *continuumv1.RawFlow) bool {
+	ix, _ := r.index()
+	_, _, ok := admit(raw, ix)
+	return ok
+}
+
 // Resolve turns one raw observation into a flow between workloads, or reports ok=false when it is not
 // application traffic: loopback, node-to-anything (image pulls, kubelet), traffic to the API server's
 // Service, or an address that cannot be placed.
@@ -125,14 +149,10 @@ func inClusterRange(ix *collect.Index, addr string) bool {
 // recorded from the receiving side, and only then: connections between pods of this cluster are
 // counted once, from the caller's side, so nothing is counted twice.
 func (r *Resolver) Resolve(raw *continuumv1.RawFlow, method string, bytesKnown bool) (*continuumv1.Flow, bool) {
-	local, ok1 := normalize(raw.LocalIp)
-	peer, ok2 := normalize(raw.PeerIp)
-	if !ok1 || !ok2 || (raw.Protocol != "tcp" && raw.Protocol != "udp") || raw.Port == 0 || raw.Port > 65535 {
-		return nil, false
-	}
 	ix, hist := r.index()
-	if ix.Hidden[local] || ix.Hidden[peer] {
-		return nil, false // a namespace the agent was told to leave out
+	local, peer, ok := admit(raw, ix)
+	if !ok {
+		return nil, false
 	}
 	pod := func(ip string) (string, bool) {
 		if k, ok := ix.Pods[ip]; ok {

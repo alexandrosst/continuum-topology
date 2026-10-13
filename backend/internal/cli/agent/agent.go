@@ -64,6 +64,7 @@ func Main(args []string) int {
 	flowWindow := fs.Duration("flow-window", envDuration("CONTINUUM_FLOW_WINDOW"), "how often observed traffic is sent to the server (the chart's flowObserver.window; default 15s)")
 	revokedHold := fs.Duration("revoked-hold", 0, "development only: how long a restarted agent whose identity was revoked waits before it exits with code 3 (default: a random 5 to 10 minutes; negative: do not wait)")
 	linkListen := fs.String("link-metrics-listen", cli.Env("CONTINUUM_LINK_METRICS_LISTEN", ""), "address to serve the cluster-to-cluster link metrics on (Prometheus text at /metrics), e.g. :9104 (empty: off; needs --flow-secret-file, since the metrics are labelled from observed traffic). The server decides which clusters are peers; the chart's telemetry.clusterLinks sets this")
+	linkProberPorts := fs.String("link-prober-ports", cli.Env("CONTINUUM_LINK_PROBER_PORTS", ""), "ports (and ranges, e.g. 8861,8862,18900-18999) the link prober's own traffic uses, which the link metrics leave out so that the probes and throughput tests do not count as the link's traffic; the chart's telemetry.clusterLinks.probe sets this")
 	linkServePeers := fs.Bool("link-serve-peers", cli.Env("CONTINUUM_LINK_SERVE_PEERS", "") == "true", "also answer the link prober's signed request for the peer clusters to measure (POST /v1/link/peers on the link metrics address), using the flow secret; the chart's telemetry.clusterLinks.probe sets this")
 	flowSecretFile := fs.String("flow-secret-file", cli.Env("CONTINUUM_FLOW_SECRET_FILE", ""), "file holding the secret shared with the node flow collectors (needs --probe-listen)")
 	rbacMode := fs.String("rbac-mode", cli.Env("CONTINUUM_RBAC_MODE", "cluster"), "how tier 2's installed RBAC was granted: cluster (one ClusterRole, default) or namespaced (a Role per namespace in --scope-namespaces instead). Must match the chart's rbac.mode; the chart sets this automatically")
@@ -168,6 +169,9 @@ func Main(args []string) int {
 	if *linkListen != "" && *flowSecretFile == "" {
 		return cli.Fatal(log, fmt.Errorf("--link-metrics-listen needs --flow-secret-file: link metrics are labelled from observed traffic"))
 	}
+	if err := link.NewMeter(link.NewPeers()).IgnorePorts(*linkProberPorts); err != nil {
+		return cli.Fatal(log, fmt.Errorf("--link-prober-ports: %w", err))
+	}
 	if *linkServePeers && *linkListen == "" {
 		return cli.Fatal(log, fmt.Errorf("--link-serve-peers needs --link-metrics-listen: the peers are answered on that address"))
 	}
@@ -233,6 +237,7 @@ func Main(args []string) int {
 	var links *link.Meter
 	if *linkListen != "" {
 		links = link.NewMeter(link.NewPeers())
+		_ = links.IgnorePorts(*linkProberPorts) // checked with the other flags above
 		flows.Links = links
 		if *linkServePeers {
 			links.ServePeers(flowSecret)

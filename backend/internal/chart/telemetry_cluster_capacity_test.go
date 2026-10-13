@@ -61,8 +61,8 @@ func TestTheServerRunsBesideOwampWithTheSameRestrictions(t *testing.T) {
 	if !rs.HostNetwork || len(c.Ports) != 1 || c.Ports[0].ContainerPort != 8862 {
 		t.Errorf("hostNetwork %v ports %+v", rs.HostNetwork, c.Ports)
 	}
-	if len(c.VolumeMounts) != 0 {
-		t.Errorf("an open server mounts %+v", c.VolumeMounts)
+	if len(c.VolumeMounts) != 1 || c.VolumeMounts[0].Name != "tmp" || c.VolumeMounts[0].MountPath != "/tmp" {
+		t.Errorf("an open server mounts %+v, want only the scratch /tmp", c.VolumeMounts)
 	}
 	for _, v := range rs.Volumes {
 		if v.Name == "iperf-auth" {
@@ -173,7 +173,7 @@ func TestTheCredentialsAreSplitBetweenServerAndClient(t *testing.T) {
 	}
 	// OWAMP's own container is untouched by it.
 	owamp := containerNamed(t, rs.Containers, "owampd")
-	if len(owamp.VolumeMounts) != 3 {
+	if len(owamp.VolumeMounts) != 4 {
 		t.Errorf("owampd mounts %+v", owamp.VolumeMounts)
 	}
 }

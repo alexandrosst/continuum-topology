@@ -66,6 +66,33 @@ func TestARouteChangeIsCountedOnlyWhenTheNewRouteIsSeenTwiceInARow(t *testing.T)
 	}
 }
 
+func TestOnlyATraceThatReachedTheDestinationTakesPartInRouteChanges(t *testing.T) {
+	m := probeMeter(t)
+	m.EnableProbes()
+	changes := func() string {
+		return render(m)[`continuum_link_path_changes_total{cluster="cl-me",peer="cl-a"}`]
+	}
+	cut := func(route string) { m.ObservePath("cl-a", PathResult{Route: route, Reached: false}) }
+	hole := func(route string) { m.ObservePath("cl-a", PathResult{Route: route, Blackhole: true}) }
+	full := func(route string) { m.ObservePath("cl-a", PathResult{Route: route, Reached: true, Hops: 5, MTU: 1500}) }
+	cut("short") // a trace that stopped early must not become the route the next one is compared with
+	cut("short")
+	full("aaa")
+	cut("short")
+	cut("short")
+	hole("short")
+	hole("short")
+	full("aaa")
+	if changes() != "0" {
+		t.Fatalf("truncated traces were counted as route changes: %s", changes())
+	}
+	full("bbb")
+	full("bbb")
+	if changes() != "1" {
+		t.Fatalf("a real change was not counted: %s", changes())
+	}
+}
+
 func TestPathSeriesAreOnlyWrittenForWhatWasLearned(t *testing.T) {
 	m := probeMeter(t)
 	m.EnableProbes()

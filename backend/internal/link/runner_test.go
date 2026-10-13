@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"net"
+	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -134,6 +136,161 @@ func TestAnAuthenticationFailureStopsTryingOtherAddresses(t *testing.T) {
 	}
 }
 
+func TestASilentPeerCostsAFewAttemptsOnceAndIsThenLeftAloneForGrowingSpells(t *testing.T) {
+	f := &fakeOwping{}
+	f.run = func(args []string) ([]byte, []byte, error) {
+		if strings.Contains(strings.Join(args, " "), "10.0.1.1:") {
+			return summary(t, "owping_to.txt"), nil, nil
+		}
+		return nil, []byte("owping: Unable to open control connection"), errors.New("exit 1")
+	}
+	p := NewPeers()
+	p.Set("cl-me", []*continuumv1.LinkPeer{peer("cl-a", "A", "10.0.0.1", "10.0.0.2", "10.0.0.3", "10.0.0.4", "10.0.0.5"), peer("cl-b", "B", "10.0.1.1")})
+	m := NewMeter(p)
+	m.EnableProbes()
+	r := &Runner{Meter: m, Exec: f.exec, PathEvery: -1}
+	r.Defaults()
+	count := func(prefix string) (n int) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		for _, c := range f.calls {
+			if strings.Contains(strings.Join(c, " "), prefix) {
+				n++
+			}
+		}
+		return
+	}
+	failed := func() string {
+		return render(m)[`continuum_link_probe_failures_total{cluster="cl-me",peer="cl-a",direction="reverse",method="owamp",reason="timeout"}`]
+	}
+	r.Round(context.Background())
+	// 5 addresses are not all tried, and the reverse direction is not tried at all, yet it is counted
+	if got := count("10.0.0."); got != maxSlowFailures {
+		t.Fatalf("%d attempts towards the silent peer in the first round, want %d", got, maxSlowFailures)
+	}
+	if failed() != "1" {
+		t.Errorf("the reverse direction was not counted as failed: %q", failed())
+	}
+	// the healthy peer after it is measured every round, in both directions
+	if got := count("10.0.1.1:"); got != 2 {
+		t.Fatalf("%d runs towards the healthy peer", got)
+	}
+	r.Round(context.Background()) // second failure: one round of rest follows
+	before := count("10.0.0.")
+	r.Round(context.Background())
+	if got := count("10.0.0."); got != before {
+		t.Errorf("the silent peer was tried again during its rest (%d -> %d)", before, got)
+	}
+	if got := count("10.0.1.1:"); got != 6 {
+		t.Errorf("the healthy peer was not measured in each round: %d runs", got)
+	}
+	if failed() != "3" {
+		t.Errorf("a rested round must still count as failed: %q", failed())
+	}
+	// a peer that answers again is forgiven
+	f.run = func([]string) ([]byte, []byte, error) { return summary(t, "owping_to.txt"), nil, nil }
+	for i := 0; i < 20; i++ {
+		r.Round(context.Background())
+	}
+	r.mu.Lock()
+	_, stillDown := r.down["cl-a"]
+	r.mu.Unlock()
+	if stillDown {
+		t.Error("a peer that answers again is still marked down")
+	}
+}
+
+func TestARefusingPeerSkipsTheOtherDirectionButAnAuthenticationFailureDoesNot(t *testing.T) {
+	for msg, wantRuns := range map[string]int{"owping: connection refused": 1, "owping: authentication failed": 2} {
+		f := &fakeOwping{run: func([]string) ([]byte, []byte, error) { return nil, []byte(msg), errors.New("exit 1") }}
+		r := runnerFor(t, f, "10.0.0.1")
+		r.Round(context.Background())
+		if len(f.calls) != wantRuns {
+			t.Errorf("%q: %d runs, want %d", msg, len(f.calls), wantRuns)
+		}
+	}
+}
+
+func TestARunThatCannotBeWhatWasAskedForIsNotRecorded(t *testing.T) {
+	for name, in := range map[string]string{
+		"more sent than asked": "SUMMARY\t3\nSENT\t101\nLOST\t0\n",
+		"nothing sent":         "SUMMARY\t3\nSENT\t0\nLOST\t0\n",
+		"more duplicates":      "SUMMARY\t3\nSENT\t100\nDUPS\t101\n",
+	} {
+		f := &fakeOwping{run: func([]string) ([]byte, []byte, error) { return []byte(in), nil, nil }}
+		r := runnerFor(t, f, "10.0.0.1")
+		if _, why := r.once(context.Background(), "10.0.0.1", Forward); why == "" {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	f := &fakeOwping{run: func([]string) ([]byte, []byte, error) { return summary(t, "owping_to.txt"), nil, nil }}
+	if _, why := runnerFor(t, f, "10.0.0.1").once(context.Background(), "10.0.0.1", Forward); why != "" {
+		t.Errorf("a real run was refused: %s", why)
+	}
+}
+
+func TestTheKillDeadlineAllowsForTheRandomSpacingOfPackets(t *testing.T) {
+	r := &Runner{Packets: 10, Spacing: 5 * time.Second}
+	r.Defaults()
+	if r.maxTime() < r.testTime()+10*time.Second+5*time.Second*10 {
+		t.Errorf("a test of 10 packets 5s apart may be killed after %s", r.maxTime())
+	}
+	d := &Runner{}
+	d.Defaults()
+	if d.maxTime() < d.testTime()+10*time.Second || d.maxTime() > d.Every {
+		t.Errorf("default deadline %s", d.maxTime())
+	}
+}
+
+func TestThePathProbeWaitsForItsTurnAtTheGate(t *testing.T) {
+	gate := NewGate()
+	f := &fakeOwping{run: func([]string) ([]byte, []byte, error) { return summary(t, "owping_to.txt"), nil, nil }}
+	r := runnerFor(t, f, "10.0.0.1")
+	r.Gate, r.PathEvery = gate, time.Minute
+	var traced atomic.Int32
+	r.Path = func(context.Context, netip.Addr) (PathResult, error) {
+		traced.Add(1)
+		return PathResult{}, nil
+	}
+	hold, err := gate.Acquire(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := r.Meter.Peers.List()[0]
+	done := make(chan struct{})
+	go func() { r.maybePath(context.Background(), p); close(done) }()
+	select {
+	case <-done:
+		t.Fatal("the path probe ran while another measurement held the link")
+	case <-time.After(50 * time.Millisecond):
+	}
+	if traced.Load() != 0 {
+		t.Fatal("the path probe ran beside another measurement")
+	}
+	hold()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the path probe did not run once the link was free")
+	}
+	if traced.Load() != 1 {
+		t.Fatalf("path probes run: %d", traced.Load())
+	}
+	// a wait that is cancelled is not a trace: it is tried again next time
+	r.lastPath = nil
+	hold, _ = gate.Acquire(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	r.maybePath(ctx, p)
+	hold()
+	r.mu.Lock()
+	_, stamped := r.lastPath[p.ID]
+	r.mu.Unlock()
+	if stamped || traced.Load() != 1 {
+		t.Error("a trace that never ran was recorded as done")
+	}
+}
+
 func TestAddressesAreCheckedBeforeTheyReachTheCommandLine(t *testing.T) {
 	f := &fakeOwping{run: func([]string) ([]byte, []byte, error) { return nil, nil, nil }}
 	r := runnerFor(t, f)
@@ -147,13 +304,13 @@ func TestAddressesAreCheckedBeforeTheyReachTheCommandLine(t *testing.T) {
 	}
 }
 
-func TestAuthenticatedModeUsesTheKeyAndIPv6IsBracketed(t *testing.T) {
+func TestTheDSCPIsSetAndIPv6IsBracketed(t *testing.T) {
 	f := &fakeOwping{run: func([]string) ([]byte, []byte, error) { return summary(t, "owping_to.txt"), nil, nil }}
 	r := runnerFor(t, f)
-	r.User, r.KeyFile, r.DSCP = "continuum", "/etc/link/key", 46
+	r.DSCP = 46
 	r.once(context.Background(), "2001:db8::1", Forward)
 	joined := strings.Join(f.calls[0], " ")
-	for _, want := range []string{"-A A", "-u continuum", "-k /etc/link/key", "-D 46", "[2001:db8::1]:861"} {
+	for _, want := range []string{"-A O", "-D 46", "[2001:db8::1]:861"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("missing %q in %s", want, joined)
 		}
@@ -171,7 +328,6 @@ func TestSettingsAreValidated(t *testing.T) {
 		"fast spacing": func(r *Runner) { r.Spacing = time.Millisecond },
 		"often":        func(r *Runner) { r.Every = time.Second },
 		"port":         func(r *Runner) { r.Port = 70000 },
-		"half auth":    func(r *Runner) { r.User = "x" },
 		"dscp":         func(r *Runner) { r.DSCP = 64 },
 		"does not fit": func(r *Runner) { r.Packets, r.Spacing, r.Every = 1000, time.Second, time.Minute },
 	} {

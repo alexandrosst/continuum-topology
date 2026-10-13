@@ -42,6 +42,9 @@ type PeerDoc struct {
 	// count them), so the prober can tell how busy the link is from two answers.
 	BytesSent     uint64 `json:"bytes_sent,omitempty"`
 	BytesReceived uint64 `json:"bytes_received,omitempty"`
+	// BytesUnknown says the totals above are not measurements: the collectors seeing the peer's traffic cannot count bytes, so
+	// zero means nothing. The prober then has no estimate of the link's load (a zero here is "unknown", not "idle").
+	BytesUnknown bool `json:"bytes_unknown,omitempty"`
 	// What to measure towards the peer (see Peer).
 	NoProbe                   bool   `json:"no_probe,omitempty"`
 	Throughput                bool   `json:"throughput,omitempty"`
@@ -70,6 +73,10 @@ func (m *Meter) peersDoc() PeersDoc {
 	defer m.mu.Unlock()
 	for i := range d.Peers {
 		if s := m.per[d.Peers[i].ID]; s != nil {
+			if s.bytesUnknown() {
+				d.Peers[i].BytesUnknown = true
+				continue
+			}
 			d.Peers[i].BytesSent, d.Peers[i].BytesReceived = s.bytesSent, s.bytesReceived
 		}
 	}

@@ -31,6 +31,10 @@ type fakeIperf struct {
 	running  atomic.Int32
 	overlap  atomic.Int32
 	hold     time.Duration
+	// failArg makes the answer an iperf3 error (a fixture) for the invocations that carry the argument; sendMax is the most
+	// a UDP sender manages to send, whatever it was asked for.
+	failArg map[string]string
+	sendMax float64
 }
 
 func (f *fakeIperf) exec(_ context.Context, env []string, name string, args ...string) ([]byte, []byte, error) {
@@ -68,9 +72,17 @@ func (f *fakeIperf) exec(_ context.Context, env []string, name string, args ...s
 	if why, ok := f.fail[addr]; ok {
 		return fixtureBytes(why), nil, errors.New("exit status 1")
 	}
+	for arg, why := range f.failArg {
+		if has(arg) {
+			return fixtureBytes(why), nil, errors.New("exit status 1")
+		}
+	}
 	switch {
 	case has("-u"):
 		rate, _ := strconv.ParseFloat(val("-b"), 64)
+		if f.sendMax > 0 {
+			rate = min(rate, f.sendMax)
+		}
 		return udpDoc(rate, f.capacity), nil, nil
 	case has("--bidir"):
 		return fixtureBytes("bidir"), nil, nil
@@ -753,7 +765,7 @@ func TestAPairCanHaveABudgetOfItsOwnBesideTheClustersAndItsSeriesSayHowMuchIsUse
 		t.Fatal(err)
 	}
 	settle(c)
-	ck.add(13 * time.Hour)
+	ck.add(14 * time.Hour)
 	settle(c) // the second cycle of cl-a does not fit its budget; cl-b's does
 	got := render(c.Meter)
 	skip := `continuum_link_throughput_tests_skipped_total{cluster="cl-me",peer="%s",method="iperf3",reason="budget"}`
@@ -779,5 +791,182 @@ func TestAPairCanHaveABudgetOfItsOwnBesideTheClustersAndItsSeriesSayHowMuchIsUse
 	settle(c)
 	if f.count() <= n {
 		t.Error("the peer stayed held back after its budget was removed")
+	}
+}
+
+// A scrape holds the meter's lock and asks for the pair budgets, which need the scheduler's; the scheduler must therefore
+// never call the meter while it holds its own. Before that was fixed, this hung within moments.
+func TestTheSchedulerAndAScrapeNeverWaitForEachOther(t *testing.T) {
+	for name, fail := range map[string]map[string]string{"skip": nil, "failure": {"10.0.0.1": "refused"}} {
+		t.Run(name, func(t *testing.T) {
+			f := &fakeIperf{fail: fail}
+			c, ck := capFor(t, f, func(c *Capacity) { c.Reverse, c.Parallel = false, 0 })
+			a := peer("cl-a", "A", "10.0.0.1")
+			a.Throughput, a.ThroughputBudgetBytes = true, 1 // every test is held back as over budget
+			if fail != nil {
+				a.ThroughputBudgetBytes = 1 << 40
+			}
+			c.Meter.Peers.Set("cl-me", []*continuumv1.LinkPeer{a})
+			if err := c.Start(); err != nil {
+				t.Fatal(err)
+			}
+			done := make(chan struct{}, 2)
+			stop := make(chan struct{})
+			go func() {
+				defer func() { done <- struct{}{} }()
+				for i := 0; i < 3000; i++ {
+					ck.add(31 * time.Minute * 3) // past any retry delay
+					c.step(context.Background())
+				}
+			}()
+			go func() {
+				defer func() { done <- struct{}{} }()
+				var b bytes.Buffer
+				for {
+					select {
+					case <-stop:
+						return
+					default:
+						b.Reset()
+						c.Meter.Write(&b)
+					}
+				}
+			}()
+			select {
+			case <-done:
+				close(stop)
+				<-done
+			case <-time.After(30 * time.Second):
+				t.Fatal("deadlock: the scheduler and a scrape wait for each other")
+			}
+		})
+	}
+}
+
+func TestATestThatFailsIsLeftOutAndTheOthersOfTheCycleStillRun(t *testing.T) {
+	f := &fakeIperf{failArg: map[string]string{"-u": "refused"}} // UDP blocked between the clusters
+	c, ck := capFor(t, f, func(c *Capacity) {
+		c.UDP = UDPRamp{Enabled: true, Start: 10e6, Max: 40e6, Step: 5 * time.Second, Loss: 0.01}
+		c.Reverse, c.Parallel = false, 0
+	})
+	for i := 0; i < 24*6; i++ { // a day in ten-minute steps
+		settle(c)
+		ck.add(10 * time.Minute)
+	}
+	tcp, udp := 0, 0
+	for i := 0; i < f.count(); i++ {
+		if strings.Contains(f.argsOf(i), " -u ") {
+			udp++
+		} else {
+			tcp++
+		}
+	}
+	// A cycle every 12 hours, give or take: the TCP test is not run again for each failure of the ramp.
+	if tcp < 2 || tcp > 3 || udp != tcp {
+		t.Errorf("tcp %d udp %d runs in a day with a cycle every 12 hours", tcp, udp)
+	}
+	if got := render(c.Meter)[`continuum_link_throughput_test_failures_total{cluster="cl-me",peer="cl-a",method="iperf3",reason="refused"}`]; got != strconv.Itoa(udp) {
+		t.Errorf("failures counted = %s want %d", got, udp)
+	}
+}
+
+func TestAFailingTestInTheMiddleDoesNotStopTheTestsAfterIt(t *testing.T) {
+	f := &fakeIperf{failArg: map[string]string{"-P": "refused"}}
+	c, _ := capFor(t, f, func(c *Capacity) {
+		c.UDP = UDPRamp{Enabled: true, Start: 10e6, Max: 10e6, Step: 5 * time.Second, Loss: 0.01}
+		c.Reverse = false
+	})
+	settle(c)
+	got := render(c.Meter)
+	if got[`continuum_link_throughput_udp_saturated{cluster="cl-me",peer="cl-a",method="iperf3",direction="forward",dscp="0"}`] == "" {
+		t.Errorf("the ramp after the failed parallel test did not run: %v", f.calls)
+	}
+}
+
+func TestAPeerThatDoesNotAnswerIsRetriedWithGrowingDelays(t *testing.T) {
+	f := &fakeIperf{fail: map[string]string{"10.0.0.1": "refused"}}
+	c, ck := capFor(t, f, nil)
+	settle(c)
+	n := f.count()
+	for i, wait := range []time.Duration{30 * time.Minute, 60 * time.Minute, 120 * time.Minute} {
+		ck.add(wait - time.Minute)
+		settle(c)
+		if f.count() != n {
+			t.Fatalf("round %d: tried again after %s, before the delay of %s", i, wait-time.Minute, wait)
+		}
+		ck.add(time.Minute)
+		settle(c)
+		if f.count() <= n {
+			t.Fatalf("round %d: not tried again after %s", i, wait)
+		}
+		n = f.count()
+	}
+}
+
+func TestTheBusyReferenceIsTheBestClassNotTheLastOne(t *testing.T) {
+	c := &Capacity{DSCP: []int{0, 46}, Parallel: 4}
+	c.setBits("cl-a", Forward, 1, 0, 10e9)
+	c.setBits("cl-a", Forward, 1, 46, 100e6) // policed, and tested after the unmarked one
+	if got := c.reached("cl-a", Forward); got != 10e9 {
+		t.Errorf("reached = %v", got)
+	}
+	c.setBits("cl-a", Forward, 1, 0, 9e9) // the latest unmarked figure replaces the old one
+	if got := c.reached("cl-a", Forward); got != 9e9 {
+		t.Errorf("reached = %v", got)
+	}
+}
+
+func TestARampEndsAtTheLastRateTheSenderReallyDelivered(t *testing.T) {
+	base := `{cluster="cl-me",peer="cl-a",method="iperf3",direction="forward",dscp="0"}`
+	run := func(sendMax float64) (map[string]string, int) {
+		f := &fakeIperf{sendMax: sendMax} // no loss anywhere
+		c, _ := capFor(t, f, func(c *Capacity) {
+			c.UDP = UDPRamp{Enabled: true, Start: 10e6, Max: 160e6, Step: 5 * time.Second, Loss: 0.01}
+			c.Reverse, c.Parallel = false, 0
+		})
+		settle(c)
+		return render(c.Meter), f.count()
+	}
+	got, n := run(40e6)
+	// tcp + 10, 20, 40 delivered, 80 asked but 40 sent: the ramp stops there, with 40 as the lower bound.
+	if n != 5 || !sameNumber(got["continuum_link_throughput_udp_clean_bits_per_second"+base], "4e7") || got["continuum_link_throughput_udp_saturated"+base] != "0" {
+		t.Errorf("runs %d clean %q saturated %q", n, got["continuum_link_throughput_udp_clean_bits_per_second"+base], got["continuum_link_throughput_udp_saturated"+base])
+	}
+	got, _ = run(1e6) // not even the first rung was delivered
+	if v, ok := got["continuum_link_throughput_udp_clean_bits_per_second"+base]; ok {
+		t.Errorf("a clean rate %s although nothing was delivered", v)
+	}
+}
+
+func TestAPeerThatGoesAwayTakesItsRemembrancesWithIt(t *testing.T) {
+	c, ck := capFor(t, &fakeIperf{}, nil)
+	settle(c)
+	c.mu.Lock()
+	c.warned = map[string]bool{"cl-a|tcp|forward|0": true, "cl-ab|tcp|forward|0": true}
+	c.lastBytes["cl-ab|tcp|forward|0"] = 1
+	c.setBits("cl-ab", Forward, 1, 0, 1)
+	c.mu.Unlock()
+	if len(c.lastBytes) < 2 || len(c.lastBits) < 2 {
+		t.Fatalf("nothing was remembered: %v %v", c.lastBytes, c.lastBits)
+	}
+	c.sync([]Peer{{ID: "cl-ab", Throughput: true}}, ck.now())
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.lastBytes) != 1 || len(c.lastBits) != 1 || len(c.warned) != 1 || !c.warned["cl-ab|tcp|forward|0"] {
+		t.Errorf("left over: %v %v %v", c.lastBytes, c.lastBits, c.warned)
+	}
+}
+
+func TestAMissingRetransmitCountIsNoSampleNotAZero(t *testing.T) {
+	c, _ := capFor(t, &fakeIperf{}, nil)
+	c.Meter.ObserveTCP("cl-a", IperfFlow{Direction: Forward, Bits: 1e9}, "tcp", 1, 0)
+	got := render(c.Meter)
+	key := `{cluster="cl-me",peer="cl-a",method="iperf3",direction="forward",protocol="tcp",streams="1",dscp="0"}`
+	if _, ok := got["continuum_link_throughput_retransmits"+key]; ok {
+		t.Error("retransmits exported although the sender did not report them")
+	}
+	c.Meter.ObserveTCP("cl-a", IperfFlow{Direction: Forward, Bits: 1e9, HasRetrans: true}, "tcp", 1, 0)
+	if v, ok := render(c.Meter)["continuum_link_throughput_retransmits"+key]; !ok || v != "0" {
+		t.Errorf("a reported zero is missing: %q", v)
 	}
 }

@@ -12,9 +12,9 @@ import (
 
 // PathResult is what a path probe learned about the way from this cluster to one address of a peer.
 type PathResult struct {
-	// MTU is the largest packet, in bytes, that fits the whole way, as the routers on the path said (0: not learned). When
-	// no router asked for a smaller size it is the smallest MTU on this host's own side, which is a lower bound on nothing:
-	// see Blackhole.
+	// MTU is the largest packet, in bytes, that fits the whole way, as the routers on the path said (0: not learned). It is
+	// set when the destination answered a full-size probe, or when a router (or the kernel) asked for a smaller size. It is
+	// never this host's own interface MTU: that says nothing about the path (see Blackhole).
 	MTU int
 	// Hops is how many routers the packets crossed to reach the address (set when Reached).
 	Hops int
@@ -24,8 +24,9 @@ type PathResult struct {
 	// Blackhole means a hop answered small packets but swallowed full-size ones without saying so: the path's MTU is
 	// smaller than this host believes and nothing told it, so large packets vanish. That looks like loss.
 	Blackhole bool
-	// Route is a fingerprint of the routers that answered, in order. It is not the addresses: nothing about the path's
-	// routers leaves the cluster, only whether the route stayed the same.
+	// Route is a fingerprint of the routers that answered, in order, of a trace that reached the destination (empty
+	// otherwise: a trace cut short, or stopped at a black hole, is not a route to compare). It is not the addresses: nothing
+	// about the path's routers leaves the cluster, only whether the route stayed the same.
 	Route string
 }
 
@@ -65,7 +66,8 @@ type pathStats struct {
 }
 
 // ObservePath records a path probe towards peer. A route change is counted when a new fingerprint has been seen on two
-// probes in a row, so one odd probe (a router that answered differently once) is not a change.
+// probes in a row, so one odd probe (a router that answered differently once) is not a change. Only the route of a trace that
+// reached the destination counts: a truncated one (a black hole, a firewall) would be a different "route" at every hiccup.
 func (m *Meter) ObservePath(peer string, r PathResult) {
 	if m == nil || !m.knows(peer) {
 		return
@@ -75,7 +77,7 @@ func (m *Meter) ObservePath(peer string, r PathResult) {
 	s := m.path(peer)
 	cp := r
 	s.last, s.lastOK = &cp, m.now()
-	if r.Route == "" {
+	if r.Route == "" || !r.Reached || r.Blackhole {
 		return
 	}
 	switch {

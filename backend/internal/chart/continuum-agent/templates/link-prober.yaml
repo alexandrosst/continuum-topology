@@ -88,6 +88,9 @@ spec:
             - {name: config, mountPath: /etc/owamp, readOnly: true}
             - {name: data, mountPath: /data}
             - {name: run, mountPath: /run/owamp}
+            # The daemon is the sender for the "from" direction, and a sender keeps its skip records in an unlinked temp file
+            # under TMPDIR or /tmp; on a read-only root that fails unless /tmp is a volume.
+            - {name: tmp, mountPath: /tmp}
         {{- if $cap.enabled }}
         # iperf3's server, for the throughput tests: one test at a time (it refuses a second client while one is running).
         # Same image and the same restrictions as OWAMP's; it keeps nothing.
@@ -121,10 +124,13 @@ spec:
             tcpSocket: {port: {{ $cap.port }}}
             periodSeconds: 30
           resources: {{- toYaml $cap.server.resources | nindent 12 }}
-          {{- if $auth }}
           volumeMounts:
+            # iperf3 makes a temp file in /tmp for every test stream (and unlinks it at once); on a read-only root that fails
+            # every test unless /tmp is a volume.
+            - {name: tmp, mountPath: /tmp}
+            {{- if $auth }}
             - {name: iperf-auth, mountPath: /iperf-auth, readOnly: true}
-          {{- end }}
+            {{- end }}
         {{- end }}
       volumes:
         - name: config
@@ -135,6 +141,10 @@ spec:
           emptyDir: {sizeLimit: 512Mi}
         - name: run
           emptyDir: {sizeLimit: 1Mi}
+        # The scratch space owampd and iperf3 need for their per-test temp files (the root filesystem is read-only). The files
+        # are unlinked as soon as they are made and are small, so the limit is generous.
+        - name: tmp
+          emptyDir: {sizeLimit: 16Mi}
         {{- if $auth }}
         # Only what a server needs of the credentials: the key it decrypts with and the users it accepts.
         - name: iperf-auth
@@ -153,8 +163,9 @@ spec:
       {{- end }}
 ---
 # The prober: one pod. It asks the agent which clusters this one is paired with and measures the path to each, one test at a
-# time, both directions. It has no access to the Kubernetes API, and only the agent's link address and the paired clusters'
-# responders are reachable to it by design.
+# time, both directions. It has no access to the Kubernetes API, and it is configured to talk only to the agent's link address
+# and the paired clusters' responders. That is a property of its code and settings, not of the network: no NetworkPolicy
+# restricts what the pod can reach or who can reach its metrics port (9105).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -257,6 +268,10 @@ spec:
           resources: {{- toYaml $probe.resources | nindent 12 }}
           volumeMounts:
             - {name: secret, mountPath: /secret, readOnly: true}
+            # owping (and the iperf3 client) make a temp file in /tmp for every test; the Go side runs them with a cleared
+            # environment, so TMPDIR is not set and /tmp is what they use. Without a volume here every test fails on the
+            # read-only root.
+            - {name: tmp, mountPath: /tmp}
             {{- if $auth }}
             - {name: iperf-auth, mountPath: /iperf-auth, readOnly: true}
             {{- end }}
@@ -266,6 +281,8 @@ spec:
       volumes:
         - name: secret
           secret: {secretName: {{ include "agent.flowSecretName" . }}, defaultMode: 0440}
+        - name: tmp
+          emptyDir: {sizeLimit: 16Mi}
         {{- if $probe.icmp.enabled }}
         # Where the prober writes the ping program's configuration from the peer list.
         - name: icmp

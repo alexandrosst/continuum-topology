@@ -46,7 +46,6 @@ func TestStartingWithBadSettingsFailsWithTheReason(t *testing.T) {
 		"short secret":    {[]string{"--agent", "http://a:9104", "--secret-file", short}, "at least 16 characters"},
 		"missing owping":  {[]string{"--agent", "http://a:9104", "--secret-file", good, "--owping", filepath.Join(dir, "nope")}, "--owping"},
 		"too few packets": {[]string{"--agent", "http://a:9104", "--secret-file", good, "--packets", "2"}, "packets per test"},
-		"half auth":       {[]string{"--agent", "http://a:9104", "--secret-file", good, "--auth-user", "x"}, "needs both a user and a key file"},
 	} {
 		code, out := run(t, c.args...)
 		if code == 0 || !strings.Contains(out, c.want) {

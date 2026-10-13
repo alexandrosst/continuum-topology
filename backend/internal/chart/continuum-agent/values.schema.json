@@ -1442,7 +1442,7 @@
                     "interval": {"type": "string", "pattern": "^([1-9][0-9]*(ms|s|m|h))+$"},
                     "duration": {"type": "string", "pattern": "^([1-9][0-9]*(ms|s|m|h))+$"},
                     "omit": {"anyOf": [{"type": "string", "pattern": "^(0|([1-9][0-9]*(ms|s|m|h))+)$"}, {"const": 0}]},
-                    "parallel": {"type": "integer", "minimum": 0, "maximum": 32},
+                    "parallel": {"anyOf": [{"const": 0}, {"type": "integer", "minimum": 2, "maximum": 32}]},
                     "reverse": {"type": "boolean"},
                     "bidir": {"type": "boolean"},
                     "udp": {

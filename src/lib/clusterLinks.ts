@@ -71,19 +71,25 @@ export function throughputSummary(t: Throughput): { when: string; budget: string
   }
 }
 
-/** What the form needs fixed before it can save; empty when fine. Hours may be fractional. */
-export function throughputProblems(hours: string, budget: string): string[] {
-  const out: string[] = []
+/** What the form needs fixed, per field; a field is absent when fine. Hours may be fractional. */
+export function throughputFieldProblems(hours: string, budget: string): { hours?: string; budget?: string } {
+  const out: { hours?: string; budget?: string } = {}
   const h = Number(hours)
   const minutes = Math.round(h * 60)
   if (hours.trim() === '' || !Number.isFinite(h) || minutes < INTERVAL_MIN || minutes > INTERVAL_MAX) {
-    out.push(`The time between tests must be between ${INTERVAL_MIN} minutes and ${INTERVAL_MAX / 1440} days`)
+    out.hours = `The time between tests must be between ${INTERVAL_MIN} minutes and ${INTERVAL_MAX / 1440} days`
   }
   const b = Number(budget)
   if (budget.trim() === '' || !Number.isInteger(b) || b < BUDGET_MIN || b > BUDGET_MAX) {
-    out.push(`The daily budget must be a whole number of MB between ${BUDGET_MIN} and ${BUDGET_MAX}`)
+    out.budget = `The daily budget must be a whole number of MB between ${BUDGET_MIN} and ${BUDGET_MAX}`
   }
   return out
+}
+
+/** What the form needs fixed before it can save; empty when fine. */
+export function throughputProblems(hours: string, budget: string): string[] {
+  const p = throughputFieldProblems(hours, budget)
+  return [p.hours, p.budget].filter((m): m is string => !!m)
 }
 
 /** How many sets of tests a day this schedule means, in words, for the form's cost line. */

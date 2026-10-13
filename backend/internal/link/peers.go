@@ -103,8 +103,11 @@ func (p *Peers) Set(own string, in []*continuumv1.LinkPeer) (dropped []string) {
 			if a.IsLoopback() || a.IsUnspecified() || a.IsMulticast() || a.IsLinkLocalUnicast() {
 				continue
 			}
-			if o, ok := owner[a]; ok && o != lp.ClusterId {
-				clash[a] = true
+			if o, ok := owner[a]; ok {
+				// The same peer naming an address twice (also as ::ffff:a.b.c.d) is one address; another peer's is a clash.
+				if o != lp.ClusterId {
+					clash[a] = true
+				}
 				continue
 			}
 			owner[a] = lp.ClusterId
@@ -115,6 +118,26 @@ func (p *Peers) Set(own string, in []*continuumv1.LinkPeer) (dropped []string) {
 			continue
 		}
 		next.peers = append(next.peers, pe)
+	}
+	// A clashing address is unusable for everyone, whichever peer named it first: take it out of every peer's list (so
+	// nothing probes what the passive side cannot attribute) and drop a peer that is left with nothing.
+	if len(clash) > 0 {
+		kept := next.peers[:0]
+		for _, pe := range next.peers {
+			addrs := make([]netip.Addr, 0, len(pe.Addresses))
+			for _, a := range pe.Addresses {
+				if !clash[a] {
+					addrs = append(addrs, a)
+				}
+			}
+			if len(addrs) == 0 {
+				dropped = append(dropped, "link peer "+pe.ID+" has no usable address")
+				continue
+			}
+			pe.Addresses = addrs
+			kept = append(kept, pe)
+		}
+		next.peers = kept
 	}
 	for a, c := range owner {
 		if !clash[a] {

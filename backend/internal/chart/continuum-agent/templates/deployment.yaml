@@ -134,6 +134,10 @@ spec:
             - {name: CONTINUUM_LINK_METRICS_LISTEN, value: ":9104"}
             {{- if .Values.telemetry.clusterLinks.probe.enabled }}
             - {name: CONTINUUM_LINK_SERVE_PEERS, value: "true"}
+            {{- $lp := .Values.telemetry.clusterLinks.probe }}
+            # The prober's own ports (OWAMP control and test packets, iperf3), so the link metrics and the load the throughput tests
+            # wait on do not count the prober's traffic as the link's.
+            - {name: CONTINUUM_LINK_PROBER_PORTS, value: "{{ int $lp.responder.port }},{{ $lp.responder.testPorts }}{{ if $lp.capacity.enabled }},{{ int $lp.capacity.port }}{{ end }}"}
             {{- end }}
             {{- end }}
             {{- if .Values.flowObserver.enabled }}

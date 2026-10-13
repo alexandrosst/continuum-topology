@@ -177,6 +177,11 @@ func (l *Load) Observe(d PeersDoc, now time.Time) {
 	}
 	seen := map[string]bool{}
 	for _, p := range d.Peers {
+		if p.BytesUnknown {
+			// Zeros that are not measurements: no estimate of the load, which the gates read as "not busy" (they only
+			// hold a test back for a rate they know), and nothing to difference when counting starts.
+			continue
+		}
 		seen[p.ID] = true
 		prev, had := l.last[p.ID]
 		cur := loadSample{now, p.BytesSent, p.BytesReceived}

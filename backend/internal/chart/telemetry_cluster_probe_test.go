@@ -318,3 +318,25 @@ func TestThePingBaselineIsOffByDefaultAndWhenOnNeedsOnlyASysctlAndAScratchDirect
 		}
 	}
 }
+
+// The agent leaves the prober's own traffic out of the link metrics, so it is told which ports that is: the control port,
+// the test-packet range, and the throughput port when those tests are on. Without the probe it is told nothing.
+func TestTheAgentIsToldTheProbersPorts(t *testing.T) {
+	agentEnv := func(r rendered) map[string]string {
+		env := map[string]string{}
+		for _, e := range r.deployments["continuum-agent"].Spec.Template.Spec.Containers[0].Env {
+			env[e.Name] = e.Value
+		}
+		return env
+	}
+	if got := agentEnv(render(t, probeArgs()...))["CONTINUUM_LINK_PROBER_PORTS"]; got != "8861,18900-18999" {
+		t.Errorf("probe on: ports = %q", got)
+	}
+	r := render(t, capArgs("telemetry.clusterLinks.probe.responder.port=9100", "telemetry.clusterLinks.probe.responder.testPorts=20000-20009", "telemetry.clusterLinks.probe.capacity.port=9000")...)
+	if got := agentEnv(r)["CONTINUUM_LINK_PROBER_PORTS"]; got != "9100,20000-20009,9000" {
+		t.Errorf("throughput tests on: ports = %q", got)
+	}
+	if _, ok := agentEnv(render(t, clusterLinksArgs()...))["CONTINUUM_LINK_PROBER_PORTS"]; ok {
+		t.Error("the agent is told the prober's ports with the probe off")
+	}
+}

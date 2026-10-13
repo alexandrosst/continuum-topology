@@ -25,6 +25,7 @@ type tpKey struct {
 type tpVal struct {
 	bits    float64
 	retrans uint64
+	hasRetr bool
 	rtt     float64
 	hasRTT  bool
 }
@@ -110,7 +111,7 @@ func (m *Meter) ObserveTCP(peer string, f IperfFlow, proto string, streams, dscp
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	s := m.throughput(peer)
-	s.tcp[tpKey{f.Direction, proto, streams, dscp}] = tpVal{bits: f.Bits, retrans: f.Retransmits, rtt: f.RTT, hasRTT: f.HasRTT}
+	s.tcp[tpKey{f.Direction, proto, streams, dscp}] = tpVal{bits: f.Bits, retrans: f.Retransmits, hasRetr: f.HasRetrans, rtt: f.RTT, hasRTT: f.HasRTT}
 	s.bytes[f.Direction] += f.Bytes
 	s.lastOK = m.now()
 }
@@ -215,7 +216,7 @@ func (m *Meter) writeThroughput(w io.Writer, own string, peerIDs []string) {
 		}
 	}
 	tcp("continuum_link_throughput_bits_per_second", "TCP throughput the latest test achieved in this direction, measured where the data arrived. streams is the number of parallel connections; dscp the class the packets were marked with.", func(v tpVal) (float64, bool) { return v.bits, true })
-	tcp("continuum_link_throughput_retransmits", "TCP segments the sender had to resend during the latest test: loss that the test itself provoked, at full rate.", func(v tpVal) (float64, bool) { return float64(v.retrans), true })
+	tcp("continuum_link_throughput_retransmits", "TCP segments the sender had to resend during the latest test: loss that the test itself provoked, at full rate.", func(v tpVal) (float64, bool) { return float64(v.retrans), v.hasRetr })
 	tcp("continuum_link_throughput_rtt_seconds", "Mean TCP round-trip time during the latest test. Compare it with the idle round-trip time: the difference is queueing delay (bufferbloat). Reported for the direction this cluster sends in only.", func(v tpVal) (float64, bool) { return v.rtt, v.hasRTT })
 
 	udpKeys := func(s *tpStats) []udpKey {

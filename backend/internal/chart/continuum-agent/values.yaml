@@ -1003,6 +1003,8 @@ telemetry:
     # Cost: `packets` per run, `interval` apart, in each direction, per paired cluster: by default 100 small packets a minute.
     # Needs metrics.enabled (the agent answers the prober, and the cluster collector scrapes both). The ports must be open
     # between paired clusters: TCP responder.port and UDP responder.testPorts, to every node address of the peer cluster.
+    # The prober is only configured to talk to the agent and to the paired clusters' responders; no NetworkPolicy enforces
+    # that, and its metrics port (9105) answers any pod that can reach it. Restrict both yourself if the cluster needs it.
     probe:
       enabled: false
       image:

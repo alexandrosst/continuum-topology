@@ -257,7 +257,7 @@ func (m *Meter) writeConnects(w io.Writer, own string, peerIDs []string) {
 		fmt.Fprintf(w, "%s_bucket{%s} %d\n", name, lbl(id, "le", "+Inf"), cum)
 		fmt.Fprintf(w, "%s_sum{%s} %g\n%s_count{%s} %d\n", name, lbl(id), h.sum, name, lbl(id), h.n)
 	}
-	head("continuum_link_tcp_connect_failures_total", "counter", "Attempts to open a TCP connection to the peer's link responder, on every address tried, that failed, by reason. The loss ratio is this over this plus the histogram's count.")
+	head("continuum_link_tcp_connect_failures_total", "counter", "Rounds in which no address of the peer's link responder opened a TCP connection, by the reason of the last attempt; a round where a later address answered counts nothing here. The loss ratio, per round, is this over this plus the histogram's count (whose samples may come from different nodes of the peer).")
 	for _, id := range peerIDs {
 		for _, r := range failReasons {
 			v := uint64(0)

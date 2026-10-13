@@ -10,7 +10,8 @@ import (
 )
 
 // IperfFlow is what one direction of an iperf3 test achieved, read on the receiving end (what arrived, which is what a
-// link can be said to carry). Bytes is what the sender put on the wire, which is what the test cost.
+// link can be said to carry). Bytes is what this end of the test measured itself: what it sent in a direction it sends in,
+// what it received in the other. The peer's own account of its end is never used for it, since it drives the byte budget.
 type IperfFlow struct {
 	Direction Direction
 	// Bits is the receive rate in bits per second.
@@ -18,7 +19,9 @@ type IperfFlow struct {
 	Bytes uint64
 	// TCP: segments retransmitted by the sender during the test, and the mean round-trip time its kernel measured under the
 	// load (seconds; HasRTT is false when the system did not report one).
+	// HasRetrans is false when the sender did not report a count (the field is absent for a sender that cannot).
 	Retransmits uint64
+	HasRetrans  bool
 	RTT         float64
 	HasRTT      bool
 	// UDP: datagrams the receiver expected and did not get, and the receiver's jitter (seconds).
@@ -128,8 +131,14 @@ func ParseIperf(r io.Reader, dir Direction) (IperfResult, error) {
 		return sum / float64(n) / 1e6, true
 	}
 	flow := func(dir Direction, sent, recv *ipSum, forward bool) (IperfFlow, error) {
-		f := IperfFlow{Direction: dir, Bits: recv.Bits, Bytes: num(sent.Bytes)}
-		if !finite(recv.Bits, sent.Bytes) || recv.Bits < 0 || sent.Bytes < 0 {
+		// forward: this end is the sender. What the peer says about its own end (the sender's in a reverse flow, the
+		// receiver's in a forward one) does not decide the cost.
+		local := recv
+		if forward {
+			local = sent
+		}
+		f := IperfFlow{Direction: dir, Bits: recv.Bits, Bytes: num(local.Bytes)}
+		if !finite(recv.Bits, sent.Bytes, recv.Bytes) || recv.Bits < 0 || sent.Bytes < 0 || recv.Bytes < 0 || recv.Bits > maxBits {
 			return f, errors.New("iperf3 result holds an impossible number")
 		}
 		if res.UDP {
@@ -142,7 +151,7 @@ func ParseIperf(r io.Reader, dir Direction) (IperfResult, error) {
 			}
 		} else {
 			if sent.Retransmits != nil {
-				f.Retransmits = num(*sent.Retransmits)
+				f.Retransmits, f.HasRetrans = num(*sent.Retransmits), true
 			}
 			f.RTT, f.HasRTT = rtt(forward)
 		}
@@ -181,10 +190,22 @@ func finite(vs ...float64) bool {
 	return true
 }
 
-// num turns a JSON number into a count; negatives (iperf3 reports a negative loss when datagrams arrive twice) are zero.
+const (
+	// maxBits is the highest rate taken as possible (10 Tbit/s); a peer reporting more is lying or broken.
+	maxBits = 1e13
+	// maxIperfCount bounds every count: converting a larger float to an integer is undefined in Go, and a sum of such counts
+	// could wrap. 2^53 is exact in a float and out of reach of any test (9 PB).
+	maxIperfCount = 1 << 53
+)
+
+// num turns a JSON number into a count; negatives (iperf3 reports a negative loss when datagrams arrive twice) are zero,
+// and a value too large to be real saturates.
 func num(v float64) uint64 {
 	if v <= 0 || math.IsNaN(v) {
 		return 0
+	}
+	if v >= maxIperfCount {
+		return maxIperfCount
 	}
 	return uint64(v)
 }

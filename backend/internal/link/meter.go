@@ -1,10 +1,12 @@
 package link
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -50,7 +52,13 @@ type stats struct {
 	failed                   map[string]uint64
 	rtt, jitter, handshake   *hist
 	lastSeen                 time.Time
+	// Whether any report that counted bytes, and any that could not (the conntrack collector without accounting), carried
+	// traffic with this peer. The byte counters are only written while they are not known to be zero for want of a counter.
+	bytesSeen, bytesMissing bool
 }
+
+// bytesUnknown says the byte totals are not measurements: only reports that could not count bytes ever arrived.
+func (s *stats) bytesUnknown() bool { return s.bytesMissing && !s.bytesSeen }
 
 func newStats() *stats {
 	return &stats{failed: map[string]uint64{}, rtt: newHist(rttBuckets), jitter: newHist(jitterBuckets), handshake: newHist(handshakeBuckets)}
@@ -75,8 +83,10 @@ type Meter struct {
 	// series of its own (the ICMP baseline), asked for under no lock of the meter's.
 	timingConnects bool
 	extras         []func(io.Writer)
-	budget         func() (used, limit uint64)
-	pairBudget     func(peer string) (used, limit uint64, ok bool)
+	// proberPorts are the ports the link prober's own traffic uses; flows to or from them are not the link's traffic.
+	proberPorts []portRange
+	budget      func() (used, limit uint64)
+	pairBudget  func(peer string) (used, limit uint64, ok bool)
 
 	peersSecret []byte
 	peersReplay *probe.ReplayCache
@@ -85,12 +95,61 @@ type Meter struct {
 // NewMeter reads peers from p.
 func NewMeter(p *Peers) *Meter { return &Meter{Peers: p, now: time.Now, per: map[string]*stats{}} }
 
-// Observe adds one flow report's rows. A row whose far end is not a peer is ignored.
+// portRange is an inclusive range of ports, the unit of parsePorts.
+type portRange struct{ lo, hi uint32 }
+
+// parsePorts reads a list of ports and port ranges such as "8861,8862,18900-18999". Empty is no ports.
+func parsePorts(spec string) ([]portRange, error) {
+	var out []portRange
+	for _, f := range strings.Split(spec, ",") {
+		f = strings.TrimSpace(f)
+		if f == "" {
+			continue
+		}
+		lo, hi, isRange := strings.Cut(f, "-")
+		l, err := strconv.ParseUint(strings.TrimSpace(lo), 10, 16)
+		h := l
+		if err == nil && isRange {
+			h, err = strconv.ParseUint(strings.TrimSpace(hi), 10, 16)
+		}
+		if err != nil || l == 0 || h < l {
+			return nil, fmt.Errorf("%q is not a port or a range of ports", f)
+		}
+		out = append(out, portRange{uint32(l), uint32(h)})
+	}
+	return out, nil
+}
+
+// IgnorePorts makes Observe leave out every flow whose service port is in spec (see parsePorts), whatever the protocol
+// and the direction: the link prober's own traffic (the one-way probe's control and test ports, the TCP connect timer, the
+// throughput tests) would otherwise count as the link's traffic, and so inflate its connection, handshake, round-trip and
+// failure series and, worse, read as load on the link to the very throughput tests that cause it.
+func (m *Meter) IgnorePorts(spec string) error {
+	if m == nil {
+		return nil
+	}
+	r, err := parsePorts(spec)
+	if err != nil {
+		return err
+	}
+	m.mu.Lock()
+	m.proberPorts = r
+	m.mu.Unlock()
+	return nil
+}
+
+// Observe adds one flow report's rows, which carry byte counts. See ObserveRows.
+func (m *Meter) Observe(rows []*continuumv1.RawFlow) { m.ObserveRows(rows, true) }
+
+// ObserveRows adds one flow report's rows. A row whose far end is not a peer is ignored, and so is one on a port of the link
+// prober's own (see IgnorePorts). bytesKnown is the report's own flag: when false (the conntrack collector with no byte
+// accounting) the rows' byte counts are zeros, not measurements, so they are not added and the peer's byte counters are not
+// written until a report that has them arrives.
 //
 // Direction: bytes_out is what the caller sent and bytes_in what the callee sent, so what *this* cluster sent is bytes_out
 // when it dialed (client) and bytes_in when it accepted. Retransmits and segments are the local socket's own, so they
 // always describe what this cluster sent towards the peer.
-func (m *Meter) Observe(rows []*continuumv1.RawFlow) {
+func (m *Meter) ObserveRows(rows []*continuumv1.RawFlow, bytesKnown bool) {
 	if m == nil || m.Peers.Empty() {
 		return
 	}
@@ -98,7 +157,7 @@ func (m *Meter) Observe(rows []*continuumv1.RawFlow) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, r := range rows {
-		if r == nil {
+		if r == nil || m.proberPort(r.Port) {
 			continue
 		}
 		peer := m.Peers.Lookup(r.PeerIp)
@@ -113,12 +172,17 @@ func (m *Meter) Observe(rows []*continuumv1.RawFlow) {
 		s.lastSeen = now
 		s.flows++
 		s.connections += r.Connections
-		sent, recv := r.BytesOut, r.BytesIn
-		if !r.Client {
-			sent, recv = r.BytesIn, r.BytesOut
+		if bytesKnown {
+			sent, recv := r.BytesOut, r.BytesIn
+			if !r.Client {
+				sent, recv = r.BytesIn, r.BytesOut
+			}
+			s.bytesSent += sent
+			s.bytesReceived += recv
+			s.bytesSeen = true
+		} else {
+			s.bytesMissing = true
 		}
-		s.bytesSent += sent
-		s.bytesReceived += recv
 		s.segmentsSent += uint64(r.SegsOut)
 		s.retransmits += uint64(r.Retransmits)
 		s.rtoRetrans += uint64(r.RtoRetransmits)
@@ -143,6 +207,16 @@ func (m *Meter) Observe(rows []*continuumv1.RawFlow) {
 			s.handshake.observe(float64(r.HandshakeUs) / 1e6)
 		}
 	}
+}
+
+// proberPort says whether port is one the link prober's own traffic uses. Called with m.mu held.
+func (m *Meter) proberPort(port uint32) bool {
+	for _, r := range m.proberPorts {
+		if port >= r.lo && port <= r.hi {
+			return true
+		}
+	}
+	return false
 }
 
 // Forget drops the totals of peers that are no longer configured.
@@ -217,13 +291,17 @@ func esc(s string) string {
 func (m *Meter) Write(w io.Writer) {
 	own := m.Peers.Own()
 	peers := m.Peers.List()
+	// Everything is rendered into memory first and only then handed to w: w is a client's socket, and a client that reads
+	// slowly must not hold the meter's lock (every flow report and every probe result takes it) while it does.
+	var buf bytes.Buffer
 	m.mu.Lock()
 	extras := slices.Clone(m.extras)
-	m.write(w, own, peers)
+	m.write(&buf, own, peers)
 	m.mu.Unlock()
 	for _, f := range extras {
-		f(w)
+		f(&buf)
 	}
+	_, _ = w.Write(buf.Bytes())
 }
 
 // write renders the meter's own series. Called with m.mu held.
@@ -244,9 +322,9 @@ func (m *Meter) write(w io.Writer, own string, peers []Peer) {
 	for _, p := range peers {
 		fmt.Fprintf(w, "continuum_link_peer_info{%s,peer_name=\"%s\"} 1\n", lbl(p.ID), esc(p.Name))
 	}
-	counter := func(name, help string, get func(*stats) uint64) {
+	counterFor := func(list []Peer, name, help string, get func(*stats) uint64) {
 		head(name, "counter", help)
-		for _, p := range peers {
+		for _, p := range list {
 			v := uint64(0)
 			if s := m.per[p.ID]; s != nil {
 				v = get(s)
@@ -254,10 +332,18 @@ func (m *Meter) write(w io.Writer, own string, peers []Peer) {
 			fmt.Fprintf(w, "%s{%s} %d\n", name, lbl(p.ID), v)
 		}
 	}
+	counter := func(name, help string, get func(*stats) uint64) { counterFor(peers, name, help, get) }
 	counter("continuum_link_flows_total", "Flow rows observed to or from the peer (one per connection group per report window).", func(s *stats) uint64 { return s.flows })
 	counter("continuum_link_connections_total", "Connections observed to or from the peer.", func(s *stats) uint64 { return s.connections })
-	counter("continuum_link_sent_bytes_total", "Bytes this cluster sent to the peer, from observed connections.", func(s *stats) uint64 { return s.bytesSent })
-	counter("continuum_link_received_bytes_total", "Bytes this cluster received from the peer, from observed connections.", func(s *stats) uint64 { return s.bytesReceived })
+	// A peer whose reports could not count bytes has no byte series: zero would read as a quiet link.
+	known := peers[:0:0]
+	for _, p := range peers {
+		if s := m.per[p.ID]; s == nil || !s.bytesUnknown() {
+			known = append(known, p)
+		}
+	}
+	counterFor(known, "continuum_link_sent_bytes_total", "Bytes this cluster sent to the peer, from observed connections. Absent for a peer whose traffic is seen only by a collector that cannot count bytes (conntrack without nf_conntrack_acct).", func(s *stats) uint64 { return s.bytesSent })
+	counterFor(known, "continuum_link_received_bytes_total", "Bytes this cluster received from the peer, from observed connections. Absent for a peer whose traffic is seen only by a collector that cannot count bytes (conntrack without nf_conntrack_acct).", func(s *stats) uint64 { return s.bytesReceived })
 	counter("continuum_link_segments_sent_total", "TCP segments this cluster sent towards the peer; the denominator for the retransmit ratio.", func(s *stats) uint64 { return s.segmentsSent })
 	counter("continuum_link_retransmits_total", "TCP segments this cluster had to resend towards the peer (the kernel's own counter). The best passive sign of packet loss on the link.", func(s *stats) uint64 { return s.retransmits })
 	counter("continuum_link_rto_retransmits_total", "Of the retransmits, those the retransmission timer fired for: nothing came back at all.", func(s *stats) uint64 { return s.rtoRetrans })

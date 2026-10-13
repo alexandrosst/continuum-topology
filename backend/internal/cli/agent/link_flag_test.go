@@ -3,6 +3,7 @@ package agent
 import (
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -40,6 +41,24 @@ func TestServingPeersNeedsTheMetricsAddress(t *testing.T) {
 	os.Stderr = old
 	out, _ := io.ReadAll(r)
 	if code == 0 || !strings.Contains(string(out), "--link-serve-peers needs --link-metrics-listen") {
+		t.Fatalf("code %d:\n%s", code, out)
+	}
+}
+
+func TestProberPortsMustBePorts(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stderr
+	os.Stderr = w
+	secret := filepath.Join(t.TempDir(), "secret")
+	os.WriteFile(secret, []byte("0123456789abcdef0123"), 0o600)
+	code := Main([]string{"--server", "s.example:8443", "--ca-pin", "ab", "--flow-secret-file", secret, "--link-metrics-listen", "127.0.0.1:0", "--link-prober-ports", "8861,eight"})
+	w.Close()
+	os.Stderr = old
+	out, _ := io.ReadAll(r)
+	if code == 0 || !strings.Contains(string(out), "--link-prober-ports") {
 		t.Fatalf("code %d:\n%s", code, out)
 	}
 }

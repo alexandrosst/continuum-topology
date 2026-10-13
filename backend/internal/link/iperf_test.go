@@ -160,3 +160,60 @@ func TestRatesAndSizesAreParsed(t *testing.T) {
 		}
 	}
 }
+
+func tcpDocWith(sentBytes, recvBytes, bits string, retrans string) string {
+	return `{"start": {"test_start": {"protocol": "TCP", "num_streams": 1}}, "end": {"sum_sent": {"bytes": ` + sentBytes + `, "bits_per_second": 1e9` + retrans +
+		`, "sender": true}, "sum_received": {"bytes": ` + recvBytes + `, "bits_per_second": ` + bits + `, "sender": false}}}`
+}
+
+func TestTheCostIsWhatThisEndMeasuredNotWhatThePeerSays(t *testing.T) {
+	// Forward: this end sent, so sum_sent is its own and the peer's received count is not used.
+	r, err := ParseIperf(strings.NewReader(tcpDocWith("1000", "1e30", "1e9", "")), Forward)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f, _ := r.Flow(Forward); f.Bytes != 1000 {
+		t.Errorf("forward bytes = %d", f.Bytes)
+	}
+	// Reverse: the peer sent, so its sum_sent is a claim; this end's sum_received is what arrived.
+	r, err = ParseIperf(strings.NewReader(tcpDocWith("1e30", "1000", "1e9", "")), Reverse)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f, _ := r.Flow(Reverse); f.Bytes != 1000 {
+		t.Errorf("reverse bytes = %d", f.Bytes)
+	}
+}
+
+func TestAnImpossibleCountSaturatesAndAnImpossibleRateIsRefused(t *testing.T) {
+	r, err := ParseIperf(strings.NewReader(tcpDocWith("1e30", "1000", "1e9", "")), Forward)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f, _ := r.Flow(Forward); f.Bytes != maxIperfCount {
+		t.Errorf("bytes = %d", f.Bytes)
+	}
+	if num(1e300) != maxIperfCount || num(math.Inf(1)) != maxIperfCount || num(-1) != 0 || num(42) != 42 {
+		t.Error("num does not saturate")
+	}
+	if _, err := ParseIperf(strings.NewReader(tcpDocWith("1000", "1000", "1e300", "")), Forward); err == nil {
+		t.Error("a rate of 1e300 bit/s was accepted")
+	}
+}
+
+func TestAnAbsentRetransmitCountIsNotACountOfZero(t *testing.T) {
+	r, err := ParseIperf(strings.NewReader(tcpDocWith("1000", "1000", "1e9", "")), Forward)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f, _ := r.Flow(Forward); f.HasRetrans || f.Retransmits != 0 {
+		t.Errorf("%+v", f)
+	}
+	r, err = ParseIperf(strings.NewReader(tcpDocWith("1000", "1000", "1e9", `, "retransmits": 0`)), Forward)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f, _ := r.Flow(Forward); !f.HasRetrans {
+		t.Errorf("a reported zero was taken for absent: %+v", f)
+	}
+}

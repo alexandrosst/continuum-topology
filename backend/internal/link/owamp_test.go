@@ -40,8 +40,8 @@ func TestTheParserReadsRealOwpingOutput(t *testing.T) {
 	if to.Synchronized {
 		t.Error("the fixture was recorded on an unsynchronised clock")
 	}
-	if to.ClockError <= 0 {
-		t.Errorf("clock error = %v", to.ClockError)
+	if to.ClockError <= 0 || !to.HasClockError {
+		t.Errorf("clock error = %v (%v)", to.ClockError, to.HasClockError)
 	}
 	if to.Hops != 0 {
 		t.Errorf("hops on loopback = %d, want 0", to.Hops)
@@ -67,15 +67,15 @@ func TestTheParserRefusesWhatIsNotACompleteSummary(t *testing.T) {
 }
 
 func TestTheParserToleratesMissingAndOddFields(t *testing.T) {
-	r, err := ParseOwping(strings.NewReader("noise\nSUMMARY\t3.00\nSENT\t50\nLOST\t50\nSYNC\t1\nMIN\t0.01\nPDV\tnan\nMINTTL\t250\nMAXERR\tbad\n<BUCKETS>\n\t1\t5\n</BUCKETS>\n"))
+	r, err := ParseOwping(strings.NewReader("noise\nSUMMARY\t3.00\nSENT\t50\nLOST\t50\nSYNC\t1\nMIN\t0.01\nMINTTL\t250\nMAXERR\tbad\n<BUCKETS>\n\t1\t5\n</BUCKETS>\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if r.HasDelay {
 		t.Error("a run that lost everything claimed a delay")
 	}
-	if r.HasJitter {
-		t.Error("nan accepted as jitter")
+	if r.HasClockError {
+		t.Error("an unreadable MAXERR was taken as a clock error")
 	}
 	if !r.Synchronized || r.Hops != 5 {
 		t.Errorf("%+v", r)
@@ -84,6 +84,95 @@ func TestTheParserToleratesMissingAndOddFields(t *testing.T) {
 	big := "SUMMARY\t3\nSENT\t1\n" + strings.Repeat("x\ty\n", 1<<20)
 	if _, err := ParseOwping(strings.NewReader(big)); err != nil {
 		t.Fatalf("a long tail should not break a complete summary: %v", err)
+	}
+}
+
+func TestTheParserOnlyTrustsACompleteAndOrderedSetOfDelays(t *testing.T) {
+	const head = "SUMMARY\t3.00\nSENT\t50\nLOST\t1\n"
+	for name, in := range map[string]string{
+		"min only":    head + "MIN\t0.01\n",
+		"no max":      head + "MIN\t0.01\nMEDIAN\t0.02\n",
+		"median<min":  head + "MIN\t0.02\nMEDIAN\t0.01\nMAX\t0.03\n",
+		"max<median":  head + "MIN\t0.01\nMEDIAN\t0.03\nMAX\t0.02\n",
+		"unparseable": head + "MIN\t0.01\nMEDIAN\tx\nMAX\t0.02\n",
+	} {
+		r, err := ParseOwping(strings.NewReader(in))
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if r.HasDelay || r.Min != 0 || r.Median != 0 || r.Max != 0 {
+			t.Errorf("%s: delays kept: %+v", name, r)
+		}
+		if r.Sent != 50 || r.Lost != 1 {
+			t.Errorf("%s: the loss counts were dropped with the delays: %+v", name, r)
+		}
+	}
+	r, err := ParseOwping(strings.NewReader(head + "MIN\t0.01\nMEDIAN\t0.02\nMAX\t0.03\n"))
+	if err != nil || !r.HasDelay || r.Max != 0.03 {
+		t.Errorf("a complete set was refused: %+v %v", r, err)
+	}
+}
+
+func TestTheParserRefusesCountsThatCouldWrapACounter(t *testing.T) {
+	for _, in := range []string{
+		"SUMMARY\t3\nSENT\t1e30\n",
+		"SUMMARY\t3\nSENT\t10\nDUPS\t9.3e18\n",
+		"SUMMARY\t3\nSENT\t10\nLOST\t-1\n",
+	} {
+		if _, err := ParseOwping(strings.NewReader(in)); err == nil {
+			t.Errorf("%q accepted", in)
+		}
+	}
+}
+
+func TestClockErrorIsShownOnlyWhenKnownAndTheClocksAgree(t *testing.T) {
+	m := probeMeter(t)
+	m.EnableProbes()
+	r := OwampResult{Sent: 10, ClockError: 4.6e-10, HasClockError: true}
+	m.ObserveProbe("cl-a", Forward, r)
+	if hasKey(render(m), "clock_error") {
+		t.Fatal("a clock error bound is shown for unsynchronised clocks")
+	}
+	r.Synchronized = true
+	m.ObserveProbe("cl-a", Forward, r)
+	if !hasKey(render(m), "clock_error") {
+		t.Fatal("the clock error is hidden for synchronised clocks")
+	}
+	r.HasClockError = false
+	m.ObserveProbe("cl-a", Forward, r)
+	if hasKey(render(m), "clock_error") {
+		t.Fatal("a missing clock error is shown as 0")
+	}
+}
+
+func TestAFailedRunWithdrawsTheReadingsOfTheLastGoodOne(t *testing.T) {
+	m := probeMeter(t)
+	m.EnableProbes()
+	m.ObserveProbe("cl-a", Forward, OwampResult{Sent: 100, Lost: 0, HasDelay: true, Min: 0.01, Median: 0.011, Max: 0.02, Synchronized: true, Hops: 5})
+	got := render(m)
+	up := `continuum_link_probe_up{cluster="cl-me",peer="cl-a",direction="forward",method="owamp"}`
+	if got[up] != "1" || !hasKey(got, "probe_loss_ratio{") {
+		t.Fatalf("after a good run: %v", got)
+	}
+	if _, ok := got[`continuum_link_probe_up{cluster="cl-me",peer="cl-a",direction="reverse",method="owamp"}`]; ok {
+		t.Error("up shown for a direction never tried")
+	}
+	m.ProbeFailed("cl-a", Forward, "timeout")
+	got = render(m)
+	if got[up] != "0" {
+		t.Fatalf("up = %q after a failure", got[up])
+	}
+	for k := range got {
+		if strings.Contains(k, "loss_ratio{") || strings.Contains(k, "delay_variation") || strings.Contains(k, "one_way_delay") || strings.Contains(k, "clock_") || strings.Contains(k, "path_hops") {
+			t.Errorf("a reading of the earlier run is still shown: %s", k)
+		}
+	}
+	if got[`continuum_link_probe_packets_sent_total{cluster="cl-me",peer="cl-a",direction="forward",method="owamp"}`] != "100" || !hasKey(got, "last_success") {
+		t.Errorf("the totals or the last success were lost: %v", got)
+	}
+	m.ObserveProbe("cl-a", Forward, OwampResult{Sent: 100})
+	if got = render(m); got[up] != "1" || !hasKey(got, "probe_loss_ratio{") {
+		t.Errorf("not back after a good run: %v", got)
 	}
 }
 
@@ -98,7 +187,7 @@ func probeMeter(t *testing.T) *Meter {
 
 func TestProbeSeriesAreSilentUntilEnabledAndCountPerDirection(t *testing.T) {
 	m := probeMeter(t)
-	m.ObserveProbe("cl-a", Forward, OwampResult{Sent: 100, Lost: 5, HasDelay: true, Min: 0.01, Median: 0.012, Max: 0.03, Jitter: 0.002, HasJitter: true, ClockError: 0.0005, Hops: 9})
+	m.ObserveProbe("cl-a", Forward, OwampResult{Sent: 100, Lost: 5, HasDelay: true, Min: 0.01, Median: 0.012, Max: 0.03, ClockError: 0.0005, HasClockError: true, Hops: 9})
 	if got := render(m); strings.Contains(strings.Join(keys(got), "\n"), "probe") {
 		t.Fatal("probe series appeared before they were enabled")
 	}
@@ -129,7 +218,7 @@ func TestProbeSeriesAreSilentUntilEnabledAndCountPerDirection(t *testing.T) {
 	}
 	// the later forward run had no delays, so its absence is not a stale reading of the earlier one
 	for k := range got {
-		if strings.Contains(k, "probe_path_hops") || strings.Contains(k, "probe_jitter") {
+		if strings.Contains(k, "probe_path_hops") {
 			t.Errorf("a field the latest run did not report is still shown: %s", k)
 		}
 	}
@@ -208,7 +297,7 @@ func TestProbesForARemovedPeerGoAndStrangersAreIgnored(t *testing.T) {
 func TestProbeOutputIsWellFormedAndEachFamilyHasOneHeader(t *testing.T) {
 	m := probeMeter(t)
 	m.EnableProbes()
-	m.ObserveProbe("cl-a", Forward, OwampResult{Sent: 10, Lost: 1, HasDelay: true, Min: 0.01, Median: 0.011, Max: 0.02, Synchronized: true, Hops: 7, HasJitter: true, Jitter: 0.001})
+	m.ObserveProbe("cl-a", Forward, OwampResult{Sent: 10, Lost: 1, HasDelay: true, Min: 0.01, Median: 0.011, Max: 0.02, Synchronized: true, Hops: 7})
 	var b bytes.Buffer
 	m.Write(&b)
 	typed := map[string]int{}

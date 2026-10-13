@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	continuumv1 "continuum/gen/continuumv1"
 )
@@ -275,5 +277,174 @@ func TestMetricsEndpointServesTheMeterAndOnlyGET(t *testing.T) {
 	r3.Body.Close()
 	if r3.StatusCode == 200 {
 		t.Error("POST /metrics was accepted")
+	}
+}
+
+// An address two peers both claim is unusable for both, whichever came first: it must leave the first one's address list too,
+// or the probes would aim at it and record the results under one peer only.
+func TestAClashingAddressLeavesEveryPeersList(t *testing.T) {
+	for name, in := range map[string][]*continuumv1.LinkPeer{
+		"a first": {peer("a", "A", "10.0.0.1", "10.0.0.2"), peer("b", "B", "10.0.0.1", "10.0.0.3")},
+		"b first": {peer("b", "B", "10.0.0.1", "10.0.0.3"), peer("a", "A", "10.0.0.1", "10.0.0.2")},
+	} {
+		p := NewPeers()
+		p.Set("me", in)
+		if got := p.Lookup("10.0.0.1"); got != "" {
+			t.Errorf("%s: Lookup = %q", name, got)
+		}
+		got := map[string]string{}
+		for _, pe := range p.List() {
+			for _, a := range pe.Addresses {
+				got[pe.ID] += a.String() + " "
+			}
+		}
+		if got["a"] != "10.0.0.2 " || got["b"] != "10.0.0.3 " {
+			t.Errorf("%s: addresses = %v", name, got)
+		}
+		for _, pd := range p.Doc().Peers {
+			for _, a := range pd.Addresses {
+				if a == "10.0.0.1" {
+					t.Errorf("%s: the document still names the clashing address under %s", name, pd.ID)
+				}
+			}
+		}
+	}
+	// A peer left with only clashing addresses is dropped, in either order.
+	for name, in := range map[string][]*continuumv1.LinkPeer{
+		"a first": {peer("a", "A", "10.0.0.5", "10.0.0.9"), peer("b", "B", "10.0.0.9")},
+		"b first": {peer("b", "B", "10.0.0.9"), peer("a", "A", "10.0.0.5", "10.0.0.9")},
+	} {
+		p := NewPeers()
+		dropped := p.Set("me", in)
+		if ids := idsOf(p.List()); ids != "a" {
+			t.Errorf("%s: peers = %s, want only a", name, ids)
+		}
+		if !strings.Contains(strings.Join(dropped, "|"), "b has no usable address") {
+			t.Errorf("%s: dropped = %v", name, dropped)
+		}
+		if p.Lookup("10.0.0.5") != "a" || p.Lookup("10.0.0.9") != "" {
+			t.Errorf("%s: lookups wrong", name)
+		}
+	}
+}
+
+func TestARepeatedAddressOfOnePeerIsKeptOnce(t *testing.T) {
+	p := NewPeers()
+	p.Set("me", []*continuumv1.LinkPeer{peer("a", "A", "203.0.113.5", "203.0.113.5", "::ffff:203.0.113.5")})
+	l := p.List()
+	if len(l) != 1 || len(l[0].Addresses) != 1 || p.Lookup("203.0.113.5") != "a" {
+		t.Fatalf("%+v", l)
+	}
+}
+
+// A scrape is rendered before it is written to the client, so a client that reads slowly cannot hold the meter's lock.
+func TestAStalledScraperDoesNotBlockTheMeter(t *testing.T) {
+	p := NewPeers()
+	p.Set("me", []*continuumv1.LinkPeer{peer("a", "A", "10.0.0.1")})
+	m := NewMeter(p)
+	m.AddSource(func(w io.Writer) { io.WriteString(w, "extra 1\n") })
+	w := &blockingWriter{entered: make(chan struct{}), release: make(chan struct{})}
+	done := make(chan struct{})
+	go func() { m.Write(w); close(done) }()
+	<-w.entered
+	observed := make(chan struct{})
+	go func() {
+		m.Observe([]*continuumv1.RawFlow{{Client: true, PeerIp: "10.0.0.1", Connections: 1}})
+		close(observed)
+	}()
+	select {
+	case <-observed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Observe waited for the scraper")
+	}
+	close(w.release)
+	<-done
+	if !strings.Contains(w.buf.String(), "extra 1") || !strings.Contains(w.buf.String(), "continuum_link_peer_info") {
+		t.Errorf("incomplete scrape:\n%s", w.buf.String())
+	}
+}
+
+type blockingWriter struct {
+	buf              bytes.Buffer
+	entered, release chan struct{}
+	once             sync.Once
+}
+
+func (b *blockingWriter) Write(p []byte) (int, error) {
+	b.once.Do(func() { close(b.entered) })
+	<-b.release
+	return b.buf.Write(p)
+}
+
+// Rows that carry no byte counts (the conntrack collector with no byte accounting) must not turn into byte counters of zero
+// that read as a quiet link: the series are absent, the peers document says the totals are unknown, and the load check gets no
+// rate from them.
+func TestUnknownBytesAreNotReportedAsZero(t *testing.T) {
+	p := NewPeers()
+	p.Set("me", []*continuumv1.LinkPeer{peer("a", "A", "10.0.0.1"), peer("b", "B", "10.0.0.2")})
+	m := NewMeter(p)
+	m.ObserveRows([]*continuumv1.RawFlow{{Client: true, PeerIp: "10.0.0.1", Connections: 3, BytesOut: 0}}, false)
+	m.ObserveRows([]*continuumv1.RawFlow{{Client: true, PeerIp: "10.0.0.2", Connections: 1, BytesOut: 500}}, true)
+	got := render(m)
+	if _, ok := got[`continuum_link_sent_bytes_total{cluster="me",peer="a"}`]; ok {
+		t.Error("a byte counter of zero was written for a peer whose bytes are unknown")
+	}
+	if got[`continuum_link_sent_bytes_total{cluster="me",peer="b"}`] != "500" || got[`continuum_link_connections_total{cluster="me",peer="a"}`] != "3" {
+		t.Errorf("the rest must be unaffected: %v", got)
+	}
+	d := m.peersDoc()
+	if !d.Peers[0].BytesUnknown || d.Peers[1].BytesUnknown || d.Peers[1].BytesSent != 500 {
+		t.Errorf("%+v", d)
+	}
+	// Once a node that can count bytes reports, the counters appear.
+	m.ObserveRows([]*continuumv1.RawFlow{{Client: true, PeerIp: "10.0.0.1", BytesOut: 70}}, true)
+	if render(m)[`continuum_link_sent_bytes_total{cluster="me",peer="a"}`] != "70" || m.peersDoc().Peers[0].BytesUnknown {
+		t.Error("known bytes did not clear the unknown state")
+	}
+	// The load check takes no rate from an unknown total, and does not treat it as an idle link.
+	l := &Load{}
+	now := time.Unix(1_700_000_000, 0)
+	l.Observe(PeersDoc{Peers: []PeerDoc{{ID: "a", BytesUnknown: true}}}, now)
+	l.Observe(PeersDoc{Peers: []PeerDoc{{ID: "a", BytesUnknown: true}}}, now.Add(time.Minute))
+	if r, ok := l.Rate("a", now.Add(time.Minute), time.Hour); ok {
+		t.Errorf("a rate %+v from unknown bytes", r)
+	}
+}
+
+// The prober's own traffic (the one-way probe's control and test ports, the TCP connect timer, iperf3) is not the link's:
+// it must not show in any series nor in the totals the throughput gate reads as load.
+func TestTheProbersOwnPortsAreNotCounted(t *testing.T) {
+	p := NewPeers()
+	p.Set("me", []*continuumv1.LinkPeer{peer("a", "A", "10.0.0.1")})
+	m := NewMeter(p)
+	if err := m.IgnorePorts("8861, 18900-18999,8862"); err != nil {
+		t.Fatal(err)
+	}
+	row := func(client bool, proto string, port uint32) *continuumv1.RawFlow {
+		return &continuumv1.RawFlow{Client: client, Protocol: proto, PeerIp: "10.0.0.1", Port: port, Connections: 1, BytesOut: 1000, BytesIn: 1000, RttUs: 500, HandshakeUs: 300, FailedAttempts: 1, FailedTimeout: 1}
+	}
+	m.Observe([]*continuumv1.RawFlow{
+		row(true, "tcp", 8861), row(false, "tcp", 8861), // OWAMP control, both ends
+		row(true, "tcp", 8862), row(false, "tcp", 8862), row(true, "udp", 8862), // iperf3
+		row(false, "udp", 18900), row(true, "udp", 18999), // OWAMP test packets
+	})
+	if len(m.per) != 0 {
+		t.Fatalf("the prober's traffic was counted: %+v", m.per["a"])
+	}
+	if d := m.peersDoc(); d.Peers[0].BytesSent != 0 || d.Peers[0].BytesReceived != 0 {
+		t.Errorf("%+v", d)
+	}
+	// The ports just outside the ranges, and real traffic, are still the link's.
+	m.Observe([]*continuumv1.RawFlow{row(true, "tcp", 8860), row(true, "udp", 19000), row(true, "tcp", 443)})
+	if s := m.per["a"]; s == nil || s.connections != 3 {
+		t.Errorf("%+v", s)
+	}
+	for _, bad := range []string{"x", "0", "70000", "9-8", "1-", "-5"} {
+		if err := NewMeter(NewPeers()).IgnorePorts(bad); err == nil {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+	if err := NewMeter(NewPeers()).IgnorePorts(""); err != nil {
+		t.Errorf("empty: %v", err)
 	}
 }

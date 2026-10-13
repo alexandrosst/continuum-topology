@@ -17,6 +17,7 @@ import (
 
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/agent/collect"
+	"continuum/internal/link"
 	"continuum/internal/probe"
 
 	"google.golang.org/protobuf/encoding/protojson"
@@ -691,6 +692,42 @@ func TestTrafficTouchingAnOutOfScopeNamespaceIsDropped(t *testing.T) {
 	}
 	if _, ok := r.Resolve(raw(true, "10.42.0.5", "10.42.0.7", 5432), "ebpf", true); !ok {
 		t.Error("traffic between reported namespaces must still be attributed")
+	}
+}
+
+// The link meter counts the traffic with the peer clusters, but not what the agent was told to leave out or cannot read:
+// the same admission test as the resolver's, and only that (a row the resolver cannot attribute still counts).
+func TestLinkMeterSkipsExcludedNamespacesAndMalformedRows(t *testing.T) {
+	ix := testIndex()
+	ix.Hidden = map[string]bool{"10.42.0.30": true}
+	p := NewPipeline([]byte("flow-secret-0123456789abcdef0123"), func() *collect.Index { return ix }, nil)
+	peers := link.NewPeers()
+	peers.Set("me", []*continuumv1.LinkPeer{{ClusterId: "cl-a", Name: "A", Addresses: []string{"203.0.113.9"}}})
+	p.Links = link.NewMeter(peers)
+	count := func(rows ...*continuumv1.RawFlow) string {
+		p.Links = link.NewMeter(peers)
+		p.Ingest(&continuumv1.FlowReport{Method: "ebpf", Node: "n1", BytesKnown: true, Flows: rows})
+		var b bytes.Buffer
+		p.Links.Write(&b)
+		for _, l := range strings.Split(b.String(), "\n") {
+			if strings.HasPrefix(l, "continuum_link_connections_total{") {
+				return l[strings.LastIndex(l, " ")+1:]
+			}
+		}
+		return "?"
+	}
+	hidden := raw(true, "10.42.0.30", "203.0.113.9", 443)
+	noProto := raw(true, "10.42.0.5", "203.0.113.9", 443)
+	noProto.Protocol = "icmp"
+	noPort := raw(true, "10.42.0.5", "203.0.113.9", 0)
+	bigPort := raw(true, "10.42.0.5", "203.0.113.9", 70000)
+	if got := count(hidden, noProto, noPort, bigPort); got != "0" {
+		t.Errorf("rows that must not be counted gave %s connections", got)
+	}
+	ok := raw(true, "10.42.0.5", "203.0.113.9", 443)
+	unattributable := raw(true, "172.30.0.2", "203.0.113.9", 443) // not a pod or node of this cluster: Resolve drops it, the link still saw it
+	if got := count(hidden, ok, unattributable); got != "6" {
+		t.Errorf("connections = %s, want 6 (the two admitted rows, 3 each)", got)
 	}
 }
 

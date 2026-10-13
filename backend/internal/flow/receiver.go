@@ -97,7 +97,15 @@ func (p *Pipeline) Ingest(rep *continuumv1.FlowReport) bool {
 	p.Aggregator.Seen(rep.Node, rep.Method, rep.BytesKnown, rep.LinkSaturation, rep.SnatExhaustion, rep.ThermalThrottle)
 	p.Aggregator.AddLost(rep.Lost)
 	if !paused && p.Links != nil {
-		p.Links.Observe(rep.Flows)
+		// The link meter counts the traffic of the peer clusters' addresses, whatever the resolver can attribute, but not what
+		// the resolver is told to leave out (an excluded namespace) or cannot read (a malformed protocol or port).
+		kept := make([]*continuumv1.RawFlow, 0, len(rep.Flows))
+		for _, raw := range rep.Flows {
+			if raw != nil && p.Resolver.Admits(raw) {
+				kept = append(kept, raw)
+			}
+		}
+		p.Links.ObserveRows(kept, rep.BytesKnown)
 	}
 	for _, raw := range rep.Flows {
 		if f, ok := p.Resolver.Resolve(raw, rep.Method, rep.BytesKnown); ok {

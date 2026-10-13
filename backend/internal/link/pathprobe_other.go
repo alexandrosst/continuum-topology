@@ -4,7 +4,6 @@ package link
 
 import (
 	"context"
-	"errors"
 	"net/netip"
 	"time"
 )

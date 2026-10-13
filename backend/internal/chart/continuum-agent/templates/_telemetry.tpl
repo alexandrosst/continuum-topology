@@ -1626,6 +1626,9 @@ echo "kepler preflight: the kernel accepts eBPF tracing programs (or the probe c
 {{- $w = append $w "networkPolicy.telemetryEgress is on and a proxy is configured: the collectors connect only to the proxy, so networkPolicy.telemetryEgress.allowedEgress must allow the proxy's address and port (the destinations behind it need no rule)." -}}
 {{- end -}}
 {{- end -}}
+{{- if and $t.clusterLinks.probe.enabled $t.clusterLinks.probe.capacity.enabled (not $t.clusterLinks.probe.capacity.auth.existingSecret) -}}
+{{- $w = append $w (printf "telemetry.clusterLinks.probe.capacity.enabled runs an iperf3 server on every node (host network, port %v) without authentication: anyone who can reach that port can run full-rate TCP or UDP tests against the node, which uses its bandwidth and CPU, and one client holds the server's single test slot so the prober's own tests are refused meanwhile. Set telemetry.clusterLinks.probe.capacity.auth.existingSecret (iperf3's authenticated mode), or restrict the port with a firewall." $t.clusterLinks.probe.capacity.port) -}}
+{{- end -}}
 {{- $q := $t.export.queue -}}
 {{- $mrb := int $q.maxRequestBytes -}}
 {{- if and $anyGrpc (gt $mrb 4194304) -}}

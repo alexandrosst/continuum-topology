@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"math/rand/v2"
 	"net"
 	"net/netip"
@@ -55,9 +56,6 @@ type Runner struct {
 	Spacing time.Duration
 	Every   time.Duration
 	Timeout time.Duration
-	// User and KeyFile select authenticated mode when both are set: the responder then refuses anyone without the key.
-	// Otherwise the open mode is used, which is only for networks where the responder's port is already restricted.
-	User, KeyFile string
 	// DSCP, if not zero, marks the test packets.
 	DSCP int
 
@@ -74,7 +72,24 @@ type Runner struct {
 	mu       sync.Mutex
 	good     map[string]string // peer -> the address that last answered
 	lastPath map[string]time.Time
+	down     map[string]*peerDown // peer -> how it has been failing, for peers whose last round failed at the network level
 }
+
+// peerDown is a peer that could not be reached in its last round(s). Instead of retrying it every round, which would hold
+// up every other peer for as long as its attempts take to time out, it is skipped for a growing number of rounds.
+type peerDown struct {
+	fails  int    // consecutive rounds that failed
+	skip   int    // rounds still to be skipped
+	reason string // why the last one failed
+}
+
+const (
+	// maxSlowFailures is how many attempts that ended in silence (a black-holed port costs a whole timeout each) are made
+	// towards one peer in one direction before giving up on its remaining addresses for the round.
+	maxSlowFailures = 3
+	// maxBackoff is the longest a failing peer is left alone.
+	maxBackoff = 10 * time.Minute
+)
 
 // Defaults fills what was left unset.
 func (r *Runner) Defaults() {
@@ -121,16 +136,14 @@ func (r *Runner) Validate() error {
 	if r.Port < 1 || r.Port > 65535 {
 		return fmt.Errorf("invalid responder port %d", r.Port)
 	}
-	if (r.User == "") != (r.KeyFile == "") {
-		return errors.New("authenticated mode needs both a user and a key file")
-	}
 	if r.PathEvery > 0 && r.PathEvery < time.Minute {
 		return fmt.Errorf("tracing the route more often than every minute is not supported, got %s", r.PathEvery)
 	}
 	if r.DSCP < 0 || r.DSCP > 63 {
 		return fmt.Errorf("invalid DSCP %d", r.DSCP)
 	}
-	// A test, both directions, for every peer must fit in the interval, or the schedule can never keep up.
+	// A test in each direction must fit in the interval, or the schedule can never keep up. The whole round is not checked,
+	// as the peer list changes while the prober runs; Run says so when a round overruns.
 	if each := r.testTime(); each*2 > r.Every {
 		return fmt.Errorf("a test takes about %s each way, which does not fit in an interval of %s", each.Round(time.Second), r.Every)
 	}
@@ -139,6 +152,14 @@ func (r *Runner) Validate() error {
 
 func (r *Runner) testTime() time.Duration {
 	return time.Duration(r.Packets)*r.Spacing + r.Timeout + 3*time.Second
+}
+
+// maxTime is how long a test may take before it is killed. OWAMP spaces packets at random (exponentially), so the time to
+// send them has a standard deviation of sqrt(Packets)*Spacing around its mean; five of those keep a healthy test from being
+// killed even with few packets and wide spacing.
+func (r *Runner) maxTime() time.Duration {
+	spread := 5 * math.Sqrt(float64(r.Packets)) * float64(r.Spacing)
+	return r.testTime() + 10*time.Second + time.Duration(spread)
 }
 
 // Run measures until ctx ends.
@@ -155,10 +176,12 @@ func (r *Runner) Run(ctx context.Context) {
 	for {
 		started := time.Now()
 		r.Round(ctx)
-		wait := r.Every - time.Since(started)
-		if wait < 0 {
-			wait = 0
+		took := time.Since(started)
+		if took > r.Every && ctx.Err() == nil {
+			r.Log.Warn("link probe round took longer than the interval", "took", took.Round(time.Second), "interval", r.Every)
 		}
+		// Never start the next round at once: the gate would not be free for the throughput tests between two rounds.
+		wait := max(r.Every-took, r.Every/10)
 		if !sleep(ctx, wait) {
 			return
 		}
@@ -183,14 +206,85 @@ func (r *Runner) Round(ctx context.Context) {
 		if p.NoProbe {
 			continue
 		}
-		for _, d := range directions {
-			if ctx.Err() != nil {
-				return
-			}
-			r.measure(ctx, p, d)
+		if ctx.Err() != nil {
+			return
 		}
+		r.measurePeer(ctx, p)
 		r.maybePath(ctx, p)
 	}
+}
+
+// measurePeer measures a peer in both directions. A peer that cannot be reached at the network level costs a lot of time
+// (every address may have to time out), and all the others wait behind it, so then the other direction is not tried, and the
+// peer is skipped for a growing number of rounds. Skipped runs are still counted as failures, so the counters keep the
+// rhythm of the rounds.
+func (r *Runner) measurePeer(ctx context.Context, p Peer) {
+	if reason, skipped := r.skipDown(p.ID); skipped {
+		for _, d := range directions {
+			r.Meter.ProbeFailed(p.ID, d, reason)
+		}
+		return
+	}
+	fwd := r.measure(ctx, p, Forward)
+	if ctx.Err() != nil {
+		return
+	}
+	if unreachable(fwd) {
+		r.Meter.ProbeFailed(p.ID, Reverse, fwd)
+		r.markDown(p.ID, fwd)
+		return
+	}
+	rev := r.measure(ctx, p, Reverse)
+	switch {
+	case ctx.Err() != nil:
+	case fwd == "" || rev == "":
+		r.markUp(p.ID)
+	case unreachable(rev):
+		r.markDown(p.ID, rev)
+	}
+}
+
+// unreachable says a failure reason means the peer could not be talked to, as opposed to answering and refusing.
+func unreachable(reason string) bool {
+	return reason == "timeout" || reason == "unreachable" || reason == "refused"
+}
+
+func (r *Runner) skipDown(peer string) (reason string, skipped bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	d := r.down[peer]
+	if d == nil || d.skip == 0 {
+		return "", false
+	}
+	d.skip--
+	return d.reason, true
+}
+
+// markDown notes a failed round: the peer is then skipped for 1, 3, 7... rounds, up to maxBackoff worth.
+func (r *Runner) markDown(peer, reason string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.down == nil {
+		r.down = map[string]*peerDown{}
+	}
+	d := r.down[peer]
+	if d == nil {
+		d = &peerDown{}
+		r.down[peer] = d
+	}
+	d.fails++
+	d.reason = reason
+	limit := max(int(maxBackoff/r.Every), 1)
+	d.skip = limit
+	if d.fails < 30 {
+		d.skip = min(1<<(d.fails-1)-1, limit)
+	}
+}
+
+func (r *Runner) markUp(peer string) {
+	r.mu.Lock()
+	delete(r.down, peer)
+	r.mu.Unlock()
 }
 
 // maybePath traces the route to a peer if it is due. The target is the address that answered the OWAMP test, so the route
@@ -213,6 +307,13 @@ func (r *Runner) maybePath(ctx context.Context, p Peer) {
 	if err != nil {
 		return
 	}
+	// The trace takes its turn like every other measurement: its probes would be delayed or dropped beside a throughput test,
+	// and would load the link during one. The wait does not count against the trace's own time.
+	release, err := r.Gate.Acquire(ctx)
+	if err != nil {
+		return
+	}
+	defer release()
 	r.mu.Lock()
 	if r.lastPath == nil {
 		r.lastPath = map[string]time.Time{}
@@ -246,12 +347,14 @@ func srcPortFor(peer string) int {
 	return 40000 + int(h%10000)
 }
 
-func (r *Runner) measure(ctx context.Context, p Peer, d Direction) {
+// measure runs one direction towards a peer and returns why it failed, or "" if it was recorded.
+func (r *Runner) measure(ctx context.Context, p Peer, d Direction) string {
 	addrs := r.candidates(p)
 	if len(addrs) == 0 {
-		return
+		return ""
 	}
 	var reason string
+	slow := 0
 	for _, a := range addrs {
 		res, why := r.once(ctx, a, d)
 		if why == "" {
@@ -262,20 +365,28 @@ func (r *Runner) measure(ctx context.Context, p Peer, d Direction) {
 			r.good[p.ID] = a
 			r.mu.Unlock()
 			r.Meter.ObserveProbe(p.ID, d, res)
-			return
+			return ""
 		}
 		reason = why
 		if why == "auth" || ctx.Err() != nil {
 			break // another address of the same cluster will not change the answer
 		}
+		// Silence can cost a whole timeout per address; a few of them are enough to know the peer is not answering.
+		if why == "timeout" {
+			if slow++; slow >= maxSlowFailures {
+				break
+			}
+		}
 	}
 	r.Meter.ProbeFailed(p.ID, d, reason)
 	r.Log.Debug("link probe failed", "peer", p.ID, "direction", d, "reason", reason)
+	return reason
 }
 
 // candidates are the peer's addresses to try, the one that answered last time first. A cluster has many node addresses,
 // and not every one need run the responder, so a failure moves on to the next rather than counting as a link failure.
-// At most five: an unreachable cluster must not hold the one-at-a-time probe for minutes.
+// At most five, and measure gives up after three that time out, so an unreachable cluster costs about a minute and a half
+// a direction at most, and then it is left alone for a while (see measurePeer).
 func (r *Runner) candidates(p Peer) []string {
 	r.mu.Lock()
 	last := r.good[p.ID]
@@ -295,11 +406,7 @@ func (r *Runner) once(ctx context.Context, addr string, d Direction) (OwampResul
 	} else {
 		args = append(args, "-f")
 	}
-	if r.User != "" {
-		args = append(args, "-A", "A", "-u", r.User, "-k", r.KeyFile)
-	} else {
-		args = append(args, "-A", "O")
-	}
+	args = append(args, "-A", "O")
 	if r.DSCP > 0 {
 		args = append(args, "-D", strconv.Itoa(r.DSCP))
 	}
@@ -309,7 +416,7 @@ func (r *Runner) once(ctx context.Context, addr string, d Direction) (OwampResul
 		return OwampResult{}, "timeout"
 	}
 	defer release()
-	cctx, cancel := context.WithTimeout(ctx, r.testTime()+10*time.Second)
+	cctx, cancel := context.WithTimeout(ctx, r.maxTime())
 	defer cancel()
 	out, errOut, err := r.Exec(cctx, r.Bin, args...)
 	if err != nil {
@@ -318,6 +425,10 @@ func (r *Runner) once(ctx context.Context, addr string, d Direction) (OwampResul
 	res, perr := ParseOwping(bytes.NewReader(out))
 	if perr != nil {
 		return OwampResult{}, classify(string(errOut), false)
+	}
+	// owping sends exactly the packets it was asked to, so anything else is not a measurement of this run.
+	if res.Sent == 0 || res.Sent > uint64(r.Packets) || res.Duplicates > res.Sent {
+		return OwampResult{}, "other"
 	}
 	return res, ""
 }

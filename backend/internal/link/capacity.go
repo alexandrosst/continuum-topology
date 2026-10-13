@@ -115,6 +115,10 @@ type capPeer struct {
 	next    time.Time // when the next cycle starts
 	retryAt time.Time // the unfinished cycle waits until then
 	queue   []capTest // what is left of this cycle
+	// ran is true once a test of this cycle has finished: the peer answers, so a failure after that belongs to the test.
+	ran bool
+	// failures counts the cycles in a row that failed at their first test, for the back-off.
+	failures int
 }
 
 // Defaults fills what was left unset.
@@ -339,6 +343,19 @@ func (c *Capacity) sync(peers []Peer, now time.Time) {
 			delete(c.peers, id)
 			delete(c.good, id)
 			delete(c.pairs, id)
+			prefix := id + "|"
+			dropPrefix(c.lastBytes, prefix)
+			dropPrefix(c.lastBits, prefix)
+			dropPrefix(c.warned, prefix)
+		}
+	}
+}
+
+// dropPrefix removes the keys of a per-peer map that belong to the peer whose prefix ("id|") is given.
+func dropPrefix[V any](m map[string]V, prefix string) {
+	for k := range m {
+		if strings.HasPrefix(k, prefix) {
+			delete(m, k)
 		}
 	}
 }
@@ -379,6 +396,7 @@ func (c *Capacity) step(ctx context.Context) time.Duration {
 		st = c.peers[pick.ID]
 		if len(st.queue) == 0 {
 			st.queue = c.plan()
+			st.ran = false
 		}
 		t = st.queue[0]
 	}
@@ -389,30 +407,55 @@ func (c *Capacity) step(ctx context.Context) time.Duration {
 
 	out := c.runTest(ctx, *pick, t)
 	now = c.Now()
+	// What is counted is recorded after c.mu is released: the meter takes its own lock while it writes (and then asks for
+	// the pair budgets, which take c.mu), so calling it with c.mu held is a lock-order inversion.
+	var skipped, failed string
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	switch {
 	case ctx.Err() != nil:
 	case out.skip != "":
 		st.retryAt = now.Add(out.retry)
-		c.Meter.ThroughputSkipped(pick.ID, out.skip)
+		skipped = out.skip
 	case out.fail != "":
-		st.queue = nil
-		st.next = now.Add(min(c.Every, 30*time.Minute))
-		c.Meter.ThroughputFailed(pick.ID, out.fail)
-	default:
-		st.queue = st.queue[1:]
-		if len(st.queue) == 0 {
-			every := c.Every
-			if pick.ThroughputEvery > 0 {
-				every = pick.ThroughputEvery
-			}
-			st.next = now.Add(time.Duration(float64(every) * (0.9 + 0.2*rand.Float64())))
+		failed = out.fail
+		if st.ran || out.fail == "other" {
+			// The peer answers (or the test, not the peer, is what is wrong): leave this test out and go on with the
+			// rest, so the tests before it are not run again and the ones after it are not starved.
+			st.failures = 0
+			st.queue = st.queue[1:]
+			c.advance(st, *pick, now)
 		} else {
-			st.retryAt = now
+			st.queue = nil
+			st.failures++
+			st.next = now.Add(min(c.Every, 30*time.Minute<<min(st.failures-1, 6)))
 		}
+	default:
+		st.ran, st.failures = true, 0
+		st.queue = st.queue[1:]
+		c.advance(st, *pick, now)
+	}
+	c.mu.Unlock()
+	if skipped != "" {
+		c.Meter.ThroughputSkipped(pick.ID, skipped)
+	}
+	if failed != "" {
+		c.Meter.ThroughputFailed(pick.ID, failed)
 	}
 	return c.Pause
+}
+
+// advance moves a peer on after one test of its plan was dealt with: the next test follows at once, or, when the plan is
+// done, the next cycle is scheduled. Called with c.mu held.
+func (c *Capacity) advance(st *capPeer, p Peer, now time.Time) {
+	if len(st.queue) > 0 {
+		st.retryAt = now
+		return
+	}
+	every := c.Every
+	if p.ThroughputEvery > 0 {
+		every = p.ThroughputEvery
+	}
+	st.next = now.Add(time.Duration(float64(every) * (0.9 + 0.2*rand.Float64())))
 }
 
 type outcome struct {
@@ -464,7 +507,7 @@ func (c *Capacity) runTest(ctx context.Context, p Peer, t capTest) outcome {
 		c.Meter.ObserveTCP(p.ID, f, proto, res.Streams, t.dscp)
 		if proto == "tcp" { // a test loading both ways reaches less in each, which says nothing about the link's capacity
 			c.mu.Lock()
-			c.setBits(p.ID, f.Direction, res.Streams, f.Bits)
+			c.setBits(p.ID, f.Direction, res.Streams, t.dscp, f.Bits)
 			c.mu.Unlock()
 		}
 	}
@@ -477,21 +520,24 @@ func (c *Capacity) runTest(ctx context.Context, p Peer, t capTest) outcome {
 	return outcome{}
 }
 
-func (c *Capacity) setBits(peer string, d Direction, streams int, bits float64) {
+func (c *Capacity) setBits(peer string, d Direction, streams, dscp int, bits float64) {
 	if c.lastBits == nil {
 		c.lastBits = map[string]float64{}
 	}
-	c.lastBits[fmt.Sprintf("%s|%s|%d", peer, d, streams)] = bits
+	c.lastBits[fmt.Sprintf("%s|%s|%d|%d", peer, d, streams, dscp)] = bits
 }
 
-// reached is the highest TCP rate a test last reached towards (Forward) or from (Reverse) the peer; 0 before the first.
+// reached is the highest TCP rate the latest tests reached towards (Forward) or from (Reverse) the peer, over the stream
+// counts and DSCP classes; 0 before the first. A class that is policed does not lower it.
 func (c *Capacity) reached(peer string, d Direction) float64 {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	var best float64
 	for _, s := range []int{1, c.Parallel} {
-		if v := c.lastBits[fmt.Sprintf("%s|%s|%d", peer, d, s)]; v > best {
-			best = v
+		for _, ds := range c.DSCP {
+			if v := c.lastBits[fmt.Sprintf("%s|%s|%d|%d", peer, d, s, ds)]; v > best {
+				best = v
+			}
 		}
 	}
 	return best
@@ -523,6 +569,11 @@ func (c *Capacity) runRamp(ctx context.Context, p Peer, t capTest) outcome {
 		steps = append(steps, UDPStep{Rate: rate, Loss: f.LossRatio(), Jitter: f.Jitter})
 		if f.LossRatio() > c.UDP.Loss {
 			saturated = true
+			break
+		}
+		if f.Bits < 0.9*float64(rate) {
+			// The sender could not send what was asked, so nothing was lost because nothing was offered: this rate, and
+			// any above it, say nothing about the link. The ramp ends at the last rate that was really delivered.
 			break
 		}
 		clean, hasClean = rate, true

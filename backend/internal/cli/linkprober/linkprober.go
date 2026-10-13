@@ -31,8 +31,6 @@ func Main(args []string) int {
 	spacing := fs.Duration("spacing", durEnv("CONTINUUM_LINK_SPACING", 100*time.Millisecond), "average time between test packets")
 	every := fs.Duration("interval", durEnv("CONTINUUM_LINK_INTERVAL", time.Minute), "how often each peer is measured")
 	pathEvery := fs.Duration("path-interval", durEnv("CONTINUUM_LINK_PATH_INTERVAL", 10*time.Minute), "how often the route and path MTU to each peer are traced (0: never)")
-	user := fs.String("auth-user", cli.Env("CONTINUUM_LINK_AUTH_USER", ""), "OWAMP user for authenticated mode (needs --auth-key-file)")
-	keyFile := fs.String("auth-key-file", cli.Env("CONTINUUM_LINK_AUTH_KEY_FILE", ""), "file holding the OWAMP pass-phrase file for authenticated mode")
 	capFlags := addCapacityFlags(fs)
 	baseFlags := addBaselineFlags(fs)
 	dscp := fs.Int("dscp", cli.Atoi(cli.Env("CONTINUUM_LINK_DSCP", "0")), "DSCP value to mark test packets with (0: unmarked)")
@@ -71,7 +69,7 @@ func Main(args []string) int {
 		}
 		capacity = c
 	}
-	r := &link.Runner{Gate: gate, Meter: meter, Log: log, Bin: *owping, Port: *port, Packets: *packets, Spacing: *spacing, Every: *every, User: *user, KeyFile: *keyFile, DSCP: *dscp, PathEvery: *pathEvery}
+	r := &link.Runner{Gate: gate, Meter: meter, Log: log, Bin: *owping, Port: *port, Packets: *packets, Spacing: *spacing, Every: *every, DSCP: *dscp, PathEvery: *pathEvery}
 	r.Defaults()
 	if err := r.Validate(); err != nil {
 		return cli.Fatal(log, err)

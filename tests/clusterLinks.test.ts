@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
-  PRESETS, clusterChecks, costLine, everyWords, hasPair, newPair, presetOf, removePair, replacePair, runnerOf, throughputFor, throughputProblems, throughputSummary,
+  PRESETS, clusterChecks, costLine, everyWords, hasPair, newPair, presetOf, removePair, replacePair, runnerOf, throughputFieldProblems, throughputFor, throughputProblems, throughputSummary,
 } from '../src/lib/clusterLinks'
 import type { Agent } from '../src/lib/types'
 
@@ -41,6 +41,13 @@ test('the form refuses what the agents would clamp', () => {
   assert.equal(throughputProblems('6', '0').length, 1)
   assert.equal(throughputProblems('6', '1.5').length, 1)
   assert.equal(throughputProblems('6', '2000000').length, 1)
+})
+
+test('each problem is reported against its own field', () => {
+  assert.deepEqual(throughputFieldProblems('6', '500'), {})
+  assert.deepEqual(Object.keys(throughputFieldProblems('0.01', '500')), ['hours'])
+  assert.deepEqual(Object.keys(throughputFieldProblems('6', '0')), ['budget'])
+  assert.deepEqual(Object.keys(throughputFieldProblems('', '')).sort(), ['budget', 'hours'])
 })
 
 test('the cost line says how often and where it stops', () => {
