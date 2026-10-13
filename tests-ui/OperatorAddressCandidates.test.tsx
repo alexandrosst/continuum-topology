@@ -190,6 +190,41 @@ describe('the central operator says which cluster the server runs in', () => {
     expect(screen.queryByTestId('operator-address-server-cluster-connect')).toBeNull()
   })
 
+  it('fills the list in by itself once the command has been run, without reopening the dialog', async () => {
+    const expose = { service: 'fusion-central', namespace: 'continuum', value: 'fusion.central.service.type', commands: { nodePort: 'kubectl patch np', loadBalancer: 'kubectl patch lb' } }
+    candidates.mockResolvedValueOnce({ found: true, candidates: [], expose, serverCluster: { state: 'known', source: 'install' } })
+    candidates.mockResolvedValue({
+      found: true,
+      candidates: [{ id: 'node-port|10.20.0.14:31317', address: '10.20.0.14:31317', kind: 'node-port', source: 'Node n1.', node: 'n1' }],
+      serverCluster: { state: 'known', source: 'install' },
+    })
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      openCentral()
+      expect(await screen.findByTestId('operator-address-expose')).toBeTruthy()
+      expect(screen.queryByTestId('operator-address-candidate')).toBeNull()
+      // Somebody runs the command in a terminal; nothing is clicked here.
+      await vi.advanceTimersByTimeAsync(4500)
+      expect(await screen.findByTestId('operator-address-candidate')).toBeTruthy()
+      expect(screen.queryByTestId('operator-address-expose')).toBeNull()
+      // Addresses are there now, so it stops asking.
+      const calls = candidates.mock.calls.length
+      await vi.advanceTimersByTimeAsync(20000)
+      expect(candidates.mock.calls.length).toBe(calls)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('asks again at once when the person comes back to the window while it is waiting', async () => {
+    candidates.mockResolvedValueOnce({ found: true, candidates: [], serverCluster: { state: 'noAgent', source: 'install', clusterId: 'cl-9' } })
+    candidates.mockResolvedValue({ found: true, candidates: [{ id: 'node-port|10.20.0.14:31317', address: '10.20.0.14:31317', kind: 'node-port', source: 'Node n1.', node: 'n1' }], serverCluster: { state: 'known', source: 'install' } })
+    openCentral()
+    expect(await screen.findByTestId('operator-address-server-cluster')).toBeTruthy()
+    window.dispatchEvent(new Event('focus'))
+    expect(await screen.findByTestId('operator-address-candidate')).toBeTruthy()
+  })
+
   it('asks which cluster the server is in when nothing could say, and saves the choice', async () => {
     candidates.mockResolvedValue({
       found: false,

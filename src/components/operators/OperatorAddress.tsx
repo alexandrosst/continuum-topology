@@ -84,7 +84,7 @@ export function ExposeCard({ expose, testId }: { expose: NonNullable<AddressCand
     <div role="note" className="space-y-2.5 rounded-lg border border-warn/30 bg-warn/10 px-3.5 py-3" data-testid={testId}>
       <div className="text-sm font-medium text-warn">FUSION&apos;s gateway is not reachable from other clusters yet</div>
       <p className="text-xs leading-relaxed text-nb-300">
-        Its Service is only open inside its own cluster, so there is no node or load balancer address to list. Run this against the server&apos;s cluster, then come back: the nodes&apos; addresses, mesh ones included, appear here.
+        Its Service is only open inside its own cluster, so there is no node or load balancer address to list. Run this against the server&apos;s cluster: the nodes&apos; addresses, mesh ones included, appear here by themselves within a few seconds.
       </p>
       <div className="flex gap-1.5" role="group" aria-label="How to expose it">
         {([['nodePort', 'Node port'], ['loadBalancer', 'Load balancer']] as const).map(([id, label]) => (
