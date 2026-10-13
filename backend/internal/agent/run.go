@@ -20,6 +20,7 @@ import (
 	"continuum/internal/agent/exporthealth"
 	"continuum/internal/certrenew"
 	"continuum/internal/flow"
+	"continuum/internal/link"
 	"continuum/internal/measure"
 	"continuum/internal/pki"
 	"continuum/internal/probe"
@@ -124,7 +125,10 @@ type Config struct {
 	Probes *probe.Receiver
 	// Flows, when set, receives the node flow collectors' reports and attributes them to workloads.
 	// Both are served on ProbeListen (empty: do not listen).
-	Flows       *flow.Pipeline
+	Flows *flow.Pipeline
+	// Links, when set, holds the peer clusters the server names in its Config and the per-peer totals the flow pipeline keeps
+	// (the same Meter the pipeline was given). The agent only feeds it the peer list; it never measures on its own.
+	Links       *link.Meter
 	ProbeListen string
 	FlowWindow  time.Duration // how often observed traffic is sent up (default 15 s)
 

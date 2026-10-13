@@ -45,7 +45,7 @@
 {{- define "agent.telemetryClusterEnabled" -}}
 {{- include "agent.telemetryDefaults" . -}}
 {{- $t := .Values.telemetry -}}
-{{- if or $t.energy.metrics.enabled $t.accelerators.metrics.enabled $t.kubernetesState.metrics.enabled $t.kubernetesEvents.logs.enabled $t.applicationMetrics.metrics.enabled $t.applicationLogs.logs.enabled $t.traces.traces.enabled $t.networkLatency.metrics.enabled -}}true{{- end -}}
+{{- if or $t.energy.metrics.enabled $t.accelerators.metrics.enabled $t.kubernetesState.metrics.enabled $t.kubernetesEvents.logs.enabled $t.applicationMetrics.metrics.enabled $t.applicationLogs.logs.enabled $t.traces.traces.enabled $t.networkLatency.metrics.enabled $t.clusterLinks.metrics.enabled -}}true{{- end -}}
 {{- end -}}
 {{- define "agent.telemetryEnabled" -}}
 {{- if or (include "agent.telemetryHostEnabled" .) (include "agent.telemetryClusterEnabled" .) -}}true{{- end -}}
@@ -99,6 +99,9 @@
 {{- fail (printf "telemetry.export.routes.%s.tls.mtls.enabled requires telemetry.export.routes.%s.tls.mtls.secretName (a Secret holding tls.crt, tls.key, and ca.crt)" $m $m) -}}
 {{- end -}}
 {{- end -}}
+{{- end -}}
+{{- if and .Values.telemetry.clusterLinks.metrics.enabled (not .Values.flowObserver.enabled) -}}
+{{- fail "telemetry.clusterLinks.metrics.enabled requires flowObserver.enabled: true - link metrics are labelled from the traffic the flow collectors observe, so there is nothing to measure otherwise" -}}
 {{- end -}}
 {{- if and .Values.telemetry.networkLatency.metrics.enabled (not .Values.measurements.enabled) -}}
 {{- fail "telemetry.networkLatency.metrics.enabled requires measurements.enabled: true - there is nothing to re-emit otherwise" -}}
@@ -585,6 +588,7 @@ client_ca_file: /receiver-tls/{{ . }}
 {{- if $t.kubernetesState.metrics.enabled }}{{ $n = append $n "kubernetesState" }}{{ end -}}
 {{- if $t.nodeRuntime.metrics.enabled }}{{ $n = append $n "nodeRuntime" }}{{ end -}}
 {{- if $t.networkLatency.metrics.enabled }}{{ $n = append $n "networkLatency" }}{{ end -}}
+{{- if $t.clusterLinks.metrics.enabled }}{{ $n = append $n "clusterLinks" }}{{ end -}}
 {{- if $t.applicationMetrics.metrics.enabled }}{{ $n = append $n "applicationMetrics" }}{{ end -}}
 {{- if $t.systemLogs.logs.enabled }}{{ $n = append $n "systemLogs" }}{{ end -}}
 {{- if $t.kubernetesEvents.logs.enabled }}{{ $n = append $n "kubernetesEvents" }}{{ end -}}
@@ -699,7 +703,7 @@ livenessProbe:
 {{- $host := or (eq .scope "host") (eq .scope "all") -}}
 {{- $cluster := or (eq .scope "cluster") (eq .scope "all") -}}
 {{- $l := list -}}
-{{- if or (and $host (or $t.resourceUsage.metrics.enabled $t.nodeRuntime.metrics.enabled)) (and $cluster (or $t.energy.metrics.enabled $t.accelerators.metrics.enabled $t.kubernetesState.metrics.enabled $t.applicationMetrics.metrics.enabled $t.networkLatency.metrics.enabled)) -}}{{- $l = append $l "metrics" -}}{{- end -}}
+{{- if or (and $host (or $t.resourceUsage.metrics.enabled $t.nodeRuntime.metrics.enabled)) (and $cluster (or $t.energy.metrics.enabled $t.accelerators.metrics.enabled $t.kubernetesState.metrics.enabled $t.applicationMetrics.metrics.enabled $t.networkLatency.metrics.enabled $t.clusterLinks.metrics.enabled)) -}}{{- $l = append $l "metrics" -}}{{- end -}}
 {{- if or (and $host $t.systemLogs.logs.enabled) (and $cluster (or $t.kubernetesEvents.logs.enabled $t.applicationLogs.logs.enabled)) -}}{{- $l = append $l "logs" -}}{{- end -}}
 {{- if and $cluster $t.traces.traces.enabled -}}{{- $l = append $l "traces" -}}{{- end -}}
 {{- toJson $l -}}

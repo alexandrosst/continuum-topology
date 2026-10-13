@@ -1,0 +1,16 @@
+{{- if .Values.telemetry.clusterLinks.metrics.enabled }}
+# The agent's link metrics (telemetry.clusterLinks): Prometheus text on port 9104, scraped by the cluster collector.
+# Its own Service (not continuum-agent-probe, which exists only with the node probe or flow collector) so that the
+# collector's scrape target does not depend on how those are installed.
+apiVersion: v1
+kind: Service
+metadata:
+  name: continuum-agent-link-metrics
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "agent.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector: {app.kubernetes.io/name: continuum-agent, app.kubernetes.io/instance: {{ .Release.Name }}}
+  ports:
+    - {name: link-metrics, port: 9104, targetPort: link-metrics, protocol: TCP}
+{{- end }}

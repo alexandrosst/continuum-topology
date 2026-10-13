@@ -87,6 +87,10 @@ spec:
 {{- if and .Values.telemetry.energy.metrics.enabled (eq .Values.telemetry.energy.metrics.source "bundle-kepler") }}
 {{- $scrapes = append $scrapes (dict "to" (list (dict "podSelector" (dict "matchLabels" (dict "app.kubernetes.io/name" (printf "%s-kepler" (include "agent.telemetryName" .)) "app.kubernetes.io/instance" .Release.Name)))) "port" 9103) }}
 {{- end }}
+{{- /* The agent's own link metrics (telemetry.clusterLinks), served on port 9104. */ -}}
+{{- if .Values.telemetry.clusterLinks.metrics.enabled }}
+{{- $scrapes = append $scrapes (dict "to" (list (dict "podSelector" (dict "matchLabels" (dict "app.kubernetes.io/name" "continuum-agent" "app.kubernetes.io/instance" .Release.Name)))) "port" 9104) }}
+{{- end }}
 {{- if and .Values.telemetry.accelerators.metrics.enabled (eq .Values.telemetry.accelerators.metrics.source "bundle-dcgm") }}
 {{- $scrapes = append $scrapes (dict "to" (list (dict "podSelector" (dict "matchLabels" (dict "app.kubernetes.io/name" (printf "%s-dcgm" (include "agent.telemetryName" .)) "app.kubernetes.io/instance" .Release.Name)))) "port" 9400) }}
 {{- end }}

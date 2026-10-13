@@ -130,6 +130,9 @@ spec:
             # How often the probes were told to report, so the agent can tell a quiet one from one that cannot reach it.
             - {name: CONTINUUM_PROBE_INTERVAL, value: {{ .Values.nodeProbe.interval | quote }}}
             {{- end }}
+            {{- if .Values.telemetry.clusterLinks.metrics.enabled }}
+            - {name: CONTINUUM_LINK_METRICS_LISTEN, value: ":9104"}
+            {{- end }}
             {{- if .Values.flowObserver.enabled }}
             - {name: CONTINUUM_FLOW_SECRET_FILE, value: /flows/secret}
             - {name: CONTINUUM_FLOW_INTERVAL, value: {{ .Values.flowObserver.interval | quote }}}
@@ -152,13 +155,16 @@ spec:
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
-          {{- if or (include "agent.receiver" .) (include "agent.healthEnabled" .) }}
+          {{- if or (include "agent.receiver" .) (include "agent.healthEnabled" .) .Values.telemetry.clusterLinks.metrics.enabled }}
           ports:
             {{- if include "agent.receiver" . }}
             - {name: probe, containerPort: 8081, protocol: TCP}
             {{- end }}
             {{- if include "agent.healthEnabled" . }}
             - {name: health, containerPort: {{ include "agent.healthPort" . }}, protocol: TCP}
+            {{- end }}
+            {{- if .Values.telemetry.clusterLinks.metrics.enabled }}
+            - {name: link-metrics, containerPort: 9104, protocol: TCP}
             {{- end }}
           {{- end }}
           {{- if include "agent.healthEnabled" . }}

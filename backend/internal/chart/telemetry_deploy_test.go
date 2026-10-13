@@ -170,6 +170,11 @@ func TestSingleSignalIntentsDeployOnlyTheirOwnExtractors(t *testing.T) {
 		"traces": {
 			set: []string{"telemetry.traces.traces.enabled=true"}, objects: withOTLP, rules: podsOnly,
 			ports: map[string][]int32{cp: {4317, 4318, 13133}}, receivers: map[string][]string{cluster: {"otlp"}}},
+		"clusterLinks": {
+			// The agent itself serves the metrics (a Service named for the agent, not telemetry, so it is not in this list), and the
+			// cluster collector only scrapes them: no workload of its own, no extra RBAC, no host access.
+			set: []string{"telemetry.clusterLinks.metrics.enabled=true", "flowObserver.enabled=true"}, objects: clusterObjs, rules: podsOnly,
+			ports: map[string][]int32{cp: {13133}}, receivers: map[string][]string{cluster: {"prometheus/infra"}}},
 		"networkLatency": {
 			set: []string{"telemetry.networkLatency.metrics.enabled=true", "measurements.enabled=true"}, objects: withOTLP, rules: podsOnly,
 			ports: map[string][]int32{cp: {4317, 4318, 13133}}, receivers: map[string][]string{cluster: {"otlp"}}},

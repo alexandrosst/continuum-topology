@@ -983,6 +983,19 @@ telemetry:
       interval: 30s
 
   # domain: infrastructure
+  # Cluster-to-cluster link quality. The server names the clusters this one is paired with (an administrator turns a pair on;
+  # nothing is measured otherwise) and the agent labels what the node flow collectors already observe by cluster pair:
+  # retransmits (the best passive sign of loss), round-trip time, jitter, handshake time, failed connections and bytes, all
+  # as counters and histograms per pair, never per address or workload. Needs flowObserver.enabled: true, and an install
+  # (and approval) at access tier 2, since it is derived from observed traffic. The agent serves them on :9104 and the
+  # cluster collector scrapes that, so they leave through the same pipeline, destination and scope rules as every other signal.
+  clusterLinks:
+    metrics:
+      enabled: false
+      source: builtin   # builtin -> this agent's own link meter (see flowObserver)
+      interval: 30s     # how often the cluster collector scrapes it
+
+  # domain: infrastructure
   networkLatency:
     metrics:
       enabled: false

@@ -53,6 +53,14 @@ spec:
         - {port: 8081, protocol: TCP}
     {{- end }}
     {{- end }}
+    {{- if .Values.telemetry.clusterLinks.metrics.enabled }}
+    # The cluster collector scrapes the agent's link metrics (telemetry.clusterLinks) on port 9104.
+    - from:
+        - podSelector:
+            matchLabels: {app.kubernetes.io/name: continuum-telemetry-cluster, app.kubernetes.io/instance: {{ .Release.Name }}}
+      ports:
+        - {port: 9104, protocol: TCP}
+    {{- end }}
     {{- if .Values.flowObserver.enabled }}
     # The flow collectors run in the host network, so their traffic arrives from node-side addresses, which a
     # pod selector cannot name. With flowObserver.networkPolicy=true it is restricted to flowObserver.nodeCIDRs (which must

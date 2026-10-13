@@ -39,6 +39,9 @@ type Settings struct {
 	MeasureSeconds int `json:"measureSeconds"`
 	// ProbeTargets are addresses an administrator asked a cluster to measure, in addition to the ones its traffic shows.
 	ProbeTargets []ProbeTarget `json:"probeTargets"`
+	// Links are the pairs of clusters whose link an administrator asked to watch. Only listed pairs are measured, in both
+	// directions; see LinkSetting.
+	Links []LinkSetting `json:"links"`
 	// AllowedBackendKinds is which quick-start backend kinds (see QuickStartBackend.Kind) this organisation
 	// may add. Empty falls back to defaultAllowedBackendKinds (jaeger, zipkin, prometheus, loki) - "custom" is
 	// deliberately never on by default, since it is a new capability an administrator opts an organisation
@@ -140,7 +143,7 @@ type QuickStartBackend struct {
 }
 
 func DefaultSettings() Settings {
-	return Settings{SnapshotMinutes: 5, RetentionDays: 30, MaxHistoryMB: 512, ConsistencyMinutes: 15, StaleAfterBeats: 4, MeasureSeconds: 120, ProbeTargets: []ProbeTarget{}, QuickStartBackends: []QuickStartBackend{}, DeciderTimeoutSec: 10, TombstoneRetentionDays: 7, EventRetentionDays: 0, FlowStaleSeconds: 300}
+	return Settings{SnapshotMinutes: 5, RetentionDays: 30, MaxHistoryMB: 512, ConsistencyMinutes: 15, StaleAfterBeats: 4, MeasureSeconds: 120, ProbeTargets: []ProbeTarget{}, Links: []LinkSetting{}, QuickStartBackends: []QuickStartBackend{}, DeciderTimeoutSec: 10, TombstoneRetentionDays: 7, EventRetentionDays: 0, FlowStaleSeconds: 300}
 }
 
 func inRange(name string, v *int, lo, hi int) error {
@@ -223,6 +226,11 @@ func (s Settings) NormalizeFor(ctx context.Context, dp *DeciderPolicy) (Settings
 		out = append(out, t)
 	}
 	s.ProbeTargets = out
+	links, err := normalizeLinks(s.Links)
+	if err != nil {
+		return s, err
+	}
+	s.Links = links
 	// AllowedBackendKinds is validated to a de-duplicated subset of knownBackendKinds before the backends
 	// below are checked against it - see allowedBackendKindsOrDefault for what empty falls back to.
 	if len(s.AllowedBackendKinds) > len(knownBackendKinds) {
@@ -437,6 +445,7 @@ func settingsDiff(a, b Settings) string {
 	add("quiet link (s)", a.FlowStaleSeconds, b.FlowStaleSeconds)
 	add("measure every (s)", a.MeasureSeconds, b.MeasureSeconds)
 	add("measurement targets", len(a.ProbeTargets), len(b.ProbeTargets))
+	add("linked cluster pairs", len(a.Links), len(b.Links))
 	add("quick-start backends", len(a.QuickStartBackends), len(b.QuickStartBackends))
 	add("allowed backend kinds", strings.Join(a.AllowedBackendKinds, ","), strings.Join(b.AllowedBackendKinds, ","))
 	if a.DeciderURL != b.DeciderURL {

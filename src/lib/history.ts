@@ -3,6 +3,12 @@ import type { AccessTier, Agent, Cluster, Dependency, ExternalEndpoint, MachineN
 /* ---------- what the server sends ---------- */
 
 /** The knobs an administrator can turn. Everything else in Ikhnos works without them. */
+/** Two clusters whose link an administrator asked to have measured; see `Settings.Links` on the server. */
+export interface LinkPair {
+  a: string
+  b: string
+}
+
 export interface AppSettings {
   snapshotMinutes: number
   retentionDays: number
@@ -20,6 +26,8 @@ export interface AppSettings {
   flowStaleSeconds: number
   measureSeconds: number
   probeTargets: ProbeTarget[]
+  /** Pairs of clusters whose link is watched (in both directions); a pair that is not listed is not measured. `a` sorts before `b`. */
+  links: LinkPair[]
   /** Which quick-start backend kinds this organisation may add - see QuickStartBackend.kind and
    * effectiveAllowedBackendKinds (empty means the default, DEFAULT_ALLOWED_BACKEND_KINDS). */
   allowedBackendKinds: QuickStartKind[]
@@ -93,6 +101,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   flowStaleSeconds: 300,
   measureSeconds: 120,
   probeTargets: [],
+  links: [],
   allowedBackendKinds: [],
   quickStartBackends: [],
   deciderUrl: '',
@@ -107,7 +116,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
 }
 
 export function normalizeSettings(s: Partial<AppSettings> | null | undefined): AppSettings {
-  return { ...DEFAULT_SETTINGS, ...s, probeTargets: s?.probeTargets ?? [], allowedBackendKinds: s?.allowedBackendKinds ?? [], quickStartBackends: s?.quickStartBackends ?? [], imageDefaults: { ...DEFAULT_SETTINGS.imageDefaults, ...s?.imageDefaults } }
+  return { ...DEFAULT_SETTINGS, ...s, probeTargets: s?.probeTargets ?? [], links: s?.links ?? [], allowedBackendKinds: s?.allowedBackendKinds ?? [], quickStartBackends: s?.quickStartBackends ?? [], imageDefaults: { ...DEFAULT_SETTINGS.imageDefaults, ...s?.imageDefaults } }
 }
 
 /** Event retention is opt-in: off means "keep forever" (0, always valid, whatever text is left in the box).

@@ -139,10 +139,15 @@ func (h *Hub) configFor(a store.Agent, v *view) *continuumv1.Config {
 		resync = int32(max(h.ConsistencyEvery/time.Second, 1))
 	}
 	consent := h.consentOf(a.ID) // before taking h.mu: it may read the store
+	var orgAgents []store.Agent
+	if a.ClusterID != "" && len(peersOf(set.Links, a.ClusterID)) > 0 {
+		orgAgents, _ = h.C.Store.ListAgents(bg(), h.C.OrgID) // also before h.mu, for the same reason
+	}
 	cfg := &continuumv1.Config{ApprovedAccessTier: uint32(a.AccessTier), HeartbeatSeconds: HeartbeatSeconds, ResyncSeconds: resync, ServerTimeUnix: h.C.Now().Unix(),
-		PausedCollectors: append([]string(nil), consent.Paused...), ExcludedNamespaces: append([]string(nil), consent.Excluded...)}
+		PausedCollectors: append([]string(nil), consent.Paused...), ExcludedNamespaces: append([]string(nil), consent.Excluded...), ClusterId: a.ClusterID}
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	cfg.LinkPeers = h.linkPeers(a, orgAgents, set.Links, consent.has("flow"))
 	var ts []issuedTarget
 	for _, p := range set.ProbeTargets {
 		if a.ClusterID != "" && p.ClusterID == a.ClusterID {
@@ -181,6 +186,10 @@ func configHash(c *continuumv1.Config) string {
 	s := fmt.Sprintf("%d|%d|%d|%d|%s|%s", c.ApprovedAccessTier, c.HeartbeatSeconds, c.ResyncSeconds, c.MeasureSeconds, strings.Join(c.PausedCollectors, ","), strings.Join(c.ExcludedNamespaces, ","))
 	for _, t := range c.ProbeTargets {
 		s += fmt.Sprintf("|%s@%s:%d", t.Id, t.Host, t.Port)
+	}
+	s += "|cluster:" + c.ClusterId
+	for _, p := range c.LinkPeers {
+		s += fmt.Sprintf("|link:%s=%s@%s", p.ClusterId, p.Name, strings.Join(p.Addresses, ","))
 	}
 	return interpret.Hash("cfg", s)
 }

@@ -33,6 +33,7 @@ const sidebars: SidebarsConfig = {
         'architecture/agent-trust-model',
         'architecture/observability-intent',
         'architecture/telemetry-intent',
+        'architecture/cluster-links',
         'architecture/regional-operators',
         'architecture/fusion-api',
         'architecture/fusion-grafana',

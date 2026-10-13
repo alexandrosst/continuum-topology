@@ -21,6 +21,7 @@ import (
 	"continuum/internal/certrenew"
 	"continuum/internal/cli"
 	"continuum/internal/flow"
+	"continuum/internal/link"
 	"continuum/internal/measure"
 	"continuum/internal/probe"
 
@@ -62,6 +63,7 @@ func Main(args []string) int {
 	measureOn := fs.Bool("measure", cli.Env("CONTINUUM_MEASURE", "") == "true", "allow timing TCP connections to the addresses the server names (to learn how far away other places are); off by default")
 	flowWindow := fs.Duration("flow-window", envDuration("CONTINUUM_FLOW_WINDOW"), "how often observed traffic is sent to the server (the chart's flowObserver.window; default 15s)")
 	revokedHold := fs.Duration("revoked-hold", 0, "development only: how long a restarted agent whose identity was revoked waits before it exits with code 3 (default: a random 5 to 10 minutes; negative: do not wait)")
+	linkListen := fs.String("link-metrics-listen", cli.Env("CONTINUUM_LINK_METRICS_LISTEN", ""), "address to serve the cluster-to-cluster link metrics on (Prometheus text at /metrics), e.g. :9104 (empty: off; needs --flow-secret-file, since the metrics are labelled from observed traffic). The server decides which clusters are peers; the chart's telemetry.clusterLinks sets this")
 	flowSecretFile := fs.String("flow-secret-file", cli.Env("CONTINUUM_FLOW_SECRET_FILE", ""), "file holding the secret shared with the node flow collectors (needs --probe-listen)")
 	rbacMode := fs.String("rbac-mode", cli.Env("CONTINUUM_RBAC_MODE", "cluster"), "how tier 2's installed RBAC was granted: cluster (one ClusterRole, default) or namespaced (a Role per namespace in --scope-namespaces instead). Must match the chart's rbac.mode; the chart sets this automatically")
 	scopeNS := fs.String("scope-namespaces", cli.Env("CONTINUUM_SCOPE_NAMESPACES", ""), "report only these namespaces, comma separated (empty: all). Combined with --scope-label as a union. Required, and the only way to select namespaces, when --rbac-mode=namespaced")
@@ -162,6 +164,9 @@ func Main(args []string) int {
 	if *tier < 0 || *tier > 2 {
 		return cli.Fatal(log, fmt.Errorf("--tier must be 0, 1 or 2 in this release"))
 	}
+	if *linkListen != "" && *flowSecretFile == "" {
+		return cli.Fatal(log, fmt.Errorf("--link-metrics-listen needs --flow-secret-file: link metrics are labelled from observed traffic"))
+	}
 	if _, _, err := net.SplitHostPort(*server); err != nil {
 		return cli.Fatal(log, fmt.Errorf("--server must be host:port: %w", err))
 	}
@@ -219,6 +224,16 @@ func Main(args []string) int {
 		}
 		flows = flow.NewPipeline(sec, func() *collect.Index { return nil }, log)
 	}
+	var links *link.Meter
+	if *linkListen != "" {
+		links = link.NewMeter(link.NewPeers())
+		flows.Links = links
+		stopLinks, lerr := link.Serve(*linkListen, links, log)
+		if lerr != nil {
+			return cli.Fatal(log, fmt.Errorf("--link-metrics-listen: %w", lerr))
+		}
+		defer stopLinks()
+	}
 	if *probeListen != "" && probes == nil && flows == nil {
 		return cli.Fatal(log, fmt.Errorf("--probe-listen needs --probe-secret-file and/or --flow-secret-file"))
 	}
@@ -231,7 +246,7 @@ func Main(args []string) int {
 		}
 		defer stopHealth()
 	}
-	err = agent.Run(ctx, agent.Config{Server: *server, CAPin: *pin, Token: token, Tier: *tier, Kube: client, APIHost: apiHost, Identity: ids, Version: cli.Version, Log: log, Probes: probes, Flows: flows, FlowWindow: *flowWindow, Measure: *measureOn, ProbeListen: *probeListen, Scope: scope, Health: health, RevokedHold: *revokedHold, ProbeInterval: *probeEvery, FlowInterval: *flowEvery, Namespace: *ns, ReleaseName: *releaseName, TelemetrySignals: telemetrySignalList, TelemetryConfig: telemetryConfig, ExportHealth: exportHealth, RBACSelfCheck: *rbacSelfCheck, RBACNamespaced: rbacNamespaced, RenewSecrets: certrenew.ParseTargets(*ns, *renewSecrets)})
+	err = agent.Run(ctx, agent.Config{Server: *server, CAPin: *pin, Token: token, Tier: *tier, Kube: client, APIHost: apiHost, Identity: ids, Version: cli.Version, Log: log, Probes: probes, Flows: flows, Links: links, FlowWindow: *flowWindow, Measure: *measureOn, ProbeListen: *probeListen, Scope: scope, Health: health, RevokedHold: *revokedHold, ProbeInterval: *probeEvery, FlowInterval: *flowEvery, Namespace: *ns, ReleaseName: *releaseName, TelemetrySignals: telemetrySignalList, TelemetryConfig: telemetryConfig, ExportHealth: exportHealth, RBACSelfCheck: *rbacSelfCheck, RBACNamespaced: rbacNamespaced, RenewSecrets: certrenew.ParseTargets(*ns, *renewSecrets)})
 	if errors.Is(err, agent.ErrRevoked) {
 		// Exit with a code of its own (agent.ExitRevoked) so `kubectl get pod` and the restart count say what
 		// happened. Run has already said why, in plain words, and has waited a random 5-10 minutes if this was a

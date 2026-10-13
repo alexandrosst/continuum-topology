@@ -241,7 +241,7 @@ func (x FlowEndpoint_Kind) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use FlowEndpoint_Kind.Descriptor instead.
 func (FlowEndpoint_Kind) EnumDescriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{43, 0}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{44, 0}
 }
 
 type ExportRouteHealth_State int32
@@ -297,7 +297,7 @@ func (x ExportRouteHealth_State) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ExportRouteHealth_State.Descriptor instead.
 func (ExportRouteHealth_State) EnumDescriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{51, 0}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{52, 0}
 }
 
 type Problem_Severity int32
@@ -346,7 +346,7 @@ func (x Problem_Severity) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use Problem_Severity.Descriptor instead.
 func (Problem_Severity) EnumDescriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{55, 0}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{56, 0}
 }
 
 type RenewTelemetryCertRequest struct {
@@ -3748,8 +3748,14 @@ type Config struct {
 	PausedCollectors []string `protobuf:"bytes,7,rep,name=paused_collectors,json=pausedCollectors,proto3" json:"paused_collectors,omitempty"`
 	// Namespaces to leave out in addition to the ones the agent's own scope already leaves out.
 	ExcludedNamespaces []string `protobuf:"bytes,8,rep,name=excluded_namespaces,json=excludedNamespaces,proto3" json:"excluded_namespaces,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// This agent's own cluster id, as the server names it, so what the agent measures about a link can say which
+	// cluster it left from. Empty until the server knows the cluster.
+	ClusterId string `protobuf:"bytes,9,opt,name=cluster_id,json=clusterId,proto3" json:"cluster_id,omitempty"`
+	// The other clusters an administrator asked this one to measure its links to (see LinkPeer). Empty means no link
+	// is measured. Never more than the server's own limit; the agent applies it only as far as its install allows.
+	LinkPeers     []*LinkPeer `protobuf:"bytes,10,rep,name=link_peers,json=linkPeers,proto3" json:"link_peers,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Config) Reset() {
@@ -3838,6 +3844,85 @@ func (x *Config) GetExcludedNamespaces() []string {
 	return nil
 }
 
+func (x *Config) GetClusterId() string {
+	if x != nil {
+		return x.ClusterId
+	}
+	return ""
+}
+
+func (x *Config) GetLinkPeers() []*LinkPeer {
+	if x != nil {
+		return x.LinkPeers
+	}
+	return nil
+}
+
+// One other cluster this cluster's link is measured to. The server is the only place that knows which address belongs
+// to which cluster, so it names them here; the agent never learns anything about the peer beyond this.
+type LinkPeer struct {
+	state     protoimpl.MessageState `protogen:"open.v1"`
+	ClusterId string                 `protobuf:"bytes,1,opt,name=cluster_id,json=clusterId,proto3" json:"cluster_id,omitempty"`
+	// Display name only. Metrics are labelled by cluster_id, which does not change.
+	Name string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	// Addresses the peer's traffic comes from or goes to (its nodes' addresses and the address it reaches the
+	// internet from). IPv4 and IPv6 literals, never a host name.
+	Addresses     []string `protobuf:"bytes,3,rep,name=addresses,proto3" json:"addresses,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LinkPeer) Reset() {
+	*x = LinkPeer{}
+	mi := &file_continuum_v1_agent_proto_msgTypes[35]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LinkPeer) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LinkPeer) ProtoMessage() {}
+
+func (x *LinkPeer) ProtoReflect() protoreflect.Message {
+	mi := &file_continuum_v1_agent_proto_msgTypes[35]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LinkPeer.ProtoReflect.Descriptor instead.
+func (*LinkPeer) Descriptor() ([]byte, []int) {
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{35}
+}
+
+func (x *LinkPeer) GetClusterId() string {
+	if x != nil {
+		return x.ClusterId
+	}
+	return ""
+}
+
+func (x *LinkPeer) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *LinkPeer) GetAddresses() []string {
+	if x != nil {
+		return x.Addresses
+	}
+	return nil
+}
+
 // An address to time. The agent only honours it when it was started with measurements allowed, and
 // refuses loopback, link-local and multicast addresses whatever the server says.
 type ProbeTarget struct {
@@ -3851,7 +3936,7 @@ type ProbeTarget struct {
 
 func (x *ProbeTarget) Reset() {
 	*x = ProbeTarget{}
-	mi := &file_continuum_v1_agent_proto_msgTypes[35]
+	mi := &file_continuum_v1_agent_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3863,7 +3948,7 @@ func (x *ProbeTarget) String() string {
 func (*ProbeTarget) ProtoMessage() {}
 
 func (x *ProbeTarget) ProtoReflect() protoreflect.Message {
-	mi := &file_continuum_v1_agent_proto_msgTypes[35]
+	mi := &file_continuum_v1_agent_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3876,7 +3961,7 @@ func (x *ProbeTarget) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProbeTarget.ProtoReflect.Descriptor instead.
 func (*ProbeTarget) Descriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{35}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *ProbeTarget) GetId() string {
@@ -3915,7 +4000,7 @@ type PathResult struct {
 
 func (x *PathResult) Reset() {
 	*x = PathResult{}
-	mi := &file_continuum_v1_agent_proto_msgTypes[36]
+	mi := &file_continuum_v1_agent_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3927,7 +4012,7 @@ func (x *PathResult) String() string {
 func (*PathResult) ProtoMessage() {}
 
 func (x *PathResult) ProtoReflect() protoreflect.Message {
-	mi := &file_continuum_v1_agent_proto_msgTypes[36]
+	mi := &file_continuum_v1_agent_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3940,7 +4025,7 @@ func (x *PathResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PathResult.ProtoReflect.Descriptor instead.
 func (*PathResult) Descriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{36}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *PathResult) GetTargetId() string {
@@ -3996,7 +4081,7 @@ type Measurements struct {
 
 func (x *Measurements) Reset() {
 	*x = Measurements{}
-	mi := &file_continuum_v1_agent_proto_msgTypes[37]
+	mi := &file_continuum_v1_agent_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4008,7 +4093,7 @@ func (x *Measurements) String() string {
 func (*Measurements) ProtoMessage() {}
 
 func (x *Measurements) ProtoReflect() protoreflect.Message {
-	mi := &file_continuum_v1_agent_proto_msgTypes[37]
+	mi := &file_continuum_v1_agent_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4021,7 +4106,7 @@ func (x *Measurements) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Measurements.ProtoReflect.Descriptor instead.
 func (*Measurements) Descriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{37}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *Measurements) GetResults() []*PathResult {
@@ -4047,7 +4132,7 @@ type Revoked struct {
 
 func (x *Revoked) Reset() {
 	*x = Revoked{}
-	mi := &file_continuum_v1_agent_proto_msgTypes[38]
+	mi := &file_continuum_v1_agent_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4059,7 +4144,7 @@ func (x *Revoked) String() string {
 func (*Revoked) ProtoMessage() {}
 
 func (x *Revoked) ProtoReflect() protoreflect.Message {
-	mi := &file_continuum_v1_agent_proto_msgTypes[38]
+	mi := &file_continuum_v1_agent_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4072,7 +4157,7 @@ func (x *Revoked) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Revoked.ProtoReflect.Descriptor instead.
 func (*Revoked) Descriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{38}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *Revoked) GetReason() string {
@@ -4240,7 +4325,7 @@ type RawFlow struct {
 
 func (x *RawFlow) Reset() {
 	*x = RawFlow{}
-	mi := &file_continuum_v1_agent_proto_msgTypes[39]
+	mi := &file_continuum_v1_agent_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4252,7 +4337,7 @@ func (x *RawFlow) String() string {
 func (*RawFlow) ProtoMessage() {}
 
 func (x *RawFlow) ProtoReflect() protoreflect.Message {
-	mi := &file_continuum_v1_agent_proto_msgTypes[39]
+	mi := &file_continuum_v1_agent_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4265,7 +4350,7 @@ func (x *RawFlow) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RawFlow.ProtoReflect.Descriptor instead.
 func (*RawFlow) Descriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{39}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *RawFlow) GetClient() bool {
@@ -4539,7 +4624,7 @@ type LinkSaturation struct {
 
 func (x *LinkSaturation) Reset() {
 	*x = LinkSaturation{}
-	mi := &file_continuum_v1_agent_proto_msgTypes[40]
+	mi := &file_continuum_v1_agent_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4551,7 +4636,7 @@ func (x *LinkSaturation) String() string {
 func (*LinkSaturation) ProtoMessage() {}
 
 func (x *LinkSaturation) ProtoReflect() protoreflect.Message {
-	mi := &file_continuum_v1_agent_proto_msgTypes[40]
+	mi := &file_continuum_v1_agent_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4564,7 +4649,7 @@ func (x *LinkSaturation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LinkSaturation.ProtoReflect.Descriptor instead.
 func (*LinkSaturation) Descriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{40}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *LinkSaturation) GetIface() string {
@@ -4627,7 +4712,7 @@ type ThermalThrottle struct {
 
 func (x *ThermalThrottle) Reset() {
 	*x = ThermalThrottle{}
-	mi := &file_continuum_v1_agent_proto_msgTypes[41]
+	mi := &file_continuum_v1_agent_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4639,7 +4724,7 @@ func (x *ThermalThrottle) String() string {
 func (*ThermalThrottle) ProtoMessage() {}
 
 func (x *ThermalThrottle) ProtoReflect() protoreflect.Message {
-	mi := &file_continuum_v1_agent_proto_msgTypes[41]
+	mi := &file_continuum_v1_agent_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4652,7 +4737,7 @@ func (x *ThermalThrottle) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ThermalThrottle.ProtoReflect.Descriptor instead.
 func (*ThermalThrottle) Descriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{41}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *ThermalThrottle) GetCpuFreqChangeCount() uint64 {
@@ -4704,7 +4789,7 @@ type FlowReport struct {
 
 func (x *FlowReport) Reset() {
 	*x = FlowReport{}
-	mi := &file_continuum_v1_agent_proto_msgTypes[42]
+	mi := &file_continuum_v1_agent_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4716,7 +4801,7 @@ func (x *FlowReport) String() string {
 func (*FlowReport) ProtoMessage() {}
 
 func (x *FlowReport) ProtoReflect() protoreflect.Message {
-	mi := &file_continuum_v1_agent_proto_msgTypes[42]
+	mi := &file_continuum_v1_agent_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4729,7 +4814,7 @@ func (x *FlowReport) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FlowReport.ProtoReflect.Descriptor instead.
 func (*FlowReport) Descriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{42}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *FlowReport) GetMethod() string {
@@ -4806,7 +4891,7 @@ type FlowEndpoint struct {
 
 func (x *FlowEndpoint) Reset() {
 	*x = FlowEndpoint{}
-	mi := &file_continuum_v1_agent_proto_msgTypes[43]
+	mi := &file_continuum_v1_agent_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4818,7 +4903,7 @@ func (x *FlowEndpoint) String() string {
 func (*FlowEndpoint) ProtoMessage() {}
 
 func (x *FlowEndpoint) ProtoReflect() protoreflect.Message {
-	mi := &file_continuum_v1_agent_proto_msgTypes[43]
+	mi := &file_continuum_v1_agent_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4831,7 +4916,7 @@ func (x *FlowEndpoint) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FlowEndpoint.ProtoReflect.Descriptor instead.
 func (*FlowEndpoint) Descriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{43}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *FlowEndpoint) GetKind() FlowEndpoint_Kind {
@@ -4954,7 +5039,7 @@ type Flow struct {
 
 func (x *Flow) Reset() {
 	*x = Flow{}
-	mi := &file_continuum_v1_agent_proto_msgTypes[44]
+	mi := &file_continuum_v1_agent_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4966,7 +5051,7 @@ func (x *Flow) String() string {
 func (*Flow) ProtoMessage() {}
 
 func (x *Flow) ProtoReflect() protoreflect.Message {
-	mi := &file_continuum_v1_agent_proto_msgTypes[44]
+	mi := &file_continuum_v1_agent_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4979,7 +5064,7 @@ func (x *Flow) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Flow.ProtoReflect.Descriptor instead.
 func (*Flow) Descriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{44}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *Flow) GetSrc() *FlowEndpoint {
@@ -5243,7 +5328,7 @@ type CollectorInfo struct {
 
 func (x *CollectorInfo) Reset() {
 	*x = CollectorInfo{}
-	mi := &file_continuum_v1_agent_proto_msgTypes[45]
+	mi := &file_continuum_v1_agent_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5255,7 +5340,7 @@ func (x *CollectorInfo) String() string {
 func (*CollectorInfo) ProtoMessage() {}
 
 func (x *CollectorInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_continuum_v1_agent_proto_msgTypes[45]
+	mi := &file_continuum_v1_agent_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5268,7 +5353,7 @@ func (x *CollectorInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CollectorInfo.ProtoReflect.Descriptor instead.
 func (*CollectorInfo) Descriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{45}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *CollectorInfo) GetNode() string {
@@ -5336,7 +5421,7 @@ type FlowBatch struct {
 
 func (x *FlowBatch) Reset() {
 	*x = FlowBatch{}
-	mi := &file_continuum_v1_agent_proto_msgTypes[46]
+	mi := &file_continuum_v1_agent_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5348,7 +5433,7 @@ func (x *FlowBatch) String() string {
 func (*FlowBatch) ProtoMessage() {}
 
 func (x *FlowBatch) ProtoReflect() protoreflect.Message {
-	mi := &file_continuum_v1_agent_proto_msgTypes[46]
+	mi := &file_continuum_v1_agent_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5361,7 +5446,7 @@ func (x *FlowBatch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FlowBatch.ProtoReflect.Descriptor instead.
 func (*FlowBatch) Descriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{46}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *FlowBatch) GetSeq() uint64 {
@@ -5465,7 +5550,7 @@ type FlowEdge struct {
 
 func (x *FlowEdge) Reset() {
 	*x = FlowEdge{}
-	mi := &file_continuum_v1_agent_proto_msgTypes[47]
+	mi := &file_continuum_v1_agent_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5477,7 +5562,7 @@ func (x *FlowEdge) String() string {
 func (*FlowEdge) ProtoMessage() {}
 
 func (x *FlowEdge) ProtoReflect() protoreflect.Message {
-	mi := &file_continuum_v1_agent_proto_msgTypes[47]
+	mi := &file_continuum_v1_agent_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5490,7 +5575,7 @@ func (x *FlowEdge) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FlowEdge.ProtoReflect.Descriptor instead.
 func (*FlowEdge) Descriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{47}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *FlowEdge) GetKey() *Flow {
@@ -5656,7 +5741,7 @@ type FlowTable struct {
 
 func (x *FlowTable) Reset() {
 	*x = FlowTable{}
-	mi := &file_continuum_v1_agent_proto_msgTypes[48]
+	mi := &file_continuum_v1_agent_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5668,7 +5753,7 @@ func (x *FlowTable) String() string {
 func (*FlowTable) ProtoMessage() {}
 
 func (x *FlowTable) ProtoReflect() protoreflect.Message {
-	mi := &file_continuum_v1_agent_proto_msgTypes[48]
+	mi := &file_continuum_v1_agent_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5681,7 +5766,7 @@ func (x *FlowTable) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FlowTable.ProtoReflect.Descriptor instead.
 func (*FlowTable) Descriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{48}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *FlowTable) GetEdges() []*FlowEdge {
@@ -5740,7 +5825,7 @@ type Diagnostics struct {
 
 func (x *Diagnostics) Reset() {
 	*x = Diagnostics{}
-	mi := &file_continuum_v1_agent_proto_msgTypes[49]
+	mi := &file_continuum_v1_agent_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5752,7 +5837,7 @@ func (x *Diagnostics) String() string {
 func (*Diagnostics) ProtoMessage() {}
 
 func (x *Diagnostics) ProtoReflect() protoreflect.Message {
-	mi := &file_continuum_v1_agent_proto_msgTypes[49]
+	mi := &file_continuum_v1_agent_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5765,7 +5850,7 @@ func (x *Diagnostics) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Diagnostics.ProtoReflect.Descriptor instead.
 func (*Diagnostics) Descriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{49}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *Diagnostics) GetAgentVersion() string {
@@ -5924,7 +6009,7 @@ type ExportHealth struct {
 
 func (x *ExportHealth) Reset() {
 	*x = ExportHealth{}
-	mi := &file_continuum_v1_agent_proto_msgTypes[50]
+	mi := &file_continuum_v1_agent_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5936,7 +6021,7 @@ func (x *ExportHealth) String() string {
 func (*ExportHealth) ProtoMessage() {}
 
 func (x *ExportHealth) ProtoReflect() protoreflect.Message {
-	mi := &file_continuum_v1_agent_proto_msgTypes[50]
+	mi := &file_continuum_v1_agent_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5949,7 +6034,7 @@ func (x *ExportHealth) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExportHealth.ProtoReflect.Descriptor instead.
 func (*ExportHealth) Descriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{50}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{51}
 }
 
 func (x *ExportHealth) GetScrapedAt() *timestamppb.Timestamp {
@@ -6007,7 +6092,7 @@ type ExportRouteHealth struct {
 
 func (x *ExportRouteHealth) Reset() {
 	*x = ExportRouteHealth{}
-	mi := &file_continuum_v1_agent_proto_msgTypes[51]
+	mi := &file_continuum_v1_agent_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6019,7 +6104,7 @@ func (x *ExportRouteHealth) String() string {
 func (*ExportRouteHealth) ProtoMessage() {}
 
 func (x *ExportRouteHealth) ProtoReflect() protoreflect.Message {
-	mi := &file_continuum_v1_agent_proto_msgTypes[51]
+	mi := &file_continuum_v1_agent_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6032,7 +6117,7 @@ func (x *ExportRouteHealth) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExportRouteHealth.ProtoReflect.Descriptor instead.
 func (*ExportRouteHealth) Descriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{51}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{52}
 }
 
 func (x *ExportRouteHealth) GetExporter() string {
@@ -6118,7 +6203,7 @@ type InstalledTelemetryConfig struct {
 
 func (x *InstalledTelemetryConfig) Reset() {
 	*x = InstalledTelemetryConfig{}
-	mi := &file_continuum_v1_agent_proto_msgTypes[52]
+	mi := &file_continuum_v1_agent_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6130,7 +6215,7 @@ func (x *InstalledTelemetryConfig) String() string {
 func (*InstalledTelemetryConfig) ProtoMessage() {}
 
 func (x *InstalledTelemetryConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_continuum_v1_agent_proto_msgTypes[52]
+	mi := &file_continuum_v1_agent_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6143,7 +6228,7 @@ func (x *InstalledTelemetryConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InstalledTelemetryConfig.ProtoReflect.Descriptor instead.
 func (*InstalledTelemetryConfig) Descriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{52}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{53}
 }
 
 func (x *InstalledTelemetryConfig) GetExportEndpoint() string {
@@ -6211,7 +6296,7 @@ type CollectorDiag struct {
 
 func (x *CollectorDiag) Reset() {
 	*x = CollectorDiag{}
-	mi := &file_continuum_v1_agent_proto_msgTypes[53]
+	mi := &file_continuum_v1_agent_proto_msgTypes[54]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6223,7 +6308,7 @@ func (x *CollectorDiag) String() string {
 func (*CollectorDiag) ProtoMessage() {}
 
 func (x *CollectorDiag) ProtoReflect() protoreflect.Message {
-	mi := &file_continuum_v1_agent_proto_msgTypes[53]
+	mi := &file_continuum_v1_agent_proto_msgTypes[54]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6236,7 +6321,7 @@ func (x *CollectorDiag) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CollectorDiag.ProtoReflect.Descriptor instead.
 func (*CollectorDiag) Descriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{53}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{54}
 }
 
 func (x *CollectorDiag) GetName() string {
@@ -6317,7 +6402,7 @@ type InformerDiag struct {
 
 func (x *InformerDiag) Reset() {
 	*x = InformerDiag{}
-	mi := &file_continuum_v1_agent_proto_msgTypes[54]
+	mi := &file_continuum_v1_agent_proto_msgTypes[55]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6329,7 +6414,7 @@ func (x *InformerDiag) String() string {
 func (*InformerDiag) ProtoMessage() {}
 
 func (x *InformerDiag) ProtoReflect() protoreflect.Message {
-	mi := &file_continuum_v1_agent_proto_msgTypes[54]
+	mi := &file_continuum_v1_agent_proto_msgTypes[55]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6342,7 +6427,7 @@ func (x *InformerDiag) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InformerDiag.ProtoReflect.Descriptor instead.
 func (*InformerDiag) Descriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{54}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{55}
 }
 
 func (x *InformerDiag) GetName() string {
@@ -6395,7 +6480,7 @@ type Problem struct {
 
 func (x *Problem) Reset() {
 	*x = Problem{}
-	mi := &file_continuum_v1_agent_proto_msgTypes[55]
+	mi := &file_continuum_v1_agent_proto_msgTypes[56]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6407,7 +6492,7 @@ func (x *Problem) String() string {
 func (*Problem) ProtoMessage() {}
 
 func (x *Problem) ProtoReflect() protoreflect.Message {
-	mi := &file_continuum_v1_agent_proto_msgTypes[55]
+	mi := &file_continuum_v1_agent_proto_msgTypes[56]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6420,7 +6505,7 @@ func (x *Problem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Problem.ProtoReflect.Descriptor instead.
 func (*Problem) Descriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{55}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{56}
 }
 
 func (x *Problem) GetCode() string {
@@ -6495,7 +6580,7 @@ type SelfStats struct {
 
 func (x *SelfStats) Reset() {
 	*x = SelfStats{}
-	mi := &file_continuum_v1_agent_proto_msgTypes[56]
+	mi := &file_continuum_v1_agent_proto_msgTypes[57]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6507,7 +6592,7 @@ func (x *SelfStats) String() string {
 func (*SelfStats) ProtoMessage() {}
 
 func (x *SelfStats) ProtoReflect() protoreflect.Message {
-	mi := &file_continuum_v1_agent_proto_msgTypes[56]
+	mi := &file_continuum_v1_agent_proto_msgTypes[57]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6520,7 +6605,7 @@ func (x *SelfStats) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SelfStats.ProtoReflect.Descriptor instead.
 func (*SelfStats) Descriptor() ([]byte, []int) {
-	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{56}
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{57}
 }
 
 func (x *SelfStats) GetRssBytes() uint64 {
@@ -6922,7 +7007,7 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\arevoked\x18\x03 \x01(\v2\x15.continuum.v1.RevokedH\x00R\arevokedB\x05\n" +
 	"\x03msg\"\x17\n" +
 	"\x03Ack\x12\x10\n" +
-	"\x03seq\x18\x01 \x01(\x04R\x03seq\"\xff\x02\n" +
+	"\x03seq\x18\x01 \x01(\x04R\x03seq\"\xd5\x03\n" +
 	"\x06Config\x120\n" +
 	"\x14approved_access_tier\x18\x01 \x01(\rR\x12approvedAccessTier\x12+\n" +
 	"\x11heartbeat_seconds\x18\x02 \x01(\x05R\x10heartbeatSeconds\x12>\n" +
@@ -6931,7 +7016,17 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\x0eresync_seconds\x18\x05 \x01(\x05R\rresyncSeconds\x12(\n" +
 	"\x10server_time_unix\x18\x06 \x01(\x03R\x0eserverTimeUnix\x12+\n" +
 	"\x11paused_collectors\x18\a \x03(\tR\x10pausedCollectors\x12/\n" +
-	"\x13excluded_namespaces\x18\b \x03(\tR\x12excludedNamespaces\"E\n" +
+	"\x13excluded_namespaces\x18\b \x03(\tR\x12excludedNamespaces\x12\x1d\n" +
+	"\n" +
+	"cluster_id\x18\t \x01(\tR\tclusterId\x125\n" +
+	"\n" +
+	"link_peers\x18\n" +
+	" \x03(\v2\x16.continuum.v1.LinkPeerR\tlinkPeers\"[\n" +
+	"\bLinkPeer\x12\x1d\n" +
+	"\n" +
+	"cluster_id\x18\x01 \x01(\tR\tclusterId\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1c\n" +
+	"\taddresses\x18\x03 \x03(\tR\taddresses\"E\n" +
 	"\vProbeTarget\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04host\x18\x02 \x01(\tR\x04host\x12\x12\n" +
@@ -7234,7 +7329,7 @@ func file_continuum_v1_agent_proto_rawDescGZIP() []byte {
 }
 
 var file_continuum_v1_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
-var file_continuum_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 66)
+var file_continuum_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 67)
 var file_continuum_v1_agent_proto_goTypes = []any{
 	(TlsHandshakeOutcome)(0),           // 0: continuum.v1.TlsHandshakeOutcome
 	(PollResponse_State)(0),            // 1: continuum.v1.PollResponse.State
@@ -7277,140 +7372,142 @@ var file_continuum_v1_agent_proto_goTypes = []any{
 	(*ServerMessage)(nil),              // 38: continuum.v1.ServerMessage
 	(*Ack)(nil),                        // 39: continuum.v1.Ack
 	(*Config)(nil),                     // 40: continuum.v1.Config
-	(*ProbeTarget)(nil),                // 41: continuum.v1.ProbeTarget
-	(*PathResult)(nil),                 // 42: continuum.v1.PathResult
-	(*Measurements)(nil),               // 43: continuum.v1.Measurements
-	(*Revoked)(nil),                    // 44: continuum.v1.Revoked
-	(*RawFlow)(nil),                    // 45: continuum.v1.RawFlow
-	(*LinkSaturation)(nil),             // 46: continuum.v1.LinkSaturation
-	(*ThermalThrottle)(nil),            // 47: continuum.v1.ThermalThrottle
-	(*FlowReport)(nil),                 // 48: continuum.v1.FlowReport
-	(*FlowEndpoint)(nil),               // 49: continuum.v1.FlowEndpoint
-	(*Flow)(nil),                       // 50: continuum.v1.Flow
-	(*CollectorInfo)(nil),              // 51: continuum.v1.CollectorInfo
-	(*FlowBatch)(nil),                  // 52: continuum.v1.FlowBatch
-	(*FlowEdge)(nil),                   // 53: continuum.v1.FlowEdge
-	(*FlowTable)(nil),                  // 54: continuum.v1.FlowTable
-	(*Diagnostics)(nil),                // 55: continuum.v1.Diagnostics
-	(*ExportHealth)(nil),               // 56: continuum.v1.ExportHealth
-	(*ExportRouteHealth)(nil),          // 57: continuum.v1.ExportRouteHealth
-	(*InstalledTelemetryConfig)(nil),   // 58: continuum.v1.InstalledTelemetryConfig
-	(*CollectorDiag)(nil),              // 59: continuum.v1.CollectorDiag
-	(*InformerDiag)(nil),               // 60: continuum.v1.InformerDiag
-	(*Problem)(nil),                    // 61: continuum.v1.Problem
-	(*SelfStats)(nil),                  // 62: continuum.v1.SelfStats
-	nil,                                // 63: continuum.v1.MeshFacts.NamespaceMtlsEntry
-	nil,                                // 64: continuum.v1.NodeFacts.LabelsEntry
-	nil,                                // 65: continuum.v1.NodeFacts.AnnotationsEntry
-	nil,                                // 66: continuum.v1.NodeFacts.ExtendedResourcesEntry
-	nil,                                // 67: continuum.v1.NamespaceFacts.LabelsEntry
-	nil,                                // 68: continuum.v1.NamespaceFacts.AnnotationsEntry
-	nil,                                // 69: continuum.v1.WorkloadFacts.LabelsEntry
-	nil,                                // 70: continuum.v1.WorkloadFacts.AnnotationsEntry
-	nil,                                // 71: continuum.v1.WorkloadFacts.NodeSelectorEntry
-	(*timestamppb.Timestamp)(nil),      // 72: google.protobuf.Timestamp
+	(*LinkPeer)(nil),                   // 41: continuum.v1.LinkPeer
+	(*ProbeTarget)(nil),                // 42: continuum.v1.ProbeTarget
+	(*PathResult)(nil),                 // 43: continuum.v1.PathResult
+	(*Measurements)(nil),               // 44: continuum.v1.Measurements
+	(*Revoked)(nil),                    // 45: continuum.v1.Revoked
+	(*RawFlow)(nil),                    // 46: continuum.v1.RawFlow
+	(*LinkSaturation)(nil),             // 47: continuum.v1.LinkSaturation
+	(*ThermalThrottle)(nil),            // 48: continuum.v1.ThermalThrottle
+	(*FlowReport)(nil),                 // 49: continuum.v1.FlowReport
+	(*FlowEndpoint)(nil),               // 50: continuum.v1.FlowEndpoint
+	(*Flow)(nil),                       // 51: continuum.v1.Flow
+	(*CollectorInfo)(nil),              // 52: continuum.v1.CollectorInfo
+	(*FlowBatch)(nil),                  // 53: continuum.v1.FlowBatch
+	(*FlowEdge)(nil),                   // 54: continuum.v1.FlowEdge
+	(*FlowTable)(nil),                  // 55: continuum.v1.FlowTable
+	(*Diagnostics)(nil),                // 56: continuum.v1.Diagnostics
+	(*ExportHealth)(nil),               // 57: continuum.v1.ExportHealth
+	(*ExportRouteHealth)(nil),          // 58: continuum.v1.ExportRouteHealth
+	(*InstalledTelemetryConfig)(nil),   // 59: continuum.v1.InstalledTelemetryConfig
+	(*CollectorDiag)(nil),              // 60: continuum.v1.CollectorDiag
+	(*InformerDiag)(nil),               // 61: continuum.v1.InformerDiag
+	(*Problem)(nil),                    // 62: continuum.v1.Problem
+	(*SelfStats)(nil),                  // 63: continuum.v1.SelfStats
+	nil,                                // 64: continuum.v1.MeshFacts.NamespaceMtlsEntry
+	nil,                                // 65: continuum.v1.NodeFacts.LabelsEntry
+	nil,                                // 66: continuum.v1.NodeFacts.AnnotationsEntry
+	nil,                                // 67: continuum.v1.NodeFacts.ExtendedResourcesEntry
+	nil,                                // 68: continuum.v1.NamespaceFacts.LabelsEntry
+	nil,                                // 69: continuum.v1.NamespaceFacts.AnnotationsEntry
+	nil,                                // 70: continuum.v1.WorkloadFacts.LabelsEntry
+	nil,                                // 71: continuum.v1.WorkloadFacts.AnnotationsEntry
+	nil,                                // 72: continuum.v1.WorkloadFacts.NodeSelectorEntry
+	(*timestamppb.Timestamp)(nil),      // 73: google.protobuf.Timestamp
 }
 var file_continuum_v1_agent_proto_depIdxs = []int32{
-	72, // 0: continuum.v1.RenewTelemetryCertResponse.not_after:type_name -> google.protobuf.Timestamp
+	73, // 0: continuum.v1.RenewTelemetryCertResponse.not_after:type_name -> google.protobuf.Timestamp
 	1,  // 1: continuum.v1.PollResponse.state:type_name -> continuum.v1.PollResponse.State
-	72, // 2: continuum.v1.PollResponse.not_after:type_name -> google.protobuf.Timestamp
-	72, // 3: continuum.v1.RenewResponse.not_after:type_name -> google.protobuf.Timestamp
+	73, // 2: continuum.v1.PollResponse.not_after:type_name -> google.protobuf.Timestamp
+	73, // 3: continuum.v1.RenewResponse.not_after:type_name -> google.protobuf.Timestamp
 	16, // 4: continuum.v1.AgentMessage.hello:type_name -> continuum.v1.Hello
 	19, // 5: continuum.v1.AgentMessage.sync:type_name -> continuum.v1.Sync
 	17, // 6: continuum.v1.AgentMessage.heartbeat:type_name -> continuum.v1.Heartbeat
-	52, // 7: continuum.v1.AgentMessage.flows:type_name -> continuum.v1.FlowBatch
-	43, // 8: continuum.v1.AgentMessage.measurements:type_name -> continuum.v1.Measurements
-	55, // 9: continuum.v1.Hello.diagnostics:type_name -> continuum.v1.Diagnostics
+	53, // 7: continuum.v1.AgentMessage.flows:type_name -> continuum.v1.FlowBatch
+	44, // 8: continuum.v1.AgentMessage.measurements:type_name -> continuum.v1.Measurements
+	56, // 9: continuum.v1.Hello.diagnostics:type_name -> continuum.v1.Diagnostics
 	18, // 10: continuum.v1.Heartbeat.modules:type_name -> continuum.v1.ModuleStatus
-	55, // 11: continuum.v1.Heartbeat.diagnostics:type_name -> continuum.v1.Diagnostics
-	62, // 12: continuum.v1.Heartbeat.self_stats:type_name -> continuum.v1.SelfStats
+	56, // 11: continuum.v1.Heartbeat.diagnostics:type_name -> continuum.v1.Diagnostics
+	63, // 12: continuum.v1.Heartbeat.self_stats:type_name -> continuum.v1.SelfStats
 	2,  // 13: continuum.v1.ModuleStatus.state:type_name -> continuum.v1.ModuleStatus.State
 	20, // 14: continuum.v1.Sync.cluster:type_name -> continuum.v1.ClusterFacts
 	24, // 15: continuum.v1.Sync.nodes:type_name -> continuum.v1.NodeFacts
 	30, // 16: continuum.v1.Sync.namespaces:type_name -> continuum.v1.NamespaceFacts
 	32, // 17: continuum.v1.Sync.workloads:type_name -> continuum.v1.WorkloadFacts
 	18, // 18: continuum.v1.Sync.modules:type_name -> continuum.v1.ModuleStatus
-	72, // 19: continuum.v1.ClusterFacts.created_at:type_name -> google.protobuf.Timestamp
+	73, // 19: continuum.v1.ClusterFacts.created_at:type_name -> google.protobuf.Timestamp
 	21, // 20: continuum.v1.ClusterFacts.scope:type_name -> continuum.v1.ScopeFacts
 	22, // 21: continuum.v1.ClusterFacts.mesh:type_name -> continuum.v1.MeshFacts
-	63, // 22: continuum.v1.MeshFacts.namespace_mtls:type_name -> continuum.v1.MeshFacts.NamespaceMtlsEntry
-	64, // 23: continuum.v1.NodeFacts.labels:type_name -> continuum.v1.NodeFacts.LabelsEntry
-	65, // 24: continuum.v1.NodeFacts.annotations:type_name -> continuum.v1.NodeFacts.AnnotationsEntry
-	66, // 25: continuum.v1.NodeFacts.extended_resources:type_name -> continuum.v1.NodeFacts.ExtendedResourcesEntry
-	72, // 26: continuum.v1.NodeFacts.created_at:type_name -> google.protobuf.Timestamp
+	64, // 22: continuum.v1.MeshFacts.namespace_mtls:type_name -> continuum.v1.MeshFacts.NamespaceMtlsEntry
+	65, // 23: continuum.v1.NodeFacts.labels:type_name -> continuum.v1.NodeFacts.LabelsEntry
+	66, // 24: continuum.v1.NodeFacts.annotations:type_name -> continuum.v1.NodeFacts.AnnotationsEntry
+	67, // 25: continuum.v1.NodeFacts.extended_resources:type_name -> continuum.v1.NodeFacts.ExtendedResourcesEntry
+	73, // 26: continuum.v1.NodeFacts.created_at:type_name -> google.protobuf.Timestamp
 	25, // 27: continuum.v1.NodeFacts.probe:type_name -> continuum.v1.HostProbe
 	26, // 28: continuum.v1.HostProbe.interfaces:type_name -> continuum.v1.NetworkInterface
 	27, // 29: continuum.v1.HostProbe.disks:type_name -> continuum.v1.Disk
 	28, // 30: continuum.v1.HostProbe.tunnels:type_name -> continuum.v1.TunnelInterface
 	29, // 31: continuum.v1.HostProbe.host_addresses:type_name -> continuum.v1.HostAddress
-	67, // 32: continuum.v1.NamespaceFacts.labels:type_name -> continuum.v1.NamespaceFacts.LabelsEntry
-	68, // 33: continuum.v1.NamespaceFacts.annotations:type_name -> continuum.v1.NamespaceFacts.AnnotationsEntry
+	68, // 32: continuum.v1.NamespaceFacts.labels:type_name -> continuum.v1.NamespaceFacts.LabelsEntry
+	69, // 33: continuum.v1.NamespaceFacts.annotations:type_name -> continuum.v1.NamespaceFacts.AnnotationsEntry
 	31, // 34: continuum.v1.WorkloadFacts.images:type_name -> continuum.v1.ContainerImage
-	69, // 35: continuum.v1.WorkloadFacts.labels:type_name -> continuum.v1.WorkloadFacts.LabelsEntry
-	70, // 36: continuum.v1.WorkloadFacts.annotations:type_name -> continuum.v1.WorkloadFacts.AnnotationsEntry
-	71, // 37: continuum.v1.WorkloadFacts.node_selector:type_name -> continuum.v1.WorkloadFacts.NodeSelectorEntry
-	72, // 38: continuum.v1.WorkloadFacts.created_at:type_name -> google.protobuf.Timestamp
+	70, // 35: continuum.v1.WorkloadFacts.labels:type_name -> continuum.v1.WorkloadFacts.LabelsEntry
+	71, // 36: continuum.v1.WorkloadFacts.annotations:type_name -> continuum.v1.WorkloadFacts.AnnotationsEntry
+	72, // 37: continuum.v1.WorkloadFacts.node_selector:type_name -> continuum.v1.WorkloadFacts.NodeSelectorEntry
+	73, // 38: continuum.v1.WorkloadFacts.created_at:type_name -> google.protobuf.Timestamp
 	35, // 39: continuum.v1.WorkloadFacts.volume_claims:type_name -> continuum.v1.VolumeClaim
 	36, // 40: continuum.v1.WorkloadFacts.autoscaler:type_name -> continuum.v1.Autoscaler
 	37, // 41: continuum.v1.WorkloadFacts.disruption:type_name -> continuum.v1.Disruption
 	34, // 42: continuum.v1.WorkloadFacts.reachable:type_name -> continuum.v1.Address
 	23, // 43: continuum.v1.WorkloadFacts.mesh:type_name -> continuum.v1.WorkloadMesh
 	33, // 44: continuum.v1.WorkloadFacts.pods:type_name -> continuum.v1.PodFacts
-	72, // 45: continuum.v1.PodFacts.created_at:type_name -> google.protobuf.Timestamp
+	73, // 45: continuum.v1.PodFacts.created_at:type_name -> google.protobuf.Timestamp
 	39, // 46: continuum.v1.ServerMessage.ack:type_name -> continuum.v1.Ack
 	40, // 47: continuum.v1.ServerMessage.config:type_name -> continuum.v1.Config
-	44, // 48: continuum.v1.ServerMessage.revoked:type_name -> continuum.v1.Revoked
-	41, // 49: continuum.v1.Config.probe_targets:type_name -> continuum.v1.ProbeTarget
-	42, // 50: continuum.v1.Measurements.results:type_name -> continuum.v1.PathResult
-	0,  // 51: continuum.v1.RawFlow.tls_handshake:type_name -> continuum.v1.TlsHandshakeOutcome
-	45, // 52: continuum.v1.FlowReport.flows:type_name -> continuum.v1.RawFlow
-	46, // 53: continuum.v1.FlowReport.link_saturation:type_name -> continuum.v1.LinkSaturation
-	47, // 54: continuum.v1.FlowReport.thermal_throttle:type_name -> continuum.v1.ThermalThrottle
-	3,  // 55: continuum.v1.FlowEndpoint.kind:type_name -> continuum.v1.FlowEndpoint.Kind
-	49, // 56: continuum.v1.Flow.src:type_name -> continuum.v1.FlowEndpoint
-	49, // 57: continuum.v1.Flow.dst:type_name -> continuum.v1.FlowEndpoint
-	0,  // 58: continuum.v1.Flow.tls_handshake:type_name -> continuum.v1.TlsHandshakeOutcome
-	46, // 59: continuum.v1.CollectorInfo.link_saturation:type_name -> continuum.v1.LinkSaturation
-	47, // 60: continuum.v1.CollectorInfo.thermal_throttle:type_name -> continuum.v1.ThermalThrottle
-	50, // 61: continuum.v1.FlowBatch.flows:type_name -> continuum.v1.Flow
-	51, // 62: continuum.v1.FlowBatch.collectors:type_name -> continuum.v1.CollectorInfo
-	50, // 63: continuum.v1.FlowBatch.pod_flows:type_name -> continuum.v1.Flow
-	50, // 64: continuum.v1.FlowEdge.key:type_name -> continuum.v1.Flow
-	72, // 65: continuum.v1.FlowEdge.first_seen:type_name -> google.protobuf.Timestamp
-	72, // 66: continuum.v1.FlowEdge.last_seen:type_name -> google.protobuf.Timestamp
-	53, // 67: continuum.v1.FlowTable.edges:type_name -> continuum.v1.FlowEdge
-	21, // 68: continuum.v1.Diagnostics.scope:type_name -> continuum.v1.ScopeFacts
-	59, // 69: continuum.v1.Diagnostics.collectors:type_name -> continuum.v1.CollectorDiag
-	60, // 70: continuum.v1.Diagnostics.informers:type_name -> continuum.v1.InformerDiag
-	61, // 71: continuum.v1.Diagnostics.problems:type_name -> continuum.v1.Problem
-	72, // 72: continuum.v1.Diagnostics.generated_at:type_name -> google.protobuf.Timestamp
-	58, // 73: continuum.v1.Diagnostics.installed_telemetry_config:type_name -> continuum.v1.InstalledTelemetryConfig
-	56, // 74: continuum.v1.Diagnostics.export_health:type_name -> continuum.v1.ExportHealth
-	72, // 75: continuum.v1.ExportHealth.scraped_at:type_name -> google.protobuf.Timestamp
-	57, // 76: continuum.v1.ExportHealth.routes:type_name -> continuum.v1.ExportRouteHealth
-	4,  // 77: continuum.v1.ExportRouteHealth.state:type_name -> continuum.v1.ExportRouteHealth.State
-	72, // 78: continuum.v1.ExportRouteHealth.last_sent_at:type_name -> google.protobuf.Timestamp
-	72, // 79: continuum.v1.ExportRouteHealth.last_failed_at:type_name -> google.protobuf.Timestamp
-	72, // 80: continuum.v1.CollectorDiag.last_data:type_name -> google.protobuf.Timestamp
-	5,  // 81: continuum.v1.Problem.severity:type_name -> continuum.v1.Problem.Severity
-	72, // 82: continuum.v1.Problem.since:type_name -> google.protobuf.Timestamp
-	9,  // 83: continuum.v1.Enrollment.Enroll:input_type -> continuum.v1.EnrollRequest
-	11, // 84: continuum.v1.Enrollment.PollEnrollment:input_type -> continuum.v1.PollRequest
-	8,  // 85: continuum.v1.Enrollment.Rejoin:input_type -> continuum.v1.RejoinRequest
-	6,  // 86: continuum.v1.Enrollment.RenewTelemetryCert:input_type -> continuum.v1.RenewTelemetryCertRequest
-	15, // 87: continuum.v1.AgentService.Connect:input_type -> continuum.v1.AgentMessage
-	13, // 88: continuum.v1.AgentService.Renew:input_type -> continuum.v1.RenewRequest
-	10, // 89: continuum.v1.Enrollment.Enroll:output_type -> continuum.v1.EnrollResponse
-	12, // 90: continuum.v1.Enrollment.PollEnrollment:output_type -> continuum.v1.PollResponse
-	14, // 91: continuum.v1.Enrollment.Rejoin:output_type -> continuum.v1.RenewResponse
-	7,  // 92: continuum.v1.Enrollment.RenewTelemetryCert:output_type -> continuum.v1.RenewTelemetryCertResponse
-	38, // 93: continuum.v1.AgentService.Connect:output_type -> continuum.v1.ServerMessage
-	14, // 94: continuum.v1.AgentService.Renew:output_type -> continuum.v1.RenewResponse
-	89, // [89:95] is the sub-list for method output_type
-	83, // [83:89] is the sub-list for method input_type
-	83, // [83:83] is the sub-list for extension type_name
-	83, // [83:83] is the sub-list for extension extendee
-	0,  // [0:83] is the sub-list for field type_name
+	45, // 48: continuum.v1.ServerMessage.revoked:type_name -> continuum.v1.Revoked
+	42, // 49: continuum.v1.Config.probe_targets:type_name -> continuum.v1.ProbeTarget
+	41, // 50: continuum.v1.Config.link_peers:type_name -> continuum.v1.LinkPeer
+	43, // 51: continuum.v1.Measurements.results:type_name -> continuum.v1.PathResult
+	0,  // 52: continuum.v1.RawFlow.tls_handshake:type_name -> continuum.v1.TlsHandshakeOutcome
+	46, // 53: continuum.v1.FlowReport.flows:type_name -> continuum.v1.RawFlow
+	47, // 54: continuum.v1.FlowReport.link_saturation:type_name -> continuum.v1.LinkSaturation
+	48, // 55: continuum.v1.FlowReport.thermal_throttle:type_name -> continuum.v1.ThermalThrottle
+	3,  // 56: continuum.v1.FlowEndpoint.kind:type_name -> continuum.v1.FlowEndpoint.Kind
+	50, // 57: continuum.v1.Flow.src:type_name -> continuum.v1.FlowEndpoint
+	50, // 58: continuum.v1.Flow.dst:type_name -> continuum.v1.FlowEndpoint
+	0,  // 59: continuum.v1.Flow.tls_handshake:type_name -> continuum.v1.TlsHandshakeOutcome
+	47, // 60: continuum.v1.CollectorInfo.link_saturation:type_name -> continuum.v1.LinkSaturation
+	48, // 61: continuum.v1.CollectorInfo.thermal_throttle:type_name -> continuum.v1.ThermalThrottle
+	51, // 62: continuum.v1.FlowBatch.flows:type_name -> continuum.v1.Flow
+	52, // 63: continuum.v1.FlowBatch.collectors:type_name -> continuum.v1.CollectorInfo
+	51, // 64: continuum.v1.FlowBatch.pod_flows:type_name -> continuum.v1.Flow
+	51, // 65: continuum.v1.FlowEdge.key:type_name -> continuum.v1.Flow
+	73, // 66: continuum.v1.FlowEdge.first_seen:type_name -> google.protobuf.Timestamp
+	73, // 67: continuum.v1.FlowEdge.last_seen:type_name -> google.protobuf.Timestamp
+	54, // 68: continuum.v1.FlowTable.edges:type_name -> continuum.v1.FlowEdge
+	21, // 69: continuum.v1.Diagnostics.scope:type_name -> continuum.v1.ScopeFacts
+	60, // 70: continuum.v1.Diagnostics.collectors:type_name -> continuum.v1.CollectorDiag
+	61, // 71: continuum.v1.Diagnostics.informers:type_name -> continuum.v1.InformerDiag
+	62, // 72: continuum.v1.Diagnostics.problems:type_name -> continuum.v1.Problem
+	73, // 73: continuum.v1.Diagnostics.generated_at:type_name -> google.protobuf.Timestamp
+	59, // 74: continuum.v1.Diagnostics.installed_telemetry_config:type_name -> continuum.v1.InstalledTelemetryConfig
+	57, // 75: continuum.v1.Diagnostics.export_health:type_name -> continuum.v1.ExportHealth
+	73, // 76: continuum.v1.ExportHealth.scraped_at:type_name -> google.protobuf.Timestamp
+	58, // 77: continuum.v1.ExportHealth.routes:type_name -> continuum.v1.ExportRouteHealth
+	4,  // 78: continuum.v1.ExportRouteHealth.state:type_name -> continuum.v1.ExportRouteHealth.State
+	73, // 79: continuum.v1.ExportRouteHealth.last_sent_at:type_name -> google.protobuf.Timestamp
+	73, // 80: continuum.v1.ExportRouteHealth.last_failed_at:type_name -> google.protobuf.Timestamp
+	73, // 81: continuum.v1.CollectorDiag.last_data:type_name -> google.protobuf.Timestamp
+	5,  // 82: continuum.v1.Problem.severity:type_name -> continuum.v1.Problem.Severity
+	73, // 83: continuum.v1.Problem.since:type_name -> google.protobuf.Timestamp
+	9,  // 84: continuum.v1.Enrollment.Enroll:input_type -> continuum.v1.EnrollRequest
+	11, // 85: continuum.v1.Enrollment.PollEnrollment:input_type -> continuum.v1.PollRequest
+	8,  // 86: continuum.v1.Enrollment.Rejoin:input_type -> continuum.v1.RejoinRequest
+	6,  // 87: continuum.v1.Enrollment.RenewTelemetryCert:input_type -> continuum.v1.RenewTelemetryCertRequest
+	15, // 88: continuum.v1.AgentService.Connect:input_type -> continuum.v1.AgentMessage
+	13, // 89: continuum.v1.AgentService.Renew:input_type -> continuum.v1.RenewRequest
+	10, // 90: continuum.v1.Enrollment.Enroll:output_type -> continuum.v1.EnrollResponse
+	12, // 91: continuum.v1.Enrollment.PollEnrollment:output_type -> continuum.v1.PollResponse
+	14, // 92: continuum.v1.Enrollment.Rejoin:output_type -> continuum.v1.RenewResponse
+	7,  // 93: continuum.v1.Enrollment.RenewTelemetryCert:output_type -> continuum.v1.RenewTelemetryCertResponse
+	38, // 94: continuum.v1.AgentService.Connect:output_type -> continuum.v1.ServerMessage
+	14, // 95: continuum.v1.AgentService.Renew:output_type -> continuum.v1.RenewResponse
+	90, // [90:96] is the sub-list for method output_type
+	84, // [84:90] is the sub-list for method input_type
+	84, // [84:84] is the sub-list for extension type_name
+	84, // [84:84] is the sub-list for extension extendee
+	0,  // [0:84] is the sub-list for field type_name
 }
 
 func init() { file_continuum_v1_agent_proto_init() }
@@ -7433,17 +7530,17 @@ func file_continuum_v1_agent_proto_init() {
 		(*ServerMessage_Config)(nil),
 		(*ServerMessage_Revoked)(nil),
 	}
-	file_continuum_v1_agent_proto_msgTypes[39].OneofWrappers = []any{}
 	file_continuum_v1_agent_proto_msgTypes[40].OneofWrappers = []any{}
-	file_continuum_v1_agent_proto_msgTypes[44].OneofWrappers = []any{}
-	file_continuum_v1_agent_proto_msgTypes[52].OneofWrappers = []any{}
+	file_continuum_v1_agent_proto_msgTypes[41].OneofWrappers = []any{}
+	file_continuum_v1_agent_proto_msgTypes[45].OneofWrappers = []any{}
+	file_continuum_v1_agent_proto_msgTypes[53].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_continuum_v1_agent_proto_rawDesc), len(file_continuum_v1_agent_proto_rawDesc)),
 			NumEnums:      6,
-			NumMessages:   66,
+			NumMessages:   67,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

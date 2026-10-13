@@ -137,6 +137,23 @@ func resolveOverrides(c *continuumv1.Config, installedTier int) overrides {
 	return o
 }
 
+// applyLinks gives the link meter the peer clusters the server named. Links are labelled from observed traffic, which is
+// workload-level information, so they follow the same rules as flows: nothing is measured below access tier 2, or while the
+// server has paused the flow collector.
+func (r *runner) applyLinks(c *continuumv1.Config, o overrides) {
+	if r.cfg.Links == nil {
+		return
+	}
+	var peers []*continuumv1.LinkPeer
+	if o.tier >= 2 && !o.paused[collectorFlow] {
+		peers = c.LinkPeers
+	}
+	for _, why := range r.cfg.Links.Peers.Set(c.ClusterId, peers) {
+		r.cfg.Log.Warn("link peers: "+why, "cluster", c.ClusterId)
+	}
+	r.cfg.Links.Forget()
+}
+
 // enforce puts the overrides in force and records what is in force, and what was ignored.
 func (r *runner) enforce(o overrides) {
 	if r.cfg.Probes != nil {
@@ -487,6 +504,7 @@ func (r *runner) stream(ctx context.Context, id *Identity) error {
 		}()
 	}
 	applyConfig := func(c *continuumv1.Config, o overrides) {
+		r.applyLinks(c, o)
 		if p := resyncEvery(c); p != resyncPeriod {
 			resyncPeriod = p
 			resync.Reset(p)

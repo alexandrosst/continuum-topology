@@ -219,6 +219,11 @@ telemetry:
       secret: ''
     insecureSkipVerify: false
     viaAPIServer: false
+  clusterLinks:
+    metrics:
+      enabled: false
+      interval: 30s
+      source: builtin
   kubernetesEvents:
     logs:
       enabled: false

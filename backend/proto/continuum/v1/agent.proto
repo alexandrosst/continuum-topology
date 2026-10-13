@@ -661,6 +661,23 @@ message Config {
   repeated string paused_collectors = 7;
   // Namespaces to leave out in addition to the ones the agent's own scope already leaves out.
   repeated string excluded_namespaces = 8;
+  // This agent's own cluster id, as the server names it, so what the agent measures about a link can say which
+  // cluster it left from. Empty until the server knows the cluster.
+  string cluster_id = 9;
+  // The other clusters an administrator asked this one to measure its links to (see LinkPeer). Empty means no link
+  // is measured. Never more than the server's own limit; the agent applies it only as far as its install allows.
+  repeated LinkPeer link_peers = 10;
+}
+
+// One other cluster this cluster's link is measured to. The server is the only place that knows which address belongs
+// to which cluster, so it names them here; the agent never learns anything about the peer beyond this.
+message LinkPeer {
+  string cluster_id = 1;
+  // Display name only. Metrics are labelled by cluster_id, which does not change.
+  string name = 2;
+  // Addresses the peer's traffic comes from or goes to (its nodes' addresses and the address it reaches the
+  // internet from). IPv4 and IPv6 literals, never a host name.
+  repeated string addresses = 3;
 }
 
 // An address to time. The agent only honours it when it was started with measurements allowed, and

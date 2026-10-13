@@ -8,6 +8,7 @@ import (
 
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/agent/collect"
+	"continuum/internal/link"
 	"continuum/internal/probe"
 
 	"google.golang.org/protobuf/encoding/protojson"
@@ -38,6 +39,9 @@ type Pipeline struct {
 
 	Resolver   *Resolver
 	Aggregator *Aggregator
+	// Links, when set, also labels each report's rows by the peer cluster they went to or came from (see package link).
+	// It only sees reports that were not thrown away because the aggregator is paused.
+	Links *link.Meter
 }
 
 func NewPipeline(secret []byte, source func() *collect.Index, log *slog.Logger) *Pipeline {
@@ -92,6 +96,9 @@ func (p *Pipeline) Ingest(rep *continuumv1.FlowReport) bool {
 	paused := p.Aggregator.Paused()
 	p.Aggregator.Seen(rep.Node, rep.Method, rep.BytesKnown, rep.LinkSaturation, rep.SnatExhaustion, rep.ThermalThrottle)
 	p.Aggregator.AddLost(rep.Lost)
+	if !paused && p.Links != nil {
+		p.Links.Observe(rep.Flows)
+	}
 	for _, raw := range rep.Flows {
 		if f, ok := p.Resolver.Resolve(raw, rep.Method, rep.BytesKnown); ok {
 			p.Aggregator.Add(f)
