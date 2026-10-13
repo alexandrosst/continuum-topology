@@ -310,3 +310,46 @@ func TestAnInterfacesIPv4AddressComesBeforeItsIPv6Ones(t *testing.T) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
 }
+
+func TestTheServicePortIsOfferedOnANodeWhenTheLoadBalancerIsTheNodeItself(t *testing.T) {
+	node := hostNode{Name: "hexa", Ready: true, Internal: []string{"147.102.13.108"}, Interfaces: []hostAddr{
+		{Interface: "eno1", IP: "147.102.13.108"}, {Interface: "wt0", Kind: "wireguard", IP: "100.64.0.139"},
+	}}
+	lb := func(ip string) operatorHost {
+		return operatorHost{Nodes: []hostNode{node}, Reachable: []reachableAddr{{IP: ip, Port: 4317, Kind: "load-balancer"}, {Port: 30338, Kind: "node-port"}}}
+	}
+	kinds := func(h operatorHost) map[string]string {
+		out := map[string]string{}
+		for _, c := range addressCandidates(h, "") {
+			out[c.Address] = c.Kind
+		}
+		return out
+	}
+
+	// k3s's built-in load balancer gives the Service the node's own address: the node answers on the Service port too, on
+	// every address it has, the mesh one included.
+	got := kinds(lb("147.102.13.108"))
+	want := map[string]string{
+		"147.102.13.108:4317":  "load-balancer",
+		"147.102.13.108:30338": "node-port",
+		"100.64.0.139:30338":   "node-port",
+		"100.64.0.139:4317":    "node-service-port",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v\nwant %v", got, want)
+	}
+
+	// A load balancer of its own (MetalLB, a cloud one) is not a node: its port is not open on the nodes, so it is not offered there.
+	got = kinds(lb("203.0.113.50"))
+	if got["100.64.0.139:4317"] != "" || got["147.102.13.108:4317"] != "" || got["100.64.0.139:30338"] != "node-port" {
+		t.Fatalf("got %v", got)
+	}
+
+	// A load balancer Service without node ports still has the node's own address on the Service port.
+	h := lb("147.102.13.108")
+	h.Reachable = h.Reachable[:1]
+	got = kinds(h)
+	if got["100.64.0.139:4317"] != "node-service-port" || len(got) != 2 {
+		t.Fatalf("got %v", got)
+	}
+}

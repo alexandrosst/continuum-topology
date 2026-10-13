@@ -7,6 +7,7 @@ import { useServer } from '@/store/server'
 export const CANDIDATE_KIND: Record<AddressCandidate['kind'], string> = {
   'load-balancer': 'Load balancer',
   'node-port': 'Node port',
+  'node-service-port': 'Service port on the node',
   'external-ip': 'External IP',
   recorded: 'Recorded',
 }

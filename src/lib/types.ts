@@ -1281,7 +1281,7 @@ export interface AddressCandidate {
   id: string
   address: string
   /** load-balancer | node-port | external-ip | recorded (typed in earlier). */
-  kind: 'load-balancer' | 'node-port' | 'external-ip' | 'recorded'
+  kind: 'load-balancer' | 'node-port' | 'node-service-port' | 'external-ip' | 'recorded'
   /** Where the address comes from, in words. */
   source: string
   node?: string

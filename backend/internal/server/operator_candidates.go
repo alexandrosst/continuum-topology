@@ -25,8 +25,11 @@ import (
 const (
 	candidateLoadBalancer = "load-balancer"
 	candidateNodePort     = "node-port"
-	candidateExternalIP   = "external-ip"
-	candidateRecorded     = "recorded"
+	// candidateNodeServicePort is a node's own address on the Service's own port: open on the node when the load balancer is the
+	// node's (see nodeHostedLoadBalancer), and then reached the same way a node port is.
+	candidateNodeServicePort = "node-service-port"
+	candidateExternalIP      = "external-ip"
+	candidateRecorded        = "recorded"
 )
 
 // maxNodePortNodes bounds how many nodes are listed for a node port: it is open on every node, and a large cluster
@@ -411,15 +414,28 @@ func addressCandidates(h operatorHost, recorded string) []AddressCandidate {
 		}
 	}
 
-	// A node port is open on every node. Ready nodes only, those running the operator's pod first.
-	var nodePorts []int32
+	// A node port is open on every node. So is the Service's own port when the load balancer is the node itself (k3s's built-in one
+	// listens on the Service port on its node, and says so by giving the Service the node's address): the evidence is that
+	// address being one of the cluster's nodes' own, never a guess from the cluster's name. Ready nodes only, those running the
+	// operator's pod first.
+	type nodePortSpec struct {
+		port int32
+		kind string
+		what string
+	}
+	var ports []nodePortSpec
 	for _, r := range h.Reachable {
 		if r.Kind == "node-port" {
-			nodePorts = append(nodePorts, r.Port)
+			ports = append(ports, nodePortSpec{r.Port, candidateNodePort, "on the Service's node port."})
+		}
+	}
+	for _, r := range h.Reachable {
+		if r.Kind == "load-balancer" && r.IP != "" && r.Port != 0 && h.nodeOwns(r.IP) {
+			ports = append(ports, nodePortSpec{r.Port, candidateNodeServicePort, "on the Service's own port: its load balancer address is a node's own, so the node answers on that port too."})
 		}
 	}
 	var nodes []hostNode
-	if len(nodePorts) > 0 {
+	if len(ports) > 0 {
 		onPod := map[string]bool{}
 		for _, n := range h.PodNodes {
 			onPod[n] = true
@@ -447,11 +463,11 @@ func addressCandidates(h operatorHost, recorded string) []AddressCandidate {
 	nodeAddrs := func(pick func(hostNode) []nodeAddr) {
 		for _, n := range nodes {
 			for _, na := range pick(n) {
-				for _, p := range nodePorts {
+				for _, p := range ports {
 					if len(out) >= maxCandidates {
 						return
 					}
-					add(AddressCandidate{Kind: candidateNodePort, Address: hp(na.ip, p), Source: "Node " + n.Name + ", " + na.what + ", on the Service's node port.", Node: n.Name, Network: na.network, Interface: na.iface})
+					add(AddressCandidate{Kind: p.kind, Address: hp(na.ip, p.port), Source: "Node " + n.Name + ", " + na.what + ", " + p.what, Node: n.Name, Network: na.network, Interface: na.iface})
 				}
 			}
 		}
@@ -483,8 +499,32 @@ func addressCandidates(h operatorHost, recorded string) []AddressCandidate {
 	return out
 }
 
+// nodeOwns says whether ip is an address of one of the cluster's nodes: the one Kubernetes gives it or one on its own interfaces.
+func (h operatorHost) nodeOwns(ip string) bool {
+	want, err := netip.ParseAddr(ip)
+	if err != nil {
+		return false
+	}
+	is := func(x string) bool { a, err := netip.ParseAddr(x); return err == nil && a == want }
+	for _, n := range h.Nodes {
+		for _, list := range [][]string{n.Internal, n.External} {
+			for _, x := range list {
+				if is(x) {
+					return true
+				}
+			}
+		}
+		for _, a := range n.Interfaces {
+			if is(a.IP) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // maxCandidates bounds the node-port addresses listed in all, so a node with many interfaces cannot bury the rest.
-const maxCandidates = 12
+const maxCandidates = 16
 
 // nodeAddr is one address a node can be dialled on.
 type nodeAddr struct {
@@ -577,7 +617,7 @@ func (h operatorHost) hints(candidates []AddressCandidate) []string {
 	}
 	hasNodePort := false
 	for _, c := range candidates {
-		if c.Kind == candidateNodePort {
+		if c.Kind == candidateNodePort || c.Kind == candidateNodeServicePort {
 			hasNodePort = true
 		}
 	}
@@ -633,7 +673,7 @@ func noHostHint(central bool) string {
 func exposureHint(candidates []AddressCandidate, found, central bool) string {
 	for _, c := range candidates {
 		switch c.Kind {
-		case candidateLoadBalancer, candidateNodePort, candidateExternalIP:
+		case candidateLoadBalancer, candidateNodePort, candidateNodeServicePort, candidateExternalIP:
 			return ""
 		}
 	}
