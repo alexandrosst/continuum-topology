@@ -994,6 +994,47 @@ telemetry:
       enabled: false
       source: builtin   # builtin -> this agent's own link meter (see flowObserver)
       interval: 30s     # how often the cluster collector scrapes it
+    # Active measurement of each paired link, in both directions, with OWAMP (RFC 4656, perfSONAR's one-way measurement
+    # tools): packet loss counted per direction, delay variation, and absolute one-way delay when both clocks are
+    # synchronised. Passive metrics above cannot see a link nobody is using; this can. It runs in two small workloads of its own,
+    # from the `link` image (the agent image has no measurement tools):
+    #   - a prober (one pod) that asks the agent for the paired clusters and sends short test streams to each, one at a time;
+    #   - a responder (a pod on every node, host network) that answers the other clusters' probers.
+    # Cost: `packets` per run, `interval` apart, in each direction, per paired cluster: by default 100 small packets a minute.
+    # Needs metrics.enabled (the agent answers the prober, and the cluster collector scrapes both). The ports must be open
+    # between paired clusters: TCP responder.port and UDP responder.testPorts, to every node address of the peer cluster.
+    probe:
+      enabled: false
+      image:
+        # A placeholder, like image.repository above: a release build bakes in the registry it published the link image to.
+        repository: continuum/link
+        tag: ""                       # empty -> the chart's appVersion
+        digest: ""                    # sha256:..., wins over tag
+        pullPolicy: ""                # empty -> IfNotPresent, or Always for the edge tag
+      interval: 1m      # how often each paired cluster is measured, per direction (10s or more)
+      packets: 100      # test packets per run (10 to 10000)
+      spacing: 100ms    # average time between packets (10ms to 5s). A run takes about packets x spacing.
+      dscp: 0           # DSCP value to mark test packets with (0-63; 0: unmarked)
+      scrapeInterval: 30s
+      resources:
+        requests: {cpu: 20m, memory: 32Mi}
+        limits: {memory: 128Mi}
+      nodeSelector: {}
+      tolerations: []
+      responder:
+        port: 8861             # OWAMP control (TCP)
+        testPorts: 18900-18999 # test packets (UDP); at least 2 ports, one is used per running test
+        # Who may ask this cluster's responder for a test: CIDRs of the peers' nodes, as this cluster sees them (their
+        # addresses after NAT, if any). Empty: anyone who can reach the port may, within a rate and disk limit. The
+        # responder never reports anything about this cluster, but an open port is an open port: restrict it here, or
+        # with a firewall, wherever the clusters are not on a network you control.
+        allowFrom: []
+        resources:
+          requests: {cpu: 10m, memory: 16Mi}
+          limits: {memory: 64Mi}
+        tolerations:
+          - {operator: Exists}   # peers may try any node address, so it runs on every node, tainted or not
+        nodeSelector: {}
 
   # domain: infrastructure
   networkLatency:

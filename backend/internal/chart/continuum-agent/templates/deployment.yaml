@@ -132,6 +132,9 @@ spec:
             {{- end }}
             {{- if .Values.telemetry.clusterLinks.metrics.enabled }}
             - {name: CONTINUUM_LINK_METRICS_LISTEN, value: ":9104"}
+            {{- if .Values.telemetry.clusterLinks.probe.enabled }}
+            - {name: CONTINUUM_LINK_SERVE_PEERS, value: "true"}
+            {{- end }}
             {{- end }}
             {{- if .Values.flowObserver.enabled }}
             - {name: CONTINUUM_FLOW_SECRET_FILE, value: /flows/secret}

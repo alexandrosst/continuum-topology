@@ -8,6 +8,7 @@
 #   DRY_RUN=1 scripts/publish.sh myname    # print what it would run
 #   ONLY=image scripts/publish.sh myname   # just the image  (image | chart)
 #   ONLY=chart scripts/publish.sh myname   # just the charts (the agent's, the regional operator's and FUSION's)
+#   ONLY=link scripts/publish.sh myname    # the cluster-link image (<registry>/link: the continuum binary plus OWAMP), needed only when telemetry.clusterLinks.probe is on
 #   ONLY=server scripts/publish.sh myname  # the server image (<registry>/server) and the server chart (oci://<registry>/continuum-server)
 #
 # There is no default registry on purpose: where you publish is your decision, and nothing in the source points at anyone's namespace.
@@ -42,9 +43,9 @@ PLATFORMS="${PLATFORMS:-linux/amd64,linux/arm64}"
 IMAGE="${REG%/}/continuum"
 
 case "$ONLY" in
-  ""|image|chart|server) ;;
+  ""|image|chart|server|link) ;;
   agent|probe|flow) echo "ONLY=$ONLY is gone: agent, probe and flow are one image now. Use ONLY=image or ONLY=chart." >&2; exit 2 ;;
-  *) echo "ONLY must be image, chart or server (or empty for everything), not '$ONLY'." >&2; exit 2 ;;
+  *) echo "ONLY must be image, chart, server or link (or empty for everything), not '$ONLY'." >&2; exit 2 ;;
 esac
 
 # Where an OCI registry keeps things for this setting: a bare name is a Docker Hub namespace.
@@ -98,6 +99,20 @@ if want image; then
     fi
   fi
   [[ -n "$DIGEST" && "$DIGEST" != sha256:\<* ]] && sign "$IMAGE@$DIGEST"
+fi
+
+# The cluster-link image (prober and responder: see backend/Dockerfile's `link` stage) is separate and optional, so a plain run
+# of this script does not build it: it needs a C toolchain and, on a cross-build, emulation. ONLY=link builds it, with the
+# same tag as the continuum image. The chart's telemetry.clusterLinks.probe.image.repository then points at <registry>/link.
+if [[ "$ONLY" == "link" ]]; then
+  meta="$(mktemp)"
+  run docker buildx build -f backend/Dockerfile --platform "$PLATFORMS" --target link -t "${REG%/}/link:$TAG" --metadata-file "$meta" --push .
+  if [[ -z "${DRY_RUN:-}" ]]; then
+    LINK_DIGEST="$(sed -n 's/.*"containerimage.digest"[[:space:]]*:[[:space:]]*"\(sha256:[0-9a-f]\{64\}\)".*/\1/p' "$meta" | head -n1)"
+    [[ -n "$LINK_DIGEST" ]] && sign "${REG%/}/link@$LINK_DIGEST"
+    echo "link image  ${REG%/}/link:$TAG   digest ${LINK_DIGEST:-<read it with: docker buildx imagetools inspect ${REG%/}/link:$TAG>}"
+  fi
+  rm -f "$meta"
 fi
 
 # chart_push CHART_DIR OCI_BASE CHART_NAME - packages and pushes a chart, then signs it by digest: `helm push`

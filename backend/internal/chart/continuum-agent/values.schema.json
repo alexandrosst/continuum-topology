@@ -1378,6 +1378,43 @@
                   "pattern": "^(([1-9][0-9]*(ms|s|m|h))+)?$"
                 }
               }
+            },
+            "probe": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {"type": "boolean"},
+                "image": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "repository": {"type": "string"},
+                    "tag": {"type": "string"},
+                    "digest": {"type": "string"},
+                    "pullPolicy": {"enum": ["", "Always", "IfNotPresent", "Never"]}
+                  }
+                },
+                "interval": {"type": "string", "pattern": "^(([1-9][0-9]*(ms|s|m|h))+)?$"},
+                "packets": {"type": "integer", "minimum": 10, "maximum": 10000},
+                "spacing": {"type": "string", "pattern": "^(([1-9][0-9]*(ms|s|m|h))+)?$"},
+                "dscp": {"type": "integer", "minimum": 0, "maximum": 63},
+                "scrapeInterval": {"type": "string", "pattern": "^(([1-9][0-9]*(ms|s|m|h))+)?$"},
+                "resources": {"type": "object"},
+                "nodeSelector": {"type": "object"},
+                "tolerations": {"type": "array"},
+                "responder": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "port": {"type": "integer", "minimum": 1024, "maximum": 65535},
+                    "testPorts": {"type": "string", "pattern": "^[0-9]{4,5}-[0-9]{4,5}$"},
+                    "allowFrom": {"type": "array", "items": {"type": "string"}},
+                    "resources": {"type": "object"},
+                    "tolerations": {"type": "array"},
+                    "nodeSelector": {"type": "object"}
+                  }
+                }
+              }
             }
           }
         },

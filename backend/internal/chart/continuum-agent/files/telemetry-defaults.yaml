@@ -224,6 +224,39 @@ telemetry:
       enabled: false
       interval: 30s
       source: builtin
+    probe:
+      enabled: false
+      image:
+        digest: ''
+        pullPolicy: ''
+        repository: continuum/link
+        tag: ''
+      interval: 1m
+      packets: 100
+      spacing: 100ms
+      dscp: 0
+      scrapeInterval: 30s
+      resources:
+        limits:
+          memory: 128Mi
+        requests:
+          cpu: 20m
+          memory: 32Mi
+      nodeSelector: {}
+      tolerations: []
+      responder:
+        port: 8861
+        testPorts: 18900-18999
+        allowFrom: []
+        resources:
+          limits:
+            memory: 64Mi
+          requests:
+            cpu: 10m
+            memory: 16Mi
+        tolerations:
+          - operator: Exists
+        nodeSelector: {}
   kubernetesEvents:
     logs:
       enabled: false

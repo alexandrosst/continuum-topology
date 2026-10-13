@@ -9,6 +9,7 @@ import (
 	"time"
 
 	continuumv1 "continuum/gen/continuumv1"
+	"continuum/internal/probe"
 )
 
 // Bucket upper bounds, in seconds. Explicit buckets keep the series count fixed whatever the traffic does.
@@ -61,10 +62,14 @@ type Meter struct {
 	Peers *Peers
 	now   func() time.Time
 
-	mu      sync.Mutex
-	per     map[string]*stats
-	probing bool
-	probes  map[string]*probeStats
+	mu         sync.Mutex
+	per        map[string]*stats
+	probing    bool
+	probesOnly bool
+	probes     map[string]*probeStats
+
+	peersSecret []byte
+	peersReplay *probe.ReplayCache
 }
 
 // NewMeter reads peers from p.
@@ -153,6 +158,17 @@ func (m *Meter) Forget() {
 	}
 }
 
+// OnlyProbes makes the meter write nothing but the active-probe series, for a process (the prober) that runs beside the
+// agent: the agent already exports the passive series for the same peers, and two exporters must not claim one series.
+func (m *Meter) OnlyProbes() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	m.probing, m.probesOnly = true, true
+	m.mu.Unlock()
+}
+
 // EnableProbes makes the meter render the series of the active one-way probe. Without it none are written, so a cluster
 // that does not run the probe never reports a loss counter of zero that nothing measured.
 func (m *Meter) EnableProbes() {
@@ -174,6 +190,14 @@ func (m *Meter) Write(w io.Writer) {
 	peers := m.Peers.List()
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.probesOnly {
+		ids := make([]string, len(peers))
+		for i, p := range peers {
+			ids[i] = p.ID
+		}
+		m.writeProbes(w, own, ids)
+		return
+	}
 	lbl := func(peer string, extra ...string) string {
 		l := fmt.Sprintf(`cluster="%s",peer="%s"`, esc(own), esc(peer))
 		for i := 0; i+1 < len(extra); i += 2 {

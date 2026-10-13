@@ -33,6 +33,25 @@ helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
 {{- end -}}
 {{- end -}}
 
+{{/* The image of the cluster-link prober and responder (telemetry.clusterLinks.probe.image): the `link` image, which is the
+     `continuum` image plus OWAMP. Same rules as agent.image. */}}
+{{- define "agent.linkImage" -}}
+{{- $i := .Values.telemetry.clusterLinks.probe.image -}}
+{{- if $i.digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" (toString $i.digest)) -}}{{- fail (printf "telemetry.clusterLinks.probe.image.digest must look like sha256:<64 hex characters>, got %q" (toString $i.digest)) -}}{{- end -}}
+{{- printf "%s@%s" (include "agent.imageRepo" (dict "root" . "repo" $i.repository)) $i.digest -}}
+{{- else -}}
+{{- printf "%s:%s" (include "agent.imageRepo" (dict "root" . "repo" $i.repository)) (toString ($i.tag | default .Chart.AppVersion)) -}}
+{{- end -}}
+{{- end -}}
+{{- define "agent.linkImagePullPolicy" -}}
+{{- $i := .Values.telemetry.clusterLinks.probe.image -}}
+{{- if $i.pullPolicy -}}{{- $i.pullPolicy -}}
+{{- else if eq (toString ($i.tag | default .Chart.AppVersion)) "edge" -}}Always
+{{- else -}}IfNotPresent
+{{- end -}}
+{{- end -}}
+
 {{/* Effective imagePullPolicy: an explicit value always wins; otherwise Always when the resolved tag is the
      moving `edge` tag (a node that already cached anything named edge won't re-pull under IfNotPresent even
      after the registry moves on), else IfNotPresent. */}}

@@ -103,6 +103,21 @@
 {{- if and .Values.telemetry.clusterLinks.metrics.enabled (not .Values.flowObserver.enabled) -}}
 {{- fail "telemetry.clusterLinks.metrics.enabled requires flowObserver.enabled: true - link metrics are labelled from the traffic the flow collectors observe, so there is nothing to measure otherwise" -}}
 {{- end -}}
+{{- $probe := .Values.telemetry.clusterLinks.probe -}}
+{{- if and $probe.enabled (not .Values.telemetry.clusterLinks.metrics.enabled) -}}
+{{- fail "telemetry.clusterLinks.probe.enabled requires telemetry.clusterLinks.metrics.enabled: true - the agent tells the prober which clusters to measure, and the cluster collector scrapes both" -}}
+{{- end -}}
+{{- if $probe.enabled -}}
+{{- $tp := splitList "-" (toString $probe.responder.testPorts) -}}
+{{- if or (ne (len $tp) 2) (lt (sub (int (index $tp 1)) (int (index $tp 0))) 1) (lt (int (index $tp 0)) 1024) (gt (int (index $tp 1)) 65535) -}}
+{{- fail (printf "telemetry.clusterLinks.probe.responder.testPorts must be a range of at least two unprivileged ports such as 18900-18999, got %q" (toString $probe.responder.testPorts)) -}}
+{{- end -}}
+{{- range $probe.responder.allowFrom -}}
+{{- if not (regexMatch "^([0-9]{1,3}\\.){3}[0-9]{1,3}/[0-9]{1,2}$|^[0-9a-fA-F:]+/[0-9]{1,3}$" (toString .)) -}}
+{{- fail (printf "telemetry.clusterLinks.probe.responder.allowFrom entries must be CIDRs such as 203.0.113.0/24, got %q" (toString .)) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
 {{- if and .Values.telemetry.networkLatency.metrics.enabled (not .Values.measurements.enabled) -}}
 {{- fail "telemetry.networkLatency.metrics.enabled requires measurements.enabled: true - there is nothing to re-emit otherwise" -}}
 {{- end -}}

@@ -259,6 +259,14 @@ data:
               {{- end }}
               static_configs: [{targets: [{{ printf "continuum-agent-link-metrics.%s.svc:9104" .Release.Namespace | quote }}]}]
             {{- end }}
+            {{- if .Values.telemetry.clusterLinks.probe.enabled }}
+            # The link prober (telemetry.clusterLinks.probe): the loss and delay it measured to each paired cluster, per direction.
+            - job_name: cluster-links-probe
+              {{- with .Values.telemetry.clusterLinks.probe.scrapeInterval }}
+              scrape_interval: {{ . | quote }}
+              {{- end }}
+              static_configs: [{targets: [{{ printf "continuum-link-prober.%s.svc:9105" .Release.Namespace | quote }}]}]
+            {{- end }}
             {{- if and .Values.telemetry.energy.metrics.enabled (eq .Values.telemetry.energy.metrics.source "bundle-kepler") }}
             # Pod discovery, narrowed on the API server to this release's own Kepler pods (a label selector in this
             # release's namespace) instead of every pod in the cluster: the receiver otherwise holds a cache of the whole

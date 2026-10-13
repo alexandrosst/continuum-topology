@@ -12,6 +12,7 @@ import (
 // Handler serves GET /metrics in the Prometheus text format.
 func (m *Meter) Handler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("POST "+PathPeers, m.peersHandler())
 	mux.HandleFunc("GET /metrics", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 		m.Write(w)

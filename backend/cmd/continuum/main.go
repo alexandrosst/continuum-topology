@@ -4,6 +4,7 @@
 //	continuum agent   the in-cluster agent (Deployment)
 //	continuum probe   the optional node probe (DaemonSet)
 //	continuum flow    the optional node flow collector (DaemonSet, needs root and BPF)
+//	continuum link-prober   the optional cluster-link prober (Deployment; OWAMP is in the link image)
 //	continuum cert-renew   the regional operator's sidecar that keeps its TLS Secrets from expiring
 //	continuum version
 //
@@ -21,6 +22,7 @@ import (
 	agentcli "continuum/internal/cli/agent"
 	renewcli "continuum/internal/cli/certrenew"
 	flowcli "continuum/internal/cli/flow"
+	linkprobercli "continuum/internal/cli/linkprober"
 	probecli "continuum/internal/cli/probe"
 )
 
@@ -44,6 +46,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return probecli.Main(args[1:])
 	case "flow":
 		return flowcli.Main(args[1:])
+	case "link-prober":
+		return linkprobercli.Main(args[1:])
 	case "cert-renew":
 		return renewcli.Main(args[1:])
 	case "version", "--version", "-version":

@@ -27,3 +27,19 @@ func TestLinkMetricsNeedTheFlowSecret(t *testing.T) {
 		t.Fatalf("the reason was not given:\n%s", out)
 	}
 }
+
+func TestServingPeersNeedsTheMetricsAddress(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stderr
+	os.Stderr = w
+	code := Main([]string{"--server", "s.example:8443", "--ca-pin", "ab", "--link-serve-peers"})
+	w.Close()
+	os.Stderr = old
+	out, _ := io.ReadAll(r)
+	if code == 0 || !strings.Contains(string(out), "--link-serve-peers needs --link-metrics-listen") {
+		t.Fatalf("code %d:\n%s", code, out)
+	}
+}

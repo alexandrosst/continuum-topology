@@ -1,6 +1,7 @@
-# Two images come out of this file. Build from the repository root:
+# Three images come out of this file (the `link` one is optional, see its stage below). Build from the repository root:
 #   docker build -f backend/Dockerfile --target continuum -t continuum/continuum:0.1.0-dev .   # everything that runs in a cluster
 #   docker build -f backend/Dockerfile --target server    -t continuum/server:0.1.0-dev .      # the control plane and the UI
+#   docker build -f backend/Dockerfile --target link      -t continuum/link:0.1.0-dev .        # cluster-link prober and responder (OWAMP)
 # Multi-arch (one tag that runs on x86 servers and ARM boards; scripts/publish.sh does this and prints the digest):
 #   docker buildx build -f backend/Dockerfile --platform linux/amd64,linux/arm64 --target continuum -t REGISTRY/continuum:0.1.0-dev --push .
 #
@@ -86,6 +87,37 @@ RUN go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/conti
 # collector) asks for it in its own securityContext.
 FROM gcr.io/distroless/static-debian12:nonroot AS continuum
 COPY --from=build /out/continuum /continuum
+ENTRYPOINT ["/continuum"]
+
+# OWAMP (RFC 4656, from perfSONAR) is what measures the loss and delay of each direction of a link between clusters. It is built
+# here from two pinned commits (tags v5.2.6 of perfsonar/owamp and perfsonar/i2util, the small helper library it needs) rather than
+# installed from a package repository, so the image is the same everywhere and a new release is a deliberate change of these two
+# lines. Only the two programs the link role uses are built; they link nothing but the C library. This stage runs on the TARGET
+# platform (under emulation when cross-building), because it compiles C.
+FROM --platform=$TARGETPLATFORM debian:bookworm-slim AS owamp
+ARG OWAMP_REF=eb28e53936b6ace2dc8be513bf58813d6a1993da
+ARG I2UTIL_REF=6c24bfe21b2fdae14c6eaa8c82b062d85514dab2
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential autoconf automake libtool git ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+RUN set -eu; \
+    for spec in "i2util perfsonar/i2util ${I2UTIL_REF}" "owamp perfsonar/owamp ${OWAMP_REF}"; do \
+      set -- $spec; \
+      git init -q /build/$1 && git -C /build/$1 remote add origin https://github.com/$2.git \
+      && git -C /build/$1 fetch -q --depth 1 origin $3 && git -C /build/$1 checkout -q FETCH_HEAD \
+      && test "$(git -C /build/$1 rev-parse HEAD)" = "$3"; \
+    done
+RUN set -eu; P=/opt/owamp; \
+    cd /build/i2util/I2util/I2util && sh bootstrap && ./configure --prefix=$P && make -j"$(nproc)" && make install; \
+    cd /build/owamp/owamp/owamp && sh bootstrap && ./configure --prefix=$P --with-I2util=$P \
+ && make -C owamp -j"$(nproc)" && make -C owampd -j"$(nproc)" && make -C owping -j"$(nproc)" \
+ && mkdir -p /out && strip -o /out/owampd owampd/owampd && strip -o /out/owping owping/owping
+
+# The cluster-link role: `continuum link-prober` (a Deployment) with owping beside it, and owampd, which the chart runs as the
+# responder DaemonSet (command: /usr/local/bin/owampd). A glibc base, because OWAMP is C; still nonroot, no shell, no package
+# manager. Everything else about the image is the `continuum` image: the same binary, the same entrypoint.
+FROM gcr.io/distroless/base-debian12:nonroot AS link
+COPY --from=build /out/continuum /continuum
+COPY --from=owamp /out/owping /out/owampd /usr/local/bin/
 ENTRYPOINT ["/continuum"]
 
 # An empty /data owned by the runtime user: the distroless image has no shell to create it, and the server needs to write there

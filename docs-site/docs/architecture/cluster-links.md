@@ -38,11 +38,41 @@ The loss ratio to alert on is `rate(retransmits_total) / rate(segments_sent_tota
 
 The limits are the limits of passive measurement. There is nothing to see on a link nobody is using, retransmits are a proxy for loss that also counts reordering and congestion, and the numbers describe TCP only.
 
+## Active measurement: loss and delay in each direction
+
+Traffic that is not there cannot be measured, and TCP retransmits only say that something was lost, not where. The second source sends a short stream of small test packets to each paired cluster and counts what arrives. It uses OWAMP (RFC 4656) from [perfSONAR](https://github.com/perfsonar/owamp), which measures one direction at a time: packets are numbered at the sender and timestamped at both ends, so loss and delay belong to the direction that caused them. It is switched on with `telemetry.clusterLinks.probe.enabled`, on top of the passive metrics.
+
+It runs in two workloads of its own, from the `link` image, which is the `continuum` image plus the two OWAMP programs built from pinned commits:
+
+- **The prober**, one pod. It asks the agent which clusters this one is paired with (a signed request to the agent's link address, with the same secret the node collectors use) and measures them one at a time, both directions, every `interval` (a minute by default): `packets` test packets (100) about `spacing` apart (100 ms). It has no access to the Kubernetes API and serves its own `/metrics` on port 9105, which the cluster collector scrapes as a second job.
+- **The responder**, a pod on every node in the host network, because the other clusters are given this cluster's node addresses and try them. It answers test requests and nothing else. It runs unprivileged on a port above 1024, with no capabilities and no API access.
+
+Both are kept out of the agent's image and pod on purpose: the agent has no measurement tools, and a probe that misbehaves cannot take the agent down.
+
+| Metric | Type | Meaning |
+| --- | --- | --- |
+| `continuum_link_probe_packets_sent_total`, `..._lost_total`, `..._duplicated_total` | counter | Test packets by `direction` (`forward` is from this cluster to the peer). `rate(lost) / rate(sent)` is the loss on that direction alone. |
+| `continuum_link_probe_loss_ratio` | gauge | Loss in the latest run. |
+| `continuum_link_probe_jitter_seconds` | gauge | Delay variation in the latest run. |
+| `continuum_link_probe_delay_variation_seconds` | gauge | How far the delay rose above its minimum (`stat` is `median` or `max`). |
+| `continuum_link_probe_one_way_delay_seconds` | gauge | Absolute delay (`stat` is `min`, `median` or `max`). **Present only when both clocks were synchronised.** |
+| `continuum_link_probe_clock_synchronized`, `..._clock_error_seconds` | gauge | Whether the delay above can be trusted, and the error bound the tool derived. |
+| `continuum_link_probe_path_hops` | gauge | Routers crossed, from the TTL the packets arrived with. |
+| `continuum_link_probe_failures_total` | counter | Runs that could not complete, by `reason` (`unreachable`, `refused`, `timeout`, `auth`, `other`). |
+| `continuum_link_probe_last_success_timestamp_seconds` | gauge | When a run in that direction last finished. |
+
+Every series also carries `cluster`, `peer` and `method="owamp"`.
+
+**Absolute one-way delay needs agreeing clocks.** The two ends timestamp with their own clocks, so a difference between them is added to the delay in one direction and taken off in the other. The tool reports whether both clocks were synchronised (`SYNC`) and the error it derived. Absolute delay is exported only when they were. The delay variation and jitter are always exported, because a constant clock offset cancels out of them, and so does the difference between the two directions' variation. Run chrony or ntpd on the nodes, with the kernel clock synchronised, if you want absolute delay.
+
+**What has to be open between paired clusters.** TCP `responder.port` (8861) and UDP `responder.testPorts` (18900–18999) to every node address of the peer cluster, in both directions. The prober tries a peer's addresses until one answers (the one that answered last first), at most five per run. Where the clusters are not on a network you control, set `responder.allowFrom` to the CIDRs the other clusters' nodes appear from; the responder then refuses everyone else at the control port. Without it the responder accepts anyone who reaches the port, within a bandwidth, session and disk limit, and it reports nothing about this cluster.
+
+**The load.** With the defaults a link carries about ten packets a second for ten seconds, once a minute, in each direction, per paired cluster: tens of kilobytes a minute. Only one test runs at a time anywhere, so the load does not grow with the number of peers; it only takes longer to go round them. The prober refuses to start with settings that cannot fit in the interval (a run in each direction must complete inside it).
+
 ## What is planned
 
-The other sources fill what passive measurement cannot see. They are listed here so the metric names above are read in context; none of them exists yet.
+The other sources fill what these two cannot see. None of them exists yet.
 
 - **A constant baseline** to each peer: ICMP round-trip time and loss with [smokeping_prober](https://github.com/SuperQ/smokeping_prober), and TCP connect time with the agent's existing measurement code, which works where ICMP is blocked.
-- **Directional loss, jitter and one-way delay** from a STAMP (RFC 8762) sender and reflector. Loss is counted per direction from sequence numbers, and absolute one-way delay is reported only when both clocks are known to be synchronised; the variation and the forward-versus-reverse difference are reported either way, because the clock error cancels out of them.
 - **Path MTU and route changes**, since an MTU mismatch produces failures that look like loss.
 - **Throughput tests with iperf3**, run on a schedule that respects a byte budget, never overlaps on one target, and waits while the link is busy. They reveal the rate at which loss begins, per direction, and capacity over time.

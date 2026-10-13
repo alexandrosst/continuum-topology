@@ -1,0 +1,190 @@
+{{- $probe := .Values.telemetry.clusterLinks.probe }}
+{{- if $probe.enabled }}
+{{- /* The responder's configuration. The default class is rate- and disk-limited; with allowFrom the default is a class that
+       refuses everything, and only the listed networks get the limited one. (Tested: a connection from outside the listed
+       networks is refused at the control port.) */ -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: continuum-link-responder
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "agent.labels" . | nindent 4 }}
+data:
+  owamp-server.conf: |
+    testports {{ $probe.responder.testPorts }}
+  owamp-server.limits: |
+    limit root with disk=0, bandwidth=0, delete_on_fetch=on
+    limit regular with parent=root, disk=256M, bandwidth=20M, test_sessions=4
+    {{- if $probe.responder.allowFrom }}
+    limit refused with parent=root, disk=1, bandwidth=1, allow_open_mode=off
+    assign default refused
+    {{- range $probe.responder.allowFrom }}
+    assign net {{ . }} regular
+    {{- end }}
+    {{- else }}
+    assign default regular
+    {{- end }}
+---
+# The responder: OWAMP's server, on every node and in the host network, because the other clusters' probers are given this
+# cluster's node addresses and try them. It answers test requests and keeps nothing of this cluster: it reads no traffic and has
+# no access to the Kubernetes API.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: continuum-link-responder
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "agent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: link-responder
+spec:
+  selector:
+    matchLabels: {app.kubernetes.io/name: continuum-link-responder, app.kubernetes.io/instance: {{ .Release.Name }}}
+  updateStrategy: {type: RollingUpdate, rollingUpdate: {maxUnavailable: 10%}}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: continuum-link-responder
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/part-of: continuum
+        {{- include "agent.meshOptOutLabels" . | nindent 8 }}
+        {{- include "agent.podLabels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ toJson (dict "ports" $probe.responder.testPorts "from" $probe.responder.allowFrom) | sha256sum }}
+        {{- include "agent.meshOptOutAnnotations" . | nindent 8 }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . | quote }}
+      {{- end }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      automountServiceAccountToken: false
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      securityContext: {{- include "agent.nonRootPodSecurityContext" (dict "root" . "fsGroup" false) | nindent 8 }}
+      containers:
+        - name: owampd
+          image: {{ include "agent.linkImage" . | quote }}
+          imagePullPolicy: {{ include "agent.linkImagePullPolicy" . }}
+          command: ["/usr/local/bin/owampd"]
+          # -Z: stay in the foreground (the container's log is the daemon's), -a O: open mode, which the limits file above
+          # restricts; a port above 1024, so no capability is needed.
+          args: ["-Z", "-a", "O", "-c", "/etc/owamp", "-d", "/data", "-R", "/run/owamp", "-S", ":{{ $probe.responder.port }}"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          ports:
+            - {name: owamp, containerPort: {{ $probe.responder.port }}, protocol: TCP}
+          readinessProbe:
+            tcpSocket: {port: {{ $probe.responder.port }}}
+            periodSeconds: 30
+          resources: {{- toYaml $probe.responder.resources | nindent 12 }}
+          volumeMounts:
+            - {name: config, mountPath: /etc/owamp, readOnly: true}
+            - {name: data, mountPath: /data}
+            - {name: run, mountPath: /run/owamp}
+      volumes:
+        - name: config
+          configMap: {name: continuum-link-responder}
+        # Test results wait here until the prober that asked for them has fetched them (and is then deleted); the limit above
+        # keeps a prober that never fetches from filling the disk, and a restart empties it.
+        - name: data
+          emptyDir: {sizeLimit: 512Mi}
+        - name: run
+          emptyDir: {sizeLimit: 1Mi}
+      {{- with $probe.responder.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $probe.responder.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+# The prober: one pod. It asks the agent which clusters this one is paired with and measures the path to each, one test at a
+# time, both directions. It has no access to the Kubernetes API, and only the agent's link address and the paired clusters'
+# responders are reachable to it by design.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: continuum-link-prober
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "agent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: link-prober
+spec:
+  replicas: 1   # exactly one: a second would measure every link twice and double the load on it
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app.kubernetes.io/name: continuum-link-prober, app.kubernetes.io/instance: {{ .Release.Name }}}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: continuum-link-prober
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/part-of: continuum
+        {{- include "agent.meshOptOutLabels" . | nindent 8 }}
+        {{- include "agent.podLabels" . | nindent 8 }}
+      annotations:
+        checksum/flow-secret: {{ include "agent.flowSecretRevision" . }}
+        {{- include "agent.meshOptOutAnnotations" . | nindent 8 }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . | quote }}
+      {{- end }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      automountServiceAccountToken: false
+      securityContext: {{- include "agent.nonRootPodSecurityContext" (dict "root" . "fsGroup" true) | nindent 8 }}
+      containers:
+        - name: prober
+          image: {{ include "agent.linkImage" . | quote }}
+          imagePullPolicy: {{ include "agent.linkImagePullPolicy" . }}
+          args: ["link-prober"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          env:
+            - {name: CONTINUUM_LINK_AGENT_URL, value: "http://continuum-agent-link-metrics.{{ .Release.Namespace }}.svc:9104"}
+            - {name: CONTINUUM_FLOW_SECRET_FILE, value: /secret/secret}
+            - {name: CONTINUUM_LINK_PROBE_LISTEN, value: ":9105"}
+            - {name: CONTINUUM_LINK_RESPONDER_PORT, value: {{ $probe.responder.port | quote }}}
+            - {name: CONTINUUM_LINK_PACKETS, value: {{ $probe.packets | quote }}}
+            - {name: CONTINUUM_LINK_SPACING, value: {{ $probe.spacing | quote }}}
+            - {name: CONTINUUM_LINK_INTERVAL, value: {{ $probe.interval | quote }}}
+            - {name: CONTINUUM_LINK_DSCP, value: {{ $probe.dscp | quote }}}
+          ports:
+            - {name: link-probe, containerPort: 9105, protocol: TCP}
+          readinessProbe:
+            tcpSocket: {port: link-probe}
+            periodSeconds: 30
+          resources: {{- toYaml $probe.resources | nindent 12 }}
+          volumeMounts:
+            - {name: secret, mountPath: /secret, readOnly: true}
+      volumes:
+        - name: secret
+          secret: {secretName: {{ include "agent.flowSecretName" . }}, defaultMode: 0440}
+      {{- with $probe.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $probe.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: continuum-link-prober
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "agent.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector: {app.kubernetes.io/name: continuum-link-prober, app.kubernetes.io/instance: {{ .Release.Name }}}
+  ports:
+    - {name: link-probe, port: 9105, targetPort: link-probe, protocol: TCP}
+{{- end }}
