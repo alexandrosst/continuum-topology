@@ -279,3 +279,27 @@ func TestSanitizeKeepsOnlyValidOfferableHostAddresses(t *testing.T) {
 		t.Fatalf("sanitized: %v", s.HostAddresses)
 	}
 }
+
+func TestBuildHostAddressesLeavesOutTemporaryAndUnusableIPv6(t *testing.T) {
+	links := []rtnetlink.LinkMessage{linkUp(1, "eno1", "")}
+	with := func(ip string, flags uint8, attr uint32) rtnetlink.AddressMessage {
+		a := addr(1, ip, 64)
+		a.Flags, a.Attributes.Flags = flags, attr
+		return a
+	}
+	addrs := []rtnetlink.AddressMessage{
+		addr(1, "147.102.13.108", 24),
+		addr(1, "2001:648:2000:d:1e69:7aff:fe61:a869", 64),                   // stable
+		with("2001:648:2000:d:ea59:a895:3b26:d089", 0, unix.IFA_F_TEMPORARY), // the flag arrives in IFA_FLAGS
+		with("2001:648:2000:d:4686:64c8:bbce:6df6", unix.IFA_F_TEMPORARY, 0), // or in the message header
+		with("2001:648:2000:d::7", 0, unix.IFA_F_TENTATIVE),
+		with("2001:648:2000:d::8", 0, unix.IFA_F_DEPRECATED),
+	}
+	var have []string
+	for _, h := range buildHostAddresses(links, addrs) {
+		have = append(have, h.Address)
+	}
+	if want := []string{"147.102.13.108/24", "2001:648:2000:d:1e69:7aff:fe61:a869/64"}; !reflect.DeepEqual(have, want) {
+		t.Fatalf("got %v, want %v", have, want)
+	}
+}

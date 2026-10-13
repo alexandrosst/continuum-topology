@@ -294,3 +294,19 @@ func TestWhenThePodsNodeIsUnknownMoreNodesAreListed(t *testing.T) {
 		t.Fatalf("pod node known: the pod's node first, and no more than %d: %v", maxNodePortNodes, got)
 	}
 }
+
+func TestAnInterfacesIPv4AddressComesBeforeItsIPv6Ones(t *testing.T) {
+	host := operatorHost{
+		Reachable: []reachableAddr{{Port: 30338, Kind: "node-port"}},
+		Nodes: []hostNode{{Name: "a", Ready: true, Interfaces: []hostAddr{
+			{Interface: "eno1", IP: "2001:db8:0:d::1"}, {Interface: "eno1", IP: "2001:db8:0:d::2"}, {Interface: "eno1", IP: "198.51.100.9"},
+		}}},
+	}
+	var got []string
+	for _, c := range addressCandidates(host, "") {
+		got = append(got, c.Address)
+	}
+	if want := []string{"198.51.100.9:30338", "[2001:db8:0:d::1]:30338", "[2001:db8:0:d::2]:30338"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}

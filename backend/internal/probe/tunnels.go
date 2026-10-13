@@ -232,9 +232,16 @@ func buildHostAddresses(links []rtnetlink.LinkMessage, addrs []rtnetlink.Address
 		if !ok || a.Attributes == nil {
 			continue
 		}
-		ip := a.Attributes.Address
+		// A point-to-point link (a mesh's tunnel) carries its own address in IFA_LOCAL and the peer's in IFA_ADDRESS.
+		ip := a.Attributes.Local
 		if ip == nil {
-			ip = a.Attributes.Local
+			ip = a.Attributes.Address
+		}
+		// A temporary (privacy) address changes by the day, one still being checked or that failed the check cannot be dialled, and
+		// a deprecated one is on its way out: none is a place to send to. IPv6 interfaces typically have a stable address and
+		// several of these.
+		if flags := uint32(a.Flags) | a.Attributes.Flags; flags&(unix.IFA_F_TEMPORARY|unix.IFA_F_TENTATIVE|unix.IFA_F_DADFAILED|unix.IFA_F_DEPRECATED) != 0 {
+			continue
 		}
 		if ip == nil || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() || ip.IsUnspecified() {
 			continue

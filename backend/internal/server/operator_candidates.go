@@ -451,7 +451,7 @@ func addressCandidates(h operatorHost, recorded string) []AddressCandidate {
 					if len(out) >= maxCandidates {
 						return
 					}
-					add(AddressCandidate{Kind: candidateNodePort, Address: hp(na.ip, p), Source: "Node " + n.Name + ", " + na.what + ", on the node port the operator was installed with.", Node: n.Name, Network: na.network, Interface: na.iface})
+					add(AddressCandidate{Kind: candidateNodePort, Address: hp(na.ip, p), Source: "Node " + n.Name + ", " + na.what + ", on the Service's node port.", Node: n.Name, Network: na.network, Interface: na.iface})
 				}
 			}
 		}
@@ -539,6 +539,10 @@ func (n hostNode) addresses(near, far bool) []nodeAddr {
 	var external []nodeAddr
 	for _, ip := range n.External {
 		take(&external, ip, "", "", "external address")
+	}
+	// A person picks among these: the IPv4 address of a network before its IPv6 ones.
+	for _, l := range [][]nodeAddr{internal, local, mesh, public, external} {
+		sort.SliceStable(l, func(i, j int) bool { return !strings.Contains(l[i].ip, ":") && strings.Contains(l[j].ip, ":") })
 	}
 	var out []nodeAddr
 	if near {
