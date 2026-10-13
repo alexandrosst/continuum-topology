@@ -2,6 +2,7 @@ import { AlertTriangle, Plus } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import ColumnPicker from '@/components/ColumnPicker'
 import { ConfirmModal, SiteForm } from '@/components/forms'
+import ClusterLinks from '@/components/ClusterLinks'
 import MeasuredPaths from '@/components/MeasuredPaths'
 import { Place } from '@/components/ui/brand'
 import { Button, ChipList, EmptyState, ICON_SM, PageHeader, Pill, Table, Td, Th } from '@/components/ui/primitives'
@@ -93,6 +94,7 @@ export default function SitesPage() {
       )}
 
       <MeasuredPaths />
+      <ClusterLinks />
 
       {editing && <SiteForm initial={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
       {deleting && (

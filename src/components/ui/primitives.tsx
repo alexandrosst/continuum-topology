@@ -1229,6 +1229,7 @@ export function Modal({
   footer,
   width = 'max-w-xl',
   dismissible = true,
+  side = false,
 }: {
   open: boolean
   onClose: () => void
@@ -1244,6 +1245,8 @@ export function Modal({
    * broken rather than intentional. Default true: every other modal keeps closing exactly as before.
    */
   dismissible?: boolean
+  /** A panel against the right edge, full height, instead of a dialog in the middle: for editing one row of a table that should stay in view. Same focus handling and closing. */
+  side?: boolean
 }) {
   const box = useRef<HTMLDivElement>(null)
   const closeRef = useRef(onClose)
@@ -1298,14 +1301,14 @@ export function Modal({
   // descendants and confine the dialog to that element's box instead of the viewport - the same reason
   // Select's own list is portaled below.
   return createPortal(
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-4 pt-[8vh] backdrop-blur-[2px]" onMouseDown={dismissible ? onClose : undefined}>
+    <div className={clsx('fixed inset-0 z-50 flex overflow-y-auto bg-black/60 backdrop-blur-[2px]', side ? 'items-stretch justify-end' : 'items-start justify-center p-4 pt-[8vh]')} onMouseDown={dismissible ? onClose : undefined}>
       <div
         ref={box}
         tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className={clsx('modal-pop w-full rounded-xl border border-nb-850 bg-nb-920 shadow-2xl', width)}
+        className={clsx('modal-pop w-full border border-nb-850 bg-nb-920 shadow-2xl', side ? 'flex min-h-full flex-col rounded-none border-y-0 border-r-0' : 'rounded-xl', width)}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-4 border-b border-nb-850 px-6 py-4">
@@ -1319,7 +1322,7 @@ export function Modal({
             </button>
           )}
         </div>
-        <div className="px-6 py-5">{children}</div>
+        <div className={clsx('px-6 py-5', side && 'flex-1')}>{children}</div>
         {footer && <div className="flex justify-end gap-2 border-t border-nb-850 px-6 py-4">{footer}</div>}
       </div>
     </div>,

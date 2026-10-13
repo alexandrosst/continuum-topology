@@ -28,7 +28,11 @@ Each entry of `links` can carry choices of its own, the same for both clusters o
 - `throughput` asks for the [throughput tests](#throughput-tests-how-much-a-link-carries) on the pair. Without it the pair gets none, even where the cluster has them enabled in the chart: the chart says what a cluster *can* do, the pair says what it *should*, because those tests load the link. Only one cluster of the pair runs them, in both directions: the one whose id sorts first, so the link is not loaded twice. The other cluster only serves them, so it needs the iperf3 server (the same chart setting) but runs no tests, and has no throughput series for the pair; the results are in the first cluster's metrics, labelled with the pair.
 - `throughput.intervalMinutes` (10 minutes to 7 days) replaces the cluster's interval between two sets of tests for this pair, and `throughput.budgetMB` (up to 1 TiB) is the most the tests may carry on this link in a day, in addition to the cluster's own budget: a test has to fit both. The pair's use and limit are exported as `continuum_link_throughput_pair_budget_used_bytes` and `..._pair_budget_bytes`.
 
-The agent holds each value to the same bounds as the server, whatever a Config says. The options are part of the settings and are saved with them; there is no screen for them yet.
+The agent holds each value to the same bounds as the server, whatever a Config says. The options are part of the settings and are saved with them.
+
+### In the app
+
+An administrator manages the pairs on the Sites page, in the **Cluster links** section under Measured paths; everyone else sees the list. **Add pair** takes two clusters that each have an approved agent and starts with probing on and throughput off, so nothing heavy runs by surprise. A pair's edit panel switches probing and throughput on or off and offers three named amounts for the tests: Light (every day, 50 MB a day), Standard (every 6 hours, 500 MB) and Heavy (every hour, 5 GB), or Custom numbers within the bounds above. It also lists what each cluster needs (a connected agent, access level 2, the flow collector running) and says which cluster runs the tests; a missing requirement is a warning, not a block, because the settings apply when the cluster catches up.
 
 ## What exists today: passive link metrics
 
