@@ -190,6 +190,11 @@ spec:
       {{- end }}
       automountServiceAccountToken: false
       securityContext: {{- include "agent.nonRootPodSecurityContext" (dict "root" . "fsGroup" true) | nindent 8 }}
+        {{- if $probe.icmp.enabled }}
+        # Lets the pod's own user open an unprivileged ICMP socket, so the pings need no capability. A "safe" sysctl, namespaced to the pod.
+        sysctls:
+          - {name: net.ipv4.ping_group_range, value: "0 2147483647"}
+        {{- end }}
       containers:
         - name: prober
           image: {{ include "agent.linkImage" . | quote }}
@@ -209,6 +214,15 @@ spec:
             - {name: CONTINUUM_LINK_INTERVAL, value: {{ $probe.interval | quote }}}
             - {name: CONTINUUM_LINK_DSCP, value: {{ $probe.dscp | quote }}}
             - {name: CONTINUUM_LINK_PATH_INTERVAL, value: {{ $probe.pathInterval | quote }}}
+            - {name: CONTINUUM_LINK_TCP_INTERVAL, value: {{ $probe.tcpConnect.interval | quote }}}
+            - {name: CONTINUUM_LINK_TCP_TIMEOUT, value: {{ $probe.tcpConnect.timeout | quote }}}
+            {{- if $probe.icmp.enabled }}
+            - {name: CONTINUUM_LINK_ICMP, value: "true"}
+            - {name: CONTINUUM_LINK_ICMP_DIR, value: /icmp}
+            - {name: CONTINUUM_LINK_ICMP_INTERVAL, value: {{ $probe.icmp.interval | quote }}}
+            - {name: CONTINUUM_LINK_ICMP_SIZE, value: {{ $probe.icmp.size | quote }}}
+            - {name: CONTINUUM_LINK_ICMP_HOSTS, value: {{ $probe.icmp.hostsPerPeer | quote }}}
+            {{- end }}
             {{- if $cap.enabled }}
             - {name: CONTINUUM_LINK_CAPACITY, value: "true"}
             - {name: CONTINUUM_LINK_CAPACITY_PORT, value: {{ $cap.port | quote }}}
@@ -246,9 +260,17 @@ spec:
             {{- if $auth }}
             - {name: iperf-auth, mountPath: /iperf-auth, readOnly: true}
             {{- end }}
+            {{- if $probe.icmp.enabled }}
+            - {name: icmp, mountPath: /icmp}
+            {{- end }}
       volumes:
         - name: secret
           secret: {secretName: {{ include "agent.flowSecretName" . }}, defaultMode: 0440}
+        {{- if $probe.icmp.enabled }}
+        # Where the prober writes the ping program's configuration from the peer list.
+        - name: icmp
+          emptyDir: {sizeLimit: 1Mi}
+        {{- end }}
         {{- if $auth }}
         # Only what a client needs: the servers' public key and the password (the user name is an environment variable).
         - name: iperf-auth

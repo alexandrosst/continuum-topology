@@ -1399,6 +1399,24 @@
                 "spacing": {"type": "string", "pattern": "^(([1-9][0-9]*(ms|s|m|h))+)?$"},
                 "dscp": {"type": "integer", "minimum": 0, "maximum": 63},
                 "pathInterval": {"oneOf": [{"type": "string", "pattern": "^(0|(([1-9][0-9]*(ms|s|m|h))+)?)$"}, {"const": 0}]},
+                "tcpConnect": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "interval": {"oneOf": [{"type": "string", "pattern": "^(0|(([1-9][0-9]*(ms|s|m|h))+)?)$"}, {"const": 0}]},
+                    "timeout": {"type": "string", "pattern": "^(([1-9][0-9]*(ms|s|m|h))+)?$"}
+                  }
+                },
+                "icmp": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "enabled": {"type": "boolean"},
+                    "interval": {"type": "string", "pattern": "^(([1-9][0-9]*(ms|s|m|h))+)?$"},
+                    "size": {"type": "integer", "minimum": 24, "maximum": 1400},
+                    "hostsPerPeer": {"type": "integer", "minimum": 1, "maximum": 8}
+                  }
+                },
                 "scrapeInterval": {"type": "string", "pattern": "^(([1-9][0-9]*(ms|s|m|h))+)?$"},
                 "resources": {"type": "object"},
                 "nodeSelector": {"type": "object"},

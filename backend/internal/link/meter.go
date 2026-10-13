@@ -3,6 +3,7 @@ package link
 import (
 	"fmt"
 	"io"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -69,8 +70,13 @@ type Meter struct {
 	probes     map[string]*probeStats
 	paths      map[string]*pathStats
 	tp         map[string]*tpStats
-	budget     func() (used, limit uint64)
-	pairBudget func(peer string) (used, limit uint64, ok bool)
+	connects   map[string]*connectStats
+	// timingConnects turns the connect-timing series on; extras are written after the active series, each one a source of
+	// series of its own (the ICMP baseline), asked for under no lock of the meter's.
+	timingConnects bool
+	extras         []func(io.Writer)
+	budget         func() (used, limit uint64)
+	pairBudget     func(peer string) (used, limit uint64, ok bool)
 
 	peersSecret []byte
 	peersReplay *probe.ReplayCache
@@ -169,6 +175,11 @@ func (m *Meter) Forget() {
 			delete(m.tp, id)
 		}
 	}
+	for id := range m.connects {
+		if !probed[id] {
+			delete(m.connects, id)
+		}
+	}
 	for k := range m.probes {
 		if id, _, _ := strings.Cut(k, "\x00"); !probed[id] {
 			delete(m.probes, k)
@@ -207,7 +218,16 @@ func (m *Meter) Write(w io.Writer) {
 	own := m.Peers.Own()
 	peers := m.Peers.List()
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	extras := slices.Clone(m.extras)
+	m.write(w, own, peers)
+	m.mu.Unlock()
+	for _, f := range extras {
+		f(w)
+	}
+}
+
+// write renders the meter's own series. Called with m.mu held.
+func (m *Meter) write(w io.Writer, own string, peers []Peer) {
 	if m.probesOnly {
 		m.writeActive(w, own, peers)
 		return
@@ -298,7 +318,19 @@ func (m *Meter) writeActive(w io.Writer, own string, peers []Peer) {
 	}
 	m.writeProbes(w, own, probed)
 	m.writePaths(w, own, probed)
+	m.writeConnects(w, own, probed)
 	m.writeThroughput(w, own, tested)
+}
+
+// AddSource registers a function that writes more series (Prometheus text) after the active ones, for a baseline measured by
+// another program. It is called with the meter unlocked and must not be slow: it runs inside every scrape.
+func (m *Meter) AddSource(f func(io.Writer)) {
+	if m == nil || f == nil {
+		return
+	}
+	m.mu.Lock()
+	m.extras = append(m.extras, f)
+	m.mu.Unlock()
 }
 
 func trimFloat(f float64) string { return fmt.Sprintf("%g", f) }

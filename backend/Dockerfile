@@ -126,13 +126,26 @@ RUN set -eu; \
     cd /build/iperf3 && ./bootstrap.sh && ./configure --disable-shared --without-sctp && make -j"$(nproc)" \
  && mkdir -p /out && strip -o /out/iperf3 src/iperf3
 
-# The cluster-link role: `continuum link-prober` (a Deployment) with owping and iperf3 beside it, and owampd and iperf3 -s, which
+# smokeping_prober (v0.12.0, Apache-2.0) keeps the ping baseline: it pings a list of hosts and records the round trips as a Prometheus
+# histogram. A pinned commit, like the programs above. It is Go, so it is built for the target on the build platform, with no C.
+FROM --platform=$BUILDPLATFORM golang:1.26 AS smokeping
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+ARG SMOKEPING_REF=d560be20354e982bb44a8f6de6ae158b58c56cb6
+RUN set -eu; \
+    git init -q /build/smokeping && git -C /build/smokeping remote add origin https://github.com/SuperQ/smokeping_prober.git \
+ && git -C /build/smokeping fetch -q --depth 1 origin "${SMOKEPING_REF}" && git -C /build/smokeping checkout -q FETCH_HEAD \
+ && test "$(git -C /build/smokeping rev-parse HEAD)" = "${SMOKEPING_REF}"; \
+    cd /build/smokeping && CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -ldflags="-s -w" -o /out/smokeping_prober .
+
+# The cluster-link role: `continuum link-prober` (a Deployment) with owping, iperf3 and smokeping_prober beside it, and owampd and iperf3 -s, which
 # the chart runs as the responder DaemonSet (command: /usr/local/bin/owampd, /usr/local/bin/iperf3). A glibc base, because they
 # are C; still nonroot, no shell, no package manager. Everything else about the image is the `continuum` image: the same binary, the same entrypoint.
 FROM gcr.io/distroless/base-debian12:nonroot AS link
 COPY --from=build /out/continuum /continuum
 COPY --from=owamp /out/owping /out/owampd /usr/local/bin/
 COPY --from=iperf3 /out/iperf3 /usr/local/bin/
+COPY --from=smokeping /out/smokeping_prober /usr/local/bin/
 ENTRYPOINT ["/continuum"]
 
 # An empty /data owned by the runtime user: the distroless image has no shell to create it, and the server needs to write there

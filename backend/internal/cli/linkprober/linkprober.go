@@ -34,6 +34,7 @@ func Main(args []string) int {
 	user := fs.String("auth-user", cli.Env("CONTINUUM_LINK_AUTH_USER", ""), "OWAMP user for authenticated mode (needs --auth-key-file)")
 	keyFile := fs.String("auth-key-file", cli.Env("CONTINUUM_LINK_AUTH_KEY_FILE", ""), "file holding the OWAMP pass-phrase file for authenticated mode")
 	capFlags := addCapacityFlags(fs)
+	baseFlags := addBaselineFlags(fs)
 	dscp := fs.Int("dscp", cli.Atoi(cli.Env("CONTINUUM_LINK_DSCP", "0")), "DSCP value to mark test packets with (0: unmarked)")
 	if code, done := cli.Parse(fs, args); done {
 		return code
@@ -78,6 +79,14 @@ func Main(args []string) int {
 	if _, err := os.Stat(*owping); err != nil {
 		return cli.Fatal(log, fmt.Errorf("--owping: %w", err))
 	}
+	connects, err := baseFlags.connect(meter, *port)
+	if err != nil {
+		return cli.Fatal(log, err)
+	}
+	pings, err := baseFlags.pings(meter, peers)
+	if err != nil {
+		return cli.Fatal(log, err)
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -92,6 +101,14 @@ func Main(args []string) int {
 	if capacity != nil {
 		log.Info("link throughput tests on", "interval", capacity.Every, "budget_bytes", capacity.Budget)
 		go capacity.Run(ctx)
+	}
+	if connects != nil {
+		log.Info("link connect timing on", "interval", connects.Every)
+		go connects.Run(ctx)
+	}
+	if pings != nil {
+		log.Info("link ICMP baseline on", "interval", pings.Interval, "hosts_per_peer", pings.HostsPerPeer)
+		go pings.Run(ctx)
 	}
 	r.Run(ctx)
 	return 0

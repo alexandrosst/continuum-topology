@@ -111,6 +111,30 @@ A path whose MTU is smaller than the sender believes, with a router that does no
 
 Limits: routers that do not send ICMP answers appear as silent hops and are left out of the route; load balancing per packet (rare) makes the route look unstable; a path whose ICMP is filtered shows a hop count and MTU only as far as it answers. IPv4 only for now: IPv6 peers are skipped without counting as failures, until it has been tested.
 
+## Baseline: connect timing and pings
+
+Two cheap measurements run all the time towards every paired cluster that is probed, so there is always a figure to compare the rest with, and so there is one when the one-way probe cannot run.
+
+**TCP connect time.** Every `probe.tcpConnect.interval` (15s) the prober opens a TCP connection to the peer's responder port, times the handshake and closes it with a reset: one SYN and its answer, no data, nothing left in TIME_WAIT. The time is a round trip as the TCP stack sees it. It works where ICMP is blocked, but it needs the responder to be reachable, so it cannot tell a dead responder from a dead link; the pings and the one-way probe say which. A peer has many node addresses: the one that answered last is tried first and one more after it, so a single node being down does not count against the link. `probe.tcpConnect.interval: "0"` turns it off.
+
+| Metric | Type | Meaning |
+| --- | --- | --- |
+| `continuum_link_tcp_connect_seconds` | histogram | Time to open the connection. |
+| `continuum_link_tcp_connect_failures_total` | counter | Attempts that failed on every address tried, by `reason` (`refused`, `timeout`, `reset`, `unreachable`, `other`). |
+| `continuum_link_tcp_connect_last_success_timestamp_seconds` | gauge | When a connection last opened. Absent until the first time. |
+
+**Pings.** Off by default: `telemetry.clusterLinks.probe.icmp.enabled`. The prober then runs [smokeping_prober](https://github.com/SuperQ/smokeping_prober) (pinned in the image, Apache-2.0) as a child process, writes its configuration from the peer list (up to `hostsPerPeer`, 3 by default, node addresses per peer, so that one node being down is not read as a dead link), restarts it when the list changes, and serves what it measured on the prober's own endpoint with our names. Pings are sent every `probe.icmp.interval` (2s) with `probe.icmp.size` bytes of payload, through an unprivileged ICMP socket: no capability is added, but the pod sets the `net.ipv4.ping_group_range` sysctl, which a cluster policy may forbid (some managed platforms in their strictest mode). In that case the program cannot ping and `continuum_link_icmp_running` is 0.
+
+| Metric | Type | Meaning |
+| --- | --- | --- |
+| `continuum_link_icmp_response_duration_seconds` | histogram | Round-trip time of the pings that were answered. |
+| `continuum_link_icmp_requests_total` | counter | Pings sent. Loss is one minus the histogram's count over this. |
+| `continuum_link_icmp_response_ttl`, `..._response_duplicates_total` | gauge, counter | TTL of the last answer (a change hints at a route change) and duplicated answers. |
+| `continuum_link_icmp_send_errors_total`, `..._receive_errors_total`, `..._prober_errors_total` | counter | Pings that could not be sent or read. |
+| `continuum_link_icmp_running` | gauge | 1 if the ping program is running and answering; 0 means the series above are stale or absent. |
+
+Many networks drop ICMP between sites, so silence here is a hint, not a finding: a peer that answers the connect timing and not the pings is simply filtering ICMP. Allow ICMP echo between the clusters' node addresses if you want these series.
+
 ## Throughput tests: how much a link carries
 
 The probes above send a trickle of packets, so they say whether a link is healthy but not how much it can carry or where it starts to drop. For that, the prober also runs [iperf3](https://github.com/esnet/iperf) against the other clusters, rarely and within limits. It is off by default: `telemetry.clusterLinks.probe.capacity.enabled`. Each responder pod then also runs an iperf3 server, on `capacity.port` (8862), and the prober, which already has the peer list, runs these tests for the pairs that [ask for them](#choices-per-pair), in this order:
@@ -166,7 +190,5 @@ The servers mount only `private.pem` and `users.csv`, and the prober only `publi
 
 ## What is planned
 
-The other sources fill what these cannot see. None of them exists yet.
-
-- **A constant baseline** to each peer: ICMP round-trip time and loss with [smokeping_prober](https://github.com/SuperQ/smokeping_prober), and TCP connect time with the agent's existing measurement code, which works where ICMP is blocked.
-- **A screen for the per-pair choices.** Today they are set in the settings document; a visual design for choosing them per pair needs to be agreed first.
+- **Latest results on the screen.** The Sites screen sets the per-pair choices; showing the latest figures next to them needs a small endpoint that reads them from the telemetry backend.
+- **What each cluster can do.** Agents reporting whether the responder, the iperf3 server and the ping sysctl are in place, so the screen can say "this cluster has no throughput server" rather than leave the user to find out.

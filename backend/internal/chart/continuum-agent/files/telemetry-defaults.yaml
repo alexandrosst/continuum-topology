@@ -236,6 +236,14 @@ telemetry:
       spacing: 100ms
       dscp: 0
       pathInterval: 10m
+      tcpConnect:
+        interval: 15s
+        timeout: 3s
+      icmp:
+        enabled: false
+        hostsPerPeer: 3
+        interval: 2s
+        size: 56
       scrapeInterval: 30s
       resources:
         limits:
