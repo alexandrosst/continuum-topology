@@ -30,6 +30,7 @@ var signalModality = map[string]store.Modality{
 	"kubernetesState":    store.ModalityMetrics,
 	"nodeRuntime":        store.ModalityMetrics,
 	"networkLatency":     store.ModalityMetrics,
+	"clusterLinks":       store.ModalityMetrics,
 	"applicationMetrics": store.ModalityMetrics,
 	"systemLogs":         store.ModalityLogs,
 	"kubernetesEvents":   store.ModalityLogs,

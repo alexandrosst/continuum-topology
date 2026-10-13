@@ -190,6 +190,14 @@ export interface TelemetryInput {
   nodeRuntime: boolean
   /** Re-emits the "Path measurements" extra's own TCP timings as OTel metrics; reports nothing without it. */
   networkLatency: boolean
+  /** Delay, jitter and loss between this cluster and the clusters an administrator pairs it with (Sites → Cluster links). Needs the flow collector, which the command turns on. */
+  clusterLinks: boolean
+  /** Only meaningful when `clusterLinks` is on: also run the active probe (one-way delay, jitter and loss per direction, path size and route). */
+  clusterLinksProbe: boolean
+  /** Only meaningful when the probe is on: also let this cluster run and answer throughput tests (iperf3). They load the link, so which pairs run them is chosen per pair. */
+  clusterLinksThroughput: boolean
+  /** Required with the throughput tests: the Secret holding iperf3's credentials, the same in every cluster of the mesh. iperf3 accepts anyone who can reach its port otherwise, so there is no way to leave it out. */
+  clusterLinksAuthSecret: string
   applicationMetrics: boolean
   /** Per-signal scope override for applicationMetrics - see `ScopeOverrideInput`. */
   applicationMetricsScope: ScopeOverrideInput
@@ -296,7 +304,7 @@ export interface TelemetryInput {
 
 /** The settings that are kept or stated together: the destination's connection details, the scope (each application signal's own, and
  *  what the infrastructure signals and the scope tag follow), the tags, the debug exporter and the three processor knobs. */
-export type KeptGroup = 'destination' | 'scopeShared' | 'scope:applicationMetrics' | 'scope:applicationLogs' | 'scope:traces' | 'tags' | 'debug' | 'processors' | 'extraProcessors' | 'energySource' | 'acceleratorsSource'
+export type KeptGroup = 'destination' | 'scopeShared' | 'scope:applicationMetrics' | 'scope:applicationLogs' | 'scope:traces' | 'tags' | 'debug' | 'processors' | 'extraProcessors' | 'energySource' | 'acceleratorsSource' | 'clusterLinksOptions'
 
 function groupValue(t: TelemetryInput, g: KeptGroup): string {
   switch (g) {
@@ -322,6 +330,8 @@ function groupValue(t: TelemetryInput, g: KeptGroup): string {
       return JSON.stringify([t.energySource, t.energyExistingEndpoint.trim()])
     case 'acceleratorsSource':
       return JSON.stringify([t.acceleratorsSource, t.acceleratorsExistingEndpoint.trim()])
+    case 'clusterLinksOptions':
+      return JSON.stringify([t.clusterLinksProbe, t.clusterLinksThroughput, t.clusterLinksAuthSecret.trim()])
   }
 }
 
@@ -338,6 +348,7 @@ const KEPT_WORDS: Record<KeptGroup, string> = {
   extraProcessors: 'the extra processors (this page cannot see which there are)',
   energySource: 'which Kepler energy reads from',
   acceleratorsSource: 'which DCGM the GPU metrics read from',
+  clusterLinksOptions: 'whether cluster links probe and run throughput tests',
 }
 
 /** What this draft shows but does not know the installed value of, in words: the settings the command leaves as they are (see `isKept`). */
@@ -391,6 +402,10 @@ export const emptyTelemetry: TelemetryInput = {
   kubernetesState: false,
   nodeRuntime: false,
   networkLatency: false,
+  clusterLinks: false,
+  clusterLinksProbe: true,
+  clusterLinksThroughput: false,
+  clusterLinksAuthSecret: '',
   applicationMetrics: false,
   applicationMetricsScope: emptyScopeOverride,
   systemLogs: false,
@@ -495,6 +510,7 @@ export const TELEMETRY_SIGNALS: { id: string; label: string; layer: 'infrastruct
   { id: 'kubernetesState', label: 'Kubernetes state', layer: 'infrastructure', modality: 'metrics', scope: 'cluster', what: 'Pod, deployment and replica status and counts, cluster-wide.', permissions: 'Read-only, cluster-wide access to pods, deployments, replica sets, stateful/daemon sets, jobs, cronjobs and autoscalers.' },
   { id: 'nodeRuntime', label: 'Node runtime', layer: 'infrastructure', modality: 'metrics', scope: 'node', what: 'Pod lifecycle and volume metrics from the kubelet (the same kubelet certificate note as Resource usage applies).', permissions: 'Read-only access to nodes/stats (the kubelet\'s own stats endpoint).' },
   { id: 'networkLatency', label: 'Network latency', layer: 'infrastructure', modality: 'metrics', scope: 'cluster', noEmitter: true, what: "This agent's own path measurements, re-emitted as OTel metrics.", permissions: 'None beyond identity enrichment below - reuses this agent\'s existing measurement capability.' },
+  { id: 'clusterLinks', label: 'Cluster links', layer: 'infrastructure', modality: 'metrics', scope: 'cluster', what: 'Delay, jitter and loss between this cluster and the clusters you pair it with (Sites → Cluster links), in each direction, from the traffic already flowing and optionally from small probes and throughput tests.', permissions: 'Turns on the flow collector (read-only, node-level, at access level 2). Probing adds a small pod and a responder on every node that answer the other clusters; throughput tests add an iperf3 server beside it. Nothing is measured until an administrator pairs this cluster with another.' },
   { id: 'applicationMetrics', label: 'Application metrics', layer: 'application', modality: 'metrics', scope: 'application', what: 'Metrics your applications push (OTLP) or that this collector scrapes (Prometheus).', permissions: 'None beyond identity enrichment below.' },
   { id: 'systemLogs', label: 'System logs', layer: 'infrastructure', modality: 'logs', scope: 'node', what: "Each node's own OS/container runtime logs, never application output.", permissions: 'None beyond identity enrichment below - reads local log files only.' },
   { id: 'kubernetesEvents', label: 'Kubernetes events', layer: 'infrastructure', modality: 'logs', scope: 'cluster', what: 'Cluster Events, watched cluster-wide.', permissions: 'Read-only, cluster-wide access to Events only.' },
@@ -571,7 +587,7 @@ export function startLanes(t: TelemetryInput): TelemetryInput {
 
 /** Whether any signal is on - the export endpoint (and every flag below) only matters once one is. */
 export const telemetryActive = (t: TelemetryInput): boolean =>
-  t.resourceUsage || t.energy || t.kubernetesState || t.nodeRuntime || t.networkLatency ||
+  t.resourceUsage || t.energy || t.kubernetesState || t.nodeRuntime || t.networkLatency || t.clusterLinks ||
   t.applicationMetrics || t.systemLogs || t.kubernetesEvents || t.applicationLogs || t.traces || t.accelerators
 
 /**
@@ -635,6 +651,11 @@ export function telemetryProblems(t: TelemetryInput, measurementsOn?: boolean): 
   if (!t.exportSplit) out.push(...destinationProblems(t, 'Destination', !isKept(t, 'destination')))
   if (t.energy && t.energySource === 'existing') out.push(...scrapeTargetProblem(t.energyExistingEndpoint, 'Energy: the existing Prometheus endpoint'))
   if (t.accelerators && t.acceleratorsSource === 'existing') out.push(...scrapeTargetProblem(t.acceleratorsExistingEndpoint, 'Accelerators: the existing Prometheus endpoint'))
+  if (t.clusterLinks && !isKept(t, 'clusterLinksOptions') && t.clusterLinksProbe && t.clusterLinksThroughput) {
+    const secret = t.clusterLinksAuthSecret.trim()
+    if (!secret) out.push('Throughput tests need the name of the Secret that holds the iperf3 credentials: without it anyone who can reach the port could run a test')
+    else if (!SECRET_NAME.test(secret)) out.push('Cluster links: the credential Secret name uses lowercase letters, digits, - and . only')
+  }
   if (t.networkLatency && measurementsOn === false) out.push('Network latency re-emits the path measurements extra, so turn that on too, or it will report nothing')
   // An emptied field is NaN (kept as such, not turned into 0: that would silently mean "drop every trace").
   if (!(typeof t.tracesSamplingPercent === 'number' && t.tracesSamplingPercent >= 0 && t.tracesSamplingPercent <= 100)) out.push('Traces sampling must be between 0 and 100')
@@ -683,6 +704,10 @@ const SIGNAL_FLAGS = [
   'telemetry.kubernetesState.metrics.enabled',
   'telemetry.nodeRuntime.metrics.enabled',
   'telemetry.networkLatency.metrics.enabled',
+  'telemetry.clusterLinks.metrics.enabled',
+  // The prober needs the metrics switch above: left on while that goes off, the chart would refuse to render.
+  'telemetry.clusterLinks.probe.enabled',
+  'telemetry.clusterLinks.probe.capacity.enabled',
   'telemetry.applicationMetrics.metrics.enabled',
   'telemetry.systemLogs.logs.enabled',
   'telemetry.kubernetesEvents.logs.enabled',
@@ -802,6 +827,20 @@ export function withTelemetry(install: string, t: TelemetryInput, measurementsOn
   add(`telemetry.kubernetesState.metrics.enabled=${t.kubernetesState}`)
   add(`telemetry.nodeRuntime.metrics.enabled=${t.nodeRuntime}`)
   add(`telemetry.networkLatency.metrics.enabled=${t.networkLatency}`)
+  add(`telemetry.clusterLinks.metrics.enabled=${t.clusterLinks}`)
+  if (t.clusterLinks) {
+    // The link metrics are labelled from what the flow collectors see, so the chart refuses them without it.
+    add('flowObserver.enabled=true')
+    if (!isKept(t, 'clusterLinksOptions')) {
+      add(`telemetry.clusterLinks.probe.enabled=${t.clusterLinksProbe}`)
+      add(`telemetry.clusterLinks.probe.capacity.enabled=${t.clusterLinksProbe && t.clusterLinksThroughput}`)
+      if (t.clusterLinksProbe && t.clusterLinksThroughput) addString('telemetry.clusterLinks.probe.capacity.auth.existingSecret', t.clusterLinksAuthSecret.trim())
+    }
+  } else {
+    // Stated off with the signal, whatever the draft says: the prober cannot stay on without it.
+    add('telemetry.clusterLinks.probe.enabled=false')
+    add('telemetry.clusterLinks.probe.capacity.enabled=false')
+  }
   add(`telemetry.applicationMetrics.metrics.enabled=${t.applicationMetrics}`)
   // Stated unconditionally while the kind itself is on (even when both lists are empty) - an empty
   // an empty list is stated as `--set-json ...='[]'`, which the chart accepts as "no override, fall back to global scope",

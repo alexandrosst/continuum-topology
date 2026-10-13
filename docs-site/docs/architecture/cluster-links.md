@@ -30,6 +30,15 @@ Each entry of `links` can carry choices of its own, the same for both clusters o
 
 The agent holds each value to the same bounds as the server, whatever a Config says. The options are part of the settings and are saved with them.
 
+### Turning a cluster on
+
+In the telemetry wizard, **Cluster links** (infrastructure, metrics) makes a cluster able to take part. Ticking it adds `telemetry.clusterLinks.metrics.enabled=true` and also `flowObserver.enabled=true`, because the link metrics are labelled from what the flow collectors see (access level 2). Two choices appear under it:
+
+- **Probing** (on by default) starts the prober and the responder on every node.
+- **Throughput tests** (off by default, and only with probing) adds the iperf3 server and client. The wizard asks for the name of the Secret that holds iperf3's credentials and refuses to continue without one, because iperf3 accepts anyone who can reach its port otherwise. The Secret must be the same in every cluster of the mesh.
+
+Ticking the signal does not measure anything by itself: no pair exists until an administrator adds one under Sites → Cluster links. On a cluster that already has the signal, the wizard leaves probing and throughput as they are until you change them there, since agents do not report them. Unticking the signal also states the probe and throughput switches off, because the chart refuses a prober without the metrics switch.
+
 ### In the app
 
 An administrator manages the pairs on the Sites page, in the **Cluster links** section under Measured paths; everyone else sees the list. **Add pair** takes two clusters that each have an approved agent and starts with probing on and throughput off, so nothing heavy runs by surprise. A pair's edit panel switches probing and throughput on or off and offers three named amounts for the tests: Light (every day, 50 MB a day), Standard (every 6 hours, 500 MB) and Heavy (every hour, 5 GB), or Custom numbers within the bounds above. It also lists what each cluster needs (a connected agent, access level 2, the flow collector running) and says which cluster runs the tests; a missing requirement is a warning, not a block, because the settings apply when the cluster catches up.

@@ -484,6 +484,8 @@ export function seedTelemetryFromInstalled(installed: string[], config?: AgentTe
   kept.push('extraProcessors')
   if (rec.energy && !config?.energySource) kept.push('energySource')
   if (rec.accelerators && !config?.acceleratorsSource) kept.push('acceleratorsSource')
+  // No agent reports whether the link prober or the throughput tests are on: left as installed until edited here.
+  if (rec.clusterLinks) kept.push('clusterLinksOptions')
   next = keepAsInstalled(next, kept)
   return next
 }

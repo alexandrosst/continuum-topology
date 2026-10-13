@@ -5,7 +5,7 @@ import { applyIntentPreset, PICKABLE_SIGNALS, TELEMETRY_INTENT_PRESETS, TELEMETR
 import type { TelemetryInput } from '@/lib/install'
 import { LAYER_CARDS, LAYER_META, type Layer } from '@/lib/telemetryLayers'
 
-export type SignalId = 'resourceUsage' | 'energy' | 'kubernetesState' | 'nodeRuntime' | 'networkLatency' | 'applicationMetrics' | 'systemLogs' | 'kubernetesEvents' | 'applicationLogs' | 'traces' | 'accelerators'
+export type SignalId = 'resourceUsage' | 'energy' | 'kubernetesState' | 'nodeRuntime' | 'networkLatency' | 'clusterLinks' | 'applicationMetrics' | 'systemLogs' | 'kubernetesEvents' | 'applicationLogs' | 'traces' | 'accelerators'
 
 /** cluster/node scope needs no form control (cluster: physically unfilterable; node: the chart's own
  * nodeSelector/tolerations values, structured k8s scheduling objects that don't fit this form's --set
@@ -40,6 +40,39 @@ export function EnergyFields({ value, onChange, testIdPrefix }: { value: Telemet
             placeholder="kepler.monitoring:9102"
             data-testid={`${testIdPrefix}-energy-endpoint`}
           />
+        </Field>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Cluster links' own choices, shown once `clusterLinks` is on. They decide what this cluster is able to do; which pairs of clusters actually
+ * run what is chosen afterwards, per pair, on the Sites page (nothing is measured until an administrator pairs this cluster).
+ */
+export function ClusterLinksFields({ value, onChange, testIdPrefix }: { value: TelemetryInput; onChange: (v: TelemetryInput) => void; testIdPrefix: string }) {
+  const set = <K extends keyof TelemetryInput>(key: K, v: TelemetryInput[K]) => onChange({ ...value, [key]: v })
+  return (
+    <div className="space-y-3 border-t border-nb-850 pt-3">
+      <label className="flex cursor-pointer items-start gap-2.5 text-sm">
+        <input type="checkbox" className="mt-0.5 size-4 accent-[var(--color-accent)]" checked={value.clusterLinksProbe} onChange={(e) => set('clusterLinksProbe', e.target.checked)} data-testid={`${testIdPrefix}-links-probe`} />
+        <span>
+          <span className="text-nb-300">Probing</span>
+          <span className="block text-xs text-nb-500">Small packets in both directions: delay, jitter and loss per direction, the path’s largest packet size and route changes. Runs a pod of its own and a responder on every node. Without it only the real traffic is watched.</span>
+        </span>
+      </label>
+      {value.clusterLinksProbe && (
+        <label className="flex cursor-pointer items-start gap-2.5 text-sm">
+          <input type="checkbox" className="mt-0.5 size-4 accent-[var(--color-accent)]" checked={value.clusterLinksThroughput} onChange={(e) => set('clusterLinksThroughput', e.target.checked)} data-testid={`${testIdPrefix}-links-throughput`} />
+          <span>
+            <span className="text-nb-300">Throughput tests</span>
+            <span className="block text-xs text-nb-500">Lets this cluster run and answer iperf3 tests, which fill the link for a few seconds. They run only on the pairs you turn them on for, within a daily budget, and wait while the link is busy.</span>
+          </span>
+        </label>
+      )}
+      {value.clusterLinksProbe && value.clusterLinksThroughput && (
+        <Field label="Secret with the iperf3 credentials" hint="Required: iperf3 accepts anyone who can reach its port otherwise. The same Secret must exist in every cluster of the mesh, with the keys private.pem, public.pem, users.csv, username and password.">
+          <Input value={value.clusterLinksAuthSecret} onChange={(e) => set('clusterLinksAuthSecret', e.target.value)} placeholder="continuum-link-iperf" data-testid={`${testIdPrefix}-links-secret`} />
         </Field>
       )}
     </div>
@@ -236,6 +269,7 @@ export default function CollectStep({
                       ))}
                     </div>
                     {signals.some((s) => s.id === 'energy') && value.energy && <EnergyFields value={value} onChange={onChange} testIdPrefix={testIdPrefix} />}
+                    {signals.some((s) => s.id === 'clusterLinks') && value.clusterLinks && <ClusterLinksFields value={value} onChange={onChange} testIdPrefix={testIdPrefix} />}
                     {signals.some((s) => s.id === 'accelerators') && value.accelerators && <AcceleratorsFields value={value} onChange={onChange} testIdPrefix={testIdPrefix} />}
                   </div>
                 )

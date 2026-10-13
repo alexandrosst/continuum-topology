@@ -22,7 +22,7 @@ test('every signal in the catalog is a real TelemetryInput boolean field', () =>
   }
   assert.deepEqual(TELEMETRY_SIGNALS.map((s) => s.id).sort(), [
     'accelerators', 'applicationLogs', 'applicationMetrics', 'energy', 'kubernetesEvents', 'kubernetesState',
-    'networkLatency', 'nodeRuntime', 'resourceUsage', 'systemLogs', 'traces',
+    'clusterLinks', 'networkLatency', 'nodeRuntime', 'resourceUsage', 'systemLogs', 'traces',
   ].sort())
 })
 
@@ -320,6 +320,7 @@ test('catalog metadata: every signal has a coherent layer/modality/scope, namesp
     energy: { layer: 'infrastructure', modality: 'metrics', scope: 'node' },
     kubernetesState: { layer: 'infrastructure', modality: 'metrics', scope: 'cluster' },
     nodeRuntime: { layer: 'infrastructure', modality: 'metrics', scope: 'node' },
+    clusterLinks: { layer: 'infrastructure', modality: 'metrics', scope: 'cluster' },
     networkLatency: { layer: 'infrastructure', modality: 'metrics', scope: 'cluster' },
     applicationMetrics: { layer: 'application', modality: 'metrics', scope: 'application' },
     systemLogs: { layer: 'infrastructure', modality: 'logs', scope: 'node' },
@@ -797,7 +798,7 @@ test('every signal unchecked on an install that has telemetry is a command that 
   const cmd = withTelemetry(up, none)
   assert.notEqual(cmd, up, 'a bare upgrade changes nothing: the collectors would keep running')
   for (const s of TELEMETRY_SIGNALS) {
-    const path = { resourceUsage: 'resourceUsage.metrics', energy: 'energy.metrics', kubernetesState: 'kubernetesState.metrics', nodeRuntime: 'nodeRuntime.metrics', networkLatency: 'networkLatency.metrics', applicationMetrics: 'applicationMetrics.metrics', systemLogs: 'systemLogs.logs', kubernetesEvents: 'kubernetesEvents.logs', applicationLogs: 'applicationLogs.logs', traces: 'traces.traces', accelerators: 'accelerators.metrics' }[s.id]
+    const path = { resourceUsage: 'resourceUsage.metrics', energy: 'energy.metrics', kubernetesState: 'kubernetesState.metrics', nodeRuntime: 'nodeRuntime.metrics', networkLatency: 'networkLatency.metrics', clusterLinks: 'clusterLinks.metrics', applicationMetrics: 'applicationMetrics.metrics', systemLogs: 'systemLogs.logs', kubernetesEvents: 'kubernetesEvents.logs', applicationLogs: 'applicationLogs.logs', traces: 'traces.traces', accelerators: 'accelerators.metrics' }[s.id]
     assert.ok(cmd.includes(`--set telemetry.${path}.enabled=false`), `${s.id} must be stated off`)
   }
   // Nothing about a destination: there is none to state. The routes and the processor chain are cleared so they cannot come back unseen.
@@ -890,4 +891,58 @@ test('no command ever states an empty list as --set key=\'{}\': Helm reads that 
   assert.doesNotMatch(withTelemetry(base, { ...emptyTelemetry, hadTelemetry: true }), /='\{\}'/)
   // A list with names in it is still the readable --set form.
   assert.match(withTelemetry(base, { ...emptyTelemetry, applicationLogs: true, applicationLogsScope: { namespaces: ['a', 'b'], exclude: [], workloads: [] }, exportEndpoint: 'x:4317' }), /--set telemetry\.applicationLogs\.logs\.scope\.namespaces='\{a,b\}'/)
+})
+
+/* ---------- Cluster links ---------- */
+
+test('cluster links: the signal turns on the flow collector, and states the probe and throughput switches', () => {
+  const t: TelemetryInput = { ...emptyTelemetry, clusterLinks: true, exportEndpoint: 'otel.example.com:4317' }
+  const cmd = withTelemetry(base, t)
+  assert.match(cmd, /--set telemetry\.clusterLinks\.metrics\.enabled=true/)
+  assert.match(cmd, /--set flowObserver\.enabled=true/)
+  assert.match(cmd, /--set telemetry\.clusterLinks\.probe\.enabled=true/)
+  assert.match(cmd, /--set telemetry\.clusterLinks\.probe\.capacity\.enabled=false/)
+  assert.doesNotMatch(cmd, /auth\.existingSecret/)
+})
+
+test('cluster links: without probing there is no throughput either', () => {
+  const t: TelemetryInput = { ...emptyTelemetry, clusterLinks: true, clusterLinksProbe: false, clusterLinksThroughput: true, exportEndpoint: 'x:4317' }
+  const cmd = withTelemetry(base, t)
+  assert.match(cmd, /--set telemetry\.clusterLinks\.probe\.enabled=false/)
+  assert.match(cmd, /--set telemetry\.clusterLinks\.probe\.capacity\.enabled=false/)
+})
+
+test('cluster links: throughput tests cannot be asked for without the credential Secret', () => {
+  const t: TelemetryInput = { ...emptyTelemetry, clusterLinks: true, clusterLinksThroughput: true, exportEndpoint: 'x:4317' }
+  assert.equal(telemetryProblems(t).length, 1)
+  assert.match(telemetryProblems(t)[0], /Secret that holds the iperf3 credentials/)
+  assert.equal(withTelemetry(base, t), base, 'a command with a real problem is left unchanged')
+  assert.equal(telemetryProblems({ ...t, clusterLinksAuthSecret: 'Bad_Name' }).length, 1)
+  const ok = withTelemetry(base, { ...t, clusterLinksAuthSecret: 'continuum-link-iperf' })
+  assert.match(ok, /--set telemetry\.clusterLinks\.probe\.capacity\.enabled=true/)
+  assert.match(ok, /--set-string telemetry\.clusterLinks\.probe\.capacity\.auth\.existingSecret=continuum-link-iperf/)
+})
+
+test('cluster links: unchecked, everything about it is stated off, so the prober cannot outlive its switch', () => {
+  const t: TelemetryInput = { ...emptyTelemetry, resourceUsage: true, exportEndpoint: 'x:4317' }
+  const cmd = withTelemetry(base, t)
+  assert.match(cmd, /--set telemetry\.clusterLinks\.metrics\.enabled=false/)
+  assert.match(cmd, /--set telemetry\.clusterLinks\.probe\.enabled=false/)
+  assert.match(cmd, /--set telemetry\.clusterLinks\.probe\.capacity\.enabled=false/)
+  assert.doesNotMatch(cmd, /flowObserver/)
+  const up = 'helm upgrade continuum-agent oci://r/x --namespace continuum-system --reset-then-reuse-values'
+  const off = withTelemetry(up, { ...emptyTelemetry, hadTelemetry: true })
+  assert.match(off, /telemetry\.clusterLinks\.probe\.enabled=false/)
+})
+
+test('cluster links: an install that already has them keeps its probe and throughput choices until they are edited', () => {
+  const up = 'helm upgrade continuum-agent oci://r/x --namespace continuum-system --reset-then-reuse-values'
+  const seeded = seedTelemetryFromInstalled(['clusterLinks'], { exportEndpoint: 'gw:4317', redactionEnabled: true, resourceDetectionEnabled: false })
+  assert.equal(seeded.clusterLinks, true)
+  assert.ok(isKept(seeded, 'clusterLinksOptions'))
+  const same = withTelemetry(up, seeded)
+  assert.match(same, /--set telemetry\.clusterLinks\.metrics\.enabled=true/)
+  assert.doesNotMatch(same, /probe\.enabled|capacity/)
+  const edited = withTelemetry(up, { ...seeded, clusterLinksProbe: false })
+  assert.match(edited, /probe\.enabled=false/)
 })
