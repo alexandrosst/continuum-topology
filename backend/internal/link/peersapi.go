@@ -38,6 +38,10 @@ type PeerDoc struct {
 	ID        string   `json:"id"`
 	Name      string   `json:"name"`
 	Addresses []string `json:"addresses"`
+	// BytesSent and BytesReceived are the running totals of the traffic observed with the peer (as the passive series
+	// count them), so the prober can tell how busy the link is from two answers.
+	BytesSent     uint64 `json:"bytes_sent,omitempty"`
+	BytesReceived uint64 `json:"bytes_received,omitempty"`
 }
 
 // Doc is the peers this meter currently measures, for the prober.
@@ -49,6 +53,19 @@ func (p *Peers) Doc() PeersDoc {
 			pd.Addresses[i] = a.String()
 		}
 		d.Peers = append(d.Peers, pd)
+	}
+	return d
+}
+
+// peersDoc is the peers with the traffic seen with each.
+func (m *Meter) peersDoc() PeersDoc {
+	d := m.Peers.Doc()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range d.Peers {
+		if s := m.per[d.Peers[i].ID]; s != nil {
+			d.Peers[i].BytesSent, d.Peers[i].BytesReceived = s.bytesSent, s.bytesReceived
+		}
 	}
 	return d
 }
@@ -91,7 +108,7 @@ func (m *Meter) peersHandler() http.HandlerFunc {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
-		_ = json.NewEncoder(w).Encode(m.Peers.Doc())
+		_ = json.NewEncoder(w).Encode(m.peersDoc())
 	}
 }
 

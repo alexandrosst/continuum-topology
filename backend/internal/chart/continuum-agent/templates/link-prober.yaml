@@ -1,5 +1,7 @@
 {{- $probe := .Values.telemetry.clusterLinks.probe }}
 {{- if $probe.enabled }}
+{{- $cap := $probe.capacity }}
+{{- $auth := and $cap.enabled $cap.auth.existingSecret }}
 {{- /* The responder's configuration. The default class is rate- and disk-limited; with allowFrom the default is a class that
        refuses everything, and only the listed networks get the limited one. (Tested: a connection from outside the listed
        networks is refused at the control port.) */ -}}
@@ -48,7 +50,7 @@ spec:
         {{- include "agent.meshOptOutLabels" . | nindent 8 }}
         {{- include "agent.podLabels" . | nindent 8 }}
       annotations:
-        checksum/config: {{ toJson (dict "ports" $probe.responder.testPorts "from" $probe.responder.allowFrom) | sha256sum }}
+        checksum/config: {{ toJson (dict "ports" $probe.responder.testPorts "from" $probe.responder.allowFrom "capacity" (ternary (dict "port" $cap.port "idle" $cap.server.idleTimeout "limit" (toString $cap.server.bitrateLimit) "auth" $cap.auth.existingSecret) (dict) $cap.enabled)) | sha256sum }}
         {{- include "agent.meshOptOutAnnotations" . | nindent 8 }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
@@ -63,7 +65,7 @@ spec:
       automountServiceAccountToken: false
       hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet
-      securityContext: {{- include "agent.nonRootPodSecurityContext" (dict "root" . "fsGroup" false) | nindent 8 }}
+      securityContext: {{- include "agent.nonRootPodSecurityContext" (dict "root" . "fsGroup" (ne (toString $auth) "")) | nindent 8 }}
       containers:
         - name: owampd
           image: {{ include "agent.linkImage" . | quote }}
@@ -86,6 +88,44 @@ spec:
             - {name: config, mountPath: /etc/owamp, readOnly: true}
             - {name: data, mountPath: /data}
             - {name: run, mountPath: /run/owamp}
+        {{- if $cap.enabled }}
+        # iperf3's server, for the throughput tests: one test at a time (it refuses a second client while one is running).
+        # Same image and the same restrictions as OWAMP's; it keeps nothing.
+        - name: iperf3
+          image: {{ include "agent.linkImage" . | quote }}
+          imagePullPolicy: {{ include "agent.linkImagePullPolicy" . }}
+          command: ["/usr/local/bin/iperf3"]
+          args:
+            - "-s"
+            - "-p"
+            - {{ $cap.port | quote }}
+            - "--idle-timeout"
+            - {{ $cap.server.idleTimeout | quote }}
+            {{- if $cap.server.bitrateLimit }}
+            - "--server-bitrate-limit"
+            - {{ toString $cap.server.bitrateLimit | quote }}
+            {{- end }}
+            {{- if $auth }}
+            - "--rsa-private-key-path"
+            - "/iperf-auth/private.pem"
+            - "--authorized-users-path"
+            - "/iperf-auth/users.csv"
+            {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          ports:
+            - {name: iperf3, containerPort: {{ $cap.port }}, protocol: TCP}
+          readinessProbe:
+            tcpSocket: {port: {{ $cap.port }}}
+            periodSeconds: 30
+          resources: {{- toYaml $cap.server.resources | nindent 12 }}
+          {{- if $auth }}
+          volumeMounts:
+            - {name: iperf-auth, mountPath: /iperf-auth, readOnly: true}
+          {{- end }}
+        {{- end }}
       volumes:
         - name: config
           configMap: {name: continuum-link-responder}
@@ -95,6 +135,16 @@ spec:
           emptyDir: {sizeLimit: 512Mi}
         - name: run
           emptyDir: {sizeLimit: 1Mi}
+        {{- if $auth }}
+        # Only what a server needs of the credentials: the key it decrypts with and the users it accepts.
+        - name: iperf-auth
+          secret:
+            secretName: {{ $cap.auth.existingSecret | quote }}
+            defaultMode: 0440
+            items:
+              - {key: private.pem, path: private.pem}
+              - {key: users.csv, path: users.csv}
+        {{- end }}
       {{- with $probe.responder.tolerations }}
       tolerations: {{- toYaml . | nindent 8 }}
       {{- end }}
@@ -159,6 +209,32 @@ spec:
             - {name: CONTINUUM_LINK_INTERVAL, value: {{ $probe.interval | quote }}}
             - {name: CONTINUUM_LINK_DSCP, value: {{ $probe.dscp | quote }}}
             - {name: CONTINUUM_LINK_PATH_INTERVAL, value: {{ $probe.pathInterval | quote }}}
+            {{- if $cap.enabled }}
+            - {name: CONTINUUM_LINK_CAPACITY, value: "true"}
+            - {name: CONTINUUM_LINK_CAPACITY_PORT, value: {{ $cap.port | quote }}}
+            - {name: CONTINUUM_LINK_CAPACITY_INTERVAL, value: {{ $cap.interval | quote }}}
+            - {name: CONTINUUM_LINK_CAPACITY_DURATION, value: {{ $cap.duration | quote }}}
+            - {name: CONTINUUM_LINK_CAPACITY_OMIT, value: {{ toString $cap.omit | quote }}}
+            - {name: CONTINUUM_LINK_CAPACITY_PARALLEL, value: {{ $cap.parallel | quote }}}
+            - {name: CONTINUUM_LINK_CAPACITY_REVERSE, value: {{ $cap.reverse | quote }}}
+            - {name: CONTINUUM_LINK_CAPACITY_BIDIR, value: {{ $cap.bidir | quote }}}
+            - {name: CONTINUUM_LINK_CAPACITY_UDP_MAX, value: {{ toString $cap.udp.maxRate | quote }}}
+            - {name: CONTINUUM_LINK_CAPACITY_UDP_START, value: {{ toString $cap.udp.startRate | quote }}}
+            - {name: CONTINUUM_LINK_CAPACITY_UDP_STEP, value: {{ $cap.udp.step | quote }}}
+            - {name: CONTINUUM_LINK_CAPACITY_UDP_LOSS, value: {{ $cap.udp.lossPercent | quote }}}
+            - {name: CONTINUUM_LINK_CAPACITY_DSCP, value: {{ $cap.dscp | toStrings | join "," | quote }}}
+            - {name: CONTINUUM_LINK_CAPACITY_TCP_MAX_RATE, value: {{ toString $cap.tcpMaxRate | quote }}}
+            - {name: CONTINUUM_LINK_CAPACITY_BUDGET, value: {{ toString $cap.budget | quote }}}
+            - {name: CONTINUUM_LINK_CAPACITY_BUSY, value: {{ $cap.busyFraction | quote }}}
+            - {name: CONTINUUM_LINK_CAPACITY_SKIP_ABOVE, value: {{ toString $cap.skipAbove | quote }}}
+            - {name: CONTINUUM_LINK_CAPACITY_WINDOW, value: {{ $cap.window | quote }}}
+            {{- if $auth }}
+            - name: CONTINUUM_LINK_CAPACITY_AUTH_USER
+              valueFrom: {secretKeyRef: {name: {{ $cap.auth.existingSecret | quote }}, key: username}}
+            - {name: CONTINUUM_LINK_CAPACITY_AUTH_KEY_FILE, value: /iperf-auth/public.pem}
+            - {name: CONTINUUM_LINK_CAPACITY_AUTH_PASSWORD_FILE, value: /iperf-auth/password}
+            {{- end }}
+            {{- end }}
           ports:
             - {name: link-probe, containerPort: 9105, protocol: TCP}
           readinessProbe:
@@ -167,9 +243,22 @@ spec:
           resources: {{- toYaml $probe.resources | nindent 12 }}
           volumeMounts:
             - {name: secret, mountPath: /secret, readOnly: true}
+            {{- if $auth }}
+            - {name: iperf-auth, mountPath: /iperf-auth, readOnly: true}
+            {{- end }}
       volumes:
         - name: secret
           secret: {secretName: {{ include "agent.flowSecretName" . }}, defaultMode: 0440}
+        {{- if $auth }}
+        # Only what a client needs: the servers' public key and the password (the user name is an environment variable).
+        - name: iperf-auth
+          secret:
+            secretName: {{ $cap.auth.existingSecret | quote }}
+            defaultMode: 0440
+            items:
+              - {key: public.pem, path: public.pem}
+              - {key: password, path: password}
+        {{- end }}
       {{- with $probe.tolerations }}
       tolerations: {{- toYaml . | nindent 8 }}
       {{- end }}

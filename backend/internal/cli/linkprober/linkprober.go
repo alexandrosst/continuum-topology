@@ -33,6 +33,7 @@ func Main(args []string) int {
 	pathEvery := fs.Duration("path-interval", durEnv("CONTINUUM_LINK_PATH_INTERVAL", 10*time.Minute), "how often the route and path MTU to each peer are traced (0: never)")
 	user := fs.String("auth-user", cli.Env("CONTINUUM_LINK_AUTH_USER", ""), "OWAMP user for authenticated mode (needs --auth-key-file)")
 	keyFile := fs.String("auth-key-file", cli.Env("CONTINUUM_LINK_AUTH_KEY_FILE", ""), "file holding the OWAMP pass-phrase file for authenticated mode")
+	capFlags := addCapacityFlags(fs)
 	dscp := fs.Int("dscp", cli.Atoi(cli.Env("CONTINUUM_LINK_DSCP", "0")), "DSCP value to mark test packets with (0: unmarked)")
 	if code, done := cli.Parse(fs, args); done {
 		return code
@@ -56,7 +57,20 @@ func Main(args []string) int {
 	if *pathEvery == 0 {
 		*pathEvery = -1 // the runner treats zero as "use the default"
 	}
-	r := &link.Runner{Meter: meter, Log: log, Bin: *owping, Port: *port, Packets: *packets, Spacing: *spacing, Every: *every, User: *user, KeyFile: *keyFile, DSCP: *dscp, PathEvery: *pathEvery}
+	gate, load := link.NewGate(), &link.Load{}
+	var capacity *link.Capacity
+	if *capFlags.enabled {
+		c, err := capFlags.build()
+		if err != nil {
+			return cli.Fatal(log, err)
+		}
+		c.Meter, c.Log, c.Gate, c.Load = meter, log, gate, load
+		if err := c.Start(); err != nil {
+			return cli.Fatal(log, err)
+		}
+		capacity = c
+	}
+	r := &link.Runner{Gate: gate, Meter: meter, Log: log, Bin: *owping, Port: *port, Packets: *packets, Spacing: *spacing, Every: *every, User: *user, KeyFile: *keyFile, DSCP: *dscp, PathEvery: *pathEvery}
 	r.Defaults()
 	if err := r.Validate(); err != nil {
 		return cli.Fatal(log, err)
@@ -74,14 +88,18 @@ func Main(args []string) int {
 	defer stopServe()
 
 	log.Info("link prober starting", "version", cli.Version, "agent", *agentURL, "packets", *packets, "interval", *every)
-	go follow(ctx, log, &http.Client{Timeout: 10 * time.Second}, *agentURL, secret, peers, meter)
+	go follow(ctx, log, &http.Client{Timeout: 10 * time.Second}, *agentURL, secret, peers, meter, load)
+	if capacity != nil {
+		log.Info("link throughput tests on", "interval", capacity.Every, "budget_bytes", capacity.Budget)
+		go capacity.Run(ctx)
+	}
 	r.Run(ctx)
 	return 0
 }
 
 // follow keeps the peer list current: the agent hears about changes from the server at least once a minute, so asking
 // once a minute is as fresh as the answer can be.
-func follow(ctx context.Context, log *slog.Logger, hc *http.Client, url string, secret []byte, peers *link.Peers, meter *link.Meter) {
+func follow(ctx context.Context, log *slog.Logger, hc *http.Client, url string, secret []byte, peers *link.Peers, meter *link.Meter, load *link.Load) {
 	asked := false
 	for {
 		d, err := link.FetchPeers(ctx, hc, url, secret, time.Now())
@@ -93,6 +111,7 @@ func follow(ctx context.Context, log *slog.Logger, hc *http.Client, url string, 
 				log.Warn("link peer list", "note", why)
 			}
 			meter.Forget()
+			load.Observe(d, time.Now())
 			if !asked {
 				log.Info("link peers", "cluster", d.ClusterID, "peers", len(d.Peers))
 				asked = true

@@ -120,3 +120,19 @@ func TestAnAgentAnswerThatIsNotAPeerListIsRefused(t *testing.T) {
 		srv.Close()
 	}
 }
+
+func TestThePeersDocumentCarriesTheTrafficTotalsForTheLoadCheck(t *testing.T) {
+	p := NewPeers()
+	p.Set("cl-me", []*continuumv1.LinkPeer{peer("cl-a", "A", "10.0.0.1")})
+	m := NewMeter(p)
+	m.Observe([]*continuumv1.RawFlow{{Client: true, PeerIp: "10.0.0.1", BytesOut: 1000, BytesIn: 400, Connections: 1}})
+	d := m.peersDoc()
+	if len(d.Peers) != 1 || d.Peers[0].BytesSent != 1000 || d.Peers[0].BytesReceived != 400 {
+		t.Fatalf("%+v", d)
+	}
+	// A peer nothing was seen with has totals of zero, which the JSON leaves out.
+	p.Set("cl-me", []*continuumv1.LinkPeer{peer("cl-b", "B", "10.0.0.9")})
+	if d := m.peersDoc(); d.Peers[0].BytesSent != 0 {
+		t.Errorf("%+v", d)
+	}
+}

@@ -117,6 +117,15 @@
 {{- fail (printf "telemetry.clusterLinks.probe.responder.allowFrom entries must be CIDRs such as 203.0.113.0/24, got %q" (toString .)) -}}
 {{- end -}}
 {{- end -}}
+{{- $cap := $probe.capacity -}}
+{{- if $cap.enabled -}}
+{{- if eq (int $cap.port) (int $probe.responder.port) -}}
+{{- fail "telemetry.clusterLinks.probe.capacity.port must differ from telemetry.clusterLinks.probe.responder.port" -}}
+{{- end -}}
+{{- if and $probe.responder.allowFrom (not $cap.auth.existingSecret) -}}
+{{- fail "telemetry.clusterLinks.probe.responder.allowFrom restricts the one-way probe only; iperf3 has no allow-list, so the throughput tests (capacity.enabled) would be open to anyone who can reach capacity.port. Set telemetry.clusterLinks.probe.capacity.auth.existingSecret (iperf3's authenticated mode), or leave capacity off" -}}
+{{- end -}}
+{{- end -}}
 {{- end -}}
 {{- if and .Values.telemetry.networkLatency.metrics.enabled (not .Values.measurements.enabled) -}}
 {{- fail "telemetry.networkLatency.metrics.enabled requires measurements.enabled: true - there is nothing to re-emit otherwise" -}}

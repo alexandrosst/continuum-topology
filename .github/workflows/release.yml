@@ -97,8 +97,8 @@ jobs:
           - target: continuum
             image: continuum
             platforms: linux/amd64,linux/arm64
-          # The cluster-link prober and responder: the same binary plus OWAMP, built from pinned commits (see the `owamp` and
-          # `link` stages of backend/Dockerfile). Only pulled when telemetry.clusterLinks.probe is turned on.
+          # The cluster-link prober and responder: the same binary plus OWAMP and iperf3, built from pinned commits (see the
+          # `owamp`, `iperf3` and `link` stages of backend/Dockerfile). Only pulled when telemetry.clusterLinks.probe is turned on.
           - target: link
             image: link
             platforms: linux/amd64,linux/arm64

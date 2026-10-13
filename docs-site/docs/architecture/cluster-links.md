@@ -84,9 +84,62 @@ A path whose MTU is smaller than the sender believes, with a router that does no
 
 Limits: routers that do not send ICMP answers appear as silent hops and are left out of the route; load balancing per packet (rare) makes the route look unstable; a path whose ICMP is filtered shows a hop count and MTU only as far as it answers. IPv4 only for now: IPv6 peers are skipped without counting as failures, until it has been tested.
 
+## Throughput tests: how much a link carries
+
+The probes above send a trickle of packets, so they say whether a link is healthy but not how much it can carry or where it starts to drop. For that, the prober also runs [iperf3](https://github.com/esnet/iperf) against the other clusters, rarely and within limits. It is off by default: `telemetry.clusterLinks.probe.capacity.enabled`. Each responder pod then also runs an iperf3 server, on `capacity.port` (8862), and the prober, which already has the peer list, runs these tests per peer, in this order:
+
+- **TCP, one stream**, in each direction (`reverse: true`): what one connection reaches, the retransmits the test itself provoked, and the round-trip time under load. Compare the last with the idle round-trip time from the passive series: the difference is queueing delay (bufferbloat). The round-trip time is only available for the direction this cluster sends in.
+- **TCP, several streams** (`parallel`, 4): what the link carries when one connection is not enough. A single stream far below it points at the window or at loss on a long path; the same figure means the link is the limit.
+- **A UDP ramp**, in each direction: UDP at `udp.startRate`, doubled every `udp.step` until more than `udp.lossPercent` of the datagrams are lost or `udp.maxRate` is reached. The highest rate that stayed clean is the rate at which the link starts to drop, and each rung's loss and jitter are exported. If the ramp reached its top without loss, the link carries at least that.
+- **Optionally** a TCP test that loads both directions at once (`bidir`), and the single-stream and UDP tests repeated for other DSCP classes (`dscp: [0, 46]`), to see whether the network treats traffic classes differently.
+
+Figures are read where the data arrived, and the first seconds of each TCP test (`omit`) are left out, because they measure slow start.
+
+| Metric | Type | Meaning |
+| --- | --- | --- |
+| `continuum_link_throughput_bits_per_second` | gauge | Latest result, by `direction`, `protocol` (`tcp`, or `tcp_bidir`), `streams` and `dscp`. |
+| `continuum_link_throughput_retransmits` | gauge | TCP segments resent during that test. |
+| `continuum_link_throughput_rtt_seconds` | gauge | Mean TCP round-trip time during that test. |
+| `continuum_link_throughput_udp_loss_ratio`, `..._udp_jitter_seconds` | gauge | Loss and jitter at each `rate_bits_per_second` of the latest ramp, by `direction` and `dscp`. |
+| `continuum_link_throughput_udp_clean_bits_per_second` | gauge | The highest rate of the ramp within the loss threshold. Absent if even the lowest rate lost more. |
+| `continuum_link_throughput_udp_saturated` | gauge | 1 if a higher rate lost more, so the clean rate is near what the link carries; 0 if the ramp ended at its top without loss. |
+| `continuum_link_throughput_test_bytes_total` | counter | Bytes the tests put on the link, per direction: what they cost. |
+| `continuum_link_throughput_test_failures_total` | counter | Tests that could not be run or finished, by `reason` (`unreachable`, `refused`, `timeout`, `auth`, `other`). |
+| `continuum_link_throughput_tests_skipped_total` | counter | Tests held back, by `reason` (`link_busy`, `budget`, `server_busy`). A skipped test is tried again later. |
+| `continuum_link_throughput_budget_used_bytes`, `..._budget_bytes` | gauge | The daily byte budget and how much of it is used (no `peer` label: all peers share it). |
+| `continuum_link_throughput_last_success_timestamp_seconds` | gauge | When a test with that peer last finished. |
+
+**What keeps it safe to leave running.**
+
+- *One test at a time, anywhere.* The prober holds a single turn for the link, shared by these tests and the one-way probe, so a throughput test never runs beside a probe (it would show up as loss and jitter). A pause between tests lets the probe take its turn. A peer's iperf3 server also serves one client at a time; if every node of the peer is busy, the test waits one to three minutes and is counted as skipped, not as a failure.
+- *A byte budget.* `budget` (10Gi) is the most the tests may carry in 24 hours, all peers together, counted over a sliding window. Before a test, what it carried last time (or, the first time, a guess from `tcpMaxRate`, or 1 Gbit/s) must fit what is left; if not it waits. A test larger than the whole budget never runs, and the prober's log says so once; set `tcpMaxRate` or raise the budget. The count is in the prober's memory, so a restart starts the window again.
+- *Waiting for real traffic.* The agent already counts the bytes it observes with each peer, and the prober reads those totals once a minute. A test is held back for ten minutes while the traffic in the direction it would load is above `busyFraction` (30%) of what the last TCP test reached there, or above `skipAbove` before there is a first measurement. This sees the traffic the flow observer sees, which is the platform's own cluster-to-cluster traffic, not everything on a shared line.
+- *Time of day.* `window: "02:00-06:00"` (UTC) restricts the tests to those hours; a window may cross midnight.
+- *Slow.* Each peer goes through its whole set once per `interval` (12 hours), and the first run is a random time within the first minutes after a peer appears.
+
+**Cost.** TCP tests are as fast as the link allows, which is the point. On a 1 Gbit/s link a 10-second test carries about 1.5 GB, and the default set (single and four streams, both directions, the UDP ramp) about 6.5 GB per peer per run. That is more than the default budget for two peers twice a day: the budget then spreads the tests out over time and the skipped counter shows it. Raise `interval`, cap each stream with `tcpMaxRate`, or raise the budget to suit the link and what you pay for it.
+
+**Who may use the server.** iperf3 has no allow-list, so `responder.allowFrom` does not apply to it (the chart refuses `allowFrom` with the tests on unless authentication is set). Anyone who can reach `capacity.port` can run a test against your nodes, one at a time, which is a free way to use your bandwidth and slow the node down. Close the port to everything but the peer clusters, or use iperf3's authenticated mode: create one Secret, the same in every cluster of the mesh, and name it in `capacity.auth.existingSecret`:
+
+```sh
+openssl genrsa -out private.pem 2048
+openssl rsa -in private.pem -pubout -out public.pem
+echo -n 'a-long-random-password' > password
+echo -n 'link' > username
+echo "link,$(echo -n "{link}$(cat password)" | sha256sum | cut -d' ' -f1)" > users.csv
+kubectl -n continuum-system create secret generic iperf3-auth \
+  --from-file=private.pem --from-file=public.pem --from-file=users.csv --from-file=username --from-file=password
+```
+
+The servers mount only `private.pem` and `users.csv`, and the prober only `public.pem` and `password` (the user name is an environment variable), so the prober never holds the private key. A client without the credentials is refused at the start of the test, and shows as an `auth` failure on the other side. `capacity.server.bitrateLimit` makes a server end any test arriving faster than the limit, which also ends your own tests if you set it below what they reach.
+
+**What has to be open.** TCP and UDP `capacity.port` to every node address of the peer cluster, in both directions, besides the ports of the one-way probe. The tests try the node address of the peer that answered last time, and then the others, five at most.
+
+**What it cannot tell you.** A UDP ramp measures what gets through at a given rate, not why: loss at a rate can be the link, a policer, or the node's own receive path. The multi-stream figure is not "the" capacity if the other end's CPU is the limit. And a link shared with traffic this cluster does not observe can be busy without the wait noticing it.
+
 ## What is planned
 
 The other sources fill what these cannot see. None of them exists yet.
 
 - **A constant baseline** to each peer: ICMP round-trip time and loss with [smokeping_prober](https://github.com/SuperQ/smokeping_prober), and TCP connect time with the agent's existing measurement code, which works where ICMP is blocked.
-- **Throughput tests with iperf3**, run on a schedule that respects a byte budget, never overlaps on one target, and waits while the link is busy. They reveal the rate at which loss begins, per direction, and capacity over time.
+- **Options per pair** chosen on the server (which pairs get the baseline, which the throughput tests, and their budgets), instead of one setting for the whole cluster.

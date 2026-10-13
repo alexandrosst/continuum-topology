@@ -68,6 +68,9 @@ type Runner struct {
 	PathEvery time.Duration
 	Path      PathProbeFunc
 
+	// Gate, if set, is shared with whatever else uses the link (the throughput tests), so a test never runs beside this one.
+	Gate *Gate
+
 	mu       sync.Mutex
 	good     map[string]string // peer -> the address that last answered
 	lastPath map[string]time.Time
@@ -269,23 +272,12 @@ func (r *Runner) measure(ctx context.Context, p Peer, d Direction) {
 
 // candidates are the peer's addresses to try, the one that answered last time first. A cluster has many node addresses,
 // and not every one need run the responder, so a failure moves on to the next rather than counting as a link failure.
+// At most five: an unreachable cluster must not hold the one-at-a-time probe for minutes.
 func (r *Runner) candidates(p Peer) []string {
 	r.mu.Lock()
 	last := r.good[p.ID]
 	r.mu.Unlock()
-	var out, rest []string
-	for _, a := range p.Addresses {
-		if s := a.String(); s == last {
-			out = append(out, s)
-		} else {
-			rest = append(rest, s)
-		}
-	}
-	rand.Shuffle(len(rest), func(i, j int) { rest[i], rest[j] = rest[j], rest[i] })
-	if len(rest) > 5 {
-		rest = rest[:5] // an unreachable cluster must not hold the one-at-a-time probe for minutes
-	}
-	return append(out, rest...)
+	return orderAddresses(p, last, 5)
 }
 
 // once runs one test towards addr and returns the result, or why it failed.
@@ -309,6 +301,11 @@ func (r *Runner) once(ctx context.Context, addr string, d Direction) (OwampResul
 		args = append(args, "-D", strconv.Itoa(r.DSCP))
 	}
 	args = append(args, net.JoinHostPort(ip.String(), strconv.Itoa(r.Port)))
+	release, err := r.Gate.Acquire(ctx)
+	if err != nil {
+		return OwampResult{}, "timeout"
+	}
+	defer release()
 	cctx, cancel := context.WithTimeout(ctx, r.testTime()+10*time.Second)
 	defer cancel()
 	out, errOut, err := r.Exec(cctx, r.Bin, args...)

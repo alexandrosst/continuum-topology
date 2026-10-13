@@ -1036,6 +1036,45 @@ telemetry:
         tolerations:
           - {operator: Exists}   # peers may try any node address, so it runs on every node, tainted or not
         nodeSelector: {}
+      # Throughput tests with iperf3 (off by default). Where the probe above says whether a link is healthy, these say how much
+      # it carries and where it starts to drop: TCP with one stream and with several, in each direction, and a UDP ramp. They
+      # are heavy, so they run rarely, one at a time (never beside the probe), within a daily byte budget, and they wait while
+      # real traffic is using the link. Each responder pod then also runs an iperf3 server on `port`: open TCP and UDP `port`
+      # between paired clusters. iperf3 accepts anyone who can reach that port, so set auth.existingSecret unless a firewall
+      # already restricts it (responder.allowFrom does not apply to it, and is refused alongside this unless auth is set).
+      capacity:
+        enabled: false
+        port: 8862
+        interval: 12h      # how often each paired cluster goes through the whole set (10m or more)
+        duration: 10s      # how long each TCP test sends (3s to 60s, whole seconds)
+        omit: 2s           # start of each TCP test left out of its figures (slow start; 0s to 10s)
+        parallel: 4        # streams of the multi-stream TCP test (2 to 32; 0: not run)
+        reverse: true      # also test from the peer to this cluster
+        bidir: false       # also a TCP test that loads both directions at once
+        udp:
+          maxRate: 200M    # highest rate of the loss ramp, bits per second ("0": no ramp)
+          startRate: 5M    # lowest rate; each step doubles it
+          step: 5s         # how long each rate is held (2s to 30s, whole seconds)
+          lossPercent: 1   # the loss that ends the ramp
+        dscp: [0]          # classes to repeat the single-stream and UDP tests for: up to 4 values, 0 to 63 (0: unmarked)
+        tcpMaxRate: "0"    # cap on each TCP stream, bits per second ("0": as fast as it goes)
+        budget: 10Gi       # bytes the tests may carry per day, all peers together ("0": unlimited). A test that would not
+                            # fit what is left waits; one larger than the whole budget never runs (see the prober's log).
+        busyFraction: 0.3  # wait while real traffic uses more than this fraction of what the last test reached (0: never wait)
+        skipAbove: "0"     # wait while real traffic is above this rate, until a first test has measured the link ("0": no limit)
+        window: ""         # only run between these times of day, UTC, "HH:MM-HH:MM" ("": any time)
+        server:
+          bitrateLimit: "" # iperf3 --server-bitrate-limit, e.g. 10G: the server ends any test arriving faster ("": none)
+          idleTimeout: 60  # seconds after which a stuck test is dropped
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {memory: 64Mi}
+        auth:
+          # A Secret in this namespace for iperf3's authenticated mode. It must be the same in every cluster of the mesh. Keys:
+          #   private.pem  an RSA private key (read by the servers)      public.pem  the matching public key (probers)
+          #   users.csv    one line "USER,SHA256" where SHA256 is the hash of "{USER}PASSWORD" (servers)
+          #   username, password   the credentials (probers)
+          existingSecret: ""
 
   # domain: infrastructure
   networkLatency:

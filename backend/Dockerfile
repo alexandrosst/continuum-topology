@@ -112,12 +112,27 @@ RUN set -eu; P=/opt/owamp; \
  && make -C owamp -j"$(nproc)" && make -C owampd -j"$(nproc)" && make -C owping -j"$(nproc)" \
  && mkdir -p /out && strip -o /out/owampd owampd/owampd && strip -o /out/owping owping/owping
 
-# The cluster-link role: `continuum link-prober` (a Deployment) with owping beside it, and owampd, which the chart runs as the
-# responder DaemonSet (command: /usr/local/bin/owampd). A glibc base, because OWAMP is C; still nonroot, no shell, no package
-# manager. Everything else about the image is the `continuum` image: the same binary, the same entrypoint.
+# iperf3, for the throughput tests, from a pinned commit (the commit of the 3.21 release) for the same reason as OWAMP above. Built
+# with OpenSSL, which its authenticated mode needs, and with libiperf linked in; the result needs only the C library, libm and
+# libcrypto, which the runtime image below has. Runs on the TARGET platform, because it compiles C.
+FROM --platform=$TARGETPLATFORM debian:bookworm-slim AS iperf3
+ARG IPERF3_REF=d39cf41526626b4e5a130f115d931cd6cbdffc19
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential autoconf automake libtool git ca-certificates libssl-dev \
+ && rm -rf /var/lib/apt/lists/*
+RUN set -eu; \
+    git init -q /build/iperf3 && git -C /build/iperf3 remote add origin https://github.com/esnet/iperf.git \
+ && git -C /build/iperf3 fetch -q --depth 1 origin "${IPERF3_REF}" && git -C /build/iperf3 checkout -q FETCH_HEAD \
+ && test "$(git -C /build/iperf3 rev-parse HEAD)" = "${IPERF3_REF}"; \
+    cd /build/iperf3 && ./bootstrap.sh && ./configure --disable-shared --without-sctp && make -j"$(nproc)" \
+ && mkdir -p /out && strip -o /out/iperf3 src/iperf3
+
+# The cluster-link role: `continuum link-prober` (a Deployment) with owping and iperf3 beside it, and owampd and iperf3 -s, which
+# the chart runs as the responder DaemonSet (command: /usr/local/bin/owampd, /usr/local/bin/iperf3). A glibc base, because they
+# are C; still nonroot, no shell, no package manager. Everything else about the image is the `continuum` image: the same binary, the same entrypoint.
 FROM gcr.io/distroless/base-debian12:nonroot AS link
 COPY --from=build /out/continuum /continuum
 COPY --from=owamp /out/owping /out/owampd /usr/local/bin/
+COPY --from=iperf3 /out/iperf3 /usr/local/bin/
 ENTRYPOINT ["/continuum"]
 
 # An empty /data owned by the runtime user: the distroless image has no shell to create it, and the server needs to write there

@@ -258,6 +258,38 @@ telemetry:
         tolerations:
           - operator: Exists
         nodeSelector: {}
+      capacity:
+        enabled: false
+        port: 8862
+        interval: 12h
+        duration: 10s
+        omit: 2s
+        parallel: 4
+        reverse: true
+        bidir: false
+        udp:
+          maxRate: 200M
+          startRate: 5M
+          step: 5s
+          lossPercent: 1
+        dscp:
+          - 0
+        tcpMaxRate: '0'
+        budget: 10Gi
+        busyFraction: 0.3
+        skipAbove: '0'
+        window: ''
+        server:
+          bitrateLimit: ''
+          idleTimeout: 60
+          resources:
+            limits:
+              memory: 64Mi
+            requests:
+              cpu: 10m
+              memory: 16Mi
+        auth:
+          existingSecret: ''
   kubernetesEvents:
     logs:
       enabled: false
