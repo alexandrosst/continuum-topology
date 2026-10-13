@@ -153,32 +153,87 @@ func (h *Hub) hostWhere(ctx context.Context, match func(*continuumv1.WorkloadFac
 			continue
 		}
 		for _, w := range v.state.Workloads {
-			if !match(w) {
-				continue
+			if match(w) {
+				return clusterHost(a, v, w), true
 			}
-			host := operatorHost{ClusterID: a.ClusterID, ClusterName: a.Name, PodNodes: append([]string(nil), w.NodeNames...)}
-			for _, r := range w.Reachable {
-				host.Reachable = append(host.Reachable, reachableAddr{IP: r.Ip, Port: r.Port, Kind: r.Kind})
-			}
-			for _, n := range v.state.Nodes {
-				hn := hostNode{Name: n.Name, Ready: n.Ready, Internal: append([]string(nil), n.InternalIps...), External: append([]string(nil), n.ExternalIps...), PodCIDRs: append([]string(nil), n.PodCidrs...)}
-				if n.Probe != nil {
-					for _, a := range n.Probe.HostAddresses {
-						if len(hn.Interfaces) >= 32 { // the probe sends at most 16; a larger list is not believed
-							break
-						}
-						if p, err := netip.ParsePrefix(a.Address); err == nil {
-							hn.Interfaces = append(hn.Interfaces, hostAddr{Interface: a.Interface, Kind: a.Kind, IP: p.Addr().String()})
-						}
-					}
-				}
-				host.Nodes = append(host.Nodes, hn)
-			}
-			host.Providers = providersIn(v.state.Workloads)
-			return host, true
 		}
 	}
 	return operatorHost{}, false
+}
+
+// nodeHost finds a cluster by an address one of its nodes has: the one Kubernetes gives it or one on its own interfaces.
+// It is the way to the right cluster when no agent reports anything of the workload's namespace but the Service's load
+// balancer address is a node's own (k3s's built-in load balancer, or MetalLB announcing on a node). Like namespaceHost it
+// says which cluster and so which nodes, and nothing about the Deployment's Service. An address that no node has finds nothing.
+func (h *Hub) nodeHost(ctx context.Context, ip string) (operatorHost, bool) {
+	want, err := netip.ParseAddr(ip)
+	if err != nil {
+		return operatorHost{}, false
+	}
+	has := func(list []string) bool {
+		for _, x := range list {
+			if a, err := netip.ParseAddr(x); err == nil && a == want {
+				return true
+			}
+		}
+		return false
+	}
+	agents, err := h.C.Store.ListAgents(ctx, h.C.OrgID)
+	if err != nil {
+		return operatorHost{}, false
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, a := range agents {
+		v := h.views[a.ID]
+		if a.Status != store.StatusApproved || v == nil || v.state == nil {
+			continue
+		}
+		for _, n := range v.state.Nodes {
+			found := has(n.InternalIps) || has(n.ExternalIps)
+			if !found && n.Probe != nil {
+				for _, ha := range n.Probe.HostAddresses {
+					if p, err := netip.ParsePrefix(ha.Address); err == nil && p.Addr() == want {
+						found = true
+					}
+				}
+			}
+			if found {
+				host := clusterHost(a, v, nil)
+				host.Reachable, host.PodNodes = nil, nil
+				return host, true
+			}
+		}
+	}
+	return operatorHost{}, false
+}
+
+// clusterHost describes the cluster of an agent's view, with what the agent says about the workload w (nil when it is not
+// known). The caller holds the hub's lock.
+func clusterHost(a store.Agent, v *view, w *continuumv1.WorkloadFacts) operatorHost {
+	host := operatorHost{ClusterID: a.ClusterID, ClusterName: a.Name}
+	if w != nil {
+		host.PodNodes = append([]string(nil), w.NodeNames...)
+		for _, r := range w.Reachable {
+			host.Reachable = append(host.Reachable, reachableAddr{IP: r.Ip, Port: r.Port, Kind: r.Kind})
+		}
+	}
+	for _, n := range v.state.Nodes {
+		hn := hostNode{Name: n.Name, Ready: n.Ready, Internal: append([]string(nil), n.InternalIps...), External: append([]string(nil), n.ExternalIps...), PodCIDRs: append([]string(nil), n.PodCidrs...)}
+		if n.Probe != nil {
+			for _, ha := range n.Probe.HostAddresses {
+				if len(hn.Interfaces) >= 32 { // the probe sends at most 16; a larger list is not believed
+					break
+				}
+				if p, err := netip.ParsePrefix(ha.Address); err == nil {
+					hn.Interfaces = append(hn.Interfaces, hostAddr{Interface: ha.Interface, Kind: ha.Kind, IP: p.Addr().String()})
+				}
+			}
+		}
+		host.Nodes = append(host.Nodes, hn)
+	}
+	host.Providers = providersIn(v.state.Workloads)
+	return host
 }
 
 // Network classes an address can have.
@@ -530,6 +585,13 @@ func (a *Admin) listOperatorAddressCandidates(w http.ResponseWriter, r *http.Req
 		// The Service is read by the server, so the cluster is all that is needed from an agent: any workload of the
 		// server's namespace says which one the gateway is in.
 		host, found = a.tn(r).Hub.namespaceHost(r.Context(), namespace)
+		if !found && gateway.LoadBalancer != "" {
+			// No agent reports anything of that namespace. A load balancer address that is one of a cluster's nodes' own
+			// (k3s's built-in one, MetalLB on a node) still says which cluster the gateway is in.
+			if lbHost, _, err := net.SplitHostPort(gateway.LoadBalancer); err == nil {
+				host, found = a.tn(r).Hub.nodeHost(r.Context(), lbHost)
+			}
+		}
 	}
 	if found {
 		res.Found, res.HostClusterID, res.HostClusterName = true, host.ClusterID, host.ClusterName

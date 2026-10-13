@@ -149,6 +149,59 @@ func TestCentralNodeAddressesNeedOnlyTheClusterAndTheServicesNodePort(t *testing
 	}
 }
 
+// k3s's built-in load balancer hands the Service the node's own address, and the agent may report nothing of the server's
+// namespace (it is another namespace than its own, or not read): the node that has that address still names the cluster.
+func TestCentralClusterIsFoundByTheNodeThatHasTheLoadBalancersAddress(t *testing.T) {
+	for _, tc := range []struct {
+		name, lb string
+		found    bool
+	}{{"a node's own address", "10.0.0.7:4317", true}, {"an address no node has", "203.0.113.50:4317", false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			a := newIntentRig(t)
+			f, k := newFusion(t, a.adminRig)
+			f.Kube = &inspectingKube{fakeKube: k, svc: KubeService{Type: "LoadBalancer", Port: 4317, NodePort: 31999, LoadBalancer: tc.lb}}
+			a.a.Fusion = f
+			if _, err := f.Enable(a.ctx, a.core, "alex"); err != nil {
+				t.Fatal(err)
+			}
+			k.allReady()
+			agentID := a.agent(t)
+			v := liveView(*a.now, "edge-node-1")
+			v.state.Nodes["edge-node-1"].InternalIps = []string{"10.0.0.7"}
+			v.state.Nodes["edge-node-1"].Probe = &continuumv1.HostProbe{HostAddresses: []*continuumv1.HostAddress{
+				{Interface: "eth0", Address: "10.0.0.7/24"}, {Interface: "wt0", Kind: "wireguard", Address: "100.64.0.139/24"},
+			}}
+			// Only something in the agent's own namespace is reported, nothing in the server's.
+			v.state.Workloads = map[string]*continuumv1.WorkloadFacts{"continuum-system/Deployment/agent": {Key: "continuum-system/Deployment/agent", Namespace: "continuum-system", Kind: "Deployment", Name: "agent"}}
+			a.hub().mu.Lock()
+			a.hub().views[agentID] = v
+			a.hub().mu.Unlock()
+
+			got := a.do("GET", "/api/v1/operators/"+CentralOperatorID+"/address-candidates", nil, withCookie(a.cookie)).json(t)
+			by := map[string]map[string]any{}
+			for _, c := range got["candidates"].([]any) {
+				m := c.(map[string]any)
+				by[m["address"].(string)] = m
+			}
+			if tc.found {
+				if got["found"] != true || got["hostClusterId"] == "" {
+					t.Fatalf("the cluster that has the address: %v", got)
+				}
+				if m := by["100.64.0.139:31999"]; m == nil || m["network"] != "mesh" || m["interface"] != "wt0" {
+					t.Fatalf("the mesh address on the Service's node port: %v", got["candidates"])
+				}
+				return
+			}
+			if got["found"] == true && got["hostClusterId"] != nil && got["hostClusterId"] != "" {
+				t.Fatalf("an address no node has must not name a cluster: %v", got)
+			}
+			if by["100.64.0.139:31999"] != nil {
+				t.Fatalf("no cluster, so no node addresses: %v", got["candidates"])
+			}
+		})
+	}
+}
+
 func TestAnUnexposedGatewayComesWithTheCommandThatExposesIt(t *testing.T) {
 	a := newIntentRig(t)
 	f, k := newFusion(t, a.adminRig)
