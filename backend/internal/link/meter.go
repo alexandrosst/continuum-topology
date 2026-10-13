@@ -61,8 +61,10 @@ type Meter struct {
 	Peers *Peers
 	now   func() time.Time
 
-	mu  sync.Mutex
-	per map[string]*stats
+	mu      sync.Mutex
+	per     map[string]*stats
+	probing bool
+	probes  map[string]*probeStats
 }
 
 // NewMeter reads peers from p.
@@ -144,6 +146,22 @@ func (m *Meter) Forget() {
 			delete(m.per, id)
 		}
 	}
+	for k := range m.probes {
+		if id, _, _ := strings.Cut(k, "\x00"); !keep[id] {
+			delete(m.probes, k)
+		}
+	}
+}
+
+// EnableProbes makes the meter render the series of the active one-way probe. Without it none are written, so a cluster
+// that does not run the probe never reports a loss counter of zero that nothing measured.
+func (m *Meter) EnableProbes() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	m.probing = true
+	m.mu.Unlock()
 }
 
 func esc(s string) string {
@@ -221,6 +239,13 @@ func (m *Meter) Write(w io.Writer) {
 		if s := m.per[p.ID]; s != nil && !s.lastSeen.IsZero() {
 			fmt.Fprintf(w, "continuum_link_last_observation_timestamp_seconds{%s} %d\n", lbl(p.ID), s.lastSeen.Unix())
 		}
+	}
+	if m.probing {
+		ids := make([]string, len(peers))
+		for i, p := range peers {
+			ids[i] = p.ID
+		}
+		m.writeProbes(w, own, ids)
 	}
 }
 
