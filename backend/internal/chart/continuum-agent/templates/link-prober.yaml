@@ -158,6 +158,7 @@ spec:
             - {name: CONTINUUM_LINK_SPACING, value: {{ $probe.spacing | quote }}}
             - {name: CONTINUUM_LINK_INTERVAL, value: {{ $probe.interval | quote }}}
             - {name: CONTINUUM_LINK_DSCP, value: {{ $probe.dscp | quote }}}
+            - {name: CONTINUUM_LINK_PATH_INTERVAL, value: {{ $probe.pathInterval | quote }}}
           ports:
             - {name: link-probe, containerPort: 9105, protocol: TCP}
           readinessProbe:

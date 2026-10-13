@@ -235,6 +235,7 @@ telemetry:
       packets: 100
       spacing: 100ms
       dscp: 0
+      pathInterval: 10m
       scrapeInterval: 30s
       resources:
         limits:

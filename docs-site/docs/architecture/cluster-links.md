@@ -69,10 +69,24 @@ Every series also carries `cluster`, `peer` and `method="owamp"`.
 
 **The load.** With the defaults a link carries about ten packets a second for ten seconds, once a minute, in each direction, per paired cluster: tens of kilobytes a minute. Only one test runs at a time anywhere, so the load does not grow with the number of peers; it only takes longer to go round them. The prober refuses to start with settings that cannot fit in the interval (a run in each direction must complete inside it).
 
+## Path MTU, hops and route changes
+
+A path whose MTU is smaller than the sender believes, with a router that does not say so, produces failures that look like loss: small packets pass and large ones vanish. The prober therefore also traces the route to each paired cluster every `pathInterval` (10 minutes by default; `"0"` turns it off), in the same place as the OWAMP tests and without any privilege: it sends UDP packets with the don't-fragment bit and a rising TTL, and reads the ICMP answers from the socket error queue, as `tracepath` does. It starts from the egress interface's MTU, not from the kernel's cached value, so a change or a black hole is not hidden by an earlier discovery. It traces towards the address that answered the OWAMP test, so the route described is the one the test packets took, and it sends from a fixed source port per peer so that routers balancing by flow keep sending the probes the same way.
+
+| Metric | Type | Meaning |
+| --- | --- | --- |
+| `continuum_link_path_mtu_bytes` | gauge | The largest packet that fits the whole way, as the routers reported it. Absent until learned. |
+| `continuum_link_path_hops` | gauge | Routers crossed, when the probe reached the peer. |
+| `continuum_link_path_reached` | gauge | 1 if the last step was answered by the peer's address. A network that drops the answer shows 0 without being broken. |
+| `continuum_link_path_mtu_blackhole` | gauge | 1 if small packets passed a router that silently dropped full-size ones. |
+| `continuum_link_path_changes_total` | counter | Route changes. A new route counts only after two probes in a row saw it, so one odd probe is not a change. The route itself, and the routers' addresses, are not exported. |
+| `continuum_link_path_probe_failures_total`, `..._last_success_timestamp_seconds` | counter, gauge | Probes that could not run, and when one last did. |
+
+Limits: routers that do not send ICMP answers appear as silent hops and are left out of the route; load balancing per packet (rare) makes the route look unstable; a path whose ICMP is filtered shows a hop count and MTU only as far as it answers. IPv4 only for now: IPv6 peers are skipped without counting as failures, until it has been tested.
+
 ## What is planned
 
-The other sources fill what these two cannot see. None of them exists yet.
+The other sources fill what these cannot see. None of them exists yet.
 
 - **A constant baseline** to each peer: ICMP round-trip time and loss with [smokeping_prober](https://github.com/SuperQ/smokeping_prober), and TCP connect time with the agent's existing measurement code, which works where ICMP is blocked.
-- **Path MTU and route changes**, since an MTU mismatch produces failures that look like loss.
 - **Throughput tests with iperf3**, run on a schedule that respects a byte budget, never overlaps on one target, and waits while the link is busy. They reveal the rate at which loss begins, per direction, and capacity over time.

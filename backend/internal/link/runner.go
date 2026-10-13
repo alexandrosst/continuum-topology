@@ -63,8 +63,14 @@ type Runner struct {
 
 	Exec ExecFunc
 
-	mu   sync.Mutex
-	good map[string]string // peer -> the address that last answered
+	// PathEvery is how often the route to each peer is traced and its MTU found (default 10 minutes; negative: never). Path,
+	// if set, replaces the real prober (for tests).
+	PathEvery time.Duration
+	Path      PathProbeFunc
+
+	mu       sync.Mutex
+	good     map[string]string // peer -> the address that last answered
+	lastPath map[string]time.Time
 }
 
 // Defaults fills what was left unset.
@@ -86,6 +92,9 @@ func (r *Runner) Defaults() {
 	}
 	if r.Timeout == 0 {
 		r.Timeout = 2 * time.Second
+	}
+	if r.PathEvery == 0 {
+		r.PathEvery = 10 * time.Minute
 	}
 	if r.Exec == nil {
 		r.Exec = osExec
@@ -111,6 +120,9 @@ func (r *Runner) Validate() error {
 	}
 	if (r.User == "") != (r.KeyFile == "") {
 		return errors.New("authenticated mode needs both a user and a key file")
+	}
+	if r.PathEvery > 0 && r.PathEvery < time.Minute {
+		return fmt.Errorf("tracing the route more often than every minute is not supported, got %s", r.PathEvery)
 	}
 	if r.DSCP < 0 || r.DSCP > 63 {
 		return fmt.Errorf("invalid DSCP %d", r.DSCP)
@@ -171,7 +183,61 @@ func (r *Runner) Round(ctx context.Context) {
 			}
 			r.measure(ctx, p, d)
 		}
+		r.maybePath(ctx, p)
 	}
+}
+
+// maybePath traces the route to a peer if it is due. The target is the address that answered the OWAMP test, so the route
+// described is the one the test packets took; before any has, the peer's first address.
+func (r *Runner) maybePath(ctx context.Context, p Peer) {
+	if r.PathEvery < 0 || ctx.Err() != nil {
+		return
+	}
+	r.mu.Lock()
+	due := time.Since(r.lastPath[p.ID]) >= r.PathEvery
+	target := r.good[p.ID]
+	r.mu.Unlock()
+	if !due {
+		return
+	}
+	if target == "" && len(p.Addresses) > 0 {
+		target = p.Addresses[0].String()
+	}
+	dst, err := netip.ParseAddr(target)
+	if err != nil {
+		return
+	}
+	r.mu.Lock()
+	if r.lastPath == nil {
+		r.lastPath = map[string]time.Time{}
+	}
+	r.lastPath[p.ID] = time.Now()
+	r.mu.Unlock()
+	probe := r.Path
+	if probe == nil {
+		probe = PathProber{SrcPort: srcPortFor(p.ID)}.Probe
+	}
+	pctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	res, err := probe(pctx, dst)
+	switch {
+	case errors.Is(err, ErrPathUnsupported):
+	case err != nil:
+		r.Meter.PathFailed(p.ID)
+		r.Log.Debug("link path probe failed", "peer", p.ID, "err", err)
+	default:
+		r.Meter.ObservePath(p.ID, res)
+	}
+}
+
+// srcPortFor gives each peer its own fixed local port in 40000-49999, so that routers which balance load by flow send each
+// probe of the same peer the same way and a route change is a real one.
+func srcPortFor(peer string) int {
+	h := uint32(2166136261)
+	for i := 0; i < len(peer); i++ {
+		h = (h ^ uint32(peer[i])) * 16777619
+	}
+	return 40000 + int(h%10000)
 }
 
 func (r *Runner) measure(ctx context.Context, p Peer, d Direction) {

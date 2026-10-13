@@ -43,7 +43,8 @@ func runnerFor(t *testing.T, f *fakeOwping, addrs ...string) *Runner {
 	p.Set("cl-me", []*continuumv1.LinkPeer{peer("cl-a", "A", addrs...)})
 	m := NewMeter(p)
 	m.EnableProbes()
-	r := &Runner{Meter: m, Exec: f.exec}
+	// The real route tracer must never run in unit tests; path tests inject their own.
+	r := &Runner{Meter: m, Exec: f.exec, PathEvery: -1}
 	r.Defaults()
 	return r
 }

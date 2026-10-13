@@ -313,3 +313,51 @@ func (m *Meter) writeProbes(w io.Writer, own string, peerIDs []string) {
 		}
 	})
 }
+
+// writePaths renders the path-probe series. Called with m.mu held.
+func (m *Meter) writePaths(w io.Writer, own string, peerIDs []string) {
+	lbl := func(peer string) string { return fmt.Sprintf(`cluster="%s",peer="%s"`, esc(own), esc(peer)) }
+	head := func(name, typ, help string) { fmt.Fprintf(w, "# HELP %s %s\n# TYPE %s %s\n", name, help, name, typ) }
+	gauge := func(name, help string, get func(*PathResult) (float64, bool)) {
+		head(name, "gauge", help)
+		for _, p := range peerIDs {
+			if s := m.paths[p]; s != nil && s.last != nil {
+				if v, ok := get(s.last); ok {
+					fmt.Fprintf(w, "%s{%s} %g\n", name, lbl(p), v)
+				}
+			}
+		}
+	}
+	b2f := func(b bool) float64 {
+		if b {
+			return 1
+		}
+		return 0
+	}
+	gauge("continuum_link_path_mtu_bytes", "The largest packet that fits the whole way to the peer, as the routers on the path reported it. Absent until learned.", func(r *PathResult) (float64, bool) { return float64(r.MTU), r.MTU > 0 })
+	gauge("continuum_link_path_hops", "Routers between this cluster and the peer, when the probe reached it.", func(r *PathResult) (float64, bool) { return float64(r.Hops), r.Reached && r.Hops > 0 })
+	gauge("continuum_link_path_reached", "1 if the probe's last step was answered by the peer's address. Networks that drop the answer report 0 without being broken.", func(r *PathResult) (float64, bool) { return b2f(r.Reached), true })
+	gauge("continuum_link_path_mtu_blackhole", "1 if a router passed small packets and silently dropped full-size ones: the path's MTU is smaller than this host believes and nothing said so, so large packets vanish.", func(r *PathResult) (float64, bool) { return b2f(r.Blackhole), true })
+	head("continuum_link_path_changes_total", "counter", "Times the route to the peer changed, counted when a new route has been seen on two probes in a row. The route itself is not exported.")
+	for _, p := range peerIDs {
+		v := uint64(0)
+		if s := m.paths[p]; s != nil {
+			v = s.changes
+		}
+		fmt.Fprintf(w, "continuum_link_path_changes_total{%s} %d\n", lbl(p), v)
+	}
+	head("continuum_link_path_probe_failures_total", "counter", "Path probes that could not be run.")
+	for _, p := range peerIDs {
+		v := uint64(0)
+		if s := m.paths[p]; s != nil {
+			v = s.failed
+		}
+		fmt.Fprintf(w, "continuum_link_path_probe_failures_total{%s} %d\n", lbl(p), v)
+	}
+	head("continuum_link_path_last_success_timestamp_seconds", "gauge", "When the path to the peer was last probed. Absent until the first time.")
+	for _, p := range peerIDs {
+		if s := m.paths[p]; s != nil && !s.lastOK.IsZero() {
+			fmt.Fprintf(w, "continuum_link_path_last_success_timestamp_seconds{%s} %d\n", lbl(p), s.lastOK.Unix())
+		}
+	}
+}

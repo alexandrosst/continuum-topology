@@ -134,6 +134,7 @@ func TestTheProbeSettingsAreChecked(t *testing.T) {
 		"packets too few":   "telemetry.clusterLinks.probe.packets=2",
 		"dscp out of range": "telemetry.clusterLinks.probe.dscp=64",
 		"bad spacing":       "telemetry.clusterLinks.probe.spacing=fast",
+		"bad path interval": "telemetry.clusterLinks.probe.pathInterval=often",
 		"privileged port":   "telemetry.clusterLinks.probe.responder.port=861",
 		"one test port":     "telemetry.clusterLinks.probe.responder.testPorts=18900-18900",
 		"reversed ports":    "telemetry.clusterLinks.probe.responder.testPorts=18999-18900",
@@ -229,5 +230,24 @@ func TestThePreflightNamesTheResponderWhereHostAccessIsRefused(t *testing.T) {
 	out, err := helmTemplate(t, probeArgs("preflight.assumeEnforce=baseline")...)
 	if err == nil || !strings.Contains(out, "the link responder") {
 		t.Fatalf("a namespace that refuses host networking was not warned about the responder (err %v):\n%s", err, out)
+	}
+}
+
+func TestTheRouteTraceIntervalReachesTheProberAndCanBeSwitchedOff(t *testing.T) {
+	env := func(args ...string) map[string]string {
+		out := map[string]string{}
+		for _, e := range render(t, probeArgs(args...)...).deployments["continuum-link-prober"].Spec.Template.Spec.Containers[0].Env {
+			out[e.Name] = e.Value
+		}
+		return out
+	}
+	if got := env()["CONTINUUM_LINK_PATH_INTERVAL"]; got != "10m" {
+		t.Errorf("default = %q", got)
+	}
+	if got := env("telemetry.clusterLinks.probe.pathInterval=30m")["CONTINUUM_LINK_PATH_INTERVAL"]; got != "30m" {
+		t.Errorf("set = %q", got)
+	}
+	if got := env("telemetry.clusterLinks.probe.pathInterval=0")["CONTINUUM_LINK_PATH_INTERVAL"]; got != "0" {
+		t.Errorf("off = %q", got)
 	}
 }

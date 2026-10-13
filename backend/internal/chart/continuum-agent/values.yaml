@@ -1015,6 +1015,7 @@ telemetry:
       packets: 100      # test packets per run (10 to 10000)
       spacing: 100ms    # average time between packets (10ms to 5s). A run takes about packets x spacing.
       dscp: 0           # DSCP value to mark test packets with (0-63; 0: unmarked)
+      pathInterval: 10m # how often the route and path MTU to each paired cluster are traced (1m or more; "0": never)
       scrapeInterval: 30s
       resources:
         requests: {cpu: 20m, memory: 32Mi}

@@ -67,6 +67,7 @@ type Meter struct {
 	probing    bool
 	probesOnly bool
 	probes     map[string]*probeStats
+	paths      map[string]*pathStats
 
 	peersSecret []byte
 	peersReplay *probe.ReplayCache
@@ -151,6 +152,11 @@ func (m *Meter) Forget() {
 			delete(m.per, id)
 		}
 	}
+	for id := range m.paths {
+		if !keep[id] {
+			delete(m.paths, id)
+		}
+	}
 	for k := range m.probes {
 		if id, _, _ := strings.Cut(k, "\x00"); !keep[id] {
 			delete(m.probes, k)
@@ -196,6 +202,7 @@ func (m *Meter) Write(w io.Writer) {
 			ids[i] = p.ID
 		}
 		m.writeProbes(w, own, ids)
+		m.writePaths(w, own, ids)
 		return
 	}
 	lbl := func(peer string, extra ...string) string {
@@ -270,6 +277,7 @@ func (m *Meter) Write(w io.Writer) {
 			ids[i] = p.ID
 		}
 		m.writeProbes(w, own, ids)
+		m.writePaths(w, own, ids)
 	}
 }
 
