@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"continuum/internal/fusionapi"
-	"continuum/internal/store"
 )
 
 func lr(cluster, peer, dir string, v float64) fusionapi.LinkReading {
@@ -564,12 +563,6 @@ func TestLatestFiguresOfAnotherOrganisationThanFusionsAreNotServed(t *testing.T)
 	if doc := a.do("GET", "/api/v1/links/latest", nil, withCookie(owner)).json(t); doc["available"] != true || calls.Load() != 1 {
 		t.Errorf("the FUSION organisation: %v (%d reads)", doc, calls.Load())
 	}
-}
-
-type agentsDown struct{ store.Store }
-
-func (agentsDown) ListAgents(context.Context, string) ([]store.Agent, error) {
-	return nil, errors.New("database is locked")
 }
 
 func TestLinkReportFailsWhenTheAgentsCannotBeReadAndTheScreenSaysSo(t *testing.T) {

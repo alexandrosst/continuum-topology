@@ -183,7 +183,7 @@ export interface ProbeLatest {
 export interface LinkNote {
   cluster: string
   peer?: string
-  code: 'no-agent' | 'tier' | 'paused' | 'peer-silent' | 'shared-address' | 'no-address-of-kind' | 'private-range'
+  code: 'no-agent' | 'tier' | 'paused' | 'peer-silent' | 'shared-address' | 'no-address-of-kind' | 'private-range' | 'too-many-peers'
   text: string
 }
 
@@ -317,6 +317,8 @@ const NOTE_STEP: Record<LinkNote['code'], string> = {
   'no-agent': 'agent', tier: 'agent', paused: 'agent', 'peer-silent': 'addresses', 'shared-address': 'addresses', 'no-address-of-kind': 'addresses',
   // Only a hint for a pair that measures nothing yet: no checklist step says the same, so it is always shown.
   'private-range': 'hint',
+  // The cluster is paired with more clusters than one agent holds: no checklist step says so, so it is always shown.
+  'too-many-peers': 'hint',
 }
 
 /** The notes of a pair that its checklist does not already say: a note and an unmet step about the same cluster are one thing, shown once (as the step). */
