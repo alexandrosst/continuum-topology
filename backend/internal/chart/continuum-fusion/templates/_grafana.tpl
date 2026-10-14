@@ -21,7 +21,7 @@
 {{- dict "uid" "fusion-arriving" "title" "What is arriving" "tags" (list "ikhnos") "schemaVersion" 39 "version" 1 "editable" false "time" (dict "from" "now-3h" "to" "now") "refresh" "30s" "timepicker" (dict "refresh_intervals" (list "10s" "30s" "1m" "5m" "15m" "1h")) "panels" $panels | toPrettyJson -}}
 {{- end -}}
 
-{{/* The Ikhnos dashboards (files/dashboards/*.json: clusters and nodes, namespaces and workloads with logs, delivery health). They
+{{/* The Ikhnos dashboards (files/dashboards/*.json: clusters and nodes, namespaces and workloads with logs, delivery health, applications, categories, and the links between clusters). They
      are written against the three provisioned data sources, so a panel whose store is off is dropped here and a dashboard
      never points at a data source that does not exist. Every query in them was run against series that really arrive from the
      collectors' own output; nothing depends on a signal a sender may have left out beyond the metrics named in the query. */}}
@@ -42,5 +42,5 @@
 {{/* Which dashboard files there are, for the ConfigMap and its checksum. They all read metrics (their variables do), so none
      is rendered without Prometheus. */}}
 {{- define "fusion.dashboardNames" -}}
-{{- if .Values.prometheus.enabled -}}clusters workloads delivery applications categories{{- end -}}
+{{- if .Values.prometheus.enabled -}}clusters workloads delivery applications categories links{{- end -}}
 {{- end -}}
