@@ -120,11 +120,16 @@ func EncodeAppInfo(series []AppInfoSeries, at time.Time) []byte {
 		points = protowire.AppendTag(points, 1, protowire.BytesType) // Gauge.data_points
 		points = protowire.AppendBytes(points, dp)
 	}
+	return gaugeRequest(AppInfoMetric, "The services of each Ikhnos application, with the labels their telemetry carries.", points)
+}
+
+// gaugeRequest wraps data points (already encoded Gauge.data_points) into an OTLP/HTTP metrics request body for one gauge.
+func gaugeRequest(name, description string, points []byte) []byte {
 	var metric []byte
 	metric = protowire.AppendTag(metric, 1, protowire.BytesType) // name
-	metric = protowire.AppendString(metric, AppInfoMetric)
+	metric = protowire.AppendString(metric, name)
 	metric = protowire.AppendTag(metric, 2, protowire.BytesType) // description
-	metric = protowire.AppendString(metric, "The services of each Ikhnos application, with the labels their telemetry carries.")
+	metric = protowire.AppendString(metric, description)
 	metric = protowire.AppendTag(metric, 5, protowire.BytesType) // gauge
 	metric = protowire.AppendBytes(metric, points)
 
@@ -153,27 +158,38 @@ func keyValue(k, v string) []byte {
 // PushAppInfo writes the info series for the groups into Prometheus' OTLP receiver and reports how many series it sent, and
 // whether it left some out (more than maxAppInfoSeries).
 func (c *Client) PushAppInfo(ctx context.Context, groups []AppGroup) (sent int, truncated bool, err error) {
-	if c.Prometheus == "" {
-		return 0, false, errf(http.StatusServiceUnavailable, "%s is not configured", storeProm)
-	}
 	series, truncated := AppInfoSeriesOf(groups)
 	if len(series) == 0 {
+		if c.Prometheus == "" {
+			return 0, false, errf(http.StatusServiceUnavailable, "%s is not configured", storeProm)
+		}
 		return 0, false, nil // nothing to say; what was said before ages out
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.Prometheus+"/api/v1/otlp/v1/metrics", bytes.NewReader(EncodeAppInfo(series, c.now())))
-	if err != nil {
+	if err := c.pushOTLP(ctx, EncodeAppInfo(series, c.now()), "the application series"); err != nil {
 		return 0, truncated, err
+	}
+	return len(series), truncated, nil
+}
+
+// pushOTLP posts an OTLP/HTTP metrics request body to Prometheus' OTLP receiver. what names the series in an error.
+func (c *Client) pushOTLP(ctx context.Context, body []byte, what string) error {
+	if c.Prometheus == "" {
+		return errf(http.StatusServiceUnavailable, "%s is not configured", storeProm)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.Prometheus+"/api/v1/otlp/v1/metrics", bytes.NewReader(body))
+	if err != nil {
+		return err
 	}
 	req.Header.Set("Content-Type", "application/x-protobuf")
 	resp, err := c.http().Do(req)
 	if err != nil {
-		return 0, truncated, errf(http.StatusServiceUnavailable, "%s could not be reached: %v", storeProm, err)
+		return errf(http.StatusServiceUnavailable, "%s could not be reached: %v", storeProm, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return 0, truncated, errf(http.StatusBadGateway, "%s refused the application series (%d): %s", storeProm, resp.StatusCode, upstreamMessage(body))
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return errf(http.StatusBadGateway, "%s refused %s (%d): %s", storeProm, what, resp.StatusCode, upstreamMessage(msg))
 	}
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<16))
-	return len(series), truncated, nil
+	return nil
 }

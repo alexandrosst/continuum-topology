@@ -57,6 +57,23 @@ func (e fusionExtras) Topology(ctx context.Context) (*fusionapi.TopologyView, er
 	return v, nil
 }
 
+// ClusterNames are the clusters of the organisation, by id and name, as the topology last had them.
+func (e fusionExtras) ClusterNames(ctx context.Context) ([]fusionapi.ClusterName, error) {
+	t, err := e.tenant(ctx)
+	if err != nil {
+		return nil, err
+	}
+	doc, err := t.Hub.State(ctx)
+	if err != nil {
+		return nil, &fusionapi.Error{Status: 503, Msg: "the organisation's topology is not available"}
+	}
+	var out []fusionapi.ClusterName
+	for _, c := range doc.Topology.Clusters {
+		out = append(out, fusionapi.ClusterName{ID: c.ID, Name: c.Name})
+	}
+	return out, nil
+}
+
 // TopologyAt is the estate as the graph remembered it at a moment, and the services that were in the application then: the topology
 // of the newest recording at or before the moment, and the application's members as of the moment itself (so a service that
 // joined after that recording is a member the topology does not have). Only a store with a graph

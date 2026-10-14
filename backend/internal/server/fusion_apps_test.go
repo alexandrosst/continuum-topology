@@ -340,3 +340,30 @@ func TestAServiceBelongsToTheApplicationItsLabelsSuggestOnceThatApplicationExist
 		t.Errorf("app-other = %v", got["app-other"])
 	}
 }
+
+// namedExtras is appExtras that also knows the clusters' names.
+type namedExtras struct {
+	appExtras
+	names []fusionapi.ClusterName
+}
+
+func (e namedExtras) ClusterNames(context.Context) ([]fusionapi.ClusterName, error) {
+	return e.names, nil
+}
+
+func TestTheClusterNamesAreWrittenWithTheApplicationSeries(t *testing.T) {
+	d := newDataRig(t)
+	d.a.extras = namedExtras{appExtras{nil}, []fusionapi.ClusterName{{ID: "cl-1", Name: "sunrise"}}}
+	k := d.a.Fusion.Kube.(*fakeKube)
+	for _, n := range fusionNames {
+		k.replicas[n] = 1
+	}
+	k.allReady()
+	// no application at all: the names still go out
+	if _, _, err := d.a.PushApplicationInfo(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if !d.stores.askedAbout("prom /api/v1/otlp/v1/metrics") {
+		t.Fatalf("asked=%v", d.stores.asked)
+	}
+}

@@ -4,6 +4,8 @@ import (
 	"context"
 	"log/slog"
 	"time"
+
+	"continuum/internal/fusionapi"
 )
 
 // appInfoEvery is how often the info series of the Ikhnos applications is written into FUSION's Prometheus. Prometheus
@@ -26,11 +28,36 @@ func (a *Admin) PushApplicationInfo(ctx context.Context) (int, bool, error) {
 	if ex == nil {
 		return 0, false, nil
 	}
+	// The cluster names go with the applications: a failure of one does not keep the other from being written.
+	cerr := a.pushClusterInfo(ctx, ex)
 	groups, err := ex.Applications(ctx)
 	if err != nil {
 		return 0, false, err
 	}
-	return a.Fusion.dataClient().PushAppInfo(ctx, groups)
+	n, truncated, err := a.Fusion.dataClient().PushAppInfo(ctx, groups)
+	if err == nil {
+		err = cerr
+	}
+	return n, truncated, err
+}
+
+// clusterNamer is what an Extras that knows the clusters' names adds to it.
+type clusterNamer interface {
+	ClusterNames(ctx context.Context) ([]fusionapi.ClusterName, error)
+}
+
+// pushClusterInfo writes the cluster info series (fusionapi.ClusterInfoMetric), so Grafana can show a cluster by its name.
+func (a *Admin) pushClusterInfo(ctx context.Context, ex fusionapi.Extras) error {
+	cn, ok := ex.(clusterNamer)
+	if !ok {
+		return nil
+	}
+	names, err := cn.ClusterNames(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = a.Fusion.dataClient().PushClusterInfo(ctx, names)
+	return err
 }
 
 // RunApplicationInfo keeps the info series written until ctx ends. A failure, and a push that had to leave series out, are

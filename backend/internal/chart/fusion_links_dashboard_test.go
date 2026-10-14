@@ -45,6 +45,7 @@ type linksDashboard struct {
 		List []struct {
 			Name       string `json:"name"`
 			Definition string `json:"definition"`
+			Regex      string `json:"regex"`
 			IncludeAll bool   `json:"includeAll"`
 			AllValue   string `json:"allValue"`
 			Multi      bool   `json:"multi"`
@@ -156,6 +157,72 @@ var (
 // else would not find it, or would join on a label the series do not have.
 var linkSeriesLabels = []string{"cluster", "peer", "direction", "method", "stat", "reason", "point", "streams", "dscp", "protocol", "le", "peer_name"}
 
+// The dashboard shows a cluster by its name where the series carry only its id, by joining the info series the server writes
+// into FUSION (fusionapi.ClusterInfoMetric: one series per cluster id, with its name). The join is written the same way
+// everywhere so that it can be checked: a cluster the server has no name for must fall back to its id (the "or ignoring" half),
+// never drop out of the panel, and a cluster named twice (a rename that is still in Prometheus' lookback) must not make the
+// query fail (the topk).
+const (
+	nameOfCluster = `topk by (cluster) (1, ikhnos_cluster_info)`
+	nameOfPeer    = `label_replace(label_replace(` + nameOfCluster + `, "peer", "$1", "cluster", "(.+)"), "peer_name", "$1", "cluster_name", "(.+)")`
+)
+
+// namedForms are the ways the dashboard names clusters, each as a function of the expression it is applied to.
+var namedForms = []func(core string) string{
+	// a pair: the cluster and its peer
+	func(e string) string {
+		return `(` + e + `) * on (cluster) group_left (cluster_name) ` + nameOfCluster + ` * on (peer) group_left (peer_name) ` + nameOfPeer +
+			` or ignoring (cluster_name, peer_name) label_replace(label_replace((` + e + `), "cluster_name", "$1", "cluster", "(.+)"), "peer_name", "$1", "peer", "(.+)")`
+	},
+	// a cluster alone
+	func(e string) string {
+		return `(` + e + `) * on (cluster) group_left (cluster_name) ` + nameOfCluster +
+			` or ignoring (cluster_name) label_replace((` + e + `), "cluster_name", "$1", "cluster", "(.+)")`
+	},
+	// the list of clusters, and of peers, for a picker
+	func(e string) string {
+		return `(` + e + `) * on (cluster) group_left (cluster_name) ` + nameOfCluster +
+			` or ignoring (cluster_name) label_replace(` + e + `, "cluster_name", "$1", "cluster", "(.+)")`
+	},
+	func(e string) string {
+		return `(` + e + `) * on (peer) group_left (peer_name) ` + nameOfPeer +
+			` or ignoring (peer_name) label_replace(` + e + `, "peer_name", "$1", "peer", "(.+)")`
+	},
+}
+
+// unnamed returns the expression a named form wraps, and true; an expression that does not use the info series comes back
+// as it is. An expression that uses it in any other way is reported by ok being false.
+func unnamed(expr string) (core string, named, ok bool) {
+	if !strings.Contains(expr, "ikhnos_cluster_info") {
+		return expr, false, true
+	}
+	inner := strings.TrimSuffix(strings.TrimPrefix(expr, "query_result("), ")")
+	if !strings.HasPrefix(expr, "query_result(") {
+		inner = expr
+	}
+	if !strings.HasPrefix(inner, "(") {
+		return "", true, false
+	}
+	depth := 0
+	for i, c := range inner {
+		switch c {
+		case '(':
+			depth++
+		case ')':
+			if depth--; depth == 0 {
+				core = inner[1:i]
+				for _, form := range namedForms {
+					if form(core) == inner {
+						return core, true, true
+					}
+				}
+				return "", true, false
+			}
+		}
+	}
+	return "", true, false
+}
+
 // directional says whether a family has a direction label: grouping it without one would add the two directions together.
 func directional(family string) bool {
 	return strings.HasPrefix(family, "continuum_link_probe_") ||
@@ -223,7 +290,8 @@ func TestFusionLinksDashboardNamesOnlyWhatTheMeterExports(t *testing.T) {
 					t.Errorf("%s: groups by %q, which the link series do not carry: %s", where, l, expr)
 				}
 			}
-			if !slices.Contains(labels, "cluster") {
+			// The peer picker lists the distinct peers of the chosen clusters, so it groups by peer alone.
+			if !slices.Contains(labels, "cluster") && where != "variable peer" {
 				t.Errorf("%s: groups without cluster, which adds different clusters' series together: %s", where, expr)
 			}
 			if hasDirection && !slices.Contains(labels, "direction") && !strings.Contains(where, "Pairs probed") && !strings.Contains(where, "Clusters reporting") {
@@ -231,16 +299,34 @@ func TestFusionLinksDashboardNamesOnlyWhatTheMeterExports(t *testing.T) {
 			}
 		}
 	}
+	// core is what a check is about: the expression without the join that puts a name on the series.
+	core := func(where, expr string) (string, bool) {
+		c, named, ok := unnamed(expr)
+		if !ok {
+			t.Errorf("%s: uses ikhnos_cluster_info other than in the dashboard's one way of naming clusters: %s", where, expr)
+		}
+		return c, named
+	}
 	for _, p := range d.Panels {
 		for _, q := range p.Targets {
-			check("panel "+p.Title, q.Expr)
-			if p.Type != "stat" && p.Type != "table" && !strings.Contains(q.Legend, "{{cluster}}") {
-				t.Errorf("panel %q: legend %q does not name the cluster", p.Title, q.Legend)
+			c, named := core("panel "+p.Title, q.Expr)
+			check("panel "+p.Title, c)
+			if p.Type != "stat" && p.Type != "table" {
+				if !named {
+					t.Errorf("panel %q: %s does not put cluster names on its series", p.Title, q.Expr)
+				}
+				if strings.Contains(q.Legend, "{{cluster}}") || strings.Contains(q.Legend, "{{peer}}") || !strings.Contains(q.Legend, "{{cluster_name}}") {
+					t.Errorf("panel %q: legend %q should name the cluster (and its peer) by name, not id", p.Title, q.Legend)
+				}
 			}
 		}
 	}
 	for _, v := range d.Templating.List {
-		check("variable "+v.Name, v.Definition)
+		c, named := core("variable "+v.Name, v.Definition)
+		if !named || v.Regex == "" {
+			t.Errorf("variable %s lists ids where it could list names: %s", v.Name, v.Definition)
+		}
+		check("variable "+v.Name, c)
 	}
 	// The dashboard covers every kind of measurement, not one: a source it forgot would be a gap nobody notices.
 	for _, f := range []string{"probe_loss_ratio", "probe_up", "tcp_connect_seconds", "rtt_seconds", "retransmits_total", "path_mtu_bytes", "path_changes_total", "throughput_bits_per_second", "throughput_udp_saturated", "throughput_budget_used_bytes", "throughput_tests_skipped_total"} {

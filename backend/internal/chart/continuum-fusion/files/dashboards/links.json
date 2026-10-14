@@ -26,10 +26,10 @@
           "uid": "fusion-metrics"
         },
         "query": {
-          "query": "label_values(continuum_link_peer_info, cluster)",
+          "query": "query_result((max by (cluster) (continuum_link_peer_info)) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) or ignoring (cluster_name) label_replace(max by (cluster) (continuum_link_peer_info), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"))",
           "refId": "v-cluster"
         },
-        "definition": "label_values(continuum_link_peer_info, cluster)",
+        "definition": "query_result((max by (cluster) (continuum_link_peer_info)) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) or ignoring (cluster_name) label_replace(max by (cluster) (continuum_link_peer_info), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"))",
         "refresh": 2,
         "sort": 1,
         "multi": true,
@@ -44,7 +44,8 @@
             "$__all"
           ]
         },
-        "description": "The cluster that measured (a cluster id). The one-way probe, the connect timing and the throughput tests of a pair run from one of its clusters (the one whose id sorts first) and carry that cluster here; the traffic and route series come from both. Choose All to see both."
+        "description": "The cluster that measured, by name. The one-way probe, the connect timing and the throughput tests of a pair run from one of its clusters (the one whose id sorts first) and carry that cluster here; the traffic and route series come from both. Choose All to see both.",
+        "regex": "/cluster=\"(?<value>[^\"]+)\",\\s*cluster_name=\"(?<text>[^\"]*)\"/"
       },
       {
         "name": "peer",
@@ -55,10 +56,10 @@
           "uid": "fusion-metrics"
         },
         "query": {
-          "query": "label_values(continuum_link_peer_info{cluster=~\"$cluster\"}, peer)",
+          "query": "query_result((max by (peer) (continuum_link_peer_info{cluster=~\"$cluster\"})) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (peer_name) label_replace(max by (peer) (continuum_link_peer_info{cluster=~\"$cluster\"}), \"peer_name\", \"$1\", \"peer\", \"(.+)\"))",
           "refId": "v-peer"
         },
-        "definition": "label_values(continuum_link_peer_info{cluster=~\"$cluster\"}, peer)",
+        "definition": "query_result((max by (peer) (continuum_link_peer_info{cluster=~\"$cluster\"})) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (peer_name) label_replace(max by (peer) (continuum_link_peer_info{cluster=~\"$cluster\"}), \"peer_name\", \"$1\", \"peer\", \"(.+)\"))",
         "refresh": 2,
         "sort": 1,
         "multi": true,
@@ -73,7 +74,8 @@
             "$__all"
           ]
         },
-        "description": "The other cluster of the pair (a cluster id), among those the chosen clusters measure."
+        "description": "The other cluster of the pair, by name, among those the chosen clusters measure.",
+        "regex": "/peer=\"(?<value>[^\"]+)\",\\s*peer_name=\"(?<text>[^\"]*)\"/"
       }
     ]
   },
@@ -459,7 +461,7 @@
     {
       "id": 8,
       "type": "table",
-      "title": "Pairs and their names",
+      "title": "Pairs and their cluster ids",
       "datasource": {
         "type": "prometheus",
         "uid": "fusion-metrics"
@@ -473,7 +475,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "continuum_link_peer_info{cluster=~\"$cluster\", peer=~\"$peer\"}",
+          "expr": "(continuum_link_peer_info{cluster=~\"$cluster\", peer=~\"$peer\"}) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) or ignoring (cluster_name) label_replace(continuum_link_peer_info{cluster=~\"$cluster\", peer=~\"$peer\"}, \"cluster_name\", \"$1\", \"cluster\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
@@ -499,6 +501,7 @@
             "include": {
               "names": [
                 "cluster",
+                "cluster_name",
                 "peer",
                 "peer_name"
               ]
@@ -509,14 +512,16 @@
           "id": "organize",
           "options": {
             "indexByName": {
-              "cluster": 0,
-              "peer": 1,
-              "peer_name": 2
+              "cluster_name": 0,
+              "cluster": 1,
+              "peer_name": 2,
+              "peer": 3
             },
             "renameByName": {
+              "cluster_name": "Measured by",
               "cluster": "Measured by (cluster id)",
-              "peer": "Peer (cluster id)",
-              "peer_name": "Peer name"
+              "peer_name": "Peer",
+              "peer": "Peer (cluster id)"
             }
           }
         },
@@ -526,7 +531,7 @@
             "fields": {},
             "sort": [
               {
-                "field": "Measured by (cluster id)"
+                "field": "Measured by"
               }
             ]
           }
@@ -563,12 +568,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "max by (cluster, peer, direction) (continuum_link_probe_loss_ratio{cluster=~\"$cluster\", peer=~\"$peer\"})",
+          "expr": "(max by (cluster, peer, direction) (continuum_link_probe_loss_ratio{cluster=~\"$cluster\", peer=~\"$peer\"})) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((max by (cluster, peer, direction) (continuum_link_probe_loss_ratio{cluster=~\"$cluster\", peer=~\"$peer\"})), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{cluster}} \u2192 {{peer}} {{direction}}"
+          "legendFormat": "{{cluster_name}} → {{peer_name}} {{direction}}"
         }
       ],
       "description": "Fraction of test packets lost in the most recent run, per direction. A run that failed has no figure, so a gap means no measurement, not no loss. Amber from 1 %, red from 5 %.",
@@ -636,12 +641,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (cluster, peer, direction) (rate(continuum_link_probe_packets_lost_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])) / sum by (cluster, peer, direction) (rate(continuum_link_probe_packets_sent_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval]))",
+          "expr": "(sum by (cluster, peer, direction) (rate(continuum_link_probe_packets_lost_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])) / sum by (cluster, peer, direction) (rate(continuum_link_probe_packets_sent_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval]))) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((sum by (cluster, peer, direction) (rate(continuum_link_probe_packets_lost_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])) / sum by (cluster, peer, direction) (rate(continuum_link_probe_packets_sent_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval]))), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{cluster}} \u2192 {{peer}} {{direction}}"
+          "legendFormat": "{{cluster_name}} → {{peer_name}} {{direction}}"
         }
       ],
       "description": "rate(lost) / rate(sent) of the probe's packet counters: the loss of that direction alone, smoothed over the window instead of one run. Empty while no packets are being sent.",
@@ -709,12 +714,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "max by (cluster, peer, direction, stat) (continuum_link_probe_delay_variation_seconds{cluster=~\"$cluster\", peer=~\"$peer\"})",
+          "expr": "(max by (cluster, peer, direction, stat) (continuum_link_probe_delay_variation_seconds{cluster=~\"$cluster\", peer=~\"$peer\"})) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((max by (cluster, peer, direction, stat) (continuum_link_probe_delay_variation_seconds{cluster=~\"$cluster\", peer=~\"$peer\"})), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{cluster}} \u2192 {{peer}} {{direction}} {{stat}}"
+          "legendFormat": "{{cluster_name}} → {{peer_name}} {{direction}} {{stat}}"
         }
       ],
       "description": "How far the one-way delay rose above its minimum in the latest run (median and max). Valid whether or not the clocks agree, because a constant clock offset cancels out.",
@@ -762,12 +767,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "max by (cluster, peer, direction, stat) (continuum_link_probe_one_way_delay_seconds{cluster=~\"$cluster\", peer=~\"$peer\"})",
+          "expr": "(max by (cluster, peer, direction, stat) (continuum_link_probe_one_way_delay_seconds{cluster=~\"$cluster\", peer=~\"$peer\"})) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((max by (cluster, peer, direction, stat) (continuum_link_probe_one_way_delay_seconds{cluster=~\"$cluster\", peer=~\"$peer\"})), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{cluster}} \u2192 {{peer}} {{direction}} {{stat}}"
+          "legendFormat": "{{cluster_name}} → {{peer_name}} {{direction}} {{stat}}"
         }
       ],
       "description": "Absolute one-way delay (min, median, max) of the latest run. Shown only when both ends had a synchronised clock; otherwise the figure would include the offset between the clocks, so the series is absent and this panel is empty. Empty is not a fault: run chrony or ntpd on the nodes to get it. The panel to the right says which runs were synchronised.",
@@ -815,12 +820,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "max by (cluster, peer, direction) (continuum_link_probe_up{cluster=~\"$cluster\", peer=~\"$peer\"})",
+          "expr": "(max by (cluster, peer, direction) (continuum_link_probe_up{cluster=~\"$cluster\", peer=~\"$peer\"})) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((max by (cluster, peer, direction) (continuum_link_probe_up{cluster=~\"$cluster\", peer=~\"$peer\"})), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{cluster}} \u2192 {{peer}} {{direction}}"
+          "legendFormat": "{{cluster_name}} → {{peer_name}} {{direction}}"
         }
       ],
       "description": "Whether the latest probe run in each direction completed. Gaps are times with no data from that pair.",
@@ -895,12 +900,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "max by (cluster, peer, direction) (continuum_link_probe_clock_synchronized{cluster=~\"$cluster\", peer=~\"$peer\"})",
+          "expr": "(max by (cluster, peer, direction) (continuum_link_probe_clock_synchronized{cluster=~\"$cluster\", peer=~\"$peer\"})) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((max by (cluster, peer, direction) (continuum_link_probe_clock_synchronized{cluster=~\"$cluster\", peer=~\"$peer\"})), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{cluster}} \u2192 {{peer}} {{direction}}"
+          "legendFormat": "{{cluster_name}} → {{peer_name}} {{direction}}"
         }
       ],
       "description": "Whether both ends had a synchronised clock during the latest run, so the absolute one-way delay can be trusted. Not synchronised is not a fault, it only means the delay figure is withheld.",
@@ -975,12 +980,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "time() - max by (cluster, peer, direction) (continuum_link_probe_last_success_timestamp_seconds{cluster=~\"$cluster\", peer=~\"$peer\"})",
+          "expr": "(time() - max by (cluster, peer, direction) (continuum_link_probe_last_success_timestamp_seconds{cluster=~\"$cluster\", peer=~\"$peer\"})) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((time() - max by (cluster, peer, direction) (continuum_link_probe_last_success_timestamp_seconds{cluster=~\"$cluster\", peer=~\"$peer\"})), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{cluster}} \u2192 {{peer}} {{direction}}"
+          "legendFormat": "{{cluster_name}} → {{peer_name}} {{direction}}"
         }
       ],
       "description": "How stale each direction's probe is. The probe runs about once a minute: amber beyond 5 minutes, red beyond 15. If the prober itself stops, its series disappear after a few minutes instead and this panel goes empty, so check Probe up and the Delivery health dashboard too.",
@@ -1048,12 +1053,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (cluster, peer, direction, reason) (increase(continuum_link_probe_failures_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])) > 0",
+          "expr": "(sum by (cluster, peer, direction, reason) (increase(continuum_link_probe_failures_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])) > 0) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((sum by (cluster, peer, direction, reason) (increase(continuum_link_probe_failures_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])) > 0), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{cluster}} \u2192 {{peer}} {{direction}} {{reason}}"
+          "legendFormat": "{{cluster_name}} → {{peer_name}} {{direction}} {{reason}}"
         }
       ],
       "description": "Probe runs that could not complete, by reason (unreachable, refused, timeout, auth, other). Only reasons that occurred are drawn, so an empty panel means either no failures or nothing measuring: see Probe up.",
@@ -1116,12 +1121,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (cluster, peer) (rate(continuum_link_tcp_connect_seconds_sum{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])) / sum by (cluster, peer) (rate(continuum_link_tcp_connect_seconds_count{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval]))",
+          "expr": "(sum by (cluster, peer) (rate(continuum_link_tcp_connect_seconds_sum{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])) / sum by (cluster, peer) (rate(continuum_link_tcp_connect_seconds_count{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval]))) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((sum by (cluster, peer) (rate(continuum_link_tcp_connect_seconds_sum{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])) / sum by (cluster, peer) (rate(continuum_link_tcp_connect_seconds_count{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval]))), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{cluster}} \u2192 {{peer}}"
+          "legendFormat": "{{cluster_name}} → {{peer_name}}"
         }
       ],
       "description": "Mean time to open a TCP connection to the peer's responder, SYN to established: a round trip as the TCP stack sees it, sampled every few seconds on an idle link. The same figure the Sites screen shows. This is the idle round trip to compare the loaded one with.",
@@ -1169,30 +1174,30 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.5, sum by (cluster, peer, le) (rate(continuum_link_tcp_connect_seconds_bucket{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])))",
+          "expr": "(histogram_quantile(0.5, sum by (cluster, peer, le) (rate(continuum_link_tcp_connect_seconds_bucket{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])))) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((histogram_quantile(0.5, sum by (cluster, peer, le) (rate(continuum_link_tcp_connect_seconds_bucket{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])))), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{cluster}} \u2192 {{peer}} p50"
+          "legendFormat": "{{cluster_name}} → {{peer_name}} p50"
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.95, sum by (cluster, peer, le) (rate(continuum_link_tcp_connect_seconds_bucket{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])))",
+          "expr": "(histogram_quantile(0.95, sum by (cluster, peer, le) (rate(continuum_link_tcp_connect_seconds_bucket{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])))) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((histogram_quantile(0.95, sum by (cluster, peer, le) (rate(continuum_link_tcp_connect_seconds_bucket{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])))), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{cluster}} \u2192 {{peer}} p95"
+          "legendFormat": "{{cluster_name}} → {{peer_name}} p95"
         },
         {
           "refId": "C",
-          "expr": "histogram_quantile(0.99, sum by (cluster, peer, le) (rate(continuum_link_tcp_connect_seconds_bucket{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])))",
+          "expr": "(histogram_quantile(0.99, sum by (cluster, peer, le) (rate(continuum_link_tcp_connect_seconds_bucket{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])))) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((histogram_quantile(0.99, sum by (cluster, peer, le) (rate(continuum_link_tcp_connect_seconds_bucket{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])))), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{cluster}} \u2192 {{peer}} p99"
+          "legendFormat": "{{cluster_name}} → {{peer_name}} p99"
         }
       ],
       "description": "Percentiles of the connect time, estimated from the histogram's buckets (0.5 ms to 2.5 s), so they are exact only to the bucket width. The p99 of a quiet window rests on few samples.",
@@ -1240,21 +1245,21 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "histogram_quantile(0.5, sum by (cluster, peer, le) (rate(continuum_link_rtt_seconds_bucket{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])))",
+          "expr": "(histogram_quantile(0.5, sum by (cluster, peer, le) (rate(continuum_link_rtt_seconds_bucket{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])))) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((histogram_quantile(0.5, sum by (cluster, peer, le) (rate(continuum_link_rtt_seconds_bucket{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])))), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{cluster}} \u2192 {{peer}} p50"
+          "legendFormat": "{{cluster_name}} → {{peer_name}} p50"
         },
         {
           "refId": "B",
-          "expr": "histogram_quantile(0.95, sum by (cluster, peer, le) (rate(continuum_link_rtt_seconds_bucket{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])))",
+          "expr": "(histogram_quantile(0.95, sum by (cluster, peer, le) (rate(continuum_link_rtt_seconds_bucket{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])))) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((histogram_quantile(0.95, sum by (cluster, peer, le) (rate(continuum_link_rtt_seconds_bucket{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])))), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{cluster}} \u2192 {{peer}} p95"
+          "legendFormat": "{{cluster_name}} → {{peer_name}} p95"
         }
       ],
       "description": "Smoothed TCP round trip of connections applications actually have with the peer, as the kernel measured it. Both clusters of a pair report their own connections, so a pair has two lines here, one per measuring cluster, and an idle link has none.",
@@ -1302,12 +1307,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (cluster, peer) (rate(continuum_link_tcp_connect_failures_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])) / (sum by (cluster, peer) (rate(continuum_link_tcp_connect_failures_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])) + sum by (cluster, peer) (rate(continuum_link_tcp_connect_seconds_count{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])))",
+          "expr": "(sum by (cluster, peer) (rate(continuum_link_tcp_connect_failures_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])) / (sum by (cluster, peer) (rate(continuum_link_tcp_connect_failures_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])) + sum by (cluster, peer) (rate(continuum_link_tcp_connect_seconds_count{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])))) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((sum by (cluster, peer) (rate(continuum_link_tcp_connect_failures_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])) / (sum by (cluster, peer) (rate(continuum_link_tcp_connect_failures_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])) + sum by (cluster, peer) (rate(continuum_link_tcp_connect_seconds_count{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])))), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{cluster}} \u2192 {{peer}}"
+          "legendFormat": "{{cluster_name}} → {{peer_name}}"
         }
       ],
       "description": "Share of connect rounds in which no address of the peer answered. A round where a later address answered counts as a success. Amber from 1 %, red from 5 %. Empty while no rounds are being timed.",
@@ -1375,12 +1380,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (cluster, peer, reason) (increase(continuum_link_tcp_connect_failures_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])) > 0",
+          "expr": "(sum by (cluster, peer, reason) (increase(continuum_link_tcp_connect_failures_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])) > 0) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((sum by (cluster, peer, reason) (increase(continuum_link_tcp_connect_failures_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])) > 0), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{cluster}} \u2192 {{peer}} {{reason}}"
+          "legendFormat": "{{cluster_name}} → {{peer_name}} {{reason}}"
         }
       ],
       "description": "Connect rounds that failed, by the last attempt's reason. refused means the host is up and the responder is not; timeout means the host or the path is down. Only reasons that occurred are drawn.",
@@ -1430,12 +1435,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "time() - max by (cluster, peer) (continuum_link_tcp_connect_last_success_timestamp_seconds{cluster=~\"$cluster\", peer=~\"$peer\"})",
+          "expr": "(time() - max by (cluster, peer) (continuum_link_tcp_connect_last_success_timestamp_seconds{cluster=~\"$cluster\", peer=~\"$peer\"})) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((time() - max by (cluster, peer) (continuum_link_tcp_connect_last_success_timestamp_seconds{cluster=~\"$cluster\", peer=~\"$peer\"})), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{cluster}} \u2192 {{peer}}"
+          "legendFormat": "{{cluster_name}} → {{peer_name}}"
         }
       ],
       "description": "How long ago a timing connection last succeeded. Rounds are every 15 seconds by default: amber beyond 5 minutes, red beyond 15.",
@@ -1516,21 +1521,21 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (cluster, peer) (rate(continuum_link_sent_bytes_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval]))",
+          "expr": "(sum by (cluster, peer) (rate(continuum_link_sent_bytes_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval]))) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((sum by (cluster, peer) (rate(continuum_link_sent_bytes_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval]))), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{cluster}} \u2192 {{peer}} sent"
+          "legendFormat": "{{cluster_name}} → {{peer_name}} sent"
         },
         {
           "refId": "B",
-          "expr": "sum by (cluster, peer) (rate(continuum_link_received_bytes_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval]))",
+          "expr": "(sum by (cluster, peer) (rate(continuum_link_received_bytes_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval]))) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((sum by (cluster, peer) (rate(continuum_link_received_bytes_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval]))), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{cluster}} \u2192 {{peer}} received"
+          "legendFormat": "{{cluster_name}} → {{peer_name}} received"
         }
       ],
       "description": "Bytes this cluster sent to the peer and received from it, from observed connections. Each cluster reports its own view, so a pair appears once per measuring cluster. Absent for a peer whose traffic is seen only by a collector that cannot count bytes, which is not the same as a quiet link.",
@@ -1578,12 +1583,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (cluster, peer) (rate(continuum_link_connections_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval]))",
+          "expr": "(sum by (cluster, peer) (rate(continuum_link_connections_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval]))) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((sum by (cluster, peer) (rate(continuum_link_connections_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval]))), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{cluster}} \u2192 {{peer}}"
+          "legendFormat": "{{cluster_name}} → {{peer_name}}"
         }
       ],
       "description": "Connections observed with the peer.",
@@ -1631,21 +1636,21 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (cluster, peer) (rate(continuum_link_retransmits_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])) / sum by (cluster, peer) (rate(continuum_link_segments_sent_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval]))",
+          "expr": "(sum by (cluster, peer) (rate(continuum_link_retransmits_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])) / sum by (cluster, peer) (rate(continuum_link_segments_sent_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval]))) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((sum by (cluster, peer) (rate(continuum_link_retransmits_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])) / sum by (cluster, peer) (rate(continuum_link_segments_sent_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval]))), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{cluster}} \u2192 {{peer}} retransmits"
+          "legendFormat": "{{cluster_name}} → {{peer_name}} retransmits"
         },
         {
           "refId": "B",
-          "expr": "sum by (cluster, peer) (rate(continuum_link_rto_retransmits_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])) / sum by (cluster, peer) (rate(continuum_link_segments_sent_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval]))",
+          "expr": "(sum by (cluster, peer) (rate(continuum_link_rto_retransmits_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])) / sum by (cluster, peer) (rate(continuum_link_segments_sent_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval]))) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((sum by (cluster, peer) (rate(continuum_link_rto_retransmits_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])) / sum by (cluster, peer) (rate(continuum_link_segments_sent_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval]))), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{cluster}} \u2192 {{peer}} timer-fired"
+          "legendFormat": "{{cluster_name}} → {{peer_name}} timer-fired"
         }
       ],
       "description": "TCP segments this cluster had to resend towards the peer, as a share of those it sent: the best passive sign of packet loss on the path this cluster sends over (not the reverse). It also counts reordering and congestion. The second line counts only retransmits the timer fired for, where nothing came back at all. Empty while no segments are sent.",
@@ -1713,12 +1718,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (cluster, peer, reason) (increase(continuum_link_connection_failures_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])) > 0",
+          "expr": "(sum by (cluster, peer, reason) (increase(continuum_link_connection_failures_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])) > 0) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((sum by (cluster, peer, reason) (increase(continuum_link_connection_failures_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])) > 0), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{cluster}} \u2192 {{peer}} {{reason}}"
+          "legendFormat": "{{cluster_name}} → {{peer_name}} {{reason}}"
         }
       ],
       "description": "Connection attempts to or from the peer that never established, by the kernel's reason. Only reasons that occurred are drawn.",
@@ -1768,12 +1773,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (cluster, peer) (rate(continuum_link_receive_drops_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval]))",
+          "expr": "(sum by (cluster, peer) (rate(continuum_link_receive_drops_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval]))) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((sum by (cluster, peer) (rate(continuum_link_receive_drops_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval]))), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{cluster}} \u2192 {{peer}}"
+          "legendFormat": "{{cluster_name}} → {{peer_name}}"
         }
       ],
       "description": "Socket drops on connections with the peer. These are this cluster's application not draining its sockets, not the network.",
@@ -1821,12 +1826,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "time() - max by (cluster, peer) (continuum_link_last_observation_timestamp_seconds{cluster=~\"$cluster\", peer=~\"$peer\"})",
+          "expr": "(time() - max by (cluster, peer) (continuum_link_last_observation_timestamp_seconds{cluster=~\"$cluster\", peer=~\"$peer\"})) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((time() - max by (cluster, peer) (continuum_link_last_observation_timestamp_seconds{cluster=~\"$cluster\", peer=~\"$peer\"})), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{cluster}} \u2192 {{peer}}"
+          "legendFormat": "{{cluster_name}} → {{peer_name}}"
         }
       ],
       "description": "How long ago the flow collectors last saw traffic with the peer. A pair with no application traffic grows older without anything being wrong; the probe panels say whether the link is healthy.",
@@ -1887,12 +1892,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "min by (cluster, peer) (continuum_link_path_mtu_bytes{cluster=~\"$cluster\", peer=~\"$peer\"})",
+          "expr": "(min by (cluster, peer) (continuum_link_path_mtu_bytes{cluster=~\"$cluster\", peer=~\"$peer\"})) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((min by (cluster, peer) (continuum_link_path_mtu_bytes{cluster=~\"$cluster\", peer=~\"$peer\"})), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{cluster}} \u2192 {{peer}}"
+          "legendFormat": "{{cluster_name}} → {{peer_name}}"
         }
       ],
       "description": "The largest packet that fits the whole way to the peer, as the routers reported it. A drop below the usual 1500 (or the overlay's size) is a tunnel or a smaller link on the route. Absent until learned.",
@@ -1941,12 +1946,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "max by (cluster, peer) (continuum_link_path_mtu_blackhole{cluster=~\"$cluster\", peer=~\"$peer\"})",
+          "expr": "(max by (cluster, peer) (continuum_link_path_mtu_blackhole{cluster=~\"$cluster\", peer=~\"$peer\"})) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((max by (cluster, peer) (continuum_link_path_mtu_blackhole{cluster=~\"$cluster\", peer=~\"$peer\"})), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{cluster}} \u2192 {{peer}}"
+          "legendFormat": "{{cluster_name}} → {{peer_name}}"
         }
       ],
       "description": "1 when a router passed small packets and silently dropped full-size ones: large packets vanish and the failures look like loss.",
@@ -2021,12 +2026,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "max by (cluster, peer) (continuum_link_path_reached{cluster=~\"$cluster\", peer=~\"$peer\"})",
+          "expr": "(max by (cluster, peer) (continuum_link_path_reached{cluster=~\"$cluster\", peer=~\"$peer\"})) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((max by (cluster, peer) (continuum_link_path_reached{cluster=~\"$cluster\", peer=~\"$peer\"})), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{cluster}} \u2192 {{peer}}"
+          "legendFormat": "{{cluster_name}} → {{peer_name}}"
         }
       ],
       "description": "Whether the trace's last step was answered by the peer's address. A network that drops the answer shows not reached without being broken.",
@@ -2101,21 +2106,21 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (cluster, peer) (increase(continuum_link_path_changes_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval]))",
+          "expr": "(sum by (cluster, peer) (increase(continuum_link_path_changes_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval]))) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((sum by (cluster, peer) (increase(continuum_link_path_changes_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval]))), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{cluster}} \u2192 {{peer}} route changes"
+          "legendFormat": "{{cluster_name}} → {{peer_name}} route changes"
         },
         {
           "refId": "B",
-          "expr": "sum by (cluster, peer) (increase(continuum_link_path_probe_failures_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval]))",
+          "expr": "(sum by (cluster, peer) (increase(continuum_link_path_probe_failures_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval]))) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((sum by (cluster, peer) (increase(continuum_link_path_probe_failures_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval]))), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{cluster}} \u2192 {{peer}} traces that could not run"
+          "legendFormat": "{{cluster_name}} → {{peer_name}} traces that could not run"
         }
       ],
       "description": "Times the route to the peer changed (counted once a new route has been seen on two traces in a row) and route traces that could not be run. The route itself is not exported.",
@@ -2164,12 +2169,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "max by (cluster, peer, direction) (continuum_link_probe_path_hops{cluster=~\"$cluster\", peer=~\"$peer\"})",
+          "expr": "(max by (cluster, peer, direction) (continuum_link_probe_path_hops{cluster=~\"$cluster\", peer=~\"$peer\"})) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((max by (cluster, peer, direction) (continuum_link_probe_path_hops{cluster=~\"$cluster\", peer=~\"$peer\"})), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{cluster}} \u2192 {{peer}} {{direction}}"
+          "legendFormat": "{{cluster_name}} → {{peer_name}} {{direction}}"
         }
       ],
       "description": "Hops the one-way probe's packets crossed in each direction, from the TTL they arrived with. A step is a route change. Absent for a direction whose latest run failed.",
@@ -2231,12 +2236,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "max by (cluster, peer, direction, protocol, streams, dscp) (continuum_link_throughput_bits_per_second{cluster=~\"$cluster\", peer=~\"$peer\"})",
+          "expr": "(max by (cluster, peer, direction, protocol, streams, dscp) (continuum_link_throughput_bits_per_second{cluster=~\"$cluster\", peer=~\"$peer\"})) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((max by (cluster, peer, direction, protocol, streams, dscp) (continuum_link_throughput_bits_per_second{cluster=~\"$cluster\", peer=~\"$peer\"})), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{cluster}} \u2192 {{peer}} {{direction}} {{protocol}} {{streams}} streams, dscp {{dscp}}"
+          "legendFormat": "{{cluster_name}} → {{peer_name}} {{direction}} {{protocol}} {{streams}} streams, dscp {{dscp}}"
         }
       ],
       "description": "What the latest TCP test achieved, measured where the data arrived. The line holds the last result until the next test, which can be days away. A single stream far below several streams points at the window or at loss on a long path; tcp_bidir loads both directions at once and is not comparable with a single direction.",
@@ -2284,12 +2289,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "max by (cluster, peer, direction, dscp) (continuum_link_throughput_udp_clean_bits_per_second{cluster=~\"$cluster\", peer=~\"$peer\"})",
+          "expr": "(max by (cluster, peer, direction, dscp) (continuum_link_throughput_udp_clean_bits_per_second{cluster=~\"$cluster\", peer=~\"$peer\"})) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((max by (cluster, peer, direction, dscp) (continuum_link_throughput_udp_clean_bits_per_second{cluster=~\"$cluster\", peer=~\"$peer\"})), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{cluster}} \u2192 {{peer}} {{direction}} dscp {{dscp}}"
+          "legendFormat": "{{cluster_name}} → {{peer_name}} {{direction}} dscp {{dscp}}"
         }
       ],
       "description": "The highest UDP rate of the latest loss ramp that stayed within the loss threshold. Absent when even the lowest rate lost more. Read it with the panel to the right: saturated means this is close to what the link carries.",
@@ -2337,12 +2342,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "max by (cluster, peer, direction, dscp) (continuum_link_throughput_udp_saturated{cluster=~\"$cluster\", peer=~\"$peer\"})",
+          "expr": "(max by (cluster, peer, direction, dscp) (continuum_link_throughput_udp_saturated{cluster=~\"$cluster\", peer=~\"$peer\"})) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((max by (cluster, peer, direction, dscp) (continuum_link_throughput_udp_saturated{cluster=~\"$cluster\", peer=~\"$peer\"})), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{cluster}} \u2192 {{peer}} {{direction}} dscp {{dscp}}"
+          "legendFormat": "{{cluster_name}} → {{peer_name}} {{direction}} dscp {{dscp}}"
         }
       ],
       "description": "Saturated: a higher rate lost more than the threshold, so the clean rate is near what the link carries. Reached the top: the ramp ended at its highest rate without exceeding the threshold, so the link carries at least that.",
@@ -2417,12 +2422,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "max by (cluster, peer, direction, dscp, point) (continuum_link_throughput_udp_loss_ratio{cluster=~\"$cluster\", peer=~\"$peer\"})",
+          "expr": "(max by (cluster, peer, direction, dscp, point) (continuum_link_throughput_udp_loss_ratio{cluster=~\"$cluster\", peer=~\"$peer\"})) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((max by (cluster, peer, direction, dscp, point) (continuum_link_throughput_udp_loss_ratio{cluster=~\"$cluster\", peer=~\"$peer\"})), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{cluster}} \u2192 {{peer}} {{direction}} dscp {{dscp}} {{point}}"
+          "legendFormat": "{{cluster_name}} → {{peer_name}} {{direction}} dscp {{dscp}} {{point}}"
         }
       ],
       "description": "Fraction of datagrams lost at the highest clean rate (clean) and at the first rate over the threshold (first_loss, absent if the ramp never exceeded it).",
@@ -2470,21 +2475,21 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "max by (cluster, peer, direction, streams) (continuum_link_throughput_rtt_seconds{cluster=~\"$cluster\", peer=~\"$peer\", protocol=\"tcp\", dscp=\"0\"})",
+          "expr": "(max by (cluster, peer, direction, streams) (continuum_link_throughput_rtt_seconds{cluster=~\"$cluster\", peer=~\"$peer\", protocol=\"tcp\", dscp=\"0\"})) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((max by (cluster, peer, direction, streams) (continuum_link_throughput_rtt_seconds{cluster=~\"$cluster\", peer=~\"$peer\", protocol=\"tcp\", dscp=\"0\"})), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{cluster}} \u2192 {{peer}} {{direction}} under load, {{streams}} streams"
+          "legendFormat": "{{cluster_name}} → {{peer_name}} {{direction}} under load, {{streams}} streams"
         },
         {
           "refId": "B",
-          "expr": "sum by (cluster, peer) (rate(continuum_link_tcp_connect_seconds_sum{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])) / sum by (cluster, peer) (rate(continuum_link_tcp_connect_seconds_count{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval]))",
+          "expr": "(sum by (cluster, peer) (rate(continuum_link_tcp_connect_seconds_sum{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])) / sum by (cluster, peer) (rate(continuum_link_tcp_connect_seconds_count{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval]))) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((sum by (cluster, peer) (rate(continuum_link_tcp_connect_seconds_sum{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])) / sum by (cluster, peer) (rate(continuum_link_tcp_connect_seconds_count{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval]))), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{cluster}} \u2192 {{peer}} idle"
+          "legendFormat": "{{cluster_name}} → {{peer_name}} idle"
         }
       ],
       "description": "Mean TCP round trip during the latest test (only for the direction the testing cluster sends in), next to the idle connect time. The difference is queueing delay on the link (bufferbloat).",
@@ -2532,39 +2537,39 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "max by (cluster) (continuum_link_throughput_budget_used_bytes{cluster=~\"$cluster\"})",
+          "expr": "(max by (cluster) (continuum_link_throughput_budget_used_bytes{cluster=~\"$cluster\"})) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) or ignoring (cluster_name) label_replace((max by (cluster) (continuum_link_throughput_budget_used_bytes{cluster=~\"$cluster\"})), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{cluster}} all peers, used"
+          "legendFormat": "{{cluster_name}} all peers, used"
         },
         {
           "refId": "B",
-          "expr": "max by (cluster) (continuum_link_throughput_budget_bytes{cluster=~\"$cluster\"})",
+          "expr": "(max by (cluster) (continuum_link_throughput_budget_bytes{cluster=~\"$cluster\"})) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) or ignoring (cluster_name) label_replace((max by (cluster) (continuum_link_throughput_budget_bytes{cluster=~\"$cluster\"})), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{cluster}} all peers, budget"
+          "legendFormat": "{{cluster_name}} all peers, budget"
         },
         {
           "refId": "C",
-          "expr": "max by (cluster, peer) (continuum_link_throughput_pair_budget_used_bytes{cluster=~\"$cluster\", peer=~\"$peer\"})",
+          "expr": "(max by (cluster, peer) (continuum_link_throughput_pair_budget_used_bytes{cluster=~\"$cluster\", peer=~\"$peer\"})) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((max by (cluster, peer) (continuum_link_throughput_pair_budget_used_bytes{cluster=~\"$cluster\", peer=~\"$peer\"})), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{cluster}} \u2192 {{peer}} pair, used"
+          "legendFormat": "{{cluster_name}} → {{peer_name}} pair, used"
         },
         {
           "refId": "D",
-          "expr": "max by (cluster, peer) (continuum_link_throughput_pair_budget_bytes{cluster=~\"$cluster\", peer=~\"$peer\"})",
+          "expr": "(max by (cluster, peer) (continuum_link_throughput_pair_budget_bytes{cluster=~\"$cluster\", peer=~\"$peer\"})) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((max by (cluster, peer) (continuum_link_throughput_pair_budget_bytes{cluster=~\"$cluster\", peer=~\"$peer\"})), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{cluster}} \u2192 {{peer}} pair, budget"
+          "legendFormat": "{{cluster_name}} → {{peer_name}} pair, budget"
         }
       ],
       "description": "Bytes the tests carried in the budget window against the budget: for all peers together (no Peer filter) and for a pair with a budget of its own. A budget of 0 means none. When used reaches the budget, tests wait and show as skipped.",
@@ -2612,12 +2617,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (cluster, peer, reason) (increase(continuum_link_throughput_tests_skipped_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])) > 0",
+          "expr": "(sum by (cluster, peer, reason) (increase(continuum_link_throughput_tests_skipped_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])) > 0) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((sum by (cluster, peer, reason) (increase(continuum_link_throughput_tests_skipped_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])) > 0), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{cluster}} \u2192 {{peer}} {{reason}}"
+          "legendFormat": "{{cluster_name}} → {{peer_name}} {{reason}}"
         }
       ],
       "description": "Tests held back: link_busy (real traffic on the link), budget (used up) or server_busy (the peer's server was serving another test). A skipped test is tried again later.",
@@ -2667,12 +2672,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (cluster, peer, reason) (increase(continuum_link_throughput_test_failures_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])) > 0",
+          "expr": "(sum by (cluster, peer, reason) (increase(continuum_link_throughput_test_failures_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])) > 0) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((sum by (cluster, peer, reason) (increase(continuum_link_throughput_test_failures_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])) > 0), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{cluster}} \u2192 {{peer}} {{reason}}"
+          "legendFormat": "{{cluster_name}} → {{peer_name}} {{reason}}"
         }
       ],
       "description": "Tests that could not be run or finished (unreachable, refused, timeout, auth, other). auth means the iperf3 credentials differ between the clusters.",
@@ -2722,12 +2727,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (cluster, peer, direction) (increase(continuum_link_throughput_test_bytes_total{cluster=~\"$cluster\", peer=~\"$peer\"}[1h]))",
+          "expr": "(sum by (cluster, peer, direction) (increase(continuum_link_throughput_test_bytes_total{cluster=~\"$cluster\", peer=~\"$peer\"}[1h]))) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((sum by (cluster, peer, direction) (increase(continuum_link_throughput_test_bytes_total{cluster=~\"$cluster\", peer=~\"$peer\"}[1h]))), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{cluster}} \u2192 {{peer}} {{direction}}"
+          "legendFormat": "{{cluster_name}} → {{peer_name}} {{direction}}"
         }
       ],
       "description": "What the throughput tests cost: bytes they carried in each direction, per hour. Tests are rare, so this is spikes.",
@@ -2776,12 +2781,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "time() - max by (cluster, peer) (continuum_link_throughput_last_success_timestamp_seconds{cluster=~\"$cluster\", peer=~\"$peer\"})",
+          "expr": "(time() - max by (cluster, peer) (continuum_link_throughput_last_success_timestamp_seconds{cluster=~\"$cluster\", peer=~\"$peer\"})) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((time() - max by (cluster, peer) (continuum_link_throughput_last_success_timestamp_seconds{cluster=~\"$cluster\", peer=~\"$peer\"})), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{cluster}} \u2192 {{peer}}"
+          "legendFormat": "{{cluster_name}} → {{peer_name}}"
         }
       ],
       "description": "How long ago a test with the peer last finished. The interval between tests is set per pair, from 10 minutes to 7 days, so a long time is normal when the interval is long.",

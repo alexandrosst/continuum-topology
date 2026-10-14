@@ -74,10 +74,12 @@ func (f MetricFilter) matchers(s Scope) ([]string, error) {
 	if cm := metricNameMatcher(f.Categories); cm != "" {
 		m = append(m, cm)
 	}
-	if f.Name != AppInfoMetric {
+	if f.Name != AppInfoMetric && f.Name != ClusterInfoMetric {
 		// The series the server writes to say which services are in which application is not telemetry: it would make every
 		// service of an application look like it reports a metric of that name.
 		m = append(m, lblName+"!="+quote(AppInfoMetric))
+		// Nor is the series that gives each cluster its name for Grafana (see ClusterInfoMetric).
+		m = append(m, lblName+"!="+quote(ClusterInfoMetric))
 	}
 	eq, err := eqMatchers([]eqFilter{
 		{"service", lblService, f.Service}, {"namespace", lblNamespace, f.Namespace}, {"pod", lblPod, f.Pod},
