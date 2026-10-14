@@ -251,7 +251,7 @@ telemetry:
       tolerations: []
       responder:
         port: 8861
-        testPorts: 18900-18999
+        testPorts: 18900-18919
         allowFrom: []
         resources:
           limits:

@@ -296,7 +296,7 @@ func TestTheAgentIsToldTheProbersPorts(t *testing.T) {
 		}
 		return env
 	}
-	if got := agentEnv(render(t, probeArgs()...))["CONTINUUM_LINK_PROBER_PORTS"]; got != "8861,18900-18999" {
+	if got := agentEnv(render(t, probeArgs()...))["CONTINUUM_LINK_PROBER_PORTS"]; got != "8861,18900-18919" {
 		t.Errorf("probe on: ports = %q", got)
 	}
 	r := render(t, capArgs("telemetry.clusterLinks.probe.responder.port=9100", "telemetry.clusterLinks.probe.responder.testPorts=20000-20009", "telemetry.clusterLinks.probe.capacity.port=9000")...)

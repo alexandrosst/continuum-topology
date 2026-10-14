@@ -1039,7 +1039,7 @@ telemetry:
       tolerations: []
       responder:
         port: 8861             # OWAMP control (TCP)
-        testPorts: 18900-18999 # test packets (UDP); at least 2 ports, one is used per running test
+        testPorts: 18900-18919 # test packets (UDP); at least 2 ports, one is used per running test (20 serve a mesh of ten clusters)
         # Who may ask this cluster's responder for a test: CIDRs of the peers' nodes, as this cluster sees them (their
         # addresses after NAT, if any). Empty: anyone who can reach the port may, within a rate and disk limit. The
         # responder never reports anything about this cluster, but an open port is an open port: restrict it here, or
