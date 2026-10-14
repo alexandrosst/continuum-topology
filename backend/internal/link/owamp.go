@@ -360,7 +360,6 @@ func (m *Meter) writePaths(w io.Writer, own string, peerIDs []string) {
 		return 0
 	}
 	gauge("continuum_link_path_mtu_bytes", "The largest packet that fits the whole way to the peer, as the routers on the path reported it. Absent until learned.", func(r *PathResult) (float64, bool) { return float64(r.MTU), r.MTU > 0 })
-	gauge("continuum_link_path_hops", "Routers between this cluster and the peer, when the probe reached it.", func(r *PathResult) (float64, bool) { return float64(r.Hops), r.Reached && r.Hops > 0 })
 	gauge("continuum_link_path_reached", "1 if the probe's last step was answered by the peer's address. Networks that drop the answer report 0 without being broken.", func(r *PathResult) (float64, bool) { return b2f(r.Reached), true })
 	gauge("continuum_link_path_mtu_blackhole", "1 if a router passed small packets and silently dropped full-size ones: the path's MTU is smaller than this host believes and nothing said so, so large packets vanish.", func(r *PathResult) (float64, bool) { return b2f(r.Blackhole), true })
 	head("continuum_link_path_changes_total", "counter", "Times the route to the peer changed, counted when a new route has been seen on two probes in a row. The route itself is not exported.")

@@ -118,7 +118,6 @@ func TestMeterCountsPerPeerAndIgnoresEveryoneElse(t *testing.T) {
 		`continuum_link_rtt_seconds_bucket{cluster="cl-me",peer="cl-b",le="0.5"}`:                "1",
 		`continuum_link_rtt_seconds_bucket{cluster="cl-me",peer="cl-b",le="+Inf"}`:               "1",
 		`continuum_link_jitter_seconds_count{cluster="cl-me",peer="cl-a"}`:                       "1",
-		`continuum_link_handshake_seconds_count{cluster="cl-me",peer="cl-a"}`:                    "1",
 		`continuum_link_peer_info{cluster="cl-me",peer="cl-a",peer_name="Alpha"}`:                "1",
 	}
 	for k, v := range want {

@@ -145,6 +145,24 @@ func TestClockErrorIsShownOnlyWhenKnownAndTheClocksAgree(t *testing.T) {
 	}
 }
 
+func TestHopsAreExportedOnceFromTheTTLOfTheOneWayProbe(t *testing.T) {
+	m := probeMeter(t)
+	m.EnableProbes()
+	m.ObserveProbe("cl-a", Forward, OwampResult{Sent: 10, Hops: 9})
+	m.ObserveProbe("cl-a", Reverse, OwampResult{Sent: 10, Hops: 11})
+	m.ObservePath("cl-a", PathResult{MTU: 1500, Hops: 4, Reached: true, Route: "r"})
+	got := render(m)
+	L := func(d string) string {
+		return `continuum_link_probe_path_hops{cluster="cl-me",peer="cl-a",direction="` + d + `",method="owamp"}`
+	}
+	if got[L("forward")] != "9" || got[L("reverse")] != "11" {
+		t.Errorf("hops per direction: %q / %q", got[L("forward")], got[L("reverse")])
+	}
+	if hasKey(got, "continuum_link_path_hops") {
+		t.Error("the path probe still exports its own hop count")
+	}
+}
+
 func TestAFailedRunWithdrawsTheReadingsOfTheLastGoodOne(t *testing.T) {
 	m := probeMeter(t)
 	m.EnableProbes()

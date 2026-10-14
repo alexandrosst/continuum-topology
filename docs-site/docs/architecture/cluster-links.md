@@ -45,20 +45,20 @@ An administrator manages the pairs on the Sites page, in the **Cluster links** s
 
 ## What exists today: passive link metrics
 
-The first source is the node flow collector that was already there. Its eBPF programs read the kernel's own per-connection counters: round-trip time, jitter, retransmits, connection time and failed attempts. The agent labels each report row by the peer cluster its far end belongs to, and keeps running totals per cluster pair. Nothing about addresses, ports or workloads is kept, so the number of series depends only on how many peers are configured.
+The first source is the node flow collector that was already there. Its eBPF programs read the kernel's own per-connection counters: round-trip time, jitter, retransmits, connection time and failed attempts. The agent labels each report row by the peer cluster its far end belongs to, and keeps running totals per cluster pair. Nothing about addresses, ports or workloads is kept. The number of series is fixed per peer, so it grows with the number of peers and with nothing that traffic or the network does: not with connections, addresses or nodes, ports, or the rates the UDP ramp steps through. The only settings that change what one peer costs are the ones that add a measurement: `dscp` classes and the stream counts of the throughput tests (about 26 series each, see [Series per peer](#series-per-peer)), and whether probing and the throughput tests are on at all.
 
 The agent serves them at `/metrics` on port 9104 and the cluster collector scrapes that, on the infrastructure metrics pipeline that `telemetry.scope` never filters. They are switched on with `telemetry.clusterLinks.metrics.enabled`, which needs `flowObserver.enabled`; the chart refuses to render otherwise. Every series carries `cluster` (this cluster's id) and `peer` (the other cluster's id).
 
 | Metric | Type | Meaning |
 | --- | --- | --- |
 | `continuum_link_peer_info` | gauge | One per peer, with `peer_name` for display. |
-| `continuum_link_connections_total`, `continuum_link_flows_total` | counter | Connections observed with the peer. |
+| `continuum_link_connections_total` | counter | Connections observed with the peer. |
 | `continuum_link_sent_bytes_total`, `continuum_link_received_bytes_total` | counter | Bytes this cluster sent to, and received from, the peer. |
 | `continuum_link_segments_sent_total` | counter | TCP segments sent towards the peer, the denominator for the loss ratio. |
 | `continuum_link_retransmits_total`, `continuum_link_rto_retransmits_total` | counter | Segments resent. The best passive sign of packet loss; the second counts those where nothing came back at all. |
 | `continuum_link_receive_drops_total` | counter | Socket-level drops on this side: the application not draining, not the network. |
 | `continuum_link_connection_failures_total` | counter | Failed connection attempts, by `reason` (`refused`, `timeout`, `reset`, `unreachable`, `other`). |
-| `continuum_link_rtt_seconds`, `continuum_link_jitter_seconds`, `continuum_link_handshake_seconds` | histogram | Round-trip time, its mean deviation, and time to establish a connection. One sample per connection group per report window. |
+| `continuum_link_rtt_seconds`, `continuum_link_jitter_seconds` | histogram | Round-trip time and its mean deviation. One sample per connection group per report window. The time to establish a connection is not exported here: `continuum_link_tcp_connect_seconds` (below) measures the same thing, SYN to established, on a fixed schedule. |
 | `continuum_link_last_observation_timestamp_seconds` | gauge | When traffic with the peer was last seen. |
 
 The loss ratio to alert on is `rate(retransmits_total) / rate(segments_sent_total)`, which is the loss on the path this cluster sends over, not the reverse. A configured peer with no traffic reports zeros, and `last_observation_timestamp_seconds` says how long it has been quiet.
@@ -83,7 +83,7 @@ Both are kept out of the agent's image and pod on purpose: the agent has no meas
 | `continuum_link_probe_delay_variation_seconds` | gauge | How far the delay rose above its minimum (`stat` is `median` or `max`). |
 | `continuum_link_probe_one_way_delay_seconds` | gauge | Absolute delay (`stat` is `min`, `median` or `max`). **Present only when both clocks were synchronised.** |
 | `continuum_link_probe_clock_synchronized`, `..._clock_error_seconds` | gauge | Whether the delay above can be trusted, and the error bound the tool derived (present only when the clocks were synchronised). |
-| `continuum_link_probe_path_hops` | gauge | Routers crossed, from the TTL the packets arrived with. |
+| `continuum_link_probe_path_hops` | gauge | Routers crossed by the test packets, from the TTL they arrived with, per `direction`. The only hop count exported; the path probe below does not export its own. |
 | `continuum_link_probe_failures_total` | counter | Runs that could not complete, by `reason` (`unreachable`, `refused`, `timeout`, `auth`, `other`). |
 | `continuum_link_probe_up` | gauge | 1 if the latest run in that direction completed, 0 if it failed. After a failed run the per-run gauges above are absent rather than showing the last good run. |
 | `continuum_link_probe_last_success_timestamp_seconds` | gauge | When a run in that direction last finished. |
@@ -96,20 +96,19 @@ Every series also carries `cluster`, `peer` and `method="owamp"`.
 
 **The load.** With the defaults a link carries about ten packets a second for ten seconds, once a minute, in each direction, per paired cluster: tens of kilobytes a minute. Only one test runs at a time anywhere, so the load does not grow with the number of peers; it only takes longer to go round them. The prober refuses to start with settings that cannot fit in the interval (a run in each direction must complete inside it).
 
-## Path MTU, hops and route changes
+## Path MTU and route changes
 
 A path whose MTU is smaller than the sender believes, with a router that does not say so, produces failures that look like loss: small packets pass and large ones vanish. The prober therefore also traces the route to each paired cluster every `pathInterval` (10 minutes by default; `"0"` turns it off), in the same place as the OWAMP tests and without any privilege: it sends UDP packets with the don't-fragment bit and a rising TTL, and reads the ICMP answers from the socket error queue, as `tracepath` does. It starts from the egress interface's MTU, not from the kernel's cached value, so a change or a black hole is not hidden by an earlier discovery. It traces towards the address that answered the OWAMP test, so the route described is the one the test packets took, and it sends from a fixed source port per peer so that routers balancing by flow keep sending the probes the same way.
 
 | Metric | Type | Meaning |
 | --- | --- | --- |
 | `continuum_link_path_mtu_bytes` | gauge | The largest packet that fits the whole way, as the routers reported it. Absent until learned. |
-| `continuum_link_path_hops` | gauge | Routers crossed, when the probe reached the peer. |
 | `continuum_link_path_reached` | gauge | 1 if the last step was answered by the peer's address. A network that drops the answer shows 0 without being broken. |
 | `continuum_link_path_mtu_blackhole` | gauge | 1 if small packets passed a router that silently dropped full-size ones. |
 | `continuum_link_path_changes_total` | counter | Route changes. A new route counts only after two probes in a row saw it, so one odd probe is not a change. The route itself, and the routers' addresses, are not exported. |
 | `continuum_link_path_probe_failures_total`, `..._last_success_timestamp_seconds` | counter, gauge | Probes that could not run, and when one last did. |
 
-Limits: routers that do not send ICMP answers appear as silent hops and are left out of the route; load balancing per packet (rare) makes the route look unstable; a path whose ICMP is filtered shows a hop count and MTU only as far as it answers. IPv4 only for now: IPv6 peers are skipped without counting as failures, until it has been tested.
+Limits: routers that do not send ICMP answers appear as silent hops and are left out of the route; load balancing per packet (rare) makes the route look unstable; a path whose ICMP is filtered shows an MTU only as far as it answers. IPv4 only for now: IPv6 peers are skipped without counting as failures, until it has been tested.
 
 ## Baseline: connect timing
 
@@ -133,7 +132,7 @@ The probes above send a trickle of packets, so they say whether a link is health
 
 - **TCP, one stream**, in each direction (`reverse: true`): what one connection reaches, the retransmits the test itself provoked, and the round-trip time under load. Compare the last with the idle round-trip time from the passive series: the difference is queueing delay (bufferbloat). The round-trip time is only available for the direction this cluster sends in.
 - **TCP, several streams** (`parallel`, 4): what the link carries when one connection is not enough. A single stream far below it points at the window or at loss on a long path; the same figure means the link is the limit.
-- **A UDP ramp**, in each direction: UDP at `udp.startRate`, doubled every `udp.step` until more than `udp.lossPercent` of the datagrams are lost or `udp.maxRate` is reached. The highest rate that stayed clean is the rate at which the link starts to drop, and each rung's loss and jitter are exported. If the ramp reached its top without loss, the link carries at least that.
+- **A UDP ramp**, in each direction: UDP at `udp.startRate`, doubled every `udp.step` until more than `udp.lossPercent` of the datagrams are lost or `udp.maxRate` is reached. The highest rate that stayed clean is the rate at which the link starts to drop, and the loss and jitter at that rung and at the first rung over the threshold are exported. If the ramp reached its top without loss, the link carries at least that.
 - **Optionally** a TCP test that loads both directions at once (`bidir`), and the single-stream and UDP tests repeated for other DSCP classes (`dscp: [0, 46]`), to see whether the network treats traffic classes differently.
 
 Figures are read where the data arrived, and the first seconds of each TCP test (`omit`) are left out, because they measure slow start.
@@ -143,7 +142,8 @@ Figures are read where the data arrived, and the first seconds of each TCP test 
 | `continuum_link_throughput_bits_per_second` | gauge | Latest result, by `direction`, `protocol` (`tcp`, or `tcp_bidir`), `streams` and `dscp`. |
 | `continuum_link_throughput_retransmits` | gauge | TCP segments resent during that test. |
 | `continuum_link_throughput_rtt_seconds` | gauge | Mean TCP round-trip time during that test. |
-| `continuum_link_throughput_udp_loss_ratio`, `..._udp_jitter_seconds` | gauge | Loss and jitter at each `rate_bits_per_second` of the latest ramp, by `direction` and `dscp`. |
+| `continuum_link_throughput_udp_loss_ratio`, `..._udp_jitter_seconds` | gauge | Loss and jitter at two points of the latest ramp, by `direction`, `dscp` and `point`: `clean` is the highest rung within the loss threshold (absent if even the first rung lost more), `first_loss` the first rung over it (absent if the ramp never exceeded it). Only these two rungs are exported, so the series do not depend on the configured rates. |
+| `continuum_link_throughput_udp_point_bits_per_second` | gauge | The rate of each `point` above. |
 | `continuum_link_throughput_udp_clean_bits_per_second` | gauge | The highest rate of the ramp within the loss threshold. Absent if even the lowest rate lost more. |
 | `continuum_link_throughput_udp_saturated` | gauge | 1 if a higher rate lost more, so the clean rate is near what the link carries; 0 if the ramp ended at its top without loss. |
 | `continuum_link_throughput_test_bytes_total` | counter | Bytes the tests put on the link, per direction: what they cost. |
@@ -179,6 +179,12 @@ The servers mount only `private.pem` and `users.csv`, and the prober only `publi
 **What has to be open.** TCP and UDP `capacity.port` to every node address of the peer cluster, in both directions, besides the ports of the one-way probe. The tests try the node address of the peer that answered last time, and then the others, five at most.
 
 **What it cannot tell you.** A UDP ramp measures what gets through at a given rate, not why: loss at a rate can be the link, a policer, or the node's own receive path. The multi-stream figure is not "the" capacity if the other end's CPU is the limit. And a link shared with traffic this cluster does not observe can be busy without the wait noticing it.
+
+## Series per peer
+
+What one peer costs in the metrics store, counted by rendering a meter for one fully active peer with the default settings (traffic seen, both one-way directions, the route trace, connect timing, and the throughput tests with TCP at one and four streams in both directions, the UDP ramp and a budget of its own): **about 150 series**, of which about 40 are the passive ones the agent serves and about 110 the active ones the prober serves. A peer that is only observed passively costs about 40; a peer that is probed but not tested, about 105 including those; the throughput tests add about 40. More than half of the passive count is the three histograms' buckets.
+
+Every further `dscp` class in the throughput tests adds about 26 series (the TCP readings at both stream counts and the UDP ramp, in both directions); nothing else a user can set changes the count. The numbers are bounded by a test (`TestOnePeerCostsABoundedNumberOfSeriesWhateverTheRatesAndAddresses` in `backend/internal/link`), which fails if a label starts to follow the data. The two cluster-wide budget gauges are not per peer and are not counted per peer.
 
 ## What is planned
 

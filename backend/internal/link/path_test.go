@@ -101,7 +101,6 @@ func TestPathSeriesAreOnlyWrittenForWhatWasLearned(t *testing.T) {
 	base := `{cluster="cl-me",peer="cl-a"}`
 	for k, want := range map[string]string{
 		"continuum_link_path_mtu_bytes" + base:                      "1400",
-		"continuum_link_path_hops" + base:                           "7",
 		"continuum_link_path_reached" + base:                        "1",
 		"continuum_link_path_mtu_blackhole" + base:                  "0",
 		"continuum_link_path_last_success_timestamp_seconds" + base: "1700000000",
@@ -113,7 +112,7 @@ func TestPathSeriesAreOnlyWrittenForWhatWasLearned(t *testing.T) {
 	// a black hole: no MTU is claimed, and no hop count when the end was never reached
 	m.ObservePath("cl-a", PathResult{Blackhole: true, Route: "abc"})
 	got = render(m)
-	if hasKey(got, "path_mtu_bytes") || hasKey(got, "path_hops") {
+	if hasKey(got, "path_mtu_bytes") {
 		t.Errorf("values the latest probe did not learn are still shown: %v", got)
 	}
 	if got["continuum_link_path_mtu_blackhole"+base] != "1" || got["continuum_link_path_reached"+base] != "0" {
@@ -141,8 +140,8 @@ func TestThePathIsTracedOnItsOwnScheduleToTheAddressThatAnswered(t *testing.T) {
 	if calls.Load() != 1 {
 		t.Fatalf("traced %d times in two rounds with an hour between traces", calls.Load())
 	}
-	if got := render(r.Meter)[`continuum_link_path_hops{cluster="cl-me",peer="cl-a"}`]; got != "4" {
-		t.Fatalf("hops = %q", got)
+	if hasKey(render(r.Meter), "path_hops") {
+		t.Fatal("the path probe exports a hop count of its own")
 	}
 	r.mu.Lock()
 	good := r.good["cl-a"]

@@ -16,9 +16,8 @@ import (
 
 // Bucket upper bounds, in seconds. Explicit buckets keep the series count fixed whatever the traffic does.
 var (
-	rttBuckets       = []float64{0.0005, 0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2.5}
-	jitterBuckets    = []float64{0.0001, 0.0005, 0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.25}
-	handshakeBuckets = rttBuckets
+	rttBuckets    = []float64{0.0005, 0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2.5}
+	jitterBuckets = []float64{0.0001, 0.0005, 0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.25}
 )
 
 type hist struct {
@@ -43,13 +42,13 @@ func (h *hist) observe(v float64) {
 var failReasons = []string{"refused", "timeout", "reset", "unreachable", "other"}
 
 type stats struct {
-	flows, connections       uint64
+	connections              uint64
 	bytesSent, bytesReceived uint64
 	segmentsSent             uint64
 	retransmits, rtoRetrans  uint64
 	bufferDrops              uint64
 	failed                   map[string]uint64
-	rtt, jitter, handshake   *hist
+	rtt, jitter              *hist
 	lastSeen                 time.Time
 	// Whether any report that counted bytes, and any that could not (the conntrack collector without accounting), carried
 	// traffic with this peer. The byte counters are only written while they are not known to be zero for want of a counter.
@@ -60,12 +59,12 @@ type stats struct {
 func (s *stats) bytesUnknown() bool { return s.bytesMissing && !s.bytesSeen }
 
 func newStats() *stats {
-	return &stats{failed: map[string]uint64{}, rtt: newHist(rttBuckets), jitter: newHist(jitterBuckets), handshake: newHist(handshakeBuckets)}
+	return &stats{failed: map[string]uint64{}, rtt: newHist(rttBuckets), jitter: newHist(jitterBuckets)}
 }
 
 // Meter labels the traffic the node flow collectors observe by the peer cluster it went to or came from, and keeps
 // running totals per peer. Everything is counts and distributions per cluster pair: no addresses, ports or workloads are
-// kept, so the number of series depends only on how many peers are configured.
+// kept; see the cardinality test for how many series a peer costs.
 type Meter struct {
 	Peers *Peers
 	now   func() time.Time
@@ -119,7 +118,7 @@ func parsePorts(spec string) ([]portRange, error) {
 
 // IgnorePorts makes Observe leave out every flow whose service port is in spec (see parsePorts), whatever the protocol
 // and the direction: the link prober's own traffic (the one-way probe's control and test ports, the TCP connect timer, the
-// throughput tests) would otherwise count as the link's traffic, and so inflate its connection, handshake, round-trip and
+// throughput tests) would otherwise count as the link's traffic, and so inflate its connection, round-trip and
 // failure series and, worse, read as load on the link to the very throughput tests that cause it.
 func (m *Meter) IgnorePorts(spec string) error {
 	if m == nil {
@@ -167,7 +166,6 @@ func (m *Meter) ObserveRows(rows []*continuumv1.RawFlow, bytesKnown bool) {
 			m.per[peer] = s
 		}
 		s.lastSeen = now
-		s.flows++
 		s.connections += r.Connections
 		if bytesKnown {
 			sent, recv := r.BytesOut, r.BytesIn
@@ -199,9 +197,6 @@ func (m *Meter) ObserveRows(rows []*continuumv1.RawFlow, bytesKnown bool) {
 		}
 		if r.JitterUs > 0 {
 			s.jitter.observe(float64(r.JitterUs) / 1e6)
-		}
-		if r.HandshakeUs > 0 {
-			s.handshake.observe(float64(r.HandshakeUs) / 1e6)
 		}
 	}
 }
@@ -326,7 +321,6 @@ func (m *Meter) write(w io.Writer, own string, peers []Peer) {
 		}
 	}
 	counter := func(name, help string, get func(*stats) uint64) { counterFor(peers, name, help, get) }
-	counter("continuum_link_flows_total", "Flow rows observed to or from the peer (one per connection group per report window).", func(s *stats) uint64 { return s.flows })
 	counter("continuum_link_connections_total", "Connections observed to or from the peer.", func(s *stats) uint64 { return s.connections })
 	// A peer whose reports could not count bytes has no byte series: zero would read as a quiet link.
 	known := peers[:0:0]
@@ -370,7 +364,6 @@ func (m *Meter) write(w io.Writer, own string, peers []Peer) {
 	}
 	histo("continuum_link_rtt_seconds", "Smoothed TCP round-trip time of observed connections to the peer, one sample per connection group per report window.", rttBuckets, func(s *stats) *hist { return s.rtt })
 	histo("continuum_link_jitter_seconds", "Mean deviation of the round-trip time (the kernel's mdev) on observed connections to the peer.", jitterBuckets, func(s *stats) *hist { return s.jitter })
-	histo("continuum_link_handshake_seconds", "Time to establish observed connections to the peer, from first SYN to established.", handshakeBuckets, func(s *stats) *hist { return s.handshake })
 	head("continuum_link_last_observation_timestamp_seconds", "gauge", "When traffic with the peer was last observed. Absent until the first time.")
 	for _, p := range peers {
 		if s := m.per[p.ID]; s != nil && !s.lastSeen.IsZero() {

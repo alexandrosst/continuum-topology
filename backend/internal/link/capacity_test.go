@@ -257,13 +257,15 @@ func TestACycleRunsEveryTestOnceAndExportsWhatItFound(t *testing.T) {
 	got := render(c.Meter)
 	base := `{cluster="cl-me",peer="cl-a",method="iperf3",direction="`
 	for key, want := range map[string]string{
-		"continuum_link_throughput_bits_per_second" + base + `forward",protocol="tcp",streams="1",dscp="0"}`:     "1.3847713674505e+10",
-		"continuum_link_throughput_retransmits" + base + `forward",protocol="tcp",streams="1",dscp="0"}`:         "36346",
-		"continuum_link_throughput_retransmits" + base + `reverse",protocol="tcp",streams="1",dscp="0"}`:         "26052",
-		"continuum_link_throughput_bits_per_second" + base + `reverse",protocol="tcp",streams="1",dscp="0"}`:     "1.4543531405561e+10",
-		"continuum_link_throughput_udp_clean_bits_per_second" + base + `forward",dscp="0"}`:                      "8e+07",
-		"continuum_link_throughput_udp_saturated" + base + `forward",dscp="0"}`:                                  "1",
-		"continuum_link_throughput_udp_loss_ratio" + base + `forward",dscp="0",rate_bits_per_second="80000000"}`: "0",
+		"continuum_link_throughput_bits_per_second" + base + `forward",protocol="tcp",streams="1",dscp="0"}`:   "1.3847713674505e+10",
+		"continuum_link_throughput_retransmits" + base + `forward",protocol="tcp",streams="1",dscp="0"}`:       "36346",
+		"continuum_link_throughput_retransmits" + base + `reverse",protocol="tcp",streams="1",dscp="0"}`:       "26052",
+		"continuum_link_throughput_bits_per_second" + base + `reverse",protocol="tcp",streams="1",dscp="0"}`:   "1.4543531405561e+10",
+		"continuum_link_throughput_udp_clean_bits_per_second" + base + `forward",dscp="0"}`:                    "8e+07",
+		"continuum_link_throughput_udp_saturated" + base + `forward",dscp="0"}`:                                "1",
+		"continuum_link_throughput_udp_loss_ratio" + base + `forward",dscp="0",point="clean"}`:                 "0",
+		"continuum_link_throughput_udp_point_bits_per_second" + base + `forward",dscp="0",point="clean"}`:      "8e+07",
+		"continuum_link_throughput_udp_point_bits_per_second" + base + `forward",dscp="0",point="first_loss"}`: "1.6e+08",
 	} {
 		if g := got[key]; !sameNumber(g, want) {
 			t.Errorf("%s = %q, want %q", key, g, want)
@@ -273,8 +275,17 @@ func TestACycleRunsEveryTestOnceAndExportsWhatItFound(t *testing.T) {
 	if got["continuum_link_throughput_retransmits"+bi] != "96" {
 		t.Errorf("the bidirectional test's own series: %q", got["continuum_link_throughput_retransmits"+bi])
 	}
-	if l := got["continuum_link_throughput_udp_loss_ratio"+base+`forward",dscp="0",rate_bits_per_second="160000000"}`]; l == "" || l == "0" {
+	if l := got["continuum_link_throughput_udp_loss_ratio"+base+`forward",dscp="0",point="first_loss"}`]; l == "" || l == "0" {
 		t.Errorf("the rung over the capacity shows no loss: %q", l)
+	}
+	if j := got["continuum_link_throughput_udp_jitter_seconds"+base+`forward",dscp="0",point="first_loss"}`]; j == "" {
+		t.Error("the first lossy rung has no jitter")
+	}
+	// Six rungs were run per direction, but only two points of each are exported: the series do not follow the rungs.
+	for k := range got {
+		if strings.Contains(k, "rate_bits_per_second") || (strings.Contains(k, "throughput_udp_") && strings.Contains(k, "loss_ratio") && !strings.Contains(k, "point=")) {
+			t.Errorf("a per-rung series is exported: %s", k)
+		}
 	}
 	if got["continuum_link_throughput_test_bytes_total"+base+`forward"}`] == "0" || got[`continuum_link_throughput_last_success_timestamp_seconds{cluster="cl-me",peer="cl-a",method="iperf3"}`] == "" {
 		t.Error("bytes carried / last success not recorded")
@@ -328,8 +339,36 @@ func TestARampThatLosesFromTheFirstRungHasNoCleanRate(t *testing.T) {
 	if _, ok := got["continuum_link_throughput_udp_clean_bits_per_second"+base]; ok {
 		t.Error("a clean rate is reported although every rung lost")
 	}
+	pt := func(m, point string) string {
+		return got["continuum_link_throughput_udp_"+m+`{cluster="cl-me",peer="cl-a",method="iperf3",direction="forward",dscp="0",point="`+point+`"}`]
+	}
+	if pt("loss_ratio", "clean") != "" || pt("point_bits_per_second", "clean") != "" || pt("loss_ratio", "first_loss") == "" || !sameNumber(pt("point_bits_per_second", "first_loss"), "1e7") {
+		t.Errorf("a ramp that lost at once has no clean point and its first rung as the first loss: %v", got)
+	}
 	if got["continuum_link_throughput_udp_saturated"+base] != "1" {
 		t.Error("not saturated")
+	}
+}
+
+func TestARampThatNeverLosesHasNoFirstLossPoint(t *testing.T) {
+	f := &fakeIperf{capacity: 0}
+	c, _ := capFor(t, f, func(c *Capacity) {
+		c.UDP = UDPRamp{Enabled: true, Start: 10e6, Max: 40e6, Step: 5 * time.Second, Loss: 0.01}
+		c.Reverse, c.Parallel = false, 0
+	})
+	settle(c)
+	got := render(c.Meter)
+	base := `{cluster="cl-me",peer="cl-a",method="iperf3",direction="forward",dscp="0",point="`
+	if _, ok := got["continuum_link_throughput_udp_loss_ratio"+base+`clean"}`]; !ok {
+		t.Error("no clean point")
+	}
+	if !sameNumber(got["continuum_link_throughput_udp_point_bits_per_second"+base+`clean"}`], "4e7") {
+		t.Errorf("the clean point is not the top rung: %v", got)
+	}
+	for k := range got {
+		if strings.Contains(k, `point="first_loss"`) {
+			t.Errorf("a first-loss point without any loss: %s", k)
+		}
 	}
 }
 
@@ -344,9 +383,12 @@ func TestANewRampReplacesTheOldRungsAndSeriesAreForgottenWithThePeer(t *testing.
 	ck.add(14 * time.Hour)
 	settle(c)
 	got := render(c.Meter)
-	for k := range got {
-		if strings.Contains(k, `rate_bits_per_second="40000000"`) {
-			t.Errorf("an old rung survived: %s", k)
+	for k, v := range got {
+		if strings.Contains(k, "udp_point_bits_per_second") && strings.Contains(k, `point="clean"`) && !sameNumber(v, "2e7") {
+			t.Errorf("the old ramp's top rung survived: %s = %s", k, v)
+		}
+		if strings.Contains(k, `rate_bits_per_second`) {
+			t.Errorf("a per-rung series: %s", k)
 		}
 	}
 	c.Meter.Peers.Set("cl-me", nil)

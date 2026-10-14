@@ -16,7 +16,8 @@ type PathResult struct {
 	// set when the destination answered a full-size probe, or when a router (or the kernel) asked for a smaller size. It is
 	// never this host's own interface MTU: that says nothing about the path (see Blackhole).
 	MTU int
-	// Hops is how many routers the packets crossed to reach the address (set when Reached).
+	// Hops is how many routers the packets crossed to reach the address (set when Reached). Not exported as a metric (the
+	// one-way probe's TTL-derived hop count is the one): it is kept for the log and the tests.
 	Hops int
 	// Reached says the destination answered. Many networks drop the answer (and with it the probe's last step), so a
 	// path that is not reached is not necessarily broken.

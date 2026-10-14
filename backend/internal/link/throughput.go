@@ -42,8 +42,11 @@ type udpKey struct {
 	dscp int
 }
 
+// udpRamp is what is kept of a loss ramp: the two rungs that matter, not all of them, so the series count stays the same
+// whatever the configured rates are and nothing is left behind by an old configuration.
 type udpRamp struct {
-	steps     []UDPStep
+	cleanStep *UDPStep // the highest rung within the loss threshold (nil if none)
+	lossStep  *UDPStep // the first rung over it (nil if the ramp never exceeded it)
 	clean     uint64
 	hasClean  bool
 	saturated bool
@@ -129,7 +132,8 @@ func (m *Meter) AddTestBytes(peer string, d Direction, n uint64) {
 
 // ObserveUDPRamp replaces the readings of a direction's loss ramp. clean is the highest rate that stayed within the loss
 // threshold (hasClean false when even the lowest rung was over it), and saturated says that a higher rung was over it, so
-// clean is close to what the link carries rather than only a lower bound.
+// clean is close to what the link carries rather than only a lower bound. Of the rungs only two are kept: the one at clean
+// and, when saturated, the last one (the ramp stops at the first rung over the threshold).
 func (m *Meter) ObserveUDPRamp(peer string, d Direction, dscp int, steps []UDPStep, clean uint64, hasClean, saturated bool) {
 	if m == nil || !m.knownPeer(peer) {
 		return
@@ -137,7 +141,17 @@ func (m *Meter) ObserveUDPRamp(peer string, d Direction, dscp int, steps []UDPSt
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	s := m.throughput(peer)
-	s.udp[udpKey{d, dscp}] = udpRamp{steps: append([]UDPStep(nil), steps...), clean: clean, hasClean: hasClean, saturated: saturated}
+	r := udpRamp{clean: clean, hasClean: hasClean, saturated: saturated}
+	for i := range steps {
+		st := steps[i]
+		if hasClean && st.Rate == clean {
+			r.cleanStep = &st
+		}
+		if saturated && i == len(steps)-1 {
+			r.lossStep = &st
+		}
+	}
+	s.udp[udpKey{d, dscp}] = r
 	s.lastOK = m.now()
 }
 
@@ -232,7 +246,13 @@ func (m *Meter) writeThroughput(w io.Writer, own string, peerIDs []string) {
 		})
 		return ks
 	}
-	udp := func(name, help string, perStep bool, get func(udpRamp, UDPStep) (float64, bool), ramp func(udpRamp) (float64, bool)) {
+	// udpPoint is one of the two rungs kept of a ramp, with the label it is exported under.
+	type udpPoint struct {
+		name string
+		step *UDPStep
+	}
+	points := func(r udpRamp) []udpPoint { return []udpPoint{{"clean", r.cleanStep}, {"first_loss", r.lossStep}} }
+	udpPoints := func(name, help string, get func(UDPStep) float64) {
 		head(name, "gauge", help)
 		for _, p := range peerIDs {
 			s := m.tp[p]
@@ -240,26 +260,34 @@ func (m *Meter) writeThroughput(w io.Writer, own string, peerIDs []string) {
 				continue
 			}
 			for _, k := range udpKeys(s) {
-				r := s.udp[k]
-				if perStep {
-					for _, st := range r.steps {
-						if v, ok := get(r, st); ok {
-							fmt.Fprintf(w, "%s{%s} %g\n", name, lbl(p, "direction", string(k.dir), "dscp", itoa(k.dscp), "rate_bits_per_second", strconv.FormatUint(st.Rate, 10)), v)
-						}
+				for _, pt := range points(s.udp[k]) {
+					if pt.step != nil {
+						fmt.Fprintf(w, "%s{%s} %g\n", name, lbl(p, "direction", string(k.dir), "dscp", itoa(k.dscp), "point", pt.name), get(*pt.step))
 					}
-				} else if v, ok := ramp(r); ok {
+				}
+			}
+		}
+	}
+	udpPoints("continuum_link_throughput_udp_point_bits_per_second", "The UDP rate of each of the two points of the latest loss ramp that the loss and jitter below are read at: clean is the highest rate within the loss threshold, first_loss the first rate over it (absent if the ramp never exceeded it).", func(st UDPStep) float64 { return float64(st.Rate) })
+	udpPoints("continuum_link_throughput_udp_loss_ratio", "Fraction of UDP datagrams lost at a point of the latest loss ramp: the highest clean rate, and the first rate over the loss threshold.", func(st UDPStep) float64 { return st.Loss })
+	udpPoints("continuum_link_throughput_udp_jitter_seconds", "Receiver jitter at a point of the latest loss ramp: the highest clean rate, and the first rate over the loss threshold.", func(st UDPStep) float64 { return st.Jitter })
+	udp := func(name, help string, ramp func(udpRamp) (float64, bool)) {
+		head(name, "gauge", help)
+		for _, p := range peerIDs {
+			s := m.tp[p]
+			if s == nil {
+				continue
+			}
+			for _, k := range udpKeys(s) {
+				if v, ok := ramp(s.udp[k]); ok {
 					fmt.Fprintf(w, "%s{%s} %g\n", name, lbl(p, "direction", string(k.dir), "dscp", itoa(k.dscp)), v)
 				}
 			}
 		}
 	}
-	udp("continuum_link_throughput_udp_loss_ratio", "Fraction of UDP datagrams lost at each rate of the latest loss ramp. The rate at which this leaves zero is where the link starts to drop.", true,
-		func(_ udpRamp, st UDPStep) (float64, bool) { return st.Loss, true }, nil)
-	udp("continuum_link_throughput_udp_jitter_seconds", "Receiver jitter at each rate of the latest loss ramp.", true,
-		func(_ udpRamp, st UDPStep) (float64, bool) { return st.Jitter, true }, nil)
-	udp("continuum_link_throughput_udp_clean_bits_per_second", "The highest UDP rate of the latest ramp that stayed within the loss threshold. Absent if even the lowest rate lost more.", false, nil,
+	udp("continuum_link_throughput_udp_clean_bits_per_second", "The highest UDP rate of the latest ramp that stayed within the loss threshold. Absent if even the lowest rate lost more.",
 		func(r udpRamp) (float64, bool) { return float64(r.clean), r.hasClean })
-	udp("continuum_link_throughput_udp_saturated", "1 if a higher rate than the clean one lost more than the threshold, so the clean rate is near what the link carries; 0 if the ramp ended at its top rate without exceeding it, so the link carries at least that.", false, nil,
+	udp("continuum_link_throughput_udp_saturated", "1 if a higher rate than the clean one lost more than the threshold, so the clean rate is near what the link carries; 0 if the ramp ended at its top rate without exceeding it, so the link carries at least that.",
 		func(r udpRamp) (float64, bool) {
 			if r.saturated {
 				return 1, true
