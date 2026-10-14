@@ -50,7 +50,9 @@ type LinksLatestDoc struct {
 	Available bool             `json:"available"`
 	Reason    string           `json:"reason,omitempty"` // no-fusion | unavailable
 	Pairs     []LinkPairLatest `json:"pairs"`
-	At        time.Time        `json:"at"`
+	// Notes say why a pair is not measured from one of its clusters (see LinkNote), whether or not FUSION can be read.
+	Notes []LinkNote `json:"notes"`
+	At    time.Time  `json:"at"`
 }
 
 type linkReadingsCache struct {
@@ -82,8 +84,11 @@ func (c *linkReadingsCache) get(ctx context.Context, now func() time.Time, read 
 
 func (a *Admin) linksLatest(w http.ResponseWriter, r *http.Request) {
 	now := a.C.Now
-	doc := LinksLatestDoc{Pairs: []LinkPairLatest{}, At: now().UTC()}
+	doc := LinksLatestDoc{Pairs: []LinkPairLatest{}, Notes: []LinkNote{}, At: now().UTC()}
 	links := a.core(r).Settings().Links
+	if notes := a.tn(r).Hub.LinkNotes(r.Context(), links); notes != nil {
+		doc.Notes = notes
+	}
 	if a.Fusion == nil {
 		doc.Reason = "no-fusion"
 		writeJSON(w, 200, doc)

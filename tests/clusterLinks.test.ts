@@ -119,6 +119,6 @@ test('a figure that is not there is left out, and a pair with none has no result
 })
 
 test('the server\'s answer is read as it comes, with nothing missing', () => {
-  assert.deepEqual(normalizeLinksLatest(undefined), { available: false, reason: undefined, pairs: [], at: '' })
+  assert.deepEqual(normalizeLinksLatest(undefined), { available: false, reason: undefined, pairs: [], notes: [], at: '' })
   assert.deepEqual(normalizeLinksLatest({ available: true }).pairs, [])
 })

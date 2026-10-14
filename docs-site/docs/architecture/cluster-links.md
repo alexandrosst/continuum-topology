@@ -32,6 +32,8 @@ The other cluster only serves: its responder (and iperf3 server) answers, and it
 
 **A pair is never left with nobody measuring.** The server sets `skip_probe` for the second cluster only while the first can measure: its agent is approved, at access tier 2, has not paused the flow collector, and has told the server enough for the second cluster to be in its peer list (the same conditions under which any peer list is sent). When the first cluster stops meeting them, the second cluster's next `Config` drops `skip_probe` and it probes again (the Config is re-sent when settings change and at least once a minute, so this takes up to a minute); when the first is back, the second stops again. What the server cannot know is whether the chart on the first cluster has the probe switched on: see [the chart switch](#active-measurement-loss-and-delay-in-each-direction) below.
 
+When a cluster is not told about its peer, the Sites screen says why under the pair, whether or not FUSION can be read (`notes` in `GET /links/latest`). The reasons are the ones the server uses to decide: the cluster has no approved agent; its agent is below access tier 2; its flow collector is paused; the peer's agent has reported no address yet; or every address of the peer is also one of this cluster's own, or the public address its agent connects from (two clusters behind the same NAT, say), so traffic to the peer cannot be told from its own and the pair is left out there. A pair that is measured has no note.
+
 ## Choices per pair
 
 Each entry of `links` can carry choices of its own, the same for both clusters of the pair:

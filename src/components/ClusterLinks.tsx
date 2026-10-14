@@ -118,6 +118,7 @@ export default function ClusterLinks() {
           <tbody>
             {pairs.map((p) => {
               const t = p.throughput ? throughputSummary(p.throughput) : null
+              const notes = (latest?.notes ?? []).filter((n) => n.cluster === p.a || n.cluster === p.b)
               const failing = [...clusterChecks(p.a, name(p.a), agents), ...clusterChecks(p.b, name(p.b), agents)].filter((c) => !c.ok)
               return (
                 <tr key={`${p.a}|${p.b}`} data-testid="pair-row">
@@ -132,6 +133,12 @@ export default function ClusterLinks() {
                         <span>Needs attention: {failing[0].text}{failing.length > 1 ? ` (and ${failing.length - 1} more)` : ''}</span>
                       </div>
                     )}
+                    {notes.map((n) => (
+                      <div key={`${n.cluster}|${n.peer ?? ''}|${n.code}`} className="mt-1 flex items-start gap-1.5 text-xs text-warn" data-testid="pair-note">
+                        <CircleAlert size={ICON_SM} className="mt-px shrink-0" aria-hidden />
+                        <span>{name(n.cluster)}: {n.text}</span>
+                      </div>
+                    ))}
                   </Td>
                   <Td valign="top"><State on label="watching" /></Td>
                   <Td valign="top"><State on={!p.noProbe} label={p.noProbe ? 'off' : 'on'} /></Td>

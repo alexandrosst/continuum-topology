@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"strings"
@@ -169,36 +170,14 @@ func (h *Hub) peerList(a store.Agent, agents []store.Agent, links []LinkSetting,
 	}
 	// An address the paired cluster shares with this one (two clusters on the same private range, say) cannot tell traffic
 	// to the peer from traffic inside this cluster, so it is left out rather than mislabelled.
-	own := map[string]bool{}
-	if v := h.views[a.ID]; v != nil && v.state != nil {
-		for _, ip := range nodeAddresses(v.state) {
-			own[ip] = true
-		}
-	}
-	if ip := publicIP(a.ConnectingIP); ip != "" {
-		own[ip] = true
-	}
+	own := h.ownAddresses(a)
 	var out []*continuumv1.LinkPeer
 	for _, id := range want {
 		o, ok := byCluster[id]
 		if !ok {
 			continue
 		}
-		var addrs []string
-		if v := h.views[o.ID]; v != nil && v.state != nil {
-			addrs = nodeAddresses(v.state)
-		}
-		if ip := publicIP(o.ConnectingIP); ip != "" {
-			addrs = append(addrs, ip)
-		}
-		addrs = dedupeSorted(addrs)
-		kept := addrs[:0:0]
-		for _, ip := range addrs {
-			if !own[ip] {
-				kept = append(kept, ip)
-			}
-		}
-		addrs = kept
+		addrs := withoutAddresses(h.peerAddresses(o), own)
 		if len(addrs) == 0 {
 			continue
 		}
@@ -221,6 +200,44 @@ func (h *Hub) peerList(a store.Agent, agents []store.Agent, links []LinkSetting,
 		out = append(out, lp)
 	}
 	return out
+}
+
+// ownAddresses are the addresses that mean "inside agent a's cluster": its nodes' addresses and the public address its agent
+// connects from. Called with h.mu held.
+func (h *Hub) ownAddresses(a store.Agent) map[string]bool {
+	own := map[string]bool{}
+	if v := h.views[a.ID]; v != nil && v.state != nil {
+		for _, ip := range nodeAddresses(v.state) {
+			own[ip] = true
+		}
+	}
+	if ip := publicIP(a.ConnectingIP); ip != "" {
+		own[ip] = true
+	}
+	return own
+}
+
+// peerAddresses are the addresses agent o's cluster is reached at, as far as the server knows them: its nodes' addresses and
+// the public address its agent connects from, sorted. Called with h.mu held.
+func (h *Hub) peerAddresses(o store.Agent) []string {
+	var addrs []string
+	if v := h.views[o.ID]; v != nil && v.state != nil {
+		addrs = nodeAddresses(v.state)
+	}
+	if ip := publicIP(o.ConnectingIP); ip != "" {
+		addrs = append(addrs, ip)
+	}
+	return dedupeSorted(addrs)
+}
+
+func withoutAddresses(addrs []string, drop map[string]bool) []string {
+	kept := addrs[:0:0]
+	for _, ip := range addrs {
+		if !drop[ip] {
+			kept = append(kept, ip)
+		}
+	}
+	return kept
 }
 
 // runnerMeasures says whether the runner of a pair, agent r, has been told to measure towards agent a: that is, whether a is
@@ -268,4 +285,89 @@ func dedupeSorted(in []string) []string {
 		}
 	}
 	return out
+}
+
+// LinkNote explains why a pair is not (fully) measured from one of its clusters: the reasons the server has for sending that
+// cluster's agent no peer list, or one without the other cluster. Nothing here is secret: it is what the administrator who
+// set the pair up needs to see, and it names only clusters and addresses of the organisation's own agents.
+type LinkNote struct {
+	// Cluster is the cluster the note is about, Peer the other end of the pair (empty when the note is about the cluster alone).
+	Cluster string `json:"cluster"`
+	Peer    string `json:"peer,omitempty"`
+	// Code is no-agent | tier | paused | peer-silent | shared-address.
+	Code string `json:"code"`
+	Text string `json:"text"`
+}
+
+// linkNotes works out, for each listed pair, what keeps either cluster from being told about the other. It mirrors peerList's
+// conditions one by one, so a pair that has no note is one whose agents are handed each other. Called with h.mu held;
+// agents is the organisation's agents and flowPausedOf (by agent id) says whose flow collector is paused, both read
+// beforehand because that may touch the store.
+func (h *Hub) linkNotes(links []LinkSetting, agents []store.Agent, flowPausedOf map[string]bool) []LinkNote {
+	byCluster := map[string]store.Agent{}
+	for _, o := range agents {
+		if o.Status == store.StatusApproved && o.ClusterID != "" {
+			byCluster[o.ClusterID] = o
+		}
+	}
+	var out []LinkNote
+	noAgent := map[string]bool{}
+	for _, l := range links {
+		for _, end := range [][2]string{{l.A, l.B}, {l.B, l.A}} {
+			c, peer := end[0], end[1]
+			a, ok := byCluster[c]
+			if !ok {
+				if !noAgent[c] {
+					noAgent[c] = true
+					out = append(out, LinkNote{Cluster: c, Code: "no-agent", Text: "No approved agent reports for this cluster, so it can neither measure its pairs nor be measured."})
+				}
+				continue
+			}
+			o, ok := byCluster[peer]
+			if !ok {
+				continue // the peer's own note says it
+			}
+			switch {
+			case a.AccessTier < 2:
+				out = append(out, LinkNote{Cluster: c, Peer: peer, Code: "tier", Text: fmt.Sprintf("This cluster's agent is at access tier %d. Link measuring needs tier 2, so the agent is not told which clusters to measure.", a.AccessTier)})
+				continue
+			case flowPausedOf[a.ID]:
+				out = append(out, LinkNote{Cluster: c, Peer: peer, Code: "paused", Text: "The flow collector is paused for this cluster's agent, which pauses link measuring there too."})
+				continue
+			}
+			raw := h.peerAddresses(o)
+			if len(raw) == 0 {
+				out = append(out, LinkNote{Cluster: c, Peer: peer, Code: "peer-silent", Text: "The agent of " + peer + " has not reported any node address yet, so there is nothing to measure towards."})
+				continue
+			}
+			if len(withoutAddresses(raw, h.ownAddresses(a))) == 0 {
+				out = append(out, LinkNote{Cluster: c, Peer: peer, Code: "shared-address", Text: fmt.Sprintf("Every address of %s (%s) is also an address of this cluster, or the public address its agent connects from, so traffic to %s cannot be told from its own traffic and the pair is left out here.", peer, strings.Join(raw, ", "), peer)})
+			}
+		}
+	}
+	return out
+}
+
+// LinkNotes is linkNotes for the organisation's current agents.
+func (h *Hub) LinkNotes(ctx context.Context, links []LinkSetting) []LinkNote {
+	if len(links) == 0 {
+		return nil
+	}
+	agents, err := h.C.Store.ListAgents(ctx, h.C.OrgID)
+	if err != nil {
+		return nil
+	}
+	in := map[string]bool{}
+	for _, l := range links {
+		in[l.A], in[l.B] = true, true
+	}
+	paused := map[string]bool{}
+	for _, o := range agents { // before h.mu: the consent may be read from the store
+		if o.Status == store.StatusApproved && in[o.ClusterID] {
+			paused[o.ID] = h.consentOf(o.ID).has("flow")
+		}
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.linkNotes(links, agents, paused)
 }

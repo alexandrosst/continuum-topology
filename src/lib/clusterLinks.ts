@@ -143,15 +143,25 @@ export interface LinkPairLatest {
   testedAt?: string
 }
 
+/** Why a pair is not measured from one of its clusters, as the server worked it out. */
+export interface LinkNote {
+  cluster: string
+  peer?: string
+  code: 'no-agent' | 'tier' | 'paused' | 'peer-silent' | 'shared-address'
+  text: string
+}
+
 export interface LinksLatest {
   available: boolean
   /** Why the figures cannot be had: this server has no FUSION, or it could not be read just now. */
   reason?: 'no-fusion' | 'unavailable'
   pairs: LinkPairLatest[]
+  /** Reasons a pair is not measured, whether or not FUSION could be read. */
+  notes: LinkNote[]
   at: string
 }
 
-export const normalizeLinksLatest = (d: Partial<LinksLatest> | undefined): LinksLatest => ({ available: !!d?.available, reason: d?.reason, pairs: d?.pairs ?? [], at: d?.at ?? '' })
+export const normalizeLinksLatest = (d: Partial<LinksLatest> | undefined): LinksLatest => ({ available: !!d?.available, reason: d?.reason, pairs: d?.pairs ?? [], notes: d?.notes ?? [], at: d?.at ?? '' })
 
 const num = (n: number | undefined): n is number => typeof n === 'number' && Number.isFinite(n)
 

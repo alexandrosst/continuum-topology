@@ -395,3 +395,51 @@ func TestTheSecondClusterProbesAgainWhenTheFirstOnesFlowCollectorIsPaused(t *tes
 		t.Error("the first cluster measures again, but the second still probes")
 	}
 }
+
+func TestAPairThatIsNotMeasuredSaysWhy(t *testing.T) {
+	a, b := ag("ag-a", "cl-a", "alpha", "203.0.113.1", 2), ag("ag-b", "cl-b", "beta", "203.0.113.2", 2)
+	links := []LinkSetting{{A: "cl-a", B: "cl-b"}}
+	codes := func(ns []LinkNote) string {
+		var out []string
+		for _, n := range ns {
+			out = append(out, n.Cluster+":"+n.Code)
+		}
+		return strings.Join(out, " ")
+	}
+	h := linkHub(map[string]*view{"ag-a": {state: nodeState("10.0.0.1")}, "ag-b": {state: nodeState("10.1.0.1")}})
+
+	if got := h.linkNotes(links, []store.Agent{a, b}, nil); len(got) != 0 {
+		t.Fatalf("a pair that is measured has notes: %v", got)
+	}
+	// no approved agent at the far end: one note, about that cluster
+	pending := b
+	pending.Status = store.StatusPending
+	if got := codes(h.linkNotes(links, []store.Agent{a, pending}, nil)); got != "cl-b:no-agent" {
+		t.Fatalf("no-agent: %q", got)
+	}
+	low := a
+	low.AccessTier = 1
+	if got := codes(h.linkNotes(links, []store.Agent{low, b}, nil)); got != "cl-a:tier" {
+		t.Fatalf("tier: %q", got)
+	}
+	if got := codes(h.linkNotes(links, []store.Agent{a, b}, map[string]bool{"ag-b": true})); got != "cl-b:paused" {
+		t.Fatalf("paused: %q", got)
+	}
+	// a peer that has reported no address and does not connect from a public one
+	h2 := linkHub(map[string]*view{"ag-a": {state: nodeState("10.0.0.1")}})
+	noAddr := ag("ag-b", "cl-b", "beta", "", 2)
+	if got := codes(h2.linkNotes(links, []store.Agent{a, noAddr}, nil)); got != "cl-a:peer-silent" {
+		t.Fatalf("peer-silent: %q", got)
+	}
+	// every address of the peer is also this cluster's
+	same := ag("ag-b", "cl-b", "beta", "203.0.113.1", 2)
+	h3 := linkHub(map[string]*view{"ag-a": {state: nodeState("10.0.0.1")}, "ag-b": {state: nodeState("10.0.0.1")}})
+	ns := h3.linkNotes(links, []store.Agent{a, same}, nil)
+	if len(ns) == 0 || ns[0].Code != "shared-address" || !strings.Contains(ns[0].Text, "10.0.0.1") {
+		t.Fatalf("shared-address: %v", ns)
+	}
+	// the same cluster in two pairs is told once that it has no agent
+	if got := codes(h.linkNotes([]LinkSetting{{A: "cl-a", B: "cl-z"}, {A: "cl-b", B: "cl-z"}}, []store.Agent{a, b}, nil)); got != "cl-z:no-agent" {
+		t.Fatalf("one note per cluster: %q", got)
+	}
+}

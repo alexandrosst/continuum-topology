@@ -38,7 +38,7 @@ const pick = (label: string, option: string) => {
 }
 
 const NOW = new Date().toISOString()
-const answer = (o: Partial<LinksLatest>): LinksLatest => ({ available: true, pairs: [], at: NOW, ...o })
+const answer = (o: Partial<LinksLatest>): LinksLatest => ({ available: true, pairs: [], notes: [], at: NOW, ...o })
 
 describe('ClusterLinks', () => {
   beforeEach(() => {
@@ -279,6 +279,19 @@ describe('ClusterLinks', () => {
       await vi.waitFor(() => expect(screen.getAllByTestId('latest-empty').map((e) => e.textContent)).toEqual(['No data yet', 'No probing: see the traffic in FUSION']))
       expect(empty).toHaveLength(2)
       expect(await screen.findByTestId('latest-notice')).toHaveTextContent('No figures have arrived yet')
+    })
+
+    it('shows the server\'s reason under the pair it applies to, even without FUSION', async () => {
+      seed('viewer', [{ a: 'c-eu', b: 'c-us' }, { a: 'c-us', b: 'c-gr' }])
+      vi.spyOn(api, 'linksLatest').mockResolvedValue(
+        answer({ available: false, reason: 'no-fusion', notes: [{ cluster: 'c-eu', peer: 'c-us', code: 'tier', text: 'This cluster\'s agent is at access tier 1.' }] }),
+      )
+      render(<ClusterLinks />)
+      const note = await screen.findByTestId('pair-note')
+      expect(note).toHaveTextContent('cloud-eu: This cluster\'s agent is at access tier 1.')
+      // only the pair that has cloud-eu in it shows it
+      expect(within(screen.getAllByTestId('pair-row')[0]).getByTestId('pair-note')).toBe(note)
+      expect(within(screen.getAllByTestId('pair-row')[1]).queryByTestId('pair-note')).toBeNull()
     })
 
     it('explains a server without FUSION once, not on every row', async () => {
