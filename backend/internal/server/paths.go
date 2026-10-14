@@ -195,6 +195,9 @@ func configHash(c *continuumv1.Config) string {
 		if p.NoProbe || p.SkipProbe || p.Throughput {
 			s += fmt.Sprintf("|linkopt:%t,%t,%d,%d,%t", p.NoProbe, p.Throughput, p.ThroughputIntervalSeconds, p.ThroughputBudgetBytes, p.SkipProbe)
 		}
+		if p.Via != "" {
+			s += "|linkvia:" + p.Via // only when set, so the hash of a Config without it stays what it was
+		}
 	}
 	return interpret.Hash("cfg", s)
 }

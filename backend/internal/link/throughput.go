@@ -11,7 +11,7 @@ import (
 // Why a throughput test could not be run or finished (counted), and why one was left for later (counted separately,
 // because a skipped test is the scheduler doing its job).
 var (
-	tpFailReasons = []string{"unreachable", "refused", "timeout", "auth", "other"}
+	tpFailReasons = []string{"unreachable", "refused", "timeout", "auth", "other", ReasonNoKind}
 	tpSkipReasons = []string{"link_busy", "budget", "server_busy"}
 )
 

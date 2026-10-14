@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/netip"
+	"slices"
 	"strconv"
 	"time"
 
@@ -48,9 +49,13 @@ type PeerDoc struct {
 	// BytesUnknown says the totals above are not measurements: the collectors seeing the peer's traffic cannot count bytes, so
 	// zero means nothing. The prober then has no estimate of the link's load (a zero here is "unknown", not "idle").
 	BytesUnknown bool `json:"bytes_unknown,omitempty"`
+	// Preferred are the addresses the real traffic with the peer is seen using, the busiest first (see Peer.Preferred). Only
+	// addresses from Addresses; the prober's active measurements try them first unless the pair is pinned with Via.
+	Preferred []string `json:"preferred,omitempty"`
 	// What to measure towards the peer (see Peer).
 	NoProbe                   bool   `json:"no_probe,omitempty"`
 	SkipProbe                 bool   `json:"skip_probe,omitempty"`
+	Via                       string `json:"via,omitempty"`
 	Throughput                bool   `json:"throughput,omitempty"`
 	ThroughputIntervalSeconds uint32 `json:"throughput_interval_seconds,omitempty"`
 	ThroughputBudgetBytes     uint64 `json:"throughput_budget_bytes,omitempty"`
@@ -60,7 +65,7 @@ type PeerDoc struct {
 func (p *Peers) Doc() PeersDoc {
 	d := PeersDoc{ClusterID: p.Own(), Peers: []PeerDoc{}}
 	for _, pe := range p.List() {
-		pd := PeerDoc{ID: pe.ID, Name: pe.Name, Addresses: make([]string, len(pe.Addresses)), NoProbe: pe.NoProbe, SkipProbe: pe.SkipProbe, Throughput: pe.Throughput,
+		pd := PeerDoc{ID: pe.ID, Name: pe.Name, Addresses: make([]string, len(pe.Addresses)), NoProbe: pe.NoProbe, SkipProbe: pe.SkipProbe, Via: pe.Via, Throughput: pe.Throughput,
 			ThroughputIntervalSeconds: uint32(pe.ThroughputEvery / time.Second), ThroughputBudgetBytes: pe.ThroughputBudget}
 		for i, a := range pe.Addresses {
 			pd.Addresses[i] = a.String()
@@ -70,13 +75,15 @@ func (p *Peers) Doc() PeersDoc {
 	return d
 }
 
-// peersDoc is the peers with the traffic seen with each.
+// peersDoc is the peers with the traffic seen with each, and the addresses that traffic is seen using.
 func (m *Meter) peersDoc() PeersDoc {
 	d := m.Peers.Doc()
+	now := m.now()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for i := range d.Peers {
 		if s := m.per[d.Peers[i].ID]; s != nil {
+			d.Peers[i].Preferred = inList(s.used.ordered(now), d.Peers[i].Addresses)
 			if s.bytesUnknown() {
 				d.Peers[i].BytesUnknown = true
 				continue
@@ -87,15 +94,28 @@ func (m *Meter) peersDoc() PeersDoc {
 	return d
 }
 
+// inList are the addresses of used, in their order, that are among list.
+func inList(used []netip.Addr, list []string) []string {
+	var out []string
+	for _, a := range used {
+		if s := a.String(); slices.Contains(list, s) {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 // SetFromDoc replaces the peers with those of a PeersDoc fetched from the agent, with the same checks as a Config from the
 // server (the prober does not trust the agent's answer more than the agent trusts the server's).
 func (p *Peers) SetFromDoc(d PeersDoc) []string {
 	lps := make([]*continuumv1.LinkPeer, 0, len(d.Peers))
+	preferred := map[string][]string{}
 	for _, pe := range d.Peers {
-		lps = append(lps, &continuumv1.LinkPeer{ClusterId: pe.ID, Name: pe.Name, Addresses: pe.Addresses, NoProbe: pe.NoProbe, SkipProbe: pe.SkipProbe, Throughput: pe.Throughput,
+		lps = append(lps, &continuumv1.LinkPeer{ClusterId: pe.ID, Name: pe.Name, Addresses: pe.Addresses, NoProbe: pe.NoProbe, SkipProbe: pe.SkipProbe, Via: pe.Via, Throughput: pe.Throughput,
 			ThroughputIntervalSeconds: pe.ThroughputIntervalSeconds, ThroughputBudgetBytes: pe.ThroughputBudgetBytes})
+		preferred[pe.ID] = pe.Preferred
 	}
-	return p.Set(d.ClusterID, lps)
+	return p.set(d.ClusterID, lps, preferred)
 }
 
 // ServePeers lets the agent answer the prober's questions on the same listener as the metrics. Without it the path does

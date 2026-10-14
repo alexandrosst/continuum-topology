@@ -149,7 +149,7 @@ func ParseOwping(r io.Reader) (OwampResult, error) {
 }
 
 // Probe failure reasons, in the order they are written.
-var probeFailReasons = []string{"unreachable", "refused", "timeout", "auth", "other"}
+var probeFailReasons = []string{"unreachable", "refused", "timeout", "auth", "other", ReasonNoKind}
 
 type probeStats struct {
 	sent, lost, dups uint64

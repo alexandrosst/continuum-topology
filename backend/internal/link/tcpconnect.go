@@ -124,6 +124,11 @@ func (t *TCPConnect) measure(ctx context.Context, p Peer) {
 	last := t.good[p.ID]
 	t.mu.Unlock()
 	reason := ""
+	if noAddress(p) {
+		t.Meter.ConnectFailed(p.ID, ReasonNoKind)
+		t.Log.Debug("link connect timing failed", "peer", p.ID, "reason", ReasonNoKind, "via", p.Via)
+		return
+	}
 	for _, a := range orderAddresses(p, last, 2) {
 		if ctx.Err() != nil {
 			return
@@ -219,6 +224,10 @@ func (m *Meter) ObserveConnect(peer string, d time.Duration) {
 	s.lastOK = m.now()
 }
 
+// connectFailReasons are the reasons a connect timing round can fail for: the kernel's, and a pin to a kind of address the peer
+// does not have.
+var connectFailReasons = append(append([]string(nil), failReasons...), ReasonNoKind)
+
 // ConnectFailed counts a connection to peer that did not open, by reason.
 func (m *Meter) ConnectFailed(peer, reason string) {
 	if m == nil || !m.knows(peer) {
@@ -260,7 +269,7 @@ func (m *Meter) writeConnects(w io.Writer, own string, peerIDs []string) {
 	}
 	head("continuum_link_tcp_connect_failures_total", "counter", "Rounds in which no address of the peer's link responder opened a TCP connection, by the reason of the last attempt; a round where a later address answered counts nothing here. The loss ratio, per round, is this over this plus the histogram's count (whose samples may come from different nodes of the peer).")
 	for _, id := range peerIDs {
-		for _, r := range failReasons {
+		for _, r := range connectFailReasons {
 			v := uint64(0)
 			if s := m.connects[id]; s != nil {
 				v = s.failed[r]

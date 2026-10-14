@@ -116,6 +116,53 @@ describe('ClusterLinks', () => {
     await vi.waitFor(() => expect(saved).toEqual([{ a: 'c-eu', b: 'c-us', noProbe: true, throughput: { intervalMinutes: 1440, budgetMB: 50 } }]))
   })
 
+  it('pins a pair to one kind of address from the edit panel, saves it with the other choices and says so in the row', async () => {
+    seed('admin', [{ a: 'c-eu', b: 'c-us', throughput: { intervalMinutes: 360, budgetMB: 500 } }])
+    const { unmount } = render(<ClusterLinks />)
+    fireEvent.click(screen.getByRole('button', { name: 'Edit cloud-eu and cloud-us' }))
+    const select = screen.getByRole('combobox', { name: 'Measure through' })
+    expect(select).toHaveTextContent('The address your traffic uses (recommended)')
+    expect(screen.getByText(/follow the address your clusters’ real traffic is seen using/)).toBeInTheDocument()
+    pick('Measure through', 'Mesh addresses (100.64.x.x and similar)')
+    fireEvent.click(screen.getByTestId('save-pair'))
+    await vi.waitFor(() => expect(saved).toEqual([{ a: 'c-eu', b: 'c-us', via: 'mesh', throughput: { intervalMinutes: 360, budgetMB: 500 } }]))
+    unmount()
+    // the saved settings are what the row reads
+    render(<ClusterLinks />)
+    expect(within(screen.getByTestId('pair-row')).getByText('probing and tests run from cloud-eu, through mesh addresses')).toBeInTheDocument()
+  })
+
+  it('shows a pinned pair\'s choice when editing, and goes back to following the traffic without leaving a trace in the settings', async () => {
+    seed('admin', [{ a: 'c-eu', b: 'c-us', via: 'private' }])
+    render(<ClusterLinks />)
+    expect(within(screen.getByTestId('pair-row')).getByText('probing runs from cloud-eu, through private addresses; no throughput tests')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Edit cloud-eu and cloud-us' }))
+    expect(screen.getByRole('combobox', { name: 'Measure through' })).toHaveTextContent('Private addresses')
+    pick('Measure through', 'The address your traffic uses (recommended)')
+    fireEvent.click(screen.getByTestId('save-pair'))
+    await vi.waitFor(() => expect(saved).toEqual([{ a: 'c-eu', b: 'c-us' }]))
+  })
+
+  it('keeps a pair\'s pin when something else about it is changed', async () => {
+    seed('admin', [{ a: 'c-eu', b: 'c-us', via: 'public' }])
+    render(<ClusterLinks />)
+    fireEvent.click(screen.getByRole('button', { name: 'Edit cloud-eu and cloud-us' }))
+    fireEvent.click(screen.getByRole('switch', { name: 'Probing' }))
+    fireEvent.click(screen.getByTestId('save-pair'))
+    await vi.waitFor(() => expect(saved).toEqual([{ a: 'c-eu', b: 'c-us', noProbe: true, via: 'public' }]))
+  })
+
+  it('offers the choice when adding a pair, following the traffic unless one is picked', async () => {
+    render(<ClusterLinks />)
+    fireEvent.click(screen.getByTestId('add-pair'))
+    pick('First cluster', 'cloud-us')
+    pick('Second cluster', 'cloud-eu')
+    expect(screen.getByRole('combobox', { name: 'Measure through' })).toHaveTextContent('recommended')
+    pick('Measure through', 'Public addresses')
+    fireEvent.click(screen.getByTestId('confirm-add-pair'))
+    await vi.waitFor(() => expect(saved).toEqual([{ a: 'c-eu', b: 'c-us', via: 'public' }]))
+  })
+
   it('holds custom numbers to what the agents accept', () => {
     seed('admin', [{ a: 'c-eu', b: 'c-us', throughput: { intervalMinutes: 360, budgetMB: 500 } }])
     render(<ClusterLinks />)
@@ -292,6 +339,15 @@ describe('ClusterLinks', () => {
       // only the pair that has cloud-eu in it shows it
       expect(within(screen.getAllByTestId('pair-row')[0]).getByTestId('pair-note')).toBe(note)
       expect(within(screen.getAllByTestId('pair-row')[1]).queryByTestId('pair-note')).toBeNull()
+    })
+
+    it('says when a pinned pair\'s other cluster has no address of that kind', async () => {
+      seed('viewer', [{ a: 'c-eu', b: 'c-us', via: 'mesh' }])
+      vi.spyOn(api, 'linksLatest').mockResolvedValue(
+        answer({ notes: [{ cluster: 'c-eu', peer: 'c-us', code: 'no-address-of-kind', text: 'The pair is set to measure through mesh addresses, but c-us has none.' }] }),
+      )
+      render(<ClusterLinks />)
+      expect(await screen.findByTestId('pair-note')).toHaveTextContent('cloud-eu: The pair is set to measure through mesh addresses, but c-us has none.')
     })
 
     it('explains a server without FUSION once, not on every row', async () => {

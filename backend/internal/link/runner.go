@@ -290,23 +290,26 @@ func (r *Runner) markUp(peer string) {
 	r.mu.Unlock()
 }
 
-// maybePath traces the route to a peer if it is due. The target is the address that answered the OWAMP test, so the route
-// described is the one the test packets took; before any has, the peer's first address.
+// maybePath traces the route to a peer if it is due. The target is the first address of the order every active measurement
+// follows (see traceTarget): the one the real traffic is seen using, or else the one that answered the OWAMP test, so the
+// route described is the one that matters. A pair pinned to a kind of address the peer does not have fails the trace.
 func (r *Runner) maybePath(ctx context.Context, p Peer) {
 	if r.PathEvery < 0 || ctx.Err() != nil {
 		return
 	}
 	r.mu.Lock()
 	due := time.Since(r.lastPath[p.ID]) >= r.PathEvery
-	target := r.good[p.ID]
+	last := r.good[p.ID]
 	r.mu.Unlock()
 	if !due {
 		return
 	}
-	if target == "" && len(p.Addresses) > 0 {
-		target = p.Addresses[0].String()
+	if noAddress(p) {
+		r.Meter.PathFailed(p.ID)
+		r.Log.Debug("link path probe failed", "peer", p.ID, "reason", ReasonNoKind, "via", p.Via)
+		return
 	}
-	dst, err := netip.ParseAddr(target)
+	dst, err := netip.ParseAddr(traceTarget(p, last))
 	if err != nil {
 		return
 	}
@@ -354,6 +357,11 @@ func srcPortFor(peer string) int {
 func (r *Runner) measure(ctx context.Context, p Peer, d Direction) string {
 	addrs := r.candidates(p)
 	if len(addrs) == 0 {
+		if noAddress(p) {
+			r.Meter.ProbeFailed(p.ID, d, ReasonNoKind)
+			r.Log.Debug("link probe failed", "peer", p.ID, "direction", d, "reason", ReasonNoKind, "via", p.Via)
+			return ReasonNoKind
+		}
 		return ""
 	}
 	var reason string
@@ -386,8 +394,9 @@ func (r *Runner) measure(ctx context.Context, p Peer, d Direction) string {
 	return reason
 }
 
-// candidates are the peer's addresses to try, the one that answered last time first. A cluster has many node addresses,
-// and not every one need run the responder, so a failure moves on to the next rather than counting as a link failure.
+// candidates are the peer's addresses to try (see orderAddresses): those the traffic uses first, then the one that answered
+// last time. A cluster has many node addresses, and not every one need run the responder, so a failure moves on to the next
+// rather than counting as a link failure.
 // At most five, and measure gives up after three that time out, so an unreachable cluster costs about a minute and a half
 // a direction at most, and then it is left alone for a while (see measurePeer).
 func (r *Runner) candidates(p Peer) []string {

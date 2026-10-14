@@ -10,6 +10,7 @@ import (
 	"net/netip"
 	"os"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -591,6 +592,9 @@ func (c *Capacity) runRamp(ctx context.Context, p Peer, t capTest) outcome {
 func (c *Capacity) invoke(ctx context.Context, p Peer, t capTest, extra []string) (IperfResult, outcome) {
 	addrs := c.candidates(p)
 	if len(addrs) == 0 {
+		if noAddress(p) {
+			return IperfResult{}, outcome{fail: ReasonNoKind}
+		}
 		return IperfResult{}, outcome{fail: "unreachable"}
 	}
 	var reason string
@@ -803,19 +807,82 @@ func (c *Capacity) busy(p Peer, t capTest, now time.Time) bool {
 	return false
 }
 
-// orderAddresses are a peer's addresses to try, the one that answered last first and the others in random order, at most max.
-func orderAddresses(p Peer, last string, max int) []string {
-	var out, rest []string
+// ReasonNoKind is the failure reason of a measurement that is pinned to one kind of address (Peer.Via) towards a peer that
+// has none of that kind. It is counted wherever the other failure reasons are, and there is no fallback to another kind: the
+// pin says which path is to be measured.
+const ReasonNoKind = "no_such_kind"
+
+// usableAddresses are the addresses of p an active measurement may use: all of them, or, when the pair is pinned, those of the
+// kind it is pinned to.
+func usableAddresses(p Peer) []netip.Addr {
+	if p.Via == "" {
+		return p.Addresses
+	}
+	var out []netip.Addr
 	for _, a := range p.Addresses {
-		if s := a.String(); s == last {
-			out = append(out, s)
-		} else {
+		if Class(a) == p.Via {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// noAddress says p is pinned to a kind of address it does not have, so no measurement towards it can be made.
+func noAddress(p Peer) bool { return p.Via != "" && len(usableAddresses(p)) == 0 }
+
+// rankAddresses splits the usable addresses of p into the order every active measurement follows: first the ones the real
+// traffic is seen using (p.Preferred, busiest first), then the one that answered last, then the others in the order of the
+// peer's list. A peer without a preference has only the last two.
+func rankAddresses(p Peer, last string) (preferred []string, answered string, rest []string) {
+	pool := usableAddresses(p)
+	taken := map[string]bool{}
+	for _, a := range p.Preferred {
+		if s := a.String(); slices.Contains(pool, a) && !taken[s] {
+			taken[s] = true
+			preferred = append(preferred, s)
+		}
+	}
+	for _, a := range pool {
+		switch s := a.String(); {
+		case taken[s]:
+		case s == last:
+			answered = s
+		default:
 			rest = append(rest, s)
 		}
 	}
+	return preferred, answered, rest
+}
+
+// orderAddresses are the addresses an active measurement tries towards a peer, in order: those the traffic uses, the one that
+// answered last, then the others in random order, at most max of the preferred and the others together (and the one that
+// answered last besides). A pair pinned to a kind of address (p.Via) is offered only addresses of that kind, none if the peer
+// has none: the caller says so (noAddress) instead of measuring another path. A peer with no preference gets what it always
+// did: the one that answered last, then up to max others at random.
+func orderAddresses(p Peer, last string, max int) []string {
+	preferred, answered, rest := rankAddresses(p, last)
+	if len(preferred) > max {
+		preferred = preferred[:max]
+	}
 	rand.Shuffle(len(rest), func(i, j int) { rest[i], rest[j] = rest[j], rest[i] })
-	if len(rest) > max {
-		rest = rest[:max]
+	if room := max - len(preferred); len(rest) > room {
+		rest = rest[:room]
+	}
+	out := preferred
+	if answered != "" {
+		out = append(out, answered)
 	}
 	return append(out, rest...)
+}
+
+// traceTarget is the address the route to p is traced towards: the first of the order above, but with the others in a fixed
+// order, so that the target does not change from one trace to the next and a route change is a real one. "" if there is none.
+func traceTarget(p Peer, last string) string {
+	preferred, answered, rest := rankAddresses(p, last)
+	for _, s := range append(append(preferred, answered), rest...) {
+		if s != "" {
+			return s
+		}
+	}
+	return ""
 }

@@ -696,6 +696,11 @@ message LinkPeer {
   // sets it on the second cluster only while the first can measure, so a pair is never left with nobody measuring; the
   // default (false) runs everything, so a Config from a server that does not know the field behaves as before.
   bool skip_probe = 8;
+  // via pins the active measurements towards this peer (one-way probe, connect timing, route trace, throughput tests) to one
+  // kind of its addresses: "mesh", "private" or "public". Empty (the default) follows the address the real traffic is seen
+  // using. The server sets it from the pair's setting on both clusters; an older agent that does not know the field measures
+  // as before.
+  string via = 9;
 }
 
 // An address to time. The agent only honours it when it was started with measurements allowed, and

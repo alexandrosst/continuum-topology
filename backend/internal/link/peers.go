@@ -8,6 +8,7 @@ package link
 
 import (
 	"net/netip"
+	"slices"
 	"sort"
 	"strconv"
 	"sync/atomic"
@@ -35,6 +36,13 @@ type Peer struct {
 	// them (its responder stays up) and exports no series of them. The route trace still runs here: the two directions can
 	// take different routes. NoProbe wins: with it nothing is measured at all.
 	SkipProbe bool
+	// Via pins the active measurements (one-way probe, connect timing, route trace, throughput tests) to one kind of address
+	// of the peer: mesh, private or public (see Class). Empty follows the traffic: the addresses it is seen using first.
+	Via string
+	// Preferred are the addresses of the peer the real traffic is seen using, the busiest first. The agent works them out from
+	// what the flow collectors report and hands them to the prober, so the prober cannot tell more than the agent saw; they are
+	// never exported as series.
+	Preferred []netip.Addr
 	// Throughput says this cluster runs the throughput tests towards the peer. ThroughputEvery replaces the cluster's own
 	// interval between sets of tests (zero: keep it) and ThroughputBudget limits what they may carry towards this peer in a
 	// day (zero: only the cluster's budget).
@@ -80,6 +88,12 @@ func NewPeers() *Peers {
 // address two peers both claim is dropped from both (a flow to it cannot be placed), and a peer with no usable
 // address is dropped.
 func (p *Peers) Set(own string, in []*continuumv1.LinkPeer) (dropped []string) {
+	return p.set(own, in, nil)
+}
+
+// set is Set with the addresses in use, by peer id, which only the prober is told (the agent keeps its own table in the
+// meter). An address that is not among the peer's usable ones is ignored.
+func (p *Peers) set(own string, in []*continuumv1.LinkPeer, preferred map[string][]string) (dropped []string) {
 	next := &peerSet{own: own, byIP: map[netip.Addr]string{}}
 	owner := map[netip.Addr]string{}
 	clash := map[netip.Addr]bool{}
@@ -94,6 +108,9 @@ func (p *Peers) Set(own string, in []*continuumv1.LinkPeer) (dropped []string) {
 		}
 		seen[lp.ClusterId] = true
 		pe := Peer{ID: lp.ClusterId, Name: lp.Name, NoProbe: lp.NoProbe, SkipProbe: lp.SkipProbe, Throughput: lp.Throughput}
+		if ValidVia(lp.Via) {
+			pe.Via = lp.Via // a kind this agent does not know is read as "follow the traffic"
+		}
 		if pe.Throughput {
 			if s := lp.ThroughputIntervalSeconds; s > 0 {
 				pe.ThroughputEvery = min(max(time.Duration(s)*time.Second, MinThroughputEvery), MaxThroughputEvery)
@@ -157,9 +174,29 @@ func (p *Peers) Set(own string, in []*continuumv1.LinkPeer) (dropped []string) {
 	if len(clash) > 0 {
 		dropped = append(dropped, strconv.Itoa(len(clash))+" address(es) belong to more than one peer cluster and are not used")
 	}
+	for i := range next.peers {
+		next.peers[i].Preferred = usable(next.peers[i].Addresses, preferred[next.peers[i].ID])
+	}
 	sort.Slice(next.peers, func(i, j int) bool { return next.peers[i].ID < next.peers[j].ID })
 	p.cur.Store(next)
 	return dropped
+}
+
+// usable are the addresses in want that are among have, in the order of want and without repeats. have is the peer's accepted
+// list, so a stale or invented preference cannot name an address the peer does not have.
+func usable(have []netip.Addr, want []string) []netip.Addr {
+	var out []netip.Addr
+	for _, s := range want {
+		a, err := netip.ParseAddr(s)
+		if err != nil {
+			continue
+		}
+		a = a.Unmap()
+		if slices.Contains(have, a) && !slices.Contains(out, a) {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 // Own is this cluster's id as the last Config named it.

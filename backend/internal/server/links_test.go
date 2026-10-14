@@ -316,7 +316,7 @@ func TestTheConfigHashChangesWithThePairChoices(t *testing.T) {
 	base := mk(&continuumv1.LinkPeer{})
 	seen := map[string]bool{base: true}
 	for name, lp := range map[string]*continuumv1.LinkPeer{
-		"no probe": {NoProbe: true}, "skip probe": {SkipProbe: true}, "throughput": {Throughput: true}, "interval": {Throughput: true, ThroughputIntervalSeconds: 600}, "budget": {Throughput: true, ThroughputBudgetBytes: 1 << 20},
+		"no probe": {NoProbe: true}, "skip probe": {SkipProbe: true}, "via mesh": {Via: "mesh"}, "via public": {Via: "public"}, "throughput": {Throughput: true}, "interval": {Throughput: true, ThroughputIntervalSeconds: 600}, "budget": {Throughput: true, ThroughputBudgetBytes: 1 << 20},
 	} {
 		h := mk(lp)
 		if seen[h] {
@@ -328,7 +328,7 @@ func TestTheConfigHashChangesWithThePairChoices(t *testing.T) {
 
 func TestPairChoicesAreSavedWithTheSettingsUnderTheNamesTheUIUses(t *testing.T) {
 	var s Settings
-	in := `{"links":[{"a":"cl-b","b":"cl-a","noProbe":true,"throughput":{"intervalMinutes":120,"budgetMB":4096}},{"a":"cl-a","b":"cl-c"}]}`
+	in := `{"links":[{"a":"cl-b","b":"cl-a","noProbe":true,"via":"mesh","throughput":{"intervalMinutes":120,"budgetMB":4096}},{"a":"cl-a","b":"cl-c"}]}`
 	if err := json.Unmarshal([]byte(in), &s); err != nil {
 		t.Fatal(err)
 	}
@@ -338,7 +338,7 @@ func TestPairChoicesAreSavedWithTheSettingsUnderTheNamesTheUIUses(t *testing.T) 
 	}
 	s.Links = links
 	out, _ := json.Marshal(s.Links)
-	if string(out) != `[{"a":"cl-a","b":"cl-b","noProbe":true,"throughput":{"intervalMinutes":120,"budgetMB":4096}},{"a":"cl-a","b":"cl-c"}]` {
+	if string(out) != `[{"a":"cl-a","b":"cl-b","noProbe":true,"via":"mesh","throughput":{"intervalMinutes":120,"budgetMB":4096}},{"a":"cl-a","b":"cl-c"}]` {
 		t.Errorf("%s", out)
 	}
 }
@@ -441,5 +441,57 @@ func TestAPairThatIsNotMeasuredSaysWhy(t *testing.T) {
 	// the same cluster in two pairs is told once that it has no agent
 	if got := codes(h.linkNotes([]LinkSetting{{A: "cl-a", B: "cl-z"}, {A: "cl-b", B: "cl-z"}}, []store.Agent{a, b}, nil)); got != "cl-z:no-agent" {
 		t.Fatalf("one note per cluster: %q", got)
+	}
+}
+
+func TestAPairCanBePinnedToOneKindOfAddress(t *testing.T) {
+	for _, via := range []string{"", "mesh", "private", "public"} {
+		if _, err := normalizeLinks([]LinkSetting{{A: "cl-a", B: "cl-b", Via: via}}); err != nil {
+			t.Errorf("%q refused: %v", via, err)
+		}
+	}
+	for _, via := range []string{"Mesh", "tailscale", "10.0.0.0/8", " public"} {
+		_, err := normalizeLinks([]LinkSetting{{A: "cl-a", B: "cl-b", Via: via}})
+		if err == nil || !strings.Contains(err.Error(), "cl-a") || !strings.Contains(err.Error(), "mesh, private or public") {
+			t.Errorf("%q: %v", via, err)
+		}
+	}
+	// The choice belongs to the pair, so both clusters are told, and a pair without one is told nothing.
+	a, b := ag("ag-a", "cl-a", "alpha", "203.0.113.1", 2), ag("ag-b", "cl-b", "beta", "203.0.113.2", 2)
+	h := linkHub(map[string]*view{"ag-a": {state: nodeState("10.0.0.1")}, "ag-b": {state: nodeState("10.1.0.1")}})
+	pinned := []LinkSetting{{A: "cl-a", B: "cl-b", Via: "public"}}
+	for name, from := range map[string]store.Agent{"cl-a": a, "cl-b": b} {
+		if got := h.linkPeers(from, []store.Agent{a, b}, pinned, false, nil); len(got) != 1 || got[0].Via != "public" {
+			t.Errorf("%s was not told: %+v", name, got)
+		}
+	}
+	if got := h.linkPeers(a, []store.Agent{a, b}, []LinkSetting{{A: "cl-a", B: "cl-b"}}, false, nil); len(got) != 1 || got[0].Via != "" {
+		t.Errorf("a pair that follows the traffic is pinned: %+v", got)
+	}
+}
+
+func TestAPairPinnedToAKindThePeerHasNoneOfSaysSo(t *testing.T) {
+	a, b := ag("ag-a", "cl-a", "alpha", "203.0.113.1", 2), ag("ag-b", "cl-b", "beta", "203.0.113.2", 2)
+	h := linkHub(map[string]*view{"ag-a": {state: nodeState("10.0.0.1")}, "ag-b": {state: nodeState("10.1.0.1")}})
+	notes := func(l LinkSetting) []LinkNote { return h.linkNotes([]LinkSetting{l}, []store.Agent{a, b}, nil) }
+	if got := notes(LinkSetting{A: "cl-a", B: "cl-b", Via: "mesh"}); len(got) != 2 || got[0].Code != "no-address-of-kind" || got[0].Cluster != "cl-a" || got[0].Peer != "cl-b" || got[1].Cluster != "cl-b" ||
+		!strings.Contains(got[0].Text, "mesh addresses, but cl-b has none") {
+		t.Errorf("mesh: %+v", got)
+	}
+	// Both of the peers' kinds are there (a node address on a private range, the address its agent connects from).
+	for _, via := range []string{"", "private", "public"} {
+		if got := notes(LinkSetting{A: "cl-a", B: "cl-b", Via: via}); len(got) != 0 {
+			t.Errorf("%q: %+v", via, got)
+		}
+	}
+	// Nothing active runs for a pair with the probe off and no throughput tests, so there is nothing to explain.
+	if got := notes(LinkSetting{A: "cl-a", B: "cl-b", Via: "mesh", NoProbe: true}); len(got) != 0 {
+		t.Errorf("no probe: %+v", got)
+	}
+	// An address the peer shares with this cluster is not one it can be measured through.
+	h2 := linkHub(map[string]*view{"ag-a": {state: nodeState("10.0.0.1")}, "ag-b": {state: nodeState("10.0.0.1", "100.64.1.1")}})
+	// cl-b has a mesh address, so cl-a measures through it; cl-a has none left once the shared one is out, and cl-b is told so.
+	if got := h2.linkNotes([]LinkSetting{{A: "cl-a", B: "cl-b", Via: "mesh"}}, []store.Agent{a, b}, nil); len(got) != 1 || got[0].Cluster != "cl-b" || got[0].Peer != "cl-a" {
+		t.Errorf("%+v", got)
 	}
 }

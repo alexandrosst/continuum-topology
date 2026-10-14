@@ -9,6 +9,9 @@ export interface LinkPair {
   b: string
   /** Turns the one-way probe and the route trace off for the pair; the passive metrics stay. Default: the probe runs. */
   noProbe?: boolean
+  /** Pins the active measurements (probe, connect timing, route trace, throughput tests) to one kind of the peer's addresses.
+   *  Omitted: they follow the address the real traffic between the two clusters is seen using. */
+  via?: 'mesh' | 'private' | 'public'
   /** Asks for the throughput tests on the pair (default: none). Only the cluster whose id sorts first runs them. */
   throughput?: {
     /** Replaces the cluster's own time between two sets of tests, in minutes (10 to 10080; omitted: keep it). */

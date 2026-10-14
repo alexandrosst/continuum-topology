@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"net/netip"
 	"sort"
 	"strconv"
 	"strings"
@@ -51,6 +52,9 @@ type stats struct {
 	// Whether any report that counted bytes, and any that could not (the conntrack collector without accounting), carried
 	// traffic with this peer. The byte counters are only written while they are not known to be zero for want of a counter.
 	bytesSeen, bytesMissing bool
+	// used is the small table of the addresses the traffic with this peer was seen using, for the prober (see usage.go).
+	// It is memory only and no series is made from it.
+	used usedAddrs
 }
 
 // bytesUnknown says the byte totals are not measurements: only reports that could not count bytes ever arrived.
@@ -61,8 +65,10 @@ func newStats() *stats {
 }
 
 // Meter labels the traffic the node flow collectors observe by the peer cluster it went to or came from, and keeps
-// running totals per peer. Everything is counts and distributions per cluster pair: no addresses, ports or workloads are
-// kept; see the cardinality test for how many series a peer costs.
+// running totals per peer. Everything exported is counts and distributions per cluster pair: no addresses, ports or
+// workloads are labelled; see the cardinality test for how many series a peer costs. The one thing kept about addresses is
+// the small in-memory table of which of a peer's addresses its traffic is seen using (usage.go), which only the prober's
+// peer list reads.
 type Meter struct {
 	Peers *Peers
 	now   func() time.Time
@@ -165,7 +171,9 @@ func (m *Meter) ObserveRows(rows []*continuumv1.RawFlow, bytesKnown bool) {
 		}
 		s.lastSeen = now
 		s.connections += r.Connections
+		var carried uint64
 		if bytesKnown {
+			carried = r.BytesOut + r.BytesIn
 			sent, recv := r.BytesOut, r.BytesIn
 			if !r.Client {
 				sent, recv = r.BytesIn, r.BytesOut
@@ -193,6 +201,9 @@ func (m *Meter) ObserveRows(rows []*continuumv1.RawFlow, bytesKnown bool) {
 		if r.RttUs > 0 {
 			s.rtt.observe(float64(r.RttUs) / 1e6)
 		}
+		if a, err := netip.ParseAddr(r.PeerIp); err == nil {
+			s.used.add(a.Unmap(), rowWeight(r.Connections, carried), now)
+		}
 	}
 }
 
@@ -206,21 +217,29 @@ func (m *Meter) proberPort(port uint32) bool {
 	return false
 }
 
-// Forget drops the totals of peers that are no longer configured.
+// Forget drops the totals of peers that are no longer configured, and from the table of addresses in use those of a peer that
+// are no longer among its addresses or have not been seen for an hour.
 func (m *Meter) Forget() {
 	if m == nil {
 		return
 	}
 	keep := map[string]bool{}
+	addrs := map[string]map[netip.Addr]bool{}
 	for _, p := range m.Peers.List() {
 		keep[p.ID] = true
+		addrs[p.ID] = map[netip.Addr]bool{}
+		for _, a := range p.Addresses {
+			addrs[p.ID][a] = true
+		}
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	for id := range m.per {
+	for id, s := range m.per {
 		if !keep[id] {
 			delete(m.per, id)
+			continue
 		}
+		s.used.prune(m.now(), addrs[id])
 	}
 	probed, traced, tested := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	for _, p := range m.Peers.List() {

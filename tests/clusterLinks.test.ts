@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
-  PRESETS, clusterChecks, costLine, delayWords, everyWords, hasPair, latestView, lossWords, newPair, normalizeLinksLatest, rateWords, presetOf, removePair, replacePair, runnerOf, runsFromWords, throughputFieldProblems, throughputFor, throughputProblems, throughputSummary,
+  PRESETS, VIA_OPTIONS, clusterChecks, costLine, delayWords, everyWords, hasPair, latestView, lossWords, newPair, normalizeLinksLatest, rateWords, presetOf, removePair, replacePair, runnerOf, runsFromWords, throughputFieldProblems, throughputFor, throughputProblems, throughputSummary, viaWords,
 } from '../src/lib/clusterLinks'
 import type { Agent } from '../src/lib/types'
 
@@ -65,6 +65,18 @@ test('a pair says which cluster probing and the tests run from', () => {
   assert.equal(runsFromWords({ ...p, throughput: {} }, 'EU'), 'probing and tests run from EU')
   assert.equal(runsFromWords({ ...p, noProbe: true, throughput: {} }, 'EU'), 'tests run from EU')
   assert.equal(runsFromWords({ ...p, noProbe: true }, 'EU'), 'real traffic only')
+})
+
+test('a pinned pair says which kind of address it is measured through', () => {
+  const p = { a: 'cloud-eu', b: 'edge-athens', via: 'mesh' as const }
+  assert.equal(runsFromWords(p, 'EU'), 'probing runs from EU, through mesh addresses; no throughput tests')
+  assert.equal(runsFromWords({ ...p, via: 'public', throughput: {} }, 'EU'), 'probing and tests run from EU, through public addresses')
+  assert.equal(runsFromWords({ ...p, via: 'private', noProbe: true, throughput: {} }, 'EU'), 'tests run from EU, through private addresses')
+  // nothing active runs, so there is nothing to pin
+  assert.equal(runsFromWords({ ...p, noProbe: true }, 'EU'), 'real traffic only')
+  assert.equal(viaWords('mesh'), 'mesh addresses')
+  assert.deepEqual(VIA_OPTIONS.map((o) => o.value), ['', 'mesh', 'private', 'public'])
+  assert.deepEqual(replacePair([{ a: 'a', b: 'b' }], { a: 'a', b: 'b', via: 'public' }), [{ a: 'a', b: 'b', via: 'public' }])
 })
 
 test('a cluster is checked from its approved agent', () => {

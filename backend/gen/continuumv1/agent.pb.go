@@ -3885,7 +3885,12 @@ type LinkPeer struct {
 	// first, like the throughput tests), so this one only serves them. The route trace still runs on both sides. The server
 	// sets it on the second cluster only while the first can measure, so a pair is never left with nobody measuring; the
 	// default (false) runs everything, so a Config from a server that does not know the field behaves as before.
-	SkipProbe     bool `protobuf:"varint,8,opt,name=skip_probe,json=skipProbe,proto3" json:"skip_probe,omitempty"`
+	SkipProbe bool `protobuf:"varint,8,opt,name=skip_probe,json=skipProbe,proto3" json:"skip_probe,omitempty"`
+	// via pins the active measurements towards this peer (one-way probe, connect timing, route trace, throughput tests) to one
+	// kind of its addresses: "mesh", "private" or "public". Empty (the default) follows the address the real traffic is seen
+	// using. The server sets it from the pair's setting on both clusters; an older agent that does not know the field measures
+	// as before.
+	Via           string `protobuf:"bytes,9,opt,name=via,proto3" json:"via,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3974,6 +3979,13 @@ func (x *LinkPeer) GetSkipProbe() bool {
 		return x.SkipProbe
 	}
 	return false
+}
+
+func (x *LinkPeer) GetVia() string {
+	if x != nil {
+		return x.Via
+	}
+	return ""
 }
 
 // An address to time. The agent only honours it when it was started with measurements allowed, and
@@ -7074,7 +7086,7 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"cluster_id\x18\t \x01(\tR\tclusterId\x125\n" +
 	"\n" +
 	"link_peers\x18\n" +
-	" \x03(\v2\x16.continuum.v1.LinkPeerR\tlinkPeers\"\xad\x02\n" +
+	" \x03(\v2\x16.continuum.v1.LinkPeerR\tlinkPeers\"\xbf\x02\n" +
 	"\bLinkPeer\x12\x1d\n" +
 	"\n" +
 	"cluster_id\x18\x01 \x01(\tR\tclusterId\x12\x12\n" +
@@ -7087,7 +7099,8 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\x1bthroughput_interval_seconds\x18\x06 \x01(\rR\x19throughputIntervalSeconds\x126\n" +
 	"\x17throughput_budget_bytes\x18\a \x01(\x04R\x15throughputBudgetBytes\x12\x1d\n" +
 	"\n" +
-	"skip_probe\x18\b \x01(\bR\tskipProbe\"E\n" +
+	"skip_probe\x18\b \x01(\bR\tskipProbe\x12\x10\n" +
+	"\x03via\x18\t \x01(\tR\x03via\"E\n" +
 	"\vProbeTarget\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04host\x18\x02 \x01(\tR\x04host\x12\x12\n" +

@@ -5,8 +5,8 @@ import { ConfirmModal } from '@/components/forms/ConfirmModal'
 import { Button, ErrorBanner, Field, ICON_MD, ICON_SM, Input, Modal, Pill, Select, SkeletonLines, Table, Td, Th } from '@/components/ui/primitives'
 import { api, atLeast } from '@/lib/api'
 import {
-  PRESETS, clusterChecks, costLine, hasPair, latestView, newPair, pairKey, presetOf, removePair, replacePair, runnerOf, runsFromWords, throughputFieldProblems, throughputFor, throughputSummary,
-  type Check, type LinkPairLatest, type LinksLatest, type PresetId,
+  PRESETS, VIA_HINT, VIA_OPTIONS, clusterChecks, costLine, hasPair, latestView, newPair, pairKey, presetOf, removePair, replacePair, runnerOf, runsFromWords, throughputFieldProblems, throughputFor, throughputSummary,
+  type Check, type LinkPairLatest, type LinksLatest, type PresetId, type Via,
 } from '@/lib/clusterLinks'
 import type { LinkPair } from '@/lib/history'
 import type { Agent } from '@/lib/types'
@@ -259,6 +259,17 @@ function Choice({ label, text, on, onChange, fixed }: { label: string; text: str
   )
 }
 
+/** Which kind of the other cluster's addresses the active measurements go through. */
+function ViaSelect({ value, onChange }: { value: Via | ''; onChange: (v: Via | '') => void }) {
+  return (
+    <Field label="Measure through" hint={VIA_HINT}>
+      <Select value={value} onChange={(e) => onChange(e.target.value as Via | '')} aria-label="Measure through" data-testid="via-select">
+        {VIA_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+      </Select>
+    </Field>
+  )
+}
+
 function useSaveLinks(onDone: () => void) {
   const conn = useConn()
   const { settings, save } = useSettings()
@@ -285,6 +296,7 @@ function useSaveLinks(onDone: () => void) {
 function EditPair({ pair, agents, name, onClose }: { pair: LinkPair; agents: Agent[]; name: (id: string) => string; onClose: () => void }) {
   const { busy, error, run } = useSaveLinks(onClose)
   const [probe, setProbe] = useState(!pair.noProbe)
+  const [via, setVia] = useState<Via | ''>(pair.via ?? '')
   const [tpOn, setTpOn] = useState(!!pair.throughput)
   const start = pair.throughput ?? throughputFor('standard')
   const [preset, setPreset] = useState<PresetId | 'custom'>(presetOf(pair.throughput) ?? 'standard')
@@ -310,7 +322,7 @@ function EditPair({ pair, agents, name, onClose }: { pair: LinkPair; agents: Age
 
   const submit = () => {
     const kept = tpOn && !tpTouched && pair.throughput ? pair.throughput : throughput
-    const next: LinkPair = { a: pair.a, b: pair.b, ...(probe ? {} : { noProbe: true }), ...(kept ? { throughput: kept } : {}) }
+    const next: LinkPair = { a: pair.a, b: pair.b, ...(probe ? {} : { noProbe: true }), ...(via ? { via } : {}), ...(kept ? { throughput: kept } : {}) }
     void run((cur) => replacePair(cur, next))
   }
 
@@ -378,6 +390,9 @@ function EditPair({ pair, agents, name, onClose }: { pair: LinkPair; agents: Age
           )}
 
           <hr className="border-nb-850" />
+          <ViaSelect value={via} onChange={setVia} />
+
+          <hr className="border-nb-850" />
           <div>
             <div className="mb-2 text-sm font-medium text-nb-300">What this needs</div>
             <Checks checks={checks} />
@@ -406,6 +421,7 @@ function AddPair({ clusters, agents, name, onClose }: { clusters: { id: string; 
   const [x, setX] = useState('')
   const [y, setY] = useState('')
   const [probe, setProbe] = useState(true)
+  const [via, setVia] = useState<Via | ''>('')
   const withAgent = new Set(agents.filter((a) => a.status === 'approved' && a.clusterId).map((a) => a.clusterId as string))
   const options = clusters.filter((c) => withAgent.has(c.id))
   const duplicate = x !== '' && y !== '' && x !== y && hasPair(links, x, y)
@@ -424,7 +440,7 @@ function AddPair({ clusters, agents, name, onClose }: { clusters: { id: string; 
       footer={
         <>
           <Button disabled={busy} onClick={onClose}>Cancel</Button>
-          <Button variant="primary" disabled={!ready || busy} onClick={() => void run((cur) => [...cur, { ...newPair(x, y), ...(probe ? {} : { noProbe: true }) }])} data-testid="confirm-add-pair">
+          <Button variant="primary" disabled={!ready || busy} onClick={() => void run((cur) => [...cur, { ...newPair(x, y), ...(probe ? {} : { noProbe: true }), ...(via ? { via } : {}) }])} data-testid="confirm-add-pair">
             Add pair
           </Button>
         </>
@@ -453,6 +469,7 @@ function AddPair({ clusters, agents, name, onClose }: { clusters: { id: string; 
             <div className="space-y-4">
               <Choice label="Real traffic" text="Always on for a listed pair." on fixed />
               <Choice label="Probing" text="Delay, jitter and loss per direction, packet size and route. Tiny traffic." on={probe} onChange={setProbe} />
+              <ViaSelect value={via} onChange={setVia} />
               <p className="flex items-start gap-2 text-xs text-nb-500"><CheckIcon size={ICON_SM} className="mt-px shrink-0" aria-hidden />Throughput tests start off. Turn them on from the pair’s settings, with a budget you choose, so nothing heavy runs by surprise.</p>
             </div>
 

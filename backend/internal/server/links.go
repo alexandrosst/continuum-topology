@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"sort"
 	"strings"
 
@@ -28,6 +29,10 @@ type LinkSetting struct {
 	B string `json:"b"`
 	// NoProbe turns the one-way probe, the connect timing and the route trace off for the pair; the passive metrics stay.
 	NoProbe bool `json:"noProbe,omitempty"`
+	// Via pins the active measurements of the pair (one-way probe, connect timing, route trace, throughput tests) to one kind
+	// of the peer's addresses: "mesh", "private" or "public". Empty, the default, follows the address the real traffic between
+	// the clusters is seen using. The passive metrics always match against all of the peer's addresses.
+	Via string `json:"via,omitempty"`
 	// Throughput, when present, asks for the throughput tests (iperf3) on the pair. Only one cluster of the pair runs
 	// them, in both directions, and the other serves them: the one whose id sorts first, so the link is not loaded twice.
 	Throughput *LinkThroughput `json:"throughput,omitempty"`
@@ -69,6 +74,9 @@ func normalizeLinks(in []LinkSetting) ([]LinkSetting, error) {
 		}
 		if l.B < l.A {
 			l.A, l.B = l.B, l.A
+		}
+		if !link.ValidVia(l.Via) {
+			return nil, fmt.Errorf("the pair of %s and %s: measure through must be mesh, private or public addresses, or empty to follow the traffic", l.A, l.B)
 		}
 		if t := l.Throughput; t != nil {
 			if t.IntervalMinutes != 0 && (t.IntervalMinutes < minThroughputMinutes || t.IntervalMinutes > maxThroughputMinutes) {
@@ -187,6 +195,7 @@ func (h *Hub) peerList(a store.Agent, agents []store.Agent, links []LinkSetting,
 		lp := &continuumv1.LinkPeer{ClusterId: id, Name: o.Name, Addresses: addrs}
 		l := pairs[id]
 		lp.NoProbe = l.NoProbe
+		lp.Via = l.Via
 		// One side of the pair runs the throughput tests: the one whose id sorts first.
 		if t := l.Throughput; t != nil && a.ClusterID < id {
 			lp.Throughput = true
@@ -294,7 +303,7 @@ type LinkNote struct {
 	// Cluster is the cluster the note is about, Peer the other end of the pair (empty when the note is about the cluster alone).
 	Cluster string `json:"cluster"`
 	Peer    string `json:"peer,omitempty"`
-	// Code is no-agent | tier | paused | peer-silent | shared-address.
+	// Code is no-agent | tier | paused | peer-silent | shared-address | no-address-of-kind.
 	Code string `json:"code"`
 	Text string `json:"text"`
 }
@@ -340,12 +349,26 @@ func (h *Hub) linkNotes(links []LinkSetting, agents []store.Agent, flowPausedOf 
 				out = append(out, LinkNote{Cluster: c, Peer: peer, Code: "peer-silent", Text: "The agent of " + peer + " has not reported any node address yet, so there is nothing to measure towards."})
 				continue
 			}
-			if len(withoutAddresses(raw, h.ownAddresses(a))) == 0 {
+			usable := withoutAddresses(raw, h.ownAddresses(a))
+			switch {
+			case len(usable) == 0:
 				out = append(out, LinkNote{Cluster: c, Peer: peer, Code: "shared-address", Text: fmt.Sprintf("Every address of %s (%s) is also an address of this cluster, or the public address its agent connects from, so traffic to %s cannot be told from its own traffic and the pair is left out here.", peer, strings.Join(raw, ", "), peer)})
+			case l.Via != "" && (!l.NoProbe || l.Throughput != nil) && !hasAddressOfKind(usable, l.Via):
+				out = append(out, LinkNote{Cluster: c, Peer: peer, Code: "no-address-of-kind", Text: fmt.Sprintf("The pair is set to measure through %s addresses, but %s has none, so the active measurements towards it fail until the choice or the addresses change.", l.Via, peer)})
 			}
 		}
 	}
 	return out
+}
+
+// hasAddressOfKind says whether any of the addresses is of the kind via (see link.Class).
+func hasAddressOfKind(addrs []string, via string) bool {
+	for _, s := range addrs {
+		if a, err := netip.ParseAddr(s); err == nil && link.Class(a) == via {
+			return true
+		}
+	}
+	return false
 }
 
 // LinkNotes is linkNotes for the organisation's current agents.

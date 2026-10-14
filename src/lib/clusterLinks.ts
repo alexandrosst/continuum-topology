@@ -115,15 +115,33 @@ export function clusterChecks(clusterId: string, name: string, agents: Agent[]):
   return out
 }
 
+export type Via = NonNullable<LinkPair['via']>
+
+/** What the "Measure through" select offers: '' follows the traffic, the others pin the pair to one kind of address. */
+export const VIA_OPTIONS: { value: Via | ''; label: string }[] = [
+  { value: '', label: 'The address your traffic uses (recommended)' },
+  { value: 'mesh', label: 'Mesh addresses (100.64.x.x and similar)' },
+  { value: 'private', label: 'Private addresses' },
+  { value: 'public', label: 'Public addresses' },
+]
+
+/** The sentence under the select. */
+export const VIA_HINT =
+  'Probing and throughput tests follow the address your clusters’ real traffic is seen using, and try the others if it does not answer. Choose a kind to measure only that path; the figures then describe it, and the measurement fails if the other cluster has no address of that kind.'
+
+/** The kind as it reads in a sentence: "mesh addresses". */
+export const viaWords = (v: Via) => `${v} addresses`
+
 /** The id of the cluster that runs a pair's probing and throughput tests: the one whose id sorts first. The other only answers. */
 export const runnerOf = (p: LinkPair) => (p.a < p.b ? p.a : p.b)
 
 /** The line under a pair's name: what runs for it, and from which cluster (probing and tests both run from the first one). */
 export function runsFromWords(p: LinkPair, runner: string): string {
   const probing = !p.noProbe
-  if (probing && p.throughput) return `probing and tests run from ${runner}`
-  if (probing) return `probing runs from ${runner}; no throughput tests`
-  if (p.throughput) return `tests run from ${runner}`
+  const through = p.via ? `, through ${viaWords(p.via)}` : ''
+  if (probing && p.throughput) return `probing and tests run from ${runner}${through}`
+  if (probing) return `probing runs from ${runner}${through}; no throughput tests`
+  if (p.throughput) return `tests run from ${runner}${through}`
   return 'real traffic only'
 }
 
@@ -147,7 +165,7 @@ export interface LinkPairLatest {
 export interface LinkNote {
   cluster: string
   peer?: string
-  code: 'no-agent' | 'tier' | 'paused' | 'peer-silent' | 'shared-address'
+  code: 'no-agent' | 'tier' | 'paused' | 'peer-silent' | 'shared-address' | 'no-address-of-kind'
   text: string
 }
 
