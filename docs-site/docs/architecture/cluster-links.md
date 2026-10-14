@@ -8,7 +8,7 @@ description: How the quality of the connection between two clusters is measured 
 
 A link is the connection between two onboarded clusters. Knowing it matters to placement and to troubleshooting: an application that calls across a link inherits its loss, delay and jitter, and nothing else in the system sees those directly. The measurements are exported as Prometheus-style metrics through the same collector pipeline as every other [telemetry signal](./telemetry-intent.md), so they follow the same destination, scope and provenance rules and arrive in FUSION like the rest.
 
-No single tool covers a link. Real traffic shows what applications actually experience but says nothing about an idle link. A constant ping shows an idle link but travels a path of its own and is blocked by many networks. A throughput test shows capacity but loads the link. So the design combines sources, and gives each one a job that the others cannot do.
+No single tool covers a link. Real traffic shows what applications actually experience but says nothing about an idle link. A constant probe shows an idle link but travels a path of its own, and a ping is blocked by many networks. A throughput test shows capacity but loads the link. So the design combines sources, and gives each one a job that the others cannot do.
 
 ## Which pairs are measured
 
@@ -111,29 +111,21 @@ A path whose MTU is smaller than the sender believes, with a router that does no
 
 Limits: routers that do not send ICMP answers appear as silent hops and are left out of the route; load balancing per packet (rare) makes the route look unstable; a path whose ICMP is filtered shows a hop count and MTU only as far as it answers. IPv4 only for now: IPv6 peers are skipped without counting as failures, until it has been tested.
 
-## Baseline: connect timing and pings
+## Baseline: connect timing
 
-Two cheap measurements run all the time towards every paired cluster that is probed, so there is always a figure to compare the rest with, and so there is one when the one-way probe cannot run.
+One cheap measurement runs all the time towards every paired cluster that is probed, so there is always a round-trip figure to compare the rest with, and one that works where ICMP is blocked.
 
-**TCP connect time.** Every `probe.tcpConnect.interval` (15s) the prober opens a TCP connection to the peer's responder port, times the handshake and closes it with a reset: one SYN and its answer, no data, nothing left in TIME_WAIT. The time is a round trip as the TCP stack sees it. It works where ICMP is blocked, but it needs the responder to be reachable, so it cannot tell a dead responder from a dead link; the pings and the one-way probe say which. A peer has many node addresses: the one that answered last is tried first and one more after it, so a single node being down does not count against the link. `probe.tcpConnect.interval: "0"` turns it off.
+Every `probe.tcpConnect.interval` (15s) the prober opens a TCP connection to the peer's responder port, times the handshake and closes it with a reset: one SYN and its answer, no data, nothing left in TIME_WAIT. The time is a round trip as the TCP stack sees it. A peer has many node addresses: the one that answered last is tried first and one more after it, so a single node being down does not count against the link. `probe.tcpConnect.interval: "0"` turns it off.
+
+It needs the responder to be reachable, so on its own it cannot tell a dead responder from a dead link. The failure reason tells most of it: `refused` means the host is up and the responder is not, `timeout` means the host or the path is down. The one-way probe says the rest.
 
 | Metric | Type | Meaning |
 | --- | --- | --- |
 | `continuum_link_tcp_connect_seconds` | histogram | Time to open the connection. |
-| `continuum_link_tcp_connect_failures_total` | counter | Rounds in which no address of the peer answered, by the `reason` of the last attempt (`refused`, `timeout`, `reset`, `unreachable`, `other`); a round where a later address answered counts nothing. The loss ratio is per round: this over this plus the histogram's count, whose samples may come from different nodes of the peer. |
+| `continuum_link_tcp_connect_failures_total` | counter | Rounds in which no address answered, by `reason` (`refused`, `timeout`, `reset`, `unreachable`, `other`). |
 | `continuum_link_tcp_connect_last_success_timestamp_seconds` | gauge | When a connection last opened. Absent until the first time. |
 
-**Pings.** Off by default: `telemetry.clusterLinks.probe.icmp.enabled`. The prober then runs [smokeping_prober](https://github.com/SuperQ/smokeping_prober) (pinned in the image, Apache-2.0) as a child process, writes its configuration from the peer list (up to `hostsPerPeer`, 3 by default, node addresses per peer, so that one node being down is not read as a dead link), restarts it when the list changes, and serves what it measured on the prober's own endpoint with our names. Pings are sent every `probe.icmp.interval` (2s) with `probe.icmp.size` bytes of payload, through an unprivileged ICMP socket: no capability is added, but the pod sets the `net.ipv4.ping_group_range` sysctl, which a cluster policy may forbid (some managed platforms in their strictest mode). In that case the program cannot ping and `continuum_link_icmp_running` is 0.
-
-| Metric | Type | Meaning |
-| --- | --- | --- |
-| `continuum_link_icmp_response_duration_seconds` | histogram | Round-trip time of the pings that were answered. |
-| `continuum_link_icmp_requests_total` | counter | Pings sent. Loss is one minus the histogram's count over this. |
-| `continuum_link_icmp_response_ttl`, `..._response_duplicates_total` | gauge, counter | TTL of the last answer (a change hints at a route change) and duplicated answers. |
-| `continuum_link_icmp_send_errors_total`, `..._receive_errors_total`, `..._prober_errors_total` | counter | Pings that could not be sent or read. |
-| `continuum_link_icmp_running` | gauge | 1 if the ping program is running and answering; 0 means the series above are stale or absent. |
-
-Many networks drop ICMP between sites, so silence here is a hint, not a finding: a peer that answers the connect timing and not the pings is simply filtering ICMP. Allow ICMP echo between the clusters' node addresses if you want these series.
+There is no ICMP ping baseline. It was built and dropped: the connect timing gives the same round trip without a second program, a privilege-related sysctl or a second image build, and the one-way probe gives loss in each direction.
 
 ## Throughput tests: how much a link carries
 
@@ -191,4 +183,4 @@ The servers mount only `private.pem` and `users.csv`, and the prober only `publi
 ## What is planned
 
 - **Latest results on the screen.** The Sites screen sets the per-pair choices; showing the latest figures next to them needs a small endpoint that reads them from the telemetry backend.
-- **What each cluster can do.** Agents reporting whether the responder, the iperf3 server and the ping sysctl are in place, so the screen can say "this cluster has no throughput server" rather than leave the user to find out.
+- **What each cluster can do.** Agents reporting whether the responder and the iperf3 server are in place, so the screen can say "this cluster has no throughput server" rather than leave the user to find out.

@@ -239,11 +239,6 @@ telemetry:
       tcpConnect:
         interval: 15s
         timeout: 3s
-      icmp:
-        enabled: false
-        hostsPerPeer: 3
-        interval: 2s
-        size: 56
       scrapeInterval: 30s
       resources:
         limits:

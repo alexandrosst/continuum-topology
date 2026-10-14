@@ -18,7 +18,6 @@ import (
 func TestEveryReadOnlyLinkContainerHasAWritableTemporaryDirectory(t *testing.T) {
 	for name, args := range map[string][]string{
 		"probe":                    probeArgs(),
-		"probe and ping baseline":  probeArgs("telemetry.clusterLinks.probe.icmp.enabled=true"),
 		"throughput tests":         capArgs(),
 		"throughput tests, authed": capArgs("telemetry.clusterLinks.probe.capacity.auth.existingSecret=k"),
 	} {

@@ -141,20 +141,14 @@ func TestBadBaselineSettingsFailAtStartWithTheReason(t *testing.T) {
 	good := filepath.Join(dir, "good")
 	os.WriteFile(good, []byte("a-secret-of-sixteen-plus-chars\n"), 0o600)
 	owping := filepath.Join(dir, "owping")
-	smoke := filepath.Join(dir, "smokeping_prober")
 	os.WriteFile(owping, []byte("#!/bin/sh\n"), 0o700)
-	os.WriteFile(smoke, []byte("#!/bin/sh\n"), 0o700)
 	base := []string{"--agent", "http://a:9104", "--secret-file", good, "--owping", owping}
 	for name, c := range map[string]struct {
 		extra []string
 		want  string
 	}{
-		"connect too often":    {[]string{"--tcp-interval", "1s"}, "more often than every 5s"},
-		"connect timeout":      {[]string{"--tcp-interval", "10s", "--tcp-timeout", "20s"}, "shorter than the interval"},
-		"missing ping program": {[]string{"--icmp", "--icmp-bin", filepath.Join(dir, "nope"), "--icmp-dir", dir}, "--icmp-bin"},
-		"ping too often":       {[]string{"--icmp", "--icmp-bin", smoke, "--icmp-dir", dir, "--icmp-interval", "10ms"}, "ping interval"},
-		"too many hosts":       {[]string{"--icmp", "--icmp-bin", smoke, "--icmp-dir", dir, "--icmp-hosts", "50"}, "hosts per peer"},
-		"ping size":            {[]string{"--icmp", "--icmp-bin", smoke, "--icmp-dir", dir, "--icmp-size", "5"}, "ping size"},
+		"connect too often": {[]string{"--tcp-interval", "1s"}, "more often than every 5s"},
+		"connect timeout":   {[]string{"--tcp-interval", "10s", "--tcp-timeout", "20s"}, "shorter than the interval"},
 	} {
 		code, out := run(t, append(append([]string{}, base...), c.extra...)...)
 		if code == 0 || !strings.Contains(out, c.want) {
@@ -163,32 +157,18 @@ func TestBadBaselineSettingsFailAtStartWithTheReason(t *testing.T) {
 	}
 }
 
-func TestBaselinesAreOffOrOnByTheirDefaults(t *testing.T) {
-	dir := t.TempDir()
-	smoke := filepath.Join(dir, "smokeping_prober")
-	os.WriteFile(smoke, []byte("#!/bin/sh\n"), 0o700)
+func TestConnectTimingIsOnByDefaultAndOffAtZero(t *testing.T) {
 	fs := cli.NewFlagSet("t", io.Discard)
 	f := addBaselineFlags(fs)
-	_ = fs.Parse([]string{"--icmp-bin", smoke, "--icmp-dir", filepath.Join(dir, "icmp")})
-	peers := link.NewPeers()
-	m := link.NewMeter(peers)
+	_ = fs.Parse(nil)
+	m := link.NewMeter(link.NewPeers())
 	if c, err := f.connect(m, 8861); err != nil || c == nil || c.Every != 15*time.Second {
 		t.Fatalf("connect timing is on by default: %+v %v", c, err)
 	}
-	if p, err := f.pings(m, peers); err != nil || p != nil {
-		t.Fatalf("pings are off by default: %+v %v", p, err)
-	}
 	fs2 := cli.NewFlagSet("t", io.Discard)
 	f2 := addBaselineFlags(fs2)
-	_ = fs2.Parse([]string{"--tcp-interval", "0", "--icmp", "--icmp-bin", smoke, "--icmp-dir", filepath.Join(dir, "icmp")})
+	_ = fs2.Parse([]string{"--tcp-interval", "0"})
 	if c, err := f2.connect(m, 8861); err != nil || c != nil {
 		t.Fatalf("an interval of 0 turns connect timing off: %+v %v", c, err)
-	}
-	p, err := f2.pings(m, peers)
-	if err != nil || p == nil || p.HostsPerPeer != 3 || p.Interval != 2*time.Second {
-		t.Fatalf("%+v %v", p, err)
-	}
-	if st, err := os.Stat(filepath.Join(dir, "icmp")); err != nil || !st.IsDir() {
-		t.Fatal("the configuration directory should have been created")
 	}
 }

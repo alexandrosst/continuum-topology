@@ -81,10 +81,6 @@ func Main(args []string) int {
 	if err != nil {
 		return cli.Fatal(log, err)
 	}
-	pings, err := baseFlags.pings(meter, peers)
-	if err != nil {
-		return cli.Fatal(log, err)
-	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -103,10 +99,6 @@ func Main(args []string) int {
 	if connects != nil {
 		log.Info("link connect timing on", "interval", connects.Every)
 		go connects.Run(ctx)
-	}
-	if pings != nil {
-		log.Info("link ICMP baseline on", "interval", pings.Interval, "hosts_per_peer", pings.HostsPerPeer)
-		go pings.Run(ctx)
 	}
 	r.Run(ctx)
 	return 0

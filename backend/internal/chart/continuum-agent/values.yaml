@@ -1018,22 +1018,13 @@ telemetry:
       spacing: 100ms    # average time between packets (10ms to 5s). A run takes about packets x spacing.
       dscp: 0           # DSCP value to mark test packets with (0-63; 0: unmarked)
       pathInterval: 10m # how often the route and path MTU to each paired cluster are traced (1m or more; "0": never)
-      # Two baselines under the one-way probe, for the pairs it is on for. Neither needs the other cluster to run anything new.
-      #  - tcpConnect times the opening of a TCP connection to each peer's responder port (a SYN and its answer, no data): a round
-      #    trip as the TCP stack sees it, and a failure counted by reason. It works where ICMP is filtered. It needs the responder
-      #    to be reachable, so on its own it cannot tell a dead responder from a dead link.
-      #  - icmp pings the peers' node addresses with smokeping_prober (a few per peer, so one node being down is not a dead link).
-      #    Many networks drop ICMP between sites, so silence here is a hint, not a finding. It uses an unprivileged ICMP socket,
-      #    which needs the pod sysctl net.ipv4.ping_group_range (the chart sets it for the prober pod; a cluster whose policy
-      #    forbids that sysctl cannot run it, and the prober then reports continuum_link_icmp_running 0).
+      # A baseline under the one-way probe, for the pairs it is on for. It needs the other cluster to run nothing new.
+      # tcpConnect times the opening of a TCP connection to each peer's responder port (a SYN and its answer, no data): a round
+      # trip as the TCP stack sees it, and a failure counted by reason ("refused": the host is up and the responder is not;
+      # "timeout": the host or the path is down). It works where ICMP is filtered.
       tcpConnect:
         interval: 15s   # how often (5s or more; "0": off)
         timeout: 3s     # how long one attempt may take; shorter than the interval
-      icmp:
-        enabled: false
-        interval: 2s    # between two pings of one host (500ms to 1m)
-        size: 56        # payload bytes (24 to 1400)
-        hostsPerPeer: 3 # node addresses pinged per peer (1 to 8)
       scrapeInterval: 30s
       resources:
         requests: {cpu: 20m, memory: 32Mi}

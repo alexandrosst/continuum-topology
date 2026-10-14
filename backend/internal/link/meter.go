@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -79,10 +78,8 @@ type Meter struct {
 	paths      map[string]*pathStats
 	tp         map[string]*tpStats
 	connects   map[string]*connectStats
-	// timingConnects turns the connect-timing series on; extras are written after the active series, each one a source of
-	// series of its own (the ICMP baseline), asked for under no lock of the meter's.
+	// timingConnects turns the connect-timing series on.
 	timingConnects bool
-	extras         []func(io.Writer)
 	// proberPorts are the ports the link prober's own traffic uses; flows to or from them are not the link's traffic.
 	proberPorts []portRange
 	budget      func() (used, limit uint64)
@@ -295,12 +292,8 @@ func (m *Meter) Write(w io.Writer) {
 	// slowly must not hold the meter's lock (every flow report and every probe result takes it) while it does.
 	var buf bytes.Buffer
 	m.mu.Lock()
-	extras := slices.Clone(m.extras)
 	m.write(&buf, own, peers)
 	m.mu.Unlock()
-	for _, f := range extras {
-		f(&buf)
-	}
 	_, _ = w.Write(buf.Bytes())
 }
 
@@ -406,17 +399,6 @@ func (m *Meter) writeActive(w io.Writer, own string, peers []Peer) {
 	m.writePaths(w, own, probed)
 	m.writeConnects(w, own, probed)
 	m.writeThroughput(w, own, tested)
-}
-
-// AddSource registers a function that writes more series (Prometheus text) after the active ones, for a baseline measured by
-// another program. It is called with the meter unlocked and must not be slow: it runs inside every scrape.
-func (m *Meter) AddSource(f func(io.Writer)) {
-	if m == nil || f == nil {
-		return
-	}
-	m.mu.Lock()
-	m.extras = append(m.extras, f)
-	m.mu.Unlock()
 }
 
 func trimFloat(f float64) string { return fmt.Sprintf("%g", f) }

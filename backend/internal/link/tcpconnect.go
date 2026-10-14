@@ -26,8 +26,9 @@ type DialFunc func(ctx context.Context, network, addr string) (net.Conn, error)
 // and its answer per peer, no data. The time is a round trip as the TCP stack sees it, and a failure is counted by its reason.
 //
 // It does not depend on ICMP, which many networks filter, and not on the one-way probe's gate, because it sends a handful of
-// packets. It does depend on the responder being reachable, so it cannot tell a dead responder from a dead link; the ICMP baseline
-// and the one-way probe say which.
+// packets. It does depend on the responder being reachable, so it cannot tell a dead responder from a dead link by itself: a
+// refusal means the host is up and the responder is not, a timeout means the host or the path is down, and the one-way probe says
+// the rest.
 type TCPConnect struct {
 	Meter *Meter
 	Log   *slog.Logger

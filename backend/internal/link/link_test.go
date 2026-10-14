@@ -342,7 +342,6 @@ func TestAStalledScraperDoesNotBlockTheMeter(t *testing.T) {
 	p := NewPeers()
 	p.Set("me", []*continuumv1.LinkPeer{peer("a", "A", "10.0.0.1")})
 	m := NewMeter(p)
-	m.AddSource(func(w io.Writer) { io.WriteString(w, "extra 1\n") })
 	w := &blockingWriter{entered: make(chan struct{}), release: make(chan struct{})}
 	done := make(chan struct{})
 	go func() { m.Write(w); close(done) }()
@@ -359,7 +358,7 @@ func TestAStalledScraperDoesNotBlockTheMeter(t *testing.T) {
 	}
 	close(w.release)
 	<-done
-	if !strings.Contains(w.buf.String(), "extra 1") || !strings.Contains(w.buf.String(), "continuum_link_peer_info") {
+	if !strings.Contains(w.buf.String(), "continuum_link_peer_info") {
 		t.Errorf("incomplete scrape:\n%s", w.buf.String())
 	}
 }

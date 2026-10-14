@@ -275,47 +275,14 @@ func TestTheConnectTimingIsOnByDefaultAndTheSettingsReachTheProber(t *testing.T)
 	}
 }
 
-func TestThePingBaselineIsOffByDefaultAndWhenOnNeedsOnlyASysctlAndAScratchDirectory(t *testing.T) {
-	off := render(t, probeArgs()...).deployments["continuum-link-prober"].Spec.Template.Spec
-	if len(off.SecurityContext.Sysctls) != 0 {
-		t.Errorf("sysctls without pings: %v", off.SecurityContext.Sysctls)
+// The pings were tried and dropped: the connect timing and the one-way probe cover what they would say. Their values are refused,
+// so a values file written for them fails at render time rather than being ignored.
+func TestThePingBaselineIsGone(t *testing.T) {
+	if out, err := helmTemplate(t, probeArgs("telemetry.clusterLinks.probe.icmp.enabled=true")...); err == nil {
+		t.Errorf("icmp values accepted\n%s", out)
 	}
-	for _, e := range off.Containers[0].Env {
-		if strings.HasPrefix(e.Name, "CONTINUUM_LINK_ICMP") {
-			t.Errorf("%s set while pings are off", e.Name)
-		}
-	}
-	on := render(t, probeArgs("telemetry.clusterLinks.probe.icmp.enabled=true", "telemetry.clusterLinks.probe.icmp.hostsPerPeer=2", "telemetry.clusterLinks.probe.icmp.interval=5s")...).deployments["continuum-link-prober"].Spec.Template.Spec
-	if got := on.SecurityContext.Sysctls; len(got) != 1 || got[0].Name != "net.ipv4.ping_group_range" || got[0].Value != "0 2147483647" {
-		t.Errorf("sysctls = %v", got)
-	}
-	env := map[string]string{}
-	for _, e := range on.Containers[0].Env {
-		env[e.Name] = e.Value
-	}
-	if env["CONTINUUM_LINK_ICMP"] != "true" || env["CONTINUUM_LINK_ICMP_HOSTS"] != "2" || env["CONTINUUM_LINK_ICMP_INTERVAL"] != "5s" || env["CONTINUUM_LINK_ICMP_DIR"] != "/icmp" {
-		t.Errorf("env = %v", env)
-	}
-	// the pod stays unprivileged: no capability, a read-only root, and the only writable place is the small scratch volume
-	c := on.Containers[0]
-	if c.SecurityContext.ReadOnlyRootFilesystem == nil || !*c.SecurityContext.ReadOnlyRootFilesystem || c.SecurityContext.Capabilities == nil || len(c.SecurityContext.Capabilities.Add) != 0 {
-		t.Errorf("the prober must not gain privileges for pings: %+v", c.SecurityContext)
-	}
-	mounted := false
-	for _, m := range c.VolumeMounts {
-		mounted = mounted || (m.Name == "icmp" && m.MountPath == "/icmp" && !m.ReadOnly)
-	}
-	if !mounted {
-		t.Errorf("no scratch directory for the ping configuration: %v", c.VolumeMounts)
-	}
-	for name, set := range map[string]string{
-		"size too small": "telemetry.clusterLinks.probe.icmp.size=10",
-		"too many hosts": "telemetry.clusterLinks.probe.icmp.hostsPerPeer=20",
-		"bad interval":   "telemetry.clusterLinks.probe.icmp.interval=fast",
-	} {
-		if out, err := helmTemplate(t, probeArgs("telemetry.clusterLinks.probe.icmp.enabled=true", set)...); err == nil {
-			t.Errorf("%s: accepted\n%s", name, out)
-		}
+	if len(render(t, probeArgs()...).deployments["continuum-link-prober"].Spec.Template.Spec.SecurityContext.Sysctls) != 0 {
+		t.Error("the prober pod sets a sysctl")
 	}
 }
 
