@@ -144,6 +144,7 @@ func (m *Meter) peersHandler() http.HandlerFunc {
 			http.Error(w, http.StatusText(status), status)
 			return
 		}
+		m.noteProberSeen()
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
 		_ = json.NewEncoder(w).Encode(m.peersDoc())

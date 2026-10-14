@@ -165,6 +165,10 @@ message Heartbeat {
   // cluster), so there is no reason to withhold it between diagnostics refreshes. Absent only for an
   // agent older than this field.
   SelfStats self_stats = 4;
+  // What this install can do for the cluster-link telemetry (see LinkCapabilities). Sent on every heartbeat, because
+  // prober_seen_unix moves. Absent from an agent older than this field: the server then treats every capability as
+  // unknown, never as missing.
+  LinkCapabilities link_capabilities = 5;
 }
 
 message ModuleStatus {
@@ -1405,4 +1409,22 @@ message SelfStats {
   // fresh connection, or on an agent whose flow collector has nothing installed.
   uint32 last_flow_batch_flows = 6;
   uint32 last_flow_batch_bytes = 7;
+}
+
+// What an agent's install can do for the cluster-link telemetry, so the server can tell an administrator which step of
+// setting up a pair is still missing (rather than leave the pair silently empty). It carries no cluster data: five
+// switches and one time. A message that is absent means "not reported" (an older agent), which the server must never read
+// as "all off".
+message LinkCapabilities {
+  // The agent serves the link metrics (CONTINUUM_LINK_METRICS_LISTEN is set: the chart's telemetry.clusterLinks.metrics.enabled).
+  bool link_metrics = 1;
+  // The prober and the responder are part of the install (telemetry.clusterLinks.probe.enabled).
+  bool probe_enabled = 2;
+  // When the link prober last asked this agent for the peers to measure (Unix seconds; 0: never since the agent started).
+  int64 prober_seen_unix = 3;
+  // The iperf3 server and client are part of the install (telemetry.clusterLinks.probe.capacity.enabled).
+  bool capacity_enabled = 4;
+  // This install runs a telemetry cluster collector that exports the link metrics to a destination, so what the cluster
+  // measures leaves it (the chart's telemetry.clusterLinks.metrics.enabled together with an export destination).
+  bool telemetry_export = 5;
 }

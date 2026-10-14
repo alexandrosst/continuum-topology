@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"fmt"
 	"net/netip"
 	"sort"
@@ -313,12 +312,7 @@ type LinkNote struct {
 // agents is the organisation's agents and flowPausedOf (by agent id) says whose flow collector is paused, both read
 // beforehand because that may touch the store.
 func (h *Hub) linkNotes(links []LinkSetting, agents []store.Agent, flowPausedOf map[string]bool) []LinkNote {
-	byCluster := map[string]store.Agent{}
-	for _, o := range agents {
-		if o.Status == store.StatusApproved && o.ClusterID != "" {
-			byCluster[o.ClusterID] = o
-		}
-	}
+	byCluster := approvedByCluster(agents)
 	var out []LinkNote
 	noAgent := map[string]bool{}
 	for _, l := range links {
@@ -336,29 +330,47 @@ func (h *Hub) linkNotes(links []LinkSetting, agents []store.Agent, flowPausedOf 
 			if !ok {
 				continue // the peer's own note says it
 			}
-			switch {
-			case a.AccessTier < 2:
-				out = append(out, LinkNote{Cluster: c, Peer: peer, Code: "tier", Text: fmt.Sprintf("This cluster's agent is at access tier %d. Link measuring needs tier 2, so the agent is not told which clusters to measure.", a.AccessTier)})
-				continue
-			case flowPausedOf[a.ID]:
-				out = append(out, LinkNote{Cluster: c, Peer: peer, Code: "paused", Text: "The flow collector is paused for this cluster's agent, which pauses link measuring there too."})
-				continue
-			}
-			raw := h.peerAddresses(o)
-			if len(raw) == 0 {
-				out = append(out, LinkNote{Cluster: c, Peer: peer, Code: "peer-silent", Text: "The agent of " + peer + " has not reported any node address yet, so there is nothing to measure towards."})
-				continue
-			}
-			usable := withoutAddresses(raw, h.ownAddresses(a))
-			switch {
-			case len(usable) == 0:
-				out = append(out, LinkNote{Cluster: c, Peer: peer, Code: "shared-address", Text: fmt.Sprintf("Every address of %s (%s) is also an address of this cluster, or the public address its agent connects from, so traffic to %s cannot be told from its own traffic and the pair is left out here.", peer, strings.Join(raw, ", "), peer)})
-			case l.Via != "" && (!l.NoProbe || l.Throughput != nil) && !hasAddressOfKind(usable, l.Via):
-				out = append(out, LinkNote{Cluster: c, Peer: peer, Code: "no-address-of-kind", Text: fmt.Sprintf("The pair is set to measure through %s addresses, but %s has none, so the active measurements towards it fail until the choice or the addresses change.", l.Via, peer)})
+			if n := h.endNote(l, a, o, flowPausedOf[a.ID]); n != nil {
+				out = append(out, *n)
 			}
 		}
 	}
 	return out
+}
+
+// approvedByCluster is the organisation's approved agents by the cluster they report for.
+func approvedByCluster(agents []store.Agent) map[string]store.Agent {
+	byCluster := map[string]store.Agent{}
+	for _, o := range agents {
+		if o.Status == store.StatusApproved && o.ClusterID != "" {
+			byCluster[o.ClusterID] = o
+		}
+	}
+	return byCluster
+}
+
+// endNote is the reason, if any, that agent a (one end of pair l, with approved agent o at the other) is not told about its peer:
+// the one linkNotes reports for that end. Nil when a is handed o. Called with h.mu held.
+func (h *Hub) endNote(l LinkSetting, a, o store.Agent, flowPaused bool) *LinkNote {
+	c, peer := a.ClusterID, o.ClusterID
+	switch {
+	case a.AccessTier < 2:
+		return &LinkNote{Cluster: c, Peer: peer, Code: "tier", Text: fmt.Sprintf("This cluster's agent is at access tier %d. Link measuring needs tier 2, so the agent is not told which clusters to measure.", a.AccessTier)}
+	case flowPaused:
+		return &LinkNote{Cluster: c, Peer: peer, Code: "paused", Text: "The flow collector is paused for this cluster's agent, which pauses link measuring there too."}
+	}
+	raw := h.peerAddresses(o)
+	if len(raw) == 0 {
+		return &LinkNote{Cluster: c, Peer: peer, Code: "peer-silent", Text: "The agent of " + peer + " has not reported any node address yet, so there is nothing to measure towards."}
+	}
+	usable := withoutAddresses(raw, h.ownAddresses(a))
+	switch {
+	case len(usable) == 0:
+		return &LinkNote{Cluster: c, Peer: peer, Code: "shared-address", Text: fmt.Sprintf("Every address of %s (%s) is also an address of this cluster, or the public address its agent connects from, so traffic to %s cannot be told from its own traffic and the pair is left out here.", peer, strings.Join(raw, ", "), peer)}
+	case l.Via != "" && (!l.NoProbe || l.Throughput != nil) && !hasAddressOfKind(usable, l.Via):
+		return &LinkNote{Cluster: c, Peer: peer, Code: "no-address-of-kind", Text: fmt.Sprintf("The pair is set to measure through %s addresses, but %s has none, so the active measurements towards it fail until the choice or the addresses change.", l.Via, peer)}
+	}
+	return nil
 }
 
 // hasAddressOfKind says whether any of the addresses is of the kind via (see link.Class).
@@ -369,28 +381,4 @@ func hasAddressOfKind(addrs []string, via string) bool {
 		}
 	}
 	return false
-}
-
-// LinkNotes is linkNotes for the organisation's current agents.
-func (h *Hub) LinkNotes(ctx context.Context, links []LinkSetting) []LinkNote {
-	if len(links) == 0 {
-		return nil
-	}
-	agents, err := h.C.Store.ListAgents(ctx, h.C.OrgID)
-	if err != nil {
-		return nil
-	}
-	in := map[string]bool{}
-	for _, l := range links {
-		in[l.A], in[l.B] = true, true
-	}
-	paused := map[string]bool{}
-	for _, o := range agents { // before h.mu: the consent may be read from the store
-		if o.Status == store.StatusApproved && in[o.ClusterID] {
-			paused[o.ID] = h.consentOf(o.ID).has("flow")
-		}
-	}
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	return h.linkNotes(links, agents, paused)
 }

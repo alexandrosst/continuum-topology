@@ -426,7 +426,7 @@ func (r *runner) stream(ctx context.Context, id *Identity) error {
 	}
 	beatMsg := func(force bool) *continuumv1.AgentMessage {
 		return &continuumv1.AgentMessage{Msg: &continuumv1.AgentMessage_Heartbeat{Heartbeat: &continuumv1.Heartbeat{
-			Modules: r.collector.Modules(), ClockSkewMs: r.clockSkewMs(), Diagnostics: r.diagToSend(force), SelfStats: r.selfStats()}}}
+			Modules: r.collector.Modules(), ClockSkewMs: r.clockSkewMs(), Diagnostics: r.diagToSend(force), SelfStats: r.selfStats(), LinkCapabilities: r.linkCapabilities()}}}
 	}
 	if err := sendDiff(true); err != nil {
 		return err
@@ -605,7 +605,7 @@ func (r *runner) stream(ctx context.Context, id *Identity) error {
 		case <-diagCheck.C:
 			if d := r.diagToSend(false); d != nil {
 				if err := send(&continuumv1.AgentMessage{Msg: &continuumv1.AgentMessage_Heartbeat{Heartbeat: &continuumv1.Heartbeat{
-					Modules: r.collector.Modules(), ClockSkewMs: r.clockSkewMs(), Diagnostics: d, SelfStats: r.selfStats()}}}); err != nil {
+					Modules: r.collector.Modules(), ClockSkewMs: r.clockSkewMs(), Diagnostics: d, SelfStats: r.selfStats(), LinkCapabilities: r.linkCapabilities()}}}); err != nil {
 					return err
 				}
 			}

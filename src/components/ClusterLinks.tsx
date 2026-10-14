@@ -1,12 +1,12 @@
 import clsx from 'clsx'
-import { ArrowLeftRight, Check as CheckIcon, CircleAlert, Pencil, Plus } from 'lucide-react'
+import { ArrowLeftRight, Check as CheckIcon, ChevronRight, CircleAlert, CircleDashed, HelpCircle, Pencil, Plus } from 'lucide-react'
 import { useEffect, useId, useMemo, useState } from 'react'
 import { ConfirmModal } from '@/components/forms/ConfirmModal'
 import { Button, ErrorBanner, Field, ICON_MD, ICON_SM, Input, Modal, Pill, Select, SkeletonLines, Table, Td, Th } from '@/components/ui/primitives'
 import { api, atLeast } from '@/lib/api'
 import {
-  PRESETS, VIA_HINT, VIA_OPTIONS, clusterChecks, costLine, hasPair, latestView, newPair, pairKey, presetOf, removePair, replacePair, runnerOf, runsFromWords, throughputFieldProblems, throughputFor, throughputSummary,
-  type Check, type LinkPairLatest, type LinksLatest, type PresetId, type Via,
+  LINK_REQUIREMENT, PRESETS, STEP_MARK, VIA_HINT, VIA_OPTIONS, clusterChecks, costLine, firstLines, hasPair, latestView, newPair, pairKey, presetOf, removePair, replacePair, runnerOf, runsFromWords, setupSummary, throughputFieldProblems, throughputFor, throughputSummary, uncoveredChecks, uncoveredNotes,
+  type Check, type LinkPairLatest, type LinksLatest, type PairSetup, type PresetId, type SetupState, type SetupStep, type Via,
 } from '@/lib/clusterLinks'
 import type { LinkPair } from '@/lib/history'
 import type { Agent } from '@/lib/types'
@@ -66,11 +66,15 @@ export default function ClusterLinks() {
   const pairsKey = settings.links.map((l) => pairKey(l.a, l.b)).join(',')
   const { latest, failed } = useLatest(conn, connected && loaded && settings.links.length > 0, pairsKey)
   const latestByPair = useMemo(() => new Map((latest?.pairs ?? []).map((l) => [pairKey(l.a, l.b), l])), [latest])
+  const setupByPair = useMemo(() => new Map((latest?.setup ?? []).map((x) => [pairKey(x.a, x.b), x])), [latest])
   const name = useMemo(() => {
     const m = new Map(clusters.map((c) => [c.id, c.name]))
     return (id: string) => m.get(id) ?? id
   }, [clusters])
   if (status !== 'connected') return null
+  // A pair needs two clusters that each have an approved agent, so with fewer there is nothing to add yet.
+  const withAgent = new Set(agents.filter((a) => a.status === 'approved' && a.clusterId).map((a) => a.clusterId as string))
+  const canAdd = clusters.filter((c) => withAgent.has(c.id)).length >= 2
   const pairs = [...settings.links].sort((x, y) => name(x.a).localeCompare(name(y.a)) || name(x.b).localeCompare(name(y.b)))
 
   return (
@@ -81,14 +85,18 @@ export default function ClusterLinks() {
         </h2>
         {loaded && <Pill>{pairs.length} pair{pairs.length === 1 ? '' : 's'}</Pill>}
         {admin && loaded && (
-          <Button variant="primary" className="ml-auto" onClick={() => setAdding(true)} data-testid="add-pair">
-            <Plus size={ICON_MD} aria-hidden /> Add pair
-          </Button>
+          <span className="ml-auto flex items-center gap-3">
+            {!canAdd && <span id="add-pair-why" className="text-xs text-nb-500" data-testid="add-pair-why">Needs two clusters with an approved agent</span>}
+            <Button variant="primary" disabled={!canAdd} aria-describedby={canAdd ? undefined : 'add-pair-why'} onClick={() => setAdding(true)} data-testid="add-pair">
+              <Plus size={ICON_MD} aria-hidden /> Add pair
+            </Button>
+          </span>
         )}
       </div>
-      <p className="mb-4 max-w-3xl text-sm text-nb-500">
+      <p className="mb-2 max-w-3xl text-sm text-nb-500">
         How well two of your clusters can talk to each other, in each direction: delay, jitter, loss, the largest packet that fits, and how much the link can carry. Watching real traffic is always on for a pair. Active probing and throughput tests are choices, because they send traffic of their own.
       </p>
+      <p className="mb-4 max-w-3xl text-sm text-nb-500" data-testid="links-requirement">{LINK_REQUIREMENT}</p>
 
       {!loaded ? (
         loadError ? (
@@ -118,8 +126,12 @@ export default function ClusterLinks() {
           <tbody>
             {pairs.map((p) => {
               const t = p.throughput ? throughputSummary(p.throughput) : null
-              const notes = (latest?.notes ?? []).filter((n) => n.cluster === p.a || n.cluster === p.b)
-              const failing = [...clusterChecks(p.a, name(p.a), agents), ...clusterChecks(p.b, name(p.b), agents)].filter((c) => !c.ok)
+              const setup = setupByPair.get(pairKey(p.a, p.b))
+              const notes = uncoveredNotes((latest?.notes ?? []).filter((n) => n.cluster === p.a || n.cluster === p.b), setup)
+              const failing = uncoveredChecks([...clusterChecks(p.a, name(p.a), agents), ...clusterChecks(p.b, name(p.b), agents)].filter((c) => !c.ok), setup)
+              // What is still to do: the server's unmet steps first, then what this page can tell from the agents it lists.
+              const unmet = [...(setup ? setupSummary(setup.steps).todo.map((x) => x.text) : []), ...failing.map((c) => c.text)]
+              const lines = firstLines(unmet)
               return (
                 <tr key={`${p.a}|${p.b}`} data-testid="pair-row">
                   <Td valign="top">
@@ -127,18 +139,20 @@ export default function ClusterLinks() {
                       {name(p.a)} <span className="px-1 text-nb-600" aria-label="and">⇄</span> {name(p.b)}
                     </div>
                     <div className="mt-0.5 text-xs text-nb-500">{runsFromWords(p, name(runnerOf(p)))}</div>
-                    {failing.length > 0 && (
-                      <div className="mt-1 flex items-start gap-1.5 text-xs text-warn" data-testid="pair-warning">
+                    {lines.shown.map((text, i) => (
+                      <div key={i} className="mt-1 flex items-start gap-1.5 text-xs text-warn" data-testid="pair-warning">
                         <CircleAlert size={ICON_SM} className="mt-px shrink-0" aria-hidden />
-                        <span>Needs attention: {failing[0].text}{failing.length > 1 ? ` (and ${failing.length - 1} more)` : ''}</span>
+                        <span><span className="sr-only">To do: </span>{text}</span>
                       </div>
-                    )}
+                    ))}
+                    {lines.more > 0 && <div className="mt-1 pl-5 text-xs text-nb-500" data-testid="pair-warning-more">and {lines.more} more, listed under Setup</div>}
                     {notes.map((n) => (
                       <div key={`${n.cluster}|${n.peer ?? ''}|${n.code}`} className="mt-1 flex items-start gap-1.5 text-xs text-warn" data-testid="pair-note">
                         <CircleAlert size={ICON_SM} className="mt-px shrink-0" aria-hidden />
                         <span>{name(n.cluster)}: {n.text}</span>
                       </div>
                     ))}
+                    {setup && <SetupDisclosure setup={setup} name={name} />}
                   </Td>
                   <Td valign="top"><State on label="watching" /></Td>
                   <Td valign="top"><State on={!p.noProbe} label={p.noProbe ? 'off' : 'on'} /></Td>
@@ -177,6 +191,53 @@ export default function ClusterLinks() {
       {adding && <AddPair clusters={clusters} agents={agents} name={name} onClose={() => setAdding(false)} />}
       {editing && <EditPair key={`${editing.a}|${editing.b}`} pair={editing} agents={agents} name={name} onClose={() => setEditing(null)} />}
     </section>
+  )
+}
+
+const STEP_ICON: Record<SetupState, typeof CheckIcon> = { ok: CheckIcon, todo: CircleAlert, unknown: HelpCircle, optional: CircleDashed }
+const STEP_TONE: Record<SetupState, string> = { ok: 'text-ok', todo: 'text-warn', unknown: 'text-nb-500', optional: 'text-nb-500' }
+
+/**
+ * What a pair needs before its figures reach FUSION, step by step, as the server worked it out. Collapsed to a line that says how it
+ * stands; the list marks each step with a shape and a word for screen readers, so colour is never the only difference. An unknown step
+ * is an agent too old to say, which is not a fault.
+ */
+function SetupDisclosure({ setup, name }: { setup: PairSetup; name: (id: string) => string }) {
+  const [open, setOpen] = useState(false)
+  const id = useId()
+  const sum = setupSummary(setup.steps)
+  if (setup.steps.length === 0) return null
+  return (
+    <div className="mt-1.5" data-testid="pair-setup">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={id}
+        onClick={() => setOpen((o) => !o)}
+        className="inline-flex items-center gap-1 rounded text-xs text-nb-500 hover:text-nb-300 focus-visible:outline-2 focus-visible:outline-accent"
+        data-testid="pair-setup-toggle"
+      >
+        <ChevronRight size={ICON_SM} className={clsx('shrink-0 transition-transform', open && 'rotate-90')} aria-hidden />
+        <span>Setup</span>
+        <span className={clsx(sum.todo.length > 0 && 'text-warn')} data-testid="pair-setup-summary">· {sum.label}</span>
+      </button>
+      {open && (
+        <ul id={id} className="mt-1.5 space-y-1.5 border-l border-nb-850 pl-3 text-xs" data-testid="pair-setup-steps" aria-label={`Setup of ${name(setup.a)} and ${name(setup.b)}`}>
+          {setup.steps.map((s: SetupStep, i) => {
+            const Icon = STEP_ICON[s.state]
+            return (
+              <li key={`${s.code}|${s.cluster ?? ''}|${i}`} className="flex items-start gap-1.5" data-testid="setup-step" data-state={s.state}>
+                <Icon size={ICON_SM} className={clsx('mt-px shrink-0', STEP_TONE[s.state])} aria-hidden />
+                <span className={s.state === 'ok' || s.state === 'optional' || s.state === 'unknown' ? 'text-nb-500' : 'text-nb-300'}>
+                  <span className="sr-only">{STEP_MARK[s.state].word}: </span>
+                  {s.text}
+                </span>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </div>
   )
 }
 
@@ -447,6 +508,7 @@ function AddPair({ clusters, agents, name, onClose }: { clusters: { id: string; 
       }
     >
       <div className="space-y-5">
+        <p className="text-sm text-nb-400" data-testid="add-pair-requirement">{LINK_REQUIREMENT}</p>
         {options.length < 2 ? (
           <p className="text-sm text-nb-400" data-testid="not-enough-clusters">A pair needs two clusters that each have an approved agent. Connect another cluster first.</p>
         ) : (

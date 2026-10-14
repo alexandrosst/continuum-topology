@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { useState } from 'react'
 import { describe, expect, it } from 'vitest'
 import CollectStep from '@/components/telemetry/CollectStep'
+import { LINK_REQUIREMENT } from '@/lib/clusterLinks'
 import { emptyTelemetry, telemetryProblems, type TelemetryInput } from '@/lib/install'
 
 function Harness({ onValue }: { onValue: (v: TelemetryInput) => void }) {
@@ -26,5 +27,13 @@ describe('CollectStep: Cluster links', () => {
     expect(telemetryProblems(latest)).toEqual([])
     fireEvent.click(screen.getByTestId('t-links-probe'))
     expect(screen.queryByTestId('t-links-throughput')).toBeNull()
+  })
+
+  it('says what a pair needs, in one sentence, as soon as the signal is on', () => {
+    render(<Harness onValue={() => {}} />)
+    expect(screen.queryByTestId('t-links-requirement')).toBeNull()
+    fireEvent.click(screen.getByTestId('t-clusterLinks'))
+    expect(screen.getByTestId('t-links-requirement')).toHaveTextContent(LINK_REQUIREMENT)
+    expect(screen.getByTestId('t-links-requirement')).toHaveTextContent('send telemetry to FUSION (a local operator)')
   })
 })

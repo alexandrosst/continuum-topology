@@ -90,6 +90,17 @@ spec:
             - {name: CONTINUUM_TELEMETRY_ACCELERATORS_SOURCE, value: {{ .Values.telemetry.accelerators.metrics.source | quote }}}
             {{- end }}
             {{- end }}
+            {{- if .Values.telemetry.clusterLinks.metrics.enabled }}
+            # What this install can do for the cluster-link telemetry, reported by the agent in every heartbeat (purely informational:
+            # the Sites screen uses it to say which step of setting a pair up is missing). Whether the probe is on is already
+            # CONTINUUM_LINK_SERVE_PEERS above.
+            {{- if and (include "agent.linkPeers" .) .Values.telemetry.clusterLinks.probe.capacity.enabled }}
+            - {name: CONTINUUM_LINK_CAPACITY, value: "true"}
+            {{- end }}
+            {{- if include "agent.linkTelemetryExport" . }}
+            - {name: CONTINUUM_LINK_TELEMETRY_EXPORT, value: "true"}
+            {{- end }}
+            {{- end }}
             {{- if eq .Values.rbac.mode "namespaced" }}
             # Tells the collector that tier 2's RBAC is a Role per namespace (rbac.yaml), not one cluster-wide
             # ClusterRole: it watches each of CONTINUUM_SCOPE_NAMESPACES individually instead of the whole cluster,

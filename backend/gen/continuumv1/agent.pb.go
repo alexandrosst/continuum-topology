@@ -1194,9 +1194,13 @@ type Heartbeat struct {
 	// (runtime.ReadMemStats and a couple of counters already held in memory, nothing that touches the
 	// cluster), so there is no reason to withhold it between diagnostics refreshes. Absent only for an
 	// agent older than this field.
-	SelfStats     *SelfStats `protobuf:"bytes,4,opt,name=self_stats,json=selfStats,proto3" json:"self_stats,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	SelfStats *SelfStats `protobuf:"bytes,4,opt,name=self_stats,json=selfStats,proto3" json:"self_stats,omitempty"`
+	// What this install can do for the cluster-link telemetry (see LinkCapabilities). Sent on every heartbeat, because
+	// prober_seen_unix moves. Absent from an agent older than this field: the server then treats every capability as
+	// unknown, never as missing.
+	LinkCapabilities *LinkCapabilities `protobuf:"bytes,5,opt,name=link_capabilities,json=linkCapabilities,proto3" json:"link_capabilities,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *Heartbeat) Reset() {
@@ -1253,6 +1257,13 @@ func (x *Heartbeat) GetDiagnostics() *Diagnostics {
 func (x *Heartbeat) GetSelfStats() *SelfStats {
 	if x != nil {
 		return x.SelfStats
+	}
+	return nil
+}
+
+func (x *Heartbeat) GetLinkCapabilities() *LinkCapabilities {
+	if x != nil {
+		return x.LinkCapabilities
 	}
 	return nil
 }
@@ -6722,6 +6733,92 @@ func (x *SelfStats) GetLastFlowBatchBytes() uint32 {
 	return 0
 }
 
+// What an agent's install can do for the cluster-link telemetry, so the server can tell an administrator which step of
+// setting up a pair is still missing (rather than leave the pair silently empty). It carries no cluster data: five
+// switches and one time. A message that is absent means "not reported" (an older agent), which the server must never read
+// as "all off".
+type LinkCapabilities struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The agent serves the link metrics (CONTINUUM_LINK_METRICS_LISTEN is set: the chart's telemetry.clusterLinks.metrics.enabled).
+	LinkMetrics bool `protobuf:"varint,1,opt,name=link_metrics,json=linkMetrics,proto3" json:"link_metrics,omitempty"`
+	// The prober and the responder are part of the install (telemetry.clusterLinks.probe.enabled).
+	ProbeEnabled bool `protobuf:"varint,2,opt,name=probe_enabled,json=probeEnabled,proto3" json:"probe_enabled,omitempty"`
+	// When the link prober last asked this agent for the peers to measure (Unix seconds; 0: never since the agent started).
+	ProberSeenUnix int64 `protobuf:"varint,3,opt,name=prober_seen_unix,json=proberSeenUnix,proto3" json:"prober_seen_unix,omitempty"`
+	// The iperf3 server and client are part of the install (telemetry.clusterLinks.probe.capacity.enabled).
+	CapacityEnabled bool `protobuf:"varint,4,opt,name=capacity_enabled,json=capacityEnabled,proto3" json:"capacity_enabled,omitempty"`
+	// This install runs a telemetry cluster collector that exports the link metrics to a destination, so what the cluster
+	// measures leaves it (the chart's telemetry.clusterLinks.metrics.enabled together with an export destination).
+	TelemetryExport bool `protobuf:"varint,5,opt,name=telemetry_export,json=telemetryExport,proto3" json:"telemetry_export,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *LinkCapabilities) Reset() {
+	*x = LinkCapabilities{}
+	mi := &file_continuum_v1_agent_proto_msgTypes[58]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LinkCapabilities) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LinkCapabilities) ProtoMessage() {}
+
+func (x *LinkCapabilities) ProtoReflect() protoreflect.Message {
+	mi := &file_continuum_v1_agent_proto_msgTypes[58]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LinkCapabilities.ProtoReflect.Descriptor instead.
+func (*LinkCapabilities) Descriptor() ([]byte, []int) {
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{58}
+}
+
+func (x *LinkCapabilities) GetLinkMetrics() bool {
+	if x != nil {
+		return x.LinkMetrics
+	}
+	return false
+}
+
+func (x *LinkCapabilities) GetProbeEnabled() bool {
+	if x != nil {
+		return x.ProbeEnabled
+	}
+	return false
+}
+
+func (x *LinkCapabilities) GetProberSeenUnix() int64 {
+	if x != nil {
+		return x.ProberSeenUnix
+	}
+	return 0
+}
+
+func (x *LinkCapabilities) GetCapacityEnabled() bool {
+	if x != nil {
+		return x.CapacityEnabled
+	}
+	return false
+}
+
+func (x *LinkCapabilities) GetTelemetryExport() bool {
+	if x != nil {
+		return x.TelemetryExport
+	}
+	return false
+}
+
 var File_continuum_v1_agent_proto protoreflect.FileDescriptor
 
 const file_continuum_v1_agent_proto_rawDesc = "" +
@@ -6790,13 +6887,14 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\x15installed_access_tier\x18\x03 \x01(\rR\x13installedAccessTier\x12;\n" +
 	"\vdiagnostics\x18\x04 \x01(\v2\x19.continuum.v1.DiagnosticsR\vdiagnostics\x12\x1c\n" +
 	"\tnamespace\x18\x05 \x01(\tR\tnamespace\x12!\n" +
-	"\frelease_name\x18\x06 \x01(\tR\vreleaseName\"\xda\x01\n" +
+	"\frelease_name\x18\x06 \x01(\tR\vreleaseName\"\xa7\x02\n" +
 	"\tHeartbeat\x124\n" +
 	"\amodules\x18\x01 \x03(\v2\x1a.continuum.v1.ModuleStatusR\amodules\x12\"\n" +
 	"\rclock_skew_ms\x18\x02 \x01(\x03R\vclockSkewMs\x12;\n" +
 	"\vdiagnostics\x18\x03 \x01(\v2\x19.continuum.v1.DiagnosticsR\vdiagnostics\x126\n" +
 	"\n" +
-	"self_stats\x18\x04 \x01(\v2\x17.continuum.v1.SelfStatsR\tselfStats\"\x9b\x01\n" +
+	"self_stats\x18\x04 \x01(\v2\x17.continuum.v1.SelfStatsR\tselfStats\x12K\n" +
+	"\x11link_capabilities\x18\x05 \x01(\v2\x1e.continuum.v1.LinkCapabilitiesR\x10linkCapabilities\"\x9b\x01\n" +
 	"\fModuleStatus\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x126\n" +
 	"\x05state\x18\x02 \x01(\x0e2 .continuum.v1.ModuleStatus.StateR\x05state\x12\x16\n" +
@@ -7375,7 +7473,13 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\x15flow_interval_seconds\x18\x04 \x01(\rR\x13flowIntervalSeconds\x124\n" +
 	"\x16probe_interval_seconds\x18\x05 \x01(\rR\x14probeIntervalSeconds\x121\n" +
 	"\x15last_flow_batch_flows\x18\x06 \x01(\rR\x12lastFlowBatchFlows\x121\n" +
-	"\x15last_flow_batch_bytes\x18\a \x01(\rR\x12lastFlowBatchBytes*x\n" +
+	"\x15last_flow_batch_bytes\x18\a \x01(\rR\x12lastFlowBatchBytes\"\xda\x01\n" +
+	"\x10LinkCapabilities\x12!\n" +
+	"\flink_metrics\x18\x01 \x01(\bR\vlinkMetrics\x12#\n" +
+	"\rprobe_enabled\x18\x02 \x01(\bR\fprobeEnabled\x12(\n" +
+	"\x10prober_seen_unix\x18\x03 \x01(\x03R\x0eproberSeenUnix\x12)\n" +
+	"\x10capacity_enabled\x18\x04 \x01(\bR\x0fcapacityEnabled\x12)\n" +
+	"\x10telemetry_export\x18\x05 \x01(\bR\x0ftelemetryExport*x\n" +
 	"\x13TlsHandshakeOutcome\x12!\n" +
 	"\x1dTLS_HANDSHAKE_OUTCOME_UNKNOWN\x10\x00\x12 \n" +
 	"\x1cTLS_HANDSHAKE_OUTCOME_FAILED\x10\x01\x12\x1c\n" +
@@ -7403,7 +7507,7 @@ func file_continuum_v1_agent_proto_rawDescGZIP() []byte {
 }
 
 var file_continuum_v1_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
-var file_continuum_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 67)
+var file_continuum_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 68)
 var file_continuum_v1_agent_proto_goTypes = []any{
 	(TlsHandshakeOutcome)(0),           // 0: continuum.v1.TlsHandshakeOutcome
 	(PollResponse_State)(0),            // 1: continuum.v1.PollResponse.State
@@ -7469,22 +7573,23 @@ var file_continuum_v1_agent_proto_goTypes = []any{
 	(*InformerDiag)(nil),               // 61: continuum.v1.InformerDiag
 	(*Problem)(nil),                    // 62: continuum.v1.Problem
 	(*SelfStats)(nil),                  // 63: continuum.v1.SelfStats
-	nil,                                // 64: continuum.v1.MeshFacts.NamespaceMtlsEntry
-	nil,                                // 65: continuum.v1.NodeFacts.LabelsEntry
-	nil,                                // 66: continuum.v1.NodeFacts.AnnotationsEntry
-	nil,                                // 67: continuum.v1.NodeFacts.ExtendedResourcesEntry
-	nil,                                // 68: continuum.v1.NamespaceFacts.LabelsEntry
-	nil,                                // 69: continuum.v1.NamespaceFacts.AnnotationsEntry
-	nil,                                // 70: continuum.v1.WorkloadFacts.LabelsEntry
-	nil,                                // 71: continuum.v1.WorkloadFacts.AnnotationsEntry
-	nil,                                // 72: continuum.v1.WorkloadFacts.NodeSelectorEntry
-	(*timestamppb.Timestamp)(nil),      // 73: google.protobuf.Timestamp
+	(*LinkCapabilities)(nil),           // 64: continuum.v1.LinkCapabilities
+	nil,                                // 65: continuum.v1.MeshFacts.NamespaceMtlsEntry
+	nil,                                // 66: continuum.v1.NodeFacts.LabelsEntry
+	nil,                                // 67: continuum.v1.NodeFacts.AnnotationsEntry
+	nil,                                // 68: continuum.v1.NodeFacts.ExtendedResourcesEntry
+	nil,                                // 69: continuum.v1.NamespaceFacts.LabelsEntry
+	nil,                                // 70: continuum.v1.NamespaceFacts.AnnotationsEntry
+	nil,                                // 71: continuum.v1.WorkloadFacts.LabelsEntry
+	nil,                                // 72: continuum.v1.WorkloadFacts.AnnotationsEntry
+	nil,                                // 73: continuum.v1.WorkloadFacts.NodeSelectorEntry
+	(*timestamppb.Timestamp)(nil),      // 74: google.protobuf.Timestamp
 }
 var file_continuum_v1_agent_proto_depIdxs = []int32{
-	73, // 0: continuum.v1.RenewTelemetryCertResponse.not_after:type_name -> google.protobuf.Timestamp
+	74, // 0: continuum.v1.RenewTelemetryCertResponse.not_after:type_name -> google.protobuf.Timestamp
 	1,  // 1: continuum.v1.PollResponse.state:type_name -> continuum.v1.PollResponse.State
-	73, // 2: continuum.v1.PollResponse.not_after:type_name -> google.protobuf.Timestamp
-	73, // 3: continuum.v1.RenewResponse.not_after:type_name -> google.protobuf.Timestamp
+	74, // 2: continuum.v1.PollResponse.not_after:type_name -> google.protobuf.Timestamp
+	74, // 3: continuum.v1.RenewResponse.not_after:type_name -> google.protobuf.Timestamp
 	16, // 4: continuum.v1.AgentMessage.hello:type_name -> continuum.v1.Hello
 	19, // 5: continuum.v1.AgentMessage.sync:type_name -> continuum.v1.Sync
 	17, // 6: continuum.v1.AgentMessage.heartbeat:type_name -> continuum.v1.Heartbeat
@@ -7494,94 +7599,95 @@ var file_continuum_v1_agent_proto_depIdxs = []int32{
 	18, // 10: continuum.v1.Heartbeat.modules:type_name -> continuum.v1.ModuleStatus
 	56, // 11: continuum.v1.Heartbeat.diagnostics:type_name -> continuum.v1.Diagnostics
 	63, // 12: continuum.v1.Heartbeat.self_stats:type_name -> continuum.v1.SelfStats
-	2,  // 13: continuum.v1.ModuleStatus.state:type_name -> continuum.v1.ModuleStatus.State
-	20, // 14: continuum.v1.Sync.cluster:type_name -> continuum.v1.ClusterFacts
-	24, // 15: continuum.v1.Sync.nodes:type_name -> continuum.v1.NodeFacts
-	30, // 16: continuum.v1.Sync.namespaces:type_name -> continuum.v1.NamespaceFacts
-	32, // 17: continuum.v1.Sync.workloads:type_name -> continuum.v1.WorkloadFacts
-	18, // 18: continuum.v1.Sync.modules:type_name -> continuum.v1.ModuleStatus
-	73, // 19: continuum.v1.ClusterFacts.created_at:type_name -> google.protobuf.Timestamp
-	21, // 20: continuum.v1.ClusterFacts.scope:type_name -> continuum.v1.ScopeFacts
-	22, // 21: continuum.v1.ClusterFacts.mesh:type_name -> continuum.v1.MeshFacts
-	64, // 22: continuum.v1.MeshFacts.namespace_mtls:type_name -> continuum.v1.MeshFacts.NamespaceMtlsEntry
-	65, // 23: continuum.v1.NodeFacts.labels:type_name -> continuum.v1.NodeFacts.LabelsEntry
-	66, // 24: continuum.v1.NodeFacts.annotations:type_name -> continuum.v1.NodeFacts.AnnotationsEntry
-	67, // 25: continuum.v1.NodeFacts.extended_resources:type_name -> continuum.v1.NodeFacts.ExtendedResourcesEntry
-	73, // 26: continuum.v1.NodeFacts.created_at:type_name -> google.protobuf.Timestamp
-	25, // 27: continuum.v1.NodeFacts.probe:type_name -> continuum.v1.HostProbe
-	26, // 28: continuum.v1.HostProbe.interfaces:type_name -> continuum.v1.NetworkInterface
-	27, // 29: continuum.v1.HostProbe.disks:type_name -> continuum.v1.Disk
-	28, // 30: continuum.v1.HostProbe.tunnels:type_name -> continuum.v1.TunnelInterface
-	29, // 31: continuum.v1.HostProbe.host_addresses:type_name -> continuum.v1.HostAddress
-	68, // 32: continuum.v1.NamespaceFacts.labels:type_name -> continuum.v1.NamespaceFacts.LabelsEntry
-	69, // 33: continuum.v1.NamespaceFacts.annotations:type_name -> continuum.v1.NamespaceFacts.AnnotationsEntry
-	31, // 34: continuum.v1.WorkloadFacts.images:type_name -> continuum.v1.ContainerImage
-	70, // 35: continuum.v1.WorkloadFacts.labels:type_name -> continuum.v1.WorkloadFacts.LabelsEntry
-	71, // 36: continuum.v1.WorkloadFacts.annotations:type_name -> continuum.v1.WorkloadFacts.AnnotationsEntry
-	72, // 37: continuum.v1.WorkloadFacts.node_selector:type_name -> continuum.v1.WorkloadFacts.NodeSelectorEntry
-	73, // 38: continuum.v1.WorkloadFacts.created_at:type_name -> google.protobuf.Timestamp
-	35, // 39: continuum.v1.WorkloadFacts.volume_claims:type_name -> continuum.v1.VolumeClaim
-	36, // 40: continuum.v1.WorkloadFacts.autoscaler:type_name -> continuum.v1.Autoscaler
-	37, // 41: continuum.v1.WorkloadFacts.disruption:type_name -> continuum.v1.Disruption
-	34, // 42: continuum.v1.WorkloadFacts.reachable:type_name -> continuum.v1.Address
-	23, // 43: continuum.v1.WorkloadFacts.mesh:type_name -> continuum.v1.WorkloadMesh
-	33, // 44: continuum.v1.WorkloadFacts.pods:type_name -> continuum.v1.PodFacts
-	73, // 45: continuum.v1.PodFacts.created_at:type_name -> google.protobuf.Timestamp
-	39, // 46: continuum.v1.ServerMessage.ack:type_name -> continuum.v1.Ack
-	40, // 47: continuum.v1.ServerMessage.config:type_name -> continuum.v1.Config
-	45, // 48: continuum.v1.ServerMessage.revoked:type_name -> continuum.v1.Revoked
-	42, // 49: continuum.v1.Config.probe_targets:type_name -> continuum.v1.ProbeTarget
-	41, // 50: continuum.v1.Config.link_peers:type_name -> continuum.v1.LinkPeer
-	43, // 51: continuum.v1.Measurements.results:type_name -> continuum.v1.PathResult
-	0,  // 52: continuum.v1.RawFlow.tls_handshake:type_name -> continuum.v1.TlsHandshakeOutcome
-	46, // 53: continuum.v1.FlowReport.flows:type_name -> continuum.v1.RawFlow
-	47, // 54: continuum.v1.FlowReport.link_saturation:type_name -> continuum.v1.LinkSaturation
-	48, // 55: continuum.v1.FlowReport.thermal_throttle:type_name -> continuum.v1.ThermalThrottle
-	3,  // 56: continuum.v1.FlowEndpoint.kind:type_name -> continuum.v1.FlowEndpoint.Kind
-	50, // 57: continuum.v1.Flow.src:type_name -> continuum.v1.FlowEndpoint
-	50, // 58: continuum.v1.Flow.dst:type_name -> continuum.v1.FlowEndpoint
-	0,  // 59: continuum.v1.Flow.tls_handshake:type_name -> continuum.v1.TlsHandshakeOutcome
-	47, // 60: continuum.v1.CollectorInfo.link_saturation:type_name -> continuum.v1.LinkSaturation
-	48, // 61: continuum.v1.CollectorInfo.thermal_throttle:type_name -> continuum.v1.ThermalThrottle
-	51, // 62: continuum.v1.FlowBatch.flows:type_name -> continuum.v1.Flow
-	52, // 63: continuum.v1.FlowBatch.collectors:type_name -> continuum.v1.CollectorInfo
-	51, // 64: continuum.v1.FlowBatch.pod_flows:type_name -> continuum.v1.Flow
-	51, // 65: continuum.v1.FlowEdge.key:type_name -> continuum.v1.Flow
-	73, // 66: continuum.v1.FlowEdge.first_seen:type_name -> google.protobuf.Timestamp
-	73, // 67: continuum.v1.FlowEdge.last_seen:type_name -> google.protobuf.Timestamp
-	54, // 68: continuum.v1.FlowTable.edges:type_name -> continuum.v1.FlowEdge
-	21, // 69: continuum.v1.Diagnostics.scope:type_name -> continuum.v1.ScopeFacts
-	60, // 70: continuum.v1.Diagnostics.collectors:type_name -> continuum.v1.CollectorDiag
-	61, // 71: continuum.v1.Diagnostics.informers:type_name -> continuum.v1.InformerDiag
-	62, // 72: continuum.v1.Diagnostics.problems:type_name -> continuum.v1.Problem
-	73, // 73: continuum.v1.Diagnostics.generated_at:type_name -> google.protobuf.Timestamp
-	59, // 74: continuum.v1.Diagnostics.installed_telemetry_config:type_name -> continuum.v1.InstalledTelemetryConfig
-	57, // 75: continuum.v1.Diagnostics.export_health:type_name -> continuum.v1.ExportHealth
-	73, // 76: continuum.v1.ExportHealth.scraped_at:type_name -> google.protobuf.Timestamp
-	58, // 77: continuum.v1.ExportHealth.routes:type_name -> continuum.v1.ExportRouteHealth
-	4,  // 78: continuum.v1.ExportRouteHealth.state:type_name -> continuum.v1.ExportRouteHealth.State
-	73, // 79: continuum.v1.ExportRouteHealth.last_sent_at:type_name -> google.protobuf.Timestamp
-	73, // 80: continuum.v1.ExportRouteHealth.last_failed_at:type_name -> google.protobuf.Timestamp
-	73, // 81: continuum.v1.CollectorDiag.last_data:type_name -> google.protobuf.Timestamp
-	5,  // 82: continuum.v1.Problem.severity:type_name -> continuum.v1.Problem.Severity
-	73, // 83: continuum.v1.Problem.since:type_name -> google.protobuf.Timestamp
-	9,  // 84: continuum.v1.Enrollment.Enroll:input_type -> continuum.v1.EnrollRequest
-	11, // 85: continuum.v1.Enrollment.PollEnrollment:input_type -> continuum.v1.PollRequest
-	8,  // 86: continuum.v1.Enrollment.Rejoin:input_type -> continuum.v1.RejoinRequest
-	6,  // 87: continuum.v1.Enrollment.RenewTelemetryCert:input_type -> continuum.v1.RenewTelemetryCertRequest
-	15, // 88: continuum.v1.AgentService.Connect:input_type -> continuum.v1.AgentMessage
-	13, // 89: continuum.v1.AgentService.Renew:input_type -> continuum.v1.RenewRequest
-	10, // 90: continuum.v1.Enrollment.Enroll:output_type -> continuum.v1.EnrollResponse
-	12, // 91: continuum.v1.Enrollment.PollEnrollment:output_type -> continuum.v1.PollResponse
-	14, // 92: continuum.v1.Enrollment.Rejoin:output_type -> continuum.v1.RenewResponse
-	7,  // 93: continuum.v1.Enrollment.RenewTelemetryCert:output_type -> continuum.v1.RenewTelemetryCertResponse
-	38, // 94: continuum.v1.AgentService.Connect:output_type -> continuum.v1.ServerMessage
-	14, // 95: continuum.v1.AgentService.Renew:output_type -> continuum.v1.RenewResponse
-	90, // [90:96] is the sub-list for method output_type
-	84, // [84:90] is the sub-list for method input_type
-	84, // [84:84] is the sub-list for extension type_name
-	84, // [84:84] is the sub-list for extension extendee
-	0,  // [0:84] is the sub-list for field type_name
+	64, // 13: continuum.v1.Heartbeat.link_capabilities:type_name -> continuum.v1.LinkCapabilities
+	2,  // 14: continuum.v1.ModuleStatus.state:type_name -> continuum.v1.ModuleStatus.State
+	20, // 15: continuum.v1.Sync.cluster:type_name -> continuum.v1.ClusterFacts
+	24, // 16: continuum.v1.Sync.nodes:type_name -> continuum.v1.NodeFacts
+	30, // 17: continuum.v1.Sync.namespaces:type_name -> continuum.v1.NamespaceFacts
+	32, // 18: continuum.v1.Sync.workloads:type_name -> continuum.v1.WorkloadFacts
+	18, // 19: continuum.v1.Sync.modules:type_name -> continuum.v1.ModuleStatus
+	74, // 20: continuum.v1.ClusterFacts.created_at:type_name -> google.protobuf.Timestamp
+	21, // 21: continuum.v1.ClusterFacts.scope:type_name -> continuum.v1.ScopeFacts
+	22, // 22: continuum.v1.ClusterFacts.mesh:type_name -> continuum.v1.MeshFacts
+	65, // 23: continuum.v1.MeshFacts.namespace_mtls:type_name -> continuum.v1.MeshFacts.NamespaceMtlsEntry
+	66, // 24: continuum.v1.NodeFacts.labels:type_name -> continuum.v1.NodeFacts.LabelsEntry
+	67, // 25: continuum.v1.NodeFacts.annotations:type_name -> continuum.v1.NodeFacts.AnnotationsEntry
+	68, // 26: continuum.v1.NodeFacts.extended_resources:type_name -> continuum.v1.NodeFacts.ExtendedResourcesEntry
+	74, // 27: continuum.v1.NodeFacts.created_at:type_name -> google.protobuf.Timestamp
+	25, // 28: continuum.v1.NodeFacts.probe:type_name -> continuum.v1.HostProbe
+	26, // 29: continuum.v1.HostProbe.interfaces:type_name -> continuum.v1.NetworkInterface
+	27, // 30: continuum.v1.HostProbe.disks:type_name -> continuum.v1.Disk
+	28, // 31: continuum.v1.HostProbe.tunnels:type_name -> continuum.v1.TunnelInterface
+	29, // 32: continuum.v1.HostProbe.host_addresses:type_name -> continuum.v1.HostAddress
+	69, // 33: continuum.v1.NamespaceFacts.labels:type_name -> continuum.v1.NamespaceFacts.LabelsEntry
+	70, // 34: continuum.v1.NamespaceFacts.annotations:type_name -> continuum.v1.NamespaceFacts.AnnotationsEntry
+	31, // 35: continuum.v1.WorkloadFacts.images:type_name -> continuum.v1.ContainerImage
+	71, // 36: continuum.v1.WorkloadFacts.labels:type_name -> continuum.v1.WorkloadFacts.LabelsEntry
+	72, // 37: continuum.v1.WorkloadFacts.annotations:type_name -> continuum.v1.WorkloadFacts.AnnotationsEntry
+	73, // 38: continuum.v1.WorkloadFacts.node_selector:type_name -> continuum.v1.WorkloadFacts.NodeSelectorEntry
+	74, // 39: continuum.v1.WorkloadFacts.created_at:type_name -> google.protobuf.Timestamp
+	35, // 40: continuum.v1.WorkloadFacts.volume_claims:type_name -> continuum.v1.VolumeClaim
+	36, // 41: continuum.v1.WorkloadFacts.autoscaler:type_name -> continuum.v1.Autoscaler
+	37, // 42: continuum.v1.WorkloadFacts.disruption:type_name -> continuum.v1.Disruption
+	34, // 43: continuum.v1.WorkloadFacts.reachable:type_name -> continuum.v1.Address
+	23, // 44: continuum.v1.WorkloadFacts.mesh:type_name -> continuum.v1.WorkloadMesh
+	33, // 45: continuum.v1.WorkloadFacts.pods:type_name -> continuum.v1.PodFacts
+	74, // 46: continuum.v1.PodFacts.created_at:type_name -> google.protobuf.Timestamp
+	39, // 47: continuum.v1.ServerMessage.ack:type_name -> continuum.v1.Ack
+	40, // 48: continuum.v1.ServerMessage.config:type_name -> continuum.v1.Config
+	45, // 49: continuum.v1.ServerMessage.revoked:type_name -> continuum.v1.Revoked
+	42, // 50: continuum.v1.Config.probe_targets:type_name -> continuum.v1.ProbeTarget
+	41, // 51: continuum.v1.Config.link_peers:type_name -> continuum.v1.LinkPeer
+	43, // 52: continuum.v1.Measurements.results:type_name -> continuum.v1.PathResult
+	0,  // 53: continuum.v1.RawFlow.tls_handshake:type_name -> continuum.v1.TlsHandshakeOutcome
+	46, // 54: continuum.v1.FlowReport.flows:type_name -> continuum.v1.RawFlow
+	47, // 55: continuum.v1.FlowReport.link_saturation:type_name -> continuum.v1.LinkSaturation
+	48, // 56: continuum.v1.FlowReport.thermal_throttle:type_name -> continuum.v1.ThermalThrottle
+	3,  // 57: continuum.v1.FlowEndpoint.kind:type_name -> continuum.v1.FlowEndpoint.Kind
+	50, // 58: continuum.v1.Flow.src:type_name -> continuum.v1.FlowEndpoint
+	50, // 59: continuum.v1.Flow.dst:type_name -> continuum.v1.FlowEndpoint
+	0,  // 60: continuum.v1.Flow.tls_handshake:type_name -> continuum.v1.TlsHandshakeOutcome
+	47, // 61: continuum.v1.CollectorInfo.link_saturation:type_name -> continuum.v1.LinkSaturation
+	48, // 62: continuum.v1.CollectorInfo.thermal_throttle:type_name -> continuum.v1.ThermalThrottle
+	51, // 63: continuum.v1.FlowBatch.flows:type_name -> continuum.v1.Flow
+	52, // 64: continuum.v1.FlowBatch.collectors:type_name -> continuum.v1.CollectorInfo
+	51, // 65: continuum.v1.FlowBatch.pod_flows:type_name -> continuum.v1.Flow
+	51, // 66: continuum.v1.FlowEdge.key:type_name -> continuum.v1.Flow
+	74, // 67: continuum.v1.FlowEdge.first_seen:type_name -> google.protobuf.Timestamp
+	74, // 68: continuum.v1.FlowEdge.last_seen:type_name -> google.protobuf.Timestamp
+	54, // 69: continuum.v1.FlowTable.edges:type_name -> continuum.v1.FlowEdge
+	21, // 70: continuum.v1.Diagnostics.scope:type_name -> continuum.v1.ScopeFacts
+	60, // 71: continuum.v1.Diagnostics.collectors:type_name -> continuum.v1.CollectorDiag
+	61, // 72: continuum.v1.Diagnostics.informers:type_name -> continuum.v1.InformerDiag
+	62, // 73: continuum.v1.Diagnostics.problems:type_name -> continuum.v1.Problem
+	74, // 74: continuum.v1.Diagnostics.generated_at:type_name -> google.protobuf.Timestamp
+	59, // 75: continuum.v1.Diagnostics.installed_telemetry_config:type_name -> continuum.v1.InstalledTelemetryConfig
+	57, // 76: continuum.v1.Diagnostics.export_health:type_name -> continuum.v1.ExportHealth
+	74, // 77: continuum.v1.ExportHealth.scraped_at:type_name -> google.protobuf.Timestamp
+	58, // 78: continuum.v1.ExportHealth.routes:type_name -> continuum.v1.ExportRouteHealth
+	4,  // 79: continuum.v1.ExportRouteHealth.state:type_name -> continuum.v1.ExportRouteHealth.State
+	74, // 80: continuum.v1.ExportRouteHealth.last_sent_at:type_name -> google.protobuf.Timestamp
+	74, // 81: continuum.v1.ExportRouteHealth.last_failed_at:type_name -> google.protobuf.Timestamp
+	74, // 82: continuum.v1.CollectorDiag.last_data:type_name -> google.protobuf.Timestamp
+	5,  // 83: continuum.v1.Problem.severity:type_name -> continuum.v1.Problem.Severity
+	74, // 84: continuum.v1.Problem.since:type_name -> google.protobuf.Timestamp
+	9,  // 85: continuum.v1.Enrollment.Enroll:input_type -> continuum.v1.EnrollRequest
+	11, // 86: continuum.v1.Enrollment.PollEnrollment:input_type -> continuum.v1.PollRequest
+	8,  // 87: continuum.v1.Enrollment.Rejoin:input_type -> continuum.v1.RejoinRequest
+	6,  // 88: continuum.v1.Enrollment.RenewTelemetryCert:input_type -> continuum.v1.RenewTelemetryCertRequest
+	15, // 89: continuum.v1.AgentService.Connect:input_type -> continuum.v1.AgentMessage
+	13, // 90: continuum.v1.AgentService.Renew:input_type -> continuum.v1.RenewRequest
+	10, // 91: continuum.v1.Enrollment.Enroll:output_type -> continuum.v1.EnrollResponse
+	12, // 92: continuum.v1.Enrollment.PollEnrollment:output_type -> continuum.v1.PollResponse
+	14, // 93: continuum.v1.Enrollment.Rejoin:output_type -> continuum.v1.RenewResponse
+	7,  // 94: continuum.v1.Enrollment.RenewTelemetryCert:output_type -> continuum.v1.RenewTelemetryCertResponse
+	38, // 95: continuum.v1.AgentService.Connect:output_type -> continuum.v1.ServerMessage
+	14, // 96: continuum.v1.AgentService.Renew:output_type -> continuum.v1.RenewResponse
+	91, // [91:97] is the sub-list for method output_type
+	85, // [85:91] is the sub-list for method input_type
+	85, // [85:85] is the sub-list for extension type_name
+	85, // [85:85] is the sub-list for extension extendee
+	0,  // [0:85] is the sub-list for field type_name
 }
 
 func init() { file_continuum_v1_agent_proto_init() }
@@ -7614,7 +7720,7 @@ func file_continuum_v1_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_continuum_v1_agent_proto_rawDesc), len(file_continuum_v1_agent_proto_rawDesc)),
 			NumEnums:      6,
-			NumMessages:   67,
+			NumMessages:   68,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

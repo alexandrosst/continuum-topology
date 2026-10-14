@@ -2,6 +2,7 @@ import clsx from 'clsx'
 import { useState } from 'react'
 import { Activity, FileText, Waypoints, type LucideIcon } from 'lucide-react'
 import { Button, Field, ICON_SM, InfoTip, Input, Select } from '@/components/ui/primitives'
+import { LINK_REQUIREMENT } from '@/lib/clusterLinks'
 import { applyIntentPreset, PICKABLE_SIGNALS, TELEMETRY_INTENT_PRESETS, TELEMETRY_SIGNALS } from '@/lib/consent'
 import type { TelemetryInput } from '@/lib/install'
 import { LAYER_CARDS, LAYER_META, type Layer } from '@/lib/telemetryLayers'
@@ -63,6 +64,7 @@ export function ClusterLinksFields({ value, onChange, testIdPrefix }: { value: T
   const set = <K extends keyof TelemetryInput>(key: K, v: TelemetryInput[K]) => onChange({ ...value, [key]: v })
   return (
     <div className="space-y-3 border-t border-nb-850 pt-3">
+      <p className="text-xs text-nb-500" data-testid={`${testIdPrefix}-links-requirement`}>{LINK_REQUIREMENT}</p>
       <label className="flex cursor-pointer items-start gap-2.5 text-sm">
         <input type="checkbox" className="mt-0.5 size-4 accent-[var(--color-accent)]" checked={value.clusterLinksProbe} onChange={(e) => set('clusterLinksProbe', e.target.checked)} data-testid={`${testIdPrefix}-links-probe`} />
         <span>

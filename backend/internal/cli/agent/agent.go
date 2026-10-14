@@ -56,6 +56,8 @@ func Main(args []string) int {
 	telemetryEnergySource := fs.String("telemetry-energy-source", cli.Env("CONTINUUM_TELEMETRY_ENERGY_SOURCE", ""), "effective telemetry.energy.metrics.source (bundle-kepler | existing), only set by the chart when the energy signal is enabled - purely informational, reported in Diagnostics; the chart sets this automatically")
 	telemetryHealthTargets := fs.String("telemetry-health-targets", cli.Env("CONTINUUM_TELEMETRY_HEALTH_TARGETS", ""), "host:port names of the telemetry collectors' own export counters (the chart's telemetry.health), comma separated; each resolves to every collector pod. The agent reads the counters (never telemetry) to report whether each destination is receiving data; the chart sets this automatically, and empty means do not")
 	telemetryAcceleratorsSource := fs.String("telemetry-accelerators-source", cli.Env("CONTINUUM_TELEMETRY_ACCELERATORS_SOURCE", ""), "effective telemetry.accelerators.metrics.source (bundle-dcgm | existing), only set by the chart when the accelerators signal is enabled - purely informational, reported in Diagnostics; the chart sets this automatically")
+	linkCapacity := fs.Bool("link-capacity", cli.Env("CONTINUUM_LINK_CAPACITY", "") == "true", "report that this install has the iperf3 server and client (telemetry.clusterLinks.probe.capacity.enabled), so the Sites screen can say whether a pair's throughput tests can run - purely informational, reported in the heartbeat; the chart sets this automatically")
+	linkTelemetryExport := fs.Bool("link-telemetry-export", cli.Env("CONTINUUM_LINK_TELEMETRY_EXPORT", "") == "true", "report that this install's cluster collector exports the link metrics to a destination, so what this cluster measures leaves it - purely informational, reported in the heartbeat; the chart sets this automatically")
 	rbacSelfCheck := fs.Bool("rbac-self-check", cli.Env("CONTINUUM_RBAC_SELF_CHECK", "true") == "true", "periodically ask the cluster (SelfSubjectAccessReview) whether it still grants more than --tier declares, and report it as a problem if so; catches a helm upgrade that narrowed access.tier locally but was never run against the cluster")
 	renewSecrets := fs.String("renew-secrets", cli.Env("CONTINUUM_RENEW_SECRETS", ""), "Secrets in the agent's namespace that hold this cluster's telemetry mTLS certificates (comma separated, each with tls.crt, tls.key, ca.crt); the agent renews them before they expire. The chart sets this automatically")
 	probeListen := fs.String("probe-listen", cli.Env("CONTINUUM_PROBE_LISTEN", ""), "address to listen on for node probe reports, e.g. :8081 (empty: no node probes)")
@@ -255,6 +257,7 @@ func Main(args []string) int {
 	if *linkListen != "" {
 		links = link.NewMeter(link.NewPeers())
 		_ = links.IgnorePorts(*linkProberPorts) // checked with the other flags above
+		links.SetInstall(link.Install{Probe: *linkServePeers, Capacity: *linkCapacity, TelemetryExport: *linkTelemetryExport})
 		flows.Links = links
 		if *linkServePeers {
 			links.ServePeers(linkPeersSec)

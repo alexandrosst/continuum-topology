@@ -162,3 +162,49 @@ func TestTheServerNamesLinkPeersAndTheAgentLabelsTrafficWithThem(t *testing.T) {
 		t.Errorf("series for a removed peer remain:\n%s", got)
 	}
 }
+
+// What the install can do reaches the server in the heartbeat, and the checklist of a pair is built from it: this install has
+// Cluster links, probing and telemetry export on, the other agent (a plain one) has Cluster links off, and both are said so.
+func TestTheServerLearnsWhatTheInstallCanDoAndChecksThePair(t *testing.T) {
+	meter := link.NewMeter(link.NewPeers())
+	meter.SetInstall(link.Install{Probe: true, TelemetryExport: true})
+	d := newDx(t, dxOpts{tune: func(c *agent.Config, _ *server.Core, _ *server.Hub) {
+		pipe := flow.NewPipeline([]byte("secret-secret-secret-secret-1234"), func() *collect.Index { return nil }, nil)
+		pipe.Links = meter
+		c.Flows, c.Links = pipe, meter
+	}})
+	waitFor(t, "first picture", 20*time.Second, func() bool { return services(d, "shop") == 1 })
+	mine := d.agentDoc().ClusterID
+	peer := d.addPeer("eeeeeeeeeeee", "10.9.9.9") // an agent whose install has no Cluster links
+	links := []server.LinkSetting{{A: mine, B: peer}}
+
+	steps := func() map[string]string {
+		_, setup := d.hub.LinkReport(context.Background(), links, true)
+		out := map[string]string{}
+		if len(setup) == 1 {
+			for _, s := range setup[0].Steps {
+				out[s.Code+"/"+s.Cluster] = s.State
+			}
+		}
+		return out
+	}
+	// each agent's report arrives with its first heartbeat
+	waitFor(t, "both agents' capabilities to be known", 30*time.Second, func() bool {
+		s := steps()
+		return s["links-on/"+mine] != "" && s["links-on/"+peer] != ""
+	})
+	got := steps()
+	if got["links-on/"+mine] != "ok" {
+		t.Errorf("Cluster links and probing are on in this install: %v", got)
+	}
+	if got["links-on/"+peer] != "todo" {
+		t.Errorf("Cluster links is off in the peer's install: %v", got)
+	}
+	if got["capabilities/"+mine] != "" || got["capabilities/"+peer] != "" {
+		t.Errorf("both agents reported, so neither is unknown: %v", got)
+	}
+	// the prober has never asked this agent for its peers
+	if got["prober/"+mine] != "" && got["prober/"+mine] != "todo" {
+		t.Errorf("the prober never asked: %v", got)
+	}
+}

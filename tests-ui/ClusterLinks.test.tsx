@@ -2,7 +2,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ClusterLinks from '@/components/ClusterLinks'
 import { api } from '@/lib/api'
-import type { LinksLatest } from '@/lib/clusterLinks'
+import { LINK_REQUIREMENT, type LinksLatest, type SetupStep } from '@/lib/clusterLinks'
 import { DEFAULT_SETTINGS, type LinkPair } from '@/lib/history'
 import { useServer } from '@/store/server'
 import { SETTINGS_CONFLICT, useSettings } from '@/store/settings'
@@ -38,7 +38,7 @@ const pick = (label: string, option: string) => {
 }
 
 const NOW = new Date().toISOString()
-const answer = (o: Partial<LinksLatest>): LinksLatest => ({ available: true, pairs: [], notes: [], at: NOW, ...o })
+const answer = (o: Partial<LinksLatest>): LinksLatest => ({ available: true, pairs: [], notes: [], setup: [], at: NOW, ...o })
 
 describe('ClusterLinks', () => {
   beforeEach(() => {
@@ -260,7 +260,7 @@ describe('ClusterLinks', () => {
     render(<ClusterLinks />)
     const rows = screen.getAllByTestId('pair-row')
     expect(within(rows[0]).queryByTestId('pair-warning')).toBeNull()
-    expect(within(rows[1]).getByTestId('pair-warning')).toHaveTextContent('Needs attention: edge-athens is at access level 1')
+    expect(within(rows[1]).getByTestId('pair-warning')).toHaveTextContent('edge-athens is at access level 1')
   })
 
   it('ties each throughput error to its own field', () => {
@@ -383,6 +383,155 @@ describe('ClusterLinks', () => {
       pick('Second cluster', 'cloud-eu')
       fireEvent.click(screen.getByTestId('confirm-add-pair'))
       await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(1))
+    })
+  })
+  describe('setup checklist', () => {
+    const st = (code: string, state: SetupStep['state'], text: string, cluster?: string): SetupStep => ({ code, state, text, ...(cluster ? { cluster } : {}) })
+    const ready = [
+      st('agent', 'ok', 'cloud-eu has an approved agent at access tier 2 with the flow collector running.', 'c-eu'),
+      st('agent', 'ok', 'cloud-us has an approved agent at access tier 2 with the flow collector running.', 'c-us'),
+      st('links-on', 'ok', 'Cluster links and probing are switched on in cloud-eu.', 'c-eu'),
+      st('export', 'ok', 'cloud-eu runs the probes for this pair and sends its telemetry onward, so what it measures can reach FUSION.', 'c-eu'),
+    ]
+    const withSetup = (steps: SetupStep[], extra: Partial<LinksLatest> = {}) =>
+      vi.spyOn(api, 'linksLatest').mockResolvedValue(answer({ setup: [{ a: 'c-eu', b: 'c-us', steps }], ...extra }))
+
+    it('shows nothing extra under a pair that is ready, only a quiet word on the Setup button', async () => {
+      seed('viewer', [{ a: 'c-eu', b: 'c-us' }])
+      withSetup(ready)
+      render(<ClusterLinks />)
+      expect(await screen.findByTestId('pair-setup-summary')).toHaveTextContent('ready')
+      expect(screen.queryByTestId('pair-warning')).toBeNull()
+      expect(screen.queryByTestId('pair-setup-steps')).toBeNull()
+    })
+
+    it('lists what is still to do as warning lines, two at most and then how many more', async () => {
+      seed('viewer', [{ a: 'c-eu', b: 'c-us' }])
+      withSetup([
+        ...ready,
+        st('export', 'todo', 'cloud-eu runs the probes for this pair but has no telemetry sent to FUSION, so what it measures stays in the cluster.', 'c-eu'),
+        st('links-on', 'todo', 'Cluster links is not switched on in the install of cloud-us.', 'c-us'),
+        st('prober', 'todo', 'The link prober in cloud-eu has not asked its agent for the clusters to measure.', 'c-eu'),
+      ])
+      render(<ClusterLinks />)
+      const lines = await screen.findAllByTestId('pair-warning')
+      expect(lines).toHaveLength(2)
+      expect(lines[0]).toHaveTextContent('cloud-eu runs the probes for this pair but has no telemetry sent to FUSION')
+      expect(lines[1]).toHaveTextContent('Cluster links is not switched on in the install of cloud-us.')
+      expect(screen.getByTestId('pair-warning-more')).toHaveTextContent('and 1 more')
+      expect(screen.getByTestId('pair-setup-summary')).toHaveTextContent('3 to do')
+    })
+
+    it('opens the full list from a button that says whether it is open, and marks each step with a word as well as a shape', async () => {
+      seed('viewer', [{ a: 'c-eu', b: 'c-us' }])
+      withSetup([
+        ...ready,
+        st('export', 'todo', 'cloud-eu has no telemetry sent to FUSION.', 'c-eu'),
+        st('capabilities', 'unknown', "The agent of cloud-us is too old to say what its install can do.", 'c-us'),
+        st('peer-export', 'optional', 'cloud-us sends no telemetry to FUSION. Optional.', 'c-us'),
+      ])
+      render(<ClusterLinks />)
+      const toggle = await screen.findByTestId('pair-setup-toggle')
+      expect(toggle).toHaveAttribute('aria-expanded', 'false')
+      expect(toggle).toHaveAccessibleName(/Setup/)
+      fireEvent.click(toggle)
+      expect(toggle).toHaveAttribute('aria-expanded', 'true')
+      const list = screen.getByTestId('pair-setup-steps')
+      expect(toggle).toHaveAttribute('aria-controls', list.id)
+      const items = within(list).getAllByTestId('setup-step')
+      expect(items).toHaveLength(7)
+      expect(items.map((i) => i.getAttribute('data-state'))).toEqual(['ok', 'ok', 'ok', 'ok', 'todo', 'unknown', 'optional'])
+      expect(items[4]).toHaveTextContent('To do: cloud-eu has no telemetry sent to FUSION.')
+      expect(items[0]).toHaveTextContent('Done: cloud-eu has an approved agent')
+      expect(items[5]).toHaveTextContent('Not known: The agent of cloud-us is too old to say what its install can do.')
+      expect(items[6]).toHaveTextContent('Optional: cloud-us sends no telemetry to FUSION.')
+      // an agent too old to say is not a warning on the row
+      expect(screen.getAllByTestId('pair-warning')).toHaveLength(1)
+      fireEvent.click(toggle)
+      expect(toggle).toHaveAttribute('aria-expanded', 'false')
+      expect(screen.queryByTestId('pair-setup-steps')).toBeNull()
+    })
+
+    it('can be opened from the keyboard: it is a button', async () => {
+      seed('viewer', [{ a: 'c-eu', b: 'c-us' }])
+      withSetup(ready)
+      render(<ClusterLinks />)
+      const toggle = await screen.findByTestId('pair-setup-toggle')
+      expect(toggle.tagName).toBe('BUTTON')
+      toggle.focus()
+      expect(toggle).toHaveFocus()
+    })
+
+    it('says "not fully known" rather than ready when an agent is too old to say, and does not warn', async () => {
+      seed('viewer', [{ a: 'c-eu', b: 'c-us' }])
+      withSetup([...ready.slice(0, 2), st('capabilities', 'unknown', 'The agent of cloud-us is too old to say what its install can do.', 'c-us')])
+      render(<ClusterLinks />)
+      expect(await screen.findByTestId('pair-setup-summary')).toHaveTextContent('not fully known')
+      expect(screen.queryByTestId('pair-warning')).toBeNull()
+    })
+
+    it('shows a server reason once: the note is left out when the checklist says the same of that cluster', async () => {
+      seed('viewer', [{ a: 'c-eu', b: 'c-us' }])
+      withSetup(
+        [st('agent', 'todo', "The agent of cloud-eu is at access tier 1. Link measuring needs tier 2.", 'c-eu'), st('agent', 'ok', 'cloud-us has an approved agent.', 'c-us')],
+        { notes: [{ cluster: 'c-eu', peer: 'c-us', code: 'tier', text: "This cluster's agent is at access tier 1." }, { cluster: 'c-us', peer: 'c-eu', code: 'peer-silent', text: 'The agent of c-eu has not reported any node address yet.' }] },
+      )
+      render(<ClusterLinks />)
+      expect(await screen.findByTestId('pair-warning')).toHaveTextContent('The agent of cloud-eu is at access tier 1.')
+      // the tier note is covered by the step; the other note says something the checklist does not, so it stays
+      const notes = screen.getAllByTestId('pair-note')
+      expect(notes).toHaveLength(1)
+      expect(notes[0]).toHaveTextContent('cloud-us: The agent of c-eu has not reported any node address yet.')
+    })
+
+    it('does not say the same of a low access level twice when the server says it too', async () => {
+      seed('viewer', [{ a: 'c-eu', b: 'c-gr' }]) // edge-athens is at access level 1
+      vi.spyOn(api, 'linksLatest').mockResolvedValue(answer({ setup: [{ a: 'c-eu', b: 'c-gr', steps: [
+        st('agent', 'ok', 'cloud-eu has an approved agent.', 'c-eu'),
+        st('agent', 'todo', 'The agent of edge-athens is at access tier 1. Raise its access tier to 2 under Agents.', 'c-gr'),
+      ] }] }))
+      render(<ClusterLinks />)
+      await vi.waitFor(() => expect(screen.getByTestId('pair-warning')).toHaveTextContent('The agent of edge-athens is at access tier 1.'))
+      expect(screen.getAllByTestId('pair-warning')).toHaveLength(1)
+    })
+
+    it('shows no Setup button from a server that does not send the checklist, and keeps the page\'s own checks', async () => {
+      seed('viewer', [{ a: 'c-eu', b: 'c-gr' }])
+      render(<ClusterLinks />)
+      expect(await screen.findByTestId('pair-warning')).toHaveTextContent('edge-athens is at access level 1')
+      await screen.findByTestId('latest-empty')
+      expect(screen.queryByTestId('pair-setup')).toBeNull()
+    })
+  })
+
+  describe('what a pair needs, said up front', () => {
+    it('states the requirement in the section intro and in the Add pair dialog', () => {
+      seed('admin', [])
+      render(<ClusterLinks />)
+      expect(screen.getByTestId('links-requirement')).toHaveTextContent(LINK_REQUIREMENT)
+      expect(LINK_REQUIREMENT).toMatch(/two clusters that each run the Ikhnos agent with Cluster links on/)
+      expect(LINK_REQUIREMENT).toMatch(/send telemetry to FUSION \(a local operator\)/)
+      fireEvent.click(screen.getByTestId('add-pair'))
+      expect(screen.getByTestId('add-pair-requirement')).toHaveTextContent(LINK_REQUIREMENT)
+    })
+
+    it('disables Add pair, with the reason beside it, when fewer than two clusters have an approved agent', () => {
+      seed('admin', [])
+      useRawTopology.setState({ clusters: [cluster('c-eu', 'cloud-eu'), cluster('c-us', 'cloud-us')], agents: [agent('c-eu'), { ...agent('c-us'), status: 'pending' }] } as never)
+      render(<ClusterLinks />)
+      const add = screen.getByTestId('add-pair')
+      expect(add).toBeDisabled()
+      expect(add).toHaveAccessibleDescription('Needs two clusters with an approved agent')
+      expect(screen.getByTestId('add-pair-why')).toBeInTheDocument()
+      fireEvent.click(add)
+      expect(screen.queryByTestId('add-pair-requirement')).toBeNull()
+    })
+
+    it('enables Add pair with two clusters that have an approved agent', () => {
+      seed('admin', [])
+      render(<ClusterLinks />)
+      expect(screen.getByTestId('add-pair')).toBeEnabled()
+      expect(screen.queryByTestId('add-pair-why')).toBeNull()
     })
   })
 })

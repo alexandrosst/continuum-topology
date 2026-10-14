@@ -90,6 +90,10 @@ type Meter struct {
 
 	peersSecret []byte
 	peersReplay *probe.ReplayCache
+	// proberSeen is when the prober last made a valid request for the peers (zero: never); install is what the chart switched on
+	// around this meter. Both are reported to the server as the agent's link capabilities (see capabilities.go).
+	proberSeen time.Time
+	install    Install
 }
 
 // NewMeter reads peers from p.

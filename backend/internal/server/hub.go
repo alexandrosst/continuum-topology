@@ -541,6 +541,7 @@ func (h *Hub) Connect(stream continuumv1.AgentService_ConnectServer) error {
 					v.state.Modules = m.Heartbeat.Modules
 				}
 				noteSelfStats(v, m.Heartbeat.SelfStats, now)
+				noteLinkCaps(v, m.Heartbeat.LinkCapabilities, now, skew)
 				if m.Heartbeat.Diagnostics != nil {
 					noteDiagnostics(v, m.Heartbeat.Diagnostics, false, h.C.Now())
 				}

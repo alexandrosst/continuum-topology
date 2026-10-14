@@ -102,6 +102,8 @@ type viewExt struct {
 	diag        *continuumv1.Diagnostics
 	diagAt      time.Time
 	diagPartial bool // only what Hello carried: the ceiling, before the agent had looked at the cluster
+	// linkCaps is what this agent's heartbeat last said its install can do for the cluster-link telemetry (see linkCaps).
+	linkCaps    linkCaps
 	consent     Consent
 	consentAt   time.Time // when this consent was last changed (zero if it never has been); drives the staleness signal in consentDoc
 	consentLoad bool

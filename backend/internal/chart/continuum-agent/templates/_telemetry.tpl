@@ -51,6 +51,17 @@
 {{- if or (include "agent.telemetryHostEnabled" .) (include "agent.telemetryClusterEnabled" .) -}}true{{- end -}}
 {{- end -}}
 
+{{/* Whether what this cluster measures for its links leaves it: the cluster collector is rendered (telemetry-cluster-config.yaml, which
+     agent.telemetryClusterEnabled decides) with the link metrics in it, and the metrics have a destination to go to - their own
+     route (telemetry.export.routes.metrics) or the default one (telemetry.export.otlp). "true" or empty. The agent reports this
+     (CONTINUUM_LINK_TELEMETRY_EXPORT in deployment.yaml) so the Sites screen can tell a pair whose probing cluster measures but
+     sends nothing onward. */}}
+{{- define "agent.linkTelemetryExport" -}}
+{{- if and .Values.telemetry.clusterLinks.metrics.enabled (include "agent.telemetryClusterEnabled" .) -}}
+{{- if or (include "agent.telemetryHasRoute" (dict "root" . "m" "metrics")) .Values.telemetry.export.otlp.endpoint -}}true{{- end -}}
+{{- end -}}
+{{- end -}}
+
 {{/* Whether the k8sattributes processor (pod/namespace/node metadata enrichment) is needed - true for every
      telemetry signal, so its RBAC is granted whenever telemetry is on at all rather than per-signal. */}}
 {{- define "agent.telemetryK8sAttrsEnabled" -}}{{- include "agent.telemetryEnabled" . -}}{{- end -}}

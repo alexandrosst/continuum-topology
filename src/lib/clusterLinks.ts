@@ -102,16 +102,17 @@ export function costLine(t: Throughput): string {
   return `${runs[0].toUpperCase()}${runs.slice(1)}${cap}. Tests wait while the link is busy with real traffic.`
 }
 
-export type Check = { ok: boolean; text: string; fix?: string }
+/** `code` says what the check is about, so the row can leave out the ones the server's own checklist already says (see `uncoveredChecks`). */
+export type Check = { ok: boolean; text: string; fix?: string; code?: 'agent' | 'connected' | 'tier' | 'flow'; cluster?: string }
 
 /** What a cluster needs for the active measurements, from what the server already knows about its agent. */
 export function clusterChecks(clusterId: string, name: string, agents: Agent[]): Check[] {
   const agent = agents.find((a) => a.clusterId === clusterId && a.status === 'approved')
-  if (!agent) return [{ ok: false, text: `${name} has no approved agent`, fix: 'Connect one in Agents' }]
+  if (!agent) return [{ ok: false, code: 'agent', cluster: clusterId, text: `${name} has no approved agent`, fix: 'Connect one in Agents' }]
   const out: Check[] = []
-  out.push(agent.connected === false ? { ok: false, text: `The agent in ${name} is not connected`, fix: 'The settings are kept and apply when it returns' } : { ok: true, text: `The agent in ${name} is connected` })
-  out.push(agent.accessTier >= 2 ? { ok: true, text: `${name} is at access level ${agent.accessTier}` } : { ok: false, text: `${name} is at access level ${agent.accessTier}: probing needs level 2`, fix: 'Raise it in Agents' })
-  out.push((agent.observer?.collectors.length ?? 0) > 0 ? { ok: true, text: `${name} runs the flow collector` } : { ok: false, text: `${name} is not running the flow collector`, fix: 'Turn it on in the agent’s install' })
+  out.push(agent.connected === false ? { ok: false, code: 'connected', cluster: clusterId, text: `The agent in ${name} is not connected`, fix: 'The settings are kept and apply when it returns' } : { ok: true, code: 'connected', text: `The agent in ${name} is connected` })
+  out.push(agent.accessTier >= 2 ? { ok: true, code: 'tier', text: `${name} is at access level ${agent.accessTier}` } : { ok: false, code: 'tier', cluster: clusterId, text: `${name} is at access level ${agent.accessTier}: probing needs level 2`, fix: 'Raise it in Agents' })
+  out.push((agent.observer?.collectors.length ?? 0) > 0 ? { ok: true, code: 'flow', text: `${name} runs the flow collector` } : { ok: false, code: 'flow', cluster: clusterId, text: `${name} is not running the flow collector`, fix: 'Turn it on in the agent’s install' })
   return out
 }
 
@@ -169,6 +170,23 @@ export interface LinkNote {
   text: string
 }
 
+/** One line of a pair's checklist, as the server worked it out (`setup` in GET /links/latest). */
+export type SetupState = 'ok' | 'todo' | 'unknown' | 'optional'
+export interface SetupStep {
+  /** agent | addresses | capabilities | links-on | export | prober | capacity | peer-export */
+  code: string
+  /** The cluster the step is about; absent when it is about the pair. */
+  cluster?: string
+  state: SetupState
+  /** What is wrong and what to do (or what is fine), naming the cluster. */
+  text: string
+}
+export interface PairSetup {
+  a: string
+  b: string
+  steps: SetupStep[]
+}
+
 export interface LinksLatest {
   available: boolean
   /** Why the figures cannot be had: this server has no FUSION, or it could not be read just now. */
@@ -176,10 +194,88 @@ export interface LinksLatest {
   pairs: LinkPairLatest[]
   /** Reasons a pair is not measured, whether or not FUSION could be read. */
   notes: LinkNote[]
+  /** The checklist of each pair, whether or not FUSION could be read. Empty from a server that does not send it. */
+  setup: PairSetup[]
   at: string
 }
 
-export const normalizeLinksLatest = (d: Partial<LinksLatest> | undefined): LinksLatest => ({ available: !!d?.available, reason: d?.reason, pairs: d?.pairs ?? [], notes: d?.notes ?? [], at: d?.at ?? '' })
+const SETUP_STATES: readonly string[] = ['ok', 'todo', 'unknown', 'optional']
+const MAX_SETUP_PAIRS = 200
+const MAX_SETUP_STEPS = 40
+
+/** The checklists as the page uses them. A server that does not send them gives none; a state it does not know reads as "unknown", never as done. */
+export function normalizeSetup(raw: unknown): PairSetup[] {
+  if (!Array.isArray(raw)) return []
+  const out: PairSetup[] = []
+  for (const p of raw.slice(0, MAX_SETUP_PAIRS)) {
+    if (!p || typeof p !== 'object' || typeof p.a !== 'string' || typeof p.b !== 'string') continue
+    const steps: SetupStep[] = []
+    for (const s of (Array.isArray(p.steps) ? p.steps : []).slice(0, MAX_SETUP_STEPS)) {
+      if (!s || typeof s !== 'object' || typeof s.text !== 'string' || s.text === '') continue
+      steps.push({
+        code: typeof s.code === 'string' ? s.code : '',
+        ...(typeof s.cluster === 'string' && s.cluster !== '' ? { cluster: s.cluster } : {}),
+        state: SETUP_STATES.includes(s.state) ? (s.state as SetupState) : 'unknown',
+        text: s.text,
+      })
+    }
+    out.push({ a: p.a, b: p.b, steps })
+  }
+  return out
+}
+
+export const normalizeLinksLatest = (d: Partial<LinksLatest> | undefined): LinksLatest => ({ available: !!d?.available, reason: d?.reason, pairs: d?.pairs ?? [], notes: d?.notes ?? [], setup: normalizeSetup(d?.setup), at: d?.at ?? '' })
+
+/** What a pair needs, said where the person starts: the section's intro, the Add pair dialog and the telemetry wizard. */
+export const LINK_REQUIREMENT = 'A pair needs two clusters that each run the Ikhnos agent with Cluster links on; the cluster that runs the probes also has to send telemetry to FUSION (a local operator).'
+
+/** The marks of the four states. The words are for screen readers and for the title; the shapes differ, so colour is never the only difference. */
+export const STEP_MARK: Record<SetupState, { word: string }> = {
+  ok: { word: 'Done' },
+  todo: { word: 'To do' },
+  unknown: { word: 'Not known' },
+  optional: { word: 'Optional' },
+}
+
+export interface SetupSummary {
+  /** The steps that still have to be done. */
+  todo: SetupStep[]
+  /** How many steps could not be told (an agent too old to say, or silent). */
+  unknown: number
+  /** Everything required is done, and nothing is unknown. */
+  ready: boolean
+  /** The quiet word on the Setup button: "ready", "2 to do", "not fully known". */
+  label: string
+}
+
+export function setupSummary(steps: SetupStep[]): SetupSummary {
+  const todo = steps.filter((s) => s.state === 'todo')
+  const unknown = steps.filter((s) => s.state === 'unknown').length
+  const ready = todo.length === 0 && unknown === 0
+  return { todo, unknown, ready, label: todo.length > 0 ? `${todo.length} to do` : unknown > 0 ? 'not fully known' : 'ready' }
+}
+
+/** The first `max` lines of a list of unmet things, and how many were left out. */
+export function firstLines(texts: string[], max = 2): { shown: string[]; more: number } {
+  return { shown: texts.slice(0, max), more: Math.max(0, texts.length - max) }
+}
+
+/** The note codes that say a cluster is not told about its peer, and the checklist step that says the same. */
+const NOTE_STEP: Record<LinkNote['code'], string> = {
+  'no-agent': 'agent', tier: 'agent', paused: 'agent', 'peer-silent': 'addresses', 'shared-address': 'addresses', 'no-address-of-kind': 'addresses',
+}
+
+/** The notes of a pair that its checklist does not already say: a note and an unmet step about the same cluster are one thing, shown once (as the step). */
+export function uncoveredNotes(notes: LinkNote[], setup: PairSetup | undefined): LinkNote[] {
+  if (!setup) return notes
+  return notes.filter((n) => !setup.steps.some((s) => s.state === 'todo' && s.cluster === n.cluster && s.code === NOTE_STEP[n.code]))
+}
+
+/** The client's own unmet checks that the server's checklist does not already say: a missing agent or a low access level of a cluster whose `agent` step is unmet there too. */
+export function uncoveredChecks(checks: Check[], setup: PairSetup | undefined): Check[] {
+  if (!setup) return checks
+  return checks.filter((c) => !((c.code === 'agent' || c.code === 'tier') && setup.steps.some((s) => s.state === 'todo' && s.code === 'agent' && s.cluster === c.cluster)))
+}
 
 const num = (n: number | undefined): n is number => typeof n === 'number' && Number.isFinite(n)
 

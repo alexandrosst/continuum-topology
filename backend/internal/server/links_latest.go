@@ -52,7 +52,10 @@ type LinksLatestDoc struct {
 	Pairs     []LinkPairLatest `json:"pairs"`
 	// Notes say why a pair is not measured from one of its clusters (see LinkNote), whether or not FUSION can be read.
 	Notes []LinkNote `json:"notes"`
-	At    time.Time  `json:"at"`
+	// Setup is, for each listed pair, the checklist of what it needs before its figures reach FUSION (see linkSetup), whether or
+	// not FUSION can be read. An agent too old to report what its install can do gives "unknown" steps, never failures.
+	Setup []LinkSetup `json:"setup"`
+	At    time.Time   `json:"at"`
 }
 
 type linkReadingsCache struct {
@@ -84,10 +87,14 @@ func (c *linkReadingsCache) get(ctx context.Context, now func() time.Time, read 
 
 func (a *Admin) linksLatest(w http.ResponseWriter, r *http.Request) {
 	now := a.C.Now
-	doc := LinksLatestDoc{Pairs: []LinkPairLatest{}, Notes: []LinkNote{}, At: now().UTC()}
+	doc := LinksLatestDoc{Pairs: []LinkPairLatest{}, Notes: []LinkNote{}, Setup: []LinkSetup{}, At: now().UTC()}
 	links := a.core(r).Settings().Links
-	if notes := a.tn(r).Hub.LinkNotes(r.Context(), links); notes != nil {
+	notes, setup := a.tn(r).Hub.LinkReport(r.Context(), links, a.Fusion != nil)
+	if notes != nil {
 		doc.Notes = notes
+	}
+	if setup != nil {
+		doc.Setup = setup
 	}
 	if a.Fusion == nil {
 		doc.Reason = "no-fusion"
