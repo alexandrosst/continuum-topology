@@ -170,14 +170,7 @@ func (m *Meter) ObserveProbe(peer string, d Direction, r OwampResult) {
 	if m == nil || m.Peers.Own() == "" {
 		return
 	}
-	known := false
-	for _, p := range m.Peers.List() {
-		if p.ID == peer {
-			known = true
-			break
-		}
-	}
-	if !known {
+	if !m.Peers.Has(peer) {
 		return
 	}
 	m.mu.Lock()

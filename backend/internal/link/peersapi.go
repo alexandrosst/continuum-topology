@@ -50,6 +50,7 @@ type PeerDoc struct {
 	BytesUnknown bool `json:"bytes_unknown,omitempty"`
 	// What to measure towards the peer (see Peer).
 	NoProbe                   bool   `json:"no_probe,omitempty"`
+	SkipProbe                 bool   `json:"skip_probe,omitempty"`
 	Throughput                bool   `json:"throughput,omitempty"`
 	ThroughputIntervalSeconds uint32 `json:"throughput_interval_seconds,omitempty"`
 	ThroughputBudgetBytes     uint64 `json:"throughput_budget_bytes,omitempty"`
@@ -59,7 +60,7 @@ type PeerDoc struct {
 func (p *Peers) Doc() PeersDoc {
 	d := PeersDoc{ClusterID: p.Own(), Peers: []PeerDoc{}}
 	for _, pe := range p.List() {
-		pd := PeerDoc{ID: pe.ID, Name: pe.Name, Addresses: make([]string, len(pe.Addresses)), NoProbe: pe.NoProbe, Throughput: pe.Throughput,
+		pd := PeerDoc{ID: pe.ID, Name: pe.Name, Addresses: make([]string, len(pe.Addresses)), NoProbe: pe.NoProbe, SkipProbe: pe.SkipProbe, Throughput: pe.Throughput,
 			ThroughputIntervalSeconds: uint32(pe.ThroughputEvery / time.Second), ThroughputBudgetBytes: pe.ThroughputBudget}
 		for i, a := range pe.Addresses {
 			pd.Addresses[i] = a.String()
@@ -91,7 +92,7 @@ func (m *Meter) peersDoc() PeersDoc {
 func (p *Peers) SetFromDoc(d PeersDoc) []string {
 	lps := make([]*continuumv1.LinkPeer, 0, len(d.Peers))
 	for _, pe := range d.Peers {
-		lps = append(lps, &continuumv1.LinkPeer{ClusterId: pe.ID, Name: pe.Name, Addresses: pe.Addresses, NoProbe: pe.NoProbe, Throughput: pe.Throughput,
+		lps = append(lps, &continuumv1.LinkPeer{ClusterId: pe.ID, Name: pe.Name, Addresses: pe.Addresses, NoProbe: pe.NoProbe, SkipProbe: pe.SkipProbe, Throughput: pe.Throughput,
 			ThroughputIntervalSeconds: pe.ThroughputIntervalSeconds, ThroughputBudgetBytes: pe.ThroughputBudgetBytes})
 	}
 	return p.Set(d.ClusterID, lps)

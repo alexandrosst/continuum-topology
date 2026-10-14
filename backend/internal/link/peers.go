@@ -31,6 +31,10 @@ type Peer struct {
 	// What the server asked to be measured towards this peer. The defaults, all zero, are the one-way probe on and no
 	// throughput tests, so a Config that does not say is read as before.
 	NoProbe bool
+	// SkipProbe says the other cluster of the pair runs the one-way probe and the connect timing, so this one only serves
+	// them (its responder stays up) and exports no series of them. The route trace still runs here: the two directions can
+	// take different routes. NoProbe wins: with it nothing is measured at all.
+	SkipProbe bool
 	// Throughput says this cluster runs the throughput tests towards the peer. ThroughputEvery replaces the cluster's own
 	// interval between sets of tests (zero: keep it) and ThroughputBudget limits what they may carry towards this peer in a
 	// day (zero: only the cluster's budget).
@@ -38,6 +42,12 @@ type Peer struct {
 	ThroughputEvery  time.Duration
 	ThroughputBudget uint64
 }
+
+// Probed says this cluster runs the one-way probe and the connect timing towards the peer.
+func (p Peer) Probed() bool { return !p.NoProbe && !p.SkipProbe }
+
+// Traced says this cluster traces the route to the peer.
+func (p Peer) Traced() bool { return !p.NoProbe }
 
 // Bounds on what a Config may ask for, whatever the server sends: the same as the server enforces, so a bug or a hostile
 // server cannot make the agent test a link every few seconds.
@@ -83,7 +93,7 @@ func (p *Peers) Set(own string, in []*continuumv1.LinkPeer) (dropped []string) {
 			break
 		}
 		seen[lp.ClusterId] = true
-		pe := Peer{ID: lp.ClusterId, Name: lp.Name, NoProbe: lp.NoProbe, Throughput: lp.Throughput}
+		pe := Peer{ID: lp.ClusterId, Name: lp.Name, NoProbe: lp.NoProbe, SkipProbe: lp.SkipProbe, Throughput: lp.Throughput}
 		if pe.Throughput {
 			if s := lp.ThroughputIntervalSeconds; s > 0 {
 				pe.ThroughputEvery = min(max(time.Duration(s)*time.Second, MinThroughputEvery), MaxThroughputEvery)
@@ -157,6 +167,13 @@ func (p *Peers) Own() string { return p.cur.Load().own }
 
 // List is the accepted peers, sorted by id.
 func (p *Peers) List() []Peer { return append([]Peer(nil), p.cur.Load().peers...) }
+
+// Has reports whether id is one of the accepted peers, without copying the list.
+func (p *Peers) Has(id string) bool {
+	set := p.cur.Load()
+	i := sort.Search(len(set.peers), func(i int) bool { return set.peers[i].ID >= id })
+	return i < len(set.peers) && set.peers[i].ID == id
+}
 
 // Lookup says which peer cluster an address belongs to; the empty string means none.
 func (p *Peers) Lookup(ip string) string {

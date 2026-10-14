@@ -54,8 +54,14 @@ func TestStartingWithBadSettingsFailsWithTheReason(t *testing.T) {
 	}
 }
 
-// The prober takes its peers from the agent.
+// The prober takes its peers from the agent, with or without the throughput tests' load tracking.
 func TestTheProberFollowsTheAgentsPeerList(t *testing.T) {
+	for name, load := range map[string]*link.Load{"with load": {}, "without": nil} {
+		t.Run(name, func(t *testing.T) { followsPeers(t, load) })
+	}
+}
+
+func followsPeers(t *testing.T, load *link.Load) {
 	secret := []byte("a-secret-of-sixteen-plus-chars")
 	agentPeers := link.NewPeers()
 	agentMeter := link.NewMeter(agentPeers)
@@ -69,7 +75,7 @@ func TestTheProberFollowsTheAgentsPeerList(t *testing.T) {
 	meter.OnlyProbes()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go follow(ctx, slog.New(slog.NewTextHandler(io.Discard, nil)), srv.Client(), srv.URL, secret, peers, meter, &link.Load{})
+	go follow(ctx, slog.New(slog.NewTextHandler(io.Discard, nil)), srv.Client(), srv.URL, secret, peers, meter, load)
 
 	deadline := time.Now().Add(5 * time.Second)
 	for peers.Empty() && time.Now().Before(deadline) {

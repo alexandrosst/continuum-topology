@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
-  PRESETS, clusterChecks, costLine, delayWords, everyWords, hasPair, latestView, lossWords, newPair, normalizeLinksLatest, rateWords, presetOf, removePair, replacePair, runnerOf, throughputFieldProblems, throughputFor, throughputProblems, throughputSummary,
+  PRESETS, clusterChecks, costLine, delayWords, everyWords, hasPair, latestView, lossWords, newPair, normalizeLinksLatest, rateWords, presetOf, removePair, replacePair, runnerOf, runsFromWords, throughputFieldProblems, throughputFor, throughputProblems, throughputSummary,
 } from '../src/lib/clusterLinks'
 import type { Agent } from '../src/lib/types'
 
@@ -57,6 +57,14 @@ test('the cost line says how often and where it stops', () => {
 
 test('the first cluster id runs the tests', () => {
   assert.equal(runnerOf({ a: 'cloud-eu', b: 'edge-athens' }), 'cloud-eu')
+})
+
+test('a pair says which cluster probing and the tests run from', () => {
+  const p = { a: 'cloud-eu', b: 'edge-athens' }
+  assert.equal(runsFromWords(p, 'EU'), 'probing runs from EU; no throughput tests')
+  assert.equal(runsFromWords({ ...p, throughput: {} }, 'EU'), 'probing and tests run from EU')
+  assert.equal(runsFromWords({ ...p, noProbe: true, throughput: {} }, 'EU'), 'tests run from EU')
+  assert.equal(runsFromWords({ ...p, noProbe: true }, 'EU'), 'real traffic only')
 })
 
 test('a cluster is checked from its approved agent', () => {

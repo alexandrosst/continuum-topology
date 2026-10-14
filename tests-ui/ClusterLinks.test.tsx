@@ -59,13 +59,15 @@ describe('ClusterLinks', () => {
     seed('admin', [
       { a: 'c-eu', b: 'c-us', throughput: { intervalMinutes: 360, budgetMB: 500 } },
       { a: 'c-eu', b: 'c-gr', noProbe: true },
+      { a: 'c-us', b: 'c-gr' },
     ])
     render(<ClusterLinks />)
     const rows = screen.getAllByTestId('pair-row')
-    expect(rows).toHaveLength(2)
+    expect(rows).toHaveLength(3)
+    expect(within(rows[2]).getByText('probing runs from edge-athens; no throughput tests')).toBeInTheDocument()
     expect(within(rows[0]).getByText('every 6 hours')).toBeInTheDocument()
     expect(within(rows[0]).getByText('up to 500 MB a day')).toBeInTheDocument()
-    expect(within(rows[0]).getByText('tests run from cloud-eu')).toBeInTheDocument()
+    expect(within(rows[0]).getByText('probing and tests run from cloud-eu')).toBeInTheDocument()
     expect(within(rows[1]).getByText('real traffic only')).toBeInTheDocument()
   })
 

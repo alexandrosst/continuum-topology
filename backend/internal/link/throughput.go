@@ -98,12 +98,7 @@ func (m *Meter) throughput(peer string) *tpStats {
 }
 
 func (m *Meter) knownPeer(peer string) bool {
-	for _, p := range m.Peers.List() {
-		if p.ID == peer {
-			return true
-		}
-	}
-	return false
+	return m.Peers.Has(peer)
 }
 
 // ObserveTCP records the latest finished TCP test in f's direction. proto is "tcp", or "tcp_bidir" for a test that loaded both directions at once, whose figures are not comparable with a single direction's. Bytes carried are added to the running total.
@@ -215,6 +210,16 @@ func (m *Meter) writeThroughput(w io.Writer, own string, peerIDs []string) {
 		})
 		return ks
 	}
+	// The keys of a peer are sorted once per scrape, not once per family.
+	tcpMemo := map[string][]tpKey{}
+	tcpOf := func(p string, s *tpStats) []tpKey {
+		ks, ok := tcpMemo[p]
+		if !ok {
+			ks = tcpKeys(s)
+			tcpMemo[p] = ks
+		}
+		return ks
+	}
 	tcp := func(name, help string, get func(tpVal) (float64, bool)) {
 		head(name, "gauge", help)
 		for _, p := range peerIDs {
@@ -222,7 +227,7 @@ func (m *Meter) writeThroughput(w io.Writer, own string, peerIDs []string) {
 			if s == nil {
 				continue
 			}
-			for _, k := range tcpKeys(s) {
+			for _, k := range tcpOf(p, s) {
 				if v, ok := get(s.tcp[k]); ok {
 					fmt.Fprintf(w, "%s{%s} %g\n", name, lbl(p, "direction", string(k.dir), "protocol", k.proto, "streams", itoa(k.streams), "dscp", itoa(k.dscp)), v)
 				}
@@ -246,6 +251,15 @@ func (m *Meter) writeThroughput(w io.Writer, own string, peerIDs []string) {
 		})
 		return ks
 	}
+	udpMemo := map[string][]udpKey{}
+	udpOf := func(p string, s *tpStats) []udpKey {
+		ks, ok := udpMemo[p]
+		if !ok {
+			ks = udpKeys(s)
+			udpMemo[p] = ks
+		}
+		return ks
+	}
 	// udpPoint is one of the two rungs kept of a ramp, with the label it is exported under.
 	type udpPoint struct {
 		name string
@@ -259,7 +273,7 @@ func (m *Meter) writeThroughput(w io.Writer, own string, peerIDs []string) {
 			if s == nil {
 				continue
 			}
-			for _, k := range udpKeys(s) {
+			for _, k := range udpOf(p, s) {
 				for _, pt := range points(s.udp[k]) {
 					if pt.step != nil {
 						fmt.Fprintf(w, "%s{%s} %g\n", name, lbl(p, "direction", string(k.dir), "dscp", itoa(k.dscp), "point", pt.name), get(*pt.step))
@@ -278,7 +292,7 @@ func (m *Meter) writeThroughput(w io.Writer, own string, peerIDs []string) {
 			if s == nil {
 				continue
 			}
-			for _, k := range udpKeys(s) {
+			for _, k := range udpOf(p, s) {
 				if v, ok := ramp(s.udp[k]); ok {
 					fmt.Fprintf(w, "%s{%s} %g\n", name, lbl(p, "direction", string(k.dir), "dscp", itoa(k.dscp)), v)
 				}

@@ -1,5 +1,6 @@
 // Package linkprober is `continuum link-prober`: the active half of the cluster-link measurements. It asks the agent which
-// clusters this one is paired with, measures the loss and delay of the path to each in both directions with OWAMP, and
+// clusters this one is paired with, measures the loss and delay of the path to each in both directions with OWAMP (only for the
+// pairs where the other cluster does not, see link.Peer.SkipProbe; it still traces the route to all), and
 // serves the result as Prometheus text for the cluster's collector. It runs in a pod of its own so that the agent image
 // carries no measurement tools and a misbehaving probe cannot take the agent down.
 package linkprober
@@ -91,7 +92,11 @@ func Main(args []string) int {
 	defer stopServe()
 
 	log.Info("link prober starting", "version", cli.Version, "agent", *agentURL, "packets", *packets, "interval", *every)
-	go follow(ctx, log, &http.Client{Timeout: 10 * time.Second}, *agentURL, secret, peers, meter, load)
+	var watched *link.Load // only the throughput tests read the traffic of the link
+	if capacity != nil {
+		watched = load
+	}
+	go follow(ctx, log, &http.Client{Timeout: 10 * time.Second}, *agentURL, secret, peers, meter, watched)
 	if capacity != nil {
 		log.Info("link throughput tests on", "interval", capacity.Every, "budget_bytes", capacity.Budget)
 		go capacity.Run(ctx)
@@ -105,7 +110,7 @@ func Main(args []string) int {
 }
 
 // follow keeps the peer list current: the agent hears about changes from the server at least once a minute, so asking
-// once a minute is as fresh as the answer can be.
+// once a minute is as fresh as the answer can be. load, if not nil, is told the link traffic each answer carries.
 func follow(ctx context.Context, log *slog.Logger, hc *http.Client, url string, secret []byte, peers *link.Peers, meter *link.Meter, load *link.Load) {
 	asked := false
 	for {
@@ -118,7 +123,9 @@ func follow(ctx context.Context, log *slog.Logger, hc *http.Client, url string, 
 				log.Warn("link peer list", "note", why)
 			}
 			meter.Forget()
-			load.Observe(d, time.Now())
+			if load != nil {
+				load.Observe(d, time.Now())
+			}
 			if !asked {
 				log.Info("link peers", "cluster", d.ClusterID, "peers", len(d.Peers))
 				asked = true

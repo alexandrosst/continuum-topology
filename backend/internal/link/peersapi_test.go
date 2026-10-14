@@ -202,3 +202,34 @@ func TestWhatToMeasureTravelsFromTheConfigThroughThePeersDocumentAndIsBounded(t 
 		}
 	}
 }
+
+func TestSkippingTheProbeTravelsFromTheConfigThroughThePeersDocument(t *testing.T) {
+	p := NewPeers()
+	p.Set("cl-me", []*continuumv1.LinkPeer{
+		{ClusterId: "cl-a", Name: "A", Addresses: []string{"10.0.0.1"}, SkipProbe: true},
+		{ClusterId: "cl-b", Name: "B", Addresses: []string{"10.0.1.1"}},
+		{ClusterId: "cl-c", Name: "C", Addresses: []string{"10.0.2.1"}, SkipProbe: true, NoProbe: true},
+	})
+	byID := func(ps *Peers) map[string]Peer {
+		out := map[string]Peer{}
+		for _, x := range ps.List() {
+			out[x.ID] = x
+		}
+		return out
+	}
+	got := byID(p)
+	if !got["cl-a"].SkipProbe || got["cl-b"].SkipProbe {
+		t.Fatalf("%+v", got)
+	}
+	if got["cl-a"].Probed() || !got["cl-a"].Traced() || !got["cl-b"].Probed() || !got["cl-b"].Traced() || got["cl-c"].Probed() || got["cl-c"].Traced() {
+		t.Errorf("what is measured towards each peer: %+v", got)
+	}
+	q := NewPeers()
+	q.SetFromDoc(p.Doc())
+	if again := byID(q); !again["cl-a"].SkipProbe || again["cl-b"].SkipProbe {
+		t.Errorf("the choice changed on the way to the prober: %+v", again)
+	}
+	if !p.Has("cl-a") || !p.Has("cl-c") || p.Has("cl-z") || p.Has("") || NewPeers().Has("cl-a") {
+		t.Error("Has")
+	}
+}

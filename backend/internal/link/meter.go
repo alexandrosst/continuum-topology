@@ -14,11 +14,9 @@ import (
 	"continuum/internal/probe"
 )
 
-// Bucket upper bounds, in seconds. Explicit buckets keep the series count fixed whatever the traffic does.
-var (
-	rttBuckets    = []float64{0.0005, 0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2.5}
-	jitterBuckets = []float64{0.0001, 0.0005, 0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.25}
-)
+// Bucket upper bounds, in seconds. Explicit buckets keep the series count fixed whatever the traffic does. The kernel's RTT
+// mean deviation is not kept: the one-way probe's delay variation says the same thing better.
+var rttBuckets = []float64{0.0005, 0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2.5}
 
 type hist struct {
 	bounds []float64
@@ -48,7 +46,7 @@ type stats struct {
 	retransmits, rtoRetrans  uint64
 	bufferDrops              uint64
 	failed                   map[string]uint64
-	rtt, jitter              *hist
+	rtt                      *hist
 	lastSeen                 time.Time
 	// Whether any report that counted bytes, and any that could not (the conntrack collector without accounting), carried
 	// traffic with this peer. The byte counters are only written while they are not known to be zero for want of a counter.
@@ -59,7 +57,7 @@ type stats struct {
 func (s *stats) bytesUnknown() bool { return s.bytesMissing && !s.bytesSeen }
 
 func newStats() *stats {
-	return &stats{failed: map[string]uint64{}, rtt: newHist(rttBuckets), jitter: newHist(jitterBuckets)}
+	return &stats{failed: map[string]uint64{}, rtt: newHist(rttBuckets)}
 }
 
 // Meter labels the traffic the node flow collectors observe by the peer cluster it went to or came from, and keeps
@@ -195,9 +193,6 @@ func (m *Meter) ObserveRows(rows []*continuumv1.RawFlow, bytesKnown bool) {
 		if r.RttUs > 0 {
 			s.rtt.observe(float64(r.RttUs) / 1e6)
 		}
-		if r.JitterUs > 0 {
-			s.jitter.observe(float64(r.JitterUs) / 1e6)
-		}
 	}
 }
 
@@ -227,12 +222,12 @@ func (m *Meter) Forget() {
 			delete(m.per, id)
 		}
 	}
-	probed, tested := map[string]bool{}, map[string]bool{}
+	probed, traced, tested := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	for _, p := range m.Peers.List() {
-		probed[p.ID], tested[p.ID] = !p.NoProbe, p.Throughput
+		probed[p.ID], traced[p.ID], tested[p.ID] = p.Probed(), p.Traced(), p.Throughput
 	}
 	for id := range m.paths {
-		if !probed[id] {
+		if !traced[id] {
 			delete(m.paths, id)
 		}
 	}
@@ -363,7 +358,6 @@ func (m *Meter) write(w io.Writer, own string, peers []Peer) {
 		}
 	}
 	histo("continuum_link_rtt_seconds", "Smoothed TCP round-trip time of observed connections to the peer, one sample per connection group per report window.", rttBuckets, func(s *stats) *hist { return s.rtt })
-	histo("continuum_link_jitter_seconds", "Mean deviation of the round-trip time (the kernel's mdev) on observed connections to the peer.", jitterBuckets, func(s *stats) *hist { return s.jitter })
 	head("continuum_link_last_observation_timestamp_seconds", "gauge", "When traffic with the peer was last observed. Absent until the first time.")
 	for _, p := range peers {
 		if s := m.per[p.ID]; s != nil && !s.lastSeen.IsZero() {
@@ -379,17 +373,20 @@ func (m *Meter) write(w io.Writer, own string, peers []Peer) {
 // route trace for those not switched off, the throughput tests for those they run towards. A peer that is not measured has no
 // series at all, rather than counters that read zero because nothing was ever tried. Called with m.mu held.
 func (m *Meter) writeActive(w io.Writer, own string, peers []Peer) {
-	var probed, tested []string
+	var probed, traced, tested []string
 	for _, p := range peers {
-		if !p.NoProbe {
+		if p.Probed() {
 			probed = append(probed, p.ID)
+		}
+		if p.Traced() {
+			traced = append(traced, p.ID)
 		}
 		if p.Throughput {
 			tested = append(tested, p.ID)
 		}
 	}
 	m.writeProbes(w, own, probed)
-	m.writePaths(w, own, probed)
+	m.writePaths(w, own, traced)
 	m.writeConnects(w, own, probed)
 	m.writeThroughput(w, own, tested)
 }

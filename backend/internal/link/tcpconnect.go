@@ -104,7 +104,7 @@ func (t *TCPConnect) Round(ctx context.Context) {
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 8)
 	for _, p := range t.Meter.Peers.List() {
-		if p.NoProbe {
+		if !p.Probed() {
 			continue
 		}
 		sem <- struct{}{}

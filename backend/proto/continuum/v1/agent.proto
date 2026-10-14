@@ -691,6 +691,11 @@ message LinkPeer {
   // throughput_budget_bytes is the most the throughput tests may carry towards this peer in a day (0: only the cluster's
   // own budget applies).
   uint64 throughput_budget_bytes = 7;
+  // skip_probe: the other cluster of the pair runs the one-way probe and the TCP connect timing (the one whose id sorts
+  // first, like the throughput tests), so this one only serves them. The route trace still runs on both sides. The server
+  // sets it on the second cluster only while the first can measure, so a pair is never left with nobody measuring; the
+  // default (false) runs everything, so a Config from a server that does not know the field behaves as before.
+  bool skip_probe = 8;
 }
 
 // An address to time. The agent only honours it when it was started with measurements allowed, and

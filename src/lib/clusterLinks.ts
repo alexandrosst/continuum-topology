@@ -115,8 +115,17 @@ export function clusterChecks(clusterId: string, name: string, agents: Agent[]):
   return out
 }
 
-/** The id of the cluster that runs a pair's throughput tests: the one whose id sorts first. */
+/** The id of the cluster that runs a pair's probing and throughput tests: the one whose id sorts first. The other only answers. */
 export const runnerOf = (p: LinkPair) => (p.a < p.b ? p.a : p.b)
+
+/** The line under a pair's name: what runs for it, and from which cluster (probing and tests both run from the first one). */
+export function runsFromWords(p: LinkPair, runner: string): string {
+  const probing = !p.noProbe
+  if (probing && p.throughput) return `probing and tests run from ${runner}`
+  if (probing) return `probing runs from ${runner}; no throughput tests`
+  if (p.throughput) return `tests run from ${runner}`
+  return 'real traffic only'
+}
 
 /** What the server knows about one pair from the link series in FUSION (GET /links/latest). A figure FUSION does not hold is absent. "A to B" is
  * from the pair's first cluster to its second, in the order the pair is stored (the order the table shows them in). */

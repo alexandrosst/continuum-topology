@@ -5,7 +5,7 @@ import { ConfirmModal } from '@/components/forms/ConfirmModal'
 import { Button, ErrorBanner, Field, ICON_MD, ICON_SM, Input, Modal, Pill, Select, SkeletonLines, Table, Td, Th } from '@/components/ui/primitives'
 import { api, atLeast } from '@/lib/api'
 import {
-  PRESETS, clusterChecks, costLine, hasPair, latestView, newPair, pairKey, presetOf, removePair, replacePair, runnerOf, throughputFieldProblems, throughputFor, throughputSummary,
+  PRESETS, clusterChecks, costLine, hasPair, latestView, newPair, pairKey, presetOf, removePair, replacePair, runnerOf, runsFromWords, throughputFieldProblems, throughputFor, throughputSummary,
   type Check, type LinkPairLatest, type LinksLatest, type PresetId,
 } from '@/lib/clusterLinks'
 import type { LinkPair } from '@/lib/history'
@@ -125,7 +125,7 @@ export default function ClusterLinks() {
                     <div className="font-medium text-nb-300">
                       {name(p.a)} <span className="px-1 text-nb-600" aria-label="and">⇄</span> {name(p.b)}
                     </div>
-                    <div className="mt-0.5 text-xs text-nb-500">{t ? `tests run from ${name(runnerOf(p))}` : p.noProbe ? 'real traffic only' : 'no throughput tests'}</div>
+                    <div className="mt-0.5 text-xs text-nb-500">{runsFromWords(p, name(runnerOf(p)))}</div>
                     {failing.length > 0 && (
                       <div className="mt-1 flex items-start gap-1.5 text-xs text-warn" data-testid="pair-warning">
                         <CircleAlert size={ICON_SM} className="mt-px shrink-0" aria-hidden />
@@ -328,7 +328,7 @@ function EditPair({ pair, agents, name, onClose }: { pair: LinkPair; agents: Age
         <div className="space-y-5">
           <Choice label="Real traffic" text="Delay, loss and retransmits seen in the connections the clusters already have. Always on, costs nothing." on fixed />
           <hr className="border-nb-850" />
-          <Choice label="Probing" text="Small packets, both ways. Gives delay, jitter and loss per direction, the path’s largest packet size and when its route changes. A few kilobytes a minute." on={probe} onChange={setProbe} />
+          <Choice label="Probing" text={`Small packets, both ways, sent from ${name(runnerOf(pair))} (its id sorts first) while the other cluster only answers. Gives delay, jitter and loss per direction, the path’s largest packet size and when its route changes. A few kilobytes a minute.`} on={probe} onChange={setProbe} />
           <hr className="border-nb-850" />
           <Choice label="Throughput tests" text="Fills the link for a few seconds to see how much it can carry, how many packets it drops when pushed, and how far it can go before it does." on={tpOn} onChange={(v) => { setTpTouched(true); setTpOn(v) }} />
 

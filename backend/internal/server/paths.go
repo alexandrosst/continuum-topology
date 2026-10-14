@@ -140,14 +140,16 @@ func (h *Hub) configFor(a store.Agent, v *view) *continuumv1.Config {
 	}
 	consent := h.consentOf(a.ID) // before taking h.mu: it may read the store
 	var orgAgents []store.Agent
+	var runnersPaused map[string]bool
 	if a.ClusterID != "" && len(peersOf(set.Links, a.ClusterID)) > 0 {
 		orgAgents, _ = h.C.Store.ListAgents(bg(), h.C.OrgID) // also before h.mu, for the same reason
+		runnersPaused = h.runnersPaused(a, orgAgents, set.Links)
 	}
 	cfg := &continuumv1.Config{ApprovedAccessTier: uint32(a.AccessTier), HeartbeatSeconds: HeartbeatSeconds, ResyncSeconds: resync, ServerTimeUnix: h.C.Now().Unix(),
 		PausedCollectors: append([]string(nil), consent.Paused...), ExcludedNamespaces: append([]string(nil), consent.Excluded...), ClusterId: a.ClusterID}
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	cfg.LinkPeers = h.linkPeers(a, orgAgents, set.Links, consent.has("flow"))
+	cfg.LinkPeers = h.linkPeers(a, orgAgents, set.Links, consent.has("flow"), runnersPaused)
 	var ts []issuedTarget
 	for _, p := range set.ProbeTargets {
 		if a.ClusterID != "" && p.ClusterID == a.ClusterID {
@@ -190,8 +192,8 @@ func configHash(c *continuumv1.Config) string {
 	s += "|cluster:" + c.ClusterId
 	for _, p := range c.LinkPeers {
 		s += fmt.Sprintf("|link:%s=%s@%s", p.ClusterId, p.Name, strings.Join(p.Addresses, ","))
-		if p.NoProbe || p.Throughput {
-			s += fmt.Sprintf("|linkopt:%t,%t,%d,%d", p.NoProbe, p.Throughput, p.ThroughputIntervalSeconds, p.ThroughputBudgetBytes)
+		if p.NoProbe || p.SkipProbe || p.Throughput {
+			s += fmt.Sprintf("|linkopt:%t,%t,%d,%d,%t", p.NoProbe, p.Throughput, p.ThroughputIntervalSeconds, p.ThroughputBudgetBytes, p.SkipProbe)
 		}
 	}
 	return interpret.Hash("cfg", s)

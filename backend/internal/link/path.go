@@ -105,12 +105,7 @@ func (m *Meter) PathFailed(peer string) {
 }
 
 func (m *Meter) knows(peer string) bool {
-	for _, p := range m.Peers.List() {
-		if p.ID == peer {
-			return true
-		}
-	}
-	return false
+	return m.Peers.Has(peer)
 }
 
 func (m *Meter) path(peer string) *pathStats {

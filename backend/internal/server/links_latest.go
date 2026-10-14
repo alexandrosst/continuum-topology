@@ -111,9 +111,11 @@ func (a *Admin) linksLatest(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, doc)
 }
 
-// latestPairs picks, for each listed pair, the figures about it out of everything the clusters reported. Both clusters of a pair
-// measure towards each other, and they may disagree a little: the pair's first cluster (the one that also runs the throughput
-// tests) is believed first, the second only where the first has nothing.
+// latestPairs picks, for each listed pair, the figures about it out of everything the clusters reported. The pair's first
+// cluster (the one that also runs the throughput tests) runs the one-way probe and the connect timing, so its series are the
+// ones read; the second's are looked at only where the first has nothing, which is when the first cannot measure (the server
+// then lets the second probe) or when an older agent still measures from both sides and the two disagree a little. The route
+// trace runs on both sides, so the MTU is the smaller of the two.
 func latestPairs(links []LinkSetting, rd fusionapi.LinkReadings) []LinkPairLatest {
 	idx := func(in []fusionapi.LinkReading) map[[3]string]float64 {
 		m := make(map[[3]string]float64, len(in))

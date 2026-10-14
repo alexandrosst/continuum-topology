@@ -199,7 +199,7 @@ func sleep(ctx context.Context, d time.Duration) bool {
 	}
 }
 
-// Round measures every peer once, in both directions.
+// Round measures every peer once, in both directions, except those the other cluster of the pair measures.
 func (r *Runner) Round(ctx context.Context) {
 	r.Defaults()
 	for _, p := range r.Meter.Peers.List() {
@@ -209,7 +209,10 @@ func (r *Runner) Round(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		r.measurePeer(ctx, p)
+		// A peer the other cluster measures is only traced from here: the route can differ by direction.
+		if p.Probed() {
+			r.measurePeer(ctx, p)
+		}
 		r.maybePath(ctx, p)
 	}
 }

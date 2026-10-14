@@ -169,3 +169,27 @@ func TestConnectSettingsAreChecked(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestAPeerTheOtherClusterTimesIsNotTimedHere(t *testing.T) {
+	var mu sync.Mutex
+	dialed := map[string]bool{}
+	served := peer("cl-a", "A", "10.0.0.1")
+	served.SkipProbe = true
+	c := connectFor(t, func(_ context.Context, _, addr string) (net.Conn, error) {
+		mu.Lock()
+		dialed[addr] = true
+		mu.Unlock()
+		return nil, errors.New("x")
+	}, served, peer("cl-b", "B", "10.0.1.1"))
+	c.Round(context.Background())
+	mu.Lock()
+	defer mu.Unlock()
+	if dialed["10.0.0.1:8861"] || !dialed["10.0.1.1:8861"] {
+		t.Fatalf("dialed %v: the pair the other cluster times must be left alone and the other one not", dialed)
+	}
+	for k := range render(c.Meter) {
+		if strings.Contains(k, `peer="cl-a"`) && strings.Contains(k, "tcp_connect") {
+			t.Fatalf("a connect series for a pair timed by the other cluster: %s", k)
+		}
+	}
+}

@@ -13,16 +13,19 @@ import (
 // maxLinks bounds how many cluster pairs one organisation can ask to have watched.
 const maxLinks = 100
 
-// LinkSetting is an administrator's request to watch the link between two clusters. A pair is measured in both directions
-// and by both clusters: each is told about the other and nothing else, so a cluster only ever learns the addresses of the
-// clusters it was paired with. A pair that is not listed is not measured at all.
+// LinkSetting is an administrator's request to watch the link between two clusters. A pair is measured in both directions:
+// each cluster is told about the other and nothing else, so a cluster only ever learns the addresses of the clusters it was
+// paired with. A pair that is not listed is not measured at all.
 //
-// By default a listed pair gets the passive link metrics and the one-way probe with its route trace, and no throughput tests
-// (those load the link, so they are asked for pair by pair). Both clusters of a pair get the same choices.
+// By default a listed pair gets the passive link metrics (each cluster's own), the one-way probe and the connect timing, and
+// the route trace, and no throughput tests (those load the link, so they are asked for pair by pair). Both clusters get the
+// same choices. The one-way probe measures both directions from one end and the connect timing is the same round trip from
+// either, so only the cluster whose id sorts first runs them (like the throughput tests), and the other one only serves them;
+// the route trace runs on both, as the two directions can take different routes.
 type LinkSetting struct {
 	A string `json:"a"`
 	B string `json:"b"`
-	// NoProbe turns the one-way probe and the route trace off for the pair; the passive metrics stay.
+	// NoProbe turns the one-way probe, the connect timing and the route trace off for the pair; the passive metrics stay.
 	NoProbe bool `json:"noProbe,omitempty"`
 	// Throughput, when present, asks for the throughput tests (iperf3) on the pair. Only one cluster of the pair runs
 	// them, in both directions, and the other serves them: the one whose id sorts first, so the link is not loaded twice.
@@ -123,6 +126,10 @@ func peersOf(links []LinkSetting, cluster string) []string {
 	return out
 }
 
+// linkRunner is the cluster of a pair that runs the one-way probe, the connect timing and the throughput tests: the one whose
+// id sorts first. The other only serves them.
+func linkRunner(a, b string) string { return min(a, b) }
+
 // linkPeers builds the peer list for one agent: for each cluster it is paired with, the addresses that cluster's traffic
 // comes from or goes to (its nodes' addresses, and the address its agent connects from). Called with h.mu held; agents is
 // the organisation's agents, read beforehand because that may touch the store.
@@ -130,7 +137,19 @@ func peersOf(links []LinkSetting, cluster string) []string {
 // Nothing is sent below access tier 2 (observed traffic is workload-level information, so link metrics follow the same
 // rule), nor while the flow collector is paused for this agent, nor for a peer whose agent is not approved or has told the
 // server nothing yet.
-func (h *Hub) linkPeers(a store.Agent, agents []store.Agent, links []LinkSetting, flowPaused bool) []*continuumv1.LinkPeer {
+//
+// A pair is probed from one side only. The agent that is not the pair's runner is told to skip the probe (SkipProbe) only
+// while the runner is itself told about this agent, which is what makes it measure: so a runner that is not approved, below
+// tier 2, paused, silent, or whose list is full never leaves the pair with nobody measuring. flowPausedOf says which agents
+// (by agent id) have the flow collector paused; it is read by the caller beforehand because that may touch the store, and
+// only the runners' entries are looked at.
+func (h *Hub) linkPeers(a store.Agent, agents []store.Agent, links []LinkSetting, flowPaused bool, flowPausedOf map[string]bool) []*continuumv1.LinkPeer {
+	return h.peerList(a, agents, links, flowPaused, flowPausedOf, true)
+}
+
+// peerList is linkPeers; assign says whether to hand out the second cluster's SkipProbe (false when working out what the
+// other side was told, which must not recurse).
+func (h *Hub) peerList(a store.Agent, agents []store.Agent, links []LinkSetting, flowPaused bool, flowPausedOf map[string]bool, assign bool) []*continuumv1.LinkPeer {
 	if a.ClusterID == "" || a.AccessTier < 2 || flowPaused {
 		return nil
 	}
@@ -195,7 +214,44 @@ func (h *Hub) linkPeers(a store.Agent, agents []store.Agent, links []LinkSetting
 			lp.ThroughputIntervalSeconds = t.IntervalMinutes * 60
 			lp.ThroughputBudgetBytes = uint64(t.BudgetMB) << 20
 		}
+		// The same side runs the one-way probe and the connect timing; this one only serves them, while the runner measures.
+		if assign && !l.NoProbe && linkRunner(a.ClusterID, id) == id && h.runnerMeasures(o, a, agents, links, flowPausedOf) {
+			lp.SkipProbe = true
+		}
 		out = append(out, lp)
+	}
+	return out
+}
+
+// runnerMeasures says whether the runner of a pair, agent r, has been told to measure towards agent a: that is, whether a is
+// in the peer list r would be sent. It reuses linkPeers, so it holds exactly when r is approved, at tier 2, not paused, has a
+// peer list with room for a, and a has reported addresses r can use.
+func (h *Hub) runnerMeasures(r, a store.Agent, agents []store.Agent, links []LinkSetting, flowPausedOf map[string]bool) bool {
+	for _, lp := range h.peerList(r, agents, links, flowPausedOf[r.ID], flowPausedOf, false) {
+		if lp.ClusterId == a.ClusterID {
+			return !lp.NoProbe
+		}
+	}
+	return false
+}
+
+// runnersPaused is, for the agents that run the probes of the pairs agent a is in, whether their flow collector is paused. The
+// consent may have to be read from the store, so call it before taking h.mu, and only when a has pairs.
+func (h *Hub) runnersPaused(a store.Agent, agents []store.Agent, links []LinkSetting) map[string]bool {
+	runs := map[string]bool{}
+	for _, id := range peersOf(links, a.ClusterID) {
+		if linkRunner(a.ClusterID, id) == id {
+			runs[id] = true
+		}
+	}
+	if len(runs) == 0 {
+		return nil
+	}
+	out := map[string]bool{}
+	for _, o := range agents {
+		if runs[o.ClusterID] && o.Status == store.StatusApproved {
+			out[o.ID] = h.consentOf(o.ID).has("flow")
+		}
 	}
 	return out
 }

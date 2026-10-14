@@ -117,7 +117,6 @@ func TestMeterCountsPerPeerAndIgnoresEveryoneElse(t *testing.T) {
 		`continuum_link_rtt_seconds_bucket{cluster="cl-me",peer="cl-b",le="0.2"}`:                "0",
 		`continuum_link_rtt_seconds_bucket{cluster="cl-me",peer="cl-b",le="0.5"}`:                "1",
 		`continuum_link_rtt_seconds_bucket{cluster="cl-me",peer="cl-b",le="+Inf"}`:               "1",
-		`continuum_link_jitter_seconds_count{cluster="cl-me",peer="cl-a"}`:                       "1",
 		`continuum_link_peer_info{cluster="cl-me",peer="cl-a",peer_name="Alpha"}`:                "1",
 	}
 	for k, v := range want {
@@ -128,6 +127,10 @@ func TestMeterCountsPerPeerAndIgnoresEveryoneElse(t *testing.T) {
 	for k := range got {
 		if strings.Contains(k, "8.8.8.8") || strings.Contains(k, `peer=""`) {
 			t.Errorf("a non-peer leaked into the output: %s", k)
+		}
+		// The kernel's RTT mean deviation is not kept; the one-way probe's delay variation replaces it.
+		if strings.Contains(k, "continuum_link_jitter_seconds") {
+			t.Errorf("the passive jitter histogram is back: %s", k)
 		}
 	}
 }

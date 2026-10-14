@@ -8,13 +8,15 @@ import (
 	continuumv1 "continuum/gen/continuumv1"
 )
 
-// maxSeriesPerPeer is the most series one fully active peer may cost with the default settings: all probes, the path probe,
-// connect timing and the throughput tests with the UDP ramp, in both directions. The figure measured today is in
-// docs-site/docs/architecture/cluster-links.md ("series per peer"); this bound is generous so a metric may be added, but a
-// label that follows the data (a rate, an address, a port) fails it.
+// The most series one peer may cost with the default settings. A fully active peer is the pair's first cluster, which runs
+// everything: all probes, the path probe, connect timing and the throughput tests with the UDP ramp, in both directions. The
+// other cluster of the pair only exports its passive series and the route trace. The figures measured today are in
+// docs-site/docs/architecture/cluster-links.md ("series per peer"); the bounds sit a few series above them, so a label that
+// follows the data (a rate, an address, a port) or a metric added without a thought fails, and the docs get updated with it.
 const (
-	maxPassiveSeriesPerPeer = 80
-	maxSeriesPerPeer        = 300
+	maxPassiveSeriesPerPeer = 32
+	maxSeriesPerPeer        = 145
+	maxServingSeriesPerPeer = 40
 )
 
 func seriesLines(m *Meter) int {
@@ -72,6 +74,37 @@ func TestOnePeerCostsABoundedNumberOfSeriesWhateverTheRatesAndAddresses(t *testi
 		t.Fatal("the fixture did not run the UDP ramp to its first loss; the count below would be short")
 	}
 	nAll := seriesLines(m)
+	nThroughput := 0
+	for k := range got {
+		if strings.HasPrefix(k, "continuum_link_throughput_") {
+			nThroughput++
+		}
+	}
+
+	// The pair's other cluster: the same traffic and route trace, but the probe and the connect timing are measured by the
+	// first one, so it exports neither (nor throughput series, which only the first cluster has).
+	sp := NewPeers()
+	skip := peer("cl-a", "A", "10.0.0.1")
+	skip.SkipProbe = true
+	sp.Set("cl-me", []*continuumv1.LinkPeer{skip})
+	sm := NewMeter(sp)
+	sm.EnableProbes()
+	sm.EnableConnects()
+	sm.Observe([]*continuumv1.RawFlow{{Client: true, PeerIp: "10.0.0.1", Connections: 2, BytesOut: 1000, BytesIn: 50, SegsOut: 100, Retransmits: 3, RttUs: 12000, FailedAttempts: 5, FailedRefused: 1, FailedTimeout: 1, FailedReset: 1, FailedUnreachable: 1}})
+	for _, d := range []Direction{Forward, Reverse} { // what an older prober, or a stray result, would record
+		sm.ObserveProbe("cl-a", d, OwampResult{Sent: 100})
+		sm.ProbeFailed("cl-a", d, "timeout")
+	}
+	sm.ObservePath("cl-a", PathResult{MTU: 1500, Hops: 4, Reached: true, Route: "r"})
+	sm.PathFailed("cl-a")
+	sm.ObserveConnect("cl-a", 3*time.Millisecond)
+	sm.ConnectFailed("cl-a", "timeout")
+	nServing := seriesLines(sm)
+	for k := range render(sm) {
+		if strings.Contains(k, "continuum_link_probe_") || strings.Contains(k, "tcp_connect") || strings.Contains(k, "continuum_link_throughput_") {
+			t.Errorf("the cluster that only serves exports %s", k)
+		}
+	}
 	if testing.Verbose() {
 		fam := map[string]int{}
 		for k := range got {
@@ -79,7 +112,10 @@ func TestOnePeerCostsABoundedNumberOfSeriesWhateverTheRatesAndAddresses(t *testi
 		}
 		t.Logf("by family: %v", fam)
 	}
-	t.Logf("series for one fully active peer: %d (%d of them passive, served by the agent)", nAll, nPassive)
+	t.Logf("series for one fully active peer: %d (%d of them passive, served by the agent; %d of throughput); the same peer on the serving side: %d; one pair: %d, against %d when both clusters probed", nAll, nPassive, nThroughput, nServing, nAll+nServing, 2*nAll-nThroughput)
+	if nServing > maxServingSeriesPerPeer {
+		t.Errorf("the serving side of a pair costs %d series, more than %d", nServing, maxServingSeriesPerPeer)
+	}
 	if nPassive > maxPassiveSeriesPerPeer {
 		t.Errorf("the passive series of one peer number %d, more than %d", nPassive, maxPassiveSeriesPerPeer)
 	}

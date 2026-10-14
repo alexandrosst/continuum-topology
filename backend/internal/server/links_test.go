@@ -81,7 +81,7 @@ func TestEachClusterIsToldOnlyAboutItsPairedPeers(t *testing.T) {
 	links := []LinkSetting{{A: "cl-a", B: "cl-b"}}
 	all := []store.Agent{a, b, c}
 
-	pa := h.linkPeers(a, all, links, false)
+	pa := h.linkPeers(a, all, links, false, nil)
 	if len(pa) != 1 || pa[0].ClusterId != "cl-b" || pa[0].Name != "beta" {
 		t.Fatalf("alpha was told %v", pa)
 	}
@@ -89,11 +89,11 @@ func TestEachClusterIsToldOnlyAboutItsPairedPeers(t *testing.T) {
 	if want := []string{"10.1.0.1", "198.51.100.2", "203.0.113.2"}; !reflect.DeepEqual(pa[0].Addresses, want) {
 		t.Fatalf("addresses = %v, want %v", pa[0].Addresses, want)
 	}
-	pb := h.linkPeers(b, all, links, false)
+	pb := h.linkPeers(b, all, links, false, nil)
 	if len(pb) != 1 || pb[0].ClusterId != "cl-a" {
 		t.Fatalf("beta was told %v", pb)
 	}
-	if pc := h.linkPeers(c, all, links, false); len(pc) != 0 {
+	if pc := h.linkPeers(c, all, links, false, nil); len(pc) != 0 {
 		t.Fatalf("a cluster in no pair was told about peers: %v", pc)
 	}
 }
@@ -102,25 +102,25 @@ func TestNoPeersBelowTierTwoWhileFlowIsPausedOrForUnknownClusters(t *testing.T) 
 	a, b := ag("ag-a", "cl-a", "alpha", "203.0.113.1", 2), ag("ag-b", "cl-b", "beta", "203.0.113.2", 2)
 	h := linkHub(map[string]*view{"ag-a": {state: nodeState("10.0.0.1")}, "ag-b": {state: nodeState("10.1.0.1")}})
 	links := []LinkSetting{{A: "cl-a", B: "cl-b"}, {A: "cl-a", B: "cl-zzz"}}
-	if got := h.linkPeers(a, []store.Agent{a, b}, links, false); len(got) != 1 {
+	if got := h.linkPeers(a, []store.Agent{a, b}, links, false, nil); len(got) != 1 {
 		t.Fatalf("an unknown cluster should be skipped, got %v", got)
 	}
 	low := a
 	low.AccessTier = 1
-	if got := h.linkPeers(low, []store.Agent{low, b}, links, false); got != nil {
+	if got := h.linkPeers(low, []store.Agent{low, b}, links, false, nil); got != nil {
 		t.Fatalf("tier 1 was given peers: %v", got)
 	}
-	if got := h.linkPeers(a, []store.Agent{a, b}, links, true); got != nil {
+	if got := h.linkPeers(a, []store.Agent{a, b}, links, true, nil); got != nil {
 		t.Fatalf("a paused flow collector was given peers: %v", got)
 	}
 	pending := b
 	pending.Status = store.StatusPending
-	if got := h.linkPeers(a, []store.Agent{a, pending}, links, false); len(got) != 0 {
+	if got := h.linkPeers(a, []store.Agent{a, pending}, links, false, nil); len(got) != 0 {
 		t.Fatalf("an unapproved peer was shared: %v", got)
 	}
 	noAddr := ag("ag-b", "cl-b", "beta", "", 2)
 	h2 := linkHub(map[string]*view{"ag-a": {state: nodeState("10.0.0.1")}})
-	if got := h2.linkPeers(a, []store.Agent{a, noAddr}, links, false); len(got) != 0 {
+	if got := h2.linkPeers(a, []store.Agent{a, noAddr}, links, false, nil); len(got) != 0 {
 		t.Fatalf("a peer with no known address was shared: %v", got)
 	}
 }
@@ -132,7 +132,7 @@ func TestAddressesTheTwoClustersShareAreNotSent(t *testing.T) {
 		"ag-a": {state: nodeState("10.0.0.1")},
 		"ag-b": {state: nodeState("10.0.0.1", "10.0.0.7")},
 	})
-	got := h.linkPeers(a, []store.Agent{a, b}, []LinkSetting{{A: "cl-a", B: "cl-b"}}, false)
+	got := h.linkPeers(a, []store.Agent{a, b}, []LinkSetting{{A: "cl-a", B: "cl-b"}}, false, nil)
 	if len(got) != 1 {
 		t.Fatalf("got %v", got)
 	}
@@ -206,8 +206,8 @@ func TestThroughputTestsAreAskedOfOneSideOfThePairAndTheChoicesReachBoth(t *test
 	a, b := ag("ag-a", "cl-a", "alpha", "203.0.113.1", 2), ag("ag-b", "cl-b", "beta", "203.0.113.2", 2)
 	h := linkHub(map[string]*view{"ag-a": {state: nodeState("10.0.0.1")}, "ag-b": {state: nodeState("10.1.0.1")}})
 	links := []LinkSetting{{A: "cl-a", B: "cl-b", NoProbe: true, Throughput: &LinkThroughput{IntervalMinutes: 90, BudgetMB: 512}}}
-	fromA := h.linkPeers(a, []store.Agent{a, b}, links, false)
-	fromB := h.linkPeers(b, []store.Agent{a, b}, links, false)
+	fromA := h.linkPeers(a, []store.Agent{a, b}, links, false, nil)
+	fromB := h.linkPeers(b, []store.Agent{a, b}, links, false, nil)
 	if len(fromA) != 1 || len(fromB) != 1 {
 		t.Fatalf("%v / %v", fromA, fromB)
 	}
@@ -220,9 +220,91 @@ func TestThroughputTestsAreAskedOfOneSideOfThePairAndTheChoicesReachBoth(t *test
 	if !fromA[0].NoProbe || !fromB[0].NoProbe {
 		t.Error("the probe choice did not reach both sides")
 	}
-	plain := h.linkPeers(a, []store.Agent{a, b}, []LinkSetting{{A: "cl-a", B: "cl-b"}}, false)
+	plain := h.linkPeers(a, []store.Agent{a, b}, []LinkSetting{{A: "cl-a", B: "cl-b"}}, false, nil)
 	if plain[0].NoProbe || plain[0].Throughput {
 		t.Errorf("a plain pair must get the probe and no throughput tests: %+v", plain[0])
+	}
+}
+
+func TestOnlyTheFirstClusterOfAPairRunsTheProbeWhileItCan(t *testing.T) {
+	a, b := ag("ag-a", "cl-a", "alpha", "203.0.113.1", 2), ag("ag-b", "cl-b", "beta", "203.0.113.2", 2)
+	views := func() map[string]*view {
+		return map[string]*view{"ag-a": {state: nodeState("10.0.0.1")}, "ag-b": {state: nodeState("10.1.0.1")}}
+	}
+	links := []LinkSetting{{A: "cl-a", B: "cl-b"}}
+	all := []store.Agent{a, b}
+	skip := func(h *Hub, from store.Agent, paused map[string]bool) bool {
+		got := h.linkPeers(from, all, links, paused[from.ID], paused)
+		if len(got) != 1 {
+			t.Fatalf("%s was told %v", from.ID, got)
+		}
+		return got[0].SkipProbe
+	}
+
+	h := linkHub(views())
+	if skip(h, a, nil) {
+		t.Error("the first cluster was told to skip the probe")
+	}
+	if !skip(h, b, nil) {
+		t.Error("the second cluster still probes: the pair is measured twice")
+	}
+
+	// Nobody may be left without a measurer: the second cluster probes whenever the first cannot.
+	if !skip(h, b, map[string]bool{}) {
+		t.Error("an empty paused map must read as not paused")
+	}
+	if skip(h, b, map[string]bool{"ag-a": true}) {
+		t.Error("the first cluster has the flow collector paused, so it measures nothing, yet the second skips")
+	}
+	low := a
+	low.AccessTier = 1
+	if got := h.linkPeers(b, []store.Agent{low, b}, links, false, nil); len(got) != 1 || got[0].SkipProbe {
+		t.Errorf("the first cluster is below tier 2: %v", got)
+	}
+	pending := a
+	pending.Status = store.StatusPending
+	if got := h.linkPeers(b, []store.Agent{pending, b}, links, false, nil); len(got) != 0 {
+		t.Errorf("an unapproved first cluster was shared: %v", got)
+	}
+	// The first cluster has told the server nothing: the second is not given it as a peer at all.
+	noAddr := ag("ag-a", "cl-a", "alpha", "", 2)
+	silent := linkHub(map[string]*view{"ag-b": {state: nodeState("10.1.0.1")}})
+	if got := silent.linkPeers(b, []store.Agent{noAddr, b}, links, false, nil); len(got) != 0 {
+		t.Errorf("a first cluster that has told nothing yet was shared: %v", got)
+	}
+	// The second cluster has told nothing yet, so the first is not told about it and measures nothing: the second, which is
+	// given the first, must keep probing.
+	quiet := ag("ag-b", "cl-b", "beta", "", 2)
+	h2 := linkHub(map[string]*view{"ag-a": {state: nodeState("10.0.0.1")}})
+	if got := h2.linkPeers(b, []store.Agent{a, quiet}, links, false, nil); len(got) != 1 || got[0].SkipProbe {
+		t.Errorf("the first cluster is not told about the second, yet the second skips its probe: %v", got)
+	}
+	// The second cluster's addresses are all shared with the first: the first drops the peer, so the second keeps probing.
+	h3 := linkHub(map[string]*view{"ag-a": {state: nodeState("10.0.0.1", "10.9.9.9")}, "ag-b": {state: nodeState("10.9.9.9")}})
+	bare := ag("ag-b", "cl-b", "beta", "", 2)
+	got := h3.linkPeers(bare, []store.Agent{a, bare}, links, false, nil)
+	if len(got) != 1 {
+		t.Fatalf("got %v", got)
+	}
+	if got[0].SkipProbe {
+		t.Error("the first cluster cannot use any address of the second, yet the second skips its probe")
+	}
+
+	// With the probe off for the pair nothing is skipped (and nothing is probed); the choice of the pair wins.
+	off := []LinkSetting{{A: "cl-a", B: "cl-b", NoProbe: true}}
+	if got := h.linkPeers(b, all, off, false, nil); len(got) != 1 || got[0].SkipProbe || !got[0].NoProbe {
+		t.Errorf("noProbe pair: %v", got)
+	}
+	// The runner is the first of the pair whichever way round the pair is listed, and a third cluster is unaffected.
+	c := ag("ag-c", "cl-c", "gamma", "203.0.113.3", 2)
+	h4 := linkHub(map[string]*view{"ag-a": {state: nodeState("10.0.0.1")}, "ag-b": {state: nodeState("10.1.0.1")}, "ag-c": {state: nodeState("10.2.0.1")}})
+	two := []LinkSetting{{A: "cl-a", B: "cl-b"}, {A: "cl-b", B: "cl-c"}}
+	fromB := h4.linkPeers(b, []store.Agent{a, b, c}, two, false, nil)
+	if len(fromB) != 2 || !fromB[0].SkipProbe || fromB[1].SkipProbe {
+		t.Errorf("cl-b skips towards cl-a (which sorts first) and probes cl-c: %+v", fromB)
+	}
+	if fromC := h4.linkPeers(c, []store.Agent{a, b, c}, two, false, nil); len(fromC) != 1 || !fromC[0].SkipProbe {
+		t.Errorf("cl-c does not skip towards cl-b: %+v", fromC)
 	}
 }
 
@@ -234,7 +316,7 @@ func TestTheConfigHashChangesWithThePairChoices(t *testing.T) {
 	base := mk(&continuumv1.LinkPeer{})
 	seen := map[string]bool{base: true}
 	for name, lp := range map[string]*continuumv1.LinkPeer{
-		"no probe": {NoProbe: true}, "throughput": {Throughput: true}, "interval": {Throughput: true, ThroughputIntervalSeconds: 600}, "budget": {Throughput: true, ThroughputBudgetBytes: 1 << 20},
+		"no probe": {NoProbe: true}, "skip probe": {SkipProbe: true}, "throughput": {Throughput: true}, "interval": {Throughput: true, ThroughputIntervalSeconds: 600}, "budget": {Throughput: true, ThroughputBudgetBytes: 1 << 20},
 	} {
 		h := mk(lp)
 		if seen[h] {
@@ -258,5 +340,58 @@ func TestPairChoicesAreSavedWithTheSettingsUnderTheNamesTheUIUses(t *testing.T) 
 	out, _ := json.Marshal(s.Links)
 	if string(out) != `[{"a":"cl-a","b":"cl-b","noProbe":true,"throughput":{"intervalMinutes":120,"budgetMB":4096}},{"a":"cl-a","b":"cl-c"}]` {
 		t.Errorf("%s", out)
+	}
+}
+
+// The second cluster of a pair stops probing only while the first can: a pause of the first cluster's flow collector, which only
+// its own consent records, has to reach the second cluster's Config.
+func TestTheSecondClusterProbesAgainWhenTheFirstOnesFlowCollectorIsPaused(t *testing.T) {
+	r := newHubRig(t)
+	id1, _, _ := r.approvedAgent(t, fp)
+	id2, _, _ := r.approvedAgent(t, fp2)
+	a1, _ := r.st.GetAgent(r.ctx, id1)
+	a2, _ := r.st.GetAgent(r.ctx, id2)
+	if a1.ClusterID == "" || a2.ClusterID == "" || a1.ClusterID == a2.ClusterID {
+		t.Fatalf("clusters %q %q", a1.ClusterID, a2.ClusterID)
+	}
+	first, second := a1, a2
+	if second.ClusterID < first.ClusterID {
+		first, second = second, first
+	}
+	if _, err := r.core.SaveSettings(r.ctx, "alex", Settings{Links: []LinkSetting{{A: first.ClusterID, B: second.ClusterID}}}); err != nil {
+		t.Fatal(err)
+	}
+	newV := func(ip string) *view {
+		return &view{state: nodeState(ip), flows: newFlowTable(), paths: map[string]*pathTrack{}, targets: map[string]issuedTarget{}}
+	}
+	fv, sv := newV("10.0.0.1"), newV("10.9.0.1")
+	r.hub.mu.Lock()
+	r.hub.views[first.ID], r.hub.views[second.ID] = fv, sv
+	r.hub.mu.Unlock()
+	skips := func() bool {
+		t.Helper()
+		cfg := r.hub.configFor(second, sv)
+		if len(cfg.LinkPeers) != 1 || cfg.LinkPeers[0].ClusterId != first.ClusterID {
+			t.Fatalf("second cluster's peers = %v", cfg.LinkPeers)
+		}
+		return cfg.LinkPeers[0].SkipProbe
+	}
+	if cfg := r.hub.configFor(first, fv); len(cfg.LinkPeers) != 1 || cfg.LinkPeers[0].SkipProbe {
+		t.Fatalf("the first cluster must probe: %v", cfg.LinkPeers)
+	}
+	if !skips() {
+		t.Error("the second cluster still probes beside a first cluster that measures")
+	}
+	if _, err := r.hub.SetConsent(r.ctx, "edith", first.ID, Consent{Paused: []string{"flow"}}); err != nil {
+		t.Fatal(err)
+	}
+	if skips() {
+		t.Error("the first cluster's flow collector is paused, so nobody measures, yet the second skips its probe")
+	}
+	if _, err := r.hub.SetConsent(r.ctx, "edith", first.ID, Consent{}); err != nil {
+		t.Fatal(err)
+	}
+	if !skips() {
+		t.Error("the first cluster measures again, but the second still probes")
 	}
 }

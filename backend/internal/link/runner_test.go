@@ -418,3 +418,41 @@ func TestAPairWithTheProbeSwitchedOffIsNotProbedAndHasNoProbeSeries(t *testing.T
 		}
 	}
 }
+
+func TestAPeerTheOtherClusterProbesIsOnlyTracedAndExportsNoProbeSeries(t *testing.T) {
+	f := &fakeOwping{run: func([]string) ([]byte, []byte, error) { return summary(t, "owping_to.txt"), nil, nil }}
+	p := NewPeers()
+	served := peer("cl-a", "A", "10.0.0.1")
+	served.SkipProbe = true
+	p.Set("cl-me", []*continuumv1.LinkPeer{served, peer("cl-b", "B", "10.0.1.1")})
+	m := NewMeter(p)
+	m.EnableProbes()
+	m.EnableConnects()
+	var traced []string
+	r := &Runner{Meter: m, Exec: f.exec, PathEvery: time.Hour, Path: func(_ context.Context, dst netip.Addr) (PathResult, error) {
+		traced = append(traced, dst.String())
+		return PathResult{MTU: 1500, Reached: true, Route: "r"}, nil
+	}}
+	r.Defaults()
+	r.Round(context.Background())
+	for _, c := range f.calls {
+		if strings.Contains(strings.Join(c, " "), "10.0.0.1") {
+			t.Errorf("probed a pair the other cluster measures: %v", c)
+		}
+	}
+	if len(f.calls) == 0 {
+		t.Fatal("the pair this cluster measures was not probed")
+	}
+	if len(traced) != 2 {
+		t.Fatalf("the route to both peers is traced from both sides (the two directions can differ), got %v", traced)
+	}
+	got := render(m)
+	if got[`continuum_link_path_reached{cluster="cl-me",peer="cl-a"}`] != "1" {
+		t.Errorf("no route series for the pair the other side probes: %v", got)
+	}
+	for k := range got {
+		if strings.Contains(k, `peer="cl-a"`) && (strings.Contains(k, "continuum_link_probe_") || strings.Contains(k, "tcp_connect")) {
+			t.Errorf("series for a measurement the other cluster makes: %s", k)
+		}
+	}
+}
