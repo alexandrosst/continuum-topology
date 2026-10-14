@@ -2249,15 +2249,24 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "(max by (cluster, peer, direction, protocol, streams, dscp) (continuum_link_throughput_bits_per_second{cluster=~\"$cluster\", peer=~\"$peer\"})) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((max by (cluster, peer, direction, protocol, streams, dscp) (continuum_link_throughput_bits_per_second{cluster=~\"$cluster\", peer=~\"$peer\"})), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
+          "expr": "(max by (cluster, peer, direction, protocol, streams, dscp) ((continuum_link_throughput_bits_per_second{cluster=~\"$cluster\", peer=~\"$peer\"} unless on (cluster, peer, direction, protocol, streams, dscp) continuum_link_throughput_bounded{cluster=~\"$cluster\", peer=~\"$peer\"} == 1))) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((max by (cluster, peer, direction, protocol, streams, dscp) ((continuum_link_throughput_bits_per_second{cluster=~\"$cluster\", peer=~\"$peer\"} unless on (cluster, peer, direction, protocol, streams, dscp) continuum_link_throughput_bounded{cluster=~\"$cluster\", peer=~\"$peer\"} == 1))), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
           "legendFormat": "{{cluster_name}} → {{peer_name}} {{direction}} {{protocol}} {{streams}} streams, dscp {{dscp}}"
+        },
+        {
+          "refId": "B",
+          "expr": "(max by (cluster, peer, direction, protocol, streams, dscp) ((continuum_link_throughput_bits_per_second{cluster=~\"$cluster\", peer=~\"$peer\"} and on (cluster, peer, direction, protocol, streams, dscp) continuum_link_throughput_bounded{cluster=~\"$cluster\", peer=~\"$peer\"} == 1))) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((max by (cluster, peer, direction, protocol, streams, dscp) ((continuum_link_throughput_bits_per_second{cluster=~\"$cluster\", peer=~\"$peer\"} and on (cluster, peer, direction, protocol, streams, dscp) continuum_link_throughput_bounded{cluster=~\"$cluster\", peer=~\"$peer\"} == 1))), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fusion-metrics"
+          },
+          "legendFormat": "≥ {{cluster_name}} → {{peer_name}} {{direction}} {{protocol}} {{streams}} streams, dscp {{dscp}}"
         }
       ],
-      "description": "What the latest TCP test achieved, measured where the data arrived. The line holds the last result until the next test, which can be days away. A single stream far below several streams points at the window or at loss on a long path; tcp_bidir loads both directions at once and is not comparable with a single direction.",
+      "description": "What the latest TCP test achieved, measured where the data arrived. The line holds the last result until the next test, which can be days away. A single stream far below several streams points at the window or at loss on a long path; tcp_bidir loads both directions at once and is not comparable with a single direction. A line starting with ≥ is a floor: the test came up to its rate cap (the one set in the settings, or what the pair's byte budget pays for), so the link carries at least that much and the real figure is unknown. A line without it is what the link carried.",
       "fieldConfig": {
         "defaults": {
           "custom": {
@@ -2272,7 +2281,26 @@
           "unit": "bps",
           "min": 0
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    10
+                  ]
+                }
+              }
+            ]
+          }
+        ]
       },
       "options": {
         "legend": {

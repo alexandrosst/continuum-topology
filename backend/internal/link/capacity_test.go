@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -35,6 +36,8 @@ type fakeIperf struct {
 	// a UDP sender manages to send, whatever it was asked for.
 	failArg map[string]string
 	sendMax float64
+	// tcpBits is the rate the link carries for TCP when a rate cap is given and is above it (0: more than the fixture).
+	tcpBits float64
 }
 
 func (f *fakeIperf) exec(_ context.Context, env []string, name string, args ...string) ([]byte, []byte, error) {
@@ -77,7 +80,37 @@ func (f *fakeIperf) exec(_ context.Context, env []string, name string, args ...s
 			return fixtureBytes(why), nil, errors.New("exit status 1")
 		}
 	}
+	// A TCP test with a rate cap (-b, per stream) cannot carry more than the cap: the fixture's figures, taken at about 4 Gbit/s,
+	// are scaled down to it.
+	capped := func(doc []byte) ([]byte, []byte, error) {
+		b, err := strconv.ParseFloat(val("-b"), 64)
+		if err != nil || b <= 0 {
+			return doc, nil, nil
+		}
+		streams := 1.0
+		if v, err := strconv.ParseFloat(val("-P"), 64); err == nil {
+			streams = v
+		}
+		rate := b * streams
+		if f.tcpBits > 0 && f.tcpBits < rate {
+			rate = f.tcpBits
+		}
+		if scale := rate / fixtureBitsPerSecond; scale < 1 {
+			return boundedDoc(doc, scale), nil, nil
+		}
+		return doc, nil, nil
+	}
 	switch {
+	case has("-b") && !has("-u"):
+		switch {
+		case has("--bidir"):
+			return capped(fixtureBytes("bidir"))
+		case has("-P"):
+			return capped(fixtureBytes("tcp4"))
+		case has("-R"):
+			return capped(fixtureBytes("tcp1r"))
+		}
+		return capped(fixtureBytes("tcp1"))
 	case has("-u"):
 		rate, _ := strconv.ParseFloat(val("-b"), 64)
 		if f.sendMax > 0 {
@@ -92,6 +125,23 @@ func (f *fakeIperf) exec(_ context.Context, env []string, name string, args ...s
 		return fixtureBytes("tcp1r"), nil, nil
 	}
 	return fixtureBytes("tcp1"), nil, nil
+}
+
+const fixtureBitsPerSecond = 4.15e9
+
+var bytesField = regexp.MustCompile(`"bytes": *(\d+)`)
+var bitsField = regexp.MustCompile(`"bits_per_second": *([0-9.eE+]+)`)
+
+// boundedDoc scales every byte count of an iperf3 document, as if the test had stopped after fewer bytes.
+func boundedDoc(doc []byte, scale float64) []byte {
+	doc = bitsField.ReplaceAllFunc(doc, func(m []byte) []byte {
+		v, _ := strconv.ParseFloat(string(bitsField.FindSubmatch(m)[1]), 64)
+		return []byte(fmt.Sprintf(`"bits_per_second": %f`, v*scale))
+	})
+	return bytesField.ReplaceAllFunc(doc, func(m []byte) []byte {
+		v, _ := strconv.ParseFloat(string(bytesField.FindSubmatch(m)[1]), 64)
+		return []byte(fmt.Sprintf(`"bytes": %d`, int64(v*scale)))
+	})
 }
 
 func fixtureBytes(name string) []byte {
@@ -949,12 +999,12 @@ func TestAPeerThatDoesNotAnswerIsRetriedWithGrowingDelays(t *testing.T) {
 
 func TestTheBusyReferenceIsTheBestClassNotTheLastOne(t *testing.T) {
 	c := &Capacity{DSCP: []int{0, 46}, Parallel: 4}
-	c.setBits("cl-a", Forward, 1, 0, 10e9)
-	c.setBits("cl-a", Forward, 1, 46, 100e6) // policed, and tested after the unmarked one
+	c.setBits("cl-a", Forward, 1, 0, 10e9, false)
+	c.setBits("cl-a", Forward, 1, 46, 100e6, false) // policed, and tested after the unmarked one
 	if got := c.reached("cl-a", Forward); got != 10e9 {
 		t.Errorf("reached = %v", got)
 	}
-	c.setBits("cl-a", Forward, 1, 0, 9e9) // the latest unmarked figure replaces the old one
+	c.setBits("cl-a", Forward, 1, 0, 9e9, false) // the latest unmarked figure replaces the old one
 	if got := c.reached("cl-a", Forward); got != 9e9 {
 		t.Errorf("reached = %v", got)
 	}
@@ -988,7 +1038,7 @@ func TestAPeerThatGoesAwayTakesItsRemembrancesWithIt(t *testing.T) {
 	c.mu.Lock()
 	c.warned = map[string]bool{"cl-a|tcp|forward|0": true, "cl-ab|tcp|forward|0": true}
 	c.lastBytes["cl-ab|tcp|forward|0"] = 1
-	c.setBits("cl-ab", Forward, 1, 0, 1)
+	c.setBits("cl-ab", Forward, 1, 0, 1, false)
 	c.mu.Unlock()
 	if len(c.lastBytes) < 2 || len(c.lastBits) < 2 {
 		t.Fatalf("nothing was remembered: %v %v", c.lastBytes, c.lastBits)
@@ -1005,13 +1055,13 @@ func TestAPeerThatGoesAwayTakesItsRemembrancesWithIt(t *testing.T) {
 
 func TestAMissingRetransmitCountIsNoSampleNotAZero(t *testing.T) {
 	c, _ := capFor(t, &fakeIperf{}, nil)
-	c.Meter.ObserveTCP("cl-a", IperfFlow{Direction: Forward, Bits: 1e9}, "tcp", 1, 0)
+	c.Meter.ObserveTCP("cl-a", IperfFlow{Direction: Forward, Bits: 1e9}, "tcp", 1, 0, false)
 	got := render(c.Meter)
 	key := `{cluster="cl-me",peer="cl-a",method="iperf3",direction="forward",protocol="tcp",streams="1",dscp="0"}`
 	if _, ok := got["continuum_link_throughput_retransmits"+key]; ok {
 		t.Error("retransmits exported although the sender did not report them")
 	}
-	c.Meter.ObserveTCP("cl-a", IperfFlow{Direction: Forward, Bits: 1e9, HasRetrans: true}, "tcp", 1, 0)
+	c.Meter.ObserveTCP("cl-a", IperfFlow{Direction: Forward, Bits: 1e9, HasRetrans: true}, "tcp", 1, 0, false)
 	if v, ok := render(c.Meter)["continuum_link_throughput_retransmits"+key]; !ok || v != "0" {
 		t.Errorf("a reported zero is missing: %q", v)
 	}
@@ -1096,5 +1146,156 @@ func TestTheTestingFlagIsOnExactlyWhileTheClientRuns(t *testing.T) {
 		if !on {
 			t.Errorf("the flag was off while iperf3 ran: %v", during)
 		}
+	}
+}
+
+// The settings page offers 500 MB and 50 MB a day, less than the guess for a first TCP test (a full gigabit for the whole test).
+// Without a bounded first test none would ever run, and since the held-back test stayed first in the queue, the ramp behind it
+// would not run either.
+func TestATestThatWouldNotFitTheBudgetRunsRateCappedAndTheTestsBehindItAreNotHeldBack(t *testing.T) {
+	f := &fakeIperf{}
+	c, ck := capFor(t, f, func(c *Capacity) {
+		c.Budget = 500 << 20
+		c.Reverse, c.Parallel = false, 0
+		c.UDP = UDPRamp{Enabled: true, Start: 5e6, Max: 20e6, Step: 2 * time.Second, Loss: 0.01}
+	})
+	settle(c)
+	if f.count() < 2 {
+		t.Fatalf("%d runs: the TCP test and the ramp should both have run", f.count())
+	}
+	first := f.argsOf(0)
+	if !strings.Contains(first, "-t 10") || !strings.Contains(first, "-O 2") || !strings.Contains(first, " -b ") {
+		t.Errorf("the first TCP test keeps its length and gets a rate cap: %s", first)
+	}
+	if strings.Contains(first, "-n ") {
+		t.Errorf("a test is no longer ended by bytes: %s", first)
+	}
+	// 125 MB over 12 seconds is 87 Mbit/s; the fixture's gigabit link comes up to the cap, so the reading is a floor.
+	if v := boundedOf(render(c.Meter), "forward"); v != "1" {
+		t.Errorf("a capped reading that reached its cap is not marked as a floor: %q", v)
+	}
+	var ramp bool
+	for i := 1; i < f.count(); i++ {
+		ramp = ramp || strings.Contains(f.argsOf(i), "-u")
+	}
+	if !ramp {
+		t.Error("the ramp did not run behind the bounded test")
+	}
+	if used := c.ledger.Used(ck.now()); used == 0 || used > c.ledger.Limit {
+		t.Errorf("budget used = %d of %d", used, c.ledger.Limit)
+	}
+}
+
+func TestATestHasNoCapWhenItFitsItsShareAndOneWhenItDoesNot(t *testing.T) {
+	f := &fakeIperf{}
+	c, ck := capFor(t, f, func(c *Capacity) { c.Reverse, c.Parallel = false, 0; c.Every = time.Hour })
+	settle(c)
+	if a := f.argsOf(0); strings.Contains(a, " -b ") {
+		t.Errorf("a test with no budget was capped: %s", a)
+	}
+	// What the first test carried (several GB) is more than a 24th of 500 MB: the next one is bounded to that share.
+	c.ledger.Limit = 500 << 20
+	ck.add(25 * time.Hour) // the first test's several GB have left the 24-hour window
+	settle(c)
+	a := f.argsOf(f.count() - 1)
+	if !strings.Contains(a, " -b ") || !strings.Contains(a, "-t 10") {
+		t.Fatalf("a test larger than its share keeps its length and gets a cap: %s", a)
+	}
+}
+
+func TestATestThatCanNeverFitIsDroppedFromTheCycleNotRetriedForever(t *testing.T) {
+	f := &fakeIperf{}
+	c, ck := capFor(t, f, func(c *Capacity) {
+		c.Budget = 4 << 20 // a test's share (1 MiB) cannot pay for a rate cap of 1 Mbit/s
+		c.Reverse, c.Parallel = false, 0
+		c.UDP = UDPRamp{Enabled: true, Start: 1e6, Max: 4e6, Step: 2 * time.Second, Loss: 0.01}
+	})
+	settle(c)
+	ck.add(time.Minute)
+	settle(c)
+	var tcp, ramp int
+	for i := 0; i < f.count(); i++ {
+		if strings.Contains(f.argsOf(i), "-u") {
+			ramp++
+		} else {
+			tcp++
+		}
+	}
+	if tcp != 0 || ramp == 0 {
+		t.Errorf("tcp runs %d, ramp runs %d: the TCP test can never fit, the ramp can", tcp, ramp)
+	}
+}
+
+// Under the 50 MB a day of the settings page the default ramp (up to 200 Mbit/s, about 320 MB) would never run: it stops at the highest
+// rate whose whole ramp fits its share, and still reports, as a lower bound.
+func TestTheRampStopsAtTheHighestRateThatFitsItsShareOfASmallBudget(t *testing.T) {
+	f := &fakeIperf{}
+	c, _ := capFor(t, f, func(c *Capacity) {
+		c.Budget = 50 << 20
+		c.Reverse, c.Parallel = false, 0
+		c.UDP = UDPRamp{Enabled: true, Start: 5e6, Max: 200e6, Step: 5 * time.Second, Loss: 0.01}
+	})
+	settle(c)
+	var top float64
+	var ramps int
+	for i := 0; i < f.count(); i++ {
+		a := f.argsOf(i)
+		if !strings.Contains(a, "-u") {
+			continue
+		}
+		ramps++
+		fs := strings.Fields(a)
+		for j, x := range fs {
+			if x == "-b" {
+				v, _ := strconv.ParseFloat(fs[j+1], 64)
+				top = max(top, v)
+			}
+		}
+	}
+	if ramps == 0 || top > 20e6 {
+		t.Fatalf("%d ramp steps, highest rate %v: the ramp should run, and stay within its share", ramps, top)
+	}
+	if used := c.ledger.Used(c.Now()); used > c.ledger.Limit {
+		t.Errorf("used %d of %d", used, c.ledger.Limit)
+	}
+}
+
+func boundedOf(got map[string]string, dir string) string {
+	for k, v := range got {
+		if strings.HasPrefix(k, "continuum_link_throughput_bounded{") && strings.Contains(k, `direction="`+dir+`"`) && strings.Contains(k, `protocol="tcp"`) {
+			return v
+		}
+	}
+	return ""
+}
+
+// A link slower than the cap is what the test measured: the reading is exact, not a floor.
+func TestAReadingBelowItsCapIsExactAndNotMarkedAsAFloor(t *testing.T) {
+	f := &fakeIperf{tcpBits: 20e6}
+	c, _ := capFor(t, f, func(c *Capacity) { c.Budget = 500 << 20; c.Reverse, c.Parallel = false, 0 })
+	settle(c)
+	got := render(c.Meter)
+	if v := boundedOf(got, "forward"); v != "0" {
+		t.Errorf("bounded = %q for a link below the cap", v)
+	}
+	// And a run is not charged for more than it carried.
+	if used := c.ledger.Used(c.Now()); used > 40<<20 {
+		t.Errorf("charged %d bytes for a 20 Mbit/s link", used)
+	}
+}
+
+// A reading that came up to its cap says nothing about the size of a test without one: the next estimate stays large, so the next
+// test is capped again instead of being run uncapped on a link that carries a hundred times its share.
+func TestACappedReadingDoesNotMakeTheNextTestRunUncapped(t *testing.T) {
+	f := &fakeIperf{}
+	c, ck := capFor(t, f, func(c *Capacity) { c.Budget = 500 << 20; c.Reverse, c.Parallel = false, 0; c.Every = time.Hour })
+	settle(c)
+	ck.add(25 * time.Hour)
+	settle(c)
+	if f.count() < 2 {
+		t.Fatalf("%d runs", f.count())
+	}
+	if a := f.argsOf(f.count() - 1); !strings.Contains(a, " -b ") {
+		t.Errorf("the second test ran uncapped: %s", a)
 	}
 }

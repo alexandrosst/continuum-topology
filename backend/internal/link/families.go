@@ -44,6 +44,7 @@ var families = []MetricFamily{
 	{"continuum_link_tcp_connect_failures_total", "counter"},
 	{"continuum_link_tcp_connect_last_success_timestamp_seconds", "gauge"},
 	{"continuum_link_throughput_bits_per_second", "gauge"},
+	{"continuum_link_throughput_bounded", "gauge"},
 	{"continuum_link_throughput_retransmits", "gauge"},
 	{"continuum_link_throughput_rtt_seconds", "gauge"},
 	{"continuum_link_throughput_udp_point_bits_per_second", "gauge"},

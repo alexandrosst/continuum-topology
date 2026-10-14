@@ -113,7 +113,9 @@ type Capacity struct {
 	good      map[string]string
 	lastBytes map[string]uint64
 	lastBits  map[string]float64
-	warned    map[string]bool
+	// lastBounded says which of the readings in lastBits came up to a rate cap, so they are floors and say nothing about the size of a test without one.
+	lastBounded map[string]bool
+	warned      map[string]bool
 	// absent is since when a peer has not been among the peers to test (see peerGrace).
 	absent absence
 }
@@ -400,6 +402,7 @@ func (c *Capacity) sync(peers []Peer, now time.Time) {
 			prefix := id + "|"
 			dropPrefix(c.lastBytes, prefix)
 			dropPrefix(c.lastBits, prefix)
+			dropPrefix(c.lastBounded, prefix)
 			dropPrefix(c.warned, prefix)
 		}
 	}
@@ -467,6 +470,10 @@ func (c *Capacity) step(ctx context.Context) time.Duration {
 	c.mu.Lock()
 	switch {
 	case ctx.Err() != nil:
+	case out.skip != "" && out.drop:
+		skipped = out.skip
+		st.queue = st.queue[1:]
+		c.advance(st, *pick, now)
 	case out.skip != "":
 		st.retryAt = now.Add(out.retry)
 		skipped = out.skip
@@ -516,33 +523,69 @@ type outcome struct {
 	skip  string // held back, for the metric
 	retry time.Duration
 	fail  string
+	// drop says a held-back test is not tried again this cycle: it can never fit the byte budget, so waiting for it would
+	// hold back every test queued behind it (the UDP ramp among them) for good.
+	drop bool
 }
 
 func (c *Capacity) runTest(ctx context.Context, p Peer, t capTest) outcome {
 	now := c.Now()
-	if est := c.estimate(p, t); !c.allows(p, now, est) {
-		c.warnOversized(p, t, est)
-		return outcome{skip: "budget", retry: 30 * time.Minute}
+	est := c.estimate(p, t)
+	// Every test is sized to the byte budget, so that a cycle always yields a reading whatever the budget is: a cycle's tests
+	// share it (and a window holds several cycles when they are more often than the window is long). A test keeps its length
+	// (a shorter one would be mostly TCP's slow start) and its rate is capped instead, to what its share pays for over that
+	// length; a UDP ramp stops at the highest rate whose whole ramp fits its share. A test that reaches its cap says "at
+	// least this" (bounded); one that stays clearly under it has found what the link carries. A share that cannot pay for a
+	// rate worth reporting leaves the test out of the cycle.
+	var capStream, rampMax uint64
+	streams, dirs := c.shape(t)
+	if share := c.share(p); share > 0 && est > share {
+		if t.kind == "udp-ramp" {
+			rampMax = c.rampTop(share)
+			if rampMax == 0 {
+				c.warnOversized(p, t, est)
+				return outcome{skip: "budget", drop: true}
+			}
+			est = rampBytes(c.UDP.Start, rampMax, c.UDP.Step)
+		} else {
+			capStream = share * 8 / uint64((c.Duration + c.Omit).Seconds()) / uint64(streams*dirs)
+			if capStream < minCapBits {
+				c.warnOversized(p, t, est)
+				return outcome{skip: "budget", drop: true}
+			}
+			est = capStream * uint64(streams*dirs) * uint64((c.Duration + c.Omit).Seconds()) / 8
+		}
+	}
+	if !c.allows(p, now, est) {
+		if limit := c.budgetLimit(p); limit > 0 && est > limit {
+			c.warnOversized(p, t, est)
+			return outcome{skip: "budget", drop: true}
+		}
+		return outcome{skip: "budget", retry: 30 * time.Minute} // it fits when the window is empty: wait for it
+	}
+	if capStream > 0 || rampMax > 0 {
+		c.warnBounded(p, t, est)
 	}
 	if c.busy(p, t, now) {
 		return outcome{skip: "link_busy", retry: 10 * time.Minute}
 	}
 	if t.kind == "udp-ramp" {
-		return c.runRamp(ctx, p, t)
+		return c.runRamp(ctx, p, t, rampMax)
 	}
-	streams, extra := 1, []string{}
-	if t.kind == "tcp-parallel" {
-		streams = c.Parallel
-	}
-	extra = append(extra, "-t", secs(c.Duration))
+	extra := []string{"-t", secs(c.Duration)}
 	if c.Omit > 0 {
 		extra = append(extra, "-O", secs(c.Omit))
 	}
 	if streams > 1 {
 		extra = append(extra, "-P", strconv.Itoa(streams))
 	}
-	if c.TCPMaxRate > 0 {
-		extra = append(extra, "-b", strconv.FormatUint(c.TCPMaxRate, 10))
+	// The rate cap of each stream: the one the user set, or what the byte budget allows, whichever is lower.
+	effCap := c.TCPMaxRate
+	if capStream > 0 && (effCap == 0 || capStream < effCap) {
+		effCap = capStream
+	}
+	if effCap > 0 {
+		extra = append(extra, "-b", strconv.FormatUint(effCap, 10))
 	}
 	if t.kind == "tcp-bidir" {
 		extra = append(extra, "--bidir")
@@ -558,27 +601,48 @@ func (c *Capacity) runTest(ctx context.Context, p Peer, t capTest) outcome {
 	}
 	for _, f := range res.Flows {
 		total += f.Bytes
-		c.Meter.ObserveTCP(p.ID, f, proto, res.Streams, t.dscp)
+		// A test that came up to its cap says what the link carries at least, not what it carries.
+		bounded := effCap > 0 && f.Bits >= boundedAt*float64(effCap)*float64(streams)
+		c.Meter.ObserveTCP(p.ID, f, proto, res.Streams, t.dscp, bounded)
 		if proto == "tcp" { // a test loading both ways reaches less in each, which says nothing about the link's capacity
 			c.mu.Lock()
-			c.setBits(p.ID, f.Direction, res.Streams, t.dscp, f.Bits)
+			c.setBits(p.ID, f.Direction, res.Streams, t.dscp, f.Bits, bounded)
 			c.mu.Unlock()
 		}
 	}
 	// The omitted start was sent too, at about the same rate.
 	total += uint64(float64(total) * c.Omit.Seconds() / c.Duration.Seconds())
 	c.charge(p, c.Now(), total)
-	c.mu.Lock()
-	c.lastBytes[t.key(p.ID)] = total
-	c.mu.Unlock()
+	if capStream == 0 { // a test the budget capped says nothing about what an uncapped one would carry
+		c.mu.Lock()
+		c.lastBytes[t.key(p.ID)] = total
+		c.mu.Unlock()
+	}
 	return outcome{}
 }
 
-func (c *Capacity) setBits(peer string, d Direction, streams, dscp int, bits float64) {
+func (c *Capacity) setBits(peer string, d Direction, streams, dscp int, bits float64, bounded bool) {
 	if c.lastBits == nil {
 		c.lastBits = map[string]float64{}
 	}
-	c.lastBits[fmt.Sprintf("%s|%s|%d|%d", peer, d, streams, dscp)] = bits
+	if c.lastBounded == nil {
+		c.lastBounded = map[string]bool{}
+	}
+	k := fmt.Sprintf("%s|%s|%d|%d", peer, d, streams, dscp)
+	c.lastBits[k] = bits
+	c.lastBounded[k] = bounded
+}
+
+// shape is how many streams a test of this kind opens and how many directions it loads.
+func (c *Capacity) shape(t capTest) (streams, dirs int) {
+	streams, dirs = 1, 1
+	if t.kind == "tcp-parallel" {
+		streams = c.Parallel
+	}
+	if t.kind == "tcp-bidir" {
+		dirs = 2
+	}
+	return streams, dirs
 }
 
 // reached is the highest TCP rate the latest tests reached towards (Forward) or from (Reverse) the peer, over the stream
@@ -597,7 +661,10 @@ func (c *Capacity) reached(peer string, d Direction) float64 {
 	return best
 }
 
-func (c *Capacity) runRamp(ctx context.Context, p Peer, t capTest) outcome {
+func (c *Capacity) runRamp(ctx context.Context, p Peer, t capTest, top uint64) outcome {
+	if top == 0 {
+		top = c.UDP.Max
+	}
 	var steps []UDPStep
 	var clean uint64
 	var hasClean, saturated bool
@@ -631,10 +698,10 @@ func (c *Capacity) runRamp(ctx context.Context, p Peer, t capTest) outcome {
 			break
 		}
 		clean, hasClean = rate, true
-		if rate >= c.UDP.Max {
+		if rate >= top {
 			break
 		}
-		rate = min(rate*2, c.UDP.Max)
+		rate = min(rate*2, top)
 	}
 	c.Meter.ObserveUDPRamp(p.ID, t.dir, t.dscp, steps, clean, hasClean, saturated)
 	return outcome{}
@@ -763,23 +830,29 @@ func secs(d time.Duration) string { return strconv.Itoa(int(d.Seconds())) }
 // any, a guess from the rate cap (or 1 Gbit/s).
 func (c *Capacity) estimate(p Peer, t capTest) uint64 {
 	if t.kind == "udp-ramp" {
-		var sum uint64
-		for r := c.UDP.Start; ; r = min(r*2, c.UDP.Max) {
-			sum += r * uint64(c.UDP.Step.Seconds()) / 8
-			if r >= c.UDP.Max {
-				return sum
-			}
-		}
+		return rampBytes(c.UDP.Start, c.UDP.Max, c.UDP.Step)
 	}
 	c.mu.Lock()
 	last := c.lastBytes[t.key(p.ID)]
+	// A test the link limited measured the rate a timed test would carry for its whole length.
+	key := fmt.Sprintf("%s|%s|%d|%d", p.ID, t.dir, c.streamsOf(t), t.dscp)
+	bits := c.lastBits[key]
+	if c.lastBounded[key] {
+		bits = 0 // it came up to its cap: the link carries more, by an amount nobody knows
+	}
 	c.mu.Unlock()
 	if last > 0 {
 		return last
 	}
 	rate := uint64(1e9)
+	if bits > 0 {
+		rate = uint64(bits)
+	}
 	if c.TCPMaxRate > 0 {
-		rate = c.TCPMaxRate
+		rate = min(rate, c.TCPMaxRate)
+		if bits == 0 {
+			rate = c.TCPMaxRate
+		}
 		if t.kind == "tcp-parallel" {
 			rate *= uint64(c.Parallel)
 		}
@@ -791,12 +864,92 @@ func (c *Capacity) estimate(p Peer, t capTest) uint64 {
 	return est
 }
 
-// warnOversized says once that a test can never run because it would not fit the budget even when the window is empty.
-func (c *Capacity) warnOversized(p Peer, t capTest, est uint64) {
+func (c *Capacity) streamsOf(t capTest) int {
+	if t.kind == "tcp-parallel" {
+		return c.Parallel
+	}
+	return 1
+}
+
+// rampBytes is what a UDP ramp carries when every rung is held for step: start, doubling, up to top.
+func rampBytes(start, top uint64, step time.Duration) uint64 {
+	var sum uint64
+	for r := start; ; r = min(r*2, top) {
+		sum += r * uint64(step.Seconds()) / 8
+		if r >= top {
+			return sum
+		}
+	}
+}
+
+// rampTop is the highest top rate whose whole ramp fits share bytes, at most the configured top; 0 when even the first rung does not.
+func (c *Capacity) rampTop(share uint64) uint64 {
+	if rampBytes(c.UDP.Start, c.UDP.Start, c.UDP.Step) > share {
+		return 0
+	}
+	top := c.UDP.Max
+	for top > c.UDP.Start && rampBytes(c.UDP.Start, top, c.UDP.Step) > share {
+		top = max(top/2, c.UDP.Start)
+	}
+	return top
+}
+
+// share is what one test of the plan may carry: the byte budget divided over the tests of a cycle and the cycles a window
+// holds. 0 when nothing limits it.
+func (c *Capacity) share(p Peer) uint64 {
+	limit := c.budgetLimit(p)
+	if limit == 0 {
+		return 0
+	}
+	every := c.Every
+	if p.ThroughputEvery > 0 {
+		every = p.ThroughputEvery
+	}
+	cycles := uint64(1)
+	if every > 0 && c.BudgetWindow > every {
+		cycles = uint64((c.BudgetWindow + every - 1) / every)
+	}
+	n := uint64(len(c.plan())) * cycles
+	if n == 0 {
+		n = 1
+	}
+	return limit / n
+}
+
+// warnBounded says once that a test is sized down to its share of the byte budget.
+func (c *Capacity) warnBounded(p Peer, t capTest, bytes uint64) {
+	k := "bounded|" + t.key(p.ID)
+	c.mu.Lock()
+	if c.warned == nil {
+		c.warned = map[string]bool{}
+	}
+	done := c.warned[k]
+	c.warned[k] = true
+	c.mu.Unlock()
+	if !done {
+		c.Log.Info("a throughput test is capped to its share of the byte budget; if it reaches the cap its reading is a floor (bounded), not what the link carries", "peer", p.ID, "test", t.kind, "direction", t.dir, "bytes", bytes)
+	}
+}
+
+const (
+	// minCapBits is the lowest rate cap worth a reading: a share that pays for less leaves the test out of the cycle.
+	minCapBits = 1e6
+	// boundedAt is the fraction of its cap a test must reach to count as having come up to it.
+	boundedAt = 0.9
+)
+
+// budgetLimit is the smallest byte budget that applies to a peer (the cluster's, or its own), 0 for none.
+func (c *Capacity) budgetLimit(p Peer) uint64 {
 	limit := c.ledger.Limit
 	if pl := c.pairLedger(p); pl != nil && (limit == 0 || pl.Limit < limit) {
 		limit = pl.Limit
 	}
+	return limit
+}
+
+// warnOversized says once that a test can never run because it would not fit the budget even when the window is empty.
+func (c *Capacity) warnOversized(p Peer, t capTest, est uint64) {
+	limit := c.budgetLimit(p)
 	if limit == 0 || est <= limit {
 		return
 	}
