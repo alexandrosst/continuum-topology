@@ -145,11 +145,22 @@ func (h *Hub) configFor(a store.Agent, v *view) *continuumv1.Config {
 		orgAgents, _ = h.C.Store.ListAgents(bg(), h.C.OrgID) // also before h.mu, for the same reason
 		runnersPaused = h.runnersPaused(a, orgAgents, set.Links)
 	}
+	creds := h.linkCredsFor(a, set.Links) // before h.mu: it may read and write the store
 	cfg := &continuumv1.Config{ApprovedAccessTier: uint32(a.AccessTier), HeartbeatSeconds: HeartbeatSeconds, ResyncSeconds: resync, ServerTimeUnix: h.C.Now().Unix(),
 		PausedCollectors: append([]string(nil), consent.Paused...), ExcludedNamespaces: append([]string(nil), consent.Excluded...), ClusterId: a.ClusterID}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	cfg.LinkPeers = h.linkPeers(a, orgAgents, set.Links, consent.has("flow"), runnersPaused)
+	// The iperf3 credentials follow the same gates as the peers (tier 2, flow collector not paused) and go only where the cluster has
+	// the role: the client side to the runner's LinkPeer for the server, the server side to the server's own Config.
+	for _, lp := range cfg.LinkPeers {
+		if lp.Throughput {
+			lp.IperfClient = creds.clients[lp.ClusterId]
+		}
+	}
+	if a.AccessTier >= 2 && !consent.has("flow") {
+		cfg.LinkIperfServer = creds.server
+	}
 	var ts []issuedTarget
 	for _, p := range set.ProbeTargets {
 		if a.ClusterID != "" && p.ClusterID == a.ClusterID {
@@ -198,6 +209,14 @@ func configHash(c *continuumv1.Config) string {
 		if p.Via != "" {
 			s += "|linkvia:" + p.Via // only when set, so the hash of a Config without it stays what it was
 		}
+		if ic := p.IperfClient; ic != nil {
+			// A rotation must reach the agent, so the credentials are part of the hash, as digests: the hash is compared, kept and could be
+			// logged, and never holds the material itself.
+			s += "|iperfc:" + credDigest(p.ClusterId, ic.PublicKeyPem, ic.Username, ic.Password)
+		}
+	}
+	if is := c.LinkIperfServer; is != nil {
+		s += "|iperfs:" + credDigest(is.PrivateKeyPem, is.UsersCsv)
 	}
 	return interpret.Hash("cfg", s)
 }
@@ -248,7 +267,12 @@ func (h *Hub) pushOne(id string) {
 	}
 }
 
-func (h *Hub) settingsChanged(Settings) { go h.pushConfigs() }
+func (h *Hub) settingsChanged(Settings) {
+	go func() {
+		h.syncLinkCredentials() // make what new pairs need and drop what is no longer needed, before the Configs are built
+		h.pushConfigs()
+	}()
+}
 
 // noteMeasurements stores what an agent measured, for the targets the server issued.
 func (h *Hub) noteMeasurements(agentID string, m *continuumv1.Measurements) {

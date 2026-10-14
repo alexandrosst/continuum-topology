@@ -19,6 +19,7 @@ func TestEveryReadOnlyLinkContainerHasAWritableTemporaryDirectory(t *testing.T) 
 	for name, args := range map[string][]string{
 		"probe":                    probeArgs(),
 		"throughput tests":         capArgs(),
+		"throughput tests, issued": autoArgs(),
 		"throughput tests, authed": capArgs("telemetry.clusterLinks.probe.capacity.auth.existingSecret=k"),
 	} {
 		r := render(t, args...)
@@ -129,8 +130,11 @@ func TestTheNotesWarnWhenTheThroughputServerIsOpen(t *testing.T) {
 		return string(out)
 	}
 	const warn = "without authentication"
-	if got := notes("telemetry.clusterLinks.probe.capacity.enabled=true"); !strings.Contains(got, warn) {
+	if got := notes("telemetry.clusterLinks.probe.capacity.enabled=true", "telemetry.clusterLinks.probe.capacity.auth.automatic=false"); !strings.Contains(got, warn) {
 		t.Errorf("no warning for an open iperf3 server:\n%s", got)
+	}
+	if got := notes("telemetry.clusterLinks.probe.capacity.enabled=true"); strings.Contains(got, warn) {
+		t.Errorf("warning although Ikhnos issues the credentials:\n%s", got)
 	}
 	if got := notes("telemetry.clusterLinks.probe.capacity.enabled=true", "telemetry.clusterLinks.probe.capacity.auth.existingSecret=k"); strings.Contains(got, warn) {
 		t.Errorf("warning although the server authenticates:\n%s", got)

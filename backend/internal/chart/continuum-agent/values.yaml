@@ -1057,8 +1057,9 @@ telemetry:
       # it carries and where it starts to drop: TCP with one stream and with several, in each direction, and a UDP ramp. They
       # are heavy, so they run rarely, one at a time (never beside the probe), within a daily byte budget, and they wait while
       # real traffic is using the link. Each responder pod then also runs an iperf3 server on `port`: open TCP and UDP `port`
-      # between paired clusters. iperf3 accepts anyone who can reach that port, so set auth.existingSecret unless a firewall
-      # already restricts it (responder.allowFrom does not apply to it, and is refused alongside this unless auth is set).
+      # between paired clusters. iperf3 accepts anyone who can reach that port, so the server runs in authenticated mode: with credentials the Ikhnos server issues
+      # (auth.automatic, the default) or a Secret of your own (auth.existingSecret). responder.allowFrom does not apply to it, and is
+      # refused alongside this only when neither applies.
       capacity:
         enabled: false
         port: 8862
@@ -1087,11 +1088,22 @@ telemetry:
             requests: {cpu: 10m, memory: 16Mi}
             limits: {memory: 64Mi}
         auth:
-          # A Secret in this namespace for iperf3's authenticated mode. It must be the same in every cluster of the mesh. Keys:
+          # By default (automatic: true) the Ikhnos server issues the iperf3 credentials of each pair that asks for throughput tests and
+          # delivers them to this cluster through the agent, over the channel it already has: nothing to create, nothing to name. The
+          # server pods then ask the agent for their key (a signed request, answered sealed) and run iperf3 in authenticated mode, and
+          # run nothing at all until they have it; the prober gets only the client credentials of the pairs it tests. Nothing is written
+          # to a Secret or a disk. Needs an Ikhnos server that issues them; with an older one the tests wait for credentials that never
+          # come. automatic: false runs the server open (no authentication) unless existingSecret is set.
+          automatic: true
+          # Your own credentials instead: a Secret in this namespace for iperf3's authenticated mode. It wins over automatic, the pods read
+          # it as they always did and do not fetch anything, and it must be the same in every cluster of the mesh. Keys:
           #   private.pem  an RSA private key (read by the servers)      public.pem  the matching public key (probers)
           #   users.csv    one line "USER,SHA256" where SHA256 is the hash of "{USER}PASSWORD" (servers)
           #   username, password   the credentials (probers)
           existingSecret: ""
+          # The secret the server pods sign their request with (automatic mode). Leave empty: the chart generates one and keeps it. It must
+          # differ from probe.peersSecret and flowObserver.secret, which the prober and the flow collectors hold.
+          requestSecret: ""
 
   # domain: infrastructure
   networkLatency:

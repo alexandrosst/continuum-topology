@@ -293,7 +293,9 @@ telemetry:
               cpu: 10m
               memory: 16Mi
         auth:
+          automatic: true
           existingSecret: ''
+          requestSecret: ''
   kubernetesEvents:
     logs:
       enabled: false

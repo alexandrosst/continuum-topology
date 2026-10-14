@@ -186,6 +186,7 @@ func TestDeleteOrgRemovesEveryTableKeyedToIt(t *testing.T) {
 		must(s.CreateGatewayToken(ctx, GatewayToken{ID: "gt-" + org, OrgID: org, BackendID: "b", CreatedBy: "x", CreatedAt: now, ExpiresAt: now}, []byte("gt-"+org)))
 		must(s.AddDecisions(ctx, []DecisionLog{{OrgID: org, At: now, DeciderID: "d", ServiceID: "svc"}}))
 		must(s.CreateFusionToken(ctx, FusionToken{ID: "ft-" + org, OrgID: org, Name: "n", CreatedAt: now, ExpiresAt: now.Add(time.Hour)}, []byte("ft-"+org)))
+		must(s.PutLinkCredential(ctx, LinkCredential{OrgID: org, Kind: "cluster", ID: "cl-" + org, Sealed: []byte("sealed"), CreatedAt: now}))
 	}
 	if err := s.DeleteOrg(ctx, "gone"); err != nil {
 		t.Fatal(err)
@@ -196,7 +197,7 @@ func TestDeleteOrgRemovesEveryTableKeyedToIt(t *testing.T) {
 	if _, err := s.GetOperatorByHeartbeatHash(ctx, []byte("hb-gone")); !errors.Is(err, ErrNotFound) {
 		t.Errorf("a deleted organisation's operator still authenticates: %v", err)
 	}
-	for _, table := range []string{"operators", "operator_certs", "telemetry_intents", "gateway_tokens", "decisions", "fusion_tokens"} {
+	for _, table := range []string{"operators", "operator_certs", "telemetry_intents", "gateway_tokens", "decisions", "fusion_tokens", "link_iperf_credentials"} {
 		var gone, kept int
 		if err := s.db.QueryRow(`SELECT COUNT(*) FROM ` + table + ` WHERE org_id='gone'`).Scan(&gone); err != nil {
 			t.Fatal(err)

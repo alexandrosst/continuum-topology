@@ -919,13 +919,23 @@ test('cluster links: without probing there is no throughput either', () => {
   assert.match(cmd, /--set telemetry\.clusterLinks\.probe\.capacity\.enabled=false/)
 })
 
-test('cluster links: throughput tests cannot be asked for without the credential Secret', () => {
+test('cluster links: throughput tests need no Secret, Ikhnos issues the iperf3 credentials', () => {
   const t: TelemetryInput = { ...emptyTelemetry, clusterLinks: true, clusterLinksThroughput: true, exportEndpoint: 'x:4317' }
-  assert.equal(telemetryProblems(t).length, 1)
-  assert.match(telemetryProblems(t)[0], /Secret that holds the iperf3 credentials/)
-  assert.equal(withTelemetry(base, t), base, 'a command with a real problem is left unchanged')
+  assert.deepEqual(telemetryProblems(t), [])
+  const cmd = withTelemetry(base, t)
+  assert.notEqual(cmd, base, 'the command is built')
+  assert.match(cmd, /--set telemetry\.clusterLinks\.probe\.capacity\.enabled=true/)
+  assert.doesNotMatch(cmd, /auth\.existingSecret/, 'no flag for credentials the server issues')
+  assert.doesNotMatch(cmd, /capacity\.auth/, 'nothing about authentication is stated')
+  // Spaces only are empty too.
+  assert.doesNotMatch(withTelemetry(base, { ...t, clusterLinksAuthSecret: '   ' }), /auth\.existingSecret/)
+})
+
+test('cluster links: credentials of your own are still honoured, and checked when typed', () => {
+  const t: TelemetryInput = { ...emptyTelemetry, clusterLinks: true, clusterLinksThroughput: true, exportEndpoint: 'x:4317' }
   assert.equal(telemetryProblems({ ...t, clusterLinksAuthSecret: 'Bad_Name' }).length, 1)
-  const ok = withTelemetry(base, { ...t, clusterLinksAuthSecret: 'continuum-link-iperf' })
+  assert.equal(withTelemetry(base, { ...t, clusterLinksAuthSecret: 'Bad_Name' }), base, 'a command with a real problem is left unchanged')
+  const ok = withTelemetry(base, { ...t, clusterLinksAuthSecret: ' continuum-link-iperf ' })
   assert.match(ok, /--set telemetry\.clusterLinks\.probe\.capacity\.enabled=true/)
   assert.match(ok, /--set-string telemetry\.clusterLinks\.probe\.capacity\.auth\.existingSecret=continuum-link-iperf/)
 })

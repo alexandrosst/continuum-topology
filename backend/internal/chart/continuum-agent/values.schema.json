@@ -1465,7 +1465,9 @@
                       "type": "object",
                       "additionalProperties": false,
                       "properties": {
-                        "existingSecret": {"type": "string"}
+                        "automatic": {"type": "boolean"},
+                        "existingSecret": {"type": "string"},
+                        "requestSecret": {"type": "string"}
                       }
                     }
                   }

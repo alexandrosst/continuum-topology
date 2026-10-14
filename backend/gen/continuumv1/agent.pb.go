@@ -3764,9 +3764,14 @@ type Config struct {
 	ClusterId string `protobuf:"bytes,9,opt,name=cluster_id,json=clusterId,proto3" json:"cluster_id,omitempty"`
 	// The other clusters an administrator asked this one to measure its links to (see LinkPeer). Empty means no link
 	// is measured. Never more than the server's own limit; the agent applies it only as far as its install allows.
-	LinkPeers     []*LinkPeer `protobuf:"bytes,10,rep,name=link_peers,json=linkPeers,proto3" json:"link_peers,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	LinkPeers []*LinkPeer `protobuf:"bytes,10,rep,name=link_peers,json=linkPeers,proto3" json:"link_peers,omitempty"`
+	// iperf3 server credentials for the throughput tests, issued by the server. Present only on the cluster that SERVES the
+	// tests of at least one pair (the second of the pair, see LinkPeer.throughput); never on any other cluster. The agent keeps
+	// it in memory, hands it only to this cluster's iperf3 server pods over a signed, sealed request, and never writes it
+	// anywhere. Unset: the server issues none (an older server, or no pair asks for throughput tests).
+	LinkIperfServer *LinkIperfServer `protobuf:"bytes,11,opt,name=link_iperf_server,json=linkIperfServer,proto3" json:"link_iperf_server,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *Config) Reset() {
@@ -3869,6 +3874,13 @@ func (x *Config) GetLinkPeers() []*LinkPeer {
 	return nil
 }
 
+func (x *Config) GetLinkIperfServer() *LinkIperfServer {
+	if x != nil {
+		return x.LinkIperfServer
+	}
+	return nil
+}
+
 // One other cluster this cluster's link is measured to. The server is the only place that knows which address belongs
 // to which cluster, so it names them here; the agent never learns anything about the peer beyond this.
 type LinkPeer struct {
@@ -3901,7 +3913,10 @@ type LinkPeer struct {
 	// kind of its addresses: "mesh", "private" or "public". Empty (the default) follows the address the real traffic is seen
 	// using. The server sets it from the pair's setting on both clusters; an older agent that does not know the field measures
 	// as before.
-	Via           string `protobuf:"bytes,9,opt,name=via,proto3" json:"via,omitempty"`
+	Via string `protobuf:"bytes,9,opt,name=via,proto3" json:"via,omitempty"`
+	// iperf_client: credentials for the throughput tests towards this peer. Set only together with `throughput`, i.e. on the
+	// cluster that runs the tests, and carries the peer's public key, never its private key. An older agent ignores it.
+	IperfClient   *LinkIperfClient `protobuf:"bytes,10,opt,name=iperf_client,json=iperfClient,proto3" json:"iperf_client,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3997,6 +4012,13 @@ func (x *LinkPeer) GetVia() string {
 		return x.Via
 	}
 	return ""
+}
+
+func (x *LinkPeer) GetIperfClient() *LinkIperfClient {
+	if x != nil {
+		return x.IperfClient
+	}
+	return nil
 }
 
 // An address to time. The agent only honours it when it was started with measurements allowed, and
@@ -6819,6 +6841,127 @@ func (x *LinkCapabilities) GetTelemetryExport() bool {
 	return false
 }
 
+// What an iperf3 server needs to accept authenticated clients (iperf3's --rsa-private-key-path and --authorized-users-path):
+// this cluster's own private key, and one "USER,SHA256" line for every pair this cluster serves, where SHA256 is the hex hash
+// of "{USER}PASSWORD". Secret material: never logged, never written to disk or to a Kubernetes Secret by the agent.
+type LinkIperfServer struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// PEM, an RSA-2048 private key. Belongs to this cluster alone; no other cluster is sent it.
+	PrivateKeyPem string `protobuf:"bytes,1,opt,name=private_key_pem,json=privateKeyPem,proto3" json:"private_key_pem,omitempty"`
+	// The authorized users file, one "USER,SHA256" line per pair this cluster serves.
+	UsersCsv      string `protobuf:"bytes,2,opt,name=users_csv,json=usersCsv,proto3" json:"users_csv,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LinkIperfServer) Reset() {
+	*x = LinkIperfServer{}
+	mi := &file_continuum_v1_agent_proto_msgTypes[59]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LinkIperfServer) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LinkIperfServer) ProtoMessage() {}
+
+func (x *LinkIperfServer) ProtoReflect() protoreflect.Message {
+	mi := &file_continuum_v1_agent_proto_msgTypes[59]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LinkIperfServer.ProtoReflect.Descriptor instead.
+func (*LinkIperfServer) Descriptor() ([]byte, []int) {
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{59}
+}
+
+func (x *LinkIperfServer) GetPrivateKeyPem() string {
+	if x != nil {
+		return x.PrivateKeyPem
+	}
+	return ""
+}
+
+func (x *LinkIperfServer) GetUsersCsv() string {
+	if x != nil {
+		return x.UsersCsv
+	}
+	return ""
+}
+
+// What an iperf3 client needs to run the tests towards one peer (iperf3's --rsa-public-key-path, --username and the
+// IPERF3_PASSWORD variable). Sent only to the cluster that RUNS the tests of the pair, inside the peer's LinkPeer.
+type LinkIperfClient struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// PEM, the peer cluster's RSA public key (the one its server decrypts with).
+	PublicKeyPem string `protobuf:"bytes,1,opt,name=public_key_pem,json=publicKeyPem,proto3" json:"public_key_pem,omitempty"`
+	Username     string `protobuf:"bytes,2,opt,name=username,proto3" json:"username,omitempty"`
+	// Secret material: never logged, kept in memory only.
+	Password      string `protobuf:"bytes,3,opt,name=password,proto3" json:"password,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LinkIperfClient) Reset() {
+	*x = LinkIperfClient{}
+	mi := &file_continuum_v1_agent_proto_msgTypes[60]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LinkIperfClient) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LinkIperfClient) ProtoMessage() {}
+
+func (x *LinkIperfClient) ProtoReflect() protoreflect.Message {
+	mi := &file_continuum_v1_agent_proto_msgTypes[60]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use LinkIperfClient.ProtoReflect.Descriptor instead.
+func (*LinkIperfClient) Descriptor() ([]byte, []int) {
+	return file_continuum_v1_agent_proto_rawDescGZIP(), []int{60}
+}
+
+func (x *LinkIperfClient) GetPublicKeyPem() string {
+	if x != nil {
+		return x.PublicKeyPem
+	}
+	return ""
+}
+
+func (x *LinkIperfClient) GetUsername() string {
+	if x != nil {
+		return x.Username
+	}
+	return ""
+}
+
+func (x *LinkIperfClient) GetPassword() string {
+	if x != nil {
+		return x.Password
+	}
+	return ""
+}
+
 var File_continuum_v1_agent_proto protoreflect.FileDescriptor
 
 const file_continuum_v1_agent_proto_rawDesc = "" +
@@ -7170,7 +7313,7 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\arevoked\x18\x03 \x01(\v2\x15.continuum.v1.RevokedH\x00R\arevokedB\x05\n" +
 	"\x03msg\"\x17\n" +
 	"\x03Ack\x12\x10\n" +
-	"\x03seq\x18\x01 \x01(\x04R\x03seq\"\xd5\x03\n" +
+	"\x03seq\x18\x01 \x01(\x04R\x03seq\"\xa0\x04\n" +
 	"\x06Config\x120\n" +
 	"\x14approved_access_tier\x18\x01 \x01(\rR\x12approvedAccessTier\x12+\n" +
 	"\x11heartbeat_seconds\x18\x02 \x01(\x05R\x10heartbeatSeconds\x12>\n" +
@@ -7184,7 +7327,8 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"cluster_id\x18\t \x01(\tR\tclusterId\x125\n" +
 	"\n" +
 	"link_peers\x18\n" +
-	" \x03(\v2\x16.continuum.v1.LinkPeerR\tlinkPeers\"\xbf\x02\n" +
+	" \x03(\v2\x16.continuum.v1.LinkPeerR\tlinkPeers\x12I\n" +
+	"\x11link_iperf_server\x18\v \x01(\v2\x1d.continuum.v1.LinkIperfServerR\x0flinkIperfServer\"\x81\x03\n" +
 	"\bLinkPeer\x12\x1d\n" +
 	"\n" +
 	"cluster_id\x18\x01 \x01(\tR\tclusterId\x12\x12\n" +
@@ -7198,7 +7342,9 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\x17throughput_budget_bytes\x18\a \x01(\x04R\x15throughputBudgetBytes\x12\x1d\n" +
 	"\n" +
 	"skip_probe\x18\b \x01(\bR\tskipProbe\x12\x10\n" +
-	"\x03via\x18\t \x01(\tR\x03via\"E\n" +
+	"\x03via\x18\t \x01(\tR\x03via\x12@\n" +
+	"\fiperf_client\x18\n" +
+	" \x01(\v2\x1d.continuum.v1.LinkIperfClientR\viperfClient\"E\n" +
 	"\vProbeTarget\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04host\x18\x02 \x01(\tR\x04host\x12\x12\n" +
@@ -7479,7 +7625,14 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\rprobe_enabled\x18\x02 \x01(\bR\fprobeEnabled\x12(\n" +
 	"\x10prober_seen_unix\x18\x03 \x01(\x03R\x0eproberSeenUnix\x12)\n" +
 	"\x10capacity_enabled\x18\x04 \x01(\bR\x0fcapacityEnabled\x12)\n" +
-	"\x10telemetry_export\x18\x05 \x01(\bR\x0ftelemetryExport*x\n" +
+	"\x10telemetry_export\x18\x05 \x01(\bR\x0ftelemetryExport\"V\n" +
+	"\x0fLinkIperfServer\x12&\n" +
+	"\x0fprivate_key_pem\x18\x01 \x01(\tR\rprivateKeyPem\x12\x1b\n" +
+	"\tusers_csv\x18\x02 \x01(\tR\busersCsv\"o\n" +
+	"\x0fLinkIperfClient\x12$\n" +
+	"\x0epublic_key_pem\x18\x01 \x01(\tR\fpublicKeyPem\x12\x1a\n" +
+	"\busername\x18\x02 \x01(\tR\busername\x12\x1a\n" +
+	"\bpassword\x18\x03 \x01(\tR\bpassword*x\n" +
 	"\x13TlsHandshakeOutcome\x12!\n" +
 	"\x1dTLS_HANDSHAKE_OUTCOME_UNKNOWN\x10\x00\x12 \n" +
 	"\x1cTLS_HANDSHAKE_OUTCOME_FAILED\x10\x01\x12\x1c\n" +
@@ -7507,7 +7660,7 @@ func file_continuum_v1_agent_proto_rawDescGZIP() []byte {
 }
 
 var file_continuum_v1_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
-var file_continuum_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 68)
+var file_continuum_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 70)
 var file_continuum_v1_agent_proto_goTypes = []any{
 	(TlsHandshakeOutcome)(0),           // 0: continuum.v1.TlsHandshakeOutcome
 	(PollResponse_State)(0),            // 1: continuum.v1.PollResponse.State
@@ -7574,22 +7727,24 @@ var file_continuum_v1_agent_proto_goTypes = []any{
 	(*Problem)(nil),                    // 62: continuum.v1.Problem
 	(*SelfStats)(nil),                  // 63: continuum.v1.SelfStats
 	(*LinkCapabilities)(nil),           // 64: continuum.v1.LinkCapabilities
-	nil,                                // 65: continuum.v1.MeshFacts.NamespaceMtlsEntry
-	nil,                                // 66: continuum.v1.NodeFacts.LabelsEntry
-	nil,                                // 67: continuum.v1.NodeFacts.AnnotationsEntry
-	nil,                                // 68: continuum.v1.NodeFacts.ExtendedResourcesEntry
-	nil,                                // 69: continuum.v1.NamespaceFacts.LabelsEntry
-	nil,                                // 70: continuum.v1.NamespaceFacts.AnnotationsEntry
-	nil,                                // 71: continuum.v1.WorkloadFacts.LabelsEntry
-	nil,                                // 72: continuum.v1.WorkloadFacts.AnnotationsEntry
-	nil,                                // 73: continuum.v1.WorkloadFacts.NodeSelectorEntry
-	(*timestamppb.Timestamp)(nil),      // 74: google.protobuf.Timestamp
+	(*LinkIperfServer)(nil),            // 65: continuum.v1.LinkIperfServer
+	(*LinkIperfClient)(nil),            // 66: continuum.v1.LinkIperfClient
+	nil,                                // 67: continuum.v1.MeshFacts.NamespaceMtlsEntry
+	nil,                                // 68: continuum.v1.NodeFacts.LabelsEntry
+	nil,                                // 69: continuum.v1.NodeFacts.AnnotationsEntry
+	nil,                                // 70: continuum.v1.NodeFacts.ExtendedResourcesEntry
+	nil,                                // 71: continuum.v1.NamespaceFacts.LabelsEntry
+	nil,                                // 72: continuum.v1.NamespaceFacts.AnnotationsEntry
+	nil,                                // 73: continuum.v1.WorkloadFacts.LabelsEntry
+	nil,                                // 74: continuum.v1.WorkloadFacts.AnnotationsEntry
+	nil,                                // 75: continuum.v1.WorkloadFacts.NodeSelectorEntry
+	(*timestamppb.Timestamp)(nil),      // 76: google.protobuf.Timestamp
 }
 var file_continuum_v1_agent_proto_depIdxs = []int32{
-	74, // 0: continuum.v1.RenewTelemetryCertResponse.not_after:type_name -> google.protobuf.Timestamp
+	76, // 0: continuum.v1.RenewTelemetryCertResponse.not_after:type_name -> google.protobuf.Timestamp
 	1,  // 1: continuum.v1.PollResponse.state:type_name -> continuum.v1.PollResponse.State
-	74, // 2: continuum.v1.PollResponse.not_after:type_name -> google.protobuf.Timestamp
-	74, // 3: continuum.v1.RenewResponse.not_after:type_name -> google.protobuf.Timestamp
+	76, // 2: continuum.v1.PollResponse.not_after:type_name -> google.protobuf.Timestamp
+	76, // 3: continuum.v1.RenewResponse.not_after:type_name -> google.protobuf.Timestamp
 	16, // 4: continuum.v1.AgentMessage.hello:type_name -> continuum.v1.Hello
 	19, // 5: continuum.v1.AgentMessage.sync:type_name -> continuum.v1.Sync
 	17, // 6: continuum.v1.AgentMessage.heartbeat:type_name -> continuum.v1.Heartbeat
@@ -7606,88 +7761,90 @@ var file_continuum_v1_agent_proto_depIdxs = []int32{
 	30, // 17: continuum.v1.Sync.namespaces:type_name -> continuum.v1.NamespaceFacts
 	32, // 18: continuum.v1.Sync.workloads:type_name -> continuum.v1.WorkloadFacts
 	18, // 19: continuum.v1.Sync.modules:type_name -> continuum.v1.ModuleStatus
-	74, // 20: continuum.v1.ClusterFacts.created_at:type_name -> google.protobuf.Timestamp
+	76, // 20: continuum.v1.ClusterFacts.created_at:type_name -> google.protobuf.Timestamp
 	21, // 21: continuum.v1.ClusterFacts.scope:type_name -> continuum.v1.ScopeFacts
 	22, // 22: continuum.v1.ClusterFacts.mesh:type_name -> continuum.v1.MeshFacts
-	65, // 23: continuum.v1.MeshFacts.namespace_mtls:type_name -> continuum.v1.MeshFacts.NamespaceMtlsEntry
-	66, // 24: continuum.v1.NodeFacts.labels:type_name -> continuum.v1.NodeFacts.LabelsEntry
-	67, // 25: continuum.v1.NodeFacts.annotations:type_name -> continuum.v1.NodeFacts.AnnotationsEntry
-	68, // 26: continuum.v1.NodeFacts.extended_resources:type_name -> continuum.v1.NodeFacts.ExtendedResourcesEntry
-	74, // 27: continuum.v1.NodeFacts.created_at:type_name -> google.protobuf.Timestamp
+	67, // 23: continuum.v1.MeshFacts.namespace_mtls:type_name -> continuum.v1.MeshFacts.NamespaceMtlsEntry
+	68, // 24: continuum.v1.NodeFacts.labels:type_name -> continuum.v1.NodeFacts.LabelsEntry
+	69, // 25: continuum.v1.NodeFacts.annotations:type_name -> continuum.v1.NodeFacts.AnnotationsEntry
+	70, // 26: continuum.v1.NodeFacts.extended_resources:type_name -> continuum.v1.NodeFacts.ExtendedResourcesEntry
+	76, // 27: continuum.v1.NodeFacts.created_at:type_name -> google.protobuf.Timestamp
 	25, // 28: continuum.v1.NodeFacts.probe:type_name -> continuum.v1.HostProbe
 	26, // 29: continuum.v1.HostProbe.interfaces:type_name -> continuum.v1.NetworkInterface
 	27, // 30: continuum.v1.HostProbe.disks:type_name -> continuum.v1.Disk
 	28, // 31: continuum.v1.HostProbe.tunnels:type_name -> continuum.v1.TunnelInterface
 	29, // 32: continuum.v1.HostProbe.host_addresses:type_name -> continuum.v1.HostAddress
-	69, // 33: continuum.v1.NamespaceFacts.labels:type_name -> continuum.v1.NamespaceFacts.LabelsEntry
-	70, // 34: continuum.v1.NamespaceFacts.annotations:type_name -> continuum.v1.NamespaceFacts.AnnotationsEntry
+	71, // 33: continuum.v1.NamespaceFacts.labels:type_name -> continuum.v1.NamespaceFacts.LabelsEntry
+	72, // 34: continuum.v1.NamespaceFacts.annotations:type_name -> continuum.v1.NamespaceFacts.AnnotationsEntry
 	31, // 35: continuum.v1.WorkloadFacts.images:type_name -> continuum.v1.ContainerImage
-	71, // 36: continuum.v1.WorkloadFacts.labels:type_name -> continuum.v1.WorkloadFacts.LabelsEntry
-	72, // 37: continuum.v1.WorkloadFacts.annotations:type_name -> continuum.v1.WorkloadFacts.AnnotationsEntry
-	73, // 38: continuum.v1.WorkloadFacts.node_selector:type_name -> continuum.v1.WorkloadFacts.NodeSelectorEntry
-	74, // 39: continuum.v1.WorkloadFacts.created_at:type_name -> google.protobuf.Timestamp
+	73, // 36: continuum.v1.WorkloadFacts.labels:type_name -> continuum.v1.WorkloadFacts.LabelsEntry
+	74, // 37: continuum.v1.WorkloadFacts.annotations:type_name -> continuum.v1.WorkloadFacts.AnnotationsEntry
+	75, // 38: continuum.v1.WorkloadFacts.node_selector:type_name -> continuum.v1.WorkloadFacts.NodeSelectorEntry
+	76, // 39: continuum.v1.WorkloadFacts.created_at:type_name -> google.protobuf.Timestamp
 	35, // 40: continuum.v1.WorkloadFacts.volume_claims:type_name -> continuum.v1.VolumeClaim
 	36, // 41: continuum.v1.WorkloadFacts.autoscaler:type_name -> continuum.v1.Autoscaler
 	37, // 42: continuum.v1.WorkloadFacts.disruption:type_name -> continuum.v1.Disruption
 	34, // 43: continuum.v1.WorkloadFacts.reachable:type_name -> continuum.v1.Address
 	23, // 44: continuum.v1.WorkloadFacts.mesh:type_name -> continuum.v1.WorkloadMesh
 	33, // 45: continuum.v1.WorkloadFacts.pods:type_name -> continuum.v1.PodFacts
-	74, // 46: continuum.v1.PodFacts.created_at:type_name -> google.protobuf.Timestamp
+	76, // 46: continuum.v1.PodFacts.created_at:type_name -> google.protobuf.Timestamp
 	39, // 47: continuum.v1.ServerMessage.ack:type_name -> continuum.v1.Ack
 	40, // 48: continuum.v1.ServerMessage.config:type_name -> continuum.v1.Config
 	45, // 49: continuum.v1.ServerMessage.revoked:type_name -> continuum.v1.Revoked
 	42, // 50: continuum.v1.Config.probe_targets:type_name -> continuum.v1.ProbeTarget
 	41, // 51: continuum.v1.Config.link_peers:type_name -> continuum.v1.LinkPeer
-	43, // 52: continuum.v1.Measurements.results:type_name -> continuum.v1.PathResult
-	0,  // 53: continuum.v1.RawFlow.tls_handshake:type_name -> continuum.v1.TlsHandshakeOutcome
-	46, // 54: continuum.v1.FlowReport.flows:type_name -> continuum.v1.RawFlow
-	47, // 55: continuum.v1.FlowReport.link_saturation:type_name -> continuum.v1.LinkSaturation
-	48, // 56: continuum.v1.FlowReport.thermal_throttle:type_name -> continuum.v1.ThermalThrottle
-	3,  // 57: continuum.v1.FlowEndpoint.kind:type_name -> continuum.v1.FlowEndpoint.Kind
-	50, // 58: continuum.v1.Flow.src:type_name -> continuum.v1.FlowEndpoint
-	50, // 59: continuum.v1.Flow.dst:type_name -> continuum.v1.FlowEndpoint
-	0,  // 60: continuum.v1.Flow.tls_handshake:type_name -> continuum.v1.TlsHandshakeOutcome
-	47, // 61: continuum.v1.CollectorInfo.link_saturation:type_name -> continuum.v1.LinkSaturation
-	48, // 62: continuum.v1.CollectorInfo.thermal_throttle:type_name -> continuum.v1.ThermalThrottle
-	51, // 63: continuum.v1.FlowBatch.flows:type_name -> continuum.v1.Flow
-	52, // 64: continuum.v1.FlowBatch.collectors:type_name -> continuum.v1.CollectorInfo
-	51, // 65: continuum.v1.FlowBatch.pod_flows:type_name -> continuum.v1.Flow
-	51, // 66: continuum.v1.FlowEdge.key:type_name -> continuum.v1.Flow
-	74, // 67: continuum.v1.FlowEdge.first_seen:type_name -> google.protobuf.Timestamp
-	74, // 68: continuum.v1.FlowEdge.last_seen:type_name -> google.protobuf.Timestamp
-	54, // 69: continuum.v1.FlowTable.edges:type_name -> continuum.v1.FlowEdge
-	21, // 70: continuum.v1.Diagnostics.scope:type_name -> continuum.v1.ScopeFacts
-	60, // 71: continuum.v1.Diagnostics.collectors:type_name -> continuum.v1.CollectorDiag
-	61, // 72: continuum.v1.Diagnostics.informers:type_name -> continuum.v1.InformerDiag
-	62, // 73: continuum.v1.Diagnostics.problems:type_name -> continuum.v1.Problem
-	74, // 74: continuum.v1.Diagnostics.generated_at:type_name -> google.protobuf.Timestamp
-	59, // 75: continuum.v1.Diagnostics.installed_telemetry_config:type_name -> continuum.v1.InstalledTelemetryConfig
-	57, // 76: continuum.v1.Diagnostics.export_health:type_name -> continuum.v1.ExportHealth
-	74, // 77: continuum.v1.ExportHealth.scraped_at:type_name -> google.protobuf.Timestamp
-	58, // 78: continuum.v1.ExportHealth.routes:type_name -> continuum.v1.ExportRouteHealth
-	4,  // 79: continuum.v1.ExportRouteHealth.state:type_name -> continuum.v1.ExportRouteHealth.State
-	74, // 80: continuum.v1.ExportRouteHealth.last_sent_at:type_name -> google.protobuf.Timestamp
-	74, // 81: continuum.v1.ExportRouteHealth.last_failed_at:type_name -> google.protobuf.Timestamp
-	74, // 82: continuum.v1.CollectorDiag.last_data:type_name -> google.protobuf.Timestamp
-	5,  // 83: continuum.v1.Problem.severity:type_name -> continuum.v1.Problem.Severity
-	74, // 84: continuum.v1.Problem.since:type_name -> google.protobuf.Timestamp
-	9,  // 85: continuum.v1.Enrollment.Enroll:input_type -> continuum.v1.EnrollRequest
-	11, // 86: continuum.v1.Enrollment.PollEnrollment:input_type -> continuum.v1.PollRequest
-	8,  // 87: continuum.v1.Enrollment.Rejoin:input_type -> continuum.v1.RejoinRequest
-	6,  // 88: continuum.v1.Enrollment.RenewTelemetryCert:input_type -> continuum.v1.RenewTelemetryCertRequest
-	15, // 89: continuum.v1.AgentService.Connect:input_type -> continuum.v1.AgentMessage
-	13, // 90: continuum.v1.AgentService.Renew:input_type -> continuum.v1.RenewRequest
-	10, // 91: continuum.v1.Enrollment.Enroll:output_type -> continuum.v1.EnrollResponse
-	12, // 92: continuum.v1.Enrollment.PollEnrollment:output_type -> continuum.v1.PollResponse
-	14, // 93: continuum.v1.Enrollment.Rejoin:output_type -> continuum.v1.RenewResponse
-	7,  // 94: continuum.v1.Enrollment.RenewTelemetryCert:output_type -> continuum.v1.RenewTelemetryCertResponse
-	38, // 95: continuum.v1.AgentService.Connect:output_type -> continuum.v1.ServerMessage
-	14, // 96: continuum.v1.AgentService.Renew:output_type -> continuum.v1.RenewResponse
-	91, // [91:97] is the sub-list for method output_type
-	85, // [85:91] is the sub-list for method input_type
-	85, // [85:85] is the sub-list for extension type_name
-	85, // [85:85] is the sub-list for extension extendee
-	0,  // [0:85] is the sub-list for field type_name
+	65, // 52: continuum.v1.Config.link_iperf_server:type_name -> continuum.v1.LinkIperfServer
+	66, // 53: continuum.v1.LinkPeer.iperf_client:type_name -> continuum.v1.LinkIperfClient
+	43, // 54: continuum.v1.Measurements.results:type_name -> continuum.v1.PathResult
+	0,  // 55: continuum.v1.RawFlow.tls_handshake:type_name -> continuum.v1.TlsHandshakeOutcome
+	46, // 56: continuum.v1.FlowReport.flows:type_name -> continuum.v1.RawFlow
+	47, // 57: continuum.v1.FlowReport.link_saturation:type_name -> continuum.v1.LinkSaturation
+	48, // 58: continuum.v1.FlowReport.thermal_throttle:type_name -> continuum.v1.ThermalThrottle
+	3,  // 59: continuum.v1.FlowEndpoint.kind:type_name -> continuum.v1.FlowEndpoint.Kind
+	50, // 60: continuum.v1.Flow.src:type_name -> continuum.v1.FlowEndpoint
+	50, // 61: continuum.v1.Flow.dst:type_name -> continuum.v1.FlowEndpoint
+	0,  // 62: continuum.v1.Flow.tls_handshake:type_name -> continuum.v1.TlsHandshakeOutcome
+	47, // 63: continuum.v1.CollectorInfo.link_saturation:type_name -> continuum.v1.LinkSaturation
+	48, // 64: continuum.v1.CollectorInfo.thermal_throttle:type_name -> continuum.v1.ThermalThrottle
+	51, // 65: continuum.v1.FlowBatch.flows:type_name -> continuum.v1.Flow
+	52, // 66: continuum.v1.FlowBatch.collectors:type_name -> continuum.v1.CollectorInfo
+	51, // 67: continuum.v1.FlowBatch.pod_flows:type_name -> continuum.v1.Flow
+	51, // 68: continuum.v1.FlowEdge.key:type_name -> continuum.v1.Flow
+	76, // 69: continuum.v1.FlowEdge.first_seen:type_name -> google.protobuf.Timestamp
+	76, // 70: continuum.v1.FlowEdge.last_seen:type_name -> google.protobuf.Timestamp
+	54, // 71: continuum.v1.FlowTable.edges:type_name -> continuum.v1.FlowEdge
+	21, // 72: continuum.v1.Diagnostics.scope:type_name -> continuum.v1.ScopeFacts
+	60, // 73: continuum.v1.Diagnostics.collectors:type_name -> continuum.v1.CollectorDiag
+	61, // 74: continuum.v1.Diagnostics.informers:type_name -> continuum.v1.InformerDiag
+	62, // 75: continuum.v1.Diagnostics.problems:type_name -> continuum.v1.Problem
+	76, // 76: continuum.v1.Diagnostics.generated_at:type_name -> google.protobuf.Timestamp
+	59, // 77: continuum.v1.Diagnostics.installed_telemetry_config:type_name -> continuum.v1.InstalledTelemetryConfig
+	57, // 78: continuum.v1.Diagnostics.export_health:type_name -> continuum.v1.ExportHealth
+	76, // 79: continuum.v1.ExportHealth.scraped_at:type_name -> google.protobuf.Timestamp
+	58, // 80: continuum.v1.ExportHealth.routes:type_name -> continuum.v1.ExportRouteHealth
+	4,  // 81: continuum.v1.ExportRouteHealth.state:type_name -> continuum.v1.ExportRouteHealth.State
+	76, // 82: continuum.v1.ExportRouteHealth.last_sent_at:type_name -> google.protobuf.Timestamp
+	76, // 83: continuum.v1.ExportRouteHealth.last_failed_at:type_name -> google.protobuf.Timestamp
+	76, // 84: continuum.v1.CollectorDiag.last_data:type_name -> google.protobuf.Timestamp
+	5,  // 85: continuum.v1.Problem.severity:type_name -> continuum.v1.Problem.Severity
+	76, // 86: continuum.v1.Problem.since:type_name -> google.protobuf.Timestamp
+	9,  // 87: continuum.v1.Enrollment.Enroll:input_type -> continuum.v1.EnrollRequest
+	11, // 88: continuum.v1.Enrollment.PollEnrollment:input_type -> continuum.v1.PollRequest
+	8,  // 89: continuum.v1.Enrollment.Rejoin:input_type -> continuum.v1.RejoinRequest
+	6,  // 90: continuum.v1.Enrollment.RenewTelemetryCert:input_type -> continuum.v1.RenewTelemetryCertRequest
+	15, // 91: continuum.v1.AgentService.Connect:input_type -> continuum.v1.AgentMessage
+	13, // 92: continuum.v1.AgentService.Renew:input_type -> continuum.v1.RenewRequest
+	10, // 93: continuum.v1.Enrollment.Enroll:output_type -> continuum.v1.EnrollResponse
+	12, // 94: continuum.v1.Enrollment.PollEnrollment:output_type -> continuum.v1.PollResponse
+	14, // 95: continuum.v1.Enrollment.Rejoin:output_type -> continuum.v1.RenewResponse
+	7,  // 96: continuum.v1.Enrollment.RenewTelemetryCert:output_type -> continuum.v1.RenewTelemetryCertResponse
+	38, // 97: continuum.v1.AgentService.Connect:output_type -> continuum.v1.ServerMessage
+	14, // 98: continuum.v1.AgentService.Renew:output_type -> continuum.v1.RenewResponse
+	93, // [93:99] is the sub-list for method output_type
+	87, // [87:93] is the sub-list for method input_type
+	87, // [87:87] is the sub-list for extension type_name
+	87, // [87:87] is the sub-list for extension extendee
+	0,  // [0:87] is the sub-list for field type_name
 }
 
 func init() { file_continuum_v1_agent_proto_init() }
@@ -7720,7 +7877,7 @@ func file_continuum_v1_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_continuum_v1_agent_proto_rawDesc), len(file_continuum_v1_agent_proto_rawDesc)),
 			NumEnums:      6,
-			NumMessages:   68,
+			NumMessages:   70,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

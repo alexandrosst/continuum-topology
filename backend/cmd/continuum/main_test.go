@@ -31,7 +31,7 @@ func TestDispatch(t *testing.T) {
 // binaries had: 2 for a bad flag, 1 for a missing requirement, 0 for --help.
 func TestRolesKeepTheirFlagContracts(t *testing.T) {
 	var out, errb bytes.Buffer
-	for _, role := range []string{"agent", "probe", "flow", "cert-renew"} {
+	for _, role := range []string{"agent", "probe", "flow", "cert-renew", "link-iperf-server"} {
 		if code := run([]string{role, "--help"}, &out, &errb); code != 0 {
 			t.Errorf("%s --help: code %d", role, code)
 		}
@@ -46,6 +46,11 @@ func TestRolesKeepTheirFlagContracts(t *testing.T) {
 	}
 	if code := run([]string{"cert-renew"}, &out, &errb); code != 1 {
 		t.Errorf("cert-renew without --server: code %d, want 1", code)
+	}
+	t.Setenv("CONTINUUM_LINK_AGENT_URL", "")
+	t.Setenv("CONTINUUM_LINK_IPERF_SECRET_FILE", "")
+	if code := run([]string{"link-iperf-server"}, &out, &errb); code != 1 {
+		t.Errorf("link-iperf-server without --agent and --secret-file: code %d, want 1", code)
 	}
 	if code := run([]string{"probe"}, &out, &errb); code != 1 {
 		t.Errorf("probe without --agent: code %d, want 1", code)

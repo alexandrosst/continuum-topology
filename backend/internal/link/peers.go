@@ -49,6 +49,9 @@ type Peer struct {
 	Throughput       bool
 	ThroughputEvery  time.Duration
 	ThroughputBudget uint64
+	// Iperf are the credentials of the throughput tests towards this peer, issued by the server to the cluster that runs the
+	// tests. Nil: none (an older server, a manual Secret, or an agent that does not serve them). Secret: see Secret.
+	Iperf *IperfClient
 }
 
 // Probed says this cluster runs the one-way probe and the connect timing towards the peer.
@@ -69,7 +72,13 @@ const (
 // read without locks by the flow path.
 type Peers struct {
 	cur atomic.Pointer[peerSet]
+	// dropIperf makes Set ignore the iperf3 credentials a Config carries: an agent that does not serve them to the prober (the
+	// install uses a Secret of its own) has no use for them and does not keep them.
+	dropIperf atomic.Bool
 }
+
+// DropIperf says whether the credentials of the throughput tests are to be left out of what Set keeps.
+func (p *Peers) DropIperf(drop bool) { p.dropIperf.Store(drop) }
 
 type peerSet struct {
 	own   string
@@ -116,6 +125,14 @@ func (p *Peers) set(own string, in []*continuumv1.LinkPeer, preferred map[string
 				pe.ThroughputEvery = min(max(time.Duration(s)*time.Second, MinThroughputEvery), MaxThroughputEvery)
 			}
 			pe.ThroughputBudget = min(lp.ThroughputBudgetBytes, MaxThroughputBudget)
+			if ic := lp.IperfClient; ic != nil && !p.dropIperf.Load() {
+				c := IperfClient{PublicKeyPEM: ic.PublicKeyPem, Username: ic.Username, Password: Secret(ic.Password)}
+				if err := c.Validate(); err != nil {
+					dropped = append(dropped, "link peer "+lp.ClusterId+": the iperf3 credentials were refused: "+err.Error())
+				} else {
+					pe.Iperf = &c
+				}
+			}
 		}
 		for i, s := range lp.Addresses {
 			if i >= MaxAddresses {

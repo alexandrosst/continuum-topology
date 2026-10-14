@@ -280,6 +280,10 @@ func OpenSQLite(path string) (*SQLite, error) {
 		db.Close()
 		return nil, err
 	}
+	if _, err := db.Exec(linkCredentialSchema); err != nil {
+		db.Close()
+		return nil, err
+	}
 	if err := migrateTenancy(db); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("upgrading to organisations: %w", err)

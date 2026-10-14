@@ -145,11 +145,16 @@ func (r *runner) applyLinks(c *continuumv1.Config, o overrides) {
 		return
 	}
 	var peers []*continuumv1.LinkPeer
+	var iperf *continuumv1.LinkIperfServer
 	if o.tier >= 2 && !o.paused[collectorFlow] {
-		peers = c.LinkPeers
+		peers, iperf = c.LinkPeers, c.LinkIperfServer
 	}
 	for _, why := range r.cfg.Links.Peers.Set(c.ClusterId, peers) {
 		r.cfg.Log.Warn("link peers: "+why, "cluster", c.ClusterId)
+	}
+	// The iperf3 server credentials are held for this cluster's responder pods, in memory, and withdrawn with the peers.
+	if why := r.cfg.Links.SetIperfServer(iperf); why != "" {
+		r.cfg.Log.Warn("link iperf3 server credentials were refused: "+why, "cluster", c.ClusterId)
 	}
 	r.cfg.Links.Forget()
 }

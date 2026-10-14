@@ -26,6 +26,7 @@ var Roles = []struct{ Name, Summary string }{
 	{"probe", "the optional node probe: tells the agent what kind of machine a node is (read-only)"},
 	{"flow", "the optional node flow collector: counts connections between workloads (needs root and BPF)"},
 	{"link-prober", "the optional cluster-link prober: measures loss and delay to paired clusters in both directions (OWAMP)"},
+	{"link-iperf-server", "the iperf3 server of the throughput tests when Ikhnos issues the credentials: fetches them from the agent, fails closed"},
 	{"cert-renew", "the regional operator's sidecar: renews its TLS certificates before they expire"},
 }
 

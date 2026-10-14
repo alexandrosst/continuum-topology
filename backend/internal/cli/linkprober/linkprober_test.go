@@ -75,7 +75,7 @@ func followsPeers(t *testing.T, load *link.Load) {
 	meter.OnlyProbes()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go follow(ctx, slog.New(slog.NewTextHandler(io.Discard, nil)), srv.Client(), srv.URL, secret, peers, meter, load)
+	go follow(ctx, slog.New(slog.NewTextHandler(io.Discard, nil)), srv.Client(), srv.URL, secret, peers, meter, load, false)
 
 	deadline := time.Now().Add(5 * time.Second)
 	for peers.Empty() && time.Now().Before(deadline) {

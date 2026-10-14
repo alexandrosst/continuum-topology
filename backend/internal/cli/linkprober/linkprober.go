@@ -96,7 +96,7 @@ func Main(args []string) int {
 	if capacity != nil {
 		watched = load
 	}
-	go follow(ctx, log, &http.Client{Timeout: 10 * time.Second}, *agentURL, secret, peers, meter, watched)
+	go follow(ctx, log, &http.Client{Timeout: 10 * time.Second}, *agentURL, secret, peers, meter, watched, capacity != nil && capacity.AutoAuth)
 	if capacity != nil {
 		log.Info("link throughput tests on", "interval", capacity.Every, "budget_bytes", capacity.Budget)
 		go capacity.Run(ctx)
@@ -110,11 +110,12 @@ func Main(args []string) int {
 }
 
 // follow keeps the peer list current: the agent hears about changes from the server at least once a minute, so asking
-// once a minute is as fresh as the answer can be. load, if not nil, is told the link traffic each answer carries.
-func follow(ctx context.Context, log *slog.Logger, hc *http.Client, url string, secret []byte, peers *link.Peers, meter *link.Meter, load *link.Load) {
+// once a minute is as fresh as the answer can be. load, if not nil, is told the link traffic each answer carries. iperf also asks
+// for the credentials of the throughput tests (they come back sealed, and only for the peers this cluster tests).
+func follow(ctx context.Context, log *slog.Logger, hc *http.Client, url string, secret []byte, peers *link.Peers, meter *link.Meter, load *link.Load, iperf bool) {
 	asked := false
 	for {
-		d, err := link.FetchPeers(ctx, hc, url, secret, time.Now())
+		d, err := link.FetchPeersWith(ctx, hc, url, secret, time.Now(), iperf)
 		switch {
 		case err != nil:
 			log.Warn("could not fetch the link peers from the agent", "err", err)

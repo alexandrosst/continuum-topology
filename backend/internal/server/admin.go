@@ -225,6 +225,7 @@ func (a *Admin) Handler() http.Handler {
 	route("GET "+o+"/telemetry/self", memberRole, a.selfTelemetry)
 	route("PUT "+o+"/settings", adminRole, a.putSettings)
 	route("GET "+o+"/links/latest", memberRole, a.linksLatest)
+	route("POST "+o+"/links/rotate-credentials", adminRole, a.rotateLinkCredentials)
 	route("GET "+o+"/history", memberRole, a.historyIndex)
 	route("GET "+o+"/history/snapshot", memberRole, a.historySnapshot)
 	route("GET "+o+"/history/traffic", memberRole, a.historyTraffic)

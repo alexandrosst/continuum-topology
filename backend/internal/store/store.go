@@ -687,6 +687,11 @@ type Store interface {
 	TouchFusionToken(ctx context.Context, hash []byte, now time.Time) error
 	DeleteFusionToken(ctx context.Context, org, id string) error
 	PurgeFusionTokens(ctx context.Context, olderThan time.Time) error
+	// The sealed iperf3 credentials of cluster pairs (see LinkCredential). The store never sees what is inside.
+	GetLinkCredential(ctx context.Context, org, kind, id string) (LinkCredential, error)
+	ListLinkCredentials(ctx context.Context, org string) ([]LinkCredential, error)
+	PutLinkCredential(ctx context.Context, c LinkCredential) error
+	DeleteLinkCredential(ctx context.Context, org, kind, id string) error
 
 	AddAudit(ctx context.Context, e AuditEvent) error
 	ListAudit(ctx context.Context, org string, limit int) ([]AuditEvent, error)

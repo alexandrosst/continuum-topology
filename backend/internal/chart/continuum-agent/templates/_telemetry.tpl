@@ -133,8 +133,13 @@
 {{- if eq (int $cap.port) (int $probe.responder.port) -}}
 {{- fail "telemetry.clusterLinks.probe.capacity.port must differ from telemetry.clusterLinks.probe.responder.port" -}}
 {{- end -}}
-{{- if and $probe.responder.allowFrom (not $cap.auth.existingSecret) -}}
-{{- fail "telemetry.clusterLinks.probe.responder.allowFrom restricts the one-way probe only; iperf3 has no allow-list, so the throughput tests (capacity.enabled) would be open to anyone who can reach capacity.port. Set telemetry.clusterLinks.probe.capacity.auth.existingSecret (iperf3's authenticated mode), or leave capacity off" -}}
+{{- if and $probe.responder.allowFrom (not $cap.auth.existingSecret) (not $cap.auth.automatic) -}}
+{{- fail "telemetry.clusterLinks.probe.responder.allowFrom restricts the one-way probe only; iperf3 has no allow-list, so the throughput tests (capacity.enabled) would be open to anyone who can reach capacity.port. Leave telemetry.clusterLinks.probe.capacity.auth.automatic on (Ikhnos issues the credentials), or set telemetry.clusterLinks.probe.capacity.auth.existingSecret (iperf3's authenticated mode), or leave capacity off" -}}
+{{- end -}}
+{{- if $cap.auth.requestSecret -}}
+{{- if or (eq (toString $cap.auth.requestSecret) (toString $probe.peersSecret)) (eq (toString $cap.auth.requestSecret) (toString .Values.flowObserver.secret)) -}}
+{{- fail "telemetry.clusterLinks.probe.capacity.auth.requestSecret must differ from telemetry.clusterLinks.probe.peersSecret and flowObserver.secret: the prober holds the first and could otherwise ask the agent for the iperf3 private key, and with the second it could sign flow reports." -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}
@@ -1637,8 +1642,8 @@ echo "kepler preflight: the kernel accepts eBPF tracing programs (or the probe c
 {{- $w = append $w "networkPolicy.telemetryEgress is on and a proxy is configured: the collectors connect only to the proxy, so networkPolicy.telemetryEgress.allowedEgress must allow the proxy's address and port (the destinations behind it need no rule)." -}}
 {{- end -}}
 {{- end -}}
-{{- if and $t.clusterLinks.probe.enabled $t.clusterLinks.probe.capacity.enabled (not $t.clusterLinks.probe.capacity.auth.existingSecret) -}}
-{{- $w = append $w (printf "telemetry.clusterLinks.probe.capacity.enabled runs an iperf3 server on every node (host network, port %v) without authentication: anyone who can reach that port can run full-rate TCP or UDP tests against the node, which uses its bandwidth and CPU, and one client holds the server's single test slot so the prober's own tests are refused meanwhile. Set telemetry.clusterLinks.probe.capacity.auth.existingSecret (iperf3's authenticated mode), or restrict the port with a firewall." $t.clusterLinks.probe.capacity.port) -}}
+{{- if and $t.clusterLinks.probe.enabled $t.clusterLinks.probe.capacity.enabled (not $t.clusterLinks.probe.capacity.auth.existingSecret) (not $t.clusterLinks.probe.capacity.auth.automatic) -}}
+{{- $w = append $w (printf "telemetry.clusterLinks.probe.capacity.enabled with capacity.auth.automatic=false runs an iperf3 server on every node (host network, port %v) without authentication: anyone who can reach that port can run full-rate TCP or UDP tests against the node, which uses its bandwidth and CPU, and one client holds the server's single test slot so the prober's own tests are refused meanwhile. Leave telemetry.clusterLinks.probe.capacity.auth.automatic on (Ikhnos issues the credentials), set telemetry.clusterLinks.probe.capacity.auth.existingSecret (iperf3's authenticated mode), or restrict the port with a firewall." $t.clusterLinks.probe.capacity.port) -}}
 {{- end -}}
 {{- $q := $t.export.queue -}}
 {{- $mrb := int $q.maxRequestBytes -}}

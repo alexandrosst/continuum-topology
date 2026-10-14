@@ -2,6 +2,8 @@
 {{- if $probe.enabled }}
 {{- $cap := $probe.capacity }}
 {{- $auth := and $cap.enabled $cap.auth.existingSecret }}
+{{- /* $auto: the Ikhnos server issues the iperf3 credentials and the pods fetch them from the agent (no Secret of your own named). */ -}}
+{{- $auto := include "agent.linkIperf" . }}
 {{- if and $probe.peersSecret .Values.flowObserver.secret (eq (toString $probe.peersSecret) (toString .Values.flowObserver.secret)) }}
 {{- fail "telemetry.clusterLinks.probe.peersSecret must differ from flowObserver.secret: the link prober holds the first, and with the second it could sign flow reports." }}
 {{- end }}
@@ -18,6 +20,21 @@ type: Opaque
 stringData:
   secret: {{ include "agent.linkPeersSecret" . | quote }}
 ---
+{{- if $auto }}
+# The secret the responder's iperf3 pods sign their request for the server credentials with. The agent verifies with it; only the agent and
+# the responder pods mount it. The prober does not (it holds the peers secret above, which cannot ask for the private key), and neither do the
+# node collectors, and it is not the flow secret.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "agent.linkIperfSecretName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "agent.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  secret: {{ include "agent.linkIperfSecret" . | quote }}
+---
+{{- end }}
 {{- /* The responder's configuration. The default class is rate- and disk-limited; with allowFrom the default is a class that
        refuses everything, and only the listed networks get the limited one. (Tested: a connection from outside the listed
        networks is refused at the control port.) */ -}}
@@ -66,7 +83,10 @@ spec:
         {{- include "agent.meshOptOutLabels" . | nindent 8 }}
         {{- include "agent.podLabels" . | nindent 8 }}
       annotations:
-        checksum/config: {{ toJson (dict "ports" $probe.responder.testPorts "from" $probe.responder.allowFrom "capacity" (ternary (dict "port" $cap.port "idle" $cap.server.idleTimeout "limit" (toString $cap.server.bitrateLimit) "auth" $cap.auth.existingSecret) (dict) $cap.enabled)) | sha256sum }}
+        {{- /* The automatic mode adds its key to the dict only when on, so the checksum of an install with a Secret of its own does not change. */}}
+        {{- $capDict := dict "port" $cap.port "idle" $cap.server.idleTimeout "limit" (toString $cap.server.bitrateLimit) "auth" $cap.auth.existingSecret }}
+        {{- if $auto }}{{- $_ := set $capDict "auto" (include "agent.linkIperfSecretRevision" .) }}{{- end }}
+        checksum/config: {{ toJson (dict "ports" $probe.responder.testPorts "from" $probe.responder.allowFrom "capacity" (ternary $capDict (dict) $cap.enabled)) | sha256sum }}
         {{- include "agent.meshOptOutAnnotations" . | nindent 8 }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
@@ -81,7 +101,7 @@ spec:
       automountServiceAccountToken: false
       hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet
-      securityContext: {{- include "agent.nonRootPodSecurityContext" (dict "root" . "fsGroup" (ne (toString $auth) "")) | nindent 8 }}
+      securityContext: {{- include "agent.nonRootPodSecurityContext" (dict "root" . "fsGroup" (or (ne (toString $auth) "") (ne (toString $auto) ""))) | nindent 8 }}
       containers:
         - name: owampd
           image: {{ include "agent.linkImage" . | quote }}
@@ -107,7 +127,35 @@ spec:
             # The daemon is the sender for the "from" direction, and a sender keeps its skip records in an unlinked temp file
             # under TMPDIR or /tmp; on a read-only root that fails unless /tmp is a volume.
             - {name: tmp, mountPath: /tmp}
-        {{- if $cap.enabled }}
+        {{- if and $cap.enabled $auto }}
+        # iperf3's server, for the throughput tests, when the Ikhnos server issues the credentials. `continuum link-iperf-server` asks the
+        # agent for this cluster's key and users (a signed request, answered sealed), writes them to the in-memory volume below and runs
+        # iperf3 -s with them. It runs no server at all until it has them: there is never an unauthenticated one. It has no access to the
+        # Kubernetes API, and it mounts the request secret, which no other container of the pod (nor the prober) has.
+        - name: iperf3
+          image: {{ include "agent.linkImage" . | quote }}
+          imagePullPolicy: {{ include "agent.linkImagePullPolicy" . }}
+          args: ["link-iperf-server"]
+          env:
+            - {name: CONTINUUM_LINK_AGENT_URL, value: "http://continuum-agent-link-metrics.{{ .Release.Namespace }}.svc:9104"}
+            - {name: CONTINUUM_LINK_IPERF_SECRET_FILE, value: /iperf-request/secret}
+            - {name: CONTINUUM_LINK_IPERF_DIR, value: /iperf-auth}
+            - {name: CONTINUUM_LINK_CAPACITY_PORT, value: {{ $cap.port | quote }}}
+            - {name: CONTINUUM_LINK_CAPACITY_IDLE_TIMEOUT, value: {{ $cap.server.idleTimeout | quote }}}
+            - {name: CONTINUUM_LINK_CAPACITY_BITRATE_LIMIT, value: {{ toString $cap.server.bitrateLimit | quote }}}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          ports:
+            - {name: iperf3, containerPort: {{ $cap.port }}, protocol: TCP}
+          # No readiness probe on the port: with no pair asking this cluster to serve tests, no server runs, and that is not a fault.
+          resources: {{- toYaml $cap.server.resources | nindent 12 }}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: iperf-request, mountPath: /iperf-request, readOnly: true}
+            - {name: iperf-auth, mountPath: /iperf-auth}
+        {{- else if $cap.enabled }}
         # iperf3's server, for the throughput tests: one test at a time (it refuses a second client while one is running).
         # Same image and the same restrictions as OWAMP's; it keeps nothing.
         - name: iperf3
@@ -170,6 +218,12 @@ spec:
             items:
               - {key: private.pem, path: private.pem}
               - {key: users.csv, path: users.csv}
+        {{- else if $auto }}
+        # The credentials the Ikhnos server issued, fetched from the agent: in memory, private to this pod, gone with it. Never a Secret.
+        - name: iperf-auth
+          emptyDir: {medium: Memory, sizeLimit: 1Mi}
+        - name: iperf-request
+          secret: {secretName: {{ include "agent.linkIperfSecretName" . }}, defaultMode: 0440}
         {{- end }}
       {{- with $probe.responder.tolerations }}
       tolerations: {{- toYaml . | nindent 8 }}
@@ -262,6 +316,11 @@ spec:
               valueFrom: {secretKeyRef: {name: {{ $cap.auth.existingSecret | quote }}, key: username}}
             - {name: CONTINUUM_LINK_CAPACITY_AUTH_KEY_FILE, value: /iperf-auth/public.pem}
             - {name: CONTINUUM_LINK_CAPACITY_AUTH_PASSWORD_FILE, value: /iperf-auth/password}
+            {{- else if $auto }}
+            # The credentials come from the agent with the peer list (sealed, client side only: peers' public keys and the passwords of the pairs
+            # this cluster tests, never a private key); a peer without them is not tested. The public keys are written to the scratch volume.
+            - {name: CONTINUUM_LINK_CAPACITY_AUTH_AUTO, value: "true"}
+            - {name: CONTINUUM_LINK_CAPACITY_AUTH_KEY_DIR, value: /iperf-keys}
             {{- end }}
             {{- end }}
           ports:
@@ -278,6 +337,8 @@ spec:
             - {name: tmp, mountPath: /tmp}
             {{- if $auth }}
             - {name: iperf-auth, mountPath: /iperf-auth, readOnly: true}
+            {{- else if $auto }}
+            - {name: iperf-keys, mountPath: /iperf-keys}
             {{- end }}
       volumes:
         - name: secret
@@ -293,6 +354,10 @@ spec:
             items:
               - {key: public.pem, path: public.pem}
               - {key: password, path: password}
+        {{- else if $auto }}
+        # Public keys only, written by the prober for iperf3 to read; the passwords are passed in the environment and never touch a file.
+        - name: iperf-keys
+          emptyDir: {medium: Memory, sizeLimit: 1Mi}
         {{- end }}
       {{- with $probe.tolerations }}
       tolerations: {{- toYaml . | nindent 8 }}

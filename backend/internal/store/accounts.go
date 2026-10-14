@@ -394,6 +394,7 @@ func (s *SQLite) DeleteOrg(ctx context.Context, id string) error {
 		`DELETE FROM gateway_tokens WHERE org_id=?`,
 		`DELETE FROM decisions WHERE org_id=?`,
 		`DELETE FROM fusion_tokens WHERE org_id=?`,
+		`DELETE FROM link_iperf_credentials WHERE org_id=?`,
 		`DELETE FROM orgs WHERE id=?`, // memberships and invites go with it
 	} {
 		if _, err := tx.ExecContext(ctx, q, id); err != nil {

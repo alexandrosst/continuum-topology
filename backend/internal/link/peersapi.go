@@ -1,7 +1,9 @@
 package link
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -35,6 +37,10 @@ const (
 type PeersDoc struct {
 	ClusterID string    `json:"cluster_id"`
 	Peers     []PeerDoc `json:"peers"`
+	// IperfSealed carries the client credentials of the throughput tests, sealed under the peers secret and bound to the request
+	// (see iperfapi.go), only when the request asked for them and the agent holds some. It is a blob, not credentials: the
+	// plain document never contains a key or a password.
+	IperfSealed string `json:"iperf_sealed,omitempty"`
 }
 
 // PeerDoc is one peer in a PeersDoc.
@@ -59,6 +65,9 @@ type PeerDoc struct {
 	Throughput                bool   `json:"throughput,omitempty"`
 	ThroughputIntervalSeconds uint32 `json:"throughput_interval_seconds,omitempty"`
 	ThroughputBudgetBytes     uint64 `json:"throughput_budget_bytes,omitempty"`
+	// Iperf are the credentials of the tests towards this peer, filled in by FetchPeers from PeersDoc.IperfSealed. Never
+	// marshalled: they cross the network only sealed.
+	Iperf *IperfClient `json:"-"`
 }
 
 // Doc is the peers this meter currently measures, for the prober.
@@ -113,6 +122,9 @@ func (p *Peers) SetFromDoc(d PeersDoc) []string {
 	for _, pe := range d.Peers {
 		lps = append(lps, &continuumv1.LinkPeer{ClusterId: pe.ID, Name: pe.Name, Addresses: pe.Addresses, NoProbe: pe.NoProbe, SkipProbe: pe.SkipProbe, Via: pe.Via, Throughput: pe.Throughput,
 			ThroughputIntervalSeconds: pe.ThroughputIntervalSeconds, ThroughputBudgetBytes: pe.ThroughputBudgetBytes})
+		if pe.Iperf != nil {
+			lps[len(lps)-1].IperfClient = &continuumv1.LinkIperfClient{PublicKeyPem: pe.Iperf.PublicKeyPEM, Username: pe.Iperf.Username, Password: pe.Iperf.Password.Reveal()}
+		}
 		preferred[pe.ID] = pe.Preferred
 	}
 	return p.set(d.ClusterID, lps, preferred)
@@ -139,28 +151,53 @@ func (m *Meter) peersHandler() http.HandlerFunc {
 			http.NotFound(w, req)
 			return
 		}
-		_, _, status, err := probe.ReadSigned(w, req, probe.Signed{Secret: secret, MaxBody: 1 << 10, Replay: replay, NodeOK: func(n string) bool { return n == ProberNode }, Now: m.now(), Context: peersContext})
+		_, body, status, err := probe.ReadSigned(w, req, probe.Signed{Secret: secret, MaxBody: maxCredBody, Replay: replay, NodeOK: func(n string) bool { return n == ProberNode }, Now: m.now(), Context: peersContext})
 		if err != nil {
 			http.Error(w, http.StatusText(status), status)
 			return
 		}
 		m.noteProberSeen()
+		doc := m.peersDoc()
+		// A prober that also wants the credentials of the throughput tests says so in its (signed) request and gets them sealed
+		// under this same secret. One that does not (an older one, or an install with a Secret of its own) gets the list alone.
+		m.mu.Lock()
+		serving := len(m.iperfSecret) > 0
+		m.mu.Unlock()
+		if len(body) > 0 && serving {
+			if r, err := parseCredRequest(body); err == nil && r.Iperf {
+				doc.IperfSealed = m.sealedClients(secret, req.Header.Get(probe.HeaderSig))
+			}
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
-		_ = json.NewEncoder(w).Encode(m.peersDoc())
+		_ = json.NewEncoder(w).Encode(doc)
 	}
 }
 
 // FetchPeers asks the agent at url (scheme, host and port) for the peers to measure.
 func FetchPeers(ctx context.Context, hc *http.Client, url string, secret []byte, now time.Time) (PeersDoc, error) {
+	return FetchPeersWith(ctx, hc, url, secret, now, false)
+}
+
+// FetchPeersWith is FetchPeers; with iperf the request also asks for the client credentials of the throughput tests, which come
+// back sealed and are opened into each PeerDoc.Iperf.
+func FetchPeersWith(ctx context.Context, hc *http.Client, url string, secret []byte, now time.Time, iperf bool) (PeersDoc, error) {
+	var body []byte
+	if iperf {
+		var err error
+		if body, err = newCredRequest(true); err != nil {
+			return PeersDoc{}, err
+		}
+	}
 	ts := strconv.FormatInt(now.Unix(), 10)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url+PathPeers, http.NoBody)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url+PathPeers, bytes.NewReader(body))
 	if err != nil {
 		return PeersDoc{}, err
 	}
+	sig := probe.SignContext(peersContext, secret, ts, ProberNode, body)
 	req.Header.Set(probe.HeaderNode, ProberNode)
 	req.Header.Set(probe.HeaderTime, ts)
-	req.Header.Set(probe.HeaderSig, probe.SignContext(peersContext, secret, ts, ProberNode, nil))
+	req.Header.Set(probe.HeaderSig, sig)
 	resp, err := hc.Do(req)
 	if err != nil {
 		return PeersDoc{}, err
@@ -184,5 +221,35 @@ func FetchPeers(ctx context.Context, hc *http.Client, url string, secret []byte,
 			}
 		}
 	}
+	if iperf && d.IperfSealed != "" {
+		if err := d.openIperf(secret, sig); err != nil {
+			return PeersDoc{}, err
+		}
+	}
+	d.IperfSealed = ""
 	return d, nil
+}
+
+// openIperf opens the sealed client credentials into the peers they belong to. Credentials for a peer the answer does not list
+// are ignored; a document that does not open is an error, never a partial result.
+func (d *PeersDoc) openIperf(secret []byte, sig string) error {
+	raw, err := base64.StdEncoding.DecodeString(d.IperfSealed)
+	if err != nil || len(raw) > maxSealedAnswer {
+		return errors.New("agent's credentials are not a sealed document")
+	}
+	plain, err := open(secret, peersIperfSeal, sig, raw)
+	if err != nil {
+		return errors.New("agent's credentials could not be opened (wrong secret, or not an answer to this request)")
+	}
+	defer clear(plain)
+	var m map[string]iperfClientWire
+	if err := json.Unmarshal(plain, &m); err != nil {
+		return errors.New("agent's credentials are not a credential document")
+	}
+	for i := range d.Peers {
+		if w, ok := m[d.Peers[i].ID]; ok {
+			d.Peers[i].Iperf = &IperfClient{PublicKeyPEM: w.PublicKeyPEM, Username: w.Username, Password: Secret(w.Password)}
+		}
+	}
+	return nil
 }

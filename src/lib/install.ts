@@ -196,7 +196,7 @@ export interface TelemetryInput {
   clusterLinksProbe: boolean
   /** Only meaningful when the probe is on: also let this cluster run and answer throughput tests (iperf3). They load the link, so which pairs run them is chosen per pair. */
   clusterLinksThroughput: boolean
-  /** Required with the throughput tests: the Secret holding iperf3's credentials, the same in every cluster of the mesh. iperf3 accepts anyone who can reach its port otherwise, so there is no way to leave it out. */
+  /** Optional with the throughput tests: a Secret of your own holding iperf3's credentials, the same in every cluster of the mesh. Empty (the default): Ikhnos issues the credentials and the chart asks for no Secret; the server never runs unauthenticated either way. */
   clusterLinksAuthSecret: string
   applicationMetrics: boolean
   /** Per-signal scope override for applicationMetrics - see `ScopeOverrideInput`. */
@@ -653,8 +653,8 @@ export function telemetryProblems(t: TelemetryInput, measurementsOn?: boolean): 
   if (t.accelerators && t.acceleratorsSource === 'existing') out.push(...scrapeTargetProblem(t.acceleratorsExistingEndpoint, 'Accelerators: the existing Prometheus endpoint'))
   if (t.clusterLinks && !isKept(t, 'clusterLinksOptions') && t.clusterLinksProbe && t.clusterLinksThroughput) {
     const secret = t.clusterLinksAuthSecret.trim()
-    if (!secret) out.push('Throughput tests need the name of the Secret that holds the iperf3 credentials: without it anyone who can reach the port could run a test')
-    else if (!SECRET_NAME.test(secret)) out.push('Cluster links: the credential Secret name uses lowercase letters, digits, - and . only')
+    // Optional: left empty, Ikhnos issues the iperf3 credentials. Only a name that was typed has to be a valid one.
+    if (secret && !SECRET_NAME.test(secret)) out.push('Cluster links: the credential Secret name uses lowercase letters, digits, - and . only')
   }
   if (t.networkLatency && measurementsOn === false) out.push('Network latency re-emits the path measurements extra, so turn that on too, or it will report nothing')
   // An emptied field is NaN (kept as such, not turned into 0: that would silently mean "drop every trace").
@@ -834,7 +834,11 @@ export function withTelemetry(install: string, t: TelemetryInput, measurementsOn
     if (!isKept(t, 'clusterLinksOptions')) {
       add(`telemetry.clusterLinks.probe.enabled=${t.clusterLinksProbe}`)
       add(`telemetry.clusterLinks.probe.capacity.enabled=${t.clusterLinksProbe && t.clusterLinksThroughput}`)
-      if (t.clusterLinksProbe && t.clusterLinksThroughput) addString('telemetry.clusterLinks.probe.capacity.auth.existingSecret', t.clusterLinksAuthSecret.trim())
+      if (t.clusterLinksProbe && t.clusterLinksThroughput) {
+        // Only for credentials of your own; empty means Ikhnos issues them (the chart's default), so no flag.
+        const own = t.clusterLinksAuthSecret.trim()
+        if (own) addString('telemetry.clusterLinks.probe.capacity.auth.existingSecret', own)
+      }
     }
   } else {
     // Stated off with the signal, whatever the draft says: the prober cannot stay on without it.

@@ -97,3 +97,56 @@ func TestServingPeersNeedsTheirOwnSecretWhichIsNotTheFlowSecret(t *testing.T) {
 		}
 	}
 }
+
+// The issued iperf3 credentials are handed out only with a request secret of their own, which is neither the prober's nor the flow
+// secret: the prober, which holds the second, must not be able to ask for the private key.
+func TestServingIperfCredentialsNeedsASecretOfItsOwn(t *testing.T) {
+	dir := t.TempDir()
+	flow := filepath.Join(dir, "flow")
+	os.WriteFile(flow, []byte("0123456789abcdef0123\n"), 0o600)
+	peers := filepath.Join(dir, "peers")
+	os.WriteFile(peers, []byte("peers-secret-abcdef0123"), 0o600)
+	samePeers := filepath.Join(dir, "same-peers")
+	os.WriteFile(samePeers, []byte("peers-secret-abcdef0123\n"), 0o600)
+	sameFlow := filepath.Join(dir, "same-flow")
+	os.WriteFile(sameFlow, []byte("0123456789abcdef0123"), 0o600)
+	short := filepath.Join(dir, "short")
+	os.WriteFile(short, []byte("abc"), 0o600)
+	base := []string{"--server", "s.example:8443", "--ca-pin", "ab", "--probe-listen", "127.0.0.1:0", "--flow-secret-file", flow, "--link-metrics-listen", "127.0.0.1:0", "--link-serve-peers", "--link-peers-secret-file", peers}
+	for name, c := range map[string]struct {
+		args []string
+		want string
+	}{
+		"no secret":            {[]string{"--link-serve-iperf"}, "--link-serve-iperf needs --link-iperf-secret-file"},
+		"secret without serve": {[]string{"--link-iperf-secret-file", samePeers}, "--link-iperf-secret-file needs --link-serve-iperf"},
+		"short":                {[]string{"--link-serve-iperf", "--link-iperf-secret-file", short}, "at least 16 characters"},
+		"the peers secret":     {[]string{"--link-serve-iperf", "--link-iperf-secret-file", samePeers}, "must differ from --link-peers-secret-file"},
+		"the flow secret":      {[]string{"--link-serve-iperf", "--link-iperf-secret-file", sameFlow}, "must not hold the flow secret"},
+	} {
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		old := os.Stderr
+		os.Stderr = w
+		code := Main(append(append([]string{}, base...), c.args...))
+		w.Close()
+		os.Stderr = old
+		out, _ := io.ReadAll(r)
+		if code == 0 || !strings.Contains(string(out), c.want) {
+			t.Errorf("%s: code %d, output:\n%s", name, code, out)
+		}
+	}
+	// Without the peers being served there is no peer list to carry the prober's credentials.
+	noPeers := []string{"--server", "s.example:8443", "--ca-pin", "ab", "--probe-listen", "127.0.0.1:0", "--flow-secret-file", flow, "--link-metrics-listen", "127.0.0.1:0", "--link-serve-iperf", "--link-iperf-secret-file", peers}
+	r, w, _ := os.Pipe()
+	old := os.Stderr
+	os.Stderr = w
+	code := Main(noPeers)
+	w.Close()
+	os.Stderr = old
+	out, _ := io.ReadAll(r)
+	if code == 0 || !strings.Contains(string(out), "--link-serve-iperf needs --link-serve-peers") {
+		t.Errorf("iperf without peers: code %d, output:\n%s", code, out)
+	}
+}

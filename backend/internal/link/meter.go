@@ -94,6 +94,12 @@ type Meter struct {
 	// around this meter. Both are reported to the server as the agent's link capabilities (see capabilities.go).
 	proberSeen time.Time
 	install    Install
+
+	// The iperf3 server credentials the agent holds for this cluster's responder pods, and the secret and replay cache of the
+	// request that fetches them (see iperfapi.go). Memory only.
+	iperfSecret []byte
+	iperfReplay *probe.ReplayCache
+	iperfSrv    *IperfServer
 }
 
 // NewMeter reads peers from p.

@@ -29,6 +29,9 @@ spec:
         {{- if .Values.flowObserver.enabled }}
         checksum/flow-secret: {{ include "agent.flowSecretRevision" . }}
         {{- end }}
+        {{- if include "agent.linkIperf" . }}
+        checksum/link-iperf-secret: {{ include "agent.linkIperfSecretRevision" . }}
+        {{- end }}
         {{- if include "agent.linkPeers" . }}
         checksum/link-peers-secret: {{ include "agent.linkPeersSecretRevision" . }}
         {{- end }}
@@ -149,6 +152,12 @@ spec:
             {{- if .Values.telemetry.clusterLinks.probe.enabled }}
             - {name: CONTINUUM_LINK_SERVE_PEERS, value: "true"}
             - {name: CONTINUUM_LINK_PEERS_SECRET_FILE, value: /link-peers/secret}
+            {{- if include "agent.linkIperf" . }}
+            # The iperf3 credentials the Ikhnos server issues: held in memory, handed to the prober (client side, with the peer list) and to
+            # the responder's iperf3 pods (server side, signed with the secret below), never written anywhere.
+            - {name: CONTINUUM_LINK_SERVE_IPERF, value: "true"}
+            - {name: CONTINUUM_LINK_IPERF_SECRET_FILE, value: /link-iperf/secret}
+            {{- end }}
             {{- $lp := .Values.telemetry.clusterLinks.probe }}
             # The prober's own ports (OWAMP control and test packets, iperf3), so the link metrics and the load the throughput tests
             # wait on do not count the prober's traffic as the link's.
@@ -216,6 +225,9 @@ spec:
             {{- if include "agent.linkPeers" . }}
             - {name: link-peers-secret, mountPath: /link-peers, readOnly: true}
             {{- end }}
+            {{- if include "agent.linkIperf" . }}
+            - {name: link-iperf-secret, mountPath: /link-iperf, readOnly: true}
+            {{- end }}
           {{- end }}
           resources: {{- toYaml .Values.resources | nindent 12 }}
       {{- if or (include "agent.receiver" .) (include "agent.linkPeers" .) }}
@@ -231,6 +243,10 @@ spec:
         {{- if include "agent.linkPeers" . }}
         - name: link-peers-secret
           secret: {secretName: {{ include "agent.linkPeersSecretName" . }}, defaultMode: 0440}
+        {{- end }}
+        {{- if include "agent.linkIperf" . }}
+        - name: link-iperf-secret
+          secret: {secretName: {{ include "agent.linkIperfSecretName" . }}, defaultMode: 0440}
         {{- end }}
       {{- end }}
       {{- with .Values.nodeSelector }}

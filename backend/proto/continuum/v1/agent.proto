@@ -671,6 +671,11 @@ message Config {
   // The other clusters an administrator asked this one to measure its links to (see LinkPeer). Empty means no link
   // is measured. Never more than the server's own limit; the agent applies it only as far as its install allows.
   repeated LinkPeer link_peers = 10;
+  // iperf3 server credentials for the throughput tests, issued by the server. Present only on the cluster that SERVES the
+  // tests of at least one pair (the second of the pair, see LinkPeer.throughput); never on any other cluster. The agent keeps
+  // it in memory, hands it only to this cluster's iperf3 server pods over a signed, sealed request, and never writes it
+  // anywhere. Unset: the server issues none (an older server, or no pair asks for throughput tests).
+  LinkIperfServer link_iperf_server = 11;
 }
 
 // One other cluster this cluster's link is measured to. The server is the only place that knows which address belongs
@@ -705,6 +710,9 @@ message LinkPeer {
   // using. The server sets it from the pair's setting on both clusters; an older agent that does not know the field measures
   // as before.
   string via = 9;
+  // iperf_client: credentials for the throughput tests towards this peer. Set only together with `throughput`, i.e. on the
+  // cluster that runs the tests, and carries the peer's public key, never its private key. An older agent ignores it.
+  LinkIperfClient iperf_client = 10;
 }
 
 // An address to time. The agent only honours it when it was started with measurements allowed, and
@@ -1427,4 +1435,24 @@ message LinkCapabilities {
   // This install runs a telemetry cluster collector that exports the link metrics to a destination, so what the cluster
   // measures leaves it (the chart's telemetry.clusterLinks.metrics.enabled together with an export destination).
   bool telemetry_export = 5;
+}
+
+// What an iperf3 server needs to accept authenticated clients (iperf3's --rsa-private-key-path and --authorized-users-path):
+// this cluster's own private key, and one "USER,SHA256" line for every pair this cluster serves, where SHA256 is the hex hash
+// of "{USER}PASSWORD". Secret material: never logged, never written to disk or to a Kubernetes Secret by the agent.
+message LinkIperfServer {
+  // PEM, an RSA-2048 private key. Belongs to this cluster alone; no other cluster is sent it.
+  string private_key_pem = 1;
+  // The authorized users file, one "USER,SHA256" line per pair this cluster serves.
+  string users_csv = 2;
+}
+
+// What an iperf3 client needs to run the tests towards one peer (iperf3's --rsa-public-key-path, --username and the
+// IPERF3_PASSWORD variable). Sent only to the cluster that RUNS the tests of the pair, inside the peer's LinkPeer.
+message LinkIperfClient {
+  // PEM, the peer cluster's RSA public key (the one its server decrypts with).
+  string public_key_pem = 1;
+  string username = 2;
+  // Secret material: never logged, kept in memory only.
+  string password = 3;
 }

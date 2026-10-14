@@ -28,6 +28,8 @@ type capacityFlags struct {
 	tcpMax, budget, skipAbove, window   *string
 	busy                                *float64
 	authUser, authKeyFile, authPassFile *string
+	authAuto                            *bool
+	authKeyDir                          *string
 }
 
 func addCapacityFlags(fs *flag.FlagSet) capacityFlags {
@@ -55,6 +57,8 @@ func addCapacityFlags(fs *flag.FlagSet) capacityFlags {
 	f.authUser = fs.String("capacity-auth-user", cli.Env(p+"AUTH_USER", ""), "iperf3 user for the authenticated mode")
 	f.authKeyFile = fs.String("capacity-auth-key-file", cli.Env(p+"AUTH_KEY_FILE", ""), "the servers' RSA public key, for the authenticated mode")
 	f.authPassFile = fs.String("capacity-auth-password-file", cli.Env(p+"AUTH_PASSWORD_FILE", ""), "file holding the iperf3 user's password")
+	f.authAuto = fs.Bool("capacity-auth-auto", boolEnv(p+"AUTH_AUTO", false), "use the credentials the Ikhnos server issues for each peer (fetched from the agent, in memory) and never test a peer without them; ignored when --capacity-auth-user is set")
+	f.authKeyDir = fs.String("capacity-auth-key-dir", cli.Env(p+"AUTH_KEY_DIR", ""), "private scratch directory for the peers' public keys (empty: a temporary directory)")
 	return f
 }
 
@@ -64,6 +68,7 @@ func (f capacityFlags) build() (*link.Capacity, error) {
 		Bin: *f.bin, Port: *f.port, Every: *f.every, Duration: *f.duration, Omit: *f.omit, Parallel: *f.parallel,
 		Reverse: *f.reverse, Bidir: *f.bidir, BusyFraction: *f.busy,
 		User: *f.authUser, KeyFile: *f.authKeyFile, PasswordFile: *f.authPassFile,
+		AutoAuth: *f.authAuto && *f.authUser == "", KeyDir: *f.authKeyDir,
 	}
 	var err error
 	rate := func(name, v string) uint64 {

@@ -7,7 +7,13 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
+// capArgs turns the throughput tests on with the Ikhnos-issued credentials switched off (auth.automatic=false), which is the
+// open or own-Secret server these tests were written for. autoArgs is the default: the server issues the credentials.
 func capArgs(extra ...string) []string {
+	return probeArgs(append([]string{"telemetry.clusterLinks.probe.capacity.enabled=true", "telemetry.clusterLinks.probe.capacity.auth.automatic=false"}, extra...)...)
+}
+
+func autoArgs(extra ...string) []string {
 	return probeArgs(append([]string{"telemetry.clusterLinks.probe.capacity.enabled=true"}, extra...)...)
 }
 

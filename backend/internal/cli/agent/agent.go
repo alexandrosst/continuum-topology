@@ -70,6 +70,8 @@ func Main(args []string) int {
 	linkProberPorts := fs.String("link-prober-ports", cli.Env("CONTINUUM_LINK_PROBER_PORTS", ""), "ports (and ranges, e.g. 8861,8862,18900-18999) the link prober's own traffic uses, which the link metrics leave out so that the probes and throughput tests do not count as the link's traffic; the chart's telemetry.clusterLinks.probe sets this")
 	linkServePeers := fs.Bool("link-serve-peers", cli.Env("CONTINUUM_LINK_SERVE_PEERS", "") == "true", "also answer the link prober's signed request for the peer clusters to measure (POST /v1/link/peers on the link metrics address), using --link-peers-secret-file; the chart's telemetry.clusterLinks.probe sets this")
 	linkPeersSecretFile := fs.String("link-peers-secret-file", cli.Env("CONTINUUM_LINK_PEERS_SECRET_FILE", ""), "file holding the secret shared with the link prober, for its request for the peers to measure (needs --link-serve-peers). It is not the flow secret: the prober must not be able to sign flow reports")
+	linkServeIperf := fs.Bool("link-serve-iperf", cli.Env("CONTINUUM_LINK_SERVE_IPERF", "") == "true", "also hold the iperf3 credentials the Ikhnos server issues for the throughput tests (in memory only) and hand them to the link pods: the client credentials to the prober (sealed, with the peer list) and the server credentials to the responder's iperf3 server (POST /v1/link/iperf-server), using --link-iperf-secret-file; the chart sets this when telemetry.clusterLinks.probe.capacity is on and no Secret of your own is named")
+	linkIperfSecretFile := fs.String("link-iperf-secret-file", cli.Env("CONTINUUM_LINK_IPERF_SECRET_FILE", ""), "file holding the secret shared with the responder's iperf3 server pods for the server-credentials request (needs --link-serve-iperf). Neither the prober's secret nor the flow secret: the prober must not be able to read the private key")
 	flowSecretFile := fs.String("flow-secret-file", cli.Env("CONTINUUM_FLOW_SECRET_FILE", ""), "file holding the secret shared with the node flow collectors (needs --probe-listen)")
 	rbacMode := fs.String("rbac-mode", cli.Env("CONTINUUM_RBAC_MODE", "cluster"), "how tier 2's installed RBAC was granted: cluster (one ClusterRole, default) or namespaced (a Role per namespace in --scope-namespaces instead). Must match the chart's rbac.mode; the chart sets this automatically")
 	scopeNS := fs.String("scope-namespaces", cli.Env("CONTINUUM_SCOPE_NAMESPACES", ""), "report only these namespaces, comma separated (empty: all). Combined with --scope-label as a union. Required, and the only way to select namespaces, when --rbac-mode=namespaced")
@@ -196,6 +198,29 @@ func Main(args []string) int {
 			return cli.Fatal(log, fmt.Errorf("--link-peers-secret-file must not hold the flow secret: the link prober would then be able to sign flow reports"))
 		}
 	}
+	if *linkServeIperf && !*linkServePeers {
+		return cli.Fatal(log, fmt.Errorf("--link-serve-iperf needs --link-serve-peers: the prober's credentials come with its peer list"))
+	}
+	if *linkServeIperf && *linkIperfSecretFile == "" {
+		return cli.Fatal(log, fmt.Errorf("--link-serve-iperf needs --link-iperf-secret-file: the responder signs its request with a secret of its own"))
+	}
+	if !*linkServeIperf && *linkIperfSecretFile != "" {
+		return cli.Fatal(log, fmt.Errorf("--link-iperf-secret-file needs --link-serve-iperf"))
+	}
+	var linkIperfSec []byte
+	if *linkServeIperf {
+		sec, rerr := os.ReadFile(*linkIperfSecretFile)
+		linkIperfSec = []byte(strings.TrimSpace(string(sec)))
+		if rerr != nil || len(linkIperfSec) < 16 {
+			return cli.Fatal(log, fmt.Errorf("--link-iperf-secret-file must hold a secret of at least 16 characters: %v", rerr))
+		}
+		if bytes.Equal(linkIperfSec, linkPeersSec) {
+			return cli.Fatal(log, fmt.Errorf("--link-iperf-secret-file must differ from --link-peers-secret-file: the prober holds the second and must not be able to read the iperf3 private key"))
+		}
+		if flowSec, ferr := os.ReadFile(*flowSecretFile); ferr == nil && bytes.Equal(linkIperfSec, bytes.TrimSpace(flowSec)) {
+			return cli.Fatal(log, fmt.Errorf("--link-iperf-secret-file must not hold the flow secret"))
+		}
+	}
 	if _, _, err := net.SplitHostPort(*server); err != nil {
 		return cli.Fatal(log, fmt.Errorf("--server must be host:port: %w", err))
 	}
@@ -261,6 +286,12 @@ func Main(args []string) int {
 		flows.Links = links
 		if *linkServePeers {
 			links.ServePeers(linkPeersSec)
+		}
+		if *linkServeIperf {
+			links.ServeIperf(linkIperfSec)
+		} else {
+			// Credentials this agent does not hand to any pod (the install uses a Secret of its own) are not kept either.
+			links.Peers.DropIperf(true)
 		}
 		stopLinks, lerr := link.Serve(*linkListen, links, log)
 		if lerr != nil {

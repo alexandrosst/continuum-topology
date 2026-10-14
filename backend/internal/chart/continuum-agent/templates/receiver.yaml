@@ -69,6 +69,17 @@ spec:
       ports:
         - {port: 9104, protocol: TCP}
     {{- end }}
+    {{- if include "agent.linkIperf" . }}
+    # The responder's iperf3 pods run in the host network and ask the agent for their server credentials on the same port (signed with a
+    # secret of their own, answered sealed). Their traffic carries no pod identity, so, like the flow collectors', it is allowed by source
+    # address: flowObserver.nodeCIDRs with flowObserver.networkPolicy, otherwise any source, as it could without this policy.
+    - from:
+        {{- range (ternary .Values.flowObserver.nodeCIDRs (list "0.0.0.0/0") .Values.flowObserver.networkPolicy) }}
+        - ipBlock: {cidr: {{ . | quote }}}
+        {{- end }}
+      ports:
+        - {port: 9104, protocol: TCP}
+    {{- end }}
     {{- if .Values.flowObserver.enabled }}
     # The flow collectors run in the host network, so their traffic arrives from node-side addresses, which a
     # pod selector cannot name. With flowObserver.networkPolicy=true it is restricted to flowObserver.nodeCIDRs (which must

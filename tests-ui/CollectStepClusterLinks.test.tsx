@@ -12,19 +12,26 @@ function Harness({ onValue }: { onValue: (v: TelemetryInput) => void }) {
 }
 
 describe('CollectStep: Cluster links', () => {
-  it('offers probing and throughput only once the signal is on, and asks for the Secret with throughput', () => {
+  it('offers probing and throughput only once the signal is on; the Secret is optional and tucked away', () => {
     let latest = emptyTelemetry
     render(<Harness onValue={(v) => (latest = v)} />)
     expect(screen.queryByTestId('t-links-probe')).toBeNull()
     fireEvent.click(screen.getByTestId('t-clusterLinks'))
     expect(latest.clusterLinks).toBe(true)
     expect(screen.getByTestId('t-links-probe')).toBeChecked()
-    expect(screen.queryByTestId('t-links-secret')).toBeNull()
+    expect(screen.queryByTestId('t-links-own-credentials')).toBeNull()
     fireEvent.click(screen.getByTestId('t-links-throughput'))
-    expect(screen.getByTestId('t-links-secret')).toBeInTheDocument()
-    expect(telemetryProblems(latest).join(' ')).toMatch(/Secret that holds the iperf3 credentials/)
+    // Nothing is required: Ikhnos issues the credentials, and the field sits closed under an Advanced disclosure.
+    expect(telemetryProblems(latest)).toEqual([])
+    const details = screen.getByTestId('t-links-own-credentials') as HTMLDetailsElement
+    expect(details.open).toBe(false)
+    expect(details).toHaveTextContent('Advanced: use my own iperf3 credentials')
+    expect(details).toHaveTextContent(/Ikhnos issues the credentials/)
+    fireEvent.change(screen.getByTestId('t-links-secret'), { target: { value: 'Bad_Name' } })
+    expect(telemetryProblems(latest).join(' ')).toMatch(/credential Secret name/)
     fireEvent.change(screen.getByTestId('t-links-secret'), { target: { value: 'continuum-link-iperf' } })
     expect(telemetryProblems(latest)).toEqual([])
+    expect(latest.clusterLinksAuthSecret).toBe('continuum-link-iperf')
     fireEvent.click(screen.getByTestId('t-links-probe'))
     expect(screen.queryByTestId('t-links-throughput')).toBeNull()
   })

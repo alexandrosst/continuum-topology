@@ -37,6 +37,8 @@ Back up **both** files together, and the passphrase separately from them:
 If the key is encrypted (`--ca-key-passphrase-file`), the backup is encrypted too: argon2id
 (64 MiB, 3 passes) with AES-256-GCM. Losing the passphrase is losing the CA.
 
+The iperf3 credentials the server issues for cluster-link throughput tests (`link_iperf_credentials` in `continuum.db`) are sealed under a key derived from `ca.key`. A database restored with a different CA key cannot open them; the server then treats them as missing and makes new ones, which reach the clusters in their next configuration. Nothing is done on the clusters.
+
 `continuum.db` (agents, tokens, audit trail) is separate. The CA is enough to keep existing agents
 working; the database is needed to keep their approvals and history.
 

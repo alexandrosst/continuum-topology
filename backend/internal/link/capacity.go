@@ -3,6 +3,8 @@ package link
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -10,6 +12,7 @@ import (
 	"net/netip"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -81,6 +84,13 @@ type Capacity struct {
 	// User, KeyFile (the server's RSA public key) and PasswordFile select iperf3's authenticated mode, in which the server
 	// refuses anyone without the credentials.
 	User, KeyFile, PasswordFile string
+	// AutoAuth says the install lets the Ikhnos server issue the credentials (Peer.Iperf): a peer without them is not tested,
+	// and counts as an `auth` failure, rather than being tried without authentication. The credentials of User, KeyFile and
+	// PasswordFile, when set, take precedence for every peer.
+	AutoAuth bool
+	// KeyDir is where the peers' public keys are written for iperf3 to read (the prober's private, in-memory scratch space; empty:
+	// a directory made under the system's temporary one). Public keys only: a password never touches a file.
+	KeyDir string
 
 	// Pause is left between two tests so that the one-way probe gets its turn. StartAfter bounds the random delay before a
 	// peer is first tested (negative: none).
@@ -92,6 +102,7 @@ type Capacity struct {
 
 	password string
 	ledger   *Ledger
+	keyFiles map[string]string // sha256 of a public key -> the file it is in
 
 	mu        sync.Mutex
 	pairs     map[string]*Ledger // peer -> its own daily budget, for the peers that have one
@@ -597,10 +608,20 @@ func (c *Capacity) invoke(ctx context.Context, p Peer, t capTest, extra []string
 		}
 		return IperfResult{}, outcome{fail: "unreachable"}
 	}
+	au, err := c.authFor(p)
+	if err != nil {
+		if c.warnOnce(p.ID + "|auth") {
+			c.Log.Warn("throughput tests towards the peer wait for iperf3 credentials: no test is run without them", "peer", p.ID, "reason", err.Error())
+		}
+		return IperfResult{}, outcome{fail: "auth"}
+	}
+	c.mu.Lock()
+	delete(c.warned, p.ID+"|auth")
+	c.mu.Unlock()
 	var reason string
 	sawBusy := false
 	for _, a := range addrs {
-		res, why := c.once(ctx, a, t, extra)
+		res, why := c.once(ctx, a, t, extra, au)
 		switch why {
 		case "":
 			c.mu.Lock()
@@ -634,7 +655,7 @@ func (c *Capacity) candidates(p Peer) []string {
 }
 
 // once runs the client once towards addr.
-func (c *Capacity) once(ctx context.Context, addr string, t capTest, extra []string) (IperfResult, string) {
+func (c *Capacity) once(ctx context.Context, addr string, t capTest, extra []string, au iperfAuth) (IperfResult, string) {
 	ip, err := netip.ParseAddr(addr)
 	if err != nil || ip.IsUnspecified() || ip.IsMulticast() {
 		return IperfResult{}, "other"
@@ -647,9 +668,9 @@ func (c *Capacity) once(ctx context.Context, addr string, t capTest, extra []str
 		args = append(args, "--dscp", strconv.Itoa(t.dscp))
 	}
 	var env []string
-	if c.User != "" {
-		args = append(args, "--username", c.User, "--rsa-public-key-path", c.KeyFile)
-		env = append(env, "IPERF3_PASSWORD="+c.password)
+	if au.user != "" {
+		args = append(args, "--username", au.user, "--rsa-public-key-path", au.keyFile)
+		env = append(env, "IPERF3_PASSWORD="+au.password.Reveal())
 	}
 	args = append(args, extra...)
 	release, err := c.Gate.Acquire(ctx)
@@ -885,4 +906,71 @@ func traceTarget(p Peer, last string) string {
 		}
 	}
 	return ""
+}
+
+// iperfAuth is what one iperf3 client invocation authenticates with; zero is no authentication.
+type iperfAuth struct {
+	user, keyFile string
+	password      Secret
+}
+
+// authFor works out the credentials for the tests towards a peer: the install's own Secret when it has one, else what the server
+// issued for this peer, else (only when the install does not let the server issue them) none. An install that lets the server
+// issue them never tests a peer it holds none for.
+func (c *Capacity) authFor(p Peer) (iperfAuth, error) {
+	if c.User != "" {
+		return iperfAuth{user: c.User, keyFile: c.KeyFile, password: Secret(c.password)}, nil
+	}
+	if p.Iperf == nil {
+		if c.AutoAuth {
+			return iperfAuth{}, errors.New("the server has not issued any yet")
+		}
+		return iperfAuth{}, nil
+	}
+	f, err := c.keyFile(p.Iperf.PublicKeyPEM)
+	if err != nil {
+		return iperfAuth{}, errors.New("the public key could not be prepared")
+	}
+	return iperfAuth{user: p.Iperf.Username, keyFile: f, password: p.Iperf.Password}, nil
+}
+
+// keyFile writes a peer's public key where iperf3 can read it (once per distinct key) and returns the path.
+func (c *Capacity) keyFile(pemKey string) (string, error) {
+	sum := sha256.Sum256([]byte(pemKey))
+	id := hex.EncodeToString(sum[:8])
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if f, ok := c.keyFiles[id]; ok {
+		if _, err := os.Stat(f); err == nil {
+			return f, nil
+		}
+	}
+	if c.KeyDir == "" {
+		d, err := os.MkdirTemp("", "iperf-keys-")
+		if err != nil {
+			return "", err
+		}
+		c.KeyDir = d
+	}
+	f := filepath.Join(c.KeyDir, id+".pem")
+	if err := os.WriteFile(f, []byte(pemKey), 0o600); err != nil {
+		return "", err
+	}
+	if c.keyFiles == nil {
+		c.keyFiles = map[string]string{}
+	}
+	c.keyFiles[id] = f
+	return f, nil
+}
+
+// warnOnce is true the first time it is asked about key (until the key is cleared).
+func (c *Capacity) warnOnce(key string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.warned == nil {
+		c.warned = map[string]bool{}
+	}
+	done := c.warned[key]
+	c.warned[key] = true
+	return !done
 }
