@@ -160,6 +160,23 @@ export interface LinkPairLatest {
   throughputBToA?: number
   probedAt?: string
   testedAt?: string
+  /** How the one-way probe stands in each direction. Absent where FUSION holds no state (probing off, an older agent, nothing arrived yet). */
+  probeAToB?: ProbeLatest
+  probeBToA?: ProbeLatest
+}
+
+/** What the server read the evidence to fit; a bounded word, never text from the clusters. Several causes can look the same from the prober's side. */
+export type ProbeDiagnosis = 'udp-lost' | 'denied' | 'no-responder' | 'filtered' | 'one-way' | 'stale'
+const DIAGNOSES: readonly string[] = ['udp-lost', 'denied', 'no-responder', 'filtered', 'one-way', 'stale']
+
+/** The state of the one-way probe in one direction: the latest run completed (ok), failed after an earlier one completed (failing), or failed and none ever did (never). */
+export interface ProbeLatest {
+  state: 'ok' | 'failing' | 'never'
+  /** Why the latest runs failed, as a word the server counts by (unreachable, refused, timeout, auth, other, no_such_kind, reset). */
+  reason?: string
+  diagnosis?: ProbeDiagnosis
+  /** When a run in this direction last completed. */
+  at?: string
 }
 
 /** Why a pair is not measured from one of its clusters, as the server worked it out. */
@@ -196,6 +213,10 @@ export interface LinksLatest {
   notes: LinkNote[]
   /** The checklist of each pair, whether or not FUSION could be read. Empty from a server that does not send it. */
   setup: PairSetup[]
+  /** The notes and the checklist could not be worked out (the server could not read the agents), so their being empty says nothing. */
+  setupReason?: 'unavailable'
+  /** FUSION could not be read just now: `pairs` are the last ones read, at `at`. */
+  stale?: boolean
   at: string
 }
 
@@ -224,7 +245,38 @@ export function normalizeSetup(raw: unknown): PairSetup[] {
   return out
 }
 
-export const normalizeLinksLatest = (d: Partial<LinksLatest> | undefined): LinksLatest => ({ available: !!d?.available, reason: d?.reason, pairs: d?.pairs ?? [], notes: d?.notes ?? [], setup: normalizeSetup(d?.setup), at: d?.at ?? '' })
+const PROBE_STATES: readonly string[] = ['ok', 'failing', 'never']
+
+/** One direction's probe state; a state this page does not know reads as none, so a newer server cannot make it show something false. */
+export function normalizeProbe(raw: unknown): ProbeLatest | undefined {
+  if (!raw || typeof raw !== 'object') return undefined
+  const p = raw as Record<string, unknown>
+  if (typeof p.state !== 'string' || !PROBE_STATES.includes(p.state)) return undefined
+  return {
+    state: p.state as ProbeLatest['state'],
+    ...(typeof p.reason === 'string' && p.reason !== '' ? { reason: p.reason } : {}),
+    ...(typeof p.diagnosis === 'string' && DIAGNOSES.includes(p.diagnosis) ? { diagnosis: p.diagnosis as ProbeDiagnosis } : {}),
+    ...(typeof p.at === 'string' && p.at !== '' ? { at: p.at } : {}),
+  }
+}
+
+const normalizePair = (l: LinkPairLatest): LinkPairLatest => {
+  const { probeAToB, probeBToA, ...rest } = l
+  const a = normalizeProbe(probeAToB)
+  const b = normalizeProbe(probeBToA)
+  return { ...rest, ...(a ? { probeAToB: a } : {}), ...(b ? { probeBToA: b } : {}) }
+}
+
+export const normalizeLinksLatest = (d: Partial<LinksLatest> | undefined): LinksLatest => ({
+  available: !!d?.available,
+  reason: d?.reason,
+  pairs: (d?.pairs ?? []).map(normalizePair),
+  notes: d?.notes ?? [],
+  setup: normalizeSetup(d?.setup),
+  ...(d?.setupReason === 'unavailable' ? { setupReason: 'unavailable' as const } : {}),
+  ...(d?.stale ? { stale: true } : {}),
+  at: d?.at ?? '',
+})
 
 /** What a pair needs, said where the person starts: the section's intro, the Add pair dialog and the telemetry wizard. */
 export const LINK_REQUIREMENT = 'A pair needs two clusters that each run the Ikhnos agent with Cluster links on; the cluster that runs the probes also has to send telemetry to FUSION (a local operator).'
@@ -311,12 +363,55 @@ export interface LatestView {
   details: string[]
   /** When the figures are from. */
   when?: { text: string; stale: boolean }
+  /** One line for each direction whose probe is not working, so a direction that has no figures is not mistaken for one that is fine. */
+  problems: { text: string; tone: 'warn' }[]
+  /** What the evidence fits, in sentences; where several causes look the same it says "one of". */
+  hints: string[]
+}
+
+/** The words for a probe failure reason the server counts by. */
+const REASON_WORDS: Record<string, string> = {
+  unreachable: 'unreachable', refused: 'refused', timeout: 'timed out', auth: 'not accepted', reset: 'reset', other: 'other', no_such_kind: 'no address of the chosen kind',
+}
+
+/** What each diagnosis says. These never name an address or repeat what a cluster reported. */
+const DIAGNOSIS_WORDS: Record<ProbeDiagnosis, string> = {
+  'udp-lost': 'every test packet was lost although the control connection works. One of: the UDP test ports are filtered, addresses are rewritten on the way, or the two clocks are more than 2 s apart.',
+  denied: 'the responder was reached but the test did not complete. One of: it refused the test (a prober behind address translation is refused), or the test program failed.',
+  'no-responder': 'nothing answers on the responder port of the other cluster: probing is off there, or its responder pods are not running.',
+  filtered: 'the responder port of the other cluster does not answer. One of: a firewall drops it, there is no route to the cluster, or the cluster is down.',
+  'one-way': 'only this direction fails; the other one works.',
+  stale: 'no probe run has finished lately.',
+}
+
+const timeOf = (iso: string | undefined): number | null => {
+  if (!iso) return null
+  const t = new Date(iso).getTime()
+  return Number.isFinite(t) ? t : null
+}
+
+/** When the oldest direction's probe last completed, from the per-direction times when the server sends them, else the pair's. */
+function probedAtMs(l: LinkPairLatest): number | null {
+  const per = [l.probeAToB, l.probeBToA].map((p) => timeOf(p?.at)).filter((t): t is number => t !== null)
+  if (per.length > 0) return Math.min(...per)
+  return timeOf(l.probedAt)
+}
+
+/**
+ * Whether a probe of this pair completed within STALE_AFTER_MS. The Probing dot is green only then: the setting being on says what was asked for, not that
+ * anything arrives.
+ */
+export function probeRecent(l: LinkPairLatest | undefined, now = Date.now()): boolean {
+  if (!l) return false
+  const times = [l.probeAToB, l.probeBToA].map((p) => timeOf(p?.at)).filter((t): t is number => t !== null)
+  const newest = times.length > 0 ? Math.max(...times) : timeOf(l.probedAt)
+  return newest !== null && now - newest <= STALE_AFTER_MS
 }
 
 /** The words for a pair's latest figures, or null when there is nothing to show. Arrows read in the order the pair is displayed. */
 export function latestView(l: LinkPairLatest | undefined, now = Date.now()): LatestView | null {
   if (!l) return null
-  const v: LatestView = { details: [] }
+  const v: LatestView = { details: [], problems: [], hints: [] }
   const loss = [num(l.lossAToB) ? { r: l.lossAToB, arrow: '→' } : null, num(l.lossBToA) ? { r: l.lossBToA, arrow: '←' } : null].filter((x) => x !== null)
   if (loss.length > 0) {
     const worst = Math.max(...loss.map((x) => x.r))
@@ -327,9 +422,30 @@ export function latestView(l: LinkPairLatest | undefined, now = Date.now()): Lat
   if (num(l.mtuBytes)) v.details.push(`MTU ${l.mtuBytes}`)
   const tp = [num(l.throughputAToB) ? `${rateWords(l.throughputAToB)} →` : '', num(l.throughputBToA) ? `${rateWords(l.throughputBToA)} ←` : ''].filter(Boolean)
   if (tp.length > 0) v.details.push(tp.join(' · '))
-  if (l.probedAt) {
-    v.when = { text: `probed ${ago(l.probedAt, now)}`, stale: now - new Date(l.probedAt).getTime() > STALE_AFTER_MS }
+  // A direction that is down has no figures; saying so keeps it from looking like one that was never asked. "Never succeeded" is a
+  // failure, not an old result.
+  const byDiagnosis = new Map<ProbeDiagnosis, string[]>()
+  for (const [probe, arrow] of [[l.probeAToB, '→'], [l.probeBToA, '←']] as const) {
+    if (!probe) continue
+    if (probe.state !== 'ok') {
+      const why = probe.reason ? ` (${REASON_WORDS[probe.reason] ?? 'other'})` : ''
+      v.problems.push({ text: probe.state === 'never' ? `${arrow} no probe has succeeded yet${why}` : `${arrow} probe failing${why}`, tone: 'warn' })
+    }
+    if (probe.diagnosis) byDiagnosis.set(probe.diagnosis, [...(byDiagnosis.get(probe.diagnosis) ?? []), arrow])
+  }
+  for (const [d, arrows] of byDiagnosis) v.hints.push(`${arrows.join(' ')} ${DIAGNOSIS_WORDS[d]}`)
+  const probed = probedAtMs(l)
+  if (probed !== null) {
+    v.when = { text: `probed ${ago(new Date(probed).toISOString(), now)}`, stale: now - probed > STALE_AFTER_MS }
   }
   if (l.testedAt && tp.length > 0) v.when = { text: `${v.when ? `${v.when.text} · ` : ''}tested ${ago(l.testedAt, now)}`, stale: v.when?.stale ?? false }
-  return v.loss || v.details.length > 0 ? v : null
+  return v.loss || v.details.length > 0 || v.problems.length > 0 || v.hints.length > 0 ? v : null
+}
+
+/** "14:03", in the viewer's time zone, for "as of". */
+export function clockWords(iso: string | undefined): string {
+  const t = timeOf(iso)
+  if (t === null) return ''
+  const d = new Date(t)
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }

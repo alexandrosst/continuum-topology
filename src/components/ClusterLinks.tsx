@@ -5,7 +5,7 @@ import { ConfirmModal } from '@/components/forms/ConfirmModal'
 import { Button, ErrorBanner, Field, ICON_MD, ICON_SM, Input, Modal, Pill, Select, SkeletonLines, Table, Td, Th } from '@/components/ui/primitives'
 import { api, atLeast } from '@/lib/api'
 import {
-  LINK_REQUIREMENT, PRESETS, STEP_MARK, VIA_HINT, VIA_OPTIONS, clusterChecks, costLine, firstLines, hasPair, latestView, newPair, pairKey, presetOf, removePair, replacePair, runnerOf, runsFromWords, setupSummary, throughputFieldProblems, throughputFor, throughputSummary, uncoveredChecks, uncoveredNotes,
+  LINK_REQUIREMENT, PRESETS, STEP_MARK, VIA_HINT, VIA_OPTIONS, clockWords, clusterChecks, costLine, firstLines, hasPair, latestView, newPair, pairKey, presetOf, probeRecent, removePair, replacePair, runnerOf, runsFromWords, setupSummary, throughputFieldProblems, throughputFor, throughputSummary, uncoveredChecks, uncoveredNotes,
   type Check, type LinkPairLatest, type LinksLatest, type PairSetup, type PresetId, type SetupState, type SetupStep, type Via,
 } from '@/lib/clusterLinks'
 import type { LinkPair } from '@/lib/history'
@@ -19,8 +19,8 @@ import { useTopology } from '@/store/topology'
 const LATEST_EVERY_MS = 60_000
 
 /**
- * The latest figures of the listed pairs, read when the screen opens, whenever the list of pairs changes, and once a minute while the page
- * is visible. `failed` is a read that could not be made (not the server saying FUSION cannot be had, which `latest.reason` says).
+ * The latest figures of the listed pairs, read when the screen opens, whenever the list of pairs changes, once a minute while the page
+ * is visible, and at once when the page becomes visible again (a tab left open must not show figures as old as its last visit). `failed` is a read that could not be made (not the server saying FUSION cannot be had, which `latest.reason` says).
  */
 function useLatest(conn: Conn, enabled: boolean, pairsKey: string) {
   const [latest, setLatest] = useState<LinksLatest | null>(null)
@@ -41,9 +41,12 @@ function useLatest(conn: Conn, enabled: boolean, pairsKey: string) {
     }
     void read()
     const timer = setInterval(() => void read(), LATEST_EVERY_MS)
+    const onVisible = () => void read() // read() itself does nothing while the page is hidden
+    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisible)
     return () => {
       stopped = true
       clearInterval(timer)
+      if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisible)
     }
     // pairsKey stands for the list of pairs: a pair added or removed is read for at once
   }, [conn.url, conn.org, enabled, pairsKey]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -153,9 +156,13 @@ export default function ClusterLinks() {
                       </div>
                     ))}
                     {setup && <SetupDisclosure setup={setup} name={name} />}
+                    {!setup && latest?.setupReason === 'unavailable' && <div className="mt-1.5 text-xs text-nb-500" data-testid="pair-setup-unavailable">Setup checklist unavailable just now</div>}
                   </Td>
                   <Td valign="top"><State on label="watching" /></Td>
-                  <Td valign="top"><State on={!p.noProbe} label={p.noProbe ? 'off' : 'on'} /></Td>
+                  <Td valign="top">
+                    {/* The setting says what was asked for; the dot is green only once a probe has completed lately. */}
+                    <State on={!p.noProbe} unconfirmed={!p.noProbe && !probeRecent(latestByPair.get(pairKey(p.a, p.b)))} label={p.noProbe ? 'off' : 'on'} />
+                  </Td>
                   <Td valign="top">
                     {t ? (
                       <>
@@ -184,6 +191,7 @@ export default function ClusterLinks() {
       )}
 
       {pairs.length > 0 && <LatestNotice latest={latest} failed={failed} />}
+      {pairs.length > 0 && <LatestAsOf latest={latest} />}
       <p className="mt-3 max-w-3xl text-xs text-nb-500">
         Results go to your telemetry backend with the other signals of the clusters involved. Throughput tests are scheduled so they never overlap, wait while the link is busy, and stop for the day at their budget.
       </p>
@@ -252,6 +260,13 @@ function Latest({ pair, found, latest, failed, name }: { pair: LinkPair; found?:
   return (
     <div className="tabular-nums" data-testid="latest" title={arrows}>
       {view.loss && <div className={clsx('text-sm', view.loss.tone === 'bad' ? 'text-bad' : view.loss.tone === 'warn' ? 'text-warn' : 'text-nb-300')}>{view.loss.text}</div>}
+      {view.problems.map((x) => (
+        <div key={x.text} className="mt-0.5 flex items-start gap-1.5 text-sm text-warn" data-testid="latest-problem">
+          <CircleAlert size={ICON_SM} className="mt-0.5 shrink-0" aria-hidden />
+          <span><span className="sr-only">Problem: </span>{x.text}</span>
+        </div>
+      ))}
+      {view.hints.map((text) => <div key={text} className="mt-0.5 max-w-xs text-xs text-nb-400" data-testid="latest-hint">{text}</div>)}
       {view.details.length > 0 && <div className="mt-0.5 text-xs text-nb-500">{view.details.join(' · ')}</div>}
       {view.when && <div className={clsx('mt-0.5 text-xs', view.when.stale ? 'text-warn' : 'text-nb-500')}>{view.when.stale ? `${view.when.text} (old)` : view.when.text}</div>}
       <span className="sr-only">{arrows}</span>
@@ -271,10 +286,24 @@ function LatestNotice({ latest, failed }: { latest: LinksLatest | null; failed: 
   return <p className="mt-3 max-w-3xl text-xs text-nb-500" data-testid="latest-notice">{text}</p>
 }
 
-function State({ on, label }: { on: boolean; label: string }) {
+/** When the figures were read, and that they are the previous ones when FUSION could not be read since. */
+function LatestAsOf({ latest }: { latest: LinksLatest | null }) {
+  if (!latest?.available || !latest.at) return null
+  const at = clockWords(latest.at)
+  if (!at) return null
   return (
-    <span className={clsx('inline-flex items-center gap-1.5 text-sm', on ? 'text-nb-300' : 'text-nb-500')}>
-      <span className={clsx('size-[7px] rounded-full', on ? 'bg-ok' : 'border-[1.5px] border-nb-600')} aria-hidden />
+    <p className="mt-3 max-w-3xl text-xs text-nb-500" data-testid="latest-asof">
+      Figures as of {at}.{latest.stale ? ' FUSION could not be read since, so they may be out of date.' : ''}
+    </p>
+  )
+}
+
+/** `unconfirmed` is on in the settings but not yet seen working: the dot stays neutral, as for off, and the text says what turns it green. */
+function State({ on, label, unconfirmed = false }: { on: boolean; label: string; unconfirmed?: boolean }) {
+  const lit = on && !unconfirmed
+  return (
+    <span className={clsx('inline-flex items-center gap-1.5 text-sm', on ? 'text-nb-300' : 'text-nb-500')} title={on && unconfirmed ? 'Switched on. The dot turns green once a probe has completed in the last 15 minutes.' : undefined} data-testid={on && unconfirmed ? 'state-unconfirmed' : undefined}>
+      <span className={clsx('size-[7px] rounded-full', lit ? 'bg-ok' : 'border-[1.5px] border-nb-600')} aria-hidden />
       {label}
     </span>
   )

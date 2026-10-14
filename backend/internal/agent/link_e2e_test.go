@@ -179,7 +179,7 @@ func TestTheServerLearnsWhatTheInstallCanDoAndChecksThePair(t *testing.T) {
 	links := []server.LinkSetting{{A: mine, B: peer}}
 
 	steps := func() map[string]string {
-		_, setup := d.hub.LinkReport(context.Background(), links, true)
+		_, setup, _ := d.hub.LinkReport(context.Background(), links, true)
 		out := map[string]string{}
 		if len(setup) == 1 {
 			for _, s := range setup[0].Steps {

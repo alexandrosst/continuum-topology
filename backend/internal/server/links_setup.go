@@ -271,14 +271,15 @@ func setupPlural(n int, w string) string {
 }
 
 // LinkReport is the notes and the checklists of the listed pairs for the organisation's current agents, in one read of the agents.
-// haveFusion says whether this server has a FUSION at all.
-func (h *Hub) LinkReport(ctx context.Context, links []LinkSetting, haveFusion bool) ([]LinkNote, []LinkSetup) {
+// haveFusion says whether this server has a FUSION at all (for this organisation). It fails when the agents cannot be read: an empty
+// list would read as "nothing needs doing", which is not known then.
+func (h *Hub) LinkReport(ctx context.Context, links []LinkSetting, haveFusion bool) ([]LinkNote, []LinkSetup, error) {
 	if len(links) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	agents, err := h.C.Store.ListAgents(ctx, h.C.OrgID)
 	if err != nil {
-		return nil, nil
+		return nil, nil, err
 	}
 	in := map[string]bool{}
 	for _, l := range links {
@@ -293,7 +294,7 @@ func (h *Hub) LinkReport(ctx context.Context, links []LinkSetting, haveFusion bo
 	now := h.C.Now()
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	return h.linkNotes(links, agents, paused), h.linkSetups(links, agents, paused, haveFusion, now)
+	return h.linkNotes(links, agents, paused), h.linkSetups(links, agents, paused, haveFusion, now), nil
 }
 
 // linkSetups is the checklist of each listed pair. Called with h.mu held; agents and paused as for linkNotes.

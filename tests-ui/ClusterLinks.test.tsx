@@ -369,6 +369,78 @@ describe('ClusterLinks', () => {
       expect(await screen.findByTestId('latest-notice')).toHaveTextContent('could not be read from FUSION just now')
     })
 
+    it('shows a failing direction with its reason instead of leaving it out, and keeps the Probing dot neutral until a probe succeeded', async () => {
+      seed('viewer', [{ a: 'c-eu', b: 'c-us' }, { a: 'c-eu', b: 'c-gr' }])
+      const recent = new Date(Date.now() - 60_000).toISOString()
+      vi.spyOn(api, 'linksLatest').mockResolvedValue(answer({ pairs: [
+        // the field case: the forward probe completes but every packet is lost, the reverse one has failed for hours
+        { a: 'c-eu', b: 'c-us', lossAToB: 1, probedAt: recent,
+          probeAToB: { state: 'ok', diagnosis: 'udp-lost', at: recent }, probeBToA: { state: 'failing', reason: 'other', diagnosis: 'denied', at: new Date(Date.now() - 3 * 3600_000).toISOString() } },
+        { a: 'c-eu', b: 'c-gr', probeAToB: { state: 'never', reason: 'refused', diagnosis: 'no-responder' }, probeBToA: { state: 'never', reason: 'refused', diagnosis: 'no-responder' } },
+      ] }))
+      render(<ClusterLinks />)
+      const rows = await screen.findAllByTestId('pair-row')
+      const first = await within(rows[0]).findByTestId('latest')
+      expect(first).toHaveTextContent('loss 100 % →')
+      expect(within(first).getByTestId('latest-problem')).toHaveTextContent('← probe failing (other)')
+      expect(first).toHaveTextContent('One of: the UDP test ports are filtered')
+      expect(first).toHaveTextContent('(old)') // the failing direction's last success is three hours old
+      // a pair that never had a probe succeed is shown as failing, not as "No data yet"
+      const second = await within(rows[1]).findByTestId('latest')
+      expect(within(second).getAllByTestId('latest-problem').map((e) => e.textContent)).toEqual(['Problem: → no probe has succeeded yet (refused)', 'Problem: ← no probe has succeeded yet (refused)'])
+      expect(within(rows[1]).queryByTestId('latest-empty')).toBeNull()
+      expect(second).toHaveTextContent('nothing answers on the responder port')
+      // the first pair had a probe succeed lately, the second never: only the second is unconfirmed
+      expect(within(rows[0]).queryByTestId('state-unconfirmed')).toBeNull()
+      expect(within(rows[1]).getByTestId('state-unconfirmed')).toHaveAttribute('title', expect.stringContaining('turns green'))
+    })
+
+    it('keeps the Probing dot neutral while no figures are known, and green once a probe completed', async () => {
+      seed('viewer', [{ a: 'c-eu', b: 'c-us' }])
+      render(<ClusterLinks />)
+      expect(await screen.findByTestId('state-unconfirmed')).toHaveTextContent('on')
+    })
+
+    it('reads again at once when the tab becomes visible, and not while it is hidden', async () => {
+      seed('viewer', [{ a: 'c-eu', b: 'c-us' }])
+      let hidden = false
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden })
+      try {
+        const read = vi.spyOn(api, 'linksLatest')
+        render(<ClusterLinks />)
+        await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(1))
+        hidden = true
+        document.dispatchEvent(new Event('visibilitychange'))
+        expect(read).toHaveBeenCalledTimes(1)
+        hidden = false
+        document.dispatchEvent(new Event('visibilitychange'))
+        await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(2))
+      } finally {
+        delete (document as unknown as Record<string, unknown>).hidden
+      }
+    })
+
+    it('says when the figures were read, and that they are the previous ones when FUSION could not be read since', async () => {
+      seed('viewer', [{ a: 'c-eu', b: 'c-us' }])
+      const at = new Date(2026, 9, 14, 14, 3).toISOString()
+      const read = vi.spyOn(api, 'linksLatest').mockResolvedValue(answer({ at, pairs: [{ a: 'c-eu', b: 'c-us', lossAToB: 0 }] }))
+      const { unmount } = render(<ClusterLinks />)
+      expect(await screen.findByTestId('latest-asof')).toHaveTextContent('Figures as of 14:03.')
+      expect(screen.getByTestId('latest-asof')).not.toHaveTextContent('out of date')
+      unmount()
+      read.mockResolvedValue(answer({ at, stale: true, pairs: [{ a: 'c-eu', b: 'c-us', lossAToB: 0 }] }))
+      render(<ClusterLinks />)
+      expect(await screen.findByTestId('latest-asof')).toHaveTextContent('Figures as of 14:03. FUSION could not be read since, so they may be out of date.')
+    })
+
+    it('says the checklist is unavailable rather than showing nothing to fix when the server could not work it out', async () => {
+      seed('viewer', [{ a: 'c-eu', b: 'c-us' }])
+      vi.spyOn(api, 'linksLatest').mockResolvedValue(answer({ setupReason: 'unavailable' }))
+      render(<ClusterLinks />)
+      expect(await screen.findByTestId('pair-setup-unavailable')).toHaveTextContent('Setup checklist unavailable')
+      expect(screen.queryByTestId('pair-setup')).toBeNull()
+    })
+
     it('reads nothing while there are no pairs or the settings are not loaded, and again when a pair is added', async () => {
       const read = vi.spyOn(api, 'linksLatest')
       seed('admin', [], { loaded: false })

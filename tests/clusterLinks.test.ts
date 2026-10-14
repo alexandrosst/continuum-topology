@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
-  LINK_REQUIREMENT, PRESETS, VIA_OPTIONS, clusterChecks, firstLines, normalizeSetup, setupSummary, uncoveredChecks, uncoveredNotes, costLine, delayWords, everyWords, hasPair, latestView, lossWords, newPair, normalizeLinksLatest, rateWords, presetOf, removePair, replacePair, runnerOf, runsFromWords, throughputFieldProblems, throughputFor, throughputProblems, throughputSummary, viaWords,
+  LINK_REQUIREMENT, PRESETS, VIA_OPTIONS, clusterChecks, firstLines, normalizeSetup, setupSummary, uncoveredChecks, uncoveredNotes, costLine, delayWords, everyWords, clockWords, hasPair, latestView, lossWords, newPair, normalizeLinksLatest, normalizeProbe, probeRecent, STALE_AFTER_MS, rateWords, presetOf, removePair, replacePair, runnerOf, runsFromWords, throughputFieldProblems, throughputFor, throughputProblems, throughputSummary, viaWords,
 } from '../src/lib/clusterLinks'
-import type { LinkNote, PairSetup, SetupStep } from '../src/lib/clusterLinks'
+import type { LinkNote, LinkPairLatest, PairSetup, SetupStep } from '../src/lib/clusterLinks'
 import type { Agent } from '../src/lib/types'
 
 const agent = (o: Partial<Agent>): Agent => ({ id: 'ag', orgId: 'o', name: 'a', version: '1', accessTier: 2, status: 'approved', fingerprint: '', modules: [], connected: true, observer: { lastReport: '', collectors: [{ node: 'n', method: 'ebpf', bytesKnown: true }], lost: 0 }, ...o }) as Agent
@@ -211,4 +211,94 @@ test('the page\'s own checks are left out only where the server says the same of
 test('what a pair needs is stated in the words the person will look for', () => {
   assert.match(LINK_REQUIREMENT, /two clusters that each run the Ikhnos agent with Cluster links on/)
   assert.match(LINK_REQUIREMENT, /the cluster that runs the probes also has to send telemetry to FUSION \(a local operator\)/)
+})
+
+const T0 = Date.parse('2026-10-14T12:00:00Z')
+const minAgo = (m: number) => new Date(T0 - m * 60_000).toISOString()
+
+test('a direction that lost every packet is bad, with its arrow', () => {
+  const v = latestView({ a: 'x', b: 'y', lossAToB: 1, lossBToA: 0, probedAt: minAgo(1) }, T0)
+  assert.equal(v?.loss?.text, 'loss 100 % → · 0.0 % ←')
+  assert.equal(v?.loss?.tone, 'bad')
+  assert.equal(latestView({ a: 'x', b: 'y', lossBToA: 1 }, T0)?.loss?.text, 'loss 100 % ←')
+})
+
+test('a direction whose probe is failing says so with the reason, and the pair still has a result', () => {
+  const l: LinkPairLatest = { a: 'x', b: 'y', lossAToB: 1, probeAToB: { state: 'ok', at: minAgo(1) }, probeBToA: { state: 'failing', reason: 'other', at: minAgo(120) } }
+  const v = latestView(l, T0)
+  assert.ok(v)
+  assert.deepEqual(v.problems, [{ text: '← probe failing (other)', tone: 'warn' }])
+  assert.equal(v.loss?.text, 'loss 100 % →')
+  // the failing direction's old last success is what makes the pair old: one healthy direction no longer hides it
+  assert.deepEqual(v.when, { text: 'probed 2 h ago', stale: true })
+  // with nothing else to show, a failing direction alone is still a result
+  assert.deepEqual(latestView({ a: 'x', b: 'y', probeAToB: { state: 'failing', reason: 'timeout', at: minAgo(5) } }, T0)?.problems, [{ text: '→ probe failing (timed out)', tone: 'warn' }])
+  assert.deepEqual(latestView({ a: 'x', b: 'y', probeBToA: { state: 'failing' } }, T0)?.problems, [{ text: '← probe failing', tone: 'warn' }])
+})
+
+test('a probe that never succeeded is a failure, not an old result', () => {
+  const v = latestView({ a: 'x', b: 'y', probeAToB: { state: 'never', reason: 'refused' }, probeBToA: { state: 'never', reason: 'refused' } }, T0)
+  assert.ok(v)
+  assert.deepEqual(v.problems.map((p) => p.text), ['→ no probe has succeeded yet (refused)', '← no probe has succeeded yet (refused)'])
+  assert.equal(v.when, undefined, 'no time means nothing is old')
+  // a healthy direction beside a never-succeeded one is not old either
+  const w = latestView({ a: 'x', b: 'y', probeAToB: { state: 'ok', at: minAgo(1) }, probeBToA: { state: 'never' } }, T0)
+  assert.equal(w?.when?.stale, false)
+})
+
+test('the pair is old as soon as either direction is', () => {
+  const both = (a: number, b: number): LinkPairLatest => ({ a: 'x', b: 'y', lossAToB: 0, lossBToA: 0, probeAToB: { state: 'ok', at: minAgo(a) }, probeBToA: { state: 'ok', at: minAgo(b) } })
+  assert.equal(latestView(both(1, 2), T0)?.when?.stale, false)
+  assert.equal(latestView(both(1, 40), T0)?.when?.stale, true)
+  assert.equal(latestView(both(40, 1), T0)?.when?.stale, true)
+  assert.equal(latestView(both(1, 40), T0)?.when?.text, 'probed 40 min ago')
+  // an older server sends only the pair's time
+  assert.equal(latestView({ a: 'x', b: 'y', lossAToB: 0, probedAt: minAgo(40) }, T0)?.when?.stale, true)
+})
+
+test('what the server read the evidence to fit is worded with "one of" where causes cannot be told apart, and never names an address', () => {
+  const lost = latestView({ a: 'x', b: 'y', lossAToB: 1, probeAToB: { state: 'ok', diagnosis: 'udp-lost', at: minAgo(1) }, probeBToA: { state: 'failing', reason: 'other', diagnosis: 'denied', at: minAgo(1) } }, T0)
+  assert.equal(lost?.hints.length, 2)
+  assert.match(lost?.hints[0] ?? '', /^→ every test packet was lost although the control connection works\. One of: .*more than 2 s apart/)
+  assert.match(lost?.hints[1] ?? '', /^← the responder was reached but the test did not complete\. One of:/)
+  // the same diagnosis in both directions is said once
+  const none = latestView({ a: 'x', b: 'y', probeAToB: { state: 'never', reason: 'refused', diagnosis: 'no-responder' }, probeBToA: { state: 'never', reason: 'refused', diagnosis: 'no-responder' } }, T0)
+  assert.equal(none?.hints.length, 1)
+  assert.match(none?.hints[0] ?? '', /^→ ← nothing answers on the responder port/)
+  for (const d of ['udp-lost', 'denied', 'no-responder', 'filtered', 'one-way', 'stale'] as const) {
+    const t = latestView({ a: 'x', b: 'y', probeAToB: { state: 'ok', diagnosis: d } }, T0)?.hints[0] ?? ''
+    assert.ok(t.length > 10, d)
+    assert.doesNotMatch(t, /\d+\.\d+\.\d+\.\d+|:\d{4}/, `${d} names an address or port`)
+  }
+  assert.match(latestView({ a: 'x', b: 'y', probeAToB: { state: 'failing', diagnosis: 'filtered' } }, T0)?.hints[0] ?? '', /One of: a firewall drops it/)
+})
+
+test('a probe state or diagnosis this page does not know is dropped, never shown', () => {
+  assert.equal(normalizeProbe({ state: 'exploded' }), undefined)
+  assert.equal(normalizeProbe(null), undefined)
+  assert.equal(normalizeProbe('ok'), undefined)
+  assert.deepEqual(normalizeProbe({ state: 'ok', diagnosis: 'martians', reason: '', at: '' }), { state: 'ok' })
+  assert.deepEqual(normalizeProbe({ state: 'failing', reason: 'other', diagnosis: 'denied', at: minAgo(1) }), { state: 'failing', reason: 'other', diagnosis: 'denied', at: minAgo(1) })
+  const got = normalizeLinksLatest({ available: true, stale: true, setupReason: 'unavailable', pairs: [{ a: 'x', b: 'y', probeAToB: { state: 'nope' }, probeBToA: { state: 'ok' } }] as never })
+  assert.deepEqual(got.pairs, [{ a: 'x', b: 'y', probeBToA: { state: 'ok' } }])
+  assert.equal(got.stale, true)
+  assert.equal(got.setupReason, 'unavailable')
+  assert.equal(normalizeLinksLatest({ setupReason: 'what' as never }).setupReason, undefined)
+})
+
+test('the probing dot is lit only after a probe completed within the stale time', () => {
+  assert.equal(probeRecent(undefined, T0), false)
+  assert.equal(probeRecent({ a: 'x', b: 'y' }, T0), false)
+  assert.equal(probeRecent({ a: 'x', b: 'y', probeAToB: { state: 'never' } }, T0), false)
+  assert.equal(probeRecent({ a: 'x', b: 'y', probeAToB: { state: 'ok', at: minAgo(1) } }, T0), true)
+  assert.equal(probeRecent({ a: 'x', b: 'y', probeAToB: { state: 'failing', at: new Date(T0 - STALE_AFTER_MS - 1000).toISOString() } }, T0), false)
+  assert.equal(probeRecent({ a: 'x', b: 'y', probedAt: minAgo(3) }, T0), true)
+})
+
+test('"as of" is a clock time in the viewer\'s zone', () => {
+  const d = new Date(2026, 9, 14, 9, 5)
+  assert.equal(clockWords(d.toISOString()), '09:05')
+  assert.equal(clockWords(''), '')
+  assert.equal(clockWords(undefined), '')
+  assert.equal(clockWords('not a date'), '')
 })
