@@ -227,9 +227,11 @@ Both changes are in the "now" column: the split between the two clusters, and th
 
 ## In FUSION
 
+### Through the data API
+
 The link series reach FUSION like any other metrics, and the figures the Sites screen shows are also available to other systems through FUSION's data API: `GET /api/v1/fusion/links` returns, for each watched pair, the latest loss in each direction, round trip, delay variation, MTU, throughput and times, once per pair (`a` before `b`, with `measuredBy` saying which cluster's series were used), with the same 15-second shared read as the screen. A token needs the `metrics` signal, sees only the pairs whose two clusters it may read, and is refused if it is limited to namespaces; see [the FUSION API](./fusion-api.md#cluster-links) for the shape and an example. The `continuum_link_*` series are in the `system` category (infrastructure between clusters, not something an application reports), so `category=application` reads and the application dashboards leave them out and `category=system` includes them.
 
-## In FUSION
+### In Grafana
 
 The bundled FUSION chart provisions a **Cluster links** dashboard in Grafana (folder Ikhnos, reachable from the menu on every dashboard of the folder), built from the series above. It has a **Cluster** picker (the cluster that measured) and a **Peer** picker that follows it, both listing cluster ids, because cluster names are not in the metrics; a table at the top gives each peer's display name from `continuum_link_peer_info`. Its rows are Overview (pairs probed, worst probe loss now, probes failing now, tests skipped, byte budget used), Loss and delay (probe loss and delay variation in each direction, absolute one-way delay where the clocks agree and a timeline of which runs they did, whether each probe is up and how long since it last completed), Round trip (connect time mean and percentiles, the round trip of real connections, connect failures), Traffic (bytes, connections, retransmit ratio, failed connections), Path (MTU, black hole, route changes, hops) and Capacity (throughput by direction and stream count, the UDP clean rate and whether it saturated, the round trip under load next to the idle one, the byte budget, tests skipped and failed by reason). Loss turns amber from 1 % and red from 5 %, as on the Sites screen.
 

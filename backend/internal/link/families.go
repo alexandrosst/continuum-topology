@@ -21,7 +21,6 @@ var families = []MetricFamily{
 	{"continuum_link_receive_drops_total", "counter"},
 	{"continuum_link_connection_failures_total", "counter"},
 	{"continuum_link_rtt_seconds", "histogram"},
-	{"continuum_link_jitter_seconds", "histogram"},
 	{"continuum_link_last_observation_timestamp_seconds", "gauge"},
 	{"continuum_link_probe_packets_sent_total", "counter"},
 	{"continuum_link_probe_packets_lost_total", "counter"},
