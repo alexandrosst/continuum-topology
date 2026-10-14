@@ -60,6 +60,8 @@ type Runner struct {
 	DSCP int
 
 	Exec ExecFunc
+	// Source, if set, replaces the lookup of the local address the system uses to reach an address (for tests).
+	Source func(netip.Addr) (netip.Addr, bool)
 
 	// PathEvery is how often the route to each peer is traced and its MTU found (default 10 minutes; negative: never). Path,
 	// if set, replaces the real prober (for tests).
@@ -419,6 +421,13 @@ func (r *Runner) once(ctx context.Context, addr string, d Direction) (OwampResul
 		args = append(args, "-f")
 	}
 	args = append(args, "-A", "O")
+	// Bind the client to the address the system reaches the responder from. Without it owping picks the address it announces
+	// as the receiver of a reverse test on its own, and on a node with several addresses (a mesh, a CNI) that need not be the one
+	// its control connection comes from: the responder refuses such a test in open mode ("Test Denied: OpenMode recieve_addr
+	// != control_client"), and the reverse direction never ran.
+	if src, ok := r.sourceFor(ip); ok {
+		args = append(args, "-S", src.String())
+	}
 	if r.DSCP > 0 {
 		args = append(args, "-D", strconv.Itoa(r.DSCP))
 	}
@@ -443,6 +452,31 @@ func (r *Runner) once(ctx context.Context, addr string, d Direction) (OwampResul
 		return OwampResult{}, "other"
 	}
 	return res, ""
+}
+
+// sourceFor is the local address the system would send to ip from, found by connecting a UDP socket (which sends nothing).
+func (r *Runner) sourceFor(ip netip.Addr) (netip.Addr, bool) {
+	if r.Source != nil {
+		return r.Source(ip)
+	}
+	return routeSource(ip)
+}
+
+func routeSource(ip netip.Addr) (netip.Addr, bool) {
+	c, err := net.DialUDP("udp", nil, &net.UDPAddr{IP: ip.AsSlice(), Port: 9, Zone: ip.Zone()})
+	if err != nil {
+		return netip.Addr{}, false
+	}
+	defer c.Close()
+	ua, ok := c.LocalAddr().(*net.UDPAddr)
+	if !ok {
+		return netip.Addr{}, false
+	}
+	a, ok := netip.AddrFromSlice(ua.IP)
+	if !ok || a.IsUnspecified() {
+		return netip.Addr{}, false
+	}
+	return a.Unmap(), true
 }
 
 // classify turns the program's complaint into a failure reason.

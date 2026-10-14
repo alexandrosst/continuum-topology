@@ -190,6 +190,8 @@ One cheap measurement runs all the time towards every paired cluster that this c
 
 Every `probe.tcpConnect.interval` (15s) the prober opens a TCP connection to the peer's responder port, times the handshake and closes it with a reset: one SYN and its answer, no data, nothing left in TIME_WAIT. The time is a round trip as the TCP stack sees it. A peer has many node addresses: the address the traffic uses is tried first, then the one that answered last and one more after it (see [Which address is measured](#which-address-is-measured)), so a single node being down does not count against the link. `probe.tcpConnect.interval: "0"` turns it off.
 
+**Binding the client.** The prober starts `owping` with `-S` set to the local address the system would use to reach the responder (found by connecting a UDP socket, which sends nothing). Without it `owping` chooses by itself the address it announces as the receiver of a reverse test, and on a node with several addresses (a mesh, a CNI) that is not always the one its control connection comes from. The responder runs in open mode and refuses such a test (`Test Denied: OpenMode recieve_addr(...) != control_client(...)` in the responder's log), so the reverse direction never ran and showed as `probe_up 0` with reason `other`.
+
 It needs the responder to be reachable, so on its own it cannot tell a dead responder from a dead link. The failure reason tells most of it: `refused` means the host is up and the responder is not, `timeout` means the host or the path is down. The one-way probe says the rest.
 
 | Metric | Type | Meaning |

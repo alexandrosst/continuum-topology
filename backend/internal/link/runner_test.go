@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -453,6 +455,45 @@ func TestAPeerTheOtherClusterProbesIsOnlyTracedAndExportsNoProbeSeries(t *testin
 	for k := range got {
 		if strings.Contains(k, `peer="cl-a"`) && (strings.Contains(k, "continuum_link_probe_") || strings.Contains(k, "tcp_connect")) {
 			t.Errorf("series for a measurement the other cluster makes: %s", k)
+		}
+	}
+}
+
+// The client is bound to the address the system reaches the responder from, in both directions: left to itself owping announces
+// another address of the node as the receiver of a reverse test, and the responder refuses the test (open mode requires the
+// receiver to be the control client).
+func TestTheClientIsBoundToTheAddressTheResponderIsReachedFrom(t *testing.T) {
+	f := &fakeOwping{}
+	f.run = func(args []string) ([]byte, []byte, error) {
+		for _, a := range args {
+			if a == "-t" {
+				return summary(t, "owping_to.txt"), nil, nil
+			}
+		}
+		return summary(t, "owping_from.txt"), nil, nil
+	}
+	r := runnerFor(t, f, "10.0.0.1")
+	r.Source = func(ip netip.Addr) (netip.Addr, bool) {
+		return netip.MustParseAddr("100.64.0.45"), ip.String() == "10.0.0.1"
+	}
+	r.Round(context.Background())
+	if len(f.calls) != 2 {
+		t.Fatalf("calls: %v", f.calls)
+	}
+	for _, c := range f.calls {
+		j := strings.Join(c, " ")
+		if !strings.Contains(j, "-S 100.64.0.45 ") || !strings.HasSuffix(j, "10.0.0.1:"+strconv.Itoa(r.Port)) {
+			t.Errorf("the client is not bound to the route's source before the responder: %v", c)
+		}
+	}
+	// No route to the address: no binding, as before.
+	f2 := &fakeOwping{run: f.run}
+	r2 := runnerFor(t, f2, "10.0.0.1")
+	r2.Source = func(netip.Addr) (netip.Addr, bool) { return netip.Addr{}, false }
+	r2.Round(context.Background())
+	for _, c := range f2.calls {
+		if slices.Contains(c, "-S") {
+			t.Errorf("bound without a source: %v", c)
 		}
 	}
 }
