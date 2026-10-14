@@ -79,6 +79,8 @@ type Admin struct {
 	// appCache holds the Ikhnos applications for a few seconds: working them out builds the whole state document (every agent
 	// and the topology) and a dashboard or a script reading the API many times a second would otherwise redo it each time.
 	appCache appGroupCache
+	// linkReadings shares one read of the link figures in FUSION between everyone who has the Sites screen open.
+	linkReadings linkReadingsCache
 	// TrustProxy is set when a TLS-terminating proxy sits in front: the client address is read from
 	// the last entry of X-Forwarded-For (what the proxy itself saw), and the request counts as HTTPS
 	// when the proxy says so in X-Forwarded-Proto. Only correct when the proxy is the sole way in and
@@ -222,6 +224,7 @@ func (a *Admin) Handler() http.Handler {
 	route("GET "+o+"/settings", memberRole, a.getSettings)
 	route("GET "+o+"/telemetry/self", memberRole, a.selfTelemetry)
 	route("PUT "+o+"/settings", adminRole, a.putSettings)
+	route("GET "+o+"/links/latest", memberRole, a.linksLatest)
 	route("GET "+o+"/history", memberRole, a.historyIndex)
 	route("GET "+o+"/history/snapshot", memberRole, a.historySnapshot)
 	route("GET "+o+"/history/traffic", memberRole, a.historyTraffic)

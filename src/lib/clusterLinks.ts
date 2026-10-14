@@ -1,4 +1,5 @@
 import type { LinkPair } from './history'
+import { ago } from './observed'
 import type { Agent } from './types'
 
 /** What the server and the agents accept for a pair's throughput tests (they clamp anything outside; the form refuses it first). */
@@ -116,3 +117,84 @@ export function clusterChecks(clusterId: string, name: string, agents: Agent[]):
 
 /** The id of the cluster that runs a pair's throughput tests: the one whose id sorts first. */
 export const runnerOf = (p: LinkPair) => (p.a < p.b ? p.a : p.b)
+
+/** What the server knows about one pair from the link series in FUSION (GET /links/latest). A figure FUSION does not hold is absent. "A to B" is
+ * from the pair's first cluster to its second, in the order the pair is stored (the order the table shows them in). */
+export interface LinkPairLatest {
+  a: string
+  b: string
+  rttSeconds?: number
+  lossAToB?: number
+  lossBToA?: number
+  jitterSeconds?: number
+  mtuBytes?: number
+  throughputAToB?: number
+  throughputBToA?: number
+  probedAt?: string
+  testedAt?: string
+}
+
+export interface LinksLatest {
+  available: boolean
+  /** Why the figures cannot be had: this server has no FUSION, or it could not be read just now. */
+  reason?: 'no-fusion' | 'unavailable'
+  pairs: LinkPairLatest[]
+  at: string
+}
+
+export const normalizeLinksLatest = (d: Partial<LinksLatest> | undefined): LinksLatest => ({ available: !!d?.available, reason: d?.reason, pairs: d?.pairs ?? [], at: d?.at ?? '' })
+
+const num = (n: number | undefined): n is number => typeof n === 'number' && Number.isFinite(n)
+
+/** "0.0 %", "1.8 %", "12 %". */
+export function lossWords(ratio: number): string {
+  const p = Math.max(0, ratio) * 100
+  return `${p >= 10 ? Math.round(p) : p.toFixed(1)} %`
+}
+
+/** "0.42 ms", "6.2 ms", "48 ms", "1.3 s". */
+export function delayWords(seconds: number): string {
+  const ms = seconds * 1000
+  if (ms >= 1000) return `${(ms / 1000).toFixed(1)} s`
+  return `${ms < 1 ? ms.toFixed(2) : ms < 10 ? ms.toFixed(1) : Math.round(ms)} ms`
+}
+
+/** "920 Mbit/s", "1.2 Gbit/s", "48 kbit/s". */
+export function rateWords(bits: number): string {
+  if (bits >= 1e9) return `${(bits / 1e9).toFixed(bits >= 1e10 ? 0 : 1)} Gbit/s`
+  if (bits >= 1e6) return `${Math.round(bits / 1e6)} Mbit/s`
+  return `${Math.max(0, Math.round(bits / 1e3))} kbit/s`
+}
+
+/** A probe older than this is shown as old: the probe runs about once a minute, so this is many missed runs. */
+export const STALE_AFTER_MS = 15 * 60_000
+
+export interface LatestView {
+  /** The loss line, with its tone: the worse of the two directions decides it. */
+  loss?: { text: string; tone: 'ok' | 'warn' | 'bad' }
+  /** The rest of the figures, each a short phrase. */
+  details: string[]
+  /** When the figures are from. */
+  when?: { text: string; stale: boolean }
+}
+
+/** The words for a pair's latest figures, or null when there is nothing to show. Arrows read in the order the pair is displayed. */
+export function latestView(l: LinkPairLatest | undefined, now = Date.now()): LatestView | null {
+  if (!l) return null
+  const v: LatestView = { details: [] }
+  const loss = [num(l.lossAToB) ? { r: l.lossAToB, arrow: '→' } : null, num(l.lossBToA) ? { r: l.lossBToA, arrow: '←' } : null].filter((x) => x !== null)
+  if (loss.length > 0) {
+    const worst = Math.max(...loss.map((x) => x.r))
+    v.loss = { text: `loss ${loss.map((x) => `${lossWords(x.r)} ${x.arrow}`).join(' · ')}`, tone: worst >= 0.05 ? 'bad' : worst >= 0.01 ? 'warn' : 'ok' }
+  }
+  if (num(l.rttSeconds)) v.details.push(`round trip ${delayWords(l.rttSeconds)}`)
+  if (num(l.jitterSeconds)) v.details.push(`jitter ${delayWords(l.jitterSeconds)}`)
+  if (num(l.mtuBytes)) v.details.push(`MTU ${l.mtuBytes}`)
+  const tp = [num(l.throughputAToB) ? `${rateWords(l.throughputAToB)} →` : '', num(l.throughputBToA) ? `${rateWords(l.throughputBToA)} ←` : ''].filter(Boolean)
+  if (tp.length > 0) v.details.push(tp.join(' · '))
+  if (l.probedAt) {
+    v.when = { text: `probed ${ago(l.probedAt, now)}`, stale: now - new Date(l.probedAt).getTime() > STALE_AFTER_MS }
+  }
+  if (l.testedAt && tp.length > 0) v.when = { text: `${v.when ? `${v.when.text} · ` : ''}tested ${ago(l.testedAt, now)}`, stale: v.when?.stale ?? false }
+  return v.loss || v.details.length > 0 ? v : null
+}

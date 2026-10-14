@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
-  PRESETS, clusterChecks, costLine, everyWords, hasPair, newPair, presetOf, removePair, replacePair, runnerOf, throughputFieldProblems, throughputFor, throughputProblems, throughputSummary,
+  PRESETS, clusterChecks, costLine, delayWords, everyWords, hasPair, latestView, lossWords, newPair, normalizeLinksLatest, rateWords, presetOf, removePair, replacePair, runnerOf, throughputFieldProblems, throughputFor, throughputProblems, throughputSummary,
 } from '../src/lib/clusterLinks'
 import type { Agent } from '../src/lib/types'
 
@@ -67,4 +67,50 @@ test('a cluster is checked from its approved agent', () => {
   const none = clusterChecks('c1', 'cloud', [agent({ clusterId: 'c1', observer: { lastReport: '', collectors: [], lost: 0 } })])
   assert.deepEqual(none.map((c) => c.ok), [true, true, false])
   assert.equal(clusterChecks('c1', 'cloud', [agent({ clusterId: 'c1', status: 'revoked' })])[0].ok, false)
+})
+
+test('figures are said in the units a person reads them in', () => {
+  assert.equal(lossWords(0), '0.0 %')
+  assert.equal(lossWords(0.018), '1.8 %')
+  assert.equal(lossWords(0.12), '12 %')
+  assert.equal(delayWords(0.0004), '0.40 ms')
+  assert.equal(delayWords(0.0062), '6.2 ms')
+  assert.equal(delayWords(0.048), '48 ms')
+  assert.equal(delayWords(1.34), '1.3 s')
+  assert.equal(rateWords(9.2e8), '920 Mbit/s')
+  assert.equal(rateWords(1.25e9), '1.3 Gbit/s')
+  assert.equal(rateWords(48_400), '48 kbit/s')
+})
+
+test('the latest result of a pair is worded in the order the pair is shown', () => {
+  const now = Date.parse('2026-10-14T12:00:00Z')
+  const v = latestView({ a: 'x', b: 'y', lossAToB: 0.018, lossBToA: 0, rttSeconds: 0.012, jitterSeconds: 0.0062, mtuBytes: 1420, throughputAToB: 4.8e7, throughputBToA: 9.2e7, probedAt: '2026-10-14T11:57:00Z', testedAt: '2026-10-14T07:00:00Z' }, now)
+  assert.ok(v)
+  assert.equal(v.loss?.text, 'loss 1.8 % → · 0.0 % ←')
+  assert.equal(v.loss?.tone, 'warn')
+  assert.deepEqual(v.details, ['round trip 12 ms', 'jitter 6.2 ms', 'MTU 1420', '48 Mbit/s → · 92 Mbit/s ←'])
+  assert.deepEqual(v.when, { text: 'probed 3 min ago · tested 5 h ago', stale: false })
+})
+
+test('the tone follows the worse direction, and an old probe is marked old', () => {
+  const now = Date.parse('2026-10-14T12:00:00Z')
+  assert.equal(latestView({ a: 'x', b: 'y', lossAToB: 0.06, lossBToA: 0 }, now)?.loss?.tone, 'bad')
+  assert.equal(latestView({ a: 'x', b: 'y', lossAToB: 0.0005, lossBToA: 0 }, now)?.loss?.tone, 'ok')
+  assert.equal(latestView({ a: 'x', b: 'y', lossAToB: 0, probedAt: '2026-10-14T09:00:00Z' }, now)?.when?.stale, true)
+})
+
+test('a figure that is not there is left out, and a pair with none has no result', () => {
+  assert.equal(latestView(undefined), null)
+  assert.equal(latestView({ a: 'x', b: 'y' }), null)
+  const v = latestView({ a: 'x', b: 'y', lossBToA: 0.001, mtuBytes: 1500 })
+  assert.equal(v?.loss?.text, 'loss 0.1 % ←')
+  assert.deepEqual(v?.details, ['MTU 1500'])
+  assert.equal(v?.when, undefined)
+  // a throughput time without a throughput figure is not shown
+  assert.equal(latestView({ a: 'x', b: 'y', mtuBytes: 1500, testedAt: '2026-10-14T07:00:00Z' })?.when, undefined)
+})
+
+test('the server\'s answer is read as it comes, with nothing missing', () => {
+  assert.deepEqual(normalizeLinksLatest(undefined), { available: false, reason: undefined, pairs: [], at: '' })
+  assert.deepEqual(normalizeLinksLatest({ available: true }).pairs, [])
 })

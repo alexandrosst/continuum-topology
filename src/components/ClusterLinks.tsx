@@ -1,18 +1,54 @@
 import clsx from 'clsx'
 import { ArrowLeftRight, Check as CheckIcon, CircleAlert, Pencil, Plus } from 'lucide-react'
-import { useId, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useState } from 'react'
 import { ConfirmModal } from '@/components/forms/ConfirmModal'
 import { Button, ErrorBanner, Field, ICON_MD, ICON_SM, Input, Modal, Pill, Select, SkeletonLines, Table, Td, Th } from '@/components/ui/primitives'
-import { atLeast } from '@/lib/api'
+import { api, atLeast } from '@/lib/api'
 import {
-  PRESETS, clusterChecks, costLine, hasPair, newPair, presetOf, removePair, replacePair, runnerOf, throughputFieldProblems, throughputFor, throughputSummary,
-  type Check, type PresetId,
+  PRESETS, clusterChecks, costLine, hasPair, latestView, newPair, pairKey, presetOf, removePair, replacePair, runnerOf, throughputFieldProblems, throughputFor, throughputSummary,
+  type Check, type LinkPairLatest, type LinksLatest, type PresetId,
 } from '@/lib/clusterLinks'
 import type { LinkPair } from '@/lib/history'
 import type { Agent } from '@/lib/types'
+import type { Conn } from '@/lib/api'
 import { useConn, useServer } from '@/store/server'
 import { useSettings } from '@/store/settings'
 import { useTopology } from '@/store/topology'
+
+/** How often the latest figures are read again while the screen is open (the server shares one read of FUSION for a few seconds anyway). */
+const LATEST_EVERY_MS = 60_000
+
+/**
+ * The latest figures of the listed pairs, read when the screen opens, whenever the list of pairs changes, and once a minute while the page
+ * is visible. `failed` is a read that could not be made (not the server saying FUSION cannot be had, which `latest.reason` says).
+ */
+function useLatest(conn: Conn, enabled: boolean, pairsKey: string) {
+  const [latest, setLatest] = useState<LinksLatest | null>(null)
+  const [failed, setFailed] = useState(false)
+  useEffect(() => {
+    if (!enabled) return
+    let stopped = false
+    const read = async () => {
+      if (typeof document !== 'undefined' && document.hidden) return
+      try {
+        const d = await api.linksLatest(conn)
+        if (stopped) return
+        setLatest(d)
+        setFailed(false)
+      } catch {
+        if (!stopped) setFailed(true)
+      }
+    }
+    void read()
+    const timer = setInterval(() => void read(), LATEST_EVERY_MS)
+    return () => {
+      stopped = true
+      clearInterval(timer)
+    }
+    // pairsKey stands for the list of pairs: a pair added or removed is read for at once
+  }, [conn.url, conn.org, enabled, pairsKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  return { latest, failed }
+}
 
 /**
  * The pairs of clusters whose link is measured, and what is measured for each. Real traffic is watched for every listed pair; probing and
@@ -26,6 +62,10 @@ export default function ClusterLinks() {
   const { settings, loaded, error: loadError } = useSettings()
   const [adding, setAdding] = useState(false)
   const [editing, setEditing] = useState<LinkPair | null>(null)
+  const connected = status === 'connected'
+  const pairsKey = settings.links.map((l) => pairKey(l.a, l.b)).join(',')
+  const { latest, failed } = useLatest(conn, connected && loaded && settings.links.length > 0, pairsKey)
+  const latestByPair = useMemo(() => new Map((latest?.pairs ?? []).map((l) => [pairKey(l.a, l.b), l])), [latest])
   const name = useMemo(() => {
     const m = new Map(clusters.map((c) => [c.id, c.name]))
     return (id: string) => m.get(id) ?? id
@@ -71,6 +111,7 @@ export default function ClusterLinks() {
               <Th>Real traffic</Th>
               <Th>Probing</Th>
               <Th>Throughput tests</Th>
+              <Th>Latest result</Th>
               {admin && <Th />}
             </tr>
           </thead>
@@ -104,6 +145,9 @@ export default function ClusterLinks() {
                       <State on={false} label="off" />
                     )}
                   </Td>
+                  <Td valign="top">
+                    <Latest pair={p} found={latestByPair.get(pairKey(p.a, p.b))} latest={latest} failed={failed} name={name} />
+                  </Td>
                   {admin && (
                     <Td valign="top" className="w-14">
                       <Button variant="ghost" size="sm" onClick={() => setEditing(p)} aria-label={`Edit ${name(p.a)} and ${name(p.b)}`}>
@@ -118,6 +162,7 @@ export default function ClusterLinks() {
         </Table>
       )}
 
+      {pairs.length > 0 && <LatestNotice latest={latest} failed={failed} />}
       <p className="mt-3 max-w-3xl text-xs text-nb-500">
         Results go to your telemetry backend with the other signals of the clusters involved. Throughput tests are scheduled so they never overlap, wait while the link is busy, and stop for the day at their budget.
       </p>
@@ -126,6 +171,36 @@ export default function ClusterLinks() {
       {editing && <EditPair key={`${editing.a}|${editing.b}`} pair={editing} agents={agents} name={name} onClose={() => setEditing(null)} />}
     </section>
   )
+}
+
+/** The latest figures of one pair, or why there are none. */
+function Latest({ pair, found, latest, failed, name }: { pair: LinkPair; found?: LinkPairLatest; latest: LinksLatest | null; failed: boolean; name: (id: string) => string }) {
+  const view = latestView(found)
+  if (!view) {
+    const text = !latest && !failed ? 'Reading…' : pair.noProbe ? 'No probing: see the traffic in FUSION' : latest?.available ? 'No data yet' : '—'
+    return <span className="text-sm text-nb-500" data-testid="latest-empty">{text}</span>
+  }
+  const arrows = `→ is from ${name(pair.a)} to ${name(pair.b)}; ← is the other way`
+  return (
+    <div className="tabular-nums" data-testid="latest" title={arrows}>
+      {view.loss && <div className={clsx('text-sm', view.loss.tone === 'bad' ? 'text-bad' : view.loss.tone === 'warn' ? 'text-warn' : 'text-nb-300')}>{view.loss.text}</div>}
+      {view.details.length > 0 && <div className="mt-0.5 text-xs text-nb-500">{view.details.join(' · ')}</div>}
+      {view.when && <div className={clsx('mt-0.5 text-xs', view.when.stale ? 'text-warn' : 'text-nb-500')}>{view.when.stale ? `${view.when.text} (old)` : view.when.text}</div>}
+      <span className="sr-only">{arrows}</span>
+    </div>
+  )
+}
+
+/** One line under the table when the figures cannot be had at all. */
+function LatestNotice({ latest, failed }: { latest: LinksLatest | null; failed: boolean }) {
+  let text = ''
+  if (latest?.reason === 'no-fusion') text = 'The latest results are read from FUSION, which this server does not have, so they are not shown here.'
+  else if (latest?.reason === 'unavailable' || (failed && !latest)) text = 'The latest results could not be read from FUSION just now. They are tried again every minute.'
+  else if (latest?.available && latest.pairs.every((p) => latestView(p) === null)) {
+    text = 'No figures have arrived yet. They come from the clusters\' link metrics, which are sent to FUSION once a cluster\'s agent has Cluster links turned on in its telemetry settings.'
+  }
+  if (!text) return null
+  return <p className="mt-3 max-w-3xl text-xs text-nb-500" data-testid="latest-notice">{text}</p>
 }
 
 function State({ on, label }: { on: boolean; label: string }) {

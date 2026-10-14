@@ -1,6 +1,8 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ClusterLinks from '@/components/ClusterLinks'
+import { api } from '@/lib/api'
+import type { LinksLatest } from '@/lib/clusterLinks'
 import { DEFAULT_SETTINGS, type LinkPair } from '@/lib/history'
 import { useServer } from '@/store/server'
 import { SETTINGS_CONFLICT, useSettings } from '@/store/settings'
@@ -35,8 +37,15 @@ const pick = (label: string, option: string) => {
   fireEvent.click(screen.getByRole('option', { name: option }))
 }
 
+const NOW = new Date().toISOString()
+const answer = (o: Partial<LinksLatest>): LinksLatest => ({ available: true, pairs: [], at: NOW, ...o })
+
 describe('ClusterLinks', () => {
-  beforeEach(() => seed('admin', []))
+  beforeEach(() => {
+    seed('admin', [])
+    vi.restoreAllMocks()
+    vi.spyOn(api, 'linksLatest').mockResolvedValue(answer({}))
+  })
 
   it('shows an empty state and nothing to edit for a viewer', () => {
     seed('viewer', [{ a: 'c-eu', b: 'c-us' }])
@@ -239,5 +248,70 @@ describe('ClusterLinks', () => {
     expect(await screen.findByText(SETTINGS_CONFLICT)).toBeInTheDocument()
     expect(screen.getByTestId('confirm-add-pair')).toBeEnabled()
     expect(saved).toBeUndefined()
+  })
+
+  describe('latest result', () => {
+    it('shows the figures of each pair, with the loss in the tone of the worse direction', async () => {
+      seed('viewer', [{ a: 'c-eu', b: 'c-us' }, { a: 'c-eu', b: 'c-gr' }])
+      vi.spyOn(api, 'linksLatest').mockResolvedValue(answer({ pairs: [
+        { a: 'c-eu', b: 'c-us', lossAToB: 0, lossBToA: 0.001, rttSeconds: 0.012, jitterSeconds: 0.0004, mtuBytes: 1500, throughputAToB: 9.2e8, throughputBToA: 8.7e8, probedAt: NOW },
+        { a: 'c-eu', b: 'c-gr', lossAToB: 0.018, lossBToA: 0, mtuBytes: 1420, probedAt: NOW },
+      ] }))
+      render(<ClusterLinks />)
+      const rows = await screen.findAllByTestId('pair-row')
+      const first = await within(rows[0]).findByTestId('latest')
+      expect(first).toHaveTextContent('loss 0.0 % → · 0.1 % ←')
+      expect(first).toHaveTextContent('round trip 12 ms · jitter 0.40 ms · MTU 1500 · 920 Mbit/s → · 870 Mbit/s ←')
+      expect(first).toHaveTextContent('probed just now')
+      expect(first).toHaveAccessibleDescription(/→ is from cloud-eu to cloud-us/)
+      const second = await within(rows[1]).findByTestId('latest')
+      expect(second).toHaveTextContent('loss 1.8 % → · 0.0 % ←')
+      expect(second.querySelector('.text-warn')).not.toBeNull()
+      expect(first.querySelector('.text-warn')).toBeNull()
+    })
+
+    it('says so when a pair has no figures yet, and for a pair without probing', async () => {
+      seed('viewer', [{ a: 'c-eu', b: 'c-us' }, { a: 'c-eu', b: 'c-gr', noProbe: true }])
+      render(<ClusterLinks />)
+      const empty = await screen.findAllByTestId('latest-empty')
+      await vi.waitFor(() => expect(screen.getAllByTestId('latest-empty').map((e) => e.textContent)).toEqual(['No data yet', 'No probing: see the traffic in FUSION']))
+      expect(empty).toHaveLength(2)
+      expect(await screen.findByTestId('latest-notice')).toHaveTextContent('No figures have arrived yet')
+    })
+
+    it('explains a server without FUSION once, not on every row', async () => {
+      seed('viewer', [{ a: 'c-eu', b: 'c-us' }])
+      vi.spyOn(api, 'linksLatest').mockResolvedValue(answer({ available: false, reason: 'no-fusion' }))
+      render(<ClusterLinks />)
+      expect(await screen.findByTestId('latest-notice')).toHaveTextContent('which this server does not have')
+      expect(screen.getByTestId('latest-empty')).toHaveTextContent('—')
+    })
+
+    it('says when FUSION could not be read, whether the server or the request failed', async () => {
+      seed('viewer', [{ a: 'c-eu', b: 'c-us' }])
+      vi.spyOn(api, 'linksLatest').mockResolvedValue(answer({ available: false, reason: 'unavailable' }))
+      const { unmount } = render(<ClusterLinks />)
+      expect(await screen.findByTestId('latest-notice')).toHaveTextContent('could not be read from FUSION just now')
+      unmount()
+      vi.spyOn(api, 'linksLatest').mockRejectedValue(new Error('network'))
+      render(<ClusterLinks />)
+      expect(await screen.findByTestId('latest-notice')).toHaveTextContent('could not be read from FUSION just now')
+    })
+
+    it('reads nothing while there are no pairs or the settings are not loaded, and again when a pair is added', async () => {
+      const read = vi.spyOn(api, 'linksLatest')
+      seed('admin', [], { loaded: false })
+      const { unmount } = render(<ClusterLinks />)
+      expect(read).not.toHaveBeenCalled()
+      unmount()
+      seed('admin', [])
+      render(<ClusterLinks />)
+      expect(read).not.toHaveBeenCalled()
+      fireEvent.click(screen.getByTestId('add-pair'))
+      pick('First cluster', 'cloud-us')
+      pick('Second cluster', 'cloud-eu')
+      fireEvent.click(screen.getByTestId('confirm-add-pair'))
+      await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(1))
+    })
   })
 })

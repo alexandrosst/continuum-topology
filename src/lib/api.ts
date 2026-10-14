@@ -1,6 +1,7 @@
 import { normalizeServerState, type ServerState } from './discovered'
 import type { AddressCandidates, AddressTest, OperatorSenders, OperatorDestination, OperatorDestinationEntry, ReceiverAuth, RegionalOperator, SignalGrant, TelemetryIntent } from './types'
 import { normalizeSettings, normalizeSnapshot, type AppSettings, type ChangeEvent, type DependencySeriesPoint, type HistoryIndex, type Snapshot, type TrafficRate } from './history'
+import { normalizeLinksLatest, type LinksLatest } from './clusterLinks'
 import type { DecisionLogEntry } from './placement/deciders'
 import type { SelfTelemetryEntity } from './selfHealth'
 import type { EffectiveModel } from './provenance'
@@ -857,6 +858,8 @@ export const api = {
     const { deciderConfigured: _derived, deciderSecretSet: _secretSet, imageDefaults: _defaults, rev: _rev, ...body } = s
     return call<Partial<AppSettings>>(c, 'PUT', '/api/v1/settings', body, rev === undefined ? {} : { 'If-Match': String(rev) }).then(normalizeSettings)
   },
+  // The latest figures of every watched cluster pair, read from the link series in FUSION (nothing is stored by the server).
+  linksLatest: (c: Conn) => call<Partial<LinksLatest>>(c, 'GET', '/api/v1/links/latest').then(normalizeLinksLatest),
   // The server's SMTP configuration (see MailConfig): global, not one organisation's, so these two are the
   // only calls in this file that don't need `c.org` at all. Same write-only-password convention as
   // saveSettings' decider secret: omit `password` (or send "") to leave it alone, `clearPassword: true` to
