@@ -68,6 +68,7 @@ func Main(args []string) int {
 	revokedHold := fs.Duration("revoked-hold", 0, "development only: how long a restarted agent whose identity was revoked waits before it exits with code 3 (default: a random 5 to 10 minutes; negative: do not wait)")
 	linkListen := fs.String("link-metrics-listen", cli.Env("CONTINUUM_LINK_METRICS_LISTEN", ""), "address to serve the cluster-to-cluster link metrics on (Prometheus text at /metrics), e.g. :9104 (empty: off; needs --flow-secret-file, since the metrics are labelled from observed traffic). The server decides which clusters are peers; the chart's telemetry.clusterLinks sets this")
 	linkProberPorts := fs.String("link-prober-ports", cli.Env("CONTINUUM_LINK_PROBER_PORTS", ""), "ports (and ranges, e.g. 8861,8862,18900-18999) the link prober's own traffic uses, which the link metrics leave out so that the probes and throughput tests do not count as the link's traffic; the chart's telemetry.clusterLinks.probe sets this")
+	linkOwn := fs.String("link-own-addresses", cli.Env("CONTINUUM_LINK_OWN_ADDRESSES", ""), "the agent pod's own addresses (comma-separated), whose connections the link metrics leave out: the agent tests targets and holds its stream to the server itself, and those connections are not the traffic between clusters; the chart sets this from the pod's status")
 	linkServePeers := fs.Bool("link-serve-peers", cli.Env("CONTINUUM_LINK_SERVE_PEERS", "") == "true", "also answer the link prober's signed request for the peer clusters to measure (POST /v1/link/peers on the link metrics address), using --link-peers-secret-file; the chart's telemetry.clusterLinks.probe sets this")
 	linkPeersSecretFile := fs.String("link-peers-secret-file", cli.Env("CONTINUUM_LINK_PEERS_SECRET_FILE", ""), "file holding the secret shared with the link prober, for its request for the peers to measure (needs --link-serve-peers). It is not the flow secret: the prober must not be able to sign flow reports")
 	linkServeIperf := fs.Bool("link-serve-iperf", cli.Env("CONTINUUM_LINK_SERVE_IPERF", "") == "true", "also hold the iperf3 credentials the Ikhnos server issues for the throughput tests (in memory only) and hand them to the link pods: the client credentials to the prober (sealed, with the peer list) and the server credentials to the responder's iperf3 server (POST /v1/link/iperf-server), using --link-iperf-secret-file; the chart sets this when telemetry.clusterLinks.probe.capacity is on and no Secret of your own is named")
@@ -174,6 +175,9 @@ func Main(args []string) int {
 	}
 	if *linkListen != "" && *flowSecretFile == "" {
 		return cli.Fatal(log, fmt.Errorf("--link-metrics-listen needs --flow-secret-file: link metrics are labelled from observed traffic"))
+	}
+	if err := link.NewMeter(link.NewPeers()).IgnoreOwn(*linkOwn); err != nil {
+		return cli.Fatal(log, fmt.Errorf("--link-own-addresses: %w", err))
 	}
 	if err := link.NewMeter(link.NewPeers()).IgnorePorts(*linkProberPorts); err != nil {
 		return cli.Fatal(log, fmt.Errorf("--link-prober-ports: %w", err))
@@ -282,6 +286,7 @@ func Main(args []string) int {
 	if *linkListen != "" {
 		links = link.NewMeter(link.NewPeers())
 		_ = links.IgnorePorts(*linkProberPorts) // checked with the other flags above
+		_ = links.IgnoreOwn(*linkOwn)           // likewise
 		links.SetInstall(link.Install{Probe: *linkServePeers, Capacity: *linkCapacity, TelemetryExport: *linkTelemetryExport})
 		flows.Links = links
 		if *linkServePeers {

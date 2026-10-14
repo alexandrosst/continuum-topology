@@ -449,3 +449,33 @@ func TestTheProbersOwnPortsAreNotCounted(t *testing.T) {
 		t.Errorf("empty: %v", err)
 	}
 }
+
+// The agent's own connections (the targets it tests for the measured paths, the stream to a server that may sit in the peer
+// cluster) are not the link's traffic, whoever they go to; a workload's, from another address, still are.
+func TestTheAgentsOwnConnectionsAreNotCounted(t *testing.T) {
+	p := NewPeers()
+	p.Set("me", []*continuumv1.LinkPeer{peer("a", "A", "10.0.0.1")})
+	m := NewMeter(p)
+	if err := m.IgnoreOwn("10.1.2.3, fd00::5"); err != nil {
+		t.Fatal(err)
+	}
+	row := func(local string) *continuumv1.RawFlow {
+		return &continuumv1.RawFlow{Client: true, Protocol: "tcp", LocalIp: local, PeerIp: "10.0.0.1", Port: 5559, Connections: 1, FailedAttempts: 1}
+	}
+	m.Observe([]*continuumv1.RawFlow{row("10.1.2.3"), row("::ffff:10.1.2.3"), row("fd00::5")})
+	if len(m.per) != 0 {
+		t.Fatalf("the agent's own connections were counted: %+v", m.per["a"])
+	}
+	m.Observe([]*continuumv1.RawFlow{row("10.1.2.4")})
+	if s := m.per["a"]; s == nil || s.connections != 1 || s.failed["other"] != 1 {
+		t.Errorf("a workload's connection was not counted: %+v", s)
+	}
+	for _, bad := range []string{"nope", "10.1.2.3,x"} {
+		if err := NewMeter(NewPeers()).IgnoreOwn(bad); err == nil {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+	if err := NewMeter(NewPeers()).IgnoreOwn(""); err != nil {
+		t.Errorf("empty: %v", err)
+	}
+}

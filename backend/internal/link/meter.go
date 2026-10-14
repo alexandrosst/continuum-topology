@@ -85,8 +85,10 @@ type Meter struct {
 	timingConnects bool
 	// proberPorts are the ports the link prober's own traffic uses; flows to or from them are not the link's traffic.
 	proberPorts []portRange
-	budget      func() (used, limit uint64)
-	pairBudget  func(peer string) (used, limit uint64, ok bool)
+	// ownAddrs are the addresses of the agent's own pod; a connection that starts from one of them is the agent's, not a workload's.
+	ownAddrs   map[netip.Addr]bool
+	budget     func() (used, limit uint64)
+	pairBudget func(peer string) (used, limit uint64, ok bool)
 
 	peersSecret []byte
 	peersReplay *probe.ReplayCache
@@ -148,6 +150,42 @@ func (m *Meter) IgnorePorts(spec string) error {
 	return nil
 }
 
+// IgnoreOwn makes ObserveRows leave out every flow whose local end is one of the agent's own addresses (a comma-separated list,
+// as the chart gives them from the pod's status). The agent dials the addresses of other clusters itself: it tests the targets
+// it was given for the measured paths and it holds the stream to the server, which may sit in the peer cluster. Those
+// connections are the agent's own, they say nothing about what workloads send across the link, and the ones that fail (an
+// address no route leads to) would show as failures and retransmits of the link. Workloads have addresses of their own, so
+// theirs are counted as before.
+func (m *Meter) IgnoreOwn(spec string) error {
+	if m == nil {
+		return nil
+	}
+	own := map[netip.Addr]bool{}
+	for _, f := range strings.Split(spec, ",") {
+		if f = strings.TrimSpace(f); f == "" {
+			continue
+		}
+		a, err := netip.ParseAddr(f)
+		if err != nil {
+			return fmt.Errorf("%q is not an address", f)
+		}
+		own[a.Unmap()] = true
+	}
+	m.mu.Lock()
+	m.ownAddrs = own
+	m.mu.Unlock()
+	return nil
+}
+
+// ownRow says whether the row is a connection of the agent itself. Called with m.mu held.
+func (m *Meter) ownRow(r *continuumv1.RawFlow) bool {
+	if len(m.ownAddrs) == 0 {
+		return false
+	}
+	a, err := netip.ParseAddr(r.LocalIp)
+	return err == nil && m.ownAddrs[a.Unmap()]
+}
+
 // Observe adds one flow report's rows, which carry byte counts. See ObserveRows.
 func (m *Meter) Observe(rows []*continuumv1.RawFlow) { m.ObserveRows(rows, true) }
 
@@ -167,7 +205,7 @@ func (m *Meter) ObserveRows(rows []*continuumv1.RawFlow, bytesKnown bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, r := range rows {
-		if r == nil || m.proberPort(r.Port) {
+		if r == nil || m.proberPort(r.Port) || m.ownRow(r) {
 			continue
 		}
 		peer := m.Peers.Lookup(r.PeerIp)

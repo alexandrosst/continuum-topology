@@ -208,3 +208,25 @@ func TestClusterLinksArePermittedThroughTheNetworkPolicies(t *testing.T) {
 		t.Error("the collector's egress policy does not allow the agent's port 9104")
 	}
 }
+
+// The agent is told its own pod addresses when the link metrics are on, from the pod's status, so that the connections it makes
+// itself are not counted as the link's traffic; with the signal off the variable is not there.
+func TestTheAgentIsToldItsOwnAddresses(t *testing.T) {
+	has := func(args []string) (corev1.EnvVar, bool) {
+		for _, c := range render(t, args...).deployments["continuum-agent"].Spec.Template.Spec.Containers {
+			for _, e := range c.Env {
+				if e.Name == "CONTINUUM_LINK_OWN_ADDRESSES" {
+					return e, true
+				}
+			}
+		}
+		return corev1.EnvVar{}, false
+	}
+	e, ok := has(clusterLinksArgs())
+	if !ok || e.ValueFrom == nil || e.ValueFrom.FieldRef == nil || e.ValueFrom.FieldRef.FieldPath != "status.podIPs" {
+		t.Errorf("CONTINUUM_LINK_OWN_ADDRESSES = %+v (found %v), want the pod's status.podIPs", e, ok)
+	}
+	if _, ok := has(append(append([]string{}, agentTel...), "--set", "flowObserver.enabled=true")); ok {
+		t.Error("the own-addresses variable is set while the link metrics are off")
+	}
+}

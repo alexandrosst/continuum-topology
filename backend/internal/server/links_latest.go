@@ -119,7 +119,33 @@ func (a *Admin) linksLatest(w http.ResponseWriter, r *http.Request) {
 	doc.Available = true
 	doc.At = at.UTC()
 	doc.Pairs = pairs
+	doc.Notes = withoutHintsOfMeasuredPairs(doc.Notes, pairs)
 	writeJSON(w, 200, doc)
+}
+
+// withoutHintsOfMeasuredPairs drops the "private-range" hints of the pairs that have figures: the hint says where to look when
+// nothing arrives, and a pair that is being measured has no use for it.
+func withoutHintsOfMeasuredPairs(notes []LinkNote, pairs []LinkPairLatest) []LinkNote {
+	measured := map[[2]string]bool{}
+	for _, p := range pairs {
+		if p.hasFigures() {
+			measured[[2]string{p.A, p.B}], measured[[2]string{p.B, p.A}] = true, true
+		}
+	}
+	out := notes[:0:0]
+	for _, n := range notes {
+		if n.Code == "private-range" && measured[[2]string{n.Cluster, n.Peer}] {
+			continue
+		}
+		out = append(out, n)
+	}
+	return out
+}
+
+// hasFigures says whether FUSION held anything for the pair.
+func (p LinkPairLatest) hasFigures() bool {
+	return p.RTTSeconds != nil || p.LossAToB != nil || p.LossBToA != nil || p.JitterSeconds != nil || p.MTUBytes != nil ||
+		p.ThroughputAToB != nil || p.ThroughputBToA != nil || p.ProbedAt != nil || p.TestedAt != nil
 }
 
 // fusionLinkPair is one pair in FUSION's data API: the Sites screen's figures, and whose series they are.

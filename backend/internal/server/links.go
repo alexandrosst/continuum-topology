@@ -302,7 +302,8 @@ type LinkNote struct {
 	// Cluster is the cluster the note is about, Peer the other end of the pair (empty when the note is about the cluster alone).
 	Cluster string `json:"cluster"`
 	Peer    string `json:"peer,omitempty"`
-	// Code is no-agent | tier | paused | peer-silent | shared-address | no-address-of-kind.
+	// Code is no-agent | tier | paused | peer-silent | shared-address | no-address-of-kind | private-range. The first six say what keeps a
+	// cluster from measuring; private-range is only a hint, for a pair that measures nothing yet (the Sites screen leaves it out when it does).
 	Code string `json:"code"`
 	Text string `json:"text"`
 }
@@ -331,6 +332,8 @@ func (h *Hub) linkNotes(links []LinkSetting, agents []store.Agent, flowPausedOf 
 				continue // the peer's own note says it
 			}
 			if n := h.endNote(l, a, o, flowPausedOf[a.ID]); n != nil {
+				out = append(out, *n)
+			} else if n := h.rangeHint(a, o); n != nil {
 				out = append(out, *n)
 			}
 		}
@@ -371,6 +374,42 @@ func (h *Hub) endNote(l LinkSetting, a, o store.Agent, flowPaused bool) *LinkNot
 		return &LinkNote{Cluster: c, Peer: peer, Code: "no-address-of-kind", Text: fmt.Sprintf("The pair is set to measure through %s addresses, but %s has none, so the active measurements towards it fail until the choice or the addresses change.", l.Via, peer)}
 	}
 	return nil
+}
+
+// rangeHint is the hint for a pair whose peer has no public address: the addresses the cluster is told to measure towards are all of
+// a mesh or a private range, which the two clusters reach each other on only if they share that network (one LAN, a VPN or the mesh
+// itself). A measurement towards an address nothing routes to fails, and the retransmits of the attempts show up in the link's
+// own figures, so the hint says where to look before the figures do. Nil when the peer has a public address among the usable ones
+// or none at all. Called with h.mu held.
+func (h *Hub) rangeHint(a, o store.Agent) *LinkNote {
+	usable := withoutAddresses(h.peerAddresses(o), h.ownAddresses(a))
+	var mesh, private int
+	for _, s := range usable {
+		ad, err := netip.ParseAddr(s)
+		if err != nil {
+			continue
+		}
+		switch link.Class(ad) {
+		case link.ClassMesh:
+			mesh++
+		case link.ClassPrivate:
+			private++
+		case link.ClassPublic:
+			return nil
+		}
+	}
+	if mesh+private == 0 {
+		return nil
+	}
+	kinds := "private"
+	switch {
+	case mesh > 0 && private > 0:
+		kinds = "mesh (100.64.0.0/10) and private"
+	case mesh > 0:
+		kinds = "mesh (100.64.0.0/10)"
+	}
+	c, peer := a.ClusterID, o.ClusterID
+	return &LinkNote{Cluster: c, Peer: peer, Code: "private-range", Text: fmt.Sprintf("Every address %s is told to measure towards (%s) is a %s one, so the measurements work only if the two clusters share that network, a LAN, a VPN or the mesh itself. If nothing arrives, check that a node of this cluster can reach those addresses.", c, strings.Join(usable, ", "), kinds)}
 }
 
 // hasAddressOfKind says whether any of the addresses is of the kind via (see link.Class).

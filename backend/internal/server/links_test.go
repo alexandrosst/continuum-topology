@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/facts"
@@ -493,5 +494,40 @@ func TestAPairPinnedToAKindThePeerHasNoneOfSaysSo(t *testing.T) {
 	// cl-b has a mesh address, so cl-a measures through it; cl-a has none left once the shared one is out, and cl-b is told so.
 	if got := h2.linkNotes([]LinkSetting{{A: "cl-a", B: "cl-b", Via: "mesh"}}, []store.Agent{a, b}, nil); len(got) != 1 || got[0].Cluster != "cl-b" || got[0].Peer != "cl-a" {
 		t.Errorf("%+v", got)
+	}
+}
+
+// A peer that has only mesh or private addresses is reachable only over a network the clusters share: the pair is measured, but
+// the Sites screen is told to hint at it, and the hint goes away when the peer has a public address or the pair has figures.
+func TestAPeerWithOnlyPrivateAddressesGetsAHint(t *testing.T) {
+	a, b := ag("ag-a", "cl-a", "alpha", "", 2), ag("ag-b", "cl-b", "beta", "", 2)
+	links := []LinkSetting{{A: "cl-a", B: "cl-b"}}
+	h := linkHub(map[string]*view{"ag-a": {state: nodeState("10.0.0.1")}, "ag-b": {state: nodeState("10.1.0.1", "100.64.0.45")}})
+	got := h.linkNotes(links, []store.Agent{a, b}, nil)
+	if len(got) != 2 || got[0].Code != "private-range" || got[0].Cluster != "cl-a" || got[0].Peer != "cl-b" ||
+		!strings.Contains(got[0].Text, "mesh (100.64.0.0/10) and private") || !strings.Contains(got[0].Text, "100.64.0.45") {
+		t.Fatalf("%+v", got)
+	}
+	// a public address among them (here the one the peer's agent connects from) is a way across that needs no shared network
+	pub := ag("ag-b", "cl-b", "beta", "203.0.113.2", 2)
+	if got := h.linkNotes(links, []store.Agent{a, pub}, nil); len(got) != 0 && got[0].Peer == "cl-b" {
+		t.Errorf("a peer with a public address: %+v", got)
+	}
+	// a pair FUSION holds figures for needs no hint
+	one := 0.01
+	notes := withoutHintsOfMeasuredPairs(got, []LinkPairLatest{{A: "cl-a", B: "cl-b", RTTSeconds: &one}})
+	if len(notes) != 0 {
+		t.Errorf("a measured pair keeps its hint: %+v", notes)
+	}
+	if notes := withoutHintsOfMeasuredPairs(got, []LinkPairLatest{{A: "cl-a", B: "cl-b"}}); len(notes) != 2 {
+		t.Errorf("a pair with nothing lost its hint: %+v", notes)
+	}
+	// and a hint never stands for an unmet step of the checklist: nothing in the setup is made to fail by it
+	for _, s := range h.linkSetups(links, []store.Agent{a, b}, nil, true, time.Now()) {
+		for _, st := range s.Steps {
+			if st.Code == "addresses" && st.State == "todo" {
+				t.Errorf("the hint failed the addresses step: %+v", st)
+			}
+		}
 	}
 }

@@ -193,6 +193,8 @@ test('a note and a step that say the same of a cluster are shown once', () => {
   assert.equal(uncoveredNotes(notes, undefined).length, notes.length, 'without a checklist every note stays')
   // a step that is done does not cover a note
   assert.equal(uncoveredNotes([note('b', 'tier')], { a: 'a', b: 'b', steps: [step('agent', 'ok', 'b')] }).length, 1)
+  // the private-range hint is no unmet step's twin: it is always shown, even beside an unmet addresses step
+  assert.deepEqual(uncoveredNotes([note('b', 'private-range')], setup).map((n) => n.code), ['private-range'])
 })
 
 test('the page\'s own checks are left out only where the server says the same of that cluster', () => {

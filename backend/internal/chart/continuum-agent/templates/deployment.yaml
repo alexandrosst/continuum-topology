@@ -149,6 +149,9 @@ spec:
             {{- end }}
             {{- if .Values.telemetry.clusterLinks.metrics.enabled }}
             - {name: CONTINUUM_LINK_METRICS_LISTEN, value: ":9104"}
+            # The agent's own addresses: its connections (the targets it tests, its stream to the server) are not the traffic between clusters.
+            - name: CONTINUUM_LINK_OWN_ADDRESSES
+              valueFrom: {fieldRef: {fieldPath: status.podIPs}}
             {{- if .Values.telemetry.clusterLinks.probe.enabled }}
             - {name: CONTINUUM_LINK_SERVE_PEERS, value: "true"}
             - {name: CONTINUUM_LINK_PEERS_SECRET_FILE, value: /link-peers/secret}
