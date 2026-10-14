@@ -1375,7 +1375,7 @@
                 },
                 "interval": {
                   "type": "string",
-                  "pattern": "^(([1-9][0-9]*(ms|s|m|h))+)?$"
+                  "pattern": "^((([1-9][0-9]|1[01][0-9]|120)s)|2m|1m([1-5]?[0-9]s)?)?$"
                 }
               }
             },
@@ -1408,7 +1408,8 @@
                     "timeout": {"type": "string", "pattern": "^(([1-9][0-9]*(ms|s|m|h))+)?$"}
                   }
                 },
-                "scrapeInterval": {"type": "string", "pattern": "^(([1-9][0-9]*(ms|s|m|h))+)?$"},
+                "scrapeInterval": {"type": "string", "pattern": "^((([1-9][0-9]|1[01][0-9]|120)s)|2m|1m([1-5]?[0-9]s)?)?$"},
+                "listenPort": {"type": "integer", "minimum": 1024, "maximum": 65535},
                 "resources": {"type": "object"},
                 "nodeSelector": {"type": "object"},
                 "tolerations": {"type": "array"},

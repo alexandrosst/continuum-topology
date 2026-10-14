@@ -47,8 +47,13 @@ func TestTheProberAndResponderAreSeparateLeastPrivilegeWorkloads(t *testing.T) {
 		t.Errorf("replicas = %d: a second prober would measure every link twice", *prober.Spec.Replicas)
 	}
 	ps := prober.Spec.Template.Spec
-	if ps.HostNetwork || (ps.AutomountServiceAccountToken == nil || *ps.AutomountServiceAccountToken) {
-		t.Error("the prober must not use the host network or have a ServiceAccount token")
+	// OWAMP in open mode compares the address owping announces with the one the responder sees; behind a CNI's masquerade a pod's
+	// address is never that one, so every reverse test is refused and every forward test counts all packets lost.
+	if !ps.HostNetwork || ps.DNSPolicy != corev1.DNSClusterFirstWithHostNet {
+		t.Errorf("hostNetwork = %v, dnsPolicy = %q: the prober must be in the host network (its agent URL is a Service name)", ps.HostNetwork, ps.DNSPolicy)
+	}
+	if ps.AutomountServiceAccountToken == nil || *ps.AutomountServiceAccountToken {
+		t.Error("the prober has a ServiceAccount token")
 	}
 	c := ps.Containers[0]
 	if strings.Join(c.Args, " ") != "link-prober" {
@@ -168,8 +173,10 @@ func TestTheProbeIsScrapedAndPermittedThroughTheNetworkPolicies(t *testing.T) {
 		"networkPolicy.telemetryEgress.enabled=true", "networkPolicy.telemetryEgress.allowedEgress[0].cidr=10.0.0.0/8", "networkPolicy.telemetryEgress.allowedEgress[0].ports[0]=4317")
 	r := render(t, args...)
 
-	// the prober may ask the agent on 9104; the collector may scrape the prober on 9105
+	// The prober and the iperf3 pods run in the host network, so the agent allows them by source address, not by pod selector; the
+	// collector scrapes the prober by node address and the port the prober listens on.
 	from := map[string]bool{}
+	cidrs := map[string]bool{}
 	for _, rule := range r.policies["continuum-agent-probe"].Spec.Ingress {
 		for _, p := range rule.Ports {
 			if p.Port != nil && p.Port.IntValue() == 9104 {
@@ -177,23 +184,29 @@ func TestTheProbeIsScrapedAndPermittedThroughTheNetworkPolicies(t *testing.T) {
 					if f.PodSelector != nil {
 						from[f.PodSelector.MatchLabels["app.kubernetes.io/name"]] = true
 					}
+					if f.IPBlock != nil {
+						cidrs[f.IPBlock.CIDR] = true
+					}
 				}
 			}
 		}
 	}
-	if !from["continuum-link-prober"] || !from["continuum-telemetry-cluster"] || len(from) != 2 {
-		t.Errorf("port 9104 is open to %v, want the cluster collector and the prober only", from)
+	if !from["continuum-telemetry-cluster"] || from["continuum-link-prober"] || len(from) != 1 {
+		t.Errorf("port 9104 is open by pod selector to %v, want the cluster collector only (the prober has no pod identity)", from)
+	}
+	if !cidrs["10.0.0.0/8"] || len(cidrs) != 1 {
+		t.Errorf("port 9104 is open by address to %v, want flowObserver.nodeCIDRs for the prober", cidrs)
 	}
 	scraped := false
 	for _, rule := range r.policies["continuum-telemetry-scrape-egress"].Spec.Egress {
 		for _, p := range rule.Ports {
-			if p.Port != nil && p.Port.IntValue() == 9105 && len(rule.To) == 1 && rule.To[0].PodSelector != nil && rule.To[0].PodSelector.MatchLabels["app.kubernetes.io/name"] == "continuum-link-prober" {
+			if p.Port != nil && p.Port.IntValue() == 9105 && len(rule.To) == 1 && rule.To[0].PodSelector == nil && rule.To[0].IPBlock != nil && rule.To[0].IPBlock.CIDR == "10.0.0.0/8" {
 				scraped = true
 			}
 		}
 	}
 	if !scraped {
-		t.Error("the collector's egress policy does not allow the prober's port 9105")
+		t.Error("the collector's egress policy does not allow the prober's port 9105 by node address")
 	}
 
 	var svc *corev1.Service

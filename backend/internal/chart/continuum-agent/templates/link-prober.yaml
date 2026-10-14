@@ -137,6 +137,9 @@ spec:
           imagePullPolicy: {{ include "agent.linkImagePullPolicy" . }}
           args: ["link-iperf-server"]
           env:
+            # In the host network this is the node's address, so the metrics port is not served on every interface of the node.
+            - name: POD_IP
+              valueFrom: {fieldRef: {fieldPath: status.podIP}}
             - {name: CONTINUUM_LINK_AGENT_URL, value: "http://continuum-agent-link-metrics.{{ .Release.Namespace }}.svc:9104"}
             - {name: CONTINUUM_LINK_IPERF_SECRET_FILE, value: /iperf-request/secret}
             - {name: CONTINUUM_LINK_IPERF_DIR, value: /iperf-auth}
@@ -235,7 +238,18 @@ spec:
 # The prober: one pod. It asks the agent which clusters this one is paired with and measures the path to each, one test at a
 # time, both directions. It has no access to the Kubernetes API, and it is configured to talk only to the agent's link address
 # and the paired clusters' responders. That is a property of its code and settings, not of the network: no NetworkPolicy
-# restricts what the pod can reach or who can reach its metrics port (9105).
+# restricts what the pod can reach.
+#
+# It runs in the host network, like the responder, because OWAMP in open mode compares addresses. owping announces the address of
+# its control socket as the sender and receiver of the test, and owampd refuses a reverse test ("Test Denied: OpenMode
+# recieve_addr != control_client") and drops every packet of a forward one when that is not the address it sees the connection
+# and the packets come from. A pod behind the CNI's masquerade announces its pod IP while the responder sees the node's, so
+# without the host network every reverse test is refused and every forward test reports all packets lost. In the host network
+# the announced address is the node's own, which is what the responder sees as long as nothing translates addresses between the
+# two clusters. The prober therefore has the node's network, not a pod's: it stays non-root, drops every capability, has a
+# read-only root filesystem and no ServiceAccount token. Its metrics port binds the node address only (listenPort, default
+# 9105), and the agent and the collector reach each other through ipBlock rules (receiver.yaml, telemetry-network.yaml) because
+# a host-network pod has no pod identity for a podSelector to match.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -270,6 +284,9 @@ spec:
       imagePullSecrets: {{- toYaml . | nindent 8 }}
       {{- end }}
       automountServiceAccountToken: false
+      hostNetwork: true
+      # The agent is reached by a Service name, which the host's resolver does not know.
+      dnsPolicy: ClusterFirstWithHostNet
       securityContext: {{- include "agent.nonRootPodSecurityContext" (dict "root" . "fsGroup" true) | nindent 8 }}
       containers:
         - name: prober
@@ -281,9 +298,12 @@ spec:
             readOnlyRootFilesystem: true
             capabilities: {drop: ["ALL"]}
           env:
+            # In the host network this is the node's address, so the metrics port is not served on every interface of the node.
+            - name: POD_IP
+              valueFrom: {fieldRef: {fieldPath: status.podIP}}
             - {name: CONTINUUM_LINK_AGENT_URL, value: "http://continuum-agent-link-metrics.{{ .Release.Namespace }}.svc:9104"}
             - {name: CONTINUUM_LINK_PEERS_SECRET_FILE, value: /secret/secret}
-            - {name: CONTINUUM_LINK_PROBE_LISTEN, value: ":9105"}
+            - {name: CONTINUUM_LINK_PROBE_LISTEN, value: "$(POD_IP):{{ $probe.listenPort }}"}
             - {name: CONTINUUM_LINK_RESPONDER_PORT, value: {{ $probe.responder.port | quote }}}
             - {name: CONTINUUM_LINK_PACKETS, value: {{ $probe.packets | quote }}}
             - {name: CONTINUUM_LINK_SPACING, value: {{ $probe.spacing | quote }}}
@@ -324,7 +344,7 @@ spec:
             {{- end }}
             {{- end }}
           ports:
-            - {name: link-probe, containerPort: 9105, protocol: TCP}
+            - {name: link-probe, containerPort: {{ $probe.listenPort }}, protocol: TCP}
           readinessProbe:
             tcpSocket: {port: link-probe}
             periodSeconds: 30
@@ -376,5 +396,6 @@ spec:
   type: ClusterIP
   selector: {app.kubernetes.io/name: continuum-link-prober, app.kubernetes.io/instance: {{ .Release.Name }}}
   ports:
-    - {name: link-probe, port: 9105, targetPort: link-probe, protocol: TCP}
+    # The Service keeps port 9105 (the collector's scrape target); the pod's port is listenPort, as it is bound on the node.
+    - {name: link-probe, port: 9105, targetPort: {{ $probe.listenPort }}, protocol: TCP}
 {{- end }}

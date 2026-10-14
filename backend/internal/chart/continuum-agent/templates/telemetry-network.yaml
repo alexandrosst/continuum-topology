@@ -91,9 +91,15 @@ spec:
 {{- if .Values.telemetry.clusterLinks.metrics.enabled }}
 {{- $scrapes = append $scrapes (dict "to" (list (dict "podSelector" (dict "matchLabels" (dict "app.kubernetes.io/name" "continuum-agent" "app.kubernetes.io/instance" .Release.Name)))) "port" 9104) }}
 {{- end }}
-{{- /* The link prober's metrics (telemetry.clusterLinks.probe), on port 9105. */ -}}
+{{- /* The link prober's metrics (telemetry.clusterLinks.probe). The prober runs in the host network (see link-prober.yaml), so a
+       podSelector cannot name it and policies see the Service's backend, the node, at the port the pod listens on: the rule is by node
+       address (flowObserver.nodeCIDRs when its networkPolicy is on, otherwise any address) and listenPort, not the Service's 9105. */ -}}
 {{- if .Values.telemetry.clusterLinks.probe.enabled }}
-{{- $scrapes = append $scrapes (dict "to" (list (dict "podSelector" (dict "matchLabels" (dict "app.kubernetes.io/name" "continuum-link-prober" "app.kubernetes.io/instance" .Release.Name)))) "port" 9105) }}
+{{- $proberTo := list }}
+{{- range (ternary .Values.flowObserver.nodeCIDRs (list "0.0.0.0/0") .Values.flowObserver.networkPolicy) }}
+{{- $proberTo = append $proberTo (dict "ipBlock" (dict "cidr" .)) }}
+{{- end }}
+{{- $scrapes = append $scrapes (dict "to" $proberTo "port" (int .Values.telemetry.clusterLinks.probe.listenPort)) }}
 {{- end }}
 {{- if and .Values.telemetry.accelerators.metrics.enabled (eq .Values.telemetry.accelerators.metrics.source "bundle-dcgm") }}
 {{- $scrapes = append $scrapes (dict "to" (list (dict "podSelector" (dict "matchLabels" (dict "app.kubernetes.io/name" (printf "%s-dcgm" (include "agent.telemetryName" .)) "app.kubernetes.io/instance" .Release.Name)))) "port" 9400) }}

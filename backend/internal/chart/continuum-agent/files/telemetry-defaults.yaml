@@ -247,8 +247,10 @@ telemetry:
         requests:
           cpu: 20m
           memory: 32Mi
-      nodeSelector: {}
+      nodeSelector:
+        kubernetes.io/os: linux
       tolerations: []
+      listenPort: 9105
       responder:
         port: 8861
         testPorts: 18900-18919
@@ -261,7 +263,8 @@ telemetry:
             memory: 16Mi
         tolerations:
           - operator: Exists
-        nodeSelector: {}
+        nodeSelector:
+          kubernetes.io/os: linux
       capacity:
         enabled: false
         port: 8862

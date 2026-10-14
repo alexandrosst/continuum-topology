@@ -61,18 +61,13 @@ spec:
       ports:
         - {port: 9104, protocol: TCP}
     {{- end }}
-    {{- if .Values.telemetry.clusterLinks.probe.enabled }}
-    # The link prober asks the agent which clusters to measure (signed with its own link-peers secret, not the flow secret) on the same port.
-    - from:
-        - podSelector:
-            matchLabels: {app.kubernetes.io/name: continuum-link-prober, app.kubernetes.io/instance: {{ .Release.Name }}}
-      ports:
-        - {port: 9104, protocol: TCP}
-    {{- end }}
-    {{- if include "agent.linkIperf" . }}
-    # The responder's iperf3 pods run in the host network and ask the agent for their server credentials on the same port (signed with a
-    # secret of their own, answered sealed). Their traffic carries no pod identity, so, like the flow collectors', it is allowed by source
-    # address: flowObserver.nodeCIDRs with flowObserver.networkPolicy, otherwise any source, as it could without this policy.
+    {{- if include "agent.linkPeers" . }}
+    # The link prober asks the agent which clusters to measure (signed with its own link-peers secret, not the flow secret) and, with
+    # the throughput tests on, the responder's iperf3 pods ask for their server credentials (signed with a secret of their own,
+    # answered sealed), both on this port. Both run in the host network - the prober because OWAMP compares addresses, see
+    # link-prober.yaml - so their traffic carries no pod identity for a podSelector to match and, like the flow collectors', it is
+    # allowed by source address: flowObserver.nodeCIDRs with flowObserver.networkPolicy, otherwise any source, as it could without this policy.
+    # (Across nodes, some CNIs show the agent the node's tunnel address instead of its own: list that one too.)
     - from:
         {{- range (ternary .Values.flowObserver.nodeCIDRs (list "0.0.0.0/0") .Values.flowObserver.networkPolicy) }}
         - ipBlock: {cidr: {{ . | quote }}}

@@ -998,13 +998,13 @@ telemetry:
     # tools): packet loss counted per direction, delay variation, and absolute one-way delay when both clocks are
     # synchronised. Passive metrics above cannot see a link nobody is using; this can. It runs in two small workloads of its own,
     # from the `link` image (the agent image has no measurement tools):
-    #   - a prober (one pod) that asks the agent for the paired clusters and sends short test streams to each, one at a time;
+    #   - a prober (one pod, host network: see listenPort) that asks the agent for the paired clusters and sends short test streams to each, one at a time;
     #   - a responder (a pod on every node, host network) that answers the other clusters' probers.
     # Cost: `packets` per run, `interval` apart, in each direction, per paired cluster: by default 100 small packets a minute.
     # Needs metrics.enabled (the agent answers the prober, and the cluster collector scrapes both). The ports must be open
     # between paired clusters: TCP responder.port and UDP responder.testPorts, to every node address of the peer cluster.
     # The prober is only configured to talk to the agent and to the paired clusters' responders; no NetworkPolicy enforces
-    # that, and its metrics port (9105) answers any pod that can reach it. Restrict both yourself if the cluster needs it.
+    # that, and its metrics port (listenPort, on the node it runs on) answers anyone who can reach that node on it. Restrict both yourself if the cluster needs it.
     # It mounts one Secret, continuum-agent-link-peers (peersSecret below), shared with the agent alone; it does not mount the flow secret.
     probe:
       enabled: false
@@ -1035,8 +1035,15 @@ telemetry:
       resources:
         requests: {cpu: 20m, memory: 32Mi}
         limits: {memory: 128Mi}
-      nodeSelector: {}
+      # The prober and the responder run a Linux image: without this a mixed cluster (Windows node pools) would schedule the
+      # responder, which tolerates every taint, on nodes that cannot run it. A nodeSelector of your own is added to this one.
+      nodeSelector:
+        kubernetes.io/os: linux
       tolerations: []
+      # Where the prober serves its metrics. It runs in the host network (OWAMP in open mode compares the address it announces with
+      # the one the responder sees, which a pod behind the CNI's masquerade does not match), so this is a port on the node it is
+      # scheduled on, bound to that node's address: change it if something else on the nodes uses 9105.
+      listenPort: 9105
       responder:
         port: 8861             # OWAMP control (TCP)
         testPorts: 18900-18919 # test packets (UDP); at least 2 ports, one is used per running test (20 serve a mesh of ten clusters)
@@ -1050,7 +1057,8 @@ telemetry:
           limits: {memory: 64Mi}
         tolerations:
           - {operator: Exists}   # peers may try any node address, so it runs on every node, tainted or not
-        nodeSelector: {}
+        nodeSelector:
+          kubernetes.io/os: linux
       # Throughput tests with iperf3 (off by default). This switch gives the cluster the ability: the iperf3 server, and the
       # client in the prober. Which pairs are actually tested is chosen per pair on the server (a pair that does not ask for them
       # gets none, and only one cluster of a pair runs them). Where the probe above says whether a link is healthy, these say how much

@@ -71,6 +71,16 @@
 {{- if or $t.applicationMetrics.metrics.enabled $t.applicationLogs.logs.enabled $t.traces.traces.enabled $t.networkLatency.metrics.enabled -}}true{{- end -}}
 {{- end -}}
 
+{{/* A duration written as the chart's values write them ("90s", "1m30s", "100ms", "2h") in milliseconds; 0 for "0", "" or anything else.
+     Helm has no function for this (Sprig's toDuration does not exist in it). */}}
+{{- define "agent.durationMillis" -}}
+{{- $ms := 0 -}}
+{{- range regexFindAll "[0-9]+(ms|s|m|h)" (toString .) -1 -}}
+{{- $ms = add $ms (mul (int64 (regexFind "^[0-9]+" .)) (get (dict "ms" 1 "s" 1000 "m" 60000 "h" 3600000) (regexFind "(ms|s|m|h)$" .))) -}}
+{{- end -}}
+{{- $ms -}}
+{{- end -}}
+
 {{/* Validates the parts of telemetry that cross signals: an export endpoint is required once anything
      is enabled, and networkLatency has nothing to re-emit unless the underlying measurement is itself on. */}}
 {{- define "agent.telemetryValidate" -}}
@@ -123,13 +133,53 @@
 {{- if or (ne (len $tp) 2) (lt (sub (int (index $tp 1)) (int (index $tp 0))) 1) (lt (int (index $tp 0)) 1024) (gt (int (index $tp 1)) 65535) -}}
 {{- fail (printf "telemetry.clusterLinks.probe.responder.testPorts must be a range of at least two unprivileged ports such as 18900-18999, got %q" (toString $probe.responder.testPorts)) -}}
 {{- end -}}
+{{- /* Octets up to 255 and prefixes up to 32 (IPv4) or 128 (IPv6): a CIDR that only looks like one is written into the limits file
+       as it is, and the responder then fails to read it on every node. */ -}}
 {{- range $probe.responder.allowFrom -}}
-{{- if not (regexMatch "^([0-9]{1,3}\\.){3}[0-9]{1,3}/[0-9]{1,2}$|^[0-9a-fA-F:]+/[0-9]{1,3}$" (toString .)) -}}
-{{- fail (printf "telemetry.clusterLinks.probe.responder.allowFrom entries must be CIDRs such as 203.0.113.0/24, got %q" (toString .)) -}}
+{{- if not (or (regexMatch "^((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\\.){3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])/(3[0-2]|[12]?[0-9])$" (toString .)) (and (contains ":" (toString .)) (regexMatch "^[0-9a-fA-F:]+/(12[0-8]|1[01][0-9]|[1-9]?[0-9])$" (toString .)))) -}}
+{{- fail (printf "telemetry.clusterLinks.probe.responder.allowFrom entries must be CIDRs such as 203.0.113.0/24 (octets up to 255, prefix up to 32, or up to 128 for IPv6), got %q" (toString .)) -}}
 {{- end -}}
+{{- end -}}
+{{- /* What the prober itself refuses at start-up (Runner.Validate, TCPConnect.Validate, Capacity.Validate): a value that passes the
+       schema's pattern but not those would be rendered and then restart the pod forever, with the reason only in its log. */ -}}
+{{- $every := include "agent.durationMillis" $probe.interval | int64 -}}
+{{- if and (toString $probe.interval) (lt $every 10000) -}}
+{{- fail (printf "telemetry.clusterLinks.probe.interval is %s: the prober does not measure more often than every 10s" (toString $probe.interval)) -}}
+{{- end -}}
+{{- $spacing := include "agent.durationMillis" $probe.spacing | int64 -}}
+{{- if and (toString $probe.spacing) (or (lt $spacing 10) (gt $spacing 5000)) -}}
+{{- fail (printf "telemetry.clusterLinks.probe.spacing is %s: it must be between 10ms and 5s" (toString $probe.spacing)) -}}
+{{- end -}}
+{{- /* A test takes about packets x spacing plus the 2s reply wait and 3s of set-up (Runner.testTime), once in each direction. */ -}}
+{{- $each := add (mul (int64 $probe.packets) $spacing) 5000 -}}
+{{- if and (toString $probe.interval) (gt (mul $each 2) $every) -}}
+{{- fail (printf "telemetry.clusterLinks.probe: %v packets %s apart take about %ds each way, which does not fit in an interval of %s: lower packets or spacing, or raise interval" $probe.packets (toString $probe.spacing) (div (add $each 999) 1000) (toString $probe.interval)) -}}
+{{- end -}}
+{{- $path := include "agent.durationMillis" $probe.pathInterval | int64 -}}
+{{- if and (ne $path 0) (lt $path 60000) -}}
+{{- fail (printf "telemetry.clusterLinks.probe.pathInterval is %s: use 0 (never) or 1m or more" (toString $probe.pathInterval)) -}}
+{{- end -}}
+{{- $tcpEvery := include "agent.durationMillis" $probe.tcpConnect.interval | int64 -}}
+{{- $tcpTimeout := include "agent.durationMillis" $probe.tcpConnect.timeout | int64 -}}
+{{- if ne $tcpEvery 0 -}}
+{{- if lt $tcpEvery 5000 -}}
+{{- fail (printf "telemetry.clusterLinks.probe.tcpConnect.interval is %s: use 0 (off) or 5s or more" (toString $probe.tcpConnect.interval)) -}}
+{{- end -}}
+{{- if or (lt $tcpTimeout 500) (gt $tcpTimeout 30000) -}}
+{{- fail (printf "telemetry.clusterLinks.probe.tcpConnect.timeout is %s: it must be between 500ms and 30s" (toString $probe.tcpConnect.timeout)) -}}
+{{- end -}}
+{{- if ge $tcpTimeout $tcpEvery -}}
+{{- fail (printf "telemetry.clusterLinks.probe.tcpConnect.timeout (%s) must be shorter than tcpConnect.interval (%s)" (toString $probe.tcpConnect.timeout) (toString $probe.tcpConnect.interval)) -}}
+{{- end -}}
+{{- end -}}
+{{- if or (eq (int $probe.listenPort) (int $probe.responder.port)) (and $probe.capacity.enabled (eq (int $probe.listenPort) (int $probe.capacity.port))) -}}
+{{- fail "telemetry.clusterLinks.probe.listenPort must differ from responder.port and capacity.port: the prober and the responder share the node's network" -}}
 {{- end -}}
 {{- $cap := $probe.capacity -}}
 {{- if $cap.enabled -}}
+{{- if lt (include "agent.durationMillis" $cap.interval | int64) 600000 -}}
+{{- fail (printf "telemetry.clusterLinks.probe.capacity.interval is %s: the throughput tests do not run more often than every 10 minutes" (toString $cap.interval)) -}}
+{{- end -}}
 {{- if eq (int $cap.port) (int $probe.responder.port) -}}
 {{- fail "telemetry.clusterLinks.probe.capacity.port must differ from telemetry.clusterLinks.probe.responder.port" -}}
 {{- end -}}
@@ -1644,6 +1694,9 @@ echo "kepler preflight: the kernel accepts eBPF tracing programs (or the probe c
 {{- end -}}
 {{- if and $t.clusterLinks.probe.enabled $t.clusterLinks.probe.capacity.enabled (not $t.clusterLinks.probe.capacity.auth.existingSecret) (not $t.clusterLinks.probe.capacity.auth.automatic) -}}
 {{- $w = append $w (printf "telemetry.clusterLinks.probe.capacity.enabled with capacity.auth.automatic=false runs an iperf3 server on every node (host network, port %v) without authentication: anyone who can reach that port can run full-rate TCP or UDP tests against the node, which uses its bandwidth and CPU, and one client holds the server's single test slot so the prober's own tests are refused meanwhile. Leave telemetry.clusterLinks.probe.capacity.auth.automatic on (Ikhnos issues the credentials), set telemetry.clusterLinks.probe.capacity.auth.existingSecret (iperf3's authenticated mode), or restrict the port with a firewall." $t.clusterLinks.probe.capacity.port) -}}
+{{- end -}}
+{{- if and $t.clusterLinks.probe.enabled (not $t.clusterLinks.probe.responder.allowFrom) -}}
+{{- $w = append $w (printf "telemetry.clusterLinks.probe.responder.allowFrom is empty: the OWAMP control port (%v) is open on every node in the host network, to anyone who can reach it, within the responder's rate and disk limits. On nodes with public addresses set allowFrom to the peers' node CIDRs, or restrict the port with a firewall." $t.clusterLinks.probe.responder.port) -}}
 {{- end -}}
 {{- $q := $t.export.queue -}}
 {{- $mrb := int $q.maxRequestBytes -}}

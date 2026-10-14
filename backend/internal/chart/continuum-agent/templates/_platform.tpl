@@ -85,7 +85,7 @@ linkerd.io/inject: disabled
 {{- $l = append $l (dict "name" "the traffic observer" "sa" "") -}}
 {{- end -}}
 {{- if .Values.telemetry.clusterLinks.probe.enabled -}}
-{{- $l = append $l (dict "name" "the link responder" "sa" "") -}}
+{{- $l = append $l (dict "name" "the link responder and prober" "sa" "") -}}
 {{- end -}}
 {{- toJson $l -}}
 {{- end -}}
