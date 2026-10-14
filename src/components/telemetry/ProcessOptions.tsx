@@ -57,13 +57,16 @@ export function TagRows({ tags, onChange: set, testIdPrefix, suggestion, noun = 
   return (
     <div className="space-y-2" data-testid={`${testIdPrefix}-tags`}>
       {tags.length > 0 && (
-        <ul className="space-y-1.5">
+        // A container query, not a viewport one: these rows sit in a Disclosure in the wizard's column, in a modal, or in a grid cell, and
+        // what matters is the room the row itself has. Wide: name = value [x] on one line, the value getting the larger share. Narrow:
+        // the name and the remove button on one line, the value on a full-width line below (no "=", the boxes are stacked).
+        <ul className="@container space-y-2">
           {tags.map((t, i) => (
-            <li key={i} className="flex items-center gap-2">
-              <Input value={t.key} onChange={(e) => set(tags.map((x, j) => (j === i ? { ...x, key: e.target.value } : x)))} placeholder="name, e.g. team" aria-label={`${cap(noun)} ${i + 1} name`} className="w-2/5 font-mono text-xs" data-testid={`${testIdPrefix}-tag-key-${i}`} />
-              <span className="text-nb-600" aria-hidden>=</span>
-              <Input value={t.value} onChange={(e) => set(tags.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)))} placeholder="value" aria-label={`${cap(noun)} ${i + 1} value`} className="min-w-0 flex-1 font-mono text-xs" data-testid={`${testIdPrefix}-tag-value-${i}`} />
-              <button type="button" onClick={() => set(tags.filter((_, j) => j !== i))} aria-label={`Remove ${noun} ${i + 1}`} className="rounded p-1 text-nb-600 hover:bg-nb-930 hover:text-nb-300" data-testid={`${testIdPrefix}-tag-remove-${i}`}>
+            <li key={i} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1.5 @md:grid-cols-[minmax(8rem,2fr)_auto_minmax(0,3fr)_auto]">
+              <Input value={t.key} onChange={(e) => set(tags.map((x, j) => (j === i ? { ...x, key: e.target.value } : x)))} placeholder="name, e.g. team" aria-label={`${cap(noun)} ${i + 1} name`} className="min-w-0 font-mono text-xs" data-testid={`${testIdPrefix}-tag-key-${i}`} />
+              <span className="hidden text-nb-600 @md:block" aria-hidden>=</span>
+              <Input value={t.value} onChange={(e) => set(tags.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)))} placeholder="value" aria-label={`${cap(noun)} ${i + 1} value`} className="col-span-2 min-w-0 font-mono text-xs @md:col-span-1" data-testid={`${testIdPrefix}-tag-value-${i}`} />
+              <button type="button" onClick={() => set(tags.filter((_, j) => j !== i))} aria-label={`Remove ${noun} ${i + 1}`} className="col-start-2 row-start-1 rounded p-1 text-nb-600 hover:bg-nb-930 hover:text-nb-300 @md:col-auto @md:row-auto" data-testid={`${testIdPrefix}-tag-remove-${i}`}>
                 <X size={ICON_MD} aria-hidden />
               </button>
             </li>

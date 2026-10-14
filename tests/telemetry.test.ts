@@ -119,6 +119,13 @@ test('energy pointed at an existing source needs its endpoint, and carries the s
   assert.match(withTelemetry(base, { ...unknown, energySource: 'existing', energyExistingEndpoint: 'k.mon:9102' }), /metrics\.source=existing/)
 })
 
+test('energy defaults to the bundled Kepler wherever a draft is created, with no endpoint', () => {
+  assert.equal(emptyTelemetry.energySource, 'bundle-kepler')
+  assert.equal(emptyTelemetry.energyExistingEndpoint, '')
+  assert.equal(seedTelemetryFromInstalled(['energy']).energySource, 'bundle-kepler')
+  assert.equal(seedTelemetryFromInstalled(['energy'], { exportEndpoint: 'gw:4317', redactionEnabled: true, resourceDetectionEnabled: false }).energySource, 'bundle-kepler')
+})
+
 test('an existing Prometheus endpoint is a host and a port: a scheme or a path stops the collector, so it is refused here', () => {
   const t: TelemetryInput = { ...emptyTelemetry, energy: true, energySource: 'existing', exportEndpoint: 'x:4317' }
   for (const bad of ['kepler.monitoring:9102/metrics', 'http://kepler.monitoring:9102', 'kepler.monitoring', 'a b:9102', 'kepler:99999x']) {

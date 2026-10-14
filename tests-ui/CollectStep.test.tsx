@@ -87,16 +87,37 @@ describe('CollectStep', () => {
     expect(latest.exportEndpoint).toBe('otel.example.com:4317')
   })
 
-  test('energy and accelerators show their source pickers only while they are on', async () => {
+  test('energy asks no question: turning it on shows no source picker and keeps the bundled Kepler', async () => {
     const user = userEvent.setup()
     render(<Wrapper />)
-    expect(screen.queryByTestId('c-energy-source')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('c-accelerators-source')).not.toBeInTheDocument()
     await user.click(screen.getByTestId('c-energy'))
-    await user.click(screen.getByTestId('c-accelerators'))
+    expect(latest.energy).toBe(true)
+    expect(latest.energySource).toBe('bundle-kepler')
+    expect(screen.queryByTestId('c-energy-source')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('c-energy-endpoint')).not.toBeInTheDocument()
+    expect(screen.getByTestId('c-energy').closest('label')).toHaveTextContent('privileged pod on every node')
+  })
+
+  test('a loaded configuration that already scrapes an existing Kepler keeps its picker and endpoint', async () => {
+    const user = userEvent.setup()
+    render(<Wrapper initial={{ ...emptyTelemetry, energy: true, energySource: 'existing', energyExistingEndpoint: 'kepler.monitoring:9102' }} />)
+    expect(screen.getByTestId('c-energy-source')).toHaveTextContent('Scrape one I already run')
+    expect(screen.getByTestId('c-energy-endpoint')).toHaveValue('kepler.monitoring:9102')
+    // Switching it to the bundled Kepler does not make the picker vanish under the person's hand.
+    await user.click(screen.getByTestId('c-energy-source'))
+    await user.click(within(screen.getByRole('listbox')).getByRole('option', { name: /Deploy Kepler/ }))
+    expect(latest.energySource).toBe('bundle-kepler')
     expect(screen.getByTestId('c-energy-source')).toBeInTheDocument()
+    expect(screen.queryByTestId('c-energy-endpoint')).not.toBeInTheDocument()
+  })
+
+  test('accelerators show their source picker only while they are on', async () => {
+    const user = userEvent.setup()
+    render(<Wrapper />)
+    expect(screen.queryByTestId('c-accelerators-source')).not.toBeInTheDocument()
+    await user.click(screen.getByTestId('c-accelerators'))
     expect(screen.getByTestId('c-accelerators-source')).toBeInTheDocument()
-    await user.click(screen.getByTestId('c-energy'))
-    expect(screen.queryByTestId('c-energy-source')).not.toBeInTheDocument()
+    await user.click(screen.getByTestId('c-accelerators'))
+    expect(screen.queryByTestId('c-accelerators-source')).not.toBeInTheDocument()
   })
 })

@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import { useState } from 'react'
 import { Activity, FileText, Waypoints, type LucideIcon } from 'lucide-react'
 import { Button, Field, ICON_SM, InfoTip, Input, Select } from '@/components/ui/primitives'
 import { applyIntentPreset, PICKABLE_SIGNALS, TELEMETRY_INTENT_PRESETS, TELEMETRY_SIGNALS } from '@/lib/consent'
@@ -17,8 +18,16 @@ const scopeCaption = (s: (typeof TELEMETRY_SIGNALS)[number]): string | undefined
   return undefined
 }
 
-/** Energy's own source picker, shown once `energy` is on. */
+/**
+ * Energy has no question to answer: turning it on deploys the bundled Kepler, like every other signal deploys what it needs. The one
+ * exception is a configuration that already scrapes an existing Kepler (an install made before the choice was removed, or by the chart's
+ * own flags): for that one the source and its endpoint stay editable, so nothing about it changes behind the person's back. Whether to
+ * show them is decided once, when this mounts (energy turned on, or the draft loaded), so switching such a configuration to the bundled
+ * Kepler does not make the picker vanish under the person's hand.
+ */
 export function EnergyFields({ value, onChange, testIdPrefix }: { value: TelemetryInput; onChange: (v: TelemetryInput) => void; testIdPrefix: string }) {
+  const [offered] = useState(() => value.energySource === 'existing')
+  if (!offered) return null
   const set = <K extends keyof TelemetryInput>(key: K, v: TelemetryInput[K]) => onChange({ ...value, [key]: v })
   return (
     <div className="grid gap-3 border-t border-nb-850 pt-3 sm:grid-cols-2">

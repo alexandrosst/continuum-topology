@@ -182,7 +182,7 @@ export function scopeOverlap(a: ScopeOverrideInput, b: ScopeOverrideInput): stri
 export interface TelemetryInput {
   resourceUsage: boolean
   energy: boolean
-  /** Only meaningful when `energy` is on: deploy the bundled Kepler DaemonSet, or scrape one that already exists. */
+  /** Only meaningful when `energy` is on: deploy the bundled Kepler DaemonSet (what every new configuration does, with no question asked), or scrape one that already exists (only a loaded configuration that already does keeps the choice visible). */
   energySource: 'bundle-kepler' | 'existing'
   /** Required when `energySource` is 'existing': host:port/path already serving Kepler-shaped metrics. */
   energyExistingEndpoint: string
@@ -506,7 +506,7 @@ export type Modality = 'metrics' | 'logs' | 'traces'
  */
 export const TELEMETRY_SIGNALS: { id: string; label: string; layer: 'infrastructure' | 'application'; modality: Modality; scope: 'cluster' | 'node' | 'application'; namespaceScopable?: boolean; /** The chart has nothing that emits it yet: kept in the model (a command still states it off), never offered. */ noEmitter?: boolean; what: string; permissions: string }[] = [
   { id: 'resourceUsage', label: 'Resource usage', layer: 'infrastructure', modality: 'metrics', scope: 'node', what: 'Node and per-container CPU, memory, filesystem and network, from the kubelet and the host. The kubelet\'s certificate is verified: where it serves a certificate of its own (kubeadm\'s default, AKS) add --set telemetry.kubelet.insecureSkipVerify=true to the command.', permissions: 'Read-only access to nodes/stats (the kubelet\'s own stats endpoint).' },
-  { id: 'energy', label: 'Energy', layer: 'infrastructure', modality: 'metrics', scope: 'node', what: 'Power draw per node/pod, from Kepler (bundled, or an existing one you already run).', permissions: 'None beyond identity enrichment below - Kepler reads host energy counters directly, never the Kubernetes API.' },
+  { id: 'energy', label: 'Energy', layer: 'infrastructure', modality: 'metrics', scope: 'node', what: 'Power draw per node and pod. Deploys Kepler, which runs as a privileged pod on every node.', permissions: 'None beyond identity enrichment below - Kepler reads host energy counters directly, never the Kubernetes API. Its own pod runs privileged on every node.' },
   { id: 'kubernetesState', label: 'Kubernetes state', layer: 'infrastructure', modality: 'metrics', scope: 'cluster', what: 'Pod, deployment and replica status and counts, cluster-wide.', permissions: 'Read-only, cluster-wide access to pods, deployments, replica sets, stateful/daemon sets, jobs, cronjobs and autoscalers.' },
   { id: 'nodeRuntime', label: 'Node runtime', layer: 'infrastructure', modality: 'metrics', scope: 'node', what: 'Pod lifecycle and volume metrics from the kubelet (the same kubelet certificate note as Resource usage applies).', permissions: 'Read-only access to nodes/stats (the kubelet\'s own stats endpoint).' },
   { id: 'networkLatency', label: 'Network latency', layer: 'infrastructure', modality: 'metrics', scope: 'cluster', noEmitter: true, what: "This agent's own path measurements, re-emitted as OTel metrics.", permissions: 'None beyond identity enrichment below - reuses this agent\'s existing measurement capability.' },
