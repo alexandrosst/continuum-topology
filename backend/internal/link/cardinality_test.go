@@ -16,6 +16,9 @@ import (
 const (
 	maxPassiveSeriesPerPeer = 32
 	maxSeriesPerPeer        = 145
+	// maxSeriesPerPeerWidest is the bound with the widest settings: four DSCP classes (each adds the TCP readings at both
+	// stream counts and the UDP ramp, in both directions) and the bidirectional test.
+	maxSeriesPerPeerWidest  = 235
 	maxServingSeriesPerPeer = 40
 )
 
@@ -30,6 +33,18 @@ func seriesLines(m *Meter) int {
 }
 
 func TestOnePeerCostsABoundedNumberOfSeriesWhateverTheRatesAndAddresses(t *testing.T) {
+	// The default: one DSCP class, no test of both directions at once.
+	checkSeriesPerPeer(t, nil, false, maxSeriesPerPeer)
+}
+
+// The most a user can ask for: four DSCP classes (the limit) and the test that loads both directions at once. A label that
+// multiplies only under these settings would pass the case above.
+func TestOnePeerWithFourDSCPClassesAndBothDirectionsStillCostsABoundedNumberOfSeries(t *testing.T) {
+	checkSeriesPerPeer(t, []int{0, 8, 46, 63}, true, maxSeriesPerPeerWidest)
+}
+
+func checkSeriesPerPeer(t *testing.T, dscp []int, bidir bool, maxSeries int) {
+	t.Helper()
 	// The passive series alone (what the agent serves), with traffic that fills every histogram.
 	p := NewPeers()
 	p.Set("cl-me", []*continuumv1.LinkPeer{peer("cl-a", "A", "10.0.0.1")})
@@ -39,9 +54,14 @@ func TestOnePeerCostsABoundedNumberOfSeriesWhateverTheRatesAndAddresses(t *testi
 
 	// Everything the prober adds, for one peer with a throughput budget of its own.
 	f := &fakeIperf{capacity: 100e6}
-	c, _ := capFor(t, f, func(c *Capacity) { c.UDP = UDPRamp{Enabled: true}; c.Budget = 100 << 30 })
+	c, _ := capFor(t, f, func(c *Capacity) {
+		c.UDP = UDPRamp{Enabled: true}
+		c.Budget = 100 << 30
+		c.DSCP = dscp
+		c.Bidir = bidir
+	})
 	a := peer("cl-a", "A", "10.0.0.1", "10.0.0.2", "10.0.0.3")
-	a.Throughput, a.ThroughputBudgetBytes = true, 50<<30
+	a.Throughput, a.ThroughputBudgetBytes = true, 1<<41 // the widest settings send many gigabytes of fixtures
 	c.Meter.Peers.Set("cl-me", []*continuumv1.LinkPeer{a})
 	if err := c.Start(); err != nil {
 		t.Fatal(err)
@@ -71,6 +91,11 @@ func TestOnePeerCostsABoundedNumberOfSeriesWhateverTheRatesAndAddresses(t *testi
 	settle(c)
 	got := render(m)
 	if _, ok := got[`continuum_link_throughput_udp_point_bits_per_second{cluster="cl-me",peer="cl-a",method="iperf3",direction="forward",dscp="0",point="first_loss"}`]; !ok {
+		for k := range got {
+			if strings.Contains(k, "udp_point") {
+				t.Log(k)
+			}
+		}
 		t.Fatal("the fixture did not run the UDP ramp to its first loss; the count below would be short")
 	}
 	nAll := seriesLines(m)
@@ -119,8 +144,8 @@ func TestOnePeerCostsABoundedNumberOfSeriesWhateverTheRatesAndAddresses(t *testi
 	if nPassive > maxPassiveSeriesPerPeer {
 		t.Errorf("the passive series of one peer number %d, more than %d", nPassive, maxPassiveSeriesPerPeer)
 	}
-	if nAll > maxSeriesPerPeer {
-		t.Errorf("one fully active peer costs %d series, more than %d: a label follows the data", nAll, maxSeriesPerPeer)
+	if nAll > maxSeries {
+		t.Errorf("one fully active peer costs %d series, more than %d: a label follows the data", nAll, maxSeries)
 	}
 	// Nothing in a series' labels may follow the data: no rate, address or port.
 	for k := range got {

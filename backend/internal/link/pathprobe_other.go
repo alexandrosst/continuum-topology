@@ -21,3 +21,6 @@ type PathProber struct {
 func (PathProber) Probe(context.Context, netip.Addr) (PathResult, error) {
 	return PathResult{}, ErrPathUnsupported
 }
+
+// pathIPv6Tested is false here: there is no prober at all.
+const pathIPv6Tested = false

@@ -1,8 +1,10 @@
 package link
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"net"
 	"net/netip"
 	"os"
@@ -15,6 +17,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	continuumv1 "continuum/gen/continuumv1"
 )
@@ -221,12 +224,12 @@ func TestARunThatCannotBeWhatWasAskedForIsNotRecorded(t *testing.T) {
 	} {
 		f := &fakeOwping{run: func([]string) ([]byte, []byte, error) { return []byte(in), nil, nil }}
 		r := runnerFor(t, f, "10.0.0.1")
-		if _, why := r.once(context.Background(), "10.0.0.1", Forward); why == "" {
+		if _, why, _ := r.once(context.Background(), "10.0.0.1", Forward); why == "" {
 			t.Errorf("%s: accepted", name)
 		}
 	}
 	f := &fakeOwping{run: func([]string) ([]byte, []byte, error) { return summary(t, "owping_to.txt"), nil, nil }}
-	if _, why := runnerFor(t, f, "10.0.0.1").once(context.Background(), "10.0.0.1", Forward); why != "" {
+	if _, why, _ := runnerFor(t, f, "10.0.0.1").once(context.Background(), "10.0.0.1", Forward); why != "" {
 		t.Errorf("a real run was refused: %s", why)
 	}
 }
@@ -297,7 +300,7 @@ func TestAddressesAreCheckedBeforeTheyReachTheCommandLine(t *testing.T) {
 	f := &fakeOwping{run: func([]string) ([]byte, []byte, error) { return nil, nil, nil }}
 	r := runnerFor(t, f)
 	for _, bad := range []string{"-A", "10.0.0.1; rm -rf /", "0.0.0.0", "224.0.0.1", "host.example", ""} {
-		if _, why := r.once(context.Background(), bad, Forward); why == "" {
+		if _, why, _ := r.once(context.Background(), bad, Forward); why == "" {
 			t.Errorf("%q was accepted", bad)
 		}
 	}
@@ -495,5 +498,554 @@ func TestTheClientIsBoundToTheAddressTheResponderIsReachedFrom(t *testing.T) {
 		if slices.Contains(c, "-S") {
 			t.Errorf("bound without a source: %v", c)
 		}
+	}
+}
+
+// logged returns a logger that keeps everything it is asked, Debug included, and the buffer it writes to.
+func logged() (*slog.Logger, *bytes.Buffer) {
+	var b bytes.Buffer
+	return slog.New(slog.NewTextHandler(&b, &slog.HandlerOptions{Level: slog.LevelDebug})), &b
+}
+
+func countLines(b *bytes.Buffer, sub string) int { return strings.Count(b.String(), sub) }
+
+// A run in which owping completed and every packet was lost is a measurement: the control connection worked, nothing arrived.
+// The probe is up, the loss is 1, and no delay is exported (there is none), exactly what was seen in the field.
+const allLost = "SUMMARY\t3.00\nSID\t7f000001ee78e525de2749f06040d6c3\nSTART_TIME\t17183736333280792826\nEND_TIME\t17183736352655782137\nLOSS_TIMEOUT\t2000000000\nSESSION_FINISHED\t1\nSENT\t100\nSYNC\t0\nMAXERR\t4.65661e-10\nDUPS\t0\nLOST\t100\nMIN\tnan\nMEDIAN\tnan\nMAX\tnan\nMINTTL\t255\nMAXTTL\t0\n"
+
+func TestAFullyLostRunIsUpWithLossOneAndNoDelaySeries(t *testing.T) {
+	f := &fakeOwping{run: func([]string) ([]byte, []byte, error) {
+		return []byte(allLost), []byte("owping: NTP: STA_NANO should be set\x1b[31m\n"), nil
+	}}
+	r := runnerFor(t, f, "10.0.0.1")
+	lg, buf := logged()
+	r.Log = lg
+	r.Round(context.Background())
+	got := render(r.Meter)
+	for _, d := range []string{"forward", "reverse"} {
+		base := `{cluster="cl-me",peer="cl-a",direction="` + d + `",method="owamp"}`
+		if got["continuum_link_probe_up"+base] != "1" || got["continuum_link_probe_loss_ratio"+base] != "1" {
+			t.Errorf("%s: up %q loss %q", d, got["continuum_link_probe_up"+base], got["continuum_link_probe_loss_ratio"+base])
+		}
+		if got["continuum_link_probe_packets_sent_total"+base] != "100" || got["continuum_link_probe_packets_lost_total"+base] != "100" {
+			t.Errorf("%s: sent %q lost %q", d, got["continuum_link_probe_packets_sent_total"+base], got["continuum_link_probe_packets_lost_total"+base])
+		}
+	}
+	for k := range got {
+		if strings.Contains(k, "delay_variation") || strings.Contains(k, "one_way_delay") {
+			t.Errorf("a delay series for a run in which nothing arrived: %s", k)
+		}
+	}
+	// It is also said once per direction, with what the tool reported, and not again while it stays so.
+	if n := countLines(buf, "level=WARN"); n != 2 {
+		t.Fatalf("%d warnings after the first round, want one per direction:\n%s", n, buf)
+	}
+	for _, want := range []string{"lost every packet", "session_finished=1", "start_time=17183736333280792826", "end_time=17183736352655782137", "loss_timeout=2000000000", "sync=0", "max_err=4.65661e-10", `stderr="owping: NTP: STA_NANO should be set[31m"`} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("the warning lacks %q:\n%s", want, buf)
+		}
+	}
+	if strings.Contains(buf.String(), "\x1b") {
+		t.Error("a control character reached the log")
+	}
+	r.Round(context.Background())
+	if n := countLines(buf, "level=WARN"); n != 2 {
+		t.Errorf("%d warnings after the second round: a state that did not change was logged again", n)
+	}
+	// Never the address that answered: nothing arrived from it.
+	r.mu.Lock()
+	good := r.good["cl-a"]
+	r.mu.Unlock()
+	if good != "" {
+		t.Errorf("an address that received nothing was remembered as the one that answers: %q", good)
+	}
+	// Packets arriving again is said at Info, once.
+	f.run = func(args []string) ([]byte, []byte, error) { return summary(t, "owping_to.txt"), nil, nil }
+	r.Round(context.Background())
+	if n := countLines(buf, "receives packets again"); n != 2 {
+		t.Errorf("%d recoveries:\n%s", n, buf)
+	}
+}
+
+func TestOneDirectionFailingLeavesTheOtherRecorded(t *testing.T) {
+	f := &fakeOwping{}
+	f.run = func(args []string) ([]byte, []byte, error) {
+		if slices.Contains(args, "-t") {
+			return summary(t, "owping_to.txt"), nil, nil
+		}
+		return nil, []byte("owping: Server denied test: 100.64.0.139\nowping: Session Failed!\n"), errors.New("exit status 1")
+	}
+	r := runnerFor(t, f, "10.0.0.1")
+	lg, buf := logged()
+	r.Log = lg
+	r.Round(context.Background())
+	got := render(r.Meter)
+	base := `{cluster="cl-me",peer="cl-a",direction="`
+	if got["continuum_link_probe_packets_lost_total"+base+`forward",method="owamp"}`] != "18" || got["continuum_link_probe_up"+base+`forward",method="owamp"}`] != "1" {
+		t.Errorf("the forward run was not recorded: %v", got)
+	}
+	if got["continuum_link_probe_up"+base+`reverse",method="owamp"}`] != "0" ||
+		got["continuum_link_probe_failures_total"+base+`reverse",method="owamp",reason="denied"}`] != "1" {
+		t.Errorf("the reverse failure is not a denied one: %v", got)
+	}
+	if hasKey(got, `direction="reverse",method="owamp"} 18`) || got["continuum_link_probe_loss_ratio"+base+`reverse",method="owamp"}`] != "" {
+		t.Error("a figure for the failed direction")
+	}
+	// A refusal by a responder that answered is not silence: the peer is not backed off.
+	r.mu.Lock()
+	_, down := r.down["cl-a"]
+	r.mu.Unlock()
+	if down {
+		t.Error("the peer was backed off for a denied test")
+	}
+	if n := countLines(buf, "level=WARN"); n != 1 || !strings.Contains(buf.String(), `reason=denied`) || !strings.Contains(buf.String(), `stderr="owping: Server denied test: 100.64.0.139 | owping: Session Failed!"`) {
+		t.Errorf("the failure was not logged once with its reason and stderr:\n%s", buf)
+	}
+	// The stderr text never becomes part of the message.
+	for _, l := range strings.Split(buf.String(), "\n") {
+		if i := strings.Index(l, `msg="`); i >= 0 && strings.Contains(l[i:strings.Index(l[i+5:], `"`)+i+5], "denied test") {
+			t.Errorf("remote text in a message: %s", l)
+		}
+	}
+	// A repetition is not news, a different reason is, and answering again is said at Info.
+	r.Round(context.Background())
+	if n := countLines(buf, "level=WARN"); n != 1 {
+		t.Errorf("the same failure was warned about again (%d)", n)
+	}
+	f.run = func(args []string) ([]byte, []byte, error) {
+		if slices.Contains(args, "-t") {
+			return summary(t, "owping_to.txt"), nil, nil
+		}
+		return nil, []byte("owping: something else"), errors.New("exit status 1")
+	}
+	r.Round(context.Background())
+	if n := countLines(buf, "level=WARN"); n != 2 || !strings.Contains(buf.String(), "reason=other") {
+		t.Errorf("a change of reason was not logged:\n%s", buf)
+	}
+	f.run = func([]string) ([]byte, []byte, error) { return summary(t, "owping_from.txt"), nil, nil }
+	r.Round(context.Background())
+	if n := countLines(buf, "link probe recovered"); n != 1 || !strings.Contains(buf.String(), "was=other") {
+		t.Errorf("the recovery was not logged once:\n%s", buf)
+	}
+}
+
+func TestWhatTheProgramSaidIsMadeSafeToLog(t *testing.T) {
+	long := strings.Repeat("é", 300)
+	got := stderrNote([]byte("owping: a\x00b\x1b[0m\r\n\n  \towping: second line \n"+long+"\n"), nil)
+	if strings.ContainsAny(got, "\x00\x1b\r\n\t") || !strings.HasPrefix(got, "owping: ab[0m | owping: second line") {
+		t.Errorf("note = %q", got)
+	}
+	if len(got) > maxNote || !utf8.ValidString(got) {
+		t.Errorf("%d bytes, valid %v", len(got), utf8.ValidString(got))
+	}
+	if got := stderrNote(nil, errors.New("signal: killed")); got != "signal: killed" {
+		t.Errorf("without stderr the error should speak: %q", got)
+	}
+	if got := stderrNote(nil, nil); got != "" {
+		t.Errorf("note = %q", got)
+	}
+}
+
+// The strings are the ones the OWAMP programs print (see owamp/capi.c and owping.c); what an administrator sees as a reason
+// must name what happened.
+func TestFailuresAreClassifiedFromWhatOwpingReallyPrints(t *testing.T) {
+	for _, tc := range []struct {
+		msg      string
+		timedOut bool
+		want     string
+	}{
+		// the responder answered and refused: NAT between the clusters, its limits
+		{"owping: Server denied test: 100.64.0.139\nowping: Session Failed!", false, "denied"},
+		{"owping: Session Failed!", false, "denied"},
+		{"owping: Test not allowed", false, "denied"},
+		{"OWPControlOpen: Test denied: resources unavailable", false, "denied"},
+		{"owping: Server denied access: node-1\nUnable to open control connection to 10.0.0.1:861.", false, "denied"},
+		// the responder's policy leaves the client no mode; the closing complaint must not read as silence
+		{"OWPControlOpen: No Common Modes\nowping: Unable to open control connection to 10.0.0.1:861.", false, "auth"},
+		{"owping: authentication failed", false, "auth"},
+		{"owping: Unknown user", false, "auth"},
+		// owping prints nothing about why it could not connect, so all of these are a timeout from here
+		{"owping: Unable to open control connection to 10.0.0.1:861.", false, "timeout"},
+		{"", true, "timeout"},
+		{"owping: timed out waiting", false, "timeout"},
+		{"owping: connection refused", false, "refused"},
+		{"connect: network is unreachable", false, "unreachable"},
+		{"connect: no route to host", false, "unreachable"},
+		{"owping: something unexpected", false, "other"},
+		{"", false, "other"},
+	} {
+		if got := classify(tc.msg, tc.timedOut); got != tc.want {
+			t.Errorf("classify(%q, %v) = %q, want %q", tc.msg, tc.timedOut, got, tc.want)
+		}
+	}
+	if unreachable("denied") || unreachable("auth") {
+		t.Error("a responder that answered must not make the peer count as down")
+	}
+}
+
+func TestAnUnfinishedSessionIsAFailureWithItsReasonInTheLog(t *testing.T) {
+	f := &fakeOwping{run: func([]string) ([]byte, []byte, error) {
+		return []byte("SUMMARY\t3\nSESSION_FINISHED\t0\nSENT\t100\nLOST\t100\n"), nil, nil
+	}}
+	r := runnerFor(t, f, "10.0.0.1")
+	lg, buf := logged()
+	r.Log = lg
+	r.Round(context.Background())
+	got := render(r.Meter)
+	if got[`continuum_link_probe_up{cluster="cl-me",peer="cl-a",direction="forward",method="owamp"}`] != "0" ||
+		got[`continuum_link_probe_failures_total{cluster="cl-me",peer="cl-a",direction="forward",method="owamp",reason="other"}`] != "1" {
+		t.Errorf("a half-run session was recorded as a result: %v", got)
+	}
+	if !strings.Contains(buf.String(), "SESSION_FINISHED 0") {
+		t.Errorf("the log does not say why:\n%s", buf)
+	}
+}
+
+// Three preferred addresses that stay silent used up the budget of slow attempts before the address that had answered last
+// was reached, so a healthy peer was reported down and backed off.
+func TestDeadPreferredAddressesDoNotStopTheProberReachingTheOneThatAnswered(t *testing.T) {
+	f := &fakeOwping{}
+	f.run = func(args []string) ([]byte, []byte, error) {
+		if strings.Contains(strings.Join(args, " "), "10.0.0.9:") {
+			return summary(t, "owping_to.txt"), nil, nil
+		}
+		return nil, []byte("owping: Unable to open control connection"), errors.New("exit 1")
+	}
+	p := NewPeers()
+	p.set("cl-me", []*continuumv1.LinkPeer{peer("cl-a", "A", "10.0.0.1", "10.0.0.2", "10.0.0.3", "10.0.0.9")}, map[string][]string{"cl-a": {"10.0.0.1", "10.0.0.2", "10.0.0.3"}})
+	m := NewMeter(p)
+	m.EnableProbes()
+	r := &Runner{Meter: m, Exec: f.exec, PathEvery: -1}
+	r.Defaults()
+	r.good = map[string]string{"cl-a": "10.0.0.9"}
+	r.Round(context.Background())
+	var tried []string
+	for _, c := range f.calls[:4] {
+		tried = append(tried, c[len(c)-1])
+	}
+	if want := []string{"10.0.0.1:861", "10.0.0.2:861", "10.0.0.3:861", "10.0.0.9:861"}; !slices.Equal(tried, want) {
+		t.Fatalf("tried %v, want %v", tried, want)
+	}
+	got := render(m)
+	for _, d := range []string{"forward", "reverse"} {
+		if got[`continuum_link_probe_up{cluster="cl-me",peer="cl-a",direction="`+d+`",method="owamp"}`] != "1" {
+			t.Errorf("%s: the peer is reported down although the address that answered still does: %v", d, got)
+		}
+	}
+	r.mu.Lock()
+	_, down := r.down["cl-a"]
+	r.mu.Unlock()
+	if down {
+		t.Error("a healthy peer was backed off")
+	}
+	// It is tried once, not twice, when it was already among the attempts.
+	f2 := &fakeOwping{run: func([]string) ([]byte, []byte, error) {
+		return nil, []byte("owping: Unable to open control connection"), errors.New("exit 1")
+	}}
+	r2 := &Runner{Meter: m, Exec: f2.exec, PathEvery: -1}
+	r2.Defaults()
+	r2.good = map[string]string{"cl-a": "10.0.0.1"}
+	r2.measure(context.Background(), p.List()[0], Forward)
+	if len(f2.calls) != maxSlowFailures {
+		t.Errorf("%d attempts, want %d: the address that answered was tried again", len(f2.calls), maxSlowFailures)
+	}
+}
+
+// An address where the control connection works but no packet arrives is not the answer while another may work: the next
+// address is tried, and only if it receives nothing either is the first all-lost run recorded.
+func TestAnAddressThatReceivesNothingDoesNotPinTheOthersOut(t *testing.T) {
+	lostOn := map[string]bool{"10.0.0.1": true}
+	f := &fakeOwping{}
+	f.run = func(args []string) ([]byte, []byte, error) {
+		for a := range lostOn {
+			if strings.Contains(strings.Join(args, " "), a+":") {
+				return []byte(allLost), nil, nil
+			}
+		}
+		return summary(t, "owping_to.txt"), nil, nil
+	}
+	r := runnerFor(t, f, "10.0.0.1", "10.0.0.2", "10.0.0.3")
+	r.Round(context.Background())
+	got := render(r.Meter)
+	if got[`continuum_link_probe_packets_lost_total{cluster="cl-me",peer="cl-a",direction="forward",method="owamp"}`] != "18" {
+		t.Errorf("the run of the address that works was not the one recorded: %v", got)
+	}
+	r.mu.Lock()
+	good := r.good["cl-a"]
+	r.mu.Unlock()
+	if good == "" || good == "10.0.0.1" {
+		t.Errorf("good = %q", good)
+	}
+
+	// Nothing arrives anywhere: at most 1+maxAfterAllLost attempts per direction, the first run is what is recorded, and
+	// nothing is remembered as the address that answers.
+	f3 := &fakeOwping{run: func([]string) ([]byte, []byte, error) { return []byte(allLost), nil, nil }}
+	r3 := runnerFor(t, f3, "10.0.0.1", "10.0.0.2", "10.0.0.3", "10.0.0.4", "10.0.0.5")
+	r3.Round(context.Background())
+	if want := 2 * (1 + maxAfterAllLost); len(f3.calls) != want {
+		t.Errorf("%d runs for two directions, want %d", len(f3.calls), want)
+	}
+	got = render(r3.Meter)
+	if got[`continuum_link_probe_loss_ratio{cluster="cl-me",peer="cl-a",direction="forward",method="owamp"}`] != "1" ||
+		got[`continuum_link_probe_up{cluster="cl-me",peer="cl-a",direction="forward",method="owamp"}`] != "1" ||
+		got[`continuum_link_probe_packets_sent_total{cluster="cl-me",peer="cl-a",direction="forward",method="owamp"}`] != "100" {
+		t.Errorf("the all-lost run was not recorded once: %v", got)
+	}
+	r3.mu.Lock()
+	n := len(r3.good)
+	r3.mu.Unlock()
+	if n != 0 {
+		t.Errorf("remembered %v as answering", r3.good)
+	}
+
+	// The extra address is silent: the first all-lost run still stands (the link works at the control level).
+	f4 := &fakeOwping{run: func(args []string) ([]byte, []byte, error) {
+		if strings.Contains(strings.Join(args, " "), "10.0.0.1:") {
+			return []byte(allLost), nil, nil
+		}
+		return nil, []byte("owping: Unable to open control connection"), errors.New("exit 1")
+	}}
+	r4 := runnerFor(t, f4, "10.0.0.1", "10.0.0.2", "10.0.0.3")
+	if why := r4.measure(context.Background(), r4.Meter.Peers.List()[0], Forward); why != "" {
+		t.Errorf("reason %q", why)
+	}
+	if render(r4.Meter)[`continuum_link_probe_loss_ratio{cluster="cl-me",peer="cl-a",direction="forward",method="owamp"}`] != "1" {
+		t.Error("the all-lost run was dropped because the next address was silent")
+	}
+}
+
+func TestTheTraceTargetIsAnAddressTheTraceCanUseThatDoesNotJumpAround(t *testing.T) {
+	if pathIPv6Tested {
+		t.Skip("IPv6 is traced on this build; the cases below are about it not being")
+	}
+	mk := func(addrs []string, pref ...string) Peer {
+		p := NewPeers()
+		p.set("cl-me", []*continuumv1.LinkPeer{peer("cl-a", "A", addrs...)}, map[string][]string{"cl-a": pref})
+		return p.List()[0]
+	}
+	for _, tc := range []struct {
+		name             string
+		p                Peer
+		reached, answers string
+		want             string
+		untraceable      bool
+	}{
+		{"IPv6 preferred first falls through to IPv4", mk([]string{"10.0.0.1", "2001:db8::1"}, "2001:db8::1"), "", "", "10.0.0.1", false},
+		{"only IPv6", mk([]string{"2001:db8::1", "2001:db8::2"}), "", "", "", true},
+		{"no address", Peer{ID: "cl-a"}, "", "", "", false},
+		{"preferred wins over class", mk([]string{"100.64.0.45", "10.42.2.0", "203.0.113.5"}, "203.0.113.5"), "", "", "203.0.113.5", false},
+		{"the mesh address beats a LAN address that sorts before it", mk([]string{"10.42.2.0", "100.64.0.45"}), "", "", "100.64.0.45", false},
+		{"public before private", mk([]string{"192.168.1.5", "203.0.113.5"}), "", "", "203.0.113.5", false},
+		{"class order mesh, public, private", mk([]string{"192.168.1.5", "203.0.113.5", "100.64.0.45"}), "", "", "100.64.0.45", false},
+		{"same class by text", mk([]string{"10.0.0.9", "10.0.0.2"}), "", "", "10.0.0.2", false},
+		{"the address that answered the probe comes after the preferred", mk([]string{"100.64.0.45", "10.0.0.2"}), "", "10.0.0.2", "10.0.0.2", false},
+		{"the address the last trace reached is kept", mk([]string{"100.64.0.45", "10.0.0.2"}, "100.64.0.45"), "10.0.0.2", "", "10.0.0.2", false},
+		{"a reached address that is no longer the peer's is dropped", mk([]string{"100.64.0.45"}), "10.9.9.9", "", "100.64.0.45", false},
+		{"a reached IPv6 address is not used", mk([]string{"100.64.0.45", "2001:db8::1"}), "2001:db8::1", "", "100.64.0.45", false},
+	} {
+		got, untraceable := pathTarget(tc.p, tc.reached, tc.answers)
+		if got != tc.want || untraceable != tc.untraceable {
+			t.Errorf("%s: pathTarget = %q, %v; want %q, %v", tc.name, got, untraceable, tc.want, tc.untraceable)
+		}
+	}
+}
+
+func TestAPeerWithOnlyIPv6AddressesIsCountedOnceAndNeverTakesTheGate(t *testing.T) {
+	if pathIPv6Tested {
+		t.Skip("IPv6 is traced on this build")
+	}
+	f := &fakeOwping{run: func([]string) ([]byte, []byte, error) { return summary(t, "owping_to.txt"), nil, nil }}
+	r := runnerFor(t, f, "2001:db8::1")
+	lg, buf := logged()
+	r.Log = lg
+	r.Gate, r.PathEvery = NewGate(), time.Minute
+	r.Path = func(context.Context, netip.Addr) (PathResult, error) {
+		t.Error("a trace towards an IPv6 address")
+		return PathResult{}, nil
+	}
+	hold, _ := r.Gate.Acquire(context.Background()) // a trace that waited for the gate would not get through
+	defer hold()
+	p := r.Meter.Peers.List()[0]
+	for i := 0; i < 3; i++ {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		r.maybePath(ctx, p)
+		cancel()
+	}
+	if got := render(r.Meter)[`continuum_link_path_probe_failures_total{cluster="cl-me",peer="cl-a"}`]; got != "1" {
+		t.Errorf("path failures = %q, want 1", got)
+	}
+	if countLines(buf, "level=INFO") != 1 {
+		t.Errorf("not said once at Info:\n%s", buf)
+	}
+}
+
+func TestADualStackPeerIsTracedOverIPv4AndKeepsTheAddressItReached(t *testing.T) {
+	if pathIPv6Tested {
+		t.Skip("IPv6 is traced on this build")
+	}
+	f := &fakeOwping{run: func([]string) ([]byte, []byte, error) { return summary(t, "owping_to.txt"), nil, nil }}
+	p := NewPeers()
+	p.set("cl-me", []*continuumv1.LinkPeer{peer("cl-a", "A", "2001:db8::1", "10.0.0.1", "100.64.0.45")}, map[string][]string{"cl-a": {"2001:db8::1"}})
+	m := NewMeter(p)
+	m.EnableProbes()
+	var traced []string
+	r := &Runner{Meter: m, Exec: f.exec, PathEvery: time.Minute, Path: func(_ context.Context, dst netip.Addr) (PathResult, error) {
+		traced = append(traced, dst.String())
+		return PathResult{MTU: 1500, Reached: true, Route: "r"}, nil
+	}}
+	r.Defaults()
+	now := time.Unix(1_700_000_000, 0)
+	r.Now = func() time.Time { return now }
+	r.maybePath(context.Background(), p.List()[0])
+	now = now.Add(2 * time.Minute)
+	r.maybePath(context.Background(), p.List()[0])
+	if !slices.Equal(traced, []string{"100.64.0.45", "100.64.0.45"}) {
+		t.Errorf("traced %v", traced)
+	}
+}
+
+func TestWhatTheRunnerRemembersOfAPeerSurvivesAShortBlipAndIsDroppedAfterTheGrace(t *testing.T) {
+	f := &fakeOwping{run: func([]string) ([]byte, []byte, error) {
+		return nil, []byte("owping: Unable to open control connection"), errors.New("exit 1")
+	}}
+	r := runnerFor(t, f, "10.0.0.1")
+	now := time.Unix(1_700_000_000, 0)
+	r.Now = func() time.Time { return now }
+	r.Meter.Peers.Set("cl-me", []*continuumv1.LinkPeer{peer("cl-a", "A", "10.0.0.1")})
+	r.Round(context.Background())
+	r.good = map[string]string{"cl-a": "10.0.0.1"}
+	r.lastPath = map[string]time.Time{"cl-a": now}
+	remembered := func() (down, good, path, state bool) {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		_, down = r.down["cl-a"]
+		_, good = r.good["cl-a"]
+		_, path = r.lastPath["cl-a"]
+		_, state = r.state[probeKey("cl-a", Forward)]
+		return
+	}
+	if d, g, p, s := remembered(); !d || !g || !p || !s {
+		t.Fatalf("setup: down %v good %v path %v state %v", d, g, p, s)
+	}
+	// The list is empty for a while (the agent restarting): the back-off must not restart from nothing.
+	r.Meter.Peers.Set("cl-me", nil)
+	for _, after := range []time.Duration{0, 5 * time.Minute, 10 * time.Minute, 14 * time.Minute} { // 29 minutes in all
+		now = now.Add(after)
+		r.Round(context.Background())
+		if d, g, p, s := remembered(); !d || !g || !p || !s {
+			t.Fatalf("forgotten after only %s: down %v good %v path %v state %v", after, d, g, p, s)
+		}
+	}
+	// It comes back: still remembered, and the clock of its absence starts again the next time.
+	r.Meter.Peers.Set("cl-me", []*continuumv1.LinkPeer{peer("cl-a", "A", "10.0.0.1")})
+	r.Round(context.Background())
+	if d, _, _, _ := remembered(); !d {
+		t.Fatal("forgotten although the peer came back")
+	}
+	r.mu.Lock()
+	_, stillAbsent := r.absent["cl-a"]
+	r.mu.Unlock()
+	if stillAbsent {
+		t.Error("the peer is still timed as absent")
+	}
+	r.Meter.Peers.Set("cl-me", nil)
+	r.Round(context.Background()) // absent since now
+	now = now.Add(runnerStateGrace - time.Minute)
+	r.Round(context.Background())
+	if d, _, _, _ := remembered(); !d {
+		t.Fatal("forgotten before the grace was over, counting from the new absence")
+	}
+	now = now.Add(2 * time.Minute)
+	r.Round(context.Background())
+	if d, g, p, s := remembered(); d || g || p || s {
+		t.Errorf("still remembered after the grace: down %v good %v path %v state %v", d, g, p, s)
+	}
+	r.mu.Lock()
+	left := len(r.absent) + len(r.reached) + len(r.noTrace)
+	r.mu.Unlock()
+	if left != 0 {
+		t.Errorf("%d bookkeeping entries left", left)
+	}
+}
+
+func TestTheOverrunOfARoundIsSaidOnceWhenThePeersChangeAndNotEveryRound(t *testing.T) {
+	f := &fakeOwping{run: func(args []string) ([]byte, []byte, error) { return summary(t, "owping_to.txt"), nil, nil }}
+	p := NewPeers()
+	var lps []*continuumv1.LinkPeer
+	for _, id := range []string{"cl-a", "cl-b", "cl-c"} { // 3 peers x 2 x 15 s = 90 s against a minute
+		lps = append(lps, peer(id, id, "10.0.0."+strconv.Itoa(len(lps)+1)))
+	}
+	p.Set("cl-me", lps)
+	m := NewMeter(p)
+	m.EnableProbes()
+	lg, buf := logged()
+	r := &Runner{Meter: m, Exec: f.exec, PathEvery: -1, Log: lg}
+	r.Defaults()
+	for i := 0; i < 3; i++ {
+		r.Round(context.Background())
+	}
+	if n := countLines(buf, "level=WARN"); n != 1 || !strings.Contains(buf.String(), "peers=3") || !strings.Contains(buf.String(), "effective_interval=1m36s") || !strings.Contains(buf.String(), "advice=") {
+		t.Fatalf("%d warnings after three rounds:\n%s", n, buf)
+	}
+	p.Set("cl-me", lps[:2]) // 60 s: it fits, nothing to say
+	r.Round(context.Background())
+	p.Set("cl-me", lps) // changed again
+	r.Round(context.Background())
+	if n := countLines(buf, "level=WARN"); n != 2 {
+		t.Errorf("%d warnings after the peers changed twice", n)
+	}
+}
+
+func TestEachAddressIsBoundToItsOwnRouteSource(t *testing.T) {
+	f := &fakeOwping{run: func([]string) ([]byte, []byte, error) {
+		return nil, []byte("owping: Unable to open control connection"), errors.New("exit 1")
+	}}
+	r := runnerFor(t, f, "10.0.0.1", "192.168.1.5")
+	r.Source = func(ip netip.Addr) (netip.Addr, bool) {
+		if ip.String() == "10.0.0.1" {
+			return netip.MustParseAddr("10.0.0.50"), true
+		}
+		return netip.MustParseAddr("192.168.1.50"), true
+	}
+	r.measure(context.Background(), r.Meter.Peers.List()[0], Forward)
+	for _, c := range f.calls {
+		j := strings.Join(c, " ")
+		ok := strings.Contains(j, "-S 10.0.0.50 ") && strings.HasSuffix(j, "10.0.0.1:861") || strings.Contains(j, "-S 192.168.1.50 ") && strings.HasSuffix(j, "192.168.1.5:861")
+		if !ok {
+			t.Errorf("wrong source for the address: %s", j)
+		}
+	}
+	if len(f.calls) != 2 {
+		t.Errorf("%d calls", len(f.calls))
+	}
+}
+
+func TestRouteSourceIsTheLocalAddressOfTheRoute(t *testing.T) {
+	for in, want := range map[string]string{
+		"127.0.0.1":         "127.0.0.1",
+		"::ffff:127.0.0.1":  "127.0.0.1", // an IPv4 address in its mapped form is an IPv4 address
+		"127.0.0.1%ignored": "",
+	} {
+		a, err := netip.ParseAddr(in)
+		if err != nil {
+			continue // not a form this Go version parses
+		}
+		got, ok := routeSource(a)
+		if want == "" {
+			continue
+		}
+		if !ok || got.String() != want {
+			t.Errorf("routeSource(%s) = %v, %v; want %s", in, got, ok, want)
+		}
+	}
+	// What cannot be sent to has no source, and the probe then runs unbound, as before.
+	for _, bad := range []netip.Addr{{}, netip.MustParseAddr("0.0.0.0"), netip.MustParseAddr("::"), netip.MustParseAddr("224.0.0.1")} {
+		if got, ok := routeSource(bad); ok {
+			t.Errorf("routeSource(%v) = %v, want none", bad, got)
+		}
+	}
+	// A destination without a route: skipped where this host happens to have one (a default route to anywhere).
+	if got, ok := routeSource(netip.MustParseAddr("2001:db8::1")); ok && got.Is4() {
+		t.Errorf("an IPv6 destination got an IPv4 source %v", got)
 	}
 }

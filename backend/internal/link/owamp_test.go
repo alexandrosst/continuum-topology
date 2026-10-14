@@ -3,6 +3,7 @@ package link
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"math"
 	"os"
 	"strconv"
@@ -332,5 +333,43 @@ func TestProbeOutputIsWellFormedAndEachFamilyHasOneHeader(t *testing.T) {
 	}
 	if typed["continuum_link_probe_one_way_delay_seconds"] != 1 {
 		t.Error("the probe families are missing")
+	}
+}
+
+// A summary that says the session did not finish describes a half-run test: not a measurement. One that does not say, or says
+// 1, is taken as it is, because a version of the tool that leaves the key out must not turn every run into a failure.
+func TestASessionThatDidNotFinishIsAFailureAndAMissingKeyIsNot(t *testing.T) {
+	body := "SUMMARY\t3.00\nSTART_TIME\t17183736333280792826\nEND_TIME\t17183736352655782137\nLOSS_TIMEOUT\t8591072758\n"
+	counts := "SENT\t100\nSYNC\t0\nMAXERR\t4.6e-10\nDUPS\t0\nLOST\t100\n"
+	for name, tc := range map[string]struct {
+		finished string
+		fails    bool
+	}{
+		"explicit zero": {"SESSION_FINISHED\t0\n", true},
+		"explicit one":  {"SESSION_FINISHED\t1\n", false},
+		"absent":        {"", false},
+	} {
+		r, err := ParseOwping(strings.NewReader(body + tc.finished + counts))
+		if tc.fails != (err != nil) {
+			t.Errorf("%s: err = %v, want failure %v", name, err, tc.fails)
+		}
+		if tc.fails && !errors.Is(err, errSessionUnfinished) {
+			t.Errorf("%s: %v is not errSessionUnfinished", name, err)
+		}
+		if !tc.fails && (r.Sent != 100 || r.Lost != 100) {
+			// every packet lost is a result, not an error: the control connection worked and nothing arrived
+			t.Errorf("%s: sent %d lost %d", name, r.Sent, r.Lost)
+		}
+	}
+	// what the log needs comes back with the figures
+	r, _ := ParseOwping(strings.NewReader(body + "SESSION_FINISHED\t1\n" + counts))
+	want := OwampSession{Finished: "1", Start: "17183736333280792826", End: "17183736352655782137", Sync: "0", MaxErr: "4.6e-10", LossTimeout: "8591072758"}
+	if r.Session != want {
+		t.Errorf("session = %+v, want %+v", r.Session, want)
+	}
+	// and nothing in it can carry a control character or run on
+	r, _ = ParseOwping(strings.NewReader("SUMMARY\t3\nSENT\t10\nLOST\t10\nSTART_TIME\t12\x1b[31m" + strings.Repeat("9", 100) + "\n"))
+	if strings.ContainsAny(r.Session.Start, "\x1b") || len(r.Session.Start) > 24 {
+		t.Errorf("an unsafe value was kept: %q", r.Session.Start)
 	}
 }

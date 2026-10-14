@@ -2,12 +2,15 @@ package link
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"math"
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 // Direction is which way a one-way measurement ran, from this cluster's point of view.
@@ -37,6 +40,15 @@ type OwampResult struct {
 	HasClockError bool
 	// Hops is how many routers the packets crossed, from the TTL they arrived with (they leave with 255); 0 when unknown.
 	Hops int
+	// Session is what the summary said about the session itself, as the tool printed it. It is never exported; the runner
+	// logs it when a run lost every packet, which the counts alone cannot explain.
+	Session OwampSession
+}
+
+// OwampSession are the fields of a summary that tell how the session went, kept as text (empty: not printed), cleaned of
+// anything that is not printable and cut short.
+type OwampSession struct {
+	Finished, Start, End, Sync, MaxErr, LossTimeout string
 }
 
 // initialTTL is the TTL OWAMP sends its test packets with.
@@ -46,14 +58,21 @@ const initialTTL = 255
 // 10000 packets.
 const maxOwampCount = math.MaxInt32
 
+// errSessionUnfinished says the summary was fetched before the session had finished (SESSION_FINISHED 0): its counts are
+// those of a half-run test, so it is not a measurement. A summary that does not print the key at all is taken as finished,
+// so a version of the tool that leaves it out does not turn every run into a failure.
+var errSessionUnfinished = errors.New("owping reports the session as not finished")
+
 // ParseOwping reads the machine-readable summary `owping -M` prints (KEY, a tab, a value; bucket tables between tags).
 // Lines the tool prints around it, such as the "results available" notice, are skipped. It fails when the summary is
-// missing or does not say how many packets were sent, so a truncated run is never reported as a clean one.
+// missing or does not say how many packets were sent, so a truncated run is never reported as a clean one. A run in which
+// every packet was lost is a valid result (the control connection worked and nothing arrived: a filter on the test ports, a
+// receiver that dropped them); the figures read so far come back with errSessionUnfinished, for the log.
 func ParseOwping(r io.Reader) (OwampResult, error) {
 	var res OwampResult
 	sc := bufio.NewScanner(io.LimitReader(r, 1<<20))
 	sc.Buffer(make([]byte, 0, 64<<10), 256<<10)
-	var seenSummary, seenSent, inTable, haveMin, haveMed, haveMax bool
+	var seenSummary, seenSent, inTable, haveMin, haveMed, haveMax, unfinished bool
 	var minTTL int
 	var haveTTL bool
 	for sc.Scan() {
@@ -101,9 +120,20 @@ func ParseOwping(r io.Reader) (OwampResult, error) {
 			default:
 				res.Duplicates = uint64(f)
 			}
+		case "SESSION_FINISHED":
+			res.Session.Finished = tidy(val, 16)
+			unfinished = val == "0"
+		case "START_TIME":
+			res.Session.Start = tidy(val, 24)
+		case "END_TIME":
+			res.Session.End = tidy(val, 24)
+		case "LOSS_TIMEOUT":
+			res.Session.LossTimeout = tidy(val, 24)
 		case "SYNC":
 			res.Synchronized = val == "1"
+			res.Session.Sync = tidy(val, 16)
 		case "MAXERR":
+			res.Session.MaxErr = tidy(val, 24)
 			if f, ok := num(); ok && f >= 0 {
 				res.ClockError, res.HasClockError = f, true
 			}
@@ -145,11 +175,39 @@ func ParseOwping(r io.Reader) (OwampResult, error) {
 	if haveTTL {
 		res.Hops = initialTTL - minTTL
 	}
+	if unfinished {
+		return res, errSessionUnfinished
+	}
 	return res, nil
 }
 
-// Probe failure reasons, in the order they are written.
-var probeFailReasons = []string{"unreachable", "refused", "timeout", "auth", "other", ReasonNoKind}
+// tidy makes a value the tool printed safe to put in a log line: printable characters only, at most max bytes.
+func tidy(s string, max int) string {
+	return cutRunes(strings.Map(func(r rune) rune {
+		if r == '\t' {
+			return ' '
+		}
+		if unicode.IsControl(r) || r == unicode.ReplacementChar {
+			return -1
+		}
+		return r
+	}, s), max)
+}
+
+// cutRunes cuts s to at most max bytes without splitting a character.
+func cutRunes(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	for max > 0 && !utf8.RuneStart(s[max]) {
+		max--
+	}
+	return s[:max]
+}
+
+// Probe failure reasons, in the order they are written. "denied" is a responder that answered and refused the test: a
+// rewritten source address between the clusters (NAT), or the responder's allowFrom list.
+var probeFailReasons = []string{"unreachable", "refused", "timeout", "auth", "denied", "other", ReasonNoKind}
 
 type probeStats struct {
 	sent, lost, dups uint64
