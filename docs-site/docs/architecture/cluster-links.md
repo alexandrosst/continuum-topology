@@ -225,6 +225,10 @@ What a whole pair costs, as it is measured now (the first cluster probes and tim
 
 Both changes are in the "now" column: the split between the two clusters, and the passive jitter histogram that was dropped (about 15 series per cluster, included in the "before" figures). The packet counts are test packets only; the control connection of each OWAMP run and the route trace are small beside them.
 
+## In FUSION
+
+The link series reach FUSION like any other metrics, and the figures the Sites screen shows are also available to other systems through FUSION's data API: `GET /api/v1/fusion/links` returns, for each watched pair, the latest loss in each direction, round trip, delay variation, MTU, throughput and times, once per pair (`a` before `b`, with `measuredBy` saying which cluster's series were used), with the same 15-second shared read as the screen. A token needs the `metrics` signal, sees only the pairs whose two clusters it may read, and is refused if it is limited to namespaces; see [the FUSION API](./fusion-api.md#cluster-links) for the shape and an example. The `continuum_link_*` series are in the `system` category (infrastructure between clusters, not something an application reports), so `category=application` reads and the application dashboards leave them out and `category=system` includes them.
+
 ## What is planned
 
 - **What each cluster can do.** Agents reporting whether the responder and the iperf3 server are in place, so the screen can say "this cluster has no throughput server" rather than leave the user to find out.

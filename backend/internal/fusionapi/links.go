@@ -37,6 +37,23 @@ type LinkReadings struct {
 	Probed, Tested []LinkReading
 }
 
+// NeedLinks says whether the Scope may read the link figures at all. They are metrics, so a token without that signal may not.
+// They are also measured between clusters and belong to no namespace, and a Scope that limits namespaces sees no telemetry that
+// carries none (as for every other metric read), so it may not read them either, rather than be told that there are none.
+func (s Scope) NeedLinks() error {
+	if err := s.needSignal(SignalMetrics); err != nil {
+		return err
+	}
+	if len(s.Namespaces) > 0 {
+		return denied("link figures are measured between clusters and belong to no namespace, so a token limited to namespaces cannot read them; use a token that limits clusters (or nothing) instead")
+	}
+	return nil
+}
+
+// LinkPairVisible is whether the Scope may see the link between two clusters: only when it may see both of them, since the
+// figures are as much about one as about the other.
+func (s Scope) LinkPairVisible(a, b string) bool { return s.ClusterVisible(a) && s.ClusterVisible(b) }
+
 // How far back each figure is looked for. The probe runs every minute or so; the route trace every ten minutes; throughput
 // tests as rarely as once in a week.
 const (

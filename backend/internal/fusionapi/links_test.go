@@ -97,3 +97,30 @@ func TestLinkReadingsNeedAnUnrestrictedScopeAndReportAStoreError(t *testing.T) {
 		t.Fatal("one failed query was swallowed")
 	}
 }
+
+func TestLinkAccessFollowsTheScope(t *testing.T) {
+	all := AllSignals()
+	if err := all.NeedLinks(); err != nil {
+		t.Errorf("unlimited: %v", err)
+	}
+	if err := (Scope{Signals: []string{SignalLogs, SignalTraces}}).NeedLinks(); statusOf(err) != http.StatusForbidden {
+		t.Errorf("without metrics: %v", err)
+	}
+	if err := (Scope{}).NeedLinks(); statusOf(err) != http.StatusForbidden {
+		t.Errorf("the zero scope: %v", err)
+	}
+	// the figures belong to no namespace, which a namespace limit hides; a cluster limit alone is fine
+	if err := (Scope{Signals: Signals, Namespaces: []string{"shop"}}).NeedLinks(); statusOf(err) != http.StatusForbidden || !strings.Contains(err.Error(), "namespace") {
+		t.Errorf("namespaces: %v", err)
+	}
+	if err := (Scope{Signals: Signals, Clusters: []string{"a"}}).NeedLinks(); err != nil {
+		t.Errorf("clusters: %v", err)
+	}
+	s := Scope{Signals: Signals, Clusters: []string{"a", "b"}}
+	if !s.LinkPairVisible("a", "b") || s.LinkPairVisible("a", "c") || s.LinkPairVisible("c", "b") || s.LinkPairVisible("", "a") {
+		t.Error("a pair is visible only when both clusters are")
+	}
+	if !all.LinkPairVisible("x", "y") {
+		t.Error("no cluster limit sees every pair")
+	}
+}

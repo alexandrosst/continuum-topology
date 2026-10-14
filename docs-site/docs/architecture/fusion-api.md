@@ -58,6 +58,7 @@ All are `GET` (but the batch read, and the backends' own POST forms), all take `
 | `/api/v1/fusion/services` | The **services** that have telemetry in the range (their `service.name`), which signal types each has, and the Ikhnos applications each is in (`applications`; empty for infrastructure that reports under a name of its own, such as an exporter). `application=` keeps only the services of one application. |
 | `/api/v1/fusion/services/{name}` | One service at a glance: the same overview, for a single `service.name`. |
 | `/api/v1/fusion/metrics/names`, `/series`, `/range` | Metric names, series label sets, and series values over the range, filtered by `name`, `metric` (a regular expression over the name), `service`, `namespace`, `pod`, `node`, `cluster`, `application`, `category`. `/range` takes `step` and `limit`. |
+| `/api/v1/fusion/links` | The latest figures of the links between clusters, for the pairs the organisation watches: loss in each direction, round trip, delay variation, path MTU, throughput and when they were measured. Each pair once, with `measuredBy`; `cluster` and `peer` narrow it ([cluster links](#cluster-links)). Needs the `metrics` signal. |
 | `/api/v1/fusion/metrics/query`, `/query_range` | PromQL as written, answered in Prometheus' own shape. Unrestricted callers only. |
 | `/api/v1/fusion/logs` | Log lines, with `service`, `namespace`, `pod`, `cluster`, `application`, `category`, `trace_id`, `span_id`, `severity`, `contains`, `order=newest\|oldest`, `limit`. With `query=` it takes LogQL as written (unrestricted callers only). |
 | `/api/v1/fusion/traces` | A trace search: `service`, `namespace`, `cluster`, `application`, `category`, `name`, `status=error\|ok\|unset`, `min_duration`, `max_duration`, `limit`. With `q=` it takes TraceQL as written (unrestricted callers only). With `fused=true` every hit also comes back as a fused trace ([reading many](#reading-many-traces)). |
@@ -224,9 +225,44 @@ sum by (service_name) (rate(http_server_duration_seconds_count[5m]))
 
 The series is not telemetry: the Grafana dashboards leave it out of their counts, and it appears only while FUSION runs. It carries a series for each name a member's telemetry may use (its name and its aliases) in each namespace and cluster it runs in, so a count of the series is not a count of services. A member Ikhnos knows no namespace or cluster for is written without that label (the dashboards' namespace and cluster choices match those with `.*`, not `.+`). It describes the present: an application edited or deleted in Ikhnos changes the series within a minute (a removed one is gone after Prometheus' five-minute lookback), and its history is not kept. It is written only while FUSION is running, and the Grafana dashboard **Applications** reads it for its variables. A service in two applications makes the join many-to-many; select one application, as the dashboard does. Loki and Tempo have no such series: use the API's `application=`, or the service list from `/applications` in a LogQL or TraceQL selector.
 
+## Cluster links
+
+`GET /api/v1/fusion/links` answers what the Sites screen shows, for a script, a dashboard or a decision engine: for each pair of clusters the organisation watches (the `links` of its settings; see [cluster links](./cluster-links.md)), the latest loss in each direction, round-trip time, delay variation, path MTU and throughput, and when the probe and the throughput test last finished. It reads the `continuum_link_*` metrics with a fixed set of queries, shared for 15 seconds between all callers and the Sites screen, so polling faster than that only uses your rate limit.
+
+```sh
+curl -s -H "Authorization: Bearer $TOKEN" "$ADDR/api/v1/fusion/links?cluster=cl-eu-1"
+```
+
+```json
+{
+  "pairs": [
+    {
+      "a": "cl-eu-1", "b": "cl-eu-2",
+      "measuredBy": ["cl-eu-1", "cl-eu-2"],
+      "rttSeconds": 0.0121,
+      "lossAToB": 0.02, "lossBToA": 0,
+      "jitterSeconds": 0.0006,
+      "mtuBytes": 1420,
+      "throughputAToB": 920000000, "throughputBToA": 870000000,
+      "probedAt": "2026-10-14T09:41:07Z", "testedAt": "2026-10-13T22:10:44Z"
+    }
+  ],
+  "at": "2026-10-14T09:41:30Z"
+}
+```
+
+- **Each pair appears once.** `a` sorts before `b`, whichever way round the administrator entered the pair. `lossAToB`, `throughputAToB` and the other `...AToB` figures are from `a` to `b`, `...BToA` the other way. Both clusters of a pair measure towards each other, and the answer has already chosen between them, so count a pair once (not once under each of its clusters) and do not add the two clusters' figures together.
+- **`measuredBy` says whose series the figures are**: `a`, `b` or both, in that order, and empty when FUSION holds nothing for the pair (the pair is still listed, with no figures). Where both clusters measured a figure the first cluster's is used and the second's only fills a gap; `jitterSeconds` is the larger of the two and `mtuBytes` the smaller.
+- **A figure FUSION does not hold is absent, never zero**: a pair that is not probed has no loss, and one that asks for no throughput tests has no throughput. Loss is a fraction (0 to 1), times are seconds, throughput is bits per second.
+- **`cluster` and `peer`** keep only the pairs a cluster is in, or the one pair of two clusters. `peer` without `cluster` is a `400`. A cluster that is in no watched pair gives an empty list, not an error.
+- **What a token sees.** The route needs the `metrics` signal (without it, `403`). A token limited to clusters sees only the pairs whose **two** clusters it may read, and a pair outside that is not told apart from one that does not exist. The figures are read by the server with fixed queries and then filtered by cluster id, which is why a limited token can read them although it cannot send PromQL itself. A token limited to **namespaces** is refused (`403`, with the reason): link figures are measured between clusters and belong to no namespace, and a namespace limit hides all telemetry that carries none, as it does on the other metric reads, so an empty list would only mislead. Give such a consumer a token that limits clusters instead.
+- **When FUSION cannot be read** the answer is `503` (`504` when it is slow); what the store said is not repeated.
+
+The series behind these figures are ordinary metrics: read them over a range with `metrics/range?metric=continuum_link_.*&category=system` (a limited token sees only the series its clusters report).
+
 ## Categories: system, kubernetes, application
 
-Every metric series, log line and span is about one of three things, and `category=` lets you ask for one: **`system`** is the host and the collectors (node and process metrics, scrape health, energy, the collectors' own metrics; logs of the host and node, which carry no namespace), **`kubernetes`** is the cluster's own objects (pod, container, node-condition and `kube_*` metrics; logs of `kube-system`, `kube-public` and `kube-node-lease`), and **`application`** is everything else: what workloads report about themselves. Give one or several, separated by commas (`category=system,kubernetes`); all three, or none, means no filter. An unknown value is a `400`.
+Every metric series, log line and span is about one of three things, and `category=` lets you ask for one: **`system`** is the host, the collectors and the network between clusters (node and process metrics, scrape health, energy, the collectors' own metrics, the `continuum_link_*` measurements of [cluster links](./cluster-links.md); logs of the host and node, which carry no namespace), **`kubernetes`** is the cluster's own objects (pod, container, node-condition and `kube_*` metrics; logs of `kube-system`, `kube-public` and `kube-node-lease`), and **`application`** is everything else: what workloads report about themselves. Give one or several, separated by commas (`category=system,kubernetes`); all three, or none, means no filter. An unknown value is a `400`.
 
 ```sh
 curl -s -H "Authorization: Bearer $TOKEN" "$ADDR/api/v1/fusion/metrics/names?category=application"
@@ -234,7 +270,7 @@ curl -s -H "Authorization: Bearer $TOKEN" "$ADDR/api/v1/fusion/logs?category=kub
 ```
 
 - **A category says what a signal is about, not who owns it.** A pod's CPU is `kubernetes` whichever application the pod belongs to; `application=` answers "whose", `category=` answers "what". They combine.
-- **The API works it out when you ask, and the data is also stamped.** Metrics are sorted by the family of their name (`system_*`, `process_*`, `node_*`, `kepler_*`, `dcgm_*`, `otelcol_*`, `scrape_*`, `up`, `target_info` are system; `k8s_*`, `container_*`, `kube_*` are kubernetes; the rest are application). Logs are sorted by namespace (none is system; the three namespaces above are kubernetes). The answer says which category each result was put in: `category` on every series and log line, and `categories` (a name to category map) beside the names of `/metrics/names`. Because the API decides it from the name or the namespace, a rule changed in a release applies to old data too. **Data that arrives after the central operator is upgraded also carries the category as a label of its own**, `ikhnos_category` in Prometheus and Loki (a pipeline filter in Loki: `| ikhnos_category="kubernetes"`) and `resource.ikhnos.category` in Tempo, set at the central operator by the same rule (a chart test keeps the two the same), so Grafana, PromQL, LogQL and TraceQL can filter on it without name patterns: `sum by (k8s_namespace_name) (k8s_pod_cpu_usage{ikhnos_category="kubernetes"})`. A sender cannot choose its own: the value is always replaced. Two differences from the API on data stamped this way: a span with no namespace is `application` (the API leaves it out, since the trace store cannot match what is not there), and nothing is stamped on data stored before the upgrade, so for a past range the API's `category=` is the one to use. The application is deliberately not stamped: it is a grouping people change, so it is looked up when you ask (`application=`, or the join on the info series below).
+- **The API works it out when you ask, and the data is also stamped.** Metrics are sorted by the family of their name (`system_*`, `process_*`, `node_*`, `kepler_*`, `dcgm_*`, `otelcol_*`, `continuum_link_*`, `scrape_*`, `up`, `target_info` are system; `k8s_*`, `container_*`, `kube_*` are kubernetes; the rest are application). Logs are sorted by namespace (none is system; the three namespaces above are kubernetes). The answer says which category each result was put in: `category` on every series and log line, and `categories` (a name to category map) beside the names of `/metrics/names`. Because the API decides it from the name or the namespace, a rule changed in a release applies to old data too. **Data that arrives after the central operator is upgraded also carries the category as a label of its own**, `ikhnos_category` in Prometheus and Loki (a pipeline filter in Loki: `| ikhnos_category="kubernetes"`) and `resource.ikhnos.category` in Tempo, set at the central operator by the same rule (a chart test keeps the two the same), so Grafana, PromQL, LogQL and TraceQL can filter on it without name patterns: `sum by (k8s_namespace_name) (k8s_pod_cpu_usage{ikhnos_category="kubernetes"})`. A sender cannot choose its own: the value is always replaced. Two differences from the API on data stamped this way: a span with no namespace is `application` (the API leaves it out, since the trace store cannot match what is not there), and nothing is stamped on data stored before the upgrade, so for a past range the API's `category=` is the one to use. The application is deliberately not stamped: it is a grouping people change, so it is looked up when you ask (`application=`, or the join on the info series below).
 - **Traces have two categories, not three.** A span is not a host signal: `category=kubernetes` selects spans of the system namespaces, `category=application` the others, and `category=system` is a `400` rather than an empty answer.
 - It cannot be combined with a query you write yourself (`query`, `q`), for the same reason as `application=`.
 

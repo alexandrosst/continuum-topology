@@ -13,6 +13,9 @@ func TestMetricCategoryByName(t *testing.T) {
 		"k8s_pod_cpu_usage": CategoryKubernetes, "container_memory_usage_bytes": CategoryKubernetes, "kube_pod_info": CategoryKubernetes,
 		"system_cpu_time_seconds_total": CategorySystem, "process_cpu_seconds_total": CategorySystem, "kepler_node_platform_joules_total": CategorySystem,
 		"DCGM_FI_DEV_GPU_UTIL": CategorySystem, "dcgm_gpu_utilization": CategorySystem, "up": CategorySystem, "scrape_duration_seconds": CategorySystem, "target_info": CategorySystem, "otelcol_exporter_sent_spans": CategorySystem,
+		// the cluster-link measurements are infrastructure between clusters, not what an application reports
+		"continuum_link_probe_loss_ratio": CategorySystem, "continuum_link_path_mtu_bytes": CategorySystem, "continuum_link_tcp_connect_seconds_bucket": CategorySystem, "continuum_link_throughput_bits_per_second": CategorySystem,
+		"continuum_links_total": CategoryApplication, "continuum_syncs_applied_total": CategoryApplication, "my_continuum_link_x": CategoryApplication,
 		"http_server_duration_seconds_count": CategoryApplication, "fusion_demo_requests": CategoryApplication, "upstream_requests_total": CategoryApplication,
 		"systemd_unit_state": CategoryApplication, "k8sish_thing": CategoryApplication,
 	} {
@@ -25,7 +28,7 @@ func TestMetricCategoryByName(t *testing.T) {
 // Whatever combination is asked for, the matcher keeps exactly the names MetricCategory puts in those categories.
 func TestMetricNameMatcherAgreesWithMetricCategory(t *testing.T) {
 	names := []string{"k8s_pod_cpu_usage", "container_cpu_usage", "kube_node_info", "system_memory_usage_bytes", "process_cpu_seconds_total", "kepler_container_joules_total",
-		"up", "scrape_series_added", "target_info", "otelcol_receiver_accepted_spans", "http_requests_total", "fusion_demo_requests", "upstream_total", "systemd_x"}
+		"up", "scrape_series_added", "target_info", "otelcol_receiver_accepted_spans", "continuum_link_probe_loss_ratio", "continuum_link_throughput_last_success_timestamp_seconds", "continuum_syncs_applied_total", "http_requests_total", "fusion_demo_requests", "upstream_total", "systemd_x"}
 	for _, cats := range [][]string{{CategorySystem}, {CategoryKubernetes}, {CategoryApplication}, {CategorySystem, CategoryKubernetes}, {CategorySystem, CategoryApplication}, {CategoryKubernetes, CategoryApplication}} {
 		m := metricNameMatcher(cats)
 		var neg bool

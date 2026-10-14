@@ -155,7 +155,7 @@ func TestFusionCentralStampsEachSignalWithItsCategoryByTheAPIsRule(t *testing.T)
 	}
 	for _, name := range []string{"system.cpu.time", "system.memory.usage", "process.runtime.jvm.memory.usage", "process.cpu.time", "node_cpu_seconds_total",
 		"kepler_node_platform_joules_total", "kepler.container.joules", "dcgm_gpu_utilization", "DCGM_FI_DEV_GPU_UTIL", "DCGM_FI_PROF_GR_ENGINE_ACTIVE", "otelcol_exporter_sent_spans", "otelcol.receiver.accepted",
-		"scrape_duration_seconds", "up", "target_info", "k8s.pod.cpu.usage", "k8s.node.condition_ready", "container.cpu.usage", "kube_pod_info",
+		"scrape_duration_seconds", "up", "target_info", "continuum.link.probe.loss_ratio", "continuum_link_path_mtu_bytes", "continuum_links_total", "continuum_syncs_applied_total", "k8s.pod.cpu.usage", "k8s.node.condition_ready", "container.cpu.usage", "kube_pod_info",
 		"http.server.request.duration", "http_server_request_count_total", "jvm.memory.used", "systemd_units", "uploads_total", "uptime", "node", "process",
 		"system", "k8sx.thing", "containerd_thing", "fusion_demo_requests", "ikhnos_application_info", "queue.depth"} {
 		if want := fusionapi.MetricCategory(strings.ReplaceAll(name, ".", "_")); got(name) != want {
