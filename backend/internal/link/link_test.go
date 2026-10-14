@@ -479,3 +479,23 @@ func TestTheAgentsOwnConnectionsAreNotCounted(t *testing.T) {
 		t.Errorf("empty: %v", err)
 	}
 }
+
+// An address that only ever saw failed attempts is not one the traffic uses: it must not become the address the active
+// measurements try first. One that carried anything, or got a round trip, still is.
+func TestAnAddressOnlyFailedAttemptsWereSeenOnIsNotPreferred(t *testing.T) {
+	p := NewPeers()
+	p.Set("me", []*continuumv1.LinkPeer{peer("a", "A", "10.0.0.1", "100.64.0.45")})
+	m := NewMeter(p)
+	m.Observe([]*continuumv1.RawFlow{
+		{Client: true, Protocol: "tcp", PeerIp: "100.64.0.45", Port: 5559, FailedAttempts: 40, FailedTimeout: 40},
+		{Client: true, Protocol: "tcp", PeerIp: "10.0.0.1", Port: 443, Connections: 1, BytesOut: 10, RttUs: 500},
+	})
+	got := m.peersDoc().Peers[0].Preferred
+	if len(got) != 1 || got[0] != "10.0.0.1" {
+		t.Errorf("preferred = %v, want only the address that carried traffic", got)
+	}
+	// the failures themselves are still counted as the link's
+	if s := m.per["a"]; s == nil || s.failed["timeout"] != 40 {
+		t.Errorf("failures lost: %+v", s)
+	}
+}

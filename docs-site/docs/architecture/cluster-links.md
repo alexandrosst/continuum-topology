@@ -87,6 +87,8 @@ Each step has a state: *done*, *to do*, *not known* or *optional*, and a sentenc
 
 A cluster is known by many addresses: its nodes' internal and external addresses, the addresses of any tunnel or mesh interface (a Tailscale `100.64.x.x`, say), and the public address its agent connects from. The server sends the agent all of them for each peer, and they are used differently.
 
+An address only failed attempts were seen on (nothing carried, no round trip measured) does not count as in use, so a peer address that nothing answers on is never the one the measurements try first; it is still tried after the others, and its failures still count in the link's figures.
+
 - **The passive metrics use the whole list.** A connection the flow collector sees is matched against every address of every peer, so traffic is counted whichever address it uses.
 - **The active measurements use one path at a time.** The one-way probe, the connect timing, the route trace and the throughput tests each need a destination, and the addresses of a cluster can lead to it by different paths: over the public internet, over a private link, over a mesh. A figure is only about the path it was measured on.
 

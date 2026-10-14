@@ -249,10 +249,18 @@ func (m *Meter) ObserveRows(rows []*continuumv1.RawFlow, bytesKnown bool) {
 		if r.RttUs > 0 {
 			s.rtt.observe(float64(r.RttUs) / 1e6)
 		}
-		if a, err := netip.ParseAddr(r.PeerIp); err == nil {
+		// An address nothing was ever answered on (only attempts that failed, no byte carried, no round trip measured) is not one the
+		// traffic "uses": preferring it would send the active measurements to the one address that cannot answer.
+		if a, err := netip.ParseAddr(r.PeerIp); err == nil && !onlyFailed(r, carried) {
 			s.used.add(a.Unmap(), rowWeight(r.Connections, carried), now)
 		}
 	}
+}
+
+// onlyFailed says whether a row shows attempts that all failed: some failed, none got a round trip measured, and no byte was
+// carried (bytes the report does not count are not evidence either way, so they do not make a row "carried").
+func onlyFailed(r *continuumv1.RawFlow, carried uint64) bool {
+	return r.FailedAttempts > 0 && r.FailedAttempts >= r.Connections && r.RttUs == 0 && carried == 0
 }
 
 // proberPort says whether port is one the link prober's own traffic uses. Called with m.mu held.
