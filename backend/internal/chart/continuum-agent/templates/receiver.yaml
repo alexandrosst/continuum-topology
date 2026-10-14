@@ -62,7 +62,7 @@ spec:
         - {port: 9104, protocol: TCP}
     {{- end }}
     {{- if .Values.telemetry.clusterLinks.probe.enabled }}
-    # The link prober asks the agent which clusters to measure (signed with the flow secret) on the same port.
+    # The link prober asks the agent which clusters to measure (signed with its own link-peers secret, not the flow secret) on the same port.
     - from:
         - podSelector:
             matchLabels: {app.kubernetes.io/name: continuum-link-prober, app.kubernetes.io/instance: {{ .Release.Name }}}

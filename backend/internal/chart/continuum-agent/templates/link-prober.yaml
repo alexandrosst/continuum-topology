@@ -2,6 +2,22 @@
 {{- if $probe.enabled }}
 {{- $cap := $probe.capacity }}
 {{- $auth := and $cap.enabled $cap.auth.existingSecret }}
+{{- if and $probe.peersSecret .Values.flowObserver.secret (eq (toString $probe.peersSecret) (toString .Values.flowObserver.secret)) }}
+{{- fail "telemetry.clusterLinks.probe.peersSecret must differ from flowObserver.secret: the link prober holds the first, and with the second it could sign flow reports." }}
+{{- end }}
+# The secret the prober signs its peer-list request with. The agent verifies with it, and nothing else holds it. It is not the flow
+# secret, which the prober must not have: it runs measurement tools that parse what other clusters' responders send, and with
+# the flow secret a compromised one could forge flow reports to the agent.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "agent.linkPeersSecretName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "agent.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  secret: {{ include "agent.linkPeersSecret" . | quote }}
+---
 {{- /* The responder's configuration. The default class is rate- and disk-limited; with allowFrom the default is a class that
        refuses everything, and only the listed networks get the limited one. (Tested: a connection from outside the listed
        networks is refused at the control port.) */ -}}
@@ -187,7 +203,7 @@ spec:
         {{- include "agent.meshOptOutLabels" . | nindent 8 }}
         {{- include "agent.podLabels" . | nindent 8 }}
       annotations:
-        checksum/flow-secret: {{ include "agent.flowSecretRevision" . }}
+        checksum/link-peers-secret: {{ include "agent.linkPeersSecretRevision" . }}
         {{- include "agent.meshOptOutAnnotations" . | nindent 8 }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
@@ -212,7 +228,7 @@ spec:
             capabilities: {drop: ["ALL"]}
           env:
             - {name: CONTINUUM_LINK_AGENT_URL, value: "http://continuum-agent-link-metrics.{{ .Release.Namespace }}.svc:9104"}
-            - {name: CONTINUUM_FLOW_SECRET_FILE, value: /secret/secret}
+            - {name: CONTINUUM_LINK_PEERS_SECRET_FILE, value: /secret/secret}
             - {name: CONTINUUM_LINK_PROBE_LISTEN, value: ":9105"}
             - {name: CONTINUUM_LINK_RESPONDER_PORT, value: {{ $probe.responder.port | quote }}}
             - {name: CONTINUUM_LINK_PACKETS, value: {{ $probe.packets | quote }}}
@@ -265,7 +281,7 @@ spec:
             {{- end }}
       volumes:
         - name: secret
-          secret: {secretName: {{ include "agent.flowSecretName" . }}, defaultMode: 0440}
+          secret: {secretName: {{ include "agent.linkPeersSecretName" . }}, defaultMode: 0440}
         - name: tmp
           emptyDir: {sizeLimit: 16Mi}
         {{- if $auth }}

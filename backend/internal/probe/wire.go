@@ -40,9 +40,21 @@ const (
 	MaxClockSkew = 5 * time.Minute
 )
 
+// signContext is what a MAC is bound to unless the receiver says otherwise: the node probe and flow reports.
+const signContext = "continuum-probe-v1"
+
 func Sign(secret []byte, ts, node string, body []byte) string {
+	return SignContext(signContext, secret, ts, node, body)
+}
+
+// SignContext is Sign for an API of its own: the context (a fixed string such as "continuum-link-peers-v1") goes into the
+// MAC, so a signature made for one API is never valid for another even if the two were ever given the same secret.
+func SignContext(context string, secret []byte, ts, node string, body []byte) string {
+	if context == "" {
+		context = signContext
+	}
 	m := hmac.New(sha256.New, secret)
-	m.Write([]byte("continuum-probe-v1\n" + ts + "\n" + node + "\n"))
+	m.Write([]byte(context + "\n" + ts + "\n" + node + "\n"))
 	m.Write(body)
 	return hex.EncodeToString(m.Sum(nil))
 }

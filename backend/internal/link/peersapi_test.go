@@ -47,7 +47,7 @@ func TestTheProberCanFetchThePeersAndNothingElseCan(t *testing.T) {
 		req, _ := http.NewRequest(http.MethodPost, srv.URL+PathPeers, http.NoBody)
 		req.Header.Set(probe.HeaderNode, ProberNode)
 		req.Header.Set(probe.HeaderTime, ts)
-		req.Header.Set(probe.HeaderSig, probe.Sign(testSecret, ts, ProberNode, nil))
+		req.Header.Set(probe.HeaderSig, probe.SignContext(peersContext, testSecret, ts, ProberNode, nil))
 		if mutate != nil {
 			mutate(req)
 		}
@@ -61,33 +61,54 @@ func TestTheProberCanFetchThePeersAndNothingElseCan(t *testing.T) {
 	if got := post(func(r *http.Request) { r.Header.Del(probe.HeaderSig) }); got != http.StatusUnauthorized {
 		t.Errorf("unsigned: %d", got)
 	}
-	// a flow collector holds the same secret but signs as a node; that signature must not open this door
+	// a flow collector signs as a node; that must not open this door
 	if got := post(func(r *http.Request) {
 		ts := r.Header.Get(probe.HeaderTime)
 		r.Header.Set(probe.HeaderNode, "worker-1")
-		r.Header.Set(probe.HeaderSig, probe.Sign(testSecret, ts, "worker-1", nil))
+		r.Header.Set(probe.HeaderSig, probe.SignContext(peersContext, testSecret, ts, "worker-1", nil))
 	}); got != http.StatusBadRequest {
 		t.Errorf("signed as a node: %d", got)
 	}
+	// The flow secret is not this API's credential: a request signed with it, whether the way a flow report is signed or the
+	// way this API is, is refused; and the right secret signed the way a flow report is signed is refused too.
+	flowSecret := []byte("the-flow-secret-of-the-collectors")
 	if got := post(func(r *http.Request) {
-		r.Header.Set(probe.HeaderSig, probe.Sign([]byte("another-secret-entirely-1234"), r.Header.Get(probe.HeaderTime), ProberNode, nil))
+		ts := r.Header.Get(probe.HeaderTime)
+		r.Header.Set(probe.HeaderSig, probe.Sign(flowSecret, ts, ProberNode, nil))
+	}); got != http.StatusUnauthorized {
+		t.Errorf("signed with the flow secret, as a flow report: %d", got)
+	}
+	if got := post(func(r *http.Request) {
+		ts := r.Header.Get(probe.HeaderTime)
+		r.Header.Set(probe.HeaderSig, probe.SignContext(peersContext, flowSecret, ts, ProberNode, nil))
+	}); got != http.StatusUnauthorized {
+		t.Errorf("signed with the flow secret, as a peers request: %d", got)
+	}
+	if got := post(func(r *http.Request) {
+		ts := r.Header.Get(probe.HeaderTime)
+		r.Header.Set(probe.HeaderSig, probe.Sign(testSecret, ts, ProberNode, nil))
+	}); got != http.StatusUnauthorized {
+		t.Errorf("a flow-report MAC replayed as a peers request: %d", got)
+	}
+	if got := post(func(r *http.Request) {
+		r.Header.Set(probe.HeaderSig, probe.SignContext(peersContext, []byte("another-secret-entirely-1234"), r.Header.Get(probe.HeaderTime), ProberNode, nil))
 	}); got != http.StatusUnauthorized {
 		t.Errorf("wrong secret: %d", got)
 	}
 	if got := post(func(r *http.Request) {
 		old := strconv.FormatInt(time.Now().Add(-time.Hour).Unix(), 10)
 		r.Header.Set(probe.HeaderTime, old)
-		r.Header.Set(probe.HeaderSig, probe.Sign(testSecret, old, ProberNode, nil))
+		r.Header.Set(probe.HeaderSig, probe.SignContext(peersContext, testSecret, old, ProberNode, nil))
 	}); got != http.StatusUnauthorized {
 		t.Errorf("stale: %d", got)
 	}
-	// the same signed request twice in one second is a replay
-	ts := strconv.FormatInt(time.Now().Unix(), 10)
+	// the same signed request twice is a replay (a timestamp of its own, so no earlier request in this test has used it)
+	ts := strconv.FormatInt(time.Now().Add(-30*time.Second).Unix(), 10)
 	once := func() int {
 		req, _ := http.NewRequest(http.MethodPost, srv.URL+PathPeers, http.NoBody)
 		req.Header.Set(probe.HeaderNode, ProberNode)
 		req.Header.Set(probe.HeaderTime, ts)
-		req.Header.Set(probe.HeaderSig, probe.Sign(testSecret, ts, ProberNode, []byte("x")[:0]))
+		req.Header.Set(probe.HeaderSig, probe.SignContext(peersContext, testSecret, ts, ProberNode, []byte("x")[:0]))
 		resp, err := srv.Client().Do(req)
 		if err != nil {
 			t.Fatal(err)
@@ -96,8 +117,22 @@ func TestTheProberCanFetchThePeersAndNothingElseCan(t *testing.T) {
 		return resp.StatusCode
 	}
 	first, second := once(), once()
-	if first == http.StatusOK && second != http.StatusConflict {
-		t.Errorf("a replayed request was answered: %d then %d", first, second)
+	if first != http.StatusOK || second != http.StatusConflict {
+		t.Errorf("a replayed request: %d then %d, want 200 then 409", first, second)
+	}
+}
+
+// A peers request is not a flow report either: the MAC of one does not verify as the other, so the prober's signature
+// cannot be used on the flow receiver even if both were configured with the same secret.
+func TestAPeersRequestIsNotValidAsAFlowReport(t *testing.T) {
+	now := time.Now()
+	ts := strconv.FormatInt(now.Unix(), 10)
+	sig := probe.SignContext(peersContext, testSecret, ts, ProberNode, nil)
+	if err := probe.Verify(testSecret, ts, ProberNode, sig, nil, now); err == nil {
+		t.Fatal("a peers request verifies as a flow report")
+	}
+	if sig == probe.Sign(testSecret, ts, ProberNode, nil) {
+		t.Fatal("the two MACs are equal")
 	}
 }
 

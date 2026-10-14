@@ -169,3 +169,34 @@ func TestReplayCacheIsBoundedAndExpires(t *testing.T) {
 		t.Fatalf("expired entries were not released: %d", c.Len())
 	}
 }
+
+func TestAContextBindsASignatureToItsAPI(t *testing.T) {
+	secret := []byte("a-secret-of-sixteen-plus-chars")
+	now := time.Now()
+	ts := strconv.FormatInt(now.Unix(), 10)
+	const ctx = "continuum-test-v1"
+	if SignContext("", secret, ts, "n", nil) != Sign(secret, ts, "n", nil) {
+		t.Fatal("the default context is not the node probe's")
+	}
+	sig := SignContext(ctx, secret, ts, "n", nil)
+	if sig == Sign(secret, ts, "n", nil) {
+		t.Fatal("a context does not change the MAC")
+	}
+	read := func(sig, context string) int {
+		req := httptest.NewRequest(http.MethodPost, "/", http.NoBody)
+		req.Header.Set(HeaderNode, "n")
+		req.Header.Set(HeaderTime, ts)
+		req.Header.Set(HeaderSig, sig)
+		_, _, status, _ := ReadSigned(httptest.NewRecorder(), req, Signed{Secret: secret, MaxBody: 10, Now: now, Context: context})
+		return status
+	}
+	if got := read(sig, ctx); got != 0 {
+		t.Errorf("right context: %d", got)
+	}
+	if got := read(sig, ""); got != http.StatusUnauthorized {
+		t.Errorf("a context-bound MAC accepted by the default receiver: %d", got)
+	}
+	if got := read(Sign(secret, ts, "n", nil), ctx); got != http.StatusUnauthorized {
+		t.Errorf("a default MAC accepted by a context-bound receiver: %d", got)
+	}
+}

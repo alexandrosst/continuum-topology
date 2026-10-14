@@ -83,6 +83,8 @@ type Signed struct {
 	Replay *ReplayCache
 	NodeOK func(string) bool
 	Now    time.Time
+	// Context is what the signature is bound to (see SignContext); empty means the node probe's and flow collectors' own.
+	Context string
 }
 
 // ErrReplay marks a report whose signature was already accepted.
@@ -117,7 +119,7 @@ func ReadSigned(w http.ResponseWriter, req *http.Request, s Signed) (node string
 	if rerr != nil {
 		return "", nil, http.StatusRequestEntityTooLarge, errors.New("body larger than allowed or unreadable")
 	}
-	if err := VerifyWindow(s.Secret, ts, node, sig, body, s.Now, window); err != nil {
+	if err := verifyWindow(s.Context, s.Secret, ts, node, sig, body, s.Now, window); err != nil {
 		return "", nil, http.StatusUnauthorized, err
 	}
 	if s.Replay != nil {
@@ -150,6 +152,10 @@ func decodeSig(sig string) ([]byte, error) {
 
 // VerifyWindow is Verify with a configurable timestamp window.
 func VerifyWindow(secret []byte, ts, node, sig string, body []byte, now time.Time, window time.Duration) error {
+	return verifyWindow("", secret, ts, node, sig, body, now, window)
+}
+
+func verifyWindow(context string, secret []byte, ts, node, sig string, body []byte, now time.Time, window time.Duration) error {
 	if err := checkTime(ts, now, window); err != nil {
 		return err
 	}
@@ -157,7 +163,7 @@ func VerifyWindow(secret []byte, ts, node, sig string, body []byte, now time.Tim
 	if err != nil {
 		return err
 	}
-	want, _ := hex.DecodeString(Sign(secret, ts, node, body))
+	want, _ := hex.DecodeString(SignContext(context, secret, ts, node, body))
 	if !hmac.Equal(want, got) { // constant-time
 		return errors.New("bad signature")
 	}

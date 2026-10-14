@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -65,7 +66,8 @@ func Main(args []string) int {
 	revokedHold := fs.Duration("revoked-hold", 0, "development only: how long a restarted agent whose identity was revoked waits before it exits with code 3 (default: a random 5 to 10 minutes; negative: do not wait)")
 	linkListen := fs.String("link-metrics-listen", cli.Env("CONTINUUM_LINK_METRICS_LISTEN", ""), "address to serve the cluster-to-cluster link metrics on (Prometheus text at /metrics), e.g. :9104 (empty: off; needs --flow-secret-file, since the metrics are labelled from observed traffic). The server decides which clusters are peers; the chart's telemetry.clusterLinks sets this")
 	linkProberPorts := fs.String("link-prober-ports", cli.Env("CONTINUUM_LINK_PROBER_PORTS", ""), "ports (and ranges, e.g. 8861,8862,18900-18999) the link prober's own traffic uses, which the link metrics leave out so that the probes and throughput tests do not count as the link's traffic; the chart's telemetry.clusterLinks.probe sets this")
-	linkServePeers := fs.Bool("link-serve-peers", cli.Env("CONTINUUM_LINK_SERVE_PEERS", "") == "true", "also answer the link prober's signed request for the peer clusters to measure (POST /v1/link/peers on the link metrics address), using the flow secret; the chart's telemetry.clusterLinks.probe sets this")
+	linkServePeers := fs.Bool("link-serve-peers", cli.Env("CONTINUUM_LINK_SERVE_PEERS", "") == "true", "also answer the link prober's signed request for the peer clusters to measure (POST /v1/link/peers on the link metrics address), using --link-peers-secret-file; the chart's telemetry.clusterLinks.probe sets this")
+	linkPeersSecretFile := fs.String("link-peers-secret-file", cli.Env("CONTINUUM_LINK_PEERS_SECRET_FILE", ""), "file holding the secret shared with the link prober, for its request for the peers to measure (needs --link-serve-peers). It is not the flow secret: the prober must not be able to sign flow reports")
 	flowSecretFile := fs.String("flow-secret-file", cli.Env("CONTINUUM_FLOW_SECRET_FILE", ""), "file holding the secret shared with the node flow collectors (needs --probe-listen)")
 	rbacMode := fs.String("rbac-mode", cli.Env("CONTINUUM_RBAC_MODE", "cluster"), "how tier 2's installed RBAC was granted: cluster (one ClusterRole, default) or namespaced (a Role per namespace in --scope-namespaces instead). Must match the chart's rbac.mode; the chart sets this automatically")
 	scopeNS := fs.String("scope-namespaces", cli.Env("CONTINUUM_SCOPE_NAMESPACES", ""), "report only these namespaces, comma separated (empty: all). Combined with --scope-label as a union. Required, and the only way to select namespaces, when --rbac-mode=namespaced")
@@ -175,6 +177,23 @@ func Main(args []string) int {
 	if *linkServePeers && *linkListen == "" {
 		return cli.Fatal(log, fmt.Errorf("--link-serve-peers needs --link-metrics-listen: the peers are answered on that address"))
 	}
+	if *linkServePeers && *linkPeersSecretFile == "" {
+		return cli.Fatal(log, fmt.Errorf("--link-serve-peers needs --link-peers-secret-file: the prober signs its request with a secret of its own, not the flow secret"))
+	}
+	if !*linkServePeers && *linkPeersSecretFile != "" {
+		return cli.Fatal(log, fmt.Errorf("--link-peers-secret-file needs --link-serve-peers"))
+	}
+	var linkPeersSec []byte
+	if *linkServePeers {
+		sec, rerr := os.ReadFile(*linkPeersSecretFile)
+		linkPeersSec = []byte(strings.TrimSpace(string(sec)))
+		if rerr != nil || len(linkPeersSec) < 16 {
+			return cli.Fatal(log, fmt.Errorf("--link-peers-secret-file must hold a secret of at least 16 characters: %v", rerr))
+		}
+		if flowSec, ferr := os.ReadFile(*flowSecretFile); ferr == nil && bytes.Equal(linkPeersSec, bytes.TrimSpace(flowSec)) {
+			return cli.Fatal(log, fmt.Errorf("--link-peers-secret-file must not hold the flow secret: the link prober would then be able to sign flow reports"))
+		}
+	}
 	if _, _, err := net.SplitHostPort(*server); err != nil {
 		return cli.Fatal(log, fmt.Errorf("--server must be host:port: %w", err))
 	}
@@ -221,7 +240,6 @@ func Main(args []string) int {
 		probes = probe.NewReceiver(sec, log)
 	}
 	var flows *flow.Pipeline
-	var flowSecret []byte
 	if *flowSecretFile != "" {
 		if *probeListen == "" {
 			return cli.Fatal(log, fmt.Errorf("--flow-secret-file needs --probe-listen: reports arrive on that address"))
@@ -232,7 +250,6 @@ func Main(args []string) int {
 			return cli.Fatal(log, fmt.Errorf("--flow-secret-file must hold a secret of at least 16 characters: %v", rerr))
 		}
 		flows = flow.NewPipeline(sec, func() *collect.Index { return nil }, log)
-		flowSecret = sec
 	}
 	var links *link.Meter
 	if *linkListen != "" {
@@ -240,7 +257,7 @@ func Main(args []string) int {
 		_ = links.IgnorePorts(*linkProberPorts) // checked with the other flags above
 		flows.Links = links
 		if *linkServePeers {
-			links.ServePeers(flowSecret)
+			links.ServePeers(linkPeersSec)
 		}
 		stopLinks, lerr := link.Serve(*linkListen, links, log)
 		if lerr != nil {

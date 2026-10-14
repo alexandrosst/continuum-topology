@@ -226,6 +226,7 @@ telemetry:
       source: builtin
     probe:
       enabled: false
+      peersSecret: ''
       image:
         digest: ''
         pullPolicy: ''

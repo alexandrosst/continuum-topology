@@ -23,7 +23,7 @@ import (
 func Main(args []string) int {
 	fs := cli.NewFlagSet("continuum link-prober", os.Stderr)
 	agentURL := fs.String("agent", cli.Env("CONTINUUM_LINK_AGENT_URL", ""), "URL of the agent's link address, e.g. http://continuum-agent-link-metrics.continuum-system.svc:9104")
-	secretFile := fs.String("secret-file", cli.Env("CONTINUUM_FLOW_SECRET_FILE", ""), "file holding the secret shared with the agent")
+	secretFile := fs.String("secret-file", cli.Env("CONTINUUM_LINK_PEERS_SECRET_FILE", ""), "file holding the secret shared with the agent for the peer-list request (not the flow secret: this pod runs measurement tools against remote peers and must not hold the secret that signs flow reports)")
 	listen := fs.String("listen", cli.Env("CONTINUUM_LINK_PROBE_LISTEN", ":9105"), "address to serve the probe metrics on")
 	owping := fs.String("owping", cli.Env("CONTINUUM_LINK_OWPING", "/usr/local/bin/owping"), "the owping program")
 	port := fs.Int("responder-port", cli.Atoi(cli.Env("CONTINUUM_LINK_RESPONDER_PORT", "8861")), "the control port every cluster's link responder listens on")

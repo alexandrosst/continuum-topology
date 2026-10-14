@@ -1005,8 +1005,14 @@ telemetry:
     # between paired clusters: TCP responder.port and UDP responder.testPorts, to every node address of the peer cluster.
     # The prober is only configured to talk to the agent and to the paired clusters' responders; no NetworkPolicy enforces
     # that, and its metrics port (9105) answers any pod that can reach it. Restrict both yourself if the cluster needs it.
+    # It mounts one Secret, continuum-agent-link-peers (peersSecret below), shared with the agent alone; it does not mount the flow secret.
     probe:
       enabled: false
+      # The secret the prober signs its peer-list request to the agent with. The prober gets only this one, never flowObserver.secret
+      # (it runs measurement tools that parse what other clusters' responders send, so a flaw in one must not hand over the secret
+      # that signs flow reports). Leave empty to generate one on first install and keep it across upgrades; it must differ from
+      # flowObserver.secret.
+      peersSecret: ""
       image:
         # A placeholder, like image.repository above: a release build bakes in the registry it published the link image to.
         repository: continuum/link

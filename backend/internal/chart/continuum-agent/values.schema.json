@@ -1384,6 +1384,7 @@
               "additionalProperties": false,
               "properties": {
                 "enabled": {"type": "boolean"},
+                "peersSecret": {"type": ["string", "integer"]},
                 "image": {
                   "type": "object",
                   "additionalProperties": false,

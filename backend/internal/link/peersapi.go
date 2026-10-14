@@ -16,15 +16,18 @@ import (
 )
 
 // The prober runs in a pod of its own and learns who to measure from the agent, which is the only part of the cluster
-// the server talks to. It asks over the cluster network with the same signed-request scheme the node collectors use to
-// report to the agent (a secret the chart generates and mounts into both), under a node name of its own so a signature
-// made for one purpose is never valid for another.
+// the server talks to. It asks over the cluster network with the signed-request scheme the node collectors use to report
+// to the agent, but with a secret of its own (the chart generates it and mounts it into the agent and the prober only, never
+// the flow secret, which the prober's measurement tools must not be able to read) and a MAC context of its own, so a
+// flow report's signature is not a valid peers request nor the other way round, even if the two secrets were ever equal.
 const (
 	// PathPeers is where the agent answers.
 	PathPeers = "/v1/link/peers"
 	// ProberNode is the name the prober signs as; the agent accepts no other for this path.
 	ProberNode   = "link-prober"
 	maxPeersBody = 1 << 20
+	// peersContext is what the MAC of a peers request is bound to (see probe.SignContext).
+	peersContext = "continuum-link-peers-v1"
 )
 
 // PeersDoc is what the agent returns: this cluster's id and the peers it is paired with.
@@ -95,7 +98,7 @@ func (p *Peers) SetFromDoc(d PeersDoc) []string {
 }
 
 // ServePeers lets the agent answer the prober's questions on the same listener as the metrics. Without it the path does
-// not exist. secret is the one shared with the prober.
+// not exist. secret is the one shared with the prober, and with nothing else: not the flow secret.
 func (m *Meter) ServePeers(secret []byte) {
 	if m == nil {
 		return
@@ -115,7 +118,7 @@ func (m *Meter) peersHandler() http.HandlerFunc {
 			http.NotFound(w, req)
 			return
 		}
-		_, _, status, err := probe.ReadSigned(w, req, probe.Signed{Secret: secret, MaxBody: 1 << 10, Replay: replay, NodeOK: func(n string) bool { return n == ProberNode }, Now: m.now()})
+		_, _, status, err := probe.ReadSigned(w, req, probe.Signed{Secret: secret, MaxBody: 1 << 10, Replay: replay, NodeOK: func(n string) bool { return n == ProberNode }, Now: m.now(), Context: peersContext})
 		if err != nil {
 			http.Error(w, http.StatusText(status), status)
 			return
@@ -135,7 +138,7 @@ func FetchPeers(ctx context.Context, hc *http.Client, url string, secret []byte,
 	}
 	req.Header.Set(probe.HeaderNode, ProberNode)
 	req.Header.Set(probe.HeaderTime, ts)
-	req.Header.Set(probe.HeaderSig, probe.Sign(secret, ts, ProberNode, nil))
+	req.Header.Set(probe.HeaderSig, probe.SignContext(peersContext, secret, ts, ProberNode, nil))
 	resp, err := hc.Do(req)
 	if err != nil {
 		return PeersDoc{}, err

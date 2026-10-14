@@ -29,6 +29,9 @@ spec:
         {{- if .Values.flowObserver.enabled }}
         checksum/flow-secret: {{ include "agent.flowSecretRevision" . }}
         {{- end }}
+        {{- if include "agent.linkPeers" . }}
+        checksum/link-peers-secret: {{ include "agent.linkPeersSecretRevision" . }}
+        {{- end }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -134,6 +137,7 @@ spec:
             - {name: CONTINUUM_LINK_METRICS_LISTEN, value: ":9104"}
             {{- if .Values.telemetry.clusterLinks.probe.enabled }}
             - {name: CONTINUUM_LINK_SERVE_PEERS, value: "true"}
+            - {name: CONTINUUM_LINK_PEERS_SECRET_FILE, value: /link-peers/secret}
             {{- $lp := .Values.telemetry.clusterLinks.probe }}
             # The prober's own ports (OWAMP control and test packets, iperf3), so the link metrics and the load the throughput tests
             # wait on do not count the prober's traffic as the link's.
@@ -190,7 +194,7 @@ spec:
             timeoutSeconds: 5
             failureThreshold: 2
           {{- end }}
-          {{- if include "agent.receiver" . }}
+          {{- if or (include "agent.receiver" .) (include "agent.linkPeers" .) }}
           volumeMounts:
             {{- if .Values.nodeProbe.enabled }}
             - {name: probe-secret, mountPath: /probe, readOnly: true}
@@ -198,9 +202,12 @@ spec:
             {{- if .Values.flowObserver.enabled }}
             - {name: flow-secret, mountPath: /flows, readOnly: true}
             {{- end }}
+            {{- if include "agent.linkPeers" . }}
+            - {name: link-peers-secret, mountPath: /link-peers, readOnly: true}
+            {{- end }}
           {{- end }}
           resources: {{- toYaml .Values.resources | nindent 12 }}
-      {{- if include "agent.receiver" . }}
+      {{- if or (include "agent.receiver" .) (include "agent.linkPeers" .) }}
       volumes:
         {{- if .Values.nodeProbe.enabled }}
         - name: probe-secret
@@ -209,6 +216,10 @@ spec:
         {{- if .Values.flowObserver.enabled }}
         - name: flow-secret
           secret: {secretName: {{ include "agent.flowSecretName" . }}, defaultMode: 0440}
+        {{- end }}
+        {{- if include "agent.linkPeers" . }}
+        - name: link-peers-secret
+          secret: {secretName: {{ include "agent.linkPeersSecretName" . }}, defaultMode: 0440}
         {{- end }}
       {{- end }}
       {{- with .Values.nodeSelector }}

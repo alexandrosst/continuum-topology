@@ -91,6 +91,20 @@ IfNotPresent
 {{- end -}}
 {{- end -}}
 
+{{/* The secret the link prober signs its peer-list request with, shared with the agent and with nothing else (the prober runs
+     measurement tools against other clusters' responders, so it must not hold the flow secret). Same mechanism as the flow
+     secret: given, or generated once and kept by `lookup`. */}}
+{{- define "agent.linkPeersSecretName" -}}continuum-agent-link-peers{{- end -}}
+{{- define "agent.linkPeersSecret" -}}
+{{- $existing := lookup "v1" "Secret" .Release.Namespace (include "agent.linkPeersSecretName" .) -}}
+{{- if .Values.telemetry.clusterLinks.probe.peersSecret -}}{{- .Values.telemetry.clusterLinks.probe.peersSecret -}}
+{{- else if and $existing $existing.data (hasKey $existing.data "secret") -}}{{- index $existing.data "secret" | b64dec -}}
+{{- else -}}{{- randAlphaNum 48 -}}
+{{- end -}}
+{{- end -}}
+{{/* True when the agent answers the prober (and so mounts the secret above). */}}
+{{- define "agent.linkPeers" -}}{{- if and .Values.telemetry.clusterLinks.metrics.enabled .Values.telemetry.clusterLinks.probe.enabled -}}true{{- end -}}{{- end -}}
+
 {{/*
   What goes into a pod's "checksum/..." annotation, so that changing a secret rolls the pods that read it at start.
   The probe and flow secrets are generated (randAlphaNum) unless given, and every render draws a fresh random value on a first
@@ -100,6 +114,7 @@ IfNotPresent
 */}}
 {{- define "agent.probeSecretRevision" -}}{{ .Values.nodeProbe.secret | default "generated" | sha256sum }}{{- end -}}
 {{- define "agent.flowSecretRevision" -}}{{ .Values.flowObserver.secret | default "generated" | sha256sum }}{{- end -}}
+{{- define "agent.linkPeersSecretRevision" -}}{{ .Values.telemetry.clusterLinks.probe.peersSecret | default "generated" | sha256sum }}{{- end -}}
 
 {{- define "agent.receiver" -}}{{- if or .Values.nodeProbe.enabled .Values.flowObserver.enabled -}}true{{- end -}}{{- end -}}
 

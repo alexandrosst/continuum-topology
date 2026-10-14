@@ -307,3 +307,113 @@ func TestTheAgentIsToldTheProbersPorts(t *testing.T) {
 		t.Error("the agent is told the prober's ports with the probe off")
 	}
 }
+
+// The prober runs measurement tools that parse what other clusters' responders send, so it must not hold the secret that
+// signs flow reports: it gets a secret of its own, used only to ask the agent for the peers.
+func TestTheProberMountsItsOwnSecretAndNotTheFlowSecret(t *testing.T) {
+	r := render(t, probeArgs()...)
+	mounted := func(spec corev1.PodSpec) (secrets []string) {
+		for _, v := range spec.Volumes {
+			if v.Secret != nil {
+				secrets = append(secrets, v.Secret.SecretName)
+			}
+		}
+		return secrets
+	}
+	ps := r.deployments["continuum-link-prober"].Spec.Template.Spec
+	if got := mounted(ps); len(got) != 1 || got[0] != "continuum-agent-link-peers" {
+		t.Errorf("the prober mounts secrets %v, want only continuum-agent-link-peers", got)
+	}
+	for _, v := range ps.Volumes {
+		if v.Secret != nil && v.Secret.SecretName == "continuum-agent-flows" {
+			t.Errorf("the prober mounts the flow secret: %+v", v)
+		}
+	}
+	for _, c := range ps.Containers {
+		for _, e := range c.Env {
+			if e.Name == "CONTINUUM_FLOW_SECRET_FILE" || (e.ValueFrom != nil && e.ValueFrom.SecretKeyRef != nil && e.ValueFrom.SecretKeyRef.Name == "continuum-agent-flows") {
+				t.Errorf("the prober is handed the flow secret: %+v", e)
+			}
+			if e.Name == "CONTINUUM_LINK_PEERS_SECRET_FILE" && e.Value != "/secret/secret" {
+				t.Errorf("peers secret file = %q", e.Value)
+			}
+		}
+	}
+	if _, ok := r.deployments["continuum-link-prober"].Spec.Template.Annotations["checksum/flow-secret"]; ok {
+		t.Error("the prober pod rolls on the flow secret, which it does not read")
+	}
+	if r.deployments["continuum-link-prober"].Spec.Template.Annotations["checksum/link-peers-secret"] == "" {
+		t.Error("the prober does not roll when its secret is replaced")
+	}
+
+	// the agent verifies with that secret, still reads the flow secret for the collectors, and the Secret is the chart's own
+	ag := r.deployments["continuum-agent"].Spec.Template
+	env := map[string]string{}
+	for _, e := range ag.Spec.Containers[0].Env {
+		env[e.Name] = e.Value
+	}
+	if env["CONTINUUM_LINK_PEERS_SECRET_FILE"] != "/link-peers/secret" || env["CONTINUUM_FLOW_SECRET_FILE"] != "/flows/secret" {
+		t.Errorf("agent env: peers %q, flow %q", env["CONTINUUM_LINK_PEERS_SECRET_FILE"], env["CONTINUUM_FLOW_SECRET_FILE"])
+	}
+	if got := mounted(ag.Spec); len(got) != 2 || got[0] != "continuum-agent-flows" || got[1] != "continuum-agent-link-peers" {
+		t.Errorf("the agent mounts secrets %v", got)
+	}
+	mounts := map[string]string{}
+	for _, m := range ag.Spec.Containers[0].VolumeMounts {
+		mounts[m.Name] = m.MountPath
+	}
+	if mounts["link-peers-secret"] != "/link-peers" || mounts["flow-secret"] != "/flows" {
+		t.Errorf("agent mounts = %v", mounts)
+	}
+	if ag.Annotations["checksum/link-peers-secret"] == "" {
+		t.Error("the agent does not roll when the peers secret is replaced")
+	}
+	peers, flows := r.secrets["continuum-agent-link-peers"], r.secrets["continuum-agent-flows"]
+	if len(peers.StringData["secret"]) < 32 || peers.StringData["secret"] == flows.StringData["secret"] {
+		t.Errorf("peers secret %q, flow secret %q: the first must be generated and different", peers.StringData["secret"], flows.StringData["secret"])
+	}
+
+	// with the probe off there is no such Secret, no mount and no variable
+	off := render(t, clusterLinksArgs()...)
+	if _, ok := off.secrets["continuum-agent-link-peers"]; ok {
+		t.Error("the peers secret exists with the probe off")
+	}
+	offAgent := off.deployments["continuum-agent"].Spec.Template
+	if got := mounted(offAgent.Spec); len(got) != 1 || got[0] != "continuum-agent-flows" {
+		t.Errorf("probe off: the agent mounts %v", got)
+	}
+	if offAgent.Annotations["checksum/link-peers-secret"] != "" {
+		t.Error("probe off: the agent has a peers checksum")
+	}
+}
+
+func TestThePeersSecretIsGivenKeptOnUpgradeAndNeverTheFlowSecret(t *testing.T) {
+	r := render(t, probeArgs("telemetry.clusterLinks.probe.peersSecret=an-operator-chosen-peers-secret-1234")...)
+	if got := r.secrets["continuum-agent-link-peers"].StringData["secret"]; got != "an-operator-chosen-peers-secret-1234" {
+		t.Errorf("secret = %q", got)
+	}
+	a := render(t, probeArgs("telemetry.clusterLinks.probe.peersSecret=one-secret-of-sixteen-plus")...)
+	b := render(t, probeArgs("telemetry.clusterLinks.probe.peersSecret=two-secret-of-sixteen-plus")...)
+	if a.deployments["continuum-agent"].Spec.Template.Annotations["checksum/link-peers-secret"] == b.deployments["continuum-agent"].Spec.Template.Annotations["checksum/link-peers-secret"] ||
+		a.deployments["continuum-link-prober"].Spec.Template.Annotations["checksum/link-peers-secret"] == b.deployments["continuum-link-prober"].Spec.Template.Annotations["checksum/link-peers-secret"] {
+		t.Error("a new peers secret does not roll the agent and the prober")
+	}
+	x := render(t, probeArgs()...).deployments["continuum-agent"].Spec.Template.Annotations["checksum/link-peers-secret"]
+	y := render(t, probeArgs()...).deployments["continuum-agent"].Spec.Template.Annotations["checksum/link-peers-secret"]
+	if x != y {
+		t.Error("a generated peers secret changes the checksum on every render, so every upgrade would roll the pods")
+	}
+
+	out, err := helmTemplate(t, probeArgs("telemetry.clusterLinks.probe.peersSecret=the-very-same-secret-value-1", "flowObserver.secret=the-very-same-secret-value-1")...)
+	if err == nil || !strings.Contains(out, "must differ from flowObserver.secret") {
+		t.Errorf("rendered with one secret for both (err %v):\n%s", err, out)
+	}
+
+	// an upgrade keeps the generated value that is already in the cluster
+	k, kc := startFakeKubernetes(t)
+	k.set("continuum-agent-link-peers", map[string]string{"secret": "kept-from-the-first-install-0123456789"})
+	args := append(append([]string{}, baseSet...), probeArgs()...)
+	if out := helmTemplateInCluster(t, Agent, kc, args...); !strings.Contains(out, "kept-from-the-first-install-0123456789") {
+		t.Errorf("the existing peers secret was not kept:\n%s", out)
+	}
+}
