@@ -1,6 +1,6 @@
 import { create } from 'zustand'
-import { api, type Conn } from '@/lib/api'
-import { DEFAULT_SETTINGS, type AppSettings } from '@/lib/history'
+import { api, ApiError, type Conn } from '@/lib/api'
+import { DEFAULT_SETTINGS, normalizeSettings, type AppSettings } from '@/lib/history'
 
 /** The server's settings (recording, checks, measurements, the external decider). Read by everyone, changed by administrators. */
 interface SettingsStore {
@@ -19,7 +19,10 @@ interface SettingsStore {
 // write its answer over whatever the switch already put in its place.
 let epoch = 0
 
-export const useSettings = create<SettingsStore>((set) => ({
+/** What a save says when the server has a newer document than the one the edit started from. */
+export const SETTINGS_CONFLICT = 'Someone else changed the settings; reloaded - try again.'
+
+export const useSettings = create<SettingsStore>((set, get) => ({
   settings: DEFAULT_SETTINGS,
   loaded: false,
   load: async (c) => {
@@ -33,15 +36,30 @@ export const useSettings = create<SettingsStore>((set) => ({
       set({ error: e instanceof Error ? e.message : 'The settings could not be read.' })
     }
   },
+  // Every save goes through here, and says which revision of the document it edited (the one in `s` when the caller started
+  // from a copy of the document, else the one held now), so a save made from a stale copy is refused rather than undoing someone else's.
   save: async (c, s) => {
     const myEpoch = epoch
     try {
-      const settings = await api.saveSettings(c, s)
+      const settings = await api.saveSettings(c, s, s.rev ?? get().settings.rev ?? 0)
       if (myEpoch !== epoch) return false
       set({ settings, loaded: true, error: undefined })
       return true
     } catch (e) {
       if (myEpoch !== epoch) return false
+      if (e instanceof ApiError && e.status === 409) {
+        // The 409 carries the current document; adopt it so the next attempt starts from what is there now. If it
+        // does not (a proxy rewrote the answer), read it again.
+        if (typeof e.body?.rev === 'number') {
+          const { error: _message, ...current } = e.body
+          set({ settings: normalizeSettings(current as Partial<AppSettings>), loaded: true, error: SETTINGS_CONFLICT })
+        } else {
+          await get().load(c)
+          if (myEpoch !== epoch) return false
+          set({ error: SETTINGS_CONFLICT })
+        }
+        return false
+      }
       set({ error: e instanceof Error ? e.message : 'The settings could not be saved.' })
       return false
     }

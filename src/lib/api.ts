@@ -851,9 +851,11 @@ export const api = {
   // `deciderConfigured`, `deciderSecretSet` and `imageDefaults` are derived by the server; it refuses a document
   // that carries them back. `deciderSecret` (set a new one) and `clearDeciderSecret` (remove it) are write-only:
   // never part of `AppSettings` (a GET never carries the secret to round-trip), only ever sent on the way in.
-  saveSettings: (c: Conn, s: Partial<AppSettings> & { deciderSecret?: string; clearDeciderSecret?: boolean }) => {
-    const { deciderConfigured: _derived, deciderSecretSet: _secretSet, imageDefaults: _defaults, ...body } = s
-    return call<Partial<AppSettings>>(c, 'PUT', '/api/v1/settings', body).then(normalizeSettings)
+  // `rev` (the document's revision, which a GET carries) is not part of the body either: it goes in If-Match, so the server
+  // refuses the save with 409 - the current document in the error's `body` - when another save came in since. Left out, the save replaces whatever is there.
+  saveSettings: (c: Conn, s: Partial<AppSettings> & { deciderSecret?: string; clearDeciderSecret?: boolean }, rev?: number) => {
+    const { deciderConfigured: _derived, deciderSecretSet: _secretSet, imageDefaults: _defaults, rev: _rev, ...body } = s
+    return call<Partial<AppSettings>>(c, 'PUT', '/api/v1/settings', body, rev === undefined ? {} : { 'If-Match': String(rev) }).then(normalizeSettings)
   },
   // The server's SMTP configuration (see MailConfig): global, not one organisation's, so these two are the
   // only calls in this file that don't need `c.org` at all. Same write-only-password convention as

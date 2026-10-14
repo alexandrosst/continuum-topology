@@ -351,9 +351,38 @@ func (s Settings) NormalizeFor(ctx context.Context, dp *DeciderPolicy) (Settings
 }
 
 type settingsHolder struct {
-	mu sync.RWMutex
-	s  Settings
-	ok bool
+	mu  sync.RWMutex
+	s   Settings
+	rev int64 // how many times the settings were saved; see SettingsRev
+	ok  bool
+	// save serialises saves, so that checking a client's revision and storing its document are one step.
+	save sync.Mutex
+}
+
+// storedSettings is how the settings are kept: the document itself plus its revision, in the one row, so that the two
+// can never disagree. An older server reads the row as plain settings (the extra key is ignored), and a row written
+// by one has no revision, which reads as 0.
+type storedSettings struct {
+	Settings
+	Rev int64 `json:"_rev,omitempty"`
+}
+
+// SettingsRev is the revision of the settings returned by Settings: 0 until they were first saved, then up by one with every
+// save. A client that edits the document sends the revision it started from, and a save is refused if another one came in since.
+func (c *Core) SettingsRev() int64 {
+	c.settings.mu.RLock()
+	defer c.settings.mu.RUnlock()
+	return c.settings.rev
+}
+
+// SettingsAt returns the current settings together with their revision, read as one.
+func (c *Core) SettingsAt() (Settings, int64) {
+	c.settings.mu.RLock()
+	defer c.settings.mu.RUnlock()
+	if !c.settings.ok {
+		return DefaultSettings(), c.settings.rev
+	}
+	return c.settings.s, c.settings.rev
 }
 
 // Settings returns the current settings (defaults until something was saved).
@@ -373,11 +402,12 @@ func (c *Core) LoadSettings(ctx context.Context) {
 	if err != nil || data == nil {
 		return
 	}
-	var s Settings
-	if err := json.Unmarshal(data, &s); err != nil {
+	var st storedSettings
+	if err := json.Unmarshal(data, &st); err != nil {
 		c.Log.Warn("stored settings are unreadable; using defaults", "err", err)
 		return
 	}
+	s := st.Settings
 	// A decider saved by an earlier version (or under a wider allow-list) may no longer be permitted. Switch
 	// only the decider off, loudly, and keep everything else; the dial-time check would refuse it anyway.
 	if u := strings.TrimSpace(s.DeciderURL); u != "" {
@@ -392,24 +422,39 @@ func (c *Core) LoadSettings(ctx context.Context) {
 		return
 	}
 	c.settings.mu.Lock()
-	c.settings.s, c.settings.ok = n, true
+	c.settings.s, c.settings.rev, c.settings.ok = n, st.Rev, true
 	c.settings.mu.Unlock()
 }
 
-// SaveSettings validates, stores and applies new settings, and records who changed what.
+// SaveSettings validates, stores and applies new settings, and records who changed what. It replaces the document
+// whatever happened to it since the caller read it; SaveSettingsAt is the version that notices.
 func (c *Core) SaveSettings(ctx context.Context, actor string, s Settings) (Settings, error) {
+	n, _, err := c.SaveSettingsAt(ctx, actor, nil, s)
+	return n, err
+}
+
+// SaveSettingsAt is SaveSettings for a caller that edited the document as it was at revision *expect (nil: it did not
+// say, and the save goes through). If another save came in since, nothing is stored and the error is a KindConflict; the
+// returned settings and revision are then the current ones. On success they are the saved document and its new revision.
+func (c *Core) SaveSettingsAt(ctx context.Context, actor string, expect *int64, s Settings) (Settings, int64, error) {
 	n, err := s.NormalizeFor(ctx, c.Decider)
 	if err != nil {
-		return Settings{}, errf(KindInvalid, "%v", err)
+		return Settings{}, 0, errf(KindInvalid, "%v", err)
 	}
-	old := c.Settings()
-	data, _ := json.Marshal(n)
+	c.settings.save.Lock()
+	defer c.settings.save.Unlock()
+	old, rev := c.SettingsAt()
+	if expect != nil && *expect != rev {
+		return old, rev, errf(KindConflict, "someone else changed the settings since you opened them")
+	}
+	next := rev + 1
+	data, _ := json.Marshal(storedSettings{Settings: n, Rev: next})
 	apply := func() error {
 		if err := c.Store.PutSettings(ctx, c.OrgID, data, c.Now()); err != nil {
 			return err
 		}
 		c.settings.mu.Lock()
-		c.settings.s, c.settings.ok = n, true
+		c.settings.s, c.settings.rev, c.settings.ok = n, next, true
 		c.settings.mu.Unlock()
 		return nil
 	}
@@ -417,15 +462,15 @@ func (c *Core) SaveSettings(ctx context.Context, actor string, s Settings) (Sett
 	// does not happen if it cannot be recorded.
 	if d := settingsDiff(old, n); d != "" {
 		if err := c.audited(ctx, actor, "settings-changed", "settings", c.OrgID, d, apply); err != nil {
-			return Settings{}, err
+			return Settings{}, 0, err
 		}
 	} else if err := apply(); err != nil {
-		return Settings{}, err
+		return Settings{}, 0, err
 	}
 	if c.OnSettings != nil {
 		c.OnSettings(n)
 	}
-	return n, nil
+	return n, next, nil
 }
 
 func settingsDiff(a, b Settings) string {

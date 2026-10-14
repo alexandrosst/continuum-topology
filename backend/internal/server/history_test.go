@@ -1069,3 +1069,91 @@ func TestHistoryEndpointsDecodeEachSnapshotOnce(t *testing.T) {
 		t.Fatalf("a replaced snapshot was served stale: %d reads, %v", cnt.n.Load(), pts[1])
 	}
 }
+
+// ---- settings revisions ----
+
+func TestSettingsRevisionRefusesAStaleSave(t *testing.T) {
+	a := newAdminRig(t)
+	_, admin := a.user(t, "root", RoleAdmin)
+	rev := func(m map[string]any) int {
+		t.Helper()
+		v, ok := m["rev"].(float64)
+		if !ok {
+			t.Fatalf("no rev in %v", m)
+		}
+		return int(v)
+	}
+	minutes := func() int {
+		return int(a.do("GET", "/api/v1/settings", nil, withCookie(admin)).json(t)["snapshotMinutes"].(float64))
+	}
+	put := func(s Settings, ifMatch string) resp {
+		if ifMatch == "" {
+			return a.do("PUT", "/api/v1/settings", s, withCookie(admin))
+		}
+		return a.do("PUT", "/api/v1/settings", s, withCookie(admin), withHeader("If-Match", ifMatch))
+	}
+
+	first := a.do("GET", "/api/v1/settings", nil, withCookie(admin)).json(t)
+	if rev(first) != 0 {
+		t.Fatalf("nothing was ever saved, rev = %v", first["rev"])
+	}
+	// A fresh revision is accepted and the revision goes up.
+	r := put(Settings{SnapshotMinutes: 7}, "0")
+	if r.Code != 200 || rev(r.json(t)) != 1 {
+		t.Fatalf("fresh save: %d %s", r.Code, r.Body.String())
+	}
+	if got := rev(a.do("GET", "/api/v1/settings", nil, withCookie(admin)).json(t)); got != 1 {
+		t.Fatalf("GET after the save: rev %d", got)
+	}
+	// A second admin who still holds revision 0 is refused, gets the current document, and nothing is stored.
+	r = put(Settings{SnapshotMinutes: 9}, "0")
+	if r.Code != 409 {
+		t.Fatalf("stale save: %d %s", r.Code, r.Body.String())
+	}
+	cur := r.json(t)
+	if rev(cur) != 1 || cur["snapshotMinutes"] != float64(7) || cur["error"] == nil {
+		t.Fatalf("the conflict should carry the current document and a message: %v", cur)
+	}
+	if got := minutes(); got != 7 {
+		t.Fatalf("a refused save changed the settings: %d", got)
+	}
+	// Having reloaded, the same edit goes through, quoted or not.
+	r = put(Settings{SnapshotMinutes: 9}, `"1"`)
+	if r.Code != 200 || rev(r.json(t)) != 2 || minutes() != 9 {
+		t.Fatalf("save on the current revision: %d %s", r.Code, r.Body.String())
+	}
+	// Without a revision the save is accepted as before, and still counts.
+	r = put(Settings{SnapshotMinutes: 11}, "")
+	if r.Code != 200 || rev(r.json(t)) != 3 || minutes() != 11 {
+		t.Fatalf("save without a revision: %d %s", r.Code, r.Body.String())
+	}
+	// A revision that is not a number is a mistake of the client's, not a conflict.
+	if r := put(Settings{SnapshotMinutes: 12}, "abc"); r.Code != 400 {
+		t.Fatalf("bad If-Match: %d", r.Code)
+	}
+	if got := minutes(); got != 11 {
+		t.Fatalf("a refused save changed the settings: %d", got)
+	}
+}
+
+func TestSettingsRevisionSurvivesARestartAndNonRevisedSaves(t *testing.T) {
+	e := newEnv(t)
+	for i := 1; i <= 2; i++ {
+		if _, err := e.core.SaveSettings(e.ctx, "alex", Settings{SnapshotMinutes: 2 + i}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	c2 := NewCore(e.st, e.core.CA, "org-1", nil)
+	c2.LoadSettings(e.ctx)
+	if c2.SettingsRev() != 2 || c2.Settings().SnapshotMinutes != 4 {
+		t.Fatalf("after restart: rev %d, %+v", c2.SettingsRev(), c2.Settings())
+	}
+	stale := int64(1)
+	if _, _, err := c2.SaveSettingsAt(e.ctx, "alex", &stale, Settings{SnapshotMinutes: 8}); err == nil || !strings.Contains(err.Error(), "someone else") {
+		t.Fatalf("a revision from before the restart's state should conflict: %v", err)
+	}
+	cur := int64(2)
+	if n, rev, err := c2.SaveSettingsAt(e.ctx, "alex", &cur, Settings{SnapshotMinutes: 8}); err != nil || rev != 3 || n.SnapshotMinutes != 8 {
+		t.Fatalf("current revision: %+v %d %v", n, rev, err)
+	}
+}

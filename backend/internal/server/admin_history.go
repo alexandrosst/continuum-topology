@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -30,10 +31,13 @@ type SettingsDoc struct {
 	// ImageDefaults is what the server's --image-* flags say: what install commands use while this organisation's
 	// own image settings are empty. Derived; the UI shows it and never sends it back.
 	ImageDefaults ImageConfig `json:"imageDefaults"`
+	// Rev is the revision of this document: 0 until it was first saved, then up by one with every save. Derived; a save
+	// names the revision its edit started from in If-Match instead (see putSettings), and a body that carries `rev` is refused.
+	Rev int64 `json:"rev"`
 }
 
-func settingsDoc(s Settings, admin bool) SettingsDoc {
-	d := SettingsDoc{Settings: s, DeciderConfigured: s.DeciderURL != "", DeciderSecretSet: s.DeciderSecret != ""}
+func settingsDoc(s Settings, rev int64, admin bool) SettingsDoc {
+	d := SettingsDoc{Settings: s, Rev: rev, DeciderConfigured: s.DeciderURL != "", DeciderSecretSet: s.DeciderSecret != ""}
 	d.Settings.DeciderSecret = "" // write-only, always - see SettingsDoc
 	if !admin {
 		d.DeciderURL = ""
@@ -42,7 +46,8 @@ func settingsDoc(s Settings, admin bool) SettingsDoc {
 }
 
 func (a *Admin) getSettings(w http.ResponseWriter, r *http.Request) {
-	d := settingsDoc(a.core(r).Settings(), roleRank[principal(r).Role] >= roleRank[RoleAdmin])
+	cur, rev := a.core(r).SettingsAt()
+	d := settingsDoc(cur, rev, roleRank[principal(r).Role] >= roleRank[RoleAdmin])
 	d.ImageDefaults = a.imageDefaults()
 	writeJSON(w, 200, d)
 }
@@ -51,7 +56,21 @@ func (a *Admin) getSettings(w http.ResponseWriter, r *http.Request) {
 // so a client that reads its settings and PUTs most of it back unchanged - which is exactly what the UI does -
 // naturally sends no `deciderSecret` at all, or "". Both are treated as "leave it alone". A client sets a new
 // secret by sending a non-empty `deciderSecret`, and removes it, explicitly, with `clearDeciderSecret: true`.
+//
+// The document is replaced as a whole, so a client that edits an old copy would silently undo what someone else saved
+// in between. If-Match carries the revision (the document's `rev`) the client's edit started from; when another save
+// has come in since, nothing is stored and the answer is 409 with the current document, which the client shows
+// and edits again. A request without If-Match is still accepted and replaces whatever is there (scripts, older UIs).
 func (a *Admin) putSettings(w http.ResponseWriter, r *http.Request) {
+	var expect *int64
+	if h := strings.Trim(strings.TrimSpace(r.Header.Get("If-Match")), `"`); h != "" {
+		v, err := strconv.ParseInt(h, 10, 64)
+		if err != nil || v < 0 {
+			writeErr(w, 400, "If-Match is the revision of the settings you started from, a number")
+			return
+		}
+		expect = &v
+	}
 	var body struct {
 		Settings
 		ClearDeciderSecret bool `json:"clearDeciderSecret"`
@@ -69,12 +88,22 @@ func (a *Admin) putSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	// Which cluster the server runs in is changed where it is shown (the central operator's address picker), not here.
 	s.ServerClusterID = a.core(r).Settings().ServerClusterID
-	n, err := a.core(r).SaveSettings(r.Context(), actor(r), s)
+	n, rev, err := a.core(r).SaveSettingsAt(r.Context(), actor(r), expect, s)
+	var ce *Error
+	if errors.As(err, &ce) && ce.Kind == KindConflict {
+		d := settingsDoc(n, rev, true)
+		d.ImageDefaults = a.imageDefaults()
+		writeJSON(w, http.StatusConflict, struct {
+			SettingsDoc
+			Error string `json:"error"`
+		}{d, ce.Msg})
+		return
+	}
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
-	d := settingsDoc(n, true)
+	d := settingsDoc(n, rev, true)
 	d.ImageDefaults = a.imageDefaults()
 	writeJSON(w, 200, d)
 }

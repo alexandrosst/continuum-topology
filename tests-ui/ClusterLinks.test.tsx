@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ClusterLinks from '@/components/ClusterLinks'
 import { DEFAULT_SETTINGS, type LinkPair } from '@/lib/history'
 import { useServer } from '@/store/server'
-import { useSettings } from '@/store/settings'
+import { SETTINGS_CONFLICT, useSettings } from '@/store/settings'
 import { useRawTopology } from '@/store/topology'
 
 const cluster = (id: string, name: string) => ({ id, name })
@@ -223,5 +223,21 @@ describe('ClusterLinks', () => {
     render(<ClusterLinks />)
     fireEvent.click(screen.getByRole('button', { name: 'Edit cloud-eu and cloud-us' }))
     expect(screen.getByRole('switch', { name: 'Probing' })).toHaveAccessibleDescription(/Small packets, both ways/)
+  })
+
+  it('shows a conflict with another administrator\'s change and keeps the dialog open', async () => {
+    // What the store does on a 409: adopt the document that is there now, say so, and report the save as not made.
+    save.mockImplementationOnce(async () => {
+      useSettings.setState({ settings: { ...useSettings.getState().settings, links: [{ a: 'c-eu', b: 'c-gr' }] }, error: SETTINGS_CONFLICT })
+      return false
+    })
+    render(<ClusterLinks />)
+    fireEvent.click(screen.getByTestId('add-pair'))
+    pick('First cluster', 'cloud-us')
+    pick('Second cluster', 'cloud-eu')
+    fireEvent.click(screen.getByTestId('confirm-add-pair'))
+    expect(await screen.findByText(SETTINGS_CONFLICT)).toBeInTheDocument()
+    expect(screen.getByTestId('confirm-add-pair')).toBeEnabled()
+    expect(saved).toBeUndefined()
   })
 })

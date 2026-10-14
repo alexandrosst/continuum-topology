@@ -58,6 +58,10 @@ export interface AppSettings {
   imageDigest: string
   /** What the server's --image-* flags say, used while the three above are empty. Derived; never sent back. */
   imageDefaults: { registry: string; tag: string; digest: string }
+  /** The revision of this document on the server (0 until first saved; up by one with every save). Derived; never sent back as part of
+   * the body. A save names the revision its edit started from (`api.saveSettings` sends it in If-Match), and the server refuses it with 409
+   * when someone else saved in between. */
+  rev?: number
 }
 
 export interface ProbeTarget {
