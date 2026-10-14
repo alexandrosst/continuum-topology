@@ -148,27 +148,27 @@
 {{- if $accConditions }}{{ $procInfra = append $procInfra "filter/scope_accelerators" }}{{ end }}
 {{- if $enConditions }}{{ $procInfra = append $procInfra "filter/scope_energy" }}{{ end }}
 {{- if and $infraConditions .Values.telemetry.kubernetesState.metrics.enabled }}{{ $procInfra = append $procInfra "filter/scope_infra" }}{{ end }}
-{{- $procInfra = concat $procInfra $commonMid $extraNames $tail }}
+{{- $procInfra = concat $procInfra $commonMid $extraNames (list "transform/continuum_source_infra") $tail }}
 
 {{- $procApp := concat (list "memory_limiter") (ternary (list "transform/scrape_k8s") (list) (not (empty $scrapeK8s))) (list "k8sattributes") }}
 {{- if $amConditions }}{{ $procApp = append $procApp $amProcessor }}{{ end }}
-{{- $procApp = concat $procApp $commonMid $extraNames $tail }}
+{{- $procApp = concat $procApp $commonMid $extraNames (list "transform/continuum_source_app") $tail }}
 
 {{- /* No k8sattributes here: an Event record carries no pod uid, name or IP for it to look up (its involved object is in the body), so
        it would add nothing - yet every k8sattributes instance in the config holds its own full pod informer. */ -}}
 {{- $procLogsInfra := list "memory_limiter" }}
 {{- if $infraEventConditions }}{{ $procLogsInfra = append $procLogsInfra "filter/scope_infra_events" }}{{ end }}
-{{- $procLogsInfra = concat $procLogsInfra $commonMid $extraNames $tail }}
+{{- $procLogsInfra = concat $procLogsInfra $commonMid $extraNames (list "transform/continuum_source_logs_infra") $tail }}
 
 {{- $procLogsApp := list "memory_limiter" "k8sattributes" }}
 {{- if $alConditions }}{{ $procLogsApp = append $procLogsApp $alProcessor }}{{ end }}
-{{- $procLogsApp = concat $procLogsApp $commonMid $extraNames $tail }}
+{{- $procLogsApp = concat $procLogsApp $commonMid $extraNames (list "transform/continuum_source_logs_app") $tail }}
 
 {{- $procTraces := list "memory_limiter" "k8sattributes" }}
 {{- if $trConditions }}{{ $procTraces = append $procTraces $trProcessor }}{{ end }}
 {{- $procTraces = concat $procTraces $commonMid }}
 {{- if lt (int .Values.telemetry.processors.tracesSampling.percentage) 100 }}{{ $procTraces = append $procTraces "probabilistic_sampler" }}{{ end }}
-{{- $procTraces = concat $procTraces $extraNames .Values.telemetry.processors.extraTracesProcessorNames $tail }}
+{{- $procTraces = concat $procTraces $extraNames .Values.telemetry.processors.extraTracesProcessorNames (list "transform/continuum_source_traces") $tail }}
 
 {{/* Only the processors a rendered pipeline actually names are defined below: a scope filter for a signal that is
      off, or a sampler with no traces pipeline, would otherwise sit in the ConfigMap doing nothing. */}}
@@ -570,6 +570,62 @@ data:
       {{- end }}
       {{- with .Values.telemetry.processors.extraProcessors }}
       {{- toYaml . | nindent 6 }}
+      {{- end }}
+      {{- /* Which extractor produced a record: continuum.source, one value per receiver or scrape job. It is set by processors that run
+             after the person's own extraProcessors (action: set overwrites), just before resource/continuum, so a processor of their own
+             cannot make a record claim another source. The vocabulary is documented in telemetry-intent.md; a Prometheus job is told
+             apart by its service.name, which is the job_name. */}}
+      {{- if has "transform/continuum_source_infra" $usedProcs }}
+      transform/continuum_source_infra:
+        error_mode: ignore
+        metric_statements:
+          - context: resource
+            statements:
+              - set(resource.attributes["continuum.source"], "k8s-cluster")
+              - set(resource.attributes["continuum.source"], "cluster-links") where resource.attributes["service.name"] == "cluster-links"
+              - set(resource.attributes["continuum.source"], "link-prober") where resource.attributes["service.name"] == "cluster-links-probe"
+              - set(resource.attributes["continuum.source"], "kepler") where resource.attributes["service.name"] == "kepler"
+              - set(resource.attributes["continuum.source"], "energy-existing") where resource.attributes["service.name"] == "energy-existing"
+              - set(resource.attributes["continuum.source"], "dcgm-exporter") where resource.attributes["service.name"] == "dcgm-exporter"
+              - set(resource.attributes["continuum.source"], "accelerators-existing") where resource.attributes["service.name"] == "accelerators-existing"
+      {{- end }}
+      {{- if has "transform/continuum_source_app" $usedProcs }}
+      transform/continuum_source_app:
+        error_mode: ignore
+        metric_statements:
+          - context: resource
+            statements:
+              - set(resource.attributes["continuum.source"], "otlp")
+              {{- if .Values.telemetry.applicationMetrics.metrics.scrapeTargets }}
+              - set(resource.attributes["continuum.source"], "prometheus-scrape") where {{ range $i, $t := .Values.telemetry.applicationMetrics.metrics.scrapeTargets }}{{ if $i }} or {{ end }}resource.attributes["service.name"] == {{ $t.jobName | toJson | quote }}{{ end }}
+              {{- end }}
+              {{- if .Values.telemetry.networkLatency.metrics.enabled }}
+              - set(resource.attributes["continuum.source"], "network-latency") where resource.attributes["service.name"] == "continuum-network-latency"
+              {{- end }}
+      {{- end }}
+      {{- if has "transform/continuum_source_logs_infra" $usedProcs }}
+      transform/continuum_source_logs_infra:
+        error_mode: ignore
+        log_statements:
+          - context: resource
+            statements:
+              - set(resource.attributes["continuum.source"], "k8s-events")
+      {{- end }}
+      {{- if has "transform/continuum_source_logs_app" $usedProcs }}
+      transform/continuum_source_logs_app:
+        error_mode: ignore
+        log_statements:
+          - context: resource
+            statements:
+              - set(resource.attributes["continuum.source"], "otlp")
+      {{- end }}
+      {{- if has "transform/continuum_source_traces" $usedProcs }}
+      transform/continuum_source_traces:
+        error_mode: ignore
+        trace_statements:
+          - context: resource
+            statements:
+              - set(resource.attributes["continuum.source"], "otlp")
       {{- end }}
       {{- include "agent.telemetryTagsYAML" . | nindent 6 }}
       {{- include "agent.telemetryContinuumProvenanceYAML" . | nindent 6 }}

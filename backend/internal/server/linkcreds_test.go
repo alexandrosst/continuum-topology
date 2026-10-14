@@ -512,8 +512,9 @@ func TestNoLogAuditOrErrorHoldsCredentialMaterial(t *testing.T) {
 
 func TestWithoutACAKeyNothingIsIssuedAndNothingIsSentOpen(t *testing.T) {
 	cr := newCredRig(t)
-	cr.save(t, cr.pair(true))
+	// Set before saving: saving starts a background sync that reads the CA, so clearing it afterwards would race with it.
 	cr.core.CA = nil
+	cr.save(t, cr.pair(true))
 	c := cr.cfg(cr.second)
 	if c.LinkIperfServer != nil {
 		t.Error("credentials were sent although they cannot be sealed or read back")

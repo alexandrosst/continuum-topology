@@ -167,6 +167,9 @@ prometheus:
     - continuum.org.id
     - continuum.cluster.id
     - continuum.operator.id
+    # Which extractor produced the series (hostmetrics, kubeletstats, kepler, cluster-links, link-prober, k8s-cluster, ...), set by the
+    # local operator's collectors; see docs-site/docs/architecture/telemetry-intent.md.
+    - continuum.source
   resources:
     requests: {cpu: 100m, memory: 512Mi}
     limits: {memory: 2Gi}

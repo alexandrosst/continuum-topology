@@ -13,7 +13,8 @@ type Label struct {
 	// Index: Loki keeps it as a stream label, so a selector may name it; otherwise it is structured metadata, which only a
 	// filter after the pipe can read.
 	Index bool
-	// By is who stamps it as provenance: "agent" (resource/continuum), "operator" (resource/operator) or "gateway"
+	// By is who stamps it as provenance: "agent" (resource/continuum), "extractor" (the agent's
+	// transform/continuum_source_* processors, one per pipeline), "operator" (resource/operator) or "gateway"
 	// (transform/category). Empty: the sender or the collectors' own enrichment, nothing of ours.
 	By string
 }
@@ -47,6 +48,7 @@ var Vocabulary = []Label{
 	{Attr: "k8s.resourcequota.name", Promote: true},
 	{Attr: "k8s.volume.name", Promote: true},
 	{Attr: "continuum.org.id", Promote: true, Index: true, By: "agent"},
+	{Attr: "continuum.source", Promote: true, By: "extractor"},
 	{Attr: "continuum.intent.id", By: "agent"},
 	{Attr: "continuum.scope", By: "agent"},
 	{Attr: "continuum.operator.id", Promote: true, By: "operator"},

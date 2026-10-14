@@ -115,6 +115,12 @@ func doctorCommands(t *testing.T) {
 				if n := len(procs); n < 2 || procs[n-2] != "resource/continuum" || procs[n-1] != "batch" {
 					t.Errorf("%s: pipeline %s runs %v; resource/continuum must be the last processor before batch", name, pipeline, procs)
 				}
+				// And whatever the person's own processors did, the extractor of each record is set after them.
+				for _, attr := range stampedBy("extractor") {
+					if !slices.ContainsFunc(procs, func(p string) bool { return strings.HasPrefix(p, "transform/continuum_source") }) {
+						t.Errorf("%s: pipeline %s runs %v; nothing stamps %s", name, pipeline, procs, attr)
+					}
+				}
 			}
 		}
 	})

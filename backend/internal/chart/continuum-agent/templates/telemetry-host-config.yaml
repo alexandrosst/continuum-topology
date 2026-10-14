@@ -17,12 +17,15 @@
 {{- if .Values.telemetry.processors.resourceDetection.enabled }}{{ $hProcessors = append $hProcessors "resourcedetection" }}{{ end }}
 {{- if .Values.telemetry.processors.redaction.enabled }}{{ $hProcessors = append $hProcessors "redaction" }}{{ end }}
 {{- range .Values.telemetry.processors.extraProcessorNames }}{{ $hProcessors = append $hProcessors . }}{{ end }}
-{{- $hProcessors = concat $hProcessors (include "agent.telemetryTailProcessors" . | fromJsonArray) }}
+{{- $hTail := include "agent.telemetryTailProcessors" . | fromJsonArray }}
+{{- $hProcessors = concat $hProcessors $hTail }}
 {{/* telemetry.scope.infra, metrics pipeline (container logs have their own scope handling just below). Goes
      right after k8sattributes, which is what puts the workload name on a pod's metrics. */}}
 {{- $infraConditions := include "agent.telemetryInfraScopeConditions" . | fromJsonArray }}
 {{- $hMetricsProcessors := $hProcessors }}
 {{- if $infraConditions }}{{ $hMetricsProcessors = concat (list "memory_limiter" "k8sattributes" "filter/scope_infra") (slice $hProcessors 2) }}{{ end }}
+{{- /* continuum.source (which extractor produced the record) is set after the person's own processors, right before the tail. */ -}}
+{{- $hMetricsProcessors = concat (slice $hMetricsProcessors 0 (sub (len $hMetricsProcessors) (len $hTail))) (list "transform/continuum_source_metrics") $hTail }}
 {{/* System logs and telemetry.scope. Container logs are the one signal here that is really application output, so
      the scope applies to them even though the rest of this collector's signals are node-wide: the namespaces to
      keep (infra's own list when set, else the shared one) become include globs, the ones to drop (both exclude
@@ -40,6 +43,7 @@
 {{- range $logExclude }}{{ $podLogExclude = append $podLogExclude (printf "%s/%s_*/*/*.log" $podLogsDir .) }}{{ end }}
 {{- $hLogsProcessors := $hProcessors }}
 {{- if $logConditions }}{{ $hLogsProcessors = concat (list "memory_limiter" "k8sattributes" "filter/scope_system_logs") (slice $hProcessors 2) }}{{ end }}
+{{- $hLogsProcessors = concat (slice $hLogsProcessors 0 (sub (len $hLogsProcessors) (len $hTail))) (list "transform/continuum_source_logs") $hTail }}
 {{- $hExtensions := include "agent.telemetryExtensionNames" . | fromJsonArray }}
 {{- if .Values.telemetry.systemLogs.logs.enabled }}{{ $hExtensions = append $hExtensions "file_storage/logs" }}{{ end }}
 apiVersion: v1
@@ -212,6 +216,30 @@ data:
       {{- include "agent.telemetryRedactionYAML" . | nindent 6 }}
       {{- with .Values.telemetry.processors.extraProcessors }}
       {{- toYaml . | nindent 6 }}
+      {{- end }}
+      {{- /* Which extractor produced a record (continuum.source). Set after the person's own extraProcessors, so they cannot
+             change it; the values are documented in telemetry-intent.md. */}}
+      {{- if $hMetrics }}
+      transform/continuum_source_metrics:
+        error_mode: ignore
+        metric_statements:
+          - context: metric
+            statements:
+              - set(resource.attributes["continuum.source"], "hostmetrics")
+              {{- if has "kubelet_stats" $hMetrics }}
+              - set(resource.attributes["continuum.source"], "kubeletstats") where IsMatch(scope.name, "kubeletstats")
+              {{- end }}
+      {{- end }}
+      {{- if $hLogs }}
+      transform/continuum_source_logs:
+        error_mode: ignore
+        log_statements:
+          - context: log
+            statements:
+              - set(resource.attributes["continuum.source"], "container-logs")
+              {{- if has "journald" $hLogs }}
+              - set(resource.attributes["continuum.source"], "journald") where attributes["log.file.path"] == nil
+              {{- end }}
       {{- end }}
       {{- include "agent.telemetryTagsYAML" . | nindent 6 }}
       {{- include "agent.telemetryContinuumProvenanceYAML" . | nindent 6 }}

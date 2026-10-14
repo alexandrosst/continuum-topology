@@ -54,7 +54,7 @@ func doctorVocabulary(t *testing.T) {
 			if stamped != (l.By != "") {
 				t.Errorf("%s: By = %q; exactly the continuum.* and ikhnos.* attributes are provenance somebody stamps", l.Attr, l.By)
 			}
-			if !slices.Contains([]string{"", "agent", "operator", "gateway"}, l.By) {
+			if !slices.Contains([]string{"", "agent", "extractor", "operator", "gateway"}, l.By) {
 				t.Errorf("%s: unknown stamper %q", l.Attr, l.By)
 			}
 		}
