@@ -1,13 +1,16 @@
 package linkprober
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"log/slog"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -84,6 +87,53 @@ func followsPeers(t *testing.T, load *link.Load) {
 	if peers.Empty() || peers.Own() != "cl-me" {
 		t.Fatalf("the prober never learned the peers: own %q, %v", peers.Own(), peers.List())
 	}
+}
+
+// An agent that has not had its Config yet answers with no cluster id and no peers. That is "unknown", not "no peers": the prober
+// keeps its peers and what it measured, or every agent restart would reset the schedule and the counters.
+func TestAnAgentWithoutAConfigDoesNotMakeTheProberForgetItsPeers(t *testing.T) {
+	secret := []byte("a-secret-of-sixteen-plus-chars")
+	agentMeter := link.NewMeter(link.NewPeers()) // never configured: Doc() has no cluster id
+	agentMeter.ServePeers(secret)
+	var asked atomic.Int32
+	h := agentMeter.Handler()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h.ServeHTTP(w, r)
+		asked.Add(1)
+	}))
+	defer srv.Close()
+
+	peers := link.NewPeers()
+	peers.Set("cl-me", []*continuumv1.LinkPeer{{ClusterId: "cl-a", Name: "A", Addresses: []string{"10.0.0.1"}}})
+	meter := link.NewMeter(peers)
+	meter.OnlyProbes()
+	meter.ObserveProbe("cl-a", link.Forward, link.OwampResult{Sent: 100, Lost: 1})
+	var buf bytes.Buffer
+	before := writeOf(meter)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go follow(ctx, slog.New(slog.NewTextHandler(&buf, nil)), srv.Client(), srv.URL, secret, peers, meter, &link.Load{}, false)
+	deadline := time.Now().Add(5 * time.Second)
+	for asked.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	time.Sleep(150 * time.Millisecond) // the answer is applied after the handler returned
+	if asked.Load() == 0 {
+		t.Fatal("the agent was never asked")
+	}
+	if peers.Own() != "cl-me" || len(peers.List()) != 1 {
+		t.Errorf("the prober applied an unconfigured agent's empty list: own %q, %v", peers.Own(), peers.List())
+	}
+	if after := writeOf(meter); after != before {
+		t.Errorf("the probe state changed:\n%s\n---\n%s", before, after)
+	}
+}
+
+func writeOf(m *link.Meter) string {
+	var b bytes.Buffer
+	m.Write(&b)
+	return b.String()
 }
 
 func TestBadThroughputSettingsFailAtStartWithTheReason(t *testing.T) {

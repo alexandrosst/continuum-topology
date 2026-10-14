@@ -264,7 +264,7 @@ func TestTheTableOfAddressesInUseIsBounded(t *testing.T) {
 }
 
 func TestWhatTheMeterRemembersFollowsThePeerListAndIsForgottenWithThePeer(t *testing.T) {
-	m, _ := clockedMeter(peer("cl-a", "A", "10.0.0.1", "10.0.0.2"), peer("cl-b", "B", "10.1.0.1"))
+	m, ck := clockedMeter(peer("cl-a", "A", "10.0.0.1", "10.0.0.2"), peer("cl-b", "B", "10.1.0.1"))
 	m.Observe([]*continuumv1.RawFlow{flow("10.0.0.1", 1, 10), flow("10.0.0.2", 1, 10<<10), flow("10.1.0.1", 1, 1)})
 	// The peer loses an address: the document never names it, and Forget drops it.
 	m.Peers.Set("cl-me", []*continuumv1.LinkPeer{peer("cl-a", "A", "10.0.0.2"), peer("cl-b", "B", "10.1.0.1")})
@@ -275,8 +275,10 @@ func TestWhatTheMeterRemembersFollowsThePeerListAndIsForgottenWithThePeer(t *tes
 	if n := len(m.per["cl-a"].used); n != 1 {
 		t.Errorf("%d held", n)
 	}
-	// The peer goes away and comes back: nothing is remembered.
+	// The peer goes away for longer than the grace and comes back: nothing is remembered.
 	m.Peers.Set("cl-me", []*continuumv1.LinkPeer{peer("cl-b", "B", "10.1.0.1")})
+	m.Forget()
+	ck.add(peerGrace + time.Minute)
 	m.Forget()
 	m.Peers.Set("cl-me", []*continuumv1.LinkPeer{peer("cl-a", "A", "10.0.0.2"), peer("cl-b", "B", "10.1.0.1")})
 	if got := preferredOf(m, "cl-a"); len(got) != 0 {

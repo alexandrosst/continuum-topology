@@ -26,7 +26,8 @@ type DialFunc func(ctx context.Context, network, addr string) (net.Conn, error)
 // and its answer per peer, no data. The time is a round trip as the TCP stack sees it, and a failure is counted by its reason.
 //
 // It does not depend on ICMP, which many networks filter, and not on the one-way probe's gate, because it sends a handful of
-// packets. It does depend on the responder being reachable, so it cannot tell a dead responder from a dead link by itself: a
+// packets. It does keep out of the way of a throughput test (Testing): a handshake that queues behind a saturated link measures
+// the load, not the link, and this series is the baseline the loaded round trip is compared with. It does depend on the responder being reachable, so it cannot tell a dead responder from a dead link by itself: a
 // refusal means the host is up and the responder is not, a timeout means the host or the path is down, and the one-way probe says
 // the rest.
 type TCPConnect struct {
@@ -38,9 +39,15 @@ type TCPConnect struct {
 	// Every is how often each peer is tried and Timeout how long one connection attempt may take (default 15s and 3s).
 	Every, Timeout time.Duration
 	Dial           DialFunc
+	// Testing, if set, is on while a throughput test loads a link (Capacity.Testing). A round trip taken then, or overlapping
+	// one, is not recorded at all: it counts neither as a sample nor as a failure.
+	Testing *Flag
 
-	mu   sync.Mutex
-	good map[string]string // peer -> the address that last answered
+	mu     sync.Mutex
+	good   map[string]string // peer -> the address that last answered
+	failed map[string]string // peer -> the reason its last round failed, for the log to say only a change
+	absent absence           // peer -> since when it has not been in the peer list (see peerGrace)
+	slow   bool              // the last round took longer than Every
 }
 
 // Defaults fills what was left unset.
@@ -92,9 +99,29 @@ func (t *TCPConnect) Run(ctx context.Context) {
 	for {
 		started := time.Now()
 		t.Round(ctx)
+		t.noteRound(ctx, time.Since(started))
 		if !sleep(ctx, max(t.Every-time.Since(started), 0)) {
 			return
 		}
+	}
+}
+
+// noteRound says when rounds start to take longer than the interval (many peers that do not answer, each costing its timeouts),
+// and when they stop: the samples then come less often than the interval says, and nothing exported shows it.
+func (t *TCPConnect) noteRound(ctx context.Context, took time.Duration) {
+	if ctx.Err() != nil {
+		return
+	}
+	over := took > t.Every
+	t.mu.Lock()
+	changed := over != t.slow
+	t.slow = over
+	t.mu.Unlock()
+	switch {
+	case over && changed:
+		t.Log.Warn("link connect timing round took longer than the interval, so peers are timed less often than that", "took", took.Round(time.Millisecond), "interval", t.Every)
+	case !over && changed:
+		t.Log.Info("link connect timing rounds fit the interval again", "took", took.Round(time.Millisecond), "interval", t.Every)
 	}
 }
 
@@ -103,7 +130,9 @@ func (t *TCPConnect) Round(ctx context.Context) {
 	t.Defaults()
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 8)
-	for _, p := range t.Meter.Peers.List() {
+	peers := t.Meter.Peers.List()
+	t.forget(peers, time.Now())
+	for _, p := range peers {
 		if !p.Probed() {
 			continue
 		}
@@ -117,16 +146,75 @@ func (t *TCPConnect) Round(ctx context.Context) {
 	wg.Wait()
 }
 
+// forget drops what is remembered about the peers that have been gone from the list for peerGrace: the address that answered and
+// the state the log compares with. Both are small, but they would otherwise outlive every peer that was ever listed.
+func (t *TCPConnect) forget(peers []Peer, now time.Time) {
+	live := make(map[string]bool, len(peers))
+	for _, p := range peers {
+		if p.Probed() {
+			live[p.ID] = true
+		}
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	seen := map[string]bool{}
+	for id := range t.good {
+		seen[id] = true
+	}
+	for id := range t.failed {
+		seen[id] = true
+	}
+	for id := range t.absent {
+		seen[id] = true
+	}
+	for id := range seen {
+		if t.absent.gone(id, live[id], now) {
+			delete(t.good, id)
+			delete(t.failed, id)
+		}
+	}
+}
+
+// noteResult logs what became of a round for a peer, at Warn when the way it fails changes (a new reason, or the first failure
+// after it worked) and at Info when it works again, so a peer that stays unreachable is said once and not every few seconds.
+func (t *TCPConnect) noteResult(peer, reason string, kv ...any) {
+	t.mu.Lock()
+	prev := t.failed[peer]
+	if reason == "" {
+		delete(t.failed, peer)
+	} else {
+		if t.failed == nil {
+			t.failed = map[string]string{}
+		}
+		t.failed[peer] = reason
+	}
+	t.mu.Unlock()
+	switch {
+	case reason == prev:
+		if reason != "" {
+			t.Log.Debug("link connect timing failed", append([]any{"peer", peer, "reason", reason}, kv...)...)
+		}
+	case reason == "":
+		t.Log.Info("link connect timing works again", "peer", peer)
+	default:
+		t.Log.Warn("link connect timing failed", append([]any{"peer", peer, "reason", reason}, kv...)...)
+	}
+}
+
 // measure tries the peer's addresses until one answers: a cluster has many node addresses and not every node need be up, so a
 // failure moves on to the next rather than counting against the link. At most three, so an unreachable peer costs three timeouts.
 func (t *TCPConnect) measure(ctx context.Context, p Peer) {
+	stamp := t.Testing.Stamp()
+	if stamp.on {
+		return // a throughput test is loading the link: no baseline can be taken now
+	}
 	t.mu.Lock()
 	last := t.good[p.ID]
 	t.mu.Unlock()
 	reason := ""
 	if noAddress(p) {
 		t.Meter.ConnectFailed(p.ID, ReasonNoKind)
-		t.Log.Debug("link connect timing failed", "peer", p.ID, "reason", ReasonNoKind, "via", p.Via)
+		t.noteResult(p.ID, ReasonNoKind, "via", p.Via)
 		return
 	}
 	for _, a := range orderAddresses(p, last, 2) {
@@ -134,6 +222,9 @@ func (t *TCPConnect) measure(ctx context.Context, p Peer) {
 			return
 		}
 		d, why := t.once(ctx, a)
+		if !t.Testing.Unchanged(stamp) {
+			return // a test started, or ended, while this one was going: the figure is the loaded link's, or a failure it caused
+		}
 		if why == "" {
 			t.mu.Lock()
 			if t.good == nil {
@@ -142,13 +233,14 @@ func (t *TCPConnect) measure(ctx context.Context, p Peer) {
 			t.good[p.ID] = a
 			t.mu.Unlock()
 			t.Meter.ObserveConnect(p.ID, d)
+			t.noteResult(p.ID, "")
 			return
 		}
 		reason = why
 	}
 	if reason != "" {
 		t.Meter.ConnectFailed(p.ID, reason)
-		t.Log.Debug("link connect timing failed", "peer", p.ID, "reason", reason)
+		t.noteResult(p.ID, reason)
 	}
 }
 

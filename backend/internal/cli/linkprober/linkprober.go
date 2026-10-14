@@ -102,6 +102,9 @@ func Main(args []string) int {
 		go capacity.Run(ctx)
 	}
 	if connects != nil {
+		if capacity != nil {
+			connects.Testing = &capacity.Testing // handshakes queued behind a throughput test are not the baseline
+		}
 		log.Info("link connect timing on", "interval", connects.Every)
 		go connects.Run(ctx)
 	}
@@ -113,13 +116,21 @@ func Main(args []string) int {
 // once a minute is as fresh as the answer can be. load, if not nil, is told the link traffic each answer carries. iperf also asks
 // for the credentials of the throughput tests (they come back sealed, and only for the peers this cluster tests).
 func follow(ctx context.Context, log *slog.Logger, hc *http.Client, url string, secret []byte, peers *link.Peers, meter *link.Meter, load *link.Load, iperf bool) {
-	asked := false
+	asked, waiting := false, false
 	for {
 		d, err := link.FetchPeersWith(ctx, hc, url, secret, time.Now(), iperf)
 		switch {
 		case err != nil:
 			log.Warn("could not fetch the link peers from the agent", "err", err)
+		case d.ClusterID == "":
+			// The agent has not had its Config yet (it was just restarted): its empty list is "unknown", not "no peers". Applying
+			// it would make the prober forget the schedule, the budget already spent and the counters of every peer.
+			if !waiting {
+				log.Info("the agent has not received its configuration yet; keeping the peers as they are")
+				waiting = true
+			}
 		default:
+			waiting = false
 			for _, why := range peers.SetFromDoc(d) {
 				log.Warn("link peer list", "note", why)
 			}

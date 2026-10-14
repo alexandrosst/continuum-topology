@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -28,6 +29,52 @@ func (g *Gate) Acquire(ctx context.Context) (release func(), err error) {
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
+}
+
+// Flag says whether something is going on, and lets a reader tell that it was not going on during a stretch of its own: a
+// measurement that must not overlap a throughput test takes a Stamp before it starts and asks Unchanged when it is done. Unlike
+// the Gate it blocks nobody, and it is on only while a throughput test really loads the link (the one-way probe also holds the
+// Gate, for a quarter of every minute, and is not what the connect timing keeps out of). The zero value is ready; a nil *Flag is
+// never on.
+type Flag struct {
+	on     atomic.Int32
+	starts atomic.Uint64
+}
+
+// Enter turns the flag on and returns what turns it off again (once). Calls may overlap.
+func (f *Flag) Enter() (exit func()) {
+	if f == nil {
+		return func() {}
+	}
+	f.starts.Add(1)
+	f.on.Add(1)
+	var once sync.Once
+	return func() { once.Do(func() { f.on.Add(-1) }) }
+}
+
+// On says whether the flag is on now.
+func (f *Flag) On() bool { return f != nil && f.on.Load() > 0 }
+
+// FlagStamp is the state of a Flag at one moment.
+type FlagStamp struct {
+	starts uint64
+	on     bool
+}
+
+// Stamp notes the state now.
+func (f *Flag) Stamp() FlagStamp {
+	if f == nil {
+		return FlagStamp{}
+	}
+	return FlagStamp{starts: f.starts.Load(), on: f.On()}
+}
+
+// Unchanged says the flag was off at s and has not been on since: nothing started in between, and nothing is going on now.
+func (f *Flag) Unchanged(s FlagStamp) bool {
+	if f == nil {
+		return true
+	}
+	return !s.on && f.starts.Load() == s.starts && !f.On()
 }
 
 // Ledger counts the bytes the tests carried over a sliding window, to keep them within a budget.

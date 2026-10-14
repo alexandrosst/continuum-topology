@@ -1,8 +1,10 @@
 package link
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"net"
 	"strings"
 	"sync"
@@ -191,5 +193,130 @@ func TestAPeerTheOtherClusterTimesIsNotTimedHere(t *testing.T) {
 		if strings.Contains(k, `peer="cl-a"`) && strings.Contains(k, "tcp_connect") {
 			t.Fatalf("a connect series for a pair timed by the other cluster: %s", k)
 		}
+	}
+}
+
+// A handshake that queues behind a saturated link is the load, not the baseline: while a throughput test runs nothing is
+// recorded, neither a sample nor a failure, and the series are otherwise unchanged.
+func TestNoSampleIsTakenWhileAThroughputTestRuns(t *testing.T) {
+	dialed := 0
+	fail := false
+	c := connectFor(t, func(ctx context.Context, n, a string) (net.Conn, error) {
+		dialed++
+		if fail {
+			return nil, &net.OpError{Op: "dial", Err: syscall.ECONNREFUSED}
+		}
+		return listener(t)(ctx, n, a)
+	}, peer("cl-a", "A", "10.0.0.1"))
+	c.Testing = &Flag{}
+
+	exit := c.Testing.Enter()
+	c.Round(context.Background())
+	fail = true
+	c.Round(context.Background())
+	exit()
+	if dialed != 0 {
+		t.Errorf("%d connections were opened during a test", dialed)
+	}
+	got := render(c.Meter)
+	if got[`continuum_link_tcp_connect_seconds_count{cluster="cl-me",peer="cl-a"}`] != "0" {
+		t.Errorf("a sample was taken during a test: %v", got)
+	}
+	for _, r := range connectFailReasons {
+		if got[`continuum_link_tcp_connect_failures_total{cluster="cl-me",peer="cl-a",reason="`+r+`"}`] != "0" {
+			t.Errorf("a failure (%s) was counted during a test", r)
+		}
+	}
+
+	// Once the test is over, rounds count again, successes and failures alike.
+	fail = false
+	c.Round(context.Background())
+	fail = true
+	c.Round(context.Background())
+	got = render(c.Meter)
+	if got[`continuum_link_tcp_connect_seconds_count{cluster="cl-me",peer="cl-a"}`] != "1" ||
+		got[`continuum_link_tcp_connect_failures_total{cluster="cl-me",peer="cl-a",reason="refused"}`] != "1" {
+		t.Errorf("after the test: %v", got)
+	}
+}
+
+// A test that starts or ends while a handshake is in flight taints that sample too.
+func TestASampleThatOverlapsAThroughputTestStartIsDropped(t *testing.T) {
+	var c *TCPConnect
+	c = connectFor(t, func(ctx context.Context, n, a string) (net.Conn, error) {
+		exit := c.Testing.Enter() // the test starts, and is over again, before this handshake returns
+		exit()
+		return listener(t)(ctx, n, a)
+	}, peer("cl-a", "A", "10.0.0.1"))
+	c.Testing = &Flag{}
+	c.Round(context.Background())
+	if got := render(c.Meter); got[`continuum_link_tcp_connect_seconds_count{cluster="cl-me",peer="cl-a"}`] != "0" {
+		t.Errorf("a sample that overlapped a test was kept: %v", got)
+	}
+	c.Dial = listener(t)
+	c.Round(context.Background())
+	if got := render(c.Meter); got[`continuum_link_tcp_connect_seconds_count{cluster="cl-me",peer="cl-a"}`] != "1" {
+		t.Errorf("the next, clean sample was not taken: %v", got)
+	}
+}
+
+func TestWhatIsRememberedForAGonePeerGoesAfterTheGrace(t *testing.T) {
+	c := connectFor(t, listener(t), peer("cl-a", "A", "10.0.0.1"))
+	c.Round(context.Background())
+	if c.good["cl-a"] == "" {
+		t.Fatal("the answering address was not remembered")
+	}
+	t0 := time.Unix(1_700_000_000, 0)
+	c.forget(nil, t0)
+	c.forget(nil, t0.Add(peerGrace-time.Minute))
+	if c.good["cl-a"] == "" {
+		t.Error("forgotten inside the grace")
+	}
+	c.forget([]Peer{{ID: "cl-a"}}, t0.Add(peerGrace-time.Second)) // back in time
+	c.forget(nil, t0.Add(peerGrace))
+	c.forget(nil, t0.Add(peerGrace+time.Minute))
+	if c.good["cl-a"] == "" {
+		t.Error("a return inside the grace did not restart it")
+	}
+	c.forget(nil, t0.Add(2*peerGrace+2*time.Minute))
+	if len(c.good) != 0 || len(c.failed) != 0 || len(c.absent) != 0 {
+		t.Errorf("left: %v %v %v", c.good, c.failed, c.absent)
+	}
+}
+
+func TestFailuresAreLoggedAsWarningsOnlyWhenTheyChangeAndRoundsThatOverrunAreSaid(t *testing.T) {
+	var buf bytes.Buffer
+	var err error
+	c := connectFor(t, func(context.Context, string, string) (net.Conn, error) { return nil, err }, peer("cl-a", "A", "10.0.0.1"))
+	c.Log = slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	count := func(s string) int { return strings.Count(buf.String(), s) }
+
+	err = &net.OpError{Op: "dial", Err: syscall.ECONNREFUSED}
+	c.Round(context.Background())
+	c.Round(context.Background())
+	if count("level=WARN") != 1 || count("level=DEBUG") != 1 {
+		t.Fatalf("a steady failure should warn once and then be quiet:\n%s", buf.String())
+	}
+	err = context.DeadlineExceeded
+	c.Round(context.Background())
+	if count("level=WARN") != 2 {
+		t.Errorf("a new reason should warn:\n%s", buf.String())
+	}
+	err = nil
+	c.Dial = listener(t)
+	c.Round(context.Background())
+	if count("works again") != 1 {
+		t.Errorf("recovery was not said:\n%s", buf.String())
+	}
+
+	buf.Reset()
+	c.noteRound(context.Background(), 2*c.Every)
+	c.noteRound(context.Background(), 3*c.Every)
+	if count("longer than the interval") != 1 || count("level=WARN") != 1 {
+		t.Errorf("an overrun should be warned once:\n%s", buf.String())
+	}
+	c.noteRound(context.Background(), c.Every/2)
+	if count("fit the interval again") != 1 {
+		t.Errorf("the end of the overrun was not said:\n%s", buf.String())
 	}
 }

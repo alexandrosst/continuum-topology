@@ -393,6 +393,8 @@ func TestANewRampReplacesTheOldRungsAndSeriesAreForgottenWithThePeer(t *testing.
 	}
 	c.Meter.Peers.Set("cl-me", nil)
 	c.Meter.Forget()
+	ck.add(peerGrace + time.Minute)
+	c.Meter.Forget()
 	for k := range render(c.Meter) {
 		if strings.Contains(k, "throughput") && strings.Contains(k, `peer="cl-a"`) {
 			t.Errorf("series of a removed peer remain: %s", k)
@@ -992,6 +994,8 @@ func TestAPeerThatGoesAwayTakesItsRemembrancesWithIt(t *testing.T) {
 		t.Fatalf("nothing was remembered: %v %v", c.lastBytes, c.lastBits)
 	}
 	c.sync([]Peer{{ID: "cl-ab", Throughput: true}}, ck.now())
+	ck.add(peerGrace + time.Minute) // inside the grace nothing is forgotten (see state_blip_test.go)
+	c.sync([]Peer{{ID: "cl-ab", Throughput: true}}, ck.now())
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if len(c.lastBytes) != 1 || len(c.lastBits) != 1 || len(c.warned) != 1 || !c.warned["cl-ab|tcp|forward|0"] {
@@ -1010,5 +1014,87 @@ func TestAMissingRetransmitCountIsNoSampleNotAZero(t *testing.T) {
 	c.Meter.ObserveTCP("cl-a", IperfFlow{Direction: Forward, Bits: 1e9, HasRetrans: true}, "tcp", 1, 0)
 	if v, ok := render(c.Meter)["continuum_link_throughput_retransmits"+key]; !ok || v != "0" {
 		t.Errorf("a reported zero is missing: %q", v)
+	}
+}
+
+// With a loss threshold above 10% the receiver's rate at a rung can be below 90% of the asked one only because the link dropped
+// that much; the sender still offered it. The ramp must go on to the first rung over the threshold.
+func TestARampWithAHighLossThresholdIsNotMistakenForASenderThatCouldNotKeepUp(t *testing.T) {
+	base := `{cluster="cl-me",peer="cl-a",method="iperf3",direction="forward",dscp="0"}`
+	f := &fakeIperf{capacity: 34e6} // 40M offered: 15% lost, 34M received
+	c, _ := capFor(t, f, func(c *Capacity) {
+		c.UDP = UDPRamp{Enabled: true, Start: 10e6, Max: 160e6, Step: 5 * time.Second, Loss: 0.2}
+		c.Reverse, c.Parallel = false, 0
+	})
+	settle(c)
+	got := render(c.Meter)
+	// tcp + rungs 10, 20, 40 (15% lost, within 20%) and 80 (57% lost).
+	if n := f.count(); n != 5 {
+		t.Errorf("%d runs, want 5: %v", n, f.calls)
+	}
+	if !sameNumber(got["continuum_link_throughput_udp_clean_bits_per_second"+base], "4e7") || got["continuum_link_throughput_udp_saturated"+base] != "1" {
+		t.Errorf("clean %q saturated %q, want 4e7 and 1", got["continuum_link_throughput_udp_clean_bits_per_second"+base], got["continuum_link_throughput_udp_saturated"+base])
+	}
+}
+
+func TestTheOfferedRateIsReconstructedFromTheReceiversFigures(t *testing.T) {
+	for name, tc := range map[string]struct {
+		f    IperfFlow
+		want float64
+	}{
+		"no loss":     {IperfFlow{Bits: 40e6, Packets: 100}, 40e6},
+		"15% lost":    {IperfFlow{Bits: 34e6, Packets: 100, Lost: 15}, 40e6},
+		"all lost":    {IperfFlow{Bits: 0, Packets: 100, Lost: 100}, 0},
+		"no datagram": {IperfFlow{Bits: 5e6}, 5e6},
+	} {
+		if got := offeredBits(tc.f); got < tc.want*0.999 || got > tc.want*1.001 {
+			t.Errorf("%s: %v, want %v", name, got, tc.want)
+		}
+	}
+}
+
+func TestATCPRateCapAboveWhatTheUDPRampAllowsIsRefused(t *testing.T) {
+	c := &Capacity{TCPMaxRate: 400e9}
+	c.Defaults()
+	if err := c.Validate(); err != nil {
+		t.Errorf("400G is the top: %v", err)
+	}
+	c.TCPMaxRate = 400e9 + 1
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "400G") {
+		t.Errorf("a cap above 400G was accepted: %v", err)
+	}
+	// The estimate at the top of what is allowed does not wrap around: 400G x 32 streams x 70 s.
+	c = &Capacity{TCPMaxRate: 400e9, Parallel: 32, Duration: 60 * time.Second, Omit: 10 * time.Second}
+	c.Defaults()
+	est := c.estimate(Peer{ID: "x"}, capTest{kind: "tcp-parallel"})
+	if want := uint64(400e9) * 32 * 70 / 8; est != want {
+		t.Errorf("estimate %d, want %d", est, want)
+	}
+}
+
+// The connect timing keeps out of the throughput tests: the flag is on exactly while iperf3 runs.
+func TestTheTestingFlagIsOnExactlyWhileTheClientRuns(t *testing.T) {
+	f := &fakeIperf{}
+	var c *Capacity
+	var during []bool
+	var gate bool
+	c, _ = capFor(t, f, func(c *Capacity) { c.Reverse, c.Parallel = false, 0 })
+	inner := c.Exec
+	c.Exec = func(ctx context.Context, env []string, name string, args ...string) ([]byte, []byte, error) {
+		during = append(during, c.Testing.On())
+		return inner(ctx, env, name, args...)
+	}
+	if c.Testing.On() {
+		t.Fatal("on before any test")
+	}
+	settle(c)
+	gate = c.Testing.On()
+	if len(during) == 0 || gate {
+		t.Fatalf("during %v, after %v", during, gate)
+	}
+	for _, on := range during {
+		if !on {
+			t.Errorf("the flag was off while iperf3 ran: %v", during)
+		}
 	}
 }

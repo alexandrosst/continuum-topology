@@ -23,8 +23,9 @@ import (
 // with no credentials (the agent has none for this cluster, or the answer is refused, or they cannot be written) the server is not
 // running and the prober of the other cluster reports an `auth` or `unreachable` failure, as it would for any server that is down.
 // When the credentials change (a rotation, a pair added or removed) iperf3 is restarted with the new files; when they do not,
-// it is left alone. When the agent cannot be reached it keeps serving with what it has: a server that is only briefly cut off from
-// its agent should not drop tests, and what it has was issued for exactly this purpose.
+// it is left alone. When the agent cannot be reached, or says it has not had its Config yet (ErrIperfNotReady, an agent that was
+// just restarted), it keeps serving with what it has: a server that is only briefly cut off from its agent should not drop tests,
+// and what it has was issued for exactly this purpose. Only an answer that says "none" stops the server.
 type IperfServerRunner struct {
 	// Dir is where the key and the users file are written: a memory-backed directory private to this pod.
 	Dir string
@@ -97,7 +98,12 @@ func (r *IperfServerRunner) Run(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		if err != nil {
+		if errors.Is(err, ErrIperfNotReady) {
+			// Not a withdrawal: keep what is running and ask again soon.
+			r.say("agent-not-ready", "the agent has not received its configuration yet; the iperf3 server keeps its current state", "serving", r.proc != nil, "retry_in", wait)
+			next = wait
+			wait = min(wait*2, r.Every)
+		} else if err != nil {
 			// The error is about the transport or a refused document; it never holds a credential.
 			r.say("agent-unreachable", "could not get the iperf3 credentials from the agent", "err", err.Error(), "serving", r.proc != nil, "retry_in", wait)
 			next = wait

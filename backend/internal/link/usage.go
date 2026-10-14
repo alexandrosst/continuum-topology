@@ -16,6 +16,10 @@ const (
 	usedExpiry = time.Hour
 	// usedHalfLife makes an address that was busy a while ago count for less than one that is busy now.
 	usedHalfLife = 10 * time.Minute
+	// inboundWeight is what a row of traffic the peer started counts for, against one this cluster started. Only a connection
+	// this cluster opened shows that the address can be dialed from here; the source of an inbound one may be a NAT address
+	// (the peer's egress, or the path the server's stream takes) that nothing here can connect to.
+	inboundWeight = 0.1
 )
 
 // addrUse is how much traffic was seen with one address of a peer. weight decays with time (see usedHalfLife), so the order
@@ -24,6 +28,9 @@ type addrUse struct {
 	last   time.Time
 	weight float64
 	at     time.Time // when weight was last brought up to date
+	// dialed is when a connection this cluster opened to the address was last seen (zero: never). An address with such evidence
+	// ranks before every address that was only seen as the source of inbound traffic, whatever the weights.
+	dialed time.Time
 }
 
 // now is the weight at t.
@@ -37,8 +44,9 @@ func (u *addrUse) now(t time.Time) float64 {
 // usedAddrs is the small table of one peer.
 type usedAddrs map[netip.Addr]*addrUse
 
-// add records w worth of traffic with a at t. A full table drops its weakest address to make room.
-func (u *usedAddrs) add(a netip.Addr, w float64, t time.Time) {
+// add records w worth of traffic with a at t; dialed says this cluster opened the connections. A full table drops its weakest
+// address to make room.
+func (u *usedAddrs) add(a netip.Addr, w float64, dialed bool, t time.Time) {
 	if *u == nil {
 		*u = usedAddrs{}
 	}
@@ -51,6 +59,14 @@ func (u *usedAddrs) add(a netip.Addr, w float64, t time.Time) {
 		(*u)[a] = e
 	}
 	e.weight, e.at, e.last = e.now(t)+w, t, t
+	if dialed {
+		e.dialed = t
+	}
+}
+
+// dialedBy says this cluster was seen opening connections to the address, not long ago.
+func (e *addrUse) dialedBy(t time.Time) bool {
+	return !e.dialed.IsZero() && t.Sub(e.dialed) <= usedExpiry
 }
 
 func (u usedAddrs) dropWeakest(t time.Time) {
@@ -73,7 +89,8 @@ func (u usedAddrs) prune(t time.Time, keep map[netip.Addr]bool) {
 	}
 }
 
-// ordered are the addresses in use, the busiest first and, among equals, the most recently seen.
+// ordered are the addresses in use: those this cluster dialed first, then the others; within each the busiest first and, among
+// equals, the most recently seen.
 func (u usedAddrs) ordered(t time.Time) []netip.Addr {
 	out := make([]netip.Addr, 0, len(u))
 	for a, e := range u {
@@ -82,6 +99,9 @@ func (u usedAddrs) ordered(t time.Time) []netip.Addr {
 		}
 	}
 	sort.Slice(out, func(i, j int) bool {
+		if di, dj := u[out[i]].dialedBy(t), u[out[j]].dialedBy(t); di != dj {
+			return di
+		}
 		wi, wj := u[out[i]].now(t), u[out[j]].now(t)
 		if wi != wj {
 			return wi > wj

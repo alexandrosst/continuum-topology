@@ -322,3 +322,55 @@ func TestLeftoverFilesAreClearedAtStart(t *testing.T) {
 		}
 	}
 }
+
+// An agent that was just restarted answers "not ready", which is not a withdrawal: the server keeps serving. Only a document that
+// really holds nothing stops it.
+func TestTheServerKeepsServingWhileTheAgentIsNotReadyAndStopsOnARealEmptyDocument(t *testing.T) {
+	rr := newRunnerRig(t)
+	rr.set(goodServer(t), nil)
+	stop := rr.start(t)
+	defer stop()
+	rr.asks(t)
+	waitUntil(t, "the start", func() bool { return rr.procCount() == 1 })
+
+	rr.set(IperfServer{}, ErrIperfNotReady)
+	time.Sleep(30 * time.Millisecond) // the runner is waiting for its next turn before the tick is sent
+	for i := 0; i < 2; i++ {
+		rr.tick()
+		rr.asks(t)
+		time.Sleep(30 * time.Millisecond)
+		if rr.procs[0].stopped.Load() || rr.procCount() != 1 {
+			t.Fatal("the server was stopped because the agent had no Config yet")
+		}
+	}
+	for _, f := range []string{"private.pem", "users.csv"} {
+		if _, err := os.Stat(filepath.Join(rr.dir, f)); err != nil {
+			t.Errorf("%s was removed on a not-ready answer: %v", f, err)
+		}
+	}
+	if !strings.Contains(rr.log.String(), "has not received its configuration") {
+		t.Errorf("the wait was not logged:\n%s", rr.log.String())
+	}
+
+	rr.set(IperfServer{}, nil) // the Config arrived and issued nothing for this cluster
+	time.Sleep(30 * time.Millisecond)
+	rr.tick()
+	rr.asks(t)
+	waitUntil(t, "the stop", func() bool { return rr.procs[0].stopped.Load() })
+}
+
+// The agent side of it: before its first Config the agent says "not ready" (503), after it an empty document means "none".
+func TestAnAgentWithoutAConfigAnswersNotReadyAndNotNone(t *testing.T) {
+	r := newRig(t, peersSecretT, testRequestSecr)
+	_, err := FetchIperfServer(context.Background(), r.srv.Client(), r.srv.URL, testRequestSecr, r.now)
+	if !errors.Is(err, ErrIperfNotReady) {
+		t.Fatalf("before any Config: %v, want ErrIperfNotReady", err)
+	}
+	if why := r.meter.SetIperfServer(nil); why != "" {
+		t.Fatal(why)
+	}
+	got, err := FetchIperfServer(context.Background(), r.srv.Client(), r.srv.URL, testRequestSecr, r.now)
+	if err != nil || !got.Empty() {
+		t.Fatalf("after a Config without credentials: %+v, %v, want an empty document and no error", got, err)
+	}
+}

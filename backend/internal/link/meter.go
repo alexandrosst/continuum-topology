@@ -81,6 +81,8 @@ type Meter struct {
 	paths      map[string]*pathStats
 	tp         map[string]*tpStats
 	connects   map[string]*connectStats
+	// absent is since when each kind of state (see Forget) has belonged to a peer that is not in the peer list.
+	absent absence
 	// timingConnects turns the connect-timing series on.
 	timingConnects bool
 	// proberPorts are the ports the link prober's own traffic uses; flows to or from them are not the link's traffic.
@@ -102,6 +104,9 @@ type Meter struct {
 	iperfSecret []byte
 	iperfReplay *probe.ReplayCache
 	iperfSrv    *IperfServer
+	// iperfSet is true once a Config has been applied (SetIperfServer was called). Before that "no credentials" is not an answer
+	// the agent has, only the state of one that has just started.
+	iperfSet bool
 }
 
 // NewMeter reads peers from p.
@@ -252,7 +257,12 @@ func (m *Meter) ObserveRows(rows []*continuumv1.RawFlow, bytesKnown bool) {
 		// An address nothing was ever answered on (only attempts that failed, no byte carried, no round trip measured) is not one the
 		// traffic "uses": preferring it would send the active measurements to the one address that cannot answer.
 		if a, err := netip.ParseAddr(r.PeerIp); err == nil && !onlyFailed(r, carried) {
-			s.used.add(a.Unmap(), rowWeight(r.Connections, carried), now)
+			// Traffic the peer started counts for little and never ranks above an address this cluster dialed (see inboundWeight).
+			w := rowWeight(r.Connections, carried)
+			if !r.Client {
+				w *= inboundWeight
+			}
+			s.used.add(a.Unmap(), w, r.Client, now)
 		}
 	}
 }
@@ -273,51 +283,67 @@ func (m *Meter) proberPort(port uint32) bool {
 	return false
 }
 
-// Forget drops the totals of peers that are no longer configured, and from the table of addresses in use those of a peer that
-// are no longer among its addresses or have not been seen for an hour.
+// Forget drops the totals and the probe, route, throughput and connect state of peers that are no longer configured, and from the
+// table of addresses in use those of a peer that are no longer among its addresses or have not been seen for an hour. A peer
+// is only forgotten once it has been missing for peerGrace: the list can be empty or short for a moment (see peerGrace), and
+// dropping its counters and last-success times then would reset series that nothing about the link had changed. What is not
+// listed is not written in the meantime (Write follows the current list).
 func (m *Meter) Forget() {
 	if m == nil {
 		return
 	}
 	keep := map[string]bool{}
 	addrs := map[string]map[netip.Addr]bool{}
+	probed, traced, tested := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	for _, p := range m.Peers.List() {
 		keep[p.ID] = true
 		addrs[p.ID] = map[netip.Addr]bool{}
 		for _, a := range p.Addresses {
 			addrs[p.ID][a] = true
 		}
+		probed[p.ID], traced[p.ID], tested[p.ID] = p.Probed(), p.Traced(), p.Throughput
 	}
+	now := m.now()
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	// One verdict per state and peer per pass: a peer with several keys in a map (the probes) must not be judged once per key.
+	verdict := map[string]bool{}
+	gone := func(kind, id string, live bool) bool {
+		k := kind + "\x00" + id
+		v, ok := verdict[k]
+		if !ok {
+			v = m.absent.gone(k, live, now)
+			verdict[k] = v
+		}
+		return v
+	}
 	for id, s := range m.per {
-		if !keep[id] {
+		if gone("per", id, keep[id]) {
 			delete(m.per, id)
 			continue
 		}
-		s.used.prune(m.now(), addrs[id])
-	}
-	probed, traced, tested := map[string]bool{}, map[string]bool{}, map[string]bool{}
-	for _, p := range m.Peers.List() {
-		probed[p.ID], traced[p.ID], tested[p.ID] = p.Probed(), p.Traced(), p.Throughput
+		if keep[id] {
+			s.used.prune(now, addrs[id])
+		}
 	}
 	for id := range m.paths {
-		if !traced[id] {
+		if gone("paths", id, traced[id]) {
 			delete(m.paths, id)
 		}
 	}
 	for id := range m.tp {
-		if !tested[id] {
+		if gone("tp", id, tested[id]) {
 			delete(m.tp, id)
 		}
 	}
 	for id := range m.connects {
-		if !probed[id] {
+		if gone("connects", id, probed[id]) {
 			delete(m.connects, id)
 		}
 	}
 	for k := range m.probes {
-		if id, _, _ := strings.Cut(k, "\x00"); !probed[id] {
+		id, _, _ := strings.Cut(k, "\x00")
+		if gone("probes", id, probed[id]) {
 			delete(m.probes, k)
 		}
 	}
@@ -345,8 +371,17 @@ func (m *Meter) EnableProbes() {
 	m.mu.Unlock()
 }
 
+// escReplacer is built once: a Replacer is safe for concurrent use, and building one (with its 256-entry table) for every label
+// value made a scrape of many peers allocate hundreds of megabytes while the meter's lock was held.
+var escReplacer = strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`)
+
+// esc escapes a label value for the text exposition format. Almost every value (a cluster id) has nothing to escape, and is
+// returned as it is.
 func esc(s string) string {
-	return strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`).Replace(s)
+	if !strings.ContainsAny(s, "\\\"\n") {
+		return s
+	}
+	return escReplacer.Replace(s)
 }
 
 // Write renders the Prometheus text exposition format.

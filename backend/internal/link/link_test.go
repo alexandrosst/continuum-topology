@@ -139,6 +139,8 @@ func TestMeterShowsPeersBeforeAnyTrafficAndForgetsRemovedOnes(t *testing.T) {
 	p := NewPeers()
 	p.Set("cl-me", []*continuumv1.LinkPeer{peer("cl-a", "A", "10.0.0.1")})
 	m := NewMeter(p)
+	ck := &clock{t: time.Unix(1_700_000_000, 0)}
+	m.now = ck.now
 	got := render(m)
 	if got[`continuum_link_retransmits_total{cluster="cl-me",peer="cl-a"}`] != "0" {
 		t.Fatal("a configured peer with no traffic should report zero, not be absent")
@@ -155,8 +157,13 @@ func TestMeterShowsPeersBeforeAnyTrafficAndForgetsRemovedOnes(t *testing.T) {
 			t.Errorf("a removed peer still has a series: %s", k)
 		}
 	}
+	if len(m.per) != 1 {
+		t.Fatal("the removed peer's totals were dropped at once, not after the grace")
+	}
+	ck.add(peerGrace + time.Minute)
+	m.Forget()
 	if len(m.per) != 0 {
-		t.Fatal("the removed peer's totals were kept")
+		t.Fatal("the removed peer's totals were kept past the grace")
 	}
 }
 

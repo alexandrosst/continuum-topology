@@ -293,6 +293,8 @@ func TestProbeFailuresAreCountedByReasonAndUnknownReasonsFoldIntoOther(t *testin
 
 func TestProbesForARemovedPeerGoAndStrangersAreIgnored(t *testing.T) {
 	m := probeMeter(t)
+	ck := &clock{t: time.Unix(1_700_000_000, 0)}
+	m.now = ck.now
 	m.EnableProbes()
 	m.ObserveProbe("cl-zzz", Forward, OwampResult{Sent: 5}) // not a configured peer
 	m.ObserveProbe("cl-a", Forward, OwampResult{Sent: 5})
@@ -300,6 +302,8 @@ func TestProbesForARemovedPeerGoAndStrangersAreIgnored(t *testing.T) {
 		t.Fatal("no reading recorded")
 	}
 	m.Peers.Set("cl-me", nil)
+	m.Forget()
+	ck.add(peerGrace + time.Minute)
 	m.Forget()
 	m.mu.Lock()
 	n := len(m.probes)

@@ -171,6 +171,7 @@ func (m *Meter) SetIperfServer(c *continuumv1.LinkIperfServer) (refused string) 
 		s = nil // nothing will ever read it, and no pod may have it: do not keep it
 	}
 	m.iperfSrv = s
+	m.iperfSet = true
 	m.mu.Unlock()
 	return refused
 }
@@ -194,8 +195,17 @@ func (m *Meter) iperfServerHandler() http.HandlerFunc {
 			return
 		}
 		m.mu.Lock()
-		cur := m.iperfSrv
+		cur, configured := m.iperfSrv, m.iperfSet
 		m.mu.Unlock()
+		if !configured {
+			// A freshly started agent has not had its Config yet, so it does not know whether credentials are issued for this
+			// cluster. Answering "none" would make every responder stop its server for the seconds until the Config arrives, and
+			// a prober whose cycle began then would fail its first test and back off for half an hour. 503 is "ask again": the
+			// responder keeps serving what it has (see IperfServerRunner).
+			w.Header().Set("Retry-After", "5")
+			http.Error(w, http.StatusText(http.StatusServiceUnavailable), http.StatusServiceUnavailable)
+			return
+		}
 		doc := struct {
 			PrivateKeyPEM string `json:"private_key_pem"`
 			UsersCSV      string `json:"users_csv"`
@@ -249,6 +259,10 @@ func signedCredRequest(ctx context.Context, url, signContext, node string, secre
 	return req, sig, nil
 }
 
+// ErrIperfNotReady is FetchIperfServer's error when the agent has not had its Config yet and so cannot say whether credentials are
+// issued: not an answer of "none", and the responder must not stop its server on it.
+var ErrIperfNotReady = errors.New("the agent has not received its configuration yet")
+
 // FetchIperfServer asks the agent at url (scheme, host and port) for this cluster's iperf3 server credentials. A zero IperfServer
 // with a nil error means the agent has none for this cluster: the server must not run.
 func FetchIperfServer(ctx context.Context, hc *http.Client, url string, secret []byte, now time.Time) (IperfServer, error) {
@@ -267,6 +281,9 @@ func FetchIperfServer(ctx context.Context, hc *http.Client, url string, secret [
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+		if resp.StatusCode == http.StatusServiceUnavailable {
+			return IperfServer{}, ErrIperfNotReady
+		}
 		return IperfServer{}, fmt.Errorf("agent answered %s", resp.Status)
 	}
 	sealed, err := io.ReadAll(io.LimitReader(resp.Body, maxSealedAnswer))

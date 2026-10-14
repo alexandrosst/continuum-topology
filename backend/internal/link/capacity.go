@@ -55,6 +55,9 @@ type Capacity struct {
 	// links are.
 	Gate *Gate
 	Load *Load
+	// Testing is on while an iperf3 client is running. The connect timing reads it (see TCPConnect.Testing): a handshake
+	// that queues behind a saturated link is not the idle round trip that series is for.
+	Testing Flag
 
 	Bin  string
 	Port int
@@ -111,6 +114,8 @@ type Capacity struct {
 	lastBytes map[string]uint64
 	lastBits  map[string]float64
 	warned    map[string]bool
+	// absent is since when a peer has not been among the peers to test (see peerGrace).
+	absent absence
 }
 
 type capTest struct {
@@ -209,6 +214,11 @@ func (c *Capacity) Validate() error {
 	}
 	if c.Port < 1 || c.Port > 65535 {
 		return fmt.Errorf("invalid iperf3 port %d", c.Port)
+	}
+	if c.TCPMaxRate > 400e9 {
+		// The same bound as the top of the UDP ramp; it also keeps the byte estimate (rate x streams x seconds) far from
+		// overflowing.
+		return fmt.Errorf("the TCP rate cap must be at most 400G bit/s, got %d", c.TCPMaxRate)
 	}
 	if c.UDP.Enabled {
 		if c.UDP.Start < 100e3 || c.UDP.Max < c.UDP.Start || c.UDP.Max > 400e9 || c.UDP.Max/c.UDP.Start > 1024 {
@@ -325,7 +335,39 @@ func (c *Capacity) plan() []capTest {
 	return out
 }
 
-// sync adds new peers, with a random first test time, and forgets the ones that are gone.
+// peerGrace is how long what is kept for a peer (its place in the schedule, the bytes it has been charged, the last figures,
+// and in the meter its probe and connect state) survives the peer's absence from the peer list. The list can be empty or short
+// for a moment without the pair having gone: the agent answers an empty one around a restart or while its flow collector is
+// paused, and forgetting a peer then would hand it a new random start and a fresh budget, so a whole cycle would run again at
+// once. A pair that really is gone is forgotten after this; its series stop at once, as they are only written for listed peers.
+const peerGrace = 30 * time.Minute
+
+// absence remembers since when ids have been missing from the peer list. The zero value is ready.
+type absence map[string]time.Time
+
+// gone is called for an id on every pass: live says it is listed now. It is true once the id has been unlisted for peerGrace,
+// and then forgets the id, so the caller deletes what it keeps for it.
+func (a *absence) gone(id string, live bool, now time.Time) bool {
+	if live {
+		delete(*a, id)
+		return false
+	}
+	if *a == nil {
+		*a = absence{}
+	}
+	since, ok := (*a)[id]
+	if !ok {
+		(*a)[id] = now
+		return false
+	}
+	if now.Sub(since) < peerGrace {
+		return false
+	}
+	delete(*a, id)
+	return true
+}
+
+// sync adds new peers, with a random first test time, and forgets the ones that have been gone for peerGrace.
 func (c *Capacity) sync(peers []Peer, now time.Time) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -351,7 +393,7 @@ func (c *Capacity) sync(peers []Peer, now time.Time) {
 		}
 	}
 	for id := range c.peers {
-		if !live[id] {
+		if c.absent.gone(id, live[id], now) {
 			delete(c.peers, id)
 			delete(c.good, id)
 			delete(c.pairs, id)
@@ -583,7 +625,7 @@ func (c *Capacity) runRamp(ctx context.Context, p Peer, t capTest) outcome {
 			saturated = true
 			break
 		}
-		if f.Bits < 0.9*float64(rate) {
+		if offeredBits(f) < 0.9*float64(rate) {
 			// The sender could not send what was asked, so nothing was lost because nothing was offered: this rate, and
 			// any above it, say nothing about the link. The ramp ends at the last rate that was really delivered.
 			break
@@ -596,6 +638,17 @@ func (c *Capacity) runRamp(ctx context.Context, p Peer, t capTest) outcome {
 	}
 	c.Meter.ObserveUDPRamp(p.ID, t.dir, t.dscp, steps, clean, hasClean, saturated)
 	return outcome{}
+}
+
+// offeredBits is the rate the sender really put on the link in a UDP step. The flow's own rate is the receiver's, which already
+// leaves out what was lost, so with a loss threshold above 10% it can be below 90% of the asked rate only because the link
+// dropped that much, and the step would be mistaken for one the sender could not keep up with.
+func offeredBits(f IperfFlow) float64 {
+	loss := f.LossRatio()
+	if loss >= 1 {
+		return 0
+	}
+	return f.Bits / (1 - loss)
 }
 
 // invoke runs one iperf3 client invocation towards the peer, trying its addresses (the one that answered last first), and
@@ -678,6 +731,7 @@ func (c *Capacity) once(ctx context.Context, addr string, t capTest, extra []str
 		return IperfResult{}, "timeout"
 	}
 	defer release()
+	defer c.Testing.Enter()()
 	cctx, cancel := context.WithTimeout(ctx, c.Duration+c.Omit+c.UDP.Step+30*time.Second)
 	defer cancel()
 	out, errOut, err := c.Exec(cctx, env, c.Bin, args...)
