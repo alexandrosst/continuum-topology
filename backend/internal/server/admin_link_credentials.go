@@ -32,6 +32,13 @@ func (a *Admin) rotateLinkCredentials(w http.ResponseWriter, r *http.Request) {
 		target = min(req.A, req.B) + " " + max(req.A, req.B)
 	}
 	links := c.Settings().Links
+	// A request that cannot rotate anything (an id that is no cluster id, a cluster that serves no pair with throughput tests, a pair
+	// that does not ask for them) is refused before the audit row: audited() writes the row first, and a refused request would
+	// leave two rows with text of the caller's choosing.
+	if why := rotateRefusal(links, req.Cluster, req.A, req.B); why != "" {
+		writeErr(w, http.StatusUnprocessableEntity, why)
+		return
+	}
 	err := c.audited(r.Context(), actor(r), "link-credentials-rotate", "links", target, "iperf3 credentials for the throughput tests", func() error {
 		if err := c.RotateLinkCredentials(r.Context(), links, req.Cluster, req.A, req.B); err != nil {
 			return errf(KindInvalid, "%s", err.Error())
@@ -44,4 +51,27 @@ func (a *Admin) rotateLinkCredentials(w http.ResponseWriter, r *http.Request) {
 	}
 	go a.tn(r).Hub.pushConfigs()
 	writeJSON(w, 200, map[string]any{"rotated": true})
+}
+
+// rotateRefusal says why a rotation request cannot do anything, or "" when it can: against the pairs that ask for throughput tests,
+// which are the only ones that have credentials.
+func rotateRefusal(links []LinkSetting, cluster, a, b string) string {
+	for _, id := range []string{cluster, a, b} {
+		if len(id) > 64 {
+			return "a cluster id is at most 64 characters"
+		}
+	}
+	pairs := throughputPairs(links)
+	if cluster != "" {
+		for _, p := range pairs {
+			if linkServer(p[0], p[1]) == cluster {
+				return ""
+			}
+		}
+		return "that cluster serves no pair with throughput tests"
+	}
+	if !containsPair(pairs, [2]string{min(a, b), max(a, b)}) {
+		return "that pair does not ask for throughput tests"
+	}
+	return ""
 }

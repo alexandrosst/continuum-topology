@@ -133,6 +133,16 @@ func deriveTargets(ft *flowTable) []issuedTarget {
 // configFor builds the Config for one agent: what it may send, how often to check itself, and what
 // to measure. It also records which targets were issued. The caller must not hold h.mu.
 func (h *Hub) configFor(a store.Agent, v *view) *continuumv1.Config {
+	cfg, _ := h.configForChecked(a, v)
+	return cfg
+}
+
+// configForChecked is configFor, and says whether the Config is complete: false when the cluster has link pairs and the
+// organisation's agents could not be read, so the peer list is empty for want of data and not because nobody is paired. A caller
+// that replaces a Config the agent already has must not send an incomplete one: the agent would drop every peer until the next
+// good minute.
+func (h *Hub) configForChecked(a store.Agent, v *view) (*continuumv1.Config, bool) {
+	complete := true
 	set := h.C.Settings()
 	resync := int32(set.ConsistencyMinutes * 60)
 	if h.ConsistencyEvery > 0 {
@@ -142,7 +152,12 @@ func (h *Hub) configFor(a store.Agent, v *view) *continuumv1.Config {
 	var orgAgents []store.Agent
 	var runnersPaused map[string]bool
 	if a.ClusterID != "" && len(peersOf(set.Links, a.ClusterID)) > 0 {
-		orgAgents, _ = h.C.Store.ListAgents(bg(), h.C.OrgID) // also before h.mu, for the same reason
+		var err error
+		orgAgents, err = h.C.Store.ListAgents(bg(), h.C.OrgID) // also before h.mu, for the same reason
+		if err != nil {
+			orgAgents, complete = nil, false
+			h.C.Log.Warn("could not read the agents to build the link peers", "agent", a.ID, "err", err)
+		}
 		runnersPaused = h.runnersPaused(a, orgAgents, set.Links)
 	}
 	creds := h.linkCredsFor(a, set.Links) // before h.mu: it may read and write the store
@@ -192,7 +207,7 @@ func (h *Hub) configFor(a store.Agent, v *view) *continuumv1.Config {
 			delete(v.paths, id)
 		}
 	}
-	return cfg
+	return cfg, complete
 }
 
 func configHash(c *continuumv1.Config) string {
@@ -251,7 +266,16 @@ func (h *Hub) pushOne(id string) {
 	if v == nil || s == nil {
 		return
 	}
-	cfg := h.configFor(a, v)
+	cfg, complete := h.configForChecked(a, v)
+	if !complete {
+		// Not a Config to send: its peer list is empty only for want of data. The agent keeps the peers it has, the hash is put
+		// back so nothing counts as sent, and the next minute tries again. (At first connect the agent has nothing to lose, so
+		// configFor still answers there.)
+		h.mu.Lock()
+		v.cfgHash = old
+		h.mu.Unlock()
+		return
+	}
 	h.mu.Lock()
 	same := v.cfgHash == old
 	h.mu.Unlock()

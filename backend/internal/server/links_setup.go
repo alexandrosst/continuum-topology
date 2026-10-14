@@ -300,6 +300,7 @@ func (h *Hub) LinkReport(ctx context.Context, links []LinkSetting, haveFusion bo
 // linkSetups is the checklist of each listed pair. Called with h.mu held; agents and paused as for linkNotes.
 func (h *Hub) linkSetups(links []LinkSetting, agents []store.Agent, flowPausedOf map[string]bool, haveFusion bool, now time.Time) []LinkSetup {
 	byCluster := approvedByCluster(agents)
+	plan := h.planner(links, agents)
 	end := func(l LinkSetting, c, peer string) setupEnd {
 		e := setupEnd{ID: c}
 		a, ok := byCluster[c]
@@ -311,7 +312,7 @@ func (h *Hub) linkSetups(links []LinkSetting, agents []store.Agent, flowPausedOf
 			e.Caps = v.ext.linkCaps
 		}
 		if o, ok := byCluster[peer]; ok {
-			e.Note = h.endNote(l, a, o, flowPausedOf[a.ID])
+			e.Note = h.endNote(l, a, o, plan(a), flowPausedOf[a.ID])
 		}
 		return e
 	}

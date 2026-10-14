@@ -16,6 +16,7 @@ import (
 	"continuum/internal/interpret"
 	"continuum/internal/model"
 	"continuum/internal/netid"
+	"continuum/internal/probe"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -294,6 +295,86 @@ func nodeAddresses(st *facts.State) []string {
 						out = append(out, p.Addr().String())
 					}
 				}
+			}
+		}
+	}
+	return out
+}
+
+// linkPeerAddresses is the addresses another cluster can try to reach this one at, for the cluster-link metrics: its nodes'
+// reported internal and external addresses, the addresses on the nodes' own interfaces (the probe's HostAddresses: a LAN, a
+// second NIC, a Tailscale or ZeroTier tun device, none of which the Node object lists), and the addresses of the tunnel
+// interfaces that are a mesh and not a container network. Every address is in its canonical form (an IPv4-mapped IPv6 address
+// as plain IPv4), so two spellings of one address are one.
+//
+// It is not nodeAddresses, which topology attribution uses and which takes every tunnel address: a CNI's overlay device
+// (flannel.1 carries 10.42.N.0 on every node, tunl0 a pod-block address) is the cluster's own and can only be a candidate that
+// times out, or, when two clusters use the same pod range, a name for the other cluster's pod traffic. So a tunnel or host
+// address is dropped when its interface is one a container network makes (probe.ContainerNetworkInterface, the test the probe
+// itself applies to HostAddresses) or when it lies in a pod or service range of the cluster. The InternalIps and ExternalIps
+// are never tested against the pod ranges: on a flat network (VPC CNI, Azure CNI) the pod range contains the nodes' own
+// addresses, and filtering them would empty the list. A WireGuard mesh device (wt0, wg0) stays.
+func linkPeerAddresses(st *facts.State) []string {
+	if st == nil {
+		return nil
+	}
+	var inside []netip.Prefix
+	addPrefix := func(s string) {
+		if p, err := netip.ParsePrefix(strings.TrimSpace(s)); err == nil {
+			inside = append(inside, p.Masked())
+		}
+	}
+	for _, n := range st.Nodes {
+		for _, c := range n.PodCidrs {
+			addPrefix(c)
+		}
+	}
+	if st.Cluster != nil && st.Cluster.ServiceCidr != "" {
+		addPrefix(st.Cluster.ServiceCidr)
+	}
+	insideCluster := func(a netip.Addr) bool {
+		for _, p := range inside {
+			if p.Contains(a) {
+				return true
+			}
+		}
+		return false
+	}
+	var out []string
+	add := func(s string) {
+		if a, err := netip.ParseAddr(s); err == nil {
+			out = append(out, a.Unmap().String())
+		}
+	}
+	// A prefix as the probe reports it ("100.64.0.45/32"); the address alone is what is offered.
+	addProbe := func(s string) {
+		p, err := netip.ParsePrefix(s)
+		if err != nil || insideCluster(p.Addr().Unmap()) {
+			return
+		}
+		out = append(out, p.Addr().Unmap().String())
+	}
+	for _, n := range st.Nodes {
+		for _, ip := range n.InternalIps {
+			add(ip)
+		}
+		for _, ip := range n.ExternalIps {
+			add(ip)
+		}
+		if n.Probe == nil {
+			continue
+		}
+		for _, h := range n.Probe.HostAddresses {
+			if h != nil && !probe.ContainerNetworkInterface(h.Interface, h.Kind) {
+				addProbe(h.Address)
+			}
+		}
+		for _, t := range n.Probe.Tunnels {
+			if t == nil || probe.ContainerNetworkInterface(t.Name, t.Kind) {
+				continue
+			}
+			for _, a := range t.Addresses {
+				addProbe(a)
 			}
 		}
 	}

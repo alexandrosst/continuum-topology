@@ -303,3 +303,20 @@ func TestBuildHostAddressesLeavesOutTemporaryAndUnusableIPv6(t *testing.T) {
 		t.Fatalf("got %v, want %v", have, want)
 	}
 }
+
+// The server asks the same question of the tunnel interfaces it takes peer addresses from: a CNI's overlay device is the
+// cluster's own, a mesh's WireGuard device (and a plain tun) is not.
+func TestContainerNetworkInterfaceTellsACniDeviceFromAMesh(t *testing.T) {
+	for _, c := range []struct {
+		name, kind string
+		want       bool
+	}{
+		{"flannel.1", "vxlan", true}, {"cilium_vxlan", "vxlan", true}, {"tunl0", "ipip", true}, {"cilium_wg0", "wireguard", true},
+		{"cali1234", "", true}, {"cni0", "bridge", true}, {"docker0", "bridge", true}, {"veth9", "veth", true}, {"geneve0", "geneve", true},
+		{"wt0", "wireguard", false}, {"wg0", "wireguard", false}, {"tailscale0", "tun", false}, {"eth0", "", false}, {"br0", "bridge", false},
+	} {
+		if got := ContainerNetworkInterface(c.name, c.kind); got != c.want {
+			t.Errorf("%s (%q): %v, want %v", c.name, c.kind, got, c.want)
+		}
+	}
+}

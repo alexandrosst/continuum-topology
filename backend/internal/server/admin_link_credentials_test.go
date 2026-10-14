@@ -29,15 +29,29 @@ func TestRotatingLinkCredentialsIsAnAdminActionThatShowsNoSecrets(t *testing.T) 
 	}
 
 	for name, body := range map[string]any{
-		"empty":                         map[string]string{},
-		"cluster and pair":              map[string]string{"cluster": "cl-b", "a": "cl-a", "b": "cl-b"},
-		"half a pair":                   map[string]string{"a": "cl-a"},
-		"a pair not set up":             map[string]string{"a": "cl-a", "b": "cl-z"},
-		"a cluster that serves nothing": map[string]string{"cluster": "cl-a"},
+		"empty":            map[string]string{},
+		"cluster and pair": map[string]string{"cluster": "cl-b", "a": "cl-a", "b": "cl-b"},
+		"half a pair":      map[string]string{"a": "cl-a"},
 	} {
 		if r := a.do("POST", path, body, withCookie(admin)); r.Code != 400 {
 			t.Errorf("%s: %d %s", name, r.Code, r.Body.String())
 		}
+	}
+	// A request that cannot rotate anything is refused as unprocessable, before anything is audited.
+	rows := len(a.auditActions(t))
+	for name, body := range map[string]any{
+		"a pair not set up":             map[string]string{"a": "cl-a", "b": "cl-z"},
+		"a cluster that serves nothing": map[string]string{"cluster": "cl-a"},
+		"an unknown cluster":            map[string]string{"cluster": "cl-zzz"},
+		"a very long cluster id":        map[string]string{"cluster": strings.Repeat("x", 200)},
+		"a very long pair":              map[string]string{"a": strings.Repeat("x", 65), "b": "cl-b"},
+	} {
+		if r := a.do("POST", path, body, withCookie(admin)); r.Code != 422 {
+			t.Errorf("%s: %d %s", name, r.Code, r.Body.String())
+		}
+	}
+	if got := len(a.auditActions(t)); got != rows {
+		t.Errorf("refused rotations left %d audit rows", got-rows)
 	}
 
 	r := a.do("POST", path, map[string]string{"a": "cl-b", "b": "cl-a"}, withCookie(admin))

@@ -194,6 +194,23 @@ var containerLinkKinds = map[string]bool{"veth": true, "dummy": true, "vxlan": t
 // cali*, cilium_host, kube-ipvs0, ...), for the ones that are an ordinary bridge or ethernet link to the kernel.
 var containerLinkPrefixes = []string{"docker", "cni", "br-", "virbr", "kube-", "flannel", "cali", "vxlan.", "cilium", "lxc", "veth", "nodelocaldns", "weave", "tunl", "antrea", "ovs-", "genev_sys"}
 
+// ContainerNetworkInterface says whether an interface (by name and kernel link driver, empty for a physical link) is one a
+// container network makes: its addresses are the cluster's own and mean nothing outside it. The probe leaves them out of
+// HostAddresses, and the server applies the same test to the tunnel interfaces it takes peer addresses from, so a CNI's overlay
+// device (flannel.1 carries a pod-range address on every node) is never offered as a place to reach the cluster at. A mesh's
+// WireGuard device is not one, whatever its name.
+func ContainerNetworkInterface(name, kind string) bool {
+	if containerLinkKinds[kind] {
+		return true
+	}
+	for _, p := range containerLinkPrefixes {
+		if strings.HasPrefix(name, p) {
+			return true
+		}
+	}
+	return false
+}
+
 // maxHostAddresses bounds how many addresses one node reports: a node with more is not a place anyone chooses among.
 const maxHostAddresses = 16
 
@@ -211,19 +228,10 @@ func buildHostAddresses(links []rtnetlink.LinkMessage, addrs []rtnetlink.Address
 		if l.Attributes.Info != nil {
 			kind = l.Attributes.Info.Kind
 		}
-		if name == "" || containerLinkKinds[kind] {
+		if name == "" || ContainerNetworkInterface(name, kind) {
 			continue
 		}
-		skip := false
-		for _, p := range containerLinkPrefixes {
-			if strings.HasPrefix(name, p) {
-				skip = true
-				break
-			}
-		}
-		if !skip {
-			usable[l.Index] = &continuumv1.HostAddress{Interface: name, Kind: kind}
-		}
+		usable[l.Index] = &continuumv1.HostAddress{Interface: name, Kind: kind}
 	}
 	var out []*continuumv1.HostAddress
 	seen := map[string]bool{}

@@ -403,14 +403,19 @@ func TestAPairThatIsNotMeasuredSaysWhy(t *testing.T) {
 	codes := func(ns []LinkNote) string {
 		var out []string
 		for _, n := range ns {
-			out = append(out, n.Cluster+":"+n.Code)
+			if n.Code != "private-range" { // a hint, tested on its own
+				out = append(out, n.Cluster+":"+n.Code)
+			}
 		}
 		return strings.Join(out, " ")
 	}
 	h := linkHub(map[string]*view{"ag-a": {state: nodeState("10.0.0.1")}, "ag-b": {state: nodeState("10.1.0.1")}})
 
-	if got := h.linkNotes(links, []store.Agent{a, b}, nil); len(got) != 0 {
-		t.Fatalf("a pair that is measured has notes: %v", got)
+	// (Both clusters' nodes have private addresses only, which carries the range hint; that is tested on its own.)
+	for _, n := range h.linkNotes(links, []store.Agent{a, b}, nil) {
+		if n.Code != "private-range" {
+			t.Fatalf("a pair that is measured has a note: %v", n)
+		}
 	}
 	// no approved agent at the far end: one note, about that cluster
 	pending := b
@@ -474,7 +479,16 @@ func TestAPairCanBePinnedToOneKindOfAddress(t *testing.T) {
 func TestAPairPinnedToAKindThePeerHasNoneOfSaysSo(t *testing.T) {
 	a, b := ag("ag-a", "cl-a", "alpha", "203.0.113.1", 2), ag("ag-b", "cl-b", "beta", "203.0.113.2", 2)
 	h := linkHub(map[string]*view{"ag-a": {state: nodeState("10.0.0.1")}, "ag-b": {state: nodeState("10.1.0.1")}})
-	notes := func(l LinkSetting) []LinkNote { return h.linkNotes([]LinkSetting{l}, []store.Agent{a, b}, nil) }
+	// The private-range hint is about something else and is tested on its own.
+	notes := func(l LinkSetting) []LinkNote {
+		var out []LinkNote
+		for _, n := range h.linkNotes([]LinkSetting{l}, []store.Agent{a, b}, nil) {
+			if n.Code != "private-range" {
+				out = append(out, n)
+			}
+		}
+		return out
+	}
 	if got := notes(LinkSetting{A: "cl-a", B: "cl-b", Via: "mesh"}); len(got) != 2 || got[0].Code != "no-address-of-kind" || got[0].Cluster != "cl-a" || got[0].Peer != "cl-b" || got[1].Cluster != "cl-b" ||
 		!strings.Contains(got[0].Text, "mesh addresses, but cl-b has none") {
 		t.Errorf("mesh: %+v", got)
@@ -492,7 +506,14 @@ func TestAPairPinnedToAKindThePeerHasNoneOfSaysSo(t *testing.T) {
 	// An address the peer shares with this cluster is not one it can be measured through.
 	h2 := linkHub(map[string]*view{"ag-a": {state: nodeState("10.0.0.1")}, "ag-b": {state: nodeState("10.0.0.1", "100.64.1.1")}})
 	// cl-b has a mesh address, so cl-a measures through it; cl-a has none left once the shared one is out, and cl-b is told so.
-	if got := h2.linkNotes([]LinkSetting{{A: "cl-a", B: "cl-b", Via: "mesh"}}, []store.Agent{a, b}, nil); len(got) != 1 || got[0].Cluster != "cl-b" || got[0].Peer != "cl-a" {
+	got := h2.linkNotes([]LinkSetting{{A: "cl-a", B: "cl-b", Via: "mesh"}}, []store.Agent{a, b}, nil)
+	var kind []LinkNote
+	for _, n := range got {
+		if n.Code == "no-address-of-kind" {
+			kind = append(kind, n)
+		}
+	}
+	if len(kind) != 1 || kind[0].Cluster != "cl-b" || kind[0].Peer != "cl-a" {
 		t.Errorf("%+v", got)
 	}
 }
@@ -508,10 +529,18 @@ func TestAPeerWithOnlyPrivateAddressesGetsAHint(t *testing.T) {
 		!strings.Contains(got[0].Text, "mesh (100.64.0.0/10) and private") || !strings.Contains(got[0].Text, "100.64.0.45") {
 		t.Fatalf("%+v", got)
 	}
-	// a public address among them (here the one the peer's agent connects from) is a way across that needs no shared network
+	// a public address of one of the peer's nodes is a way across that needs no shared network
+	hPub := linkHub(map[string]*view{"ag-a": {state: nodeState("10.0.0.1")}, "ag-b": {state: nodeState("10.1.0.1", "198.51.100.9")}})
+	for _, n := range hPub.linkNotes(links, []store.Agent{a, b}, nil) {
+		if n.Code == "private-range" && n.Cluster == "cl-a" {
+			t.Errorf("a peer with a public node address: %+v", n)
+		}
+	}
+	// the address the peer's agent connects from is its gateway's, not a node's: it does not silence the hint, and the text says so
 	pub := ag("ag-b", "cl-b", "beta", "203.0.113.2", 2)
-	if got := h.linkNotes(links, []store.Agent{a, pub}, nil); len(got) != 0 && got[0].Peer == "cl-b" {
-		t.Errorf("a peer with a public address: %+v", got)
+	viaGateway := h.linkNotes(links, []store.Agent{a, pub}, nil)
+	if len(viaGateway) == 0 || viaGateway[0].Code != "private-range" || viaGateway[0].Peer != "cl-b" || !strings.Contains(viaGateway[0].Text, "203.0.113.2") || !strings.Contains(viaGateway[0].Text, "is not counted") {
+		t.Errorf("a NATed peer lost the hint: %+v", viaGateway)
 	}
 	// a pair FUSION holds figures for needs no hint
 	one := 0.01

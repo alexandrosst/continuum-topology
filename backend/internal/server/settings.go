@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
 
+	"continuum/internal/link"
 	"continuum/internal/measure"
 )
 
@@ -416,6 +418,9 @@ func (c *Core) LoadSettings(ctx context.Context) {
 			s.DeciderURL = ""
 		}
 	}
+	// A pair that no longer passes the checks (an id saved before they existed) is dropped on its own, loudly: failing the whole
+	// document here would put every other setting of the organisation back to its default.
+	s.Links = c.usableStoredLinks(s.Links)
 	n, err := s.NormalizeFor(ctx, c.Decider)
 	if err != nil {
 		c.Log.Warn("stored settings are invalid; using defaults", "err", err)
@@ -438,6 +443,11 @@ func (c *Core) SaveSettings(ctx context.Context, actor string, s Settings) (Sett
 // returned settings and revision are then the current ones. On success they are the saved document and its new revision.
 func (c *Core) SaveSettingsAt(ctx context.Context, actor string, expect *int64, s Settings) (Settings, int64, error) {
 	n, err := s.NormalizeFor(ctx, c.Decider)
+	if err == nil {
+		// Only here, never in normalizeLinks: that also runs when the stored settings are loaded, where an error would put every
+		// setting back to its default.
+		err = checkLinksForSave(n.Links)
+	}
 	if err != nil {
 		return Settings{}, 0, errf(KindInvalid, "%v", err)
 	}
@@ -490,7 +500,7 @@ func settingsDiff(a, b Settings) string {
 	add("quiet link (s)", a.FlowStaleSeconds, b.FlowStaleSeconds)
 	add("measure every (s)", a.MeasureSeconds, b.MeasureSeconds)
 	add("measurement targets", len(a.ProbeTargets), len(b.ProbeTargets))
-	add("linked cluster pairs", len(a.Links), len(b.Links))
+	d = append(d, linksDiff(a.Links, b.Links)...)
 	add("quick-start backends", len(a.QuickStartBackends), len(b.QuickStartBackends))
 	add("allowed backend kinds", strings.Join(a.AllowedBackendKinds, ","), strings.Join(b.AllowedBackendKinds, ","))
 	if a.DeciderURL != b.DeciderURL {
@@ -531,4 +541,162 @@ func settingsDiff(a, b Settings) string {
 		d = append(d, fmt.Sprintf("the server's cluster %s → %s", shown(a.ServerClusterID), shown(b.ServerClusterID)))
 	}
 	return strings.Join(d, "; ")
+}
+
+// linkIDRe is what a cluster id in a linked pair may look like: letters, digits, dot, underscore and hyphen, starting with a letter
+// or digit, at most 64 characters. Real ids (cl-3f2b6c1e9a) fit, and it keeps control characters, separators (the credential row
+// of a pair joins its two ids with one) and anything long out of the audit trail, the notes and the metric label matching.
+var linkIDRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
+
+// checkLinksForSave is the extra checks a saved list of pairs must pass, beyond normalizeLinks: well-formed ids, and no cluster
+// in more pairs than one agent's peer list holds (link.MaxPeers; the rest would never be measured).
+func checkLinksForSave(links []LinkSetting) error {
+	pairs := map[string]int{}
+	for _, l := range links {
+		for _, id := range []string{l.A, l.B} {
+			if !linkIDRe.MatchString(id) {
+				return fmt.Errorf("%q is not a cluster id: use letters, digits, dot, underscore and hyphen, up to 64 characters", shortID(id))
+			}
+			pairs[id]++
+		}
+	}
+	for id, n := range pairs {
+		if n > link.MaxPeers {
+			return fmt.Errorf("cluster %s is in %d linked pairs; an agent measures at most %d peers", id, n, link.MaxPeers)
+		}
+	}
+	return nil
+}
+
+// usableStoredLinks drops, with a warning, the stored pairs that normalizeLinks or the id check would refuse, one by one, and the
+// pairs past the limit, so that one bad pair never makes the organisation lose the rest of its settings.
+func (c *Core) usableStoredLinks(in []LinkSetting) []LinkSetting {
+	if len(in) == 0 {
+		return in
+	}
+	out := make([]LinkSetting, 0, len(in))
+	for _, l := range in {
+		l.A, l.B = strings.TrimSpace(l.A), strings.TrimSpace(l.B)
+		var err error
+		if !linkIDRe.MatchString(l.A) || !linkIDRe.MatchString(l.B) {
+			err = fmt.Errorf("a cluster id that is not letters, digits, dot, underscore and hyphen")
+		} else {
+			_, err = normalizeLinks([]LinkSetting{l})
+		}
+		if err != nil {
+			c.Log.Warn("a stored linked cluster pair is dropped", "org", c.OrgID, "a", shortID(l.A), "b", shortID(l.B), "err", err)
+			continue
+		}
+		out = append(out, l)
+	}
+	if len(out) > maxLinks {
+		c.Log.Warn("more stored linked cluster pairs than allowed; the rest are dropped", "org", c.OrgID, "kept", maxLinks)
+		out = out[:maxLinks]
+	}
+	return out
+}
+
+// shortID bounds an id for a message or log line.
+func shortID(id string) string {
+	if r := []rune(id); len(r) > 64 {
+		return string(r[:64]) + "..."
+	}
+	return strings.ToValidUTF8(id, "?")
+}
+
+// maxLinksDiffEntries bounds how many pair changes one audit row spells out.
+const maxLinksDiffEntries = 10
+
+// linksDiff lists what changed between two lists of pairs, for the audit row: pairs added and removed, and for a pair kept, each
+// choice that changed (via, noProbe, throughput on or off, its interval and its budget). Throughput tests load the link, so a
+// pair gaining them, or a larger budget, must show. Ids only, no secrets, at most maxLinksDiffEntries entries and a count of the
+// rest. Both lists are compared by pair, whatever their order.
+func linksDiff(a, b []LinkSetting) []string {
+	key := func(l LinkSetting) string { return shortID(min(l.A, l.B)) + "/" + shortID(max(l.A, l.B)) }
+	old := map[string]LinkSetting{}
+	for _, l := range a {
+		old[key(l)] = l
+	}
+	cur := map[string]LinkSetting{}
+	for _, l := range b {
+		cur[key(l)] = l
+	}
+	var entries []string
+	for _, k := range sortedKeys(cur) {
+		n := cur[k]
+		o, had := old[k]
+		if !had {
+			entries = append(entries, "pair "+k+" added"+linkBrief(n))
+			continue
+		}
+		var ch []string
+		if o.Via != n.Via {
+			ch = append(ch, fmt.Sprintf("via %s → %s", orFollow(o.Via), orFollow(n.Via)))
+		}
+		if o.NoProbe != n.NoProbe {
+			ch = append(ch, fmt.Sprintf("noProbe %t → %t", o.NoProbe, n.NoProbe))
+		}
+		switch ot, nt := o.Throughput, n.Throughput; {
+		case ot == nil && nt != nil:
+			ch = append(ch, "throughput off → on"+throughputBrief(nt))
+		case ot != nil && nt == nil:
+			ch = append(ch, "throughput on → off")
+		case ot != nil && nt != nil:
+			if ot.IntervalMinutes != nt.IntervalMinutes {
+				ch = append(ch, fmt.Sprintf("throughput interval (min) %d → %d", ot.IntervalMinutes, nt.IntervalMinutes))
+			}
+			if ot.BudgetMB != nt.BudgetMB {
+				ch = append(ch, fmt.Sprintf("throughput budget (MB) %d → %d", ot.BudgetMB, nt.BudgetMB))
+			}
+		}
+		if len(ch) > 0 {
+			entries = append(entries, "pair "+k+": "+strings.Join(ch, ", "))
+		}
+	}
+	for _, k := range sortedKeys(old) {
+		if _, ok := cur[k]; !ok {
+			entries = append(entries, "pair "+k+" removed")
+		}
+	}
+	if len(entries) > maxLinksDiffEntries {
+		more := len(entries) - maxLinksDiffEntries
+		entries = append(entries[:maxLinksDiffEntries:maxLinksDiffEntries], fmt.Sprintf("and %d more linked pair changes", more))
+	}
+	return entries
+}
+
+func orFollow(via string) string {
+	if via == "" {
+		return "follow traffic"
+	}
+	return via
+}
+
+// linkBrief is what a new pair asks for beyond the passive metrics.
+func linkBrief(l LinkSetting) string {
+	var p []string
+	if l.Via != "" {
+		p = append(p, "via "+l.Via)
+	}
+	if l.NoProbe {
+		p = append(p, "no probe")
+	}
+	if l.Throughput != nil {
+		p = append(p, "throughput on"+throughputBrief(l.Throughput))
+	}
+	if len(p) == 0 {
+		return ""
+	}
+	return " (" + strings.Join(p, ", ") + ")"
+}
+
+func throughputBrief(t *LinkThroughput) string {
+	every, budget := "the cluster's interval", "the cluster's budget"
+	if t.IntervalMinutes != 0 {
+		every = fmt.Sprintf("every %d min", t.IntervalMinutes)
+	}
+	if t.BudgetMB != 0 {
+		budget = fmt.Sprintf("budget %d MB", t.BudgetMB)
+	}
+	return " (" + every + ", " + budget + ")"
 }
