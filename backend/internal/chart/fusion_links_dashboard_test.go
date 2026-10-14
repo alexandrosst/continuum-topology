@@ -18,15 +18,22 @@ type linksDashboard struct {
 	Refresh     string   `json:"refresh"`
 	Editable    bool     `json:"editable"`
 	Panels      []struct {
-		ID         int    `json:"id"`
-		Type       string `json:"type"`
-		Title      string `json:"title"`
-		Datasource struct {
+		ID          int    `json:"id"`
+		Type        string `json:"type"`
+		Title       string `json:"title"`
+		Description string `json:"description"`
+		Datasource  struct {
 			UID string `json:"uid"`
 		} `json:"datasource"`
 		FieldConfig struct {
 			Defaults struct {
-				Unit       string `json:"unit"`
+				Unit     string `json:"unit"`
+				Mappings []struct {
+					Options map[string]struct {
+						Text  string `json:"text"`
+						Color string `json:"color"`
+					} `json:"options"`
+				} `json:"mappings"`
 				Thresholds struct {
 					Steps []struct {
 						Color string   `json:"color"`
@@ -380,5 +387,117 @@ func TestFusionLinksDashboardLossThresholdsMatchTheSitesScreen(t *testing.T) {
 	}
 	if seen < 3 {
 		t.Errorf("found %d probe-loss panels, want the stat and the two graphs", seen)
+	}
+}
+
+// linksPanel is a panel as the tests below look at it.
+type linksPanel struct {
+	Type        string
+	Description string
+	Expr        string
+	Colors      map[string]string // value mapping: the state's text to its colour
+	Steps       []string          // threshold colours, lowest first
+}
+
+// panelNamed returns the panel with the given title; an administrator finds the panels by title, and so do the tests.
+func (d linksDashboard) panelNamed(t *testing.T, title string) linksPanel {
+	t.Helper()
+	for _, q := range d.Panels {
+		if q.Title != title {
+			continue
+		}
+		p := linksPanel{Type: q.Type, Description: q.Description, Colors: map[string]string{}}
+		if len(q.Targets) > 0 {
+			p.Expr = q.Targets[0].Expr
+		}
+		for _, m := range q.FieldConfig.Defaults.Mappings {
+			for _, o := range m.Options {
+				p.Colors[o.Text] = o.Color
+			}
+		}
+		for _, s := range q.FieldConfig.Defaults.Thresholds.Steps {
+			p.Steps = append(p.Steps, s.Color)
+		}
+		return p
+	}
+	t.Fatalf("no panel %q", title)
+	return linksPanel{}
+}
+
+// A direction whose probe never completed has no last-success series (the meter writes one only after the first success), so
+// a "seconds since" panel built on that series alone leaves out exactly the direction that needs looking at: the reverse
+// direction that was refused from the first run. The two panels therefore fall back on a series every probed direction has
+// and draw it at the top of the scale, one day; the description says what the top means. The expressions themselves were
+// run against sample series in promtool, with a direction that never succeeded, one that did and one that did long ago.
+func TestFusionLinksDashboardDrawsADirectionThatNeverSucceededAtTheTopOfTheScale(t *testing.T) {
+	d := loadLinksDashboard(t, fusionRender(t, "f"))
+	for _, c := range []struct{ title, last, present string }{
+		{"Seconds since the last completed probe", "continuum_link_probe_last_success_timestamp_seconds", "continuum_link_probe_up"},
+		{"Seconds since the last connection opened", "continuum_link_tcp_connect_last_success_timestamp_seconds", "continuum_link_tcp_connect_seconds_count"},
+	} {
+		p := d.panelNamed(t, c.title)
+		core, _, ok := unnamed(p.Expr)
+		if !ok {
+			t.Fatalf("%s: not in the dashboard's way of naming clusters: %s", c.title, p.Expr)
+		}
+		if !strings.HasPrefix(core, "clamp_max(time() - (max by (") || !strings.HasSuffix(core, "), 86400)") {
+			t.Errorf("%s: not clamped to one day: %s", c.title, core)
+		}
+		if !strings.Contains(core, c.last) || !strings.Contains(core, ") or (0 * max by (") || !strings.Contains(core, c.present) {
+			t.Errorf("%s: no fallback on %s for a series that never succeeded: %s", c.title, c.present, core)
+		}
+		if !strings.Contains(p.Description, "one day") {
+			t.Errorf("%s: the description does not say what the top of the scale means: %q", c.title, p.Description)
+		}
+	}
+}
+
+// The probe state has three values: failed, up, and up with every packet lost, which is what a responder that is reachable
+// but whose test packets are not counted looks like (the control connection works, nothing arrives). The third is a sum, so
+// it must not come out as anything but 2: a loss of 0.995 must not make "up" 1.995, nor a failed run whose last loss figure
+// is still in the store make it "up". The expression was run in promtool with those cases.
+func TestFusionLinksDashboardProbeStateTellsAnAllLostRunFromAHealthyOne(t *testing.T) {
+	d := loadLinksDashboard(t, fusionRender(t, "f"))
+	p := d.panelNamed(t, "Probe state")
+	core, _, ok := unnamed(p.Expr)
+	if !ok {
+		t.Fatalf("not in the dashboard's way of naming clusters: %s", p.Expr)
+	}
+	if !strings.Contains(core, "continuum_link_probe_loss_ratio") || !strings.Contains(core, ">= 0.99") || !strings.Contains(core, "== 1) and on (cluster, peer, direction)") {
+		t.Errorf("the state does not look at the loss of a run that is up: %s", core)
+	}
+	if got := []string{p.Colors["failed"], p.Colors["up"], p.Colors["up, all packets lost"]}; !slices.Equal(got, []string{"red", "green", "purple"}) {
+		t.Errorf("state colours (failed, up, up with all packets lost) = %v", got)
+	}
+	for _, want := range []string{"denied", "other", "99 %"} {
+		if !strings.Contains(p.Description, want) {
+			t.Errorf("the description does not explain %q: %q", want, p.Description)
+		}
+	}
+	if r := d.panelNamed(t, "Probe failures by reason"); !strings.Contains(r.Description, "denied") || !strings.Contains(r.Description, "other") {
+		t.Errorf("the failure reasons panel does not explain denied and other: %q", r.Description)
+	}
+	for _, q := range d.Panels {
+		if q.Title == "Probe up" || strings.Contains(q.Description, "Probe up") {
+			t.Errorf("panel %q still refers to Probe up, which is now Probe state", q.Title)
+		}
+	}
+}
+
+// Amber is a warning on this dashboard. A clock that is not synchronised is a state of the deployment (the delay figure is
+// withheld), not a fault, and would otherwise sit amber beside the real warnings; no pair reporting is amber too, because an
+// empty dashboard is where something is not set up.
+func TestFusionLinksDashboardColoursOnlyWarningsAmber(t *testing.T) {
+	d := loadLinksDashboard(t, fusionRender(t, "f"))
+	clock := d.panelNamed(t, "Clocks synchronised")
+	if c := clock.Colors["not synchronised"]; c == "" || c == "orange" || c == "red" || clock.Steps[0] == "orange" || clock.Steps[0] == "red" {
+		t.Errorf("not synchronised is drawn %q (steps %v), a warning colour for something that is not a fault", c, clock.Steps)
+	}
+	pairs := d.panelNamed(t, "Pairs probed")
+	if len(pairs.Steps) < 2 || pairs.Steps[0] != "orange" || pairs.Steps[1] != "green" {
+		t.Errorf("zero pairs probed should be orange and any pair green: %v", pairs.Steps)
+	}
+	if !strings.Contains(pairs.Description, "Sites") || !strings.Contains(pairs.Description, "Setup") {
+		t.Errorf("the description does not send the reader to the Setup list on the Sites screen: %q", pairs.Description)
 	}
 }

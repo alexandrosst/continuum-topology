@@ -145,15 +145,19 @@
           "range": false
         }
       ],
-      "description": "Cluster pairs whose one-way probe has reported. The probe runs from one cluster of each pair (the one whose id sorts first), so a pair is counted once. A pair with probing switched off has no probe series and is not counted.",
+      "description": "Cluster pairs whose one-way probe has reported. The probe runs from one cluster of each pair (the one whose id sorts first), so a pair is counted once. A pair with probing switched off has no probe series and is not counted. Zero (orange) means no probe has reported to FUSION yet: the pair may not be set up or the cluster that runs the probes may send no telemetry here. Sites > Cluster links > Setup lists what each pair still needs.",
       "fieldConfig": {
         "defaults": {
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "orange",
                 "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
               }
             ]
           },
@@ -806,7 +810,7 @@
     {
       "id": 14,
       "type": "state-timeline",
-      "title": "Probe up",
+      "title": "Probe state",
       "datasource": {
         "type": "prometheus",
         "uid": "fusion-metrics"
@@ -820,7 +824,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "(max by (cluster, peer, direction) (continuum_link_probe_up{cluster=~\"$cluster\", peer=~\"$peer\"})) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((max by (cluster, peer, direction) (continuum_link_probe_up{cluster=~\"$cluster\", peer=~\"$peer\"})), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
+          "expr": "((max by (cluster, peer, direction) (continuum_link_probe_up{cluster=~\"$cluster\", peer=~\"$peer\"}) + on (cluster, peer, direction) max by (cluster, peer, direction) ((continuum_link_probe_up{cluster=~\"$cluster\", peer=~\"$peer\"} == 1) and on (cluster, peer, direction) (continuum_link_probe_loss_ratio{cluster=~\"$cluster\", peer=~\"$peer\"} >= 0.99))) or max by (cluster, peer, direction) (continuum_link_probe_up{cluster=~\"$cluster\", peer=~\"$peer\"})) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace(((max by (cluster, peer, direction) (continuum_link_probe_up{cluster=~\"$cluster\", peer=~\"$peer\"}) + on (cluster, peer, direction) max by (cluster, peer, direction) ((continuum_link_probe_up{cluster=~\"$cluster\", peer=~\"$peer\"} == 1) and on (cluster, peer, direction) (continuum_link_probe_loss_ratio{cluster=~\"$cluster\", peer=~\"$peer\"} >= 0.99))) or max by (cluster, peer, direction) (continuum_link_probe_up{cluster=~\"$cluster\", peer=~\"$peer\"})), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
@@ -828,7 +832,7 @@
           "legendFormat": "{{cluster_name}} → {{peer_name}} {{direction}}"
         }
       ],
-      "description": "Whether the latest probe run in each direction completed. Gaps are times with no data from that pair.",
+      "description": "State of the latest probe run in each direction. Failed: the run did not complete; Probe failures by reason says why (other: the run ended in an error the prober could not name, so read its log; denied: the responder answered and refused the test, usually because something between the clusters rewrites the prober's address). Up: the run completed. Up, all packets lost: the run completed but 99 % or more of the test packets were counted lost. The control connection worked, so the responder is reachable; the test packets did not arrive or were not matched, for example because the UDP test ports are filtered, addresses are rewritten on the way or the clocks are far apart. Gaps are times with no data from that pair.",
       "fieldConfig": {
         "defaults": {
           "custom": {
@@ -848,6 +852,11 @@
                   "text": "up",
                   "color": "green",
                   "index": 1
+                },
+                "2": {
+                  "text": "up, all packets lost",
+                  "color": "purple",
+                  "index": 2
                 }
               }
             }
@@ -862,6 +871,10 @@
               {
                 "color": "green",
                 "value": 1
+              },
+              {
+                "color": "purple",
+                "value": 2
               }
             ]
           }
@@ -921,7 +934,7 @@
               "options": {
                 "0": {
                   "text": "not synchronised",
-                  "color": "orange",
+                  "color": "blue",
                   "index": 0
                 },
                 "1": {
@@ -936,7 +949,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "orange",
+                "color": "blue",
                 "value": null
               },
               {
@@ -980,7 +993,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "(time() - max by (cluster, peer, direction) (continuum_link_probe_last_success_timestamp_seconds{cluster=~\"$cluster\", peer=~\"$peer\"})) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((time() - max by (cluster, peer, direction) (continuum_link_probe_last_success_timestamp_seconds{cluster=~\"$cluster\", peer=~\"$peer\"})), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
+          "expr": "(clamp_max(time() - (max by (cluster, peer, direction) (continuum_link_probe_last_success_timestamp_seconds{cluster=~\"$cluster\", peer=~\"$peer\"}) or (0 * max by (cluster, peer, direction) (continuum_link_probe_up{cluster=~\"$cluster\", peer=~\"$peer\"}))), 86400)) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((clamp_max(time() - (max by (cluster, peer, direction) (continuum_link_probe_last_success_timestamp_seconds{cluster=~\"$cluster\", peer=~\"$peer\"}) or (0 * max by (cluster, peer, direction) (continuum_link_probe_up{cluster=~\"$cluster\", peer=~\"$peer\"}))), 86400)), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
@@ -988,7 +1001,7 @@
           "legendFormat": "{{cluster_name}} → {{peer_name}} {{direction}}"
         }
       ],
-      "description": "How stale each direction's probe is. The probe runs about once a minute: amber beyond 5 minutes, red beyond 15. If the prober itself stops, its series disappear after a few minutes instead and this panel goes empty, so check Probe up and the Delivery health dashboard too.",
+      "description": "How stale each direction's probe is. The probe runs about once a minute: amber beyond 5 minutes, red beyond 15. The top of the scale (one day) means the direction has never completed a run, or has not for a day. If the prober itself stops, its series disappear after a few minutes instead and this panel goes empty, so check Probe state and the Delivery health dashboard too.",
       "fieldConfig": {
         "defaults": {
           "custom": {
@@ -1061,7 +1074,7 @@
           "legendFormat": "{{cluster_name}} → {{peer_name}} {{direction}} {{reason}}"
         }
       ],
-      "description": "Probe runs that could not complete, by reason (unreachable, refused, timeout, auth, other). Only reasons that occurred are drawn, so an empty panel means either no failures or nothing measuring: see Probe up.",
+      "description": "Probe runs that could not complete, by reason. timeout: the control connection could not be opened or nothing answered; the probe tool does not say whether the port was refused, the host unreachable or the path silent (TCP connect failures by reason does), so refused and unreachable are rare here. auth: the responder's policy allows the client no mode, for instance an allowFrom list that does not include it. denied: the responder answered and refused the test, usually because something between the clusters rewrites the prober's address (NAT), or its limits were reached. other: a run that ended without a reason the prober could name, so read its log. Only reasons that occurred are drawn, so an empty panel means either no failures or nothing measuring: see Probe state.",
       "fieldConfig": {
         "defaults": {
           "custom": {
@@ -1435,7 +1448,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "(time() - max by (cluster, peer) (continuum_link_tcp_connect_last_success_timestamp_seconds{cluster=~\"$cluster\", peer=~\"$peer\"})) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((time() - max by (cluster, peer) (continuum_link_tcp_connect_last_success_timestamp_seconds{cluster=~\"$cluster\", peer=~\"$peer\"})), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
+          "expr": "(clamp_max(time() - (max by (cluster, peer) (continuum_link_tcp_connect_last_success_timestamp_seconds{cluster=~\"$cluster\", peer=~\"$peer\"}) or (0 * max by (cluster, peer) (continuum_link_tcp_connect_seconds_count{cluster=~\"$cluster\", peer=~\"$peer\"}))), 86400)) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((clamp_max(time() - (max by (cluster, peer) (continuum_link_tcp_connect_last_success_timestamp_seconds{cluster=~\"$cluster\", peer=~\"$peer\"}) or (0 * max by (cluster, peer) (continuum_link_tcp_connect_seconds_count{cluster=~\"$cluster\", peer=~\"$peer\"}))), 86400)), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
@@ -1443,7 +1456,7 @@
           "legendFormat": "{{cluster_name}} → {{peer_name}}"
         }
       ],
-      "description": "How long ago a timing connection last succeeded. Rounds are every 15 seconds by default: amber beyond 5 minutes, red beyond 15.",
+      "description": "How long ago a timing connection last succeeded. Rounds are every 15 seconds by default: amber beyond 5 minutes, red beyond 15. The top of the scale (one day) means no connection has opened yet, or none for a day; a peer with connect timing on always has a line.",
       "fieldConfig": {
         "defaults": {
           "custom": {

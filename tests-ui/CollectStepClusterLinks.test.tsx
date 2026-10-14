@@ -19,6 +19,8 @@ describe('CollectStep: Cluster links', () => {
     fireEvent.click(screen.getByTestId('t-clusterLinks'))
     expect(latest.clusterLinks).toBe(true)
     expect(screen.getByTestId('t-links-probe')).toBeChecked()
+    // The ports and the no-NAT rule are what cost the most debugging when missed, so they are said where probing is chosen.
+    expect(screen.getByTestId('t-links-probe').closest('label')).toHaveTextContent(/TCP 8861 and UDP 18900–18919 with no address translation \(NAT\)/)
     expect(screen.queryByTestId('t-links-own-credentials')).toBeNull()
     fireEvent.click(screen.getByTestId('t-links-throughput'))
     // Nothing is required: Ikhnos issues the credentials, and the field sits closed under an Advanced disclosure.
