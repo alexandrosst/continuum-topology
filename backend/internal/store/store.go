@@ -763,21 +763,21 @@ type Store interface {
 	CreateOrg(ctx context.Context, o Org, ownerID string) error
 	GetOrg(ctx context.Context, id string) (Org, error)
 	ListOrgs(ctx context.Context) ([]Org, error)
-	RenameOrg(ctx context.Context, id, name string) error
+	RenameOrg(ctx context.Context, id, name string, opts ...WriteOption) error
 	// DeleteOrg removes the organisation and everything that belongs to it.
-	DeleteOrg(ctx context.Context, id string) error
+	DeleteOrg(ctx context.Context, id string, opts ...WriteOption) error
 	ListMyOrgs(ctx context.Context, userID string) ([]MyOrg, error)
 	GetMembership(ctx context.Context, org, userID string) (Membership, error)
 	ListMembers(ctx context.Context, org string) ([]Member, error)
 	AddMember(ctx context.Context, m Membership) error
-	SetMemberRole(ctx context.Context, org, userID, role string) error
-	RemoveMember(ctx context.Context, org, userID string) error
+	SetMemberRole(ctx context.Context, org, userID, role string, opts ...WriteOption) error
+	RemoveMember(ctx context.Context, org, userID string, opts ...WriteOption) error
 	// CountOwners counts the active (not disabled) owners of an organisation.
 	CountOwners(ctx context.Context, org string) (int, error)
 
-	CreateInvite(ctx context.Context, inv Invite, hash []byte) error
+	CreateInvite(ctx context.Context, inv Invite, hash []byte, opts ...WriteOption) error
 	ListInvites(ctx context.Context, org string) ([]Invite, error)
-	RevokeInvite(ctx context.Context, org, id string) error
+	RevokeInvite(ctx context.Context, org, id string, opts ...WriteOption) error
 	// PeekInvite returns the invite behind a secret if it is still usable, without consuming it.
 	PeekInvite(ctx context.Context, hash []byte, now time.Time) (Invite, error)
 	// UseInvite atomically consumes the invite and adds the person to its organisation (or fails with

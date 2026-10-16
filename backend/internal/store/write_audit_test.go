@@ -88,3 +88,56 @@ func TestIfTheAuditRowCannotBeWrittenTheWriteIsNotMade(t *testing.T) {
 		t.Fatalf("the token was deleted although its audit row could not be written: %+v", toks)
 	}
 }
+
+func TestOrganisationAndMembershipWritesRollBackWithTheirAuditRow(t *testing.T) {
+	s, ctx, now := openAccounts(t)
+	mustUser(t, s, "u1", "quinn", now)
+	mustUser(t, s, "u2", "robin", now)
+	if err := s.CreateOrg(ctx, Org{ID: "o1", Name: "Athens", CreatedAt: now, CreatedBy: "u1"}, "u1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddMember(ctx, Membership{OrgID: "o1", UserID: "u2", Role: "viewer", CreatedAt: now, AddedBy: "u1"}); err != nil {
+		t.Fatal(err)
+	}
+	ev := func(a string) WriteOption { return WithAudit(AuditEvent{OrgID: "o1", Actor: "tester", Action: a}) }
+
+	// with the trail healthy, the change and its row arrive together
+	if err := s.SetMemberRole(ctx, "o1", "u2", "editor", ev("member-role-changed")); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RenameOrg(ctx, "o1", "Athens 2", ev("org-renamed")); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RemoveMember(ctx, "o1", "u3", ev("member-removed")); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("removing a stranger: %v", err)
+	}
+	if rows, _ := s.ListAudit(ctx, "o1", 10); len(rows) != 2 {
+		t.Fatalf("rows: %+v (a refused removal must leave none)", rows)
+	}
+
+	// with the trail broken, none of them changes anything, and deleting the organisation keeps its data
+	if _, err := s.db.Exec(`CREATE TRIGGER no_audit BEFORE INSERT ON audit BEGIN SELECT RAISE(ABORT, 'disk full'); END`); err != nil {
+		t.Fatal(err)
+	}
+	for name, err := range map[string]error{
+		"role":   s.SetMemberRole(ctx, "o1", "u2", "admin", ev("x")),
+		"rename": s.RenameOrg(ctx, "o1", "Gone", ev("x")),
+		"remove": s.RemoveMember(ctx, "o1", "u2", ev("x")),
+		"delete": s.DeleteOrg(ctx, "o1", ev("x")),
+		"invite": s.CreateInvite(ctx, Invite{ID: "inv-1", OrgID: "o1", Role: "viewer", CreatedBy: "u1", CreatedAt: now, ExpiresAt: now.Add(time.Hour)}, []byte("h"), ev("x")),
+	} {
+		if !errors.Is(err, ErrAuditWrite) {
+			t.Errorf("%s: %v, want ErrAuditWrite", name, err)
+		}
+	}
+	o, err := s.GetOrg(ctx, "o1")
+	if err != nil || o.Name != "Athens 2" {
+		t.Fatalf("the organisation changed although the trail was broken: %+v %v", o, err)
+	}
+	if m, err := s.GetMembership(ctx, "o1", "u2"); err != nil || m.Role != "editor" {
+		t.Fatalf("the membership changed although the trail was broken: %+v %v", m, err)
+	}
+	if invs, _ := s.ListInvites(ctx, "o1"); len(invs) != 0 {
+		t.Fatalf("an invitation was stored without its audit row: %+v", invs)
+	}
+}

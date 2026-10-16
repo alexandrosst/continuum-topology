@@ -360,20 +360,23 @@ func (s *SQLite) ListOrgs(ctx context.Context) ([]Org, error) {
 	return out, rows.Err()
 }
 
-func (s *SQLite) RenameOrg(ctx context.Context, id, name string) error {
-	res, err := s.db.ExecContext(ctx, `UPDATE orgs SET name=? WHERE id=?`, name, id)
-	if err != nil {
-		return err
-	}
-	return needFound(res)
+func (s *SQLite) RenameOrg(ctx context.Context, id, name string, opts ...WriteOption) error {
+	return s.write(ctx, opts, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, `UPDATE orgs SET name=? WHERE id=?`, name, id)
+		if err != nil {
+			return err
+		}
+		return needFound(res)
+	})
 }
 
-func (s *SQLite) DeleteOrg(ctx context.Context, id string) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
+func (s *SQLite) DeleteOrg(ctx context.Context, id string, opts ...WriteOption) error {
+	return s.write(ctx, opts, func(tx *sql.Tx) error {
+		return deleteOrgRows(ctx, tx, id)
+	})
+}
+
+func deleteOrgRows(ctx context.Context, tx *sql.Tx, id string) error {
 	// The audit trail stays: it is the record of who created and deleted the organisation.
 	for _, q := range []string{
 		`DELETE FROM snapshots WHERE agent_id IN (SELECT id FROM agents WHERE org_id=?)`,
@@ -401,7 +404,7 @@ func (s *SQLite) DeleteOrg(ctx context.Context, id string) error {
 			return err
 		}
 	}
-	return tx.Commit()
+	return nil
 }
 
 func (s *SQLite) ListMyOrgs(ctx context.Context, userID string) ([]MyOrg, error) {
@@ -469,20 +472,24 @@ func (s *SQLite) AddMember(ctx context.Context, m Membership) error {
 	return err
 }
 
-func (s *SQLite) SetMemberRole(ctx context.Context, org, userID, role string) error {
-	res, err := s.db.ExecContext(ctx, `UPDATE memberships SET role=? WHERE org_id=? AND user_id=?`, role, org, userID)
-	if err != nil {
-		return err
-	}
-	return needFound(res)
+func (s *SQLite) SetMemberRole(ctx context.Context, org, userID, role string, opts ...WriteOption) error {
+	return s.write(ctx, opts, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, `UPDATE memberships SET role=? WHERE org_id=? AND user_id=?`, role, org, userID)
+		if err != nil {
+			return err
+		}
+		return needFound(res)
+	})
 }
 
-func (s *SQLite) RemoveMember(ctx context.Context, org, userID string) error {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM memberships WHERE org_id=? AND user_id=?`, org, userID)
-	if err != nil {
-		return err
-	}
-	return needFound(res)
+func (s *SQLite) RemoveMember(ctx context.Context, org, userID string, opts ...WriteOption) error {
+	return s.write(ctx, opts, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, `DELETE FROM memberships WHERE org_id=? AND user_id=?`, org, userID)
+		if err != nil {
+			return err
+		}
+		return needFound(res)
+	})
 }
 
 func (s *SQLite) CountOwners(ctx context.Context, org string) (int, error) {
@@ -494,11 +501,13 @@ func (s *SQLite) CountOwners(ctx context.Context, org string) (int, error) {
 
 // ---- invites ----
 
-func (s *SQLite) CreateInvite(ctx context.Context, inv Invite, hash []byte) error {
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO invites(id, org_id, hash, role, label, created_by, created_at, expires_at) VALUES(?,?,?,?,?,?,?,?)`,
-		inv.ID, inv.OrgID, hash, inv.Role, inv.Label, inv.CreatedBy, ms(inv.CreatedAt), ms(inv.ExpiresAt))
-	return err
+func (s *SQLite) CreateInvite(ctx context.Context, inv Invite, hash []byte, opts ...WriteOption) error {
+	return s.write(ctx, opts, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx,
+			`INSERT INTO invites(id, org_id, hash, role, label, created_by, created_at, expires_at) VALUES(?,?,?,?,?,?,?,?)`,
+			inv.ID, inv.OrgID, hash, inv.Role, inv.Label, inv.CreatedBy, ms(inv.CreatedAt), ms(inv.ExpiresAt))
+		return err
+	})
 }
 
 const inviteCols = `id, org_id, role, label, created_by, created_at, expires_at, used_at, used_by`
@@ -534,12 +543,14 @@ func (s *SQLite) ListInvites(ctx context.Context, org string) ([]Invite, error) 
 	return out, rows.Err()
 }
 
-func (s *SQLite) RevokeInvite(ctx context.Context, org, id string) error {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM invites WHERE org_id=? AND id=? AND used_at IS NULL`, org, id)
-	if err != nil {
-		return err
-	}
-	return needFound(res)
+func (s *SQLite) RevokeInvite(ctx context.Context, org, id string, opts ...WriteOption) error {
+	return s.write(ctx, opts, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, `DELETE FROM invites WHERE org_id=? AND id=? AND used_at IS NULL`, org, id)
+		if err != nil {
+			return err
+		}
+		return needFound(res)
+	})
 }
 
 func (s *SQLite) PeekInvite(ctx context.Context, hash []byte, now time.Time) (Invite, error) {

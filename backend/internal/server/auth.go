@@ -1130,9 +1130,8 @@ func (c *Core) CreateInvite(ctx context.Context, p Principal, role, label string
 	}
 	now := c.Now()
 	inv := store.Invite{ID: "inv-" + randHex(5), OrgID: c.OrgID, Role: role, Label: label, CreatedBy: p.User.ID, CreatedAt: now, ExpiresAt: now.Add(InviteTTL)}
-	if err := c.audited(ctx, p.User.Username, "invite-created", "invite", inv.ID, fmt.Sprintf("as %s%s", role, forLabel(label)), func() error {
-		return c.Store.CreateInvite(ctx, inv, HashSecret(secret))
-	}); err != nil {
+	if err := c.auditedWrite(c.Store.CreateInvite(ctx, inv, HashSecret(secret),
+		store.WithAudit(c.auditRow(c.OrgID, p.User.Username, "invite-created", "invite", inv.ID, fmt.Sprintf("as %s%s", role, forLabel(label))))), "invite-created"); err != nil {
 		return "", store.Invite{}, err
 	}
 	return secret, inv, nil
@@ -1155,15 +1154,11 @@ func (c *Core) RevokeInvite(ctx context.Context, p Principal, id string) error {
 			return errf(KindForbidden, "your role cannot withdraw an invitation to %s", i.Role)
 		}
 	}
-	return c.audited(ctx, p.User.Username, "invite-revoked", "invite", id, "", func() error {
-		if err := c.Store.RevokeInvite(ctx, c.OrgID, id); err != nil {
-			if errors.Is(err, store.ErrNotFound) {
-				return errf(KindNotFound, "no such open invitation")
-			}
-			return err
-		}
-		return nil
-	})
+	err = c.Store.RevokeInvite(ctx, c.OrgID, id, store.WithAudit(c.auditRow(c.OrgID, p.User.Username, "invite-revoked", "invite", id, "")))
+	if errors.Is(err, store.ErrNotFound) {
+		return errf(KindNotFound, "no such open invitation")
+	}
+	return c.auditedWrite(err, "invite-revoked")
 }
 
 // SetMemberRole changes what someone may do here. Owners can set any role and change anyone; an
@@ -1190,9 +1185,8 @@ func (c *Core) SetMemberRole(ctx context.Context, p Principal, userID, role stri
 			return err
 		}
 	}
-	return c.audited(ctx, p.User.Username, "member-role-changed", "user", u.ID, fmt.Sprintf("%s: %s → %s", u.Username, m.Role, role), func() error {
-		return c.Store.SetMemberRole(ctx, c.OrgID, u.ID, role)
-	})
+	return c.auditedWrite(c.Store.SetMemberRole(ctx, c.OrgID, u.ID, role,
+		store.WithAudit(c.auditRow(c.OrgID, p.User.Username, "member-role-changed", "user", u.ID, fmt.Sprintf("%s: %s → %s", u.Username, m.Role, role)))), "member-role-changed")
 }
 
 // RemoveMember takes someone out of the organisation, or lets a person leave it. They keep their
@@ -1217,9 +1211,8 @@ func (c *Core) RemoveMember(ctx context.Context, p Principal, userID string) err
 	if self {
 		action, detail = "member-left", ""
 	}
-	return c.audited(ctx, p.User.Username, action, "user", u.ID, detail, func() error {
-		return c.Store.RemoveMember(ctx, c.OrgID, u.ID)
-	})
+	return c.auditedWrite(c.Store.RemoveMember(ctx, c.OrgID, u.ID,
+		store.WithAudit(c.auditRow(c.OrgID, p.User.Username, action, "user", u.ID, detail))), action)
 }
 
 func (c *Core) member(ctx context.Context, userID string) (store.Membership, store.User, error) {
@@ -1251,9 +1244,8 @@ func (c *Core) RenameOrg(ctx context.Context, p Principal, name string) error {
 	if err != nil {
 		return err
 	}
-	return c.audited(ctx, p.User.Username, "org-renamed", "org", c.OrgID, fmt.Sprintf("%q", name), func() error {
-		return c.Store.RenameOrg(ctx, c.OrgID, name)
-	})
+	return c.auditedWrite(c.Store.RenameOrg(ctx, c.OrgID, name,
+		store.WithAudit(c.auditRow(c.OrgID, p.User.Username, "org-renamed", "org", c.OrgID, fmt.Sprintf("%q", name)))), "org-renamed")
 }
 
 // DeleteOrg erases the organisation with its agents, topology, history and members. The caller must
@@ -1269,9 +1261,8 @@ func (c *Core) DeleteOrg(ctx context.Context, p Principal, confirm string) error
 	if strings.TrimSpace(confirm) != o.Name {
 		return errf(KindInvalid, "type the organisation's name to confirm")
 	}
-	if err := c.audited(ctx, p.User.Username, "org-deleted", "org", o.ID, fmt.Sprintf("%q with everything in it", o.Name), func() error {
-		return c.Store.DeleteOrg(ctx, c.OrgID)
-	}); err != nil {
+	if err := c.auditedWrite(c.Store.DeleteOrg(ctx, c.OrgID,
+		store.WithAudit(c.auditRow(c.OrgID, p.User.Username, "org-deleted", "org", o.ID, fmt.Sprintf("%q with everything in it", o.Name)))), "org-deleted"); err != nil {
 		return err
 	}
 	if c.OnOrgDeleted != nil {

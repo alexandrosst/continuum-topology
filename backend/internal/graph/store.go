@@ -259,8 +259,9 @@ func (s *Store) PutWorkspace(ctx context.Context, org string, expectRev int64, d
 	return w, nil
 }
 
-func (s *Store) DeleteOrg(ctx context.Context, id string) error {
-	if err := s.Store.DeleteOrg(ctx, id); err != nil {
+func (s *Store) DeleteOrg(ctx context.Context, id string, opts ...store.WriteOption) error {
+	// opts carries the audit row, which must reach the SQL store or the deletion would go unrecorded.
+	if err := s.Store.DeleteOrg(ctx, id, opts...); err != nil {
 		return err
 	}
 	s.setDirty(s.histDirty, id, false)

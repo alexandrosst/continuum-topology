@@ -28,25 +28,75 @@ func (f *failAudit) AddAudit(ctx context.Context, e store.AuditEvent) error {
 // The writes that carry their own audit row (store.WithAudit) do not go through AddAudit, so the same
 // failure is injected where they would meet it: the store reports that the row could not be written
 // and has changed nothing. That the store really changes nothing is proven in the store's own tests.
-func (f *failAudit) CreateToken(ctx context.Context, t store.Token, hash []byte, opts ...store.WriteOption) error {
+// broken reports whether a write that carries its own audit row should meet the failure.
+func (f *failAudit) broken(opts []store.WriteOption) error {
 	if f.fail.Load() && len(opts) > 0 {
 		return fmt.Errorf("%w: disk full", store.ErrAuditWrite)
+	}
+	return nil
+}
+
+func (f *failAudit) CreateToken(ctx context.Context, t store.Token, hash []byte, opts ...store.WriteOption) error {
+	if err := f.broken(opts); err != nil {
+		return err
 	}
 	return f.Store.CreateToken(ctx, t, hash, opts...)
 }
 
 func (f *failAudit) DeleteToken(ctx context.Context, org, id string, opts ...store.WriteOption) error {
-	if f.fail.Load() && len(opts) > 0 {
-		return fmt.Errorf("%w: disk full", store.ErrAuditWrite)
+	if err := f.broken(opts); err != nil {
+		return err
 	}
 	return f.Store.DeleteToken(ctx, org, id, opts...)
 }
 
 func (f *failAudit) RejectAgent(ctx context.Context, id, reason string, now time.Time, opts ...store.WriteOption) error {
-	if f.fail.Load() && len(opts) > 0 {
-		return fmt.Errorf("%w: disk full", store.ErrAuditWrite)
+	if err := f.broken(opts); err != nil {
+		return err
 	}
 	return f.Store.RejectAgent(ctx, id, reason, now, opts...)
+}
+
+func (f *failAudit) CreateInvite(ctx context.Context, inv store.Invite, hash []byte, opts ...store.WriteOption) error {
+	if err := f.broken(opts); err != nil {
+		return err
+	}
+	return f.Store.CreateInvite(ctx, inv, hash, opts...)
+}
+
+func (f *failAudit) RevokeInvite(ctx context.Context, org, id string, opts ...store.WriteOption) error {
+	if err := f.broken(opts); err != nil {
+		return err
+	}
+	return f.Store.RevokeInvite(ctx, org, id, opts...)
+}
+
+func (f *failAudit) SetMemberRole(ctx context.Context, org, userID, role string, opts ...store.WriteOption) error {
+	if err := f.broken(opts); err != nil {
+		return err
+	}
+	return f.Store.SetMemberRole(ctx, org, userID, role, opts...)
+}
+
+func (f *failAudit) RemoveMember(ctx context.Context, org, userID string, opts ...store.WriteOption) error {
+	if err := f.broken(opts); err != nil {
+		return err
+	}
+	return f.Store.RemoveMember(ctx, org, userID, opts...)
+}
+
+func (f *failAudit) RenameOrg(ctx context.Context, id, name string, opts ...store.WriteOption) error {
+	if err := f.broken(opts); err != nil {
+		return err
+	}
+	return f.Store.RenameOrg(ctx, id, name, opts...)
+}
+
+func (f *failAudit) DeleteOrg(ctx context.Context, id string, opts ...store.WriteOption) error {
+	if err := f.broken(opts); err != nil {
+		return err
+	}
+	return f.Store.DeleteOrg(ctx, id, opts...)
 }
 
 func TestPrivilegedActionsFailClosedWhenTheAuditRowCannotBeWritten(t *testing.T) {
