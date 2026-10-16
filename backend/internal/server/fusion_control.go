@@ -913,9 +913,8 @@ func (c *Core) EnsureCentralOperator(ctx context.Context, actor string, dest sto
 			ClientCACertPEM: bundle.CACertPEM, ClientCAKeyPEM: caKeyPEM,
 			CreatedBy: actor, CreatedAt: c.Now(),
 		}
-		createErr := c.audited(ctx, actor, "operator-created", "operator", op.ID, "central (FUSION)", func() error {
-			return c.Store.CreateOperator(ctx, op, nil)
-		})
+		createErr := c.auditedWrite(c.Store.CreateOperator(ctx, op, nil,
+			store.WithAudit(c.auditRow(c.OrgID, actor, "operator-created", "operator", op.ID, "central (FUSION)"))), "operator-created")
 		if createErr == nil {
 			return op, bundle, nil
 		}

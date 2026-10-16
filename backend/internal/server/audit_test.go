@@ -127,6 +127,62 @@ func (f *failAudit) SaveSnapshot(ctx context.Context, agentID string, data []byt
 	return f.Store.SaveSnapshot(ctx, agentID, data, now, opts...)
 }
 
+func (f *failAudit) CreateOperator(ctx context.Context, op store.Operator, tokenHash []byte, opts ...store.WriteOption) error {
+	if err := f.broken(opts); err != nil {
+		return err
+	}
+	return f.Store.CreateOperator(ctx, op, tokenHash, opts...)
+}
+
+func (f *failAudit) UpdateOperatorScope(ctx context.Context, id string, ids []string, dest store.Destination, m []store.Modality, opts ...store.WriteOption) error {
+	if err := f.broken(opts); err != nil {
+		return err
+	}
+	return f.Store.UpdateOperatorScope(ctx, id, ids, dest, m, opts...)
+}
+
+func (f *failAudit) SetOperatorAddress(ctx context.Context, id, address string, opts ...store.WriteOption) error {
+	if err := f.broken(opts); err != nil {
+		return err
+	}
+	return f.Store.SetOperatorAddress(ctx, id, address, opts...)
+}
+
+func (f *failAudit) SetOperatorAddressIfEmpty(ctx context.Context, id, address string, opts ...store.WriteOption) (bool, error) {
+	if err := f.broken(opts); err != nil {
+		return false, err
+	}
+	return f.Store.SetOperatorAddressIfEmpty(ctx, id, address, opts...)
+}
+
+func (f *failAudit) RevokeOperator(ctx context.Context, id, reason string, now time.Time, opts ...store.WriteOption) error {
+	if err := f.broken(opts); err != nil {
+		return err
+	}
+	return f.Store.RevokeOperator(ctx, id, reason, now, opts...)
+}
+
+func (f *failAudit) DeleteOperator(ctx context.Context, id string, opts ...store.WriteOption) error {
+	if err := f.broken(opts); err != nil {
+		return err
+	}
+	return f.Store.DeleteOperator(ctx, id, opts...)
+}
+
+func (f *failAudit) SetOperatorHeartbeat(ctx context.Context, id string, hash []byte, now time.Time, opts ...store.WriteOption) error {
+	if err := f.broken(opts); err != nil {
+		return err
+	}
+	return f.Store.SetOperatorHeartbeat(ctx, id, hash, now, opts...)
+}
+
+func (f *failAudit) ReissueOperatorInstall(ctx context.Context, id string, in store.OperatorReissue, opts ...store.WriteOption) error {
+	if err := f.broken(opts); err != nil {
+		return err
+	}
+	return f.Store.ReissueOperatorInstall(ctx, id, in, opts...)
+}
+
 func TestPrivilegedActionsFailClosedWhenTheAuditRowCannotBeWritten(t *testing.T) {
 	a := newAdminRig(t)
 	fs := &failAudit{Store: a.st}

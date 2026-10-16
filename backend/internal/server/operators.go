@@ -421,9 +421,8 @@ func (c *Core) CreateOperatorWithOptions(ctx context.Context, actor, name string
 		detail += " (heartbeat enabled)"
 	}
 	detail += "; " + operatorAuditSummary(dest, sourceClusterIDs)
-	if err := c.audited(ctx, actor, "operator-created", "operator", op.ID, detail, func() error {
-		return c.Store.CreateOperator(ctx, op, nil)
-	}); err != nil {
+	if err := c.auditedWrite(c.Store.CreateOperator(ctx, op, nil,
+		store.WithAudit(c.auditRow(c.OrgID, actor, "operator-created", "operator", op.ID, detail))), "operator-created"); err != nil {
 		return store.Operator{}, "", OperatorTLSBundle{}, "", err
 	}
 	bundle.Senders, _ = c.mintSenderCertsHeld(ctx, actor, op, op.SourceClusterIDs)
@@ -494,15 +493,12 @@ func (c *Core) UpdateOperatorScope(ctx context.Context, actor, id string, source
 			detail += "; removed " + auditIDList(removed)
 		}
 	}
-	if err := c.audited(ctx, actor, "operator-scope-changed", "operator", id, detail, func() error {
-		if err := c.Store.UpdateOperatorScope(ctx, id, sourceClusterIDs, dest, acceptedModalities); err != nil {
-			if errors.Is(err, store.ErrBadState) {
-				return errf(KindConflict, "only an active operator's scope can be changed")
-			}
-			return err
-		}
-		return nil
-	}); err != nil {
+	err = c.Store.UpdateOperatorScope(ctx, id, sourceClusterIDs, dest, acceptedModalities,
+		store.WithAudit(c.auditRow(c.OrgID, actor, "operator-scope-changed", "operator", id, detail)))
+	if errors.Is(err, store.ErrBadState) {
+		err = errf(KindConflict, "only an active operator's scope can be changed")
+	}
+	if err := c.auditedWrite(err, "operator-scope-changed"); err != nil {
 		return err
 	}
 	// The senders changed, so which certificate ends first may have too.
@@ -651,20 +647,12 @@ func (c *Core) SetOperatorAddress(ctx context.Context, actor, id, address string
 	if detail == "" {
 		detail = "cleared"
 	}
-	return addr, c.audited(ctx, actor, "operator-address-changed", "operator", id, detail, func() error {
-		if err := c.Store.SetOperatorAddress(ctx, id, addr); err != nil {
-			if errors.Is(err, store.ErrBadState) {
-				return errf(KindConflict, "only an active operator's address can be changed")
-			}
-			return err
-		}
-		return nil
-	})
+	err = c.Store.SetOperatorAddress(ctx, id, addr, store.WithAudit(c.auditRow(c.OrgID, actor, "operator-address-changed", "operator", id, detail)))
+	if errors.Is(err, store.ErrBadState) {
+		err = errf(KindConflict, "only an active operator's address can be changed")
+	}
+	return addr, c.auditedWrite(err, "operator-address-changed")
 }
-
-// errAddressRecorded is what RecordOperatorAddressIfUnset's write finds when a person recorded an address after it
-// had looked: they win, and the audit trail says the server's attempt did not take effect.
-var errAddressRecorded = errors.New("an address was recorded in the meantime and was kept")
 
 // RecordOperatorAddressIfUnset is SetOperatorAddress for the server's own discovery: it writes only while the operator
 // has no address, as one compare-and-set in the store, so what an administrator types between the server's look and its
@@ -681,24 +669,17 @@ func (c *Core) RecordOperatorAddressIfUnset(ctx context.Context, actor, id, addr
 	if err != nil || addr == "" {
 		return "", false, err
 	}
-	err = c.audited(ctx, actor, "operator-address-changed", "operator", id, addr, func() error {
-		ok, err := c.Store.SetOperatorAddressIfEmpty(ctx, id, addr)
-		switch {
-		case errors.Is(err, store.ErrBadState):
-			return errf(KindConflict, "only an active operator's address can be changed")
-		case err != nil:
-			return err
-		case !ok:
-			return errAddressRecorded
-		}
-		return nil
-	})
-	if errors.Is(err, errAddressRecorded) {
+	// A person who recorded an address after the server looked wins: the store then changes nothing and adds no row.
+	ok, err := c.Store.SetOperatorAddressIfEmpty(ctx, id, addr, store.WithAudit(c.auditRow(c.OrgID, actor, "operator-address-changed", "operator", id, addr)))
+	if errors.Is(err, store.ErrBadState) {
+		err = errf(KindConflict, "only an active operator's address can be changed")
+	}
+	if err = c.auditedWrite(err, "operator-address-changed"); err != nil {
+		return "", false, err
+	}
+	if !ok {
 		again, gerr := c.Store.GetOperator(ctx, id)
 		return again.Address, false, gerr
-	}
-	if err != nil {
-		return "", false, err
 	}
 	return addr, true, nil
 }
@@ -761,16 +742,15 @@ func (c *Core) RevokeOperatorForce(ctx context.Context, actor, id, reason string
 	if err != nil {
 		return err
 	}
-	return c.audited(ctx, actor, "operator-revoked", "operator", id, detail, func() error {
-		if err := c.Store.RevokeOperator(ctx, id, reason, c.Now()); err != nil {
-			if errors.Is(err, store.ErrBadState) {
-				return errf(KindConflict, "operator is not active")
-			}
-			return err
-		}
-		c.opCAs.forget(id) // the sealed key was erased with it; do not keep the opened one
-		return nil
-	})
+	err = c.Store.RevokeOperator(ctx, id, reason, c.Now(), store.WithAudit(c.auditRow(c.OrgID, actor, "operator-revoked", "operator", id, detail)))
+	if errors.Is(err, store.ErrBadState) {
+		err = errf(KindConflict, "operator is not active")
+	}
+	if err = c.auditedWrite(err, "operator-revoked"); err != nil {
+		return err
+	}
+	c.opCAs.forget(id) // the sealed key was erased with it; do not keep the opened one
+	return nil
 }
 
 // DeleteOperator deletes an operator nothing depends on; see DeleteOperatorForce.
@@ -792,16 +772,15 @@ func (c *Core) DeleteOperatorForce(ctx context.Context, actor, id string, force 
 	if err != nil {
 		return err
 	}
-	return c.audited(ctx, actor, "operator-deleted", "operator", id, detail, func() error {
-		if err := c.Store.DeleteOperator(ctx, id); err != nil {
-			if errors.Is(err, store.ErrNotFound) {
-				return errf(KindNotFound, "no such regional operator")
-			}
-			return err
-		}
-		c.opCAs.forget(id)
-		return nil
-	})
+	err = c.Store.DeleteOperator(ctx, id, store.WithAudit(c.auditRow(c.OrgID, actor, "operator-deleted", "operator", id, detail)))
+	if errors.Is(err, store.ErrNotFound) {
+		err = errf(KindNotFound, "no such regional operator")
+	}
+	if err = c.auditedWrite(err, "operator-deleted"); err != nil {
+		return err
+	}
+	c.opCAs.forget(id)
+	return nil
 }
 
 // operatorIssuer returns the CA that signs op's client certificates and that CA's certificate PEM, which is

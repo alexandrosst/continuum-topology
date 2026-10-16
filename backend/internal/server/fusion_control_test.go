@@ -670,9 +670,9 @@ type racingStore struct {
 	rival func(store.Store)
 }
 
-func (s *racingStore) CreateOperator(ctx context.Context, op store.Operator, tokenHash []byte) error {
+func (s *racingStore) CreateOperator(ctx context.Context, op store.Operator, tokenHash []byte, opts ...store.WriteOption) error {
 	s.once.Do(func() { s.rival(s.Store) })
-	return s.Store.CreateOperator(ctx, op, tokenHash)
+	return s.Store.CreateOperator(ctx, op, tokenHash, opts...)
 }
 
 // Two first calls can both find no central operator. The one that loses the insert must reuse the operator the other

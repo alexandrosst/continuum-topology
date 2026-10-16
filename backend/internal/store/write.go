@@ -11,6 +11,10 @@ import (
 // made either. Callers turn it into "nothing was changed".
 var ErrAuditWrite = errors.New("the audit row could not be written")
 
+// errNoChange is returned from inside a write to say "I looked, and there was nothing to change". The
+// transaction is dropped and no audit row is added: a compare-and-set that lost the race did not happen.
+var errNoChange = errors.New("nothing changed")
+
 // WriteOption changes how one store write is carried out.
 type WriteOption func(*writeOptions)
 
@@ -39,6 +43,9 @@ func (s *SQLite) write(ctx context.Context, opts []WriteOption, fn func(tx *sql.
 	}
 	defer tx.Rollback()
 	if err := fn(tx); err != nil {
+		if errors.Is(err, errNoChange) {
+			return nil
+		}
 		return err
 	}
 	if o.audit != nil {

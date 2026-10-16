@@ -616,27 +616,29 @@ type Store interface {
 	// CreateOperator inserts a new regional operator together with the hash of its freshly minted
 	// receiver token, in one call (there being no separate "mint a token" step, unlike agent enrollment -
 	// nothing needs to phone home first).
-	CreateOperator(ctx context.Context, op Operator, tokenHash []byte) error
+	CreateOperator(ctx context.Context, op Operator, tokenHash []byte, opts ...WriteOption) error
 	GetOperator(ctx context.Context, id string) (Operator, error)
 	ListOperators(ctx context.Context, org string) ([]Operator, error)
 	// UpdateOperatorScope replaces an operator's source clusters, destination and accepted modalities
 	// together, atomically - there is no reason to leave them in an inconsistent combination between two
 	// separate calls.
-	UpdateOperatorScope(ctx context.Context, id string, sourceClusterIDs []string, dest Destination, acceptedModalities []Modality) error
+	UpdateOperatorScope(ctx context.Context, id string, sourceClusterIDs []string, dest Destination, acceptedModalities []Modality, opts ...WriteOption) error
 	// SetOperatorAddress records where other clusters reach the operator's receiver ("" clears it).
-	SetOperatorAddress(ctx context.Context, id, address string) error
+	SetOperatorAddress(ctx context.Context, id, address string, opts ...WriteOption) error
 	// SetOperatorAddressIfEmpty is SetOperatorAddress that writes only while no address is recorded (a compare-and-set:
 	// an address someone recorded meanwhile is kept) and reports whether it wrote.
-	SetOperatorAddressIfEmpty(ctx context.Context, id, address string) (bool, error)
-	RevokeOperator(ctx context.Context, id, reason string, now time.Time) error
-	DeleteOperator(ctx context.Context, id string) error
+	SetOperatorAddressIfEmpty(ctx context.Context, id, address string, opts ...WriteOption) (bool, error)
+	RevokeOperator(ctx context.Context, id, reason string, now time.Time, opts ...WriteOption) error
+	DeleteOperator(ctx context.Context, id string, opts ...WriteOption) error
 	// GetOperatorClientCAKey returns the sealed private key of the operator's own CA; ErrNotFound when it has
 	// none (legacy mTLS or bearer operator) or it was erased by RevokeOperator.
 	GetOperatorClientCAKey(ctx context.Context, id string) ([]byte, error)
 	// SetOperatorHeartbeat stores the hash of a freshly minted heartbeat secret for an ACTIVE operator,
 	// replacing any earlier one (so the earlier secret stops working at once). ErrBadState if it is not
 	// active, ErrNotFound if there is no such operator. last_seen_at is deliberately left as it was.
-	SetOperatorHeartbeat(ctx context.Context, id string, hash []byte, now time.Time) error
+	SetOperatorHeartbeat(ctx context.Context, id string, hash []byte, now time.Time, opts ...WriteOption) error
+	// ReissueOperatorInstall changes what a reissue of an operator's install changes, in one step with its audit row.
+	ReissueOperatorInstall(ctx context.Context, id string, in OperatorReissue, opts ...WriteOption) error
 	// GetOperatorByHeartbeatHash finds the operator a heartbeat secret's hash belongs to (any status:
 	// the caller decides what a revoked one means). ErrNotFound if none.
 	GetOperatorByHeartbeatHash(ctx context.Context, hash []byte) (Operator, error)

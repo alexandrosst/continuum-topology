@@ -161,19 +161,14 @@ func (c *Core) EnableOperatorHeartbeat(ctx context.Context, actor, id string) (s
 		action = "operator-heartbeat-rotated"
 	}
 	// No secret, hash or prefix in the detail: the trail records that it happened, by whom, to what.
-	err = c.audited(ctx, actor, action, "operator", id, "", func() error {
-		if err := c.Store.SetOperatorHeartbeat(ctx, id, HashSecret(secret), c.Now()); err != nil {
-			if errors.Is(err, store.ErrBadState) {
-				return errf(KindConflict, "only an active operator can report a heartbeat")
-			}
-			if errors.Is(err, store.ErrNotFound) {
-				return errf(KindNotFound, "no such regional operator")
-			}
-			return err
-		}
-		return nil
-	})
-	if err != nil {
+	err = c.Store.SetOperatorHeartbeat(ctx, id, HashSecret(secret), c.Now(), store.WithAudit(c.auditRow(c.OrgID, actor, action, "operator", id, "")))
+	switch {
+	case errors.Is(err, store.ErrBadState):
+		err = errf(KindConflict, "only an active operator can report a heartbeat")
+	case errors.Is(err, store.ErrNotFound):
+		err = errf(KindNotFound, "no such regional operator")
+	}
+	if err = c.auditedWrite(err, action); err != nil {
 		return "", false, err
 	}
 	return secret, rotated, nil

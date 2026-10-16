@@ -352,22 +352,9 @@ func (c *Core) ReissueOperatorInstall(ctx context.Context, actor, id string) (st
 	}
 	// Only what was done, never any secret or hash: the trail records that it happened, by whom, to what.
 	detail := strings.Join(did, "; ")
-	err = c.audited(ctx, actor, "operator-install-reissued", "operator", id, detail, func() error {
-		if tokenHash != nil {
-			if err := c.Store.SetOperatorReceiverToken(ctx, id, tokenHash); err != nil {
-				return stateErr(err)
-			}
-		} else if err := c.Store.SetOperatorCerts(ctx, id, recvEnd, clientEnd); err != nil {
-			return stateErr(err)
-		}
-		if hbHash != nil {
-			if err := c.Store.SetOperatorHeartbeat(ctx, id, hbHash, c.Now()); err != nil {
-				return stateErr(err)
-			}
-		}
-		return nil
-	})
-	if err != nil {
+	err = c.Store.ReissueOperatorInstall(ctx, id, store.OperatorReissue{ReceiverTokenHash: tokenHash, ReceiverNotAfter: recvEnd, ClientNotAfter: clientEnd, HeartbeatHash: hbHash, Now: c.Now()},
+		store.WithAudit(c.auditRow(c.OrgID, actor, "operator-install-reissued", "operator", id, detail)))
+	if err = c.auditedWrite(stateErr(err), "operator-install-reissued"); err != nil {
 		return store.Operator{}, OperatorReissue{}, err
 	}
 	op, err = c.operatorInOrg(ctx, id)
