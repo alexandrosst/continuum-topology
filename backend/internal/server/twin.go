@@ -45,12 +45,16 @@ type modelCache struct {
 }
 
 type twinRT struct {
-	mu         sync.Mutex
-	loaded     bool
-	reg        *twin.Registry
-	tombs      *twin.Tombstones
-	version    int64
-	fp         string
+	mu      sync.Mutex
+	loaded  bool
+	reg     *twin.Registry
+	tombs   *twin.Tombstones
+	version int64
+	fp      string
+	// unsaved is set while the current version has been handed out but the store has not accepted it yet. Until it
+	// has, a restart would read an older number and hand it out again for different content, so every read tries
+	// again.
+	unsaved    bool
 	cache      *modelCache
 	stateCache *stateCache
 	declared   workspace.Declared
@@ -339,6 +343,7 @@ func (h *Hub) Model(ctx context.Context) (twin.Model, string, error) {
 	tw.mu.Lock()
 	if c := tw.cache; c != nil && c.gen == tw.gen.Load() && c.stale == window && now.Sub(c.at) >= 0 && now.Sub(c.at) < modelCacheTTL {
 		m, etag := c.m, c.etag
+		h.saveModelVersion(ctx, now)
 		tw.mu.Unlock()
 		tw.cacheHits.Add(1)
 		return m, etag, nil
@@ -363,16 +368,31 @@ func (h *Hub) Model(ctx context.Context) (twin.Model, string, error) {
 	if fp != tw.fp || tw.version == 0 {
 		tw.version++
 		tw.fp = fp
-		st := store.ModelState{Version: tw.version, Fingerprint: fp, At: now}
-		if perr := h.C.Store.PutModelState(ctx, h.C.OrgID, st); perr != nil {
-			h.Log.Error("twin: the model version could not be saved", "err", perr)
-		}
+		tw.unsaved = true
 	}
+	h.saveModelVersion(ctx, now)
 	m.ModelVersion = tw.version
 	etag := fmt.Sprintf(`"m%d-%s"`, tw.version, fp[:12])
 	tw.cache = &modelCache{at: now, gen: gen, stale: window, m: m, etag: etag}
 	tw.mu.Unlock()
 	return m, etag, nil
+}
+
+// saveModelVersion stores the current version if the store does not have it yet. The caller holds tw.mu. A version
+// that could not be stored stays marked, and the next read (hit or miss) tries again, so a refused write delays the
+// number reaching the store but never loses it.
+func (h *Hub) saveModelVersion(ctx context.Context, at time.Time) {
+	tw := h.tw
+	if !tw.unsaved {
+		return
+	}
+	st := store.ModelState{Version: tw.version, Fingerprint: tw.fp, At: at}
+	if err := h.C.Store.PutModelState(ctx, h.C.OrgID, st); err != nil {
+		Metrics.storeErrors.Add(1)
+		h.Log.Error("twin: the model version could not be saved; it will be tried again on the next read", "version", tw.version, "err", err)
+		return
+	}
+	tw.unsaved = false
 }
 
 // staleWindow is how long silence is tolerated before a record is stale.
