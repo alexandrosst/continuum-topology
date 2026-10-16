@@ -373,11 +373,13 @@ func fromNullMS(v sql.NullInt64) *time.Time {
 
 // ---- tokens ----
 
-func (s *SQLite) CreateToken(ctx context.Context, t Token, hash []byte) error {
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO tokens(id, org_id, hash, label, access_tier, created_by, created_at, expires_at, expected_fp) VALUES(?,?,?,?,?,?,?,?,?)`,
-		t.ID, t.OrgID, hash, t.Label, t.AccessTier, t.CreatedBy, ms(t.CreatedAt), ms(t.ExpiresAt), t.ExpectedFingerprint)
-	return err
+func (s *SQLite) CreateToken(ctx context.Context, t Token, hash []byte, opts ...WriteOption) error {
+	return s.write(ctx, opts, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx,
+			`INSERT INTO tokens(id, org_id, hash, label, access_tier, created_by, created_at, expires_at, expected_fp) VALUES(?,?,?,?,?,?,?,?,?)`,
+			t.ID, t.OrgID, hash, t.Label, t.AccessTier, t.CreatedBy, ms(t.CreatedAt), ms(t.ExpiresAt), t.ExpectedFingerprint)
+		return err
+	})
 }
 
 func (s *SQLite) ListTokens(ctx context.Context, org string) ([]Token, error) {
@@ -401,15 +403,17 @@ func (s *SQLite) ListTokens(ctx context.Context, org string) ([]Token, error) {
 	return out, rows.Err()
 }
 
-func (s *SQLite) DeleteToken(ctx context.Context, org, id string) error {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM tokens WHERE id=? AND org_id=? AND used_at IS NULL`, id, org)
-	if err != nil {
-		return err
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return ErrNotFound
-	}
-	return nil
+func (s *SQLite) DeleteToken(ctx context.Context, org, id string, opts ...WriteOption) error {
+	return s.write(ctx, opts, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, `DELETE FROM tokens WHERE id=? AND org_id=? AND used_at IS NULL`, id, org)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return ErrNotFound
+		}
+		return nil
+	})
 }
 
 // ---- agents ----
@@ -631,13 +635,15 @@ func (s *SQLite) ApproveAgent(ctx context.Context, id string, tier int, approver
 
 // RejectAgent and RevokeAgent keep the poll secret's hash on purpose: an agent that is still waiting asks
 // with it and is told REJECTED with the reason, instead of only "unknown agent". The secret opens nothing else.
-func (s *SQLite) RejectAgent(ctx context.Context, id, reason string, now time.Time) error {
-	res, err := s.db.ExecContext(ctx,
-		`UPDATE agents SET status='rejected', reason=?, revoked_at=? WHERE id=? AND status='pending'`, reason, ms(now), id)
-	if err != nil {
-		return err
-	}
-	return needOne(res)
+func (s *SQLite) RejectAgent(ctx context.Context, id, reason string, now time.Time, opts ...WriteOption) error {
+	return s.write(ctx, opts, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx,
+			`UPDATE agents SET status='rejected', reason=?, revoked_at=? WHERE id=? AND status='pending'`, reason, ms(now), id)
+		if err != nil {
+			return err
+		}
+		return needOne(res)
+	})
 }
 
 func (s *SQLite) RevokeAgent(ctx context.Context, id, reason string, now time.Time) error {

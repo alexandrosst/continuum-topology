@@ -199,7 +199,7 @@ func (c *Core) auditOrg(ctx context.Context, org, actor, action, kind, id, detai
 func (c *Core) audited(ctx context.Context, actor, action, kind, id, detail string, do func() error) error {
 	if err := c.Store.AddAudit(ctx, c.auditRow(c.OrgID, actor, action, kind, id, detail)); err != nil {
 		c.Log.Error("audit write failed; the action was not carried out", "action", action, "err", err)
-		return errf(KindInternal, "the audit trail could not be written, so nothing was changed. Check the server's database and try again")
+		return errAuditNotWritten()
 	}
 	if err := do(); err != nil {
 		// The action may have failed because the request was cancelled or ran out of time, so the
@@ -211,6 +211,22 @@ func (c *Core) audited(ctx context.Context, actor, action, kind, id, detail stri
 		return err
 	}
 	return nil
+}
+
+func errAuditNotWritten() error {
+	return errf(KindInternal, "the audit trail could not be written, so nothing was changed. Check the server's database and try again")
+}
+
+// auditedWrite is audited for a store write that carries its own audit row (store.WithAudit): the
+// row and the change are one transaction, so the trail never holds a claim for something that did
+// not happen and there is no follow-up row to write. A refused attempt (not found, wrong state)
+// leaves no row at all. Only a failure to write the row itself is translated here.
+func (c *Core) auditedWrite(err error, action string) error {
+	if errors.Is(err, store.ErrAuditWrite) {
+		c.Log.Error("audit write failed; the action was not carried out", "action", action, "err", err)
+		return errAuditNotWritten()
+	}
+	return err
 }
 
 // auditOutcomeTimeout bounds the follow-up row written after a failed action.
@@ -245,9 +261,8 @@ func (c *Core) CreateTokenFor(ctx context.Context, actor, label string, tier int
 	if expectedCluster != "" {
 		detail += ", only for cluster " + shortFP(expectedCluster)
 	}
-	if err := c.audited(ctx, actor, "token-created", "token", t.ID, detail, func() error {
-		return c.Store.CreateToken(ctx, t, HashSecret(secret))
-	}); err != nil {
+	if err := c.auditedWrite(c.Store.CreateToken(ctx, t, HashSecret(secret),
+		store.WithAudit(c.auditRow(c.OrgID, actor, "token-created", "token", t.ID, detail))), "token-created"); err != nil {
 		return "", store.Token{}, err
 	}
 	return secret, t, nil

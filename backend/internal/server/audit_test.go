@@ -3,9 +3,11 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"continuum/internal/store"
 )
@@ -21,6 +23,30 @@ func (f *failAudit) AddAudit(ctx context.Context, e store.AuditEvent) error {
 		return errors.New("disk full")
 	}
 	return f.Store.AddAudit(ctx, e)
+}
+
+// The writes that carry their own audit row (store.WithAudit) do not go through AddAudit, so the same
+// failure is injected where they would meet it: the store reports that the row could not be written
+// and has changed nothing. That the store really changes nothing is proven in the store's own tests.
+func (f *failAudit) CreateToken(ctx context.Context, t store.Token, hash []byte, opts ...store.WriteOption) error {
+	if f.fail.Load() && len(opts) > 0 {
+		return fmt.Errorf("%w: disk full", store.ErrAuditWrite)
+	}
+	return f.Store.CreateToken(ctx, t, hash, opts...)
+}
+
+func (f *failAudit) DeleteToken(ctx context.Context, org, id string, opts ...store.WriteOption) error {
+	if f.fail.Load() && len(opts) > 0 {
+		return fmt.Errorf("%w: disk full", store.ErrAuditWrite)
+	}
+	return f.Store.DeleteToken(ctx, org, id, opts...)
+}
+
+func (f *failAudit) RejectAgent(ctx context.Context, id, reason string, now time.Time, opts ...store.WriteOption) error {
+	if f.fail.Load() && len(opts) > 0 {
+		return fmt.Errorf("%w: disk full", store.ErrAuditWrite)
+	}
+	return f.Store.RejectAgent(ctx, id, reason, now, opts...)
 }
 
 func TestPrivilegedActionsFailClosedWhenTheAuditRowCannotBeWritten(t *testing.T) {

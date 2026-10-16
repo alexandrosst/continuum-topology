@@ -93,14 +93,24 @@ func auditHash(prev []byte, e AuditEvent) []byte {
 
 // AddAudit appends a row and links it into the chain, atomically.
 func (s *SQLite) AddAudit(ctx context.Context, e AuditEvent) error {
-	if e.At.IsZero() {
-		e.At = time.Now()
-	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
+	if err := appendAudit(ctx, tx, e); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// appendAudit adds a row to the trail inside the caller's transaction and links it to the previous one.
+// Both AddAudit and the writes that carry their own audit row (WithAudit) go through it, so the chain
+// has exactly one way of being extended.
+func appendAudit(ctx context.Context, tx *sql.Tx, e AuditEvent) error {
+	if e.At.IsZero() {
+		e.At = time.Now()
+	}
 	prev := genesis
 	var last []byte
 	switch err := tx.QueryRowContext(ctx, `SELECT hash FROM audit WHERE hash IS NOT NULL ORDER BY id DESC LIMIT 1`).Scan(&last); {
@@ -122,10 +132,8 @@ func (s *SQLite) AddAudit(ctx context.Context, e AuditEvent) error {
 	e.ID = id
 	// The millisecond the database stores is what the hash must cover, or verification would disagree.
 	e.At = fromMS(ms(e.At))
-	if _, err := tx.ExecContext(ctx, `UPDATE audit SET hash=? WHERE id=?`, auditHash(prev, e), id); err != nil {
-		return err
-	}
-	return tx.Commit()
+	_, err = tx.ExecContext(ctx, `UPDATE audit SET hash=? WHERE id=?`, auditHash(prev, e), id)
+	return err
 }
 
 // AuditReport is the result of VerifyAudit.

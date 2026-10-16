@@ -572,9 +572,9 @@ type DecisionLog struct {
 }
 
 type Store interface {
-	CreateToken(ctx context.Context, t Token, hash []byte) error
+	CreateToken(ctx context.Context, t Token, hash []byte, opts ...WriteOption) error
 	ListTokens(ctx context.Context, org string) ([]Token, error)
-	DeleteToken(ctx context.Context, org, id string) error
+	DeleteToken(ctx context.Context, org, id string, opts ...WriteOption) error
 
 	// EnrollAgent atomically consumes the token and inserts the pending agent, or
 	// returns ErrTokenInvalid and changes nothing.
@@ -604,7 +604,7 @@ type Store interface {
 	ListAgents(ctx context.Context, org string) ([]Agent, error)
 	// ApproveAgent moves pending -> approved. ErrClusterEnrolled if another approved agent has the same fingerprint.
 	ApproveAgent(ctx context.Context, id string, tier int, approver string, clusterID string, leaf []byte, notAfter, now time.Time) error
-	RejectAgent(ctx context.Context, id, reason string, now time.Time) error
+	RejectAgent(ctx context.Context, id, reason string, now time.Time, opts ...WriteOption) error
 	RevokeAgent(ctx context.Context, id, reason string, now time.Time) error
 	// SetLeaf stores a renewed certificate; only for approved agents.
 	SetLeaf(ctx context.Context, id string, leaf []byte, notAfter time.Time) error
