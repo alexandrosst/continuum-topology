@@ -1151,12 +1151,14 @@ func scanTelemetryIntent(r scanner) (TelemetryIntent, error) {
 	return ti, nil
 }
 
-func (s *SQLite) CreateTelemetryIntent(ctx context.Context, ti TelemetryIntent) error {
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO telemetry_intents(id, org_id, agent_id, name, status, namespaces, exclude, signals, destination, routes, created_by, created_at, reason)
+func (s *SQLite) CreateTelemetryIntent(ctx context.Context, ti TelemetryIntent, opts ...WriteOption) error {
+	return s.write(ctx, opts, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx,
+			`INSERT INTO telemetry_intents(id, org_id, agent_id, name, status, namespaces, exclude, signals, destination, routes, created_by, created_at, reason)
 		 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		ti.ID, ti.OrgID, ti.AgentID, ti.Name, string(ti.Status), namespacesJSON(ti.Namespaces), namespacesJSON(ti.Exclude), signalGrantsJSON(ti.Signals), destinationJSON(ti.Destination), routesJSON(ti.Routes), ti.CreatedBy, ms(ti.CreatedAt), ti.Reason)
-	return err
+			ti.ID, ti.OrgID, ti.AgentID, ti.Name, string(ti.Status), namespacesJSON(ti.Namespaces), namespacesJSON(ti.Exclude), signalGrantsJSON(ti.Signals), destinationJSON(ti.Destination), routesJSON(ti.Routes), ti.CreatedBy, ms(ti.CreatedAt), ti.Reason)
+		return err
+	})
 }
 
 func (s *SQLite) GetTelemetryIntent(ctx context.Context, id string) (TelemetryIntent, error) {
@@ -1197,51 +1199,61 @@ func (s *SQLite) ListTelemetryIntents(ctx context.Context, org string) ([]Teleme
 	return out, rows.Err()
 }
 
-func (s *SQLite) UpdateTelemetryIntentScope(ctx context.Context, id string, namespaces, exclude []string, signals []SignalGrant) error {
-	res, err := s.db.ExecContext(ctx,
-		`UPDATE telemetry_intents SET namespaces=?, exclude=?, signals=? WHERE id=? AND status='active'`,
-		namespacesJSON(namespaces), namespacesJSON(exclude), signalGrantsJSON(signals), id)
-	if err != nil {
-		return err
-	}
-	return needOne(res)
+func (s *SQLite) UpdateTelemetryIntentScope(ctx context.Context, id string, namespaces, exclude []string, signals []SignalGrant, opts ...WriteOption) error {
+	return s.write(ctx, opts, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx,
+			`UPDATE telemetry_intents SET namespaces=?, exclude=?, signals=? WHERE id=? AND status='active'`,
+			namespacesJSON(namespaces), namespacesJSON(exclude), signalGrantsJSON(signals), id)
+		if err != nil {
+			return err
+		}
+		return needOne(res)
+	})
 }
 
-func (s *SQLite) UpdateTelemetryIntentDestination(ctx context.Context, id string, dest Destination) error {
-	res, err := s.db.ExecContext(ctx, `UPDATE telemetry_intents SET destination=? WHERE id=? AND status='active'`, destinationJSON(dest), id)
-	if err != nil {
-		return err
-	}
-	return needOne(res)
+func (s *SQLite) UpdateTelemetryIntentDestination(ctx context.Context, id string, dest Destination, opts ...WriteOption) error {
+	return s.write(ctx, opts, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, `UPDATE telemetry_intents SET destination=? WHERE id=? AND status='active'`, destinationJSON(dest), id)
+		if err != nil {
+			return err
+		}
+		return needOne(res)
+	})
 }
 
-func (s *SQLite) UpdateTelemetryIntentDestinations(ctx context.Context, id string, dest Destination, routes map[Modality]Destination) error {
-	res, err := s.db.ExecContext(ctx, `UPDATE telemetry_intents SET destination=?, routes=? WHERE id=? AND status='active'`, destinationJSON(dest), routesJSON(routes), id)
-	if err != nil {
-		return err
-	}
-	return needOne(res)
+func (s *SQLite) UpdateTelemetryIntentDestinations(ctx context.Context, id string, dest Destination, routes map[Modality]Destination, opts ...WriteOption) error {
+	return s.write(ctx, opts, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, `UPDATE telemetry_intents SET destination=?, routes=? WHERE id=? AND status='active'`, destinationJSON(dest), routesJSON(routes), id)
+		if err != nil {
+			return err
+		}
+		return needOne(res)
+	})
 }
 
-func (s *SQLite) RevokeTelemetryIntent(ctx context.Context, id, reason string, now time.Time) error {
-	res, err := s.db.ExecContext(ctx,
-		`UPDATE telemetry_intents SET status='revoked', reason=?, revoked_at=? WHERE id=? AND status='active'`,
-		reason, ms(now), id)
-	if err != nil {
-		return err
-	}
-	return needOne(res)
+func (s *SQLite) RevokeTelemetryIntent(ctx context.Context, id, reason string, now time.Time, opts ...WriteOption) error {
+	return s.write(ctx, opts, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx,
+			`UPDATE telemetry_intents SET status='revoked', reason=?, revoked_at=? WHERE id=? AND status='active'`,
+			reason, ms(now), id)
+		if err != nil {
+			return err
+		}
+		return needOne(res)
+	})
 }
 
-func (s *SQLite) DeleteTelemetryIntent(ctx context.Context, id string) error {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM telemetry_intents WHERE id=?`, id)
-	if err != nil {
-		return err
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return ErrNotFound
-	}
-	return nil
+func (s *SQLite) DeleteTelemetryIntent(ctx context.Context, id string, opts ...WriteOption) error {
+	return s.write(ctx, opts, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, `DELETE FROM telemetry_intents WHERE id=?`, id)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return ErrNotFound
+		}
+		return nil
+	})
 }
 
 // ---- quick-start gateway tokens ----
