@@ -97,7 +97,7 @@ operators](./regional-operators.md).
 ## The quick-start gateway token: an accepted tradeoff, not an oversight
 
 The quick-start flow lets an administrator stand up a backend (Jaeger, Zipkin, Prometheus, or Loki) in-cluster and
-front it with a minimal `nginx:alpine` gateway so it isn't open to anything that can reach the Service
+front it with a minimal nginx gateway (an exact, pinned nginx stable-line version) so it isn't open to anything that can reach the Service
 directly. That gateway is Part C of quick-start (`src/lib/quickStartGateway.ts`); the token it checks is
 minted by the server (`backend/internal/server/quickstart.go`, `admin_quickstart.go`) and handed to the
 admin exactly once, the same convention every other secret in this app follows (enrollment tokens, operator
@@ -110,7 +110,7 @@ in `store.Store` to revoke one — the interface has exactly `CreateGatewayToken
 (`store/store.go:372-377`) and nothing else.
 
 **What checks it:** nothing on the Ikhnos server. The plaintext token is templated directly into a
-static nginx `ConfigMap` at generation time, as a literal string an `if ($http_authorization = "Bearer
+static nginx configuration, held in a Kubernetes `Secret` (not a `ConfigMap`, which more people can usually read), at generation time, as a literal string an `if ($http_authorization = "Bearer
 <token>")` block compares against. Ikhnos's own role ends the moment that manifest is generated; from
 then on, the admin's own gateway pod is the entire enforcement mechanism, and the server never sees that
 traffic or dials the fronted backend itself.
@@ -127,7 +127,7 @@ days.
 **The accepted tradeoff:** a leaked quick-start gateway token is valid until it expires, and there is
 currently nothing Ikhnos itself can do to shorten that — the only way to invalidate it early is for the
 admin to manually redeploy the gateway (re-mint a token in the UI, re-apply the generated manifest, which
-overwrites the `ConfigMap`'s literal comparison string). This is named here as a conscious decision for this
+overwrites the `Secret`'s literal comparison string; the pod template carries a fingerprint of that configuration, so the re-apply rolls the pod, which a `subPath` mount would otherwise never pick up on its own). This is named here as a conscious decision for this
 project's current stage — a single operator fronting their own deployment, not a multi-tenant SaaS handing
 out credentials across organizations — rather than a bug to quietly patch. If a future need calls for real
 revocation, the shape of it is: a store-level revoke call (marking a `GatewayToken` invalid before its
