@@ -147,6 +147,11 @@ const (
 	ModalityMetrics Modality = "metrics"
 	ModalityLogs    Modality = "logs"
 	ModalityTraces  Modality = "traces"
+
+	// ModalityUnreadable is what an operator's AcceptedModalities reads back as when its stored column cannot
+	// be parsed. It matches no real signal, so the operator accepts nothing until an administrator saves its
+	// scope again; the other reading, "no restriction", would let a damaged row quietly accept everything.
+	ModalityUnreadable Modality = "unreadable"
 )
 
 // ReceiverAuth is how a regional operator's OTLP receiver authenticates what exports into it.

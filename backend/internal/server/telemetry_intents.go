@@ -68,6 +68,9 @@ func (c *Core) checkOperatorAcceptsSignals(ctx context.Context, dest store.Desti
 		if !known {
 			continue
 		}
+		if accepted[store.ModalityUnreadable] {
+			return errf(KindInvalid, "the signal types operator %q accepts could not be read from its stored settings; save its scope again before pointing an intent at it", op.Name)
+		}
 		if !accepted[modality] {
 			return errf(KindInvalid, "%q is a %s signal, but the target operator only accepts %v", sg.ID, modality, op.AcceptedModalities)
 		}

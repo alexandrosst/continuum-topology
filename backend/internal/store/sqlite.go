@@ -713,7 +713,8 @@ func parseDestination(s string) Destination {
 
 // acceptedModalitiesJSON/parseAcceptedModalities encode/decode Operator.AcceptedModalities the same way
 // sourceClusterIDsJSON does for SourceClusterIDs; a blank or unparsable column (a row from before this
-// column existed) reads back as no restriction, per AcceptedModalities's own doc comment.
+// column existed) reads back as no restriction, per AcceptedModalities's own doc comment. A column that cannot
+// be parsed is not that case: it is damage, and it reads back as ModalityUnreadable, which accepts nothing.
 func acceptedModalitiesJSON(m []Modality) string {
 	if len(m) == 0 {
 		return "[]"
@@ -723,7 +724,9 @@ func acceptedModalitiesJSON(m []Modality) string {
 }
 func parseAcceptedModalities(s string) []Modality {
 	var m []Modality
-	_ = json.Unmarshal([]byte(s), &m)
+	if err := json.Unmarshal([]byte(s), &m); err != nil {
+		return []Modality{ModalityUnreadable}
+	}
 	return m
 }
 
