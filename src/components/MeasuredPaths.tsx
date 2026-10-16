@@ -3,6 +3,7 @@ import { CircleAlert, Gauge, Plus, Trash2 } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Button, Field, ICON_MD, ICON_SM, Input, Pill, Select, Table, Td, Th } from '@/components/ui/primitives'
 import type { ProbeTarget } from '@/lib/history'
+import { hasRoundTrip } from '@/lib/metrics'
 import { ago } from '@/lib/observed'
 import { atLeast } from '@/lib/api'
 import { useConn, useServer } from '@/store/server'
@@ -21,7 +22,11 @@ export default function MeasuredPaths() {
   const status = useServer((s) => s.status)
   const admin = useServer((s) => atLeast(s.role, 'admin'))
   const measuring = agents.filter((a) => (a.measuring ?? 0) > 0)
-  const ordered = useMemo(() => [...paths].sort((a, b) => a.fromName.localeCompare(b.fromName) || b.rttP50Ms - a.rttP50Ms), [paths])
+  // Within a cluster, the slowest first; a path with no round trip at all has no time to sort by and goes last.
+  const ordered = useMemo(
+    () => [...paths].sort((a, b) => a.fromName.localeCompare(b.fromName) || Number(hasRoundTrip(b)) - Number(hasRoundTrip(a)) || b.rttP50Ms - a.rttP50Ms),
+    [paths],
+  )
 
   return (
     <section className="mt-10" aria-label="Measured paths" data-testid="measured-paths">
@@ -65,8 +70,16 @@ export default function MeasuredPaths() {
                   <div>{p.toName ?? p.label ?? p.host}</div>
                   <div className="font-mono text-xs text-nb-500">{p.host}:{p.port} · {p.source === 'manual' ? 'you asked' : 'seen in traffic'}</div>
                 </Td>
-                <Td className="tabular-nums text-nb-300">{ms(p.rttP50Ms)} ms</Td>
-                <Td className="tabular-nums text-nb-400">{ms(p.rttMinMs)} · {ms(p.rttP95Ms)} ms</Td>
+                {hasRoundTrip(p) ? (
+                  <>
+                    <Td className="tabular-nums text-nb-300">{ms(p.rttP50Ms)} ms</Td>
+                    <Td className="tabular-nums text-nb-400">{ms(p.rttMinMs)} · {ms(p.rttP95Ms)} ms</Td>
+                  </>
+                ) : (
+                  <Td colSpan={2} className="text-nb-500" data-testid="path-no-roundtrip">
+                    {p.samples > 0 ? 'no connection completed' : 'not measured yet'}
+                  </Td>
+                )}
                 <Td className={clsx('tabular-nums', p.lossPct > 0 ? 'text-warn' : 'text-nb-400')}>{p.lossPct > 0 ? `${p.lossPct.toFixed(0)} %` : 'none'}</Td>
                 <Td className="tabular-nums text-nb-400">{p.samples}</Td>
                 <Td className="whitespace-nowrap text-nb-400">{p.stale ? <span className="text-warn">stale · </span> : null}{ago(p.at)}</Td>

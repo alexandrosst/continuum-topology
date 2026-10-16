@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { applyFilter, hopNeighborhood, isFreshApplicationView, knownOnly, NO_APP, parseFilter, encodeList } from '../src/lib/filter'
-import { clusterLoad, lossBand, pathQuality } from '../src/lib/metrics'
+import { clusterLoad, hasRoundTrip, lossBand, pathQuality, qualityLabel } from '../src/lib/metrics'
 import { siteConnections } from '../src/lib/geo'
 import { describeView, viewParams } from '../src/lib/views'
 import { seedTopology } from '../src/lib/seed'
@@ -155,6 +155,37 @@ test('pathQuality prefers the direct measurement, falls back to the reverse one,
   assert.equal(lossBand(0.2), 'ok')
   assert.equal(lossBand(1), 'warn')
   assert.equal(lossBand(5), 'hot')
+})
+
+test('a path where every attempt failed has no round trip: loss is reported, the zero times are not', () => {
+  const p = (from: string, to: string, extra: Partial<Path> = {}): Path => ({ id: from + to, fromCluster: from, fromName: from, host: 'h', port: 1, toCluster: to, source: 'observed', rttMinMs: 1, rttP50Ms: 20, rttP95Ms: 30, lossPct: 0, samples: 5, at: '2026-09-19T00:00:00Z', ...extra })
+  const dead = (from: string, to: string) => p(from, to, { rttMinMs: 0, rttP50Ms: 0, rttP95Ms: 0, lossPct: 100, samples: 6 })
+  assert.equal(hasRoundTrip(p('a', 'b')), true)
+  assert.equal(hasRoundTrip(dead('a', 'b')), false)
+  assert.equal(hasRoundTrip(p('a', 'b', { samples: 0 })), false)
+  // Only a dead path: no round trip, 100 percent loss. It used to read as a 0 ms path.
+  const only = pathQuality([dead('a', 'b')], 'a', 'b')!
+  assert.equal(only.rttMs, undefined)
+  assert.equal(only.lossPct, 100)
+  assert.equal(qualityLabel(only), 'no round trip · 100% loss')
+  // A dead path beside a live one must not drag the best round trip down to zero.
+  const mixed = pathQuality([dead('a', 'b'), p('a', 'b', { rttP50Ms: 14 })], 'a', 'b')!
+  assert.equal(mixed.rttMs, 14)
+  assert.equal(mixed.lossPct, 100)
+})
+
+test('siteConnections: a path with no round trip does not replace a declared time with 0 ms', () => {
+  const site = (id: string) => ({ id, orgId: DEFAULT_ORG, name: id, kind: 'datacenter', lat: 0, lng: 0, country: 'GR' }) as (typeof seed.sites)[number]
+  const cl = (id: string, siteId: string) => ({ ...seed.clusters[0], id, siteId }) as (typeof seed.clusters)[number]
+  const dead: Path = { id: 'p', fromCluster: 'c1', fromName: 'c1', host: 'h', port: 1, toCluster: 'c2', source: 'observed', rttMinMs: 0, rttP50Ms: 0, rttP95Ms: 0, lossPct: 100, samples: 6, at: '2026-09-19T00:00:00Z' }
+  const run = (links: unknown[]) => siteConnections([site('s1'), site('s2')], [cl('c1', 's1'), cl('c2', 's2')], [], [], [], links as never, [dead])
+  const withDeclared = run([{ a: 's1', b: 's2', rttMs: 80, source: 'declared' }])[0]
+  assert.equal(withDeclared.rttMs, 80, 'the declared time stays')
+  assert.equal(withDeclared.measured, false, 'and it is not relabelled as measured')
+  assert.equal(withDeclared.lossPct, 100, 'the measured loss is still shown')
+  const alone = run([])[0]
+  assert.equal(alone.rttMs, undefined)
+  assert.equal(alone.lossPct, 100)
 })
 
 test('siteConnections: traffic per direction, measured round trip and loss beat declared', () => {

@@ -1,5 +1,6 @@
 // Pure helpers for the map view: which sites have anything on them, which of them are close enough on
 // screen to be drawn as one dot, and which places are connected. No rendering and no map library here.
+import { hasRoundTrip } from './metrics'
 import { countryName } from './present'
 import { ipScope } from './present'
 import { TIER_ORDER, type Cluster, type Dependency, type Device, type MachineNode, type Path, type Service, type Site, type SiteLink, type Status, type Tier } from './types'
@@ -185,8 +186,12 @@ export function siteConnections(
     const b = clusterSite.get(p.toCluster)
     if (!a || !b || a === b || !known.has(a) || !known.has(b)) continue
     const c = get(a, b)
-    c.rttMs = c.measured && c.rttMs !== undefined ? Math.min(c.rttMs, p.rttP50Ms) : p.rttP50Ms
-    c.measured = true
+    // A path where every attempt failed has a measured loss but no round trip: it must not replace a declared
+    // time with 0 ms, nor make a link look instant.
+    if (hasRoundTrip(p)) {
+      c.rttMs = c.measured && c.rttMs !== undefined ? Math.min(c.rttMs, p.rttP50Ms) : p.rttP50Ms
+      c.measured = true
+    }
     c.lossPct = Math.max(c.lossPct ?? 0, p.lossPct)
   }
   return [...out.values()].sort((x, y) => (x.a + x.b).localeCompare(y.a + y.b))

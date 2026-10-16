@@ -52,8 +52,17 @@ export function clusterLoad(cluster: Pick<Cluster, 'id'>, nodes: MachineNode[], 
   }
 }
 
+/**
+ * Whether a measured path has a round-trip time at all. When every connection attempt failed (or none was made)
+ * the agent reports zeros for the times, and those zeros are not measurements: a dead path would read as the
+ * fastest one. Its loss is still a real measurement. This is the same rule the server's model applies
+ * (a path with 100 percent loss or no samples has unknown times) and the placement advice already uses.
+ */
+export const hasRoundTrip = (p: Pick<Path, 'samples' | 'lossPct'>) => p.samples > 0 && p.lossPct < 100
+
 export interface PathQuality {
-  rttMs: number
+  /** The best median round trip among the paths that completed one; absent when none did (every attempt failed). */
+  rttMs?: number
   lossPct: number
   /** The measurement was taken in the other direction (round-trip time is the same both ways; loss may not be). */
   reversed?: boolean
@@ -66,7 +75,8 @@ export function pathQuality(paths: Path[], from: string, to: string): PathQualit
   const direct = pick(from, to)
   const use = direct.length ? direct : pick(to, from)
   if (!use.length) return undefined
-  return { rttMs: Math.min(...use.map((p) => p.rttP50Ms)), lossPct: Math.max(...use.map((p) => p.lossPct)), reversed: direct.length === 0 }
+  const times = use.filter(hasRoundTrip).map((p) => p.rttP50Ms)
+  return { rttMs: times.length ? Math.min(...times) : undefined, lossPct: Math.max(...use.map((p) => p.lossPct)), reversed: direct.length === 0 }
 }
 
 export type Band = 'ok' | 'warn' | 'hot'
@@ -74,4 +84,4 @@ export type Band = 'ok' | 'warn' | 'hot'
 export const lossBand = (lossPct: number): Band => (lossPct >= 5 ? 'hot' : lossPct >= 1 ? 'warn' : 'ok')
 
 export const rttLabel = (ms: number) => (ms < 10 ? `${ms.toFixed(1)} ms` : `${Math.round(ms)} ms`)
-export const qualityLabel = (q: PathQuality) => `${rttLabel(q.rttMs)}${q.lossPct > 0 ? ` · ${q.lossPct < 10 ? q.lossPct.toFixed(1) : Math.round(q.lossPct)}% loss` : ''}`
+export const qualityLabel = (q: PathQuality) => `${q.rttMs === undefined ? 'no round trip' : rttLabel(q.rttMs)}${q.lossPct > 0 ? ` · ${q.lossPct < 10 ? q.lossPct.toFixed(1) : Math.round(q.lossPct)}% loss` : ''}`

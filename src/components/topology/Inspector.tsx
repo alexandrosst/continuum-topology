@@ -1371,7 +1371,7 @@ export default function Inspector({
           <Section title="Network path">
             {q ? (
               <>
-                <Row label="Round trip"><span title="TCP connect time, median">{rttLabel(q.rttMs)}</span></Row>
+                <Row label="Round trip"><span title="TCP connect time, median">{q.rttMs === undefined ? 'none completed' : rttLabel(q.rttMs)}</span></Row>
                 <Row label="Loss"><span className={lossBand(q.lossPct) === 'hot' ? 'text-bad' : lossBand(q.lossPct) === 'warn' ? 'text-warn' : undefined}>{q.lossPct.toFixed(q.lossPct < 10 ? 1 : 0)}% of connection attempts failed</span></Row>
                 <p className="mt-1 text-xs text-nb-500">
                   Measured from {clusterName(q.reversed ? tc : fc)} to {clusterName(q.reversed ? fc : tc)}{q.reversed ? ' (the other direction; the round trip is the same, loss may differ)' : ''}.
