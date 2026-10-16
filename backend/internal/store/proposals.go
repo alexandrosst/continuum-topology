@@ -216,3 +216,56 @@ func (s *SQLite) GetProposalOutcome(ctx context.Context, org, id string) (Propos
 	o.InForceAt, o.RecordedAt = fromNullMS(inForce), fromMS(recorded)
 	return o, nil
 }
+
+// AdvisorCount is how many proposals an advisor has in one status.
+type AdvisorCount struct {
+	Advisor string
+	Status  ProposalStatus
+	N       int
+}
+
+// AdvisorOutcome is a proposal's Outcome beside the advisor that made it.
+type AdvisorOutcome struct {
+	Advisor string
+	ProposalOutcome
+}
+
+func (s *SQLite) ProposalCountsByAdvisor(ctx context.Context, org string) ([]AdvisorCount, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT advisor, status, COUNT(*) FROM proposals WHERE org_id=? GROUP BY advisor, status ORDER BY advisor, status`, org)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []AdvisorCount
+	for rows.Next() {
+		var c AdvisorCount
+		var st string
+		if err := rows.Scan(&c.Advisor, &st, &c.N); err != nil {
+			return nil, err
+		}
+		c.Status = ProposalStatus(st)
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLite) ListAdvisorOutcomes(ctx context.Context, org string) ([]AdvisorOutcome, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT p.advisor, o.proposal_id, o.org_id, o.result, o.predicted, o.observed, o.in_force_at, o.recorded_at
+		FROM proposal_outcomes o JOIN proposals p ON p.org_id=o.org_id AND p.id=o.proposal_id WHERE o.org_id=? ORDER BY o.recorded_at, o.proposal_id`, org)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []AdvisorOutcome
+	for rows.Next() {
+		var a AdvisorOutcome
+		var inForce sql.NullInt64
+		var recorded int64
+		if err := rows.Scan(&a.Advisor, &a.ProposalID, &a.OrgID, &a.Result, &a.Predicted, &a.Observed, &inForce, &recorded); err != nil {
+			return nil, err
+		}
+		a.InForceAt, a.RecordedAt = fromNullMS(inForce), fromMS(recorded)
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}

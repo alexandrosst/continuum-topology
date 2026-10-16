@@ -122,6 +122,37 @@ func (a *Admin) listProposals(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"proposals": out})
 }
 
+// advisorRecordDoc is one advisor's record, as GET .../proposals/advisors returns it.
+type advisorRecordDoc struct {
+	Advisor     string `json:"advisor"`
+	Proposals   int    `json:"proposals"`
+	Pending     int    `json:"pending"`
+	Accepted    int    `json:"accepted"`
+	Failed      int    `json:"failed"`
+	Rejected    int    `json:"rejected"`
+	Expired     int    `json:"expired"`
+	Measured    int    `json:"measured"`
+	Unconfirmed int    `json:"unconfirmed"`
+	NoData      int    `json:"noData"`
+	Held        int    `json:"held"`
+	Missed      int    `json:"missed"`
+}
+
+// listAdvisors is GET .../proposals/advisors: what each advisor has proposed, what people did with it, and whether its predictions held.
+func (a *Admin) listAdvisors(w http.ResponseWriter, r *http.Request) {
+	rs, err := a.tn(r).Hub.AdvisorRecords(r.Context())
+	if err != nil {
+		a.fail(w, err)
+		return
+	}
+	out := make([]advisorRecordDoc, len(rs))
+	for i, x := range rs {
+		out[i] = advisorRecordDoc{Advisor: x.Advisor, Proposals: x.Proposals, Pending: x.Pending, Accepted: x.Accepted, Failed: x.Failed, Rejected: x.Rejected,
+			Expired: x.Expired, Measured: x.Measured, Unconfirmed: x.Unconfirmed, NoData: x.NoData, Held: x.Held, Missed: x.Missed}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"advisors": out})
+}
+
 func atoiPositive(s string) (int, bool) {
 	n := 0
 	for _, c := range s {

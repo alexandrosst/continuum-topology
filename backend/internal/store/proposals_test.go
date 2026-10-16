@@ -255,3 +255,47 @@ func TestDeletingAnOrganisationDeletesItsProposalsAndTheirOutcomes(t *testing.T)
 		t.Fatalf("another organisation's outcome was deleted too: %v", err)
 	}
 }
+
+func TestAdvisorsAreCountedByStatusAndTheirOutcomesJoinedToThem(t *testing.T) {
+	s, ctx, _ := openAccounts(t)
+	base := time.Now().UTC().Truncate(time.Millisecond)
+	for i, c := range []struct{ id, advisor string }{{"pr-1", "a"}, {"pr-2", "a"}, {"pr-3", "b"}} {
+		p := proposalFor(c.id, "ag-1")
+		p.Advisor, p.CreatedAt = c.advisor, base.Add(time.Duration(i)*time.Second)
+		if err := s.CreateProposal(ctx, p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	other := proposalFor("pr-9", "ag-1")
+	other.OrgID, other.Advisor = "org-2", "a"
+	_ = s.CreateProposal(ctx, other) // another organisation: must not be counted
+
+	if err := s.TransitionProposal(ctx, "org-1", "pr-2", []ProposalStatus{ProposalPending}, ProposalRejected, "alex", "", base); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordProposalOutcome(ctx, ProposalOutcome{ProposalID: "pr-1", OrgID: "org-1", Result: "measured", Predicted: []byte(`{}`), Observed: []byte(`{"change":{}}`), RecordedAt: base}); err != nil {
+		t.Fatal(err)
+	}
+
+	counts, err := s.ProposalCountsByAdvisor(ctx, "org-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]int{}
+	for _, c := range counts {
+		got[c.Advisor+"/"+string(c.Status)] = c.N
+	}
+	if len(got) != 3 || got["a/pending"] != 1 || got["a/rejected"] != 1 || got["b/pending"] != 1 {
+		t.Fatalf("counts: %v", got)
+	}
+	outs, err := s.ListAdvisorOutcomes(ctx, "org-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(outs) != 1 || outs[0].Advisor != "a" || outs[0].ProposalID != "pr-1" || outs[0].Result != "measured" {
+		t.Fatalf("outcomes: %+v", outs)
+	}
+	if o, _ := s.ListAdvisorOutcomes(ctx, "org-2"); len(o) != 0 {
+		t.Fatalf("another organisation reads them: %+v", o)
+	}
+}

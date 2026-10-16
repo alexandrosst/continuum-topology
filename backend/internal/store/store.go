@@ -730,6 +730,10 @@ type Store interface {
 	RecordProposalOutcome(ctx context.Context, o ProposalOutcome, opts ...WriteOption) error
 	// GetProposalOutcome returns a proposal's Outcome, or ErrNotFound if it has none yet.
 	GetProposalOutcome(ctx context.Context, org, id string) (ProposalOutcome, error)
+	// ProposalCountsByAdvisor counts every proposal of the organisation by advisor and status (no limit, unlike ListProposals).
+	ProposalCountsByAdvisor(ctx context.Context, org string) ([]AdvisorCount, error)
+	// ListAdvisorOutcomes returns the Outcome of every proposal that has one, with the advisor that made the proposal.
+	ListAdvisorOutcomes(ctx context.Context, org string) ([]AdvisorOutcome, error)
 
 	// SaveSnapshot / LoadSnapshot keep the last full set of facts an agent reported,
 	// so the server can serve state immediately after a restart.

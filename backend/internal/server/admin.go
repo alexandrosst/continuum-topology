@@ -259,6 +259,7 @@ func (a *Admin) Handler() http.Handler {
 	// The decision loop: an advisor (an editor's API token) submits, a person decides. Widening is an administrator's, checked in the hub.
 	route("POST "+o+"/proposals", editorRole, a.submitProposal)
 	route("GET "+o+"/proposals", editorRole, a.listProposals)
+	route("GET "+o+"/proposals/advisors", editorRole, a.listAdvisors)
 	route("GET "+o+"/proposals/{id}", editorRole, a.getProposal)
 	route("POST "+o+"/proposals/{id}/accept", editorRole, a.decideProposal(true))
 	route("POST "+o+"/proposals/{id}/reject", editorRole, a.decideProposal(false))
