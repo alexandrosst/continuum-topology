@@ -396,6 +396,8 @@ func deleteOrgRows(ctx context.Context, tx *sql.Tx, id string) error {
 		`DELETE FROM telemetry_intents WHERE org_id=?`,
 		`DELETE FROM gateway_tokens WHERE org_id=?`,
 		`DELETE FROM decisions WHERE org_id=?`,
+		`DELETE FROM proposal_outcomes WHERE org_id=?`,
+		`DELETE FROM proposals WHERE org_id=?`,
 		`DELETE FROM fusion_tokens WHERE org_id=?`,
 		`DELETE FROM link_iperf_credentials WHERE org_id=?`,
 		`DELETE FROM orgs WHERE id=?`, // memberships and invites go with it

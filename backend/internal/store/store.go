@@ -714,6 +714,22 @@ type Store interface {
 	// ListDecisions returns one organisation's decision log, newest first, limited the same way ListAudit is.
 	ListDecisions(ctx context.Context, org string, limit int) ([]DecisionLog, error)
 
+	// CreateProposal stores a pending Proposal (see Proposal). ErrConflict if the id is taken.
+	CreateProposal(ctx context.Context, p Proposal, opts ...WriteOption) error
+	// GetProposal returns one organisation's proposal, or ErrNotFound (also for another organisation's id).
+	GetProposal(ctx context.Context, org, id string) (Proposal, error)
+	// ListProposals returns an organisation's proposals, newest first. An empty status or agent id matches any.
+	ListProposals(ctx context.Context, org string, q ProposalQuery) ([]Proposal, error)
+	// TransitionProposal moves a proposal from one of the statuses in from to the new one and records who decided it, when, and
+	// why. It is a compare-and-set: ErrBadState when the proposal is in none of from (someone else decided it first, or it is
+	// already over), ErrNotFound when there is no such proposal in the organisation. Nothing is written in either case.
+	TransitionProposal(ctx context.Context, org, id string, from []ProposalStatus, to ProposalStatus, by, note string, at time.Time, opts ...WriteOption) error
+	// RecordProposalOutcome stores the one Outcome a proposal can have. A second call for the same proposal changes nothing and
+	// writes no audit row.
+	RecordProposalOutcome(ctx context.Context, o ProposalOutcome, opts ...WriteOption) error
+	// GetProposalOutcome returns a proposal's Outcome, or ErrNotFound if it has none yet.
+	GetProposalOutcome(ctx context.Context, org, id string) (ProposalOutcome, error)
+
 	// SaveSnapshot / LoadSnapshot keep the last full set of facts an agent reported,
 	// so the server can serve state immediately after a restart.
 	SaveSnapshot(ctx context.Context, agentID string, data []byte, now time.Time, opts ...WriteOption) error

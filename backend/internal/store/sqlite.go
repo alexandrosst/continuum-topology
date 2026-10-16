@@ -247,6 +247,40 @@ CREATE TABLE IF NOT EXISTS decisions (
   migration_cost REAL NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS decisions_org ON decisions(org_id, at DESC);
+-- A change an advisor proposed to one agent's access, and what became of it - see store.Proposal. A new table, not a
+-- migration (like telemetry_intents), so an older binary opens a database that has it and a rollback needs no repair.
+CREATE TABLE IF NOT EXISTS proposals (
+  id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL,
+  advisor TEXT NOT NULL,
+  model_version INTEGER NOT NULL DEFAULT 0,
+  change TEXT NOT NULL,
+  evidence TEXT NOT NULL DEFAULT '[]',
+  confidence TEXT NOT NULL DEFAULT 'unknown',
+  blast TEXT NOT NULL DEFAULT '{}',
+  predicted TEXT NOT NULL DEFAULT '{}',
+  widens INTEGER NOT NULL DEFAULT 0,
+  mode TEXT NOT NULL DEFAULT 'advise',
+  status TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL,
+  decided_by TEXT NOT NULL DEFAULT '',
+  decided_at INTEGER,
+  note TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS proposals_org ON proposals(org_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS proposals_agent ON proposals(org_id, agent_id, status);
+-- What an advisor predicted for a proposal against what was observed once the change was in force: at most one row each.
+CREATE TABLE IF NOT EXISTS proposal_outcomes (
+  proposal_id TEXT PRIMARY KEY,
+  org_id TEXT NOT NULL,
+  result TEXT NOT NULL,
+  predicted TEXT NOT NULL DEFAULT '{}',
+  observed TEXT NOT NULL DEFAULT '{}',
+  in_force_at INTEGER,
+  recorded_at INTEGER NOT NULL
+);
 `
 
 type SQLite struct{ db *sql.DB }
