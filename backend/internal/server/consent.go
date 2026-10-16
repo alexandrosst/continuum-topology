@@ -275,13 +275,11 @@ func (h *Hub) SetAgentTier(ctx context.Context, actor, agentID string, tier int,
 	}
 	old := a.AccessTier
 	detail := fmt.Sprintf("%q: access tier %d (%s) to %d (%s); the agent's install allows up to %d", a.Name, old, tierName(old), tier, tierName(tier), a.InstalledTier)
-	if err := h.C.audited(ctx, actor, "agent-tier-changed", "agent", a.ID, detail, func() error {
-		err := h.C.Store.SetAccessTier(ctx, a.ID, tier)
-		if errors.Is(err, store.ErrBadState) {
-			return errf(KindConflict, "agent changed state while its access was being changed")
-		}
-		return err
-	}); err != nil {
+	err = h.C.Store.SetAccessTier(ctx, a.ID, tier, store.WithAudit(h.C.auditRow(h.C.OrgID, actor, "agent-tier-changed", "agent", a.ID, detail)))
+	if errors.Is(err, store.ErrBadState) {
+		err = errf(KindConflict, "agent changed state while its access was being changed")
+	}
+	if err := h.C.auditedWrite(err, "agent-tier-changed"); err != nil {
 		return a, err
 	}
 	Metrics.tierChanges.Add(1)
@@ -317,13 +315,12 @@ func (h *Hub) SetConsent(ctx context.Context, actor, agentID string, in Consent)
 	detail := fmt.Sprintf("%q: paused collectors [%s] to [%s]; extra namespaces left out [%s] to [%s]", a.Name,
 		strings.Join(cur.Paused, ", "), strings.Join(next.Paused, ", "), strings.Join(cur.Excluded, ", "), strings.Join(next.Excluded, ", "))
 	now := h.C.Now()
-	if err := h.C.audited(ctx, actor, "agent-consent-changed", "agent", a.ID, detail, func() error {
-		data, err := json.Marshal(next)
-		if err != nil {
-			return err
-		}
-		return h.C.Store.SaveSnapshot(ctx, consentKey(a.ID), data, now)
-	}); err != nil {
+	data, err := json.Marshal(next)
+	if err != nil {
+		return Consent{}, err
+	}
+	if err := h.C.auditedWrite(h.C.Store.SaveSnapshot(ctx, consentKey(a.ID), data, now,
+		store.WithAudit(h.C.auditRow(h.C.OrgID, actor, "agent-consent-changed", "agent", a.ID, detail))), "agent-consent-changed"); err != nil {
 		return Consent{}, err
 	}
 	Metrics.consentChanges.Add(1)
@@ -508,7 +505,8 @@ func (h *Hub) noteCeiling(ctx context.Context, agent, fresh store.Agent, reporte
 	}
 	if fresh.AccessTier > ceiling {
 		detail := fmt.Sprintf("%q: access tier %d (%s) to %d (%s), because the agent's install (Helm access.tier) now allows at most %d", agent.Name, fresh.AccessTier, tierName(fresh.AccessTier), ceiling, tierName(ceiling), ceiling)
-		if err := h.C.audited(ctx, actor, "agent-tier-changed", "agent", agent.ID, detail, func() error { return h.C.Store.SetAccessTier(ctx, agent.ID, ceiling) }); err == nil {
+		if err := h.C.auditedWrite(h.C.Store.SetAccessTier(ctx, agent.ID, ceiling,
+			store.WithAudit(h.C.auditRow(h.C.OrgID, actor, "agent-tier-changed", "agent", agent.ID, detail))), "agent-tier-changed"); err == nil {
 			agent.AccessTier = ceiling
 			h.narrowState(agent.ID, ceiling)
 			h.C.recordAgentGraph(ctx, agent, "agent-tier-changed", detail)
