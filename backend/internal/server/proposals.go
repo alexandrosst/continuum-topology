@@ -349,13 +349,6 @@ func (h *Hub) GetProposal(ctx context.Context, id string) (store.Proposal, *stor
 	return p, &o, nil
 }
 
-// acceptorMayWiden is stricter than mayWiden: widening needs a signed-in administrator, and a context with no caller is not
-// trusted here (it is, in mayWiden, which is D3).
-func acceptorMayWiden(ctx context.Context) bool {
-	p, ok := ctx.Value(ctxPrincipal{}).(Principal)
-	return ok && roleRank[p.Role] >= roleRank[RoleAdmin]
-}
-
 func (h *Hub) decideTransition(ctx context.Context, p store.Proposal, from []store.ProposalStatus, to store.ProposalStatus, by, note, action string) error {
 	detail := fmt.Sprintf("proposal %s from advisor %s: %s", p.ID, p.Advisor, string(to))
 	if note != "" {
@@ -426,7 +419,7 @@ func (h *Hub) AcceptProposal(ctx context.Context, actor, id, note string) (store
 	if err != nil {
 		return p, err
 	}
-	if widens && !acceptorMayWiden(ctx) {
+	if widens && !mayWiden(ctx) {
 		return p, errf(KindForbidden, "this change widens what the agent shares, and accepting it takes an administrator; narrowing does not")
 	}
 	// Claim the proposal first. Only one caller can move it out of pending, so only one makes the change.

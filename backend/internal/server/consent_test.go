@@ -291,14 +291,14 @@ func TestConsentOverridesAreValidatedPersistedAndPushed(t *testing.T) {
 	if v.cfgHash != h1 {
 		t.Fatal("the same overrides gave a different config hash")
 	}
-	if _, err := a.hub().SetConsent(a.ctx, "edith", id, Consent{Paused: []string{"flow"}}); err != nil {
+	if _, err := a.hub().SetConsent(asRole(RoleAdmin), "edith", id, Consent{Paused: []string{"flow"}}); err != nil {
 		t.Fatal(err)
 	}
 	a.hub().configFor(ag, v)
 	if v.cfgHash == h1 {
 		t.Fatal("changed overrides did not change the config hash")
 	}
-	if _, err := a.hub().SetConsent(a.ctx, "edith", id, Consent{Paused: []string{"measure"}}); err != nil {
+	if _, err := a.hub().SetConsent(asRole(RoleAdmin), "edith", id, Consent{Paused: []string{"measure"}}); err != nil {
 		t.Fatal(err)
 	}
 	if cfg := a.hub().configFor(ag, v); len(cfg.ProbeTargets) != 0 || cfg.MeasureSeconds != 0 {
@@ -1053,7 +1053,7 @@ func TestDropConsentOverridesStripsPausedProbeFields(t *testing.T) {
 	}
 
 	// Un-pausing lets the same fields through again (a fresh node: dropConsentOverrides mutates the one above in place).
-	if _, err := r.hub.SetConsent(r.ctx, "actor", id, Consent{}); err != nil {
+	if _, err := r.hub.SetConsent(asRole(RoleAdmin), "actor", id, Consent{}); err != nil {
 		t.Fatal(err)
 	}
 	n2 := &continuumv1.NodeFacts{Key: "n", Name: "n", MachineId: "m", SystemUuid: "u", ProviderId: "p",
@@ -1142,7 +1142,7 @@ func TestNoteFlowsRespectsTierAndPauseConsent(t *testing.T) {
 	}
 
 	bad := &continuumv1.FlowBatch{WindowSeconds: 0} // malformed: still an error, not just skipped
-	if _, err := r.hub.SetConsent(r.ctx, "actor", id, Consent{}); err != nil {
+	if _, err := r.hub.SetConsent(asRole(RoleAdmin), "actor", id, Consent{}); err != nil {
 		t.Fatal(err)
 	}
 	if applied, err := r.hub.noteFlows(id, 2, bad, time.Now()); applied || err == nil {
@@ -1410,5 +1410,45 @@ func TestKnownNamespacesOnlyLearnsFromASyncTheServerActuallyAccepted(t *testing.
 	r.hub.mu.Unlock()
 	if known["batch"] || known["shop"] {
 		t.Fatalf("a rejected sync should not have taught knownNamespaces anything: %v", known)
+	}
+}
+
+// Who may make an agent share more is decided by the caller's role, and a caller that is not known is not an administrator.
+// A path that forgot to carry the signed-in user used to be trusted here; it must not be, so a new internal caller has to say who
+// is asking. Narrowing never needed the right, so it still works without one.
+func TestAContextWithNoSignedInCallerMayNotWiden(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		ctx  context.Context
+		want bool
+	}{
+		{"no caller", context.Background(), false},
+		{"viewer", asRole(RoleViewer), false},
+		{"editor", asRole(RoleEditor), false},
+		{"administrator", asRole(RoleAdmin), true},
+	} {
+		if got := mayWiden(tc.ctx); got != tc.want {
+			t.Errorf("%s: mayWiden = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+
+	r := newHubRig(t)
+	id, _, _ := r.approvedAgent(t, fp)
+	h := r.hub
+	bare := context.Background()
+	if _, err := h.SetConsent(bare, "nobody", id, Consent{Paused: []string{"flow"}}); err != nil {
+		t.Fatalf("pausing a collector narrows, so it needs no right: %v", err)
+	}
+	if _, err := h.SetConsent(bare, "nobody", id, Consent{}); err == nil {
+		t.Fatal("a caller nobody knows lifted a pause")
+	}
+	if _, err := h.SetConsent(asRole(RoleEditor), "edith", id, Consent{}); err == nil {
+		t.Fatal("an editor lifted a pause")
+	}
+	if c, err := h.SetConsent(asRole(RoleAdmin), "adam", id, Consent{}); err != nil || len(c.Paused) != 0 {
+		t.Fatalf("an administrator could not lift it: %+v %v", c, err)
+	}
+	if _, err := h.SetAgentTier(bare, "nobody", id, 3, nil); err == nil {
+		t.Fatal("a caller nobody knows raised a tier")
 	}
 }
