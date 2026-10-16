@@ -455,6 +455,10 @@ func run(log *slog.Logger, selfProbe probeOpts, dataDir, agentListen, agentAddr,
 	}
 	// Agents' streams never end on their own, so a graceful stop would wait for them forever: give them a few seconds, then close.
 	grpcSrv.StopWithin(5 * time.Second)
+	// Nothing is writing any more: save what the timers had not yet, while the database is still open.
+	flushCtx, flushCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer flushCancel()
+	platform.FlushAll(flushCtx)
 	return nil
 }
 

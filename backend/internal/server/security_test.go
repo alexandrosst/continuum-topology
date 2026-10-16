@@ -402,7 +402,8 @@ func TestValidateSyncCutsOversizedFacts(t *testing.T) {
 
 type hubRig struct {
 	*rig
-	hub *Hub
+	hub  *Hub
+	plat *Platform
 }
 
 // newHubRig is newRig with the real sync hub behind the gRPC server.
@@ -423,5 +424,5 @@ func newHubRig(t *testing.T) *hubRig {
 	}
 	go srv.Serve(l)
 	t.Cleanup(srv.Stop)
-	return &hubRig{rig: &rig{env: e, addr: l.Addr().String()}, hub: hub}
+	return &hubRig{rig: &rig{env: e, addr: l.Addr().String()}, hub: hub, plat: p}
 }

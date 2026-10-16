@@ -87,6 +87,22 @@ func (p *Platform) Tenant(ctx context.Context, id string) (*Tenant, error) {
 	return t, nil
 }
 
+// FlushAll writes every live organisation's write-behind state (tombstones and node identities, which are
+// saved on a timer) to the database now. A graceful shutdown calls it after the servers have stopped and
+// before the database closes; without it every restart loses whatever the last timer interval had gathered.
+// It is deliberately not part of drop: a deleted organisation's data is gone and must not be written back.
+func (p *Platform) FlushAll(ctx context.Context) {
+	p.mu.Lock()
+	hubs := make([]*Hub, 0, len(p.tenants))
+	for _, t := range p.tenants {
+		hubs = append(hubs, t.Hub)
+	}
+	p.mu.Unlock()
+	for _, h := range hubs {
+		h.twinTick(ctx)
+	}
+}
+
 // drop stops an organisation's live state after its data was deleted, and ends its agents' streams.
 func (p *Platform) drop(id string) {
 	p.mu.Lock()
