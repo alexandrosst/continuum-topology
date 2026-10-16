@@ -251,21 +251,26 @@ func (h *Hub) pushConfigs() {
 
 // pushOne sends one agent a fresh Config if its stream is live and the Config differs from the last one sent. An administrator's
 // change (a tier, an override) takes effect through this without waiting for the agent to reconnect.
+//
+// The agent's record and consent are read, the Config built and queued under the agent's own pushMu. Without it two pushes
+// could read the record at different moments and queue in the other order, leaving the agent with the older Config until the
+// next refresh found the hashes differing.
 func (h *Hub) pushOne(id string) {
+	h.mu.Lock()
+	v, s := h.views[id], h.sessions[id]
+	h.mu.Unlock()
+	if v == nil || s == nil {
+		return
+	}
+	v.pushMu.Lock()
+	defer v.pushMu.Unlock()
 	a, err := h.C.Store.GetAgent(bg(), id)
 	if err != nil || a.Status != store.StatusApproved {
 		return
 	}
 	h.mu.Lock()
-	v, s := h.views[id], h.sessions[id]
-	old := ""
-	if v != nil {
-		old = v.cfgHash
-	}
+	old := v.cfgHash
 	h.mu.Unlock()
-	if v == nil || s == nil {
-		return
-	}
 	cfg, complete := h.configForChecked(a, v)
 	if !complete {
 		// Not a Config to send: its peer list is empty only for want of data. The agent keeps the peers it has, the hash is put

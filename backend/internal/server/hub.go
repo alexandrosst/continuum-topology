@@ -79,6 +79,8 @@ type view struct {
 	reach map[string]*addrReach
 	// cfgHash identifies the last Config pushed on the stream, so a new one is sent only when it differs.
 	cfgHash string
+	// pushMu serializes the building and queueing of this agent's Configs, so they are queued in the order they were read.
+	pushMu sync.Mutex
 
 	// What this agent has sent since the server started (lost on restart; not history, only a gauge of the link).
 	link linkStats
