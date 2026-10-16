@@ -147,3 +147,43 @@ func TestOfflineRecoveryRevokesPersonalTokens(t *testing.T) {
 		t.Fatalf("the token after recovery: %d %s", r.Code, r.Body.String())
 	}
 }
+
+func TestChangingThePasswordRevokesPersonalAPITokens(t *testing.T) {
+	a := newAdminRig(t)
+	_, cookie := a.user(t, "jamie", RoleViewer)
+	_, otherCookie := a.user(t, "casey", RoleViewer)
+
+	mint := func(c string, name string) string {
+		r := a.do("POST", "/api/v1/auth/tokens", map[string]string{"name": name}, withCookie(c))
+		if r.Code != 200 {
+			t.Fatalf("create %s: %d %s", name, r.Code, r.Body.String())
+		}
+		return r.json(t)["token"].(string)
+	}
+	whoami := func(secret string) int {
+		return a.do("GET", "/api/v1/auth/me", nil, withHeader("Authorization", "Bearer "+secret), withoutXRW()).Code
+	}
+	mine1, mine2, theirs := mint(cookie, "ci"), mint(cookie, "laptop"), mint(otherCookie, "ci")
+	for _, s := range []string{mine1, mine2, theirs} {
+		if got := whoami(s); got != 200 {
+			t.Fatalf("token should work before the change: %d", got)
+		}
+	}
+
+	if r := a.do("POST", "/api/v1/auth/password", map[string]string{"current": goodPW, "new": "another long pass 7!"}, withCookie(cookie)); r.Code != 200 {
+		t.Fatalf("change password: %d %s", r.Code, r.Body.String())
+	}
+
+	for _, s := range []string{mine1, mine2} {
+		if got := whoami(s); got != 401 {
+			t.Fatalf("a token minted before the password change must stop working, got %d", got)
+		}
+	}
+	if got := whoami(theirs); got != 200 {
+		t.Fatalf("another account's token must be untouched, got %d", got)
+	}
+	// The person can mint a new one afterwards, and it works.
+	if got := whoami(mint(cookie, "new")); got != 200 {
+		t.Fatalf("a token minted after the change should work, got %d", got)
+	}
+}

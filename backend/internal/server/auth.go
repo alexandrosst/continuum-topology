@@ -703,8 +703,40 @@ func (c *Core) ChangePassword(ctx context.Context, p Principal, current, next st
 		return err
 	}
 	_ = c.Store.DeleteUserSessions(ctx, u.ID, p.SessionHash)
-	c.auditUser(ctx, u, "password-changed", "", "")
+	// A personal token is a standing copy of the account's power, issued while the old password was in force.
+	// A password change is the person's answer to "someone else may have it", so it signs out every other
+	// session (above) and ends every token as well; the person mints new ones when they want them.
+	n, terr := c.revokeAPITokens(ctx, u.ID)
+	if terr != nil {
+		c.Log.Error("password changed but not every personal API token could be revoked", "user", u.ID, "err", terr)
+	}
+	detail := ""
+	if n > 0 {
+		detail = fmt.Sprintf("%d personal API token(s) revoked", n)
+	}
+	c.auditUser(ctx, u, "password-changed", detail, "")
 	return nil
+}
+
+// revokeAPITokens deletes every personal API token the account owns and reports how many it removed. It keeps
+// going past a single failure so one bad row cannot leave the rest alive, and returns the first error seen.
+func (c *Core) revokeAPITokens(ctx context.Context, userID string) (int, error) {
+	toks, err := c.Store.ListAPITokens(ctx, userID)
+	if err != nil {
+		return 0, err
+	}
+	var first error
+	n := 0
+	for _, t := range toks {
+		if err := c.Store.RevokeAPIToken(ctx, userID, t.ID); err != nil {
+			if first == nil {
+				first = err
+			}
+			continue
+		}
+		n++
+	}
+	return n, first
 }
 
 // totpIssuer is the "issuer" every otpauth:// URI carries, and what shows above the account name in an
@@ -1327,10 +1359,7 @@ func (c *Core) RecoverPassword(ctx context.Context, username string) (string, er
 		_ = c.Store.DeleteUserSessions(ctx, u.ID, nil)
 		// Recovery is what follows a suspected compromise (and it re-enables a disabled account), so a personal
 		// token minted before it must not come back to life with the account.
-		toks, _ := c.Store.ListAPITokens(ctx, u.ID)
-		for _, t := range toks {
-			_ = c.Store.RevokeAPIToken(ctx, u.ID, t.ID)
-		}
+		_, _ = c.revokeAPITokens(ctx, u.ID)
 	}
 	c.auditUser(ctx, u, "password-recovered", "server command line", "")
 	return pw, nil
