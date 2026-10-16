@@ -9,8 +9,14 @@ import type { Site } from '@/lib/types'
 
 /* ---------- ownership ---------- */
 
-/** Who the product belongs to, shown in the footer of the menu and of the sign-in page. Change it here. */
+/** The product's name as the footer's copyright line gives it, shown in the menu and on the sign-in page. */
 export const OWNER = 'Ikhnos'
+
+/** The year of the first release, as in the LICENSE file. A copyright year names when the work appeared, so it is not the current year. */
+export const COPYRIGHT_YEAR = 2026
+
+/** The code is open source under this license (the LICENSE file at the root of the repository); the line links to the license's text. */
+export const LICENSE = { name: 'Apache License 2.0', url: 'https://www.apache.org/licenses/LICENSE-2.0' }
 
 /** The product's mark: a path being traced, with its nodes. Orange reads on both themes, so there is one file. */
 export function BrandMark({ className }: { className?: string }) {
@@ -24,7 +30,18 @@ export function Copyright({ className }: { className?: string }) {
   return (
     <div className={clsx('space-y-1.5 text-[11px] leading-snug text-nb-600', className)} data-testid="copyright">
       <p>
-        © {new Date().getFullYear()} {OWNER}. All rights reserved.
+        {OWNER} © {COPYRIGHT_YEAR}
+        <br />
+        Open source under the{' '}
+        <a
+          href={LICENSE.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline decoration-nb-700 underline-offset-2 outline-none hover:text-nb-400 focus-visible:ring-2 focus-visible:ring-nb-400"
+          data-testid="license-link"
+        >
+          {LICENSE.name}
+        </a>
       </p>
       <div>
         <div className="mb-1.5">Developed at</div>

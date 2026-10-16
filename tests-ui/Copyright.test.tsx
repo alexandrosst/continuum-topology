@@ -1,8 +1,21 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
-import { Copyright, OWNER } from '@/components/ui/brand'
+import { Copyright, COPYRIGHT_YEAR, LICENSE, OWNER } from '@/components/ui/brand'
 
 describe('Copyright', () => {
+  it('says the code is open source under the Apache License 2.0, with the product name and the year of its first release', () => {
+    render(<Copyright />)
+    const text = screen.getByTestId('copyright').textContent ?? ''
+    expect(text).toContain(`${OWNER} © ${COPYRIGHT_YEAR}`)
+    expect(text).toContain('Open source under the Apache License 2.0')
+    // Not a claim that no rights are given.
+    expect(text.toLowerCase()).not.toContain('all rights reserved')
+    const link = screen.getByTestId('license-link')
+    expect(link.getAttribute('href')).toBe(LICENSE.url)
+    expect(link.getAttribute('rel')).toContain('noopener')
+    expect(link.getAttribute('target')).toBe('_blank')
+  })
+
   it('names the owner and credits the lab with a link to its site', () => {
     render(<Copyright />)
     expect(screen.getByTestId('copyright').textContent).toContain(OWNER)

@@ -94,7 +94,7 @@ cd backend && go vet ./... && go test -race ./...   # frontend: npm run test:uni
 
 ## Data and attribution
 
-The footer text in the app (`OWNER` in `src/components/ui/brand.tsx`) reads "© \<year\> Ikhnos. All rights reserved." — replace it with the name of the actual rights holder. That string is just UI copy; the code itself is licensed under Apache 2.0 regardless of what it says.
+The footer text in the app (`OWNER`, `COPYRIGHT_YEAR` and `LICENSE` in `src/components/ui/brand.tsx`) reads "Ikhnos © 2026 · Open source under the Apache License 2.0", with the license name linking to the license text. If the project is forked or its rights holder changes, change the name and year there; the code is licensed under Apache 2.0 regardless of what the footer says (see `LICENSE`).
 
 - City names and coordinates: [GeoNames](https://www.geonames.org/) `cities15000`, CC BY 4.0. Rebuild with `scripts/build-geodata.py`.
 - Country outlines: Natural Earth via `world-atlas` (public domain).
