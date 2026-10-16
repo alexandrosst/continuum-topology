@@ -92,6 +92,10 @@ func splitSync(s *continuumv1.Sync, limit int) []*continuumv1.Sync {
 	return chunks
 }
 
+// maxFlowWindowSeconds is the longest window the server accepts on a flow batch (sanitizeFlowBatch refuses a longer one
+// and ends the stream).
+const maxFlowWindowSeconds = 24 * 3600
+
 // ---- overrides ----
 
 // overrides is what the agent will actually do after reading a Config: the server's wishes cut down to what the install
@@ -558,7 +562,28 @@ func (r *runner) stream(ctx context.Context, id *Identity) error {
 		t := time.NewTicker(r.cfg.FlowWindow)
 		defer t.Stop()
 		flowTick = t.C
-		r.cfg.Flows.Aggregator.Flush() // start the first window now
+	}
+	// sendFlows sends what the traffic observer has seen since the last flush, if anything.
+	sendFlows := func() error {
+		b := r.cfg.Flows.Aggregator.Flush()
+		if b == nil {
+			return nil
+		}
+		// The server refuses a window it cannot be (it ends the stream), and an agent that was cut off for more
+		// than a day has one. The traffic is still true, so it is sent with the longest window the server takes.
+		b.WindowSeconds = min(b.WindowSeconds, maxFlowWindowSeconds)
+		r.dg.mu.Lock()
+		r.dg.lastFlowBatchFlows, r.dg.lastFlowBatchBytes = len(b.Flows), proto.Size(b)
+		r.dg.mu.Unlock()
+		return send(&continuumv1.AgentMessage{Msg: &continuumv1.AgentMessage_Flows{Flows: b}})
+	}
+	if r.cfg.Flows != nil && tier >= 2 {
+		// The collectors keep reporting while there is no stream, so the aggregator holds what they saw during the
+		// outage. It is sent now, as a batch of its own with the window it really covers, rather than thrown away:
+		// the connections and bytes of the outage count, and an edge that only existed during it is not lost.
+		if err := sendFlows(); err != nil {
+			return err
+		}
 	}
 	var debounce <-chan time.Time
 	alive := time.NewTicker(30 * time.Second) // proof for the liveness probe that this loop is turning
@@ -649,13 +674,8 @@ func (r *runner) stream(ctx context.Context, id *Identity) error {
 				return err
 			}
 		case <-flowTick:
-			if b := r.cfg.Flows.Aggregator.Flush(); b != nil {
-				r.dg.mu.Lock()
-				r.dg.lastFlowBatchFlows, r.dg.lastFlowBatchBytes = len(b.Flows), proto.Size(b)
-				r.dg.mu.Unlock()
-				if err := send(&continuumv1.AgentMessage{Msg: &continuumv1.AgentMessage_Flows{Flows: b}}); err != nil {
-					return err
-				}
+			if err := sendFlows(); err != nil {
+				return err
 			}
 		case <-renewed:
 			return nil // reconnect with the new certificate
