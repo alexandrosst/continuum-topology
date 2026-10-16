@@ -36,6 +36,20 @@ func (f *failAudit) broken(opts []store.WriteOption) error {
 	return nil
 }
 
+func (f *failAudit) CreateProposal(ctx context.Context, p store.Proposal, opts ...store.WriteOption) error {
+	if err := f.broken(opts); err != nil {
+		return err
+	}
+	return f.Store.CreateProposal(ctx, p, opts...)
+}
+
+func (f *failAudit) TransitionProposal(ctx context.Context, org, id string, from []store.ProposalStatus, to store.ProposalStatus, by, note string, at time.Time, opts ...store.WriteOption) error {
+	if err := f.broken(opts); err != nil {
+		return err
+	}
+	return f.Store.TransitionProposal(ctx, org, id, from, to, by, note, at, opts...)
+}
+
 func (f *failAudit) CreateToken(ctx context.Context, t store.Token, hash []byte, opts ...store.WriteOption) error {
 	if err := f.broken(opts); err != nil {
 		return err
