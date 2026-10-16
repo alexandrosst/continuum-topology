@@ -87,6 +87,19 @@ An Outcome is written once. Comparing `predicted` with `observed.change` is how 
 afterwards. The load can also move for reasons unrelated to the change; the Outcome records what was observed,
 not a causal claim.
 
+## An example advisor
+
+`docs/examples/advisor.py` is a complete advisor in one file (Python 3, standard library only). Set
+`IKHNOS_URL`, `IKHNOS_ORG` and `IKHNOS_TOKEN` (an editor's API token), then:
+
+* `advisor.py run --dry-run` prints what it would propose and sends nothing;
+* `advisor.py run` proposes pausing the flow collector on an agent whose CPU has stayed above a threshold, once
+  (it skips agents that already have a pending proposal);
+* `advisor.py list` and `advisor.py show ID` read proposals back.
+
+It only proposes. A person still accepts or rejects. A test (`advisor_example_test.go`) runs it against the real
+handlers.
+
 ## Not in this release
 
 Auto mode (applying a narrowing without a person), other kinds of change (telemetry intents, placement), and any
