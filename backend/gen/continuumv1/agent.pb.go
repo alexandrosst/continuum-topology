@@ -1199,8 +1199,11 @@ type Heartbeat struct {
 	// prober_seen_unix moves. Absent from an agent older than this field: the server then treats every capability as
 	// unknown, never as missing.
 	LinkCapabilities *LinkCapabilities `protobuf:"bytes,5,opt,name=link_capabilities,json=linkCapabilities,proto3" json:"link_capabilities,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// The digest (Config.digest) of the last Config this agent applied. Sent on every heartbeat. Empty before the agent has applied
+	// one, and from an agent older than this field: the server then treats what is in force as unknown, never as stale.
+	AppliedConfigDigest string `protobuf:"bytes,6,opt,name=applied_config_digest,json=appliedConfigDigest,proto3" json:"applied_config_digest,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *Heartbeat) Reset() {
@@ -1266,6 +1269,13 @@ func (x *Heartbeat) GetLinkCapabilities() *LinkCapabilities {
 		return x.LinkCapabilities
 	}
 	return nil
+}
+
+func (x *Heartbeat) GetAppliedConfigDigest() string {
+	if x != nil {
+		return x.AppliedConfigDigest
+	}
+	return ""
 }
 
 type ModuleStatus struct {
@@ -3770,8 +3780,12 @@ type Config struct {
 	// it in memory, hands it only to this cluster's iperf3 server pods over a signed, sealed request, and never writes it
 	// anywhere. Unset: the server issues none (an older server, or no pair asks for throughput tests).
 	LinkIperfServer *LinkIperfServer `protobuf:"bytes,11,opt,name=link_iperf_server,json=linkIperfServer,proto3" json:"link_iperf_server,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Names this Config: the server's own digest of everything above. The agent keeps the digest of the last Config it applied and
+	// echoes it in Heartbeat.applied_config_digest, so the server learns what is in force, not only what it sent. Empty from an
+	// older server; the agent then echoes nothing.
+	Digest        string `protobuf:"bytes,12,opt,name=digest,proto3" json:"digest,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Config) Reset() {
@@ -3879,6 +3893,13 @@ func (x *Config) GetLinkIperfServer() *LinkIperfServer {
 		return x.LinkIperfServer
 	}
 	return nil
+}
+
+func (x *Config) GetDigest() string {
+	if x != nil {
+		return x.Digest
+	}
+	return ""
 }
 
 // One other cluster this cluster's link is measured to. The server is the only place that knows which address belongs
@@ -7030,14 +7051,15 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\x15installed_access_tier\x18\x03 \x01(\rR\x13installedAccessTier\x12;\n" +
 	"\vdiagnostics\x18\x04 \x01(\v2\x19.continuum.v1.DiagnosticsR\vdiagnostics\x12\x1c\n" +
 	"\tnamespace\x18\x05 \x01(\tR\tnamespace\x12!\n" +
-	"\frelease_name\x18\x06 \x01(\tR\vreleaseName\"\xa7\x02\n" +
+	"\frelease_name\x18\x06 \x01(\tR\vreleaseName\"\xdb\x02\n" +
 	"\tHeartbeat\x124\n" +
 	"\amodules\x18\x01 \x03(\v2\x1a.continuum.v1.ModuleStatusR\amodules\x12\"\n" +
 	"\rclock_skew_ms\x18\x02 \x01(\x03R\vclockSkewMs\x12;\n" +
 	"\vdiagnostics\x18\x03 \x01(\v2\x19.continuum.v1.DiagnosticsR\vdiagnostics\x126\n" +
 	"\n" +
 	"self_stats\x18\x04 \x01(\v2\x17.continuum.v1.SelfStatsR\tselfStats\x12K\n" +
-	"\x11link_capabilities\x18\x05 \x01(\v2\x1e.continuum.v1.LinkCapabilitiesR\x10linkCapabilities\"\x9b\x01\n" +
+	"\x11link_capabilities\x18\x05 \x01(\v2\x1e.continuum.v1.LinkCapabilitiesR\x10linkCapabilities\x122\n" +
+	"\x15applied_config_digest\x18\x06 \x01(\tR\x13appliedConfigDigest\"\x9b\x01\n" +
 	"\fModuleStatus\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x126\n" +
 	"\x05state\x18\x02 \x01(\x0e2 .continuum.v1.ModuleStatus.StateR\x05state\x12\x16\n" +
@@ -7313,7 +7335,7 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\arevoked\x18\x03 \x01(\v2\x15.continuum.v1.RevokedH\x00R\arevokedB\x05\n" +
 	"\x03msg\"\x17\n" +
 	"\x03Ack\x12\x10\n" +
-	"\x03seq\x18\x01 \x01(\x04R\x03seq\"\xa0\x04\n" +
+	"\x03seq\x18\x01 \x01(\x04R\x03seq\"\xb8\x04\n" +
 	"\x06Config\x120\n" +
 	"\x14approved_access_tier\x18\x01 \x01(\rR\x12approvedAccessTier\x12+\n" +
 	"\x11heartbeat_seconds\x18\x02 \x01(\x05R\x10heartbeatSeconds\x12>\n" +
@@ -7328,7 +7350,8 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\n" +
 	"link_peers\x18\n" +
 	" \x03(\v2\x16.continuum.v1.LinkPeerR\tlinkPeers\x12I\n" +
-	"\x11link_iperf_server\x18\v \x01(\v2\x1d.continuum.v1.LinkIperfServerR\x0flinkIperfServer\"\x81\x03\n" +
+	"\x11link_iperf_server\x18\v \x01(\v2\x1d.continuum.v1.LinkIperfServerR\x0flinkIperfServer\x12\x16\n" +
+	"\x06digest\x18\f \x01(\tR\x06digest\"\x81\x03\n" +
 	"\bLinkPeer\x12\x1d\n" +
 	"\n" +
 	"cluster_id\x18\x01 \x01(\tR\tclusterId\x12\x12\n" +

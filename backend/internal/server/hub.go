@@ -79,6 +79,11 @@ type view struct {
 	reach map[string]*addrReach
 	// cfgHash identifies the last Config pushed on the stream, so a new one is sent only when it differs.
 	cfgHash string
+	// cfgSentAt is when a Config was last put on the stream, and cfgApplied the digest the agent last said is in force (empty: it
+	// has not said, as an older agent never does). A heartbeat whose digest is not cfgHash, some time after cfgSentAt, means the
+	// Config did not arrive or was not applied, and it is sent again (see noteConfigEcho).
+	cfgSentAt  time.Time
+	cfgApplied string
 	// pushMu serializes the building and queueing of this agent's Configs, so they are queued in the order they were read.
 	pushMu sync.Mutex
 
@@ -416,6 +421,9 @@ func (h *Hub) Connect(stream continuumv1.AgentService_ConnectServer) error {
 	if err := stream.Send(&continuumv1.ServerMessage{Msg: &continuumv1.ServerMessage_Config{Config: h.configFor(agent, v)}}); err != nil {
 		return err
 	}
+	h.mu.Lock()
+	v.cfgSentAt, v.cfgApplied = h.C.Now(), "" // a new stream: what the agent had in force on the last one says nothing about this
+	h.mu.Unlock()
 	fullSeen := false              // a full picture is a consistency check only after the first one of this connection
 	var asm *assembly              // the pieces of a picture that arrives in several messages, until the last one
 	limiter := NewLimiter(120, 20) // per minute, burst
@@ -547,6 +555,7 @@ func (h *Hub) Connect(stream continuumv1.AgentService_ConnectServer) error {
 				if m.Heartbeat.Diagnostics != nil {
 					noteDiagnostics(v, m.Heartbeat.Diagnostics, false, h.C.Now())
 				}
+				resend := noteConfigEcho(v, m.Heartbeat.AppliedConfigDigest, now)
 				if asm != nil && asm.expired(h.C.Now()) {
 					asm = nil // a picture that never finished arriving
 				}
@@ -554,6 +563,9 @@ func (h *Hub) Connect(stream continuumv1.AgentService_ConnectServer) error {
 				storeSkew := !v.skewKnown && skew != cur.ClockSkewMs || v.skewKnown && abs64(skew-v.skewMs) > 1000
 				v.skewMs, v.skewKnown = skew, true
 				h.mu.Unlock()
+				if resend {
+					go h.pushOne(agent.ID)
+				}
 				if storeSkew {
 					_ = h.C.Store.SetClockSkew(ctx, agent.ID, skew)
 				}

@@ -795,3 +795,21 @@ func TestAnIdentityThatCannotBeSavedIsReported(t *testing.T) {
 		t.Fatalf("problem = %+v", p)
 	}
 }
+
+// The agent says which Config it has applied, in every heartbeat, so the server can tell a Config that was lost from one
+// that is in force. After the server pushes a changed Config and the agent has applied it, the digest the agent echoes is the
+// digest of that Config.
+func TestTheAgentEchoesTheDigestOfTheConfigItApplied(t *testing.T) {
+	d := newDx(t, dxOpts{installed: 2, approve: 1})
+	inForce := func() bool { sent, applied := d.hub.ConfigDigests(d.id); return sent != "" && sent == applied }
+	waitFor(t, "the first Config to be echoed", 20*time.Second, inForce)
+	first, _ := d.hub.ConfigDigests(d.id)
+
+	if _, err := d.hub.SetConsent(context.Background(), "test", d.id, server.Consent{Excluded: []string{"shop"}}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the changed Config to be echoed", 20*time.Second, func() bool {
+		sent, _ := d.hub.ConfigDigests(d.id)
+		return sent != first && inForce()
+	})
+}

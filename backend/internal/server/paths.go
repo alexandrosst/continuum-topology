@@ -201,6 +201,7 @@ func (h *Hub) configForChecked(a store.Agent, v *view) (*continuumv1.Config, boo
 		cfg.MeasureSeconds = int32(set.MeasureSeconds)
 	}
 	v.cfgHash = configHash(cfg)
+	cfg.Digest = v.cfgHash
 	// forget paths for targets that are no longer issued
 	for id := range v.paths {
 		if _, ok := v.targets[id]; !ok {
@@ -249,6 +250,26 @@ func (h *Hub) pushConfigs() {
 	}
 }
 
+// configEchoGrace is how long a Config is given to be applied and echoed before a heartbeat that still names an older one is taken
+// to mean it was lost. A heartbeat follows every applied Config at once, so this only has to cover the queue and the network.
+const configEchoGrace = 15 * time.Second
+
+// noteConfigEcho records the digest an agent says is in force and reports whether the current Config must be sent again: the
+// agent named one, it is not the one last sent, and the last send is old enough that it cannot still be on its way. It clears
+// cfgHash so the next pushOne sends whatever is current. An empty digest (an older agent) never asks for anything. The caller
+// holds h.mu.
+func noteConfigEcho(v *view, digest string, now time.Time) bool {
+	if digest == "" {
+		return false
+	}
+	v.cfgApplied = digest
+	if v.cfgHash == "" || digest == v.cfgHash || now.Sub(v.cfgSentAt) < configEchoGrace {
+		return false
+	}
+	v.cfgHash = ""
+	return true
+}
+
 // pushOne sends one agent a fresh Config if its stream is live and the Config differs from the last one sent. An administrator's
 // change (a tier, an override) takes effect through this without waiting for the agent to reconnect.
 //
@@ -289,6 +310,9 @@ func (h *Hub) pushOne(id string) {
 	}
 	select {
 	case s.push <- &continuumv1.ServerMessage{Msg: &continuumv1.ServerMessage_Config{Config: cfg}}:
+		h.mu.Lock()
+		v.cfgSentAt = h.C.Now()
+		h.mu.Unlock()
 	default: // the stream is busy; the next refresh tries again
 		h.mu.Lock()
 		v.cfgHash = old
@@ -397,4 +421,16 @@ func (h *Hub) pathDocs(agents []store.Agent, observed []observedCluster, names m
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
+}
+
+// ConfigDigests reports, for a connected agent, the digest of the Config last sent and the digest the agent last said is in
+// force. They are equal once the agent has applied what it was sent; applied is empty until it has said (and always, for an agent
+// older than the echo).
+func (h *Hub) ConfigDigests(agentID string) (sent, applied string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if v := h.views[agentID]; v != nil {
+		return v.cfgHash, v.cfgApplied
+	}
+	return "", ""
 }

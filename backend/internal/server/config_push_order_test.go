@@ -98,3 +98,107 @@ func TestTheLastConfigPushedToAnAgentIsTheCurrentOne(t *testing.T) {
 		t.Fatalf("the last Config queued carries tier %d; the agent now has tier 2", last.ApprovedAccessTier)
 	}
 }
+
+// Every Config carries the digest the server keeps as "sent", so the agent can echo it.
+func TestAConfigCarriesItsDigest(t *testing.T) {
+	_, h, agentID, push := pushRig(t)
+	h.pushOne(agentID)
+	got := drain(push)
+	if len(got) != 1 || got[0].Digest == "" {
+		t.Fatalf("want one Config with a digest, got %+v", got)
+	}
+	h.mu.Lock()
+	want := h.views[agentID].cfgHash
+	h.mu.Unlock()
+	if got[0].Digest != want {
+		t.Fatalf("digest %q is not the one the server holds as sent, %q", got[0].Digest, want)
+	}
+}
+
+// A heartbeat that names an older Config than the last one sent, once the grace has passed, means the new one was lost: it is
+// sent again, once. An empty digest (an older agent) and a matching one ask for nothing, and neither does a heartbeat inside the grace.
+func TestAHeartbeatNamingAnOlderConfigAsksForItToBeSentAgain(t *testing.T) {
+	_, h, agentID, push := pushRig(t)
+	h.pushOne(agentID)
+	sent := drain(push)
+	if len(sent) != 1 {
+		t.Fatalf("want one Config, got %d", len(sent))
+	}
+	now := time.Now()
+	h.mu.Lock()
+	v := h.views[agentID]
+	v.cfgSentAt = now.Add(-time.Minute)
+	cases := []struct {
+		name, digest string
+		at           time.Time
+		want         bool
+	}{
+		{"an older agent echoes nothing", "", now, false},
+		{"the digest in force is the one sent", sent[0].Digest, now, false},
+		{"an older Config, inside the grace", "old", v.cfgSentAt.Add(time.Second), false},
+		{"an older Config, after the grace", "old", now, true},
+	}
+	for _, c := range cases {
+		if got := noteConfigEcho(v, c.digest, c.at); got != c.want {
+			t.Errorf("%s: asked again = %v, want %v", c.name, got, c.want)
+		}
+		if !c.want && v.cfgHash == "" {
+			t.Errorf("%s: the sent hash was cleared", c.name)
+		}
+		if c.want {
+			v.cfgHash = sent[0].Digest // the test puts it back, as the next push would
+		}
+	}
+	h.mu.Unlock()
+
+	// End to end through pushOne: the lost Config is queued again, once.
+	h.mu.Lock()
+	v.cfgSentAt = now.Add(-time.Minute)
+	_ = noteConfigEcho(v, "old", now)
+	h.mu.Unlock()
+	h.pushOne(agentID)
+	again := drain(push)
+	if len(again) != 1 || again[0].Digest != sent[0].Digest {
+		t.Fatalf("want the same Config sent again, got %+v", again)
+	}
+	h.pushOne(agentID)
+	if extra := drain(push); len(extra) != 0 {
+		t.Fatalf("a Config nothing changed for was sent a third time: %+v", extra)
+	}
+}
+
+// On a real stream: the agent names an older Config than the one the server sent (as if the newer one never arrived), and the
+// server, once the grace has passed, sends the current one again.
+func TestALostConfigIsSentAgainWhenTheAgentNamesAnOlderOne(t *testing.T) {
+	r := newHubRig(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	id, key, leaf := r.approvedAgent(t, fp)
+	s := r.agentStream(t, ctx, id, key, leaf)
+
+	cur, err := r.st.GetAgent(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newTier := (cur.AccessTier + 1) % 3 // any tier the agent does not have: the Config then differs from the one sent at hello
+	if err := r.st.SetAccessTier(ctx, id, newTier); err != nil {
+		t.Fatal(err)
+	}
+	r.hub.pushOne(id)
+	pushed, err := s.Recv()
+	if err != nil || int(pushed.GetConfig().GetApprovedAccessTier()) != newTier || pushed.GetConfig().GetDigest() == "" {
+		t.Fatalf("the pushed Config: %v %v", pushed, err)
+	}
+	// The agent behaves as if that Config was lost: it still names the old digest. A heartbeat inside the grace changes nothing.
+	r.hub.mu.Lock()
+	r.hub.views[id].cfgSentAt = time.Now().Add(-time.Minute)
+	r.hub.mu.Unlock()
+	beat := &continuumv1.AgentMessage{Msg: &continuumv1.AgentMessage_Heartbeat{Heartbeat: &continuumv1.Heartbeat{AppliedConfigDigest: "an-older-digest"}}}
+	if err := s.Send(beat); err != nil {
+		t.Fatal(err)
+	}
+	again, err := s.Recv()
+	if err != nil || again.GetConfig().GetDigest() != pushed.GetConfig().GetDigest() {
+		t.Fatalf("want the current Config sent again; got %v %v", again, err)
+	}
+}

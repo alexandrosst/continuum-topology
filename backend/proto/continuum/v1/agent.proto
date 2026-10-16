@@ -169,6 +169,9 @@ message Heartbeat {
   // prober_seen_unix moves. Absent from an agent older than this field: the server then treats every capability as
   // unknown, never as missing.
   LinkCapabilities link_capabilities = 5;
+  // The digest (Config.digest) of the last Config this agent applied. Sent on every heartbeat. Empty before the agent has applied
+  // one, and from an agent older than this field: the server then treats what is in force as unknown, never as stale.
+  string applied_config_digest = 6;
 }
 
 message ModuleStatus {
@@ -676,6 +679,10 @@ message Config {
   // it in memory, hands it only to this cluster's iperf3 server pods over a signed, sealed request, and never writes it
   // anywhere. Unset: the server issues none (an older server, or no pair asks for throughput tests).
   LinkIperfServer link_iperf_server = 11;
+  // Names this Config: the server's own digest of everything above. The agent keeps the digest of the last Config it applied and
+  // echoes it in Heartbeat.applied_config_digest, so the server learns what is in force, not only what it sent. Empty from an
+  // older server; the agent then echoes nothing.
+  string digest = 12;
 }
 
 // One other cluster this cluster's link is measured to. The server is the only place that knows which address belongs

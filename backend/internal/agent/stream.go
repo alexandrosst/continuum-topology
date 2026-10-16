@@ -429,9 +429,13 @@ func (r *runner) stream(ctx context.Context, id *Identity) error {
 		prev = cur
 		return sendSync(cur)
 	}
+	// The digest of the last Config applied, echoed in every heartbeat so the server knows what is in force and can send again one
+	// that was lost. Empty from a server that names none.
+	appliedDigest := cfg.Digest
 	beatMsg := func(force bool) *continuumv1.AgentMessage {
 		return &continuumv1.AgentMessage{Msg: &continuumv1.AgentMessage_Heartbeat{Heartbeat: &continuumv1.Heartbeat{
-			Modules: r.collector.Modules(), ClockSkewMs: r.clockSkewMs(), Diagnostics: r.diagToSend(force), SelfStats: r.selfStats(), LinkCapabilities: r.linkCapabilities()}}}
+			Modules: r.collector.Modules(), ClockSkewMs: r.clockSkewMs(), Diagnostics: r.diagToSend(force), SelfStats: r.selfStats(), LinkCapabilities: r.linkCapabilities(),
+			AppliedConfigDigest: appliedDigest}}}
 	}
 	if err := sendDiff(true); err != nil {
 		return err
@@ -590,6 +594,7 @@ func (r *runner) stream(ctx context.Context, id *Identity) error {
 				}
 				r.enforce(o)
 				applyConfig(c, o)
+				appliedDigest = c.Digest
 				if err := send(beatMsg(false)); err != nil { // says what is now in force, if that changed
 					return err
 				}
