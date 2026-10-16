@@ -720,8 +720,9 @@ type Store interface {
 	GetProposal(ctx context.Context, org, id string) (Proposal, error)
 	// ListProposals returns an organisation's proposals, newest first. An empty status or agent id matches any.
 	ListProposals(ctx context.Context, org string, q ProposalQuery) ([]Proposal, error)
-	// TransitionProposal moves a proposal from one of the statuses in from to the new one and records who decided it, when, and
-	// why. It is a compare-and-set: ErrBadState when the proposal is in none of from (someone else decided it first, or it is
+	// TransitionProposal moves a proposal from one of the statuses in from to the new one and records who decided it and when (the
+	// first transition sets these; later ones, applied or failed, keep them) and why (a non-empty note replaces the old one). It is a
+	// compare-and-set: ErrBadState when the proposal is in none of from (someone else decided it first, or it is
 	// already over), ErrNotFound when there is no such proposal in the organisation. Nothing is written in either case.
 	TransitionProposal(ctx context.Context, org, id string, from []ProposalStatus, to ProposalStatus, by, note string, at time.Time, opts ...WriteOption) error
 	// RecordProposalOutcome stores the one Outcome a proposal can have. A second call for the same proposal changes nothing and

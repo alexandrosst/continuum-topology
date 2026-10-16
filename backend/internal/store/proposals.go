@@ -166,8 +166,14 @@ func (s *SQLite) TransitionProposal(ctx context.Context, org, id string, from []
 		if !ok {
 			return ErrBadState
 		}
-		_, err = tx.ExecContext(ctx, `UPDATE proposals SET status=?, decided_by=?, decided_at=?, note=? WHERE org_id=? AND id=? AND status=?`,
-			string(to), by, ms(at), note, org, id, cur)
+		// Who decided and when is set by the first transition, the decision; later ones (applied, failed) do not overwrite it, and a
+		// note is replaced only by a non-empty one.
+		_, err = tx.ExecContext(ctx, `UPDATE proposals SET status=?,
+			decided_by=CASE WHEN decided_at IS NULL THEN ? ELSE decided_by END,
+			decided_at=COALESCE(decided_at, ?),
+			note=CASE WHEN ?='' THEN note ELSE ? END
+			WHERE org_id=? AND id=? AND status=?`,
+			string(to), by, ms(at), note, note, org, id, cur)
 		return err
 	})
 }

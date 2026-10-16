@@ -110,9 +110,21 @@ func TestAProposalCanBeDecidedOnlyOnceAndALosingDecisionLeavesNoRow(t *testing.T
 	if acts := auditActions(t, s); len(acts) != 1 || acts[0] != "proposal-accepted" {
 		t.Fatalf("audit rows: %v", acts)
 	}
-	// the next step of an accepted proposal
-	if err := s.TransitionProposal(ctx, "org-1", "pr-1", []ProposalStatus{ProposalAccepted}, ProposalApplied, "system", "", at); err != nil {
+	// the next step of an accepted proposal does not overwrite who decided, or when, or the note
+	later := at.Add(time.Minute)
+	if err := s.TransitionProposal(ctx, "org-1", "pr-1", []ProposalStatus{ProposalAccepted}, ProposalApplied, "system", "", later); err != nil {
 		t.Fatal(err)
+	}
+	got, _ = s.GetProposal(ctx, "org-1", "pr-1")
+	if got.Status != ProposalApplied || got.DecidedBy != "alex" || !got.DecidedAt.Equal(at) || got.Note != "looks right" {
+		t.Fatalf("after applying: %+v", got)
+	}
+	// a failure's reason is a new note
+	if err := s.TransitionProposal(ctx, "org-1", "pr-1", []ProposalStatus{ProposalApplied}, ProposalFailed, "system", "disk full", later); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ = s.GetProposal(ctx, "org-1", "pr-1"); got.Note != "disk full" {
+		t.Fatalf("note %q", got.Note)
 	}
 }
 

@@ -61,6 +61,7 @@ func (h *Hub) Run(ctx context.Context) {
 			return
 		case <-cfg.C:
 			h.pushConfigs()
+			h.recordOutcomes(ctx)
 			h.C.ExpirePending(ctx, h.C.OrgID)
 		case <-t.C:
 			h.rec.tick(ctx)

@@ -84,6 +84,8 @@ type view struct {
 	// Config did not arrive or was not applied, and it is sent again (see noteConfigEcho).
 	cfgSentAt  time.Time
 	cfgApplied string
+	// cfgInForceAt is when the agent first named the Config now held as sent (zero until it does).
+	cfgInForceAt time.Time
 	// pushMu serializes the building and queueing of this agent's Configs, so they are queued in the order they were read.
 	pushMu sync.Mutex
 
@@ -183,6 +185,9 @@ type Hub struct {
 
 	// Limits, when set, replaces the default caps on what one agent may make the server hold (tests use small ones).
 	Limits *facts.Limits
+
+	// OutcomeWindow and OutcomeGiveUp, when set, replace the defaults of the Outcome recorder (tests use seconds).
+	OutcomeWindow, OutcomeGiveUp time.Duration
 
 	// TombstoneRetention is how long a record that disappeared stays visible as "gone" (0: seven days).
 	TombstoneRetention time.Duration
@@ -422,6 +427,7 @@ func (h *Hub) Connect(stream continuumv1.AgentService_ConnectServer) error {
 		return err
 	}
 	h.mu.Lock()
+	v.cfgInForceAt = time.Time{}
 	v.cfgSentAt, v.cfgApplied = h.C.Now(), "" // a new stream: what the agent had in force on the last one says nothing about this
 	h.mu.Unlock()
 	fullSeen := false              // a full picture is a consistency check only after the first one of this connection

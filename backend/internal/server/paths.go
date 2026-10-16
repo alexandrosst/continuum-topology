@@ -262,7 +262,11 @@ func noteConfigEcho(v *view, digest string, now time.Time) bool {
 	if digest == "" {
 		return false
 	}
+	prev := v.cfgApplied
 	v.cfgApplied = digest
+	if digest == v.cfgHash && prev != digest {
+		v.cfgInForceAt = now
+	}
 	if v.cfgHash == "" || digest == v.cfgHash || now.Sub(v.cfgSentAt) < configEchoGrace {
 		return false
 	}
