@@ -258,9 +258,8 @@ func (c *Core) Approve(ctx context.Context, actor, agentID, proof string, tier i
 			return errWrongCode("that is not the code this cluster's agent printed. Check the agent's log and try again", left, false)
 		}
 		reason := "too many wrong approval codes"
-		_ = c.audited(ctx, actor, "approval-locked", "agent", a.ID, fmt.Sprintf("%d wrong approval codes in a row: the request is rejected", n), func() error {
-			return c.Store.RejectAgent(ctx, a.ID, reason, c.Now())
-		})
+		_ = c.Store.RejectAgent(ctx, a.ID, reason, c.Now(), store.WithAudit(c.auditRow(c.OrgID, actor, "approval-locked", "agent", a.ID,
+			fmt.Sprintf("%d wrong approval codes in a row: the request is rejected", n))))
 		return errWrongCode("that was the last attempt. The request was rejected: enroll the agent again with a new token", 0, true)
 	}
 	maxTier := min(a.InstalledTier, a.TierCap, ImplementedTier)
@@ -276,16 +275,15 @@ func (c *Core) Approve(ctx context.Context, actor, agentID, proof string, tier i
 		return err
 	}
 	approvedDetail := fmt.Sprintf("%q at tier %d (approval code confirmed)", a.Name, tier)
-	if err := c.audited(ctx, actor, "agent-approved", "agent", a.ID, approvedDetail, func() error {
-		err := c.Store.ApproveAgent(ctx, a.ID, tier, actor, ClusterIDFor(c.OrgID, a.Fingerprint), leaf, notAfter, c.Now())
-		switch {
-		case errors.Is(err, store.ErrClusterEnrolled):
-			return errf(KindConflict, "another agent is already approved for this cluster. Revoke it first to replace it")
-		case errors.Is(err, store.ErrBadState):
-			return errf(KindConflict, "agent changed state while approving")
-		}
-		return err
-	}); err != nil {
+	err = c.Store.ApproveAgent(ctx, a.ID, tier, actor, ClusterIDFor(c.OrgID, a.Fingerprint), leaf, notAfter, c.Now(),
+		store.WithAudit(c.auditRow(c.OrgID, actor, "agent-approved", "agent", a.ID, approvedDetail)))
+	switch {
+	case errors.Is(err, store.ErrClusterEnrolled):
+		return errf(KindConflict, "another agent is already approved for this cluster. Revoke it first to replace it")
+	case errors.Is(err, store.ErrBadState):
+		return errf(KindConflict, "agent changed state while approving")
+	}
+	if err := c.auditedWrite(err, "agent-approved"); err != nil {
 		return err
 	}
 	if fresh, ferr := c.agentInOrg(ctx, a.ID); ferr == nil {

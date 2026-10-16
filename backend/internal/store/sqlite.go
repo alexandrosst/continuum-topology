@@ -560,12 +560,14 @@ func (s *SQLite) SetClockSkew(ctx context.Context, id string, skewMs int64) erro
 	return err
 }
 
-func (s *SQLite) SetAccessTier(ctx context.Context, id string, tier int) error {
-	res, err := s.db.ExecContext(ctx, `UPDATE agents SET access_tier=? WHERE id=? AND status='approved'`, tier, id)
-	if err != nil {
-		return err
-	}
-	return needOne(res)
+func (s *SQLite) SetAccessTier(ctx context.Context, id string, tier int, opts ...WriteOption) error {
+	return s.write(ctx, opts, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, `UPDATE agents SET access_tier=? WHERE id=? AND status='approved'`, tier, id)
+		if err != nil {
+			return err
+		}
+		return needOne(res)
+	})
 }
 
 func (s *SQLite) SetInstalledTier(ctx context.Context, id string, tier int) error {
@@ -618,19 +620,21 @@ func (s *SQLite) ListAgents(ctx context.Context, org string) ([]Agent, error) {
 	return out, rows.Err()
 }
 
-func (s *SQLite) ApproveAgent(ctx context.Context, id string, tier int, approver, clusterID string, leaf []byte, notAfter, now time.Time) error {
-	res, err := s.db.ExecContext(ctx,
-		`UPDATE agents SET status='approved', access_tier=?, approved_by=?, approved_at=?, cluster_id=?, leaf=?, leaf_not_after=?, reason=''
+func (s *SQLite) ApproveAgent(ctx context.Context, id string, tier int, approver, clusterID string, leaf []byte, notAfter, now time.Time, opts ...WriteOption) error {
+	return s.write(ctx, opts, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx,
+			`UPDATE agents SET status='approved', access_tier=?, approved_by=?, approved_at=?, cluster_id=?, leaf=?, leaf_not_after=?, reason=''
 		 WHERE id=? AND status='pending'`,
-		tier, approver, ms(now), clusterID, leaf, ms(notAfter), id)
-	if err != nil {
-		// The partial unique index turns "second live agent for this cluster" into a constraint error.
-		if isUnique(err) {
-			return ErrClusterEnrolled
+			tier, approver, ms(now), clusterID, leaf, ms(notAfter), id)
+		if err != nil {
+			// The partial unique index turns "second live agent for this cluster" into a constraint error.
+			if isUnique(err) {
+				return ErrClusterEnrolled
+			}
+			return err
 		}
-		return err
-	}
-	return needOne(res)
+		return needOne(res)
+	})
 }
 
 // RejectAgent and RevokeAgent keep the poll secret's hash on purpose: an agent that is still waiting asks
@@ -646,14 +650,16 @@ func (s *SQLite) RejectAgent(ctx context.Context, id, reason string, now time.Ti
 	})
 }
 
-func (s *SQLite) RevokeAgent(ctx context.Context, id, reason string, now time.Time) error {
-	res, err := s.db.ExecContext(ctx,
-		`UPDATE agents SET status='revoked', reason=?, revoked_at=?, leaf=NULL WHERE id=? AND status IN ('approved','pending')`,
-		reason, ms(now), id)
-	if err != nil {
-		return err
-	}
-	return needOne(res)
+func (s *SQLite) RevokeAgent(ctx context.Context, id, reason string, now time.Time, opts ...WriteOption) error {
+	return s.write(ctx, opts, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx,
+			`UPDATE agents SET status='revoked', reason=?, revoked_at=?, leaf=NULL WHERE id=? AND status IN ('approved','pending')`,
+			reason, ms(now), id)
+		if err != nil {
+			return err
+		}
+		return needOne(res)
+	})
 }
 
 func (s *SQLite) SetLeaf(ctx context.Context, id string, leaf []byte, notAfter time.Time) error {
@@ -1266,11 +1272,13 @@ func (s *SQLite) ListAudit(ctx context.Context, org string, limit int) ([]AuditE
 
 // ---- snapshots ----
 
-func (s *SQLite) SaveSnapshot(ctx context.Context, agentID string, data []byte, now time.Time) error {
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO snapshots(agent_id, data, at) VALUES(?,?,?) ON CONFLICT(agent_id) DO UPDATE SET data=excluded.data, at=excluded.at`,
-		agentID, data, ms(now))
-	return err
+func (s *SQLite) SaveSnapshot(ctx context.Context, agentID string, data []byte, now time.Time, opts ...WriteOption) error {
+	return s.write(ctx, opts, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx,
+			`INSERT INTO snapshots(agent_id, data, at) VALUES(?,?,?) ON CONFLICT(agent_id) DO UPDATE SET data=excluded.data, at=excluded.at`,
+			agentID, data, ms(now))
+		return err
+	})
 }
 
 func (s *SQLite) LoadSnapshot(ctx context.Context, agentID string) ([]byte, time.Time, error) {

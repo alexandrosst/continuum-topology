@@ -597,15 +597,15 @@ type Store interface {
 	SetClockSkew(ctx context.Context, id string, ms int64) error
 	// SetAccessTier changes what an approved agent may report (an administrator narrowing or widening it later);
 	// ErrBadState unless the agent is approved. SetInstalledTier records the ceiling the agent says its install has.
-	SetAccessTier(ctx context.Context, id string, tier int) error
+	SetAccessTier(ctx context.Context, id string, tier int, opts ...WriteOption) error
 	SetInstalledTier(ctx context.Context, id string, tier int) error
 
 	GetAgent(ctx context.Context, id string) (Agent, error)
 	ListAgents(ctx context.Context, org string) ([]Agent, error)
 	// ApproveAgent moves pending -> approved. ErrClusterEnrolled if another approved agent has the same fingerprint.
-	ApproveAgent(ctx context.Context, id string, tier int, approver string, clusterID string, leaf []byte, notAfter, now time.Time) error
+	ApproveAgent(ctx context.Context, id string, tier int, approver string, clusterID string, leaf []byte, notAfter, now time.Time, opts ...WriteOption) error
 	RejectAgent(ctx context.Context, id, reason string, now time.Time, opts ...WriteOption) error
-	RevokeAgent(ctx context.Context, id, reason string, now time.Time) error
+	RevokeAgent(ctx context.Context, id, reason string, now time.Time, opts ...WriteOption) error
 	// SetLeaf stores a renewed certificate; only for approved agents.
 	SetLeaf(ctx context.Context, id string, leaf []byte, notAfter time.Time) error
 	ClearPollSecret(ctx context.Context, id string) error
@@ -714,7 +714,7 @@ type Store interface {
 
 	// SaveSnapshot / LoadSnapshot keep the last full set of facts an agent reported,
 	// so the server can serve state immediately after a restart.
-	SaveSnapshot(ctx context.Context, agentID string, data []byte, now time.Time) error
+	SaveSnapshot(ctx context.Context, agentID string, data []byte, now time.Time, opts ...WriteOption) error
 	LoadSnapshot(ctx context.Context, agentID string) ([]byte, time.Time, error)
 	// DeleteSnapshots removes the snapshots stored under these keys (missing ones are fine).
 	DeleteSnapshots(ctx context.Context, keys ...string) error

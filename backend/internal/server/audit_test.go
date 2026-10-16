@@ -99,6 +99,34 @@ func (f *failAudit) DeleteOrg(ctx context.Context, id string, opts ...store.Writ
 	return f.Store.DeleteOrg(ctx, id, opts...)
 }
 
+func (f *failAudit) ApproveAgent(ctx context.Context, id string, tier int, approver, clusterID string, leaf []byte, notAfter, now time.Time, opts ...store.WriteOption) error {
+	if err := f.broken(opts); err != nil {
+		return err
+	}
+	return f.Store.ApproveAgent(ctx, id, tier, approver, clusterID, leaf, notAfter, now, opts...)
+}
+
+func (f *failAudit) RevokeAgent(ctx context.Context, id, reason string, now time.Time, opts ...store.WriteOption) error {
+	if err := f.broken(opts); err != nil {
+		return err
+	}
+	return f.Store.RevokeAgent(ctx, id, reason, now, opts...)
+}
+
+func (f *failAudit) SetAccessTier(ctx context.Context, id string, tier int, opts ...store.WriteOption) error {
+	if err := f.broken(opts); err != nil {
+		return err
+	}
+	return f.Store.SetAccessTier(ctx, id, tier, opts...)
+}
+
+func (f *failAudit) SaveSnapshot(ctx context.Context, agentID string, data []byte, now time.Time, opts ...store.WriteOption) error {
+	if err := f.broken(opts); err != nil {
+		return err
+	}
+	return f.Store.SaveSnapshot(ctx, agentID, data, now, opts...)
+}
+
 func TestPrivilegedActionsFailClosedWhenTheAuditRowCannotBeWritten(t *testing.T) {
 	a := newAdminRig(t)
 	fs := &failAudit{Store: a.st}
@@ -184,21 +212,23 @@ func TestPrivilegedActionsFailClosedWhenTheAuditRowCannotBeWritten(t *testing.T)
 
 func TestAFailedActionAfterItsAuditRowLeavesAFollowUpRow(t *testing.T) {
 	e := newEnv(t)
-	resp, _ := e.enroll(t, 2, fp)
-	if err := e.core.Revoke(e.ctx, "alex", resp.AgentId, "first"); err != nil {
-		t.Fatal(err)
-	}
-	// a second revocation is refused by the store after the row was written: the trail must say so
-	if err := e.core.Revoke(e.ctx, "alex", resp.AgentId, "again"); kindOf(err) != KindConflict {
-		t.Fatalf("second revoke: %v", err)
+	// the action is refused after the row was written: the trail must say so
+	err := e.core.audited(e.ctx, "alex", "note", "agent", "a-1", "about to", func() error {
+		return errf(KindConflict, "nothing to do")
+	})
+	if kindOf(err) != KindConflict {
+		t.Fatalf("the action's own error must reach the caller: %v", err)
 	}
 	evs, _ := e.st.ListAudit(e.ctx, "org-1", 10)
-	var failed bool
+	var claim, failed bool
 	for _, ev := range evs {
-		failed = failed || ev.Action == "agent-revoked-failed"
+		claim = claim || ev.Action == "note"
+		if ev.Action == "note-failed" {
+			failed = strings.Contains(ev.Detail, "nothing to do")
+		}
 	}
-	if !failed {
-		t.Fatalf("no follow-up row: %+v", evs)
+	if !claim || !failed {
+		t.Fatalf("claim=%v follow-up=%v: %+v", claim, failed, evs)
 	}
 }
 
@@ -213,6 +243,13 @@ func TestARefusedWriteWithItsOwnAuditRowLeavesNoRow(t *testing.T) {
 	if err := e.core.Reject(e.ctx, "alex", resp.AgentId, "again"); kindOf(err) != KindConflict {
 		t.Fatalf("second reject: %v", err)
 	}
+	other, _ := e.enroll(t, 2, "11111111-2222-4333-8444-555566667777")
+	if err := e.core.Revoke(e.ctx, "alex", other.AgentId, "x"); err != nil {
+		t.Fatalf("revoke: %v", err)
+	}
+	if err := e.core.Revoke(e.ctx, "alex", other.AgentId, "again"); kindOf(err) != KindConflict {
+		t.Fatalf("second revoke: %v", err)
+	}
 	if err := e.core.DeleteToken(e.ctx, "alex", "tk-nope"); kindOf(err) != KindNotFound {
 		t.Fatalf("delete of a missing token: %v", err)
 	}
@@ -224,6 +261,9 @@ func TestARefusedWriteWithItsOwnAuditRowLeavesNoRow(t *testing.T) {
 			if ev.Action != "agent-rejected" || ev.Detail != "first" {
 				t.Errorf("unexpected row %+v", ev)
 			}
+		}
+		if ev.Action == "agent-revoked" && ev.Detail != "x" {
+			t.Errorf("a refused revocation left a row: %+v", ev)
 		}
 		if ev.Action == "token-deleted" || strings.HasSuffix(ev.Action, "-failed") {
 			t.Errorf("a refused attempt left a row: %+v", ev)
