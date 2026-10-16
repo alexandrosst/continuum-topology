@@ -270,15 +270,11 @@ func (c *Core) CreateTokenFor(ctx context.Context, actor, label string, tier int
 
 // DeleteToken withdraws an enrollment token that was not used yet.
 func (c *Core) DeleteToken(ctx context.Context, actor, id string) error {
-	return c.audited(ctx, actor, "token-deleted", "token", id, "", func() error {
-		if err := c.Store.DeleteToken(ctx, c.OrgID, id); err != nil {
-			if errors.Is(err, store.ErrNotFound) {
-				return errf(KindNotFound, "no such unused token")
-			}
-			return err
-		}
-		return nil
-	})
+	err := c.Store.DeleteToken(ctx, c.OrgID, id, store.WithAudit(c.auditRow(c.OrgID, actor, "token-deleted", "token", id, "")))
+	if errors.Is(err, store.ErrNotFound) {
+		return errf(KindNotFound, "no such unused token")
+	}
+	return c.auditedWrite(err, "token-deleted")
 }
 
 // agentInOrg finds an agent of this organisation. An agent of another one is reported as not existing.
