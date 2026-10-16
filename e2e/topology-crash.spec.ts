@@ -128,6 +128,23 @@ async function viewToggleWhileClicking(page: Page) {
 /** A plain click re-centres the canvas on what was clicked (about 600 ms: a short delay, then a pan). Let it finish before the next click. */
 const settle = (page: import('@playwright/test').Page) => page.waitForTimeout(800)
 
+/**
+ * Waits until a card has stopped moving. Opening the Inspector re-centres the canvas on the focused entity, so for a moment
+ * after a click every other card is still travelling; a click aimed at where a card was a frame ago lands on the pane (which
+ * clears the selection) or on its neighbour. A fixed sleep is not enough on a slow runner, so look at the card instead.
+ */
+async function stopped(locator: import('@playwright/test').Locator) {
+  let prev = ''
+  let same = 0
+  for (let i = 0; i < 60 && same < 3; i++) {
+    const b = await locator.boundingBox()
+    const now = b ? [b.x, b.y, b.width, b.height].map((v) => Math.round(v)).join(',') : ''
+    same = now !== '' && now === prev ? same + 1 : 0
+    prev = now
+    await locator.page().waitForTimeout(100)
+  }
+}
+
 test.describe('topology canvas', () => {
   test('heavy interaction never produces a console error or an uncaught exception', async ({ page }) => {
     // The interaction sequence below is deliberately long and repeats the riskiest combination several
@@ -223,7 +240,8 @@ test.describe('topology canvas', () => {
     await expect(nodeA).toBeVisible()
     await expect(nodeB).toBeVisible()
     await nodeA.click({ force: true })
-    await page.waitForTimeout(100)
+    await expect(page.locator('.react-flow__node.selected')).toHaveCount(1)
+    await stopped(nodeB)
     await nodeB.click({ modifiers: ['Shift'], force: true })
     await page.waitForTimeout(1000)
 
@@ -267,7 +285,8 @@ test.describe('topology canvas', () => {
 
     // Build a two-node multi-selection, same gesture as the pane-click test above.
     await nodeA.click({ force: true })
-    await settle(page)
+    await expect(page.locator('.react-flow__node.selected')).toHaveCount(1)
+    await stopped(nodeB)
     await nodeB.click({ modifiers: ['Shift'], force: true })
     await settle(page)
     await expect(page.locator('.react-flow__node.selected')).toHaveCount(2)
@@ -286,7 +305,11 @@ test.describe('topology canvas', () => {
     // changes, so the usual "selectedRfId changed" trigger for repainting .selected doesn't fire either.
     await nodeA.dispatchEvent('click')
     await settle(page)
+    // React Flow adds to a selection while the Shift KEY is down, not from the click event's flag, so hold the key for the
+    // dispatched click; the event flag alone only works when the key state happens to be set already.
+    await page.keyboard.down('Shift')
     await nodeB.dispatchEvent('click', { shiftKey: true })
+    await page.keyboard.up('Shift')
     await settle(page)
     await expect(page.locator('.react-flow__node.selected')).toHaveCount(2)
     await nodeA.dispatchEvent('click')
