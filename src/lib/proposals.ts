@@ -196,3 +196,45 @@ export function timeLeft(expiresAt: string, now = Date.now()): string {
 
 /** Waiting proposals first (newest first within each group, as the server sends them), then the decided ones. */
 export const waitingFirst = (ps: Proposal[]): Proposal[] => [...ps].sort((a, b) => Number(b.status === 'pending') - Number(a.status === 'pending'))
+
+/** What one advisor has done so far, as the server counts it (GET /proposals/advisors). */
+export interface AdvisorRecord {
+  advisor: string
+  proposals: number
+  pending: number
+  /** People said yes to these, whether or not the change then applied. */
+  accepted: number
+  /** Of the accepted ones, how many could not be made. */
+  failed: number
+  rejected: number
+  expired: number
+  /** Applied changes whose before and after load was compared, could not be confirmed, or had too little data. */
+  measured: number
+  unconfirmed: number
+  noData: number
+  /** Of the compared ones whose prediction could be checked: it went the predicted way and by at least half as much, or it did not. */
+  held: number
+  missed: number
+}
+
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
+
+/** The words for one row of the advisors table. Counts are given as they are: with this few decisions a percentage would say more than the data does. */
+export function advisorSummary(r: AdvisorRecord): { proposed: string; decisions: string; predictions: string; predictionNote: string } {
+  const decided: string[] = []
+  if (r.accepted) decided.push(`${r.accepted} accepted`)
+  if (r.rejected) decided.push(`${r.rejected} rejected`)
+  if (r.expired) decided.push(`${r.expired} expired unanswered`)
+  const checked = r.held + r.missed
+  const notes: string[] = []
+  if (r.failed) notes.push(`${plural(r.failed, 'accepted change', 'accepted changes')} could not be made`)
+  if (r.unconfirmed) notes.push(`${r.unconfirmed} never confirmed by the agent`)
+  if (r.noData) notes.push(`${r.noData} had too few samples`)
+  if (r.measured > checked) notes.push(`${r.measured - checked} predicted nothing that could be checked`)
+  return {
+    proposed: r.pending ? `${r.proposals} (${r.pending} waiting)` : String(r.proposals),
+    decisions: decided.length ? decided.join(', ') : 'Nothing decided yet',
+    predictions: checked ? `${r.held} of ${checked} held` : '—',
+    predictionNote: notes.join('; '),
+  }
+}

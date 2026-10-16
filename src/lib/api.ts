@@ -3,7 +3,7 @@ import type { AddressCandidates, AddressTest, OperatorSenders, OperatorDestinati
 import { normalizeSettings, normalizeSnapshot, type AppSettings, type ChangeEvent, type DependencySeriesPoint, type HistoryIndex, type Snapshot, type TrafficRate } from './history'
 import { normalizeLinksLatest, type LinksLatest } from './clusterLinks'
 import type { DecisionLogEntry } from './placement/deciders'
-import type { Proposal, ProposalStatus } from './proposals'
+import type { AdvisorRecord, Proposal, ProposalStatus } from './proposals'
 import type { SelfTelemetryEntity } from './selfHealth'
 import type { EffectiveModel } from './provenance'
 
@@ -914,6 +914,7 @@ export const api = {
     for (const [k, v] of Object.entries(q)) if (v !== undefined && v !== '') p.set(k, String(v))
     return call<{ proposals?: Proposal[] }>(c, 'GET', `/api/v1/proposals${p.size ? `?${p}` : ''}`).then((r) => r.proposals ?? [])
   },
+  listAdvisors: (c: Conn) => call<{ advisors?: AdvisorRecord[] }>(c, 'GET', '/api/v1/proposals/advisors').then((r) => r.advisors ?? []),
   getProposal: (c: Conn, id: string) => call<Proposal>(c, 'GET', `/api/v1/proposals/${encodeURIComponent(id)}`),
   acceptProposal: (c: Conn, id: string, note = '') => call<Proposal>(c, 'POST', `/api/v1/proposals/${encodeURIComponent(id)}/accept`, { note }),
   rejectProposal: (c: Conn, id: string, note = '') => call<Proposal>(c, 'POST', `/api/v1/proposals/${encodeURIComponent(id)}/reject`, { note }),

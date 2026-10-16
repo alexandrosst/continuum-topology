@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
+  advisorSummary,
   canAccept,
   canReject,
   changeLines,
@@ -99,4 +100,28 @@ test('waiting proposals come first and the server’s order is kept within each 
   const mk = (id: string, status: Proposal['status']) => ({ id, status }) as Proposal
   const out = waitingFirst([mk('1', 'applied'), mk('2', 'pending'), mk('3', 'rejected'), mk('4', 'pending')])
   assert.deepEqual(out.map((p) => p.id), ['2', '4', '1', '3'])
+})
+
+const record = (o: Partial<import('@/lib/proposals').AdvisorRecord> = {}) => ({
+  advisor: 'rules-v1', proposals: 0, pending: 0, accepted: 0, failed: 0, rejected: 0, expired: 0, measured: 0, unconfirmed: 0, noData: 0, held: 0, missed: 0, ...o,
+})
+
+test('an advisor’s record is given in counts: proposed, what people decided, how many predictions held', () => {
+  const s = advisorSummary(record({ proposals: 5, pending: 1, accepted: 2, rejected: 1, expired: 1, measured: 2, held: 1, missed: 1 }))
+  assert.equal(s.proposed, '5 (1 waiting)')
+  assert.equal(s.decisions, '2 accepted, 1 rejected, 1 expired unanswered')
+  assert.equal(s.predictions, '1 of 2 held')
+  assert.equal(s.predictionNote, '')
+})
+
+test('an advisor that has decided nothing and predicted nothing checkable says so rather than 0%', () => {
+  const s = advisorSummary(record({ proposals: 1, pending: 1 }))
+  assert.equal(s.decisions, 'Nothing decided yet')
+  assert.equal(s.predictions, '—')
+})
+
+test('what could not be checked is named next to the predictions, not folded into them', () => {
+  const s = advisorSummary(record({ proposals: 6, accepted: 6, failed: 1, measured: 3, held: 1, missed: 0, unconfirmed: 2, noData: 1 }))
+  assert.equal(s.predictions, '1 of 1 held')
+  assert.equal(s.predictionNote, '1 accepted change could not be made; 2 never confirmed by the agent; 1 had too few samples; 2 predicted nothing that could be checked')
 })

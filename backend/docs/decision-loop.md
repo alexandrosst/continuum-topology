@@ -70,6 +70,26 @@ Each step writes its audit row in the same transaction as the step: `proposal-su
 `proposal-rejected`, `proposal-expired`, `proposal-applied`, `proposal-failed`, `proposal-outcome`. If an audit
 row cannot be written, the step is not made.
 
+## How each advisor has done
+
+`GET /proposals/advisors` (an editor, like the rest) returns one record per advisor that has made a proposal, by name:
+
+```
+{ "advisors": [ { "advisor": "rules-v1", "proposals": 4, "pending": 1, "accepted": 2, "failed": 0, "rejected": 1, "expired": 0,
+                  "measured": 2, "unconfirmed": 0, "noData": 0, "held": 1, "missed": 1 } ] }
+```
+
+`accepted` counts the proposals a person said yes to, whether or not the change then applied (`failed` is how many of those could
+not be made). `measured`, `unconfirmed` and `noData` count the Outcomes of the advisor's applied changes. Of the measured ones,
+`held` and `missed` count those whose prediction could be checked: an Outcome **held** when every predicted metric that was
+observed moved the way the advisor said and by at least half as much, and **missed** otherwise. A measured Outcome that predicted
+nothing the agent reported counts as neither.
+
+Two things are deliberately kept apart. A rejection says a person disagreed, not that the advisor was wrong, so decisions and
+predictions are separate columns. And the agent's own load also moves for reasons unrelated to the change, so *held* is a sign that
+an advisor's predictions are good, not proof that it caused anything. The record is computed when asked from what is already stored
+and changes nothing.
+
 ## The Outcome
 
 Once an applied change is **in force**, meaning the agent has reported (in its heartbeat) that it applied the
@@ -114,6 +134,10 @@ change beside the observed one, with the reminder that load can move for other r
 * If the server refuses a decision (already decided, expired, no longer valid against the agent as it is now), the reason is
   shown and the proposal is read again as it stands.
 * The list is read again every 30 seconds while the page is open.
+
+Under the list, **How each advisor has done** shows the same record as counts (proposed, accepted and rejected, “1 of 2 held”), with a
+note on what could not be checked. Counts are shown as they are rather than as percentages, because with a handful of decisions a
+percentage says more than the data does.
 
 The screen never submits a proposal. An advisor does, with an editor's API token.
 

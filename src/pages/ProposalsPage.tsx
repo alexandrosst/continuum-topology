@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import AdvisorRecords from '@/components/proposals/AdvisorRecords'
 import ProposalDialog, { ConfidencePill, StatusPill } from '@/components/proposals/ProposalDialog'
 import { Button, EmptyState, ErrorBanner, PageHeader, Pill, Select, Table, TableSkeleton, Td, Th } from '@/components/ui/primitives'
 import { api, atLeast } from '@/lib/api'
 import { ago } from '@/lib/observed'
-import { changeLines, effectLines, timeLeft, waitingFirst, type Proposal, type ProposalStatus } from '@/lib/proposals'
+import { changeLines, effectLines, timeLeft, waitingFirst, type AdvisorRecord, type Proposal, type ProposalStatus } from '@/lib/proposals'
 import { useConn, useServer } from '@/store/server'
 import { useTopology } from '@/store/topology'
 import { refreshWaitingProposals, useWaitingProposals, WAITING_CAP } from '@/store/waitingProposals'
@@ -35,6 +36,7 @@ export default function ProposalsPage() {
   const [filter, setFilter] = useState<ProposalStatus | 'all'>('pending')
   const [rows, setRows] = useState<Proposal[] | null>(null)
   const [error, setError] = useState<string>()
+  const [advisors, setAdvisors] = useState<AdvisorRecord[]>([])
   const [openId, setOpenId] = useState<string | null>(null)
   const allowed = status === 'connected' && atLeast(role, 'editor')
 
@@ -51,6 +53,8 @@ export default function ProposalsPage() {
       setRows(list)
       setError(undefined)
       // This list is the freshest word on what waits, so the menu's badge takes it (a longer list than the badge counts is capped there).
+      // The record is a side note: if it cannot be read the list is still right, so the last one stays.
+      api.listAdvisors(conn).then((a) => mine === newest.current && setAdvisors(a), () => {})
       if (filter === 'pending') useWaitingProposals.getState().set(Math.min(list.length, WAITING_CAP))
     } catch (e) {
       if (mine !== newest.current) return
@@ -135,6 +139,8 @@ export default function ProposalsPage() {
           </tbody>
         </Table>
       )}
+
+      <AdvisorRecords records={advisors} />
 
       {open && (
         <ProposalDialog

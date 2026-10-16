@@ -2,13 +2,14 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { ApiError } from '@/lib/api'
-import type { Proposal } from '@/lib/proposals'
+import type { AdvisorRecord, Proposal } from '@/lib/proposals'
 import ProposalsPage from '@/pages/ProposalsPage'
 import { useWaitingProposals } from '@/store/waitingProposals'
 
 let role = 'editor'
 let status = 'connected'
 const listProposals = vi.fn(async (_c: unknown, _q?: unknown): Promise<Proposal[]> => [])
+const listAdvisors = vi.fn(async (_c: unknown): Promise<AdvisorRecord[]> => [])
 const getProposal = vi.fn(async (_c: unknown, id: string): Promise<Proposal> => ({ ...base, id }))
 const acceptProposal = vi.fn(async (_c: unknown, id: string, _note?: string): Promise<Proposal> => ({ ...base, id, status: 'applied', decidedBy: 'ann' }))
 const rejectProposal = vi.fn(async (_c: unknown, id: string, _note?: string): Promise<Proposal> => ({ ...base, id, status: 'rejected', decidedBy: 'ann' }))
@@ -28,6 +29,7 @@ vi.mock('@/lib/api', async (importOriginal) => {
     api: {
       ...actual.api,
       listProposals: (...a: Parameters<typeof listProposals>) => listProposals(...a),
+      listAdvisors: (...a: Parameters<typeof listAdvisors>) => listAdvisors(...a),
       getProposal: (...a: Parameters<typeof getProposal>) => getProposal(...a),
       acceptProposal: (...a: Parameters<typeof acceptProposal>) => acceptProposal(...a),
       rejectProposal: (...a: Parameters<typeof rejectProposal>) => rejectProposal(...a),
@@ -49,6 +51,7 @@ beforeEach(() => {
   role = 'editor'
   status = 'connected'
   listProposals.mockReset().mockResolvedValue([])
+  listAdvisors.mockReset().mockResolvedValue([])
   getProposal.mockReset().mockImplementation(async (_c, id) => ({ ...base, id }))
   acceptProposal.mockClear()
   rejectProposal.mockClear()
@@ -113,6 +116,32 @@ describe('ProposalsPage', () => {
     expect(await within(screen.getByRole('dialog')).findByText(/Accepted by ann/)).toBeInTheDocument()
     expect(screen.queryByTestId('proposal-accept')).toBeNull()
     expect(listProposals.mock.calls.length).toBeGreaterThan(1) // the list is read again
+  })
+
+  test('each advisor’s record is shown under the list, in counts, with what a rejection does and does not mean', async () => {
+    listAdvisors.mockResolvedValue([
+      { advisor: 'rules-v1', proposals: 4, pending: 1, accepted: 2, failed: 0, rejected: 1, expired: 0, measured: 2, unconfirmed: 0, noData: 0, held: 1, missed: 1 },
+      { advisor: 'cpu-guard', proposals: 1, pending: 1, accepted: 0, failed: 0, rejected: 0, expired: 0, measured: 0, unconfirmed: 0, noData: 0, held: 0, missed: 0 },
+    ])
+    render(<ProposalsPage />)
+    const rows = await screen.findAllByTestId('advisor-row')
+    expect(rows).toHaveLength(2)
+    expect(within(rows[0]).getByText('rules-v1')).toBeInTheDocument()
+    expect(within(rows[0]).getByText('4 (1 waiting)')).toBeInTheDocument()
+    expect(within(rows[0]).getByText('2 accepted, 1 rejected')).toBeInTheDocument()
+    expect(within(rows[0]).getByText('1 of 2 held')).toBeInTheDocument()
+    expect(within(rows[1]).getByText('Nothing decided yet')).toBeInTheDocument()
+    expect(within(rows[1]).getByText('—')).toBeInTheDocument()
+    expect(screen.getByText(/means a person disagreed, not that the advisor was wrong/)).toBeInTheDocument()
+  })
+
+  test('with no advisor yet there is no record section, and a record that cannot be read leaves the list alone', async () => {
+    listProposals.mockResolvedValue([base])
+    listAdvisors.mockRejectedValue(new ApiError(500, 'boom'))
+    render(<ProposalsPage />)
+    await screen.findAllByTestId('proposal-row')
+    expect(screen.queryByTestId('advisor-records')).toBeNull()
+    expect(screen.queryByText('boom')).toBeNull()
   })
 
   test('the menu badge follows the waiting list, and drops when one is decided', async () => {
