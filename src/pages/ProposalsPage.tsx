@@ -6,6 +6,7 @@ import { ago } from '@/lib/observed'
 import { changeLines, effectLines, timeLeft, waitingFirst, type Proposal, type ProposalStatus } from '@/lib/proposals'
 import { useConn, useServer } from '@/store/server'
 import { useTopology } from '@/store/topology'
+import { refreshWaitingProposals, useWaitingProposals, WAITING_CAP } from '@/store/waitingProposals'
 
 const FILTERS: { value: ProposalStatus | 'all'; label: string }[] = [
   { value: 'pending', label: 'Waiting for a decision' },
@@ -49,6 +50,8 @@ export default function ProposalsPage() {
       if (mine !== newest.current) return
       setRows(list)
       setError(undefined)
+      // This list is the freshest word on what waits, so the menu's badge takes it (a longer list than the badge counts is capped there).
+      if (filter === 'pending') useWaitingProposals.getState().set(Math.min(list.length, WAITING_CAP))
     } catch (e) {
       if (mine !== newest.current) return
       setError(e instanceof Error ? e.message : 'The proposals could not be read.')
@@ -140,7 +143,7 @@ export default function ProposalsPage() {
           agentName={nameOf(open.change.agentId || open.agentId)}
           role={role}
           onClose={() => setOpenId(null)}
-          onDecided={() => void load()}
+          onDecided={() => { void load(); void refreshWaitingProposals(conn) }}
         />
       )}
     </>

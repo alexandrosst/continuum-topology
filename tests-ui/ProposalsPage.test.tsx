@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { ApiError } from '@/lib/api'
 import type { Proposal } from '@/lib/proposals'
 import ProposalsPage from '@/pages/ProposalsPage'
+import { useWaitingProposals } from '@/store/waitingProposals'
 
 let role = 'editor'
 let status = 'connected'
@@ -112,6 +113,30 @@ describe('ProposalsPage', () => {
     expect(await within(screen.getByRole('dialog')).findByText(/Accepted by ann/)).toBeInTheDocument()
     expect(screen.queryByTestId('proposal-accept')).toBeNull()
     expect(listProposals.mock.calls.length).toBeGreaterThan(1) // the list is read again
+  })
+
+  test('the menu badge follows the waiting list, and drops when one is decided', async () => {
+    useWaitingProposals.getState().set(0)
+    listProposals.mockResolvedValue([base, widening])
+    render(<ProposalsPage />)
+    await screen.findAllByTestId('proposal-row')
+    await waitFor(() => expect(useWaitingProposals.getState().count).toBe(2))
+
+    // The server no longer lists the one that is decided as waiting.
+    listProposals.mockResolvedValue([widening])
+    await userEvent.click(screen.getByRole('button', { name: 'Pause the traffic observer' }))
+    await userEvent.click(screen.getByTestId('proposal-accept'))
+    await waitFor(() => expect(useWaitingProposals.getState().count).toBe(1))
+  })
+
+  test('looking at a decided list does not change the badge', async () => {
+    listProposals.mockImplementation(async (_c, q) => ((q as { status?: string }).status === 'pending' ? [base, widening, { ...base, id: 'pr-3' }] : [{ ...base, status: 'applied' }]))
+    render(<ProposalsPage />)
+    await waitFor(() => expect(useWaitingProposals.getState().count).toBe(3))
+    await userEvent.click(await screen.findByRole('combobox', { name: 'Show' }))
+    await userEvent.click(await screen.findByRole('option', { name: 'Applied' }))
+    await screen.findAllByTestId('proposal-row')
+    expect(useWaitingProposals.getState().count).toBe(3)
   })
 
   test('rejecting sends the note and changes nothing else', async () => {

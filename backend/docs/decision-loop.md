@@ -117,7 +117,11 @@ change beside the observed one, with the reminder that load can move for other r
 
 The screen never submits a proposal. An advisor does, with an editor's API token.
 
+The menu shows how many proposals wait for a decision beside **Proposals**, for editors and administrators only (the list carries the
+evidence an advisor used, so anyone else is not asked). It is read every minute while the window is visible, and the Proposals page
+updates it when it learns something newer, such as after you decide one. It counts at most 100.
+
 ## Not in this release
 
-Auto mode (applying a narrowing without a person), other kinds of change (telemetry intents, placement), and a count of waiting
-proposals in the navigation or any notification: today you find them by opening the page.
+Auto mode (applying a narrowing without a person), other kinds of change (telemetry intents, placement), and any notification
+outside the app: today the only signal is the number beside Proposals in the menu.
