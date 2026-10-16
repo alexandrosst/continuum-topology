@@ -98,7 +98,7 @@ func TestTheServerIssuesIperfCredentialsAndTheAgentHandsThemToThePodsOfItsRole(t
 				s, err := fetchServer()
 				return err == nil && s.Empty()
 			})
-			if _, err := d.hub.SetConsent(ctx, "test", d.id, server.Consent{}); err != nil {
+			if _, err := d.hub.SetConsent(server.ActingAs(ctx, server.RoleAdmin), "test", d.id, server.Consent{}); err != nil {
 				t.Fatal(err)
 			}
 			waitFor(t, "the credentials to return", 30*time.Second, func() bool {

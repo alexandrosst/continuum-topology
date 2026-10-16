@@ -224,6 +224,13 @@ func (h *Hub) ConsentDocFor(id string) *ConsentDoc {
 	return v.consentDoc()
 }
 
+// ActingAs returns ctx carrying a signed-in caller with the given role, the way the HTTP layer puts one there. It is for code
+// that calls the hub or the core directly and has to say who is asking (a test that drives a real server, a tool): nothing is
+// checked about the role, so it is never called with a role taken from a request.
+func ActingAs(ctx context.Context, role string) context.Context {
+	return context.WithValue(ctx, ctxPrincipal{}, Principal{Role: role})
+}
+
 // mayWiden reports whether the caller may grant an agent more than it has now (a higher tier, a pause or an exclusion
 // lifted). That is the administrator's decision, like approving it; an editor may only narrow. It fails closed: a context
 // with no signed-in caller (a code path that forgot to carry one) may not widen, so a new internal caller has to say who is
