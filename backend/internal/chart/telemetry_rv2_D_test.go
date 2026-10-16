@@ -477,7 +477,7 @@ func TestDcgmScrapeTransformAndScopeFilterInTheRealCollector(t *testing.T) {
 			m["static_configs"] = []any{map[string]any{"targets": []any{hostport}, "labels": map[string]any{
 				"__meta_kubernetes_pod_node_name": "gpu-node-1", "__meta_kubernetes_pod_name": "exporter-abcde", "__meta_kubernetes_namespace": "exporter-ns",
 				"__meta_kubernetes_pod_uid": "11111111-2222-3333-4444-555555555555", "__meta_kubernetes_pod_container_name": "dcgm-exporter",
-				"__meta_kubernetes_pod_controller_kind": "DaemonSet", "__meta_kubernetes_pod_controller_name": "exporter",
+				"__meta_kubernetes_pod_container_port_name": "metrics", "__meta_kubernetes_pod_controller_kind": "DaemonSet", "__meta_kubernetes_pod_controller_name": "exporter",
 				"__meta_kubernetes_pod_phase": "Running", "__meta_kubernetes_pod_ip": host,
 				"__meta_kubernetes_pod_label_app_kubernetes_io_name": "continuum-telemetry-dcgm", "__meta_kubernetes_pod_label_app_kubernetes_io_instance": "ct"}}}
 		}
