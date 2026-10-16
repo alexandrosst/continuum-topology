@@ -73,6 +73,18 @@ deploy/helm/continuum-server/   The server's own Helm chart
 docs-site/                       This documentation site (Docusaurus)
 ```
 
+## Telemetry doctor
+
+`go test -count=1 -run TestDoctor ./internal/server` checks, without a cluster, that every label keeps its meaning from the agent to a Grafana query. The stages are: the label table against the chart and the dashboards; the agent's flows against the server; the commands the server prints against the rendered agent and operator charts; the gateway, Prometheus and Loki as rendered; the queries the API builds and the dashboards' joins; and the links between Grafana and the stores. The rendered-chart stages need `helm` and skip without it.
+
+Every label lives in one table, `fusionapi.Vocabulary` (`internal/fusionapi/vocab.go`): its OTLP attribute, whether Prometheus promotes it, whether Loki indexes it (a stream label) or keeps it as structured metadata (filterable only after a pipe), and who stamps it. To add a label, add a row. Then run the doctor, and the failing stage names the chart value to change: `prometheus.promoteResourceAttributes` in the FUSION chart's `values.yaml` for a promoted label, the `otlp_config` index list in `loki-config.yaml` for an indexed one, or the stamping processor in the agent, operator or gateway chart. If it is a label the dashboards select on, a LogQL stream selector may name it only if it is indexed.
+
+Its limits: stage 2 proves that the id printed in the command equals `ClusterIDFor(org, fingerprint)` and that the chart stamps it, but does not follow that id through the live hub into the application info series (stage 4 uses fixtures for that part). The Loki default index list in stage 3 is a constant in the test, so it has to be updated when the pinned Loki version changes.
+
+## The graph and the fused changes read
+
+The fused `changes` read is scoped by id. `Extras.Changes` takes `targetIDs`, and `EventQuery` has `TargetIDs`: when it is set the graph store adds `AND e.targetId IN $ids` and the SQLite store `target_id IN (...)`, with the order and limit unchanged; an empty list means no id filter. `Core` has an `AppHints` callback (set in `hub.go`) that supplies the accepted discovery hints; the recorder links application membership from it, together with the workspace's applications, each time it saves a snapshot.
+
 ## Docs site
 
 This site lives in `docs-site/` and is a standalone Docusaurus project:

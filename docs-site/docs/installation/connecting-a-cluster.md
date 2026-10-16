@@ -13,7 +13,7 @@ Once the server is running and you've signed in, every cluster is added the same
 The printed command already contains everything it needs:
 
 - The chart reference (this server's own GHCR namespace — nothing to fill in).
-- This server's **CA pin**, so the agent can verify it's really talking to your server on first contact.
+- This server's **CA pin**, printed as `sha256/<base64>` (the hash of the CA's public key), which the agent checks on first contact and again on every rejoin and renewal.
 - A **one-time enrollment token**, valid for one hour and one use.
 
 Optionally, before you run it: narrow which namespaces the agent reports (**Only look at some namespaces**), or turn on the node probe, traffic observer and path measurements checkboxes if you want that extra detail from the start (all three are additive and off by default; see [Observability intent](../architecture/observability-intent.md) for what each one actually collects). None of this is a Kubernetes *permission* boundary — the agent's RBAC stays cluster-wide read-only either way — it's a privacy boundary applied before anything leaves the cluster.
@@ -32,7 +32,7 @@ kubectl -n continuum-system logs deploy/continuum-agent | grep -i 'approval code
 
 That prints just the code itself — `K7QM-4TXD`, nothing else — piped through `grep` twice so there's no log line to read or trim by hand. (The UI's copy button next to this command copies exactly this, so most people never type it themselves.) Type or paste the code into the approve dialog (case, dashes and spaces don't matter). Because only someone with access to the cluster can read that log, approving it is confirmation that the agent asking to join really is the one running where you expect.
 
-Five wrong codes reject the request permanently — install again with a fresh token if that happens. The dialog shows how many attempts are left.
+Five wrong codes reject the request permanently — install again with a fresh token if that happens. The dialog shows how many attempts are left. Every enrollment needs an approval code; there is no setting that skips it.
 
 ## What happens after approval
 

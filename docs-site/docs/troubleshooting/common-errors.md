@@ -70,4 +70,4 @@ Stop the server and run, against its data directory:
 ./server reset-password --data-dir ./data admin
 ```
 
-This prints a new one-time password and ends every existing session for that user. If you're running the chart rather than the binary directly, this means `kubectl exec` into the pod, or scaling it down, mounting the same PVC from a one-off pod, and running the same command.
+This prints a new one-time password and ends every existing session for that user and revokes the account's personal access tokens. If you're running the chart rather than the binary directly, this means `kubectl exec` into the pod, or scaling it down, mounting the same PVC from a one-off pod, and running the same command.

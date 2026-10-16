@@ -69,6 +69,8 @@ A server that will refuse plain `http://` to a non-loopback Neo4j (which include
 
 Neo4j is mandatory in this chart: `neo4j.mode` must be `bundled` or `external`, and rendering fails with `neo4j.mode must be bundled or external` if it is anything else (there is no `none`). Without Neo4j, topology history, events, the audit trail and workspace revisions are degraded or absent, so every deployment made from this chart has one. (The server binary itself can still run with no `--neo4j-url` at all, degrading gracefully, for a quick local trial outside this chart — see the top-level `deploy/README.md`.)
 
+On an upgrade the server backfills the graph's `open` property and waits for its indexes (a full scan that can take a while on a large database, retried every 5 seconds), so the Neo4j user needs permission for `CALL db.awaitIndexes`, and an old and a new server version must not run against the same Neo4j at the same time; see "Data migration" in the top-level `deploy/README.md`.
+
 | `neo4j.mode` | What happens |
 |---|---|
 | `bundled` (default) | a StatefulSet running `neo4j:5.26.30-community` with its own PVC, a headless Service `<fullname>-neo4j`, and a generated password Secret (`randAlphaNum 32`, kept across upgrades with `lookup`, kept on uninstall) unless you give `neo4j.auth.existingSecret`. The server gets `--neo4j-url=http://<svc>.<ns>.svc:7474` and reads the password from a mounted file (`--neo4j-password-file`); no password is ever a command-line argument |

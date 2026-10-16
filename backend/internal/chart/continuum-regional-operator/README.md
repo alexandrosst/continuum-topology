@@ -18,7 +18,7 @@ the commands you'd only need occasionally, not at every install.
   the data passing through it. The one exception is the opt-in [heartbeat](#heartbeat-opt-in) below, off
   unless you set `heartbeat.enabled`.
 - **It needs no Kubernetes API access.** `serviceaccount.yaml` renders a `ServiceAccount` with
-  `automountServiceAccountToken: false` and nothing else — no `ClusterRole`, no `ClusterRoleBinding`. It
+  `automountServiceAccountToken: false` and nothing else — no `ClusterRole`, no `ClusterRoleBinding`. With `renew.enabled` a namespaced `Role` lets the certificate-renewal sidecar get and update the Secrets it renews, and only that container gets the account's token. It
   only relays and re-processes telemetry that already arrived over OTLP; it never watches this cluster's
   own object graph the way `continuum-agent`'s `k8sattributes` processor does, so there is no
   `telemetry.scope` or namespace filter here either.
@@ -29,7 +29,7 @@ the commands you'd only need occasionally, not at every install.
   operator's CA, or from the org CA, is rejected (an mTLS operator created before per-operator CAs has the
   org CA there instead, and accepts any certificate that CA signed: weaker, fixed by recreating it); `receiver.auth.enabled` is `false` and no receiver bearer token exists. It also
   sets `receiver.requireAuth=true`, which makes the chart refuse to render if neither gate is on. Operators
-  created before that (and one whose certificates could not be minted) instead check a receiver bearer
+  created before that instead check a receiver bearer
   token (`receiver.auth.enabled=true`, Secret named by `receiver.auth.secretName`), shown once when created,
   the server keeping only a hash of it. The defaults in `values.yaml` (both gates off) mean an open receiver
   and only matter if you hand-edit these values. If you opt in to the heartbeat there is also a second,
@@ -72,16 +72,29 @@ permit an `http://` URL for a throwaway test and sends the secret unencrypted.
 
 ## Renewed certificates
 
-Run the install command again with the renewed Secrets and the new certificate is picked up in one of two ways:
+Certificates last 30 days and are renewed by the pod that holds them. With `renew.enabled` (the install command sets it
+with `renew.server` and `renew.caPin`) a `cert-renew` sidecar looks every `renew.interval` (1h) at the receiver's
+certificate, the client certificate of an mTLS destination and any Secrets in `renew.extraSecrets`, and with less than 20
+days left asks the Ikhnos server for a new one. It makes a new key in the pod and proves it holds the old certificate, so
+the key never leaves the pod and no token is involved; the server decides again at every renewal, and a deleted or
+revoked operator is not renewed. The sidecar runs the same image as the discovery agent (`renew.image.tag`, default the
+chart's appVersion). It alone gets the service account's token, and a `Role` lets it get, update and patch exactly the
+Secrets it renews. With `networkPolicy.egress` on, let the pod reach the Ikhnos server and the Kubernetes API server
+(`networkPolicy.egress.extraEgress`). An operator installed before renewal existed has `renew.enabled=false`; run its
+install command again once to turn it on.
+
+A renewed certificate, or one you replaced yourself, is picked up in one of two ways:
 
 - **At once, when Helm can see the cluster.** The pod carries a `checksum/mtls` annotation over what the TLS Secrets
   it mounts hold (the receiver certificate, each destination's client certificate, the heartbeat CA), computed with
-  Helm's `lookup`; a changed Secret changes the annotation and the pod restarts. Under `helm template` - which is
-  what Argo CD and Flux run - `lookup` sees nothing, so no annotation is rendered and nothing restarts. An account
-  that may not `get` Secrets in the namespace makes Helm fail the render: set `rolloutOnSecretChange=false`.
+  Helm's `lookup`; a changed Secret changes the annotation and the pod restarts. With `renew.enabled` the certificate and
+  key are left out of the digest, so a renewal does not restart the pod; the CA (`ca.crt`) stays in it. Under
+  `helm template` - which is what Argo CD and Flux run - `lookup` sees nothing, so no annotation is rendered and nothing
+  restarts. An account that may not `get` Secrets in the namespace makes Helm fail the render: set
+  `rolloutOnSecretChange=false`.
 - **Without a restart, on a later connection.** Every receiver and every client-certificate exporter has
-  `reload_interval: 1h`: the certificate and key are re-read from the mounted Secret (Kubernetes refreshes the mount
-  within about a minute) at the first new handshake after the hour has passed, so a connection that stays open keeps the
+  `reload_interval: 5m`: the certificate and key are re-read from the mounted Secret (Kubernetes refreshes the mount
+  within about a minute) at the first new handshake after the interval has passed, so a connection that stays open keeps the
   certificate it started with ([configtls](https://github.com/open-telemetry/opentelemetry-collector/blob/main/config/configtls/README.md)).
   The receiver's mTLS client CA is re-read when the file changes (`client_ca_file_reload`). A destination's CA bundle
   (`ca.crt` of an exporter) is read at start only: after replacing it, run `kubectl rollout restart`.
@@ -102,7 +115,7 @@ Run the install command again with the renewed Secrets and the new certificate i
 - **What the receiver accepts.** gRPC pings from a sender's `telemetry.export.keepalive` (one every 30s, also while idle; a
   stock receiver would answer faster pings with `too_many_pings`), and, with `receiver.tls.mtls`, a client CA that is
   re-read when its Secret changes (`client_ca_file_reload`), so adding a source cluster's CA needs no restart. Its server
-  certificate is re-read at the next handshake after an hour; a destination's CA bundle (`export...tls.caSecretName`) is
+  certificate is re-read at the next handshake after five minutes; a destination's CA bundle (`export...tls.caSecretName`) is
   read at start only.
 
 ### Troubleshooting export
@@ -181,6 +194,7 @@ policy**: the egress policy always lets DNS through to kube-dns/CoreDNS and Node
   network, and a wrong one silently cuts a pipeline off rather than failing loudly.
 - **`heartbeat`** — the opt-in liveness report described above: `enabled`, `url`, `intervalSeconds`, `auth`
   (the Secret holding the heartbeat secret), `tls` (an optional private CA) and `allowPlainHTTP`.
+- **`renew`** — the certificate-renewal sidecar described above: `enabled`, `server` (the Ikhnos server's agent address, `host:port`), `caPin` (`sha256/<base64>`, as the install command prints it), `extraSecrets`, `interval`, `image` (`tag`) and `resources`.
 - **`export.proxy` / `export.timeout` / `export.keepalive` / `export.checkPorts`, `extraEnv`, `dnsConfig`** — reaching the destination
   through a proxy, the per-attempt timeout, idle-connection pings, the port check, extra environment and pod DNS options,
   described above.

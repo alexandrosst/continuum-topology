@@ -10,15 +10,15 @@ An install command carries `--ca-pin`. The agent trusts **only** a CA whose pin 
 sends a token or a certificate signing request.
 
 * Legacy pin: the hex SHA-256 of the whole CA certificate (`sha256:<hex>` or bare hex). It is the
-  value shown in the UI and in install commands, and it is unchanged.
+  form older installs carry; the agent still accepts it.
 * Public-key pin: `sha256/<base64 or hex>` of the SHA-256 of the CA certificate's
-  SubjectPublicKeyInfo (the same value `curl --pinnedpubkey` uses). It stays the same when the CA
+  SubjectPublicKeyInfo (the same value `curl --pinnedpubkey` uses). It is the form the UI and install commands print. It stays the same when the CA
   certificate is re-issued for the **same key** (new validity, same key). The server logs it at
   startup as `ca_spki_pin`.
 
 The agent's TLS verifier (`pki.ClientTLS`) and its enrollment, rejoin, and renewal checks
 (`internal/agent/enroll.go`, `internal/agent/run.go`) all compare the returned CA with
-`pki.PinMatches`, which accepts either form - a `sha256/...` pin works everywhere a legacy pin does.
+`pki.PinMatches`, which accepts either form - a `sha256/...` pin works everywhere a legacy pin does. The renewal sidecar of a regional operator verifies the server's CA against the same pin before it sends a request.
 
 The CA certificate is valid for ten years. After enrollment an agent stores the CA certificate it
 received (it was checked against the pin), and re-checks the pin on every rejoin and renewal.
@@ -47,8 +47,8 @@ working; the database is needed to keep their approvals and history.
 1. Put `ca.crt` and `ca.key` back in `<data-dir>/pki/` with mode `0600` for the key.
 2. Start the server with the same passphrase file if the key is encrypted. The server refuses to
    start with an encrypted key and no passphrase, and never creates a second CA over half of one.
-3. Check the logged `ca_pin` equals the one your agents were installed with. If it does, agents
-   reconnect without any action.
+3. Check the logged pin (`ca_spki_pin`, or `ca_pin` for agents installed with a legacy pin) equals the one
+   your agents were installed with. If it does, agents reconnect without any action.
 
 Restoring only the database onto a new CA creates a different pin: every agent will refuse the server.
 
@@ -94,3 +94,12 @@ installed with a `sha256/...` pin are unaffected - this is exactly the case a pu
 
 Plan for step 3 to take as long as it takes to reach every cluster; there is no overlap period in which
 both CAs are trusted.
+
+## Operator CAs and operator certificates
+
+A regional operator has its own CA, separate from the Continuum CA above. Its receiver and client
+certificates last 30 days and are renewed by their holders (an install from before renewal keeps its
+365-day certificates until its first renewal). Revoking an operator or a sender stops renewal; it does
+not revoke a certificate, which stops working when it ends, within 30 days (up to 365 for a legacy
+certificate that was never renewed). An immediate cut-off means rotating the operator CA: put the new
+`ca.crt` on the receiver and restart it. There is no overlap period.

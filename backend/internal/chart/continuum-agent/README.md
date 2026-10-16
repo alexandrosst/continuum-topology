@@ -115,7 +115,9 @@ secret). It mounts the host's `/sys` read-only when `nodeProbe.hostSys` is set.
 One collector per node counts connections between workloads (`flowObserver.method`: `auto`, eBPF where the
 kernel supports it and conntrack otherwise). It runs as root with `CAP_BPF`/`CAP_PERFMON` and an unconfined
 seccomp profile because loading a tracing program needs them, and in the host PID namespace when
-`flowObserver.liveBytes` is set so it can count the bytes of open connections. It reads no packet payloads.
+`flowObserver.liveBytes` is set so it can count the bytes of open connections. It reads no packet payloads. A new dependency appears after about `flowObserver.interval` / 2 + `flowObserver.window` / 2
+on average (10 s and 15 s by default), plus the dashboard's polling; connections that were already open when the
+collector started are counted when they next open.
 
 ## Telemetry (`telemetry.*`)
 
@@ -147,7 +149,7 @@ stats, container/journal logs).
   mode is untested.
 - **TLS on the receiver.** `telemetry.receiver.tls.secretName` names a `kubernetes.io/tls` Secret (`tls.crt`, `tls.key`) in
   this release's namespace, mounted into the cluster collector and served on both OTLP ports; it must be valid for
-  `continuum-telemetry-cluster.<namespace>.svc`. It is re-read every hour. `telemetry.receiver.tls.clientCAKey` (a key of the
+  `continuum-telemetry-cluster.<namespace>.svc`. It is re-read every 5 minutes. `telemetry.receiver.tls.clientCAKey` (a key of the
   same Secret holding the CA bundle) requires client certificates as well. Plain-text clients are refused once it is on.
 - **Size of the cluster collector.** It holds a copy of every node, pod and workload of the cluster, so the node count
   decides its memory. While installing against a live cluster the chart counts the nodes and raises (never lowers)
@@ -213,12 +215,16 @@ stats, container/journal logs).
   the pod's token to whatever answers on that address. `telemetry.kubelet.address=nodeName` addresses the node by name. A
   corporate HTTPS proxy configured through `HTTPS_PROXY` on this pod would also catch this connection (Go sends every
   non-loopback address through it): the node's address must be in `NO_PROXY`.
-- **Renewed certificates.** A client certificate (`telemetry.export...tls.mtls`) is re-read from its Secret by the
-  exporter, but only when a new connection is made and at least `reload_interval` (1h) has passed since the last read:
-  a connection that stays open keeps using the certificate it started with (so a renewal can take effect later than an
-  hour, up to the connection's next reconnect). Running the install command again after renewing it restarts the
-  collectors at once where Helm can read the cluster (not under `helm template`, Argo CD or Flux;
-  `telemetry.rolloutOnSecretChange=false` for an account that may not read Secrets). A replaced destination `ca.crt` is
+- **Renewed certificates.** A client certificate (`telemetry.export...tls.mtls`) lasts 30 days and the agent renews it
+  itself with 20 days or less left, asking the server for a new one and proving it holds the old key; the chart gives the
+  agent a `Role` (`<release>-cert-renew`) with get, update and patch on exactly the Secrets named in
+  `telemetry.export...tls.mtls.secretName`, and the agent leaves a missing one alone. The exporter re-reads the certificate
+  from its Secret when a new connection is made and at least `reload_interval` (5m) has passed since the last read: a
+  connection that stays open keeps using the certificate it started with (so a renewal can take effect later than that, up
+  to the connection's next reconnect), and no restart is needed. A certificate you replace by hand and then run the install
+  command again restarts the collectors at once where Helm can read the cluster (not under `helm template`, Argo CD or
+  Flux; `telemetry.rolloutOnSecretChange=false` for an account that may not read Secrets); the certificate and key the agent
+  renews are left out of that comparison, so a renewal does not restart them. A replaced destination `ca.crt` is
   read at start only and needs `kubectl rollout restart`
   ([`reload_interval`](https://github.com/open-telemetry/opentelemetry-collector/blob/main/config/configtls/README.md) and
   [`client_ca_file_reload`](https://github.com/open-telemetry/opentelemetry-collector/blob/main/config/configtls/README.md),

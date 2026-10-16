@@ -178,7 +178,7 @@ Sign in with `admin` and that password; the server makes you choose a new one im
 
 Alternative: create a Secret and set `admin.existingPasswordSecret` (key `password` by default). It becomes the first administrator's password (`CONTINUUM_ADMIN_PASSWORD`), subject to the password policy, on a fresh database only. It is not forced to change, so treat the Secret as the credential. If the database already has users the Secret is ignored.
 
-If you lost the password: `kubectl -n continuum exec deployment/continuum-server -- /server reset-password --data-dir=/data admin` prints a new one-time password (the image has no shell, but `exec` of the binary works). `server create-org --owner USER NAME` and `server verify-audit` are the other maintenance commands. These are run in the pod; not verified in a cluster.
+If you lost the password: `kubectl -n continuum exec deployment/continuum-server -- /server reset-password --data-dir=/data admin` prints a new one-time password, ends the account's sessions and revokes its personal access tokens (the image has no shell, but `exec` of the binary works). `server create-org --owner USER NAME` and `server verify-audit` are the other maintenance commands. These are run in the pod; not verified in a cluster.
 
 `registration` defaults to `invite`: people join through an invitation created by an organization administrator. `closed` disables self-registration entirely (accounts are provisioned with the commands above). `open` lets anyone who can reach the admin address create an account and an organization; use it only on a private network.
 
@@ -193,7 +193,7 @@ If you lost the password: `kubectl -n continuum exec deployment/continuum-server
 The CA pin can also be read without the UI:
 
 ```console
-kubectl -n continuum logs deployment/continuum-server | grep -o 'ca_pin=[^ ]*'
+kubectl -n continuum logs deployment/continuum-server | grep -o 'ca_spki_pin=[^ ]*'
 ```
 
 or, after signing in and choosing your own password, from the API (the org id is the chart's `org`, `default` unless changed):
@@ -247,6 +247,7 @@ helm upgrade continuum-server deploy/helm/continuum-server -n continuum -f value
 * The same applies to the upgrade commands Ikhnos prints for an **agent** or a **regional operator** (they keep what you set at install, since there is no values file to point at): they use `--reset-then-reuse-values` (Helm 3.14+), never `--reuse-values`. `--reuse-values` replaces the new chart's defaults with the values the old release was installed with, so a setting a newer chart added after your install does not exist and the upgrade can fail with a nil-pointer error in a template; `--reset-then-reuse-values` starts from the new chart's defaults and puts your own values on top.
 * The Deployment uses `Recreate` (a ReadWriteOnce volume cannot be mounted twice): expect a gap of seconds to a minute in which the UI is down and agents are reconnecting. They reconnect on their own and no agent re-enrolls.
 * **Data migration.** The server upgrades its SQLite schema in place when it starts (a version marker in the database), and Neo4j upgrades its store when a newer image opens it. Neither is designed to go backwards: **take a backup before every upgrade** (a VolumeSnapshot, or a [cold backup](#backup-and-restore)) and roll back by restoring it, not by re-deploying an older image over a migrated database.
+* **Graph schema upgrade.** The first recording after an upgrade that changes what a Neo4j version holds creates one new version for each entity whose document lost fields (live readings are no longer part of a version). On start the server also runs a one-time backfill of the `open` property on versions and relationships and waits for the new indexes: a full scan that can take a while on a large database and is retried every 5 seconds until it succeeds. The Neo4j user needs permission for `CALL db.awaitIndexes`. Do not run an old and a new server version against the same Neo4j at the same time.
 * The PVC is never touched by an upgrade (`persistence.keepOnUninstall` marks it `helm.sh/resource-policy: keep`, which Helm also honours if you later switch to `persistence.existingClaim`). A larger `persistence.size` expands the volume only if the StorageClass has `allowVolumeExpansion`.
 * Chart upgrades never change the Deployment's selector labels, so `helm upgrade` is safe across chart versions.
 * The bundled Neo4j image tag is pinned (`5.26.30-community`). Move to a newer 5.26 patch freely after a snapshot; a major or minor jump is your decision.
@@ -525,7 +526,7 @@ Ready-made combinations to copy from live in `helm/continuum-server/ci/`.
 **An agent cannot connect.**
 * *TLS handshake fails, `x509` or `certificate is valid for ... not ...` in the agent log*: the name the agent dials is not in the server certificate. Compare `server.address` on the agent with `agent.publicAddress` and `agent.extraHosts`; they must match exactly (IP vs DNS name counts). Fix the value and `helm upgrade`; the server issues a new certificate.
 * *Handshake fails or resets and the address is right*: something in the path terminates TLS or speaks HTTP. Check the path is L4 or passthrough: a plain Ingress, an HTTP load balancer, a CDN or a proxy with TLS inspection all break mutual TLS. With a Gateway API `TLSRoute`, check the Gateway's listener is actually `protocol: TLS` with `tls.mode: Passthrough` (not `Terminate`), and that agents dial the Gateway's port (usually 443).
-* *Certificate signed by unknown authority / pin mismatch*: the agent was installed with another server's CA pin, or the server's data volume was replaced (a new CA). Compare `ca_pin=` in the server log with the pin half of the agent's `enrollment.key` (or `server.caPin`, if it was set directly) — `kubectl -n continuum-system get deployment continuum-agent -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="CONTINUUM_CA_PIN")].value}'` shows the value it's actually running with either way.
+* *Certificate signed by unknown authority / pin mismatch*: the agent was installed with another server's CA pin, or the server's data volume was replaced (a new CA). Compare `ca_spki_pin=` in the server log with the pin half of the agent's `enrollment.key` (or `server.caPin`, if it was set directly) — `kubectl -n continuum-system get deployment continuum-agent -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="CONTINUUM_CA_PIN")].value}'` shows the value it's actually running with either way.
 * *Timeouts*: the LoadBalancer is still `<pending>` (`kubectl -n continuum get service continuum-server-agent`; no load balancer controller: use NodePort or install MetalLB), a firewall or `loadBalancerSourceRanges` blocks the agent's network, or a NodePort is not open on that node.
 * With `networkPolicy.enabled`, `networkPolicy.ingress.agent.from` must allow the agents' networks (empty means anywhere).
 

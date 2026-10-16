@@ -21,7 +21,7 @@ It does two jobs. It lets a caller read each signal **on its own**, with filters
 
 There are two kinds of caller, and nothing else is accepted.
 
-**A FUSION access token** (`cnf_…`) is for another system. An administrator of the server's main organisation makes one on the FUSION card (Regional operators → Data access → New access token), gives it a name, picks which signals it may read, optionally limits it to some namespaces and some cluster ids, and chooses how long it lasts (30 to 365 days, 90 by default). The secret is shown once; only its SHA-256 is stored, as with every other secret here. A token is read-only, it can be revoked at once from the same card, and it opens nothing but this API: presented to any other part of the server, it is refused.
+**A FUSION access token** (`cnf_…`) is for another system. An administrator of the server's main organisation makes one on the **FUSION** page, **Access** tab (**New API token**), gives it a name, picks which signals it may read, optionally limits it to some namespaces and some cluster ids, and chooses how long it lasts (30 to 365 days, 90 by default). The secret is shown once; only its SHA-256 is stored, as with every other secret here. A token is read-only, it can be revoked at once from the same tab, and it opens nothing but this API: presented to any other part of the server, it is refused.
 
 **A signed-in administrator** of that organisation (a browser session or a personal access token) can read everything, which is what lets the UI explore the data without minting a token for itself. A viewer or an editor cannot: the stored telemetry is more than the topology they can already see.
 
@@ -37,7 +37,7 @@ A browser on another origin cannot call it: the `Authorization` header is not am
 
 A token's scope has three parts: the **signals** it may read (metrics, logs, traces), the **namespaces** whose telemetry it may see, and the **clusters** whose telemetry it may see. Empty namespaces or clusters means no limit on that part.
 
-The limit is enforced twice. Every query a limited token causes is built by the server from structured filters, never from text the caller wrote, with the scope's matchers added to it: a `k8s_namespace_name` matcher in the PromQL selector, in the LogQL stream selector and in the TraceQL condition, and a `continuum_cluster_id` one beside it. Then each answer is checked again against the scope before it leaves, so a store that ignored a matcher still cannot leak a line. Telemetry that carries no namespace (node metrics, say) is invisible to a token that limits namespaces: the limit fails closed.
+The limit is enforced twice. Every query a limited token causes is built by the server from structured filters, never from text the caller wrote, with the scope's matchers added to it: a `k8s_namespace_name` matcher in the PromQL selector, in the LogQL stream selector and in the TraceQL condition, and a `continuum_cluster_id` one beside it (in Loki `continuum_cluster_id` and `continuum_org_id` are stream labels, so they work in the selector and after a pipe). Then each answer is checked again against the scope before it leaves, so a store that ignored a matcher still cannot leak a line. Telemetry that carries no namespace (node metrics, say) is invisible to a token that limits namespaces: the limit fails closed.
 
 Two consequences follow, and both are deliberate:
 
@@ -48,16 +48,17 @@ What the server does with the data matters too: the stores are reached over plai
 
 ## The calls
 
-All are `GET` (but the batch read, and the backends' own POST forms), all take `from` and `to` (an RFC 3339 time, unix seconds, or `now-15m`; default the last hour, never more than 31 days) and answer JSON.
+All are `GET` (but the batch read, and the backends' own POST forms), all take `from` and `to` (an RFC 3339 time, unix seconds, or an offset such as `now-15m` or `now-7d`; default the last hour, never more than 31 days, of which a trace search takes at most 7 and a log read at most 30 per query) and answer JSON. Durations and offsets accept `d` and `w` as well as `s`, `m` and `h`.
 
 | Call | What it returns |
 | --- | --- |
 | `/api/v1/fusion/status` | FUSION's own state, and what this caller may read (signals, namespaces, clusters, expiry, whether raw queries are allowed). |
-| `/api/v1/fusion/applications` | The **Ikhnos applications** (groups of services, made by a person or found by discovery), each with its services, namespaces and clusters, and which signal types FUSION has for them in the range. Pass an application's `id` or `name` as `application` to the reads below ([filtering by application](#filtering-by-ikhnos-application)). |
+| `/api/v1/fusion/applications` | The **Ikhnos applications** (groups of services, made by a person or found by discovery), each with its services (each with an `id`, its name, namespace, cluster, kind, aliases and signals), namespaces and clusters, and which signal types FUSION has for them in the range. Pass an application's `id` or `name` as `application` to the reads below ([filtering by application](#filtering-by-ikhnos-application)). |
 | `/api/v1/fusion/applications/{name}` | One Ikhnos application at a glance (`name` is its id or name): its signals across all its services, recent traces, recent traces with an error span, recent error-level log lines, the metric names it reports. |
+| `/api/v1/fusion/applications/{name}/topology` | The service-to-service traffic of one Ikhnos application, now or as of an earlier time ([application topology](#application-topology)). |
 | `/api/v1/fusion/services` | The **services** that have telemetry in the range (their `service.name`), which signal types each has, and the Ikhnos applications each is in (`applications`; empty for infrastructure that reports under a name of its own, such as an exporter). `application=` keeps only the services of one application. |
 | `/api/v1/fusion/services/{name}` | One service at a glance: the same overview, for a single `service.name`. |
-| `/api/v1/fusion/metrics/names`, `/series`, `/range` | Metric names, series label sets, and series values over the range, filtered by `name`, `metric` (a regular expression over the name), `service`, `namespace`, `pod`, `node`, `cluster`, `application`, `category`. `/range` takes `step` and `limit`. |
+| `/api/v1/fusion/metrics/names`, `/series`, `/range` | Metric names, series label sets, and series values over the range, filtered by `name`, `metric` (a regular expression over the name), `service`, `namespace`, `pod`, `node`, `cluster`, `application`, `category`. `/range` takes `step` and `limit`, and needs at least one of `name`, `metric`, `service`, `namespace`, `pod`, `node` or `application`; without one it answers `400`. |
 | `/api/v1/fusion/links` | The latest figures of the links between clusters, for the pairs the organisation watches: loss in each direction, round trip, delay variation, path MTU, throughput and when they were measured. Each pair once, with `measuredBy`; `cluster` and `peer` narrow it ([cluster links](#cluster-links)). Needs the `metrics` signal. |
 | `/api/v1/fusion/metrics/query`, `/query_range` | PromQL as written, answered in Prometheus' own shape. Unrestricted callers only. |
 | `/api/v1/fusion/logs` | Log lines, with `service`, `namespace`, `pod`, `cluster`, `application`, `category`, `trace_id`, `span_id`, `severity`, `contains`, `order=newest\|oldest`, `limit`. With `query=` it takes LogQL as written (unrestricted callers only). |
@@ -66,6 +67,8 @@ All are `GET` (but the batch read, and the backends' own POST forms), all take `
 | `POST /api/v1/fusion/traces/batch` | Up to 25 fused traces in one request ([reading many](#reading-many-traces)). |
 | `/api/v1/fusion/prometheus/...`, `/loki/...`, `/tempo/...` | Each store's own read API, unchanged ([the backends' own APIs](#the-backends-own-apis)). |
 | `/api/v1/fusion/openapi.json`, `/api/v1/fusion/docs` | The OpenAPI description of all of the above, and a page that renders it and lets you try each call ([the API page](#the-api-page-and-the-openapi-description)). No credential needed: they describe the API, they read nothing. |
+
+**Lists say when they are cut.** `metrics/names`, `metrics/series`, `metrics/range`, `traces` and `logs` answer with `truncated` (true when more matched than `limit` allowed), the `limit` that applied, and the `from` and `to` of the range actually read, so a caller with a full page knows to narrow the filters or the range. `/services` and `/applications` carry `warnings` that say what the answer leaves out, and the overview of an application or service carries `metricsTruncated` when its metric names were cut. To learn whether there was more, FUSION asks the store for one more than the caller's `limit`, so a store's own log shows a limit one higher than the one passed in.
 
 ## The backends' own APIs
 
@@ -77,7 +80,7 @@ Everything above is FUSION's own shape: one set of parameters (`from`, `to`, `se
 | `/api/v1/fusion/loki/` | Loki's: `query`, `query_range`, `labels`, `label/{name}/values`, `series`, `index/stats`, `index/volume`, `index/volume_range`, `patterns`, `detected_labels`, `detected_fields` | `/api/v1/fusion/loki/loki/api/v1/query_range?query={service_name="web"}` |
 | `/api/v1/fusion/tempo/` | Tempo's: `api/traces/{id}`, `api/v2/traces/{id}`, `api/search`, `api/search/tags`, `api/v2/search/tags`, `api/search/tag/{tag}/values` (and v2), `api/metrics/query`, `api/metrics/query_range` | `/api/v1/fusion/tempo/api/search?q={ status = error }` |
 
-After the prefix the path, the parameters and the answer are the store's own, so a client written for the store works with only its address and a bearer token changed: a Grafana datasource of type Prometheus, Loki or Tempo with the URL `https://ikhnos.example/api/v1/fusion/prometheus` (or `/loki`, `/tempo`) and an `Authorization: Bearer <token>` header, `promtool`, `logcli`. A POST with a form (how Grafana sends queries) is accepted on the query endpoints. A bad query gets the store's own error, in its own format.
+After the prefix the path, the parameters and the answer are the store's own, so a client written for the store works with only its address and a bearer token changed: a Grafana datasource of type Prometheus, Loki or Tempo with the URL `https://ikhnos.example/api/v1/fusion/prometheus` (or `/loki`, `/tempo`) and an `Authorization: Bearer <token>` header, `promtool`, `logcli`. A POST with a form (how Grafana sends queries) is accepted on the query endpoints. A bad query gets the store's own error, in its own format. Loki's `patterns` come from its pattern ingester, which is enabled, and Loki and Tempo search accept a range of at most 31 days, as Prometheus does.
 
 What is *not* mirrored is as deliberate as what is. Only read endpoints are served: nothing that writes (remote write, OTLP and Loki push, delete, snapshot), administers (reload, quit, flush, config, ring) or tails exists at these addresses - there is no refusal to bypass, the route is simply not there (404). The same authentication, rate limit (a request is a request), 30-second timeout, 16 MiB answer cap and failure rules as the rest of the API apply, and a store's own text for a failure of the store (as opposed to a mistake in your query) is not passed on.
 
@@ -96,7 +99,7 @@ The answer is the trace (`traceId`, `start`, `end`, `durationMs`, `services`, `s
 - `resources`, one per service-in-a-pod, each with its `metrics`: the series saved for the same service and namespace (what the application itself reported) and for the same pod and namespace (what was reported about the pod), over the trace's time plus a margin, each as `points` of `[unix seconds, value]` and a `min`, `max`, `avg`, `last`.
 - `logs`: how many lines were found (`total`), how many landed on a span (`matched`), and `unmatched`, the lines that carry the trace id but no span id or the id of a span this read does not have.
 - `joins`: in words, how each requested signal was tied to the trace. Logs are `exact` (the record carries the ids); metrics are `associated, not proven`.
-- `sources`: for each of `traces`, `logs` and `metrics` (and `contextLogs` and `systemLogs` when asked for), one of `ok`, `not requested`, `not allowed` (the token's scope does not include it), `unavailable` (the store could not be reached) or `error`; `warnings` says why. **A store that is down does not fail the read**: the trace comes back and the missing part is named. Only a trace that cannot be read at all fails.
+- `sources`: for each of `traces`, `logs` and `metrics` (and `contextLogs` and `systemLogs` when asked for), one of `ok`, `not requested`, `not allowed` (the token's scope does not include it), `unavailable` (the store could not be reached) or `error`; `warnings` says why. A call to a store is cut off after 10 seconds, inside the request's 30, and a store that is too slow (the 504 names it) degrades only its own part to `error`: the rest of the read comes back. **A store that is down does not fail the read**: the trace comes back and the missing part is named. Only a trace that cannot be read at all fails.
 
 `pad` (the margin around the trace, default two minutes, at most an hour), `span_pad` (the margin around each span when its metrics are cut out, default 30 seconds, at most an hour: samples arrive every 30 to 60 seconds, so a span of a few milliseconds would often have none without it), `metric` (a regular expression over metric names, default all), `max_logs` (default 500, at most 2000), `max_series` (per resource, default 15, at most 100) and `points` (per series, default 60) shape it. A trace returns at most 5000 spans, and says when it had more. The spans of one fused read carry at most 20000 metric points between them (overlapping spans of one pod repeat the same samples); past that a span keeps each series' summary but not its points, and `warnings` says so. The per-span metrics are cut from what was already read for the resource, so they cost no extra store call.
 
@@ -106,7 +109,7 @@ The answer is the trace (`traceId`, `start`, `end`, `durationMs`, `services`, `s
 
 | `include` | What is joined | How |
 | --- | --- | --- |
-| `logs` | The lines that carry the trace's id, each on the span whose id it carries. | Exact. |
+| `logs` | The lines that carry the trace's id, each on the span whose id it carries. | Exact. Only the trace's own services are searched, not every service in the window. |
 | `context_logs` | For each resource, the lines it wrote around the trace that carry **no** trace id (the connection pool warning that came just before the failure). On `resources[].logs`, oldest first, `max_context_logs` per resource (default 50). | Associated: same service, namespace and pod, in the trace's window. |
 | `system_logs` | The lines of the system namespaces (`system_namespaces`, default `kube-system`) on the nodes the trace's pods ran on, in `systemLogs`, `max_system_logs` of them (default 100). One read per node, at most five nodes. | Associated: same node, in the trace's window. A token whose namespaces exclude the system ones gets a warning, not a read. |
 | `metrics` | The series of each resource, and of each span's own time. | Associated. `metric_scope` says whose: `app` (what the service reported), `pod` (what was reported about its pod) and `node` (series that name the node and no pod). Default `app,pod`. |
@@ -157,7 +160,9 @@ Rules worth knowing:
 
 `topology` adds `resources[].topology`: the service as Ikhnos knows it (matched by name, namespace and cluster, falling back to its `app` label), the services and external addresses it was seen calling (`calls`) and the services seen calling it (`calledBy`). It is the topology as of now, not as of the trace, and says so in `joins`. DNS and system traffic is left out.
 
-`changes` adds `changes`: events Ikhnos recorded about the trace's services, nodes and clusters from `changes_before` (default 30 minutes) before the trace to `pad` after it — scalings, restarts, node and cluster events, each with its detail and cause when known. `max_changes` (default 50, at most 500) keeps the newest.
+An empty namespace or cluster on either side is not a wildcard. A resource that matches more than one service is ambiguous: it gets no topology, a warning, and a sentence in `joins` saying so.
+
+`changes` adds `changes`: events Ikhnos recorded about the trace's services, nodes, clusters, dependencies and applications (`targetKind` is `cluster`, `node`, `service`, `dependency`, `application` or `agent`) from `changes_before` (default 30 minutes) before the trace to `pad` after it — scalings, restarts, node and cluster events, each with its detail and cause when known. `max_changes` (default 50, at most 500) keeps the newest. Events are looked up by the ids of the trace's resources, not by name; a node's id comes from the current topology, so events of a node that has already left it are not found.
 
 Neither is a token signal. They follow the token's namespaces and clusters: a token limited to namespaces sees only neighbours in those namespaces (and no external addresses), and only the events of services in them. `include=all` now includes both. If the server has no topology to read, `sources` says `unavailable` and the trace still comes back.
 
@@ -166,7 +171,7 @@ Neither is a token signal. They follow the token's namespaces and clusters: a to
 The join is only as good as the instrumentation behind it, and it is worth saying where it can come apart:
 
 - **Logs to spans** use the OTLP log record's own `trace_id` and `span_id`, which Loki keeps as structured metadata. An application that logs without its trace context (most do until the logging bridge of its OpenTelemetry SDK is turned on) has logs, and traces, and nothing that joins them.
-- **Metrics to spans** are placed by resource and by time, never by request. They use resource attributes that the FUSION chart promotes to Prometheus labels: `service.name`, `k8s.namespace.name`, `k8s.pod.name` and a few more (`prometheus.promoteResourceAttributes` in the FUSION chart). The join is "the same service, namespace or pod around the same time", not a causal link from one request to one sample: metrics do not carry trace ids.
+- **Metrics to spans** are placed by resource and by time, never by request. They use resource attributes that the FUSION chart promotes to Prometheus labels: `service.name`, `k8s.namespace.name`, `k8s.pod.name` and a few more. The authoritative list is `fusionapi.Vocabulary` in the server code; the chart side is `prometheus.promoteResourceAttributes` in the FUSION chart's `values.yaml` (and, for Loki, the `otlp_config` index list). The join is "the same service, namespace or pod around the same time", not a causal link from one request to one sample: metrics do not carry trace ids.
 - **Telemetry carries a `service.name`, not an application.** An application in Ikhnos (a group of services, made by a person or found by discovery) is a different thing, and telemetry does not carry it: `/applications` lists the Ikhnos applications, `/services` the `service.name`s, and [filtering by application](#filtering-by-ikhnos-application) resolves one to its services when you ask.
 - **Clocks.** Spans, log lines and samples are stamped by the nodes that produced them. The margin around the trace absorbs ordinary skew, not a node whose clock is minutes out.
 
@@ -206,7 +211,7 @@ What it does and does not do:
 Those tools do not go through this API, so while FUSION is running the server writes one series into FUSION's Prometheus every minute:
 
 ```
-ikhnos_application_info{application="Shop", application_id="app-1", service_name="cart", k8s_namespace_name="shop", continuum_cluster_id="cl-1", member="cart/shop/cl-1"} 1
+ikhnos_application_info{application="Shop", application_id="app-1", service_name="cart", service_id="sv-3f9a1c0d2b44", k8s_namespace_name="shop", continuum_cluster_id="cl-1", member="cart/shop/cl-1"} 1
 ```
 
 One series per service name of each application, with the labels the telemetry's own series carry for it. Select by application with the same filters the API adds, or join:
@@ -222,6 +227,8 @@ sum by (service_name) (rate(http_server_duration_seconds_count[5m]))
 ```
 
 `member` is the service, the namespace and the cluster as one value (`service/namespace/cluster`; a part Ikhnos does not know is empty, not a wildcard). It exists so a selection can be exact: a join on `on(service_name, k8s_namespace_name, continuum_cluster_id)` keeps exactly the tuples of the members you chose, where filtering by service, namespace and cluster separately would also keep a service in a namespace it does not run in. The Applications dashboard's picker is built from it.
+
+`service_id` is the id of the service in Ikhnos (`sv-…`), the id the API gives on an application's services and the graph uses for the service entity ([system memory](./system-memory.md#entities-and-versions)); `member` is its `name/namespace/cluster` key, which the graph stores as `key`. It ties a series to one service record, where `service_name` can be shared by services in different namespaces or clusters. It adds a label, not a series: the cap of 5000 series and the report of a truncation are as before. A join or selector on the other labels works as it did; one that matches the exact label set of this series needs `service_id` added or ignored (`ignoring(service_id)`).
 
 The series is not telemetry: the Grafana dashboards leave it out of their counts, and it appears only while FUSION runs. It carries a series for each name a member's telemetry may use (its name and its aliases) in each namespace and cluster it runs in, so a count of the series is not a count of services. A member Ikhnos knows no namespace or cluster for is written without that label (the dashboards' namespace and cluster choices match those with `.*`, not `.+`). It describes the present: an application edited or deleted in Ikhnos changes the series within a minute (a removed one is gone after Prometheus' five-minute lookback), and its history is not kept. It is written only while FUSION is running, and the Grafana dashboard **Applications** reads it for its variables. A service in two applications makes the join many-to-many; select one application, as the dashboard does. Loki and Tempo have no such series: use the API's `application=`, or the service list from `/applications` in a LogQL or TraceQL selector.
 
@@ -260,6 +267,32 @@ curl -s -H "Authorization: Bearer $TOKEN" "$ADDR/api/v1/fusion/links?cluster=cl-
 
 The series behind these figures are ordinary metrics: read them over a range with `metrics/range?metric=continuum_link_.*&category=system` (a limited token sees only the series its clusters report).
 
+## Application topology
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" "$ADDR/api/v1/fusion/applications/Shop/topology"
+curl -s -H "Authorization: Bearer $TOKEN" "$ADDR/api/v1/fusion/applications/Shop/topology?at=now-3d&window=6h"
+```
+
+`GET /api/v1/fusion/applications/{name}/topology` (`name` is the application's id or name) answers who the application's services call and who calls them: the traffic between its members, its neighbours (services outside it that talk to it), the external addresses it reaches, and the recent changes recorded about it. Each link carries its traffic, and its origin and confidence are those of the application's group.
+
+| Parameter | Meaning |
+| --- | --- |
+| `at` | Read the topology as of this time instead of now ([history](#history)). |
+| `window` | How far back traffic is counted. Default 24 hours, at most 7 days. |
+| `noise` | Whether links classed as noise are shown. |
+
+- It follows the token's scope like `/applications`: a limited token sees only the part of the application, and the links and neighbours, in its namespaces and clusters. An application none of whose services it can see answers `404`.
+- The answer is capped at 2000 links, 200 neighbours, 50 external addresses and 100 changes. When something was cut, the response says so.
+
+### History
+
+`at` needs the temporal graph (Neo4j). Without it the endpoint answers `404` with "history is not enabled". The application has to exist and be visible now.
+
+- Membership is read at the exact `at`. The topology comes from the newest recording at or before `at`; its time is given as `snapshotAt`. A service that joined the application after that recording appears with an unknown status.
+- Traffic counters are merged from the recording, and the neighbours are one hop from the application over the dependency edges that were open at `at`, each with its provenance.
+- The graph does not keep labels, so historical aliases and a neighbour's `applications` are empty.
+
 ## Categories: system, kubernetes, application
 
 Every metric series, log line and span is about one of three things, and `category=` lets you ask for one: **`system`** is the host, the collectors and the network between clusters (node and process metrics, scrape health, energy, the collectors' own metrics, the `continuum_link_*` measurements of [cluster links](./cluster-links.md); logs of the host and node, which carry no namespace), **`kubernetes`** is the cluster's own objects (pod, container, node-condition and `kube_*` metrics; logs of `kube-system`, `kube-public` and `kube-node-lease`), and **`application`** is everything else: what workloads report about themselves. Give one or several, separated by commas (`category=system,kubernetes`); all three, or none, means no filter. An unknown value is a `400`.
@@ -270,7 +303,7 @@ curl -s -H "Authorization: Bearer $TOKEN" "$ADDR/api/v1/fusion/logs?category=kub
 ```
 
 - **A category says what a signal is about, not who owns it.** A pod's CPU is `kubernetes` whichever application the pod belongs to; `application=` answers "whose", `category=` answers "what". They combine.
-- **The API works it out when you ask, and the data is also stamped.** Metrics are sorted by the family of their name (`system_*`, `process_*`, `node_*`, `kepler_*`, `dcgm_*`, `otelcol_*`, `continuum_link_*`, `scrape_*`, `up`, `target_info` are system; `k8s_*`, `container_*`, `kube_*` are kubernetes; the rest are application). Logs are sorted by namespace (none is system; the three namespaces above are kubernetes). The answer says which category each result was put in: `category` on every series and log line, and `categories` (a name to category map) beside the names of `/metrics/names`. Because the API decides it from the name or the namespace, a rule changed in a release applies to old data too. **Data that arrives after the central operator is upgraded also carries the category as a label of its own**, `ikhnos_category` in Prometheus and Loki (a pipeline filter in Loki: `| ikhnos_category="kubernetes"`) and `resource.ikhnos.category` in Tempo, set at the central operator by the same rule (a chart test keeps the two the same), so Grafana, PromQL, LogQL and TraceQL can filter on it without name patterns: `sum by (k8s_namespace_name) (k8s_pod_cpu_usage{ikhnos_category="kubernetes"})`. A sender cannot choose its own: the value is always replaced. Two differences from the API on data stamped this way: a span with no namespace is `application` (the API leaves it out, since the trace store cannot match what is not there), and nothing is stamped on data stored before the upgrade, so for a past range the API's `category=` is the one to use. The application is deliberately not stamped: it is a grouping people change, so it is looked up when you ask (`application=`, or the join on the info series below).
+- **The API works it out when you ask, and the data is also stamped.** Metrics are sorted by the family of their name (`system_*`, `process_*`, `node_*`, `kepler_*`, `dcgm_*` and upper-case `DCGM_*`, `otelcol_*`, `continuum_link_*`, `scrape_*`, `up`, `target_info` are system; `k8s_*`, `container_*`, `kube_*` are kubernetes; the rest are application). Logs are sorted by namespace (none is system; the three namespaces above are kubernetes). The answer says which category each result was put in: `category` on every series and log line, and `categories` (a name to category map) beside the names of `/metrics/names`. Because the API decides it from the name or the namespace, a rule changed in a release applies to old data too. **Data that arrives after the central operator is upgraded also carries the category as a label of its own**, `ikhnos_category` in Prometheus and Loki (a pipeline filter in Loki: `| ikhnos_category="kubernetes"`) and `resource.ikhnos.category` in Tempo, set at the central operator by the same rule (a chart test keeps the two the same), so Grafana, PromQL, LogQL and TraceQL can filter on it without name patterns: `sum by (k8s_namespace_name) (k8s_pod_cpu_usage{ikhnos_category="kubernetes"})`. A sender cannot choose its own: the value is always replaced. Two differences from the API on data stamped this way: a span with no namespace is `application` (the API leaves it out, since the trace store cannot match what is not there), and nothing is stamped on data stored before the upgrade, so for a past range the API's `category=` is the one to use. The application is deliberately not stamped: it is a grouping people change, so it is looked up when you ask (`application=`, or the join on the info series below).
 - **Traces have two categories, not three.** A span is not a host signal: `category=kubernetes` selects spans of the system namespaces, `category=application` the others, and `category=system` is a `400` rather than an empty answer.
 - It cannot be combined with a query you write yourself (`query`, `q`), for the same reason as `application=`.
 
@@ -289,9 +322,9 @@ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/jso
 
 `GET /traces?fused=true` searches and then reads every hit as a fused trace (a smaller page: 10 by default, at most 25). `POST /traces/batch` takes up to 25 `ids` and every fused option in the JSON body (lists as arrays); options given in the query string are defaults the body overrides. Both answer `{"results": [...], "summary": {requested, ok, failed}}` with the results in the order asked (the search also returns its `traces`). Each result has its own `status`: one trace that is missing, malformed or hidden from the token does not fail the others.
 
-**Streaming.** With `stream=true` (or `Accept: application/x-ndjson`) the answer is newline-delimited JSON, flushed as it goes: for a search first a line with the hits, then one `{"type": "result", ...}` line per trace *as soon as it is read*, in the order they finish, then `{"type": "summary", ...}`. A caller can start on the first trace while the rest are still being read, and if the 30 seconds run out it has lost only the traces not yet done.
+**Streaming.** With `stream=true` (or `Accept: application/x-ndjson`) the answer is newline-delimited JSON, flushed as it goes: for a search first a line with the hits, then one `{"type": "result", ...}` line per trace *as soon as it is read*, in the order they finish, then `{"type": "summary", ...}`. A caller can start on the first trace while the rest are still being read, and if the 30 seconds run out, the traces not yet done come back as lines with status `504` and the closing summary still arrives.
 
-**Why it does not block anyone.** Three limits work together. One request reads at most three traces at once. Every store call a bulk read makes waits in a bulk lane of five of the server's eight store-call slots before it takes one, so any number of bulk requests together leave three slots free and a single read never queues behind them. And a bulk read of *n* traces costs *n* reads against the caller's rate limit (600 a minute), so it cannot be used to go round it. When the 30 seconds end, the traces not yet started come back with status `504` and a message, instead of the request failing as a whole.
+**Why it does not block anyone.** Three limits work together. One request reads at most three traces at once. Every store call a bulk read makes waits in a bulk lane of five of the server's eight store-call slots before it takes one, so any number of bulk requests together leave three slots free and a single read never queues behind them. And a bulk read of *n* traces costs *n* reads against the caller's rate limit (600 a minute), so it cannot be used to go round it. When the 30 seconds end, the traces not yet started come back with status `504` and a message, instead of the request failing as a whole, and the summary is still written.
 
 ## The API page and the OpenAPI description
 
@@ -303,7 +336,7 @@ The description is generated from the same table the router is built from, so a 
 
 **Parameters are checked.** A route answers `400` for a parameter it does not take (the message lists the ones it does), and for two that cannot be used together: a raw `query` or `q` is sent to the store as written, so the filters beside it would silently do nothing, and `name` overrides `metric`. The options that shape a fused read (`include`, `margin` and so on) need `fused=true` on the routes where a fused read is optional. The native `/prometheus`, `/loki` and `/tempo` routes forward whatever they are given. The API page greys out a parameter that the ones you have filled in rule out, using the same table (`x-excludes` and `x-needs-fused` in the OpenAPI description).
 
-A store answer larger than 16 MiB is refused (narrow the range or the filters). A request takes at most 30 seconds. The server keeps at most 8 calls to the stores in flight at once, across all callers, and bulk reads no more than 5 of them. A fused read looks metrics up for at most 20 resources of a trace, and clamps the window it searches to 31 days; either is reported in the read's `warnings`. When a store itself fails, the caller is told which store and the status, not the store's own error text. Failures use the usual statuses:
+A store answer larger than 16 MiB is refused (narrow the range or the filters). A request takes at most 30 seconds, and a call to one store at most 10 of them. The server keeps at most 8 calls to the stores in flight at once, across all callers, and bulk reads no more than 5 of them. A fused read looks metrics up for at most 20 resources of a trace, and clamps the window it searches to 30 days (a trace longer than that covers its last 30 days); either is reported in the read's `warnings`. When a store itself fails, the caller is told which store and the status, not the store's own error text. Failures use the usual statuses:
 
 | Status | Meaning |
 | --- | --- |
@@ -313,8 +346,8 @@ A store answer larger than 16 MiB is refused (narrow the range or the filters). 
 | 404 | No such trace or application, or none that this caller may see. |
 | 422 | The answer was larger than this API returns. |
 | 429 | Too many requests from this caller. |
-| 503 | The store could not be reached: FUSION is off or still starting. Turn it on from the FUSION card. |
-| 504 | A store took too long. |
+| 503 | The store could not be reached: FUSION is off or still starting. Turn it on from the FUSION page, Settings tab. |
+| 504 | A store took too long (the message names it). |
 
 ## Not in this release
 

@@ -40,7 +40,7 @@ An agent's actual scope comes from three independent narrowings, checked in this
 
 3. **Excluded namespaces.** Names layered on top of whatever the agent's own install already leaves out — its chart values can scope it to a subset of namespaces from the start (`scope.namespaces` / `scope.exclude` / `scope.selector`; see [Namespaces and services](../user-guide/namespaces-and-services.md)), and only `helm upgrade` on the cluster's side can change that part. From the UI, an administrator can only narrow further on top of it, at most 200 names; a larger exclusion belongs in the install's own scope instead.
 
-None of the three ever widens what the install allows. An administrator narrowing an agent below its ceiling, then later widening it back up, only ever returns to that same ceiling — never past it.
+None of the three ever widens what the install allows. An administrator narrowing an agent below its ceiling, then later widening it back up, only ever returns to that same ceiling — never past it. Narrowing is open to editors; widening back up (raising the approved tier, lifting a pause, removing an exclusion) needs an administrator.
 
 ## The server checks all three again itself
 
