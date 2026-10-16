@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -28,6 +29,10 @@ type recorder struct {
 	h       *Hub
 	differ  *history.Differ
 	changed atomic.Bool
+
+	// mu serialises everything below. The ticker and the administrator's "record now" (ScanNow) both reach
+	// scan, which reads and writes prev, lastFP, lastSnap and lastScan; without it they raced.
+	mu sync.Mutex
 
 	prev     *model.Topology
 	lastFP   string
@@ -69,6 +74,8 @@ func (h *Hub) Run(ctx context.Context) {
 }
 
 func (r *recorder) tick(ctx context.Context) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	now := r.h.C.Now()
 	set := r.h.C.Settings()
 	if !r.loaded {
@@ -202,6 +209,8 @@ func (r *recorder) prune(ctx context.Context, now time.Time, set Settings) {
 
 // ScanNow records the topology immediately (used by tests and by the administrator's "record now").
 func (h *Hub) ScanNow(ctx context.Context) {
+	h.rec.mu.Lock()
+	defer h.rec.mu.Unlock()
 	h.rec.loaded = true
 	h.rec.scan(ctx, h.C.Now(), true)
 }
