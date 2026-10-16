@@ -1,13 +1,17 @@
 # The redesign: where the plan is and where we are
 
-This file exists so the plan is not lost between sessions. It points at the two documents that hold the plan and keeps a short status. Update the status at each gate, in the same commit as the work.
+This file exists so the plan is not lost between sessions. It points at the plan and keeps a short status. Update the status at each gate, in the same commit as the work.
 
-## The two documents
+## The plan to follow
 
-1. **Ikhnos architecture: control plane, data plane and the seams between** (https://claude.ai/artifact/UwySnmbgattPpNxM1mTmaV). The first document, and the base. It describes the target shape: ten seams, six contracts, the decisions, and a strangler migration in phases 0 to 7, each ending at a gate.
-2. **Ikhnos design: entities, interfaces and channels, from the code** (https://claude.ai/artifact/W1FoXitwyaUmXsZS9CwxaM). A second pass over the first, made against the code. It lists what the code does today, the defects found (D1 to D14), the prototypes, a reviewer's verdict, and a smaller working plan with a **stop line**. Its last sections are a progress log: Stage 0 results, then one section per slice. Where its last section disagrees with an earlier one, the last wins.
+**Ikhnos: the plan to follow** (https://claude.ai/artifact/8vfoZWCoq5acknQixSX9UK). One page that merges the two documents below: the target, what is being fixed, the order of stages with their gates, where we are, and the decisions taken and open. Read it first. It is the plan.
 
-Where the two differ, the second pass wins: it was checked against the code and reviewed. Read both before starting a stage.
+It is built from two documents, which stay as the reasoning and the evidence:
+
+1. **Ikhnos architecture: control plane, data plane and the seams between** (https://claude.ai/artifact/UwySnmbgattPpNxM1mTmaV). The first document: the target shape, ten seams, six contracts, a strangler migration.
+2. **Ikhnos design: entities, interfaces and channels, from the code** (https://claude.ai/artifact/W1FoXitwyaUmXsZS9CwxaM). A second pass over the first, made against the code and reviewed. It holds the defects D1 to D14, the smaller plan with its stop line, and a progress log.
+
+Where the two differ, the second pass wins.
 
 ## Rules that hold throughout
 
