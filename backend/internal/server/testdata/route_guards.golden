@@ -1,0 +1,133 @@
+admin.go	"GET /healthz"	BARE mux.HandleFunc via -
+admin.go	"GET /readyz"	BARE mux.HandleFunc via -
+admin.go	"GET /charts/{file}"	BARE mux.HandleFunc via -
+admin.go	"GET /api/v1/server"	BARE api.HandleFunc via -
+admin.go	"POST /api/v1/auth/login"	BARE api.HandleFunc via -
+admin.go	"GET /api/v1/auth/sso"	BARE api.HandleFunc via -
+admin.go	"POST /api/v1/auth/login/2fa"	BARE api.HandleFunc via -
+admin.go	"POST /api/v1/auth/login/2fa/email"	BARE api.HandleFunc via -
+admin.go	"POST /api/v1/auth/login/2fa/webauthn/begin"	BARE api.HandleFunc via -
+admin.go	"POST /api/v1/auth/login/2fa/webauthn/finish"	BARE api.HandleFunc via -
+admin.go	"POST /api/v1/auth/register"	BARE api.HandleFunc via -
+admin.go	"POST /api/v1/auth/logout"	BARE api.HandleFunc via -
+admin.go	"POST /api/v1/invites/preview"	BARE api.HandleFunc via -
+admin.go	"GET /api/v1/auth/me"	anySession
+admin.go	"POST /api/v1/auth/password"	anySession
+admin.go	"POST /api/v1/auth/2fa/setup"	anySession
+admin.go	"POST /api/v1/auth/2fa/enable"	anySession
+admin.go	"POST /api/v1/auth/2fa/disable"	anySession
+admin.go	"POST /api/v1/auth/email/request"	anySession
+admin.go	"POST /api/v1/auth/email/confirm"	anySession
+admin.go	"POST /api/v1/auth/email-otp/enable"	anySession
+admin.go	"POST /api/v1/auth/email-otp/disable"	anySession
+admin.go	"POST /api/v1/auth/webauthn/register/begin"	anySession
+admin.go	"POST /api/v1/auth/webauthn/register/finish"	anySession
+admin.go	"POST /api/v1/auth/webauthn/{id}/rename"	anySession
+admin.go	"POST /api/v1/auth/webauthn/{id}/remove"	anySession
+admin.go	"GET /api/v1/auth/tokens"	anySession
+admin.go	"POST /api/v1/auth/tokens"	anySession
+admin.go	"POST /api/v1/auth/tokens/{id}/revoke"	anySession
+admin.go	"GET /api/v1/orgs"	settled
+admin.go	"POST /api/v1/orgs"	settled
+admin.go	"POST /api/v1/invites/accept"	settled
+admin.go	"GET /api/v1/mail"	settled
+admin.go	"PUT /api/v1/mail"	settled
+admin.go	"GET " + o + "/info"	memberRole
+admin.go	"POST " + o + "/rename"	ownerRole
+admin.go	"POST " + o + "/delete"	ownerRole
+admin.go	"POST " + o + "/leave"	memberRole
+admin.go	"GET " + o + "/members"	memberRole
+admin.go	"POST " + o + "/members/{id}/role"	adminRole
+admin.go	"POST " + o + "/members/{id}/remove"	adminRole
+admin.go	"GET " + o + "/invites"	adminRole
+admin.go	"POST " + o + "/invites"	adminRole
+admin.go	"DELETE " + o + "/invites/{id}"	adminRole
+admin.go	"GET " + o + "/state"	memberRole
+admin.go	"GET " + o + "/model"	memberRole
+admin.go	"GET " + o + "/workspace"	memberRole
+admin.go	"PUT " + o + "/workspace"	editorRole
+admin.go	"GET " + o + "/settings"	memberRole
+admin.go	"GET " + o + "/telemetry/self"	memberRole
+admin.go	"PUT " + o + "/settings"	adminRole
+admin.go	"GET " + o + "/links/latest"	memberRole
+admin.go	"POST " + o + "/links/rotate-credentials"	adminRole
+admin.go	"GET " + o + "/history"	memberRole
+admin.go	"GET " + o + "/history/snapshot"	memberRole
+admin.go	"GET " + o + "/history/traffic"	memberRole
+admin.go	"GET " + o + "/history/dependency/{id}/series"	memberRole
+admin.go	"POST " + o + "/history/record"	adminRole
+admin.go	"GET " + o + "/events"	memberRole
+admin.go	"POST " + o + "/decide"	editorRole
+admin.go	"POST " + o + "/decisions"	editorRole
+admin.go	"GET " + o + "/decisions"	memberRole
+admin.go	"GET " + o + "/storage"	memberRole
+admin.go	"GET " + o + "/timeline"	memberRole
+admin.go	"GET " + o + "/graph/snapshot"	memberRole
+admin.go	"GET " + o + "/graph/dependents"	memberRole
+admin.go	"GET " + o + "/graph/dependencies"	memberRole
+admin.go	"GET " + o + "/graph/diff"	memberRole
+admin.go	"GET " + o + "/audit"	adminRole
+admin.go	"GET " + o + "/workspace/revisions"	memberRole
+admin.go	"GET " + o + "/workspace/at"	memberRole
+admin.go	"GET " + o + "/tokens"	adminRole
+admin.go	"POST " + o + "/tokens"	adminRole
+admin.go	"DELETE " + o + "/tokens/{id}"	adminRole
+admin.go	"POST " + o + "/agents/{id}/approve"	adminRole
+admin.go	"POST " + o + "/agents/{id}/reject"	adminRole
+admin.go	"POST " + o + "/agents/{id}/revoke"	adminRole
+admin.go	"POST " + o + "/agents/{id}/address-tests"	adminRole
+admin.go	"GET " + o + "/agents/{id}/address-tests"	adminRole
+admin.go	"POST " + o + "/agents/{id}/tier"	editorRole
+admin.go	"POST " + o + "/agents/{id}/consent"	editorRole
+admin.go	"POST " + o + "/proposals"	editorRole
+admin.go	"GET " + o + "/proposals"	editorRole
+admin.go	"GET " + o + "/proposals/advisors"	editorRole
+admin.go	"GET " + o + "/proposals/{id}"	editorRole
+admin.go	"POST " + o + "/proposals/{id}/accept"	editorRole
+admin.go	"POST " + o + "/proposals/{id}/reject"	editorRole
+admin.go	"GET " + o + "/operators"	adminRole
+admin.go	"POST " + o + "/operators"	adminRole
+admin.go	"GET " + o + "/operators/{id}"	adminRole
+admin.go	"GET " + o + "/operator-destinations"	editorRole
+admin.go	"GET " + o + "/fusion"	adminRole
+admin.go	"POST " + o + "/fusion/pages"	adminRole
+admin.go	"POST " + o + "/fusion/enable"	adminRole
+admin.go	"POST " + o + "/fusion/disable"	adminRole
+admin.go	"GET " + o + "/fusion/retention"	adminRole
+admin.go	"PUT " + o + "/fusion/retention"	adminRole
+admin.go	"GET " + o + "/fusion/tokens"	adminRole
+admin.go	"POST " + o + "/fusion/tokens"	adminRole
+admin.go	"DELETE " + o + "/fusion/tokens/{id}"	adminRole
+admin.go	"POST " + o + "/operators/{id}/scope"	adminRole
+admin.go	"POST " + o + "/operators/{id}/install"	adminRole
+admin.go	"GET " + o + "/operators/{id}/certificates"	adminRole
+admin.go	"POST " + o + "/operators/{id}/address"	adminRole
+admin.go	"POST " + o + "/operators/{id}/address/check"	adminRole
+admin.go	"GET " + o + "/operators/{id}/address-candidates"	adminRole
+admin.go	"PUT " + o + "/operators/{id}/server-cluster"	adminRole
+admin.go	"GET " + o + "/operators/{id}/senders"	adminRole
+admin.go	"POST " + o + "/operators/{id}/heartbeat"	adminRole
+admin.go	"POST " + o + "/operators/{id}/revoke"	adminRole
+admin.go	"DELETE " + o + "/operators/{id}"	adminRole
+admin.go	"GET " + o + "/telemetry-intents"	editorRole
+admin.go	"POST " + o + "/telemetry-intents"	editorRole
+admin.go	"GET " + o + "/telemetry-intents/{id}"	editorRole
+admin.go	"POST " + o + "/telemetry-intents/{id}/scope"	editorRole
+admin.go	"POST " + o + "/telemetry-intents/{id}/destination"	editorRole
+admin.go	"POST " + o + "/telemetry-intents/{id}/revoke"	editorRole
+admin.go	"DELETE " + o + "/telemetry-intents/{id}"	editorRole
+admin.go	"POST " + o + "/telemetry-intents/{id}/command"	adminRole
+admin.go	"POST " + o + "/quick-start/{id}/gateway-token"	adminRole
+admin.go	"GET " + o + "/quick-start/{id}/gateway-token"	adminRole
+admin.go	"POST " + OperatorHeartbeatPath	BARE mux.HandleFunc via -
+admin.go	fusionPromPath	BARE mux.Handle via a.fusionUI
+admin.go	fusionGrafanaPath	BARE mux.Handle via a.fusionUI
+admin.go	"/api/"	BARE mux.Handle via a.cors
+admin.go	"/"	BARE mux.Handle via spa
+fusion_data.go	op.Method + " " + fusionAPIPath + op.Path	BARE api.Handle via a.fusionData
+fusion_data.go	"POST " + fusionAPIPath + op.Path	BARE api.Handle via a.fusionData
+fusion_openapi.go	"GET " + fusionAPIPath + "/docs"	BARE api.Handle via asset
+fusion_openapi.go	"GET " + fusionAPIPath + "/docs/app.js"	BARE api.Handle via asset
+fusion_openapi.go	"GET " + fusionAPIPath + "/docs/app.css"	BARE api.Handle via asset
+fusion_openapi.go	"GET " + fusionAPIPath + "/openapi.json"	BARE api.HandleFunc via -
+metrics.go	"GET /metrics"	BARE mux.HandleFunc via -
