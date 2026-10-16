@@ -12,6 +12,7 @@ import (
 
 	"continuum/internal/link"
 	"continuum/internal/measure"
+	"continuum/internal/store"
 )
 
 // Settings are the knobs an administrator can turn without redeploying anything. They are stored
@@ -459,8 +460,8 @@ func (c *Core) SaveSettingsAt(ctx context.Context, actor string, expect *int64, 
 	}
 	next := rev + 1
 	data, _ := json.Marshal(storedSettings{Settings: n, Rev: next})
-	apply := func() error {
-		if err := c.Store.PutSettings(ctx, c.OrgID, data, c.Now()); err != nil {
+	apply := func(opts ...store.WriteOption) error {
+		if err := c.Store.PutSettings(ctx, c.OrgID, data, c.Now(), opts...); err != nil {
 			return err
 		}
 		c.settings.mu.Lock()
@@ -468,10 +469,10 @@ func (c *Core) SaveSettingsAt(ctx context.Context, actor string, expect *int64, 
 		c.settings.mu.Unlock()
 		return nil
 	}
-	// A change to the settings (above all the decider, which the server will call) is recorded first, and
-	// does not happen if it cannot be recorded.
+	// A change to the settings (above all the decider, which the server will call) is recorded in the same
+	// transaction as the change, and does not happen if it cannot be recorded.
 	if d := settingsDiff(old, n); d != "" {
-		if err := c.audited(ctx, actor, "settings-changed", "settings", c.OrgID, d, apply); err != nil {
+		if err := c.auditedWrite(apply(store.WithAudit(c.auditRow(c.OrgID, actor, "settings-changed", "settings", c.OrgID, d))), "settings-changed"); err != nil {
 			return Settings{}, 0, err
 		}
 	} else if err := apply(); err != nil {

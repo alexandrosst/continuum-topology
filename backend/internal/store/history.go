@@ -200,11 +200,13 @@ func (s *SQLite) GetSettings(ctx context.Context, org string) ([]byte, error) {
 	return d, err
 }
 
-func (s *SQLite) PutSettings(ctx context.Context, org string, data []byte, now time.Time) error {
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO settings(org_id, data, updated_at) VALUES(?,?,?) ON CONFLICT(org_id) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at`,
-		org, data, ms(now))
-	return err
+func (s *SQLite) PutSettings(ctx context.Context, org string, data []byte, now time.Time, opts ...WriteOption) error {
+	return s.write(ctx, opts, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx,
+			`INSERT INTO settings(org_id, data, updated_at) VALUES(?,?,?) ON CONFLICT(org_id) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at`,
+			org, data, ms(now))
+		return err
+	})
 }
 
 // ---- mail configuration ----
@@ -218,9 +220,11 @@ func (s *SQLite) GetMailConfig(ctx context.Context) ([]byte, error) {
 	return d, err
 }
 
-func (s *SQLite) PutMailConfig(ctx context.Context, data []byte, now time.Time) error {
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO mail_config(id, data, updated_at) VALUES(1,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at`,
-		data, ms(now))
-	return err
+func (s *SQLite) PutMailConfig(ctx context.Context, data []byte, now time.Time, opts ...WriteOption) error {
+	return s.write(ctx, opts, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx,
+			`INSERT INTO mail_config(id, data, updated_at) VALUES(1,?,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at`,
+			data, ms(now))
+		return err
+	})
 }

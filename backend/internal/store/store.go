@@ -679,7 +679,7 @@ type Store interface {
 	// ---- quick-start gateway tokens ----
 
 	// CreateGatewayToken inserts a freshly minted gateway token's hash - see GatewayToken.
-	CreateGatewayToken(ctx context.Context, t GatewayToken, hash []byte) error
+	CreateGatewayToken(ctx context.Context, t GatewayToken, hash []byte, opts ...WriteOption) error
 	// LatestGatewayToken returns the most recently minted gateway token for a quick-start backend
 	// (ErrNotFound if none was ever minted for it) - never the secret, only whether/when one exists and
 	// expires, for the UI's own status display.
@@ -687,12 +687,12 @@ type Store interface {
 
 	// ---- FUSION access tokens ----
 
-	CreateFusionToken(ctx context.Context, t FusionToken, hash []byte) error
+	CreateFusionToken(ctx context.Context, t FusionToken, hash []byte, opts ...WriteOption) error
 	// LookupFusionToken resolves a secret's hash (ErrNotFound for an unknown one); expiry is the caller's to check.
 	LookupFusionToken(ctx context.Context, hash []byte) (FusionToken, error)
 	ListFusionTokens(ctx context.Context, org string) ([]FusionToken, error)
 	TouchFusionToken(ctx context.Context, hash []byte, now time.Time) error
-	DeleteFusionToken(ctx context.Context, org, id string) error
+	DeleteFusionToken(ctx context.Context, org, id string, opts ...WriteOption) error
 	PurgeFusionTokens(ctx context.Context, olderThan time.Time) error
 	// The sealed iperf3 credentials of cluster pairs (see LinkCredential). The store never sees what is inside.
 	GetLinkCredential(ctx context.Context, org, kind, id string) (LinkCredential, error)
@@ -833,13 +833,13 @@ type Store interface {
 
 	// GetSettings returns nil data when nothing was ever saved.
 	GetSettings(ctx context.Context, org string) ([]byte, error)
-	PutSettings(ctx context.Context, org string, data []byte, now time.Time) error
+	PutSettings(ctx context.Context, org string, data []byte, now time.Time, opts ...WriteOption) error
 
 	// ---- mail configuration: server-wide, not scoped to any organisation (see server.Core.Mailer) ----
 
 	// GetMailConfig returns nil data when nothing was ever saved.
 	GetMailConfig(ctx context.Context) ([]byte, error)
-	PutMailConfig(ctx context.Context, data []byte, now time.Time) error
+	PutMailConfig(ctx context.Context, data []byte, now time.Time, opts ...WriteOption) error
 
 	// ---- the twin: what was observed and then went away, machine identities, the model version ----
 

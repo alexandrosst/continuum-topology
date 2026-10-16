@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"continuum/internal/store"
 )
 
 // MailConfig is how this server sends the handful of messages it ever sends: a login or email-verification
@@ -111,12 +113,8 @@ func (c *Core) SaveMailConfig(ctx context.Context, by string, m MailConfig) (Mai
 	if err != nil {
 		return MailConfig{}, err
 	}
-	if err := c.Store.AddAudit(ctx, c.auditRow("", by, "mail-config-changed", "server", "", "")); err != nil {
-		c.Log.Error("audit write failed; the action was not carried out", "action", "mail-config-changed", "err", err)
-		return MailConfig{}, errf(KindInternal, "the audit trail could not be written, so nothing was changed. Check the server's database and try again")
-	}
-	if err := c.Store.PutMailConfig(ctx, data, c.Now()); err != nil {
-		c.auditOrg(ctx, "", by, "mail-config-changed-failed", "server", "", err.Error())
+	if err := c.auditedWrite(c.Store.PutMailConfig(ctx, data, c.Now(),
+		store.WithAudit(c.auditRow("", by, "mail-config-changed", "server", "", ""))), "mail-config-changed"); err != nil {
 		return MailConfig{}, err
 	}
 	c.mailer.set(m)

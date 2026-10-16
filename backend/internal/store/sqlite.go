@@ -1274,11 +1274,13 @@ func scanGatewayToken(r scanner) (GatewayToken, error) {
 	return t, nil
 }
 
-func (s *SQLite) CreateGatewayToken(ctx context.Context, t GatewayToken, hash []byte) error {
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO gateway_tokens(id, org_id, backend_id, secret_hash, created_by, created_at, expires_at) VALUES(?,?,?,?,?,?,?)`,
-		t.ID, t.OrgID, t.BackendID, hash, t.CreatedBy, ms(t.CreatedAt), ms(t.ExpiresAt))
-	return err
+func (s *SQLite) CreateGatewayToken(ctx context.Context, t GatewayToken, hash []byte, opts ...WriteOption) error {
+	return s.write(ctx, opts, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx,
+			`INSERT INTO gateway_tokens(id, org_id, backend_id, secret_hash, created_by, created_at, expires_at) VALUES(?,?,?,?,?,?,?)`,
+			t.ID, t.OrgID, t.BackendID, hash, t.CreatedBy, ms(t.CreatedAt), ms(t.ExpiresAt))
+		return err
+	})
 }
 
 func (s *SQLite) LatestGatewayToken(ctx context.Context, org, backendID string) (GatewayToken, error) {

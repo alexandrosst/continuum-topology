@@ -103,11 +103,13 @@ func scanFusionToken(r scanner) (FusionToken, error) {
 }
 
 // CreateFusionToken records a freshly minted token; id and hash are the caller's to generate.
-func (s *SQLite) CreateFusionToken(ctx context.Context, t FusionToken, hash []byte) error {
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO fusion_tokens(id, org_id, name, hash, signals, namespaces, clusters, created_by, created_at, expires_at) VALUES(?,?,?,?,?,?,?,?,?,?)`,
-		t.ID, t.OrgID, t.Name, hash, stringsJSON(t.Signals), stringsJSON(t.Namespaces), stringsJSON(t.Clusters), t.CreatedBy, ms(t.CreatedAt), ms(t.ExpiresAt))
-	return err
+func (s *SQLite) CreateFusionToken(ctx context.Context, t FusionToken, hash []byte, opts ...WriteOption) error {
+	return s.write(ctx, opts, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx,
+			`INSERT INTO fusion_tokens(id, org_id, name, hash, signals, namespaces, clusters, created_by, created_at, expires_at) VALUES(?,?,?,?,?,?,?,?,?,?)`,
+			t.ID, t.OrgID, t.Name, hash, stringsJSON(t.Signals), stringsJSON(t.Namespaces), stringsJSON(t.Clusters), t.CreatedBy, ms(t.CreatedAt), ms(t.ExpiresAt))
+		return err
+	})
 }
 
 // LookupFusionToken resolves a secret's hash. ErrNotFound for an unknown one. Expiry is the caller's to check.
@@ -141,12 +143,14 @@ func (s *SQLite) TouchFusionToken(ctx context.Context, hash []byte, now time.Tim
 
 // DeleteFusionToken removes one of an organisation's tokens; it stops working at once. ErrNotFound if id is not
 // in org.
-func (s *SQLite) DeleteFusionToken(ctx context.Context, org, id string) error {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM fusion_tokens WHERE org_id=? AND id=?`, org, id)
-	if err != nil {
-		return err
-	}
-	return needFound(res)
+func (s *SQLite) DeleteFusionToken(ctx context.Context, org, id string, opts ...WriteOption) error {
+	return s.write(ctx, opts, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, `DELETE FROM fusion_tokens WHERE org_id=? AND id=?`, org, id)
+		if err != nil {
+			return err
+		}
+		return needFound(res)
+	})
 }
 
 // PurgeFusionTokens deletes tokens that expired before olderThan, so a lapsed token does not sit in the list for ever.

@@ -62,9 +62,8 @@ func (c *Core) MintGatewayToken(ctx context.Context, actor, backendID string, tt
 		CreatedAt:  now,
 		ExpiresAt:  now.Add(ttl),
 	}
-	if err := c.audited(ctx, actor, "quick-start-gateway-token-minted", "quick-start-backend", backendID, backend.Label, func() error {
-		return c.Store.CreateGatewayToken(ctx, t, hash)
-	}); err != nil {
+	if err := c.auditedWrite(c.Store.CreateGatewayToken(ctx, t, hash,
+		store.WithAudit(c.auditRow(c.OrgID, actor, "quick-start-gateway-token-minted", "quick-start-backend", backendID, backend.Label))), "quick-start-gateway-token-minted"); err != nil {
 		return store.GatewayToken{}, "", err
 	}
 	return t, secret, nil

@@ -123,9 +123,8 @@ func (c *Core) CreateFusionToken(ctx context.Context, actor string, spec FusionT
 	tok := store.FusionToken{ID: newFusionTokenID(), OrgID: c.OrgID, Name: name, Signals: signals, Namespaces: namespaces, Clusters: clusters,
 		CreatedBy: actor, CreatedAt: now, ExpiresAt: now.Add(ttl)}
 	detail := fmt.Sprintf("%s: reads %s; namespaces %s; clusters %s; expires %s", name, strings.Join(signals, ", "), scopeWords(namespaces), scopeWords(clusters), tok.ExpiresAt.Format("2006-01-02"))
-	if err := c.audited(ctx, actor, "fusion-token-created", "fusion-token", tok.ID, detail, func() error {
-		return c.Store.CreateFusionToken(ctx, tok, HashSecret(secret))
-	}); err != nil {
+	if err := c.auditedWrite(c.Store.CreateFusionToken(ctx, tok, HashSecret(secret),
+		store.WithAudit(c.auditRow(c.OrgID, actor, "fusion-token-created", "fusion-token", tok.ID, detail))), "fusion-token-created"); err != nil {
 		return "", store.FusionToken{}, err
 	}
 	return secret, tok, nil
@@ -159,9 +158,8 @@ func (c *Core) DeleteFusionToken(ctx context.Context, actor, id string) error {
 	if !found {
 		return errf(KindNotFound, "no such token")
 	}
-	return c.audited(ctx, actor, "fusion-token-revoked", "fusion-token", id, name, func() error {
-		return c.Store.DeleteFusionToken(ctx, c.OrgID, id)
-	})
+	return c.auditedWrite(c.Store.DeleteFusionToken(ctx, c.OrgID, id,
+		store.WithAudit(c.auditRow(c.OrgID, actor, "fusion-token-revoked", "fusion-token", id, name))), "fusion-token-revoked")
 }
 
 // AuthenticateFusionToken resolves a presented secret. A malformed, unknown or expired one is the same refusal.

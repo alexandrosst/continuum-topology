@@ -225,6 +225,41 @@ func (f *failAudit) DeleteTelemetryIntent(ctx context.Context, id string, opts .
 	return f.Store.DeleteTelemetryIntent(ctx, id, opts...)
 }
 
+func (f *failAudit) CreateFusionToken(ctx context.Context, tk store.FusionToken, hash []byte, opts ...store.WriteOption) error {
+	if err := f.broken(opts); err != nil {
+		return err
+	}
+	return f.Store.CreateFusionToken(ctx, tk, hash, opts...)
+}
+
+func (f *failAudit) DeleteFusionToken(ctx context.Context, org, id string, opts ...store.WriteOption) error {
+	if err := f.broken(opts); err != nil {
+		return err
+	}
+	return f.Store.DeleteFusionToken(ctx, org, id, opts...)
+}
+
+func (f *failAudit) CreateGatewayToken(ctx context.Context, tk store.GatewayToken, hash []byte, opts ...store.WriteOption) error {
+	if err := f.broken(opts); err != nil {
+		return err
+	}
+	return f.Store.CreateGatewayToken(ctx, tk, hash, opts...)
+}
+
+func (f *failAudit) PutSettings(ctx context.Context, org string, data []byte, now time.Time, opts ...store.WriteOption) error {
+	if err := f.broken(opts); err != nil {
+		return err
+	}
+	return f.Store.PutSettings(ctx, org, data, now, opts...)
+}
+
+func (f *failAudit) PutMailConfig(ctx context.Context, data []byte, now time.Time, opts ...store.WriteOption) error {
+	if err := f.broken(opts); err != nil {
+		return err
+	}
+	return f.Store.PutMailConfig(ctx, data, now, opts...)
+}
+
 func TestPrivilegedActionsFailClosedWhenTheAuditRowCannotBeWritten(t *testing.T) {
 	a := newAdminRig(t)
 	fs := &failAudit{Store: a.st}

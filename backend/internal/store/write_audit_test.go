@@ -330,3 +330,51 @@ func TestTelemetryIntentWritesRollBackWithTheirAuditRow(t *testing.T) {
 		t.Fatalf("an intent was stored without its audit row: %v", err)
 	}
 }
+
+func TestTokenSettingsAndMailWritesRollBackWithTheirAuditRow(t *testing.T) {
+	s, ctx, now := openAccounts(t)
+	ev := func(a string) WriteOption { return WithAudit(AuditEvent{OrgID: "o1", Actor: "tester", Action: a}) }
+	rows := func() int { r, _ := s.ListAudit(ctx, "o1", 50); return len(r) }
+
+	ft := FusionToken{ID: "ft-1", OrgID: "o1", Name: "n", CreatedBy: "alex", CreatedAt: now, ExpiresAt: now.Add(time.Hour)}
+	if err := s.CreateFusionToken(ctx, ft, []byte("h1"), ev("fusion-token-created")); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteFusionToken(ctx, "o1", "ft-none", ev("fusion-token-revoked")); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("delete of a missing token: %v", err)
+	}
+	if err := s.PutSettings(ctx, "o1", []byte(`{"a":1}`), now, ev("settings-changed")); err != nil {
+		t.Fatal(err)
+	}
+	if rows() != 2 {
+		t.Fatalf("rows = %d, want 2", rows())
+	}
+
+	if _, err := s.db.Exec(`CREATE TRIGGER no_audit BEFORE INSERT ON audit BEGIN SELECT RAISE(ABORT, 'disk full'); END`); err != nil {
+		t.Fatal(err)
+	}
+	gt := GatewayToken{ID: "gt-1", OrgID: "o1", BackendID: "b", CreatedBy: "alex", CreatedAt: now, ExpiresAt: now.Add(time.Hour)}
+	for name, err := range map[string]error{
+		"fusion create":  s.CreateFusionToken(ctx, FusionToken{ID: "ft-2", OrgID: "o1", Name: "m", CreatedBy: "a", CreatedAt: now, ExpiresAt: now.Add(time.Hour)}, []byte("h2"), ev("x")),
+		"fusion delete":  s.DeleteFusionToken(ctx, "o1", "ft-1", ev("x")),
+		"gateway create": s.CreateGatewayToken(ctx, gt, []byte("g"), ev("x")),
+		"settings":       s.PutSettings(ctx, "o1", []byte(`{"a":2}`), now, ev("x")),
+		"mail":           s.PutMailConfig(ctx, []byte(`{"host":"x"}`), now, ev("x")),
+	} {
+		if !errors.Is(err, ErrAuditWrite) {
+			t.Errorf("%s: %v, want ErrAuditWrite", name, err)
+		}
+	}
+	if toks, _ := s.ListFusionTokens(ctx, "o1"); len(toks) != 1 || toks[0].ID != "ft-1" {
+		t.Fatalf("fusion tokens changed although the trail was broken: %+v", toks)
+	}
+	if d, _ := s.GetSettings(ctx, "o1"); string(d) != `{"a":1}` {
+		t.Fatalf("settings = %s", d)
+	}
+	if d, _ := s.GetMailConfig(ctx); d != nil {
+		t.Fatalf("mail config stored without its audit row: %s", d)
+	}
+	if _, err := s.LatestGatewayToken(ctx, "o1", "b"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("a gateway token was stored without its audit row: %v", err)
+	}
+}
