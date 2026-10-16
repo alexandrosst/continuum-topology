@@ -43,8 +43,12 @@ func (c *Core) OperatorUsages(ctx context.Context) (map[string]OperatorUsage, er
 		return nil, err
 	}
 	clusterOf := make(map[string]string, len(agents))
+	revokedAgent := map[string]bool{}
 	for _, a := range agents {
 		clusterOf[a.ID] = a.ClusterID
+		if a.Status == store.StatusRevoked {
+			revokedAgent[a.ID] = true
+		}
 	}
 	out := map[string]OperatorUsage{}
 	for _, op := range ops {
@@ -56,7 +60,9 @@ func (c *Core) OperatorUsages(ctx context.Context) (map[string]OperatorUsage, er
 	}
 	clusters := map[string]map[string]bool{}
 	for _, ti := range intents {
-		if ti.Status != store.TelemetryIntentActive {
+		// An intent of a revoked agent sends nothing, even where it is still marked active (rows written before
+		// revoking an agent ended its intents), so it is not a reason to keep an operator.
+		if ti.Status != store.TelemetryIntentActive || revokedAgent[ti.AgentID] {
 			continue
 		}
 		targets := map[string]bool{}
