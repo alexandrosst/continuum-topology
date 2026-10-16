@@ -7,6 +7,7 @@ import { prefetchAllRoutesWhenIdle, routeLoaders } from '@/lib/routeLoaders'
 // Built from routeLoaders (not `lazy(() => import(...))` inlined here) so Layout's nav can reuse the exact
 // same loader to prefetch a page's chunk on hover/focus - see routeLoaders.ts for why.
 const AgentsPage = lazy(routeLoaders['/agents'])
+const ProposalsPage = lazy(routeLoaders['/proposals'])
 const PipelinePage = lazy(routeLoaders['/pipeline'])
 const FusionPage = lazy(routeLoaders['/fusion'])
 const ActivityPage = lazy(routeLoaders['/activity'])
@@ -76,6 +77,7 @@ export default function App() {
           <Route path="/sites" element={<SitesPage />} />
           <Route path="/discovery" element={<DiscoveryPage />} />
           <Route path="/agents" element={<AgentsPage />} />
+          <Route path="/proposals" element={<ProposalsPage />} />
           <Route path="/pipeline" element={<PipelinePage />} />
           <Route path="/fusion/*" element={<FusionPage />} />
           <Route path="/operators" element={<OperatorsRedirect />} />

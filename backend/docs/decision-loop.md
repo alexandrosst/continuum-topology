@@ -100,7 +100,24 @@ not a causal claim.
 It only proposes. A person still accepts or rejects. A test (`advisor_example_test.go`) runs it against the real
 handlers.
 
+## The Proposals screen
+
+**Manage → Proposals** lists proposals for editors and administrators (the same roles as the routes). It opens on the ones
+waiting for a decision, newest first, and can show the applied, rejected, failed and expired ones. A row reads as a sentence
+about a named agent ("Pause the traffic observer on edge-athens") with the advisor, how strong its evidence is, and what it
+expects. Opening one shows the evidence fact by fact, the expected effect, and, for an applied one, the Outcome: the expected
+change beside the observed one, with the reminder that load can move for other reasons.
+
+* **Accept and apply** and **Reject** take an optional note (at most 200 characters), kept with the decision.
+* A proposal that **widens** (the server's word, never the advisor's) can only be accepted by an administrator. An editor sees
+  why and can still reject it. The server enforces the same rule; the buttons only say so first.
+* If the server refuses a decision (already decided, expired, no longer valid against the agent as it is now), the reason is
+  shown and the proposal is read again as it stands.
+* The list is read again every 30 seconds while the page is open.
+
+The screen never submits a proposal. An advisor does, with an editor's API token.
+
 ## Not in this release
 
-Auto mode (applying a narrowing without a person), other kinds of change (telemetry intents, placement), and any
-user interface beyond these routes.
+Auto mode (applying a narrowing without a person), other kinds of change (telemetry intents, placement), and a count of waiting
+proposals in the navigation or any notification: today you find them by opening the page.

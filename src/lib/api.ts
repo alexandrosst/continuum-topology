@@ -3,6 +3,7 @@ import type { AddressCandidates, AddressTest, OperatorSenders, OperatorDestinati
 import { normalizeSettings, normalizeSnapshot, type AppSettings, type ChangeEvent, type DependencySeriesPoint, type HistoryIndex, type Snapshot, type TrafficRate } from './history'
 import { normalizeLinksLatest, type LinksLatest } from './clusterLinks'
 import type { DecisionLogEntry } from './placement/deciders'
+import type { Proposal, ProposalStatus } from './proposals'
 import type { SelfTelemetryEntity } from './selfHealth'
 import type { EffectiveModel } from './provenance'
 
@@ -906,6 +907,16 @@ export const api = {
     for (const [k, v] of Object.entries(q)) if (v !== undefined && v !== '') p.set(k, String(v))
     return call<{ source: 'graph' | 'local'; rows?: AuditRow[] }>(c, 'GET', `/api/v1/audit${p.size ? `?${p}` : ''}`).then((r) => ({ source: r.source, rows: r.rows ?? [] }))
   },
+  // proposals: what advisors suggest about an agent's access, and the decision on each (editors; widening takes an administrator).
+  // Nothing here submits one: an advisor does that with an editor's API token, and submitting changes nothing.
+  listProposals: (c: Conn, q: { status?: ProposalStatus; agent?: string; limit?: number } = {}) => {
+    const p = new URLSearchParams()
+    for (const [k, v] of Object.entries(q)) if (v !== undefined && v !== '') p.set(k, String(v))
+    return call<{ proposals?: Proposal[] }>(c, 'GET', `/api/v1/proposals${p.size ? `?${p}` : ''}`).then((r) => r.proposals ?? [])
+  },
+  getProposal: (c: Conn, id: string) => call<Proposal>(c, 'GET', `/api/v1/proposals/${encodeURIComponent(id)}`),
+  acceptProposal: (c: Conn, id: string, note = '') => call<Proposal>(c, 'POST', `/api/v1/proposals/${encodeURIComponent(id)}/accept`, { note }),
+  rejectProposal: (c: Conn, id: string, note = '') => call<Proposal>(c, 'POST', `/api/v1/proposals/${encodeURIComponent(id)}/reject`, { note }),
   workspaceRevisions: (c: Conn) => call<{ revisions?: WorkspaceRevision[] }>(c, 'GET', '/api/v1/workspace/revisions').then((r) => r.revisions ?? []),
   recordNow: (c: Conn) => call<void>(c, 'POST', '/api/v1/history/record'),
   decide: (c: Conn, input: unknown) => call<{ decider: string; result: unknown }>(c, 'POST', '/api/v1/decide', input),

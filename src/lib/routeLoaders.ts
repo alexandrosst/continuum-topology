@@ -27,6 +27,7 @@ export const routeLoaders: Record<string, () => Promise<{ default: ComponentType
   '/sites': () => import('@/pages/SitesPage'),
   '/discovery': () => import('@/pages/DiscoveryPage'),
   '/agents': () => import('@/pages/AgentsPage'),
+  '/proposals': () => import('@/pages/ProposalsPage'),
   '/pipeline': () => import('@/pages/PipelinePage'),
   '/fusion': () => import('@/pages/FusionPage'),
   '/history': () => import('@/pages/HistoryPage'),

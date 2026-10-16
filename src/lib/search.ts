@@ -32,6 +32,7 @@ export const PAGES: { to: string; label: string; keywords: string }[] = [
   { to: '/sites', label: 'Sites', keywords: 'places locations regions' },
   { to: '/discovery', label: 'Discovery', keywords: 'inbox suggestions found gone' },
   { to: '/agents', label: 'Agents', keywords: 'approve approval enroll connect consent observability intent scope health' },
+  { to: '/proposals', label: 'Proposals', keywords: 'advisor suggestions decisions accept reject approve change access tier pause' },
   { to: '/placement', label: 'Placement', keywords: 'recommendations what-if deciders capacity' },
   { to: '/history', label: 'History', keywords: 'past changes events time' },
   { to: '/activity', label: 'Activity', keywords: 'audit log trail who did what' },
