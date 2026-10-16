@@ -239,3 +239,27 @@ func TestEveryAuditRowThroughTheServerJoinsTheChain(t *testing.T) {
 		t.Fatalf("%+v %v", r, err)
 	}
 }
+
+// The follow-up row is written after the action failed, which is exactly when the request that
+// started it is often gone (the client hung up, or its deadline ran out and that is why the action
+// failed). The row must still be written, or the trail keeps a claim with no outcome.
+func TestTheFollowUpRowIsWrittenEvenWhenTheRequestWasCancelled(t *testing.T) {
+	e := newEnv(t)
+	ctx, cancel := context.WithCancel(e.ctx)
+	err := e.core.audited(ctx, "alex", "note", "agent", "a-1", "about to", func() error {
+		cancel() // the caller goes away while the action is running
+		return context.Canceled
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("the action's own error must reach the caller: %v", err)
+	}
+	evs, _ := e.st.ListAudit(e.ctx, "org-1", 10)
+	var claim, outcome bool
+	for _, ev := range evs {
+		claim = claim || ev.Action == "note"
+		outcome = outcome || ev.Action == "note-failed"
+	}
+	if !claim || !outcome {
+		t.Fatalf("claim=%v outcome=%v; rows: %+v", claim, outcome, evs)
+	}
+}

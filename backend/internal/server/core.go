@@ -202,11 +202,19 @@ func (c *Core) audited(ctx context.Context, actor, action, kind, id, detail stri
 		return errf(KindInternal, "the audit trail could not be written, so nothing was changed. Check the server's database and try again")
 	}
 	if err := do(); err != nil {
-		c.audit(ctx, actor, action+"-failed", kind, id, err.Error())
+		// The action may have failed because the request was cancelled or ran out of time, so the
+		// outcome row must not depend on that context: without it the trail keeps a claim and never
+		// says it did not happen.
+		octx, cancel := context.WithTimeout(context.WithoutCancel(ctx), auditOutcomeTimeout)
+		defer cancel()
+		c.audit(octx, actor, action+"-failed", kind, id, err.Error())
 		return err
 	}
 	return nil
 }
+
+// auditOutcomeTimeout bounds the follow-up row written after a failed action.
+const auditOutcomeTimeout = 5 * time.Second
 
 // CreateToken issues a one-time enrollment token. The secret is returned once and never stored.
 func (c *Core) CreateToken(ctx context.Context, actor, label string, tier int) (string, store.Token, error) {
