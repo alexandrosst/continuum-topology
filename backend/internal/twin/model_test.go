@@ -479,3 +479,40 @@ func TestNoThermalTripLeavesCpuCapacityPlainlyReported(t *testing.T) {
 		t.Errorf("a node with no thermal-trip signal must keep the plain Reported confidence, got %+v", cap)
 	}
 }
+
+func pathEntity(t *testing.T, p model.Path) Entity {
+	t.Helper()
+	in, _ := fixture(t, "cl-1", "ag-1", 2)
+	p.ID, p.FromCluster, p.FromName, p.Host, p.At = "ob-x", "cl-1", "edge-a", "203.0.113.9", now.Format(time.RFC3339)
+	in.Topology.Paths = []model.Path{p}
+	e := find(Build(in), "path", "edge-a → 203.0.113.9")
+	if e == nil {
+		t.Fatal("path entity missing")
+	}
+	return *e
+}
+
+// A path whose every attempt failed has no round trip to time. The agent sends zeros for it; the model must say
+// the times are unknown, not that the path answers in 0 ms, while the loss stays a real measurement.
+func TestPathWithNoCompletedRoundTripReportsUnknownTimesNotZero(t *testing.T) {
+	e := pathEntity(t, model.Path{Samples: 5, LossPct: 100})
+	for _, name := range []string{"rttMin", "rttP50", "rttP95"} {
+		a := e.Attributes[name]
+		if a.Value != nil || a.Confidence != Unknown {
+			t.Errorf("%s = %+v, want unknown with no value", name, a)
+		}
+		if a.Evidence == "" {
+			t.Errorf("%s says unknown without saying why", name)
+		}
+	}
+	if loss := e.Attributes["loss"]; loss.Value != 100.0 || loss.Confidence != Measured {
+		t.Errorf("loss = %+v, want a measured 100", loss)
+	}
+}
+
+func TestPathWithRoundTripsKeepsMeasuredTimes(t *testing.T) {
+	e := pathEntity(t, model.Path{Samples: 5, LossPct: 20, RTTMin: 3, RTTP50: 4, RTTP95: 9})
+	if a := e.Attributes["rttP50"]; a.Value != 4.0 || a.Confidence != Measured {
+		t.Errorf("rttP50 = %+v, want a measured 4", a)
+	}
+}

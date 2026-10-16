@@ -622,9 +622,18 @@ func (b *builder) observed() {
 		m := func(name string, v float64, unit string) {
 			c.set(name, Attr{Value: v, Unit: unit, Source: FromMeasured, Confidence: Measured})
 		}
-		m("rttMin", p.RTTMin, "ms")
-		m("rttP50", p.RTTP50, "ms")
-		m("rttP95", p.RTTP95, "ms")
+		// A round trip that never completed has no duration. When every attempt failed (or nothing was tried)
+		// the agent sends zeros, and recording them as measured values would say the path answers in 0 ms.
+		// The honest reading of "no round trip" is unknown; the loss is still a real measurement.
+		if p.LossPct >= 100 || p.Samples == 0 {
+			for _, name := range []string{"rttMin", "rttP50", "rttP95"} {
+				c.set(name, Attr{Value: nil, Unit: "ms", Source: FromMeasured, Confidence: Unknown, Evidence: "no round trip completed in the recent window, so there is no time to report"})
+			}
+		} else {
+			m("rttMin", p.RTTMin, "ms")
+			m("rttP50", p.RTTP50, "ms")
+			m("rttP95", p.RTTP95, "ms")
+		}
 		m("loss", p.LossPct, "percent")
 		c.set("samples", Attr{Value: p.Samples, Unit: "count", Source: FromMeasured, Confidence: Measured})
 		c.set("host", Attr{Value: p.Host, Source: FromMeasured, Confidence: Reported})
