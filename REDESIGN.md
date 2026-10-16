@@ -24,7 +24,7 @@ Where the two differ, the second pass wins.
 
 | Stage (first document) | Phase (second document) | State |
 |---|---|---|
-| 0. Pin behaviour, small defect fixes | 0 | Store, graph history, binaries, server binary: done. Config hash gate, route-guard pin, the full `configFor` output on a test matrix, and the cross-organisation test over every route that takes an id: done. The TypeScript install commands are pinned (74 of them, each rendered through `helm template`). Still open: the fake-agent harness. |
+| 0. Pin behaviour, small defect fixes | 0 | Store, graph history, binaries, server binary: done. Config hash gate, route-guard pin, the full `configFor` output on a test matrix, and the cross-organisation test over every route that takes an id: done. The TypeScript install commands are pinned (74 of them, each rendered through `helm template`). The first fake-agent harness (a scripted agent on a real stream, with seven scenarios on the config echo) is in. Still open: the status words are only partly pinned. |
 | 1. Audit written with the change | part of 2 | Done (33 of 34 write sites; link-credential rotation stays on `audited()` on purpose). |
 | 2. Config echo, capabilities, server-side Conditions | 1 and 2 (in part) | Config digest echo done. Capabilities and Conditions: open. |
 | 3. Minimal decision loop (Advise mode) | 7 (in part) | Done. Auto mode is designed and shelved. |
@@ -34,6 +34,6 @@ Open defects: D2 (the model version is written on read) and D7. D14 (a README li
 
 ## Next
 
-1. Close stage 0: the fake-agent harness, the one open pin.
+1. Stage 0 is closed except for the status words, which are pinned when stage 2 first touches them.
 2. Stage 2: capabilities and Conditions, one additive protocol change.
 3. Then stop, and review what the decision loop did in use before anything below the line.
