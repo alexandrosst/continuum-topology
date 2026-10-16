@@ -295,15 +295,11 @@ func (c *Core) Reject(ctx context.Context, actor, agentID, reason string) error 
 		return err
 	}
 	reason = printable(reason, maxReason)
-	err := c.audited(ctx, actor, "agent-rejected", "agent", agentID, reason, func() error {
-		if err := c.Store.RejectAgent(ctx, agentID, reason, c.Now()); err != nil {
-			if errors.Is(err, store.ErrBadState) {
-				return errf(KindConflict, "only pending agents can be rejected")
-			}
-			return err
-		}
-		return nil
-	})
+	err := c.Store.RejectAgent(ctx, agentID, reason, c.Now(), store.WithAudit(c.auditRow(c.OrgID, actor, "agent-rejected", "agent", agentID, reason)))
+	if errors.Is(err, store.ErrBadState) {
+		err = errf(KindConflict, "only pending agents can be rejected")
+	}
+	err = c.auditedWrite(err, "agent-rejected")
 	if err == nil {
 		if fresh, ferr := c.agentInOrg(ctx, agentID); ferr == nil {
 			c.recordAgentGraph(ctx, fresh, "agent-rejected", reason)

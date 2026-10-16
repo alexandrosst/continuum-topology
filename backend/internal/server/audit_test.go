@@ -135,20 +135,52 @@ func TestPrivilegedActionsFailClosedWhenTheAuditRowCannotBeWritten(t *testing.T)
 func TestAFailedActionAfterItsAuditRowLeavesAFollowUpRow(t *testing.T) {
 	e := newEnv(t)
 	resp, _ := e.enroll(t, 2, fp)
-	if err := e.core.Reject(e.ctx, "alex", resp.AgentId, "first"); err != nil {
+	if err := e.core.Revoke(e.ctx, "alex", resp.AgentId, "first"); err != nil {
 		t.Fatal(err)
 	}
-	// a second rejection is refused by the store after the row was written: the trail must say so
-	if err := e.core.Reject(e.ctx, "alex", resp.AgentId, "again"); kindOf(err) != KindConflict {
-		t.Fatalf("second reject: %v", err)
+	// a second revocation is refused by the store after the row was written: the trail must say so
+	if err := e.core.Revoke(e.ctx, "alex", resp.AgentId, "again"); kindOf(err) != KindConflict {
+		t.Fatalf("second revoke: %v", err)
 	}
 	evs, _ := e.st.ListAudit(e.ctx, "org-1", 10)
 	var failed bool
 	for _, ev := range evs {
-		failed = failed || ev.Action == "agent-rejected-failed"
+		failed = failed || ev.Action == "agent-revoked-failed"
 	}
 	if !failed {
 		t.Fatalf("no follow-up row: %+v", evs)
+	}
+}
+
+// A write that carries its own audit row records only what happened. A refused attempt changes
+// nothing, so it leaves nothing: no claim, and no follow-up row either.
+func TestARefusedWriteWithItsOwnAuditRowLeavesNoRow(t *testing.T) {
+	e := newEnv(t)
+	resp, _ := e.enroll(t, 2, fp)
+	if err := e.core.Reject(e.ctx, "alex", resp.AgentId, "first"); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.core.Reject(e.ctx, "alex", resp.AgentId, "again"); kindOf(err) != KindConflict {
+		t.Fatalf("second reject: %v", err)
+	}
+	if err := e.core.DeleteToken(e.ctx, "alex", "tk-nope"); kindOf(err) != KindNotFound {
+		t.Fatalf("delete of a missing token: %v", err)
+	}
+	evs, _ := e.st.ListAudit(e.ctx, "org-1", 20)
+	var rejected int
+	for _, ev := range evs {
+		if strings.HasPrefix(ev.Action, "agent-rejected") {
+			rejected++
+			if ev.Action != "agent-rejected" || ev.Detail != "first" {
+				t.Errorf("unexpected row %+v", ev)
+			}
+		}
+		if ev.Action == "token-deleted" || strings.HasSuffix(ev.Action, "-failed") {
+			t.Errorf("a refused attempt left a row: %+v", ev)
+		}
+	}
+	if rejected != 1 {
+		t.Errorf("want exactly one agent-rejected row, got %d: %+v", rejected, evs)
 	}
 }
 
