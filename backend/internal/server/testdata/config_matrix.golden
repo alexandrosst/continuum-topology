@@ -1,0 +1,391 @@
+== nothing asked for
+-- first
+{
+  "approved_access_tier": 2,
+  "cluster_id": "cluster:first",
+  "digest": "(present)",
+  "heartbeat_seconds": 30,
+  "resync_seconds": 900
+}
+-- second
+{
+  "approved_access_tier": 2,
+  "cluster_id": "cluster:second",
+  "digest": "(present)",
+  "heartbeat_seconds": 30,
+  "resync_seconds": 900
+}
+-- third
+{
+  "approved_access_tier": 2,
+  "cluster_id": "cluster:third",
+  "digest": "(present)",
+  "heartbeat_seconds": 30,
+  "resync_seconds": 900
+}
+== a probe target for the first cluster, measured every 90 seconds
+-- first
+{
+  "approved_access_tier": 2,
+  "cluster_id": "cluster:first",
+  "digest": "(present)",
+  "heartbeat_seconds": 30,
+  "measure_seconds": 90,
+  "probe_targets": [
+    {
+      "host": "203.0.113.10",
+      "id": "pt-1",
+      "port": 443
+    }
+  ],
+  "resync_seconds": 900
+}
+-- second
+{
+  "approved_access_tier": 2,
+  "cluster_id": "cluster:second",
+  "digest": "(present)",
+  "heartbeat_seconds": 30,
+  "resync_seconds": 900
+}
+-- third
+{
+  "approved_access_tier": 2,
+  "cluster_id": "cluster:third",
+  "digest": "(present)",
+  "heartbeat_seconds": 30,
+  "resync_seconds": 900
+}
+== a link pair between the first and the second
+-- first
+{
+  "approved_access_tier": 2,
+  "cluster_id": "cluster:first",
+  "digest": "(present)",
+  "heartbeat_seconds": 30,
+  "link_peers": [
+    {
+      "addresses": [
+        "10.0.66.1"
+      ],
+      "cluster_id": "cluster:second",
+      "name": "edge"
+    }
+  ],
+  "measure_seconds": 90,
+  "probe_targets": [
+    {
+      "host": "203.0.113.10",
+      "id": "pt-1",
+      "port": 443
+    }
+  ],
+  "resync_seconds": 900
+}
+-- second
+{
+  "approved_access_tier": 2,
+  "cluster_id": "cluster:second",
+  "digest": "(present)",
+  "heartbeat_seconds": 30,
+  "link_peers": [
+    {
+      "addresses": [
+        "10.0.77.1"
+      ],
+      "cluster_id": "cluster:first",
+      "name": "edge",
+      "skip_probe": true
+    }
+  ],
+  "resync_seconds": 900
+}
+-- third
+{
+  "approved_access_tier": 2,
+  "cluster_id": "cluster:third",
+  "digest": "(present)",
+  "heartbeat_seconds": 30,
+  "resync_seconds": 900
+}
+== the pair also asks for throughput tests, pinned to the mesh addresses
+-- first
+{
+  "approved_access_tier": 2,
+  "cluster_id": "cluster:first",
+  "digest": "(present)",
+  "heartbeat_seconds": 30,
+  "link_peers": [
+    {
+      "addresses": [
+        "10.0.66.1"
+      ],
+      "cluster_id": "cluster:second",
+      "iperf_client": {
+        "password": "(present)",
+        "public_key_pem": "(present)",
+        "username": "(present)"
+      },
+      "name": "edge",
+      "throughput": true,
+      "throughput_budget_bytes": "2147483648",
+      "throughput_interval_seconds": 3600,
+      "via": "mesh"
+    }
+  ],
+  "measure_seconds": 90,
+  "probe_targets": [
+    {
+      "host": "203.0.113.10",
+      "id": "pt-1",
+      "port": 443
+    }
+  ],
+  "resync_seconds": 900
+}
+-- second
+{
+  "approved_access_tier": 2,
+  "cluster_id": "cluster:second",
+  "digest": "(present)",
+  "heartbeat_seconds": 30,
+  "link_iperf_server": {
+    "private_key_pem": "(present)",
+    "users_csv": "(present)"
+  },
+  "link_peers": [
+    {
+      "addresses": [
+        "10.0.77.1"
+      ],
+      "cluster_id": "cluster:first",
+      "name": "edge",
+      "skip_probe": true,
+      "via": "mesh"
+    }
+  ],
+  "resync_seconds": 900
+}
+-- third
+{
+  "approved_access_tier": 2,
+  "cluster_id": "cluster:third",
+  "digest": "(present)",
+  "heartbeat_seconds": 30,
+  "resync_seconds": 900
+}
+== the pair with its one-way probe off, pinned to the public addresses
+-- first
+{
+  "approved_access_tier": 2,
+  "cluster_id": "cluster:first",
+  "digest": "(present)",
+  "heartbeat_seconds": 30,
+  "link_peers": [
+    {
+      "addresses": [
+        "10.0.66.1"
+      ],
+      "cluster_id": "cluster:second",
+      "name": "edge",
+      "no_probe": true,
+      "via": "public"
+    }
+  ],
+  "measure_seconds": 90,
+  "probe_targets": [
+    {
+      "host": "203.0.113.10",
+      "id": "pt-1",
+      "port": 443
+    }
+  ],
+  "resync_seconds": 900
+}
+-- second
+{
+  "approved_access_tier": 2,
+  "cluster_id": "cluster:second",
+  "digest": "(present)",
+  "heartbeat_seconds": 30,
+  "link_peers": [
+    {
+      "addresses": [
+        "10.0.77.1"
+      ],
+      "cluster_id": "cluster:first",
+      "name": "edge",
+      "no_probe": true,
+      "via": "public"
+    }
+  ],
+  "resync_seconds": 900
+}
+-- third
+{
+  "approved_access_tier": 2,
+  "cluster_id": "cluster:third",
+  "digest": "(present)",
+  "heartbeat_seconds": 30,
+  "resync_seconds": 900
+}
+== the first cluster's flow collector paused
+-- first
+{
+  "approved_access_tier": 2,
+  "cluster_id": "cluster:first",
+  "digest": "(present)",
+  "heartbeat_seconds": 30,
+  "measure_seconds": 90,
+  "paused_collectors": [
+    "flow"
+  ],
+  "probe_targets": [
+    {
+      "host": "203.0.113.10",
+      "id": "pt-1",
+      "port": 443
+    }
+  ],
+  "resync_seconds": 900
+}
+-- second
+{
+  "approved_access_tier": 2,
+  "cluster_id": "cluster:second",
+  "digest": "(present)",
+  "heartbeat_seconds": 30,
+  "link_iperf_server": {
+    "private_key_pem": "(present)",
+    "users_csv": "(present)"
+  },
+  "link_peers": [
+    {
+      "addresses": [
+        "10.0.77.1"
+      ],
+      "cluster_id": "cluster:first",
+      "name": "edge"
+    }
+  ],
+  "resync_seconds": 900
+}
+-- third
+{
+  "approved_access_tier": 2,
+  "cluster_id": "cluster:third",
+  "digest": "(present)",
+  "heartbeat_seconds": 30,
+  "resync_seconds": 900
+}
+== the second cluster's flow collector paused as well
+-- first
+{
+  "approved_access_tier": 2,
+  "cluster_id": "cluster:first",
+  "digest": "(present)",
+  "heartbeat_seconds": 30,
+  "measure_seconds": 90,
+  "paused_collectors": [
+    "flow"
+  ],
+  "probe_targets": [
+    {
+      "host": "203.0.113.10",
+      "id": "pt-1",
+      "port": 443
+    }
+  ],
+  "resync_seconds": 900
+}
+-- second
+{
+  "approved_access_tier": 2,
+  "cluster_id": "cluster:second",
+  "digest": "(present)",
+  "heartbeat_seconds": 30,
+  "paused_collectors": [
+    "flow"
+  ],
+  "resync_seconds": 900
+}
+-- third
+{
+  "approved_access_tier": 2,
+  "cluster_id": "cluster:third",
+  "digest": "(present)",
+  "heartbeat_seconds": 30,
+  "resync_seconds": 900
+}
+== the first cluster also asked to stop measuring, and to leave two namespaces out
+-- first
+{
+  "approved_access_tier": 2,
+  "cluster_id": "cluster:first",
+  "digest": "(present)",
+  "excluded_namespaces": [
+    "monitoring",
+    "payments"
+  ],
+  "heartbeat_seconds": 30,
+  "paused_collectors": [
+    "flow",
+    "measure"
+  ],
+  "resync_seconds": 900
+}
+-- second
+{
+  "approved_access_tier": 2,
+  "cluster_id": "cluster:second",
+  "digest": "(present)",
+  "heartbeat_seconds": 30,
+  "paused_collectors": [
+    "flow"
+  ],
+  "resync_seconds": 900
+}
+-- third
+{
+  "approved_access_tier": 2,
+  "cluster_id": "cluster:third",
+  "digest": "(present)",
+  "heartbeat_seconds": 30,
+  "resync_seconds": 900
+}
+== the second cluster's approved tier lowered to 1
+-- first
+{
+  "approved_access_tier": 2,
+  "cluster_id": "cluster:first",
+  "digest": "(present)",
+  "excluded_namespaces": [
+    "monitoring",
+    "payments"
+  ],
+  "heartbeat_seconds": 30,
+  "paused_collectors": [
+    "flow",
+    "measure"
+  ],
+  "resync_seconds": 900
+}
+-- second
+{
+  "approved_access_tier": 1,
+  "cluster_id": "cluster:second",
+  "digest": "(present)",
+  "heartbeat_seconds": 30,
+  "paused_collectors": [
+    "flow"
+  ],
+  "resync_seconds": 900
+}
+-- third
+{
+  "approved_access_tier": 2,
+  "cluster_id": "cluster:third",
+  "digest": "(present)",
+  "heartbeat_seconds": 30,
+  "resync_seconds": 900
+}
