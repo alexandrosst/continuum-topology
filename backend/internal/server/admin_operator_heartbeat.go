@@ -88,6 +88,14 @@ func (a *Admin) enableOperatorHeartbeat(w http.ResponseWriter, r *http.Request) 
 		a.fail(w, a.installConfigError(err))
 		return
 	}
+	if _, err := operatorHeartbeatSecretCommand(before, "check"); err != nil {
+		a.fail(w, a.installConfigError(err))
+		return
+	}
+	if _, err := a.heartbeatCASecretCommand(before); err != nil {
+		a.fail(w, a.installConfigError(err))
+		return
+	}
 	secret, rotated, err := core.EnableOperatorHeartbeat(r.Context(), actor(r), id)
 	if err != nil {
 		a.fail(w, err)
@@ -103,11 +111,16 @@ func (a *Admin) enableOperatorHeartbeat(w http.ResponseWriter, r *http.Request) 
 		a.fail(w, a.installConfigError(err))
 		return
 	}
+	secretCmd, err := operatorHeartbeatSecretCommand(op, secret)
+	if err != nil {
+		a.fail(w, a.installConfigError(err))
+		return
+	}
 	resp := map[string]any{
 		"operator":                 a.opDoc(r, op),
 		"rotated":                  rotated,
 		"heartbeatToken":           secret,
-		"heartbeatSecretCommand":   operatorHeartbeatSecretCommand(op, secret),
+		"heartbeatSecretCommand":   secretCmd,
 		"heartbeatUpgradeCommand":  upgrade,
 		"heartbeatUrl":             url,
 		"heartbeatIntervalSeconds": int(OperatorHeartbeatInterval / time.Second),
@@ -120,7 +133,12 @@ func (a *Admin) enableOperatorHeartbeat(w http.ResponseWriter, r *http.Request) 
 	if warn := heartbeatURLWarning(url); warn != "" {
 		resp["heartbeatWarning"] = warn
 	}
-	if caCmd := a.heartbeatCASecretCommand(op); caCmd != "" {
+	caCmd, err := a.heartbeatCASecretCommand(op)
+	if err != nil {
+		a.fail(w, a.installConfigError(err))
+		return
+	}
+	if caCmd != "" {
 		resp["heartbeatCaSecretCommand"] = caCmd
 	}
 	writeJSON(w, 200, resp)
@@ -218,15 +236,17 @@ func (a *Admin) operatorHeartbeatValues(op store.Operator, heartbeatURL string) 
 
 // heartbeatCASecretCommand creates the Secret holding the private CA the server's certificate is signed by, in the
 // operator's namespace; "" when the server's certificate chains to a public root and there is nothing to add.
-func (a *Admin) heartbeatCASecretCommand(op store.Operator) string {
+func (a *Admin) heartbeatCASecretCommand(op store.Operator) (string, error) {
 	if len(a.HeartbeatCAPEM) == 0 {
-		return ""
+		return "", nil
 	}
-	return withNamespace("continuum-system", applySecretCommand(operatorHeartbeatCASecretName(op), "continuum-system", secretKV("ca.crt", string(a.HeartbeatCAPEM))))
+	return install.Secret{Name: operatorHeartbeatCASecretName(op), Namespace: "continuum-system", EnsureNamespace: true,
+		Entries: []install.Entry{{Key: "ca.crt", Value: string(a.HeartbeatCAPEM)}}}.Render()
 }
 
 // operatorHeartbeatSecretCommand creates the Secret the chart's heartbeat.auth.secretName points at. A first install and
 // a rotation are the same create-or-update command, and it makes the namespace first, so it can be the first thing run.
-func operatorHeartbeatSecretCommand(op store.Operator, secret string) string {
-	return withNamespace("continuum-system", applySecretCommand(operatorHeartbeatSecretName(op), "continuum-system", secretKV("token", secret)))
+func operatorHeartbeatSecretCommand(op store.Operator, secret string) (string, error) {
+	return install.Secret{Name: operatorHeartbeatSecretName(op), Namespace: "continuum-system", EnsureNamespace: true,
+		Entries: []install.Entry{{Key: "token", Value: secret}}}.Render()
 }

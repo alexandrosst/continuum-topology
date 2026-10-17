@@ -1,12 +1,6 @@
 package server
 
-import (
-	"encoding/json"
-	"fmt"
-	"strings"
-
-	"continuum/internal/install"
-)
+import "continuum/internal/install"
 
 // Everything below builds text a person pastes into a shell. A value that came from anywhere but a constant (an
 // address, a chart reference an organisation configured, a host from the request) is quoted, so it can only ever
@@ -16,68 +10,3 @@ import (
 // shellArg is s as one shell word, quoted only when it has to be. The rule lives in internal/install, which is where commands are
 // written; these two names remain for the builders in this package that have not moved there yet.
 func shellArg(s string) string { return install.Arg(s) }
-
-// secretEntry is one key of a Secret and its value.
-type secretEntry struct{ Key, Value string }
-
-func secretKV(key, value string) secretEntry { return secretEntry{key, value} }
-
-// applySecretCommand creates or updates a Secret (so a generated command can be run again: the person regenerates
-// it, a first attempt failed half way, a certificate is re-issued) from a manifest on standard input, never from
-// --from-literal arguments. The here-document is quoted, so the shell expands nothing inside it, and its closing
-// word is chosen so that no line of the data can end it early.
-//
-// It is a server-side apply (--server-side), not the client-side `kubectl apply -f -`: the client-side one records the whole
-// manifest it applied in the kubectl.kubernetes.io/last-applied-configuration annotation, and for a Secret that manifest
-// holds the private key (and the token) in the clear - readable by anyone who may `get` or `describe` the Secret, and by
-// anything that logs or backs up objects with their annotations, even though the data itself is stored as a Secret. A server-side
-// apply keeps no such copy. It still creates or updates, so the command can be run again. --force-conflicts takes the fields over
-// from whichever tool set them before (a Secret first created by a client-side apply, or by hand): without it, rotating the
-// content of such a Secret is refused as a field-ownership conflict. The Secret is this product's own, so there is nothing
-// of anyone else's to protect.
-func applySecretCommand(name, namespace string, entries ...secretEntry) string {
-	delim := "CONTINUUM_SECRET"
-	for clash := true; clash; {
-		clash = false
-		for _, e := range entries {
-			for _, line := range strings.Split(e.Value, "\n") {
-				if strings.TrimSpace(line) == delim {
-					clash = true
-				}
-			}
-		}
-		if clash {
-			delim += "_X"
-		}
-	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "kubectl apply --server-side --force-conflicts -f - <<'%s'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: %s\n  namespace: %s\ntype: Opaque\nstringData:\n", delim, name, namespace)
-	for _, e := range entries {
-		b.WriteString(yamlEntry(e))
-	}
-	b.WriteString(delim)
-	return b.String()
-}
-
-// yamlEntry writes one stringData key: a multi-line value (a PEM block) as a literal block, anything else as a
-// double-quoted string (JSON quoting is valid YAML).
-func yamlEntry(e secretEntry) string {
-	v := strings.TrimRight(e.Value, "\n")
-	if !strings.Contains(v, "\n") || strings.HasPrefix(v, " ") {
-		q, _ := json.Marshal(e.Value)
-		return fmt.Sprintf("  %s: %s\n", e.Key, q)
-	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "  %s: |\n", e.Key)
-	for _, line := range strings.Split(v, "\n") {
-		b.WriteString("    " + line + "\n")
-	}
-	return b.String()
-}
-
-// withNamespace puts "make sure the namespace exists" in front of a Secret command that runs before the operator's own
-// install does: `helm install --create-namespace` comes last, so on a fresh cluster the first Secret would otherwise
-// fail with "namespace not found". Create-or-update, so it is harmless where the namespace already exists.
-func withNamespace(namespace, cmd string) string {
-	return fmt.Sprintf("kubectl create namespace %s --dry-run=client -o yaml | kubectl apply -f - && \\\n%s", namespace, cmd)
-}

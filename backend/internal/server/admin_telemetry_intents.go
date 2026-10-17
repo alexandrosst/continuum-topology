@@ -277,7 +277,11 @@ func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 			issued[op.ID] = true
 			auth[op.ID] = string(op.ReceiverAuth)
 			if len(certPEM) > 0 {
-				secretCommands = append(secretCommands, operatorClientSecretCommand(op, certPEM, keyPEM, caPEM, rns))
+				secretCmd, err := operatorClientSecretCommand(op, certPEM, keyPEM, caPEM, rns, false)
+				if err != nil {
+					return err
+				}
+				secretCommands = append(secretCommands, secretCmd)
 			}
 			return nil
 		}
@@ -340,7 +344,11 @@ func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		warn(op, ti.Destination)
-		destination, secretCmd := operatorDestinationCommand(op, a.destEndpoint(op, ti.Destination), certPEM, keyPEM, caPEM, rns)
+		destination, secretCmd, err := operatorDestinationCommand(op, a.destEndpoint(op, ti.Destination), certPEM, keyPEM, caPEM, rns)
+		if err != nil {
+			a.fail(w, a.installConfigError(err))
+			return
+		}
 		// Every signal type goes to this one destination, so no per-signal route may stay: a route outranks the default,
 		// and one an earlier command set (--reset-then-reuse-values keeps it) would keep sending to the old destination.
 		values = append(append(values, destination...), clearRoutes(routeModalities...)...)

@@ -111,11 +111,14 @@ func TestCreateOperatorFailsWhenTheTLSMintFails(t *testing.T) {
 func TestOperatorDestinationCommandIsTheSameForBothAuthModes(t *testing.T) {
 	for _, mode := range []store.ReceiverAuth{store.ReceiverAuthMTLS, store.ReceiverAuthBearer} {
 		op := store.Operator{ID: "op-abc123", ReceiverAuth: mode}
-		values, secret := operatorDestinationCommand(op, "op-abc123-regional-operator.continuum-system.svc:4317", []byte("CERT"), []byte("KEY"), []byte("CA"), "ns1")
+		values, secret, err := operatorDestinationCommand(op, "op-abc123-regional-operator.continuum-system.svc:4317", []byte("CERT"), []byte("KEY"), []byte("CA"), "ns1")
 		// The whole destination block, every field stated (the unused ones empty), so --reset-then-reuse-values leaves nothing stale.
 		wantFlags := "--set telemetry.export.otlp.endpoint=op-abc123-regional-operator.continuum-system.svc:4317 --set telemetry.export.otlp.protocol=grpc --set telemetry.export.otlp.tls.insecure=false --set telemetry.export.otlp.tls.caFile= " +
 			"--set telemetry.export.otlp.tls.mtls.enabled=true --set telemetry.export.otlp.tls.mtls.secretName=op-abc123-export-mtls --set telemetry.export.otlp.tls.serverName=op-abc123.continuum-system.svc --set telemetry.export.otlp.auth.secretName="
 		wantSecret := "kubectl apply --server-side --force-conflicts -f - <<'CONTINUUM_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: op-abc123-export-mtls\n  namespace: ns1\ntype: Opaque\nstringData:\n  tls.crt: \"CERT\"\n  tls.key: \"KEY\"\n  ca.crt: \"CA\"\nCONTINUUM_SECRET"
+		if err != nil {
+			t.Fatal(err)
+		}
 		if flags := install.Flags(values); flags != wantFlags || secret != wantSecret {
 			t.Fatalf("%s: flags=%q secret=%q", mode, install.Flags(values), secret)
 		}
@@ -209,11 +212,17 @@ func TestInstallCommandQuotesOperatorNameAndLabels(t *testing.T) {
 // The operator's own Secrets are applied before its install creates the namespace, so each starts by making sure
 // the namespace is there; the Secrets that go to a source cluster's existing namespace do not.
 func TestOperatorOwnSecretsEnsureTheNamespaceFirst(t *testing.T) {
-	tls := operatorTLSSecretCommand(store.Operator{ID: "op-abc"}, OperatorTLSBundle{ReceiverCertPEM: []byte("C"), ReceiverKeyPEM: []byte("K"), CACertPEM: []byte("A")})
+	tls, err := operatorTLSSecretCommand(store.Operator{ID: "op-abc"}, OperatorTLSBundle{ReceiverCertPEM: []byte("C"), ReceiverKeyPEM: []byte("K"), CACertPEM: []byte("A")})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !strings.HasPrefix(tls, "kubectl create namespace continuum-system --dry-run=client -o yaml | kubectl apply -f - && \\\n") || !strings.Contains(tls, "name: op-abc-receiver-tls") {
 		t.Fatalf("receiver TLS secret command: %q", tls)
 	}
-	client := operatorClientSecretCommand(store.Operator{ID: "op-abc"}, []byte("C"), []byte("K"), []byte("A"), "continuum-system")
+	client, err := operatorClientSecretCommand(store.Operator{ID: "op-abc"}, []byte("C"), []byte("K"), []byte("A"), "continuum-system", false)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if strings.Contains(client, "create namespace") {
 		t.Fatalf("a client Secret goes into an existing namespace: %q", client)
 	}

@@ -375,17 +375,29 @@ func (a *Admin) operatorInstallDoc(r *http.Request, op store.Operator, m install
 		// The install command above already carries the heartbeat --set flags; this is the one extra
 		// Secret it points at, plus the same facts a UI wants to show next to it.
 		resp["heartbeatToken"] = m.HeartbeatSecret
-		resp["heartbeatSecretCommand"] = operatorHeartbeatSecretCommand(op, m.HeartbeatSecret)
+		hbCmd, err := operatorHeartbeatSecretCommand(op, m.HeartbeatSecret)
+		if err != nil {
+			return nil, a.installConfigError(err)
+		}
+		resp["heartbeatSecretCommand"] = hbCmd
 		resp["heartbeatUrl"] = hbURL
 		resp["heartbeatIntervalSeconds"] = int(OperatorHeartbeatInterval / time.Second)
 		if warn := heartbeatURLWarning(hbURL); warn != "" {
 			resp["heartbeatWarning"] = warn
 		}
-		if caCmd := a.heartbeatCASecretCommand(op); caCmd != "" {
+		caCmd, err := a.heartbeatCASecretCommand(op)
+		if err != nil {
+			return nil, a.installConfigError(err)
+		}
+		if caCmd != "" {
 			resp["heartbeatCaSecretCommand"] = caCmd
 		}
 	}
-	if tlsCmd := operatorTLSSecretCommand(op, m.TLS); tlsCmd != "" {
+	tlsCmd, err := operatorTLSSecretCommand(op, m.TLS)
+	if err != nil {
+		return nil, a.installConfigError(err)
+	}
+	if tlsCmd != "" {
 		resp["tlsSecretCommand"] = tlsCmd
 	}
 	if m.Reissue {
@@ -603,12 +615,12 @@ func operatorClientTLSSecretName(op store.Operator) string   { return op.ID + "-
 // installed once, wherever the operator itself runs. Empty if CreateOperator could not mint the TLS
 // material (a rare failure it already tolerates - see its own comment): that operator is then a bearer
 // one, and the bearer token is its only gate.
-func operatorTLSSecretCommand(op store.Operator, b OperatorTLSBundle) string {
+func operatorTLSSecretCommand(op store.Operator, b OperatorTLSBundle) (string, error) {
 	if len(b.ReceiverCertPEM) == 0 {
-		return ""
+		return "", nil
 	}
-	return withNamespace("continuum-system", applySecretCommand(operatorReceiverTLSSecretName(op), "continuum-system",
-		secretKV("tls.crt", string(b.ReceiverCertPEM)), secretKV("tls.key", string(b.ReceiverKeyPEM)), secretKV("ca.crt", string(b.CACertPEM))))
+	return install.Secret{Name: operatorReceiverTLSSecretName(op), Namespace: "continuum-system", EnsureNamespace: true, Entries: []install.Entry{
+		{Key: "tls.crt", Value: string(b.ReceiverCertPEM)}, {Key: "tls.key", Value: string(b.ReceiverKeyPEM)}, {Key: "ca.crt", Value: string(b.CACertPEM)}}}.Render()
 }
 
 // exportBlock states the whole destination block of one exporter (telemetry.export.otlp, or one route of
@@ -649,23 +661,26 @@ func exportBlock(prefix string, op store.Operator, endpoint string, withMTLS boo
 // The flags are the whole destination block (see exportBlock) whether or not a certificate is passed: an mTLS
 // operator is always reached with a client certificate, and one that is not minted this time is the Secret already in
 // the cluster.
-func operatorDestinationCommand(op store.Operator, endpoint string, certPEM, keyPEM, caPEM []byte, namespace string) (values []install.Value, secretCmd string) {
+func operatorDestinationCommand(op store.Operator, endpoint string, certPEM, keyPEM, caPEM []byte, namespace string) (values []install.Value, secretCmd string, err error) {
 	withMTLS := len(certPEM) > 0 || op.ReceiverAuth == store.ReceiverAuthMTLS
 	values = exportBlock("telemetry.export.otlp", op, endpoint, withMTLS)
 	if len(certPEM) > 0 {
 		// mTLS is additive: every source cluster of this operator presents a client certificate verified
 		// against the CA bundle in the same Secret - see pki.IssueOperatorClientTLS.
-		secretCmd = operatorClientSecretCommand(op, certPEM, keyPEM, caPEM, namespace)
+		if secretCmd, err = operatorClientSecretCommand(op, certPEM, keyPEM, caPEM, namespace, false); err != nil {
+			return nil, "", err
+		}
 	}
-	return values, secretCmd
+	return values, secretCmd, nil
 }
 
 // operatorClientSecretCommand is the Secret holding the client certificate an agent
 // presents to this operator. One Secret per operator, whatever number of the agent's signal types export to
-// it: every route to the same operator names this same Secret.
-func operatorClientSecretCommand(op store.Operator, certPEM, keyPEM, caPEM []byte, namespace string) string {
-	return applySecretCommand(operatorClientTLSSecretName(op), namespace,
-		secretKV("tls.crt", string(certPEM)), secretKV("tls.key", string(keyPEM)), secretKV("ca.crt", string(caPEM)))
+// it: every route to the same operator names this same Secret. ensureNamespace says the Secret is applied before the install that
+// would create its namespace.
+func operatorClientSecretCommand(op store.Operator, certPEM, keyPEM, caPEM []byte, namespace string, ensureNamespace bool) (string, error) {
+	return install.Secret{Name: operatorClientTLSSecretName(op), Namespace: namespace, EnsureNamespace: ensureNamespace, Entries: []install.Entry{
+		{Key: "tls.crt", Value: string(certPEM)}, {Key: "tls.key", Value: string(keyPEM)}, {Key: "ca.crt", Value: string(caPEM)}}}.Render()
 }
 
 // routeModalities are the signal types that can have a destination of their own (telemetry.export.routes.<type>).
@@ -780,7 +795,12 @@ func (a *Admin) addOperatorTargetExport(r *http.Request, resp map[string]any, op
 	if err != nil || len(certPEM) == 0 {
 		return
 	}
-	resp["exportSecretCommand"] = withNamespace("continuum-system", operatorClientSecretCommand(target, certPEM, keyPEM, caPEM, "continuum-system"))
+	secretCmd, err := operatorClientSecretCommand(target, certPEM, keyPEM, caPEM, "continuum-system", true)
+	if err != nil {
+		a.installConfigError(err) // logged; the response is without the Secret
+		return
+	}
+	resp["exportSecretCommand"] = secretCmd
 	endpoint := a.destEndpoint(target, op.Destination)
 	exportTarget := map[string]any{"operatorId": target.ID, "name": target.Name, "endpoint": endpoint, "reachableFromOtherClusters": target.Address != "" || endpoint != a.operatorEndpoint(target)}
 	if w := a.destWarnings(r.Context(), target, op.Destination); len(w) > 0 {
@@ -949,7 +969,9 @@ func (a *Admin) operatorInstallCommandWith(img ImageConfig, secret string, op st
 		return "", "", err
 	}
 	if !mtlsOnly {
-		secretCmd = withNamespace("continuum-system", applySecretCommand(op.ID+"-receiver-auth", "continuum-system", secretKV("token", secret)))
+		if secretCmd, err = (install.Secret{Name: op.ID + "-receiver-auth", Namespace: "continuum-system", EnsureNamespace: true, Entries: []install.Entry{{Key: "token", Value: secret}}}).Render(); err != nil {
+			return "", "", err
+		}
 	}
 	return cmd, secretCmd, nil
 }
@@ -1033,13 +1055,20 @@ func (a *Admin) sourceReminders(img ImageConfig, op store.Operator, tlsBundle Op
 		if !ok {
 			continue
 		}
-		if _, secretCmd := operatorDestinationCommand(op, a.operatorEndpoint(op), sc.CertPEM, sc.KeyPEM, tlsBundle.CACertPEM, t.ns); secretCmd != "" {
+		_, secretCmd, err := operatorDestinationCommand(op, a.operatorEndpoint(op), sc.CertPEM, sc.KeyPEM, tlsBundle.CACertPEM, t.ns)
+		if err != nil {
+			return nil, err
+		}
+		if secretCmd != "" {
 			out = append(out, fmt.Sprintf("# in cluster %s (namespace %s): create its client certificate Secret first\n%s", t.cluster, t.ns, secretCmd))
 		}
 	}
 	for _, t := range targets {
 		sc, _ := tlsBundle.forSender(t.cluster)
-		values, _ := operatorDestinationCommand(op, a.operatorEndpoint(op), sc.CertPEM, sc.KeyPEM, tlsBundle.CACertPEM, t.ns)
+		values, _, err := operatorDestinationCommand(op, a.operatorEndpoint(op), sc.CertPEM, sc.KeyPEM, tlsBundle.CACertPEM, t.ns)
+		if err != nil {
+			return nil, err
+		}
 		// Everything goes to this operator: no per-signal route may stay (a route outranks the default, and one an
 		// earlier command set is kept by --reset-then-reuse-values).
 		values = append(values, clearRoutes(routeModalities...)...)

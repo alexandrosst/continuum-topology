@@ -222,8 +222,8 @@ func (p *pinRig) operatorCommands() {
 	}
 
 	a := p.admin(nil)
-	p.add(a, "operator/receiver-secret/mtls", "", operatorTLSSecretCommand(mtls(ext), pinBundle))
-	p.add(a, "operator/client-secret", "", operatorClientSecretCommand(mtls(ext), pinBundle.Senders[0].CertPEM, pinBundle.Senders[0].KeyPEM, pinBundle.CACertPEM, "apps-team"))
+	p.add(a, "operator/receiver-secret/mtls", "", p.ok(operatorTLSSecretCommand(mtls(ext), pinBundle)))
+	p.add(a, "operator/client-secret", "", p.ok(operatorClientSecretCommand(mtls(ext), pinBundle.Senders[0].CertPEM, pinBundle.Senders[0].KeyPEM, pinBundle.CACertPEM, "apps-team", false)))
 	p.add(a, "operator/restart", "", operatorRestartCommand(mtls(ext)))
 	p.add(a, "operator/uninstall", "", operatorUninstallCommand("athens"))
 	p.add(a, "operator/expose/nodeport", "", exposeCommand("continuum-system", "athens-regional-operator", "NodePort"))
@@ -235,10 +235,10 @@ func (p *pinRig) operatorCommands() {
 		a := p.admin(i.tweak)
 		p.add(a, "operator/heartbeat/"+i.name+"/upgrade", "regional-operator", p.ok(a.heartbeatUpgradeCommand(i.img, mtls(ext), hbURL)))
 	}
-	p.add(a, "operator/heartbeat/secret", "", operatorHeartbeatSecretCommand(mtls(ext), "hb_SECRET"))
+	p.add(a, "operator/heartbeat/secret", "", p.ok(operatorHeartbeatSecretCommand(mtls(ext), "hb_SECRET")))
 	private := p.admin(func(a *Admin) { a.HeartbeatCAPEM = fakePEM("CERTIFICATE", "aGVhcnRiZWF0LWNh") })
 	p.add(private, "operator/heartbeat/private-ca/upgrade", "regional-operator", p.ok(private.heartbeatUpgradeCommand(ImageConfig{}, mtls(ext), hbURL)))
-	p.add(private, "operator/heartbeat/private-ca/secret", "", private.heartbeatCASecretCommand(mtls(ext)))
+	p.add(private, "operator/heartbeat/private-ca/secret", "", p.ok(private.heartbeatCASecretCommand(mtls(ext))))
 
 	// What the source clusters of an operator are told: a Secret for each distinct namespace and an upgrade of each cluster's agent.
 	targets := []sourceTarget{{"cl-a", "continuum-system", "continuum-agent"}, {"cl-b", "apps-team", "obs-agent"}}
@@ -285,7 +285,10 @@ func (p *pinRig) fragments() {
 		op   store.Operator
 		cert []byte
 	}{{"mtls-new-certificate", mtls, pinBundle.Senders[0].CertPEM}, {"mtls-certificate-in-place", mtls, nil}, {"bearer-new-certificate", bearer, pinBundle.Senders[0].CertPEM}, {"bearer", bearer, nil}} {
-		values, secret := operatorDestinationCommand(c.op, "op.example.com:4317", c.cert, pinBundle.Senders[0].KeyPEM, pinBundle.CACertPEM, "apps-team")
+		values, secret, err := operatorDestinationCommand(c.op, "op.example.com:4317", c.cert, pinBundle.Senders[0].KeyPEM, pinBundle.CACertPEM, "apps-team")
+		if err != nil {
+			p.t.Fatal(err)
+		}
 		p.add(a, "fragment/destination/"+c.name, "", p.flags(values))
 		if secret != "" {
 			p.add(a, "fragment/destination/"+c.name+"/secret", "", secret)
