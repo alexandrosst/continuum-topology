@@ -5,6 +5,7 @@ import { Button, Field, ICON_MD, ICON_SM, MANUAL_COPY_HINT, RunStep, TagsInput, 
 import ArrivalCheck from '@/components/telemetry/ArrivalCheck'
 import GuidedWizard from '@/components/telemetry/GuidedWizard'
 import TierLevels from '@/components/TierLevels'
+import { type UpgradeCommand, upgradeRequest, useAgentUpgradeCommand } from '@/lib/agentUpgrade'
 import { api, ApiError, atLeast, type ServerInfo } from '@/lib/api'
 import {
   COLLECTORS,
@@ -15,13 +16,10 @@ import {
   effectiveNote,
   measurementsRunning,
   healthSummary,
-  helmUpgradeCommand,
   inForce,
   parseExclusions,
   scopeWords,
   sortProblems,
-  telemetryUpgradeCommand,
-  telemetrySecretCommand,
   telemetrySecrets,
   TELEMETRY_CREDENTIAL_VAR,
   seedTelemetryFromInstalled,
@@ -45,7 +43,6 @@ import type { Agent, AccessTier, ReceiverAuth, TelemetryIntent } from '@/lib/typ
 import { useOperators } from '@/lib/useOperators'
 import { useConn, useServer } from '@/store/server'
 import { useTopology } from '@/store/topology'
-import { chainCommands } from '@/lib/shellChain'
 
 const SEVERITY_STYLE: Record<Severity, { chip: string; icon: typeof Info; label: string }> = {
   error: { chip: TONE_CLASS.bad, icon: AlertCircle, label: 'Error' },
@@ -206,6 +203,39 @@ export function CopyCommand({ text, stale = false, multiline = false, testId = '
 }
 
 /**
+ * A command the server writes (see useAgentUpgradeCommand), shown as it stands: the command once it is written for what is on screen,
+ * and until then not the last one, which would be wrong now.
+ */
+export function ServerCommand({ command, testId = 'helm-command', label }: { command: UpgradeCommand; testId?: string; label?: string }) {
+  switch (command.status) {
+    case 'idle':
+      return null
+    case 'waiting':
+      return (
+        <p role="status" className="mt-1 flex items-center gap-1.5 text-nb-500" data-testid={`${testId}-pending`}>
+          <Loader2 size={ICON_SM} className="animate-spin" aria-hidden /> Writing the command…
+        </p>
+      )
+    case 'failed':
+      return (
+        <p role="alert" className="mt-1 text-bad" data-testid={`${testId}-error`}>
+          The command could not be written: {command.message}
+        </p>
+      )
+    case 'ready':
+      // A draft the server cannot write a command from: said where the command would be, so nothing partial can be copied.
+      return command.answer.problems.length > 0 ? (
+        <p role="status" className="mt-1 text-warn" data-testid={`${testId}-problems`}>
+          There is no command yet: {command.answer.problems[0]}
+          {command.answer.problems.length > 1 ? ` (and ${command.answer.problems.length - 1} more)` : ''}.
+        </p>
+      ) : (
+        <CopyCommand text={command.answer.command} testId={testId} label={label} />
+      )
+  }
+}
+
+/**
  * The consent panel. Everything on it can only REDUCE what this agent shares, and the agent enforces that for itself: what is above the
  * ceiling its install sets is shown, disabled, with the command the cluster's owner runs to raise it.
  */
@@ -249,6 +279,9 @@ export function ConsentPanel({ agent, diagnostics: d, consent }: { agent: Agent;
   }
 
   const toShow = asked ?? (installed < implemented ? ((installed + 1) as AccessTier) : undefined)
+  // The command that raises the ceiling to it is written by the server, which knows the chart it serves.
+  const widenRequest = useMemo(() => (toShow === undefined ? null : upgradeRequest({ tier: toShow, target: { namespace: agent.namespace, release: agent.releaseName } })), [toShow, agent.namespace, agent.releaseName])
+  const widen = useAgentUpgradeCommand(widenRequest)
   const valid = parsed.problems.length === 0
   // The server's own confirmed/setAt take precedence once present (they read correctly on a fresh page
   // load, before any diagnostics have come in this session); inForce is the fallback for an older server
@@ -308,7 +341,7 @@ export function ConsentPanel({ agent, diagnostics: d, consent }: { agent: Agent;
       {toShow !== undefined && (
         <div className="mt-2 text-xs text-nb-500" data-testid="widen-hint">
           This install allows up to <span className="text-nb-300">{tierName(installed).toLowerCase()}</span>. To allow <span className="text-nb-300">{tierName(toShow).toLowerCase()}</span>, the cluster's owner runs this in that cluster, and then you can select it here:
-          <CopyCommand text={helmUpgradeCommand(info?.install, toShow, { namespace: agent.namespace, release: agent.releaseName })} />
+          <ServerCommand command={widen} />
         </div>
       )}
       {agent.hardenHelm && (
@@ -529,16 +562,14 @@ function TelemetryPanelBody({
   const hadTelemetry = draft.hadTelemetry || installed.length > 0 || !!config
   const turningOff = !telemetryActive(draft) && hadTelemetry
   const problems = telemetryActive(draft) ? telemetryProblems(draft, measurementsOn) : []
-  const command = useMemo(() => {
-    // Who this belongs to is stamped on everything it emits, whatever the destination: the signed-in
-    // organisation and this agent's cluster, added here rather than asked for in the wizard.
-    const stamped = { ...draft, hadTelemetry: hadTelemetry, resourceOrgId: conn.org ?? '', resourceClusterId: clusterId ?? '' }
-    const upgrade = telemetryUpgradeCommand(install, stamped, measurementsOn, { namespace: target?.namespace, release: target?.release })
-    // One block to paste, not two: the Secret the credential flags name is created first, and a failure
-    // there (credential variable unset) stops everything before anything is upgraded.
-    const secret = telemetrySecretCommand(stamped, measurementsOn, { namespace: target?.namespace, release: target?.release })
-    return secret ? chainCommands([secret, upgrade]) : upgrade
-  }, [install, draft, hadTelemetry, measurementsOn, conn.org, clusterId, target?.namespace, target?.release])
+  // The block to paste is written by the server from this request: the Secrets the credential flags name are created first, and a failure
+  // there (credential variable unset) stops everything before anything is upgraded. Who this belongs to is stamped on everything it emits,
+  // whatever the destination: the signed-in organisation and this agent's cluster, added here rather than asked for in the wizard.
+  const upgradeAsk = useMemo(
+    () => upgradeRequest({ target, telemetry: { ...draft, hadTelemetry: hadTelemetry, resourceOrgId: conn.org ?? '', resourceClusterId: clusterId ?? '' }, measurementsOn }),
+    [draft, hadTelemetry, measurementsOn, conn.org, clusterId, target],
+  )
+  const upgrade = useAgentUpgradeCommand(problems.length > 0 ? null : upgradeAsk)
 
   // A regional operator destination: its receiver wants a client certificate only the server can issue, so
   // there is no ready command - only an explicit "Generate" that asks the server for one (and issues a new
@@ -701,13 +732,13 @@ function TelemetryPanelBody({
       <RunStep n={needsCredential ? 2 : 1} title={turningOff ? 'Run the command in that cluster to turn all telemetry off' : 'Run the command in that cluster'}>
         <p>The cluster&apos;s owner runs this. It changes only the telemetry settings and keeps everything else in the release as it is.</p>
         {problems.length > 0 ? (
-          // Without a complete draft the builder returns the bare upgrade, which changes nothing: showing it as "the command" would let it be copied and run.
+          // Without a complete draft there is nothing to ask the server for, and a bare upgrade would change nothing: showing it as "the command" would let it be copied and run.
           <p role="status" className="mt-1 text-warn" data-testid={`${p}-command-blocked`}>
             There is no command yet: {problems[0]}
             {problems.length > 1 ? ` (and ${problems.length - 1} more)` : ''}.
           </p>
         ) : (
-          <CopyCommand text={command} />
+          <ServerCommand command={upgrade} />
         )}
       </RunStep>
     </ol>

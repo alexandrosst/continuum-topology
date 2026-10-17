@@ -1,3 +1,4 @@
+import type { AgentUpgradeAnswer, AgentUpgradeRequest } from './agentUpgrade'
 import { normalizeServerState, type ServerState } from './discovered'
 import type { AddressCandidates, AddressTest, OperatorSenders, OperatorDestination, OperatorDestinationEntry, ReceiverAuth, RegionalOperator, SignalGrant, TelemetryIntent } from './types'
 import { normalizeSettings, normalizeSnapshot, type AppSettings, type ChangeEvent, type DependencySeriesPoint, type HistoryIndex, type Snapshot, type TrafficRate } from './history'
@@ -831,6 +832,8 @@ export const api = {
     call<TelemetryIntent>(c, 'POST', `/api/v1/telemetry-intents/${encodeURIComponent(id)}/destination`, routes ? { destination, routes } : { destination }),
   revokeTelemetryIntent: (c: Conn, id: string, reason: string) => call<void>(c, 'POST', `/api/v1/telemetry-intents/${encodeURIComponent(id)}/revoke`, { reason }),
   deleteTelemetryIntent: (c: Conn, id: string) => call<void>(c, 'DELETE', `/api/v1/telemetry-intents/${encodeURIComponent(id)}`),
+  /** The command that changes an installed agent (its access ceiling, its telemetry, or both), written by the server. Computes only: nothing is stored or issued. */
+  agentUpgradeCommand: (c: Conn, req: AgentUpgradeRequest) => call<AgentUpgradeAnswer>(c, 'POST', '/api/v1/commands/agent-upgrade', req),
   getTelemetryIntentCommand: (c: Conn, id: string) => call<TelemetryIntentCommand>(c, 'POST', `/api/v1/telemetry-intents/${encodeURIComponent(id)}/command`),
 
   // quick-start gateway tokens (see QuickStartBackends.tsx and quickStartGateway.ts): a short-lived

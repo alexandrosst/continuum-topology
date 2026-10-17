@@ -1,13 +1,17 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
-import { describe, expect, test, vi } from 'vitest'
+import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { TelemetryPanel } from '@/components/agents/AgentInsight'
 import { DEFAULT_SETTINGS } from '@/lib/history'
+import { answerTo, forgetUpgrades, lastUpgrade } from './upgradeServer'
 
-// The command the Telemetry panel shows once something is on: when the chosen destination names a credential
-// Secret, the command that creates that Secret comes first, in the same block, and says where the
-// credential is read from - so a person pastes one thing, and the credential never passes through the page.
+// The command the Telemetry panel shows once something is on. The server writes it (what it writes from a request is pinned by the Go tests
+// against tests/install_commands.golden.json): what is held here is what the panel ASKS for, and that it shows what comes back. When the
+// chosen destination names a credential Secret the panel says where the credential is read from, and the credential never passes
+// through the page.
+
+beforeEach(() => forgetUpgrades())
 
 vi.mock('@/store/settings', () => ({
   useSettings: () => ({ settings: DEFAULT_SETTINGS, loaded: true, error: undefined, save: vi.fn(async () => true) }),
@@ -23,7 +27,7 @@ vi.mock('@/store/server', () => ({
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>()
   // An editor reads the destinations as a read model; here there are none, and nothing reaches a server.
-  return { ...actual, api: { ...actual.api, listOperatorDestinations: async () => [], listTelemetryIntents: async () => [] } }
+  return { ...actual, api: { ...actual.api, listOperatorDestinations: async () => [], listTelemetryIntents: async () => [], agentUpgradeCommand: async (...a: Parameters<typeof import('./upgradeServer').answer>) => (await import('./upgradeServer')).answer(...a) } }
 })
 
 async function pickHoneycomb(user: ReturnType<typeof userEvent.setup>) {
@@ -39,7 +43,7 @@ async function toRun(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe('TelemetryPanel command', () => {
-  test('a destination with a credential Secret gets one block: create the Secret, then upgrade', async () => {
+  test('a destination with a credential Secret is asked for with that Secret named, and the panel says where the credential is read from', async () => {
     const user = userEvent.setup()
     render(
       <MemoryRouter>
@@ -50,25 +54,23 @@ describe('TelemetryPanel command', () => {
     // The command is not under the destination step: it comes last, after Review.
     expect(screen.queryByTestId('helm-command')).not.toBeInTheDocument()
     await toRun(user)
-    // No Secret named yet: just the upgrade command, and no hint about a credential.
-    expect(screen.getByTestId('helm-command').textContent).not.toContain('kubectl')
+    // No Secret named yet: the request names none, and there is no hint about a credential.
+    expect(await screen.findByTestId('helm-command')).toHaveTextContent(answerTo(lastUpgrade()))
+    expect(lastUpgrade().telemetry?.destination.authSecret).toBe('')
     expect(screen.queryByTestId('tp-credential-hint')).not.toBeInTheDocument()
 
     await user.click(screen.getByTestId('tp-guided-back'))
     await user.click(screen.getByTestId('tp-guided-back'))
     await user.type(screen.getByTestId('tp-export-auth-secret'), 'honeycomb-token')
     await toRun(user)
-    const cmd = screen.getByTestId('helm-command').textContent ?? ''
-    expect(cmd).toContain('kubectl create secret generic honeycomb-token')
-    expect(cmd.indexOf('kubectl create secret')).toBeLessThan(cmd.indexOf('helm upgrade'))
-    expect(cmd).toContain('&&')
-    expect(cmd).toContain('auth.secretName=honeycomb-token')
+    await waitFor(() => expect(screen.getByTestId('helm-command')).toHaveTextContent('"authSecret":"honeycomb-token"'))
+    expect(lastUpgrade().telemetry?.destination.authSecret).toBe('honeycomb-token')
     expect(screen.getByTestId('tp-credential-hint')).toHaveTextContent('TELEMETRY_EXPORT_TOKEN')
   })
 })
 
 describe('TelemetryPanel command: what every install is stamped with', () => {
-  test('the organisation and cluster, the (off) debug exporter and the (empty) tags are in the command for any destination', async () => {
+  test('the organisation and cluster, the (off) debug exporter and the (empty) tags are asked for with any destination', async () => {
     const user = userEvent.setup()
     render(
       <MemoryRouter>
@@ -77,11 +79,44 @@ describe('TelemetryPanel command: what every install is stamped with', () => {
     )
     await pickHoneycomb(user)
     await toRun(user)
-    const cmd = screen.getByTestId('helm-command').textContent ?? ''
-    expect(cmd).toContain('telemetry.resource.orgId=org-1')
-    expect(cmd).toContain('telemetry.resource.clusterId=cl-9')
-    expect(cmd).toMatch(/--set-string telemetry\.debug\.verbosity=( |$)/)
-    expect(cmd).toContain("telemetry.resource.attributes='[]'")
+    await screen.findByTestId('helm-command')
+    const t = lastUpgrade().telemetry
+    expect(t?.owner).toEqual({ orgId: 'org-1', clusterId: 'cl-9' })
+    expect(t?.processing.debug).toBe('')
+    expect(t?.processing.tags).toEqual([])
+    // A new configuration states every group itself: none is left "as installed".
+    expect(t?.kept).toEqual([])
+  })
+})
+
+describe('TelemetryPanel: where the agent is installed', () => {
+  test('the command is asked for at the agent\'s own release and namespace, not the defaults, and the install info is read again on open', async () => {
+    reloadInfo.mockClear()
+    const user = userEvent.setup()
+    render(
+      <MemoryRouter>
+        <TelemetryPanel standalone testIdPrefix="tp" target={{ namespace: 'observability', release: 'agent-eu' }} />
+      </MemoryRouter>,
+    )
+    expect(reloadInfo).toHaveBeenCalledTimes(1)
+    await pickHoneycomb(user)
+    await toRun(user)
+    await screen.findByTestId('helm-command')
+    expect(lastUpgrade()).toMatchObject({ namespace: 'observability', release: 'agent-eu' })
+  })
+
+  test('an agent that has not reported its release is asked for without one, which the server answers with the chart\'s documented defaults', async () => {
+    const user = userEvent.setup()
+    render(
+      <MemoryRouter>
+        <TelemetryPanel standalone testIdPrefix="tp" target={{ namespace: undefined, release: undefined }} />
+      </MemoryRouter>,
+    )
+    await pickHoneycomb(user)
+    await toRun(user)
+    await screen.findByTestId('helm-command')
+    expect(lastUpgrade().namespace).toBeUndefined()
+    expect(lastUpgrade().release).toBeUndefined()
   })
 })
 
@@ -118,42 +153,5 @@ describe('TelemetryPanel: an unfinished draft survives leaving the page', () => 
     again.unmount()
     render(panel())
     expect(screen.queryByTestId('tp-restored')).not.toBeInTheDocument()
-  })
-})
-
-describe('TelemetryPanel: where the agent is installed', () => {
-  test('the command targets the agent\'s own release and namespace, not the defaults, and the install info is read again on open', async () => {
-    reloadInfo.mockClear()
-    const user = userEvent.setup()
-    render(
-      <MemoryRouter>
-        <TelemetryPanel standalone testIdPrefix="tp" target={{ namespace: 'observability', release: 'agent-eu' }} />
-      </MemoryRouter>,
-    )
-    expect(reloadInfo).toHaveBeenCalledTimes(1)
-    await pickHoneycomb(user)
-    await toRun(user)
-    await user.click(screen.getByTestId('tp-guided-back'))
-    await user.click(screen.getByTestId('tp-guided-back'))
-    await user.type(screen.getByTestId('tp-export-auth-secret'), 'honeycomb-token')
-    await toRun(user)
-    const cmd = screen.getByTestId('helm-command').textContent ?? ''
-    expect(cmd).toContain('helm upgrade agent-eu ')
-    expect(cmd).toContain('--namespace observability --reset-then-reuse-values')
-    expect(cmd).toContain('kubectl create secret generic honeycomb-token --namespace observability')
-    expect(cmd).not.toContain('helm upgrade continuum-agent ')
-    expect(cmd).not.toContain('continuum-system')
-  })
-
-  test('an agent that has not reported its release gets the chart\'s documented defaults', async () => {
-    const user = userEvent.setup()
-    render(
-      <MemoryRouter>
-        <TelemetryPanel standalone testIdPrefix="tp" target={{ namespace: undefined, release: undefined }} />
-      </MemoryRouter>,
-    )
-    await pickHoneycomb(user)
-    await toRun(user)
-    expect(screen.getByTestId('helm-command').textContent).toContain('helm upgrade continuum-agent ')
   })
 })

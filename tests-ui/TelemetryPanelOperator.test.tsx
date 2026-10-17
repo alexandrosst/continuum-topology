@@ -6,6 +6,7 @@ import { TelemetryPanel } from '@/components/agents/AgentInsight'
 import { ApiError } from '@/lib/api'
 import { DEFAULT_SETTINGS } from '@/lib/history'
 import type { RegionalOperator, TelemetryIntent } from '@/lib/types'
+import { forgetUpgrades, lastUpgrade } from './upgradeServer'
 
 // The regional-operator destination in the Telemetry panel: an operator's receiver wants a client
 // certificate only the server can issue, so the panel shows no ready command - only an explicit "Generate"
@@ -46,6 +47,7 @@ vi.mock('@/lib/api', async (importOriginal) => {
       updateTelemetryIntentScope: (...a: unknown[]) => updateTelemetryIntentScope(...a),
       updateTelemetryIntentDestination: (...a: unknown[]) => updateTelemetryIntentDestination(...a),
       getTelemetryIntentCommand: (...a: unknown[]) => getTelemetryIntentCommand(...a),
+      agentUpgradeCommand: async (...a: Parameters<typeof import('./upgradeServer').answer>) => (await import('./upgradeServer')).answer(...a),
     },
   }
 })
@@ -77,6 +79,7 @@ const SECRET = 'kubectl create secret generic op-eu-export-mtls --namespace cont
 const FRAGMENT = '--set telemetry.resource.orgId=org-1 --set telemetry.resource.clusterId=cl-1 --set telemetry.resource.intentId=ti-1 --set telemetry.export.otlp.endpoint=op-eu.continuum-system.svc:4317 --set telemetry.export.otlp.tls.mtls.enabled=true --set telemetry.export.otlp.tls.mtls.secretName=op-eu-export-mtls'
 
 beforeEach(() => {
+  forgetUpgrades()
   role = 'admin'
   for (const m of [listOperators, listTelemetryIntents, createTelemetryIntent, updateTelemetryIntentScope, updateTelemetryIntentDestination, getTelemetryIntentCommand]) m.mockReset()
   listOperators.mockResolvedValue([operator])
@@ -326,7 +329,8 @@ describe('TelemetryPanel with a regional operator destination', () => {
     await user.type(screen.getByTestId('tp-guided-destination-custom-endpoint'), 'otel.example.com:4317')
     await toRun(user)
     expect(screen.queryByTestId('tp-operator')).not.toBeInTheDocument()
-    expect(screen.getByTestId('helm-command').textContent).toContain('otel.example.com:4317')
+    await screen.findByTestId('helm-command')
+    expect(lastUpgrade().telemetry?.destination).toMatchObject({ endpoint: 'otel.example.com:4317', operator: '' })
     noApiCalls()
   })
 })

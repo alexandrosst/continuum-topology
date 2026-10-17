@@ -1,10 +1,11 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
-import { describe, expect, test, vi } from 'vitest'
+import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { TelemetryPanel } from '@/components/agents/AgentInsight'
 import type { AgentDiagnostics } from '@/lib/consent'
 import { DEFAULT_SETTINGS } from '@/lib/history'
+import { forgetUpgrades, lastUpgrade } from './upgradeServer'
 
 // The panel of an install that already has telemetry: what it shows has to be what is installed, and the command has to say what removing
 // something means (helm upgrade --reset-then-reuse-values keeps everything a command does not name).
@@ -21,7 +22,7 @@ vi.mock('@/store/server', () => ({
 }))
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>()
-  return { ...actual, api: { ...actual.api, listOperatorDestinations: async () => [], listTelemetryIntents: async () => [] } }
+  return { ...actual, api: { ...actual.api, listOperatorDestinations: async () => [], listTelemetryIntents: async () => [], agentUpgradeCommand: async (...a: Parameters<typeof import('./upgradeServer').answer>) => (await import('./upgradeServer')).answer(...a) } }
 })
 
 const diag = (over: Partial<AgentDiagnostics> = {}): AgentDiagnostics =>
@@ -45,6 +46,8 @@ async function toRun(user: ReturnType<typeof userEvent.setup>) {
   await user.click(screen.getByTestId('tp-guided-create-command'))
 }
 
+beforeEach(() => forgetUpgrades())
+
 describe('TelemetryPanel on an install that has telemetry', () => {
   test('the form starts from what is installed: only Kepler ticked, and nothing else added (no debug exporter, no other signal)', async () => {
     const user = userEvent.setup()
@@ -53,14 +56,15 @@ describe('TelemetryPanel on an install that has telemetry', () => {
     expect(screen.getByTestId('tp-resourceUsage')).not.toBeChecked()
     // The install already sends somewhere, so Where to send opens on that and Review can be reached at once.
     await toRun(user)
-    const cmd = screen.getByTestId('helm-command').textContent ?? ''
-    // Exactly one signal is on, and the settings this agent does not report (the debug exporter, the tags, the scope) are left as installed.
-    expect(cmd.match(/(metrics|logs|traces)\.enabled=true/g)).toHaveLength(1)
-    expect(cmd).toContain('--set telemetry.energy.metrics.enabled=true')
-    expect(cmd).not.toContain('telemetry.debug.verbosity')
-    expect(cmd).not.toContain('telemetry.resource.attributes')
-    expect(cmd).not.toContain('telemetry.resource.scope')
-    expect(cmd).toMatch(/--set telemetry\.energy\.metrics\.source=bundle-kepler/)
+    await screen.findByTestId('helm-command')
+    const t = lastUpgrade().telemetry
+    // Exactly one signal is on...
+    expect(Object.entries(t?.signals ?? {}).filter(([, on]) => on).map(([id]) => id)).toEqual(['energy'])
+    expect(t?.energy.kind).toBe('bundle-kepler')
+    // ...and the settings this agent does not report (the debug exporter, the tags, the scope) are said to be left as installed, so the
+    // server leaves them out of the command instead of writing the page's blank.
+    expect(t?.kept).toEqual(expect.arrayContaining(['debug', 'tags']))
+    expect(t?.hadTelemetry).toBe(true)
   })
 
   test('unticking the last signal gives the command that turns telemetry off, not the bare upgrade that changes nothing', async () => {
@@ -71,11 +75,12 @@ describe('TelemetryPanel on an install that has telemetry', () => {
     await user.click(screen.getByTestId('tp-guided-continue'))
     expect(screen.getByTestId('tp-review-changes')).toHaveTextContent('Turns every telemetry signal off')
     await user.click(screen.getByTestId('tp-guided-create-command'))
-    const cmd = screen.getByTestId('helm-command').textContent ?? ''
-    expect(cmd).toContain('--set telemetry.energy.metrics.enabled=false')
-    expect(cmd).toContain('--set telemetry.resourceUsage.metrics.enabled=false')
-    expect(cmd).toMatch(/telemetry\.export\.routes\.metrics\.endpoint=/)
-    expect(cmd).not.toContain('telemetry.export.otlp.endpoint')
+    await screen.findByTestId('helm-command')
+    const t = lastUpgrade().telemetry
+    // Every signal is stated, off, on an install that had telemetry: that is what turns it off, where a bare upgrade would change nothing.
+    expect(Object.values(t?.signals ?? {})).toEqual(expect.arrayContaining([false]))
+    expect(Object.values(t?.signals ?? {}).some((on) => on)).toBe(false)
+    expect(t?.hadTelemetry).toBe(true)
     // Nothing is left to arrive, so there is no "check that data arrives".
     expect(screen.queryByTestId('tp-guided-check')).not.toBeInTheDocument()
   })
@@ -106,7 +111,8 @@ describe('TelemetryPanel on an install that has telemetry', () => {
     CONN = { url: 'https://example.test', org: 'org-2' }
     rerender(tree(diag({ installedTelemetry: ['traces'], installedTelemetryConfig: { exportEndpoint: 'x:4317', redactionEnabled: true, resourceDetectionEnabled: false } }), 'a2'))
     await toRun(user)
-    expect(screen.getByTestId('helm-command').textContent).toContain('telemetry.resource.orgId=org-2')
+    await screen.findByTestId('helm-command')
+    expect(lastUpgrade().telemetry?.owner.orgId).toBe('org-2')
     CONN = { url: 'https://example.test', org: 'org-1' }
   })
 
