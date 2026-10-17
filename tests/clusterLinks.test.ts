@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
-  LINK_REQUIREMENT, PRESETS, VIA_OPTIONS, clusterChecks, firstLines, normalizeSetup, setupSummary, uncoveredChecks, uncoveredNotes, costLine, delayWords, everyWords, clockWords, hasPair, latestView, lossWords, newPair, normalizeLinksLatest, normalizeProbe, probeRecent, STALE_AFTER_MS, rateWords, presetOf, removePair, replacePair, runnerOf, runsFromWords, throughputFieldProblems, throughputFor, throughputProblems, throughputSummary, viaWords,
+  LINK_REQUIREMENT, PRESETS, VIA_OPTIONS, clusterChecks, firstLines, normalizeSetup, setupSummary, uncoveredChecks, uncoveredNotes, costLine, delayWords, everyWords, clockWords, hasPair, latestView, lossWords, newPair, normalizeLinksLatest, normalizeProbe, probeRecent, rateWords, presetOf, removePair, replacePair, runnerOf, runsFromWords, throughputFieldProblems, throughputFor, throughputProblems, throughputSummary, viaWords,
 } from '../src/lib/clusterLinks'
 import type { LinkNote, LinkPairLatest, PairSetup, SetupStep } from '../src/lib/clusterLinks'
+import { PROBE_STALE_AFTER_MS } from '../src/lib/status'
 import type { Agent } from '../src/lib/types'
 
 const agent = (o: Partial<Agent>): Agent => ({ id: 'ag', orgId: 'o', name: 'a', version: '1', accessTier: 2, status: 'approved', fingerprint: '', modules: [], connected: true, observer: { lastReport: '', collectors: [{ node: 'n', method: 'ebpf', bytesKnown: true }], lost: 0 }, ...o }) as Agent
@@ -291,7 +292,7 @@ test('the probing dot is lit only after a probe completed within the stale time'
   assert.equal(probeRecent({ a: 'x', b: 'y' }, T0), false)
   assert.equal(probeRecent({ a: 'x', b: 'y', probeAToB: { state: 'never' } }, T0), false)
   assert.equal(probeRecent({ a: 'x', b: 'y', probeAToB: { state: 'ok', at: minAgo(1) } }, T0), true)
-  assert.equal(probeRecent({ a: 'x', b: 'y', probeAToB: { state: 'failing', at: new Date(T0 - STALE_AFTER_MS - 1000).toISOString() } }, T0), false)
+  assert.equal(probeRecent({ a: 'x', b: 'y', probeAToB: { state: 'failing', at: new Date(T0 - PROBE_STALE_AFTER_MS - 1000).toISOString() } }, T0), false)
   assert.equal(probeRecent({ a: 'x', b: 'y', probedAt: minAgo(3) }, T0), true)
 })
 

@@ -1,10 +1,11 @@
 import { describe, expect, test } from 'vitest'
 import { healthOf } from '@/lib/agentHealth'
-import { healthSummary, STALE_REPORT_SECONDS, type AgentDiagnostics } from '@/lib/consent'
-import { probeRecent, STALE_AFTER_MS, type LinkPairLatest } from '@/lib/clusterLinks'
+import { healthSummary, type AgentDiagnostics } from '@/lib/consent'
+import { probeRecent, type LinkPairLatest } from '@/lib/clusterLinks'
 import { agentVerdict } from '@/lib/operatorsView'
 import { buildPlatform } from '@/lib/platformLayer'
-import { freshnessOf, TELEMETRY_LATE_AFTER_MS, type SelfTelemetryEntity } from '@/lib/selfHealth'
+import { freshnessOf, type SelfTelemetryEntity } from '@/lib/selfHealth'
+import { AGENT_LATE_AFTER_MS, agentLiveness, PROBE_STALE_AFTER_MS, REPORT_STALE_AFTER_SECONDS, reportIsStale } from '@/lib/status'
 import { arrivalCheck } from '@/lib/telemetrySetup'
 import type { Agent } from '@/lib/types'
 
@@ -62,7 +63,7 @@ describe('an agent is late after 75 seconds without a heartbeat, in every screen
   })
 
   test('the constants themselves', () => {
-    expect(TELEMETRY_LATE_AFTER_MS).toBe(75_000)
+    expect(AGENT_LATE_AFTER_MS).toBe(75_000)
   })
 })
 
@@ -100,7 +101,28 @@ describe('what an agent last said about itself is history after 15 minutes, or a
   })
 
   test('the constants themselves', () => {
-    expect(STALE_REPORT_SECONDS).toBe(900)
-    expect(STALE_AFTER_MS).toBe(15 * 60_000)
+    expect(REPORT_STALE_AFTER_SECONDS).toBe(900)
+    expect(PROBE_STALE_AFTER_MS).toBe(15 * 60_000)
+  })
+})
+
+describe('agentLiveness, the one place the late rule is decided', () => {
+  test('it names the state and says how long the agent has been silent', () => {
+    expect(agentLiveness({ connected: true, lastHeartbeat: agoMs(10_000) }, NOW)).toEqual({ state: 'live', silentMs: 10_000 })
+    expect(agentLiveness({ connected: true, lastHeartbeat: agoMs(90_000) }, NOW)).toEqual({ state: 'late', silentMs: 90_000 })
+    expect(agentLiveness({ connected: false, lastHeartbeat: agoMs(90_000) }, NOW)).toEqual({ state: 'down', silentMs: 90_000 })
+    expect(agentLiveness({ connected: undefined }, NOW)).toEqual({ state: 'unknown', silentMs: undefined })
+    expect(agentLiveness({ connected: true }, NOW)).toEqual({ state: 'live', silentMs: undefined })
+  })
+
+  test('a heartbeat that is not a date is not late', () => {
+    expect(agentLiveness({ connected: true, lastHeartbeat: 'garbage' }, NOW).state).toBe('live')
+  })
+
+  test('a report is stale only by a readable age', () => {
+    expect(reportIsStale(900)).toBe(false)
+    expect(reportIsStale(901)).toBe(true)
+    expect(reportIsStale(Number.NaN)).toBe(false)
+    expect(reportIsStale(Number.POSITIVE_INFINITY)).toBe(false)
   })
 })

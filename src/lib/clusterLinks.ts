@@ -1,6 +1,7 @@
 import type { LinkPair } from './history'
 import { ago } from './observed'
 import type { Agent } from './types'
+import { PROBE_STALE_AFTER_MS } from './status'
 
 /** What the server and the agents accept for a pair's throughput tests (they clamp anything outside; the form refuses it first). */
 export const INTERVAL_MIN = 10
@@ -355,9 +356,6 @@ export function rateWords(bits: number): string {
   return `${Math.max(0, Math.round(bits / 1e3))} kbit/s`
 }
 
-/** A probe older than this is shown as old: the probe runs about once a minute, so this is many missed runs. */
-export const STALE_AFTER_MS = 15 * 60_000
-
 export interface LatestView {
   /** The loss line, with its tone: the worse of the two directions decides it. */
   loss?: { text: string; tone: 'ok' | 'warn' | 'bad' }
@@ -400,14 +398,14 @@ function probedAtMs(l: LinkPairLatest): number | null {
 }
 
 /**
- * Whether a probe of this pair completed within STALE_AFTER_MS. The Probing dot is green only then: the setting being on says what was asked for, not that
+ * Whether a probe of this pair completed within PROBE_STALE_AFTER_MS. The Probing dot is green only then: the setting being on says what was asked for, not that
  * anything arrives.
  */
 export function probeRecent(l: LinkPairLatest | undefined, now = Date.now()): boolean {
   if (!l) return false
   const times = [l.probeAToB, l.probeBToA].map((p) => timeOf(p?.at)).filter((t): t is number => t !== null)
   const newest = times.length > 0 ? Math.max(...times) : timeOf(l.probedAt)
-  return newest !== null && now - newest <= STALE_AFTER_MS
+  return newest !== null && now - newest <= PROBE_STALE_AFTER_MS
 }
 
 /** The words for a pair's latest figures, or null when there is nothing to show. Arrows read in the order the pair is displayed. */
@@ -438,7 +436,7 @@ export function latestView(l: LinkPairLatest | undefined, now = Date.now()): Lat
   for (const [d, arrows] of byDiagnosis) v.hints.push(`${arrows.join(' ')} ${DIAGNOSIS_WORDS[d]}`)
   const probed = probedAtMs(l)
   if (probed !== null) {
-    v.when = { text: `probed ${ago(new Date(probed).toISOString(), now)}`, stale: now - probed > STALE_AFTER_MS }
+    v.when = { text: `probed ${ago(new Date(probed).toISOString(), now)}`, stale: now - probed > PROBE_STALE_AFTER_MS }
   }
   if (l.testedAt && tp.length > 0) v.when = { text: `${v.when ? `${v.when.text} · ` : ''}tested ${ago(l.testedAt, now)}`, stale: v.when?.stale ?? false }
   return v.loss || v.details.length > 0 || v.problems.length > 0 || v.hints.length > 0 ? v : null

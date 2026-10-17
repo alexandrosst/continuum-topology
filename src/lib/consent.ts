@@ -12,6 +12,7 @@ import { activeLanes, emptyExportTarget, cleanTags, emptyScopeOverride, emptyTel
 import { operatorReceiverEndpoint } from './destinationCatalog'
 import type { TelemetryIntent } from './types'
 import { processorKey } from './processorCatalog'
+import { reportIsStale } from './status'
 export { enabledModalities, type Modality, PICKABLE_SIGNALS, TELEMETRY_SIGNALS }
 
 export type Severity = 'info' | 'warn' | 'error'
@@ -192,9 +193,6 @@ export interface HealthSummary {
   count: number
 }
 
-/** Agents refresh their self-report every 5 minutes; three missed means what it says is history, not news. */
-export const STALE_REPORT_SECONDS = 15 * 60
-
 /**
  * The agent's health in one line. With `fresh` (the time now, and whether the agent is connected) a report that is old, or
  * from an agent that is not connected, is not called "Healthy": it says how old it is, because that is what is known.
@@ -204,7 +202,7 @@ export function healthSummary(d?: AgentDiagnostics, fresh?: { now: number; conne
   const serious = d.problems.filter((p) => p.severity !== 'info')
   if (fresh) {
     const age = (fresh.now - Date.parse(d.reportedAt)) / 1000
-    if (fresh.connected === false || (Number.isFinite(age) && age > STALE_REPORT_SECONDS)) {
+    if (fresh.connected === false || reportIsStale(age)) {
       const line = Number.isFinite(age) ? `Last report ${uptimeWords(Math.max(0, age))} ago` : 'Report date unknown'
       return { level: 'unknown', line: fresh.connected === false ? `Not connected · ${line.toLowerCase()}` : line, count: serious.length }
     }

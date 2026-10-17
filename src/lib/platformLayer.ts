@@ -13,6 +13,7 @@ import { CENTRAL_OPERATOR_ID } from './fusionStatus'
 import { TELEMETRY_SIGNALS, type Modality } from './install'
 import { ago } from './observed'
 import type { Agent, OperatorDestination, RegionalOperator, TelemetryIntent } from './types'
+import { agentLiveness } from './status'
 
 /** The four states, the same words everywhere a platform part is named. */
 export type PlatformStatus = 'healthy' | 'attention' | 'down' | 'unknown'
@@ -81,8 +82,6 @@ export interface PlatformInput {
   showFusionOff?: boolean
 }
 
-/** Two missed reports: the same line the Agents page draws between "connected" and "late". */
-const LATE_AFTER_MS = 75_000
 const MODALITIES: Modality[] = ['metrics', 'logs', 'traces']
 const MODALITY_OF = new Map(TELEMETRY_SIGNALS.map((x) => [x.id, x.modality]))
 export const MODALITY_WORD: Record<Modality, string> = { metrics: 'Metrics', logs: 'Logs', traces: 'Traces' }
@@ -110,9 +109,10 @@ function destinationsOf(intent: TelemetryIntent | undefined): { operatorIds: str
 /** A Discovery agent: connected and reporting, late, disconnected. */
 function agentState(a: Agent, now: number): Pick<PlatformEntity, 'status' | 'sentence' | 'todo'> {
   const last = a.lastHeartbeat ? `, last heard from ${ago(a.lastHeartbeat, now)}` : ''
-  if (a.connected === undefined) return { status: 'unknown', sentence: 'Not connected to a server, so its state is not known.' }
-  if (a.connected === false) return { status: 'down', sentence: `Disconnected${last}.`, todo: 'Check that the agent is running in its cluster; it reconnects by itself once it is.' }
-  if (a.lastHeartbeat && now - Date.parse(a.lastHeartbeat) > LATE_AFTER_MS) return { status: 'attention', sentence: `No report for ${shortAge(a.lastHeartbeat, now)}.`, todo: 'Check that the agent is running and can reach the server.' }
+  const { state } = agentLiveness(a, now)
+  if (state === 'unknown') return { status: 'unknown', sentence: 'Not connected to a server, so its state is not known.' }
+  if (state === 'down') return { status: 'down', sentence: `Disconnected${last}.`, todo: 'Check that the agent is running in its cluster; it reconnects by itself once it is.' }
+  if (state === 'late') return { status: 'attention', sentence: `No report for ${shortAge(a.lastHeartbeat, now)}.`, todo: 'Check that the agent is running and can reach the server.' }
   return { status: 'healthy', sentence: `Reporting${a.lastHeartbeat ? `, last heard from ${ago(a.lastHeartbeat, now)}` : ''}.` }
 }
 

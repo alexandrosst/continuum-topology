@@ -3,6 +3,7 @@ import { exportReach, exportRows } from './exportHealth'
 import { CENTRAL_OPERATOR_ID, type FusionKind } from './fusionStatus'
 import { ago } from './observed'
 import type { Agent, Cluster, OperatorDestination, RegionalOperator, TelemetryIntent } from './types'
+import { agentLiveness } from './status'
 
 /** The four words a status is ever given, on this page and in the table, the path and the list of what needs attention. */
 export type State = 'healthy' | 'attention' | 'down' | 'setup' | 'unknown'
@@ -67,7 +68,6 @@ export interface ComponentRow {
 
 const MIN = 60_000
 /** Agents send a heartbeat every 30 seconds; two missed is "late". */
-const LATE_AFTER_MS = 75_000
 /** A new component nothing has been heard from for this long is no longer "just run the command": it stops being 'setup' and needs attention. */
 const PENDING_AFTER_MS = 60 * MIN
 
@@ -209,11 +209,11 @@ function operatorSteps(op: RegionalOperator): Todo['steps'] {
 
 /** A discovery agent: only what the connection says. Anything the server cannot judge (a sample or hand-made agent) is Unknown, not down. */
 export function agentVerdict(a: Agent, now: number): Verdict {
-  if (a.connected === undefined) return { state: 'unknown', reason: 'Not connected live, so there is nothing to judge it by.' }
-  const since = a.lastHeartbeat ? now - Date.parse(a.lastHeartbeat) : undefined
+  const { state, silentMs: since } = agentLiveness(a, now)
+  if (state === 'unknown') return { state: 'unknown', reason: 'Not connected live, so there is nothing to judge it by.' }
   const todo: Todo = { steps: agentSteps(a, 'the agent'), action: { kind: 'agents', label: 'Open in Agents' } }
-  if (a.connected === false) return { state: 'down', reason: `Has not reported for ${since === undefined ? 'a while' : duration(since)}. What Ikhnos knows about this cluster is out of date.`, todo }
-  if (since !== undefined && since > LATE_AFTER_MS) return { state: 'attention', reason: `Its heartbeat is late: the last one was ${duration(since)} ago.`, todo }
+  if (state === 'down') return { state: 'down', reason: `Has not reported for ${since === undefined ? 'a while' : duration(since)}. What Ikhnos knows about this cluster is out of date.`, todo }
+  if (state === 'late') return { state: 'attention', reason: `Its heartbeat is late: the last one was ${duration(since!)} ago.`, todo }
   return { state: 'healthy' }
 }
 

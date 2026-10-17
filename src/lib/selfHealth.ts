@@ -5,6 +5,7 @@
  * available, what's a clean axis tick" logic is unit-testable on its own, the same split lib/history.ts
  * and lib/observed.ts already use for their own page's supporting logic.
  */
+import { isLate } from './status'
 
 /** One point in one entity's self-telemetry history, exactly as the server sends it - every optional
  *  field really is sometimes absent (never a fabricated 0), so every caller here treats `undefined`
@@ -71,11 +72,6 @@ export function entityLabel(entity: SelfTelemetryEntity): string {
   return entity.kind === 'server' ? 'Ikhnos server' : entity.clusterName || entity.id
 }
 
-/** An agent reports on its own heartbeat cadence, the server on selfStatsSampleEvery - both 30s (see
- *  admin_telemetry.go). This mirrors AgentsPage's own LATE_AFTER_MS (two missed reports) so "live" means
- *  the same thing here as it does on the Agents page, rather than this page inventing its own threshold. */
-export const TELEMETRY_LATE_AFTER_MS = 75_000
-
 export interface Freshness {
   live: boolean
   lastSampleAt: number
@@ -90,7 +86,7 @@ export function freshnessOf(entity: SelfTelemetryEntity, now = Date.now()): Fres
   if (!last) return null
   const lastSampleAt = Date.parse(last.t)
   if (!Number.isFinite(lastSampleAt)) return null
-  return { live: now - lastSampleAt <= TELEMETRY_LATE_AFTER_MS, lastSampleAt, ageMs: Math.max(0, now - lastSampleAt) }
+  return { live: !isLate(now - lastSampleAt), lastSampleAt, ageMs: Math.max(0, now - lastSampleAt) }
 }
 
 /** Whether this entity has EVER reported a given optional field, across its whole kept history - not

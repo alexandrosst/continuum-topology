@@ -1,6 +1,7 @@
 import { uptimeWords, type AgentDiagnostics } from './consent'
 import { exportReach, exportRows } from './exportHealth'
 import { cleanTags, TELEMETRY_SIGNALS, type Modality, type TelemetryInput } from './install'
+import { reportIsStale } from './status'
 
 /**
  * The state of one thing in the product's one vocabulary. Always shown as a glyph, the word and a colour, never colour alone.
@@ -15,8 +16,6 @@ export const SETUP_STEPS = ['Where from', 'What to collect', 'Where to send', 'R
 
 /** How long after the command was shown "no data yet" stops being normal and starts being a thing to look at. */
 export const ARRIVAL_PATIENCE_SECONDS = 5 * 60
-/** An agent that has been silent this long is not reporting any more: what it last said is not the state now. */
-const STALE_REPORT_SECONDS = 15 * 60
 
 const MODALITY_LABEL: Record<Modality, string> = { metrics: 'Metrics', logs: 'Logs', traces: 'Traces' }
 const ago = (iso: string | undefined, now: number) => (iso ? `${uptimeWords(Math.max(0, (now - Date.parse(iso)) / 1000))} ago` : undefined)
@@ -53,7 +52,7 @@ export function arrivalCheck(o: { wanted: string[]; diagnostics?: AgentDiagnosti
 
   if (!d) return unknown('The agent has not reported yet.', `Check that the discovery agent of ${cluster} is running; this check reads what it reports.`)
   const quiet = (now - Date.parse(d.reportedAt)) / 1000
-  if (connected === false || (Number.isFinite(quiet) && quiet > STALE_REPORT_SECONDS)) {
+  if (connected === false || reportIsStale(quiet)) {
     return unknown(`Its agent has not reported for ${uptimeWords(Math.max(0, quiet))}, so whether data arrives is not known.`, `Check that the discovery agent of ${cluster} is running and can reach this server.`)
   }
 
