@@ -1,7 +1,10 @@
 package server
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 
 	"continuum/internal/install"
@@ -223,7 +226,76 @@ func intentProvenanceValues(orgID, clusterID, intentID string) []install.Value {
 	}
 }
 
+// intentCommandRequest is what the page may add to ask for the whole block instead of the parts: the telemetry it is editing, in the
+// words of install.Telemetry. Without it the answer is the parts alone, as it always was.
+type intentCommandRequest struct {
+	Telemetry *install.Telemetry `json:"telemetry"`
+}
+
+// decodeOptional reads a body that may be absent: no body at all is no request, not a bad one.
+func decodeOptional(r *http.Request, v any) error {
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(v); err != nil && !errors.Is(err, io.EOF) {
+		return errf(KindInvalid, "invalid request body")
+	}
+	return nil
+}
+
+// operatorTelemetry is the page's telemetry as the intent has it: which destinations are regional operators is the intent's word, not
+// the page's (the page may be showing settings the intent no longer holds), and how each operator's receiver authenticates comes from the
+// operator itself. A page whose settings and the intent disagree about whether signal types go separately is told to start again, never
+// given a command for something else.
+func (a *Admin) operatorTelemetry(r *http.Request, ti store.TelemetryIntent, spec install.Telemetry) (install.Telemetry, map[string]string, error) {
+	auth := map[string]string{}
+	operatorOf := func(d store.Destination) (string, error) {
+		if d.Kind != store.DestinationOperator {
+			return "", nil
+		}
+		if _, ok := auth[d.TargetOperatorID]; !ok {
+			op, err := a.core(r).GetOperator(r.Context(), d.TargetOperatorID)
+			if err != nil {
+				return "", err
+			}
+			auth[op.ID] = string(op.ReceiverAuth)
+		}
+		return d.TargetOperatorID, nil
+	}
+	if spec.Routes.Split != (len(ti.Routes) > 0) {
+		return spec, nil, errf(KindConflict, "these settings and the telemetry intent disagree about sending each signal type separately; save the intent again")
+	}
+	var err error
+	if !spec.Routes.Split {
+		spec.Destination.Operator, err = operatorOf(ti.Destination)
+		return spec, auth, err
+	}
+	for _, m := range spec.ActiveLanes() {
+		d, ok := ti.Routes[store.Modality(m)]
+		if !ok {
+			return spec, nil, errf(KindConflict, "the telemetry intent has no destination for %s; save the intent again", m)
+		}
+		id, err := operatorOf(d)
+		if err != nil {
+			return spec, nil, err
+		}
+		switch m {
+		case install.Metrics:
+			spec.Routes.Metrics.Operator = id
+		case install.Logs:
+			spec.Routes.Logs.Operator = id
+		case install.Traces:
+			spec.Routes.Traces.Operator = id
+		}
+	}
+	return spec, auth, nil
+}
+
 func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
+	var ask intentCommandRequest
+	if err := decodeOptional(r, &ask); err != nil {
+		a.fail(w, err)
+		return
+	}
 	ti, err := a.core(r).GetTelemetryIntent(r.Context(), r.PathValue("id"))
 	if err != nil {
 		a.fail(w, err)
@@ -249,6 +321,23 @@ func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 	hub := a.tn(r).Hub
 	rns, rname, _ := releaseTarget(hub.NamespaceOf(agent.ID), hub.ReleaseNameOf(agent.ID))
 	resp := map[string]any{"namespace": rns, "release": rname}
+	// With the page's telemetry the answer is the whole block. What is wrong with that telemetry is found before anything is issued: a
+	// certificate is minted and audited for a command that will be written, not for one that cannot be.
+	var spec install.Telemetry
+	var receiverAuth map[string]string
+	if ask.Telemetry != nil {
+		var err error
+		spec, receiverAuth, err = a.operatorTelemetry(r, ti, *ask.Telemetry)
+		if err != nil {
+			a.fail(w, err)
+			return
+		}
+		if problems := spec.TowardOperators(receiverAuth).Problems(); len(problems) > 0 {
+			resp["installFragment"], resp["secretCommands"], resp["problems"] = "", []string{}, problems
+			writeJSON(w, 200, resp)
+			return
+		}
+	}
 	// What the printed endpoints are only taken on trust for (see targetWarnings), once per operator.
 	var warnings []string
 	warned := map[string]bool{}
@@ -357,11 +446,24 @@ func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 		// what they always were and the caller still supplies the token itself.
 		resp["receiverAuth"] = string(op.ReceiverAuth)
 		resp["operators"] = map[string]string{op.ID: string(op.ReceiverAuth)}
+		resp["endpoint"] = a.destEndpoint(op, ti.Destination)
 		if secretCmd != "" {
 			secretCommands = append(secretCommands, secretCmd)
 		}
 	}
 	resp["installFragment"], resp["secretCommands"] = install.Flags(values), secretCommands
+	if ask.Telemetry != nil {
+		img := a.images(a.core(r))
+		block, err := install.OperatorTelemetry{
+			AgentUpgrade: install.AgentUpgrade{ChartRef: a.chartRef(img), ChartVersion: a.agentChartVersion(), ChartFile: a.chartFile(), Namespace: rns, Release: rname, Telemetry: &spec},
+			Certificates: secretCommands, Restated: values, ReceiverAuth: receiverAuth,
+		}.Render()
+		if err != nil {
+			a.fail(w, a.installConfigError(err))
+			return
+		}
+		resp["command"], resp["problems"] = block, []string{}
+	}
 	if len(warnings) > 0 {
 		resp["warnings"] = warnings
 	}
