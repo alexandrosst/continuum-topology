@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -300,8 +301,21 @@ func (a *Admin) createOperator(w http.ResponseWriter, r *http.Request) {
 		// kept (store.Operator.Exposure) so the page can say an address is still to be recorded; the address that
 		// results is learned afterwards (POST .../address).
 		Exposure string `json:"exposure,omitempty"`
+		// ExtraProcessors are the OTel Collector processors to add to the operator's pipelines. They are chart values and nothing more: the
+		// operator record does not keep them, so they are in this command and in no other.
+		ExtraProcessors []install.Processor `json:"extraProcessors,omitempty"`
 	}
 	if err := decode(r, &req); err != nil {
+		a.fail(w, err)
+		return
+	}
+	processors, err := install.OperatorProcessors(req.ExtraProcessors)
+	if err != nil {
+		var pe *install.ProblemsError
+		if errors.As(err, &pe) {
+			a.fail(w, errf(KindInvalid, "%s", pe.Problems[0]))
+			return
+		}
 		a.fail(w, err)
 		return
 	}
@@ -321,7 +335,7 @@ func (a *Admin) createOperator(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	doc, err := a.operatorInstallDoc(r, op, installMaterial{Secret: secret, TLS: tlsBundle, HeartbeatSecret: hbSecret})
+	doc, err := a.operatorInstallDoc(r, op, installMaterial{Secret: secret, TLS: tlsBundle, HeartbeatSecret: hbSecret, Processors: processors})
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -337,6 +351,8 @@ type installMaterial struct {
 	TLS             OperatorTLSBundle
 	HeartbeatSecret string
 	Reissue         bool
+	// Processors are the chart values of the extra processors a person asked for, which follow the rest of the command.
+	Processors []install.Value
 }
 
 // operatorInstallDoc is the response of creating an operator and of installing it again: the operator, the install
@@ -361,7 +377,7 @@ func (a *Admin) operatorInstallDoc(r *http.Request, op store.Operator, m install
 	}
 	resp := map[string]any{
 		"operator":  a.opDoc(r, op),
-		"install":   cmd,
+		"install":   strings.TrimRight(cmd, "\n ") + install.Continued(m.Processors),
 		"reminders": a.operatorSourceReminders(r, op, m.TLS),
 	}
 	// A receiver bearer token exists only for a bearer operator (see operatorInstallCommand): for an mTLS
