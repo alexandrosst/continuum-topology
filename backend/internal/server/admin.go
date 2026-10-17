@@ -1544,15 +1544,24 @@ func (a *Admin) createToken(w http.ResponseWriter, r *http.Request) {
 		Tier int    `json:"tier"`
 		// ExpectedCluster optionally binds the token to one cluster: the UID of its kube-system namespace.
 		ExpectedCluster string `json:"expectedCluster"`
+		// Collectors are the optional per-node collectors the install switches on, and Scope the namespaces it may report. They are
+		// parts of the command and of nothing else: the token does not record them.
+		Collectors install.Collectors `json:"collectors"`
+		Scope      install.Scope      `json:"scope"`
 	}
 	if err := decode(r, &req); err != nil {
+		a.fail(w, err)
+		return
+	}
+	extra, err := installChoices(req.Tier, req.Collectors, req.Scope)
+	if err != nil {
 		a.fail(w, err)
 		return
 	}
 	// The token is shown once, with the command that uses it: a command that cannot be written (the chart this server was told to
 	// name is not one Helm can be asked for) is found before the token exists, not after it is spent.
 	img := a.images(a.core(r))
-	if _, err := a.installCommand(img, "check", store.Token{AccessTier: req.Tier}); err != nil {
+	if _, err := a.installCommand(img, "check", store.Token{AccessTier: req.Tier}, extra...); err != nil {
 		a.fail(w, a.installConfigError(err))
 		return
 	}
@@ -1561,7 +1570,7 @@ func (a *Admin) createToken(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	cmd, err := a.installCommand(img, secret, t)
+	cmd, err := a.installCommand(img, secret, t, extra...)
 	if err != nil {
 		a.fail(w, a.installConfigError(err))
 		return
@@ -1621,7 +1630,7 @@ func (a *Admin) operatorChartVersion() string {
 // image.digest when set; with a digest the chart pulls repository@digest and ignores the tag) and fetches the chart
 // from the same registry. Without one it names the chart file the server serves and leaves every image value to the
 // chart's own defaults.
-func (a *Admin) installCommand(img ImageConfig, secret string, t store.Token) (string, error) {
+func (a *Admin) installCommand(img ImageConfig, secret string, t store.Token, extra ...install.Value) (string, error) {
 	ref, version := a.agentChart(img)
 	// enrollment.key packs the CA pin and the one-time token into the single flag the chart splits back apart at
 	// render time (see continuum-agent's _helpers.tpl): one thing to paste instead of two, without hiding either
@@ -1643,6 +1652,8 @@ func (a *Admin) installCommand(img ImageConfig, secret string, t store.Token) (s
 			values = append(values, install.Set("image.digest", img.Digest))
 		}
 	}
+	// What the person chose to switch on or narrow, after what every install has.
+	values = append(values, extra...)
 	return install.Helm{Verb: install.Install, Release: "continuum-agent", Chart: ref, Version: version, Namespace: "continuum-system", CreateNamespace: true,
 		Values: values, Layout: install.Wrapped}.Render()
 }
