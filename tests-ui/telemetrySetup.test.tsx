@@ -54,9 +54,9 @@ describe('arrivalCheck: whether the data that was just set up arrives', () => {
     const a = check(diag({ installed: ['resourceUsage', 'systemLogs'], health: h }), { wanted: ['resourceUsage', 'systemLogs'] })
     const [metrics, logs] = a.rows
     expect(metrics).toMatchObject({ modality: 'metrics', health: 'healthy', lastData: 'Last data 2 min ago' })
-    expect(logs).toMatchObject({ modality: 'logs', health: 'broken', lastData: 'No data yet' })
+    expect(logs).toMatchObject({ modality: 'logs', health: 'down', lastData: 'No data yet' })
     expect(logs.sentence).toMatch(/12 sends failed .*none got through/)
-    expect(a.health).toBe('broken')
+    expect(a.health).toBe('down')
     expect(a.todo).toMatch(/Where to send/)
 
     const quiet = check(diag({ health: { podsReached: 1, podsFailed: 0, routes: [route('metrics', 'silent', { lastSentAt: iso(3000) })] } }))

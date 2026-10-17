@@ -1,15 +1,12 @@
 import { uptimeWords, type AgentDiagnostics } from './consent'
 import { exportReach, exportRows } from './exportHealth'
 import { cleanTags, TELEMETRY_SIGNALS, type Modality, type TelemetryInput } from './install'
-import { reportIsStale } from './status'
+import { type Health, reportIsStale, worstOf } from './status'
 
 /**
  * The state of one thing in the product's one vocabulary. Always shown as a glyph, the word and a colour, never colour alone.
  * (Unknown is not a fault: it is what is said when nothing is known, for example before the first data.)
  */
-export type Health = 'healthy' | 'attention' | 'broken' | 'unknown'
-export const HEALTH_WORD: Record<Health, string> = { healthy: 'Healthy', attention: 'Needs attention', broken: 'Not working', unknown: 'Unknown' }
-const HEALTH_RANK: Record<Health, number> = { healthy: 0, unknown: 1, attention: 2, broken: 3 }
 
 /** The rail of the setup, in the product's words: the same four steps wherever it opens. */
 export const SETUP_STEPS = ['Where from', 'What to collect', 'Where to send', 'Review and install']
@@ -79,18 +76,18 @@ export function arrivalCheck(o: { wanted: string[]; diagnostics?: AgentDiagnosti
     const label = MODALITY_LABEL[r.modality]
     const last = ago(r.lastSentAt, now)
     const lastData = last ? `Last data ${last}` : 'No data yet'
-    if (r.state === 'failing') return { modality: r.modality, label, health: 'broken', lastData, sentence: `${r.failed.toLocaleString()} sends failed (the last ${ago(r.lastFailedAt, now) ?? 'recently'}) and none got through since.` }
+    if (r.state === 'failing') return { modality: r.modality, label, health: 'down', lastData, sentence: `${r.failed.toLocaleString()} sends failed (the last ${ago(r.lastFailedAt, now) ?? 'recently'}) and none got through since.` }
     if (r.state === 'exporting') return { modality: r.modality, label, health: 'healthy', lastData, sentence: 'The destination accepted the data.' }
     if (r.state === 'silent') return { modality: r.modality, label, health: 'healthy', lastData, sentence: `Nothing in the last few minutes. That is normal when nothing is producing ${label.toLowerCase()} right now.` }
     if (waited >= ARRIVAL_PATIENCE_SECONDS) return { modality: r.modality, label, health: 'attention', lastData, sentence: `Nothing has gone out after ${uptimeWords(waited)}.` }
     return { modality: r.modality, label, health: 'unknown', lastData, sentence: 'The first data usually goes out within a minute or two.' }
   })
-  const health = rows.reduce<Health>((w, r) => (HEALTH_RANK[r.health] > HEALTH_RANK[w] ? r.health : w), 'healthy')
+  const health = worstOf(rows.map((r) => r.health))
   const h = d.exportHealth!
   const partial = h.podsFailed > 0 ? `${h.podsFailed} of ${h.podsReached + h.podsFailed} collector reads failed on the last attempt${h.lastError ? ` (${h.lastError})` : ''}; the rest still count.` : undefined
   if (health === 'healthy') return { health, headline: 'Data is arriving.', rows, partial }
   if (health === 'unknown') return { health, headline: 'Waiting for the first data.', rows, partial }
-  if (health === 'broken') return { health, headline: 'The destination is refusing the data or cannot be reached.', todo: 'Go back to Where to send and check the address, the protocol, the credential and the certificate; then run the command again.', rows, partial }
+  if (health === 'down') return { health, headline: 'The destination is refusing the data or cannot be reached.', todo: 'Go back to Where to send and check the address, the protocol, the credential and the certificate; then run the command again.', rows, partial }
   return { health, headline: 'Nothing has arrived yet.', todo: `Check the collector pods in ${cluster} are running, and that the destination's address is reachable from there.`, rows, partial }
 }
 

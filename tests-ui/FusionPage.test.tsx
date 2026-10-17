@@ -109,7 +109,7 @@ describe('FusionPage', () => {
     status = running({ state: 'attention', message: 'Loki is not ready.', central: { ...central, namespace: 'ikhnos-fusion' } as never, components: [part('metrics'), part('logs', { ready: 0, reason: 'Waiting for a volume' }), part('traces'), part('central')] })
     renderAt()
     const problem = await screen.findByTestId('fusion-problem-down-logs')
-    expect(problem).toHaveAttribute('data-health', 'broken')
+    expect(problem).toHaveAttribute('data-health', 'down')
     expect(problem).toHaveTextContent('Loki is not running')
     expect(problem).toHaveTextContent('Waiting for a volume.')
     expect(within(problem).getByRole('button', { name: 'Copy the kubectl command' })).toBeInTheDocument()

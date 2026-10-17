@@ -1,7 +1,8 @@
 import clsx from 'clsx'
 import { Cable, CircleCheck, CircleHelp, CircleX, Database, DoorOpen, Funnel, Merge, TriangleAlert, type LucideIcon } from 'lucide-react'
 import { ICON_SM } from '@/components/ui/primitives'
-import { PLATFORM_STATUS_WORD, type PlatformEntity, type PlatformKind, type PlatformStatus } from '@/lib/platformLayer'
+import { type PlatformEntity, type PlatformKind, type PlatformStatus } from '@/lib/platformLayer'
+import { HEALTH_WORD } from '@/lib/status'
 
 export const PLATFORM_ICON: Record<PlatformKind, LucideIcon> = { agent: Cable, local: Funnel, regional: Merge, central: DoorOpen, fusion: Database }
 
@@ -15,7 +16,7 @@ const GLYPH: Record<PlatformStatus, { icon: LucideIcon; tone: string }> = {
 /** One of the four states as a glyph - its shape says it as well as its colour - with the word as its name, for a screen reader and the tooltip. */
 export function StatusGlyph({ status, size = ICON_SM, className }: { status: PlatformStatus; size?: number; className?: string }) {
   const { icon: Icon, tone } = GLYPH[status]
-  return <Icon size={size} className={clsx('shrink-0', tone, className)} role="img" aria-label={PLATFORM_STATUS_WORD[status]} data-status={status} />
+  return <Icon size={size} className={clsx('shrink-0', tone, className)} role="img" aria-label={HEALTH_WORD[status]} data-status={status} />
 }
 
 /**
@@ -59,7 +60,7 @@ export function PlatformNode({ entity, selected, label, className, style, ...han
       <div className="min-w-0 flex-1">
         <div className="truncate text-[13px] font-medium text-nb-300" title={entity.name}>{entity.name}</div>
         <div className={clsx('truncate text-[11px]', healthy || entity.off ? 'text-nb-500' : GLYPH[entity.status].tone)} title={healthy || entity.off ? entity.detail : undefined}>
-          {healthy || entity.off ? entity.detail : PLATFORM_STATUS_WORD[entity.status]}
+          {healthy || entity.off ? entity.detail : HEALTH_WORD[entity.status]}
         </div>
       </div>
       <StatusGlyph status={entity.status} size={ICON_SM + 2} />

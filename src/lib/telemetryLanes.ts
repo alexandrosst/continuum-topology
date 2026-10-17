@@ -4,7 +4,8 @@
  * columns. The regional operators, the central one and FUSION are shared: each is drawn once, level with the middle of what sends to it.
  * Plain data in, plain coordinates out; the component only draws them.
  */
-import { PLATFORM_STATUS_WORD, type PlatformEntity, type PlatformKind, type PlatformModel, type PlatformStatus } from './platformLayer'
+import { type PlatformEntity, type PlatformKind, type PlatformModel, type PlatformStatus } from './platformLayer'
+import { HEALTH_WORD } from './status'
 
 export const LANE = { nodeW: 192, nodeH: 52, colGap: 48, padX: 4, head: 28, laneH: 88, caption: 20, minGap: 16 } as const
 
@@ -47,7 +48,7 @@ const colX = (kind: PlatformKind) => LANE.padX + COL.get(kind)! * (LANE.nodeW + 
 
 /** What a screen reader hears for a part: its name and cluster, its state, and when its data last arrived. */
 export function nodeLabel(e: PlatformEntity, age?: string): string {
-  const state = e.off ? 'Not turned on' : PLATFORM_STATUS_WORD[e.status]
+  const state = e.off ? 'Not turned on' : HEALTH_WORD[e.status]
   return `${e.name}${e.clusterName ? `, ${e.clusterName}` : ''}: ${state}${age ? `, last data ${age}` : ''}`
 }
 

@@ -14,7 +14,7 @@ import { Button, EmptyState, ErrorBanner, ICON_SM, LiveDot, type LiveKind, PageH
 import { api, ApiError } from '@/lib/api'
 import { skewLabel, skewWarning } from '@/lib/clock'
 import { extrasOf, type AgentExtras } from '@/lib/consent'
-import { healthOf, type Health } from '@/lib/agentHealth'
+import { healthOf, type AgentHealth } from '@/lib/agentHealth'
 import { ageOf } from '@/lib/history'
 import { bytesTotal } from '@/lib/observed'
 import { GEO_UNLOCATABLE_HELP, GEO_UNLOCATABLE_LABEL, ipScope, ipScopeLabel } from '@/lib/present'
@@ -23,7 +23,7 @@ import { useApprovalLocks } from '@/store/approvalLocks'
 import { useServer } from '@/store/server'
 import { useTopology } from '@/store/topology'
 
-const HEALTH: Record<Health, { label: string; dot: LiveKind; text: string }> = {
+const HEALTH: Record<AgentHealth, { label: string; dot: LiveKind; text: string }> = {
   ok: { label: 'Connected', dot: 'online', text: 'text-ok' },
   late: { label: 'Heartbeat late', dot: 'late', text: 'text-warn' },
   offline: { label: 'Disconnected', dot: 'offline', text: 'text-bad' },
@@ -49,7 +49,7 @@ export default function AgentsPage() {
   const [sp, setSp] = useSearchParams()
   const map = sp.get('view') === 'map'
   const [open, setOpen] = useState<string | null>(null)
-  const [filter, setFilter] = useState<'all' | Health>('all')
+  const [filter, setFilter] = useState<'all' | AgentHealth>('all')
   const [revoking, setRevoking] = useState<Agent | null>(null)
   const [error, setError] = useState('')
   // A clock that only actually changes on its own tick, not on every re-render this page has plenty of
@@ -529,13 +529,13 @@ const CARD_W = 236
 const CARD_H = 62
 const GAP = 22
 
-function AgentMap({ rows, clusterOf, selected, onSelect }: { rows: { a: Agent; h: Health }[]; clusterOf: (id?: string) => Cluster | undefined; selected: string | null; onSelect: (id: string | null) => void }) {
+function AgentMap({ rows, clusterOf, selected, onSelect }: { rows: { a: Agent; h: AgentHealth }[]; clusterOf: (id?: string) => Cluster | undefined; selected: string | null; onSelect: (id: string | null) => void }) {
   const W = 1000
   const perLine = 4
   // Group by the tier of the agent's cluster; an agent with no cluster yet goes in a row of its own.
   const groups = [...ROWS.map((r) => ({ ...r, items: rows.filter((x) => clusterOf(x.a.clusterId)?.tier === r.tier) })), { tier: 'none' as const, label: 'Not in a cluster yet', items: rows.filter((x) => !clusterOf(x.a.clusterId)) }].filter((g) => g.items.length > 0)
   let y = 96
-  const placed: { x: number; y: number; a: Agent; h: Health }[] = []
+  const placed: { x: number; y: number; a: Agent; h: AgentHealth }[] = []
   const labels: { y: number; text: string }[] = []
   for (const g of groups) {
     labels.push({ y, text: g.label })

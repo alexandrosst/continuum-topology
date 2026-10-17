@@ -1,6 +1,7 @@
 import type { FusionComponent, FusionRetention, FusionStatus } from '@/lib/api'
 import { fullness, neededBytes, retentionVerdict, volumeGiB } from '@/lib/fusionRetention'
 import { ago } from '@/lib/observed'
+import { HEALTH_WORD, type Health } from '@/lib/status'
 
 /** The id of the server-owned regional operator in front of FUSION (backend CentralOperatorID). */
 export const CENTRAL_OPERATOR_ID = 'op-central'
@@ -57,9 +58,8 @@ export function lastDataText(s: FusionStatus, now = Date.now()): string {
 }
 
 /** The four words every status is one of (glyph, word and colour), plus the two states that are not a verdict: coming up, and switched off. */
-export type Health = 'healthy' | 'attention' | 'broken' | 'unknown'
 export type Shown = Health | 'starting' | 'off'
-export const HEALTH_WORD: Record<Shown, string> = { healthy: 'Healthy', attention: 'Needs attention', broken: 'Not working', unknown: 'Unknown', starting: 'Starting', off: 'Off' }
+export const SHOWN_WORD: Record<Shown, string> = { healthy: HEALTH_WORD.healthy, attention: HEALTH_WORD.attention, down: HEALTH_WORD.down, unknown: HEALTH_WORD.unknown, starting: 'Starting', off: 'Off' }
 
 /** The one thing to do about a problem: go somewhere, copy a command, or look again. */
 export type ProblemAction = { kind: 'link'; label: string; to: string } | { kind: 'copy'; label: string; text: string } | { kind: 'refresh'; label: string }
@@ -68,7 +68,7 @@ export interface FusionProblem {
   id: string
   /** The part it is about, so its row can carry the same verdict. */
   part?: FusionComponent['component']
-  health: 'attention' | 'broken'
+  health: 'attention' | 'down'
   /** What is wrong, in one sentence; `detail` says what it means and what to do. */
   title: string
   detail: string
@@ -107,7 +107,7 @@ export function fusionProblems(s: FusionStatus | null, retention: FusionRetentio
     for (const c of down) {
       const reason = c.reason ?? ''
       out.push({
-        id: `down-${c.component}`, part: c.component, health: 'broken', title: `${c.label} is not running`,
+        id: `down-${c.component}`, part: c.component, health: 'down', title: `${c.label} is not running`,
         detail: [reason && `${reason}.`, CONSEQUENCE[c.component], TRY[reason]].filter(Boolean).join(' '),
         action: ns ? { kind: 'copy', label: 'Copy the kubectl command', text: `kubectl -n ${ns} get pods` } : { kind: 'refresh', label: 'Check again' },
       })
@@ -137,14 +137,14 @@ export function fusionProblems(s: FusionStatus | null, retention: FusionRetentio
     if (now - last > NO_DATA_AFTER_MS) out.push({ id: 'no-data', health: 'attention', title: `No new data: the last data arrived ${ago(s.lastDataAt, now)}`, detail: 'Collectors keep what they cannot deliver for a while, then drop it.', action: open })
     else if (!s.lastDataAt && now - up > NO_DATA_YET_AFTER_MS) out.push({ id: 'no-data', health: 'attention', title: 'No data has arrived yet', detail: 'FUSION is running but nothing is sending to it.', action: open })
   }
-  return out.sort((a, b) => Number(b.health === 'broken') - Number(a.health === 'broken'))
+  return out.sort((a, b) => Number(b.health === 'down') - Number(a.health === 'down'))
 }
 
 /** FUSION as a whole, in one of the shown states. */
 export function fusionHealth(s: FusionStatus | null, problems: FusionProblem[]): Shown {
   if (!s?.available) return 'unknown'
   if (s.state === 'off' || s.state === 'starting') return s.state
-  if (problems.some((p) => p.health === 'broken')) return 'broken'
+  if (problems.some((p) => p.health === 'down')) return 'down'
   return problems.length > 0 ? 'attention' : 'healthy'
 }
 
@@ -152,7 +152,7 @@ export function fusionHealth(s: FusionStatus | null, problems: FusionProblem[]):
  *  FUSION as a whole needs attention has stopped coming up, and "Starting" would keep promising what is not happening. */
 export function partHealth(c: FusionComponent, overall: FusionKind, problems: FusionProblem[]): Shown {
   if (c.desired === 0) return 'off'
-  if (c.ready < c.desired) return overall === 'attention' ? 'broken' : 'starting'
+  if (c.ready < c.desired) return overall === 'attention' ? 'down' : 'starting'
   const own = problems.filter((p) => p.part === c.component)
-  return own.some((p) => p.health === 'broken') ? 'broken' : own.length > 0 ? 'attention' : 'healthy'
+  return own.some((p) => p.health === 'down') ? 'down' : own.length > 0 ? 'attention' : 'healthy'
 }

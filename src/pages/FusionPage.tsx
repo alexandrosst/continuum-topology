@@ -12,7 +12,7 @@ import { OpenError, OpenPages, useOpenPage } from '@/components/fusion/OpenPages
 import { StatusChip } from '@/components/fusion/StatusChip'
 import { useFusion, useNow } from '@/components/fusion/useFusion'
 import { Button, EmptyState, ErrorBanner, ICON_SM, PageHeader, SkeletonBlock } from '@/components/ui/primitives'
-import { fusionHealth, fusionProblems, HEALTH_WORD, lastDataText } from '@/lib/fusionStatus'
+import { fusionHealth, fusionProblems, lastDataText, SHOWN_WORD } from '@/lib/fusionStatus'
 import { useServer } from '@/store/server'
 
 const TABS = [
@@ -88,7 +88,7 @@ export default function FusionPage() {
         {status && (
           <span className="flex items-center gap-2 text-xs text-nb-500" data-testid="fusion-state">
             {/* Only the state's word, so that a change (Starting, then Healthy) is announced and "last data 12 s ago" counting up is not. */}
-            <span className="sr-only" aria-live="polite" aria-atomic="true" data-testid="fusion-live">FUSION: {HEALTH_WORD[health]}</span>
+            <span className="sr-only" aria-live="polite" aria-atomic="true" data-testid="fusion-live">FUSION: {SHOWN_WORD[health]}</span>
             <StatusChip status={health} />
             {on && health !== 'starting' && <span>{lastDataText(status, now)}</span>}
           </span>

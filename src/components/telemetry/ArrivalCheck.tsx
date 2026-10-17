@@ -3,12 +3,13 @@ import { AlertTriangle, CheckCircle2, HelpCircle, XCircle, type LucideIcon } fro
 import { useEffect, useState } from 'react'
 import { ICON_SM } from '@/components/ui/primitives'
 import type { AgentDiagnostics } from '@/lib/consent'
-import { arrivalCheck, HEALTH_WORD, type Health } from '@/lib/telemetrySetup'
+import { HEALTH_WORD, type Health } from '@/lib/status'
+import { arrivalCheck } from '@/lib/telemetrySetup'
 
 const GLYPH: Record<Health, { icon: LucideIcon; tone: string }> = {
   healthy: { icon: CheckCircle2, tone: 'text-ok' },
   attention: { icon: AlertTriangle, tone: 'text-warn' },
-  broken: { icon: XCircle, tone: 'text-bad' },
+  down: { icon: XCircle, tone: 'text-bad' },
   unknown: { icon: HelpCircle, tone: 'text-nb-500' },
 }
 

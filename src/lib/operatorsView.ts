@@ -3,12 +3,10 @@ import { exportReach, exportRows } from './exportHealth'
 import { CENTRAL_OPERATOR_ID, type FusionKind } from './fusionStatus'
 import { ago } from './observed'
 import type { Agent, Cluster, OperatorDestination, RegionalOperator, TelemetryIntent } from './types'
-import { agentLiveness } from './status'
+import { agentLiveness, type HealthOrSetup, severity } from './status'
 
 /** The four words a status is ever given, on this page and in the table, the path and the list of what needs attention. */
-export type State = 'healthy' | 'attention' | 'down' | 'setup' | 'unknown'
-export const STATE_WORD: Record<State, string> = { healthy: 'Healthy', attention: 'Needs attention', down: 'Not working', setup: 'Setting up', unknown: 'Unknown' }
-const SEVERITY: Record<State, number> = { down: 0, attention: 1, setup: 2, unknown: 3, healthy: 4 }
+export type State = HealthOrSetup
 
 export type Kind = 'agent' | 'local' | 'regional' | 'central'
 export const KINDS: Kind[] = ['agent', 'local', 'regional', 'central']
@@ -345,11 +343,11 @@ export function buildComponents({ agents, clusters, rawAgents, intents, operator
     const lastData = central ? op.health?.lastSeenAt : newest(locals.filter((l) => intentTargets(l.r.intent).includes(op.id)).map((l) => l.lastData))
     rows.push({ id: `${central ? 'central' : 'regional'}:${op.id}`, kind: central ? 'central' : 'regional', name: central ? 'Central operator' : op.name, operator: op, verdict: operatorVerdict(op, cert, now, lastData), ended: op.status !== 'active', cert, sendsTo: central ? 'FUSION' : destinationLabel(op.destination, operators), lastData })
   }
-  return rows.sort((x, y) => SEVERITY[x.verdict.state] - SEVERITY[y.verdict.state] || KINDS.indexOf(x.kind) - KINDS.indexOf(y.kind) || x.name.localeCompare(y.name))
+  return rows.sort((x, y) => severity(x.verdict.state) - severity(y.verdict.state) || KINDS.indexOf(x.kind) - KINDS.indexOf(y.kind) || x.name.localeCompare(y.name))
 }
 
 /** What needs attention: every amber or red component that has something to do about it (worst first, as the rows are). */
-export const needAttention = (rows: ComponentRow[]): ComponentRow[] => rows.filter((r) => !r.ended && SEVERITY[r.verdict.state] <= SEVERITY.attention && r.verdict.todo)
+export const needAttention = (rows: ComponentRow[]): ComponentRow[] => rows.filter((r) => !r.ended && severity(r.verdict.state) <= severity('attention') && r.verdict.todo)
 
 /** A group of components of one hop - the ones that share a route - with the same figures a hop has. */
 export interface HopGroup {
@@ -378,7 +376,7 @@ export interface Hop {
   onward?: HopGroup
 }
 
-const worstState = (states: State[]): State | undefined => [...states].sort((a, b) => SEVERITY[a] - SEVERITY[b])[0]
+const worstState = (states: State[]): State | undefined => [...states].sort((a, b) => severity(a) - severity(b))[0]
 
 function group(of: ComponentRow[]): HopGroup {
   const judged = of.filter((r) => r.verdict.state !== 'setup')

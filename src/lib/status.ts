@@ -34,3 +34,24 @@ export function agentLiveness(a: Pick<Agent, 'connected' | 'lastHeartbeat'>, now
 
 /** Whether what an agent last said about itself, this many seconds ago, is history now. A date that cannot be read is not stale: it is unknown. */
 export const reportIsStale = (ageSeconds: number): boolean => Number.isFinite(ageSeconds) && ageSeconds > REPORT_STALE_AFTER_SECONDS
+
+/**
+ * How something is doing, in the one set of words every screen uses. `down` is "Not working", `attention` "Needs attention"; `unknown` is
+ * a real answer ("this cannot be told"), not a missing one. `setup` is for a part that has been asked for and is not up yet: neither good
+ * nor bad news, so only the screens that have such parts use it.
+ */
+export type Health = 'healthy' | 'attention' | 'down' | 'unknown'
+export type HealthOrSetup = Health | 'setup'
+
+export const HEALTH_WORD: Record<HealthOrSetup, string> = { healthy: 'Healthy', attention: 'Needs attention', down: 'Not working', setup: 'Setting up', unknown: 'Unknown' }
+
+/** Worst first. Where several things are summed up in one word, the earlier one wins. */
+const WORST_FIRST: readonly HealthOrSetup[] = ['down', 'attention', 'setup', 'unknown', 'healthy']
+
+/** 0 is the worst. For sorting, and for "at least as bad as". */
+export const severity = (h: HealthOrSetup): number => WORST_FIRST.indexOf(h)
+
+/** The worst of several, or `healthy` for none. */
+export function worstOf<T extends HealthOrSetup>(states: readonly T[]): T | 'healthy' {
+  return states.reduce<T | 'healthy'>((w, s) => (severity(s) < severity(w) ? s : w), 'healthy')
+}

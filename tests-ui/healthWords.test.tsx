@@ -3,10 +3,8 @@ import { describe, expect, test } from 'vitest'
 import { HealthWord } from '@/components/telemetry/ArrivalCheck'
 import { StatusChip } from '@/components/fusion/StatusChip'
 import StateChip from '@/components/operators/StateChip'
-import { HEALTH_WORD as FUSION_WORD } from '@/lib/fusionStatus'
-import { STATE_WORD } from '@/lib/operatorsView'
-import { PLATFORM_STATUS_WORD } from '@/lib/platformLayer'
-import { HEALTH_WORD as ARRIVAL_WORD } from '@/lib/telemetrySetup'
+import { SHOWN_WORD } from '@/lib/fusionStatus'
+import { HEALTH_WORD } from '@/lib/status'
 
 /**
  * The words a person reads for how something is doing. Four screens each carried their own table of them; this pins what each says, in the
@@ -14,20 +12,12 @@ import { HEALTH_WORD as ARRIVAL_WORD } from '@/lib/telemetrySetup'
  */
 
 describe('the words for a status', () => {
-  test('the platform layer', () => {
-    expect(PLATFORM_STATUS_WORD).toEqual({ healthy: 'Healthy', attention: 'Needs attention', down: 'Not working', unknown: 'Unknown' })
-  })
-
-  test('the operators view, which also has a part that is being set up', () => {
-    expect(STATE_WORD).toEqual({ healthy: 'Healthy', attention: 'Needs attention', down: 'Not working', setup: 'Setting up', unknown: 'Unknown' })
-  })
-
-  test('the check that data arrives', () => {
-    expect(ARRIVAL_WORD).toEqual({ healthy: 'Healthy', attention: 'Needs attention', broken: 'Not working', unknown: 'Unknown' })
+  test('the one table: healthy, needs attention, not working, setting up, unknown', () => {
+    expect(HEALTH_WORD).toEqual({ healthy: 'Healthy', attention: 'Needs attention', down: 'Not working', setup: 'Setting up', unknown: 'Unknown' })
   })
 
   test('FUSION, which also has a part that is coming up and one that is switched off', () => {
-    expect(FUSION_WORD).toEqual({ healthy: 'Healthy', attention: 'Needs attention', broken: 'Not working', unknown: 'Unknown', starting: 'Starting', off: 'Off' })
+    expect(SHOWN_WORD).toEqual({ healthy: 'Healthy', attention: 'Needs attention', down: 'Not working', unknown: 'Unknown', starting: 'Starting', off: 'Off' })
   })
 })
 
@@ -53,7 +43,7 @@ describe('the words as they are drawn', () => {
   test.each([
     ['healthy', 'Healthy'],
     ['attention', 'Needs attention'],
-    ['broken', 'Not working'],
+    ['down', 'Not working'],
     ['unknown', 'Unknown'],
     ['starting', 'Starting'],
     ['off', 'Off'],
@@ -67,7 +57,7 @@ describe('the words as they are drawn', () => {
   test.each([
     ['healthy', 'Healthy'],
     ['attention', 'Needs attention'],
-    ['broken', 'Not working'],
+    ['down', 'Not working'],
     ['unknown', 'Unknown'],
   ] as const)('the word beside the arrival check for %s says %s', (health, word) => {
     const { container, unmount } = render(<HealthWord health={health} />)

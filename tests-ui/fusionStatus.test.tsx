@@ -76,7 +76,7 @@ describe('fusionProblems', () => {
       components: [{ component: 'logs', label: 'Logs', desired: 1, ready: 0, reason: 'Waiting for a volume' }, ...parts([1, 1, 1, 1]).filter((c) => c.component !== 'logs')],
     }
     const [p] = fusionProblems(status, null, NOW)
-    expect(p).toMatchObject({ id: 'down-logs', part: 'logs', health: 'broken', title: 'Logs is not running' })
+    expect(p).toMatchObject({ id: 'down-logs', part: 'logs', health: 'down', title: 'Logs is not running' })
     expect(p.detail).toContain('Waiting for a volume.')
     expect(p.detail).toContain('Logs are not being stored.')
     expect(p.detail).toContain('storage class')
@@ -125,13 +125,13 @@ describe('fusionHealth and partHealth', () => {
     expect(fusionHealth(running(), [])).toBe('healthy')
     const warn = { id: 'x', health: 'attention', title: '', detail: '', action: { kind: 'refresh', label: '' } } as const
     expect(fusionHealth(running(), [warn])).toBe('attention')
-    expect(fusionHealth(running(), [warn, { ...warn, health: 'broken' }])).toBe('broken')
+    expect(fusionHealth(running(), [warn, { ...warn, health: 'down' }])).toBe('down')
   })
 
   test('a part that is not ready reads Starting while FUSION comes up and Not working once FUSION needs attention', () => {
     const part = { component: 'logs' as const, label: 'Logs', desired: 1, ready: 0 }
     expect(partHealth(part, 'starting', [])).toBe('starting')
-    expect(partHealth(part, 'attention', [])).toBe('broken')
+    expect(partHealth(part, 'attention', [])).toBe('down')
     expect(partHealth({ ...part, ready: 1 }, 'running', [])).toBe('healthy')
     expect(partHealth({ ...part, desired: 0 }, 'running', [])).toBe('off')
     const own = { id: 'disk-logs', part: 'logs', health: 'attention', title: '', detail: '', action: { kind: 'refresh', label: '' } } as const

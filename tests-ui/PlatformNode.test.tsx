@@ -1,7 +1,8 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, test, vi } from 'vitest'
 import { PlatformNode, StatusGlyph } from '@/components/topology/PlatformNode'
-import { PLATFORM_STATUS_WORD, type PlatformEntity, type PlatformStatus } from '@/lib/platformLayer'
+import { type PlatformEntity, type PlatformStatus } from '@/lib/platformLayer'
+import { HEALTH_WORD } from '@/lib/status'
 
 const entity = (over: Partial<PlatformEntity> = {}): PlatformEntity => ({ id: 'local:a', kind: 'local', name: 'Local operator', detail: 'Metrics', status: 'healthy', sentence: '', sendsTo: [], ...over })
 
@@ -46,7 +47,7 @@ describe('StatusGlyph', () => {
     const states: PlatformStatus[] = ['healthy', 'attention', 'down', 'unknown']
     const { container } = render(<>{states.map((s) => <StatusGlyph key={s} status={s} />)}</>)
     const names = Array.from(container.querySelectorAll('svg')).map((el) => el.getAttribute('aria-label'))
-    expect(names).toEqual(states.map((s) => PLATFORM_STATUS_WORD[s]))
+    expect(names).toEqual(states.map((s) => HEALTH_WORD[s]))
     expect(new Set(Array.from(container.querySelectorAll('svg')).map((el) => el.getAttribute('class')?.match(/lucide-[a-z-]+/)?.[0])).size).toBe(4)
   })
 })

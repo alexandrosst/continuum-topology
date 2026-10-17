@@ -49,7 +49,7 @@ export function FusionOverview({ fusion, problems, retention, now }: { fusion: R
         ) : (
           <ul className="space-y-3">
             {problems.map((p) => (
-              <li key={p.id} className={clsx('rounded-xl border px-5 py-4', p.health === 'broken' ? 'border-bad/30 bg-bad/5' : 'border-warn/30 bg-warn/5')} data-testid={`fusion-problem-${p.id}`} data-health={p.health}>
+              <li key={p.id} className={clsx('rounded-xl border px-5 py-4', p.health === 'down' ? 'border-bad/30 bg-bad/5' : 'border-warn/30 bg-warn/5')} data-testid={`fusion-problem-${p.id}`} data-health={p.health}>
                 <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2 text-sm font-medium text-nb-300">

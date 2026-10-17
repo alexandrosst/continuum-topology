@@ -13,13 +13,10 @@ import { CENTRAL_OPERATOR_ID } from './fusionStatus'
 import { TELEMETRY_SIGNALS, type Modality } from './install'
 import { ago } from './observed'
 import type { Agent, OperatorDestination, RegionalOperator, TelemetryIntent } from './types'
-import { agentLiveness } from './status'
+import { agentLiveness, type Health, worstOf } from './status'
 
 /** The four states, the same words everywhere a platform part is named. */
-export type PlatformStatus = 'healthy' | 'attention' | 'down' | 'unknown'
-export const PLATFORM_STATUS_WORD: Record<PlatformStatus, string> = { healthy: 'Healthy', attention: 'Needs attention', down: 'Not working', unknown: 'Unknown' }
-const RANK: Record<PlatformStatus, number> = { healthy: 0, unknown: 1, attention: 2, down: 3 }
-const worst = (...s: PlatformStatus[]): PlatformStatus => s.reduce((a, b) => (RANK[b] > RANK[a] ? b : a), 'healthy')
+export type PlatformStatus = Health
 
 export type PlatformKind = 'agent' | 'local' | 'regional' | 'central' | 'fusion'
 
@@ -167,7 +164,7 @@ function operatorState(op: RegionalOperator, now: number): Pick<PlatformEntity, 
     default:
       parts.push({ status: 'unknown', sentence: 'Its health is not reported.' })
   }
-  const status = worst(...parts.map((p) => p.status))
+  const status = worstOf(parts.map((p) => p.status))
   const main = parts.filter((p) => p.status === status).sort((a, b) => Number(!!b.todo) - Number(!!a.todo))[0]
   return { ...main, lastHeartbeatAt }
 }
