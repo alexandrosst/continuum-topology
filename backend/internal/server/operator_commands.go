@@ -3,8 +3,9 @@ package server
 import (
 	"encoding/json"
 	"fmt"
-	"regexp"
 	"strings"
+
+	"continuum/internal/install"
 )
 
 // Everything below builds text a person pastes into a shell. A value that came from anywhere but a constant (an
@@ -12,16 +13,9 @@ import (
 // be one word of the command, and a private key is never an argument (arguments are visible to every process on the
 // machine and land in shell history): Secrets are applied from a manifest on standard input.
 
-// shellSafe is what needs no quoting: it has no character a POSIX shell treats specially.
-var shellSafe = regexp.MustCompile(`^[A-Za-z0-9_@%+=:,./-]+$`)
-
-// shellArg is s as one shell word, quoted only when it has to be, so the commands that were already safe read as before.
-func shellArg(s string) string {
-	if shellSafe.MatchString(s) {
-		return s
-	}
-	return shellQuote(s)
-}
+// shellArg is s as one shell word, quoted only when it has to be. The rule lives in internal/install, which is where commands are
+// written; these two names remain for the builders in this package that have not moved there yet.
+func shellArg(s string) string { return install.Arg(s) }
 
 // setFlag is one `--set key=value` Helm flag with the pair as a single, safely quoted word. An empty value is a
 // deliberate "clear this", which Helm reads as an empty string.
@@ -92,11 +86,8 @@ func withNamespace(namespace, cmd string) string {
 	return fmt.Sprintf("kubectl create namespace %s --dry-run=client -o yaml | kubectl apply -f - && \\\n%s", namespace, cmd)
 }
 
-// shellQuote wraps s in single quotes for a POSIX shell, closing and reopening the quotes around any
-// single quote inside it, so a name or a label value can never break out of the command it is pasted into.
-func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
-}
+// shellQuote wraps s in single quotes for a POSIX shell (see shellArg).
+func shellQuote(s string) string { return install.Quote(s) }
 
 // upgradeWithFlags is the `helm upgrade` of a release that already runs, stating the given Helm flags on top of what it was
 // installed with (--reset-then-reuse-values, Helm 3.14 or newer; see upgradeCommand for why not --reuse-values). ref and version
