@@ -216,45 +216,87 @@ type configFacts struct {
 	ManualTargets, AddressTargets, DerivedTargets []issuedTarget
 }
 
-// compileConfig is the whole of what an agent is told, decided from the facts alone: what it may send, how often to check itself,
-// the link peers, which credentials go where, and which targets it measures. It returns the Config, with its digest, and the
-// targets it issued. It reads nothing and records nothing.
-func compileConfig(f configFacts) (*continuumv1.Config, []issuedTarget) {
-	cfg := &continuumv1.Config{ApprovedAccessTier: uint32(f.Tier), HeartbeatSeconds: f.Heartbeat, ResyncSeconds: f.Resync, ServerTimeUnix: f.ServerTime,
-		PausedCollectors: append([]string(nil), f.Consent.Paused...), ExcludedNamespaces: append([]string(nil), f.Consent.Excluded...), ClusterId: f.ClusterID}
-	// The iperf3 credentials follow the same gates as the peers (tier 2, flow collector not paused) and go only where the cluster has
-	// the role: the client side to the runner's LinkPeer for the server, the server side to the server's own Config. The peers are
-	// copied, so the facts are left as they were given.
-	for _, p := range f.Peers {
-		lp := proto.Clone(p).(*continuumv1.LinkPeer)
-		if lp.Throughput {
-			lp.IperfClient = f.IperfClients[lp.ClusterId]
+// configBuild is a Config being compiled and the targets issued with it.
+type configBuild struct {
+	cfg    *continuumv1.Config
+	issued []issuedTarget
+}
+
+// A configSection is one part of an agent's Config and the facts it is made from. Each owns named fields of the Config and sets
+// nothing else, so what an agent is told is the sum of its sections, and a new field has to be given to one of them
+// (config_sections_test.go fails until it is). The sections are independent: none reads what another wrote.
+type configSection struct {
+	name   string
+	fields []string // the proto names of the Config fields this section sets
+	fill   func(f configFacts, b *configBuild)
+}
+
+// configSections are the parts of a Config, in the order they are compiled.
+var configSections = []configSection{
+	{"policy", []string{"approved_access_tier", "paused_collectors", "excluded_namespaces"}, func(f configFacts, b *configBuild) {
+		b.cfg.ApprovedAccessTier = uint32(f.Tier)
+		b.cfg.PausedCollectors = append([]string(nil), f.Consent.Paused...)
+		b.cfg.ExcludedNamespaces = append([]string(nil), f.Consent.Excluded...)
+	}},
+	{"timing", []string{"heartbeat_seconds", "resync_seconds"}, func(f configFacts, b *configBuild) {
+		b.cfg.HeartbeatSeconds, b.cfg.ResyncSeconds = f.Heartbeat, f.Resync
+	}},
+	{"cluster", []string{"cluster_id"}, func(f configFacts, b *configBuild) {
+		b.cfg.ClusterId = f.ClusterID
+	}},
+	{"links", []string{"link_peers", "link_iperf_server"}, func(f configFacts, b *configBuild) {
+		// The iperf3 credentials follow the same gates as the peers (tier 2, flow collector not paused) and go only where the cluster
+		// has the role: the client side to the runner's LinkPeer for the server, the server side to the server's own Config. The peers
+		// are copied, so the facts are left as they were given.
+		for _, p := range f.Peers {
+			lp := proto.Clone(p).(*continuumv1.LinkPeer)
+			if lp.Throughput {
+				lp.IperfClient = f.IperfClients[lp.ClusterId]
+			}
+			b.cfg.LinkPeers = append(b.cfg.LinkPeers, lp)
 		}
-		cfg.LinkPeers = append(cfg.LinkPeers, lp)
+		if f.Tier >= 2 && !f.Consent.has("flow") {
+			b.cfg.LinkIperfServer = f.IperfServer
+		}
+	}},
+	{"probes", []string{"probe_targets", "measure_seconds"}, func(f configFacts, b *configBuild) {
+		var ts []issuedTarget
+		ts = append(ts, f.ManualTargets...)
+		ts = append(ts, f.AddressTargets...)
+		if f.Tier >= 2 {
+			ts = append(ts, f.DerivedTargets...)
+		}
+		if f.Consent.has("measure") {
+			ts = nil // the agent is asked to stop measuring; nothing is issued, so nothing measured is accepted either
+		}
+		if len(ts) > measure.MaxTargets {
+			ts = ts[:measure.MaxTargets]
+		}
+		for _, t := range ts {
+			b.cfg.ProbeTargets = append(b.cfg.ProbeTargets, &continuumv1.ProbeTarget{Id: t.ID, Host: t.Host, Port: uint32(t.Port)})
+		}
+		if len(ts) > 0 {
+			b.cfg.MeasureSeconds = f.MeasureSeconds
+		}
+		b.issued = ts
+	}},
+}
+
+// configEnvelope are the fields of a Config that belong to no section: the moment it was made, and the digest of everything else.
+// Neither is something an administrator or the organisation set, so neither is part of what the digest stands for.
+var configEnvelope = []string{"server_time_unix", "digest"}
+
+// compileConfig is the whole of what an agent is told, decided from the facts alone, section by section: what it may send, how
+// often to check itself, the link peers and which credentials go where, and which targets it measures. It returns the Config, with
+// its digest, and the targets it issued. It reads nothing and records nothing.
+func compileConfig(f configFacts) (*continuumv1.Config, []issuedTarget) {
+	b := &configBuild{cfg: &continuumv1.Config{}}
+	for _, s := range configSections {
+		s.fill(f, b)
 	}
-	if f.Tier >= 2 && !f.Consent.has("flow") {
-		cfg.LinkIperfServer = f.IperfServer
-	}
-	var ts []issuedTarget
-	ts = append(ts, f.ManualTargets...)
-	ts = append(ts, f.AddressTargets...)
-	if f.Tier >= 2 {
-		ts = append(ts, f.DerivedTargets...)
-	}
-	if f.Consent.has("measure") {
-		ts = nil // the agent is asked to stop measuring; nothing is issued, so nothing measured is accepted either
-	}
-	if len(ts) > measure.MaxTargets {
-		ts = ts[:measure.MaxTargets]
-	}
-	for _, t := range ts {
-		cfg.ProbeTargets = append(cfg.ProbeTargets, &continuumv1.ProbeTarget{Id: t.ID, Host: t.Host, Port: uint32(t.Port)})
-	}
-	if len(ts) > 0 {
-		cfg.MeasureSeconds = f.MeasureSeconds
-	}
-	cfg.Digest = configHash(cfg)
-	return cfg, ts
+	b.cfg.ServerTimeUnix = f.ServerTime
+	b.cfg.Digest = configHash(b.cfg)
+	return b.cfg, b.issued
 }
 
 func configHash(c *continuumv1.Config) string {
