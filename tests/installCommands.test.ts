@@ -9,7 +9,7 @@ import { helmUpgradeCommand, telemetryUpgradeCommand, PICKABLE_SIGNALS, TELEMETR
 import { EXPORT_PRESETS } from '../src/lib/exportPresets'
 import { newProcessorEntry } from '../src/lib/processorCatalog'
 import { buildOperatorInstallCommand } from '../src/lib/operatorInstall'
-import { telemetrySpec } from '../src/lib/telemetrySpec'
+import { processorSpec, telemetrySpec } from '../src/lib/telemetrySpec'
 
 // The install commands the UI prints are built here, in TypeScript, as strings. The chart that runs them is checked in Go
 // (backend/internal/chart/install_commands_test.go): that test takes every command pinned below, reads its --set flags the way a
@@ -39,6 +39,8 @@ interface Spec {
   scope?: { namespaces: string[]; exclude: string[]; selector: string }
   /** What telemetry was asked for: lib/telemetrySpec.ts, which is also what the server will be sent. */
   telemetry?: ReturnType<typeof telemetrySpec>
+  /** The regional operator chart's extra processors. */
+  operatorProcessors?: ReturnType<typeof processorSpec>[]
 }
 interface Case { name: string; chart: Chart; command: string; spec?: Spec }
 
@@ -155,11 +157,11 @@ telemetry('upgrade telemetry: processors emptied', had({ applicationLogs: true }
 }
 
 // ---------- the regional operator's chart ----------
-add('operator: install', 'regional-operator', operatorBase)
+add('operator: install', 'regional-operator', operatorBase, { head: operatorBase })
 {
   const cmd = buildOperatorInstallCommand(operatorBase, [filter, tail])
   assert.notEqual(cmd, operatorBase, 'operator processors: the command is the bare install')
-  add('operator: a filter and tail sampling', 'regional-operator', cmd)
+  add('operator: a filter and tail sampling', 'regional-operator', cmd, { head: operatorBase, operatorProcessors: [filter, tail].map(processorSpec) })
 }
 
 /** The cases as the file holds them: a command per entry, and its spec on one line, so that a change of what is written reads as a change of

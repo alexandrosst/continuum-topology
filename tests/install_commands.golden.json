@@ -434,11 +434,13 @@
   {
     "name": "operator: install",
     "chart": "regional-operator",
-    "command": "helm install continuum-regional-operator oci://registry.example.com/continuum-regional-operator --namespace continuum-system --create-namespace"
+    "command": "helm install continuum-regional-operator oci://registry.example.com/continuum-regional-operator --namespace continuum-system --create-namespace",
+    "spec": {"head":"helm install continuum-regional-operator oci://registry.example.com/continuum-regional-operator --namespace continuum-system --create-namespace"}
   },
   {
     "name": "operator: a filter and tail sampling",
     "chart": "regional-operator",
-    "command": "helm install continuum-regional-operator oci://registry.example.com/continuum-regional-operator --namespace continuum-system --create-namespace \\\n  --set-json processors.extraProcessors='{\"filter/drop_debug\":{\"error_mode\":\"ignore\",\"log_conditions\":[\"log.attributes[\\\"level\\\"] == \\\"debug\\\"\",\"log.attributes[\\\"user\\\"] == \\\"O'\\''Brien\\\"\"]},\"tail_sampling/errors_only\":{\"decision_wait\":\"10s\",\"policies\":[{\"name\":\"errors\",\"type\":\"status_code\",\"status_code\":{\"status_codes\":[\"ERROR\"]}}]}}' \\\n  --set-string processors.extraProcessorNames[0]=filter/drop_debug \\\n  --set-string processors.extraTracesProcessorNames[0]=tail_sampling/errors_only"
+    "command": "helm install continuum-regional-operator oci://registry.example.com/continuum-regional-operator --namespace continuum-system --create-namespace \\\n  --set-json processors.extraProcessors='{\"filter/drop_debug\":{\"error_mode\":\"ignore\",\"log_conditions\":[\"log.attributes[\\\"level\\\"] == \\\"debug\\\"\",\"log.attributes[\\\"user\\\"] == \\\"O'\\''Brien\\\"\"]},\"tail_sampling/errors_only\":{\"decision_wait\":\"10s\",\"policies\":[{\"name\":\"errors\",\"type\":\"status_code\",\"status_code\":{\"status_codes\":[\"ERROR\"]}}]}}' \\\n  --set processors.extraProcessorNames='{filter/drop_debug}' \\\n  --set processors.extraTracesProcessorNames='{tail_sampling/errors_only}'",
+    "spec": {"head":"helm install continuum-regional-operator oci://registry.example.com/continuum-regional-operator --namespace continuum-system --create-namespace","operatorProcessors":[{"id":"proc-1","kind":"filter","name":"drop_debug","config":{"signal":"log","conditions":[{"field":"level","op":"eq","value":"debug"},{"field":"user","op":"eq","value":"O'Brien"}]},"raw":""},{"id":"proc-2","kind":"tailSampling","name":"errors_only","config":{"decisionWaitSeconds":10,"policies":[{"name":"errors","type":"statusCode","probabilisticPercent":10,"statusCodes":"ERROR","latencyThresholdMs":500}]},"raw":""}]}
   }
 ]

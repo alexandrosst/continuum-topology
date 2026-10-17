@@ -26,10 +26,10 @@ export function buildOperatorInstallCommand(install: string, extraProcessors: Pr
   cmd += ` \\\n  --set-json processors.extraProcessors=${shQuote(JSON.stringify(buildExtraProcessors(extraProcessors)))}`
   const byTarget = { extraProcessorNames: [] as string[], extraTracesProcessorNames: [] as string[] }
   for (const e of extraProcessors) byTarget[processorTarget(e)].push(processorKey(e))
+  // Each list whole, as one value (`--set name='{a,b}'`): a list replaces what an earlier command set, where an indexed `name[0]=` would leave the
+  // tail of a longer one in place. Only the lists that have something in them are stated.
   for (const [target, keys] of Object.entries(byTarget)) {
-    keys.forEach((key, i) => {
-      cmd += ` \\\n  --set-string processors.${target}[${i}]=${shArg(key)}`
-    })
+    if (keys.length) cmd += ` \\\n  --set processors.${target}=${shQuote(`{${keys.join(',')}}`)}`
   }
   return cmd
 }

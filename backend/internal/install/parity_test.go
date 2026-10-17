@@ -8,9 +8,9 @@ import (
 	"testing"
 )
 
-// The web UI used to write the commands it shows in TypeScript; they are moving here, one kind at a time. tests/installCommands.test.ts
+// The web UI writes the commands it shows in TypeScript, and the server has to be able to write the same ones. tests/installCommands.test.ts
 // pins what the UI prints and, beside each command, the spec of what it was asked to write. This test gives the same spec to the renderer
-// in this package and demands the same bytes. A command is moved when its case has a spec; the TypeScript is deleted when every case does.
+// in this package and demands the same bytes. Every case has one.
 const uiGolden = "../../../tests/install_commands.golden.json"
 
 // spec is what a case says about the command. The fields are the ones of tests/installCommands.test.ts's Spec.
@@ -20,6 +20,8 @@ type spec struct {
 	Collectors *Collectors   `json:"collectors"`
 	Scope      *Scope        `json:"scope"`
 	Telemetry  *Telemetry    `json:"telemetry"`
+	// OperatorProcessors are the regional operator chart's extra processors.
+	OperatorProcessors []Processor `json:"operatorProcessors"`
 }
 
 type uiCase struct {
@@ -67,11 +69,15 @@ func (s spec) write() (string, error) {
 		}
 		values = append(values, v...)
 	}
+	if len(s.OperatorProcessors) > 0 {
+		v, err := OperatorProcessors(s.OperatorProcessors)
+		if err != nil {
+			return "", err
+		}
+		values = append(values, v...)
+	}
 	return head + Continued(values), nil
 }
-
-// portedCases is how many cases carry a spec. It only goes up: a case that loses its spec would stop being checked here.
-const portedCases = 72
 
 func TestWhatTheUIPrintsIsWhatTheRendererWrites(t *testing.T) {
 	cases := readUICases(t)
@@ -91,7 +97,7 @@ func TestWhatTheUIPrintsIsWhatTheRendererWrites(t *testing.T) {
 			}
 		})
 	}
-	if ported < portedCases {
-		t.Fatalf("%d of %d cases carry a spec, %d did before", ported, len(cases), portedCases)
+	if ported != len(cases) {
+		t.Fatalf("%d of %d cases carry a spec: every command the UI prints must say what it was asked to write", ported, len(cases))
 	}
 }

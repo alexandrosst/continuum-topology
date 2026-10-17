@@ -1,4 +1,5 @@
 import { isKept, KEPT_GROUPS, type ExportTarget, type ScopeOverrideInput, type TelemetryInput } from './install'
+import type { ProcessorEntry } from './processorCatalog'
 
 // What the server is asked to write a telemetry command from: backend/internal/install's Telemetry, as JSON. The web page keeps the
 // draft a person is editing (including which groups are still "as installed", which only the draft can tell); this is that draft said
@@ -8,6 +9,9 @@ const destination = (d: ExportTarget) => ({
   endpoint: d.exportEndpoint, protocol: d.exportProtocol, insecure: d.exportInsecure,
   authHeader: d.exportAuthHeaderName, authSecret: d.exportAuthSecretName, authKey: d.exportAuthSecretKey, operator: d.exportOperatorId,
 })
+
+/** An extra processor, said in the renderer's words (its typed config is sent as the page holds it). */
+export const processorSpec = (e: ProcessorEntry) => ({ id: e.id, kind: e.kind, name: e.name, config: e.config, raw: e.raw })
 
 const scope = (s: ScopeOverrideInput) => ({ namespaces: s.namespaces, exclude: s.exclude, workloads: s.workloads })
 
@@ -32,7 +36,7 @@ export function telemetrySpec(t: TelemetryInput, measurementsOn?: boolean) {
       // An emptied field is NaN, which JSON writes as null: a number that is not one, which the renderer refuses.
       tracesSamplingPercent: Number.isFinite(t.tracesSamplingPercent) ? t.tracesSamplingPercent : null,
       debug: t.debugVerbosity, tags: t.tags,
-      extra: t.extraProcessors.map((e) => ({ id: e.id, kind: e.kind, name: e.name, config: e.config, raw: e.raw })),
+      extra: t.extraProcessors.map(processorSpec),
     },
     owner: { orgId: t.resourceOrgId, clusterId: t.resourceClusterId },
     kept: KEPT_GROUPS.filter((g) => isKept(t, g)),
