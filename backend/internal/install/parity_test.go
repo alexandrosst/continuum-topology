@@ -101,3 +101,37 @@ func TestWhatTheUIPrintsIsWhatTheRendererWrites(t *testing.T) {
 		t.Fatalf("%d of %d cases carry a spec: every command the UI prints must say what it was asked to write", ported, len(cases))
 	}
 }
+
+const uiSecretsGolden = "../../../tests/install_secrets.golden.json"
+
+// The commands that create the Secrets the credential flags point at are pinned the same way, with the spec each was written from. An
+// empty command is "nothing to create".
+func TestTheCredentialSecretsTheUIPrintsAreWhatTheRendererWrites(t *testing.T) {
+	raw, err := os.ReadFile(uiSecretsGolden)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cases []struct {
+		Name    string `json:"name"`
+		Command string `json:"command"`
+		Spec    struct {
+			Telemetry Telemetry `json:"telemetry"`
+			Namespace string    `json:"namespace"`
+		} `json:"spec"`
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&cases); err != nil {
+		t.Fatal(err)
+	}
+	if len(cases) < 10 {
+		t.Fatalf("only %d cases", len(cases))
+	}
+	for _, c := range cases {
+		t.Run(c.Name, func(t *testing.T) {
+			if got := c.Spec.Telemetry.CredentialCommand(c.Spec.Namespace); got != c.Command {
+				t.Fatalf("the renderer wrote\n%s\nthe UI prints\n%s", got, c.Command)
+			}
+		})
+	}
+}

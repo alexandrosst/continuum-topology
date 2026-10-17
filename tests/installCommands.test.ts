@@ -5,7 +5,7 @@ import {
   cleanTags, emptyScopeOverride, emptyTelemetry, keepAsInstalled, telemetryProblems, withFlowObserver, withMeasurements, withNodeProbe, withScope,
   withTelemetry, emptyScope, scopeProblems, type ScopeInput, type TelemetryInput,
 } from '../src/lib/install'
-import { helmUpgradeCommand, telemetryUpgradeCommand, PICKABLE_SIGNALS, TELEMETRY_INTENT_PRESETS, applyIntentPreset } from '../src/lib/consent'
+import { helmUpgradeCommand, telemetryUpgradeCommand, telemetrySecretCommand, PICKABLE_SIGNALS, TELEMETRY_INTENT_PRESETS, applyIntentPreset } from '../src/lib/consent'
 import { EXPORT_PRESETS } from '../src/lib/exportPresets'
 import { newProcessorEntry } from '../src/lib/processorCatalog'
 import { buildOperatorInstallCommand } from '../src/lib/operatorInstall'
@@ -164,9 +164,39 @@ add('operator: install', 'regional-operator', operatorBase, { head: operatorBase
   add('operator: a filter and tail sampling', 'regional-operator', cmd, { head: operatorBase, operatorProcessors: [filter, tail].map(processorSpec) })
 }
 
+// ---------- the Secrets the credential flags point at ----------
+// The commands that create them are pinned in tests/install_secrets.golden.json, beside the spec each was written from. An empty command is
+// "nothing to create", which is also pinned.
+interface SecretCase { name: string; command: string; spec: { telemetry: ReturnType<typeof telemetrySpec>; namespace?: string } }
+const secretCases: SecretCase[] = []
+function secrets(name: string, t: TelemetryInput, namespace?: string) {
+  assert.ok(!secretCases.some((c) => c.name === name), `two secret cases are called ${name}`)
+  const command = telemetrySecretCommand(t, undefined, namespace === undefined ? undefined : { namespace }) ?? ''
+  secretCases.push({ name, command, spec: { telemetry: telemetrySpec(t), ...(namespace === undefined ? {} : { namespace }) } })
+}
+{
+  const routed = (lanes: Record<string, Partial<TelemetryInput>>, over: Partial<TelemetryInput> = {}): TelemetryInput => ({
+    ...emptyTelemetry, resourceUsage: true, systemLogs: true, traces: true, exportSplit: true,
+    exportLanes: { metrics: lane('m.example.com:4317', lanes.metrics), logs: lane('l.example.com:4317', lanes.logs), traces: lane('t.example.com:4317', lanes.traces) }, ...over,
+  })
+  secrets('none named', to({ resourceUsage: true }))
+  secrets('one, the default key', to({ resourceUsage: true, exportAuthSecretName: 'otel-token' }))
+  secrets('one, its own key', to({ resourceUsage: true, exportAuthSecretName: 'otel-token', exportAuthSecretKey: 'api-key' }))
+  secrets('one, in the namespace of the release', to({ resourceUsage: true, exportAuthSecretName: 'otel-token' }), 'ikhnos')
+  secrets('one, a namespace that is not a name is dropped', to({ resourceUsage: true, exportAuthSecretName: 'otel-token' }), 'x; rm -rf /')
+  secrets('an operator is the same', to({ resourceUsage: true, exportAuthSecretName: 'otel-token', exportOperatorId: 'op-1' }))
+  secrets('telemetry off', { ...emptyTelemetry, exportAuthSecretName: 'otel-token' })
+  secrets('a draft with a problem', to({ resourceUsage: true, exportEndpoint: '', exportAuthSecretName: 'otel-token' }))
+  secrets('a Secret name that is not a name', to({ resourceUsage: true, exportAuthSecretName: 'x; rm -rf /' }))
+  secrets('routes sharing a Secret', routed({ metrics: { exportAuthSecretName: 'grafana-token' }, logs: { exportAuthSecretName: 'grafana-token' }, traces: { exportAuthSecretName: 'tempo-token' } }))
+  secrets('routes, one Secret under two keys', routed({ metrics: { exportAuthSecretName: 'shared', exportAuthSecretKey: 'a' }, logs: { exportAuthSecretName: 'shared', exportAuthSecretKey: 'b' } }))
+  secrets('routes, one with none', routed({ traces: { exportAuthSecretName: 'tempo-token' } }))
+  secrets('routes, a lane with no signal on is not read', routed({ logs: { exportAuthSecretName: 'unused' } }, { systemLogs: false }))
+}
+
 /** The cases as the file holds them: a command per entry, and its spec on one line, so that a change of what is written reads as a change of
  *  a line and not as thousands. */
-function serialize(all: Case[]): string {
+function serialize(all: { spec?: unknown }[]): string {
   const entries = all.map(({ spec, ...rest }) => {
     const text = JSON.stringify(rest, null, 2)
     return (spec ? `${text.replace(/\n}$/, '')},\n  "spec": ${JSON.stringify(spec)}\n}` : text).split('\n').map((l) => `  ${l}`).join('\n')
@@ -177,6 +207,16 @@ function serialize(all: Case[]): string {
 test('every case is named once and carries a command', () => {
   assert.ok(cases.length >= 60, `only ${cases.length} cases: a loop above no longer produces its cases`)
   for (const c of cases) assert.ok(c.command.startsWith('helm '), c.name)
+})
+
+test('the commands that create the credential Secrets are the ones pinned in tests/install_secrets.golden.json', () => {
+  const file = 'tests/install_secrets.golden.json'
+  const got = serialize(secretCases)
+  if (process.env.UPDATE_GOLDEN) {
+    writeFileSync(file, got)
+    return
+  }
+  assert.equal(got, readFileSync(file, 'utf8'), 'a Secret command the UI prints changed. If this is intended: UPDATE_GOLDEN=1 npm run test:unit')
 })
 
 test('the commands the UI prints are the ones pinned in tests/install_commands.golden.json', () => {
