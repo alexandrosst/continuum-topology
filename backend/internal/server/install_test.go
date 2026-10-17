@@ -20,7 +20,11 @@ func testAdmin(t *testing.T) *Admin {
 }
 
 func cmdFor(a *Admin, img ImageConfig) string {
-	return a.installCommand(img, "cnt_1", store.Token{AccessTier: 2})
+	cmd, err := a.installCommand(img, "cnt_1", store.Token{AccessTier: 2})
+	if err != nil {
+		panic(err)
+	}
+	return cmd
 }
 
 // The install command must never point at a directory that exists only in a source checkout.
@@ -154,7 +158,7 @@ func TestInstallCommandUsesThePublishedChartVersionWhenKnown(t *testing.T) {
 
 	// upgradeCommand (the tier-ceiling "harden" hint) must agree with installCommand.
 	a.ChartRef = ""
-	if cmd := a.upgradeCommand(img, 2, "continuum-system", "continuum-agent"); !strings.Contains(cmd, " --version 0.0.0-edge.5fb6022 ") {
+	if cmd, err := a.upgradeCommand(img, 2, "continuum-system", "continuum-agent"); err != nil || !strings.Contains(cmd, " --version 0.0.0-edge.5fb6022 ") {
 		t.Fatalf("upgradeCommand should also use AgentChartVersion:\n%s", cmd)
 	}
 }

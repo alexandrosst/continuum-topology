@@ -47,6 +47,15 @@ func (p *pinRig) admin(tweak func(*Admin)) *Admin {
 	return a
 }
 
+// ok is the command, or the end of the test when it could not be written.
+func (p *pinRig) ok(command string, err error) string {
+	p.t.Helper()
+	if err != nil {
+		p.t.Fatal(err)
+	}
+	return command
+}
+
 func (p *pinRig) add(a *Admin, name, chart, command string) {
 	p.t.Helper()
 	if p.names[name] {
@@ -114,18 +123,18 @@ func (p *pinRig) agentCommands() {
 		a := p.admin(c.tweak)
 		for _, i := range images {
 			for _, tier := range []int{0, 1, 2} {
-				p.add(a, fmt.Sprintf("agent/install/%s/%s/tier%d", c.name, i.name, tier), "agent", a.installCommand(i.img, "cnt_SECRET", store.Token{AccessTier: tier}))
+				p.add(a, fmt.Sprintf("agent/install/%s/%s/tier%d", c.name, i.name, tier), "agent", p.ok(a.installCommand(i.img, "cnt_SECRET", store.Token{AccessTier: tier})))
 			}
 		}
 	}
 	a := p.admin(nil)
 	for _, i := range images {
 		for _, tier := range []int{0, 1, 2} {
-			p.add(a, fmt.Sprintf("agent/upgrade/%s/tier%d", i.name, tier), "agent", a.upgradeCommand(i.img, tier, "", ""))
+			p.add(a, fmt.Sprintf("agent/upgrade/%s/tier%d", i.name, tier), "agent", p.ok(a.upgradeCommand(i.img, tier, "", "")))
 		}
-		p.add(a, "agent/upgrade/"+i.name+"/named", "agent", a.upgradeCommand(i.img, 2, "apps-team", "obs-agent"))
+		p.add(a, "agent/upgrade/"+i.name+"/named", "agent", p.ok(a.upgradeCommand(i.img, 2, "apps-team", "obs-agent")))
 	}
-	p.add(a, "agent/upgrade/unsafe-names-are-not-trusted", "agent", a.upgradeCommand(ImageConfig{}, 2, "ns; rm -rf /", "rel$(id)"))
+	p.add(a, "agent/upgrade/unsafe-names-are-not-trusted", "agent", p.ok(a.upgradeCommand(ImageConfig{}, 2, "ns; rm -rf /", "rel$(id)")))
 	for _, c := range []struct{ name, ns, rel string }{{"unreported", "", ""}, {"namespace-only", "apps-team", ""}, {"named", "apps-team", "obs-agent"}} {
 		helm, secret, _ := teardownCommands(c.ns, c.rel)
 		p.add(nil, "agent/teardown/"+c.name+"/helm", "", helm)

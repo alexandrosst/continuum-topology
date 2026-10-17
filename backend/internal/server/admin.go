@@ -18,6 +18,7 @@ import (
 
 	"continuum/internal/chart"
 	"continuum/internal/fusionapi"
+	"continuum/internal/install"
 	"continuum/internal/probe"
 	"continuum/internal/store"
 	"continuum/internal/workspace"
@@ -1493,7 +1494,11 @@ func (a *Admin) state(w http.ResponseWriter, r *http.Request) {
 		img := a.images(a.core(r))
 		for i, ag := range doc.Agents {
 			if ag.AccessTier < ag.InstalledTier {
-				doc.Agents[i].HardenHelm = a.upgradeCommand(img, ag.AccessTier, ag.Namespace, ag.ReleaseName)
+				cmd, err := a.upgradeCommand(img, ag.AccessTier, ag.Namespace, ag.ReleaseName)
+				if err != nil {
+					a.installConfigError(err) // logged; the agent is shown without the command
+				}
+				doc.Agents[i].HardenHelm = cmd
 			}
 		}
 	} else {
@@ -1542,12 +1547,24 @@ func (a *Admin) createToken(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
+	// The token is shown once, with the command that uses it: a command that cannot be written (the chart this server was told to
+	// name is not one Helm can be asked for) is found before the token exists, not after it is spent.
+	img := a.images(a.core(r))
+	if _, err := a.installCommand(img, "check", store.Token{AccessTier: req.Tier}); err != nil {
+		a.fail(w, a.installConfigError(err))
+		return
+	}
 	secret, t, err := a.core(r).CreateTokenFor(r.Context(), actor(r), req.Name, req.Tier, req.ExpectedCluster)
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 201, map[string]any{"token": secret, "meta": toTokenDoc(t), "install": a.installCommand(a.images(a.core(r)), secret, t)})
+	cmd, err := a.installCommand(img, secret, t)
+	if err != nil {
+		a.fail(w, a.installConfigError(err))
+		return
+	}
+	writeJSON(w, 201, map[string]any{"token": secret, "meta": toTokenDoc(t), "install": cmd})
 }
 
 // chartDefaultAccessTier mirrors continuum-agent/values.yaml's own access.tier default. Printing --set access.tier=N
@@ -1560,6 +1577,23 @@ const chartDefaultAccessTier = 2
 // packaged straight from a checkout with no `helm package --version` override (scripts/publish.sh does this); they
 // can disagree for a CI-published chart, whose OCI version is a separate, deliberately-overridden string (edge:
 // 0.0.0-edge.<sha>; a tagged release: the tag) that Chart.yaml's checked-in text was never meant to track.
+// CheckInstallConfig says, at start-up, whether the commands this server prints can be written with how it was set up: the chart it
+// names and the versions it asks for. A server that cannot is not started, which is better than one whose every install page fails.
+func (a *Admin) CheckInstallConfig() error {
+	img := a.imageDefaults()
+	if _, err := a.installCommand(img, "check", store.Token{AccessTier: chartDefaultAccessTier}); err != nil {
+		return fmt.Errorf("the agent install command cannot be written (check --chart-ref and the chart version): %w", err)
+	}
+	return nil
+}
+
+// installConfigError is a command this server cannot write, because of how it was set up (its chart reference or version), not
+// because of anything in the request: logged in full, and told to the caller without the setting.
+func (a *Admin) installConfigError(err error) error {
+	a.C.Log.Error("an install command cannot be written: check --chart-ref and the chart versions", "err", err)
+	return errf(KindInternal, "this server is set up with a chart it cannot name in an install command; see its log")
+}
+
 func (a *Admin) agentChartVersion() string {
 	if a.AgentChartVersion != "" {
 		return a.AgentChartVersion
@@ -1582,33 +1616,43 @@ func (a *Admin) operatorChartVersion() string {
 // image.digest when set; with a digest the chart pulls repository@digest and ignores the tag) and fetches the chart
 // from the same registry. Without one it names the chart file the server serves and leaves every image value to the
 // chart's own defaults.
-func (a *Admin) installCommand(img ImageConfig, secret string, t store.Token) string {
-	ref, version := a.chartRef(img), ""
-	if ref == "" {
-		ref = "./" + chart.Filename() // the file the wizard offers to download
-	} else if !strings.HasSuffix(ref, ".tgz") {
-		version = " --version " + a.agentChartVersion() // a registry or repository holds many versions
-	}
+func (a *Admin) installCommand(img ImageConfig, secret string, t store.Token) (string, error) {
+	ref, version := a.agentChart(img)
 	// enrollment.key packs the CA pin and the one-time token into the single flag the chart splits back apart at
 	// render time (see continuum-agent's _helpers.tpl): one thing to paste instead of two, without hiding either
 	// value's own text - the pin is the CA's public-key pin (sha256/<base64>, which survives re-issuing the CA
 	// certificate), the token cannot contain ".", and base64 has no ".", so joining them is unambiguous.
-	var b strings.Builder
-	fmt.Fprintf(&b, "helm install continuum-agent %s%s \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=%s \\\n  --set enrollment.key=%s.%s",
-		ref, version, a.AgentAddr, a.C.CA.SPKIPin(), secret)
+	values := []install.Value{
+		install.Set("server.address", a.AgentAddr),
+		install.Set("enrollment.key", a.C.CA.SPKIPin()+"."+secret),
+	}
 	if t.AccessTier != chartDefaultAccessTier {
-		fmt.Fprintf(&b, " \\\n  --set access.tier=%d", t.AccessTier)
+		values = append(values, install.Set("access.tier", strconv.Itoa(t.AccessTier)))
 	}
 	if img.Configured() {
-		fmt.Fprintf(&b, " \\\n  --set image.repository=%s/continuum", img.Registry)
+		values = append(values, install.Set("image.repository", img.Registry+"/continuum"))
 		if img.Tag != "" {
-			fmt.Fprintf(&b, " \\\n  --set image.tag=%s", img.Tag)
+			values = append(values, install.Set("image.tag", img.Tag))
 		}
 		if img.Digest != "" {
-			fmt.Fprintf(&b, " \\\n  --set image.digest=%s", img.Digest)
+			values = append(values, install.Set("image.digest", img.Digest))
 		}
 	}
-	return b.String()
+	return install.Helm{Verb: install.Install, Release: "continuum-agent", Chart: ref, Version: version, Namespace: "continuum-system", CreateNamespace: true,
+		Values: values, Layout: install.Wrapped}.Render()
+}
+
+// agentChart is where the agent chart is, as the commands that install and upgrade it name it: the chart reference and, for one that
+// is a repository holding many versions (not a packaged file, which is one), the version to fetch.
+func (a *Admin) agentChart(img ImageConfig) (ref, version string) {
+	ref = a.chartRef(img)
+	if ref == "" {
+		return "./" + chart.Filename(), "" // the file the wizard offers to download
+	}
+	if !strings.HasSuffix(ref, ".tgz") {
+		version = a.agentChartVersion()
+	}
+	return ref, version
 }
 
 func (a *Admin) deleteToken(w http.ResponseWriter, r *http.Request) {

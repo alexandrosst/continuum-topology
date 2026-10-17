@@ -371,6 +371,9 @@ func run(log *slog.Logger, selfProbe probeOpts, dataDir, agentListen, agentAddr,
 	}()
 
 	admin := &server.Admin{P: platform, C: core, TrustProxy: behindProxy, SSOHeaderName: ssoHeader, SecureCookies: !isLoopback(adminListen), AgentAddr: agentAddr, AgentExposure: agentExposure, ReleaseName: releaseName, ReleaseNamespace: releaseNamespace, ChartRef: chartRef, ImageRegistry: img.Registry, ImageTag: img.Tag, ImageDigest: img.Digest, PublicURL: os.Getenv("CONTINUUM_PUBLIC_URL"), Origins: origins, UIDir: uiDir, Version: version, AgentChartVersion: agentChartVersion, OperatorChartVersion: operatorChartVersion}
+	if err := admin.CheckInstallConfig(); err != nil {
+		return err
+	}
 	// The private CA that signed this server's own HTTPS certificate, when it has one: handed to a regional operator so its
 	// heartbeat can verify the server. A file the administrator mounts (extraVolumes); unreadable is a startup error, not a
 	// silent heartbeat that can never connect.

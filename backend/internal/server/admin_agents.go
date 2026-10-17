@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
-	"strings"
+	"strconv"
 
-	"continuum/internal/chart"
+	"continuum/internal/install"
 )
 
 // validKubeName is a DNS-1123 label, which is what both a namespace and a Helm release name must be.
@@ -45,15 +45,11 @@ func releaseTarget(namespace, release string) (ns, name string, guessed bool) {
 // newer chart added after the release was installed does not exist at all and a template that reads it fails with a
 // nil-pointer error. The newer flag starts from the new chart's defaults and then puts the person's own values from the old
 // release on top, which is what "keep what I set" was always meant to say.
-func (a *Admin) upgradeCommand(img ImageConfig, tier int, namespace, release string) string {
-	ref, version := a.chartRef(img), ""
-	if ref == "" {
-		ref = "./" + chart.Filename()
-	} else if !strings.HasSuffix(ref, ".tgz") {
-		version = " --version " + a.agentChartVersion()
-	}
+func (a *Admin) upgradeCommand(img ImageConfig, tier int, namespace, release string) (string, error) {
+	ref, version := a.agentChart(img)
 	ns, name, _ := releaseTarget(namespace, release)
-	return fmt.Sprintf("helm upgrade %s %s%s --namespace %s --reset-then-reuse-values --set access.tier=%d", name, ref, version, ns, tier)
+	return install.Helm{Verb: install.Upgrade, Release: name, Chart: ref, Version: version, Namespace: ns, ResetThenReuse: true,
+		Values: []install.Value{install.Set("access.tier", strconv.Itoa(tier))}}.Render()
 }
 
 // teardownCommands is what the owner of a cluster runs there to remove an agent's install for good: helm uninstall drops
@@ -80,7 +76,13 @@ func (a *Admin) setAgentTier(w http.ResponseWriter, r *http.Request) {
 	img := a.images(c)
 	hub := a.tn(r).Hub
 	ns, rel := hub.NamespaceOf(r.PathValue("id")), hub.ReleaseNameOf(r.PathValue("id"))
-	ag, err := hub.SetAgentTier(r.Context(), actor(r), r.PathValue("id"), *req.Tier, func(t int) string { return a.upgradeCommand(img, t, ns, rel) })
+	ag, err := hub.SetAgentTier(r.Context(), actor(r), r.PathValue("id"), *req.Tier, func(t int) string {
+		cmd, err := a.upgradeCommand(img, t, ns, rel)
+		if err != nil {
+			a.installConfigError(err) // logged; the audit entry is written without the command
+		}
+		return cmd
+	})
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -90,7 +92,12 @@ func (a *Admin) setAgentTier(w http.ResponseWriter, r *http.Request) {
 	// grants: that install-time ClusterRoleBinding stays until someone lowers access.tier there too. Hand back the
 	// exact command for whoever wants that narrower report to also be a narrower Kubernetes permission.
 	if ag.AccessTier < ag.InstalledTier {
-		resp["hardenHelm"] = a.upgradeCommand(img, ag.AccessTier, ns, rel)
+		cmd, err := a.upgradeCommand(img, ag.AccessTier, ns, rel)
+		if err != nil {
+			a.fail(w, a.installConfigError(err))
+			return
+		}
+		resp["hardenHelm"] = cmd
 	}
 	writeJSON(w, 200, resp)
 }
