@@ -3,7 +3,6 @@ package server
 import (
 	"fmt"
 	"sort"
-	"strings"
 	"time"
 
 	continuumv1 "continuum/gen/continuumv1"
@@ -297,32 +296,6 @@ func compileConfig(f configFacts) (*continuumv1.Config, []issuedTarget) {
 	b.cfg.ServerTimeUnix = f.ServerTime
 	b.cfg.Digest = configHash(b.cfg)
 	return b.cfg, b.issued
-}
-
-func configHash(c *continuumv1.Config) string {
-	s := fmt.Sprintf("%d|%d|%d|%d|%s|%s", c.ApprovedAccessTier, c.HeartbeatSeconds, c.ResyncSeconds, c.MeasureSeconds, strings.Join(c.PausedCollectors, ","), strings.Join(c.ExcludedNamespaces, ","))
-	for _, t := range c.ProbeTargets {
-		s += fmt.Sprintf("|%s@%s:%d", t.Id, t.Host, t.Port)
-	}
-	s += "|cluster:" + c.ClusterId
-	for _, p := range c.LinkPeers {
-		s += fmt.Sprintf("|link:%s=%s@%s", p.ClusterId, p.Name, strings.Join(p.Addresses, ","))
-		if p.NoProbe || p.SkipProbe || p.Throughput {
-			s += fmt.Sprintf("|linkopt:%t,%t,%d,%d,%t", p.NoProbe, p.Throughput, p.ThroughputIntervalSeconds, p.ThroughputBudgetBytes, p.SkipProbe)
-		}
-		if p.Via != "" {
-			s += "|linkvia:" + p.Via // only when set, so the hash of a Config without it stays what it was
-		}
-		if ic := p.IperfClient; ic != nil {
-			// A rotation must reach the agent, so the credentials are part of the hash, as digests: the hash is compared, kept and could be
-			// logged, and never holds the material itself.
-			s += "|iperfc:" + credDigest(p.ClusterId, ic.PublicKeyPem, ic.Username, ic.Password)
-		}
-	}
-	if is := c.LinkIperfServer; is != nil {
-		s += "|iperfs:" + credDigest(is.PrivateKeyPem, is.UsersCsv)
-	}
-	return interpret.Hash("cfg", s)
 }
 
 // pushConfigs sends a fresh Config to every live stream whose configuration changed.
