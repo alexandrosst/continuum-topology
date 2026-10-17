@@ -18,6 +18,15 @@ import "sort"
 // from before the version was stated, and 1 is the first that states its capabilities.
 const ProtocolVersion uint32 = 1
 
+// The protocols a server serves. An agent that states a version inside [ProtocolMin, ProtocolMax] is understood in full; outside it
+// the server still serves the stream, and says so in the agent's Compatible condition. ProtocolMin is 0 because an agent from
+// before the version was stated (protocol 0) is fully served; it is raised only when the server stops serving the oldest agents,
+// which is a decision and not a side effect. ProtocolMax is the newest this build knows.
+const (
+	ProtocolMin uint32 = 0
+	ProtocolMax uint32 = ProtocolVersion
+)
+
 const (
 	// MaxNames is how many names the server keeps from one hello, and MaxNameLen how long one may be. They are the limits of the
 	// protocol and not of this list: an agent from the future may know more names than this one, and the server keeps the

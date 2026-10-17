@@ -1037,6 +1037,10 @@ type AgentDoc struct {
 	// the two apart). No screen reads them yet. Capabilities is never null.
 	ProtocolVersion uint32   `json:"protocolVersion"`
 	Capabilities    []string `json:"capabilities"`
+	// Conditions are facts about this agent decided in one place (agentConditions): whether a stream is open, whether the Config
+	// last sent is the one in force, whether its protocol is one this server serves. Computed with the server's clock each time
+	// the document is built. No screen reads them yet and nothing the server does depends on them.
+	Conditions []Condition `json:"conditions"`
 	// ConnectingGeo is only a suggestion derived offline from ConnectingIP; a cloud cluster resolves to its provider's egress.
 	ConnectingGeo *geoip.Result `json:"connectingGeo,omitempty"`
 	// ConnectingGeoReason is set only when ConnectingGeo is nil because ConnectingIP itself could not be
@@ -1294,6 +1298,7 @@ func (h *Hub) buildAgentDocs(ctx context.Context, now time.Time) ([]AgentDoc, []
 		if d.Capabilities == nil {
 			d.Capabilities = []string{}
 		}
+		d.Conditions = agentConditions(condInputsOf(v), h.C.Now())
 		if a.Status == store.StatusRevoked || a.Status == store.StatusRejected {
 			helm, secret, guessed := teardownCommands(d.Namespace, d.ReleaseName)
 			d.Teardown = &TeardownDoc{Helm: helm, Secret: secret, NamespaceGuessed: guessed}
