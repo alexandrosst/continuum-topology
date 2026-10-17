@@ -1,0 +1,1022 @@
+[
+  {
+    "name": "agent/install/default/no-registry/tier0",
+    "chart": "agent",
+    "command": "helm install continuum-agent ./continuum-agent-0.0.0-agent.tgz \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set access.tier=0"
+  },
+  {
+    "name": "agent/install/default/no-registry/tier1",
+    "chart": "agent",
+    "command": "helm install continuum-agent ./continuum-agent-0.0.0-agent.tgz \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set access.tier=1"
+  },
+  {
+    "name": "agent/install/default/no-registry/tier2",
+    "chart": "agent",
+    "command": "helm install continuum-agent ./continuum-agent-0.0.0-agent.tgz \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET"
+  },
+  {
+    "name": "agent/install/default/registry/tier0",
+    "chart": "agent",
+    "command": "helm install continuum-agent oci://registry.example.com/team/continuum-agent --version 0.0.0-agent \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set access.tier=0 \\\n  --set image.repository=registry.example.com/team/continuum"
+  },
+  {
+    "name": "agent/install/default/registry/tier1",
+    "chart": "agent",
+    "command": "helm install continuum-agent oci://registry.example.com/team/continuum-agent --version 0.0.0-agent \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set access.tier=1 \\\n  --set image.repository=registry.example.com/team/continuum"
+  },
+  {
+    "name": "agent/install/default/registry/tier2",
+    "chart": "agent",
+    "command": "helm install continuum-agent oci://registry.example.com/team/continuum-agent --version 0.0.0-agent \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set image.repository=registry.example.com/team/continuum"
+  },
+  {
+    "name": "agent/install/default/registry-tag/tier0",
+    "chart": "agent",
+    "command": "helm install continuum-agent oci://registry.example.com/team/continuum-agent --version 0.0.0-agent \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set access.tier=0 \\\n  --set image.repository=registry.example.com/team/continuum \\\n  --set image.tag=1.4.0"
+  },
+  {
+    "name": "agent/install/default/registry-tag/tier1",
+    "chart": "agent",
+    "command": "helm install continuum-agent oci://registry.example.com/team/continuum-agent --version 0.0.0-agent \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set access.tier=1 \\\n  --set image.repository=registry.example.com/team/continuum \\\n  --set image.tag=1.4.0"
+  },
+  {
+    "name": "agent/install/default/registry-tag/tier2",
+    "chart": "agent",
+    "command": "helm install continuum-agent oci://registry.example.com/team/continuum-agent --version 0.0.0-agent \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set image.repository=registry.example.com/team/continuum \\\n  --set image.tag=1.4.0"
+  },
+  {
+    "name": "agent/install/default/registry-digest/tier0",
+    "chart": "agent",
+    "command": "helm install continuum-agent oci://registry.example.com/team/continuum-agent --version 0.0.0-agent \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set access.tier=0 \\\n  --set image.repository=registry.example.com/team/continuum \\\n  --set image.tag=1.4.0 \\\n  --set image.digest=sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  },
+  {
+    "name": "agent/install/default/registry-digest/tier1",
+    "chart": "agent",
+    "command": "helm install continuum-agent oci://registry.example.com/team/continuum-agent --version 0.0.0-agent \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set access.tier=1 \\\n  --set image.repository=registry.example.com/team/continuum \\\n  --set image.tag=1.4.0 \\\n  --set image.digest=sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  },
+  {
+    "name": "agent/install/default/registry-digest/tier2",
+    "chart": "agent",
+    "command": "helm install continuum-agent oci://registry.example.com/team/continuum-agent --version 0.0.0-agent \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set image.repository=registry.example.com/team/continuum \\\n  --set image.tag=1.4.0 \\\n  --set image.digest=sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  },
+  {
+    "name": "agent/install/default/hub-namespace/tier0",
+    "chart": "agent",
+    "command": "helm install continuum-agent oci://registry-1.docker.io/myteam/continuum-agent --version 0.0.0-agent \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set access.tier=0 \\\n  --set image.repository=myteam/continuum"
+  },
+  {
+    "name": "agent/install/default/hub-namespace/tier1",
+    "chart": "agent",
+    "command": "helm install continuum-agent oci://registry-1.docker.io/myteam/continuum-agent --version 0.0.0-agent \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set access.tier=1 \\\n  --set image.repository=myteam/continuum"
+  },
+  {
+    "name": "agent/install/default/hub-namespace/tier2",
+    "chart": "agent",
+    "command": "helm install continuum-agent oci://registry-1.docker.io/myteam/continuum-agent --version 0.0.0-agent \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set image.repository=myteam/continuum"
+  },
+  {
+    "name": "agent/install/local/no-registry/tier0",
+    "chart": "agent",
+    "command": "helm install continuum-agent ./continuum-agent-0.0.0-agent.tgz \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set access.tier=0"
+  },
+  {
+    "name": "agent/install/local/no-registry/tier1",
+    "chart": "agent",
+    "command": "helm install continuum-agent ./continuum-agent-0.0.0-agent.tgz \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set access.tier=1"
+  },
+  {
+    "name": "agent/install/local/no-registry/tier2",
+    "chart": "agent",
+    "command": "helm install continuum-agent ./continuum-agent-0.0.0-agent.tgz \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET"
+  },
+  {
+    "name": "agent/install/local/registry/tier0",
+    "chart": "agent",
+    "command": "helm install continuum-agent ./continuum-agent-0.0.0-agent.tgz \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set access.tier=0 \\\n  --set image.repository=registry.example.com/team/continuum"
+  },
+  {
+    "name": "agent/install/local/registry/tier1",
+    "chart": "agent",
+    "command": "helm install continuum-agent ./continuum-agent-0.0.0-agent.tgz \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set access.tier=1 \\\n  --set image.repository=registry.example.com/team/continuum"
+  },
+  {
+    "name": "agent/install/local/registry/tier2",
+    "chart": "agent",
+    "command": "helm install continuum-agent ./continuum-agent-0.0.0-agent.tgz \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set image.repository=registry.example.com/team/continuum"
+  },
+  {
+    "name": "agent/install/local/registry-tag/tier0",
+    "chart": "agent",
+    "command": "helm install continuum-agent ./continuum-agent-0.0.0-agent.tgz \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set access.tier=0 \\\n  --set image.repository=registry.example.com/team/continuum \\\n  --set image.tag=1.4.0"
+  },
+  {
+    "name": "agent/install/local/registry-tag/tier1",
+    "chart": "agent",
+    "command": "helm install continuum-agent ./continuum-agent-0.0.0-agent.tgz \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set access.tier=1 \\\n  --set image.repository=registry.example.com/team/continuum \\\n  --set image.tag=1.4.0"
+  },
+  {
+    "name": "agent/install/local/registry-tag/tier2",
+    "chart": "agent",
+    "command": "helm install continuum-agent ./continuum-agent-0.0.0-agent.tgz \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set image.repository=registry.example.com/team/continuum \\\n  --set image.tag=1.4.0"
+  },
+  {
+    "name": "agent/install/local/registry-digest/tier0",
+    "chart": "agent",
+    "command": "helm install continuum-agent ./continuum-agent-0.0.0-agent.tgz \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set access.tier=0 \\\n  --set image.repository=registry.example.com/team/continuum \\\n  --set image.tag=1.4.0 \\\n  --set image.digest=sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  },
+  {
+    "name": "agent/install/local/registry-digest/tier1",
+    "chart": "agent",
+    "command": "helm install continuum-agent ./continuum-agent-0.0.0-agent.tgz \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set access.tier=1 \\\n  --set image.repository=registry.example.com/team/continuum \\\n  --set image.tag=1.4.0 \\\n  --set image.digest=sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  },
+  {
+    "name": "agent/install/local/registry-digest/tier2",
+    "chart": "agent",
+    "command": "helm install continuum-agent ./continuum-agent-0.0.0-agent.tgz \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set image.repository=registry.example.com/team/continuum \\\n  --set image.tag=1.4.0 \\\n  --set image.digest=sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  },
+  {
+    "name": "agent/install/local/hub-namespace/tier0",
+    "chart": "agent",
+    "command": "helm install continuum-agent ./continuum-agent-0.0.0-agent.tgz \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set access.tier=0 \\\n  --set image.repository=myteam/continuum"
+  },
+  {
+    "name": "agent/install/local/hub-namespace/tier1",
+    "chart": "agent",
+    "command": "helm install continuum-agent ./continuum-agent-0.0.0-agent.tgz \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set access.tier=1 \\\n  --set image.repository=myteam/continuum"
+  },
+  {
+    "name": "agent/install/local/hub-namespace/tier2",
+    "chart": "agent",
+    "command": "helm install continuum-agent ./continuum-agent-0.0.0-agent.tgz \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set image.repository=myteam/continuum"
+  },
+  {
+    "name": "agent/install/repository/no-registry/tier0",
+    "chart": "agent",
+    "command": "helm install continuum-agent oci://charts.example.com/stable/continuum-agent --version 2.3.4 \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set access.tier=0"
+  },
+  {
+    "name": "agent/install/repository/no-registry/tier1",
+    "chart": "agent",
+    "command": "helm install continuum-agent oci://charts.example.com/stable/continuum-agent --version 2.3.4 \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set access.tier=1"
+  },
+  {
+    "name": "agent/install/repository/no-registry/tier2",
+    "chart": "agent",
+    "command": "helm install continuum-agent oci://charts.example.com/stable/continuum-agent --version 2.3.4 \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET"
+  },
+  {
+    "name": "agent/install/repository/registry/tier0",
+    "chart": "agent",
+    "command": "helm install continuum-agent oci://charts.example.com/stable/continuum-agent --version 2.3.4 \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set access.tier=0 \\\n  --set image.repository=registry.example.com/team/continuum"
+  },
+  {
+    "name": "agent/install/repository/registry/tier1",
+    "chart": "agent",
+    "command": "helm install continuum-agent oci://charts.example.com/stable/continuum-agent --version 2.3.4 \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set access.tier=1 \\\n  --set image.repository=registry.example.com/team/continuum"
+  },
+  {
+    "name": "agent/install/repository/registry/tier2",
+    "chart": "agent",
+    "command": "helm install continuum-agent oci://charts.example.com/stable/continuum-agent --version 2.3.4 \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set image.repository=registry.example.com/team/continuum"
+  },
+  {
+    "name": "agent/install/repository/registry-tag/tier0",
+    "chart": "agent",
+    "command": "helm install continuum-agent oci://charts.example.com/stable/continuum-agent --version 2.3.4 \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set access.tier=0 \\\n  --set image.repository=registry.example.com/team/continuum \\\n  --set image.tag=1.4.0"
+  },
+  {
+    "name": "agent/install/repository/registry-tag/tier1",
+    "chart": "agent",
+    "command": "helm install continuum-agent oci://charts.example.com/stable/continuum-agent --version 2.3.4 \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set access.tier=1 \\\n  --set image.repository=registry.example.com/team/continuum \\\n  --set image.tag=1.4.0"
+  },
+  {
+    "name": "agent/install/repository/registry-tag/tier2",
+    "chart": "agent",
+    "command": "helm install continuum-agent oci://charts.example.com/stable/continuum-agent --version 2.3.4 \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set image.repository=registry.example.com/team/continuum \\\n  --set image.tag=1.4.0"
+  },
+  {
+    "name": "agent/install/repository/registry-digest/tier0",
+    "chart": "agent",
+    "command": "helm install continuum-agent oci://charts.example.com/stable/continuum-agent --version 2.3.4 \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set access.tier=0 \\\n  --set image.repository=registry.example.com/team/continuum \\\n  --set image.tag=1.4.0 \\\n  --set image.digest=sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  },
+  {
+    "name": "agent/install/repository/registry-digest/tier1",
+    "chart": "agent",
+    "command": "helm install continuum-agent oci://charts.example.com/stable/continuum-agent --version 2.3.4 \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set access.tier=1 \\\n  --set image.repository=registry.example.com/team/continuum \\\n  --set image.tag=1.4.0 \\\n  --set image.digest=sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  },
+  {
+    "name": "agent/install/repository/registry-digest/tier2",
+    "chart": "agent",
+    "command": "helm install continuum-agent oci://charts.example.com/stable/continuum-agent --version 2.3.4 \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set image.repository=registry.example.com/team/continuum \\\n  --set image.tag=1.4.0 \\\n  --set image.digest=sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  },
+  {
+    "name": "agent/install/repository/hub-namespace/tier0",
+    "chart": "agent",
+    "command": "helm install continuum-agent oci://charts.example.com/stable/continuum-agent --version 2.3.4 \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set access.tier=0 \\\n  --set image.repository=myteam/continuum"
+  },
+  {
+    "name": "agent/install/repository/hub-namespace/tier1",
+    "chart": "agent",
+    "command": "helm install continuum-agent oci://charts.example.com/stable/continuum-agent --version 2.3.4 \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set access.tier=1 \\\n  --set image.repository=myteam/continuum"
+  },
+  {
+    "name": "agent/install/repository/hub-namespace/tier2",
+    "chart": "agent",
+    "command": "helm install continuum-agent oci://charts.example.com/stable/continuum-agent --version 2.3.4 \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set image.repository=myteam/continuum"
+  },
+  {
+    "name": "agent/install/packaged/no-registry/tier0",
+    "chart": "agent",
+    "command": "helm install continuum-agent ./continuum-agent-1.0.0.tgz \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set access.tier=0"
+  },
+  {
+    "name": "agent/install/packaged/no-registry/tier1",
+    "chart": "agent",
+    "command": "helm install continuum-agent ./continuum-agent-1.0.0.tgz \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set access.tier=1"
+  },
+  {
+    "name": "agent/install/packaged/no-registry/tier2",
+    "chart": "agent",
+    "command": "helm install continuum-agent ./continuum-agent-1.0.0.tgz \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET"
+  },
+  {
+    "name": "agent/install/packaged/registry/tier0",
+    "chart": "agent",
+    "command": "helm install continuum-agent ./continuum-agent-1.0.0.tgz \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set access.tier=0 \\\n  --set image.repository=registry.example.com/team/continuum"
+  },
+  {
+    "name": "agent/install/packaged/registry/tier1",
+    "chart": "agent",
+    "command": "helm install continuum-agent ./continuum-agent-1.0.0.tgz \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set access.tier=1 \\\n  --set image.repository=registry.example.com/team/continuum"
+  },
+  {
+    "name": "agent/install/packaged/registry/tier2",
+    "chart": "agent",
+    "command": "helm install continuum-agent ./continuum-agent-1.0.0.tgz \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set image.repository=registry.example.com/team/continuum"
+  },
+  {
+    "name": "agent/install/packaged/registry-tag/tier0",
+    "chart": "agent",
+    "command": "helm install continuum-agent ./continuum-agent-1.0.0.tgz \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set access.tier=0 \\\n  --set image.repository=registry.example.com/team/continuum \\\n  --set image.tag=1.4.0"
+  },
+  {
+    "name": "agent/install/packaged/registry-tag/tier1",
+    "chart": "agent",
+    "command": "helm install continuum-agent ./continuum-agent-1.0.0.tgz \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set access.tier=1 \\\n  --set image.repository=registry.example.com/team/continuum \\\n  --set image.tag=1.4.0"
+  },
+  {
+    "name": "agent/install/packaged/registry-tag/tier2",
+    "chart": "agent",
+    "command": "helm install continuum-agent ./continuum-agent-1.0.0.tgz \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set image.repository=registry.example.com/team/continuum \\\n  --set image.tag=1.4.0"
+  },
+  {
+    "name": "agent/install/packaged/registry-digest/tier0",
+    "chart": "agent",
+    "command": "helm install continuum-agent ./continuum-agent-1.0.0.tgz \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set access.tier=0 \\\n  --set image.repository=registry.example.com/team/continuum \\\n  --set image.tag=1.4.0 \\\n  --set image.digest=sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  },
+  {
+    "name": "agent/install/packaged/registry-digest/tier1",
+    "chart": "agent",
+    "command": "helm install continuum-agent ./continuum-agent-1.0.0.tgz \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set access.tier=1 \\\n  --set image.repository=registry.example.com/team/continuum \\\n  --set image.tag=1.4.0 \\\n  --set image.digest=sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  },
+  {
+    "name": "agent/install/packaged/registry-digest/tier2",
+    "chart": "agent",
+    "command": "helm install continuum-agent ./continuum-agent-1.0.0.tgz \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set image.repository=registry.example.com/team/continuum \\\n  --set image.tag=1.4.0 \\\n  --set image.digest=sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  },
+  {
+    "name": "agent/install/packaged/hub-namespace/tier0",
+    "chart": "agent",
+    "command": "helm install continuum-agent ./continuum-agent-1.0.0.tgz \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set access.tier=0 \\\n  --set image.repository=myteam/continuum"
+  },
+  {
+    "name": "agent/install/packaged/hub-namespace/tier1",
+    "chart": "agent",
+    "command": "helm install continuum-agent ./continuum-agent-1.0.0.tgz \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set access.tier=1 \\\n  --set image.repository=myteam/continuum"
+  },
+  {
+    "name": "agent/install/packaged/hub-namespace/tier2",
+    "chart": "agent",
+    "command": "helm install continuum-agent ./continuum-agent-1.0.0.tgz \\\n  --namespace continuum-system --create-namespace \\\n  --set server.address=srv.example.com:8443 \\\n  --set enrollment.key=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=.cnt_SECRET \\\n  --set image.repository=myteam/continuum"
+  },
+  {
+    "name": "agent/upgrade/no-registry/tier0",
+    "chart": "agent",
+    "command": "helm upgrade continuum-agent ./continuum-agent-0.0.0-agent.tgz --namespace continuum-system --reset-then-reuse-values --set access.tier=0"
+  },
+  {
+    "name": "agent/upgrade/no-registry/tier1",
+    "chart": "agent",
+    "command": "helm upgrade continuum-agent ./continuum-agent-0.0.0-agent.tgz --namespace continuum-system --reset-then-reuse-values --set access.tier=1"
+  },
+  {
+    "name": "agent/upgrade/no-registry/tier2",
+    "chart": "agent",
+    "command": "helm upgrade continuum-agent ./continuum-agent-0.0.0-agent.tgz --namespace continuum-system --reset-then-reuse-values --set access.tier=2"
+  },
+  {
+    "name": "agent/upgrade/no-registry/named",
+    "chart": "agent",
+    "command": "helm upgrade obs-agent ./continuum-agent-0.0.0-agent.tgz --namespace apps-team --reset-then-reuse-values --set access.tier=2"
+  },
+  {
+    "name": "agent/upgrade/registry/tier0",
+    "chart": "agent",
+    "command": "helm upgrade continuum-agent oci://registry.example.com/team/continuum-agent --version 0.0.0-agent --namespace continuum-system --reset-then-reuse-values --set access.tier=0"
+  },
+  {
+    "name": "agent/upgrade/registry/tier1",
+    "chart": "agent",
+    "command": "helm upgrade continuum-agent oci://registry.example.com/team/continuum-agent --version 0.0.0-agent --namespace continuum-system --reset-then-reuse-values --set access.tier=1"
+  },
+  {
+    "name": "agent/upgrade/registry/tier2",
+    "chart": "agent",
+    "command": "helm upgrade continuum-agent oci://registry.example.com/team/continuum-agent --version 0.0.0-agent --namespace continuum-system --reset-then-reuse-values --set access.tier=2"
+  },
+  {
+    "name": "agent/upgrade/registry/named",
+    "chart": "agent",
+    "command": "helm upgrade obs-agent oci://registry.example.com/team/continuum-agent --version 0.0.0-agent --namespace apps-team --reset-then-reuse-values --set access.tier=2"
+  },
+  {
+    "name": "agent/upgrade/registry-tag/tier0",
+    "chart": "agent",
+    "command": "helm upgrade continuum-agent oci://registry.example.com/team/continuum-agent --version 0.0.0-agent --namespace continuum-system --reset-then-reuse-values --set access.tier=0"
+  },
+  {
+    "name": "agent/upgrade/registry-tag/tier1",
+    "chart": "agent",
+    "command": "helm upgrade continuum-agent oci://registry.example.com/team/continuum-agent --version 0.0.0-agent --namespace continuum-system --reset-then-reuse-values --set access.tier=1"
+  },
+  {
+    "name": "agent/upgrade/registry-tag/tier2",
+    "chart": "agent",
+    "command": "helm upgrade continuum-agent oci://registry.example.com/team/continuum-agent --version 0.0.0-agent --namespace continuum-system --reset-then-reuse-values --set access.tier=2"
+  },
+  {
+    "name": "agent/upgrade/registry-tag/named",
+    "chart": "agent",
+    "command": "helm upgrade obs-agent oci://registry.example.com/team/continuum-agent --version 0.0.0-agent --namespace apps-team --reset-then-reuse-values --set access.tier=2"
+  },
+  {
+    "name": "agent/upgrade/registry-digest/tier0",
+    "chart": "agent",
+    "command": "helm upgrade continuum-agent oci://registry.example.com/team/continuum-agent --version 0.0.0-agent --namespace continuum-system --reset-then-reuse-values --set access.tier=0"
+  },
+  {
+    "name": "agent/upgrade/registry-digest/tier1",
+    "chart": "agent",
+    "command": "helm upgrade continuum-agent oci://registry.example.com/team/continuum-agent --version 0.0.0-agent --namespace continuum-system --reset-then-reuse-values --set access.tier=1"
+  },
+  {
+    "name": "agent/upgrade/registry-digest/tier2",
+    "chart": "agent",
+    "command": "helm upgrade continuum-agent oci://registry.example.com/team/continuum-agent --version 0.0.0-agent --namespace continuum-system --reset-then-reuse-values --set access.tier=2"
+  },
+  {
+    "name": "agent/upgrade/registry-digest/named",
+    "chart": "agent",
+    "command": "helm upgrade obs-agent oci://registry.example.com/team/continuum-agent --version 0.0.0-agent --namespace apps-team --reset-then-reuse-values --set access.tier=2"
+  },
+  {
+    "name": "agent/upgrade/hub-namespace/tier0",
+    "chart": "agent",
+    "command": "helm upgrade continuum-agent oci://registry-1.docker.io/myteam/continuum-agent --version 0.0.0-agent --namespace continuum-system --reset-then-reuse-values --set access.tier=0"
+  },
+  {
+    "name": "agent/upgrade/hub-namespace/tier1",
+    "chart": "agent",
+    "command": "helm upgrade continuum-agent oci://registry-1.docker.io/myteam/continuum-agent --version 0.0.0-agent --namespace continuum-system --reset-then-reuse-values --set access.tier=1"
+  },
+  {
+    "name": "agent/upgrade/hub-namespace/tier2",
+    "chart": "agent",
+    "command": "helm upgrade continuum-agent oci://registry-1.docker.io/myteam/continuum-agent --version 0.0.0-agent --namespace continuum-system --reset-then-reuse-values --set access.tier=2"
+  },
+  {
+    "name": "agent/upgrade/hub-namespace/named",
+    "chart": "agent",
+    "command": "helm upgrade obs-agent oci://registry-1.docker.io/myteam/continuum-agent --version 0.0.0-agent --namespace apps-team --reset-then-reuse-values --set access.tier=2"
+  },
+  {
+    "name": "agent/upgrade/unsafe-names-are-not-trusted",
+    "chart": "agent",
+    "command": "helm upgrade continuum-agent ./continuum-agent-0.0.0-agent.tgz --namespace continuum-system --reset-then-reuse-values --set access.tier=2"
+  },
+  {
+    "name": "agent/teardown/unreported/helm",
+    "chart": "",
+    "command": "helm uninstall continuum-agent --namespace continuum-system"
+  },
+  {
+    "name": "agent/teardown/unreported/secret",
+    "chart": "",
+    "command": "kubectl delete secret continuum-agent-identity --namespace continuum-system"
+  },
+  {
+    "name": "agent/teardown/namespace-only/helm",
+    "chart": "",
+    "command": "helm uninstall continuum-agent --namespace apps-team"
+  },
+  {
+    "name": "agent/teardown/namespace-only/secret",
+    "chart": "",
+    "command": "kubectl delete secret continuum-agent-identity --namespace apps-team"
+  },
+  {
+    "name": "agent/teardown/named/helm",
+    "chart": "",
+    "command": "helm uninstall obs-agent --namespace apps-team"
+  },
+  {
+    "name": "agent/teardown/named/secret",
+    "chart": "",
+    "command": "kubectl delete secret continuum-agent-identity --namespace apps-team"
+  },
+  {
+    "name": "operator/install/no-registry/mtls-external/reissue=false",
+    "chart": "regional-operator",
+    "command": "helm install athens ./continuum-regional-operator-0.0.0-operator.tgz \\\n  --namespace continuum-system --create-namespace \\\n  --set export.otlp.endpoint=collector.example.com:4317 \\\n  --set receiver.auth.enabled=false \\\n  --set receiver.requireAuth=true \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=athens-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set renew.enabled=true \\\n  --set renew.server=srv.example.com:8443 \\\n  --set renew.caPin=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \\\n  --set renew.image.tag=0.0.0-app \\\n  --set-json operator='{\"id\":\"athens\",\"name\":\"athens\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/no-registry/mtls-external/reissue=true",
+    "chart": "regional-operator",
+    "command": "helm upgrade --install athens ./continuum-regional-operator-0.0.0-operator.tgz \\\n  --namespace continuum-system --create-namespace --reset-then-reuse-values \\\n  --set export.otlp.endpoint=collector.example.com:4317 \\\n  --set export.otlp.protocol=grpc \\\n  --set export.otlp.tls.insecure=false \\\n  --set export.otlp.tls.caFile= \\\n  --set export.otlp.tls.mtls.enabled=false \\\n  --set export.otlp.tls.mtls.secretName= \\\n  --set export.otlp.tls.serverName= \\\n  --set export.otlp.auth.secretName= \\\n  --set receiver.auth.enabled=false \\\n  --set receiver.requireAuth=true \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=athens-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set renew.enabled=true \\\n  --set renew.server=srv.example.com:8443 \\\n  --set renew.caPin=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \\\n  --set renew.image.tag=0.0.0-app \\\n  --set-json operator='{\"id\":\"athens\",\"name\":\"athens\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/no-registry/mtls-external-full/reissue=false",
+    "chart": "regional-operator",
+    "command": "helm install athens ./continuum-regional-operator-0.0.0-operator.tgz \\\n  --namespace continuum-system --create-namespace \\\n  --set export.otlp.endpoint=collector.example.com:4317 \\\n  --set export.otlp.tls.insecure=true \\\n  --set export.otlp.tls.caFile=/etc/ssl/ca.pem \\\n  --set export.otlp.auth.headerName=Authorization \\\n  --set export.otlp.auth.secretName=collector-auth \\\n  --set export.otlp.auth.secretKey=token \\\n  --set receiver.auth.enabled=false \\\n  --set receiver.requireAuth=true \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=athens-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set renew.enabled=true \\\n  --set renew.server=srv.example.com:8443 \\\n  --set renew.caPin=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \\\n  --set renew.image.tag=0.0.0-app \\\n  --set-json operator='{\"id\":\"athens\",\"name\":\"athens\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/no-registry/mtls-external-full/reissue=true",
+    "chart": "regional-operator",
+    "command": "helm upgrade --install athens ./continuum-regional-operator-0.0.0-operator.tgz \\\n  --namespace continuum-system --create-namespace --reset-then-reuse-values \\\n  --set export.otlp.endpoint=collector.example.com:4317 \\\n  --set export.otlp.protocol=grpc \\\n  --set export.otlp.tls.insecure=true \\\n  --set export.otlp.tls.caFile=/etc/ssl/ca.pem \\\n  --set export.otlp.tls.mtls.enabled=false \\\n  --set export.otlp.tls.mtls.secretName= \\\n  --set export.otlp.tls.serverName= \\\n  --set export.otlp.auth.headerName=Authorization \\\n  --set export.otlp.auth.secretName=collector-auth \\\n  --set export.otlp.auth.secretKey=token \\\n  --set receiver.auth.enabled=false \\\n  --set receiver.requireAuth=true \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=athens-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set renew.enabled=true \\\n  --set renew.server=srv.example.com:8443 \\\n  --set renew.caPin=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \\\n  --set renew.image.tag=0.0.0-app \\\n  --set-json operator='{\"id\":\"athens\",\"name\":\"athens\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/no-registry/mtls-external-heartbeat/reissue=false",
+    "chart": "regional-operator",
+    "command": "helm install athens ./continuum-regional-operator-0.0.0-operator.tgz \\\n  --namespace continuum-system --create-namespace \\\n  --set export.otlp.endpoint=collector.example.com:4317 \\\n  --set receiver.auth.enabled=false \\\n  --set receiver.requireAuth=true \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=athens-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set heartbeat.enabled=true --set heartbeat.url=https://ikhnos.example.com/api/v1/operator-heartbeat --set heartbeat.auth.secretName=athens-heartbeat-auth \\\n  --set renew.enabled=true \\\n  --set renew.server=srv.example.com:8443 \\\n  --set renew.caPin=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \\\n  --set renew.image.tag=0.0.0-app \\\n  --set-json operator='{\"id\":\"athens\",\"name\":\"athens\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/no-registry/mtls-external-heartbeat/reissue=true",
+    "chart": "regional-operator",
+    "command": "helm upgrade --install athens ./continuum-regional-operator-0.0.0-operator.tgz \\\n  --namespace continuum-system --create-namespace --reset-then-reuse-values \\\n  --set export.otlp.endpoint=collector.example.com:4317 \\\n  --set export.otlp.protocol=grpc \\\n  --set export.otlp.tls.insecure=false \\\n  --set export.otlp.tls.caFile= \\\n  --set export.otlp.tls.mtls.enabled=false \\\n  --set export.otlp.tls.mtls.secretName= \\\n  --set export.otlp.tls.serverName= \\\n  --set export.otlp.auth.secretName= \\\n  --set receiver.auth.enabled=false \\\n  --set receiver.requireAuth=true \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=athens-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set heartbeat.enabled=true --set heartbeat.url=https://ikhnos.example.com/api/v1/operator-heartbeat --set heartbeat.auth.secretName=athens-heartbeat-auth \\\n  --set renew.enabled=true \\\n  --set renew.server=srv.example.com:8443 \\\n  --set renew.caPin=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \\\n  --set renew.image.tag=0.0.0-app \\\n  --set-json operator='{\"id\":\"athens\",\"name\":\"athens\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/no-registry/mtls-to-central/reissue=false",
+    "chart": "regional-operator",
+    "command": "helm install athens ./continuum-regional-operator-0.0.0-operator.tgz \\\n  --namespace continuum-system --create-namespace \\\n  --set export.otlp.endpoint=op-central-regional-operator.continuum-system.svc:4317 \\\n  --set export.otlp.tls.mtls.enabled=true \\\n  --set export.otlp.tls.mtls.secretName=op-central-export-mtls \\\n  --set receiver.auth.enabled=false \\\n  --set receiver.requireAuth=true \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=athens-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set renew.enabled=true \\\n  --set renew.server=srv.example.com:8443 \\\n  --set renew.caPin=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \\\n  --set renew.image.tag=0.0.0-app \\\n  --set-json operator='{\"id\":\"athens\",\"name\":\"athens\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/no-registry/mtls-to-central/reissue=true",
+    "chart": "regional-operator",
+    "command": "helm upgrade --install athens ./continuum-regional-operator-0.0.0-operator.tgz \\\n  --namespace continuum-system --create-namespace --reset-then-reuse-values \\\n  --set export.otlp.endpoint=op-central-regional-operator.continuum-system.svc:4317 \\\n  --set export.otlp.protocol=grpc \\\n  --set export.otlp.tls.insecure=false \\\n  --set export.otlp.tls.caFile= \\\n  --set export.otlp.tls.mtls.enabled=true \\\n  --set export.otlp.tls.mtls.secretName=op-central-export-mtls \\\n  --set export.otlp.tls.serverName= \\\n  --set export.otlp.auth.secretName= \\\n  --set receiver.auth.enabled=false \\\n  --set receiver.requireAuth=true \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=athens-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set renew.enabled=true \\\n  --set renew.server=srv.example.com:8443 \\\n  --set renew.caPin=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \\\n  --set renew.image.tag=0.0.0-app \\\n  --set-json operator='{\"id\":\"athens\",\"name\":\"athens\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/no-registry/mtls-to-operator-id-only/reissue=false",
+    "chart": "regional-operator",
+    "command": "helm install athens ./continuum-regional-operator-0.0.0-operator.tgz \\\n  --namespace continuum-system --create-namespace \\\n  --set export.otlp.endpoint=central-regional-operator.continuum-system.svc:4317 \\\n  --set export.otlp.tls.mtls.enabled=true \\\n  --set export.otlp.tls.mtls.secretName=central-export-mtls \\\n  --set export.otlp.tls.serverName=central.continuum-system.svc \\\n  --set receiver.auth.enabled=false \\\n  --set receiver.requireAuth=true \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=athens-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set renew.enabled=true \\\n  --set renew.server=srv.example.com:8443 \\\n  --set renew.caPin=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \\\n  --set renew.image.tag=0.0.0-app \\\n  --set-json operator='{\"id\":\"athens\",\"name\":\"athens\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/no-registry/mtls-to-operator-id-only/reissue=true",
+    "chart": "regional-operator",
+    "command": "helm upgrade --install athens ./continuum-regional-operator-0.0.0-operator.tgz \\\n  --namespace continuum-system --create-namespace --reset-then-reuse-values \\\n  --set export.otlp.endpoint=central-regional-operator.continuum-system.svc:4317 \\\n  --set export.otlp.protocol=grpc \\\n  --set export.otlp.tls.insecure=false \\\n  --set export.otlp.tls.caFile= \\\n  --set export.otlp.tls.mtls.enabled=true \\\n  --set export.otlp.tls.mtls.secretName=central-export-mtls \\\n  --set export.otlp.tls.serverName=central.continuum-system.svc \\\n  --set export.otlp.auth.secretName= \\\n  --set receiver.auth.enabled=false \\\n  --set receiver.requireAuth=true \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=athens-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set renew.enabled=true \\\n  --set renew.server=srv.example.com:8443 \\\n  --set renew.caPin=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \\\n  --set renew.image.tag=0.0.0-app \\\n  --set-json operator='{\"id\":\"athens\",\"name\":\"athens\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/no-registry/mtls-to-operator-address/reissue=false",
+    "chart": "regional-operator",
+    "command": "helm install athens ./continuum-regional-operator-0.0.0-operator.tgz \\\n  --namespace continuum-system --create-namespace \\\n  --set export.otlp.endpoint=10.0.0.7:4317 \\\n  --set export.otlp.tls.mtls.enabled=true \\\n  --set export.otlp.tls.mtls.secretName=tgt-export-mtls \\\n  --set export.otlp.tls.serverName=tgt.continuum-system.svc \\\n  --set receiver.auth.enabled=false \\\n  --set receiver.requireAuth=true \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=athens-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set renew.enabled=true \\\n  --set renew.server=srv.example.com:8443 \\\n  --set renew.caPin=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \\\n  --set renew.image.tag=0.0.0-app \\\n  --set-json operator='{\"id\":\"athens\",\"name\":\"athens\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/no-registry/mtls-to-operator-address/reissue=true",
+    "chart": "regional-operator",
+    "command": "helm upgrade --install athens ./continuum-regional-operator-0.0.0-operator.tgz \\\n  --namespace continuum-system --create-namespace --reset-then-reuse-values \\\n  --set export.otlp.endpoint=10.0.0.7:4317 \\\n  --set export.otlp.protocol=grpc \\\n  --set export.otlp.tls.insecure=false \\\n  --set export.otlp.tls.caFile= \\\n  --set export.otlp.tls.mtls.enabled=true \\\n  --set export.otlp.tls.mtls.secretName=tgt-export-mtls \\\n  --set export.otlp.tls.serverName=tgt.continuum-system.svc \\\n  --set export.otlp.auth.secretName= \\\n  --set receiver.auth.enabled=false \\\n  --set receiver.requireAuth=true \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=athens-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set renew.enabled=true \\\n  --set renew.server=srv.example.com:8443 \\\n  --set renew.caPin=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \\\n  --set renew.image.tag=0.0.0-app \\\n  --set-json operator='{\"id\":\"athens\",\"name\":\"athens\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/no-registry/bearer-external/reissue=false",
+    "chart": "regional-operator",
+    "command": "helm install oslo ./continuum-regional-operator-0.0.0-operator.tgz \\\n  --namespace continuum-system --create-namespace \\\n  --set export.otlp.endpoint=collector.example.com:4317 \\\n  --set receiver.auth.enabled=true \\\n  --set receiver.auth.secretName=oslo-receiver-auth \\\n  --set-json operator='{\"id\":\"oslo\",\"name\":\"oslo\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/no-registry/bearer-external/reissue=false/secret",
+    "chart": "",
+    "command": "kubectl create namespace continuum-system --dry-run=client -o yaml | kubectl apply -f - && \\\nkubectl apply --server-side --force-conflicts -f - <<'CONTINUUM_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: oslo-receiver-auth\n  namespace: continuum-system\ntype: Opaque\nstringData:\n  token: \"cno_SECRET\"\nCONTINUUM_SECRET"
+  },
+  {
+    "name": "operator/install/no-registry/bearer-external/reissue=true",
+    "chart": "regional-operator",
+    "command": "helm upgrade --install oslo ./continuum-regional-operator-0.0.0-operator.tgz \\\n  --namespace continuum-system --create-namespace --reset-then-reuse-values \\\n  --set export.otlp.endpoint=collector.example.com:4317 \\\n  --set export.otlp.protocol=grpc \\\n  --set export.otlp.tls.insecure=false \\\n  --set export.otlp.tls.caFile= \\\n  --set export.otlp.tls.mtls.enabled=false \\\n  --set export.otlp.tls.mtls.secretName= \\\n  --set export.otlp.tls.serverName= \\\n  --set export.otlp.auth.secretName= \\\n  --set receiver.auth.enabled=true \\\n  --set receiver.auth.secretName=oslo-receiver-auth \\\n  --set-json operator='{\"id\":\"oslo\",\"name\":\"oslo\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/no-registry/bearer-external/reissue=true/secret",
+    "chart": "",
+    "command": "kubectl create namespace continuum-system --dry-run=client -o yaml | kubectl apply -f - && \\\nkubectl apply --server-side --force-conflicts -f - <<'CONTINUUM_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: oslo-receiver-auth\n  namespace: continuum-system\ntype: Opaque\nstringData:\n  token: \"cno_SECRET\"\nCONTINUUM_SECRET"
+  },
+  {
+    "name": "operator/install/no-registry/bearer-external-tls/reissue=false",
+    "chart": "regional-operator",
+    "command": "helm install oslo ./continuum-regional-operator-0.0.0-operator.tgz \\\n  --namespace continuum-system --create-namespace \\\n  --set export.otlp.endpoint=collector.example.com:4317 \\\n  --set export.otlp.tls.insecure=true \\\n  --set export.otlp.tls.caFile=/etc/ssl/ca.pem \\\n  --set export.otlp.auth.headerName=Authorization \\\n  --set export.otlp.auth.secretName=collector-auth \\\n  --set export.otlp.auth.secretKey=token \\\n  --set receiver.auth.enabled=true \\\n  --set receiver.auth.secretName=oslo-receiver-auth \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=oslo-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set renew.enabled=true \\\n  --set renew.server=srv.example.com:8443 \\\n  --set renew.caPin=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \\\n  --set renew.image.tag=0.0.0-app \\\n  --set-json operator='{\"id\":\"oslo\",\"name\":\"oslo\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/no-registry/bearer-external-tls/reissue=false/secret",
+    "chart": "",
+    "command": "kubectl create namespace continuum-system --dry-run=client -o yaml | kubectl apply -f - && \\\nkubectl apply --server-side --force-conflicts -f - <<'CONTINUUM_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: oslo-receiver-auth\n  namespace: continuum-system\ntype: Opaque\nstringData:\n  token: \"cno_SECRET\"\nCONTINUUM_SECRET"
+  },
+  {
+    "name": "operator/install/no-registry/bearer-external-tls/reissue=true",
+    "chart": "regional-operator",
+    "command": "helm upgrade --install oslo ./continuum-regional-operator-0.0.0-operator.tgz \\\n  --namespace continuum-system --create-namespace --reset-then-reuse-values \\\n  --set export.otlp.endpoint=collector.example.com:4317 \\\n  --set export.otlp.protocol=grpc \\\n  --set export.otlp.tls.insecure=true \\\n  --set export.otlp.tls.caFile=/etc/ssl/ca.pem \\\n  --set export.otlp.tls.mtls.enabled=false \\\n  --set export.otlp.tls.mtls.secretName= \\\n  --set export.otlp.tls.serverName= \\\n  --set export.otlp.auth.headerName=Authorization \\\n  --set export.otlp.auth.secretName=collector-auth \\\n  --set export.otlp.auth.secretKey=token \\\n  --set receiver.auth.enabled=true \\\n  --set receiver.auth.secretName=oslo-receiver-auth \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=oslo-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set renew.enabled=true \\\n  --set renew.server=srv.example.com:8443 \\\n  --set renew.caPin=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \\\n  --set renew.image.tag=0.0.0-app \\\n  --set-json operator='{\"id\":\"oslo\",\"name\":\"oslo\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/no-registry/bearer-external-tls/reissue=true/secret",
+    "chart": "",
+    "command": "kubectl create namespace continuum-system --dry-run=client -o yaml | kubectl apply -f - && \\\nkubectl apply --server-side --force-conflicts -f - <<'CONTINUUM_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: oslo-receiver-auth\n  namespace: continuum-system\ntype: Opaque\nstringData:\n  token: \"cno_SECRET\"\nCONTINUUM_SECRET"
+  },
+  {
+    "name": "operator/install/no-registry/bearer-to-operator/reissue=false",
+    "chart": "regional-operator",
+    "command": "helm install oslo ./continuum-regional-operator-0.0.0-operator.tgz \\\n  --namespace continuum-system --create-namespace \\\n  --set export.otlp.endpoint=op-central-regional-operator.continuum-system.svc:4317 \\\n  --set export.otlp.tls.mtls.enabled=true \\\n  --set export.otlp.tls.mtls.secretName=op-central-export-mtls \\\n  --set receiver.auth.enabled=true \\\n  --set receiver.auth.secretName=oslo-receiver-auth \\\n  --set renew.enabled=true \\\n  --set renew.server=srv.example.com:8443 \\\n  --set renew.caPin=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \\\n  --set renew.image.tag=0.0.0-app \\\n  --set-json operator='{\"id\":\"oslo\",\"name\":\"oslo\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/no-registry/bearer-to-operator/reissue=false/secret",
+    "chart": "",
+    "command": "kubectl create namespace continuum-system --dry-run=client -o yaml | kubectl apply -f - && \\\nkubectl apply --server-side --force-conflicts -f - <<'CONTINUUM_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: oslo-receiver-auth\n  namespace: continuum-system\ntype: Opaque\nstringData:\n  token: \"cno_SECRET\"\nCONTINUUM_SECRET"
+  },
+  {
+    "name": "operator/install/no-registry/bearer-to-operator/reissue=true",
+    "chart": "regional-operator",
+    "command": "helm upgrade --install oslo ./continuum-regional-operator-0.0.0-operator.tgz \\\n  --namespace continuum-system --create-namespace --reset-then-reuse-values \\\n  --set export.otlp.endpoint=op-central-regional-operator.continuum-system.svc:4317 \\\n  --set export.otlp.protocol=grpc \\\n  --set export.otlp.tls.insecure=false \\\n  --set export.otlp.tls.caFile= \\\n  --set export.otlp.tls.mtls.enabled=true \\\n  --set export.otlp.tls.mtls.secretName=op-central-export-mtls \\\n  --set export.otlp.tls.serverName= \\\n  --set export.otlp.auth.secretName= \\\n  --set receiver.auth.enabled=true \\\n  --set receiver.auth.secretName=oslo-receiver-auth \\\n  --set renew.enabled=true \\\n  --set renew.server=srv.example.com:8443 \\\n  --set renew.caPin=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \\\n  --set renew.image.tag=0.0.0-app \\\n  --set-json operator='{\"id\":\"oslo\",\"name\":\"oslo\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/no-registry/bearer-to-operator/reissue=true/secret",
+    "chart": "",
+    "command": "kubectl create namespace continuum-system --dry-run=client -o yaml | kubectl apply -f - && \\\nkubectl apply --server-side --force-conflicts -f - <<'CONTINUUM_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: oslo-receiver-auth\n  namespace: continuum-system\ntype: Opaque\nstringData:\n  token: \"cno_SECRET\"\nCONTINUUM_SECRET"
+  },
+  {
+    "name": "operator/install/registry/mtls-external/reissue=false",
+    "chart": "regional-operator",
+    "command": "helm install athens oci://registry.example.com/team/continuum-regional-operator --version 0.0.0-operator \\\n  --namespace continuum-system --create-namespace \\\n  --set export.otlp.endpoint=collector.example.com:4317 \\\n  --set receiver.auth.enabled=false \\\n  --set receiver.requireAuth=true \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=athens-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set renew.enabled=true \\\n  --set renew.server=srv.example.com:8443 \\\n  --set renew.caPin=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \\\n  --set renew.image.repository=registry.example.com/team/continuum \\\n  --set renew.image.tag=1.4.0 \\\n  --set-json operator='{\"id\":\"athens\",\"name\":\"athens\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/registry/mtls-external/reissue=true",
+    "chart": "regional-operator",
+    "command": "helm upgrade --install athens oci://registry.example.com/team/continuum-regional-operator --version 0.0.0-operator \\\n  --namespace continuum-system --create-namespace --reset-then-reuse-values \\\n  --set export.otlp.endpoint=collector.example.com:4317 \\\n  --set export.otlp.protocol=grpc \\\n  --set export.otlp.tls.insecure=false \\\n  --set export.otlp.tls.caFile= \\\n  --set export.otlp.tls.mtls.enabled=false \\\n  --set export.otlp.tls.mtls.secretName= \\\n  --set export.otlp.tls.serverName= \\\n  --set export.otlp.auth.secretName= \\\n  --set receiver.auth.enabled=false \\\n  --set receiver.requireAuth=true \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=athens-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set renew.enabled=true \\\n  --set renew.server=srv.example.com:8443 \\\n  --set renew.caPin=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \\\n  --set renew.image.repository=registry.example.com/team/continuum \\\n  --set renew.image.tag=1.4.0 \\\n  --set-json operator='{\"id\":\"athens\",\"name\":\"athens\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/registry/mtls-external-full/reissue=false",
+    "chart": "regional-operator",
+    "command": "helm install athens oci://registry.example.com/team/continuum-regional-operator --version 0.0.0-operator \\\n  --namespace continuum-system --create-namespace \\\n  --set export.otlp.endpoint=collector.example.com:4317 \\\n  --set export.otlp.tls.insecure=true \\\n  --set export.otlp.tls.caFile=/etc/ssl/ca.pem \\\n  --set export.otlp.auth.headerName=Authorization \\\n  --set export.otlp.auth.secretName=collector-auth \\\n  --set export.otlp.auth.secretKey=token \\\n  --set receiver.auth.enabled=false \\\n  --set receiver.requireAuth=true \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=athens-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set renew.enabled=true \\\n  --set renew.server=srv.example.com:8443 \\\n  --set renew.caPin=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \\\n  --set renew.image.repository=registry.example.com/team/continuum \\\n  --set renew.image.tag=1.4.0 \\\n  --set-json operator='{\"id\":\"athens\",\"name\":\"athens\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/registry/mtls-external-full/reissue=true",
+    "chart": "regional-operator",
+    "command": "helm upgrade --install athens oci://registry.example.com/team/continuum-regional-operator --version 0.0.0-operator \\\n  --namespace continuum-system --create-namespace --reset-then-reuse-values \\\n  --set export.otlp.endpoint=collector.example.com:4317 \\\n  --set export.otlp.protocol=grpc \\\n  --set export.otlp.tls.insecure=true \\\n  --set export.otlp.tls.caFile=/etc/ssl/ca.pem \\\n  --set export.otlp.tls.mtls.enabled=false \\\n  --set export.otlp.tls.mtls.secretName= \\\n  --set export.otlp.tls.serverName= \\\n  --set export.otlp.auth.headerName=Authorization \\\n  --set export.otlp.auth.secretName=collector-auth \\\n  --set export.otlp.auth.secretKey=token \\\n  --set receiver.auth.enabled=false \\\n  --set receiver.requireAuth=true \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=athens-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set renew.enabled=true \\\n  --set renew.server=srv.example.com:8443 \\\n  --set renew.caPin=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \\\n  --set renew.image.repository=registry.example.com/team/continuum \\\n  --set renew.image.tag=1.4.0 \\\n  --set-json operator='{\"id\":\"athens\",\"name\":\"athens\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/registry/mtls-external-heartbeat/reissue=false",
+    "chart": "regional-operator",
+    "command": "helm install athens oci://registry.example.com/team/continuum-regional-operator --version 0.0.0-operator \\\n  --namespace continuum-system --create-namespace \\\n  --set export.otlp.endpoint=collector.example.com:4317 \\\n  --set receiver.auth.enabled=false \\\n  --set receiver.requireAuth=true \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=athens-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set heartbeat.enabled=true --set heartbeat.url=https://ikhnos.example.com/api/v1/operator-heartbeat --set heartbeat.auth.secretName=athens-heartbeat-auth \\\n  --set renew.enabled=true \\\n  --set renew.server=srv.example.com:8443 \\\n  --set renew.caPin=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \\\n  --set renew.image.repository=registry.example.com/team/continuum \\\n  --set renew.image.tag=1.4.0 \\\n  --set-json operator='{\"id\":\"athens\",\"name\":\"athens\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/registry/mtls-external-heartbeat/reissue=true",
+    "chart": "regional-operator",
+    "command": "helm upgrade --install athens oci://registry.example.com/team/continuum-regional-operator --version 0.0.0-operator \\\n  --namespace continuum-system --create-namespace --reset-then-reuse-values \\\n  --set export.otlp.endpoint=collector.example.com:4317 \\\n  --set export.otlp.protocol=grpc \\\n  --set export.otlp.tls.insecure=false \\\n  --set export.otlp.tls.caFile= \\\n  --set export.otlp.tls.mtls.enabled=false \\\n  --set export.otlp.tls.mtls.secretName= \\\n  --set export.otlp.tls.serverName= \\\n  --set export.otlp.auth.secretName= \\\n  --set receiver.auth.enabled=false \\\n  --set receiver.requireAuth=true \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=athens-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set heartbeat.enabled=true --set heartbeat.url=https://ikhnos.example.com/api/v1/operator-heartbeat --set heartbeat.auth.secretName=athens-heartbeat-auth \\\n  --set renew.enabled=true \\\n  --set renew.server=srv.example.com:8443 \\\n  --set renew.caPin=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \\\n  --set renew.image.repository=registry.example.com/team/continuum \\\n  --set renew.image.tag=1.4.0 \\\n  --set-json operator='{\"id\":\"athens\",\"name\":\"athens\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/registry/mtls-to-central/reissue=false",
+    "chart": "regional-operator",
+    "command": "helm install athens oci://registry.example.com/team/continuum-regional-operator --version 0.0.0-operator \\\n  --namespace continuum-system --create-namespace \\\n  --set export.otlp.endpoint=op-central-regional-operator.continuum-system.svc:4317 \\\n  --set export.otlp.tls.mtls.enabled=true \\\n  --set export.otlp.tls.mtls.secretName=op-central-export-mtls \\\n  --set receiver.auth.enabled=false \\\n  --set receiver.requireAuth=true \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=athens-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set renew.enabled=true \\\n  --set renew.server=srv.example.com:8443 \\\n  --set renew.caPin=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \\\n  --set renew.image.repository=registry.example.com/team/continuum \\\n  --set renew.image.tag=1.4.0 \\\n  --set-json operator='{\"id\":\"athens\",\"name\":\"athens\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/registry/mtls-to-central/reissue=true",
+    "chart": "regional-operator",
+    "command": "helm upgrade --install athens oci://registry.example.com/team/continuum-regional-operator --version 0.0.0-operator \\\n  --namespace continuum-system --create-namespace --reset-then-reuse-values \\\n  --set export.otlp.endpoint=op-central-regional-operator.continuum-system.svc:4317 \\\n  --set export.otlp.protocol=grpc \\\n  --set export.otlp.tls.insecure=false \\\n  --set export.otlp.tls.caFile= \\\n  --set export.otlp.tls.mtls.enabled=true \\\n  --set export.otlp.tls.mtls.secretName=op-central-export-mtls \\\n  --set export.otlp.tls.serverName= \\\n  --set export.otlp.auth.secretName= \\\n  --set receiver.auth.enabled=false \\\n  --set receiver.requireAuth=true \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=athens-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set renew.enabled=true \\\n  --set renew.server=srv.example.com:8443 \\\n  --set renew.caPin=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \\\n  --set renew.image.repository=registry.example.com/team/continuum \\\n  --set renew.image.tag=1.4.0 \\\n  --set-json operator='{\"id\":\"athens\",\"name\":\"athens\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/registry/mtls-to-operator-id-only/reissue=false",
+    "chart": "regional-operator",
+    "command": "helm install athens oci://registry.example.com/team/continuum-regional-operator --version 0.0.0-operator \\\n  --namespace continuum-system --create-namespace \\\n  --set export.otlp.endpoint=central-regional-operator.continuum-system.svc:4317 \\\n  --set export.otlp.tls.mtls.enabled=true \\\n  --set export.otlp.tls.mtls.secretName=central-export-mtls \\\n  --set export.otlp.tls.serverName=central.continuum-system.svc \\\n  --set receiver.auth.enabled=false \\\n  --set receiver.requireAuth=true \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=athens-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set renew.enabled=true \\\n  --set renew.server=srv.example.com:8443 \\\n  --set renew.caPin=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \\\n  --set renew.image.repository=registry.example.com/team/continuum \\\n  --set renew.image.tag=1.4.0 \\\n  --set-json operator='{\"id\":\"athens\",\"name\":\"athens\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/registry/mtls-to-operator-id-only/reissue=true",
+    "chart": "regional-operator",
+    "command": "helm upgrade --install athens oci://registry.example.com/team/continuum-regional-operator --version 0.0.0-operator \\\n  --namespace continuum-system --create-namespace --reset-then-reuse-values \\\n  --set export.otlp.endpoint=central-regional-operator.continuum-system.svc:4317 \\\n  --set export.otlp.protocol=grpc \\\n  --set export.otlp.tls.insecure=false \\\n  --set export.otlp.tls.caFile= \\\n  --set export.otlp.tls.mtls.enabled=true \\\n  --set export.otlp.tls.mtls.secretName=central-export-mtls \\\n  --set export.otlp.tls.serverName=central.continuum-system.svc \\\n  --set export.otlp.auth.secretName= \\\n  --set receiver.auth.enabled=false \\\n  --set receiver.requireAuth=true \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=athens-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set renew.enabled=true \\\n  --set renew.server=srv.example.com:8443 \\\n  --set renew.caPin=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \\\n  --set renew.image.repository=registry.example.com/team/continuum \\\n  --set renew.image.tag=1.4.0 \\\n  --set-json operator='{\"id\":\"athens\",\"name\":\"athens\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/registry/mtls-to-operator-address/reissue=false",
+    "chart": "regional-operator",
+    "command": "helm install athens oci://registry.example.com/team/continuum-regional-operator --version 0.0.0-operator \\\n  --namespace continuum-system --create-namespace \\\n  --set export.otlp.endpoint=10.0.0.7:4317 \\\n  --set export.otlp.tls.mtls.enabled=true \\\n  --set export.otlp.tls.mtls.secretName=tgt-export-mtls \\\n  --set export.otlp.tls.serverName=tgt.continuum-system.svc \\\n  --set receiver.auth.enabled=false \\\n  --set receiver.requireAuth=true \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=athens-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set renew.enabled=true \\\n  --set renew.server=srv.example.com:8443 \\\n  --set renew.caPin=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \\\n  --set renew.image.repository=registry.example.com/team/continuum \\\n  --set renew.image.tag=1.4.0 \\\n  --set-json operator='{\"id\":\"athens\",\"name\":\"athens\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/registry/mtls-to-operator-address/reissue=true",
+    "chart": "regional-operator",
+    "command": "helm upgrade --install athens oci://registry.example.com/team/continuum-regional-operator --version 0.0.0-operator \\\n  --namespace continuum-system --create-namespace --reset-then-reuse-values \\\n  --set export.otlp.endpoint=10.0.0.7:4317 \\\n  --set export.otlp.protocol=grpc \\\n  --set export.otlp.tls.insecure=false \\\n  --set export.otlp.tls.caFile= \\\n  --set export.otlp.tls.mtls.enabled=true \\\n  --set export.otlp.tls.mtls.secretName=tgt-export-mtls \\\n  --set export.otlp.tls.serverName=tgt.continuum-system.svc \\\n  --set export.otlp.auth.secretName= \\\n  --set receiver.auth.enabled=false \\\n  --set receiver.requireAuth=true \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=athens-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set renew.enabled=true \\\n  --set renew.server=srv.example.com:8443 \\\n  --set renew.caPin=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \\\n  --set renew.image.repository=registry.example.com/team/continuum \\\n  --set renew.image.tag=1.4.0 \\\n  --set-json operator='{\"id\":\"athens\",\"name\":\"athens\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/registry/bearer-external/reissue=false",
+    "chart": "regional-operator",
+    "command": "helm install oslo oci://registry.example.com/team/continuum-regional-operator --version 0.0.0-operator \\\n  --namespace continuum-system --create-namespace \\\n  --set export.otlp.endpoint=collector.example.com:4317 \\\n  --set receiver.auth.enabled=true \\\n  --set receiver.auth.secretName=oslo-receiver-auth \\\n  --set-json operator='{\"id\":\"oslo\",\"name\":\"oslo\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/registry/bearer-external/reissue=false/secret",
+    "chart": "",
+    "command": "kubectl create namespace continuum-system --dry-run=client -o yaml | kubectl apply -f - && \\\nkubectl apply --server-side --force-conflicts -f - <<'CONTINUUM_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: oslo-receiver-auth\n  namespace: continuum-system\ntype: Opaque\nstringData:\n  token: \"cno_SECRET\"\nCONTINUUM_SECRET"
+  },
+  {
+    "name": "operator/install/registry/bearer-external/reissue=true",
+    "chart": "regional-operator",
+    "command": "helm upgrade --install oslo oci://registry.example.com/team/continuum-regional-operator --version 0.0.0-operator \\\n  --namespace continuum-system --create-namespace --reset-then-reuse-values \\\n  --set export.otlp.endpoint=collector.example.com:4317 \\\n  --set export.otlp.protocol=grpc \\\n  --set export.otlp.tls.insecure=false \\\n  --set export.otlp.tls.caFile= \\\n  --set export.otlp.tls.mtls.enabled=false \\\n  --set export.otlp.tls.mtls.secretName= \\\n  --set export.otlp.tls.serverName= \\\n  --set export.otlp.auth.secretName= \\\n  --set receiver.auth.enabled=true \\\n  --set receiver.auth.secretName=oslo-receiver-auth \\\n  --set-json operator='{\"id\":\"oslo\",\"name\":\"oslo\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/registry/bearer-external/reissue=true/secret",
+    "chart": "",
+    "command": "kubectl create namespace continuum-system --dry-run=client -o yaml | kubectl apply -f - && \\\nkubectl apply --server-side --force-conflicts -f - <<'CONTINUUM_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: oslo-receiver-auth\n  namespace: continuum-system\ntype: Opaque\nstringData:\n  token: \"cno_SECRET\"\nCONTINUUM_SECRET"
+  },
+  {
+    "name": "operator/install/registry/bearer-external-tls/reissue=false",
+    "chart": "regional-operator",
+    "command": "helm install oslo oci://registry.example.com/team/continuum-regional-operator --version 0.0.0-operator \\\n  --namespace continuum-system --create-namespace \\\n  --set export.otlp.endpoint=collector.example.com:4317 \\\n  --set export.otlp.tls.insecure=true \\\n  --set export.otlp.tls.caFile=/etc/ssl/ca.pem \\\n  --set export.otlp.auth.headerName=Authorization \\\n  --set export.otlp.auth.secretName=collector-auth \\\n  --set export.otlp.auth.secretKey=token \\\n  --set receiver.auth.enabled=true \\\n  --set receiver.auth.secretName=oslo-receiver-auth \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=oslo-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set renew.enabled=true \\\n  --set renew.server=srv.example.com:8443 \\\n  --set renew.caPin=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \\\n  --set renew.image.repository=registry.example.com/team/continuum \\\n  --set renew.image.tag=1.4.0 \\\n  --set-json operator='{\"id\":\"oslo\",\"name\":\"oslo\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/registry/bearer-external-tls/reissue=false/secret",
+    "chart": "",
+    "command": "kubectl create namespace continuum-system --dry-run=client -o yaml | kubectl apply -f - && \\\nkubectl apply --server-side --force-conflicts -f - <<'CONTINUUM_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: oslo-receiver-auth\n  namespace: continuum-system\ntype: Opaque\nstringData:\n  token: \"cno_SECRET\"\nCONTINUUM_SECRET"
+  },
+  {
+    "name": "operator/install/registry/bearer-external-tls/reissue=true",
+    "chart": "regional-operator",
+    "command": "helm upgrade --install oslo oci://registry.example.com/team/continuum-regional-operator --version 0.0.0-operator \\\n  --namespace continuum-system --create-namespace --reset-then-reuse-values \\\n  --set export.otlp.endpoint=collector.example.com:4317 \\\n  --set export.otlp.protocol=grpc \\\n  --set export.otlp.tls.insecure=true \\\n  --set export.otlp.tls.caFile=/etc/ssl/ca.pem \\\n  --set export.otlp.tls.mtls.enabled=false \\\n  --set export.otlp.tls.mtls.secretName= \\\n  --set export.otlp.tls.serverName= \\\n  --set export.otlp.auth.headerName=Authorization \\\n  --set export.otlp.auth.secretName=collector-auth \\\n  --set export.otlp.auth.secretKey=token \\\n  --set receiver.auth.enabled=true \\\n  --set receiver.auth.secretName=oslo-receiver-auth \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=oslo-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set renew.enabled=true \\\n  --set renew.server=srv.example.com:8443 \\\n  --set renew.caPin=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \\\n  --set renew.image.repository=registry.example.com/team/continuum \\\n  --set renew.image.tag=1.4.0 \\\n  --set-json operator='{\"id\":\"oslo\",\"name\":\"oslo\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/registry/bearer-external-tls/reissue=true/secret",
+    "chart": "",
+    "command": "kubectl create namespace continuum-system --dry-run=client -o yaml | kubectl apply -f - && \\\nkubectl apply --server-side --force-conflicts -f - <<'CONTINUUM_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: oslo-receiver-auth\n  namespace: continuum-system\ntype: Opaque\nstringData:\n  token: \"cno_SECRET\"\nCONTINUUM_SECRET"
+  },
+  {
+    "name": "operator/install/registry/bearer-to-operator/reissue=false",
+    "chart": "regional-operator",
+    "command": "helm install oslo oci://registry.example.com/team/continuum-regional-operator --version 0.0.0-operator \\\n  --namespace continuum-system --create-namespace \\\n  --set export.otlp.endpoint=op-central-regional-operator.continuum-system.svc:4317 \\\n  --set export.otlp.tls.mtls.enabled=true \\\n  --set export.otlp.tls.mtls.secretName=op-central-export-mtls \\\n  --set receiver.auth.enabled=true \\\n  --set receiver.auth.secretName=oslo-receiver-auth \\\n  --set renew.enabled=true \\\n  --set renew.server=srv.example.com:8443 \\\n  --set renew.caPin=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \\\n  --set renew.image.repository=registry.example.com/team/continuum \\\n  --set renew.image.tag=1.4.0 \\\n  --set-json operator='{\"id\":\"oslo\",\"name\":\"oslo\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/registry/bearer-to-operator/reissue=false/secret",
+    "chart": "",
+    "command": "kubectl create namespace continuum-system --dry-run=client -o yaml | kubectl apply -f - && \\\nkubectl apply --server-side --force-conflicts -f - <<'CONTINUUM_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: oslo-receiver-auth\n  namespace: continuum-system\ntype: Opaque\nstringData:\n  token: \"cno_SECRET\"\nCONTINUUM_SECRET"
+  },
+  {
+    "name": "operator/install/registry/bearer-to-operator/reissue=true",
+    "chart": "regional-operator",
+    "command": "helm upgrade --install oslo oci://registry.example.com/team/continuum-regional-operator --version 0.0.0-operator \\\n  --namespace continuum-system --create-namespace --reset-then-reuse-values \\\n  --set export.otlp.endpoint=op-central-regional-operator.continuum-system.svc:4317 \\\n  --set export.otlp.protocol=grpc \\\n  --set export.otlp.tls.insecure=false \\\n  --set export.otlp.tls.caFile= \\\n  --set export.otlp.tls.mtls.enabled=true \\\n  --set export.otlp.tls.mtls.secretName=op-central-export-mtls \\\n  --set export.otlp.tls.serverName= \\\n  --set export.otlp.auth.secretName= \\\n  --set receiver.auth.enabled=true \\\n  --set receiver.auth.secretName=oslo-receiver-auth \\\n  --set renew.enabled=true \\\n  --set renew.server=srv.example.com:8443 \\\n  --set renew.caPin=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \\\n  --set renew.image.repository=registry.example.com/team/continuum \\\n  --set renew.image.tag=1.4.0 \\\n  --set-json operator='{\"id\":\"oslo\",\"name\":\"oslo\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/registry/bearer-to-operator/reissue=true/secret",
+    "chart": "",
+    "command": "kubectl create namespace continuum-system --dry-run=client -o yaml | kubectl apply -f - && \\\nkubectl apply --server-side --force-conflicts -f - <<'CONTINUUM_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: oslo-receiver-auth\n  namespace: continuum-system\ntype: Opaque\nstringData:\n  token: \"cno_SECRET\"\nCONTINUUM_SECRET"
+  },
+  {
+    "name": "operator/install/repository/mtls-external/reissue=false",
+    "chart": "regional-operator",
+    "command": "helm install athens oci://charts.example.com/stable/continuum-regional-operator --version 0.9.1 \\\n  --namespace continuum-system --create-namespace \\\n  --set export.otlp.endpoint=collector.example.com:4317 \\\n  --set receiver.auth.enabled=false \\\n  --set receiver.requireAuth=true \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=athens-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set renew.enabled=true \\\n  --set renew.server=srv.example.com:8443 \\\n  --set renew.caPin=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \\\n  --set renew.image.tag=0.0.0-app \\\n  --set-json operator='{\"id\":\"athens\",\"name\":\"athens\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/repository/mtls-external/reissue=true",
+    "chart": "regional-operator",
+    "command": "helm upgrade --install athens oci://charts.example.com/stable/continuum-regional-operator --version 0.9.1 \\\n  --namespace continuum-system --create-namespace --reset-then-reuse-values \\\n  --set export.otlp.endpoint=collector.example.com:4317 \\\n  --set export.otlp.protocol=grpc \\\n  --set export.otlp.tls.insecure=false \\\n  --set export.otlp.tls.caFile= \\\n  --set export.otlp.tls.mtls.enabled=false \\\n  --set export.otlp.tls.mtls.secretName= \\\n  --set export.otlp.tls.serverName= \\\n  --set export.otlp.auth.secretName= \\\n  --set receiver.auth.enabled=false \\\n  --set receiver.requireAuth=true \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=athens-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set renew.enabled=true \\\n  --set renew.server=srv.example.com:8443 \\\n  --set renew.caPin=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \\\n  --set renew.image.tag=0.0.0-app \\\n  --set-json operator='{\"id\":\"athens\",\"name\":\"athens\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/repository/mtls-external-full/reissue=false",
+    "chart": "regional-operator",
+    "command": "helm install athens oci://charts.example.com/stable/continuum-regional-operator --version 0.9.1 \\\n  --namespace continuum-system --create-namespace \\\n  --set export.otlp.endpoint=collector.example.com:4317 \\\n  --set export.otlp.tls.insecure=true \\\n  --set export.otlp.tls.caFile=/etc/ssl/ca.pem \\\n  --set export.otlp.auth.headerName=Authorization \\\n  --set export.otlp.auth.secretName=collector-auth \\\n  --set export.otlp.auth.secretKey=token \\\n  --set receiver.auth.enabled=false \\\n  --set receiver.requireAuth=true \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=athens-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set renew.enabled=true \\\n  --set renew.server=srv.example.com:8443 \\\n  --set renew.caPin=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \\\n  --set renew.image.tag=0.0.0-app \\\n  --set-json operator='{\"id\":\"athens\",\"name\":\"athens\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/repository/mtls-external-full/reissue=true",
+    "chart": "regional-operator",
+    "command": "helm upgrade --install athens oci://charts.example.com/stable/continuum-regional-operator --version 0.9.1 \\\n  --namespace continuum-system --create-namespace --reset-then-reuse-values \\\n  --set export.otlp.endpoint=collector.example.com:4317 \\\n  --set export.otlp.protocol=grpc \\\n  --set export.otlp.tls.insecure=true \\\n  --set export.otlp.tls.caFile=/etc/ssl/ca.pem \\\n  --set export.otlp.tls.mtls.enabled=false \\\n  --set export.otlp.tls.mtls.secretName= \\\n  --set export.otlp.tls.serverName= \\\n  --set export.otlp.auth.headerName=Authorization \\\n  --set export.otlp.auth.secretName=collector-auth \\\n  --set export.otlp.auth.secretKey=token \\\n  --set receiver.auth.enabled=false \\\n  --set receiver.requireAuth=true \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=athens-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set renew.enabled=true \\\n  --set renew.server=srv.example.com:8443 \\\n  --set renew.caPin=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \\\n  --set renew.image.tag=0.0.0-app \\\n  --set-json operator='{\"id\":\"athens\",\"name\":\"athens\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/repository/mtls-external-heartbeat/reissue=false",
+    "chart": "regional-operator",
+    "command": "helm install athens oci://charts.example.com/stable/continuum-regional-operator --version 0.9.1 \\\n  --namespace continuum-system --create-namespace \\\n  --set export.otlp.endpoint=collector.example.com:4317 \\\n  --set receiver.auth.enabled=false \\\n  --set receiver.requireAuth=true \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=athens-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set heartbeat.enabled=true --set heartbeat.url=https://ikhnos.example.com/api/v1/operator-heartbeat --set heartbeat.auth.secretName=athens-heartbeat-auth \\\n  --set renew.enabled=true \\\n  --set renew.server=srv.example.com:8443 \\\n  --set renew.caPin=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \\\n  --set renew.image.tag=0.0.0-app \\\n  --set-json operator='{\"id\":\"athens\",\"name\":\"athens\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/repository/mtls-external-heartbeat/reissue=true",
+    "chart": "regional-operator",
+    "command": "helm upgrade --install athens oci://charts.example.com/stable/continuum-regional-operator --version 0.9.1 \\\n  --namespace continuum-system --create-namespace --reset-then-reuse-values \\\n  --set export.otlp.endpoint=collector.example.com:4317 \\\n  --set export.otlp.protocol=grpc \\\n  --set export.otlp.tls.insecure=false \\\n  --set export.otlp.tls.caFile= \\\n  --set export.otlp.tls.mtls.enabled=false \\\n  --set export.otlp.tls.mtls.secretName= \\\n  --set export.otlp.tls.serverName= \\\n  --set export.otlp.auth.secretName= \\\n  --set receiver.auth.enabled=false \\\n  --set receiver.requireAuth=true \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=athens-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set heartbeat.enabled=true --set heartbeat.url=https://ikhnos.example.com/api/v1/operator-heartbeat --set heartbeat.auth.secretName=athens-heartbeat-auth \\\n  --set renew.enabled=true \\\n  --set renew.server=srv.example.com:8443 \\\n  --set renew.caPin=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \\\n  --set renew.image.tag=0.0.0-app \\\n  --set-json operator='{\"id\":\"athens\",\"name\":\"athens\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/repository/mtls-to-central/reissue=false",
+    "chart": "regional-operator",
+    "command": "helm install athens oci://charts.example.com/stable/continuum-regional-operator --version 0.9.1 \\\n  --namespace continuum-system --create-namespace \\\n  --set export.otlp.endpoint=op-central-regional-operator.continuum-system.svc:4317 \\\n  --set export.otlp.tls.mtls.enabled=true \\\n  --set export.otlp.tls.mtls.secretName=op-central-export-mtls \\\n  --set receiver.auth.enabled=false \\\n  --set receiver.requireAuth=true \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=athens-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set renew.enabled=true \\\n  --set renew.server=srv.example.com:8443 \\\n  --set renew.caPin=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \\\n  --set renew.image.tag=0.0.0-app \\\n  --set-json operator='{\"id\":\"athens\",\"name\":\"athens\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/repository/mtls-to-central/reissue=true",
+    "chart": "regional-operator",
+    "command": "helm upgrade --install athens oci://charts.example.com/stable/continuum-regional-operator --version 0.9.1 \\\n  --namespace continuum-system --create-namespace --reset-then-reuse-values \\\n  --set export.otlp.endpoint=op-central-regional-operator.continuum-system.svc:4317 \\\n  --set export.otlp.protocol=grpc \\\n  --set export.otlp.tls.insecure=false \\\n  --set export.otlp.tls.caFile= \\\n  --set export.otlp.tls.mtls.enabled=true \\\n  --set export.otlp.tls.mtls.secretName=op-central-export-mtls \\\n  --set export.otlp.tls.serverName= \\\n  --set export.otlp.auth.secretName= \\\n  --set receiver.auth.enabled=false \\\n  --set receiver.requireAuth=true \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=athens-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set renew.enabled=true \\\n  --set renew.server=srv.example.com:8443 \\\n  --set renew.caPin=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \\\n  --set renew.image.tag=0.0.0-app \\\n  --set-json operator='{\"id\":\"athens\",\"name\":\"athens\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/repository/mtls-to-operator-id-only/reissue=false",
+    "chart": "regional-operator",
+    "command": "helm install athens oci://charts.example.com/stable/continuum-regional-operator --version 0.9.1 \\\n  --namespace continuum-system --create-namespace \\\n  --set export.otlp.endpoint=central-regional-operator.continuum-system.svc:4317 \\\n  --set export.otlp.tls.mtls.enabled=true \\\n  --set export.otlp.tls.mtls.secretName=central-export-mtls \\\n  --set export.otlp.tls.serverName=central.continuum-system.svc \\\n  --set receiver.auth.enabled=false \\\n  --set receiver.requireAuth=true \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=athens-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set renew.enabled=true \\\n  --set renew.server=srv.example.com:8443 \\\n  --set renew.caPin=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \\\n  --set renew.image.tag=0.0.0-app \\\n  --set-json operator='{\"id\":\"athens\",\"name\":\"athens\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/repository/mtls-to-operator-id-only/reissue=true",
+    "chart": "regional-operator",
+    "command": "helm upgrade --install athens oci://charts.example.com/stable/continuum-regional-operator --version 0.9.1 \\\n  --namespace continuum-system --create-namespace --reset-then-reuse-values \\\n  --set export.otlp.endpoint=central-regional-operator.continuum-system.svc:4317 \\\n  --set export.otlp.protocol=grpc \\\n  --set export.otlp.tls.insecure=false \\\n  --set export.otlp.tls.caFile= \\\n  --set export.otlp.tls.mtls.enabled=true \\\n  --set export.otlp.tls.mtls.secretName=central-export-mtls \\\n  --set export.otlp.tls.serverName=central.continuum-system.svc \\\n  --set export.otlp.auth.secretName= \\\n  --set receiver.auth.enabled=false \\\n  --set receiver.requireAuth=true \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=athens-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set renew.enabled=true \\\n  --set renew.server=srv.example.com:8443 \\\n  --set renew.caPin=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \\\n  --set renew.image.tag=0.0.0-app \\\n  --set-json operator='{\"id\":\"athens\",\"name\":\"athens\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/repository/mtls-to-operator-address/reissue=false",
+    "chart": "regional-operator",
+    "command": "helm install athens oci://charts.example.com/stable/continuum-regional-operator --version 0.9.1 \\\n  --namespace continuum-system --create-namespace \\\n  --set export.otlp.endpoint=10.0.0.7:4317 \\\n  --set export.otlp.tls.mtls.enabled=true \\\n  --set export.otlp.tls.mtls.secretName=tgt-export-mtls \\\n  --set export.otlp.tls.serverName=tgt.continuum-system.svc \\\n  --set receiver.auth.enabled=false \\\n  --set receiver.requireAuth=true \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=athens-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set renew.enabled=true \\\n  --set renew.server=srv.example.com:8443 \\\n  --set renew.caPin=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \\\n  --set renew.image.tag=0.0.0-app \\\n  --set-json operator='{\"id\":\"athens\",\"name\":\"athens\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/repository/mtls-to-operator-address/reissue=true",
+    "chart": "regional-operator",
+    "command": "helm upgrade --install athens oci://charts.example.com/stable/continuum-regional-operator --version 0.9.1 \\\n  --namespace continuum-system --create-namespace --reset-then-reuse-values \\\n  --set export.otlp.endpoint=10.0.0.7:4317 \\\n  --set export.otlp.protocol=grpc \\\n  --set export.otlp.tls.insecure=false \\\n  --set export.otlp.tls.caFile= \\\n  --set export.otlp.tls.mtls.enabled=true \\\n  --set export.otlp.tls.mtls.secretName=tgt-export-mtls \\\n  --set export.otlp.tls.serverName=tgt.continuum-system.svc \\\n  --set export.otlp.auth.secretName= \\\n  --set receiver.auth.enabled=false \\\n  --set receiver.requireAuth=true \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=athens-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set renew.enabled=true \\\n  --set renew.server=srv.example.com:8443 \\\n  --set renew.caPin=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \\\n  --set renew.image.tag=0.0.0-app \\\n  --set-json operator='{\"id\":\"athens\",\"name\":\"athens\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/repository/bearer-external/reissue=false",
+    "chart": "regional-operator",
+    "command": "helm install oslo oci://charts.example.com/stable/continuum-regional-operator --version 0.9.1 \\\n  --namespace continuum-system --create-namespace \\\n  --set export.otlp.endpoint=collector.example.com:4317 \\\n  --set receiver.auth.enabled=true \\\n  --set receiver.auth.secretName=oslo-receiver-auth \\\n  --set-json operator='{\"id\":\"oslo\",\"name\":\"oslo\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/repository/bearer-external/reissue=false/secret",
+    "chart": "",
+    "command": "kubectl create namespace continuum-system --dry-run=client -o yaml | kubectl apply -f - && \\\nkubectl apply --server-side --force-conflicts -f - <<'CONTINUUM_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: oslo-receiver-auth\n  namespace: continuum-system\ntype: Opaque\nstringData:\n  token: \"cno_SECRET\"\nCONTINUUM_SECRET"
+  },
+  {
+    "name": "operator/install/repository/bearer-external/reissue=true",
+    "chart": "regional-operator",
+    "command": "helm upgrade --install oslo oci://charts.example.com/stable/continuum-regional-operator --version 0.9.1 \\\n  --namespace continuum-system --create-namespace --reset-then-reuse-values \\\n  --set export.otlp.endpoint=collector.example.com:4317 \\\n  --set export.otlp.protocol=grpc \\\n  --set export.otlp.tls.insecure=false \\\n  --set export.otlp.tls.caFile= \\\n  --set export.otlp.tls.mtls.enabled=false \\\n  --set export.otlp.tls.mtls.secretName= \\\n  --set export.otlp.tls.serverName= \\\n  --set export.otlp.auth.secretName= \\\n  --set receiver.auth.enabled=true \\\n  --set receiver.auth.secretName=oslo-receiver-auth \\\n  --set-json operator='{\"id\":\"oslo\",\"name\":\"oslo\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/repository/bearer-external/reissue=true/secret",
+    "chart": "",
+    "command": "kubectl create namespace continuum-system --dry-run=client -o yaml | kubectl apply -f - && \\\nkubectl apply --server-side --force-conflicts -f - <<'CONTINUUM_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: oslo-receiver-auth\n  namespace: continuum-system\ntype: Opaque\nstringData:\n  token: \"cno_SECRET\"\nCONTINUUM_SECRET"
+  },
+  {
+    "name": "operator/install/repository/bearer-external-tls/reissue=false",
+    "chart": "regional-operator",
+    "command": "helm install oslo oci://charts.example.com/stable/continuum-regional-operator --version 0.9.1 \\\n  --namespace continuum-system --create-namespace \\\n  --set export.otlp.endpoint=collector.example.com:4317 \\\n  --set export.otlp.tls.insecure=true \\\n  --set export.otlp.tls.caFile=/etc/ssl/ca.pem \\\n  --set export.otlp.auth.headerName=Authorization \\\n  --set export.otlp.auth.secretName=collector-auth \\\n  --set export.otlp.auth.secretKey=token \\\n  --set receiver.auth.enabled=true \\\n  --set receiver.auth.secretName=oslo-receiver-auth \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=oslo-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set renew.enabled=true \\\n  --set renew.server=srv.example.com:8443 \\\n  --set renew.caPin=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \\\n  --set renew.image.tag=0.0.0-app \\\n  --set-json operator='{\"id\":\"oslo\",\"name\":\"oslo\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/repository/bearer-external-tls/reissue=false/secret",
+    "chart": "",
+    "command": "kubectl create namespace continuum-system --dry-run=client -o yaml | kubectl apply -f - && \\\nkubectl apply --server-side --force-conflicts -f - <<'CONTINUUM_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: oslo-receiver-auth\n  namespace: continuum-system\ntype: Opaque\nstringData:\n  token: \"cno_SECRET\"\nCONTINUUM_SECRET"
+  },
+  {
+    "name": "operator/install/repository/bearer-external-tls/reissue=true",
+    "chart": "regional-operator",
+    "command": "helm upgrade --install oslo oci://charts.example.com/stable/continuum-regional-operator --version 0.9.1 \\\n  --namespace continuum-system --create-namespace --reset-then-reuse-values \\\n  --set export.otlp.endpoint=collector.example.com:4317 \\\n  --set export.otlp.protocol=grpc \\\n  --set export.otlp.tls.insecure=true \\\n  --set export.otlp.tls.caFile=/etc/ssl/ca.pem \\\n  --set export.otlp.tls.mtls.enabled=false \\\n  --set export.otlp.tls.mtls.secretName= \\\n  --set export.otlp.tls.serverName= \\\n  --set export.otlp.auth.headerName=Authorization \\\n  --set export.otlp.auth.secretName=collector-auth \\\n  --set export.otlp.auth.secretKey=token \\\n  --set receiver.auth.enabled=true \\\n  --set receiver.auth.secretName=oslo-receiver-auth \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=oslo-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set renew.enabled=true \\\n  --set renew.server=srv.example.com:8443 \\\n  --set renew.caPin=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \\\n  --set renew.image.tag=0.0.0-app \\\n  --set-json operator='{\"id\":\"oslo\",\"name\":\"oslo\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/repository/bearer-external-tls/reissue=true/secret",
+    "chart": "",
+    "command": "kubectl create namespace continuum-system --dry-run=client -o yaml | kubectl apply -f - && \\\nkubectl apply --server-side --force-conflicts -f - <<'CONTINUUM_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: oslo-receiver-auth\n  namespace: continuum-system\ntype: Opaque\nstringData:\n  token: \"cno_SECRET\"\nCONTINUUM_SECRET"
+  },
+  {
+    "name": "operator/install/repository/bearer-to-operator/reissue=false",
+    "chart": "regional-operator",
+    "command": "helm install oslo oci://charts.example.com/stable/continuum-regional-operator --version 0.9.1 \\\n  --namespace continuum-system --create-namespace \\\n  --set export.otlp.endpoint=op-central-regional-operator.continuum-system.svc:4317 \\\n  --set export.otlp.tls.mtls.enabled=true \\\n  --set export.otlp.tls.mtls.secretName=op-central-export-mtls \\\n  --set receiver.auth.enabled=true \\\n  --set receiver.auth.secretName=oslo-receiver-auth \\\n  --set renew.enabled=true \\\n  --set renew.server=srv.example.com:8443 \\\n  --set renew.caPin=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \\\n  --set renew.image.tag=0.0.0-app \\\n  --set-json operator='{\"id\":\"oslo\",\"name\":\"oslo\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/repository/bearer-to-operator/reissue=false/secret",
+    "chart": "",
+    "command": "kubectl create namespace continuum-system --dry-run=client -o yaml | kubectl apply -f - && \\\nkubectl apply --server-side --force-conflicts -f - <<'CONTINUUM_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: oslo-receiver-auth\n  namespace: continuum-system\ntype: Opaque\nstringData:\n  token: \"cno_SECRET\"\nCONTINUUM_SECRET"
+  },
+  {
+    "name": "operator/install/repository/bearer-to-operator/reissue=true",
+    "chart": "regional-operator",
+    "command": "helm upgrade --install oslo oci://charts.example.com/stable/continuum-regional-operator --version 0.9.1 \\\n  --namespace continuum-system --create-namespace --reset-then-reuse-values \\\n  --set export.otlp.endpoint=op-central-regional-operator.continuum-system.svc:4317 \\\n  --set export.otlp.protocol=grpc \\\n  --set export.otlp.tls.insecure=false \\\n  --set export.otlp.tls.caFile= \\\n  --set export.otlp.tls.mtls.enabled=true \\\n  --set export.otlp.tls.mtls.secretName=op-central-export-mtls \\\n  --set export.otlp.tls.serverName= \\\n  --set export.otlp.auth.secretName= \\\n  --set receiver.auth.enabled=true \\\n  --set receiver.auth.secretName=oslo-receiver-auth \\\n  --set renew.enabled=true \\\n  --set renew.server=srv.example.com:8443 \\\n  --set renew.caPin=sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= \\\n  --set renew.image.tag=0.0.0-app \\\n  --set-json operator='{\"id\":\"oslo\",\"name\":\"oslo\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/repository/bearer-to-operator/reissue=true/secret",
+    "chart": "",
+    "command": "kubectl create namespace continuum-system --dry-run=client -o yaml | kubectl apply -f - && \\\nkubectl apply --server-side --force-conflicts -f - <<'CONTINUUM_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: oslo-receiver-auth\n  namespace: continuum-system\ntype: Opaque\nstringData:\n  token: \"cno_SECRET\"\nCONTINUUM_SECRET"
+  },
+  {
+    "name": "operator/install/no-server/mtls-external/reissue=false",
+    "chart": "regional-operator",
+    "command": "helm install athens ./continuum-regional-operator-0.0.0-operator.tgz \\\n  --namespace continuum-system --create-namespace \\\n  --set export.otlp.endpoint=collector.example.com:4317 \\\n  --set receiver.auth.enabled=false \\\n  --set receiver.requireAuth=true \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=athens-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set-json operator='{\"id\":\"athens\",\"name\":\"athens\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/no-server/mtls-external/reissue=true",
+    "chart": "regional-operator",
+    "command": "helm upgrade --install athens ./continuum-regional-operator-0.0.0-operator.tgz \\\n  --namespace continuum-system --create-namespace --reset-then-reuse-values \\\n  --set export.otlp.endpoint=collector.example.com:4317 \\\n  --set export.otlp.protocol=grpc \\\n  --set export.otlp.tls.insecure=false \\\n  --set export.otlp.tls.caFile= \\\n  --set export.otlp.tls.mtls.enabled=false \\\n  --set export.otlp.tls.mtls.secretName= \\\n  --set export.otlp.tls.serverName= \\\n  --set export.otlp.auth.secretName= \\\n  --set receiver.auth.enabled=false \\\n  --set receiver.requireAuth=true \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=athens-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set-json operator='{\"id\":\"athens\",\"name\":\"athens\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/no-server/mtls-external-full/reissue=false",
+    "chart": "regional-operator",
+    "command": "helm install athens ./continuum-regional-operator-0.0.0-operator.tgz \\\n  --namespace continuum-system --create-namespace \\\n  --set export.otlp.endpoint=collector.example.com:4317 \\\n  --set export.otlp.tls.insecure=true \\\n  --set export.otlp.tls.caFile=/etc/ssl/ca.pem \\\n  --set export.otlp.auth.headerName=Authorization \\\n  --set export.otlp.auth.secretName=collector-auth \\\n  --set export.otlp.auth.secretKey=token \\\n  --set receiver.auth.enabled=false \\\n  --set receiver.requireAuth=true \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=athens-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set-json operator='{\"id\":\"athens\",\"name\":\"athens\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/no-server/mtls-external-full/reissue=true",
+    "chart": "regional-operator",
+    "command": "helm upgrade --install athens ./continuum-regional-operator-0.0.0-operator.tgz \\\n  --namespace continuum-system --create-namespace --reset-then-reuse-values \\\n  --set export.otlp.endpoint=collector.example.com:4317 \\\n  --set export.otlp.protocol=grpc \\\n  --set export.otlp.tls.insecure=true \\\n  --set export.otlp.tls.caFile=/etc/ssl/ca.pem \\\n  --set export.otlp.tls.mtls.enabled=false \\\n  --set export.otlp.tls.mtls.secretName= \\\n  --set export.otlp.tls.serverName= \\\n  --set export.otlp.auth.headerName=Authorization \\\n  --set export.otlp.auth.secretName=collector-auth \\\n  --set export.otlp.auth.secretKey=token \\\n  --set receiver.auth.enabled=false \\\n  --set receiver.requireAuth=true \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=athens-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set-json operator='{\"id\":\"athens\",\"name\":\"athens\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/no-server/mtls-external-heartbeat/reissue=false",
+    "chart": "regional-operator",
+    "command": "helm install athens ./continuum-regional-operator-0.0.0-operator.tgz \\\n  --namespace continuum-system --create-namespace \\\n  --set export.otlp.endpoint=collector.example.com:4317 \\\n  --set receiver.auth.enabled=false \\\n  --set receiver.requireAuth=true \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=athens-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set heartbeat.enabled=true --set heartbeat.url=https://ikhnos.example.com/api/v1/operator-heartbeat --set heartbeat.auth.secretName=athens-heartbeat-auth \\\n  --set-json operator='{\"id\":\"athens\",\"name\":\"athens\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/no-server/mtls-external-heartbeat/reissue=true",
+    "chart": "regional-operator",
+    "command": "helm upgrade --install athens ./continuum-regional-operator-0.0.0-operator.tgz \\\n  --namespace continuum-system --create-namespace --reset-then-reuse-values \\\n  --set export.otlp.endpoint=collector.example.com:4317 \\\n  --set export.otlp.protocol=grpc \\\n  --set export.otlp.tls.insecure=false \\\n  --set export.otlp.tls.caFile= \\\n  --set export.otlp.tls.mtls.enabled=false \\\n  --set export.otlp.tls.mtls.secretName= \\\n  --set export.otlp.tls.serverName= \\\n  --set export.otlp.auth.secretName= \\\n  --set receiver.auth.enabled=false \\\n  --set receiver.requireAuth=true \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=athens-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set heartbeat.enabled=true --set heartbeat.url=https://ikhnos.example.com/api/v1/operator-heartbeat --set heartbeat.auth.secretName=athens-heartbeat-auth \\\n  --set-json operator='{\"id\":\"athens\",\"name\":\"athens\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/no-server/mtls-to-central/reissue=false",
+    "chart": "regional-operator",
+    "command": "helm install athens ./continuum-regional-operator-0.0.0-operator.tgz \\\n  --namespace continuum-system --create-namespace \\\n  --set export.otlp.endpoint=op-central-regional-operator.continuum-system.svc:4317 \\\n  --set export.otlp.tls.mtls.enabled=true \\\n  --set export.otlp.tls.mtls.secretName=op-central-export-mtls \\\n  --set receiver.auth.enabled=false \\\n  --set receiver.requireAuth=true \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=athens-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set-json operator='{\"id\":\"athens\",\"name\":\"athens\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/no-server/mtls-to-central/reissue=true",
+    "chart": "regional-operator",
+    "command": "helm upgrade --install athens ./continuum-regional-operator-0.0.0-operator.tgz \\\n  --namespace continuum-system --create-namespace --reset-then-reuse-values \\\n  --set export.otlp.endpoint=op-central-regional-operator.continuum-system.svc:4317 \\\n  --set export.otlp.protocol=grpc \\\n  --set export.otlp.tls.insecure=false \\\n  --set export.otlp.tls.caFile= \\\n  --set export.otlp.tls.mtls.enabled=true \\\n  --set export.otlp.tls.mtls.secretName=op-central-export-mtls \\\n  --set export.otlp.tls.serverName= \\\n  --set export.otlp.auth.secretName= \\\n  --set receiver.auth.enabled=false \\\n  --set receiver.requireAuth=true \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=athens-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set-json operator='{\"id\":\"athens\",\"name\":\"athens\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/no-server/mtls-to-operator-id-only/reissue=false",
+    "chart": "regional-operator",
+    "command": "helm install athens ./continuum-regional-operator-0.0.0-operator.tgz \\\n  --namespace continuum-system --create-namespace \\\n  --set export.otlp.endpoint=central-regional-operator.continuum-system.svc:4317 \\\n  --set export.otlp.tls.mtls.enabled=true \\\n  --set export.otlp.tls.mtls.secretName=central-export-mtls \\\n  --set export.otlp.tls.serverName=central.continuum-system.svc \\\n  --set receiver.auth.enabled=false \\\n  --set receiver.requireAuth=true \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=athens-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set-json operator='{\"id\":\"athens\",\"name\":\"athens\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/no-server/mtls-to-operator-id-only/reissue=true",
+    "chart": "regional-operator",
+    "command": "helm upgrade --install athens ./continuum-regional-operator-0.0.0-operator.tgz \\\n  --namespace continuum-system --create-namespace --reset-then-reuse-values \\\n  --set export.otlp.endpoint=central-regional-operator.continuum-system.svc:4317 \\\n  --set export.otlp.protocol=grpc \\\n  --set export.otlp.tls.insecure=false \\\n  --set export.otlp.tls.caFile= \\\n  --set export.otlp.tls.mtls.enabled=true \\\n  --set export.otlp.tls.mtls.secretName=central-export-mtls \\\n  --set export.otlp.tls.serverName=central.continuum-system.svc \\\n  --set export.otlp.auth.secretName= \\\n  --set receiver.auth.enabled=false \\\n  --set receiver.requireAuth=true \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=athens-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set-json operator='{\"id\":\"athens\",\"name\":\"athens\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/no-server/mtls-to-operator-address/reissue=false",
+    "chart": "regional-operator",
+    "command": "helm install athens ./continuum-regional-operator-0.0.0-operator.tgz \\\n  --namespace continuum-system --create-namespace \\\n  --set export.otlp.endpoint=10.0.0.7:4317 \\\n  --set export.otlp.tls.mtls.enabled=true \\\n  --set export.otlp.tls.mtls.secretName=tgt-export-mtls \\\n  --set export.otlp.tls.serverName=tgt.continuum-system.svc \\\n  --set receiver.auth.enabled=false \\\n  --set receiver.requireAuth=true \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=athens-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set-json operator='{\"id\":\"athens\",\"name\":\"athens\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/no-server/mtls-to-operator-address/reissue=true",
+    "chart": "regional-operator",
+    "command": "helm upgrade --install athens ./continuum-regional-operator-0.0.0-operator.tgz \\\n  --namespace continuum-system --create-namespace --reset-then-reuse-values \\\n  --set export.otlp.endpoint=10.0.0.7:4317 \\\n  --set export.otlp.protocol=grpc \\\n  --set export.otlp.tls.insecure=false \\\n  --set export.otlp.tls.caFile= \\\n  --set export.otlp.tls.mtls.enabled=true \\\n  --set export.otlp.tls.mtls.secretName=tgt-export-mtls \\\n  --set export.otlp.tls.serverName=tgt.continuum-system.svc \\\n  --set export.otlp.auth.secretName= \\\n  --set receiver.auth.enabled=false \\\n  --set receiver.requireAuth=true \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=athens-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set-json operator='{\"id\":\"athens\",\"name\":\"athens\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/no-server/bearer-external/reissue=false",
+    "chart": "regional-operator",
+    "command": "helm install oslo ./continuum-regional-operator-0.0.0-operator.tgz \\\n  --namespace continuum-system --create-namespace \\\n  --set export.otlp.endpoint=collector.example.com:4317 \\\n  --set receiver.auth.enabled=true \\\n  --set receiver.auth.secretName=oslo-receiver-auth \\\n  --set-json operator='{\"id\":\"oslo\",\"name\":\"oslo\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/no-server/bearer-external/reissue=false/secret",
+    "chart": "",
+    "command": "kubectl create namespace continuum-system --dry-run=client -o yaml | kubectl apply -f - && \\\nkubectl apply --server-side --force-conflicts -f - <<'CONTINUUM_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: oslo-receiver-auth\n  namespace: continuum-system\ntype: Opaque\nstringData:\n  token: \"cno_SECRET\"\nCONTINUUM_SECRET"
+  },
+  {
+    "name": "operator/install/no-server/bearer-external/reissue=true",
+    "chart": "regional-operator",
+    "command": "helm upgrade --install oslo ./continuum-regional-operator-0.0.0-operator.tgz \\\n  --namespace continuum-system --create-namespace --reset-then-reuse-values \\\n  --set export.otlp.endpoint=collector.example.com:4317 \\\n  --set export.otlp.protocol=grpc \\\n  --set export.otlp.tls.insecure=false \\\n  --set export.otlp.tls.caFile= \\\n  --set export.otlp.tls.mtls.enabled=false \\\n  --set export.otlp.tls.mtls.secretName= \\\n  --set export.otlp.tls.serverName= \\\n  --set export.otlp.auth.secretName= \\\n  --set receiver.auth.enabled=true \\\n  --set receiver.auth.secretName=oslo-receiver-auth \\\n  --set-json operator='{\"id\":\"oslo\",\"name\":\"oslo\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/no-server/bearer-external/reissue=true/secret",
+    "chart": "",
+    "command": "kubectl create namespace continuum-system --dry-run=client -o yaml | kubectl apply -f - && \\\nkubectl apply --server-side --force-conflicts -f - <<'CONTINUUM_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: oslo-receiver-auth\n  namespace: continuum-system\ntype: Opaque\nstringData:\n  token: \"cno_SECRET\"\nCONTINUUM_SECRET"
+  },
+  {
+    "name": "operator/install/no-server/bearer-external-tls/reissue=false",
+    "chart": "regional-operator",
+    "command": "helm install oslo ./continuum-regional-operator-0.0.0-operator.tgz \\\n  --namespace continuum-system --create-namespace \\\n  --set export.otlp.endpoint=collector.example.com:4317 \\\n  --set export.otlp.tls.insecure=true \\\n  --set export.otlp.tls.caFile=/etc/ssl/ca.pem \\\n  --set export.otlp.auth.headerName=Authorization \\\n  --set export.otlp.auth.secretName=collector-auth \\\n  --set export.otlp.auth.secretKey=token \\\n  --set receiver.auth.enabled=true \\\n  --set receiver.auth.secretName=oslo-receiver-auth \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=oslo-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set-json operator='{\"id\":\"oslo\",\"name\":\"oslo\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/no-server/bearer-external-tls/reissue=false/secret",
+    "chart": "",
+    "command": "kubectl create namespace continuum-system --dry-run=client -o yaml | kubectl apply -f - && \\\nkubectl apply --server-side --force-conflicts -f - <<'CONTINUUM_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: oslo-receiver-auth\n  namespace: continuum-system\ntype: Opaque\nstringData:\n  token: \"cno_SECRET\"\nCONTINUUM_SECRET"
+  },
+  {
+    "name": "operator/install/no-server/bearer-external-tls/reissue=true",
+    "chart": "regional-operator",
+    "command": "helm upgrade --install oslo ./continuum-regional-operator-0.0.0-operator.tgz \\\n  --namespace continuum-system --create-namespace --reset-then-reuse-values \\\n  --set export.otlp.endpoint=collector.example.com:4317 \\\n  --set export.otlp.protocol=grpc \\\n  --set export.otlp.tls.insecure=true \\\n  --set export.otlp.tls.caFile=/etc/ssl/ca.pem \\\n  --set export.otlp.tls.mtls.enabled=false \\\n  --set export.otlp.tls.mtls.secretName= \\\n  --set export.otlp.tls.serverName= \\\n  --set export.otlp.auth.headerName=Authorization \\\n  --set export.otlp.auth.secretName=collector-auth \\\n  --set export.otlp.auth.secretKey=token \\\n  --set receiver.auth.enabled=true \\\n  --set receiver.auth.secretName=oslo-receiver-auth \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=oslo-receiver-tls \\\n  --set receiver.tls.mtls=true \\\n  --set-json operator='{\"id\":\"oslo\",\"name\":\"oslo\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/no-server/bearer-external-tls/reissue=true/secret",
+    "chart": "",
+    "command": "kubectl create namespace continuum-system --dry-run=client -o yaml | kubectl apply -f - && \\\nkubectl apply --server-side --force-conflicts -f - <<'CONTINUUM_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: oslo-receiver-auth\n  namespace: continuum-system\ntype: Opaque\nstringData:\n  token: \"cno_SECRET\"\nCONTINUUM_SECRET"
+  },
+  {
+    "name": "operator/install/no-server/bearer-to-operator/reissue=false",
+    "chart": "regional-operator",
+    "command": "helm install oslo ./continuum-regional-operator-0.0.0-operator.tgz \\\n  --namespace continuum-system --create-namespace \\\n  --set export.otlp.endpoint=op-central-regional-operator.continuum-system.svc:4317 \\\n  --set export.otlp.tls.mtls.enabled=true \\\n  --set export.otlp.tls.mtls.secretName=op-central-export-mtls \\\n  --set receiver.auth.enabled=true \\\n  --set receiver.auth.secretName=oslo-receiver-auth \\\n  --set-json operator='{\"id\":\"oslo\",\"name\":\"oslo\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/no-server/bearer-to-operator/reissue=false/secret",
+    "chart": "",
+    "command": "kubectl create namespace continuum-system --dry-run=client -o yaml | kubectl apply -f - && \\\nkubectl apply --server-side --force-conflicts -f - <<'CONTINUUM_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: oslo-receiver-auth\n  namespace: continuum-system\ntype: Opaque\nstringData:\n  token: \"cno_SECRET\"\nCONTINUUM_SECRET"
+  },
+  {
+    "name": "operator/install/no-server/bearer-to-operator/reissue=true",
+    "chart": "regional-operator",
+    "command": "helm upgrade --install oslo ./continuum-regional-operator-0.0.0-operator.tgz \\\n  --namespace continuum-system --create-namespace --reset-then-reuse-values \\\n  --set export.otlp.endpoint=op-central-regional-operator.continuum-system.svc:4317 \\\n  --set export.otlp.protocol=grpc \\\n  --set export.otlp.tls.insecure=false \\\n  --set export.otlp.tls.caFile= \\\n  --set export.otlp.tls.mtls.enabled=true \\\n  --set export.otlp.tls.mtls.secretName=op-central-export-mtls \\\n  --set export.otlp.tls.serverName= \\\n  --set export.otlp.auth.secretName= \\\n  --set receiver.auth.enabled=true \\\n  --set receiver.auth.secretName=oslo-receiver-auth \\\n  --set-json operator='{\"id\":\"oslo\",\"name\":\"oslo\",\"labels\":[]}'"
+  },
+  {
+    "name": "operator/install/no-server/bearer-to-operator/reissue=true/secret",
+    "chart": "",
+    "command": "kubectl create namespace continuum-system --dry-run=client -o yaml | kubectl apply -f - && \\\nkubectl apply --server-side --force-conflicts -f - <<'CONTINUUM_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: oslo-receiver-auth\n  namespace: continuum-system\ntype: Opaque\nstringData:\n  token: \"cno_SECRET\"\nCONTINUUM_SECRET"
+  },
+  {
+    "name": "operator/receiver-secret/mtls",
+    "chart": "",
+    "command": "kubectl create namespace continuum-system --dry-run=client -o yaml | kubectl apply -f - && \\\nkubectl apply --server-side --force-conflicts -f - <<'CONTINUUM_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: athens-receiver-tls\n  namespace: continuum-system\ntype: Opaque\nstringData:\n  tls.crt: |\n    -----BEGIN CERTIFICATE-----\n    cmVjZWl2ZXItY2VydA==\n    -----END CERTIFICATE-----\n  tls.key: |\n    -----BEGIN EC PRIVATE KEY-----\n    cmVjZWl2ZXIta2V5\n    -----END EC PRIVATE KEY-----\n  ca.crt: |\n    -----BEGIN CERTIFICATE-----\n    b3BlcmF0b3ItY2E=\n    -----END CERTIFICATE-----\nCONTINUUM_SECRET"
+  },
+  {
+    "name": "operator/client-secret",
+    "chart": "",
+    "command": "kubectl apply --server-side --force-conflicts -f - <<'CONTINUUM_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: athens-export-mtls\n  namespace: apps-team\ntype: Opaque\nstringData:\n  tls.crt: |\n    -----BEGIN CERTIFICATE-----\n    c2VuZGVyLWEtY2VydA==\n    -----END CERTIFICATE-----\n  tls.key: |\n    -----BEGIN EC PRIVATE KEY-----\n    c2VuZGVyLWEta2V5\n    -----END EC PRIVATE KEY-----\n  ca.crt: |\n    -----BEGIN CERTIFICATE-----\n    b3BlcmF0b3ItY2E=\n    -----END CERTIFICATE-----\nCONTINUUM_SECRET"
+  },
+  {
+    "name": "operator/restart",
+    "chart": "",
+    "command": "kubectl rollout restart deployment/athens-regional-operator --namespace continuum-system"
+  },
+  {
+    "name": "operator/uninstall",
+    "chart": "",
+    "command": "helm uninstall athens --namespace continuum-system"
+  },
+  {
+    "name": "operator/expose/nodeport",
+    "chart": "",
+    "command": "kubectl --namespace continuum-system patch svc athens-regional-operator -p '{\"spec\":{\"type\":\"NodePort\"}}'"
+  },
+  {
+    "name": "operator/expose/loadbalancer",
+    "chart": "",
+    "command": "kubectl --namespace continuum-system patch svc athens-regional-operator -p '{\"spec\":{\"type\":\"LoadBalancer\"}}'"
+  },
+  {
+    "name": "operator/heartbeat/no-registry/upgrade",
+    "chart": "regional-operator",
+    "command": "helm upgrade athens ./continuum-regional-operator-0.0.0-operator.tgz --namespace continuum-system --reset-then-reuse-values --set heartbeat.enabled=true --set heartbeat.url=https://ikhnos.example.com/api/v1/operator-heartbeat --set heartbeat.auth.secretName=athens-heartbeat-auth"
+  },
+  {
+    "name": "operator/heartbeat/registry/upgrade",
+    "chart": "regional-operator",
+    "command": "helm upgrade athens oci://registry.example.com/team/continuum-regional-operator --version 0.0.0-operator --namespace continuum-system --reset-then-reuse-values --set heartbeat.enabled=true --set heartbeat.url=https://ikhnos.example.com/api/v1/operator-heartbeat --set heartbeat.auth.secretName=athens-heartbeat-auth"
+  },
+  {
+    "name": "operator/heartbeat/repository/upgrade",
+    "chart": "regional-operator",
+    "command": "helm upgrade athens oci://charts.example.com/stable/continuum-regional-operator --version 0.9.1 --namespace continuum-system --reset-then-reuse-values --set heartbeat.enabled=true --set heartbeat.url=https://ikhnos.example.com/api/v1/operator-heartbeat --set heartbeat.auth.secretName=athens-heartbeat-auth"
+  },
+  {
+    "name": "operator/heartbeat/secret",
+    "chart": "",
+    "command": "kubectl create namespace continuum-system --dry-run=client -o yaml | kubectl apply -f - && \\\nkubectl apply --server-side --force-conflicts -f - <<'CONTINUUM_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: athens-heartbeat-auth\n  namespace: continuum-system\ntype: Opaque\nstringData:\n  token: \"hb_SECRET\"\nCONTINUUM_SECRET"
+  },
+  {
+    "name": "operator/heartbeat/private-ca/upgrade",
+    "chart": "regional-operator",
+    "command": "helm upgrade athens ./continuum-regional-operator-0.0.0-operator.tgz --namespace continuum-system --reset-then-reuse-values --set heartbeat.enabled=true --set heartbeat.url=https://ikhnos.example.com/api/v1/operator-heartbeat --set heartbeat.auth.secretName=athens-heartbeat-auth --set heartbeat.tls.caSecretName=athens-heartbeat-ca"
+  },
+  {
+    "name": "operator/heartbeat/private-ca/secret",
+    "chart": "",
+    "command": "kubectl create namespace continuum-system --dry-run=client -o yaml | kubectl apply -f - && \\\nkubectl apply --server-side --force-conflicts -f - <<'CONTINUUM_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: athens-heartbeat-ca\n  namespace: continuum-system\ntype: Opaque\nstringData:\n  ca.crt: |\n    -----BEGIN CERTIFICATE-----\n    aGVhcnRiZWF0LWNh\n    -----END CERTIFICATE-----\nCONTINUUM_SECRET"
+  },
+  {
+    "name": "operator/sources/no-registry/0",
+    "chart": "",
+    "command": "# in cluster cl-a (namespace continuum-system): create its client certificate Secret first\nkubectl apply --server-side --force-conflicts -f - <<'CONTINUUM_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: athens-export-mtls\n  namespace: continuum-system\ntype: Opaque\nstringData:\n  tls.crt: |\n    -----BEGIN CERTIFICATE-----\n    c2VuZGVyLWEtY2VydA==\n    -----END CERTIFICATE-----\n  tls.key: |\n    -----BEGIN EC PRIVATE KEY-----\n    c2VuZGVyLWEta2V5\n    -----END EC PRIVATE KEY-----\n  ca.crt: |\n    -----BEGIN CERTIFICATE-----\n    b3BlcmF0b3ItY2E=\n    -----END CERTIFICATE-----\nCONTINUUM_SECRET"
+  },
+  {
+    "name": "operator/sources/no-registry/1",
+    "chart": "",
+    "command": "# in cluster cl-b (namespace apps-team): create its client certificate Secret first\nkubectl apply --server-side --force-conflicts -f - <<'CONTINUUM_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: athens-export-mtls\n  namespace: apps-team\ntype: Opaque\nstringData:\n  tls.crt: |\n    -----BEGIN CERTIFICATE-----\n    c2VuZGVyLWItY2VydA==\n    -----END CERTIFICATE-----\n  tls.key: |\n    -----BEGIN EC PRIVATE KEY-----\n    c2VuZGVyLWIta2V5\n    -----END EC PRIVATE KEY-----\n  ca.crt: |\n    -----BEGIN CERTIFICATE-----\n    b3BlcmF0b3ItY2E=\n    -----END CERTIFICATE-----\nCONTINUUM_SECRET"
+  },
+  {
+    "name": "operator/sources/no-registry/2",
+    "chart": "agent",
+    "command": "helm upgrade continuum-agent ./continuum-agent-0.0.0-agent.tgz --namespace continuum-system --reset-then-reuse-values --set telemetry.export.otlp.endpoint=athens-regional-operator.continuum-system.svc:4317 --set telemetry.export.otlp.protocol=grpc --set telemetry.export.otlp.tls.insecure=false --set telemetry.export.otlp.tls.caFile= --set telemetry.export.otlp.tls.mtls.enabled=true --set telemetry.export.otlp.tls.mtls.secretName=athens-export-mtls --set telemetry.export.otlp.tls.serverName=athens.continuum-system.svc --set telemetry.export.otlp.auth.secretName= --set telemetry.export.routes.metrics.endpoint= --set telemetry.export.routes.logs.endpoint= --set telemetry.export.routes.traces.endpoint=  # cluster cl-a"
+  },
+  {
+    "name": "operator/sources/no-registry/3",
+    "chart": "agent",
+    "command": "helm upgrade obs-agent ./continuum-agent-0.0.0-agent.tgz --namespace apps-team --reset-then-reuse-values --set telemetry.export.otlp.endpoint=athens-regional-operator.continuum-system.svc:4317 --set telemetry.export.otlp.protocol=grpc --set telemetry.export.otlp.tls.insecure=false --set telemetry.export.otlp.tls.caFile= --set telemetry.export.otlp.tls.mtls.enabled=true --set telemetry.export.otlp.tls.mtls.secretName=athens-export-mtls --set telemetry.export.otlp.tls.serverName=athens.continuum-system.svc --set telemetry.export.otlp.auth.secretName= --set telemetry.export.routes.metrics.endpoint= --set telemetry.export.routes.logs.endpoint= --set telemetry.export.routes.traces.endpoint=  # cluster cl-b"
+  },
+  {
+    "name": "operator/sources/registry/0",
+    "chart": "",
+    "command": "# in cluster cl-a (namespace continuum-system): create its client certificate Secret first\nkubectl apply --server-side --force-conflicts -f - <<'CONTINUUM_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: athens-export-mtls\n  namespace: continuum-system\ntype: Opaque\nstringData:\n  tls.crt: |\n    -----BEGIN CERTIFICATE-----\n    c2VuZGVyLWEtY2VydA==\n    -----END CERTIFICATE-----\n  tls.key: |\n    -----BEGIN EC PRIVATE KEY-----\n    c2VuZGVyLWEta2V5\n    -----END EC PRIVATE KEY-----\n  ca.crt: |\n    -----BEGIN CERTIFICATE-----\n    b3BlcmF0b3ItY2E=\n    -----END CERTIFICATE-----\nCONTINUUM_SECRET"
+  },
+  {
+    "name": "operator/sources/registry/1",
+    "chart": "",
+    "command": "# in cluster cl-b (namespace apps-team): create its client certificate Secret first\nkubectl apply --server-side --force-conflicts -f - <<'CONTINUUM_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: athens-export-mtls\n  namespace: apps-team\ntype: Opaque\nstringData:\n  tls.crt: |\n    -----BEGIN CERTIFICATE-----\n    c2VuZGVyLWItY2VydA==\n    -----END CERTIFICATE-----\n  tls.key: |\n    -----BEGIN EC PRIVATE KEY-----\n    c2VuZGVyLWIta2V5\n    -----END EC PRIVATE KEY-----\n  ca.crt: |\n    -----BEGIN CERTIFICATE-----\n    b3BlcmF0b3ItY2E=\n    -----END CERTIFICATE-----\nCONTINUUM_SECRET"
+  },
+  {
+    "name": "operator/sources/registry/2",
+    "chart": "agent",
+    "command": "helm upgrade continuum-agent oci://registry.example.com/team/continuum-agent --version 0.0.0-agent --namespace continuum-system --reset-then-reuse-values --set telemetry.export.otlp.endpoint=athens-regional-operator.continuum-system.svc:4317 --set telemetry.export.otlp.protocol=grpc --set telemetry.export.otlp.tls.insecure=false --set telemetry.export.otlp.tls.caFile= --set telemetry.export.otlp.tls.mtls.enabled=true --set telemetry.export.otlp.tls.mtls.secretName=athens-export-mtls --set telemetry.export.otlp.tls.serverName=athens.continuum-system.svc --set telemetry.export.otlp.auth.secretName= --set telemetry.export.routes.metrics.endpoint= --set telemetry.export.routes.logs.endpoint= --set telemetry.export.routes.traces.endpoint=  # cluster cl-a"
+  },
+  {
+    "name": "operator/sources/registry/3",
+    "chart": "agent",
+    "command": "helm upgrade obs-agent oci://registry.example.com/team/continuum-agent --version 0.0.0-agent --namespace apps-team --reset-then-reuse-values --set telemetry.export.otlp.endpoint=athens-regional-operator.continuum-system.svc:4317 --set telemetry.export.otlp.protocol=grpc --set telemetry.export.otlp.tls.insecure=false --set telemetry.export.otlp.tls.caFile= --set telemetry.export.otlp.tls.mtls.enabled=true --set telemetry.export.otlp.tls.mtls.secretName=athens-export-mtls --set telemetry.export.otlp.tls.serverName=athens.continuum-system.svc --set telemetry.export.otlp.auth.secretName= --set telemetry.export.routes.metrics.endpoint= --set telemetry.export.routes.logs.endpoint= --set telemetry.export.routes.traces.endpoint=  # cluster cl-b"
+  },
+  {
+    "name": "operator/sources/bearer-no-certificate/0",
+    "chart": "agent",
+    "command": "helm upgrade continuum-agent ./continuum-agent-0.0.0-agent.tgz --namespace continuum-system --reset-then-reuse-values --set telemetry.export.otlp.endpoint=oslo-regional-operator.continuum-system.svc:4317 --set telemetry.export.otlp.protocol=grpc --set telemetry.export.otlp.tls.insecure=false --set telemetry.export.otlp.tls.caFile= --set telemetry.export.otlp.tls.mtls.enabled=false --set telemetry.export.otlp.tls.mtls.secretName= --set telemetry.export.otlp.tls.serverName=oslo.continuum-system.svc --set telemetry.export.routes.metrics.endpoint= --set telemetry.export.routes.logs.endpoint= --set telemetry.export.routes.traces.endpoint=  # cluster cl-a"
+  }
+]

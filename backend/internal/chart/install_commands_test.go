@@ -20,9 +20,15 @@ import (
 // The shell is a real one: the command is run with `helm` defined as a function that prints its arguments, so quoting, escaped
 // quotes and line continuations are read by bash and not by a second reader written here that could disagree with it.
 //
-// Not covered: what the rendered configuration does at run time (the tests that run the real collector), and the commands the server
-// builds in Go.
+// The commands the server builds in Go are pinned in the same way, in internal/server/testdata/install_commands.golden.json, and are
+// rendered here too (TestEveryInstallCommandTheServerPrintsRendersTheChart).
+//
+// Not covered: what the rendered configuration does at run time (the tests that run the real collector).
 const installCommandsGolden = "../../../tests/install_commands.golden.json"
+
+// serverCommandsGolden is the same pin for the commands the server builds in Go, written by internal/server's
+// TestServerInstallCommandsArePinned. Its cases that are not helm (a Secret, a kubectl line) have no chart and are not rendered.
+const serverCommandsGolden = "../server/testdata/install_commands.golden.json"
 
 type pinnedCommand struct {
 	Name    string `json:"name"`
@@ -55,6 +61,9 @@ func valuesOf(t *testing.T, name string, args []string) (values []string, endpoi
 	t.Helper()
 	if len(args) < 3 || (args[0] != "install" && args[0] != "upgrade") {
 		t.Fatalf("%s: not a helm install or upgrade: %q", name, args)
+	}
+	if len(args) > 1 && args[1] == "--install" {
+		args = append([]string{args[0]}, args[2:]...) // `helm upgrade --install`: the release may not exist yet, which changes nothing about its values
 	}
 	rest := args[3:] // the verb, the release and the chart
 	for i := 0; i < len(rest); i++ {
@@ -96,20 +105,31 @@ func hostOf(endpoint string) string {
 }
 
 func TestEveryInstallCommandTheUIPrintsRendersTheChart(t *testing.T) {
-	raw, err := os.ReadFile(installCommandsGolden)
+	rendersTheChart(t, installCommandsGolden, "tests/install_commands.golden.json is written by tests/installCommands.test.ts", 60)
+}
+
+func TestEveryInstallCommandTheServerPrintsRendersTheChart(t *testing.T) {
+	rendersTheChart(t, serverCommandsGolden, "internal/server/testdata/install_commands.golden.json is written by TestServerInstallCommandsArePinned", 100)
+}
+
+func rendersTheChart(t *testing.T, golden, writtenBy string, atLeast int) {
+	raw, err := os.ReadFile(golden)
 	if err != nil {
-		t.Fatalf("%v (tests/install_commands.golden.json is written by tests/installCommands.test.ts)", err)
+		t.Fatalf("%v (%s)", err, writtenBy)
 	}
 	var cases []pinnedCommand
 	if err := json.Unmarshal(raw, &cases); err != nil {
 		t.Fatal(err)
 	}
-	if len(cases) < 60 {
-		t.Fatalf("only %d pinned commands: the file is not what tests/installCommands.test.ts writes", len(cases))
+	if len(cases) < atLeast {
+		t.Fatalf("only %d pinned commands: the file is not what it should be (%s)", len(cases), writtenBy)
 	}
 	seen := map[string]int{}
 	for _, c := range cases {
 		c := c
+		if c.Chart == "" {
+			continue // not helm: a Secret or a kubectl line
+		}
 		seen[c.Chart]++
 		t.Run(c.Name, func(t *testing.T) {
 			values, endpoints, enabled := valuesOf(t, c.Name, helmArgs(t, c.Command))
