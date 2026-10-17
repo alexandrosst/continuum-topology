@@ -47,7 +47,7 @@ func settingsDoc(s Settings, rev int64, admin bool) SettingsDoc {
 
 func (a *Admin) getSettings(w http.ResponseWriter, r *http.Request) {
 	cur, rev := a.core(r).SettingsAt()
-	d := settingsDoc(cur, rev, roleRank[principal(r).Role] >= roleRank[RoleAdmin])
+	d := settingsDoc(cur, rev, Allows(principal(r), ActAdminister))
 	d.ImageDefaults = a.imageDefaults()
 	writeJSON(w, 200, d)
 }

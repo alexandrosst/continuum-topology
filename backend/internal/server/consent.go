@@ -239,15 +239,6 @@ func ActingAs(ctx context.Context, role string) context.Context {
 	return context.WithValue(ctx, ctxPrincipal{}, Principal{Role: role})
 }
 
-// mayWiden reports whether the caller may grant an agent more than it has now (a higher tier, a pause or an exclusion
-// lifted). That is the administrator's decision, like approving it; an editor may only narrow. It fails closed: a context
-// with no signed-in caller (a code path that forgot to carry one) may not widen, so a new internal caller has to say who is
-// asking instead of silently getting the administrator's right.
-func mayWiden(ctx context.Context) bool {
-	p, ok := ctx.Value(ctxPrincipal{}).(Principal)
-	return ok && roleRank[p.Role] >= roleRank[RoleAdmin]
-}
-
 // SetAgentTier changes what a human approved for an agent that is already approved. Anything up to the ceiling the agent's
 // install has is allowed, narrower or wider than before (widening goes back up to what the owner installed, never past it,
 // and takes an administrator); a tier above the ceiling is refused with the exact command the cluster's owner has to run to
@@ -272,7 +263,7 @@ func (h *Hub) SetAgentTier(ctx context.Context, actor, agentID string, tier int,
 	if tier == a.AccessTier {
 		return a, nil
 	}
-	if tier > a.AccessTier && !mayWiden(ctx) {
+	if !Decide(CallerFrom(ctx), ActChangeAccess, Resource{Widening: tier > a.AccessTier}).Allowed {
 		return a, errf(KindForbidden, "raising an agent's access takes an administrator, as approving it did; narrowing it does not")
 	}
 	if verdict == TierNotImplemented {
@@ -323,7 +314,7 @@ func (h *Hub) SetConsent(ctx context.Context, actor, agentID string, in Consent)
 		return Consent{}, err
 	}
 	cur := h.consentOf(a.ID)
-	if consentNarrows(next, cur) && !mayWiden(ctx) { // cur has a pause or exclusion that next lifts
+	if !Decide(CallerFrom(ctx), ActChangeAccess, Resource{Widening: consentNarrows(next, cur)}).Allowed { // cur has a pause or exclusion that next lifts
 		return Consent{}, errf(KindForbidden, "lifting a pause or an exclusion takes an administrator; adding one does not")
 	}
 	if strings.Join(cur.Paused, ",") == strings.Join(next.Paused, ",") && strings.Join(cur.Excluded, ",") == strings.Join(next.Excluded, ",") {

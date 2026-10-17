@@ -576,6 +576,32 @@ func (timelineGraph) Timeline(_ context.Context, _, kind, id string, _ int) (gra
 	return graph.Timeline{Kind: kind, ID: id, Audit: []graph.AuditRow{{Actor: "alice", Action: "agent-revoked", TargetID: id, Detail: "because"}}}, nil
 }
 
+func (timelineGraph) Status(_ context.Context, _ string) graph.Status {
+	return graph.Status{Enabled: true, Connected: false, Ready: false, Error: "dial tcp neo4j.internal:7687: refused", Stats: &graph.Stats{}}
+}
+
+// Anyone in the organisation learns whether history works; why it does not (an error can name a host) and the counts are for
+// administrators.
+func TestStorageStatusShowsItsReasonsAndCountsToAdministratorsOnly(t *testing.T) {
+	e := newEnv(t)
+	e.base.Store = timelineGraph{Store: e.st}
+	e.core = e.base.ForOrg("org-1")
+	a := adminRigOn(t, e)
+	_, admin := a.user(t, "adam", RoleAdmin)
+	_, editor := a.user(t, "edie", RoleEditor)
+	_, viewer := a.user(t, "vic", RoleViewer)
+	for name, cookie := range map[string]string{"viewer": viewer, "editor": editor} {
+		got := a.do("GET", "/api/v1/storage", nil, withCookie(cookie)).json(t)
+		if got["backend"] != "neo4j" || got["connected"] != false || got["error"] != nil || got["stats"] != nil {
+			t.Errorf("%s: %v", name, got)
+		}
+	}
+	got := a.do("GET", "/api/v1/storage", nil, withCookie(admin)).json(t)
+	if got["error"] != "dial tcp neo4j.internal:7687: refused" || got["stats"] == nil {
+		t.Errorf("administrator: %v", got)
+	}
+}
+
 // The timeline carries who did what to a record; like /audit and the state document it shows that to
 // administrators only.
 func TestTimelineShowsAuditRowsToAdministratorsOnly(t *testing.T) {
@@ -585,6 +611,7 @@ func TestTimelineShowsAuditRowsToAdministratorsOnly(t *testing.T) {
 	a := adminRigOn(t, e)
 	_, admin := a.user(t, "adam", RoleAdmin)
 	_, viewer := a.user(t, "vic", RoleViewer)
+	_, editor := a.user(t, "edie", RoleEditor)
 	rows := func(cookie string) []any {
 		t.Helper()
 		r := a.do("GET", "/api/v1/timeline?kind=service&id=svc-web", nil, withCookie(cookie))
@@ -602,5 +629,8 @@ func TestTimelineShowsAuditRowsToAdministratorsOnly(t *testing.T) {
 	}
 	if got := rows(viewer); len(got) != 0 {
 		t.Errorf("a viewer sees audit rows: %v", got)
+	}
+	if got := rows(editor); len(got) != 0 {
+		t.Errorf("an editor sees audit rows: %v", got)
 	}
 }

@@ -636,6 +636,7 @@ func TestSettingsEndpointsRolesAndHiddenDeciderURL(t *testing.T) {
 	a.base.Decider, _ = NewDeciderPolicy("127.0.0.0/8")
 	_, admin := a.user(t, "root", RoleAdmin)
 	_, viewer := a.user(t, "eve", RoleViewer)
+	_, editor := a.user(t, "eddy", RoleEditor)
 
 	put := a.do("PUT", "/api/v1/settings", Settings{SnapshotMinutes: 7, DeciderURL: "http://127.0.0.1:9/decide?key=secret", DeciderName: "Mine"}, withCookie(admin))
 	if put.Code != 200 || put.json(t)["deciderUrl"] != "http://127.0.0.1:9/decide?key=secret" {
@@ -657,6 +658,9 @@ func TestSettingsEndpointsRolesAndHiddenDeciderURL(t *testing.T) {
 	}
 	if vw["deciderUrl"] != "" || vw["deciderConfigured"] != true || vw["deciderName"] != "Mine" {
 		t.Fatalf("viewer view: %v", vw)
+	}
+	if ed := a.do("GET", "/api/v1/settings", nil, withCookie(editor)).json(t); ed["deciderUrl"] != "" || ed["deciderConfigured"] != true {
+		t.Fatalf("editor view: %v", ed)
 	}
 	if r := a.do("GET", "/api/v1/settings", nil); r.Code != 401 {
 		t.Fatalf("anonymous: %d", r.Code)

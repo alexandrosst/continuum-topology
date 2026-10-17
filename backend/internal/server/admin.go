@@ -27,6 +27,8 @@ import (
 // port. Everything except sign-in needs a session cookie, and what a person may do depends on
 // their role.
 type Admin struct {
+	routes []Route // what Handler mounted under /api, and what each asks of the caller (routes.go)
+
 	// SelfProbe receives the reports of the node probes that ship with the server's own chart, and SelfProbeEvery is how
 	// often they were told to report. Both are nil/zero on an install without those probes. See self_probe.go.
 	SelfProbe      *probe.Receiver
@@ -145,8 +147,6 @@ const (
 	ownerRole
 )
 
-var needRole = map[need]string{memberRole: RoleViewer, editorRole: RoleEditor, adminRole: RoleAdmin, ownerRole: RoleOwner}
-
 func (a *Admin) tn(r *http.Request) *Tenant {
 	t, _ := r.Context().Value(ctxTenant{}).(*Tenant)
 	return t
@@ -161,24 +161,25 @@ func (a *Admin) Handler() http.Handler {
 	a.fusionPageRL = NewLimiter(30, 10)
 	a.fusionUIAccess = newFusionUIAccess()
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) })
-	mux.HandleFunc("GET /readyz", a.readyz)
-	mux.HandleFunc("GET /charts/{file}", a.serveChart)
+	a.handle(mux, "GET /healthz", accessPublic, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) }))
+	a.handle(mux, "GET /readyz", accessPublic, http.HandlerFunc(a.readyz))
+	a.handle(mux, "GET /charts/{file}", accessPublic, http.HandlerFunc(a.serveChart))
 
 	api := http.NewServeMux()
-	route := func(pattern string, n need, h http.HandlerFunc) { api.Handle(pattern, a.guard(n, h)) }
-	api.HandleFunc("GET /api/v1/server", a.serverInfo)
-	api.HandleFunc("POST /api/v1/auth/login", a.login)
+	route := func(pattern string, n need, h http.HandlerFunc) { a.handle(api, pattern, n.String(), a.guard(n, h)) }
+	open := func(pattern string, h http.HandlerFunc) { a.handle(api, pattern, accessPublic, h) }
+	open("GET /api/v1/server", a.serverInfo)
+	open("POST /api/v1/auth/login", a.login)
 	if a.SSOHeaderName != "" {
-		api.HandleFunc("GET /api/v1/auth/sso", a.ssoLogin)
+		open("GET /api/v1/auth/sso", a.ssoLogin)
 	}
-	api.HandleFunc("POST /api/v1/auth/login/2fa", a.login2FA)
-	api.HandleFunc("POST /api/v1/auth/login/2fa/email", a.requestLoginEmailCode)
-	api.HandleFunc("POST /api/v1/auth/login/2fa/webauthn/begin", a.beginPasskeyLogin)
-	api.HandleFunc("POST /api/v1/auth/login/2fa/webauthn/finish", a.finishPasskeyLogin)
-	api.HandleFunc("POST /api/v1/auth/register", a.register)
-	api.HandleFunc("POST /api/v1/auth/logout", a.logout)
-	api.HandleFunc("POST /api/v1/invites/preview", a.previewInvite)
+	open("POST /api/v1/auth/login/2fa", a.login2FA)
+	open("POST /api/v1/auth/login/2fa/email", a.requestLoginEmailCode)
+	open("POST /api/v1/auth/login/2fa/webauthn/begin", a.beginPasskeyLogin)
+	open("POST /api/v1/auth/login/2fa/webauthn/finish", a.finishPasskeyLogin)
+	open("POST /api/v1/auth/register", a.register)
+	open("POST /api/v1/auth/logout", a.logout)
+	open("POST /api/v1/invites/preview", a.previewInvite)
 	route("GET /api/v1/auth/me", anySession, a.me)
 	route("POST /api/v1/auth/password", anySession, a.changePassword)
 	route("POST /api/v1/auth/2fa/setup", anySession, a.setup2FA)
@@ -323,13 +324,13 @@ func (a *Admin) Handler() http.Handler {
 
 	// A regional operator's collector reports that it is alive here. Authenticated by its own secret, with
 	// no session, so it sits beside - not inside - the browser-facing wrappers: no CORS, no CSRF.
-	mux.HandleFunc("POST "+OperatorHeartbeatPath, a.operatorHeartbeat)
+	a.handle(mux, "POST "+OperatorHeartbeatPath, accessOperatorSecret, http.HandlerFunc(a.operatorHeartbeat))
 	// Prometheus's and Grafana's own pages, opened through the server for an administrator (admin_fusion_proxy.go).
-	mux.Handle(fusionPromPath, a.fusionUI("metrics"))
-	mux.Handle(fusionGrafanaPath, a.fusionUI("grafana"))
-	mux.Handle("/api/", a.cors(a.csrf(api)))
+	a.handle(mux, fusionPromPath, accessFusionUI, a.fusionUI("metrics"))
+	a.handle(mux, fusionGrafanaPath, accessFusionUI, a.fusionUI("grafana"))
+	a.handle(mux, "/api/", accessMount, a.cors(a.csrf(api)))
 	if a.UIDir != "" {
-		mux.Handle("/", spa(a.UIDir))
+		a.handle(mux, "/", accessMount, spa(a.UIDir))
 	}
 	return a.securityHeaders(mux)
 }
@@ -528,7 +529,7 @@ func (a *Admin) guard(n need, next http.HandlerFunc) http.Handler {
 				a.fail(w, err)
 				return
 			}
-			if roleRank[p.Role] < roleRank[needRole[n]] {
+			if !Allows(p, n.action()) {
 				writeErr(w, http.StatusForbidden, "your role in this organisation ("+p.Role+") does not allow this")
 				return
 			}
@@ -553,10 +554,7 @@ func (a *Admin) guard(n need, next http.HandlerFunc) http.Handler {
 	})
 }
 
-func principal(r *http.Request) Principal {
-	p, _ := r.Context().Value(ctxPrincipal{}).(Principal)
-	return p
-}
+func principal(r *http.Request) Principal { return CallerFrom(r.Context()) }
 
 func actor(r *http.Request) string { return principal(r).User.Username }
 
@@ -657,7 +655,7 @@ func (a *Admin) session(ctx context.Context, u store.User) map[string]any {
 	if mine, err := a.C.Store.ListMyOrgs(ctx, u.ID); err == nil {
 		for _, o := range mine {
 			orgs = append(orgs, orgDoc{ID: o.ID, Name: o.Name, Role: o.Role})
-			if o.ID == a.C.DefaultOrg && roleRank[o.Role] >= roleRank[RoleOwner] {
+			if o.ID == a.C.DefaultOrg && Allows(Standing(o.Role), ActOwn) {
 				canManageMail = true
 			}
 		}
@@ -1326,7 +1324,7 @@ func (a *Admin) setMemberRole(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	if roleRank[req.Role] < roleRank[RoleAdmin] { // a downgrade below what the pages need; a promotion changes nothing for them
+	if !Allows(Standing(req.Role), ActAdminister) { // a downgrade below what the pages need; a promotion changes nothing for them
 		a.endFusionPagesIn(r, r.PathValue("id"))
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -1486,12 +1484,12 @@ func (a *Admin) info(w http.ResponseWriter, r *http.Request) {
 // state is what the UI polls. The audit trail is part of it only for administrators and owners: it names
 // people, and it is what they review; everyone else gets the topology and an empty list.
 func (a *Admin) state(w http.ResponseWriter, r *http.Request) {
-	doc, err := a.tn(r).Hub.StateFor(r.Context(), roleRank[principal(r).Role] >= roleRank[RoleAdmin])
+	doc, err := a.tn(r).Hub.StateFor(r.Context(), Allows(principal(r), ActAdminister))
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
-	if roleRank[principal(r).Role] >= roleRank[RoleEditor] {
+	if Allows(principal(r), ActEdit) {
 		img := a.images(a.core(r))
 		for i, ag := range doc.Agents {
 			if ag.AccessTier < ag.InstalledTier {

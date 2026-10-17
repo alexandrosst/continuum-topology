@@ -375,7 +375,7 @@ func (a *Admin) fusionCaller(r *http.Request) (fusionCaller, error) {
 	if p, err = a.C.Member(ctx, p, a.fusionOrg()); err != nil {
 		return fusionCaller{}, deny
 	}
-	if roleRank[p.Role] < roleRank[RoleAdmin] {
+	if !Allows(p, ActAdminister) {
 		return fusionCaller{}, errf(KindForbidden, "reading FUSION's data takes an administrator of the organisation, or a FUSION access token")
 	}
 	return fusionCaller{Kind: "user", ID: p.User.ID, Name: p.User.Username, Scope: fusionapi.AllSignals()}, nil
@@ -401,9 +401,9 @@ func (a *Admin) fusionErr(w http.ResponseWriter, r *http.Request, err error) {
 func (a *Admin) registerFusionData(api *http.ServeMux) {
 	for _, op := range fusionOps(a) {
 		h := a.fusionChecked(op)
-		api.Handle(op.Method+" "+fusionAPIPath+op.Path, a.fusionData(h))
+		a.handle(api, op.Method+" "+fusionAPIPath+op.Path, accessFusionCredential, a.fusionData(h))
 		if op.AlsoPost {
-			api.Handle("POST "+fusionAPIPath+op.Path, a.fusionData(h))
+			a.handle(api, "POST "+fusionAPIPath+op.Path, accessFusionCredential, a.fusionData(h))
 		}
 	}
 	a.registerFusionDocs(api)

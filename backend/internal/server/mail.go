@@ -281,7 +281,7 @@ func mailConfigDoc(m MailConfig) MailConfigDoc {
 // server has to "the operator".
 func (a *Admin) requireDefaultOwner(ctx context.Context, p Principal) error {
 	m, err := a.C.Member(ctx, p, a.C.DefaultOrg)
-	if err != nil || roleRank[m.Role] < roleRank[RoleOwner] {
+	if err != nil || !Allows(Standing(m.Role), ActOwn) {
 		return errf(KindForbidden, "only an owner of the default organisation may do this")
 	}
 	return nil

@@ -145,6 +145,10 @@ func TestMeReportsCanManageMailForTheDefaultOrgOwnerOnly(t *testing.T) {
 	if r := a.do("GET", "/api/v1/auth/me", nil, withCookie(viewerCookie)); r.json(t)["user"].(map[string]any)["canManageMail"] != false {
 		t.Fatalf("viewer of the default org should not manage mail: %v", r.json(t))
 	}
+	_, adminCookie := a.user(t, "org1-admin", RoleAdmin)
+	if r := a.do("GET", "/api/v1/auth/me", nil, withCookie(adminCookie)); r.json(t)["user"].(map[string]any)["canManageMail"] != false {
+		t.Fatalf("an administrator (not an owner) of the default org should not manage mail: %v", r.json(t))
+	}
 	_, ownerCookie := a.user(t, "org1-boss", RoleOwner)
 	if r := a.do("GET", "/api/v1/auth/me", nil, withCookie(ownerCookie)); r.json(t)["user"].(map[string]any)["canManageMail"] != true {
 		t.Fatalf("owner of the default org should manage mail: %v", r.json(t))

@@ -86,10 +86,6 @@ type Principal struct {
 	SessionHash []byte
 }
 
-var roleRank = map[string]int{RoleViewer: 1, RoleEditor: 2, RoleAdmin: 3, RoleOwner: 4}
-
-func validRole(r string) bool { return roleRank[r] > 0 }
-
 // authState is the account-related state of Core.
 type authState struct {
 	loginIP   *Limiter // every login attempt from an address
@@ -1112,17 +1108,6 @@ func (c *Core) AcceptInvite(ctx context.Context, ip string, p Principal, secret 
 	return o, inv.Role, nil
 }
 
-// canGrant reports whether someone with role `by` may give (or take away) `target`.
-func canGrant(by, target string) bool {
-	switch by {
-	case RoleOwner:
-		return validRole(target)
-	case RoleAdmin:
-		return target == RoleEditor || target == RoleViewer
-	}
-	return false
-}
-
 // CreateInvite makes a one-time invitation to this organisation. The secret is returned once.
 func (c *Core) CreateInvite(ctx context.Context, p Principal, role, label string) (string, store.Invite, error) {
 	label = strings.TrimSpace(label)
@@ -1132,7 +1117,7 @@ func (c *Core) CreateInvite(ctx context.Context, p Principal, role, label string
 	if !validRole(role) {
 		return "", store.Invite{}, errf(KindInvalid, "role must be owner, admin, editor or viewer")
 	}
-	if !canGrant(p.Role, role) {
+	if !Decide(p, ActGrantRole, Resource{Role: role}).Allowed {
 		return "", store.Invite{}, errf(KindForbidden, "your role cannot invite someone as %s", role)
 	}
 	secret, err := newInviteSecret()
@@ -1161,7 +1146,7 @@ func (c *Core) RevokeInvite(ctx context.Context, p Principal, id string) error {
 		return err
 	}
 	for _, i := range invs {
-		if i.ID == id && !canGrant(p.Role, i.Role) {
+		if i.ID == id && !Decide(p, ActGrantRole, Resource{Role: i.Role}).Allowed {
 			return errf(KindForbidden, "your role cannot withdraw an invitation to %s", i.Role)
 		}
 	}
@@ -1188,7 +1173,7 @@ func (c *Core) SetMemberRole(ctx context.Context, p Principal, userID, role stri
 	if u.ID == p.User.ID {
 		return errf(KindConflict, "you cannot change your own role")
 	}
-	if !canGrant(p.Role, m.Role) || !canGrant(p.Role, role) {
+	if !Decide(p, ActGrantRole, Resource{Role: m.Role}).Allowed || !Decide(p, ActGrantRole, Resource{Role: role}).Allowed {
 		return errf(KindForbidden, "your role cannot make this change")
 	}
 	if m.Role == RoleOwner && role != RoleOwner {
@@ -1210,7 +1195,7 @@ func (c *Core) RemoveMember(ctx context.Context, p Principal, userID string) err
 		return err
 	}
 	self := u.ID == p.User.ID
-	if !self && !canGrant(p.Role, m.Role) {
+	if !self && !Decide(p, ActGrantRole, Resource{Role: m.Role}).Allowed {
 		return errf(KindForbidden, "your role cannot remove this person")
 	}
 	if m.Role == RoleOwner {

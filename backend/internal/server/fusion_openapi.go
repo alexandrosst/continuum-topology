@@ -39,14 +39,14 @@ func (a *Admin) registerFusionDocs(api *http.ServeMux) {
 		})
 	}
 	// Describing the API is not reading data: these need no credential. What they show is what the code would tell anyone.
-	api.Handle("GET "+fusionAPIPath+"/docs", asset("index.html", "text/html; charset=utf-8"))
-	api.Handle("GET "+fusionAPIPath+"/docs/app.js", asset("app.js", "text/javascript; charset=utf-8"))
-	api.Handle("GET "+fusionAPIPath+"/docs/app.css", asset("app.css", "text/css; charset=utf-8"))
-	api.HandleFunc("GET "+fusionAPIPath+"/openapi.json", func(w http.ResponseWriter, r *http.Request) {
+	a.handle(api, "GET "+fusionAPIPath+"/docs", accessPublic, asset("index.html", "text/html; charset=utf-8"))
+	a.handle(api, "GET "+fusionAPIPath+"/docs/app.js", accessPublic, asset("app.js", "text/javascript; charset=utf-8"))
+	a.handle(api, "GET "+fusionAPIPath+"/docs/app.css", accessPublic, asset("app.css", "text/css; charset=utf-8"))
+	a.handle(api, "GET "+fusionAPIPath+"/openapi.json", accessPublic, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		specOnce.Do(func() { specJSON, _ = json.Marshal(fusionOpenAPI()) })
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write(specJSON)
-	})
+	}))
 }
 
 type obj = map[string]any

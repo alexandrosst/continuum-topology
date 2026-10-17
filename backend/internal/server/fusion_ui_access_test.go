@@ -132,6 +132,16 @@ func TestThePageCookieStopsWhenThePersonIsNoLongerAnAdministrator(t *testing.T) 
 	if c := open(); c != 200 {
 		t.Fatalf("an administrator: %d", c)
 	}
+	if err := p.st.SetMemberRole(p.ctx, "org-1", id, RoleEditor); err != nil {
+		t.Fatal(err)
+	}
+	if c := open(); c != 401 {
+		t.Fatalf("after dropping to an editor: %d", c)
+	}
+	if err := p.st.SetMemberRole(p.ctx, "org-1", id, RoleAdmin); err != nil {
+		t.Fatal(err)
+	}
+	ck = pageCookie(p.get(p.ticketPath(t, "prometheus", cookie)))
 	if err := p.st.SetMemberRole(p.ctx, "org-1", id, RoleViewer); err != nil {
 		t.Fatal(err)
 	}
@@ -282,6 +292,16 @@ func TestLosingTheRoleOrTheMembershipEndsThePageSessions(t *testing.T) {
 	id, cookie := p.user(t, "dana", RoleAdmin)
 
 	ck := p.pageSession(t, cookie)
+	if r := p.do("POST", "/api/v1/members/"+id+"/role", map[string]string{"role": RoleEditor}, withCookie(owner)); r.Code != http.StatusNoContent {
+		t.Fatalf("downgrade to editor: %d %s", r.Code, r.Body.String())
+	}
+	if err := p.st.SetMemberRole(p.ctx, "org-1", id, RoleAdmin); err != nil {
+		t.Fatal(err)
+	}
+	if c := p.pageCode(ck); c != 401 {
+		t.Fatalf("a cookie from before a downgrade to editor came back: %d", c)
+	}
+	ck = p.pageSession(t, cookie)
 	if r := p.do("POST", "/api/v1/members/"+id+"/role", map[string]string{"role": RoleViewer}, withCookie(owner)); r.Code != http.StatusNoContent {
 		t.Fatalf("downgrade: %d %s", r.Code, r.Body.String())
 	}

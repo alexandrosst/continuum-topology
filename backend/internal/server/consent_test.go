@@ -1427,8 +1427,8 @@ func TestAContextWithNoSignedInCallerMayNotWiden(t *testing.T) {
 		{"editor", asRole(RoleEditor), false},
 		{"administrator", asRole(RoleAdmin), true},
 	} {
-		if got := mayWiden(tc.ctx); got != tc.want {
-			t.Errorf("%s: mayWiden = %v, want %v", tc.name, got, tc.want)
+		if got := Decide(CallerFrom(tc.ctx), ActChangeAccess, Resource{Widening: true}).Allowed; got != tc.want {
+			t.Errorf("%s: widening allowed = %v, want %v", tc.name, got, tc.want)
 		}
 	}
 

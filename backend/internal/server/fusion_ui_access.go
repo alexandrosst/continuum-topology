@@ -219,7 +219,7 @@ func (a *Admin) fusionUISessionCaller(r *http.Request) (fusionCaller, bool) {
 		return fusionCaller{}, false
 	}
 	m, err := a.C.Store.GetMembership(r.Context(), a.fusionOrg(), g.userID)
-	if err != nil || roleRank[m.Role] < roleRank[RoleAdmin] {
+	if err != nil || !Allows(Standing(m.Role), ActAdminister) {
 		a.fusionUIAccess.end(ck.Value)
 		return fusionCaller{}, false
 	}

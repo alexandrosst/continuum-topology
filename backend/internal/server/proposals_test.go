@@ -203,7 +203,7 @@ func TestAcceptingANarrowingProposalMakesTheChangeThroughTheUsualPathAndAuditsEa
 }
 
 // Widening takes an administrator, and the check is on the person who accepts, not on who proposed. Without a signed-in caller
-// it is refused too, unlike the older mayWiden, which trusts a context with no caller.
+// it is refused too.
 func TestAcceptingAWideningProposalTakesAnAdministratorAndAnEditorIsRefusedWithoutAnyChange(t *testing.T) {
 	r := propRigFor(t)
 	if _, err := r.h.SetConsent(asRole(RoleAdmin), "adam", r.id, Consent{Paused: []string{"flow"}}); err != nil {

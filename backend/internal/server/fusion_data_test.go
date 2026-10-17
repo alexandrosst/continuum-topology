@@ -258,6 +258,7 @@ func TestFusionDataAuthentication(t *testing.T) {
 	d := newDataRig(t)
 	secret, _ := d.mint(t, map[string]any{"name": "t"})
 	_, viewer := d.user(t, "vera", RoleViewer)
+	_, editor := d.user(t, "edda", RoleEditor)
 	for name, c := range map[string]struct {
 		opts []opt
 		want int
@@ -266,6 +267,7 @@ func TestFusionDataAuthentication(t *testing.T) {
 		"a forged token":            {[]opt{bearer(fusionTokenPrefix + "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")}, 401},
 		"a malformed token":         {[]opt{bearer(fusionTokenPrefix + "nope")}, 401},
 		"a viewer's session":        {[]opt{withCookie(viewer)}, 403},
+		"an editor's session":       {[]opt{withCookie(editor)}, 403},
 		"an admin's session":        {[]opt{withCookie(d.admin)}, 200},
 		"a FUSION token":            {[]opt{bearer(secret)}, 200},
 		"a garbage session":         {[]opt{withCookie("cns_nope")}, 401},

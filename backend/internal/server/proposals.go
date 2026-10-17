@@ -420,7 +420,7 @@ func (h *Hub) AcceptProposal(ctx context.Context, actor, id, note string) (store
 	if err != nil {
 		return p, err
 	}
-	if widens && !mayWiden(ctx) {
+	if !Decide(CallerFrom(ctx), ActChangeAccess, Resource{Widening: widens}).Allowed {
 		return p, errf(KindForbidden, "this change widens what the agent shares, and accepting it takes an administrator; narrowing does not")
 	}
 	// Claim the proposal first. Only one caller can move it out of pending, so only one makes the change.

@@ -3,7 +3,6 @@ package server
 import (
 	"fmt"
 	"os"
-	"regexp"
 	"sort"
 	"strings"
 	"testing"
@@ -15,7 +14,7 @@ import (
 //
 // This test is the pin for that. Bob, who administers his own organisation, calls every organisation-scoped route that takes an id,
 // through his own organisation, with the id of Alice's real entity. Each must answer 404 as if there were no such thing, nothing of
-// Alice's may change, and nothing may reach Bob's audit trail. The routes are read from testdata/route_guards.golden, so a new
+// Alice's may change, and nothing may reach Bob's audit trail. The routes are read from testdata/routes.txt, so a new
 // route with an id that has no case below (or a reason for having none) fails the test.
 //
 // The other door, Bob using Alice's organisation path, is not a member check on an id and is covered by
@@ -166,24 +165,25 @@ func TestAnotherOrganisationsIdIsNotFoundOnEveryRouteThatTakesAnId(t *testing.T)
 	}
 }
 
-var routeWithAnId = regexp.MustCompile(`^"(GET|POST|PUT|DELETE|PATCH) " \+ o \+ "(/[^"]*\{[^"]*)"$`)
-
 // routesWithAnId reads, from the pinned route table, every organisation-scoped route whose path has a parameter, as "METHOD /path".
 func routesWithAnId(t *testing.T) []string {
 	t.Helper()
-	raw, err := os.ReadFile("testdata/route_guards.golden")
+	const prefix = "/api/v1/orgs/{org}"
+	raw, err := os.ReadFile("testdata/routes.txt")
 	if err != nil {
 		t.Fatal(err)
 	}
 	var out []string
 	for _, line := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
-		cols := strings.Split(line, "\t")
-		if len(cols) < 2 {
+		_, pattern, ok := strings.Cut(line, "\t")
+		if !ok {
 			continue
 		}
-		if m := routeWithAnId.FindStringSubmatch(cols[1]); m != nil {
-			out = append(out, m[1]+" "+m[2])
+		method, path, ok := strings.Cut(pattern, " ")
+		if !ok || !strings.HasPrefix(path, prefix+"/") || !strings.Contains(path[len(prefix):], "{") {
+			continue
 		}
+		out = append(out, method+" "+path[len(prefix):])
 	}
 	if len(out) < 30 {
 		t.Fatalf("read %d routes with an id from the table: the reader no longer finds them", len(out))
