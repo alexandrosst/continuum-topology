@@ -10,6 +10,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"continuum/internal/chart"
+	"continuum/internal/install"
 	"continuum/internal/store"
 )
 
@@ -148,7 +149,7 @@ func TestExportFlagsTakeEffectInTheRenderedExporter(t *testing.T) {
 				if route {
 					extra = append(extra, "--set", "telemetry.export.otlp.endpoint=elsewhere.example:4317", "--set", "telemetry.export.otlp.tls.insecure=true")
 				}
-				extra = append(extra, flagWords(t, exportBlockFlags(prefix, tc.op, tc.ep, true))...)
+				extra = append(extra, flagWords(t, install.Flags(exportBlock(prefix, tc.op, tc.ep, true)))...)
 				ex := mustMap(t, agentExporters(t, cm, extra)[exporter], "exporter "+exporter)
 				if ex["endpoint"] != tc.want.endpoint {
 					t.Errorf("endpoint = %v, want %v", ex["endpoint"], tc.want.endpoint)
@@ -178,7 +179,7 @@ func TestExportFlagsTakeEffectInTheRenderedExporter(t *testing.T) {
 func TestExportFlagsWithoutAClientCertificateSwitchTheCertificateOff(t *testing.T) {
 	op := store.Operator{ID: "op-abc123", ReceiverAuth: store.ReceiverAuthBearer}
 	extra := append(staleDestination("telemetry.export.otlp"), "--set", "telemetry.export.otlp.auth.secretName=my-token")
-	extra = append(extra, flagWords(t, exportBlockFlags("telemetry.export.otlp", op, operatorInClusterEndpoint(op), false))...)
+	extra = append(extra, flagWords(t, install.Flags(exportBlock("telemetry.export.otlp", op, operatorInClusterEndpoint(op), false)))...)
 	ex := mustMap(t, agentExporters(t, "continuum-telemetry-host-config", extra)["otlp"], "exporter otlp")
 	tls := mustMap(t, ex["tls"], "tls")
 	if tls["cert_file"] != nil || tls["key_file"] != nil || tls["insecure"] != false {

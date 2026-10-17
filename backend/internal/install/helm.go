@@ -124,3 +124,12 @@ func (v Value) render() string {
 	}
 	return "--set " + Arg(v.Key+"="+v.Value)
 }
+
+// Flags writes values as a fragment of a command, one line, for a caller that has the rest of the command: `--set a=b --set c=d`.
+func Flags(values []Value) string {
+	words := make([]string, len(values))
+	for i, v := range values {
+		words[i] = v.render()
+	}
+	return strings.Join(words, " ")
+}

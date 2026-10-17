@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"continuum/internal/chart"
+	"continuum/internal/install"
 	"continuum/internal/store"
 )
 
@@ -110,13 +111,13 @@ func TestCreateOperatorFailsWhenTheTLSMintFails(t *testing.T) {
 func TestOperatorDestinationCommandIsTheSameForBothAuthModes(t *testing.T) {
 	for _, mode := range []store.ReceiverAuth{store.ReceiverAuthMTLS, store.ReceiverAuthBearer} {
 		op := store.Operator{ID: "op-abc123", ReceiverAuth: mode}
-		flags, secret := operatorDestinationCommand(op, "op-abc123-regional-operator.continuum-system.svc:4317", []byte("CERT"), []byte("KEY"), []byte("CA"), "ns1")
+		values, secret := operatorDestinationCommand(op, "op-abc123-regional-operator.continuum-system.svc:4317", []byte("CERT"), []byte("KEY"), []byte("CA"), "ns1")
 		// The whole destination block, every field stated (the unused ones empty), so --reset-then-reuse-values leaves nothing stale.
 		wantFlags := "--set telemetry.export.otlp.endpoint=op-abc123-regional-operator.continuum-system.svc:4317 --set telemetry.export.otlp.protocol=grpc --set telemetry.export.otlp.tls.insecure=false --set telemetry.export.otlp.tls.caFile= " +
 			"--set telemetry.export.otlp.tls.mtls.enabled=true --set telemetry.export.otlp.tls.mtls.secretName=op-abc123-export-mtls --set telemetry.export.otlp.tls.serverName=op-abc123.continuum-system.svc --set telemetry.export.otlp.auth.secretName="
 		wantSecret := "kubectl apply --server-side --force-conflicts -f - <<'CONTINUUM_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: op-abc123-export-mtls\n  namespace: ns1\ntype: Opaque\nstringData:\n  tls.crt: \"CERT\"\n  tls.key: \"KEY\"\n  ca.crt: \"CA\"\nCONTINUUM_SECRET"
-		if flags != wantFlags || secret != wantSecret {
-			t.Fatalf("%s: flags=%q secret=%q", mode, flags, secret)
+		if flags := install.Flags(values); flags != wantFlags || secret != wantSecret {
+			t.Fatalf("%s: flags=%q secret=%q", mode, install.Flags(values), secret)
 		}
 		if strings.Contains(secret, "--from-literal") {
 			t.Fatalf("%s: a key on the command line: %q", mode, secret)

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"continuum/internal/install"
 	"continuum/internal/store"
 )
 
@@ -212,6 +213,16 @@ func (a *Admin) deleteTelemetryIntent(w http.ResponseWriter, r *http.Request) {
 // Provenance flags (telemetry.resource.orgId/clusterId/intentId - added in the chart alongside this
 // intent model) are always included; an external destination gets nothing beyond them, since the
 // endpoint/auth flags for that are already built client-side by the frontend's own withTelemetry().
+// intentProvenanceValues are the values that stamp who an agent's telemetry belongs to on everything it sends, whatever a person adds
+// to the pipeline themselves: the chart puts them in a processor that runs last.
+func intentProvenanceValues(orgID, clusterID, intentID string) []install.Value {
+	return []install.Value{
+		install.Set("telemetry.resource.orgId", orgID),
+		install.Set("telemetry.resource.clusterId", clusterID),
+		install.Set("telemetry.resource.intentId", intentID),
+	}
+}
+
 func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 	ti, err := a.core(r).GetTelemetryIntent(r.Context(), r.PathValue("id"))
 	if err != nil {
@@ -229,9 +240,7 @@ func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	installFragment := fmt.Sprintf(
-		"--set telemetry.resource.orgId=%s --set telemetry.resource.clusterId=%s --set telemetry.resource.intentId=%s",
-		a.core(r).OrgID, agent.ClusterID, ti.ID)
+	values := intentProvenanceValues(a.core(r).OrgID, agent.ClusterID, ti.ID) // the Helm values of the fragment, written once at the end
 	secretCommands := []string{}
 	forWhat := fmt.Sprintf("intent=%s cluster=%s", ti.ID, agent.ClusterID) // what the audit entry of each certificate says it was for
 	// Where the agent really runs (or the chart's documented defaults when it never said): the Secret below
@@ -293,7 +302,7 @@ func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			warn(op, d)
-			installFragment += " " + operatorRouteFlags(op, a.destEndpoint(op, d), m)
+			values = append(values, operatorRouteValues(op, a.destEndpoint(op, d), m)...)
 		}
 		if len(unrouted) > 0 {
 			// The signal types without a route of their own go to the intent's default destination. When that is a
@@ -311,9 +320,9 @@ func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 				warn(op, ti.Destination)
-				installFragment += " " + exportBlockFlags("telemetry.export.otlp", op, a.destEndpoint(op, ti.Destination), true)
+				values = append(values, exportBlock("telemetry.export.otlp", op, a.destEndpoint(op, ti.Destination), true)...)
 			}
-			installFragment += " " + clearRouteFlags(unrouted...)
+			values = append(values, clearRoutes(unrouted...)...)
 		}
 		if len(auth) > 0 {
 			resp["operators"] = auth
@@ -331,10 +340,10 @@ func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		warn(op, ti.Destination)
-		setFlags, secretCmd := operatorDestinationCommand(op, a.destEndpoint(op, ti.Destination), certPEM, keyPEM, caPEM, rns)
+		destination, secretCmd := operatorDestinationCommand(op, a.destEndpoint(op, ti.Destination), certPEM, keyPEM, caPEM, rns)
 		// Every signal type goes to this one destination, so no per-signal route may stay: a route outranks the default,
 		// and one an earlier command set (--reset-then-reuse-values keeps it) would keep sending to the old destination.
-		installFragment += " " + setFlags + " " + clearRouteFlags(routeModalities...)
+		values = append(append(values, destination...), clearRoutes(routeModalities...)...)
 		// Whether the person must also supply a receiver bearer token: not for an "mtls" operator, whose
 		// only gate is the client certificate in the Secret above; for a "bearer" one the flags are exactly
 		// what they always were and the caller still supplies the token itself.
@@ -344,7 +353,7 @@ func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 			secretCommands = append(secretCommands, secretCmd)
 		}
 	}
-	resp["installFragment"], resp["secretCommands"] = installFragment, secretCommands
+	resp["installFragment"], resp["secretCommands"] = install.Flags(values), secretCommands
 	if len(warnings) > 0 {
 		resp["warnings"] = warnings
 	}

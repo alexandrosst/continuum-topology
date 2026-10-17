@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"continuum/internal/chart"
+	"continuum/internal/install"
 	"continuum/internal/store"
 )
 
@@ -45,6 +46,18 @@ func (p *pinRig) admin(tweak func(*Admin)) *Admin {
 		tweak(a)
 	}
 	return a
+}
+
+// flags writes values as the fragment of a command the server hands out.
+func (p *pinRig) flags(values []install.Value) string { return install.Flags(values) }
+
+func (p *pinRig) reminders(a *Admin, img ImageConfig, op store.Operator, b OperatorTLSBundle, targets []sourceTarget) []string {
+	p.t.Helper()
+	out, err := a.sourceReminders(img, op, b, targets)
+	if err != nil {
+		p.t.Fatal(err)
+	}
+	return out
 }
 
 // ok is the command, or the end of the test when it could not be written.
@@ -214,18 +227,18 @@ func (p *pinRig) operatorCommands() {
 	hbURL := "https://ikhnos.example.com/api/v1/operator-heartbeat"
 	for _, i := range images[:3] {
 		a := p.admin(i.tweak)
-		p.add(a, "operator/heartbeat/"+i.name+"/upgrade", "regional-operator", a.heartbeatUpgradeCommand(i.img, mtls(ext), hbURL))
+		p.add(a, "operator/heartbeat/"+i.name+"/upgrade", "regional-operator", p.ok(a.heartbeatUpgradeCommand(i.img, mtls(ext), hbURL)))
 	}
 	p.add(a, "operator/heartbeat/secret", "", operatorHeartbeatSecretCommand(mtls(ext), "hb_SECRET"))
 	private := p.admin(func(a *Admin) { a.HeartbeatCAPEM = fakePEM("CERTIFICATE", "aGVhcnRiZWF0LWNh") })
-	p.add(private, "operator/heartbeat/private-ca/upgrade", "regional-operator", private.heartbeatUpgradeCommand(ImageConfig{}, mtls(ext), hbURL))
+	p.add(private, "operator/heartbeat/private-ca/upgrade", "regional-operator", p.ok(private.heartbeatUpgradeCommand(ImageConfig{}, mtls(ext), hbURL)))
 	p.add(private, "operator/heartbeat/private-ca/secret", "", private.heartbeatCASecretCommand(mtls(ext)))
 
 	// What the source clusters of an operator are told: a Secret for each distinct namespace and an upgrade of each cluster's agent.
 	targets := []sourceTarget{{"cl-a", "continuum-system", "continuum-agent"}, {"cl-b", "apps-team", "obs-agent"}}
 	for _, i := range images[:2] {
 		a := p.admin(i.tweak)
-		for n, line := range a.sourceReminders(i.img, mtls(ext), pinBundle, targets) {
+		for n, line := range p.reminders(a, i.img, mtls(ext), pinBundle, targets) {
 			chart := ""
 			if strings.HasPrefix(line, "helm ") {
 				chart = "agent"
@@ -234,7 +247,7 @@ func (p *pinRig) operatorCommands() {
 		}
 	}
 	a = p.admin(nil)
-	for n, line := range a.sourceReminders(ImageConfig{}, bearer(ext), OperatorTLSBundle{}, targets[:1]) {
+	for n, line := range p.reminders(a, ImageConfig{}, bearer(ext), OperatorTLSBundle{}, targets[:1]) {
 		chart := ""
 		if strings.HasPrefix(line, "helm ") {
 			chart = "agent"
@@ -243,10 +256,46 @@ func (p *pinRig) operatorCommands() {
 	}
 }
 
+// fragments are the pieces of a command the server hands out to be joined to a helm command the caller writes (the flags that point an
+// exporter at a regional operator, the ones that clear a route, the heartbeat's, the provenance stamp): none is a command alone, so none
+// has a chart.
+func (p *pinRig) fragments() {
+	mtls := store.Operator{ID: "athens", Name: "athens", Status: store.OperatorActive, ReceiverAuth: store.ReceiverAuthMTLS}
+	bearer := store.Operator{ID: "oslo", Name: "oslo", Status: store.OperatorActive, ReceiverAuth: store.ReceiverAuthBearer}
+	central := store.Operator{ID: CentralOperatorID, Name: "central", Status: store.OperatorActive, ReceiverAuth: store.ReceiverAuthMTLS}
+	a := p.admin(nil)
+	for _, o := range []store.Operator{mtls, bearer, central} {
+		for _, withMTLS := range []bool{true, false} {
+			p.add(a, fmt.Sprintf("fragment/export-block/%s/mtls=%v", o.ID, withMTLS), "", p.flags(exportBlock("telemetry.export.otlp", o, "op.example.com:4317", withMTLS)))
+		}
+	}
+	for _, m := range routeModalities {
+		p.add(a, "fragment/route/"+string(m), "", p.flags(operatorRouteValues(mtls, "op.example.com:4317", m)))
+	}
+	p.add(a, "fragment/clear-routes/all", "", p.flags(clearRoutes(routeModalities...)))
+	p.add(a, "fragment/clear-routes/logs-traces", "", p.flags(clearRoutes(store.ModalityLogs, store.ModalityTraces)))
+	for _, c := range []struct {
+		name string
+		op   store.Operator
+		cert []byte
+	}{{"mtls-new-certificate", mtls, pinBundle.Senders[0].CertPEM}, {"mtls-certificate-in-place", mtls, nil}, {"bearer-new-certificate", bearer, pinBundle.Senders[0].CertPEM}, {"bearer", bearer, nil}} {
+		values, secret := operatorDestinationCommand(c.op, "op.example.com:4317", c.cert, pinBundle.Senders[0].KeyPEM, pinBundle.CACertPEM, "apps-team")
+		p.add(a, "fragment/destination/"+c.name, "", p.flags(values))
+		if secret != "" {
+			p.add(a, "fragment/destination/"+c.name+"/secret", "", secret)
+		}
+	}
+	p.add(a, "fragment/heartbeat", "", p.flags(a.operatorHeartbeatValues(mtls, "https://ikhnos.example.com/api/v1/operator-heartbeat")))
+	private := p.admin(func(a *Admin) { a.HeartbeatCAPEM = fakePEM("CERTIFICATE", "aGVhcnRiZWF0LWNh") })
+	p.add(private, "fragment/heartbeat-private-ca", "", p.flags(private.operatorHeartbeatValues(mtls, "https://ikhnos.example.com/api/v1/operator-heartbeat")))
+	p.add(a, "fragment/intent-provenance", "", p.flags(intentProvenanceValues("org-1", "cl-a", "ti_1")))
+}
+
 func TestServerInstallCommandsArePinned(t *testing.T) {
 	p := &pinRig{t: t, names: map[string]bool{}}
 	p.agentCommands()
 	p.operatorCommands()
+	p.fragments()
 
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)

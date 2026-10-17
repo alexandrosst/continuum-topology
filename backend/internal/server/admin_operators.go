@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"continuum/internal/chart"
+	"continuum/internal/install"
 	"continuum/internal/store"
 )
 
@@ -590,53 +591,53 @@ func operatorTLSSecretCommand(op store.Operator, b OperatorTLSBundle) string {
 		secretKV("tls.crt", string(b.ReceiverCertPEM)), secretKV("tls.key", string(b.ReceiverKeyPEM)), secretKV("ca.crt", string(b.CACertPEM))))
 }
 
-// exportBlockFlags states the whole destination block of one exporter (telemetry.export.otlp, or one route of
+// exportBlock states the whole destination block of one exporter (telemetry.export.otlp, or one route of
 // telemetry.export.routes) that sends to the regional operator op at endpoint: endpoint, protocol, certificate
 // checking, the client certificate and the name it is verified by, and no credential header. Every field is stated,
 // the unused ones empty, because the command is applied with --reset-then-reuse-values: a field it leaves out keeps whatever an
 // earlier destination set (an operator's mTLS Secret, protocol=http, insecure=true), and the exporter would carry on
 // half pointed at the old one. withMTLS is whether the exporter presents a client certificate; a bearer operator
 // reached without one leaves the credential header to the person, who holds the token.
-func exportBlockFlags(prefix string, op store.Operator, endpoint string, withMTLS bool) string {
-	flags := []string{
-		setFlag(prefix+".endpoint", endpoint),
-		setFlag(prefix+".protocol", "grpc"),
-		setFlag(prefix+".tls.insecure", "false"),
-		setFlag(prefix+".tls.caFile", ""),
+func exportBlock(prefix string, op store.Operator, endpoint string, withMTLS bool) []install.Value {
+	values := []install.Value{
+		install.Set(prefix+".endpoint", endpoint),
+		install.Set(prefix+".protocol", "grpc"),
+		install.Set(prefix+".tls.insecure", "false"),
+		install.Set(prefix+".tls.caFile", ""),
 	}
 	serverName := ""
 	if operatorNeedsServerName(op) {
 		serverName = operatorServerName(op)
 	}
 	if withMTLS {
-		flags = append(flags, setFlag(prefix+".tls.mtls.enabled", "true"), setFlag(prefix+".tls.mtls.secretName", operatorClientTLSSecretName(op)))
+		values = append(values, install.Set(prefix+".tls.mtls.enabled", "true"), install.Set(prefix+".tls.mtls.secretName", operatorClientTLSSecretName(op)))
 	} else {
-		flags = append(flags, setFlag(prefix+".tls.mtls.enabled", "false"), setFlag(prefix+".tls.mtls.secretName", ""))
+		values = append(values, install.Set(prefix+".tls.mtls.enabled", "false"), install.Set(prefix+".tls.mtls.secretName", ""))
 	}
-	flags = append(flags, setFlag(prefix+".tls.serverName", serverName))
+	values = append(values, install.Set(prefix+".tls.serverName", serverName))
 	if withMTLS {
-		flags = append(flags, setFlag(prefix+".auth.secretName", ""))
+		values = append(values, install.Set(prefix+".auth.secretName", ""))
 	}
-	return strings.Join(flags, " ")
+	return values
 }
 
-// operatorDestinationCommand builds the --set export.otlp.* flags (and, if a fresh client cert was minted,
+// operatorDestinationCommand builds the export.otlp.* values (and, if a fresh client cert was minted,
 // the Secret command for it) that point one agent's telemetry export at this operator -
 // the same shape operatorSourceReminders already builds per source cluster at creation/scope-update time,
 // factored out so TelemetryIntent's own /command endpoint (admin_telemetry_intents.go) can call it for a
 // single agent on demand, reusing a freshly reissued client cert rather than requiring one from creation time.
-// The flags are the whole destination block (see exportBlockFlags) whether or not a certificate is passed: an mTLS
+// The flags are the whole destination block (see exportBlock) whether or not a certificate is passed: an mTLS
 // operator is always reached with a client certificate, and one that is not minted this time is the Secret already in
 // the cluster.
-func operatorDestinationCommand(op store.Operator, endpoint string, certPEM, keyPEM, caPEM []byte, namespace string) (setFlags string, secretCmd string) {
+func operatorDestinationCommand(op store.Operator, endpoint string, certPEM, keyPEM, caPEM []byte, namespace string) (values []install.Value, secretCmd string) {
 	withMTLS := len(certPEM) > 0 || op.ReceiverAuth == store.ReceiverAuthMTLS
-	setFlags = exportBlockFlags("telemetry.export.otlp", op, endpoint, withMTLS)
+	values = exportBlock("telemetry.export.otlp", op, endpoint, withMTLS)
 	if len(certPEM) > 0 {
 		// mTLS is additive: every source cluster of this operator presents a client certificate verified
 		// against the CA bundle in the same Secret - see pki.IssueOperatorClientTLS.
 		secretCmd = operatorClientSecretCommand(op, certPEM, keyPEM, caPEM, namespace)
 	}
-	return setFlags, secretCmd
+	return values, secretCmd
 }
 
 // operatorClientSecretCommand is the Secret holding the client certificate an agent
@@ -650,22 +651,22 @@ func operatorClientSecretCommand(op store.Operator, certPEM, keyPEM, caPEM []byt
 // routeModalities are the signal types that can have a destination of their own (telemetry.export.routes.<type>).
 var routeModalities = []store.Modality{store.ModalityMetrics, store.ModalityLogs, store.ModalityTraces}
 
-// clearRouteFlags states that the given signal types have no destination of their own: an empty route endpoint is how
+// clearRoutes states that the given signal types have no destination of their own: an empty route endpoint is how
 // the chart reads "no route", so they go to the default destination again.
-func clearRouteFlags(ms ...store.Modality) string {
-	flags := make([]string, len(ms))
+func clearRoutes(ms ...store.Modality) []install.Value {
+	values := make([]install.Value, len(ms))
 	for i, m := range ms {
-		flags[i] = setFlag(fmt.Sprintf("telemetry.export.routes.%s.endpoint", m), "")
+		values[i] = install.Set(fmt.Sprintf("telemetry.export.routes.%s.endpoint", m), "")
 	}
-	return strings.Join(flags, " ")
+	return values
 }
 
-// operatorRouteFlags are the --set flags that make one signal type's own route (telemetry.export.routes.<m>)
+// operatorRouteValues are the values that make one signal type's own route (telemetry.export.routes.<m>)
 // export to this operator over mutual TLS: its receiver, gRPC, certificate verified, and the Secret from
-// operatorClientSecretCommand. Stated in full (see exportBlockFlags) so the route does not depend on anything an
+// operatorClientSecretCommand. Stated in full (see exportBlock) so the route does not depend on anything an
 // earlier command set.
-func operatorRouteFlags(op store.Operator, endpoint string, m store.Modality) string {
-	return exportBlockFlags(fmt.Sprintf("telemetry.export.routes.%s", m), op, endpoint, true)
+func operatorRouteValues(op store.Operator, endpoint string, m store.Modality) []install.Value {
+	return exportBlock(fmt.Sprintf("telemetry.export.routes.%s", m), op, endpoint, true)
 }
 
 // advertised is op as a caller elsewhere sees it: the central operator is reached at the address FUSION is exposed at
@@ -772,13 +773,24 @@ func (a *Admin) addOperatorTargetExport(r *http.Request, resp map[string]any, op
 // goes with it when that reference is a registry one (empty for a local .tgz). Both are quoted: they come from
 // settings an organisation's administrator can change.
 func (a *Admin) operatorChartArgs(img ImageConfig) (ref, version string) {
-	ref = a.operatorChartRef(img)
-	if ref == "" {
-		ref = "./" + chart.RegionalOperator.Filename()
-	} else if !strings.HasSuffix(ref, ".tgz") {
-		version = " --version " + shellArg(a.operatorChartVersion())
+	ref, v := a.operatorChart(img)
+	if v != "" {
+		version = " --version " + shellArg(v)
 	}
 	return shellArg(ref), version
+}
+
+// operatorChart is where the regional-operator chart is, as agentChart is for the agent's: the chart reference and, for a repository
+// (not a packaged file), the version to fetch.
+func (a *Admin) operatorChart(img ImageConfig) (ref, version string) {
+	ref = a.operatorChartRef(img)
+	if ref == "" {
+		return "./" + chart.RegionalOperator.Filename(), ""
+	}
+	if !strings.HasSuffix(ref, ".tgz") {
+		version = a.operatorChartVersion()
+	}
+	return ref, version
 }
 
 // operatorInstallCommand is installCommand's own twin for the regional-operator chart: simpler, since this
@@ -797,7 +809,7 @@ func (a *Admin) operatorChartArgs(img ImageConfig) (ref, version string) {
 //
 // heartbeatURL is "" for an operator that did not opt in to a heartbeat (the command is then exactly what
 // it was before heartbeats existed).
-func (a *Admin) operatorInstallCommand(img ImageConfig, secret string, op store.Operator, tlsBundle OperatorTLSBundle, heartbeatURL string) (install, secretCmd string) {
+func (a *Admin) operatorInstallCommand(img ImageConfig, secret string, op store.Operator, tlsBundle OperatorTLSBundle, heartbeatURL string) (cmd, secretCmd string) {
 	return a.operatorInstallCommandWith(img, secret, op, tlsBundle, heartbeatURL, nil, false)
 }
 
@@ -805,7 +817,7 @@ func (a *Admin) operatorInstallCommand(img ImageConfig, secret string, op store.
 // caller has that operator's record: its advertised address (if any) is then what the exporter dials, and the
 // certificate is verified against the stable name on it. With target nil only the id is known, which fixes the
 // in-cluster name and nothing more.
-func (a *Admin) operatorInstallCommandTo(img ImageConfig, secret string, op store.Operator, tlsBundle OperatorTLSBundle, heartbeatURL string, target *store.Operator) (install, secretCmd string) {
+func (a *Admin) operatorInstallCommandTo(img ImageConfig, secret string, op store.Operator, tlsBundle OperatorTLSBundle, heartbeatURL string, target *store.Operator) (cmd, secretCmd string) {
 	return a.operatorInstallCommandWith(img, secret, op, tlsBundle, heartbeatURL, target, false)
 }
 
@@ -813,7 +825,7 @@ func (a *Admin) operatorInstallCommandTo(img ImageConfig, secret string, op stor
 // (reissue): `helm upgrade --install --reset-then-reuse-values` (Helm 3.14 or newer; see upgradeCommand for why not
 // --reuse-values) keeps what the person tuned (resources, image), so every value this command is about is stated, the unused
 // ones empty - an export block left out would keep an old destination's settings.
-func (a *Admin) operatorInstallCommandWith(img ImageConfig, secret string, op store.Operator, tlsBundle OperatorTLSBundle, heartbeatURL string, target *store.Operator, reissue bool) (install, secretCmd string) {
+func (a *Admin) operatorInstallCommandWith(img ImageConfig, secret string, op store.Operator, tlsBundle OperatorTLSBundle, heartbeatURL string, target *store.Operator, reissue bool) (cmd, secretCmd string) {
 	ref, version := a.operatorChartArgs(img)
 	secretName := op.ID + "-receiver-auth"
 	var b strings.Builder
@@ -892,7 +904,7 @@ func (a *Admin) operatorInstallCommandWith(img ImageConfig, secret string, op st
 		flag("--set receiver.tls.mtls=true")
 	}
 	if heartbeatURL != "" {
-		flag(a.operatorHeartbeatSetFlags(op, heartbeatURL))
+		flag(install.Flags(a.operatorHeartbeatValues(op, heartbeatURL)))
 	}
 	// Keeps this operator's certificates from running out: the chart's cert-renew sidecar (the discovery agent's image, a
 	// different role) asks this server for a new one before the old one ends. It only needs to know where the server is
@@ -953,7 +965,7 @@ func operatorProvenanceJSON(op store.Operator) string {
 // plan), so nothing here is executed on the caller's behalf. Uses the same release-name/namespace guess
 // upgradeCommand/teardownCommands already fall back to when an agent has never reported its own.
 //
-// Each upgrade states the whole destination block (see exportBlockFlags), and the client certificate Secret goes once per
+// Each upgrade states the whole destination block (see exportBlock), and the client certificate Secret goes once per
 // distinct namespace rather than once per cluster, so the private key is not repeated for every cluster that
 // shares a namespace name; it is applied in each of the clusters listed above it. A Secret is only listed when a
 // certificate was just minted (tlsBundle): without one the clusters keep the Secret they have.
@@ -980,7 +992,12 @@ func (a *Admin) operatorSourceReminders(r *http.Request, op store.Operator, tlsB
 		rns, rname, _ := releaseTarget(ns, name)
 		targets = append(targets, sourceTarget{cl, rns, rname})
 	}
-	return a.sourceReminders(img, op, tlsBundle, targets)
+	out, err := a.sourceReminders(img, op, tlsBundle, targets)
+	if err != nil {
+		a.installConfigError(err) // logged; the operator is shown without the commands for its sources
+		return nil
+	}
+	return out
 }
 
 // sourceTarget is one source cluster of an operator and the release that is told to send to it: where it runs and what it is
@@ -989,14 +1006,8 @@ type sourceTarget struct{ cluster, ns, name string }
 
 // sourceReminders is operatorSourceReminders once the clusters are known: it reads nothing, so the text it builds is pinned
 // by a test (install_commands_test.go) like the other commands.
-func (a *Admin) sourceReminders(img ImageConfig, op store.Operator, tlsBundle OperatorTLSBundle, targets []sourceTarget) []string {
-	ref, version := a.chartRef(img), ""
-	if ref == "" {
-		ref = "./" + chart.Agent.Filename()
-	} else if !strings.HasSuffix(ref, ".tgz") {
-		version = " --version " + shellArg(a.agentChartVersion())
-	}
-	ref = shellArg(ref)
+func (a *Admin) sourceReminders(img ImageConfig, op store.Operator, tlsBundle OperatorTLSBundle, targets []sourceTarget) ([]string, error) {
+	ref, version := a.agentChart(img)
 	out := make([]string, 0, 2*len(targets))
 	// Each cluster holds its own client certificate (see OperatorTLSBundle.Senders), so each gets its own Secret
 	// command, in its own namespace. Only wired in when that certificate was minted (see CreateOperator on why
@@ -1012,12 +1023,15 @@ func (a *Admin) sourceReminders(img ImageConfig, op store.Operator, tlsBundle Op
 	}
 	for _, t := range targets {
 		sc, _ := tlsBundle.forSender(t.cluster)
-		setFlags, _ := operatorDestinationCommand(op, a.operatorEndpoint(op), sc.CertPEM, sc.KeyPEM, tlsBundle.CACertPEM, t.ns)
+		values, _ := operatorDestinationCommand(op, a.operatorEndpoint(op), sc.CertPEM, sc.KeyPEM, tlsBundle.CACertPEM, t.ns)
 		// Everything goes to this operator: no per-signal route may stay (a route outranks the default, and one an
 		// earlier command set is kept by --reset-then-reuse-values).
-		setFlags += " " + clearRouteFlags(routeModalities...)
-		upgrade := upgradeWithFlags(t.name, ref, version, t.ns, setFlags)
+		values = append(values, clearRoutes(routeModalities...)...)
+		upgrade, err := install.Helm{Verb: install.Upgrade, Release: t.name, Chart: ref, Version: version, Namespace: t.ns, ResetThenReuse: true, Values: values}.Render()
+		if err != nil {
+			return nil, err
+		}
 		out = append(out, upgrade+fmt.Sprintf("  # cluster %s", t.cluster))
 	}
-	return out
+	return out, nil
 }

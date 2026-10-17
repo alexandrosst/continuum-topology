@@ -1018,5 +1018,105 @@
     "name": "operator/sources/bearer-no-certificate/0",
     "chart": "agent",
     "command": "helm upgrade continuum-agent ./continuum-agent-0.0.0-agent.tgz --namespace continuum-system --reset-then-reuse-values --set telemetry.export.otlp.endpoint=oslo-regional-operator.continuum-system.svc:4317 --set telemetry.export.otlp.protocol=grpc --set telemetry.export.otlp.tls.insecure=false --set telemetry.export.otlp.tls.caFile= --set telemetry.export.otlp.tls.mtls.enabled=false --set telemetry.export.otlp.tls.mtls.secretName= --set telemetry.export.otlp.tls.serverName=oslo.continuum-system.svc --set telemetry.export.routes.metrics.endpoint= --set telemetry.export.routes.logs.endpoint= --set telemetry.export.routes.traces.endpoint=  # cluster cl-a"
+  },
+  {
+    "name": "fragment/export-block/athens/mtls=true",
+    "chart": "",
+    "command": "--set telemetry.export.otlp.endpoint=op.example.com:4317 --set telemetry.export.otlp.protocol=grpc --set telemetry.export.otlp.tls.insecure=false --set telemetry.export.otlp.tls.caFile= --set telemetry.export.otlp.tls.mtls.enabled=true --set telemetry.export.otlp.tls.mtls.secretName=athens-export-mtls --set telemetry.export.otlp.tls.serverName=athens.continuum-system.svc --set telemetry.export.otlp.auth.secretName="
+  },
+  {
+    "name": "fragment/export-block/athens/mtls=false",
+    "chart": "",
+    "command": "--set telemetry.export.otlp.endpoint=op.example.com:4317 --set telemetry.export.otlp.protocol=grpc --set telemetry.export.otlp.tls.insecure=false --set telemetry.export.otlp.tls.caFile= --set telemetry.export.otlp.tls.mtls.enabled=false --set telemetry.export.otlp.tls.mtls.secretName= --set telemetry.export.otlp.tls.serverName=athens.continuum-system.svc"
+  },
+  {
+    "name": "fragment/export-block/oslo/mtls=true",
+    "chart": "",
+    "command": "--set telemetry.export.otlp.endpoint=op.example.com:4317 --set telemetry.export.otlp.protocol=grpc --set telemetry.export.otlp.tls.insecure=false --set telemetry.export.otlp.tls.caFile= --set telemetry.export.otlp.tls.mtls.enabled=true --set telemetry.export.otlp.tls.mtls.secretName=oslo-export-mtls --set telemetry.export.otlp.tls.serverName=oslo.continuum-system.svc --set telemetry.export.otlp.auth.secretName="
+  },
+  {
+    "name": "fragment/export-block/oslo/mtls=false",
+    "chart": "",
+    "command": "--set telemetry.export.otlp.endpoint=op.example.com:4317 --set telemetry.export.otlp.protocol=grpc --set telemetry.export.otlp.tls.insecure=false --set telemetry.export.otlp.tls.caFile= --set telemetry.export.otlp.tls.mtls.enabled=false --set telemetry.export.otlp.tls.mtls.secretName= --set telemetry.export.otlp.tls.serverName=oslo.continuum-system.svc"
+  },
+  {
+    "name": "fragment/export-block/op-central/mtls=true",
+    "chart": "",
+    "command": "--set telemetry.export.otlp.endpoint=op.example.com:4317 --set telemetry.export.otlp.protocol=grpc --set telemetry.export.otlp.tls.insecure=false --set telemetry.export.otlp.tls.caFile= --set telemetry.export.otlp.tls.mtls.enabled=true --set telemetry.export.otlp.tls.mtls.secretName=op-central-export-mtls --set telemetry.export.otlp.tls.serverName= --set telemetry.export.otlp.auth.secretName="
+  },
+  {
+    "name": "fragment/export-block/op-central/mtls=false",
+    "chart": "",
+    "command": "--set telemetry.export.otlp.endpoint=op.example.com:4317 --set telemetry.export.otlp.protocol=grpc --set telemetry.export.otlp.tls.insecure=false --set telemetry.export.otlp.tls.caFile= --set telemetry.export.otlp.tls.mtls.enabled=false --set telemetry.export.otlp.tls.mtls.secretName= --set telemetry.export.otlp.tls.serverName="
+  },
+  {
+    "name": "fragment/route/metrics",
+    "chart": "",
+    "command": "--set telemetry.export.routes.metrics.endpoint=op.example.com:4317 --set telemetry.export.routes.metrics.protocol=grpc --set telemetry.export.routes.metrics.tls.insecure=false --set telemetry.export.routes.metrics.tls.caFile= --set telemetry.export.routes.metrics.tls.mtls.enabled=true --set telemetry.export.routes.metrics.tls.mtls.secretName=athens-export-mtls --set telemetry.export.routes.metrics.tls.serverName=athens.continuum-system.svc --set telemetry.export.routes.metrics.auth.secretName="
+  },
+  {
+    "name": "fragment/route/logs",
+    "chart": "",
+    "command": "--set telemetry.export.routes.logs.endpoint=op.example.com:4317 --set telemetry.export.routes.logs.protocol=grpc --set telemetry.export.routes.logs.tls.insecure=false --set telemetry.export.routes.logs.tls.caFile= --set telemetry.export.routes.logs.tls.mtls.enabled=true --set telemetry.export.routes.logs.tls.mtls.secretName=athens-export-mtls --set telemetry.export.routes.logs.tls.serverName=athens.continuum-system.svc --set telemetry.export.routes.logs.auth.secretName="
+  },
+  {
+    "name": "fragment/route/traces",
+    "chart": "",
+    "command": "--set telemetry.export.routes.traces.endpoint=op.example.com:4317 --set telemetry.export.routes.traces.protocol=grpc --set telemetry.export.routes.traces.tls.insecure=false --set telemetry.export.routes.traces.tls.caFile= --set telemetry.export.routes.traces.tls.mtls.enabled=true --set telemetry.export.routes.traces.tls.mtls.secretName=athens-export-mtls --set telemetry.export.routes.traces.tls.serverName=athens.continuum-system.svc --set telemetry.export.routes.traces.auth.secretName="
+  },
+  {
+    "name": "fragment/clear-routes/all",
+    "chart": "",
+    "command": "--set telemetry.export.routes.metrics.endpoint= --set telemetry.export.routes.logs.endpoint= --set telemetry.export.routes.traces.endpoint="
+  },
+  {
+    "name": "fragment/clear-routes/logs-traces",
+    "chart": "",
+    "command": "--set telemetry.export.routes.logs.endpoint= --set telemetry.export.routes.traces.endpoint="
+  },
+  {
+    "name": "fragment/destination/mtls-new-certificate",
+    "chart": "",
+    "command": "--set telemetry.export.otlp.endpoint=op.example.com:4317 --set telemetry.export.otlp.protocol=grpc --set telemetry.export.otlp.tls.insecure=false --set telemetry.export.otlp.tls.caFile= --set telemetry.export.otlp.tls.mtls.enabled=true --set telemetry.export.otlp.tls.mtls.secretName=athens-export-mtls --set telemetry.export.otlp.tls.serverName=athens.continuum-system.svc --set telemetry.export.otlp.auth.secretName="
+  },
+  {
+    "name": "fragment/destination/mtls-new-certificate/secret",
+    "chart": "",
+    "command": "kubectl apply --server-side --force-conflicts -f - <<'CONTINUUM_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: athens-export-mtls\n  namespace: apps-team\ntype: Opaque\nstringData:\n  tls.crt: |\n    -----BEGIN CERTIFICATE-----\n    c2VuZGVyLWEtY2VydA==\n    -----END CERTIFICATE-----\n  tls.key: |\n    -----BEGIN EC PRIVATE KEY-----\n    c2VuZGVyLWEta2V5\n    -----END EC PRIVATE KEY-----\n  ca.crt: |\n    -----BEGIN CERTIFICATE-----\n    b3BlcmF0b3ItY2E=\n    -----END CERTIFICATE-----\nCONTINUUM_SECRET"
+  },
+  {
+    "name": "fragment/destination/mtls-certificate-in-place",
+    "chart": "",
+    "command": "--set telemetry.export.otlp.endpoint=op.example.com:4317 --set telemetry.export.otlp.protocol=grpc --set telemetry.export.otlp.tls.insecure=false --set telemetry.export.otlp.tls.caFile= --set telemetry.export.otlp.tls.mtls.enabled=true --set telemetry.export.otlp.tls.mtls.secretName=athens-export-mtls --set telemetry.export.otlp.tls.serverName=athens.continuum-system.svc --set telemetry.export.otlp.auth.secretName="
+  },
+  {
+    "name": "fragment/destination/bearer-new-certificate",
+    "chart": "",
+    "command": "--set telemetry.export.otlp.endpoint=op.example.com:4317 --set telemetry.export.otlp.protocol=grpc --set telemetry.export.otlp.tls.insecure=false --set telemetry.export.otlp.tls.caFile= --set telemetry.export.otlp.tls.mtls.enabled=true --set telemetry.export.otlp.tls.mtls.secretName=oslo-export-mtls --set telemetry.export.otlp.tls.serverName=oslo.continuum-system.svc --set telemetry.export.otlp.auth.secretName="
+  },
+  {
+    "name": "fragment/destination/bearer-new-certificate/secret",
+    "chart": "",
+    "command": "kubectl apply --server-side --force-conflicts -f - <<'CONTINUUM_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: oslo-export-mtls\n  namespace: apps-team\ntype: Opaque\nstringData:\n  tls.crt: |\n    -----BEGIN CERTIFICATE-----\n    c2VuZGVyLWEtY2VydA==\n    -----END CERTIFICATE-----\n  tls.key: |\n    -----BEGIN EC PRIVATE KEY-----\n    c2VuZGVyLWEta2V5\n    -----END EC PRIVATE KEY-----\n  ca.crt: |\n    -----BEGIN CERTIFICATE-----\n    b3BlcmF0b3ItY2E=\n    -----END CERTIFICATE-----\nCONTINUUM_SECRET"
+  },
+  {
+    "name": "fragment/destination/bearer",
+    "chart": "",
+    "command": "--set telemetry.export.otlp.endpoint=op.example.com:4317 --set telemetry.export.otlp.protocol=grpc --set telemetry.export.otlp.tls.insecure=false --set telemetry.export.otlp.tls.caFile= --set telemetry.export.otlp.tls.mtls.enabled=false --set telemetry.export.otlp.tls.mtls.secretName= --set telemetry.export.otlp.tls.serverName=oslo.continuum-system.svc"
+  },
+  {
+    "name": "fragment/heartbeat",
+    "chart": "",
+    "command": "--set heartbeat.enabled=true --set heartbeat.url=https://ikhnos.example.com/api/v1/operator-heartbeat --set heartbeat.auth.secretName=athens-heartbeat-auth"
+  },
+  {
+    "name": "fragment/heartbeat-private-ca",
+    "chart": "",
+    "command": "--set heartbeat.enabled=true --set heartbeat.url=https://ikhnos.example.com/api/v1/operator-heartbeat --set heartbeat.auth.secretName=athens-heartbeat-auth --set heartbeat.tls.caSecretName=athens-heartbeat-ca"
+  },
+  {
+    "name": "fragment/intent-provenance",
+    "chart": "",
+    "command": "--set telemetry.resource.orgId=org-1 --set telemetry.resource.clusterId=cl-a --set telemetry.resource.intentId=ti_1"
   }
 ]

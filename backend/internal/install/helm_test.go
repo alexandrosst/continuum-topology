@@ -116,3 +116,27 @@ func TestAHelmCommandThatWouldNotDoWhatItSaysIsRefused(t *testing.T) {
 		}
 	}
 }
+
+// Flags is the values of a command as a fragment for a caller that writes the rest, and each is one word to a real shell too.
+func TestFlagsAreTheValuesOnOneLine(t *testing.T) {
+	values := []Value{Set("a.b", "plain"), Set("c.d", ""), Set("e.f", "it's $(id)"), SetJSON("g", `{"x":"y z"}`)}
+	if got, want := Flags(values), `--set a.b=plain --set c.d= --set 'e.f=it'\''s $(id)' --set-json g='{"x":"y z"}'`; got != want {
+		t.Fatalf("got %s, want %s", got, want)
+	}
+	if Flags(nil) != "" {
+		t.Fatal("no values, no fragment")
+	}
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("bash is not installed")
+	}
+	var out bytes.Buffer
+	sh := exec.Command(bash, "-c", "f() { printf '%s\\n' \"$@\"; }\nf "+Flags(values))
+	sh.Stdout = &out
+	if err := sh.Run(); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := out.String(), "--set\na.b=plain\n--set\nc.d=\n--set\ne.f=it's $(id)\n--set-json\ng={\"x\":\"y z\"}\n"; got != want {
+		t.Fatalf("the shell read %q, want %q", got, want)
+	}
+}

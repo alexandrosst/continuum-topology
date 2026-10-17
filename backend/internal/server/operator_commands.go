@@ -88,10 +88,3 @@ func withNamespace(namespace, cmd string) string {
 
 // shellQuote wraps s in single quotes for a POSIX shell (see shellArg).
 func shellQuote(s string) string { return install.Quote(s) }
-
-// upgradeWithFlags is the `helm upgrade` of a release that already runs, stating the given Helm flags on top of what it was
-// installed with (--reset-then-reuse-values, Helm 3.14 or newer; see upgradeCommand for why not --reuse-values). ref and version
-// are already one safe word each (and version carries its own leading space); the release and the namespace are quoted here.
-func upgradeWithFlags(release, ref, version, namespace, flags string) string {
-	return fmt.Sprintf("helm upgrade %s %s%s --namespace %s --reset-then-reuse-values %s", shellArg(release), ref, version, shellArg(namespace), flags)
-}

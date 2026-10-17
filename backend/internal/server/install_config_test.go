@@ -59,3 +59,24 @@ func TestAServerThatCannotNameItsChartDoesNotStart(t *testing.T) {
 		t.Fatal("started with a chart it cannot name")
 	}
 }
+
+// The heartbeat secret is shown once with the upgrade that uses it, so an upgrade that cannot be written is found before the secret is
+// minted, not after it is lost.
+func TestAnOperatorChartTheCommandCannotNameMintsNoHeartbeatSecret(t *testing.T) {
+	a := newAdminRig(t)
+	_, cookie := a.user(t, "alex", RoleAdmin)
+	cl := a.approvedCluster(t, fp)
+	id := a.createOperatorDoc(t, cookie, extBody("athens", cl))["operator"].(map[string]any)["id"].(string)
+
+	a.a.ChartRef = "--post-renderer=/tmp/x/continuum-agent" // the operator chart is derived from it
+	if r := a.do("POST", "/api/v1/operators/"+id+"/heartbeat", nil, withCookie(cookie)); r.Code != 500 {
+		t.Fatalf("a chart that cannot be named: %d %s", r.Code, r.Body.String())
+	}
+	op, err := a.st.GetOperator(a.ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if op.HeartbeatEnabledAt != nil {
+		t.Fatal("the heartbeat secret was minted though its upgrade could not be written")
+	}
+}

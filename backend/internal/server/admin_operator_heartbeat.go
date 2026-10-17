@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"continuum/internal/install"
 	"continuum/internal/store"
 )
 
@@ -75,6 +76,18 @@ func (a *Admin) operatorHeartbeat(w http.ResponseWriter, r *http.Request) {
 func (a *Admin) enableOperatorHeartbeat(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	core := a.core(r)
+	img := a.images(core)
+	url := a.heartbeatURL(r)
+	// The secret is shown once, with the commands that use it: a command that cannot be written is found before the secret is minted.
+	before, err := core.GetOperator(r.Context(), id)
+	if err != nil {
+		a.fail(w, err)
+		return
+	}
+	if _, err := a.heartbeatUpgradeCommand(img, before, url); err != nil {
+		a.fail(w, a.installConfigError(err))
+		return
+	}
 	secret, rotated, err := core.EnableOperatorHeartbeat(r.Context(), actor(r), id)
 	if err != nil {
 		a.fail(w, err)
@@ -85,14 +98,17 @@ func (a *Admin) enableOperatorHeartbeat(w http.ResponseWriter, r *http.Request) 
 		a.fail(w, err)
 		return
 	}
-	img := a.images(core)
-	url := a.heartbeatURL(r)
+	upgrade, err := a.heartbeatUpgradeCommand(img, op, url)
+	if err != nil {
+		a.fail(w, a.installConfigError(err))
+		return
+	}
 	resp := map[string]any{
 		"operator":                 a.opDoc(r, op),
 		"rotated":                  rotated,
 		"heartbeatToken":           secret,
 		"heartbeatSecretCommand":   operatorHeartbeatSecretCommand(op, secret),
-		"heartbeatUpgradeCommand":  a.heartbeatUpgradeCommand(img, op, url),
+		"heartbeatUpgradeCommand":  upgrade,
 		"heartbeatUrl":             url,
 		"heartbeatIntervalSeconds": int(OperatorHeartbeatInterval / time.Second),
 	}
@@ -179,20 +195,25 @@ func operatorHeartbeatSecretName(op store.Operator) string   { return op.ID + "-
 func operatorHeartbeatCASecretName(op store.Operator) string { return op.ID + "-heartbeat-ca" }
 
 // heartbeatUpgradeCommand is the upgrade that turns the heartbeat on for a release that already runs.
-func (a *Admin) heartbeatUpgradeCommand(img ImageConfig, op store.Operator, heartbeatURL string) string {
-	ref, version := a.operatorChartArgs(img)
-	return upgradeWithFlags(op.ID, ref, version, "continuum-system", a.operatorHeartbeatSetFlags(op, heartbeatURL))
+func (a *Admin) heartbeatUpgradeCommand(img ImageConfig, op store.Operator, heartbeatURL string) (string, error) {
+	ref, version := a.operatorChart(img)
+	return install.Helm{Verb: install.Upgrade, Release: op.ID, Chart: ref, Version: version, Namespace: "continuum-system", ResetThenReuse: true,
+		Values: a.operatorHeartbeatValues(op, heartbeatURL)}.Render()
 }
 
-// operatorHeartbeatSetFlags is the Helm values that turn the heartbeat on. intervalSeconds is left at the
+// operatorHeartbeatValues is the Helm values that turn the heartbeat on. intervalSeconds is left at the
 // chart's default, which equals OperatorHeartbeatInterval. When the server's certificate is signed by a private CA
 // (HeartbeatCAPEM) the chart is told which Secret holds that CA, or the operator could never verify the server.
-func (a *Admin) operatorHeartbeatSetFlags(op store.Operator, heartbeatURL string) string {
-	flags := "--set heartbeat.enabled=true " + setFlag("heartbeat.url", heartbeatURL) + " " + setFlag("heartbeat.auth.secretName", operatorHeartbeatSecretName(op))
-	if len(a.HeartbeatCAPEM) > 0 {
-		flags += " " + setFlag("heartbeat.tls.caSecretName", operatorHeartbeatCASecretName(op))
+func (a *Admin) operatorHeartbeatValues(op store.Operator, heartbeatURL string) []install.Value {
+	values := []install.Value{
+		install.Set("heartbeat.enabled", "true"),
+		install.Set("heartbeat.url", heartbeatURL),
+		install.Set("heartbeat.auth.secretName", operatorHeartbeatSecretName(op)),
 	}
-	return flags
+	if len(a.HeartbeatCAPEM) > 0 {
+		values = append(values, install.Set("heartbeat.tls.caSecretName", operatorHeartbeatCASecretName(op)))
+	}
+	return values
 }
 
 // heartbeatCASecretCommand creates the Secret holding the private CA the server's certificate is signed by, in the
