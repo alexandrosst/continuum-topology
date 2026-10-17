@@ -13,6 +13,11 @@ package agentcaps
 
 import "sort"
 
+// ProtocolVersion is the version of the agent protocol this build speaks. It is a counter, and it only goes up when the meaning of
+// what is already on the wire changes; a new thing an agent can do is a new capability name, not a new version. 0 is an agent
+// from before the version was stated, and 1 is the first that states its capabilities.
+const ProtocolVersion uint32 = 1
+
 const (
 	// MaxNames is how many names the server keeps from one hello, and MaxNameLen how long one may be. They are the limits of the
 	// protocol and not of this list: an agent from the future may know more names than this one, and the server keeps the

@@ -303,8 +303,7 @@ func (r *runner) stream(ctx context.Context, id *Identity) error {
 		return err
 	}
 	// Hello says what this agent is and what its install allows: the ceiling, before anything else is known.
-	if err := s.Send(&continuumv1.AgentMessage{Msg: &continuumv1.AgentMessage_Hello{Hello: &continuumv1.Hello{
-		AgentVersion: r.cfg.Version, InstalledAccessTier: uint32(r.cfg.Tier), Diagnostics: r.diagnostics(), Namespace: r.cfg.Namespace, ReleaseName: r.cfg.ReleaseName}}}); err != nil {
+	if err := s.Send(&continuumv1.AgentMessage{Msg: &continuumv1.AgentMessage_Hello{Hello: r.hello()}}); err != nil {
 		return err
 	}
 	bg.Add(1)

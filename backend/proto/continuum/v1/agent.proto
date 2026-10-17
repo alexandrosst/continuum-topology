@@ -150,6 +150,15 @@ message Hello {
   // themselves, not for anything `kubectl` deletes. Empty for an older agent, in which case those commands guess
   // "continuum-agent", with a note that it may be wrong.
   string release_name = 6;
+  // The version of this protocol the agent speaks. 0 (absent) is an agent from before this field; 1 is the first version
+  // in which an agent states its capabilities. A version is a counter and not a feature list: what an agent can do is the
+  // list below. The server records the number and never refuses a stream because of it (see internal/agentcaps).
+  uint32 protocol_version = 7;
+  // The things this agent does, by name (internal/agentcaps holds the names and what they mean). Empty from an agent
+  // before protocol 1. A name the server does not know is kept all the same: the agent may be newer. The server keeps at
+  // most agentcaps.MaxNames names of agentcaps.MaxNameLen characters and does not store them past the stream.
+  // Rolling these two back: remove them and add `reserved 7, 8;` so the numbers are not used for something else.
+  repeated string capabilities = 8;
 }
 
 message Heartbeat {

@@ -1104,7 +1104,16 @@ type Hello struct {
 	// chart creates has a fixed name regardless of the release name, so this only matters for the two `helm` commands
 	// themselves, not for anything `kubectl` deletes. Empty for an older agent, in which case those commands guess
 	// "continuum-agent", with a note that it may be wrong.
-	ReleaseName   string `protobuf:"bytes,6,opt,name=release_name,json=releaseName,proto3" json:"release_name,omitempty"`
+	ReleaseName string `protobuf:"bytes,6,opt,name=release_name,json=releaseName,proto3" json:"release_name,omitempty"`
+	// The version of this protocol the agent speaks. 0 (absent) is an agent from before this field; 1 is the first version
+	// in which an agent states its capabilities. A version is a counter and not a feature list: what an agent can do is the
+	// list below. The server records the number and never refuses a stream because of it (see internal/agentcaps).
+	ProtocolVersion uint32 `protobuf:"varint,7,opt,name=protocol_version,json=protocolVersion,proto3" json:"protocol_version,omitempty"`
+	// The things this agent does, by name (internal/agentcaps holds the names and what they mean). Empty from an agent
+	// before protocol 1. A name the server does not know is kept all the same: the agent may be newer. The server keeps at
+	// most agentcaps.MaxNames names of agentcaps.MaxNameLen characters and does not store them past the stream.
+	// Rolling these two back: remove them and add `reserved 7, 8;` so the numbers are not used for something else.
+	Capabilities  []string `protobuf:"bytes,8,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1179,6 +1188,20 @@ func (x *Hello) GetReleaseName() string {
 		return x.ReleaseName
 	}
 	return ""
+}
+
+func (x *Hello) GetProtocolVersion() uint32 {
+	if x != nil {
+		return x.ProtocolVersion
+	}
+	return 0
+}
+
+func (x *Hello) GetCapabilities() []string {
+	if x != nil {
+		return x.Capabilities
+	}
+	return nil
 }
 
 type Heartbeat struct {
@@ -7044,14 +7067,16 @@ const file_continuum_v1_agent_proto_rawDesc = "" +
 	"\theartbeat\x18\x03 \x01(\v2\x17.continuum.v1.HeartbeatH\x00R\theartbeat\x12/\n" +
 	"\x05flows\x18\x04 \x01(\v2\x17.continuum.v1.FlowBatchH\x00R\x05flows\x12@\n" +
 	"\fmeasurements\x18\x05 \x01(\v2\x1a.continuum.v1.MeasurementsH\x00R\fmeasurementsB\x05\n" +
-	"\x03msg\"\x8d\x02\n" +
+	"\x03msg\"\xdc\x02\n" +
 	"\x05Hello\x12#\n" +
 	"\ragent_version\x18\x01 \x01(\tR\fagentVersion\x12-\n" +
 	"\x12kubernetes_version\x18\x02 \x01(\tR\x11kubernetesVersion\x122\n" +
 	"\x15installed_access_tier\x18\x03 \x01(\rR\x13installedAccessTier\x12;\n" +
 	"\vdiagnostics\x18\x04 \x01(\v2\x19.continuum.v1.DiagnosticsR\vdiagnostics\x12\x1c\n" +
 	"\tnamespace\x18\x05 \x01(\tR\tnamespace\x12!\n" +
-	"\frelease_name\x18\x06 \x01(\tR\vreleaseName\"\xdb\x02\n" +
+	"\frelease_name\x18\x06 \x01(\tR\vreleaseName\x12)\n" +
+	"\x10protocol_version\x18\a \x01(\rR\x0fprotocolVersion\x12\"\n" +
+	"\fcapabilities\x18\b \x03(\tR\fcapabilities\"\xdb\x02\n" +
 	"\tHeartbeat\x124\n" +
 	"\amodules\x18\x01 \x03(\v2\x1a.continuum.v1.ModuleStatusR\amodules\x12\"\n" +
 	"\rclock_skew_ms\x18\x02 \x01(\x03R\vclockSkewMs\x12;\n" +
