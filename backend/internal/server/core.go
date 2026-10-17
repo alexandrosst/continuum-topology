@@ -248,7 +248,7 @@ func (c *Core) CreateTokenFor(ctx context.Context, actor, label string, tier int
 	if label == "" || len(label) > 80 {
 		return "", store.Token{}, errf(KindInvalid, "name the cluster (1-80 characters)")
 	}
-	if tier < 0 || tier > ImplementedTier {
+	if !GrantableTier(tier) {
 		return "", store.Token{}, errf(KindInvalid, "access tier must be 0-%d in this release", ImplementedTier)
 	}
 	secret, err := NewTokenSecret()

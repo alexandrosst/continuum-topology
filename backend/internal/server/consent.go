@@ -265,7 +265,8 @@ func (h *Hub) SetAgentTier(ctx context.Context, actor, agentID string, tier int,
 	// tier" as two different numbers in two different checks is exactly how enroll.go's approval-time check and
 	// this one drifted apart in wording before - a tier of 5+ used to be rejected citing "0-2" as the range
 	// while MaxTier=4 said otherwise. Only a genuinely out-of-domain value (negative) gets its own message here.
-	if tier < 0 {
+	verdict := CheckTier(tier, a.InstalledTier, a.TierCap)
+	if verdict == TierBelowZero {
 		return a, errf(KindInvalid, "access tier must be 0 or more")
 	}
 	if tier == a.AccessTier {
@@ -274,10 +275,10 @@ func (h *Hub) SetAgentTier(ctx context.Context, actor, agentID string, tier int,
 	if tier > a.AccessTier && !mayWiden(ctx) {
 		return a, errf(KindForbidden, "raising an agent's access takes an administrator, as approving it did; narrowing it does not")
 	}
-	if tier > ImplementedTier {
+	if verdict == TierNotImplemented {
 		return a, errf(KindInvalid, "access tier %d is not available in this release (the highest is %d)", tier, ImplementedTier)
 	}
-	if tier > a.InstalledTier {
+	if verdict == TierAboveInstall {
 		cmd := ""
 		if upgradeCmd != nil {
 			cmd = upgradeCmd(tier)
@@ -286,7 +287,7 @@ func (h *Hub) SetAgentTier(ctx context.Context, actor, agentID string, tier int,
 		e.Data = map[string]any{"installedTier": a.InstalledTier, "helm": cmd}
 		return a, e
 	}
-	if tier > a.TierCap {
+	if verdict == TierAboveToken {
 		return a, errf(KindInvalid, "access tier %d is above what the enrollment token allowed for this agent (%d)", tier, a.TierCap)
 	}
 	old := a.AccessTier
@@ -504,7 +505,7 @@ func (h *Hub) noteCeiling(ctx context.Context, agent, fresh store.Agent, reporte
 	if reported <= 0 && fresh.InstalledTier > 0 && !h.reportsCeiling(agent.ID) {
 		return agent // an older agent that does not say: keep what enrollment recorded
 	}
-	ceiling := min(max(reported, 0), MaxTier)
+	ceiling, _ := ReportedTier(reported)
 	actor := AgentActor(agent.ID).String()
 	if ceiling != fresh.InstalledTier {
 		if err := h.C.Store.SetInstalledTier(ctx, agent.ID, ceiling); err != nil {

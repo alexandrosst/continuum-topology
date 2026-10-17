@@ -55,8 +55,8 @@ func (c *Core) Enroll(ctx context.Context, ip string, req *continuumv1.EnrollReq
 	if len(req.ApprovalCodeHash) != approval.HashLen {
 		return nil, errf(KindInvalid, "approval code hash is missing or malformed")
 	}
-	tier := int(req.InstalledAccessTier)
-	if tier > MaxTier {
+	tier, inRange := ReportedTier(int(req.InstalledAccessTier))
+	if !inRange {
 		return nil, errf(KindInvalid, "installed access tier out of range")
 	}
 	pollSecret, err := newSecret()
@@ -262,8 +262,7 @@ func (c *Core) Approve(ctx context.Context, actor, agentID, proof string, tier i
 			fmt.Sprintf("%d wrong approval codes in a row: the request is rejected", n))))
 		return errWrongCode("that was the last attempt. The request was rejected: enroll the agent again with a new token", 0, true)
 	}
-	maxTier := min(a.InstalledTier, a.TierCap, ImplementedTier)
-	if tier < 0 || tier > maxTier {
+	if CheckTier(tier, a.InstalledTier, a.TierCap) != TierAllowed {
 		return errf(KindInvalid, "access tier %d is above what is installed (%d), allowed by the token (%d) or implemented (%d)", tier, a.InstalledTier, a.TierCap, ImplementedTier)
 	}
 	csr, err := pki.ParseCSR(a.CSR)

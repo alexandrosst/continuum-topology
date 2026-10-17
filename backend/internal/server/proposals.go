@@ -123,14 +123,15 @@ func resolveChange(a store.Agent, cur Consent, ch AccessChange) (nextTier int, n
 	}
 	if ch.Tier != nil {
 		t := *ch.Tier
+		verdict := CheckTier(t, a.InstalledTier, a.TierCap)
 		switch {
-		case t < 0 || t > ImplementedTier:
+		case verdict == TierBelowZero || verdict == TierNotImplemented:
 			return 0, cur, false, errf(KindInvalid, "access tier must be 0-%d in this release", ImplementedTier)
 		case t == a.AccessTier:
 			return 0, cur, false, errf(KindConflict, "the agent already has access tier %d", t)
-		case t > a.InstalledTier:
+		case verdict == TierAboveInstall:
 			return 0, cur, false, errf(KindInvalid, "this agent's install allows at most tier %d", a.InstalledTier)
-		case t > a.TierCap:
+		case verdict == TierAboveToken:
 			return 0, cur, false, errf(KindInvalid, "access tier %d is above what the enrollment token allowed for this agent (%d)", t, a.TierCap)
 		}
 		return t, cur, t > a.AccessTier, nil
