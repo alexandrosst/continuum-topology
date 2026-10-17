@@ -66,6 +66,23 @@ const (
 
 var usernameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._@-]{2,63}$`)
 
+// reservedActors are the words the audit trail uses for the server itself: "system" for what it does on its own, "anonymous" for
+// someone who is not signed in, "renewal" for operator certificate renewal. A person's rows carry their username as the actor, so
+// if one could register under these words their rows would read as the server's. They are compared without regard to case, as
+// Ikhnos treats names that differ only in case as one name. An agent's actor is "agent:<id>", and a username holds no colon.
+var reservedActors = map[string]bool{"system": true, "anonymous": true, "renewal": true}
+
+// usernameProblem says why name cannot be the username of a new account ("" if it can). It does not look at accounts that exist.
+func usernameProblem(name string) string {
+	switch {
+	case !usernameRe.MatchString(name):
+		return "username must be 3-64 characters: letters, digits and . _ @ -"
+	case reservedActors[strings.ToLower(name)]:
+		return "that username is reserved"
+	}
+	return ""
+}
+
 // Principal is the signed-in person behind a request. Org and Role are set only on requests to an
 // organisation, and describe this person's standing in that one.
 type Principal struct {
@@ -977,8 +994,8 @@ func (c *Core) Register(ctx context.Context, ip, username, password, invite, org
 		return "", store.User{}, errf(KindRateLimited, "too many attempts, wait a minute")
 	}
 	username = strings.TrimSpace(username)
-	if !usernameRe.MatchString(username) {
-		return "", store.User{}, errf(KindInvalid, "username must be 3-64 characters: letters, digits and . _ @ -")
+	if p := usernameProblem(username); p != "" {
+		return "", store.User{}, errf(KindInvalid, "%s", p)
 	}
 	if err := CheckPasswordPolicy(username, password); err != nil {
 		return "", store.User{}, errf(KindInvalid, "%v", err)
@@ -1333,8 +1350,8 @@ func (c *Core) RecoverPassword(ctx context.Context, username string) (string, er
 	u, err := c.Store.GetUserByName(ctx, strings.ToLower(username))
 	switch {
 	case errors.Is(err, store.ErrNotFound):
-		if !usernameRe.MatchString(username) {
-			return "", errors.New("invalid username")
+		if p := usernameProblem(username); p != "" {
+			return "", errors.New("invalid username: " + p)
 		}
 		u = store.User{ID: "u-" + randHex(6), Username: username, PasswordHash: hash, MustChange: true, CreatedAt: c.Now()}
 		if err := c.Store.CreateUser(ctx, u); err != nil {
