@@ -3,8 +3,6 @@ import { describe, expect, test } from 'vitest'
 import { addressCommands, connectionCheckCommand } from '@/components/operators/OperatorAddress'
 import { serverAddressUpgradeCommand } from '@/lib/exposure'
 import { quickStartProblems, quickStartSpec } from '@/lib/quickStartBackends'
-import { gatewayPortForward } from '@/lib/quickStartGateway'
-import type { QuickStartBackend } from '@/lib/history'
 
 const hasBash = spawnSync('bash', ['--version']).status === 0
 
@@ -60,10 +58,5 @@ describe('quick-start fields', () => {
     expect(quickStartProblems('loki', '', '168h').namespace).toBeDefined()
     expect(quickStartProblems('loki', 'obs', "1h' ; rm").retention).toBeDefined()
     expect(quickStartProblems('zipkin', 'obs', '72h').retention).toBeDefined()
-  })
-
-  test('the gateway port-forward quotes the stored namespace', () => {
-    const b = { id: 'q', kind: 'loki', modality: 'logs', namespace: 'a b', retention: '1h', label: 'Loki' } as QuickStartBackend
-    expect(gatewayPortForward(b)).toContain(`kubectl -n 'a b' port-forward`)
   })
 })

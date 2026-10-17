@@ -77,19 +77,6 @@ export interface ProbeTarget {
 
 export type QuickStartKind = 'jaeger' | 'zipkin' | 'prometheus' | 'loki' | 'custom'
 
-/** Every kind a QuickStartBackend may carry - the backend's own knownBackendKinds (settings.go). */
-export const KNOWN_BACKEND_KINDS: QuickStartKind[] = ['jaeger', 'zipkin', 'prometheus', 'loki', 'custom']
-
-/** What AppSettings.allowedBackendKinds falls back to when empty - the backend's own
- * defaultAllowedBackendKinds (settings.go). "custom" is deliberately left out: it is a capability an
- * administrator opts an organisation into, not one every organisation should have by default. */
-export const DEFAULT_ALLOWED_BACKEND_KINDS: QuickStartKind[] = ['jaeger', 'zipkin', 'prometheus', 'loki']
-
-/** AppSettings.allowedBackendKinds, with the same "empty means the default" fallback the backend applies. */
-export function effectiveAllowedBackendKinds(allowed: QuickStartKind[]): QuickStartKind[] {
-  return allowed.length > 0 ? allowed : DEFAULT_ALLOWED_BACKEND_KINDS
-}
-
 /** A quick-start observability backend a person set up from the telemetry destination picker - see
  * quickStartBackends.ts for what each kind's install command actually does. The server never deploys or
  * dials any of this; it's a note kept so the picker can offer it again and "open this tool" has somewhere

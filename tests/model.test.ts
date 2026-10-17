@@ -12,7 +12,7 @@ import { moveTargets, movability, type MoveModel } from '../src/lib/movability'
 import { buildSearchIndex, parseSel, searchItems } from '../src/lib/search'
 import { filterSummary } from '../src/lib/filter'
 import { narrowFitZoom } from '../src/lib/fit'
-import { activeView, describeView, sameView, viewParams } from '../src/lib/views'
+import { activeView, describeView, viewParams } from '../src/lib/views'
 import { emptyScope, scopeProblems, splitNames } from '../src/lib/install'
 import { anyMesh, connectionVerdict } from '../src/lib/mesh'
 import { ago, bytesPerSec, bytesTotal, isObserved, trafficSummary, withObserved } from '../src/lib/observed'
@@ -935,9 +935,6 @@ test('views: options are canonical, defaults are dropped, unknown options are ig
   assert.equal(viewParams('view=application&group=cluster&links=1'), '')
   assert.equal(viewParams('group=tier&view=infrastructure'), 'group=tier&view=infrastructure')
   assert.equal(viewParams('view=infrastructure&sel=cluster:x&junk=1'), 'view=infrastructure')
-  assert.ok(sameView('view=map', 'view=map&sel=site:a'))
-  assert.ok(sameView('', 'devices=1&view=application'))
-  assert.ok(!sameView('view=map', ''))
   assert.equal(describeView('view=infrastructure&group=tier&services=1'), 'Infrastructure, grouped by tier, services on nodes')
   assert.equal(describeView('view=map&group=tier'), 'Map')
   assert.equal(describeView(''), 'Application')

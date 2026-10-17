@@ -176,20 +176,6 @@ export const DEVICE_PROTOCOL_OPTIONS: { value: string; label: string }[] = [
   { value: 'HTTP', label: 'HTTP' },
 ]
 
-/** Common protocols for a service-to-service or device-to-service dependency - see `Dependency.protocol`.
- * Same picklist-plus-custom pattern as PROVIDER_OPTIONS. */
-export const DEPENDENCY_PROTOCOL_OPTIONS: { value: string; label: string }[] = [
-  { value: 'HTTP', label: 'HTTP' },
-  { value: 'HTTPS', label: 'HTTPS' },
-  { value: 'gRPC', label: 'gRPC' },
-  { value: 'MQTT', label: 'MQTT' },
-  { value: 'Kafka', label: 'Kafka' },
-  { value: 'AMQP', label: 'AMQP' },
-  { value: 'WebSocket', label: 'WebSocket' },
-  { value: 'TCP', label: 'TCP' },
-  { value: 'UDP', label: 'UDP' },
-]
-
 /** "v1.29.6+k3s1" -> "v1.29.6": the build suffix only makes a column wider. Keep the full string for tooltips. */
 export const shortVersion = (v?: string): string => (v ?? '').split('+')[0]
 
@@ -308,9 +294,6 @@ export function recentlyScaledPods(pods: Pod[] | undefined): Set<string> {
 
 /** 0.5 -> "512 MB", 10 -> "10 GB": volume sizes use the same units as memory. */
 export const volumeSize = (gb: number): string => formatMemory(gb)
-
-/** "10 GB on local-path" for a list line. */
-export const volumeLabel = (v: ServiceVolume): string => `${v.name} · ${volumeSize(v.sizeGb)}${v.storageClass ? ` · ${v.storageClass}` : ''}`
 
 /** Total requested storage of a service in GB. */
 export const totalVolumeGb = (vs?: ServiceVolume[]): number => (vs ?? []).reduce((a, v) => a + v.sizeGb, 0)

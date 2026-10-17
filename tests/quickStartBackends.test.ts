@@ -1,12 +1,9 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { DEFAULT_ALLOWED_BACKEND_KINDS, KNOWN_BACKEND_KINDS } from '../src/lib/history'
 import { hasQuickStartSpec, QUICK_START_BACKENDS, quickStartSpec } from '../src/lib/quickStartBackends'
 
 test('every catalog kind is a known kind, offered by default, and has a spec', () => {
   for (const spec of QUICK_START_BACKENDS) {
-    assert.ok(KNOWN_BACKEND_KINDS.includes(spec.kind), spec.kind)
-    assert.ok(DEFAULT_ALLOWED_BACKEND_KINDS.includes(spec.kind), spec.kind)
     assert.equal(hasQuickStartSpec(spec.kind), true)
   }
   assert.equal(hasQuickStartSpec('custom'), false)

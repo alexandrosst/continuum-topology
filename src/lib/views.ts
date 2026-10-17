@@ -32,8 +32,6 @@ export function viewParams(input: URLSearchParams | string): string {
   return out.toString()
 }
 
-export const sameView = (a: string, b: string) => viewParams(a) === viewParams(b)
-
 const VIEW_NAME: Record<string, string> = { application: 'Application', infrastructure: 'Infrastructure', map: 'Map' }
 
 /** "Infrastructure, grouped by tier, services on nodes" */

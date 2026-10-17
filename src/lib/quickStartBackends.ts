@@ -234,8 +234,7 @@ export function quickStartSpec(kind: QuickStartKind): QuickStartSpec {
 
 /** Whether `kind` has a catalog entry above - true for jaeger/zipkin/prometheus/loki, false for "custom" (see
  * QuickStartBackend.kind in history.ts). A "custom" backend has no known upstream chart, so none of this
- * catalog's generated commands (install, port-forward) or the Part C gateway manifest (gatewaySpec in
- * quickStartGateway.ts) apply to it - only its own user-supplied label and tool URL do. */
+ * catalog's generated commands (install, port-forward) apply to it - only its own user-supplied label and tool URL do. */
 export function hasQuickStartSpec(kind: QuickStartKind): boolean {
   return QUICK_START_BACKENDS.some((q) => q.kind === kind)
 }

@@ -3,7 +3,7 @@
  * The rules live in advice.ts (the browser's copy of backend/internal/advice); this file turns the model's records
  * into the facts those rules judge, and says what would make an unknown known.
  */
-import { assess, CPU, fit, GIB, MEMORY, newPool, adjustPool, type Advice, type CapNode, type Check, type DimResult, type Dimension, type Fact, type FactRow, type Fix, type Need, type Pool } from './advice'
+import { CPU, fit, GIB, MEMORY, newPool, adjustPool, type CapNode, type DimResult, type Dimension, type Fact, type FactRow, type Fix, type Need, type Pool } from './advice'
 import type { EffectiveModel } from './provenance'
 import type { Agent, MachineNode, Service } from './types'
 
@@ -165,6 +165,3 @@ export function freeFactRow(dim: Dimension, pool: Pool, place: Pick<Place, 'clus
     aged: pool.aged || undefined,
   }
 }
-
-/** Combine capacity with constraint checks into one answer. */
-export const adviceOf = (dims: DimResult[], checks: Check[]): Advice => assess(dims, checks)
