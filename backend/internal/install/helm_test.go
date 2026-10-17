@@ -68,7 +68,11 @@ func TestEveryValueIsExactlyOneWordToARealShell(t *testing.T) {
 				k := "a.b" + string(rune('A'+i))
 				values = append(values, Set(k, v))
 				wantArgs = append(wantArgs, "--set", k+"="+v)
+				values = append(values, SetString("s."+k, v))
+				wantArgs = append(wantArgs, "--set-string", "s."+k+"="+v)
 			}
+			values = append(values, Strings("names", []string{"a", "it's $(id)", "x y"}), Strings("none", nil))
+			wantArgs = append(wantArgs, "--set", "names={a,it's $(id),x y}", "--set-json", "none=[]")
 			values = append(values, SetJSON("operator", `{"name":"it's $(id)"}`))
 			wantArgs = append(wantArgs, "--set-json", `operator={"name":"it's $(id)"}`)
 			h := Helm{Verb: verb, Release: "rel", Chart: "oci://r.example.com/c", Version: "1.2.3", Namespace: "ns", CreateNamespace: true, ResetThenReuse: true, Values: values, Layout: layout}
@@ -108,6 +112,10 @@ func TestAHelmCommandThatWouldNotDoWhatItSaysIsRefused(t *testing.T) {
 		"key holds a space":      func(h *Helm) { h.Values = []Value{Set("a b", "x")} },
 		"key holds a newline":    func(h *Helm) { h.Values = []Value{Set("a\nb", "x")} },
 		"key begins with a dash": func(h *Helm) { h.Values = []Value{Set("-f", "x")} },
+		"list name holds comma":  func(h *Helm) { h.Values = []Value{Strings("l", []string{"a,b"})} },
+		"list name holds brace":  func(h *Helm) { h.Values = []Value{Strings("l", []string{"a}"})} },
+		"list name holds slash":  func(h *Helm) { h.Values = []Value{Strings("l", []string{`a\b`})} },
+		"list name is empty":     func(h *Helm) { h.Values = []Value{Strings("l", []string{"a", ""})} },
 	} {
 		h := ok
 		mut(&h)
@@ -154,5 +162,25 @@ func TestAValueThatIsNotAShellWordIsQuotedWhole(t *testing.T) {
 		if got := Flags([]Value{Set(c.key, c.val)}); got != c.want {
 			t.Errorf("Set(%q, %q) = %s, want %s", c.key, c.val, got, c.want)
 		}
+	}
+}
+
+// The kinds of value are written the way the commands always were: a string stays a string, a list is Helm's own, and an empty list is
+// JSON because `{}` is a list holding one empty string.
+func TestTheKindsOfValue(t *testing.T) {
+	got := Flags([]Value{Set("a.on", "true"), SetString("a.name", "x y"), SetString("a.cleared", ""), Strings("a.list", []string{"p", "q"}), Strings("a.empty", nil)})
+	want := `--set a.on=true --set-string a.name='x y' --set-string a.cleared= --set a.list='{p,q}' --set-json a.empty='[]'`
+	if got != want {
+		t.Fatalf("got  %s\nwant %s", got, want)
+	}
+}
+
+// Continued puts each value on a line of its own after the head, which is how a short command that sets many things reads.
+func TestContinuedLinesFollowAHead(t *testing.T) {
+	if got, want := "helm x"+Continued([]Value{Set("a", "1"), SetString("b", "2")}), "helm x \\\n  --set a=1 \\\n  --set-string b=2"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	if Continued(nil) != "" {
+		t.Fatal("no values, nothing appended")
 	}
 }
