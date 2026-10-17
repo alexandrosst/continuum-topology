@@ -530,6 +530,37 @@ describe('PipelinePage', () => {
     expect(screen.queryByText('No extra processors.')).not.toBeInTheDocument()
   })
 
+  test('the extra processors added are sent with the request, in the words the server writes the install command from', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await fillCreateForm(user)
+    await user.click(screen.getByTestId('operator-processor-add-filter'))
+    await user.type(screen.getByPlaceholderText('drop_debug_logs'), 'drop_debug')
+    await user.click(screen.getByRole('button', { name: 'Condition' }))
+    await user.type(screen.getByPlaceholderText('attribute'), 'level')
+    await user.type(screen.getByPlaceholderText('value'), 'debug')
+    await user.click(screen.getByTestId('operator-create'))
+    await waitFor(() => expect(createOperator).toHaveBeenCalledTimes(1))
+    const options = createOperator.mock.calls[0][4] as { extraProcessors?: { kind: string; name: string; config: { conditions: { field: string; value: string }[] } }[] }
+    expect(options.extraProcessors).toHaveLength(1)
+    expect(options.extraProcessors?.[0]).toMatchObject({ kind: 'filter', name: 'drop_debug', config: { conditions: [{ field: 'level', value: 'debug' }] } })
+  })
+
+  test('the install command shown is the one the server wrote: nothing is appended to it', async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await fillCreateForm(user)
+    await user.click(screen.getByTestId('operator-processor-add-filter'))
+    await user.type(screen.getByPlaceholderText('drop_debug_logs'), 'drop_debug')
+    await user.click(screen.getByRole('button', { name: 'Condition' }))
+    await user.type(screen.getByPlaceholderText('attribute'), 'level')
+    await user.type(screen.getByPlaceholderText('value'), 'debug')
+    await user.click(screen.getByTestId('operator-create'))
+    await screen.findByRole('dialog', { name: 'athens-regional created' })
+    const served = (await createOperator.mock.results[0].value).install as string
+    expect(screen.getByTestId('operator-install-command').textContent).toBe(served)
+  })
+
   test('submitting shows the commands once, as numbered steps in the order to run them, since the server never returns the token again', async () => {
     const user = userEvent.setup()
     renderPage()

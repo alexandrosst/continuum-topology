@@ -15,6 +15,7 @@ import { CENTRAL_OPERATOR_ID, fusionSentence, fusionUsable } from '@/lib/fusionS
 import { cleanTags, tagProblems, type TagEntry } from '@/lib/install'
 import { operatorProcessorProblems } from '@/lib/operatorInstall'
 import type { ProcessorEntry } from '@/lib/processorCatalog'
+import { processorSpec } from '@/lib/telemetrySpec'
 import type { OperatorDestination, RegionalOperator } from '@/lib/types'
 import { useServer } from '@/store/server'
 import { useTopology } from '@/store/topology'
@@ -83,7 +84,7 @@ export default function CreateOperatorModal({
   const [draft, setDraft] = useState<Draft>({ name: '', sourceClusterIds: initialSourceClusterIds, destination: emptyDestination, extraProcessors: [], labels: [], heartbeat: true, exposure: 'nodeport' })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [created, setCreated] = useState<{ result: CreatedOperator; extraProcessors: ProcessorEntry[]; exposure: OperatorExposure } | null>(null)
+  const [created, setCreated] = useState<{ result: CreatedOperator; exposure: OperatorExposure } | null>(null)
   const [otherOpen, setOtherOpen] = useState(false)
   const set = (patch: Partial<Draft>) => setDraft((d) => ({ ...d, ...patch }))
 
@@ -138,8 +139,8 @@ export default function CreateOperatorModal({
     setBusy(true)
     setError('')
     try {
-      const r = await api.createOperator(c, draft.name.trim(), draft.sourceClusterIds, draft.destination, { heartbeat: draft.heartbeat, labels: cleanTags(draft.labels), exposure: draft.exposure })
-      setCreated({ result: r, extraProcessors: draft.extraProcessors, exposure: draft.exposure })
+      const r = await api.createOperator(c, draft.name.trim(), draft.sourceClusterIds, draft.destination, { heartbeat: draft.heartbeat, labels: cleanTags(draft.labels), exposure: draft.exposure, ...(draft.extraProcessors.length ? { extraProcessors: draft.extraProcessors.map(processorSpec) } : {}) })
+      setCreated({ result: r, exposure: draft.exposure })
       onCreated?.(r)
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Could not create the regional operator.')
@@ -152,7 +153,6 @@ export default function CreateOperatorModal({
     return (
       <OperatorCreated
         created={created.result}
-        extraProcessors={created.extraProcessors}
         exposure={created.exposure}
         fusionKind={fusionSentence(fusion.status).kind}
         onConnect={onConnect ? (agentId) => onConnect(agentId, created.result.operator.id) : undefined}

@@ -1,4 +1,5 @@
 import type { AgentUpgradeAnswer, AgentUpgradeRequest } from './agentUpgrade'
+import type { processorSpec } from './telemetrySpec'
 import { normalizeServerState, type ServerState } from './discovered'
 import type { AddressCandidates, AddressTest, OperatorSenders, OperatorDestination, OperatorDestinationEntry, ReceiverAuth, RegionalOperator, SignalGrant, TelemetryIntent } from './types'
 import { normalizeSettings, normalizeSnapshot, type AppSettings, type ChangeEvent, type DependencySeriesPoint, type HistoryIndex, type Snapshot, type TrafficRate } from './history'
@@ -169,6 +170,8 @@ export interface CreateOperatorOptions {
   /** How the operator's Service is made reachable from other clusters. Only sets the install command's
    *  service.type; the resulting address is recorded afterwards (setOperatorAddress). Default 'cluster'. */
   exposure?: OperatorExposure
+  /** The OTel Collector processors to add to the operator's pipelines (lib/telemetrySpec's processorSpec). Chart values only: the server writes them into the install command and keeps nothing. */
+  extraProcessors?: ReturnType<typeof processorSpec>[]
 }
 
 /** cluster: this cluster only. loadbalancer / nodeport: the install command makes the Service one. */
@@ -778,7 +781,7 @@ export const api = {
   listOperatorDestinations: (c: Conn) => call<OperatorDestinationEntry[]>(c, 'GET', '/api/v1/operator-destinations'),
   getOperator: (c: Conn, id: string) => call<RegionalOperator>(c, 'GET', `/api/v1/operators/${encodeURIComponent(id)}`),
   createOperator: (c: Conn, name: string, sourceClusterIds: string[], destination: OperatorDestination, options: CreateOperatorOptions = {}) =>
-    call<CreatedOperator>(c, 'POST', '/api/v1/operators', { name, sourceClusterIds, destination, heartbeat: options.heartbeat === true, labels: options.labels ?? [], exposure: options.exposure ?? 'cluster' }),
+    call<CreatedOperator>(c, 'POST', '/api/v1/operators', { name, sourceClusterIds, destination, heartbeat: options.heartbeat === true, labels: options.labels ?? [], exposure: options.exposure ?? 'cluster', ...(options.extraProcessors?.length ? { extraProcessors: options.extraProcessors } : {}) }),
   /** The addresses discovery says the operator can be reached at (adminRole): to pick from instead of typing one. */
   /** Says which cluster the server runs in (central operator only); an empty id takes the choice back. */
   setServerCluster: (c: Conn, operatorId: string, clusterId: string) => call<{ clusterId: string }>(c, 'PUT', `/api/v1/operators/${encodeURIComponent(operatorId)}/server-cluster`, { clusterId }),

@@ -9,8 +9,6 @@ import type { CreatedOperator, OperatorExposure } from '@/lib/api'
 import { CENTRAL_OPERATOR_ID, type FusionKind } from '@/lib/fusionStatus'
 import { useHoldReload } from '@/lib/useHoldReload'
 import { receiverAuthOf } from '@/lib/operatorHealth'
-import { buildOperatorInstallCommand } from '@/lib/operatorInstall'
-import type { ProcessorEntry } from '@/lib/processorCatalog'
 import { useTopology } from '@/store/topology'
 
 /**
@@ -21,7 +19,6 @@ import { useTopology } from '@/store/topology'
  */
 export default function OperatorCreated({
   created,
-  extraProcessors = [],
   exposure = 'cluster',
   mode = 'created',
   fusionKind,
@@ -29,7 +26,6 @@ export default function OperatorCreated({
   onClose,
 }: {
   created: CreatedOperator
-  extraProcessors?: ProcessorEntry[]
   exposure?: OperatorExposure
   mode?: 'created' | 'reinstalled'
   /** FUSION's state, when this operator sends to it: a starting FUSION is said to be nothing to wait for. */
@@ -42,7 +38,7 @@ export default function OperatorCreated({
   // Shown once: the server keeps only a hash. A backdrop click or Escape must not throw it away, and neither may the page reloading itself for a
   // new version underneath it; the footer's Done is the one way out, and it asks nothing.
   useHoldReload()
-  const install = buildOperatorInstallCommand(created.install, extraProcessors)
+  const install = created.install // the server wrote it, with the processors that were asked for
   const hasToken = !!created.token && !!created.secretCommand
   const mtls = !hasToken && receiverAuthOf(created.operator) === 'mtls'
   const heartbeat = !!created.heartbeatToken && !!created.heartbeatSecretCommand
