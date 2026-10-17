@@ -6,11 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
 
 	continuumv1 "continuum/gen/continuumv1"
+	"continuum/internal/agentcaps"
 	"continuum/internal/store"
 
 	"google.golang.org/protobuf/proto"
@@ -529,12 +531,20 @@ func (h *Hub) noteCeiling(ctx context.Context, agent, fresh store.Agent, reporte
 	return agent
 }
 
-// reportsCeiling says whether this agent's Hello carried diagnostics, which is how a version that states its ceiling is told apart.
+// reportsCeiling says whether this agent states the ceiling of its install in its Hello, which is what makes a 0 there a statement
+// and not a field that was never filled in. An agent that states a protocol version says so by declaring the `diagnostics`
+// capability. One that does not (protocol 0) is told apart as it always was, by whether its Hello carried diagnostics.
 func (h *Hub) reportsCeiling(id string) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	v := h.views[id]
-	return v != nil && v.ext.diag != nil
+	if v == nil {
+		return false
+	}
+	if v.ext.protocol >= 1 {
+		return slices.Contains(v.ext.caps, agentcaps.Diagnostics)
+	}
+	return v.ext.diag != nil
 }
 
 // ---- what the state document says ----

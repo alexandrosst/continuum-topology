@@ -90,12 +90,13 @@ func TestAProtocolVersionFromTheFutureIsRecordedAndTheStreamIsServed(t *testing.
 
 func TestAHelloWithNeitherFieldIsProtocolZeroAndTheConfigIsTheSameAsForOneWithBoth(t *testing.T) {
 	r := newHubRig(t)
-	legacy := r.connectedWith(t, &continuumv1.Hello{AgentVersion: "old"})
+	legacy := r.connectedWith(t, &continuumv1.Hello{AgentVersion: "old", InstalledAccessTier: 2})
 	if p, caps := legacy.declared(); p != 0 || len(caps) != 0 {
 		t.Fatalf("an agent that says nothing was recorded as protocol %d with %v", p, caps)
 	}
 	// The same agent, now saying everything: the Config is the one it had.
-	legacy.hello = &continuumv1.Hello{AgentVersion: "old", ProtocolVersion: 1, Capabilities: agentcaps.Names()}
+	// (An agent that declares diagnostics states its ceiling, and says the same 2 as before; one that stated 0 would be believed.)
+	legacy.hello = &continuumv1.Hello{AgentVersion: "old", InstalledAccessTier: 2, ProtocolVersion: 1, Capabilities: agentcaps.Names()}
 	again := legacy.restart()
 	if again.Digest != legacy.configs[0].Digest {
 		t.Fatalf("declaring the protocol changed the Config: %q then %q", legacy.configs[0].Digest, again.Digest)
@@ -104,7 +105,7 @@ func TestAHelloWithNeitherFieldIsProtocolZeroAndTheConfigIsTheSameAsForOneWithBo
 		t.Fatalf("protocol %d after the second hello", p)
 	}
 	// And back: a hello that says nothing replaces what the last one said.
-	legacy.hello = &continuumv1.Hello{AgentVersion: "old"}
+	legacy.hello = &continuumv1.Hello{AgentVersion: "old", InstalledAccessTier: 2}
 	legacy.restart()
 	if p, caps := legacy.declared(); p != 0 || len(caps) != 0 {
 		t.Fatalf("an earlier stream's declaration outlived a hello that said nothing: protocol %d, %v", p, caps)
