@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { test } from 'node:test'
 import {
-  cleanTags, emptyScopeOverride, emptyTelemetry, keepAsInstalled, telemetryProblems, withFlowObserver, withMeasurements, withNodeProbe, withScope,
+  cleanTags, emptyExportTarget, emptyScopeOverride, emptyTelemetry, keepAsInstalled, telemetryProblems, withFlowObserver, withMeasurements, withNodeProbe, withScope,
   withTelemetry, emptyScope, scopeProblems, type ScopeInput, type TelemetryInput,
 } from '../src/lib/install'
 import { helmUpgradeCommand, telemetryUpgradeCommand, telemetrySecretCommand, PICKABLE_SIGNALS, TELEMETRY_INTENT_PRESETS, applyIntentPreset } from '../src/lib/consent'
@@ -10,6 +10,7 @@ import { EXPORT_PRESETS } from '../src/lib/exportPresets'
 import { newProcessorEntry } from '../src/lib/processorCatalog'
 import { buildOperatorInstallCommand } from '../src/lib/operatorInstall'
 import { processorSpec, telemetrySpec } from '../src/lib/telemetrySpec'
+import { operatorCommandBlock } from '../src/lib/operatorIntent'
 
 // The install commands the UI prints are built here, in TypeScript, as strings. The chart that runs them is checked in Go
 // (backend/internal/chart/install_commands_test.go): that test takes every command pinned below, reads its --set flags the way a
@@ -335,4 +336,114 @@ test('the commands the UI prints are the ones pinned in tests/install_commands.g
   }
   for (const n of w.keys()) lines.push(`- gone: ${n}`)
   assert.fail(`a command the UI prints changed:\n${lines.join('\n')}\nIf this is intended: UPDATE_GOLDEN=1 npm run test:unit  (then run the Go chart test, which renders every command pinned here)`)
+})
+
+// ---------- the block a person pastes to point an agent at a regional operator ----------
+// The server writes the operator's side (the certificate Secrets and the destination values, which it alone can state) and the page wrote
+// the rest and merged the two by pattern. A case here is the page's draft, what the server says of its operators, and the block that came
+// out of merging them; the Go test (install/operator_block_test.go) renders the same from the draft and the server's part, and demands the
+// same bytes.
+
+interface BlockFragmentValue { key: string; value: string }
+interface BlockCase {
+  name: string
+  chartFile: string
+  spec: ReturnType<typeof telemetrySpec>
+  /** What the server says of the release and of how each operator's receiver authenticates (the page's draft says nothing of either). */
+  namespace: string
+  release: string
+  operators: Record<string, string>
+  /** What the server states of the destination(s) and of whom the telemetry belongs to, and the Secrets it needs run first. */
+  fragment: BlockFragmentValue[]
+  certificates: string[]
+  block: string
+}
+const blockCases: BlockCase[] = []
+
+const opTarget = (id: string, over: Partial<typeof emptyExportTarget> = {}) => ({ ...emptyExportTarget, exportEndpoint: `${id}.continuum-system.svc:4317`, exportOperatorId: id, ...over })
+const mtlsFragment = (base: string, id: string, real?: string): BlockFragmentValue[] => [
+  { key: `${base}.endpoint`, value: real ?? `${id}.continuum-system.svc:4317` },
+  { key: `${base}.tls.mtls.enabled`, value: 'true' },
+  { key: `${base}.tls.mtls.secretName`, value: `${id}-export-mtls` },
+]
+const provenance: BlockFragmentValue[] = [
+  { key: 'telemetry.resource.orgId', value: 'org-1' }, { key: 'telemetry.resource.clusterId', value: 'cl-1' }, { key: 'telemetry.resource.intentId', value: 'ti-1' },
+]
+const certSecret = (id: string, ns = 'continuum-system') => `kubectl create secret generic ${id}-export-mtls --namespace ${ns} \\\n  --from-literal=tls.crt="C"`
+
+function block(name: string, draft: TelemetryInput, o: { operators: Record<string, string>; fragment: BlockFragmentValue[]; certificates?: string[]; namespace?: string; release?: string; measurementsOn?: boolean; chartFile?: string }) {
+  assert.ok(!blockCases.some((c) => c.name === name), `two block cases are called ${name}`)
+  const certificates = o.certificates ?? []
+  const namespace = o.namespace ?? 'continuum-system'
+  const release = o.release ?? 'continuum-agent'
+  const chartFile = o.chartFile ?? 'continuum-agent-0.4.0.tgz'
+  const text = operatorCommandBlock({
+    install: { chartFile }, draft, measurementsOn: o.measurementsOn,
+    result: {
+      installFragment: o.fragment.map((v) => `--set ${v.key}=${v.value}`).join(' '), secretCommands: certificates, namespace, release,
+      operators: o.operators as never,
+      ...(Object.keys(o.operators).length === 1 && !draft.exportSplit ? { receiverAuth: Object.values(o.operators)[0] as never } : {}),
+    },
+  })
+  blockCases.push({ name, chartFile, spec: telemetrySpec(draft, o.measurementsOn), namespace, release, operators: o.operators, fragment: o.fragment, certificates, block: text })
+}
+
+{
+  const one = (over: Partial<TelemetryInput> = {}): TelemetryInput => ({ ...emptyTelemetry, resourceUsage: true, exportEndpoint: 'op-eu.continuum-system.svc:4317', exportOperatorId: 'op-eu', ...over })
+  const frag = [...provenance, ...mtlsFragment('telemetry.export.otlp', 'op-eu')]
+  const mtls = { 'op-eu': 'mtls' }
+  block('operator: one destination, mutual TLS only', one(), { operators: mtls, fragment: frag, certificates: [certSecret('op-eu')] })
+  block('operator: nothing left of an earlier destination (http, skip-verify)', one({ exportProtocol: 'http', exportInsecure: true }), { operators: mtls, fragment: frag, certificates: [certSecret('op-eu')] })
+  block('operator: a credential the operator does not take is dropped', one({ exportAuthHeaderName: 'x-api-key', exportAuthSecretName: 'old-token', exportAuthSecretKey: 'k' }), { operators: mtls, fragment: frag, certificates: [certSecret('op-eu')] })
+  block('operator: a receiver token as well as the certificate', one({ exportAuthSecretName: 'op-token' }), { operators: { 'op-eu': 'bearer' }, fragment: frag, certificates: [certSecret('op-eu')] })
+  block('operator: the real address replaces the placeholder', one(), { operators: mtls, fragment: [...provenance, ...mtlsFragment('telemetry.export.otlp', 'op-eu', 'op-eu.example.net:443')], certificates: [certSecret('op-eu')] })
+  block('operator: no certificate to create', one(), { operators: mtls, fragment: frag })
+  block('operator: where the release runs is the server\'s word', one({ exportAuthSecretName: 'op-token' }), { operators: { 'op-eu': 'bearer' }, fragment: frag, certificates: [certSecret('op-eu', 'edge-agents')], namespace: 'edge-agents', release: 'cont-edge' })
+  block('operator: a namespace or release that is not a plain name is not pasted', one({ exportAuthSecretName: 'op-token' }), { operators: { 'op-eu': 'bearer' }, fragment: frag, namespace: 'x; rm -rf /', release: '$(id)' })
+  block('operator: a registry-less chart file is named as given', one(), { operators: mtls, fragment: frag, chartFile: 'continuum-agent.tgz' })
+  block('operator: with the rest of a full configuration', one({
+    traces: true, tracesScope: { namespaces: ['shop'], exclude: ['kube-system'], workloads: [] }, applicationLogs: true, redaction: true, tracesSamplingPercent: 20,
+    tags: [{ key: 'team', value: 'edge' }], debugVerbosity: 'basic', hadTelemetry: true,
+  }), { operators: mtls, fragment: frag, certificates: [certSecret('op-eu')], measurementsOn: true })
+  block('operator: groups kept as installed', keepAsInstalled(one({ hadTelemetry: true }), ['scopeShared', 'tags', 'debug']), { operators: mtls, fragment: frag, certificates: [certSecret('op-eu')] })
+
+  const split = (lanes: Partial<Record<'metrics' | 'logs' | 'traces', ReturnType<typeof opTarget>>>, over: Partial<TelemetryInput> = {}): TelemetryInput => ({
+    ...emptyTelemetry, resourceUsage: true, systemLogs: true, exportSplit: true,
+    exportLanes: {
+      metrics: opTarget('op-eu'), logs: opTarget('op-eu'),
+      traces: { ...emptyExportTarget, exportEndpoint: 'z.example.com:9411/api/v2/spans', exportProtocol: 'zipkin', exportInsecure: true },
+      ...lanes,
+    },
+    ...over,
+  })
+  const routeFrag = [...provenance, ...mtlsFragment('telemetry.export.routes.logs', 'op-eu'), ...mtlsFragment('telemetry.export.routes.metrics', 'op-eu')]
+  block('operator routes: two signal types to one operator, one certificate', split({}), { operators: mtls, fragment: routeFrag, certificates: [certSecret('op-eu')] })
+  block('operator routes: the real address replaces the placeholder of each', split({}), {
+    operators: mtls, certificates: [certSecret('op-eu')],
+    fragment: [...provenance, ...mtlsFragment('telemetry.export.routes.logs', 'op-eu', 'op-eu.example.net:443'), ...mtlsFragment('telemetry.export.routes.metrics', 'op-eu', 'op-eu.example.net:443')],
+  })
+  block('operator routes: an external signal type keeps its own credential', split({ traces: { ...emptyExportTarget, exportEndpoint: 't.example.com:4317', exportAuthSecretName: 'trace-key' } }, { traces: true }), {
+    operators: mtls, fragment: [...routeFrag], certificates: [certSecret('op-eu')],
+  })
+  block('operator routes: two operators, one that also wants a token', split({ logs: opTarget('op-us', { exportAuthSecretName: 'us-token' }), metrics: opTarget('op-eu', { exportAuthSecretName: 'eu-token' }) }), {
+    operators: { 'op-eu': 'mtls', 'op-us': 'bearer' }, certificates: [certSecret('op-us'), certSecret('op-eu')],
+    fragment: [...provenance, ...mtlsFragment('telemetry.export.routes.logs', 'op-us'), ...mtlsFragment('telemetry.export.routes.metrics', 'op-eu')],
+  })
+  const leftovers = { exportProtocol: 'http' as const, exportInsecure: true, exportAuthHeaderName: 'x-api-key', exportAuthSecretName: 'old-token', exportAuthSecretKey: 'k' }
+  block('operator routes: every signal type to an operator, what an earlier destination left is dropped from each', split({ metrics: opTarget('op-eu', leftovers), logs: opTarget('op-us', leftovers), traces: opTarget('op-eu', leftovers) }, { traces: true }), {
+    operators: { 'op-eu': 'mtls', 'op-us': 'bearer' }, certificates: [certSecret('op-eu'), certSecret('op-us')],
+    fragment: [...provenance, ...mtlsFragment('telemetry.export.routes.logs', 'op-us'), ...mtlsFragment('telemetry.export.routes.metrics', 'op-eu'), ...mtlsFragment('telemetry.export.routes.traces', 'op-eu')],
+  })
+  block('operator routes: a signal type that is off has no route', split({}, { systemLogs: false }), { operators: mtls, fragment: [...provenance, ...mtlsFragment('telemetry.export.routes.metrics', 'op-eu')], certificates: [certSecret('op-eu')] })
+}
+
+test('the blocks the page pastes for an operator destination are the ones pinned in tests/operator_block.golden.json', () => {
+  assert.ok(blockCases.length >= 15)
+  const file = 'tests/operator_block.golden.json'
+  const got = serialize(blockCases)
+  if (process.env.UPDATE_GOLDEN) {
+    writeFileSync(file, got)
+    return
+  }
+  assert.equal(got, readFileSync(file, 'utf8'), 'a block the page pastes for an operator destination changed. If this is intended: UPDATE_GOLDEN=1 npm run test:unit  (then run the Go tests)')
 })
