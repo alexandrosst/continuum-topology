@@ -1,11 +1,9 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { activeLanes, cleanTags, isKept, keepAsInstalled, combinedScope, destinationReady, emptyExportTarget, startLanes, withLane, laneView, emptyScopeOverride, emptyTelemetry, scopeOverlap, scopeTag, tagProblems, TAG_LIMIT, telemetryActive, telemetryProblems, withTelemetry, workloadProblems, type ScopeOverrideInput, type TelemetryInput } from '../src/lib/install'
+import { activeLanes, cleanTags, isKept, keepAsInstalled, combinedScope, destinationReady, emptyExportTarget, startLanes, withLane, laneView, emptyScopeOverride, emptyTelemetry, scopeOverlap, scopeTag, tagProblems, TAG_LIMIT, telemetryActive, telemetryProblems, workloadProblems, type ScopeOverrideInput, type TelemetryInput } from '../src/lib/install'
 import { newProcessorEntry, processorBody, processorProblems } from '../src/lib/processorCatalog'
-import { PICKABLE_SIGNALS, applyIntentPreset, describeTelemetryChanges, parseRoutedDestination, seedTelemetryFromInstalled, telemetrySecrets, TELEMETRY_CREDENTIAL_VAR, TELEMETRY_INTENT_PRESETS, TELEMETRY_SIGNALS, telemetrySecretCommand, telemetryUpgradeCommand } from '../src/lib/consent'
+import { PICKABLE_SIGNALS, applyIntentPreset, describeTelemetryChanges, parseRoutedDestination, seedTelemetryFromInstalled, telemetrySecrets, TELEMETRY_CREDENTIAL_VAR, TELEMETRY_INTENT_PRESETS, TELEMETRY_SIGNALS } from '../src/lib/consent'
 import { EXPORT_PRESETS, unsupportedDestinationNote } from '../src/lib/exportPresets'
-
-const base = 'helm install continuum-agent oci://registry.example.com/continuum-agent --namespace continuum-system --create-namespace'
 
 test('telemetryActive is false until a signal is turned on', () => {
   assert.equal(telemetryActive(emptyTelemetry), false)
@@ -26,97 +24,26 @@ test('every signal in the catalog is a real TelemetryInput boolean field', () =>
   ].sort())
 })
 
-test('with nothing on, the command is untouched', () => {
-  assert.equal(withTelemetry(base, emptyTelemetry), base)
-})
-
 test('an export endpoint is required once anything is on', () => {
   const t = { ...emptyTelemetry, resourceUsage: true }
   assert.deepEqual(telemetryProblems(t), ['An export endpoint is required once any telemetry signal is on'])
-  assert.equal(withTelemetry(base, t), base, 'a command with a real problem is left unchanged, like withScope')
-})
-
-test('a full signal turns into one --set per signal, every one stated explicitly', () => {
-  const t: TelemetryInput = { ...emptyTelemetry, resourceUsage: true, traces: true, exportEndpoint: 'otel.example.com:4317' }
-  const cmd = withTelemetry(base, t)
-  assert.match(cmd, /--set-string telemetry\.export\.otlp\.endpoint=otel\.example\.com:4317/)
-  assert.match(cmd, /--set telemetry\.resourceUsage\.metrics\.enabled=true/)
-  assert.match(cmd, /--set telemetry\.traces\.traces\.enabled=true/)
-  // every OTHER signal is stated explicitly false, not just omitted - this is what makes the same
-  // function usable for the post-install "change telemetry" upgrade command (see below): --reset-then-reuse-values
-  // only changes what is actually named.
-  assert.match(cmd, /--set telemetry\.energy\.metrics\.enabled=false/)
-  assert.match(cmd, /--set telemetry\.kubernetesState\.metrics\.enabled=false/)
-  assert.match(cmd, /--set telemetry\.nodeRuntime\.metrics\.enabled=false/)
-  assert.match(cmd, /--set telemetry\.networkLatency\.metrics\.enabled=false/)
-  assert.match(cmd, /--set telemetry\.applicationMetrics\.metrics\.enabled=false/)
-  assert.match(cmd, /--set telemetry\.systemLogs\.logs\.enabled=false/)
-  assert.match(cmd, /--set telemetry\.kubernetesEvents\.logs\.enabled=false/)
-  assert.match(cmd, /--set telemetry\.applicationLogs\.logs\.enabled=false/)
-  // The whole destination block is stated every time, defaults included: under --reset-then-reuse-values a value that is only left out keeps
-  // whatever the release had, so a switch away from an http/insecure/mTLS destination would otherwise quietly keep half of it.
-  assert.match(cmd, /--set telemetry\.export\.otlp\.protocol=grpc/)
-  assert.match(cmd, /--set telemetry\.export\.otlp\.tls\.insecure=false/)
-  assert.match(cmd, /--set telemetry\.export\.otlp\.tls\.mtls\.enabled=false/)
-  assert.match(cmd, /--set-string telemetry\.export\.otlp\.tls\.mtls\.secretName= /)
-  assert.match(cmd, /--set-string telemetry\.export\.otlp\.tls\.serverName= /)
-  assert.match(cmd, /--set-string telemetry\.export\.otlp\.tls\.caFile= /)
-  assert.match(cmd, /--set-string telemetry\.export\.otlp\.auth\.secretName= /)
-})
-
-test('a destination left as installed is not restated, and an edit to it states the whole block again', () => {
-  const kept = keepAsInstalled({ ...emptyTelemetry, resourceUsage: true, exportEndpoint: 'otel.example.com:4317' }, ['destination'])
-  const cmd = withTelemetry(base, kept)
-  // The endpoint is always stated; what the agent did not report about it (protocol, TLS, credential) is left alone while it is untouched.
-  assert.match(cmd, /telemetry\.export\.otlp\.endpoint=otel\.example\.com:4317/)
-  assert.ok(!/otlp\.(protocol|tls|auth)/.test(cmd), 'nothing the agent did not report is stated')
-  const edited = withTelemetry(base, { ...kept, exportProtocol: 'http' })
-  assert.match(edited, /--set telemetry\.export\.otlp\.protocol=http/)
-  assert.match(edited, /--set telemetry\.export\.otlp\.tls\.mtls\.enabled=false/)
-})
-
-test('non-default export protocol and insecure are carried', () => {
-  const t: TelemetryInput = { ...emptyTelemetry, applicationMetrics: true, exportEndpoint: 'x:4318', exportProtocol: 'http', exportInsecure: true }
-  const cmd = withTelemetry(base, t)
-  assert.match(cmd, /--set telemetry\.export\.otlp\.protocol=http/)
-  assert.match(cmd, /--set telemetry\.export\.otlp\.tls\.insecure=true/)
 })
 
 test('zipkin is a protocol of its own, carried like http, and only valid with traces alone', () => {
   const traces: TelemetryInput = { ...emptyTelemetry, traces: true, exportEndpoint: 'zipkin.obs.svc:9411', exportProtocol: 'zipkin', exportInsecure: true }
   assert.deepEqual(telemetryProblems(traces), [])
-  const cmd = withTelemetry(base, traces)
-  assert.match(cmd, /--set telemetry\.export\.otlp\.protocol=zipkin/)
-  assert.match(cmd, /--set-string telemetry\.export\.otlp\.endpoint=zipkin\.obs\.svc:9411/)
   // Anything else on is refused (and so no command is printed): Zipkin cannot receive metrics or logs.
   const mixed: TelemetryInput = { ...traces, resourceUsage: true, systemLogs: true }
   assert.match(telemetryProblems(mixed).join(' '), /Zipkin only carries traces - turn off metrics and logs/)
-  assert.equal(withTelemetry(base, mixed), base)
   // Metrics alone with zipkin is also wrong, and says why rather than printing a command the chart rejects.
   const none: TelemetryInput = { ...emptyTelemetry, resourceUsage: true, exportEndpoint: 'z:9411', exportProtocol: 'zipkin' }
   assert.match(telemetryProblems(none).join(' '), /Zipkin only carries traces/)
 })
 
-test('energy pointed at an existing source needs its endpoint, and carries the source + endpoint when valid', () => {
+test('energy pointed at an existing source needs its endpoint', () => {
   const missing: TelemetryInput = { ...emptyTelemetry, energy: true, energySource: 'existing', exportEndpoint: 'x:4317' }
   assert.deepEqual(telemetryProblems(missing), ['The existing Prometheus endpoint is required when energy points at an existing source'])
-  assert.equal(withTelemetry(base, missing), base)
-
-  const ok: TelemetryInput = { ...missing, energyExistingEndpoint: 'kepler.monitoring:9102' }
-  const cmd = withTelemetry(base, ok)
-  assert.match(cmd, /--set telemetry\.energy\.metrics\.enabled=true/)
-  assert.match(cmd, /--set telemetry\.energy\.metrics\.source=existing/)
-  assert.match(cmd, /--set-string telemetry\.energy\.metrics\.existing\.prometheusEndpoint=kepler\.monitoring:9102/)
-
-  // The bundled-Kepler choice is STATED (an earlier 'existing' would otherwise survive --reset-then-reuse-values), with no endpoint.
-  const bundled: TelemetryInput = { ...emptyTelemetry, energy: true, exportEndpoint: 'x:4317' }
-  const bundledCmd = withTelemetry(base, bundled)
-  assert.match(bundledCmd, /--set telemetry\.energy\.metrics\.source=bundle-kepler/)
-  assert.ok(!bundledCmd.includes('prometheusEndpoint'))
-  // ... unless the install did not say which it has, until it is edited.
-  const unknown = keepAsInstalled({ ...bundled, hadTelemetry: true }, ['energySource'])
-  assert.ok(!withTelemetry(base, unknown).includes('telemetry.energy.metrics.source'))
-  assert.match(withTelemetry(base, { ...unknown, energySource: 'existing', energyExistingEndpoint: 'k.mon:9102' }), /metrics\.source=existing/)
+  assert.deepEqual(telemetryProblems({ ...missing, energyExistingEndpoint: 'kepler.monitoring:9102' }), [])
 })
 
 test('energy defaults to the bundled Kepler wherever a draft is created, with no endpoint', () => {
@@ -130,7 +57,6 @@ test('an existing Prometheus endpoint is a host and a port: a scheme or a path s
   const t: TelemetryInput = { ...emptyTelemetry, energy: true, energySource: 'existing', exportEndpoint: 'x:4317' }
   for (const bad of ['kepler.monitoring:9102/metrics', 'http://kepler.monitoring:9102', 'kepler.monitoring', 'a b:9102', 'kepler:99999x']) {
     assert.match(telemetryProblems({ ...t, energyExistingEndpoint: bad }).join(), /host and port only/, bad)
-    assert.equal(withTelemetry(base, { ...t, energyExistingEndpoint: bad }), base, bad)
   }
   for (const good of ['kepler.monitoring:9102', '10.0.0.5:9102', 'kepler.monitoring.svc.cluster.local:9102', '[fd00::1]:9102']) assert.deepEqual(telemetryProblems({ ...t, energyExistingEndpoint: good }), [], good)
   const g: TelemetryInput = { ...emptyTelemetry, accelerators: true, acceleratorsSource: 'existing', exportEndpoint: 'x:4317', acceleratorsExistingEndpoint: 'dcgm:9400/metrics' }
@@ -144,79 +70,9 @@ test('network latency without path measurements is flagged, but only when the ca
   assert.equal(telemetryProblems(t).length, 0, 'unknown (undefined) is not treated as off')
 })
 
-test('telemetryUpgradeCommand mirrors helmUpgradeCommand\'s shape exactly', () => {
-  const t: TelemetryInput = { ...emptyTelemetry, traces: true, exportEndpoint: 'otel.example.com:4317' }
-  const cmd = telemetryUpgradeCommand({ chartFile: 'continuum-agent-0.4.0.tgz', chartRef: '', chartVersion: '0.4.0' }, t)
-  assert.ok(cmd.startsWith('helm upgrade continuum-agent ./continuum-agent-0.4.0.tgz --namespace continuum-system --reset-then-reuse-values'))
-  assert.match(cmd, /--set telemetry\.traces\.traces\.enabled=true/)
-  // nothing turned on: the command is the bare upgrade line, matching withTelemetry's own "untouched" case
-  assert.equal(telemetryUpgradeCommand(undefined, emptyTelemetry), 'helm upgrade continuum-agent ./continuum-agent.tgz --namespace continuum-system --reset-then-reuse-values')
-})
-
-test('processors are stated explicitly, matching the chart defaults, once any signal is on', () => {
-  const t: TelemetryInput = { ...emptyTelemetry, resourceUsage: true, exportEndpoint: 'x:4317' }
-  const cmd = withTelemetry(base, t)
-  assert.match(cmd, /--set telemetry\.processors\.resourceDetection\.enabled=false/)
-  assert.match(cmd, /--set telemetry\.processors\.redaction\.enabled=true/)
-  assert.match(cmd, /--set telemetry\.processors\.tracesSampling\.percentage=100/)
-})
-
-test('non-default processor settings are carried', () => {
-  const t: TelemetryInput = { ...emptyTelemetry, traces: true, exportEndpoint: 'x:4317', resourceDetection: true, redaction: false, tracesSamplingPercent: 25 }
-  const cmd = withTelemetry(base, t)
-  assert.match(cmd, /--set telemetry\.processors\.resourceDetection\.enabled=true/)
-  assert.match(cmd, /--set telemetry\.processors\.redaction\.enabled=false/)
-  assert.match(cmd, /--set telemetry\.processors\.tracesSampling\.percentage=25/)
-})
-
 test('traces sampling out of range is a problem', () => {
   const t: TelemetryInput = { ...emptyTelemetry, traces: true, exportEndpoint: 'x:4317', tracesSamplingPercent: 150 }
   assert.deepEqual(telemetryProblems(t), ['Traces sampling must be between 0 and 100'])
-})
-
-test('with no extra processors, withTelemetry adds nothing for them (matches the chart default)', () => {
-  const t: TelemetryInput = { ...emptyTelemetry, resourceUsage: true, exportEndpoint: 'x:4317' }
-  const cmd = withTelemetry(base, t)
-  assert.doesNotMatch(cmd, /extraProcessors/)
-  assert.doesNotMatch(cmd, /extraProcessorNames/)
-})
-
-test('a filter extra processor renders its JSON body and is referenced in the shared processor-names list, not the traces-only one', () => {
-  const filter = { ...newProcessorEntry('filter'), name: 'drop_debug', config: { signal: 'log' as const, conditions: [{ field: 'level', op: 'eq' as const, value: 'debug' }] } }
-  const t: TelemetryInput = { ...emptyTelemetry, applicationLogs: true, exportEndpoint: 'x:4317', extraProcessors: [filter] }
-  const cmd = withTelemetry(base, t)
-  // Built with JSON.stringify rather than a hand-written regex, so the expectation can't itself drift out of
-  // sync with how JSON escapes the nested double quotes inside the OTTL condition string.
-  // The collector's filter wants the OTTL context spelled out (log.attributes, not attributes); the fields it does not use are stated null,
-  // which replaces an earlier body's (a null would be left in the values by Helm and refused by the collector), since an upgrade merges bodies by key.
-  const body = JSON.stringify({ 'filter/drop_debug': { error_mode: 'ignore', log_conditions: ['log.attributes["level"] == "debug"'], metric_conditions: [], trace_conditions: [] } })
-  assert.ok(cmd.includes(`--set-json telemetry.processors.extraProcessors='${body}'`), cmd)
-  assert.match(cmd, /--set telemetry\.processors\.extraProcessorNames='\{filter\/drop_debug\}'/)
-  assert.doesNotMatch(cmd, /extraTracesProcessorNames/)
-})
-
-test('an extra processor value containing a single quote is shell-escaped, not silently dropped', () => {
-  // Regression test: withTelemetry()'s shQuote helper previously used a nested template literal whose \'
-  // was a no-op escape (caught by oxlint's no-useless-escape) - it quietly dropped every embedded apostrophe
-  // instead of POSIX-escaping it, which would have corrupted any processor value containing one.
-  const filter = { ...newProcessorEntry('filter'), name: 'drop_named', config: { signal: 'log' as const, conditions: [{ field: 'user', op: 'eq' as const, value: "O'Brien" }] } }
-  const t: TelemetryInput = { ...emptyTelemetry, applicationLogs: true, exportEndpoint: 'x:4317', extraProcessors: [filter] }
-  const cmd = withTelemetry(base, t)
-  const body = JSON.stringify({ 'filter/drop_named': { error_mode: 'ignore', log_conditions: ['log.attributes["user"] == "O\'Brien"'], metric_conditions: [], trace_conditions: [] } })
-  // POSIX single-quote escaping, written independently of install.ts's own shQuote so this test doesn't just
-  // re-assert whatever that implementation happens to do: close the quote, emit an escaped literal quote,
-  // reopen the quote.
-  const posixQuote = (s: string) => "'" + s.split("'").join("'\\''") + "'"
-  assert.ok(cmd.includes(`--set-json telemetry.processors.extraProcessors=${posixQuote(body)}`), cmd)
-  assert.ok(cmd.includes('Brien'), 'the apostrophe-adjacent text must survive, not vanish along with the quote')
-})
-
-test('a tailSampling extra processor is referenced only in the traces-only processor-names list', () => {
-  const ts = { ...newProcessorEntry('tailSampling'), name: 'errors_only', config: { decisionWaitSeconds: 10, policies: [{ name: 'errors', type: 'statusCode' as const, probabilisticPercent: 10, statusCodes: 'ERROR', latencyThresholdMs: 500 }] } }
-  const t: TelemetryInput = { ...emptyTelemetry, traces: true, exportEndpoint: 'x:4317', extraProcessors: [ts] }
-  const cmd = withTelemetry(base, t)
-  assert.match(cmd, /--set telemetry\.processors\.extraTracesProcessorNames='\{tail_sampling\/errors_only\}'/)
-  assert.doesNotMatch(cmd, /telemetry\.processors\.extraProcessorNames=/)
 })
 
 test('an unnamed or empty extra processor is a problem, and blocks the command the same way any other problem does', () => {
@@ -226,42 +82,12 @@ test('an unnamed or empty extra processor is a problem, and blocks the command t
   const entry = newProcessorEntry('filter')
   const t: TelemetryInput = { ...emptyTelemetry, resourceUsage: true, exportEndpoint: 'x:4317', extraProcessors: [entry] }
   assert.deepEqual(telemetryProblems(t), ['Every processor needs a name.', `"${entry.id}" (filter) has no conditions - it would drop nothing.`])
-  assert.equal(withTelemetry(base, t), base, 'a command with unresolved problems is left untouched, same as any other telemetryProblems() failure')
 })
 
-test('accelerators pointed at an existing source needs its endpoint, and carries the source + endpoint when valid', () => {
+test('accelerators pointed at an existing source needs its endpoint', () => {
   const missing: TelemetryInput = { ...emptyTelemetry, accelerators: true, acceleratorsSource: 'existing', exportEndpoint: 'x:4317' }
   assert.deepEqual(telemetryProblems(missing), ['The existing Prometheus endpoint is required when accelerators points at an existing source'])
-  assert.equal(withTelemetry(base, missing), base)
-
-  const ok: TelemetryInput = { ...missing, acceleratorsExistingEndpoint: 'dcgm-exporter.monitoring:9400' }
-  const cmd = withTelemetry(base, ok)
-  assert.match(cmd, /--set telemetry\.accelerators\.metrics\.enabled=true/)
-  assert.match(cmd, /--set telemetry\.accelerators\.metrics\.source=existing/)
-  assert.match(cmd, /--set-string telemetry\.accelerators\.metrics\.existing\.prometheusEndpoint=dcgm-exporter\.monitoring:9400/)
-
-  const bundled: TelemetryInput = { ...emptyTelemetry, accelerators: true, exportEndpoint: 'x:4317' }
-  const bundledCmd = withTelemetry(base, bundled)
-  assert.match(bundledCmd, /--set telemetry\.accelerators\.metrics\.source=bundle-dcgm/)
-  assert.ok(!bundledCmd.includes('prometheusEndpoint'))
-})
-
-test('an auth secret name carries the header and secret key, only when actually set', () => {
-  const noAuth: TelemetryInput = { ...emptyTelemetry, traces: true, exportEndpoint: 'x:4317' }
-  // No credential: the Secret name is still stated, empty, so one the release used to name stops being sent.
-  const noAuthCmd = withTelemetry(base, noAuth)
-  assert.match(noAuthCmd, /--set-string telemetry\.export\.otlp\.auth\.secretName= /)
-  assert.ok(!noAuthCmd.includes('auth.secretKey') && !noAuthCmd.includes('auth.headerName'))
-
-  const withAuth: TelemetryInput = { ...noAuth, exportAuthSecretName: 'telemetry-token', exportAuthHeaderName: 'x-honeycomb-team' }
-  const cmd = withTelemetry(base, withAuth)
-  assert.match(cmd, /--set-string telemetry\.export\.otlp\.auth\.secretName=telemetry-token/)
-  assert.match(cmd, /--set-string telemetry\.export\.otlp\.auth\.secretKey=token/)
-  assert.match(cmd, /--set-string telemetry\.export\.otlp\.auth\.headerName=x-honeycomb-team/)
-
-  // the default header (Authorization) is stated too: a release that used another one would keep it otherwise
-  const defaultHeader: TelemetryInput = { ...noAuth, exportAuthSecretName: 'telemetry-token' }
-  assert.match(withTelemetry(base, defaultHeader), /--set-string telemetry\.export\.otlp\.auth\.headerName=Authorization/)
+  assert.deepEqual(telemetryProblems({ ...missing, acceleratorsExistingEndpoint: 'dcgm-exporter.monitoring:9400' }), [])
 })
 
 test('intent presets set every signal to exactly their combination, and leave everything else alone', () => {
@@ -287,11 +113,8 @@ test('every export preset resolves to the existing generic export.otlp shape (no
     // The placeholder in a pattern (`<region>`) is filled in first: left in, the command would send everything to a host that does not exist.
     const endpoint = preset.endpointPattern.replace(/<[^<>]*>/g, 'eu1')
     const t: TelemetryInput = { ...emptyTelemetry, [signal]: true, exportEndpoint: endpoint, exportProtocol: preset.protocol }
-    const cmd = withTelemetry(base, t)
-    assert.match(cmd, /--set-string telemetry\.export\.otlp\.endpoint=/, `${preset.id} should still set telemetry.export.otlp.endpoint`)
     if (endpoint !== preset.endpointPattern) {
       assert.match(telemetryProblems({ ...t, exportEndpoint: preset.endpointPattern }).join(), /replace <[^>]*> in the endpoint/, preset.id)
-      assert.equal(withTelemetry(base, { ...t, exportEndpoint: preset.endpointPattern }), base, `${preset.id}: an unfilled placeholder must not print a command`)
     }
   }
 })
@@ -308,15 +131,6 @@ test('seeding from installedTelemetry turns on exactly the reported signals, not
   assert.equal(seeded.accelerators, true)
   assert.equal(seeded.energy, false, 'a signal not reported as installed stays off')
   assert.equal(seeded.redaction, true, 'non-signal fields fall back to the same defaults as a fresh install')
-
-  // The bug this guards against: seeding from what is actually running, then generating an upgrade command
-  // for one additional signal, must not silently turn off everything else that was already on - because
-  // withTelemetry states every signal explicitly on every call (see its own comment on why).
-  const draft = { ...seedTelemetryFromInstalled(['resourceUsage', 'traces']), energy: true, exportEndpoint: 'otel-gateway.example.com:4317' }
-  const cmd = withTelemetry(base, draft)
-  assert.match(cmd, /telemetry\.resourceUsage\.metrics\.enabled=true/, 'a signal already installed must survive seeding + one more change')
-  assert.match(cmd, /telemetry\.traces\.traces\.enabled=true/, 'a signal already installed must survive seeding + one more change')
-  assert.match(cmd, /telemetry\.energy\.metrics\.enabled=true/)
 
   assert.deepEqual(seedTelemetryFromInstalled([]), emptyTelemetry, 'nothing installed seeds exactly the fresh-install defaults')
 })
@@ -356,43 +170,6 @@ test('catalog metadata: every signal has a coherent layer/modality/scope, namesp
   assert.deepEqual(appLayer, ['applicationLogs', 'applicationMetrics', 'traces'])
 })
 
-test('acceleratorsApplyScope is stated explicitly, like the signal booleans, whether or not accelerators is on', () => {
-  const on: TelemetryInput = { ...emptyTelemetry, accelerators: true, acceleratorsApplyScope: true, exportEndpoint: 'x:4317' }
-  assert.match(withTelemetry(base, on), /--set telemetry\.accelerators\.metrics\.applyScope=true/)
-
-  // off by default, but still restated as false so a previous true left over from an earlier install
-  // doesn't survive a --reset-then-reuse-values upgrade that merely unchecks accelerators without touching this box
-  const off: TelemetryInput = { ...emptyTelemetry, resourceUsage: true, exportEndpoint: 'x:4317' }
-  assert.match(withTelemetry(base, off), /--set telemetry\.accelerators\.metrics\.applyScope=false/)
-})
-
-test('per-kind application scope override: stated only while its own kind is on, empty clears a stale prior override', () => {
-  const on: TelemetryInput = { ...emptyTelemetry, applicationMetrics: true, applicationLogs: true, traces: true, exportEndpoint: 'x:4317' }
-  const cmd = withTelemetry(base, on)
-  // nothing set on any override here, but each kind is on - so all six flags are still stated, as an empty JSON list (`--set key='{}'` would be a list holding one empty string: see below),
-  // not omitted; omitting them would let a stale prior override survive a --reset-then-reuse-values upgrade.
-  assert.match(cmd, /--set-json telemetry\.applicationMetrics\.metrics\.scope\.namespaces='\[\]'/)
-  assert.match(cmd, /--set-json telemetry\.applicationMetrics\.metrics\.scope\.exclude='\[\]'/)
-  assert.match(cmd, /--set-json telemetry\.applicationLogs\.logs\.scope\.namespaces='\[\]'/)
-  assert.match(cmd, /--set-json telemetry\.applicationLogs\.logs\.scope\.exclude='\[\]'/)
-  assert.match(cmd, /--set-json telemetry\.traces\.traces\.scope\.namespaces='\[\]'/)
-  assert.match(cmd, /--set-json telemetry\.traces\.traces\.scope\.exclude='\[\]'/)
-
-  const withOverride: TelemetryInput = {
-    ...on,
-    applicationMetricsScope: { namespaces: ['shop', 'payments'], exclude: ['hr-data'], workloads: [] },
-  }
-  const cmdOverride = withTelemetry(base, withOverride)
-  assert.match(cmdOverride, /--set telemetry\.applicationMetrics\.metrics\.scope\.namespaces='\{shop,payments\}'/)
-  assert.match(cmdOverride, /--set telemetry\.applicationMetrics\.metrics\.scope\.exclude='\{hr-data\}'/)
-
-  // the kind itself off: its scope fields are omitted entirely, matching the energy/accelerators-existing-
-  // endpoint precedent - the chart's own .enabled gate makes an unstated (or stale) override harmless.
-  const off: TelemetryInput = { ...emptyTelemetry, resourceUsage: true, exportEndpoint: 'x:4317', applicationMetricsScope: { namespaces: ['shop'], exclude: [], workloads: [] } }
-  const cmdOff = withTelemetry(base, off)
-  assert.ok(!cmdOff.includes('telemetry.applicationMetrics.metrics.scope'))
-})
-
 test('an invalid namespace in a per-kind scope override is only flagged while its own kind is on', () => {
   const off: TelemetryInput = { ...emptyTelemetry, resourceUsage: true, exportEndpoint: 'x:4317', applicationMetricsScope: { namespaces: ['not valid!'], exclude: [], workloads: [] } }
   assert.deepEqual(telemetryProblems(off), [], 'applicationMetrics is off, so its override is not even looked at')
@@ -407,12 +184,10 @@ test('telemetryProblems blocks a destination that cannot carry every signal that
   // Traces only, pointed at Jaeger: fine, nothing to flag.
   const tracesOnly: TelemetryInput = { ...emptyTelemetry, traces: true, exportEndpoint: jaeger.endpointPattern, exportProtocol: jaeger.protocol }
   assert.deepEqual(telemetryProblems(tracesOnly), [])
-  assert.ok(withTelemetry(base, tracesOnly).includes('telemetry.export.otlp.endpoint'), 'a valid traces-only destination still produces a command')
 
   // Metrics turned on too, destination still Jaeger (traces only): this must actually block, not just warn.
   const mismatched: TelemetryInput = { ...tracesOnly, resourceUsage: true }
   assert.deepEqual(telemetryProblems(mismatched), ['Jaeger (traces only) only carries traces - turn off the other signals, or send everything somewhere else'])
-  assert.equal(withTelemetry(base, mismatched), base, 'withTelemetry must not emit telemetry flags for a destination that cannot carry everything that is on')
 
   // A generic (unrestricted) destination never trips this check, however many signals are on.
   const generic: TelemetryInput = { ...emptyTelemetry, traces: true, resourceUsage: true, systemLogs: true, exportEndpoint: 'otel-gateway.example.com:4317' }
@@ -429,46 +204,7 @@ test('scopeOverlap: the shared namespace names between two scopes, or none', () 
   assert.deepEqual(scopeOverlap({ namespaces: [], exclude: [], workloads: [] }, a), [], 'an empty scope (falls back to global) overlaps nothing')
 })
 
-test('telemetrySecretCommand creates the Secret the credential flags name, reading the value from the environment', () => {
-  const t: TelemetryInput = { ...emptyTelemetry, traces: true, exportEndpoint: 'x:4317', exportAuthSecretName: 'telemetry-token', exportAuthSecretKey: '' }
-  const cmd = telemetrySecretCommand(t)!
-  assert.match(cmd, /^kubectl create secret generic telemetry-token --namespace continuum-system --from-literal=token=/)
-  // The value is never in the command: it is read from the shell, and an unset variable stops the command.
-  assert.ok(cmd.includes(`"\${${TELEMETRY_CREDENTIAL_VAR}:?set ${TELEMETRY_CREDENTIAL_VAR} to the credential first}"`))
-  // Create-or-update, so re-running the command doesn't fail on the Secret already existing.
-  assert.match(cmd, /--dry-run=client -o yaml \| kubectl apply -f -$/)
-  // The same name and key the upgrade command's own flags point at.
-  const upgrade = telemetryUpgradeCommand(undefined, t)
-  assert.match(upgrade, /auth\.secretName=telemetry-token/)
-  assert.match(upgrade, /auth\.secretKey=token/)
-})
-
-test('telemetrySecretCommand is undefined when there is nothing valid to create', () => {
-  const on: TelemetryInput = { ...emptyTelemetry, traces: true, exportEndpoint: 'x:4317' }
-  assert.equal(telemetrySecretCommand(on), undefined, 'no Secret named')
-  assert.equal(telemetrySecretCommand({ ...emptyTelemetry, exportAuthSecretName: 'telemetry-token' }), undefined, 'telemetry off')
-  assert.equal(telemetrySecretCommand({ ...on, exportEndpoint: '', exportAuthSecretName: 'telemetry-token' }), undefined, 'draft invalid, so the upgrade command carries no credential flags either')
-  // A name that is not a plain Kubernetes name is never pasted into a shell line.
-  assert.equal(telemetrySecretCommand({ ...on, exportAuthSecretName: 'x; rm -rf /' }), undefined)
-  assert.equal(telemetrySecretCommand({ ...on, exportAuthSecretName: 'ok', exportAuthSecretKey: 'a b' }), undefined)
-})
-
 const on: TelemetryInput = { ...emptyTelemetry, resourceUsage: true, exportEndpoint: 'otel.example.com:4317' }
-
-test('provenance: org and cluster are stamped for any destination, only when known', () => {
-  const cmd = withTelemetry(base, { ...on, resourceOrgId: 'org-1', resourceClusterId: 'cl-1' })
-  assert.match(cmd, /--set-string telemetry\.resource\.orgId=org-1/)
-  assert.match(cmd, /--set-string telemetry\.resource\.clusterId=cl-1/)
-  const bare = withTelemetry(base, on)
-  assert.doesNotMatch(bare, /telemetry\.resource\.orgId/)
-  assert.doesNotMatch(bare, /telemetry\.resource\.clusterId/)
-})
-
-test('tags travel as one JSON list, stated even when empty, so a reset-then-reuse-values upgrade replaces the set', () => {
-  assert.match(withTelemetry(base, on), /--set-json telemetry\.resource\.attributes='\[\]'/)
-  const cmd = withTelemetry(base, { ...on, tags: [{ key: ' team ', value: "pay'ments" }, { key: '', value: '' }] })
-  assert.match(cmd, /--set-json telemetry\.resource\.attributes='\[\{"key":"team","value":"pay'\\''ments"\}\]'/)
-})
 
 test('tag problems: reserved prefix, limit, duplicates, missing parts, spaces', () => {
   assert.deepEqual(tagProblems([{ key: 'team', value: 'x' }]), [])
@@ -479,8 +215,6 @@ test('tag problems: reserved prefix, limit, duplicates, missing parts, spaces', 
   assert.match(tagProblems([{ key: ' ', value: 'v' }])[0], /needs a name/)
   assert.deepEqual(tagProblems([{ key: '', value: '' }]), [], 'an untouched row is not a tag')
   assert.match(tagProblems([{ key: 'a b', value: 'v' }])[0], /spaces/)
-  // A bad tag blocks the command, like every other problem.
-  assert.equal(withTelemetry(base, { ...on, tags: [{ key: 'continuum.x', value: 'v' }] }), base)
   assert.deepEqual(cleanTags([{ key: ' a ', value: ' b ' }, { key: '', value: '' }]), [{ key: 'a', value: 'b' }])
 })
 
@@ -493,22 +227,15 @@ test('the scope tag names the namespaces of the narrowed application signals, wi
   assert.doesNotMatch(scopeTag(t), /,/)
   // A scope on a signal that is off says nothing.
   assert.equal(scopeTag({ ...on, tracesScope: { namespaces: ['shop'], exclude: [], workloads: [] } }), '')
-  // The tag has a ; and spaces in it, so it is quoted: bare, the shell would end the command at the ;.
-  assert.match(withTelemetry(base, t), /--set-string telemetry\.resource\.scope='payments; shop'/)
   // An exclusion is named only when EVERY signal leaves that namespace out; one that collects it everywhere makes the tag say nothing.
   const both: TelemetryInput = { ...on, traces: true, tracesScope: { namespaces: [], exclude: ['tmp'], workloads: [] }, applicationLogs: true, applicationLogsScope: { namespaces: [], exclude: ['tmp', 'legacy'], workloads: [] } }
   assert.equal(scopeTag(both), 'all namespaces - excluding tmp')
   assert.equal(scopeTag({ ...both, applicationLogsScope: { namespaces: [], exclude: [], workloads: [] } }), '')
-  assert.match(withTelemetry(base, on), /--set-string telemetry\.resource\.scope=(\s|$)/)
 })
 
 test('the debug exporter is off unless asked for, and always stated', () => {
   // Off from the start: ticking one signal must not also bring an extra exporter on every pipeline that nobody asked for.
   assert.equal(emptyTelemetry.debugVerbosity, '')
-  assert.match(withTelemetry(base, on), /--set-string telemetry\.debug\.verbosity=(\s|$)/)
-  assert.match(withTelemetry(base, { ...on, debugVerbosity: 'basic' }), /--set-string telemetry\.debug\.verbosity=basic/)
-  assert.match(withTelemetry(base, { ...on, debugVerbosity: 'detailed' }), /telemetry\.debug\.verbosity=detailed/)
-  assert.match(withTelemetry(base, { ...on, debugVerbosity: '' }), /telemetry\.debug\.verbosity=(\s|$)/)
 })
 
 const scoped = (ns: string[], workloads: { namespace: string; names: string[] }[] = [], exclude: string[] = []): ScopeOverrideInput => ({ namespaces: ns, exclude, workloads })
@@ -523,14 +250,6 @@ test('the scope tag spells out a namespace narrowed to workloads, still without 
   assert.equal(scopeTag({ ...on, traces: true, tracesScope: scoped(['shop'], [{ namespace: 'shop', names: [] }]) }), 'shop: nothing')
 })
 
-test('a signal with a workload scope states it as JSON, and clearing it states an empty list', () => {
-  const t: TelemetryInput = { ...on, traces: true, tracesScope: scoped(['checkout'], [{ namespace: 'checkout', names: ['cart'] }]) }
-  assert.match(withTelemetry(base, t), /--set-json telemetry\.traces\.traces\.scope\.workloads='\[\{"namespace":"checkout","names":\["cart"\]\}\]'/)
-  assert.match(withTelemetry(base, { ...t, tracesScope: scoped(['checkout']) }), /--set-json telemetry\.traces\.traces\.scope\.workloads='\[\]'/)
-  // Not stated for a signal that is off.
-  assert.doesNotMatch(withTelemetry(base, on), /scope\.workloads/)
-})
-
 test('workload names the chart would refuse are refused here first', () => {
   assert.deepEqual(workloadProblems([{ namespace: 'shop', names: ['cart', 'api-2'] }]), [])
   assert.equal(workloadProblems([{ namespace: 'shop', names: ['Cart'] }]).length, 1)
@@ -538,7 +257,6 @@ test('workload names the chart would refuse are refused here first', () => {
   assert.equal(workloadProblems([{ namespace: 'shop', names: [] }, { namespace: 'shop', names: [] }]).length, 1)
   const bad: TelemetryInput = { ...on, traces: true, tracesScope: scoped(['shop'], [{ namespace: 'shop', names: ['A|B'] }]) }
   assert.ok(telemetryProblems(bad).length > 0)
-  assert.equal(withTelemetry(base, bad), base)
 })
 
 test('the scope infrastructure follows: any signal keeping a namespace keeps it, every signal must drop one to drop it', () => {
@@ -559,17 +277,6 @@ test('workloads of a namespace combine only when every signal collecting it narr
   assert.deepEqual(combinedScope(t(scoped(['a'], w(['x'])), scoped(['b']))).workloads, w(['x']))
 })
 
-test('infrastructure scope is stated every time: the combined scope when followed, empty when not or when nothing narrows', () => {
-  const t: TelemetryInput = { ...on, traces: true, tracesScope: scoped(['checkout'], [{ namespace: 'checkout', names: ['cart'] }]) }
-  const cmd = withTelemetry(base, t)
-  assert.match(cmd, /--set telemetry\.scope\.infra\.namespaces='\{checkout\}'/)
-  assert.match(cmd, /--set-json telemetry\.scope\.infra\.workloads='\[\{"namespace":"checkout","names":\["cart"\]\}\]'/)
-  const off = withTelemetry(base, { ...t, scopeInfrastructure: false })
-  assert.match(off, /--set-json telemetry\.scope\.infra\.namespaces='\[\]'/)
-  assert.match(off, /--set-json telemetry\.scope\.infra\.workloads='\[\]'/)
-  assert.match(withTelemetry(base, on), /--set-json telemetry\.scope\.infra\.namespaces='\[\]'/)
-})
-
 /* ---------- one destination per signal type ---------- */
 
 const lane = (endpoint: string, over: Partial<typeof emptyExportTarget> = {}) => ({ ...emptyExportTarget, exportEndpoint: endpoint, ...over })
@@ -583,33 +290,6 @@ const routed = (over: Partial<TelemetryInput> = {}): TelemetryInput => ({
   ...over,
 })
 
-test('sending each signal type separately states every route in full and leaves the default alone', () => {
-  const cmd = withTelemetry(base, routed())
-  assert.doesNotMatch(cmd, /telemetry\.export\.otlp\.endpoint/)
-  assert.match(cmd, /--set-string telemetry\.export\.routes\.metrics\.endpoint=mimir\.example\.com:4317/)
-  assert.match(cmd, /--set telemetry\.export\.routes\.metrics\.protocol=grpc/)
-  assert.match(cmd, /--set telemetry\.export\.routes\.metrics\.tls\.insecure=false/)
-  assert.match(cmd, /--set telemetry\.export\.routes\.logs\.protocol=http/)
-  assert.match(cmd, /--set telemetry\.export\.routes\.logs\.tls\.insecure=true/)
-  assert.match(cmd, /--set telemetry\.export\.routes\.traces\.protocol=zipkin/)
-  // No credential named: stated empty, so one an earlier command set does not linger.
-  assert.match(cmd, /--set-string telemetry\.export\.routes\.metrics\.auth\.secretName=(\s|\\|$)/)
-})
-
-test('a signal type with nothing on has its route stated empty, so an old one stops sending', () => {
-  const cmd = withTelemetry(base, routed({ traces: false }))
-  assert.match(cmd, /--set-string telemetry\.export\.routes\.traces\.endpoint=(\s|\\|$)/)
-  assert.doesNotMatch(cmd, /routes\.traces\.protocol/)
-})
-
-test('a single destination states no routes, unless the install has some to clear', () => {
-  const single: TelemetryInput = { ...emptyTelemetry, resourceUsage: true, exportEndpoint: 'gw.example.com:4317' }
-  assert.doesNotMatch(withTelemetry(base, single), /export\.routes/)
-  const cleared = withTelemetry(base, { ...single, exportRoutesInstalled: true })
-  for (const m of ['metrics', 'logs', 'traces']) assert.match(cleared, new RegExp(`--set-string telemetry\\.export\\.routes\\.${m}\\.endpoint=(\\s|\\\\|$)`))
-  assert.match(cleared, /--set-string telemetry\.export\.otlp\.endpoint=gw\.example\.com:4317/)
-})
-
 test('a lane needs a destination for every signal type that is on, and only a lane that can carry it', () => {
   assert.deepEqual(activeLanes(routed()), ['metrics', 'logs', 'traces'])
   assert.deepEqual(activeLanes(routed({ traces: false })), ['metrics', 'logs'])
@@ -617,7 +297,6 @@ test('a lane needs a destination for every signal type that is on, and only a la
   const missing = routed({ exportLanes: { ...routed().exportLanes, logs: lane('') } })
   assert.equal(destinationReady(missing), false)
   assert.ok(telemetryProblems(missing).some((p) => /Logs needs a destination/.test(p)))
-  assert.equal(withTelemetry(base, missing), base)
   const zipkinForMetrics = routed({ exportLanes: { ...routed().exportLanes, metrics: lane('z:9411', { exportProtocol: 'zipkin' }) } })
   assert.ok(telemetryProblems(zipkinForMetrics).some((p) => /Zipkin only carries traces, so it cannot be where metrics go/.test(p)))
   assert.equal(destinationReady(routed()), true)
@@ -661,14 +340,9 @@ test('editing a lane through its view changes only that lane\'s destination', ()
 
 test('each lane names its own credential Secret, and lanes that name the same one share it', () => {
   const t = routed({ exportLanes: { metrics: lane('m:4317', { exportAuthSecretName: 'grafana-token' }), logs: lane('l:4317', { exportAuthSecretName: 'grafana-token' }), traces: lane('t:4317', { exportAuthSecretName: 'tempo-token' }) } })
-  const cmd = withTelemetry(base, t)
-  assert.match(cmd, /routes\.metrics\.auth\.secretName=grafana-token/)
-  assert.match(cmd, /routes\.traces\.auth\.secretName=tempo-token/)
-  assert.match(cmd, /routes\.traces\.auth\.headerName=Authorization/)
   const secrets = telemetrySecrets(t)
   assert.deepEqual(secrets.map((s) => [s.name, s.variable, s.lanes]), [['grafana-token', `${TELEMETRY_CREDENTIAL_VAR}_METRICS`, ['metrics', 'logs']], ['tempo-token', `${TELEMETRY_CREDENTIAL_VAR}_TRACES`, ['traces']]])
   assert.equal(secrets[0].command.match(/kubectl create secret/g)?.length, 1)
-  assert.equal(telemetrySecretCommand(t)?.split('\n').length, 2)
   // The single destination keeps its own variable and a single command.
   const one = telemetrySecrets({ ...emptyTelemetry, resourceUsage: true, exportEndpoint: 'g:4317', exportAuthSecretName: 'tok' })
   assert.deepEqual(one.map((s) => s.variable), [TELEMETRY_CREDENTIAL_VAR])
@@ -695,33 +369,12 @@ test('an install that sends signals to several places is seeded as routes, not a
   assert.equal(plain.exportEndpoint, 'gw:4317')
 })
 
-test('a seeded routed install is not restated: changing something else leaves its routes as installed', () => {
-  const seeded = seedTelemetryFromInstalled(['resourceUsage', 'traces'], { exportEndpoint: 'traces=z:9411,default=gw:4317', redactionEnabled: true, resourceDetectionEnabled: false })
-  const cmd = telemetryUpgradeCommand(undefined, { ...seeded, kubernetesState: true })
-  // The agent does not say how a route is spoken to (protocol, TLS, credential), so stating the route would
-  // reset those to defaults: it is left out, and --reset-then-reuse-values keeps what is installed.
-  assert.doesNotMatch(cmd, /telemetry\.export\.routes\.(metrics|traces)\./)
-  assert.doesNotMatch(cmd, /routes\.\w+\.(protocol|tls|auth)/)
-  assert.match(cmd, /telemetry\.kubernetesState\.metrics\.enabled=true/)
-})
-
 test('editing a seeded route makes it this draft\'s to state, in full, and only that route', () => {
   const seeded = seedTelemetryFromInstalled(['resourceUsage', 'traces'], { exportEndpoint: 'traces=z:9411,default=gw:4317', redactionEnabled: true, resourceDetectionEnabled: false })
   const edited = withLane(seeded, 'traces', { ...laneView(seeded, 'traces'), exportEndpoint: 'zipkin.obs.svc:9411', exportProtocol: 'zipkin', exportInsecure: true })
   assert.deepEqual(edited.exportLanesKept, ['metrics', 'logs'])
-  const cmd = telemetryUpgradeCommand(undefined, edited)
-  assert.match(cmd, /--set-string telemetry\.export\.routes\.traces\.endpoint=zipkin\.obs\.svc:9411/)
-  assert.match(cmd, /telemetry\.export\.routes\.traces\.protocol=zipkin/)
-  assert.match(cmd, /telemetry\.export\.routes\.traces\.tls\.insecure=true/)
-  assert.doesNotMatch(cmd, /telemetry\.export\.routes\.metrics\./)
   // Writing a lane back unchanged (what the picker does on every render of it) does not take it over.
   assert.deepEqual(withLane(seeded, 'metrics', laneView(seeded, 'metrics')).exportLanesKept, ['metrics', 'logs', 'traces'])
-})
-
-test('a kept route whose signal type is turned off is still cleared', () => {
-  const seeded = seedTelemetryFromInstalled(['resourceUsage', 'traces'], { exportEndpoint: 'traces=z:9411,default=gw:4317', redactionEnabled: true, resourceDetectionEnabled: false })
-  const cmd = telemetryUpgradeCommand(undefined, { ...seeded, traces: false })
-  assert.match(cmd, /--set-string telemetry\.export\.routes\.traces\.endpoint=( |$|\\)/m)
 })
 
 
@@ -785,7 +438,6 @@ test('typed text that reaches the command is validated: endpoints, the credentia
   // A query string, brackets and braces are fine (the command quotes them); a comma is not (helm --set splits on it).
   assert.deepEqual(telemetryProblems({ ...t, exportEndpoint: 'https://o.example.com/v1?a=1&b=[2]&c={3}' }), [])
   for (const bad of ['a:1,b:2', 'a b', 'a:1/"x"', "a:1/'x'", 'a:1/`x`', 'a:1\\x', 'a:1\nb', ';a']) assert.match(telemetryProblems({ ...t, exportEndpoint: bad }).join(' '), /endpoint/, JSON.stringify(bad))
-  assert.equal(withTelemetry(base, { ...t, exportEndpoint: 'a:1,b:2' }), base, 'a command with a bad endpoint is not printed')
   assert.match(telemetryProblems({ ...t, exportAuthSecretName: 'my secret' }).join(' '), /Secret name/)
   assert.match(telemetryProblems({ ...t, exportAuthSecretName: 'ok', exportAuthSecretKey: 'a b' }).join(' '), /Secret key/)
   assert.match(telemetryProblems({ ...t, exportAuthSecretName: 'ok', exportAuthHeaderName: 'X Key' }).join(' '), /header name/)
@@ -796,50 +448,10 @@ test('typed text that reaches the command is validated: endpoints, the credentia
   assert.match(telemetryProblems({ ...t, tracesSamplingPercent: NaN }).join(' '), /between 0 and 100/)
 })
 
-/* ---------- reviewer G: what an upgrade must CLEAR, stated explicitly (helm upgrade --reset-then-reuse-values keeps the rest) ---------- */
-
-test('every signal unchecked on an install that has telemetry is a command that turns them all off, not the bare upgrade', () => {
-  const up = 'helm upgrade continuum-agent oci://r/x --namespace continuum-system --reset-then-reuse-values'
-  const seeded = seedTelemetryFromInstalled(['resourceUsage', 'energy'], { exportEndpoint: 'gw:4317', redactionEnabled: true, resourceDetectionEnabled: false })
-  const none: TelemetryInput = { ...seeded, resourceUsage: false, energy: false }
-  const cmd = withTelemetry(up, none)
-  assert.notEqual(cmd, up, 'a bare upgrade changes nothing: the collectors would keep running')
-  for (const s of TELEMETRY_SIGNALS) {
-    const path = { resourceUsage: 'resourceUsage.metrics', energy: 'energy.metrics', kubernetesState: 'kubernetesState.metrics', nodeRuntime: 'nodeRuntime.metrics', networkLatency: 'networkLatency.metrics', clusterLinks: 'clusterLinks.metrics', applicationMetrics: 'applicationMetrics.metrics', systemLogs: 'systemLogs.logs', kubernetesEvents: 'kubernetesEvents.logs', applicationLogs: 'applicationLogs.logs', traces: 'traces.traces', accelerators: 'accelerators.metrics' }[s.id]
-    assert.ok(cmd.includes(`--set telemetry.${path}.enabled=false`), `${s.id} must be stated off`)
-  }
-  // Nothing about a destination: there is none to state. The routes and the processor chain are cleared so they cannot come back unseen.
-  assert.ok(!cmd.includes('otlp.endpoint'))
-  assert.match(cmd, /telemetry\.export\.routes\.metrics\.endpoint= /)
-  // A fresh install with nothing on is still just the command.
-  assert.equal(withTelemetry(base, emptyTelemetry), base)
-})
-
-test('a single destination on an install that has telemetry states every route empty; a fresh install does not', () => {
-  const t: TelemetryInput = { ...emptyTelemetry, traces: true, exportEndpoint: 'x:4317' }
-  assert.doesNotMatch(withTelemetry(base, t), /export\.routes/)
-  const cmd = withTelemetry(base, { ...t, hadTelemetry: true })
-  for (const m of ['metrics', 'logs', 'traces']) assert.match(cmd, new RegExp(`--set-string telemetry\\.export\\.routes\\.${m}\\.endpoint=( |$)`))
-  // Kept as installed: the install's own destination (routes included) is left alone.
-  const kept = keepAsInstalled({ ...t, hadTelemetry: true }, ['destination'])
-  assert.doesNotMatch(withTelemetry(base, kept), /export\.routes/)
-})
-
-test('extra processors on an install that has telemetry: both lists are stated whole, an emptied one too; kept ones are left alone', () => {
-  const filter = { ...newProcessorEntry('filter'), name: 'drop_x', config: { signal: 'log' as const, conditions: [{ field: 'k', op: 'eq' as const, value: 'v' }] } }
-  const t: TelemetryInput = { ...emptyTelemetry, applicationLogs: true, exportEndpoint: 'x:4317', hadTelemetry: true, extraProcessors: [filter] }
-  const cmd = withTelemetry(base, t)
-  assert.match(cmd, /--set telemetry\.processors\.extraProcessorNames='\{filter\/drop_x\}'/)
-  assert.match(cmd, /--set-json telemetry\.processors\.extraTracesProcessorNames='\[\]'/, 'a stale tail-sampling reference is cleared')
-  // Removing the last one states the lists empty (the indexed form used before could never shorten a list).
-  const removed = withTelemetry(base, { ...t, extraProcessors: [] })
-  assert.match(removed, /--set-json telemetry\.processors\.extraProcessorNames='\[\]'/)
-  assert.doesNotMatch(removed, /--set-json telemetry\.processors\.extraProcessors/)
+test('extra processors on an install that has telemetry are left alone until one is added or removed', () => {
   // The agent does not report them, so a draft seeded from an install leaves them alone until one is added or removed.
   const seeded = seedTelemetryFromInstalled(['applicationLogs'], { exportEndpoint: 'x:4317', redactionEnabled: true, resourceDetectionEnabled: false })
   assert.equal(isKept(seeded, 'extraProcessors'), true)
-  assert.doesNotMatch(withTelemetry(base, seeded), /extraProcessor/)
-  assert.match(withTelemetry(base, { ...seeded, extraProcessors: [filter] }), /extraProcessorNames='\{filter\/drop_x\}'/)
 })
 
 test('filter conditions are context-qualified OTTL with quotes and backslashes escaped; resource attributes are spelled as such', () => {
@@ -872,94 +484,20 @@ test('seeding: only a draft standing for an install that has telemetry has anyth
   const reported = seedTelemetryFromInstalled(['energy'], { exportEndpoint: 'gw:4317', redactionEnabled: true, resourceDetectionEnabled: false, energySource: 'existing' })
   assert.equal(isKept(reported, 'energySource'), false)
   assert.equal(reported.energySource, 'existing')
-  // Switching an installed existing source to the bundled one must say so.
-  assert.match(withTelemetry(base, { ...reported, energySource: 'bundle-kepler' }), /--set telemetry\.energy\.metrics\.source=bundle-kepler/)
-  // Ticking only Kepler on a fresh draft adds no debug exporter and no routes or processor lists.
-  const fresh = withTelemetry(base, { ...emptyTelemetry, energy: true, exportEndpoint: 'x:4317' })
-  assert.match(fresh, /telemetry\.debug\.verbosity=( |$)/)
-  assert.doesNotMatch(fresh, /export\.routes|extraProcessor/)
-})
-
-test('no command ever states an empty list as --set key=\'{}\': Helm reads that as a list holding one empty string', () => {
-  // Checked against Helm 3.22: `--set a='{}'` gives `a: [""]`. For a scope that is "keep only the namespace named empty" (every record of that
-  // signal dropped) and for the processor lists a processor with no name (a collector that will not start). `--set-json a='[]'` is a real
-  // empty list. Every kind of draft that states an empty list is covered here.
-  const drafts: TelemetryInput[] = [
-    { ...emptyTelemetry, kubernetesState: true, exportEndpoint: 'x:4317' },
-    { ...emptyTelemetry, applicationMetrics: true, applicationLogs: true, traces: true, exportEndpoint: 'x:4317' },
-    { ...emptyTelemetry, traces: true, exportEndpoint: 'x:4317', hadTelemetry: true },
-    { ...emptyTelemetry, traces: true, exportEndpoint: 'x:4317', hadTelemetry: true, scopeInfrastructure: false },
-  ]
-  for (const d of drafts) {
-    const cmd = withTelemetry(base, d)
-    assert.doesNotMatch(cmd, /='\{\}'/, cmd)
-    assert.match(cmd, /--set-json telemetry\.scope\.infra\.namespaces='\[\]'/)
-  }
-  assert.doesNotMatch(withTelemetry(base, { ...emptyTelemetry, hadTelemetry: true }), /='\{\}'/)
-  // A list with names in it is still the readable --set form.
-  assert.match(withTelemetry(base, { ...emptyTelemetry, applicationLogs: true, applicationLogsScope: { namespaces: ['a', 'b'], exclude: [], workloads: [] }, exportEndpoint: 'x:4317' }), /--set telemetry\.applicationLogs\.logs\.scope\.namespaces='\{a,b\}'/)
-})
-
-/* ---------- Cluster links ---------- */
-
-test('cluster links: the signal turns on the flow collector, and states the probe and throughput switches', () => {
-  const t: TelemetryInput = { ...emptyTelemetry, clusterLinks: true, exportEndpoint: 'otel.example.com:4317' }
-  const cmd = withTelemetry(base, t)
-  assert.match(cmd, /--set telemetry\.clusterLinks\.metrics\.enabled=true/)
-  assert.match(cmd, /--set flowObserver\.enabled=true/)
-  assert.match(cmd, /--set telemetry\.clusterLinks\.probe\.enabled=true/)
-  assert.match(cmd, /--set telemetry\.clusterLinks\.probe\.capacity\.enabled=false/)
-  assert.doesNotMatch(cmd, /auth\.existingSecret/)
-})
-
-test('cluster links: without probing there is no throughput either', () => {
-  const t: TelemetryInput = { ...emptyTelemetry, clusterLinks: true, clusterLinksProbe: false, clusterLinksThroughput: true, exportEndpoint: 'x:4317' }
-  const cmd = withTelemetry(base, t)
-  assert.match(cmd, /--set telemetry\.clusterLinks\.probe\.enabled=false/)
-  assert.match(cmd, /--set telemetry\.clusterLinks\.probe\.capacity\.enabled=false/)
 })
 
 test('cluster links: throughput tests need no Secret, Ikhnos issues the iperf3 credentials', () => {
   const t: TelemetryInput = { ...emptyTelemetry, clusterLinks: true, clusterLinksThroughput: true, exportEndpoint: 'x:4317' }
   assert.deepEqual(telemetryProblems(t), [])
-  const cmd = withTelemetry(base, t)
-  assert.notEqual(cmd, base, 'the command is built')
-  assert.match(cmd, /--set telemetry\.clusterLinks\.probe\.capacity\.enabled=true/)
-  assert.doesNotMatch(cmd, /auth\.existingSecret/, 'no flag for credentials the server issues')
-  assert.doesNotMatch(cmd, /capacity\.auth/, 'nothing about authentication is stated')
-  // Spaces only are empty too.
-  assert.doesNotMatch(withTelemetry(base, { ...t, clusterLinksAuthSecret: '   ' }), /auth\.existingSecret/)
 })
 
 test('cluster links: credentials of your own are still honoured, and checked when typed', () => {
   const t: TelemetryInput = { ...emptyTelemetry, clusterLinks: true, clusterLinksThroughput: true, exportEndpoint: 'x:4317' }
   assert.equal(telemetryProblems({ ...t, clusterLinksAuthSecret: 'Bad_Name' }).length, 1)
-  assert.equal(withTelemetry(base, { ...t, clusterLinksAuthSecret: 'Bad_Name' }), base, 'a command with a real problem is left unchanged')
-  const ok = withTelemetry(base, { ...t, clusterLinksAuthSecret: ' continuum-link-iperf ' })
-  assert.match(ok, /--set telemetry\.clusterLinks\.probe\.capacity\.enabled=true/)
-  assert.match(ok, /--set-string telemetry\.clusterLinks\.probe\.capacity\.auth\.existingSecret=continuum-link-iperf/)
-})
-
-test('cluster links: unchecked, everything about it is stated off, so the prober cannot outlive its switch', () => {
-  const t: TelemetryInput = { ...emptyTelemetry, resourceUsage: true, exportEndpoint: 'x:4317' }
-  const cmd = withTelemetry(base, t)
-  assert.match(cmd, /--set telemetry\.clusterLinks\.metrics\.enabled=false/)
-  assert.match(cmd, /--set telemetry\.clusterLinks\.probe\.enabled=false/)
-  assert.match(cmd, /--set telemetry\.clusterLinks\.probe\.capacity\.enabled=false/)
-  assert.doesNotMatch(cmd, /flowObserver/)
-  const up = 'helm upgrade continuum-agent oci://r/x --namespace continuum-system --reset-then-reuse-values'
-  const off = withTelemetry(up, { ...emptyTelemetry, hadTelemetry: true })
-  assert.match(off, /telemetry\.clusterLinks\.probe\.enabled=false/)
 })
 
 test('cluster links: an install that already has them keeps its probe and throughput choices until they are edited', () => {
-  const up = 'helm upgrade continuum-agent oci://r/x --namespace continuum-system --reset-then-reuse-values'
   const seeded = seedTelemetryFromInstalled(['clusterLinks'], { exportEndpoint: 'gw:4317', redactionEnabled: true, resourceDetectionEnabled: false })
   assert.equal(seeded.clusterLinks, true)
   assert.ok(isKept(seeded, 'clusterLinksOptions'))
-  const same = withTelemetry(up, seeded)
-  assert.match(same, /--set telemetry\.clusterLinks\.metrics\.enabled=true/)
-  assert.doesNotMatch(same, /probe\.enabled|capacity/)
-  const edited = withTelemetry(up, { ...seeded, clusterLinksProbe: false })
-  assert.match(edited, /probe\.enabled=false/)
 })

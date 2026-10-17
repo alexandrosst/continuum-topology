@@ -499,7 +499,7 @@ function TelemetryPanelBody({
   const basis = `${installed.join(',')}|${configKey}`
   const [restored, setRestored] = useState<TelemetryInput | null>(() => (agentId ? loadDraft(agentId, basis) : null))
   const [open, setOpen] = useState(() => !!initialScope || !!initialDestination || restored !== null)
-  // Seeded from what the agent actually reports running, not a blank form: withTelemetry states every
+  // Seeded from what the agent actually reports running, not a blank form: the command states every
   // signal explicitly on every call, so a blank draft would silently turn off everything the operator
   // didn't happen to re-check the moment they ran the generated command for an unrelated change. The
   // agent's installedTelemetryConfig (destination, redaction/resourcedetection/traces-sampling, energy/
@@ -535,7 +535,7 @@ function TelemetryPanelBody({
   }
   const measurementsOn = measurementsRunning(d)
   const changes = useMemo(() => describeTelemetryChanges(installed, d?.installedTelemetryConfig, draft), [installed, d?.installedTelemetryConfig, draft])
-  // Without measurementsOn, withTelemetry's own telemetryProblems check (see its doc comment) can never see
+  // Without measurementsOn, the telemetryProblems check can never see
   // the one validation rule that depends on it - a network-latency signal with measurements off - so the
   // generated command used to build as if that problem didn't exist, silently disagreeing with the
   // role="alert" warning TelemetryFields (right above, given the same measurementsOn) already shows for

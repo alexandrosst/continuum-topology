@@ -10,9 +10,9 @@ import (
 	"testing"
 )
 
-// The install and upgrade commands the web UI prints are built in TypeScript (src/lib/install.ts and its neighbours) as strings. The
-// first half of the pin is tests/installCommands.test.ts: it writes the exact command for a matrix of settings into
-// tests/install_commands.golden.json. This is the second half. For every command pinned there it gets the arguments a shell would
+// The install and upgrade commands the web UI shows were once built in TypeScript as strings and are now written by the server
+// (internal/install). tests/install_commands.golden.json pins the exact command for a matrix of settings, as the UI wrote them the day it
+// stopped, and internal/install holds the renderer to those bytes. This is the other half. For every command pinned there it gets the arguments a shell would
 // pass to helm, turns the install or upgrade into a `helm template` of the chart that command is for, and requires that the chart
 // accepts every value. The charts' schemas refuse an unknown key and a value of the wrong type, so a command that names a value the
 // chart does not have (a key renamed on one side only) fails here, not on a person's cluster.
@@ -105,7 +105,7 @@ func hostOf(endpoint string) string {
 }
 
 func TestEveryInstallCommandTheUIPrintsRendersTheChart(t *testing.T) {
-	rendersTheChart(t, installCommandsGolden, "tests/install_commands.golden.json is written by tests/installCommands.test.ts", 60)
+	rendersTheChart(t, installCommandsGolden, "tests/install_commands.golden.json holds the commands the UI printed", 60)
 }
 
 func TestEveryInstallCommandTheServerPrintsRendersTheChart(t *testing.T) {

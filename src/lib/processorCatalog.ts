@@ -8,8 +8,8 @@
 //
 // One correctness rule that isn't obvious from the chart alone: tail_sampling only implements the traces
 // processor interface, so a tailSampling entry is routed to `extraTracesProcessorNames` (traces pipeline
-// only), never the shared `extraProcessorNames` (every pipeline) that filter/transform entries use - see
-// processorTarget() below, and the values.yaml/telemetry-cluster-config.yaml comments on why.
+// only), never the shared `extraProcessorNames` (every pipeline) that filter/transform entries use (the install package does the routing) - see
+// the values.yaml/telemetry-cluster-config.yaml comments on why.
 
 export type ProcessorKind = 'filter' | 'tailSampling' | 'transform'
 
@@ -52,7 +52,7 @@ export interface FilterConfig {
   signal: Signal
   conditions: FilterCondition[]
 }
-export const emptyFilterConfig: FilterConfig = { signal: 'metric', conditions: [] }
+const emptyFilterConfig: FilterConfig = { signal: 'metric', conditions: [] }
 
 export type TailSamplingPolicyType = 'probabilistic' | 'statusCode' | 'latency'
 export interface TailSamplingPolicy {
@@ -66,10 +66,10 @@ export interface TailSamplingConfig {
   decisionWaitSeconds: number
   policies: TailSamplingPolicy[]
 }
-export const emptyTailSamplingConfig: TailSamplingConfig = { decisionWaitSeconds: 10, policies: [] }
+const emptyTailSamplingConfig: TailSamplingConfig = { decisionWaitSeconds: 10, policies: [] }
 export const newTailSamplingPolicy = (): TailSamplingPolicy => ({ name: '', type: 'probabilistic', probabilisticPercent: 10, statusCodes: 'ERROR', latencyThresholdMs: 500 })
 
-export type TransformAction = 'set' | 'delete'
+type TransformAction = 'set' | 'delete'
 export interface TransformStatement {
   action: TransformAction
   key: string
@@ -79,9 +79,9 @@ export interface TransformConfig {
   signal: Signal
   statements: TransformStatement[]
 }
-export const emptyTransformConfig: TransformConfig = { signal: 'trace', statements: [] }
+const emptyTransformConfig: TransformConfig = { signal: 'trace', statements: [] }
 
-export type ProcessorConfig = FilterConfig | TailSamplingConfig | TransformConfig
+type ProcessorConfig = FilterConfig | TailSamplingConfig | TransformConfig
 
 export interface ProcessorEntry {
   id: string
@@ -110,19 +110,11 @@ const slug = (s: string) =>
     .replace(/^_+|_+$/g, '')
 
 /** The key this entry renders as in the collector config's `processors:` map, and the name referenced in
- * whichever pipeline(s) it's routed to (see processorTarget). Falls back to the entry's own id when the
+ * whichever pipeline(s) it's routed to (the install package routes it). Falls back to the entry's own id when the
  * person hasn't named it yet, so an unnamed draft still renders to something valid rather than colliding
  * with another unnamed one. */
 export function processorKey(entry: ProcessorEntry): string {
   return `${BASE_TYPE[entry.kind]}/${slug(entry.name) || entry.id}`
-}
-
-/** Which extra-processor values list this entry belongs in. tailSampling only implements the traces
- * processor interface - referencing it from a metrics or logs pipeline makes the collector refuse to
- * start - so it alone is routed to the traces-only list; filter and transform both implement every
- * signal's processor interface and are safe in the shared, every-pipeline list. */
-export function processorTarget(entry: ProcessorEntry): 'extraProcessorNames' | 'extraTracesProcessorNames' {
-  return entry.kind === 'tailSampling' ? 'extraTracesProcessorNames' : 'extraProcessorNames'
 }
 
 const CONDITION_FIELD: Record<Signal, string> = { metric: 'metric_conditions', log: 'log_conditions', trace: 'trace_conditions' }
@@ -171,33 +163,6 @@ export function processorBody(entry: ProcessorEntry): unknown {
   }
   const c = entry.config as TransformConfig
   return { [STATEMENT_FIELD[c.signal]]: [{ context: STATEMENT_CONTEXT[c.signal], statements: c.statements.map(compileStatement) }] }
-}
-
-/** The full `telemetry.processors.extraProcessors` map, ready to JSON-encode into a `--set-json` flag -
- * every entry's body, keyed by its processorKey(), regardless of which pipeline list it's routed to. */
-export function buildExtraProcessors(entries: ProcessorEntry[]): Record<string, unknown> {
-  const out: Record<string, unknown> = {}
-  for (const e of entries) out[processorKey(e)] = processorBody(e)
-  return out
-}
-
-/**
- * The same map for an upgrade (`helm upgrade --reset-then-reuse-values`), where a map in the command is MERGED with the one installed
- * before, key by key: a filter that moves from metrics to logs would keep its old `metric_conditions` beside the new `log_conditions`.
- * So the fields a body does not use are stated as an empty list, which replaces them. (Not null: a null deletes the key from the merge
- * only when there is an earlier one to delete, and is otherwise left in the values, where the collector refuses a null that should be a
- * list.) The chart's own default has none of these, so on a fresh install
- * they are no-ops. A raw body is the person's own and is stated as typed.
- */
-export function buildUpgradeExtraProcessors(entries: ProcessorEntry[]): Record<string, unknown> {
-  const out = buildExtraProcessors(entries)
-  for (const e of entries) {
-    if (e.raw.trim()) continue
-    const body = out[processorKey(e)] as Record<string, unknown>
-    const fields = e.kind === 'filter' ? Object.values(CONDITION_FIELD) : e.kind === 'transform' ? Object.values(STATEMENT_FIELD) : []
-    for (const f of fields) if (!(f in body)) body[f] = []
-  }
-  return out
 }
 
 const validRegex = (v: string): boolean => {

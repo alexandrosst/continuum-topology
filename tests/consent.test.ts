@@ -1,22 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { BOOST_MS, FAST_MS, POLL_MS, pollEvery } from '../src/lib/pollRate'
-import {
-  collectorState,
-  consentChange,
-  discoveryStatus,
-  effectiveNote,
-  extrasOf,
-  healthSummary,
-  helmUpgradeCommand,
-  inForce,
-  measurementsRunning,
-  parseExclusions,
-  scopeWords,
-  sortProblems,
-  uptimeWords,
-  type AgentDiagnostics,
-} from '../src/lib/consent'
+import { collectorState, consentChange, discoveryStatus, effectiveNote, extrasOf, healthSummary, inForce, measurementsRunning, parseExclusions, scopeWords, sortProblems, uptimeWords, type AgentDiagnostics } from '../src/lib/consent'
 
 const diag = (over: Partial<AgentDiagnostics> = {}): AgentDiagnostics => ({
   reportedAt: '2026-01-01T00:00:00Z',
@@ -81,22 +66,6 @@ test('problems are shown worst first without reordering equals', () => {
     { code: 'd', severity: 'warn', message: '' },
   ])
   assert.deepEqual(sorted.map((p) => p.code), ['c', 'b', 'd', 'a'])
-})
-
-test('the helm command matches what the server prints', () => {
-  // the chart file the server serves
-  assert.equal(
-    helmUpgradeCommand({ chartFile: 'continuum-agent-0.4.0.tgz', chartRef: '', chartVersion: '0.4.0' }, 2),
-    'helm upgrade continuum-agent ./continuum-agent-0.4.0.tgz --namespace continuum-system --reset-then-reuse-values --set access.tier=2',
-  )
-  // a registry chart names its version
-  assert.equal(
-    helmUpgradeCommand({ chartFile: 'x.tgz', chartRef: 'oci://registry.example.com/team/continuum-agent', chartVersion: '0.4.0' }, 1),
-    'helm upgrade continuum-agent oci://registry.example.com/team/continuum-agent --version 0.4.0 --namespace continuum-system --reset-then-reuse-values --set access.tier=1',
-  )
-  // a chart reference that is itself a file has no version
-  assert.ok(!helmUpgradeCommand({ chartRef: 'https://x.example/agent.tgz', chartVersion: '0.4.0' }, 2).includes('--version'))
-  assert.ok(helmUpgradeCommand(undefined, 2).endsWith('--reset-then-reuse-values --set access.tier=2'))
 })
 
 test('the note on a lower effective tier says why', () => {
@@ -179,14 +148,6 @@ test('an excluded namespace the agent has never reported is carried through as a
   const agents = [{ id: 'a', consent: { pausedCollectors: [], excludedNamespaces: ['batch'], confirmed: true, unknownNamespaces: ['batch'] } }]
   const a = extrasOf(agents, 'a')
   assert.deepEqual(a.consent?.unknownNamespaces, ['batch'])
-})
-
-test('helmUpgradeCommand names the agent\'s own release and namespace, and never uses --reuse-values', () => {
-  assert.equal(
-    helmUpgradeCommand({ chartFile: 'continuum-agent-0.4.0.tgz' }, 2, { namespace: 'obs', release: 'agent-eu' }),
-    'helm upgrade agent-eu ./continuum-agent-0.4.0.tgz --namespace obs --reset-then-reuse-values --set access.tier=2',
-  )
-  assert.ok(!/--reuse-values/.test(helmUpgradeCommand(undefined, 1)))
 })
 
 test('the state is read every 5 s, every 2 s while an approval waits or a cluster was just changed (for two minutes)', () => {

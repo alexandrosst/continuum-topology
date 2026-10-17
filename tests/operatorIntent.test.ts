@@ -1,38 +1,10 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { emptyExportTarget, emptyTelemetry, withTelemetry, type TelemetryInput } from '../src/lib/install'
-import { telemetrySecretCommand, telemetryUpgradeCommand } from '../src/lib/consent'
+import { emptyExportTarget, emptyTelemetry, type TelemetryInput } from '../src/lib/install'
 import { operatorReceiverEndpoint } from '../src/lib/destinationCatalog'
 import { exportOperatorId, intentDestinations, intentScope, intentSignals, laneOperatorId, operatorCommandDraft, operatorTargets } from '../src/lib/operatorIntent'
 
-const base = 'helm install continuum-agent oci://registry.example.com/continuum-agent --namespace continuum-system --create-namespace'
 const operatorDraft = (over: Partial<TelemetryInput> = {}): TelemetryInput => ({ ...emptyTelemetry, resourceUsage: true, exportEndpoint: 'op-eu.continuum-system.svc:4317', exportOperatorId: 'op-eu', ...over })
-
-// Every command is built exactly as before while exportOperatorId is '' - and the field never changes what
-// withTelemetry / telemetryUpgradeCommand emit even when it is set: it only routes the panel's flow.
-test('exportOperatorId only decides whether the client-certificate lines are cleared, never anything else in the command', () => {
-  const drafts: TelemetryInput[] = [
-    { ...emptyTelemetry },
-    { ...emptyTelemetry, resourceUsage: true, exportEndpoint: 'otel.example.com:4317' },
-    { ...emptyTelemetry, traces: true, tracesScope: { namespaces: ['shop'], exclude: ['kube-system'], workloads: [] }, applicationLogs: true, exportEndpoint: 'x.example.com:4318', exportProtocol: 'http', exportInsecure: true },
-    { ...emptyTelemetry, energy: true, energySource: 'existing', energyExistingEndpoint: 'kepler:9102', accelerators: true, exportEndpoint: 'o:4317', exportAuthHeaderName: 'x-api-key', exportAuthSecretName: 'tok', exportAuthSecretKey: 'k' },
-  ]
-  // An ordinary destination states "no client certificate"; an operator's is stated by the server's own fragment, which these lines must
-  // not contradict - so they are the only lines the id may remove.
-  const mtlsLines = (c: string) => c.split('\n').filter((l) => /tls\.(mtls|serverName|caFile)/.test(l))
-  const rest = (c: string) => c.split('\n').filter((l) => !/tls\.(mtls|serverName|caFile)/.test(l)).join('\n')
-  for (const d of drafts) {
-    const withoutField = { ...d } as Partial<TelemetryInput>
-    delete withoutField.exportOperatorId
-    assert.equal(d.exportOperatorId, '')
-    assert.equal(withTelemetry(base, d), withTelemetry(base, withoutField as TelemetryInput))
-    const forOperator = withTelemetry(base, { ...d, exportOperatorId: 'op-eu' })
-    assert.equal(rest(withTelemetry(base, d)), rest(forOperator))
-    assert.equal(mtlsLines(forOperator).length, 0)
-    assert.equal(mtlsLines(withTelemetry(base, d)).length > 0, d.exportEndpoint !== '', 'an ordinary destination clears the client certificate it may have had')
-    assert.equal(telemetrySecretCommand(d), telemetrySecretCommand({ ...d, exportOperatorId: 'op-eu' }))
-  }
-})
 
 test('exportOperatorId is only honoured while the endpoint still is that operator\'s receiver', () => {
   assert.equal(exportOperatorId(operatorDraft()), 'op-eu')

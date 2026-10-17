@@ -1,7 +1,6 @@
 import { spawnSync } from 'node:child_process'
 import { describe, expect, test } from 'vitest'
 import { addressCommands, connectionCheckCommand } from '@/components/operators/OperatorAddress'
-import { helmUpgradeCommand } from '@/lib/consent'
 import { serverAddressUpgradeCommand } from '@/lib/exposure'
 import { quickStartProblems, quickStartSpec } from '@/lib/quickStartBackends'
 import { gatewayPortForward } from '@/lib/quickStartGateway'
@@ -46,20 +45,8 @@ describe.skipIf(!hasBash)('a line that has typed text in it, run in bash', () =>
 
 describe('the helm upgrade the cluster owner runs', () => {
   test('uses --reset-then-reuse-values, never --reuse-values, and the agent\'s own release and namespace', () => {
-    const cmd = helmUpgradeCommand({ chartFile: 'continuum-agent-0.4.0.tgz' }, 2, { namespace: 'obs', release: 'agent-eu' })
-    expect(cmd).toBe('helm upgrade agent-eu ./continuum-agent-0.4.0.tgz --namespace obs --reset-then-reuse-values --set access.tier=2')
-    expect(cmd).not.toMatch(/--reuse-values/)
-    expect(helmUpgradeCommand(undefined, 1)).toBe('helm upgrade continuum-agent ./continuum-agent.tgz --namespace continuum-system --reset-then-reuse-values --set access.tier=1')
     expect(serverAddressUpgradeCommand(undefined, '')).toContain('--reset-then-reuse-values')
     expect(serverAddressUpgradeCommand(undefined, '')).not.toMatch(/--reuse-values/)
-  })
-
-  test('a release or namespace that is not a plain name is dropped for the default rather than pasted', () => {
-    expect(helmUpgradeCommand(undefined, 1, { namespace: 'a; rm -rf /', release: '$(id)' })).toContain('helm upgrade continuum-agent ./continuum-agent.tgz --namespace continuum-system ')
-  })
-
-  test('a chart reference with a space is quoted', () => {
-    expect(helmUpgradeCommand({ chartRef: 'oci://r.example/a b' }, 1)).toContain(`'oci://r.example/a b'`)
   })
 })
 

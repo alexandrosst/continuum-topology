@@ -7,7 +7,7 @@ import type { ExportProtocol, Modality } from './install'
  * destination field (see ComboField in primitives.tsx and its use in TelemetryFields.tsx) instead of
  * asking every person to already know their backend's exact endpoint pattern, port and credential
  * header by heart. Every entry here resolves to the chart's existing, unchanged `telemetry.export.otlp.*`
- * shape (see install.ts's withTelemetry) - this is UI sugar over that one generic exporter, not a new
+ * shape (rendered by the server's install package) - this is UI sugar over that one generic exporter, not a new
  * export mode, so a destination not listed here is never unsupported, just not auto-filled.
  *
  * `endpointPattern` is shown as a hint, not parsed - regions/instance IDs/tenants are copied in by hand,

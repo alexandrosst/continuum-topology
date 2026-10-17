@@ -10,8 +10,10 @@ import (
 )
 
 // The page used to write the block that points an agent at a regional operator and merge the server's part into it by pattern. The server
-// writes all of it now. tests/installCommands.test.ts pins what the page wrote for each case, beside what the server says of the operators
-// (the values it states, the Secrets it creates, how each receiver authenticates), and this test demands the same bytes from the renderer.
+// writes all of it now. tests/operator_block.golden.json holds, for each case, what the page pasted, beside what the server says of the
+// operators (the values it states, the Secrets it creates, how each receiver authenticates); this test demands the same bytes from the
+// renderer. The page no longer writes the block, so nothing regenerates the file: the bytes are the ones the page wrote the day it stopped,
+// and a change to them is a change to what a person is told to paste, made here and reviewed as one.
 const operatorBlockGolden = "../../../tests/operator_block.golden.json"
 
 type blockCase struct {

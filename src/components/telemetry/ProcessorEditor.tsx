@@ -25,8 +25,8 @@ import {
 /**
  * The OTel Collector extra-processor list: add, reorder, and configure the chart's `extraProcessors` -
  * inserted, in this order, right before `batch` in every pipeline that includes them (traces-only for
- * tail sampling, every pipeline for filter/transform - see processorTarget() in processorCatalog.ts, and
- * the values.yaml/telemetry-cluster-config.yaml comments on why tail sampling can't share the other two's
+ * tail sampling, every pipeline for filter/transform - see the chart's values.yaml and
+ * telemetry-cluster-config.yaml comments on why tail sampling can't share the other two's
  * list). Reordering is plain up/down buttons rather than a drag library - the list is short in practice
  * and this keeps the feature dependency-free, per the plan (no sortable-list dependency existed in
  * package.json at the time this was written).

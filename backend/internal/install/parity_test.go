@@ -8,12 +8,14 @@ import (
 	"testing"
 )
 
-// The web UI writes the commands it shows in TypeScript, and the server has to be able to write the same ones. tests/installCommands.test.ts
-// pins what the UI prints and, beside each command, the spec of what it was asked to write. This test gives the same spec to the renderer
-// in this package and demands the same bytes. Every case has one.
+// The web UI used to write the commands it shows, in TypeScript; the server writes them now. tests/install_commands.golden.json holds, for
+// each, the command the UI wrote the day it stopped and, beside it, the spec of what it was asked to write. This test gives the same spec
+// to the renderer in this package and demands the same bytes. Nothing regenerates the file any more, so the bytes are the spec: a change
+// to one is a change to what a person is told to paste, made in the file and reviewed as one. The chart test (internal/chart) renders every
+// command in it through helm, so it also cannot drift from the charts.
 const uiGolden = "../../../tests/install_commands.golden.json"
 
-// spec is what a case says about the command. The fields are the ones of tests/installCommands.test.ts's Spec.
+// spec is what a case says about the command. The fields are the ones the file holds.
 type spec struct {
 	Head       string        `json:"head"`
 	Upgrade    *AgentUpgrade `json:"upgrade"`

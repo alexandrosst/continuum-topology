@@ -6,12 +6,11 @@
  * namespaces left out). Widening is done by the cluster's owner with `helm upgrade`, and this file builds the exact command.
  * Everything here is pure so that it can be tested without a browser.
  */
-import { activeLanes, emptyExportTarget, cleanTags, emptyScopeOverride, emptyTelemetry, enabledModalities, isKept, keepAsInstalled, ROUTE_MODALITIES, SECRET_KEY, SECRET_NAME, scopeProblems, splitNames, telemetryActive, telemetryProblems, withTelemetry, shArg, type KeptGroup, type Modality, type TelemetryInput, PICKABLE_SIGNALS, TELEMETRY_SIGNALS } from './install'
+import { activeLanes, emptyExportTarget, cleanTags, emptyScopeOverride, emptyTelemetry, enabledModalities, isKept, keepAsInstalled, ROUTE_MODALITIES, SECRET_KEY, SECRET_NAME, scopeProblems, splitNames, telemetryActive, telemetryProblems, type KeptGroup, type Modality, type TelemetryInput, PICKABLE_SIGNALS, TELEMETRY_SIGNALS } from './install'
 // Re-exported for every existing `from '@/lib/consent'` import site - Modality/TELEMETRY_SIGNALS/
 // enabledModalities now live in install.ts (see its own comment on why), consent.ts just re-exports them.
 import { operatorReceiverEndpoint } from './destinationCatalog'
 import type { TelemetryIntent } from './types'
-import { chainCommands } from './shellChain'
 import { processorKey } from './processorCatalog'
 export { enabledModalities, type Modality, PICKABLE_SIGNALS, TELEMETRY_SIGNALS }
 
@@ -25,7 +24,7 @@ export interface AgentProblem {
   since?: string
 }
 
-export interface AgentCollector {
+interface AgentCollector {
   name: string
   /** The cluster's owner installed it (a chart value). */
   configured: boolean
@@ -39,7 +38,7 @@ export interface AgentCollector {
   lastData?: string
 }
 
-export interface AgentInformer {
+interface AgentInformer {
   name: string
   module?: string
   synced: boolean
@@ -116,7 +115,7 @@ export interface AgentExportRoute {
  * only meaningful (and only ever present) when their own signal is itself on - see InstalledTelemetryConfig's
  * own doc comment in agent.proto for why.
  */
-export interface AgentTelemetryConfig {
+interface AgentTelemetryConfig {
   exportEndpoint: string
   redactionEnabled: boolean
   resourceDetectionEnabled: boolean
@@ -221,7 +220,7 @@ export const sortProblems = (ps: readonly AgentProblem[]): AgentProblem[] => [..
 
 /* ---------- discovery ---------- */
 
-export interface DiscoveryStatus {
+interface DiscoveryStatus {
   /**
    * 'done' once every watch this agent runs has completed its first full read of the cluster - a one-time
    * milestone, not a health check (a watch can be synced and the agent still unhealthy, or still discovering
@@ -243,33 +242,13 @@ export function discoveryStatus(d?: AgentDiagnostics): DiscoveryStatus {
 
 /* ---------- tiers ---------- */
 
-export const TIER_NAMES = ['Registered only', 'Infrastructure', 'Services', 'Dependencies', 'Control'] as const
+const TIER_NAMES = ['Registered only', 'Infrastructure', 'Services', 'Dependencies', 'Control'] as const
 export const tierName = (t: number) => TIER_NAMES[t] ?? `Tier ${t}`
 
 export interface InstallInfo {
   chartFile?: string
   chartRef?: string
   chartVersion?: string
-}
-
-/**
- * The command the cluster's owner runs to raise the ceiling of an agent's install. It mirrors what the server prints in its
- * own refusal, so what a person reads here and there is the same. `--reset-then-reuse-values` keeps everything the person set on the
- * install and takes every other value from the new chart: plain `--reuse-values` would carry the OLD release's whole values over, so a
- * value block a later chart added would be missing and its templates fail. (Helm 3.14 or later.)
- *
- * `target` is where the agent's release actually lives (what the agent reported); the chart's documented defaults when it is not known.
- */
-export function helmUpgradeCommand(install: InstallInfo | undefined, tier: number, target?: ReleaseTarget): string {
-  const { namespace, release } = releaseTarget(target)
-  return `helm upgrade ${release} ${chartArgs(install)} --namespace ${namespace} --reset-then-reuse-values --set access.tier=${tier}`
-}
-
-/** The chart reference (and its version, for a registry chart) an upgrade command installs from. Typed text, so quoted for the shell. */
-function chartArgs(install: InstallInfo | undefined): string {
-  const ref = install?.chartRef || `./${install?.chartFile || 'continuum-agent.tgz'}`
-  const version = install?.chartRef && !install.chartRef.endsWith('.tgz') && install.chartVersion ? ` --version ${shArg(install.chartVersion)}` : ''
-  return `${shArg(ref)}${version}`
 }
 
 /** What the agent is doing at a tier, against what was approved: the reason it may be lower is worth saying. */
@@ -290,7 +269,7 @@ export const COLLECTORS: { id: string; label: string; what: string; chart: strin
   { id: 'measure', label: 'Path measurements', what: 'Timing of TCP connections to addresses this server names.', chart: 'measurements.enabled' },
 ]
 
-export interface CollectorState {
+interface CollectorState {
   tone: 'off' | 'paused' | 'ok' | 'warn'
   label: string
 }
@@ -313,37 +292,13 @@ export function measurementsRunning(d?: AgentDiagnostics): boolean | undefined {
   return d?.collectors.find((c) => c.name === 'measure')?.enabled
 }
 
-/* ---------- telemetry ---------- */
-
-/**
- * The catalog shown in the telemetry panel and the wizard's telemetry section. `id` matches the key used
- * everywhere else this signal is named: TelemetryInput's own field, the chart's `telemetry.<id>.enabled`
- * path, and the exact string the agent self-reports in `installedTelemetry` - one vocabulary, not three.
- */
-/**
- * Four axes, kept honest rather than a free 4D cross-product: `id` (kind) is the only one a person actually
- * chooses. `modality` is a physical fact about each kind's receiver (a metrics receiver never produces
- * traces) - read-only metadata, not a toggle. `layer` is the architectural/RBAC classification (renamed
- * from the chart's own `domain` field, same meaning). `scope` is where a signal is collected: 'cluster'
- * (a singleton receiver, watched once, cluster-wide, never filterable), 'node' (a DaemonSet - already
- * schedulable onto a subset of nodes via the chart's own nodeSelector/tolerations, just not through this
- * form), or 'application' (namespace-filterable via telemetry.scope or, for these three kinds, a per-signal
- * override - see TelemetryFields). `namespaceScopable` is the one honestly-named exception: accelerators is
- * layer: infrastructure (deployment shape, no RBAC) but its GPU metrics can carry namespace/pod identity,
- * so it can optionally opt into namespace scoping too (telemetry.accelerators.metrics.applyScope) without
- * pretending that changes its architectural layer.
- */
-/** The one RBAC grant every signal above shares once ANY of them is on: read-only pods/namespaces/nodes
- *  access so the collector can tag what it collects with the pod/namespace/node it came from. */
-export const TELEMETRY_UNIVERSAL_PERMISSION = 'Once any signal above is on: read-only access to pods, namespaces and nodes, to tag collected data with the pod/namespace/node it came from.'
-
 /**
  * A few named, one-click combinations of the signals above - "alter it anytime" starts from one of these
  * as often as from a blank form. Applying one sets every signal to exactly this combination (not just
  * turning listed ones on), so switching between presets never leaves a stale signal from a previous pick;
  * everything else on the form (export destination, processors) is left as the person already set it.
  */
-export interface TelemetryIntentPreset {
+interface TelemetryIntentPreset {
   id: string
   label: string
   description: string
@@ -395,7 +350,7 @@ const APP_SCOPE_KEYS = ['applicationMetrics', 'applicationLogs', 'traces'] as co
  * always takes over from the default. `intent` is the agent's active TelemetryIntent: a recorded grant, used only to show what the
  * agent does not report (the destination, the scope).
  *
- * Without this seed the panel would start blank, and because withTelemetry states every signal explicitly, the command from a blank
+ * Without this seed the panel would start blank, and because the command states every signal explicitly, the command from a blank
  * draft would turn off whatever the person did not re-check. The same holds for every setting the draft does not KNOW: the ones
  * the agent does not report, and everything that came only from the intent, are marked `keptAsInstalled`, so the command leaves
  * them out (and `--reset-then-reuse-values` keeps the installed value) until they are edited - stating a default there would silently
@@ -557,39 +512,11 @@ export function releaseTarget(t?: ReleaseTarget): { namespace: string; release: 
   }
 }
 
-/**
- * The command to change an agent's telemetry after install - `--reset-then-reuse-values` keeps everything else the person set,
- * mirroring `helmUpgradeCommand`'s tier-widening shape exactly. Command-generation only, like that one:
- * nothing here is ever pushed live (see the panel that uses this).
- */
-export function telemetryUpgradeCommand(install: InstallInfo | undefined, t: TelemetryInput, measurementsOn?: boolean, target?: ReleaseTarget): string {
-  const { namespace, release } = releaseTarget(target)
-  const base = `helm upgrade ${release} ${chartArgs(install)} --namespace ${namespace} --reset-then-reuse-values`
-  return withTelemetry(base, t, measurementsOn)
-}
-
-/** The environment variable the credential is read from in `telemetrySecretCommand` - named here so the
+/** The environment variable the credential is read from in the server's secret command - named here so the
  *  wizard's own hint and the generated command can never disagree about it. */
 export const TELEMETRY_CREDENTIAL_VAR = 'TELEMETRY_EXPORT_TOKEN'
 
-/**
- * The command that creates (or updates) the Secret `withTelemetry`'s credential flags point at, to run just
- * before the upgrade - or undefined when there is nothing to create (no Secret named, telemetry off, or the
- * draft not valid yet, in which case `telemetryUpgradeCommand` doesn't emit the credential flags either).
- *
- * The credential value itself never passes through this page: the command reads it from an environment
- * variable the person sets in their own shell, and `:?` makes the shell stop with a message rather than
- * create an empty Secret when it is unset. `--dry-run=client -o yaml | kubectl apply` makes it safe to
- * re-run (create-or-update) where a bare `kubectl create secret` would fail the second time. A Secret name
- * or key that isn't a plain Kubernetes name yields undefined rather than being pasted into a shell line.
- */
-export function telemetrySecretCommand(t: TelemetryInput, measurementsOn?: boolean, target?: ReleaseTarget): string | undefined {
-  const cmds = telemetrySecrets(t, measurementsOn, target).map((s) => s.command)
-  // Joined so that one failing (a credential variable unset) stops the rest, and the upgrade after them.
-  return cmds.length ? chainCommands(cmds) : undefined
-}
-
-export interface TelemetrySecret {
+interface TelemetrySecret {
   /** The Secret's name. */
   name: string
   /** The environment variable the credential is read from for this one. */
@@ -605,7 +532,7 @@ export interface TelemetrySecret {
  * that name the same Secret share it (one command, one variable): that is how one credential serves a
  * backend that takes metrics and logs. A lane that needs a different credential under the same Secret name
  * is a different key in it, read from its own variable. Nothing is returned for a draft that has no
- * valid command, for the reason `telemetrySecretCommand` gives.
+ * valid command, for the reason the server gives.
  */
 export function telemetrySecrets(t: TelemetryInput, measurementsOn?: boolean, target?: ReleaseTarget): TelemetrySecret[] {
   if (!telemetryActive(t) || telemetryProblems(t, measurementsOn).length) return []
@@ -637,9 +564,9 @@ export function telemetrySecrets(t: TelemetryInput, measurementsOn?: boolean, ta
 
 /** kube-system and friends: the agent always reads them to recognise the cluster's own components, so they cannot be left out. */
 const SYSTEM_NAMESPACES = ['kube-system', 'kube-public', 'kube-node-lease']
-export const MAX_EXCLUDED = 200
+const MAX_EXCLUDED = 200
 
-export interface ExclusionInput {
+interface ExclusionInput {
   names: string[]
   problems: string[]
 }
@@ -655,13 +582,13 @@ export function parseExclusions(text: string): ExclusionInput {
 
 const sameSet = (a: readonly string[], b: readonly string[]) => a.length === b.length && [...a].sort().every((x, i) => x === [...b].sort()[i])
 
-export interface ConsentDraft {
+interface ConsentDraft {
   tier: number
   paused: string[]
   excluded: string[]
 }
 
-export interface ConsentChange {
+interface ConsentChange {
   tier: boolean
   overrides: boolean
 }

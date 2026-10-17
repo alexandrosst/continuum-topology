@@ -13,7 +13,7 @@ import { buildSearchIndex, parseSel, searchItems } from '../src/lib/search'
 import { filterSummary } from '../src/lib/filter'
 import { narrowFitZoom } from '../src/lib/fit'
 import { activeView, describeView, sameView, viewParams } from '../src/lib/views'
-import { emptyScope, scopeProblems, splitNames, withFlowObserver, withMeasurements, withNodeProbe, withScope } from '../src/lib/install'
+import { emptyScope, scopeProblems, splitNames } from '../src/lib/install'
 import { anyMesh, connectionVerdict } from '../src/lib/mesh'
 import { ago, bytesPerSec, bytesTotal, isObserved, trafficSummary, withObserved } from '../src/lib/observed'
 import { applyGraphUpdate, APP_CARD, sameLayout, buildGraph, cardId, groupId, HEADER, MACHINE_CARD, MIN_GROUP_HEADER_WIDTH, NS_HEADER, NS_PAD, PAD, pickSides, resyncNodes, syncSelected } from '../src/lib/graph'
@@ -993,23 +993,6 @@ test('search: deleted things are not offered, and nodes open the infrastructure 
   assert.equal(parseSel(null), undefined)
 })
 
-test('node probe: the install command gains one flag, once, and only when asked', () => {
-  const cmd = 'helm install continuum-agent oci://x \\\n  --set server.caPin=ab \\\n  --set enrollment.token=cnt_1'
-  assert.equal(withNodeProbe(cmd, false), cmd)
-  const on = withNodeProbe(cmd, true)
-  assert.ok(on.endsWith(' \\\n  --set nodeProbe.enabled=true'))
-  assert.equal(withNodeProbe(on, true), on)
-  assert.equal(on.split('nodeProbe.enabled').length, 2)
-})
-
-test('traffic observer: its install flag is added once, only when asked, and stacks with the probe', () => {
-  const cmd = 'helm install continuum-agent oci://x \\\n  --set enrollment.token=cnt_1'
-  assert.equal(withFlowObserver(cmd, false), cmd)
-  const both = withFlowObserver(withNodeProbe(cmd, true), true)
-  assert.ok(both.includes('nodeProbe.enabled=true') && both.endsWith(' \\\n  --set flowObserver.enabled=true'))
-  assert.equal(withFlowObserver(both, true), both)
-})
-
 test('node probe: what the machine reported survives normalize and merge, and a person still has the last word', () => {
   const probed = { ...seed.nodes.find((n) => n.source === 'discovered')!, kind: 'bare-metal' as const, probed: true, virtualization: undefined, hasBattery: true, evidence: { kind: { signal: 'node probe: no hypervisor bit on the CPU', confidence: 'high' as const } } }
   const n = normalize({ ...seed, nodes: seed.nodes.map((x) => (x.id === probed.id ? probed : x)) }).nodes.find((x) => x.id === probed.id)!
@@ -1172,12 +1155,6 @@ test('server sync: an agent carries its consistency check and measuring count; a
   assert.ok(!apply(withIt, doc({ suggestions: [] })).suggestions.some((x) => x.id === sus.id))
   const dismissed = { ...withIt, suggestions: withIt.suggestions.map((x) => (x.id === sus.id ? { ...x, status: 'dismissed' as const } : x)) }
   assert.ok(apply(dismissed, doc({ suggestions: [] })).suggestions.some((x) => x.id === sus.id && x.status === 'dismissed'))
-})
-
-test('install: measurements are an explicit opt-in flag on the install command', () => {
-  const base = 'helm upgrade --install continuum-agent oci://x --set a=b'
-  assert.equal(withMeasurements(base, false), base)
-  assert.match(withMeasurements(base, true), /--set measurements\.enabled=true/)
 })
 
 /* ---------- service mesh ---------- */
@@ -1890,20 +1867,12 @@ test('mesh: anyMesh looks at live clusters only, and the saved-view URL keeps th
   assert.match(describeView('mesh=1'), /service mesh/)
 })
 
-test('scope: names are split and checked, a selector must be on a label the agent reads, and the flags are quoted for helm', () => {
+test('scope: names are split and checked, and a selector must be on a label the agent reads', () => {
   assert.deepEqual(splitNames('shop, payments  ops\nshop'), ['shop', 'payments', 'ops'])
   assert.deepEqual(scopeProblems({ ...emptyScope, namespaces: ['shop', 'Bad_Name'] }), ['"Bad_Name" is not a valid namespace name'])
   assert.equal(scopeProblems({ ...emptyScope, selector: 'continuum.io/scope=yes' }).length, 0)
   assert.match(scopeProblems({ ...emptyScope, selector: 'team=a' })[0], /continuum\.io\//)
   assert.match(scopeProblems({ ...emptyScope, selector: 'continuum.io/x=a=b' })[0], /key=value/)
-  const base = 'helm upgrade --install continuum-agent oci://x --set a=b'
-  assert.equal(withScope(base, emptyScope), base)
-  assert.equal(withScope(base, { ...emptyScope, namespaces: ['a', 'b'] }).includes("--set scope.namespaces='{a,b}'"), true)
-  const all = withScope(base, { namespaces: ['a'], exclude: ['hr'], selector: 'continuum.io/scope=yes' })
-  assert.match(all, /scope\.exclude='\{hr\}'/)
-  assert.match(all, /--set-string scope\.selector=continuum\.io\/scope=yes/)
-  // An invalid scope never reaches the command: the wizard refuses it first, and this stays safe if it did not.
-  assert.equal(withScope(base, { ...emptyScope, namespaces: ['Bad Name'] }), base)
 })
 
 test('cluster stats: singular and plural, and "not fully up" counts only the services that are drawn', () => {
