@@ -26,7 +26,7 @@ Where the two differ, the second pass wins.
 |---|---|---|
 | 0. Pin behaviour, small defect fixes | 0 | Store, graph history, binaries, server binary: done. Config hash gate, route-guard pin, the full `configFor` output on a test matrix, and the cross-organisation test over every route that takes an id: done. The TypeScript install commands are pinned (74 of them, each rendered through `helm template`). The first fake-agent harness (a scripted agent on a real stream, with seven scenarios on the config echo) is in. Still open: the status words are only partly pinned. |
 | 1. Audit written with the change | part of 2 | Done (33 of 34 write sites; link-credential rotation stays on `audited()` on purpose). |
-| 2. Config echo, capabilities, server-side Conditions | 1 and 2 (in part) | Config digest echo done. Capabilities and Conditions: open. |
+| 2. Config echo, capabilities, server-side Conditions | 1 and 2 (in part) | Done. Config digest echo; a protocol version and named capabilities in the hello (`internal/agentcaps`, recorded in memory, bounded); three Conditions (`Connected`, `ConfigInForce`, `Compatible`) decided in one function and carried on the agent document; the stated ceiling is told by the `diagnostics` capability. No screen reads the new fields yet. Documented in the agent trust model page. |
 | 3. Minimal decision loop (Advise mode) | 7 (in part) | Done. Auto mode is designed and shelved. |
 | Stop line | | Everything below waits until stage 3 has run in production. |
 
@@ -34,6 +34,6 @@ Open defects: D2 (the model version is written on read) and D7. D14 (a README li
 
 ## Next
 
-1. Stage 0 is closed except for the status words, which are pinned when stage 2 first touches them.
-2. Stage 2: capabilities and Conditions, one additive protocol change.
-3. Then stop, and review what the decision loop did in use before anything below the line.
+1. Stages 0 to 3 are done, apart from the status words (still only partly pinned; Conditions are the first of them and are pinned, the older words are not).
+2. Stop here. Review what the decision loop does in use before anything below the line.
+3. Decide where the policy kit goes (recommended: after the stop line, before the server split).

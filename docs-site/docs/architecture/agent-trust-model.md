@@ -37,6 +37,29 @@ Certificates last 24 hours and renew automatically at the halfway point. An agen
 
 Revoking an agent is immediate and checked on every call — a live stream drops at once. It's permanent by design: a revoked agent's pod will keep restarting and trying (Kubernetes doesn't know it's been told "no"), but it exits promptly every time with a clear reason in its log, backing off to a few attempts an hour rather than crash-looping. The fix is always the same: `helm upgrade` with a fresh token, which clears the revoked marker and enrolls fresh from step 1. Once the tombstone retention has passed, the server also drops the revoked agent's snapshots and its in-memory view.
 
+## What a connected agent says about itself
+
+Once the stream is open, the agent's first message is a hello. Besides its version, the Kubernetes version, the ceiling its install sets (the Helm `access.tier`) and, for a `helm` command printed in the UI, its namespace and release name, the hello now states two more things:
+
+- **A protocol version**, a counter that starts at 1. An agent from before the version was stated says nothing, and the server records that as protocol 0 and serves it exactly as it always did.
+- **Its capabilities**, a list of names for things it does: `config-digest` (it names the Config it has in force in every heartbeat), `diagnostics`, `release-info`, `self-stats`, `link-capabilities` and `chunked-sync`. The names and what each one means live in one place in the code, `internal/agentcaps`, which the agent and the server both use. A capability says what the agent *does*; what it is *allowed* to do is still the tier and the consent.
+
+The server keeps both for as long as it runs, in memory, and stores nothing from them. It cuts the list to 32 names of at most 40 characters, drops repeats and anything malformed, and never refuses a stream because of what it says: a version or a name it does not know is recorded as it is, because the agent may be newer. The Config an agent is sent does not depend on them.
+
+From those and from what the server has seen, three **conditions** are worked out in one place and carried on the agent's document. A condition is `True`, `False` or `Unknown` — and *unknown* is an answer: it means the server cannot tell, which is not the same as no.
+
+| Condition | What it says | Reasons |
+|---|---|---|
+| `Connected` | A stream from the agent is open. | `Open`, `NoStream` |
+| `ConfigInForce` | The Config last sent is the one the agent says it has in force. | `Echoed`, `NotEchoed`, `AgentDoesNotEcho`, `NotConnected` |
+| `Compatible` | The agent speaks a protocol this server serves. | `Current`, `LegacyAgent`, `ProtocolTooNew`, `ProtocolTooOld`, `NotSeenSinceStart` |
+
+None of them blocks anything. They are for people and, later, for the decision loop to read. They also do not outlive the server: after a restart they say `NotSeenSinceStart` until the agent connects again.
+
+One thing does use a capability to decide. When a hello states that the install allows tier 0, that is believed only from an agent that states its ceiling, since a 0 may be a field that was never filled in. An agent that declares `diagnostics` states it; an agent at protocol 0 is told apart, as before, by whether its hello carried diagnostics. A hello can lower an approval to the ceiling it states and can never raise one.
+
+The upgrade order follows from this: the server first, then the regional operators (which do not send the hello), then the agents. A newer agent against an older server is the one case the protocol does not promise to serve in full, and `Compatible` says so.
+
 ## Where this connects
 
 Enrollment and approval decide *whether* an agent is trusted at all; they say nothing about *what* it is then allowed to see. That's a separate, ongoing question — see [Observability intent](./observability-intent.md) for the access tier, paused collectors and excluded namespaces that actually govern a connected agent's scope, all independent of trust.
