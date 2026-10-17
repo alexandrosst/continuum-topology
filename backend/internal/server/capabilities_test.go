@@ -1,6 +1,8 @@
 package server
 
 import (
+	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -107,4 +109,53 @@ func TestAHelloWithNeitherFieldIsProtocolZeroAndTheConfigIsTheSameAsForOneWithBo
 	if p, caps := legacy.declared(); p != 0 || len(caps) != 0 {
 		t.Fatalf("an earlier stream's declaration outlived a hello that said nothing: protocol %d, %v", p, caps)
 	}
+}
+
+// ---------- the agent document ----------
+
+func TestTheAgentDocumentCarriesWhatTheAgentDeclared(t *testing.T) {
+	r := newHubRig(t)
+	f := r.connectedWith(t, &continuumv1.Hello{ProtocolVersion: 1, Capabilities: []string{"self-stats", "config-digest"}})
+	doc := r.agentDoc(t, f.id)
+	if doc.ProtocolVersion != 1 || strings.Join(doc.Capabilities, ",") != "config-digest,self-stats" {
+		t.Fatalf("document says protocol %d, names %v", doc.ProtocolVersion, doc.Capabilities)
+	}
+	raw, _ := json.Marshal(doc)
+	if !strings.Contains(string(raw), `"protocolVersion":1`) || !strings.Contains(string(raw), `"capabilities":["config-digest","self-stats"]`) {
+		t.Fatalf("the JSON names are not the contract: %s", raw)
+	}
+}
+
+func TestTheDocumentOfAnAgentThatSaidNothingHasAnEmptyListAndNotNull(t *testing.T) {
+	r := newHubRig(t)
+	f := r.connectedWith(t, &continuumv1.Hello{AgentVersion: "old"})
+	raw, _ := json.Marshal(r.agentDoc(t, f.id))
+	if !strings.Contains(string(raw), `"protocolVersion":0`) || !strings.Contains(string(raw), `"capabilities":[]`) {
+		t.Fatalf("an agent from before the version: %s", raw)
+	}
+}
+
+func TestTheDocumentOfAnAgentNeverSeenSinceTheServerStartedHasAnEmptyList(t *testing.T) {
+	r := newHubRig(t)
+	id, _, _ := r.approvedAgent(t, fp)
+	raw, _ := json.Marshal(r.agentDoc(t, id))
+	if !strings.Contains(string(raw), `"capabilities":[]`) {
+		t.Fatalf("an agent with no view: %s", raw)
+	}
+}
+
+// agentDoc is the document the API serves for one agent, as the hub builds it.
+func (r *hubRig) agentDoc(t *testing.T, id string) AgentDoc {
+	t.Helper()
+	s, err := r.hub.State(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range s.Agents {
+		if a.ID == id {
+			return a
+		}
+	}
+	t.Fatalf("agent %s is not in the state", id)
+	return AgentDoc{}
 }

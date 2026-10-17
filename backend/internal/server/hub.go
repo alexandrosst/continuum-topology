@@ -1031,6 +1031,12 @@ type AgentDoc struct {
 	// ReleaseName is the Helm release this agent's Hello says it was installed as. Empty under the same condition as
 	// Namespace, in which case a helm command falls back to the chart's documented default release name.
 	ReleaseName string `json:"releaseName,omitempty"`
+	// ProtocolVersion and Capabilities are what the agent's last Hello said it speaks and does (see internal/agentcaps). They are
+	// kept in memory only, so after a server restart they are 0 and empty until the agent connects again; 0 with a stream that has
+	// said hello means an agent from before the version, and 0 without one means nothing is known (the Compatible condition tells
+	// the two apart). No screen reads them yet. Capabilities is never null.
+	ProtocolVersion uint32   `json:"protocolVersion"`
+	Capabilities    []string `json:"capabilities"`
 	// ConnectingGeo is only a suggestion derived offline from ConnectingIP; a cloud cluster resolves to its provider's egress.
 	ConnectingGeo *geoip.Result `json:"connectingGeo,omitempty"`
 	// ConnectingGeoReason is set only when ConnectingGeo is nil because ConnectingIP itself could not be
@@ -1283,6 +1289,10 @@ func (h *Hub) buildAgentDocs(ctx context.Context, now time.Time) ([]AgentDoc, []
 		}
 		if v != nil {
 			d.Namespace, d.ReleaseName = v.ext.namespace, v.ext.releaseName
+			d.ProtocolVersion, d.Capabilities = v.ext.protocol, append([]string{}, v.ext.caps...)
+		}
+		if d.Capabilities == nil {
+			d.Capabilities = []string{}
 		}
 		if a.Status == store.StatusRevoked || a.Status == store.StatusRejected {
 			helm, secret, guessed := teardownCommands(d.Namespace, d.ReleaseName)
