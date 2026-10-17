@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import { isReportingHealth, operatorLiveness, receiverAuthOf } from '@/lib/operatorHealth'
-import { operatorCommandBlock, operatorCommandDraft } from '@/lib/operatorIntent'
+import { operatorCommandDraft } from '@/lib/operatorIntent'
 import { emptyTelemetry, type TelemetryInput } from '@/lib/install'
 
 const NOW = Date.parse('2026-10-05T12:00:00Z')
@@ -41,26 +41,16 @@ describe('operatorLiveness', () => {
   })
 })
 
-describe('operatorCommandBlock and receiver authentication', () => {
+// What the command states about a receiver's credential is the server's (backend/internal/install pins it against what the page used to
+// paste). What the page keeps is the draft it checks and shows hints from.
+describe('operatorCommandDraft and receiver authentication', () => {
   const draft: TelemetryInput = { ...emptyTelemetry, resourceUsage: true, exportEndpoint: 'op-eu.continuum-system.svc:4317', exportOperatorId: 'op-eu', exportAuthSecretName: 'receiver-token' }
-  const result = { installFragment: '--set telemetry.export.otlp.endpoint=op-eu.continuum-system.svc:4317', secretCommands: ['kubectl create secret generic op-eu-export-mtls ...'] }
 
-  test('a bearer (or unspecified) receiver keeps the credential Secret and its flags', () => {
-    for (const receiverAuth of [undefined, 'bearer' as const]) {
-      const block = operatorCommandBlock({ install: undefined, draft, result: { ...result, receiverAuth } })
-      expect(block).toContain('kubectl create secret generic receiver-token')
-      expect(block).toContain('auth.secretName=receiver-token')
-    }
+  test('a bearer (or unspecified) receiver keeps the credential Secret', () => {
+    for (const receiverAuth of [undefined, 'bearer' as const]) expect(operatorCommandDraft(draft, receiverAuth).exportAuthSecretName).toBe('receiver-token')
   })
 
   test('a certificate-only receiver drops it', () => {
-    const block = operatorCommandBlock({ install: undefined, draft, result: { ...result, receiverAuth: 'mtls' } })
-    expect(block).not.toContain('receiver-token')
-    // The credential Secret is not named, and the name is stated empty so one an earlier command set stops being sent.
-    expect(block).toMatch(/auth\.secretName= /)
-    expect(block).not.toContain('auth.secretKey')
-    expect(block.startsWith('kubectl create secret generic op-eu-export-mtls')).toBe(true)
     expect(operatorCommandDraft(draft, 'mtls').exportAuthSecretName).toBe('')
-    expect(operatorCommandDraft(draft, 'bearer').exportAuthSecretName).toBe('receiver-token')
   })
 })

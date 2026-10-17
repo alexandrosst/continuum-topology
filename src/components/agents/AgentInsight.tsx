@@ -37,7 +37,7 @@ import {
 import { clearDraft, loadDraft, saveDraft } from '@/lib/draftStore'
 import { keptSummary, telemetryActive, telemetryProblems, type TelemetryInput } from '@/lib/install'
 import { receiverAuthOf } from '@/lib/operatorHealth'
-import { explainIntentError, fragmentEndpoint, generateOperatorCommands, operatorCommandBlock, operatorCommandDraft, operatorTargets } from '@/lib/operatorIntent'
+import { explainIntentError, generateOperatorCommands, operatorCommandDraft, operatorTargets } from '@/lib/operatorIntent'
 import { TONE_CLASS } from '@/lib/provenance'
 import type { Agent, AccessTier, ReceiverAuth, TelemetryIntent } from '@/lib/types'
 import { useOperators } from '@/lib/useOperators'
@@ -615,11 +615,13 @@ function TelemetryPanelBody({
     setGenerating(true)
     setGenError(null)
     try {
-      const { result, action } = await generateOperatorCommands(conn, { agentId, operatorId, name: `Telemetry to ${operatorLabel}`, draft })
-      const theirs = split ? undefined : fragmentEndpoint(result.installFragment)
+      const { result, action } = await generateOperatorCommands(conn, { agentId, operatorId, name: `Telemetry to ${operatorLabel}`, draft, measurementsOn })
+      // The server checks the settings again before it issues a certificate. What it finds is said as it said it; no command is shown.
+      if (result.problems?.length || !result.command) throw new Error(result.problems?.[0] ?? 'The server did not write a command.')
+      const theirs = split ? undefined : result.endpoint
       setGenerated({
         snapshot: asked,
-        text: operatorCommandBlock({ install, draft, measurementsOn, result, target }),
+        text: result.command,
         action,
         endpointNote: theirs && theirs !== draft.exportEndpoint.trim() ? `These commands send to ${theirs}, the address Ikhnos has for ${operatorLabel}.` : undefined,
       })

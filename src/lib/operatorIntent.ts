@@ -1,9 +1,8 @@
 import { api, ApiError, type Conn, type TelemetryIntentCommand } from './api'
 import { operatorReceiverEndpoint } from './destinationCatalog'
-import { activeLanes, ROUTE_MODALITIES, TELEMETRY_SIGNALS, type ExportTarget, type Modality, type ScopeOverrideInput, type TelemetryInput } from './install'
-import { telemetrySecretCommand, telemetryUpgradeCommand, type InstallInfo, type ReleaseTarget } from './consent'
+import { activeLanes, TELEMETRY_SIGNALS, type ExportTarget, type Modality, type ScopeOverrideInput, type TelemetryInput } from './install'
 import type { OperatorDestination, ReceiverAuth, SignalGrant, TelemetryIntent } from './types'
-import { chainCommands } from './shellChain'
+import { telemetrySpec } from './telemetrySpec'
 
 /*
  * The client half of "point this agent at a regional operator". The operator's receiver is mutual TLS, so
@@ -11,7 +10,7 @@ import { chainCommands } from './shellChain'
  * the server also composes the provenance flags (`telemetry.resource.*`) that tie the export to a telemetry
  * intent. That all lives behind POST .../telemetry-intents/{id}/command (admin only, audited, reissues a
  * certificate on every call), which needs an active intent for the agent first. This file turns the draft
- * into that intent, calls it, and assembles the one block a person pastes.
+ * into that intent and calls it with the draft; the server writes the one block a person pastes.
  */
 
 /** The operator the draft sends to, or '' - only when the endpoint still IS that operator's receiver. A
@@ -127,38 +126,6 @@ export const operatorCommandDraft = (t: TelemetryInput, receiverAuth?: ReceiverA
   }
 }
 
-/** The endpoint the server's fragment sets, when it sets one - compared with the draft's by the panel. */
-export function fragmentEndpoint(fragment: string): string | undefined {
-  return /--set(?:-string)? telemetry\.export\.otlp\.endpoint=(\S+)/.exec(fragment)?.[1]
-}
-
-/**
- * The one block to paste: the server's Secret command(s) first (a failure there stops everything after it),
- * then the credential Secret if the draft names one (never for a certificate-only operator, see
- * operatorCommandDraft), then the normal upgrade command with the server's
- * fragment appended. The endpoint the client writes is only a placeholder that says which operator this is
- * (`<operator id>.continuum-system.svc:4317`, see operatorReceiverEndpoint); the real one is the server's, because
- * only the server knows where the operator is reached from another cluster (its recorded address, or FUSION's public
- * address). So when the fragment sets the endpoint, the placeholder is left out of the command altogether: the pasted
- * command names the endpoint once.
- */
-export function operatorCommandBlock(opts: { install: InstallInfo | undefined; draft: TelemetryInput; measurementsOn?: boolean; result: TelemetryIntentCommand; /** Where the agent's release lives, for what the server's own answer does not say. */ target?: ReleaseTarget }): string {
-  const d = operatorCommandDraft(opts.draft, opts.result.receiverAuth, (id) => opts.result.operators?.[id])
-  const target = { namespace: opts.result.namespace || opts.target?.namespace, release: opts.result.release || opts.target?.release }
-  let client = telemetryUpgradeCommand(opts.install, d, opts.measurementsOn, target).trimEnd()
-  const dropped = (key: string) => {
-    client = client.replace(new RegExp(` \\\\\\n\\s*--set(?:-string)? ${key.replace(/\./g, '\\.')}=\\S*`), '')
-  }
-  if (fragmentEndpoint(opts.result.installFragment)) dropped('telemetry.export.otlp.endpoint')
-  // The same for every route the fragment states: Helm applies --set-string AFTER --set whatever their order on the line, so a placeholder
-  // the client writes with --set-string would beat the real address the server's fragment gives with --set - the pasted command would send
-  // that signal to `<operator id>.continuum-system.svc:4317`, a name nothing answers to.
-  for (const m of ROUTE_MODALITIES) if (opts.result.installFragment.includes(`telemetry.export.routes.${m}.endpoint=`)) dropped(`telemetry.export.routes.${m}.endpoint`)
-  const upgrade = `${client} \\\n  ${opts.result.installFragment}`
-  const cred = telemetrySecretCommand(d, opts.measurementsOn, target)
-  return chainCommands([...opts.result.secretCommands, ...(cred ? [cred] : []), upgrade])
-}
-
 /** A regional operator as the intent records it, with the address this sender dials when it chose one. */
 const operatorDestination = (id: string, address: string): OperatorDestination => ({
   kind: 'operator',
@@ -256,10 +223,10 @@ export async function ensureOperatorIntent(conn: Conn, o: { agentId: string; ope
   return { intent: existing, action: 'updated' }
 }
 
-/** The whole action: ensure the intent, then ask the server for the commands (which reissues the certificate). */
-export async function generateOperatorCommands(conn: Conn, o: { agentId: string; operatorId: string; name: string; draft: TelemetryInput }): Promise<{ result: TelemetryIntentCommand; action: 'created' | 'updated' }> {
+/** The whole action: ensure the intent, then ask the server for the block (which reissues the certificate), sending the draft it is written from. */
+export async function generateOperatorCommands(conn: Conn, o: { agentId: string; operatorId: string; name: string; draft: TelemetryInput; measurementsOn?: boolean }): Promise<{ result: TelemetryIntentCommand; action: 'created' | 'updated' }> {
   const { intent, action } = await ensureOperatorIntent(conn, o)
-  return { result: await api.getTelemetryIntentCommand(conn, intent.id), action }
+  return { result: await api.getTelemetryIntentCommand(conn, intent.id, telemetrySpec(o.draft, o.measurementsOn)), action }
 }
 
 /** A server refusal in words a person can act on, always carrying the server's own message verbatim. */

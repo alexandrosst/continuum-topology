@@ -10,8 +10,10 @@ import { forgetUpgrades, lastUpgrade } from './upgradeServer'
 
 // The regional-operator destination in the Telemetry panel: an operator's receiver wants a client
 // certificate only the server can issue, so the panel shows no ready command - only an explicit "Generate"
-// that creates (or updates) the agent's telemetry intent and asks the server for the commands. Every
+// that creates (or updates) the agent's telemetry intent and asks the server for the block to paste. Every
 // assertion is about what the panel sends and shows, with the API mocked; nothing here reaches a server.
+// What the block says is the server's: it is written, and pinned, in Go (backend/internal/install and
+// backend/internal/server/admin_telemetry_intent_block_test.go). The page sends its settings and shows the answer.
 
 let role: 'viewer' | 'editor' | 'admin' | 'owner' | undefined
 const listOperators = vi.fn()
@@ -77,6 +79,9 @@ const intent = (overrides: Partial<TelemetryIntent> = {}): TelemetryIntent => ({
 })
 const SECRET = 'kubectl create secret generic op-eu-export-mtls --namespace continuum-system \\\n  --from-literal=tls.crt="CERT" \\\n  --from-literal=tls.key="KEY" \\\n  --from-literal=ca.crt="CA"'
 const FRAGMENT = '--set telemetry.resource.orgId=org-1 --set telemetry.resource.clusterId=cl-1 --set telemetry.resource.intentId=ti-1 --set telemetry.export.otlp.endpoint=op-eu.continuum-system.svc:4317 --set telemetry.export.otlp.tls.mtls.enabled=true --set telemetry.export.otlp.tls.mtls.secretName=op-eu-export-mtls'
+/** The block as the server writes it: the certificate Secret, then the upgrade, which ends with the server's own fragment. */
+const blockOf = (fragment: string, tag = 'one') => `${SECRET} && \\\nhelm upgrade continuum-agent ./continuum-agent-0.4.0.tgz --namespace continuum-system --reset-then-reuse-values \\\n  --set telemetry.resourceUsage.metrics.enabled=true # ${tag} \\\n  ${fragment}`
+const answer = (over: Record<string, unknown> = {}) => ({ installFragment: FRAGMENT, secretCommands: [SECRET], command: blockOf(FRAGMENT), problems: [], endpoint: 'op-eu.continuum-system.svc:4317', ...over })
 
 beforeEach(() => {
   forgetUpgrades()
@@ -87,7 +92,7 @@ beforeEach(() => {
   createTelemetryIntent.mockResolvedValue(intent())
   updateTelemetryIntentScope.mockResolvedValue(intent())
   updateTelemetryIntentDestination.mockResolvedValue(intent())
-  getTelemetryIntentCommand.mockResolvedValue({ installFragment: FRAGMENT, secretCommands: [SECRET] })
+  getTelemetryIntentCommand.mockResolvedValue(answer())
 })
 
 const tree = () => (
@@ -144,7 +149,7 @@ describe('TelemetryPanel with a regional operator destination', () => {
     noApiCalls()
   })
 
-  test('with no intent yet: creates one for this agent, then shows one block - secret first, then the upgrade with the server fragment', async () => {
+  test('with no intent yet: creates one for this agent, sends the draft with it, and shows the block the server wrote', async () => {
     const user = userEvent.setup()
     render(tree())
     await pickOperator(user)
@@ -164,41 +169,35 @@ describe('TelemetryPanel with a regional operator destination', () => {
       { kind: 'operator', endpoint: 'op-eu.continuum-system.svc:4317', targetOperatorId: 'op-eu' },
     )
     expect(updateTelemetryIntentScope).not.toHaveBeenCalled()
-    expect(getTelemetryIntentCommand).toHaveBeenCalledWith(CONN, 'ti-1')
+    // The server is told what the page holds, in the words the renderer takes, and writes the block from it.
+    expect(getTelemetryIntentCommand).toHaveBeenCalledTimes(1)
+    expect(getTelemetryIntentCommand).toHaveBeenCalledWith(
+      CONN,
+      'ti-1',
+      expect.objectContaining({
+        signals: expect.objectContaining({ resourceUsage: true, traces: false }),
+        destination: expect.objectContaining({ endpoint: 'op-eu.continuum-system.svc:4317', operator: 'op-eu' }),
+        routes: expect.objectContaining({ split: false }),
+      }),
+    )
 
-    expect(cmd.startsWith('kubectl create secret generic op-eu-export-mtls')).toBe(true)
-    expect(cmd.indexOf('kubectl create secret')).toBeLessThan(cmd.indexOf('helm upgrade'))
-    expect(cmd).toContain('&&')
-    expect(cmd.trimEnd().endsWith(FRAGMENT)).toBe(true)
-    expect(cmd).toContain('--set telemetry.resourceUsage.metrics.enabled=true')
-    // The endpoint is the server's, named once (the client's placeholder is left out). The connection is stated as gRPC and verified, so
-    // an http or skip-verify an earlier destination had cannot linger; the client-certificate lines are the server fragment's alone.
-    expect(cmd.split('telemetry.export.otlp.endpoint=').length - 1).toBe(1)
-    expect(cmd).toContain('--set telemetry.export.otlp.endpoint=op-eu.continuum-system.svc:4317')
-    expect(cmd).toContain('telemetry.export.otlp.protocol=grpc')
-    expect(cmd).toContain('tls.insecure=false')
-    expect(cmd).not.toContain('tls.mtls.enabled=false')
+    // The page shows the server's block as it is: nothing is added to it, merged into it or taken out of it.
+    expect(cmd.replace(/\s+/g, ' ')).toBe(blockOf(FRAGMENT).replace(/\s+/g, ' '))
     expect(screen.queryByTestId('tp-operator-endpoint-note')).not.toBeInTheDocument()
     expect(screen.queryByTestId('tp-operator-stale')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Copy the command' })).toBeEnabled()
   })
 
-  test('an operator reached at an address the server knows: the command names that endpoint once and the note says so, without a warning', async () => {
+  test('an operator reached at an address the server knows: the note says the commands send there, without a warning', async () => {
     const real = 'otlp.eu.example.com:4317'
-    getTelemetryIntentCommand.mockResolvedValue({
-      installFragment: `${FRAGMENT.replace('op-eu.continuum-system.svc:4317', real)} --set telemetry.export.otlp.tls.serverName=op-eu.continuum-system.svc`,
-      secretCommands: [SECRET],
-    })
+    getTelemetryIntentCommand.mockResolvedValue(answer({ endpoint: real, command: blockOf(FRAGMENT.replace('op-eu.continuum-system.svc:4317', real)) }))
     const user = userEvent.setup()
     render(tree())
     await pickOperator(user)
     await toRun(user)
     await user.click(await generateButton())
     const cmd = (await screen.findByTestId('tp-operator-command')).textContent ?? ''
-    expect(cmd.split('telemetry.export.otlp.endpoint=').length - 1).toBe(1)
     expect(cmd).toContain(`telemetry.export.otlp.endpoint=${real}`)
-    expect(cmd).not.toContain('op-eu.continuum-system.svc:4317')
-    expect(cmd).toContain('telemetry.export.otlp.tls.serverName=op-eu.continuum-system.svc')
     const note = screen.getByTestId('tp-operator-endpoint-note')
     expect(note).toHaveTextContent(`These commands send to ${real}`)
     expect(note).not.toHaveClass('text-warn')
@@ -225,7 +224,7 @@ describe('TelemetryPanel with a regional operator destination', () => {
     expect(createTelemetryIntent).not.toHaveBeenCalled()
     expect(updateTelemetryIntentDestination).toHaveBeenCalledWith(CONN, 'ti-9', { kind: 'operator', endpoint: 'op-eu.continuum-system.svc:4317', targetOperatorId: 'op-eu' })
     expect(updateTelemetryIntentScope).toHaveBeenCalledWith(CONN, 'ti-9', [], [], [{ id: 'resourceUsage', source: 'builtin' }])
-    expect(getTelemetryIntentCommand).toHaveBeenCalledWith(CONN, 'ti-9')
+    expect(getTelemetryIntentCommand).toHaveBeenCalledWith(CONN, 'ti-9', expect.objectContaining({ destination: expect.objectContaining({ operator: 'op-eu' }) }))
   })
 
   test('an intent already on this operator with the same scope is left alone, only the command is fetched', async () => {
@@ -260,18 +259,19 @@ describe('TelemetryPanel with a regional operator destination', () => {
     expect(screen.getByTestId('tp-operator-command')).toBeInTheDocument()
     expect(getTelemetryIntentCommand).toHaveBeenCalledTimes(1)
 
+    getTelemetryIntentCommand.mockResolvedValue(answer({ command: blockOf(FRAGMENT, 'with a receiver token') }))
     await user.click(screen.getByTestId('tp-operator-generate'))
     await waitFor(() => expect(screen.queryByTestId('tp-operator-stale')).not.toBeInTheDocument())
     expect(getTelemetryIntentCommand).toHaveBeenCalledTimes(2)
-    const cmd = screen.getByTestId('tp-operator-command').textContent ?? ''
-    expect(cmd).toContain('kubectl create secret generic receiver-token')
-    expect(cmd).toContain('auth.secretName=receiver-token')
+    // The second block is asked for the settings as they are now, and shown.
+    expect(getTelemetryIntentCommand).toHaveBeenLastCalledWith(CONN, 'ti-1', expect.objectContaining({ destination: expect.objectContaining({ authSecret: 'receiver-token' }) }))
+    expect(screen.getByTestId('tp-operator-command').textContent).toContain('with a receiver token')
     expect(screen.getByRole('button', { name: 'Copy the command' })).toBeEnabled()
   })
 
-  test('a certificate-only operator: no receiver-token field or hint, and the command carries no credential Secret even if one was typed earlier', async () => {
+  test('a certificate-only operator: no receiver-token field or hint, and the server is the one to leave a credential out of the block', async () => {
     listOperators.mockResolvedValue([{ ...operator, receiverAuth: 'mtls' }])
-    getTelemetryIntentCommand.mockResolvedValue({ installFragment: FRAGMENT, secretCommands: [SECRET], receiverAuth: 'mtls' })
+    getTelemetryIntentCommand.mockResolvedValue(answer({ receiverAuth: 'mtls' }))
     const user = userEvent.setup()
     render(tree())
     await pickOperator(user)
@@ -280,12 +280,38 @@ describe('TelemetryPanel with a regional operator destination', () => {
     expect(screen.queryByTestId('tp-export-auth-secret')).not.toBeInTheDocument()
     expect(await screen.findByTestId('tp-operator-mtls-note')).toHaveTextContent('client certificate alone')
     expect(screen.queryByTestId('tp-credential-hint')).not.toBeInTheDocument()
-    const cmd = (await screen.findByTestId('tp-operator-command')).textContent ?? ''
-    expect(cmd.startsWith('kubectl create secret generic op-eu-export-mtls')).toBe(true)
-    // No credential Secret is named, and the name is stated empty so a receiver token an earlier command set stops being sent.
-    expect(cmd).toMatch(/auth\.secretName= /)
-    expect(cmd).not.toContain('auth.secretKey')
-    expect(cmd).not.toContain('TELEMETRY_EXPORT_TOKEN')
+    await screen.findByTestId('tp-operator-command')
+    expect(screen.getByTestId('tp-operator-command').textContent).toContain('kubectl create secret generic op-eu-export-mtls')
+  })
+
+  test('whether path measurements run on the agent is sent with the draft, since network latency reports nothing without them', async () => {
+    const diagnostics = {
+      reportedAt: '2026-10-06T12:09:00Z', agentVersion: '1', uptimeSeconds: 1, installedTier: 2, approvedTier: 2, effectiveTier: 2, pausedCollectors: [], excludedNamespaces: 0,
+      collectors: [{ name: 'measure', enabled: true }], informers: [], problems: [], installedTelemetry: [],
+    } as unknown as React.ComponentProps<typeof TelemetryPanel>['diagnostics']
+    const user = userEvent.setup()
+    render(
+      <MemoryRouter>
+        <TelemetryPanel standalone testIdPrefix="tp" agentId="agent-1" clusterId="cl-1" diagnostics={diagnostics} />
+      </MemoryRouter>,
+    )
+    await pickOperator(user)
+    await toRun(user)
+    await user.click(await generateButton())
+    await screen.findByTestId('tp-operator-command')
+    expect(getTelemetryIntentCommand).toHaveBeenCalledWith(CONN, 'ti-1', expect.objectContaining({ measurementsOn: true }))
+  })
+
+  test('a draft the server finds unfit to write is shown as it says, with no command', async () => {
+    getTelemetryIntentCommand.mockResolvedValue(answer({ command: undefined, installFragment: '', secretCommands: [], problems: ['Traces sampling must be between 0 and 100'] }))
+    const user = userEvent.setup()
+    render(tree())
+    await pickOperator(user)
+    await toRun(user)
+    await user.click(await generateButton())
+    expect(await screen.findByTestId('tp-operator-error')).toHaveTextContent('Traces sampling must be between 0 and 100')
+    expect(screen.queryByTestId('tp-operator-command')).not.toBeInTheDocument()
+    expect(screen.getByTestId('tp-operator-generate')).toBeEnabled()
   })
 
   test('someone below administrator sees a short note and no command, and the API is never called', async () => {
@@ -353,7 +379,7 @@ describe('TelemetryPanel with signal types going to different destinations', () 
   }
 
   beforeEach(() => {
-    getTelemetryIntentCommand.mockResolvedValue({ installFragment: ROUTE_FRAGMENT, secretCommands: [SECRET], operators: { 'op-eu': 'mtls' } })
+    getTelemetryIntentCommand.mockResolvedValue(answer({ installFragment: ROUTE_FRAGMENT, command: blockOf(ROUTE_FRAGMENT, 'routes'), operators: { 'op-eu': 'mtls' }, endpoint: undefined }))
   })
 
   test('two signal types to one operator: one intent with a route each, one certificate, and the routes in the command', async () => {
@@ -377,18 +403,20 @@ describe('TelemetryPanel with signal types going to different destinations', () 
       OP_DEST,
       { metrics: OP_DEST, logs: OP_DEST },
     )
-    // One certificate Secret, however many signal types go to the operator; then the upgrade with the server's routes last.
-    expect(cmd.match(/kubectl create secret generic op-eu-export-mtls/g)).toHaveLength(1)
-    expect(cmd.startsWith('kubectl create secret generic op-eu-export-mtls')).toBe(true)
-    expect(cmd.trimEnd().endsWith(ROUTE_FRAGMENT)).toBe(true)
-    // The server states each route's real endpoint (--set); the page's placeholder for it (--set-string, which Helm applies AFTER --set)
-    // would win over it, so it is not in the command at all: each endpoint is named once.
-    expect(cmd).not.toMatch(/--set-string telemetry\.export\.routes\.(metrics|logs)\.endpoint=op-eu/)
-    expect(cmd.match(/telemetry\.export\.routes\.metrics\.endpoint=/g)).toHaveLength(1)
-    expect(cmd.match(/telemetry\.export\.routes\.logs\.endpoint=/g)).toHaveLength(1)
-    // The default is left alone, and an operator route is not stated off by the client half.
-    expect(cmd).not.toContain('telemetry.export.otlp.endpoint')
-    expect(cmd).not.toContain('routes.metrics.tls.mtls.enabled=false')
+    // The server is told each signal type's destination, and writes the block (one certificate Secret, however many go to the operator).
+    expect(getTelemetryIntentCommand).toHaveBeenCalledWith(
+      CONN,
+      'ti-1',
+      expect.objectContaining({
+        signals: expect.objectContaining({ resourceUsage: true, systemLogs: true }),
+        routes: expect.objectContaining({
+          split: true,
+          metrics: expect.objectContaining({ endpoint: 'op-eu.continuum-system.svc:4317', operator: 'op-eu' }),
+          logs: expect.objectContaining({ endpoint: 'op-eu.continuum-system.svc:4317', operator: 'op-eu' }),
+        }),
+      }),
+    )
+    expect(cmd.replace(/\s+/g, ' ')).toBe(blockOf(ROUTE_FRAGMENT, 'routes').replace(/\s+/g, ' '))
     expect(screen.getByTestId('tp-operator-fresh')).toHaveTextContent('Recorded a telemetry intent')
   })
 
@@ -411,14 +439,20 @@ describe('TelemetryPanel with signal types going to different destinations', () 
     expect(args[7].metrics).toEqual(OP_DEST)
     expect(args[7].logs).toMatchObject({ kind: 'external' })
     expect(args[7].logs.endpoint).toContain('loki')
-    // The external route is built by the page, and states mutual TLS off for itself.
-    expect(cmd).toContain('--set telemetry.export.routes.logs.tls.mtls.enabled=false')
-    expect(cmd.match(/kubectl create secret generic op-eu-export-mtls/g)).toHaveLength(1)
+    // The server is told the external route is one: no operator on it, and the address the person typed.
+    expect(getTelemetryIntentCommand).toHaveBeenCalledWith(
+      CONN,
+      'ti-1',
+      expect.objectContaining({
+        routes: expect.objectContaining({ split: true, logs: expect.objectContaining({ endpoint: expect.stringContaining('loki'), operator: '' }), metrics: expect.objectContaining({ operator: 'op-eu' }) }),
+      }),
+    )
+    expect(cmd).toContain('kubectl create secret generic op-eu-export-mtls')
   })
 
   test('an intent that already has routes is told to clear them when the draft goes back to one destination', async () => {
     listTelemetryIntents.mockResolvedValue([intent({ id: 'ti-9', routes: { metrics: OP_DEST, logs: OP_DEST } })])
-    getTelemetryIntentCommand.mockResolvedValue({ installFragment: FRAGMENT, secretCommands: [SECRET] })
+    getTelemetryIntentCommand.mockResolvedValue(answer())
     const user = userEvent.setup()
     render(tree())
     await pickOperator(user)

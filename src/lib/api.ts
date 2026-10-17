@@ -347,6 +347,12 @@ export interface TelemetryIntentCommand {
    *  above and the upgrade command must use it, so the release finds what was created for it. */
   namespace?: string
   release?: string
+  /** Only when the telemetry was sent: the whole block to paste, the Secrets first and the upgrade last. Absent with problems. */
+  command?: string
+  /** Only when the telemetry was sent: what makes it unfit to write a command from. No certificate was issued then. */
+  problems?: string[]
+  /** Only for one operator destination: the address the command sends to, which is the operator's recorded one, not the page's placeholder. */
+  endpoint?: string
 }
 
 /** What minting a quick-start gateway token returns - the plaintext, once, plus when it was minted and
@@ -844,7 +850,9 @@ export const api = {
   deleteTelemetryIntent: (c: Conn, id: string) => call<void>(c, 'DELETE', `/api/v1/telemetry-intents/${encodeURIComponent(id)}`),
   /** The command that changes an installed agent (its access ceiling, its telemetry, or both), written by the server. Computes only: nothing is stored or issued. */
   agentUpgradeCommand: (c: Conn, req: AgentUpgradeRequest) => call<AgentUpgradeAnswer>(c, 'POST', '/api/v1/commands/agent-upgrade', req),
-  getTelemetryIntentCommand: (c: Conn, id: string) => call<TelemetryIntentCommand>(c, 'POST', `/api/v1/telemetry-intents/${encodeURIComponent(id)}/command`),
+  /** The commands for an intent's agent. With the telemetry the page is editing the answer also holds the whole block to paste (`command`), written by the server. Each call issues a client certificate. */
+  getTelemetryIntentCommand: (c: Conn, id: string, telemetry?: AgentUpgradeRequest['telemetry']) =>
+    call<TelemetryIntentCommand>(c, 'POST', `/api/v1/telemetry-intents/${encodeURIComponent(id)}/command`, telemetry ? { telemetry } : undefined),
 
   // quick-start gateway tokens (see QuickStartBackends.tsx and quickStartGateway.ts): a short-lived
   // bearer secret scoped to one quick-start backend instance, checked entirely by the nginx gateway

@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { emptyExportTarget, emptyTelemetry, withTelemetry, type TelemetryInput } from '../src/lib/install'
 import { telemetrySecretCommand, telemetryUpgradeCommand } from '../src/lib/consent'
 import { operatorReceiverEndpoint } from '../src/lib/destinationCatalog'
-import { exportOperatorId, fragmentEndpoint, intentDestinations, intentScope, intentSignals, laneOperatorId, operatorCommandBlock, operatorCommandDraft, operatorTargets } from '../src/lib/operatorIntent'
+import { exportOperatorId, intentDestinations, intentScope, intentSignals, laneOperatorId, operatorCommandDraft, operatorTargets } from '../src/lib/operatorIntent'
 
 const base = 'helm install continuum-agent oci://registry.example.com/continuum-agent --namespace continuum-system --create-namespace'
 const operatorDraft = (over: Partial<TelemetryInput> = {}): TelemetryInput => ({ ...emptyTelemetry, resourceUsage: true, exportEndpoint: 'op-eu.continuum-system.svc:4317', exportOperatorId: 'op-eu', ...over })
@@ -80,53 +80,6 @@ test('intentScope never records a scope narrower than what is collected', () => 
   assert.deepEqual(intentScope(emptyTelemetry), { namespaces: [], exclude: [] })
 })
 
-test('operatorCommandBlock: server secrets first, then the upgrade with the server fragment last; export flags agree', () => {
-  const fragment = '--set telemetry.resource.orgId=o --set telemetry.resource.clusterId=c --set telemetry.resource.intentId=ti-1 --set telemetry.export.otlp.endpoint=op-eu.continuum-system.svc:4317 --set telemetry.export.otlp.tls.mtls.enabled=true --set telemetry.export.otlp.tls.mtls.secretName=op-eu-export-mtls'
-  const secret = 'kubectl create secret generic op-eu-export-mtls --namespace continuum-system \\\n  --from-literal=tls.crt="C"'
-  // A previous destination's HTTP and skip-verify would conflict with mutual TLS over gRPC: dropped.
-  const draft = operatorDraft({ exportProtocol: 'http', exportInsecure: true })
-  const cmd = operatorCommandBlock({ install: undefined, draft, result: { installFragment: fragment, secretCommands: [secret] } })
-  assert.ok(cmd.startsWith(secret + ' && \\\nhelm upgrade continuum-agent'))
-  assert.ok(cmd.endsWith(' \\\n  ' + fragment))
-  // Stated as gRPC and verified, not left out: a release that used http or skip-verify before would keep them under --reset-then-reuse-values.
-  assert.ok(cmd.includes('otlp.protocol=grpc') && cmd.includes('tls.insecure=false'))
-  assert.ok(!cmd.includes('otlp.protocol=http') && !cmd.includes('tls.insecure=true'))
-  assert.ok(!cmd.includes('tls.mtls.enabled=false'), 'the server fragment owns the client-certificate lines of an operator destination')
-  assert.equal(fragmentEndpoint(fragment), draft.exportEndpoint, 'the server\'s endpoint is the receiver the draft names')
-  // The endpoint is the server's, stated once (the client's placeholder for it is dropped, not repeated).
-  assert.equal(cmd.match(/telemetry\.export\.otlp\.endpoint=/g)?.length, 1)
-  assert.match(cmd, /--set telemetry\.export\.otlp\.endpoint=op-eu\.continuum-system\.svc:4317/)
-  assert.deepEqual(operatorCommandDraft(draft), { ...draft, exportProtocol: 'grpc', exportInsecure: false })
-})
-
-test('operatorCommandBlock puts the receiver-token Secret between the certificate Secret and the upgrade', () => {
-  const draft = operatorDraft({ exportAuthSecretName: 'op-token' })
-  const cmd = operatorCommandBlock({ install: undefined, draft, result: { installFragment: '--set a=b', secretCommands: ['kubectl create secret generic cert'] } })
-  const parts = cmd.split(' && \\\n')
-  assert.equal(parts.length, 3)
-  assert.ok(parts[0].startsWith('kubectl create secret generic cert'))
-  assert.ok(parts[1].startsWith('kubectl create secret generic op-token'))
-  assert.ok(parts[2].startsWith('helm upgrade') && parts[2].includes('auth.secretName=op-token'))
-})
-
-test('operatorCommandBlock targets the namespace and release the server reports, for the Secrets and the upgrade alike', () => {
-  const draft = operatorDraft({ exportAuthSecretName: 'op-token' })
-  const cmd = operatorCommandBlock({
-    install: undefined, draft,
-    result: { installFragment: '--set a=b', secretCommands: ['kubectl create secret generic cert --namespace edge-agents'], namespace: 'edge-agents', release: 'cont-edge' },
-  })
-  const parts = cmd.split(' && \\\n')
-  assert.ok(parts[1].includes('--namespace edge-agents '), 'the receiver-token Secret is created where the release runs')
-  assert.ok(parts[2].startsWith('helm upgrade cont-edge ') && parts[2].includes('--namespace edge-agents '))
-})
-
-test('a namespace or release that is not a plain Kubernetes name is never pasted into a command', () => {
-  const draft = operatorDraft({ exportAuthSecretName: 'op-token' })
-  const cmd = operatorCommandBlock({ install: undefined, draft, result: { installFragment: '--set a=b', secretCommands: [], namespace: 'x; rm -rf /', release: '$(id)' } })
-  assert.ok(!cmd.includes('rm -rf') && !cmd.includes('$(id)'))
-  assert.ok(cmd.includes('helm upgrade continuum-agent ') && cmd.includes('--namespace continuum-system '))
-})
-
 /* ---------- signal types going to different destinations ---------- */
 
 const opLane = (id: string, over: Partial<typeof emptyExportTarget> = {}) => ({ ...emptyExportTarget, exportEndpoint: `${id}.continuum-system.svc:4317`, exportOperatorId: id, ...over })
@@ -184,35 +137,6 @@ test('each operator lane drops a credential its operator does not take; the othe
   assert.equal(operatorCommandDraft(splitDraft({ exportLanes: { ...splitDraft().exportLanes, metrics: opLane('op-eu', { exportInsecure: true, exportProtocol: 'http' }) } })).exportLanes.metrics.exportProtocol, 'grpc')
 })
 
-test('operatorCommandBlock for routed signal types: one certificate Secret, the routes, and the server fragment last', () => {
-  const draft = splitDraft({ traces: false })
-  const fragment = '--set telemetry.export.routes.metrics.tls.mtls.enabled=true --set telemetry.export.routes.logs.tls.mtls.enabled=true'
-  const cmd = operatorCommandBlock({ install: undefined, draft, result: { installFragment: fragment, secretCommands: ['kubectl create secret generic op-eu-export-mtls'], operators: { 'op-eu': 'mtls' } } })
-  assert.equal(cmd.match(/kubectl create secret/g)?.length, 1)
-  assert.ok(cmd.trimEnd().endsWith(fragment))
-  assert.match(cmd, /--set-string telemetry\.export\.routes\.metrics\.endpoint=op-eu\.continuum-system\.svc:4317/)
-  assert.doesNotMatch(cmd, /telemetry\.export\.otlp\.endpoint/)
-  // A client half never turns an operator route's mutual TLS off; the server's fragment turns it on.
-  assert.doesNotMatch(cmd, /routes\.(metrics|logs)\.tls\.mtls\.enabled=false/)
-})
-
-// Helm applies --set-json, then --set, then --set-string, whatever their order on the line. The client writes its endpoints with
-// --set-string; the server's fragment states the real address with --set. If the client's placeholder stays, it WINS - the pasted command
-// sends that signal to `op-eu.continuum-system.svc:4317`, which nothing answers to from another cluster.
-test('operatorCommandBlock drops the client placeholder of every route the server fragment states the real endpoint for', () => {
-  const draft = splitDraft({ traces: false })
-  const fragment = '--set telemetry.export.routes.metrics.endpoint=op-eu.example.net:443 --set telemetry.export.routes.metrics.tls.mtls.enabled=true --set telemetry.export.routes.logs.endpoint=op-eu.example.net:443'
-  const cmd = operatorCommandBlock({ install: undefined, draft, result: { installFragment: fragment, secretCommands: [], operators: { 'op-eu': 'mtls' } } })
-  assert.doesNotMatch(cmd, /--set-string telemetry\.export\.routes\.(metrics|logs)\.endpoint=/)
-  assert.equal(cmd.match(/telemetry\.export\.routes\.metrics\.endpoint=/g)?.length, 1)
-  assert.equal(cmd.match(/telemetry\.export\.routes\.logs\.endpoint=/g)?.length, 1)
-  // The route the fragment says nothing about keeps its own (here: the traces lane is off, so its endpoint is the empty "no route").
-  assert.match(cmd, /--set-string telemetry\.export\.routes\.traces\.endpoint=( |$)/)
-  // And the single destination, as before.
-  const single = operatorCommandBlock({ install: undefined, draft: operatorDraft(), result: { installFragment: '--set telemetry.export.otlp.endpoint=op-eu.example.net:443', secretCommands: [] } })
-  assert.doesNotMatch(single, /--set-string telemetry\.export\.otlp\.endpoint=/)
-})
-
 test('the address this sender chose is recorded with the operator destination, one or per signal type, and left out when none was chosen', () => {
   const chosen = intentDestinations(operatorDraft({ exportOperatorAddress: ' 10.20.0.14:31317 ' }), 'op-eu')
   assert.deepEqual(chosen.destination, { kind: 'operator', endpoint: 'op-eu.continuum-system.svc:4317', targetOperatorId: 'op-eu', address: '10.20.0.14:31317' })
@@ -223,4 +147,11 @@ test('the address this sender chose is recorded with the operator destination, o
   const d = intentDestinations(split, 'op-eu')
   assert.equal(d.routes?.metrics?.address, '10.20.0.14:31317')
   assert.equal(d.routes?.logs?.address, undefined)
+})
+
+// What the command states of an operator destination is written by the server (backend/internal/install: operator_block_test.go pins it against
+// the bytes this page used to paste). What stays here is what the page itself decides: which destination counts as an operator's.
+test('operatorCommandDraft makes the draft fit an operator\'s receiver: gRPC, verified', () => {
+  const draft = operatorDraft({ exportProtocol: 'http', exportInsecure: true })
+  assert.deepEqual(operatorCommandDraft(draft), { ...draft, exportProtocol: 'grpc', exportInsecure: false })
 })

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"os/exec"
+	"strings"
 	"testing"
 )
 
@@ -66,5 +68,48 @@ func TestWhatThePagePastedForAnOperatorIsWhatTheRendererWrites(t *testing.T) {
 				t.Fatalf("the page pasted\n%s\nthe renderer writes\n%s", c.Block, got)
 			}
 		})
+	}
+}
+
+// What the server hands out for a client certificate is a here-document, its closing word alone on its line. The block that has one in front
+// of an upgrade once left the shell waiting at its > prompt; this one runs through to the helm step and stops at a Secret that fails.
+func TestTheOperatorBlockRunsThroughAShellToTheHelmStep(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("no bash")
+	}
+	secret := "kubectl apply -f - <<'CONTINUUM_SECRET'\napiVersion: v1\nkind: Secret\nstringData:\n  tls.key: |\n    -----BEGIN EC PRIVATE KEY-----\n    abc\n    -----END EC PRIVATE KEY-----\nCONTINUUM_SECRET"
+	spec := Telemetry{
+		Signals:     Signals{ResourceUsage: true},
+		Destination: Destination{Endpoint: "op-central.continuum-system.svc:4317", Protocol: "grpc", Operator: "op-central"},
+		Processing:  Processing{TracesSamplingPercent: new(float64)},
+	}
+	block, err := OperatorTelemetry{
+		AgentUpgrade: AgentUpgrade{Telemetry: &spec}, Certificates: []string{secret},
+		Restated: []Value{Set("telemetry.export.otlp.endpoint", "op-central.continuum-system.svc:4317")}, ReceiverAuth: map[string]string{"op-central": "mtls"},
+	}.Render()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains("\n"+block+"\n", "\nCONTINUUM_SECRET\n") {
+		t.Fatalf("the closing word is not alone on its line:\n%s", block)
+	}
+	run := func(applyOK bool) (string, string, error) {
+		apply := "echo SECRET-APPLIED"
+		if !applyOK {
+			apply = "return 1"
+		}
+		cmd := exec.Command("bash", "-c", "kubectl() { cat > /dev/null; "+apply+"; }\nhelm() { echo HELM-RAN; }\n"+block)
+		var out, errb bytes.Buffer
+		cmd.Stdout, cmd.Stderr = &out, &errb
+		err := cmd.Run()
+		return out.String(), errb.String(), err
+	}
+	out, stderr, err := run(true)
+	if err != nil || stderr != "" || out != "SECRET-APPLIED\nHELM-RAN\n" {
+		t.Fatalf("the shell ran %q (stderr %q, err %v)", out, stderr, err)
+	}
+	out, _, err = run(false)
+	if err == nil || strings.Contains(out, "HELM-RAN") {
+		t.Fatalf("a failed Secret did not stop the upgrade: %q, %v", out, err)
 	}
 }
