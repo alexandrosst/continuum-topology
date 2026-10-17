@@ -30,11 +30,12 @@ Where the two differ, the second pass wins.
 | 3. Minimal decision loop (Advise mode) | 7 (in part) | Done. Auto mode is designed and shelved. |
 | Stop line | | Waived on 2026-10-17 (no advisor yet). The decision loop is still to be run in use with a real advisor, and the order below the line revisited then. |
 | Policy kit (after the line, before the server split) | 1 | Done, in four commits. D15: the words the audit trail uses for the server are reserved as usernames. A typed `Actor` (`actor.go`). One tier check (`tier.go`: `CheckTier`, `GrantableTier`, `ReportedTier`) in place of six separate bounds. One `Decide` (`policy.go`) for what a caller may do, including whether a change to an agent's access widens it, and every route (182) mounted through one function and listed in `testdata/routes.txt`. Each has a guard test that fails if the decision is made by hand elsewhere. Not done: organisation scope on the store methods that take a bare id. |
+| Config channel (after the policy kit) | 1 and 2 (in part) | Done, in three commits. What an agent is told is compiled from gathered facts by one function that reads nothing (`compileConfig` in `paths.go`), as the sum of five named sections (policy, timing, cluster, links, probes). A test fails if a field of the Config has no owner. The digest is computed from the sections (`config_digest.go`), not written out by hand; it lives in server memory only, so no database change and no extra push. The existing hash gate and config matrix passed unchanged. |
 
 Open defects: D2 (the model version is written on read), D7 (the agent drops held flow edges at reconnect), the frontend half of D6 (the Measured paths screen still shows 0 ms) and the dead quick-start gateway generator. D15 is closed. D14 (a README line) has a patch waiting.
 
 ## Next
 
-1. Stages 0 to 3 and the policy kit are done, apart from the older status words (the Conditions are pinned; the older words are not).
-2. The config channel is next, in small steps with a pin first: contributors, a pure compiler, and a computed hash in place of the hand-written one. Then install rendering, the status model, the server split into eight modules, and generated types with frontend feature folders.
+1. Stages 0 to 3, the policy kit and the config channel are done, apart from the older status words (the Conditions are pinned; the older words are not).
+2. The config channel is done. Install rendering is next: a typed install spec and one renderer on the server, in place of about 40 command builders in two languages, with the 74 pinned commands as the check. Then the status model, the server split into eight modules, and generated types with frontend feature folders.
 3. When there is an advisor, run the decision loop in use and revisit this order.
