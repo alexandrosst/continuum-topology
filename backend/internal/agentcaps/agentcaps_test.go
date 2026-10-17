@@ -65,3 +65,53 @@ func TestDescribeDoesNotInventNames(t *testing.T) {
 		t.Fatalf("an unknown name was described: %q", d)
 	}
 }
+
+func TestCleanKeepsWhatIsWellformedOnceSortedAndBounded(t *testing.T) {
+	got := Clean([]string{"self-stats", "config-digest", "self-stats", "Bad Name", "", "from-the-future", "a--b"})
+	want := []string{"config-digest", "from-the-future", "self-stats"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	if got := Clean(nil); len(got) != 0 {
+		t.Fatalf("nothing in, %v out", got)
+	}
+
+	many := make([]string, 0, 100)
+	for i := 0; i < 100; i++ {
+		many = append(many, "n-"+strings.Repeat("a", i%5)+string(rune('a'+i%26))+string(rune('a'+i/26)))
+	}
+	if got := Clean(many); len(got) != MaxNames {
+		t.Fatalf("%d names kept of 100 distinct ones, want %d", len(got), MaxNames)
+	}
+
+	// The first MaxNames listed are the ones kept, not the first MaxNames alphabetically.
+	late := []string{}
+	for i := 0; i < MaxNames; i++ {
+		late = append(late, "z"+strings.Repeat("a", i))
+	}
+	late = append(late, "aaa")
+	for _, n := range Clean(late) {
+		if n == "aaa" {
+			t.Fatal("a name past the limit was kept because it sorts early")
+		}
+	}
+
+	// Rubbish costs a bounded amount: nothing past maxScan entries is looked at.
+	junk := make([]string, 0, maxScan+10)
+	for i := 0; i < maxScan; i++ {
+		junk = append(junk, "BAD")
+	}
+	junk = append(junk, "good-name")
+	if got := Clean(junk); len(got) != 0 {
+		t.Fatalf("a name after %d entries of rubbish was kept: %v", maxScan, got)
+	}
+
+	// A long name is cut, not refused, and what is left is judged as it stands.
+	long := Clean([]string{strings.Repeat("a", 10000)})
+	if len(long) != 1 || len(long[0]) != MaxNameLen {
+		t.Fatalf("a 10000 character name became %v", long)
+	}
+	if got := Clean([]string{strings.Repeat("a", MaxNameLen-1) + "-" + "b"}); len(got) != 0 {
+		t.Fatalf("a name cut to end in a hyphen was kept: %v", got)
+	}
+}

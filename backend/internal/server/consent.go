@@ -115,6 +115,12 @@ type viewExt struct {
 	// namespace). Every object the chart creates has a fixed name regardless of the release, so this only matters for
 	// the two `helm` commands themselves; guessed as "continuum-agent" when unknown, same as namespace.
 	releaseName string
+	// protocol and caps are what the agent's last Hello said about the protocol it speaks and what it does (see
+	// internal/agentcaps). They are replaced by every Hello, so a stream that says nothing records protocol 0 and no names and
+	// not what an earlier stream said. In memory only: nothing about them is stored, so a restored database carries nothing
+	// from a Hello. Nothing the server sends depends on them.
+	protocol uint32
+	caps     []string
 	// knownNamespaces are the Kubernetes namespace names this agent has actually reported, captured from a Sync
 	// after the tier ceiling narrows it but before an admin's own exclusion list does - so an excluded name can
 	// still be checked against what is real, which is the whole point of tracking it (see ConsentDoc.UnknownNamespaces).

@@ -21,9 +21,11 @@ const ProtocolVersion uint32 = 1
 const (
 	// MaxNames is how many names the server keeps from one hello, and MaxNameLen how long one may be. They are the limits of the
 	// protocol and not of this list: an agent from the future may know more names than this one, and the server keeps the
-	// first MaxNames of them in order rather than refusing the stream.
+	// first MaxNames of them (in the order the agent listed them) rather than refusing the stream.
 	MaxNames   = 32
 	MaxNameLen = 40
+	// maxScan is how many entries of a hello are looked at at all, so a hello full of rubbish costs a bounded amount.
+	maxScan = 256
 )
 
 // The names. Each is lower-case words joined by hyphens.
@@ -99,4 +101,28 @@ func Wellformed(name string) bool {
 		}
 	}
 	return !prevHyphen
+}
+
+// Clean is what the server keeps of the names a hello listed: each is cut to MaxNameLen, one that is still not well formed is
+// dropped, repeats are dropped, at most MaxNames are kept (the first, in the order listed), and the result is sorted so two hellos
+// that say the same thing are stored the same way. It never fails and never returns more than MaxNames, whatever it is given.
+// A name that is well formed but not in the registry is kept: the agent may be newer than the server.
+func Clean(names []string) []string {
+	seen := make(map[string]bool, MaxNames)
+	var out []string
+	for i, n := range names {
+		if i >= maxScan || len(out) >= MaxNames {
+			break
+		}
+		if len(n) > MaxNameLen {
+			n = n[:MaxNameLen]
+		}
+		if !Wellformed(n) || seen[n] {
+			continue
+		}
+		seen[n] = true
+		out = append(out, n)
+	}
+	sort.Strings(out)
+	return out
 }

@@ -42,8 +42,14 @@ type recvdMsg struct {
 // received before it returns.
 func (r *hubRig) newFakeAgent(t *testing.T, ctx context.Context) *fakeAgent {
 	t.Helper()
+	return r.newFakeAgentWith(t, ctx, &continuumv1.Hello{AgentVersion: "fake"})
+}
+
+// newFakeAgentWith is newFakeAgent with a hello of the test's choosing.
+func (r *hubRig) newFakeAgentWith(t *testing.T, ctx context.Context, hello *continuumv1.Hello) *fakeAgent {
+	t.Helper()
 	id, key, leaf := r.approvedAgent(t, fp)
-	f := &fakeAgent{t: t, r: r, ctx: ctx, id: id, key: key, leaf: leaf, hello: &continuumv1.Hello{AgentVersion: "fake"}}
+	f := &fakeAgent{t: t, r: r, ctx: ctx, id: id, key: key, leaf: leaf, hello: hello}
 	f.connect()
 	return f
 }

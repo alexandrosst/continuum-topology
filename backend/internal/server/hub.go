@@ -14,6 +14,7 @@ import (
 	"time"
 
 	continuumv1 "continuum/gen/continuumv1"
+	"continuum/internal/agentcaps"
 	"continuum/internal/facts"
 	"continuum/internal/flow/wire"
 	"continuum/internal/geoip"
@@ -422,6 +423,9 @@ func (h *Hub) Connect(stream continuumv1.AgentService_ConnectServer) error {
 		v.ext.releaseName = rel
 		h.mu.Unlock()
 	}
+	h.mu.Lock()
+	v.ext.protocol, v.ext.caps = hello.ProtocolVersion, agentcaps.Clean(hello.Capabilities)
+	h.mu.Unlock()
 	agent = h.noteCeiling(ctx, agent, fresh, int(hello.InstalledAccessTier))
 	if err := stream.Send(&continuumv1.ServerMessage{Msg: &continuumv1.ServerMessage_Config{Config: h.configFor(agent, v)}}); err != nil {
 		return err
