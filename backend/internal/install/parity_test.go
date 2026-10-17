@@ -1,6 +1,7 @@
 package install
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"strings"
@@ -18,10 +19,12 @@ type spec struct {
 	Upgrade    *AgentUpgrade `json:"upgrade"`
 	Collectors *Collectors   `json:"collectors"`
 	Scope      *Scope        `json:"scope"`
+	Telemetry  *Telemetry    `json:"telemetry"`
 }
 
 type uiCase struct {
 	Name    string `json:"name"`
+	Chart   string `json:"chart"`
 	Command string `json:"command"`
 	Spec    *spec  `json:"spec"`
 }
@@ -32,8 +35,11 @@ func readUICases(t *testing.T) []uiCase {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A spec field the renderer does not know is an error: it would otherwise be ignored, and the case would pass without saying it.
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
 	var cases []uiCase
-	if err := json.Unmarshal(raw, &cases); err != nil {
+	if err := dec.Decode(&cases); err != nil {
 		t.Fatal(err)
 	}
 	return cases
@@ -43,10 +49,9 @@ func readUICases(t *testing.T) []uiCase {
 func (s spec) write() (string, error) {
 	head := strings.TrimRight(s.Head, "\n ")
 	if s.Upgrade != nil {
-		var err error
-		if head, err = s.Upgrade.Render(); err != nil {
-			return "", err
-		}
+		up := *s.Upgrade
+		up.Telemetry = s.Telemetry
+		return up.Render()
 	}
 	var values []Value
 	if s.Collectors != nil {
@@ -55,11 +60,18 @@ func (s spec) write() (string, error) {
 	if s.Scope != nil {
 		values = append(values, s.Scope.Values()...)
 	}
+	if s.Telemetry != nil {
+		v, err := s.Telemetry.Values()
+		if err != nil {
+			return "", err
+		}
+		values = append(values, v...)
+	}
 	return head + Continued(values), nil
 }
 
 // portedCases is how many cases carry a spec. It only goes up: a case that loses its spec would stop being checked here.
-const portedCases = 14
+const portedCases = 72
 
 func TestWhatTheUIPrintsIsWhatTheRendererWrites(t *testing.T) {
 	cases := readUICases(t)

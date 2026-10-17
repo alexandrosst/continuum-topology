@@ -9,6 +9,7 @@ import { helmUpgradeCommand, telemetryUpgradeCommand, PICKABLE_SIGNALS, TELEMETR
 import { EXPORT_PRESETS } from '../src/lib/exportPresets'
 import { newProcessorEntry } from '../src/lib/processorCatalog'
 import { buildOperatorInstallCommand } from '../src/lib/operatorInstall'
+import { telemetrySpec } from '../src/lib/telemetrySpec'
 
 // The install commands the UI prints are built here, in TypeScript, as strings. The chart that runs them is checked in Go
 // (backend/internal/chart/install_commands_test.go): that test takes every command pinned below, reads its --set flags the way a
@@ -36,6 +37,8 @@ interface Spec {
   upgrade?: { chartRef?: string; chartVersion?: string; chartFile?: string; namespace?: string; release?: string; tier?: number }
   collectors?: { nodeProbe?: boolean; flowObserver?: boolean; measurements?: boolean }
   scope?: { namespaces: string[]; exclude: string[]; selector: string }
+  /** What telemetry was asked for: lib/telemetrySpec.ts, which is also what the server will be sent. */
+  telemetry?: ReturnType<typeof telemetrySpec>
 }
 interface Case { name: string; chart: Chart; command: string; spec?: Spec }
 
@@ -55,7 +58,7 @@ function telemetry(name: string, t: TelemetryInput, from = agentBase) {
   assert.deepEqual(telemetryProblems(t), [], `${name}: these settings have a problem, so no command would be printed`)
   const cmd = withTelemetry(from, t)
   assert.notEqual(cmd, from, `${name}: the command is the bare install`)
-  add(name, 'agent', cmd)
+  add(name, 'agent', cmd, { head: from, telemetry: telemetrySpec(t) })
 }
 
 const to = (over: Partial<TelemetryInput> = {}): TelemetryInput => ({ ...emptyTelemetry, exportEndpoint: 'otel.example.com:4317', ...over })
@@ -138,14 +141,17 @@ telemetry('process: filter, tail sampling and a transform', to({ applicationLogs
 
 // ---------- telemetry on an install that already has it (reset-then-reuse upgrades) ----------
 const had = (over: Partial<TelemetryInput> = {}) => to({ hadTelemetry: true, ...over })
-add('upgrade telemetry: a new configuration', 'agent', telemetryUpgradeCommand({ chartFile: 'continuum-agent-0.4.0.tgz' }, to({ resourceUsage: true, traces: true }), true))
-add('upgrade telemetry: every signal unchecked', 'agent', telemetryUpgradeCommand(undefined, had(), false))
+{
+  const t = to({ resourceUsage: true, traces: true })
+  add('upgrade telemetry: a new configuration', 'agent', telemetryUpgradeCommand({ chartFile: 'continuum-agent-0.4.0.tgz' }, t, true), { upgrade: { chartFile: 'continuum-agent-0.4.0.tgz' }, telemetry: telemetrySpec(t, true) })
+}
+add('upgrade telemetry: every signal unchecked', 'agent', telemetryUpgradeCommand(undefined, had(), false), { upgrade: {}, telemetry: telemetrySpec(had(), false) })
 telemetry('upgrade telemetry: single destination clears routes', had({ resourceUsage: true, exportRoutesInstalled: true }), 'helm upgrade continuum-agent ./continuum-agent.tgz --namespace continuum-system --reset-then-reuse-values')
 telemetry('upgrade telemetry: processors emptied', had({ applicationLogs: true }), 'helm upgrade continuum-agent ./continuum-agent.tgz --namespace continuum-system --reset-then-reuse-values')
 {
   const seeded = keepAsInstalled(had({ resourceUsage: true, traces: true, tracesScope: { ...emptyScopeOverride, namespaces: ['checkout'] }, tags: cleanTags([{ key: 'team', value: 'core' }]), debugVerbosity: 'basic' }),
     ['destination', 'scopeShared', 'scope:applicationMetrics', 'scope:applicationLogs', 'scope:traces', 'tags', 'debug', 'processors', 'extraProcessors', 'energySource', 'acceleratorsSource', 'clusterLinksOptions'])
-  add('upgrade telemetry: every group kept as installed', 'agent', telemetryUpgradeCommand(undefined, seeded, false))
+  add('upgrade telemetry: every group kept as installed', 'agent', telemetryUpgradeCommand(undefined, seeded, false), { upgrade: {}, telemetry: telemetrySpec(seeded, false) })
 }
 
 // ---------- the regional operator's chart ----------
@@ -156,6 +162,16 @@ add('operator: install', 'regional-operator', operatorBase)
   add('operator: a filter and tail sampling', 'regional-operator', cmd)
 }
 
+/** The cases as the file holds them: a command per entry, and its spec on one line, so that a change of what is written reads as a change of
+ *  a line and not as thousands. */
+function serialize(all: Case[]): string {
+  const entries = all.map(({ spec, ...rest }) => {
+    const text = JSON.stringify(rest, null, 2)
+    return (spec ? `${text.replace(/\n}$/, '')},\n  "spec": ${JSON.stringify(spec)}\n}` : text).split('\n').map((l) => `  ${l}`).join('\n')
+  })
+  return `[\n${entries.join(',\n')}\n]\n`
+}
+
 test('every case is named once and carries a command', () => {
   assert.ok(cases.length >= 60, `only ${cases.length} cases: a loop above no longer produces its cases`)
   for (const c of cases) assert.ok(c.command.startsWith('helm '), c.name)
@@ -163,7 +179,7 @@ test('every case is named once and carries a command', () => {
 
 test('the commands the UI prints are the ones pinned in tests/install_commands.golden.json', () => {
   const file = 'tests/install_commands.golden.json'
-  const got = JSON.stringify(cases, null, 2) + '\n'
+  const got = serialize(cases)
   if (process.env.UPDATE_GOLDEN) {
     writeFileSync(file, got)
     return

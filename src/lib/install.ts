@@ -351,6 +351,9 @@ const KEPT_WORDS: Record<KeptGroup, string> = {
   clusterLinksOptions: 'whether cluster links probe and run throughput tests',
 }
 
+/** Every group that can be kept as installed. */
+export const KEPT_GROUPS = Object.keys(KEPT_WORDS) as KeptGroup[]
+
 /** What this draft shows but does not know the installed value of, in words: the settings the command leaves as they are (see `isKept`). */
 export function keptSummary(t: TelemetryInput): string[] {
   const groups = (Object.keys(KEPT_WORDS) as KeptGroup[]).filter((g) => isKept(t, g))

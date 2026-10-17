@@ -59,6 +59,9 @@ type AgentUpgrade struct {
 
 	// Tier is the access ceiling to set. Nil leaves it as it is.
 	Tier *int `json:"tier"`
+
+	// Telemetry is what to collect and where to send it. Nil leaves the install's telemetry as it is.
+	Telemetry *Telemetry `json:"telemetry"`
 }
 
 func (u AgentUpgrade) helm() Helm {
@@ -86,7 +89,19 @@ func (u AgentUpgrade) helm() Helm {
 	return h
 }
 
-// Render is the command, or the reason there is none to write.
+// Render is the command, or the reason there is none to write: the head says what is upgraded in one line, and the telemetry (which
+// sets a great many values) follows on lines of its own.
 func (u AgentUpgrade) Render() (string, error) {
-	return u.helm().Render()
+	head, err := u.helm().Render()
+	if err != nil {
+		return "", err
+	}
+	if u.Telemetry == nil {
+		return head, nil
+	}
+	values, err := u.Telemetry.Values()
+	if err != nil {
+		return "", err
+	}
+	return head + Continued(values), nil
 }
