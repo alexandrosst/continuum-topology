@@ -277,3 +277,25 @@ test('buildHops: local operators that send straight to central are a group of th
   const plain = buildHops(buildComponents({ agents: [agents[0]], clusters, rawAgents: [{ id: 'a1', diagnostics: withRoutes([{ state: 'exporting', lastSentAt: ago(5_000) }]) }], intents: [intent({ id: 'i1', agentId: 'a1', destination: to('op-eu') })], operators: [op()], known: [], now: NOW }), undefined)
   assert.equal(plain.find((h) => h.key === 'local')!.direct, undefined)
 })
+
+test('buildComponents: the order of the states is down, needs attention, setting up, unknown, healthy', () => {
+  const agents = [
+    ag({ id: 'a-ok', name: 'ok', clusterId: 'c-ok' }),
+    ag({ id: 'a-late', name: 'late', clusterId: 'c-late', lastHeartbeat: ago(3 * MIN) }),
+    ag({ id: 'a-down', name: 'down', clusterId: 'c-down', connected: false, lastHeartbeat: ago(3 * MIN) }),
+    ag({ id: 'a-sample', name: 'sample', clusterId: 'c-sample', connected: undefined, lastHeartbeat: undefined }),
+  ]
+  const rows = buildComponents({
+    agents,
+    clusters: agents.map((a) => ({ id: a.clusterId, name: a.name, tier: 'edge' })) as never,
+    rawAgents: [{ id: 'a-late', diagnostics: withRoutes([{ state: 'exporting', lastSentAt: ago(5_000) }]) }],
+    // Only the healthy agent has asked for telemetry and has nothing running yet: its collector is being set up.
+    intents: [intent({ agentId: 'a-ok', createdAt: ago(5 * MIN), destination: { kind: 'operator', endpoint: 'x', targetOperatorId: 'op-eu' } as never })],
+    operators: [op()],
+    known: [{ id: 'op-eu', name: 'eu-west' }],
+    now: NOW,
+  })
+  const order: string[] = []
+  for (const r of rows) if (order[order.length - 1] !== r.verdict.state) order.push(r.verdict.state)
+  assert.deepEqual(order, ['down', 'attention', 'setup', 'unknown', 'healthy'])
+})
