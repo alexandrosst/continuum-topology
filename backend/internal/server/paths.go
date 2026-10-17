@@ -11,6 +11,8 @@ import (
 	"continuum/internal/measure"
 	"continuum/internal/model"
 	"continuum/internal/store"
+
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -161,47 +163,27 @@ func (h *Hub) configForChecked(a store.Agent, v *view) (*continuumv1.Config, boo
 		runnersPaused = h.runnersPaused(a, orgAgents, set.Links)
 	}
 	creds := h.linkCredsFor(a, set.Links) // before h.mu: it may read and write the store
-	cfg := &continuumv1.Config{ApprovedAccessTier: uint32(a.AccessTier), HeartbeatSeconds: HeartbeatSeconds, ResyncSeconds: resync, ServerTimeUnix: h.C.Now().Unix(),
-		PausedCollectors: append([]string(nil), consent.Paused...), ExcludedNamespaces: append([]string(nil), consent.Excluded...), ClusterId: a.ClusterID}
+	facts := configFacts{
+		Tier: a.AccessTier, ClusterID: a.ClusterID, Consent: consent, Heartbeat: HeartbeatSeconds, Resync: resync,
+		ServerTime: h.C.Now().Unix(), MeasureSeconds: int32(set.MeasureSeconds), IperfClients: creds.clients, IperfServer: creds.server,
+	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	cfg.LinkPeers = h.linkPeers(a, orgAgents, set.Links, consent.has("flow"), runnersPaused)
-	// The iperf3 credentials follow the same gates as the peers (tier 2, flow collector not paused) and go only where the cluster has
-	// the role: the client side to the runner's LinkPeer for the server, the server side to the server's own Config.
-	for _, lp := range cfg.LinkPeers {
-		if lp.Throughput {
-			lp.IperfClient = creds.clients[lp.ClusterId]
-		}
-	}
-	if a.AccessTier >= 2 && !consent.has("flow") {
-		cfg.LinkIperfServer = creds.server
-	}
-	var ts []issuedTarget
+	facts.Peers = h.linkPeers(a, orgAgents, set.Links, consent.has("flow"), runnersPaused)
 	for _, p := range set.ProbeTargets {
 		if a.ClusterID != "" && p.ClusterID == a.ClusterID {
-			ts = append(ts, issuedTarget{ID: p.ID, Host: p.Host, Port: p.Port, Label: p.Label, Source: "manual"})
+			facts.ManualTargets = append(facts.ManualTargets, issuedTarget{ID: p.ID, Host: p.Host, Port: p.Port, Label: p.Label, Source: "manual"})
 		}
 	}
-	ts = append(ts, h.addressTestTargets(v, h.C.Now())...)
-	if a.AccessTier >= 2 {
-		ts = append(ts, deriveTargets(v.flows)...)
-	}
-	if consent.has("measure") {
-		ts = nil // the agent is asked to stop measuring; nothing is issued, so nothing measured is accepted either
-	}
-	if len(ts) > measure.MaxTargets {
-		ts = ts[:measure.MaxTargets]
-	}
+	facts.AddressTargets = h.addressTestTargets(v, h.C.Now())
+	facts.DerivedTargets = deriveTargets(v.flows)
+
+	cfg, ts := compileConfig(facts)
 	v.targets = map[string]issuedTarget{}
 	for _, t := range ts {
 		v.targets[t.ID] = t
-		cfg.ProbeTargets = append(cfg.ProbeTargets, &continuumv1.ProbeTarget{Id: t.ID, Host: t.Host, Port: uint32(t.Port)})
 	}
-	if len(ts) > 0 {
-		cfg.MeasureSeconds = int32(set.MeasureSeconds)
-	}
-	v.cfgHash = configHash(cfg)
-	cfg.Digest = v.cfgHash
+	v.cfgHash = cfg.Digest
 	// forget paths for targets that are no longer issued
 	for id := range v.paths {
 		if _, ok := v.targets[id]; !ok {
@@ -209,6 +191,70 @@ func (h *Hub) configForChecked(a store.Agent, v *view) (*continuumv1.Config, boo
 		}
 	}
 	return cfg, complete
+}
+
+// configFacts is everything the Config of one agent depends on, gathered: what the agent is allowed (its tier and consent), what the
+// organisation set (link peers, credentials, probe targets) and the moment. Gathering reads the store and the hub's views;
+// compileConfig does not.
+type configFacts struct {
+	Tier      int
+	ClusterID string
+	Consent   Consent
+
+	Heartbeat, Resync int32
+	ServerTime        int64
+	MeasureSeconds    int32
+
+	// Peers are the link peers as the organisation's pairs make them for this cluster, before credentials are handed out.
+	Peers []*continuumv1.LinkPeer
+	// IperfClients are the client credentials by the id of the peer they test; IperfServer is the server side for this cluster.
+	IperfClients map[string]*continuumv1.LinkIperfClient
+	IperfServer  *continuumv1.LinkIperfServer
+
+	// The candidate probe targets, in the order they are issued: chosen by an administrator, derived to test an address, and derived
+	// from observed flows (only at tier 2 and above).
+	ManualTargets, AddressTargets, DerivedTargets []issuedTarget
+}
+
+// compileConfig is the whole of what an agent is told, decided from the facts alone: what it may send, how often to check itself,
+// the link peers, which credentials go where, and which targets it measures. It returns the Config, with its digest, and the
+// targets it issued. It reads nothing and records nothing.
+func compileConfig(f configFacts) (*continuumv1.Config, []issuedTarget) {
+	cfg := &continuumv1.Config{ApprovedAccessTier: uint32(f.Tier), HeartbeatSeconds: f.Heartbeat, ResyncSeconds: f.Resync, ServerTimeUnix: f.ServerTime,
+		PausedCollectors: append([]string(nil), f.Consent.Paused...), ExcludedNamespaces: append([]string(nil), f.Consent.Excluded...), ClusterId: f.ClusterID}
+	// The iperf3 credentials follow the same gates as the peers (tier 2, flow collector not paused) and go only where the cluster has
+	// the role: the client side to the runner's LinkPeer for the server, the server side to the server's own Config. The peers are
+	// copied, so the facts are left as they were given.
+	for _, p := range f.Peers {
+		lp := proto.Clone(p).(*continuumv1.LinkPeer)
+		if lp.Throughput {
+			lp.IperfClient = f.IperfClients[lp.ClusterId]
+		}
+		cfg.LinkPeers = append(cfg.LinkPeers, lp)
+	}
+	if f.Tier >= 2 && !f.Consent.has("flow") {
+		cfg.LinkIperfServer = f.IperfServer
+	}
+	var ts []issuedTarget
+	ts = append(ts, f.ManualTargets...)
+	ts = append(ts, f.AddressTargets...)
+	if f.Tier >= 2 {
+		ts = append(ts, f.DerivedTargets...)
+	}
+	if f.Consent.has("measure") {
+		ts = nil // the agent is asked to stop measuring; nothing is issued, so nothing measured is accepted either
+	}
+	if len(ts) > measure.MaxTargets {
+		ts = ts[:measure.MaxTargets]
+	}
+	for _, t := range ts {
+		cfg.ProbeTargets = append(cfg.ProbeTargets, &continuumv1.ProbeTarget{Id: t.ID, Host: t.Host, Port: uint32(t.Port)})
+	}
+	if len(ts) > 0 {
+		cfg.MeasureSeconds = f.MeasureSeconds
+	}
+	cfg.Digest = configHash(cfg)
+	return cfg, ts
 }
 
 func configHash(c *continuumv1.Config) string {
