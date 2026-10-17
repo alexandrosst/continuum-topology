@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/http"
 	"net/netip"
@@ -10,6 +11,7 @@ import (
 	"strings"
 
 	continuumv1 "continuum/gen/continuumv1"
+	"continuum/internal/install"
 	"continuum/internal/store"
 )
 
@@ -114,8 +116,8 @@ type ExposeDoc struct {
 }
 
 // exposeCommand is the kubectl line that gives a Service the type.
-func exposeCommand(namespace, service, typ string) string {
-	return "kubectl --namespace " + shellArg(namespace) + " patch svc " + shellArg(service) + ` -p '{"spec":{"type":"` + typ + `"}}'`
+func exposeCommand(namespace, service string, typ install.ServiceType) (string, error) {
+	return install.SetServiceType{Namespace: namespace, Service: service, Type: typ}.Render()
 }
 
 // operatorHost is what discovery reports about the cluster an operator runs in, copied out of the hub's state.
@@ -791,8 +793,14 @@ func (a *Admin) listOperatorAddressCandidates(w http.ResponseWriter, r *http.Req
 	if h := exposureHint(res.Candidates, found, op.ID == CentralOperatorID); h != "" && op.ID == CentralOperatorID && a.Fusion != nil {
 		// The page shows this as a card with the command in it, so the sentence is not repeated as a hint.
 		e := &ExposeDoc{Service: workload, Namespace: namespace, Value: "fusion.central.service.type"}
-		e.Commands.NodePort, e.Commands.LoadBalancer = exposeCommand(namespace, workload, "NodePort"), exposeCommand(namespace, workload, "LoadBalancer")
-		res.Expose = e
+		nodePort, err1 := exposeCommand(namespace, workload, install.NodePort)
+		loadBalancer, err2 := exposeCommand(namespace, workload, install.LoadBalancer)
+		if err := errors.Join(err1, err2); err != nil {
+			a.installConfigError(err) // logged; the page is shown without the commands
+		} else {
+			e.Commands.NodePort, e.Commands.LoadBalancer = nodePort, loadBalancer
+			res.Expose = e
+		}
 	} else if h != "" {
 		res.Hints = append(res.Hints, h)
 	} else if !found {

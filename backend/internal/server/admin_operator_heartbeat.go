@@ -128,7 +128,12 @@ func (a *Admin) enableOperatorHeartbeat(w http.ResponseWriter, r *http.Request) 
 	if rotated {
 		// A Secret's new value is not seen by a running pod's environment: the collector has to restart
 		// to present it.
-		resp["heartbeatRestartCommand"] = operatorRestartCommand(op)
+		restart, err := operatorRestartCommand(op)
+		if err != nil {
+			a.fail(w, a.installConfigError(err))
+			return
+		}
+		resp["heartbeatRestartCommand"] = restart
 	}
 	if warn := heartbeatURLWarning(url); warn != "" {
 		resp["heartbeatWarning"] = warn

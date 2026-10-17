@@ -1,7 +1,6 @@
 package server
 
 import (
-	"fmt"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -57,10 +56,15 @@ func (a *Admin) upgradeCommand(img ImageConfig, tier int, namespace, release str
 // helm.sh/resource-policy: keep, so an accidental uninstall cannot orphan re-enrollment or need a new CA trust); the second
 // command is only needed if the Secret itself should go too, e.g. before installing fresh in the same namespace. The
 // Secret's own name never depends on the release name (every chart object has a fixed name), only on the namespace.
-func teardownCommands(namespace, release string) (helm, secret string, guessed bool) {
-	ns, name, g := releaseTarget(namespace, release)
-	return fmt.Sprintf("helm uninstall %s --namespace %s", name, ns),
-		fmt.Sprintf("kubectl delete secret continuum-agent-identity --namespace %s", ns), g
+func teardownCommands(namespace, release string) (helm, secret string, guessed bool, err error) {
+	ns, name, guessed := releaseTarget(namespace, release)
+	if helm, err = (install.Uninstall{Release: name, Namespace: ns}).Render(); err != nil {
+		return "", "", guessed, err
+	}
+	if secret, err = (install.DeleteSecret{Name: "continuum-agent-identity", Namespace: ns}).Render(); err != nil {
+		return "", "", guessed, err
+	}
+	return helm, secret, guessed, nil
 }
 
 // setAgentTier changes the access an approved agent has been given, within what its install allows.

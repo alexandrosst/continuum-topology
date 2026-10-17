@@ -149,7 +149,10 @@ func (p *pinRig) agentCommands() {
 	}
 	p.add(a, "agent/upgrade/unsafe-names-are-not-trusted", "agent", p.ok(a.upgradeCommand(ImageConfig{}, 2, "ns; rm -rf /", "rel$(id)")))
 	for _, c := range []struct{ name, ns, rel string }{{"unreported", "", ""}, {"namespace-only", "apps-team", ""}, {"named", "apps-team", "obs-agent"}} {
-		helm, secret, _ := teardownCommands(c.ns, c.rel)
+		helm, secret, _, err := teardownCommands(c.ns, c.rel)
+		if err != nil {
+			p.t.Fatal(err)
+		}
 		p.add(nil, "agent/teardown/"+c.name+"/helm", "", helm)
 		p.add(nil, "agent/teardown/"+c.name+"/secret", "", secret)
 	}
@@ -224,10 +227,10 @@ func (p *pinRig) operatorCommands() {
 	a := p.admin(nil)
 	p.add(a, "operator/receiver-secret/mtls", "", p.ok(operatorTLSSecretCommand(mtls(ext), pinBundle)))
 	p.add(a, "operator/client-secret", "", p.ok(operatorClientSecretCommand(mtls(ext), pinBundle.Senders[0].CertPEM, pinBundle.Senders[0].KeyPEM, pinBundle.CACertPEM, "apps-team", false)))
-	p.add(a, "operator/restart", "", operatorRestartCommand(mtls(ext)))
-	p.add(a, "operator/uninstall", "", operatorUninstallCommand("athens"))
-	p.add(a, "operator/expose/nodeport", "", exposeCommand("continuum-system", "athens-regional-operator", "NodePort"))
-	p.add(a, "operator/expose/loadbalancer", "", exposeCommand("continuum-system", "athens-regional-operator", "LoadBalancer"))
+	p.add(a, "operator/restart", "", p.ok(operatorRestartCommand(mtls(ext))))
+	p.add(a, "operator/uninstall", "", p.ok(operatorUninstallCommand("athens")))
+	p.add(a, "operator/expose/nodeport", "", p.ok(exposeCommand("continuum-system", "athens-regional-operator", install.NodePort)))
+	p.add(a, "operator/expose/loadbalancer", "", p.ok(exposeCommand("continuum-system", "athens-regional-operator", install.LoadBalancer)))
 
 	// The heartbeat: the upgrade that turns it on, the Secret that carries its token and, for a private CA, the Secret for that.
 	hbURL := "https://ikhnos.example.com/api/v1/operator-heartbeat"

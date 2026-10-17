@@ -19,7 +19,7 @@ import (
 // the flags describe: its schema accepts every flag (it rejects unknown keys), and nothing of the earlier destination is
 // left over - not its protocol, its insecure setting, its CA, its Secrets, its server name, its credential header.
 
-// flagWords splits what setFlag/shellArg print into words: single quotes group, nothing else is special in them.
+// flagWords splits what install.Flags prints into words: single quotes group, nothing else is special in them.
 func flagWords(t *testing.T, s string) []string {
 	t.Helper()
 	var words []string

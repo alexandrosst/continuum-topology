@@ -984,15 +984,24 @@ func TestHelloNamespaceIsRecordedAndUsedInGeneratedCommands(t *testing.T) {
 }
 
 func TestUpgradeAndTeardownCommandsGuessTheNamespaceWhenNeverReported(t *testing.T) {
-	helm, secret, guessed := teardownCommands("", "")
+	helm, secret, guessed, err := teardownCommands("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !guessed || !strings.Contains(helm, "helm uninstall continuum-agent ") || !strings.Contains(helm, "--namespace continuum-system") || !strings.Contains(secret, "--namespace continuum-system") {
 		t.Fatalf("teardown with nothing reported: %q %q %v", helm, secret, guessed)
 	}
-	helm, secret, guessed = teardownCommands("apps-team", "")
+	helm, secret, guessed, err = teardownCommands("apps-team", "")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !guessed || !strings.Contains(helm, "helm uninstall continuum-agent ") || !strings.Contains(helm, "--namespace apps-team") || !strings.Contains(secret, "--namespace apps-team") {
 		t.Fatalf("teardown with a known namespace but no release: %q %q %v", helm, secret, guessed)
 	}
-	helm, secret, guessed = teardownCommands("apps-team", "obs-agent")
+	helm, secret, guessed, err = teardownCommands("apps-team", "obs-agent")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if guessed || !strings.Contains(helm, "helm uninstall obs-agent ") || !strings.Contains(helm, "--namespace apps-team") || !strings.Contains(secret, "--namespace apps-team") {
 		t.Fatalf("teardown with a known namespace and release: %q %q %v", helm, secret, guessed)
 	}

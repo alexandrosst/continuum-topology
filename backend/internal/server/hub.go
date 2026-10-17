@@ -1300,8 +1300,11 @@ func (h *Hub) buildAgentDocs(ctx context.Context, now time.Time) ([]AgentDoc, []
 		}
 		d.Conditions = agentConditions(condInputsOf(v), h.C.Now())
 		if a.Status == store.StatusRevoked || a.Status == store.StatusRejected {
-			helm, secret, guessed := teardownCommands(d.Namespace, d.ReleaseName)
-			d.Teardown = &TeardownDoc{Helm: helm, Secret: secret, NamespaceGuessed: guessed}
+			if helm, secret, guessed, err := teardownCommands(d.Namespace, d.ReleaseName); err != nil {
+				h.C.Log.Error("the commands that remove an agent cannot be written", "err", err) // the agent is shown without them
+			} else {
+				d.Teardown = &TeardownDoc{Helm: helm, Secret: secret, NamespaceGuessed: guessed}
+			}
 		}
 		if v != nil {
 			d.Connected = v.connected

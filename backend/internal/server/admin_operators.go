@@ -403,7 +403,11 @@ func (a *Admin) operatorInstallDoc(r *http.Request, op store.Operator, m install
 	if m.Reissue {
 		// A Secret's new value is not seen by a running pod until it is restarted (its certificates reload on their
 		// own, a changed token or heartbeat secret does not).
-		resp["restartCommand"] = operatorRestartCommand(op)
+		restart, err := operatorRestartCommand(op)
+		if err != nil {
+			return nil, a.installConfigError(err)
+		}
+		resp["restartCommand"] = restart
 	}
 	a.addOperatorTargetExport(r, resp, op)
 	return resp, nil
@@ -470,8 +474,8 @@ func (a *Admin) listOperatorCertificates(w http.ResponseWriter, r *http.Request)
 }
 
 // operatorRestartCommand restarts the operator's pods, which is how they pick up a Secret read into the environment.
-func operatorRestartCommand(op store.Operator) string {
-	return fmt.Sprintf("kubectl rollout restart deployment/%s --namespace continuum-system", operatorServiceName(op.ID))
+func operatorRestartCommand(op store.Operator) (string, error) {
+	return install.RestartDeployment{Deployment: operatorServiceName(op.ID), Namespace: "continuum-system"}.Render()
 }
 
 // serviceTypeFor maps an exposure to the chart's service.type ("" keeps the chart's own default, ClusterIP) and says
@@ -573,8 +577,20 @@ func clustersGained(before, now []string) []string {
 
 // operatorUninstallCommand removes the receiver. Revoking or deleting an operator in the server does not touch the
 // running one - it keeps receiving, and trusting its own CA, until it is uninstalled - so the response says how.
-func operatorUninstallCommand(id string) string {
-	return fmt.Sprintf("helm uninstall %s --namespace continuum-system", id)
+func operatorUninstallCommand(id string) (string, error) {
+	return install.Uninstall{Release: id, Namespace: "continuum-system"}.Render()
+}
+
+// uninstallDoc is the response of revoking or deleting an operator, which has been done by now: the command that removes the running
+// receiver, or no command (and a line in the log) when it cannot be written, which the operator's id, a name this server made, makes
+// unlikely.
+func (a *Admin) uninstallDoc(id string) map[string]any {
+	cmd, err := operatorUninstallCommand(id)
+	if err != nil {
+		a.installConfigError(err)
+		return map[string]any{}
+	}
+	return map[string]any{"uninstall": cmd}
 }
 
 func (a *Admin) revokeOperator(w http.ResponseWriter, r *http.Request) {
@@ -592,7 +608,7 @@ func (a *Admin) revokeOperator(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"uninstall": operatorUninstallCommand(id)})
+	writeJSON(w, 200, a.uninstallDoc(id))
 }
 
 func (a *Admin) deleteOperator(w http.ResponseWriter, r *http.Request) {
@@ -601,7 +617,7 @@ func (a *Admin) deleteOperator(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"uninstall": operatorUninstallCommand(id)})
+	writeJSON(w, 200, a.uninstallDoc(id))
 }
 
 // operatorReceiverTLSSecretName and operatorClientTLSSecretName are the fixed Secret names the operator
