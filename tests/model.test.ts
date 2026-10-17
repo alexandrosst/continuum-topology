@@ -1901,7 +1901,7 @@ test('scope: names are split and checked, a selector must be on a label the agen
   assert.equal(withScope(base, { ...emptyScope, namespaces: ['a', 'b'] }).includes("--set scope.namespaces='{a,b}'"), true)
   const all = withScope(base, { namespaces: ['a'], exclude: ['hr'], selector: 'continuum.io/scope=yes' })
   assert.match(all, /scope\.exclude='\{hr\}'/)
-  assert.match(all, /--set-string scope\.selector='continuum\.io\/scope=yes'/)
+  assert.match(all, /--set-string scope\.selector=continuum\.io\/scope=yes/)
   // An invalid scope never reaches the command: the wizard refuses it first, and this stays safe if it did not.
   assert.equal(withScope(base, { ...emptyScope, namespaces: ['Bad Name'] }), base)
 })

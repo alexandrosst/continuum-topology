@@ -2,72 +2,173 @@
   {
     "name": "install",
     "chart": "agent",
-    "command": "helm install continuum-agent oci://registry.example.com/continuum-agent --namespace continuum-system --create-namespace"
+    "command": "helm install continuum-agent oci://registry.example.com/continuum-agent --namespace continuum-system --create-namespace",
+    "spec": {
+      "head": "helm install continuum-agent oci://registry.example.com/continuum-agent --namespace continuum-system --create-namespace"
+    }
   },
   {
     "name": "node probe",
     "chart": "agent",
-    "command": "helm install continuum-agent oci://registry.example.com/continuum-agent --namespace continuum-system --create-namespace \\\n  --set nodeProbe.enabled=true"
+    "command": "helm install continuum-agent oci://registry.example.com/continuum-agent --namespace continuum-system --create-namespace \\\n  --set nodeProbe.enabled=true",
+    "spec": {
+      "head": "helm install continuum-agent oci://registry.example.com/continuum-agent --namespace continuum-system --create-namespace",
+      "collectors": {
+        "nodeProbe": true
+      }
+    }
   },
   {
     "name": "flow observer",
     "chart": "agent",
-    "command": "helm install continuum-agent oci://registry.example.com/continuum-agent --namespace continuum-system --create-namespace \\\n  --set flowObserver.enabled=true"
+    "command": "helm install continuum-agent oci://registry.example.com/continuum-agent --namespace continuum-system --create-namespace \\\n  --set flowObserver.enabled=true",
+    "spec": {
+      "head": "helm install continuum-agent oci://registry.example.com/continuum-agent --namespace continuum-system --create-namespace",
+      "collectors": {
+        "flowObserver": true
+      }
+    }
   },
   {
     "name": "measurements",
     "chart": "agent",
-    "command": "helm install continuum-agent oci://registry.example.com/continuum-agent --namespace continuum-system --create-namespace \\\n  --set measurements.enabled=true"
+    "command": "helm install continuum-agent oci://registry.example.com/continuum-agent --namespace continuum-system --create-namespace \\\n  --set measurements.enabled=true",
+    "spec": {
+      "head": "helm install continuum-agent oci://registry.example.com/continuum-agent --namespace continuum-system --create-namespace",
+      "collectors": {
+        "measurements": true
+      }
+    }
   },
   {
     "name": "node probe, flow observer and measurements",
     "chart": "agent",
-    "command": "helm install continuum-agent oci://registry.example.com/continuum-agent --namespace continuum-system --create-namespace \\\n  --set nodeProbe.enabled=true \\\n  --set flowObserver.enabled=true \\\n  --set measurements.enabled=true"
+    "command": "helm install continuum-agent oci://registry.example.com/continuum-agent --namespace continuum-system --create-namespace \\\n  --set nodeProbe.enabled=true \\\n  --set flowObserver.enabled=true \\\n  --set measurements.enabled=true",
+    "spec": {
+      "head": "helm install continuum-agent oci://registry.example.com/continuum-agent --namespace continuum-system --create-namespace",
+      "collectors": {
+        "nodeProbe": true,
+        "flowObserver": true,
+        "measurements": true
+      }
+    }
   },
   {
     "name": "scope: two namespaces",
     "chart": "agent",
-    "command": "helm install continuum-agent oci://registry.example.com/continuum-agent --namespace continuum-system --create-namespace \\\n  --set scope.namespaces='{checkout,payments}'"
+    "command": "helm install continuum-agent oci://registry.example.com/continuum-agent --namespace continuum-system --create-namespace \\\n  --set scope.namespaces='{checkout,payments}'",
+    "spec": {
+      "head": "helm install continuum-agent oci://registry.example.com/continuum-agent --namespace continuum-system --create-namespace",
+      "scope": {
+        "namespaces": [
+          "checkout",
+          "payments"
+        ],
+        "exclude": [],
+        "selector": ""
+      }
+    }
   },
   {
     "name": "scope: excluded namespaces",
     "chart": "agent",
-    "command": "helm install continuum-agent oci://registry.example.com/continuum-agent --namespace continuum-system --create-namespace \\\n  --set scope.exclude='{kube-public,dev-sandbox}'"
+    "command": "helm install continuum-agent oci://registry.example.com/continuum-agent --namespace continuum-system --create-namespace \\\n  --set scope.exclude='{kube-public,dev-sandbox}'",
+    "spec": {
+      "head": "helm install continuum-agent oci://registry.example.com/continuum-agent --namespace continuum-system --create-namespace",
+      "scope": {
+        "namespaces": [],
+        "exclude": [
+          "kube-public",
+          "dev-sandbox"
+        ],
+        "selector": ""
+      }
+    }
   },
   {
     "name": "scope: a label selector",
     "chart": "agent",
-    "command": "helm install continuum-agent oci://registry.example.com/continuum-agent --namespace continuum-system --create-namespace"
+    "command": "helm install continuum-agent oci://registry.example.com/continuum-agent --namespace continuum-system --create-namespace \\\n  --set-string scope.selector=continuum.io/scope=yes",
+    "spec": {
+      "head": "helm install continuum-agent oci://registry.example.com/continuum-agent --namespace continuum-system --create-namespace",
+      "scope": {
+        "namespaces": [],
+        "exclude": [],
+        "selector": "continuum.io/scope=yes"
+      }
+    }
   },
   {
     "name": "scope: all three",
     "chart": "agent",
-    "command": "helm install continuum-agent oci://registry.example.com/continuum-agent --namespace continuum-system --create-namespace"
+    "command": "helm install continuum-agent oci://registry.example.com/continuum-agent --namespace continuum-system --create-namespace \\\n  --set scope.namespaces='{checkout}' \\\n  --set scope.exclude='{dev-sandbox}' \\\n  --set-string scope.selector=app=core",
+    "spec": {
+      "head": "helm install continuum-agent oci://registry.example.com/continuum-agent --namespace continuum-system --create-namespace",
+      "scope": {
+        "namespaces": [
+          "checkout"
+        ],
+        "exclude": [
+          "dev-sandbox"
+        ],
+        "selector": "app=core"
+      }
+    }
   },
   {
     "name": "upgrade: tier 0",
     "chart": "agent",
-    "command": "helm upgrade continuum-agent ./continuum-agent.tgz --namespace continuum-system --reset-then-reuse-values --set access.tier=0"
+    "command": "helm upgrade continuum-agent ./continuum-agent.tgz --namespace continuum-system --reset-then-reuse-values --set access.tier=0",
+    "spec": {
+      "upgrade": {
+        "tier": 0
+      }
+    }
   },
   {
     "name": "upgrade: tier 1",
     "chart": "agent",
-    "command": "helm upgrade continuum-agent ./continuum-agent.tgz --namespace continuum-system --reset-then-reuse-values --set access.tier=1"
+    "command": "helm upgrade continuum-agent ./continuum-agent.tgz --namespace continuum-system --reset-then-reuse-values --set access.tier=1",
+    "spec": {
+      "upgrade": {
+        "tier": 1
+      }
+    }
   },
   {
     "name": "upgrade: tier 2",
     "chart": "agent",
-    "command": "helm upgrade continuum-agent ./continuum-agent.tgz --namespace continuum-system --reset-then-reuse-values --set access.tier=2"
+    "command": "helm upgrade continuum-agent ./continuum-agent.tgz --namespace continuum-system --reset-then-reuse-values --set access.tier=2",
+    "spec": {
+      "upgrade": {
+        "tier": 2
+      }
+    }
   },
   {
     "name": "upgrade: tier 2 from a registry chart at a version",
     "chart": "agent",
-    "command": "helm upgrade edge-agent oci://registry.example.com/continuum-agent --version 0.4.0 --namespace ikhnos --reset-then-reuse-values --set access.tier=2"
+    "command": "helm upgrade edge-agent oci://registry.example.com/continuum-agent --version 0.4.0 --namespace ikhnos --reset-then-reuse-values --set access.tier=2",
+    "spec": {
+      "upgrade": {
+        "chartRef": "oci://registry.example.com/continuum-agent",
+        "chartVersion": "0.4.0",
+        "namespace": "ikhnos",
+        "release": "edge-agent",
+        "tier": 2
+      }
+    }
   },
   {
     "name": "upgrade: tier 1 from a local file",
     "chart": "agent",
-    "command": "helm upgrade continuum-agent ./continuum-agent-0.4.0.tgz --namespace continuum-system --reset-then-reuse-values --set access.tier=1"
+    "command": "helm upgrade continuum-agent ./continuum-agent-0.4.0.tgz --namespace continuum-system --reset-then-reuse-values --set access.tier=1",
+    "spec": {
+      "upgrade": {
+        "chartFile": "continuum-agent-0.4.0.tgz",
+        "tier": 1
+      }
+    }
   },
   {
     "name": "signal: resourceUsage",

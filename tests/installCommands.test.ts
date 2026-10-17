@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { test } from 'node:test'
 import {
   cleanTags, emptyScopeOverride, emptyTelemetry, keepAsInstalled, telemetryProblems, withFlowObserver, withMeasurements, withNodeProbe, withScope,
-  withTelemetry, emptyScope, type TelemetryInput,
+  withTelemetry, emptyScope, scopeProblems, type ScopeInput, type TelemetryInput,
 } from '../src/lib/install'
 import { helmUpgradeCommand, telemetryUpgradeCommand, PICKABLE_SIGNALS, TELEMETRY_INTENT_PRESETS, applyIntentPreset } from '../src/lib/consent'
 import { EXPORT_PRESETS } from '../src/lib/exportPresets'
@@ -25,17 +25,29 @@ import { buildOperatorInstallCommand } from '../src/lib/operatorInstall'
 // collector does with the rendered configuration (the chart tests that run the real collector).
 
 type Chart = 'agent' | 'regional-operator'
-interface Case { name: string; chart: Chart; command: string }
+
+/** What the Go renderer (backend/internal/install) is given to write the same command: the second half of this file's job. A case carries
+ *  it beside the command it pinned, and the Go test (install/parity_test.go) renders it and demands the same bytes. The commands the web UI
+ *  prints move to being written there, so this is the contract: whatever a case says here, the server must be able to say. */
+interface Spec {
+  /** The command the rest is appended to, as given (the server prints it), or ... */
+  head?: string
+  /** ... an upgrade of an installed agent, whose head the renderer writes. */
+  upgrade?: { chartRef?: string; chartVersion?: string; chartFile?: string; namespace?: string; release?: string; tier?: number }
+  collectors?: { nodeProbe?: boolean; flowObserver?: boolean; measurements?: boolean }
+  scope?: { namespaces: string[]; exclude: string[]; selector: string }
+}
+interface Case { name: string; chart: Chart; command: string; spec?: Spec }
 
 const agentBase = 'helm install continuum-agent oci://registry.example.com/continuum-agent --namespace continuum-system --create-namespace'
 const operatorBase = 'helm install continuum-regional-operator oci://registry.example.com/continuum-regional-operator --namespace continuum-system --create-namespace'
 
 const cases: Case[] = []
 const names = new Set<string>()
-function add(name: string, chart: Chart, command: string) {
+function add(name: string, chart: Chart, command: string, spec?: Spec) {
   assert.ok(!names.has(name), `two cases are called ${name}`)
   names.add(name)
-  cases.push({ name, chart, command })
+  cases.push(spec ? { name, chart, command, spec } : { name, chart, command })
 }
 
 /** A telemetry case: the settings must be valid and must change the command, or the case would pin nothing. */
@@ -49,22 +61,27 @@ function telemetry(name: string, t: TelemetryInput, from = agentBase) {
 const to = (over: Partial<TelemetryInput> = {}): TelemetryInput => ({ ...emptyTelemetry, exportEndpoint: 'otel.example.com:4317', ...over })
 
 // ---------- the install, and the opt-in parts ----------
-add('install', 'agent', agentBase)
-add('node probe', 'agent', withNodeProbe(agentBase, true))
-add('flow observer', 'agent', withFlowObserver(agentBase, true))
-add('measurements', 'agent', withMeasurements(agentBase, true))
-add('node probe, flow observer and measurements', 'agent', withMeasurements(withFlowObserver(withNodeProbe(agentBase, true), true), true))
+add('install', 'agent', agentBase, { head: agentBase })
+add('node probe', 'agent', withNodeProbe(agentBase, true), { head: agentBase, collectors: { nodeProbe: true } })
+add('flow observer', 'agent', withFlowObserver(agentBase, true), { head: agentBase, collectors: { flowObserver: true } })
+add('measurements', 'agent', withMeasurements(agentBase, true), { head: agentBase, collectors: { measurements: true } })
+add('node probe, flow observer and measurements', 'agent', withMeasurements(withFlowObserver(withNodeProbe(agentBase, true), true), true), { head: agentBase, collectors: { nodeProbe: true, flowObserver: true, measurements: true } })
 
 // ---------- scope ----------
-add('scope: two namespaces', 'agent', withScope(agentBase, { ...emptyScope, namespaces: ['checkout', 'payments'] }))
-add('scope: excluded namespaces', 'agent', withScope(agentBase, { ...emptyScope, exclude: ['kube-public', 'dev-sandbox'] }))
-add('scope: a label selector', 'agent', withScope(agentBase, { ...emptyScope, selector: 'team in (core,edge),tier!=debug' }))
-add('scope: all three', 'agent', withScope(agentBase, { namespaces: ['checkout'], exclude: ['dev-sandbox'], selector: 'team=core' }))
+/** A scope case: the settings must be valid, or the command would be the bare install and pin nothing. */
+function scoped(name: string, s: ScopeInput) {
+  assert.deepEqual(scopeProblems(s), [], `${name}: these settings have a problem`)
+  add(name, 'agent', withScope(agentBase, s), { head: agentBase, scope: s })
+}
+scoped('scope: two namespaces', { ...emptyScope, namespaces: ['checkout', 'payments'] })
+scoped('scope: excluded namespaces', { ...emptyScope, exclude: ['kube-public', 'dev-sandbox'] })
+scoped('scope: a label selector', { ...emptyScope, selector: 'continuum.io/scope=yes' })
+scoped('scope: all three', { namespaces: ['checkout'], exclude: ['dev-sandbox'], selector: 'app=core' })
 
 // ---------- upgrades (what the access and telemetry panels print) ----------
-for (const tier of [0, 1, 2]) add(`upgrade: tier ${tier}`, 'agent', helmUpgradeCommand(undefined, tier))
-add('upgrade: tier 2 from a registry chart at a version', 'agent', helmUpgradeCommand({ chartRef: 'oci://registry.example.com/continuum-agent', chartVersion: '0.4.0' }, 2, { namespace: 'ikhnos', release: 'edge-agent' }))
-add('upgrade: tier 1 from a local file', 'agent', helmUpgradeCommand({ chartFile: 'continuum-agent-0.4.0.tgz' }, 1))
+for (const tier of [0, 1, 2]) add(`upgrade: tier ${tier}`, 'agent', helmUpgradeCommand(undefined, tier), { upgrade: { tier } })
+add('upgrade: tier 2 from a registry chart at a version', 'agent', helmUpgradeCommand({ chartRef: 'oci://registry.example.com/continuum-agent', chartVersion: '0.4.0' }, 2, { namespace: 'ikhnos', release: 'edge-agent' }), { upgrade: { chartRef: 'oci://registry.example.com/continuum-agent', chartVersion: '0.4.0', namespace: 'ikhnos', release: 'edge-agent', tier: 2 } })
+add('upgrade: tier 1 from a local file', 'agent', helmUpgradeCommand({ chartFile: 'continuum-agent-0.4.0.tgz' }, 1), { upgrade: { chartFile: 'continuum-agent-0.4.0.tgz', tier: 1 } })
 
 // ---------- telemetry: each signal alone, then all of them ----------
 for (const s of PICKABLE_SIGNALS) {

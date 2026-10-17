@@ -84,7 +84,7 @@ export function withScope(install: string, s: ScopeInput): string {
   let cmd = install.trimEnd()
   if (s.namespaces.length) cmd += ` \\\n  --set scope.namespaces=${helmList(s.namespaces)}`
   if (s.exclude.length) cmd += ` \\\n  --set scope.exclude=${helmList(s.exclude)}`
-  if (s.selector.trim()) cmd += ` \\\n  --set-string scope.selector=${shQuote(s.selector.trim())}`
+  if (s.selector.trim()) cmd += ` \\\n  --set-string scope.selector=${shArg(s.selector.trim())}`
   return cmd
 }
 
