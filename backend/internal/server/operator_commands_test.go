@@ -102,7 +102,10 @@ func TestInstallCommandQuotesEveryInterpolatedValue(t *testing.T) {
 	op := store.Operator{ID: "op-q", Name: "n", Status: store.OperatorActive, ReceiverAuth: store.ReceiverAuthMTLS,
 		Destination: store.Destination{Kind: store.DestinationExternal, Endpoint: "c:4317; touch /tmp/x", CAFile: "/etc/ca $(id).pem", AuthHeaderName: "A b", AuthSecretName: "s'1", AuthSecretKey: "k"}}
 	for _, reissue := range []bool{false, true} {
-		got, _ := a.a.operatorInstallCommandWith(ImageConfig{}, "", op, OperatorTLSBundle{ReceiverCertPEM: []byte("x")}, "https://h.example/x'; id", nil, reissue)
+		got, _, err := a.a.operatorInstallCommandWith(ImageConfig{}, "", op, OperatorTLSBundle{ReceiverCertPEM: []byte("x")}, "https://h.example/x'; id", nil, reissue)
+		if err != nil {
+			t.Fatal(err)
+		}
 		for _, want := range []string{"'export.otlp.endpoint=c:4317; touch /tmp/x'", "'export.otlp.tls.caFile=/etc/ca $(id).pem'", `'export.otlp.auth.secretName=s'\''1'`, "'export.otlp.auth.headerName=A b'", `'heartbeat.url=https://h.example/x'\''; id'`} {
 			if !strings.Contains(got, want) {
 				t.Fatalf("reissue=%v: command lacks %s:\n%s", reissue, want, got)

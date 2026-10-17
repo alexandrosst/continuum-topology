@@ -48,22 +48,6 @@ func TestApplySecretCommandPicksAClosingWordTheDataDoesNotUse(t *testing.T) {
 	}
 }
 
-// A value that is not a shell word is quoted whole, so an address or a chart reference from a setting can only ever be
-// one argument.
-func TestSetFlagQuotesWhatIsNotAShellWord(t *testing.T) {
-	for _, c := range []struct{ key, val, want string }{
-		{"a.b", "host:4317", "--set a.b=host:4317"},
-		{"a.b", "", "--set a.b="},
-		{"a.b", "x; rm -rf /", "--set 'a.b=x; rm -rf /'"},
-		{"a.b", "it's $(id)", `--set 'a.b=it'\''s $(id)'`},
-		{"a.b", "a\nb", "--set 'a.b=a\nb'"},
-	} {
-		if got := setFlag(c.key, c.val); got != c.want {
-			t.Errorf("setFlag(%q, %q) = %s, want %s", c.key, c.val, got, c.want)
-		}
-	}
-}
-
 // The regional operator runs the upstream collector image its chart names. A configured registry holds the
 // `continuum` image, not an operator one, so the command must not point the operator's image at it.
 func TestOperatorInstallCommandNeverOverridesTheImage(t *testing.T) {
@@ -71,7 +55,7 @@ func TestOperatorInstallCommandNeverOverridesTheImage(t *testing.T) {
 	op := store.Operator{ID: "op-abc123", Status: store.OperatorActive, ReceiverAuth: store.ReceiverAuthMTLS,
 		Destination: store.Destination{Kind: store.DestinationExternal, Endpoint: "c:4317"}}
 	img := ImageConfig{Registry: "ghcr.io/me", Tag: "0.2.0-dev", Digest: "sha256:" + strings.Repeat("a", 64)}
-	got, _ := a.a.operatorInstallCommand(img, "", op, OperatorTLSBundle{ReceiverCertPEM: []byte("x")}, "")
+	got, _ := operatorInstall(a.a, img, "", op, OperatorTLSBundle{ReceiverCertPEM: []byte("x")}, "")
 	// The collector keeps the upstream image the chart names; only the cert-renew sidecar runs the continuum image.
 	if strings.Contains(got, "--set image.") || strings.Contains(got, "--set global.") {
 		t.Fatalf("operator install command sets the collector's image: %s", got)

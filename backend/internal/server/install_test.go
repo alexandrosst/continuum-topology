@@ -424,8 +424,8 @@ func TestOperatorChartRefIsDerivedFromTheAgentChartRef(t *testing.T) {
 		{"nothing set: the image registry's own", "", "oci://reg.example.com/team/continuum-regional-operator", true},
 	} {
 		a.ChartRef = c.chartRef
-		ref, version := a.operatorChartArgs(img)
-		if ref != shellArg(c.wantRef) && ref != c.wantRef {
+		ref, version := a.operatorChart(img)
+		if ref != c.wantRef {
 			t.Errorf("%s: chart ref %q -> operator ref %q, want %q", c.name, c.chartRef, ref, c.wantRef)
 		}
 		if (version != "") != c.wantVersion {
@@ -437,7 +437,7 @@ func TestOperatorChartRefIsDerivedFromTheAgentChartRef(t *testing.T) {
 	}
 	// With no registry either, the served file.
 	a.ChartRef = ""
-	if ref, _ := a.operatorChartArgs(ImageConfig{}); ref != local {
+	if ref, _ := a.operatorChart(ImageConfig{}); ref != local {
 		t.Errorf("no reference at all: %q", ref)
 	}
 }

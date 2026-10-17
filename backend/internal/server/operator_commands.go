@@ -17,10 +17,6 @@ import (
 // written; these two names remain for the builders in this package that have not moved there yet.
 func shellArg(s string) string { return install.Arg(s) }
 
-// setFlag is one `--set key=value` Helm flag with the pair as a single, safely quoted word. An empty value is a
-// deliberate "clear this", which Helm reads as an empty string.
-func setFlag(key, value string) string { return "--set " + shellArg(key+"="+value) }
-
 // secretEntry is one key of a Secret and its value.
 type secretEntry struct{ Key, Value string }
 
@@ -85,6 +81,3 @@ func yamlEntry(e secretEntry) string {
 func withNamespace(namespace, cmd string) string {
 	return fmt.Sprintf("kubectl create namespace %s --dry-run=client -o yaml | kubectl apply -f - && \\\n%s", namespace, cmd)
 }
-
-// shellQuote wraps s in single quotes for a POSIX shell (see shellArg).
-func shellQuote(s string) string { return install.Quote(s) }

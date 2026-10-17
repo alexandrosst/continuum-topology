@@ -309,13 +309,24 @@ func (a *Admin) createOperator(w http.ResponseWriter, r *http.Request) {
 	for _, l := range req.Labels {
 		labels = append(labels, store.OperatorLabel{Key: l.Key, Value: l.Value})
 	}
+	// The receiver token and the certificates are shown once, with the command that uses them: a command that cannot be written is
+	// found before they exist.
+	if err := a.checkOperatorInstall(a.images(a.core(r))); err != nil {
+		a.fail(w, a.installConfigError(err))
+		return
+	}
 	// req.Exposure "" stays "": a client that was not asked has not said "this cluster only". The core validates it.
 	op, secret, tlsBundle, hbSecret, err := a.core(r).CreateOperatorWithOptions(r.Context(), actor(r), req.Name, req.SourceClusterIDs, req.Destination.toStore(), modalitiesFromDoc(req.AcceptedModalities), OperatorOptions{Heartbeat: req.Heartbeat, Labels: labels, Exposure: req.Exposure})
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 201, a.operatorInstallDoc(r, op, installMaterial{Secret: secret, TLS: tlsBundle, HeartbeatSecret: hbSecret}))
+	doc, err := a.operatorInstallDoc(r, op, installMaterial{Secret: secret, TLS: tlsBundle, HeartbeatSecret: hbSecret})
+	if err != nil {
+		a.fail(w, err)
+		return
+	}
+	writeJSON(w, 201, doc)
 }
 
 // installMaterial is what was minted for one install and is shown once: a bearer operator's receiver token, the
@@ -330,7 +341,7 @@ type installMaterial struct {
 
 // operatorInstallDoc is the response of creating an operator and of installing it again: the operator, the install
 // command, what to apply in the source clusters, and the Secrets the install points at.
-func (a *Admin) operatorInstallDoc(r *http.Request, op store.Operator, m installMaterial) map[string]any {
+func (a *Admin) operatorInstallDoc(r *http.Request, op store.Operator, m installMaterial) (map[string]any, error) {
 	core := a.core(r)
 	img := a.images(core)
 	hbURL := ""
@@ -344,13 +355,13 @@ func (a *Admin) operatorInstallDoc(r *http.Request, op store.Operator, m install
 			target = &t
 		}
 	}
-	install, secretCmd := a.operatorInstallCommandWith(img, m.Secret, op, m.TLS, hbURL, target, m.Reissue)
-	if svcType, _ := serviceTypeFor(op.Exposure); svcType != "" {
-		install += " \\\n  " + setFlag("service.type", svcType)
+	cmd, secretCmd, err := a.operatorInstallCommandWith(img, m.Secret, op, m.TLS, hbURL, target, m.Reissue)
+	if err != nil {
+		return nil, a.installConfigError(err)
 	}
 	resp := map[string]any{
 		"operator":  a.opDoc(r, op),
-		"install":   install,
+		"install":   cmd,
 		"reminders": a.operatorSourceReminders(r, op, m.TLS),
 	}
 	// A receiver bearer token exists only for a bearer operator (see operatorInstallCommand): for an mTLS
@@ -383,19 +394,28 @@ func (a *Admin) operatorInstallDoc(r *http.Request, op store.Operator, m install
 		resp["restartCommand"] = operatorRestartCommand(op)
 	}
 	a.addOperatorTargetExport(r, resp, op)
-	return resp
+	return resp, nil
 }
 
 // reissueOperatorInstall is "install this operator again / renew its certificates", available at any time: a fresh
 // receiver and client certificate from the operator's stored CA, with the commands to apply them, and a new
 // receiver token or heartbeat secret where the operator has one (they are hashed and cannot be shown again).
 func (a *Admin) reissueOperatorInstall(w http.ResponseWriter, r *http.Request) {
+	if err := a.checkOperatorInstall(a.images(a.core(r))); err != nil {
+		a.fail(w, a.installConfigError(err))
+		return
+	}
 	op, mat, err := a.core(r).ReissueOperatorInstall(r.Context(), actor(r), r.PathValue("id"))
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 200, a.operatorInstallDoc(r, op, installMaterial{Secret: mat.ReceiverToken, TLS: mat.TLS, HeartbeatSecret: mat.HeartbeatSecret, Reissue: true}))
+	doc, err := a.operatorInstallDoc(r, op, installMaterial{Secret: mat.ReceiverToken, TLS: mat.TLS, HeartbeatSecret: mat.HeartbeatSecret, Reissue: true})
+	if err != nil {
+		a.fail(w, err)
+		return
+	}
+	writeJSON(w, 200, doc)
 }
 
 // issuedCertDoc is one ledger entry. state is "ok" or "expired": whether renewal is happening is a property of the
@@ -769,15 +789,13 @@ func (a *Admin) addOperatorTargetExport(r *http.Request, resp map[string]any, op
 	resp["exportTarget"] = exportTarget
 }
 
-// operatorChartArgs is the chart reference an operator `helm` command names, and the " --version ..." that
-// goes with it when that reference is a registry one (empty for a local .tgz). Both are quoted: they come from
-// settings an organisation's administrator can change.
-func (a *Admin) operatorChartArgs(img ImageConfig) (ref, version string) {
-	ref, v := a.operatorChart(img)
-	if v != "" {
-		version = " --version " + shellArg(v)
-	}
-	return shellArg(ref), version
+// checkOperatorInstall says whether the install command of a regional operator can be written with the chart this server names, before
+// anything for it is minted. Only the chart and the versions can stop it: the operator's own words are names this server made.
+func (a *Admin) checkOperatorInstall(img ImageConfig) error {
+	probe := store.Operator{ID: "op-check", Name: "check", Status: store.OperatorActive, ReceiverAuth: store.ReceiverAuthMTLS,
+		Destination: store.Destination{Kind: store.DestinationExternal, Endpoint: "check:4317"}}
+	_, _, err := a.operatorInstallCommandWith(img, "check", probe, OperatorTLSBundle{}, "", nil, true)
+	return err
 }
 
 // operatorChart is where the regional-operator chart is, as agentChart is for the agent's: the chart reference and, for a repository
@@ -793,7 +811,7 @@ func (a *Admin) operatorChart(img ImageConfig) (ref, version string) {
 	return ref, version
 }
 
-// operatorInstallCommand is installCommand's own twin for the regional-operator chart: simpler, since this
+// operatorInstallCommandWith is installCommand's own twin for the regional-operator chart: simpler, since this
 // chart does not dial the Ikhnos server unless its opt-in heartbeat is on (see store.Operator's own
 // comment) - there is no server.address or enrollment.key here, only where the operator exports to and how
 // its receiver authenticates what exports into it. Returns the `helm install` command and, for a bearer
@@ -809,32 +827,17 @@ func (a *Admin) operatorChart(img ImageConfig) (ref, version string) {
 //
 // heartbeatURL is "" for an operator that did not opt in to a heartbeat (the command is then exactly what
 // it was before heartbeats existed).
-func (a *Admin) operatorInstallCommand(img ImageConfig, secret string, op store.Operator, tlsBundle OperatorTLSBundle, heartbeatURL string) (cmd, secretCmd string) {
-	return a.operatorInstallCommandWith(img, secret, op, tlsBundle, heartbeatURL, nil, false)
-}
-
-// operatorInstallCommandTo is operatorInstallCommand when the operator's destination is another operator and the
-// caller has that operator's record: its advertised address (if any) is then what the exporter dials, and the
-// certificate is verified against the stable name on it. With target nil only the id is known, which fixes the
-// in-cluster name and nothing more.
-func (a *Admin) operatorInstallCommandTo(img ImageConfig, secret string, op store.Operator, tlsBundle OperatorTLSBundle, heartbeatURL string, target *store.Operator) (cmd, secretCmd string) {
-	return a.operatorInstallCommandWith(img, secret, op, tlsBundle, heartbeatURL, target, false)
-}
-
-// operatorInstallCommandWith is operatorInstallCommandTo that can also upgrade a release that already runs
-// (reissue): `helm upgrade --install --reset-then-reuse-values` (Helm 3.14 or newer; see upgradeCommand for why not
-// --reuse-values) keeps what the person tuned (resources, image), so every value this command is about is stated, the unused
-// ones empty - an export block left out would keep an old destination's settings.
-func (a *Admin) operatorInstallCommandWith(img ImageConfig, secret string, op store.Operator, tlsBundle OperatorTLSBundle, heartbeatURL string, target *store.Operator, reissue bool) (cmd, secretCmd string) {
-	ref, version := a.operatorChartArgs(img)
-	secretName := op.ID + "-receiver-auth"
-	var b strings.Builder
-	if reissue {
-		fmt.Fprintf(&b, "helm upgrade --install %s %s%s \\\n  --namespace continuum-system --create-namespace --reset-then-reuse-values", op.ID, ref, version)
-	} else {
-		fmt.Fprintf(&b, "helm install %s %s%s \\\n  --namespace continuum-system --create-namespace", op.ID, ref, version)
-	}
-	flag := func(f string) { fmt.Fprintf(&b, " \\\n  %s", f) }
+//
+// When the operator's destination is another operator, target is that operator's record: its advertised address (if any) is then what
+// the exporter dials, and the certificate is verified against the stable name on it. With target nil only the id is known, which fixes
+// the in-cluster name and nothing more.
+//
+// With reissue the command upgrades a release that already runs: `helm upgrade --install --reset-then-reuse-values` (Helm 3.14 or
+// newer; see upgradeCommand for why not --reuse-values) keeps what the person tuned (resources, image), so every value this command is
+// about is stated, the unused ones empty - an export block left out would keep an old destination's settings.
+func (a *Admin) operatorInstallCommandWith(img ImageConfig, secret string, op store.Operator, tlsBundle OperatorTLSBundle, heartbeatURL string, target *store.Operator, reissue bool) (cmd, secretCmd string, err error) {
+	var v []install.Value
+	set := func(key, value string) { v = append(v, install.Set(key, value)) }
 	if op.Destination.Kind == store.DestinationOperator {
 		// Another regional operator (the central one in front of FUSION, usually): its receiver, over mutual TLS with
 		// a client certificate from the target's own CA (the Secret addOperatorTargetExport hands out).
@@ -842,100 +845,113 @@ func (a *Admin) operatorInstallCommandWith(img ImageConfig, secret string, op st
 		if target != nil {
 			tgt = *target
 		}
-		flag(setFlag("export.otlp.endpoint", a.destEndpoint(tgt, op.Destination)))
+		set("export.otlp.endpoint", a.destEndpoint(tgt, op.Destination))
 		if reissue {
-			flag(setFlag("export.otlp.protocol", "grpc"))
-			flag(setFlag("export.otlp.tls.insecure", "false"))
-			flag(setFlag("export.otlp.tls.caFile", ""))
+			set("export.otlp.protocol", "grpc")
+			set("export.otlp.tls.insecure", "false")
+			set("export.otlp.tls.caFile", "")
 		}
-		flag(setFlag("export.otlp.tls.mtls.enabled", "true"))
-		flag(setFlag("export.otlp.tls.mtls.secretName", operatorClientTLSSecretName(tgt)))
+		set("export.otlp.tls.mtls.enabled", "true")
+		set("export.otlp.tls.mtls.secretName", operatorClientTLSSecretName(tgt))
 		if operatorNeedsServerName(tgt) {
-			flag(setFlag("export.otlp.tls.serverName", operatorServerName(tgt)))
+			set("export.otlp.tls.serverName", operatorServerName(tgt))
 		} else if reissue {
-			flag(setFlag("export.otlp.tls.serverName", ""))
+			set("export.otlp.tls.serverName", "")
 		}
 		if reissue {
-			flag(setFlag("export.otlp.auth.secretName", ""))
+			set("export.otlp.auth.secretName", "")
 		}
 	} else {
 		d := op.Destination
-		flag(setFlag("export.otlp.endpoint", d.Endpoint))
+		set("export.otlp.endpoint", d.Endpoint)
 		if reissue {
-			flag(setFlag("export.otlp.protocol", "grpc"))
-			flag(setFlag("export.otlp.tls.insecure", strconv.FormatBool(d.Insecure)))
-			flag(setFlag("export.otlp.tls.caFile", d.CAFile))
-			flag(setFlag("export.otlp.tls.mtls.enabled", "false"))
-			flag(setFlag("export.otlp.tls.mtls.secretName", ""))
-			flag(setFlag("export.otlp.tls.serverName", ""))
+			set("export.otlp.protocol", "grpc")
+			set("export.otlp.tls.insecure", strconv.FormatBool(d.Insecure))
+			set("export.otlp.tls.caFile", d.CAFile)
+			set("export.otlp.tls.mtls.enabled", "false")
+			set("export.otlp.tls.mtls.secretName", "")
+			set("export.otlp.tls.serverName", "")
 		} else {
 			if d.Insecure {
-				flag(setFlag("export.otlp.tls.insecure", "true"))
+				set("export.otlp.tls.insecure", "true")
 			}
 			if d.CAFile != "" {
-				flag(setFlag("export.otlp.tls.caFile", d.CAFile))
+				set("export.otlp.tls.caFile", d.CAFile)
 			}
 		}
 		if d.AuthSecretName != "" {
-			flag(setFlag("export.otlp.auth.headerName", d.AuthHeaderName))
-			flag(setFlag("export.otlp.auth.secretName", d.AuthSecretName))
-			flag(setFlag("export.otlp.auth.secretKey", d.AuthSecretKey))
+			set("export.otlp.auth.headerName", d.AuthHeaderName)
+			set("export.otlp.auth.secretName", d.AuthSecretName)
+			set("export.otlp.auth.secretKey", d.AuthSecretKey)
 		} else if reissue {
-			flag(setFlag("export.otlp.auth.secretName", ""))
+			set("export.otlp.auth.secretName", "")
 		}
 	}
 	mtlsOnly := op.ReceiverAuth == store.ReceiverAuthMTLS
 	if mtlsOnly {
-		flag("--set receiver.auth.enabled=false")
-		flag("--set receiver.requireAuth=true")
-		flag("--set receiver.tls.enabled=true")
-		flag(setFlag("receiver.tls.secretName", operatorReceiverTLSSecretName(op)))
-		flag("--set receiver.tls.mtls=true")
+		set("receiver.auth.enabled", "false")
+		set("receiver.requireAuth", "true")
+		set("receiver.tls.enabled", "true")
+		set("receiver.tls.secretName", operatorReceiverTLSSecretName(op))
+		set("receiver.tls.mtls", "true")
 	} else {
-		flag("--set receiver.auth.enabled=true")
-		flag(setFlag("receiver.auth.secretName", secretName))
+		set("receiver.auth.enabled", "true")
+		set("receiver.auth.secretName", op.ID+"-receiver-auth")
 	}
 	// For a bearer operator, mTLS on the receiver is additive to the bearer token above, not a
 	// replacement - see this chart's own receiver.tls comment. Only set up when CreateOperator actually
 	// minted the certificates.
 	if !mtlsOnly && len(tlsBundle.ReceiverCertPEM) > 0 {
-		flag("--set receiver.tls.enabled=true")
-		flag(setFlag("receiver.tls.secretName", operatorReceiverTLSSecretName(op)))
-		flag("--set receiver.tls.mtls=true")
+		set("receiver.tls.enabled", "true")
+		set("receiver.tls.secretName", operatorReceiverTLSSecretName(op))
+		set("receiver.tls.mtls", "true")
 	}
 	if heartbeatURL != "" {
-		flag(install.Flags(a.operatorHeartbeatValues(op, heartbeatURL)))
+		v = append(v, a.operatorHeartbeatValues(op, heartbeatURL)...)
 	}
 	// Keeps this operator's certificates from running out: the chart's cert-renew sidecar (the discovery agent's image, a
 	// different role) asks this server for a new one before the old one ends. It only needs to know where the server is
 	// and which CA to trust; there is no token or key to hand out. Only when the operator holds a certificate at all.
 	if a.AgentAddr != "" && (mtlsOnly || len(tlsBundle.ReceiverCertPEM) > 0 || op.Destination.Kind == store.DestinationOperator) {
-		flag("--set renew.enabled=true")
-		flag(setFlag("renew.server", a.AgentAddr))
-		flag(setFlag("renew.caPin", a.C.CA.SPKIPin()))
+		set("renew.enabled", "true")
+		set("renew.server", a.AgentAddr)
+		set("renew.caPin", a.C.CA.SPKIPin())
 		if img.Configured() {
-			flag(setFlag("renew.image.repository", img.Registry+"/continuum"))
+			set("renew.image.repository", img.Registry+"/continuum")
 			if img.Tag != "" {
-				flag(setFlag("renew.image.tag", img.Tag))
+				set("renew.image.tag", img.Tag)
 			}
 			if img.Digest != "" {
-				flag(setFlag("renew.image.digest", img.Digest))
+				set("renew.image.digest", img.Digest)
 			}
-		} else if v := chart.Agent.AppVersion(); v != "" {
+		} else if av := chart.Agent.AppVersion(); av != "" {
 			// The operator chart's own appVersion is the collector's; the sidecar runs the agent image.
-			flag(setFlag("renew.image.tag", v))
+			set("renew.image.tag", av)
 		}
 	}
-	flag("--set-json operator=" + shellQuote(operatorProvenanceJSON(op)))
+	v = append(v, install.SetJSON("operator", operatorProvenanceJSON(op)))
 	// No image flags, on purpose. The operator runs the upstream OpenTelemetry Collector image the chart
 	// already names - not the `continuum` image the configured registry holds - so pointing it at
 	// <registry>/continuum-regional-operator (an image nothing ever published) made every install of it
 	// fail with ImagePullBackOff. A cluster that must pull from its own registry sets image.repository
 	// and image.tag itself (see the chart's values.yaml).
-	if !mtlsOnly {
-		secretCmd = withNamespace("continuum-system", applySecretCommand(secretName, "continuum-system", secretKV("token", secret)))
+	//
+	// How its Service is made reachable from other clusters (see Operator.Exposure).
+	if svcType, _ := serviceTypeFor(op.Exposure); svcType != "" {
+		set("service.type", svcType)
 	}
-	return b.String(), secretCmd
+	ref, version := a.operatorChart(img)
+	h := install.Helm{Verb: install.Install, Release: op.ID, Chart: ref, Version: version, Namespace: "continuum-system", CreateNamespace: true, Values: v, Layout: install.Wrapped}
+	if reissue {
+		h.Verb, h.ResetThenReuse = install.UpgradeInstall, true
+	}
+	if cmd, err = h.Render(); err != nil {
+		return "", "", err
+	}
+	if !mtlsOnly {
+		secretCmd = withNamespace("continuum-system", applySecretCommand(op.ID+"-receiver-auth", "continuum-system", secretKV("token", secret)))
+	}
+	return cmd, secretCmd, nil
 }
 
 // operatorProvenanceJSON is the chart's `operator` value: who this operator is (stamped as

@@ -80,3 +80,48 @@ func TestAnOperatorChartTheCommandCannotNameMintsNoHeartbeatSecret(t *testing.T)
 		t.Fatal("the heartbeat secret was minted though its upgrade could not be written")
 	}
 }
+
+// operatorInstall is an operator's first install command (no reissue, no other operator as its destination), for a test that is about
+// what it says and not about whether it could be written.
+func operatorInstall(a *Admin, img ImageConfig, secret string, op store.Operator, bundle OperatorTLSBundle, heartbeatURL string) (cmd, secretCmd string) {
+	cmd, secretCmd, err := a.operatorInstallCommandWith(img, secret, op, bundle, heartbeatURL, nil, false)
+	if err != nil {
+		panic(err)
+	}
+	return cmd, secretCmd
+}
+
+// An operator is made together with a receiver token or certificates that are shown once, with the install command: a command that
+// cannot be written is found before either exists, on creating the operator and on installing it again.
+func TestAnOperatorChartTheCommandCannotNameMakesNoOperatorAndRotatesNothing(t *testing.T) {
+	a := newAdminRig(t)
+	_, cookie := a.user(t, "alex", RoleAdmin)
+	cl := a.approvedCluster(t, fp)
+	id := a.createOperatorDoc(t, cookie, extBody("athens", cl))["operator"].(map[string]any)["id"].(string)
+	before, err := a.st.ListOperatorCerts(a.ctx, id)
+	if err != nil || len(before) == 0 {
+		t.Fatalf("the operator has no certificates on record to compare with: %v %v", len(before), err)
+	}
+
+	a.a.ChartRef = "--post-renderer=/tmp/x/continuum-agent" // the operator chart is derived from it
+	if r := a.do("POST", "/api/v1/operators", extBody("oslo", cl), withCookie(cookie)); r.Code != 500 {
+		t.Fatalf("create with a chart that cannot be named: %d %s", r.Code, r.Body.String())
+	}
+	ops, err := a.st.ListOperators(a.ctx, "org-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ops) != 1 {
+		t.Fatalf("an operator was made though its install command could not be written: %d operators", len(ops))
+	}
+	if r := a.do("POST", "/api/v1/operators/"+id+"/install", nil, withCookie(cookie)); r.Code != 500 {
+		t.Fatalf("install again with a chart that cannot be named: %d %s", r.Code, r.Body.String())
+	}
+	after, err := a.st.ListOperatorCerts(a.ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != len(before) {
+		t.Fatalf("certificates were issued for an install command that could not be written: %d before, %d after", len(before), len(after))
+	}
+}

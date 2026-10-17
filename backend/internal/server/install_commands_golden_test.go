@@ -167,6 +167,7 @@ func (p *pinRig) operatorCommands() {
 	bearer := func(d store.Destination) store.Operator {
 		return store.Operator{ID: "oslo", Name: "oslo", Status: store.OperatorActive, ReceiverAuth: store.ReceiverAuthBearer, Destination: d}
 	}
+	exposed := func(op store.Operator, exposure string) store.Operator { op.Exposure = exposure; return op }
 	tgt := store.Operator{ID: "tgt", Name: "tgt", Status: store.OperatorActive, ReceiverAuth: store.ReceiverAuthMTLS, Address: "tgt.example.com:4317"}
 	central := store.Operator{ID: CentralOperatorID, Name: "central", Status: store.OperatorActive, ReceiverAuth: store.ReceiverAuthMTLS}
 
@@ -187,6 +188,8 @@ func (p *pinRig) operatorCommands() {
 		{"bearer-external", bearer(ext), OperatorTLSBundle{}, "", nil},
 		{"bearer-external-tls", bearer(extFull), pinBundle, "", nil},
 		{"bearer-to-operator", bearer(viaOperator), OperatorTLSBundle{}, "", &central},
+		{"mtls-exposed-loadbalancer", exposed(mtls(ext), "loadbalancer"), pinBundle, "", nil},
+		{"mtls-exposed-nodeport", exposed(mtls(ext), "nodeport"), pinBundle, "", nil},
 	}
 	images := []struct {
 		name  string
@@ -205,7 +208,10 @@ func (p *pinRig) operatorCommands() {
 		a := p.admin(i.tweak)
 		for _, o := range ops {
 			for _, reissue := range []bool{false, true} {
-				install, secret := a.operatorInstallCommandWith(i.img, "cno_SECRET", o.op, o.bundle, o.hb, o.target, reissue)
+				install, secret, err := a.operatorInstallCommandWith(i.img, "cno_SECRET", o.op, o.bundle, o.hb, o.target, reissue)
+				if err != nil {
+					p.t.Fatal(err)
+				}
 				base := fmt.Sprintf("operator/install/%s/%s/reissue=%v", i.name, o.name, reissue)
 				p.add(a, base, "regional-operator", install)
 				if secret != "" {

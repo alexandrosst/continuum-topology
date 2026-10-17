@@ -140,3 +140,19 @@ func TestFlagsAreTheValuesOnOneLine(t *testing.T) {
 		t.Fatalf("the shell read %q, want %q", got, want)
 	}
 }
+
+// A value that is not a shell word is quoted whole, so an address or a chart reference from a setting can only ever be one argument
+// (these cases are the ones the server's own test of its old flag writer held).
+func TestAValueThatIsNotAShellWordIsQuotedWhole(t *testing.T) {
+	for _, c := range []struct{ key, val, want string }{
+		{"a.b", "host:4317", "--set a.b=host:4317"},
+		{"a.b", "", "--set a.b="},
+		{"a.b", "x; rm -rf /", "--set 'a.b=x; rm -rf /'"},
+		{"a.b", "it's $(id)", `--set 'a.b=it'\''s $(id)'`},
+		{"a.b", "a\nb", "--set 'a.b=a\nb'"},
+	} {
+		if got := Flags([]Value{Set(c.key, c.val)}); got != c.want {
+			t.Errorf("Set(%q, %q) = %s, want %s", c.key, c.val, got, c.want)
+		}
+	}
+}

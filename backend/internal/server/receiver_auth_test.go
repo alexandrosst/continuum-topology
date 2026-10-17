@@ -60,7 +60,7 @@ func TestInstallCommandForABearerOperatorIsUnchanged(t *testing.T) {
 		Destination: store.Destination{Kind: store.DestinationExternal, Endpoint: "c:4317"}}
 	withTLS := OperatorTLSBundle{ReceiverCertPEM: []byte("x")}
 
-	got, secretCmd := a.a.operatorInstallCommand(ImageConfig{}, "cno_SECRET", op, withTLS, "")
+	got, secretCmd := operatorInstall(a.a, ImageConfig{}, "cno_SECRET", op, withTLS, "")
 	// The rig's ChartRef ("chart") is not the agent chart's address, so the operator chart is the file the server serves: an explicit
 	// reference is the AGENT chart and is never used as it is for the operator (see operatorChartRef).
 	want := "helm install op-abc123 ./" + chart.RegionalOperator.Filename() + " \\\n  --namespace continuum-system --create-namespace \\\n  --set export.otlp.endpoint=c:4317" +
@@ -78,13 +78,13 @@ func TestInstallCommandForABearerOperatorIsUnchanged(t *testing.T) {
 		t.Fatalf("secret command = %q", secretCmd)
 	}
 	// No certificates minted: bearer only, as before.
-	got, _ = a.a.operatorInstallCommand(ImageConfig{}, "cno_SECRET", op, OperatorTLSBundle{}, "")
+	got, _ = operatorInstall(a.a, ImageConfig{}, "cno_SECRET", op, OperatorTLSBundle{}, "")
 	if strings.Contains(got, "receiver.tls") || !strings.Contains(got, "receiver.auth.enabled=true") || strings.Contains(got, "requireAuth") {
 		t.Fatalf("bearer operator without certificates: %s", got)
 	}
 	// A row that predates the field (zero value) is a bearer operator too.
 	op.ReceiverAuth = ""
-	if again, _ := a.a.operatorInstallCommand(ImageConfig{}, "cno_SECRET", op, OperatorTLSBundle{}, ""); again != got {
+	if again, _ := operatorInstall(a.a, ImageConfig{}, "cno_SECRET", op, OperatorTLSBundle{}, ""); again != got {
 		t.Fatalf("a zero ReceiverAuth is not treated as bearer:\n%s", again)
 	}
 }
@@ -199,7 +199,7 @@ func TestInstallCommandQuotesOperatorNameAndLabels(t *testing.T) {
 	op := store.Operator{ID: "op-q", Name: "O'Brien; rm -rf /", Status: store.OperatorActive, ReceiverAuth: store.ReceiverAuthBearer,
 		Destination: store.Destination{Kind: store.DestinationExternal, Endpoint: "c:4317"},
 		Labels:      []store.OperatorLabel{{Key: "region", Value: "eu 'south'"}}}
-	got, _ := a.a.operatorInstallCommand(ImageConfig{}, "cno_SECRET", op, OperatorTLSBundle{}, "")
+	got, _ := operatorInstall(a.a, ImageConfig{}, "cno_SECRET", op, OperatorTLSBundle{}, "")
 	want := `--set-json operator='{"id":"op-q","name":"O'\''Brien; rm -rf /","labels":[{"key":"region","value":"eu '\''south'\''"}]}'`
 	if !strings.Contains(got, want) {
 		t.Fatalf("install command lacks %s:\n%s", want, got)
@@ -225,12 +225,12 @@ func TestInstallCommandOnlyAsksForRenewalWhereThereIsACertificate(t *testing.T) 
 	a := newAdminRig(t)
 	plain := store.Operator{ID: "op-abc123", Status: store.OperatorActive, ReceiverAuth: store.ReceiverAuthBearer,
 		Destination: store.Destination{Kind: store.DestinationExternal, Endpoint: "c:4317"}}
-	if got, _ := a.a.operatorInstallCommand(ImageConfig{}, "cno_SECRET", plain, OperatorTLSBundle{}, ""); strings.Contains(got, "renew.") {
+	if got, _ := operatorInstall(a.a, ImageConfig{}, "cno_SECRET", plain, OperatorTLSBundle{}, ""); strings.Contains(got, "renew.") {
 		t.Errorf("a bearer operator without certificates asks for renewal: %s", got)
 	}
 	chained := plain
 	chained.Destination = store.Destination{Kind: store.DestinationOperator, TargetOperatorID: "op-central"}
-	got, _ := a.a.operatorInstallCommand(ImageConfig{}, "cno_SECRET", chained, OperatorTLSBundle{}, "")
+	got, _ := operatorInstall(a.a, ImageConfig{}, "cno_SECRET", chained, OperatorTLSBundle{}, "")
 	for _, want := range []string{"--set renew.enabled=true", "--set renew.server=" + a.a.AgentAddr, "--set renew.caPin=" + a.a.C.CA.SPKIPin()} {
 		if !strings.Contains(got, want) {
 			t.Errorf("an operator with a client certificate lacks %q: %s", want, got)

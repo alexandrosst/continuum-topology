@@ -1584,6 +1584,9 @@ func (a *Admin) CheckInstallConfig() error {
 	if _, err := a.installCommand(img, "check", store.Token{AccessTier: chartDefaultAccessTier}); err != nil {
 		return fmt.Errorf("the agent install command cannot be written (check --chart-ref and the chart version): %w", err)
 	}
+	if err := a.checkOperatorInstall(img); err != nil {
+		return fmt.Errorf("the regional operator's install command cannot be written (check --chart-ref and the chart version): %w", err)
+	}
 	return nil
 }
 
