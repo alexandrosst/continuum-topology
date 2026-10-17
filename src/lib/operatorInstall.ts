@@ -1,4 +1,4 @@
-import { shArg, shQuote } from './install'
+import { shQuote } from './install'
 import { buildExtraProcessors, processorKey, processorProblems, processorTarget, type ProcessorEntry } from './processorCatalog'
 
 /**
