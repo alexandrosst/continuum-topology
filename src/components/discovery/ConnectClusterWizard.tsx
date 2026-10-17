@@ -8,7 +8,7 @@ import { api, ApiError, type CreatedToken } from '@/lib/api'
 import { discoveryStatus, extrasOf } from '@/lib/consent'
 import { effective } from '@/lib/effective'
 import { previewImage } from '@/lib/image'
-import { emptyScope, scopeActive, scopeProblems, shArg, withFlowObserver, withMeasurements, withNodeProbe, withScope } from '@/lib/install'
+import { emptyScope, scopeActive, scopeProblems, shArg } from '@/lib/install'
 import { findCities, nearestCity, suggestionFromCity, type City } from '@/lib/places'
 import { usePlaceIndex } from '@/lib/places-data'
 import { countryName } from '@/lib/present'
@@ -234,8 +234,12 @@ export default function ConnectClusterWizard({ open, onClose, nodeProbe }: { ope
     setBusy(true)
     setError('')
     try {
-      const t = await api.createToken(c, name.trim(), tier)
-      setCreated({ ...t, install: withScope(withMeasurements(withFlowObserver(withNodeProbe(t.install, probe && tier >= 1), flows && tier >= 2), measure && tier >= 2), scope) })
+      // What was chosen goes to the server, which writes the whole install command (and refuses a choice the access level cannot honour).
+      const t = await api.createToken(c, name.trim(), tier, {
+        collectors: { nodeProbe: probe && tier >= 1, flowObserver: flows && tier >= 2, measurements: measure && tier >= 2 },
+        scope,
+      })
+      setCreated(t)
       await refresh()
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'Could not create the token.')

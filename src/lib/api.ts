@@ -59,6 +59,12 @@ export interface ServerInfo {
   geoip?: { enabled: boolean; database?: string; description?: string; builtAt?: string; attribution?: string; publicIpFallback?: boolean; asn?: boolean }
 }
 
+/** What a new install is asked to switch on (the per-node collectors) and to narrow (the namespaces the agent may report). */
+export interface TokenInstallOptions {
+  collectors: { nodeProbe: boolean; flowObserver: boolean; measurements: boolean }
+  scope: { namespaces: string[]; exclude: string[]; selector: string }
+}
+
 export interface CreatedToken {
   token: string
   install: string
@@ -751,7 +757,8 @@ export const api = {
     if (!res.ok) throw new ApiError(res.status, (data as { error?: string }).error ?? `Request failed (${res.status})`, data as Record<string, unknown>)
     return { model: data as EffectiveModel, etag: res.headers.get('ETag') }
   },
-  createToken: (c: Conn, name: string, tier: number) => call<CreatedToken>(c, 'POST', '/api/v1/tokens', { name, tier }),
+  /** A token and the command that installs an agent with it. `options` are what the person chose to switch on or narrow; the server writes them into the command. */
+  createToken: (c: Conn, name: string, tier: number, options?: TokenInstallOptions) => call<CreatedToken>(c, 'POST', '/api/v1/tokens', { name, tier, ...options }),
   // `code` is the approval code the agent printed in its log (for an older agent without one: the start of the cluster fingerprint).
   approve: (c: Conn, id: string, code: string, tier: number) => call<void>(c, 'POST', `/api/v1/agents/${id}/approve`, { code, tier }),
   reject: (c: Conn, id: string, reason: string) => call<void>(c, 'POST', `/api/v1/agents/${id}/reject`, { reason }),
