@@ -138,6 +138,7 @@ member	GET /api/v1/orgs/{org}/timeline
 member	GET /api/v1/orgs/{org}/workspace
 member	GET /api/v1/orgs/{org}/workspace/at
 member	GET /api/v1/orgs/{org}/workspace/revisions
+member	POST /api/v1/orgs/{org}/commands/agent-upgrade
 member	POST /api/v1/orgs/{org}/leave
 mount	/api/
 operator-secret	POST /api/v1/operator-heartbeat

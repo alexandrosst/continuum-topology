@@ -249,6 +249,8 @@ func (a *Admin) Handler() http.Handler {
 
 	route("GET "+o+"/tokens", adminRole, a.listTokens)
 	route("POST "+o+"/tokens", adminRole, a.createToken)
+	// Writes the command that changes an installed agent. Pure computation (nothing is stored or issued), so any member may ask.
+	route("POST "+o+"/commands/agent-upgrade", memberRole, a.agentUpgradeCommand)
 	route("DELETE "+o+"/tokens/{id}", adminRole, a.deleteToken)
 	route("POST "+o+"/agents/{id}/approve", adminRole, a.approve)
 	route("POST "+o+"/agents/{id}/reject", adminRole, a.reject)
