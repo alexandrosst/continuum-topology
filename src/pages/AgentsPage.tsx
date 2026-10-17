@@ -14,6 +14,7 @@ import { Button, EmptyState, ErrorBanner, ICON_SM, LiveDot, type LiveKind, PageH
 import { api, ApiError } from '@/lib/api'
 import { skewLabel, skewWarning } from '@/lib/clock'
 import { extrasOf, type AgentExtras } from '@/lib/consent'
+import { healthOf, type Health } from '@/lib/agentHealth'
 import { ageOf } from '@/lib/history'
 import { bytesTotal } from '@/lib/observed'
 import { GEO_UNLOCATABLE_HELP, GEO_UNLOCATABLE_LABEL, ipScope, ipScopeLabel } from '@/lib/present'
@@ -22,8 +23,6 @@ import { useApprovalLocks } from '@/store/approvalLocks'
 import { useServer } from '@/store/server'
 import { useTopology } from '@/store/topology'
 
-/** How an agent is doing right now, from what the server can tell. */
-type Health = 'ok' | 'late' | 'offline' | 'waiting' | 'expired' | 'gone' | 'unknown'
 const HEALTH: Record<Health, { label: string; dot: LiveKind; text: string }> = {
   ok: { label: 'Connected', dot: 'online', text: 'text-ok' },
   late: { label: 'Heartbeat late', dot: 'late', text: 'text-warn' },
@@ -33,19 +32,6 @@ const HEALTH: Record<Health, { label: string; dot: LiveKind; text: string }> = {
   gone: { label: 'Revoked', dot: 'idle', text: 'text-nb-500' },
   unknown: { label: 'Not live', dot: 'idle', text: 'text-nb-400' },
 }
-/** Agents send a heartbeat every 30 seconds; two missed is "late". */
-const LATE_AFTER_MS = 75_000
-
-function healthOf(a: Agent, now: number): Health {
-  if (a.status === 'pending') return 'waiting'
-  if (a.status === 'expired') return 'expired'
-  if (a.status !== 'approved') return 'gone'
-  if (a.connected === false) return 'offline'
-  // Sample and hand-made agents have no live link to judge, so they are not called disconnected.
-  if (a.connected === undefined) return 'unknown'
-  return a.lastHeartbeat && now - new Date(a.lastHeartbeat).getTime() > LATE_AFTER_MS ? 'late' : 'ok'
-}
-
 /** Milliseconds until a certificate expires (negative once it has). */
 const msUntil = (iso?: string, now = Date.now()) => (iso ? new Date(iso).getTime() - now : undefined)
 /** Agent certificates are short-lived and renewed by the agent itself, so hours are the honest unit. */
