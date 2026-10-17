@@ -86,14 +86,13 @@ func (a *Admin) enableOperatorHeartbeat(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	img := a.images(core)
-	ref, version := a.operatorChartArgs(img)
 	url := a.heartbeatURL(r)
 	resp := map[string]any{
 		"operator":                 a.opDoc(r, op),
 		"rotated":                  rotated,
 		"heartbeatToken":           secret,
 		"heartbeatSecretCommand":   operatorHeartbeatSecretCommand(op, secret),
-		"heartbeatUpgradeCommand":  fmt.Sprintf("helm upgrade %s %s%s --namespace continuum-system --reset-then-reuse-values %s", op.ID, ref, version, a.operatorHeartbeatSetFlags(op, url)),
+		"heartbeatUpgradeCommand":  a.heartbeatUpgradeCommand(img, op, url),
 		"heartbeatUrl":             url,
 		"heartbeatIntervalSeconds": int(OperatorHeartbeatInterval / time.Second),
 	}
@@ -178,6 +177,12 @@ func unreachableHostWhy(host string) string {
 
 func operatorHeartbeatSecretName(op store.Operator) string   { return op.ID + "-heartbeat-auth" }
 func operatorHeartbeatCASecretName(op store.Operator) string { return op.ID + "-heartbeat-ca" }
+
+// heartbeatUpgradeCommand is the upgrade that turns the heartbeat on for a release that already runs.
+func (a *Admin) heartbeatUpgradeCommand(img ImageConfig, op store.Operator, heartbeatURL string) string {
+	ref, version := a.operatorChartArgs(img)
+	return upgradeWithFlags(op.ID, ref, version, "continuum-system", a.operatorHeartbeatSetFlags(op, heartbeatURL))
+}
 
 // operatorHeartbeatSetFlags is the Helm values that turn the heartbeat on. intervalSeconds is left at the
 // chart's default, which equals OperatorHeartbeatInterval. When the server's certificate is signed by a private CA

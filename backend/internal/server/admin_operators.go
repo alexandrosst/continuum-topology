@@ -960,13 +960,6 @@ func operatorProvenanceJSON(op store.Operator) string {
 func (a *Admin) operatorSourceReminders(r *http.Request, op store.Operator, tlsBundle OperatorTLSBundle) []string {
 	hub := a.tn(r).Hub
 	img := a.images(a.core(r))
-	ref, version := a.chartRef(img), ""
-	if ref == "" {
-		ref = "./" + chart.Agent.Filename()
-	} else if !strings.HasSuffix(ref, ".tgz") {
-		version = " --version " + shellArg(a.agentChartVersion())
-	}
-	ref = shellArg(ref)
 	agents, err := a.core(r).Store.ListAgents(r.Context(), a.core(r).OrgID)
 	if err != nil {
 		return nil
@@ -977,8 +970,7 @@ func (a *Admin) operatorSourceReminders(r *http.Request, op store.Operator, tlsB
 			byCluster[ag.ClusterID] = ag
 		}
 	}
-	type target struct{ cluster, ns, name string }
-	targets := make([]target, 0, len(op.SourceClusterIDs))
+	targets := make([]sourceTarget, 0, len(op.SourceClusterIDs))
 	for _, cl := range op.SourceClusterIDs {
 		ag, ok := byCluster[cl]
 		ns, name := "", ""
@@ -986,8 +978,25 @@ func (a *Admin) operatorSourceReminders(r *http.Request, op store.Operator, tlsB
 			ns, name = hub.NamespaceOf(ag.ID), hub.ReleaseNameOf(ag.ID)
 		}
 		rns, rname, _ := releaseTarget(ns, name)
-		targets = append(targets, target{cl, rns, rname})
+		targets = append(targets, sourceTarget{cl, rns, rname})
 	}
+	return a.sourceReminders(img, op, tlsBundle, targets)
+}
+
+// sourceTarget is one source cluster of an operator and the release that is told to send to it: where it runs and what it is
+// called, as releaseTarget settles them.
+type sourceTarget struct{ cluster, ns, name string }
+
+// sourceReminders is operatorSourceReminders once the clusters are known: it reads nothing, so the text it builds is pinned
+// by a test (install_commands_test.go) like the other commands.
+func (a *Admin) sourceReminders(img ImageConfig, op store.Operator, tlsBundle OperatorTLSBundle, targets []sourceTarget) []string {
+	ref, version := a.chartRef(img), ""
+	if ref == "" {
+		ref = "./" + chart.Agent.Filename()
+	} else if !strings.HasSuffix(ref, ".tgz") {
+		version = " --version " + shellArg(a.agentChartVersion())
+	}
+	ref = shellArg(ref)
 	out := make([]string, 0, 2*len(targets))
 	// Each cluster holds its own client certificate (see OperatorTLSBundle.Senders), so each gets its own Secret
 	// command, in its own namespace. Only wired in when that certificate was minted (see CreateOperator on why
@@ -1007,7 +1016,7 @@ func (a *Admin) operatorSourceReminders(r *http.Request, op store.Operator, tlsB
 		// Everything goes to this operator: no per-signal route may stay (a route outranks the default, and one an
 		// earlier command set is kept by --reset-then-reuse-values).
 		setFlags += " " + clearRouteFlags(routeModalities...)
-		upgrade := fmt.Sprintf("helm upgrade %s %s%s --namespace %s --reset-then-reuse-values %s", shellArg(t.name), ref, version, shellArg(t.ns), setFlags)
+		upgrade := upgradeWithFlags(t.name, ref, version, t.ns, setFlags)
 		out = append(out, upgrade+fmt.Sprintf("  # cluster %s", t.cluster))
 	}
 	return out
