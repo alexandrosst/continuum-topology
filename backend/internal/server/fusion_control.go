@@ -197,7 +197,7 @@ func (f *FusionControl) DiscoverAddress(ctx context.Context, c *Core) (string, e
 	// Validated, audited and refused for the same reasons as the administrator's "Reachable at", but written only
 	// while no address is recorded: the look at the operator above and this write are not one step, and a person
 	// who typed an address in between must keep it (in the database and in what this server answers with).
-	current, wrote, err := c.RecordOperatorAddressIfUnset(ctx, "system", CentralOperatorID, addr)
+	current, wrote, err := c.RecordOperatorAddressIfUnset(ctx, SystemActor.String(), CentralOperatorID, addr)
 	if err != nil {
 		return "", err
 	}
@@ -802,7 +802,7 @@ func (f *FusionControl) Renew(ctx context.Context, c *Core) error {
 	if same && c.centralReceiverFresh(ctx) {
 		return nil
 	}
-	_, bundle, err := c.EnsureCentralOperator(ctx, "system", f.destination(), hosts)
+	_, bundle, err := c.EnsureCentralOperator(ctx, SystemActor.String(), f.destination(), hosts)
 	if err != nil {
 		return err
 	}

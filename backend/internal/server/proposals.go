@@ -315,8 +315,8 @@ func (h *Hub) expireDueProposals(ctx context.Context) {
 		if now.Before(p.ExpiresAt) {
 			continue
 		}
-		err := h.C.Store.TransitionProposal(ctx, h.C.OrgID, p.ID, []store.ProposalStatus{store.ProposalPending}, store.ProposalExpired, "system", "no decision before it expired", now,
-			store.WithAudit(h.C.auditRow(h.C.OrgID, "system", "proposal-expired", "proposal", p.ID, "no decision before "+p.ExpiresAt.UTC().Format(time.RFC3339))))
+		err := h.C.Store.TransitionProposal(ctx, h.C.OrgID, p.ID, []store.ProposalStatus{store.ProposalPending}, store.ProposalExpired, SystemActor.String(), "no decision before it expired", now,
+			store.WithAudit(h.C.auditRow(h.C.OrgID, SystemActor.String(), "proposal-expired", "proposal", p.ID, "no decision before "+p.ExpiresAt.UTC().Format(time.RFC3339))))
 		if err != nil && !errors.Is(err, store.ErrBadState) {
 			h.Log.Warn("a proposal could not be marked expired", "proposal", p.ID, "err", err)
 		}

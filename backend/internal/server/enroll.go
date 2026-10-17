@@ -78,7 +78,7 @@ func (c *Core) Enroll(ctx context.Context, ip string, req *continuumv1.EnrollReq
 	tok, err := c.Store.EnrollAgent(ctx, tokenHash, a, c.Now())
 	if errors.Is(err, store.ErrWrongCluster) {
 		c.Log.Warn("enrollment refused: the token is bound to another cluster", "ip", ip)
-		c.auditOrg(ctx, tok.OrgID, "agent:unenrolled", "enrollment-refused", "token", tok.ID,
+		c.auditOrg(ctx, tok.OrgID, UnenrolledAgentActor.String(), "enrollment-refused", "token", tok.ID,
 			fmt.Sprintf("%q: the token is for cluster %s but the agent reported cluster %s (from %s)", tok.Label, shortFP(tok.ExpectedFingerprint), shortFP(req.ClusterFingerprint), ip))
 		return nil, errf(KindForbidden, "this enrollment token was created for a different cluster")
 	}
@@ -94,7 +94,7 @@ func (c *Core) Enroll(ctx context.Context, ip string, req *continuumv1.EnrollReq
 	if err != nil {
 		return nil, err
 	}
-	c.auditOrg(ctx, tok.OrgID, "agent:"+a.ID, "agent-enrolled", "agent", a.ID,
+	c.auditOrg(ctx, tok.OrgID, AgentActor(a.ID).String(), "agent-enrolled", "agent", a.ID,
 		fmt.Sprintf("%q from %s waiting for approval (installed tier %d, cluster %s)", tok.Label, ip, tier, shortFP(req.ClusterFingerprint)))
 	return c.enrollResponse(a.ID, pollSecret), nil
 }
@@ -146,10 +146,10 @@ func (c *Core) resumeEnrollment(ctx context.Context, ip string, req *continuumv1
 		return nil, err
 	}
 	if reopen {
-		c.auditOrg(ctx, prev.OrgID, "agent:"+prev.ID, "agent-enrollment-reopened", "agent", prev.ID,
+		c.auditOrg(ctx, prev.OrgID, AgentActor(prev.ID).String(), "agent-enrollment-reopened", "agent", prev.ID,
 			fmt.Sprintf("%q from %s enrolled again after its request expired; it is waiting for approval with a new code", prev.Name, ip))
 	} else {
-		c.auditOrg(ctx, prev.OrgID, "agent:"+prev.ID, "agent-enrollment-retried", "agent", prev.ID,
+		c.auditOrg(ctx, prev.OrgID, AgentActor(prev.ID).String(), "agent-enrollment-retried", "agent", prev.ID,
 			fmt.Sprintf("%q from %s repeated its enrollment (same token and key): continuing the same agent", prev.Name, ip))
 	}
 	return c.enrollResponse(prev.ID, pollSecret), nil
@@ -166,7 +166,7 @@ func (c *Core) ExpirePending(ctx context.Context, org string) int {
 	}
 	for _, a := range expired {
 		detail := fmt.Sprintf("%q waited %s for approval and expired. The agent enrolls again on its own and shows a new approval code", a.Name, c.pendingTTL())
-		c.auditOrg(ctx, org, "system", "agent-enrollment-expired", "agent", a.ID, detail)
+		c.auditOrg(ctx, org, SystemActor.String(), "agent-enrollment-expired", "agent", a.ID, detail)
 		if err := c.Store.AddEvents(ctx, org, []store.Event{{At: now, Kind: "enrollment-expired", TargetKind: "agent", TargetID: a.ID, Name: a.Name, ClusterName: a.Name,
 			Detail: "The request from " + a.Name + " was not approved within " + c.pendingTTL().String() + " and was removed. The agent asks again by itself; look at its log for the new approval code.",
 			Cause:  "nobody approved it in time", Severity: "notice"}}); err != nil {

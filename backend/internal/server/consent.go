@@ -505,7 +505,7 @@ func (h *Hub) noteCeiling(ctx context.Context, agent, fresh store.Agent, reporte
 		return agent // an older agent that does not say: keep what enrollment recorded
 	}
 	ceiling := min(max(reported, 0), MaxTier)
-	actor := "agent:" + agent.ID
+	actor := AgentActor(agent.ID).String()
 	if ceiling != fresh.InstalledTier {
 		if err := h.C.Store.SetInstalledTier(ctx, agent.ID, ceiling); err != nil {
 			if !errors.Is(err, store.ErrBadState) {

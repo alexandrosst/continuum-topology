@@ -66,12 +66,6 @@ const (
 
 var usernameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._@-]{2,63}$`)
 
-// reservedActors are the words the audit trail uses for the server itself: "system" for what it does on its own, "anonymous" for
-// someone who is not signed in, "renewal" for operator certificate renewal. A person's rows carry their username as the actor, so
-// if one could register under these words their rows would read as the server's. They are compared without regard to case, as
-// Ikhnos treats names that differ only in case as one name. An agent's actor is "agent:<id>", and a username holds no colon.
-var reservedActors = map[string]bool{"system": true, "anonymous": true, "renewal": true}
-
 // usernameProblem says why name cannot be the username of a new account ("" if it can). It does not look at accounts that exist.
 func usernameProblem(name string) string {
 	switch {
@@ -407,7 +401,7 @@ func (c *Core) Login(ctx context.Context, ip, username, password string) (secret
 	if gerr != nil || !ok || u.DisabledAt != nil {
 		c.auth.failures.fail(name, c.Now())
 		Metrics.authFailures.Add(1)
-		c.auditOrg(ctx, "", "anonymous", "login-failed", "user", printable(name, 64), "from "+ip)
+		c.auditOrg(ctx, "", AnonymousActor.String(), "login-failed", "user", printable(name, 64), "from "+ip)
 		return "", store.User{}, errf(KindUnauthenticated, "wrong username or password")
 	}
 	if methods := twoFactorMethods(u); len(methods) > 0 {
@@ -447,7 +441,7 @@ func (c *Core) LoginSSO(ctx context.Context, ip, assertedUsername string) (secre
 	u, gerr := c.Store.GetUserByName(ctx, name)
 	if gerr != nil || u.DisabledAt != nil {
 		Metrics.authFailures.Add(1)
-		c.auditOrg(ctx, "", "anonymous", "login-failed", "user", printable(name, 64), "sso, from "+ip)
+		c.auditOrg(ctx, "", AnonymousActor.String(), "login-failed", "user", printable(name, 64), "sso, from "+ip)
 		return "", store.User{}, errf(KindUnauthenticated, "no account matches the identity your proxy asserted")
 	}
 	secret, err = c.openSession(ctx, u, ip)
@@ -498,7 +492,7 @@ func (c *Core) Login2FA(ctx context.Context, ip, pending, code string) (secret s
 	if !matched {
 		c.auth.failures.fail(u.Username, c.Now())
 		Metrics.authFailures.Add(1)
-		c.auditOrg(ctx, "", "anonymous", "login-failed", "user", printable(u.Username, 64), "wrong two-factor code from "+ip)
+		c.auditOrg(ctx, "", AnonymousActor.String(), "login-failed", "user", printable(u.Username, 64), "wrong two-factor code from "+ip)
 		return "", store.User{}, errf(KindUnauthenticated, "wrong code")
 	}
 	c.auth.failures.succeed(u.Username)
@@ -1319,7 +1313,7 @@ func (c *Core) BootstrapAdmin(ctx context.Context, password string) (created boo
 	if err := c.Store.CreateOrg(ctx, o, u.ID); err != nil {
 		return false, "", err
 	}
-	c.auditOrg(ctx, o.ID, "system", "user-created", "user", u.ID, "first administrator")
+	c.auditOrg(ctx, o.ID, SystemActor.String(), "user-created", "user", u.ID, "first administrator")
 	return true, generated, nil
 }
 
@@ -1388,7 +1382,7 @@ func (c *Core) CreateOrgFor(ctx context.Context, username, name string) (store.O
 	if err := c.Store.CreateOrg(ctx, o, u.ID); err != nil {
 		return store.Org{}, err
 	}
-	c.auditOrg(ctx, o.ID, "system", "org-created", "org", o.ID, fmt.Sprintf("%q for %s (server command line)", name, u.Username))
+	c.auditOrg(ctx, o.ID, SystemActor.String(), "org-created", "org", o.ID, fmt.Sprintf("%q for %s (server command line)", name, u.Username))
 	return o, nil
 }
 

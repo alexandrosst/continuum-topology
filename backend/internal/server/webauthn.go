@@ -263,7 +263,7 @@ func (c *Core) FinishPasskeyLogin(ctx context.Context, ip, pending string, rp Re
 	if verr != nil {
 		c.auth.failures.fail(u.Username, c.Now())
 		Metrics.authFailures.Add(1)
-		c.auditOrg(ctx, "", "anonymous", "login-failed", "user", printable(u.Username, 64), "wrong passkey from "+ip)
+		c.auditOrg(ctx, "", AnonymousActor.String(), "login-failed", "user", printable(u.Username, 64), "wrong passkey from "+ip)
 		return "", store.User{}, errf(KindUnauthenticated, "that passkey could not be verified")
 	}
 	c.auth.failures.succeed(u.Username)

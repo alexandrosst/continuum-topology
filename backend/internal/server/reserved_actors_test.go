@@ -69,20 +69,17 @@ func TestRecoveryDoesNotCreateAReservedUsernameButStillResetsOneThatExists(t *te
 	}
 }
 
-// Every word the server writes as an actor must be reserved. This reads the package's own source: each audit call whose actor is
-// a string literal must use a reserved word or an "agent:" form, so a new server-side actor name cannot be added without a person
-// being unable to register it.
-func TestEveryLiteralActorTheServerWritesIsReserved(t *testing.T) {
-	// the index of the actor argument for each call that writes an audit row
-	actorArg := map[string]int{"audit": 1, "auditOrg": 2, "auditRow": 1}
+// The words the server uses for itself are defined in actor.go and nowhere else. This reads the package's own source: no string
+// literal outside actor.go may be a reserved word or an "agent:" form, so a call site that wrote "system" by hand (and a new server
+// actor added without being reserved) fails here, and the only way to name the server is an Actor value.
+func TestTheServersOwnActorWordsAreWrittenInOnePlace(t *testing.T) {
 	files, err := filepath.Glob("*.go")
 	if err != nil || len(files) < 20 {
 		t.Fatalf("source files not found: %v %d", err, len(files))
 	}
 	fset := token.NewFileSet()
-	seen := map[string]int{}
 	for _, f := range files {
-		if strings.HasSuffix(f, "_test.go") {
+		if strings.HasSuffix(f, "_test.go") || f == "actor.go" {
 			continue
 		}
 		src, err := os.ReadFile(f)
@@ -94,34 +91,15 @@ func TestEveryLiteralActorTheServerWritesIsReserved(t *testing.T) {
 			t.Fatal(err)
 		}
 		ast.Inspect(file, func(n ast.Node) bool {
-			call, ok := n.(*ast.CallExpr)
-			if !ok {
-				return true
-			}
-			sel, ok := call.Fun.(*ast.SelectorExpr)
-			if !ok {
-				return true
-			}
-			i, ok := actorArg[sel.Sel.Name]
-			if !ok || i >= len(call.Args) {
-				return true
-			}
-			lit, ok := call.Args[i].(*ast.BasicLit)
+			lit, ok := n.(*ast.BasicLit)
 			if !ok || lit.Kind != token.STRING {
 				return true
 			}
 			v, _ := strconv.Unquote(lit.Value)
-			seen[v]++
-			if v == "" || strings.HasPrefix(v, "agent:") {
-				return true // "" is the server's own trail's org, never an actor; agent: forms hold a colon
-			}
-			if !reservedActors[strings.ToLower(v)] {
-				t.Errorf("%s: the server writes %q as an actor, and a person could register that name", fset.Position(lit.Pos()), v)
+			if reservedActors[strings.ToLower(v)] || strings.HasPrefix(v, "agent:") {
+				t.Errorf("%s: %q is an actor word; use the Actor value from actor.go", fset.Position(lit.Pos()), v)
 			}
 			return true
 		})
-	}
-	if seen["system"] == 0 || seen["anonymous"] == 0 || seen["renewal"] == 0 {
-		t.Fatalf("the scan no longer finds the actors it was written for: %v", seen)
 	}
 }
