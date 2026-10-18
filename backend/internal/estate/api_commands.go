@@ -1,4 +1,4 @@
-package server
+package estate
 
 import (
 	"net/http"
@@ -41,19 +41,19 @@ type agentUpgradeDoc struct {
 
 // agentUpgradeCommand writes the command that changes an agent that is already installed. It reads and computes only: nothing is stored,
 // no certificate is issued, and the credential a Secret holds never reaches here (the command reads it from the person's shell).
-func (a *Admin) agentUpgradeCommand(w http.ResponseWriter, r *http.Request) {
+func (h *API) agentUpgradeCommand(w http.ResponseWriter, r *http.Request) {
 	var req agentUpgradeRequest
 	if err := httpkit.Decode(r, &req); err != nil {
-		a.fail(w, err)
+		h.fail(w, r, err)
 		return
 	}
 	if req.Tier != nil && !agents.GrantableTier(*req.Tier) {
-		a.fail(w, kernel.Errf(kernel.KindInvalid, "the access tier must be between 0 and %d", kernel.ImplementedTier))
+		h.fail(w, r, kernel.Errf(kernel.KindInvalid, "the access tier must be between 0 and %d", kernel.ImplementedTier))
 		return
 	}
-	img := a.images(a.core(r))
+	img := h.Settings.Images(h.For(r).C.Core)
 	up := install.AgentUpgrade{
-		ChartRef: a.AgentRef(img), ChartVersion: a.AgentVersion(), ChartFile: a.AgentChartFile(),
+		ChartRef: h.Settings.AgentRef(img), ChartVersion: h.Settings.AgentVersion(), ChartFile: h.Settings.AgentChartFile(),
 		Namespace: req.Namespace, Release: req.Release, Tier: req.Tier, Telemetry: req.Telemetry,
 	}
 	doc := agentUpgradeDoc{Secrets: []credentialSecretDoc{}, Problems: []string{}}
@@ -66,7 +66,7 @@ func (a *Admin) agentUpgradeCommand(w http.ResponseWriter, r *http.Request) {
 			httpkit.WriteJSON(w, http.StatusOK, doc)
 			return
 		}
-		a.fail(w, a.installConfigError(err))
+		h.fail(w, r, h.installConfigError(r, err))
 		return
 	}
 	doc.Upgrade = upgrade

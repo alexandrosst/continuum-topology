@@ -11,7 +11,7 @@ import (
 )
 
 // The estate stands on the modules below it in the hub cluster (observed, agents, connectivity), on the accounts' vocabulary of who is
-// calling, on the decision loop whose ports it supplies, and on the models, vocabularies and stores the twin is built from. It does not
+// calling, on the decision loop whose ports it supplies, on the HTTP kit and the install settings its routes are written with, and on the models, vocabularies and stores the twin is built from. It does not
 // import the server (the shell is the one that wires it and serves it) and does not import fusion or telemetry.
 var allowedRepoImports = map[string]bool{
 	"continuum/gen/continuumv1":       true,
@@ -25,6 +25,9 @@ var allowedRepoImports = map[string]bool{
 	"continuum/internal/geoip":        true,
 	"continuum/internal/graph":        true,
 	"continuum/internal/history":      true,
+	"continuum/internal/httpkit":      true,
+	"continuum/internal/install":      true,
+	"continuum/internal/installcfg":   true,
 	"continuum/internal/interpret":    true,
 	"continuum/internal/kernel":       true,
 	"continuum/internal/link":         true,

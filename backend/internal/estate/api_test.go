@@ -1,0 +1,47 @@
+package estate
+
+import (
+	"net/http"
+	"testing"
+
+	"continuum/internal/httpkit"
+)
+
+type recordedRoutes map[string]httpkit.Need
+
+func (r recordedRoutes) Handle(pattern string, n httpkit.Need, h http.HandlerFunc) {
+	if h == nil {
+		panic("a route with no handler: " + pattern)
+	}
+	r[pattern] = n
+}
+
+func (r recordedRoutes) Open(pattern string, h http.HandlerFunc) { r.Handle(pattern, -1, h) }
+
+func TestTheEstateMountsItsRoutesWithTheRolesTheyAsk(t *testing.T) {
+	got := recordedRoutes{}
+	(&API{}).Mount(got)
+	want := recordedRoutes{
+		"GET /api/v1/orgs/{org}/tokens":         httpkit.AdminRole, // a token is the secret that enrols an agent
+		"POST /api/v1/orgs/{org}/tokens":        httpkit.AdminRole,
+		"DELETE /api/v1/orgs/{org}/tokens/{id}": httpkit.AdminRole,
+		// Pure computation, nothing stored or issued: any member may ask for the command.
+		"POST /api/v1/orgs/{org}/commands/agent-upgrade":    httpkit.MemberRole,
+		"POST /api/v1/orgs/{org}/agents/{id}/approve":       httpkit.AdminRole,
+		"POST /api/v1/orgs/{org}/agents/{id}/reject":        httpkit.AdminRole,
+		"POST /api/v1/orgs/{org}/agents/{id}/revoke":        httpkit.AdminRole,
+		"POST /api/v1/orgs/{org}/agents/{id}/address-tests": httpkit.AdminRole,
+		"GET /api/v1/orgs/{org}/agents/{id}/address-tests":  httpkit.AdminRole,
+		// Narrowing an agent's tier or consent is an editor's; widening is an administrator's, which the hub checks.
+		"POST /api/v1/orgs/{org}/agents/{id}/tier":    httpkit.EditorRole,
+		"POST /api/v1/orgs/{org}/agents/{id}/consent": httpkit.EditorRole,
+	}
+	if len(got) != len(want) {
+		t.Fatalf("mounted %v, want %v", got, want)
+	}
+	for p, n := range want {
+		if got[p] != n {
+			t.Errorf("%s asks %v, want %v", p, got[p], n)
+		}
+	}
+}

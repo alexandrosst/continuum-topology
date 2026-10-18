@@ -7,6 +7,7 @@
 package installcfg
 
 import (
+	"log/slog"
 	"net/url"
 	"strconv"
 	"strings"
@@ -258,4 +259,11 @@ func (s Settings) PublicBase() string {
 		return ""
 	}
 	return u.Scheme + "://" + u.Host + strings.TrimRight(u.Path, "/")
+}
+
+// ConfigError is a command this server cannot write, because of how it was set up (its chart reference or version), not because of
+// anything in the request: logged in full, and told to the caller without the setting.
+func ConfigError(log *slog.Logger, err error) error {
+	log.Error("an install command cannot be written: check --chart-ref and the chart versions", "err", err)
+	return kernel.Errf(kernel.KindInternal, "this server is set up with a chart it cannot name in an install command; see its log")
 }
