@@ -75,7 +75,7 @@ var modalityOrder = []store.Modality{store.ModalityMetrics, store.ModalityLogs, 
 func intentModalities(ti store.TelemetryIntent) map[store.Modality]bool {
 	out := map[store.Modality]bool{}
 	for _, s := range ti.Signals {
-		if m, ok := signalModality[s.ID]; ok {
+		if m, ok := SignalModality[s.ID]; ok {
 			out[m] = true
 		}
 	}
@@ -394,10 +394,10 @@ func (a *Admin) listOperatorSenders(w http.ResponseWriter, r *http.Request) {
 // none, FUSION's own state (the same as its row shows).
 func (a *Admin) sendersHealth(r *http.Request, op store.Operator, now time.Time) OperatorHealth {
 	if op.ID != CentralOperatorID {
-		return operatorHealthAt(op, now)
+		return OperatorHealthAt(op, now)
 	}
 	fusion := a.fusionState(r)
-	h := centralHealth(fusion.Managed())
+	h := CentralHealth(fusion.Managed())
 	h.LastSeenAt = fusion.LastDataAt
 	return h
 }

@@ -27,7 +27,7 @@ func TestValidOperatorAddress(t *testing.T) {
 		"otlp.example.com:04317":       "otlp.example.com:4317",
 		"op-1.svc.clusterset.local:80": "op-1.svc.clusterset.local:80",
 	} {
-		got, err := validOperatorAddress(in)
+		got, err := ValidOperatorAddress(in)
 		if err != nil || got != want {
 			t.Errorf("%q -> %q, %v (want %q)", in, got, err, want)
 		}
@@ -51,7 +51,7 @@ func TestValidOperatorAddress(t *testing.T) {
 		"bad_name.example.com:4317",
 		strings.Repeat("a", 300) + ":4317",
 	} {
-		if got, err := validOperatorAddress(in); err == nil {
+		if got, err := ValidOperatorAddress(in); err == nil {
 			t.Errorf("%q was accepted as %q", in, got)
 		}
 	}
@@ -103,7 +103,7 @@ func TestAnOperatorAddressIsSetShownAuditedAndUsedByEveryCommandThatPointsAtIt(t
 	// While there is no address, an operator pointing at it gets its Service name in the cluster, and verifies the
 	// certificate by the stable name (the Service name is not on it).
 	down := create("edge", map[string]any{"kind": "operator", "targetOperatorId": upID}, nil)
-	if !strings.Contains(down["install"].(string), "--set export.otlp.endpoint="+operatorServiceName(upID)+".continuum-system.svc:4317") || !strings.Contains(down["install"].(string), "--set export.otlp.tls.serverName="+upID+".continuum-system.svc") {
+	if !strings.Contains(down["install"].(string), "--set export.otlp.endpoint="+OperatorServiceName(upID)+".continuum-system.svc:4317") || !strings.Contains(down["install"].(string), "--set export.otlp.tls.serverName="+upID+".continuum-system.svc") {
 		t.Fatalf("before an address is set: %v", down["install"])
 	}
 
@@ -220,7 +220,7 @@ func TestTheCentralOperatorsAddressIsSetFromTheUIAndUsedByEveryCommand(t *testin
 }
 
 func TestGuardCentralStillProtectsEverythingElse(t *testing.T) {
-	if err := guardCentral(CentralOperatorID); err == nil {
+	if err := GuardCentral(CentralOperatorID); err == nil {
 		t.Fatal("the central operator can be edited by hand")
 	}
 }
@@ -284,15 +284,15 @@ func TestOperatorServiceNameFollowsTheChartAndIsOnTheCertificate(t *testing.T) {
 		{"my-regional-operator", "my-regional-operator"},
 		{"op-" + strings.Repeat("x", 70), ("op-" + strings.Repeat("x", 70) + "-regional-operator")[:63]},
 	} {
-		if got := operatorServiceName(c.id); got != c.want {
+		if got := OperatorServiceName(c.id); got != c.want {
 			t.Fatalf("operatorServiceName(%q) = %q, want %q", c.id, got, c.want)
 		}
 	}
 	op := store.Operator{ID: "op-abc"}
-	if got := operatorInClusterEndpoint(op); got != "op-abc-regional-operator.continuum-system.svc:4317" {
+	if got := OperatorInClusterEndpoint(op); got != "op-abc-regional-operator.continuum-system.svc:4317" {
 		t.Fatalf("in-cluster endpoint: %s", got)
 	}
-	if !operatorNeedsServerName(op) || operatorNeedsServerName(store.Operator{ID: CentralOperatorID}) || !operatorNeedsServerName(store.Operator{ID: CentralOperatorID, Address: "a:1"}) {
+	if !OperatorNeedsServerName(op) || OperatorNeedsServerName(store.Operator{ID: CentralOperatorID}) || !OperatorNeedsServerName(store.Operator{ID: CentralOperatorID, Address: "a:1"}) {
 		t.Fatal("which operators need a server name override")
 	}
 }
@@ -329,11 +329,11 @@ func TestTheDialledServiceNameIsTheOneTheChartRenders(t *testing.T) {
 				}
 			}
 		}
-		if svc == "" || svc != operatorServiceName(id) {
-			t.Fatalf("release %s renders Service %q, the server dials %q", id, svc, operatorServiceName(id))
+		if svc == "" || svc != OperatorServiceName(id) {
+			t.Fatalf("release %s renders Service %q, the server dials %q", id, svc, OperatorServiceName(id))
 		}
-		if want := svc + ".continuum-system.svc:4317"; operatorInClusterEndpoint(store.Operator{ID: id}) != want {
-			t.Fatalf("endpoint %s, want %s", operatorInClusterEndpoint(store.Operator{ID: id}), want)
+		if want := svc + ".continuum-system.svc:4317"; OperatorInClusterEndpoint(store.Operator{ID: id}) != want {
+			t.Fatalf("endpoint %s, want %s", OperatorInClusterEndpoint(store.Operator{ID: id}), want)
 		}
 	}
 }

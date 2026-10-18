@@ -94,7 +94,7 @@ func TestInstallAgainReissuesCertificatesFromTheStoredCA(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := leaf.Verify(x509.VerifyOptions{Roots: pool, DNSName: operatorServerName(stored), KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}); err != nil {
+	if _, err := leaf.Verify(x509.VerifyOptions{Roots: pool, DNSName: OperatorServerName(stored), KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}); err != nil {
 		t.Fatalf("the new receiver certificate does not verify against the operator CA for the stable name: %v", err)
 	}
 	// ... and the source cluster gets a client certificate in its reminders.

@@ -134,7 +134,7 @@ func (h *Hub) startAddressTests(ctx context.Context, actor string, a store.Agent
 	var wants []want
 	seen := map[string]bool{}
 	for _, in := range addrs {
-		addr, err := validOperatorAddress(in)
+		addr, err := ValidOperatorAddress(in)
 		if err != nil {
 			if quiet {
 				continue

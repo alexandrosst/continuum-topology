@@ -31,7 +31,7 @@ const OperatorHeartbeatPath = "/api/v1/operator-heartbeat"
 func (a *Admin) operatorHeartbeat(w http.ResponseWriter, r *http.Request) {
 	secret, _ := bearerToken(r)
 	err := a.C.RecordOperatorHeartbeat(r.Context(), secret)
-	if errors.Is(err, errHeartbeatRejected) {
+	if errors.Is(err, ErrHeartbeatRejected) {
 		kernel.Metrics.AuthFailures.Add(1)
 		// Failed attempts are throttled per address (never a successful one, as in guard), so guessing
 		// secrets from one place is slow and a healthy operator can never lock itself out.
@@ -44,7 +44,7 @@ func (a *Admin) operatorHeartbeat(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	if errors.Is(err, errHeartbeatRateLimited) {
+	if errors.Is(err, ErrHeartbeatRateLimited) {
 		w.Header().Set("Retry-After", "60")
 		writeErr(w, http.StatusTooManyRequests, "heartbeats are arriving too often")
 		return
@@ -55,11 +55,11 @@ func (a *Admin) operatorHeartbeat(w http.ResponseWriter, r *http.Request) {
 	}
 	// Read and discard, bounded. Authentication came first so an unauthenticated caller never gets this
 	// server to read anything.
-	if r.ContentLength > maxHeartbeatBody {
+	if r.ContentLength > MaxHeartbeatBody {
 		writeErr(w, http.StatusRequestEntityTooLarge, "heartbeat too large")
 		return
 	}
-	if _, err := io.Copy(io.Discard, http.MaxBytesReader(w, r.Body, maxHeartbeatBody)); err != nil {
+	if _, err := io.Copy(io.Discard, http.MaxBytesReader(w, r.Body, MaxHeartbeatBody)); err != nil {
 		var tooBig *http.MaxBytesError
 		if errors.As(err, &tooBig) {
 			writeErr(w, http.StatusRequestEntityTooLarge, "heartbeat too large")
@@ -209,7 +209,7 @@ func unreachableHostWhy(host string) string {
 	switch {
 	case host == "localhost" || strings.HasSuffix(host, ".localhost"):
 		return "this machine"
-	case isClusterLocalName(host):
+	case IsClusterLocalName(host):
 		return "a name that only exists inside one Kubernetes cluster"
 	}
 	return ""

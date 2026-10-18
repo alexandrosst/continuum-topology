@@ -25,7 +25,7 @@ const maxTelemetrySignals = 32
 // lookup of known ids, not a validator: store.SignalGrant's own comment says ID is opaque to this
 // package, and an id this map does not recognise (a newer frontend's not-yet-known signal) must stay
 // unchecked rather than be treated as a mismatch - see checkOperatorAcceptsSignals.
-var signalModality = map[string]store.Modality{
+var SignalModality = map[string]store.Modality{
 	"resourceUsage":      store.ModalityMetrics,
 	"energy":             store.ModalityMetrics,
 	"kubernetesState":    store.ModalityMetrics,
@@ -53,7 +53,7 @@ func (c *Core) checkOperatorAcceptsSignals(ctx context.Context, dest store.Desti
 	if dest.Kind != store.DestinationOperator {
 		return nil
 	}
-	op, err := c.operatorInOrg(ctx, dest.TargetOperatorID)
+	op, err := c.OperatorInOrg(ctx, dest.TargetOperatorID)
 	if err != nil {
 		return err
 	}
@@ -65,7 +65,7 @@ func (c *Core) checkOperatorAcceptsSignals(ctx context.Context, dest store.Desti
 		accepted[m] = true
 	}
 	for _, sg := range signals {
-		modality, known := signalModality[sg.ID]
+		modality, known := SignalModality[sg.ID]
 		if !known {
 			continue
 		}
@@ -84,7 +84,7 @@ func (c *Core) checkOperatorAcceptsSignals(ctx context.Context, dest store.Desti
 // modality when there is one, the default destination otherwise.
 func (c *Core) checkDestinationsAcceptSignals(ctx context.Context, dest store.Destination, routes map[store.Modality]store.Destination, signals []store.SignalGrant) error {
 	for _, sg := range signals {
-		m, known := signalModality[sg.ID]
+		m, known := SignalModality[sg.ID]
 		if !known {
 			continue
 		}
@@ -113,10 +113,10 @@ func (c *Core) cleanRoutes(ctx context.Context, routes map[store.Modality]store.
 		default:
 			return nil, kernel.Errf(kernel.KindInvalid, "%q is not a signal type with a destination of its own (metrics, logs or traces)", kernel.Printable(string(m), 32))
 		}
-		if err := c.validateDestination(ctx, d); err != nil {
+		if err := c.ValidateDestination(ctx, d); err != nil {
 			return nil, err
 		}
-		out[m] = normalizeDestination(d)
+		out[m] = NormalizeDestination(d)
 	}
 	return out, nil
 }
@@ -220,10 +220,10 @@ func (c *Core) CreateTelemetryIntentWithRoutes(ctx context.Context, actor, agent
 	if err != nil {
 		return store.TelemetryIntent{}, err
 	}
-	if err := c.validateDestination(ctx, dest); err != nil {
+	if err := c.ValidateDestination(ctx, dest); err != nil {
 		return store.TelemetryIntent{}, err
 	}
-	dest = normalizeDestination(dest)
+	dest = NormalizeDestination(dest)
 	routes, err = c.cleanRoutes(ctx, routes)
 	if err != nil {
 		return store.TelemetryIntent{}, err
@@ -307,10 +307,10 @@ func (c *Core) UpdateTelemetryIntentDestination(ctx context.Context, actor, id s
 	if err != nil {
 		return err
 	}
-	if err := c.validateDestination(ctx, dest); err != nil {
+	if err := c.ValidateDestination(ctx, dest); err != nil {
 		return err
 	}
-	dest = normalizeDestination(dest)
+	dest = NormalizeDestination(dest)
 	if err := c.checkDestinationsAcceptSignals(ctx, dest, ti.Routes, ti.Signals); err != nil {
 		return err
 	}
@@ -332,10 +332,10 @@ func (c *Core) UpdateTelemetryIntentDestinations(ctx context.Context, actor, id 
 	if err != nil {
 		return err
 	}
-	if err := c.validateDestination(ctx, dest); err != nil {
+	if err := c.ValidateDestination(ctx, dest); err != nil {
 		return err
 	}
-	dest = normalizeDestination(dest)
+	dest = NormalizeDestination(dest)
 	routes, err = c.cleanRoutes(ctx, routes)
 	if err != nil {
 		return err
@@ -379,7 +379,7 @@ func (c *Core) DeleteTelemetryIntent(ctx context.Context, actor, id string) erro
 
 // endAgentIntents revokes the agent's active telemetry intents. A failure is logged and does not undo the
 // agent's revocation, which already took effect; OperatorUsages ignores the intents of revoked agents either way.
-func (c *Core) endAgentIntents(ctx context.Context, actor, agentID, reason string) {
+func (c *Core) EndAgentIntents(ctx context.Context, actor, agentID, reason string) {
 	intents, err := c.Store.ListTelemetryIntentsByAgent(ctx, agentID)
 	if err != nil {
 		c.Log.Error("agent revoked but its telemetry intents could not be listed", "agent", agentID, "err", err)

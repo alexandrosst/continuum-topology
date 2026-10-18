@@ -180,7 +180,7 @@ func toOperatorDoc(op store.Operator, now time.Time) operatorDoc {
 		ID: op.ID, Name: op.Name, SiteID: op.SiteID, Status: string(op.Status),
 		SourceClusterIDs: op.SourceClusterIDs, Destination: toDestinationDoc(op.Destination),
 		CreatedAt: rfc(op.CreatedAt), CreatedBy: op.CreatedBy, Reason: op.Reason, ReceiverAuth: string(op.ReceiverAuth), ClientCaScope: op.ClientCAScope(),
-		Health: toHealthDoc(operatorHealthAt(op, now)),
+		Health: toHealthDoc(OperatorHealthAt(op, now)),
 	}
 	if op.SourceClusterIDs == nil {
 		d.SourceClusterIDs = []string{}
@@ -195,10 +195,10 @@ func toOperatorDoc(op store.Operator, now time.Time) operatorDoc {
 		d.RevokedAt = rfc(*op.RevokedAt)
 	}
 	if op.Status == store.OperatorActive {
-		if c := operatorCertDates(op); c.known() {
+		if c := OperatorCertDates(op); c.Known() {
 			d.Certs = &certsDoc{ReceiverNotAfter: rfcp(c.Receiver), ClientNotAfter: rfcp(c.Client), CANotAfter: rfcp(c.CA)}
 			var since *time.Time
-			d.CertState, since = c.certState(now)
+			d.CertState, since = c.CertState(now)
 			d.CertStateSince = rfcp(since)
 		}
 	}
@@ -231,7 +231,7 @@ func (a *Admin) opDocWith(r *http.Request, op store.Operator, usages map[string]
 	d.UsedBy = toUsedByDoc(usages[op.ID])
 	d.AddressWarnings = addressWarnings(op.Address, nil)
 	if op.ID == CentralOperatorID {
-		h := centralHealth(fusion.Managed())
+		h := CentralHealth(fusion.Managed())
 		h.LastSeenAt = fusion.LastDataAt
 		d.Health = toHealthDoc(h)
 		if a.Fusion != nil {
@@ -492,7 +492,7 @@ func (a *Admin) listOperatorCertificates(w http.ResponseWriter, r *http.Request)
 
 // operatorRestartCommand restarts the operator's pods, which is how they pick up a Secret read into the environment.
 func operatorRestartCommand(op store.Operator) (string, error) {
-	return install.RestartDeployment{Deployment: operatorServiceName(op.ID), Namespace: "continuum-system"}.Render()
+	return install.RestartDeployment{Deployment: OperatorServiceName(op.ID), Namespace: "continuum-system"}.Render()
 }
 
 // setOperatorAddress records the host:port other clusters reach the operator at ({"address": ""} clears it).
@@ -556,7 +556,7 @@ func (a *Admin) updateOperatorScope(w http.ResponseWriter, r *http.Request) {
 	// cluster gets its own, naming it, signed by the operator's own CA, whose certificate the receiver trusts.
 	var tlsBundle OperatorTLSBundle
 	if gained := clustersGained(before.SourceClusterIDs, op.SourceClusterIDs); len(gained) > 0 {
-		tlsBundle.Senders, tlsBundle.CACertPEM = a.core(r).mintSenderCerts(r.Context(), actor(r), op, gained)
+		tlsBundle.Senders, tlsBundle.CACertPEM = a.core(r).MintSenderCerts(r.Context(), actor(r), op, gained)
 	}
 	resp := map[string]any{"operator": a.opDoc(r, op), "reminders": a.operatorSourceReminders(r, op, tlsBundle)}
 	a.addOperatorTargetExport(r, resp, op)
@@ -657,8 +657,8 @@ func exportBlock(prefix string, op store.Operator, endpoint string, withMTLS boo
 		install.Set(prefix+".tls.caFile", ""),
 	}
 	serverName := ""
-	if operatorNeedsServerName(op) {
-		serverName = operatorServerName(op)
+	if OperatorNeedsServerName(op) {
+		serverName = OperatorServerName(op)
 	}
 	if withMTLS {
 		values = append(values, install.Set(prefix+".tls.mtls.enabled", "true"), install.Set(prefix+".tls.mtls.secretName", operatorClientTLSSecretName(op)))
@@ -744,7 +744,7 @@ func (a *Admin) operatorEndpoint(op store.Operator) string {
 	if op.Address != "" {
 		return op.Address
 	}
-	return operatorInClusterEndpoint(op)
+	return OperatorInClusterEndpoint(op)
 }
 
 // destEndpoint is the endpoint a sender dials to reach op as its destination d: the address that sender chose
@@ -892,8 +892,8 @@ func (a *Admin) operatorInstallCommandWith(img kernel.ImageConfig, secret string
 		}
 		set("export.otlp.tls.mtls.enabled", "true")
 		set("export.otlp.tls.mtls.secretName", operatorClientTLSSecretName(tgt))
-		if operatorNeedsServerName(tgt) {
-			set("export.otlp.tls.serverName", operatorServerName(tgt))
+		if OperatorNeedsServerName(tgt) {
+			set("export.otlp.tls.serverName", OperatorServerName(tgt))
 		} else if reissue {
 			set("export.otlp.tls.serverName", "")
 		}
@@ -976,7 +976,7 @@ func (a *Admin) operatorInstallCommandWith(img kernel.ImageConfig, secret string
 	// and image.tag itself (see the chart's values.yaml).
 	//
 	// How its Service is made reachable from other clusters (see Operator.Exposure).
-	if svcType, _ := serviceTypeFor(op.Exposure); svcType != "" {
+	if svcType, _ := ServiceTypeFor(op.Exposure); svcType != "" {
 		set("service.type", svcType)
 	}
 	ref, version := a.operatorChart(img)
@@ -1070,7 +1070,7 @@ func (a *Admin) sourceReminders(img kernel.ImageConfig, op store.Operator, tlsBu
 	// command, in its own namespace. Only wired in when that certificate was minted (see CreateOperator on why
 	// that can fail without failing the operator): this is additive, the bearer token alone still works without it.
 	for _, t := range targets {
-		sc, ok := tlsBundle.forSender(t.cluster)
+		sc, ok := tlsBundle.ForSender(t.cluster)
 		if !ok {
 			continue
 		}
@@ -1083,7 +1083,7 @@ func (a *Admin) sourceReminders(img kernel.ImageConfig, op store.Operator, tlsBu
 		}
 	}
 	for _, t := range targets {
-		sc, _ := tlsBundle.forSender(t.cluster)
+		sc, _ := tlsBundle.ForSender(t.cluster)
 		values, _, err := operatorDestinationCommand(op, a.operatorEndpoint(op), sc.CertPEM, sc.KeyPEM, tlsBundle.CACertPEM, t.ns)
 		if err != nil {
 			return nil, err

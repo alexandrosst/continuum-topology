@@ -35,7 +35,7 @@ func (e *env) health(t *testing.T, id string) OperatorHealth {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return operatorHealthAt(op, e.core.Now())
+	return OperatorHealthAt(op, e.core.Now())
 }
 
 func auditActions(t *testing.T, e *env) (actions []string, all string) {
@@ -86,7 +86,7 @@ func TestCreateOperatorHeartbeatIsOptInAndSecretIsOnlyStoredHashed(t *testing.T)
 	}
 	// A receiver-token-shaped secret does not open the heartbeat door.
 	recvShaped, _ := kernel.NewOperatorReceiverSecret()
-	if err := e.core.RecordOperatorHeartbeat(e.ctx, recvShaped); err != errHeartbeatRejected {
+	if err := e.core.RecordOperatorHeartbeat(e.ctx, recvShaped); err != ErrHeartbeatRejected {
 		t.Fatalf("the receiver token was accepted as a heartbeat secret: %v", err)
 	}
 	if err := e.core.RecordOperatorHeartbeat(e.ctx, hb); err != nil {
@@ -123,7 +123,7 @@ func TestEnableAndRotateOperatorHeartbeat(t *testing.T) {
 	if second == first {
 		t.Fatal("rotation returned the same secret")
 	}
-	if err := e.core.RecordOperatorHeartbeat(e.ctx, first); err != errHeartbeatRejected {
+	if err := e.core.RecordOperatorHeartbeat(e.ctx, first); err != ErrHeartbeatRejected {
 		t.Fatalf("the replaced secret still works: %v", err)
 	}
 	if err := e.core.RecordOperatorHeartbeat(e.ctx, second); err != nil {
@@ -181,13 +181,13 @@ func TestRevokedOperatorHeartbeatIsRejected(t *testing.T) {
 		t.Fatal(err)
 	}
 	*e.now = e.now.Add(time.Minute) // past the write coalescing window too
-	if err := e.core.RecordOperatorHeartbeat(e.ctx, hb); err != errHeartbeatRejected {
+	if err := e.core.RecordOperatorHeartbeat(e.ctx, hb); err != ErrHeartbeatRejected {
 		t.Fatalf("a revoked operator's heartbeat was accepted: %v", err)
 	}
 	if err := e.core.DeleteOperator(e.ctx, "alex", op.ID); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.core.RecordOperatorHeartbeat(e.ctx, hb); err != errHeartbeatRejected {
+	if err := e.core.RecordOperatorHeartbeat(e.ctx, hb); err != ErrHeartbeatRejected {
 		t.Fatalf("a deleted operator's heartbeat was accepted: %v", err)
 	}
 }
@@ -213,15 +213,15 @@ func TestOperatorHeartbeatWritesAreCoalesced(t *testing.T) {
 	if got := seen(); !got.Equal(t0.Truncate(time.Millisecond)) {
 		t.Fatalf("first heartbeat not recorded: %v want %v", got, t0)
 	}
-	*e.now = t0.Add(heartbeatWriteEvery - time.Second)
+	*e.now = t0.Add(HeartbeatWriteEvery - time.Second)
 	beat()
 	if got := seen(); !got.Equal(t0.Truncate(time.Millisecond)) {
-		t.Fatalf("a heartbeat %v after the last write hit the database: last seen moved to %v", heartbeatWriteEvery-time.Second, got)
+		t.Fatalf("a heartbeat %v after the last write hit the database: last seen moved to %v", HeartbeatWriteEvery-time.Second, got)
 	}
-	*e.now = t0.Add(heartbeatWriteEvery)
+	*e.now = t0.Add(HeartbeatWriteEvery)
 	beat()
 	if got := seen(); !got.Equal(e.now.Truncate(time.Millisecond)) {
-		t.Fatalf("a heartbeat %v after the last write was not recorded: %v", heartbeatWriteEvery, got)
+		t.Fatalf("a heartbeat %v after the last write was not recorded: %v", HeartbeatWriteEvery, got)
 	}
 }
 
@@ -276,7 +276,7 @@ func TestOperatorHeartbeatIsRateLimitedPerOperator(t *testing.T) {
 	for i := 0; i < 60; i++ {
 		switch err := e.core.RecordOperatorHeartbeat(e.ctx, hb); err {
 		case nil:
-		case errHeartbeatRateLimited:
+		case ErrHeartbeatRateLimited:
 			limited++
 		default:
 			t.Fatal(err)
@@ -403,14 +403,14 @@ func TestHeartbeatEndpointCapsTheBodyAndRejectsOtherMethods(t *testing.T) {
 	a := newAdminRig(t)
 	_, hb := a.hbOperator(t, "athens", fp)
 
-	if rec := a.beat(hb, bytes.Repeat([]byte("x"), maxHeartbeatBody)); rec.Code != 200 {
+	if rec := a.beat(hb, bytes.Repeat([]byte("x"), MaxHeartbeatBody)); rec.Code != 200 {
 		t.Fatalf("a body exactly at the cap: %d", rec.Code)
 	}
-	if rec := a.beat(hb, bytes.Repeat([]byte("x"), maxHeartbeatBody+1)); rec.Code != http.StatusRequestEntityTooLarge {
+	if rec := a.beat(hb, bytes.Repeat([]byte("x"), MaxHeartbeatBody+1)); rec.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("a body one byte over the cap (declared length): %d", rec.Code)
 	}
 	// An undeclared length (chunked) is caught by the reader, not the header.
-	req := httptest.NewRequest(http.MethodPost, OperatorHeartbeatPath, bytes.NewReader(bytes.Repeat([]byte("x"), 2*maxHeartbeatBody)))
+	req := httptest.NewRequest(http.MethodPost, OperatorHeartbeatPath, bytes.NewReader(bytes.Repeat([]byte("x"), 2*MaxHeartbeatBody)))
 	req.ContentLength = -1
 	req.RemoteAddr = "10.7.7.7:4000"
 	req.Header.Set("Authorization", "Bearer "+hb)
@@ -420,7 +420,7 @@ func TestHeartbeatEndpointCapsTheBodyAndRejectsOtherMethods(t *testing.T) {
 		t.Fatalf("an oversized chunked body: %d", rec.Code)
 	}
 	// An unauthenticated oversized request is a plain 401: the body is never read for it.
-	if rec := a.beat("", bytes.Repeat([]byte("x"), 4*maxHeartbeatBody)); rec.Code != 401 {
+	if rec := a.beat("", bytes.Repeat([]byte("x"), 4*MaxHeartbeatBody)); rec.Code != 401 {
 		t.Fatalf("unauthenticated oversized: %d", rec.Code)
 	}
 	for _, m := range []string{http.MethodGet, http.MethodPut, http.MethodDelete} {

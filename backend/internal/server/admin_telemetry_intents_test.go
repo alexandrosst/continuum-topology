@@ -216,7 +216,7 @@ func TestTelemetryIntentCommandOperatorDestinationReissuesEachTime(t *testing.T)
 	}
 
 	frag1, secret1 := command()
-	if !strings.Contains(frag1, "--set telemetry.export.otlp.endpoint="+operatorServiceName(opID)+".continuum-system.svc:4317") {
+	if !strings.Contains(frag1, "--set telemetry.export.otlp.endpoint="+OperatorServiceName(opID)+".continuum-system.svc:4317") {
 		t.Fatalf("installFragment missing the resolved operator endpoint: %q", frag1)
 	}
 	if !strings.Contains(frag1, "telemetry.export.otlp.tls.mtls.enabled=true") {
@@ -317,7 +317,7 @@ func TestTelemetryIntentCommandRoutesShareOneCertificatePerOperator(t *testing.T
 	secret := opID + "-export-mtls"
 	for _, m := range []string{"metrics", "logs"} {
 		for _, want := range []string{
-			"--set telemetry.export.routes." + m + ".endpoint=" + operatorServiceName(opID) + ".continuum-system.svc:4317",
+			"--set telemetry.export.routes." + m + ".endpoint=" + OperatorServiceName(opID) + ".continuum-system.svc:4317",
 			"--set telemetry.export.routes." + m + ".tls.mtls.enabled=true",
 			"--set telemetry.export.routes." + m + ".tls.mtls.secretName=" + secret,
 		} {

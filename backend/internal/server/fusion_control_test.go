@@ -684,7 +684,7 @@ func TestEnsureCentralOperatorReusesTheOneARivalCreatedFirst(t *testing.T) {
 	core := a.a.C.ForOrg("org-1")
 	var rivalCA []byte
 	core.Store = &racingStore{Store: core.Store, rival: func(st store.Store) {
-		bundle, key, err := mintOperatorTLS(core, CentralOperatorID, []string{"x.svc"})
+		bundle, key, err := MintOperatorTLS(core, CentralOperatorID, []string{"x.svc"})
 		if err != nil {
 			t.Fatal(err)
 		}

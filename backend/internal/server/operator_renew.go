@@ -64,10 +64,10 @@ func (c *Core) RenewTelemetryCert(ctx context.Context, ip string, req *continuum
 	oc := c.ForOrg(op.OrgID)
 	oc.DepMu.RLock() // see Core.DepMu: a revoke or delete cannot come between the checks below and the ledger write
 	defer oc.DepMu.RUnlock()
-	if op, err = oc.operatorInOrg(ctx, op.ID); err != nil || op.Status != store.OperatorActive {
+	if op, err = oc.OperatorInOrg(ctx, op.ID); err != nil || op.Status != store.OperatorActive {
 		return nil, deny
 	}
-	issuer, caPEM, err := oc.operatorIssuer(ctx, op)
+	issuer, caPEM, err := oc.OperatorIssuer(ctx, op)
 	if err != nil {
 		c.Log.Error("operator CA not available for a certificate renewal", "operator", op.ID, "err", err)
 		return nil, kernel.Errf(kernel.KindInternal, "cannot renew right now")
@@ -119,12 +119,12 @@ func (c *Core) RenewTelemetryCert(ctx context.Context, ip string, req *continuum
 	leafPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
 	// A certificate that cannot be recorded is not handed out, as with every other issue: the ledger is how the
 	// server knows who holds what.
-	if err := oc.recordOperatorCert(ctx, accounts.RenewalActor.String(), op, kind, sender, leafPEM); err != nil {
+	if err := oc.RecordOperatorCert(ctx, accounts.RenewalActor.String(), op, kind, sender, leafPEM); err != nil {
 		return nil, err
 	}
-	oc.noteCertEnds(ctx, op)
+	oc.NoteCertEnds(ctx, op)
 	notAfter := time.Time{}
-	if t := certNotAfter(leafPEM); t != nil {
+	if t := CertNotAfter(leafPEM); t != nil {
 		notAfter = *t
 	}
 	return &continuumv1.RenewTelemetryCertResponse{LeafDer: der, CaPem: caPEM, NotAfter: kernel.TSProto(&notAfter)}, nil

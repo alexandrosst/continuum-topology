@@ -118,7 +118,7 @@ func TestTheServerWritesTheWholeBlockForAnOperatorDestination(t *testing.T) {
 		t.Fatalf("the block does not end with the server's own fragment:\n%s", block)
 	}
 	// The operator's address is stated once, by the server; what the page held (HTTP, skip-verify, a token) is not in the command.
-	endpoint := operatorServiceName(b.opID) + ".continuum-system.svc:4317"
+	endpoint := OperatorServiceName(b.opID) + ".continuum-system.svc:4317"
 	for _, want := range []string{"--set telemetry.export.otlp.endpoint=" + endpoint, "telemetry.export.otlp.protocol=grpc", "telemetry.export.otlp.tls.insecure=false", "telemetry.export.otlp.tls.mtls.enabled=true"} {
 		if !strings.Contains(block, want) {
 			t.Errorf("the block lacks %q", want)
@@ -173,7 +173,7 @@ func TestTheIntentNotThePageDecidesWhichDestinationsAreOperators(t *testing.T) {
 	b.intent(t, opDest(b.opID), nil)
 	_, doc := b.command(t, singleSpec(func(t *install.Telemetry) { t.Destination.Operator = "some-other-operator" }))
 	block, _ := doc["command"].(string)
-	if !strings.Contains(block, "telemetry.export.otlp.endpoint="+operatorServiceName(b.opID)) || strings.Contains(block, "some-other-operator") {
+	if !strings.Contains(block, "telemetry.export.otlp.endpoint="+OperatorServiceName(b.opID)) || strings.Contains(block, "some-other-operator") {
 		t.Fatalf("the page's operator id was believed:\n%s", block)
 	}
 
@@ -238,7 +238,7 @@ func TestEachSignalTypeGoesWhereTheIntentSays(t *testing.T) {
 	if after := b.certificates(t); after != before+1 {
 		t.Fatalf("two signal types to one operator are one certificate: %d -> %d", before, after)
 	}
-	svc := operatorServiceName(b.opID) + ".continuum-system.svc:4317"
+	svc := OperatorServiceName(b.opID) + ".continuum-system.svc:4317"
 	for _, want := range []string{"telemetry.export.routes.metrics.endpoint=" + svc, "telemetry.export.routes.logs.endpoint=" + svc, "routes.metrics.tls.mtls.enabled=true", "routes.logs.tls.mtls.enabled=true", "--set telemetry.export.routes.traces.tls.mtls.enabled=false"} {
 		if !strings.Contains(block, want) {
 			t.Errorf("the block lacks %q", want)

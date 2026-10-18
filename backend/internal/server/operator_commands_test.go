@@ -20,7 +20,7 @@ func TestExternalDestinationsAreValidatedForTheCommandLine(t *testing.T) {
 		t.Fatalf("a well-formed destination: %v", err)
 	}
 	for _, endpoint := range []string{"https://tempo.example.com/v1/traces", "[2001:db8::1]:4317", "zipkin.tracing.svc:9411/api/v2/spans"} {
-		if err := e.core.validateDestination(e.ctx, store.Destination{Kind: store.DestinationExternal, Endpoint: endpoint}); err != nil {
+		if err := e.core.ValidateDestination(e.ctx, store.Destination{Kind: store.DestinationExternal, Endpoint: endpoint}); err != nil {
 			t.Fatalf("%q was refused: %v", endpoint, err)
 		}
 	}
@@ -41,7 +41,7 @@ func TestExternalDestinationsAreValidatedForTheCommandLine(t *testing.T) {
 	} {
 		d := good
 		mutate(&d)
-		if err := e.core.validateDestination(e.ctx, d); kindOf(err) != kernel.KindInvalid {
+		if err := e.core.ValidateDestination(e.ctx, d); kindOf(err) != kernel.KindInvalid {
 			t.Errorf("%s: %v", name, err)
 		}
 		if _, _, _, err := e.core.CreateOperator(e.ctx, "alex", "bad", []string{cl}, d, nil); kindOf(err) != kernel.KindInvalid {
@@ -67,12 +67,12 @@ func TestCreateOperatorChecksExposureInTheCore(t *testing.T) {
 // What `kubectl get svc` prints cannot be reached from another cluster, however well it is spelled.
 func TestAddressRefusesNamesThatOnlyResolveInsideOneCluster(t *testing.T) {
 	for _, in := range []string{"op-a.continuum-system.svc", "op-a.continuum-system.svc:4317", "op-a.continuum-system.svc.cluster.local:4317", "x.cluster.local", "OP-A.NS.SVC.", "svc"} {
-		if _, err := validOperatorAddress(in); err == nil {
+		if _, err := ValidOperatorAddress(in); err == nil {
 			t.Errorf("%q was accepted", in)
 		}
 	}
 	for in, want := range map[string]string{"op-a.continuum-system.svc.clusterset.local": "op-a.continuum-system.svc.clusterset.local:4317", "svc.example.com:4317": "svc.example.com:4317", "mysvc.example.com": "mysvc.example.com:4317"} {
-		if got, err := validOperatorAddress(in); err != nil || got != want {
+		if got, err := ValidOperatorAddress(in); err != nil || got != want {
 			t.Errorf("%q = %q, %v", in, got, err)
 		}
 	}
@@ -141,7 +141,7 @@ func TestSourceRemindersStateTheWholeBlockAndOneSecretPerCluster(t *testing.T) {
 	}
 	for _, r := range reminders[2:] {
 		up := r.(string)
-		for _, want := range []string{"--reset-then-reuse-values", "--set telemetry.export.otlp.endpoint=" + operatorServiceName(id) + ".continuum-system.svc:4317", "--set telemetry.export.otlp.protocol=grpc",
+		for _, want := range []string{"--reset-then-reuse-values", "--set telemetry.export.otlp.endpoint=" + OperatorServiceName(id) + ".continuum-system.svc:4317", "--set telemetry.export.otlp.protocol=grpc",
 			"--set telemetry.export.otlp.tls.insecure=false", "--set telemetry.export.otlp.tls.caFile= ", "--set telemetry.export.otlp.tls.mtls.enabled=true",
 			"--set telemetry.export.otlp.tls.mtls.secretName=" + id + "-export-mtls", "--set telemetry.export.otlp.tls.serverName=" + id + ".continuum-system.svc", "--set telemetry.export.otlp.auth.secretName="} {
 			if !strings.Contains(up, want) {

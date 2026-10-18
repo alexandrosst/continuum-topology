@@ -94,7 +94,7 @@ func TestCreateOperatorMintsItsOwnCAAndStoresNoPlaintextKey(t *testing.T) {
 		t.Fatal("the bundle hands out the org CA for an operator-CA operator")
 	}
 	opPool := poolFrom(t, bundle.CACertPEM)
-	sc, ok := bundle.forSender(cl)
+	sc, ok := bundle.ForSender(cl)
 	if !ok {
 		t.Fatal("no client certificate was minted for the source cluster")
 	}
@@ -105,7 +105,7 @@ func TestCreateOperatorMintsItsOwnCAAndStoresNoPlaintextKey(t *testing.T) {
 		t.Fatalf("receiver certificate does not verify against the operator CA: %v", err)
 	}
 	// And by the Service name the chart creates, which is what a sender in the same cluster dials.
-	if _, err := certOf(t, bundle.ReceiverCertPEM).Verify(x509.VerifyOptions{Roots: opPool, DNSName: operatorServiceName(op.ID) + ".continuum-system.svc", KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}); err != nil {
+	if _, err := certOf(t, bundle.ReceiverCertPEM).Verify(x509.VerifyOptions{Roots: opPool, DNSName: OperatorServiceName(op.ID) + ".continuum-system.svc", KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}); err != nil {
 		t.Fatalf("receiver certificate does not carry the Service name: %v", err)
 	}
 	if clientOK(certOf(t, sc.CertPEM), e.core.CA.Pool()) {

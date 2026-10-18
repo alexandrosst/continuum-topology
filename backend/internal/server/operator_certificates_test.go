@@ -75,7 +75,7 @@ func TestCentralOperatorCAIsReportedWhenItsEndIsNear(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	caEnd := *certNotAfter(op.ClientCACertPEM)
+	caEnd := *CertNotAfter(op.ClientCACertPEM)
 	if d := toOperatorDoc(op, caEnd.Add(-400*day)); d.CertState != CertStateOK {
 		t.Fatalf("a CA with more than a year left: %q", d.CertState)
 	}

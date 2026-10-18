@@ -154,7 +154,7 @@ func TestReceiverCertificateIsRenewedWithTheSameNames(t *testing.T) {
 // A certificate from before the ledger existed has no row; the signature and the name are what identify it.
 func TestACertificateWithNoLedgerRowStillRenews(t *testing.T) {
 	s := newRenewSetup(t)
-	issuer, _, err := s.e.core.operatorIssuer(s.e.ctx, s.op)
+	issuer, _, err := s.e.core.OperatorIssuer(s.e.ctx, s.op)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +193,7 @@ func TestACertificateFromAnotherCAIsNotRenewed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	issuer, _, _ := s.e.core.operatorIssuer(s.e.ctx, other)
+	issuer, _, _ := s.e.core.OperatorIssuer(s.e.ctx, other)
 	for name, ca := range map[string]*pki.CA{"org CA": s.e.base.CA, "another operator's CA": issuer} {
 		certPEM, keyPEM, err := ca.IssueOperatorClientTLS(s.op.ID, "org-1", s.cl)
 		if err != nil {

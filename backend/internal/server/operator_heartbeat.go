@@ -28,9 +28,9 @@ const (
 	operatorOnlineWithin = 3 * OperatorHeartbeatInterval
 	// heartbeatWriteEvery bounds database writes: a heartbeat arriving less than this after the last one
 	// recorded for that operator is acknowledged without touching the database.
-	heartbeatWriteEvery = 15 * time.Second
+	HeartbeatWriteEvery = 15 * time.Second
 	// maxHeartbeatBody is the most of a heartbeat's body this server will read (and discard).
-	maxHeartbeatBody = 1 << 20
+	MaxHeartbeatBody = 1 << 20
 )
 
 // Operator health states. waiting is a heartbeat that is switched on but has not arrived yet (the operator is not
@@ -61,7 +61,7 @@ type OperatorHealth struct {
 // that never reported). waiting: a credential exists and no heartbeat has arrived yet. online: the last heartbeat is
 // within operatorOnlineWithin. offline otherwise - and for a revoked operator that was ever seen, whose heartbeats are
 // refused from the moment it is revoked.
-func operatorHealthAt(op store.Operator, now time.Time) OperatorHealth {
+func OperatorHealthAt(op store.Operator, now time.Time) OperatorHealth {
 	if len(op.HeartbeatHash) == 0 {
 		return OperatorHealth{State: HealthUnknown}
 	}
@@ -82,7 +82,7 @@ func operatorHealthAt(op store.Operator, now time.Time) OperatorHealth {
 
 // centralHealth is the central operator's health, which has no heartbeat: it is its manager's state (FUSION's). A FUSION that is
 // not available on this server has no health to report.
-func centralHealth(st ManagedStatus) OperatorHealth {
+func CentralHealth(st ManagedStatus) OperatorHealth {
 	if !st.Available {
 		return OperatorHealth{State: HealthUnknown}
 	}
@@ -116,7 +116,7 @@ func (h *heartbeatSeen) reserve(id string, now time.Time) (prev time.Time, had, 
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	prev, had = h.last[id]
-	if had && !now.Before(prev) && now.Sub(prev) < heartbeatWriteEvery {
+	if had && !now.Before(prev) && now.Sub(prev) < HeartbeatWriteEvery {
 		return prev, had, false
 	}
 	h.last[id] = now
@@ -135,17 +135,17 @@ func (h *heartbeatSeen) release(id string, prev time.Time, had bool) {
 
 // errHeartbeatRejected is every way a heartbeat can fail to authenticate - malformed, unknown, replaced by
 // a rotation, or belonging to a revoked operator - deliberately one error, so nothing can tell them apart.
-var errHeartbeatRejected = errors.New("heartbeat rejected")
+var ErrHeartbeatRejected = errors.New("heartbeat rejected")
 
 // errHeartbeatRateLimited is an authenticated operator sending far more often than it should.
-var errHeartbeatRateLimited = errors.New("heartbeat rate limited")
+var ErrHeartbeatRateLimited = errors.New("heartbeat rate limited")
 
 // EnableOperatorHeartbeat mints a heartbeat secret for an existing active operator and stores its hash,
 // replacing (so invalidating) any earlier one. It is both "turn it on" and "rotate it": the audit action
 // says which. The secret is returned once and never stored. Nothing is sent to the operator - the person
 // applies it with the commands the admin API returns.
 func (c *Core) EnableOperatorHeartbeat(ctx context.Context, actor, id string) (secret string, rotated bool, err error) {
-	op, err := c.operatorInOrg(ctx, id)
+	op, err := c.OperatorInOrg(ctx, id)
 	if err != nil {
 		return "", false, err
 	}
@@ -181,12 +181,12 @@ func (c *Core) EnableOperatorHeartbeat(ctx context.Context, actor, id string) (s
 // coalesced to one per heartbeatWriteEvery per operator; there is no audit row per heartbeat.
 func (c *Core) RecordOperatorHeartbeat(ctx context.Context, secret string) error {
 	if !kernel.LooksLikeHeartbeatSecret(secret) {
-		return errHeartbeatRejected
+		return ErrHeartbeatRejected
 	}
 	h := kernel.HashSecret(secret)
 	op, err := c.Store.GetOperatorByHeartbeatHash(ctx, h)
 	if errors.Is(err, store.ErrNotFound) {
-		return errHeartbeatRejected
+		return ErrHeartbeatRejected
 	}
 	if err != nil {
 		return err
@@ -194,10 +194,10 @@ func (c *Core) RecordOperatorHeartbeat(ctx context.Context, secret string) error
 	// The row was found by this hash already; comparing again in constant time keeps the decision itself
 	// independent of how the database matched, and is the check a reader expects to see.
 	if subtle.ConstantTimeCompare(op.HeartbeatHash, h) != 1 || op.Status != store.OperatorActive {
-		return errHeartbeatRejected
+		return ErrHeartbeatRejected
 	}
 	if !c.heartbeatSt().rl.Allow(op.ID) {
-		return errHeartbeatRateLimited
+		return ErrHeartbeatRateLimited
 	}
 	now := c.Now()
 	prev, had, due := c.heartbeatSt().reserve(op.ID, now)

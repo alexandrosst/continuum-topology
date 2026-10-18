@@ -15,11 +15,11 @@ import (
 // failTLSMint makes every operator TLS mint fail for the rest of the test.
 func failTLSMint(t *testing.T) {
 	t.Helper()
-	old := mintOperatorTLS
-	mintOperatorTLS = func(*Core, string, []string) (OperatorTLSBundle, []byte, error) {
+	old := MintOperatorTLS
+	MintOperatorTLS = func(*Core, string, []string) (OperatorTLSBundle, []byte, error) {
 		return OperatorTLSBundle{}, nil, errors.New("simulated mint failure")
 	}
-	t.Cleanup(func() { mintOperatorTLS = old })
+	t.Cleanup(func() { MintOperatorTLS = old })
 }
 
 func TestInstallCommandForAnMTLSOperatorHasNoBearerGate(t *testing.T) {
@@ -158,7 +158,7 @@ func TestIntentCommandReportsTheOperatorsReceiverAuth(t *testing.T) {
 		if r.Code != 200 || doc["receiverAuth"] != c.want {
 			t.Fatalf("%s: %d %v", c.want, r.Code, doc)
 		}
-		if frag := doc["installFragment"].(string); !strings.Contains(frag, "--set telemetry.export.otlp.endpoint="+operatorServiceName(c.id)+".continuum-system.svc:4317") {
+		if frag := doc["installFragment"].(string); !strings.Contains(frag, "--set telemetry.export.otlp.endpoint="+OperatorServiceName(c.id)+".continuum-system.svc:4317") {
 			t.Fatalf("%s: %s", c.want, frag)
 		}
 		// Retire the intent so the next operator can be targeted (one active intent per agent).

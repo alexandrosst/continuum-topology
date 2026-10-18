@@ -154,7 +154,7 @@ type hostAddr struct {
 // operatorHost finds the cluster the operator with this id runs in. The second result is false when no approved
 // agent has reported its Deployment.
 func (h *Hub) operatorHost(ctx context.Context, operatorID string) (operatorHost, bool) {
-	return h.workloadHost(ctx, operatorNamespace, operatorServiceName(operatorID))
+	return h.workloadHost(ctx, operatorNamespace, OperatorServiceName(operatorID))
 }
 
 // workloadHost finds the cluster a Deployment runs in, from what the approved agents report about their clusters.
@@ -746,7 +746,7 @@ func (a *Admin) listOperatorAddressCandidates(w http.ResponseWriter, r *http.Req
 		return
 	}
 	res := AddressCandidates{Candidates: []AddressCandidate{}}
-	namespace, workload, recorded := operatorNamespace, operatorServiceName(op.ID), op.Address
+	namespace, workload, recorded := operatorNamespace, OperatorServiceName(op.ID), op.Address
 	var gateway *kernel.KubeService
 	if op.ID == CentralOperatorID && a.Fusion != nil {
 		// The gateway is the server's own install: its Deployment is in the server's namespace, and the server reads its

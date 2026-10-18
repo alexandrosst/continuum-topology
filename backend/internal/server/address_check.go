@@ -269,7 +269,7 @@ func (a *Admin) probeSettings(c *Core, op store.Operator) (addr string, caPEM []
 			caPEM = c.CA.CertPEM()
 		}
 	}
-	return addr, caPEM, operatorServerName(op)
+	return addr, caPEM, OperatorServerName(op)
 }
 
 // checkOperatorAddress is POST /operators/{id}/address/check: one look at the operator's recorded address from this

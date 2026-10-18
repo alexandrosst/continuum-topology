@@ -51,7 +51,7 @@ func TestOperatorDestinationsAreForEditorsAndHoldNoSecrets(t *testing.T) {
 	if m, _ := d["acceptedModalities"].([]any); len(m) != 1 || m[0] != "metrics" {
 		t.Fatalf("acceptedModalities = %v", d["acceptedModalities"])
 	}
-	if d["endpoint"] != operatorServiceName(id)+".continuum-system.svc:4317" {
+	if d["endpoint"] != OperatorServiceName(id)+".continuum-system.svc:4317" {
 		t.Fatalf("endpoint = %v", d["endpoint"])
 	}
 	if h, _ := d["health"].(map[string]any); h["state"] != "unknown" {
@@ -171,7 +171,7 @@ func TestCentralHealthMapsFusionsStates(t *testing.T) {
 		{FusionStatus{Available: true, State: "off"}, HealthOff},
 		{FusionStatus{State: "off", Reason: "not-configured"}, HealthUnknown},
 	} {
-		if got := centralHealth(c.st.Managed()).State; got != c.want {
+		if got := CentralHealth(c.st.Managed()).State; got != c.want {
 			t.Errorf("%+v: %s, want %s", c.st, got, c.want)
 		}
 	}
@@ -181,15 +181,15 @@ func TestCentralHealthMapsFusionsStates(t *testing.T) {
 func TestHealthIsWaitingOnlyForAnActiveOperatorWithAHeartbeatCredential(t *testing.T) {
 	e := newEnv(t)
 	op, _ := e.hbOperator(t, "athens", fp)
-	if h := operatorHealthAt(op, e.core.Now()); h.State != HealthWaiting || h.HeartbeatEnabledAt == nil {
+	if h := OperatorHealthAt(op, e.core.Now()); h.State != HealthWaiting || h.HeartbeatEnabledAt == nil {
 		t.Fatalf("active, enabled, unseen: %+v", h)
 	}
 	op.Status = "revoked"
-	if h := operatorHealthAt(op, e.core.Now()); h.State != HealthUnknown {
+	if h := OperatorHealthAt(op, e.core.Now()); h.State != HealthUnknown {
 		t.Fatalf("revoked, never seen: %+v", h)
 	}
 	op.Status, op.HeartbeatHash, op.HeartbeatEnabledAt = "active", nil, nil
-	if h := operatorHealthAt(op, e.core.Now()); h.State != HealthUnknown || h.HeartbeatEnabledAt != nil {
+	if h := OperatorHealthAt(op, e.core.Now()); h.State != HealthUnknown || h.HeartbeatEnabledAt != nil {
 		t.Fatalf("no credential: %+v", h)
 	}
 }

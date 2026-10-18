@@ -327,8 +327,8 @@ func TestOperatorLabelsAreValidatedTrimmedAndStored(t *testing.T) {
 			t.Fatalf("%s: err = %v, want KindInvalid", name, err)
 		}
 	}
-	tooMany := make([]store.OperatorLabel, 0, maxOperatorLabels+1)
-	for i := 0; i <= maxOperatorLabels; i++ {
+	tooMany := make([]store.OperatorLabel, 0, MaxOperatorLabels+1)
+	for i := 0; i <= MaxOperatorLabels; i++ {
 		tooMany = append(tooMany, store.OperatorLabel{Key: fmt.Sprintf("k%d", i), Value: "v"})
 	}
 	if _, err := create(tooMany...); kindOf(err) != kernel.KindInvalid {

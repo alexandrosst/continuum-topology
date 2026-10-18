@@ -38,10 +38,10 @@ type OperatorCerts struct {
 // re-issue them before the install route existed. A bearer operator has no certificates the server issued that it
 // can vouch for, and the central operator's were never issued by the install step, so for neither is one guessed: the
 // central operator's come from the ledger once it has entries (see refreshCertEnds).
-func operatorCertDates(op store.Operator) OperatorCerts {
+func OperatorCertDates(op store.Operator) OperatorCerts {
 	var c OperatorCerts
 	if len(op.ClientCACertPEM) > 0 {
-		c.CA = certNotAfter(op.ClientCACertPEM)
+		c.CA = CertNotAfter(op.ClientCACertPEM)
 	}
 	if op.ReceiverAuth != store.ReceiverAuthMTLS {
 		return c
@@ -80,12 +80,12 @@ func (c OperatorCerts) soonest() (at time.Time, which string, ok bool) {
 }
 
 // known says whether any of the dates is.
-func (c OperatorCerts) known() bool { _, _, ok := c.soonest(); return ok }
+func (c OperatorCerts) Known() bool { _, _, ok := c.soonest(); return ok }
 
 // certState is "ok", "renewal-failing" (the soonest certificate is past the day it should have been renewed by more
 // than certRenewalSlack and still runs) or "expired"; "" when no date is known. since is the day renewal should have
 // started for the soonest certificate: absent for "ok".
-func (c OperatorCerts) certState(now time.Time) (state string, since *time.Time) {
+func (c OperatorCerts) CertState(now time.Time) (state string, since *time.Time) {
 	at, _, ok := c.soonest()
 	if !ok {
 		return "", nil
@@ -180,7 +180,7 @@ func (c *Core) refreshCertEnds(ctx context.Context, op store.Operator, senders m
 	if op.ReceiverAuth != store.ReceiverAuthMTLS {
 		return op, "", nil
 	}
-	dates := operatorCertDates(op)
+	dates := OperatorCertDates(op)
 	central := op.ID == CentralOperatorID
 	if !central && (dates.Receiver == nil || dates.Client == nil) {
 		return op, "", nil
@@ -262,7 +262,7 @@ func (c *Core) refreshCertEnds(ctx context.Context, op store.Operator, senders m
 
 // noteCertEnds brings the dates shown for op in line with the ledger after a certificate was issued or renewed. Best
 // effort: the certificate is already recorded, and the next issue repeats this.
-func (c *Core) noteCertEnds(ctx context.Context, op store.Operator) {
+func (c *Core) NoteCertEnds(ctx context.Context, op store.Operator) {
 	senders, err := c.operatorSenders(ctx)
 	if err == nil {
 		_, _, err = c.refreshCertEnds(ctx, op, senders[op.ID])
@@ -293,10 +293,10 @@ func (c *Core) ReissueOperatorInstall(ctx context.Context, actor, id string) (st
 	c.DepMu.RLock() // see Core.DepMu: a revoke or delete cannot come between the check that it is active and the writes below
 	defer c.DepMu.RUnlock()
 	var out OperatorReissue
-	if err := guardCentral(id); err != nil {
+	if err := GuardCentral(id); err != nil {
 		return store.Operator{}, out, err
 	}
-	op, err := c.operatorInOrg(ctx, id)
+	op, err := c.OperatorInOrg(ctx, id)
 	if err != nil {
 		return store.Operator{}, out, err
 	}
@@ -307,7 +307,7 @@ func (c *Core) ReissueOperatorInstall(ctx context.Context, actor, id string) (st
 	var hbHash, tokenHash []byte
 	var did []string
 	if op.ReceiverAuth == store.ReceiverAuthMTLS {
-		issuer, caPEM, err := c.operatorIssuer(ctx, op)
+		issuer, caPEM, err := c.OperatorIssuer(ctx, op)
 		if err != nil {
 			return store.Operator{}, out, err
 		}
@@ -315,7 +315,7 @@ func (c *Core) ReissueOperatorInstall(ctx context.Context, actor, id string) (st
 		if out.TLS.ReceiverCertPEM, out.TLS.ReceiverKeyPEM, err = issuer.IssueOperatorReceiverTLS(op.ID, c.OrgID, operatorReceiverHosts(op.ID)); err != nil {
 			return store.Operator{}, out, err
 		}
-		r := certNotAfter(out.TLS.ReceiverCertPEM)
+		r := CertNotAfter(out.TLS.ReceiverCertPEM)
 		if r == nil {
 			return store.Operator{}, out, fmt.Errorf("the certificate just issued could not be read back")
 		}
@@ -323,7 +323,7 @@ func (c *Core) ReissueOperatorInstall(ctx context.Context, actor, id string) (st
 		// Recorded in the ledger now, before anything is changed, and a failure is the request's failure: the new secrets
 		// exist only in this call, so an error AFTER the rotation was committed would lose the only copy of keys the
 		// operator's old ones have already been replaced by. Here nothing has been replaced yet, so refusing costs nothing.
-		if err := c.recordOperatorCert(ctx, actor, op, store.OperatorCertReceiver, "", out.TLS.ReceiverCertPEM); err != nil {
+		if err := c.RecordOperatorCert(ctx, actor, op, store.OperatorCertReceiver, "", out.TLS.ReceiverCertPEM); err != nil {
 			return store.Operator{}, OperatorReissue{}, fmt.Errorf("the new receiver certificate could not be recorded, so nothing was changed: %w", err)
 		}
 		// One certificate per source cluster, each naming its holder. Unlike at creation a failure here is the
@@ -358,7 +358,7 @@ func (c *Core) ReissueOperatorInstall(ctx context.Context, actor, id string) (st
 	if err = c.AuditedWrite(stateErr(err), "operator-install-reissued"); err != nil {
 		return store.Operator{}, OperatorReissue{}, err
 	}
-	op, err = c.operatorInOrg(ctx, id)
+	op, err = c.OperatorInOrg(ctx, id)
 	return op, out, err
 }
 

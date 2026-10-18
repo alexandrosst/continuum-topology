@@ -290,7 +290,7 @@ func (f *FusionControl) certHosts() []string {
 	// The last name is the one that never changes (operatorServerName): senders that reach the gateway at its public
 	// address verify against it, so the address, or the IP behind it, can change without reissuing anything.
 	h := []string{f.Name + "-central", f.Name + "-central." + f.Namespace, f.centralHost(), f.centralHost() + ".cluster.local",
-		operatorServerName(store.Operator{ID: CentralOperatorID})}
+		OperatorServerName(store.Operator{ID: CentralOperatorID})}
 	if pa := f.publicAddress(); pa != "" {
 		host := pa
 		if i := strings.LastIndex(host, ":"); i >= 0 && !strings.HasSuffix(host, "]") {
@@ -906,7 +906,7 @@ func kubeFail(what string, err error) error {
 func (c *Core) EnsureCentralOperator(ctx context.Context, actor string, dest store.Destination, hosts []string) (store.Operator, OperatorTLSBundle, error) {
 	op, err := c.Store.GetOperator(ctx, CentralOperatorID)
 	if errors.Is(err, store.ErrNotFound) {
-		bundle, caKeyPEM, err := mintOperatorTLS(c, CentralOperatorID, hosts)
+		bundle, caKeyPEM, err := MintOperatorTLS(c, CentralOperatorID, hosts)
 		if err != nil {
 			return store.Operator{}, OperatorTLSBundle{}, kernel.Errf(kernel.KindInternal, "could not mint the central operator's certificates: %v", err)
 		}
@@ -937,7 +937,7 @@ func (c *Core) EnsureCentralOperator(ctx context.Context, actor string, dest sto
 	if op.Status != store.OperatorActive {
 		return store.Operator{}, OperatorTLSBundle{}, kernel.Errf(kernel.KindConflict, "the central operator was revoked")
 	}
-	issuer, caPEM, err := c.operatorIssuer(ctx, op)
+	issuer, caPEM, err := c.OperatorIssuer(ctx, op)
 	if err != nil {
 		return store.Operator{}, OperatorTLSBundle{}, err
 	}
@@ -947,10 +947,10 @@ func (c *Core) EnsureCentralOperator(ctx context.Context, actor string, dest sto
 	}
 	// In the ledger like every other certificate the server issues: it is how the dates shown for the operator, and
 	// Renew's "is this still fresh", know what the gateway holds. One that cannot be recorded is not handed out.
-	if err := c.recordOperatorCert(ctx, actor, op, store.OperatorCertReceiver, "", certPEM); err != nil {
+	if err := c.RecordOperatorCert(ctx, actor, op, store.OperatorCertReceiver, "", certPEM); err != nil {
 		return store.Operator{}, OperatorTLSBundle{}, err
 	}
-	c.noteCertEnds(ctx, op)
+	c.NoteCertEnds(ctx, op)
 	return op, OperatorTLSBundle{ReceiverCertPEM: certPEM, ReceiverKeyPEM: keyPEM, CACertPEM: caPEM}, nil
 }
 

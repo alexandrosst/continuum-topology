@@ -417,9 +417,9 @@ func TestPrintedAgentCommandsRenderTheDeclaredExporters(t *testing.T) {
 	a := newIntentRig(t)
 	opA, opB := a.operator(t, "athens"), a.operator(t, "patras")
 	mtls := func(op store.Operator, endpoint, name string) wantExport {
-		return wantExport{endpoint: endpoint, serverName: operatorServerName(op), mtlsSecret: operatorClientTLSSecretName(op), name: name}
+		return wantExport{endpoint: endpoint, serverName: OperatorServerName(op), mtlsSecret: operatorClientTLSSecretName(op), name: name}
 	}
-	inCluster := func(op store.Operator) string { return operatorInClusterEndpoint(op) }
+	inCluster := func(op store.Operator) string { return OperatorInClusterEndpoint(op) }
 
 	t.Run("one regional operator for everything", func(t *testing.T) {
 		doc := a.command(t, map[string]any{"agentId": a.agent(t), "name": "one", "destination": opDest(opA.ID)})
@@ -521,7 +521,7 @@ func TestPrintedAgentCommandsForTheCentralOperator(t *testing.T) {
 		want          wantExport
 	}{
 		{"in-cluster", "", wantExport{endpoint: f.centralHost() + ":4317", mtlsSecret: operatorClientTLSSecretName(central), name: "otlp"}},
-		{"public", "203.0.113.7:30317", wantExport{endpoint: "203.0.113.7:30317", serverName: operatorServerName(central), mtlsSecret: operatorClientTLSSecretName(central), name: "otlp"}},
+		{"public", "203.0.113.7:30317", wantExport{endpoint: "203.0.113.7:30317", serverName: OperatorServerName(central), mtlsSecret: operatorClientTLSSecretName(central), name: "otlp"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			f.SetPublicAddress(c.address)
@@ -609,7 +609,7 @@ func TestPrintedOperatorInstallsRenderTheDeclaredReceiverAndExporter(t *testing.
 					if d := body["destination"].(map[string]any); d["kind"] == "operator" {
 						want = wantExport{endpoint: f.CentralEndpoint(), mtlsSecret: operatorClientTLSSecretName(central), name: "otlp"}
 						if pub.address != "" {
-							want.serverName = operatorServerName(central)
+							want.serverName = OperatorServerName(central)
 						}
 					} else if d["insecure"] == true {
 						want.insecure = true
@@ -653,7 +653,7 @@ func TestPrintedSourceRemindersRenderTheOperatorAsDestination(t *testing.T) {
 			continue
 		}
 		n++
-		want := wantExport{endpoint: operatorInClusterEndpoint(op), serverName: operatorServerName(op), mtlsSecret: operatorClientTLSSecretName(op), name: "otlp"}
+		want := wantExport{endpoint: OperatorInClusterEndpoint(op), serverName: OperatorServerName(op), mtlsSecret: operatorClientTLSSecretName(op), name: "otlp"}
 		everyPipelineExports(t, agentRender(t, staleDefaultAndRoutes, s), map[string]wantExport{"metrics": want, "logs": want, "traces": want})
 	}
 	if n != 2 {

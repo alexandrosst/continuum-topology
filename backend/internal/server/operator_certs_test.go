@@ -102,14 +102,14 @@ func TestLegacyOperatorCertDatesAreDerivedFromWhatIsStored(t *testing.T) {
 	}
 	stored, _ := e.st.GetOperator(e.ctx, op.ID)
 	stored.ReceiverNotAfter, stored.ClientNotAfter = nil, nil // as read from a schema 15 row
-	c := operatorCertDates(stored)
+	c := OperatorCertDates(stored)
 	want := stored.CreatedAt.Add(pki.LegacyOperatorTLSTTL)
 	if c.Receiver == nil || !c.Receiver.Equal(want) || c.Client == nil || !c.Client.Equal(want) || c.CA == nil {
 		t.Fatalf("derived dates = %+v, want receiver and client at %v", c, want)
 	}
 	// The central operator's receiver certificate is renewed daily by FUSION itself: no date is guessed for it.
 	stored.ID = CentralOperatorID
-	if c := operatorCertDates(stored); c.Receiver != nil || c.Client != nil || c.CA == nil {
+	if c := OperatorCertDates(stored); c.Receiver != nil || c.Client != nil || c.CA == nil {
 		t.Fatalf("central dates = %+v", c)
 	}
 }
