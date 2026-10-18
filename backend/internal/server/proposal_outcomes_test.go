@@ -17,9 +17,9 @@ import (
 // feed adds heartbeat self-telemetry samples to the agent's view: one every 30 seconds for the given span, with the link byte
 // counter growing at bytesPerSec and the agent's CPU at cpu cores.
 func (r *propRig) feed(from time.Time, span time.Duration, bytesPerSec float64, cumulative *uint64, cpuSeconds *float64) {
-	r.h.mu.Lock()
-	defer r.h.mu.Unlock()
-	v := r.h.viewFor(r.id)
+	r.h.Mu.Lock()
+	defer r.h.Mu.Unlock()
+	v := r.h.ViewFor(r.id)
 	for at := from; !at.After(from.Add(span)); at = at.Add(30 * time.Second) {
 		*cumulative += uint64(bytesPerSec * 30)
 		*cpuSeconds += 0.1 * 30
@@ -34,9 +34,9 @@ func (r *propRig) acceptAndConfirm(t *testing.T, id string) time.Time {
 	if _, err := r.h.C.Loop.AcceptProposal(asRole(accounts.RoleEditor), "edith", id, ""); err != nil {
 		t.Fatal(err)
 	}
-	r.h.mu.Lock()
-	defer r.h.mu.Unlock()
-	v := r.h.viewFor(r.id)
+	r.h.Mu.Lock()
+	defer r.h.Mu.Unlock()
+	v := r.h.ViewFor(r.id)
 	v.CfgHash, v.CfgSentAt = "h-after", r.now.Add(time.Second)
 	*r.now = r.now.Add(2 * time.Second)
 	v.NoteConfigEcho("h-after", *r.now)
@@ -156,7 +156,7 @@ func TestOnlyAppliedProposalsGetAnOutcome(t *testing.T) {
 
 // The agent echoing its Config digest is what marks a change in force, and the time is that of the first echo of the Config now held.
 func TestTheTimeAChangeCameIntoForceIsTheAgentsFirstEchoOfTheCurrentConfig(t *testing.T) {
-	v := &view{NetView: connectivity.NetView{CfgHash: "h2", CfgSentAt: time.Unix(100, 0)}}
+	v := &View{NetView: connectivity.NetView{CfgHash: "h2", CfgSentAt: time.Unix(100, 0)}}
 	v.NoteConfigEcho("h1", time.Unix(110, 0)) // still the old one
 	if !v.CfgInForceAt.IsZero() {
 		t.Fatalf("in force at %v on an echo of the old Config", v.CfgInForceAt)
@@ -172,17 +172,17 @@ func TestTheTimeAChangeCameIntoForceIsTheAgentsFirstEchoOfTheCurrentConfig(t *te
 // at or after the decision counts.
 func TestAnEchoFromBeforeTheDecisionDoesNotConfirmTheChange(t *testing.T) {
 	r := propRigFor(t)
-	r.h.mu.Lock()
-	v := r.h.viewFor(r.id)
+	r.h.Mu.Lock()
+	v := r.h.ViewFor(r.id)
 	v.CfgHash, v.CfgApplied, v.CfgInForceAt = "h-before", "h-before", r.now.Add(-time.Hour)
-	r.h.mu.Unlock()
+	r.h.Mu.Unlock()
 	p, _ := r.submit(t, decisionloop.AccessChange{Pause: []string{"flow"}})
 	if _, err := r.h.C.Loop.AcceptProposal(asRole(accounts.RoleEditor), "edith", p.ID, ""); err != nil {
 		t.Fatal(err)
 	}
-	r.h.mu.Lock()
+	r.h.Mu.Lock()
 	v.CfgHash = "h-before" // the push did not change what the server holds as sent, and the agent still names it
-	r.h.mu.Unlock()
+	r.h.Mu.Unlock()
 	*r.now = r.now.Add(time.Hour)
 	r.h.C.Loop.RecordOutcomes(context.Background())
 	o, ok := outcomeOf(t, r, p.ID)

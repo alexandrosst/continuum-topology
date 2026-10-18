@@ -144,17 +144,17 @@ func TestNarrowingATierDropsWhatTheServerHoldsAboveIt(t *testing.T) {
 	_, editor := a.user(t, "edith", accounts.RoleEditor)
 	id, _, _ := a.approvedAgent(t, fp)
 	v := liveView(*a.now, "n1")
-	v.state.Apply(&continuumv1.Sync{Namespaces: []*continuumv1.NamespaceFacts{{Key: "ns/shop", Name: "shop"}},
+	v.State.Apply(&continuumv1.Sync{Namespaces: []*continuumv1.NamespaceFacts{{Key: "ns/shop", Name: "shop"}},
 		Workloads: []*continuumv1.WorkloadFacts{{Key: "shop/Deployment/web", Name: "web"}}})
-	a.hub().mu.Lock()
-	a.hub().views[id] = v
-	a.hub().mu.Unlock()
+	a.hub().Mu.Lock()
+	a.hub().Views[id] = v
+	a.hub().Mu.Unlock()
 	if r := a.do("POST", "/api/v1/agents/"+id+"/tier", map[string]any{"tier": 1}, withCookie(editor)); r.Code != 200 {
 		t.Fatalf("%d %s", r.Code, r.Body.String())
 	}
-	a.hub().mu.Lock()
-	nw, nn, nodes := len(v.state.Workloads), len(v.state.Namespaces), len(v.state.Nodes)
-	a.hub().mu.Unlock()
+	a.hub().Mu.Lock()
+	nw, nn, nodes := len(v.State.Workloads), len(v.State.Namespaces), len(v.State.Nodes)
+	a.hub().Mu.Unlock()
 	if nw != 0 || nn != 0 || nodes != 1 {
 		t.Fatalf("after narrowing to 1 the server holds %d workloads, %d namespaces and %d nodes", nw, nn, nodes)
 	}
@@ -167,24 +167,24 @@ func TestNarrowingConsentDropsWhatTheServerAlreadyHolds(t *testing.T) {
 	_, editor := a.user(t, "edith", accounts.RoleEditor)
 	id, _, _ := a.approvedAgent(t, fp)
 	v := liveView(*a.now, "n1")
-	v.state.Nodes["n1"].MachineId, v.state.Nodes["n1"].KernelVersion = "mid-1", "6.1"
-	v.state.Apply(&continuumv1.Sync{
+	v.State.Nodes["n1"].MachineId, v.State.Nodes["n1"].KernelVersion = "mid-1", "6.1"
+	v.State.Apply(&continuumv1.Sync{
 		Namespaces: []*continuumv1.NamespaceFacts{{Key: "ns/shop", Name: "shop"}, {Key: "ns/batch", Name: "batch"}},
 		Workloads:  []*continuumv1.WorkloadFacts{{Key: "shop/Deployment/web", Name: "web", Namespace: "shop"}, {Key: "batch/Job/etl", Name: "etl", Namespace: "batch"}},
 	})
-	a.hub().mu.Lock()
-	a.hub().views[id] = v
-	a.hub().mu.Unlock()
+	a.hub().Mu.Lock()
+	a.hub().Views[id] = v
+	a.hub().Mu.Unlock()
 	held := func() (ns, wl []string, machineID string) {
-		a.hub().mu.Lock()
-		defer a.hub().mu.Unlock()
-		for _, n := range v.state.Namespaces {
+		a.hub().Mu.Lock()
+		defer a.hub().Mu.Unlock()
+		for _, n := range v.State.Namespaces {
 			ns = append(ns, n.Name)
 		}
-		for _, w := range v.state.Workloads {
+		for _, w := range v.State.Workloads {
 			wl = append(wl, w.Name)
 		}
-		return ns, wl, v.state.Nodes["n1"].MachineId
+		return ns, wl, v.State.Nodes["n1"].MachineId
 	}
 	save := func(body map[string]any) {
 		t.Helper()
@@ -264,29 +264,29 @@ func TestConsentOverridesAreValidatedPersistedAndPushed(t *testing.T) {
 	// The Config the agent receives carries them, and a change of them is a different Config.
 	ag, _ := a.st.GetAgent(a.ctx, id)
 	v := liveView(*a.now, "n1")
-	a.hub().mu.Lock()
-	a.hub().views[id] = v
-	a.hub().mu.Unlock()
-	cfg := a.hub().configFor(ag, v)
+	a.hub().Mu.Lock()
+	a.hub().Views[id] = v
+	a.hub().Mu.Unlock()
+	cfg := a.hub().ConfigFor(ag, v)
 	if strings.Join(cfg.PausedCollectors, ",") != "flow,probes" || strings.Join(cfg.ExcludedNamespaces, ",") != "batch,shop" {
 		t.Fatalf("config = %v", cfg)
 	}
 	h1 := v.CfgHash
-	a.hub().configFor(ag, v)
+	a.hub().ConfigFor(ag, v)
 	if v.CfgHash != h1 {
 		t.Fatal("the same overrides gave a different config hash")
 	}
 	if _, err := a.hub().SetConsent(asRole(accounts.RoleAdmin), "edith", id, agents.Consent{Paused: []string{"flow"}}); err != nil {
 		t.Fatal(err)
 	}
-	a.hub().configFor(ag, v)
+	a.hub().ConfigFor(ag, v)
 	if v.CfgHash == h1 {
 		t.Fatal("changed overrides did not change the config hash")
 	}
 	if _, err := a.hub().SetConsent(asRole(accounts.RoleAdmin), "edith", id, agents.Consent{Paused: []string{"measure"}}); err != nil {
 		t.Fatal(err)
 	}
-	if cfg := a.hub().configFor(ag, v); len(cfg.ProbeTargets) != 0 || cfg.MeasureSeconds != 0 {
+	if cfg := a.hub().ConfigFor(ag, v); len(cfg.ProbeTargets) != 0 || cfg.MeasureSeconds != 0 {
 		t.Fatalf("a paused measure collector must be issued no targets: %+v", cfg)
 	}
 
@@ -389,7 +389,7 @@ func TestHelloAdvertisesTheCeilingAndDiagnosticsFollowHeartbeats(t *testing.T) {
 }
 
 func TestAnOversizedDiagnosticsAccountIsIgnoredNotRefused(t *testing.T) {
-	v := newView()
+	v := NewView()
 	v.NoteDiagnostics(&continuumv1.Diagnostics{AgentVersion: "1"}, false, time.Now())
 	huge := &continuumv1.Diagnostics{AgentVersion: "2"}
 	for i := 0; i < 5000; i++ {
@@ -411,7 +411,7 @@ func TestAnOversizedDiagnosticsAccountIsIgnoredNotRefused(t *testing.T) {
 }
 
 func TestInstalledTelemetrySignalsRoundTripAndTruncate(t *testing.T) {
-	v := newView()
+	v := NewView()
 	v.NoteDiagnostics(&continuumv1.Diagnostics{AgentVersion: "1", InstalledTelemetrySignals: []string{"traces", "energy"}}, false, time.Now())
 	doc := v.diagDoc()
 	if got := strings.Join(doc.InstalledTelemetry, ","); got != "traces,energy" {
@@ -419,7 +419,7 @@ func TestInstalledTelemetrySignalsRoundTripAndTruncate(t *testing.T) {
 	}
 
 	// A longer-than-bound list is truncated, not refused outright - same treatment as PausedCollectors/Problems.
-	v2 := newView()
+	v2 := NewView()
 	long := &continuumv1.Diagnostics{AgentVersion: "1"}
 	for i := 0; i < agents.MaxDiagTelemetrySignals+5; i++ {
 		long.InstalledTelemetrySignals = append(long.InstalledTelemetrySignals, fmt.Sprintf("signal%d", i))
@@ -431,7 +431,7 @@ func TestInstalledTelemetrySignalsRoundTripAndTruncate(t *testing.T) {
 }
 
 func TestInstalledTelemetryConfigRoundTrips(t *testing.T) {
-	v := newView()
+	v := NewView()
 	tracesPct := uint32(20)
 	energySource := "bundle-kepler"
 	v.NoteDiagnostics(&continuumv1.Diagnostics{
@@ -467,7 +467,7 @@ func TestInstalledTelemetryConfigRoundTrips(t *testing.T) {
 	}
 
 	// No telemetry config reported at all: the doc field stays nil, not present-with-zero-values.
-	v2 := newView()
+	v2 := NewView()
 	v2.NoteDiagnostics(&continuumv1.Diagnostics{AgentVersion: "1"}, false, time.Now())
 	if doc2 := v2.diagDoc(); doc2.InstalledTelemetryConfig != nil {
 		t.Fatalf("InstalledTelemetryConfig = %v, want nil when the agent reported none", doc2.InstalledTelemetryConfig)
@@ -476,7 +476,7 @@ func TestInstalledTelemetryConfigRoundTrips(t *testing.T) {
 
 func TestExportHealthRelaysTheAgentsStatesAndBoundsThem(t *testing.T) {
 	at := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
-	v := newView()
+	v := NewView()
 	h := &continuumv1.ExportHealth{
 		ScrapedAt: timestamppb.New(at), PodsReached: 3, PodsFailed: 1, LastError: "read 10.0.0.2:8888: connection reset",
 		Routes: []*continuumv1.ExportRouteHealth{
@@ -499,7 +499,7 @@ func TestExportHealthRelaysTheAgentsStatesAndBoundsThem(t *testing.T) {
 	}
 
 	// Nothing reported (health off, or an older agent): no field at all, not an empty one.
-	v2 := newView()
+	v2 := NewView()
 	v2.NoteDiagnostics(&continuumv1.Diagnostics{AgentVersion: "1"}, false, at)
 	if v2.diagDoc().ExportHealth != nil {
 		t.Error("ExportHealth must be nil when the agent reported none")
@@ -510,7 +510,7 @@ func TestExportHealthRelaysTheAgentsStatesAndBoundsThem(t *testing.T) {
 	for i := 0; i < agents.MaxDiagExportRoutes+10; i++ {
 		many.Routes = append(many.Routes, &continuumv1.ExportRouteHealth{Exporter: "e", Signal: "logs"})
 	}
-	v3 := newView()
+	v3 := NewView()
 	v3.NoteDiagnostics(&continuumv1.Diagnostics{AgentVersion: "1", ExportHealth: many}, false, at)
 	if n := len(v3.diagDoc().ExportHealth.Routes); n != agents.MaxDiagExportRoutes {
 		t.Errorf("%d routes kept, want %d", n, agents.MaxDiagExportRoutes)
@@ -547,9 +547,9 @@ func pieces(seq uint64, cluster *continuumv1.ClusterFacts, nodes []*continuumv1.
 }
 
 func held(r *hubRig, id string) (nodes, workloads int, seq uint64) {
-	r.hub.mu.Lock()
-	defer r.hub.mu.Unlock()
-	st := r.hub.views[id].state
+	r.hub.Mu.Lock()
+	defer r.hub.Mu.Unlock()
+	st := r.hub.Views[id].State
 	return len(st.Nodes), len(st.Workloads), st.Seq
 }
 
@@ -625,9 +625,9 @@ func TestAConnectionDroppedMidPictureLeavesThePreviousStateAlone(t *testing.T) {
 	ccancel()
 	end := time.Now().Add(5 * time.Second)
 	for time.Now().Before(end) {
-		r.hub.mu.Lock()
-		on := r.hub.views[id].connected
-		r.hub.mu.Unlock()
+		r.hub.Mu.Lock()
+		on := r.hub.Views[id].Connected
+		r.hub.Mu.Unlock()
 		if !on {
 			break
 		}
@@ -991,10 +991,10 @@ func TestRevokedAgentCarriesTeardownCommandsOnlyForEditorsAndAbove(t *testing.T)
 	}
 }
 
-// ---- the server-side backstop for paused collectors and excluded namespaces (dropConsentOverrides, noteFlows, noteMeasurements) ----
+// ---- the server-side backstop for paused collectors and excluded namespaces (dropConsentOverrides, noteFlows, NoteMeasurements) ----
 
 // TestDropConsentOverridesStripsPausedProbeFields checks the server's own defense in depth for a paused "probes"
-// collector: even if an agent kept sending machine-identity fields, applySync must not let them through.
+// collector: even if an agent kept sending machine-identity fields, ApplySync must not let them through.
 func TestDropConsentOverridesStripsPausedProbeFields(t *testing.T) {
 	r := newHubRig(t)
 	id, _, _ := r.approvedAgent(t, fp) // approved at tier 2
@@ -1002,15 +1002,15 @@ func TestDropConsentOverridesStripsPausedProbeFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	a, _ := r.st.GetAgent(r.ctx, id)
-	r.hub.mu.Lock()
-	r.hub.views[id] = newView()
-	r.hub.mu.Unlock()
+	r.hub.Mu.Lock()
+	r.hub.Views[id] = NewView()
+	r.hub.Mu.Unlock()
 	n := &continuumv1.NodeFacts{Key: "n", Name: "n", MachineId: "m", SystemUuid: "u", ProviderId: "p",
 		OsImage: "o", KernelVersion: "k", ContainerRuntime: "c", KubeletVersion: "kv", Architecture: "amd64"}
-	if _, _, err := r.hub.applySync(a, &continuumv1.Sync{Full: true, Cluster: &continuumv1.ClusterFacts{Uid: fp}, Nodes: []*continuumv1.NodeFacts{n}}, false); err != nil {
+	if _, _, err := r.hub.ApplySync(a, &continuumv1.Sync{Full: true, Cluster: &continuumv1.ClusterFacts{Uid: fp}, Nodes: []*continuumv1.NodeFacts{n}}, false); err != nil {
 		t.Fatal(err)
 	}
-	got := r.hub.views[id].state.Nodes["n"]
+	got := r.hub.Views[id].State.Nodes["n"]
 	if got == nil {
 		t.Fatal("node was dropped entirely, not just its probe fields")
 	}
@@ -1024,10 +1024,10 @@ func TestDropConsentOverridesStripsPausedProbeFields(t *testing.T) {
 	}
 	n2 := &continuumv1.NodeFacts{Key: "n", Name: "n", MachineId: "m", SystemUuid: "u", ProviderId: "p",
 		OsImage: "o", KernelVersion: "k", ContainerRuntime: "c", KubeletVersion: "kv", Architecture: "amd64"}
-	if _, _, err := r.hub.applySync(a, &continuumv1.Sync{Cluster: &continuumv1.ClusterFacts{Uid: fp}, Nodes: []*continuumv1.NodeFacts{n2}}, true); err != nil {
+	if _, _, err := r.hub.ApplySync(a, &continuumv1.Sync{Cluster: &continuumv1.ClusterFacts{Uid: fp}, Nodes: []*continuumv1.NodeFacts{n2}}, true); err != nil {
 		t.Fatal(err)
 	}
-	if got := r.hub.views[id].state.Nodes["n"]; got.MachineId != "m" || got.Architecture != "amd64" {
+	if got := r.hub.Views[id].State.Nodes["n"]; got.MachineId != "m" || got.Architecture != "amd64" {
 		t.Fatalf("un-pausing did not restore the fields: %+v", got)
 	}
 }
@@ -1042,16 +1042,16 @@ func TestDropConsentOverridesFiltersExcludedNamespaces(t *testing.T) {
 		t.Fatal(err)
 	}
 	a, _ := r.st.GetAgent(r.ctx, id)
-	r.hub.mu.Lock()
-	r.hub.views[id] = newView()
-	r.hub.mu.Unlock()
+	r.hub.Mu.Lock()
+	r.hub.Views[id] = NewView()
+	r.hub.Mu.Unlock()
 	sy := &continuumv1.Sync{Full: true, Cluster: &continuumv1.ClusterFacts{Uid: fp},
 		Namespaces: []*continuumv1.NamespaceFacts{{Key: "ns/shop", Name: "shop"}, {Key: "ns/batch", Name: "batch"}},
 		Workloads:  []*continuumv1.WorkloadFacts{{Key: "shop/Deployment/web", Namespace: "shop"}, {Key: "batch/Job/x", Namespace: "batch"}}}
-	if _, _, err := r.hub.applySync(a, sy, false); err != nil {
+	if _, _, err := r.hub.ApplySync(a, sy, false); err != nil {
 		t.Fatal(err)
 	}
-	st := r.hub.views[id].state
+	st := r.hub.Views[id].State
 	if _, ok := st.Namespaces["ns/batch"]; ok {
 		t.Fatal("an excluded namespace was kept")
 	}
@@ -1073,9 +1073,9 @@ func TestDropConsentOverridesFiltersExcludedNamespaces(t *testing.T) {
 func TestNoteFlowsRespectsTierAndPauseConsent(t *testing.T) {
 	r := newHubRig(t)
 	id, _, _ := r.approvedAgent(t, fp)
-	r.hub.mu.Lock()
-	r.hub.views[id] = newView()
-	r.hub.mu.Unlock()
+	r.hub.Mu.Lock()
+	r.hub.Views[id] = NewView()
+	r.hub.Mu.Unlock()
 	fb := &continuumv1.FlowBatch{WindowSeconds: 60}
 
 	if applied, err := r.hub.noteFlows(id, 1, fb, time.Now()); applied || err != nil {
@@ -1084,9 +1084,9 @@ func TestNoteFlowsRespectsTierAndPauseConsent(t *testing.T) {
 	if applied, err := r.hub.noteFlows(id, 2, fb, time.Now()); !applied || err != nil {
 		t.Fatalf("tier 2 with no pause should apply: applied=%v err=%v", applied, err)
 	}
-	r.hub.mu.Lock()
-	dirty := r.hub.views[id].flowsDirty
-	r.hub.mu.Unlock()
+	r.hub.Mu.Lock()
+	dirty := r.hub.Views[id].flowsDirty
+	r.hub.Mu.Unlock()
 	if !dirty {
 		t.Fatal("an applied batch did not mark flows dirty")
 	}
@@ -1094,15 +1094,15 @@ func TestNoteFlowsRespectsTierAndPauseConsent(t *testing.T) {
 	if _, err := r.hub.SetConsent(r.ctx, "actor", id, agents.Consent{Paused: []string{"flow"}}); err != nil {
 		t.Fatal(err)
 	}
-	r.hub.mu.Lock()
-	r.hub.views[id].flowsDirty = false
-	r.hub.mu.Unlock()
+	r.hub.Mu.Lock()
+	r.hub.Views[id].flowsDirty = false
+	r.hub.Mu.Unlock()
 	if applied, err := r.hub.noteFlows(id, 2, fb, time.Now()); applied || err != nil {
 		t.Fatalf("a paused flow collector should be quietly ignored: applied=%v err=%v", applied, err)
 	}
-	r.hub.mu.Lock()
-	dirty = r.hub.views[id].flowsDirty
-	r.hub.mu.Unlock()
+	r.hub.Mu.Lock()
+	dirty = r.hub.Views[id].flowsDirty
+	r.hub.Mu.Unlock()
 	if dirty {
 		t.Fatal("a paused batch was applied anyway")
 	}
@@ -1123,18 +1123,18 @@ func TestNoteFlowsRespectsTierAndPauseConsent(t *testing.T) {
 func TestNoteFlowsReplacesPodFlowsWholesale(t *testing.T) {
 	r := newHubRig(t)
 	id, _, _ := r.approvedAgent(t, fp)
-	r.hub.mu.Lock()
-	r.hub.views[id] = newView()
-	r.hub.mu.Unlock()
+	r.hub.Mu.Lock()
+	r.hub.Views[id] = NewView()
+	r.hub.Mu.Unlock()
 
 	first := flowOf(wep("a/Deployment/x"), xep("1.2.3.4"), 443, 1)
 	first.SrcPod = "x-abc-1"
 	if applied, err := r.hub.noteFlows(id, 2, &continuumv1.FlowBatch{WindowSeconds: 60, PodFlows: []*continuumv1.Flow{first}}, time.Now()); !applied || err != nil {
 		t.Fatalf("applied=%v err=%v", applied, err)
 	}
-	r.hub.mu.Lock()
-	got := r.hub.views[id].podFlows
-	r.hub.mu.Unlock()
+	r.hub.Mu.Lock()
+	got := r.hub.Views[id].podFlows
+	r.hub.Mu.Unlock()
 	if len(got) != 1 || got[0].SrcPod != "x-abc-1" {
 		t.Fatalf("podFlows after the first batch = %v", got)
 	}
@@ -1144,9 +1144,9 @@ func TestNoteFlowsReplacesPodFlowsWholesale(t *testing.T) {
 	if applied, err := r.hub.noteFlows(id, 2, &continuumv1.FlowBatch{WindowSeconds: 60, PodFlows: []*continuumv1.Flow{second}}, time.Now()); !applied || err != nil {
 		t.Fatalf("applied=%v err=%v", applied, err)
 	}
-	r.hub.mu.Lock()
-	got = r.hub.views[id].podFlows
-	r.hub.mu.Unlock()
+	r.hub.Mu.Lock()
+	got = r.hub.Views[id].podFlows
+	r.hub.Mu.Unlock()
 	if len(got) != 1 || got[0].SrcPod != "x-abc-2" {
 		t.Fatalf("a second batch must replace the first pod pair, not add to it: %v", got)
 	}
@@ -1154,9 +1154,9 @@ func TestNoteFlowsReplacesPodFlowsWholesale(t *testing.T) {
 	if applied, err := r.hub.noteFlows(id, 2, &continuumv1.FlowBatch{WindowSeconds: 60}, time.Now()); !applied || err != nil {
 		t.Fatalf("applied=%v err=%v", applied, err)
 	}
-	r.hub.mu.Lock()
-	got = r.hub.views[id].podFlows
-	r.hub.mu.Unlock()
+	r.hub.Mu.Lock()
+	got = r.hub.Views[id].podFlows
+	r.hub.Mu.Unlock()
 	if len(got) != 0 {
 		t.Fatalf("a batch reporting no pod flows at all must clear what was held, not leave x-abc-2 behind: %v", got)
 	}
@@ -1169,9 +1169,9 @@ func TestNoteFlowsReplacesPodFlowsWholesale(t *testing.T) {
 func TestNoteFlowsReplacesLinkSaturationWholesale(t *testing.T) {
 	r := newHubRig(t)
 	id, _, _ := r.approvedAgent(t, fp)
-	r.hub.mu.Lock()
-	r.hub.views[id] = newView()
-	r.hub.mu.Unlock()
+	r.hub.Mu.Lock()
+	r.hub.Views[id] = NewView()
+	r.hub.Mu.Unlock()
 
 	pct := 55.0
 	first := &continuumv1.FlowBatch{WindowSeconds: 60, Collectors: []*continuumv1.CollectorInfo{
@@ -1180,9 +1180,9 @@ func TestNoteFlowsReplacesLinkSaturationWholesale(t *testing.T) {
 	if applied, err := r.hub.noteFlows(id, 2, first, time.Now()); !applied || err != nil {
 		t.Fatalf("applied=%v err=%v", applied, err)
 	}
-	r.hub.mu.Lock()
-	got := r.hub.views[id].linkSat
-	r.hub.mu.Unlock()
+	r.hub.Mu.Lock()
+	got := r.hub.Views[id].linkSat
+	r.hub.Mu.Unlock()
 	if len(got["n1"]) != 1 || got["n1"][0].Iface != "eth0" {
 		t.Fatalf("linkSat after the first batch = %v", got)
 	}
@@ -1191,27 +1191,27 @@ func TestNoteFlowsReplacesLinkSaturationWholesale(t *testing.T) {
 	if applied, err := r.hub.noteFlows(id, 2, second, time.Now()); !applied || err != nil {
 		t.Fatalf("applied=%v err=%v", applied, err)
 	}
-	r.hub.mu.Lock()
-	got = r.hub.views[id].linkSat
-	r.hub.mu.Unlock()
+	r.hub.Mu.Lock()
+	got = r.hub.Views[id].linkSat
+	r.hub.Mu.Unlock()
 	if len(got["n1"]) != 0 {
 		t.Fatalf("a batch with no link saturation for n1 must clear what was held, not leave eth0's old reading behind: %v", got)
 	}
 }
 
 // TestNoteMeasurementsRespectsPauseConsent covers the same backstop for the "measure" collector, using
-// noteMeasurements directly the way the existing tier tests use applySync directly.
+// NoteMeasurements directly the way the existing tier tests use ApplySync directly.
 func TestNoteMeasurementsRespectsPauseConsent(t *testing.T) {
 	r := newHubRig(t)
 	id, _, _ := r.approvedAgent(t, fp)
-	r.hub.mu.Lock()
-	v := newView()
+	r.hub.Mu.Lock()
+	v := NewView()
 	v.Targets["t1"] = connectivity.IssuedTarget{ID: "t1", Host: "h", Port: 80, Label: "l", Source: "observed"}
-	r.hub.views[id] = v
-	r.hub.mu.Unlock()
+	r.hub.Views[id] = v
+	r.hub.Mu.Unlock()
 
 	m := &continuumv1.Measurements{Results: []*continuumv1.PathResult{{TargetId: "t1", Samples: 5, RttMinMs: 1, RttP50Ms: 2, RttP95Ms: 3}}}
-	r.hub.noteMeasurements(id, m)
+	r.hub.NoteMeasurements(id, m)
 	if len(v.Paths["t1"].Rounds) != 1 {
 		t.Fatalf("a measurement with no pause in force should be recorded: %+v", v.Paths["t1"])
 	}
@@ -1219,7 +1219,7 @@ func TestNoteMeasurementsRespectsPauseConsent(t *testing.T) {
 	if _, err := r.hub.SetConsent(r.ctx, "actor", id, agents.Consent{Paused: []string{"measure"}}); err != nil {
 		t.Fatal(err)
 	}
-	r.hub.noteMeasurements(id, m)
+	r.hub.NoteMeasurements(id, m)
 	if len(v.Paths["t1"].Rounds) != 1 {
 		t.Fatalf("a paused measure collector must not record anything new: %+v", v.Paths["t1"])
 	}
@@ -1237,11 +1237,11 @@ func TestConsentDocSaysWhetherTheAgentHasConfirmedANarrowing(t *testing.T) {
 	id, _, _ := r.approvedAgent(t, fp)
 
 	// Nothing narrowed yet: trivially confirmed, nothing to time.
-	doc := r.hub.consentOf(id)
+	doc := r.hub.ConsentOf(id)
 	_ = doc
-	r.hub.mu.Lock()
-	v := r.hub.viewFor(id)
-	r.hub.mu.Unlock()
+	r.hub.Mu.Lock()
+	v := r.hub.ViewFor(id)
+	r.hub.Mu.Unlock()
 	if cd := v.consentDoc(); !cd.Confirmed || cd.SetAt != "" {
 		t.Fatalf("nothing narrowed should read as confirmed with no SetAt: %+v", cd)
 	}
@@ -1256,17 +1256,17 @@ func TestConsentDocSaysWhetherTheAgentHasConfirmedANarrowing(t *testing.T) {
 
 	// The agent reports back something that does not yet match (an older report, or a different pause):
 	// still unconfirmed.
-	r.hub.mu.Lock()
+	r.hub.Mu.Lock()
 	v.NoteDiagnostics(&continuumv1.Diagnostics{AgentVersion: "1", PausedCollectors: []string{}}, false, *r.now)
-	r.hub.mu.Unlock()
+	r.hub.Mu.Unlock()
 	if cd := v.consentDoc(); cd.Confirmed || cd.SetAt == "" {
 		t.Fatalf("a report that does not yet show the pause should stay unconfirmed: %+v", cd)
 	}
 
 	// The agent catches up: confirmed, and SetAt drops off since there is nothing stale to show any more.
-	r.hub.mu.Lock()
+	r.hub.Mu.Lock()
 	v.NoteDiagnostics(&continuumv1.Diagnostics{AgentVersion: "1", PausedCollectors: []string{"flow"}}, false, *r.now)
-	r.hub.mu.Unlock()
+	r.hub.Mu.Unlock()
 	if cd := v.consentDoc(); !cd.Confirmed || cd.SetAt != "" {
 		t.Fatalf("a report matching the ask should be confirmed with no SetAt: %+v", cd)
 	}
@@ -1289,9 +1289,9 @@ func TestConsentDocSaysWhetherTheAgentHasConfirmedANarrowing(t *testing.T) {
 	// ExcludedNamespaces's own doc comment): a report with the right paused collector and the right count
 	// of excluded namespaces reads as confirmed even though this test cannot tell the diagnostic "batch" is
 	// the same namespace, which is the documented, accepted limitation.
-	r.hub.mu.Lock()
+	r.hub.Mu.Lock()
 	v.NoteDiagnostics(&continuumv1.Diagnostics{AgentVersion: "1", PausedCollectors: []string{"flow"}, ExcludedNamespaces: 1}, false, *r.now)
-	r.hub.mu.Unlock()
+	r.hub.Mu.Unlock()
 	if cd := v.consentDoc(); !cd.Confirmed {
 		t.Fatalf("matching pause and matching excluded count should confirm: %+v", cd)
 	}
@@ -1311,9 +1311,9 @@ func TestConsentDocWarnsAboutExcludedNamespacesTheAgentHasNeverReported(t *testi
 	if _, err := r.hub.SetConsent(r.ctx, "actor", id, agents.Consent{Excluded: []string{"batch"}}); err != nil {
 		t.Fatal(err)
 	}
-	r.hub.mu.Lock()
-	v := r.hub.viewFor(id)
-	r.hub.mu.Unlock()
+	r.hub.Mu.Lock()
+	v := r.hub.ViewFor(id)
+	r.hub.Mu.Unlock()
 	if cd := v.consentDoc(); len(cd.UnknownNamespaces) != 0 {
 		t.Fatalf("no sync yet: nothing should be flagged: %+v", cd)
 	}
@@ -1322,7 +1322,7 @@ func TestConsentDocWarnsAboutExcludedNamespacesTheAgentHasNeverReported(t *testi
 	// never actually seen it - a likely typo, or one that has not rolled out yet either way.
 	sy := &continuumv1.Sync{Full: true, Cluster: &continuumv1.ClusterFacts{Uid: fp},
 		Namespaces: []*continuumv1.NamespaceFacts{{Key: "ns/shop", Name: "shop"}}}
-	if _, _, err := r.hub.applySync(a, sy, false); err != nil {
+	if _, _, err := r.hub.ApplySync(a, sy, false); err != nil {
 		t.Fatal(err)
 	}
 	if cd := v.consentDoc(); len(cd.UnknownNamespaces) != 1 || cd.UnknownNamespaces[0] != "batch" {
@@ -1342,7 +1342,7 @@ func TestConsentDocWarnsAboutExcludedNamespacesTheAgentHasNeverReported(t *testi
 	// though it is excluded and dropConsentOverrides strips it back out before it is ever stored, the name
 	// itself was seen before that filter ran, so the warning about it clears on the very next read.
 	sy2 := &continuumv1.Sync{Namespaces: []*continuumv1.NamespaceFacts{{Key: "ns/batch", Name: "batch"}}}
-	if _, _, err := r.hub.applySync(a, sy2, false); err != nil {
+	if _, _, err := r.hub.ApplySync(a, sy2, false); err != nil {
 		t.Fatal(err)
 	}
 	if cd := v.consentDoc(); len(cd.UnknownNamespaces) != 0 {
@@ -1350,13 +1350,13 @@ func TestConsentDocWarnsAboutExcludedNamespacesTheAgentHasNeverReported(t *testi
 	}
 	// And dropConsentOverrides' own job is untouched by any of this: batch is still excluded from what is
 	// actually stored, only the metadata used to validate the exclusion's spelling learned about it.
-	if _, ok := r.hub.views[id].state.Namespaces["ns/batch"]; ok {
+	if _, ok := r.hub.Views[id].State.Namespaces["ns/batch"]; ok {
 		t.Fatal("batch is still excluded and should still be stripped from stored state")
 	}
 }
 
 // TestKnownNamespacesOnlyLearnsFromASyncTheServerActuallyAccepted guards against a rejected sync teaching
-// agents.ViewExt.knownNamespaces about namespaces that were never actually accepted: applySync's own doc comment
+// agents.ViewExt.knownNamespaces about namespaces that were never actually accepted: ApplySync's own doc comment
 // says a sync Check refuses "changes nothing", and that has to hold for what an excluded name is later
 // checked against too, not just for the stored state itself.
 func TestKnownNamespacesOnlyLearnsFromASyncTheServerActuallyAccepted(t *testing.T) {
@@ -1368,12 +1368,12 @@ func TestKnownNamespacesOnlyLearnsFromASyncTheServerActuallyAccepted(t *testing.
 	// Two namespaces against a limit of one: refused outright, nothing merged.
 	sy := &continuumv1.Sync{Full: true, Cluster: &continuumv1.ClusterFacts{Uid: fp},
 		Namespaces: []*continuumv1.NamespaceFacts{{Key: "ns/shop", Name: "shop"}, {Key: "ns/batch", Name: "batch"}}}
-	if _, _, err := r.hub.applySync(a, sy, false); err == nil {
+	if _, _, err := r.hub.ApplySync(a, sy, false); err == nil {
 		t.Fatal("a sync over the namespace limit should have been refused")
 	}
-	r.hub.mu.Lock()
-	known := r.hub.viewFor(id).Ext.KnownNamespaces
-	r.hub.mu.Unlock()
+	r.hub.Mu.Lock()
+	known := r.hub.ViewFor(id).Ext.KnownNamespaces
+	r.hub.Mu.Unlock()
 	if known["batch"] || known["shop"] {
 		t.Fatalf("a rejected sync should not have taught knownNamespaces anything: %v", known)
 	}

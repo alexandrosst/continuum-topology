@@ -29,19 +29,19 @@ func driftRig(t *testing.T) (a *adminRig, cookie, opID, agentID string, push cha
 	}
 	push = make(chan *continuumv1.ServerMessage, 16)
 	v := liveView(*a.now, "n1")
-	v.connected = true
-	a.hub().mu.Lock()
-	a.hub().views[agentID] = v
-	a.hub().sessions[agentID] = &session{push: push, cancel: func(endReason) {}}
-	a.hub().mu.Unlock()
+	v.Connected = true
+	a.hub().Mu.Lock()
+	a.hub().Views[agentID] = v
+	a.hub().Sessions[agentID] = &Session{Push: push, Cancel: func(EndReason) {}}
+	a.hub().Mu.Unlock()
 	return a, cookie, opID, agentID, push
 }
 
 func quietTests(a *adminRig, agentID string) map[string]string {
-	a.hub().mu.Lock()
-	defer a.hub().mu.Unlock()
+	a.hub().Mu.Lock()
+	defer a.hub().Mu.Unlock()
 	out := map[string]string{}
-	for id, t := range a.hub().views[agentID].AddrTests {
+	for id, t := range a.hub().Views[agentID].AddrTests {
 		if t.Quiet {
 			out[t.Address] = id
 		}
@@ -53,7 +53,7 @@ func TestTheServerRetestsASendersAddressOnItsOwnAndKeepsTheResult(t *testing.T) 
 	a, cookie, opID, agentID, push := driftRig(t)
 	h := a.hub()
 
-	h.driftSweep(a.ctx)
+	h.DriftSweep(a.ctx)
 	q := quietTests(a, agentID)
 	// The chosen address for metrics and the recorded one for the other signals are both dialled by this sender.
 	if q["10.20.0.14:31317"] == "" {
@@ -79,13 +79,13 @@ func TestTheServerRetestsASendersAddressOnItsOwnAndKeepsTheResult(t *testing.T) 
 	}
 
 	// Another sweep right away does not start it again.
-	h.driftSweep(a.ctx)
+	h.DriftSweep(a.ctx)
 	if again := quietTests(a, agentID); again["10.20.0.14:31317"] != q["10.20.0.14:31317"] {
 		t.Fatalf("tested again at once: %v then %v", q, again)
 	}
 
 	// The agent reports that nothing answered: the result is kept and the senders list says so.
-	h.noteMeasurements(agentID, &continuumv1.Measurements{Results: []*continuumv1.PathResult{{TargetId: q["10.20.0.14:31317"], Samples: 5, Failed: 5}}})
+	h.NoteMeasurements(agentID, &continuumv1.Measurements{Results: []*continuumv1.PathResult{{TargetId: q["10.20.0.14:31317"], Samples: 5, Failed: 5}}})
 	if r := h.ReachOf(agentID, "10.20.0.14:31317", a.h2now(t)); r == nil || r.State != "unreachable" {
 		t.Fatalf("reach: %+v", r)
 	}
@@ -106,7 +106,7 @@ func TestTheServerRetestsASendersAddressOnItsOwnAndKeepsTheResult(t *testing.T) 
 
 	// Once the result is old enough it is tested again, and an old one is no longer shown.
 	*a.now = a.now.Add(connectivity.DriftEvery + time.Minute)
-	h.driftSweep(a.ctx)
+	h.DriftSweep(a.ctx)
 	if q2 := quietTests(a, agentID); q2["10.20.0.14:31317"] == "" || q2["10.20.0.14:31317"] == q["10.20.0.14:31317"] {
 		t.Fatalf("an old result was not refreshed: %v", q2)
 	}
@@ -121,7 +121,7 @@ func (a *adminRig) h2now(t *testing.T) time.Time { return *a.now }
 func TestDriftTestsGiveWayToAPersonsAndSkipWhatCannotBeTested(t *testing.T) {
 	a, cookie, _, agentID, _ := driftRig(t)
 	h := a.hub()
-	h.driftSweep(a.ctx)
+	h.DriftSweep(a.ctx)
 	if len(quietTests(a, agentID)) == 0 {
 		t.Fatal("no background test to give way")
 	}
@@ -135,11 +135,11 @@ func TestDriftTestsGiveWayToAPersonsAndSkipWhatCannotBeTested(t *testing.T) {
 	}
 
 	// A cluster that is not connected is not tested, and nothing is said about it.
-	a.hub().mu.Lock()
-	delete(a.hub().sessions, agentID)
-	a.hub().views[agentID].AddrTests = nil
-	a.hub().mu.Unlock()
-	h.driftSweep(a.ctx)
+	a.hub().Mu.Lock()
+	delete(a.hub().Sessions, agentID)
+	a.hub().Views[agentID].AddrTests = nil
+	a.hub().Mu.Unlock()
+	h.DriftSweep(a.ctx)
 	if q := quietTests(a, agentID); len(q) != 0 {
 		t.Fatalf("a disconnected cluster was asked to test: %v", q)
 	}
@@ -175,9 +175,9 @@ func TestDiagnosisUsesAnAddressTestFromTheSendersOwnCluster(t *testing.T) {
 func TestADriftSweepSkipsASenderTheHubHoldsNoViewOf(t *testing.T) {
 	a, _, _, agentID, _ := driftRig(t)
 	h := a.hub()
-	h.mu.Lock()
-	delete(h.views, agentID)
-	delete(h.sessions, agentID)
-	h.mu.Unlock()
-	h.driftSweep(a.ctx) // must not panic
+	h.Mu.Lock()
+	delete(h.Views, agentID)
+	delete(h.Sessions, agentID)
+	h.Mu.Unlock()
+	h.DriftSweep(a.ctx) // must not panic
 }

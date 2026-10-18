@@ -10,9 +10,9 @@ type hubLoad struct{ h *Hub }
 
 func (l hubLoad) AgentLoad(agentID string) decisionloop.AgentLoad {
 	h := l.h
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	v := h.views[agentID]
+	h.Mu.Lock()
+	defer h.Mu.Unlock()
+	v := h.Views[agentID]
 	if v == nil {
 		return decisionloop.AgentLoad{}
 	}

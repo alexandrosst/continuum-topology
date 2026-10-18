@@ -44,7 +44,7 @@ func nodeState(internal string, external ...string) *facts.State {
 	return &facts.State{Nodes: map[string]*continuumv1.NodeFacts{"n1": n}}
 }
 
-func linkHub(views map[string]*view) *Hub { return &Hub{views: views} }
+func linkHub(views map[string]*View) *Hub { return &Hub{Views: views} }
 
 func ag(id, cluster, name, ip string, tier int) store.Agent {
 	return store.Agent{ID: id, ClusterID: cluster, Name: name, Status: store.StatusApproved, AccessTier: tier, ConnectingIP: ip}
@@ -52,10 +52,10 @@ func ag(id, cluster, name, ip string, tier int) store.Agent {
 
 func TestEachClusterIsToldOnlyAboutItsPairedPeers(t *testing.T) {
 	a, b, c := ag("ag-a", "cl-a", "alpha", "203.0.113.1", 2), ag("ag-b", "cl-b", "beta", "203.0.113.2", 2), ag("ag-c", "cl-c", "gamma", "203.0.113.3", 2)
-	h := linkHub(map[string]*view{
-		"ag-a": {estView: estView{state: nodeState("10.0.0.1", "198.51.100.1")}},
-		"ag-b": {estView: estView{state: nodeState("10.1.0.1", "198.51.100.2")}},
-		"ag-c": {estView: estView{state: nodeState("10.2.0.1")}},
+	h := linkHub(map[string]*View{
+		"ag-a": {EstView: EstView{State: nodeState("10.0.0.1", "198.51.100.1")}},
+		"ag-b": {EstView: EstView{State: nodeState("10.1.0.1", "198.51.100.2")}},
+		"ag-c": {EstView: EstView{State: nodeState("10.2.0.1")}},
 	})
 	links := []kernel.LinkSetting{{A: "cl-a", B: "cl-b"}}
 	all := []store.Agent{a, b, c}
@@ -79,7 +79,7 @@ func TestEachClusterIsToldOnlyAboutItsPairedPeers(t *testing.T) {
 
 func TestNoPeersBelowTierTwoWhileFlowIsPausedOrForUnknownClusters(t *testing.T) {
 	a, b := ag("ag-a", "cl-a", "alpha", "203.0.113.1", 2), ag("ag-b", "cl-b", "beta", "203.0.113.2", 2)
-	h := linkHub(map[string]*view{"ag-a": {estView: estView{state: nodeState("10.0.0.1")}}, "ag-b": {estView: estView{state: nodeState("10.1.0.1")}}})
+	h := linkHub(map[string]*View{"ag-a": {EstView: EstView{State: nodeState("10.0.0.1")}}, "ag-b": {EstView: EstView{State: nodeState("10.1.0.1")}}})
 	links := []kernel.LinkSetting{{A: "cl-a", B: "cl-b"}, {A: "cl-a", B: "cl-zzz"}}
 	if got := h.linkPeers(a, []store.Agent{a, b}, links, false, nil); len(got) != 1 {
 		t.Fatalf("an unknown cluster should be skipped, got %v", got)
@@ -98,7 +98,7 @@ func TestNoPeersBelowTierTwoWhileFlowIsPausedOrForUnknownClusters(t *testing.T) 
 		t.Fatalf("an unapproved peer was shared: %v", got)
 	}
 	noAddr := ag("ag-b", "cl-b", "beta", "", 2)
-	h2 := linkHub(map[string]*view{"ag-a": {estView: estView{state: nodeState("10.0.0.1")}}})
+	h2 := linkHub(map[string]*View{"ag-a": {EstView: EstView{State: nodeState("10.0.0.1")}}})
 	if got := h2.linkPeers(a, []store.Agent{a, noAddr}, links, false, nil); len(got) != 0 {
 		t.Fatalf("a peer with no known address was shared: %v", got)
 	}
@@ -107,9 +107,9 @@ func TestNoPeersBelowTierTwoWhileFlowIsPausedOrForUnknownClusters(t *testing.T) 
 func TestAddressesTheTwoClustersShareAreNotSent(t *testing.T) {
 	a, b := ag("ag-a", "cl-a", "alpha", "203.0.113.1", 2), ag("ag-b", "cl-b", "beta", "203.0.113.2", 2)
 	// both clusters use 10.0.0.1 for a node
-	h := linkHub(map[string]*view{
-		"ag-a": {estView: estView{state: nodeState("10.0.0.1")}},
-		"ag-b": {estView: estView{state: nodeState("10.0.0.1", "10.0.0.7")}},
+	h := linkHub(map[string]*View{
+		"ag-a": {EstView: EstView{State: nodeState("10.0.0.1")}},
+		"ag-b": {EstView: EstView{State: nodeState("10.0.0.1", "10.0.0.7")}},
 	})
 	got := h.linkPeers(a, []store.Agent{a, b}, []kernel.LinkSetting{{A: "cl-a", B: "cl-b"}}, false, nil)
 	if len(got) != 1 {
@@ -169,7 +169,7 @@ func TestEachPairKeepsItsOwnChoicesAndTheLastEntryOfAPairStands(t *testing.T) {
 
 func TestThroughputTestsAreAskedOfOneSideOfThePairAndTheChoicesReachBoth(t *testing.T) {
 	a, b := ag("ag-a", "cl-a", "alpha", "203.0.113.1", 2), ag("ag-b", "cl-b", "beta", "203.0.113.2", 2)
-	h := linkHub(map[string]*view{"ag-a": {estView: estView{state: nodeState("10.0.0.1")}}, "ag-b": {estView: estView{state: nodeState("10.1.0.1")}}})
+	h := linkHub(map[string]*View{"ag-a": {EstView: EstView{State: nodeState("10.0.0.1")}}, "ag-b": {EstView: EstView{State: nodeState("10.1.0.1")}}})
 	links := []kernel.LinkSetting{{A: "cl-a", B: "cl-b", NoProbe: true, Throughput: &kernel.LinkThroughput{IntervalMinutes: 90, BudgetMB: 512}}}
 	fromA := h.linkPeers(a, []store.Agent{a, b}, links, false, nil)
 	fromB := h.linkPeers(b, []store.Agent{a, b}, links, false, nil)
@@ -193,8 +193,8 @@ func TestThroughputTestsAreAskedOfOneSideOfThePairAndTheChoicesReachBoth(t *test
 
 func TestOnlyTheFirstClusterOfAPairRunsTheProbeWhileItCan(t *testing.T) {
 	a, b := ag("ag-a", "cl-a", "alpha", "203.0.113.1", 2), ag("ag-b", "cl-b", "beta", "203.0.113.2", 2)
-	views := func() map[string]*view {
-		return map[string]*view{"ag-a": {estView: estView{state: nodeState("10.0.0.1")}}, "ag-b": {estView: estView{state: nodeState("10.1.0.1")}}}
+	views := func() map[string]*View {
+		return map[string]*View{"ag-a": {EstView: EstView{State: nodeState("10.0.0.1")}}, "ag-b": {EstView: EstView{State: nodeState("10.1.0.1")}}}
 	}
 	links := []kernel.LinkSetting{{A: "cl-a", B: "cl-b"}}
 	all := []store.Agent{a, b}
@@ -233,19 +233,19 @@ func TestOnlyTheFirstClusterOfAPairRunsTheProbeWhileItCan(t *testing.T) {
 	}
 	// The first cluster has told the server nothing: the second is not given it as a peer at all.
 	noAddr := ag("ag-a", "cl-a", "alpha", "", 2)
-	silent := linkHub(map[string]*view{"ag-b": {estView: estView{state: nodeState("10.1.0.1")}}})
+	silent := linkHub(map[string]*View{"ag-b": {EstView: EstView{State: nodeState("10.1.0.1")}}})
 	if got := silent.linkPeers(b, []store.Agent{noAddr, b}, links, false, nil); len(got) != 0 {
 		t.Errorf("a first cluster that has told nothing yet was shared: %v", got)
 	}
 	// The second cluster has told nothing yet, so the first is not told about it and measures nothing: the second, which is
 	// given the first, must keep probing.
 	quiet := ag("ag-b", "cl-b", "beta", "", 2)
-	h2 := linkHub(map[string]*view{"ag-a": {estView: estView{state: nodeState("10.0.0.1")}}})
+	h2 := linkHub(map[string]*View{"ag-a": {EstView: EstView{State: nodeState("10.0.0.1")}}})
 	if got := h2.linkPeers(b, []store.Agent{a, quiet}, links, false, nil); len(got) != 1 || got[0].SkipProbe {
 		t.Errorf("the first cluster is not told about the second, yet the second skips its probe: %v", got)
 	}
 	// The second cluster's addresses are all shared with the first: the first drops the peer, so the second keeps probing.
-	h3 := linkHub(map[string]*view{"ag-a": {estView: estView{state: nodeState("10.0.0.1", "10.9.9.9")}}, "ag-b": {estView: estView{state: nodeState("10.9.9.9")}}})
+	h3 := linkHub(map[string]*View{"ag-a": {EstView: EstView{State: nodeState("10.0.0.1", "10.9.9.9")}}, "ag-b": {EstView: EstView{State: nodeState("10.9.9.9")}}})
 	bare := ag("ag-b", "cl-b", "beta", "", 2)
 	got := h3.linkPeers(bare, []store.Agent{a, bare}, links, false, nil)
 	if len(got) != 1 {
@@ -262,7 +262,7 @@ func TestOnlyTheFirstClusterOfAPairRunsTheProbeWhileItCan(t *testing.T) {
 	}
 	// The runner is the first of the pair whichever way round the pair is listed, and a third cluster is unaffected.
 	c := ag("ag-c", "cl-c", "gamma", "203.0.113.3", 2)
-	h4 := linkHub(map[string]*view{"ag-a": {estView: estView{state: nodeState("10.0.0.1")}}, "ag-b": {estView: estView{state: nodeState("10.1.0.1")}}, "ag-c": {estView: estView{state: nodeState("10.2.0.1")}}})
+	h4 := linkHub(map[string]*View{"ag-a": {EstView: EstView{State: nodeState("10.0.0.1")}}, "ag-b": {EstView: EstView{State: nodeState("10.1.0.1")}}, "ag-c": {EstView: EstView{State: nodeState("10.2.0.1")}}})
 	two := []kernel.LinkSetting{{A: "cl-a", B: "cl-b"}, {A: "cl-b", B: "cl-c"}}
 	fromB := h4.linkPeers(b, []store.Agent{a, b, c}, two, false, nil)
 	if len(fromB) != 2 || !fromB[0].SkipProbe || fromB[1].SkipProbe {
@@ -308,22 +308,22 @@ func TestTheSecondClusterProbesAgainWhenTheFirstOnesFlowCollectorIsPaused(t *tes
 	if _, err := r.core.SaveSettings(r.ctx, "alex", kernel.Settings{Links: []kernel.LinkSetting{{A: first.ClusterID, B: second.ClusterID}}}); err != nil {
 		t.Fatal(err)
 	}
-	newV := func(ip string) *view {
-		return &view{estView: estView{state: nodeState(ip), flows: observed.NewFlowTable()}, NetView: connectivity.NetView{Paths: map[string]*connectivity.PathTrack{}, Targets: map[string]connectivity.IssuedTarget{}}}
+	newV := func(ip string) *View {
+		return &View{EstView: EstView{State: nodeState(ip), Flows: observed.NewFlowTable()}, NetView: connectivity.NetView{Paths: map[string]*connectivity.PathTrack{}, Targets: map[string]connectivity.IssuedTarget{}}}
 	}
 	fv, sv := newV("10.0.0.1"), newV("10.9.0.1")
-	r.hub.mu.Lock()
-	r.hub.views[first.ID], r.hub.views[second.ID] = fv, sv
-	r.hub.mu.Unlock()
+	r.hub.Mu.Lock()
+	r.hub.Views[first.ID], r.hub.Views[second.ID] = fv, sv
+	r.hub.Mu.Unlock()
 	skips := func() bool {
 		t.Helper()
-		cfg := r.hub.configFor(second, sv)
+		cfg := r.hub.ConfigFor(second, sv)
 		if len(cfg.LinkPeers) != 1 || cfg.LinkPeers[0].ClusterId != first.ClusterID {
 			t.Fatalf("second cluster's peers = %v", cfg.LinkPeers)
 		}
 		return cfg.LinkPeers[0].SkipProbe
 	}
-	if cfg := r.hub.configFor(first, fv); len(cfg.LinkPeers) != 1 || cfg.LinkPeers[0].SkipProbe {
+	if cfg := r.hub.ConfigFor(first, fv); len(cfg.LinkPeers) != 1 || cfg.LinkPeers[0].SkipProbe {
 		t.Fatalf("the first cluster must probe: %v", cfg.LinkPeers)
 	}
 	if !skips() {
@@ -355,10 +355,10 @@ func TestAPairThatIsNotMeasuredSaysWhy(t *testing.T) {
 		}
 		return strings.Join(out, " ")
 	}
-	h := linkHub(map[string]*view{"ag-a": {estView: estView{state: nodeState("10.0.0.1")}}, "ag-b": {estView: estView{state: nodeState("10.1.0.1")}}})
+	h := linkHub(map[string]*View{"ag-a": {EstView: EstView{State: nodeState("10.0.0.1")}}, "ag-b": {EstView: EstView{State: nodeState("10.1.0.1")}}})
 
 	// (Both clusters' nodes have private addresses only, which carries the range hint; that is tested on its own.)
-	for _, n := range h.linkNotes(links, []store.Agent{a, b}, nil) {
+	for _, n := range h.LinkNotes(links, []store.Agent{a, b}, nil) {
 		if n.Code != "private-range" {
 			t.Fatalf("a pair that is measured has a note: %v", n)
 		}
@@ -366,32 +366,32 @@ func TestAPairThatIsNotMeasuredSaysWhy(t *testing.T) {
 	// no approved agent at the far end: one note, about that cluster
 	pending := b
 	pending.Status = store.StatusPending
-	if got := codes(h.linkNotes(links, []store.Agent{a, pending}, nil)); got != "cl-b:no-agent" {
+	if got := codes(h.LinkNotes(links, []store.Agent{a, pending}, nil)); got != "cl-b:no-agent" {
 		t.Fatalf("no-agent: %q", got)
 	}
 	low := a
 	low.AccessTier = 1
-	if got := codes(h.linkNotes(links, []store.Agent{low, b}, nil)); got != "cl-a:tier" {
+	if got := codes(h.LinkNotes(links, []store.Agent{low, b}, nil)); got != "cl-a:tier" {
 		t.Fatalf("tier: %q", got)
 	}
-	if got := codes(h.linkNotes(links, []store.Agent{a, b}, map[string]bool{"ag-b": true})); got != "cl-b:paused" {
+	if got := codes(h.LinkNotes(links, []store.Agent{a, b}, map[string]bool{"ag-b": true})); got != "cl-b:paused" {
 		t.Fatalf("paused: %q", got)
 	}
 	// a peer that has reported no address and does not connect from a public one
-	h2 := linkHub(map[string]*view{"ag-a": {estView: estView{state: nodeState("10.0.0.1")}}})
+	h2 := linkHub(map[string]*View{"ag-a": {EstView: EstView{State: nodeState("10.0.0.1")}}})
 	noAddr := ag("ag-b", "cl-b", "beta", "", 2)
-	if got := codes(h2.linkNotes(links, []store.Agent{a, noAddr}, nil)); got != "cl-a:peer-silent" {
+	if got := codes(h2.LinkNotes(links, []store.Agent{a, noAddr}, nil)); got != "cl-a:peer-silent" {
 		t.Fatalf("peer-silent: %q", got)
 	}
 	// every address of the peer is also this cluster's
 	same := ag("ag-b", "cl-b", "beta", "203.0.113.1", 2)
-	h3 := linkHub(map[string]*view{"ag-a": {estView: estView{state: nodeState("10.0.0.1")}}, "ag-b": {estView: estView{state: nodeState("10.0.0.1")}}})
-	ns := h3.linkNotes(links, []store.Agent{a, same}, nil)
+	h3 := linkHub(map[string]*View{"ag-a": {EstView: EstView{State: nodeState("10.0.0.1")}}, "ag-b": {EstView: EstView{State: nodeState("10.0.0.1")}}})
+	ns := h3.LinkNotes(links, []store.Agent{a, same}, nil)
 	if len(ns) == 0 || ns[0].Code != "shared-address" || !strings.Contains(ns[0].Text, "10.0.0.1") {
 		t.Fatalf("shared-address: %v", ns)
 	}
 	// the same cluster in two pairs is told once that it has no agent
-	if got := codes(h.linkNotes([]kernel.LinkSetting{{A: "cl-a", B: "cl-z"}, {A: "cl-b", B: "cl-z"}}, []store.Agent{a, b}, nil)); got != "cl-z:no-agent" {
+	if got := codes(h.LinkNotes([]kernel.LinkSetting{{A: "cl-a", B: "cl-z"}, {A: "cl-b", B: "cl-z"}}, []store.Agent{a, b}, nil)); got != "cl-z:no-agent" {
 		t.Fatalf("one note per cluster: %q", got)
 	}
 }
@@ -410,7 +410,7 @@ func TestAPairCanBePinnedToOneKindOfAddress(t *testing.T) {
 	}
 	// The choice belongs to the pair, so both clusters are told, and a pair without one is told nothing.
 	a, b := ag("ag-a", "cl-a", "alpha", "203.0.113.1", 2), ag("ag-b", "cl-b", "beta", "203.0.113.2", 2)
-	h := linkHub(map[string]*view{"ag-a": {estView: estView{state: nodeState("10.0.0.1")}}, "ag-b": {estView: estView{state: nodeState("10.1.0.1")}}})
+	h := linkHub(map[string]*View{"ag-a": {EstView: EstView{State: nodeState("10.0.0.1")}}, "ag-b": {EstView: EstView{State: nodeState("10.1.0.1")}}})
 	pinned := []kernel.LinkSetting{{A: "cl-a", B: "cl-b", Via: "public"}}
 	for name, from := range map[string]store.Agent{"cl-a": a, "cl-b": b} {
 		if got := h.linkPeers(from, []store.Agent{a, b}, pinned, false, nil); len(got) != 1 || got[0].Via != "public" {
@@ -424,11 +424,11 @@ func TestAPairCanBePinnedToOneKindOfAddress(t *testing.T) {
 
 func TestAPairPinnedToAKindThePeerHasNoneOfSaysSo(t *testing.T) {
 	a, b := ag("ag-a", "cl-a", "alpha", "203.0.113.1", 2), ag("ag-b", "cl-b", "beta", "203.0.113.2", 2)
-	h := linkHub(map[string]*view{"ag-a": {estView: estView{state: nodeState("10.0.0.1")}}, "ag-b": {estView: estView{state: nodeState("10.1.0.1")}}})
+	h := linkHub(map[string]*View{"ag-a": {EstView: EstView{State: nodeState("10.0.0.1")}}, "ag-b": {EstView: EstView{State: nodeState("10.1.0.1")}}})
 	// The private-range hint is about something else and is tested on its own.
 	notes := func(l kernel.LinkSetting) []connectivity.LinkNote {
 		var out []connectivity.LinkNote
-		for _, n := range h.linkNotes([]kernel.LinkSetting{l}, []store.Agent{a, b}, nil) {
+		for _, n := range h.LinkNotes([]kernel.LinkSetting{l}, []store.Agent{a, b}, nil) {
 			if n.Code != "private-range" {
 				out = append(out, n)
 			}
@@ -450,9 +450,9 @@ func TestAPairPinnedToAKindThePeerHasNoneOfSaysSo(t *testing.T) {
 		t.Errorf("no probe: %+v", got)
 	}
 	// An address the peer shares with this cluster is not one it can be measured through.
-	h2 := linkHub(map[string]*view{"ag-a": {estView: estView{state: nodeState("10.0.0.1")}}, "ag-b": {estView: estView{state: nodeState("10.0.0.1", "100.64.1.1")}}})
+	h2 := linkHub(map[string]*View{"ag-a": {EstView: EstView{State: nodeState("10.0.0.1")}}, "ag-b": {EstView: EstView{State: nodeState("10.0.0.1", "100.64.1.1")}}})
 	// cl-b has a mesh address, so cl-a measures through it; cl-a has none left once the shared one is out, and cl-b is told so.
-	got := h2.linkNotes([]kernel.LinkSetting{{A: "cl-a", B: "cl-b", Via: "mesh"}}, []store.Agent{a, b}, nil)
+	got := h2.LinkNotes([]kernel.LinkSetting{{A: "cl-a", B: "cl-b", Via: "mesh"}}, []store.Agent{a, b}, nil)
 	var kind []connectivity.LinkNote
 	for _, n := range got {
 		if n.Code == "no-address-of-kind" {
@@ -469,22 +469,22 @@ func TestAPairPinnedToAKindThePeerHasNoneOfSaysSo(t *testing.T) {
 func TestAPeerWithOnlyPrivateAddressesGetsAHint(t *testing.T) {
 	a, b := ag("ag-a", "cl-a", "alpha", "", 2), ag("ag-b", "cl-b", "beta", "", 2)
 	links := []kernel.LinkSetting{{A: "cl-a", B: "cl-b"}}
-	h := linkHub(map[string]*view{"ag-a": {estView: estView{state: nodeState("10.0.0.1")}}, "ag-b": {estView: estView{state: nodeState("10.1.0.1", "100.64.0.45")}}})
-	got := h.linkNotes(links, []store.Agent{a, b}, nil)
+	h := linkHub(map[string]*View{"ag-a": {EstView: EstView{State: nodeState("10.0.0.1")}}, "ag-b": {EstView: EstView{State: nodeState("10.1.0.1", "100.64.0.45")}}})
+	got := h.LinkNotes(links, []store.Agent{a, b}, nil)
 	if len(got) != 2 || got[0].Code != "private-range" || got[0].Cluster != "cl-a" || got[0].Peer != "cl-b" ||
 		!strings.Contains(got[0].Text, "mesh (100.64.0.0/10) and private") || !strings.Contains(got[0].Text, "100.64.0.45") {
 		t.Fatalf("%+v", got)
 	}
 	// a public address of one of the peer's nodes is a way across that needs no shared network
-	hPub := linkHub(map[string]*view{"ag-a": {estView: estView{state: nodeState("10.0.0.1")}}, "ag-b": {estView: estView{state: nodeState("10.1.0.1", "198.51.100.9")}}})
-	for _, n := range hPub.linkNotes(links, []store.Agent{a, b}, nil) {
+	hPub := linkHub(map[string]*View{"ag-a": {EstView: EstView{State: nodeState("10.0.0.1")}}, "ag-b": {EstView: EstView{State: nodeState("10.1.0.1", "198.51.100.9")}}})
+	for _, n := range hPub.LinkNotes(links, []store.Agent{a, b}, nil) {
 		if n.Code == "private-range" && n.Cluster == "cl-a" {
 			t.Errorf("a peer with a public node address: %+v", n)
 		}
 	}
 	// the address the peer's agent connects from is its gateway's, not a node's: it does not silence the hint, and the text says so
 	pub := ag("ag-b", "cl-b", "beta", "203.0.113.2", 2)
-	viaGateway := h.linkNotes(links, []store.Agent{a, pub}, nil)
+	viaGateway := h.LinkNotes(links, []store.Agent{a, pub}, nil)
 	if len(viaGateway) == 0 || viaGateway[0].Code != "private-range" || viaGateway[0].Peer != "cl-b" || !strings.Contains(viaGateway[0].Text, "203.0.113.2") || !strings.Contains(viaGateway[0].Text, "is not counted") {
 		t.Errorf("a NATed peer lost the hint: %+v", viaGateway)
 	}
@@ -498,7 +498,7 @@ func TestAPeerWithOnlyPrivateAddressesGetsAHint(t *testing.T) {
 		t.Errorf("a pair with nothing lost its hint: %+v", notes)
 	}
 	// and a hint never stands for an unmet step of the checklist: nothing in the setup is made to fail by it
-	for _, s := range h.linkSetups(links, []store.Agent{a, b}, nil, true, time.Now()) {
+	for _, s := range h.LinkSetups(links, []store.Agent{a, b}, nil, true, time.Now()) {
 		for _, st := range s.Steps {
 			if st.Code == "addresses" && st.State == "todo" {
 				t.Errorf("the hint failed the addresses step: %+v", st)

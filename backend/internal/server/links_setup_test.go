@@ -281,7 +281,7 @@ func TestChecklistSentencesSayWhatIsWrongNamingTheClusterAndWhatToDo(t *testing.
 // ---- the capability report ----
 
 func TestTheServerKeepsWhatAnAgentReportedAndNeverReadsSilenceAsOff(t *testing.T) {
-	v := newView()
+	v := NewView()
 	v.NoteLinkCaps(nil, setupNow, 0)
 	if !v.Ext.LinkCaps.Reported.IsZero() {
 		t.Fatal("a heartbeat without the report made one up")
@@ -305,7 +305,7 @@ func TestTheServerKeepsWhatAnAgentReportedAndNeverReadsSilenceAsOff(t *testing.T
 
 func TestWhatAnAgentSaysAboutTheProberIsBounded(t *testing.T) {
 	at := func(unix int64, skewMs int64) agents.LinkCaps {
-		v := newView()
+		v := NewView()
 		v.NoteLinkCaps(&continuumv1.LinkCapabilities{ProberSeenUnix: unix}, setupNow, skewMs)
 		return v.Ext.LinkCaps
 	}
@@ -331,12 +331,12 @@ func TestWhatAnAgentSaysAboutTheProberIsBounded(t *testing.T) {
 
 func TestTheHubBuildsTheChecklistFromAgentsAndTheirReports(t *testing.T) {
 	a, b := ag("ag-a", "cl-a", "alpha", "203.0.113.1", 2), ag("ag-b", "cl-b", "beta", "203.0.113.2", 2)
-	h := linkHub(map[string]*view{
-		"ag-a": {View: agents.View{Ext: agents.ViewExt{LinkCaps: caps(without("export"))}}, estView: estView{state: nodeState("10.0.0.1")}},
-		"ag-b": {estView: estView{state: nodeState("10.1.0.1")}}, // an agent that never reported
+	h := linkHub(map[string]*View{
+		"ag-a": {View: agents.View{Ext: agents.ViewExt{LinkCaps: caps(without("export"))}}, EstView: EstView{State: nodeState("10.0.0.1")}},
+		"ag-b": {EstView: EstView{State: nodeState("10.1.0.1")}}, // an agent that never reported
 	})
 	links := []kernel.LinkSetting{{A: "cl-a", B: "cl-b"}, {A: "cl-a", B: "cl-z"}}
-	got := h.linkSetups(links, []store.Agent{a, b}, nil, true, setupNow)
+	got := h.LinkSetups(links, []store.Agent{a, b}, nil, true, setupNow)
 	if len(got) != 2 || got[0].A != "cl-a" || got[0].B != "cl-b" || got[1].B != "cl-z" {
 		t.Fatalf("%+v", got)
 	}
@@ -352,11 +352,11 @@ func TestTheHubBuildsTheChecklistFromAgentsAndTheirReports(t *testing.T) {
 	// the end that is not told about its peer carries the reason
 	low := a
 	low.AccessTier = 1
-	got = h.linkSetups(links[:1], []store.Agent{low, b}, nil, true, setupNow)
+	got = h.LinkSetups(links[:1], []store.Agent{low, b}, nil, true, setupNow)
 	if s := step(t, got[0].Steps, connectivity.StepAgent, "cl-a"); s.State != connectivity.StepTodo || !strings.Contains(s.Text, "access tier 1") {
 		t.Errorf("%+v", s)
 	}
-	got = h.linkSetups(links[:1], []store.Agent{a, b}, map[string]bool{"ag-b": true}, true, setupNow)
+	got = h.LinkSetups(links[:1], []store.Agent{a, b}, map[string]bool{"ag-b": true}, true, setupNow)
 	if s := step(t, got[0].Steps, connectivity.StepAgent, "cl-b"); s.State != connectivity.StepTodo || !strings.Contains(s.Text, "paused") {
 		t.Errorf("%+v", s)
 	}
@@ -372,9 +372,9 @@ func TestTheHeartbeatCarriesWhatTheInstallCanDo(t *testing.T) {
 	s := r.connect(t, ctx, key, leaf, &continuumv1.Hello{AgentVersion: "9.9", InstalledAccessTier: 2})
 
 	caps := func() agents.LinkCaps {
-		r.hub.mu.Lock()
-		defer r.hub.mu.Unlock()
-		if v := r.hub.views[id]; v != nil {
+		r.hub.Mu.Lock()
+		defer r.hub.Mu.Unlock()
+		if v := r.hub.Views[id]; v != nil {
 			return v.Ext.LinkCaps
 		}
 		return agents.LinkCaps{}

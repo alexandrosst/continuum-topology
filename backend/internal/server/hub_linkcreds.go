@@ -30,9 +30,9 @@ func (h *Hub) linkCredsFor(a store.Agent, links []kernel.LinkSetting) connectivi
 	return set.ForCluster(a.ClusterID)
 }
 
-// syncLinkCredentials makes the credentials of the saved pairs and removes those of pairs that no longer ask for tests. It reads the
+// SyncLinkCredentials makes the credentials of the saved pairs and removes those of pairs that no longer ask for tests. It reads the
 // settings as they are when it runs, so two of them running out of order still end at the current state.
-func (h *Hub) syncLinkCredentials() {
+func (h *Hub) SyncLinkCredentials() {
 	if _, err := h.C.Connectivity.LinkCredentials(bg(), h.C.Settings().Links, true); err != nil {
 		h.C.Log.Warn("could not update the link credentials", "err", err.Error())
 	}

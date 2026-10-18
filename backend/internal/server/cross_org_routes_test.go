@@ -133,7 +133,7 @@ func TestAnotherOrganisationsIdIsNotFoundOnEveryRouteThatTakesAnId(t *testing.T)
 			fmt.Fprintf(&b, "%s %d %s\n", p, r.Code, r.Body.String())
 		}
 		ag, _ := a.st.GetAgent(a.ctx, agent)
-		fmt.Fprintf(&b, "agent %s tier=%d consent=%+v\n", ag.Status, ag.AccessTier, a.hub().consentOf(agent))
+		fmt.Fprintf(&b, "agent %s tier=%d consent=%+v\n", ag.Status, ag.AccessTier, a.hub().ConsentOf(agent))
 		return b.String()
 	}
 	trail := func(orgID string) int {

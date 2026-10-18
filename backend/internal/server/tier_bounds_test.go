@@ -125,7 +125,7 @@ func TestAProposalSaysWhatItSaidBeforeAboutATiersBounds(t *testing.T) {
 func TestAReportedCeilingIsHeldInsideTheTypesBound(t *testing.T) {
 	r := propRigFor(t)
 	fresh, _ := r.st.GetAgent(r.ctx, r.id)
-	got := r.h.noteCeiling(r.ctx, fresh, fresh, 9)
+	got := r.h.NoteCeiling(r.ctx, fresh, fresh, 9)
 	if got.InstalledTier != kernel.MaxTier {
 		t.Fatalf("a reported 9 became %d, want %d", got.InstalledTier, kernel.MaxTier)
 	}
@@ -133,7 +133,7 @@ func TestAReportedCeilingIsHeldInsideTheTypesBound(t *testing.T) {
 		t.Fatalf("stored installed %d access %d, want %d and 2", st.InstalledTier, st.AccessTier, kernel.MaxTier)
 	}
 	fresh, _ = r.st.GetAgent(r.ctx, r.id)
-	if got := r.h.noteCeiling(r.ctx, fresh, fresh, 1); got.InstalledTier != 1 {
+	if got := r.h.NoteCeiling(r.ctx, fresh, fresh, 1); got.InstalledTier != 1 {
 		t.Fatalf("a reported 1 became %d", got.InstalledTier)
 	}
 	if st, _ := r.st.GetAgent(r.ctx, r.id); st.AccessTier != 1 {

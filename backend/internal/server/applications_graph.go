@@ -77,12 +77,12 @@ func (c *Core) recordApplicationsGraph(ctx context.Context, prevData, data []byt
 	if c.AppHints != nil {
 		hints = c.AppHints(ctx)
 	}
-	apps, err := applicationsIn(data, hints)
+	apps, err := ApplicationsIn(data, hints)
 	if err != nil {
 		c.Log.Warn("history: could not read applications from the saved workspace", "err", err)
 		return
 	}
-	prevApps, _ := applicationsIn(prevData, hints) // best-effort: nothing before, or unreadable, just means every app below looks newly created
+	prevApps, _ := ApplicationsIn(prevData, hints) // best-effort: nothing before, or unreadable, just means every app below looks newly created
 	prevByID := make(map[string]workspace.ApplicationDoc, len(prevApps))
 	for _, p := range prevApps {
 		prevByID[p.ID] = p
@@ -158,8 +158,8 @@ func recordApplicationsBatch(ctx context.Context, c *Core, now time.Time, br bat
 	return true
 }
 
-// applicationsIn is the applications of a saved workspace document, by the one definition of membership.
-func applicationsIn(data []byte, hints map[string]string) ([]workspace.ApplicationDoc, error) {
+// ApplicationsIn is the applications of a saved workspace document, by the one definition of membership.
+func ApplicationsIn(data []byte, hints map[string]string) ([]workspace.ApplicationDoc, error) {
 	d, err := workspace.Parse(data)
 	if err != nil {
 		return nil, err
@@ -194,7 +194,7 @@ func (c *Core) linkApplications(ctx context.Context, now time.Time, doc StateDoc
 	if err != nil {
 		return
 	}
-	if apps, err := applicationsIn(ws.Data, HintsOf(doc)); err == nil {
+	if apps, err := ApplicationsIn(ws.Data, HintsOf(doc)); err == nil {
 		c.linkApplicationMembers(ctx, now, apps)
 	}
 }

@@ -35,10 +35,10 @@ func pushRig(t *testing.T) (*adminRig, *Hub, string, chan *continuumv1.ServerMes
 	agentID := a.approvedAgentID(t, fp)
 	push := make(chan *continuumv1.ServerMessage, 64)
 	h := a.hub()
-	h.mu.Lock()
-	h.views[agentID] = liveView(*a.now, "n1")
-	h.sessions[agentID] = &session{push: push, cancel: func(endReason) {}}
-	h.mu.Unlock()
+	h.Mu.Lock()
+	h.Views[agentID] = liveView(*a.now, "n1")
+	h.Sessions[agentID] = &Session{Push: push, Cancel: func(EndReason) {}}
+	h.Mu.Unlock()
 	return a, h, agentID, push
 }
 
@@ -67,7 +67,7 @@ func TestTheLastConfigPushedToAnAgentIsTheCurrentOne(t *testing.T) {
 	hold.armed <- struct{}{}
 
 	first := make(chan struct{})
-	go func() { defer close(first); h.pushOne(agentID) }()
+	go func() { defer close(first); h.PushOne(agentID) }()
 	select {
 	case <-hold.reached:
 	case <-time.After(5 * time.Second):
@@ -77,7 +77,7 @@ func TestTheLastConfigPushedToAnAgentIsTheCurrentOne(t *testing.T) {
 		t.Fatal(err)
 	}
 	second := make(chan struct{})
-	go func() { defer close(second); h.pushOne(agentID) }()
+	go func() { defer close(second); h.PushOne(agentID) }()
 	select {
 	case <-second: // without the per-agent lock the second push finishes first, and the first then queues the older Config
 	case <-time.After(300 * time.Millisecond):
@@ -102,14 +102,14 @@ func TestTheLastConfigPushedToAnAgentIsTheCurrentOne(t *testing.T) {
 // Every Config carries the digest the server keeps as "sent", so the agent can echo it.
 func TestAConfigCarriesItsDigest(t *testing.T) {
 	_, h, agentID, push := pushRig(t)
-	h.pushOne(agentID)
+	h.PushOne(agentID)
 	got := drain(push)
 	if len(got) != 1 || got[0].Digest == "" {
 		t.Fatalf("want one Config with a digest, got %+v", got)
 	}
-	h.mu.Lock()
-	want := h.views[agentID].CfgHash
-	h.mu.Unlock()
+	h.Mu.Lock()
+	want := h.Views[agentID].CfgHash
+	h.Mu.Unlock()
 	if got[0].Digest != want {
 		t.Fatalf("digest %q is not the one the server holds as sent, %q", got[0].Digest, want)
 	}
@@ -119,14 +119,14 @@ func TestAConfigCarriesItsDigest(t *testing.T) {
 // sent again, once. An empty digest (an older agent) and a matching one ask for nothing, and neither does a heartbeat inside the grace.
 func TestAHeartbeatNamingAnOlderConfigAsksForItToBeSentAgain(t *testing.T) {
 	_, h, agentID, push := pushRig(t)
-	h.pushOne(agentID)
+	h.PushOne(agentID)
 	sent := drain(push)
 	if len(sent) != 1 {
 		t.Fatalf("want one Config, got %d", len(sent))
 	}
 	now := time.Now()
-	h.mu.Lock()
-	v := h.views[agentID]
+	h.Mu.Lock()
+	v := h.Views[agentID]
 	v.CfgSentAt = now.Add(-time.Minute)
 	cases := []struct {
 		name, digest string
@@ -149,19 +149,19 @@ func TestAHeartbeatNamingAnOlderConfigAsksForItToBeSentAgain(t *testing.T) {
 			v.CfgHash = sent[0].Digest // the test puts it back, as the next push would
 		}
 	}
-	h.mu.Unlock()
+	h.Mu.Unlock()
 
-	// End to end through pushOne: the lost Config is queued again, once.
-	h.mu.Lock()
+	// End to end through PushOne: the lost Config is queued again, once.
+	h.Mu.Lock()
 	v.CfgSentAt = now.Add(-time.Minute)
 	_ = v.NoteConfigEcho("old", now)
-	h.mu.Unlock()
-	h.pushOne(agentID)
+	h.Mu.Unlock()
+	h.PushOne(agentID)
 	again := drain(push)
 	if len(again) != 1 || again[0].Digest != sent[0].Digest {
 		t.Fatalf("want the same Config sent again, got %+v", again)
 	}
-	h.pushOne(agentID)
+	h.PushOne(agentID)
 	if extra := drain(push); len(extra) != 0 {
 		t.Fatalf("a Config nothing changed for was sent a third time: %+v", extra)
 	}
@@ -184,15 +184,15 @@ func TestALostConfigIsSentAgainWhenTheAgentNamesAnOlderOne(t *testing.T) {
 	if err := r.st.SetAccessTier(ctx, id, newTier); err != nil {
 		t.Fatal(err)
 	}
-	r.hub.pushOne(id)
+	r.hub.PushOne(id)
 	pushed, err := s.Recv()
 	if err != nil || int(pushed.GetConfig().GetApprovedAccessTier()) != newTier || pushed.GetConfig().GetDigest() == "" {
 		t.Fatalf("the pushed Config: %v %v", pushed, err)
 	}
 	// The agent behaves as if that Config was lost: it still names the old digest. A heartbeat inside the grace changes nothing.
-	r.hub.mu.Lock()
-	r.hub.views[id].CfgSentAt = time.Now().Add(-time.Minute)
-	r.hub.mu.Unlock()
+	r.hub.Mu.Lock()
+	r.hub.Views[id].CfgSentAt = time.Now().Add(-time.Minute)
+	r.hub.Mu.Unlock()
 	beat := &continuumv1.AgentMessage{Msg: &continuumv1.AgentMessage_Heartbeat{Heartbeat: &continuumv1.Heartbeat{AppliedConfigDigest: "an-older-digest"}}}
 	if err := s.Send(beat); err != nil {
 		t.Fatal(err)

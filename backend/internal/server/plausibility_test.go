@@ -162,9 +162,9 @@ func TestBoundSyncFactsOmitsOnlyTheImplausibleFieldAcrossARecord(t *testing.T) {
 func TestNoteFlowsAppliesTheWholeBatchDespiteOneImplausibleSaturation(t *testing.T) {
 	r := newHubRig(t)
 	id, _, _ := r.approvedAgent(t, fp)
-	r.hub.mu.Lock()
-	r.hub.views[id] = newView()
-	r.hub.mu.Unlock()
+	r.hub.Mu.Lock()
+	r.hub.Views[id] = NewView()
+	r.hub.Mu.Unlock()
 
 	before := kernel.Metrics.ImplausibleFacts.Load()
 	good, bad := 10.0, -5.0
@@ -181,9 +181,9 @@ func TestNoteFlowsAppliesTheWholeBatchDespiteOneImplausibleSaturation(t *testing
 	if got := kernel.Metrics.ImplausibleFacts.Load() - before; got != 1 {
 		t.Fatalf("implausibleFacts counter rose by %d, want 1", got)
 	}
-	r.hub.mu.Lock()
-	ls := r.hub.views[id].linkSat["n1"]
-	r.hub.mu.Unlock()
+	r.hub.Mu.Lock()
+	ls := r.hub.Views[id].linkSat["n1"]
+	r.hub.Mu.Unlock()
 	if len(ls) != 2 {
 		t.Fatalf("both collector entries must still be held, just one field nulled: %v", ls)
 	}
@@ -202,7 +202,7 @@ func TestNoteFlowsAppliesTheWholeBatchDespiteOneImplausibleSaturation(t *testing
 }
 
 // TestApplySyncKeepsTheWholeRecordDespiteOneImplausibleReading is the Sync-side counterpart, exercising
-// validateSync+boundSyncFacts+applySync in the exact sequence Connect itself runs for every incoming
+// validateSync+boundSyncFacts+ApplySync in the exact sequence Connect itself runs for every incoming
 // Sync message (see hub.go), then reading the built topology back to confirm the implausible field
 // shows up as absent (nil), never a fabricated zero, while a good field on the very same node survives
 // and the node itself is still there.
@@ -213,11 +213,11 @@ func TestApplySyncKeepsTheWholeRecordDespiteOneImplausibleReading(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	r.hub.mu.Lock()
-	v := newView()
-	v.connected = true
-	r.hub.views[id] = v
-	r.hub.mu.Unlock()
+	r.hub.Mu.Lock()
+	v := NewView()
+	v.Connected = true
+	r.hub.Views[id] = v
+	r.hub.Mu.Unlock()
 
 	s := &continuumv1.Sync{Full: true, Cluster: &continuumv1.ClusterFacts{Uid: fp}, Nodes: []*continuumv1.NodeFacts{{
 		Key: "n1", Name: "n1", Ready: true,
@@ -235,7 +235,7 @@ func TestApplySyncKeepsTheWholeRecordDespiteOneImplausibleReading(t *testing.T) 
 	if got := kernel.Metrics.ImplausibleFacts.Load() - before; got != 1 {
 		t.Fatalf("implausibleFacts counter rose by %d, want 1", got)
 	}
-	if _, _, err := r.hub.applySync(a, s, false); err != nil {
+	if _, _, err := r.hub.ApplySync(a, s, false); err != nil {
 		t.Fatalf("a record with one implausible field among good ones must still be applied in full: %v", err)
 	}
 	doc, err := r.hub.State(r.ctx)

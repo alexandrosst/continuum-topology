@@ -36,7 +36,7 @@ func TestAModelVersionThatCouldNotBeSavedIsSavedLater(t *testing.T) {
 	ms := &modelStateStore{Store: h.C.Store}
 	h.C.Store = ms
 	ag := twinAgent(t, a.env, h, fp)
-	h.applySync(ag, twinFull(fp, []*continuumv1.NodeFacts{twinNode("n1", "")}, twinWorkload("shop", "cart")), false)
+	h.ApplySync(ag, twinFull(fp, []*continuumv1.NodeFacts{twinNode("n1", "")}, twinWorkload("shop", "cart")), false)
 
 	m1, _, err := h.Model(a.ctx)
 	if err != nil {
@@ -56,7 +56,7 @@ func TestAModelVersionThatCouldNotBeSavedIsSavedLater(t *testing.T) {
 
 	// The store stops accepting writes; the model changes and is read.
 	ms.fail.Store(true)
-	h.applySync(ag, twinFull(fp, []*continuumv1.NodeFacts{twinNode("n1", "")}, twinWorkload("shop", "cart"), twinWorkload("shop", "pay")), true)
+	h.ApplySync(ag, twinFull(fp, []*continuumv1.NodeFacts{twinNode("n1", "")}, twinWorkload("shop", "cart"), twinWorkload("shop", "pay")), true)
 	*a.now = a.now.Add(3 * time.Second) // past the short cache
 	m2, _, err := h.Model(a.ctx)
 	if err != nil {

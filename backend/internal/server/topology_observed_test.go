@@ -29,24 +29,24 @@ func TestOnlyAClusterAtTierTwoOrAboveDrawsObservedTraffic(t *testing.T) {
 			w := wk("a", "Deployment", n)
 			st.Workloads[w.Key] = w
 		}
-		v := newView()
-		v.state = st
-		v.connected = true
-		v.lastSync = time.Now()
+		v := NewView()
+		v.State = st
+		v.Connected = true
+		v.LastSync = time.Now()
 		fs := []*continuumv1.Flow{flowOf(wep("a/Deployment/x"), wep("a/Deployment/y"), port, 5)}
 		if id == wide {
 			fs = append(fs, flowOf(wep("a/Deployment/x"), xep("198.51.100.60"), 6443, 50))
 		} else {
 			fs = append(fs, flowOf(wep("a/Deployment/x"), xep("203.0.113.9"), 6443, 50)) // what would be suspected, if this cluster's traffic counted
 		}
-		v.flows.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: fs}, time.Now().Add(-time.Minute))
+		v.Flows.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: fs}, time.Now().Add(-time.Minute))
 		if id == wide {
 			now := time.Now()
 			v.Paths["p"] = &connectivity.PathTrack{T: connectivity.IssuedTarget{ID: "p", Host: "198.51.100.60", Port: 6443, Source: "manual"}, At: now}
 		}
-		r.hub.mu.Lock()
-		r.hub.views[id] = v
-		r.hub.mu.Unlock()
+		r.hub.Mu.Lock()
+		r.hub.Views[id] = v
+		r.hub.Mu.Unlock()
 	}
 
 	doc, err := r.hub.State(r.ctx)

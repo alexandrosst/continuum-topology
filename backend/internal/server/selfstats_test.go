@@ -13,7 +13,7 @@ import (
 // TestNoteSelfStatsIgnoresANilSelfStats covers an agent older than the field, or a heartbeat that for
 // whatever reason carried none: nothing is added, never a fabricated zero-valued sample.
 func TestNoteSelfStatsIgnoresANilSelfStats(t *testing.T) {
-	v := newView()
+	v := NewView()
 	v.NoteSelfStats(nil, time.Unix(1, 0))
 	if got := v.Self.List(); len(got) != 0 {
 		t.Fatalf("a nil SelfStats must add nothing, got %d samples", len(got))
@@ -24,7 +24,7 @@ func TestNoteSelfStatsIgnoresANilSelfStats(t *testing.T) {
 // SelfStatsSample, with the server's own receipt time attached (not read from the message itself, which
 // carries no timestamp of its own - the agent's clock may have drifted, see Heartbeat.clock_skew_ms).
 func TestNoteSelfStatsCopiesEveryField(t *testing.T) {
-	v := newView()
+	v := NewView()
 	at := time.Unix(5000, 0)
 	v.NoteSelfStats(&continuumv1.SelfStats{
 		RssBytes: 123 << 20, Goroutines: 42, CpuSeconds: 3.5,
@@ -43,23 +43,23 @@ func TestNoteSelfStatsCopiesEveryField(t *testing.T) {
 	}
 }
 
-// TestSampleSelfStatsCountsConnectedAgentsAndDerivesTheFlowRate covers sampleSelfStats end to end: the
+// TestSampleSelfStatsCountsConnectedAgentsAndDerivesTheFlowRate covers SampleSelfStats end to end: the
 // connected-agent count comes from live sessions (not views, which also hold disconnected/revoked
 // agents' last-known state), and FlowIngestBytesPerSec is 0 on the very first sample (nothing to diff
 // against yet) and a real diff-over-elapsed-time rate on the next one - never negative, even when the
 // total it is diffing against somehow goes down.
 func TestSampleSelfStatsCountsConnectedAgentsAndDerivesTheFlowRate(t *testing.T) {
 	h := NewHub(wrap(&kernel.Core{Now: time.Now}))
-	h.mu.Lock()
-	h.sessions["ag-1"] = &session{}
-	h.sessions["ag-2"] = &session{}
-	v1, v2 := newView(), newView()
+	h.Mu.Lock()
+	h.Sessions["ag-1"] = &Session{}
+	h.Sessions["ag-2"] = &Session{}
+	v1, v2 := NewView(), NewView()
 	v1.Link.FlowBytes, v2.Link.FlowBytes = 1000, 2000
-	h.views["ag-1"], h.views["ag-2"] = v1, v2
-	h.mu.Unlock()
+	h.Views["ag-1"], h.Views["ag-2"] = v1, v2
+	h.Mu.Unlock()
 
 	t0 := time.Unix(10_000, 0)
-	h.sampleSelfStats(t0)
+	h.SampleSelfStats(t0)
 	samples := h.serverSelf.List()
 	if len(samples) != 1 {
 		t.Fatalf("%d samples, want 1", len(samples))
@@ -75,12 +75,12 @@ func TestSampleSelfStatsCountsConnectedAgentsAndDerivesTheFlowRate(t *testing.T)
 	}
 
 	// 10 seconds later, 5000 more flow-bytes total across both agents: 500 B/s.
-	h.mu.Lock()
+	h.Mu.Lock()
 	v1.Link.FlowBytes = 4000 // +3000
 	v2.Link.FlowBytes = 4000 // +2000
-	h.mu.Unlock()
+	h.Mu.Unlock()
 	t1 := t0.Add(10 * time.Second)
-	h.sampleSelfStats(t1)
+	h.SampleSelfStats(t1)
 	samples = h.serverSelf.List()
 	if len(samples) != 2 {
 		t.Fatalf("%d samples, want 2", len(samples))
@@ -91,11 +91,11 @@ func TestSampleSelfStatsCountsConnectedAgentsAndDerivesTheFlowRate(t *testing.T)
 
 	// A total that goes down (every agent reconnected since, restarting its own counters from a lower
 	// base) must never be read as a fabricated, misleadingly large negative-turned-positive rate.
-	h.mu.Lock()
+	h.Mu.Lock()
 	v1.Link.FlowBytes, v2.Link.FlowBytes = 100, 100
-	h.mu.Unlock()
+	h.Mu.Unlock()
 	t2 := t1.Add(10 * time.Second)
-	h.sampleSelfStats(t2)
+	h.SampleSelfStats(t2)
 	samples = h.serverSelf.List()
 	if got := samples[2].FlowIngestBytesPerSec; got != 0 {
 		t.Fatalf("rate after the total went down = %v, want 0, not a negative-turned-positive fabrication", got)
@@ -111,7 +111,7 @@ func TestSampleSelfStatsCapturesGCStats(t *testing.T) {
 	h := NewHub(wrap(&kernel.Core{Now: time.Now}))
 	var before runtime.MemStats
 	runtime.ReadMemStats(&before)
-	h.sampleSelfStats(time.Unix(1, 0))
+	h.SampleSelfStats(time.Unix(1, 0))
 	var after runtime.MemStats
 	runtime.ReadMemStats(&after)
 
@@ -129,14 +129,14 @@ func TestSampleSelfStatsCapturesGCStats(t *testing.T) {
 	}
 }
 
-// TestSampleSelfStatsCarriesTheModelCacheCounters covers the plumbing from twinRT's own cacheHits/
-// cacheMisses (see TestModelCacheHitsAndMissesAreCounted) through to ServerSelfStatsSample.
+// TestSampleSelfStatsCarriesTheModelCacheCounters covers the plumbing from twinRT's own CacheHits/
+// CacheMisses (see TestModelCacheHitsAndMissesAreCounted) through to ServerSelfStatsSample.
 func TestSampleSelfStatsCarriesTheModelCacheCounters(t *testing.T) {
 	h := NewHub(wrap(&kernel.Core{Now: time.Now}))
-	h.tw.cacheHits.Store(7)
-	h.tw.cacheMisses.Store(3)
+	h.Tw.CacheHits.Store(7)
+	h.Tw.CacheMisses.Store(3)
 	now := time.Unix(1, 0)
-	h.sampleSelfStats(now)
+	h.SampleSelfStats(now)
 	samples := h.serverSelf.List()
 	if len(samples) != 1 || samples[0].ModelCacheHits != 7 || samples[0].ModelCacheMisses != 3 {
 		t.Fatalf("samples = %+v", samples)

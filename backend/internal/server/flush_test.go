@@ -14,9 +14,9 @@ func TestFlushAllSavesWriteBehindStateBeforeShutdown(t *testing.T) {
 	a := twinAgent(t, r.env, h, fp)
 	nodes := []*continuumv1.NodeFacts{twinNode("worker-1", "4f1c0a9b2d7e4c3a8b6d5e2f1a0b9c8d")}
 	cart, pay := twinWorkload("shop", "cart"), twinWorkload("shop", "pay")
-	h.applySync(a, twinFull(fp, nodes, cart, pay), false)
+	h.ApplySync(a, twinFull(fp, nodes, cart, pay), false)
 	*r.now = r.now.Add(time.Minute)
-	h.applySync(a, twinFull(fp, nodes, cart), true) // pay is gone: a tombstone, so far only in memory
+	h.ApplySync(a, twinFull(fp, nodes, cart), true) // pay is gone: a tombstone, so far only in memory
 	h.State(r.ctx)                                  // loads the model and builds the identities
 
 	before, _ := r.st.ListTombstones(r.ctx, "org-1")

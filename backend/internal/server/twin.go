@@ -40,7 +40,8 @@ type modelCache struct {
 	etag  string
 }
 
-type twinRT struct {
+// TwinRT is the twin the Hub keeps: its registry, its tombstones and the short-lived model cache.
+type TwinRT struct {
 	mu      sync.Mutex
 	loaded  bool
 	reg     *twin.Registry
@@ -62,13 +63,13 @@ type twinRT struct {
 	// build serialises model builds so versions are assigned in the order the models were made.
 	build sync.Mutex
 
-	// cacheHits/cacheMisses count how often Model below served the short-lived cache versus had to
+	// CacheHits/CacheMisses count how often Model below served the short-lived cache versus had to
 	// rebuild - see ServerSelfStatsSample.ModelCacheHits' own doc comment for what a caller does with
 	// these. Plain running totals since the server started, like every other counter in this package.
-	cacheHits, cacheMisses atomic.Uint64
+	CacheHits, CacheMisses atomic.Uint64
 }
 
-func newTwinRT() *twinRT { return &twinRT{reg: twin.NewRegistry(), tombs: twin.NewTombstones(0)} }
+func newTwinRT() *TwinRT { return &TwinRT{reg: twin.NewRegistry(), tombs: twin.NewTombstones(0)} }
 
 // retention is how long tombstones are kept for this hub: the test-only override if one is set, otherwise the
 // live organisation setting, falling back to twin.DefaultRetention if that is zero (a settings row saved before
@@ -85,7 +86,7 @@ func (h *Hub) retention() time.Duration {
 
 // twinLoad reads what was persisted, once. It is safe to call under h.mu: the store never calls back into the hub.
 func (h *Hub) twinLoad(ctx context.Context) {
-	tw := h.tw
+	tw := h.Tw
 	tw.mu.Lock()
 	defer tw.mu.Unlock()
 	if tw.loaded {
@@ -111,15 +112,15 @@ func (h *Hub) twinLoad(ctx context.Context) {
 
 // workspaceChanged tells the twin the declared layer was saved.
 func (h *Hub) workspaceChanged(int64) {
-	h.tw.mu.Lock()
-	h.tw.declaredK = false
-	h.tw.mu.Unlock()
-	h.tw.gen.Add(1)
+	h.Tw.mu.Lock()
+	h.Tw.declaredK = false
+	h.Tw.mu.Unlock()
+	h.Tw.gen.Add(1)
 }
 
 // declaredNow returns the declared layer, parsed from the saved workspace.
 func (h *Hub) declaredNow(ctx context.Context, now time.Time) workspace.Declared {
-	tw := h.tw
+	tw := h.Tw
 	tw.mu.Lock()
 	if tw.declaredK && now.Sub(tw.declaredA) < declaredTTL {
 		d := tw.declared
@@ -147,7 +148,7 @@ func (h *Hub) nodeRecords(clusterID string, st *facts.State, now time.Time) map[
 	for _, n := range st.Nodes {
 		nodes = append(nodes, n)
 	}
-	return h.tw.reg.Resolve(clusterID, nodes, now)
+	return h.Tw.reg.Resolve(clusterID, nodes, now)
 }
 
 func nodeIDMap(rs map[string]twin.NodeRecord) map[string]string {
@@ -161,17 +162,17 @@ func nodeIDMap(rs map[string]twin.NodeRecord) map[string]string {
 // noteVanished records a tombstone for every record an incoming sync is about to remove from what the server
 // holds. It looks at the state as it is before the sync is applied, because that is the last known record. The
 // caller holds h.mu.
-func (h *Hub) noteVanished(a store.Agent, v *view, s *continuumv1.Sync, now time.Time) {
-	if v == nil || v.state == nil {
+func (h *Hub) noteVanished(a store.Agent, v *View, s *continuumv1.Sync, now time.Time) {
+	if v == nil || v.State == nil {
 		return
 	}
-	gone := twin.Disappeared(v.state, s, a.AccessTier)
+	gone := twin.Disappeared(v.State, s, a.AccessTier)
 	if len(gone) == 0 {
 		return
 	}
 	h.twinLoad(bg())
-	recs := h.nodeRecords(a.ClusterID, v.state, now)
-	t := interpret.Interpret(interpret.Input{OrgID: h.C.OrgID, AgentID: a.ID, ClusterID: a.ClusterID, Name: a.Name, State: v.state, Now: v.lastSync, AccessTier: a.AccessTier, NodeIDs: nodeIDMap(recs)})
+	recs := h.nodeRecords(a.ClusterID, v.State, now)
+	t := interpret.Interpret(interpret.Input{OrgID: h.C.OrgID, AgentID: a.ID, ClusterID: a.ClusterID, Name: a.Name, State: v.State, Now: v.LastSync, AccessTier: a.AccessTier, NodeIDs: nodeIDMap(recs)})
 	byKey := map[string]int{}
 	for i := range t.Nodes {
 		byKey["node|"+t.Nodes[i].Key] = i
@@ -221,27 +222,27 @@ func (h *Hub) noteVanished(a store.Agent, v *view, s *continuumv1.Sync, now time
 			id, name = sv.ID, sv.Name
 			raw, _ = json.Marshal(sv)
 		}
-		add = append(add, store.Tombstone{Kind: g.Kind, ID: id, Name: name, ClusterID: a.ClusterID, AgentID: a.ID, GoneAt: now, LastSeen: v.lastBeat, Reason: g.Reason, Record: raw})
+		add = append(add, store.Tombstone{Kind: g.Kind, ID: id, Name: name, ClusterID: a.ClusterID, AgentID: a.ID, GoneAt: now, LastSeen: v.LastBeat, Reason: g.Reason, Record: raw})
 	}
 	if len(add) > 0 {
-		h.tw.tombs.Add(add...)
-		h.tw.gen.Add(1)
+		h.Tw.tombs.Add(add...)
+		h.Tw.gen.Add(1)
 	}
 }
 
 // reviveSeen removes the tombstones of records that are back in a topology. The caller holds h.mu.
 func (h *Hub) reviveSeen(t model.Topology) {
-	if h.tw.tombs.Len() == 0 {
+	if h.Tw.tombs.Len() == 0 {
 		return
 	}
 	for _, n := range t.Nodes {
-		h.tw.tombs.Revive(twin.KindNode, n.ID)
+		h.Tw.tombs.Revive(twin.KindNode, n.ID)
 	}
 	for _, n := range t.Namespaces {
-		h.tw.tombs.Revive(twin.KindNamespace, n.ID)
+		h.Tw.tombs.Revive(twin.KindNamespace, n.ID)
 	}
 	for _, s := range t.Services {
-		h.tw.tombs.Revive(twin.KindService, s.ID)
+		h.Tw.tombs.Revive(twin.KindService, s.ID)
 	}
 }
 
@@ -260,7 +261,7 @@ type TombstoneDoc struct {
 
 func (h *Hub) tombstoneDocs(now time.Time) []TombstoneDoc {
 	out := []TombstoneDoc{}
-	for _, t := range h.tw.tombs.List(now) {
+	for _, t := range h.Tw.tombs.List(now) {
 		if len(out) >= maxTombstoneDocs {
 			break
 		}
@@ -279,12 +280,12 @@ func (h *Hub) tombstoneDocs(now time.Time) []TombstoneDoc {
 // Tombstones lists what disappeared within the retention window, newest first.
 func (h *Hub) Tombstones(ctx context.Context) []store.Tombstone {
 	h.twinLoad(ctx)
-	return h.tw.tombs.List(h.C.Now())
+	return h.Tw.tombs.List(h.C.Now())
 }
 
 // Flush persists what changed in the registry and the tombstones and drops tombstones past retention.
 func (h *Hub) Flush(ctx context.Context) {
-	tw := h.tw
+	tw := h.Tw
 	tw.mu.Lock()
 	loaded := tw.loaded
 	tw.mu.Unlock()
@@ -331,7 +332,7 @@ func newEffectiveBuild(window time.Duration) *effectiveBuild {
 // tag that identifies its version. Concurrent callers within a couple of seconds share one computation.
 func (h *Hub) Model(ctx context.Context) (twin.Model, string, error) {
 	h.twinLoad(ctx)
-	tw := h.tw
+	tw := h.Tw
 	tw.build.Lock()
 	defer tw.build.Unlock()
 	now := h.C.Now()
@@ -341,11 +342,11 @@ func (h *Hub) Model(ctx context.Context) (twin.Model, string, error) {
 		m, etag := c.m, c.etag
 		h.saveModelVersion(ctx, now)
 		tw.mu.Unlock()
-		tw.cacheHits.Add(1)
+		tw.CacheHits.Add(1)
 		return m, etag, nil
 	}
 	tw.mu.Unlock()
-	tw.cacheMisses.Add(1)
+	tw.CacheMisses.Add(1)
 
 	gen := tw.gen.Load()
 	decl := h.declaredNow(ctx, now)
@@ -353,7 +354,7 @@ func (h *Hub) Model(ctx context.Context) (twin.Model, string, error) {
 	_, err := h.stateFor(ctx, false, func(doc *StateDoc, asm *effectiveBuild) {
 		m = twin.Build(twin.Input{
 			Now: now, StaleAfter: asm.window, Retention: h.retention(), Topology: doc.Topology, Facts: asm.facts, Agents: asm.agents,
-			Observations: asm.obs, Nodes: asm.nodes, Tombstones: h.tw.tombs.List(now), Declared: decl,
+			Observations: asm.obs, Nodes: asm.nodes, Tombstones: h.Tw.tombs.List(now), Declared: decl,
 		})
 	})
 	if err != nil {
@@ -378,7 +379,7 @@ func (h *Hub) Model(ctx context.Context) (twin.Model, string, error) {
 // that could not be stored stays marked, and the next read (hit or miss) tries again, so a refused write delays the
 // number reaching the store but never loses it.
 func (h *Hub) saveModelVersion(ctx context.Context, at time.Time) {
-	tw := h.tw
+	tw := h.Tw
 	if !tw.unsaved {
 		return
 	}

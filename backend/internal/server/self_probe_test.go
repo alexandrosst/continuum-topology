@@ -89,9 +89,9 @@ func TestProbesFillInWhatAnAgentWithoutItsOwnNodeProbeCannotSee(t *testing.T) {
 	const uid = "3f2b6c1e-9a4d-4e7b-8c55-0d1e2f3a4b5c"
 	a, f, agentID := centralRig(t, uid)
 	f.ClusterUID = uid
-	a.hub().mu.Lock()
-	a.hub().views[agentID].state.Nodes["nuc-1"].Probe = nil // the agent's chart runs no node probe
-	a.hub().mu.Unlock()
+	a.hub().Mu.Lock()
+	a.hub().Views[agentID].State.Nodes["nuc-1"].Probe = nil // the agent's chart runs no node probe
+	a.hub().Mu.Unlock()
 	selfProbes(t, a, time.Minute)("nuc-1", &continuumv1.HostAddress{Interface: "wt0", Kind: "wireguard", Address: "100.64.0.77/10"})
 	sc := serverCluster(t, centralCandidates(t, a))
 	if sc["nodes"] != "agent" {

@@ -238,7 +238,7 @@ func TestSelfTelemetryEndpointShapeAndRBAC(t *testing.T) {
 	}
 
 	ag := twinAgent(t, a.env, h, fp)
-	h.applySync(ag, twinFull(fp, []*continuumv1.NodeFacts{twinNode("n1", "")}), false)
+	h.ApplySync(ag, twinFull(fp, []*continuumv1.NodeFacts{twinNode("n1", "")}), false)
 
 	// This agent has an approved cluster but has never sent a heartbeat carrying SelfStats: still absent,
 	// not listed with an empty samples list.
@@ -252,14 +252,14 @@ func TestSelfTelemetryEndpointShapeAndRBAC(t *testing.T) {
 
 	// Give the agent two SelfStats samples directly (the same path noteSelfStats takes from a real
 	// heartbeat - see TestNoteSelfStatsCopiesEveryField for that plumbing on its own).
-	h.mu.Lock()
-	v := h.views[ag.ID]
+	h.Mu.Lock()
+	v := h.Views[ag.ID]
 	t0 := time.Unix(5000, 0)
 	v.Self.Add(agents.SelfStatsSample{At: t0, RSSBytes: 111 << 20, Goroutines: 9, CPUSeconds: 1, FlowIntervalSeconds: 30, ProbeIntervalSeconds: 180, LinkBytesCumulative: 1000}, t0)
 	t1 := t0.Add(10 * time.Second)
 	v.Self.Add(agents.SelfStatsSample{At: t1, RSSBytes: 115 << 20, Goroutines: 9, CPUSeconds: 2, FlowIntervalSeconds: 30, ProbeIntervalSeconds: 180, LinkBytesCumulative: 2000}, t1)
-	h.mu.Unlock()
-	h.sampleSelfStats(t1)
+	h.Mu.Unlock()
+	h.SampleSelfStats(t1)
 
 	r = a.do("GET", "/api/v1/telemetry/self", nil, withCookie(viewer))
 	body = r.jsonArray(t)

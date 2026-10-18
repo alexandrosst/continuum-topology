@@ -58,9 +58,9 @@ func newCredRig(t *testing.T) *credRig {
 		if err != nil {
 			t.Fatal(err)
 		}
-		r.hub.mu.Lock()
-		r.hub.views[a.ID] = &view{estView: estView{state: nodeState("10.0." + strings.TrimPrefix(f[len(f)-2:], "0") + ".1"), flows: observed.NewFlowTable()}, NetView: connectivity.NetView{Paths: map[string]*connectivity.PathTrack{}, Targets: map[string]connectivity.IssuedTarget{}}}
-		r.hub.mu.Unlock()
+		r.hub.Mu.Lock()
+		r.hub.Views[a.ID] = &View{EstView: EstView{State: nodeState("10.0." + strings.TrimPrefix(f[len(f)-2:], "0") + ".1"), Flows: observed.NewFlowTable()}, NetView: connectivity.NetView{Paths: map[string]*connectivity.PathTrack{}, Targets: map[string]connectivity.IssuedTarget{}}}
+		r.hub.Mu.Unlock()
 		ags = append(ags, a)
 	}
 	// Order the first two by cluster id: the first sorted is the runner.
@@ -79,10 +79,10 @@ func (cr *credRig) save(t *testing.T, links ...kernel.LinkSetting) {
 }
 
 func (cr *credRig) cfg(a store.Agent) *continuumv1.Config {
-	cr.hub.mu.Lock()
-	v := cr.hub.views[a.ID]
-	cr.hub.mu.Unlock()
-	return cr.hub.configFor(a, v)
+	cr.hub.Mu.Lock()
+	v := cr.hub.Views[a.ID]
+	cr.hub.Mu.Unlock()
+	return cr.hub.ConfigFor(a, v)
 }
 
 func (cr *credRig) pair(throughput bool) kernel.LinkSetting {
@@ -104,7 +104,7 @@ func (cr *credRig) rows(t *testing.T) []store.LinkCredential {
 
 // settle waits for the credentials work a saved settings change starts in the background.
 func (cr *credRig) settle() {
-	cr.hub.syncLinkCredentials()
+	cr.hub.SyncLinkCredentials()
 }
 
 func publicOf(t *testing.T, privatePEM string) string {
@@ -396,9 +396,9 @@ func TestTheConfigHashFollowsTheCredentialsWithoutHoldingThem(t *testing.T) {
 	cr.save(t, cr.pair(true))
 	hash := func(a store.Agent) string {
 		cr.cfg(a)
-		cr.hub.mu.Lock()
-		defer cr.hub.mu.Unlock()
-		return cr.hub.views[a.ID].CfgHash
+		cr.hub.Mu.Lock()
+		defer cr.hub.Mu.Unlock()
+		return cr.hub.Views[a.ID].CfgHash
 	}
 	h1, h2 := hash(cr.first), hash(cr.second)
 	if hash(cr.first) != h1 || hash(cr.second) != h2 {

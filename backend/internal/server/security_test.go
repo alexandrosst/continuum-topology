@@ -293,13 +293,13 @@ func TestTierZeroDropsClassListsToo(t *testing.T) {
 	id, _, _ := r.approvedAgent(t, fp)
 	a, _ := r.st.GetAgent(r.ctx, id)
 	a.AccessTier = 0
-	r.hub.mu.Lock()
-	r.hub.views[id] = &view{estView: estView{state: facts.New()}}
-	r.hub.mu.Unlock()
-	r.hub.applySync(a, &continuumv1.Sync{Full: true,
+	r.hub.Mu.Lock()
+	r.hub.Views[id] = &View{EstView: EstView{State: facts.New()}}
+	r.hub.Mu.Unlock()
+	r.hub.ApplySync(a, &continuumv1.Sync{Full: true,
 		Cluster: &continuumv1.ClusterFacts{Uid: fp, StorageClasses: []string{"gp3"}, IngressClasses: []string{"nginx"}},
 		Nodes:   []*continuumv1.NodeFacts{{Key: "n", Name: "n"}}}, false)
-	st := r.hub.views[id].state
+	st := r.hub.Views[id].State
 	if len(st.Nodes) != 0 || len(st.Cluster.StorageClasses) != 0 || len(st.Cluster.IngressClasses) != 0 {
 		t.Fatalf("tier 0 kept tier 1 facts: %+v", st.Cluster)
 	}
@@ -312,15 +312,15 @@ func TestTierOneDropsPodDerivedNodeFigures(t *testing.T) {
 	id, _, _ := r.approvedAgent(t, fp)
 	a, _ := r.st.GetAgent(r.ctx, id)
 	a.AccessTier = 1
-	r.hub.mu.Lock()
-	r.hub.views[id] = &view{estView: estView{state: facts.New()}}
-	r.hub.mu.Unlock()
+	r.hub.Mu.Lock()
+	r.hub.Views[id] = &View{EstView: EstView{State: facts.New()}}
+	r.hub.Mu.Unlock()
 	cnt := int32(12)
-	r.hub.applySync(a, &continuumv1.Sync{Full: true,
+	r.hub.ApplySync(a, &continuumv1.Sync{Full: true,
 		Cluster:   &continuumv1.ClusterFacts{Uid: fp},
 		Nodes:     []*continuumv1.NodeFacts{{Key: "n", Name: "n", PodCapacity: 110, PodCount: &cnt, CpuRequestedMillis: 900, MemoryRequestedBytes: 1 << 30}},
 		Workloads: []*continuumv1.WorkloadFacts{{Key: "ns/Deployment/x", VolumeClaims: []*continuumv1.VolumeClaim{{Name: "v"}}}}}, false)
-	st := r.hub.views[id].state
+	st := r.hub.Views[id].State
 	n := st.Nodes["n"]
 	if n == nil || n.PodCapacity != 110 || n.PodCount != nil || n.CpuRequestedMillis != 0 || n.MemoryRequestedBytes != 0 {
 		t.Fatalf("tier 1 node = %+v", n)

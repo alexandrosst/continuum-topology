@@ -16,9 +16,9 @@ import (
 
 // declared is what the server holds of the agent's last hello.
 func (f *fakeAgent) declared() (protocol uint32, caps []string) {
-	f.r.hub.mu.Lock()
-	defer f.r.hub.mu.Unlock()
-	v := f.r.hub.views[f.id]
+	f.r.hub.Mu.Lock()
+	defer f.r.hub.Mu.Unlock()
+	v := f.r.hub.Views[f.id]
 	return v.Ext.Protocol, append([]string(nil), v.Ext.Caps...)
 }
 

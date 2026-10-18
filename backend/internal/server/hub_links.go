@@ -159,8 +159,8 @@ func (h *Hub) ownAddresses(a store.Agent) map[string]bool {
 // peerNodeAddresses are the addresses agent o's cluster answers to as its nodes and their interfaces report them, canonical,
 // sorted, without repeats. Called with h.mu held.
 func (h *Hub) peerNodeAddresses(o store.Agent) []string {
-	if v := h.views[o.ID]; v != nil && v.state != nil {
-		return connectivity.DedupeSorted(observed.LinkPeerAddresses(v.state))
+	if v := h.Views[o.ID]; v != nil && v.State != nil {
+		return connectivity.DedupeSorted(observed.LinkPeerAddresses(v.State))
 	}
 	return nil
 }
@@ -206,17 +206,17 @@ func (h *Hub) runnersPaused(a store.Agent, agentList []store.Agent, links []kern
 	out := map[string]bool{}
 	for _, o := range agentList {
 		if runs[o.ClusterID] && o.Status == store.StatusApproved {
-			out[o.ID] = h.consentOf(o.ID).Has("flow")
+			out[o.ID] = h.ConsentOf(o.ID).Has("flow")
 		}
 	}
 	return out
 }
 
-// linkNotes works out, for each listed pair, what keeps either cluster from being told about the other. It mirrors peerList's
+// LinkNotes works out, for each listed pair, what keeps either cluster from being told about the other. It mirrors peerList's
 // conditions one by one, so a pair that has no note is one whose agents are handed each other. Called with h.mu held;
 // agents is the organisation's agents and flowPausedOf (by agent id) says whose flow collector is paused, both read
 // beforehand because that may touch the store.
-func (h *Hub) linkNotes(links []kernel.LinkSetting, agentList []store.Agent, flowPausedOf map[string]bool) []connectivity.LinkNote {
+func (h *Hub) LinkNotes(links []kernel.LinkSetting, agentList []store.Agent, flowPausedOf map[string]bool) []connectivity.LinkNote {
 	byCluster := connectivity.ApprovedByCluster(agentList)
 	plan := h.planner(links, agentList)
 	var out []connectivity.LinkNote
@@ -253,7 +253,7 @@ func (h *Hub) linkNotes(links []kernel.LinkSetting, agentList []store.Agent, flo
 }
 
 // endNote is the reason, if any, that agent a (one end of pair l, with approved agent o at the other, and plan the peer list a is
-// given) is not told about its peer: the one linkNotes reports for that end. Nil when a is handed o. Called with h.mu held.
+// given) is not told about its peer: the one LinkNotes reports for that end. Nil when a is handed o. Called with h.mu held.
 func (h *Hub) endNote(l kernel.LinkSetting, a, o store.Agent, plan *connectivity.PeerPlan, flowPaused bool) *connectivity.LinkNote {
 	c, peer := a.ClusterID, o.ClusterID
 	switch {

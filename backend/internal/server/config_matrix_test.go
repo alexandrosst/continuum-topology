@@ -19,7 +19,7 @@ import (
 
 var updateGolden = flag.Bool("update", false, "rewrite the golden files")
 
-// configFor is the one function that assembles every agent's Config from consent, link pairs, credentials, probe targets and the
+// ConfigFor is the one function that assembles every agent's Config from consent, link pairs, credentials, probe targets and the
 // agent's tier. It is the code the config-channel work will move piece by piece, and the rule for that work is that the Config
 // every agent gets does not change. This test is that rule written down: it takes three clusters through a series of settings,
 // and records the whole Config each of them is sent after every step in testdata/config_matrix.golden.

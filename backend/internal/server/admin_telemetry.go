@@ -38,7 +38,7 @@ type SelfTelemetrySample struct {
 	// real, meaningful 0 (no agent currently connected) that must stay visible rather than disappear
 	// behind omitempty.
 	ConnectedAgents *int `json:"connectedAgents,omitempty"`
-	// FlowIngestBytesPerSec is a live snapshot already expressed as a rate (sampleSelfStats derives it
+	// FlowIngestBytesPerSec is a live snapshot already expressed as a rate (SampleSelfStats derives it
 	// itself from its own internal cumulative counters - see ServerSelfStatsSample's own doc comment), so
 	// unlike CPUPct/ModelCacheHitPct/GCPauseMsPerSec it needs no further diffing here and is present on
 	// every sample, including the first (0 there, same "never a fabricated large rate" contract
@@ -69,10 +69,10 @@ type SelfTelemetryEntity struct {
 
 // rateBetween derives a plain "change per second" from two cumulative readings a real elapsed time
 // apart - the same diff-over-elapsed-time treatment every cumulative counter in this package already
-// gets from its own caller (compare sampleSelfStats' own FlowIngestBytesPerSec, or oomKillTotal's doc in
+// gets from its own caller (compare SampleSelfStats' own FlowIngestBytesPerSec, or oomKillTotal's doc in
 // the probe package for the general pattern this mirrors). ok is false whenever that is not meaningful:
 // no real elapsed time, or the counter went backwards (a reconnect that restarted it from a lower base,
-// the same case sampleSelfStats already guards against) - never a fabricated negative or infinite rate.
+// the same case SampleSelfStats already guards against) - never a fabricated negative or infinite rate.
 func rateBetween(prevCumulative, curCumulative float64, elapsed time.Duration) (float64, bool) {
 	secs := elapsed.Seconds()
 	if secs <= 0 {

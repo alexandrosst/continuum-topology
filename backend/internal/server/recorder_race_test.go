@@ -14,9 +14,9 @@ import (
 func TestRecorderTickAndScanNowDoNotRace(t *testing.T) {
 	r := newHubRig(t)
 	id, _, _ := r.approvedAgent(t, fp)
-	r.hub.mu.Lock()
-	r.hub.views[id] = liveView(*r.now, "n1", "n2")
-	r.hub.mu.Unlock()
+	r.hub.Mu.Lock()
+	r.hub.Views[id] = liveView(*r.now, "n1", "n2")
+	r.hub.Mu.Unlock()
 
 	var clock atomic.Int64 // race-free test clock so only the code under test races
 	base := r.now.UnixNano()
@@ -27,14 +27,14 @@ func TestRecorderTickAndScanNowDoNotRace(t *testing.T) {
 	go func() { // the HTTP handler goroutine(s)
 		defer wg.Done()
 		for i := 0; i < 60; i++ {
-			r.hub.mu.Lock()
-			st := r.hub.views[id].state
+			r.hub.Mu.Lock()
+			st := r.hub.Views[id].State
 			if i%2 == 0 {
 				delete(st.Nodes, "n2")
 			} else {
 				st.Nodes["n2"] = &continuumv1.NodeFacts{Key: "n2", Name: "n2", Ready: true}
 			}
-			r.hub.mu.Unlock()
+			r.hub.Mu.Unlock()
 			r.hub.ScanNow(r.ctx)
 		}
 	}()

@@ -79,9 +79,9 @@ func TestADeltaStreamCannotGrowTheStateBeyondTheLimits(t *testing.T) {
 	if code(err) != codes.ResourceExhausted || !strings.Contains(err.Error(), "nodes") || !strings.Contains(err.Error(), "at most 50") {
 		t.Fatalf("the delta that broke the limit: %v", err)
 	}
-	r.hub.mu.Lock()
-	held := len(r.hub.views[id].state.Nodes)
-	r.hub.mu.Unlock()
+	r.hub.Mu.Lock()
+	held := len(r.hub.Views[id].State.Nodes)
+	r.hub.Mu.Unlock()
 	if held != 50 {
 		t.Fatalf("the server holds %d nodes; the refused delta must change nothing", held)
 	}
@@ -133,10 +133,10 @@ func TestRepeatedRefusalsAreRecordedOncePerWindow(t *testing.T) {
 	r.hub.Limits = &facts.Limits{Nodes: 5, Namespaces: 5, Workloads: 5, Bytes: 1 << 20}
 	id, _, _ := r.approvedAgent(t, fp)
 	a, _ := r.st.GetAgent(r.ctx, id)
-	v := &view{estView: estView{state: facts.New()}}
-	r.hub.mu.Lock()
-	r.hub.views[id] = v
-	r.hub.mu.Unlock()
+	v := &View{EstView: EstView{State: facts.New()}}
+	r.hub.Mu.Lock()
+	r.hub.Views[id] = v
+	r.hub.Mu.Unlock()
 	for i := 0; i < 30; i++ {
 		r.hub.refuseSync(r.ctx, a, v, fmt.Errorf("too much %d", i))
 	}
@@ -160,19 +160,19 @@ func TestUniqueKeyFloodThroughApplySyncStopsAtTheLimit(t *testing.T) {
 	id, _, _ := r.approvedAgent(t, fp)
 	a, _ := r.st.GetAgent(r.ctx, id)
 	a.AccessTier = 2
-	r.hub.mu.Lock()
-	r.hub.views[id] = &view{estView: estView{state: facts.New()}}
-	r.hub.mu.Unlock()
+	r.hub.Mu.Lock()
+	r.hub.Views[id] = &View{EstView: EstView{State: facts.New()}}
+	r.hub.Mu.Unlock()
 	refused := 0
 	for i := 0; i < 1000; i++ {
 		s := &continuumv1.Sync{Seq: uint64(i), Cluster: &continuumv1.ClusterFacts{Uid: fp}, Workloads: []*continuumv1.WorkloadFacts{{Key: fmt.Sprintf("ns/Deployment/%d", i), Name: "x"}}}
-		if _, _, err := r.hub.applySync(a, s, true); err != nil {
+		if _, _, err := r.hub.ApplySync(a, s, true); err != nil {
 			refused++
 		}
 	}
-	r.hub.mu.Lock()
-	held := len(r.hub.views[id].state.Workloads)
-	r.hub.mu.Unlock()
+	r.hub.Mu.Lock()
+	held := len(r.hub.Views[id].State.Workloads)
+	r.hub.Mu.Unlock()
 	if held != 300 || refused != 700 {
 		t.Fatalf("held %d, refused %d", held, refused)
 	}
@@ -193,9 +193,9 @@ func TestLongKeysAreRefusedAndLongStringsAreCut(t *testing.T) {
 	if m, err := s.Recv(); err != nil || m.GetAck() == nil {
 		t.Fatalf("a long label value should be cut, not refused: %v %v", m, err)
 	}
-	r.hub.mu.Lock()
-	got := r.hub.views[id].state.Workloads["ns/Deployment/a"].Labels["l"]
-	r.hub.mu.Unlock()
+	r.hub.Mu.Lock()
+	got := r.hub.Views[id].State.Workloads["ns/Deployment/a"].Labels["l"]
+	r.hub.Mu.Unlock()
 	if len(got) != facts.MaxMapValue {
 		t.Fatalf("stored label is %d bytes", len(got))
 	}
@@ -222,9 +222,9 @@ func TestLongKeysAreRefusedAndLongStringsAreCut(t *testing.T) {
 	if m, err := s.Recv(); err != nil || m.GetAck() == nil {
 		t.Fatalf("an over-long name, image or label key should be cut, not refused: %v %v", m, err)
 	}
-	r.hub.mu.Lock()
-	b, n := r.hub.views[id].state.Workloads["ns/Deployment/b"], r.hub.views[id].state.Nodes["n"]
-	r.hub.mu.Unlock()
+	r.hub.Mu.Lock()
+	b, n := r.hub.Views[id].State.Workloads["ns/Deployment/b"], r.hub.Views[id].State.Nodes["n"]
+	r.hub.Mu.Unlock()
 	if len(b.Name) != facts.MaxString || len(b.Images[0].Image) != facts.MaxString || len(b.Labels) != 0 || len(n.Name) != facts.MaxString {
 		t.Errorf("stored name %d, image %d, %d labels, node name %d", len(b.Name), len(b.Images[0].Image), len(b.Labels), len(n.Name))
 	}
@@ -277,17 +277,17 @@ func TestAPoisonedStoredSnapshotIsDroppedOnRestore(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := tn.Hub
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if v := h.views[good]; v == nil || len(v.state.Nodes) != 5 || v.state.Seq != 3 {
+	h.Mu.Lock()
+	defer h.Mu.Unlock()
+	if v := h.Views[good]; v == nil || len(v.State.Nodes) != 5 || v.State.Seq != 3 {
 		t.Fatalf("a valid snapshot was not restored: %+v", v)
 	}
 	// A string over the limit in a stored snapshot is cut on the way in, as it would be from a live message.
-	if v := h.views[longName]; v == nil || len(v.state.Nodes["n"].Name) != facts.MaxString {
+	if v := h.Views[longName]; v == nil || len(v.State.Nodes["n"].Name) != facts.MaxString {
 		t.Errorf("a snapshot with a long string was not restored cut: %+v", v)
 	}
 	for name, id := range map[string]string{"too many nodes": tooMany, "too many bytes": tooBig, "garbage": garbage} {
-		if h.views[id] != nil {
+		if h.Views[id] != nil {
 			t.Errorf("a snapshot with %s was restored", name)
 		}
 	}
@@ -297,15 +297,15 @@ func TestOversizeSnapshotIsNotPersisted(t *testing.T) {
 	r := newHubRig(t)
 	r.hub.Limits = &facts.Limits{Nodes: 100, Namespaces: 100, Workloads: 100, Bytes: 1 << 10}
 	id, _, _ := r.approvedAgent(t, fp)
-	v := &view{estView: estView{state: facts.New(), dirtyAt: time.Now()}}
+	v := &View{EstView: EstView{State: facts.New(), dirtyAt: time.Now()}}
 	// build a state that is over the cap by going around Check (as a bug or a poisoned store would)
-	v.state.Apply(&continuumv1.Sync{Workloads: []*continuumv1.WorkloadFacts{{Key: "w", Labels: map[string]string{"a": strings.Repeat("z", 1000)}}}, Nodes: nodes("n", 1)})
+	v.State.Apply(&continuumv1.Sync{Workloads: []*continuumv1.WorkloadFacts{{Key: "w", Labels: map[string]string{"a": strings.Repeat("z", 1000)}}}, Nodes: nodes("n", 1)})
 	for i := 0; i < 30; i++ {
-		v.state.Apply(&continuumv1.Sync{Workloads: []*continuumv1.WorkloadFacts{{Key: fmt.Sprint("w", i), Labels: map[string]string{"a": strings.Repeat("z", 1000)}}}})
+		v.State.Apply(&continuumv1.Sync{Workloads: []*continuumv1.WorkloadFacts{{Key: fmt.Sprint("w", i), Labels: map[string]string{"a": strings.Repeat("z", 1000)}}}})
 	}
-	r.hub.mu.Lock()
-	r.hub.views[id] = v
-	r.hub.mu.Unlock()
+	r.hub.Mu.Lock()
+	r.hub.Views[id] = v
+	r.hub.Mu.Unlock()
 	r.hub.persist(r.ctx, id, true)
 	if _, _, err := r.st.LoadSnapshot(r.ctx, id); err == nil {
 		t.Fatal("an over-limit state was written to the database")
@@ -318,12 +318,12 @@ func TestPoisonedFlowTableIsDroppedOnRestore(t *testing.T) {
 	badIP := &continuumv1.FlowTable{Edges: []*continuumv1.FlowEdge{edge("ns/Deployment/a", "127.0.0.1")}}
 	for name, tb := range map[string]*continuumv1.FlowTable{"ok": ok, "long ref": bad, "loopback ip": badIP} {
 		b, _ := proto.Marshal(tb)
-		_, err := loadFlowTable(b)
+		_, err := LoadFlowTable(b)
 		if (name == "ok") != (err == nil) {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
-	if _, err := loadFlowTable(make([]byte, facts.MaxBytes+1)); err == nil {
+	if _, err := LoadFlowTable(make([]byte, facts.MaxBytes+1)); err == nil {
 		t.Error("an oversized flow table was loaded")
 	}
 }

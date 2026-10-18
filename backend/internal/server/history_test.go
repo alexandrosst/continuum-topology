@@ -304,40 +304,40 @@ func TestApplySyncReportsDriftOnlyForLaterFullPictures(t *testing.T) {
 	id, _, _ := r.approvedAgent(t, fp)
 	a, _ := r.st.GetAgent(r.ctx, id)
 	a.AccessTier = 2
-	r.hub.mu.Lock()
-	r.hub.views[id] = &view{estView: estView{state: facts.New()}}
-	r.hub.mu.Unlock()
+	r.hub.Mu.Lock()
+	r.hub.Views[id] = &View{EstView: EstView{State: facts.New()}}
+	r.hub.Mu.Unlock()
 
 	n1 := &continuumv1.NodeFacts{Key: "n1", Name: "n1"}
 	w1 := &continuumv1.WorkloadFacts{Key: "ns/Deployment/a", Namespace: "ns", Kind: "Deployment", Name: "a", Replicas: 1}
 	full := func(nodes []*continuumv1.NodeFacts, ws ...*continuumv1.WorkloadFacts) *continuumv1.Sync {
 		return &continuumv1.Sync{Full: true, Cluster: &continuumv1.ClusterFacts{Uid: fp}, Nodes: nodes, Workloads: ws}
 	}
-	if _, checked, _ := r.hub.applySync(a, full([]*continuumv1.NodeFacts{n1}, w1), false); checked {
+	if _, checked, _ := r.hub.ApplySync(a, full([]*continuumv1.NodeFacts{n1}, w1), false); checked {
 		t.Fatal("the first full picture was treated as a check")
 	}
-	d, checked, _ := r.hub.applySync(a, full([]*continuumv1.NodeFacts{n1}, w1), true)
+	d, checked, _ := r.hub.ApplySync(a, full([]*continuumv1.NodeFacts{n1}, w1), true)
 	if !checked || d.Total() != 0 {
 		t.Fatalf("identical picture: checked=%v drift=%+v", checked, d)
 	}
 	// The cluster changed behind the server's back: a workload scaled and a node appeared.
 	w1b := &continuumv1.WorkloadFacts{Key: "ns/Deployment/a", Namespace: "ns", Kind: "Deployment", Name: "a", Replicas: 5}
 	n2 := &continuumv1.NodeFacts{Key: "n2", Name: "n2"}
-	d, checked, _ = r.hub.applySync(a, full([]*continuumv1.NodeFacts{n1, n2}, w1b), true)
+	d, checked, _ = r.hub.ApplySync(a, full([]*continuumv1.NodeFacts{n1, n2}, w1b), true)
 	if !checked || d.Changed != 1 || d.Missing != 1 || d.Extra != 0 {
 		t.Fatalf("drift = %+v", d)
 	}
-	if got := r.hub.views[id].state.Workloads["ns/Deployment/a"].Replicas; got != 5 {
+	if got := r.hub.Views[id].State.Workloads["ns/Deployment/a"].Replicas; got != 5 {
 		t.Fatalf("the server was not corrected: %d replicas", got)
 	}
-	d, _, _ = r.hub.applySync(a, full([]*continuumv1.NodeFacts{n1}), true) // n2 and the workload are gone
+	d, _, _ = r.hub.ApplySync(a, full([]*continuumv1.NodeFacts{n1}), true) // n2 and the workload are gone
 	if d.Extra != 2 || d.Missing != 0 || d.Changed != 0 {
 		t.Fatalf("removals: %+v", d)
 	}
 	if !strings.Contains(d.String(), "no longer has") {
 		t.Fatalf("description: %q", d.String())
 	}
-	if _, checked, _ := r.hub.applySync(a, &continuumv1.Sync{Nodes: []*continuumv1.NodeFacts{n2}}, true); checked {
+	if _, checked, _ := r.hub.ApplySync(a, &continuumv1.Sync{Nodes: []*continuumv1.NodeFacts{n2}}, true); checked {
 		t.Fatal("a delta was treated as a check")
 	}
 }
@@ -398,24 +398,24 @@ func TestDeriveTargetsPicksBusiestSafeTCPDestinations(t *testing.T) {
 func TestNoteMeasurementsAcceptsOnlyIssuedTargetsAndSaneNumbers(t *testing.T) {
 	r := newHubRig(t)
 	id, _, _ := r.approvedAgent(t, fp)
-	r.hub.mu.Lock()
-	r.hub.views[id] = &view{estView: estView{state: facts.New()}, NetView: connectivity.NetView{Paths: map[string]*connectivity.PathTrack{}, Targets: map[string]connectivity.IssuedTarget{"t1": {ID: "t1", Host: "203.0.113.10", Port: 443, Source: "manual"}}}}
-	r.hub.mu.Unlock()
-	r.hub.noteMeasurements(id, &continuumv1.Measurements{Results: []*continuumv1.PathResult{
+	r.hub.Mu.Lock()
+	r.hub.Views[id] = &View{EstView: EstView{State: facts.New()}, NetView: connectivity.NetView{Paths: map[string]*connectivity.PathTrack{}, Targets: map[string]connectivity.IssuedTarget{"t1": {ID: "t1", Host: "203.0.113.10", Port: 443, Source: "manual"}}}}
+	r.hub.Mu.Unlock()
+	r.hub.NoteMeasurements(id, &continuumv1.Measurements{Results: []*continuumv1.PathResult{
 		{TargetId: "t1", Samples: 5, Failed: 1, RttMinMs: 10, RttP50Ms: 12, RttP95Ms: 1e12},
 		{TargetId: "made-up", Samples: 5, RttP50Ms: 1}, // never issued
 		{TargetId: "t1", Samples: 0},                   // nothing measured
 		{TargetId: "t1", Samples: 101},                 // absurd
 		{TargetId: "t1", Samples: 5, Failed: 6},        // more failures than attempts
 	}})
-	v := r.hub.views[id]
+	v := r.hub.Views[id]
 	if len(v.Paths) != 1 || v.Paths["t1"] == nil || len(v.Paths["t1"].Rounds) != 1 {
 		t.Fatalf("paths = %+v", v.Paths)
 	}
 	if got := v.Paths["t1"].Rounds[0].P95; got != 60000 {
 		t.Fatalf("an absurd time was not clamped: %v", got)
 	}
-	r.hub.noteMeasurements("unknown-agent", &continuumv1.Measurements{}) // must not panic
+	r.hub.NoteMeasurements("unknown-agent", &continuumv1.Measurements{}) // must not panic
 }
 
 func TestConfigForIssuesManualAndObservedTargetsByTier(t *testing.T) {
@@ -428,16 +428,16 @@ func TestConfigForIssuesManualAndObservedTargetsByTier(t *testing.T) {
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	v := &view{estView: estView{state: facts.New(), flows: observed.NewFlowTable()}, NetView: connectivity.NetView{Paths: map[string]*connectivity.PathTrack{"stale": {}}, Targets: map[string]connectivity.IssuedTarget{}}}
-	extEdge(v.flows, "ns/Deployment/a", "198.51.100.10", 443, "tcp", 20, "")
+	v := &View{EstView: EstView{State: facts.New(), Flows: observed.NewFlowTable()}, NetView: connectivity.NetView{Paths: map[string]*connectivity.PathTrack{"stale": {}}, Targets: map[string]connectivity.IssuedTarget{}}}
+	extEdge(v.Flows, "ns/Deployment/a", "198.51.100.10", 443, "tcp", 20, "")
 
 	a.AccessTier = 1 // flows come from pods; tier 1 does not cover them
-	cfg := r.hub.configFor(a, v)
+	cfg := r.hub.ConfigFor(a, v)
 	if len(cfg.ProbeTargets) != 1 || cfg.ProbeTargets[0].Id != "mine" || cfg.MeasureSeconds != 30 {
 		t.Fatalf("tier 1 config = %+v", cfg)
 	}
 	a.AccessTier = 2
-	cfg = r.hub.configFor(a, v)
+	cfg = r.hub.ConfigFor(a, v)
 	if len(cfg.ProbeTargets) != 2 || cfg.ResyncSeconds != int32(15*60) {
 		t.Fatalf("tier 2 config = %+v", cfg)
 	}
@@ -446,14 +446,14 @@ func TestConfigForIssuesManualAndObservedTargetsByTier(t *testing.T) {
 	}
 	h1 := v.CfgHash
 	r.hub.ConsistencyEvery = 2 * time.Second
-	if cfg = r.hub.configFor(a, v); cfg.ResyncSeconds != 2 || v.CfgHash == h1 {
+	if cfg = r.hub.ConfigFor(a, v); cfg.ResyncSeconds != 2 || v.CfgHash == h1 {
 		t.Fatalf("the test override was ignored: %+v", cfg)
 	}
 	if _, err := r.core.SaveSettings(r.ctx, "alex", kernel.Settings{}); err != nil {
 		t.Fatal(err)
 	}
-	bare := &view{estView: estView{state: facts.New(), flows: observed.NewFlowTable()}, NetView: connectivity.NetView{Paths: map[string]*connectivity.PathTrack{}, Targets: map[string]connectivity.IssuedTarget{}}}
-	if cfg = r.hub.configFor(a, bare); cfg.MeasureSeconds != 0 || len(cfg.ProbeTargets) != 0 {
+	bare := &View{EstView: EstView{State: facts.New(), Flows: observed.NewFlowTable()}, NetView: connectivity.NetView{Paths: map[string]*connectivity.PathTrack{}, Targets: map[string]connectivity.IssuedTarget{}}}
+	if cfg = r.hub.ConfigFor(a, bare); cfg.MeasureSeconds != 0 || len(cfg.ProbeTargets) != 0 {
 		t.Fatalf("empty config = %+v", cfg)
 	}
 }
@@ -518,21 +518,21 @@ func TestOnboardedClusterAddressesAreNeverSuspicious(t *testing.T) {
 
 // ---- recording ----
 
-func liveView(now time.Time, nodes ...string) *view {
+func liveView(now time.Time, nodes ...string) *View {
 	st := facts.New()
 	st.Cluster = &continuumv1.ClusterFacts{Uid: fp}
 	for _, n := range nodes {
 		st.Nodes[n] = &continuumv1.NodeFacts{Key: n, Name: n, Ready: true}
 	}
-	return &view{estView: estView{state: st, lastSync: now, lastBeat: now, flows: observed.NewFlowTable()}, NetView: connectivity.NetView{Paths: map[string]*connectivity.PathTrack{}, Targets: map[string]connectivity.IssuedTarget{}}}
+	return &View{EstView: EstView{State: st, LastSync: now, LastBeat: now, Flows: observed.NewFlowTable()}, NetView: connectivity.NetView{Paths: map[string]*connectivity.PathTrack{}, Targets: map[string]connectivity.IssuedTarget{}}}
 }
 
 func TestRecorderStoresSnapshotsAndEventsOnlyForRealChanges(t *testing.T) {
 	r := newHubRig(t)
 	id, _, _ := r.approvedAgent(t, fp)
-	r.hub.mu.Lock()
-	r.hub.views[id] = liveView(*r.now, "n1", "n2")
-	r.hub.mu.Unlock()
+	r.hub.Mu.Lock()
+	r.hub.Views[id] = liveView(*r.now, "n1", "n2")
+	r.hub.Mu.Unlock()
 
 	r.hub.ScanNow(r.ctx)
 	pts, _ := r.st.ListHistory(r.ctx, "org-1", time.Time{}, time.Time{})
@@ -540,22 +540,22 @@ func TestRecorderStoresSnapshotsAndEventsOnlyForRealChanges(t *testing.T) {
 		t.Fatalf("%d snapshots after the first scan", len(pts))
 	}
 	*r.now = r.now.Add(time.Minute)
-	r.hub.mu.Lock()
-	r.hub.views[id].lastBeat = *r.now
-	r.hub.mu.Unlock()
+	r.hub.Mu.Lock()
+	r.hub.Views[id].LastBeat = *r.now
+	r.hub.Mu.Unlock()
 	r.hub.ScanNow(r.ctx)
 	pts, _ = r.st.ListHistory(r.ctx, "org-1", time.Time{}, time.Time{})
 	evs, _ := r.st.ListEvents(r.ctx, "org-1", store.EventQuery{Since: r.now.Add(-time.Hour)})
 	if len(pts) != 1 || len(evs) != 0 {
 		t.Fatalf("an unchanged estate produced %d snapshots and %d events", len(pts), len(evs))
 	}
-	r.hub.mu.Lock()
-	delete(r.hub.views[id].state.Nodes, "n2")
-	r.hub.mu.Unlock()
+	r.hub.Mu.Lock()
+	delete(r.hub.Views[id].State.Nodes, "n2")
+	r.hub.Mu.Unlock()
 	*r.now = r.now.Add(time.Minute)
-	r.hub.mu.Lock()
-	r.hub.views[id].lastBeat = *r.now
-	r.hub.mu.Unlock()
+	r.hub.Mu.Lock()
+	r.hub.Views[id].LastBeat = *r.now
+	r.hub.Mu.Unlock()
 	r.hub.ScanNow(r.ctx)
 	pts, _ = r.st.ListHistory(r.ctx, "org-1", time.Time{}, time.Time{})
 	evs, _ = r.st.ListEvents(r.ctx, "org-1", store.EventQuery{Since: r.now.Add(-time.Hour)})
@@ -735,9 +735,9 @@ func TestHistoryEndpoints(t *testing.T) {
 	_, admin := a.user(t, "root", accounts.RoleAdmin)
 	_, viewer := a.user(t, "eve", accounts.RoleViewer)
 	id, _, _ := a.approvedAgent(t, fp)
-	a.hub().mu.Lock()
-	a.hub().views[id] = liveView(*a.now, "n1")
-	a.hub().mu.Unlock()
+	a.hub().Mu.Lock()
+	a.hub().Views[id] = liveView(*a.now, "n1")
+	a.hub().Mu.Unlock()
 
 	if r := a.do("POST", "/api/v1/history/record", nil, withCookie(viewer)); r.Code != 403 {
 		t.Fatalf("a viewer forced a recording: %d", r.Code)
@@ -746,10 +746,10 @@ func TestHistoryEndpoints(t *testing.T) {
 		t.Fatalf("record: %d %s", r.Code, r.Body.String())
 	}
 	*a.now = a.now.Add(time.Hour)
-	a.hub().mu.Lock()
-	a.hub().views[id].state.Nodes["n2"] = &continuumv1.NodeFacts{Key: "n2", Name: "n2", Ready: true}
-	a.hub().views[id].lastBeat = *a.now
-	a.hub().mu.Unlock()
+	a.hub().Mu.Lock()
+	a.hub().Views[id].State.Nodes["n2"] = &continuumv1.NodeFacts{Key: "n2", Name: "n2", Ready: true}
+	a.hub().Views[id].LastBeat = *a.now
+	a.hub().Mu.Unlock()
 	a.do("POST", "/api/v1/history/record", nil, withCookie(admin))
 
 	idx := a.do("GET", "/api/v1/history", nil, withCookie(viewer)).json(t)
@@ -892,10 +892,10 @@ func TestRecorderLosesNoEventAndRepeatsNoneAfterAFailedWrite(t *testing.T) {
 	f := &failHistory{Store: r.hub.C.Store}
 	r.hub.C.Store = f
 	setNodes := func(names ...string) {
-		r.hub.mu.Lock()
-		defer r.hub.mu.Unlock()
+		r.hub.Mu.Lock()
+		defer r.hub.Mu.Unlock()
 		v := liveView(*r.now, names...)
-		r.hub.views[id] = v
+		r.hub.Views[id] = v
 	}
 	scan := func() {
 		*r.now = r.now.Add(time.Minute)
@@ -955,10 +955,10 @@ func TestRevokedAgentsAreReclaimedAfterTheirRetention(t *testing.T) {
 	live, _, _ := r.approvedAgent(t, fp)
 	gone, _, _ := r.approvedAgent(t, "11111111-2222-4333-8444-555566667777")
 	for _, id := range []string{live, gone} {
-		r.hub.mu.Lock()
-		r.hub.views[id] = liveView(*r.now, "n1")
-		r.hub.mu.Unlock()
-		for _, k := range []string{id, flowsKey(id), agents.ConsentKey(id)} {
+		r.hub.Mu.Lock()
+		r.hub.Views[id] = liveView(*r.now, "n1")
+		r.hub.Mu.Unlock()
+		for _, k := range []string{id, FlowsKey(id), agents.ConsentKey(id)} {
 			if err := r.st.SaveSnapshot(r.ctx, k, []byte("{}"), *r.now); err != nil {
 				t.Fatal(err)
 			}
@@ -968,10 +968,10 @@ func TestRevokedAgentsAreReclaimedAfterTheirRetention(t *testing.T) {
 		t.Fatal(err)
 	}
 	has := func(id string) (view bool, snaps int) {
-		r.hub.mu.Lock()
-		view = r.hub.views[id] != nil
-		r.hub.mu.Unlock()
-		for _, k := range []string{id, flowsKey(id), agents.ConsentKey(id)} {
+		r.hub.Mu.Lock()
+		view = r.hub.Views[id] != nil
+		r.hub.Mu.Unlock()
+		for _, k := range []string{id, FlowsKey(id), agents.ConsentKey(id)} {
 			if _, _, err := r.st.LoadSnapshot(r.ctx, k); err == nil {
 				snaps++
 			}

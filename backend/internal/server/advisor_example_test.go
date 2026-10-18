@@ -37,14 +37,14 @@ func TestTheExampleAdvisorProposesThroughTheRealAPIAndOnlyProposes(t *testing.T)
 	h := a.hub()
 	start := *a.now
 	var cpu float64
-	h.mu.Lock()
-	v := h.viewFor(id)
+	h.Mu.Lock()
+	v := h.ViewFor(id)
 	for i := 0; i <= 8; i++ {
 		at := start.Add(time.Duration(i) * 30 * time.Second)
 		cpu += 0.5 * 30
 		v.Self.Add(agents.SelfStatsSample{At: at, RSSBytes: 60 << 20, CPUSeconds: cpu, LinkBytesCumulative: uint64(i) * 30000}, at)
 	}
-	h.mu.Unlock()
+	h.Mu.Unlock()
 
 	srv := httptest.NewServer(a.h)
 	defer srv.Close()
@@ -81,7 +81,7 @@ func TestTheExampleAdvisorProposesThroughTheRealAPIAndOnlyProposes(t *testing.T)
 		!strings.Contains(string(ps[0].Change), `"pause":["flow"]`) || !strings.Contains(string(ps[0].Predicted), "agent_cpu_cores") {
 		t.Fatalf("stored: %+v", ps)
 	}
-	if c := h.consentOf(id); len(c.Paused) != 0 {
+	if c := h.ConsentOf(id); len(c.Paused) != 0 {
 		t.Fatalf("the advisor paused something: %+v", c)
 	}
 	// with one waiting it proposes nothing more
@@ -99,7 +99,7 @@ func TestTheExampleAdvisorProposesThroughTheRealAPIAndOnlyProposes(t *testing.T)
 	if _, err := h.C.Loop.AcceptProposal(asRole(accounts.RoleEditor), "edith", ps[0].ID, ""); err != nil {
 		t.Fatal(err)
 	}
-	if c := h.consentOf(id); len(c.Paused) != 1 || c.Paused[0] != "flow" {
+	if c := h.ConsentOf(id); len(c.Paused) != 1 || c.Paused[0] != "flow" {
 		t.Fatalf("after accepting: %+v", c)
 	}
 	if out, err = run("run"); err != nil || !strings.Contains(out, "nothing to propose") {

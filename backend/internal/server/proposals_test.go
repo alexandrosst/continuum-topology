@@ -85,7 +85,7 @@ func TestSubmittingAProposalChangesNothingAboutTheAgent(t *testing.T) {
 	if after.AccessTier != before.AccessTier {
 		t.Fatalf("the tier moved from %d to %d on a submission", before.AccessTier, after.AccessTier)
 	}
-	if c := r.h.consentOf(r.id); len(c.Paused) != 0 || len(c.Excluded) != 0 {
+	if c := r.h.ConsentOf(r.id); len(c.Paused) != 0 || len(c.Excluded) != 0 {
 		t.Fatalf("the overrides changed on a submission: %+v", c)
 	}
 	acts := r.auditActions(t)
@@ -181,7 +181,7 @@ func TestAcceptingANarrowingProposalMakesTheChangeThroughTheUsualPathAndAuditsEa
 	if got.Status != store.ProposalApplied || got.DecidedBy != "edith" {
 		t.Fatalf("after accepting: %+v", got)
 	}
-	c := r.h.consentOf(r.id)
+	c := r.h.ConsentOf(r.id)
 	if strings.Join(c.Paused, ",") != "flow,probes" || strings.Join(c.Excluded, ",") != "shop" {
 		t.Fatalf("the overrides: %+v", c)
 	}
@@ -228,13 +228,13 @@ func TestAcceptingAWideningProposalTakesAnAdministratorAndAnEditorIsRefusedWitho
 	if got, _, _ := r.h.C.Loop.GetProposal(context.Background(), p.ID); got.Status != store.ProposalPending {
 		t.Fatalf("a refused acceptance moved the proposal to %s", got.Status)
 	}
-	if c := r.h.consentOf(r.id); !slices.Contains(c.Paused, "flow") {
+	if c := r.h.ConsentOf(r.id); !slices.Contains(c.Paused, "flow") {
 		t.Fatalf("a refused acceptance lifted the pause: %+v", c)
 	}
 	if got, err := r.h.C.Loop.AcceptProposal(asRole(accounts.RoleAdmin), "adam", p.ID, ""); err != nil || got.Status != store.ProposalApplied {
 		t.Fatalf("the administrator: %+v %v", got, err)
 	}
-	if c := r.h.consentOf(r.id); slices.Contains(c.Paused, "flow") {
+	if c := r.h.ConsentOf(r.id); slices.Contains(c.Paused, "flow") {
 		t.Fatalf("the pause is still on: %+v", c)
 	}
 }
@@ -292,7 +292,7 @@ func TestAnExpiredProposalCannotBeAccepted(t *testing.T) {
 	if got.Status != store.ProposalExpired {
 		t.Fatalf("status %s", got.Status)
 	}
-	if c := r.h.consentOf(r.id); len(c.Paused) != 0 {
+	if c := r.h.ConsentOf(r.id); len(c.Paused) != 0 {
 		t.Fatalf("an expired proposal paused something: %+v", c)
 	}
 	acts := r.auditActions(t)
@@ -318,7 +318,7 @@ func TestARejectedProposalChangesNothingAndCannotBeAcceptedLater(t *testing.T) {
 	if _, err := r.h.C.Loop.AcceptProposal(asRole(accounts.RoleAdmin), "adam", p.ID, ""); err == nil {
 		t.Fatal("a rejected proposal was accepted")
 	}
-	if c := r.h.consentOf(r.id); len(c.Paused) != 0 {
+	if c := r.h.ConsentOf(r.id); len(c.Paused) != 0 {
 		t.Fatalf("a rejected proposal paused something: %+v", c)
 	}
 	if _, err := r.h.C.Loop.RejectProposal(asRole(accounts.RoleEditor), "edith", "pr-nope", ""); err == nil {
@@ -398,7 +398,7 @@ func TestAProposalAndItsDecisionAreNotMadeIfTheirAuditRowCannotBeWritten(t *test
 	if got.Status != store.ProposalPending {
 		t.Fatalf("status %s", got.Status)
 	}
-	if c := r.h.consentOf(r.id); len(c.Paused) != 0 {
+	if c := r.h.ConsentOf(r.id); len(c.Paused) != 0 {
 		t.Fatalf("the change was made: %+v", c)
 	}
 }

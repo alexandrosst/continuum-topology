@@ -116,7 +116,7 @@ func TestWhatTheAgentCanSendIsAcceptedOrCountedAsDropped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if back, err := loadFlowTable(data); err != nil || len(back.Edges) != wantKept {
+	if back, err := LoadFlowTable(data); err != nil || len(back.Edges) != wantKept {
 		t.Fatalf("the stored table does not load again: %v", err)
 	}
 }

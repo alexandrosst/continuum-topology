@@ -14,7 +14,7 @@ type hubAccess struct{ h *Hub }
 // PlanChange checks ch against a as it is now. It is used when a change is proposed and again when it is accepted.
 func (p hubAccess) PlanChange(a store.Agent, ch decisionloop.AccessChange) (decisionloop.AccessPlan, error) {
 	h := p.h
-	tier, next, widens, err := agents.ResolveChange(a, h.consentOf(a.ID), ch)
+	tier, next, widens, err := agents.ResolveChange(a, h.ConsentOf(a.ID), ch)
 	if err != nil {
 		return decisionloop.AccessPlan{}, err
 	}

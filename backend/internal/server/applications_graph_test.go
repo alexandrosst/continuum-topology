@@ -46,9 +46,9 @@ func TestTheScanLinksApplicationsToTheirMembers(t *testing.T) {
 	}
 
 	id, _, _ := r.approvedAgent(t, fp)
-	r.hub.mu.Lock()
-	r.hub.views[id] = liveView(*r.now, "n1")
-	r.hub.mu.Unlock()
+	r.hub.Mu.Lock()
+	r.hub.Views[id] = liveView(*r.now, "n1")
+	r.hub.Mu.Unlock()
 	spy.sets = nil
 	r.hub.ScanNow(r.ctx)
 	if got := spy.sets["app-core"]; !slices.Contains(got, "sv-ref") {

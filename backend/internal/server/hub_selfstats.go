@@ -13,9 +13,9 @@ import (
 // Exported so the self-telemetry API handler (admin_telemetry.go) never reaches into Hub internals
 // directly - the same "small accessor, the lock stays inside the package" shape StateFor already uses.
 func (h *Hub) SelfStatsFor(agentID string) []agents.SelfStatsSample {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	v := h.views[agentID]
+	h.Mu.Lock()
+	defer h.Mu.Unlock()
+	v := h.Views[agentID]
 	if v == nil {
 		return nil
 	}
@@ -25,26 +25,26 @@ func (h *Hub) SelfStatsFor(agentID string) []agents.SelfStatsSample {
 // ServerSelfStats returns a copy of this server process's own self-telemetry history (see
 // Hub.serverSelf/ServerSelfStatsSample), oldest first.
 func (h *Hub) ServerSelfStats() []agents.ServerSelfStatsSample {
-	h.mu.Lock()
-	defer h.mu.Unlock()
+	h.Mu.Lock()
+	defer h.Mu.Unlock()
 	return h.serverSelf.List()
 }
 
-// sampleSelfStats takes one sample of this server process's own self-telemetry and adds it to
+// SampleSelfStats takes one sample of this server process's own self-telemetry and adds it to
 // Hub.serverSelf - see Hub.Run's own ticker for when this runs in production, and ServerSelfStatsSample's
 // own doc comment for what each field means. now is passed in (h.C.Now(), which tests can fix) rather
 // than read from time.Now() here, the same injectable-clock discipline the rest of this package follows.
-func (h *Hub) sampleSelfStats(now time.Time) {
+func (h *Hub) SampleSelfStats(now time.Time) {
 	var mem runtime.MemStats
 	runtime.ReadMemStats(&mem)
 
-	h.mu.Lock()
-	connected := len(h.sessions)
+	h.Mu.Lock()
+	connected := len(h.Sessions)
 	var totalFlowBytes int64
-	for _, v := range h.views {
+	for _, v := range h.Views {
 		totalFlowBytes += v.Link.FlowBytes
 	}
-	h.mu.Unlock()
+	h.Mu.Unlock()
 
 	h.flow.Mu.Lock()
 	var rate float64
@@ -61,10 +61,10 @@ func (h *Hub) sampleSelfStats(now time.Time) {
 	s := agents.ServerSelfStatsSample{
 		At: now, RSSBytes: mem.Sys, Goroutines: uint32(runtime.NumGoroutine()), CPUSeconds: agents.ProcessCPUSeconds(),
 		ConnectedAgents: connected, FlowIngestBytesPerSec: rate,
-		ModelCacheHits: h.tw.cacheHits.Load(), ModelCacheMisses: h.tw.cacheMisses.Load(),
+		ModelCacheHits: h.Tw.CacheHits.Load(), ModelCacheMisses: h.Tw.CacheMisses.Load(),
 		GCPauseTotalNs: mem.PauseTotalNs, NumGC: mem.NumGC,
 	}
-	h.mu.Lock()
+	h.Mu.Lock()
 	h.serverSelf.Add(s, now)
-	h.mu.Unlock()
+	h.Mu.Unlock()
 }

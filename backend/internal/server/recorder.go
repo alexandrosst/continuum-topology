@@ -70,9 +70,9 @@ func (h *Hub) Run(ctx context.Context) {
 			h.rec.tick(ctx)
 			h.Flush(ctx)
 		case <-self.C:
-			h.sampleSelfStats(h.C.Now())
+			h.SampleSelfStats(h.C.Now())
 		case <-drift.C:
-			h.driftSweep(ctx)
+			h.DriftSweep(ctx)
 		}
 	}
 }
@@ -169,14 +169,14 @@ func (r *recorder) reclaimRevoked(ctx context.Context) {
 		return
 	}
 	var keys []string
-	r.h.mu.Lock()
+	r.h.Mu.Lock()
 	for _, a := range agentList {
 		if a.Status == store.StatusRevoked && a.RevokedAt != nil && !r.h.revokedWithinRetention(a) {
-			keys = append(keys, a.ID, flowsKey(a.ID), agents.ConsentKey(a.ID))
-			delete(r.h.views, a.ID)
+			keys = append(keys, a.ID, FlowsKey(a.ID), agents.ConsentKey(a.ID))
+			delete(r.h.Views, a.ID)
 		}
 	}
-	r.h.mu.Unlock()
+	r.h.Mu.Unlock()
 	if err := r.h.C.Store.DeleteSnapshots(ctx, keys...); err != nil {
 		r.h.Log.Error("history: could not remove a revoked agent's snapshots", "err", err)
 	}

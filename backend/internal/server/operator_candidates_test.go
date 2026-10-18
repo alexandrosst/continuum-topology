@@ -108,22 +108,22 @@ func TestOperatorAddressCandidatesComeFromWhatDiscoveryReportsForItsCluster(t *t
 	}
 
 	v := liveView(*a.now, "athens-edge-1")
-	v.state.Nodes["athens-edge-1"].InternalIps = []string{"10.20.0.14"}
-	v.state.Nodes["athens-edge-1"].Probe = &continuumv1.HostProbe{HostAddresses: []*continuumv1.HostAddress{
+	v.State.Nodes["athens-edge-1"].InternalIps = []string{"10.20.0.14"}
+	v.State.Nodes["athens-edge-1"].Probe = &continuumv1.HostProbe{HostAddresses: []*continuumv1.HostAddress{
 		{Interface: "eth0", Address: "10.20.0.14/24"}, {Interface: "tailscale0", Kind: "tun", Address: "100.64.3.7/32"},
 	}}
-	v.state.Workloads["continuum-system/Deployment/"+operators.OperatorServiceName(id)] = &continuumv1.WorkloadFacts{
+	v.State.Workloads["continuum-system/Deployment/"+operators.OperatorServiceName(id)] = &continuumv1.WorkloadFacts{
 		Key: "continuum-system/Deployment/" + operators.OperatorServiceName(id), Namespace: operatorNamespace, Kind: "Deployment", Name: operators.OperatorServiceName(id),
 		NodeNames: []string{"athens-edge-1"}, Reachable: []*continuumv1.Address{{Port: 31317, Kind: "node-port"}},
 	}
 	// A workload of the same name in another namespace is somebody else's.
-	v.state.Workloads["other/Deployment/"+operators.OperatorServiceName(id)] = &continuumv1.WorkloadFacts{
+	v.State.Workloads["other/Deployment/"+operators.OperatorServiceName(id)] = &continuumv1.WorkloadFacts{
 		Key: "other/Deployment/" + operators.OperatorServiceName(id), Namespace: "other", Kind: "Deployment", Name: operators.OperatorServiceName(id),
 		Reachable: []*continuumv1.Address{{Ip: "198.51.100.77", Port: 4317, Kind: "load-balancer"}},
 	}
-	a.hub().mu.Lock()
-	a.hub().views[agentID] = v
-	a.hub().mu.Unlock()
+	a.hub().Mu.Lock()
+	a.hub().Views[agentID] = v
+	a.hub().Mu.Unlock()
 
 	r = a.do("GET", path, nil, withCookie(admin))
 	got := r.json(t)

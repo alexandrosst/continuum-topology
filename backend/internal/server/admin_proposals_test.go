@@ -46,7 +46,7 @@ func TestTheProposalRoutesAreForEditorsAndAWideningAcceptanceNeedsAnAdministrato
 	if !strings.HasPrefix(pid, "pr-") || j["status"] != "pending" || j["widens"] != false || j["confidence"] != "measured" || j["advisor"] != "rules-v1" {
 		t.Fatalf("the proposal: %v", j)
 	}
-	if c := a.hub().consentOf(id); len(c.Paused) != 0 {
+	if c := a.hub().ConsentOf(id); len(c.Paused) != 0 {
 		t.Fatalf("submitting paused something: %+v", c)
 	}
 
@@ -82,7 +82,7 @@ func TestTheProposalRoutesAreForEditorsAndAWideningAcceptanceNeedsAnAdministrato
 	if acc.Code != 200 || acc.json(t)["status"] != "applied" {
 		t.Fatalf("accept: %d %s", acc.Code, acc.Body.String())
 	}
-	if c := a.hub().consentOf(id); strings.Join(c.Paused, ",") != "flow" {
+	if c := a.hub().ConsentOf(id); strings.Join(c.Paused, ",") != "flow" {
 		t.Fatalf("overrides: %+v", c)
 	}
 	if c := a.do("POST", "/api/v1/proposals/"+pid+"/accept", map[string]any{}, withCookie(editor)).Code; c != 409 {
@@ -98,13 +98,13 @@ func TestTheProposalRoutesAreForEditorsAndAWideningAcceptanceNeedsAnAdministrato
 	if c := a.do("POST", "/api/v1/proposals/"+wid+"/accept", map[string]any{}, withCookie(editor)).Code; c != 403 {
 		t.Fatalf("an editor accepted a widening: %d", c)
 	}
-	if c := a.hub().consentOf(id); strings.Join(c.Paused, ",") != "flow" {
+	if c := a.hub().ConsentOf(id); strings.Join(c.Paused, ",") != "flow" {
 		t.Fatalf("the refused acceptance changed the overrides: %+v", c)
 	}
 	if c := a.do("POST", "/api/v1/proposals/"+wid+"/accept", map[string]any{}, withCookie(admin)).Code; c != 200 {
 		t.Fatalf("the administrator: %d", c)
 	}
-	if c := a.hub().consentOf(id); len(c.Paused) != 0 {
+	if c := a.hub().ConsentOf(id); len(c.Paused) != 0 {
 		t.Fatalf("the pause is still on: %+v", c)
 	}
 

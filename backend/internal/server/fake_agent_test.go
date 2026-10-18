@@ -123,9 +123,9 @@ func (f *fakeAgent) drop() {
 	f.t.Helper()
 	f.cancel()
 	f.waitUntil("the server to notice the stream ended", func() bool {
-		f.r.hub.mu.Lock()
-		defer f.r.hub.mu.Unlock()
-		return f.r.hub.sessions[f.id] == nil
+		f.r.hub.Mu.Lock()
+		defer f.r.hub.Mu.Unlock()
+		return f.r.hub.Sessions[f.id] == nil
 	})
 }
 
@@ -150,9 +150,9 @@ func (f *fakeAgent) waitUntil(what string, cond func() bool) {
 
 // inForce is the digest the server believes is in force, and since when (zero if it is not).
 func (f *fakeAgent) inForce() (sent, applied string, since time.Time) {
-	f.r.hub.mu.Lock()
-	defer f.r.hub.mu.Unlock()
-	v := f.r.hub.views[f.id]
+	f.r.hub.Mu.Lock()
+	defer f.r.hub.Mu.Unlock()
+	v := f.r.hub.Views[f.id]
 	return v.CfgHash, v.CfgApplied, v.CfgInForceAt
 }
 
@@ -166,7 +166,7 @@ func (f *fakeAgent) changeTier() *continuumv1.Config {
 	if err := f.r.st.SetAccessTier(f.ctx, f.id, (cur.AccessTier+1)%3); err != nil {
 		f.t.Fatal(err)
 	}
-	f.r.hub.pushOne(f.id)
+	f.r.hub.PushOne(f.id)
 	c := f.nextConfig(5 * time.Second)
 	if c == nil {
 		f.t.Fatal("no Config was pushed after the change")
@@ -234,9 +234,9 @@ func TestAnAgentThatSaysNothingAboutItsConfigIsNeverSentOneAgain(t *testing.T) {
 	r := newHubRig(t)
 	f := r.newFakeAgent(t, fakeAgentCtx(t))
 	f.changeTier()
-	r.hub.mu.Lock()
-	r.hub.views[f.id].CfgSentAt = time.Now().Add(-time.Hour) // long past the grace
-	r.hub.mu.Unlock()
+	r.hub.Mu.Lock()
+	r.hub.Views[f.id].CfgSentAt = time.Now().Add(-time.Hour) // long past the grace
+	r.hub.Mu.Unlock()
 	for i := 0; i < 5; i++ {
 		f.beat("") // an agent from before the echo
 	}
@@ -298,9 +298,9 @@ func TestANewConnectionEndsTheOldOne(t *testing.T) {
 			t.Fatal("the server kept the old stream open after a newer one connected")
 		}
 	}
-	r.hub.mu.Lock()
-	n := len(r.hub.sessions)
-	r.hub.mu.Unlock()
+	r.hub.Mu.Lock()
+	n := len(r.hub.Sessions)
+	r.hub.Mu.Unlock()
 	if n != 1 {
 		t.Fatalf("%d sessions for one agent", n)
 	}

@@ -19,21 +19,21 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// viewFor returns the agent's view, making an empty one if the agent has never connected. Caller holds h.mu.
-func (h *Hub) viewFor(id string) *view {
-	v := h.views[id]
+// ViewFor returns the agent's view, making an empty one if the agent has never connected. Caller holds h.mu.
+func (h *Hub) ViewFor(id string) *View {
+	v := h.Views[id]
 	if v == nil {
-		v = newView()
-		h.views[id] = v
+		v = NewView()
+		h.Views[id] = v
 	}
 	return v
 }
 
 // ensureConsent loads an agent's overrides from the store the first time they are needed. Do not hold h.mu.
-func (h *Hub) ensureConsent(id string, v *view) {
-	h.mu.Lock()
+func (h *Hub) ensureConsent(id string, v *View) {
+	h.Mu.Lock()
 	loaded := v.Ext.ConsentLoad
-	h.mu.Unlock()
+	h.Mu.Unlock()
 	if loaded {
 		return
 	}
@@ -49,19 +49,19 @@ func (h *Hub) ensureConsent(id string, v *view) {
 			c = agents.Consent{}
 		}
 	}
-	h.mu.Lock()
+	h.Mu.Lock()
 	if !v.Ext.ConsentLoad {
 		v.Ext.Consent, v.Ext.ConsentAt, v.Ext.ConsentLoad = c, at, true
 	}
-	h.mu.Unlock()
+	h.Mu.Unlock()
 }
 
 // NamespaceOf returns the Kubernetes namespace an agent last reported for itself, or "" if it never has (an older
 // agent, or one that has not connected since this server started).
 func (h *Hub) NamespaceOf(id string) string {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if v := h.views[id]; v != nil {
+	h.Mu.Lock()
+	defer h.Mu.Unlock()
+	if v := h.Views[id]; v != nil {
 		return v.Ext.Namespace
 	}
 	return ""
@@ -70,22 +70,22 @@ func (h *Hub) NamespaceOf(id string) string {
 // ReleaseNameOf returns the Helm release an agent last reported it was installed as, or "" under the same conditions
 // as NamespaceOf.
 func (h *Hub) ReleaseNameOf(id string) string {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if v := h.views[id]; v != nil {
+	h.Mu.Lock()
+	defer h.Mu.Unlock()
+	if v := h.Views[id]; v != nil {
 		return v.Ext.ReleaseName
 	}
 	return ""
 }
 
-// consentOf returns an agent's overrides.
-func (h *Hub) consentOf(id string) agents.Consent {
-	h.mu.Lock()
-	v := h.viewFor(id)
-	h.mu.Unlock()
+// ConsentOf returns an agent's overrides.
+func (h *Hub) ConsentOf(id string) agents.Consent {
+	h.Mu.Lock()
+	v := h.ViewFor(id)
+	h.Mu.Unlock()
 	h.ensureConsent(id, v)
-	h.mu.Lock()
-	defer h.mu.Unlock()
+	h.Mu.Lock()
+	defer h.Mu.Unlock()
 	return v.Ext.Consent
 }
 
@@ -94,12 +94,12 @@ func (h *Hub) consentOf(id string) agents.Consent {
 // carries per agent (see AgentDoc.Consent) - so a client reading either one sees Confirmed and SetAt
 // computed the same way, not a bare echo of what was just asked for.
 func (h *Hub) ConsentDocFor(id string) *agents.ConsentDoc {
-	h.mu.Lock()
-	v := h.viewFor(id)
-	h.mu.Unlock()
+	h.Mu.Lock()
+	v := h.ViewFor(id)
+	h.Mu.Unlock()
 	h.ensureConsent(id, v)
-	h.mu.Lock()
-	defer h.mu.Unlock()
+	h.Mu.Lock()
+	defer h.Mu.Unlock()
 	return v.consentDoc()
 }
 
@@ -160,7 +160,7 @@ func (h *Hub) SetAgentTier(ctx context.Context, actor, agentID string, tier int,
 		h.narrowState(a.ID, tier) // what the server holds above the new tier goes now, not at the agent's next full picture
 	}
 	h.C.Agents.RecordAgentGraph(ctx, a, "agent-tier-changed", detail)
-	h.pushOne(a.ID)
+	h.PushOne(a.ID)
 	return a, nil
 }
 
@@ -177,7 +177,7 @@ func (h *Hub) SetConsent(ctx context.Context, actor, agentID string, in agents.C
 	if err != nil {
 		return agents.Consent{}, err
 	}
-	cur := h.consentOf(a.ID)
+	cur := h.ConsentOf(a.ID)
 	if !accounts.Decide(accounts.CallerFrom(ctx), accounts.ActChangeAccess, accounts.Resource{Widening: agents.ConsentNarrows(next, cur)}).Allowed { // cur has a pause or exclusion that next lifts
 		return agents.Consent{}, kernel.Errf(kernel.KindForbidden, "lifting a pause or an exclusion takes an administrator; adding one does not")
 	}
@@ -196,15 +196,15 @@ func (h *Hub) SetConsent(ctx context.Context, actor, agentID string, in agents.C
 		return agents.Consent{}, err
 	}
 	kernel.Metrics.ConsentChanges.Add(1)
-	h.mu.Lock()
-	v := h.viewFor(a.ID)
+	h.Mu.Lock()
+	v := h.ViewFor(a.ID)
 	v.Ext.Consent, v.Ext.ConsentAt, v.Ext.ConsentLoad = next, now, true
-	h.mu.Unlock()
+	h.Mu.Unlock()
 	if agents.ConsentNarrows(cur, next) {
 		h.narrowConsent(a.ID, next)
 	}
 	h.C.Agents.RecordAgentGraph(ctx, a, "agent-consent-changed", detail)
-	h.pushOne(a.ID)
+	h.PushOne(a.ID)
 	return next, nil
 }
 
@@ -221,19 +221,19 @@ func (h *Hub) SetConsent(ctx context.Context, actor, agentID string, in agents.C
 // tightening later if that residual is ever a problem in practice; not attempted here because it would mean
 // parsing a flow key's namespace reliably enough to trust filtering by it.
 func (h *Hub) dropConsentOverrides(id string, s *continuumv1.Sync) {
-	agents.ApplyConsent(h.consentOf(id), s)
+	agents.ApplyConsent(h.ConsentOf(id), s)
 }
 
 // narrowState drops what the server holds for an agent above a tier that was just lowered, by replacing its picture with
 // the same picture cut down to that tier. The agent reconnects and sends a full one at the lower tier straight after.
 func (h *Hub) narrowState(id string, tier int) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	v := h.views[id]
-	if v == nil || v.state == nil || v.lastSync.IsZero() {
+	h.Mu.Lock()
+	defer h.Mu.Unlock()
+	v := h.Views[id]
+	if v == nil || v.State == nil || v.LastSync.IsZero() {
 		return
 	}
-	st := v.state
+	st := v.State
 	s := &continuumv1.Sync{Full: true, Seq: st.Seq}
 	if st.Cluster != nil {
 		s.Cluster = proto.Clone(st.Cluster).(*continuumv1.ClusterFacts)
@@ -256,13 +256,13 @@ func (h *Hub) narrowState(id string, tier int) {
 // collector paused or a namespace left out goes now, not whenever the agent next sends a full picture (which a stuck,
 // disconnected or out-of-date agent never would). The picture is replaced by itself cut down to the new overrides.
 func (h *Hub) narrowConsent(id string, c agents.Consent) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	v := h.views[id]
-	if v == nil || v.state == nil || v.lastSync.IsZero() {
+	h.Mu.Lock()
+	defer h.Mu.Unlock()
+	v := h.Views[id]
+	if v == nil || v.State == nil || v.LastSync.IsZero() {
 		return
 	}
-	st := v.state
+	st := v.State
 	s := &continuumv1.Sync{Full: true, Seq: st.Seq}
 	if st.Cluster != nil {
 		s.Cluster = proto.Clone(st.Cluster).(*continuumv1.ClusterFacts)
@@ -281,11 +281,11 @@ func (h *Hub) narrowConsent(id string, c agents.Consent) {
 	v.dirtyAt = h.C.Now()
 }
 
-// noteCeiling records the ceiling an agent's install says it has (the Hello carries it every time, so a `helm upgrade` shows up at
+// NoteCeiling records the ceiling an agent's install says it has (the Hello carries it every time, so a `helm upgrade` shows up at
 // the next connection). When the owner has lowered it below what an administrator approved, the approval follows it down: the
 // agent can no longer collect what was approved, and the server should not claim otherwise. Raising it changes nothing by
 // itself: widening is a decision an administrator makes here, up to the new ceiling. Returns the agent as it now is.
-func (h *Hub) noteCeiling(ctx context.Context, agent, fresh store.Agent, reported int) store.Agent {
+func (h *Hub) NoteCeiling(ctx context.Context, agent, fresh store.Agent, reported int) store.Agent {
 	if reported <= 0 && fresh.InstalledTier > 0 && !h.reportsCeiling(agent.ID) {
 		return agent // an older agent that does not say: keep what enrollment recorded
 	}
@@ -320,9 +320,9 @@ func (h *Hub) noteCeiling(ctx context.Context, agent, fresh store.Agent, reporte
 // and not a field that was never filled in. An agent that states a protocol version says so by declaring the `diagnostics`
 // capability. One that does not (protocol 0) is told apart as it always was, by whether its Hello carried diagnostics.
 func (h *Hub) reportsCeiling(id string) bool {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	v := h.views[id]
+	h.Mu.Lock()
+	defer h.Mu.Unlock()
+	v := h.Views[id]
 	if v == nil {
 		return false
 	}
@@ -334,13 +334,13 @@ func (h *Hub) reportsCeiling(id string) bool {
 
 // consentDoc is what has been asked of the agent, and whether it has confirmed applying it. Caller holds
 // h.mu and has loaded the consent.
-func (v *view) consentDoc() *agents.ConsentDoc {
+func (v *View) consentDoc() *agents.ConsentDoc {
 	out := &agents.ConsentDoc{PausedCollectors: append([]string{}, v.Ext.Consent.Paused...), ExcludedNamespaces: append([]string{}, v.Ext.Consent.Excluded...)}
 	if len(out.PausedCollectors) == 0 && len(out.ExcludedNamespaces) == 0 {
 		out.Confirmed = true // nothing narrowed here, so there is nothing for the agent to confirm
 		return out
 	}
-	if !v.lastSync.IsZero() {
+	if !v.LastSync.IsZero() {
 		// v.ext.knownNamespaces, not v.state.Namespaces: the latter has already had any currently-excluded
 		// namespace stripped out of it by dropConsentOverrides by the time it is stored, so it can never
 		// contain the very names this exists to check (see agents.ViewExt.knownNamespaces's own doc comment).
@@ -374,22 +374,22 @@ func (v *view) consentDoc() *agents.ConsentDoc {
 
 // ExportHealthOf is whether the agent is connected and what it reports about its exporters.
 func (h *Hub) ExportHealthOf(agentID string) (bool, *agents.ExportHealthDoc) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	v := h.views[agentID]
+	h.Mu.Lock()
+	defer h.Mu.Unlock()
+	v := h.Views[agentID]
 	if v == nil {
 		return false, nil
 	}
 	if d := v.diagDoc(); d != nil {
-		return v.connected, d.ExportHealth
+		return v.Connected, d.ExportHealth
 	}
-	return v.connected, nil
+	return v.Connected, nil
 }
 
 // diagDoc turns the stored message into its document. Every string is cut to a sensible length: it came from the agent.
 // Callers already gate this to editors/administrators before calling it (see DiagnosticsDoc's own doc comment) - there
 // is no further, per-tier redaction here, so it takes no tier of its own.
-func (v *view) diagDoc() *agents.DiagnosticsDoc {
+func (v *View) diagDoc() *agents.DiagnosticsDoc {
 	d := v.Ext.Diag
 	if d == nil {
 		return nil

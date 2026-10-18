@@ -16,10 +16,10 @@ func connectedAgent(t *testing.T, a *adminRig) (agentID string, push chan *conti
 	t.Helper()
 	agentID = a.approvedAgentID(t, fp)
 	push = make(chan *continuumv1.ServerMessage, 8)
-	a.hub().mu.Lock()
-	a.hub().views[agentID] = liveView(*a.now, "n1")
-	a.hub().sessions[agentID] = &session{push: push, cancel: func(endReason) {}}
-	a.hub().mu.Unlock()
+	a.hub().Mu.Lock()
+	a.hub().Views[agentID] = liveView(*a.now, "n1")
+	a.hub().Sessions[agentID] = &Session{Push: push, Cancel: func(EndReason) {}}
+	a.hub().Mu.Unlock()
 	return agentID, push
 }
 
@@ -80,7 +80,7 @@ func TestAnAddressIsTestedFromTheAgentAndTheResultReadBack(t *testing.T) {
 	if ids["10.20.0.15:4317"] == "" {
 		t.Fatalf("the bare host was not given the receiver's port: %v", ids)
 	}
-	a.hub().noteMeasurements(agentID, &continuumv1.Measurements{Results: []*continuumv1.PathResult{
+	a.hub().NoteMeasurements(agentID, &continuumv1.Measurements{Results: []*continuumv1.PathResult{
 		{TargetId: ids["10.20.0.14:31317"], Samples: 5, Failed: 0, RttMinMs: 3, RttP50Ms: 4, RttP95Ms: 6},
 		{TargetId: ids["10.20.0.15:4317"], Samples: 5, Failed: 5},
 	}})
@@ -95,9 +95,9 @@ func TestAnAddressIsTestedFromTheAgentAndTheResultReadBack(t *testing.T) {
 		t.Fatalf("unreachable: %v", g)
 	}
 	// A test is not a measured path: it must never show up among the paths the topology draws.
-	a.hub().mu.Lock()
-	n := len(a.hub().views[agentID].Paths)
-	a.hub().mu.Unlock()
+	a.hub().Mu.Lock()
+	n := len(a.hub().Views[agentID].Paths)
+	a.hub().Mu.Unlock()
 	if n != 0 {
 		t.Fatalf("a test result was added to the measured paths: %d", n)
 	}
@@ -146,9 +146,9 @@ func TestAnAddressTestNeedsAnAgentThatCanMeasure(t *testing.T) {
 	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	agentID := a.approvedAgentID(t, fp)
 	// No stream: nothing can be asked of it.
-	a.hub().mu.Lock()
-	a.hub().views[agentID] = liveView(*a.now, "n1")
-	a.hub().mu.Unlock()
+	a.hub().Mu.Lock()
+	a.hub().Views[agentID] = liveView(*a.now, "n1")
+	a.hub().Mu.Unlock()
 	if code, _ := startTests(t, a, cookie, agentID, "10.0.0.1:4317"); code != 409 {
 		t.Fatalf("an agent that is not connected: %d", code)
 	}
@@ -165,9 +165,9 @@ func TestAnAddressTestNeedsAnAgentThatCanMeasure(t *testing.T) {
 func connectedAgent2(t *testing.T, a *adminRig, agentID string) (string, chan *continuumv1.ServerMessage) {
 	t.Helper()
 	push := make(chan *continuumv1.ServerMessage, 8)
-	a.hub().mu.Lock()
-	a.hub().sessions[agentID] = &session{push: push, cancel: func(endReason) {}}
-	a.hub().mu.Unlock()
+	a.hub().Mu.Lock()
+	a.hub().Sessions[agentID] = &Session{Push: push, Cancel: func(EndReason) {}}
+	a.hub().Mu.Unlock()
 	return agentID, push
 }
 
@@ -179,17 +179,17 @@ func TestAnAddressTestExpiresAndLeavesTheAgentsTargets(t *testing.T) {
 		t.Fatalf("start: %d", code)
 	}
 	ag, _ := a.st.GetAgent(a.ctx, agentID)
-	a.hub().mu.Lock()
-	v := a.hub().views[agentID]
-	a.hub().mu.Unlock()
-	if cfg := a.hub().configFor(ag, v); len(cfg.ProbeTargets) != 1 {
+	a.hub().Mu.Lock()
+	v := a.hub().Views[agentID]
+	a.hub().Mu.Unlock()
+	if cfg := a.hub().ConfigFor(ag, v); len(cfg.ProbeTargets) != 1 {
 		t.Fatalf("targets while the test is live: %v", cfg.ProbeTargets)
 	}
 	*a.now = a.now.Add(connectivity.AddressTestTTL + time.Minute)
 	if got := readTests(t, a, cookie, agentID); len(got) != 0 {
 		t.Fatalf("an expired test is still listed: %v", got)
 	}
-	if cfg := a.hub().configFor(ag, v); len(cfg.ProbeTargets) != 0 || cfg.MeasureSeconds != 0 {
+	if cfg := a.hub().ConfigFor(ag, v); len(cfg.ProbeTargets) != 0 || cfg.MeasureSeconds != 0 {
 		t.Fatalf("an expired test is still handed to the agent: %v", cfg)
 	}
 }
@@ -200,7 +200,7 @@ func TestTestingAnAddressAgainStartsFromScratch(t *testing.T) {
 	agentID, _ := connectedAgent(t, a)
 	startTests(t, a, cookie, agentID, "10.20.0.14:31317")
 	first := readTests(t, a, cookie, agentID)[0]
-	a.hub().noteMeasurements(agentID, &continuumv1.Measurements{Results: []*continuumv1.PathResult{{TargetId: first["id"].(string), Samples: 5, Failed: 5}}})
+	a.hub().NoteMeasurements(agentID, &continuumv1.Measurements{Results: []*continuumv1.PathResult{{TargetId: first["id"].(string), Samples: 5, Failed: 5}}})
 	if g := readTests(t, a, cookie, agentID)[0]; g["state"] != "unreachable" {
 		t.Fatalf("first result: %v", g)
 	}
@@ -211,7 +211,7 @@ func TestTestingAnAddressAgainStartsFromScratch(t *testing.T) {
 		t.Fatalf("a second test must not pass for the first one's result: %v", again)
 	}
 	// A late result for the first test is for a target that is no longer issued, and is ignored.
-	a.hub().noteMeasurements(agentID, &continuumv1.Measurements{Results: []*continuumv1.PathResult{{TargetId: first["id"].(string), Samples: 5, Failed: 0}}})
+	a.hub().NoteMeasurements(agentID, &continuumv1.Measurements{Results: []*continuumv1.PathResult{{TargetId: first["id"].(string), Samples: 5, Failed: 0}}})
 	if g := readTests(t, a, cookie, agentID)[0]; g["state"] != "pending" {
 		t.Fatalf("a stale result counted: %v", g)
 	}

@@ -35,18 +35,18 @@ func TestAPushIsSkippedWhileTheAgentsCannotBeRead(t *testing.T) {
 	if _, err := r.core.SaveSettings(r.ctx, "alex", kernel.Settings{Links: []kernel.LinkSetting{{A: first.ClusterID, B: second.ClusterID}}}); err != nil {
 		t.Fatal(err)
 	}
-	newV := func(ip string) *view {
-		return &view{estView: estView{state: nodeState(ip), flows: observed.NewFlowTable()}, NetView: connectivity.NetView{Paths: map[string]*connectivity.PathTrack{}, Targets: map[string]connectivity.IssuedTarget{}}}
+	newV := func(ip string) *View {
+		return &View{EstView: EstView{State: nodeState(ip), Flows: observed.NewFlowTable()}, NetView: connectivity.NetView{Paths: map[string]*connectivity.PathTrack{}, Targets: map[string]connectivity.IssuedTarget{}}}
 	}
 	fv, sv := newV("10.0.0.1"), newV("10.9.0.1")
 	push := make(chan *continuumv1.ServerMessage, 4)
-	r.hub.mu.Lock()
-	r.hub.views[first.ID], r.hub.views[second.ID] = fv, sv
-	r.hub.sessions[second.ID] = &session{push: push, cancel: func(endReason) {}}
-	r.hub.mu.Unlock()
+	r.hub.Mu.Lock()
+	r.hub.Views[first.ID], r.hub.Views[second.ID] = fv, sv
+	r.hub.Sessions[second.ID] = &Session{Push: push, Cancel: func(EndReason) {}}
+	r.hub.Mu.Unlock()
 
 	// The agent is on the Config with its peer.
-	cfg := r.hub.configFor(second, sv)
+	cfg := r.hub.ConfigFor(second, sv)
 	if len(cfg.LinkPeers) != 1 {
 		t.Fatalf("peers = %v", cfg.LinkPeers)
 	}
@@ -58,7 +58,7 @@ func TestAPushIsSkippedWhileTheAgentsCannotBeRead(t *testing.T) {
 		t.Error("a Config built without the agents is reported as complete")
 	}
 	sv.CfgHash = sent
-	r.hub.pushOne(second.ID)
+	r.hub.PushOne(second.ID)
 	select {
 	case m := <-push:
 		t.Fatalf("a Config was pushed while the agents could not be read: %v", m.GetConfig().GetLinkPeers())
@@ -74,10 +74,10 @@ func TestAPushIsSkippedWhileTheAgentsCannotBeRead(t *testing.T) {
 
 	// The next good minute: the peer list changed (the peer reported a new address), so it is sent, with the peer.
 	r.hub.C.Store = real
-	r.hub.mu.Lock()
-	fv.state = nodeState("10.0.0.77")
-	r.hub.mu.Unlock()
-	r.hub.pushOne(second.ID)
+	r.hub.Mu.Lock()
+	fv.State = nodeState("10.0.0.77")
+	r.hub.Mu.Unlock()
+	r.hub.PushOne(second.ID)
 	select {
 	case m := <-push:
 		if got := m.GetConfig().GetLinkPeers(); len(got) != 1 || got[0].Addresses[0] != "10.0.0.77" {
@@ -87,9 +87,9 @@ func TestAPushIsSkippedWhileTheAgentsCannotBeRead(t *testing.T) {
 		t.Fatal("the retry did not push")
 	}
 
-	// At first connect the agent has nothing to lose: configFor still answers, with whatever it could build.
+	// At first connect the agent has nothing to lose: ConfigFor still answers, with whatever it could build.
 	r.hub.C.Store = agentsDown{real}
-	if cfg := r.hub.configFor(second, sv); cfg == nil || len(cfg.LinkPeers) != 0 {
+	if cfg := r.hub.ConfigFor(second, sv); cfg == nil || len(cfg.LinkPeers) != 0 {
 		t.Errorf("first connect: %+v", cfg)
 	}
 }

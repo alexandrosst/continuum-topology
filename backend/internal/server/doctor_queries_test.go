@@ -204,7 +204,7 @@ func doctorQueries(t *testing.T) {
 		}
 	})
 
-	// One workspace, three readers: the graph (applicationsIn, which recordApplicationsGraph links), the API (appGroups) and
+	// One workspace, three readers: the graph (ApplicationsIn, which recordApplicationsGraph links), the API (appGroups) and
 	// Grafana (the info series pushed to Prometheus) must name the same services in each application, accepted hints
 	// included. The pushed series are what the dashboards join on.
 	var pushed []map[string]string
@@ -218,7 +218,7 @@ func doctorQueries(t *testing.T) {
 			"refs":{"sv-ref":{"kind":"service","applicationId":"app-1"}},
 			"services":[{"id":"sv-inline","source":"manual","applicationId":"app-1","name":"inline"}]}`)
 		groups := appGroups(ws, doc)
-		apps, err := applicationsIn(ws, HintsOf(doc))
+		apps, err := ApplicationsIn(ws, HintsOf(doc))
 		if err != nil || len(apps) != 1 || len(groups) != 1 {
 			t.Fatalf("apps %v groups %v err %v", apps, groups, err)
 		}

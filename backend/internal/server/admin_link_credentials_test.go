@@ -25,7 +25,7 @@ func TestRotatingLinkCredentialsIsAnAdminActionThatShowsNoSecrets(t *testing.T) 
 	if put.Code != 200 {
 		t.Fatalf("%d %s", put.Code, put.Body.String())
 	}
-	a.hub().syncLinkCredentials() // the background work a saved change starts, run to the end
+	a.hub().SyncLinkCredentials() // the background work a saved change starts, run to the end
 	before, err := a.st.ListLinkCredentials(a.ctx, "org-1")
 	if err != nil || len(before) != 2 { // the serving cluster's key pair and the pair's login
 		t.Fatalf("rows after saving a pair with throughput tests: %d, %v", len(before), err)

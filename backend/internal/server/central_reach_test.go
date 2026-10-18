@@ -78,13 +78,13 @@ func TestCentralOperatorAddressCandidatesAndSendersComeFromTheGatewayAndFusion(t
 	// An agent in the server's own cluster that reports the gateway's Deployment adds the node ports of that cluster.
 	agentID := a.agent(t)
 	v := liveView(*a.now, "server-node-1")
-	v.state.Nodes["server-node-1"].InternalIps = []string{"10.0.0.7"}
+	v.State.Nodes["server-node-1"].InternalIps = []string{"10.0.0.7"}
 	key := f.Namespace + "/Deployment/" + f.ServiceName()
-	v.state.Workloads[key] = &continuumv1.WorkloadFacts{Key: key, Namespace: f.Namespace, Kind: "Deployment", Name: f.ServiceName(), NodeNames: []string{"server-node-1"},
+	v.State.Workloads[key] = &continuumv1.WorkloadFacts{Key: key, Namespace: f.Namespace, Kind: "Deployment", Name: f.ServiceName(), NodeNames: []string{"server-node-1"},
 		Reachable: []*continuumv1.Address{{Port: 31317, Kind: "node-port"}}}
-	a.hub().mu.Lock()
-	a.hub().views[agentID] = v
-	a.hub().mu.Unlock()
+	a.hub().Mu.Lock()
+	a.hub().Views[agentID] = v
+	a.hub().Mu.Unlock()
 	list = a.do("GET", path, nil, withCookie(a.cookie)).json(t)["candidates"].([]any)
 	seen := map[string]bool{}
 	for _, c := range list {
@@ -125,15 +125,15 @@ func TestCentralNodeAddressesNeedOnlyTheClusterAndTheServicesNodePort(t *testing
 	// cluster, and the Service the server read gives the port.
 	agentID := a.agent(t)
 	v := liveView(*a.now, "server-node-1")
-	v.state.Nodes["server-node-1"].InternalIps = []string{"10.0.0.7"}
-	v.state.Nodes["server-node-1"].Probe = &continuumv1.HostProbe{HostAddresses: []*continuumv1.HostAddress{
+	v.State.Nodes["server-node-1"].InternalIps = []string{"10.0.0.7"}
+	v.State.Nodes["server-node-1"].Probe = &continuumv1.HostProbe{HostAddresses: []*continuumv1.HostAddress{
 		{Interface: "eth0", Address: "10.0.0.7/24"}, {Interface: "wg0", Kind: "wireguard", Address: "10.8.0.3/24"},
 	}}
 	key := f.Namespace + "/Deployment/continuum-server"
-	v.state.Workloads[key] = &continuumv1.WorkloadFacts{Key: key, Namespace: f.Namespace, Kind: "Deployment", Name: "continuum-server"}
-	a.hub().mu.Lock()
-	a.hub().views[agentID] = v
-	a.hub().mu.Unlock()
+	v.State.Workloads[key] = &continuumv1.WorkloadFacts{Key: key, Namespace: f.Namespace, Kind: "Deployment", Name: "continuum-server"}
+	a.hub().Mu.Lock()
+	a.hub().Views[agentID] = v
+	a.hub().Mu.Unlock()
 
 	got := a.do("GET", "/api/v1/operators/"+operators.CentralOperatorID+"/address-candidates", nil, withCookie(a.cookie)).json(t)
 	by := map[string]map[string]any{}
@@ -171,15 +171,15 @@ func TestCentralClusterIsFoundByTheNodeThatHasTheLoadBalancersAddress(t *testing
 			k.allReady()
 			agentID := a.agent(t)
 			v := liveView(*a.now, "edge-node-1")
-			v.state.Nodes["edge-node-1"].InternalIps = []string{"10.0.0.7"}
-			v.state.Nodes["edge-node-1"].Probe = &continuumv1.HostProbe{HostAddresses: []*continuumv1.HostAddress{
+			v.State.Nodes["edge-node-1"].InternalIps = []string{"10.0.0.7"}
+			v.State.Nodes["edge-node-1"].Probe = &continuumv1.HostProbe{HostAddresses: []*continuumv1.HostAddress{
 				{Interface: "eth0", Address: "10.0.0.7/24"}, {Interface: "wt0", Kind: "wireguard", Address: "100.64.0.139/24"},
 			}}
 			// Only something in the agent's own namespace is reported, nothing in the server's.
-			v.state.Workloads = map[string]*continuumv1.WorkloadFacts{"continuum-system/Deployment/agent": {Key: "continuum-system/Deployment/agent", Namespace: "continuum-system", Kind: "Deployment", Name: "agent"}}
-			a.hub().mu.Lock()
-			a.hub().views[agentID] = v
-			a.hub().mu.Unlock()
+			v.State.Workloads = map[string]*continuumv1.WorkloadFacts{"continuum-system/Deployment/agent": {Key: "continuum-system/Deployment/agent", Namespace: "continuum-system", Kind: "Deployment", Name: "agent"}}
+			a.hub().Mu.Lock()
+			a.hub().Views[agentID] = v
+			a.hub().Mu.Unlock()
 
 			got := a.do("GET", "/api/v1/operators/"+operators.CentralOperatorID+"/address-candidates", nil, withCookie(a.cookie)).json(t)
 			by := map[string]map[string]any{}
@@ -242,15 +242,15 @@ func centralRig(t *testing.T, uid string) (*intentRig, *fusion.FusionControl, st
 	k.allReady()
 	agentID := a.approvedAgentID(t, uid)
 	v := liveView(*a.now, "nuc-1")
-	v.state.Nodes["nuc-1"].InternalIps = []string{"10.0.0.7"}
-	v.state.Nodes["nuc-1"].Probe = &continuumv1.HostProbe{HostAddresses: []*continuumv1.HostAddress{
+	v.State.Nodes["nuc-1"].InternalIps = []string{"10.0.0.7"}
+	v.State.Nodes["nuc-1"].Probe = &continuumv1.HostProbe{HostAddresses: []*continuumv1.HostAddress{
 		{Interface: "eth0", Address: "10.0.0.7/24"}, {Interface: "wt0", Kind: "wireguard", Address: "100.64.0.139/24"},
 	}}
 	// Nothing in the server's namespace is reported: only the cluster's identity can say where the gateway is.
-	v.state.Workloads = map[string]*continuumv1.WorkloadFacts{}
-	a.hub().mu.Lock()
-	a.hub().views[agentID] = v
-	a.hub().mu.Unlock()
+	v.State.Workloads = map[string]*continuumv1.WorkloadFacts{}
+	a.hub().Mu.Lock()
+	a.hub().Views[agentID] = v
+	a.hub().Mu.Unlock()
 	return a, f, agentID
 }
 

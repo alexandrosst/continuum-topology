@@ -121,11 +121,11 @@ func TestSendersOfAnOperatorShowTheirAddressesAndHowDeliveryGoes(t *testing.T) {
 		t.Fatalf("destination: %d %s", r.Code, r.Body.String())
 	}
 	v := liveView(*a.now, "n1")
-	v.connected = true
+	v.Connected = true
 	v.Ext.Diag = exportHealth("failing", "metrics", "dial tcp 10.20.0.14:31317: i/o timeout", 0, 12)
-	a.hub().mu.Lock()
-	a.hub().views[agentID] = v
-	a.hub().mu.Unlock()
+	a.hub().Mu.Lock()
+	a.hub().Views[agentID] = v
+	a.hub().Mu.Unlock()
 
 	path := "/api/v1/operators/" + opID + "/senders"
 	if r := a.do("GET", path, nil, withCookie(viewer)); r.Code != 403 {

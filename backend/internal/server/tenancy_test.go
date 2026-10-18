@@ -427,7 +427,7 @@ func TestDeletingAnOrganisationErasesItsDataAndEndsItsAgents(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = a.st.SaveSnapshot(a.ctx, resp.AgentId, []byte("{}"), *a.now)
-	_ = a.st.SaveSnapshot(a.ctx, flowsKey(resp.AgentId), []byte("{}"), *a.now)
+	_ = a.st.SaveSnapshot(a.ctx, FlowsKey(resp.AgentId), []byte("{}"), *a.now)
 	if c := a.do("POST", org(aOrg, "delete"), map[string]string{"confirm": "wrong"}, withCookie(alice)).Code; c != 400 {
 		t.Errorf("deleted without confirming the name: %d", c)
 	}
@@ -440,7 +440,7 @@ func TestDeletingAnOrganisationErasesItsDataAndEndsItsAgents(t *testing.T) {
 	if _, err := a.st.GetAgent(a.ctx, resp.AgentId); err == nil {
 		t.Error("the organisation's agent survived")
 	}
-	for _, k := range []string{resp.AgentId, flowsKey(resp.AgentId)} {
+	for _, k := range []string{resp.AgentId, FlowsKey(resp.AgentId)} {
 		if _, _, err := a.st.LoadSnapshot(a.ctx, k); err == nil {
 			t.Errorf("snapshot %s survived the organisation", k)
 		}
@@ -521,7 +521,7 @@ func TestAgentsAreServedByTheirOwnOrganisationsHubOnly(t *testing.T) {
 
 	t1, _ := plat.Tenant(ctx, "org-1")
 	t2, _ := plat.Tenant(ctx, "org-2")
-	has := func(h *Hub, id string) bool { h.mu.Lock(); defer h.mu.Unlock(); return h.views[id] != nil }
+	has := func(h *Hub, id string) bool { h.Mu.Lock(); defer h.Mu.Unlock(); return h.Views[id] != nil }
 	if !has(t1.Hub, id1) || has(t1.Hub, id2) || !has(t2.Hub, id2) || has(t2.Hub, id1) {
 		t.Fatalf("hubs mixed the tenants up: org-1 has %v/%v, org-2 has %v/%v", has(t1.Hub, id1), has(t1.Hub, id2), has(t2.Hub, id1), has(t2.Hub, id2))
 	}
