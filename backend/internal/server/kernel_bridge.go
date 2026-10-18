@@ -6,6 +6,7 @@ import (
 
 	"continuum/internal/accounts"
 	"continuum/internal/decisionloop"
+	"continuum/internal/fusion"
 	"continuum/internal/kernel"
 	"continuum/internal/operators"
 	"continuum/internal/pki"
@@ -24,11 +25,13 @@ type Core struct {
 	// Operators and Telemetry are the regional operators and the telemetry intents that may point at them.
 	Operators *operators.Service
 	Telemetry *telemetry.Service
+	// Fusion is what the FUSION control stands on: the Core and the operators the central operator is one of.
+	Fusion *fusion.Service
 }
 
 func wrap(k *kernel.Core) *Core {
 	ops := operators.NewService(k)
-	return &Core{Core: k, Accounts: accounts.NewService(k), Loop: decisionloop.NewService(k), Operators: ops, Telemetry: telemetry.NewService(k, ops)}
+	return &Core{Core: k, Accounts: accounts.NewService(k), Loop: decisionloop.NewService(k), Operators: ops, Telemetry: telemetry.NewService(k, ops), Fusion: fusion.NewService(k, ops)}
 }
 
 // NewCore returns a Core scoped to org (see kernel.NewCore).

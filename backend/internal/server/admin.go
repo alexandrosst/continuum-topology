@@ -18,6 +18,7 @@ import (
 
 	"continuum/internal/accounts"
 	"continuum/internal/chart"
+	"continuum/internal/fusion"
 	"continuum/internal/fusionapi"
 	"continuum/internal/install"
 	"continuum/internal/kernel"
@@ -78,7 +79,7 @@ type Admin struct {
 	OperatorChartVersion string
 	// Fusion switches the FUSION bundled with the server's chart on and off. Nil when the server was installed without
 	// it or without the permission to scale it; the endpoints then report it as unavailable and say why.
-	Fusion *FusionControl
+	Fusion *fusion.FusionControl
 	// extras replaces the platform-backed provider of what Ikhnos knows (topology, applications, events) for a test.
 	extras fusionapi.Extras
 	// appCache holds the Ikhnos applications for a few seconds: working them out builds the whole state document (every agent

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"continuum/internal/accounts"
+	"continuum/internal/fusion"
 	"continuum/internal/operators"
 )
 
@@ -110,7 +111,7 @@ func TestOperatorDestinationsOfferCentralFromTheStart(t *testing.T) {
 	}
 
 	// Starting: recommended, and the same entry once the central operator really exists.
-	if _, err := f.Enable(a.ctx, a.core, "alex"); err != nil {
+	if _, err := f.Enable(a.ctx, a.core.Fusion, "alex"); err != nil {
 		t.Fatal(err)
 	}
 	list = a.do("GET", "/api/v1/operator-destinations", nil, withCookie(editor)).jsonArray(t)
@@ -124,7 +125,7 @@ func TestOperatorDestinationsOfferCentralFromTheStart(t *testing.T) {
 		t.Fatalf("central while running = %v", c)
 	}
 	// Turned off again: still offered, no longer recommended.
-	if _, err := f.Disable(a.ctx, a.core, "alex"); err != nil {
+	if _, err := f.Disable(a.ctx, a.core.Fusion, "alex"); err != nil {
 		t.Fatal(err)
 	}
 	c = destByID(a.do("GET", "/api/v1/operator-destinations", nil, withCookie(editor)).jsonArray(t), operators.CentralOperatorID)
@@ -142,7 +143,7 @@ func TestCentralOperatorHealthIsFusionsState(t *testing.T) {
 	_, admin := a.user(t, "alex", accounts.RoleAdmin)
 	f, k := newFusion(t, a)
 	a.a.Fusion = f
-	if _, err := f.Enable(a.ctx, a.core, "alex"); err != nil {
+	if _, err := f.Enable(a.ctx, a.core.Fusion, "alex"); err != nil {
 		t.Fatal(err)
 	}
 	health := func() map[string]any {
@@ -163,14 +164,14 @@ func TestCentralOperatorHealthIsFusionsState(t *testing.T) {
 
 func TestCentralHealthMapsFusionsStates(t *testing.T) {
 	for _, c := range []struct {
-		st   FusionStatus
+		st   fusion.FusionStatus
 		want string
 	}{
-		{FusionStatus{Available: true, State: "running"}, operators.HealthOnline},
-		{FusionStatus{Available: true, State: "starting"}, operators.HealthStarting},
-		{FusionStatus{Available: true, State: "attention"}, operators.HealthAttention},
-		{FusionStatus{Available: true, State: "off"}, operators.HealthOff},
-		{FusionStatus{State: "off", Reason: "not-configured"}, operators.HealthUnknown},
+		{fusion.FusionStatus{Available: true, State: "running"}, operators.HealthOnline},
+		{fusion.FusionStatus{Available: true, State: "starting"}, operators.HealthStarting},
+		{fusion.FusionStatus{Available: true, State: "attention"}, operators.HealthAttention},
+		{fusion.FusionStatus{Available: true, State: "off"}, operators.HealthOff},
+		{fusion.FusionStatus{State: "off", Reason: "not-configured"}, operators.HealthUnknown},
 	} {
 		if got := operators.CentralHealth(c.st.Managed()).State; got != c.want {
 			t.Errorf("%+v: %s, want %s", c.st, got, c.want)

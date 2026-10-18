@@ -77,7 +77,7 @@ func TestCentralAddressIsCheckedAgainstTheGatewaysService(t *testing.T) {
 	ik := &inspectingKube{fakeKube: k, svc: kernel.KubeService{Type: "ClusterIP", Port: 4317}}
 	f.Kube = ik
 	a.a.Fusion = f
-	if _, err := f.Enable(a.ctx, a.core, "alex"); err != nil {
+	if _, err := f.Enable(a.ctx, a.core.Fusion, "alex"); err != nil {
 		t.Fatal(err)
 	}
 	k.allReady()

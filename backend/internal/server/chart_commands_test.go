@@ -510,7 +510,7 @@ func TestPrintedAgentCommandsForTheCentralOperator(t *testing.T) {
 	a := newIntentRig(t)
 	f, _ := newFusion(t, a.adminRig)
 	a.a.Fusion = f
-	if _, err := f.Enable(a.ctx, a.core, "alex"); err != nil {
+	if _, err := f.Enable(a.ctx, a.core.Fusion, "alex"); err != nil {
 		t.Fatal(err)
 	}
 	central, err := a.st.GetOperator(a.ctx, operators.CentralOperatorID)
@@ -568,7 +568,7 @@ func TestPrintedOperatorInstallsRenderTheDeclaredReceiverAndExporter(t *testing.
 	a.a.PublicURL = "https://continuum.example.com" // the chart refuses a plain-HTTP heartbeat, and a test server's own address is plain HTTP
 	f, _ := newFusion(t, a.adminRig)
 	a.a.Fusion = f
-	if _, err := f.Enable(a.ctx, a.core, "alex"); err != nil {
+	if _, err := f.Enable(a.ctx, a.core.Fusion, "alex"); err != nil {
 		t.Fatal(err)
 	}
 	central, _ := a.st.GetOperator(a.ctx, operators.CentralOperatorID)

@@ -1,4 +1,4 @@
-package server
+package fusion
 
 import (
 	"cmp"
@@ -330,7 +330,7 @@ func UnavailableRetention(reason, msg string) RetentionDoc {
 }
 
 // Retention reads every store's retention, volume and use.
-func (f *FusionControl) Retention(ctx context.Context, c *Core) RetentionDoc {
+func (f *FusionControl) Retention(ctx context.Context, c *Service) RetentionDoc {
 	if f != nil && f.Org != "" && c.OrgID != f.Org {
 		return UnavailableRetention("other-org", "FUSION is shared by everything that sends to this server, so its retention is set from the server's main organisation.")
 	}
@@ -442,7 +442,7 @@ type retentionPlan struct {
 func (p retentionPlan) restarts() bool { return p.newValue != "" || p.sizeLimit != "" }
 
 // SetRetention changes retention and volume sizes as the request says and answers with the state that results.
-func (f *FusionControl) SetRetention(ctx context.Context, c *Core, actor string, req RetentionRequest) (RetentionDoc, error) {
+func (f *FusionControl) SetRetention(ctx context.Context, c *Service, actor string, req RetentionRequest) (RetentionDoc, error) {
 	if f == nil {
 		return RetentionDoc{}, kernel.Errf(kernel.KindConflict, "FUSION is not available here")
 	}

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"continuum/internal/accounts"
+	"continuum/internal/fusion"
 	"continuum/internal/fusionapi"
 	"continuum/internal/kernel"
 )
@@ -91,7 +92,7 @@ func (k *fakeKube) RestartPod(_ context.Context, name string) error {
 const gib = int64(1) << 30
 
 // retentionRig is FUSION as the chart leaves it with the server managing it: three stores on 10 GiB volumes.
-func retentionRig(t *testing.T) (*FusionControl, *fakeKube, *adminRig) {
+func retentionRig(t *testing.T) (*fusion.FusionControl, *fakeKube, *adminRig) {
 	t.Helper()
 	a := newAdminRig(t)
 	f, k := newFusion(t, a)
@@ -112,7 +113,7 @@ func retentionRig(t *testing.T) (*FusionControl, *fakeKube, *adminRig) {
 
 func intp(n int) *int { return &n }
 
-func storeOf(t *testing.T, d RetentionDoc, component string) RetentionStore {
+func storeOf(t *testing.T, d fusion.RetentionDoc, component string) fusion.RetentionStore {
 	t.Helper()
 	for _, s := range d.Stores {
 		if s.Component == component {
@@ -120,12 +121,12 @@ func storeOf(t *testing.T, d RetentionDoc, component string) RetentionStore {
 		}
 	}
 	t.Fatalf("no %s store in %+v", component, d)
-	return RetentionStore{}
+	return fusion.RetentionStore{}
 }
 
 func TestRetentionShowsEachStoresSettingAndVolume(t *testing.T) {
 	f, _, a := retentionRig(t)
-	d := f.Retention(context.Background(), a.a.C.ForOrg("org-1"))
+	d := f.Retention(context.Background(), a.a.C.ForOrg("org-1").Fusion)
 	if !d.Available || !d.Running || len(d.Stores) != 3 {
 		t.Fatalf("doc = %+v", d)
 	}
@@ -145,21 +146,21 @@ func TestRetentionSaysWhyItIsUnavailable(t *testing.T) {
 	f, k, a := retentionRig(t)
 	ctx := context.Background()
 	k.settings = nil
-	if d := f.Retention(ctx, a.a.C.ForOrg("org-1")); d.Available || d.Reason != "unmanaged" || !strings.Contains(d.Message, "Helm") {
+	if d := f.Retention(ctx, a.a.C.ForOrg("org-1").Fusion); d.Available || d.Reason != "unmanaged" || !strings.Contains(d.Message, "Helm") {
 		t.Errorf("no settings object: %+v", d)
 	}
 	k.settings = map[string]string{}
 	k.settingsErr = kernel.ErrKubeForbidden
-	if d := f.Retention(ctx, a.a.C.ForOrg("org-1")); d.Available || d.Reason != "forbidden" {
+	if d := f.Retention(ctx, a.a.C.ForOrg("org-1").Fusion); d.Available || d.Reason != "forbidden" {
 		t.Errorf("Role without the grant: %+v", d)
 	}
 	k.settingsErr = nil
 	other := a.a.C.ForOrg("org-2")
-	if d := f.Retention(ctx, other); d.Available || d.Reason != "other-org" {
+	if d := f.Retention(ctx, other.Fusion); d.Available || d.Reason != "other-org" {
 		t.Errorf("another organisation: %+v", d)
 	}
-	var nilFusion *FusionControl
-	if d := nilFusion.Retention(ctx, a.a.C.ForOrg("org-1")); d.Available {
+	var nilFusion *fusion.FusionControl
+	if d := nilFusion.Retention(ctx, a.a.C.ForOrg("org-1").Fusion); d.Available {
 		t.Errorf("no switch: %+v", d)
 	}
 }
@@ -167,9 +168,9 @@ func TestRetentionSaysWhyItIsUnavailable(t *testing.T) {
 func TestSetRetentionGrowsTheVolumeBeforeSavingAndRestartsOnlyWhatChanged(t *testing.T) {
 	f, k, a := retentionRig(t)
 	ctx := context.Background()
-	d, err := f.SetRetention(ctx, a.a.C.ForOrg("org-1"), "alex", RetentionRequest{
-		Metrics: &RetentionChange{Days: intp(30), VolumeGiB: intp(20)},
-		Traces:  &RetentionChange{Days: intp(7)},
+	d, err := f.SetRetention(ctx, a.a.C.ForOrg("org-1").Fusion, "alex", fusion.RetentionRequest{
+		Metrics: &fusion.RetentionChange{Days: intp(30), VolumeGiB: intp(20)},
+		Traces:  &fusion.RetentionChange{Days: intp(7)},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -206,7 +207,7 @@ func TestSetRetentionGrowsTheVolumeBeforeSavingAndRestartsOnlyWhatChanged(t *tes
 func TestSetRetentionKeepsASizeLimitSomeoneChose(t *testing.T) {
 	f, k, a := retentionRig(t)
 	k.settings["prometheus.retentionSize"] = "5GB"
-	if _, err := f.SetRetention(context.Background(), a.a.C.ForOrg("org-1"), "alex", RetentionRequest{Metrics: &RetentionChange{VolumeGiB: intp(20)}}); err != nil {
+	if _, err := f.SetRetention(context.Background(), a.a.C.ForOrg("org-1").Fusion, "alex", fusion.RetentionRequest{Metrics: &fusion.RetentionChange{VolumeGiB: intp(20)}}); err != nil {
 		t.Fatal(err)
 	}
 	if k.settings["prometheus.retentionSize"] != "5GB" {
@@ -221,7 +222,7 @@ func TestSetRetentionKeepsASizeLimitSomeoneChose(t *testing.T) {
 func TestSetRetentionLeavesTheSettingsAloneWhenTheVolumeCannotGrow(t *testing.T) {
 	f, k, a := retentionRig(t)
 	k.resizeErr = kernel.ErrKubeNoResize
-	_, err := f.SetRetention(context.Background(), a.a.C.ForOrg("org-1"), "alex", RetentionRequest{Logs: &RetentionChange{Days: intp(30), VolumeGiB: intp(50)}})
+	_, err := f.SetRetention(context.Background(), a.a.C.ForOrg("org-1").Fusion, "alex", fusion.RetentionRequest{Logs: &fusion.RetentionChange{Days: intp(30), VolumeGiB: intp(50)}})
 	if err == nil || !strings.Contains(err.Error(), "allowVolumeExpansion") || !strings.Contains(err.Error(), "fast") {
 		t.Fatalf("err = %v", err)
 	}
@@ -233,8 +234,8 @@ func TestSetRetentionLeavesTheSettingsAloneWhenTheVolumeCannotGrow(t *testing.T)
 func TestSetRetentionSaysWhatWasGrownWhenALaterVolumeFails(t *testing.T) {
 	f, k, a := retentionRig(t)
 	k.resizeErr, k.resizeErrOn = errors.New("quota exceeded"), "data-continuum-fusion-loki-0"
-	_, err := f.SetRetention(context.Background(), a.a.C.ForOrg("org-1"), "alex", RetentionRequest{
-		Metrics: &RetentionChange{Days: intp(30), VolumeGiB: intp(20)}, Logs: &RetentionChange{Days: intp(30), VolumeGiB: intp(20)}})
+	_, err := f.SetRetention(context.Background(), a.a.C.ForOrg("org-1").Fusion, "alex", fusion.RetentionRequest{
+		Metrics: &fusion.RetentionChange{Days: intp(30), VolumeGiB: intp(20)}, Logs: &fusion.RetentionChange{Days: intp(30), VolumeGiB: intp(20)}})
 	if err == nil || !strings.Contains(err.Error(), "Prometheus was already grown") || !strings.Contains(err.Error(), "no retention was changed") {
 		t.Fatalf("err = %v", err)
 	}
@@ -251,8 +252,8 @@ func TestSetRetentionSaysWhatWasGrownWhenALaterVolumeFails(t *testing.T) {
 func TestSetRetentionChecksEverythingBeforeChangingAnything(t *testing.T) {
 	f, k, a := retentionRig(t)
 	delete(k.rclaims, "data-continuum-fusion-loki-0") // its volume cannot be read
-	_, err := f.SetRetention(context.Background(), a.a.C.ForOrg("org-1"), "alex", RetentionRequest{
-		Metrics: &RetentionChange{VolumeGiB: intp(20)}, Logs: &RetentionChange{VolumeGiB: intp(20)}})
+	_, err := f.SetRetention(context.Background(), a.a.C.ForOrg("org-1").Fusion, "alex", fusion.RetentionRequest{
+		Metrics: &fusion.RetentionChange{VolumeGiB: intp(20)}, Logs: &fusion.RetentionChange{VolumeGiB: intp(20)}})
 	if err == nil || len(k.ops) != 0 {
 		t.Fatalf("validation must come before any change: err %v ops %v", err, k.ops)
 	}
@@ -262,18 +263,18 @@ func TestSetRetentionRefusesWhatCannotBeDone(t *testing.T) {
 	f, k, a := retentionRig(t)
 	ctx := context.Background()
 	for name, tc := range map[string]struct {
-		req  RetentionRequest
+		req  fusion.RetentionRequest
 		want string
 	}{
-		"shrink":             {RetentionRequest{Metrics: &RetentionChange{VolumeGiB: intp(5)}}, "not made smaller"},
-		"zero days":          {RetentionRequest{Logs: &RetentionChange{Days: intp(0)}}, "between 1 and 365"},
-		"too many (logs)":    {RetentionRequest{Logs: &RetentionChange{Days: intp(366)}}, "between 1 and 365"},
-		"too many (metrics)": {RetentionRequest{Metrics: &RetentionChange{Days: intp(1096)}}, "between 1 and 1095"},
-		"huge volume":        {RetentionRequest{Traces: &RetentionChange{VolumeGiB: intp(99999)}}, "between 1 and"},
-		"nothing asked":      {RetentionRequest{}, "say which"},
-		"empty change":       {RetentionRequest{Logs: &RetentionChange{}}, "say which"},
+		"shrink":             {fusion.RetentionRequest{Metrics: &fusion.RetentionChange{VolumeGiB: intp(5)}}, "not made smaller"},
+		"zero days":          {fusion.RetentionRequest{Logs: &fusion.RetentionChange{Days: intp(0)}}, "between 1 and 365"},
+		"too many (logs)":    {fusion.RetentionRequest{Logs: &fusion.RetentionChange{Days: intp(366)}}, "between 1 and 365"},
+		"too many (metrics)": {fusion.RetentionRequest{Metrics: &fusion.RetentionChange{Days: intp(1096)}}, "between 1 and 1095"},
+		"huge volume":        {fusion.RetentionRequest{Traces: &fusion.RetentionChange{VolumeGiB: intp(99999)}}, "between 1 and"},
+		"nothing asked":      {fusion.RetentionRequest{}, "say which"},
+		"empty change":       {fusion.RetentionRequest{Logs: &fusion.RetentionChange{}}, "say which"},
 	} {
-		_, err := f.SetRetention(ctx, a.a.C.ForOrg("org-1"), "alex", tc.req)
+		_, err := f.SetRetention(ctx, a.a.C.ForOrg("org-1").Fusion, "alex", tc.req)
 		if err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%s: err = %v, want %q", name, err, tc.want)
 		}
@@ -285,19 +286,19 @@ func TestSetRetentionRefusesWhatCannotBeDone(t *testing.T) {
 	c := k.rclaims["data-continuum-fusion-loki-0"]
 	c.Requested = 20 * gib
 	k.rclaims["data-continuum-fusion-loki-0"] = c
-	if _, err := f.SetRetention(ctx, a.a.C.ForOrg("org-1"), "alex", RetentionRequest{Logs: &RetentionChange{VolumeGiB: intp(40)}}); err == nil || !strings.Contains(err.Error(), "still being grown") {
+	if _, err := f.SetRetention(ctx, a.a.C.ForOrg("org-1").Fusion, "alex", fusion.RetentionRequest{Logs: &fusion.RetentionChange{VolumeGiB: intp(40)}}); err == nil || !strings.Contains(err.Error(), "still being grown") {
 		t.Errorf("growing twice: %v", err)
 	}
 	// Another organisation may not change it.
-	if _, err := f.SetRetention(ctx, a.a.C.ForOrg("org-2"), "eve", RetentionRequest{Logs: &RetentionChange{Days: intp(2)}}); err == nil {
+	if _, err := f.SetRetention(ctx, a.a.C.ForOrg("org-2").Fusion, "eve", fusion.RetentionRequest{Logs: &fusion.RetentionChange{Days: intp(2)}}); err == nil {
 		t.Error("another organisation changed FUSION's retention")
 	}
 }
 
 func TestSetRetentionAlreadySoChangesNothing(t *testing.T) {
 	f, k, a := retentionRig(t)
-	d, err := f.SetRetention(context.Background(), a.a.C.ForOrg("org-1"), "alex", RetentionRequest{
-		Metrics: &RetentionChange{Days: intp(15), VolumeGiB: intp(10)}, Logs: &RetentionChange{Days: intp(7)}})
+	d, err := f.SetRetention(context.Background(), a.a.C.ForOrg("org-1").Fusion, "alex", fusion.RetentionRequest{
+		Metrics: &fusion.RetentionChange{Days: intp(15), VolumeGiB: intp(10)}, Logs: &fusion.RetentionChange{Days: intp(7)}})
 	if err != nil || len(k.ops) != 0 || !d.Available {
 		t.Fatalf("err %v ops %v doc %+v", err, k.ops, d)
 	}
@@ -309,7 +310,7 @@ func TestSetRetentionDoesNotRestartStoresThatAreOff(t *testing.T) {
 		k.replicas[n] = 0
 	}
 	k.allReady()
-	if _, err := f.SetRetention(context.Background(), a.a.C.ForOrg("org-1"), "alex", RetentionRequest{Logs: &RetentionChange{Days: intp(14)}}); err != nil {
+	if _, err := f.SetRetention(context.Background(), a.a.C.ForOrg("org-1").Fusion, "alex", fusion.RetentionRequest{Logs: &fusion.RetentionChange{Days: intp(14)}}); err != nil {
 		t.Fatal(err)
 	}
 	if got := strings.Join(k.ops, ","); got != "settings" {
@@ -320,7 +321,7 @@ func TestSetRetentionDoesNotRestartStoresThatAreOff(t *testing.T) {
 func TestSetRetentionSavesEvenIfARestartFails(t *testing.T) {
 	f, k, a := retentionRig(t)
 	k.restartErr = errors.New("boom")
-	d, err := f.SetRetention(context.Background(), a.a.C.ForOrg("org-1"), "alex", RetentionRequest{Logs: &RetentionChange{Days: intp(14)}})
+	d, err := f.SetRetention(context.Background(), a.a.C.ForOrg("org-1").Fusion, "alex", fusion.RetentionRequest{Logs: &fusion.RetentionChange{Days: intp(14)}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -348,7 +349,7 @@ func TestRetentionMeasuresGrowthFromWhatTheStoresReport(t *testing.T) {
 	f.Data = &fusionapi.Client{Prometheus: prom.URL}
 	_ = k
 
-	d := f.Retention(context.Background(), a.a.C.ForOrg("org-1"))
+	d := f.Retention(context.Background(), a.a.C.ForOrg("org-1").Fusion)
 	m := storeOf(t, d, "metrics")
 	if m.UsedBytes == nil || *m.UsedBytes != 4_500_000_000 || m.UsedSource != "database" {
 		t.Fatalf("metrics use = %+v", m)
@@ -374,7 +375,7 @@ func TestRetentionMeasuresGrowthFromWhatTheStoresReport(t *testing.T) {
 
 func TestRetentionSurvivesStoresThatCannotBeMeasured(t *testing.T) {
 	f, _, a := retentionRig(t) // Data is an empty client: nothing to ask
-	d := f.Retention(context.Background(), a.a.C.ForOrg("org-1"))
+	d := f.Retention(context.Background(), a.a.C.ForOrg("org-1").Fusion)
 	for _, s := range d.Stores {
 		if s.UsedBytes != nil || s.BytesPerDay != nil {
 			t.Errorf("%s: invented a measurement: %+v", s.Component, s)
@@ -387,26 +388,26 @@ func TestRetentionSurvivesStoresThatCannotBeMeasured(t *testing.T) {
 
 func TestRetentionValueParsing(t *testing.T) {
 	for in, want := range map[string]float64{"15d": 15, "168h": 7, "1w2d": 9, "1y": 365, "36h": 1.5, "90m": 90.0 / 1440} {
-		if got, ok := ParseRetentionDays(in); !ok || got < want-1e-9 || got > want+1e-9 {
+		if got, ok := fusion.ParseRetentionDays(in); !ok || got < want-1e-9 || got > want+1e-9 {
 			t.Errorf("parseRetentionDays(%q) = %v %v, want %v", in, got, ok, want)
 		}
 	}
 	for _, bad := range []string{"", "d", "15", "15x", "-3d", "3d junk", "1.5d"} {
-		if _, ok := ParseRetentionDays(bad); ok {
+		if _, ok := fusion.ParseRetentionDays(bad); ok {
 			t.Errorf("parseRetentionDays(%q) accepted", bad)
 		}
 	}
-	if n, ok := ParseRetentionSize("8704MB"); !ok || n != 8704<<20 {
+	if n, ok := fusion.ParseRetentionSize("8704MB"); !ok || n != 8704<<20 {
 		t.Errorf("size = %d %v", n, ok)
 	}
-	if n, ok := ParseRetentionSize("10GB"); !ok || n != 10<<30 {
+	if n, ok := fusion.ParseRetentionSize("10GB"); !ok || n != 10<<30 {
 		t.Errorf("size = %d %v", n, ok)
 	}
-	if _, ok := ParseRetentionSize("lots"); ok {
+	if _, ok := fusion.ParseRetentionSize("lots"); ok {
 		t.Error("size accepted nonsense")
 	}
 	// The chart's own default for a 10Gi volume: the server must derive the same text to know a value is still the default.
-	if got := DerivedRetentionSize(10 * gib); got != "8704MB" {
+	if got := fusion.DerivedRetentionSize(10 * gib); got != "8704MB" {
 		t.Errorf("derived = %q", got)
 	}
 }
@@ -458,7 +459,7 @@ func TestRetentionSaysBeforehandWhichVolumesCanGrow(t *testing.T) {
 	c := k.rclaims["data-continuum-fusion-loki-0"]
 	c.Provisioner = "rancher.io/local-path"
 	k.rclaims["data-continuum-fusion-loki-0"] = c
-	d := f.Retention(ctx, a.a.C.ForOrg("org-1"))
+	d := f.Retention(ctx, a.a.C.ForOrg("org-1").Fusion)
 	if m := storeOf(t, d, "metrics"); m.CanGrow == nil || !*m.CanGrow || m.SizeNotEnforced {
 		t.Errorf("a class that grows: %+v", m)
 	}
@@ -468,7 +469,7 @@ func TestRetentionSaysBeforehandWhichVolumesCanGrow(t *testing.T) {
 	}
 	// The answer is reused, not asked again on every look at the card.
 	n := len(k.checks)
-	f.Retention(ctx, a.a.C.ForOrg("org-1"))
+	f.Retention(ctx, a.a.C.ForOrg("org-1").Fusion)
 	if len(k.checks) != n {
 		t.Errorf("trial resizes asked again: %d -> %d", n, len(k.checks))
 	}
@@ -481,8 +482,8 @@ func TestRetentionSaysBeforehandWhichVolumesCanGrow(t *testing.T) {
 func TestSetRetentionGrowsNothingIfAnyOfTheVolumesCannot(t *testing.T) {
 	f, k, a := retentionRig(t)
 	k.resizeErr, k.resizeErrOn = kernel.ErrKubeNoResize, "data-continuum-fusion-loki-0"
-	_, err := f.SetRetention(context.Background(), a.a.C.ForOrg("org-1"), "alex", RetentionRequest{
-		Metrics: &RetentionChange{VolumeGiB: intp(20)}, Logs: &RetentionChange{VolumeGiB: intp(20), Days: intp(30)}})
+	_, err := f.SetRetention(context.Background(), a.a.C.ForOrg("org-1").Fusion, "alex", fusion.RetentionRequest{
+		Metrics: &fusion.RetentionChange{VolumeGiB: intp(20)}, Logs: &fusion.RetentionChange{VolumeGiB: intp(20), Days: intp(30)}})
 	if err == nil || !strings.Contains(err.Error(), "Loki's volume cannot be grown") || !strings.Contains(err.Error(), "Nothing was changed") {
 		t.Fatalf("err = %v", err)
 	}

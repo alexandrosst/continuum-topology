@@ -6,6 +6,7 @@ import (
 
 	continuumv1 "continuum/gen/continuumv1"
 
+	"continuum/internal/fusion"
 	"continuum/internal/kernel"
 	"continuum/internal/operators"
 )
@@ -57,7 +58,7 @@ func TestCentralOperatorAddressCandidatesAndSendersComeFromTheGatewayAndFusion(t
 	ik := &inspectingKube{fakeKube: k, svc: kernel.KubeService{Type: "LoadBalancer", Port: 4317, LoadBalancer: "203.0.113.50:4317"}}
 	f.Kube = ik
 	a.a.Fusion = f
-	if _, err := f.Enable(a.ctx, a.core, "alex"); err != nil {
+	if _, err := f.Enable(a.ctx, a.core.Fusion, "alex"); err != nil {
 		t.Fatal(err)
 	}
 	k.allReady()
@@ -115,7 +116,7 @@ func TestCentralNodeAddressesNeedOnlyTheClusterAndTheServicesNodePort(t *testing
 	f, k := newFusion(t, a.adminRig)
 	f.Kube = &inspectingKube{fakeKube: k, svc: kernel.KubeService{Type: "LoadBalancer", Port: 4317, NodePort: 31999, LoadBalancer: "203.0.113.50:4317"}}
 	a.a.Fusion = f
-	if _, err := f.Enable(a.ctx, a.core, "alex"); err != nil {
+	if _, err := f.Enable(a.ctx, a.core.Fusion, "alex"); err != nil {
 		t.Fatal(err)
 	}
 	k.allReady()
@@ -164,7 +165,7 @@ func TestCentralClusterIsFoundByTheNodeThatHasTheLoadBalancersAddress(t *testing
 			f, k := newFusion(t, a.adminRig)
 			f.Kube = &inspectingKube{fakeKube: k, svc: kernel.KubeService{Type: "LoadBalancer", Port: 4317, NodePort: 31999, LoadBalancer: tc.lb}}
 			a.a.Fusion = f
-			if _, err := f.Enable(a.ctx, a.core, "alex"); err != nil {
+			if _, err := f.Enable(a.ctx, a.core.Fusion, "alex"); err != nil {
 				t.Fatal(err)
 			}
 			k.allReady()
@@ -210,7 +211,7 @@ func TestAnUnexposedGatewayComesWithTheCommandThatExposesIt(t *testing.T) {
 	f, k := newFusion(t, a.adminRig)
 	f.Kube = &inspectingKube{fakeKube: k, svc: kernel.KubeService{Type: "ClusterIP", Port: 4317}}
 	a.a.Fusion = f
-	if _, err := f.Enable(a.ctx, a.core, "alex"); err != nil {
+	if _, err := f.Enable(a.ctx, a.core.Fusion, "alex"); err != nil {
 		t.Fatal(err)
 	}
 	k.allReady()
@@ -229,13 +230,13 @@ func TestAnUnexposedGatewayComesWithTheCommandThatExposesIt(t *testing.T) {
 }
 
 // centralRig is a server whose gateway is a LoadBalancer Service, with one agent in the cluster whose kube-system UID is uid.
-func centralRig(t *testing.T, uid string) (*intentRig, *FusionControl, string) {
+func centralRig(t *testing.T, uid string) (*intentRig, *fusion.FusionControl, string) {
 	t.Helper()
 	a := newIntentRig(t)
 	f, k := newFusion(t, a.adminRig)
 	f.Kube = &inspectingKube{fakeKube: k, svc: kernel.KubeService{Type: "LoadBalancer", Port: 4317, NodePort: 31999, LoadBalancer: "203.0.113.50:4317"}}
 	a.a.Fusion = f
-	if _, err := f.Enable(a.ctx, a.core, "alex"); err != nil {
+	if _, err := f.Enable(a.ctx, a.core.Fusion, "alex"); err != nil {
 		t.Fatal(err)
 	}
 	k.allReady()

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"continuum/internal/chart"
+	"continuum/internal/fusion"
 	"continuum/internal/install"
 	"continuum/internal/kernel"
 	"continuum/internal/operators"
@@ -219,14 +220,14 @@ func (a *Admin) opDoc(r *http.Request, op store.Operator) operatorDoc {
 // fusionState is FUSION's status for the documents of the central operator; read once per request by the callers
 // that build several. FUSION is managed from the server's main organisation only, so for any other it is not
 // available (there is no central operator to speak of).
-func (a *Admin) fusionState(r *http.Request) FusionStatus {
+func (a *Admin) fusionState(r *http.Request) fusion.FusionStatus {
 	if f := a.Fusion; f != nil && f.Org != "" && a.core(r).OrgID != f.Org {
-		return FusionStatus{State: "off", Reason: "other-org"}
+		return fusion.FusionStatus{State: "off", Reason: "other-org"}
 	}
 	return a.Fusion.Status(r.Context())
 }
 
-func (a *Admin) opDocWith(r *http.Request, op store.Operator, usages map[string]operators.OperatorUsage, fusion FusionStatus) operatorDoc {
+func (a *Admin) opDocWith(r *http.Request, op store.Operator, usages map[string]operators.OperatorUsage, fusion fusion.FusionStatus) operatorDoc {
 	d := toOperatorDoc(op, a.core(r).Now())
 	d.Endpoint = a.operatorEndpoint(op)
 	d.UsedBy = toUsedByDoc(usages[op.ID])

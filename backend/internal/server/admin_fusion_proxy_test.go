@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"continuum/internal/accounts"
+	"continuum/internal/fusion"
 	"continuum/internal/fusionapi"
 	"continuum/internal/kernel"
 )
@@ -87,7 +88,7 @@ func newPageRig(t *testing.T) *pageRig {
 		w.Header().Set("Set-Cookie", "grafana_session=abc")
 		_, _ = w.Write([]byte("grafana " + r.URL.Path))
 	})
-	d.a.Fusion = &FusionControl{Name: "continuum-fusion", Namespace: "continuum", Kube: p.kube, Org: "org-1", StatusTTL: -1,
+	d.a.Fusion = &fusion.FusionControl{Name: "continuum-fusion", Namespace: "continuum", Kube: p.kube, Org: "org-1", StatusTTL: -1,
 		PrometheusUI: p.prom.URL, GrafanaUI: p.grafana.URL,
 		Data: &fusionapi.Client{Prometheus: d.stores.prom.URL, Loki: d.stores.loki.URL, Tempo: d.stores.tempo.URL}}
 	return p
@@ -231,7 +232,7 @@ func TestFusionPagesNeedTheirWorkloadsUpAndASameOriginWrite(t *testing.T) {
 func TestGrafanaIsSwitchedWithFusionWhereItExists(t *testing.T) {
 	a := newAdminRig(t)
 	k := newFakeKube(append(append([]string{}, fusionNames...), "continuum-fusion-grafana")...)
-	f := &FusionControl{Name: "continuum-fusion", Namespace: "continuum", Kube: k, Org: a.a.C.OrgID, StatusTTL: -1, Data: &fusionapi.Client{}}
+	f := &fusion.FusionControl{Name: "continuum-fusion", Namespace: "continuum", Kube: k, Org: a.a.C.OrgID, StatusTTL: -1, Data: &fusionapi.Client{}}
 	ctx := t.Context()
 	if st := f.Status(ctx); len(st.Components) != 5 || st.State != "off" {
 		t.Fatalf("with Grafana: %+v", st)

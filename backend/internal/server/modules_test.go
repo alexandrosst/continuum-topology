@@ -51,7 +51,7 @@ var moduleNames = map[string]bool{
 
 // movedOut are the modules that are packages of their own now. They keep their name here for the lists, but no file of this package is
 // theirs: a file assigned to one of them is a file that should have moved with it.
-var movedOut = map[string]bool{"accounts": true, "advice": true, "operators": true, "telemetry": true}
+var movedOut = map[string]bool{"accounts": true, "advice": true, "operators": true, "telemetry": true, "fusion": true}
 
 // moduleOfFile reads testdata/modules.txt: one line per file, the file name and then its module.
 func moduleOfFile(t *testing.T) map[string]string {

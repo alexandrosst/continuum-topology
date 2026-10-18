@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 
+	"continuum/internal/fusion"
 	"continuum/internal/kernel"
 	"continuum/internal/operators"
 )
@@ -25,7 +26,7 @@ type fusionCentralDoc struct {
 }
 
 type fusionResponse struct {
-	FusionStatus
+	fusion.FusionStatus
 	Central *fusionCentralDoc `json:"central,omitempty"`
 	// Data says whether this server serves the shared data API (and its access tokens) for this organisation: it knows
 	// where the stores are, whatever the switch can or cannot do.
@@ -41,17 +42,17 @@ func (a *Admin) fusionDoc(r *http.Request) fusionResponse {
 	f := a.Fusion
 	st := f.Status(r.Context())
 	if f != nil && f.Org != "" && core.OrgID != f.Org {
-		st = FusionStatus{State: "off", Reason: "other-org", Message: "FUSION is shared by everything that sends to this server, so it is managed from the server's main organisation."}
+		st = fusion.FusionStatus{State: "off", Reason: "other-org", Message: "FUSION is shared by everything that sends to this server, so it is managed from the server's main organisation."}
 	}
 	out := fusionResponse{FusionStatus: st, Data: f != nil && (f.Org == "" || core.OrgID == f.Org)}
 	if out.Data {
-		out.Links = f.uiLinks(st)
+		out.Links = uiLinksOf(f, st)
 	}
 	if f != nil && st.Available {
 		_, err := core.Operators.GetOperator(r.Context(), operators.CentralOperatorID)
 		out.Central = &fusionCentralDoc{OperatorID: operators.CentralOperatorID, Endpoint: f.CentralEndpoint(), Exposed: f.Exposed(), Exists: err == nil, Service: f.ServiceName(), Namespace: f.Namespace, Warnings: fusionAddressWarnings(r.Context(), f)}
 		if out.Central.Exists && !out.Central.Exposed && st.State != "off" {
-			f.DiscoverAddressSoon(core) // the next read of this screen shows it
+			f.DiscoverAddressSoon(core.Fusion) // the next read of this screen shows it
 		}
 	}
 	return out
@@ -66,7 +67,7 @@ func (a *Admin) enableFusion(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, kernel.Errf(kernel.KindConflict, "%s", a.Fusion.Status(r.Context()).Message))
 		return
 	}
-	if _, err := a.Fusion.Enable(r.Context(), a.core(r), actor(r)); err != nil {
+	if _, err := a.Fusion.Enable(r.Context(), a.core(r).Fusion, actor(r)); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -78,7 +79,7 @@ func (a *Admin) disableFusion(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, kernel.Errf(kernel.KindConflict, "%s", a.Fusion.Status(r.Context()).Message))
 		return
 	}
-	if _, err := a.Fusion.Disable(r.Context(), a.core(r), actor(r)); err != nil {
+	if _, err := a.Fusion.Disable(r.Context(), a.core(r).Fusion, actor(r)); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -88,10 +89,10 @@ func (a *Admin) disableFusion(w http.ResponseWriter, r *http.Request) {
 // getFusionRetention is every store's retention, volume and measured use.
 func (a *Admin) getFusionRetention(w http.ResponseWriter, r *http.Request) {
 	if a.Fusion == nil {
-		writeJSON(w, 200, UnavailableRetention("unavailable", a.Fusion.Status(r.Context()).Message))
+		writeJSON(w, 200, fusion.UnavailableRetention("unavailable", a.Fusion.Status(r.Context()).Message))
 		return
 	}
-	writeJSON(w, 200, a.Fusion.Retention(r.Context(), a.core(r)))
+	writeJSON(w, 200, a.Fusion.Retention(r.Context(), a.core(r).Fusion))
 }
 
 // setFusionRetention changes retention and grows volumes; the body names the stores (metrics, logs, traces) and, for
@@ -101,12 +102,12 @@ func (a *Admin) setFusionRetention(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, kernel.Errf(kernel.KindConflict, "%s", a.Fusion.Status(r.Context()).Message))
 		return
 	}
-	var req RetentionRequest
+	var req fusion.RetentionRequest
 	if err := decode(r, &req); err != nil {
 		a.fail(w, err)
 		return
 	}
-	doc, err := a.Fusion.SetRetention(r.Context(), a.core(r), actor(r), req)
+	doc, err := a.Fusion.SetRetention(r.Context(), a.core(r).Fusion, actor(r), req)
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -116,7 +117,7 @@ func (a *Admin) setFusionRetention(w http.ResponseWriter, r *http.Request) {
 
 // fusionAddressWarnings are the doubts about the public address recorded for the gateway (see addressWarnings), checked against the
 // gateway's own Service. Empty when there is no address, or nothing to doubt.
-func fusionAddressWarnings(ctx context.Context, f *FusionControl) []string {
+func fusionAddressWarnings(ctx context.Context, f *fusion.FusionControl) []string {
 	if f == nil || !f.Exposed() {
 		return nil
 	}

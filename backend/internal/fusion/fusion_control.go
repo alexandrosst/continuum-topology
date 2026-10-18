@@ -1,4 +1,4 @@
-package server
+package fusion
 
 import (
 	"context"
@@ -166,7 +166,7 @@ const fusionAddressEvery = 30 * time.Second
 // `kubectl get svc` and the typing. An address recorded by hand always wins and is never replaced, not even by a
 // different one the Service now shows. It returns the address it recorded, "" if it recorded none; it is cheap to call
 // often (the Service is read at most every fusionAddressEvery, and only while there is nothing recorded).
-func (f *FusionControl) DiscoverAddress(ctx context.Context, c *Core) (string, error) {
+func (f *FusionControl) DiscoverAddress(ctx context.Context, c *Service) (string, error) {
 	if f == nil || f.Kube == nil || (f.Org != "" && c.OrgID != f.Org) || f.publicAddress() != "" {
 		return "", nil
 	}
@@ -210,7 +210,7 @@ func (f *FusionControl) DiscoverAddress(ctx context.Context, c *Core) (string, e
 
 // DiscoverAddressSoon is DiscoverAddress off the request path: for the screens that notice the gateway has no address
 // yet. A failure is logged and tried again later.
-func (f *FusionControl) DiscoverAddressSoon(c *Core) {
+func (f *FusionControl) DiscoverAddressSoon(c *Service) {
 	if f == nil || f.Kube == nil || f.publicAddress() != "" {
 		return
 	}
@@ -728,7 +728,7 @@ func (f *FusionControl) rememberedLastData() *time.Time {
 // renewal started at boot - is handed the platform core (OrgID ""), which would fail that comparison and silently do
 // nothing, so it goes through here first. A core that already is some organisation's is returned as it is, and the
 // comparison then decides; with no Org set there is nothing to scope to.
-func (f *FusionControl) OrgCore(c *Core) *Core {
+func (f *FusionControl) OrgCore(c *Service) *Service {
 	if f == nil || f.Org == "" || c == nil || c.OrgID != "" {
 		return c
 	}
@@ -736,7 +736,7 @@ func (f *FusionControl) OrgCore(c *Core) *Core {
 }
 
 // Enable gets the central operator and its certificates ready, then starts the four workloads. Safe to repeat.
-func (f *FusionControl) Enable(ctx context.Context, c *Core, actor string) (FusionStatus, error) {
+func (f *FusionControl) Enable(ctx context.Context, c *Service, actor string) (FusionStatus, error) {
 	if f != nil { // a nil switch answers "not available" below, without touching anything
 		f.switchMu.Lock()
 		defer f.switchMu.Unlock()
@@ -776,7 +776,7 @@ func (f *FusionControl) Enable(ctx context.Context, c *Core, actor string) (Fusi
 // its own. It also gives the certificate the names the server now knows (a public address set after FUSION was first
 // enabled). The server owns that cluster, so this is in-process, not the renewer the other operators' certificates use.
 // It runs daily and acts only when there is something to do. Nothing is audited: it changes no one's access.
-func (f *FusionControl) Renew(ctx context.Context, c *Core) error {
+func (f *FusionControl) Renew(ctx context.Context, c *Service) error {
 	if f == nil || f.Kube == nil || (f.Org != "" && c.OrgID != f.Org) {
 		return nil
 	}
@@ -814,7 +814,7 @@ func (f *FusionControl) Renew(ctx context.Context, c *Core) error {
 }
 
 // Disable stops the four workloads. Their volumes stay, so turning FUSION on again brings the data back.
-func (f *FusionControl) Disable(ctx context.Context, c *Core, actor string) (FusionStatus, error) {
+func (f *FusionControl) Disable(ctx context.Context, c *Service, actor string) (FusionStatus, error) {
 	if f != nil { // a nil switch answers "not available" below, without touching anything
 		f.switchMu.Lock()
 		defer f.switchMu.Unlock()
@@ -896,7 +896,7 @@ func kubeFail(what string, err error) error {
 // the second insert fails on the operator's id. That second caller must not report the raw store error: the operator is
 // there, it is just not its own. It throws away the CA it minted - nothing has used it, and a certificate from it
 // would not verify against the CA that won - and goes round again as a later call, issuing from the winner's CA.
-func (c *Core) EnsureCentralOperator(ctx context.Context, actor string, dest store.Destination, hosts []string) (store.Operator, operators.OperatorTLSBundle, error) {
+func (c *Service) EnsureCentralOperator(ctx context.Context, actor string, dest store.Destination, hosts []string) (store.Operator, operators.OperatorTLSBundle, error) {
 	op, err := c.Store.GetOperator(ctx, operators.CentralOperatorID)
 	if errors.Is(err, store.ErrNotFound) {
 		bundle, caKeyPEM, err := operators.MintOperatorTLS(c.Core, operators.CentralOperatorID, hosts)
@@ -949,7 +949,7 @@ func (c *Core) EnsureCentralOperator(ctx context.Context, actor string, dest sto
 
 // centralReceiverFresh says whether the gateway's newest certificate in the ledger still has more than
 // pki.OperatorRenewBefore left, so that Renew has nothing to do.
-func (c *Core) centralReceiverFresh(ctx context.Context) bool {
+func (c *Service) centralReceiverFresh(ctx context.Context) bool {
 	certs, err := c.Store.ListOperatorCerts(ctx, operators.CentralOperatorID) // newest first
 	if err != nil {
 		return false

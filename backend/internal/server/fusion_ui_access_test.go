@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"continuum/internal/accounts"
+	"continuum/internal/fusion"
 	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
@@ -194,13 +195,13 @@ func TestOnlyAnAdministratorMayAskForAPageLink(t *testing.T) {
 // another organisation).
 func TestFusionBelongsToTheMainOrganisationOfAServerWhoseCoreHasNone(t *testing.T) {
 	base := wrap(&kernel.Core{DefaultOrg: "main"})
-	if got := (&Admin{C: base, Fusion: &FusionControl{}}).fusionOrg(); got != "main" {
+	if got := (&Admin{C: base, Fusion: &fusion.FusionControl{}}).fusionOrg(); got != "main" {
 		t.Fatalf("no organisation configured: %q", got)
 	}
-	if got := (&Admin{C: wrap(&kernel.Core{}), Fusion: &FusionControl{}}).fusionOrg(); got != "default" {
+	if got := (&Admin{C: wrap(&kernel.Core{}), Fusion: &fusion.FusionControl{}}).fusionOrg(); got != "default" {
 		t.Fatalf("no flag either: %q", got)
 	}
-	if got := (&Admin{C: base, Fusion: &FusionControl{Org: "told"}}).fusionOrg(); got != "told" {
+	if got := (&Admin{C: base, Fusion: &fusion.FusionControl{Org: "told"}}).fusionOrg(); got != "told" {
 		t.Fatalf("configured: %q", got)
 	}
 	if got := (&Admin{C: wrap(&kernel.Core{OrgID: "org-1"})}).fusionOrg(); got != "org-1" {

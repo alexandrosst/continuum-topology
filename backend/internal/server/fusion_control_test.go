@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"continuum/internal/accounts"
+	"continuum/internal/fusion"
 	"continuum/internal/fusionapi"
 	"continuum/internal/kernel"
 	"continuum/internal/operators"
@@ -154,12 +155,12 @@ func (k *fakeKube) allReady() {
 
 var fusionNames = []string{"continuum-fusion-prometheus", "continuum-fusion-loki", "continuum-fusion-tempo", "continuum-fusion-central"}
 
-func newFusion(t *testing.T, a *adminRig) (*FusionControl, *fakeKube) {
+func newFusion(t *testing.T, a *adminRig) (*fusion.FusionControl, *fakeKube) {
 	t.Helper()
 	k := newFakeKube(fusionNames...)
 	// No cache and no Prometheus to ask: a test changes the fake cluster between two calls and expects to see it. The
 	// cache has its own tests (TestStatusIsReadOnceForEveryoneAsking and friends).
-	f := &FusionControl{Name: "continuum-fusion", Namespace: "continuum", Kube: k, Org: a.a.C.OrgID, StatusTTL: -1, Data: &fusionapi.Client{}}
+	f := &fusion.FusionControl{Name: "continuum-fusion", Namespace: "continuum", Kube: k, Org: a.a.C.OrgID, StatusTTL: -1, Data: &fusionapi.Client{}}
 	return f, k
 }
 
@@ -202,7 +203,7 @@ func TestFusionStatusFollowsTheWorkloads(t *testing.T) {
 
 func TestFusionStatusSaysWhyItCannotBeSwitched(t *testing.T) {
 	a := newAdminRig(t)
-	var nilFusion *FusionControl
+	var nilFusion *fusion.FusionControl
 	if st := nilFusion.Status(context.Background()); st.Available || st.Reason != "not-configured" {
 		t.Errorf("no switch: %+v", st)
 	}
@@ -227,7 +228,7 @@ func TestEnableFusionPreparesTheCentralOperatorThenStartsEverything(t *testing.T
 	f.PublicAddress = "fusion.example.com:4317"
 	ctx := context.Background()
 
-	st, err := f.Enable(ctx, a.a.C, "alex")
+	st, err := f.Enable(ctx, a.a.C.Fusion, "alex")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -285,7 +286,7 @@ func TestEnableFusionPreparesTheCentralOperatorThenStartsEverything(t *testing.T
 
 	// Enabling again changes nothing about who is trusted: same operator, same CA, a fresh server certificate.
 	first := string(k.secret["ca.crt"])
-	if _, err := f.Enable(ctx, a.a.C, "alex"); err != nil {
+	if _, err := f.Enable(ctx, a.a.C.Fusion, "alex"); err != nil {
 		t.Fatal(err)
 	}
 	if string(k.secret["ca.crt"]) != first {
@@ -315,11 +316,11 @@ func TestDisableFusionStopsTheGatewayFirstAndKeepsTheOperator(t *testing.T) {
 	a := newAdminRig(t)
 	f, k := newFusion(t, a)
 	ctx := context.Background()
-	if _, err := f.Enable(ctx, a.a.C, "alex"); err != nil {
+	if _, err := f.Enable(ctx, a.a.C.Fusion, "alex"); err != nil {
 		t.Fatal(err)
 	}
 	k.calls = nil
-	st, err := f.Disable(ctx, a.a.C, "alex")
+	st, err := f.Disable(ctx, a.a.C.Fusion, "alex")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -339,7 +340,7 @@ func TestEnableFusionRefusesWhatItCannotDo(t *testing.T) {
 	ctx := context.Background()
 	f, k := newFusion(t, a)
 	k.err = kernel.ErrKubeForbidden
-	if _, err := f.Enable(ctx, a.a.C, "alex"); err == nil {
+	if _, err := f.Enable(ctx, a.a.C.Fusion, "alex"); err == nil {
 		t.Error("enabled without permission")
 	}
 	if _, err := a.a.C.Operators.GetOperator(ctx, operators.CentralOperatorID); err == nil {
@@ -349,7 +350,7 @@ func TestEnableFusionRefusesWhatItCannotDo(t *testing.T) {
 	f, _ = newFusion(t, a)
 	f.Org = "some-other-org"
 	var e *kernel.Error
-	if _, err := f.Enable(ctx, a.a.C, "alex"); !errors.As(err, &e) || e.Kind != kernel.KindForbidden {
+	if _, err := f.Enable(ctx, a.a.C.Fusion, "alex"); !errors.As(err, &e) || e.Kind != kernel.KindForbidden {
 		t.Errorf("another organisation enabled FUSION: %v", err)
 	}
 }
@@ -358,7 +359,7 @@ func TestTheCentralOperatorIsNotEditableByHand(t *testing.T) {
 	a := newAdminRig(t)
 	f, _ := newFusion(t, a)
 	ctx := context.Background()
-	if _, err := f.Enable(ctx, a.a.C, "alex"); err != nil {
+	if _, err := f.Enable(ctx, a.a.C.Fusion, "alex"); err != nil {
 		t.Fatal(err)
 	}
 	for name, err := range map[string]error{
@@ -475,16 +476,16 @@ func TestRenewReissuesTheGatewayCertificateOnlyWhileFusionIsOn(t *testing.T) {
 	a := newAdminRig(t)
 	f, k := newFusion(t, a)
 	ctx := context.Background()
-	if err := f.Renew(ctx, a.a.C); err != nil || k.secretIn != "" {
+	if err := f.Renew(ctx, a.a.C.Fusion); err != nil || k.secretIn != "" {
 		t.Fatalf("renewed while it was never enabled: %v (secret %q)", err, k.secretIn)
 	}
-	if _, err := f.Enable(ctx, a.a.C, "alex"); err != nil {
+	if _, err := f.Enable(ctx, a.a.C.Fusion, "alex"); err != nil {
 		t.Fatal(err)
 	}
 	first := string(k.secret["tls.crt"])
 	// The address is set after FUSION was first enabled: the next renewal gives the certificate its name.
 	f.PublicAddress = "fusion.example.com:4317"
-	if err := f.Renew(ctx, a.a.C); err != nil {
+	if err := f.Renew(ctx, a.a.C.Fusion); err != nil {
 		t.Fatal(err)
 	}
 	if string(k.secret["tls.crt"]) == first {
@@ -502,14 +503,14 @@ func TestRenewReissuesTheGatewayCertificateOnlyWhileFusionIsOn(t *testing.T) {
 	}
 	// A second call changes nothing: the certificate is fresh and its names are unchanged.
 	again := string(k.secret["tls.crt"])
-	if err := f.Renew(ctx, a.a.C); err != nil || string(k.secret["tls.crt"]) != again {
+	if err := f.Renew(ctx, a.a.C.Fusion); err != nil || string(k.secret["tls.crt"]) != again {
 		t.Errorf("a fresh gateway certificate was replaced again (err %v)", err)
 	}
-	if _, err := f.Disable(ctx, a.a.C, "alex"); err != nil {
+	if _, err := f.Disable(ctx, a.a.C.Fusion, "alex"); err != nil {
 		t.Fatal(err)
 	}
 	k.secret, k.secretIn = nil, ""
-	if err := f.Renew(ctx, a.a.C); err != nil || k.secretIn != "" {
+	if err := f.Renew(ctx, a.a.C.Fusion); err != nil || k.secretIn != "" {
 		t.Fatalf("renewed while off: %v (secret %q)", err, k.secretIn)
 	}
 }
@@ -566,18 +567,18 @@ func TestRenewRunsOnTheMainOrganisationWhenStartedWithThePlatformCore(t *testing
 	}
 	ctx := context.Background()
 	// FUSION is switched on from the main organisation, the way the admin screen does it.
-	if _, err := f.Enable(ctx, platform.ForOrg("org-1"), "alex"); err != nil {
+	if _, err := f.Enable(ctx, platform.ForOrg("org-1").Fusion, "alex"); err != nil {
 		t.Fatal(err)
 	}
 	k.secret, k.secretIn = nil, ""
 
 	// The platform core itself is not the main organisation's: Renew refuses to act for it, which is why main must not
 	// hand it over as it is.
-	if err := f.Renew(ctx, platform); err != nil || k.secretIn != "" {
+	if err := f.Renew(ctx, platform.Fusion); err != nil || k.secretIn != "" {
 		t.Fatalf("renewed on the platform core: %v (secret %q)", err, k.secretIn)
 	}
 	// What main passes: the main organisation's view of the platform core.
-	oc := f.OrgCore(platform)
+	oc := f.OrgCore(platform.Fusion)
 	if oc.OrgID != "org-1" {
 		t.Fatalf("OrgCore is scoped to %q, want the main organisation", oc.OrgID)
 	}
@@ -588,15 +589,15 @@ func TestRenewRunsOnTheMainOrganisationWhenStartedWithThePlatformCore(t *testing
 		t.Fatalf("the certificate was not renewed through the organisation core: secret %q", k.secretIn)
 	}
 	// Another organisation's core stays another organisation's: OrgCore only fills in the missing one.
-	if other := platform.ForOrg("org-2"); f.OrgCore(other) != other {
+	if other := platform.ForOrg("org-2"); f.OrgCore(other.Fusion) != other.Fusion {
 		t.Error("OrgCore rescoped a core that already belongs to an organisation")
 	}
 	k.secret, k.secretIn = nil, ""
-	if err := f.Renew(ctx, platform.ForOrg("org-2")); err != nil || k.secretIn != "" {
+	if err := f.Renew(ctx, platform.ForOrg("org-2").Fusion); err != nil || k.secretIn != "" {
 		t.Fatalf("another organisation renewed FUSION's certificate: %v (secret %q)", err, k.secretIn)
 	}
-	var nilF *FusionControl
-	if nilF.OrgCore(platform) != platform {
+	var nilF *fusion.FusionControl
+	if nilF.OrgCore(platform.Fusion) != platform.Fusion {
 		t.Error("a nil switch changed the core")
 	}
 }
@@ -639,11 +640,11 @@ func TestEnableDisableAndRenewDoNotInterleave(t *testing.T) {
 			var err error
 			switch i % 3 {
 			case 0:
-				_, err = f.Enable(ctx, core, "alex")
+				_, err = f.Enable(ctx, core.Fusion, "alex")
 			case 1:
-				_, err = f.Disable(ctx, core, "alex")
+				_, err = f.Disable(ctx, core.Fusion, "alex")
 			default:
-				err = f.Renew(ctx, core)
+				err = f.Renew(ctx, core.Fusion)
 			}
 			if err != nil {
 				t.Errorf("call %d: %v", i, err)
@@ -697,7 +698,7 @@ func TestEnsureCentralOperatorReusesTheOneARivalCreatedFirst(t *testing.T) {
 			t.Fatal(err)
 		}
 	}}
-	op, bundle, err := core.EnsureCentralOperator(context.Background(), "alex", store.Destination{}, []string{"gw.example.com"})
+	op, bundle, err := core.Fusion.EnsureCentralOperator(context.Background(), "alex", store.Destination{}, []string{"gw.example.com"})
 	if err != nil {
 		t.Fatalf("the second first-time caller failed: %v", err)
 	}

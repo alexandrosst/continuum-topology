@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"continuum/internal/fusion"
 	"continuum/internal/kernel"
 )
 
@@ -192,7 +193,7 @@ type fusionUILinks struct {
 	Grafana    string `json:"grafana,omitempty"`
 }
 
-func (f *FusionControl) uiLinks(st FusionStatus) *fusionUILinks {
+func uiLinksOf(f *fusion.FusionControl, st fusion.FusionStatus) *fusionUILinks {
 	if f == nil || !st.Available {
 		return nil
 	}
@@ -209,14 +210,14 @@ func (f *FusionControl) uiLinks(st FusionStatus) *fusionUILinks {
 	return &l
 }
 
-func (f *FusionControl) promUpstream() string {
+func promUpstreamOf(f *fusion.FusionControl) string {
 	if f.PrometheusUI != "" {
 		return f.PrometheusUI
 	}
 	return "http://" + f.Name + "-prometheus." + f.Namespace + ".svc:9090"
 }
 
-func (f *FusionControl) grafanaUpstream() string {
+func grafanaUpstreamOf(f *fusion.FusionControl) string {
 	if f.GrafanaUI != "" {
 		return f.GrafanaUI
 	}
@@ -299,9 +300,9 @@ func (a *Admin) fusionUI(component string) http.Handler {
 			writeErr(w, http.StatusServiceUnavailable, map[string]string{"metrics": "Prometheus", "grafana": "Grafana"}[component]+" is not running. Turn FUSION on and wait for it to be up.")
 			return
 		}
-		base := a.Fusion.promUpstream()
+		base := promUpstreamOf(a.Fusion)
 		if component == "grafana" {
-			base = a.Fusion.grafanaUpstream()
+			base = grafanaUpstreamOf(a.Fusion)
 		}
 		target, err := url.Parse(base)
 		if err != nil {

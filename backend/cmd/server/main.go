@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"continuum/internal/accounts"
+	"continuum/internal/fusion"
 	"continuum/internal/geoip"
 	"continuum/internal/graph"
 	"continuum/internal/kernel"
@@ -396,7 +397,7 @@ func run(log *slog.Logger, selfProbe probeOpts, dataDir, agentListen, agentAddr,
 		}
 		// The renewal has no signed-in user to take an organisation from, and the platform core has none: FUSION's
 		// central operator lives in the main organisation, so it runs on that organisation's view of the core.
-		go renewFusionCertificate(log, admin.Fusion, admin.Fusion.OrgCore(core))
+		go renewFusionCertificate(log, admin.Fusion, admin.Fusion.OrgCore(core.Fusion))
 		// Telemetry does not carry which Ikhnos application a service is in, so the tools that read Prometheus directly
 		// are given it as a series of its own.
 		go admin.RunApplicationInfo(context.Background(), log)
@@ -616,7 +617,7 @@ func createOrg(args []string) {
 
 // renewFusionCertificate keeps the central gateway's certificate fresh: shortly after start (so a changed public
 // address is picked up as soon as the server is redeployed) and then daily. Failures are logged, never fatal.
-func renewFusionCertificate(log *slog.Logger, f *server.FusionControl, core *server.Core) {
+func renewFusionCertificate(log *slog.Logger, f *fusion.FusionControl, core *fusion.Service) {
 	for wait := time.Minute; ; wait = 24 * time.Hour {
 		time.Sleep(wait)
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
@@ -630,8 +631,8 @@ func renewFusionCertificate(log *slog.Logger, f *server.FusionControl, core *ser
 // fusionControl builds the FUSION switch for a server whose chart bundles it. Without a usable Kubernetes token (the
 // chart's fusionControl.enabled is off, or this is not a cluster) it still returns a switch, with no way to reach the
 // API: the screen then says FUSION cannot be switched from here instead of hiding that FUSION exists.
-func fusionControl(log *slog.Logger, name, namespace, publicAddress, org string) *server.FusionControl {
-	f := &server.FusionControl{Name: name, Namespace: namespace, PublicAddress: strings.TrimSpace(publicAddress), Org: org}
+func fusionControl(log *slog.Logger, name, namespace, publicAddress, org string) *fusion.FusionControl {
+	f := &fusion.FusionControl{Name: name, Namespace: namespace, PublicAddress: strings.TrimSpace(publicAddress), Org: org}
 	// The chart passes the UID of the kube-system namespace it was installed into: the cluster this server, and FUSION, are in.
 	f.ClusterUID = strings.TrimSpace(os.Getenv("CONTINUUM_CLUSTER_ID"))
 	if _, ok := kernel.ClusterIDForUID(org, f.ClusterUID); f.ClusterUID != "" && !ok {

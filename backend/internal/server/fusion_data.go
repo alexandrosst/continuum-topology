@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"continuum/internal/accounts"
+	"continuum/internal/fusion"
 	"continuum/internal/fusionapi"
 	"continuum/internal/kernel"
 	"continuum/internal/store"
@@ -431,10 +432,10 @@ func (a *Admin) fusionStatus(w http.ResponseWriter, r *http.Request, c *fusionap
 	// A token holder learns whether the stores are up, not how the cluster is set up: the full status carries workload
 	// names, the namespace and Kubernetes API error text, which are for administrators. Nor does it read the cluster for
 	// them: a token can poll as fast as the rate limit lets it, so it is answered from the last read (TokenStatus).
-	var st FusionStatus
+	var st fusion.FusionStatus
 	if who.Kind == "token" {
 		t := a.Fusion.TokenStatus(r.Context())
-		st = FusionStatus{Available: t.Available, State: t.State}
+		st = fusion.FusionStatus{Available: t.Available, State: t.State}
 	} else {
 		st = a.Fusion.Status(r.Context())
 	}

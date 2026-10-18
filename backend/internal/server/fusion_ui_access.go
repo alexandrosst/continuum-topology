@@ -290,7 +290,7 @@ func (a *Admin) openFusionPage(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, kernel.Errf(kernel.KindForbidden, "FUSION's pages belong to this server's main organisation"))
 		return
 	}
-	links := a.Fusion.uiLinks(a.Fusion.Status(r.Context()))
+	links := uiLinksOf(a.Fusion, a.Fusion.Status(r.Context()))
 	var base string
 	switch {
 	case req.Page == "grafana" && links != nil:

@@ -72,7 +72,7 @@ func TestOperatorCertificatesLedgerNamesWhoHoldsWhat(t *testing.T) {
 // like any other operator's.
 func TestCentralOperatorCAIsReportedWhenItsEndIsNear(t *testing.T) {
 	e := newEnv(t)
-	op, _, err := e.core.EnsureCentralOperator(e.ctx, "alex", extDest("c:4317"), []string{"op-central.continuum-system.svc"})
+	op, _, err := e.core.Fusion.EnsureCentralOperator(e.ctx, "alex", extDest("c:4317"), []string{"op-central.continuum-system.svc"})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -16,7 +16,8 @@
 # operators     regional operators: their certificates, senders, addresses, heartbeat. It is the package internal/operators; their HTTP half
 #               and the node probe of the server's own cluster are the shell's.
 # connectivity  paths, links, tunnels, addresses a cluster dials, the config an agent is told.
-# fusion        the FUSION stack: its control, data API, retention, access.
+# fusion        the FUSION stack: its control, retention and release naming. It is the package internal/fusion; its data API, proxy,
+#               OpenAPI document and UI access guard are the shell's.
 # advice        the decision loop: advice, proposals, outcomes, decisions.
 # shell         the process and HTTP shell: the admin mux and its guards, the platform of organisations, routes, readiness, metrics.
 #               It wires modules together and may use any of them; none may use it.
@@ -48,15 +49,12 @@ conditions.go                   agents
 config_digest.go                connectivity
 consent.go                      agents
 enroll.go                       agents
-fusion.go                       fusion
 fusion_appinfo.go shell
-fusion_control.go               fusion
 fusion_data.go shell
 fusion_extras.go shell
 fusion_native.go shell
 fusion_openapi.go shell
 fusion_ops.go shell
-fusion_retention.go             fusion
 fusion_ui_access.go shell
 geo.go                          agents
 grpc.go                         agents
