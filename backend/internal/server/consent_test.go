@@ -12,6 +12,7 @@ import (
 	"time"
 
 	continuumv1 "continuum/gen/continuumv1"
+	"continuum/internal/accounts"
 	"continuum/internal/facts"
 	"continuum/internal/kernel"
 	"continuum/internal/pki"
@@ -44,9 +45,9 @@ func agentDoc(t *testing.T, a *adminRig, cookie, id string) AgentDoc {
 
 func TestTierChangeStaysWithinTheInstalledCeilingAndIsAudited(t *testing.T) {
 	a := newAdminRig(t)
-	_, editor := a.user(t, "edith", RoleEditor)
-	_, admin := a.user(t, "adam", RoleAdmin)
-	_, viewer := a.user(t, "vic", RoleViewer)
+	_, editor := a.user(t, "edith", accounts.RoleEditor)
+	_, admin := a.user(t, "adam", accounts.RoleAdmin)
+	_, viewer := a.user(t, "vic", accounts.RoleViewer)
 	id, _, _ := a.approvedAgent(t, fp) // approved at 2, installed at 2
 
 	tier := func(cookie string, n any) resp {
@@ -138,7 +139,7 @@ func TestTierChangeStaysWithinTheInstalledCeilingAndIsAudited(t *testing.T) {
 
 func TestNarrowingATierDropsWhatTheServerHoldsAboveIt(t *testing.T) {
 	a := newAdminRig(t)
-	_, editor := a.user(t, "edith", RoleEditor)
+	_, editor := a.user(t, "edith", accounts.RoleEditor)
 	id, _, _ := a.approvedAgent(t, fp)
 	v := liveView(*a.now, "n1")
 	v.state.Apply(&continuumv1.Sync{Namespaces: []*continuumv1.NamespaceFacts{{Key: "ns/shop", Name: "shop"}},
@@ -161,7 +162,7 @@ func TestNarrowingATierDropsWhatTheServerHoldsAboveIt(t *testing.T) {
 // disconnected or out-of-date agent would otherwise leave the old picture here until it next sent a full one.
 func TestNarrowingConsentDropsWhatTheServerAlreadyHolds(t *testing.T) {
 	a := newAdminRig(t)
-	_, editor := a.user(t, "edith", RoleEditor)
+	_, editor := a.user(t, "edith", accounts.RoleEditor)
 	id, _, _ := a.approvedAgent(t, fp)
 	v := liveView(*a.now, "n1")
 	v.state.Nodes["n1"].MachineId, v.state.Nodes["n1"].KernelVersion = "mid-1", "6.1"
@@ -203,7 +204,7 @@ func TestNarrowingConsentDropsWhatTheServerAlreadyHolds(t *testing.T) {
 	if r := a.do("POST", "/api/v1/agents/"+id+"/consent", map[string]any{}, withCookie(editor)); r.Code != 403 {
 		t.Fatalf("an editor lifted a pause and an exclusion: %d %s", r.Code, r.Body.String())
 	}
-	_, admin := a.user(t, "adam", RoleAdmin)
+	_, admin := a.user(t, "adam", accounts.RoleAdmin)
 	if r := a.do("POST", "/api/v1/agents/"+id+"/consent", map[string]any{}, withCookie(admin)); r.Code != 200 {
 		t.Fatalf("%d %s", r.Code, r.Body.String())
 	}
@@ -235,8 +236,8 @@ func TestConsentNarrowsOnlyWhenSomethingIsTakenAway(t *testing.T) {
 
 func TestConsentOverridesAreValidatedPersistedAndPushed(t *testing.T) {
 	a := newAdminRig(t)
-	_, editor := a.user(t, "edith", RoleEditor)
-	_, viewer := a.user(t, "vic", RoleViewer)
+	_, editor := a.user(t, "edith", accounts.RoleEditor)
+	_, viewer := a.user(t, "vic", accounts.RoleViewer)
 	id, _, _ := a.approvedAgent(t, fp)
 	put := func(cookie string, body any) resp {
 		return a.do("POST", "/api/v1/agents/"+id+"/consent", body, withCookie(cookie))
@@ -292,14 +293,14 @@ func TestConsentOverridesAreValidatedPersistedAndPushed(t *testing.T) {
 	if v.cfgHash != h1 {
 		t.Fatal("the same overrides gave a different config hash")
 	}
-	if _, err := a.hub().SetConsent(asRole(RoleAdmin), "edith", id, Consent{Paused: []string{"flow"}}); err != nil {
+	if _, err := a.hub().SetConsent(asRole(accounts.RoleAdmin), "edith", id, Consent{Paused: []string{"flow"}}); err != nil {
 		t.Fatal(err)
 	}
 	a.hub().configFor(ag, v)
 	if v.cfgHash == h1 {
 		t.Fatal("changed overrides did not change the config hash")
 	}
-	if _, err := a.hub().SetConsent(asRole(RoleAdmin), "edith", id, Consent{Paused: []string{"measure"}}); err != nil {
+	if _, err := a.hub().SetConsent(asRole(accounts.RoleAdmin), "edith", id, Consent{Paused: []string{"measure"}}); err != nil {
 		t.Fatal(err)
 	}
 	if cfg := a.hub().configFor(ag, v); len(cfg.ProbeTargets) != 0 || cfg.MeasureSeconds != 0 {
@@ -940,8 +941,8 @@ func TestHelloNamespaceIsRecordedAndUsedInGeneratedCommands(t *testing.T) {
 
 	admin := &Admin{P: p, C: e.base, AgentAddr: "x:1", ChartRef: "chart"}
 	a := &adminRig{env: e, h: admin.Handler(), a: admin}
-	_, editor := a.user(t, "edith", RoleEditor)
-	_, adm := a.user(t, "adam", RoleAdmin)
+	_, editor := a.user(t, "edith", accounts.RoleEditor)
+	_, adm := a.user(t, "adam", accounts.RoleAdmin)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -1014,8 +1015,8 @@ func TestUpgradeAndTeardownCommandsGuessTheNamespaceWhenNeverReported(t *testing
 
 func TestRevokedAgentCarriesTeardownCommandsOnlyForEditorsAndAbove(t *testing.T) {
 	a := newAdminRig(t)
-	_, editor := a.user(t, "edith", RoleEditor)
-	_, viewer := a.user(t, "vic", RoleViewer)
+	_, editor := a.user(t, "edith", accounts.RoleEditor)
+	_, viewer := a.user(t, "vic", accounts.RoleViewer)
 	id, _, _ := a.approvedAgent(t, fp)
 	if err := a.core.Revoke(a.ctx, "actor", id, "for the test"); err != nil {
 		t.Fatal(err)
@@ -1063,7 +1064,7 @@ func TestDropConsentOverridesStripsPausedProbeFields(t *testing.T) {
 	}
 
 	// Un-pausing lets the same fields through again (a fresh node: dropConsentOverrides mutates the one above in place).
-	if _, err := r.hub.SetConsent(asRole(RoleAdmin), "actor", id, Consent{}); err != nil {
+	if _, err := r.hub.SetConsent(asRole(accounts.RoleAdmin), "actor", id, Consent{}); err != nil {
 		t.Fatal(err)
 	}
 	n2 := &continuumv1.NodeFacts{Key: "n", Name: "n", MachineId: "m", SystemUuid: "u", ProviderId: "p",
@@ -1152,7 +1153,7 @@ func TestNoteFlowsRespectsTierAndPauseConsent(t *testing.T) {
 	}
 
 	bad := &continuumv1.FlowBatch{WindowSeconds: 0} // malformed: still an error, not just skipped
-	if _, err := r.hub.SetConsent(asRole(RoleAdmin), "actor", id, Consent{}); err != nil {
+	if _, err := r.hub.SetConsent(asRole(accounts.RoleAdmin), "actor", id, Consent{}); err != nil {
 		t.Fatal(err)
 	}
 	if applied, err := r.hub.noteFlows(id, 2, bad, time.Now()); applied || err == nil {
@@ -1433,11 +1434,11 @@ func TestAContextWithNoSignedInCallerMayNotWiden(t *testing.T) {
 		want bool
 	}{
 		{"no caller", context.Background(), false},
-		{"viewer", asRole(RoleViewer), false},
-		{"editor", asRole(RoleEditor), false},
-		{"administrator", asRole(RoleAdmin), true},
+		{"viewer", asRole(accounts.RoleViewer), false},
+		{"editor", asRole(accounts.RoleEditor), false},
+		{"administrator", asRole(accounts.RoleAdmin), true},
 	} {
-		if got := Decide(CallerFrom(tc.ctx), ActChangeAccess, Resource{Widening: true}).Allowed; got != tc.want {
+		if got := accounts.Decide(accounts.CallerFrom(tc.ctx), accounts.ActChangeAccess, accounts.Resource{Widening: true}).Allowed; got != tc.want {
 			t.Errorf("%s: widening allowed = %v, want %v", tc.name, got, tc.want)
 		}
 	}
@@ -1452,10 +1453,10 @@ func TestAContextWithNoSignedInCallerMayNotWiden(t *testing.T) {
 	if _, err := h.SetConsent(bare, "nobody", id, Consent{}); err == nil {
 		t.Fatal("a caller nobody knows lifted a pause")
 	}
-	if _, err := h.SetConsent(asRole(RoleEditor), "edith", id, Consent{}); err == nil {
+	if _, err := h.SetConsent(asRole(accounts.RoleEditor), "edith", id, Consent{}); err == nil {
 		t.Fatal("an editor lifted a pause")
 	}
-	if c, err := h.SetConsent(asRole(RoleAdmin), "adam", id, Consent{}); err != nil || len(c.Paused) != 0 {
+	if c, err := h.SetConsent(asRole(accounts.RoleAdmin), "adam", id, Consent{}); err != nil || len(c.Paused) != 0 {
 		t.Fatalf("an administrator could not lift it: %+v %v", c, err)
 	}
 	if _, err := h.SetAgentTier(bare, "nobody", id, 3, nil); err == nil {

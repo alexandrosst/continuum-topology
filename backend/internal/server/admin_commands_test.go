@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"continuum/internal/accounts"
 	"continuum/internal/install"
 	"continuum/internal/kernel"
 )
@@ -47,7 +48,7 @@ func (a *adminRig) upgrade(t *testing.T, cookie string, body any) (int, upgradeA
 // organisation can.
 func TestAgentUpgradeCommandIsForMembersOnly(t *testing.T) {
 	a := newAdminRig(t)
-	_, viewer := a.user(t, "vera", RoleViewer)
+	_, viewer := a.user(t, "vera", accounts.RoleViewer)
 	if code, out := a.upgrade(t, viewer, map[string]any{"tier": 1}); code != 200 || !strings.Contains(out.Command, "--set access.tier=1") {
 		t.Fatalf("a viewer is told the command: %d %+v", code, out)
 	}
@@ -67,7 +68,7 @@ func TestAgentUpgradeCommandIsForMembersOnly(t *testing.T) {
 // The chart is the one this server serves, whatever the page says: the page cannot name another, and says nothing about it.
 func TestAgentUpgradeCommandNamesTheChartTheServerServes(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "ed", RoleEditor)
+	_, cookie := a.user(t, "ed", accounts.RoleEditor)
 	tier := 2
 
 	a.a.ChartRef = ""
@@ -90,7 +91,7 @@ func TestAgentUpgradeCommandNamesTheChartTheServerServes(t *testing.T) {
 
 func TestAgentUpgradeCommandRefusesWhatCannotBeTrue(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "ed", RoleEditor)
+	_, cookie := a.user(t, "ed", accounts.RoleEditor)
 	for name, body := range map[string]any{
 		"a tier below the lowest":  map[string]any{"tier": -1},
 		"a tier above the highest": map[string]any{"tier": kernel.ImplementedTier + 1},
@@ -113,7 +114,7 @@ func TestAgentUpgradeCommandRefusesWhatCannotBeTrue(t *testing.T) {
 // A namespace or release is whatever the agent reported and ends up in a shell line: the command never carries one that is not a plain name.
 func TestAgentUpgradeCommandNeverPastesAHostileName(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "ed", RoleEditor)
+	_, cookie := a.user(t, "ed", accounts.RoleEditor)
 	for _, hostile := range []string{"x; rm -rf /", "$(id)", "a b", "`id`", "A", "--set x=1", "x\ny"} {
 		_, out := a.upgrade(t, cookie, map[string]any{"tier": 1, "namespace": hostile, "release": hostile})
 		if strings.Contains(out.Command, hostile) || !strings.Contains(out.Command, "helm upgrade continuum-agent ") || !strings.Contains(out.Command, "--namespace continuum-system ") {
@@ -125,7 +126,7 @@ func TestAgentUpgradeCommandNeverPastesAHostileName(t *testing.T) {
 // Telemetry that is not fit to write a command from is told as problems, with no command: the page shows them where it would show the block.
 func TestAgentUpgradeCommandSaysWhatIsWrongInsteadOfAPartialCommand(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "ed", RoleEditor)
+	_, cookie := a.user(t, "ed", accounts.RoleEditor)
 	// A signal on with nowhere to send it.
 	body := map[string]any{"telemetry": map[string]any{"signals": map[string]any{"resourceUsage": true}}}
 	code, out := a.upgrade(t, cookie, body)
@@ -171,7 +172,7 @@ func readGolden(t *testing.T, file string, into any) {
 func TestAgentUpgradeCommandIsWhatTheRendererWritesForEveryPinnedTelemetry(t *testing.T) {
 	a := newAdminRig(t)
 	a.a.ChartRef = ""
-	_, cookie := a.user(t, "ed", RoleEditor)
+	_, cookie := a.user(t, "ed", accounts.RoleEditor)
 	var cases []goldenCase
 	readGolden(t, uiCommandsGolden, &cases)
 	n := 0
@@ -233,7 +234,7 @@ func secretCommands(t install.Telemetry, ns string) []string {
 func TestAgentUpgradeCommandIsWhatTheUIPinsForAnUpgrade(t *testing.T) {
 	a := newAdminRig(t)
 	a.a.ChartRef = ""
-	_, cookie := a.user(t, "ed", RoleEditor)
+	_, cookie := a.user(t, "ed", accounts.RoleEditor)
 	var cases []goldenCase
 	readGolden(t, uiCommandsGolden, &cases)
 	checked := 0
@@ -268,7 +269,7 @@ func TestAgentUpgradeCommandIsWhatTheUIPinsForAnUpgrade(t *testing.T) {
 func TestAgentUpgradeCommandWritesTheSecretsTheUIPins(t *testing.T) {
 	a := newAdminRig(t)
 	a.a.ChartRef = ""
-	_, cookie := a.user(t, "ed", RoleEditor)
+	_, cookie := a.user(t, "ed", accounts.RoleEditor)
 	var cases []struct {
 		Name    string `json:"name"`
 		Command string `json:"command"`

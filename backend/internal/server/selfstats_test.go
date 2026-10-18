@@ -105,7 +105,7 @@ func TestNoteSelfStatsCopiesEveryField(t *testing.T) {
 // against yet) and a real diff-over-elapsed-time rate on the next one - never negative, even when the
 // total it is diffing against somehow goes down.
 func TestSampleSelfStatsCountsConnectedAgentsAndDerivesTheFlowRate(t *testing.T) {
-	h := NewHub(&Core{Core: &kernel.Core{Now: time.Now}})
+	h := NewHub(wrap(&kernel.Core{Now: time.Now}))
 	h.mu.Lock()
 	h.sessions["ag-1"] = &session{}
 	h.sessions["ag-2"] = &session{}
@@ -164,7 +164,7 @@ func TestSampleSelfStatsCountsConnectedAgentsAndDerivesTheFlowRate(t *testing.T)
 // run at any point around the call: both figures are monotonic counters, so a sample taken between two
 // ReadMemStats calls made just before and just after it must fall within that bracket.
 func TestSampleSelfStatsCapturesGCStats(t *testing.T) {
-	h := NewHub(&Core{Core: &kernel.Core{Now: time.Now}})
+	h := NewHub(wrap(&kernel.Core{Now: time.Now}))
 	var before runtime.MemStats
 	runtime.ReadMemStats(&before)
 	h.sampleSelfStats(time.Unix(1, 0))
@@ -188,7 +188,7 @@ func TestSampleSelfStatsCapturesGCStats(t *testing.T) {
 // TestSampleSelfStatsCarriesTheModelCacheCounters covers the plumbing from twinRT's own cacheHits/
 // cacheMisses (see TestModelCacheHitsAndMissesAreCounted) through to ServerSelfStatsSample.
 func TestSampleSelfStatsCarriesTheModelCacheCounters(t *testing.T) {
-	h := NewHub(&Core{Core: &kernel.Core{Now: time.Now}})
+	h := NewHub(wrap(&kernel.Core{Now: time.Now}))
 	h.tw.cacheHits.Store(7)
 	h.tw.cacheMisses.Store(3)
 	now := time.Unix(1, 0)

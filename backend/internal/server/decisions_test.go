@@ -3,12 +3,14 @@ package server
 import (
 	"strings"
 	"testing"
+
+	"continuum/internal/accounts"
 )
 
 func TestRecordDecisionsNeedsAnEditorAndListDecisionsIsReadableByAnyMember(t *testing.T) {
 	a := newAdminRig(t)
-	_, editor := a.user(t, "ed", RoleEditor)
-	_, viewer := a.user(t, "vi", RoleViewer)
+	_, editor := a.user(t, "ed", accounts.RoleEditor)
+	_, viewer := a.user(t, "vi", accounts.RoleViewer)
 
 	body := map[string]any{
 		"entries": []map[string]any{{
@@ -53,7 +55,7 @@ func TestRecordDecisionsNeedsAnEditorAndListDecisionsIsReadableByAnyMember(t *te
 
 func TestRecordDecisionsIsScopedPerOrganisation(t *testing.T) {
 	a := newAdminRig(t)
-	_, owner := a.user(t, "boss", RoleOwner)
+	_, owner := a.user(t, "boss", accounts.RoleOwner)
 	// A second organisation, so the same decision log endpoint for org-2 can never see org-1's rows.
 	r := a.do("POST", "/api/v1/orgs", map[string]any{"name": "Org Two"}, withCookie(owner))
 	if r.Code != 201 {
@@ -96,7 +98,7 @@ func TestRecordDecisionsIsScopedPerOrganisation(t *testing.T) {
 // the frontend's own caps (MAX_MOVES, the number of configured deciders) are somehow bypassed.
 func TestRecordDecisionsRejectsMalformedOrOversizedInput(t *testing.T) {
 	a := newAdminRig(t)
-	_, editor := a.user(t, "ed", RoleEditor)
+	_, editor := a.user(t, "ed", accounts.RoleEditor)
 
 	// A move missing the fields that make it one at all is silently dropped, not an error - the caller
 	// does not need to pre-filter whatever a decider happened to propose and have rejected elsewhere.

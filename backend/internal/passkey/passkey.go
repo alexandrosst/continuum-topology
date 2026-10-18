@@ -16,7 +16,7 @@ import (
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
 
-	"continuum/internal/server"
+	"continuum/internal/accounts"
 	"continuum/internal/store"
 )
 
@@ -32,7 +32,7 @@ type Provider struct{}
 // New returns a ready-to-use Provider.
 func New() *Provider { return &Provider{} }
 
-func webAuthnFor(rp server.RelyingParty) (*webauthn.WebAuthn, error) {
+func webAuthnFor(rp accounts.RelyingParty) (*webauthn.WebAuthn, error) {
 	return webauthn.New(&webauthn.Config{
 		RPID:          rp.ID,
 		RPDisplayName: rp.Name,
@@ -43,7 +43,7 @@ func webAuthnFor(rp server.RelyingParty) (*webauthn.WebAuthn, error) {
 // wuser adapts server.WebAuthnUser to go-webauthn's own User interface. It is a thin view, not a copy: it
 // exists only for the duration of one Begin/Finish call.
 type wuser struct {
-	server.WebAuthnUser
+	accounts.WebAuthnUser
 }
 
 func (u wuser) WebAuthnID() []byte          { return []byte(u.ID) }
@@ -84,7 +84,7 @@ func jsonRequest(body []byte) (*http.Request, error) {
 	return req, nil
 }
 
-func (p *Provider) BeginRegistration(rp server.RelyingParty, user server.WebAuthnUser) ([]byte, []byte, error) {
+func (p *Provider) BeginRegistration(rp accounts.RelyingParty, user accounts.WebAuthnUser) ([]byte, []byte, error) {
 	w, err := webAuthnFor(rp)
 	if err != nil {
 		return nil, nil, fmt.Errorf("configuring relying party %q: %w", rp.ID, err)
@@ -104,7 +104,7 @@ func (p *Provider) BeginRegistration(rp server.RelyingParty, user server.WebAuth
 	return optionsJSON, sessionJSON, nil
 }
 
-func (p *Provider) FinishRegistration(rp server.RelyingParty, user server.WebAuthnUser, sessionJSON, response []byte) (store.WebAuthnCredential, error) {
+func (p *Provider) FinishRegistration(rp accounts.RelyingParty, user accounts.WebAuthnUser, sessionJSON, response []byte) (store.WebAuthnCredential, error) {
 	w, err := webAuthnFor(rp)
 	if err != nil {
 		return store.WebAuthnCredential{}, fmt.Errorf("configuring relying party %q: %w", rp.ID, err)
@@ -134,7 +134,7 @@ func (p *Provider) FinishRegistration(rp server.RelyingParty, user server.WebAut
 	}, nil
 }
 
-func (p *Provider) BeginLogin(rp server.RelyingParty, user server.WebAuthnUser) ([]byte, []byte, error) {
+func (p *Provider) BeginLogin(rp accounts.RelyingParty, user accounts.WebAuthnUser) ([]byte, []byte, error) {
 	w, err := webAuthnFor(rp)
 	if err != nil {
 		return nil, nil, fmt.Errorf("configuring relying party %q: %w", rp.ID, err)
@@ -154,7 +154,7 @@ func (p *Provider) BeginLogin(rp server.RelyingParty, user server.WebAuthnUser) 
 	return optionsJSON, sessionJSON, nil
 }
 
-func (p *Provider) FinishLogin(rp server.RelyingParty, user server.WebAuthnUser, sessionJSON, response []byte) ([]byte, uint32, error) {
+func (p *Provider) FinishLogin(rp accounts.RelyingParty, user accounts.WebAuthnUser, sessionJSON, response []byte) ([]byte, uint32, error) {
 	w, err := webAuthnFor(rp)
 	if err != nil {
 		return nil, 0, fmt.Errorf("configuring relying party %q: %w", rp.ID, err)

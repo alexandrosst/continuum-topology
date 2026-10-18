@@ -18,7 +18,7 @@ none of them. The **shell** wires the modules together and is the only thing tha
 | Group | What it is | Files | Lines | Tables | Routes |
 |---|---|---|---|---|---|
 | kernel (now the package `internal/kernel`) | The `Core` (store, CA, organisation, audit, clock, rate limits), settings, secrets, the outbound address policy (`decider.go`), the Kubernetes interface (`kube.go`), install image settings | 11 | 2,442 | `audit`, `settings` | 0 |
-| accounts | People, organisations, roles, sessions, API tokens, passkeys, two-factor, mail; the words for who is calling (`Actor`, `Principal`, `Role`) and the one decision of what a caller may do (`Decide`) | 8 | 2,609 | `users`, `orgs`, `memberships`, `invites`, `sessions`, `api_tokens`, `mail_config` | 40 |
+| accounts (now the package `internal/accounts`) | People, organisations, roles, sessions, API tokens, passkeys, two-factor, mail; the words for who is calling (`Actor`, `Principal`, `Role`) and the one decision of what a caller may do (`Decide`) | 9 | 2,974 | `users`, `orgs`, `memberships`, `invites`, `sessions`, `api_tokens`, `mail_config` | 40 |
 | agents | An enrolled agent: tokens and enrolment, the stream (gRPC), consent and access tier, the conditions, diagnostics and self-telemetry, the agent's connecting address and place | 14 | 3,542 | `tokens`, `agents` | 12 |
 | estate | What the server knows about the world: the hub, the per-agent views, observed flows, the twin, history, the applications graph | 8 | 4,683 | `workspace`, `history`, `events`, `snapshots`, `identities`, `model_state`, `tombstones` | 22 |
 | telemetry | Telemetry intents (what an agent's local collectors do and where they send) and the quick-start backends | 4 | 985 | `telemetry_intents`, `gateway_tokens` | 10 |
@@ -132,7 +132,7 @@ This is a proposal from the numbers above; each move starts with its own short p
 
 1. **The kernel's reaches into modules** (29 uses): done, in three cuts (see Progress).
 2. **The kernel as a package**: done (`internal/kernel`; see Progress). Still to do, because the module packages need it: the HTTP kit (not a module) beside it, the 82 plumbing uses out of `admin.go`. Until then a module package holds domain logic only, and its HTTP handlers stay in the shell as thin adapters.
-3. **Accounts.** One edge to estate; a callback instead.
+3. **Accounts**: done (`internal/accounts`; see Progress). The one edge to estate was not a callback in the end: `SaveWorkspace` had been written in `auth.go` and is estate's. Its 15 uses of the shell were HTTP handlers and the route guard's reading of a level, which went to the shell, and the key a context carries its caller under, which stayed with the caller's type.
 4. **Advice.** Invert the hub's 15 calls into it; define what advice reads as an interface of its own.
 5. **Operators and telemetry** together (with the managed-operator interface and the schema addition), then **fusion** on top of them.
 6. **The hub cluster**: the `view` in three parts, then agents, estate and connectivity.
@@ -170,3 +170,6 @@ this repository that a module could be (it may use the store, the CA and the two
 | Kernel cut 4: the last reaches into the shell | `admin_images.go` and `counters.go`; the image settings and the metrics counters split in two | 28 lines leave; the kernel depends on nothing outside itself |
 | Kernel step 2a: export | 69 unexported names that other files use become exported, by object identity (933 sites) | none |
 | Kernel step 2b: the kernel as a package | `internal/kernel` takes the 11 files and their unit tests; `server.Core` embeds `*kernel.Core` (`kernel_bridge.go`), and every use of a kernel name is `kernel.X` (1,780 sites, in this package and in the five that import it) | the store list loses one line (the kernel no longer counts as a caller of `GetAgent`); the list of edges between modules is unchanged |
+| Accounts cut 1: nothing in accounts reaches outside it | `SaveWorkspace` to estate; the mail handlers and the guard's reading of a level to the shell; `WithCaller` | the accounts lines leave the edge list |
+| Accounts step 1: export | 13 unexported names other files use become exported (66 sites) | none |
+| Accounts step 2: the package | `internal/accounts` takes the 8 files and 12 of their tests; the server's `Core` holds an `*accounts.Service` (`Core.Accounts`) and the 66 methods the `Core` had for accounts are now `Core.Accounts.X` | the 39 lines with accounts in them leave the edge list: the compiler holds that line now |

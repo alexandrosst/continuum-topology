@@ -4,14 +4,15 @@ import (
 	"strings"
 	"testing"
 
+	"continuum/internal/accounts"
 	"continuum/internal/store"
 )
 
 func TestTheProposalRoutesAreForEditorsAndAWideningAcceptanceNeedsAnAdministrator(t *testing.T) {
 	a := newAdminRig(t)
-	_, editor := a.user(t, "edith", RoleEditor)
-	_, admin := a.user(t, "adam", RoleAdmin)
-	_, viewer := a.user(t, "vic", RoleViewer)
+	_, editor := a.user(t, "edith", accounts.RoleEditor)
+	_, admin := a.user(t, "adam", accounts.RoleAdmin)
+	_, viewer := a.user(t, "vic", accounts.RoleViewer)
 	id, _, _ := a.approvedAgent(t, fp) // approved at 2, installed at 2
 
 	submit := func(cookie string, body map[string]any) resp {

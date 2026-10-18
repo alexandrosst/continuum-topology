@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"continuum/internal/accounts"
 )
 
 // uiRig is an admin server that also serves a (tiny) built UI.
@@ -94,7 +96,7 @@ func TestHSTSOnlyForRequestsThatAreHTTPS(t *testing.T) {
 
 func TestSessionCookieIsHostPrefixedAndSecureOffLoopback(t *testing.T) {
 	a := newAdminRig(t)
-	a.user(t, "alex", RoleAdmin)
+	a.user(t, "alex", accounts.RoleAdmin)
 	find := func(r resp, name string) *http.Cookie {
 		for _, c := range r.Result().Cookies() {
 			if c.Name == name {

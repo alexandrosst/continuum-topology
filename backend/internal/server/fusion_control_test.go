@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"continuum/internal/accounts"
 	"continuum/internal/fusionapi"
 	"continuum/internal/kernel"
 	"continuum/internal/store"
@@ -373,7 +374,7 @@ func TestTheCentralOperatorIsNotEditableByHand(t *testing.T) {
 
 func TestFusionHTTPSwitch(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	if r := a.do("GET", "/api/v1/fusion", nil, withCookie(cookie)); r.Code != 200 || r.json(t)["available"] != false || r.json(t)["reason"] != "not-configured" {
 		t.Fatalf("no switch: %d %s", r.Code, r.Body.String())
 	}
@@ -406,7 +407,7 @@ func TestFusionHTTPSwitch(t *testing.T) {
 	}
 
 	// A viewer cannot touch it.
-	_, viewer := a.user(t, "vera", RoleViewer)
+	_, viewer := a.user(t, "vera", accounts.RoleViewer)
 	if r := a.do("POST", "/api/v1/fusion/enable", nil, withCookie(viewer)); r.Code != 403 {
 		t.Errorf("viewer enable: %d", r.Code)
 	}
@@ -420,7 +421,7 @@ func TestAnOperatorSendingToTheCentralOperator(t *testing.T) {
 		{"fusion.example.com:4317", "fusion.example.com:4317"},
 	} {
 		a := newAdminRig(t)
-		_, cookie := a.user(t, "alex", RoleAdmin)
+		_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 		f, _ := newFusion(t, a)
 		f.PublicAddress = tc.public
 		a.a.Fusion = f

@@ -6,7 +6,7 @@ import (
 
 	"github.com/go-webauthn/webauthn/webauthn"
 
-	"continuum/internal/server"
+	"continuum/internal/accounts"
 	"continuum/internal/store"
 )
 
@@ -17,12 +17,12 @@ import (
 // bookkeeping, rate limits, HTTP routing - is fully tested against a fake provider in internal/server, which
 // is the entire reason WebAuthnProvider exists as a seam.
 
-func testRP() server.RelyingParty {
-	return server.RelyingParty{ID: "localhost", Origin: "https://localhost", Name: "Ikhnos Test"}
+func testRP() accounts.RelyingParty {
+	return accounts.RelyingParty{ID: "localhost", Origin: "https://localhost", Name: "Ikhnos Test"}
 }
 
-func testUser() server.WebAuthnUser {
-	return server.WebAuthnUser{ID: "user-1", Username: "quinn"}
+func testUser() accounts.WebAuthnUser {
+	return accounts.WebAuthnUser{ID: "user-1", Username: "quinn"}
 }
 
 func TestBeginRegistrationReturnsOptionsAndASession(t *testing.T) {
@@ -111,7 +111,7 @@ func TestFinishLoginRejectsGarbageResponse(t *testing.T) {
 }
 
 func TestWuserCredentialsMapping(t *testing.T) {
-	u := wuser{server.WebAuthnUser{
+	u := wuser{accounts.WebAuthnUser{
 		ID: "user-1", Username: "quinn",
 		Credentials: []store.WebAuthnCredential{
 			{CredentialID: []byte("cred-1"), PublicKey: []byte("pub-1"), SignCount: 7, Transports: []string{"usb", "nfc"}},

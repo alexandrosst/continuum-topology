@@ -3,13 +3,15 @@ package server
 import (
 	"strings"
 	"testing"
+
+	"continuum/internal/accounts"
 )
 
 // What depends on an operator is shown on it, and revoking or deleting it then needs force; the audit entry says what
 // was knowingly left behind.
 func TestRevokeAndDeleteAnOperatorSomethingSendsToNeedForce(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	clA := a.approvedCluster(t, fp)
 	target := a.createOperatorDoc(t, cookie, extBody("upstream", clA))["operator"].(map[string]any)["id"].(string)
 	if _, has := a.do("GET", "/api/v1/operators/"+target, nil, withCookie(cookie)).json(t)["usedBy"]; has {
@@ -67,7 +69,7 @@ func TestRevokeAndDeleteAnOperatorSomethingSendsToNeedForce(t *testing.T) {
 // A revoked intent and a revoked operator grant nothing, so they do not keep an operator in use.
 func TestOnlyActiveDependentsCountTowardUsedBy(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	clA := a.approvedCluster(t, fp)
 	target := a.createOperatorDoc(t, cookie, extBody("upstream", clA))["operator"].(map[string]any)["id"].(string)
 	dest := map[string]any{"kind": "operator", "targetOperatorId": target}
@@ -87,7 +89,7 @@ func TestOnlyActiveDependentsCountTowardUsedBy(t *testing.T) {
 // intents it has there.
 func TestAnIntentWithSeveralRoutesToOneOperatorCountsOnce(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	cl := a.approvedCluster(t, fp)
 	target := a.createOperatorDoc(t, cookie, extBody("upstream", cl))["operator"].(map[string]any)["id"].(string)
 	agent := a.approvedAgentID(t, fp2)
@@ -115,7 +117,7 @@ func TestAnIntentWithSeveralRoutesToOneOperatorCountsOnce(t *testing.T) {
 // dependents check and the revoke are one step, so whichever of the two comes second sees the other.
 func TestRevokeAndANewSenderNeverBothSucceed(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	for i := 0; i < 12; i++ {
 		target := a.createOperatorDoc(t, cookie, extBody("upstream"))["operator"].(map[string]any)["id"].(string)
 		dest := map[string]any{"kind": "operator", "targetOperatorId": target}

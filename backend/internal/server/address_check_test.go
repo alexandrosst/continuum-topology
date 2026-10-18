@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"continuum/internal/accounts"
 	"continuum/internal/kernel"
 )
 
@@ -280,7 +281,7 @@ func TestAddressCheckTellsWhatAnswersThere(t *testing.T) {
 		t.Fatalf("%d connections for two asks within a moment", n)
 	}
 	// Only an administrator may ask.
-	_, viewer := a.user(t, "vi", RoleEditor)
+	_, viewer := a.user(t, "vi", accounts.RoleEditor)
 	if r := a.do("POST", "/api/v1/operators/"+id+"/address/check", nil, withCookie(viewer)); r.Code != 403 {
 		t.Fatalf("an editor: %d", r.Code)
 	}

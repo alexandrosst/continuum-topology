@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"continuum/internal/accounts"
 	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
@@ -134,9 +135,9 @@ func rigWithDecider(t *testing.T, policy string) (a *adminRig, admin, editor, vi
 		t.Fatal(err)
 	}
 	a.base.Decider = p
-	_, admin = a.user(t, "root", RoleAdmin)
-	_, editor = a.user(t, "ed", RoleEditor)
-	_, viewer = a.user(t, "eve", RoleViewer)
+	_, admin = a.user(t, "root", accounts.RoleAdmin)
+	_, editor = a.user(t, "ed", accounts.RoleEditor)
+	_, viewer = a.user(t, "eve", accounts.RoleViewer)
 	calls = &atomic.Int32{}
 	dec := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)

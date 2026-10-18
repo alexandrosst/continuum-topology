@@ -11,6 +11,7 @@ import (
 	"time"
 
 	continuumv1 "continuum/gen/continuumv1"
+	"continuum/internal/accounts"
 	"continuum/internal/kernel"
 	"continuum/internal/pki"
 	"continuum/internal/store"
@@ -99,7 +100,7 @@ func (c *Core) RenewTelemetryCert(ctx context.Context, ip string, req *continuum
 			return nil, err
 		}
 		if !ok {
-			oc.Audit(ctx, RenewalActor.String(), "operator-cert-renewal-refused", "operator", op.ID, "client certificate "+old.Subject.CommonName+" (serial "+serial+") is no longer held by a sender of this operator")
+			oc.Audit(ctx, accounts.RenewalActor.String(), "operator-cert-renewal-refused", "operator", op.ID, "client certificate "+old.Subject.CommonName+" (serial "+serial+") is no longer held by a sender of this operator")
 			return nil, kernel.Errf(kernel.KindForbidden, "this certificate's holder no longer sends to operator %s; it is not renewed and will stop working on %s", op.ID, old.NotAfter.UTC().Format("2006-01-02"))
 		}
 	} else if op.ID == CentralOperatorID {
@@ -118,7 +119,7 @@ func (c *Core) RenewTelemetryCert(ctx context.Context, ip string, req *continuum
 	leafPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
 	// A certificate that cannot be recorded is not handed out, as with every other issue: the ledger is how the
 	// server knows who holds what.
-	if err := oc.recordOperatorCert(ctx, RenewalActor.String(), op, kind, sender, leafPEM); err != nil {
+	if err := oc.recordOperatorCert(ctx, accounts.RenewalActor.String(), op, kind, sender, leafPEM); err != nil {
 		return nil, err
 	}
 	oc.noteCertEnds(ctx, op)

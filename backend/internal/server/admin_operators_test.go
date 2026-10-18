@@ -3,11 +3,13 @@ package server
 import (
 	"strings"
 	"testing"
+
+	"continuum/internal/accounts"
 )
 
 func TestOperatorsHTTPCreateListGetRevokeDelete(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	cl := a.approvedCluster(t, fp)
 
 	if r := a.do("GET", "/api/v1/operators", nil, withCookie(cookie)); r.Code != 200 {
@@ -117,7 +119,7 @@ func TestOperatorsHTTPCreateListGetRevokeDelete(t *testing.T) {
 
 func TestOperatorsHTTPRequiresAdminRole(t *testing.T) {
 	a := newAdminRig(t)
-	_, viewer := a.user(t, "jamie", RoleViewer)
+	_, viewer := a.user(t, "jamie", accounts.RoleViewer)
 	cl := a.approvedCluster(t, fp)
 	body := map[string]any{"name": "x", "sourceClusterIds": []string{cl}, "destination": map[string]any{"kind": "external", "endpoint": "c:4317"}}
 	if r := a.do("POST", "/api/v1/operators", body, withCookie(viewer)); r.Code != 403 {
@@ -133,7 +135,7 @@ func TestOperatorsHTTPRequiresAdminRole(t *testing.T) {
 // fetching that operator directly), and an unrecognised kind altogether (400).
 func TestOperatorsHTTPRejectsBadDestination(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	cl := a.approvedCluster(t, fp)
 	body := map[string]any{"name": "x", "sourceClusterIds": []string{cl}, "destination": map[string]any{"kind": "operator", "targetOperatorId": "op-other"}}
 	if r := a.do("POST", "/api/v1/operators", body, withCookie(cookie)); r.Code != 404 {
@@ -151,7 +153,7 @@ func TestOperatorsHTTPRejectsBadDestination(t *testing.T) {
 // another, currently active, regional operator of the same organisation.
 func TestOperatorsHTTPAcceptsChainingToAnActiveOperator(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	clA := a.approvedCluster(t, fp)
 	upstreamBody := map[string]any{
 		"name":             "upstream",
@@ -189,7 +191,7 @@ func TestOperatorsHTTPAcceptsChainingToAnActiveOperator(t *testing.T) {
 // change can't quietly go back to a fixed release name.
 func TestOperatorInstallCommandReleaseNameIsUniquePerOperator(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	cl := a.approvedCluster(t, fp)
 
 	create := func(name string) string {

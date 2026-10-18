@@ -6,6 +6,7 @@ import (
 
 	continuumv1 "continuum/gen/continuumv1"
 
+	"continuum/internal/accounts"
 	"continuum/internal/kernel"
 )
 
@@ -73,7 +74,7 @@ func TestEachPlaceThatBoundsATierSaysWhatItSaidBefore(t *testing.T) {
 
 func TestSettingATierSaysWhatItSaidBeforeAndInTheSameOrder(t *testing.T) {
 	r := propRigFor(t) // approved 2, installed 2, token cap whatever the rig made
-	adm := asRole(RoleAdmin)
+	adm := asRole(accounts.RoleAdmin)
 	set := func(tier int) error {
 		_, err := r.h.SetAgentTier(adm, "adam", r.id, tier, func(n int) string { return fmt.Sprintf("HELM %d", n) })
 		return err
@@ -84,7 +85,7 @@ func TestSettingATierSaysWhatItSaidBeforeAndInTheSameOrder(t *testing.T) {
 	if err := r.st.SetAccessTier(r.ctx, r.id, 0); err != nil {
 		t.Fatal(err)
 	}
-	_, err := r.h.SetAgentTier(asRole(RoleEditor), "edith", r.id, 9, nil)
+	_, err := r.h.SetAgentTier(asRole(accounts.RoleEditor), "edith", r.id, 9, nil)
 	wantErr(t, "an editor raising past the release", err, kernel.KindForbidden, "raising an agent's access takes an administrator, as approving it did; narrowing it does not")
 	// Over the install: the message carries the command.
 	if err := r.st.SetInstalledTier(r.ctx, r.id, 1); err != nil {
@@ -157,11 +158,11 @@ func TestATokensCapStopsATierThatTheInstallWouldAllow(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := a.hub()
-	_, err = h.SetAgentTier(asRole(RoleAdmin), "adam", r.AgentId, 2, nil)
+	_, err = h.SetAgentTier(asRole(accounts.RoleAdmin), "adam", r.AgentId, 2, nil)
 	wantErr(t, "setting above the token", err, kernel.KindInvalid, "access tier 2 is above what the enrollment token allowed for this agent (1)")
-	_, err = h.SubmitProposal(asRole(RoleEditor), "x", ProposalInput{Advisor: "rules-v1", Change: AccessChange{AgentID: r.AgentId, Tier: intp(2)}})
+	_, err = h.SubmitProposal(asRole(accounts.RoleEditor), "x", ProposalInput{Advisor: "rules-v1", Change: AccessChange{AgentID: r.AgentId, Tier: intp(2)}})
 	wantErr(t, "proposing above the token", err, kernel.KindInvalid, "access tier 2 is above what the enrollment token allowed for this agent (1)")
-	if _, err = h.SetAgentTier(asRole(RoleAdmin), "adam", r.AgentId, 1, nil); err != nil {
+	if _, err = h.SetAgentTier(asRole(accounts.RoleAdmin), "adam", r.AgentId, 1, nil); err != nil {
 		t.Fatalf("setting at the token's cap: %v", err)
 	}
 }

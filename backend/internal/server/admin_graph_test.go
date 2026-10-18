@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"continuum/internal/accounts"
 	"continuum/internal/graph"
 	"continuum/internal/history"
 	"continuum/internal/model"
@@ -138,7 +139,7 @@ func TestHistoryTimelineAndAuditThroughTheAPIStayInsideTheirOrganisation(t *test
 
 	// A viewer can read history but not the audit trail.
 	vid := a.account(t, "vera")
-	_ = a.st.AddMember(a.ctx, store.Membership{OrgID: aOrg, UserID: vid, Role: RoleViewer, CreatedAt: *a.now})
+	_ = a.st.AddMember(a.ctx, store.Membership{OrgID: aOrg, UserID: vid, Role: accounts.RoleViewer, CreatedAt: *a.now})
 	vera := a.login(t, "vera", goodPW)
 	if c := a.do("GET", org(aOrg, "audit"), nil, withCookie(vera)).Code; c != 403 {
 		t.Errorf("viewer read the audit trail: %d", c)
@@ -587,9 +588,9 @@ func TestStorageStatusShowsItsReasonsAndCountsToAdministratorsOnly(t *testing.T)
 	e.base.Store = timelineGraph{Store: e.st}
 	e.core = e.base.ForOrg("org-1")
 	a := adminRigOn(t, e)
-	_, admin := a.user(t, "adam", RoleAdmin)
-	_, editor := a.user(t, "edie", RoleEditor)
-	_, viewer := a.user(t, "vic", RoleViewer)
+	_, admin := a.user(t, "adam", accounts.RoleAdmin)
+	_, editor := a.user(t, "edie", accounts.RoleEditor)
+	_, viewer := a.user(t, "vic", accounts.RoleViewer)
 	for name, cookie := range map[string]string{"viewer": viewer, "editor": editor} {
 		got := a.do("GET", "/api/v1/storage", nil, withCookie(cookie)).json(t)
 		if got["backend"] != "neo4j" || got["connected"] != false || got["error"] != nil || got["stats"] != nil {
@@ -609,9 +610,9 @@ func TestTimelineShowsAuditRowsToAdministratorsOnly(t *testing.T) {
 	e.base.Store = timelineGraph{Store: e.st}
 	e.core = e.base.ForOrg("org-1")
 	a := adminRigOn(t, e)
-	_, admin := a.user(t, "adam", RoleAdmin)
-	_, viewer := a.user(t, "vic", RoleViewer)
-	_, editor := a.user(t, "edie", RoleEditor)
+	_, admin := a.user(t, "adam", accounts.RoleAdmin)
+	_, viewer := a.user(t, "vic", accounts.RoleViewer)
+	_, editor := a.user(t, "edie", accounts.RoleEditor)
 	rows := func(cookie string) []any {
 		t.Helper()
 		r := a.do("GET", "/api/v1/timeline?kind=service&id=svc-web", nil, withCookie(cookie))

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"continuum/internal/accounts"
 	"continuum/internal/store"
 )
 
@@ -18,24 +19,6 @@ import (
 // certificate renewal. If a person could register under one of those words, a row they caused would read as the server's. So the
 // words are reserved: no new account may take them, in any case. (An agent's rows read "agent:<id>"; a username cannot hold a
 // colon, so that form needs no reservation.)
-
-func TestReservedActorWordsCannotBeUsernames(t *testing.T) {
-	for _, name := range []string{"system", "anonymous", "renewal", "System", "ANONYMOUS", "Renewal", "sYsTeM"} {
-		if usernameProblem(name) == "" {
-			t.Errorf("%q can be a username", name)
-		}
-	}
-	for _, name := range []string{"alice", "sysadmin", "system1", "anon", "systemd", "renewals", "a.b-c_d@e"} {
-		if p := usernameProblem(name); p != "" {
-			t.Errorf("%q was refused: %s", name, p)
-		}
-	}
-	for _, name := range []string{"", "ab", "-no", "has space", "agent:ag-1", strings.Repeat("a", 65)} {
-		if usernameProblem(name) == "" {
-			t.Errorf("%q should not be a username", name)
-		}
-	}
-}
 
 func TestRegistrationRefusesAReservedUsername(t *testing.T) {
 	a := newAdminRig(t)
@@ -53,7 +36,7 @@ func TestRegistrationRefusesAReservedUsername(t *testing.T) {
 
 func TestRecoveryDoesNotCreateAReservedUsernameButStillResetsOneThatExists(t *testing.T) {
 	a := newAdminRig(t)
-	if _, err := a.base.RecoverPassword(a.ctx, "system"); err == nil {
+	if _, err := a.base.Accounts.RecoverPassword(a.ctx, "system"); err == nil {
 		t.Fatal("recovery created an account named system")
 	}
 	if _, err := a.st.GetUserByName(a.ctx, "system"); err == nil {
@@ -64,22 +47,37 @@ func TestRecoveryDoesNotCreateAReservedUsernameButStillResetsOneThatExists(t *te
 	if err := a.st.CreateUser(a.ctx, store.User{ID: "u-old", Username: "renewal", PasswordHash: "x", CreatedAt: a.base.Now()}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.base.RecoverPassword(a.ctx, "renewal"); err != nil {
+	if _, err := a.base.Accounts.RecoverPassword(a.ctx, "renewal"); err != nil {
 		t.Fatalf("an existing account could not be recovered: %v", err)
 	}
 }
 
-// The words the server uses for itself are defined in actor.go and nowhere else. This reads the package's own source: no string
-// literal outside actor.go may be a reserved word or an "agent:" form, so a call site that wrote "system" by hand (and a new server
+// serverCodeDirs are the directories that hold the server's own code: this package, the kernel and each module that is a package.
+// A module that leaves this package is added here, so that the rule below keeps covering it.
+var serverCodeDirs = []string{".", "../kernel", "../accounts"}
+
+// The words the server uses for itself are defined in accounts/actor.go and nowhere else. This reads the server's own source: no string
+// literal outside that file may be a reserved word or an "agent:" form, so a call site that wrote "system" by hand (and a new server
 // actor added without being reserved) fails here, and the only way to name the server is an Actor value.
 func TestTheServersOwnActorWordsAreWrittenInOnePlace(t *testing.T) {
-	files, err := filepath.Glob("*.go")
-	if err != nil || len(files) < 20 {
-		t.Fatalf("source files not found: %v %d", err, len(files))
+	var files []string
+	for _, d := range serverCodeDirs {
+		fs, err := filepath.Glob(filepath.Join(d, "*.go"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		files = append(files, fs...)
+	}
+	if len(files) < 40 {
+		t.Fatalf("source files not found: %d", len(files))
+	}
+	reserved := map[string]bool{}
+	for _, a := range []accounts.Actor{accounts.AnonymousActor, accounts.SystemActor, accounts.RenewalActor} {
+		reserved[strings.ToLower(a.String())] = true
 	}
 	fset := token.NewFileSet()
 	for _, f := range files {
-		if strings.HasSuffix(f, "_test.go") || f == "actor.go" {
+		if strings.HasSuffix(f, "_test.go") || f == filepath.Join("..", "accounts", "actor.go") {
 			continue
 		}
 		src, err := os.ReadFile(f)
@@ -96,7 +94,7 @@ func TestTheServersOwnActorWordsAreWrittenInOnePlace(t *testing.T) {
 				return true
 			}
 			v, _ := strconv.Unquote(lit.Value)
-			if reservedActors[strings.ToLower(v)] || strings.HasPrefix(v, "agent:") {
+			if reserved[strings.ToLower(v)] || strings.HasPrefix(v, "agent:") {
 				t.Errorf("%s: %q is an actor word; use the Actor value from actor.go", fset.Position(lit.Pos()), v)
 			}
 			return true

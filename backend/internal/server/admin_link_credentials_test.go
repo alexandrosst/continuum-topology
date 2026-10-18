@@ -4,13 +4,14 @@ import (
 	"strings"
 	"testing"
 
+	"continuum/internal/accounts"
 	"continuum/internal/kernel"
 )
 
 func TestRotatingLinkCredentialsIsAnAdminActionThatShowsNoSecrets(t *testing.T) {
 	a := newAdminRig(t)
-	_, admin := a.user(t, "ada", RoleAdmin)
-	_, viewer := a.user(t, "vera", RoleViewer)
+	_, admin := a.user(t, "ada", accounts.RoleAdmin)
+	_, viewer := a.user(t, "vera", accounts.RoleViewer)
 	const path = "/api/v1/links/rotate-credentials"
 
 	if r := a.do("POST", path, map[string]string{"cluster": "cl-b"}); r.Code != 401 {

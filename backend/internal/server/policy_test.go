@@ -7,33 +7,35 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"continuum/internal/accounts"
 )
 
 func TestDecideFailsClosed(t *testing.T) {
 	for _, role := range allRoles {
-		if Decide(Standing(role), Action(0), Resource{}).Allowed || Decide(Standing(role), Action(99), Resource{}).Allowed {
+		if accounts.Decide(accounts.Standing(role), accounts.Action(0), accounts.Resource{}).Allowed || accounts.Decide(accounts.Standing(role), accounts.Action(99), accounts.Resource{}).Allowed {
 			t.Errorf("%q was allowed an action that does not exist", role)
 		}
 	}
-	for _, act := range []Action{ActRead, ActEdit, ActAdminister, ActOwn, ActGrantRole} {
-		if Decide(Principal{}, act, Resource{Role: RoleViewer}).Allowed {
+	for _, act := range []accounts.Action{accounts.ActRead, accounts.ActEdit, accounts.ActAdminister, accounts.ActOwn, accounts.ActGrantRole} {
+		if accounts.Decide(accounts.Principal{}, act, accounts.Resource{Role: accounts.RoleViewer}).Allowed {
 			t.Errorf("a caller with no role was allowed action %d", act)
 		}
 	}
 	// A role the server has never heard of is no one: not even a reader.
 	for _, role := range []string{"root", "Owner", "ADMIN"} {
-		if Allows(Standing(role), ActRead) {
+		if accounts.Allows(accounts.Standing(role), accounts.ActRead) {
 			t.Errorf("%q may read", role)
 		}
 	}
 }
 
 func TestEachActionAdmitsExactlyTheRolesAtOrAboveItsLevel(t *testing.T) {
-	want := map[Action][]string{
-		ActRead:       {RoleViewer, RoleEditor, RoleAdmin, RoleOwner},
-		ActEdit:       {RoleEditor, RoleAdmin, RoleOwner},
-		ActAdminister: {RoleAdmin, RoleOwner},
-		ActOwn:        {RoleOwner},
+	want := map[accounts.Action][]string{
+		accounts.ActRead:       {accounts.RoleViewer, accounts.RoleEditor, accounts.RoleAdmin, accounts.RoleOwner},
+		accounts.ActEdit:       {accounts.RoleEditor, accounts.RoleAdmin, accounts.RoleOwner},
+		accounts.ActAdminister: {accounts.RoleAdmin, accounts.RoleOwner},
+		accounts.ActOwn:        {accounts.RoleOwner},
 	}
 	for act, roles := range want {
 		for _, role := range allRoles {
@@ -41,7 +43,7 @@ func TestEachActionAdmitsExactlyTheRolesAtOrAboveItsLevel(t *testing.T) {
 			for _, r := range roles {
 				in = in || r == role
 			}
-			if got := Allows(Standing(role), act); got != in {
+			if got := accounts.Allows(accounts.Standing(role), act); got != in {
 				t.Errorf("%q for action %d: %v, want %v", role, act, got, in)
 			}
 		}
@@ -50,12 +52,12 @@ func TestEachActionAdmitsExactlyTheRolesAtOrAboveItsLevel(t *testing.T) {
 
 func TestADecisionAboutAccessSaysWhetherTheChangeWidens(t *testing.T) {
 	for _, role := range allRoles {
-		narrow := Decide(Standing(role), ActChangeAccess, Resource{Widening: false})
+		narrow := accounts.Decide(accounts.Standing(role), accounts.ActChangeAccess, accounts.Resource{Widening: false})
 		if !narrow.Allowed || narrow.Widens {
 			t.Errorf("%q narrowing: %+v, want allowed and not widening", role, narrow)
 		}
-		wide := Decide(Standing(role), ActChangeAccess, Resource{Widening: true})
-		if !wide.Widens || wide.Allowed != (role == RoleAdmin || role == RoleOwner) {
+		wide := accounts.Decide(accounts.Standing(role), accounts.ActChangeAccess, accounts.Resource{Widening: true})
+		if !wide.Widens || wide.Allowed != (role == accounts.RoleAdmin || role == accounts.RoleOwner) {
 			t.Errorf("%q widening: %+v", role, wide)
 		}
 	}

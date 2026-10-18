@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"continuum/internal/accounts"
 	"continuum/internal/store"
 )
 
@@ -35,11 +36,11 @@ type fakeWebAuthn struct {
 	failWith string
 }
 
-func (f *fakeWebAuthn) BeginRegistration(rp RelyingParty, user WebAuthnUser) ([]byte, []byte, error) {
+func (f *fakeWebAuthn) BeginRegistration(rp accounts.RelyingParty, user accounts.WebAuthnUser) ([]byte, []byte, error) {
 	return []byte(`{"publicKey":{"challenge":"fake-reg-challenge"}}`), []byte("reg:" + user.ID), nil
 }
 
-func (f *fakeWebAuthn) FinishRegistration(rp RelyingParty, user WebAuthnUser, session, response []byte) (store.WebAuthnCredential, error) {
+func (f *fakeWebAuthn) FinishRegistration(rp accounts.RelyingParty, user accounts.WebAuthnUser, session, response []byte) (store.WebAuthnCredential, error) {
 	if f.failWith != "" {
 		return store.WebAuthnCredential{}, errors.New(f.failWith)
 	}
@@ -50,11 +51,11 @@ func (f *fakeWebAuthn) FinishRegistration(rp RelyingParty, user WebAuthnUser, se
 	return store.WebAuthnCredential{CredentialID: []byte(resp.CredentialID), PublicKey: []byte("pub:" + resp.CredentialID)}, nil
 }
 
-func (f *fakeWebAuthn) BeginLogin(rp RelyingParty, user WebAuthnUser) ([]byte, []byte, error) {
+func (f *fakeWebAuthn) BeginLogin(rp accounts.RelyingParty, user accounts.WebAuthnUser) ([]byte, []byte, error) {
 	return []byte(`{"publicKey":{"challenge":"fake-login-challenge"}}`), []byte("login:" + user.ID), nil
 }
 
-func (f *fakeWebAuthn) FinishLogin(rp RelyingParty, user WebAuthnUser, session, response []byte) ([]byte, uint32, error) {
+func (f *fakeWebAuthn) FinishLogin(rp accounts.RelyingParty, user accounts.WebAuthnUser, session, response []byte) ([]byte, uint32, error) {
 	if f.failWith != "" {
 		return nil, 0, errors.New(f.failWith)
 	}
@@ -74,7 +75,7 @@ func withHost(h string) opt { return func(r *http.Request) { r.Host = h } }
 
 func TestPasskeyRegistrationRequiresASession(t *testing.T) {
 	a := newAdminRig(t)
-	a.base.SetWebAuthn(&fakeWebAuthn{})
+	a.base.Accounts.SetWebAuthn(&fakeWebAuthn{})
 	if r := a.do("POST", "/api/v1/auth/webauthn/register/begin", nil); r.Code != 401 {
 		t.Fatalf("begin without a session: %d %s", r.Code, r.Body.String())
 	}
@@ -91,7 +92,7 @@ func TestPasskeysNotOfferedWithNoProviderWiredIn(t *testing.T) {
 
 func TestPasskeyRegistrationRefusedFromABareIPAddress(t *testing.T) {
 	a := newAdminRig(t)
-	a.base.SetWebAuthn(&fakeWebAuthn{})
+	a.base.Accounts.SetWebAuthn(&fakeWebAuthn{})
 	a.account(t, "opal")
 	cookie := a.login(t, "opal", goodPW)
 	if r := a.do("POST", "/api/v1/auth/webauthn/register/begin", nil, withCookie(cookie), withHost("192.0.2.10:8443")); r.Code != 409 {
@@ -104,7 +105,7 @@ func TestPasskeyRegistrationRefusedFromABareIPAddress(t *testing.T) {
 // with TOTP and email setup.
 func TestPasskeyRegisterLoginRenameAndRemove(t *testing.T) {
 	a := newAdminRig(t)
-	a.base.SetWebAuthn(&fakeWebAuthn{})
+	a.base.Accounts.SetWebAuthn(&fakeWebAuthn{})
 	a.account(t, "quinn")
 	cookie := a.login(t, "quinn", goodPW)
 
@@ -196,7 +197,7 @@ func TestPasskeyRegisterLoginRenameAndRemove(t *testing.T) {
 
 func TestPasskeyRegistrationRejectsAForgedResponse(t *testing.T) {
 	a := newAdminRig(t)
-	a.base.SetWebAuthn(&fakeWebAuthn{failWith: "signature does not match"})
+	a.base.Accounts.SetWebAuthn(&fakeWebAuthn{failWith: "signature does not match"})
 	a.account(t, "ren")
 	cookie := a.login(t, "ren", goodPW)
 	a.do("POST", "/api/v1/auth/webauthn/register/begin", nil, withCookie(cookie))
@@ -211,7 +212,7 @@ func TestPasskeyRegistrationRejectsAForgedResponse(t *testing.T) {
 // response are ever inspected, so a made-up pending token is enough here.
 func TestFinishPasskeyLoginRejectsAnOversizedBody(t *testing.T) {
 	a := newAdminRig(t)
-	a.base.SetWebAuthn(&fakeWebAuthn{})
+	a.base.Accounts.SetWebAuthn(&fakeWebAuthn{})
 	huge := []byte(`{"pending":"x","response":"` + strings.Repeat("a", 1<<20) + `"}`)
 	if r := a.do("POST", "/api/v1/auth/login/2fa/webauthn/finish", huge, fromIP("10.9.6.3")); r.Code != 400 && r.Code != 413 {
 		t.Fatalf("oversized finish body: %d %s", r.Code, r.Body.String())

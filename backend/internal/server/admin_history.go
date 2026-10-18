@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"continuum/internal/accounts"
 	"continuum/internal/history"
 	"continuum/internal/kernel"
 	"continuum/internal/store"
@@ -48,7 +49,7 @@ func settingsDoc(s kernel.Settings, rev int64, admin bool) SettingsDoc {
 
 func (a *Admin) getSettings(w http.ResponseWriter, r *http.Request) {
 	cur, rev := a.core(r).SettingsAt()
-	d := settingsDoc(cur, rev, Allows(principal(r), ActAdminister))
+	d := settingsDoc(cur, rev, accounts.Allows(principal(r), accounts.ActAdminister))
 	d.ImageDefaults = a.imageDefaults()
 	writeJSON(w, 200, d)
 }

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	continuumv1 "continuum/gen/continuumv1"
+	"continuum/internal/accounts"
 	"continuum/internal/agent"
 	"continuum/internal/agent/collect"
 	"continuum/internal/flow"
@@ -149,7 +150,7 @@ func TestTheServerNamesLinkPeersAndTheAgentLabelsTrafficWithThem(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitFor(t, "the peers to be withdrawn while flow is paused", 30*time.Second, func() bool { return meter.Peers.Empty() })
-	if _, err := d.hub.SetConsent(server.ActingAs(context.Background(), server.RoleAdmin), "test", d.id, server.Consent{}); err != nil {
+	if _, err := d.hub.SetConsent(server.ActingAs(context.Background(), accounts.RoleAdmin), "test", d.id, server.Consent{}); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, "the peers to return", 30*time.Second, func() bool { return !meter.Peers.Empty() })

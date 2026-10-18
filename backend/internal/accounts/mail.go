@@ -1,4 +1,4 @@
-package server
+package accounts
 
 import (
 	"context"
@@ -76,18 +76,18 @@ func (h *mailHolder) set(m MailConfig) {
 // Mailer returns the current mail configuration. It is the same for every organisation's Core - SMTP is
 // one setting for the whole server, not per organisation the way Settings is, the same way DefaultOrg
 // and RegMode are not per organisation either - so which Core this is called through does not matter.
-func (c *Core) Mailer() MailConfig { return c.mailSt().get() }
+func (c *Service) Mailer() MailConfig { return c.mailSt().get() }
 
 // SetMailerDefault seeds the in-memory mail configuration without persisting it. cmd/server calls this
 // once at boot with whatever the --smtp-* flags say, before LoadMailConfig may overwrite it with
 // whatever an owner of DefaultOrg last saved through Settings - the same relationship a CLI flag has to
 // a value stored in the database everywhere else in this file's package.
-func (c *Core) SetMailerDefault(m MailConfig) { c.mailSt().set(m) }
+func (c *Service) SetMailerDefault(m MailConfig) { c.mailSt().set(m) }
 
 // LoadMailConfig reads the persisted mail configuration at startup, the same way LoadSettings does for
 // per-organisation Settings. Unreadable JSON or nothing ever saved leaves whatever SetMailerDefault (or
 // the zero value) already set - it never disables mail as a side effect of a storage hiccup.
-func (c *Core) LoadMailConfig(ctx context.Context) {
+func (c *Service) LoadMailConfig(ctx context.Context) {
 	data, err := c.Store.GetMailConfig(ctx)
 	if err != nil || data == nil {
 		return
@@ -104,7 +104,7 @@ func (c *Core) LoadMailConfig(ctx context.Context) {
 // responsible for authorization - see requireDefaultOwner. It always writes to the server's own audit
 // trail ("" - see AuditOrg), not this Core's OrgID, because SMTP is one setting for the whole server and
 // this may be called through any organisation's Core.
-func (c *Core) SaveMailConfig(ctx context.Context, by string, m MailConfig) (MailConfig, error) {
+func (c *Service) SaveMailConfig(ctx context.Context, by string, m MailConfig) (MailConfig, error) {
 	m, err := m.Normalize()
 	if err != nil {
 		return MailConfig{}, kernel.Errf(kernel.KindInvalid, "%v", err)
@@ -276,6 +276,6 @@ func NewMailConfigDoc(m MailConfig) MailConfigDoc {
 // A plain MailConfig value would give each tenant its own independently stale copy. Its zero value has Enabled() false: nothing
 // that needs to send mail (RequestEmailVerification, RequestLoginEmailCode) is reachable until an operator configures one, the
 // same way Decider being nil keeps decider-only paths unreachable.
-func (c *Core) mailSt() *mailHolder {
+func (c *Service) mailSt() *mailHolder {
 	return kernel.ServerState(c, "accounts.mail", func() *mailHolder { return &mailHolder{} })
 }

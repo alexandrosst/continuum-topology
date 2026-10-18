@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"continuum/internal/accounts"
 	"continuum/internal/fusionapi"
 	"continuum/internal/kernel"
 )
@@ -412,8 +413,8 @@ func TestRetentionValueParsing(t *testing.T) {
 
 func TestFusionRetentionOverHTTP(t *testing.T) {
 	a := newAdminRig(t)
-	_, admin := a.user(t, "alex", RoleAdmin)
-	_, viewer := a.user(t, "vera", RoleViewer)
+	_, admin := a.user(t, "alex", accounts.RoleAdmin)
+	_, viewer := a.user(t, "vera", accounts.RoleViewer)
 	if r := a.do("GET", "/api/v1/fusion/retention", nil, withCookie(admin)); r.Code != 200 || r.json(t)["available"] != false {
 		t.Fatalf("no switch: %d %s", r.Code, r.Body.String())
 	}

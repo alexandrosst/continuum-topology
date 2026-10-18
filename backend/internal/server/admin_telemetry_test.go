@@ -5,6 +5,7 @@ import (
 	"time"
 
 	continuumv1 "continuum/gen/continuumv1"
+	"continuum/internal/accounts"
 	"continuum/internal/model"
 )
 
@@ -218,7 +219,7 @@ func TestServerTelemetrySamplesOmitsModelCacheHitPctWhenNoLookupHappened(t *test
 // at least once.
 func TestSelfTelemetryEndpointShapeAndRBAC(t *testing.T) {
 	a := newAdminRig(t)
-	_, viewer := a.user(t, "vera", RoleViewer)
+	_, viewer := a.user(t, "vera", accounts.RoleViewer)
 	h := a.hub()
 
 	// Before anything has ever reported SelfStats or sampled itself: an empty array, not an error.

@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"continuum/internal/accounts"
 	"continuum/internal/fusionapi"
 	"continuum/internal/kernel"
 )
@@ -690,7 +691,7 @@ func TestDiscoveringTheAddressNeverGetsInTheWay(t *testing.T) {
 // Opening the FUSION screen is what notices the gateway has no address, and records it without making the page wait.
 func TestTheFusionScreenRecordsTheGatewaysAddress(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	f, k := newFusion(t, a)
 	a.a.Fusion = f
 	k.svcAddr = "203.0.113.7:4317"

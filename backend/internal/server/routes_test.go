@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"continuum/internal/accounts"
 )
 
 // Every route the server mounts, and what it asks of the caller, is written down in testdata/routes.txt, one line each: the access
@@ -91,11 +93,11 @@ func TestNoRouteIsMountedOutsideTheRegistry(t *testing.T) {
 func TestEachGuardedRouteTurnsAwayWhoIsBelowItsLevel(t *testing.T) {
 	a := newAdminRig(t)
 	cookie := map[string]string{}
-	for _, role := range []string{RoleViewer, RoleEditor, RoleAdmin, RoleOwner} {
+	for _, role := range []string{accounts.RoleViewer, accounts.RoleEditor, accounts.RoleAdmin, accounts.RoleOwner} {
 		_, cookie[role] = a.user(t, "u-"+role, role)
 	}
-	below := map[string]string{"editor": RoleViewer, "admin": RoleEditor, "owner": RoleAdmin}
-	exact := map[string]string{"member": RoleViewer, "editor": RoleEditor, "admin": RoleAdmin, "owner": RoleOwner}
+	below := map[string]string{"editor": accounts.RoleViewer, "admin": accounts.RoleEditor, "owner": accounts.RoleAdmin}
+	exact := map[string]string{"member": accounts.RoleViewer, "editor": accounts.RoleEditor, "admin": accounts.RoleAdmin, "owner": accounts.RoleOwner}
 	const roleRefusal = "does not allow this"
 	checked := 0
 	for _, r := range a.a.routes {

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"continuum/internal/accounts"
 	"continuum/internal/store"
 )
 
@@ -27,7 +28,7 @@ func (r *propRig) feed(from time.Time, span time.Duration, bytesPerSec float64, 
 // heartbeat would.
 func (r *propRig) acceptAndConfirm(t *testing.T, id string) time.Time {
 	t.Helper()
-	if _, err := r.h.AcceptProposal(asRole(RoleEditor), "edith", id, ""); err != nil {
+	if _, err := r.h.AcceptProposal(asRole(accounts.RoleEditor), "edith", id, ""); err != nil {
 		t.Fatal(err)
 	}
 	r.h.mu.Lock()
@@ -89,7 +90,7 @@ func TestAnAppliedProposalGetsAnOutcomeThatSetsWhatWasObservedBesideWhatWasPredi
 		t.Fatalf("%d outcome rows", n)
 	}
 	// and the route shows it
-	_, editor := r.user(t, "edith", RoleEditor)
+	_, editor := r.user(t, "edith", accounts.RoleEditor)
 	got := r.do("GET", "/api/v1/proposals/"+p.ID, nil, withCookie(editor)).json(t)
 	oc, _ := got["outcome"].(map[string]any)
 	if oc == nil || oc["result"] != "measured" {
@@ -100,7 +101,7 @@ func TestAnAppliedProposalGetsAnOutcomeThatSetsWhatWasObservedBesideWhatWasPredi
 func TestAnOutcomeSaysUnconfirmedIfTheAgentNeverReportsTheChangeInForce(t *testing.T) {
 	r := propRigFor(t)
 	p, _ := r.submit(t, AccessChange{Pause: []string{"flow"}})
-	if _, err := r.h.AcceptProposal(asRole(RoleEditor), "edith", p.ID, ""); err != nil {
+	if _, err := r.h.AcceptProposal(asRole(accounts.RoleEditor), "edith", p.ID, ""); err != nil {
 		t.Fatal(err)
 	}
 	*r.now = r.now.Add(10 * time.Minute)
@@ -138,7 +139,7 @@ func TestOnlyAppliedProposalsGetAnOutcome(t *testing.T) {
 	r := propRigFor(t)
 	pend, _ := r.submit(t, AccessChange{Pause: []string{"flow"}})
 	rej, _ := r.submit(t, AccessChange{Pause: []string{"probes"}})
-	if _, err := r.h.RejectProposal(asRole(RoleEditor), "edith", rej.ID, ""); err != nil {
+	if _, err := r.h.RejectProposal(asRole(accounts.RoleEditor), "edith", rej.ID, ""); err != nil {
 		t.Fatal(err)
 	}
 	*r.now = r.now.Add(2 * time.Hour)
@@ -173,7 +174,7 @@ func TestAnEchoFromBeforeTheDecisionDoesNotConfirmTheChange(t *testing.T) {
 	v.cfgHash, v.cfgApplied, v.cfgInForceAt = "h-before", "h-before", r.now.Add(-time.Hour)
 	r.h.mu.Unlock()
 	p, _ := r.submit(t, AccessChange{Pause: []string{"flow"}})
-	if _, err := r.h.AcceptProposal(asRole(RoleEditor), "edith", p.ID, ""); err != nil {
+	if _, err := r.h.AcceptProposal(asRole(accounts.RoleEditor), "edith", p.ID, ""); err != nil {
 		t.Fatal(err)
 	}
 	r.h.mu.Lock()

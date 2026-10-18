@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"continuum/internal/accounts"
 	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
@@ -124,7 +125,7 @@ func TestAPageTicketIsSingleUseAndShortLived(t *testing.T) {
 // The cookie is judged on every request: a person who stops being an administrator, or whose cookie ends, loses the pages.
 func TestThePageCookieStopsWhenThePersonIsNoLongerAnAdministrator(t *testing.T) {
 	p := newPageRig(t)
-	id, cookie := p.user(t, "dana", RoleAdmin)
+	id, cookie := p.user(t, "dana", accounts.RoleAdmin)
 	ck := pageCookie(p.get(p.ticketPath(t, "prometheus", cookie)))
 	if ck == nil {
 		t.Fatal("no cookie")
@@ -133,23 +134,23 @@ func TestThePageCookieStopsWhenThePersonIsNoLongerAnAdministrator(t *testing.T) 
 	if c := open(); c != 200 {
 		t.Fatalf("an administrator: %d", c)
 	}
-	if err := p.st.SetMemberRole(p.ctx, "org-1", id, RoleEditor); err != nil {
+	if err := p.st.SetMemberRole(p.ctx, "org-1", id, accounts.RoleEditor); err != nil {
 		t.Fatal(err)
 	}
 	if c := open(); c != 401 {
 		t.Fatalf("after dropping to an editor: %d", c)
 	}
-	if err := p.st.SetMemberRole(p.ctx, "org-1", id, RoleAdmin); err != nil {
+	if err := p.st.SetMemberRole(p.ctx, "org-1", id, accounts.RoleAdmin); err != nil {
 		t.Fatal(err)
 	}
 	ck = pageCookie(p.get(p.ticketPath(t, "prometheus", cookie)))
-	if err := p.st.SetMemberRole(p.ctx, "org-1", id, RoleViewer); err != nil {
+	if err := p.st.SetMemberRole(p.ctx, "org-1", id, accounts.RoleViewer); err != nil {
 		t.Fatal(err)
 	}
 	if c := open(); c != 401 {
 		t.Fatalf("after losing the role: %d", c)
 	}
-	if err := p.st.SetMemberRole(p.ctx, "org-1", id, RoleAdmin); err != nil {
+	if err := p.st.SetMemberRole(p.ctx, "org-1", id, accounts.RoleAdmin); err != nil {
 		t.Fatal(err)
 	}
 	if c := open(); c != 401 {
@@ -166,7 +167,7 @@ func TestThePageCookieStopsWhenThePersonIsNoLongerAnAdministrator(t *testing.T) 
 // Who may ask for a link: administrators of FUSION's organisation, for a page that is running, by name.
 func TestOnlyAnAdministratorMayAskForAPageLink(t *testing.T) {
 	p := newPageRig(t)
-	_, viewer := p.user(t, "vera", RoleViewer)
+	_, viewer := p.user(t, "vera", accounts.RoleViewer)
 	ask := func(page string, o ...opt) resp {
 		return p.do("POST", "/api/v1/fusion/pages", map[string]string{"page": page}, o...)
 	}
@@ -192,17 +193,17 @@ func TestOnlyAnAdministratorMayAskForAPageLink(t *testing.T) {
 // organisation" must never come out empty (it once did, and every page and token request was refused as coming from
 // another organisation).
 func TestFusionBelongsToTheMainOrganisationOfAServerWhoseCoreHasNone(t *testing.T) {
-	base := &Core{Core: &kernel.Core{DefaultOrg: "main"}}
+	base := wrap(&kernel.Core{DefaultOrg: "main"})
 	if got := (&Admin{C: base, Fusion: &FusionControl{}}).fusionOrg(); got != "main" {
 		t.Fatalf("no organisation configured: %q", got)
 	}
-	if got := (&Admin{C: &Core{Core: &kernel.Core{}}, Fusion: &FusionControl{}}).fusionOrg(); got != "default" {
+	if got := (&Admin{C: wrap(&kernel.Core{}), Fusion: &FusionControl{}}).fusionOrg(); got != "default" {
 		t.Fatalf("no flag either: %q", got)
 	}
 	if got := (&Admin{C: base, Fusion: &FusionControl{Org: "told"}}).fusionOrg(); got != "told" {
 		t.Fatalf("configured: %q", got)
 	}
-	if got := (&Admin{C: &Core{Core: &kernel.Core{OrgID: "org-1"}}}).fusionOrg(); got != "org-1" {
+	if got := (&Admin{C: wrap(&kernel.Core{OrgID: "org-1"})}).fusionOrg(); got != "org-1" {
 		t.Fatalf("a core with an organisation: %q", got)
 	}
 }
@@ -226,7 +227,7 @@ func (p *pageRig) pageCode(ck *http.Cookie) int {
 // has no pages, even though its membership and role are still fine.
 func TestThePageCookieStopsForADisabledAccountOrOneThatMustChangeItsPassword(t *testing.T) {
 	p := newPageRig(t)
-	id, cookie := p.user(t, "dana", RoleAdmin)
+	id, cookie := p.user(t, "dana", accounts.RoleAdmin)
 	ck := p.pageSession(t, cookie)
 	if c := p.pageCode(ck); c != 200 {
 		t.Fatalf("an administrator: %d", c)
@@ -252,7 +253,7 @@ func TestThePageCookieStopsForADisabledAccountOrOneThatMustChangeItsPassword(t *
 // Signing out ends the pages that sign-in opened, and tells the browser to drop the page cookie.
 func TestLoggingOutEndsThePageSessionsAndClearsTheCookie(t *testing.T) {
 	p := newPageRig(t)
-	_, cookie := p.user(t, "dana", RoleAdmin)
+	_, cookie := p.user(t, "dana", accounts.RoleAdmin)
 	ck := p.pageSession(t, cookie)
 	ticket := p.ticketPath(t, "grafana", cookie) // a link not opened yet
 	r := p.do("POST", "/api/v1/auth/logout", nil, withCookie(cookie))
@@ -274,7 +275,7 @@ func TestLoggingOutEndsThePageSessionsAndClearsTheCookie(t *testing.T) {
 // A new password signs the person's other browsers out; the pages those opened go with them.
 func TestChangingThePasswordEndsThePageSessions(t *testing.T) {
 	p := newPageRig(t)
-	_, cookie := p.user(t, "dana", RoleAdmin)
+	_, cookie := p.user(t, "dana", accounts.RoleAdmin)
 	ck := p.pageSession(t, cookie)
 	r := p.do("POST", "/api/v1/auth/password", map[string]string{"current": goodPW, "new": goodPW + "x"}, withCookie(cookie))
 	if r.Code != 200 {
@@ -289,24 +290,24 @@ func TestChangingThePasswordEndsThePageSessions(t *testing.T) {
 // administrator again later does not bring the old cookie back to life.
 func TestLosingTheRoleOrTheMembershipEndsThePageSessions(t *testing.T) {
 	p := newPageRig(t)
-	_, owner := p.user(t, "olga", RoleOwner)
-	id, cookie := p.user(t, "dana", RoleAdmin)
+	_, owner := p.user(t, "olga", accounts.RoleOwner)
+	id, cookie := p.user(t, "dana", accounts.RoleAdmin)
 
 	ck := p.pageSession(t, cookie)
-	if r := p.do("POST", "/api/v1/members/"+id+"/role", map[string]string{"role": RoleEditor}, withCookie(owner)); r.Code != http.StatusNoContent {
+	if r := p.do("POST", "/api/v1/members/"+id+"/role", map[string]string{"role": accounts.RoleEditor}, withCookie(owner)); r.Code != http.StatusNoContent {
 		t.Fatalf("downgrade to editor: %d %s", r.Code, r.Body.String())
 	}
-	if err := p.st.SetMemberRole(p.ctx, "org-1", id, RoleAdmin); err != nil {
+	if err := p.st.SetMemberRole(p.ctx, "org-1", id, accounts.RoleAdmin); err != nil {
 		t.Fatal(err)
 	}
 	if c := p.pageCode(ck); c != 401 {
 		t.Fatalf("a cookie from before a downgrade to editor came back: %d", c)
 	}
 	ck = p.pageSession(t, cookie)
-	if r := p.do("POST", "/api/v1/members/"+id+"/role", map[string]string{"role": RoleViewer}, withCookie(owner)); r.Code != http.StatusNoContent {
+	if r := p.do("POST", "/api/v1/members/"+id+"/role", map[string]string{"role": accounts.RoleViewer}, withCookie(owner)); r.Code != http.StatusNoContent {
 		t.Fatalf("downgrade: %d %s", r.Code, r.Body.String())
 	}
-	if err := p.st.SetMemberRole(p.ctx, "org-1", id, RoleAdmin); err != nil {
+	if err := p.st.SetMemberRole(p.ctx, "org-1", id, accounts.RoleAdmin); err != nil {
 		t.Fatal(err)
 	}
 	if c := p.pageCode(ck); c != 401 {
@@ -315,13 +316,13 @@ func TestLosingTheRoleOrTheMembershipEndsThePageSessions(t *testing.T) {
 
 	// A promotion is not a loss: the pages stay.
 	ck = p.pageSession(t, cookie)
-	if r := p.do("POST", "/api/v1/members/"+id+"/role", map[string]string{"role": RoleOwner}, withCookie(owner)); r.Code != http.StatusNoContent {
+	if r := p.do("POST", "/api/v1/members/"+id+"/role", map[string]string{"role": accounts.RoleOwner}, withCookie(owner)); r.Code != http.StatusNoContent {
 		t.Fatalf("promotion: %d %s", r.Code, r.Body.String())
 	}
 	if c := p.pageCode(ck); c != 200 {
 		t.Fatalf("a promotion ended the pages: %d", c)
 	}
-	if err := p.st.SetMemberRole(p.ctx, "org-1", id, RoleAdmin); err != nil {
+	if err := p.st.SetMemberRole(p.ctx, "org-1", id, accounts.RoleAdmin); err != nil {
 		t.Fatal(err)
 	}
 
@@ -329,7 +330,7 @@ func TestLosingTheRoleOrTheMembershipEndsThePageSessions(t *testing.T) {
 	if r := p.do("POST", "/api/v1/members/"+id+"/remove", nil, withCookie(owner)); r.Code != http.StatusNoContent {
 		t.Fatalf("remove: %d %s", r.Code, r.Body.String())
 	}
-	if err := p.st.AddMember(p.ctx, store.Membership{OrgID: "org-1", UserID: id, Role: RoleAdmin, CreatedAt: *p.now}); err != nil {
+	if err := p.st.AddMember(p.ctx, store.Membership{OrgID: "org-1", UserID: id, Role: accounts.RoleAdmin, CreatedAt: *p.now}); err != nil {
 		t.Fatal(err)
 	}
 	if c := p.pageCode(ck); c != 401 {

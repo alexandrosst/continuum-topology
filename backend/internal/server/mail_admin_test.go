@@ -3,6 +3,7 @@ package server
 import (
 	"testing"
 
+	"continuum/internal/accounts"
 	"continuum/internal/store"
 )
 
@@ -12,7 +13,7 @@ import (
 func TestMailConfigOnlyDefaultOrgOwnerMayReadOrWrite(t *testing.T) {
 	a := newAdminRig(t) // DefaultOrg is "org-1" (see newEnv)
 
-	for _, role := range []string{RoleViewer, RoleEditor, RoleAdmin} {
+	for _, role := range []string{accounts.RoleViewer, accounts.RoleEditor, accounts.RoleAdmin} {
 		_, cookie := a.user(t, "member-"+role, role)
 		if r := a.do("GET", "/api/v1/mail", nil, withCookie(cookie)); r.Code != 403 {
 			t.Fatalf("GET as %s in the default org: %d %s", role, r.Code, r.Body.String())
@@ -34,7 +35,7 @@ func TestMailConfigOnlyDefaultOrgOwnerMayReadOrWrite(t *testing.T) {
 	}
 
 	// An owner of the default organisation itself may both read and write.
-	_, ownerCookie := a.user(t, "org1-boss", RoleOwner)
+	_, ownerCookie := a.user(t, "org1-boss", accounts.RoleOwner)
 	if r := a.do("GET", "/api/v1/mail", nil, withCookie(ownerCookie)); r.Code != 200 {
 		t.Fatalf("GET as the default org's owner: %d %s", r.Code, r.Body.String())
 	}
@@ -48,7 +49,7 @@ func TestMailConfigOnlyDefaultOrgOwnerMayReadOrWrite(t *testing.T) {
 // clearPassword removes it explicitly.
 func TestMailConfigMasksThePasswordAndKeepsItWhenOmitted(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "org1-boss", RoleOwner)
+	_, cookie := a.user(t, "org1-boss", accounts.RoleOwner)
 
 	r := a.do("PUT", "/api/v1/mail", map[string]any{"host": "mail.example.com", "port": "587", "username": "bot", "password": "s3cret", "from": "continuum@example.com"}, withCookie(cookie))
 	if r.Code != 200 {
@@ -61,7 +62,7 @@ func TestMailConfigMasksThePasswordAndKeepsItWhenOmitted(t *testing.T) {
 	if doc["passwordSet"] != true || doc["enabled"] != true {
 		t.Fatalf("unexpected doc after setting a password: %v", doc)
 	}
-	if got := a.base.Mailer().Password; got != "s3cret" {
+	if got := a.base.Accounts.Mailer().Password; got != "s3cret" {
 		t.Fatalf("stored password = %q, want s3cret", got)
 	}
 
@@ -70,7 +71,7 @@ func TestMailConfigMasksThePasswordAndKeepsItWhenOmitted(t *testing.T) {
 	if r.Code != 200 {
 		t.Fatalf("second PUT: %d %s", r.Code, r.Body.String())
 	}
-	if got := a.base.Mailer().Password; got != "s3cret" {
+	if got := a.base.Accounts.Mailer().Password; got != "s3cret" {
 		t.Fatalf("password was blanked by an update that omitted it: %q", got)
 	}
 
@@ -82,7 +83,7 @@ func TestMailConfigMasksThePasswordAndKeepsItWhenOmitted(t *testing.T) {
 	if doc := r.json(t); doc["passwordSet"] != false {
 		t.Fatalf("passwordSet after clearing: %v", doc)
 	}
-	if got := a.base.Mailer().Password; got != "" {
+	if got := a.base.Accounts.Mailer().Password; got != "" {
 		t.Fatalf("password after clearing = %q, want empty", got)
 	}
 }
@@ -93,13 +94,13 @@ func TestMailConfigMasksThePasswordAndKeepsItWhenOmitted(t *testing.T) {
 // MailConfig value.
 func TestMailConfigIsSharedByEveryOrganisation(t *testing.T) {
 	e := newEnv(t)
-	if e.core.Mailer().Enabled() {
+	if e.core.Accounts.Mailer().Enabled() {
 		t.Fatal("mail should start disabled")
 	}
-	if _, err := e.base.SaveMailConfig(e.ctx, "org1-owner", MailConfig{Host: "mail.example.com", Port: "587", From: "continuum@example.com"}); err != nil {
+	if _, err := e.base.Accounts.SaveMailConfig(e.ctx, "org1-owner", accounts.MailConfig{Host: "mail.example.com", Port: "587", From: "continuum@example.com"}); err != nil {
 		t.Fatalf("SaveMailConfig: %v", err)
 	}
-	if !e.core.Mailer().Enabled() {
+	if !e.core.Accounts.Mailer().Enabled() {
 		t.Fatal("org-1's Core did not see the platform-wide mail configuration")
 	}
 
@@ -108,7 +109,7 @@ func TestMailConfigIsSharedByEveryOrganisation(t *testing.T) {
 	if err := e.st.CreateOrg(e.ctx, org2, "u-owner"); err != nil {
 		t.Fatal(err)
 	}
-	if !e.base.ForOrg("org-2").Mailer().Enabled() {
+	if !e.base.ForOrg("org-2").Accounts.Mailer().Enabled() {
 		t.Fatal("a newly scoped Core did not see the platform-wide mail configuration")
 	}
 }
@@ -118,21 +119,21 @@ func TestMailConfigIsSharedByEveryOrganisation(t *testing.T) {
 // must leave the flag-provided default in place, exactly like LoadSettings leaves DefaultSettings().
 func TestLoadMailConfigFallsBackToTheBootDefault(t *testing.T) {
 	e := newEnvBare(t)
-	e.base.SetMailerDefault(MailConfig{Host: "flag-provided.example.com", Port: "25"})
-	e.base.LoadMailConfig(e.ctx) // nothing saved yet
-	if got := e.base.Mailer().Host; got != "flag-provided.example.com" {
+	e.base.Accounts.SetMailerDefault(accounts.MailConfig{Host: "flag-provided.example.com", Port: "25"})
+	e.base.Accounts.LoadMailConfig(e.ctx) // nothing saved yet
+	if got := e.base.Accounts.Mailer().Host; got != "flag-provided.example.com" {
 		t.Fatalf("Mailer().Host = %q, want the flag-provided default", got)
 	}
 
-	if _, err := e.base.SaveMailConfig(e.ctx, "someone", MailConfig{Host: "saved.example.com", Port: "587"}); err != nil {
+	if _, err := e.base.Accounts.SaveMailConfig(e.ctx, "someone", accounts.MailConfig{Host: "saved.example.com", Port: "587"}); err != nil {
 		t.Fatal(err)
 	}
 	// A fresh Core over the same store (the shape of a server restart) picks up what was saved, not the
 	// old flag default.
 	fresh := NewCore(e.st, nil, "", nil)
-	fresh.SetMailerDefault(MailConfig{Host: "flag-provided.example.com", Port: "25"})
-	fresh.LoadMailConfig(e.ctx)
-	if got := fresh.Mailer().Host; got != "saved.example.com" {
+	fresh.Accounts.SetMailerDefault(accounts.MailConfig{Host: "flag-provided.example.com", Port: "25"})
+	fresh.Accounts.LoadMailConfig(e.ctx)
+	if got := fresh.Accounts.Mailer().Host; got != "saved.example.com" {
 		t.Fatalf("Mailer().Host after reload = %q, want the saved value", got)
 	}
 }
@@ -141,15 +142,15 @@ func TestLoadMailConfigFallsBackToTheBootDefault(t *testing.T) {
 // whether to show the SMTP section at all, so it doesn't show it and then have the request 403.
 func TestMeReportsCanManageMailForTheDefaultOrgOwnerOnly(t *testing.T) {
 	a := newAdminRig(t)
-	_, viewerCookie := a.user(t, "member-viewer", RoleViewer)
+	_, viewerCookie := a.user(t, "member-viewer", accounts.RoleViewer)
 	if r := a.do("GET", "/api/v1/auth/me", nil, withCookie(viewerCookie)); r.json(t)["user"].(map[string]any)["canManageMail"] != false {
 		t.Fatalf("viewer of the default org should not manage mail: %v", r.json(t))
 	}
-	_, adminCookie := a.user(t, "org1-admin", RoleAdmin)
+	_, adminCookie := a.user(t, "org1-admin", accounts.RoleAdmin)
 	if r := a.do("GET", "/api/v1/auth/me", nil, withCookie(adminCookie)); r.json(t)["user"].(map[string]any)["canManageMail"] != false {
 		t.Fatalf("an administrator (not an owner) of the default org should not manage mail: %v", r.json(t))
 	}
-	_, ownerCookie := a.user(t, "org1-boss", RoleOwner)
+	_, ownerCookie := a.user(t, "org1-boss", accounts.RoleOwner)
 	if r := a.do("GET", "/api/v1/auth/me", nil, withCookie(ownerCookie)); r.json(t)["user"].(map[string]any)["canManageMail"] != true {
 		t.Fatalf("owner of the default org should manage mail: %v", r.json(t))
 	}

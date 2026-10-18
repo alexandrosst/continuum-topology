@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"continuum/internal/accounts"
 	"continuum/internal/store"
 )
 
@@ -34,8 +35,8 @@ func TestAPredictionHeldWhenEveryObservedMetricWentTheWayAndByHalfAsMuch(t *test
 
 func TestEachAdvisorsRecordCountsItsProposalsDecisionsAndPredictions(t *testing.T) {
 	a := newAdminRig(t)
-	_, editor := a.user(t, "edith", RoleEditor)
-	_, viewer := a.user(t, "vic", RoleViewer)
+	_, editor := a.user(t, "edith", accounts.RoleEditor)
+	_, viewer := a.user(t, "vic", accounts.RoleViewer)
 	id, _, _ := a.approvedAgent(t, fp)
 
 	submit := func(advisor string, change map[string]any) string {
@@ -109,7 +110,7 @@ func TestEachAdvisorsRecordCountsItsProposalsDecisionsAndPredictions(t *testing.
 
 func TestAnOrganisationWithNoProposalsHasNoAdvisors(t *testing.T) {
 	a := newAdminRig(t)
-	_, editor := a.user(t, "edith", RoleEditor)
+	_, editor := a.user(t, "edith", accounts.RoleEditor)
 	r := a.do("GET", "/api/v1/proposals/advisors", nil, withCookie(editor))
 	if r.Code != 200 {
 		t.Fatalf("%d %s", r.Code, r.Body.String())

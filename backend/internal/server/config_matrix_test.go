@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	continuumv1 "continuum/gen/continuumv1"
+	"continuum/internal/accounts"
 	"continuum/internal/kernel"
 	"continuum/internal/store"
 
@@ -57,7 +58,7 @@ func TestTheConfigEachClusterIsSentIsPinned(t *testing.T) {
 	}
 	consent := func(who string, c Consent) {
 		t.Helper()
-		if _, err := cr.hub.SetConsent(asRole(RoleAdmin), "alex", byName[who].ID, c); err != nil {
+		if _, err := cr.hub.SetConsent(asRole(accounts.RoleAdmin), "alex", byName[who].ID, c); err != nil {
 			t.Fatal(err)
 		}
 	}

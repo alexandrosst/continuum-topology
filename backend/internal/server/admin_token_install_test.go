@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"continuum/internal/accounts"
 	"continuum/internal/install"
 )
 
@@ -33,7 +34,7 @@ func (a *adminRig) tokenCount(t *testing.T, cookie string) int {
 
 func TestATokenIsShownWithTheCollectorsAndScopeChosen(t *testing.T) {
 	a := newAdminRig(t)
-	_, admin := a.user(t, "ada", RoleAdmin)
+	_, admin := a.user(t, "ada", accounts.RoleAdmin)
 
 	_, plain, plainSecret := a.newToken(t, admin, map[string]any{"name": "plain", "tier": 2})
 	body := map[string]any{
@@ -57,7 +58,7 @@ func TestATokenIsShownWithTheCollectorsAndScopeChosen(t *testing.T) {
 
 func TestACollectorOrScopeNotChosenIsNotInTheCommand(t *testing.T) {
 	a := newAdminRig(t)
-	_, admin := a.user(t, "ada", RoleAdmin)
+	_, admin := a.user(t, "ada", accounts.RoleAdmin)
 	_, cmd, _ := a.newToken(t, admin, map[string]any{"name": "probe", "tier": 1, "collectors": map[string]any{"nodeProbe": true}})
 	if !strings.Contains(cmd, "--set nodeProbe.enabled=true") || strings.Contains(cmd, "flowObserver") || strings.Contains(cmd, "measurements") || strings.Contains(cmd, "scope.") {
 		t.Fatalf("only the node probe was chosen:\n%s", cmd)
@@ -72,7 +73,7 @@ func TestACollectorOrScopeNotChosenIsNotInTheCommand(t *testing.T) {
 // A choice that cannot be honoured is refused and spends no token.
 func TestACollectorOrScopeThatCannotBeHonouredIsRefusedBeforeAnyTokenExists(t *testing.T) {
 	a := newAdminRig(t)
-	_, admin := a.user(t, "ada", RoleAdmin)
+	_, admin := a.user(t, "ada", accounts.RoleAdmin)
 	for name, body := range map[string]map[string]any{
 		"the node probe at tier 0":                    {"name": "x", "tier": 0, "collectors": map[string]any{"nodeProbe": true}},
 		"the traffic observer at tier 1":              {"name": "x", "tier": 1, "collectors": map[string]any{"flowObserver": true}},

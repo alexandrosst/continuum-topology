@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"continuum/internal/accounts"
 	"continuum/internal/chart"
 	"continuum/internal/install"
 	"continuum/internal/kernel"
@@ -23,7 +24,7 @@ func failTLSMint(t *testing.T) {
 
 func TestInstallCommandForAnMTLSOperatorHasNoBearerGate(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	cl := a.approvedCluster(t, fp)
 	r := a.do("POST", "/api/v1/operators", map[string]any{"name": "x", "sourceClusterIds": []string{cl}, "destination": map[string]any{"kind": "external", "endpoint": "c:4317"}}, withCookie(cookie))
 	if r.Code != 201 {
@@ -94,7 +95,7 @@ func TestInstallCommandForABearerOperatorIsUnchanged(t *testing.T) {
 func TestCreateOperatorFailsWhenTheTLSMintFails(t *testing.T) {
 	failTLSMint(t)
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	cl := a.approvedCluster(t, fp)
 	r := a.do("POST", "/api/v1/operators", map[string]any{"name": "x", "sourceClusterIds": []string{cl}, "destination": map[string]any{"kind": "external", "endpoint": "c:4317"}}, withCookie(cookie))
 	if r.Code != 500 {
@@ -131,7 +132,7 @@ func TestOperatorDestinationCommandIsTheSameForBothAuthModes(t *testing.T) {
 
 func TestIntentCommandReportsTheOperatorsReceiverAuth(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	opCluster := a.approvedCluster(t, fp)
 	mtls, _, _, err := a.core.CreateOperator(a.ctx, "alex", "new", []string{opCluster}, extDest("c:4317"), nil)
 	if err != nil {
@@ -176,7 +177,7 @@ func TestIntentCommandReportsTheOperatorsReceiverAuth(t *testing.T) {
 
 func TestOperatorDocCarriesReceiverAuthForEveryOperator(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	cl := a.approvedCluster(t, fp)
 	if _, _, _, err := a.core.CreateOperator(a.ctx, "alex", "new", []string{cl}, extDest("c:4317"), nil); err != nil {
 		t.Fatal(err)

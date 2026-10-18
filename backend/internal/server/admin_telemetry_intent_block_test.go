@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"continuum/internal/accounts"
 	"continuum/internal/install"
 )
 
@@ -26,7 +27,7 @@ type blockRig struct {
 func newBlockRig(t *testing.T) blockRig {
 	t.Helper()
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	r := a.do("POST", "/api/v1/operators", map[string]any{
 		"name": "athens-regional", "sourceClusterIds": []string{a.approvedCluster(t, fp)},
 		"destination": map[string]any{"kind": "external", "endpoint": "collector.example:4317"},
@@ -260,7 +261,7 @@ func TestEachSignalTypeGoesWhereTheIntentSays(t *testing.T) {
 func TestTheBlockIsAskedForByAdministratorsOnly(t *testing.T) {
 	b := newBlockRig(t)
 	b.intent(t, opDest(b.opID), nil)
-	_, editor := b.a.user(t, "jamie", RoleEditor)
+	_, editor := b.a.user(t, "jamie", accounts.RoleEditor)
 	if r := b.a.do("POST", "/api/v1/telemetry-intents/"+b.intentID+"/command", map[string]any{"telemetry": singleSpec(nil)}, withCookie(editor)); r.Code != 403 {
 		t.Fatalf("an editor asked for the block: %d", r.Code)
 	}

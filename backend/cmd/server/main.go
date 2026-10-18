@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"continuum/internal/accounts"
 	"continuum/internal/geoip"
 	"continuum/internal/graph"
 	"continuum/internal/kernel"
@@ -117,12 +118,12 @@ func main() {
 	}
 	regMode, regWhy := resolveRegistration(*registration, *adminListen)
 	switch regMode {
-	case server.RegOpen, server.RegInvite, server.RegClosed:
+	case accounts.RegOpen, accounts.RegInvite, accounts.RegClosed:
 	default:
 		fatal(log, fmt.Errorf("--registration must be open, invite or closed, not %q", regMode))
 	}
 	log.Info("account registration", "mode", regMode, "why", regWhy)
-	if regMode == server.RegOpen && !isLoopback(*adminListen) {
+	if regMode == accounts.RegOpen && !isLoopback(*adminListen) {
 		log.Warn("registration is open on a non-loopback address: anyone who can reach the admin address can create an account and an organization. Fine for a private network; on an exposed server use --registration invite", "admin", *adminListen)
 	}
 	decider, err := kernel.NewDeciderPolicy(*deciderAllow)
@@ -159,7 +160,7 @@ func main() {
 	if err != nil {
 		fatal(log, fmt.Errorf("--image-registry/--image-tag/--image-digest: %w", err))
 	}
-	var mail server.MailConfig
+	var mail accounts.MailConfig
 	if *smtpHost != "" {
 		if *smtpFrom == "" {
 			fatal(log, errors.New("--smtp-host needs --smtp-from"))
@@ -172,7 +173,7 @@ func main() {
 			}
 			pw = strings.TrimSpace(string(b))
 		}
-		mail = server.MailConfig{Host: *smtpHost, Port: *smtpPort, Username: *smtpUser, Password: pw, From: *smtpFrom}
+		mail = accounts.MailConfig{Host: *smtpHost, Port: *smtpPort, Username: *smtpUser, Password: pw, From: *smtpFrom}
 	}
 	if (*probeListen == "") != (*probeSecretFile == "") {
 		fatal(log, errors.New("--probe-listen and --probe-secret-file must be given together"))
@@ -249,7 +250,7 @@ func fatal(log *slog.Logger, err error) {
 	os.Exit(1)
 }
 
-func run(log *slog.Logger, selfProbe probeOpts, dataDir, agentListen, agentAddr, agentExposure, releaseName, releaseNamespace, fusionName, fusionCentralAddress, extraHosts, adminListen, adminCert, adminKey string, behindProxy, agentBehindProxy bool, ssoHeader, uiDir, chartRef string, img kernel.ImageConfig, org, registration, geoPath, geoPublicIP, geoASNPath string, decider *kernel.DeciderPolicy, neo *graph.Config, mail server.MailConfig, keys keyOpts, origins []string) error {
+func run(log *slog.Logger, selfProbe probeOpts, dataDir, agentListen, agentAddr, agentExposure, releaseName, releaseNamespace, fusionName, fusionCentralAddress, extraHosts, adminListen, adminCert, adminKey string, behindProxy, agentBehindProxy bool, ssoHeader, uiDir, chartRef string, img kernel.ImageConfig, org, registration, geoPath, geoPublicIP, geoASNPath string, decider *kernel.DeciderPolicy, neo *graph.Config, mail accounts.MailConfig, keys keyOpts, origins []string) error {
 	if err := checkSSOHeader(ssoHeader, behindProxy); err != nil {
 		return err
 	}
@@ -344,14 +345,14 @@ func run(log *slog.Logger, selfProbe probeOpts, dataDir, agentListen, agentAddr,
 	// mail is the --smtp-* flags' value: the boot-time default, in effect until an owner of the default
 	// organisation saves one through Settings, and again after that if the database is ever reset without
 	// the flags changing to match (see SetMailerDefault, LoadMailConfig).
-	core.SetMailerDefault(mail)
-	core.LoadMailConfig(context.Background())
+	core.Accounts.SetMailerDefault(mail)
+	core.Accounts.LoadMailConfig(context.Background())
 	core.PendingTTL = *pendingTTL
 	core.TrustAgentProxy = agentBehindProxy
 	// Unlike Mailer, passkeys need no operator configuration - go-webauthn works out of the relying party
 	// info Admin derives from each request's own Host header, so the provider is simply always on.
-	core.SetWebAuthn(passkey.New())
-	created, firstPassword, err := core.BootstrapAdmin(context.Background(), os.Getenv("CONTINUUM_ADMIN_PASSWORD"))
+	core.Accounts.SetWebAuthn(passkey.New())
+	created, firstPassword, err := core.Accounts.BootstrapAdmin(context.Background(), os.Getenv("CONTINUUM_ADMIN_PASSWORD"))
 	if err != nil {
 		return err
 	}
@@ -386,7 +387,7 @@ func run(log *slog.Logger, selfProbe probeOpts, dataDir, agentListen, agentAddr,
 		admin.HeartbeatCAPEM = pem
 	}
 	if fusionName != "" {
-		admin.Fusion = fusionControl(log, fusionName, releaseNamespace, fusionCentralAddress, core.MainOrg())
+		admin.Fusion = fusionControl(log, fusionName, releaseNamespace, fusionCentralAddress, core.Accounts.MainOrg())
 		// An address set from the screen (Reachable at on the central operator) outranks the startup flag, which is
 		// only the first value.
 		if op, err := core.Store.GetOperator(context.Background(), server.CentralOperatorID); err == nil && op.Address != "" {
@@ -475,9 +476,9 @@ func resolveRegistration(explicit, adminListen string) (mode, why string) {
 		return explicit, "set explicitly by --registration or CONTINUUM_REGISTRATION"
 	}
 	if isLoopback(adminListen) {
-		return server.RegOpen, "default: the admin listener " + adminListen + " is loopback, so only this machine can reach it"
+		return accounts.RegOpen, "default: the admin listener " + adminListen + " is loopback, so only this machine can reach it"
 	}
-	return server.RegInvite, "default: the admin listener " + adminListen + " is not loopback, so accounts are by invitation only (pass --registration open to allow anyone to sign up)"
+	return accounts.RegInvite, "default: the admin listener " + adminListen + " is not loopback, so accounts are by invitation only (pass --registration open to allow anyone to sign up)"
 }
 
 // verifyAudit checks the audit trail's hash chain and reports the first broken link. Exit status: 0 intact,
@@ -578,7 +579,7 @@ func resetPassword(args []string) {
 		fatal(log, err)
 	}
 	defer st.Close()
-	pw, err := server.NewCore(st, nil, "", log).RecoverPassword(context.Background(), fs.Arg(0))
+	pw, err := server.NewCore(st, nil, "", log).Accounts.RecoverPassword(context.Background(), fs.Arg(0))
 	if err != nil {
 		fatal(log, err)
 	}
@@ -605,7 +606,7 @@ func createOrg(args []string) {
 		fatal(log, err)
 	}
 	defer st.Close()
-	o, err := server.NewCore(st, nil, "", log).CreateOrgFor(context.Background(), *owner, fs.Arg(0))
+	o, err := server.NewCore(st, nil, "", log).Accounts.CreateOrgFor(context.Background(), *owner, fs.Arg(0))
 	if err != nil {
 		fatal(log, err)
 	}

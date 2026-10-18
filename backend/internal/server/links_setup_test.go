@@ -8,6 +8,7 @@ import (
 	"time"
 
 	continuumv1 "continuum/gen/continuumv1"
+	"continuum/internal/accounts"
 	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
@@ -412,7 +413,7 @@ func TestTheHeartbeatCarriesWhatTheInstallCanDo(t *testing.T) {
 
 func TestLatestFiguresCarryTheChecklistWhetherOrNotFusionCanBeRead(t *testing.T) {
 	a := newAdminRig(t)
-	_, admin := a.user(t, "ada", RoleAdmin)
+	_, admin := a.user(t, "ada", accounts.RoleAdmin)
 	if r := a.do("PUT", "/api/v1/settings", kernel.Settings{SnapshotMinutes: 7, Links: []kernel.LinkSetting{{A: "cl-a", B: "cl-b", Throughput: &kernel.LinkThroughput{IntervalMinutes: 60}}}}, withCookie(admin)); r.Code != 200 {
 		t.Fatalf("%d %s", r.Code, r.Body.String())
 	}

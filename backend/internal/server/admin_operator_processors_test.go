@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"continuum/internal/accounts"
 	"continuum/internal/install"
 )
 
@@ -40,7 +41,7 @@ func goldenOperatorProcessors(t *testing.T) json.RawMessage {
 
 func TestAnOperatorIsInstalledWithTheProcessorsChosen(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	cl := a.approvedCluster(t, fp)
 
 	plain := a.createOperatorDoc(t, cookie, extBody("athens", cl))
@@ -71,7 +72,7 @@ func TestAnOperatorIsInstalledWithTheProcessorsChosen(t *testing.T) {
 
 func TestProcessorsThatCannotBeInstalledAreRefusedBeforeAnOperatorExists(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	cl := a.approvedCluster(t, fp)
 	list := func() int {
 		var ops []json.RawMessage
@@ -111,7 +112,7 @@ func TestProcessorsThatCannotBeInstalledAreRefusedBeforeAnOperatorExists(t *test
 // shell command is a processor with an odd name and nothing more.
 func TestAProcessorNameCannotChangeWhatTheCommandDoes(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	cl := a.approvedCluster(t, fp)
 	body := extBody("athens", cl)
 	body["extraProcessors"] = json.RawMessage(`[{"id":"p1","kind":"filter","name":"a; rm -rf /$(id)","config":{"signal":"metric","conditions":[{"field":"a","op":"eq","value":"b","level":"record"}]}}]`)

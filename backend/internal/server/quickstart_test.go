@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"continuum/internal/accounts"
 	"continuum/internal/kernel"
 )
 
@@ -96,8 +97,8 @@ func TestLatestGatewayTokenReportsNoneUntilOneIsMinted(t *testing.T) {
 
 func TestGatewayTokenHTTPRoleGatedMintAndStatus(t *testing.T) {
 	a := newAdminRig(t)
-	_, adminCookie := a.user(t, "alex", RoleAdmin)
-	_, viewerCookie := a.user(t, "val", RoleViewer)
+	_, adminCookie := a.user(t, "alex", accounts.RoleAdmin)
+	_, viewerCookie := a.user(t, "val", accounts.RoleViewer)
 	id := a.savedBackend(t, "jaeger", "traces")
 
 	if r := a.do("POST", "/api/v1/quick-start/"+id+"/gateway-token", map[string]any{}, withCookie(viewerCookie)); r.Code != 403 {
@@ -141,7 +142,7 @@ func TestGatewayTokenHTTPRoleGatedMintAndStatus(t *testing.T) {
 // time-dependent check in this package uses, or this would need a real sleep to ever flip to true.
 func TestGatewayTokenHTTPReportsExpiredOncePastTTL(t *testing.T) {
 	a := newAdminRig(t)
-	_, adminCookie := a.user(t, "alex", RoleAdmin)
+	_, adminCookie := a.user(t, "alex", accounts.RoleAdmin)
 	id := a.savedBackend(t, "loki", "logs")
 
 	r := a.do("POST", "/api/v1/quick-start/"+id+"/gateway-token", map[string]any{"ttlSeconds": int(MinGatewayTokenTTL.Seconds())}, withCookie(adminCookie))

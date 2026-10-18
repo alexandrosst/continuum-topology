@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	continuumv1 "continuum/gen/continuumv1"
+
+	"continuum/internal/accounts"
 )
 
 func addrs(list []AddressCandidate) []string {
@@ -75,8 +77,8 @@ func TestTheRecordedAddressIsMarkedWhereFoundAndListedLastWhenNot(t *testing.T) 
 
 func TestOperatorAddressCandidatesComeFromWhatDiscoveryReportsForItsCluster(t *testing.T) {
 	a := newAdminRig(t)
-	_, admin := a.user(t, "alex", RoleAdmin)
-	_, viewer := a.user(t, "vera", RoleViewer)
+	_, admin := a.user(t, "alex", accounts.RoleAdmin)
+	_, viewer := a.user(t, "vera", accounts.RoleViewer)
 	agentID := a.env.approvedAgentID(t, fp)
 	ag, err := a.env.st.GetAgent(a.env.ctx, agentID)
 	if err != nil {

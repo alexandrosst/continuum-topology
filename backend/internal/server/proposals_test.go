@@ -8,12 +8,13 @@ import (
 	"testing"
 	"time"
 
+	"continuum/internal/accounts"
 	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
 
 func asRole(role string) context.Context {
-	return WithCaller(context.Background(), Principal{Role: role})
+	return accounts.WithCaller(context.Background(), accounts.Principal{Role: role})
 }
 
 type propRig struct {
@@ -39,7 +40,7 @@ func propRigFor(t *testing.T) *propRig {
 func (r *propRig) submit(t *testing.T, ch AccessChange) (store.Proposal, error) {
 	t.Helper()
 	ch.AgentID = r.id
-	return r.h.SubmitProposal(asRole(RoleEditor), "token:advisor", ProposalInput{Advisor: "rules-v1", ModelVersion: 3, Change: ch,
+	return r.h.SubmitProposal(asRole(accounts.RoleEditor), "token:advisor", ProposalInput{Advisor: "rules-v1", ModelVersion: 3, Change: ch,
 		Evidence:  []EvidenceFact{{Name: "flow bytes", Value: "12 MB/s", Class: "measured"}, {Name: "owner intent", Class: "declared"}},
 		Predicted: map[string]float64{"link_bytes_per_sec": -0.5}})
 }
@@ -111,17 +112,17 @@ func TestAProposalIsValidatedAndTheServerWorksOutWhetherItWidens(t *testing.T) {
 			t.Errorf("%s: accepted", c.name)
 		}
 	}
-	if _, err := r.h.SubmitProposal(asRole(RoleEditor), "x", ProposalInput{Advisor: "", Change: AccessChange{AgentID: r.id, Pause: []string{"flow"}}}); err == nil {
+	if _, err := r.h.SubmitProposal(asRole(accounts.RoleEditor), "x", ProposalInput{Advisor: "", Change: AccessChange{AgentID: r.id, Pause: []string{"flow"}}}); err == nil {
 		t.Error("a proposal without an advisor name was accepted")
 	}
-	if _, err := r.h.SubmitProposal(asRole(RoleEditor), "x", ProposalInput{Advisor: "a", Change: AccessChange{AgentID: "ag-nope", Pause: []string{"flow"}}}); err == nil {
+	if _, err := r.h.SubmitProposal(asRole(accounts.RoleEditor), "x", ProposalInput{Advisor: "a", Change: AccessChange{AgentID: "ag-nope", Pause: []string{"flow"}}}); err == nil {
 		t.Error("a proposal for an unknown agent was accepted")
 	}
-	if _, err := r.h.SubmitProposal(asRole(RoleEditor), "x", ProposalInput{Advisor: "a", Change: AccessChange{AgentID: r.id, Pause: []string{"flow"}},
+	if _, err := r.h.SubmitProposal(asRole(accounts.RoleEditor), "x", ProposalInput{Advisor: "a", Change: AccessChange{AgentID: r.id, Pause: []string{"flow"}},
 		Predicted: map[string]float64{"happiness": 1}}); err == nil {
 		t.Error("a prediction of an unknown metric was accepted")
 	}
-	if _, err := r.h.SubmitProposal(asRole(RoleEditor), "x", ProposalInput{Advisor: "a", Change: AccessChange{AgentID: r.id, Pause: []string{"flow"}},
+	if _, err := r.h.SubmitProposal(asRole(accounts.RoleEditor), "x", ProposalInput{Advisor: "a", Change: AccessChange{AgentID: r.id, Pause: []string{"flow"}},
 		Evidence: []EvidenceFact{{Name: "x", Class: "certain"}}}); err == nil {
 		t.Error("evidence of an unknown class was accepted")
 	}
@@ -140,7 +141,7 @@ func TestAProposalIsValidatedAndTheServerWorksOutWhetherItWidens(t *testing.T) {
 	if err != nil || down.Widens {
 		t.Fatalf("a lower tier: %+v %v", down, err)
 	}
-	if _, err := r.h.SetConsent(asRole(RoleAdmin), "adam", r.id, Consent{Paused: []string{"flow"}}); err != nil {
+	if _, err := r.h.SetConsent(asRole(accounts.RoleAdmin), "adam", r.id, Consent{Paused: []string{"flow"}}); err != nil {
 		t.Fatal(err)
 	}
 	lift, err := r.submit(t, AccessChange{Resume: []string{"flow"}})
@@ -151,7 +152,7 @@ func TestAProposalIsValidatedAndTheServerWorksOutWhetherItWidens(t *testing.T) {
 	if err != nil || !mixed.Widens {
 		t.Fatalf("lifting one pause while adding another still widens: %+v %v", mixed, err)
 	}
-	if _, err := r.h.SetConsent(asRole(RoleAdmin), "adam", r.id, Consent{Paused: []string{"flow"}, Excluded: []string{"shop"}}); err != nil {
+	if _, err := r.h.SetConsent(asRole(accounts.RoleAdmin), "adam", r.id, Consent{Paused: []string{"flow"}, Excluded: []string{"shop"}}); err != nil {
 		t.Fatal(err)
 	}
 	inc, err := r.submit(t, AccessChange{Include: []string{"shop"}})
@@ -170,7 +171,7 @@ func TestAcceptingANarrowingProposalMakesTheChangeThroughTheUsualPathAndAuditsEa
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := r.h.AcceptProposal(asRole(RoleEditor), "edith", p.ID, "fine")
+	got, err := r.h.AcceptProposal(asRole(accounts.RoleEditor), "edith", p.ID, "fine")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,7 +193,7 @@ func TestAcceptingANarrowingProposalMakesTheChangeThroughTheUsualPathAndAuditsEa
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, err := r.h.AcceptProposal(asRole(RoleEditor), "edith", tp.ID, ""); err != nil || got.Status != store.ProposalApplied {
+	if got, err := r.h.AcceptProposal(asRole(accounts.RoleEditor), "edith", tp.ID, ""); err != nil || got.Status != store.ProposalApplied {
 		t.Fatalf("the tier proposal: %+v %v", got, err)
 	}
 	if a, _ := r.st.GetAgent(r.ctx, r.id); a.AccessTier != 0 {
@@ -207,14 +208,14 @@ func TestAcceptingANarrowingProposalMakesTheChangeThroughTheUsualPathAndAuditsEa
 // it is refused too.
 func TestAcceptingAWideningProposalTakesAnAdministratorAndAnEditorIsRefusedWithoutAnyChange(t *testing.T) {
 	r := propRigFor(t)
-	if _, err := r.h.SetConsent(asRole(RoleAdmin), "adam", r.id, Consent{Paused: []string{"flow"}}); err != nil {
+	if _, err := r.h.SetConsent(asRole(accounts.RoleAdmin), "adam", r.id, Consent{Paused: []string{"flow"}}); err != nil {
 		t.Fatal(err)
 	}
 	p, err := r.submit(t, AccessChange{Resume: []string{"flow"}})
 	if err != nil || !p.Widens {
 		t.Fatalf("%+v %v", p, err)
 	}
-	for name, ctx := range map[string]context.Context{"editor": asRole(RoleEditor), "no caller": context.Background()} {
+	for name, ctx := range map[string]context.Context{"editor": asRole(accounts.RoleEditor), "no caller": context.Background()} {
 		_, err := r.h.AcceptProposal(ctx, "someone", p.ID, "")
 		var e *kernel.Error
 		if !errors.As(err, &e) || e.Kind != kernel.KindForbidden {
@@ -227,7 +228,7 @@ func TestAcceptingAWideningProposalTakesAnAdministratorAndAnEditorIsRefusedWitho
 	if c := r.h.consentOf(r.id); !hasString(c.Paused, "flow") {
 		t.Fatalf("a refused acceptance lifted the pause: %+v", c)
 	}
-	if got, err := r.h.AcceptProposal(asRole(RoleAdmin), "adam", p.ID, ""); err != nil || got.Status != store.ProposalApplied {
+	if got, err := r.h.AcceptProposal(asRole(accounts.RoleAdmin), "adam", p.ID, ""); err != nil || got.Status != store.ProposalApplied {
 		t.Fatalf("the administrator: %+v %v", got, err)
 	}
 	if c := r.h.consentOf(r.id); hasString(c.Paused, "flow") {
@@ -246,7 +247,7 @@ func TestAProposalIsCheckedAgainstTheAgentAsItIsWhenItIsAccepted(t *testing.T) {
 	if err := r.st.SetAccessTier(r.ctx, r.id, 0); err != nil { // someone has already done it
 		t.Fatal(err)
 	}
-	if _, err := r.h.AcceptProposal(asRole(RoleAdmin), "adam", narrow.ID, ""); err == nil {
+	if _, err := r.h.AcceptProposal(asRole(accounts.RoleAdmin), "adam", narrow.ID, ""); err == nil {
 		t.Fatal("a proposal that changes nothing now was accepted")
 	}
 	if got, _, _ := r.h.GetProposal(context.Background(), narrow.ID); got.Status != store.ProposalPending {
@@ -262,7 +263,7 @@ func TestAProposalIsCheckedAgainstTheAgentAsItIsWhenItIsAccepted(t *testing.T) {
 	if err := r2.st.SetAccessTier(r2.ctx, r2.id, 0); err != nil {
 		t.Fatal(err)
 	}
-	_, err = r2.h.AcceptProposal(asRole(RoleEditor), "edith", set1.ID, "")
+	_, err = r2.h.AcceptProposal(asRole(accounts.RoleEditor), "edith", set1.ID, "")
 	var e *kernel.Error
 	if !errors.As(err, &e) || e.Kind != kernel.KindForbidden {
 		t.Fatalf("an editor accepting what now widens: %v", err)
@@ -274,12 +275,12 @@ func TestAProposalIsCheckedAgainstTheAgentAsItIsWhenItIsAccepted(t *testing.T) {
 
 func TestAnExpiredProposalCannotBeAccepted(t *testing.T) {
 	r := propRigFor(t)
-	p, err := r.h.SubmitProposal(asRole(RoleEditor), "x", ProposalInput{Advisor: "a", Change: AccessChange{AgentID: r.id, Pause: []string{"flow"}}, TTL: time.Minute})
+	p, err := r.h.SubmitProposal(asRole(accounts.RoleEditor), "x", ProposalInput{Advisor: "a", Change: AccessChange{AgentID: r.id, Pause: []string{"flow"}}, TTL: time.Minute})
 	if err != nil {
 		t.Fatal(err)
 	}
 	*r.now = r.now.Add(2 * time.Minute)
-	_, err = r.h.AcceptProposal(asRole(RoleAdmin), "adam", p.ID, "")
+	_, err = r.h.AcceptProposal(asRole(accounts.RoleAdmin), "adam", p.ID, "")
 	var e *kernel.Error
 	if !errors.As(err, &e) || e.Kind != kernel.KindConflict {
 		t.Fatalf("accepting after the expiry: %v", err)
@@ -295,7 +296,7 @@ func TestAnExpiredProposalCannotBeAccepted(t *testing.T) {
 	if count(acts, "proposal-expired") != 1 || count(acts, "proposal-accepted") != 0 {
 		t.Fatalf("audit rows: %v", acts)
 	}
-	if _, err := r.h.RejectProposal(asRole(RoleEditor), "edith", p.ID, ""); err == nil {
+	if _, err := r.h.RejectProposal(asRole(accounts.RoleEditor), "edith", p.ID, ""); err == nil {
 		t.Fatal("an expired proposal was rejected")
 	}
 	// the list shows it as expired, not pending
@@ -307,17 +308,17 @@ func TestAnExpiredProposalCannotBeAccepted(t *testing.T) {
 func TestARejectedProposalChangesNothingAndCannotBeAcceptedLater(t *testing.T) {
 	r := propRigFor(t)
 	p, _ := r.submit(t, AccessChange{Pause: []string{"flow"}})
-	got, err := r.h.RejectProposal(asRole(RoleEditor), "edith", p.ID, "not now")
+	got, err := r.h.RejectProposal(asRole(accounts.RoleEditor), "edith", p.ID, "not now")
 	if err != nil || got.Status != store.ProposalRejected || got.Note != "not now" {
 		t.Fatalf("%+v %v", got, err)
 	}
-	if _, err := r.h.AcceptProposal(asRole(RoleAdmin), "adam", p.ID, ""); err == nil {
+	if _, err := r.h.AcceptProposal(asRole(accounts.RoleAdmin), "adam", p.ID, ""); err == nil {
 		t.Fatal("a rejected proposal was accepted")
 	}
 	if c := r.h.consentOf(r.id); len(c.Paused) != 0 {
 		t.Fatalf("a rejected proposal paused something: %+v", c)
 	}
-	if _, err := r.h.RejectProposal(asRole(RoleEditor), "edith", "pr-nope", ""); err == nil {
+	if _, err := r.h.RejectProposal(asRole(accounts.RoleEditor), "edith", "pr-nope", ""); err == nil {
 		t.Fatal("rejecting an unknown proposal worked")
 	}
 }
@@ -333,7 +334,7 @@ func TestOfSeveralSimultaneousAcceptancesExactlyOneAppliesTheChange(t *testing.T
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, err := r.h.AcceptProposal(asRole(RoleEditor), "edith", p.ID, "")
+			_, err := r.h.AcceptProposal(asRole(accounts.RoleEditor), "edith", p.ID, "")
 			mu.Lock()
 			defer mu.Unlock()
 			if err == nil {
@@ -386,7 +387,7 @@ func TestAProposalAndItsDecisionAreNotMadeIfTheirAuditRowCannotBeWritten(t *test
 		t.Fatal(err)
 	}
 	fa.fail.Store(true)
-	if _, err := r.h.AcceptProposal(asRole(RoleEditor), "edith", p.ID, ""); err == nil {
+	if _, err := r.h.AcceptProposal(asRole(accounts.RoleEditor), "edith", p.ID, ""); err == nil {
 		t.Fatal("the acceptance succeeded without its audit row")
 	}
 	fa.fail.Store(false)

@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"continuum/internal/accounts"
 	"continuum/internal/fusionapi"
 	"continuum/internal/kernel"
 )
@@ -83,8 +84,8 @@ func linkStore(t *testing.T, calls *atomic.Int32, loss string) *httptest.Server 
 
 func TestLatestFiguresOverHTTP(t *testing.T) {
 	a := newAdminRig(t)
-	_, admin := a.user(t, "ada", RoleAdmin)
-	_, viewer := a.user(t, "vera", RoleViewer)
+	_, admin := a.user(t, "ada", accounts.RoleAdmin)
+	_, viewer := a.user(t, "vera", accounts.RoleViewer)
 	var calls atomic.Int32
 	st := linkStore(t, &calls, "0.01")
 
@@ -130,7 +131,7 @@ func TestLatestFiguresOverHTTP(t *testing.T) {
 
 func TestAStoreThatFailsIsUnavailableAndNothingOfItsErrorIsShown(t *testing.T) {
 	a := newAdminRig(t)
-	_, admin := a.user(t, "ada", RoleAdmin)
+	_, admin := a.user(t, "ada", accounts.RoleAdmin)
 	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(500)
 		w.Write([]byte("panic at /srv/secret.go host=10.2.3.4"))
@@ -521,7 +522,7 @@ func probeStore(t *testing.T) *httptest.Server {
 
 func TestAFailingProbeIsShownWithItsReasonAndNotItsLastGoodFigures(t *testing.T) {
 	a := newAdminRig(t)
-	_, admin := a.user(t, "ada", RoleAdmin)
+	_, admin := a.user(t, "ada", accounts.RoleAdmin)
 	a.a.Fusion = &FusionControl{Name: "continuum-fusion", Namespace: "continuum", Kube: newFakeKube(fusionNames...), Org: "org-1", StatusTTL: -1,
 		Data: &fusionapi.Client{Prometheus: probeStore(t).URL}}
 	a.do("PUT", "/api/v1/settings", kernel.Settings{SnapshotMinutes: 7, Links: []kernel.LinkSetting{{A: "cl-a", B: "cl-b"}}}, withCookie(admin))
@@ -539,7 +540,7 @@ func TestAFailingProbeIsShownWithItsReasonAndNotItsLastGoodFigures(t *testing.T)
 func TestLatestFiguresOfAnotherOrganisationThanFusionsAreNotServed(t *testing.T) {
 	var calls atomic.Int32
 	a := newAdminRig(t)
-	_, owner := a.user(t, "boss", RoleOwner)
+	_, owner := a.user(t, "boss", accounts.RoleOwner)
 	a.a.Fusion = &FusionControl{Name: "continuum-fusion", Namespace: "continuum", Kube: newFakeKube(fusionNames...), Org: "org-1", StatusTTL: -1,
 		Data: &fusionapi.Client{Prometheus: linkStore(t, &calls, "0.01").URL}}
 	r := a.do("POST", "/api/v1/orgs", map[string]any{"name": "Org Two"}, withCookie(owner))
@@ -568,7 +569,7 @@ func TestLatestFiguresOfAnotherOrganisationThanFusionsAreNotServed(t *testing.T)
 
 func TestLinkReportFailsWhenTheAgentsCannotBeReadAndTheScreenSaysSo(t *testing.T) {
 	a := newAdminRig(t)
-	_, admin := a.user(t, "ada", RoleAdmin)
+	_, admin := a.user(t, "ada", accounts.RoleAdmin)
 	var calls atomic.Int32
 	a.a.Fusion = &FusionControl{Name: "continuum-fusion", Namespace: "continuum", Kube: newFakeKube(fusionNames...), Org: "org-1", StatusTTL: -1,
 		Data: &fusionapi.Client{Prometheus: linkStore(t, &calls, "0.01").URL}}
@@ -702,7 +703,7 @@ func TestAFailedReadServesTheLastGoodOneMarkedStaleAndThenGivesUp(t *testing.T) 
 
 func TestAStoreThatStopsAnsweringKeepsTheScreenOnItsLastFiguresMarkedStale(t *testing.T) {
 	a := newAdminRig(t)
-	_, admin := a.user(t, "ada", RoleAdmin)
+	_, admin := a.user(t, "ada", accounts.RoleAdmin)
 	var down atomic.Bool
 	var mu sync.Mutex
 	inner := linkStore(t, new(atomic.Int32), "0.01")

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"continuum/internal/accounts"
 	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
@@ -46,7 +47,7 @@ func extBody(name string, clusters ...string) map[string]any {
 // in place, records the new dates and is audited; the first install's certificates keep working until they expire.
 func TestInstallAgainReissuesCertificatesFromTheStoredCA(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	cl := a.approvedCluster(t, fp)
 	created := a.createOperatorDoc(t, cookie, extBody("athens", cl))
 	id := created["operator"].(map[string]any)["id"].(string)
@@ -111,7 +112,7 @@ func TestInstallAgainReissuesCertificatesFromTheStoredCA(t *testing.T) {
 // Rotating what is hashed: the heartbeat secret of an operator that has one is replaced and the old one stops working.
 func TestInstallAgainRotatesTheHeartbeatSecret(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	cl := a.approvedCluster(t, fp)
 	body := extBody("athens", cl)
 	body["heartbeat"] = true
@@ -141,7 +142,7 @@ func TestInstallAgainRotatesTheHeartbeatSecret(t *testing.T) {
 // A bearer operator has a token instead of certificates: it is replaced, and the old one no longer matches.
 func TestInstallAgainRotatesABearerOperatorsToken(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	cl := a.approvedCluster(t, fp)
 	const id = "op-bearer000007"
 	legacy := store.Operator{ID: id, OrgID: "org-1", Name: "bearer", Status: store.OperatorActive, ReceiverAuth: store.ReceiverAuthBearer,
@@ -171,8 +172,8 @@ func TestInstallAgainRotatesABearerOperatorsToken(t *testing.T) {
 
 func TestInstallAgainIsForActiveOperatorsAdminsOnly(t *testing.T) {
 	a := newAdminRig(t)
-	_, admin := a.user(t, "alex", RoleAdmin)
-	_, editor := a.user(t, "ed", RoleEditor)
+	_, admin := a.user(t, "alex", accounts.RoleAdmin)
+	_, editor := a.user(t, "ed", accounts.RoleEditor)
 	cl := a.approvedCluster(t, fp)
 	id := a.createOperatorDoc(t, admin, extBody("athens", cl))["operator"].(map[string]any)["id"].(string)
 	if r := a.do("POST", "/api/v1/operators/"+id+"/install", nil, withCookie(editor)); r.Code != 403 {
@@ -195,7 +196,7 @@ func TestInstallAgainIsForActiveOperatorsAdminsOnly(t *testing.T) {
 // Legacy operators (no stored dates, the org CA) can be installed again too, and get dates recorded.
 func TestInstallAgainRecordsDatesForAnOperatorThatHadNone(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	cl := a.approvedCluster(t, fp)
 	legacy := store.Operator{ID: "op-legacy000003", OrgID: "org-1", Name: "legacy", Status: store.OperatorActive, ReceiverAuth: store.ReceiverAuthMTLS,
 		SourceClusterIDs: []string{cl}, Destination: extDest("c:4317"), CreatedBy: "alex", CreatedAt: a.now.Add(-300 * day)}

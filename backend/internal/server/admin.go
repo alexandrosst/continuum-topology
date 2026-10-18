@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"continuum/internal/accounts"
 	"continuum/internal/chart"
 	"continuum/internal/fusionapi"
 	"continuum/internal/install"
@@ -461,7 +462,7 @@ func (a *Admin) secure(r *http.Request) bool {
 // loaded: r.Host, the same source of truth originAllowed's same-origin check already trusts (rather than a
 // value configured once at startup, since this server has no single fixed public domain the way a hosted
 // SaaS would).
-func (a *Admin) relyingParty(r *http.Request) RelyingParty {
+func (a *Admin) relyingParty(r *http.Request) accounts.RelyingParty {
 	host := r.Host
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		host = h
@@ -470,7 +471,7 @@ func (a *Admin) relyingParty(r *http.Request) RelyingParty {
 	if a.secure(r) {
 		scheme = "https"
 	}
-	return RelyingParty{ID: host, Origin: scheme + "://" + r.Host, Name: TOTPIssuer}
+	return accounts.RelyingParty{ID: host, Origin: scheme + "://" + r.Host, Name: accounts.TOTPIssuer}
 }
 
 // sessionCookie is the session secret the request carries, under either name: the __Host- one is what a
@@ -501,12 +502,12 @@ func bearerToken(r *http.Request) (string, bool) {
 // the same 404 as for one that does not exist; a member with too little standing gets 403.
 func (a *Admin) guard(n need, next http.HandlerFunc) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var p Principal
+		var p accounts.Principal
 		var err error
 		if secret, ok := sessionCookie(r); ok {
-			p, err = a.C.Authenticate(r.Context(), secret)
+			p, err = a.C.Accounts.Authenticate(r.Context(), secret)
 		} else if secret, ok := bearerToken(r); ok {
-			p, err = a.C.AuthenticateAPIToken(r.Context(), secret)
+			p, err = a.C.Accounts.AuthenticateAPIToken(r.Context(), secret)
 		} else {
 			err = kernel.Errf(kernel.KindUnauthenticated, "sign in required")
 		}
@@ -528,11 +529,11 @@ func (a *Admin) guard(n need, next http.HandlerFunc) http.Handler {
 		ctx := r.Context()
 		if n >= memberRole {
 			org := r.PathValue("org")
-			if p, err = a.C.Member(ctx, p, org); err != nil {
+			if p, err = a.C.Accounts.Member(ctx, p, org); err != nil {
 				a.fail(w, err)
 				return
 			}
-			if !Allows(p, n.action()) {
+			if !accounts.Allows(p, n.action()) {
 				writeErr(w, http.StatusForbidden, "your role in this organisation ("+p.Role+") does not allow this")
 				return
 			}
@@ -553,11 +554,11 @@ func (a *Admin) guard(n need, next http.HandlerFunc) http.Handler {
 			limit = 256 << 10
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, limit)
-		next(w, r.WithContext(WithCaller(ctx, p)))
+		next(w, r.WithContext(accounts.WithCaller(ctx, p)))
 	})
 }
 
-func principal(r *http.Request) Principal { return CallerFrom(r.Context()) }
+func principal(r *http.Request) accounts.Principal { return accounts.CallerFrom(r.Context()) }
 
 func actor(r *http.Request) string { return principal(r).User.Username }
 
@@ -658,12 +659,12 @@ func (a *Admin) session(ctx context.Context, u store.User) map[string]any {
 	if mine, err := a.C.Store.ListMyOrgs(ctx, u.ID); err == nil {
 		for _, o := range mine {
 			orgs = append(orgs, orgDoc{ID: o.ID, Name: o.Name, Role: o.Role})
-			if o.ID == a.C.DefaultOrg && Allows(Standing(o.Role), ActOwn) {
+			if o.ID == a.C.DefaultOrg && accounts.Allows(accounts.Standing(o.Role), accounts.ActOwn) {
 				canManageMail = true
 			}
 		}
 	}
-	return map[string]any{"user": toUserDoc(u, a.C.Mailer().Enabled(), canManageMail), "orgs": orgs}
+	return map[string]any{"user": toUserDoc(u, a.C.Accounts.Mailer().Enabled(), canManageMail), "orgs": orgs}
 }
 
 // setCookie sets (or, with a negative maxAge, clears) the session cookie. Secure is on whenever the admin
@@ -685,7 +686,7 @@ func (a *Admin) setCookie(w http.ResponseWriter, r *http.Request, value string, 
 
 // serverInfo is public: what the sign-in and sign-up pages need before anyone is signed in.
 func (a *Admin) serverInfo(w http.ResponseWriter, r *http.Request) {
-	mode := a.C.EffectiveRegMode()
+	mode := a.C.Accounts.EffectiveRegMode()
 	writeJSON(w, 200, map[string]any{"registration": mode, "version": a.Version, "sso": a.SSOHeaderName != ""})
 }
 
@@ -796,7 +797,7 @@ func (a *Admin) login(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	secret, u, err := a.C.Login(r.Context(), a.clientIP(r), req.Username, req.Password)
+	secret, u, err := a.C.Accounts.Login(r.Context(), a.clientIP(r), req.Username, req.Password)
 	if err != nil {
 		// A password that checks out but needs a TOTP code next comes back as an ordinary error (a
 		// KindTwoFactorRequired one, its "pending" token merged into this same JSON body by a.fail) rather
@@ -804,7 +805,7 @@ func (a *Admin) login(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	a.setCookie(w, r, secret, int(SessionMax.Seconds()))
+	a.setCookie(w, r, secret, int(accounts.SessionMax.Seconds()))
 	writeJSON(w, 200, a.session(r.Context(), u))
 }
 
@@ -819,12 +820,12 @@ func (a *Admin) login2FA(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	secret, u, err := a.C.Login2FA(r.Context(), a.clientIP(r), req.Pending, req.Code)
+	secret, u, err := a.C.Accounts.Login2FA(r.Context(), a.clientIP(r), req.Pending, req.Code)
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
-	a.setCookie(w, r, secret, int(SessionMax.Seconds()))
+	a.setCookie(w, r, secret, int(accounts.SessionMax.Seconds()))
 	writeJSON(w, 200, a.session(r.Context(), u))
 }
 
@@ -832,7 +833,7 @@ func (a *Admin) login2FA(w http.ResponseWriter, r *http.Request) {
 // what "trusted" has to mean here. Registered only when SSOHeaderName is set, so the endpoint does not
 // even exist on a server that never configured it.
 func (a *Admin) ssoLogin(w http.ResponseWriter, r *http.Request) {
-	secret, u, err := a.C.LoginSSO(r.Context(), a.clientIP(r), r.Header.Get(a.SSOHeaderName))
+	secret, u, err := a.C.Accounts.LoginSSO(r.Context(), a.clientIP(r), r.Header.Get(a.SSOHeaderName))
 	if err != nil {
 		if !a.authRL.Allow(kernel.LimitKey(a.clientIP(r))) {
 			writeErr(w, http.StatusTooManyRequests, "too many failed attempts, wait a minute")
@@ -841,7 +842,7 @@ func (a *Admin) ssoLogin(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	a.setCookie(w, r, secret, int(SessionMax.Seconds()))
+	a.setCookie(w, r, secret, int(accounts.SessionMax.Seconds()))
 	writeJSON(w, 200, a.session(r.Context(), u))
 }
 
@@ -857,19 +858,19 @@ func (a *Admin) register(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	secret, u, err := a.C.Register(r.Context(), a.clientIP(r), req.Username, req.Password, strings.TrimSpace(req.Invite), req.Org)
+	secret, u, err := a.C.Accounts.Register(r.Context(), a.clientIP(r), req.Username, req.Password, strings.TrimSpace(req.Invite), req.Org)
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
-	a.setCookie(w, r, secret, int(SessionMax.Seconds()))
+	a.setCookie(w, r, secret, int(accounts.SessionMax.Seconds()))
 	writeJSON(w, 201, a.session(r.Context(), u))
 }
 
 func (a *Admin) logout(w http.ResponseWriter, r *http.Request) {
 	if secret, ok := sessionCookie(r); ok {
-		if p, err := a.C.Authenticate(r.Context(), secret); err == nil {
-			a.C.Logout(r.Context(), p)
+		if p, err := a.C.Accounts.Authenticate(r.Context(), secret); err == nil {
+			a.C.Accounts.Logout(r.Context(), p)
 			a.fusionUIAccess.endUser(p.User.ID) // the pages opened in other tabs end with the sign-in that opened them
 		}
 	}
@@ -891,7 +892,7 @@ func (a *Admin) changePassword(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	if err := a.C.ChangePassword(r.Context(), principal(r), req.Current, req.New); err != nil {
+	if err := a.C.Accounts.ChangePassword(r.Context(), principal(r), req.Current, req.New); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -905,7 +906,7 @@ func (a *Admin) changePassword(w http.ResponseWriter, r *http.Request) {
 // URI for it, shown as text and a copyable key rather than a QR code (every authenticator app also
 // accepts typing a secret in by hand).
 func (a *Admin) setup2FA(w http.ResponseWriter, r *http.Request) {
-	secret, uri, err := a.C.Setup2FA(r.Context(), principal(r))
+	secret, uri, err := a.C.Accounts.Setup2FA(r.Context(), principal(r))
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -923,7 +924,7 @@ func (a *Admin) enable2FA(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	codes, err := a.C.Enable2FA(r.Context(), principal(r), req.Code)
+	codes, err := a.C.Accounts.Enable2FA(r.Context(), principal(r), req.Code)
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -939,7 +940,7 @@ func (a *Admin) disable2FA(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	if err := a.C.Disable2FA(r.Context(), principal(r), req.Password); err != nil {
+	if err := a.C.Accounts.Disable2FA(r.Context(), principal(r), req.Password); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -959,7 +960,7 @@ func (a *Admin) requestLoginEmailCode(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	if err := a.C.RequestLoginEmailCode(r.Context(), a.clientIP(r), req.Pending); err != nil {
+	if err := a.C.Accounts.RequestLoginEmailCode(r.Context(), a.clientIP(r), req.Pending); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -975,7 +976,7 @@ func (a *Admin) requestEmailVerification(w http.ResponseWriter, r *http.Request)
 		a.fail(w, err)
 		return
 	}
-	if err := a.C.RequestEmailVerification(r.Context(), principal(r), req.Email); err != nil {
+	if err := a.C.Accounts.RequestEmailVerification(r.Context(), principal(r), req.Email); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -992,7 +993,7 @@ func (a *Admin) confirmEmail(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	if err := a.C.ConfirmEmail(r.Context(), principal(r), req.Code); err != nil {
+	if err := a.C.Accounts.ConfirmEmail(r.Context(), principal(r), req.Code); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -1002,7 +1003,7 @@ func (a *Admin) confirmEmail(w http.ResponseWriter, r *http.Request) {
 
 // enableEmailOTP turns on email as a second sign-in factor for the already-verified address on the account.
 func (a *Admin) enableEmailOTP(w http.ResponseWriter, r *http.Request) {
-	if err := a.C.EnableEmailOTP(r.Context(), principal(r)); err != nil {
+	if err := a.C.Accounts.EnableEmailOTP(r.Context(), principal(r)); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -1018,7 +1019,7 @@ func (a *Admin) disableEmailOTP(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	if err := a.C.DisableEmailOTP(r.Context(), principal(r), req.Password); err != nil {
+	if err := a.C.Accounts.DisableEmailOTP(r.Context(), principal(r), req.Password); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -1037,7 +1038,7 @@ func writeOptions(w http.ResponseWriter, options []byte) {
 // beginPasskeyRegistration starts registering a new passkey or security key on the signed-in account. The
 // response is the CredentialCreationOptions object navigator.credentials.create() takes directly.
 func (a *Admin) beginPasskeyRegistration(w http.ResponseWriter, r *http.Request) {
-	options, err := a.C.BeginPasskeyRegistration(r.Context(), principal(r), a.relyingParty(r))
+	options, err := a.C.Accounts.BeginPasskeyRegistration(r.Context(), principal(r), a.relyingParty(r))
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -1055,7 +1056,7 @@ func (a *Admin) finishPasskeyRegistration(w http.ResponseWriter, r *http.Request
 		a.fail(w, err)
 		return
 	}
-	if err := a.C.FinishPasskeyRegistration(r.Context(), principal(r), a.relyingParty(r), req.Name, req.Response); err != nil {
+	if err := a.C.Accounts.FinishPasskeyRegistration(r.Context(), principal(r), a.relyingParty(r), req.Name, req.Response); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -1074,7 +1075,7 @@ func (a *Admin) beginPasskeyLogin(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	options, err := a.C.BeginPasskeyLogin(r.Context(), a.clientIP(r), req.Pending, a.relyingParty(r))
+	options, err := a.C.Accounts.BeginPasskeyLogin(r.Context(), a.clientIP(r), req.Pending, a.relyingParty(r))
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -1097,12 +1098,12 @@ func (a *Admin) finishPasskeyLogin(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	secret, u, err := a.C.FinishPasskeyLogin(r.Context(), a.clientIP(r), req.Pending, a.relyingParty(r), req.Response)
+	secret, u, err := a.C.Accounts.FinishPasskeyLogin(r.Context(), a.clientIP(r), req.Pending, a.relyingParty(r), req.Response)
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
-	a.setCookie(w, r, secret, int(SessionMax.Seconds()))
+	a.setCookie(w, r, secret, int(accounts.SessionMax.Seconds()))
 	writeJSON(w, 200, a.session(r.Context(), u))
 }
 
@@ -1114,7 +1115,7 @@ func (a *Admin) renamePasskey(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	if err := a.C.RenamePasskey(r.Context(), principal(r), r.PathValue("id"), req.Name); err != nil {
+	if err := a.C.Accounts.RenamePasskey(r.Context(), principal(r), r.PathValue("id"), req.Name); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -1130,7 +1131,7 @@ func (a *Admin) removePasskey(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	if err := a.C.RemovePasskey(r.Context(), principal(r), r.PathValue("id"), req.Password); err != nil {
+	if err := a.C.Accounts.RemovePasskey(r.Context(), principal(r), r.PathValue("id"), req.Password); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -1154,7 +1155,7 @@ func toAPITokenDoc(t store.APIToken) apiTokenDoc {
 }
 
 func (a *Admin) listAPITokens(w http.ResponseWriter, r *http.Request) {
-	toks, err := a.C.ListAPITokens(r.Context(), principal(r))
+	toks, err := a.C.Accounts.ListAPITokens(r.Context(), principal(r))
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -1181,7 +1182,7 @@ func (a *Admin) createAPIToken(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	secret, tok, err := a.C.CreateAPIToken(r.Context(), principal(r), req.Name)
+	secret, tok, err := a.C.Accounts.CreateAPIToken(r.Context(), principal(r), req.Name)
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -1191,7 +1192,7 @@ func (a *Admin) createAPIToken(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *Admin) revokeAPIToken(w http.ResponseWriter, r *http.Request) {
-	if err := a.C.RevokeAPIToken(r.Context(), principal(r), r.PathValue("id")); err != nil {
+	if err := a.C.Accounts.RevokeAPIToken(r.Context(), principal(r), r.PathValue("id")); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -1212,12 +1213,12 @@ func (a *Admin) createOrg(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	o, err := a.C.CreateOrg(r.Context(), principal(r), req.Name)
+	o, err := a.C.Accounts.CreateOrg(r.Context(), principal(r), req.Name)
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 201, orgDoc{ID: o.ID, Name: o.Name, Role: RoleOwner})
+	writeJSON(w, 201, orgDoc{ID: o.ID, Name: o.Name, Role: accounts.RoleOwner})
 }
 
 func (a *Admin) previewInvite(w http.ResponseWriter, r *http.Request) {
@@ -1229,7 +1230,7 @@ func (a *Admin) previewInvite(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	inv, name, err := a.C.PreviewInvite(r.Context(), a.clientIP(r), strings.TrimSpace(req.Token))
+	inv, name, err := a.C.Accounts.PreviewInvite(r.Context(), a.clientIP(r), strings.TrimSpace(req.Token))
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -1245,7 +1246,7 @@ func (a *Admin) acceptInvite(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	o, role, err := a.C.AcceptInvite(r.Context(), a.clientIP(r), principal(r), strings.TrimSpace(req.Token))
+	o, role, err := a.C.Accounts.AcceptInvite(r.Context(), a.clientIP(r), principal(r), strings.TrimSpace(req.Token))
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -1261,7 +1262,7 @@ func (a *Admin) renameOrg(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	if err := a.core(r).RenameOrg(r.Context(), principal(r), req.Name); err != nil {
+	if err := a.core(r).Accounts.RenameOrg(r.Context(), principal(r), req.Name); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -1276,7 +1277,7 @@ func (a *Admin) deleteOrg(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	if err := a.core(r).DeleteOrg(r.Context(), principal(r), req.Confirm); err != nil {
+	if err := a.core(r).Accounts.DeleteOrg(r.Context(), principal(r), req.Confirm); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -1285,7 +1286,7 @@ func (a *Admin) deleteOrg(w http.ResponseWriter, r *http.Request) {
 
 func (a *Admin) leaveOrg(w http.ResponseWriter, r *http.Request) {
 	p := principal(r)
-	if err := a.core(r).RemoveMember(r.Context(), p, p.User.ID); err != nil {
+	if err := a.core(r).Accounts.RemoveMember(r.Context(), p, p.User.ID); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -1323,18 +1324,18 @@ func (a *Admin) setMemberRole(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	if err := a.core(r).SetMemberRole(r.Context(), principal(r), r.PathValue("id"), req.Role); err != nil {
+	if err := a.core(r).Accounts.SetMemberRole(r.Context(), principal(r), r.PathValue("id"), req.Role); err != nil {
 		a.fail(w, err)
 		return
 	}
-	if !Allows(Standing(req.Role), ActAdminister) { // a downgrade below what the pages need; a promotion changes nothing for them
+	if !accounts.Allows(accounts.Standing(req.Role), accounts.ActAdminister) { // a downgrade below what the pages need; a promotion changes nothing for them
 		a.endFusionPagesIn(r, r.PathValue("id"))
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
 func (a *Admin) removeMember(w http.ResponseWriter, r *http.Request) {
-	if err := a.core(r).RemoveMember(r.Context(), principal(r), r.PathValue("id")); err != nil {
+	if err := a.core(r).Accounts.RemoveMember(r.Context(), principal(r), r.PathValue("id")); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -1355,9 +1356,9 @@ type inviteDoc struct {
 }
 
 func (a *Admin) inviteDoc(ctx context.Context, i store.Invite) inviteDoc {
-	d := inviteDoc{ID: i.ID, Role: i.Role, Label: i.Label, CreatedBy: a.C.NameOf(ctx, i.CreatedBy), CreatedAt: rfc(i.CreatedAt), ExpiresAt: rfc(i.ExpiresAt), Used: i.UsedAt != nil, Expired: i.UsedAt == nil && a.C.Now().After(i.ExpiresAt)}
+	d := inviteDoc{ID: i.ID, Role: i.Role, Label: i.Label, CreatedBy: a.C.Accounts.NameOf(ctx, i.CreatedBy), CreatedAt: rfc(i.CreatedAt), ExpiresAt: rfc(i.ExpiresAt), Used: i.UsedAt != nil, Expired: i.UsedAt == nil && a.C.Now().After(i.ExpiresAt)}
 	if i.UsedBy != "" {
-		d.UsedBy = a.C.NameOf(ctx, i.UsedBy)
+		d.UsedBy = a.C.Accounts.NameOf(ctx, i.UsedBy)
 	}
 	return d
 }
@@ -1384,7 +1385,7 @@ func (a *Admin) createInvite(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	secret, inv, err := a.core(r).CreateInvite(r.Context(), principal(r), req.Role, req.Label)
+	secret, inv, err := a.core(r).Accounts.CreateInvite(r.Context(), principal(r), req.Role, req.Label)
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -1394,7 +1395,7 @@ func (a *Admin) createInvite(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *Admin) revokeInvite(w http.ResponseWriter, r *http.Request) {
-	if err := a.core(r).RevokeInvite(r.Context(), principal(r), r.PathValue("id")); err != nil {
+	if err := a.core(r).Accounts.RevokeInvite(r.Context(), principal(r), r.PathValue("id")); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -1487,12 +1488,12 @@ func (a *Admin) info(w http.ResponseWriter, r *http.Request) {
 // state is what the UI polls. The audit trail is part of it only for administrators and owners: it names
 // people, and it is what they review; everyone else gets the topology and an empty list.
 func (a *Admin) state(w http.ResponseWriter, r *http.Request) {
-	doc, err := a.tn(r).Hub.StateFor(r.Context(), Allows(principal(r), ActAdminister))
+	doc, err := a.tn(r).Hub.StateFor(r.Context(), accounts.Allows(principal(r), accounts.ActAdminister))
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
-	if Allows(principal(r), ActEdit) {
+	if accounts.Allows(principal(r), accounts.ActEdit) {
 		img := a.images(a.core(r))
 		for i, ag := range doc.Agents {
 			if ag.AccessTier < ag.InstalledTier {
@@ -1742,16 +1743,16 @@ func fileExists(p string) bool { _, err := os.Stat(p); return err == nil }
 
 // action is what a route's guard level asks of the caller. The levels below ActRead (a session with no organisation) ask nothing
 // of a role.
-func (n need) action() Action {
+func (n need) action() accounts.Action {
 	switch n {
 	case memberRole:
-		return ActRead
+		return accounts.ActRead
 	case editorRole:
-		return ActEdit
+		return accounts.ActEdit
 	case adminRole:
-		return ActAdminister
+		return accounts.ActAdminister
 	case ownerRole:
-		return ActOwn
+		return accounts.ActOwn
 	}
 	return 0
 }

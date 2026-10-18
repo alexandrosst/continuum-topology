@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"continuum/internal/accounts"
 	"continuum/internal/kernel"
 	"continuum/internal/pki"
 	"continuum/internal/store"
@@ -256,7 +257,7 @@ func TestRevokeAndDeleteDropTheOperatorCAKey(t *testing.T) {
 // only for an operator that has one.
 func TestClientCaScopeAndCommandsCarryTheRightCA(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	cl := a.approvedCluster(t, fp)
 	r := a.do("POST", "/api/v1/operators", map[string]any{"name": "new", "sourceClusterIds": []string{cl}, "destination": map[string]any{"kind": "external", "endpoint": "c:4317"}}, withCookie(cookie))
 	if r.Code != 201 {

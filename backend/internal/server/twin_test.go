@@ -8,6 +8,7 @@ import (
 	"time"
 
 	continuumv1 "continuum/gen/continuumv1"
+	"continuum/internal/accounts"
 	"continuum/internal/facts"
 	"continuum/internal/kernel"
 	"continuum/internal/store"
@@ -513,9 +514,9 @@ func TestStateForTopologyCacheHitMissAndTTL(t *testing.T) {
 
 func TestModelAPIContractETagAndTenancy(t *testing.T) {
 	a := newAdminRig(t)
-	owner, ownerCookie := a.user(t, "boss", RoleOwner)
+	owner, ownerCookie := a.user(t, "boss", accounts.RoleOwner)
 	_ = owner
-	_, viewer := a.user(t, "vera", RoleViewer)
+	_, viewer := a.user(t, "vera", accounts.RoleViewer)
 	bobCookie, bobOrg := a.register(t, "bob", "Bob Works")
 	h := a.hub()
 	ag := twinAgent(t, a.env, h, fp)
@@ -643,7 +644,7 @@ func TestModelCacheHitsAndMissesAreCounted(t *testing.T) {
 
 func TestWorkspaceHoldsOnlyWhatIsDeclaredAndRefusesNewerFormats(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "ed", RoleEditor)
+	_, cookie := a.user(t, "ed", accounts.RoleEditor)
 	doc := `{"schemaVersion":3,"clusters":[{"id":"cl-obs","source":"discovered","name":"seen","overrides":{"name":"Renamed"}},{"id":"cl-mine","source":"manual","name":"mine"},{"id":"cl-plain","source":"discovered","name":"plain"}],
 	  "nodes":[{"id":"nd-1","source":"discovered","name":"n"}],"agents":[{"id":"ag"}],"sites":[{"id":"s1","name":"Athens"}]}`
 	r := a.do("PUT", "/api/v1/workspace", []byte(doc), withCookie(cookie), withHeader("If-Match", "0"))

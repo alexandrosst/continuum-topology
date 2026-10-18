@@ -12,6 +12,7 @@ import (
 	"time"
 
 	continuumv1 "continuum/gen/continuumv1"
+	"continuum/internal/accounts"
 	"continuum/internal/facts"
 	"continuum/internal/history"
 	"continuum/internal/kernel"
@@ -635,9 +636,9 @@ func TestEventRetentionSettingPrunesByAgeOnlyForItsOwnOrgWhenOn(t *testing.T) {
 func TestSettingsEndpointsRolesAndHiddenDeciderURL(t *testing.T) {
 	a := newAdminRig(t)
 	a.base.Decider, _ = kernel.NewDeciderPolicy("127.0.0.0/8")
-	_, admin := a.user(t, "root", RoleAdmin)
-	_, viewer := a.user(t, "eve", RoleViewer)
-	_, editor := a.user(t, "eddy", RoleEditor)
+	_, admin := a.user(t, "root", accounts.RoleAdmin)
+	_, viewer := a.user(t, "eve", accounts.RoleViewer)
+	_, editor := a.user(t, "eddy", accounts.RoleEditor)
 
 	put := a.do("PUT", "/api/v1/settings", kernel.Settings{SnapshotMinutes: 7, DeciderURL: "http://127.0.0.1:9/decide?key=secret", DeciderName: "Mine"}, withCookie(admin))
 	if put.Code != 200 || put.json(t)["deciderUrl"] != "http://127.0.0.1:9/decide?key=secret" {
@@ -678,7 +679,7 @@ func TestSettingsEndpointsRolesAndHiddenDeciderURL(t *testing.T) {
 // than depending on the flow-aggregation pipeline that normally produces them.
 func TestHistoryDependencySeries(t *testing.T) {
 	a := newAdminRig(t)
-	_, viewer := a.user(t, "eve", RoleViewer)
+	_, viewer := a.user(t, "eve", accounts.RoleViewer)
 
 	snap := func(rttMs float64, lossPct *float64, bytes uint64) model.Topology {
 		d := model.Dependency{ID: "dep-1", OrgID: "org-1", From: "a", To: "b", Protocol: "TCP", RttMs: rttMs, Bytes: bytes}
@@ -753,8 +754,8 @@ func TestHistoryDependencySeries(t *testing.T) {
 
 func TestHistoryEndpoints(t *testing.T) {
 	a := newAdminRig(t)
-	_, admin := a.user(t, "root", RoleAdmin)
-	_, viewer := a.user(t, "eve", RoleViewer)
+	_, admin := a.user(t, "root", accounts.RoleAdmin)
+	_, viewer := a.user(t, "eve", accounts.RoleViewer)
 	id, _, _ := a.approvedAgent(t, fp)
 	a.hub().mu.Lock()
 	a.hub().views[id] = liveView(*a.now, "n1")
@@ -819,8 +820,8 @@ func TestHistoryEndpoints(t *testing.T) {
 func TestDecideProxyForwardsOnlyToTheConfiguredDecider(t *testing.T) {
 	a := newAdminRig(t)
 	a.base.Decider, _ = kernel.NewDeciderPolicy("127.0.0.0/8") // the test decider listens on loopback
-	_, admin := a.user(t, "root", RoleAdmin)
-	_, viewer := a.user(t, "eve", RoleEditor) // deciding needs an editor; see TestDecideNeedsAnEditor
+	_, admin := a.user(t, "root", accounts.RoleAdmin)
+	_, viewer := a.user(t, "eve", accounts.RoleEditor) // deciding needs an editor; see TestDecideNeedsAnEditor
 
 	if r := a.do("POST", "/api/v1/decide", map[string]any{"schema": 1}, withCookie(viewer)); r.Code != 404 {
 		t.Fatalf("no decider configured: %d", r.Code)
@@ -1029,7 +1030,7 @@ func (c *countGets) GetHistory(ctx context.Context, org string, at time.Time) (s
 // from it, and a snapshot replaced in the store is read again.
 func TestHistoryEndpointsDecodeEachSnapshotOnce(t *testing.T) {
 	a := newAdminRig(t)
-	_, viewer := a.user(t, "eve", RoleViewer)
+	_, viewer := a.user(t, "eve", accounts.RoleViewer)
 	cnt := &countGets{Store: a.a.C.Store}
 	a.a.C.Store = cnt
 
@@ -1079,7 +1080,7 @@ func TestHistoryEndpointsDecodeEachSnapshotOnce(t *testing.T) {
 
 func TestSettingsRevisionRefusesAStaleSave(t *testing.T) {
 	a := newAdminRig(t)
-	_, admin := a.user(t, "root", RoleAdmin)
+	_, admin := a.user(t, "root", accounts.RoleAdmin)
 	rev := func(m map[string]any) int {
 		t.Helper()
 		v, ok := m["rev"].(float64)

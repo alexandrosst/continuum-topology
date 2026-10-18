@@ -3,6 +3,8 @@ package server
 import (
 	"strings"
 	"testing"
+
+	"continuum/internal/accounts"
 )
 
 // intentToOperator makes a regional operator with a recorded address and an intent whose default destination is it.
@@ -40,7 +42,7 @@ func intentFragment(t *testing.T, a *adminRig, cookie, intentID string) (frag st
 
 func TestASenderDialsTheAddressItChoseNotTheOneRecordedForTheOperator(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	opID, intentID := intentToOperator(t, a, cookie)
 
 	before, _ := intentFragment(t, a, cookie, intentID)
@@ -77,7 +79,7 @@ func TestASenderDialsTheAddressItChoseNotTheOneRecordedForTheOperator(t *testing
 
 func TestAChosenAddressIsHeldToTheSameRulesAsARecordedOne(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	opID, intentID := intentToOperator(t, a, cookie)
 	path := "/api/v1/telemetry-intents/" + intentID + "/destination"
 	for _, bad := range []string{"https://x.example.com:4317", "localhost:4317", "127.0.0.1:4317", "169.254.169.254:80", "a b:4317", "x.example.com:99999"} {
@@ -95,7 +97,7 @@ func TestAChosenAddressIsHeldToTheSameRulesAsARecordedOne(t *testing.T) {
 
 func TestEachRouteCarriesItsOwnAddress(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	opID, intentID := intentToOperator(t, a, cookie)
 	body := map[string]any{
 		"destination": map[string]any{"kind": "operator", "targetOperatorId": opID, "address": "10.20.0.14:31317"},

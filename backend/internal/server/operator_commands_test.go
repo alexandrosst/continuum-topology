@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"continuum/internal/accounts"
 	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
@@ -119,7 +120,7 @@ func TestInstallCommandQuotesEveryInterpolatedValue(t *testing.T) {
 // is never shared between clusters, even when their namespaces have the same name).
 func TestSourceRemindersStateTheWholeBlockAndOneSecretPerCluster(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	clA, clB := a.approvedCluster(t, fp), a.approvedCluster(t, fp2)
 	created := a.createOperatorDoc(t, cookie, extBody("athens", clA, clB))
 	id := created["operator"].(map[string]any)["id"].(string)
@@ -157,7 +158,7 @@ func TestSourceRemindersStateTheWholeBlockAndOneSecretPerCluster(t *testing.T) {
 // intent and cluster it was for.
 func TestIntentCommandStatesTheWholeBlockAndAuditsWhatTheCertIsFor(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	cl := a.approvedCluster(t, fp)
 	opID := a.createOperatorDoc(t, cookie, extBody("athens", cl))["operator"].(map[string]any)["id"].(string)
 	agent := a.approvedAgentID(t, fp2)
@@ -184,7 +185,7 @@ func TestIntentCommandStatesTheWholeBlockAndAuditsWhatTheCertIsFor(t *testing.T)
 // audit entry names the cluster.
 func TestScopeUpdateIssuesAClientCertOnlyWhenAClusterIsGained(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	clA, clB := a.approvedCluster(t, fp), a.approvedCluster(t, fp2)
 	id := a.createOperatorDoc(t, cookie, extBody("athens", clA))["operator"].(map[string]any)["id"].(string)
 	e := &env{st: a.st, ctx: a.ctx}
@@ -259,7 +260,7 @@ func TestHeartbeatURLPrefersThePublicURLAndWarnsAboutAddressesThatCannotWork(t *
 // When the server's certificate is signed by a private CA, the install says which Secret holds it, and gives the command to create it.
 func TestHeartbeatCASecretIsEmittedOnlyForAPrivateServerCertificate(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	cl := a.approvedCluster(t, fp)
 	body := extBody("athens", cl)
 	body["heartbeat"] = true

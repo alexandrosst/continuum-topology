@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 
+	"continuum/internal/accounts"
 	"continuum/internal/kernel"
 )
 
@@ -18,9 +19,9 @@ import (
 // org a stranger could just create for themselves (see Settings.ImageRegistry's comment for that same
 // reasoning) - an owner of the one organisation that exists from first boot is the closest thing this
 // server has to "the operator".
-func (a *Admin) requireDefaultOwner(ctx context.Context, p Principal) error {
-	m, err := a.C.Member(ctx, p, a.C.DefaultOrg)
-	if err != nil || !Allows(Standing(m.Role), ActOwn) {
+func (a *Admin) requireDefaultOwner(ctx context.Context, p accounts.Principal) error {
+	m, err := a.C.Accounts.Member(ctx, p, a.C.DefaultOrg)
+	if err != nil || !accounts.Allows(accounts.Standing(m.Role), accounts.ActOwn) {
 		return kernel.Errf(kernel.KindForbidden, "only an owner of the default organisation may do this")
 	}
 	return nil
@@ -31,7 +32,7 @@ func (a *Admin) getMailConfig(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 200, NewMailConfigDoc(a.C.Mailer()))
+	writeJSON(w, 200, accounts.NewMailConfigDoc(a.C.Accounts.Mailer()))
 }
 
 // putMailConfig never lets a client blank the password by accident: a GET never carries it (see
@@ -46,7 +47,7 @@ func (a *Admin) putMailConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		MailConfig
+		accounts.MailConfig
 		ClearPassword bool `json:"clearPassword"`
 	}
 	if err := decode(r, &body); err != nil {
@@ -58,12 +59,12 @@ func (a *Admin) putMailConfig(w http.ResponseWriter, r *http.Request) {
 	case body.ClearPassword:
 		m.Password = ""
 	case m.Password == "":
-		m.Password = a.C.Mailer().Password
+		m.Password = a.C.Accounts.Mailer().Password
 	}
-	n, err := a.C.SaveMailConfig(r.Context(), p.User.Username, m)
+	n, err := a.C.Accounts.SaveMailConfig(r.Context(), p.User.Username, m)
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 200, NewMailConfigDoc(n))
+	writeJSON(w, 200, accounts.NewMailConfigDoc(n))
 }

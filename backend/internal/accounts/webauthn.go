@@ -1,4 +1,4 @@
-package server
+package accounts
 
 import (
 	"context"
@@ -83,7 +83,7 @@ func validRelyingPartyID(id string) bool {
 	return err != nil // parses as an IP -> invalid RP ID; anything else (a real hostname) -> fine
 }
 
-func (c *Core) putWebAuthnRegSession(userID string, session []byte) {
+func (c *Service) putWebAuthnRegSession(userID string, session []byte) {
 	a := c.authSt()
 	now := c.Now()
 	a.webauthnRegMu.Lock()
@@ -101,7 +101,7 @@ func (c *Core) putWebAuthnRegSession(userID string, session []byte) {
 
 // takeWebAuthnRegSession removes and returns the session, whether or not it was found or still valid: a
 // registration challenge is single-use, so a failed Finish must not be retryable against the same one.
-func (c *Core) takeWebAuthnRegSession(userID string) ([]byte, bool) {
+func (c *Service) takeWebAuthnRegSession(userID string) ([]byte, bool) {
 	a := c.authSt()
 	a.webauthnRegMu.Lock()
 	defer a.webauthnRegMu.Unlock()
@@ -113,7 +113,7 @@ func (c *Core) takeWebAuthnRegSession(userID string) ([]byte, bool) {
 	return s.data, true
 }
 
-func (c *Core) putWebAuthnLoginSession(pending string, session []byte) {
+func (c *Service) putWebAuthnLoginSession(pending string, session []byte) {
 	a := c.authSt()
 	now := c.Now()
 	a.webauthnLoginMu.Lock()
@@ -129,7 +129,7 @@ func (c *Core) putWebAuthnLoginSession(pending string, session []byte) {
 	a.webauthnLogin[pending] = webauthnSession{data: session, expiresAt: now.Add(webauthnCeremonyTTL)}
 }
 
-func (c *Core) takeWebAuthnLoginSession(pending string) ([]byte, bool) {
+func (c *Service) takeWebAuthnLoginSession(pending string) ([]byte, bool) {
 	a := c.authSt()
 	a.webauthnLoginMu.Lock()
 	defer a.webauthnLoginMu.Unlock()
@@ -143,7 +143,7 @@ func (c *Core) takeWebAuthnLoginSession(pending string) ([]byte, bool) {
 
 // BeginPasskeyRegistration starts registering a new passkey or security key on the signed-in account. The
 // options it returns go straight to the browser's navigator.credentials.create().
-func (c *Core) BeginPasskeyRegistration(ctx context.Context, p Principal, rp RelyingParty) ([]byte, error) {
+func (c *Service) BeginPasskeyRegistration(ctx context.Context, p Principal, rp RelyingParty) ([]byte, error) {
 	if c.webAuthnP() == nil {
 		return nil, errNoPasskeys()
 	}
@@ -169,7 +169,7 @@ func (c *Core) BeginPasskeyRegistration(ctx context.Context, p Principal, rp Rel
 // browser's navigator.credentials.create() result, JSON-encoded exactly as it serialises. name is what the
 // person calls this credential in settings; left blank, a generic default is used instead of failing an
 // otherwise-successful registration over a missing label.
-func (c *Core) FinishPasskeyRegistration(ctx context.Context, p Principal, rp RelyingParty, name string, response []byte) error {
+func (c *Service) FinishPasskeyRegistration(ctx context.Context, p Principal, rp RelyingParty, name string, response []byte) error {
 	if c.webAuthnP() == nil {
 		return errNoPasskeys()
 	}
@@ -208,7 +208,7 @@ func (c *Core) FinishPasskeyRegistration(ctx context.Context, p Principal, rp Re
 
 // BeginPasskeyLogin starts the passkey half of a pending two-factor sign-in (see Login/twoFactorMethods):
 // pending is the token Login returned, and must have "webauthn" among its methods.
-func (c *Core) BeginPasskeyLogin(ctx context.Context, ip, pending string, rp RelyingParty) ([]byte, error) {
+func (c *Service) BeginPasskeyLogin(ctx context.Context, ip, pending string, rp RelyingParty) ([]byte, error) {
 	if c.webAuthnP() == nil {
 		return nil, errNoPasskeys()
 	}
@@ -237,7 +237,7 @@ func (c *Core) BeginPasskeyLogin(ctx context.Context, ip, pending string, rp Rel
 // FinishPasskeyLogin completes a passkey sign-in BeginPasskeyLogin started, opening a session directly - a
 // passkey's response is a signed assertion, not a short typed code, so unlike an authenticator app or an
 // emailed code it cannot be fed through Login2FA's single code field.
-func (c *Core) FinishPasskeyLogin(ctx context.Context, ip, pending string, rp RelyingParty, response []byte) (secret string, u store.User, err error) {
+func (c *Service) FinishPasskeyLogin(ctx context.Context, ip, pending string, rp RelyingParty, response []byte) (secret string, u store.User, err error) {
 	if c.webAuthnP() == nil {
 		return "", store.User{}, errNoPasskeys()
 	}
@@ -284,7 +284,7 @@ func (c *Core) FinishPasskeyLogin(ctx context.Context, ip, pending string, rp Re
 }
 
 // RenamePasskey changes only a credential's own label.
-func (c *Core) RenamePasskey(ctx context.Context, p Principal, credentialIDB64, name string) error {
+func (c *Service) RenamePasskey(ctx context.Context, p Principal, credentialIDB64, name string) error {
 	if !c.authSt().loginUser.Allow("2fa-setup|" + p.User.ID) {
 		return kernel.Errf(kernel.KindRateLimited, "too many attempts, wait a minute")
 	}
@@ -308,7 +308,7 @@ func (c *Core) RenamePasskey(ctx context.Context, p Principal, credentialIDB64, 
 // RemovePasskey deletes one credential. Gated on the current password, the same as Disable2FA and
 // DisableEmailOTP: removing what may be an account's only second factor deserves the same proof of presence
 // as changing what it protects - a passkey has no separate "turn it off but keep it" state the way email does.
-func (c *Core) RemovePasskey(ctx context.Context, p Principal, credentialIDB64, password string) error {
+func (c *Service) RemovePasskey(ctx context.Context, p Principal, credentialIDB64, password string) error {
 	if !c.authSt().loginUser.Allow("2fa-setup|" + p.User.ID) {
 		return kernel.Errf(kernel.KindRateLimited, "too many attempts, wait a minute")
 	}
@@ -344,14 +344,14 @@ type webAuthnHolder struct {
 // a nil Decider or an unconfigured mailer does. Unlike the mailer this needs no operator configuration to be worth setting -
 // cmd/server wires in the real one unconditionally - so nil in practice only means a build that omitted it (a test, say). It is
 // the same for every organisation's view of the Core.
-func (c *Core) SetWebAuthn(p WebAuthnProvider) {
+func (c *Service) SetWebAuthn(p WebAuthnProvider) {
 	h := kernel.ServerState(c, "accounts.webauthn", func() *webAuthnHolder { return &webAuthnHolder{} })
 	h.mu.Lock()
 	h.p = p
 	h.mu.Unlock()
 }
 
-func (c *Core) webAuthnP() WebAuthnProvider {
+func (c *Service) webAuthnP() WebAuthnProvider {
 	h := kernel.ServerState(c, "accounts.webauthn", func() *webAuthnHolder { return &webAuthnHolder{} })
 	h.mu.RLock()
 	defer h.mu.RUnlock()

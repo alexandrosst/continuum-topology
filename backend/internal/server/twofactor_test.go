@@ -5,14 +5,15 @@ import (
 	"testing"
 	"time"
 
+	"continuum/internal/accounts"
 	"continuum/internal/kernel"
 )
 
 // mustTOTPCode computes the code the secret would show at now, the same way an authenticator app does.
 func mustTOTPCode(t *testing.T, secret string, now time.Time) string {
 	t.Helper()
-	step := uint64(now.Unix()) / uint64(TOTPStep.Seconds())
-	code, err := TOTPAt(secret, step)
+	step := uint64(now.Unix()) / uint64(accounts.TOTPStep.Seconds())
+	code, err := accounts.TOTPAt(secret, step)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,8 +84,8 @@ func TestTwoFactorSetupEnableLoginAndDisable(t *testing.T) {
 		t.Fatalf("enable: %d %s", r.Code, r.Body.String())
 	}
 	recovery, _ := r.json(t)["recoveryCodes"].([]any)
-	if len(recovery) != RecoveryCodeCount {
-		t.Fatalf("got %d recovery codes, want %d", len(recovery), RecoveryCodeCount)
+	if len(recovery) != accounts.RecoveryCodeCount {
+		t.Fatalf("got %d recovery codes, want %d", len(recovery), accounts.RecoveryCodeCount)
 	}
 	if me := a.do("GET", "/api/v1/auth/me", nil, withCookie(cookie)).json(t); me["user"].(map[string]any)["twoFactorEnabled"] != true {
 		t.Fatalf("me does not show 2FA on: %v", me)
@@ -183,7 +184,7 @@ func TestTwoFactorPendingLoginExpires(t *testing.T) {
 
 	_, body := a.doLogin(t, "10.9.2.1", "carol", goodPW)
 	pending, _ := body["pending"].(string)
-	*a.now = a.now.Add(PendingLoginTTL + time.Minute)
+	*a.now = a.now.Add(accounts.PendingLoginTTL + time.Minute)
 
 	if r, _ := a.doLogin2FA(t, "10.9.2.1", pending, mustTOTPCode(t, secret, *a.now)); r.Code != 401 {
 		t.Fatalf("expired pending token: %d %s", r.Code, r.Body.String())

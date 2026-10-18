@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"continuum/internal/accounts"
 	"continuum/internal/chart"
 	"continuum/internal/kernel"
 	"continuum/internal/store"
@@ -244,8 +245,8 @@ func TestImageValidation(t *testing.T) {
 func TestImagePrecedenceAndTheEndpoints(t *testing.T) {
 	a := newAdminRig(t)
 	a.a.ChartRef = "" // the rig pins one; here the registry decides
-	_, admin := a.user(t, "root", RoleAdmin)
-	_, viewer := a.user(t, "eve", RoleViewer)
+	_, admin := a.user(t, "root", accounts.RoleAdmin)
+	_, viewer := a.user(t, "eve", accounts.RoleViewer)
 	install := func() string {
 		r := a.do("POST", "/api/v1/tokens", map[string]any{"name": "c1", "tier": 2}, withCookie(admin))
 		if r.Code != 201 {
@@ -384,7 +385,7 @@ func TestImageChangesAreAuditedAndPersist(t *testing.T) {
 // whose values schema rejected every new telemetry value.
 func TestInfoReportsThePublishedChartVersion(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	version := func() string {
 		r := a.do("GET", "/api/v1/info", nil, withCookie(cookie))
 		if r.Code != 200 {

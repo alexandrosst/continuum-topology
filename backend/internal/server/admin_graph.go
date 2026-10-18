@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"continuum/internal/accounts"
 	"continuum/internal/graph"
 	"continuum/internal/store"
 	"continuum/internal/workspace"
@@ -44,7 +45,7 @@ func (a *Admin) storage(w http.ResponseWriter, r *http.Request) {
 	}
 	st := g.Status(r.Context(), a.core(r).OrgID)
 	out := map[string]any{"backend": "neo4j", "enabled": true, "connected": st.Connected, "ready": st.Ready, "buffering": st.Buffering}
-	if Allows(principal(r), ActAdminister) {
+	if accounts.Allows(principal(r), accounts.ActAdminister) {
 		out["error"] = st.Error
 		if st.Stats != nil {
 			out["stats"] = st.Stats
@@ -208,7 +209,7 @@ func (a *Admin) timeline(w http.ResponseWriter, r *http.Request) {
 			ClusterName: e.ClusterName, Detail: e.Detail, Cause: e.Cause, Severity: e.Severity}
 	}
 	audit := tl.Audit
-	if !Allows(principal(r), ActAdminister) { // it names people, which /audit and the state document keep for administrators
+	if !accounts.Allows(principal(r), accounts.ActAdminister) { // it names people, which /audit and the state document keep for administrators
 		audit = []graph.AuditRow{}
 	}
 	writeJSON(w, 200, map[string]any{"kind": tl.Kind, "id": tl.ID, "versions": tl.Versions, "events": evs, "audit": audit})

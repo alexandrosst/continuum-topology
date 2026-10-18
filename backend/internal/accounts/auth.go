@@ -1,4 +1,4 @@
-package server
+package accounts
 
 import (
 	"context"
@@ -181,7 +181,7 @@ func newPendingSecret() (string, error) {
 // turned on (see twoFactorMethods), frozen at this moment so a setting changed mid-login cannot retarget an
 // already-issued token. Expired entries are swept out opportunistically here rather than on a timer, since a
 // login server does not need a background goroutine to reclaim a handful of small map entries.
-func (c *Core) beginTwoFactor(userID string, methods []string) (string, error) {
+func (c *Service) beginTwoFactor(userID string, methods []string) (string, error) {
 	token, err := newPendingSecret()
 	if err != nil {
 		return "", err
@@ -205,7 +205,7 @@ func (c *Core) beginTwoFactor(userID string, methods []string) (string, error) {
 // peekPendingLogin looks up a pending token without consuming it, so a wrong code can still be followed by
 // a correct one instead of sending the person all the way back to their password. An expired entry is
 // removed on sight (nothing else touches it before then).
-func (c *Core) peekPendingLogin(token string) (pl pendingLogin, ok bool) {
+func (c *Service) peekPendingLogin(token string) (pl pendingLogin, ok bool) {
 	a := c.authSt()
 	a.pendingMu.Lock()
 	defer a.pendingMu.Unlock()
@@ -221,7 +221,7 @@ func (c *Core) peekPendingLogin(token string) (pl pendingLogin, ok bool) {
 }
 
 // consumePendingLogin removes a pending token once it has done its job, so it cannot be replayed.
-func (c *Core) consumePendingLogin(token string) {
+func (c *Service) consumePendingLogin(token string) {
 	a := c.authSt()
 	a.pendingMu.Lock()
 	delete(a.pending, token)
@@ -273,7 +273,7 @@ func emailLoginSubject(pending string) string { return "login:" + pending }
 
 // beginEmailChallenge mails a fresh code for subject/email and remembers its hash to check later, refusing
 // if one was already sent for the same subject within emailResendCooldown.
-func (c *Core) beginEmailChallenge(subject, email string) (string, error) {
+func (c *Service) beginEmailChallenge(subject, email string) (string, error) {
 	a := c.authSt()
 	now := c.Now()
 	a.emailMu.Lock()
@@ -300,7 +300,7 @@ func (c *Core) beginEmailChallenge(subject, email string) (string, error) {
 // checkEmailChallenge reports whether code matches the outstanding challenge for subject, consuming it on a
 // match (so a code works exactly once) and leaving it in place on a miss (so a mistyped code can be retried
 // until it expires, the same as a TOTP code can).
-func (c *Core) checkEmailChallenge(subject, code string) bool {
+func (c *Service) checkEmailChallenge(subject, code string) bool {
 	a := c.authSt()
 	now := c.Now()
 	a.emailMu.Lock()
@@ -324,7 +324,7 @@ var errBusy = func() *kernel.Error {
 
 // acquireHash takes one of the few password-hashing slots (each run needs 64 MiB, so their number is the
 // server's memory bound for this). Waiting is bounded in both number and time.
-func (c *Core) acquireHash(ctx context.Context) (release func(), err error) {
+func (c *Service) acquireHash(ctx context.Context) (release func(), err error) {
 	a := c.authSt()
 	select {
 	case a.hashSem <- struct{}{}:
@@ -348,7 +348,7 @@ func (c *Core) acquireHash(ctx context.Context) (release func(), err error) {
 	}
 }
 
-func (c *Core) hashPassword(ctx context.Context, pw string) (string, error) {
+func (c *Service) hashPassword(ctx context.Context, pw string) (string, error) {
 	release, err := c.acquireHash(ctx)
 	if err != nil {
 		return "", err
@@ -357,7 +357,7 @@ func (c *Core) hashPassword(ctx context.Context, pw string) (string, error) {
 	return HashPassword(pw)
 }
 
-func (c *Core) verifyPassword(ctx context.Context, pw, hash string) (bool, error) {
+func (c *Service) verifyPassword(ctx context.Context, pw, hash string) (bool, error) {
 	release, err := c.acquireHash(ctx)
 	if err != nil {
 		return false, err
@@ -369,7 +369,7 @@ func (c *Core) verifyPassword(ctx context.Context, pw, hash string) (bool, error
 // Login checks the credentials and opens a session. Account names are unique across the server. The
 // error for a wrong username, a wrong password and a disabled account is the same, and the same
 // amount of work is done for each.
-func (c *Core) Login(ctx context.Context, ip, username, password string) (secret string, u store.User, err error) {
+func (c *Service) Login(ctx context.Context, ip, username, password string) (secret string, u store.User, err error) {
 	name := strings.ToLower(strings.TrimSpace(username))
 	key := kernel.LimitKey(ip)
 	if !c.authSt().loginIP.Allow(key) || !c.authSt().loginUser.Allow(key+"|"+name) {
@@ -424,7 +424,7 @@ func (c *Core) Login(ctx context.Context, ip, username, password string) (secret
 // enabled username, exactly as Login requires of a username/password pair. There is no password or second
 // factor to check here (the proxy already did that verifying), so the only gate against abuse is the same
 // per-address rate limit Login uses; a wrong or unknown identity fails exactly like a wrong password does.
-func (c *Core) LoginSSO(ctx context.Context, ip, assertedUsername string) (secret string, u store.User, err error) {
+func (c *Service) LoginSSO(ctx context.Context, ip, assertedUsername string) (secret string, u store.User, err error) {
 	name := strings.ToLower(strings.TrimSpace(assertedUsername))
 	if name == "" || len(name) > 64 {
 		return "", store.User{}, kernel.Errf(kernel.KindUnauthenticated, "no identity asserted")
@@ -452,7 +452,7 @@ func (c *Core) LoginSSO(ctx context.Context, ip, assertedUsername string) (secre
 // whichever of the account's active methods it matches. The pending token survives a wrong code (so a
 // mistyped one can simply be retried, bounded by the same per-account backoff as a wrong password) and is
 // consumed only once a code actually matches, or once it expires on its own.
-func (c *Core) Login2FA(ctx context.Context, ip, pending, code string) (secret string, u store.User, err error) {
+func (c *Service) Login2FA(ctx context.Context, ip, pending, code string) (secret string, u store.User, err error) {
 	key := kernel.LimitKey(ip)
 	if !c.authSt().loginIP.Allow(key) {
 		return "", store.User{}, kernel.Errf(kernel.KindRateLimited, "too many sign-in attempts, wait a minute")
@@ -504,7 +504,7 @@ func (c *Core) Login2FA(ctx context.Context, ip, pending, code string) (secret s
 // Login2FA accepts it back in its code parameter exactly like an authenticator code. Nothing is sent unless
 // the account actually has email turned on: a pending token alone does not choose which methods apply, the
 // account's own settings at beginTwoFactor time did (see twoFactorMethods).
-func (c *Core) RequestLoginEmailCode(ctx context.Context, ip, pending string) error {
+func (c *Service) RequestLoginEmailCode(ctx context.Context, ip, pending string) error {
 	key := kernel.LimitKey(ip)
 	if !c.authSt().loginIP.Allow(key) {
 		return kernel.Errf(kernel.KindRateLimited, "too many attempts, wait a minute")
@@ -530,7 +530,7 @@ func (c *Core) RequestLoginEmailCode(ctx context.Context, ip, pending string) er
 	return nil
 }
 
-func (c *Core) openSession(ctx context.Context, u store.User, ip string) (string, error) {
+func (c *Service) openSession(ctx context.Context, u store.User, ip string) (string, error) {
 	secret, err := newSessionSecret()
 	if err != nil {
 		return "", err
@@ -552,7 +552,7 @@ func (c *Core) openSession(ctx context.Context, u store.User, ip string) (string
 // only to the server's own trail (organisation ""), which no organisation's members can read. Members of
 // an organisation are not entitled to learn where a colleague, who may also belong to other
 // organisations, signs in from.
-func (c *Core) auditUser(ctx context.Context, u store.User, action, detail, ip string) {
+func (c *Service) auditUser(ctx context.Context, u store.User, action, detail, ip string) {
 	orgs, _ := c.Store.ListMyOrgs(ctx, u.ID)
 	for _, o := range orgs {
 		c.AuditOrg(ctx, o.ID, u.Username, action, "user", u.ID, detail)
@@ -569,7 +569,7 @@ func (c *Core) auditUser(ctx context.Context, u store.User, action, detail, ip s
 
 // Authenticate resolves a session secret to a person, or fails. Expiry, idleness and a disabled
 // account all end the session on the spot. It says nothing about any organisation.
-func (c *Core) Authenticate(ctx context.Context, secret string) (Principal, error) {
+func (c *Service) Authenticate(ctx context.Context, secret string) (Principal, error) {
 	deny := kernel.Errf(kernel.KindUnauthenticated, "sign in required")
 	if !strings.HasPrefix(secret, sessionPrefix) || len(secret) != len(sessionPrefix)+43 {
 		return Principal{}, deny
@@ -592,7 +592,7 @@ func (c *Core) Authenticate(ctx context.Context, secret string) (Principal, erro
 
 // Member places a signed-in person inside one organisation. A person who does not belong to it gets
 // the same "no such organisation" as for one that does not exist, so ids cannot be probed.
-func (c *Core) Member(ctx context.Context, p Principal, org string) (Principal, error) {
+func (c *Service) Member(ctx context.Context, p Principal, org string) (Principal, error) {
 	m, err := c.Store.GetMembership(ctx, org, p.User.ID)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
@@ -604,7 +604,7 @@ func (c *Core) Member(ctx context.Context, p Principal, org string) (Principal, 
 	return p, nil
 }
 
-func (c *Core) Logout(ctx context.Context, p Principal) {
+func (c *Service) Logout(ctx context.Context, p Principal) {
 	_ = c.Store.DeleteSession(ctx, p.SessionHash)
 	c.auditUser(ctx, p.User, "logout", "", "")
 }
@@ -617,7 +617,7 @@ const MaxAPITokenNameLen = 80
 // CreateAPIToken mints a personal access token for p, named name (blank becomes a generic default).
 // The secret is returned once, exactly like an invite or a freshly opened session: only its hash is
 // ever stored, so it cannot be shown again after this call returns.
-func (c *Core) CreateAPIToken(ctx context.Context, p Principal, name string) (secret string, tok store.APIToken, err error) {
+func (c *Service) CreateAPIToken(ctx context.Context, p Principal, name string) (secret string, tok store.APIToken, err error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		name = "Unnamed token"
@@ -639,7 +639,7 @@ func (c *Core) CreateAPIToken(ctx context.Context, p Principal, name string) (se
 }
 
 // ListAPITokens lists p's own tokens, newest first.
-func (c *Core) ListAPITokens(ctx context.Context, p Principal) ([]store.APIToken, error) {
+func (c *Service) ListAPITokens(ctx context.Context, p Principal) ([]store.APIToken, error) {
 	return c.Store.ListAPITokens(ctx, p.User.ID)
 }
 
@@ -647,7 +647,7 @@ func (c *Core) ListAPITokens(ctx context.Context, p Principal) ([]store.APIToken
 // call. There is no confirmation step the way disabling two-factor entirely needs one: a token exists
 // precisely so a script can act without a person present, so revoking one of several is routine, not
 // a whole method of signing in going away.
-func (c *Core) RevokeAPIToken(ctx context.Context, p Principal, id string) error {
+func (c *Service) RevokeAPIToken(ctx context.Context, p Principal, id string) error {
 	if err := c.Store.RevokeAPIToken(ctx, p.User.ID, id); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			return kernel.Errf(kernel.KindNotFound, "no such token")
@@ -663,7 +663,7 @@ func (c *Core) RevokeAPIToken(ctx context.Context, p Principal, id string) error
 // never expires or times out on idleness - only an explicit RevokeAPIToken ends it - since the whole
 // point is to keep working unattended; a disabled account still ends it immediately, the same as it
 // would a session.
-func (c *Core) AuthenticateAPIToken(ctx context.Context, secret string) (Principal, error) {
+func (c *Service) AuthenticateAPIToken(ctx context.Context, secret string) (Principal, error) {
 	deny := kernel.Errf(kernel.KindUnauthenticated, "sign in required")
 	if !kernel.LooksLikeAPIToken(secret) {
 		return Principal{}, deny
@@ -682,7 +682,7 @@ func (c *Core) AuthenticateAPIToken(ctx context.Context, secret string) (Princip
 
 // ChangePassword lets a person replace their own password. Every other browser they were signed
 // in on is signed out.
-func (c *Core) ChangePassword(ctx context.Context, p Principal, current, next string) error {
+func (c *Service) ChangePassword(ctx context.Context, p Principal, current, next string) error {
 	if !c.authSt().loginUser.Allow("pw|" + p.User.ID) {
 		return kernel.Errf(kernel.KindRateLimited, "too many attempts, wait a minute")
 	}
@@ -726,7 +726,7 @@ func (c *Core) ChangePassword(ctx context.Context, p Principal, current, next st
 
 // revokeAPITokens deletes every personal API token the account owns and reports how many it removed. It keeps
 // going past a single failure so one bad row cannot leave the rest alive, and returns the first error seen.
-func (c *Core) revokeAPITokens(ctx context.Context, userID string) (int, error) {
+func (c *Service) revokeAPITokens(ctx context.Context, userID string) (int, error) {
 	toks, err := c.Store.ListAPITokens(ctx, userID)
 	if err != nil {
 		return 0, err
@@ -756,7 +756,7 @@ const RecoveryCodeCount = 8
 // account (replacing any earlier unconfirmed one) and returns it together with the otpauth:// URI an
 // authenticator app reads. Nothing about sign-in changes until Enable2FA confirms the app can produce a
 // matching code - a setup nobody finishes never blocks sign-in.
-func (c *Core) Setup2FA(ctx context.Context, p Principal) (secret, otpauthURI string, err error) {
+func (c *Service) Setup2FA(ctx context.Context, p Principal) (secret, otpauthURI string, err error) {
 	if !c.authSt().loginUser.Allow("2fa-setup|" + p.User.ID) {
 		return "", "", kernel.Errf(kernel.KindRateLimited, "too many attempts, wait a minute")
 	}
@@ -776,7 +776,7 @@ func (c *Core) Setup2FA(ctx context.Context, p Principal) (secret, otpauthURI st
 // Enable2FA confirms a setup by checking one code from it, turns two-factor authentication on, and returns
 // a fresh set of recovery codes - shown to the person exactly once, like an enrollment token, since only
 // their hashes are kept.
-func (c *Core) Enable2FA(ctx context.Context, p Principal, code string) ([]string, error) {
+func (c *Service) Enable2FA(ctx context.Context, p Principal, code string) ([]string, error) {
 	if !c.authSt().loginUser.Allow("2fa-setup|" + p.User.ID) {
 		return nil, kernel.Errf(kernel.KindRateLimited, "too many attempts, wait a minute")
 	}
@@ -805,7 +805,7 @@ func (c *Core) Enable2FA(ctx context.Context, p Principal, code string) ([]strin
 // Disable2FA turns two-factor authentication off. It requires the current password, the same as changing
 // it, since removing a security measure deserves the same proof of presence as changing the one it
 // protects.
-func (c *Core) Disable2FA(ctx context.Context, p Principal, password string) error {
+func (c *Service) Disable2FA(ctx context.Context, p Principal, password string) error {
 	if !c.authSt().loginUser.Allow("2fa-setup|" + p.User.ID) {
 		return kernel.Errf(kernel.KindRateLimited, "too many attempts, wait a minute")
 	}
@@ -830,7 +830,7 @@ func (c *Core) Disable2FA(ctx context.Context, p Principal, password string) err
 // RequestEmailVerification starts confirming an email address for the signed-in account: it mails a 6-digit
 // code first, and only once that send succeeds does it store the address (unverified) on the account, so a
 // bad address or a mail failure never leaves a stray value behind. ConfirmEmail is the other half.
-func (c *Core) RequestEmailVerification(ctx context.Context, p Principal, email string) error {
+func (c *Service) RequestEmailVerification(ctx context.Context, p Principal, email string) error {
 	if !c.Mailer().Enabled() {
 		return kernel.Errf(kernel.KindConflict, "this server has no outgoing mail configured; ask an administrator")
 	}
@@ -853,7 +853,7 @@ func (c *Core) RequestEmailVerification(ctx context.Context, p Principal, email 
 
 // ConfirmEmail finishes RequestEmailVerification: code must match what was just mailed. Marks the address
 // verified, which is what makes it eligible for EnableEmailOTP.
-func (c *Core) ConfirmEmail(ctx context.Context, p Principal, code string) error {
+func (c *Service) ConfirmEmail(ctx context.Context, p Principal, code string) error {
 	if !c.authSt().loginUser.Allow("2fa-setup|" + p.User.ID) {
 		return kernel.Errf(kernel.KindRateLimited, "too many attempts, wait a minute")
 	}
@@ -878,7 +878,7 @@ func (c *Core) ConfirmEmail(ctx context.Context, p Principal, code string) error
 // EnableEmailOTP turns emailing a code into an accepted second sign-in factor. The address must already be
 // verified; there is no separate "type a code to turn it on" step the way TOTP has, because sending and
 // checking that code is exactly what verifying the address already did.
-func (c *Core) EnableEmailOTP(ctx context.Context, p Principal) error {
+func (c *Service) EnableEmailOTP(ctx context.Context, p Principal) error {
 	if !c.authSt().loginUser.Allow("2fa-setup|" + p.User.ID) {
 		return kernel.Errf(kernel.KindRateLimited, "too many attempts, wait a minute")
 	}
@@ -903,7 +903,7 @@ func (c *Core) EnableEmailOTP(ctx context.Context, p Principal) error {
 // DisableEmailOTP turns it back off, with the same proof-of-presence (current password) Disable2FA
 // requires. The address itself, and its verified state, are left alone - only whether it is trusted as a
 // sign-in factor changes, the same asymmetry SetEmail documents.
-func (c *Core) DisableEmailOTP(ctx context.Context, p Principal, password string) error {
+func (c *Service) DisableEmailOTP(ctx context.Context, p Principal, password string) error {
 	if !c.authSt().loginUser.Allow("2fa-setup|" + p.User.ID) {
 		return kernel.Errf(kernel.KindRateLimited, "too many attempts, wait a minute")
 	}
@@ -946,7 +946,7 @@ var errBadInvite = func() *kernel.Error {
 }
 
 // PreviewInvite tells someone holding an invitation what it is for, before they sign up.
-func (c *Core) PreviewInvite(ctx context.Context, ip, secret string) (store.Invite, string, error) {
+func (c *Service) PreviewInvite(ctx context.Context, ip, secret string) (store.Invite, string, error) {
 	if !c.authSt().regIP.Allow("inv|" + kernel.LimitKey(ip)) {
 		return store.Invite{}, "", kernel.Errf(kernel.KindRateLimited, "too many attempts, wait a minute")
 	}
@@ -980,7 +980,7 @@ func cleanOrgName(name string) (string, error) {
 // Register creates an account and signs it in. Without an invitation the new person also gets an
 // organisation of their own, which they own; with one they only join the organisation it names.
 // Who may register at all is the server's RegMode.
-func (c *Core) Register(ctx context.Context, ip, username, password, invite, orgName string) (string, store.User, error) {
+func (c *Service) Register(ctx context.Context, ip, username, password, invite, orgName string) (string, store.User, error) {
 	if !c.authSt().regIP.Allow("reg|"+kernel.LimitKey(ip)) || !c.authSt().regAll.Allow("reg") {
 		return "", store.User{}, kernel.Errf(kernel.KindRateLimited, "too many attempts, wait a minute")
 	}
@@ -1049,7 +1049,7 @@ func (c *Core) Register(ctx context.Context, ip, username, password, invite, org
 
 func newOrgID() string { return "org-" + kernel.RandHex(6) }
 
-func (c *Core) NameOf(ctx context.Context, userID string) string {
+func (c *Service) NameOf(ctx context.Context, userID string) string {
 	if u, err := c.Store.GetUser(ctx, userID); err == nil {
 		return u.Username
 	}
@@ -1057,7 +1057,7 @@ func (c *Core) NameOf(ctx context.Context, userID string) string {
 }
 
 // CreateOrg gives a signed-in person another organisation of their own (only where registration is open).
-func (c *Core) CreateOrg(ctx context.Context, p Principal, name string) (store.Org, error) {
+func (c *Service) CreateOrg(ctx context.Context, p Principal, name string) (store.Org, error) {
 	if c.EffectiveRegMode() != RegOpen {
 		return store.Org{}, kernel.Errf(kernel.KindForbidden, "this server does not let people create organisations")
 	}
@@ -1087,7 +1087,7 @@ func (c *Core) CreateOrg(ctx context.Context, p Principal, name string) (store.O
 }
 
 // AcceptInvite adds a signed-in person to the organisation an invitation names.
-func (c *Core) AcceptInvite(ctx context.Context, ip string, p Principal, secret string) (store.Org, string, error) {
+func (c *Service) AcceptInvite(ctx context.Context, ip string, p Principal, secret string) (store.Org, string, error) {
 	if !c.authSt().regIP.Allow("inv|" + kernel.LimitKey(ip)) {
 		return store.Org{}, "", kernel.Errf(kernel.KindRateLimited, "too many attempts, wait a minute")
 	}
@@ -1110,7 +1110,7 @@ func (c *Core) AcceptInvite(ctx context.Context, ip string, p Principal, secret 
 }
 
 // CreateInvite makes a one-time invitation to this organisation. The secret is returned once.
-func (c *Core) CreateInvite(ctx context.Context, p Principal, role, label string) (string, store.Invite, error) {
+func (c *Service) CreateInvite(ctx context.Context, p Principal, role, label string) (string, store.Invite, error) {
 	label = strings.TrimSpace(label)
 	if len(label) > 80 {
 		return "", store.Invite{}, kernel.Errf(kernel.KindInvalid, "the note is at most 80 characters")
@@ -1141,7 +1141,7 @@ func forLabel(l string) string {
 	return fmt.Sprintf(" for %q", l)
 }
 
-func (c *Core) RevokeInvite(ctx context.Context, p Principal, id string) error {
+func (c *Service) RevokeInvite(ctx context.Context, p Principal, id string) error {
 	invs, err := c.Store.ListInvites(ctx, c.OrgID)
 	if err != nil {
 		return err
@@ -1161,7 +1161,7 @@ func (c *Core) RevokeInvite(ctx context.Context, p Principal, id string) error {
 // SetMemberRole changes what someone may do here. Owners can set any role and change anyone; an
 // administrator can only move editors and viewers between editor and viewer. Nobody changes their
 // own role, and the last owner cannot be demoted.
-func (c *Core) SetMemberRole(ctx context.Context, p Principal, userID, role string) error {
+func (c *Service) SetMemberRole(ctx context.Context, p Principal, userID, role string) error {
 	if !validRole(role) {
 		return kernel.Errf(kernel.KindInvalid, "role must be owner, admin, editor or viewer")
 	}
@@ -1188,7 +1188,7 @@ func (c *Core) SetMemberRole(ctx context.Context, p Principal, userID, role stri
 
 // RemoveMember takes someone out of the organisation, or lets a person leave it. They keep their
 // account and their other organisations.
-func (c *Core) RemoveMember(ctx context.Context, p Principal, userID string) error {
+func (c *Service) RemoveMember(ctx context.Context, p Principal, userID string) error {
 	c.UserMu.Lock()
 	defer c.UserMu.Unlock()
 	m, u, err := c.member(ctx, userID)
@@ -1212,7 +1212,7 @@ func (c *Core) RemoveMember(ctx context.Context, p Principal, userID string) err
 		store.WithAudit(c.AuditRow(c.OrgID, p.User.Username, action, "user", u.ID, detail))), action)
 }
 
-func (c *Core) member(ctx context.Context, userID string) (store.Membership, store.User, error) {
+func (c *Service) member(ctx context.Context, userID string) (store.Membership, store.User, error) {
 	m, err := c.Store.GetMembership(ctx, c.OrgID, userID)
 	if errors.Is(err, store.ErrNotFound) {
 		return m, store.User{}, kernel.Errf(kernel.KindNotFound, "no such member")
@@ -1224,7 +1224,7 @@ func (c *Core) member(ctx context.Context, userID string) (store.Membership, sto
 	return m, u, err
 }
 
-func (c *Core) needAnotherOwner(ctx context.Context, u store.User) error {
+func (c *Service) needAnotherOwner(ctx context.Context, u store.User) error {
 	n, err := c.Store.CountOwners(ctx, c.OrgID)
 	if err != nil {
 		return err
@@ -1236,7 +1236,7 @@ func (c *Core) needAnotherOwner(ctx context.Context, u store.User) error {
 }
 
 // RenameOrg changes the display name.
-func (c *Core) RenameOrg(ctx context.Context, p Principal, name string) error {
+func (c *Service) RenameOrg(ctx context.Context, p Principal, name string) error {
 	name, err := cleanOrgName(name)
 	if err != nil {
 		return err
@@ -1247,7 +1247,7 @@ func (c *Core) RenameOrg(ctx context.Context, p Principal, name string) error {
 
 // DeleteOrg erases the organisation with its agents, topology, history and members. The caller must
 // type its name. The main organisation cannot be deleted. The audit trail is kept, so it stays possible to see who deleted it.
-func (c *Core) DeleteOrg(ctx context.Context, p Principal, confirm string) error {
+func (c *Service) DeleteOrg(ctx context.Context, p Principal, confirm string) error {
 	if c.OrgID == c.MainOrg() {
 		return kernel.Errf(kernel.KindInvalid, "the main organisation owns FUSION and the server's mail settings, and cannot be deleted")
 	}
@@ -1272,7 +1272,7 @@ func (c *Core) DeleteOrg(ctx context.Context, p Principal, confirm string) error
 // database. With an empty password a random one is generated and returned (shown once, and must be
 // changed at first sign-in); an operator-supplied password (for example from a container secret) is
 // accepted as chosen. It does nothing when any account already exists.
-func (c *Core) BootstrapAdmin(ctx context.Context, password string) (created bool, generated string, err error) {
+func (c *Service) BootstrapAdmin(ctx context.Context, password string) (created bool, generated string, err error) {
 	n, err := c.Store.CountUsers(ctx)
 	if err != nil || n > 0 {
 		return false, "", err
@@ -1306,7 +1306,7 @@ func (c *Core) BootstrapAdmin(ctx context.Context, password string) (created boo
 // MainOrg is the server's main organisation: the one created together with the first account (see DefaultOrg), the one
 // FUSION belongs to. The platform-wide core has no organisation of its own (OrgID is empty), so code that needs "the
 // main one" asks here rather than reading OrgID.
-func (c *Core) MainOrg() string { return firstNonEmpty(c.DefaultOrg, "default") }
+func (c *Service) MainOrg() string { return firstNonEmpty(c.DefaultOrg, "default") }
 
 func firstNonEmpty(a, b string) string {
 	if a != "" {
@@ -1318,7 +1318,7 @@ func firstNonEmpty(a, b string) string {
 // RecoverPassword is the offline recovery path (server binary, run on the host): it resets the
 // named account, or creates it if it does not exist. A new account is given no organisation; add
 // one with CreateOrgFor.
-func (c *Core) RecoverPassword(ctx context.Context, username string) (string, error) {
+func (c *Service) RecoverPassword(ctx context.Context, username string) (string, error) {
 	pw, err := randomPassword()
 	if err != nil {
 		return "", err
@@ -1355,7 +1355,7 @@ func (c *Core) RecoverPassword(ctx context.Context, username string) (string, er
 
 // CreateOrgFor is the operator's way to make an organisation for an existing account (or join
 // one to an existing organisation), whatever the registration mode. name is the display name.
-func (c *Core) CreateOrgFor(ctx context.Context, username, name string) (store.Org, error) {
+func (c *Service) CreateOrgFor(ctx context.Context, username, name string) (store.Org, error) {
 	u, err := c.Store.GetUserByName(ctx, strings.ToLower(username))
 	if err != nil {
 		return store.Org{}, fmt.Errorf("no account named %q", username)
@@ -1374,10 +1374,10 @@ func (c *Core) CreateOrgFor(ctx context.Context, username, name string) (store.O
 
 // authSt is the sign-in state of the whole server (the rate limiters, the failure counts): shared by every organisation's view of the
 // Core, like the limiters it holds.
-func (c *Core) authSt() *authState { return kernel.ServerState(c, "accounts.auth", newAuthState) }
+func (c *Service) authSt() *authState { return kernel.ServerState(c, "accounts.auth", newAuthState) }
 
 // regMode is who may create an account: RegMode, or open when it was not set.
-func (c *Core) EffectiveRegMode() string {
+func (c *Service) EffectiveRegMode() string {
 	if c.RegMode == "" {
 		return RegOpen
 	}

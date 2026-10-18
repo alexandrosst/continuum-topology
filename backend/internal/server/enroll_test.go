@@ -12,6 +12,7 @@ import (
 	"time"
 
 	continuumv1 "continuum/gen/continuumv1"
+	"continuum/internal/accounts"
 	"continuum/internal/approval"
 	"continuum/internal/kernel"
 	"continuum/internal/store"
@@ -486,7 +487,7 @@ func TestStateShowsApprovalDetailsForPendingAgents(t *testing.T) {
 
 func TestAdminApproveWithCodeAnswersWithAttemptsLeft(t *testing.T) {
 	a := newAdminRig(t)
-	_, owner := a.user(t, "boss", RoleOwner)
+	_, owner := a.user(t, "boss", accounts.RoleOwner)
 	c := a.enrollCoded(t, fp)
 	r := a.do("POST", "/api/v1/agents/"+c.resp.AgentId+"/approve", map[string]any{"code": "ZZZZ-ZZZZ", "tier": 2}, withCookie(owner))
 	if r.Code != 400 {
@@ -503,7 +504,7 @@ func TestAdminApproveWithCodeAnswersWithAttemptsLeft(t *testing.T) {
 
 func TestAdminTokenCanBeBoundToACluster(t *testing.T) {
 	a := newAdminRig(t)
-	_, owner := a.user(t, "boss", RoleOwner)
+	_, owner := a.user(t, "boss", accounts.RoleOwner)
 	r := a.do("POST", "/api/v1/tokens", map[string]any{"name": "prod", "tier": 1, "expectedCluster": fp}, withCookie(owner))
 	if r.Code != 201 {
 		t.Fatalf("%d %s", r.Code, r.Body.String())

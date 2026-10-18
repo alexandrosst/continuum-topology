@@ -7,7 +7,8 @@
 #               depends on nothing in this one; the only file of it here is the bridge, which is the Core with the methods the
 #               modules add to it.
 # accounts      people, organisations, roles, sessions, API tokens, passkeys and two-factor; the vocabulary of who is calling (Actor,
-#               Principal, Role) and the one decision of what a caller may do (Decide).
+#               Principal, Role) and the one decision of what a caller may do (Decide). It is the package internal/accounts; no file
+#               of it is left here.
 # agents        an enrolled agent: tokens and enrolment, the stream, consent and access tier, diagnostics, the agent's own health.
 # estate        what the servers know about the world: the hub, the per-agent views, the observed flows, the twin, history, the
 #               applications graph.
@@ -20,7 +21,6 @@
 #               It wires modules together and may use any of them; none may use it.
 #
 # A file added to the package must be added here, in the same change: a test fails otherwise.
-actor.go                        accounts
 address_check.go                connectivity
 address_drift.go                connectivity
 address_reach.go                connectivity
@@ -44,14 +44,12 @@ advisor_records.go              advice
 agent_lifecycle.go              agents
 applications_graph.go           estate
 assemble.go                     estate
-auth.go                         accounts
 conditions.go                   agents
 config_digest.go                connectivity
 consent.go                      agents
 decide_advice.go                advice
 decide_sign.go                  advice
 decisions.go                    advice
-emailcode.go                    accounts
 enroll.go                       agents
 fusion.go                       fusion
 fusion_appinfo.go               fusion
@@ -72,7 +70,6 @@ linkcreds.go                    connectivity
 links.go                        connectivity
 links_latest.go                 connectivity
 links_setup.go                  connectivity
-mail.go                         accounts
 metrics.go                      shell
 observed.go                     estate
 operator_ca_cache.go            operators
@@ -83,9 +80,7 @@ operator_renew.go               operators
 operator_senders.go             operators
 operator_usage.go               operators
 operators.go                    operators
-password.go                     accounts
 paths.go                        connectivity
-policy.go                       accounts
 proposal_outcomes.go            advice
 proposals.go                    advice
 proxyproto.go                   agents
@@ -101,9 +96,7 @@ suspect.go                      agents
 telemetry_intents.go            telemetry
 tenants.go                      shell
 tier.go                         agents
-totp.go                         accounts
 tunnels.go                      connectivity
 twin.go                         estate
-webauthn.go                     accounts
 workspace_save.go               estate
 admin_mail.go                   shell

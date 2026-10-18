@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"continuum/internal/accounts"
 	"continuum/internal/store"
 )
 
@@ -24,7 +25,7 @@ func TestTheExampleAdvisorProposesThroughTheRealAPIAndOnlyProposes(t *testing.T)
 		t.Fatal(err)
 	}
 	a := newAdminRig(t)
-	_, editor := a.user(t, "edith", RoleEditor)
+	_, editor := a.user(t, "edith", accounts.RoleEditor)
 	id, _, _ := a.approvedAgent(t, fp) // approved at tier 2
 	secret, _ := a.do("POST", "/api/v1/auth/tokens", map[string]string{"name": "advisor"}, withCookie(editor)).json(t)["token"].(string)
 	if secret == "" {
@@ -94,7 +95,7 @@ func TestTheExampleAdvisorProposesThroughTheRealAPIAndOnlyProposes(t *testing.T)
 		t.Fatalf("show: %v\n%s", err, out)
 	}
 	// once a person accepts it, the collector is paused and the advisor has nothing more to say
-	if _, err := h.AcceptProposal(asRole(RoleEditor), "edith", ps[0].ID, ""); err != nil {
+	if _, err := h.AcceptProposal(asRole(accounts.RoleEditor), "edith", ps[0].ID, ""); err != nil {
 		t.Fatal(err)
 	}
 	if c := h.consentOf(id); len(c.Paused) != 1 || c.Paused[0] != "flow" {

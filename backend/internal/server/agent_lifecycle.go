@@ -9,6 +9,7 @@ import (
 	"time"
 
 	continuumv1 "continuum/gen/continuumv1"
+	"continuum/internal/accounts"
 	"continuum/internal/kernel"
 	"continuum/internal/pki"
 	"continuum/internal/store"
@@ -201,6 +202,6 @@ func (c *Core) Rejoin(ctx context.Context, ip string, req *continuumv1.RejoinReq
 	if err := c.Store.SetLeaf(ctx, id, der, notAfter); err != nil {
 		return nil, err
 	}
-	c.AuditOrg(ctx, ag.OrgID, AgentActor(id).String(), "agent-rejoined", "agent", id, fmt.Sprintf("from %s after its certificate expired at %s", ip, rfc(leaf.NotAfter)))
+	c.AuditOrg(ctx, ag.OrgID, accounts.AgentActor(id).String(), "agent-rejoined", "agent", id, fmt.Sprintf("from %s after its certificate expired at %s", ip, rfc(leaf.NotAfter)))
 	return &continuumv1.RenewResponse{LeafDer: der, CaDer: c.CA.DER, NotAfter: kernel.TSProto(&notAfter)}, nil
 }

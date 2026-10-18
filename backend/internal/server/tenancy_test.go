@@ -12,6 +12,7 @@ import (
 	"time"
 
 	continuumv1 "continuum/gen/continuumv1"
+	"continuum/internal/accounts"
 	"continuum/internal/kernel"
 	"continuum/internal/pki"
 	"continuum/internal/store"
@@ -35,13 +36,13 @@ func org(id, p string) string { return "/api/v1/orgs/" + id + "/" + p }
 
 func TestSelfServiceRegistrationCreatesAnAccountAndAnOrganisationItOwns(t *testing.T) {
 	a := newAdminRig(t)
-	if got := a.do("GET", "/api/v1/server", nil).json(t)["registration"]; got != RegOpen {
+	if got := a.do("GET", "/api/v1/server", nil).json(t)["registration"]; got != accounts.RegOpen {
 		t.Fatalf("registration mode = %v", got)
 	}
 	cookie, id := a.register(t, "alice", "Alice Lab")
 	me := a.do("GET", "/api/v1/auth/me", nil, withCookie(cookie)).json(t)
 	orgs := me["orgs"].([]any)
-	if o := orgs[0].(map[string]any); o["role"] != RoleOwner || o["name"] != "Alice Lab" || o["id"] != id {
+	if o := orgs[0].(map[string]any); o["role"] != accounts.RoleOwner || o["name"] != "Alice Lab" || o["id"] != id {
 		t.Fatalf("orgs = %v", orgs)
 	}
 	if r := a.do("GET", org(id, "state"), nil, withCookie(cookie)); r.Code != 200 {
@@ -75,25 +76,25 @@ func TestSelfServiceRegistrationCreatesAnAccountAndAnOrganisationItOwns(t *testi
 
 func TestRegistrationModes(t *testing.T) {
 	a := newAdminRig(t)
-	a.base.RegMode = RegInvite
+	a.base.RegMode = accounts.RegInvite
 	if c := a.do("POST", "/api/v1/auth/register", map[string]string{"username": "carol", "password": goodPW}).Code; c != 403 {
 		t.Fatalf("invitation-only server accepted a plain sign-up: %d", c)
 	}
-	_, owner := a.user(t, "boss", RoleOwner)
-	tok := a.invite(t, owner, RoleViewer, "carol")
+	_, owner := a.user(t, "boss", accounts.RoleOwner)
+	tok := a.invite(t, owner, accounts.RoleViewer, "carol")
 	r := a.do("POST", "/api/v1/auth/register", map[string]string{"username": "carol", "password": goodPW, "invite": tok})
 	if r.Code != 201 {
 		t.Fatalf("sign-up with an invitation: %d %s", r.Code, r.Body.String())
 	}
 	orgs := r.json(t)["orgs"].([]any)
-	if len(orgs) != 1 || orgs[0].(map[string]any)["id"] != "org-1" || orgs[0].(map[string]any)["role"] != RoleViewer {
+	if len(orgs) != 1 || orgs[0].(map[string]any)["id"] != "org-1" || orgs[0].(map[string]any)["role"] != accounts.RoleViewer {
 		t.Fatalf("orgs = %v", orgs)
 	}
 	if c := a.do("POST", "/api/v1/orgs", map[string]string{"name": "Mine"}, withCookie(r.cookie())).Code; c != 403 {
 		t.Errorf("creating an organisation on an invitation-only server: %d", c)
 	}
-	a.base.RegMode = RegClosed
-	tok2 := a.invite(t, owner, RoleViewer, "dave")
+	a.base.RegMode = accounts.RegClosed
+	tok2 := a.invite(t, owner, accounts.RoleViewer, "dave")
 	if c := a.do("POST", "/api/v1/auth/register", map[string]string{"username": "dave", "password": goodPW, "invite": tok2}).Code; c != 403 {
 		t.Errorf("closed server accepted a sign-up: %d", c)
 	}
@@ -223,16 +224,16 @@ func TestSameClusterCanBeRegisteredByTwoTenantsIndependently(t *testing.T) {
 
 func TestInvitationsAreOneTimeExpiringAndRoleBound(t *testing.T) {
 	a := newAdminRig(t)
-	ownerID, owner := a.user(t, "boss", RoleOwner)
-	_, admin := a.user(t, "adm", RoleAdmin)
-	_, editor := a.user(t, "ed", RoleEditor)
+	ownerID, owner := a.user(t, "boss", accounts.RoleOwner)
+	_, admin := a.user(t, "adm", accounts.RoleAdmin)
+	_, editor := a.user(t, "ed", accounts.RoleEditor)
 	_ = ownerID
 
 	// Who may invite whom.
-	if c := a.do("POST", "/api/v1/invites", map[string]string{"role": RoleViewer}, withCookie(editor)).Code; c != 403 {
+	if c := a.do("POST", "/api/v1/invites", map[string]string{"role": accounts.RoleViewer}, withCookie(editor)).Code; c != 403 {
 		t.Errorf("an editor invited someone: %d", c)
 	}
-	for _, role := range []string{RoleOwner, RoleAdmin} {
+	for _, role := range []string{accounts.RoleOwner, accounts.RoleAdmin} {
 		if c := a.do("POST", "/api/v1/invites", map[string]string{"role": role}, withCookie(admin)).Code; c != 403 {
 			t.Errorf("an administrator invited an %s: %d", role, c)
 		}
@@ -240,7 +241,7 @@ func TestInvitationsAreOneTimeExpiringAndRoleBound(t *testing.T) {
 	if c := a.do("POST", "/api/v1/invites", map[string]string{"role": "root"}, withCookie(owner)).Code; c != 400 {
 		t.Errorf("made-up role: %d", c)
 	}
-	tok := a.invite(t, admin, RoleEditor, "eve")
+	tok := a.invite(t, admin, accounts.RoleEditor, "eve")
 
 	// The list never shows the secret, only what it is for.
 	list := a.do("GET", "/api/v1/invites", nil, withCookie(owner)).Body.String()
@@ -249,17 +250,17 @@ func TestInvitationsAreOneTimeExpiringAndRoleBound(t *testing.T) {
 	}
 	// Preview says what it is, to someone who is not signed in.
 	pv := a.do("POST", "/api/v1/invites/preview", map[string]string{"token": tok}, fromIP("10.4.4.4"))
-	if pv.Code != 200 || pv.json(t)["organisation"] != "Org One" || pv.json(t)["role"] != RoleEditor {
+	if pv.Code != 200 || pv.json(t)["organisation"] != "Org One" || pv.json(t)["role"] != accounts.RoleEditor {
 		t.Fatalf("preview: %d %s", pv.Code, pv.Body.String())
 	}
 	// An existing person accepts it while signed in.
 	frankID := a.account(t, "frank")
 	frank := a.login(t, "frank", goodPW)
 	acc := a.do("POST", "/api/v1/invites/accept", map[string]string{"token": tok}, withCookie(frank), fromIP("10.30.0.1"))
-	if acc.Code != 200 || acc.json(t)["role"] != RoleEditor || acc.json(t)["id"] != "org-1" {
+	if acc.Code != 200 || acc.json(t)["role"] != accounts.RoleEditor || acc.json(t)["id"] != "org-1" {
 		t.Fatalf("accept: %d %s", acc.Code, acc.Body.String())
 	}
-	if m, err := a.st.GetMembership(a.ctx, "org-1", frankID); err != nil || m.Role != RoleEditor {
+	if m, err := a.st.GetMembership(a.ctx, "org-1", frankID); err != nil || m.Role != accounts.RoleEditor {
 		t.Fatalf("membership: %+v %v", m, err)
 	}
 	// One time only.
@@ -275,7 +276,7 @@ func TestInvitationsAreOneTimeExpiringAndRoleBound(t *testing.T) {
 		t.Errorf("a used invitation still previews: %d", c)
 	}
 	// An existing member keeps their role and the invitation is not spent.
-	tok2 := a.invite(t, owner, RoleViewer, "")
+	tok2 := a.invite(t, owner, accounts.RoleViewer, "")
 	if c := a.do("POST", "/api/v1/invites/accept", map[string]string{"token": tok2}, withCookie(frank), fromIP("10.30.0.3")).Code; c != 409 {
 		t.Errorf("accepting into an organisation you are in: %d", c)
 	}
@@ -283,7 +284,7 @@ func TestInvitationsAreOneTimeExpiringAndRoleBound(t *testing.T) {
 		t.Errorf("the unspent invitation: %d", c)
 	}
 	// Revoked and expired invitations are refused; garbage is refused without hitting the database.
-	tok3 := a.invite(t, owner, RoleViewer, "late")
+	tok3 := a.invite(t, owner, accounts.RoleViewer, "late")
 	invs, _ := a.st.ListInvites(a.ctx, "org-1")
 	var id3 string
 	for _, i := range invs {
@@ -292,12 +293,12 @@ func TestInvitationsAreOneTimeExpiringAndRoleBound(t *testing.T) {
 		}
 	}
 	hank := a.login(t, "frank", goodPW)
-	*a.now = a.now.Add(InviteTTL + time.Minute)
+	*a.now = a.now.Add(accounts.InviteTTL + time.Minute)
 	if c := a.do("POST", "/api/v1/invites/accept", map[string]string{"token": tok3}, withCookie(hank), fromIP("10.30.0.5")).Code; c != 400 && c != 401 {
 		t.Errorf("an expired invitation worked: %d", c)
 	}
-	*a.now = a.now.Add(-InviteTTL - time.Minute)
-	tok4 := a.invite(t, owner, RoleViewer, "gone")
+	*a.now = a.now.Add(-accounts.InviteTTL - time.Minute)
+	tok4 := a.invite(t, owner, accounts.RoleViewer, "gone")
 	invs, _ = a.st.ListInvites(a.ctx, "org-1")
 	for _, i := range invs {
 		if i.Label == "gone" {
@@ -325,10 +326,10 @@ func TestRoleRulesAndTheLastOwner(t *testing.T) {
 	if err := a.st.RemoveMember(a.ctx, "org-1", "u-owner"); err != nil { // the rig's own placeholder owner
 		t.Fatal(err)
 	}
-	ownerID, owner := a.user(t, "boss", RoleOwner)
-	admID, admin := a.user(t, "adm", RoleAdmin)
-	edID, editor := a.user(t, "ed", RoleEditor)
-	viewID, viewer := a.user(t, "view", RoleViewer)
+	ownerID, owner := a.user(t, "boss", accounts.RoleOwner)
+	admID, admin := a.user(t, "adm", accounts.RoleAdmin)
+	edID, editor := a.user(t, "ed", accounts.RoleEditor)
+	viewID, viewer := a.user(t, "view", accounts.RoleViewer)
 	setRole := func(cookie, id, role string) int {
 		return a.do("POST", org("org-1", "members/"+id+"/role"), map[string]string{"role": role}, withCookie(cookie)).Code
 	}
@@ -353,16 +354,16 @@ func TestRoleRulesAndTheLastOwner(t *testing.T) {
 	}
 
 	// An administrator moves editors and viewers around, and nobody else.
-	if c := setRole(admin, viewID, RoleEditor); c != 204 {
+	if c := setRole(admin, viewID, accounts.RoleEditor); c != 204 {
 		t.Errorf("admin: viewer→editor: %d", c)
 	}
 	for name, c := range map[string]int{
-		"admin promotes to admin": setRole(admin, edID, RoleAdmin),
-		"admin demotes an owner":  setRole(admin, ownerID, RoleViewer),
+		"admin promotes to admin": setRole(admin, edID, accounts.RoleAdmin),
+		"admin demotes an owner":  setRole(admin, ownerID, accounts.RoleViewer),
 		"admin removes an owner":  remove(admin, ownerID),
-		"editor sets a role":      setRole(editor, viewID, RoleViewer),
+		"editor sets a role":      setRole(editor, viewID, accounts.RoleViewer),
 		"editor removes someone":  remove(editor, viewID),
-		"own role":                setRole(owner, ownerID, RoleAdmin),
+		"own role":                setRole(owner, ownerID, accounts.RoleAdmin),
 	} {
 		if c == 204 || c == 200 {
 			t.Errorf("%s was allowed", name)
@@ -376,13 +377,13 @@ func TestRoleRulesAndTheLastOwner(t *testing.T) {
 	if c := a.do("POST", org("org-1", "leave"), nil, withCookie(owner)).Code; c != 409 {
 		t.Errorf("the only owner left: %d", c)
 	}
-	if c := setRole(owner, admID, RoleOwner); c != 204 {
+	if c := setRole(owner, admID, accounts.RoleOwner); c != 204 {
 		t.Fatalf("owner promotes: %d", c)
 	}
-	if c := setRole(admin, ownerID, RoleViewer); c != 204 { // admin is an owner now
+	if c := setRole(admin, ownerID, accounts.RoleViewer); c != 204 { // admin is an owner now
 		t.Errorf("a second owner demoting the first: %d", c)
 	}
-	if c := setRole(admin, admID, RoleViewer); c != 409 && c != 403 {
+	if c := setRole(admin, admID, accounts.RoleViewer); c != 409 && c != 403 {
 		t.Errorf("demoting yourself: %d", c)
 	}
 	if c := a.do("POST", org("org-1", "leave"), nil, withCookie(admin)).Code; c != 409 {
@@ -467,7 +468,7 @@ func TestDeletingAnOrganisationErasesItsDataAndEndsItsAgents(t *testing.T) {
 // The main organisation owns FUSION and the server's mail settings; deleting it would orphan both.
 func TestTheMainOrganisationCannotBeDeleted(t *testing.T) {
 	e := newEnv(t)
-	err := e.core.DeleteOrg(e.ctx, Principal{User: store.User{Username: "x"}}, "Org One")
+	err := e.core.Accounts.DeleteOrg(e.ctx, accounts.Principal{User: store.User{Username: "x"}}, "Org One")
 	var se *kernel.Error
 	if !errors.As(err, &se) || se.Kind != kernel.KindInvalid {
 		t.Fatalf("deleting the main organisation: %v", err)
@@ -564,14 +565,14 @@ func TestRejoinKeepsTheAgentsOwnOrganisation(t *testing.T) {
 func TestMigrationOfALegacySingleOrganisationDatabase(t *testing.T) {
 	// Covered where the schema lives; here we check the bootstrap path on a fresh database stays whole.
 	a := adminRigOn(t, newEnvBare(t))
-	created, pw, err := a.base.BootstrapAdmin(a.ctx, "")
+	created, pw, err := a.base.Accounts.BootstrapAdmin(a.ctx, "")
 	if err != nil || !created || pw == "" {
 		t.Fatalf("%v %v", created, err)
 	}
 	c := a.login(t, "admin", pw)
 	me := a.do("GET", "/api/v1/auth/me", nil, withCookie(c)).json(t)
 	orgs := me["orgs"].([]any)
-	if len(orgs) != 1 || orgs[0].(map[string]any)["role"] != RoleOwner || orgs[0].(map[string]any)["id"] != "org-1" {
+	if len(orgs) != 1 || orgs[0].(map[string]any)["role"] != accounts.RoleOwner || orgs[0].(map[string]any)["id"] != "org-1" {
 		t.Fatalf("bootstrap organisation = %v", orgs)
 	}
 	var _ context.Context = a.ctx

@@ -11,12 +11,13 @@ import (
 	"testing"
 	"time"
 
+	"continuum/internal/accounts"
 	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
 
 func init() { // cheap argon2 for tests; production values are exercised by TestProductionArgonParameters
-	ArgonMemoryKiB, ArgonTime, ArgonThreads = 1024, 1, 1
+	accounts.ArgonMemoryKiB, accounts.ArgonTime, accounts.ArgonThreads = 1024, 1, 1
 }
 
 const goodPW = "correct horse battery 9" // a digit too, now that CheckPasswordPolicy requires one (the spaces already count as its required symbol)
@@ -134,7 +135,7 @@ func (a *adminRig) account(t *testing.T, name string) string {
 
 func mustHash(t *testing.T, pw string) string {
 	t.Helper()
-	h, err := HashPassword(pw)
+	h, err := accounts.HashPassword(pw)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,11 +153,11 @@ func (a *adminRig) login(t *testing.T, name, pw string) string {
 
 func TestBootstrapAdminForcesAPasswordChangeAndSignsOutOtherBrowsers(t *testing.T) {
 	a := adminRigOn(t, newEnvBare(t))
-	created, first, err := a.base.BootstrapAdmin(a.ctx, "")
+	created, first, err := a.base.Accounts.BootstrapAdmin(a.ctx, "")
 	if err != nil || !created || len(first) < 16 {
 		t.Fatalf("bootstrap: %v %v %q", created, err, first)
 	}
-	if again, _, _ := a.base.BootstrapAdmin(a.ctx, ""); again {
+	if again, _, _ := a.base.Accounts.BootstrapAdmin(a.ctx, ""); again {
 		t.Fatal("bootstrap must do nothing once a user exists")
 	}
 	c1, c2 := a.login(t, "admin", first), a.login(t, "ADMIN", first) // user names are case-insensitive
@@ -196,10 +197,10 @@ func TestBootstrapAdminForcesAPasswordChangeAndSignsOutOtherBrowsers(t *testing.
 
 func TestOperatorSuppliedAdminPasswordIsNotForcedToChange(t *testing.T) {
 	a := adminRigOn(t, newEnvBare(t))
-	if _, _, err := a.base.BootstrapAdmin(a.ctx, "short"); err == nil {
+	if _, _, err := a.base.Accounts.BootstrapAdmin(a.ctx, "short"); err == nil {
 		t.Fatal("a weak operator password was accepted")
 	}
-	if created, gen, err := a.base.BootstrapAdmin(a.ctx, "from the secret store 1"); err != nil || !created || gen != "" {
+	if created, gen, err := a.base.Accounts.BootstrapAdmin(a.ctx, "from the secret store 1"); err != nil || !created || gen != "" {
 		t.Fatalf("%v %v %q", created, err, gen)
 	}
 	c := a.login(t, "admin", "from the secret store 1")
@@ -210,7 +211,7 @@ func TestOperatorSuppliedAdminPasswordIsNotForcedToChange(t *testing.T) {
 
 func TestWrongPasswordAndUnknownUserAreIndistinguishableAndThrottled(t *testing.T) {
 	a := newAdminRig(t)
-	a.user(t, "alex", RoleAdmin)
+	a.user(t, "alex", accounts.RoleAdmin)
 	wrong := a.do("POST", "/api/v1/auth/login", map[string]string{"username": "alex", "password": "not the password"}, fromIP("10.9.0.1"))
 	ghost := a.do("POST", "/api/v1/auth/login", map[string]string{"username": "nobody", "password": "not the password"}, fromIP("10.9.0.2"))
 	if wrong.Code != 401 || ghost.Code != 401 || wrong.Body.String() != ghost.Body.String() {
@@ -256,7 +257,7 @@ func TestWrongPasswordAndUnknownUserAreIndistinguishableAndThrottled(t *testing.
 
 func TestOnlyFailedSessionChecksAreThrottled(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	for i := 0; i < 300; i++ { // the UI polls constantly with a valid session
 		if c := a.do("GET", "/api/v1/info", nil, withCookie(cookie)).Code; c != 200 {
 			t.Fatalf("poll %d: %d", i, c)
@@ -278,8 +279,8 @@ func TestOnlyFailedSessionChecksAreThrottled(t *testing.T) {
 
 func TestRolesViewerReadsAdminWrites(t *testing.T) {
 	a := newAdminRig(t)
-	_, admin := a.user(t, "boss", RoleAdmin)
-	_, viewer := a.user(t, "reader", RoleViewer)
+	_, admin := a.user(t, "boss", accounts.RoleAdmin)
+	_, viewer := a.user(t, "reader", accounts.RoleViewer)
 	for _, p := range []string{"/api/v1/info", "/api/v1/state", "/api/v1/workspace"} {
 		if c := a.do("GET", p, nil, withCookie(viewer)).Code; c != 200 {
 			t.Errorf("viewer GET %s: %d", p, c)
@@ -315,7 +316,7 @@ func TestRolesViewerReadsAdminWrites(t *testing.T) {
 
 func TestCSRFDefences(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	body := map[string]any{"name": "edge", "tier": 1}
 	if c := a.do("POST", "/api/v1/tokens", body, withCookie(cookie), withoutXRW()).Code; c != 403 {
 		t.Errorf("no custom header: %d", c)
@@ -343,7 +344,7 @@ func TestCSRFDefences(t *testing.T) {
 
 func TestSessionCookieFlags(t *testing.T) {
 	a := newAdminRig(t)
-	a.user(t, "alex", RoleAdmin)
+	a.user(t, "alex", accounts.RoleAdmin)
 	login := func(opts ...opt) *http.Cookie {
 		r := a.do("POST", "/api/v1/auth/login", map[string]string{"username": "alex", "password": goodPW}, opts...)
 		for _, c := range r.Result().Cookies() {
@@ -378,8 +379,8 @@ func TestSessionCookieFlags(t *testing.T) {
 
 func TestSessionsExpireIdleAbsoluteAndOnDisable(t *testing.T) {
 	a := newAdminRig(t)
-	_, admin := a.user(t, "boss", RoleAdmin)
-	victimID, victim := a.user(t, "victim", RoleViewer)
+	_, admin := a.user(t, "boss", accounts.RoleAdmin)
+	victimID, victim := a.user(t, "victim", accounts.RoleViewer)
 	start := *a.now
 	check := func(c string) int { return a.do("GET", "/api/v1/info", nil, withCookie(c)).Code }
 
@@ -405,7 +406,7 @@ func TestSessionsExpireIdleAbsoluteAndOnDisable(t *testing.T) {
 	}
 
 	// Idle: unused for longer than SessionIdle.
-	*a.now = start.Add(SessionIdle + time.Minute)
+	*a.now = start.Add(accounts.SessionIdle + time.Minute)
 	if check(admin) != 401 {
 		t.Error("an idle session survived")
 	}
@@ -418,7 +419,7 @@ func TestSessionsExpireIdleAbsoluteAndOnDisable(t *testing.T) {
 			t.Fatalf("an active session was dropped after %d h", h)
 		}
 	}
-	*a.now = start.Add(SessionMax + time.Hour)
+	*a.now = start.Add(accounts.SessionMax + time.Hour)
 	if check(fresh) != 401 {
 		t.Error("a session outlived the absolute limit")
 	}
@@ -436,8 +437,8 @@ func TestSessionsExpireIdleAbsoluteAndOnDisable(t *testing.T) {
 
 func TestWorkspaceRevisionsAndConflicts(t *testing.T) {
 	a := newAdminRig(t)
-	_, admin := a.user(t, "boss", RoleAdmin)
-	_, viewer := a.user(t, "reader", RoleViewer)
+	_, admin := a.user(t, "boss", accounts.RoleAdmin)
+	_, viewer := a.user(t, "reader", accounts.RoleViewer)
 
 	first := a.do("GET", "/api/v1/workspace", nil, withCookie(admin)).json(t)
 	if first["rev"].(float64) != 0 || first["data"] != nil {
@@ -512,66 +513,42 @@ func TestWorkspaceSavesRaceExactlyOneWinner(t *testing.T) {
 }
 
 func TestPasswordHashing(t *testing.T) {
-	h1, _ := HashPassword(goodPW)
-	h2, _ := HashPassword(goodPW)
+	h1, _ := accounts.HashPassword(goodPW)
+	h2, _ := accounts.HashPassword(goodPW)
 	if h1 == h2 || !strings.HasPrefix(h1, "$argon2id$v=19$") {
 		t.Fatalf("hashes must be salted PHC strings: %q %q", h1, h2)
 	}
-	if ok, err := VerifyPassword(goodPW, h1); !ok || err != nil {
+	if ok, err := accounts.VerifyPassword(goodPW, h1); !ok || err != nil {
 		t.Fatalf("verify: %v %v", ok, err)
 	}
-	if ok, _ := VerifyPassword(goodPW+"x", h1); ok {
+	if ok, _ := accounts.VerifyPassword(goodPW+"x", h1); ok {
 		t.Fatal("wrong password verified")
 	}
 	for _, bad := range []string{"", "plaintext", "$argon2id$v=19$m=1,t=1,p=1$xx$yy", "$bcrypt$x", "$argon2id$v=19$m=99999999,t=1,p=1$AAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAA"} {
-		if ok, err := VerifyPassword(goodPW, bad); ok || err == nil {
+		if ok, err := accounts.VerifyPassword(goodPW, bad); ok || err == nil {
 			t.Errorf("hash %q was not rejected as malformed", bad)
 		}
 	}
-	if CheckPasswordPolicy("alex", "Alex") == nil || CheckPasswordPolicy("alex", "aaaaaaaaaaaaaaaa") == nil ||
-		CheckPasswordPolicy("alex", strings.Repeat("x1", 65)) == nil || CheckPasswordPolicy("alex", goodPW) != nil {
+	if accounts.CheckPasswordPolicy("alex", "Alex") == nil || accounts.CheckPasswordPolicy("alex", "aaaaaaaaaaaaaaaa") == nil ||
+		accounts.CheckPasswordPolicy("alex", strings.Repeat("x1", 65)) == nil || accounts.CheckPasswordPolicy("alex", goodPW) != nil {
 		t.Error("password policy")
 	}
 	// Digit and symbol: both required on top of length, even once length/username/repeat all pass.
-	if CheckPasswordPolicy("alex", "correcthorsebattery") == nil { // letters only: neither
+	if accounts.CheckPasswordPolicy("alex", "correcthorsebattery") == nil { // letters only: neither
 		t.Error("password policy: should have required a digit and a symbol")
 	}
-	if CheckPasswordPolicy("alex", "correcthorsebattery9") == nil { // a digit, but still no symbol
+	if accounts.CheckPasswordPolicy("alex", "correcthorsebattery9") == nil { // a digit, but still no symbol
 		t.Error("password policy: should have required a symbol")
 	}
-	if err := CheckPasswordPolicy("alex", "correct horse battery9"); err != nil { // a digit, and the space is a symbol
+	if err := accounts.CheckPasswordPolicy("alex", "correct horse battery9"); err != nil { // a digit, and the space is a symbol
 		t.Errorf("password policy: a digit plus a space should have been enough: %v", err)
-	}
-}
-
-func TestProductionArgonParameters(t *testing.T) {
-	m, ti, p := ArgonMemoryKiB, ArgonTime, ArgonThreads
-	defer func() { ArgonMemoryKiB, ArgonTime, ArgonThreads = m, ti, p }()
-	ArgonMemoryKiB, ArgonTime, ArgonThreads = 64*1024, 2, 2
-	start := time.Now()
-	h, _ := HashPassword(goodPW)
-	if !strings.Contains(h, "m=65536,t=2,p=2") {
-		t.Fatalf("parameters not recorded in the hash: %s", h)
-	}
-	if ok, _ := VerifyPassword(goodPW, h); !ok {
-		t.Fatal("verify")
-	}
-	if d := time.Since(start); d > 5*time.Second {
-		t.Errorf("two hashes took %v", d)
-	}
-	// A hash made with cheaper settings still verifies: parameters come from the hash.
-	ArgonMemoryKiB, ArgonTime, ArgonThreads = 1024, 1, 1
-	old, _ := HashPassword(goodPW)
-	ArgonMemoryKiB, ArgonTime, ArgonThreads = 64*1024, 2, 2
-	if ok, _ := VerifyPassword(goodPW, old); !ok {
-		t.Fatal("older hash no longer verifies")
 	}
 }
 
 func TestOfflineRecoveryResetsOrCreatesAnAccount(t *testing.T) {
 	a := newAdminRig(t)
-	id, cookie := a.user(t, "alex", RoleViewer)
-	pw, err := a.base.RecoverPassword(a.ctx, "alex")
+	id, cookie := a.user(t, "alex", accounts.RoleViewer)
+	pw, err := a.base.Accounts.RecoverPassword(a.ctx, "alex")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -582,10 +559,10 @@ func TestOfflineRecoveryResetsOrCreatesAnAccount(t *testing.T) {
 	if a.do("GET", "/api/v1/info", nil, withCookie(c)).Code != 403 {
 		t.Error("recovered account is not forced to change its password")
 	}
-	if m, err := a.st.GetMembership(a.ctx, "org-1", id); err != nil || m.Role != RoleViewer {
+	if m, err := a.st.GetMembership(a.ctx, "org-1", id); err != nil || m.Role != accounts.RoleViewer {
 		t.Errorf("recovery must not change memberships: %+v %v", m, err)
 	}
-	pw2, err := a.base.RecoverPassword(a.ctx, "brand-new")
+	pw2, err := a.base.Accounts.RecoverPassword(a.ctx, "brand-new")
 	if err != nil {
 		t.Fatal(err)
 	}

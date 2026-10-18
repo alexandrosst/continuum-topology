@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"continuum/internal/accounts"
 	"continuum/internal/kernel"
 )
 
@@ -221,7 +222,7 @@ func (a *Admin) fusionUISessionCaller(r *http.Request) (fusionCaller, bool) {
 		return fusionCaller{}, false
 	}
 	m, err := a.C.Store.GetMembership(r.Context(), a.fusionOrg(), g.userID)
-	if err != nil || !Allows(Standing(m.Role), ActAdminister) {
+	if err != nil || !accounts.Allows(accounts.Standing(m.Role), accounts.ActAdminister) {
 		a.fusionUIAccess.end(ck.Value)
 		return fusionCaller{}, false
 	}

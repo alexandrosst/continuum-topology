@@ -6,13 +6,15 @@ import (
 	"time"
 
 	continuumv1 "continuum/gen/continuumv1"
+
+	"continuum/internal/accounts"
 )
 
 // driftRig is an operator with one sender that chose an address, the sender connected and able to time connections.
 func driftRig(t *testing.T) (a *adminRig, cookie, opID, agentID string, push chan *continuumv1.ServerMessage) {
 	t.Helper()
 	a = newAdminRig(t)
-	_, cookie = a.user(t, "alex", RoleAdmin)
+	_, cookie = a.user(t, "alex", accounts.RoleAdmin)
 	opID, intentID := intentToOperator(t, a, cookie)
 	agentID = a.do("GET", "/api/v1/telemetry-intents/"+intentID, nil, withCookie(cookie)).json(t)["agentId"].(string)
 	scope := map[string]any{"namespaces": []string{}, "exclude": []string{}, "signals": []map[string]any{{"id": "resourceUsage", "source": "builtin"}}}

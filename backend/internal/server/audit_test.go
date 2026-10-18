@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"continuum/internal/accounts"
 	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
@@ -279,8 +280,8 @@ func TestPrivilegedActionsFailClosedWhenTheAuditRowCannotBeWritten(t *testing.T)
 	a := newAdminRig(t)
 	fs := &failAudit{Store: a.st}
 	a.base.Store = fs // organisations created from now on use it
-	_, owner := a.user(t, "boss", RoleOwner)
-	edID, _ := a.user(t, "ed", RoleEditor)
+	_, owner := a.user(t, "boss", accounts.RoleOwner)
+	edID, _ := a.user(t, "ed", accounts.RoleEditor)
 
 	pending, _ := a.enroll(t, 2, fp)
 	live, _ := a.enroll(t, 2, "11111111-2222-4333-8444-555566667777")
@@ -332,7 +333,7 @@ func TestPrivilegedActionsFailClosedWhenTheAuditRowCannotBeWritten(t *testing.T)
 	if !haveKeep {
 		t.Error("a token was deleted without an audit row")
 	}
-	if m, _ := a.st.GetMembership(a.ctx, "org-1", edID); m.Role != RoleEditor {
+	if m, _ := a.st.GetMembership(a.ctx, "org-1", edID); m.Role != accounts.RoleEditor {
 		t.Errorf("the role changed to %q", m.Role)
 	}
 	if o, err := a.st.GetOrg(a.ctx, "org-1"); err != nil || o.Name != "Org One" {
@@ -424,9 +425,9 @@ func TestARefusedWriteWithItsOwnAuditRowLeavesNoRow(t *testing.T) {
 
 func TestStateHidesTheAuditTrailFromViewersAndEditors(t *testing.T) {
 	a := newAdminRig(t)
-	_, admin := a.user(t, "adm", RoleAdmin)
-	_, editor := a.user(t, "ed", RoleEditor)
-	_, viewer := a.user(t, "vw", RoleViewer)
+	_, admin := a.user(t, "adm", accounts.RoleAdmin)
+	_, editor := a.user(t, "ed", accounts.RoleEditor)
+	_, viewer := a.user(t, "vw", accounts.RoleViewer)
 	a.do("POST", "/api/v1/tokens", map[string]any{"name": "edge", "tier": 1}, withCookie(admin)) // leaves a row naming "adm"
 
 	rows := func(cookie string) []any {
@@ -454,7 +455,7 @@ func TestStateHidesTheAuditTrailFromViewersAndEditors(t *testing.T) {
 
 func TestLoginAddressStaysInTheServerTrailNotTheOrganisations(t *testing.T) {
 	a := newAdminRig(t)
-	id, _ := a.user(t, "alex", RoleAdmin)
+	id, _ := a.user(t, "alex", accounts.RoleAdmin)
 	// alex also belongs to a second organisation
 	other := store.Org{ID: "org-2", Name: "Two", CreatedAt: *a.now, CreatedBy: id}
 	if err := a.st.CreateOrg(a.ctx, other, id); err != nil {
@@ -527,7 +528,7 @@ func TestRejectAndRevokeReasonsAreClippedEverywhere(t *testing.T) {
 
 func TestEveryAuditRowThroughTheServerJoinsTheChain(t *testing.T) {
 	a := newAdminRig(t)
-	_, admin := a.user(t, "adm", RoleAdmin)
+	_, admin := a.user(t, "adm", accounts.RoleAdmin)
 	a.do("POST", "/api/v1/tokens", map[string]any{"name": "edge", "tier": 1}, withCookie(admin))
 	a.do("POST", "/api/v1/auth/login", map[string]string{"username": "adm", "password": "wrong wrong wrong"})
 	r, err := a.st.VerifyAudit(a.ctx)

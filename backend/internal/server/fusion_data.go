@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"continuum/internal/accounts"
 	"continuum/internal/fusionapi"
 	"continuum/internal/kernel"
 	"continuum/internal/store"
@@ -178,7 +179,7 @@ func (c *Core) AuthenticateFusionToken(ctx context.Context, secret string) (stor
 	if !now.Before(tok.ExpiresAt) {
 		return store.FusionToken{}, deny
 	}
-	if tok.LastUsed == nil || now.Sub(*tok.LastUsed) > TouchEvery {
+	if tok.LastUsed == nil || now.Sub(*tok.LastUsed) > accounts.TouchEvery {
 		_ = c.Store.TouchFusionToken(ctx, h, now)
 	}
 	return tok, nil
@@ -220,7 +221,7 @@ func (a *Admin) fusionOrg() string {
 	if a.C.OrgID != "" {
 		return a.C.OrgID
 	}
-	return a.C.MainOrg()
+	return a.C.Accounts.MainOrg()
 }
 
 // fusionOrgOnly refuses a token request from any organisation but the one FUSION belongs to.
@@ -347,7 +348,7 @@ func (a *Admin) fusionData(h fusionHandler) http.Handler {
 func (a *Admin) fusionCaller(r *http.Request) (fusionCaller, error) {
 	ctx := r.Context()
 	deny := kernel.Errf(kernel.KindUnauthenticated, "sign in required")
-	var p Principal
+	var p accounts.Principal
 	var err error
 	// A credential given on purpose beats one the browser sends along: someone trying a token on the docs page, signed in as
 	// an administrator, must be reading with the token's rights and not the administrator's.
@@ -361,9 +362,9 @@ func (a *Admin) fusionCaller(r *http.Request) (fusionCaller, error) {
 			return fusionCaller{Kind: "token", ID: tok.ID, Name: tok.Name, ExpiresAt: &exp,
 				Scope: fusionapi.Scope{Signals: tok.Signals, Namespaces: tok.Namespaces, Clusters: tok.Clusters}}, nil
 		}
-		p, err = a.C.AuthenticateAPIToken(ctx, secret)
+		p, err = a.C.Accounts.AuthenticateAPIToken(ctx, secret)
 	} else if secret, ok := sessionCookie(r); ok {
-		p, err = a.C.Authenticate(ctx, secret)
+		p, err = a.C.Accounts.Authenticate(ctx, secret)
 	} else {
 		return fusionCaller{}, deny
 	}
@@ -373,10 +374,10 @@ func (a *Admin) fusionCaller(r *http.Request) (fusionCaller, error) {
 	if p.User.MustChange {
 		return fusionCaller{}, kernel.Errf(kernel.KindForbidden, "you must choose a new password before doing anything else")
 	}
-	if p, err = a.C.Member(ctx, p, a.fusionOrg()); err != nil {
+	if p, err = a.C.Accounts.Member(ctx, p, a.fusionOrg()); err != nil {
 		return fusionCaller{}, deny
 	}
-	if !Allows(p, ActAdminister) {
+	if !accounts.Allows(p, accounts.ActAdminister) {
 		return fusionCaller{}, kernel.Errf(kernel.KindForbidden, "reading FUSION's data takes an administrator of the organisation, or a FUSION access token")
 	}
 	return fusionCaller{Kind: "user", ID: p.User.ID, Name: p.User.Username, Scope: fusionapi.AllSignals()}, nil

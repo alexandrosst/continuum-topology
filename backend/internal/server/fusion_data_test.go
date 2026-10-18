@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"continuum/internal/accounts"
 	"continuum/internal/fusionapi"
 	"continuum/internal/kernel"
 	"continuum/internal/store"
@@ -122,7 +123,7 @@ func newDataRig(t *testing.T) *dataRig {
 	k := newFakeKube(fusionNames...)
 	a.a.Fusion = &FusionControl{Name: "continuum-fusion", Namespace: "continuum", Kube: k, Org: "org-1", StatusTTL: -1,
 		Data: &fusionapi.Client{Prometheus: st.prom.URL, Loki: st.loki.URL, Tempo: st.tempo.URL}}
-	id, cookie := a.user(t, "root", RoleAdmin)
+	id, cookie := a.user(t, "root", accounts.RoleAdmin)
 	return &dataRig{adminRig: a, stores: st, admin: cookie, adminID: id}
 }
 
@@ -158,7 +159,7 @@ func (d *dataRig) mint(t *testing.T, body map[string]any) (secret, id string) {
 
 func TestFusionTokenLifecycle(t *testing.T) {
 	d := newDataRig(t)
-	_, viewer := d.user(t, "vera", RoleViewer)
+	_, viewer := d.user(t, "vera", accounts.RoleViewer)
 	if r := d.do("POST", "/api/v1/fusion/tokens", map[string]any{"name": "x"}, withCookie(viewer)); r.Code != 403 {
 		t.Fatalf("a viewer minted a token: %d", r.Code)
 	}
@@ -258,8 +259,8 @@ func TestFusionTokenExpires(t *testing.T) {
 func TestFusionDataAuthentication(t *testing.T) {
 	d := newDataRig(t)
 	secret, _ := d.mint(t, map[string]any{"name": "t"})
-	_, viewer := d.user(t, "vera", RoleViewer)
-	_, editor := d.user(t, "edda", RoleEditor)
+	_, viewer := d.user(t, "vera", accounts.RoleViewer)
+	_, editor := d.user(t, "edda", accounts.RoleEditor)
 	for name, c := range map[string]struct {
 		opts []opt
 		want int

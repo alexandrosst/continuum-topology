@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/server"
+	"continuum/internal/accounts"
 	"continuum/internal/store"
 
 	_ "modernc.org/sqlite"
@@ -20,18 +20,18 @@ func TestRegistrationDefaultFollowsTheListener(t *testing.T) {
 	cases := []struct {
 		explicit, listen, want string
 	}{
-		{"", "127.0.0.1:8080", server.RegOpen},
-		{"", "localhost:8080", server.RegOpen},
-		{"", "[::1]:8080", server.RegOpen},
-		{"", "0.0.0.0:8080", server.RegInvite},
-		{"", ":8080", server.RegInvite},
-		{"", "[::]:8080", server.RegInvite},
-		{"", "10.1.2.3:8080", server.RegInvite},
-		{"", "admin.example.com:8080", server.RegInvite},
+		{"", "127.0.0.1:8080", accounts.RegOpen},
+		{"", "localhost:8080", accounts.RegOpen},
+		{"", "[::1]:8080", accounts.RegOpen},
+		{"", "0.0.0.0:8080", accounts.RegInvite},
+		{"", ":8080", accounts.RegInvite},
+		{"", "[::]:8080", accounts.RegInvite},
+		{"", "10.1.2.3:8080", accounts.RegInvite},
+		{"", "admin.example.com:8080", accounts.RegInvite},
 		// an explicit value always wins, in both directions
-		{server.RegOpen, "0.0.0.0:8080", server.RegOpen},
-		{server.RegClosed, "127.0.0.1:8080", server.RegClosed},
-		{server.RegInvite, "127.0.0.1:8080", server.RegInvite},
+		{accounts.RegOpen, "0.0.0.0:8080", accounts.RegOpen},
+		{accounts.RegClosed, "127.0.0.1:8080", accounts.RegClosed},
+		{accounts.RegInvite, "127.0.0.1:8080", accounts.RegInvite},
 	}
 	for _, c := range cases {
 		got, why := resolveRegistration(c.explicit, c.listen)

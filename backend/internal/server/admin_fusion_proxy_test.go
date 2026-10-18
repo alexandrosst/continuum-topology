@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"continuum/internal/accounts"
 	"continuum/internal/fusionapi"
 	"continuum/internal/kernel"
 )
@@ -102,7 +103,7 @@ func (p *pageRig) last(name string) *http.Request {
 // a viewer and a stranger do not, and nothing reaches the page for them.
 func TestFusionPagesAreForAdministratorsOnly(t *testing.T) {
 	p := newPageRig(t)
-	_, viewer := p.user(t, "vera", RoleViewer)
+	_, viewer := p.user(t, "vera", accounts.RoleViewer)
 	secret, _ := p.mint(t, map[string]any{"name": "engine"})
 	for _, path := range []string{fusionGrafanaPath, fusionPromPath + "graph"} {
 		for name, opts := range map[string][]opt{
@@ -431,7 +432,7 @@ func TestFusionProxyIsRateLimitedPerPerson(t *testing.T) {
 		t.Fatalf("a fourth request in a burst: %d %v", r.Code, r.Header())
 	}
 	// It is that person's: someone else is not held up, and the data API is a separate budget from the pages.
-	_, other := p.user(t, "olga", RoleAdmin)
+	_, other := p.user(t, "olga", accounts.RoleAdmin)
 	if r := p.send("GET", fusionPromPath+"graph", nil, func(req *http.Request) {
 		req.Header.Del("Cookie")
 		req.AddCookie(&http.Cookie{Name: cookieName, Value: other})
@@ -576,7 +577,7 @@ func TestLocalLocation(t *testing.T) {
 // arrive through the proxy: so the login Grafana is told always carries Ikhnos's prefix.
 func TestGrafanaIsToldANamespacedLoginSoTheBootstrapAdminIsNotGrafanasAdmin(t *testing.T) {
 	p := newPageRig(t)
-	_, cookie := p.user(t, "admin", RoleAdmin)
+	_, cookie := p.user(t, "admin", accounts.RoleAdmin)
 	if r := p.get(fusionGrafanaPath+"explore", withCookie(cookie)); r.Code != 200 {
 		t.Fatalf("%d %s", r.Code, r.Body.String())
 	}

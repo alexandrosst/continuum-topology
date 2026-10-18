@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"continuum/internal/accounts"
 	"continuum/internal/kernel"
 )
 
@@ -19,7 +20,7 @@ func (r resp) jsonArray(t *testing.T) []map[string]any {
 
 func TestAPITokenCreateListAuthenticateAndRevoke(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "jamie", RoleViewer)
+	_, cookie := a.user(t, "jamie", accounts.RoleViewer)
 
 	// Nothing yet.
 	if r := a.do("GET", "/api/v1/auth/tokens", nil, withCookie(cookie)); r.Code != 200 {
@@ -78,7 +79,7 @@ func TestAPITokenCreateListAuthenticateAndRevoke(t *testing.T) {
 	}
 
 	// One person's token cannot be revoked by another.
-	_, otherCookie := a.user(t, "riley", RoleViewer)
+	_, otherCookie := a.user(t, "riley", accounts.RoleViewer)
 	r = a.do("POST", "/api/v1/auth/tokens", map[string]string{"name": "second"}, withCookie(cookie))
 	id2, _ := r.json(t)["id"].(string)
 	if r := a.do("POST", "/api/v1/auth/tokens/"+id2+"/revoke", nil, withCookie(otherCookie)); r.Code != 404 {
@@ -88,7 +89,7 @@ func TestAPITokenCreateListAuthenticateAndRevoke(t *testing.T) {
 
 func TestAPITokenNameDefaultsAndTruncates(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "morgan", RoleViewer)
+	_, cookie := a.user(t, "morgan", accounts.RoleViewer)
 
 	r := a.do("POST", "/api/v1/auth/tokens", map[string]string{"name": "   "}, withCookie(cookie))
 	if r.Code != 200 || r.json(t)["name"] != "Unnamed token" {
@@ -100,8 +101,8 @@ func TestAPITokenNameDefaultsAndTruncates(t *testing.T) {
 	if r.Code != 200 {
 		t.Fatalf("long name: %d %s", r.Code, r.Body.String())
 	}
-	if name, _ := r.json(t)["name"].(string); len(name) != MaxAPITokenNameLen {
-		t.Fatalf("long name kept at %d chars, want %d", len(name), MaxAPITokenNameLen)
+	if name, _ := r.json(t)["name"].(string); len(name) != accounts.MaxAPITokenNameLen {
+		t.Fatalf("long name kept at %d chars, want %d", len(name), accounts.MaxAPITokenNameLen)
 	}
 }
 
@@ -118,7 +119,7 @@ func TestAPITokenListingRequiresASession(t *testing.T) {
 // A stolen personal token must not be able to mint copies of itself.
 func TestAPITokenCannotMintAnotherToken(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "jamie", RoleViewer)
+	_, cookie := a.user(t, "jamie", accounts.RoleViewer)
 	secret := a.do("POST", "/api/v1/auth/tokens", map[string]string{"name": "first"}, withCookie(cookie)).json(t)["token"].(string)
 	bearer := withHeader("Authorization", "Bearer "+secret)
 	if r := a.do("GET", "/api/v1/auth/tokens", nil, bearer); r.Code != 200 {
@@ -136,13 +137,13 @@ func TestAPITokenCannotMintAnotherToken(t *testing.T) {
 // account, so they must not wake up with it).
 func TestOfflineRecoveryRevokesPersonalTokens(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "jamie", RoleViewer)
+	_, cookie := a.user(t, "jamie", accounts.RoleViewer)
 	secret := a.do("POST", "/api/v1/auth/tokens", map[string]string{"name": "ci"}, withCookie(cookie)).json(t)["token"].(string)
 	bearer := withHeader("Authorization", "Bearer "+secret)
 	if r := a.do("GET", "/api/v1/info", nil, bearer); r.Code != 200 {
 		t.Fatalf("the token before recovery: %d %s", r.Code, r.Body.String())
 	}
-	if _, err := a.base.RecoverPassword(a.ctx, "jamie"); err != nil {
+	if _, err := a.base.Accounts.RecoverPassword(a.ctx, "jamie"); err != nil {
 		t.Fatal(err)
 	}
 	if r := a.do("GET", "/api/v1/info", nil, bearer); r.Code != 401 {
@@ -152,8 +153,8 @@ func TestOfflineRecoveryRevokesPersonalTokens(t *testing.T) {
 
 func TestChangingThePasswordRevokesPersonalAPITokens(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "jamie", RoleViewer)
-	_, otherCookie := a.user(t, "casey", RoleViewer)
+	_, cookie := a.user(t, "jamie", accounts.RoleViewer)
+	_, otherCookie := a.user(t, "casey", accounts.RoleViewer)
 
 	mint := func(c string, name string) string {
 		r := a.do("POST", "/api/v1/auth/tokens", map[string]string{"name": name}, withCookie(c))

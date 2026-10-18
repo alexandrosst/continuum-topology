@@ -1,14 +1,6 @@
 # Every place one module uses something declared in another, as "using module > declaring module", then what is used.
 # Not listed: any module using the kernel, and the shell using any module (see modules_test.go). The list may only get shorter.
 # Regenerate on purpose with: go test ./internal/server -run TestModule -update
-advice > accounts	const ActChangeAccess
-advice > accounts	field Decision.Allowed
-advice > accounts	field Resource.Widening
-advice > accounts	func CallerFrom
-advice > accounts	func Decide
-advice > accounts	method Actor.String
-advice > accounts	type Resource
-advice > accounts	var SystemActor
 advice > agents	const TierAboveInstall
 advice > agents	const TierAboveToken
 advice > agents	const TierBelowZero
@@ -50,19 +42,6 @@ advice > shell	method Admin.core
 advice > shell	method Admin.fail
 advice > shell	method Admin.tn
 advice > shell	type Admin
-agents > accounts	const ActChangeAccess
-agents > accounts	field Decision.Allowed
-agents > accounts	field Principal.Role
-agents > accounts	field Resource.Widening
-agents > accounts	func AgentActor
-agents > accounts	func CallerFrom
-agents > accounts	func Decide
-agents > accounts	func WithCaller
-agents > accounts	method Actor.String
-agents > accounts	type Principal
-agents > accounts	type Resource
-agents > accounts	var SystemActor
-agents > accounts	var UnenrolledAgentActor
 agents > connectivity	method Hub.AddressTests
 agents > connectivity	method Hub.StartAddressTests
 agents > connectivity	method Hub.pushOne
@@ -206,10 +185,6 @@ connectivity > shell	method Admin.fail
 connectivity > shell	method Admin.tn
 connectivity > shell	method Platform.Tenant
 connectivity > shell	type Admin
-estate > accounts	const ActAdminister
-estate > accounts	func AgentActor
-estate > accounts	func Allows
-estate > accounts	method Actor.String
 estate > advice	const maxCapacityDocs
 estate > advice	field capCluster.id
 estate > advice	field capView.clusters
@@ -309,18 +284,6 @@ estate > shell	method Admin.fail
 estate > shell	method Admin.imageDefaults
 estate > shell	method Admin.tn
 estate > shell	type Admin
-fusion > accounts	const ActAdminister
-fusion > accounts	const touchEvery
-fusion > accounts	field Principal.User
-fusion > accounts	func Allows
-fusion > accounts	func Standing
-fusion > accounts	method Actor.String
-fusion > accounts	method Core.Authenticate
-fusion > accounts	method Core.AuthenticateAPIToken
-fusion > accounts	method Core.MainOrg
-fusion > accounts	method Core.Member
-fusion > accounts	type Principal
-fusion > accounts	var SystemActor
 fusion > connectivity	func addressWarnings
 fusion > connectivity	method Admin.fusionLinks
 fusion > estate	field StateDoc.GeneratedAt
@@ -372,8 +335,6 @@ fusion > shell	method Admin.secure
 fusion > shell	method Platform.Tenant
 fusion > shell	type Admin
 fusion > shell	type Tenant
-operators > accounts	method Actor.String
-operators > accounts	var RenewalActor
 operators > agents	field DiagnosticsDoc.ExportHealth
 operators > agents	field ExportHealthDoc.LastError
 operators > agents	field ExportHealthDoc.PodsFailed

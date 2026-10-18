@@ -3,6 +3,8 @@ package server
 import (
 	"strings"
 	"testing"
+
+	"continuum/internal/accounts"
 )
 
 // Creating an operator for two clusters issues each its own certificate, and the ledger says so: one receiver
@@ -10,8 +12,8 @@ import (
 // no certificate or key.
 func TestOperatorCertificatesLedgerNamesWhoHoldsWhat(t *testing.T) {
 	a := newAdminRig(t)
-	_, admin := a.user(t, "alex", RoleAdmin)
-	_, editor := a.user(t, "ed", RoleEditor)
+	_, admin := a.user(t, "alex", accounts.RoleAdmin)
+	_, editor := a.user(t, "ed", accounts.RoleEditor)
 	clA, clB := a.approvedCluster(t, fp), a.approvedCluster(t, fp2)
 	id := a.createOperatorDoc(t, admin, extBody("athens", clA, clB))["operator"].(map[string]any)["id"].(string)
 

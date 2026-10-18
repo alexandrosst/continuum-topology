@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"continuum/internal/accounts"
 	"continuum/internal/agent"
 	"continuum/internal/agent/collect"
 	"continuum/internal/facts"
@@ -230,7 +231,7 @@ func TestDiagnosticsShowInstalledApprovedAndEffectiveTiers(t *testing.T) {
 	}
 
 	// Widening within the ceiling is taken up by the running agent (it reconnects to collect at the new tier).
-	if _, err := d.hub.SetAgentTier(server.ActingAs(context.Background(), server.RoleAdmin), "test", d.id, 2, nil); err != nil {
+	if _, err := d.hub.SetAgentTier(server.ActingAs(context.Background(), accounts.RoleAdmin), "test", d.id, 2, nil); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, "workloads at tier 2", 20*time.Second, func() bool { return services(d, "shop") == 1 })
@@ -282,7 +283,7 @@ func TestDiagnosticsShowInstalledApprovedAndEffectiveTiers(t *testing.T) {
 func TestAnOverCeilingTierIsRefusedWithTheHelmCommand(t *testing.T) {
 	d := newDx(t, dxOpts{installed: 1, approve: 1})
 	waitFor(t, "first picture", 15*time.Second, func() bool { return d.agentDoc().Synced })
-	_, err := d.hub.SetAgentTier(server.ActingAs(context.Background(), server.RoleAdmin), "test", d.id, 2, func(n int) string {
+	_, err := d.hub.SetAgentTier(server.ActingAs(context.Background(), accounts.RoleAdmin), "test", d.id, 2, func(n int) string {
 		return fmt.Sprintf("helm upgrade continuum-agent ./chart.tgz --namespace continuum-system --reset-then-reuse-values --set access.tier=%d", n)
 	})
 	var se *kernel.Error
@@ -466,7 +467,7 @@ func TestPausedCollectorsAndExcludedNamespacesTakeEffect(t *testing.T) {
 	}
 
 	// Lifting the overrides brings it all back.
-	if _, err := d.hub.SetConsent(server.ActingAs(context.Background(), server.RoleAdmin), "test", d.id, server.Consent{}); err != nil {
+	if _, err := d.hub.SetConsent(server.ActingAs(context.Background(), accounts.RoleAdmin), "test", d.id, server.Consent{}); err != nil {
 		t.Fatal(err)
 	}
 	d.waitDiag("the overrides lifted", func(g *server.DiagnosticsDoc) bool { return len(g.PausedCollectors) == 0 && g.ExcludedNamespaces == 0 })

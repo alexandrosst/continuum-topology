@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	continuumv1 "continuum/gen/continuumv1"
+
+	"continuum/internal/accounts"
 )
 
 func failing(err string) *SenderDeliveryDoc {
@@ -99,8 +101,8 @@ func exportHealth(state, signal, lastErr string, sent, failed uint64) *continuum
 
 func TestSendersOfAnOperatorShowTheirAddressesAndHowDeliveryGoes(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
-	_, viewer := a.user(t, "vera", RoleViewer)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
+	_, viewer := a.user(t, "vera", accounts.RoleViewer)
 	opID, intentID := intentToOperator(t, a, cookie)
 	// The intent from the helper is for a second agent; give it a stream-less view with a failing exporter.
 	r := a.do("GET", "/api/v1/telemetry-intents/"+intentID, nil, withCookie(cookie))

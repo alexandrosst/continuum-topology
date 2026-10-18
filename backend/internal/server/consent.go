@@ -11,6 +11,7 @@ import (
 	"time"
 
 	continuumv1 "continuum/gen/continuumv1"
+	"continuum/internal/accounts"
 	"continuum/internal/agentcaps"
 	"continuum/internal/kernel"
 	"continuum/internal/store"
@@ -234,7 +235,7 @@ func (h *Hub) ConsentDocFor(id string) *ConsentDoc {
 // that calls the hub or the core directly and has to say who is asking (a test that drives a real server, a tool): nothing is
 // checked about the role, so it is never called with a role taken from a request.
 func ActingAs(ctx context.Context, role string) context.Context {
-	return WithCaller(ctx, Principal{Role: role})
+	return accounts.WithCaller(ctx, accounts.Principal{Role: role})
 }
 
 // SetAgentTier changes what a human approved for an agent that is already approved. Anything up to the ceiling the agent's
@@ -261,7 +262,7 @@ func (h *Hub) SetAgentTier(ctx context.Context, actor, agentID string, tier int,
 	if tier == a.AccessTier {
 		return a, nil
 	}
-	if !Decide(CallerFrom(ctx), ActChangeAccess, Resource{Widening: tier > a.AccessTier}).Allowed {
+	if !accounts.Decide(accounts.CallerFrom(ctx), accounts.ActChangeAccess, accounts.Resource{Widening: tier > a.AccessTier}).Allowed {
 		return a, kernel.Errf(kernel.KindForbidden, "raising an agent's access takes an administrator, as approving it did; narrowing it does not")
 	}
 	if verdict == TierNotImplemented {
@@ -312,7 +313,7 @@ func (h *Hub) SetConsent(ctx context.Context, actor, agentID string, in Consent)
 		return Consent{}, err
 	}
 	cur := h.consentOf(a.ID)
-	if !Decide(CallerFrom(ctx), ActChangeAccess, Resource{Widening: consentNarrows(next, cur)}).Allowed { // cur has a pause or exclusion that next lifts
+	if !accounts.Decide(accounts.CallerFrom(ctx), accounts.ActChangeAccess, accounts.Resource{Widening: consentNarrows(next, cur)}).Allowed { // cur has a pause or exclusion that next lifts
 		return Consent{}, kernel.Errf(kernel.KindForbidden, "lifting a pause or an exclusion takes an administrator; adding one does not")
 	}
 	if strings.Join(cur.Paused, ",") == strings.Join(next.Paused, ",") && strings.Join(cur.Excluded, ",") == strings.Join(next.Excluded, ",") {
@@ -495,7 +496,7 @@ func (h *Hub) noteCeiling(ctx context.Context, agent, fresh store.Agent, reporte
 		return agent // an older agent that does not say: keep what enrollment recorded
 	}
 	ceiling, _ := ReportedTier(reported)
-	actor := AgentActor(agent.ID).String()
+	actor := accounts.AgentActor(agent.ID).String()
 	if ceiling != fresh.InstalledTier {
 		if err := h.C.Store.SetInstalledTier(ctx, agent.ID, ceiling); err != nil {
 			if !errors.Is(err, store.ErrBadState) {

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"continuum/internal/accounts"
 	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
@@ -317,8 +318,8 @@ func (h *Hub) expireDueProposals(ctx context.Context) {
 		if now.Before(p.ExpiresAt) {
 			continue
 		}
-		err := h.C.Store.TransitionProposal(ctx, h.C.OrgID, p.ID, []store.ProposalStatus{store.ProposalPending}, store.ProposalExpired, SystemActor.String(), "no decision before it expired", now,
-			store.WithAudit(h.C.AuditRow(h.C.OrgID, SystemActor.String(), "proposal-expired", "proposal", p.ID, "no decision before "+p.ExpiresAt.UTC().Format(time.RFC3339))))
+		err := h.C.Store.TransitionProposal(ctx, h.C.OrgID, p.ID, []store.ProposalStatus{store.ProposalPending}, store.ProposalExpired, accounts.SystemActor.String(), "no decision before it expired", now,
+			store.WithAudit(h.C.AuditRow(h.C.OrgID, accounts.SystemActor.String(), "proposal-expired", "proposal", p.ID, "no decision before "+p.ExpiresAt.UTC().Format(time.RFC3339))))
 		if err != nil && !errors.Is(err, store.ErrBadState) {
 			h.Log.Warn("a proposal could not be marked expired", "proposal", p.ID, "err", err)
 		}
@@ -421,7 +422,7 @@ func (h *Hub) AcceptProposal(ctx context.Context, actor, id, note string) (store
 	if err != nil {
 		return p, err
 	}
-	if !Decide(CallerFrom(ctx), ActChangeAccess, Resource{Widening: widens}).Allowed {
+	if !accounts.Decide(accounts.CallerFrom(ctx), accounts.ActChangeAccess, accounts.Resource{Widening: widens}).Allowed {
 		return p, kernel.Errf(kernel.KindForbidden, "this change widens what the agent shares, and accepting it takes an administrator; narrowing does not")
 	}
 	// Claim the proposal first. Only one caller can move it out of pending, so only one makes the change.

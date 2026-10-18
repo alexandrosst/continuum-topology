@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"continuum/internal/accounts"
 )
 
 // Organisation scope is a convention here: the store takes raw ids, and every handler has to look the id up through an
@@ -32,7 +34,7 @@ func TestAnotherOrganisationsIdIsNotFoundOnEveryRouteThatTakesAnId(t *testing.T)
 		operator = a.do("POST", org(aOrg, "operators"), extBody("alice-op"), withCookie(alice)).json(t)["operator"].(map[string]any)["id"].(string)
 		token    = a.do("POST", org(aOrg, "tokens"), map[string]any{"name": "edge", "tier": 1}, withCookie(alice)).json(t)["meta"].(map[string]any)["id"].(string)
 		invite   = func() string {
-			if r := a.do("POST", org(aOrg, "invites"), map[string]string{"role": RoleViewer, "label": "carol"}, withCookie(alice)); r.Code != 201 {
+			if r := a.do("POST", org(aOrg, "invites"), map[string]string{"role": accounts.RoleViewer, "label": "carol"}, withCookie(alice)); r.Code != 201 {
 				t.Fatalf("invite as viewer: %d %s", r.Code, r.Body.String())
 			}
 			return a.do("GET", org(aOrg, "invites"), nil, withCookie(alice)).jsonArray(t)[0]["id"].(string)
@@ -86,7 +88,7 @@ func TestAnotherOrganisationsIdIsNotFoundOnEveryRouteThatTakesAnId(t *testing.T)
 		"POST /proposals/{id}/reject":              {"proposal", map[string]any{}},
 		"DELETE /tokens/{id}":                      {"token", nil},
 		"DELETE /invites/{id}":                     {"invite", nil},
-		"POST /members/{id}/role":                  {"member", map[string]any{"role": RoleViewer}},
+		"POST /members/{id}/role":                  {"member", map[string]any{"role": accounts.RoleViewer}},
 		"POST /members/{id}/remove":                {"member", nil},
 		"GET /quick-start/{id}/gateway-token":      {"backend", nil},
 		"POST /quick-start/{id}/gateway-token":     {"backend", map[string]any{}},

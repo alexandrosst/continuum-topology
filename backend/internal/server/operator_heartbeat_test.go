@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"continuum/internal/accounts"
 	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
@@ -467,7 +468,7 @@ func jsonMap(t *testing.T, b []byte) map[string]any {
 
 func TestOperatorsHTTPHealthShapeAndHeartbeatEnableRoute(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	cl := a.approvedCluster(t, fp)
 	create := func(extra map[string]any) map[string]any {
 		body := map[string]any{"name": "athens", "sourceClusterIds": []string{cl}, "destination": map[string]any{"kind": "external", "endpoint": "c:4317"}}
@@ -570,9 +571,9 @@ func TestOperatorsHTTPHealthShapeAndHeartbeatEnableRoute(t *testing.T) {
 
 func TestOperatorHeartbeatEnableRouteNeedsAdmin(t *testing.T) {
 	a := newAdminRig(t)
-	_, admin := a.user(t, "alex", RoleAdmin)
-	_, editor := a.user(t, "ed", RoleEditor)
-	_, viewer := a.user(t, "vi", RoleViewer)
+	_, admin := a.user(t, "alex", accounts.RoleAdmin)
+	_, editor := a.user(t, "ed", accounts.RoleEditor)
+	_, viewer := a.user(t, "vi", accounts.RoleViewer)
 	cl := a.approvedCluster(t, fp)
 	r := a.do("POST", "/api/v1/operators", map[string]any{"name": "x", "sourceClusterIds": []string{cl}, "destination": map[string]any{"kind": "external", "endpoint": "c:4317"}}, withCookie(admin))
 	id := r.json(t)["operator"].(map[string]any)["id"].(string)

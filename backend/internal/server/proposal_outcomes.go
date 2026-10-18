@@ -7,6 +7,7 @@ import (
 	"sort"
 	"time"
 
+	"continuum/internal/accounts"
 	"continuum/internal/store"
 )
 
@@ -86,7 +87,7 @@ func (h *Hub) recordOutcomes(ctx context.Context) {
 			continue
 		}
 		detail := fmt.Sprintf("proposal %s from advisor %s: %s", p.ID, p.Advisor, o.Result)
-		err := h.C.Store.RecordProposalOutcome(ctx, o, store.WithAudit(h.C.AuditRow(h.C.OrgID, SystemActor.String(), "proposal-outcome", "proposal", p.ID, detail)))
+		err := h.C.Store.RecordProposalOutcome(ctx, o, store.WithAudit(h.C.AuditRow(h.C.OrgID, accounts.SystemActor.String(), "proposal-outcome", "proposal", p.ID, detail)))
 		if err != nil {
 			h.Log.Warn("a proposal's outcome could not be recorded", "proposal", p.ID, "err", err)
 		}

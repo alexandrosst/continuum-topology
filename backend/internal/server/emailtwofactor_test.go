@@ -4,6 +4,8 @@ import (
 	"net/smtp"
 	"regexp"
 	"testing"
+
+	"continuum/internal/accounts"
 )
 
 // sentMail is one message captureMail recorded instead of actually delivering.
@@ -14,12 +16,12 @@ type sentMail struct{ to, body string }
 func captureMail(t *testing.T) *[]sentMail {
 	t.Helper()
 	var sent []sentMail
-	orig := SMTPSendMail
-	SMTPSendMail = func(addr string, a smtp.Auth, from string, to []string, msg []byte) error {
+	orig := accounts.SMTPSendMail
+	accounts.SMTPSendMail = func(addr string, a smtp.Auth, from string, to []string, msg []byte) error {
 		sent = append(sent, sentMail{to: to[0], body: string(msg)})
 		return nil
 	}
-	t.Cleanup(func() { SMTPSendMail = orig })
+	t.Cleanup(func() { accounts.SMTPSendMail = orig })
 	return &sent
 }
 
@@ -47,7 +49,7 @@ func TestEmailVerificationRequiresMailConfigured(t *testing.T) {
 
 func TestEmailVerifyRejectsABadAddressWithoutSendingOrStoringIt(t *testing.T) {
 	a := newAdminRig(t)
-	a.base.SetMailerDefault(MailConfig{Host: "mail.internal", Port: "587", From: "continuum@example.com"})
+	a.base.Accounts.SetMailerDefault(accounts.MailConfig{Host: "mail.internal", Port: "587", From: "continuum@example.com"})
 	sent := captureMail(t)
 	a.account(t, "bea")
 	cookie := a.login(t, "bea", goodPW)
@@ -66,7 +68,7 @@ func TestEmailVerifyRejectsABadAddressWithoutSendingOrStoringIt(t *testing.T) {
 
 func TestEmailVerifyResendCooldown(t *testing.T) {
 	a := newAdminRig(t)
-	a.base.SetMailerDefault(MailConfig{Host: "mail.internal", Port: "587", From: "continuum@example.com"})
+	a.base.Accounts.SetMailerDefault(accounts.MailConfig{Host: "mail.internal", Port: "587", From: "continuum@example.com"})
 	sent := captureMail(t)
 	a.account(t, "cara")
 	cookie := a.login(t, "cara", goodPW)
@@ -87,7 +89,7 @@ func TestEmailVerifyResendCooldown(t *testing.T) {
 
 func TestEmailConfirmWrongCodeAndEnableBeforeVerified(t *testing.T) {
 	a := newAdminRig(t)
-	a.base.SetMailerDefault(MailConfig{Host: "mail.internal", Port: "587", From: "continuum@example.com"})
+	a.base.Accounts.SetMailerDefault(accounts.MailConfig{Host: "mail.internal", Port: "587", From: "continuum@example.com"})
 	captureMail(t)
 	a.account(t, "dee")
 	cookie := a.login(t, "dee", goodPW)
@@ -106,7 +108,7 @@ func TestEmailConfirmWrongCodeAndEnableBeforeVerified(t *testing.T) {
 // the wrong-code and replay edge cases to their own tests above so this one cannot spuriously hit that limit.
 func TestEmailVerifyConfirmEnableLoginAndDisable(t *testing.T) {
 	a := newAdminRig(t)
-	a.base.SetMailerDefault(MailConfig{Host: "mail.internal", Port: "587", From: "continuum@example.com"})
+	a.base.Accounts.SetMailerDefault(accounts.MailConfig{Host: "mail.internal", Port: "587", From: "continuum@example.com"})
 	sent := captureMail(t)
 	a.account(t, "elle")
 	cookie := a.login(t, "elle", goodPW)
@@ -188,7 +190,7 @@ func TestEmailVerifyConfirmEnableLoginAndDisable(t *testing.T) {
 
 func TestEmailChangeResetsVerificationAndTurnsOtpOff(t *testing.T) {
 	a := newAdminRig(t)
-	a.base.SetMailerDefault(MailConfig{Host: "mail.internal", Port: "587", From: "continuum@example.com"})
+	a.base.Accounts.SetMailerDefault(accounts.MailConfig{Host: "mail.internal", Port: "587", From: "continuum@example.com"})
 	sent := captureMail(t)
 	a.account(t, "fay")
 	cookie := a.login(t, "fay", goodPW)

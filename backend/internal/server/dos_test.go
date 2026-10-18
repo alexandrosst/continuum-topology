@@ -6,11 +6,11 @@ import (
 	"net"
 	"net/http"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	continuumv1 "continuum/gen/continuumv1"
+	"continuum/internal/accounts"
 	"continuum/internal/kernel"
 	"continuum/internal/pki"
 
@@ -19,7 +19,7 @@ import (
 
 func TestLoginFailuresBackOffPerAccountWhateverTheAddress(t *testing.T) {
 	a := newAdminRig(t)
-	a.user(t, "alex", RoleAdmin)
+	a.user(t, "alex", accounts.RoleAdmin)
 	login := func(user, pw string, n int) resp {
 		// every attempt from a different network, so no per-address limit can be what stops it
 		return a.do("POST", "/api/v1/auth/login", map[string]string{"username": user, "password": pw}, fromIP(fmt.Sprintf("198.51.%d.%d", n/200, n%200+1)))
@@ -45,7 +45,7 @@ func TestLoginFailuresBackOffPerAccountWhateverTheAddress(t *testing.T) {
 		t.Fatalf("message: %s", r1.Body.String())
 	}
 	// A different account is unaffected.
-	a.user(t, "carol", RoleViewer)
+	a.user(t, "carol", accounts.RoleViewer)
 	if r := login("carol", goodPW, 70); r.Code != 200 {
 		t.Fatalf("another account: %d", r.Code)
 	}
@@ -72,7 +72,7 @@ func TestLoginFailuresBackOffPerAccountWhateverTheAddress(t *testing.T) {
 
 func TestLoginLimitsGroupAnIPv6NetworkTogether(t *testing.T) {
 	a := newAdminRig(t)
-	a.user(t, "alex", RoleAdmin)
+	a.user(t, "alex", accounts.RoleAdmin)
 	limited := 0
 	for i := 0; i < 60; i++ {
 		// 60 different addresses of one /64, each asking about a different name
@@ -88,68 +88,6 @@ func TestLoginLimitsGroupAnIPv6NetworkTogether(t *testing.T) {
 	r := a.do("POST", "/api/v1/auth/login", map[string]string{"username": "alex", "password": goodPW}, func(r *http.Request) { r.RemoteAddr = "[2001:db8:6:6::1]:4000" })
 	if r.Code != 200 {
 		t.Fatalf("a different network was limited: %d", r.Code)
-	}
-}
-
-func TestPasswordHashWorkIsBoundedInNumberAndQueue(t *testing.T) {
-	e := newEnv(t)
-	c := e.base
-	c.authSt().hashSem = make(chan struct{}, 2)
-	c.authSt().maxQueue = 2
-	hash, _ := HashPassword("correct horse battery")
-	// occupy both slots
-	c.authSt().hashSem <- struct{}{}
-	c.authSt().hashSem <- struct{}{}
-
-	results := make(chan error, 4)
-	var started sync.WaitGroup
-	for i := 0; i < 2; i++ { // two may wait
-		started.Add(1)
-		go func() {
-			started.Done()
-			_, err := c.verifyPassword(context.Background(), "correct horse battery", hash)
-			results <- err
-		}()
-	}
-	started.Wait()
-	for c.authSt().hashQueue.Load() < 2 {
-		time.Sleep(time.Millisecond)
-	}
-	// the third finds the queue full and is refused at once, with a clear error, without waiting
-	start := time.Now()
-	_, err := c.verifyPassword(context.Background(), "x", hash)
-	if kindOf(err) != kernel.KindRateLimited || !strings.Contains(err.Error(), "busy") || time.Since(start) > time.Second {
-		t.Fatalf("the request beyond the queue: %v after %v", err, time.Since(start))
-	}
-	if _, err := c.hashPassword(context.Background(), "x"); kindOf(err) != kernel.KindRateLimited {
-		t.Fatalf("hashing beyond the queue: %v", err)
-	}
-	// free the slots: the two waiters finish
-	<-c.authSt().hashSem
-	<-c.authSt().hashSem
-	for i := 0; i < 2; i++ {
-		select {
-		case err := <-results:
-			if err != nil {
-				t.Fatalf("a queued check failed: %v", err)
-			}
-		case <-time.After(20 * time.Second):
-			t.Fatal("a queued check never ran")
-		}
-	}
-	if c.authSt().hashQueue.Load() != 0 || len(c.authSt().hashSem) != 0 {
-		t.Fatalf("leaked: queue %d, slots %d", c.authSt().hashQueue.Load(), len(c.authSt().hashSem))
-	}
-	// a waiter gives up when its request is cancelled
-	c.authSt().hashSem <- struct{}{}
-	c.authSt().hashSem <- struct{}{}
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
-	if _, err := c.verifyPassword(ctx, "x", hash); err == nil {
-		t.Fatal("a cancelled waiter ran")
-	}
-	if c.authSt().hashQueue.Load() != 0 {
-		t.Fatal("a cancelled waiter stayed in the queue")
 	}
 }
 

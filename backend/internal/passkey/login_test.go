@@ -16,7 +16,7 @@ import (
 	"github.com/go-webauthn/webauthn/protocol/webauthncbor"
 	"github.com/go-webauthn/webauthn/protocol/webauthncose"
 
-	"continuum/internal/server"
+	"continuum/internal/accounts"
 	"continuum/internal/store"
 )
 
@@ -102,7 +102,7 @@ func (k softKey) register(t *testing.T, flags byte) store.WebAuthnCredential {
 func (k softKey) login(t *testing.T, stored store.WebAuthnCredential, flags byte, counter uint32) (uint32, error) {
 	t.Helper()
 	p, rp := New(), testRP()
-	u := server.WebAuthnUser{ID: "user-1", Username: "quinn", Credentials: []store.WebAuthnCredential{stored}}
+	u := accounts.WebAuthnUser{ID: "user-1", Username: "quinn", Credentials: []store.WebAuthnCredential{stored}}
 	opts, sess, err := p.BeginLogin(rp, u)
 	if err != nil {
 		t.Fatal(err)

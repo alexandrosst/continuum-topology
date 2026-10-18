@@ -5,6 +5,8 @@ import (
 	"time"
 
 	continuumv1 "continuum/gen/continuumv1"
+
+	"continuum/internal/accounts"
 )
 
 // connectedAgent is an approved agent with a live view and a stream the hub can push a Config on.
@@ -43,8 +45,8 @@ func readTests(t *testing.T, a *adminRig, cookie, agentID string) []map[string]a
 
 func TestAnAddressIsTestedFromTheAgentAndTheResultReadBack(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
-	_, viewer := a.user(t, "vera", RoleViewer)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
+	_, viewer := a.user(t, "vera", accounts.RoleViewer)
 	agentID, push := connectedAgent(t, a)
 
 	if code, _ := startTests(t, a, viewer, agentID, "10.20.0.14:31317"); code != 403 {
@@ -110,7 +112,7 @@ func TestAnAddressIsTestedFromTheAgentAndTheResultReadBack(t *testing.T) {
 
 func TestAnAddressTestIsHeldToTheSameRulesAsMeasuring(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	agentID, _ := connectedAgent(t, a)
 	for _, bad := range []string{"", "localhost:4317", "127.0.0.1:4317", "169.254.169.254:80", "10.0.0.1:6443", "10.0.0.1:10250", "https://x.example.com:4317", "10.0.0.1:99999"} {
 		if code, _ := startTests(t, a, cookie, agentID, bad); code != 400 {
@@ -139,7 +141,7 @@ func TestAnAddressTestIsHeldToTheSameRulesAsMeasuring(t *testing.T) {
 
 func TestAnAddressTestNeedsAnAgentThatCanMeasure(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	agentID := a.approvedAgentID(t, fp)
 	// No stream: nothing can be asked of it.
 	a.hub().mu.Lock()
@@ -169,7 +171,7 @@ func connectedAgent2(t *testing.T, a *adminRig, agentID string) (string, chan *c
 
 func TestAnAddressTestExpiresAndLeavesTheAgentsTargets(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	agentID, _ := connectedAgent(t, a)
 	if code, _ := startTests(t, a, cookie, agentID, "10.20.0.14:31317"); code != 202 {
 		t.Fatalf("start: %d", code)
@@ -192,7 +194,7 @@ func TestAnAddressTestExpiresAndLeavesTheAgentsTargets(t *testing.T) {
 
 func TestTestingAnAddressAgainStartsFromScratch(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	agentID, _ := connectedAgent(t, a)
 	startTests(t, a, cookie, agentID, "10.20.0.14:31317")
 	first := readTests(t, a, cookie, agentID)[0]

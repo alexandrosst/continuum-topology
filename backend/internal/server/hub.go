@@ -14,6 +14,7 @@ import (
 	"time"
 
 	continuumv1 "continuum/gen/continuumv1"
+	"continuum/internal/accounts"
 	"continuum/internal/agentcaps"
 	"continuum/internal/facts"
 	"continuum/internal/flow/wire"
@@ -384,7 +385,7 @@ func (h *Hub) Connect(stream continuumv1.AgentService_ConnectServer) error {
 	}
 	agent.AccessTier = fresh.AccessTier
 	if agent.ConnectingIP != "" && agent.ConnectingIP != ip {
-		h.C.Audit(ctx, AgentActor(agent.ID).String(), "agent-address-changed", "agent", agent.ID, "connected from "+ip+", previously "+agent.ConnectingIP)
+		h.C.Audit(ctx, accounts.AgentActor(agent.ID).String(), "agent-address-changed", "agent", agent.ID, "connected from "+ip+", previously "+agent.ConnectingIP)
 	}
 
 	// The stream must not outlive the certificate that authenticated it.
@@ -475,7 +476,7 @@ func (h *Hub) Connect(stream continuumv1.AgentService_ConnectServer) error {
 				// An agent speaks only for the cluster a human approved.
 				if c := m.Sync.Cluster; c != nil && c.Uid != cur.Fingerprint {
 					kernel.Metrics.SyncsRefused.Add(1)
-					h.C.Audit(ctx, AgentActor(agent.ID).String(), "sync-refused", "agent", agent.ID, "facts claimed a different cluster than the one approved")
+					h.C.Audit(ctx, accounts.AgentActor(agent.ID).String(), "sync-refused", "agent", agent.ID, "facts claimed a different cluster than the one approved")
 					return status.Error(codes.PermissionDenied, "sync is for a different cluster than the one approved")
 				}
 				if err := validateSync(m.Sync); err != nil {
@@ -731,7 +732,7 @@ func (h *Hub) refuseSync(ctx context.Context, a store.Agent, v *view, why error)
 	if !record {
 		return
 	}
-	h.C.Audit(ctx, AgentActor(a.ID).String(), "sync-refused", "agent", a.ID, why.Error())
+	h.C.Audit(ctx, accounts.AgentActor(a.ID).String(), "sync-refused", "agent", a.ID, why.Error())
 	h.storeEvent(ctx, store.Event{At: now, Kind: "sync-refused", TargetKind: "agent", TargetID: a.ID, Name: a.Name, ClusterID: a.ClusterID, ClusterName: a.Name,
 		Detail: "The server refused a message from " + a.Name + ": " + clipText(why.Error(), 300), Cause: "the agent reported more, or larger, facts than this server accepts, or something malformed", Severity: "warning"})
 }

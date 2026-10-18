@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	continuumv1 "continuum/gen/continuumv1"
+	"continuum/internal/accounts"
 	"continuum/internal/geoip"
 )
 
@@ -200,7 +201,7 @@ func TestGeoLocatesAndCaches(t *testing.T) {
 
 func TestStateAndInfoCarryGeoOnlyWhenConfigured(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	enrollFrom := func(ip string) string {
 		secret, _, err := a.core.CreateToken(a.ctx, "admin", "c-"+ip, 1)
 		if err != nil {
@@ -333,7 +334,7 @@ func TestGeoUnlocatableReason(t *testing.T) {
 
 func TestStateCarriesEstimatedGeoThroughTheFallback(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	secret, _, err := a.core.CreateToken(a.ctx, "admin", "c-priv", 1)
 	if err != nil {
 		t.Fatal(err)
@@ -379,7 +380,7 @@ func TestStateCarriesEstimatedGeoThroughTheFallback(t *testing.T) {
 
 func TestStateCarriesConnectingGeoReasonWithoutFallback(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	secret, _, err := a.core.CreateToken(a.ctx, "admin", "c-priv", 1)
 	if err != nil {
 		t.Fatal(err)

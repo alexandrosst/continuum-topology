@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"continuum/internal/accounts"
 	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
@@ -13,7 +14,7 @@ import (
 // no token.
 func TestAChartTheCommandCannotNameSpendsNoToken(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	a.a.ChartRef = "--post-renderer=/tmp/x"
 
 	r := a.do("POST", "/api/v1/tokens", map[string]any{"name": "edge", "tier": 1}, withCookie(cookie))
@@ -65,7 +66,7 @@ func TestAServerThatCannotNameItsChartDoesNotStart(t *testing.T) {
 // minted, not after it is lost.
 func TestAnOperatorChartTheCommandCannotNameMintsNoHeartbeatSecret(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	cl := a.approvedCluster(t, fp)
 	id := a.createOperatorDoc(t, cookie, extBody("athens", cl))["operator"].(map[string]any)["id"].(string)
 
@@ -96,7 +97,7 @@ func operatorInstall(a *Admin, img kernel.ImageConfig, secret string, op store.O
 // cannot be written is found before either exists, on creating the operator and on installing it again.
 func TestAnOperatorChartTheCommandCannotNameMakesNoOperatorAndRotatesNothing(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	cl := a.approvedCluster(t, fp)
 	id := a.createOperatorDoc(t, cookie, extBody("athens", cl))["operator"].(map[string]any)["id"].(string)
 	before, err := a.st.ListOperatorCerts(a.ctx, id)

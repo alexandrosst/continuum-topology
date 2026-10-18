@@ -49,6 +49,10 @@ var moduleNames = map[string]bool{
 	"telemetry": true, "operators": true, "connectivity": true, "fusion": true, "advice": true,
 }
 
+// movedOut are the modules that are packages of their own now. They keep their name here for the lists, but no file of this package is
+// theirs: a file assigned to one of them is a file that should have moved with it.
+var movedOut = map[string]bool{"accounts": true}
+
 // moduleOfFile reads testdata/modules.txt: one line per file, the file name and then its module.
 func moduleOfFile(t *testing.T) map[string]string {
 	t.Helper()
@@ -104,7 +108,10 @@ func TestEverySourceFileBelongsToOneModule(t *testing.T) {
 		used[m]++
 	}
 	for name := range moduleNames {
-		if used[name] == 0 {
+		switch {
+		case movedOut[name] && used[name] > 0:
+			t.Errorf("module %s is a package of its own now, and %d file(s) here are still assigned to it", name, used[name])
+		case !movedOut[name] && used[name] == 0:
 			t.Errorf("module %s has no file", name)
 		}
 	}

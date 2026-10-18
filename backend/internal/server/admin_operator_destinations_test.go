@@ -3,6 +3,8 @@ package server
 import (
 	"strings"
 	"testing"
+
+	"continuum/internal/accounts"
 )
 
 func destByID(list []map[string]any, id string) map[string]any {
@@ -17,9 +19,9 @@ func destByID(list []map[string]any, id string) map[string]any {
 // What the destination picker reads: editors may read it, nothing secret is in it, revoked operators are not offered.
 func TestOperatorDestinationsAreForEditorsAndHoldNoSecrets(t *testing.T) {
 	a := newAdminRig(t)
-	_, admin := a.user(t, "alex", RoleAdmin)
-	_, editor := a.user(t, "ed", RoleEditor)
-	_, viewer := a.user(t, "vi", RoleViewer)
+	_, admin := a.user(t, "alex", accounts.RoleAdmin)
+	_, editor := a.user(t, "ed", accounts.RoleEditor)
+	_, viewer := a.user(t, "vi", accounts.RoleViewer)
 	cl := a.approvedCluster(t, fp)
 	body := extBody("athens", cl)
 	body["exposure"] = "loadbalancer"
@@ -78,8 +80,8 @@ func TestOperatorDestinationsAreForEditorsAndHoldNoSecrets(t *testing.T) {
 // health; nothing else is ever "recommended".
 func TestOperatorDestinationsOfferCentralFromTheStart(t *testing.T) {
 	a := newAdminRig(t)
-	_, editor := a.user(t, "ed", RoleEditor)
-	_, admin := a.user(t, "alex", RoleAdmin)
+	_, editor := a.user(t, "ed", accounts.RoleEditor)
+	_, admin := a.user(t, "alex", accounts.RoleAdmin)
 	cl := a.approvedCluster(t, fp)
 	regional := a.createOperatorDoc(t, admin, extBody("athens", cl))["operator"].(map[string]any)["id"].(string)
 
@@ -136,7 +138,7 @@ func TestOperatorDestinationsOfferCentralFromTheStart(t *testing.T) {
 // The central operator's document carries FUSION's state as its health, so the operators page and the picker agree.
 func TestCentralOperatorHealthIsFusionsState(t *testing.T) {
 	a := newAdminRig(t)
-	_, admin := a.user(t, "alex", RoleAdmin)
+	_, admin := a.user(t, "alex", accounts.RoleAdmin)
 	f, k := newFusion(t, a)
 	a.a.Fusion = f
 	if _, err := f.Enable(a.ctx, a.core, "alex"); err != nil {

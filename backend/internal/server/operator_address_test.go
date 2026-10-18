@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"continuum/internal/accounts"
 	"continuum/internal/chart"
 	"continuum/internal/install"
 	"continuum/internal/store"
@@ -58,8 +59,8 @@ func TestValidOperatorAddress(t *testing.T) {
 
 func TestAnOperatorAddressIsSetShownAuditedAndUsedByEveryCommandThatPointsAtIt(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
-	_, viewer := a.user(t, "vera", RoleViewer)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
+	_, viewer := a.user(t, "vera", accounts.RoleViewer)
 	cl := a.approvedCluster(t, fp)
 
 	create := func(name string, dest map[string]any, extra map[string]any) map[string]any {
@@ -161,8 +162,8 @@ func TestAnOperatorAddressIsSetShownAuditedAndUsedByEveryCommandThatPointsAtIt(t
 // at it dial that address and verify it by the stable name: no Helm value and no restart needed.
 func TestTheCentralOperatorsAddressIsSetFromTheUIAndUsedByEveryCommand(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
-	_, viewer := a.user(t, "vera", RoleViewer)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
+	_, viewer := a.user(t, "vera", accounts.RoleViewer)
 	f, _ := newFusion(t, a)
 	a.a.Fusion = f
 	if r := a.do("POST", "/api/v1/fusion/enable", nil, withCookie(cookie)); r.Code != 200 {
@@ -227,7 +228,7 @@ func TestGuardCentralStillProtectsEverythingElse(t *testing.T) {
 // A cluster's own telemetry intent, pointed at an operator elsewhere, gets the same address and server name.
 func TestATelemetryIntentCommandDialsTheOperatorsAddress(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	opCluster := a.approvedCluster(t, fp)
 	r := a.do("POST", "/api/v1/operators", map[string]any{"name": "eu-hub", "sourceClusterIds": []string{opCluster},
 		"destination": map[string]any{"kind": "external", "endpoint": "collector.example:4317"}}, withCookie(cookie))

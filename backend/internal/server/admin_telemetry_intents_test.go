@@ -4,11 +4,13 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"continuum/internal/accounts"
 )
 
 func TestTelemetryIntentsHTTPCreateListGetScopeDestinationRevokeDelete(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleEditor)
+	_, cookie := a.user(t, "alex", accounts.RoleEditor)
 	agentID := a.approvedAgentID(t, fp)
 
 	if r := a.do("GET", "/api/v1/telemetry-intents", nil, withCookie(cookie)); r.Code != 200 {
@@ -94,7 +96,7 @@ func TestTelemetryIntentsHTTPCreateListGetScopeDestinationRevokeDelete(t *testin
 
 func TestTelemetryIntentsHTTPRequiresEditorRole(t *testing.T) {
 	a := newAdminRig(t)
-	_, viewer := a.user(t, "jamie", RoleViewer)
+	_, viewer := a.user(t, "jamie", accounts.RoleViewer)
 	agentID := a.approvedAgentID(t, fp)
 	body := map[string]any{"agentId": agentID, "name": "x", "destination": map[string]any{"kind": "external", "endpoint": "c:4317"}}
 	if r := a.do("POST", "/api/v1/telemetry-intents", body, withCookie(viewer)); r.Code != 403 {
@@ -107,7 +109,7 @@ func TestTelemetryIntentsHTTPRequiresEditorRole(t *testing.T) {
 
 func TestTelemetryIntentsHTTPRejectsASecondActiveIntentOnTheSameAgent(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleEditor)
+	_, cookie := a.user(t, "alex", accounts.RoleEditor)
 	agentID := a.approvedAgentID(t, fp)
 	body := map[string]any{"agentId": agentID, "name": "first", "destination": map[string]any{"kind": "external", "endpoint": "c:4317"}}
 	if r := a.do("POST", "/api/v1/telemetry-intents", body, withCookie(cookie)); r.Code != 201 {
@@ -125,7 +127,7 @@ func TestTelemetryIntentsHTTPRejectsASecondActiveIntentOnTheSameAgent(t *testing
 // by the frontend's own withTelemetry(), not duplicated here.
 func TestTelemetryIntentCommandExternalDestination(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	agentID := a.approvedAgentID(t, fp)
 	ag, err := a.st.GetAgent(a.ctx, agentID)
 	if err != nil {
@@ -173,7 +175,7 @@ func TestTelemetryIntentCommandExternalDestination(t *testing.T) {
 // TestIssueOperatorClientCertReissuesOnDemand proves it at the Core level.
 func TestTelemetryIntentCommandOperatorDestinationReissuesEachTime(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	opCluster := a.approvedCluster(t, fp)
 	opBody := map[string]any{
 		"name":             "athens-regional",
@@ -244,7 +246,7 @@ func TestTelemetryIntentCommandOperatorDestinationReissuesEachTime(t *testing.T)
 
 func TestTelemetryIntentCommandRequiresAdminRole(t *testing.T) {
 	a := newAdminRig(t)
-	_, editor := a.user(t, "jamie", RoleEditor)
+	_, editor := a.user(t, "jamie", accounts.RoleEditor)
 	agentID := a.approvedAgentID(t, fp)
 	body := map[string]any{"agentId": agentID, "name": "x", "destination": map[string]any{"kind": "external", "endpoint": "c:4317"}}
 	r := a.do("POST", "/api/v1/telemetry-intents", body, withCookie(editor))
@@ -261,7 +263,7 @@ func TestTelemetryIntentCommandRequiresAdminRole(t *testing.T) {
 // names that Secret; a third going to an external endpoint needs nothing from the server.
 func TestTelemetryIntentCommandRoutesShareOneCertificatePerOperator(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	opCluster := a.approvedCluster(t, fp)
 	r := a.do("POST", "/api/v1/operators", map[string]any{
 		"name": "athens-regional", "sourceClusterIds": []string{opCluster},
@@ -360,7 +362,7 @@ func TestTelemetryIntentCommandRoutesShareOneCertificatePerOperator(t *testing.T
 // A revoked intent grants nothing, so it hands out no command - and so issues no client certificate.
 func TestTelemetryIntentCommandRefusesARevokedIntent(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	agentID := a.approvedAgentID(t, fp2)
 	r := a.do("POST", "/api/v1/telemetry-intents", map[string]any{
 		"agentId": agentID, "name": "patras-edge",
@@ -385,7 +387,7 @@ func TestTelemetryIntentCommandRefusesARevokedIntent(t *testing.T) {
 // already is one. (Checking and inserting were two steps, so both used to pass the check.)
 func TestConcurrentTelemetryIntentCreatesLeaveOneActiveIntent(t *testing.T) {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleEditor)
+	_, cookie := a.user(t, "alex", accounts.RoleEditor)
 	agentID := a.approvedAgentID(t, fp)
 	body := map[string]any{"agentId": agentID, "name": "racing", "destination": map[string]any{"kind": "external", "endpoint": "c:4317"}}
 	const n = 24

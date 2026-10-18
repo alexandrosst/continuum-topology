@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"continuum/internal/accounts"
 	"continuum/internal/chart"
 	"continuum/internal/store"
 
@@ -401,7 +402,7 @@ func (a *intentRig) operator(t *testing.T, name string) store.Operator {
 
 func newIntentRig(t *testing.T) *intentRig {
 	a := newAdminRig(t)
-	_, cookie := a.user(t, "alex", RoleAdmin)
+	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	return &intentRig{adminRig: a, cookie: cookie}
 }
 
