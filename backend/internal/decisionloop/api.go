@@ -11,7 +11,7 @@ import (
 
 // The HTTP side of the decision log. What may be recorded, and how, is decisions.go's.
 
-// API is the decision log's routes. For finds the decision loop of the organisation a request is for: the shell does that from what its
+// API is the decision loop's routes: the decision log and the proposals. For finds the decision loop of the organisation a request is for: the shell does that from what its
 // guard put in the request, and the handlers know nothing of how.
 type API struct {
 	For func(r *http.Request) *Service
@@ -21,6 +21,7 @@ type API struct {
 func (h API) Mount(r httpkit.Router) {
 	r.Handle("POST "+httpkit.OrgPath+"/decisions", httpkit.EditorRole, h.record)
 	r.Handle("GET "+httpkit.OrgPath+"/decisions", httpkit.MemberRole, h.list)
+	h.mountProposals(r)
 }
 
 type decisionMoveDoc struct {

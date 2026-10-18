@@ -255,12 +255,6 @@ func (a *Admin) Handler() http.Handler {
 	route("POST "+o+"/agents/{id}/tier", httpkit.EditorRole, a.setAgentTier)
 	route("POST "+o+"/agents/{id}/consent", httpkit.EditorRole, a.setAgentConsent)
 	// The decision loop: an advisor (an editor's API token) submits, a person decides. Widening is an administrator's, checked in the hub.
-	route("POST "+o+"/proposals", httpkit.EditorRole, a.submitProposal)
-	route("GET "+o+"/proposals", httpkit.EditorRole, a.listProposals)
-	route("GET "+o+"/proposals/advisors", httpkit.EditorRole, a.listAdvisors)
-	route("GET "+o+"/proposals/{id}", httpkit.EditorRole, a.getProposal)
-	route("POST "+o+"/proposals/{id}/accept", httpkit.EditorRole, a.decideProposal(true))
-	route("POST "+o+"/proposals/{id}/reject", httpkit.EditorRole, a.decideProposal(false))
 
 	route("GET "+o+"/operators", httpkit.AdminRole, a.listOperators)
 	route("POST "+o+"/operators", httpkit.AdminRole, a.createOperator)

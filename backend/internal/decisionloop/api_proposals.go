@@ -1,15 +1,24 @@
-package server
+package decisionloop
 
 import (
 	"encoding/json"
 	"net/http"
 	"time"
 
-	"continuum/internal/decisionloop"
 	"continuum/internal/httpkit"
 	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
+
+// mountProposals puts the proposals' routes on r. Every one needs an editor.
+func (h API) mountProposals(r httpkit.Router) {
+	r.Handle("POST "+httpkit.OrgPath+"/proposals", httpkit.EditorRole, h.submitProposal)
+	r.Handle("GET "+httpkit.OrgPath+"/proposals", httpkit.EditorRole, h.listProposals)
+	r.Handle("GET "+httpkit.OrgPath+"/proposals/advisors", httpkit.EditorRole, h.listAdvisors)
+	r.Handle("GET "+httpkit.OrgPath+"/proposals/{id}", httpkit.EditorRole, h.getProposal)
+	r.Handle("POST "+httpkit.OrgPath+"/proposals/{id}/accept", httpkit.EditorRole, h.decideProposal(true))
+	r.Handle("POST "+httpkit.OrgPath+"/proposals/{id}/reject", httpkit.EditorRole, h.decideProposal(false))
+}
 
 // The HTTP face of the decision loop (see proposals.go). Every route needs an editor, the role that can already change an
 // agent's access: the proposals carry the evidence an advisor used about the agent, which a viewer does not see either. An
@@ -70,52 +79,54 @@ func toProposalDoc(p store.Proposal, o *store.ProposalOutcome) proposalDoc {
 }
 
 // submitProposal is POST .../proposals.
-func (a *Admin) submitProposal(w http.ResponseWriter, r *http.Request) {
+func (h API) submitProposal(w http.ResponseWriter, r *http.Request) {
+	s := h.For(r)
 	var req struct {
-		Advisor      string                      `json:"advisor"`
-		ModelVersion int64                       `json:"modelVersion"`
-		Change       decisionloop.AccessChange   `json:"change"`
-		Evidence     []decisionloop.EvidenceFact `json:"evidence"`
-		Predicted    map[string]float64          `json:"predicted"`
-		TTLSeconds   int                         `json:"ttlSeconds"`
+		Advisor      string             `json:"advisor"`
+		ModelVersion int64              `json:"modelVersion"`
+		Change       AccessChange       `json:"change"`
+		Evidence     []EvidenceFact     `json:"evidence"`
+		Predicted    map[string]float64 `json:"predicted"`
+		TTLSeconds   int                `json:"ttlSeconds"`
 	}
 	if err := httpkit.Decode(r, &req); err != nil {
-		a.fail(w, err)
+		httpkit.Fail(w, s.Log, err)
 		return
 	}
-	if req.TTLSeconds < 0 || req.TTLSeconds > int(decisionloop.MaxProposalTTL/time.Second) {
-		a.fail(w, kernel.Errf(kernel.KindInvalid, "ttlSeconds must be between 0 and %d", int(decisionloop.MaxProposalTTL/time.Second)))
+	if req.TTLSeconds < 0 || req.TTLSeconds > int(MaxProposalTTL/time.Second) {
+		httpkit.Fail(w, s.Log, kernel.Errf(kernel.KindInvalid, "ttlSeconds must be between 0 and %d", int(MaxProposalTTL/time.Second)))
 		return
 	}
-	p, err := a.tn(r).Hub.C.Loop.SubmitProposal(r.Context(), httpkit.Actor(r), decisionloop.ProposalInput{Advisor: req.Advisor, ModelVersion: req.ModelVersion, Change: req.Change,
+	p, err := s.SubmitProposal(r.Context(), httpkit.Actor(r), ProposalInput{Advisor: req.Advisor, ModelVersion: req.ModelVersion, Change: req.Change,
 		Evidence: req.Evidence, Predicted: req.Predicted, TTL: time.Duration(req.TTLSeconds) * time.Second})
 	if err != nil {
-		a.fail(w, err)
+		httpkit.Fail(w, s.Log, err)
 		return
 	}
 	httpkit.WriteJSON(w, http.StatusCreated, toProposalDoc(p, nil))
 }
 
 // listProposals is GET .../proposals?status=&agent=&limit=.
-func (a *Admin) listProposals(w http.ResponseWriter, r *http.Request) {
+func (h API) listProposals(w http.ResponseWriter, r *http.Request) {
+	s := h.For(r)
 	q := store.ProposalQuery{Status: store.ProposalStatus(r.URL.Query().Get("status")), AgentID: r.URL.Query().Get("agent")}
 	switch q.Status {
 	case "", store.ProposalPending, store.ProposalAccepted, store.ProposalRejected, store.ProposalExpired, store.ProposalApplied, store.ProposalFailed:
 	default:
-		a.fail(w, kernel.Errf(kernel.KindInvalid, "status must be pending, accepted, rejected, expired, applied or failed"))
+		httpkit.Fail(w, s.Log, kernel.Errf(kernel.KindInvalid, "status must be pending, accepted, rejected, expired, applied or failed"))
 		return
 	}
 	if v := r.URL.Query().Get("limit"); v != "" {
 		n, ok := atoiPositive(v)
 		if !ok {
-			a.fail(w, kernel.Errf(kernel.KindInvalid, "limit must be a positive number"))
+			httpkit.Fail(w, s.Log, kernel.Errf(kernel.KindInvalid, "limit must be a positive number"))
 			return
 		}
 		q.Limit = n
 	}
-	ps, err := a.tn(r).Hub.C.Loop.ListProposals(r.Context(), q)
+	ps, err := s.ListProposals(r.Context(), q)
 	if err != nil {
-		a.fail(w, err)
+		httpkit.Fail(w, s.Log, err)
 		return
 	}
 	out := make([]proposalDoc, len(ps))
@@ -142,10 +153,11 @@ type advisorRecordDoc struct {
 }
 
 // listAdvisors is GET .../proposals/advisors: what each advisor has proposed, what people did with it, and whether its predictions held.
-func (a *Admin) listAdvisors(w http.ResponseWriter, r *http.Request) {
-	rs, err := a.tn(r).Hub.C.Loop.AdvisorRecords(r.Context())
+func (h API) listAdvisors(w http.ResponseWriter, r *http.Request) {
+	s := h.For(r)
+	rs, err := s.AdvisorRecords(r.Context())
 	if err != nil {
-		a.fail(w, err)
+		httpkit.Fail(w, s.Log, err)
 		return
 	}
 	out := make([]advisorRecordDoc, len(rs))
@@ -168,34 +180,35 @@ func atoiPositive(s string) (int, bool) {
 }
 
 // getProposal is GET .../proposals/{id}, with its Outcome once it has one.
-func (a *Admin) getProposal(w http.ResponseWriter, r *http.Request) {
-	p, o, err := a.tn(r).Hub.C.Loop.GetProposal(r.Context(), r.PathValue("id"))
+func (h API) getProposal(w http.ResponseWriter, r *http.Request) {
+	s := h.For(r)
+	p, o, err := s.GetProposal(r.Context(), r.PathValue("id"))
 	if err != nil {
-		a.fail(w, err)
+		httpkit.Fail(w, s.Log, err)
 		return
 	}
 	httpkit.WriteJSON(w, http.StatusOK, toProposalDoc(p, o))
 }
 
-func (a *Admin) decideProposal(accept bool) http.HandlerFunc {
+func (h API) decideProposal(accept bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		s := h.For(r)
 		var req struct {
 			Note string `json:"note"`
 		}
 		if err := httpkit.Decode(r, &req); err != nil {
-			a.fail(w, err)
+			httpkit.Fail(w, s.Log, err)
 			return
 		}
-		hub := a.tn(r).Hub
 		var p store.Proposal
 		var err error
 		if accept {
-			p, err = hub.C.Loop.AcceptProposal(r.Context(), httpkit.Actor(r), r.PathValue("id"), req.Note)
+			p, err = s.AcceptProposal(r.Context(), httpkit.Actor(r), r.PathValue("id"), req.Note)
 		} else {
-			p, err = hub.C.Loop.RejectProposal(r.Context(), httpkit.Actor(r), r.PathValue("id"), req.Note)
+			p, err = s.RejectProposal(r.Context(), httpkit.Actor(r), r.PathValue("id"), req.Note)
 		}
 		if err != nil {
-			a.fail(w, err)
+			httpkit.Fail(w, s.Log, err)
 			return
 		}
 		httpkit.WriteJSON(w, http.StatusOK, toProposalDoc(p, nil))
