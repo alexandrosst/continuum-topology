@@ -60,7 +60,7 @@ type operatorHealthDoc struct {
 }
 
 func toHealthDoc(h operators.OperatorHealth) operatorHealthDoc {
-	return operatorHealthDoc{State: h.State, LastSeenAt: rfcp(h.LastSeenAt), Reporting: h.Reporting, HeartbeatEnabledAt: rfcp(h.HeartbeatEnabledAt)}
+	return operatorHealthDoc{State: h.State, LastSeenAt: kernel.RFCP(h.LastSeenAt), Reporting: h.Reporting, HeartbeatEnabledAt: kernel.RFCP(h.HeartbeatEnabledAt)}
 }
 
 // labelDoc is one operator label on the wire.
@@ -181,7 +181,7 @@ func toOperatorDoc(op store.Operator, now time.Time) operatorDoc {
 	d := operatorDoc{
 		ID: op.ID, Name: op.Name, SiteID: op.SiteID, Status: string(op.Status),
 		SourceClusterIDs: op.SourceClusterIDs, Destination: toDestinationDoc(op.Destination),
-		CreatedAt: rfc(op.CreatedAt), CreatedBy: op.CreatedBy, Reason: op.Reason, ReceiverAuth: string(op.ReceiverAuth), ClientCaScope: op.ClientCAScope(),
+		CreatedAt: kernel.RFC(op.CreatedAt), CreatedBy: op.CreatedBy, Reason: op.Reason, ReceiverAuth: string(op.ReceiverAuth), ClientCaScope: op.ClientCAScope(),
 		Health: toHealthDoc(operators.OperatorHealthAt(op, now)),
 	}
 	if op.SourceClusterIDs == nil {
@@ -194,14 +194,14 @@ func toOperatorDoc(op store.Operator, now time.Time) operatorDoc {
 		d.Labels = append(d.Labels, labelDoc{Key: l.Key, Value: l.Value})
 	}
 	if op.RevokedAt != nil {
-		d.RevokedAt = rfc(*op.RevokedAt)
+		d.RevokedAt = kernel.RFC(*op.RevokedAt)
 	}
 	if op.Status == store.OperatorActive {
 		if c := operators.OperatorCertDates(op); c.Known() {
-			d.Certs = &certsDoc{ReceiverNotAfter: rfcp(c.Receiver), ClientNotAfter: rfcp(c.Client), CANotAfter: rfcp(c.CA)}
+			d.Certs = &certsDoc{ReceiverNotAfter: kernel.RFCP(c.Receiver), ClientNotAfter: kernel.RFCP(c.Client), CANotAfter: kernel.RFCP(c.CA)}
 			var since *time.Time
 			d.CertState, since = c.CertState(now)
-			d.CertStateSince = rfcp(since)
+			d.CertStateSince = kernel.RFCP(since)
 		}
 	}
 	d.Address, d.ReachableFromOtherClusters, d.Exposure, d.AddressState = op.Address, op.Address != "", op.Exposure, addressStateOf(op)
@@ -486,7 +486,7 @@ func (a *Admin) listOperatorCertificates(w http.ResponseWriter, r *http.Request)
 		}
 		out = append(out, issuedCertDoc{
 			Serial: c.Serial, Kind: string(c.Kind), Subject: c.Subject, Sender: c.Sender, IssuedBy: c.IssuedBy,
-			IssuedAt: rfc(c.IssuedAt), NotBefore: rfc(c.NotBefore), NotAfter: rfc(c.NotAfter), State: state,
+			IssuedAt: kernel.RFC(c.IssuedAt), NotBefore: kernel.RFC(c.NotBefore), NotAfter: kernel.RFC(c.NotAfter), State: state,
 		})
 	}
 	writeJSON(w, 200, map[string]any{"certificates": out})

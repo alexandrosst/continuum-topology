@@ -6,13 +6,11 @@ AddEvents	estate
 ClearPollSecret	agents
 ClearPollSecret	estate
 GetAgent	agents
-GetAgent	connectivity
 GetAgent	estate
 GetHistory	estate
 GetHistory	shell
 GetWorkspace	estate
 GetWorkspace	shell
-ListAgents	connectivity
 ListAgents	estate
 ListAgents	shell
 ListAudit	estate
@@ -21,5 +19,3 @@ ListHistory	estate
 ListHistory	shell
 LoadSnapshot	agents
 LoadSnapshot	estate
-SaveSnapshot	agents
-SaveSnapshot	estate

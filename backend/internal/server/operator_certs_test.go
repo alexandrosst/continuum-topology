@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"continuum/internal/kernel"
 	"continuum/internal/operators"
 	"continuum/internal/pki"
 	"continuum/internal/store"
@@ -52,7 +53,7 @@ func TestCreatedOperatorRecordsItsCertificateDates(t *testing.T) {
 	}
 	d := toOperatorDoc(stored, *e.now)
 	caEnd, _ := pki.NotAfter(stored.ClientCACertPEM)
-	if d.Certs == nil || d.Certs.ReceiverNotAfter == "" || d.Certs.ClientNotAfter == "" || d.Certs.CANotAfter != rfc(caEnd) || d.CertState != "ok" {
+	if d.Certs == nil || d.Certs.ReceiverNotAfter == "" || d.Certs.ClientNotAfter == "" || d.Certs.CANotAfter != kernel.RFC(caEnd) || d.CertState != "ok" {
 		t.Fatalf("certs = %+v state %q", d.Certs, d.CertState)
 	}
 }
@@ -75,7 +76,7 @@ func TestCertStateSaysWhetherRenewalIsHappening(t *testing.T) {
 		}
 		wantSince := ""
 		if c.want != operators.CertStateOK {
-			wantSince = rfc(now.Add(c.left).Add(-pki.OperatorRenewBefore))
+			wantSince = kernel.RFC(now.Add(c.left).Add(-pki.OperatorRenewBefore))
 		}
 		if d.CertStateSince != wantSince {
 			t.Errorf("%v left: certStateSince = %q, want %q", c.left, d.CertStateSince, wantSince)

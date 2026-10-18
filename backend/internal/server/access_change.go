@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"slices"
 	"strings"
 
@@ -13,26 +12,6 @@ import (
 // What a change to an agent's access does to the agent is the agents' to say: which tiers its install and its token allow, which
 // overrides are well formed, and whether the result shares more than before. The decision loop proposes a change and asks this; it
 // does not know what a tier or an override is.
-
-// hubAccess is the agents' answer to the decision loop (decisionloop.Access).
-type hubAccess struct{ h *Hub }
-
-// PlanChange checks ch against a as it is now. It is used when a change is proposed and again when it is accepted.
-func (p hubAccess) PlanChange(a store.Agent, ch decisionloop.AccessChange) (decisionloop.AccessPlan, error) {
-	h := p.h
-	tier, next, widens, err := resolveChange(a, h.consentOf(a.ID), ch)
-	if err != nil {
-		return decisionloop.AccessPlan{}, err
-	}
-	return decisionloop.AccessPlan{Widens: widens, Apply: func(ctx context.Context, actor string) error {
-		if ch.Tier != nil {
-			_, err := h.SetAgentTier(ctx, actor, a.ID, tier, nil)
-			return err
-		}
-		_, err := h.SetConsent(ctx, actor, a.ID, next)
-		return err
-	}}, nil
-}
 
 func minusStrings(list, drop []string) []string {
 	var out []string

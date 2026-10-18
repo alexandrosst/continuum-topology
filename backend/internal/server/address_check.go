@@ -108,7 +108,7 @@ const probeTimeout = 5 * time.Second
 // makes. It sends no credential and no telemetry. caPEM nil means the receiver is not known to speak TLS: only the
 // connection is checked. dial is the network (net.Dialer's DialContext; a test replaces it).
 func probeAddress(ctx context.Context, addr string, caPEM []byte, serverName string, now time.Time, dial func(ctx context.Context, network, addr string) (net.Conn, error)) AddressProbe {
-	res := AddressProbe{CheckedAt: rfc(now), From: "this server"}
+	res := AddressProbe{CheckedAt: kernel.RFC(now), From: "this server"}
 	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
 	conn, err := dial(ctx, "tcp", addr)
@@ -290,7 +290,7 @@ func (a *Admin) checkOperatorAddress(w http.ResponseWriter, r *http.Request) {
 	addr, caPEM, serverName := a.probeSettings(c, op)
 	now := c.Now()
 	if addr == "" {
-		writeJSON(w, 200, AddressProbe{State: "no-address", Message: "No address is recorded for this operator, so there is nothing to check.", CheckedAt: rfc(now), From: "this server"})
+		writeJSON(w, 200, AddressProbe{State: "no-address", Message: "No address is recorded for this operator, so there is nothing to check.", CheckedAt: kernel.RFC(now), From: "this server"})
 		return
 	}
 	if res, ok := a.probes.get(op.ID, addr, now); ok {

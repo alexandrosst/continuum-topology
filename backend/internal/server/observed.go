@@ -979,3 +979,27 @@ func (o *observerHealth) doc(now time.Time) *ObserverDoc {
 	}
 	return d
 }
+
+// clusterOf says which onboarded cluster an address belongs to, when that is unambiguous.
+func (ix *addrIndex) clusterOf(ip string, port int) string {
+	if ts := ix.reach[fmt.Sprintf("%s:%d", ip, port)]; len(ts) > 0 {
+		c := ts[0].cluster
+		for _, t := range ts {
+			if t.cluster != c {
+				return ""
+			}
+		}
+		return c
+	}
+	if c := uniq(ix.nodeIPs[ip]); len(c) == 1 {
+		return c[0]
+	}
+	if c := uniq(ix.egress[ip]); len(c) == 1 {
+		return c[0]
+	}
+	return ""
+}
+
+// refusalEvery is how often one agent's refused messages are written to the audit trail and the event list;
+// an agent that keeps sending the same thing would otherwise fill both.
+const refusalEvery = 10 * time.Minute

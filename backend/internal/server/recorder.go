@@ -158,14 +158,6 @@ func (r *recorder) scan(ctx context.Context, now time.Time, periodic bool) {
 	}
 }
 
-// eventLinker is what a store adds when it keeps a graph: the ability to connect a batch of events to
-// the versions they explain (see graph.DB.LinkEventChanges). A plain store does not implement it - the
-// events themselves are already durably stored either way, this is enrichment on top, the same optional-
-// capability pattern entityRecorder uses in consent.go.
-type eventLinker interface {
-	LinkEventChanges(ctx context.Context, org string, at time.Time, evs []store.Event) error
-}
-
 // reclaimRevoked releases what a revoked agent leaves behind once its last picture is no longer shown: its
 // view in memory and its snapshots (facts, flows, overrides) in the store. Every reinstall enrols a new agent,
 // so without this each one keeps up to three large blobs, and its facts in RAM until the next restart.

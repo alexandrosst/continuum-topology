@@ -143,7 +143,7 @@ func (a *Admin) historyIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]point, len(pts))
 	for i, p := range pts {
-		out[i] = point{rfc(p.At), p.Bytes}
+		out[i] = point{kernel.RFC(p.At), p.Bytes}
 	}
 	set := a.core(r).Settings()
 	writeJSON(w, 200, map[string]any{"points": out, "snapshotMinutes": set.SnapshotMinutes, "retentionDays": set.RetentionDays})
@@ -169,7 +169,7 @@ func (a *Admin) historySnapshot(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	out := map[string]any{"at": rfc(p.At), "topology": t}
+	out := map[string]any{"at": kernel.RFC(p.At), "topology": t}
 	if agents := a.historicAgents(r, p.At); agents != nil {
 		out["agents"] = agents
 	}
@@ -435,7 +435,7 @@ func (a *Admin) historyDependencySeries(w http.ResponseWriter, r *http.Request) 
 		if !ok {
 			continue
 		}
-		pt := dependencySeriesPoint{At: rfc(p.At), RttMs: dep.rttMs, LossPct: dep.lossPct}
+		pt := dependencySeriesPoint{At: kernel.RFC(p.At), RttMs: dep.rttMs, LossPct: dep.lossPct}
 		if havePrev {
 			if dt := p.At.Sub(prevAt).Seconds(); dt > 0 {
 				delta := dep.bytes - prevBytes // counter reset (dep.bytes < prevBytes) wraps to a huge
@@ -489,7 +489,7 @@ func (a *Admin) listEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]eventDoc, len(evs))
 	for i, e := range evs {
-		out[i] = eventDoc{ID: "ev-" + itoa(e.ID), At: rfc(e.At), Kind: e.Kind, TargetKind: e.TargetKind, TargetID: e.TargetID, Name: e.Name, ClusterID: e.ClusterID,
+		out[i] = eventDoc{ID: "ev-" + itoa(e.ID), At: kernel.RFC(e.At), Kind: e.Kind, TargetKind: e.TargetKind, TargetID: e.TargetID, Name: e.Name, ClusterID: e.ClusterID,
 			ClusterName: e.ClusterName, Detail: e.Detail, Cause: e.Cause, Severity: e.Severity}
 	}
 	writeJSON(w, 200, map[string]any{"events": out})

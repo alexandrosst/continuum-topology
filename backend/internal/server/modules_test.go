@@ -46,7 +46,7 @@ const (
 
 var moduleNames = map[string]bool{
 	"kernel": true, "shell": true, "accounts": true, "agents": true, "estate": true,
-	"telemetry": true, "operators": true, "connectivity": true, "fusion": true, "advice": true,
+	"telemetry": true, "operators": true, "connectivity": true, "fusion": true, "advice": true, "observed": true,
 }
 
 // movedOut are the modules that are packages of their own now. They keep their name here for the lists, but no file of this package is

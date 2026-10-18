@@ -37,7 +37,7 @@ func (r *propRig) acceptAndConfirm(t *testing.T, id string) time.Time {
 	v := r.h.viewFor(r.id)
 	v.cfgHash, v.cfgSentAt = "h-after", r.now.Add(time.Second)
 	*r.now = r.now.Add(2 * time.Second)
-	noteConfigEcho(v, "h-after", *r.now)
+	v.noteConfigEcho("h-after", *r.now)
 	return *r.now
 }
 
@@ -155,12 +155,12 @@ func TestOnlyAppliedProposalsGetAnOutcome(t *testing.T) {
 // The agent echoing its Config digest is what marks a change in force, and the time is that of the first echo of the Config now held.
 func TestTheTimeAChangeCameIntoForceIsTheAgentsFirstEchoOfTheCurrentConfig(t *testing.T) {
 	v := &view{netView: netView{cfgHash: "h2", cfgSentAt: time.Unix(100, 0)}}
-	noteConfigEcho(v, "h1", time.Unix(110, 0)) // still the old one
+	v.noteConfigEcho("h1", time.Unix(110, 0)) // still the old one
 	if !v.cfgInForceAt.IsZero() {
 		t.Fatalf("in force at %v on an echo of the old Config", v.cfgInForceAt)
 	}
-	noteConfigEcho(v, "h2", time.Unix(120, 0))
-	noteConfigEcho(v, "h2", time.Unix(150, 0)) // later heartbeats do not move it
+	v.noteConfigEcho("h2", time.Unix(120, 0))
+	v.noteConfigEcho("h2", time.Unix(150, 0)) // later heartbeats do not move it
 	if !v.cfgInForceAt.Equal(time.Unix(120, 0)) {
 		t.Fatalf("in force at %v", v.cfgInForceAt)
 	}

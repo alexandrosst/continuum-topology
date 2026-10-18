@@ -46,7 +46,7 @@ func toTelemetryIntentDoc(ti store.TelemetryIntent) telemetryIntentDoc {
 	d := telemetryIntentDoc{
 		ID: ti.ID, AgentID: ti.AgentID, Name: ti.Name, Status: string(ti.Status),
 		Namespaces: ti.Namespaces, Exclude: ti.Exclude, Destination: toDestinationDoc(ti.Destination),
-		CreatedAt: rfc(ti.CreatedAt), CreatedBy: ti.CreatedBy, Reason: ti.Reason,
+		CreatedAt: kernel.RFC(ti.CreatedAt), CreatedBy: ti.CreatedBy, Reason: ti.Reason,
 	}
 	if len(ti.Routes) > 0 {
 		d.Routes = map[string]destinationDoc{}
@@ -65,7 +65,7 @@ func toTelemetryIntentDoc(ti store.TelemetryIntent) telemetryIntentDoc {
 		d.Signals = append(d.Signals, toSignalGrantDoc(sg))
 	}
 	if ti.RevokedAt != nil {
-		d.RevokedAt = rfc(*ti.RevokedAt)
+		d.RevokedAt = kernel.RFC(*ti.RevokedAt)
 	}
 	return d
 }

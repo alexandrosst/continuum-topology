@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
 
@@ -30,8 +31,8 @@ func (a *Admin) mintGatewayToken(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 201, map[string]any{
 		"token":     secret,
-		"createdAt": rfc(t.CreatedAt),
-		"expiresAt": rfc(t.ExpiresAt),
+		"createdAt": kernel.RFC(t.CreatedAt),
+		"expiresAt": kernel.RFC(t.ExpiresAt),
 	})
 }
 
@@ -51,7 +52,7 @@ func (a *Admin) getGatewayToken(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{
 		"active":    true,
 		"expired":   !a.core(r).Now().Before(t.ExpiresAt),
-		"createdAt": rfc(t.CreatedAt),
-		"expiresAt": rfc(t.ExpiresAt),
+		"createdAt": kernel.RFC(t.CreatedAt),
+		"expiresAt": kernel.RFC(t.ExpiresAt),
 	})
 }

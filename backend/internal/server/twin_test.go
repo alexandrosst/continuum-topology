@@ -152,7 +152,7 @@ func TestAgentSelfStatsFlowsIntoTheTopologyEntity(t *testing.T) {
 	}
 
 	h.mu.Lock()
-	noteSelfStats(h.views[a.ID], &continuumv1.SelfStats{RssBytes: 123456, Goroutines: 42}, h.C.Now())
+	h.views[a.ID].noteSelfStats(&continuumv1.SelfStats{RssBytes: 123456, Goroutines: 42}, h.C.Now())
 	h.mu.Unlock()
 	// Bust stateFor's own short (modelCacheTTL) cache: a self-stats sample never bumps tw.gen (see
 	// Hub.sampleSelfStats' own doc for why that counter, like a tier narrowing, deliberately does not),
@@ -206,7 +206,7 @@ func TestADeletedWorkloadBecomesATombstoneAndComesBack(t *testing.T) {
 		t.Fatalf("services %d tombstones %+v", len(doc.Topology.Services), doc.Tombstones)
 	}
 	ts := doc.Tombstones[0]
-	if ts.Kind != "service" || ts.Name != "pay" || ts.GoneAt != rfc(*r.now) || ts.Reason == "" || !json.Valid(ts.Record) {
+	if ts.Kind != "service" || ts.Name != "pay" || ts.GoneAt != kernel.RFC(*r.now) || ts.Reason == "" || !json.Valid(ts.Record) {
 		t.Fatalf("tombstone: %+v", ts)
 	}
 	m, _, _ := h.Model(r.ctx)

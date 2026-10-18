@@ -8,6 +8,7 @@ import (
 
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/agentcaps"
+	"continuum/internal/kernel"
 )
 
 var t0 = time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
@@ -23,16 +24,16 @@ func TestEveryOutcomeOfTheConditions(t *testing.T) {
 		since       string
 		messageHas  string
 	}{
-		{"open stream", condInputs{Seen: true, Connected: true, ConnectedSince: t0}, CondConnected, CondTrue, "Open", rfc(t0), "open"},
+		{"open stream", condInputs{Seen: true, Connected: true, ConnectedSince: t0}, CondConnected, CondTrue, "Open", kernel.RFC(t0), "open"},
 		{"dropped stream", condInputs{Seen: true}, CondConnected, CondFalse, "NoStream", "", "no stream"},
 		{"never connected", condInputs{}, CondConnected, CondFalse, "NoStream", "", "not connected since this server started"},
 
 		{"config: not connected", condInputs{Seen: true, CfgSent: "a", CfgApplied: "a"}, CondConfigInForce, CondUnknown, "NotConnected", "", "not connected"},
-		{"config: echoed", condInputs{Seen: true, Connected: true, CfgSent: "a", CfgApplied: "a", CfgInForceAt: t0}, CondConfigInForce, CondTrue, "Echoed", rfc(t0), "in force"},
-		{"config: echoed by an agent with no protocol version", condInputs{Seen: true, Connected: true, Protocol: 0, CfgSent: "a", CfgApplied: "a", CfgInForceAt: t0}, CondConfigInForce, CondTrue, "Echoed", rfc(t0), "in force"},
-		{"config: an earlier one named", condInputs{Seen: true, Connected: true, Protocol: 1, Caps: digest, CfgSent: "b", CfgApplied: "a", CfgSentAt: t0}, CondConfigInForce, CondFalse, "NotEchoed", rfc(t0), "earlier"},
-		{"config: earlier one named by an agent with no version", condInputs{Seen: true, Connected: true, CfgSent: "b", CfgApplied: "a", CfgSentAt: t0}, CondConfigInForce, CondFalse, "NotEchoed", rfc(t0), "earlier"},
-		{"config: says it echoes and has not", condInputs{Seen: true, Connected: true, Protocol: 1, Caps: digest, CfgSent: "a", CfgSentAt: t0}, CondConfigInForce, CondFalse, "NotEchoed", rfc(t0), "has not named"},
+		{"config: echoed", condInputs{Seen: true, Connected: true, CfgSent: "a", CfgApplied: "a", CfgInForceAt: t0}, CondConfigInForce, CondTrue, "Echoed", kernel.RFC(t0), "in force"},
+		{"config: echoed by an agent with no protocol version", condInputs{Seen: true, Connected: true, Protocol: 0, CfgSent: "a", CfgApplied: "a", CfgInForceAt: t0}, CondConfigInForce, CondTrue, "Echoed", kernel.RFC(t0), "in force"},
+		{"config: an earlier one named", condInputs{Seen: true, Connected: true, Protocol: 1, Caps: digest, CfgSent: "b", CfgApplied: "a", CfgSentAt: t0}, CondConfigInForce, CondFalse, "NotEchoed", kernel.RFC(t0), "earlier"},
+		{"config: earlier one named by an agent with no version", condInputs{Seen: true, Connected: true, CfgSent: "b", CfgApplied: "a", CfgSentAt: t0}, CondConfigInForce, CondFalse, "NotEchoed", kernel.RFC(t0), "earlier"},
+		{"config: says it echoes and has not", condInputs{Seen: true, Connected: true, Protocol: 1, Caps: digest, CfgSent: "a", CfgSentAt: t0}, CondConfigInForce, CondFalse, "NotEchoed", kernel.RFC(t0), "has not named"},
 		{"config: has not echoed and does not say it does", condInputs{Seen: true, Connected: true, Protocol: 1, CfgSent: "a", CfgSentAt: t0}, CondConfigInForce, CondUnknown, "AgentDoesNotEcho", "", "does not say"},
 		{"config: legacy agent that never echoes", condInputs{Seen: true, Connected: true, CfgSent: "a", CfgSentAt: t0}, CondConfigInForce, CondUnknown, "AgentDoesNotEcho", "", "does not say"},
 		{"config: the send was cleared to be sent again", condInputs{Seen: true, Connected: true, Protocol: 1, Caps: digest, CfgApplied: "a"}, CondConfigInForce, CondFalse, "NotEchoed", "", "earlier"},

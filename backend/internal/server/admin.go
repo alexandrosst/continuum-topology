@@ -634,10 +634,10 @@ type passkeyDoc struct {
 func toUserDoc(u store.User, mailConfigured, canManageMail bool) userDoc {
 	passkeys := make([]passkeyDoc, len(u.WebAuthnCredentials))
 	for i, cr := range u.WebAuthnCredentials {
-		passkeys[i] = passkeyDoc{ID: base64.RawURLEncoding.EncodeToString(cr.CredentialID), Name: cr.Name, CreatedAt: rfc(cr.CreatedAt), LastUsedAt: rfcp(cr.LastUsedAt)}
+		passkeys[i] = passkeyDoc{ID: base64.RawURLEncoding.EncodeToString(cr.CredentialID), Name: cr.Name, CreatedAt: kernel.RFC(cr.CreatedAt), LastUsedAt: kernel.RFCP(cr.LastUsedAt)}
 	}
 	return userDoc{
-		ID: u.ID, Username: u.Username, MustChangePassword: u.MustChange, CreatedAt: rfc(u.CreatedAt), LastLogin: rfcp(u.LastLogin),
+		ID: u.ID, Username: u.Username, MustChangePassword: u.MustChange, CreatedAt: kernel.RFC(u.CreatedAt), LastLogin: kernel.RFCP(u.LastLogin),
 		TwoFactorEnabled: u.TOTPEnabledAt != nil,
 		Email:            u.Email, EmailVerified: u.EmailVerifiedAt != nil, EmailOTPEnabled: u.EmailOTPEnabledAt != nil,
 		MailConfigured: mailConfigured,
@@ -1152,7 +1152,7 @@ type apiTokenDoc struct {
 }
 
 func toAPITokenDoc(t store.APIToken) apiTokenDoc {
-	return apiTokenDoc{ID: t.ID, Name: t.Name, CreatedAt: rfc(t.CreatedAt), LastUsedAt: rfcp(t.LastUsed)}
+	return apiTokenDoc{ID: t.ID, Name: t.Name, CreatedAt: kernel.RFC(t.CreatedAt), LastUsedAt: kernel.RFCP(t.LastUsed)}
 }
 
 func (a *Admin) listAPITokens(w http.ResponseWriter, r *http.Request) {
@@ -1236,7 +1236,7 @@ func (a *Admin) previewInvite(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"organisation": name, "role": inv.Role, "expiresAt": rfc(inv.ExpiresAt)})
+	writeJSON(w, 200, map[string]any{"organisation": name, "role": inv.Role, "expiresAt": kernel.RFC(inv.ExpiresAt)})
 }
 
 func (a *Admin) acceptInvite(w http.ResponseWriter, r *http.Request) {
@@ -1312,7 +1312,7 @@ func (a *Admin) listMembers(w http.ResponseWriter, r *http.Request) {
 	}
 	out := []memberDoc{}
 	for _, m := range ms {
-		out = append(out, memberDoc{ID: m.User.ID, Username: m.Username, Role: m.Role, JoinedAt: rfc(m.JoinedAt), LastSeen: rfcp(m.LastLogin), You: m.User.ID == principal(r).User.ID})
+		out = append(out, memberDoc{ID: m.User.ID, Username: m.Username, Role: m.Role, JoinedAt: kernel.RFC(m.JoinedAt), LastSeen: kernel.RFCP(m.LastLogin), You: m.User.ID == principal(r).User.ID})
 	}
 	writeJSON(w, 200, out)
 }
@@ -1357,7 +1357,7 @@ type inviteDoc struct {
 }
 
 func (a *Admin) inviteDoc(ctx context.Context, i store.Invite) inviteDoc {
-	d := inviteDoc{ID: i.ID, Role: i.Role, Label: i.Label, CreatedBy: a.C.Accounts.NameOf(ctx, i.CreatedBy), CreatedAt: rfc(i.CreatedAt), ExpiresAt: rfc(i.ExpiresAt), Used: i.UsedAt != nil, Expired: i.UsedAt == nil && a.C.Now().After(i.ExpiresAt)}
+	d := inviteDoc{ID: i.ID, Role: i.Role, Label: i.Label, CreatedBy: a.C.Accounts.NameOf(ctx, i.CreatedBy), CreatedAt: kernel.RFC(i.CreatedAt), ExpiresAt: kernel.RFC(i.ExpiresAt), Used: i.UsedAt != nil, Expired: i.UsedAt == nil && a.C.Now().After(i.ExpiresAt)}
 	if i.UsedBy != "" {
 		d.UsedBy = a.C.Accounts.NameOf(ctx, i.UsedBy)
 	}
@@ -1437,7 +1437,7 @@ func rfcNZ(t time.Time) string {
 	if t.IsZero() {
 		return ""
 	}
-	return rfc(t)
+	return kernel.RFC(t)
 }
 
 // putWorkspace saves the document. The If-Match header carries the revision the client last saw
@@ -1464,7 +1464,7 @@ func (a *Admin) putWorkspace(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	out := map[string]any{"rev": ws.Rev, "updatedAt": rfc(ws.UpdatedAt), "updatedBy": ws.UpdatedBy}
+	out := map[string]any{"rev": ws.Rev, "updatedAt": kernel.RFC(ws.UpdatedAt), "updatedBy": ws.UpdatedBy}
 	if ws.Note != "" {
 		out["note"] = ws.Note
 	}
@@ -1524,7 +1524,7 @@ type tokenDoc struct {
 }
 
 func toTokenDoc(t store.Token) tokenDoc {
-	return tokenDoc{ID: t.ID, Name: t.Label, Tier: t.AccessTier, CreatedAt: rfc(t.CreatedAt), ExpiresAt: rfc(t.ExpiresAt), Used: t.UsedAt != nil, UsedBy: t.UsedBy, ExpectedCluster: t.ExpectedFingerprint}
+	return tokenDoc{ID: t.ID, Name: t.Label, Tier: t.AccessTier, CreatedAt: kernel.RFC(t.CreatedAt), ExpiresAt: kernel.RFC(t.ExpiresAt), Used: t.UsedAt != nil, UsedBy: t.UsedBy, ExpectedCluster: t.ExpectedFingerprint}
 }
 
 func (a *Admin) listTokens(w http.ResponseWriter, r *http.Request) {

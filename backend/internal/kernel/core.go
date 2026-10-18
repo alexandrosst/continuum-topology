@@ -236,6 +236,17 @@ func Plural(n int, one, many string) string {
 	return many
 }
 
+// RFC is a time as the wire and the documents write it: UTC, RFC 3339.
+func RFC(t time.Time) string { return t.UTC().Format(time.RFC3339) }
+
+// RFCP is RFC for an optional time; nil is the empty string.
+func RFCP(t *time.Time) string {
+	if t == nil {
+		return ""
+	}
+	return RFC(*t)
+}
+
 // Printable clips s and replaces control characters, for values that end up in logs and the UI.
 func Printable(s string, n int) string {
 	s = clip(s, n)

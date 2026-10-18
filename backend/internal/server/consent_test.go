@@ -407,12 +407,12 @@ func TestHelloAdvertisesTheCeilingAndDiagnosticsFollowHeartbeats(t *testing.T) {
 
 func TestAnOversizedDiagnosticsAccountIsIgnoredNotRefused(t *testing.T) {
 	v := newView()
-	noteDiagnostics(v, &continuumv1.Diagnostics{AgentVersion: "1"}, false, time.Now())
+	v.noteDiagnostics(&continuumv1.Diagnostics{AgentVersion: "1"}, false, time.Now())
 	huge := &continuumv1.Diagnostics{AgentVersion: "2"}
 	for i := 0; i < 5000; i++ {
 		huge.Problems = append(huge.Problems, &continuumv1.Problem{Code: "x", Message: strings.Repeat("m", 100)})
 	}
-	noteDiagnostics(v, huge, false, time.Now())
+	v.noteDiagnostics(huge, false, time.Now())
 	if v.ext.diag.AgentVersion != "1" {
 		t.Fatal("an oversized account replaced the previous one")
 	}
@@ -421,7 +421,7 @@ func TestAnOversizedDiagnosticsAccountIsIgnoredNotRefused(t *testing.T) {
 		many.Problems = append(many.Problems, &continuumv1.Problem{Code: "x"})
 		many.Informers = append(many.Informers, &continuumv1.InformerDiag{Name: "i"})
 	}
-	noteDiagnostics(v, many, false, time.Now())
+	v.noteDiagnostics(many, false, time.Now())
 	if len(v.ext.diag.Problems) != maxDiagProblems || len(v.ext.diag.Informers) != maxDiagInformers {
 		t.Fatalf("lists were not cut: %d %d", len(v.ext.diag.Problems), len(v.ext.diag.Informers))
 	}
@@ -429,7 +429,7 @@ func TestAnOversizedDiagnosticsAccountIsIgnoredNotRefused(t *testing.T) {
 
 func TestInstalledTelemetrySignalsRoundTripAndTruncate(t *testing.T) {
 	v := newView()
-	noteDiagnostics(v, &continuumv1.Diagnostics{AgentVersion: "1", InstalledTelemetrySignals: []string{"traces", "energy"}}, false, time.Now())
+	v.noteDiagnostics(&continuumv1.Diagnostics{AgentVersion: "1", InstalledTelemetrySignals: []string{"traces", "energy"}}, false, time.Now())
 	doc := v.diagDoc()
 	if got := strings.Join(doc.InstalledTelemetry, ","); got != "traces,energy" {
 		t.Fatalf("InstalledTelemetry = %v, want [traces energy] (order preserved, the agent already sorts it)", doc.InstalledTelemetry)
@@ -441,7 +441,7 @@ func TestInstalledTelemetrySignalsRoundTripAndTruncate(t *testing.T) {
 	for i := 0; i < maxDiagTelemetrySignals+5; i++ {
 		long.InstalledTelemetrySignals = append(long.InstalledTelemetrySignals, fmt.Sprintf("signal%d", i))
 	}
-	noteDiagnostics(v2, long, false, time.Now())
+	v2.noteDiagnostics(long, false, time.Now())
 	if len(v2.ext.diag.InstalledTelemetrySignals) != maxDiagTelemetrySignals {
 		t.Fatalf("InstalledTelemetrySignals not truncated: %d entries", len(v2.ext.diag.InstalledTelemetrySignals))
 	}
@@ -451,7 +451,7 @@ func TestInstalledTelemetryConfigRoundTrips(t *testing.T) {
 	v := newView()
 	tracesPct := uint32(20)
 	energySource := "bundle-kepler"
-	noteDiagnostics(v, &continuumv1.Diagnostics{
+	v.noteDiagnostics(&continuumv1.Diagnostics{
 		AgentVersion:              "1",
 		InstalledTelemetrySignals: []string{"traces", "energy"},
 		InstalledTelemetryConfig: &continuumv1.InstalledTelemetryConfig{
@@ -485,7 +485,7 @@ func TestInstalledTelemetryConfigRoundTrips(t *testing.T) {
 
 	// No telemetry config reported at all: the doc field stays nil, not present-with-zero-values.
 	v2 := newView()
-	noteDiagnostics(v2, &continuumv1.Diagnostics{AgentVersion: "1"}, false, time.Now())
+	v2.noteDiagnostics(&continuumv1.Diagnostics{AgentVersion: "1"}, false, time.Now())
 	if doc2 := v2.diagDoc(); doc2.InstalledTelemetryConfig != nil {
 		t.Fatalf("InstalledTelemetryConfig = %v, want nil when the agent reported none", doc2.InstalledTelemetryConfig)
 	}
@@ -501,7 +501,7 @@ func TestExportHealthRelaysTheAgentsStatesAndBoundsThem(t *testing.T) {
 			{Exporter: "zipkin/traces", Signal: "traces", State: continuumv1.ExportRouteHealth_State(99)},
 		},
 	}
-	noteDiagnostics(v, &continuumv1.Diagnostics{AgentVersion: "1", ExportHealth: h}, false, at)
+	v.noteDiagnostics(&continuumv1.Diagnostics{AgentVersion: "1", ExportHealth: h}, false, at)
 	got := v.diagDoc().ExportHealth
 	if got == nil || got.PodsReached != 3 || got.PodsFailed != 1 || got.ScrapedAt != "2026-10-06T12:00:00Z" || got.LastError == "" || len(got.Routes) != 2 {
 		t.Fatalf("ExportHealth = %+v", got)
@@ -517,7 +517,7 @@ func TestExportHealthRelaysTheAgentsStatesAndBoundsThem(t *testing.T) {
 
 	// Nothing reported (health off, or an older agent): no field at all, not an empty one.
 	v2 := newView()
-	noteDiagnostics(v2, &continuumv1.Diagnostics{AgentVersion: "1"}, false, at)
+	v2.noteDiagnostics(&continuumv1.Diagnostics{AgentVersion: "1"}, false, at)
 	if v2.diagDoc().ExportHealth != nil {
 		t.Error("ExportHealth must be nil when the agent reported none")
 	}
@@ -528,7 +528,7 @@ func TestExportHealthRelaysTheAgentsStatesAndBoundsThem(t *testing.T) {
 		many.Routes = append(many.Routes, &continuumv1.ExportRouteHealth{Exporter: "e", Signal: "logs"})
 	}
 	v3 := newView()
-	noteDiagnostics(v3, &continuumv1.Diagnostics{AgentVersion: "1", ExportHealth: many}, false, at)
+	v3.noteDiagnostics(&continuumv1.Diagnostics{AgentVersion: "1", ExportHealth: many}, false, at)
 	if n := len(v3.diagDoc().ExportHealth.Routes); n != maxDiagExportRoutes {
 		t.Errorf("%d routes kept, want %d", n, maxDiagExportRoutes)
 	}
@@ -1302,7 +1302,7 @@ func TestConsentDocSaysWhetherTheAgentHasConfirmedANarrowing(t *testing.T) {
 	// The agent reports back something that does not yet match (an older report, or a different pause):
 	// still unconfirmed.
 	r.hub.mu.Lock()
-	noteDiagnostics(v, &continuumv1.Diagnostics{AgentVersion: "1", PausedCollectors: []string{}}, false, *r.now)
+	v.noteDiagnostics(&continuumv1.Diagnostics{AgentVersion: "1", PausedCollectors: []string{}}, false, *r.now)
 	r.hub.mu.Unlock()
 	if cd := v.consentDoc(); cd.Confirmed || cd.SetAt == "" {
 		t.Fatalf("a report that does not yet show the pause should stay unconfirmed: %+v", cd)
@@ -1310,7 +1310,7 @@ func TestConsentDocSaysWhetherTheAgentHasConfirmedANarrowing(t *testing.T) {
 
 	// The agent catches up: confirmed, and SetAt drops off since there is nothing stale to show any more.
 	r.hub.mu.Lock()
-	noteDiagnostics(v, &continuumv1.Diagnostics{AgentVersion: "1", PausedCollectors: []string{"flow"}}, false, *r.now)
+	v.noteDiagnostics(&continuumv1.Diagnostics{AgentVersion: "1", PausedCollectors: []string{"flow"}}, false, *r.now)
 	r.hub.mu.Unlock()
 	if cd := v.consentDoc(); !cd.Confirmed || cd.SetAt != "" {
 		t.Fatalf("a report matching the ask should be confirmed with no SetAt: %+v", cd)
@@ -1326,8 +1326,8 @@ func TestConsentDocSaysWhetherTheAgentHasConfirmedANarrowing(t *testing.T) {
 	if cd.Confirmed || cd.SetAt == "" {
 		t.Fatalf("widening what is asked for should be unconfirmed again until the agent reports it: %+v", cd)
 	}
-	if cd.SetAt != rfc(*r.now) {
-		t.Fatalf("SetAt should be this change's own moment, not the earlier one: got %s want %s", cd.SetAt, rfc(*r.now))
+	if cd.SetAt != kernel.RFC(*r.now) {
+		t.Fatalf("SetAt should be this change's own moment, not the earlier one: got %s want %s", cd.SetAt, kernel.RFC(*r.now))
 	}
 
 	// Excluded namespaces can only be confirmed by count (the agent never reports which ones - see
@@ -1335,7 +1335,7 @@ func TestConsentDocSaysWhetherTheAgentHasConfirmedANarrowing(t *testing.T) {
 	// of excluded namespaces reads as confirmed even though this test cannot tell the diagnostic "batch" is
 	// the same namespace, which is the documented, accepted limitation.
 	r.hub.mu.Lock()
-	noteDiagnostics(v, &continuumv1.Diagnostics{AgentVersion: "1", PausedCollectors: []string{"flow"}, ExcludedNamespaces: 1}, false, *r.now)
+	v.noteDiagnostics(&continuumv1.Diagnostics{AgentVersion: "1", PausedCollectors: []string{"flow"}, ExcludedNamespaces: 1}, false, *r.now)
 	r.hub.mu.Unlock()
 	if cd := v.consentDoc(); !cd.Confirmed {
 		t.Fatalf("matching pause and matching excluded count should confirm: %+v", cd)

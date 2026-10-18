@@ -12,7 +12,7 @@ a file names something declared in a file of another module. At the first readin
 
 ## The groups
 
-Eight modules, and two things around them that are not modules. The **kernel** is what every module stands on and must depend on
+Nine modules, and two things around them that are not modules. The **kernel** is what every module stands on and must depend on
 none of them. The **shell** wires the modules together and is the only thing that may use all of them.
 
 | Group | What it is | Files | Lines | Tables | Routes |
@@ -23,6 +23,7 @@ none of them. The **shell** wires the modules together and is the only thing tha
 | estate | What the server knows about the world: the hub, the per-agent views, observed flows, the twin, history, the applications graph | 8 | 4,683 | `workspace`, `history`, `events`, `snapshots`, `identities`, `model_state`, `tombstones` | 22 |
 | telemetry (now the package `internal/telemetry`) | Telemetry intents (what an agent's local collectors do and where they send) and the quick-start backends | 4 | 985 | `telemetry_intents`, `gateway_tokens` | 10 |
 | operators (now the package `internal/operators`) | Regional operators: certificates, senders, addresses, heartbeat, and the node probe of the server's own cluster | 12 | 4,687 | `operators`, `operator_certs` | 15 |
+| observed | What the flows say: the table of observed edges, the sanitising of a flow batch, the topology read off them, the index of addresses a cluster is known by. Pure; it sits under agents and connectivity so neither has to reach the hub for it | 1 | 1,006 | none | 0 |
 | connectivity | Paths, links, tunnels, the addresses a cluster dials, and the config an agent is told (its digest and the compile of it) | 12 | 3,899 | `link_iperf_credentials` | 3 |
 | fusion (now the package `internal/fusion`) | The FUSION stack: control, data API and its OpenAPI, retention, UI access | 12 | 4,600 | `fusion_tokens` | 69 |
 | advice (now the package `internal/decisionloop`) | The decision loop: advice, proposals, outcomes, decisions, the advisor records | 7 | 1,487 | `decisions`, `proposals`, `proposal_outcomes` | 8 |
@@ -136,7 +137,7 @@ This is a proposal from the numbers above; each move starts with its own short p
 4. **Advice**: done (`internal/decisionloop`; see Progress). The hub's 15 calls into it became one function for the placement request and one for the recorder; what the loop asks of agents and of the estate is two ports it owns (`Access`, `Load`), which those modules implement and the Hub wires in when it is built. The package is named for what it is; `internal/advice` was already the capacity calculation it uses.
 5. **Operators and telemetry**: done (`internal/operators` and `internal/telemetry`; see Progress). Their HTTP and Hub-bound files are the shell's, as the proposal handlers were; what is left is Core methods, and it reached outside in five places, all cut. The central operator's health is read from a `ManagedStatus` that operators define and `FusionStatus.Managed()` fills, so FUSION will call operators and operators do not know FUSION. Two changes from the plan above. The agents-to-telemetry hook was not needed: telemetry never imports agents, so ending an agent's intents is a direct call (`Core.Telemetry.EndAgentIntents`). The schema column that says who manages an operator was not added: nothing reads it until fusion becomes a package, and a migration that changes no behaviour belongs with the change that uses it. Then **fusion**.
 6. **Fusion**: done (`internal/fusion`; see Progress). Nine of its twelve files are HTTP and are the shell's; the control, the retention and the release naming (about 1,660 lines) are the package. It reached outside in one place, the doubts about the gateway's address, which the shell now composes from the control's `GatewayService`. It stands on operators (the central operator is one of them), which is the direction the plan asked for. The "managed by" column on the operator row is still not added: the central operator is known by its fixed id, and a second manager does not exist yet.
-7. **The hub cluster**: the `view` in three parts, then agents, estate and connectivity.
+7. **The hub cluster**: in progress. The `view` is in three parts (done) and the cluster no longer reaches the shell. The Hub-receiver methods that sat in agents and connectivity files are estate's now (they are operations on the live hub). What the flows say became a module of its own, `observed`, under agents and connectivity. The layers are observed, then agents, then connectivity, then estate on top, and the edge list shows no use upward. Next: export, then the packages.
 
 
 ## The assignments I was least sure of
@@ -183,3 +184,6 @@ this repository that a module could be (it may use the store, the CA and the two
 | Fusion cut 1: the fusion domain files reach nowhere | nine HTTP files to the shell; the gateway-address warnings move to the shell | the fusion lines to connectivity and estate leave |
 | Fusion step 1: export | the names tests and handlers use are exported; two accessors replace field access in tests; the clock method is `Clock` | none |
 | Fusion step 2: the package | `internal/fusion` takes three files and four unit tests; `Core.Fusion` holds the Core and the operators; three methods the shell had hung on the control became functions | the fusion lines leave the edge list |
+| Hub cluster step 1: the view in three parts | `view` is `estView`, `agtView` (`agent_view.go`) and `netView` (`net_view.go`), embedded, so the reads stay the same | none; the fields now have an owner |
+| Hub cluster cut 1: the cluster's domain files reach nowhere outside it | the admin_ files of agents and connectivity to the shell; `admin_twin.go` for the model handler; `teardown.go` for what a teardown removes; `hintsOf` to estate | the cluster lines to the shell leave |
+| Hub cluster cut 2: layers inside the cluster | 49 Hub-receiver methods of agents and connectivity files move to `hub_*.go` (estate); `rfc` to the kernel (`RFC`, `RFCP`); `observed.go` is a module of its own with `clusterOf` and `refusalEvery`; the note-functions are methods of the part they change (`agtView`, `netView`); `link_caps.go` and `ScopeDoc`, `eventLinker` to agents; `condInputsOf` and the access adapter to estate | agents and connectivity use nothing of estate; agents use nothing of connectivity |

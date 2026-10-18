@@ -3,6 +3,7 @@ package server
 import (
 	"net/http"
 
+	"continuum/internal/kernel"
 	"continuum/internal/operators"
 	"continuum/internal/store"
 )
@@ -72,7 +73,7 @@ func (a *Admin) listOperatorDestinations(w http.ResponseWriter, r *http.Request)
 		h := operators.CentralHealth(fusion.Managed())
 		e := operatorDestinationDoc{ID: operators.CentralOperatorID, Name: centralOperatorName, Kind: "central", Status: string(store.OperatorActive),
 			AddressState: addressNone, UsedBy: usageCount(usages[operators.CentralOperatorID]), Recommended: h.State == operators.HealthOnline || h.State == operators.HealthStarting}
-		e.Health.State, e.Health.LastSeenAt = h.State, rfcp(fusion.LastDataAt)
+		e.Health.State, e.Health.LastSeenAt = h.State, kernel.RFCP(fusion.LastDataAt)
 		if a.Fusion.Exposed() {
 			e.AddressState, e.Endpoint, e.ReachableFromOtherClusters = addressSet, a.Fusion.CentralEndpoint(), true
 		}

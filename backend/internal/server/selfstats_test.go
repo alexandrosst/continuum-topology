@@ -6,6 +6,7 @@ import (
 	"time"
 
 	continuumv1 "continuum/gen/continuumv1"
+
 	"continuum/internal/kernel"
 )
 
@@ -70,7 +71,7 @@ func TestSelfRingEmptyListIsNilNotAnEmptySlice(t *testing.T) {
 // whatever reason carried none: nothing is added, never a fabricated zero-valued sample.
 func TestNoteSelfStatsIgnoresANilSelfStats(t *testing.T) {
 	v := newView()
-	noteSelfStats(v, nil, time.Unix(1, 0))
+	v.noteSelfStats(nil, time.Unix(1, 0))
 	if got := v.self.list(); len(got) != 0 {
 		t.Fatalf("a nil SelfStats must add nothing, got %d samples", len(got))
 	}
@@ -82,7 +83,7 @@ func TestNoteSelfStatsIgnoresANilSelfStats(t *testing.T) {
 func TestNoteSelfStatsCopiesEveryField(t *testing.T) {
 	v := newView()
 	at := time.Unix(5000, 0)
-	noteSelfStats(v, &continuumv1.SelfStats{
+	v.noteSelfStats(&continuumv1.SelfStats{
 		RssBytes: 123 << 20, Goroutines: 42, CpuSeconds: 3.5,
 		FlowIntervalSeconds: 30, ProbeIntervalSeconds: 180,
 		LastFlowBatchFlows: 17, LastFlowBatchBytes: 4096,

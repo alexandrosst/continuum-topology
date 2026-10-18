@@ -280,22 +280,22 @@ func TestChecklistSentencesSayWhatIsWrongNamingTheClusterAndWhatToDo(t *testing.
 
 func TestTheServerKeepsWhatAnAgentReportedAndNeverReadsSilenceAsOff(t *testing.T) {
 	v := newView()
-	noteLinkCaps(v, nil, setupNow, 0)
+	v.noteLinkCaps(nil, setupNow, 0)
 	if !v.ext.linkCaps.Reported.IsZero() {
 		t.Fatal("a heartbeat without the report made one up")
 	}
-	noteLinkCaps(v, &continuumv1.LinkCapabilities{LinkMetrics: true, ProbeEnabled: true, CapacityEnabled: true, TelemetryExport: true, ProberSeenUnix: setupNow.Add(-time.Minute).Unix()}, setupNow, 0)
+	v.noteLinkCaps(&continuumv1.LinkCapabilities{LinkMetrics: true, ProbeEnabled: true, CapacityEnabled: true, TelemetryExport: true, ProberSeenUnix: setupNow.Add(-time.Minute).Unix()}, setupNow, 0)
 	c := v.ext.linkCaps
 	if !c.LinkMetrics || !c.ProbeEnabled || !c.CapacityEnabled || !c.TelemetryExport || !c.Reported.Equal(setupNow) || !c.ProberSeen.Equal(setupNow.Add(-time.Minute)) {
 		t.Fatalf("%+v", c)
 	}
 	// a later heartbeat from the same agent that carries none (it restarted as an older version) changes nothing; it goes stale instead
-	noteLinkCaps(v, nil, setupNow.Add(time.Minute), 0)
+	v.noteLinkCaps(nil, setupNow.Add(time.Minute), 0)
 	if !v.ext.linkCaps.Reported.Equal(setupNow) {
 		t.Fatal("silence replaced the report")
 	}
 	// an agent that says Cluster links is off is a report too
-	noteLinkCaps(v, &continuumv1.LinkCapabilities{}, setupNow, 0)
+	v.noteLinkCaps(&continuumv1.LinkCapabilities{}, setupNow, 0)
 	if v.ext.linkCaps.Reported.IsZero() || v.ext.linkCaps.LinkMetrics {
 		t.Fatalf("%+v", v.ext.linkCaps)
 	}
@@ -304,7 +304,7 @@ func TestTheServerKeepsWhatAnAgentReportedAndNeverReadsSilenceAsOff(t *testing.T
 func TestWhatAnAgentSaysAboutTheProberIsBounded(t *testing.T) {
 	at := func(unix int64, skewMs int64) linkCaps {
 		v := newView()
-		noteLinkCaps(v, &continuumv1.LinkCapabilities{ProberSeenUnix: unix}, setupNow, skewMs)
+		v.noteLinkCaps(&continuumv1.LinkCapabilities{ProberSeenUnix: unix}, setupNow, skewMs)
 		return v.ext.linkCaps
 	}
 	for name, tc := range map[string]struct {

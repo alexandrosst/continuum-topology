@@ -54,14 +54,14 @@ func rawOr(b []byte, empty string) json.RawMessage {
 func toProposalDoc(p store.Proposal, o *store.ProposalOutcome) proposalDoc {
 	d := proposalDoc{ID: p.ID, AgentID: p.AgentID, Advisor: p.Advisor, ModelVersion: p.ModelVersion, Change: rawOr(p.Change, "{}"), Evidence: rawOr(p.Evidence, "[]"),
 		Confidence: p.Confidence, Blast: rawOr(p.Blast, "{}"), Predicted: rawOr(p.Predicted, "{}"), Widens: p.Widens, Mode: p.Mode, Status: string(p.Status),
-		CreatedAt: rfc(p.CreatedAt), ExpiresAt: rfc(p.ExpiresAt), DecidedBy: p.DecidedBy, Note: p.Note}
+		CreatedAt: kernel.RFC(p.CreatedAt), ExpiresAt: kernel.RFC(p.ExpiresAt), DecidedBy: p.DecidedBy, Note: p.Note}
 	if p.DecidedAt != nil {
-		d.DecidedAt = rfc(*p.DecidedAt)
+		d.DecidedAt = kernel.RFC(*p.DecidedAt)
 	}
 	if o != nil {
-		od := &outcomeDoc{Result: o.Result, Predicted: rawOr(o.Predicted, "{}"), Observed: rawOr(o.Observed, "{}"), RecordedAt: rfc(o.RecordedAt)}
+		od := &outcomeDoc{Result: o.Result, Predicted: rawOr(o.Predicted, "{}"), Observed: rawOr(o.Observed, "{}"), RecordedAt: kernel.RFC(o.RecordedAt)}
 		if o.InForceAt != nil {
-			od.InForceAt = rfc(*o.InForceAt)
+			od.InForceAt = kernel.RFC(*o.InForceAt)
 		}
 		d.Outcome = od
 	}

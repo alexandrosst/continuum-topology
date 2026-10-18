@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"continuum/internal/geoip"
+	"continuum/internal/kernel"
 )
 
 const geoCacheMax = 4096
@@ -177,7 +178,7 @@ func (g *Geo) Info() GeoInfo {
 	in := g.db.Info()
 	gi := GeoInfo{Enabled: true, Database: in.DatabaseType, Description: in.Description, PublicIPFallback: g.pub != nil, ASN: g.asn != nil}
 	if !in.BuiltAt.IsZero() {
-		gi.BuiltAt = rfc(in.BuiltAt)
+		gi.BuiltAt = kernel.RFC(in.BuiltAt)
 	}
 	gi.Attribution = attributionFor(in.DatabaseType, in.Description)
 	return gi

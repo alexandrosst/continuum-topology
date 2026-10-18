@@ -139,7 +139,7 @@ func TestAHeartbeatNamingAnOlderConfigAsksForItToBeSentAgain(t *testing.T) {
 		{"an older Config, after the grace", "old", now, true},
 	}
 	for _, c := range cases {
-		if got := noteConfigEcho(v, c.digest, c.at); got != c.want {
+		if got := v.noteConfigEcho(c.digest, c.at); got != c.want {
 			t.Errorf("%s: asked again = %v, want %v", c.name, got, c.want)
 		}
 		if !c.want && v.cfgHash == "" {
@@ -154,7 +154,7 @@ func TestAHeartbeatNamingAnOlderConfigAsksForItToBeSentAgain(t *testing.T) {
 	// End to end through pushOne: the lost Config is queued again, once.
 	h.mu.Lock()
 	v.cfgSentAt = now.Add(-time.Minute)
-	_ = noteConfigEcho(v, "old", now)
+	_ = v.noteConfigEcho("old", now)
 	h.mu.Unlock()
 	h.pushOne(agentID)
 	again := drain(push)

@@ -1,11 +1,7 @@
 package server
 
 import (
-	"context"
-	"sort"
 	"time"
-
-	"continuum/internal/store"
 )
 
 // Noticing that an address stopped working before data stops flowing.
@@ -49,7 +45,7 @@ type AddressReachDoc struct {
 }
 
 // noteReach keeps what a finished test found. Called with h.mu held.
-func (v *view) noteReach(t *addressTest) {
+func (v *netView) noteReach(t *addressTest) {
 	if v.reach == nil {
 		v.reach = map[string]*addrReach{}
 	}
@@ -65,117 +61,8 @@ func (v *view) noteReach(t *addressTest) {
 	}
 }
 
-// reachOf is the last test of an address from this agent's cluster, when it is recent enough to be a statement about now.
-func (h *Hub) reachOf(agentID, address string, now time.Time) *AddressReachDoc {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	v := h.views[agentID]
-	if v == nil {
-		return nil
-	}
-	r := v.reach[address]
-	if r == nil || now.Sub(r.At) > reachFresh {
-		return nil
-	}
-	d := &AddressReachDoc{State: "unreachable", At: rfc(r.At)}
-	if r.Reachable {
-		d.State, d.RTTP50Ms = "reachable", r.P50
-	}
-	return d
-}
-
-// driftTargets are the addresses each sending cluster dials, read from the telemetry intents that send to an operator:
-// the address its sender chose, else the one recorded for the operator. A name inside the cluster is not an address to
-// test from anywhere.
-func (h *Hub) driftTargets(ctx context.Context) map[string][]string {
-	intents, err := h.C.Store.ListTelemetryIntents(ctx, h.C.OrgID)
-	if err != nil {
-		return nil
-	}
-	ops, err := h.C.Store.ListOperators(ctx, h.C.OrgID)
-	if err != nil {
-		return nil
-	}
-	recorded := map[string]string{}
-	for _, op := range ops {
-		if op.Status == store.OperatorActive {
-			recorded[op.ID] = op.Address
-		}
-	}
-	out := map[string][]string{}
-	seen := map[string]bool{}
-	for _, ti := range intents {
-		if ti.Status != store.TelemetryIntentActive {
-			continue
-		}
-		dests := []store.Destination{ti.Destination}
-		for _, d := range ti.Routes {
-			dests = append(dests, d)
-		}
-		for _, d := range dests {
-			if d.Kind != store.DestinationOperator {
-				continue
-			}
-			addr := d.Address
-			if addr == "" {
-				addr = recorded[d.TargetOperatorID]
-			}
-			if addr == "" || seen[ti.AgentID+"|"+addr] {
-				continue
-			}
-			seen[ti.AgentID+"|"+addr] = true
-			out[ti.AgentID] = append(out[ti.AgentID], addr)
-		}
-	}
-	return out
-}
-
-// driftSweep re-tests, from each connected sending cluster, the addresses whose last result is old.
-func (h *Hub) driftSweep(ctx context.Context) {
-	now := h.C.Now()
-	targets := h.driftTargets(ctx)
-	ids := make([]string, 0, len(targets))
-	for id := range targets {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-	for _, id := range ids {
-		a, err := h.C.AgentInOrg(ctx, id)
-		if err != nil || a.Status != store.StatusApproved {
-			continue
-		}
-		var due []string
-		h.mu.Lock()
-		v := h.views[id]
-		live := map[string]bool{}
-		if v != nil {
-			h.pruneAddressTests(v, now) // a test past its time is not running
-			for _, t := range v.addrTests {
-				live[t.Address] = true
-			}
-		}
-		for _, addr := range targets[id] {
-			if r := v.reachRecord(addr); r != nil && now.Sub(r.At) < driftEvery {
-				continue
-			}
-			if !live[addr] {
-				due = append(due, addr)
-			}
-		}
-		h.mu.Unlock()
-		if len(due) == 0 {
-			continue
-		}
-		if len(due) > maxAddressTests {
-			due = due[:maxAddressTests]
-		}
-		// A refusal (not connected, timing paused) is the answer: nothing is tested and the last result ages out.
-		_, _ = h.startAddressTests(ctx, "", a, due, true)
-	}
-}
-
 // reachRecord is the stored result for an address; a nil view has none.
-func (v *view) reachRecord(addr string) *addrReach {
+func (v *netView) reachRecord(addr string) *addrReach {
 	if v == nil {
 		return nil
 	}

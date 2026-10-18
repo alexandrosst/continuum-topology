@@ -92,38 +92,6 @@ func newView() *view {
 	return &view{agtView: agtView{self: newSelfRing(selfStatsWindow, func(s SelfStatsSample) time.Time { return s.At })}, estView: estView{state: facts.New(), flows: newFlowTable()}, netView: netView{paths: map[string]*pathTrack{}, targets: map[string]issuedTarget{}}}
 }
 
-// linkStats counts what one agent has sent over its stream.
-type linkStats struct {
-	since                        time.Time // when the current connection began
-	connects                     int       // connections accepted since the server started
-	bytes                        int64     // size of the messages received, as encoded on the wire (before gRPC framing and TLS)
-	syncs, flows, meas, beats    int
-	lastSync, lastFlows, lastAny time.Time
-	// flowBytes is bytes, bytes is to everything: the same "encoded on the wire, before gRPC framing and
-	// TLS" measure as bytes above, but counting only AgentMessage_Flows messages - what sampleSelfStats
-	// sums across every agent to derive the server's own self-telemetry flow-ingestion rate.
-	flowBytes int64
-}
-
-func (l *linkStats) note(m *continuumv1.AgentMessage, at time.Time) {
-	n := int64(proto.Size(m))
-	l.bytes += n
-	l.lastAny = at
-	switch m.Msg.(type) {
-	case *continuumv1.AgentMessage_Sync:
-		l.syncs++
-		l.lastSync = at
-	case *continuumv1.AgentMessage_Flows:
-		l.flows++
-		l.flowBytes += n
-		l.lastFlows = at
-	case *continuumv1.AgentMessage_Measurements:
-		l.meas++
-	case *continuumv1.AgentMessage_Heartbeat:
-		l.beats++
-	}
-}
-
 type endReason struct {
 	text    string
 	revoked bool
@@ -375,7 +343,7 @@ func (h *Hub) Connect(stream continuumv1.AgentService_ConnectServer) error {
 	log.Info("agent connected", "ip", ip, "version", hello.AgentVersion)
 	if hello.Diagnostics != nil {
 		h.mu.Lock()
-		noteDiagnostics(v, hello.Diagnostics, true, h.C.Now())
+		v.noteDiagnostics(hello.Diagnostics, true, h.C.Now())
 		h.mu.Unlock()
 	}
 	if ns := kernel.Printable(hello.Namespace, 63); ns != "" {
@@ -525,12 +493,12 @@ func (h *Hub) Connect(stream continuumv1.AgentService_ConnectServer) error {
 				if len(m.Heartbeat.Modules) > 0 {
 					v.state.Modules = m.Heartbeat.Modules
 				}
-				noteSelfStats(v, m.Heartbeat.SelfStats, now)
-				noteLinkCaps(v, m.Heartbeat.LinkCapabilities, now, skew)
+				v.noteSelfStats(m.Heartbeat.SelfStats, now)
+				v.noteLinkCaps(m.Heartbeat.LinkCapabilities, now, skew)
 				if m.Heartbeat.Diagnostics != nil {
-					noteDiagnostics(v, m.Heartbeat.Diagnostics, false, h.C.Now())
+					v.noteDiagnostics(m.Heartbeat.Diagnostics, false, h.C.Now())
 				}
-				resend := noteConfigEcho(v, m.Heartbeat.AppliedConfigDigest, now)
+				resend := v.noteConfigEcho(m.Heartbeat.AppliedConfigDigest, now)
 				if asm != nil && asm.expired(h.C.Now()) {
 					asm = nil // a picture that never finished arriving
 				}
@@ -673,10 +641,6 @@ func (h *Hub) limits() facts.Limits {
 	}
 	return facts.DefaultLimits()
 }
-
-// refusalEvery is how often one agent's refused messages are written to the audit trail and the event list;
-// an agent that keeps sending the same thing would otherwise fill both.
-const refusalEvery = 10 * time.Minute
 
 // refuseSync notes that an agent's message was refused: it is shown with the agent, logged, and (at
 // most once per refusalEvery) recorded as an audit row and a warning event, which is where an
@@ -1069,13 +1033,6 @@ func abs64(n int64) int64 {
 	return n
 }
 
-// ScopeDoc says which namespaces an agent leaves out. Only counts: the server never learns the names it was not sent.
-type ScopeDoc struct {
-	Description string `json:"description"`
-	Total       int    `json:"namespaces"`
-	InScope     int    `json:"inScope"`
-}
-
 // LinkDoc is a gauge of one agent's stream: how long it has been up and what it has sent.
 type LinkDoc struct {
 	ConnectedSince string `json:"connectedSince,omitempty"` // empty while disconnected
@@ -1117,14 +1074,6 @@ type StateDoc struct {
 	// were, and when and why they went. Observation states the rules the records' states were computed with.
 	Tombstones  []TombstoneDoc      `json:"tombstones"`
 	Observation twin.ObservationDoc `json:"observation"`
-}
-
-func rfc(t time.Time) string { return t.UTC().Format(time.RFC3339) }
-func rfcp(t *time.Time) string {
-	if t == nil {
-		return ""
-	}
-	return rfc(*t)
 }
 
 // State builds what the UI polls: agents, the interpreted topology of every approved cluster, and
@@ -1213,11 +1162,11 @@ func (h *Hub) stateFor(ctx context.Context, withAudit bool, after func(*StateDoc
 // and the audit rows stateFor just fetched - and runs the after callback. Shared by stateFor's cache-hit
 // and cache-miss paths so the two can never drift apart on what "finished" means.
 func (h *Hub) finishState(agentDocs []AgentDoc, topology model.Topology, tombstones []TombstoneDoc, observation twin.ObservationDoc, eb *effectiveBuild, now time.Time, auditEvents []store.AuditEvent, after func(*StateDoc, *effectiveBuild)) StateDoc {
-	doc := StateDoc{GeneratedAt: rfc(now), Agents: agentDocs, Topology: topology, Tombstones: tombstones, Observation: observation}
+	doc := StateDoc{GeneratedAt: kernel.RFC(now), Agents: agentDocs, Topology: topology, Tombstones: tombstones, Observation: observation}
 	doc.AuditLog = make([]AuditDoc, 0, len(auditEvents))
 	for i := len(auditEvents) - 1; i >= 0; i-- {
 		e := auditEvents[i]
-		doc.AuditLog = append(doc.AuditLog, AuditDoc{ID: "au-" + itoa(e.ID), OrgID: e.OrgID, At: rfc(e.At), Actor: e.Actor, Action: e.Action, TargetKind: e.TargetKind, TargetID: e.TargetID, Detail: e.Detail})
+		doc.AuditLog = append(doc.AuditLog, AuditDoc{ID: "au-" + itoa(e.ID), OrgID: e.OrgID, At: kernel.RFC(e.At), Actor: e.Actor, Action: e.Action, TargetKind: e.TargetKind, TargetID: e.TargetID, Detail: e.Detail})
 	}
 	if after != nil {
 		after(&doc, eb)
@@ -1244,13 +1193,13 @@ func (h *Hub) buildAgentDocs(ctx context.Context, now time.Time) ([]AgentDoc, []
 		d := AgentDoc{
 			ID: a.ID, OrgID: a.OrgID, Name: a.Name, ClusterID: a.ClusterID, Version: a.Version, K8sVersion: a.K8sVersion,
 			AccessTier: a.AccessTier, InstalledTier: a.InstalledTier, TierCap: a.TierCap, Status: string(a.Status), Fingerprint: a.Fingerprint,
-			ConnectingIP: a.ConnectingIP, CertExpiresAt: rfcp(a.LeafNotAfter), LastHeartbeat: rfcp(a.LastSeen), RequestedAt: rfc(a.CreatedAt),
+			ConnectingIP: a.ConnectingIP, CertExpiresAt: kernel.RFCP(a.LeafNotAfter), LastHeartbeat: kernel.RFCP(a.LastSeen), RequestedAt: kernel.RFC(a.CreatedAt),
 			Reason: a.Reason, Modules: []ModuleDoc{}, ClockSkewMs: a.ClockSkewMs,
 		}
 		if a.Status == store.StatusPending {
 			left := max(kernel.MaxApprovalAttempts-a.ApprovalAttempts, 0)
 			d.ApprovalAttemptsLeft = &left
-			d.PendingExpiresAt = rfc(a.CreatedAt.Add(h.C.pendingTTL()))
+			d.PendingExpiresAt = kernel.RFC(a.CreatedAt.Add(h.C.pendingTTL()))
 		}
 		d.ConnectingGeo = h.Geo.Locate(a.ConnectingIP)
 		if d.ConnectingGeo == nil {
@@ -1275,18 +1224,18 @@ func (h *Hub) buildAgentDocs(ctx context.Context, now time.Time) ([]AgentDoc, []
 			d.Connected = v.connected
 			d.Synced = !v.lastSync.IsZero()
 			if !v.lastBeat.IsZero() {
-				d.LastHeartbeat = rfc(v.lastBeat)
+				d.LastHeartbeat = kernel.RFC(v.lastBeat)
 			}
 			if v.link.connects > 0 {
 				l := &LinkDoc{Connects: v.link.connects, Bytes: v.link.bytes, Syncs: v.link.syncs, Flows: v.link.flows, Measurements: v.link.meas, Heartbeats: v.link.beats}
 				if v.connected {
-					l.ConnectedSince = rfc(v.link.since)
+					l.ConnectedSince = kernel.RFC(v.link.since)
 				}
 				if !v.link.lastSync.IsZero() {
-					l.LastSync = rfc(v.link.lastSync)
+					l.LastSync = kernel.RFC(v.link.lastSync)
 				}
 				if !v.link.lastFlows.IsZero() {
-					l.LastFlows = rfc(v.link.lastFlows)
+					l.LastFlows = kernel.RFC(v.link.lastFlows)
 				}
 				d.Link = l
 			}
@@ -1300,7 +1249,7 @@ func (h *Hub) buildAgentDocs(ctx context.Context, now time.Time) ([]AgentDoc, []
 			}
 			d.Measuring = len(v.targets)
 			if v.consCount > 0 {
-				d.Consistency = &ConsistencyDoc{LastCheck: rfc(v.consAt), Checks: v.consCount, Differences: v.consDrift.Total()}
+				d.Consistency = &ConsistencyDoc{LastCheck: kernel.RFC(v.consAt), Checks: v.consCount, Differences: v.consDrift.Total()}
 				if v.consDrift.Total() > 0 {
 					d.Consistency.Summary = v.consDrift.String()
 				}
@@ -1345,7 +1294,7 @@ func (h *Hub) buildTopology(ctx context.Context, agents []store.Agent, now time.
 		var selfStats *model.AgentSelfStats
 		if hist := v.self.list(); len(hist) > 0 {
 			last := hist[len(hist)-1]
-			selfStats = &model.AgentSelfStats{T: rfc(last.At), RSSBytes: last.RSSBytes, Goroutines: last.Goroutines}
+			selfStats = &model.AgentSelfStats{T: kernel.RFC(last.At), RSSBytes: last.RSSBytes, Goroutines: last.Goroutines}
 		}
 		t := interpret.Interpret(interpret.Input{OrgID: h.C.OrgID, AgentID: a.ID, ClusterID: a.ClusterID, Name: a.Name, State: v.state, Now: v.lastSync, AccessTier: a.AccessTier, NodeIDs: nodeIDMap(recs), PodFlows: v.podFlows, LinkSaturation: v.linkSat, SnatExhaustion: v.snatExhaustion, ThermalThrottle: v.thermalThrottle, SelfStats: selfStats})
 		var revokedAt time.Time

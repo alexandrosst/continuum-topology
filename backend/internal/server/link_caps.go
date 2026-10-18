@@ -30,7 +30,7 @@ var earliestProberSeen = time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
 // previous report stands until linkCapsStaleAfter says it is too old to rely on. skewMs is the agent's clock minus the server's,
 // as the heartbeat measured it, so a time the agent names is read in the server's clock. Nothing the agent says can put the
 // prober's last visit in the future. Caller holds h.mu.
-func noteLinkCaps(v *view, c *continuumv1.LinkCapabilities, now time.Time, skewMs int64) {
+func (v *agtView) noteLinkCaps(c *continuumv1.LinkCapabilities, now time.Time, skewMs int64) {
 	if c == nil {
 		return
 	}

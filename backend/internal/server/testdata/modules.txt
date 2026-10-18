@@ -15,6 +15,8 @@
 # telemetry     telemetry intents and the quick-start backends. It is the package internal/telemetry; its HTTP half is the shell's.
 # operators     regional operators: their certificates, senders, addresses, heartbeat. It is the package internal/operators; their HTTP half
 #               and the node probe of the server's own cluster are the shell's.
+# observed      what the flows say: the table of observed edges, the sanitising of a flow batch, the topology read off them and the index of
+#               the addresses a cluster is known by. Pure: it knows no agent and no hub; the hub fills it and agents and connectivity read it.
 # connectivity  paths, links, tunnels, addresses a cluster dials, the config an agent is told.
 # fusion        the FUSION stack: its control, retention and release naming. It is the package internal/fusion; its data API, proxy,
 #               OpenAPI document and UI access guard are the shell's.
@@ -23,18 +25,21 @@
 #               It wires modules together and may use any of them; none may use it.
 #
 # A file added to the package must be added here, in the same change: a test fails otherwise.
+access_change.go                agents
 address_check.go shell
 address_drift.go                connectivity
 address_reach.go                connectivity
 admin.go                        shell
 admin_agents.go shell
 admin_commands.go shell
+admin_decisions.go              shell
 admin_fusion.go shell
 admin_fusion_proxy.go shell
 admin_graph.go shell
 admin_history.go shell
 admin_images.go                 shell
 admin_link_credentials.go shell
+admin_mail.go                   shell
 admin_operator_destinations.go shell
 admin_operator_heartbeat.go shell
 admin_operators.go shell
@@ -42,7 +47,10 @@ admin_proposals.go              shell
 admin_quickstart.go shell
 admin_telemetry.go shell
 admin_telemetry_intents.go shell
+admin_twin.go shell
 agent_lifecycle.go              agents
+agent_load.go estate
+agent_view.go agents
 applications_graph.go           estate
 assemble.go                     estate
 conditions.go                   agents
@@ -59,14 +67,24 @@ fusion_ui_access.go shell
 geo.go                          agents
 grpc.go                         agents
 hub.go                          estate
+hub_access.go                   estate
+hub_address.go                  estate
+hub_conditions.go              estate
+hub_consent.go                  estate
+hub_linkcreds.go                estate
+hub_links.go                    estate
+hub_links_setup.go              estate
+hub_paths.go                    estate
+hub_selfstats.go                estate
 kernel_bridge.go                kernel
-link_caps.go                    connectivity
+link_caps.go                     agents
 linkcreds.go                    connectivity
 links.go                        connectivity
 links_latest.go shell
 links_setup.go                  connectivity
 metrics.go                      shell
-observed.go                     estate
+net_view.go connectivity
+observed.go                     observed
 operator_candidates.go shell
 operator_senders.go shell
 paths.go                        connectivity
@@ -79,16 +97,9 @@ routes.go                       shell
 self_probe.go shell
 selfstats.go                    agents
 suspect.go                      agents
+teardown.go agents
 tenants.go                      shell
 tier.go                         agents
 tunnels.go                      connectivity
 twin.go                         estate
 workspace_save.go               estate
-admin_mail.go                   shell
-access_change.go                agents
-agent_load.go estate
-admin_decisions.go              shell
-agent_view.go agents
-net_view.go connectivity
-teardown.go agents
-admin_twin.go shell

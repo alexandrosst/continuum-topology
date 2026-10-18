@@ -264,9 +264,9 @@ func (h *Hub) tombstoneDocs(now time.Time) []TombstoneDoc {
 		if len(out) >= maxTombstoneDocs {
 			break
 		}
-		d := TombstoneDoc{Kind: t.Kind, ID: t.ID, Name: t.Name, ClusterID: t.ClusterID, AgentID: t.AgentID, GoneAt: rfc(t.GoneAt), Reason: t.Reason}
+		d := TombstoneDoc{Kind: t.Kind, ID: t.ID, Name: t.Name, ClusterID: t.ClusterID, AgentID: t.AgentID, GoneAt: kernel.RFC(t.GoneAt), Reason: t.Reason}
 		if !t.LastSeen.IsZero() {
-			d.LastSeen = rfc(t.LastSeen)
+			d.LastSeen = kernel.RFC(t.LastSeen)
 		}
 		if len(t.Record) > 0 && json.Valid(t.Record) {
 			d.Record = t.Record

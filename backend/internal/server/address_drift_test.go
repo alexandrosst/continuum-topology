@@ -169,3 +169,14 @@ func TestDiagnosisUsesAnAddressTestFromTheSendersOwnCluster(t *testing.T) {
 		t.Fatalf("a timeout with a good test: %+v", d)
 	}
 }
+
+// An approved sender the hub holds no view of yet (after a restart, before it has connected) is passed over, not a crash.
+func TestADriftSweepSkipsASenderTheHubHoldsNoViewOf(t *testing.T) {
+	a, _, _, agentID, _ := driftRig(t)
+	h := a.hub()
+	h.mu.Lock()
+	delete(h.views, agentID)
+	delete(h.sessions, agentID)
+	h.mu.Unlock()
+	h.driftSweep(a.ctx) // must not panic
+}

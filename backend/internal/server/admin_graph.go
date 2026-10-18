@@ -11,6 +11,7 @@ import (
 
 	"continuum/internal/accounts"
 	"continuum/internal/graph"
+	"continuum/internal/kernel"
 	"continuum/internal/store"
 	"continuum/internal/workspace"
 )
@@ -78,7 +79,7 @@ func (a *Admin) graphSnapshot(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"at": rfc(sat), "entities": entities})
+	writeJSON(w, 200, map[string]any{"at": kernel.RFC(sat), "entities": entities})
 }
 
 // parseWalkParams reads the kind/id/at/hops query parameters Dependents and Dependencies share. hops
@@ -123,7 +124,7 @@ func (a *Admin) graphDependents(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"at": rfc(sat), "kind": kind, "id": id, "hops": hops, "reached": reached})
+	writeJSON(w, 200, map[string]any{"at": kernel.RFC(sat), "kind": kind, "id": id, "hops": hops, "reached": reached})
 }
 
 // GET /graph/dependencies?kind=&id=&at=&hops=: everything this entity itself relies on at that moment -
@@ -149,7 +150,7 @@ func (a *Admin) graphDependencies(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"at": rfc(sat), "kind": kind, "id": id, "hops": hops, "reached": reached})
+	writeJSON(w, 200, map[string]any{"at": kernel.RFC(sat), "kind": kind, "id": id, "hops": hops, "reached": reached})
 }
 
 // GET /graph/diff?from=&to=: what changed structurally across the whole estate between two moments -
@@ -177,7 +178,7 @@ func (a *Admin) graphDiff(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"from": rfc(diff.From), "to": rfc(diff.To), "added": diff.Added, "removed": diff.Removed, "changed": diff.Changed})
+	writeJSON(w, 200, map[string]any{"from": kernel.RFC(diff.From), "to": kernel.RFC(diff.To), "added": diff.Added, "removed": diff.Removed, "changed": diff.Changed})
 }
 
 // GET /timeline?kind=service&id=...: every version of one record, what changed between them, the events
@@ -205,7 +206,7 @@ func (a *Admin) timeline(w http.ResponseWriter, r *http.Request) {
 	}
 	evs := make([]eventDoc, len(tl.Events))
 	for i, e := range tl.Events {
-		evs[i] = eventDoc{ID: "ev-" + itoa(e.ID), At: rfc(e.At), Kind: e.Kind, TargetKind: e.TargetKind, TargetID: e.TargetID, Name: e.Name, ClusterID: e.ClusterID,
+		evs[i] = eventDoc{ID: "ev-" + itoa(e.ID), At: kernel.RFC(e.At), Kind: e.Kind, TargetKind: e.TargetKind, TargetID: e.TargetID, Name: e.Name, ClusterID: e.ClusterID,
 			ClusterName: e.ClusterName, Detail: e.Detail, Cause: e.Cause, Severity: e.Severity}
 	}
 	audit := tl.Audit
@@ -289,7 +290,7 @@ func (a *Admin) workspaceAt(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	out := map[string]any{"rev": rev.Rev, "updatedAt": rfc(rev.At), "updatedBy": rev.By, "data": rev.Data}
+	out := map[string]any{"rev": rev.Rev, "updatedAt": kernel.RFC(rev.At), "updatedBy": rev.By, "data": rev.Data}
 	if workspace.Peek(rev.Data) < workspace.CurrentVersion {
 		// A revision saved before observed facts were held apart from the workspace carries them; they are not shown.
 		if d, rep, err := workspace.Declare(rev.Data); err == nil {

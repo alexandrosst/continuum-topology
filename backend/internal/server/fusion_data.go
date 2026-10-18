@@ -209,7 +209,7 @@ func orEmpty(v []string) []string {
 
 func toFusionTokenDoc(t store.FusionToken) fusionTokenDoc {
 	return fusionTokenDoc{ID: t.ID, Name: t.Name, Signals: orEmpty(t.Signals), Namespaces: orEmpty(t.Namespaces), Clusters: orEmpty(t.Clusters),
-		CreatedBy: t.CreatedBy, CreatedAt: rfc(t.CreatedAt), ExpiresAt: rfc(t.ExpiresAt), LastUsedAt: rfcp(t.LastUsed)}
+		CreatedBy: t.CreatedBy, CreatedAt: kernel.RFC(t.CreatedAt), ExpiresAt: kernel.RFC(t.ExpiresAt), LastUsedAt: kernel.RFCP(t.LastUsed)}
 }
 
 // fusionOrg is the organisation FUSION belongs to: the one the server was told, else the server's main organisation. (Not
@@ -427,7 +427,7 @@ func (a *Admin) fusionStatus(w http.ResponseWriter, r *http.Request, c *fusionap
 	access := map[string]any{"kind": who.Kind, "name": who.Name, "signals": who.Scope.Signals,
 		"namespaces": orEmpty(who.Scope.Namespaces), "clusters": orEmpty(who.Scope.Clusters), "rawQueries": who.Scope.Unrestricted()}
 	if who.ExpiresAt != nil {
-		access["expiresAt"] = rfc(*who.ExpiresAt)
+		access["expiresAt"] = kernel.RFC(*who.ExpiresAt)
 	}
 	// A token holder learns whether the stores are up, not how the cluster is set up: the full status carries workload
 	// names, the namespace and Kubernetes API error text, which are for administrators. Nor does it read the cluster for

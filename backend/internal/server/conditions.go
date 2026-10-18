@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"continuum/internal/agentcaps"
+	"continuum/internal/kernel"
 )
 
 // A Condition is one fact about an agent that is either true, false or not known, with a short code for why and a sentence for a
@@ -51,7 +52,7 @@ func since(t time.Time) string {
 	if t.IsZero() {
 		return ""
 	}
-	return rfc(t)
+	return kernel.RFC(t)
 }
 
 // agentConditions is the one place the conditions are decided. It never blocks anything: a condition that is False is a thing to
@@ -125,16 +126,4 @@ func age(now, then time.Time) string {
 		return fmt.Sprintf("%dm", int(d.Minutes()))
 	}
 	return fmt.Sprintf("%dh", int(d.Hours()))
-}
-
-// condInputsOf copies what agentConditions needs out of a view (nil: an agent the hub has no view of). The caller holds h.mu.
-func condInputsOf(v *view) condInputs {
-	if v == nil {
-		return condInputs{}
-	}
-	return condInputs{
-		Seen: v.link.connects > 0, Connected: v.connected, ConnectedSince: v.link.since,
-		Protocol: v.ext.protocol, Caps: v.ext.caps,
-		CfgSent: v.cfgHash, CfgApplied: v.cfgApplied, CfgSentAt: v.cfgSentAt, CfgInForceAt: v.cfgInForceAt,
-	}
 }
