@@ -100,7 +100,8 @@ type FusionControl struct {
 	notReady time.Time
 }
 
-func (f *FusionControl) now() time.Time {
+// Clock is the time as this control reads it: the Now it was given, or the wall clock.
+func (f *FusionControl) Clock() time.Time {
 	if f.Now != nil {
 		return f.Now()
 	}
@@ -117,7 +118,7 @@ func (f *FusionControl) stores() []fusionStore {
 	}
 }
 
-func (f *FusionControl) centralHost() string { return f.Name + "-central." + f.Namespace + ".svc" }
+func (f *FusionControl) CentralHost() string { return f.Name + "-central." + f.Namespace + ".svc" }
 
 // CentralEndpoint is what an exporting regional operator is pointed at: the public address when there is one, else
 // the gateway's in-cluster Service (OTLP gRPC).
@@ -125,7 +126,7 @@ func (f *FusionControl) CentralEndpoint() string {
 	if a := f.publicAddress(); a != "" {
 		return a
 	}
-	return f.centralHost() + ":4317"
+	return f.CentralHost() + ":4317"
 }
 
 // Exposed is whether operators in other clusters can reach the gateway.
@@ -171,10 +172,10 @@ func (f *FusionControl) DiscoverAddress(ctx context.Context, c *Core) (string, e
 	}
 	f.discoverMu.Lock()
 	defer f.discoverMu.Unlock()
-	if now := f.now(); !f.discoverAt.IsZero() && now.Sub(f.discoverAt) < fusionAddressEvery {
+	if now := f.Clock(); !f.discoverAt.IsZero() && now.Sub(f.discoverAt) < fusionAddressEvery {
 		return "", nil
 	}
-	f.discoverAt = f.now()
+	f.discoverAt = f.Clock()
 	op, err := c.Store.GetOperator(ctx, operators.CentralOperatorID)
 	if err != nil || op.Status != store.OperatorActive || op.OrgID != c.OrgID {
 		return "", nil // not set up yet (or revoked): there is nothing to record an address on
@@ -239,13 +240,13 @@ func (f *FusionControl) GatewayService(ctx context.Context) *kernel.KubeService 
 	}
 	f.svcMu.Lock()
 	defer f.svcMu.Unlock()
-	if !f.svcAt.IsZero() && f.now().Sub(f.svcAt) < fusionServiceEvery {
+	if !f.svcAt.IsZero() && f.Clock().Sub(f.svcAt) < fusionServiceEvery {
 		return f.svc
 	}
 	cctx, cancel := context.WithTimeout(ctx, fusionKubeTimeout)
 	defer cancel()
 	svc, err := insp.Service(cctx, f.ServiceName())
-	f.svcAt = f.now()
+	f.svcAt = f.Clock()
 	if err != nil {
 		f.svc = nil
 		return nil
@@ -281,7 +282,7 @@ func (f *FusionControl) ServiceName() string { return f.Name + "-central" }
 func (f *FusionControl) certHosts() []string {
 	// The last name is the one that never changes (operatorServerName): senders that reach the gateway at its public
 	// address verify against it, so the address, or the IP behind it, can change without reissuing anything.
-	h := []string{f.Name + "-central", f.Name + "-central." + f.Namespace, f.centralHost(), f.centralHost() + ".cluster.local",
+	h := []string{f.Name + "-central", f.Name + "-central." + f.Namespace, f.CentralHost(), f.CentralHost() + ".cluster.local",
 		operators.OperatorServerName(store.Operator{ID: operators.CentralOperatorID})}
 	if pa := f.publicAddress(); pa != "" {
 		host := pa
@@ -295,7 +296,7 @@ func (f *FusionControl) certHosts() []string {
 
 // dataClient is how the shared API reaches the three stores: their ClusterIP Services, plain HTTP, on the ports the
 // chart gives them (see fusionRoutes, which uses the same convention for the OTLP side).
-func (f *FusionControl) dataClient() *fusionapi.Client {
+func (f *FusionControl) DataClient() *fusionapi.Client {
 	if f.Data != nil {
 		return f.Data
 	}
@@ -310,7 +311,7 @@ func (f *FusionControl) dataClient() *fusionapi.Client {
 	return f.data
 }
 
-func (f *FusionControl) tlsSecretName() string { return f.Name + "-central-receiver-tls" }
+func (f *FusionControl) TLSSecretName() string { return f.Name + "-central-receiver-tls" }
 
 // destination is the central operator's own destination: the three stores, by the chart's naming convention.
 func (f *FusionControl) destination() store.Destination {
@@ -332,7 +333,7 @@ type FusionComponent struct {
 }
 
 // componentUp says whether the named workload exists in this install and is fully ready.
-func (st FusionStatus) componentUp(component string) bool {
+func (st FusionStatus) ComponentUp(component string) bool {
 	for _, c := range st.Components {
 		if c.Component == component {
 			return c.Desired > 0 && c.Ready >= c.Desired
@@ -444,7 +445,7 @@ func (f *FusionControl) statusWithin(ctx context.Context, maxAge time.Duration) 
 		return f.readStatus(ctx)
 	}
 	f.cacheMu.Lock()
-	if f.cache.valid && f.now().Sub(f.cache.at) < maxAge {
+	if f.cache.valid && f.Clock().Sub(f.cache.at) < maxAge {
 		st := f.cache.st.clone()
 		f.cacheMu.Unlock()
 		return st
@@ -470,7 +471,7 @@ func (f *FusionControl) statusWithin(ctx context.Context, maxAge time.Duration) 
 	defer func() {
 		f.cacheMu.Lock()
 		if read && f.cache.gen == gen {
-			f.cache.st, f.cache.at, f.cache.valid = fl.st.clone(), f.now(), true
+			f.cache.st, f.cache.at, f.cache.valid = fl.st.clone(), f.Clock(), true
 		}
 		if f.cache.flight == fl { // not one a later change already disowned (see invalidate)
 			f.cache.flight = nil
@@ -486,7 +487,7 @@ func (f *FusionControl) statusWithin(ctx context.Context, maxAge time.Duration) 
 }
 
 // invalidate drops what is kept and disowns any read already under way: the cluster is about to change.
-func (f *FusionControl) invalidate() {
+func (f *FusionControl) Invalidate() {
 	f.cacheMu.Lock()
 	f.cache.valid = false
 	f.cache.gen++
@@ -499,7 +500,7 @@ func (f *FusionControl) keep(st FusionStatus) {
 	f.cacheMu.Lock()
 	f.cache.gen++
 	f.cache.flight = nil // as in invalidate: what a read under way is about to find is older than this
-	f.cache.st, f.cache.at, f.cache.valid = st.clone(), f.now(), true
+	f.cache.st, f.cache.at, f.cache.valid = st.clone(), f.Clock(), true
 	f.cacheMu.Unlock()
 }
 
@@ -546,7 +547,7 @@ func (f *FusionControl) readStatus(ctx context.Context) FusionStatus {
 			Reason: r.reason, hard: r.hard, optional: s.Optional})
 	}
 	st = f.assess(comps)
-	if st.componentUp("metrics") {
+	if st.ComponentUp("metrics") {
 		st.LastDataAt = f.lastDataAt(ctx)
 	}
 	return st
@@ -585,12 +586,12 @@ func (f *FusionControl) whyNotReady(ctx context.Context, s fusionStore) (reason 
 	if pod.Unschedulable || pod.WaitingReason == "ContainerCreating" || (pod.Phase == "Pending" && pod.WaitingReason == "") {
 		claim, _ = f.Kube.ClaimPhase(ctx, storeClaim(s))
 	}
-	return explainPod(pod, claim)
+	return ExplainPod(pod, claim)
 }
 
 // explainPod turns Kubernetes' reason codes into a short sentence for a person. hard is a fault that will not clear on
 // its own. A code it does not know says nothing rather than show a raw identifier.
-func explainPod(p kernel.KubePod, claimPhase string) (reason string, hard bool) {
+func ExplainPod(p kernel.KubePod, claimPhase string) (reason string, hard bool) {
 	switch p.WaitingReason {
 	case "ErrImagePull", "ImagePullBackOff":
 		return "Cannot download the image", true
@@ -653,16 +654,16 @@ func (f *FusionControl) assess(comps []FusionComponent) FusionStatus {
 	default:
 		st.State = "starting"
 		if f.since.IsZero() { // the server restarted while FUSION was starting: count from now
-			f.since = f.now()
+			f.since = f.Clock()
 		}
 		if f.notReady.IsZero() { // first seen not ready (a fresh start, a restart of the server, or a pod that fell over)
-			f.notReady = f.now()
+			f.notReady = f.Clock()
 		}
 		grace := fusionStartGrace
 		if hard {
 			grace = fusionHardGrace
 		}
-		if waited := f.now().Sub(f.notReady); waited > grace {
+		if waited := f.Clock().Sub(f.notReady); waited > grace {
 			if len(reasons) > 0 {
 				st.State, st.Message = "attention", fmt.Sprintf("%d of %d parts are up after %s. %s. Details: kubectl -n %s get pods", ready, desired, waitedFor(waited), strings.Join(reasons, ". "), f.Namespace)
 			} else {
@@ -690,14 +691,14 @@ func waitedFor(d time.Duration) string {
 func (f *FusionControl) lastDataAt(ctx context.Context) *time.Time {
 	f.lastDataMu.Lock()
 	defer f.lastDataMu.Unlock()
-	if now := f.now(); f.lastDataTried.IsZero() || now.Sub(f.lastDataTried) >= fusionLastDataEvery {
+	if now := f.Clock(); f.lastDataTried.IsZero() || now.Sub(f.lastDataTried) >= fusionLastDataEvery {
 		f.lastDataTried = now
 		qctx, cancel := context.WithTimeout(ctx, fusionKubeTimeout)
 		// Prometheus's own TSDB status, not a query over series: nothing is scraped here (everything is pushed over OTLP), so
 		// `up` does not exist, and target_info - once the obvious choice - is written only for a resource that has a
 		// service.name or service.instance.id, which the infrastructure metrics (hostmetrics, kubelet, cluster state) do not
 		// have; a store full of data then read as "waiting for the first". See Client.HeadMaxTime.
-		t, ok, err := f.dataClient().HeadMaxTime(qctx, fusionapi.AllSignals())
+		t, ok, err := f.DataClient().HeadMaxTime(qctx, fusionapi.AllSignals())
 		cancel()
 		if err == nil && ok {
 			f.lastDataSeen = t
@@ -751,13 +752,13 @@ func (f *FusionControl) Enable(ctx context.Context, c *Core, actor string) (Fusi
 	if err != nil {
 		return FusionStatus{}, err
 	}
-	if err := f.Kube.PatchSecret(ctx, f.tlsSecretName(), map[string][]byte{
+	if err := f.Kube.PatchSecret(ctx, f.TLSSecretName(), map[string][]byte{
 		"tls.crt": bundle.ReceiverCertPEM, "tls.key": bundle.ReceiverKeyPEM, "ca.crt": bundle.CACertPEM,
 	}); err != nil {
 		return FusionStatus{}, kubeFail("put the gateway's certificate in place", err)
 	}
 	f.mu.Lock()
-	f.since, f.notReady = f.now(), f.now()
+	f.since, f.notReady = f.Clock(), f.Clock()
 	f.issuedFor = strings.Join(f.certHosts(), ",")
 	f.mu.Unlock()
 	st, err := f.scaleAndReport(ctx, prev, 1)
@@ -801,7 +802,7 @@ func (f *FusionControl) Renew(ctx context.Context, c *Core) error {
 	if err != nil {
 		return err
 	}
-	if err := f.Kube.PatchSecret(ctx, f.tlsSecretName(), map[string][]byte{
+	if err := f.Kube.PatchSecret(ctx, f.TLSSecretName(), map[string][]byte{
 		"tls.crt": bundle.ReceiverCertPEM, "tls.key": bundle.ReceiverKeyPEM, "ca.crt": bundle.CACertPEM,
 	}); err != nil {
 		return err
@@ -839,9 +840,9 @@ func (f *FusionControl) Disable(ctx context.Context, c *Core, actor string) (Fus
 // first, so no screen shows the old state while the change is under way. If a call failed part way the cluster is in a
 // state this does not know, so nothing is kept and the next ask reads it.
 func (f *FusionControl) scaleAndReport(ctx context.Context, prev FusionStatus, replicas int) (FusionStatus, error) {
-	f.invalidate()
-	if err := f.scaleAll(ctx, replicas); err != nil {
-		f.invalidate()
+	f.Invalidate()
+	if err := f.ScaleAll(ctx, replicas); err != nil {
+		f.Invalidate()
 		return FusionStatus{}, err
 	}
 	if len(prev.Components) == 0 { // the read before it failed: there is nothing to build the answer from
@@ -860,7 +861,7 @@ func (f *FusionControl) scaleAndReport(ctx context.Context, prev FusionStatus, r
 
 // scaleAll sets every workload, the stores before the gateway on the way up and the gateway first on the way down, so
 // nothing is ever sending into something that is not there.
-func (f *FusionControl) scaleAll(ctx context.Context, replicas int) error {
+func (f *FusionControl) ScaleAll(ctx context.Context, replicas int) error {
 	ws := f.stores()
 	if replicas == 0 {
 		for i, j := 0, len(ws)-1; i < j; i, j = i+1, j-1 {
@@ -959,4 +960,18 @@ func (c *Core) centralReceiverFresh(ctx context.Context) bool {
 		}
 	}
 	return false
+}
+
+// CacheValid is whether the cached status can be served right now. A test reads it to see that a change in progress dropped it.
+func (f *FusionControl) CacheValid() bool {
+	f.cacheMu.Lock()
+	defer f.cacheMu.Unlock()
+	return f.cache.valid
+}
+
+// ForgetGatewayService drops the remembered read of the gateway's Service, so the next ask reads it again.
+func (f *FusionControl) ForgetGatewayService() {
+	f.svcMu.Lock()
+	f.svcAt = time.Time{}
+	f.svcMu.Unlock()
 }

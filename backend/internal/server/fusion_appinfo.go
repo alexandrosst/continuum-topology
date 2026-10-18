@@ -34,7 +34,7 @@ func (a *Admin) PushApplicationInfo(ctx context.Context) (int, bool, error) {
 	if err != nil {
 		return 0, false, err
 	}
-	n, truncated, err := a.Fusion.dataClient().PushAppInfo(ctx, groups)
+	n, truncated, err := a.Fusion.DataClient().PushAppInfo(ctx, groups)
 	if err == nil {
 		err = cerr
 	}
@@ -56,7 +56,7 @@ func (a *Admin) pushClusterInfo(ctx context.Context, ex fusionapi.Extras) error 
 	if err != nil {
 		return err
 	}
-	_, err = a.Fusion.dataClient().PushClusterInfo(ctx, names)
+	_, err = a.Fusion.DataClient().PushClusterInfo(ctx, names)
 	return err
 }
 

@@ -163,7 +163,7 @@ func TestEnableAndDisableAnswerWithoutReadingAgain(t *testing.T) {
 
 	// Enabling something that is already running keeps what is ready: it must not flap to "starting".
 	k.allReady()
-	f.invalidate()
+	f.Invalidate()
 	f.Enable(ctx, a.a.C, "alex")
 	k.allReady()
 	now = now.Add(time.Minute)
@@ -182,11 +182,9 @@ func TestAReadThatBeganBeforeAChangeIsNotKept(t *testing.T) {
 	done := make(chan struct{})
 	go func() { f.Status(context.Background()); close(done) }() // reads "on"
 	time.Sleep(15 * time.Millisecond)
-	f.invalidate() // the cluster is being changed
+	f.Invalidate() // the cluster is being changed
 	<-done
-	f.cacheMu.Lock()
-	valid := f.cache.valid
-	f.cacheMu.Unlock()
+	valid := f.CacheValid()
 	if valid {
 		t.Fatal("a read that began before the change was kept")
 	}
@@ -200,7 +198,7 @@ func TestSomeoneAskingAfterAChangeDoesNotJoinTheReadBeforeIt(t *testing.T) {
 	done := make(chan struct{})
 	go func() { f.Status(context.Background()); close(done) }()
 	time.Sleep(15 * time.Millisecond)
-	f.invalidate() // Enable / Disable began
+	f.Invalidate() // Enable / Disable began
 	f.Status(context.Background())
 	<-done
 	// One read of the five workloads for the first caller, and a read of its own for the second.
@@ -252,9 +250,7 @@ func TestAFailedScaleKeepsNothing(t *testing.T) {
 	if _, err := f.Enable(ctx, a.a.C, "alex"); err == nil {
 		t.Fatal("enabled with a workload missing")
 	}
-	f.cacheMu.Lock()
-	valid := f.cache.valid
-	f.cacheMu.Unlock()
+	valid := f.CacheValid()
 	if valid {
 		t.Fatal("a status was kept after a scale that failed part way")
 	}
@@ -330,7 +326,7 @@ func TestExplainPod(t *testing.T) {
 		"unknown code":       {kernel.KubePod{WaitingReason: "SomethingNew"}, "", "", false},
 		"nothing wrong":      {kernel.KubePod{Phase: "Running"}, "Bound", "", false},
 	} {
-		if reason, hard := explainPod(tc.pod, tc.claim); reason != tc.reason || hard != tc.hard {
+		if reason, hard := ExplainPod(tc.pod, tc.claim); reason != tc.reason || hard != tc.hard {
 			t.Errorf("%s: %q hard=%v, want %q hard=%v", name, reason, hard, tc.reason, tc.hard)
 		}
 	}

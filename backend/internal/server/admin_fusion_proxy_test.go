@@ -236,13 +236,13 @@ func TestGrafanaIsSwitchedWithFusionWhereItExists(t *testing.T) {
 	if st := f.Status(ctx); len(st.Components) != 5 || st.State != "off" {
 		t.Fatalf("with Grafana: %+v", st)
 	}
-	if err := f.scaleAll(ctx, 1); err != nil {
+	if err := f.ScaleAll(ctx, 1); err != nil {
 		t.Fatal(err)
 	}
 	if k.replicas["continuum-fusion-grafana"] != 1 {
 		t.Fatal("Grafana was not switched on")
 	}
-	if err := f.scaleAll(ctx, 0); err != nil {
+	if err := f.ScaleAll(ctx, 0); err != nil {
 		t.Fatal(err)
 	}
 	if k.replicas["continuum-fusion-grafana"] != 0 {
@@ -250,7 +250,7 @@ func TestGrafanaIsSwitchedWithFusionWhereItExists(t *testing.T) {
 	}
 	// An install without Grafana (turned off in the chart, or an older release): nothing to scale, nothing missing.
 	f2, k2 := newFusion(t, a)
-	if err := f2.scaleAll(ctx, 1); err != nil {
+	if err := f2.ScaleAll(ctx, 1); err != nil {
 		t.Fatalf("scaling an install without Grafana: %v", err)
 	}
 	if st := f2.Status(ctx); len(st.Components) != 4 || !st.Available {

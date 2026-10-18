@@ -340,7 +340,7 @@ func (a *Admin) fusionData(h fusionHandler) http.Handler {
 		_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(fusionRequestTimeout + fusionWriteGrace))
 		ctx, cancel := context.WithTimeout(r.Context(), fusionRequestTimeout)
 		defer cancel()
-		h(w, r.WithContext(ctx), a.Fusion.dataClient(), who)
+		h(w, r.WithContext(ctx), a.Fusion.DataClient(), who)
 	})
 }
 

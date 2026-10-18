@@ -584,7 +584,7 @@ func TestRenewRunsOnTheMainOrganisationWhenStartedWithThePlatformCore(t *testing
 	if err := f.Renew(ctx, oc); err != nil {
 		t.Fatal(err)
 	}
-	if k.secretIn != f.tlsSecretName() || len(k.secret["tls.crt"]) == 0 {
+	if k.secretIn != f.TLSSecretName() || len(k.secret["tls.crt"]) == 0 {
 		t.Fatalf("the certificate was not renewed through the organisation core: secret %q", k.secretIn)
 	}
 	// Another organisation's core stays another organisation's: OrgCore only fills in the missing one.

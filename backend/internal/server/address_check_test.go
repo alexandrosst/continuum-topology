@@ -113,9 +113,7 @@ func TestCentralAddressIsCheckedAgainstTheGatewaysService(t *testing.T) {
 	}
 
 	// A NodePort: a node does not listen on 4317, and the port a person leaves out is the node port, not 4317.
-	f.svcMu.Lock()
-	f.svcAt = time.Time{} // the Service was read a moment ago
-	f.svcMu.Unlock()
+	f.ForgetGatewayService() // the Service was read a moment ago
 	ik.svc = kernel.KubeService{Type: "NodePort", Port: 4317, NodePort: 31317}
 	if got := warnings(set("198.51.100.4:4317")); !strings.Contains(got, "31317") {
 		t.Fatalf("4317 on a NodePort Service: %q", got)
@@ -126,9 +124,7 @@ func TestCentralAddressIsCheckedAgainstTheGatewaysService(t *testing.T) {
 	}
 
 	// With no way to read the Service nothing is claimed either way.
-	f.svcMu.Lock()
-	f.svcAt = time.Time{}
-	f.svcMu.Unlock()
+	f.ForgetGatewayService()
 	ik.err = kernel.ErrKubeForbidden
 	if got := warnings(set("198.51.100.4:4317")); got != "" {
 		t.Fatalf("a Service this server may not read was held against the address: %q", got)

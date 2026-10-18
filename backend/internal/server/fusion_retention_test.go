@@ -332,7 +332,7 @@ func TestSetRetentionSavesEvenIfARestartFails(t *testing.T) {
 // The numbers behind "how much room does this need": what the stores report about their own disk.
 func TestRetentionMeasuresGrowthFromWhatTheStoresReport(t *testing.T) {
 	f, k, a := retentionRig(t)
-	now := f.now()
+	now := f.Clock()
 	oldest := now.Add(-5 * 24 * time.Hour).UnixMilli()
 	prom := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -387,26 +387,26 @@ func TestRetentionSurvivesStoresThatCannotBeMeasured(t *testing.T) {
 
 func TestRetentionValueParsing(t *testing.T) {
 	for in, want := range map[string]float64{"15d": 15, "168h": 7, "1w2d": 9, "1y": 365, "36h": 1.5, "90m": 90.0 / 1440} {
-		if got, ok := parseRetentionDays(in); !ok || got < want-1e-9 || got > want+1e-9 {
+		if got, ok := ParseRetentionDays(in); !ok || got < want-1e-9 || got > want+1e-9 {
 			t.Errorf("parseRetentionDays(%q) = %v %v, want %v", in, got, ok, want)
 		}
 	}
 	for _, bad := range []string{"", "d", "15", "15x", "-3d", "3d junk", "1.5d"} {
-		if _, ok := parseRetentionDays(bad); ok {
+		if _, ok := ParseRetentionDays(bad); ok {
 			t.Errorf("parseRetentionDays(%q) accepted", bad)
 		}
 	}
-	if n, ok := parseRetentionSize("8704MB"); !ok || n != 8704<<20 {
+	if n, ok := ParseRetentionSize("8704MB"); !ok || n != 8704<<20 {
 		t.Errorf("size = %d %v", n, ok)
 	}
-	if n, ok := parseRetentionSize("10GB"); !ok || n != 10<<30 {
+	if n, ok := ParseRetentionSize("10GB"); !ok || n != 10<<30 {
 		t.Errorf("size = %d %v", n, ok)
 	}
-	if _, ok := parseRetentionSize("lots"); ok {
+	if _, ok := ParseRetentionSize("lots"); ok {
 		t.Error("size accepted nonsense")
 	}
 	// The chart's own default for a 10Gi volume: the server must derive the same text to know a value is still the default.
-	if got := derivedRetentionSize(10 * gib); got != "8704MB" {
+	if got := DerivedRetentionSize(10 * gib); got != "8704MB" {
 		t.Errorf("derived = %q", got)
 	}
 }

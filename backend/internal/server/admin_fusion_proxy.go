@@ -197,10 +197,10 @@ func (f *FusionControl) uiLinks(st FusionStatus) *fusionUILinks {
 		return nil
 	}
 	var l fusionUILinks
-	if st.componentUp("metrics") {
+	if st.ComponentUp("metrics") {
 		l.Prometheus = fusionPromPath
 	}
-	if st.componentUp("grafana") {
+	if st.ComponentUp("grafana") {
 		l.Grafana = fusionGrafanaPath
 	}
 	if l == (fusionUILinks{}) {
@@ -295,7 +295,7 @@ func (a *Admin) fusionUI(component string) http.Handler {
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 		st := a.Fusion.Status(ctx)
 		cancel()
-		if !st.Available || !st.componentUp(component) {
+		if !st.Available || !st.ComponentUp(component) {
 			writeErr(w, http.StatusServiceUnavailable, map[string]string{"metrics": "Prometheus", "grafana": "Grafana"}[component]+" is not running. Turn FUSION on and wait for it to be up.")
 			return
 		}

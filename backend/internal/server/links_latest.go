@@ -203,7 +203,7 @@ func (a *Admin) linksLatest(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, doc)
 		return
 	}
-	pairs, sample, err := a.linkFigures(r.Context(), a.Fusion.dataClient(), links)
+	pairs, sample, err := a.linkFigures(r.Context(), a.Fusion.DataClient(), links)
 	if err != nil {
 		if errors.Is(r.Context().Err(), context.Canceled) {
 			return

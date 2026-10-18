@@ -154,7 +154,7 @@ var retentionPart = regexp.MustCompile(`^([0-9]+)(ms|s|m|h|d|w|y)`)
 
 // parseRetentionDays reads a retention written the way the stores take it: one or more numbers with units ("15d", "168h",
 // "1w2d"), a year being 365 days. It answers in days.
-func parseRetentionDays(v string) (float64, bool) {
+func ParseRetentionDays(v string) (float64, bool) {
 	v = strings.TrimSpace(v)
 	if v == "" {
 		return 0, false
@@ -191,7 +191,7 @@ var sizeUnits = map[string]float64{"": 1, "B": 1, "KB": 1 << 10, "MB": 1 << 20, 
 var sizeRe = regexp.MustCompile(`^([0-9]+(?:\.[0-9]+)?)\s*([A-Za-z]*)$`)
 
 // parseRetentionSize reads Prometheus' retention.size ("8500MB", "10GB"); its units are powers of 1024.
-func parseRetentionSize(v string) (int64, bool) {
+func ParseRetentionSize(v string) (int64, bool) {
 	m := sizeRe.FindStringSubmatch(strings.TrimSpace(v))
 	if m == nil {
 		return 0, false
@@ -206,7 +206,7 @@ func parseRetentionSize(v string) (int64, bool) {
 
 // derivedRetentionSize is the size limit the chart gives Prometheus when it is told none: 85% of its volume, in whole MB
 // (fusion.prometheusRetentionSize in the chart; the two must agree, since a value that still is this one follows the volume).
-func derivedRetentionSize(volumeBytes int64) string {
+func DerivedRetentionSize(volumeBytes int64) string {
 	mib := volumeBytes >> 20
 	return fmt.Sprintf("%dMB", max(1, mib*85/100))
 }
@@ -250,7 +250,7 @@ const retentionGrowEvery = 10 * time.Minute
 // nothing stops the data from growing past it.
 var provisionersWithoutQuota = []string{"local-path", "hostpath"}
 
-func sizeNotEnforced(provisioner string) bool {
+func SizeNotEnforced(provisioner string) bool {
 	for _, p := range provisionersWithoutQuota {
 		if strings.Contains(provisioner, p) {
 			return true
@@ -262,7 +262,7 @@ func sizeNotEnforced(provisioner string) bool {
 // canGrow asks the cluster whether a bigger volume would be accepted (a dry run: nothing is changed) and remembers the answer.
 func (f *FusionControl) canGrow(ctx context.Context, rk kernel.RetentionKube, claimName string, claim kernel.KubeClaim) (*bool, string) {
 	f.retention.mu.Lock()
-	if g, ok := f.retention.grows[claimName]; ok && g.requested == claim.Requested && f.now().Sub(g.at) < retentionGrowEvery {
+	if g, ok := f.retention.grows[claimName]; ok && g.requested == claim.Requested && f.Clock().Sub(g.at) < retentionGrowEvery {
 		f.retention.mu.Unlock()
 		return g.can, g.note
 	}
@@ -286,7 +286,7 @@ func (f *FusionControl) canGrow(ctx context.Context, rk kernel.RetentionKube, cl
 	if f.retention.grows == nil {
 		f.retention.grows = map[string]growCheck{}
 	}
-	f.retention.grows[claimName] = growCheck{requested: claim.Requested, at: f.now(), can: can, note: note}
+	f.retention.grows[claimName] = growCheck{requested: claim.Requested, at: f.Clock(), can: can, note: note}
 	f.retention.mu.Unlock()
 	return can, note
 }
@@ -296,11 +296,11 @@ func (f *FusionControl) canGrow(ctx context.Context, rk kernel.RetentionKube, cl
 func (f *FusionControl) measure(ctx context.Context) retentionMeasure {
 	f.retention.mu.Lock()
 	defer f.retention.mu.Unlock()
-	if !f.retention.m.at.IsZero() && f.now().Sub(f.retention.m.at) < retentionUsageEvery {
+	if !f.retention.m.at.IsZero() && f.Clock().Sub(f.retention.m.at) < retentionUsageEvery {
 		return f.retention.m
 	}
-	m := retentionMeasure{at: f.now()}
-	dc := f.dataClient()
+	m := retentionMeasure{at: f.Clock()}
+	dc := f.DataClient()
 	qctx, cancel := context.WithTimeout(ctx, fusionKubeTimeout)
 	defer cancel()
 	if ps, err := dc.PrometheusStorage(qctx); err == nil && ps.Bytes > 0 {
@@ -325,31 +325,31 @@ func (f *FusionControl) forgetMeasure() {
 	f.retention.mu.Unlock()
 }
 
-func unavailableRetention(reason, msg string) RetentionDoc {
+func UnavailableRetention(reason, msg string) RetentionDoc {
 	return RetentionDoc{Reason: reason, Message: msg, Stores: []RetentionStore{}}
 }
 
 // Retention reads every store's retention, volume and use.
 func (f *FusionControl) Retention(ctx context.Context, c *Core) RetentionDoc {
 	if f != nil && f.Org != "" && c.OrgID != f.Org {
-		return unavailableRetention("other-org", "FUSION is shared by everything that sends to this server, so its retention is set from the server's main organisation.")
+		return UnavailableRetention("other-org", "FUSION is shared by everything that sends to this server, so its retention is set from the server's main organisation.")
 	}
 	st := f.Status(ctx)
 	if !st.Available {
-		return unavailableRetention(st.Reason, st.Message)
+		return UnavailableRetention(st.Reason, st.Message)
 	}
 	rk, why := f.retentionKube()
 	if rk == nil {
-		return unavailableRetention("unsupported", why)
+		return UnavailableRetention("unsupported", why)
 	}
 	settings, err := rk.Settings(ctx, f.settingsName())
 	switch {
 	case errors.Is(err, kernel.ErrKubeNotFound):
-		return unavailableRetention("unmanaged", "This FUSION is not managed by the server (its chart was installed without switch.managed), so its retention is set with Helm values: prometheus.retention, loki.retention and tempo.retention.")
+		return UnavailableRetention("unmanaged", "This FUSION is not managed by the server (its chart was installed without switch.managed), so its retention is set with Helm values: prometheus.retention, loki.retention and tempo.retention.")
 	case errors.Is(err, kernel.ErrKubeForbidden):
-		return unavailableRetention("forbidden", "This server is not allowed to read FUSION's settings. Upgrade the server chart so its Role includes them.")
+		return UnavailableRetention("forbidden", "This server is not allowed to read FUSION's settings. Upgrade the server chart so its Role includes them.")
 	case err != nil:
-		return unavailableRetention("error", "FUSION's settings could not be read: "+err.Error())
+		return UnavailableRetention("error", "FUSION's settings could not be read: "+err.Error())
 	}
 	doc := RetentionDoc{Available: true, Stores: []RetentionStore{}}
 	for _, comp := range st.Components {
@@ -367,7 +367,7 @@ func (f *FusionControl) Retention(ctx context.Context, c *Core) RetentionDoc {
 			continue
 		}
 		rs := RetentionStore{Component: sp.component, Label: s.Label, Value: settings[sp.key], MinDays: 1, MaxDays: sp.maxDays, Share: sp.share}
-		if d, ok := parseRetentionDays(rs.Value); ok {
+		if d, ok := ParseRetentionDays(rs.Value); ok {
 			rs.Days, rs.ExactDays = int(math.Ceil(d-1e-9)), math.Abs(d-math.Round(d)) < 1e-9
 		}
 		var claim kernel.KubeClaim
@@ -375,7 +375,7 @@ func (f *FusionControl) Retention(ctx context.Context, c *Core) RetentionDoc {
 			claim = cl
 			rs.VolumeKnown, rs.VolumeBytes, rs.CapacityBytes = true, cl.Requested, cl.Capacity
 			rs.StorageClass, rs.Resizing, rs.ResizeNote = cl.StorageClass, cl.Resizing || (cl.Capacity > 0 && cl.Capacity < cl.Requested), cl.ResizeNote
-			rs.SizeNotEnforced = sizeNotEnforced(cl.Provisioner)
+			rs.SizeNotEnforced = SizeNotEnforced(cl.Provisioner)
 			if cl.Phase == "Bound" {
 				rs.CanGrow, rs.GrowNote = f.canGrow(ctx, rk, storeClaim(s), cl)
 			}
@@ -403,10 +403,10 @@ func (f *FusionControl) fillUse(rs *RetentionStore, sp retentionSpec, claim kern
 		}
 		data = m.prom.Bytes
 		if !m.prom.Oldest.IsZero() {
-			span = f.now().Sub(m.prom.Oldest)
+			span = f.Clock().Sub(m.prom.Oldest)
 		}
 	} else if rs.UsedBytes != nil && !claim.Created.IsZero() {
-		data, span = *rs.UsedBytes, f.now().Sub(claim.Created)
+		data, span = *rs.UsedBytes, f.Clock().Sub(claim.Created)
 		// Once the store has run longer than it keeps data, what is on disk is a full retention's worth.
 		if rs.Days > 0 && span > time.Duration(rs.Days)*day {
 			span = time.Duration(rs.Days) * day
@@ -419,7 +419,7 @@ func (f *FusionControl) fillUse(rs *RetentionStore, sp retentionSpec, claim kern
 		rs.BytesPerDay, rs.DataDays = &perDay, &days
 	}
 	if sp.component == "metrics" {
-		if sz, ok := parseRetentionSize(settings[promSizeKey]); ok && sz > 0 {
+		if sz, ok := ParseRetentionSize(settings[promSizeKey]); ok && sz > 0 {
 			rs.SizeLimitBytes = &sz
 			if rs.BytesPerDay != nil && *rs.BytesPerDay > 0 {
 				d := float64(sz) / float64(*rs.BytesPerDay)
@@ -512,8 +512,8 @@ func (f *FusionControl) SetRetention(ctx context.Context, c *Core, actor string,
 		}
 		// A Prometheus size limit that was only ever the default follows its volume.
 		if sp.component == "metrics" && p.grow > 0 {
-			if old, ok := settings[promSizeKey]; ok && old == derivedRetentionSize(p.claim.Requested) {
-				p.sizeLimit = derivedRetentionSize(p.grow)
+			if old, ok := settings[promSizeKey]; ok && old == DerivedRetentionSize(p.claim.Requested) {
+				p.sizeLimit = DerivedRetentionSize(p.grow)
 			}
 		}
 		if p.newValue != "" || p.grow > 0 {
@@ -535,7 +535,7 @@ func (f *FusionControl) SetRetention(ctx context.Context, c *Core, actor string,
 			continue
 		}
 		if err := rk.ResizeClaim(ctx, storeClaim(p.store), p.grow); err != nil {
-			f.invalidate()
+			f.Invalidate()
 			done := ""
 			if len(grown) > 0 {
 				done = fmt.Sprintf(" (%s was already grown and stays so; no retention was changed)", strings.Join(grown, ", "))
@@ -561,7 +561,7 @@ func (f *FusionControl) SetRetention(ctx context.Context, c *Core, actor string,
 	}
 	if len(patch) > 0 {
 		if err := rk.PatchSettings(ctx, f.settingsName(), patch); err != nil {
-			f.invalidate()
+			f.Invalidate()
 			e := kubeFail("save FUSION's retention", err)
 			if len(grown) > 0 {
 				return RetentionDoc{}, kernel.Errf(kernel.KindConflict, "%v (%s was already grown and stays so)", e, strings.Join(grown, ", "))
@@ -604,7 +604,7 @@ func (f *FusionControl) SetRetention(ctx context.Context, c *Core, actor string,
 	}
 	c.Audit(ctx, actor, "fusion-retention-changed", "fusion", f.Name, detail)
 
-	f.invalidate()
+	f.Invalidate()
 	f.forgetMeasure()
 	out := f.Retention(ctx, c)
 	out.Warnings = append(out.Warnings, warnings...)

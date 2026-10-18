@@ -115,7 +115,7 @@ connectivity > estate	type addrIndex
 connectivity > estate	type flowTable
 connectivity > estate	type observedCluster
 connectivity > estate	type view
-connectivity > fusion	method FusionControl.dataClient
+connectivity > fusion	method FusionControl.DataClient
 connectivity > shell	field Admin.C
 connectivity > shell	field Admin.Fusion
 connectivity > shell	field Admin.P

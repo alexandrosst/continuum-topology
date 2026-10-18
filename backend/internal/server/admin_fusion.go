@@ -88,7 +88,7 @@ func (a *Admin) disableFusion(w http.ResponseWriter, r *http.Request) {
 // getFusionRetention is every store's retention, volume and measured use.
 func (a *Admin) getFusionRetention(w http.ResponseWriter, r *http.Request) {
 	if a.Fusion == nil {
-		writeJSON(w, 200, unavailableRetention("unavailable", a.Fusion.Status(r.Context()).Message))
+		writeJSON(w, 200, UnavailableRetention("unavailable", a.Fusion.Status(r.Context()).Message))
 		return
 	}
 	writeJSON(w, 200, a.Fusion.Retention(r.Context(), a.core(r)))

@@ -521,7 +521,7 @@ func TestPrintedAgentCommandsForTheCentralOperator(t *testing.T) {
 		name, address string
 		want          wantExport
 	}{
-		{"in-cluster", "", wantExport{endpoint: f.centralHost() + ":4317", mtlsSecret: operatorClientTLSSecretName(central), name: "otlp"}},
+		{"in-cluster", "", wantExport{endpoint: f.CentralHost() + ":4317", mtlsSecret: operatorClientTLSSecretName(central), name: "otlp"}},
 		{"public", "203.0.113.7:30317", wantExport{endpoint: "203.0.113.7:30317", serverName: operators.OperatorServerName(central), mtlsSecret: operatorClientTLSSecretName(central), name: "otlp"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
