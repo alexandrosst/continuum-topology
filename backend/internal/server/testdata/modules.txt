@@ -1,0 +1,109 @@
+# Which module each source file of this package belongs to. The server is one Go package today; this is the line it will be cut along.
+# Read docs/server-modules.md (backend/docs) for what each module is, what it owns and why the files sit where they do.
+#
+# kernel        what every module stands on: the Core (store, CA, organisation, audit, clock), settings, secrets, rate limits, the
+#               outbound address policy, the Kubernetes interface, install image settings. Depends on no module.
+# accounts      people, organisations, roles, sessions, API tokens, passkeys and two-factor; the vocabulary of who is calling (Actor,
+#               Principal, Role) and the one decision of what a caller may do (Decide).
+# agents        an enrolled agent: tokens and enrolment, the stream, consent and access tier, diagnostics, the agent's own health.
+# estate        what the servers know about the world: the hub, the per-agent views, the observed flows, the twin, history, the
+#               applications graph.
+# telemetry     telemetry intents and the quick-start backends.
+# operators     regional operators: their certificates, senders, addresses, heartbeat, and the node probe of the server's own cluster.
+# connectivity  paths, links, tunnels, addresses a cluster dials, the config an agent is told.
+# fusion        the FUSION stack: its control, data API, retention, access.
+# advice        the decision loop: advice, proposals, outcomes, decisions.
+# shell         the process and HTTP shell: the admin mux and its guards, the platform of organisations, routes, readiness, metrics.
+#               It wires modules together and may use any of them; none may use it.
+#
+# A file added to the package must be added here, in the same change: a test fails otherwise.
+actor.go                        accounts
+address_check.go                connectivity
+address_drift.go                connectivity
+address_reach.go                connectivity
+admin.go                        shell
+admin_agents.go                 agents
+admin_commands.go               agents
+admin_fusion.go                 fusion
+admin_fusion_proxy.go           fusion
+admin_graph.go                  estate
+admin_history.go                estate
+admin_link_credentials.go       connectivity
+admin_operator_destinations.go  operators
+admin_operator_heartbeat.go     operators
+admin_operators.go              operators
+admin_proposals.go              advice
+admin_quickstart.go             telemetry
+admin_telemetry.go              agents
+admin_telemetry_intents.go      telemetry
+advisor_records.go              advice
+applications_graph.go           estate
+assemble.go                     estate
+auth.go                         accounts
+conditions.go                   agents
+config_digest.go                connectivity
+consent.go                      agents
+core.go                         kernel
+decide_advice.go                advice
+decide_sign.go                  advice
+decider.go                      kernel
+decisions.go                    advice
+emailcode.go                    accounts
+enroll.go                       agents
+fusion.go                       fusion
+fusion_appinfo.go               fusion
+fusion_control.go               fusion
+fusion_data.go                  fusion
+fusion_extras.go                fusion
+fusion_native.go                fusion
+fusion_openapi.go               fusion
+fusion_ops.go                   fusion
+fusion_retention.go             fusion
+fusion_ui_access.go             fusion
+geo.go                          agents
+grpc.go                         agents
+hub.go                          estate
+images.go                       kernel
+kube.go                         kernel
+limiter.go                      kernel
+link_caps.go                    connectivity
+linkcreds.go                    connectivity
+links.go                        connectivity
+links_latest.go                 connectivity
+links_setup.go                  connectivity
+mail.go                         accounts
+metrics.go                      shell
+observed.go                     estate
+operator_ca_cache.go            operators
+operator_candidates.go          operators
+operator_certs.go               operators
+operator_heartbeat.go           operators
+operator_renew.go               operators
+operator_senders.go             operators
+operator_usage.go               operators
+operators.go                    operators
+password.go                     accounts
+paths.go                        connectivity
+policy.go                       accounts
+proposal_outcomes.go            advice
+proposals.go                    advice
+proto.go                        kernel
+proxyproto.go                   agents
+publicip.go                     agents
+quickstart.go                   telemetry
+readiness.go                    shell
+recorder.go                     estate
+recover.go                      agents
+routes.go                       shell
+self_probe.go                   operators
+selfstats.go                    agents
+settings.go                     kernel
+suspect.go                      agents
+telemetry_intents.go            telemetry
+tenants.go                      shell
+tier.go                         agents
+tokens.go                       kernel
+totp.go                         accounts
+tunnels.go                      connectivity
+twin.go                         estate
+webauthn.go                     accounts
