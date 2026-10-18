@@ -100,6 +100,7 @@ self_probe.go                   operators
 selfstats.go                    agents
 settings.go                     kernel
 settings_links.go               kernel
+state.go                        kernel
 suspect.go                      agents
 telemetry_intents.go            telemetry
 tenants.go                      shell

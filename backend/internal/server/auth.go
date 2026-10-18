@@ -188,7 +188,7 @@ func (c *Core) beginTwoFactor(userID string, methods []string) (string, error) {
 		return "", err
 	}
 	now := c.Now()
-	a := c.auth
+	a := c.authSt()
 	a.pendingMu.Lock()
 	defer a.pendingMu.Unlock()
 	if a.pending == nil {
@@ -207,7 +207,7 @@ func (c *Core) beginTwoFactor(userID string, methods []string) (string, error) {
 // a correct one instead of sending the person all the way back to their password. An expired entry is
 // removed on sight (nothing else touches it before then).
 func (c *Core) peekPendingLogin(token string) (pl pendingLogin, ok bool) {
-	a := c.auth
+	a := c.authSt()
 	a.pendingMu.Lock()
 	defer a.pendingMu.Unlock()
 	pl, found := a.pending[token]
@@ -223,7 +223,7 @@ func (c *Core) peekPendingLogin(token string) (pl pendingLogin, ok bool) {
 
 // consumePendingLogin removes a pending token once it has done its job, so it cannot be replayed.
 func (c *Core) consumePendingLogin(token string) {
-	a := c.auth
+	a := c.authSt()
 	a.pendingMu.Lock()
 	delete(a.pending, token)
 	a.pendingMu.Unlock()
@@ -275,7 +275,7 @@ func emailLoginSubject(pending string) string { return "login:" + pending }
 // beginEmailChallenge mails a fresh code for subject/email and remembers its hash to check later, refusing
 // if one was already sent for the same subject within emailResendCooldown.
 func (c *Core) beginEmailChallenge(subject, email string) (string, error) {
-	a := c.auth
+	a := c.authSt()
 	now := c.Now()
 	a.emailMu.Lock()
 	defer a.emailMu.Unlock()
@@ -302,7 +302,7 @@ func (c *Core) beginEmailChallenge(subject, email string) (string, error) {
 // match (so a code works exactly once) and leaving it in place on a miss (so a mistyped code can be retried
 // until it expires, the same as a TOTP code can).
 func (c *Core) checkEmailChallenge(subject, code string) bool {
-	a := c.auth
+	a := c.authSt()
 	now := c.Now()
 	a.emailMu.Lock()
 	defer a.emailMu.Unlock()
@@ -326,7 +326,7 @@ var errBusy = func() *Error {
 // acquireHash takes one of the few password-hashing slots (each run needs 64 MiB, so their number is the
 // server's memory bound for this). Waiting is bounded in both number and time.
 func (c *Core) acquireHash(ctx context.Context) (release func(), err error) {
-	a := c.auth
+	a := c.authSt()
 	select {
 	case a.hashSem <- struct{}{}:
 		return func() { <-a.hashSem }, nil
@@ -373,7 +373,7 @@ func (c *Core) verifyPassword(ctx context.Context, pw, hash string) (bool, error
 func (c *Core) Login(ctx context.Context, ip, username, password string) (secret string, u store.User, err error) {
 	name := strings.ToLower(strings.TrimSpace(username))
 	key := LimitKey(ip)
-	if !c.auth.loginIP.Allow(key) || !c.auth.loginUser.Allow(key+"|"+name) {
+	if !c.authSt().loginIP.Allow(key) || !c.authSt().loginUser.Allow(key+"|"+name) {
 		return "", store.User{}, errf(KindRateLimited, "too many sign-in attempts, wait a minute")
 	}
 	if len(password) > MaxPasswordLen || len(name) > 64 {
@@ -382,11 +382,11 @@ func (c *Core) Login(ctx context.Context, ip, username, password string) (secret
 	// Per-account backoff, whichever address the attempts come from. It is kept for every name that is
 	// tried, whether or not such an account exists, so what it says (and when) reveals nothing about which
 	// accounts are real.
-	if wait := c.auth.failures.blocked(name, c.Now()); wait > 0 {
+	if wait := c.authSt().failures.blocked(name, c.Now()); wait > 0 {
 		return "", store.User{}, errf(KindRateLimited, "too many failed sign-in attempts for this account; try again in %s", roundWait(wait))
 	}
 	u, gerr := c.Store.GetUserByName(ctx, name)
-	hash := c.auth.dummyHash
+	hash := c.authSt().dummyHash
 	if gerr == nil {
 		hash = u.PasswordHash
 	}
@@ -395,7 +395,7 @@ func (c *Core) Login(ctx context.Context, ip, username, password string) (secret
 		return "", store.User{}, verr
 	}
 	if gerr != nil || !ok || u.DisabledAt != nil {
-		c.auth.failures.fail(name, c.Now())
+		c.authSt().failures.fail(name, c.Now())
 		Metrics.authFailures.Add(1)
 		c.auditOrg(ctx, "", AnonymousActor.String(), "login-failed", "user", printable(name, 64), "from "+ip)
 		return "", store.User{}, errf(KindUnauthenticated, "wrong username or password")
@@ -410,7 +410,7 @@ func (c *Core) Login(ctx context.Context, ip, username, password string) (secret
 		}
 		return "", store.User{}, errTwoFactorRequired(pending, methods)
 	}
-	c.auth.failures.succeed(name)
+	c.authSt().failures.succeed(name)
 	secret, err = c.openSession(ctx, u, ip)
 	if err != nil {
 		return "", store.User{}, err
@@ -431,7 +431,7 @@ func (c *Core) LoginSSO(ctx context.Context, ip, assertedUsername string) (secre
 		return "", store.User{}, errf(KindUnauthenticated, "no identity asserted")
 	}
 	key := LimitKey(ip)
-	if !c.auth.loginIP.Allow(key) {
+	if !c.authSt().loginIP.Allow(key) {
 		return "", store.User{}, errf(KindRateLimited, "too many sign-in attempts, wait a minute")
 	}
 	u, gerr := c.Store.GetUserByName(ctx, name)
@@ -455,7 +455,7 @@ func (c *Core) LoginSSO(ctx context.Context, ip, assertedUsername string) (secre
 // consumed only once a code actually matches, or once it expires on its own.
 func (c *Core) Login2FA(ctx context.Context, ip, pending, code string) (secret string, u store.User, err error) {
 	key := LimitKey(ip)
-	if !c.auth.loginIP.Allow(key) {
+	if !c.authSt().loginIP.Allow(key) {
 		return "", store.User{}, errf(KindRateLimited, "too many sign-in attempts, wait a minute")
 	}
 	pl, ok := c.peekPendingLogin(pending)
@@ -466,10 +466,10 @@ func (c *Core) Login2FA(ctx context.Context, ip, pending, code string) (secret s
 	if gerr != nil || u.DisabledAt != nil || len(twoFactorMethods(u)) == 0 {
 		return "", store.User{}, errf(KindUnauthenticated, "that sign-in has expired; enter your password again")
 	}
-	if !c.auth.loginUser.Allow(key + "|" + u.Username) {
+	if !c.authSt().loginUser.Allow(key + "|" + u.Username) {
 		return "", store.User{}, errf(KindRateLimited, "too many sign-in attempts, wait a minute")
 	}
-	if wait := c.auth.failures.blocked(u.Username, c.Now()); wait > 0 {
+	if wait := c.authSt().failures.blocked(u.Username, c.Now()); wait > 0 {
 		return "", store.User{}, errf(KindRateLimited, "too many failed sign-in attempts for this account; try again in %s", roundWait(wait))
 	}
 	via := "with a two-factor code"
@@ -486,12 +486,12 @@ func (c *Core) Login2FA(ctx context.Context, ip, pending, code string) (secret s
 		matched, via = true, "with an emailed code"
 	}
 	if !matched {
-		c.auth.failures.fail(u.Username, c.Now())
+		c.authSt().failures.fail(u.Username, c.Now())
 		Metrics.authFailures.Add(1)
 		c.auditOrg(ctx, "", AnonymousActor.String(), "login-failed", "user", printable(u.Username, 64), "wrong two-factor code from "+ip)
 		return "", store.User{}, errf(KindUnauthenticated, "wrong code")
 	}
-	c.auth.failures.succeed(u.Username)
+	c.authSt().failures.succeed(u.Username)
 	c.consumePendingLogin(pending)
 	secret, err = c.openSession(ctx, u, ip)
 	if err != nil {
@@ -507,7 +507,7 @@ func (c *Core) Login2FA(ctx context.Context, ip, pending, code string) (secret s
 // account's own settings at beginTwoFactor time did (see twoFactorMethods).
 func (c *Core) RequestLoginEmailCode(ctx context.Context, ip, pending string) error {
 	key := LimitKey(ip)
-	if !c.auth.loginIP.Allow(key) {
+	if !c.authSt().loginIP.Allow(key) {
 		return errf(KindRateLimited, "too many attempts, wait a minute")
 	}
 	pl, ok := c.peekPendingLogin(pending)
@@ -541,8 +541,8 @@ func (c *Core) openSession(ctx context.Context, u store.User, ip string) (string
 		return "", err
 	}
 	_ = c.Store.MarkLogin(ctx, u.ID, now)
-	if now.Sub(c.auth.lastPurge) > time.Hour {
-		c.auth.lastPurge = now
+	if now.Sub(c.authSt().lastPurge) > time.Hour {
+		c.authSt().lastPurge = now
 		_ = c.Store.PurgeSessions(ctx, now.Add(-SessionIdle))
 	}
 	return secret, nil
@@ -684,7 +684,7 @@ func (c *Core) AuthenticateAPIToken(ctx context.Context, secret string) (Princip
 // ChangePassword lets a person replace their own password. Every other browser they were signed
 // in on is signed out.
 func (c *Core) ChangePassword(ctx context.Context, p Principal, current, next string) error {
-	if !c.auth.loginUser.Allow("pw|" + p.User.ID) {
+	if !c.authSt().loginUser.Allow("pw|" + p.User.ID) {
 		return errf(KindRateLimited, "too many attempts, wait a minute")
 	}
 	u, err := c.Store.GetUser(ctx, p.User.ID)
@@ -758,7 +758,7 @@ const RecoveryCodeCount = 8
 // authenticator app reads. Nothing about sign-in changes until Enable2FA confirms the app can produce a
 // matching code - a setup nobody finishes never blocks sign-in.
 func (c *Core) Setup2FA(ctx context.Context, p Principal) (secret, otpauthURI string, err error) {
-	if !c.auth.loginUser.Allow("2fa-setup|" + p.User.ID) {
+	if !c.authSt().loginUser.Allow("2fa-setup|" + p.User.ID) {
 		return "", "", errf(KindRateLimited, "too many attempts, wait a minute")
 	}
 	if p.User.TOTPEnabledAt != nil {
@@ -778,7 +778,7 @@ func (c *Core) Setup2FA(ctx context.Context, p Principal) (secret, otpauthURI st
 // a fresh set of recovery codes - shown to the person exactly once, like an enrollment token, since only
 // their hashes are kept.
 func (c *Core) Enable2FA(ctx context.Context, p Principal, code string) ([]string, error) {
-	if !c.auth.loginUser.Allow("2fa-setup|" + p.User.ID) {
+	if !c.authSt().loginUser.Allow("2fa-setup|" + p.User.ID) {
 		return nil, errf(KindRateLimited, "too many attempts, wait a minute")
 	}
 	u, err := c.Store.GetUser(ctx, p.User.ID)
@@ -807,7 +807,7 @@ func (c *Core) Enable2FA(ctx context.Context, p Principal, code string) ([]strin
 // it, since removing a security measure deserves the same proof of presence as changing the one it
 // protects.
 func (c *Core) Disable2FA(ctx context.Context, p Principal, password string) error {
-	if !c.auth.loginUser.Allow("2fa-setup|" + p.User.ID) {
+	if !c.authSt().loginUser.Allow("2fa-setup|" + p.User.ID) {
 		return errf(KindRateLimited, "too many attempts, wait a minute")
 	}
 	u, err := c.Store.GetUser(ctx, p.User.ID)
@@ -835,7 +835,7 @@ func (c *Core) RequestEmailVerification(ctx context.Context, p Principal, email 
 	if !c.Mailer().Enabled() {
 		return errf(KindConflict, "this server has no outgoing mail configured; ask an administrator")
 	}
-	if !c.auth.loginUser.Allow("2fa-setup|" + p.User.ID) {
+	if !c.authSt().loginUser.Allow("2fa-setup|" + p.User.ID) {
 		return errf(KindRateLimited, "too many attempts, wait a minute")
 	}
 	addr, ok := validEmail(email)
@@ -855,7 +855,7 @@ func (c *Core) RequestEmailVerification(ctx context.Context, p Principal, email 
 // ConfirmEmail finishes RequestEmailVerification: code must match what was just mailed. Marks the address
 // verified, which is what makes it eligible for EnableEmailOTP.
 func (c *Core) ConfirmEmail(ctx context.Context, p Principal, code string) error {
-	if !c.auth.loginUser.Allow("2fa-setup|" + p.User.ID) {
+	if !c.authSt().loginUser.Allow("2fa-setup|" + p.User.ID) {
 		return errf(KindRateLimited, "too many attempts, wait a minute")
 	}
 	u, err := c.Store.GetUser(ctx, p.User.ID)
@@ -880,7 +880,7 @@ func (c *Core) ConfirmEmail(ctx context.Context, p Principal, code string) error
 // verified; there is no separate "type a code to turn it on" step the way TOTP has, because sending and
 // checking that code is exactly what verifying the address already did.
 func (c *Core) EnableEmailOTP(ctx context.Context, p Principal) error {
-	if !c.auth.loginUser.Allow("2fa-setup|" + p.User.ID) {
+	if !c.authSt().loginUser.Allow("2fa-setup|" + p.User.ID) {
 		return errf(KindRateLimited, "too many attempts, wait a minute")
 	}
 	u, err := c.Store.GetUser(ctx, p.User.ID)
@@ -905,7 +905,7 @@ func (c *Core) EnableEmailOTP(ctx context.Context, p Principal) error {
 // requires. The address itself, and its verified state, are left alone - only whether it is trusted as a
 // sign-in factor changes, the same asymmetry SetEmail documents.
 func (c *Core) DisableEmailOTP(ctx context.Context, p Principal, password string) error {
-	if !c.auth.loginUser.Allow("2fa-setup|" + p.User.ID) {
+	if !c.authSt().loginUser.Allow("2fa-setup|" + p.User.ID) {
 		return errf(KindRateLimited, "too many attempts, wait a minute")
 	}
 	u, err := c.Store.GetUser(ctx, p.User.ID)
@@ -946,7 +946,7 @@ var errBadInvite = func() *Error { return errf(KindInvalid, "this invitation is 
 
 // PreviewInvite tells someone holding an invitation what it is for, before they sign up.
 func (c *Core) PreviewInvite(ctx context.Context, ip, secret string) (store.Invite, string, error) {
-	if !c.auth.regIP.Allow("inv|" + LimitKey(ip)) {
+	if !c.authSt().regIP.Allow("inv|" + LimitKey(ip)) {
 		return store.Invite{}, "", errf(KindRateLimited, "too many attempts, wait a minute")
 	}
 	if !looksLikeInvite(secret) {
@@ -980,7 +980,7 @@ func cleanOrgName(name string) (string, error) {
 // organisation of their own, which they own; with one they only join the organisation it names.
 // Who may register at all is the server's RegMode.
 func (c *Core) Register(ctx context.Context, ip, username, password, invite, orgName string) (string, store.User, error) {
-	if !c.auth.regIP.Allow("reg|"+LimitKey(ip)) || !c.auth.regAll.Allow("reg") {
+	if !c.authSt().regIP.Allow("reg|"+LimitKey(ip)) || !c.authSt().regAll.Allow("reg") {
 		return "", store.User{}, errf(KindRateLimited, "too many attempts, wait a minute")
 	}
 	username = strings.TrimSpace(username)
@@ -992,7 +992,7 @@ func (c *Core) Register(ctx context.Context, ip, username, password, invite, org
 	}
 	var inv *store.Invite
 	switch {
-	case c.RegMode == RegClosed:
+	case c.regMode() == RegClosed:
 		return "", store.User{}, errf(KindForbidden, "this server is not accepting new accounts")
 	case invite != "":
 		i, _, err := c.PreviewInvite(ctx, ip, invite)
@@ -1000,7 +1000,7 @@ func (c *Core) Register(ctx context.Context, ip, username, password, invite, org
 			return "", store.User{}, err
 		}
 		inv = &i
-	case c.RegMode == RegInvite:
+	case c.regMode() == RegInvite:
 		return "", store.User{}, errf(KindForbidden, "this server is invitation-only: ask an administrator of your organisation for an invitation")
 	}
 	if inv == nil {
@@ -1057,7 +1057,7 @@ func (c *Core) nameOf(ctx context.Context, userID string) string {
 
 // CreateOrg gives a signed-in person another organisation of their own (only where registration is open).
 func (c *Core) CreateOrg(ctx context.Context, p Principal, name string) (store.Org, error) {
-	if c.RegMode != RegOpen {
+	if c.regMode() != RegOpen {
 		return store.Org{}, errf(KindForbidden, "this server does not let people create organisations")
 	}
 	name, err := cleanOrgName(name)
@@ -1087,7 +1087,7 @@ func (c *Core) CreateOrg(ctx context.Context, p Principal, name string) (store.O
 
 // AcceptInvite adds a signed-in person to the organisation an invitation names.
 func (c *Core) AcceptInvite(ctx context.Context, ip string, p Principal, secret string) (store.Org, string, error) {
-	if !c.auth.regIP.Allow("inv|" + LimitKey(ip)) {
+	if !c.authSt().regIP.Allow("inv|" + LimitKey(ip)) {
 		return store.Org{}, "", errf(KindRateLimited, "too many attempts, wait a minute")
 	}
 	if !looksLikeInvite(secret) {
@@ -1431,4 +1431,16 @@ func checkWorkspaceJSON(data []byte) error {
 		return errors.New("workspace must declare a schemaVersion")
 	}
 	return nil
+}
+
+// authSt is the sign-in state of the whole server (the rate limiters, the failure counts): shared by every organisation's view of the
+// Core, like the limiters it holds.
+func (c *Core) authSt() *authState { return ServerState(c, "accounts.auth", newAuthState) }
+
+// regMode is who may create an account: RegMode, or open when it was not set.
+func (c *Core) regMode() string {
+	if c.RegMode == "" {
+		return RegOpen
+	}
+	return c.RegMode
 }

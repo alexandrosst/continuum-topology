@@ -198,7 +198,7 @@ func TestReissueUsesTheOperatorCAAndRefusesToFallBackToTheOrgCA(t *testing.T) {
 	other := newEnv(t)
 	withPassphraseCA(t, other, "an entirely different passphrase")
 	e.base.CA = other.base.CA
-	e.base.opCAs = newOperatorCAs() // the opened CA of b is cached since it was created; a restart with the other passphrase starts empty
+	e.base.shared = &stateSlots{} // the opened CA of b is cached since it was created; a restart with the other passphrase starts all server state empty
 	e.core = e.base.ForOrg("org-1")
 	if _, _, _, err := e.core.IssueOperatorClientCertFor(e.ctx, "alex", b.ID, "cl-test", ""); !errors.Is(err, pki.ErrWrongPassphrase) {
 		t.Fatalf("a server with another CA passphrase issued from operator b's CA: %v", err)

@@ -60,9 +60,9 @@ func TestRevokingOrDeletingAnOperatorDropsItsOpenedCA(t *testing.T) {
 		return op.ID
 	}
 	cached := func(id string) bool {
-		e.base.opCAs.mu.Lock()
-		defer e.base.opCAs.mu.Unlock()
-		_, ok := e.base.opCAs.opened[id]
+		e.base.opCASt().mu.Lock()
+		defer e.base.opCASt().mu.Unlock()
+		_, ok := e.base.opCASt().opened[id]
 		return ok
 	}
 	a, b := mk("a"), mk("b")

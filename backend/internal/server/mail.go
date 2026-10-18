@@ -76,13 +76,13 @@ func (h *mailHolder) set(m MailConfig) {
 // Mailer returns the current mail configuration. It is the same for every organisation's Core - SMTP is
 // one setting for the whole server, not per organisation the way Settings is, the same way DefaultOrg
 // and RegMode are not per organisation either - so which Core this is called through does not matter.
-func (c *Core) Mailer() MailConfig { return c.mailer.get() }
+func (c *Core) Mailer() MailConfig { return c.mailSt().get() }
 
 // SetMailerDefault seeds the in-memory mail configuration without persisting it. cmd/server calls this
 // once at boot with whatever the --smtp-* flags say, before LoadMailConfig may overwrite it with
 // whatever an owner of DefaultOrg last saved through Settings - the same relationship a CLI flag has to
 // a value stored in the database everywhere else in this file's package.
-func (c *Core) SetMailerDefault(m MailConfig) { c.mailer.set(m) }
+func (c *Core) SetMailerDefault(m MailConfig) { c.mailSt().set(m) }
 
 // LoadMailConfig reads the persisted mail configuration at startup, the same way LoadSettings does for
 // per-organisation Settings. Unreadable JSON or nothing ever saved leaves whatever SetMailerDefault (or
@@ -96,7 +96,7 @@ func (c *Core) LoadMailConfig(ctx context.Context) {
 	if err := json.Unmarshal(data, &m); err != nil {
 		return
 	}
-	c.mailer.set(m)
+	c.mailSt().set(m)
 }
 
 // SaveMailConfig validates, persists and makes a new mail configuration visible to every organisation's
@@ -117,7 +117,7 @@ func (c *Core) SaveMailConfig(ctx context.Context, by string, m MailConfig) (Mai
 		store.WithAudit(c.auditRow("", by, "mail-config-changed", "server", "", ""))), "mail-config-changed"); err != nil {
 		return MailConfig{}, err
 	}
-	c.mailer.set(m)
+	c.mailSt().set(m)
 	return m, nil
 }
 
@@ -327,4 +327,13 @@ func (a *Admin) putMailConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, mailConfigDoc(n))
+}
+
+// mailSt holds the mail configuration behind a pointer, not a plain value, because it is server-wide - shared by every
+// organisation's Core, unlike Settings - and can change at runtime once an owner of DefaultOrg saves one (see SaveMailConfig).
+// A plain MailConfig value would give each tenant its own independently stale copy. Its zero value has Enabled() false: nothing
+// that needs to send mail (RequestEmailVerification, RequestLoginEmailCode) is reachable until an operator configures one, the
+// same way Decider being nil keeps decider-only paths unreachable.
+func (c *Core) mailSt() *mailHolder {
+	return ServerState(c, "accounts.mail", func() *mailHolder { return &mailHolder{} })
 }

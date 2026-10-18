@@ -402,17 +402,6 @@ fusion > shell	method Platform.Tenant
 fusion > shell	type Admin
 fusion > shell	type Tenant
 fusion > shell	var Metrics
-kernel > accounts	const RegOpen
-kernel > accounts	func newAuthState
-kernel > accounts	type WebAuthnProvider
-kernel > accounts	type authState
-kernel > accounts	type mailHolder
-kernel > agents	var nsNameRe
-kernel > estate	type trafficCache
-kernel > operators	func newHeartbeatSeen
-kernel > operators	func newOperatorCAs
-kernel > operators	type heartbeatSeen
-kernel > operators	type operatorCAs
 kernel > shell	field Admin.ImageDigest
 kernel > shell	field Admin.ImageRegistry
 kernel > shell	field Admin.ImageTag
@@ -502,7 +491,6 @@ telemetry > agents	const maxExcluded
 telemetry > agents	func releaseTarget
 telemetry > agents	method Hub.NamespaceOf
 telemetry > agents	method Hub.ReleaseNameOf
-telemetry > agents	var nsNameRe
 telemetry > estate	func rfc
 telemetry > operators	func clearRoutes
 telemetry > operators	func exportBlock

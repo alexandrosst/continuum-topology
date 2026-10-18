@@ -597,6 +597,9 @@ func (c *Core) usableStoredLinks(in []LinkSetting) []LinkSetting {
 	return out
 }
 
+// nsNameRe is what a Kubernetes namespace name may look like. Consent, telemetry intents and the quick-start backends each check one.
+var nsNameRe = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$`)
+
 // shortID bounds an id for a message or log line.
 func shortID(id string) string {
 	if r := []rune(id); len(r) > 64 {

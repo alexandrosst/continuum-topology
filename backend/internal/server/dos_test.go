@@ -148,12 +148,12 @@ func TestLoginLimitsGroupAnIPv6NetworkTogether(t *testing.T) {
 func TestPasswordHashWorkIsBoundedInNumberAndQueue(t *testing.T) {
 	e := newEnv(t)
 	c := e.base
-	c.auth.hashSem = make(chan struct{}, 2)
-	c.auth.maxQueue = 2
+	c.authSt().hashSem = make(chan struct{}, 2)
+	c.authSt().maxQueue = 2
 	hash, _ := HashPassword("correct horse battery")
 	// occupy both slots
-	c.auth.hashSem <- struct{}{}
-	c.auth.hashSem <- struct{}{}
+	c.authSt().hashSem <- struct{}{}
+	c.authSt().hashSem <- struct{}{}
 
 	results := make(chan error, 4)
 	var started sync.WaitGroup
@@ -166,7 +166,7 @@ func TestPasswordHashWorkIsBoundedInNumberAndQueue(t *testing.T) {
 		}()
 	}
 	started.Wait()
-	for c.auth.hashQueue.Load() < 2 {
+	for c.authSt().hashQueue.Load() < 2 {
 		time.Sleep(time.Millisecond)
 	}
 	// the third finds the queue full and is refused at once, with a clear error, without waiting
@@ -179,8 +179,8 @@ func TestPasswordHashWorkIsBoundedInNumberAndQueue(t *testing.T) {
 		t.Fatalf("hashing beyond the queue: %v", err)
 	}
 	// free the slots: the two waiters finish
-	<-c.auth.hashSem
-	<-c.auth.hashSem
+	<-c.authSt().hashSem
+	<-c.authSt().hashSem
 	for i := 0; i < 2; i++ {
 		select {
 		case err := <-results:
@@ -191,18 +191,18 @@ func TestPasswordHashWorkIsBoundedInNumberAndQueue(t *testing.T) {
 			t.Fatal("a queued check never ran")
 		}
 	}
-	if c.auth.hashQueue.Load() != 0 || len(c.auth.hashSem) != 0 {
-		t.Fatalf("leaked: queue %d, slots %d", c.auth.hashQueue.Load(), len(c.auth.hashSem))
+	if c.authSt().hashQueue.Load() != 0 || len(c.authSt().hashSem) != 0 {
+		t.Fatalf("leaked: queue %d, slots %d", c.authSt().hashQueue.Load(), len(c.authSt().hashSem))
 	}
 	// a waiter gives up when its request is cancelled
-	c.auth.hashSem <- struct{}{}
-	c.auth.hashSem <- struct{}{}
+	c.authSt().hashSem <- struct{}{}
+	c.authSt().hashSem <- struct{}{}
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 	if _, err := c.verifyPassword(ctx, "x", hash); err == nil {
 		t.Fatal("a cancelled waiter ran")
 	}
-	if c.auth.hashQueue.Load() != 0 {
+	if c.authSt().hashQueue.Load() != 0 {
 		t.Fatal("a cancelled waiter stayed in the queue")
 	}
 }

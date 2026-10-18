@@ -82,9 +82,8 @@ type Core struct {
 	// TapRL limits every enrollment-service request per address before its body is read.
 	TapRL  *Limiter
 	Now    func() time.Time
-	auth   *authState
 	userMu *sync.Mutex // serialises membership changes so an organisation always keeps an owner
-	// RegMode says who may create an account: RegOpen, RegInvite or RegClosed.
+	// RegMode says who may create an account: RegOpen, RegInvite or RegClosed (empty is RegOpen; see regMode).
 	RegMode string
 	// Decider is what the server may connect to on behalf of the external decider (nil: public addresses only).
 	Decider *DeciderPolicy
@@ -112,28 +111,7 @@ type Core struct {
 	// forge its address, or (since the header is then mandatory) a real agent behind a proxy that isn't
 	// sending it would be refused outright.
 	TrustAgentProxy bool
-	// mailer holds the mail configuration behind a pointer, not a plain value, because it is server-wide -
-	// shared by every organisation's Core, unlike Settings - and can change at runtime from Settings once an
-	// owner of DefaultOrg saves one (see SaveMailConfig). ForOrg's shallow copy (n := *c) copies the pointer,
-	// not what it points to, so every tenant sees the same live configuration; a plain MailConfig value here
-	// would instead give each tenant its own independently stale copy. Its zero value has Enabled() false:
-	// nothing that needs to send mail (RequestEmailVerification, RequestLoginEmailCode) is reachable until an
-	// operator configures one, the same way Decider being nil keeps decider-only paths unreachable.
-	mailer *mailHolder
-	// WebAuthn is the passkey/security key ceremony implementation (see webauthn.go): nil keeps every
-	// passkey-only path unreachable, the same way a nil Decider or an unconfigured Mailer does. Unlike
-	// Mailer this needs no operator configuration to be worth setting - cmd/server wires in the real one
-	// unconditionally - so nil in practice only ever means a build that omitted it (a test, say).
-	WebAuthn WebAuthnProvider
-	settings *settingsHolder
-	// trafficCache is historyTraffic's short-TTL cache for its SQLite slow path (see admin_history.go).
-	// Reset per organisation in ForOrg so one organisation's cached traffic can never reach another's.
-	trafficCache *trafficCache
-	// heartbeats coalesces regional operators' heartbeat writes (see RecordOperatorHeartbeat). Server-wide
-	// like the rate limiters, so ForOrg's shallow copy shares it.
-	heartbeats *heartbeatSeen
-	// opCAs keeps operators' opened CAs (see operatorCAs). Server-wide, shared by ForOrg's shallow copy.
-	opCAs *operatorCAs
+	settings        *settingsHolder
 	// depMu orders what ADDS a dependent of an operator (a new operator, an intent or a route that sends to it) against what
 	// REMOVES it (revoke, delete): the dependents check and the removal are then one step, so nothing can start sending to an
 	// operator between "nothing depends on it" and "it is gone". A pointer, shared by ForOrg's copies; one server, one database.
@@ -143,6 +121,8 @@ type Core struct {
 	// agent with two active intents, which everything that reads an agent's intent takes to be one. A pointer, shared by
 	// ForOrg's copies.
 	intentMu *sync.Mutex
+	// shared and orgState hold what each module keeps for itself (see state.go).
+	shared, orgState *stateSlots
 }
 
 // ForOrg returns a view of the same server scoped to one organisation. It shares the database, the
@@ -153,7 +133,7 @@ func (c *Core) ForOrg(org string) *Core {
 	n := *c
 	n.OrgID = org
 	n.settings = &settingsHolder{}
-	n.trafficCache = &trafficCache{}
+	n.orgState = &stateSlots{}
 	n.OnRevoke, n.OnSettings, n.OnWorkspace, n.AppHints = nil, nil, nil, nil
 	return &n
 }
@@ -162,7 +142,7 @@ func NewCore(st store.Store, ca *pki.CA, org string, log *slog.Logger) *Core {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Core{Store: st, CA: ca, OrgID: org, Log: log, EnrollRL: NewLimiter(20, 10), RenewRL: NewLimiter(1, 5), TapRL: NewLimiter(60, 30), Now: time.Now, auth: newAuthState(), userMu: &sync.Mutex{}, RegMode: RegOpen, settings: &settingsHolder{}, trafficCache: &trafficCache{}, mailer: &mailHolder{}, heartbeats: newHeartbeatSeen(), opCAs: newOperatorCAs(), depMu: &sync.RWMutex{}, intentMu: &sync.Mutex{}}
+	return &Core{Store: st, CA: ca, OrgID: org, Log: log, EnrollRL: NewLimiter(20, 10), RenewRL: NewLimiter(1, 5), TapRL: NewLimiter(60, 30), Now: time.Now, userMu: &sync.Mutex{}, settings: &settingsHolder{}, shared: &stateSlots{}, orgState: &stateSlots{}, depMu: &sync.RWMutex{}, intentMu: &sync.Mutex{}}
 }
 
 // audit records something that happened. It is best effort: a failure is logged and the caller carries on.

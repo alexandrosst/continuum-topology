@@ -685,7 +685,7 @@ func (a *Admin) setCookie(w http.ResponseWriter, r *http.Request, value string, 
 
 // serverInfo is public: what the sign-in and sign-up pages need before anyone is signed in.
 func (a *Admin) serverInfo(w http.ResponseWriter, r *http.Request) {
-	mode := a.C.RegMode
+	mode := a.C.regMode()
 	writeJSON(w, 200, map[string]any{"registration": mode, "version": a.Version, "sso": a.SSOHeaderName != ""})
 }
 

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -50,8 +49,6 @@ func consentKey(agentID string) string { return agentID + "#consent" }
 
 // maxExcluded bounds the namespaces one agent may be told to leave out.
 const maxExcluded = 200
-
-var nsNameRe = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$`)
 
 func systemNS(ns string) bool {
 	return ns == "kube-system" || ns == "kube-public" || ns == "kube-node-lease"

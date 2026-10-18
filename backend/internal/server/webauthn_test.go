@@ -74,7 +74,7 @@ func withHost(h string) opt { return func(r *http.Request) { r.Host = h } }
 
 func TestPasskeyRegistrationRequiresASession(t *testing.T) {
 	a := newAdminRig(t)
-	a.base.WebAuthn = &fakeWebAuthn{}
+	a.base.SetWebAuthn(&fakeWebAuthn{})
 	if r := a.do("POST", "/api/v1/auth/webauthn/register/begin", nil); r.Code != 401 {
 		t.Fatalf("begin without a session: %d %s", r.Code, r.Body.String())
 	}
@@ -91,7 +91,7 @@ func TestPasskeysNotOfferedWithNoProviderWiredIn(t *testing.T) {
 
 func TestPasskeyRegistrationRefusedFromABareIPAddress(t *testing.T) {
 	a := newAdminRig(t)
-	a.base.WebAuthn = &fakeWebAuthn{}
+	a.base.SetWebAuthn(&fakeWebAuthn{})
 	a.account(t, "opal")
 	cookie := a.login(t, "opal", goodPW)
 	if r := a.do("POST", "/api/v1/auth/webauthn/register/begin", nil, withCookie(cookie), withHost("192.0.2.10:8443")); r.Code != 409 {
@@ -104,7 +104,7 @@ func TestPasskeyRegistrationRefusedFromABareIPAddress(t *testing.T) {
 // with TOTP and email setup.
 func TestPasskeyRegisterLoginRenameAndRemove(t *testing.T) {
 	a := newAdminRig(t)
-	a.base.WebAuthn = &fakeWebAuthn{}
+	a.base.SetWebAuthn(&fakeWebAuthn{})
 	a.account(t, "quinn")
 	cookie := a.login(t, "quinn", goodPW)
 
@@ -196,7 +196,7 @@ func TestPasskeyRegisterLoginRenameAndRemove(t *testing.T) {
 
 func TestPasskeyRegistrationRejectsAForgedResponse(t *testing.T) {
 	a := newAdminRig(t)
-	a.base.WebAuthn = &fakeWebAuthn{failWith: "signature does not match"}
+	a.base.SetWebAuthn(&fakeWebAuthn{failWith: "signature does not match"})
 	a.account(t, "ren")
 	cookie := a.login(t, "ren", goodPW)
 	a.do("POST", "/api/v1/auth/webauthn/register/begin", nil, withCookie(cookie))
@@ -211,7 +211,7 @@ func TestPasskeyRegistrationRejectsAForgedResponse(t *testing.T) {
 // response are ever inspected, so a made-up pending token is enough here.
 func TestFinishPasskeyLoginRejectsAnOversizedBody(t *testing.T) {
 	a := newAdminRig(t)
-	a.base.WebAuthn = &fakeWebAuthn{}
+	a.base.SetWebAuthn(&fakeWebAuthn{})
 	huge := []byte(`{"pending":"x","response":"` + strings.Repeat("a", 1<<20) + `"}`)
 	if r := a.do("POST", "/api/v1/auth/login/2fa/webauthn/finish", huge, fromIP("10.9.6.3")); r.Code != 400 && r.Code != 413 {
 		t.Fatalf("oversized finish body: %d %s", r.Code, r.Body.String())

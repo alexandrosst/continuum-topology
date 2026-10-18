@@ -349,7 +349,7 @@ func run(log *slog.Logger, selfProbe probeOpts, dataDir, agentListen, agentAddr,
 	core.TrustAgentProxy = agentBehindProxy
 	// Unlike Mailer, passkeys need no operator configuration - go-webauthn works out of the relying party
 	// info Admin derives from each request's own Host header, so the provider is simply always on.
-	core.WebAuthn = passkey.New()
+	core.SetWebAuthn(passkey.New())
 	created, firstPassword, err := core.BootstrapAdmin(context.Background(), os.Getenv("CONTINUUM_ADMIN_PASSWORD"))
 	if err != nil {
 		return err

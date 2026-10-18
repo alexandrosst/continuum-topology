@@ -247,7 +247,7 @@ const maxCachedSnapshots = 320
 // snapshotDeps returns the per-dependency numbers of the snapshot at p, decoding it only the first
 // time. ok is false when the snapshot cannot be read or decoded.
 func (a *Admin) snapshotDeps(ctx context.Context, core *Core, p store.HistoryPoint) (map[string]depNumbers, bool) {
-	c := core.trafficCache
+	c := core.trafficSt()
 	key := snapshotKey{p.At.UnixMilli(), p.Bytes}
 	if c != nil {
 		c.mu.Lock()
@@ -333,7 +333,7 @@ func (a *Admin) historyTraffic(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if payload, ok := core.trafficCache.get(hours, now); ok {
+	if payload, ok := core.trafficSt().get(hours, now); ok {
 		writeJSON(w, 200, payload)
 		return
 	}
@@ -364,7 +364,7 @@ func (a *Admin) historyTraffic(w http.ResponseWriter, r *http.Request) {
 		samples = append(samples, s)
 	}
 	payload := map[string]any{"hours": hours, "snapshots": len(samples), "rates": history.Rates(samples)}
-	core.trafficCache.set(hours, now, payload)
+	core.trafficSt().set(hours, now, payload)
 	writeJSON(w, 200, payload)
 }
 
@@ -605,4 +605,10 @@ func scrubURLError(err error) error {
 		return ue.Err
 	}
 	return err
+}
+
+// trafficSt is historyTraffic's short-TTL cache for its SQLite slow path. It is one per organisation, so one organisation's cached
+// traffic can never reach another's.
+func (c *Core) trafficSt() *trafficCache {
+	return OrgState(c, "estate.traffic", func() *trafficCache { return &trafficCache{} })
 }

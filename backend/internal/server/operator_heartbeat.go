@@ -195,17 +195,22 @@ func (c *Core) RecordOperatorHeartbeat(ctx context.Context, secret string) error
 	if subtle.ConstantTimeCompare(op.HeartbeatHash, h) != 1 || op.Status != store.OperatorActive {
 		return errHeartbeatRejected
 	}
-	if !c.heartbeats.rl.Allow(op.ID) {
+	if !c.heartbeatSt().rl.Allow(op.ID) {
 		return errHeartbeatRateLimited
 	}
 	now := c.Now()
-	prev, had, due := c.heartbeats.reserve(op.ID, now)
+	prev, had, due := c.heartbeatSt().reserve(op.ID, now)
 	if !due {
 		return nil
 	}
 	if err := c.Store.TouchOperatorSeen(ctx, op.ID, now); err != nil {
-		c.heartbeats.release(op.ID, prev, had)
+		c.heartbeatSt().release(op.ID, prev, had)
 		return err
 	}
 	return nil
+}
+
+// heartbeatSt coalesces regional operators' heartbeat writes (see RecordOperatorHeartbeat). Server-wide, like the rate limiters.
+func (c *Core) heartbeatSt() *heartbeatSeen {
+	return ServerState(c, "operators.heartbeats", newHeartbeatSeen)
 }

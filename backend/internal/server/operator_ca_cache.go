@@ -137,3 +137,6 @@ func (o *operatorCAs) forget(id string) {
 	delete(o.inflight, id)
 	o.mu.Unlock()
 }
+
+// opCASt keeps operators' opened CAs (see operatorCAs). Server-wide.
+func (c *Core) opCASt() *operatorCAs { return ServerState(c, "operators.cas", newOperatorCAs) }

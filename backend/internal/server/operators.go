@@ -749,7 +749,7 @@ func (c *Core) RevokeOperatorForce(ctx context.Context, actor, id, reason string
 	if err = c.auditedWrite(err, "operator-revoked"); err != nil {
 		return err
 	}
-	c.opCAs.forget(id) // the sealed key was erased with it; do not keep the opened one
+	c.opCASt().forget(id) // the sealed key was erased with it; do not keep the opened one
 	return nil
 }
 
@@ -779,7 +779,7 @@ func (c *Core) DeleteOperatorForce(ctx context.Context, actor, id string, force 
 	if err = c.auditedWrite(err, "operator-deleted"); err != nil {
 		return err
 	}
-	c.opCAs.forget(id)
+	c.opCASt().forget(id)
 	return nil
 }
 
@@ -796,7 +796,7 @@ func (c *Core) operatorIssuer(ctx context.Context, op store.Operator) (*pki.CA, 
 	if err != nil {
 		return nil, nil, fmt.Errorf("the operator's CA key is not available: %w", err)
 	}
-	issuer, err := c.opCAs.open(ctx, c, op.ID, op.ClientCACertPEM, keyPEM)
+	issuer, err := c.opCASt().open(ctx, c, op.ID, op.ClientCACertPEM, keyPEM)
 	if err != nil {
 		return nil, nil, err
 	}
