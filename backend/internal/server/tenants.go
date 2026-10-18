@@ -67,7 +67,7 @@ func (p *Platform) Tenant(ctx context.Context, id string) (*Tenant, error) {
 	}
 	if _, err := p.Base.Store.GetOrg(ctx, id); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
-			return nil, errf(KindNotFound, "no such organisation")
+			return nil, Errf(KindNotFound, "no such organisation")
 		}
 		return nil, err
 	}

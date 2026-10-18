@@ -97,7 +97,7 @@ type authState struct {
 	maxQueue  int32
 	dummyHash string // verified against when the user does not exist, so timing does not reveal it
 	lastPurge time.Time
-	failures  *failureTracker
+	failures  *FailureTracker
 
 	// pending holds sign-ins whose password checked out but whose TOTP code has not been typed yet, keyed
 	// by the one-time token Login handed back. It lives only in this process's memory - unlike a session, a
@@ -157,7 +157,7 @@ func newAuthState() *authState {
 		hashSem:   make(chan struct{}, maxConcurrentHashes),
 		maxQueue:  maxHashQueue,
 		dummyHash: dummy,
-		failures:  newFailureTracker(),
+		failures:  NewFailureTracker(),
 	}
 }
 
@@ -288,7 +288,7 @@ func (c *Core) beginEmailChallenge(subject, email string) (string, error) {
 		}
 	}
 	if prev, ok := a.email[subject]; ok && now.Sub(prev.lastSent) < emailResendCooldown {
-		return "", errf(KindRateLimited, "a code was just sent; wait a little before asking for another")
+		return "", Errf(KindRateLimited, "a code was just sent; wait a little before asking for another")
 	}
 	code, err := NewEmailCode()
 	if err != nil {
@@ -320,7 +320,7 @@ func (c *Core) checkEmailChallenge(subject, code string) bool {
 
 // errBusy is what a caller gets when the password workers are saturated.
 var errBusy = func() *Error {
-	return errf(KindRateLimited, "the server is busy checking other sign-ins; try again in a few seconds")
+	return Errf(KindRateLimited, "the server is busy checking other sign-ins; try again in a few seconds")
 }
 
 // acquireHash takes one of the few password-hashing slots (each run needs 64 MiB, so their number is the
@@ -374,16 +374,16 @@ func (c *Core) Login(ctx context.Context, ip, username, password string) (secret
 	name := strings.ToLower(strings.TrimSpace(username))
 	key := LimitKey(ip)
 	if !c.authSt().loginIP.Allow(key) || !c.authSt().loginUser.Allow(key+"|"+name) {
-		return "", store.User{}, errf(KindRateLimited, "too many sign-in attempts, wait a minute")
+		return "", store.User{}, Errf(KindRateLimited, "too many sign-in attempts, wait a minute")
 	}
 	if len(password) > MaxPasswordLen || len(name) > 64 {
-		return "", store.User{}, errf(KindUnauthenticated, "wrong username or password")
+		return "", store.User{}, Errf(KindUnauthenticated, "wrong username or password")
 	}
 	// Per-account backoff, whichever address the attempts come from. It is kept for every name that is
 	// tried, whether or not such an account exists, so what it says (and when) reveals nothing about which
 	// accounts are real.
-	if wait := c.authSt().failures.blocked(name, c.Now()); wait > 0 {
-		return "", store.User{}, errf(KindRateLimited, "too many failed sign-in attempts for this account; try again in %s", roundWait(wait))
+	if wait := c.authSt().failures.Blocked(name, c.Now()); wait > 0 {
+		return "", store.User{}, Errf(KindRateLimited, "too many failed sign-in attempts for this account; try again in %s", RoundWait(wait))
 	}
 	u, gerr := c.Store.GetUserByName(ctx, name)
 	hash := c.authSt().dummyHash
@@ -395,10 +395,10 @@ func (c *Core) Login(ctx context.Context, ip, username, password string) (secret
 		return "", store.User{}, verr
 	}
 	if gerr != nil || !ok || u.DisabledAt != nil {
-		c.authSt().failures.fail(name, c.Now())
-		Metrics.authFailures.Add(1)
-		c.auditOrg(ctx, "", AnonymousActor.String(), "login-failed", "user", printable(name, 64), "from "+ip)
-		return "", store.User{}, errf(KindUnauthenticated, "wrong username or password")
+		c.authSt().failures.Fail(name, c.Now())
+		Metrics.AuthFailures.Add(1)
+		c.AuditOrg(ctx, "", AnonymousActor.String(), "login-failed", "user", Printable(name, 64), "from "+ip)
+		return "", store.User{}, Errf(KindUnauthenticated, "wrong username or password")
 	}
 	if methods := twoFactorMethods(u); len(methods) > 0 {
 		// The password alone is not a finished sign-in, so it must not clear the account's backoff: Login2FA clears
@@ -410,7 +410,7 @@ func (c *Core) Login(ctx context.Context, ip, username, password string) (secret
 		}
 		return "", store.User{}, errTwoFactorRequired(pending, methods)
 	}
-	c.authSt().failures.succeed(name)
+	c.authSt().failures.Succeed(name)
 	secret, err = c.openSession(ctx, u, ip)
 	if err != nil {
 		return "", store.User{}, err
@@ -428,17 +428,17 @@ func (c *Core) Login(ctx context.Context, ip, username, password string) (secret
 func (c *Core) LoginSSO(ctx context.Context, ip, assertedUsername string) (secret string, u store.User, err error) {
 	name := strings.ToLower(strings.TrimSpace(assertedUsername))
 	if name == "" || len(name) > 64 {
-		return "", store.User{}, errf(KindUnauthenticated, "no identity asserted")
+		return "", store.User{}, Errf(KindUnauthenticated, "no identity asserted")
 	}
 	key := LimitKey(ip)
 	if !c.authSt().loginIP.Allow(key) {
-		return "", store.User{}, errf(KindRateLimited, "too many sign-in attempts, wait a minute")
+		return "", store.User{}, Errf(KindRateLimited, "too many sign-in attempts, wait a minute")
 	}
 	u, gerr := c.Store.GetUserByName(ctx, name)
 	if gerr != nil || u.DisabledAt != nil {
-		Metrics.authFailures.Add(1)
-		c.auditOrg(ctx, "", AnonymousActor.String(), "login-failed", "user", printable(name, 64), "sso, from "+ip)
-		return "", store.User{}, errf(KindUnauthenticated, "no account matches the identity your proxy asserted")
+		Metrics.AuthFailures.Add(1)
+		c.AuditOrg(ctx, "", AnonymousActor.String(), "login-failed", "user", Printable(name, 64), "sso, from "+ip)
+		return "", store.User{}, Errf(KindUnauthenticated, "no account matches the identity your proxy asserted")
 	}
 	secret, err = c.openSession(ctx, u, ip)
 	if err != nil {
@@ -456,21 +456,21 @@ func (c *Core) LoginSSO(ctx context.Context, ip, assertedUsername string) (secre
 func (c *Core) Login2FA(ctx context.Context, ip, pending, code string) (secret string, u store.User, err error) {
 	key := LimitKey(ip)
 	if !c.authSt().loginIP.Allow(key) {
-		return "", store.User{}, errf(KindRateLimited, "too many sign-in attempts, wait a minute")
+		return "", store.User{}, Errf(KindRateLimited, "too many sign-in attempts, wait a minute")
 	}
 	pl, ok := c.peekPendingLogin(pending)
 	if !ok {
-		return "", store.User{}, errf(KindUnauthenticated, "that sign-in has expired; enter your password again")
+		return "", store.User{}, Errf(KindUnauthenticated, "that sign-in has expired; enter your password again")
 	}
 	u, gerr := c.Store.GetUser(ctx, pl.userID)
 	if gerr != nil || u.DisabledAt != nil || len(twoFactorMethods(u)) == 0 {
-		return "", store.User{}, errf(KindUnauthenticated, "that sign-in has expired; enter your password again")
+		return "", store.User{}, Errf(KindUnauthenticated, "that sign-in has expired; enter your password again")
 	}
 	if !c.authSt().loginUser.Allow(key + "|" + u.Username) {
-		return "", store.User{}, errf(KindRateLimited, "too many sign-in attempts, wait a minute")
+		return "", store.User{}, Errf(KindRateLimited, "too many sign-in attempts, wait a minute")
 	}
-	if wait := c.authSt().failures.blocked(u.Username, c.Now()); wait > 0 {
-		return "", store.User{}, errf(KindRateLimited, "too many failed sign-in attempts for this account; try again in %s", roundWait(wait))
+	if wait := c.authSt().failures.Blocked(u.Username, c.Now()); wait > 0 {
+		return "", store.User{}, Errf(KindRateLimited, "too many failed sign-in attempts for this account; try again in %s", RoundWait(wait))
 	}
 	via := "with a two-factor code"
 	matched := u.TOTPEnabledAt != nil && VerifyTOTP(u.TOTPSecret, code, c.Now())
@@ -486,12 +486,12 @@ func (c *Core) Login2FA(ctx context.Context, ip, pending, code string) (secret s
 		matched, via = true, "with an emailed code"
 	}
 	if !matched {
-		c.authSt().failures.fail(u.Username, c.Now())
-		Metrics.authFailures.Add(1)
-		c.auditOrg(ctx, "", AnonymousActor.String(), "login-failed", "user", printable(u.Username, 64), "wrong two-factor code from "+ip)
-		return "", store.User{}, errf(KindUnauthenticated, "wrong code")
+		c.authSt().failures.Fail(u.Username, c.Now())
+		Metrics.AuthFailures.Add(1)
+		c.AuditOrg(ctx, "", AnonymousActor.String(), "login-failed", "user", Printable(u.Username, 64), "wrong two-factor code from "+ip)
+		return "", store.User{}, Errf(KindUnauthenticated, "wrong code")
 	}
-	c.authSt().failures.succeed(u.Username)
+	c.authSt().failures.Succeed(u.Username)
 	c.consumePendingLogin(pending)
 	secret, err = c.openSession(ctx, u, ip)
 	if err != nil {
@@ -508,25 +508,25 @@ func (c *Core) Login2FA(ctx context.Context, ip, pending, code string) (secret s
 func (c *Core) RequestLoginEmailCode(ctx context.Context, ip, pending string) error {
 	key := LimitKey(ip)
 	if !c.authSt().loginIP.Allow(key) {
-		return errf(KindRateLimited, "too many attempts, wait a minute")
+		return Errf(KindRateLimited, "too many attempts, wait a minute")
 	}
 	pl, ok := c.peekPendingLogin(pending)
 	if !ok {
-		return errf(KindUnauthenticated, "that sign-in has expired; enter your password again")
+		return Errf(KindUnauthenticated, "that sign-in has expired; enter your password again")
 	}
 	if !slices.Contains(pl.methods, "email") {
-		return errf(KindConflict, "email is not one of this account's two-factor methods")
+		return Errf(KindConflict, "email is not one of this account's two-factor methods")
 	}
 	u, err := c.Store.GetUser(ctx, pl.userID)
 	if err != nil || u.EmailOTPEnabledAt == nil || u.Email == "" {
-		return errf(KindConflict, "email is not one of this account's two-factor methods")
+		return Errf(KindConflict, "email is not one of this account's two-factor methods")
 	}
 	code, err := c.beginEmailChallenge(emailLoginSubject(pending), u.Email)
 	if err != nil {
 		return err
 	}
 	if err := c.Mailer().send(u.Email, "Your Ikhnos sign-in code", emailCodeBody(code, "sign in")); err != nil {
-		return errf(KindInternal, "could not send the sign-in email: %v", err)
+		return Errf(KindInternal, "could not send the sign-in email: %v", err)
 	}
 	return nil
 }
@@ -556,7 +556,7 @@ func (c *Core) openSession(ctx context.Context, u store.User, ip string) (string
 func (c *Core) auditUser(ctx context.Context, u store.User, action, detail, ip string) {
 	orgs, _ := c.Store.ListMyOrgs(ctx, u.ID)
 	for _, o := range orgs {
-		c.auditOrg(ctx, o.ID, u.Username, action, "user", u.ID, detail)
+		c.AuditOrg(ctx, o.ID, u.Username, action, "user", u.ID, detail)
 	}
 	server := detail
 	if ip != "" {
@@ -565,13 +565,13 @@ func (c *Core) auditUser(ctx context.Context, u store.User, action, detail, ip s
 		}
 		server += "from " + ip
 	}
-	c.auditOrg(ctx, "", u.Username, action, "user", u.ID, server)
+	c.AuditOrg(ctx, "", u.Username, action, "user", u.ID, server)
 }
 
 // Authenticate resolves a session secret to a person, or fails. Expiry, idleness and a disabled
 // account all end the session on the spot. It says nothing about any organisation.
 func (c *Core) Authenticate(ctx context.Context, secret string) (Principal, error) {
-	deny := errf(KindUnauthenticated, "sign in required")
+	deny := Errf(KindUnauthenticated, "sign in required")
 	if !strings.HasPrefix(secret, sessionPrefix) || len(secret) != len(sessionPrefix)+43 {
 		return Principal{}, deny
 	}
@@ -597,7 +597,7 @@ func (c *Core) Member(ctx context.Context, p Principal, org string) (Principal, 
 	m, err := c.Store.GetMembership(ctx, org, p.User.ID)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
-			return Principal{}, errf(KindNotFound, "no such organisation")
+			return Principal{}, Errf(KindNotFound, "no such organisation")
 		}
 		return Principal{}, err
 	}
@@ -631,7 +631,7 @@ func (c *Core) CreateAPIToken(ctx context.Context, p Principal, name string) (se
 		return "", store.APIToken{}, err
 	}
 	now := c.Now()
-	id := newAPITokenID()
+	id := NewAPITokenID()
 	if err := c.Store.CreateAPIToken(ctx, id, HashSecret(secret), p.User.ID, name, now); err != nil {
 		return "", store.APIToken{}, err
 	}
@@ -651,7 +651,7 @@ func (c *Core) ListAPITokens(ctx context.Context, p Principal) ([]store.APIToken
 func (c *Core) RevokeAPIToken(ctx context.Context, p Principal, id string) error {
 	if err := c.Store.RevokeAPIToken(ctx, p.User.ID, id); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
-			return errf(KindNotFound, "no such token")
+			return Errf(KindNotFound, "no such token")
 		}
 		return err
 	}
@@ -665,8 +665,8 @@ func (c *Core) RevokeAPIToken(ctx context.Context, p Principal, id string) error
 // point is to keep working unattended; a disabled account still ends it immediately, the same as it
 // would a session.
 func (c *Core) AuthenticateAPIToken(ctx context.Context, secret string) (Principal, error) {
-	deny := errf(KindUnauthenticated, "sign in required")
-	if !looksLikeAPIToken(secret) {
+	deny := Errf(KindUnauthenticated, "sign in required")
+	if !LooksLikeAPIToken(secret) {
 		return Principal{}, deny
 	}
 	h := HashSecret(secret)
@@ -685,22 +685,22 @@ func (c *Core) AuthenticateAPIToken(ctx context.Context, secret string) (Princip
 // in on is signed out.
 func (c *Core) ChangePassword(ctx context.Context, p Principal, current, next string) error {
 	if !c.authSt().loginUser.Allow("pw|" + p.User.ID) {
-		return errf(KindRateLimited, "too many attempts, wait a minute")
+		return Errf(KindRateLimited, "too many attempts, wait a minute")
 	}
 	u, err := c.Store.GetUser(ctx, p.User.ID)
 	if err != nil {
-		return errf(KindUnauthenticated, "sign in required")
+		return Errf(KindUnauthenticated, "sign in required")
 	}
 	ok, verr := c.verifyPassword(ctx, current, u.PasswordHash)
 	if verr != nil || !ok {
 		c.auditUser(ctx, u, "password-change-refused", "current password was wrong", "")
-		return errf(KindInvalid, "your current password is not correct")
+		return Errf(KindInvalid, "your current password is not correct")
 	}
 	if err := CheckPasswordPolicy(u.Username, next); err != nil {
-		return errf(KindInvalid, "%v", err)
+		return Errf(KindInvalid, "%v", err)
 	}
 	if current == next {
-		return errf(KindInvalid, "choose a different password")
+		return Errf(KindInvalid, "choose a different password")
 	}
 	hash, err := c.hashPassword(ctx, next)
 	if err != nil {
@@ -759,10 +759,10 @@ const RecoveryCodeCount = 8
 // matching code - a setup nobody finishes never blocks sign-in.
 func (c *Core) Setup2FA(ctx context.Context, p Principal) (secret, otpauthURI string, err error) {
 	if !c.authSt().loginUser.Allow("2fa-setup|" + p.User.ID) {
-		return "", "", errf(KindRateLimited, "too many attempts, wait a minute")
+		return "", "", Errf(KindRateLimited, "too many attempts, wait a minute")
 	}
 	if p.User.TOTPEnabledAt != nil {
-		return "", "", errf(KindConflict, "two-factor authentication is already on; turn it off before setting it up again")
+		return "", "", Errf(KindConflict, "two-factor authentication is already on; turn it off before setting it up again")
 	}
 	secret, err = NewTOTPSecret()
 	if err != nil {
@@ -779,17 +779,17 @@ func (c *Core) Setup2FA(ctx context.Context, p Principal) (secret, otpauthURI st
 // their hashes are kept.
 func (c *Core) Enable2FA(ctx context.Context, p Principal, code string) ([]string, error) {
 	if !c.authSt().loginUser.Allow("2fa-setup|" + p.User.ID) {
-		return nil, errf(KindRateLimited, "too many attempts, wait a minute")
+		return nil, Errf(KindRateLimited, "too many attempts, wait a minute")
 	}
 	u, err := c.Store.GetUser(ctx, p.User.ID)
 	if err != nil {
-		return nil, errf(KindUnauthenticated, "sign in required")
+		return nil, Errf(KindUnauthenticated, "sign in required")
 	}
 	if u.TOTPEnabledAt != nil {
-		return nil, errf(KindConflict, "two-factor authentication is already on")
+		return nil, Errf(KindConflict, "two-factor authentication is already on")
 	}
 	if u.TOTPSecret == "" || !VerifyTOTP(u.TOTPSecret, code, c.Now()) {
-		return nil, errf(KindInvalid, "that code is not right; check the time on your device and try again")
+		return nil, Errf(KindInvalid, "that code is not right; check the time on your device and try again")
 	}
 	codes, hashes, err := NewRecoveryCodes(RecoveryCodeCount)
 	if err != nil {
@@ -808,18 +808,18 @@ func (c *Core) Enable2FA(ctx context.Context, p Principal, code string) ([]strin
 // protects.
 func (c *Core) Disable2FA(ctx context.Context, p Principal, password string) error {
 	if !c.authSt().loginUser.Allow("2fa-setup|" + p.User.ID) {
-		return errf(KindRateLimited, "too many attempts, wait a minute")
+		return Errf(KindRateLimited, "too many attempts, wait a minute")
 	}
 	u, err := c.Store.GetUser(ctx, p.User.ID)
 	if err != nil {
-		return errf(KindUnauthenticated, "sign in required")
+		return Errf(KindUnauthenticated, "sign in required")
 	}
 	ok, verr := c.verifyPassword(ctx, password, u.PasswordHash)
 	if verr != nil || !ok {
-		return errf(KindInvalid, "your current password is not correct")
+		return Errf(KindInvalid, "your current password is not correct")
 	}
 	if u.TOTPEnabledAt == nil {
-		return errf(KindConflict, "two-factor authentication is not on")
+		return Errf(KindConflict, "two-factor authentication is not on")
 	}
 	if err := c.Store.SetTOTP(ctx, u.ID, "", nil, nil); err != nil {
 		return err
@@ -833,21 +833,21 @@ func (c *Core) Disable2FA(ctx context.Context, p Principal, password string) err
 // bad address or a mail failure never leaves a stray value behind. ConfirmEmail is the other half.
 func (c *Core) RequestEmailVerification(ctx context.Context, p Principal, email string) error {
 	if !c.Mailer().Enabled() {
-		return errf(KindConflict, "this server has no outgoing mail configured; ask an administrator")
+		return Errf(KindConflict, "this server has no outgoing mail configured; ask an administrator")
 	}
 	if !c.authSt().loginUser.Allow("2fa-setup|" + p.User.ID) {
-		return errf(KindRateLimited, "too many attempts, wait a minute")
+		return Errf(KindRateLimited, "too many attempts, wait a minute")
 	}
 	addr, ok := validEmail(email)
 	if !ok {
-		return errf(KindInvalid, "that does not look like an email address")
+		return Errf(KindInvalid, "that does not look like an email address")
 	}
 	code, err := c.beginEmailChallenge(emailVerifySubject(p.User.ID), addr)
 	if err != nil {
 		return err
 	}
 	if err := c.Mailer().send(addr, "Your Ikhnos verification code", emailCodeBody(code, "confirm this email address")); err != nil {
-		return errf(KindInternal, "could not send the verification email: %v", err)
+		return Errf(KindInternal, "could not send the verification email: %v", err)
 	}
 	return c.Store.SetEmail(ctx, p.User.ID, addr, nil)
 }
@@ -856,17 +856,17 @@ func (c *Core) RequestEmailVerification(ctx context.Context, p Principal, email 
 // verified, which is what makes it eligible for EnableEmailOTP.
 func (c *Core) ConfirmEmail(ctx context.Context, p Principal, code string) error {
 	if !c.authSt().loginUser.Allow("2fa-setup|" + p.User.ID) {
-		return errf(KindRateLimited, "too many attempts, wait a minute")
+		return Errf(KindRateLimited, "too many attempts, wait a minute")
 	}
 	u, err := c.Store.GetUser(ctx, p.User.ID)
 	if err != nil {
-		return errf(KindUnauthenticated, "sign in required")
+		return Errf(KindUnauthenticated, "sign in required")
 	}
 	if u.Email == "" {
-		return errf(KindConflict, "no email address is waiting to be confirmed")
+		return Errf(KindConflict, "no email address is waiting to be confirmed")
 	}
 	if !c.checkEmailChallenge(emailVerifySubject(p.User.ID), code) {
-		return errf(KindInvalid, "that code is not right, or it expired; ask for a new one")
+		return Errf(KindInvalid, "that code is not right, or it expired; ask for a new one")
 	}
 	now := c.Now()
 	if err := c.Store.SetEmail(ctx, u.ID, u.Email, &now); err != nil {
@@ -881,17 +881,17 @@ func (c *Core) ConfirmEmail(ctx context.Context, p Principal, code string) error
 // checking that code is exactly what verifying the address already did.
 func (c *Core) EnableEmailOTP(ctx context.Context, p Principal) error {
 	if !c.authSt().loginUser.Allow("2fa-setup|" + p.User.ID) {
-		return errf(KindRateLimited, "too many attempts, wait a minute")
+		return Errf(KindRateLimited, "too many attempts, wait a minute")
 	}
 	u, err := c.Store.GetUser(ctx, p.User.ID)
 	if err != nil {
-		return errf(KindUnauthenticated, "sign in required")
+		return Errf(KindUnauthenticated, "sign in required")
 	}
 	if u.Email == "" || u.EmailVerifiedAt == nil {
-		return errf(KindConflict, "verify an email address first")
+		return Errf(KindConflict, "verify an email address first")
 	}
 	if u.EmailOTPEnabledAt != nil {
-		return errf(KindConflict, "email codes are already turned on")
+		return Errf(KindConflict, "email codes are already turned on")
 	}
 	now := c.Now()
 	if err := c.Store.SetEmailOTPEnabled(ctx, u.ID, &now); err != nil {
@@ -906,18 +906,18 @@ func (c *Core) EnableEmailOTP(ctx context.Context, p Principal) error {
 // sign-in factor changes, the same asymmetry SetEmail documents.
 func (c *Core) DisableEmailOTP(ctx context.Context, p Principal, password string) error {
 	if !c.authSt().loginUser.Allow("2fa-setup|" + p.User.ID) {
-		return errf(KindRateLimited, "too many attempts, wait a minute")
+		return Errf(KindRateLimited, "too many attempts, wait a minute")
 	}
 	u, err := c.Store.GetUser(ctx, p.User.ID)
 	if err != nil {
-		return errf(KindUnauthenticated, "sign in required")
+		return Errf(KindUnauthenticated, "sign in required")
 	}
 	ok, verr := c.verifyPassword(ctx, password, u.PasswordHash)
 	if verr != nil || !ok {
-		return errf(KindInvalid, "your current password is not correct")
+		return Errf(KindInvalid, "your current password is not correct")
 	}
 	if u.EmailOTPEnabledAt == nil {
-		return errf(KindConflict, "email codes are not on")
+		return Errf(KindConflict, "email codes are not on")
 	}
 	if err := c.Store.SetEmailOTPEnabled(ctx, u.ID, nil); err != nil {
 		return err
@@ -942,12 +942,12 @@ func looksLikeInvite(s string) bool {
 	return strings.HasPrefix(s, invitePrefix) && len(s) == len(invitePrefix)+32
 }
 
-var errBadInvite = func() *Error { return errf(KindInvalid, "this invitation is invalid, expired or already used") }
+var errBadInvite = func() *Error { return Errf(KindInvalid, "this invitation is invalid, expired or already used") }
 
 // PreviewInvite tells someone holding an invitation what it is for, before they sign up.
 func (c *Core) PreviewInvite(ctx context.Context, ip, secret string) (store.Invite, string, error) {
 	if !c.authSt().regIP.Allow("inv|" + LimitKey(ip)) {
-		return store.Invite{}, "", errf(KindRateLimited, "too many attempts, wait a minute")
+		return store.Invite{}, "", Errf(KindRateLimited, "too many attempts, wait a minute")
 	}
 	if !looksLikeInvite(secret) {
 		return store.Invite{}, "", errBadInvite()
@@ -966,11 +966,11 @@ func (c *Core) PreviewInvite(ctx context.Context, ip, secret string) (store.Invi
 func cleanOrgName(name string) (string, error) {
 	name = strings.TrimSpace(name)
 	if l := len([]rune(name)); l < 2 || l > 60 {
-		return "", errf(KindInvalid, "name the organisation (2-60 characters)")
+		return "", Errf(KindInvalid, "name the organisation (2-60 characters)")
 	}
 	for _, r := range name {
 		if r < 0x20 || r == 0x7f {
-			return "", errf(KindInvalid, "the name contains control characters")
+			return "", Errf(KindInvalid, "the name contains control characters")
 		}
 	}
 	return name, nil
@@ -981,19 +981,19 @@ func cleanOrgName(name string) (string, error) {
 // Who may register at all is the server's RegMode.
 func (c *Core) Register(ctx context.Context, ip, username, password, invite, orgName string) (string, store.User, error) {
 	if !c.authSt().regIP.Allow("reg|"+LimitKey(ip)) || !c.authSt().regAll.Allow("reg") {
-		return "", store.User{}, errf(KindRateLimited, "too many attempts, wait a minute")
+		return "", store.User{}, Errf(KindRateLimited, "too many attempts, wait a minute")
 	}
 	username = strings.TrimSpace(username)
 	if p := usernameProblem(username); p != "" {
-		return "", store.User{}, errf(KindInvalid, "%s", p)
+		return "", store.User{}, Errf(KindInvalid, "%s", p)
 	}
 	if err := CheckPasswordPolicy(username, password); err != nil {
-		return "", store.User{}, errf(KindInvalid, "%v", err)
+		return "", store.User{}, Errf(KindInvalid, "%v", err)
 	}
 	var inv *store.Invite
 	switch {
 	case c.regMode() == RegClosed:
-		return "", store.User{}, errf(KindForbidden, "this server is not accepting new accounts")
+		return "", store.User{}, Errf(KindForbidden, "this server is not accepting new accounts")
 	case invite != "":
 		i, _, err := c.PreviewInvite(ctx, ip, invite)
 		if err != nil {
@@ -1001,7 +1001,7 @@ func (c *Core) Register(ctx context.Context, ip, username, password, invite, org
 		}
 		inv = &i
 	case c.regMode() == RegInvite:
-		return "", store.User{}, errf(KindForbidden, "this server is invitation-only: ask an administrator of your organisation for an invitation")
+		return "", store.User{}, Errf(KindForbidden, "this server is invitation-only: ask an administrator of your organisation for an invitation")
 	}
 	if inv == nil {
 		var err error
@@ -1017,9 +1017,9 @@ func (c *Core) Register(ctx context.Context, ip, username, password, invite, org
 		return "", store.User{}, err
 	}
 	now := c.Now()
-	u := store.User{ID: "u-" + randHex(6), Username: username, PasswordHash: hash, CreatedAt: now}
+	u := store.User{ID: "u-" + RandHex(6), Username: username, PasswordHash: hash, CreatedAt: now}
 	if err := c.Store.CreateUser(ctx, u); errors.Is(err, store.ErrExists) {
-		return "", store.User{}, errf(KindConflict, "that username is taken")
+		return "", store.User{}, Errf(KindConflict, "that username is taken")
 	} else if err != nil {
 		return "", store.User{}, err
 	}
@@ -1030,14 +1030,14 @@ func (c *Core) Register(ctx context.Context, ip, username, password, invite, org
 			rollback()
 			return "", store.User{}, errBadInvite()
 		}
-		c.auditOrg(ctx, used.OrgID, username, "user-registered", "user", u.ID, fmt.Sprintf("joined as %s with an invitation from %s", used.Role, c.nameOf(ctx, used.CreatedBy)))
+		c.AuditOrg(ctx, used.OrgID, username, "user-registered", "user", u.ID, fmt.Sprintf("joined as %s with an invitation from %s", used.Role, c.nameOf(ctx, used.CreatedBy)))
 	} else {
 		o := store.Org{ID: newOrgID(), Name: orgName, CreatedAt: now, CreatedBy: u.ID}
 		if err := c.Store.CreateOrg(ctx, o, u.ID); err != nil {
 			rollback()
 			return "", store.User{}, err
 		}
-		c.auditOrg(ctx, o.ID, username, "org-created", "org", o.ID, fmt.Sprintf("%q, registered by %s", o.Name, username))
+		c.AuditOrg(ctx, o.ID, username, "org-created", "org", o.ID, fmt.Sprintf("%q, registered by %s", o.Name, username))
 	}
 	secret, err := c.openSession(ctx, u, ip)
 	if err != nil {
@@ -1046,7 +1046,7 @@ func (c *Core) Register(ctx context.Context, ip, username, password, invite, org
 	return secret, u, nil
 }
 
-func newOrgID() string { return "org-" + randHex(6) }
+func newOrgID() string { return "org-" + RandHex(6) }
 
 func (c *Core) nameOf(ctx context.Context, userID string) string {
 	if u, err := c.Store.GetUser(ctx, userID); err == nil {
@@ -1058,7 +1058,7 @@ func (c *Core) nameOf(ctx context.Context, userID string) string {
 // CreateOrg gives a signed-in person another organisation of their own (only where registration is open).
 func (c *Core) CreateOrg(ctx context.Context, p Principal, name string) (store.Org, error) {
 	if c.regMode() != RegOpen {
-		return store.Org{}, errf(KindForbidden, "this server does not let people create organisations")
+		return store.Org{}, Errf(KindForbidden, "this server does not let people create organisations")
 	}
 	name, err := cleanOrgName(name)
 	if err != nil {
@@ -1075,20 +1075,20 @@ func (c *Core) CreateOrg(ctx context.Context, p Principal, name string) (store.O
 		}
 	}
 	if owned >= MaxOrgsPerUser {
-		return store.Org{}, errf(KindConflict, "you already own %d organisations", owned)
+		return store.Org{}, Errf(KindConflict, "you already own %d organisations", owned)
 	}
 	o := store.Org{ID: newOrgID(), Name: name, CreatedAt: c.Now(), CreatedBy: p.User.ID}
 	if err := c.Store.CreateOrg(ctx, o, p.User.ID); err != nil {
 		return store.Org{}, err
 	}
-	c.auditOrg(ctx, o.ID, p.User.Username, "org-created", "org", o.ID, fmt.Sprintf("%q", o.Name))
+	c.AuditOrg(ctx, o.ID, p.User.Username, "org-created", "org", o.ID, fmt.Sprintf("%q", o.Name))
 	return o, nil
 }
 
 // AcceptInvite adds a signed-in person to the organisation an invitation names.
 func (c *Core) AcceptInvite(ctx context.Context, ip string, p Principal, secret string) (store.Org, string, error) {
 	if !c.authSt().regIP.Allow("inv|" + LimitKey(ip)) {
-		return store.Org{}, "", errf(KindRateLimited, "too many attempts, wait a minute")
+		return store.Org{}, "", Errf(KindRateLimited, "too many attempts, wait a minute")
 	}
 	if !looksLikeInvite(secret) {
 		return store.Org{}, "", errBadInvite()
@@ -1096,7 +1096,7 @@ func (c *Core) AcceptInvite(ctx context.Context, ip string, p Principal, secret 
 	inv, err := c.Store.UseInvite(ctx, HashSecret(secret), p.User.ID, c.Now())
 	switch {
 	case errors.Is(err, store.ErrExists):
-		return store.Org{}, "", errf(KindConflict, "you already belong to that organisation")
+		return store.Org{}, "", Errf(KindConflict, "you already belong to that organisation")
 	case err != nil:
 		return store.Org{}, "", errBadInvite()
 	}
@@ -1104,7 +1104,7 @@ func (c *Core) AcceptInvite(ctx context.Context, ip string, p Principal, secret 
 	if err != nil {
 		return store.Org{}, "", err
 	}
-	c.auditOrg(ctx, o.ID, p.User.Username, "member-joined", "user", p.User.ID, fmt.Sprintf("as %s, invited by %s", inv.Role, c.nameOf(ctx, inv.CreatedBy)))
+	c.AuditOrg(ctx, o.ID, p.User.Username, "member-joined", "user", p.User.ID, fmt.Sprintf("as %s, invited by %s", inv.Role, c.nameOf(ctx, inv.CreatedBy)))
 	return o, inv.Role, nil
 }
 
@@ -1112,22 +1112,22 @@ func (c *Core) AcceptInvite(ctx context.Context, ip string, p Principal, secret 
 func (c *Core) CreateInvite(ctx context.Context, p Principal, role, label string) (string, store.Invite, error) {
 	label = strings.TrimSpace(label)
 	if len(label) > 80 {
-		return "", store.Invite{}, errf(KindInvalid, "the note is at most 80 characters")
+		return "", store.Invite{}, Errf(KindInvalid, "the note is at most 80 characters")
 	}
 	if !validRole(role) {
-		return "", store.Invite{}, errf(KindInvalid, "role must be owner, admin, editor or viewer")
+		return "", store.Invite{}, Errf(KindInvalid, "role must be owner, admin, editor or viewer")
 	}
 	if !Decide(p, ActGrantRole, Resource{Role: role}).Allowed {
-		return "", store.Invite{}, errf(KindForbidden, "your role cannot invite someone as %s", role)
+		return "", store.Invite{}, Errf(KindForbidden, "your role cannot invite someone as %s", role)
 	}
 	secret, err := newInviteSecret()
 	if err != nil {
 		return "", store.Invite{}, err
 	}
 	now := c.Now()
-	inv := store.Invite{ID: "inv-" + randHex(5), OrgID: c.OrgID, Role: role, Label: label, CreatedBy: p.User.ID, CreatedAt: now, ExpiresAt: now.Add(InviteTTL)}
-	if err := c.auditedWrite(c.Store.CreateInvite(ctx, inv, HashSecret(secret),
-		store.WithAudit(c.auditRow(c.OrgID, p.User.Username, "invite-created", "invite", inv.ID, fmt.Sprintf("as %s%s", role, forLabel(label))))), "invite-created"); err != nil {
+	inv := store.Invite{ID: "inv-" + RandHex(5), OrgID: c.OrgID, Role: role, Label: label, CreatedBy: p.User.ID, CreatedAt: now, ExpiresAt: now.Add(InviteTTL)}
+	if err := c.AuditedWrite(c.Store.CreateInvite(ctx, inv, HashSecret(secret),
+		store.WithAudit(c.AuditRow(c.OrgID, p.User.Username, "invite-created", "invite", inv.ID, fmt.Sprintf("as %s%s", role, forLabel(label))))), "invite-created"); err != nil {
 		return "", store.Invite{}, err
 	}
 	return secret, inv, nil
@@ -1147,14 +1147,14 @@ func (c *Core) RevokeInvite(ctx context.Context, p Principal, id string) error {
 	}
 	for _, i := range invs {
 		if i.ID == id && !Decide(p, ActGrantRole, Resource{Role: i.Role}).Allowed {
-			return errf(KindForbidden, "your role cannot withdraw an invitation to %s", i.Role)
+			return Errf(KindForbidden, "your role cannot withdraw an invitation to %s", i.Role)
 		}
 	}
-	err = c.Store.RevokeInvite(ctx, c.OrgID, id, store.WithAudit(c.auditRow(c.OrgID, p.User.Username, "invite-revoked", "invite", id, "")))
+	err = c.Store.RevokeInvite(ctx, c.OrgID, id, store.WithAudit(c.AuditRow(c.OrgID, p.User.Username, "invite-revoked", "invite", id, "")))
 	if errors.Is(err, store.ErrNotFound) {
-		return errf(KindNotFound, "no such open invitation")
+		return Errf(KindNotFound, "no such open invitation")
 	}
-	return c.auditedWrite(err, "invite-revoked")
+	return c.AuditedWrite(err, "invite-revoked")
 }
 
 // SetMemberRole changes what someone may do here. Owners can set any role and change anyone; an
@@ -1162,41 +1162,41 @@ func (c *Core) RevokeInvite(ctx context.Context, p Principal, id string) error {
 // own role, and the last owner cannot be demoted.
 func (c *Core) SetMemberRole(ctx context.Context, p Principal, userID, role string) error {
 	if !validRole(role) {
-		return errf(KindInvalid, "role must be owner, admin, editor or viewer")
+		return Errf(KindInvalid, "role must be owner, admin, editor or viewer")
 	}
-	c.userMu.Lock()
-	defer c.userMu.Unlock()
+	c.UserMu.Lock()
+	defer c.UserMu.Unlock()
 	m, u, err := c.member(ctx, userID)
 	if err != nil {
 		return err
 	}
 	if u.ID == p.User.ID {
-		return errf(KindConflict, "you cannot change your own role")
+		return Errf(KindConflict, "you cannot change your own role")
 	}
 	if !Decide(p, ActGrantRole, Resource{Role: m.Role}).Allowed || !Decide(p, ActGrantRole, Resource{Role: role}).Allowed {
-		return errf(KindForbidden, "your role cannot make this change")
+		return Errf(KindForbidden, "your role cannot make this change")
 	}
 	if m.Role == RoleOwner && role != RoleOwner {
 		if err := c.needAnotherOwner(ctx, u); err != nil {
 			return err
 		}
 	}
-	return c.auditedWrite(c.Store.SetMemberRole(ctx, c.OrgID, u.ID, role,
-		store.WithAudit(c.auditRow(c.OrgID, p.User.Username, "member-role-changed", "user", u.ID, fmt.Sprintf("%s: %s → %s", u.Username, m.Role, role)))), "member-role-changed")
+	return c.AuditedWrite(c.Store.SetMemberRole(ctx, c.OrgID, u.ID, role,
+		store.WithAudit(c.AuditRow(c.OrgID, p.User.Username, "member-role-changed", "user", u.ID, fmt.Sprintf("%s: %s → %s", u.Username, m.Role, role)))), "member-role-changed")
 }
 
 // RemoveMember takes someone out of the organisation, or lets a person leave it. They keep their
 // account and their other organisations.
 func (c *Core) RemoveMember(ctx context.Context, p Principal, userID string) error {
-	c.userMu.Lock()
-	defer c.userMu.Unlock()
+	c.UserMu.Lock()
+	defer c.UserMu.Unlock()
 	m, u, err := c.member(ctx, userID)
 	if err != nil {
 		return err
 	}
 	self := u.ID == p.User.ID
 	if !self && !Decide(p, ActGrantRole, Resource{Role: m.Role}).Allowed {
-		return errf(KindForbidden, "your role cannot remove this person")
+		return Errf(KindForbidden, "your role cannot remove this person")
 	}
 	if m.Role == RoleOwner {
 		if err := c.needAnotherOwner(ctx, u); err != nil {
@@ -1207,14 +1207,14 @@ func (c *Core) RemoveMember(ctx context.Context, p Principal, userID string) err
 	if self {
 		action, detail = "member-left", ""
 	}
-	return c.auditedWrite(c.Store.RemoveMember(ctx, c.OrgID, u.ID,
-		store.WithAudit(c.auditRow(c.OrgID, p.User.Username, action, "user", u.ID, detail))), action)
+	return c.AuditedWrite(c.Store.RemoveMember(ctx, c.OrgID, u.ID,
+		store.WithAudit(c.AuditRow(c.OrgID, p.User.Username, action, "user", u.ID, detail))), action)
 }
 
 func (c *Core) member(ctx context.Context, userID string) (store.Membership, store.User, error) {
 	m, err := c.Store.GetMembership(ctx, c.OrgID, userID)
 	if errors.Is(err, store.ErrNotFound) {
-		return m, store.User{}, errf(KindNotFound, "no such member")
+		return m, store.User{}, Errf(KindNotFound, "no such member")
 	}
 	if err != nil {
 		return m, store.User{}, err
@@ -1229,7 +1229,7 @@ func (c *Core) needAnotherOwner(ctx context.Context, u store.User) error {
 		return err
 	}
 	if n <= 1 && u.DisabledAt == nil {
-		return errf(KindConflict, "the organisation must keep at least one owner: make someone else an owner first")
+		return Errf(KindConflict, "the organisation must keep at least one owner: make someone else an owner first")
 	}
 	return nil
 }
@@ -1240,25 +1240,25 @@ func (c *Core) RenameOrg(ctx context.Context, p Principal, name string) error {
 	if err != nil {
 		return err
 	}
-	return c.auditedWrite(c.Store.RenameOrg(ctx, c.OrgID, name,
-		store.WithAudit(c.auditRow(c.OrgID, p.User.Username, "org-renamed", "org", c.OrgID, fmt.Sprintf("%q", name)))), "org-renamed")
+	return c.AuditedWrite(c.Store.RenameOrg(ctx, c.OrgID, name,
+		store.WithAudit(c.AuditRow(c.OrgID, p.User.Username, "org-renamed", "org", c.OrgID, fmt.Sprintf("%q", name)))), "org-renamed")
 }
 
 // DeleteOrg erases the organisation with its agents, topology, history and members. The caller must
 // type its name. The main organisation cannot be deleted. The audit trail is kept, so it stays possible to see who deleted it.
 func (c *Core) DeleteOrg(ctx context.Context, p Principal, confirm string) error {
 	if c.OrgID == c.MainOrg() {
-		return errf(KindInvalid, "the main organisation owns FUSION and the server's mail settings, and cannot be deleted")
+		return Errf(KindInvalid, "the main organisation owns FUSION and the server's mail settings, and cannot be deleted")
 	}
 	o, err := c.Store.GetOrg(ctx, c.OrgID)
 	if err != nil {
-		return errf(KindNotFound, "no such organisation")
+		return Errf(KindNotFound, "no such organisation")
 	}
 	if strings.TrimSpace(confirm) != o.Name {
-		return errf(KindInvalid, "type the organisation's name to confirm")
+		return Errf(KindInvalid, "type the organisation's name to confirm")
 	}
-	if err := c.auditedWrite(c.Store.DeleteOrg(ctx, c.OrgID,
-		store.WithAudit(c.auditRow(c.OrgID, p.User.Username, "org-deleted", "org", o.ID, fmt.Sprintf("%q with everything in it", o.Name)))), "org-deleted"); err != nil {
+	if err := c.AuditedWrite(c.Store.DeleteOrg(ctx, c.OrgID,
+		store.WithAudit(c.AuditRow(c.OrgID, p.User.Username, "org-deleted", "org", o.ID, fmt.Sprintf("%q with everything in it", o.Name)))), "org-deleted"); err != nil {
 		return err
 	}
 	if c.OnOrgDeleted != nil {
@@ -1290,7 +1290,7 @@ func (c *Core) BootstrapAdmin(ctx context.Context, password string) (created boo
 		return false, "", err
 	}
 	now := c.Now()
-	u := store.User{ID: "u-" + randHex(6), Username: "admin", PasswordHash: hash, MustChange: must, CreatedAt: now}
+	u := store.User{ID: "u-" + RandHex(6), Username: "admin", PasswordHash: hash, MustChange: must, CreatedAt: now}
 	if err := c.Store.CreateUser(ctx, u); err != nil {
 		return false, "", err
 	}
@@ -1298,7 +1298,7 @@ func (c *Core) BootstrapAdmin(ctx context.Context, password string) (created boo
 	if err := c.Store.CreateOrg(ctx, o, u.ID); err != nil {
 		return false, "", err
 	}
-	c.auditOrg(ctx, o.ID, SystemActor.String(), "user-created", "user", u.ID, "first administrator")
+	c.AuditOrg(ctx, o.ID, SystemActor.String(), "user-created", "user", u.ID, "first administrator")
 	return true, generated, nil
 }
 
@@ -1332,7 +1332,7 @@ func (c *Core) RecoverPassword(ctx context.Context, username string) (string, er
 		if p := usernameProblem(username); p != "" {
 			return "", errors.New("invalid username: " + p)
 		}
-		u = store.User{ID: "u-" + randHex(6), Username: username, PasswordHash: hash, MustChange: true, CreatedAt: c.Now()}
+		u = store.User{ID: "u-" + RandHex(6), Username: username, PasswordHash: hash, MustChange: true, CreatedAt: c.Now()}
 		if err := c.Store.CreateUser(ctx, u); err != nil {
 			return "", err
 		}
@@ -1367,7 +1367,7 @@ func (c *Core) CreateOrgFor(ctx context.Context, username, name string) (store.O
 	if err := c.Store.CreateOrg(ctx, o, u.ID); err != nil {
 		return store.Org{}, err
 	}
-	c.auditOrg(ctx, o.ID, SystemActor.String(), "org-created", "org", o.ID, fmt.Sprintf("%q for %s (server command line)", name, u.Username))
+	c.AuditOrg(ctx, o.ID, SystemActor.String(), "org-created", "org", o.ID, fmt.Sprintf("%q for %s (server command line)", name, u.Username))
 	return o, nil
 }
 
@@ -1380,10 +1380,10 @@ const MaxWorkspaceBytes = 8 << 20
 // stored workspace with a KindConflict error.
 func (c *Core) SaveWorkspace(ctx context.Context, actor string, expectRev int64, data []byte) (store.Workspace, error) {
 	if len(data) > MaxWorkspaceBytes {
-		return store.Workspace{}, errf(KindInvalid, "workspace is larger than %d MB", MaxWorkspaceBytes>>20)
+		return store.Workspace{}, Errf(KindInvalid, "workspace is larger than %d MB", MaxWorkspaceBytes>>20)
 	}
 	if err := checkWorkspaceJSON(data); err != nil {
-		return store.Workspace{}, errf(KindInvalid, "%v", err)
+		return store.Workspace{}, Errf(KindInvalid, "%v", err)
 	}
 	// Read before Put overwrites it: the only way recordApplicationsGraph, below, can tell what a save
 	// actually changed rather than just versioning the result. Best-effort like everything downstream of
@@ -1397,11 +1397,11 @@ func (c *Core) SaveWorkspace(ctx context.Context, actor string, expectRev int64,
 		return store.Workspace{}, &Error{Kind: KindInvalid, Msg: err.Error(), Data: map[string]any{"supportedVersion": workspace.CurrentVersion, "documentVersion": newer.Have}}
 	}
 	if err != nil {
-		return store.Workspace{}, errf(KindInvalid, "%v", err)
+		return store.Workspace{}, Errf(KindInvalid, "%v", err)
 	}
 	w, err := c.Store.PutWorkspace(ctx, c.OrgID, expectRev, data, actor, c.Now())
 	if errors.Is(err, store.ErrConflict) {
-		return w, errf(KindConflict, "the workspace was changed by someone else")
+		return w, Errf(KindConflict, "the workspace was changed by someone else")
 	}
 	if err != nil {
 		return store.Workspace{}, err

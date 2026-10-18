@@ -360,8 +360,8 @@ func TestPrivilegedActionsFailClosedWhenTheAuditRowCannotBeWritten(t *testing.T)
 func TestAFailedActionAfterItsAuditRowLeavesAFollowUpRow(t *testing.T) {
 	e := newEnv(t)
 	// the action is refused after the row was written: the trail must say so
-	err := e.core.audited(e.ctx, "alex", "note", "agent", "a-1", "about to", func() error {
-		return errf(KindConflict, "nothing to do")
+	err := e.core.Audited(e.ctx, "alex", "note", "agent", "a-1", "about to", func() error {
+		return Errf(KindConflict, "nothing to do")
 	})
 	if kindOf(err) != KindConflict {
 		t.Fatalf("the action's own error must reach the caller: %v", err)
@@ -501,7 +501,7 @@ func TestRejectAndRevokeReasonsAreClippedEverywhere(t *testing.T) {
 		t.Fatal(err)
 	}
 	ag, _ := e.st.GetAgent(e.ctx, resp.AgentId)
-	if len(ag.Reason) > maxReason {
+	if len(ag.Reason) > MaxReason {
 		t.Fatalf("stored reason is %d bytes", len(ag.Reason))
 	}
 	evs, _ := e.st.ListAudit(e.ctx, "org-1", 10)
@@ -509,7 +509,7 @@ func TestRejectAndRevokeReasonsAreClippedEverywhere(t *testing.T) {
 		if ev.Action != "agent-rejected" {
 			continue
 		}
-		if len(ev.Detail) > maxReason || strings.ContainsAny(ev.Detail, "\n\x00") {
+		if len(ev.Detail) > MaxReason || strings.ContainsAny(ev.Detail, "\n\x00") {
 			t.Fatalf("audit detail: %d bytes %q", len(ev.Detail), ev.Detail)
 		}
 		if !strings.HasPrefix(ev.Detail, "é") || strings.ContainsRune(ev.Detail, '�') {
@@ -517,9 +517,9 @@ func TestRejectAndRevokeReasonsAreClippedEverywhere(t *testing.T) {
 		}
 	}
 	// Any other audit field is bounded too.
-	e.core.audit(e.ctx, strings.Repeat("a", 999), "act", "k", strings.Repeat("i", 999), strings.Repeat("d", 99999))
+	e.core.Audit(e.ctx, strings.Repeat("a", 999), "act", "k", strings.Repeat("i", 999), strings.Repeat("d", 99999))
 	evs, _ = e.st.ListAudit(e.ctx, "org-1", 1)
-	if len(evs[0].Actor) > maxAuditActor || len(evs[0].TargetID) > maxAuditTarget || len(evs[0].Detail) > maxAuditDetail {
+	if len(evs[0].Actor) > MaxAuditActor || len(evs[0].TargetID) > MaxAuditTarget || len(evs[0].Detail) > MaxAuditDetail {
 		t.Fatalf("unbounded audit row: %d %d %d", len(evs[0].Actor), len(evs[0].TargetID), len(evs[0].Detail))
 	}
 }
@@ -541,7 +541,7 @@ func TestEveryAuditRowThroughTheServerJoinsTheChain(t *testing.T) {
 func TestTheFollowUpRowIsWrittenEvenWhenTheRequestWasCancelled(t *testing.T) {
 	e := newEnv(t)
 	ctx, cancel := context.WithCancel(e.ctx)
-	err := e.core.audited(ctx, "alex", "note", "agent", "a-1", "about to", func() error {
+	err := e.core.Audited(ctx, "alex", "note", "agent", "a-1", "about to", func() error {
 		cancel() // the caller goes away while the action is running
 		return context.Canceled
 	})

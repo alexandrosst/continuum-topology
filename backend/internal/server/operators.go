@@ -85,11 +85,11 @@ func certNotAfter(certPEM []byte) *time.Time {
 const maxOperatorName = 80
 
 // operatorInOrg finds a regional operator of this organisation. One belonging to another organisation is
-// reported as not existing, the same convention agentInOrg uses.
+// reported as not existing, the same convention AgentInOrg uses.
 func (c *Core) operatorInOrg(ctx context.Context, id string) (store.Operator, error) {
 	op, err := c.Store.GetOperator(ctx, id)
 	if errors.Is(err, store.ErrNotFound) || (err == nil && op.OrgID != c.OrgID) {
-		return store.Operator{}, errf(KindNotFound, "no such regional operator")
+		return store.Operator{}, Errf(KindNotFound, "no such regional operator")
 	}
 	return op, err
 }
@@ -109,19 +109,19 @@ var (
 // validExternalDestination checks the parts of an external destination that reach a command line.
 func validExternalDestination(dest store.Destination) error {
 	if !destEndpointRe.MatchString(dest.Endpoint) {
-		return errf(KindInvalid, "destination.endpoint is a host and a port (otlp.example.com:4317) or an http(s) URL, without spaces, quotes or other shell characters")
+		return Errf(KindInvalid, "destination.endpoint is a host and a port (otlp.example.com:4317) or an http(s) URL, without spaces, quotes or other shell characters")
 	}
 	if dest.CAFile != "" && !destCAFileRe.MatchString(dest.CAFile) {
-		return errf(KindInvalid, "destination.caFile is a file path made of letters, digits and . _ ~ / + = : -")
+		return Errf(KindInvalid, "destination.caFile is a file path made of letters, digits and . _ ~ / + = : -")
 	}
 	if dest.AuthHeaderName != "" && !destHeaderNameRe.MatchString(dest.AuthHeaderName) {
-		return errf(KindInvalid, "destination.authHeaderName is an HTTP header name (letters, digits and -)")
+		return Errf(KindInvalid, "destination.authHeaderName is an HTTP header name (letters, digits and -)")
 	}
 	if dest.AuthSecretName != "" && !destSecretNameRe.MatchString(dest.AuthSecretName) {
-		return errf(KindInvalid, "destination.authSecretName is a Kubernetes Secret name (lowercase letters, digits, - and .)")
+		return Errf(KindInvalid, "destination.authSecretName is a Kubernetes Secret name (lowercase letters, digits, - and .)")
 	}
 	if dest.AuthSecretKey != "" && !destSecretKeyRe.MatchString(dest.AuthSecretKey) {
-		return errf(KindInvalid, "destination.authSecretKey is a Secret key (letters, digits, . _ and -)")
+		return Errf(KindInvalid, "destination.authSecretKey is a Secret key (letters, digits, . _ and -)")
 	}
 	return nil
 }
@@ -137,22 +137,22 @@ func (c *Core) validateDestination(ctx context.Context, dest store.Destination) 
 	switch dest.Kind {
 	case store.DestinationExternal:
 		if strings.TrimSpace(dest.Endpoint) == "" {
-			return errf(KindInvalid, "destination.endpoint is required")
+			return Errf(KindInvalid, "destination.endpoint is required")
 		}
 		if dest.Address != "" {
-			return errf(KindInvalid, "destination.address only applies to a destination that is a regional operator: an external one is dialled at its endpoint")
+			return Errf(KindInvalid, "destination.address only applies to a destination that is a regional operator: an external one is dialled at its endpoint")
 		}
 		return validExternalDestination(dest)
 	case store.DestinationOperator:
 		if strings.TrimSpace(dest.TargetOperatorID) == "" {
-			return errf(KindInvalid, "destination.targetOperatorId is required")
+			return Errf(KindInvalid, "destination.targetOperatorId is required")
 		}
 		op, err := c.operatorInOrg(ctx, dest.TargetOperatorID)
 		if err != nil {
 			return err
 		}
 		if op.Status != store.OperatorActive {
-			return errf(KindInvalid, "operator %q is not active", dest.TargetOperatorID)
+			return Errf(KindInvalid, "operator %q is not active", dest.TargetOperatorID)
 		}
 		// The address this sender dials, when it is not the one recorded for the operator. It gets the same checks as a
 		// recorded address (a host and a port, nothing that is only this server's own network).
@@ -161,7 +161,7 @@ func (c *Core) validateDestination(ctx context.Context, dest store.Destination) 
 		}
 		return nil
 	default:
-		return errf(KindInvalid, "destination.kind must be %q or %q", store.DestinationExternal, store.DestinationOperator)
+		return Errf(KindInvalid, "destination.kind must be %q or %q", store.DestinationExternal, store.DestinationOperator)
 	}
 }
 
@@ -187,7 +187,7 @@ func normalizeDestination(d store.Destination) store.Destination {
 // circle between the operators forever and never reach a backend.
 func (c *Core) operatorDestination(ctx context.Context, selfID string, dest store.Destination) (store.Destination, error) {
 	if dest.Kind == store.DestinationFusion {
-		return dest, errf(KindInvalid, "FUSION is reached through the central operator: choose it as the destination (kind %q), or turn FUSION on in the server's Settings", store.DestinationOperator)
+		return dest, Errf(KindInvalid, "FUSION is reached through the central operator: choose it as the destination (kind %q), or turn FUSION on in the server's Settings", store.DestinationOperator)
 	}
 	if err := c.validateDestination(ctx, dest); err != nil {
 		return dest, err
@@ -213,9 +213,9 @@ func (c *Core) checkOperatorChain(ctx context.Context, selfID string, dest store
 	for hop := 0; hop < maxOperatorChain; hop++ {
 		if selfID != "" && cur == selfID {
 			if hop == 0 {
-				return errf(KindInvalid, "destination.targetOperatorId cannot be the operator itself: it would send to itself and never reach a backend")
+				return Errf(KindInvalid, "destination.targetOperatorId cannot be the operator itself: it would send to itself and never reach a backend")
 			}
-			return errf(KindInvalid, "destination.targetOperatorId would make a loop: the operator it names already sends, through other operators, back to this one")
+			return Errf(KindInvalid, "destination.targetOperatorId would make a loop: the operator it names already sends, through other operators, back to this one")
 		}
 		op, err := c.Store.GetOperator(ctx, cur)
 		if err != nil || op.Destination.Kind != store.DestinationOperator {
@@ -223,7 +223,7 @@ func (c *Core) checkOperatorChain(ctx context.Context, selfID string, dest store
 		}
 		cur = op.Destination.TargetOperatorID
 	}
-	return errf(KindInvalid, "destination.targetOperatorId leads into a chain of more than %d operators, or into a loop: choose an operator that exports to a backend", maxOperatorChain)
+	return Errf(KindInvalid, "destination.targetOperatorId leads into a chain of more than %d operators, or into a loop: choose an operator that exports to a backend", maxOperatorChain)
 }
 
 // validModalities checks every value is a known telemetry modality. An empty list is always valid - see
@@ -233,7 +233,7 @@ func validModalities(ms []store.Modality) error {
 		switch m {
 		case store.ModalityMetrics, store.ModalityLogs, store.ModalityTraces:
 		default:
-			return errf(KindInvalid, "%q is not a telemetry modality (metrics, logs or traces)", m)
+			return Errf(KindInvalid, "%q is not a telemetry modality (metrics, logs or traces)", m)
 		}
 	}
 	return nil
@@ -253,7 +253,7 @@ func validOperatorLabels(in []store.OperatorLabel) ([]store.OperatorLabel, error
 		return nil, nil
 	}
 	if len(in) > maxOperatorLabels {
-		return nil, errf(KindInvalid, "an operator takes at most %d labels", maxOperatorLabels)
+		return nil, Errf(KindInvalid, "an operator takes at most %d labels", maxOperatorLabels)
 	}
 	seen := make(map[string]bool, len(in))
 	out := make([]store.OperatorLabel, 0, len(in))
@@ -261,17 +261,17 @@ func validOperatorLabels(in []store.OperatorLabel) ([]store.OperatorLabel, error
 		k, v := strings.TrimSpace(l.Key), strings.TrimSpace(l.Value)
 		switch {
 		case !operatorLabelKey.MatchString(k):
-			return nil, errf(KindInvalid, "label key %q is not valid (letters, digits, . _ / -, up to 63 characters)", k)
+			return nil, Errf(KindInvalid, "label key %q is not valid (letters, digits, . _ / -, up to 63 characters)", k)
 		case strings.HasPrefix(strings.ToLower(k), "continuum."):
-			return nil, errf(KindInvalid, "label key %q uses the continuum. prefix, which is reserved", k)
+			return nil, Errf(KindInvalid, "label key %q uses the continuum. prefix, which is reserved", k)
 		case seen[k]:
-			return nil, errf(KindInvalid, "label %q is listed twice", k)
+			return nil, Errf(KindInvalid, "label %q is listed twice", k)
 		case v == "" || len(v) > 64:
-			return nil, errf(KindInvalid, "label %q needs a value of 1-64 characters", k)
+			return nil, Errf(KindInvalid, "label %q needs a value of 1-64 characters", k)
 		}
 		for _, r := range v {
 			if r < 0x20 || r == 0x7f {
-				return nil, errf(KindInvalid, "label %q has a control character in its value", k)
+				return nil, Errf(KindInvalid, "label %q has a control character in its value", k)
 			}
 		}
 		seen[k] = true
@@ -302,11 +302,11 @@ func (c *Core) validSourceClusters(ctx context.Context, ids []string) error {
 	seen := make(map[string]bool, len(ids))
 	for _, id := range ids {
 		if seen[id] {
-			return errf(KindInvalid, "source cluster %q is listed twice", id)
+			return Errf(KindInvalid, "source cluster %q is listed twice", id)
 		}
 		seen[id] = true
 		if !approved[id] {
-			return errf(KindInvalid, "%q is not the cluster of a currently approved agent in this organisation", id)
+			return Errf(KindInvalid, "%q is not the cluster of a currently approved agent in this organisation", id)
 		}
 	}
 	return nil
@@ -342,12 +342,12 @@ type OperatorOptions struct {
 
 // CreateOperatorWithOptions is CreateOperatorWithHeartbeat with the options named.
 func (c *Core) CreateOperatorWithOptions(ctx context.Context, actor, name string, sourceClusterIDs []string, dest store.Destination, acceptedModalities []store.Modality, opts OperatorOptions) (store.Operator, string, OperatorTLSBundle, string, error) {
-	c.depMu.RLock() // see Core.depMu
-	defer c.depMu.RUnlock()
+	c.DepMu.RLock() // see Core.DepMu
+	defer c.DepMu.RUnlock()
 	heartbeat := opts.Heartbeat
 	name = strings.TrimSpace(name)
 	if name == "" || len(name) > maxOperatorName {
-		return store.Operator{}, "", OperatorTLSBundle{}, "", errf(KindInvalid, "name the regional operator (1-%d characters)", maxOperatorName)
+		return store.Operator{}, "", OperatorTLSBundle{}, "", Errf(KindInvalid, "name the regional operator (1-%d characters)", maxOperatorName)
 	}
 	dest, err := c.operatorDestination(ctx, "", dest)
 	if err != nil {
@@ -367,7 +367,7 @@ func (c *Core) CreateOperatorWithOptions(ctx context.Context, actor, name string
 		return store.Operator{}, "", OperatorTLSBundle{}, "", err
 	}
 	op := store.Operator{
-		ID:                 newOperatorID(),
+		ID:                 NewOperatorID(),
 		OrgID:              c.OrgID,
 		Name:               name,
 		Status:             store.OperatorActive,
@@ -399,8 +399,8 @@ func (c *Core) CreateOperatorWithOptions(ctx context.Context, actor, name string
 	// earlier as bearer or org-CA operators are still served; they are simply no longer created.)
 	bundle, caKeyPEM, tlsErr := mintOperatorTLS(c, op.ID, operatorReceiverHosts(op.ID))
 	if tlsErr != nil {
-		c.audit(ctx, actor, "operator-tls-mint-failed", "operator", op.ID, tlsErr.Error())
-		return store.Operator{}, "", OperatorTLSBundle{}, "", errf(KindInternal, "the operator's certificates could not be made, so the operator was not created: %v", tlsErr)
+		c.Audit(ctx, actor, "operator-tls-mint-failed", "operator", op.ID, tlsErr.Error())
+		return store.Operator{}, "", OperatorTLSBundle{}, "", Errf(KindInternal, "the operator's certificates could not be made, so the operator was not created: %v", tlsErr)
 	}
 	op.ReceiverAuth = store.ReceiverAuthMTLS
 	op.ClientCACertPEM, op.ClientCAKeyPEM = bundle.CACertPEM, caKeyPEM
@@ -413,7 +413,7 @@ func (c *Core) CreateOperatorWithOptions(ctx context.Context, actor, name string
 	// lists.) The same rule the client certificates follow: a certificate that cannot be recorded is not handed out.
 	if err := c.recordOperatorCert(ctx, actor, op, store.OperatorCertReceiver, "", bundle.ReceiverCertPEM); err != nil {
 		c.Log.Error("receiver certificate not recorded in the ledger; the operator was not created", "operator", op.ID, "err", err)
-		return store.Operator{}, "", OperatorTLSBundle{}, "", errf(KindInternal, "the operator's certificate could not be recorded, so the operator was not created: %v", err)
+		return store.Operator{}, "", OperatorTLSBundle{}, "", Errf(KindInternal, "the operator's certificate could not be recorded, so the operator was not created: %v", err)
 	}
 	detail := name
 	if heartbeat {
@@ -421,23 +421,23 @@ func (c *Core) CreateOperatorWithOptions(ctx context.Context, actor, name string
 		detail += " (heartbeat enabled)"
 	}
 	detail += "; " + operatorAuditSummary(dest, sourceClusterIDs)
-	if err := c.auditedWrite(c.Store.CreateOperator(ctx, op, nil,
-		store.WithAudit(c.auditRow(c.OrgID, actor, "operator-created", "operator", op.ID, detail))), "operator-created"); err != nil {
+	if err := c.AuditedWrite(c.Store.CreateOperator(ctx, op, nil,
+		store.WithAudit(c.AuditRow(c.OrgID, actor, "operator-created", "operator", op.ID, detail))), "operator-created"); err != nil {
 		return store.Operator{}, "", OperatorTLSBundle{}, "", err
 	}
 	bundle.Senders, _ = c.mintSenderCertsHeld(ctx, actor, op, op.SourceClusterIDs)
 	return op, "", bundle, hbSecret, nil
 }
 
-// mintSenderCerts issues each of clusters its own client certificate from op's CA, under depMu (see Core.depMu) like
+// mintSenderCerts issues each of clusters its own client certificate from op's CA, under DepMu (see Core.DepMu) like
 // IssueOperatorClientCertFor: for a caller that does not already hold it.
 func (c *Core) mintSenderCerts(ctx context.Context, actor string, op store.Operator, clusters []string) (out []SenderCert, caPEM []byte) {
-	c.depMu.RLock()
-	defer c.depMu.RUnlock()
+	c.DepMu.RLock()
+	defer c.DepMu.RUnlock()
 	return c.mintSenderCertsHeld(ctx, actor, op, clusters)
 }
 
-// mintSenderCertsHeld is mintSenderCerts for a caller that already holds depMu for reading (CreateOperatorWithOptions): a
+// mintSenderCertsHeld is mintSenderCerts for a caller that already holds DepMu for reading (CreateOperatorWithOptions): a
 // second RLock from the same goroutine would deadlock the moment a revoke or delete (which takes the write lock) is waiting
 // between the two. One that cannot be issued is left out and audited, not fatal: the operator exists, and Renew certificates
 // issues them again.
@@ -445,7 +445,7 @@ func (c *Core) mintSenderCertsHeld(ctx context.Context, actor string, op store.O
 	for _, cl := range clusters {
 		certPEM, keyPEM, ca, err := c.issueOperatorClientCertHeld(ctx, actor, op.ID, cl, "cluster="+cl)
 		if err != nil {
-			c.audit(ctx, actor, "operator-tls-mint-failed", "operator", op.ID, "client certificate for "+cl+": "+err.Error())
+			c.Audit(ctx, actor, "operator-tls-mint-failed", "operator", op.ID, "client certificate for "+cl+": "+err.Error())
 			continue
 		}
 		out, caPEM = append(out, SenderCert{Sender: cl, CertPEM: certPEM, KeyPEM: keyPEM}), ca
@@ -465,8 +465,8 @@ func (c *Core) ListOperators(ctx context.Context) ([]store.Operator, error) {
 // live reparenting here (see the plan): applying the corresponding change to each source cluster's own
 // agent release remains a manual step, printed as a reminder by operatorInstallCommand.
 func (c *Core) UpdateOperatorScope(ctx context.Context, actor, id string, sourceClusterIDs []string, dest store.Destination, acceptedModalities []store.Modality) error {
-	c.depMu.RLock() // see Core.depMu
-	defer c.depMu.RUnlock()
+	c.DepMu.RLock() // see Core.DepMu
+	defer c.DepMu.RUnlock()
 	if err := guardCentral(id); err != nil {
 		return err
 	}
@@ -494,11 +494,11 @@ func (c *Core) UpdateOperatorScope(ctx context.Context, actor, id string, source
 		}
 	}
 	err = c.Store.UpdateOperatorScope(ctx, id, sourceClusterIDs, dest, acceptedModalities,
-		store.WithAudit(c.auditRow(c.OrgID, actor, "operator-scope-changed", "operator", id, detail)))
+		store.WithAudit(c.AuditRow(c.OrgID, actor, "operator-scope-changed", "operator", id, detail)))
 	if errors.Is(err, store.ErrBadState) {
-		err = errf(KindConflict, "only an active operator's scope can be changed")
+		err = Errf(KindConflict, "only an active operator's scope can be changed")
 	}
-	if err := c.auditedWrite(err, "operator-scope-changed"); err != nil {
+	if err := c.AuditedWrite(err, "operator-scope-changed"); err != nil {
 		return err
 	}
 	// The senders changed, so which certificate ends first may have too.
@@ -509,7 +509,7 @@ func (c *Core) UpdateOperatorScope(ctx context.Context, actor, id string, source
 }
 
 // maxAuditIDs is how many cluster ids an operator's audit detail lists by name; the rest are counted. Together with the row's
-// own bound (maxAuditDetail, applied by printable in auditRow) it keeps a scope change that moves a hundred clusters from
+// own bound (MaxAuditDetail, applied by printable in AuditRow) it keeps a scope change that moves a hundred clusters from
 // writing a hundred ids into the trail.
 const maxAuditIDs = 5
 
@@ -521,11 +521,11 @@ func operatorAuditSummary(dest store.Destination, clusters []string) string {
 	var to string
 	switch dest.Kind {
 	case store.DestinationOperator:
-		to = "operator " + printable(dest.TargetOperatorID, 64)
+		to = "operator " + Printable(dest.TargetOperatorID, 64)
 	case store.DestinationFusion:
 		to = "fusion"
 	default:
-		to = "external " + printable(dest.Endpoint, 120)
+		to = "external " + Printable(dest.Endpoint, 120)
 	}
 	noun := "source clusters"
 	if len(clusters) == 1 {
@@ -562,7 +562,7 @@ func auditIDList(ids []string) string {
 	}
 	out := make([]string, len(shown))
 	for i, id := range shown {
-		out[i] = printable(id, 64)
+		out[i] = Printable(id, 64)
 	}
 	list := strings.Join(out, ", ")
 	if more := len(ids) - len(shown); more > 0 {
@@ -589,7 +589,7 @@ func validOperatorAddress(in string) (string, error) {
 	if s == "" {
 		return "", nil
 	}
-	bad := errf(KindInvalid, "the address is a host and a port, such as otlp.example.com:4317 or 203.0.113.7:4317 (no scheme, no path)")
+	bad := Errf(KindInvalid, "the address is a host and a port, such as otlp.example.com:4317 or 203.0.113.7:4317 (no scheme, no path)")
 	if len(s) > 261 || strings.ContainsAny(s, " \t/\\?#@,;\"'`$&|<>(){}") {
 		return "", bad
 	}
@@ -604,24 +604,24 @@ func validOperatorAddress(in string) (string, error) {
 	}
 	n, err := strconv.Atoi(port)
 	if err != nil || n < 1 || n > 65535 {
-		return "", errf(KindInvalid, "the port must be a number from 1 to 65535")
+		return "", Errf(KindInvalid, "the port must be a number from 1 to 65535")
 	}
 	port = strconv.Itoa(n) // "+4317" and "04317" parse as 4317 and are stored as 4317
 	if ip := net.ParseIP(host); ip != nil {
 		if ip.IsLoopback() || ip.IsUnspecified() || ip.IsLinkLocalUnicast() || ip.IsMulticast() {
-			return "", errf(KindInvalid, "%s cannot be reached from another cluster; give the address a LoadBalancer, NodePort or Ingress exposes", host)
+			return "", Errf(KindInvalid, "%s cannot be reached from another cluster; give the address a LoadBalancer, NodePort or Ingress exposes", host)
 		}
 		return net.JoinHostPort(ip.String(), port), nil
 	}
 	host = strings.ToLower(strings.TrimSuffix(host, "."))
 	if len(host) > 253 || host == "localhost" || strings.HasSuffix(host, ".localhost") {
-		return "", errf(KindInvalid, "%s cannot be reached from another cluster", host)
+		return "", Errf(KindInvalid, "%s cannot be reached from another cluster", host)
 	}
 	if isClusterLocalName(host) {
 		// What `kubectl get svc` prints in its NAME column, or a Service's DNS name: it resolves inside one cluster only,
 		// so another cluster cannot use it however well it is spelled. (clusterset.local, the multi-cluster Services
 		// name, does resolve across clusters and is allowed.)
-		return "", errf(KindInvalid, "%s is a name that resolves only inside its own cluster; give the address a LoadBalancer, NodePort or Ingress exposes", host)
+		return "", Errf(KindInvalid, "%s is a name that resolves only inside its own cluster; give the address a LoadBalancer, NodePort or Ingress exposes", host)
 	}
 	for _, l := range strings.Split(host, ".") {
 		if !dnsLabel.MatchString(l) {
@@ -647,11 +647,11 @@ func (c *Core) SetOperatorAddress(ctx context.Context, actor, id, address string
 	if detail == "" {
 		detail = "cleared"
 	}
-	err = c.Store.SetOperatorAddress(ctx, id, addr, store.WithAudit(c.auditRow(c.OrgID, actor, "operator-address-changed", "operator", id, detail)))
+	err = c.Store.SetOperatorAddress(ctx, id, addr, store.WithAudit(c.AuditRow(c.OrgID, actor, "operator-address-changed", "operator", id, detail)))
 	if errors.Is(err, store.ErrBadState) {
-		err = errf(KindConflict, "only an active operator's address can be changed")
+		err = Errf(KindConflict, "only an active operator's address can be changed")
 	}
-	return addr, c.auditedWrite(err, "operator-address-changed")
+	return addr, c.AuditedWrite(err, "operator-address-changed")
 }
 
 // RecordOperatorAddressIfUnset is SetOperatorAddress for the server's own discovery: it writes only while the operator
@@ -670,11 +670,11 @@ func (c *Core) RecordOperatorAddressIfUnset(ctx context.Context, actor, id, addr
 		return "", false, err
 	}
 	// A person who recorded an address after the server looked wins: the store then changes nothing and adds no row.
-	ok, err := c.Store.SetOperatorAddressIfEmpty(ctx, id, addr, store.WithAudit(c.auditRow(c.OrgID, actor, "operator-address-changed", "operator", id, addr)))
+	ok, err := c.Store.SetOperatorAddressIfEmpty(ctx, id, addr, store.WithAudit(c.AuditRow(c.OrgID, actor, "operator-address-changed", "operator", id, addr)))
 	if errors.Is(err, store.ErrBadState) {
-		err = errf(KindConflict, "only an active operator's address can be changed")
+		err = Errf(KindConflict, "only an active operator's address can be changed")
 	}
-	if err = c.auditedWrite(err, "operator-address-changed"); err != nil {
+	if err = c.AuditedWrite(err, "operator-address-changed"); err != nil {
 		return "", false, err
 	}
 	if !ok {
@@ -732,21 +732,21 @@ func (c *Core) RevokeOperatorForce(ctx context.Context, actor, id, reason string
 	if err := guardCentral(id); err != nil {
 		return err
 	}
-	c.depMu.Lock() // the dependents check and the revoke are one step: see Core.depMu
-	defer c.depMu.Unlock()
+	c.DepMu.Lock() // the dependents check and the revoke are one step: see Core.DepMu
+	defer c.DepMu.Unlock()
 	if _, err := c.operatorInOrg(ctx, id); err != nil {
 		return err
 	}
-	reason = printable(reason, maxReason)
+	reason = Printable(reason, MaxReason)
 	detail, err := c.dependentsDetail(ctx, id, force, reason)
 	if err != nil {
 		return err
 	}
-	err = c.Store.RevokeOperator(ctx, id, reason, c.Now(), store.WithAudit(c.auditRow(c.OrgID, actor, "operator-revoked", "operator", id, detail)))
+	err = c.Store.RevokeOperator(ctx, id, reason, c.Now(), store.WithAudit(c.AuditRow(c.OrgID, actor, "operator-revoked", "operator", id, detail)))
 	if errors.Is(err, store.ErrBadState) {
-		err = errf(KindConflict, "operator is not active")
+		err = Errf(KindConflict, "operator is not active")
 	}
-	if err = c.auditedWrite(err, "operator-revoked"); err != nil {
+	if err = c.AuditedWrite(err, "operator-revoked"); err != nil {
 		return err
 	}
 	c.opCASt().forget(id) // the sealed key was erased with it; do not keep the opened one
@@ -763,8 +763,8 @@ func (c *Core) DeleteOperatorForce(ctx context.Context, actor, id string, force 
 	if err := guardCentral(id); err != nil {
 		return err
 	}
-	c.depMu.Lock() // the dependents check and the delete are one step: see Core.depMu
-	defer c.depMu.Unlock()
+	c.DepMu.Lock() // the dependents check and the delete are one step: see Core.DepMu
+	defer c.DepMu.Unlock()
 	if _, err := c.operatorInOrg(ctx, id); err != nil {
 		return err
 	}
@@ -772,11 +772,11 @@ func (c *Core) DeleteOperatorForce(ctx context.Context, actor, id string, force 
 	if err != nil {
 		return err
 	}
-	err = c.Store.DeleteOperator(ctx, id, store.WithAudit(c.auditRow(c.OrgID, actor, "operator-deleted", "operator", id, detail)))
+	err = c.Store.DeleteOperator(ctx, id, store.WithAudit(c.AuditRow(c.OrgID, actor, "operator-deleted", "operator", id, detail)))
 	if errors.Is(err, store.ErrNotFound) {
-		err = errf(KindNotFound, "no such regional operator")
+		err = Errf(KindNotFound, "no such regional operator")
 	}
-	if err = c.auditedWrite(err, "operator-deleted"); err != nil {
+	if err = c.AuditedWrite(err, "operator-deleted"); err != nil {
 		return err
 	}
 	c.opCASt().forget(id)
@@ -813,22 +813,22 @@ func (c *Core) operatorIssuer(ctx context.Context, op store.Operator) (*pki.CA, 
 // serial, subject, sender, dates, by whom), and a certificate that cannot be recorded is not handed out. forWhat is
 // extra words for the audit entry ("intent=ti-1 cluster=cl-a").
 //
-// It holds depMu for reading (see Core.depMu) from the check that the operator is active to the ledger write, so a revoke or
+// It holds DepMu for reading (see Core.DepMu) from the check that the operator is active to the ledger write, so a revoke or
 // a delete cannot slip in between and leave a certificate minted and recorded for an operator that is gone or revoked.
 func (c *Core) IssueOperatorClientCertFor(ctx context.Context, actor, operatorID, sender, forWhat string) (certPEM, keyPEM, caPEM []byte, err error) {
-	c.depMu.RLock()
-	defer c.depMu.RUnlock()
+	c.DepMu.RLock()
+	defer c.DepMu.RUnlock()
 	return c.issueOperatorClientCertHeld(ctx, actor, operatorID, sender, forWhat)
 }
 
-// issueOperatorClientCertHeld is IssueOperatorClientCertFor for a caller that already holds depMu for reading.
+// issueOperatorClientCertHeld is IssueOperatorClientCertFor for a caller that already holds DepMu for reading.
 func (c *Core) issueOperatorClientCertHeld(ctx context.Context, actor, operatorID, sender, forWhat string) (certPEM, keyPEM, caPEM []byte, err error) {
 	op, err := c.operatorInOrg(ctx, operatorID)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 	if op.Status != store.OperatorActive {
-		return nil, nil, nil, errf(KindConflict, "operator is not active")
+		return nil, nil, nil, Errf(KindConflict, "operator is not active")
 	}
 	issuer, caPEM, err := c.operatorIssuer(ctx, op)
 	if err != nil {
@@ -852,7 +852,7 @@ func (c *Core) issueOperatorClientCertHeld(ctx context.Context, actor, operatorI
 	if forWhat != "" {
 		detail += " " + forWhat
 	}
-	c.audit(ctx, actor, "operator-client-cert-reissued", "operator", op.ID, detail)
+	c.Audit(ctx, actor, "operator-client-cert-reissued", "operator", op.ID, detail)
 	return certPEM, keyPEM, caPEM, nil
 }
 

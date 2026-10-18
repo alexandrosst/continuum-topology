@@ -53,9 +53,9 @@ const (
 	maxThroughputBudgetMB = 1 << 20
 )
 
-// normalizeLinks checks the pairs and puts each in a canonical order (A before B), without duplicates, so the same pair
+// NormalizeLinks checks the pairs and puts each in a canonical order (A before B), without duplicates, so the same pair
 // entered either way round is one pair.
-func normalizeLinks(in []LinkSetting) ([]LinkSetting, error) {
+func NormalizeLinks(in []LinkSetting) ([]LinkSetting, error) {
 	if len(in) > maxLinks {
 		return nil, fmt.Errorf("at most %d linked cluster pairs", maxLinks)
 	}
@@ -106,7 +106,7 @@ func normalizeLinks(in []LinkSetting) ([]LinkSetting, error) {
 	return out, nil
 }
 
-func sortedKeys[V any](m map[string]V) []string {
+func SortedKeys[V any](m map[string]V) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {
 		out = append(out, k)

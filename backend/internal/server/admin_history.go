@@ -523,7 +523,7 @@ func (a *Admin) decide(w http.ResponseWriter, r *http.Request) {
 	}
 	size, code := 0, 0
 	defer func() {
-		c.audit(r.Context(), actor(r), "decide", "decider", host, fmt.Sprintf("org %s, request %d bytes, status %d", c.OrgID, size, code))
+		c.Audit(r.Context(), actor(r), "decide", "decider", host, fmt.Sprintf("org %s, request %d bytes, status %d", c.OrgID, size, code))
 	}()
 	fail := func(status int, msg string) {
 		code = status
@@ -564,9 +564,9 @@ func (a *Admin) decide(w http.ResponseWriter, r *http.Request) {
 		req.Header.Set("X-Continuum-Timestamp", ts)
 		req.Header.Set("X-Continuum-Signature", "sha256="+sig)
 	}
-	resp, err := c.Decider.client(time.Duration(set.DeciderTimeoutSec) * time.Second).Do(req)
+	resp, err := c.Decider.Client(time.Duration(set.DeciderTimeoutSec) * time.Second).Do(req)
 	if err != nil {
-		if isDeciderDenied(err) {
+		if IsDeciderDenied(err) {
 			c.Log.Warn("external decider refused by the address policy", "org", c.OrgID, "host", host, "err", err)
 			fail(502, "the server is not allowed to connect to the external decider's address: it is private, loopback or link-local. An operator can allow a range with --decider-allow-cidrs")
 			return

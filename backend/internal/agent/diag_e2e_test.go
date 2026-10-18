@@ -513,10 +513,10 @@ func manyDeployments(n int) []runtime.Object {
 }
 
 func TestALargePictureIsSentInChunksAndAppliedWhole(t *testing.T) {
-	before := server.Metrics.SyncsChunked()
+	before := server.Metrics.SyncsChunked.Load()
 	d := newDx(t, dxOpts{objects: manyDeployments(400), tune: func(c *agent.Config, _ *server.Core, _ *server.Hub) { c.ChunkBytes = 4000 }})
 	waitFor(t, "all 401 workloads", 60*time.Second, func() bool { return services(d, "") == 401 })
-	if server.Metrics.SyncsChunked() <= before {
+	if server.Metrics.SyncsChunked.Load() <= before {
 		t.Fatal("the picture was not chunked")
 	}
 	if p := problem(d.waitDiag("account", func(*server.DiagnosticsDoc) bool { return true }), "sync_too_large"); p != nil {
@@ -547,7 +547,7 @@ func TestSixtyThousandWorkloadsFromARealAgent(t *testing.T) {
 	if testing.Short() {
 		t.Skip("large")
 	}
-	before := server.Metrics.SyncsChunked()
+	before := server.Metrics.SyncsChunked.Load()
 	d := newDx(t, dxOpts{objects: manyDeployments(60000), noApprove: true, tune: func(c *agent.Config, _ *server.Core, h *server.Hub) {
 		h.Limits = &facts.Limits{Nodes: 100, Namespaces: 1000, Workloads: 100000, Bytes: 128 << 20}
 		c.SyncWait = 90 * time.Second
@@ -556,7 +556,7 @@ func TestSixtyThousandWorkloadsFromARealAgent(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitFor(t, "60001 workloads", 150*time.Second, func() bool { return services(d, "") == 60001 })
-	if server.Metrics.SyncsChunked() <= before {
+	if server.Metrics.SyncsChunked.Load() <= before {
 		t.Fatal("not chunked")
 	}
 }

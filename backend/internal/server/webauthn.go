@@ -70,7 +70,7 @@ type WebAuthnProvider interface {
 
 // errNoPasskeys is what every passkey endpoint returns when the server has no provider wired in - not
 // expected outside a build or test that deliberately left Core.WebAuthn nil.
-func errNoPasskeys() *Error { return errf(KindConflict, "passkeys are not available on this server") }
+func errNoPasskeys() *Error { return Errf(KindConflict, "passkeys are not available on this server") }
 
 // validRelyingPartyID reports whether id can be a WebAuthn RP ID at all: the spec requires a registrable
 // domain suffix (or exactly "localhost"), never a bare IP literal - a browser refuses the ceremony outright
@@ -145,18 +145,18 @@ func (c *Core) BeginPasskeyRegistration(ctx context.Context, p Principal, rp Rel
 		return nil, errNoPasskeys()
 	}
 	if !validRelyingPartyID(rp.ID) {
-		return nil, errf(KindConflict, "passkeys need this server to be reached by a domain name, not a bare IP address (%s)", rp.ID)
+		return nil, Errf(KindConflict, "passkeys need this server to be reached by a domain name, not a bare IP address (%s)", rp.ID)
 	}
 	if !c.authSt().loginUser.Allow("2fa-setup|" + p.User.ID) {
-		return nil, errf(KindRateLimited, "too many attempts, wait a minute")
+		return nil, Errf(KindRateLimited, "too many attempts, wait a minute")
 	}
 	u, err := c.Store.GetUser(ctx, p.User.ID)
 	if err != nil {
-		return nil, errf(KindUnauthenticated, "sign in required")
+		return nil, Errf(KindUnauthenticated, "sign in required")
 	}
 	options, session, err := c.webAuthnP().BeginRegistration(rp, webauthnUser(u))
 	if err != nil {
-		return nil, errf(KindInvalid, "could not start passkey registration: %v", err)
+		return nil, Errf(KindInvalid, "could not start passkey registration: %v", err)
 	}
 	c.putWebAuthnRegSession(u.ID, session)
 	return options, nil
@@ -172,11 +172,11 @@ func (c *Core) FinishPasskeyRegistration(ctx context.Context, p Principal, rp Re
 	}
 	name = strings.TrimSpace(name)
 	if l := len([]rune(name)); l > maxPasskeyName {
-		return errf(KindInvalid, "the name is at most %d characters", maxPasskeyName)
+		return Errf(KindInvalid, "the name is at most %d characters", maxPasskeyName)
 	}
 	u, err := c.Store.GetUser(ctx, p.User.ID)
 	if err != nil {
-		return errf(KindUnauthenticated, "sign in required")
+		return Errf(KindUnauthenticated, "sign in required")
 	}
 	if name == "" {
 		name = fmt.Sprintf("Passkey %d", len(u.WebAuthnCredentials)+1)
@@ -186,16 +186,16 @@ func (c *Core) FinishPasskeyRegistration(ctx context.Context, p Principal, rp Re
 	// instead of forcing the whole create() ceremony to run again.
 	session, ok := c.takeWebAuthnRegSession(p.User.ID)
 	if !ok {
-		return errf(KindConflict, "that registration has expired; start again")
+		return Errf(KindConflict, "that registration has expired; start again")
 	}
 	cred, err := c.webAuthnP().FinishRegistration(rp, webauthnUser(u), session, response)
 	if err != nil {
-		return errf(KindInvalid, "that passkey could not be registered: %v", err)
+		return Errf(KindInvalid, "that passkey could not be registered: %v", err)
 	}
 	cred.Name, cred.CreatedAt = name, c.Now()
 	if err := c.Store.AddWebAuthnCredential(ctx, u.ID, cred); err != nil {
 		if errors.Is(err, store.ErrExists) {
-			return errf(KindConflict, "that passkey is already registered to this account")
+			return Errf(KindConflict, "that passkey is already registered to this account")
 		}
 		return err
 	}
@@ -210,22 +210,22 @@ func (c *Core) BeginPasskeyLogin(ctx context.Context, ip, pending string, rp Rel
 		return nil, errNoPasskeys()
 	}
 	if !validRelyingPartyID(rp.ID) {
-		return nil, errf(KindConflict, "passkeys need this server to be reached by a domain name, not a bare IP address (%s)", rp.ID)
+		return nil, Errf(KindConflict, "passkeys need this server to be reached by a domain name, not a bare IP address (%s)", rp.ID)
 	}
 	if !c.authSt().loginIP.Allow(LimitKey(ip)) {
-		return nil, errf(KindRateLimited, "too many sign-in attempts, wait a minute")
+		return nil, Errf(KindRateLimited, "too many sign-in attempts, wait a minute")
 	}
 	pl, ok := c.peekPendingLogin(pending)
 	if !ok || !slices.Contains(pl.methods, "webauthn") {
-		return nil, errf(KindUnauthenticated, "that sign-in has expired; enter your password again")
+		return nil, Errf(KindUnauthenticated, "that sign-in has expired; enter your password again")
 	}
 	u, err := c.Store.GetUser(ctx, pl.userID)
 	if err != nil || len(u.WebAuthnCredentials) == 0 {
-		return nil, errf(KindUnauthenticated, "that sign-in has expired; enter your password again")
+		return nil, Errf(KindUnauthenticated, "that sign-in has expired; enter your password again")
 	}
 	options, session, err := c.webAuthnP().BeginLogin(rp, webauthnUser(u))
 	if err != nil {
-		return nil, errf(KindInvalid, "could not start passkey sign-in: %v", err)
+		return nil, Errf(KindInvalid, "could not start passkey sign-in: %v", err)
 	}
 	c.putWebAuthnLoginSession(pending, session)
 	return options, nil
@@ -240,34 +240,34 @@ func (c *Core) FinishPasskeyLogin(ctx context.Context, ip, pending string, rp Re
 	}
 	key := LimitKey(ip)
 	if !c.authSt().loginIP.Allow(key) {
-		return "", store.User{}, errf(KindRateLimited, "too many sign-in attempts, wait a minute")
+		return "", store.User{}, Errf(KindRateLimited, "too many sign-in attempts, wait a minute")
 	}
 	pl, ok := c.peekPendingLogin(pending)
 	if !ok || !slices.Contains(pl.methods, "webauthn") {
-		return "", store.User{}, errf(KindUnauthenticated, "that sign-in has expired; enter your password again")
+		return "", store.User{}, Errf(KindUnauthenticated, "that sign-in has expired; enter your password again")
 	}
 	u, gerr := c.Store.GetUser(ctx, pl.userID)
 	if gerr != nil || u.DisabledAt != nil || len(u.WebAuthnCredentials) == 0 {
-		return "", store.User{}, errf(KindUnauthenticated, "that sign-in has expired; enter your password again")
+		return "", store.User{}, Errf(KindUnauthenticated, "that sign-in has expired; enter your password again")
 	}
 	if !c.authSt().loginUser.Allow(key + "|" + u.Username) {
-		return "", store.User{}, errf(KindRateLimited, "too many sign-in attempts, wait a minute")
+		return "", store.User{}, Errf(KindRateLimited, "too many sign-in attempts, wait a minute")
 	}
-	if wait := c.authSt().failures.blocked(u.Username, c.Now()); wait > 0 {
-		return "", store.User{}, errf(KindRateLimited, "too many failed sign-in attempts for this account; try again in %s", roundWait(wait))
+	if wait := c.authSt().failures.Blocked(u.Username, c.Now()); wait > 0 {
+		return "", store.User{}, Errf(KindRateLimited, "too many failed sign-in attempts for this account; try again in %s", RoundWait(wait))
 	}
 	session, ok := c.takeWebAuthnLoginSession(pending)
 	if !ok {
-		return "", store.User{}, errf(KindUnauthenticated, "that sign-in has expired; enter your password again")
+		return "", store.User{}, Errf(KindUnauthenticated, "that sign-in has expired; enter your password again")
 	}
 	credID, signCount, verr := c.webAuthnP().FinishLogin(rp, webauthnUser(u), session, response)
 	if verr != nil {
-		c.authSt().failures.fail(u.Username, c.Now())
-		Metrics.authFailures.Add(1)
-		c.auditOrg(ctx, "", AnonymousActor.String(), "login-failed", "user", printable(u.Username, 64), "wrong passkey from "+ip)
-		return "", store.User{}, errf(KindUnauthenticated, "that passkey could not be verified")
+		c.authSt().failures.Fail(u.Username, c.Now())
+		Metrics.AuthFailures.Add(1)
+		c.AuditOrg(ctx, "", AnonymousActor.String(), "login-failed", "user", Printable(u.Username, 64), "wrong passkey from "+ip)
+		return "", store.User{}, Errf(KindUnauthenticated, "that passkey could not be verified")
 	}
-	c.authSt().failures.succeed(u.Username)
+	c.authSt().failures.Succeed(u.Username)
 	c.consumePendingLogin(pending)
 	if err := c.Store.TouchWebAuthnCredential(ctx, u.ID, credID, signCount, c.Now()); err != nil {
 		return "", store.User{}, err
@@ -283,19 +283,19 @@ func (c *Core) FinishPasskeyLogin(ctx context.Context, ip, pending string, rp Re
 // RenamePasskey changes only a credential's own label.
 func (c *Core) RenamePasskey(ctx context.Context, p Principal, credentialIDB64, name string) error {
 	if !c.authSt().loginUser.Allow("2fa-setup|" + p.User.ID) {
-		return errf(KindRateLimited, "too many attempts, wait a minute")
+		return Errf(KindRateLimited, "too many attempts, wait a minute")
 	}
 	name = strings.TrimSpace(name)
 	if name == "" || len([]rune(name)) > maxPasskeyName {
-		return errf(KindInvalid, "name it 1-%d characters", maxPasskeyName)
+		return Errf(KindInvalid, "name it 1-%d characters", maxPasskeyName)
 	}
 	credID, err := base64.RawURLEncoding.DecodeString(credentialIDB64)
 	if err != nil {
-		return errf(KindInvalid, "not a valid passkey id")
+		return Errf(KindInvalid, "not a valid passkey id")
 	}
 	if err := c.Store.RenameWebAuthnCredential(ctx, p.User.ID, credID, name); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
-			return errf(KindNotFound, "no such passkey")
+			return Errf(KindNotFound, "no such passkey")
 		}
 		return err
 	}
@@ -307,23 +307,23 @@ func (c *Core) RenamePasskey(ctx context.Context, p Principal, credentialIDB64, 
 // as changing what it protects - a passkey has no separate "turn it off but keep it" state the way email does.
 func (c *Core) RemovePasskey(ctx context.Context, p Principal, credentialIDB64, password string) error {
 	if !c.authSt().loginUser.Allow("2fa-setup|" + p.User.ID) {
-		return errf(KindRateLimited, "too many attempts, wait a minute")
+		return Errf(KindRateLimited, "too many attempts, wait a minute")
 	}
 	u, err := c.Store.GetUser(ctx, p.User.ID)
 	if err != nil {
-		return errf(KindUnauthenticated, "sign in required")
+		return Errf(KindUnauthenticated, "sign in required")
 	}
 	ok, verr := c.verifyPassword(ctx, password, u.PasswordHash)
 	if verr != nil || !ok {
-		return errf(KindInvalid, "your current password is not correct")
+		return Errf(KindInvalid, "your current password is not correct")
 	}
 	credID, err := base64.RawURLEncoding.DecodeString(credentialIDB64)
 	if err != nil {
-		return errf(KindInvalid, "not a valid passkey id")
+		return Errf(KindInvalid, "not a valid passkey id")
 	}
 	if err := c.Store.RemoveWebAuthnCredential(ctx, u.ID, credID); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
-			return errf(KindNotFound, "no such passkey")
+			return Errf(KindNotFound, "no such passkey")
 		}
 		return err
 	}

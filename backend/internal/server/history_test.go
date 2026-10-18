@@ -101,11 +101,11 @@ func TestSettingsDiffMentionsTombstoneAndEventRetention(t *testing.T) {
 	b := a
 	b.TombstoneRetentionDays = 14
 	b.EventRetentionDays = 90
-	d := settingsDiff(a, b)
+	d := SettingsDiff(a, b)
 	if !strings.Contains(d, "tombstone retention (days) 7 → 14") || !strings.Contains(d, "event retention (days) 0 → 90") {
 		t.Fatalf("diff = %q", d)
 	}
-	if settingsDiff(a, a) != "" {
+	if SettingsDiff(a, a) != "" {
 		t.Fatal("no change produced a diff")
 	}
 }
@@ -866,7 +866,7 @@ func TestDecideProxyForwardsOnlyToTheConfiguredDecider(t *testing.T) {
 
 func TestDeciderClientRefusesLinkLocalAndRedirects(t *testing.T) {
 	loop, _ := NewDeciderPolicy("127.0.0.0/8")
-	c := loop.client(2 * time.Second)
+	c := loop.Client(2 * time.Second)
 	if _, err := c.Get("http://169.254.169.254/latest/meta-data"); err == nil {
 		t.Fatal("the metadata address was reachable")
 	}

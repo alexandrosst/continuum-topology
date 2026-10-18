@@ -26,10 +26,10 @@ import (
 // message) and again on the address actually dialed (so a name that later resolves somewhere else,
 // DNS rebinding, is still refused).
 type DeciderPolicy struct {
-	allow []netip.Prefix
+	Allow []netip.Prefix
 	// lookup and resolver are replaced by tests; nil means the system's.
-	lookup   func(ctx context.Context, host string) ([]netip.Addr, error)
-	resolver *net.Resolver
+	Lookup   func(ctx context.Context, host string) ([]netip.Addr, error)
+	Resolver *net.Resolver
 }
 
 // NewDeciderPolicy parses the operator's comma-separated list of CIDRs (or single addresses). An empty
@@ -53,7 +53,7 @@ func NewDeciderPolicy(cidrs string) (*DeciderPolicy, error) {
 		if pf.Addr().Is4In6() && pf.Bits() >= 96 {
 			pf = netip.PrefixFrom(pf.Addr().Unmap(), pf.Bits()-96)
 		}
-		p.allow = append(p.allow, pf.Masked())
+		p.Allow = append(p.Allow, pf.Masked())
 	}
 	return p, nil
 }
@@ -63,12 +63,12 @@ func (p *DeciderPolicy) Allowed() []netip.Prefix {
 	if p == nil {
 		return nil
 	}
-	return p.allow
+	return p.Allow
 }
 
 // neverAllowed are addresses no allow-list can open: the cloud metadata services (they hand out the
 // node's credentials), and addresses that are not a destination at all.
-var neverAllowed = mustPrefixes(
+var neverAllowed = MustPrefixes(
 	"169.254.0.0/16",     // link-local: 169.254.169.254 (AWS, GCP, Azure, ...), ECS's 169.254.170.2
 	"fe80::/10",          // IPv6 link-local
 	"fd00:ec2::/32",      // AWS metadata over IPv6 (fd00:ec2::254)
@@ -83,7 +83,7 @@ var neverAllowed = mustPrefixes(
 )
 
 // privateRanges are refused unless the operator allow-listed them.
-var privateRanges = mustPrefixes(
+var privateRanges = MustPrefixes(
 	"127.0.0.0/8",
 	"::1/128",
 	"10.0.0.0/8",
@@ -96,7 +96,7 @@ var privateRanges = mustPrefixes(
 	"::/96",         // deprecated IPv4-compatible IPv6
 )
 
-func mustPrefixes(s ...string) []netip.Prefix {
+func MustPrefixes(s ...string) []netip.Prefix {
 	out := make([]netip.Prefix, len(s))
 	for i, x := range s {
 		out[i] = netip.MustParsePrefix(x)
@@ -113,7 +113,7 @@ func inAny(a netip.Addr, ps []netip.Prefix) bool {
 	return false
 }
 
-var translators = mustPrefixes("64:ff9b::/96", "64:ff9b:1::/48", "2002::/16")
+var translators = MustPrefixes("64:ff9b::/96", "64:ff9b:1::/48", "2002::/16")
 
 // embedded returns the IPv4 address hidden inside an IPv6 one that translates to IPv4 (NAT64 and 6to4),
 // so 64:ff9b::7f00:1 cannot be used to reach 127.0.0.1 through a translator.
@@ -142,7 +142,7 @@ func (p *DeciderPolicy) CheckAddr(a netip.Addr) error {
 	if !inAny(a, privateRanges) {
 		return nil
 	}
-	if p != nil && inAny(a, p.allow) {
+	if p != nil && inAny(a, p.Allow) {
 		return nil
 	}
 	return fmt.Errorf("%s is a private or loopback address; the server calls those only if the operator lists the range in --decider-allow-cidrs", a)
@@ -172,8 +172,8 @@ func (p *DeciderPolicy) hostAddrs(ctx context.Context, host string) ([]netip.Add
 }
 
 func (p *DeciderPolicy) lookupFunc() func(ctx context.Context, host string) ([]netip.Addr, error) {
-	if p != nil && p.lookup != nil {
-		return p.lookup
+	if p != nil && p.Lookup != nil {
+		return p.Lookup
 	}
 	return func(ctx context.Context, h string) ([]netip.Addr, error) {
 		return net.DefaultResolver.LookupNetIP(ctx, "ip", h)
@@ -201,32 +201,32 @@ func (p *DeciderPolicy) CheckURL(ctx context.Context, raw string) error {
 	return nil
 }
 
-// errDeciderDenied marks a connection refused by the policy, so the caller can say why.
-type errDeciderDenied struct{ err error }
+// ErrDeciderDenied marks a connection refused by the policy, so the caller can say why.
+type ErrDeciderDenied struct{ err error }
 
-func (e errDeciderDenied) Error() string { return e.err.Error() }
-func (e errDeciderDenied) Unwrap() error { return e.err }
+func (e ErrDeciderDenied) Error() string { return e.err.Error() }
+func (e ErrDeciderDenied) Unwrap() error { return e.err }
 
 // client builds the HTTP client used for the decider. The policy is applied to the address actually
 // dialed, after name resolution, so it cannot be bypassed by DNS that answers differently the second
 // time. Redirects are not followed (a 3xx is reported as an unexpected status), proxies from the
 // environment are ignored, and connections are not reused.
-func (p *DeciderPolicy) client(timeout time.Duration) *http.Client {
+func (p *DeciderPolicy) Client(timeout time.Duration) *http.Client {
 	var resolver *net.Resolver
 	if p != nil {
-		resolver = p.resolver
+		resolver = p.Resolver
 	}
 	d := net.Dialer{Timeout: 5 * time.Second, Resolver: resolver, Control: func(network, address string, _ syscall.RawConn) error {
 		host, _, err := net.SplitHostPort(address)
 		if err != nil {
-			return errDeciderDenied{err}
+			return ErrDeciderDenied{err}
 		}
 		a, err := netip.ParseAddr(host)
 		if err != nil {
-			return errDeciderDenied{fmt.Errorf("cannot check the address %q", host)}
+			return ErrDeciderDenied{fmt.Errorf("cannot check the address %q", host)}
 		}
 		if err := p.CheckAddr(a); err != nil {
-			return errDeciderDenied{err}
+			return ErrDeciderDenied{err}
 		}
 		return nil
 	}}
@@ -237,7 +237,7 @@ func (p *DeciderPolicy) client(timeout time.Duration) *http.Client {
 	}
 }
 
-func isDeciderDenied(err error) bool {
-	var d errDeciderDenied
+func IsDeciderDenied(err error) bool {
+	var d ErrDeciderDenied
 	return errors.As(err, &d)
 }

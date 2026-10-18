@@ -113,7 +113,7 @@ func (h *Hub) noteAddressTest(v *view, t issuedTarget, samples, failed uint32, m
 
 // StartAddressTests asks the agent to try each address. An address already under test is tested again from scratch.
 func (h *Hub) StartAddressTests(ctx context.Context, actor, agentID string, addrs []string) ([]AddressTestDoc, error) {
-	a, err := h.C.agentInOrg(ctx, agentID)
+	a, err := h.C.AgentInOrg(ctx, agentID)
 	if err != nil {
 		return nil, err
 	}
@@ -124,7 +124,7 @@ func (h *Hub) StartAddressTests(ctx context.Context, actor, agentID string, addr
 // address_drift.go): an address that cannot be tested is skipped rather than refused, and nothing is audited.
 func (h *Hub) startAddressTests(ctx context.Context, actor string, a store.Agent, addrs []string, quiet bool) ([]AddressTestDoc, error) {
 	if a.Status != store.StatusApproved {
-		return nil, errf(KindConflict, "agent is %s: only an approved agent can test an address", a.Status)
+		return nil, Errf(KindConflict, "agent is %s: only an approved agent can test an address", a.Status)
 	}
 	type want struct {
 		addr, host string
@@ -150,31 +150,31 @@ func (h *Hub) startAddressTests(ctx context.Context, actor string, a store.Agent
 			if quiet {
 				continue
 			}
-			return nil, errf(KindInvalid, "%s cannot be tested from a cluster: %v", addr, err)
+			return nil, Errf(KindInvalid, "%s cannot be tested from a cluster: %v", addr, err)
 		}
 		wants = append(wants, want{addr, host, port})
 	}
 	if len(wants) == 0 {
-		return nil, errf(KindInvalid, "give at least one address to test")
+		return nil, Errf(KindInvalid, "give at least one address to test")
 	}
 	if len(wants) > maxAddressTests {
-		return nil, errf(KindInvalid, "at most %d addresses are tested at once", maxAddressTests)
+		return nil, Errf(KindInvalid, "at most %d addresses are tested at once", maxAddressTests)
 	}
 	if h.consentOf(a.ID).has("measure") {
-		return nil, errf(KindConflict, "connection timing is paused for this cluster, and a test is a connection timing. Resume it in the cluster's access settings first")
+		return nil, Errf(KindConflict, "connection timing is paused for this cluster, and a test is a connection timing. Resume it in the cluster's access settings first")
 	}
 	now := h.C.Now()
 	h.mu.Lock()
 	v := h.viewFor(a.ID)
 	if h.sessions[a.ID] == nil {
 		h.mu.Unlock()
-		return nil, errf(KindConflict, "this agent is not connected right now, so it cannot test anything. Try again once it is back")
+		return nil, Errf(KindConflict, "this agent is not connected right now, so it cannot test anything. Try again once it is back")
 	}
 	if d := v.ext.diag; d != nil {
 		for _, c := range d.GetCollectors() {
 			if c.GetName() == "measure" && !c.GetConfigured() {
 				h.mu.Unlock()
-				return nil, errf(KindConflict, "connection timing is switched off in this agent's install, so it cannot test an address")
+				return nil, Errf(KindConflict, "connection timing is switched off in this agent's install, so it cannot test an address")
 			}
 		}
 	}
@@ -191,7 +191,7 @@ func (h *Hub) startAddressTests(ctx context.Context, actor string, a store.Agent
 	}
 	if len(v.addrTests)+len(wants) > maxAddressTests {
 		h.mu.Unlock()
-		return nil, errf(KindConflict, "this agent is already testing %d addresses; wait for them to finish (they expire after %d minutes)", len(v.addrTests), int(addressTestTTL/time.Minute))
+		return nil, Errf(KindConflict, "this agent is already testing %d addresses; wait for them to finish (they expire after %d minutes)", len(v.addrTests), int(addressTestTTL/time.Minute))
 	}
 	// A fresh id each time: the agent re-times when its targets change, and an unchanged list would wait for its next round.
 	out := make([]AddressTestDoc, 0, len(wants))
@@ -208,7 +208,7 @@ func (h *Hub) startAddressTests(ctx context.Context, actor string, a store.Agent
 	}
 	if !quiet {
 		detail := fmt.Sprintf("%q: asked to test %s", a.Name, strings.Join(names, ", "))
-		h.C.audit(ctx, actor, "address-test-started", "agent", a.ID, detail)
+		h.C.Audit(ctx, actor, "address-test-started", "agent", a.ID, detail)
 	}
 	h.pushOne(a.ID)
 	// When the test expires its target has to leave the agent's list too.
@@ -218,7 +218,7 @@ func (h *Hub) startAddressTests(ctx context.Context, actor string, a store.Agent
 
 // AddressTests lists the live tests of an agent, newest first.
 func (h *Hub) AddressTests(ctx context.Context, agentID string) ([]AddressTestDoc, error) {
-	a, err := h.C.agentInOrg(ctx, agentID)
+	a, err := h.C.AgentInOrg(ctx, agentID)
 	if err != nil {
 		return nil, err
 	}

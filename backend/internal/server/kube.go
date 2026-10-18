@@ -314,9 +314,9 @@ type KubeService struct {
 	LoadBalancer string
 }
 
-// serviceInspector is what a KubeAPI may also offer: the gateway Service's own spec. It is a separate interface so a
+// ServiceInspector is what a KubeAPI may also offer: the gateway Service's own spec. It is a separate interface so a
 // KubeAPI that cannot read it (an older Role) still works: the address is then simply not checked against the Service.
-type serviceInspector interface {
+type ServiceInspector interface {
 	Service(ctx context.Context, name string) (KubeService, error)
 }
 
@@ -387,10 +387,10 @@ type KubeClaim struct {
 // ErrKubeNoResize is the cluster refusing to grow a claim: its storage class does not allow volume expansion.
 var ErrKubeNoResize = errors.New("kubernetes: this volume's storage class does not allow it to be grown")
 
-// retentionKube is what a KubeAPI may also offer for the retention control: the server-owned settings object, the
-// stores' volume claims and a store's pod. A separate interface, like serviceInspector, so a KubeAPI that cannot do
+// RetentionKube is what a KubeAPI may also offer for the retention control: the server-owned settings object, the
+// stores' volume claims and a store's pod. A separate interface, like ServiceInspector, so a KubeAPI that cannot do
 // these (or a server whose Role predates them) still works and the control says why it is unavailable.
-type retentionKube interface {
+type RetentionKube interface {
 	// Settings reads the chart's settings ConfigMap.
 	Settings(ctx context.Context, name string) (map[string]string, error)
 	// PatchSettings merges keys into it.

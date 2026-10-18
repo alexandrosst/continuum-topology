@@ -216,22 +216,22 @@ func TestTwoFactorCorrectPasswordDoesNotClearTheBackoff(t *testing.T) {
 		t.Fatalf("enable: %d %s", r.Code, r.Body.String())
 	}
 
-	// failFree wrong codes are free; the one after earns a wait. Every call has its own address so the
+	// FailFree wrong codes are free; the one after earns a wait. Every call has its own address so the
 	// per-address limits stay out of it.
 	_, body := a.doLogin(t, "10.9.3.1", "carol", goodPW)
 	pending, _ := body["pending"].(string)
-	for i := 0; i <= failFree; i++ {
+	for i := 0; i <= FailFree; i++ {
 		ip := "10.9.3." + string(rune('2'+i))
 		if r, _ := a.doLogin2FA(t, ip, pending, "000000"); r.Code != 401 {
 			t.Fatalf("wrong code %d: %d %s", i, r.Code, r.Body.String())
 		}
 	}
 	if r, _ := a.doLogin2FA(t, "10.9.3.20", pending, "000000"); r.Code != 429 {
-		t.Fatalf("the wait after %d wrong codes did not apply: %d %s", failFree+1, r.Code, r.Body.String())
+		t.Fatalf("the wait after %d wrong codes did not apply: %d %s", FailFree+1, r.Code, r.Body.String())
 	}
 
 	// Once it has passed, entering the right password again starts a new pending sign-in...
-	*a.now = a.now.Add(failBaseInterval + time.Second)
+	*a.now = a.now.Add(FailBaseInterval + time.Second)
 	r, body := a.doLogin(t, "10.9.3.21", "carol", goodPW)
 	if r.Code != 401 {
 		t.Fatalf("login after the wait: %d %s", r.Code, r.Body.String())

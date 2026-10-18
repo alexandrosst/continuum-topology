@@ -313,7 +313,7 @@ func (a *Admin) createOperator(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		var pe *install.ProblemsError
 		if errors.As(err, &pe) {
-			a.fail(w, errf(KindInvalid, "%s", pe.Problems[0]))
+			a.fail(w, Errf(KindInvalid, "%s", pe.Problems[0]))
 			return
 		}
 		a.fail(w, err)
@@ -505,7 +505,7 @@ func serviceTypeFor(exposure string) (string, error) {
 	case "nodeport":
 		return "NodePort", nil
 	}
-	return "", errf(KindInvalid, "exposure must be cluster, loadbalancer or nodeport")
+	return "", Errf(KindInvalid, "exposure must be cluster, loadbalancer or nodeport")
 }
 
 // setOperatorAddress records the host:port other clusters reach the operator at ({"address": ""} clears it).

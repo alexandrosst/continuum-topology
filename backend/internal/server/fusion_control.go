@@ -234,7 +234,7 @@ func (f *FusionControl) gatewayService(ctx context.Context) *KubeService {
 	if f == nil || f.Kube == nil {
 		return nil
 	}
-	insp, ok := f.Kube.(serviceInspector)
+	insp, ok := f.Kube.(ServiceInspector)
 	if !ok {
 		return nil
 	}
@@ -747,10 +747,10 @@ func (f *FusionControl) Enable(ctx context.Context, c *Core, actor string) (Fusi
 	}
 	prev := f.Status(ctx)
 	if !prev.Available {
-		return prev, errf(KindConflict, "%s", prev.Message)
+		return prev, Errf(KindConflict, "%s", prev.Message)
 	}
 	if f.Org != "" && c.OrgID != f.Org {
-		return FusionStatus{}, errf(KindForbidden, "FUSION belongs to this server's main organisation, which is the only one that can turn it on")
+		return FusionStatus{}, Errf(KindForbidden, "FUSION belongs to this server's main organisation, which is the only one that can turn it on")
 	}
 	_, bundle, err := c.EnsureCentralOperator(ctx, actor, f.destination(), f.certHosts())
 	if err != nil {
@@ -769,7 +769,7 @@ func (f *FusionControl) Enable(ctx context.Context, c *Core, actor string) (Fusi
 	if err != nil {
 		return FusionStatus{}, err
 	}
-	c.audit(ctx, actor, "fusion-enabled", "fusion", f.Name, "")
+	c.Audit(ctx, actor, "fusion-enabled", "fusion", f.Name, "")
 	return st, nil
 }
 
@@ -825,16 +825,16 @@ func (f *FusionControl) Disable(ctx context.Context, c *Core, actor string) (Fus
 	}
 	prev := f.Status(ctx)
 	if !prev.Available {
-		return prev, errf(KindConflict, "%s", prev.Message)
+		return prev, Errf(KindConflict, "%s", prev.Message)
 	}
 	if f.Org != "" && c.OrgID != f.Org {
-		return FusionStatus{}, errf(KindForbidden, "FUSION belongs to this server's main organisation, which is the only one that can turn it off")
+		return FusionStatus{}, Errf(KindForbidden, "FUSION belongs to this server's main organisation, which is the only one that can turn it off")
 	}
 	st, err := f.scaleAndReport(ctx, prev, 0)
 	if err != nil {
 		return FusionStatus{}, err
 	}
-	c.audit(ctx, actor, "fusion-disabled", "fusion", f.Name, "")
+	c.Audit(ctx, actor, "fusion-disabled", "fusion", f.Name, "")
 	return st, nil
 }
 
@@ -886,9 +886,9 @@ func (f *FusionControl) scaleAll(ctx context.Context, replicas int) error {
 
 func kubeFail(what string, err error) error {
 	if errors.Is(err, ErrKubeForbidden) {
-		return errf(KindForbidden, "this server is not allowed to %s. Check fusionControl.enabled in the server chart", what)
+		return Errf(KindForbidden, "this server is not allowed to %s. Check fusionControl.enabled in the server chart", what)
 	}
-	return errf(KindConflict, "could not %s: %v", what, err)
+	return Errf(KindConflict, "could not %s: %v", what, err)
 }
 
 // EnsureCentralOperator makes sure the central operator exists in this organisation and issues a fresh server
@@ -905,7 +905,7 @@ func (c *Core) EnsureCentralOperator(ctx context.Context, actor string, dest sto
 	if errors.Is(err, store.ErrNotFound) {
 		bundle, caKeyPEM, err := mintOperatorTLS(c, CentralOperatorID, hosts)
 		if err != nil {
-			return store.Operator{}, OperatorTLSBundle{}, errf(KindInternal, "could not mint the central operator's certificates: %v", err)
+			return store.Operator{}, OperatorTLSBundle{}, Errf(KindInternal, "could not mint the central operator's certificates: %v", err)
 		}
 		op = store.Operator{
 			ID: CentralOperatorID, OrgID: c.OrgID, Name: "Central (FUSION)", Status: store.OperatorActive,
@@ -913,8 +913,8 @@ func (c *Core) EnsureCentralOperator(ctx context.Context, actor string, dest sto
 			ClientCACertPEM: bundle.CACertPEM, ClientCAKeyPEM: caKeyPEM,
 			CreatedBy: actor, CreatedAt: c.Now(),
 		}
-		createErr := c.auditedWrite(c.Store.CreateOperator(ctx, op, nil,
-			store.WithAudit(c.auditRow(c.OrgID, actor, "operator-created", "operator", op.ID, "central (FUSION)"))), "operator-created")
+		createErr := c.AuditedWrite(c.Store.CreateOperator(ctx, op, nil,
+			store.WithAudit(c.AuditRow(c.OrgID, actor, "operator-created", "operator", op.ID, "central (FUSION)"))), "operator-created")
 		if createErr == nil {
 			return op, bundle, nil
 		}
@@ -929,10 +929,10 @@ func (c *Core) EnsureCentralOperator(ctx context.Context, actor string, dest sto
 		return store.Operator{}, OperatorTLSBundle{}, err
 	}
 	if op.OrgID != c.OrgID {
-		return store.Operator{}, OperatorTLSBundle{}, errf(KindConflict, "the central operator belongs to another organisation")
+		return store.Operator{}, OperatorTLSBundle{}, Errf(KindConflict, "the central operator belongs to another organisation")
 	}
 	if op.Status != store.OperatorActive {
-		return store.Operator{}, OperatorTLSBundle{}, errf(KindConflict, "the central operator was revoked")
+		return store.Operator{}, OperatorTLSBundle{}, Errf(KindConflict, "the central operator was revoked")
 	}
 	issuer, caPEM, err := c.operatorIssuer(ctx, op)
 	if err != nil {
@@ -969,7 +969,7 @@ func (c *Core) centralReceiverFresh(ctx context.Context) bool {
 // guardCentral refuses to change the server-owned operator through the ordinary operator calls.
 func guardCentral(id string) error {
 	if id == CentralOperatorID {
-		return errf(KindConflict, "the central operator is managed by FUSION: turn FUSION off or on instead of changing it")
+		return Errf(KindConflict, "the central operator is managed by FUSION: turn FUSION off or on instead of changing it")
 	}
 	return nil
 }

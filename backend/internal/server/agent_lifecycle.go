@@ -25,28 +25,28 @@ func (c *Core) CreateToken(ctx context.Context, actor, label string, tier int) (
 // kube-system namespace) may use; empty means any cluster.
 func (c *Core) CreateTokenFor(ctx context.Context, actor, label string, tier int, expectedCluster string) (string, store.Token, error) {
 	expectedCluster = strings.ToLower(strings.TrimSpace(expectedCluster))
-	if expectedCluster != "" && !fingerprintRe.MatchString(expectedCluster) {
-		return "", store.Token{}, errf(KindInvalid, "the expected cluster is the UID of its kube-system namespace, like 3f2b6c1e-9a4d-4e7b-8c55-0d1e2f3a4b5c (kubectl get namespace kube-system -o jsonpath='{.metadata.uid}')")
+	if expectedCluster != "" && !FingerprintRe.MatchString(expectedCluster) {
+		return "", store.Token{}, Errf(KindInvalid, "the expected cluster is the UID of its kube-system namespace, like 3f2b6c1e-9a4d-4e7b-8c55-0d1e2f3a4b5c (kubectl get namespace kube-system -o jsonpath='{.metadata.uid}')")
 	}
 	label = strings.TrimSpace(label)
 	if label == "" || len(label) > 80 {
-		return "", store.Token{}, errf(KindInvalid, "name the cluster (1-80 characters)")
+		return "", store.Token{}, Errf(KindInvalid, "name the cluster (1-80 characters)")
 	}
 	if !GrantableTier(tier) {
-		return "", store.Token{}, errf(KindInvalid, "access tier must be 0-%d in this release", ImplementedTier)
+		return "", store.Token{}, Errf(KindInvalid, "access tier must be 0-%d in this release", ImplementedTier)
 	}
 	secret, err := NewTokenSecret()
 	if err != nil {
 		return "", store.Token{}, err
 	}
 	now := c.Now()
-	t := store.Token{ID: newTokenID(), OrgID: c.OrgID, Label: label, AccessTier: tier, CreatedBy: actor, CreatedAt: now, ExpiresAt: now.Add(TokenTTL), ExpectedFingerprint: expectedCluster}
+	t := store.Token{ID: NewTokenID(), OrgID: c.OrgID, Label: label, AccessTier: tier, CreatedBy: actor, CreatedAt: now, ExpiresAt: now.Add(TokenTTL), ExpectedFingerprint: expectedCluster}
 	detail := fmt.Sprintf("for %q, up to tier %d", label, tier)
 	if expectedCluster != "" {
-		detail += ", only for cluster " + shortFP(expectedCluster)
+		detail += ", only for cluster " + ShortFP(expectedCluster)
 	}
-	if err := c.auditedWrite(c.Store.CreateToken(ctx, t, HashSecret(secret),
-		store.WithAudit(c.auditRow(c.OrgID, actor, "token-created", "token", t.ID, detail))), "token-created"); err != nil {
+	if err := c.AuditedWrite(c.Store.CreateToken(ctx, t, HashSecret(secret),
+		store.WithAudit(c.AuditRow(c.OrgID, actor, "token-created", "token", t.ID, detail))), "token-created"); err != nil {
 		return "", store.Token{}, err
 	}
 	return secret, t, nil
@@ -54,25 +54,25 @@ func (c *Core) CreateTokenFor(ctx context.Context, actor, label string, tier int
 
 // DeleteToken withdraws an enrollment token that was not used yet.
 func (c *Core) DeleteToken(ctx context.Context, actor, id string) error {
-	err := c.Store.DeleteToken(ctx, c.OrgID, id, store.WithAudit(c.auditRow(c.OrgID, actor, "token-deleted", "token", id, "")))
+	err := c.Store.DeleteToken(ctx, c.OrgID, id, store.WithAudit(c.AuditRow(c.OrgID, actor, "token-deleted", "token", id, "")))
 	if errors.Is(err, store.ErrNotFound) {
-		return errf(KindNotFound, "no such unused token")
+		return Errf(KindNotFound, "no such unused token")
 	}
-	return c.auditedWrite(err, "token-deleted")
+	return c.AuditedWrite(err, "token-deleted")
 }
 
 func (c *Core) Reject(ctx context.Context, actor, agentID, reason string) error {
-	if _, err := c.agentInOrg(ctx, agentID); err != nil {
+	if _, err := c.AgentInOrg(ctx, agentID); err != nil {
 		return err
 	}
-	reason = printable(reason, maxReason)
-	err := c.Store.RejectAgent(ctx, agentID, reason, c.Now(), store.WithAudit(c.auditRow(c.OrgID, actor, "agent-rejected", "agent", agentID, reason)))
+	reason = Printable(reason, MaxReason)
+	err := c.Store.RejectAgent(ctx, agentID, reason, c.Now(), store.WithAudit(c.AuditRow(c.OrgID, actor, "agent-rejected", "agent", agentID, reason)))
 	if errors.Is(err, store.ErrBadState) {
-		err = errf(KindConflict, "only pending agents can be rejected")
+		err = Errf(KindConflict, "only pending agents can be rejected")
 	}
-	err = c.auditedWrite(err, "agent-rejected")
+	err = c.AuditedWrite(err, "agent-rejected")
 	if err == nil {
-		if fresh, ferr := c.agentInOrg(ctx, agentID); ferr == nil {
+		if fresh, ferr := c.AgentInOrg(ctx, agentID); ferr == nil {
 			c.recordAgentGraph(ctx, fresh, "agent-rejected", reason)
 		}
 	}
@@ -81,17 +81,17 @@ func (c *Core) Reject(ctx context.Context, actor, agentID, reason string) error 
 
 // Revoke takes effect on the agent's next call and drops its live stream immediately.
 func (c *Core) Revoke(ctx context.Context, actor, agentID, reason string) error {
-	if _, err := c.agentInOrg(ctx, agentID); err != nil {
+	if _, err := c.AgentInOrg(ctx, agentID); err != nil {
 		return err
 	}
-	reason = printable(reason, maxReason)
-	err := c.Store.RevokeAgent(ctx, agentID, reason, c.Now(), store.WithAudit(c.auditRow(c.OrgID, actor, "agent-revoked", "agent", agentID, reason)))
+	reason = Printable(reason, MaxReason)
+	err := c.Store.RevokeAgent(ctx, agentID, reason, c.Now(), store.WithAudit(c.AuditRow(c.OrgID, actor, "agent-revoked", "agent", agentID, reason)))
 	if errors.Is(err, store.ErrBadState) {
-		err = errf(KindConflict, "agent is not active")
+		err = Errf(KindConflict, "agent is not active")
 	}
-	err = c.auditedWrite(err, "agent-revoked")
+	err = c.AuditedWrite(err, "agent-revoked")
 	if err == nil {
-		if fresh, ferr := c.agentInOrg(ctx, agentID); ferr == nil {
+		if fresh, ferr := c.AgentInOrg(ctx, agentID); ferr == nil {
 			c.recordAgentGraph(ctx, fresh, "agent-revoked", reason)
 		}
 		// A revoked agent sends nothing, so its telemetry intents are dead letters. Left active, they still count
@@ -129,7 +129,7 @@ func (c *Core) endAgentIntents(ctx context.Context, actor, agentID, reason strin
 func (c *Core) AuthorizeAgent(ctx context.Context, agentID string) (store.Agent, error) {
 	a, err := c.Store.GetAgent(ctx, agentID)
 	if err != nil || a.Status != store.StatusApproved || (c.OrgID != "" && a.OrgID != c.OrgID) {
-		return store.Agent{}, errf(KindUnauthenticated, "agent is not approved")
+		return store.Agent{}, Errf(KindUnauthenticated, "agent is not approved")
 	}
 	return a, nil
 }
@@ -141,11 +141,11 @@ func (c *Core) Renew(ctx context.Context, agentID string, csrDER []byte) ([]byte
 		return nil, time.Time{}, err
 	}
 	if c.RenewRL != nil && !c.RenewRL.Allow("renew:"+agentID) {
-		return nil, time.Time{}, errf(KindRateLimited, "renewing too often")
+		return nil, time.Time{}, Errf(KindRateLimited, "renewing too often")
 	}
 	csr, err := pki.ParseCSR(csrDER)
 	if err != nil {
-		return nil, time.Time{}, errf(KindInvalid, "%v", err)
+		return nil, time.Time{}, Errf(KindInvalid, "%v", err)
 	}
 	leaf, notAfter, err := c.CA.IssueAgent(csr, agentID, a.OrgID, pki.AgentCertTTL)
 	if err != nil {
@@ -164,9 +164,9 @@ func (c *Core) Renew(ctx context.Context, agentID string, csrDER []byte) ([]byte
 // agent must still be approved right now, and the call is rate limited per address and per agent.
 func (c *Core) Rejoin(ctx context.Context, ip string, req *continuumv1.RejoinRequest) (*continuumv1.RenewResponse, error) {
 	if !c.EnrollRL.Allow("rejoin:" + LimitKey(ip)) {
-		return nil, errf(KindRateLimited, "too many attempts, slow down")
+		return nil, Errf(KindRateLimited, "too many attempts, slow down")
 	}
-	deny := errf(KindUnauthenticated, "this agent cannot rejoin; enroll again with a new token")
+	deny := Errf(KindUnauthenticated, "this agent cannot rejoin; enroll again with a new token")
 	leaf, err := c.CA.VerifyExpiredAgent(req.ExpiredLeafDer)
 	if err != nil {
 		return nil, deny
@@ -177,7 +177,7 @@ func (c *Core) Rejoin(ctx context.Context, ip string, req *continuumv1.RejoinReq
 	}
 	csr, err := pki.ParseCSR(req.CsrDer)
 	if err != nil {
-		return nil, errf(KindInvalid, "%v", err)
+		return nil, Errf(KindInvalid, "%v", err)
 	}
 	pub, ok := leaf.PublicKey.(*ecdsa.PublicKey)
 	cpub, ok2 := csr.PublicKey.(*ecdsa.PublicKey)
@@ -191,7 +191,7 @@ func (c *Core) Rejoin(ctx context.Context, ip string, req *continuumv1.RejoinReq
 		return nil, deny
 	}
 	if c.RenewRL != nil && !c.RenewRL.Allow("renew:"+id) {
-		return nil, errf(KindRateLimited, "renewing too often")
+		return nil, Errf(KindRateLimited, "renewing too often")
 	}
 	der, notAfter, err := c.CA.IssueAgent(csr, id, ag.OrgID, pki.AgentCertTTL)
 	if err != nil {
@@ -200,6 +200,6 @@ func (c *Core) Rejoin(ctx context.Context, ip string, req *continuumv1.RejoinReq
 	if err := c.Store.SetLeaf(ctx, id, der, notAfter); err != nil {
 		return nil, err
 	}
-	c.auditOrg(ctx, ag.OrgID, AgentActor(id).String(), "agent-rejoined", "agent", id, fmt.Sprintf("from %s after its certificate expired at %s", ip, rfc(leaf.NotAfter)))
-	return &continuumv1.RenewResponse{LeafDer: der, CaDer: c.CA.DER, NotAfter: tsProto(&notAfter)}, nil
+	c.AuditOrg(ctx, ag.OrgID, AgentActor(id).String(), "agent-rejoined", "agent", id, fmt.Sprintf("from %s after its certificate expired at %s", ip, rfc(leaf.NotAfter)))
+	return &continuumv1.RenewResponse{LeafDer: der, CaDer: c.CA.DER, NotAfter: TSProto(&notAfter)}, nil
 }

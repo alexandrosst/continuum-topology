@@ -16,7 +16,7 @@ import (
 // NewPublicIPFinder, is what lets a test open exactly that one hole without weakening the real default.
 func permissiveFinder(url string, ttl time.Duration) *PublicIPFinder {
 	allow, _ := NewDeciderPolicy("127.0.0.0/8, ::1/128")
-	return &PublicIPFinder{url: url, client: allow.client(5 * time.Second), ttl: ttl}
+	return &PublicIPFinder{url: url, client: allow.Client(5 * time.Second), ttl: ttl}
 }
 
 func TestPublicIPFinderNilWhenURLEmpty(t *testing.T) {

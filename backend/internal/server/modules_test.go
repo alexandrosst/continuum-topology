@@ -112,7 +112,7 @@ func TestEverySourceFileBelongsToOneModule(t *testing.T) {
 // A use is one place where a file of one module names something declared in a file of another.
 type moduleUse struct {
 	from, to string // modules
-	what     string // "func newSecret", "field Hub.mu", "method Core.audit", "type Consent"
+	what     string // "func NewSecret", "field Hub.mu", "method Core.audit", "type Consent"
 	file     string // the file that uses it, to say where in a failure
 }
 

@@ -23,7 +23,7 @@ func (a *Admin) rotateLinkCredentials(w http.ResponseWriter, r *http.Request) {
 	req.Cluster, req.A, req.B = strings.TrimSpace(req.Cluster), strings.TrimSpace(req.A), strings.TrimSpace(req.B)
 	byCluster, byPair := req.Cluster != "" && req.A == "" && req.B == "", req.Cluster == "" && req.A != "" && req.B != ""
 	if !byCluster && !byPair {
-		a.fail(w, errf(KindInvalid, "invalid request body: expected {\"cluster\": \"id\"} or {\"a\": \"id\", \"b\": \"id\"}"))
+		a.fail(w, Errf(KindInvalid, "invalid request body: expected {\"cluster\": \"id\"} or {\"a\": \"id\", \"b\": \"id\"}"))
 		return
 	}
 	c := a.core(r)
@@ -33,15 +33,15 @@ func (a *Admin) rotateLinkCredentials(w http.ResponseWriter, r *http.Request) {
 	}
 	links := c.Settings().Links
 	// A request that cannot rotate anything (an id that is no cluster id, a cluster that serves no pair with throughput tests, a pair
-	// that does not ask for them) is refused before the audit row: audited() writes the row first, and a refused request would
+	// that does not ask for them) is refused before the audit row: Audited() writes the row first, and a refused request would
 	// leave two rows with text of the caller's choosing.
 	if why := rotateRefusal(links, req.Cluster, req.A, req.B); why != "" {
 		writeErr(w, http.StatusUnprocessableEntity, why)
 		return
 	}
-	err := c.audited(r.Context(), actor(r), "link-credentials-rotate", "links", target, "iperf3 credentials for the throughput tests", func() error {
+	err := c.Audited(r.Context(), actor(r), "link-credentials-rotate", "links", target, "iperf3 credentials for the throughput tests", func() error {
 		if err := c.RotateLinkCredentials(r.Context(), links, req.Cluster, req.A, req.B); err != nil {
-			return errf(KindInvalid, "%s", err.Error())
+			return Errf(KindInvalid, "%s", err.Error())
 		}
 		return nil
 	})

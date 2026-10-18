@@ -9,7 +9,7 @@ import (
 )
 
 // Organisation scope is a convention here: the store takes raw ids, and every handler has to look the id up through an
-// organisation check (agentInOrg and its siblings). A handler that forgets would let an administrator of one organisation read
+// organisation check (AgentInOrg and its siblings). A handler that forgets would let an administrator of one organisation read
 // or change another's entity by naming its id through their own organisation's path.
 //
 // This test is the pin for that. Bob, who administers his own organisation, calls every organisation-scoped route that takes an id,

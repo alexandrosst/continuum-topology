@@ -328,7 +328,7 @@ func TestPoisonedFlowTableIsDroppedOnRestore(t *testing.T) {
 
 func edge(ref, ip string) *continuumv1.FlowEdge {
 	now := time.Now()
-	t := tsProto(&now)
+	t := TSProto(&now)
 	return &continuumv1.FlowEdge{FirstSeen: t, LastSeen: t, Key: &continuumv1.Flow{Port: 80, Protocol: "tcp",
 		Src: &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_WORKLOAD, Ref: ref},
 		Dst: &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_EXTERNAL, Ip: ip}}}

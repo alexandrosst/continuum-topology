@@ -19,14 +19,14 @@ const (
 
 // quickStartBackendInOrg finds this organisation's own quick-start backend by id (see Settings.QuickStartBackends) -
 // a backend belonging to another organisation, or no longer configured at all, is reported as not found,
-// the same convention agentInOrg/operatorInOrg already use.
+// the same convention AgentInOrg/operatorInOrg already use.
 func (c *Core) quickStartBackendInOrg(id string) (QuickStartBackend, error) {
 	for _, b := range c.Settings().QuickStartBackends {
 		if b.ID == id {
 			return b, nil
 		}
 	}
-	return QuickStartBackend{}, errf(KindNotFound, "no such quick-start backend")
+	return QuickStartBackend{}, Errf(KindNotFound, "no such quick-start backend")
 }
 
 // MintGatewayToken mints a fresh, instance-scoped bearer secret for the Part C nginx gateway that gates
@@ -54,7 +54,7 @@ func (c *Core) MintGatewayToken(ctx context.Context, actor, backendID string, tt
 	now := c.Now()
 	hash := HashSecret(secret)
 	t := store.GatewayToken{
-		ID:         newGatewayTokenID(),
+		ID:         NewGatewayTokenID(),
 		OrgID:      c.OrgID,
 		BackendID:  backendID,
 		SecretHash: hash, // also handed to CreateGatewayToken below, so the in-memory struct matches what's persisted
@@ -62,8 +62,8 @@ func (c *Core) MintGatewayToken(ctx context.Context, actor, backendID string, tt
 		CreatedAt:  now,
 		ExpiresAt:  now.Add(ttl),
 	}
-	if err := c.auditedWrite(c.Store.CreateGatewayToken(ctx, t, hash,
-		store.WithAudit(c.auditRow(c.OrgID, actor, "quick-start-gateway-token-minted", "quick-start-backend", backendID, backend.Label))), "quick-start-gateway-token-minted"); err != nil {
+	if err := c.AuditedWrite(c.Store.CreateGatewayToken(ctx, t, hash,
+		store.WithAudit(c.AuditRow(c.OrgID, actor, "quick-start-gateway-token-minted", "quick-start-backend", backendID, backend.Label))), "quick-start-gateway-token-minted"); err != nil {
 		return store.GatewayToken{}, "", err
 	}
 	return t, secret, nil

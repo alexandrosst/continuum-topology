@@ -17,11 +17,11 @@ import (
 )
 
 func TestFailureTrackerBacksOffExponentiallyUpToACap(t *testing.T) {
-	ft := newFailureTracker()
+	ft := NewFailureTracker()
 	now := time.Unix(2_000_000, 0)
 	var waits []time.Duration
 	for i := 0; i < 20; i++ {
-		waits = append(waits, ft.fail("alex", now))
+		waits = append(waits, ft.Fail("alex", now))
 		now = now.Add(waits[i] + time.Millisecond) // the next attempt comes right after the wait
 	}
 	want := []time.Duration{0, 0, 0, 0, time.Second, 2 * time.Second, 4 * time.Second, 8 * time.Second, 16 * time.Second, 32 * time.Second, 64 * time.Second, 128 * time.Second, 256 * time.Second, failCap, failCap}
@@ -36,37 +36,37 @@ func TestFailureTrackerBacksOffExponentiallyUpToACap(t *testing.T) {
 		}
 	}
 	// blocked reports the remaining wait, and it ends
-	ft = newFailureTracker()
+	ft = NewFailureTracker()
 	for i := 0; i < 6; i++ {
-		ft.fail("bob", now)
+		ft.Fail("bob", now)
 	}
-	if d := ft.blocked("bob", now); d != 2*time.Second {
+	if d := ft.Blocked("bob", now); d != 2*time.Second {
 		t.Fatalf("blocked = %v", d)
 	}
-	if d := ft.blocked("bob", now.Add(3*time.Second)); d != 0 {
+	if d := ft.Blocked("bob", now.Add(3*time.Second)); d != 0 {
 		t.Fatalf("still blocked after the wait: %v", d)
 	}
-	if ft.blocked("someone else", now) != 0 {
+	if ft.Blocked("someone else", now) != 0 {
 		t.Fatal("one name's failures affected another")
 	}
-	ft.succeed("bob")
-	if ft.blocked("bob", now) != 0 || ft.fail("bob", now) != 0 {
+	ft.Succeed("bob")
+	if ft.Blocked("bob", now) != 0 || ft.Fail("bob", now) != 0 {
 		t.Fatal("a success did not reset the count")
 	}
 	// idle names are forgotten, and memory is bounded
-	ft = newFailureTracker()
+	ft = NewFailureTracker()
 	ft.max = 50
 	for i := 0; i < 500; i++ {
-		ft.fail(fmt.Sprint("name", i), now)
+		ft.Fail(fmt.Sprint("name", i), now)
 	}
 	if len(ft.names) != 50 || ft.order.Len() != 50 {
 		t.Fatalf("tracker holds %d names", len(ft.names))
 	}
-	ft2 := newFailureTracker()
+	ft2 := NewFailureTracker()
 	for i := 0; i < 8; i++ {
-		ft2.fail("old", now)
+		ft2.Fail("old", now)
 	}
-	if ft2.fail("old", now.Add(failFor+time.Minute)) != 0 {
+	if ft2.Fail("old", now.Add(failFor+time.Minute)) != 0 {
 		t.Fatal("a failure from long ago still counted")
 	}
 }
@@ -79,7 +79,7 @@ func TestLoginFailuresBackOffPerAccountWhateverTheAddress(t *testing.T) {
 		return a.do("POST", "/api/v1/auth/login", map[string]string{"username": user, "password": pw}, fromIP(fmt.Sprintf("198.51.%d.%d", n/200, n%200+1)))
 	}
 	for _, user := range []string{"alex", "nobody-by-this-name"} {
-		for i := 0; i < failFree; i++ {
+		for i := 0; i < FailFree; i++ {
 			if r := login(user, "wrong password here", i); r.Code != 401 {
 				t.Fatalf("%s failure %d: %d", user, i, r.Code)
 			}

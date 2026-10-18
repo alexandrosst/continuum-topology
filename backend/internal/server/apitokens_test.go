@@ -34,7 +34,7 @@ func TestAPITokenCreateListAuthenticateAndRevoke(t *testing.T) {
 	created := r.json(t)
 	secret, _ := created["token"].(string)
 	id, _ := created["id"].(string)
-	if secret == "" || !strings.HasPrefix(secret, patPrefix) || id == "" {
+	if secret == "" || !strings.HasPrefix(secret, PatPrefix) || id == "" {
 		t.Fatalf("create response = %v", created)
 	}
 	if created["name"] != "CI pipeline" {
@@ -60,7 +60,7 @@ func TestAPITokenCreateListAuthenticateAndRevoke(t *testing.T) {
 	}
 
 	// A malformed or unknown secret is refused the same as no credential at all.
-	if r := a.do("GET", "/api/v1/auth/me", nil, withHeader("Authorization", "Bearer "+patPrefix+"nope")); r.Code != 401 {
+	if r := a.do("GET", "/api/v1/auth/me", nil, withHeader("Authorization", "Bearer "+PatPrefix+"nope")); r.Code != 401 {
 		t.Fatalf("bad token: %d %s", r.Code, r.Body.String())
 	}
 

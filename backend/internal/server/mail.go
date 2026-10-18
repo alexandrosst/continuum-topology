@@ -102,19 +102,19 @@ func (c *Core) LoadMailConfig(ctx context.Context) {
 // SaveMailConfig validates, persists and makes a new mail configuration visible to every organisation's
 // Core at once (see ForOrg), returning it normalized the way SaveSettings returns Settings. Callers are
 // responsible for authorization - see requireDefaultOwner. It always writes to the server's own audit
-// trail ("" - see auditOrg), not this Core's OrgID, because SMTP is one setting for the whole server and
+// trail ("" - see AuditOrg), not this Core's OrgID, because SMTP is one setting for the whole server and
 // this may be called through any organisation's Core.
 func (c *Core) SaveMailConfig(ctx context.Context, by string, m MailConfig) (MailConfig, error) {
 	m, err := m.Normalize()
 	if err != nil {
-		return MailConfig{}, errf(KindInvalid, "%v", err)
+		return MailConfig{}, Errf(KindInvalid, "%v", err)
 	}
 	data, err := json.Marshal(m)
 	if err != nil {
 		return MailConfig{}, err
 	}
-	if err := c.auditedWrite(c.Store.PutMailConfig(ctx, data, c.Now(),
-		store.WithAudit(c.auditRow("", by, "mail-config-changed", "server", "", ""))), "mail-config-changed"); err != nil {
+	if err := c.AuditedWrite(c.Store.PutMailConfig(ctx, data, c.Now(),
+		store.WithAudit(c.AuditRow("", by, "mail-config-changed", "server", "", ""))), "mail-config-changed"); err != nil {
 		return MailConfig{}, err
 	}
 	c.mailSt().set(m)
@@ -282,7 +282,7 @@ func mailConfigDoc(m MailConfig) MailConfigDoc {
 func (a *Admin) requireDefaultOwner(ctx context.Context, p Principal) error {
 	m, err := a.C.Member(ctx, p, a.C.DefaultOrg)
 	if err != nil || !Allows(Standing(m.Role), ActOwn) {
-		return errf(KindForbidden, "only an owner of the default organisation may do this")
+		return Errf(KindForbidden, "only an owner of the default organisation may do this")
 	}
 	return nil
 }

@@ -140,7 +140,7 @@ func (h *Hub) driftSweep(ctx context.Context) {
 	}
 	sort.Strings(ids)
 	for _, id := range ids {
-		a, err := h.C.agentInOrg(ctx, id)
+		a, err := h.C.AgentInOrg(ctx, id)
 		if err != nil || a.Status != store.StatusApproved {
 			continue
 		}

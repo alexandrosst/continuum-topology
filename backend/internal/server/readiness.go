@@ -52,7 +52,7 @@ func (rd *Readiness) check(ctx context.Context, a *Admin) (bool, string) {
 	ok, body := true, "ready"
 	var notes []string
 	if _, err := a.C.Store.CountUsers(cctx); err != nil {
-		Metrics.storeErrors.Add(1)
+		Metrics.StoreErrors.Add(1)
 		ok, body = false, "not ready: the database is not reachable"
 	} else if rd.AgentsListening != nil && !rd.AgentsListening() {
 		ok, body = false, "not ready: the agents' listener is not accepting connections"

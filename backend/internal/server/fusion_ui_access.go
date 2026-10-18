@@ -107,7 +107,7 @@ func (f *fusionUIAccess) put(m map[string]fusionUIGrant, g fusionUIGrant, now ti
 	if !f.makeRoomLocked(m, g.userID, now) {
 		return ""
 	}
-	secret, err := newSecret()
+	secret, err := NewSecret()
 	if err != nil {
 		return ""
 	}
@@ -151,7 +151,7 @@ func (f *fusionUIAccess) redeemAndOpen(ticket string, now time.Time) (secret str
 	if !f.makeRoomLocked(f.sessions, g.userID, now) {
 		return "", g, fusionTicketBusy
 	}
-	secret, err := newSecret()
+	secret, err := NewSecret()
 	if err != nil {
 		return "", g, fusionTicketBusy
 	}
@@ -247,7 +247,7 @@ func (a *Admin) redeemFusionTicket(w http.ResponseWriter, r *http.Request, ticke
 	secret, _, out := a.fusionUIAccess.redeemAndOpen(ticket, now)
 	switch out {
 	case fusionTicketInvalid:
-		Metrics.authFailures.Add(1)
+		Metrics.AuthFailures.Add(1)
 		// Not the sign-in's limiter: a stranger's bad links must not use up the budget a person signing in from the same
 		// address needs (see fusionPageRL).
 		if !a.fusionPageRL.Allow(LimitKey(a.clientIP(r))) {
@@ -280,11 +280,11 @@ func (a *Admin) openFusionPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if a.Fusion == nil {
-		a.fail(w, errf(KindConflict, "%s", a.Fusion.Status(r.Context()).Message))
+		a.fail(w, Errf(KindConflict, "%s", a.Fusion.Status(r.Context()).Message))
 		return
 	}
 	if a.core(r).OrgID != a.fusionOrg() {
-		a.fail(w, errf(KindForbidden, "FUSION's pages belong to this server's main organisation"))
+		a.fail(w, Errf(KindForbidden, "FUSION's pages belong to this server's main organisation"))
 		return
 	}
 	links := a.Fusion.uiLinks(a.Fusion.Status(r.Context()))
@@ -295,17 +295,17 @@ func (a *Admin) openFusionPage(w http.ResponseWriter, r *http.Request) {
 	case req.Page == "prometheus" && links != nil:
 		base = links.Prometheus
 	case req.Page != "grafana" && req.Page != "prometheus":
-		a.fail(w, errf(KindInvalid, "page must be grafana or prometheus"))
+		a.fail(w, Errf(KindInvalid, "page must be grafana or prometheus"))
 		return
 	}
 	if base == "" {
-		a.fail(w, errf(KindConflict, "%s is not running yet", map[string]string{"grafana": "Grafana", "prometheus": "Prometheus"}[req.Page]))
+		a.fail(w, Errf(KindConflict, "%s is not running yet", map[string]string{"grafana": "Grafana", "prometheus": "Prometheus"}[req.Page]))
 		return
 	}
 	p := principal(r)
 	t := a.fusionUIAccess.ticket(p.User.ID, p.User.Username, a.core(r).Now())
 	if t == "" {
-		a.fail(w, errf(KindConflict, "too many pages are open, try again in a moment"))
+		a.fail(w, Errf(KindConflict, "too many pages are open, try again in a moment"))
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")

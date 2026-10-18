@@ -34,7 +34,7 @@ func TestSettingsDiffShowsEveryChangeToAPair(t *testing.T) {
 		"added with load":  {LinkSetting{A: "cl-x", B: "cl-y"}, with(func(l *LinkSetting) { l.Throughput = th(10, 99) }), "pair cl-a/cl-b added (throughput on (every 10 min, budget 99 MB))"},
 		"pair order alike": {LinkSetting{A: "cl-b", B: "cl-a", Via: "mesh"}, with(func(l *LinkSetting) { l.Via = "public" }), "pair cl-a/cl-b: via mesh → public"},
 	} {
-		got := settingsDiff(settingsWithLinks(c.from), settingsWithLinks(c.to))
+		got := SettingsDiff(settingsWithLinks(c.from), settingsWithLinks(c.to))
 		if !strings.Contains(got, c.want) {
 			t.Errorf("%s: %q does not say %q", name, got, c.want)
 		}
@@ -42,7 +42,7 @@ func TestSettingsDiffShowsEveryChangeToAPair(t *testing.T) {
 	// Nothing changed, however the list is ordered: no row.
 	a := settingsWithLinks(LinkSetting{A: "cl-a", B: "cl-b", Via: "mesh"}, LinkSetting{A: "cl-a", B: "cl-c"})
 	b := settingsWithLinks(LinkSetting{A: "cl-a", B: "cl-c"}, LinkSetting{A: "cl-b", B: "cl-a", Via: "mesh"})
-	if got := settingsDiff(a, b); got != "" {
+	if got := SettingsDiff(a, b); got != "" {
 		t.Errorf("an unchanged list is audited: %q", got)
 	}
 }
@@ -52,7 +52,7 @@ func TestSettingsDiffOfPairsIsBoundedAndHoldsIdsOnly(t *testing.T) {
 	for i := 0; i < 40; i++ {
 		many = append(many, LinkSetting{A: "cl-a", B: fmt.Sprintf("cl-%02d", i), Throughput: &LinkThroughput{}})
 	}
-	got := settingsDiff(settingsWithLinks(), settingsWithLinks(many...))
+	got := SettingsDiff(settingsWithLinks(), settingsWithLinks(many...))
 	if n := strings.Count(got, "pair cl-"); n != maxLinksDiffEntries || !strings.Contains(got, "and 30 more linked pair changes") {
 		t.Errorf("%d entries: %q", n, got)
 	}
@@ -60,7 +60,7 @@ func TestSettingsDiffOfPairsIsBoundedAndHoldsIdsOnly(t *testing.T) {
 		t.Errorf("the row is %d bytes", len(got))
 	}
 	long := strings.Repeat("x", 500)
-	got = settingsDiff(settingsWithLinks(), settingsWithLinks(LinkSetting{A: long, B: "y"}))
+	got = SettingsDiff(settingsWithLinks(), settingsWithLinks(LinkSetting{A: long, B: "y"}))
 	if len(got) > 300 {
 		t.Errorf("an id is not bounded: %d bytes", len(got))
 	}
@@ -112,12 +112,12 @@ func TestASavedPairNeedsWellFormedIdsAndRoomInThePeerList(t *testing.T) {
 	if _, err := e.core.SaveSettings(e.ctx, "alex", settingsWithLinks(LinkSetting{A: "a", B: "cl-3f2b6c1e9a"}, LinkSetting{A: "x.y_z-1", B: "b"})); err != nil {
 		t.Errorf("ordinary ids refused: %v", err)
 	}
-	// 65 pairs of one cluster is a valid list for normalizeLinks (the stored settings must still load) but not for a save.
+	// 65 pairs of one cluster is a valid list for NormalizeLinks (the stored settings must still load) but not for a save.
 	var hub []LinkSetting
 	for i := 0; i <= 64; i++ {
 		hub = append(hub, LinkSetting{A: "cl-hub", B: fmt.Sprintf("cl-s%02d", i)})
 	}
-	if _, err := normalizeLinks(hub); err != nil {
+	if _, err := NormalizeLinks(hub); err != nil {
 		t.Fatalf("normalizeLinks refuses what stored settings may hold: %v", err)
 	}
 	_, err := e.core.SaveSettings(e.ctx, "alex", settingsWithLinks(hub...))
@@ -136,7 +136,7 @@ func TestABadStoredPairIsDroppedWithoutResettingTheOtherSettings(t *testing.T) {
 	s := DefaultSettings()
 	s.SnapshotMinutes = 7
 	s.Links = []LinkSetting{{A: "cl-a", B: "cl-b"}, {A: "bad\x1fid", B: "cl-c"}, {A: "cl-d", B: "cl-d"}, {A: "cl-e", B: "cl-f", Via: "wifi"}}
-	data, _ := json.Marshal(storedSettings{Settings: s, Rev: 3})
+	data, _ := json.Marshal(StoredSettings{Settings: s, Rev: 3})
 	if err := e.st.PutSettings(e.ctx, e.core.OrgID, data, e.core.Now()); err != nil {
 		t.Fatal(err)
 	}

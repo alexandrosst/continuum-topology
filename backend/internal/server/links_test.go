@@ -13,7 +13,7 @@ import (
 )
 
 func TestLinkPairsAreCanonicalAndChecked(t *testing.T) {
-	got, err := normalizeLinks([]LinkSetting{{A: "cl-b", B: "cl-a"}, {A: "cl-a", B: "cl-b"}, {A: " cl-c ", B: "cl-a"}})
+	got, err := NormalizeLinks([]LinkSetting{{A: "cl-b", B: "cl-a"}, {A: "cl-a", B: "cl-b"}, {A: " cl-c ", B: "cl-a"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,7 +26,7 @@ func TestLinkPairsAreCanonicalAndChecked(t *testing.T) {
 		"itself":   {{A: "cl-a", B: "cl-a"}},
 		"too long": {{A: strings.Repeat("x", 65), B: "cl-a"}},
 	} {
-		if _, err := normalizeLinks(in); err == nil {
+		if _, err := NormalizeLinks(in); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
 	}
@@ -34,7 +34,7 @@ func TestLinkPairsAreCanonicalAndChecked(t *testing.T) {
 	for i := range many {
 		many[i] = LinkSetting{A: "cl-a", B: "cl-" + strings.Repeat("z", i+1)}
 	}
-	if _, err := normalizeLinks(many); err == nil {
+	if _, err := NormalizeLinks(many); err == nil {
 		t.Error("more than the limit was accepted")
 	}
 }
@@ -171,7 +171,7 @@ func hasAddr(xs []string, s string) bool {
 }
 
 func TestEachPairKeepsItsOwnChoicesAndTheLastEntryOfAPairStands(t *testing.T) {
-	got, err := normalizeLinks([]LinkSetting{
+	got, err := NormalizeLinks([]LinkSetting{
 		{A: "cl-b", B: "cl-a"},
 		{A: "cl-a", B: "cl-b", NoProbe: true, Throughput: &LinkThroughput{IntervalMinutes: 60, BudgetMB: 2048}},
 		{A: "cl-a", B: "cl-c", Throughput: &LinkThroughput{}},
@@ -187,7 +187,7 @@ func TestEachPairKeepsItsOwnChoicesAndTheLastEntryOfAPairStands(t *testing.T) {
 	}
 	// What was returned does not alias the caller's value.
 	in := &LinkThroughput{BudgetMB: 1}
-	out, _ := normalizeLinks([]LinkSetting{{A: "a", B: "b", Throughput: in}})
+	out, _ := NormalizeLinks([]LinkSetting{{A: "a", B: "b", Throughput: in}})
 	in.BudgetMB = 99
 	if out[0].Throughput.BudgetMB != 1 {
 		t.Error("the stored setting shares memory with the request")
@@ -197,7 +197,7 @@ func TestEachPairKeepsItsOwnChoicesAndTheLastEntryOfAPairStands(t *testing.T) {
 		"interval too long":  {IntervalMinutes: 7*24*60 + 1},
 		"budget too big":     {BudgetMB: 1<<20 + 1},
 	} {
-		if _, err := normalizeLinks([]LinkSetting{{A: "a", B: "b", Throughput: th}}); err == nil {
+		if _, err := NormalizeLinks([]LinkSetting{{A: "a", B: "b", Throughput: th}}); err == nil {
 			t.Errorf("%s accepted", name)
 		}
 	}
@@ -333,7 +333,7 @@ func TestPairChoicesAreSavedWithTheSettingsUnderTheNamesTheUIUses(t *testing.T) 
 	if err := json.Unmarshal([]byte(in), &s); err != nil {
 		t.Fatal(err)
 	}
-	links, err := normalizeLinks(s.Links)
+	links, err := NormalizeLinks(s.Links)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -452,12 +452,12 @@ func TestAPairThatIsNotMeasuredSaysWhy(t *testing.T) {
 
 func TestAPairCanBePinnedToOneKindOfAddress(t *testing.T) {
 	for _, via := range []string{"", "mesh", "private", "public"} {
-		if _, err := normalizeLinks([]LinkSetting{{A: "cl-a", B: "cl-b", Via: via}}); err != nil {
+		if _, err := NormalizeLinks([]LinkSetting{{A: "cl-a", B: "cl-b", Via: via}}); err != nil {
 			t.Errorf("%q refused: %v", via, err)
 		}
 	}
 	for _, via := range []string{"Mesh", "tailscale", "10.0.0.0/8", " public"} {
-		_, err := normalizeLinks([]LinkSetting{{A: "cl-a", B: "cl-b", Via: via}})
+		_, err := NormalizeLinks([]LinkSetting{{A: "cl-a", B: "cl-b", Via: via}})
 		if err == nil || !strings.Contains(err.Error(), "cl-a") || !strings.Contains(err.Error(), "mesh, private or public") {
 			t.Errorf("%q: %v", via, err)
 		}

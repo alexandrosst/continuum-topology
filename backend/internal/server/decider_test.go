@@ -78,7 +78,7 @@ func TestDeciderAllowListPermitsPrivateRangesButNeverMetadata(t *testing.T) {
 }
 
 func TestDeciderURLIsCheckedWhenSaved(t *testing.T) {
-	p := &DeciderPolicy{lookup: func(_ context.Context, host string) ([]netip.Addr, error) {
+	p := &DeciderPolicy{Lookup: func(_ context.Context, host string) ([]netip.Addr, error) {
 		switch host {
 		case "internal.example":
 			return []netip.Addr{netip.MustParseAddr("93.184.216.34"), netip.MustParseAddr("10.0.0.5")}, nil
@@ -279,7 +279,7 @@ func TestDecideRefusesAPrivateTargetAtDialTimeEvenIfSavedEarlier(t *testing.T) {
 	if r := a.do("PUT", "/api/v1/settings", Settings{DeciderURL: url}, withCookie(admin)); r.Code != 200 {
 		t.Fatal(r.Body.String())
 	}
-	a.base.Decider.allow = nil // the operator restarts without the allow-list (or a name now points inside)
+	a.base.Decider.Allow = nil // the operator restarts without the allow-list (or a name now points inside)
 	r := a.do("POST", "/api/v1/decide", map[string]any{"schema": 1}, withCookie(editor))
 	if r.Code != 502 || !strings.Contains(r.Body.String(), "--decider-allow-cidrs") {
 		t.Fatalf("private target: %d %s", r.Code, r.Body.String())
@@ -353,8 +353,8 @@ func TestDeciderDNSRebindingIsStoppedAtDialTime(t *testing.T) {
 	res := &net.Resolver{PreferGo: true, Dial: func(ctx context.Context, _, _ string) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, "udp", dns)
 	}}
-	p := &DeciderPolicy{resolver: res}
-	p.lookup = func(ctx context.Context, h string) ([]netip.Addr, error) { return res.LookupNetIP(ctx, "ip", h) }
+	p := &DeciderPolicy{Resolver: res}
+	p.Lookup = func(ctx context.Context, h string) ([]netip.Addr, error) { return res.LookupNetIP(ctx, "ip", h) }
 
 	var hits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hits.Add(1); _, _ = w.Write([]byte("internal")) }))
@@ -368,20 +368,20 @@ func TestDeciderDNSRebindingIsStoppedAtDialTime(t *testing.T) {
 	}
 	// Later the same name points at the server's own loopback (a rebinding attack).
 	target.Store(net.ParseIP("127.0.0.1"))
-	c := p.client(3 * time.Second)
+	c := p.Client(3 * time.Second)
 	resp, err := c.Get(u)
 	if err == nil {
 		resp.Body.Close()
 		t.Fatal("the connection to a name that now resolves to loopback succeeded")
 	}
-	if !isDeciderDenied(err) {
+	if !IsDeciderDenied(err) {
 		t.Fatalf("refused, but not by the policy: %v", err)
 	}
 	if hits.Load() != 0 {
 		t.Fatal("the internal service received a request")
 	}
 	// The same name is accepted for a range the operator opened, so the test proves the resolver path works.
-	p.allow = []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")}
+	p.Allow = []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")}
 	resp, err = c.Get(u)
 	if err != nil {
 		t.Fatalf("allow-listed loopback via DNS: %v", err)

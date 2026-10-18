@@ -69,10 +69,10 @@ func (c *Core) checkOperatorAcceptsSignals(ctx context.Context, dest store.Desti
 			continue
 		}
 		if accepted[store.ModalityUnreadable] {
-			return errf(KindInvalid, "the signal types operator %q accepts could not be read from its stored settings; save its scope again before pointing an intent at it", op.Name)
+			return Errf(KindInvalid, "the signal types operator %q accepts could not be read from its stored settings; save its scope again before pointing an intent at it", op.Name)
 		}
 		if !accepted[modality] {
-			return errf(KindInvalid, "%q is a %s signal, but the target operator only accepts %v", sg.ID, modality, op.AcceptedModalities)
+			return Errf(KindInvalid, "%q is a %s signal, but the target operator only accepts %v", sg.ID, modality, op.AcceptedModalities)
 		}
 	}
 	return nil
@@ -110,7 +110,7 @@ func (c *Core) cleanRoutes(ctx context.Context, routes map[store.Modality]store.
 		switch m {
 		case store.ModalityMetrics, store.ModalityLogs, store.ModalityTraces:
 		default:
-			return nil, errf(KindInvalid, "%q is not a signal type with a destination of its own (metrics, logs or traces)", printable(string(m), 32))
+			return nil, Errf(KindInvalid, "%q is not a signal type with a destination of its own (metrics, logs or traces)", Printable(string(m), 32))
 		}
 		if err := c.validateDestination(ctx, d); err != nil {
 			return nil, err
@@ -125,7 +125,7 @@ func (c *Core) cleanRoutes(ctx context.Context, routes map[store.Modality]store.
 func (c *Core) telemetryIntentInOrg(ctx context.Context, id string) (store.TelemetryIntent, error) {
 	ti, err := c.Store.GetTelemetryIntent(ctx, id)
 	if errors.Is(err, store.ErrNotFound) || (err == nil && ti.OrgID != c.OrgID) {
-		return store.TelemetryIntent{}, errf(KindNotFound, "no such telemetry intent")
+		return store.TelemetryIntent{}, Errf(KindNotFound, "no such telemetry intent")
 	}
 	return ti, err
 }
@@ -134,12 +134,12 @@ func (c *Core) telemetryIntentInOrg(ctx context.Context, id string) (store.Telem
 // directly, the same "real and currently approved" check validSourceClusters makes per cluster for an
 // operator's source clusters.
 func (c *Core) approvedAgentInOrg(ctx context.Context, agentID string) (store.Agent, error) {
-	a, err := c.agentInOrg(ctx, agentID)
+	a, err := c.AgentInOrg(ctx, agentID)
 	if err != nil {
 		return a, err
 	}
 	if a.Status != store.StatusApproved {
-		return a, errf(KindInvalid, "agent is %s: a telemetry intent can only target a currently approved agent", a.Status)
+		return a, Errf(KindInvalid, "agent is %s: a telemetry intent can only target a currently approved agent", a.Status)
 	}
 	return a, nil
 }
@@ -157,8 +157,8 @@ func cleanTelemetryScope(namespaces, exclude []string, signals []store.SignalGra
 			if ns == "" {
 				continue
 			}
-			if !nsNameRe.MatchString(ns) {
-				return nil, errf(KindInvalid, "%q is not a valid namespace name (lowercase letters, digits and dashes, at most 63 characters)", printable(ns, 64))
+			if !NsNameRe.MatchString(ns) {
+				return nil, Errf(KindInvalid, "%q is not a valid namespace name (lowercase letters, digits and dashes, at most 63 characters)", Printable(ns, 64))
 			}
 			if !seen[ns] {
 				seen[ns] = true
@@ -166,7 +166,7 @@ func cleanTelemetryScope(namespaces, exclude []string, signals []store.SignalGra
 			}
 		}
 		if len(out) > maxExcluded {
-			return nil, errf(KindInvalid, "at most %d namespaces can be listed here", maxExcluded)
+			return nil, Errf(KindInvalid, "at most %d namespaces can be listed here", maxExcluded)
 		}
 		return out, nil
 	}
@@ -179,20 +179,20 @@ func cleanTelemetryScope(namespaces, exclude []string, signals []store.SignalGra
 		return nil, nil, nil, err
 	}
 	if len(signals) > maxTelemetrySignals {
-		return nil, nil, nil, errf(KindInvalid, "at most %d telemetry signals can be granted here", maxTelemetrySignals)
+		return nil, nil, nil, Errf(KindInvalid, "at most %d telemetry signals can be granted here", maxTelemetrySignals)
 	}
 	seen := map[string]bool{}
 	out := make([]store.SignalGrant, 0, len(signals))
 	for _, sg := range signals {
 		id := strings.TrimSpace(sg.ID)
 		if id == "" {
-			return nil, nil, nil, errf(KindInvalid, "a telemetry signal needs an id")
+			return nil, nil, nil, Errf(KindInvalid, "a telemetry signal needs an id")
 		}
 		if seen[id] {
-			return nil, nil, nil, errf(KindInvalid, "signal %q is listed twice", printable(id, 64))
+			return nil, nil, nil, Errf(KindInvalid, "signal %q is listed twice", Printable(id, 64))
 		}
 		seen[id] = true
-		out = append(out, store.SignalGrant{ID: printable(id, 64), Source: printable(strings.TrimSpace(sg.Source), 64)})
+		out = append(out, store.SignalGrant{ID: Printable(id, 64), Source: Printable(strings.TrimSpace(sg.Source), 64)})
 	}
 	return ns, exc, out, nil
 }
@@ -209,11 +209,11 @@ func (c *Core) CreateTelemetryIntent(ctx context.Context, actor, agentID, name s
 // CreateTelemetryIntentWithRoutes is CreateTelemetryIntent for an intent that sends signal types to destinations of
 // their own: every granted signal is checked against where it goes (its route, or dest), not all against dest.
 func (c *Core) CreateTelemetryIntentWithRoutes(ctx context.Context, actor, agentID, name string, namespaces, exclude []string, signals []store.SignalGrant, dest store.Destination, routes map[store.Modality]store.Destination) (store.TelemetryIntent, error) {
-	c.depMu.RLock() // see Core.depMu
-	defer c.depMu.RUnlock()
+	c.DepMu.RLock() // see Core.DepMu
+	defer c.DepMu.RUnlock()
 	name = strings.TrimSpace(name)
 	if name == "" || len(name) > maxTelemetryIntentName {
-		return store.TelemetryIntent{}, errf(KindInvalid, "name the telemetry intent (1-%d characters)", maxTelemetryIntentName)
+		return store.TelemetryIntent{}, Errf(KindInvalid, "name the telemetry intent (1-%d characters)", maxTelemetryIntentName)
 	}
 	agent, err := c.approvedAgentInOrg(ctx, agentID)
 	if err != nil {
@@ -234,24 +234,24 @@ func (c *Core) CreateTelemetryIntentWithRoutes(ctx context.Context, actor, agent
 	if err := c.checkDestinationsAcceptSignals(ctx, dest, routes, sig); err != nil {
 		return store.TelemetryIntent{}, err
 	}
-	c.intentMu.Lock() // the check below and the insert are one step: see Core.intentMu
-	defer c.intentMu.Unlock()
+	c.IntentMu.Lock() // the check below and the insert are one step: see Core.IntentMu
+	defer c.IntentMu.Unlock()
 	existing, err := c.Store.ListTelemetryIntentsByAgent(ctx, agent.ID)
 	if err != nil {
 		return store.TelemetryIntent{}, err
 	}
 	for _, e := range existing {
 		if e.Status == store.TelemetryIntentActive {
-			return store.TelemetryIntent{}, errf(KindConflict, "agent %q already has an active telemetry intent (%s); update it instead of creating a second one", agent.Name, e.ID)
+			return store.TelemetryIntent{}, Errf(KindConflict, "agent %q already has an active telemetry intent (%s); update it instead of creating a second one", agent.Name, e.ID)
 		}
 	}
 	ti := store.TelemetryIntent{
-		ID: newTelemetryIntentID(), OrgID: c.OrgID, AgentID: agent.ID, Name: name, Status: store.TelemetryIntentActive,
+		ID: NewTelemetryIntentID(), OrgID: c.OrgID, AgentID: agent.ID, Name: name, Status: store.TelemetryIntentActive,
 		Namespaces: ns, Exclude: exc, Signals: sig, Destination: dest, Routes: routes, CreatedBy: actor, CreatedAt: c.Now(),
 	}
 	detail := fmt.Sprintf("%q for agent %q", name, agent.Name)
-	if err := c.auditedWrite(c.Store.CreateTelemetryIntent(ctx, ti,
-		store.WithAudit(c.auditRow(c.OrgID, actor, "telemetry-intent-created", "telemetry-intent", ti.ID, detail))), "telemetry-intent-created"); err != nil {
+	if err := c.AuditedWrite(c.Store.CreateTelemetryIntent(ctx, ti,
+		store.WithAudit(c.AuditRow(c.OrgID, actor, "telemetry-intent-created", "telemetry-intent", ti.ID, detail))), "telemetry-intent-created"); err != nil {
 		return store.TelemetryIntent{}, err
 	}
 	return ti, nil
@@ -264,7 +264,7 @@ func (c *Core) GetTelemetryIntent(ctx context.Context, id string) (store.Telemet
 // ListTelemetryIntentsForAgent lists one agent's intents (active or revoked); the agent itself must
 // belong to this organisation, the same org-scoped not-found convention as everything else here.
 func (c *Core) ListTelemetryIntentsForAgent(ctx context.Context, agentID string) ([]store.TelemetryIntent, error) {
-	if _, err := c.agentInOrg(ctx, agentID); err != nil {
+	if _, err := c.AgentInOrg(ctx, agentID); err != nil {
 		return nil, err
 	}
 	return c.Store.ListTelemetryIntentsByAgent(ctx, agentID)
@@ -290,18 +290,18 @@ func (c *Core) UpdateTelemetryIntentScope(ctx context.Context, actor, id string,
 		return err
 	}
 	detail := fmt.Sprintf("%q: scope changed", ti.Name)
-	err = c.Store.UpdateTelemetryIntentScope(ctx, id, ns, exc, sig, store.WithAudit(c.auditRow(c.OrgID, actor, "telemetry-intent-scope-changed", "telemetry-intent", id, detail)))
+	err = c.Store.UpdateTelemetryIntentScope(ctx, id, ns, exc, sig, store.WithAudit(c.AuditRow(c.OrgID, actor, "telemetry-intent-scope-changed", "telemetry-intent", id, detail)))
 	if errors.Is(err, store.ErrBadState) {
-		err = errf(KindConflict, "only an active telemetry intent's scope can be changed")
+		err = Errf(KindConflict, "only an active telemetry intent's scope can be changed")
 	}
-	return c.auditedWrite(err, "telemetry-intent-scope-changed")
+	return c.AuditedWrite(err, "telemetry-intent-scope-changed")
 }
 
 // UpdateTelemetryIntentDestination replaces where a local operator exports to, revalidated the same way
 // CreateTelemetryIntent's own destination is.
 func (c *Core) UpdateTelemetryIntentDestination(ctx context.Context, actor, id string, dest store.Destination) error {
-	c.depMu.RLock() // see Core.depMu
-	defer c.depMu.RUnlock()
+	c.DepMu.RLock() // see Core.DepMu
+	defer c.DepMu.RUnlock()
 	ti, err := c.telemetryIntentInOrg(ctx, id)
 	if err != nil {
 		return err
@@ -314,19 +314,19 @@ func (c *Core) UpdateTelemetryIntentDestination(ctx context.Context, actor, id s
 		return err
 	}
 	detail := fmt.Sprintf("%q: destination changed", ti.Name)
-	err = c.Store.UpdateTelemetryIntentDestination(ctx, id, dest, store.WithAudit(c.auditRow(c.OrgID, actor, "telemetry-intent-destination-changed", "telemetry-intent", id, detail)))
+	err = c.Store.UpdateTelemetryIntentDestination(ctx, id, dest, store.WithAudit(c.AuditRow(c.OrgID, actor, "telemetry-intent-destination-changed", "telemetry-intent", id, detail)))
 	if errors.Is(err, store.ErrBadState) {
-		err = errf(KindConflict, "only an active telemetry intent's destination can be changed")
+		err = Errf(KindConflict, "only an active telemetry intent's destination can be changed")
 	}
-	return c.auditedWrite(err, "telemetry-intent-destination-changed")
+	return c.AuditedWrite(err, "telemetry-intent-destination-changed")
 }
 
 // UpdateTelemetryIntentDestinations replaces the default destination and the per-signal-type routes together,
 // each revalidated like a new intent's, and every granted signal re-checked against where it now goes. An empty
 // routes clears them: the intent sends everything to dest again.
 func (c *Core) UpdateTelemetryIntentDestinations(ctx context.Context, actor, id string, dest store.Destination, routes map[store.Modality]store.Destination) error {
-	c.depMu.RLock() // see Core.depMu
-	defer c.depMu.RUnlock()
+	c.DepMu.RLock() // see Core.DepMu
+	defer c.DepMu.RUnlock()
 	ti, err := c.telemetryIntentInOrg(ctx, id)
 	if err != nil {
 		return err
@@ -346,32 +346,32 @@ func (c *Core) UpdateTelemetryIntentDestinations(ctx context.Context, actor, id 
 	if len(routes) > 0 {
 		detail = fmt.Sprintf("%q: destinations changed (%d signal types routed separately)", ti.Name, len(routes))
 	}
-	err = c.Store.UpdateTelemetryIntentDestinations(ctx, id, dest, routes, store.WithAudit(c.auditRow(c.OrgID, actor, "telemetry-intent-destination-changed", "telemetry-intent", id, detail)))
+	err = c.Store.UpdateTelemetryIntentDestinations(ctx, id, dest, routes, store.WithAudit(c.AuditRow(c.OrgID, actor, "telemetry-intent-destination-changed", "telemetry-intent", id, detail)))
 	if errors.Is(err, store.ErrBadState) {
-		err = errf(KindConflict, "only an active telemetry intent's destination can be changed")
+		err = Errf(KindConflict, "only an active telemetry intent's destination can be changed")
 	}
-	return c.auditedWrite(err, "telemetry-intent-destination-changed")
+	return c.AuditedWrite(err, "telemetry-intent-destination-changed")
 }
 
 func (c *Core) RevokeTelemetryIntent(ctx context.Context, actor, id, reason string) error {
 	if _, err := c.telemetryIntentInOrg(ctx, id); err != nil {
 		return err
 	}
-	reason = printable(reason, maxReason)
-	err := c.Store.RevokeTelemetryIntent(ctx, id, reason, c.Now(), store.WithAudit(c.auditRow(c.OrgID, actor, "telemetry-intent-revoked", "telemetry-intent", id, reason)))
+	reason = Printable(reason, MaxReason)
+	err := c.Store.RevokeTelemetryIntent(ctx, id, reason, c.Now(), store.WithAudit(c.AuditRow(c.OrgID, actor, "telemetry-intent-revoked", "telemetry-intent", id, reason)))
 	if errors.Is(err, store.ErrBadState) {
-		err = errf(KindConflict, "telemetry intent is not active")
+		err = Errf(KindConflict, "telemetry intent is not active")
 	}
-	return c.auditedWrite(err, "telemetry-intent-revoked")
+	return c.AuditedWrite(err, "telemetry-intent-revoked")
 }
 
 func (c *Core) DeleteTelemetryIntent(ctx context.Context, actor, id string) error {
 	if _, err := c.telemetryIntentInOrg(ctx, id); err != nil {
 		return err
 	}
-	err := c.Store.DeleteTelemetryIntent(ctx, id, store.WithAudit(c.auditRow(c.OrgID, actor, "telemetry-intent-deleted", "telemetry-intent", id, "")))
+	err := c.Store.DeleteTelemetryIntent(ctx, id, store.WithAudit(c.AuditRow(c.OrgID, actor, "telemetry-intent-deleted", "telemetry-intent", id, "")))
 	if errors.Is(err, store.ErrNotFound) {
-		err = errf(KindNotFound, "no such telemetry intent")
+		err = Errf(KindNotFound, "no such telemetry intent")
 	}
-	return c.auditedWrite(err, "telemetry-intent-deleted")
+	return c.AuditedWrite(err, "telemetry-intent-deleted")
 }

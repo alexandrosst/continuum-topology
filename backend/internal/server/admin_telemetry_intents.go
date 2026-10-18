@@ -237,7 +237,7 @@ func decodeOptional(r *http.Request, v any) error {
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil && !errors.Is(err, io.EOF) {
-		return errf(KindInvalid, "invalid request body")
+		return Errf(KindInvalid, "invalid request body")
 	}
 	return nil
 }
@@ -262,7 +262,7 @@ func (a *Admin) operatorTelemetry(r *http.Request, ti store.TelemetryIntent, spe
 		return d.TargetOperatorID, nil
 	}
 	if spec.Routes.Split != (len(ti.Routes) > 0) {
-		return spec, nil, errf(KindConflict, "these settings and the telemetry intent disagree about sending each signal type separately; save the intent again")
+		return spec, nil, Errf(KindConflict, "these settings and the telemetry intent disagree about sending each signal type separately; save the intent again")
 	}
 	var err error
 	if !spec.Routes.Split {
@@ -272,7 +272,7 @@ func (a *Admin) operatorTelemetry(r *http.Request, ti store.TelemetryIntent, spe
 	for _, m := range spec.ActiveLanes() {
 		d, ok := ti.Routes[store.Modality(m)]
 		if !ok {
-			return spec, nil, errf(KindConflict, "the telemetry intent has no destination for %s; save the intent again", m)
+			return spec, nil, Errf(KindConflict, "the telemetry intent has no destination for %s; save the intent again", m)
 		}
 		id, err := operatorOf(d)
 		if err != nil {
@@ -304,10 +304,10 @@ func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 	// A revoked intent grants nothing: handing out a command (and a freshly issued client certificate) for it would
 	// quietly restore what was taken away.
 	if ti.Status != store.TelemetryIntentActive {
-		a.fail(w, errf(KindConflict, "this telemetry intent is %s; create a new one to get a command", ti.Status))
+		a.fail(w, Errf(KindConflict, "this telemetry intent is %s; create a new one to get a command", ti.Status))
 		return
 	}
-	agent, err := a.core(r).agentInOrg(r.Context(), ti.AgentID)
+	agent, err := a.core(r).AgentInOrg(r.Context(), ti.AgentID)
 	if err != nil {
 		a.fail(w, err)
 		return

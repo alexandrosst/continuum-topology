@@ -69,7 +69,7 @@ func TestCreateOperatorHeartbeatIsOptInAndSecretIsOnlyStoredHashed(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(hb, heartbeatPrefix) || !looksLikeHeartbeatSecret(hb) {
+	if !strings.HasPrefix(hb, HeartbeatPrefix) || !LooksLikeHeartbeatSecret(hb) {
 		t.Fatalf("heartbeat secret has the wrong shape: %q", hb)
 	}
 	if recv != "" {
@@ -91,7 +91,7 @@ func TestCreateOperatorHeartbeatIsOptInAndSecretIsOnlyStoredHashed(t *testing.T)
 		t.Fatalf("the heartbeat secret was refused: %v", err)
 	}
 	_, trail := auditActions(t, e)
-	if strings.Contains(trail, hb) || strings.Contains(trail, heartbeatPrefix) {
+	if strings.Contains(trail, hb) || strings.Contains(trail, HeartbeatPrefix) {
 		t.Fatalf("audit trail holds secret material:\n%s", trail)
 	}
 	if !strings.Contains(trail, "operator-created|operator|"+op.ID+"|with-hb (heartbeat enabled)") {
@@ -145,7 +145,7 @@ func TestEnableAndRotateOperatorHeartbeat(t *testing.T) {
 	if enabled != 1 || rot != 1 {
 		t.Fatalf("audit actions = %v, want one enabled and one rotated", actions)
 	}
-	for _, s := range []string{first, second, first[len(heartbeatPrefix):], second[len(heartbeatPrefix):]} {
+	for _, s := range []string{first, second, first[len(HeartbeatPrefix):], second[len(HeartbeatPrefix):]} {
 		if strings.Contains(trail, s) {
 			t.Fatalf("audit trail contains secret material %q:\n%s", s, trail)
 		}
@@ -358,7 +358,7 @@ func TestHeartbeatEndpointIsUniform401ForEveryKindOfFailure(t *testing.T) {
 	if err := a.core.RevokeOperator(a.ctx, "alex", revokedOp.ID, "x"); err != nil {
 		t.Fatal(err)
 	}
-	validShape := heartbeatPrefix + strings.Repeat("A", 43)
+	validShape := HeartbeatPrefix + strings.Repeat("A", 43)
 	_, recv, _, _ := a.createReceiverOnly(t)
 
 	cases := map[string]*httptest.ResponseRecorder{
@@ -435,7 +435,7 @@ func TestHeartbeatEndpointCapsTheBodyAndRejectsOtherMethods(t *testing.T) {
 func TestHeartbeatEndpointThrottlesFailuresPerAddressButNeverAGoodOperator(t *testing.T) {
 	a := newAdminRig(t)
 	_, hb := a.hbOperator(t, "athens", fp)
-	bad := heartbeatPrefix + strings.Repeat("B", 43)
+	bad := HeartbeatPrefix + strings.Repeat("B", 43)
 	var got429 bool
 	for i := 0; i < 40; i++ {
 		if a.beat(bad, nil, fromIP("10.9.9.9")).Code == 429 {
@@ -497,7 +497,7 @@ func TestOperatorsHTTPHealthShapeAndHeartbeatEnableRoute(t *testing.T) {
 	// Explicitly on at creation.
 	on := create(map[string]any{"heartbeat": true})
 	tok, _ := on["heartbeatToken"].(string)
-	if !strings.HasPrefix(tok, heartbeatPrefix) {
+	if !strings.HasPrefix(tok, HeartbeatPrefix) {
 		t.Fatalf("no heartbeat token: %v", on)
 	}
 	if on["token"] == tok {

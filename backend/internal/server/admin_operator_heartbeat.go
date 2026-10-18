@@ -31,7 +31,7 @@ func (a *Admin) operatorHeartbeat(w http.ResponseWriter, r *http.Request) {
 	secret, _ := bearerToken(r)
 	err := a.C.RecordOperatorHeartbeat(r.Context(), secret)
 	if errors.Is(err, errHeartbeatRejected) {
-		Metrics.authFailures.Add(1)
+		Metrics.AuthFailures.Add(1)
 		// Failed attempts are throttled per address (never a successful one, as in guard), so guessing
 		// secrets from one place is slow and a healthy operator can never lock itself out.
 		if !a.hbFailRL.Allow(LimitKey(a.clientIP(r))) {

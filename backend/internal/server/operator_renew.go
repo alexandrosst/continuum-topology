@@ -33,9 +33,9 @@ import (
 // the caller asks for is used except the public key.
 func (c *Core) RenewTelemetryCert(ctx context.Context, ip string, req *continuumv1.RenewTelemetryCertRequest) (*continuumv1.RenewTelemetryCertResponse, error) {
 	if !c.EnrollRL.Allow("renew-cert:" + LimitKey(ip)) {
-		return nil, errf(KindRateLimited, "too many attempts, slow down")
+		return nil, Errf(KindRateLimited, "too many attempts, slow down")
 	}
-	deny := errf(KindUnauthenticated, "this certificate cannot be renewed; install it again from the operators page")
+	deny := Errf(KindUnauthenticated, "this certificate cannot be renewed; install it again from the operators page")
 	if len(req.OldLeafDer) == 0 || len(req.OldLeafDer) > 4096 {
 		return nil, deny
 	}
@@ -60,15 +60,15 @@ func (c *Core) RenewTelemetryCert(ctx context.Context, ip string, req *continuum
 		return nil, deny
 	}
 	oc := c.ForOrg(op.OrgID)
-	oc.depMu.RLock() // see Core.depMu: a revoke or delete cannot come between the checks below and the ledger write
-	defer oc.depMu.RUnlock()
+	oc.DepMu.RLock() // see Core.DepMu: a revoke or delete cannot come between the checks below and the ledger write
+	defer oc.DepMu.RUnlock()
 	if op, err = oc.operatorInOrg(ctx, op.ID); err != nil || op.Status != store.OperatorActive {
 		return nil, deny
 	}
 	issuer, caPEM, err := oc.operatorIssuer(ctx, op)
 	if err != nil {
 		c.Log.Error("operator CA not available for a certificate renewal", "operator", op.ID, "err", err)
-		return nil, errf(KindInternal, "cannot renew right now")
+		return nil, Errf(KindInternal, "cannot renew right now")
 	}
 	if _, err := issuer.VerifyExpired(req.OldLeafDer, eku); err != nil {
 		return nil, deny
@@ -82,11 +82,11 @@ func (c *Core) RenewTelemetryCert(ctx context.Context, ip string, req *continuum
 	}
 	csr, err := pki.ParseCSR(req.CsrDer)
 	if err != nil {
-		return nil, errf(KindInvalid, "%v", err)
+		return nil, Errf(KindInvalid, "%v", err)
 	}
 	serial := old.SerialNumber.Text(16)
 	if c.RenewRL != nil && !c.RenewRL.Allow("renew-cert:"+serial) {
-		return nil, errf(KindRateLimited, "renewing too often")
+		return nil, Errf(KindRateLimited, "renewing too often")
 	}
 
 	// From here the caller has proved it holds the key, so it may be told why it is refused.
@@ -98,11 +98,11 @@ func (c *Core) RenewTelemetryCert(ctx context.Context, ip string, req *continuum
 			return nil, err
 		}
 		if !ok {
-			oc.audit(ctx, RenewalActor.String(), "operator-cert-renewal-refused", "operator", op.ID, "client certificate "+old.Subject.CommonName+" (serial "+serial+") is no longer held by a sender of this operator")
-			return nil, errf(KindForbidden, "this certificate's holder no longer sends to operator %s; it is not renewed and will stop working on %s", op.ID, old.NotAfter.UTC().Format("2006-01-02"))
+			oc.Audit(ctx, RenewalActor.String(), "operator-cert-renewal-refused", "operator", op.ID, "client certificate "+old.Subject.CommonName+" (serial "+serial+") is no longer held by a sender of this operator")
+			return nil, Errf(KindForbidden, "this certificate's holder no longer sends to operator %s; it is not renewed and will stop working on %s", op.ID, old.NotAfter.UTC().Format("2006-01-02"))
 		}
 	} else if op.ID == CentralOperatorID {
-		return nil, errf(KindForbidden, "the central operator's own certificate is renewed by the server")
+		return nil, Errf(KindForbidden, "the central operator's own certificate is renewed by the server")
 	}
 
 	hosts := append([]string(nil), old.DNSNames...)
@@ -125,7 +125,7 @@ func (c *Core) RenewTelemetryCert(ctx context.Context, ip string, req *continuum
 	if t := certNotAfter(leafPEM); t != nil {
 		notAfter = *t
 	}
-	return &continuumv1.RenewTelemetryCertResponse{LeafDer: der, CaPem: caPEM, NotAfter: tsProto(&notAfter)}, nil
+	return &continuumv1.RenewTelemetryCertResponse{LeafDer: der, CaPem: caPEM, NotAfter: TSProto(&notAfter)}, nil
 }
 
 // entitledSender says which current sender of op a client certificate named cn belongs to. The name is made from

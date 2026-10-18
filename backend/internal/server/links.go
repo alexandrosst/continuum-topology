@@ -375,7 +375,7 @@ func (h *Hub) endNote(l LinkSetting, a, o store.Agent, plan *peerPlan, flowPause
 	case pp == nil:
 		return &LinkNote{Cluster: c, Peer: peer, Code: "shared-address", Text: fmt.Sprintf("Every address of %s (%s) is also an address of this cluster, or the public address its agent connects from, so traffic to %s cannot be told from its own traffic and the pair is left out here.", peer, listed(raw), peer)}
 	case len(pp.addrs) == 0:
-		others := sortedKeys(pp.clash)
+		others := SortedKeys(pp.clash)
 		return &LinkNote{Cluster: c, Peer: peer, Code: "shared-address", Text: fmt.Sprintf("Every address of %s (%s) is also an address of %s, another cluster %s is paired with, so traffic to the two cannot be told apart and %s is left out here. Give the clusters addresses of their own, or pair %s with only one of them.", peer, listed(raw), listed(others), c, peer, c)}
 	case plan.cut[peer]:
 		return &LinkNote{Cluster: c, Peer: peer, Code: "too-many-peers", Text: fmt.Sprintf("This cluster is paired with more clusters that can be measured than one agent holds (%d), so %s, which sorts after them, is left out. Remove the pairs this cluster does not need.", link.MaxPeers, peer)}
@@ -392,11 +392,11 @@ func sharedHint(a, o store.Agent, pp *plannedPeer) *LinkNote {
 		return nil
 	}
 	var shared []string
-	for _, k := range sortedKeys(pp.clash) {
+	for _, k := range SortedKeys(pp.clash) {
 		shared = append(shared, pp.clash[k]...)
 	}
 	shared = dedupeSorted(shared)
-	return &LinkNote{Cluster: a.ClusterID, Peer: o.ClusterID, Code: "shared-address", Text: fmt.Sprintf("%s shares %s with %s, another cluster %s is paired with, so those addresses are left out for both and %s is measured through its other addresses only.", o.ClusterID, listed(shared), listed(sortedKeys(pp.clash)), a.ClusterID, o.ClusterID)}
+	return &LinkNote{Cluster: a.ClusterID, Peer: o.ClusterID, Code: "shared-address", Text: fmt.Sprintf("%s shares %s with %s, another cluster %s is paired with, so those addresses are left out for both and %s is measured through its other addresses only.", o.ClusterID, listed(shared), listed(SortedKeys(pp.clash)), a.ClusterID, o.ClusterID)}
 }
 
 // rangeHint is the hint for a pair whose peer has no public address: the addresses the cluster is told to measure towards are all of

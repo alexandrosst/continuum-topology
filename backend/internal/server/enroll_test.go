@@ -283,7 +283,7 @@ func TestATokenBoundToAClusterRefusesAnotherAndIsNotSpent(t *testing.T) {
 		t.Fatalf("a different cluster: %v", err)
 	}
 	log := strings.Join(e.auditActions(t), "\n")
-	if !strings.Contains(log, "enrollment-refused") || !strings.Contains(log, shortFP(fp)) || !strings.Contains(log, shortFP(other)) {
+	if !strings.Contains(log, "enrollment-refused") || !strings.Contains(log, ShortFP(fp)) || !strings.Contains(log, ShortFP(other)) {
 		t.Errorf("audit:\n%s", log)
 	}
 	// The token was not consumed: the right cluster can still use it.

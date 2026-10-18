@@ -211,11 +211,11 @@ func derivedRetentionSize(volumeBytes int64) string {
 }
 
 // retentionKubeOf is the KubeAPI's retention calls, or why it has none.
-func (f *FusionControl) retentionKube() (retentionKube, string) {
+func (f *FusionControl) retentionKube() (RetentionKube, string) {
 	if f == nil || f.Kube == nil {
 		return nil, "FUSION cannot be reached from this server, so its retention cannot be set here."
 	}
-	rk, ok := f.Kube.(retentionKube)
+	rk, ok := f.Kube.(RetentionKube)
 	if !ok {
 		return nil, "This server cannot change FUSION's retention."
 	}
@@ -259,7 +259,7 @@ func sizeNotEnforced(provisioner string) bool {
 }
 
 // canGrow asks the cluster whether a bigger volume would be accepted (a dry run: nothing is changed) and remembers the answer.
-func (f *FusionControl) canGrow(ctx context.Context, rk retentionKube, claimName string, claim KubeClaim) (*bool, string) {
+func (f *FusionControl) canGrow(ctx context.Context, rk RetentionKube, claimName string, claim KubeClaim) (*bool, string) {
 	f.retention.mu.Lock()
 	if g, ok := f.retention.grows[claimName]; ok && g.requested == claim.Requested && f.now().Sub(g.at) < retentionGrowEvery {
 		f.retention.mu.Unlock()
@@ -443,16 +443,16 @@ func (p retentionPlan) restarts() bool { return p.newValue != "" || p.sizeLimit 
 // SetRetention changes retention and volume sizes as the request says and answers with the state that results.
 func (f *FusionControl) SetRetention(ctx context.Context, c *Core, actor string, req RetentionRequest) (RetentionDoc, error) {
 	if f == nil {
-		return RetentionDoc{}, errf(KindConflict, "FUSION is not available here")
+		return RetentionDoc{}, Errf(KindConflict, "FUSION is not available here")
 	}
 	f.switchMu.Lock()
 	defer f.switchMu.Unlock()
 	if f.Org != "" && c.OrgID != f.Org {
-		return RetentionDoc{}, errf(KindForbidden, "FUSION belongs to this server's main organisation, which is the only one that can change its retention")
+		return RetentionDoc{}, Errf(KindForbidden, "FUSION belongs to this server's main organisation, which is the only one that can change its retention")
 	}
 	cur := f.Retention(ctx, c)
 	if !cur.Available {
-		return cur, errf(KindConflict, "%s", cur.Message)
+		return cur, Errf(KindConflict, "%s", cur.Message)
 	}
 	rk, _ := f.retentionKube()
 	settings, err := rk.Settings(ctx, f.settingsName())
@@ -476,7 +476,7 @@ func (f *FusionControl) SetRetention(ctx context.Context, c *Core, actor string,
 		p := retentionPlan{spec: sp, store: s}
 		if ch.Days != nil {
 			if *ch.Days < 1 || *ch.Days > sp.maxDays {
-				return RetentionDoc{}, errf(KindInvalid, "%s keeps between 1 and %d days", s.Label, sp.maxDays)
+				return RetentionDoc{}, Errf(KindInvalid, "%s keeps between 1 and %d days", s.Label, sp.maxDays)
 			}
 			if v := sp.format(*ch.Days); v != settings[sp.key] {
 				p.newValue = v
@@ -491,15 +491,15 @@ func (f *FusionControl) SetRetention(ctx context.Context, c *Core, actor string,
 		}
 		if ch.VolumeGiB != nil {
 			if *ch.VolumeGiB < 1 || *ch.VolumeGiB > retentionMaxVolumeGiB {
-				return RetentionDoc{}, errf(KindInvalid, "a volume is between 1 and %d GiB", retentionMaxVolumeGiB)
+				return RetentionDoc{}, Errf(KindInvalid, "a volume is between 1 and %d GiB", retentionMaxVolumeGiB)
 			}
 			want := int64(*ch.VolumeGiB) << 30
 			switch {
 			case want < p.claim.Requested:
-				return RetentionDoc{}, errf(KindInvalid, "%s's volume is %s and a volume can be grown but not made smaller", s.Label, humanGiB(p.claim.Requested))
+				return RetentionDoc{}, Errf(KindInvalid, "%s's volume is %s and a volume can be grown but not made smaller", s.Label, humanGiB(p.claim.Requested))
 			case want > p.claim.Requested:
 				if p.claim.Resizing || p.claim.Capacity < p.claim.Requested {
-					return RetentionDoc{}, errf(KindConflict, "%s's volume is still being grown from an earlier change. Wait for it to finish, then grow it again", s.Label)
+					return RetentionDoc{}, Errf(KindConflict, "%s's volume is still being grown from an earlier change. Wait for it to finish, then grow it again", s.Label)
 				}
 				p.grow = want
 				// Ask the cluster now, before anything is changed, so that a volume that cannot grow stops the whole request and
@@ -520,7 +520,7 @@ func (f *FusionControl) SetRetention(ctx context.Context, c *Core, actor string,
 		}
 	}
 	if !asked {
-		return RetentionDoc{}, errf(KindInvalid, "say which store's days or volume to change")
+		return RetentionDoc{}, Errf(KindInvalid, "say which store's days or volume to change")
 	}
 	if len(plans) == 0 {
 		return cur, nil // everything asked for is already so
@@ -543,7 +543,7 @@ func (f *FusionControl) SetRetention(ctx context.Context, c *Core, actor string,
 				return RetentionDoc{}, noResizeError(p.store, p.claim, done)
 			}
 			e := kubeFail("grow "+p.store.Label+"'s volume", err)
-			return RetentionDoc{}, errf(KindConflict, "%v%s", e, done)
+			return RetentionDoc{}, Errf(KindConflict, "%v%s", e, done)
 		}
 		grown = append(grown, p.store.Label)
 	}
@@ -563,7 +563,7 @@ func (f *FusionControl) SetRetention(ctx context.Context, c *Core, actor string,
 			f.invalidate()
 			e := kubeFail("save FUSION's retention", err)
 			if len(grown) > 0 {
-				return RetentionDoc{}, errf(KindConflict, "%v (%s was already grown and stays so)", e, strings.Join(grown, ", "))
+				return RetentionDoc{}, Errf(KindConflict, "%v (%s was already grown and stays so)", e, strings.Join(grown, ", "))
 			}
 			return RetentionDoc{}, e
 		}
@@ -601,7 +601,7 @@ func (f *FusionControl) SetRetention(ctx context.Context, c *Core, actor string,
 	if len(restarted) > 0 {
 		detail += "; restarted " + strings.Join(restarted, ", ")
 	}
-	c.audit(ctx, actor, "fusion-retention-changed", "fusion", f.Name, detail)
+	c.Audit(ctx, actor, "fusion-retention-changed", "fusion", f.Name, detail)
 
 	f.invalidate()
 	f.forgetMeasure()
@@ -632,5 +632,5 @@ func humanGiB(b int64) string {
 // noResizeError is the cluster refusing to grow a volume, in words that say what to do.
 func noResizeError(s fusionStore, claim KubeClaim, done string) error {
 	class := cmp.Or(claim.StorageClass, "default")
-	return errf(KindConflict, "%s's volume cannot be grown: its storage class (%s) does not allow volume expansion. Nothing was changed. Keep the volume as it is and lower the days to fit it, set allowVolumeExpansion: true on the class, or use a class that can grow%s", s.Label, class, done)
+	return Errf(KindConflict, "%s's volume cannot be grown: its storage class (%s) does not allow volume expansion. Nothing was changed. Keep the volume as it is and lower the days to fit it, set allowVolumeExpansion: true on the class, or use a class that can grow%s", s.Label, class, done)
 }

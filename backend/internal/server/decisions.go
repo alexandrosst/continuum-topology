@@ -52,26 +52,26 @@ type DecisionEntry struct {
 // Deliberately simple: no audit row (this is not a privileged action - see store.DecisionLog), and no
 // "audited" fail-closed guard like ApproveAgent or CreateToken use. Those exist so an action with
 // authority behind it never happens unseen; this has no action and no authority, only a recommendation a
-// person may or may not act on later. So the rule here runs the other way from audited(): a failure to
+// person may or may not act on later. So the rule here runs the other way from Audited(): a failure to
 // write this log must never stop the caller returning - or the dashboard having already shown - the
 // recommendation it describes. The frontend calls this fire-and-forget for exactly that reason (see
 // Deciders.tsx's run()).
 func (c *Core) RecordDecisions(ctx context.Context, actor string, entries []DecisionEntry) (int, error) {
 	if len(entries) > maxDecisionEntries {
-		return 0, errf(KindInvalid, "too many decider results in one call")
+		return 0, Errf(KindInvalid, "too many decider results in one call")
 	}
 	now := c.Now()
-	by := printable(actor, maxAuditActor)
+	by := Printable(actor, MaxAuditActor)
 	var rows []store.DecisionLog
 	for _, e := range entries {
 		if e.DeciderID == "" || (e.DeciderKind != "builtin" && e.DeciderKind != "external") {
-			return 0, errf(KindInvalid, "each entry needs a decider id and a decider kind of \"builtin\" or \"external\"")
+			return 0, Errf(KindInvalid, "each entry needs a decider id and a decider kind of \"builtin\" or \"external\"")
 		}
 		if len(e.Policy) > maxDecisionPolicyBytes {
-			return 0, errf(KindInvalid, "a decider's policy is too large to record")
+			return 0, Errf(KindInvalid, "a decider's policy is too large to record")
 		}
 		if len(rows)+len(e.Moves) > maxDecisionMovesTotal {
-			return 0, errf(KindInvalid, "too many proposed moves in one call")
+			return 0, Errf(KindInvalid, "too many proposed moves in one call")
 		}
 		for _, m := range e.Moves {
 			if m.ServiceID == "" || m.To == "" {
@@ -79,12 +79,12 @@ func (c *Core) RecordDecisions(ctx context.Context, actor string, entries []Deci
 			}
 			rows = append(rows, store.DecisionLog{
 				OrgID: c.OrgID, At: now, RecordedBy: by,
-				DeciderID: printable(e.DeciderID, 128), DeciderName: printable(e.DeciderName, 128), DeciderKind: e.DeciderKind,
+				DeciderID: Printable(e.DeciderID, 128), DeciderName: Printable(e.DeciderName, 128), DeciderKind: e.DeciderKind,
 				Schema: e.Schema, ClusterCount: e.ClusterCount, ServiceCount: e.ServiceCount, PolicyJSON: []byte(e.Policy),
-				ServiceID: printable(m.ServiceID, maxAuditTarget), ServiceName: printable(m.ServiceName, maxAuditTarget),
-				FromCluster: printable(m.From, maxAuditTarget), ToCluster: printable(m.To, maxAuditTarget),
-				Reason: printable(m.Reason, maxAuditDetail), Benefit: m.Benefit,
-				Confidence: printable(m.Confidence, 32), Verdict: printable(m.Verdict, 32),
+				ServiceID: Printable(m.ServiceID, MaxAuditTarget), ServiceName: Printable(m.ServiceName, MaxAuditTarget),
+				FromCluster: Printable(m.From, MaxAuditTarget), ToCluster: Printable(m.To, MaxAuditTarget),
+				Reason: Printable(m.Reason, MaxAuditDetail), Benefit: m.Benefit,
+				Confidence: Printable(m.Confidence, 32), Verdict: Printable(m.Verdict, 32),
 				BeforeCost: m.BeforeCost, AfterCost: m.AfterCost, MigrationCost: m.MigrationCost,
 			})
 		}

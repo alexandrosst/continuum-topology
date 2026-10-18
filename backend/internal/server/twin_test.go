@@ -413,7 +413,7 @@ func TestStateForCachesTopologyButNeverAgentDocsOrAudit(t *testing.T) {
 	}
 
 	// Audit rows are never cached, regardless of topology cache state: StateFor(ctx, true) always re-reads them.
-	if err := r.core.audited(r.ctx, "tester", "note", "agent", a.ID, "looked at", func() error { return nil }); err != nil {
+	if err := r.core.Audited(r.ctx, "tester", "note", "agent", a.ID, "looked at", func() error { return nil }); err != nil {
 		t.Fatalf("audited: %v", err)
 	}
 	withAudit, _ := h.StateFor(r.ctx, true)
@@ -438,11 +438,11 @@ func TestStateForTopologyCacheHitMissAndTTL(t *testing.T) {
 
 	var auditFetches int
 	// stateFor's own after callback does not see the fetched audit rows directly, so the count is taken
-	// the same way the existing cache test does: an audited() call between two stateFor calls must show
+	// the same way the existing cache test does: an Audited() call between two stateFor calls must show
 	// up in StateFor(ctx, true)'s AuditLog every time, cache hit or not.
 	auditedOnce := func() {
 		auditFetches++
-		if err := r.core.audited(r.ctx, "tester", "note", "agent", a.ID, "looked at "+itoa(int64(auditFetches)), func() error { return nil }); err != nil {
+		if err := r.core.Audited(r.ctx, "tester", "note", "agent", a.ID, "looked at "+itoa(int64(auditFetches)), func() error { return nil }); err != nil {
 			t.Fatalf("audited: %v", err)
 		}
 	}

@@ -220,7 +220,7 @@ func (s Settings) NormalizeFor(ctx context.Context, dp *DeciderPolicy) (Settings
 			return s, fmt.Errorf("a measurement label is at most 80 characters")
 		}
 		if t.ID == "" {
-			t.ID = "pt-" + newTokenID()
+			t.ID = "pt-" + NewTokenID()
 		}
 		if seen[t.ID] {
 			return s, fmt.Errorf("duplicate measurement target id")
@@ -229,7 +229,7 @@ func (s Settings) NormalizeFor(ctx context.Context, dp *DeciderPolicy) (Settings
 		out = append(out, t)
 	}
 	s.ProbeTargets = out
-	links, err := normalizeLinks(s.Links)
+	links, err := NormalizeLinks(s.Links)
 	if err != nil {
 		return s, err
 	}
@@ -289,7 +289,7 @@ func (s Settings) NormalizeFor(ctx context.Context, dp *DeciderPolicy) (Settings
 		if b.Namespace == "" {
 			return s, fmt.Errorf("a quick-start backend needs a namespace")
 		}
-		if !nsNameRe.MatchString(b.Namespace) {
+		if !NsNameRe.MatchString(b.Namespace) {
 			return s, fmt.Errorf("%q is not a valid Kubernetes namespace name", b.Namespace)
 		}
 		if b.Retention == "" {
@@ -318,7 +318,7 @@ func (s Settings) NormalizeFor(ctx context.Context, dp *DeciderPolicy) (Settings
 			return s, fmt.Errorf("a custom quick-start backend needs a tool URL")
 		}
 		if b.ID == "" {
-			b.ID = "qsb-" + newTokenID()
+			b.ID = "qsb-" + NewTokenID()
 		}
 		if qsSeen[b.ID] {
 			return s, fmt.Errorf("duplicate quick-start backend id")
@@ -362,10 +362,10 @@ type settingsHolder struct {
 	save sync.Mutex
 }
 
-// storedSettings is how the settings are kept: the document itself plus its revision, in the one row, so that the two
+// StoredSettings is how the settings are kept: the document itself plus its revision, in the one row, so that the two
 // can never disagree. An older server reads the row as plain settings (the extra key is ignored), and a row written
 // by one has no revision, which reads as 0.
-type storedSettings struct {
+type StoredSettings struct {
 	Settings
 	Rev int64 `json:"_rev,omitempty"`
 }
@@ -405,7 +405,7 @@ func (c *Core) LoadSettings(ctx context.Context) {
 	if err != nil || data == nil {
 		return
 	}
-	var st storedSettings
+	var st StoredSettings
 	if err := json.Unmarshal(data, &st); err != nil {
 		c.Log.Warn("stored settings are unreadable; using defaults", "err", err)
 		return
@@ -445,21 +445,21 @@ func (c *Core) SaveSettings(ctx context.Context, actor string, s Settings) (Sett
 func (c *Core) SaveSettingsAt(ctx context.Context, actor string, expect *int64, s Settings) (Settings, int64, error) {
 	n, err := s.NormalizeFor(ctx, c.Decider)
 	if err == nil {
-		// Only here, never in normalizeLinks: that also runs when the stored settings are loaded, where an error would put every
+		// Only here, never in NormalizeLinks: that also runs when the stored settings are loaded, where an error would put every
 		// setting back to its default.
 		err = checkLinksForSave(n.Links)
 	}
 	if err != nil {
-		return Settings{}, 0, errf(KindInvalid, "%v", err)
+		return Settings{}, 0, Errf(KindInvalid, "%v", err)
 	}
 	c.settings.save.Lock()
 	defer c.settings.save.Unlock()
 	old, rev := c.SettingsAt()
 	if expect != nil && *expect != rev {
-		return old, rev, errf(KindConflict, "someone else changed the settings since you opened them")
+		return old, rev, Errf(KindConflict, "someone else changed the settings since you opened them")
 	}
 	next := rev + 1
-	data, _ := json.Marshal(storedSettings{Settings: n, Rev: next})
+	data, _ := json.Marshal(StoredSettings{Settings: n, Rev: next})
 	apply := func(opts ...store.WriteOption) error {
 		if err := c.Store.PutSettings(ctx, c.OrgID, data, c.Now(), opts...); err != nil {
 			return err
@@ -471,8 +471,8 @@ func (c *Core) SaveSettingsAt(ctx context.Context, actor string, expect *int64, 
 	}
 	// A change to the settings (above all the decider, which the server will call) is recorded in the same
 	// transaction as the change, and does not happen if it cannot be recorded.
-	if d := settingsDiff(old, n); d != "" {
-		if err := c.auditedWrite(apply(store.WithAudit(c.auditRow(c.OrgID, actor, "settings-changed", "settings", c.OrgID, d))), "settings-changed"); err != nil {
+	if d := SettingsDiff(old, n); d != "" {
+		if err := c.AuditedWrite(apply(store.WithAudit(c.AuditRow(c.OrgID, actor, "settings-changed", "settings", c.OrgID, d))), "settings-changed"); err != nil {
 			return Settings{}, 0, err
 		}
 	} else if err := apply(); err != nil {
@@ -484,7 +484,7 @@ func (c *Core) SaveSettingsAt(ctx context.Context, actor string, expect *int64, 
 	return n, next, nil
 }
 
-func settingsDiff(a, b Settings) string {
+func SettingsDiff(a, b Settings) string {
 	var d []string
 	add := func(name string, x, y any) {
 		if fmt.Sprint(x) != fmt.Sprint(y) {
@@ -549,7 +549,7 @@ func settingsDiff(a, b Settings) string {
 // of a pair joins its two ids with one) and anything long out of the audit trail, the notes and the metric label matching.
 var linkIDRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 
-// checkLinksForSave is the extra checks a saved list of pairs must pass, beyond normalizeLinks: well-formed ids, and no cluster
+// checkLinksForSave is the extra checks a saved list of pairs must pass, beyond NormalizeLinks: well-formed ids, and no cluster
 // in more pairs than one agent's peer list holds (link.MaxPeers; the rest would never be measured).
 func checkLinksForSave(links []LinkSetting) error {
 	pairs := map[string]int{}
@@ -569,7 +569,7 @@ func checkLinksForSave(links []LinkSetting) error {
 	return nil
 }
 
-// usableStoredLinks drops, with a warning, the stored pairs that normalizeLinks or the id check would refuse, one by one, and the
+// usableStoredLinks drops, with a warning, the stored pairs that NormalizeLinks or the id check would refuse, one by one, and the
 // pairs past the limit, so that one bad pair never makes the organisation lose the rest of its settings.
 func (c *Core) usableStoredLinks(in []LinkSetting) []LinkSetting {
 	if len(in) == 0 {
@@ -582,7 +582,7 @@ func (c *Core) usableStoredLinks(in []LinkSetting) []LinkSetting {
 		if !linkIDRe.MatchString(l.A) || !linkIDRe.MatchString(l.B) {
 			err = fmt.Errorf("a cluster id that is not letters, digits, dot, underscore and hyphen")
 		} else {
-			_, err = normalizeLinks([]LinkSetting{l})
+			_, err = NormalizeLinks([]LinkSetting{l})
 		}
 		if err != nil {
 			c.Log.Warn("a stored linked cluster pair is dropped", "org", c.OrgID, "a", shortID(l.A), "b", shortID(l.B), "err", err)
@@ -597,8 +597,8 @@ func (c *Core) usableStoredLinks(in []LinkSetting) []LinkSetting {
 	return out
 }
 
-// nsNameRe is what a Kubernetes namespace name may look like. Consent, telemetry intents and the quick-start backends each check one.
-var nsNameRe = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$`)
+// NsNameRe is what a Kubernetes namespace name may look like. Consent, telemetry intents and the quick-start backends each check one.
+var NsNameRe = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$`)
 
 // shortID bounds an id for a message or log line.
 func shortID(id string) string {
@@ -626,7 +626,7 @@ func linksDiff(a, b []LinkSetting) []string {
 		cur[key(l)] = l
 	}
 	var entries []string
-	for _, k := range sortedKeys(cur) {
+	for _, k := range SortedKeys(cur) {
 		n := cur[k]
 		o, had := old[k]
 		if !had {
@@ -657,7 +657,7 @@ func linksDiff(a, b []LinkSetting) []string {
 			entries = append(entries, "pair "+k+": "+strings.Join(ch, ", "))
 		}
 	}
-	for _, k := range sortedKeys(old) {
+	for _, k := range SortedKeys(old) {
 		if _, ok := cur[k]; !ok {
 			entries = append(entries, "pair "+k+" removed")
 		}

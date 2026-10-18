@@ -325,7 +325,7 @@ func TestAddressCheckRefusesNamesThatResolveToTheServersOwnNetwork(t *testing.T)
 	}
 
 	name := "receiver.rebind.test.:" + port
-	got := look(&DeciderPolicy{resolver: res}, name)
+	got := look(&DeciderPolicy{Resolver: res}, name)
 	if got.State != "blocked" {
 		t.Fatalf("a name that resolves to loopback: %+v", got)
 	}
@@ -346,7 +346,7 @@ func TestAddressCheckRefusesNamesThatResolveToTheServersOwnNetwork(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	all.resolver = res
+	all.Resolver = res
 	if got := look(all, "receiver.rebind.test.:80"); got.State != "blocked" {
 		t.Fatalf("a name that resolves to the metadata address: %+v", got)
 	}
@@ -357,7 +357,7 @@ func TestAddressCheckRefusesNamesThatResolveToTheServersOwnNetwork(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	allowed.resolver = res
+	allowed.Resolver = res
 	if got := look(allowed, name); got.State != "reachable" {
 		t.Fatalf("loopback listed in the decider policy: %+v", got)
 	}

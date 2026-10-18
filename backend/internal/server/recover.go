@@ -13,7 +13,7 @@ import (
 // connection and reconnects, which starts the stream loop again. Use it as `defer c.recoverPanic(what, &err)`.
 func (c *Core) recoverPanic(what string, err *error) {
 	if p := recover(); p != nil {
-		Metrics.streamPanics.Add(1)
+		Metrics.StreamPanics.Add(1)
 		c.Log.Error("panic recovered in a request handler", "handler", what, "panic", fmt.Sprint(p), "stack", string(debug.Stack()))
 		*err = status.Error(codes.Internal, "internal error")
 	}
@@ -23,7 +23,7 @@ func (c *Core) recoverPanic(what string, err *error) {
 func (c *Core) safely(what string, fn func()) {
 	defer func() {
 		if p := recover(); p != nil {
-			Metrics.streamPanics.Add(1)
+			Metrics.StreamPanics.Add(1)
 			c.Log.Error("panic recovered in a background task", "task", what, "panic", fmt.Sprint(p), "stack", string(debug.Stack()))
 		}
 	}()

@@ -508,10 +508,10 @@ func (a *Admin) guard(n need, next http.HandlerFunc) http.Handler {
 		} else if secret, ok := bearerToken(r); ok {
 			p, err = a.C.AuthenticateAPIToken(r.Context(), secret)
 		} else {
-			err = errf(KindUnauthenticated, "sign in required")
+			err = Errf(KindUnauthenticated, "sign in required")
 		}
 		if err != nil {
-			Metrics.authFailures.Add(1)
+			Metrics.AuthFailures.Add(1)
 			// Failed authentications are throttled per address; a valid session is never counted,
 			// so the UI polling every few seconds cannot lock itself out.
 			if !a.authRL.Allow(LimitKey(a.clientIP(r))) {
@@ -594,7 +594,7 @@ func decode(r *http.Request, v any) error {
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
-		return errf(KindInvalid, "invalid request body")
+		return Errf(KindInvalid, "invalid request body")
 	}
 	return nil
 }
@@ -1605,7 +1605,7 @@ func (a *Admin) CheckInstallConfig() error {
 // because of anything in the request: logged in full, and told to the caller without the setting.
 func (a *Admin) installConfigError(err error) error {
 	a.C.Log.Error("an install command cannot be written: check --chart-ref and the chart versions", "err", err)
-	return errf(KindInternal, "this server is set up with a chart it cannot name in an install command; see its log")
+	return Errf(KindInternal, "this server is set up with a chart it cannot name in an install command; see its log")
 }
 
 func (a *Admin) agentChartVersion() string {

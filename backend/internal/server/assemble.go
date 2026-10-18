@@ -47,7 +47,7 @@ func isChunk(s *continuumv1.Sync) bool { return s.ChunkTotal > 1 }
 // a limit; on error the caller drops the assembly.
 func (a *assembly) add(s *continuumv1.Sync, l facts.Limits) (done *continuumv1.Sync, err error) {
 	if int(s.ChunkIndex) != a.next || int(s.ChunkTotal) != a.total || s.SyncId != a.id {
-		return nil, &errChunk{fmt.Sprintf("chunk %d of %d for %q arrived where chunk %d of %d for %q was expected", s.ChunkIndex, s.ChunkTotal, printable(s.SyncId, 40), a.next, a.total, printable(a.id, 40))}
+		return nil, &errChunk{fmt.Sprintf("chunk %d of %d for %q arrived where chunk %d of %d for %q was expected", s.ChunkIndex, s.ChunkTotal, Printable(s.SyncId, 40), a.next, a.total, Printable(a.id, 40))}
 	}
 	if s.Full != a.merged.Full || s.Seq != a.merged.Seq {
 		return nil, &errChunk{"the chunks of one picture must share the same seq and full flag"}

@@ -59,7 +59,7 @@ func (a *Admin) getFusion(w http.ResponseWriter, r *http.Request) {
 
 func (a *Admin) enableFusion(w http.ResponseWriter, r *http.Request) {
 	if a.Fusion == nil {
-		a.fail(w, errf(KindConflict, "%s", a.Fusion.Status(r.Context()).Message))
+		a.fail(w, Errf(KindConflict, "%s", a.Fusion.Status(r.Context()).Message))
 		return
 	}
 	if _, err := a.Fusion.Enable(r.Context(), a.core(r), actor(r)); err != nil {
@@ -71,7 +71,7 @@ func (a *Admin) enableFusion(w http.ResponseWriter, r *http.Request) {
 
 func (a *Admin) disableFusion(w http.ResponseWriter, r *http.Request) {
 	if a.Fusion == nil {
-		a.fail(w, errf(KindConflict, "%s", a.Fusion.Status(r.Context()).Message))
+		a.fail(w, Errf(KindConflict, "%s", a.Fusion.Status(r.Context()).Message))
 		return
 	}
 	if _, err := a.Fusion.Disable(r.Context(), a.core(r), actor(r)); err != nil {
@@ -94,7 +94,7 @@ func (a *Admin) getFusionRetention(w http.ResponseWriter, r *http.Request) {
 // each, the days to keep and/or the volume size to grow to.
 func (a *Admin) setFusionRetention(w http.ResponseWriter, r *http.Request) {
 	if a.Fusion == nil {
-		a.fail(w, errf(KindConflict, "%s", a.Fusion.Status(r.Context()).Message))
+		a.fail(w, Errf(KindConflict, "%s", a.Fusion.Status(r.Context()).Message))
 		return
 	}
 	var req RetentionRequest

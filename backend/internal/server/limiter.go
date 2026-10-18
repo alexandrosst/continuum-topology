@@ -62,7 +62,7 @@ func (l *Limiter) Allow(key string) bool {
 	}
 	b.last = now
 	if b.tokens < 1 {
-		Metrics.rateLimited.Add(1)
+		Metrics.RateLimited.Add(1)
 		return false
 	}
 	b.tokens--
@@ -119,15 +119,15 @@ func LimitKey(ip string) string {
 	return a.String()
 }
 
-// failureTracker slows down guessing of one account's password from many addresses at once, which the
-// per-address limits cannot see. After failFree consecutive failures each further one doubles the wait
+// FailureTracker slows down guessing of one account's password from many addresses at once, which the
+// per-address limits cannot see. After FailFree consecutive failures each further one doubles the wait
 // (1 s, 2 s, 4 s, ...) up to failCap. The counter is per name as typed, existing or not, and forgets a
 // name failFor after its last failure; a correct password resets it. Only the most recent maxFailureNames
 // are kept, so memory stays bounded however many names are tried.
 //
 // The trade-off is that someone who knows a name can keep that account waiting by failing on purpose; the
 // cap keeps that to a few minutes, and the wait never applies to a request that is not a sign-in.
-type failureTracker struct {
+type FailureTracker struct {
 	mu    sync.Mutex
 	names map[string]*failure
 	order *list.List
@@ -143,19 +143,19 @@ type failure struct {
 }
 
 const (
-	failFree         = 4
+	FailFree         = 4
 	failCap          = 5 * time.Minute
 	failFor          = time.Hour
 	maxFailureNames  = 100000
-	failBaseInterval = time.Second
+	FailBaseInterval = time.Second
 )
 
-func newFailureTracker() *failureTracker {
-	return &failureTracker{names: map[string]*failure{}, order: list.New(), max: maxFailureNames}
+func NewFailureTracker() *FailureTracker {
+	return &FailureTracker{names: map[string]*failure{}, order: list.New(), max: maxFailureNames}
 }
 
 // blocked returns how long this name must still wait (0: not at all).
-func (t *failureTracker) blocked(name string, now time.Time) time.Duration {
+func (t *FailureTracker) Blocked(name string, now time.Time) time.Duration {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	f := t.names[name]
@@ -173,7 +173,7 @@ func (t *failureTracker) blocked(name string, now time.Time) time.Duration {
 }
 
 // fail records a failed attempt and returns the wait it earned.
-func (t *failureTracker) fail(name string, now time.Time) time.Duration {
+func (t *FailureTracker) Fail(name string, now time.Time) time.Duration {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	f := t.names[name]
@@ -195,11 +195,11 @@ func (t *failureTracker) fail(name string, now time.Time) time.Duration {
 	f.count++
 	f.last = now
 	var wait time.Duration
-	if f.count > failFree {
-		shift := f.count - failFree - 1
+	if f.count > FailFree {
+		shift := f.count - FailFree - 1
 		wait = failCap
 		if shift < 20 {
-			if w := failBaseInterval << shift; w < failCap {
+			if w := FailBaseInterval << shift; w < failCap {
 				wait = w
 			}
 		}
@@ -208,7 +208,7 @@ func (t *failureTracker) fail(name string, now time.Time) time.Duration {
 	return wait
 }
 
-func (t *failureTracker) succeed(name string) {
+func (t *FailureTracker) Succeed(name string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if f := t.names[name]; f != nil {
@@ -216,13 +216,13 @@ func (t *failureTracker) succeed(name string) {
 	}
 }
 
-func (t *failureTracker) drop(f *failure) {
+func (t *FailureTracker) drop(f *failure) {
 	t.order.Remove(f.elem)
 	delete(t.names, f.name)
 }
 
-// roundWait words a wait for a person: whole seconds, or minutes once it is long.
-func roundWait(d time.Duration) string {
+// RoundWait words a wait for a person: whole seconds, or minutes once it is long.
+func RoundWait(d time.Duration) string {
 	s := int(d.Seconds() + 0.999)
 	if s < 1 {
 		s = 1

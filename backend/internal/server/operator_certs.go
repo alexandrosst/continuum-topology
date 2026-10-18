@@ -289,8 +289,8 @@ type OperatorReissue struct {
 // earlier certificates are not revoked (nothing here can) and keep working until they expire; the replaced
 // tokens stop working at once. The new certificate dates are recorded and the expiry warning starts over.
 func (c *Core) ReissueOperatorInstall(ctx context.Context, actor, id string) (store.Operator, OperatorReissue, error) {
-	c.depMu.RLock() // see Core.depMu: a revoke or delete cannot come between the check that it is active and the writes below
-	defer c.depMu.RUnlock()
+	c.DepMu.RLock() // see Core.DepMu: a revoke or delete cannot come between the check that it is active and the writes below
+	defer c.DepMu.RUnlock()
 	var out OperatorReissue
 	if err := guardCentral(id); err != nil {
 		return store.Operator{}, out, err
@@ -300,7 +300,7 @@ func (c *Core) ReissueOperatorInstall(ctx context.Context, actor, id string) (st
 		return store.Operator{}, out, err
 	}
 	if op.Status != store.OperatorActive {
-		return store.Operator{}, out, errf(KindConflict, "only an active operator can be installed again")
+		return store.Operator{}, out, Errf(KindConflict, "only an active operator can be installed again")
 	}
 	var recvEnd, clientEnd time.Time
 	var hbHash, tokenHash []byte
@@ -353,8 +353,8 @@ func (c *Core) ReissueOperatorInstall(ctx context.Context, actor, id string) (st
 	// Only what was done, never any secret or hash: the trail records that it happened, by whom, to what.
 	detail := strings.Join(did, "; ")
 	err = c.Store.ReissueOperatorInstall(ctx, id, store.OperatorReissue{ReceiverTokenHash: tokenHash, ReceiverNotAfter: recvEnd, ClientNotAfter: clientEnd, HeartbeatHash: hbHash, Now: c.Now()},
-		store.WithAudit(c.auditRow(c.OrgID, actor, "operator-install-reissued", "operator", id, detail)))
-	if err = c.auditedWrite(stateErr(err), "operator-install-reissued"); err != nil {
+		store.WithAudit(c.AuditRow(c.OrgID, actor, "operator-install-reissued", "operator", id, detail)))
+	if err = c.AuditedWrite(stateErr(err), "operator-install-reissued"); err != nil {
 		return store.Operator{}, OperatorReissue{}, err
 	}
 	op, err = c.operatorInOrg(ctx, id)
@@ -364,7 +364,7 @@ func (c *Core) ReissueOperatorInstall(ctx context.Context, actor, id string) (st
 // stateErr words the store's "not active" answer for a caller.
 func stateErr(err error) error {
 	if errors.Is(err, store.ErrBadState) {
-		return errf(KindConflict, "operator is not active")
+		return Errf(KindConflict, "operator is not active")
 	}
 	return err
 }

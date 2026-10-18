@@ -521,7 +521,7 @@ func TestAReceiverCertificateThatCannotBeRecordedIsNotHandedOut(t *testing.T) {
 	}
 }
 
-// Issuing a certificate for an operator and reissuing its install both hold depMu for reading, like creating an operator
+// Issuing a certificate for an operator and reissuing its install both hold DepMu for reading, like creating an operator
 // or changing its scope: a revoke or delete (which takes the write lock) waits for them, and they wait for it, so a
 // certificate is never minted and recorded for an operator that was revoked in the middle.
 func TestCertificateIssuingIsOrderedAgainstRevokeAndDelete(t *testing.T) {
@@ -538,16 +538,16 @@ func TestCertificateIssuingIsOrderedAgainstRevokeAndDelete(t *testing.T) {
 		},
 		"ReissueOperatorInstall": func() error { _, _, err := e.core.ReissueOperatorInstall(e.ctx, "alex", op.ID); return err },
 	} {
-		e.core.depMu.Lock() // what a revoke or delete holds while it checks dependents and removes
+		e.core.DepMu.Lock() // what a revoke or delete holds while it checks dependents and removes
 		done := make(chan error, 1)
 		go func() { done <- call() }()
 		select {
 		case err := <-done:
-			e.core.depMu.Unlock()
+			e.core.DepMu.Unlock()
 			t.Fatalf("%s ran while a revoke or delete held the lock (err %v)", name, err)
 		case <-time.After(150 * time.Millisecond):
 		}
-		e.core.depMu.Unlock()
+		e.core.DepMu.Unlock()
 		select {
 		case err := <-done:
 			if err != nil {
@@ -578,8 +578,8 @@ func TestIssuingInsideTheLockDoesNotDeadlockWithAWaitingRevoke(t *testing.T) {
 			}()
 			go func() { // a writer in between
 				defer wg.Done()
-				e.core.depMu.Lock()
-				e.core.depMu.Unlock()
+				e.core.DepMu.Lock()
+				e.core.DepMu.Unlock()
 			}()
 		}
 		wg.Wait()

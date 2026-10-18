@@ -73,7 +73,7 @@ func (a *Admin) setAgentTier(w http.ResponseWriter, r *http.Request) {
 		Tier *int `json:"tier"`
 	}
 	if err := decode(r, &req); err != nil || req.Tier == nil {
-		a.fail(w, errf(KindInvalid, "invalid request body: expected {\"tier\": N}"))
+		a.fail(w, Errf(KindInvalid, "invalid request body: expected {\"tier\": N}"))
 		return
 	}
 	c := a.core(r)

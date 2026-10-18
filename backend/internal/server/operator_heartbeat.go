@@ -149,7 +149,7 @@ func (c *Core) EnableOperatorHeartbeat(ctx context.Context, actor, id string) (s
 		return "", false, err
 	}
 	if op.Status != store.OperatorActive {
-		return "", false, errf(KindConflict, "only an active operator can report a heartbeat")
+		return "", false, Errf(KindConflict, "only an active operator can report a heartbeat")
 	}
 	secret, err = NewOperatorHeartbeatSecret()
 	if err != nil {
@@ -161,14 +161,14 @@ func (c *Core) EnableOperatorHeartbeat(ctx context.Context, actor, id string) (s
 		action = "operator-heartbeat-rotated"
 	}
 	// No secret, hash or prefix in the detail: the trail records that it happened, by whom, to what.
-	err = c.Store.SetOperatorHeartbeat(ctx, id, HashSecret(secret), c.Now(), store.WithAudit(c.auditRow(c.OrgID, actor, action, "operator", id, "")))
+	err = c.Store.SetOperatorHeartbeat(ctx, id, HashSecret(secret), c.Now(), store.WithAudit(c.AuditRow(c.OrgID, actor, action, "operator", id, "")))
 	switch {
 	case errors.Is(err, store.ErrBadState):
-		err = errf(KindConflict, "only an active operator can report a heartbeat")
+		err = Errf(KindConflict, "only an active operator can report a heartbeat")
 	case errors.Is(err, store.ErrNotFound):
-		err = errf(KindNotFound, "no such regional operator")
+		err = Errf(KindNotFound, "no such regional operator")
 	}
-	if err = c.auditedWrite(err, action); err != nil {
+	if err = c.AuditedWrite(err, action); err != nil {
 		return "", false, err
 	}
 	return secret, rotated, nil
@@ -179,7 +179,7 @@ func (c *Core) EnableOperatorHeartbeat(ctx context.Context, actor, id string) (s
 // Unknown, malformed, rotated-away and revoked all return errHeartbeatRejected. Database writes are
 // coalesced to one per heartbeatWriteEvery per operator; there is no audit row per heartbeat.
 func (c *Core) RecordOperatorHeartbeat(ctx context.Context, secret string) error {
-	if !looksLikeHeartbeatSecret(secret) {
+	if !LooksLikeHeartbeatSecret(secret) {
 		return errHeartbeatRejected
 	}
 	h := HashSecret(secret)

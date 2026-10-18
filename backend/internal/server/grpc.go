@@ -127,7 +127,7 @@ func (c *Core) tap(ctx context.Context, info *tap.Info) (context.Context, error)
 			return ctx, nil
 		}
 	}
-	Metrics.authFailures.Add(1)
+	Metrics.AuthFailures.Add(1)
 	return nil, status.Error(codes.Unauthenticated, "a client certificate is required")
 }
 
@@ -161,7 +161,7 @@ func (c *Core) stream(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo
 	defer c.recoverPanic(info.FullMethod, &err)
 	a, err := c.identity(ss.Context())
 	if err != nil {
-		Metrics.authFailures.Add(1)
+		Metrics.AuthFailures.Add(1)
 		return err
 	}
 	return h(srv, wrappedStream{ss, context.WithValue(ss.Context(), ctxKey{}, a)})
@@ -448,5 +448,5 @@ func (b *BaseAgentService) Renew(ctx context.Context, r *continuumv1.RenewReques
 	if err != nil {
 		return nil, toStatus(err)
 	}
-	return &continuumv1.RenewResponse{LeafDer: leaf, CaDer: b.C.CA.DER, NotAfter: tsProto(&notAfter)}, nil
+	return &continuumv1.RenewResponse{LeafDer: leaf, CaDer: b.C.CA.DER, NotAfter: TSProto(&notAfter)}, nil
 }

@@ -42,7 +42,7 @@ type Error struct {
 
 func (e *Error) Error() string { return e.Msg }
 
-func errf(k Kind, format string, a ...any) *Error {
+func Errf(k Kind, format string, a ...any) *Error {
 	return &Error{Kind: k, Msg: fmt.Sprintf(format, a...)}
 }
 
@@ -60,14 +60,14 @@ const (
 	MaxApprovalAttempts = 5
 	// DefaultPendingTTL is how long an enrollment may wait for approval before it expires.
 	DefaultPendingTTL = 24 * time.Hour
-	// expiredKeep is how long the record of an expired enrollment stays (so the agent can learn it expired and
+	// ExpiredKeep is how long the record of an expired enrollment stays (so the agent can learn it expired and
 	// enroll again) before it is deleted.
-	expiredKeep = 7 * 24 * time.Hour
+	ExpiredKeep = 7 * 24 * time.Hour
 )
 
 // A cluster's identity is the UID of its kube-system namespace: always a lowercase UUID. Accepting
 // anything looser would let a confused (or hostile) agent claim an arbitrary string as its cluster.
-var fingerprintRe = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+var FingerprintRe = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 type Core struct {
 	Store store.Store
@@ -82,7 +82,7 @@ type Core struct {
 	// TapRL limits every enrollment-service request per address before its body is read.
 	TapRL  *Limiter
 	Now    func() time.Time
-	userMu *sync.Mutex // serialises membership changes so an organisation always keeps an owner
+	UserMu *sync.Mutex // serialises membership changes so an organisation always keeps an owner
 	// RegMode says who may create an account: RegOpen, RegInvite or RegClosed (empty is RegOpen; see regMode).
 	RegMode string
 	// Decider is what the server may connect to on behalf of the external decider (nil: public addresses only).
@@ -112,15 +112,15 @@ type Core struct {
 	// sending it would be refused outright.
 	TrustAgentProxy bool
 	settings        *settingsHolder
-	// depMu orders what ADDS a dependent of an operator (a new operator, an intent or a route that sends to it) against what
+	// DepMu orders what ADDS a dependent of an operator (a new operator, an intent or a route that sends to it) against what
 	// REMOVES it (revoke, delete): the dependents check and the removal are then one step, so nothing can start sending to an
 	// operator between "nothing depends on it" and "it is gone". A pointer, shared by ForOrg's copies; one server, one database.
-	depMu *sync.RWMutex
-	// intentMu makes "this agent has no active telemetry intent" and the insert of a new one a single step (see
+	DepMu *sync.RWMutex
+	// IntentMu makes "this agent has no active telemetry intent" and the insert of a new one a single step (see
 	// CreateTelemetryIntentWithRoutes): two requests arriving together would otherwise both pass the check and leave the
 	// agent with two active intents, which everything that reads an agent's intent takes to be one. A pointer, shared by
 	// ForOrg's copies.
-	intentMu *sync.Mutex
+	IntentMu *sync.Mutex
 	// shared and orgState hold what each module keeps for itself (see state.go).
 	shared, orgState *stateSlots
 }
@@ -142,30 +142,30 @@ func NewCore(st store.Store, ca *pki.CA, org string, log *slog.Logger) *Core {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Core{Store: st, CA: ca, OrgID: org, Log: log, EnrollRL: NewLimiter(20, 10), RenewRL: NewLimiter(1, 5), TapRL: NewLimiter(60, 30), Now: time.Now, userMu: &sync.Mutex{}, settings: &settingsHolder{}, shared: &stateSlots{}, orgState: &stateSlots{}, depMu: &sync.RWMutex{}, intentMu: &sync.Mutex{}}
+	return &Core{Store: st, CA: ca, OrgID: org, Log: log, EnrollRL: NewLimiter(20, 10), RenewRL: NewLimiter(1, 5), TapRL: NewLimiter(60, 30), Now: time.Now, UserMu: &sync.Mutex{}, settings: &settingsHolder{}, shared: &stateSlots{}, orgState: &stateSlots{}, DepMu: &sync.RWMutex{}, IntentMu: &sync.Mutex{}}
 }
 
 // audit records something that happened. It is best effort: a failure is logged and the caller carries on.
 // Use audited for anything a person with authority does, which must not happen without a record.
-func (c *Core) audit(ctx context.Context, actor, action, kind, id, detail string) {
-	c.auditOrg(ctx, c.OrgID, actor, action, kind, id, detail)
+func (c *Core) Audit(ctx context.Context, actor, action, kind, id, detail string) {
+	c.AuditOrg(ctx, c.OrgID, actor, action, kind, id, detail)
 }
 
 // Bounds on what one audit row may hold, so a long reason or a hostile name cannot bloat the trail.
 const (
-	maxAuditActor  = 128
-	maxAuditTarget = 128
-	maxAuditDetail = 500
+	MaxAuditActor  = 128
+	MaxAuditTarget = 128
+	MaxAuditDetail = 500
 )
 
-func (c *Core) auditRow(org, actor, action, kind, id, detail string) store.AuditEvent {
-	return store.AuditEvent{At: c.Now(), OrgID: org, Actor: printable(actor, maxAuditActor), Action: printable(action, 64), TargetKind: printable(kind, 64),
-		TargetID: printable(id, maxAuditTarget), Detail: printable(detail, maxAuditDetail)}
+func (c *Core) AuditRow(org, actor, action, kind, id, detail string) store.AuditEvent {
+	return store.AuditEvent{At: c.Now(), OrgID: org, Actor: Printable(actor, MaxAuditActor), Action: Printable(action, 64), TargetKind: Printable(kind, 64),
+		TargetID: Printable(id, MaxAuditTarget), Detail: Printable(detail, MaxAuditDetail)}
 }
 
-// auditOrg writes to one organisation's trail ("" is the server's own, which no tenant can read).
-func (c *Core) auditOrg(ctx context.Context, org, actor, action, kind, id, detail string) {
-	if err := c.Store.AddAudit(ctx, c.auditRow(org, actor, action, kind, id, detail)); err != nil {
+// AuditOrg writes to one organisation's trail ("" is the server's own, which no tenant can read).
+func (c *Core) AuditOrg(ctx context.Context, org, actor, action, kind, id, detail string) {
+	if err := c.Store.AddAudit(ctx, c.AuditRow(org, actor, action, kind, id, detail)); err != nil {
 		c.Log.Error("audit write failed", "action", action, "err", err)
 	}
 }
@@ -174,8 +174,8 @@ func (c *Core) auditOrg(ctx context.Context, org, actor, action, kind, id, detai
 // be written the action is not performed and the caller gets an error (fail closed: nothing that needs
 // an administrator happens unseen). If the action itself then fails, a second row says so, so the trail
 // never claims something that did not take place.
-func (c *Core) audited(ctx context.Context, actor, action, kind, id, detail string, do func() error) error {
-	if err := c.Store.AddAudit(ctx, c.auditRow(c.OrgID, actor, action, kind, id, detail)); err != nil {
+func (c *Core) Audited(ctx context.Context, actor, action, kind, id, detail string, do func() error) error {
+	if err := c.Store.AddAudit(ctx, c.AuditRow(c.OrgID, actor, action, kind, id, detail)); err != nil {
 		c.Log.Error("audit write failed; the action was not carried out", "action", action, "err", err)
 		return errAuditNotWritten()
 	}
@@ -185,21 +185,21 @@ func (c *Core) audited(ctx context.Context, actor, action, kind, id, detail stri
 		// says it did not happen.
 		octx, cancel := context.WithTimeout(context.WithoutCancel(ctx), auditOutcomeTimeout)
 		defer cancel()
-		c.audit(octx, actor, action+"-failed", kind, id, err.Error())
+		c.Audit(octx, actor, action+"-failed", kind, id, err.Error())
 		return err
 	}
 	return nil
 }
 
 func errAuditNotWritten() error {
-	return errf(KindInternal, "the audit trail could not be written, so nothing was changed. Check the server's database and try again")
+	return Errf(KindInternal, "the audit trail could not be written, so nothing was changed. Check the server's database and try again")
 }
 
-// auditedWrite is audited for a store write that carries its own audit row (store.WithAudit): the
+// AuditedWrite is audited for a store write that carries its own audit row (store.WithAudit): the
 // row and the change are one transaction, so the trail never holds a claim for something that did
 // not happen and there is no follow-up row to write. A refused attempt (not found, wrong state)
 // leaves no row at all. Only a failure to write the row itself is translated here.
-func (c *Core) auditedWrite(err error, action string) error {
+func (c *Core) AuditedWrite(err error, action string) error {
 	if errors.Is(err, store.ErrAuditWrite) {
 		c.Log.Error("audit write failed; the action was not carried out", "action", action, "err", err)
 		return errAuditNotWritten()
@@ -210,21 +210,21 @@ func (c *Core) auditedWrite(err error, action string) error {
 // auditOutcomeTimeout bounds the follow-up row written after a failed action.
 const auditOutcomeTimeout = 5 * time.Second
 
-// agentInOrg finds an agent of this organisation. An agent of another one is reported as not existing.
-func (c *Core) agentInOrg(ctx context.Context, id string) (store.Agent, error) {
+// AgentInOrg finds an agent of this organisation. An agent of another one is reported as not existing.
+func (c *Core) AgentInOrg(ctx context.Context, id string) (store.Agent, error) {
 	a, err := c.Store.GetAgent(ctx, id)
 	if errors.Is(err, store.ErrNotFound) || (err == nil && a.OrgID != c.OrgID) {
-		return store.Agent{}, errf(KindNotFound, "no such agent")
+		return store.Agent{}, Errf(KindNotFound, "no such agent")
 	}
 	return a, err
 }
 
-// maxReason bounds the reason an administrator gives when refusing or revoking an agent. It is stored on
+// MaxReason bounds the reason an administrator gives when refusing or revoking an agent. It is stored on
 // the agent, shown to the agent's operator, and written to the audit trail.
-const maxReason = 200
+const MaxReason = 200
 
 // printable clips s and replaces control characters, for values that end up in logs and the UI.
-func printable(s string, n int) string {
+func Printable(s string, n int) string {
 	s = clip(s, n)
 	return strings.Map(func(r rune) rune {
 		if r < 0x20 || r == 0x7f {
@@ -245,4 +245,4 @@ func clip(s string, n int) string {
 	return s[:n]
 }
 
-func shortFP(fp string) string { return clip(fp, 8) }
+func ShortFP(fp string) string { return clip(fp, 8) }

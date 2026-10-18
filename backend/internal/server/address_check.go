@@ -154,7 +154,7 @@ func probeAddress(ctx context.Context, addr string, caPEM []byte, serverName str
 func classifyDialError(err error, addr string) (state, msg string) {
 	var dns *net.DNSError
 	switch {
-	case isDeciderDenied(err):
+	case IsDeciderDenied(err):
 		// Say nothing of the address it resolved to or why: that would be the answer to the scan.
 		return "blocked", "this server will not connect to that address."
 	case errors.As(err, &dns):
@@ -212,7 +212,7 @@ func (p *addressProbes) put(id, addr string, now time.Time, res AddressProbe) {
 // what a cluster-internal or VPN-fronted operator looks like (validOperatorAddress accepts them and addressWarnings only
 // warns), so unlike the external decider the probe does not refuse them. Loopback stays out: the only thing there is
 // this server itself.
-var probeReachable = mustPrefixes(
+var probeReachable = MustPrefixes(
 	"10.0.0.0/8",
 	"172.16.0.0/12",
 	"192.168.0.0/16",
@@ -226,10 +226,10 @@ var probeReachable = mustPrefixes(
 func probePolicy(dp *DeciderPolicy) *DeciderPolicy {
 	p := &DeciderPolicy{}
 	if dp != nil {
-		p.resolver = dp.resolver
-		p.allow = append(p.allow, dp.allow...)
+		p.Resolver = dp.Resolver
+		p.Allow = append(p.Allow, dp.Allow...)
 	}
-	p.allow = append(p.allow, probeReachable...)
+	p.Allow = append(p.Allow, probeReachable...)
 	return p
 }
 
@@ -238,17 +238,17 @@ func probePolicy(dp *DeciderPolicy) *DeciderPolicy {
 // would otherwise let an administrator scan it from here, told apart by refused, no-answer and reachable.
 func probeDialer(dp *DeciderPolicy) func(ctx context.Context, network, addr string) (net.Conn, error) {
 	p := probePolicy(dp)
-	d := net.Dialer{Resolver: p.resolver, Control: func(network, address string, _ syscall.RawConn) error {
+	d := net.Dialer{Resolver: p.Resolver, Control: func(network, address string, _ syscall.RawConn) error {
 		host, _, err := net.SplitHostPort(address)
 		if err != nil {
-			return errDeciderDenied{err}
+			return ErrDeciderDenied{err}
 		}
 		a, err := netip.ParseAddr(host)
 		if err != nil {
-			return errDeciderDenied{fmt.Errorf("cannot check the address %q", host)}
+			return ErrDeciderDenied{fmt.Errorf("cannot check the address %q", host)}
 		}
 		if err := p.CheckAddr(a); err != nil {
-			return errDeciderDenied{err}
+			return ErrDeciderDenied{err}
 		}
 		return nil
 	}}
@@ -282,7 +282,7 @@ func (a *Admin) checkOperatorAddress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if op.Status != store.OperatorActive {
-		a.fail(w, errf(KindConflict, "only an active operator's address can be checked"))
+		a.fail(w, Errf(KindConflict, "only an active operator's address can be checked"))
 		return
 	}
 	addr, caPEM, serverName := a.probeSettings(c, op)

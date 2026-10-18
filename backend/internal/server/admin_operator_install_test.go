@@ -156,7 +156,7 @@ func TestInstallAgainRotatesABearerOperatorsToken(t *testing.T) {
 	}
 	doc := resp.json(t)
 	tok, _ := doc["token"].(string)
-	if !strings.HasPrefix(tok, operatorPrefix) || tok == created["token"] || doc["secretCommand"] == nil {
+	if !strings.HasPrefix(tok, OperatorPrefix) || tok == created["token"] || doc["secretCommand"] == nil {
 		t.Fatalf("token = %q, secretCommand = %v", tok, doc["secretCommand"])
 	}
 	after, _ := a.st.GetOperator(a.ctx, id)

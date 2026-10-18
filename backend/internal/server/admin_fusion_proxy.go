@@ -240,7 +240,7 @@ func (a *Admin) fusionUI(component string) http.Handler {
 			}
 		}
 		if err != nil || who.Kind != "user" { // a FUSION access token reads data through the API; it does not get a web page
-			Metrics.authFailures.Add(1)
+			Metrics.AuthFailures.Add(1)
 			if !a.fusionPageRL.Allow(LimitKey(a.clientIP(r))) {
 				writeErr(w, http.StatusTooManyRequests, "too many failed attempts, wait a minute")
 				return
