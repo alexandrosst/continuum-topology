@@ -2,15 +2,11 @@ package estate
 
 import (
 	"context"
-	"continuum/internal/approval"
 	"continuum/internal/testkit"
 	"crypto/ecdsa"
 	"crypto/tls"
 	"flag"
-	"google.golang.org/grpc/credentials"
 	"log/slog"
-	"net"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -83,6 +79,7 @@ func (r *hubRig) connect(t *testing.T, ctx context.Context, key any, leaf []byte
 // ---- from core_test.go ----
 
 type env struct {
+	w    *testkit.World
 	base *Service // the platform-wide core: accounts, sign-in, the gRPC listener
 	core *Service // organisation "org-1", which most tests work in
 	st   *store.SQLite
@@ -98,116 +95,45 @@ type env struct {
 func newEnv(t *testing.T) *env {
 	t.Helper()
 	e := newEnvBare(t)
-	u := store.User{ID: "u-owner", Username: "org1-owner", PasswordHash: "!", CreatedAt: time.Now()}
-	if err := e.st.CreateUser(e.ctx, u); err != nil {
-		t.Fatal(err)
-	}
-	if err := e.st.CreateOrg(e.ctx, store.Org{ID: "org-1", Name: "Org One", CreatedAt: time.Now(), CreatedBy: u.ID}, u.ID); err != nil {
-		t.Fatal(err)
-	}
+	e.w.CreateOrg1(t)
 	return e
 }
 
 // newEnvBare has no accounts and no organisation yet (BootstrapAdmin would create "org-1").
 func newEnvBare(t *testing.T) *env {
 	t.Helper()
-	dbPath := filepath.Join(t.TempDir(), "t.db")
-	st, err := store.OpenSQLite(dbPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { st.Close() })
-	ca, err := pki.LoadOrCreate(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	base := newCore(st, ca, "", nil)
-	base.DefaultOrg = "org-1"
-	now := time.Now()
-	e := &env{base: base, st: st, now: &now, ctx: context.Background(), dbPath: dbPath, codes: map[string]string{}}
-	base.Now = func() time.Time { return *e.now }
-	base.EnrollRL = kernel.NewLimiter(6000, 1000) // out of the way unless a test wants it
-	e.core = base.ForOrg("org-1")
-	return e
+	w := testkit.NewBareWorld(t)
+	base := wrap(w.Base)
+	return &env{w: w, base: base, core: base.ForOrg("org-1"), st: w.Store, now: w.Now, ctx: w.Ctx, dbPath: w.DBPath, codes: map[string]string{}}
 }
 
 // ---- from enroll_test.go ----
 
-// coded is one enrollment the way a current agent makes it: a key, a code, and only the code's hash sent.
-type coded struct {
-	resp  *continuumv1.EnrollResponse
-	req   *continuumv1.EnrollRequest
-	code  string
-	token string
-}
+type coded = testkit.Coded
 
 func (e *env) enrollCoded(t *testing.T, fingerprint string) coded {
 	t.Helper()
-	secret, _, err := e.core.Agents.CreateToken(e.ctx, "admin", "edge-patras", 2)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return e.enrollCodedWith(t, secret, fingerprint, nil, "")
+	return testkit.EnrollCoded(t, e.ctx, e.core.Agents, fingerprint)
 }
 
 // enrollCodedWith sends an enrollment with the given token; key (a CSR made earlier) and code are reused for a retry.
 func (e *env) enrollCodedWith(t *testing.T, token, fingerprint string, csrDER []byte, code string) coded {
 	t.Helper()
-	c, err := e.tryEnroll(t, token, fingerprint, csrDER, code)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return c
+	return testkit.EnrollCodedWith(t, e.ctx, e.core.Agents, token, fingerprint, csrDER, code)
 }
 
 func (e *env) tryEnroll(t *testing.T, token, fingerprint string, csrDER []byte, code string) (coded, error) {
 	t.Helper()
-	if csrDER == nil {
-		csrDER, _ = testkit.CSR(t)
-	}
-	if code == "" {
-		var err error
-		if code, err = approval.New(); err != nil {
-			t.Fatal(err)
-		}
-	}
-	hash, err := approval.Hash(code, csrDER)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req := &continuumv1.EnrollRequest{Token: token, CsrDer: csrDER, ClusterFingerprint: fingerprint, InstalledAccessTier: 2, AgentVersion: "0.1.0", ApprovalCodeHash: hash}
-	resp, err := e.core.Agents.Enroll(e.ctx, "10.0.0.1", req)
-	return coded{resp: resp, req: req, code: code, token: token}, err
+	return testkit.TryEnroll(t, e.ctx, e.core.Agents, token, fingerprint, csrDER, code)
 }
 
 // ---- from fake_agent_test.go ----
 
-// fakeAgent is a scripted agent on a real mutual-TLS stream to a real server. The real agent (internal/agent) is the thing the
-// end-to-end tests run, and it cannot be told to misbehave: to be late, to say the wrong thing, to vanish, to come back. This
-// one does only what the test tells it, so a rule of the protocol can be checked in the exact situation that breaks it. It keeps
-// what it was sent, answers nothing by itself (no heartbeat, no echo), and the test says each step.
-//
-// Faults it can make, each one a method: drop (the stream ends with no goodbye), restart (a new stream from the same identity),
-// beat with any digest (an echo that is late, from an older Config, or from one the server never sent), say nothing at all (the
-// default), and send what it likes after being replaced.
+// fakeAgent is the scripted agent of testkit with the server's side of it: what the sync hub in front of the test's gRPC listener has
+// seen of it.
 type fakeAgent struct {
-	t     *testing.T
-	r     *hubRig
-	ctx   context.Context
-	id    string
-	key   any
-	leaf  []byte
-	hello *continuumv1.Hello
-
-	cancel   context.CancelFunc // ends the current stream
-	stream   continuumv1.AgentService_ConnectClient
-	incoming chan recvdMsg
-	configs  []*continuumv1.Config // every Config received on any stream, in order
-}
-
-type recvdMsg struct {
-	m   *continuumv1.ServerMessage
-	err error
+	*testkit.FakeAgent
+	r *hubRig
 }
 
 // newFakeAgent makes an approved agent and connects it: the hello is sent and the first Config, which the server sends at once, is
@@ -221,106 +147,56 @@ func (r *hubRig) newFakeAgent(t *testing.T, ctx context.Context) *fakeAgent {
 func (r *hubRig) newFakeAgentWith(t *testing.T, ctx context.Context, hello *continuumv1.Hello) *fakeAgent {
 	t.Helper()
 	id, key, leaf := r.approvedAgent(t, testkit.FP)
-	f := &fakeAgent{t: t, r: r, ctx: ctx, id: id, key: key, leaf: leaf, hello: hello}
-	f.connect()
+	f := &fakeAgent{r: r, FakeAgent: &testkit.FakeAgent{T: t, Ctx: ctx, ID: id, Key: key, Leaf: leaf, Hello: hello,
+		Dial: func(c *tls.Certificate) *grpc.ClientConn {
+			return r.dial(t, pki.ClientTLS(r.core.CA.Pin(), "127.0.0.1", c))
+		}}}
+	f.Connect()
 	return f
 }
 
-// connect opens a stream, says hello and waits for the Config the server sends in answer.
-func (f *fakeAgent) connect() *continuumv1.Config {
-	f.t.Helper()
-	cert := &tls.Certificate{Certificate: [][]byte{f.leaf}, PrivateKey: f.key}
-	c := continuumv1.NewAgentServiceClient(f.r.dial(f.t, pki.ClientTLS(f.r.core.CA.Pin(), "127.0.0.1", cert)))
-	sctx, cancel := context.WithCancel(f.ctx)
-	s, err := c.Connect(sctx)
-	if err != nil {
-		cancel()
-		f.t.Fatalf("connect: %v", err)
-	}
-	f.cancel, f.stream = cancel, s
-	f.t.Cleanup(cancel)
-	in := make(chan recvdMsg, 64)
-	f.incoming = in
-	go func() {
-		for {
-			m, err := s.Recv()
-			in <- recvdMsg{m, err}
-			if err != nil {
-				return
-			}
-		}
-	}()
-	if err := s.Send(&continuumv1.AgentMessage{Msg: &continuumv1.AgentMessage_Hello{Hello: f.hello}}); err != nil {
-		f.t.Fatalf("hello: %v", err)
-	}
-	cfg := f.nextConfig(5 * time.Second)
-	if cfg == nil {
-		f.t.Fatal("the server sent no Config after hello")
-	}
-	return cfg
+// drop ends the stream the way a crash or a cut network does: nothing is said, the connection just stops.
+func (f *fakeAgent) drop() {
+	f.T.Helper()
+	f.Cancel()
+	f.WaitUntil("the server to notice the stream ended", func() bool {
+		f.r.hub.Mu.Lock()
+		defer f.r.hub.Mu.Unlock()
+		return f.r.hub.Sessions[f.ID] == nil
+	})
 }
 
-// nextConfig waits up to d for the next Config on the current stream and returns nil if none comes. Other messages are skipped.
-func (f *fakeAgent) nextConfig(d time.Duration) *continuumv1.Config {
-	f.t.Helper()
-	timer := time.NewTimer(d)
-	defer timer.Stop()
-	for {
-		select {
-		case in := <-f.incoming:
-			if in.err != nil {
-				return nil
-			}
-			if c := in.m.GetConfig(); c != nil {
-				f.configs = append(f.configs, c)
-				return c
-			}
-		case <-timer.C:
-			return nil
-		}
-	}
-}
-
-// beat sends a heartbeat that names digest as the Config in force ("" says nothing, as an older agent does).
-func (f *fakeAgent) beat(digest string) {
-	f.t.Helper()
-	m := &continuumv1.AgentMessage{Msg: &continuumv1.AgentMessage_Heartbeat{Heartbeat: &continuumv1.Heartbeat{AppliedConfigDigest: digest}}}
-	if err := f.stream.Send(m); err != nil {
-		f.t.Fatalf("heartbeat: %v", err)
-	}
+// restart is a drop and a new stream with the same identity, which is what a restarted agent pod does.
+func (f *fakeAgent) restart() *continuumv1.Config {
+	f.T.Helper()
+	f.drop()
+	return f.Connect()
 }
 
 // inForce is the digest the server believes is in force, and since when (zero if it is not).
 func (f *fakeAgent) inForce() (sent, applied string, since time.Time) {
 	f.r.hub.Mu.Lock()
 	defer f.r.hub.Mu.Unlock()
-	v := f.r.hub.Views[f.id]
+	v := f.r.hub.Views[f.ID]
 	return v.CfgHash, v.CfgApplied, v.CfgInForceAt
 }
 
 // changeTier is an administrator's change that makes the next Config differ, and the push that follows it.
 func (f *fakeAgent) changeTier() *continuumv1.Config {
-	f.t.Helper()
-	cur, err := f.r.st.GetAgent(f.ctx, f.id)
+	f.T.Helper()
+	cur, err := f.r.st.GetAgent(f.Ctx, f.ID)
 	if err != nil {
-		f.t.Fatal(err)
+		f.T.Fatal(err)
 	}
-	if err := f.r.st.SetAccessTier(f.ctx, f.id, (cur.AccessTier+1)%3); err != nil {
-		f.t.Fatal(err)
+	if err := f.r.st.SetAccessTier(f.Ctx, f.ID, (cur.AccessTier+1)%3); err != nil {
+		f.T.Fatal(err)
 	}
-	f.r.hub.PushOne(f.id)
-	c := f.nextConfig(5 * time.Second)
+	f.r.hub.PushOne(f.ID)
+	c := f.NextConfig(5 * time.Second)
 	if c == nil {
-		f.t.Fatal("no Config was pushed after the change")
+		f.T.Fatal("no Config was pushed after the change")
 	}
 	return c
-}
-
-func fakeAgentCtx(t *testing.T) context.Context {
-	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	t.Cleanup(cancel)
-	return ctx
 }
 
 // ---- from grpc_test.go ----
@@ -332,12 +208,7 @@ type rig struct {
 
 func (r *rig) dial(t *testing.T, cfg *tls.Config) *grpc.ClientConn {
 	t.Helper()
-	cc, err := grpc.NewClient(r.addr, grpc.WithTransportCredentials(credentials.NewTLS(cfg)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { cc.Close() })
-	return cc
+	return testkit.Dial(t, r.addr, cfg)
 }
 
 // ---- from history_test.go ----
@@ -454,24 +325,7 @@ func linkHub(views map[string]*View) *Hub { return &Hub{Views: views} }
 // approvedAgent enrolls and approves an agent, returning its id, private key and first certificate.
 func (e *env) approvedAgent(t *testing.T, fingerprint string) (string, *ecdsa.PrivateKey, []byte) {
 	t.Helper()
-	secret, _, err := e.core.Agents.CreateToken(e.ctx, "admin", "edge", 2)
-	if err != nil {
-		t.Fatal(err)
-	}
-	d, key := testkit.CSR(t)
-	hash, code := testkit.ApprovalFor(t, d)
-	resp, err := e.core.Agents.Enroll(e.ctx, "10.0.0.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fingerprint, InstalledAccessTier: 2, ApprovalCodeHash: hash})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := e.core.Agents.Approve(e.ctx, "alex", resp.AgentId, code, 2); err != nil {
-		t.Fatal(err)
-	}
-	p, err := e.core.Agents.Poll(e.ctx, "10.0.0.1", &continuumv1.PollRequest{AgentId: resp.AgentId, PollSecret: resp.PollSecret})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return resp.AgentId, key, p.LeafDer
+	return testkit.ApprovedAgent(t, e.ctx, e.core.Agents, fingerprint)
 }
 
 type hubRig struct {
@@ -491,14 +345,8 @@ func newHubRig(t *testing.T) *hubRig {
 	}
 	hub := tn.Hub
 	e.core = tn.C // the hub reads its settings from this core
-	srv := e.base.Agents.NewGRPC(pki.NewServerCerts(e.core.CA, []string{"127.0.0.1"}), p)
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	go srv.Serve(l)
-	t.Cleanup(srv.Stop)
-	return &hubRig{rig: &rig{env: e, addr: l.Addr().String()}, hub: hub, plat: p}
+	addr := testkit.Serve(t, e.base.Agents, pki.NewServerCerts(e.core.CA, []string{"127.0.0.1"}), p)
+	return &hubRig{rig: &rig{env: e, addr: addr}, hub: hub, plat: p}
 }
 
 // ---- from tenancy_test.go ----
@@ -514,25 +362,7 @@ func newHubRig(t *testing.T) *hubRig {
 // the same connection.
 func (r *rig) dialProxied(t *testing.T, cfg *tls.Config, proxiedIP string) *grpc.ClientConn {
 	t.Helper()
-	cc, err := grpc.NewClient(r.addr,
-		grpc.WithTransportCredentials(credentials.NewTLS(cfg)),
-		grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
-			c, err := (&net.Dialer{}).DialContext(ctx, "tcp", addr)
-			if err != nil {
-				return nil, err
-			}
-			if _, err := c.Write([]byte("PROXY TCP4 " + proxiedIP + " 127.0.0.1 54321 8443\r\n")); err != nil {
-				c.Close()
-				return nil, err
-			}
-			return c, nil
-		}),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { cc.Close() })
-	return cc
+	return testkit.DialProxied(t, r.addr, cfg, proxiedIP)
 }
 
 // ---- from history_test.go ----
@@ -552,25 +382,9 @@ func (cr *credRig) rows(t *testing.T) []store.LinkCredential {
 
 // ---- from fake_agent_test.go ----
 
-// drop ends the stream the way a crash or a cut network does: nothing is said, the connection just stops.
-func (f *fakeAgent) drop() {
-	f.t.Helper()
-	f.cancel()
-	f.waitUntil("the server to notice the stream ended", func() bool {
-		f.r.hub.Mu.Lock()
-		defer f.r.hub.Mu.Unlock()
-		return f.r.hub.Sessions[f.id] == nil
-	})
-}
-
-// waitUntil polls until cond is true. The server handles a message on its own goroutine, so a test that sent one has to wait for it.
-func (f *fakeAgent) waitUntil(what string, cond func() bool) {
-	f.t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for !cond() {
-		if time.Now().After(deadline) {
-			f.t.Fatalf("timed out waiting for %s", what)
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
+func fakeAgentCtx(t *testing.T) context.Context {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	t.Cleanup(cancel)
+	return ctx
 }

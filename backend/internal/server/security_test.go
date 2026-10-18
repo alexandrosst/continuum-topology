@@ -21,24 +21,7 @@ import (
 // approvedAgent enrolls and approves an agent, returning its id, private key and first certificate.
 func (e *env) approvedAgent(t *testing.T, fingerprint string) (string, *ecdsa.PrivateKey, []byte) {
 	t.Helper()
-	secret, _, err := e.core.Agents.CreateToken(e.ctx, "admin", "edge", 2)
-	if err != nil {
-		t.Fatal(err)
-	}
-	d, key := testkit.CSR(t)
-	hash, code := testkit.ApprovalFor(t, d)
-	resp, err := e.core.Agents.Enroll(e.ctx, "10.0.0.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fingerprint, InstalledAccessTier: 2, ApprovalCodeHash: hash})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := e.core.Agents.Approve(e.ctx, "alex", resp.AgentId, code, 2); err != nil {
-		t.Fatal(err)
-	}
-	p, err := e.core.Agents.Poll(e.ctx, "10.0.0.1", &continuumv1.PollRequest{AgentId: resp.AgentId, PollSecret: resp.PollSecret})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return resp.AgentId, key, p.LeafDer
+	return testkit.ApprovedAgent(t, e.ctx, e.core.Agents, fingerprint)
 }
 
 func TestFingerprintMustBeCanonicalUUID(t *testing.T) {

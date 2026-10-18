@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
-	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -19,6 +18,7 @@ import (
 )
 
 type env struct {
+	w    *testkit.World
 	base *Core // the platform-wide core: accounts, sign-in, the gRPC listener
 	core *Core // organisation "org-1", which most tests work in
 	st   *store.SQLite
@@ -34,51 +34,21 @@ type env struct {
 func newEnv(t *testing.T) *env {
 	t.Helper()
 	e := newEnvBare(t)
-	u := store.User{ID: "u-owner", Username: "org1-owner", PasswordHash: "!", CreatedAt: time.Now()}
-	if err := e.st.CreateUser(e.ctx, u); err != nil {
-		t.Fatal(err)
-	}
-	if err := e.st.CreateOrg(e.ctx, store.Org{ID: "org-1", Name: "Org One", CreatedAt: time.Now(), CreatedBy: u.ID}, u.ID); err != nil {
-		t.Fatal(err)
-	}
+	e.w.CreateOrg1(t)
 	return e
 }
 
 // newEnvBare has no accounts and no organisation yet (BootstrapAdmin would create "org-1").
 func newEnvBare(t *testing.T) *env {
 	t.Helper()
-	dbPath := filepath.Join(t.TempDir(), "t.db")
-	st, err := store.OpenSQLite(dbPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { st.Close() })
-	ca, err := pki.LoadOrCreate(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	base := NewCore(st, ca, "", nil)
-	base.DefaultOrg = "org-1"
-	now := time.Now()
-	e := &env{base: base, st: st, now: &now, ctx: context.Background(), dbPath: dbPath, codes: map[string]string{}}
-	base.Now = func() time.Time { return *e.now }
-	base.EnrollRL = kernel.NewLimiter(6000, 1000) // out of the way unless a test wants it
-	e.core = base.ForOrg("org-1")
-	return e
+	w := testkit.NewBareWorld(t)
+	base := wrap(w.Base)
+	return &env{w: w, base: base, core: base.ForOrg("org-1"), st: w.Store, now: w.Now, ctx: w.Ctx, dbPath: w.DBPath, codes: map[string]string{}}
 }
 
 func (e *env) enroll(t *testing.T, tier uint32, fingerprint string) (*continuumv1.EnrollResponse, string) {
 	t.Helper()
-	secret, _, err := e.core.Agents.CreateToken(e.ctx, "admin", "edge-patras", 2)
-	if err != nil {
-		t.Fatal(err)
-	}
-	d, _ := testkit.CSR(t)
-	hash, code := testkit.ApprovalFor(t, d)
-	resp, err := e.core.Agents.Enroll(e.ctx, "10.0.0.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fingerprint, InstalledAccessTier: tier, AgentVersion: "0.1.0", ApprovalCodeHash: hash})
-	if err != nil {
-		t.Fatal(err)
-	}
+	resp, secret, code := testkit.Enroll(t, e.ctx, e.core.Agents, tier, fingerprint)
 	e.codes[resp.AgentId] = code
 	return resp, secret
 }

@@ -10,13 +10,13 @@ func TestAnAgentThatSaysNothingAboutItsConfigIsNeverSentOneAgain(t *testing.T) {
 	f := r.newFakeAgent(t, fakeAgentCtx(t))
 	f.changeTier()
 	r.hub.Mu.Lock()
-	r.hub.Views[f.id].CfgSentAt = time.Now().Add(-time.Hour) // long past the grace
+	r.hub.Views[f.ID].CfgSentAt = time.Now().Add(-time.Hour) // long past the grace
 	r.hub.Mu.Unlock()
 	for i := 0; i < 5; i++ {
-		f.beat("") // an agent from before the echo
+		f.Beat("") // an agent from before the echo
 	}
-	f.beat("") // the last one is only a marker: when this one is seen the earlier ones were handled too
-	if c := f.nextConfig(500 * time.Millisecond); c != nil {
+	f.Beat("") // the last one is only a marker: when this one is seen the earlier ones were handled too
+	if c := f.NextConfig(500 * time.Millisecond); c != nil {
 		t.Fatalf("an agent that echoes nothing was sent a Config again: %v", c.Digest)
 	}
 	if _, applied, _ := f.inForce(); applied != "" {
@@ -27,14 +27,14 @@ func TestAnAgentThatSaysNothingAboutItsConfigIsNeverSentOneAgain(t *testing.T) {
 func TestANewConnectionEndsTheOldOne(t *testing.T) {
 	r := newHubRig(t)
 	f := r.newFakeAgent(t, fakeAgentCtx(t))
-	oldCancel, oldIn := f.cancel, f.incoming
+	oldCancel, oldIn := f.Cancel, f.Incoming
 	defer oldCancel()
-	f.connect() // no drop: the old stream is still open when the new one arrives
+	f.Connect() // no drop: the old stream is still open when the new one arrives
 	deadline := time.After(5 * time.Second)
 	for ended := false; !ended; {
 		select {
 		case in := <-oldIn:
-			ended = in.err != nil
+			ended = in.Err != nil
 		case <-deadline:
 			t.Fatal("the server kept the old stream open after a newer one connected")
 		}
@@ -51,17 +51,17 @@ func TestANewConnectionEndsTheOldOne(t *testing.T) {
 func TestDroppingAllEndsEveryStreamAndTellsTheAgentToStopForGood(t *testing.T) {
 	r := newHubRig(t)
 	f := r.newFakeAgent(t, fakeAgentCtx(t))
-	defer f.cancel()
+	defer f.Cancel()
 	r.hub.DropAll("the organisation was deleted")
 	deadline := time.After(5 * time.Second)
 	var told, ended bool
 	for !ended {
 		select {
-		case in := <-f.incoming:
-			if rv := in.m.GetRevoked(); rv != nil {
+		case in := <-f.Incoming:
+			if rv := in.M.GetRevoked(); rv != nil {
 				told = rv.Reason == "the organisation was deleted"
 			}
-			ended = in.err != nil
+			ended = in.Err != nil
 		case <-deadline:
 			t.Fatal("the stream was still open after every stream was dropped")
 		}

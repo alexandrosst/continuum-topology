@@ -20,50 +20,22 @@ import (
 )
 
 // coded is one enrollment the way a current agent makes it: a key, a code, and only the code's hash sent.
-type coded struct {
-	resp  *continuumv1.EnrollResponse
-	req   *continuumv1.EnrollRequest
-	code  string
-	token string
-}
+type coded = testkit.Coded
 
 func (e *env) enrollCoded(t *testing.T, fingerprint string) coded {
 	t.Helper()
-	secret, _, err := e.core.Agents.CreateToken(e.ctx, "admin", "edge-patras", 2)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return e.enrollCodedWith(t, secret, fingerprint, nil, "")
+	return testkit.EnrollCoded(t, e.ctx, e.core.Agents, fingerprint)
 }
 
 // enrollCodedWith sends an enrollment with the given token; key (a CSR made earlier) and code are reused for a retry.
 func (e *env) enrollCodedWith(t *testing.T, token, fingerprint string, csrDER []byte, code string) coded {
 	t.Helper()
-	c, err := e.tryEnroll(t, token, fingerprint, csrDER, code)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return c
+	return testkit.EnrollCodedWith(t, e.ctx, e.core.Agents, token, fingerprint, csrDER, code)
 }
 
 func (e *env) tryEnroll(t *testing.T, token, fingerprint string, csrDER []byte, code string) (coded, error) {
 	t.Helper()
-	if csrDER == nil {
-		csrDER, _ = testkit.CSR(t)
-	}
-	if code == "" {
-		var err error
-		if code, err = approval.New(); err != nil {
-			t.Fatal(err)
-		}
-	}
-	hash, err := approval.Hash(code, csrDER)
-	if err != nil {
-		t.Fatal(err)
-	}
-	req := &continuumv1.EnrollRequest{Token: token, CsrDer: csrDER, ClusterFingerprint: fingerprint, InstalledAccessTier: 2, AgentVersion: "0.1.0", ApprovalCodeHash: hash}
-	resp, err := e.core.Agents.Enroll(e.ctx, "10.0.0.1", req)
-	return coded{resp: resp, req: req, code: code, token: token}, err
+	return testkit.TryEnroll(t, e.ctx, e.core.Agents, token, fingerprint, csrDER, code)
 }
 
 func (e *env) poll(t *testing.T, id, secret string) *continuumv1.PollResponse {
@@ -109,33 +81,33 @@ func attemptsLeft(err error) (int, bool) {
 func TestApprovalCodeApprovesAndOnlyItsHashIsStored(t *testing.T) {
 	e := newEnv(t)
 	c := e.enrollCoded(t, testkit.FP)
-	a, _ := e.st.GetAgent(e.ctx, c.resp.AgentId)
+	a, _ := e.st.GetAgent(e.ctx, c.Resp.AgentId)
 	if len(a.ApprovalHash) != approval.HashLen {
 		t.Fatalf("hash = %d bytes", len(a.ApprovalHash))
 	}
-	if strings.Contains(string(a.ApprovalHash), strings.ReplaceAll(c.code, "-", "")) {
+	if strings.Contains(string(a.ApprovalHash), strings.ReplaceAll(c.Code, "-", "")) {
 		t.Fatal("the code must not be stored")
 	}
 
 	// A wrong code says how many tries are left and is audited.
-	err := e.core.Agents.Approve(e.ctx, "alex", c.resp.AgentId, "ZZZZ-ZZZZ", 2)
+	err := e.core.Agents.Approve(e.ctx, "alex", c.Resp.AgentId, "ZZZZ-ZZZZ", 2)
 	if testkit.KindOf(err) != kernel.KindInvalid {
 		t.Fatalf("wrong code: %v", err)
 	}
 	if n, ok := attemptsLeft(err); !ok || n != 4 {
 		t.Fatalf("attempts left = %d %v", n, ok)
 	}
-	if ag, _ := e.st.GetAgent(e.ctx, c.resp.AgentId); ag.Status != store.StatusPending {
+	if ag, _ := e.st.GetAgent(e.ctx, c.Resp.AgentId); ag.Status != store.StatusPending {
 		t.Fatal("still pending")
 	}
 
 	// The right code, typed loosely (lower case, no dash, O for zero), approves.
-	typed := strings.ToLower(strings.ReplaceAll(c.code, "-", " "))
+	typed := strings.ToLower(strings.ReplaceAll(c.Code, "-", " "))
 	typed = strings.ReplaceAll(typed, "0", "o")
-	if err := e.core.Agents.Approve(e.ctx, "alex", c.resp.AgentId, typed, 2); err != nil {
+	if err := e.core.Agents.Approve(e.ctx, "alex", c.Resp.AgentId, typed, 2); err != nil {
 		t.Fatalf("right code %q: %v", typed, err)
 	}
-	if p := e.poll(t, c.resp.AgentId, c.resp.PollSecret); p.State != continuumv1.PollResponse_APPROVED {
+	if p := e.poll(t, c.Resp.AgentId, c.Resp.PollSecret); p.State != continuumv1.PollResponse_APPROVED {
 		t.Fatalf("state = %v", p.State)
 	}
 	log := strings.Join(e.auditActions(t), "\n")
@@ -144,7 +116,7 @@ func TestApprovalCodeApprovesAndOnlyItsHashIsStored(t *testing.T) {
 			t.Errorf("audit lacks %q:\n%s", want, log)
 		}
 	}
-	if strings.Contains(log, strings.ReplaceAll(c.code, "-", "")) || strings.Contains(log, c.code) {
+	if strings.Contains(log, strings.ReplaceAll(c.Code, "-", "")) || strings.Contains(log, c.Code) {
 		t.Error("the code must never reach the audit trail")
 	}
 	e.chainOK(t)
@@ -154,24 +126,24 @@ func TestFiveWrongCodesRejectTheEnrollment(t *testing.T) {
 	e := newEnv(t)
 	c := e.enrollCoded(t, testkit.FP)
 	for i, want := range []int{4, 3, 2, 1} {
-		err := e.core.Agents.Approve(e.ctx, "alex", c.resp.AgentId, fmt.Sprintf("ZZZZ-ZZZ%d", i), 2)
+		err := e.core.Agents.Approve(e.ctx, "alex", c.Resp.AgentId, fmt.Sprintf("ZZZZ-ZZZ%d", i), 2)
 		if n, ok := attemptsLeft(err); !ok || n != want {
 			t.Fatalf("attempt %d: left = %d %v (%v)", i+1, n, ok, err)
 		}
 	}
-	err := e.core.Agents.Approve(e.ctx, "alex", c.resp.AgentId, "ZZZZ-ZZZZ", 2)
+	err := e.core.Agents.Approve(e.ctx, "alex", c.Resp.AgentId, "ZZZZ-ZZZZ", 2)
 	var se *kernel.Error
 	if !errors.As(err, &se) || se.Data["locked"] != true {
 		t.Fatalf("fifth wrong code should lock: %v", err)
 	}
-	if ag, _ := e.st.GetAgent(e.ctx, c.resp.AgentId); ag.Status != store.StatusRejected || !strings.Contains(ag.Reason, "wrong approval codes") {
+	if ag, _ := e.st.GetAgent(e.ctx, c.Resp.AgentId); ag.Status != store.StatusRejected || !strings.Contains(ag.Reason, "wrong approval codes") {
 		t.Fatalf("agent = %s %q", ag.Status, ag.Reason)
 	}
-	if p := e.poll(t, c.resp.AgentId, c.resp.PollSecret); p.State != continuumv1.PollResponse_REJECTED {
+	if p := e.poll(t, c.Resp.AgentId, c.Resp.PollSecret); p.State != continuumv1.PollResponse_REJECTED {
 		t.Fatalf("the agent must learn it was rejected, got %v", p.State)
 	}
 	// Even the right code is too late now.
-	if err := e.core.Agents.Approve(e.ctx, "alex", c.resp.AgentId, c.code, 2); testkit.KindOf(err) != kernel.KindConflict {
+	if err := e.core.Agents.Approve(e.ctx, "alex", c.Resp.AgentId, c.Code, 2); testkit.KindOf(err) != kernel.KindConflict {
 		t.Fatalf("right code after the lock: %v", err)
 	}
 	log := strings.Join(e.auditActions(t), "\n")
@@ -191,7 +163,7 @@ func TestParallelGuessesCannotExceedTheAttemptLimit(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			err := e.core.Agents.Approve(e.ctx, "alex", c.resp.AgentId, fmt.Sprintf("ZZZZ-%04d", 1000+i), 2)
+			err := e.core.Agents.Approve(e.ctx, "alex", c.Resp.AgentId, fmt.Sprintf("ZZZZ-%04d", 1000+i), 2)
 			mu.Lock()
 			defer mu.Unlock()
 			var se *kernel.Error
@@ -205,7 +177,7 @@ func TestParallelGuessesCannotExceedTheAttemptLimit(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-	a, _ := e.st.GetAgent(e.ctx, c.resp.AgentId)
+	a, _ := e.st.GetAgent(e.ctx, c.Resp.AgentId)
 	if a.ApprovalAttempts > kernel.MaxApprovalAttempts+30 || a.Status != store.StatusRejected {
 		t.Fatalf("agent = %+v", a)
 	}
@@ -221,12 +193,12 @@ func TestAMalformedCodeDoesNotSpendAnAttempt(t *testing.T) {
 	e := newEnv(t)
 	c := e.enrollCoded(t, testkit.FP)
 	for _, junk := range []string{"", "abc", "K7QM-4TX", "K7QM-4TXDD", "K7QM-4TXU", "ünïcödé!"} {
-		err := e.core.Agents.Approve(e.ctx, "alex", c.resp.AgentId, junk, 2)
+		err := e.core.Agents.Approve(e.ctx, "alex", c.Resp.AgentId, junk, 2)
 		if n, ok := attemptsLeft(err); testkit.KindOf(err) != kernel.KindInvalid || !ok || n != 5 {
 			t.Errorf("%q: %v (left %d)", junk, err, n)
 		}
 	}
-	if a, _ := e.st.GetAgent(e.ctx, c.resp.AgentId); a.ApprovalAttempts != 0 {
+	if a, _ := e.st.GetAgent(e.ctx, c.Resp.AgentId); a.ApprovalAttempts != 0 {
 		t.Fatalf("attempts = %d", a.ApprovalAttempts)
 	}
 }
@@ -314,26 +286,26 @@ func TestRetriedEnrollmentContinuesTheSameAgent(t *testing.T) {
 	first := e.enrollCodedWith(t, secret, testkit.FP, d, "")
 	// The response was lost; the agent, with the same key and code, asks again (its CSR is signed afresh).
 	d2 := resign(t, key)
-	again, err := e.tryEnroll(t, secret, testkit.FP, d2, first.code)
+	again, err := e.tryEnroll(t, secret, testkit.FP, d2, first.Code)
 	if err != nil {
 		t.Fatalf("the retry: %v", err)
 	}
-	if again.resp.AgentId != first.resp.AgentId {
-		t.Fatalf("a retry made agent %s, not %s", again.resp.AgentId, first.resp.AgentId)
+	if again.Resp.AgentId != first.Resp.AgentId {
+		t.Fatalf("a retry made agent %s, not %s", again.Resp.AgentId, first.Resp.AgentId)
 	}
 	agentList, _ := e.st.ListAgents(e.ctx, "org-1")
 	if len(agentList) != 1 {
 		t.Fatalf("%d agents", len(agentList))
 	}
 	// The first poll secret went with the lost response; the new one works.
-	if _, err := e.core.Agents.Poll(e.ctx, "10.0.0.1", &continuumv1.PollRequest{AgentId: first.resp.AgentId, PollSecret: first.resp.PollSecret}); testkit.KindOf(err) != kernel.KindUnauthenticated {
+	if _, err := e.core.Agents.Poll(e.ctx, "10.0.0.1", &continuumv1.PollRequest{AgentId: first.Resp.AgentId, PollSecret: first.Resp.PollSecret}); testkit.KindOf(err) != kernel.KindUnauthenticated {
 		t.Fatalf("the old poll secret still works: %v", err)
 	}
-	if p := e.poll(t, again.resp.AgentId, again.resp.PollSecret); p.State != continuumv1.PollResponse_PENDING {
+	if p := e.poll(t, again.Resp.AgentId, again.Resp.PollSecret); p.State != continuumv1.PollResponse_PENDING {
 		t.Fatalf("state = %v", p.State)
 	}
 	// Approving works once, with the code the agent printed, and the retry is audited as a retry.
-	if err := e.core.Agents.Approve(e.ctx, "alex", first.resp.AgentId, first.code, 2); err != nil {
+	if err := e.core.Agents.Approve(e.ctx, "alex", first.Resp.AgentId, first.Code, 2); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(strings.Join(e.auditActions(t), "\n"), "agent-enrollment-retried") {
@@ -347,22 +319,22 @@ func TestRetryAfterApprovalStillCollectsTheCertificate(t *testing.T) {
 	secret, _, _ := e.core.Agents.CreateToken(e.ctx, "admin", "edge", 2)
 	d, _ := testkit.CSR(t)
 	first := e.enrollCodedWith(t, secret, testkit.FP, d, "")
-	if err := e.core.Agents.Approve(e.ctx, "alex", first.resp.AgentId, first.code, 2); err != nil {
+	if err := e.core.Agents.Approve(e.ctx, "alex", first.Resp.AgentId, first.Code, 2); err != nil {
 		t.Fatal(err)
 	}
 	// The agent crashed before it collected the certificate and asks again.
-	again, err := e.tryEnroll(t, secret, testkit.FP, d, first.code)
+	again, err := e.tryEnroll(t, secret, testkit.FP, d, first.Code)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p := e.poll(t, again.resp.AgentId, again.resp.PollSecret); p.State != continuumv1.PollResponse_APPROVED || len(p.LeafDer) == 0 {
+	if p := e.poll(t, again.Resp.AgentId, again.Resp.PollSecret); p.State != continuumv1.PollResponse_APPROVED || len(p.LeafDer) == 0 {
 		t.Fatalf("state = %v", p.State)
 	}
 	// Once the agent has connected with its certificate, the poll secret is gone and the token is truly spent.
-	if err := e.st.ClearPollSecret(e.ctx, first.resp.AgentId); err != nil {
+	if err := e.st.ClearPollSecret(e.ctx, first.Resp.AgentId); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.tryEnroll(t, secret, testkit.FP, d, first.code); testkit.KindOf(err) != kernel.KindUnauthenticated {
+	if _, err := e.tryEnroll(t, secret, testkit.FP, d, first.Code); testkit.KindOf(err) != kernel.KindUnauthenticated {
 		t.Fatalf("a retry after the agent went live: %v", err)
 	}
 }
@@ -381,7 +353,7 @@ func TestSpentTokenWithAnotherKeyOrCodeIsRefused(t *testing.T) {
 		t.Fatalf("another code: %v", err)
 	}
 	// Nor is the same key claiming another cluster.
-	if _, err := e.tryEnroll(t, secret, "11111111-2222-4333-8444-555566667777", d, first.code); testkit.KindOf(err) != kernel.KindUnauthenticated {
+	if _, err := e.tryEnroll(t, secret, "11111111-2222-4333-8444-555566667777", d, first.Code); testkit.KindOf(err) != kernel.KindUnauthenticated {
 		t.Fatalf("another cluster: %v", err)
 	}
 	if agentList, _ := e.st.ListAgents(e.ctx, "org-1"); len(agentList) != 1 {
@@ -394,10 +366,10 @@ func TestARejectedEnrollmentCannotBeRetriedBack(t *testing.T) {
 	secret, _, _ := e.core.Agents.CreateToken(e.ctx, "admin", "edge", 2)
 	d, _ := testkit.CSR(t)
 	first := e.enrollCodedWith(t, secret, testkit.FP, d, "")
-	if err := e.core.Agents.Reject(e.ctx, "alex", first.resp.AgentId, "no"); err != nil {
+	if err := e.core.Agents.Reject(e.ctx, "alex", first.Resp.AgentId, "no"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.tryEnroll(t, secret, testkit.FP, d, first.code); testkit.KindOf(err) != kernel.KindUnauthenticated {
+	if _, err := e.tryEnroll(t, secret, testkit.FP, d, first.Code); testkit.KindOf(err) != kernel.KindUnauthenticated {
 		t.Fatalf("a rejected enrollment came back: %v", err)
 	}
 }
@@ -410,19 +382,19 @@ func TestPendingEnrollmentsExpireAndCanBeReopenedWithANewCode(t *testing.T) {
 	secret, _, _ := e.core.Agents.CreateToken(e.ctx, "admin", "edge", 2)
 	d, _ := testkit.CSR(t)
 	first := e.enrollCodedWith(t, secret, testkit.FP, d, "")
-	p := e.poll(t, first.resp.AgentId, first.resp.PollSecret)
+	p := e.poll(t, first.Resp.AgentId, first.Resp.PollSecret)
 	if p.State != continuumv1.PollResponse_PENDING || p.PollAfterSeconds != kernel.PollIntervalSecond || p.ServerTimeUnix != e.now.Unix() {
 		t.Fatalf("pending poll: %+v", p)
 	}
-	if first.resp.PendingTtlSeconds != 3600 || first.resp.ServerTimeUnix != e.now.Unix() {
-		t.Fatalf("enroll response: %+v", first.resp)
+	if first.Resp.PendingTtlSeconds != 3600 || first.Resp.ServerTimeUnix != e.now.Unix() {
+		t.Fatalf("enroll response: %+v", first.Resp)
 	}
 
 	*e.now = e.now.Add(61 * time.Minute)
-	if p := e.poll(t, first.resp.AgentId, first.resp.PollSecret); p.State != continuumv1.PollResponse_EXPIRED {
+	if p := e.poll(t, first.Resp.AgentId, first.Resp.PollSecret); p.State != continuumv1.PollResponse_EXPIRED {
 		t.Fatalf("after the lifetime: %v", p.State)
 	}
-	if err := e.core.Agents.Approve(e.ctx, "alex", first.resp.AgentId, first.code, 2); testkit.KindOf(err) != kernel.KindConflict {
+	if err := e.core.Agents.Approve(e.ctx, "alex", first.Resp.AgentId, first.Code, 2); testkit.KindOf(err) != kernel.KindConflict {
 		t.Fatalf("approving an expired request: %v", err)
 	}
 	evs, _ := e.st.ListEvents(e.ctx, "org-1", store.EventQuery{})
@@ -439,13 +411,13 @@ func TestPendingEnrollmentsExpireAndCanBeReopenedWithANewCode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if second.resp.AgentId != first.resp.AgentId || second.code == first.code {
-		t.Fatalf("reopen: agent %s code %s", second.resp.AgentId, second.code)
+	if second.Resp.AgentId != first.Resp.AgentId || second.Code == first.Code {
+		t.Fatalf("reopen: agent %s code %s", second.Resp.AgentId, second.Code)
 	}
-	if err := e.core.Agents.Approve(e.ctx, "alex", first.resp.AgentId, first.code, 2); testkit.KindOf(err) != kernel.KindInvalid {
+	if err := e.core.Agents.Approve(e.ctx, "alex", first.Resp.AgentId, first.Code, 2); testkit.KindOf(err) != kernel.KindInvalid {
 		t.Fatalf("the old code must not work: %v", err)
 	}
-	if err := e.core.Agents.Approve(e.ctx, "alex", second.resp.AgentId, second.code, 2); err != nil {
+	if err := e.core.Agents.Approve(e.ctx, "alex", second.Resp.AgentId, second.Code, 2); err != nil {
 		t.Fatalf("the new code: %v", err)
 	}
 	e.chainOK(t)
@@ -459,7 +431,7 @@ func TestSweepExpiresAndPurges(t *testing.T) {
 	if n := e.core.Agents.ExpirePending(e.ctx, "org-1"); n != 1 {
 		t.Fatalf("expired %d", n)
 	}
-	if a, _ := e.st.GetAgent(e.ctx, c.resp.AgentId); a.Status != store.StatusExpired {
+	if a, _ := e.st.GetAgent(e.ctx, c.Resp.AgentId); a.Status != store.StatusExpired {
 		t.Fatalf("status = %s", a.Status)
 	}
 	if n := e.core.Agents.ExpirePending(e.ctx, "org-1"); n != 0 {
@@ -467,7 +439,7 @@ func TestSweepExpiresAndPurges(t *testing.T) {
 	}
 	*e.now = e.now.Add(8 * 24 * time.Hour)
 	e.core.Agents.ExpirePending(e.ctx, "org-1")
-	if _, err := e.st.GetAgent(e.ctx, c.resp.AgentId); !errors.Is(err, store.ErrNotFound) {
+	if _, err := e.st.GetAgent(e.ctx, c.Resp.AgentId); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("an expired record nobody reopened should be deleted: %v", err)
 	}
 }
@@ -478,7 +450,7 @@ func TestAdminApproveWithCodeAnswersWithAttemptsLeft(t *testing.T) {
 	a := newAdminRig(t)
 	_, owner := a.user(t, "boss", accounts.RoleOwner)
 	c := a.enrollCoded(t, testkit.FP)
-	r := a.do("POST", "/api/v1/agents/"+c.resp.AgentId+"/approve", map[string]any{"code": "ZZZZ-ZZZZ", "tier": 2}, withCookie(owner))
+	r := a.do("POST", "/api/v1/agents/"+c.Resp.AgentId+"/approve", map[string]any{"code": "ZZZZ-ZZZZ", "tier": 2}, withCookie(owner))
 	if r.Code != 400 {
 		t.Fatalf("%d %s", r.Code, r.Body.String())
 	}
@@ -486,7 +458,7 @@ func TestAdminApproveWithCodeAnswersWithAttemptsLeft(t *testing.T) {
 	if j["attemptsLeft"] != float64(4) || j["locked"] != false || !strings.Contains(j["error"].(string), "4 attempts left") {
 		t.Fatalf("%v", j)
 	}
-	if r := a.do("POST", "/api/v1/agents/"+c.resp.AgentId+"/approve", map[string]any{"code": strings.ToLower(c.code), "tier": 2}, withCookie(owner)); r.Code != 204 {
+	if r := a.do("POST", "/api/v1/agents/"+c.Resp.AgentId+"/approve", map[string]any{"code": strings.ToLower(c.Code), "tier": 2}, withCookie(owner)); r.Code != 204 {
 		t.Fatalf("%d %s", r.Code, r.Body.String())
 	}
 }

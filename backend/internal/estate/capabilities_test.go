@@ -11,7 +11,7 @@ import (
 func TestTheAgentDocumentCarriesWhatTheAgentDeclared(t *testing.T) {
 	r := newHubRig(t)
 	f := r.connectedWith(t, &continuumv1.Hello{ProtocolVersion: 1, Capabilities: []string{"self-stats", "config-digest"}})
-	doc := r.agentDoc(t, f.id)
+	doc := r.agentDoc(t, f.ID)
 	if doc.ProtocolVersion != 1 || strings.Join(doc.Capabilities, ",") != "config-digest,self-stats" {
 		t.Fatalf("document says protocol %d, names %v", doc.ProtocolVersion, doc.Capabilities)
 	}

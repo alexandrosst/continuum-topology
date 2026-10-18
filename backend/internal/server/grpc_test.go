@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"crypto/tls"
-	"net"
 	"testing"
 	"time"
 
@@ -14,7 +13,6 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials"
 )
 
 type rig struct {
@@ -26,24 +24,12 @@ func newRig(t *testing.T) *rig {
 	t.Helper()
 	e := newEnv(t)
 	certs := pki.NewServerCerts(e.core.CA, []string{"127.0.0.1"})
-	srv := e.base.Agents.NewGRPC(certs, &agents.BaseAgentService{C: e.base.Agents})
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	go srv.Serve(l)
-	t.Cleanup(srv.Stop)
-	return &rig{env: e, addr: l.Addr().String()}
+	return &rig{env: e, addr: testkit.Serve(t, e.base.Agents, certs, &agents.BaseAgentService{C: e.base.Agents})}
 }
 
 func (r *rig) dial(t *testing.T, cfg *tls.Config) *grpc.ClientConn {
 	t.Helper()
-	cc, err := grpc.NewClient(r.addr, grpc.WithTransportCredentials(credentials.NewTLS(cfg)))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { cc.Close() })
-	return cc
+	return testkit.Dial(t, r.addr, cfg)
 }
 
 // newRigTrustProxy is newRig with TrustAgentProxy on: every connection must carry a PROXY protocol
@@ -54,14 +40,7 @@ func newRigTrustProxy(t *testing.T) *rig {
 	e := newEnv(t)
 	e.base.TrustAgentProxy = true
 	certs := pki.NewServerCerts(e.core.CA, []string{"127.0.0.1"})
-	srv := e.base.Agents.NewGRPC(certs, &agents.BaseAgentService{C: e.base.Agents})
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	go srv.Serve(l)
-	t.Cleanup(srv.Stop)
-	return &rig{env: e, addr: l.Addr().String()}
+	return &rig{env: e, addr: testkit.Serve(t, e.base.Agents, certs, &agents.BaseAgentService{C: e.base.Agents})}
 }
 
 // dialProxied is r.dial, but first writes a v1 PROXY protocol line declaring proxiedIP on the raw TCP
@@ -69,25 +48,7 @@ func newRigTrustProxy(t *testing.T) *rig {
 // the same connection.
 func (r *rig) dialProxied(t *testing.T, cfg *tls.Config, proxiedIP string) *grpc.ClientConn {
 	t.Helper()
-	cc, err := grpc.NewClient(r.addr,
-		grpc.WithTransportCredentials(credentials.NewTLS(cfg)),
-		grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
-			c, err := (&net.Dialer{}).DialContext(ctx, "tcp", addr)
-			if err != nil {
-				return nil, err
-			}
-			if _, err := c.Write([]byte("PROXY TCP4 " + proxiedIP + " 127.0.0.1 54321 8443\r\n")); err != nil {
-				c.Close()
-				return nil, err
-			}
-			return c, nil
-		}),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { cc.Close() })
-	return cc
+	return testkit.DialProxied(t, r.addr, cfg, proxiedIP)
 }
 
 func TestAgentBehindProxyUsesTheDeclaredAddressNotTheTCPPeer(t *testing.T) {

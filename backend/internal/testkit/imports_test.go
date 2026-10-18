@@ -22,6 +22,7 @@ var allowedRepoImports = map[string]bool{
 	"continuum/internal/graph":        true,
 	"continuum/internal/kernel":       true,
 	"continuum/internal/observed":     true,
+	"continuum/internal/pki":          true,
 	"continuum/internal/store":        true,
 }
 

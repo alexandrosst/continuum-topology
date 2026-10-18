@@ -20,7 +20,7 @@ import (
 func (f *fakeAgent) declared() (protocol uint32, caps []string) {
 	f.r.hub.Mu.Lock()
 	defer f.r.hub.Mu.Unlock()
-	v := f.r.hub.Views[f.id]
+	v := f.r.hub.Views[f.ID]
 	return v.Ext.Protocol, append([]string(nil), v.Ext.Caps...)
 }
 
@@ -51,7 +51,7 @@ func TestMoreNamesThanTheLimitAreCutAndTheStreamStaysOpen(t *testing.T) {
 	if len(caps) != agentcaps.MaxNames {
 		t.Fatalf("%d names kept of 100, want %d", len(caps), agentcaps.MaxNames)
 	}
-	f.beat("") // still a live stream
+	f.Beat("") // still a live stream
 }
 
 func TestANameOfTenThousandCharactersIsCut(t *testing.T) {
@@ -84,10 +84,10 @@ func TestAProtocolVersionFromTheFutureIsRecordedAndTheStreamIsServed(t *testing.
 	if p != 99 || strings.Join(caps, ",") != "self-stats,warp-drive" {
 		t.Fatalf("protocol %d names %v: a version and a name the server does not know are still recorded", p, caps)
 	}
-	if len(f.configs) != 1 {
-		t.Fatalf("%d Configs on a stream from the future", len(f.configs))
+	if len(f.Configs) != 1 {
+		t.Fatalf("%d Configs on a stream from the future", len(f.Configs))
 	}
-	f.beat("")
+	f.Beat("")
 }
 
 func TestAHelloWithNeitherFieldIsProtocolZeroAndTheConfigIsTheSameAsForOneWithBoth(t *testing.T) {
@@ -98,16 +98,16 @@ func TestAHelloWithNeitherFieldIsProtocolZeroAndTheConfigIsTheSameAsForOneWithBo
 	}
 	// The same agent, now saying everything: the Config is the one it had.
 	// (An agent that declares diagnostics states its ceiling, and says the same 2 as before; one that stated 0 would be believed.)
-	legacy.hello = &continuumv1.Hello{AgentVersion: "old", InstalledAccessTier: 2, ProtocolVersion: 1, Capabilities: agentcaps.Names()}
+	legacy.Hello = &continuumv1.Hello{AgentVersion: "old", InstalledAccessTier: 2, ProtocolVersion: 1, Capabilities: agentcaps.Names()}
 	again := legacy.restart()
-	if again.Digest != legacy.configs[0].Digest {
-		t.Fatalf("declaring the protocol changed the Config: %q then %q", legacy.configs[0].Digest, again.Digest)
+	if again.Digest != legacy.Configs[0].Digest {
+		t.Fatalf("declaring the protocol changed the Config: %q then %q", legacy.Configs[0].Digest, again.Digest)
 	}
 	if p, _ := legacy.declared(); p != 1 {
 		t.Fatalf("protocol %d after the second hello", p)
 	}
 	// And back: a hello that says nothing replaces what the last one said.
-	legacy.hello = &continuumv1.Hello{AgentVersion: "old", InstalledAccessTier: 2}
+	legacy.Hello = &continuumv1.Hello{AgentVersion: "old", InstalledAccessTier: 2}
 	legacy.restart()
 	if p, caps := legacy.declared(); p != 0 || len(caps) != 0 {
 		t.Fatalf("an earlier stream's declaration outlived a hello that said nothing: protocol %d, %v", p, caps)
@@ -119,7 +119,7 @@ func TestAHelloWithNeitherFieldIsProtocolZeroAndTheConfigIsTheSameAsForOneWithBo
 func TestTheDocumentOfAnAgentThatSaidNothingHasAnEmptyListAndNotNull(t *testing.T) {
 	r := newHubRig(t)
 	f := r.connectedWith(t, &continuumv1.Hello{AgentVersion: "old"})
-	raw, _ := json.Marshal(r.agentDoc(t, f.id))
+	raw, _ := json.Marshal(r.agentDoc(t, f.ID))
 	if !strings.Contains(string(raw), `"protocolVersion":0`) || !strings.Contains(string(raw), `"capabilities":[]`) {
 		t.Fatalf("an agent from before the version: %s", raw)
 	}
