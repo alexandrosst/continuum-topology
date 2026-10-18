@@ -161,20 +161,10 @@ func (a *Admin) Handler() http.Handler {
 	route("GET "+o+"/history/traffic", httpkit.MemberRole, a.historyTraffic)
 	route("GET "+o+"/history/dependency/{id}/series", httpkit.MemberRole, a.historyDependencySeries)
 	route("POST "+o+"/history/record", httpkit.AdminRole, a.recordNow)
-	route("GET "+o+"/events", httpkit.MemberRole, a.listEvents)
 	route("POST "+o+"/decide", httpkit.EditorRole, a.decide)
 	decisionloop.API{For: func(r *http.Request) *decisionloop.Service { return a.core(r).Loop }}.Mount(routes)
 	telemetry.API{For: func(r *http.Request) *telemetry.Service { return a.core(r).Telemetry }}.Mount(routes)
 	(&estate.API{For: func(r *http.Request) *estate.Hub { return a.tn(r).Hub }, Settings: &a.Settings, CAPin: a.C.CA.SPKIPin}).Mount(routes)
-	route("GET "+o+"/storage", httpkit.MemberRole, a.storage)
-	route("GET "+o+"/timeline", httpkit.MemberRole, a.timeline)
-	route("GET "+o+"/graph/snapshot", httpkit.MemberRole, a.graphSnapshot)
-	route("GET "+o+"/graph/dependents", httpkit.MemberRole, a.graphDependents)
-	route("GET "+o+"/graph/dependencies", httpkit.MemberRole, a.graphDependencies)
-	route("GET "+o+"/graph/diff", httpkit.MemberRole, a.graphDiff)
-	route("GET "+o+"/audit", httpkit.AdminRole, a.audit)
-	route("GET "+o+"/workspace/revisions", httpkit.MemberRole, a.workspaceRevisions)
-	route("GET "+o+"/workspace/at", httpkit.MemberRole, a.workspaceAt)
 
 	// The decision loop: an advisor (an editor's API token) submits, a person decides. Widening is an administrator's, checked in the hub.
 

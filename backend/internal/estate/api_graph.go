@@ -1,4 +1,4 @@
-package server
+package estate
 
 import (
 	"context"
@@ -17,6 +17,12 @@ import (
 	"continuum/internal/workspace"
 )
 
+// graph is the organisation's graph store, or nil when the server runs without one.
+func (h *API) graph(r *http.Request) GraphAPI {
+	g, _ := h.For(r).C.Store.(GraphAPI)
+	return g
+}
+
 // GraphAPI is what the graph store adds to the plain store: the questions only a memory of the past can
 // answer. When the server runs without a graph database, the store does not implement it and the
 // routes below say so or fall back to what SQLite keeps.
@@ -32,20 +38,15 @@ type GraphAPI interface {
 	DiffEntities(ctx context.Context, org string, from, to time.Time) (graph.StructuralDiff, error)
 }
 
-func (a *Admin) graphAPI() GraphAPI {
-	g, _ := a.C.Store.(GraphAPI)
-	return g
-}
-
 // GET /storage: where history is kept and whether that place is healthy. Anyone in the organisation may
 // learn whether history is available; only administrators see why it is not (an error can name a host).
-func (a *Admin) storage(w http.ResponseWriter, r *http.Request) {
-	g := a.graphAPI()
+func (h *API) storage(w http.ResponseWriter, r *http.Request) {
+	g := h.graph(r)
 	if g == nil {
 		httpkit.WriteJSON(w, 200, map[string]any{"backend": "sqlite", "enabled": false})
 		return
 	}
-	st := g.Status(r.Context(), a.core(r).OrgID)
+	st := g.Status(r.Context(), h.For(r).C.OrgID)
 	out := map[string]any{"backend": "neo4j", "enabled": true, "connected": st.Connected, "ready": st.Ready, "buffering": st.Buffering}
 	if accounts.Allows(httpkit.Principal(r), accounts.ActAdminister) {
 		out["error"] = st.Error
@@ -60,8 +61,8 @@ func (a *Admin) storage(w http.ResponseWriter, r *http.Request) {
 // shape -- every kind that has ever been versioned, known to this server's UI or not -- rather than the
 // fixed, typed model.Topology historySnapshot projects. Meant for a consumer that walks the graph on its
 // own terms: an external integration, or an LLM being fed the estate's memory directly.
-func (a *Admin) graphSnapshot(w http.ResponseWriter, r *http.Request) {
-	g := a.graphAPI()
+func (h *API) graphSnapshot(w http.ResponseWriter, r *http.Request) {
+	g := h.graph(r)
 	if g == nil {
 		httpkit.WriteErr(w, 404, "the graph's entities need the graph database, which this server was started without")
 		return
@@ -71,13 +72,13 @@ func (a *Admin) graphSnapshot(w http.ResponseWriter, r *http.Request) {
 		httpkit.WriteErr(w, 400, "at must be an RFC 3339 time")
 		return
 	}
-	sat, entities, err := g.AsOfEntities(r.Context(), a.core(r).OrgID, at)
+	sat, entities, err := g.AsOfEntities(r.Context(), h.For(r).C.OrgID, at)
 	if errors.Is(err, store.ErrNotFound) {
 		httpkit.WriteErr(w, 404, "nothing was recorded at or before that time")
 		return
 	}
 	if err != nil {
-		a.fail(w, err)
+		h.fail(w, r, err)
 		return
 	}
 	httpkit.WriteJSON(w, 200, map[string]any{"at": kernel.RFC(sat), "entities": entities})
@@ -105,8 +106,8 @@ func parseWalkParams(r *http.Request) (kind, id string, at time.Time, hops int, 
 // GET /graph/dependents?kind=&id=&at=&hops=: everything that would be affected, directly or
 // transitively, if this entity became unavailable at that moment - the graph walked backward along
 // every relationship type it knows (see DB.Dependents). "What breaks if this goes down."
-func (a *Admin) graphDependents(w http.ResponseWriter, r *http.Request) {
-	g := a.graphAPI()
+func (h *API) graphDependents(w http.ResponseWriter, r *http.Request) {
+	g := h.graph(r)
 	if g == nil {
 		httpkit.WriteErr(w, 404, "graph traversal needs the graph database, which this server was started without")
 		return
@@ -116,13 +117,13 @@ func (a *Admin) graphDependents(w http.ResponseWriter, r *http.Request) {
 		httpkit.WriteErr(w, 400, err.Error())
 		return
 	}
-	sat, reached, err := g.Dependents(r.Context(), a.core(r).OrgID, at, kind, id, hops)
+	sat, reached, err := g.Dependents(r.Context(), h.For(r).C.OrgID, at, kind, id, hops)
 	if errors.Is(err, store.ErrNotFound) {
 		httpkit.WriteErr(w, 404, "no such record")
 		return
 	}
 	if err != nil {
-		a.fail(w, err)
+		h.fail(w, r, err)
 		return
 	}
 	httpkit.WriteJSON(w, 200, map[string]any{"at": kernel.RFC(sat), "kind": kind, "id": id, "hops": hops, "reached": reached})
@@ -131,8 +132,8 @@ func (a *Admin) graphDependents(w http.ResponseWriter, r *http.Request) {
 // GET /graph/dependencies?kind=&id=&at=&hops=: everything this entity itself relies on at that moment -
 // the same walk as dependents, outward instead of backward (see DB.Dependencies). "What this needs in
 // order to keep working."
-func (a *Admin) graphDependencies(w http.ResponseWriter, r *http.Request) {
-	g := a.graphAPI()
+func (h *API) graphDependencies(w http.ResponseWriter, r *http.Request) {
+	g := h.graph(r)
 	if g == nil {
 		httpkit.WriteErr(w, 404, "graph traversal needs the graph database, which this server was started without")
 		return
@@ -142,13 +143,13 @@ func (a *Admin) graphDependencies(w http.ResponseWriter, r *http.Request) {
 		httpkit.WriteErr(w, 400, err.Error())
 		return
 	}
-	sat, reached, err := g.Dependencies(r.Context(), a.core(r).OrgID, at, kind, id, hops)
+	sat, reached, err := g.Dependencies(r.Context(), h.For(r).C.OrgID, at, kind, id, hops)
 	if errors.Is(err, store.ErrNotFound) {
 		httpkit.WriteErr(w, 404, "no such record")
 		return
 	}
 	if err != nil {
-		a.fail(w, err)
+		h.fail(w, r, err)
 		return
 	}
 	httpkit.WriteJSON(w, 200, map[string]any{"at": kernel.RFC(sat), "kind": kind, "id": id, "hops": hops, "reached": reached})
@@ -158,8 +159,8 @@ func (a *Admin) graphDependencies(w http.ResponseWriter, r *http.Request) {
 // entities added, entities removed, and entities that looked different by the second moment, down to
 // which fields moved (see DB.DiffEntities). Two point-in-time reads compared, not a search through
 // events, so it still answers precisely even across a span the event log has since pruned.
-func (a *Admin) graphDiff(w http.ResponseWriter, r *http.Request) {
-	g := a.graphAPI()
+func (h *API) graphDiff(w http.ResponseWriter, r *http.Request) {
+	g := h.graph(r)
 	if g == nil {
 		httpkit.WriteErr(w, 404, "a structural diff needs the graph database, which this server was started without")
 		return
@@ -174,9 +175,9 @@ func (a *Admin) graphDiff(w http.ResponseWriter, r *http.Request) {
 		httpkit.WriteErr(w, 400, "give both from and to as RFC 3339 times")
 		return
 	}
-	diff, err := g.DiffEntities(r.Context(), a.core(r).OrgID, from, to)
+	diff, err := g.DiffEntities(r.Context(), h.For(r).C.OrgID, from, to)
 	if err != nil {
-		a.fail(w, err)
+		h.fail(w, r, err)
 		return
 	}
 	httpkit.WriteJSON(w, 200, map[string]any{"from": kernel.RFC(diff.From), "to": kernel.RFC(diff.To), "added": diff.Added, "removed": diff.Removed, "changed": diff.Changed})
@@ -184,8 +185,8 @@ func (a *Admin) graphDiff(w http.ResponseWriter, r *http.Request) {
 
 // GET /timeline?kind=service&id=...: every version of one record, what changed between them, the events
 // about it and what people did to it (the last only for administrators, as /audit is).
-func (a *Admin) timeline(w http.ResponseWriter, r *http.Request) {
-	g := a.graphAPI()
+func (h *API) timeline(w http.ResponseWriter, r *http.Request) {
+	g := h.graph(r)
 	if g == nil {
 		httpkit.WriteErr(w, 404, "record timelines need the graph database, which this server was started without")
 		return
@@ -196,13 +197,13 @@ func (a *Admin) timeline(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	tl, err := g.Timeline(r.Context(), a.core(r).OrgID, kind, id, limit)
+	tl, err := g.Timeline(r.Context(), h.For(r).C.OrgID, kind, id, limit)
 	if errors.Is(err, store.ErrNotFound) {
 		httpkit.WriteErr(w, 404, "no history for that record")
 		return
 	}
 	if err != nil {
-		a.fail(w, err)
+		h.fail(w, r, err)
 		return
 	}
 	evs := make([]eventDoc, len(tl.Events))
@@ -219,7 +220,7 @@ func (a *Admin) timeline(w http.ResponseWriter, r *http.Request) {
 
 // GET /audit: who did what in this organisation. Administrators only. With the graph it can be searched
 // by person, action, record and time; without it the latest actions are listed as SQLite keeps them.
-func (a *Admin) audit(w http.ResponseWriter, r *http.Request) {
+func (h *API) audit(w http.ResponseWriter, r *http.Request) {
 	since, err1 := httpkit.ParseTime(r, "since")
 	until, err2 := httpkit.ParseTime(r, "until")
 	if err := errors.Join(err1, err2); err != nil {
@@ -228,17 +229,17 @@ func (a *Admin) audit(w http.ResponseWriter, r *http.Request) {
 	}
 	q := graph.AuditQuery{Actor: r.URL.Query().Get("actor"), Action: r.URL.Query().Get("action"), TargetID: r.URL.Query().Get("target"), Since: since, Until: until}
 	q.Limit, _ = strconv.Atoi(r.URL.Query().Get("limit"))
-	org := a.core(r).OrgID
-	if g := a.graphAPI(); g != nil {
+	org := h.For(r).C.OrgID
+	if g := h.graph(r); g != nil {
 		if rows, err := g.Audit(r.Context(), org, q); err == nil {
 			httpkit.WriteJSON(w, 200, map[string]any{"source": "graph", "rows": rows})
 			return
 		}
 	}
 	// Without the graph (or while it is away): the latest rows from the control store, filtered here.
-	evs, err := a.C.Store.ListAudit(r.Context(), org, 500)
+	evs, err := h.For(r).C.Store.ListAudit(r.Context(), org, 500)
 	if err != nil {
-		a.fail(w, err)
+		h.fail(w, r, err)
 		return
 	}
 	rows := []graph.AuditRow{}
@@ -256,23 +257,23 @@ func (a *Admin) audit(w http.ResponseWriter, r *http.Request) {
 }
 
 // GET /workspace/revisions and /workspace/at?at=: the human layer as it was saved over time.
-func (a *Admin) workspaceRevisions(w http.ResponseWriter, r *http.Request) {
-	g := a.graphAPI()
+func (h *API) workspaceRevisions(w http.ResponseWriter, r *http.Request) {
+	g := h.graph(r)
 	if g == nil {
 		httpkit.WriteJSON(w, 200, map[string]any{"revisions": []graph.WorkspaceRev{}})
 		return
 	}
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	revs, err := g.WorkspaceRevs(r.Context(), a.core(r).OrgID, limit)
+	revs, err := g.WorkspaceRevs(r.Context(), h.For(r).C.OrgID, limit)
 	if err != nil {
-		a.fail(w, err)
+		h.fail(w, r, err)
 		return
 	}
 	httpkit.WriteJSON(w, 200, map[string]any{"revisions": revs})
 }
 
-func (a *Admin) workspaceAt(w http.ResponseWriter, r *http.Request) {
-	g := a.graphAPI()
+func (h *API) workspaceAt(w http.ResponseWriter, r *http.Request) {
+	g := h.graph(r)
 	at, err := httpkit.ParseTime(r, "at")
 	if err != nil || at.IsZero() {
 		httpkit.WriteErr(w, 400, "at must be an RFC 3339 time")
@@ -282,13 +283,13 @@ func (a *Admin) workspaceAt(w http.ResponseWriter, r *http.Request) {
 		httpkit.WriteErr(w, 404, "past revisions of the workspace need the graph database")
 		return
 	}
-	rev, err := g.WorkspaceAt(r.Context(), a.core(r).OrgID, at)
+	rev, err := g.WorkspaceAt(r.Context(), h.For(r).C.OrgID, at)
 	if errors.Is(err, store.ErrNotFound) {
 		httpkit.WriteErr(w, 404, "the workspace had not been saved by then")
 		return
 	}
 	if err != nil {
-		a.fail(w, err)
+		h.fail(w, r, err)
 		return
 	}
 	out := map[string]any{"rev": rev.Rev, "updatedAt": kernel.RFC(rev.At), "updatedBy": rev.By, "data": rev.Data}
@@ -302,4 +303,47 @@ func (a *Admin) workspaceAt(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	httpkit.WriteJSON(w, 200, out)
+}
+
+type eventDoc struct {
+	ID          string `json:"id"`
+	At          string `json:"at"`
+	Kind        string `json:"kind"`
+	TargetKind  string `json:"targetKind"`
+	TargetID    string `json:"targetId"`
+	Name        string `json:"name"`
+	ClusterID   string `json:"clusterId,omitempty"`
+	ClusterName string `json:"clusterName,omitempty"`
+	Detail      string `json:"detail"`
+	Cause       string `json:"cause,omitempty"`
+	Severity    string `json:"severity"`
+}
+
+func (h *API) listEvents(w http.ResponseWriter, r *http.Request) {
+	since, err1 := httpkit.ParseTime(r, "since")
+	until, err2 := httpkit.ParseTime(r, "until")
+	if err := errors.Join(err1, err2); err != nil {
+		httpkit.WriteErr(w, 400, err.Error())
+		return
+	}
+	if since.IsZero() {
+		since = h.For(r).C.Now().Add(-7 * 24 * time.Hour)
+	}
+	q := store.EventQuery{Since: since, Until: until, Kind: r.URL.Query().Get("kind"), ClusterID: r.URL.Query().Get("cluster"), TargetID: r.URL.Query().Get("target")}
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			q.Limit = n
+		}
+	}
+	evs, err := h.For(r).C.Store.ListEvents(r.Context(), h.For(r).C.OrgID, q)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	out := make([]eventDoc, len(evs))
+	for i, e := range evs {
+		out[i] = eventDoc{ID: "ev-" + strconv.FormatInt(e.ID, 10), At: kernel.RFC(e.At), Kind: e.Kind, TargetKind: e.TargetKind, TargetID: e.TargetID, Name: e.Name, ClusterID: e.ClusterID,
+			ClusterName: e.ClusterName, Detail: e.Detail, Cause: e.Cause, Severity: e.Severity}
+	}
+	httpkit.WriteJSON(w, 200, map[string]any{"events": out})
 }

@@ -88,7 +88,7 @@ func (e fusionExtras) TopologyAt(ctx context.Context, appID string, at time.Time
 }
 
 func topologyAt(ctx context.Context, c *Core, appID string, at time.Time) (*fusionapi.TopologyView, []fusionapi.AppMember, error) {
-	g, ok := c.Store.(GraphAPI)
+	g, ok := c.Store.(estate.GraphAPI)
 	if !ok {
 		return nil, nil, &fusionapi.Error{Status: 404, Msg: "history is not enabled on this server: it needs the graph database"}
 	}

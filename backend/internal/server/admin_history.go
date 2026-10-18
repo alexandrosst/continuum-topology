@@ -442,49 +442,6 @@ func (a *Admin) historyDependencySeries(w http.ResponseWriter, r *http.Request) 
 	httpkit.WriteJSON(w, 200, map[string]any{"id": id, "hours": hours, "points": out})
 }
 
-type eventDoc struct {
-	ID          string `json:"id"`
-	At          string `json:"at"`
-	Kind        string `json:"kind"`
-	TargetKind  string `json:"targetKind"`
-	TargetID    string `json:"targetId"`
-	Name        string `json:"name"`
-	ClusterID   string `json:"clusterId,omitempty"`
-	ClusterName string `json:"clusterName,omitempty"`
-	Detail      string `json:"detail"`
-	Cause       string `json:"cause,omitempty"`
-	Severity    string `json:"severity"`
-}
-
-func (a *Admin) listEvents(w http.ResponseWriter, r *http.Request) {
-	since, err1 := httpkit.ParseTime(r, "since")
-	until, err2 := httpkit.ParseTime(r, "until")
-	if err := errors.Join(err1, err2); err != nil {
-		httpkit.WriteErr(w, 400, err.Error())
-		return
-	}
-	if since.IsZero() {
-		since = a.C.Now().Add(-7 * 24 * time.Hour)
-	}
-	q := store.EventQuery{Since: since, Until: until, Kind: r.URL.Query().Get("kind"), ClusterID: r.URL.Query().Get("cluster"), TargetID: r.URL.Query().Get("target")}
-	if v := r.URL.Query().Get("limit"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			q.Limit = n
-		}
-	}
-	evs, err := a.C.Store.ListEvents(r.Context(), a.core(r).OrgID, q)
-	if err != nil {
-		a.fail(w, err)
-		return
-	}
-	out := make([]eventDoc, len(evs))
-	for i, e := range evs {
-		out[i] = eventDoc{ID: "ev-" + strconv.FormatInt(e.ID, 10), At: kernel.RFC(e.At), Kind: e.Kind, TargetKind: e.TargetKind, TargetID: e.TargetID, Name: e.Name, ClusterID: e.ClusterID,
-			ClusterName: e.ClusterName, Detail: e.Detail, Cause: e.Cause, Severity: e.Severity}
-	}
-	httpkit.WriteJSON(w, 200, map[string]any{"events": out})
-}
-
 func (a *Admin) recordNow(w http.ResponseWriter, r *http.Request) {
 	a.tn(r).Hub.ScanNow(r.Context())
 	w.WriteHeader(http.StatusNoContent)

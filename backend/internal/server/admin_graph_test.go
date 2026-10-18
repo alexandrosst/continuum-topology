@@ -10,6 +10,7 @@ import (
 
 	"continuum/internal/accounts"
 	"continuum/internal/agents"
+	"continuum/internal/estate"
 	"continuum/internal/graph"
 	"continuum/internal/history"
 	"continuum/internal/model"
@@ -572,7 +573,7 @@ func TestWithoutTheGraphTheSameRoutesSayWhatIsMissing(t *testing.T) {
 // without Neo4j.
 type timelineGraph struct {
 	store.Store
-	GraphAPI
+	estate.GraphAPI
 }
 
 func (timelineGraph) Timeline(_ context.Context, _, kind, id string, _ int) (graph.Timeline, error) {

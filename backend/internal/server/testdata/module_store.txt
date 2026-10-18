@@ -27,8 +27,8 @@ GetWorkspace	shell
 ListAgents	estate
 ListAgents	operators
 ListAgents	shell
-ListAudit	estate
-ListAudit	shell
+ListEvents	estate
+ListEvents	shell
 ListHistory	estate
 ListHistory	shell
 ListOperatorCerts	fusion
