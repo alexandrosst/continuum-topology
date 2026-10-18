@@ -28,6 +28,7 @@ admin_fusion.go                 fusion
 admin_fusion_proxy.go           fusion
 admin_graph.go                  estate
 admin_history.go                estate
+admin_images.go                 shell
 admin_link_credentials.go       connectivity
 admin_operator_destinations.go  operators
 admin_operator_heartbeat.go     operators
@@ -45,6 +46,7 @@ conditions.go                   agents
 config_digest.go                connectivity
 consent.go                      agents
 core.go                         kernel
+counters.go                     kernel
 decide_advice.go                advice
 decide_sign.go                  advice
 decider.go                      kernel
