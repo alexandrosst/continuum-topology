@@ -7,7 +7,7 @@ says what has to be settled before each cut. **Nothing was moved to make it.** T
 
 How it was made: the package was type-checked, and every identifier was resolved to the file that declares it (a function, a type,
 a field of a struct, a method, a constant). Each file was assigned to a module (`testdata/modules.txt`), and a use is a place where
-a file names something declared in a file of another module. There are 549 such uses, once each, in
+a file names something declared in a file of another module. At the first reading there were 549 such uses, once each, in
 `testdata/module_edges.txt`. The store was read the same way: which module calls which store method.
 
 ## The groups
@@ -49,14 +49,16 @@ estate's 35 times and estate uses connectivity's 17. The `view` has 34 fields, a
 So the three cannot be cut by moving files. They can be cut by giving the `view` three parts, one owned by each, behind the
 lock, and that is one change in its own right. It is the last of the cuts, not the first.
 
-**3. The kernel depends on six modules.** 29 uses, all small, all fixable: the link settings (`LinkSetting`, `LinkThroughput`,
-`normalizeLinks`: 12) belong to connectivity's section of `Settings`, not to a shared struct that names them; the operator
-caches (`heartbeatSeen`, `operatorCAs`: 4), the authentication state and the actor type (`authState`, `mailHolder`,
-`WebAuthnProvider`, `Actor`: 7), the traffic cache (2), `recordAgentGraph`, `GrantableTier`, `nsNameRe` and
-`RevokeTelemetryIntent` are each a thing that `Core` holds because it was convenient. Each belongs to its module and `Core`
-should hold it by an interface or not at all. (The kernel also uses 6 things of the shell, the image settings on `Admin` and the
-metrics counters; those go with the HTTP kit below.) `Settings` should
-become the sum of the modules' sections, the way the agent's config already is.
+**3. The kernel depended on six modules; it now depends on none.** It was 29 uses, all small. The link settings (12) were the shape
+of part of the `Settings` document and the checks on it, and use nothing of connectivity's behaviour, so they moved into the
+kernel with the document: the kernel owns the shape of `Settings` and the rules that are pure checks of it, and the modules own what
+is done with the values. The life of an agent's identity (tokens, reject, revoke, renew, rejoin: 6) had been written in `core.go`
+and moved to agents. What the `Core` held for modules (the sign-in state, the mail holder, the passkey implementation, the opened
+CAs of operators, the heartbeat coalescer, the traffic cache: 10) is now a slot each module fills itself (`state.go`), and the
+Core knows nothing of what is in the slots. The namespace-name check moved to the kernel, where three modules use it. What
+remains of the kernel's reaches is 6 uses of the shell (the image settings on `Admin` and the metrics counters), which go with
+the HTTP kit below. One edge was made visible by the moves and is to be inverted when telemetry is cut: agents ending an
+agent's telemetry intents when it is revoked.
 
 **4. The shell is used by every module: 152 uses.** 82 of them are plain HTTP plumbing that every handler needs, and which sits
 in `admin.go` because handlers are methods on `Admin`: `writeJSON`, `writeErr`, `decode`, `principal`, the role levels
@@ -77,7 +79,7 @@ direction, so that the hub offers a read and advice asks for it, lets advice mov
 **7. Telemetry depends on operators.** Telemetry uses 17 things of operators' (destinations, client certificates, the route
 values), 5 of agents' and 1 of estate's; operators uses one of telemetry's (`signalModality`). It moves with or after operators.
 
-**8. The store is cleaner than the code.** Of the 133 store methods the server calls, 22 are called by more than one module
+**8. The store is cleaner than the code.** Of the 133 store methods the server calls, 22 were called by more than one module at the first reading
 (52 module-and-method pairs in `testdata/module_store.txt`). They fall in four groups. Reading another module's table, which
 should become a call to that module: `GetUser` by fusion and the shell, `GetOperator` and `ListOperatorCerts` by fusion,
 `ListAgents` by operators, connectivity and the shell, `ListTelemetryIntents` by operators and connectivity, `GetWorkspace` by
@@ -95,18 +97,18 @@ the columns because every module may use it; the shell is a column because no mo
 | uses → | accounts | agents | estate | telemetry | operators | connectivity | fusion | advice | kernel | shell |
 |---|---|---|---|---|---|---|---|---|---|---|
 | accounts | . | . | 1 | . | . | . | . | . | . | 15 |
-| agents | 12 | . | 52 | . | 1 | 5 | . | . | . | 20 |
-| estate | 4 | 52 | . | . | . | 17 | 1 | 15 | . | 20 |
-| telemetry | . | 5 | 1 | . | 17 | . | . | . | . | 13 |
+| agents | 12 | . | 52 | 1 | 1 | 5 | . | . | . | 20 |
+| estate | 4 | 53 | . | . | . | 17 | 1 | 15 | . | 20 |
+| telemetry | . | 4 | 1 | . | 17 | . | . | . | . | 13 |
 | operators | 2 | 17 | 9 | 1 | . | 6 | 18 | . | . | 26 |
 | connectivity | . | 8 | 35 | . | 5 | . | 5 | . | . | 17 |
 | fusion | 12 | . | 8 | . | 11 | 2 | . | . | . | 32 |
 | advice | 8 | 19 | 13 | . | . | . | . | . | . | 9 |
-| kernel | 7 | 3 | 2 | 1 | 4 | 12 | . | . | . | 6 |
+| kernel | . | . | . | . | . | . | . | . | . | 6 |
 
 Agents using accounts (12) and everyone using `Decide` is the right direction: accounts is the vocabulary of who is calling, and
 sits under the others. The cells that are not are the ones above: agents and estate and connectivity with each other, operators
-with fusion, estate calling advice, and the kernel and the shell.
+with fusion, estate calling advice, and the uses of the shell. (The matrix is as of the last cut; the number of lines in `module_edges.txt` is the count.)
 
 ## Decided
 
@@ -128,7 +130,7 @@ recognising an id. That is one small schema addition, to be brought as its own s
 
 This is a proposal from the numbers above; each move starts with its own short plan.
 
-1. **The kernel's reaches into modules** (29 uses; the link settings are 12 of them): each thing the kernel holds that belongs to a module goes to that module's section or behind an interface.
+1. **The kernel's reaches into modules** (29 uses): done, in three cuts (see Progress).
 2. **The kernel as a package**, with the HTTP kit (not a module) beside it: the 82 plumbing uses out of `admin.go`, and the 20 metrics counters into a registry the kernel owns.
 3. **Accounts.** One edge to estate; a callback instead.
 4. **Advice.** Invert the hub's 15 calls into it; define what advice reads as an interface of its own.
@@ -149,8 +151,17 @@ the settings endpoints, which belong with the kernel's settings.
 ## What keeps the lines
 
 `modules_test.go` holds three things. Every source file is in exactly one module (`testdata/modules.txt`), so a new file cannot be
-added without choosing. The 549 uses across modules are in `testdata/module_edges.txt`; a use that is not in it fails the test and
+added without choosing. The uses across modules are in `testdata/module_edges.txt`; a use that is not in it fails the test and
 names the file, and a line for a use that is gone also fails, so the list can only shrink without a decision. The store methods that
 more than one module calls are in `testdata/module_store.txt`, held the same way. Accept a change on purpose with
 `go test ./internal/server -run TestModule -update`. The test type-checks the package with `go list -export` and the standard
 library, so it adds no dependency; it is skipped with `-short`.
+
+## Progress
+
+| Step | Commit | What it did to the lists |
+|---|---|---|
+| The map | step 1 | 549 uses across modules, 22 shared store methods |
+| Kernel cut 1: the link settings | the link types and checks move into the kernel with `Settings` | 12 lines leave |
+| Kernel cut 2: the life of an agent's identity | `core.go` to `agent_lifecycle.go` | 6 leave, 2 appear that were hidden (agents to telemetry, estate to agents) |
+| Kernel cut 3: what the Core held for modules | `state.go`: a slot per module; the namespace check to the kernel | 11 leave. The kernel depends on no module. Now 521 lines, and 21 shared store methods |
