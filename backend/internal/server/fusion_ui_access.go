@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"continuum/internal/accounts"
+	"continuum/internal/httpkit"
 	"continuum/internal/kernel"
 )
 
@@ -254,14 +255,14 @@ func (a *Admin) redeemFusionTicket(w http.ResponseWriter, r *http.Request, ticke
 		// Not the sign-in's limiter: a stranger's bad links must not use up the budget a person signing in from the same
 		// address needs (see fusionPageRL).
 		if !a.fusionPageRL.Allow(kernel.LimitKey(a.clientIP(r))) {
-			writeErr(w, http.StatusTooManyRequests, "too many failed attempts, wait a minute")
+			httpkit.WriteErr(w, http.StatusTooManyRequests, "too many failed attempts, wait a minute")
 			return
 		}
-		writeErr(w, http.StatusUnauthorized, "this link has expired - open the page again from Ikhnos")
+		httpkit.WriteErr(w, http.StatusUnauthorized, "this link has expired - open the page again from Ikhnos")
 		return
 	case fusionTicketBusy:
 		// The ticket was not spent: the same link works again in a moment.
-		writeErr(w, http.StatusServiceUnavailable, "too many pages are open, try again in a moment")
+		httpkit.WriteErr(w, http.StatusServiceUnavailable, "too many pages are open, try again in a moment")
 		return
 	}
 	http.SetCookie(w, &http.Cookie{Name: fusionUICookie, Value: secret, Path: "/fusion/", MaxAge: int(fusionUISessionTTL / time.Second),
@@ -278,7 +279,7 @@ func (a *Admin) openFusionPage(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Page string `json:"page"`
 	}
-	if err := decode(r, &req); err != nil {
+	if err := httpkit.Decode(r, &req); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -305,14 +306,14 @@ func (a *Admin) openFusionPage(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, kernel.Errf(kernel.KindConflict, "%s is not running yet", map[string]string{"grafana": "Grafana", "prometheus": "Prometheus"}[req.Page]))
 		return
 	}
-	p := principal(r)
+	p := httpkit.Principal(r)
 	t := a.fusionUIAccess.ticket(p.User.ID, p.User.Username, a.core(r).Now())
 	if t == "" {
 		a.fail(w, kernel.Errf(kernel.KindConflict, "too many pages are open, try again in a moment"))
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	writeJSON(w, 200, map[string]string{"path": base + "?" + fusionTicketParam + "=" + t})
+	httpkit.WriteJSON(w, 200, map[string]string{"path": base + "?" + fusionTicketParam + "=" + t})
 }
 
 // ticketOf is the ticket on a request to a page, "" when there is none (or the request could not be one).

@@ -18,6 +18,7 @@ import (
 	"continuum/internal/agents"
 	"continuum/internal/decisionloop"
 	"continuum/internal/history"
+	"continuum/internal/httpkit"
 	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
@@ -51,9 +52,9 @@ func settingsDoc(s kernel.Settings, rev int64, admin bool) SettingsDoc {
 
 func (a *Admin) getSettings(w http.ResponseWriter, r *http.Request) {
 	cur, rev := a.core(r).SettingsAt()
-	d := settingsDoc(cur, rev, accounts.Allows(principal(r), accounts.ActAdminister))
+	d := settingsDoc(cur, rev, accounts.Allows(httpkit.Principal(r), accounts.ActAdminister))
 	d.ImageDefaults = a.imageDefaults()
-	writeJSON(w, 200, d)
+	httpkit.WriteJSON(w, 200, d)
 }
 
 // putSettings never lets a client blank the decider secret by accident: a GET never carries it (see settingsDoc),
@@ -70,7 +71,7 @@ func (a *Admin) putSettings(w http.ResponseWriter, r *http.Request) {
 	if h := strings.Trim(strings.TrimSpace(r.Header.Get("If-Match")), `"`); h != "" {
 		v, err := strconv.ParseInt(h, 10, 64)
 		if err != nil || v < 0 {
-			writeErr(w, 400, "If-Match is the revision of the settings you started from, a number")
+			httpkit.WriteErr(w, 400, "If-Match is the revision of the settings you started from, a number")
 			return
 		}
 		expect = &v
@@ -79,8 +80,8 @@ func (a *Admin) putSettings(w http.ResponseWriter, r *http.Request) {
 		kernel.Settings
 		ClearDeciderSecret bool `json:"clearDeciderSecret"`
 	}
-	if err := decode(r, &body); err != nil {
-		writeErr(w, 400, err.Error())
+	if err := httpkit.Decode(r, &body); err != nil {
+		httpkit.WriteErr(w, 400, err.Error())
 		return
 	}
 	s := body.Settings
@@ -92,12 +93,12 @@ func (a *Admin) putSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	// Which cluster the server runs in is changed where it is shown (the central operator's address picker), not here.
 	s.ServerClusterID = a.core(r).Settings().ServerClusterID
-	n, rev, err := a.core(r).SaveSettingsAt(r.Context(), actor(r), expect, s)
+	n, rev, err := a.core(r).SaveSettingsAt(r.Context(), httpkit.Actor(r), expect, s)
 	var ce *kernel.Error
 	if errors.As(err, &ce) && ce.Kind == kernel.KindConflict {
 		d := settingsDoc(n, rev, true)
 		d.ImageDefaults = a.imageDefaults()
-		writeJSON(w, http.StatusConflict, struct {
+		httpkit.WriteJSON(w, http.StatusConflict, struct {
 			SettingsDoc
 			Error string `json:"error"`
 		}{d, ce.Msg})
@@ -109,28 +110,16 @@ func (a *Admin) putSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	d := settingsDoc(n, rev, true)
 	d.ImageDefaults = a.imageDefaults()
-	writeJSON(w, 200, d)
+	httpkit.WriteJSON(w, 200, d)
 }
 
 // ---- history ----
 
-func parseTime(r *http.Request, name string) (time.Time, error) {
-	v := r.URL.Query().Get(name)
-	if v == "" {
-		return time.Time{}, nil
-	}
-	t, err := time.Parse(time.RFC3339, v)
-	if err != nil {
-		return time.Time{}, fmt.Errorf("%s must be an RFC 3339 time", name)
-	}
-	return t, nil
-}
-
 func (a *Admin) historyIndex(w http.ResponseWriter, r *http.Request) {
-	since, err1 := parseTime(r, "since")
-	until, err2 := parseTime(r, "until")
+	since, err1 := httpkit.ParseTime(r, "since")
+	until, err2 := httpkit.ParseTime(r, "until")
 	if err := errors.Join(err1, err2); err != nil {
-		writeErr(w, 400, err.Error())
+		httpkit.WriteErr(w, 400, err.Error())
 		return
 	}
 	pts, err := a.C.Store.ListHistory(r.Context(), a.core(r).OrgID, since, until)
@@ -147,18 +136,18 @@ func (a *Admin) historyIndex(w http.ResponseWriter, r *http.Request) {
 		out[i] = point{kernel.RFC(p.At), p.Bytes}
 	}
 	set := a.core(r).Settings()
-	writeJSON(w, 200, map[string]any{"points": out, "snapshotMinutes": set.SnapshotMinutes, "retentionDays": set.RetentionDays})
+	httpkit.WriteJSON(w, 200, map[string]any{"points": out, "snapshotMinutes": set.SnapshotMinutes, "retentionDays": set.RetentionDays})
 }
 
 func (a *Admin) historySnapshot(w http.ResponseWriter, r *http.Request) {
-	at, err := parseTime(r, "at")
+	at, err := httpkit.ParseTime(r, "at")
 	if err != nil || at.IsZero() {
-		writeErr(w, 400, "at must be an RFC 3339 time")
+		httpkit.WriteErr(w, 400, "at must be an RFC 3339 time")
 		return
 	}
 	p, data, err := a.C.Store.GetHistory(r.Context(), a.core(r).OrgID, at)
 	if errors.Is(err, store.ErrNotFound) {
-		writeErr(w, 404, "nothing was recorded at or before that time")
+		httpkit.WriteErr(w, 404, "nothing was recorded at or before that time")
 		return
 	}
 	if err != nil {
@@ -174,7 +163,7 @@ func (a *Admin) historySnapshot(w http.ResponseWriter, r *http.Request) {
 	if agentList := a.historicAgents(r, p.At); agentList != nil {
 		out["agents"] = agentList
 	}
-	writeJSON(w, 200, out)
+	httpkit.WriteJSON(w, 200, out)
 }
 
 // historicAgents projects AsOfEntities' "agent" kind into the shape the UI overlays onto live agent
@@ -314,7 +303,7 @@ func (a *Admin) historyTraffic(w http.ResponseWriter, r *http.Request) {
 	if v := r.URL.Query().Get("hours"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 1 || n > 24*30 {
-			writeErr(w, 400, "hours must be between 1 and 720")
+			httpkit.WriteErr(w, 400, "hours must be between 1 and 720")
 			return
 		}
 		hours = n
@@ -333,12 +322,12 @@ func (a *Admin) historyTraffic(w http.ResponseWriter, r *http.Request) {
 				}
 				samples = keep
 			}
-			writeJSON(w, 200, map[string]any{"hours": hours, "snapshots": len(samples), "rates": history.Rates(samples)})
+			httpkit.WriteJSON(w, 200, map[string]any{"hours": hours, "snapshots": len(samples), "rates": history.Rates(samples)})
 			return
 		}
 	}
 	if payload, ok := core.trafficSt().get(hours, now); ok {
-		writeJSON(w, 200, payload)
+		httpkit.WriteJSON(w, 200, payload)
 		return
 	}
 	pts, err := a.C.Store.ListHistory(r.Context(), core.OrgID, now.Add(-time.Duration(hours)*time.Hour), time.Time{})
@@ -369,7 +358,7 @@ func (a *Admin) historyTraffic(w http.ResponseWriter, r *http.Request) {
 	}
 	payload := map[string]any{"hours": hours, "snapshots": len(samples), "rates": history.Rates(samples)}
 	core.trafficSt().set(hours, now, payload)
-	writeJSON(w, 200, payload)
+	httpkit.WriteJSON(w, 200, payload)
 }
 
 // maxDependencySeriesPoints caps how many points historyDependencySeries ever decodes and returns -
@@ -397,14 +386,14 @@ type dependencySeriesPoint struct {
 func (a *Admin) historyDependencySeries(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
-		writeErr(w, 400, "a dependency id is required")
+		httpkit.WriteErr(w, 400, "a dependency id is required")
 		return
 	}
 	hours := 24
 	if v := r.URL.Query().Get("hours"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 1 || n > 24*30 {
-			writeErr(w, 400, "hours must be between 1 and 720")
+			httpkit.WriteErr(w, 400, "hours must be between 1 and 720")
 			return
 		}
 		hours = n
@@ -450,7 +439,7 @@ func (a *Admin) historyDependencySeries(w http.ResponseWriter, r *http.Request) 
 		out = append(out, pt)
 		prevBytes, prevAt, havePrev = dep.bytes, p.At, true
 	}
-	writeJSON(w, 200, map[string]any{"id": id, "hours": hours, "points": out})
+	httpkit.WriteJSON(w, 200, map[string]any{"id": id, "hours": hours, "points": out})
 }
 
 type eventDoc struct {
@@ -468,10 +457,10 @@ type eventDoc struct {
 }
 
 func (a *Admin) listEvents(w http.ResponseWriter, r *http.Request) {
-	since, err1 := parseTime(r, "since")
-	until, err2 := parseTime(r, "until")
+	since, err1 := httpkit.ParseTime(r, "since")
+	until, err2 := httpkit.ParseTime(r, "until")
 	if err := errors.Join(err1, err2); err != nil {
-		writeErr(w, 400, err.Error())
+		httpkit.WriteErr(w, 400, err.Error())
 		return
 	}
 	if since.IsZero() {
@@ -493,7 +482,7 @@ func (a *Admin) listEvents(w http.ResponseWriter, r *http.Request) {
 		out[i] = eventDoc{ID: "ev-" + strconv.FormatInt(e.ID, 10), At: kernel.RFC(e.At), Kind: e.Kind, TargetKind: e.TargetKind, TargetID: e.TargetID, Name: e.Name, ClusterID: e.ClusterID,
 			ClusterName: e.ClusterName, Detail: e.Detail, Cause: e.Cause, Severity: e.Severity}
 	}
-	writeJSON(w, 200, map[string]any{"events": out})
+	httpkit.WriteJSON(w, 200, map[string]any{"events": out})
 }
 
 func (a *Admin) recordNow(w http.ResponseWriter, r *http.Request) {
@@ -518,7 +507,7 @@ func (a *Admin) decide(w http.ResponseWriter, r *http.Request) {
 	c := a.core(r)
 	set := c.Settings()
 	if set.DeciderURL == "" {
-		writeErr(w, 404, "no external decider is configured")
+		httpkit.WriteErr(w, 404, "no external decider is configured")
 		return
 	}
 	host := "?"
@@ -527,11 +516,11 @@ func (a *Admin) decide(w http.ResponseWriter, r *http.Request) {
 	}
 	size, code := 0, 0
 	defer func() {
-		c.Audit(r.Context(), actor(r), "decide", "decider", host, fmt.Sprintf("org %s, request %d bytes, status %d", c.OrgID, size, code))
+		c.Audit(r.Context(), httpkit.Actor(r), "decide", "decider", host, fmt.Sprintf("org %s, request %d bytes, status %d", c.OrgID, size, code))
 	}()
 	fail := func(status int, msg string) {
 		code = status
-		writeErr(w, status, msg)
+		httpkit.WriteErr(w, status, msg)
 	}
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxDecideRequest+1))
 	size = len(body)
@@ -588,18 +577,18 @@ func (a *Admin) decide(w http.ResponseWriter, r *http.Request) {
 	}
 	if resp.StatusCode != http.StatusOK {
 		msg := fmt.Sprintf("the external decider answered with status %d", resp.StatusCode)
-		writeErr(w, 502, msg) // the audit row keeps the decider's own status
+		httpkit.WriteErr(w, 502, msg) // the audit row keeps the decider's own status
 		return
 	}
 	if !json.Valid(out) {
-		writeErr(w, 502, "the external decider did not answer with JSON")
+		httpkit.WriteErr(w, 502, "the external decider did not answer with JSON")
 		return
 	}
 	name := set.DeciderName
 	if name == "" {
 		name = "External decider"
 	}
-	writeJSON(w, 200, map[string]any{"decider": name, "result": json.RawMessage(out)})
+	httpkit.WriteJSON(w, 200, map[string]any{"decider": name, "result": json.RawMessage(out)})
 }
 
 // scrubURLError keeps the address (which may carry a secret in its query) out of logs.

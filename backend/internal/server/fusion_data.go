@@ -16,6 +16,7 @@ import (
 	"continuum/internal/accounts"
 	"continuum/internal/fusion"
 	"continuum/internal/fusionapi"
+	"continuum/internal/httpkit"
 	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
@@ -251,7 +252,7 @@ func (a *Admin) listFusionTokens(w http.ResponseWriter, r *http.Request) {
 	for i, t := range toks {
 		out[i] = toFusionTokenDoc(t)
 	}
-	writeJSON(w, 200, out)
+	httpkit.WriteJSON(w, 200, out)
 }
 
 // createFusionToken is the one response that ever carries the raw secret.
@@ -266,7 +267,7 @@ func (a *Admin) createFusionToken(w http.ResponseWriter, r *http.Request) {
 		Clusters      []string `json:"clusters"`
 		ExpiresInDays int      `json:"expiresInDays"`
 	}
-	if err := decode(r, &req); err != nil {
+	if err := httpkit.Decode(r, &req); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -274,7 +275,7 @@ func (a *Admin) createFusionToken(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, kernel.Errf(kernel.KindInvalid, "expiresInDays must be between 1 and %d", int(maxFusionTokenTTL.Hours()/24)))
 		return
 	}
-	secret, tok, err := a.core(r).CreateFusionToken(r.Context(), actor(r), FusionTokenSpec{
+	secret, tok, err := a.core(r).CreateFusionToken(r.Context(), httpkit.Actor(r), FusionTokenSpec{
 		Name: req.Name, Signals: req.Signals, Namespaces: req.Namespaces, Clusters: req.Clusters,
 		TTL: time.Duration(req.ExpiresInDays) * 24 * time.Hour,
 	})
@@ -282,18 +283,18 @@ func (a *Admin) createFusionToken(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"token": secret, "details": toFusionTokenDoc(tok)})
+	httpkit.WriteJSON(w, 200, map[string]any{"token": secret, "details": toFusionTokenDoc(tok)})
 }
 
 func (a *Admin) deleteFusionToken(w http.ResponseWriter, r *http.Request) {
 	if !a.fusionOrgOnly(w, r) {
 		return
 	}
-	if err := a.core(r).DeleteFusionToken(r.Context(), actor(r), r.PathValue("id")); err != nil {
+	if err := a.core(r).DeleteFusionToken(r.Context(), httpkit.Actor(r), r.PathValue("id")); err != nil {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 200, map[string]bool{"ok": true})
+	httpkit.WriteJSON(w, 200, map[string]bool{"ok": true})
 }
 
 // ---- the data routes ----
@@ -314,28 +315,28 @@ type fusionHandler func(w http.ResponseWriter, r *http.Request, c *fusionapi.Cli
 func (a *Admin) fusionData(h fusionHandler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if a.Fusion == nil { // nothing to read, so nothing to authenticate for
-			writeErr(w, http.StatusServiceUnavailable, a.Fusion.Status(r.Context()).Message)
+			httpkit.WriteErr(w, http.StatusServiceUnavailable, a.Fusion.Status(r.Context()).Message)
 			return
 		}
 		who, err := a.fusionCaller(r)
 		if err != nil {
 			var e *kernel.Error
 			if errors.As(err, &e) && e.Kind == kernel.KindForbidden {
-				writeErr(w, http.StatusForbidden, e.Msg)
+				httpkit.WriteErr(w, http.StatusForbidden, e.Msg)
 				return
 			}
 			kernel.Metrics.AuthFailures.Add(1)
 			// Failed authentications are throttled per address, the same as the rest of the API.
 			if !a.authRL.Allow(kernel.LimitKey(a.clientIP(r))) {
-				writeErr(w, http.StatusTooManyRequests, "too many failed attempts, wait a minute")
+				httpkit.WriteErr(w, http.StatusTooManyRequests, "too many failed attempts, wait a minute")
 				return
 			}
-			writeErr(w, http.StatusUnauthorized, "sign in required")
+			httpkit.WriteErr(w, http.StatusUnauthorized, "sign in required")
 			return
 		}
 		if !a.fusionRL.Allow(who.Kind + "|" + who.ID) {
 			w.Header().Set("Retry-After", "5")
-			writeErr(w, http.StatusTooManyRequests, "too many requests, slow down")
+			httpkit.WriteErr(w, http.StatusTooManyRequests, "too many requests, slow down")
 			return
 		}
 		_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(fusionRequestTimeout + fusionWriteGrace))
@@ -389,9 +390,9 @@ func (a *Admin) fusionErr(w http.ResponseWriter, r *http.Request, err error) {
 	var fe *fusionapi.Error
 	switch {
 	case errors.As(err, &fe):
-		writeErr(w, fe.Status, fe.Msg)
+		httpkit.WriteErr(w, fe.Status, fe.Msg)
 	case errors.Is(err, context.DeadlineExceeded):
-		writeErr(w, http.StatusGatewayTimeout, "FUSION took too long to answer; narrow the time range or the filters")
+		httpkit.WriteErr(w, http.StatusGatewayTimeout, "FUSION took too long to answer; narrow the time range or the filters")
 	case errors.Is(err, context.Canceled):
 		// The caller went away; nothing to tell it.
 	default:
@@ -439,7 +440,7 @@ func (a *Admin) fusionStatus(w http.ResponseWriter, r *http.Request, c *fusionap
 	} else {
 		st = a.Fusion.Status(r.Context())
 	}
-	writeJSON(w, 200, map[string]any{"fusion": st, "access": access})
+	httpkit.WriteJSON(w, 200, map[string]any{"fusion": st, "access": access})
 }
 
 // ---- parameters ----
@@ -508,7 +509,7 @@ func (a *Admin) fusionApplications(w http.ResponseWriter, r *http.Request, c *fu
 		a.fusionErr(w, r, err)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"applications": fusionapi.DescribeGroups(groups, svcs), "sources": sources, "warnings": orEmpty(warnings), "from": tr.From, "to": tr.To})
+	httpkit.WriteJSON(w, 200, map[string]any{"applications": fusionapi.DescribeGroups(groups, svcs), "sources": sources, "warnings": orEmpty(warnings), "from": tr.From, "to": tr.To})
 }
 
 // fusionServices lists the services that have telemetry (their service.name), each with its signals and the Ikhnos
@@ -549,7 +550,7 @@ func (a *Admin) fusionServices(w http.ResponseWriter, r *http.Request, c *fusion
 		}
 		out = append(out, item{sv, names})
 	}
-	writeJSON(w, 200, map[string]any{"services": out, "sources": sources, "warnings": orEmpty(warnings), "from": tr.From, "to": tr.To})
+	httpkit.WriteJSON(w, 200, map[string]any{"services": out, "sources": sources, "warnings": orEmpty(warnings), "from": tr.From, "to": tr.To})
 }
 
 // fusionApplication is one Ikhnos application at a glance, named by its id or its name.
@@ -574,7 +575,7 @@ func (a *Admin) fusionApplication(w http.ResponseWriter, r *http.Request, c *fus
 		a.fusionErr(w, r, err)
 		return
 	}
-	writeJSON(w, 200, o)
+	httpkit.WriteJSON(w, 200, o)
 }
 
 // topologyAter is what the extras add when the server remembers the past (fusionExtras.TopologyAt).
@@ -652,7 +653,7 @@ func (a *Admin) fusionAppTopology(w http.ResponseWriter, r *http.Request, c *fus
 		return
 	}
 	t.AddChanges(evs)
-	writeJSON(w, 200, t)
+	httpkit.WriteJSON(w, 200, t)
 }
 
 // fusionService is one service at a glance, by the service.name its telemetry carries.
@@ -667,7 +668,7 @@ func (a *Admin) fusionService(w http.ResponseWriter, r *http.Request, c *fusiona
 		a.fusionErr(w, r, err)
 		return
 	}
-	writeJSON(w, 200, o)
+	httpkit.WriteJSON(w, 200, o)
 }
 
 func (a *Admin) fusionMetricNames(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionCaller) {
@@ -695,7 +696,7 @@ func (a *Admin) fusionMetricNames(w http.ResponseWriter, r *http.Request, c *fus
 	for _, n := range names {
 		cat[n] = fusionapi.MetricCategory(n)
 	}
-	writeJSON(w, 200, map[string]any{"names": orEmpty(names), "categories": cat, "truncated": truncated, "limit": limit, "from": tr.From, "to": tr.To})
+	httpkit.WriteJSON(w, 200, map[string]any{"names": orEmpty(names), "categories": cat, "truncated": truncated, "limit": limit, "from": tr.From, "to": tr.To})
 }
 
 func (a *Admin) fusionMetricSeries(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionCaller) {
@@ -722,7 +723,7 @@ func (a *Admin) fusionMetricSeries(w http.ResponseWriter, r *http.Request, c *fu
 	if series == nil {
 		series = []map[string]string{}
 	}
-	writeJSON(w, 200, map[string]any{"series": series, "truncated": truncated, "limit": limit, "from": tr.From, "to": tr.To})
+	httpkit.WriteJSON(w, 200, map[string]any{"series": series, "truncated": truncated, "limit": limit, "from": tr.From, "to": tr.To})
 }
 
 func (a *Admin) fusionMetricRange(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionCaller) {
@@ -765,7 +766,7 @@ func (a *Admin) fusionMetricRange(w http.ResponseWriter, r *http.Request, c *fus
 	if series == nil {
 		series = []fusionapi.MetricSeries{}
 	}
-	writeJSON(w, 200, map[string]any{"series": series, "truncated": truncated, "limit": limit, "stepSeconds": step.Seconds(), "from": tr.From, "to": tr.To})
+	httpkit.WriteJSON(w, 200, map[string]any{"series": series, "truncated": truncated, "limit": limit, "stepSeconds": step.Seconds(), "from": tr.From, "to": tr.To})
 }
 
 // fusionMetricRaw is PromQL as written, answered the way Prometheus itself answers.
@@ -823,7 +824,7 @@ func (a *Admin) fusionLogs(w http.ResponseWriter, r *http.Request, c *fusionapi.
 	if entries == nil {
 		entries = []fusionapi.LogEntry{}
 	}
-	writeJSON(w, 200, map[string]any{"entries": entries, "truncated": truncated, "limit": limit, "from": tr.From, "to": tr.To})
+	httpkit.WriteJSON(w, 200, map[string]any{"entries": entries, "truncated": truncated, "limit": limit, "from": tr.From, "to": tr.To})
 }
 
 func (a *Admin) fusionTraces(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionCaller) {
@@ -883,7 +884,7 @@ func (a *Admin) fusionTraces(w http.ResponseWriter, r *http.Request, c *fusionap
 	}
 	page := map[string]any{"traces": traces, "truncated": truncated, "limit": limit, "from": tr.From, "to": tr.To}
 	if !fused {
-		writeJSON(w, 200, page)
+		httpkit.WriteJSON(w, 200, page)
 		return
 	}
 	ids := make([]string, len(traces))
@@ -900,7 +901,7 @@ func (a *Admin) fusionTraces(w http.ResponseWriter, r *http.Request, c *fusionap
 	}
 	items := c.FuseMany(r.Context(), who.Scope, ids, opts, nil)
 	page["results"], page["summary"] = nonNilItems(items), fusionapi.Summarise(items)
-	writeJSON(w, 200, page)
+	httpkit.WriteJSON(w, 200, page)
 }
 
 // fusionTrace is one trace; with fused=true (or an include list) it is the fused object: each span carrying its log
@@ -919,7 +920,7 @@ func (a *Admin) fusionTrace(w http.ResponseWriter, r *http.Request, c *fusionapi
 			a.fusionErr(w, r, err)
 			return
 		}
-		writeJSON(w, 200, tr)
+		httpkit.WriteJSON(w, 200, tr)
 		return
 	}
 	f, err := c.FuseTrace(r.Context(), who.Scope, id, opts)
@@ -927,7 +928,7 @@ func (a *Admin) fusionTrace(w http.ResponseWriter, r *http.Request, c *fusionapi
 		a.fusionErr(w, r, err)
 		return
 	}
-	writeJSON(w, 200, f)
+	httpkit.WriteJSON(w, 200, f)
 }
 
 // maxBatchBody bounds a batch request: 25 ids and some options are far smaller.
@@ -1003,7 +1004,7 @@ func (a *Admin) fusionTraceBatch(w http.ResponseWriter, r *http.Request, c *fusi
 		return
 	}
 	items := c.FuseMany(r.Context(), who.Scope, ids, opts, nil)
-	writeJSON(w, 200, map[string]any{"results": nonNilItems(items), "summary": fusionapi.Summarise(items)})
+	httpkit.WriteJSON(w, 200, map[string]any{"results": nonNilItems(items), "summary": fusionapi.Summarise(items)})
 }
 
 // promqlValues turns the promql field of a batch body into the repeated name=expression values the shared parser reads:
@@ -1081,7 +1082,7 @@ func (a *Admin) fusionBulkAllowed(w http.ResponseWriter, who fusionCaller, n int
 	for i := 1; i < n; i++ {
 		if !a.fusionRL.Allow(who.Kind + "|" + who.ID) {
 			w.Header().Set("Retry-After", "5")
-			writeErr(w, http.StatusTooManyRequests, "too many requests, slow down; read fewer traces at a time")
+			httpkit.WriteErr(w, http.StatusTooManyRequests, "too many requests, slow down; read fewer traces at a time")
 			return false
 		}
 	}

@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"continuum/internal/agents"
+	"continuum/internal/httpkit"
 	"continuum/internal/install"
 	"continuum/internal/kernel"
 	"continuum/internal/store"
@@ -97,7 +98,7 @@ func (a *Admin) listTelemetryIntents(w http.ResponseWriter, r *http.Request) {
 	for _, ti := range ints {
 		out = append(out, toTelemetryIntentDoc(ti))
 	}
-	writeJSON(w, 200, out)
+	httpkit.WriteJSON(w, 200, out)
 }
 
 func (a *Admin) getTelemetryIntent(w http.ResponseWriter, r *http.Request) {
@@ -106,7 +107,7 @@ func (a *Admin) getTelemetryIntent(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 200, toTelemetryIntentDoc(ti))
+	httpkit.WriteJSON(w, 200, toTelemetryIntentDoc(ti))
 }
 
 func (a *Admin) createTelemetryIntent(w http.ResponseWriter, r *http.Request) {
@@ -120,7 +121,7 @@ func (a *Admin) createTelemetryIntent(w http.ResponseWriter, r *http.Request) {
 		// Routes: a destination per signal type that has one of its own - see store.TelemetryIntent.Routes.
 		Routes map[string]destinationDoc `json:"routes"`
 	}
-	if err := decode(r, &req); err != nil {
+	if err := httpkit.Decode(r, &req); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -131,12 +132,12 @@ func (a *Admin) createTelemetryIntent(w http.ResponseWriter, r *http.Request) {
 			routes[store.Modality(m)] = d.toStore()
 		}
 	}
-	ti, err := a.core(r).Telemetry.CreateTelemetryIntentWithRoutes(r.Context(), actor(r), req.AgentID, req.Name, req.Namespaces, req.Exclude, signalGrantsFromDoc(req.Signals), req.Destination.toStore(), routes)
+	ti, err := a.core(r).Telemetry.CreateTelemetryIntentWithRoutes(r.Context(), httpkit.Actor(r), req.AgentID, req.Name, req.Namespaces, req.Exclude, signalGrantsFromDoc(req.Signals), req.Destination.toStore(), routes)
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 201, toTelemetryIntentDoc(ti))
+	httpkit.WriteJSON(w, 201, toTelemetryIntentDoc(ti))
 }
 
 func (a *Admin) updateTelemetryIntentScope(w http.ResponseWriter, r *http.Request) {
@@ -145,12 +146,12 @@ func (a *Admin) updateTelemetryIntentScope(w http.ResponseWriter, r *http.Reques
 		Exclude    []string         `json:"exclude"`
 		Signals    []signalGrantDoc `json:"signals"`
 	}
-	if err := decode(r, &req); err != nil {
+	if err := httpkit.Decode(r, &req); err != nil {
 		a.fail(w, err)
 		return
 	}
 	id := r.PathValue("id")
-	if err := a.core(r).Telemetry.UpdateTelemetryIntentScope(r.Context(), actor(r), id, req.Namespaces, req.Exclude, signalGrantsFromDoc(req.Signals)); err != nil {
+	if err := a.core(r).Telemetry.UpdateTelemetryIntentScope(r.Context(), httpkit.Actor(r), id, req.Namespaces, req.Exclude, signalGrantsFromDoc(req.Signals)); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -159,7 +160,7 @@ func (a *Admin) updateTelemetryIntentScope(w http.ResponseWriter, r *http.Reques
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 200, toTelemetryIntentDoc(ti))
+	httpkit.WriteJSON(w, 200, toTelemetryIntentDoc(ti))
 }
 
 func (a *Admin) updateTelemetryIntentDestination(w http.ResponseWriter, r *http.Request) {
@@ -169,7 +170,7 @@ func (a *Admin) updateTelemetryIntentDestination(w http.ResponseWriter, r *http.
 		// default; absent leaves them as they are.
 		Routes map[string]destinationDoc `json:"routes"`
 	}
-	if err := decode(r, &req); err != nil {
+	if err := httpkit.Decode(r, &req); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -180,9 +181,9 @@ func (a *Admin) updateTelemetryIntentDestination(w http.ResponseWriter, r *http.
 		for m, d := range req.Routes {
 			routes[store.Modality(m)] = d.toStore()
 		}
-		err = a.core(r).Telemetry.UpdateTelemetryIntentDestinations(r.Context(), actor(r), id, req.Destination.toStore(), routes)
+		err = a.core(r).Telemetry.UpdateTelemetryIntentDestinations(r.Context(), httpkit.Actor(r), id, req.Destination.toStore(), routes)
 	} else {
-		err = a.core(r).Telemetry.UpdateTelemetryIntentDestination(r.Context(), actor(r), id, req.Destination.toStore())
+		err = a.core(r).Telemetry.UpdateTelemetryIntentDestination(r.Context(), httpkit.Actor(r), id, req.Destination.toStore())
 	}
 	if err != nil {
 		a.fail(w, err)
@@ -193,17 +194,17 @@ func (a *Admin) updateTelemetryIntentDestination(w http.ResponseWriter, r *http.
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 200, toTelemetryIntentDoc(ti))
+	httpkit.WriteJSON(w, 200, toTelemetryIntentDoc(ti))
 }
 
 func (a *Admin) revokeTelemetryIntent(w http.ResponseWriter, r *http.Request) {
 	a.reasoned(w, r, func(reason string) error {
-		return a.core(r).Telemetry.RevokeTelemetryIntent(r.Context(), actor(r), r.PathValue("id"), reason)
+		return a.core(r).Telemetry.RevokeTelemetryIntent(r.Context(), httpkit.Actor(r), r.PathValue("id"), reason)
 	})
 }
 
 func (a *Admin) deleteTelemetryIntent(w http.ResponseWriter, r *http.Request) {
-	if err := a.core(r).Telemetry.DeleteTelemetryIntent(r.Context(), actor(r), r.PathValue("id")); err != nil {
+	if err := a.core(r).Telemetry.DeleteTelemetryIntent(r.Context(), httpkit.Actor(r), r.PathValue("id")); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -336,7 +337,7 @@ func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 		}
 		if problems := spec.TowardOperators(receiverAuth).Problems(); len(problems) > 0 {
 			resp["installFragment"], resp["secretCommands"], resp["problems"] = "", []string{}, problems
-			writeJSON(w, 200, resp)
+			httpkit.WriteJSON(w, 200, resp)
 			return
 		}
 	}
@@ -361,7 +362,7 @@ func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 			if issued[op.ID] {
 				return nil
 			}
-			certPEM, keyPEM, caPEM, err := a.core(r).Operators.IssueOperatorClientCertFor(r.Context(), actor(r), op.ID, agent.ClusterID, forWhat)
+			certPEM, keyPEM, caPEM, err := a.core(r).Operators.IssueOperatorClientCertFor(r.Context(), httpkit.Actor(r), op.ID, agent.ClusterID, forWhat)
 			if err != nil {
 				return err
 			}
@@ -429,7 +430,7 @@ func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		op = a.advertised(op)
-		certPEM, keyPEM, caPEM, err := a.core(r).Operators.IssueOperatorClientCertFor(r.Context(), actor(r), op.ID, agent.ClusterID, forWhat)
+		certPEM, keyPEM, caPEM, err := a.core(r).Operators.IssueOperatorClientCertFor(r.Context(), httpkit.Actor(r), op.ID, agent.ClusterID, forWhat)
 		if err != nil {
 			a.fail(w, err)
 			return
@@ -469,5 +470,5 @@ func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 	if len(warnings) > 0 {
 		resp["warnings"] = warnings
 	}
-	writeJSON(w, 200, resp)
+	httpkit.WriteJSON(w, 200, resp)
 }

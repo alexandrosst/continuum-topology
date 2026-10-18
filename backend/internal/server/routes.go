@@ -20,24 +20,6 @@ const (
 	accessMount            = "mount"             // not a route of its own: it hands a whole subtree to other handlers (/api/ to the API mux, / to the UI)
 )
 
-func (n need) String() string {
-	switch n {
-	case anySession:
-		return "session"
-	case settled:
-		return "settled"
-	case memberRole:
-		return "member"
-	case editorRole:
-		return "editor"
-	case adminRole:
-		return "admin"
-	case ownerRole:
-		return "owner"
-	}
-	return "unknown"
-}
-
 // handle mounts h at pattern on mux and records the route. It is the only way a route is added to the server's muxes (the
 // metrics listener, which is a separate server with its own token, has its own).
 func (a *Admin) handle(mux *http.ServeMux, pattern, access string, h http.Handler) {

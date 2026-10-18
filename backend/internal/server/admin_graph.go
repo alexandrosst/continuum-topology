@@ -11,6 +11,7 @@ import (
 
 	"continuum/internal/accounts"
 	"continuum/internal/graph"
+	"continuum/internal/httpkit"
 	"continuum/internal/kernel"
 	"continuum/internal/store"
 	"continuum/internal/workspace"
@@ -41,18 +42,18 @@ func (a *Admin) graphAPI() GraphAPI {
 func (a *Admin) storage(w http.ResponseWriter, r *http.Request) {
 	g := a.graphAPI()
 	if g == nil {
-		writeJSON(w, 200, map[string]any{"backend": "sqlite", "enabled": false})
+		httpkit.WriteJSON(w, 200, map[string]any{"backend": "sqlite", "enabled": false})
 		return
 	}
 	st := g.Status(r.Context(), a.core(r).OrgID)
 	out := map[string]any{"backend": "neo4j", "enabled": true, "connected": st.Connected, "ready": st.Ready, "buffering": st.Buffering}
-	if accounts.Allows(principal(r), accounts.ActAdminister) {
+	if accounts.Allows(httpkit.Principal(r), accounts.ActAdminister) {
 		out["error"] = st.Error
 		if st.Stats != nil {
 			out["stats"] = st.Stats
 		}
 	}
-	writeJSON(w, 200, out)
+	httpkit.WriteJSON(w, 200, out)
 }
 
 // GET /graph/snapshot?at=...: the estate's entities as of a moment, in the graph's own schema-agnostic
@@ -62,24 +63,24 @@ func (a *Admin) storage(w http.ResponseWriter, r *http.Request) {
 func (a *Admin) graphSnapshot(w http.ResponseWriter, r *http.Request) {
 	g := a.graphAPI()
 	if g == nil {
-		writeErr(w, 404, "the graph's entities need the graph database, which this server was started without")
+		httpkit.WriteErr(w, 404, "the graph's entities need the graph database, which this server was started without")
 		return
 	}
-	at, err := parseTime(r, "at")
+	at, err := httpkit.ParseTime(r, "at")
 	if err != nil || at.IsZero() {
-		writeErr(w, 400, "at must be an RFC 3339 time")
+		httpkit.WriteErr(w, 400, "at must be an RFC 3339 time")
 		return
 	}
 	sat, entities, err := g.AsOfEntities(r.Context(), a.core(r).OrgID, at)
 	if errors.Is(err, store.ErrNotFound) {
-		writeErr(w, 404, "nothing was recorded at or before that time")
+		httpkit.WriteErr(w, 404, "nothing was recorded at or before that time")
 		return
 	}
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"at": kernel.RFC(sat), "entities": entities})
+	httpkit.WriteJSON(w, 200, map[string]any{"at": kernel.RFC(sat), "entities": entities})
 }
 
 // parseWalkParams reads the kind/id/at/hops query parameters Dependents and Dependencies share. hops
@@ -90,7 +91,7 @@ func parseWalkParams(r *http.Request) (kind, id string, at time.Time, hops int, 
 	if kind == "" || id == "" || len(id) > 300 {
 		return "", "", time.Time{}, 0, errors.New("give kind and id")
 	}
-	at, err = parseTime(r, "at")
+	at, err = httpkit.ParseTime(r, "at")
 	if err != nil || at.IsZero() {
 		return "", "", time.Time{}, 0, errors.New("at must be an RFC 3339 time")
 	}
@@ -107,24 +108,24 @@ func parseWalkParams(r *http.Request) (kind, id string, at time.Time, hops int, 
 func (a *Admin) graphDependents(w http.ResponseWriter, r *http.Request) {
 	g := a.graphAPI()
 	if g == nil {
-		writeErr(w, 404, "graph traversal needs the graph database, which this server was started without")
+		httpkit.WriteErr(w, 404, "graph traversal needs the graph database, which this server was started without")
 		return
 	}
 	kind, id, at, hops, err := parseWalkParams(r)
 	if err != nil {
-		writeErr(w, 400, err.Error())
+		httpkit.WriteErr(w, 400, err.Error())
 		return
 	}
 	sat, reached, err := g.Dependents(r.Context(), a.core(r).OrgID, at, kind, id, hops)
 	if errors.Is(err, store.ErrNotFound) {
-		writeErr(w, 404, "no such record")
+		httpkit.WriteErr(w, 404, "no such record")
 		return
 	}
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"at": kernel.RFC(sat), "kind": kind, "id": id, "hops": hops, "reached": reached})
+	httpkit.WriteJSON(w, 200, map[string]any{"at": kernel.RFC(sat), "kind": kind, "id": id, "hops": hops, "reached": reached})
 }
 
 // GET /graph/dependencies?kind=&id=&at=&hops=: everything this entity itself relies on at that moment -
@@ -133,24 +134,24 @@ func (a *Admin) graphDependents(w http.ResponseWriter, r *http.Request) {
 func (a *Admin) graphDependencies(w http.ResponseWriter, r *http.Request) {
 	g := a.graphAPI()
 	if g == nil {
-		writeErr(w, 404, "graph traversal needs the graph database, which this server was started without")
+		httpkit.WriteErr(w, 404, "graph traversal needs the graph database, which this server was started without")
 		return
 	}
 	kind, id, at, hops, err := parseWalkParams(r)
 	if err != nil {
-		writeErr(w, 400, err.Error())
+		httpkit.WriteErr(w, 400, err.Error())
 		return
 	}
 	sat, reached, err := g.Dependencies(r.Context(), a.core(r).OrgID, at, kind, id, hops)
 	if errors.Is(err, store.ErrNotFound) {
-		writeErr(w, 404, "no such record")
+		httpkit.WriteErr(w, 404, "no such record")
 		return
 	}
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"at": kernel.RFC(sat), "kind": kind, "id": id, "hops": hops, "reached": reached})
+	httpkit.WriteJSON(w, 200, map[string]any{"at": kernel.RFC(sat), "kind": kind, "id": id, "hops": hops, "reached": reached})
 }
 
 // GET /graph/diff?from=&to=: what changed structurally across the whole estate between two moments -
@@ -160,17 +161,17 @@ func (a *Admin) graphDependencies(w http.ResponseWriter, r *http.Request) {
 func (a *Admin) graphDiff(w http.ResponseWriter, r *http.Request) {
 	g := a.graphAPI()
 	if g == nil {
-		writeErr(w, 404, "a structural diff needs the graph database, which this server was started without")
+		httpkit.WriteErr(w, 404, "a structural diff needs the graph database, which this server was started without")
 		return
 	}
-	from, err1 := parseTime(r, "from")
-	to, err2 := parseTime(r, "to")
+	from, err1 := httpkit.ParseTime(r, "from")
+	to, err2 := httpkit.ParseTime(r, "to")
 	if err := errors.Join(err1, err2); err != nil {
-		writeErr(w, 400, err.Error())
+		httpkit.WriteErr(w, 400, err.Error())
 		return
 	}
 	if from.IsZero() || to.IsZero() {
-		writeErr(w, 400, "give both from and to as RFC 3339 times")
+		httpkit.WriteErr(w, 400, "give both from and to as RFC 3339 times")
 		return
 	}
 	diff, err := g.DiffEntities(r.Context(), a.core(r).OrgID, from, to)
@@ -178,7 +179,7 @@ func (a *Admin) graphDiff(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"from": kernel.RFC(diff.From), "to": kernel.RFC(diff.To), "added": diff.Added, "removed": diff.Removed, "changed": diff.Changed})
+	httpkit.WriteJSON(w, 200, map[string]any{"from": kernel.RFC(diff.From), "to": kernel.RFC(diff.To), "added": diff.Added, "removed": diff.Removed, "changed": diff.Changed})
 }
 
 // GET /timeline?kind=service&id=...: every version of one record, what changed between them, the events
@@ -186,18 +187,18 @@ func (a *Admin) graphDiff(w http.ResponseWriter, r *http.Request) {
 func (a *Admin) timeline(w http.ResponseWriter, r *http.Request) {
 	g := a.graphAPI()
 	if g == nil {
-		writeErr(w, 404, "record timelines need the graph database, which this server was started without")
+		httpkit.WriteErr(w, 404, "record timelines need the graph database, which this server was started without")
 		return
 	}
 	kind, id := r.URL.Query().Get("kind"), r.URL.Query().Get("id")
 	if kind == "" || id == "" || len(id) > 300 {
-		writeErr(w, 400, "give kind and id")
+		httpkit.WriteErr(w, 400, "give kind and id")
 		return
 	}
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	tl, err := g.Timeline(r.Context(), a.core(r).OrgID, kind, id, limit)
 	if errors.Is(err, store.ErrNotFound) {
-		writeErr(w, 404, "no history for that record")
+		httpkit.WriteErr(w, 404, "no history for that record")
 		return
 	}
 	if err != nil {
@@ -210,19 +211,19 @@ func (a *Admin) timeline(w http.ResponseWriter, r *http.Request) {
 			ClusterName: e.ClusterName, Detail: e.Detail, Cause: e.Cause, Severity: e.Severity}
 	}
 	audit := tl.Audit
-	if !accounts.Allows(principal(r), accounts.ActAdminister) { // it names people, which /audit and the state document keep for administrators
+	if !accounts.Allows(httpkit.Principal(r), accounts.ActAdminister) { // it names people, which /audit and the state document keep for administrators
 		audit = []graph.AuditRow{}
 	}
-	writeJSON(w, 200, map[string]any{"kind": tl.Kind, "id": tl.ID, "versions": tl.Versions, "events": evs, "audit": audit})
+	httpkit.WriteJSON(w, 200, map[string]any{"kind": tl.Kind, "id": tl.ID, "versions": tl.Versions, "events": evs, "audit": audit})
 }
 
 // GET /audit: who did what in this organisation. Administrators only. With the graph it can be searched
 // by person, action, record and time; without it the latest actions are listed as SQLite keeps them.
 func (a *Admin) audit(w http.ResponseWriter, r *http.Request) {
-	since, err1 := parseTime(r, "since")
-	until, err2 := parseTime(r, "until")
+	since, err1 := httpkit.ParseTime(r, "since")
+	until, err2 := httpkit.ParseTime(r, "until")
 	if err := errors.Join(err1, err2); err != nil {
-		writeErr(w, 400, err.Error())
+		httpkit.WriteErr(w, 400, err.Error())
 		return
 	}
 	q := graph.AuditQuery{Actor: r.URL.Query().Get("actor"), Action: r.URL.Query().Get("action"), TargetID: r.URL.Query().Get("target"), Since: since, Until: until}
@@ -230,7 +231,7 @@ func (a *Admin) audit(w http.ResponseWriter, r *http.Request) {
 	org := a.core(r).OrgID
 	if g := a.graphAPI(); g != nil {
 		if rows, err := g.Audit(r.Context(), org, q); err == nil {
-			writeJSON(w, 200, map[string]any{"source": "graph", "rows": rows})
+			httpkit.WriteJSON(w, 200, map[string]any{"source": "graph", "rows": rows})
 			return
 		}
 	}
@@ -251,14 +252,14 @@ func (a *Admin) audit(w http.ResponseWriter, r *http.Request) {
 	if q.Limit > 0 && len(rows) > q.Limit {
 		rows = rows[:q.Limit]
 	}
-	writeJSON(w, 200, map[string]any{"source": "local", "rows": rows})
+	httpkit.WriteJSON(w, 200, map[string]any{"source": "local", "rows": rows})
 }
 
 // GET /workspace/revisions and /workspace/at?at=: the human layer as it was saved over time.
 func (a *Admin) workspaceRevisions(w http.ResponseWriter, r *http.Request) {
 	g := a.graphAPI()
 	if g == nil {
-		writeJSON(w, 200, map[string]any{"revisions": []graph.WorkspaceRev{}})
+		httpkit.WriteJSON(w, 200, map[string]any{"revisions": []graph.WorkspaceRev{}})
 		return
 	}
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
@@ -267,23 +268,23 @@ func (a *Admin) workspaceRevisions(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"revisions": revs})
+	httpkit.WriteJSON(w, 200, map[string]any{"revisions": revs})
 }
 
 func (a *Admin) workspaceAt(w http.ResponseWriter, r *http.Request) {
 	g := a.graphAPI()
-	at, err := parseTime(r, "at")
+	at, err := httpkit.ParseTime(r, "at")
 	if err != nil || at.IsZero() {
-		writeErr(w, 400, "at must be an RFC 3339 time")
+		httpkit.WriteErr(w, 400, "at must be an RFC 3339 time")
 		return
 	}
 	if g == nil {
-		writeErr(w, 404, "past revisions of the workspace need the graph database")
+		httpkit.WriteErr(w, 404, "past revisions of the workspace need the graph database")
 		return
 	}
 	rev, err := g.WorkspaceAt(r.Context(), a.core(r).OrgID, at)
 	if errors.Is(err, store.ErrNotFound) {
-		writeErr(w, 404, "the workspace had not been saved by then")
+		httpkit.WriteErr(w, 404, "the workspace had not been saved by then")
 		return
 	}
 	if err != nil {
@@ -300,5 +301,5 @@ func (a *Admin) workspaceAt(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	writeJSON(w, 200, out)
+	httpkit.WriteJSON(w, 200, out)
 }

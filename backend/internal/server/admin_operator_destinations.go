@@ -3,6 +3,7 @@ package server
 import (
 	"net/http"
 
+	"continuum/internal/httpkit"
 	"continuum/internal/kernel"
 	"continuum/internal/operators"
 	"continuum/internal/store"
@@ -79,7 +80,7 @@ func (a *Admin) listOperatorDestinations(w http.ResponseWriter, r *http.Request)
 		}
 		out = append([]operatorDestinationDoc{e}, out...)
 	}
-	writeJSON(w, 200, append(out, regional...))
+	httpkit.WriteJSON(w, 200, append(out, regional...))
 }
 
 func usageCount(u operators.OperatorUsage) int { return len(u.Operators) + u.Intents }

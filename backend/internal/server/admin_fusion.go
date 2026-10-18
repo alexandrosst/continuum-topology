@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"continuum/internal/fusion"
+	"continuum/internal/httpkit"
 	"continuum/internal/kernel"
 	"continuum/internal/operators"
 )
@@ -59,7 +60,7 @@ func (a *Admin) fusionDoc(r *http.Request) fusionResponse {
 }
 
 func (a *Admin) getFusion(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, a.fusionDoc(r))
+	httpkit.WriteJSON(w, 200, a.fusionDoc(r))
 }
 
 func (a *Admin) enableFusion(w http.ResponseWriter, r *http.Request) {
@@ -67,11 +68,11 @@ func (a *Admin) enableFusion(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, kernel.Errf(kernel.KindConflict, "%s", a.Fusion.Status(r.Context()).Message))
 		return
 	}
-	if _, err := a.Fusion.Enable(r.Context(), a.core(r).Fusion, actor(r)); err != nil {
+	if _, err := a.Fusion.Enable(r.Context(), a.core(r).Fusion, httpkit.Actor(r)); err != nil {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 200, a.fusionDoc(r))
+	httpkit.WriteJSON(w, 200, a.fusionDoc(r))
 }
 
 func (a *Admin) disableFusion(w http.ResponseWriter, r *http.Request) {
@@ -79,20 +80,20 @@ func (a *Admin) disableFusion(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, kernel.Errf(kernel.KindConflict, "%s", a.Fusion.Status(r.Context()).Message))
 		return
 	}
-	if _, err := a.Fusion.Disable(r.Context(), a.core(r).Fusion, actor(r)); err != nil {
+	if _, err := a.Fusion.Disable(r.Context(), a.core(r).Fusion, httpkit.Actor(r)); err != nil {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 200, a.fusionDoc(r))
+	httpkit.WriteJSON(w, 200, a.fusionDoc(r))
 }
 
 // getFusionRetention is every store's retention, volume and measured use.
 func (a *Admin) getFusionRetention(w http.ResponseWriter, r *http.Request) {
 	if a.Fusion == nil {
-		writeJSON(w, 200, fusion.UnavailableRetention("unavailable", a.Fusion.Status(r.Context()).Message))
+		httpkit.WriteJSON(w, 200, fusion.UnavailableRetention("unavailable", a.Fusion.Status(r.Context()).Message))
 		return
 	}
-	writeJSON(w, 200, a.Fusion.Retention(r.Context(), a.core(r).Fusion))
+	httpkit.WriteJSON(w, 200, a.Fusion.Retention(r.Context(), a.core(r).Fusion))
 }
 
 // setFusionRetention changes retention and grows volumes; the body names the stores (metrics, logs, traces) and, for
@@ -103,16 +104,16 @@ func (a *Admin) setFusionRetention(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req fusion.RetentionRequest
-	if err := decode(r, &req); err != nil {
+	if err := httpkit.Decode(r, &req); err != nil {
 		a.fail(w, err)
 		return
 	}
-	doc, err := a.Fusion.SetRetention(r.Context(), a.core(r).Fusion, actor(r), req)
+	doc, err := a.Fusion.SetRetention(r.Context(), a.core(r).Fusion, httpkit.Actor(r), req)
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 200, doc)
+	httpkit.WriteJSON(w, 200, doc)
 }
 
 // fusionAddressWarnings are the doubts about the public address recorded for the gateway (see addressWarnings), checked against the

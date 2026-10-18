@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"continuum/internal/decisionloop"
+	"continuum/internal/httpkit"
 	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
@@ -78,7 +79,7 @@ func (a *Admin) submitProposal(w http.ResponseWriter, r *http.Request) {
 		Predicted    map[string]float64          `json:"predicted"`
 		TTLSeconds   int                         `json:"ttlSeconds"`
 	}
-	if err := decode(r, &req); err != nil {
+	if err := httpkit.Decode(r, &req); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -86,13 +87,13 @@ func (a *Admin) submitProposal(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, kernel.Errf(kernel.KindInvalid, "ttlSeconds must be between 0 and %d", int(decisionloop.MaxProposalTTL/time.Second)))
 		return
 	}
-	p, err := a.tn(r).Hub.C.Loop.SubmitProposal(r.Context(), actor(r), decisionloop.ProposalInput{Advisor: req.Advisor, ModelVersion: req.ModelVersion, Change: req.Change,
+	p, err := a.tn(r).Hub.C.Loop.SubmitProposal(r.Context(), httpkit.Actor(r), decisionloop.ProposalInput{Advisor: req.Advisor, ModelVersion: req.ModelVersion, Change: req.Change,
 		Evidence: req.Evidence, Predicted: req.Predicted, TTL: time.Duration(req.TTLSeconds) * time.Second})
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, toProposalDoc(p, nil))
+	httpkit.WriteJSON(w, http.StatusCreated, toProposalDoc(p, nil))
 }
 
 // listProposals is GET .../proposals?status=&agent=&limit=.
@@ -121,7 +122,7 @@ func (a *Admin) listProposals(w http.ResponseWriter, r *http.Request) {
 	for i, p := range ps {
 		out[i] = toProposalDoc(p, nil)
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"proposals": out})
+	httpkit.WriteJSON(w, http.StatusOK, map[string]any{"proposals": out})
 }
 
 // advisorRecordDoc is one advisor's record, as GET .../proposals/advisors returns it.
@@ -152,7 +153,7 @@ func (a *Admin) listAdvisors(w http.ResponseWriter, r *http.Request) {
 		out[i] = advisorRecordDoc{Advisor: x.Advisor, Proposals: x.Proposals, Pending: x.Pending, Accepted: x.Accepted, Failed: x.Failed, Rejected: x.Rejected,
 			Expired: x.Expired, Measured: x.Measured, Unconfirmed: x.Unconfirmed, NoData: x.NoData, Held: x.Held, Missed: x.Missed}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"advisors": out})
+	httpkit.WriteJSON(w, http.StatusOK, map[string]any{"advisors": out})
 }
 
 func atoiPositive(s string) (int, bool) {
@@ -173,7 +174,7 @@ func (a *Admin) getProposal(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, toProposalDoc(p, o))
+	httpkit.WriteJSON(w, http.StatusOK, toProposalDoc(p, o))
 }
 
 func (a *Admin) decideProposal(accept bool) http.HandlerFunc {
@@ -181,7 +182,7 @@ func (a *Admin) decideProposal(accept bool) http.HandlerFunc {
 		var req struct {
 			Note string `json:"note"`
 		}
-		if err := decode(r, &req); err != nil {
+		if err := httpkit.Decode(r, &req); err != nil {
 			a.fail(w, err)
 			return
 		}
@@ -189,14 +190,14 @@ func (a *Admin) decideProposal(accept bool) http.HandlerFunc {
 		var p store.Proposal
 		var err error
 		if accept {
-			p, err = hub.C.Loop.AcceptProposal(r.Context(), actor(r), r.PathValue("id"), req.Note)
+			p, err = hub.C.Loop.AcceptProposal(r.Context(), httpkit.Actor(r), r.PathValue("id"), req.Note)
 		} else {
-			p, err = hub.C.Loop.RejectProposal(r.Context(), actor(r), r.PathValue("id"), req.Note)
+			p, err = hub.C.Loop.RejectProposal(r.Context(), httpkit.Actor(r), r.PathValue("id"), req.Note)
 		}
 		if err != nil {
 			a.fail(w, err)
 			return
 		}
-		writeJSON(w, http.StatusOK, toProposalDoc(p, nil))
+		httpkit.WriteJSON(w, http.StatusOK, toProposalDoc(p, nil))
 	}
 }

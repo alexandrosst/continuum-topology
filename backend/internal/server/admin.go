@@ -21,6 +21,7 @@ import (
 	"continuum/internal/estate"
 	"continuum/internal/fusion"
 	"continuum/internal/fusionapi"
+	"continuum/internal/httpkit"
 	"continuum/internal/install"
 	"continuum/internal/kernel"
 	"continuum/internal/probe"
@@ -138,19 +139,6 @@ const (
 
 type ctxTenant struct{}
 
-// need is what a route asks of the caller. The organisation levels also require the {org} in the path
-// to be one the caller belongs to.
-type need int
-
-const (
-	anySession need = iota // signed in, even if a password change is still pending
-	settled                // signed in, password settled, no organisation involved
-	memberRole             // belongs to the organisation (any role: reads)
-	editorRole
-	adminRole
-	ownerRole
-)
-
 func (a *Admin) tn(r *http.Request) *Tenant {
 	t, _ := r.Context().Value(ctxTenant{}).(*Tenant)
 	return t
@@ -170,7 +158,9 @@ func (a *Admin) Handler() http.Handler {
 	a.handle(mux, "GET /charts/{file}", accessPublic, http.HandlerFunc(a.serveChart))
 
 	api := http.NewServeMux()
-	route := func(pattern string, n need, h http.HandlerFunc) { a.handle(api, pattern, n.String(), a.guard(n, h)) }
+	route := func(pattern string, n httpkit.Need, h http.HandlerFunc) {
+		a.handle(api, pattern, n.String(), a.guard(n, h))
+	}
 	open := func(pattern string, h http.HandlerFunc) { a.handle(api, pattern, accessPublic, h) }
 	open("GET /api/v1/server", a.serverInfo)
 	open("POST /api/v1/auth/login", a.login)
@@ -184,145 +174,145 @@ func (a *Admin) Handler() http.Handler {
 	open("POST /api/v1/auth/register", a.register)
 	open("POST /api/v1/auth/logout", a.logout)
 	open("POST /api/v1/invites/preview", a.previewInvite)
-	route("GET /api/v1/auth/me", anySession, a.me)
-	route("POST /api/v1/auth/password", anySession, a.changePassword)
-	route("POST /api/v1/auth/2fa/setup", anySession, a.setup2FA)
-	route("POST /api/v1/auth/2fa/enable", anySession, a.enable2FA)
-	route("POST /api/v1/auth/2fa/disable", anySession, a.disable2FA)
-	route("POST /api/v1/auth/email/request", anySession, a.requestEmailVerification)
-	route("POST /api/v1/auth/email/confirm", anySession, a.confirmEmail)
-	route("POST /api/v1/auth/email-otp/enable", anySession, a.enableEmailOTP)
-	route("POST /api/v1/auth/email-otp/disable", anySession, a.disableEmailOTP)
-	route("POST /api/v1/auth/webauthn/register/begin", anySession, a.beginPasskeyRegistration)
-	route("POST /api/v1/auth/webauthn/register/finish", anySession, a.finishPasskeyRegistration)
-	route("POST /api/v1/auth/webauthn/{id}/rename", anySession, a.renamePasskey)
-	route("POST /api/v1/auth/webauthn/{id}/remove", anySession, a.removePasskey)
-	route("GET /api/v1/auth/tokens", anySession, a.listAPITokens)
-	route("POST /api/v1/auth/tokens", anySession, a.createAPIToken)
-	route("POST /api/v1/auth/tokens/{id}/revoke", anySession, a.revokeAPIToken)
-	route("GET /api/v1/orgs", settled, a.listOrgs)
-	route("POST /api/v1/orgs", settled, a.createOrg)
-	route("POST /api/v1/invites/accept", settled, a.acceptInvite)
+	route("GET /api/v1/auth/me", httpkit.AnySession, a.me)
+	route("POST /api/v1/auth/password", httpkit.AnySession, a.changePassword)
+	route("POST /api/v1/auth/2fa/setup", httpkit.AnySession, a.setup2FA)
+	route("POST /api/v1/auth/2fa/enable", httpkit.AnySession, a.enable2FA)
+	route("POST /api/v1/auth/2fa/disable", httpkit.AnySession, a.disable2FA)
+	route("POST /api/v1/auth/email/request", httpkit.AnySession, a.requestEmailVerification)
+	route("POST /api/v1/auth/email/confirm", httpkit.AnySession, a.confirmEmail)
+	route("POST /api/v1/auth/email-otp/enable", httpkit.AnySession, a.enableEmailOTP)
+	route("POST /api/v1/auth/email-otp/disable", httpkit.AnySession, a.disableEmailOTP)
+	route("POST /api/v1/auth/webauthn/register/begin", httpkit.AnySession, a.beginPasskeyRegistration)
+	route("POST /api/v1/auth/webauthn/register/finish", httpkit.AnySession, a.finishPasskeyRegistration)
+	route("POST /api/v1/auth/webauthn/{id}/rename", httpkit.AnySession, a.renamePasskey)
+	route("POST /api/v1/auth/webauthn/{id}/remove", httpkit.AnySession, a.removePasskey)
+	route("GET /api/v1/auth/tokens", httpkit.AnySession, a.listAPITokens)
+	route("POST /api/v1/auth/tokens", httpkit.AnySession, a.createAPIToken)
+	route("POST /api/v1/auth/tokens/{id}/revoke", httpkit.AnySession, a.revokeAPIToken)
+	route("GET /api/v1/orgs", httpkit.Settled, a.listOrgs)
+	route("POST /api/v1/orgs", httpkit.Settled, a.createOrg)
+	route("POST /api/v1/invites/accept", httpkit.Settled, a.acceptInvite)
 
 	// Mail is server-wide, not one organisation's, and is gated to an owner of the default organisation
 	// specifically - see requireDefaultOwner - rather than to any of the per-org role checks above.
-	route("GET /api/v1/mail", settled, a.getMailConfig)
-	route("PUT /api/v1/mail", settled, a.putMailConfig)
+	route("GET /api/v1/mail", httpkit.Settled, a.getMailConfig)
+	route("PUT /api/v1/mail", httpkit.Settled, a.putMailConfig)
 
 	const o = "/api/v1/orgs/{org}"
-	route("GET "+o+"/info", memberRole, a.info)
-	route("POST "+o+"/rename", ownerRole, a.renameOrg)
-	route("POST "+o+"/delete", ownerRole, a.deleteOrg)
-	route("POST "+o+"/leave", memberRole, a.leaveOrg)
-	route("GET "+o+"/members", memberRole, a.listMembers)
-	route("POST "+o+"/members/{id}/role", adminRole, a.setMemberRole)
-	route("POST "+o+"/members/{id}/remove", adminRole, a.removeMember)
-	route("GET "+o+"/invites", adminRole, a.listInvites)
-	route("POST "+o+"/invites", adminRole, a.createInvite)
-	route("DELETE "+o+"/invites/{id}", adminRole, a.revokeInvite)
+	route("GET "+o+"/info", httpkit.MemberRole, a.info)
+	route("POST "+o+"/rename", httpkit.OwnerRole, a.renameOrg)
+	route("POST "+o+"/delete", httpkit.OwnerRole, a.deleteOrg)
+	route("POST "+o+"/leave", httpkit.MemberRole, a.leaveOrg)
+	route("GET "+o+"/members", httpkit.MemberRole, a.listMembers)
+	route("POST "+o+"/members/{id}/role", httpkit.AdminRole, a.setMemberRole)
+	route("POST "+o+"/members/{id}/remove", httpkit.AdminRole, a.removeMember)
+	route("GET "+o+"/invites", httpkit.AdminRole, a.listInvites)
+	route("POST "+o+"/invites", httpkit.AdminRole, a.createInvite)
+	route("DELETE "+o+"/invites/{id}", httpkit.AdminRole, a.revokeInvite)
 
-	route("GET "+o+"/state", memberRole, a.state)
-	route("GET "+o+"/model", memberRole, a.model)
-	route("GET "+o+"/workspace", memberRole, a.getWorkspace)
-	route("PUT "+o+"/workspace", editorRole, a.putWorkspace)
+	route("GET "+o+"/state", httpkit.MemberRole, a.state)
+	route("GET "+o+"/model", httpkit.MemberRole, a.model)
+	route("GET "+o+"/workspace", httpkit.MemberRole, a.getWorkspace)
+	route("PUT "+o+"/workspace", httpkit.EditorRole, a.putWorkspace)
 
-	route("GET "+o+"/settings", memberRole, a.getSettings)
-	route("GET "+o+"/telemetry/self", memberRole, a.selfTelemetry)
-	route("PUT "+o+"/settings", adminRole, a.putSettings)
-	route("GET "+o+"/links/latest", memberRole, a.linksLatest)
-	route("POST "+o+"/links/rotate-credentials", adminRole, a.rotateLinkCredentials)
-	route("GET "+o+"/history", memberRole, a.historyIndex)
-	route("GET "+o+"/history/snapshot", memberRole, a.historySnapshot)
-	route("GET "+o+"/history/traffic", memberRole, a.historyTraffic)
-	route("GET "+o+"/history/dependency/{id}/series", memberRole, a.historyDependencySeries)
-	route("POST "+o+"/history/record", adminRole, a.recordNow)
-	route("GET "+o+"/events", memberRole, a.listEvents)
-	route("POST "+o+"/decide", editorRole, a.decide)
-	route("POST "+o+"/decisions", editorRole, a.recordDecisions)
-	route("GET "+o+"/decisions", memberRole, a.listDecisions)
-	route("GET "+o+"/storage", memberRole, a.storage)
-	route("GET "+o+"/timeline", memberRole, a.timeline)
-	route("GET "+o+"/graph/snapshot", memberRole, a.graphSnapshot)
-	route("GET "+o+"/graph/dependents", memberRole, a.graphDependents)
-	route("GET "+o+"/graph/dependencies", memberRole, a.graphDependencies)
-	route("GET "+o+"/graph/diff", memberRole, a.graphDiff)
-	route("GET "+o+"/audit", adminRole, a.audit)
-	route("GET "+o+"/workspace/revisions", memberRole, a.workspaceRevisions)
-	route("GET "+o+"/workspace/at", memberRole, a.workspaceAt)
+	route("GET "+o+"/settings", httpkit.MemberRole, a.getSettings)
+	route("GET "+o+"/telemetry/self", httpkit.MemberRole, a.selfTelemetry)
+	route("PUT "+o+"/settings", httpkit.AdminRole, a.putSettings)
+	route("GET "+o+"/links/latest", httpkit.MemberRole, a.linksLatest)
+	route("POST "+o+"/links/rotate-credentials", httpkit.AdminRole, a.rotateLinkCredentials)
+	route("GET "+o+"/history", httpkit.MemberRole, a.historyIndex)
+	route("GET "+o+"/history/snapshot", httpkit.MemberRole, a.historySnapshot)
+	route("GET "+o+"/history/traffic", httpkit.MemberRole, a.historyTraffic)
+	route("GET "+o+"/history/dependency/{id}/series", httpkit.MemberRole, a.historyDependencySeries)
+	route("POST "+o+"/history/record", httpkit.AdminRole, a.recordNow)
+	route("GET "+o+"/events", httpkit.MemberRole, a.listEvents)
+	route("POST "+o+"/decide", httpkit.EditorRole, a.decide)
+	route("POST "+o+"/decisions", httpkit.EditorRole, a.recordDecisions)
+	route("GET "+o+"/decisions", httpkit.MemberRole, a.listDecisions)
+	route("GET "+o+"/storage", httpkit.MemberRole, a.storage)
+	route("GET "+o+"/timeline", httpkit.MemberRole, a.timeline)
+	route("GET "+o+"/graph/snapshot", httpkit.MemberRole, a.graphSnapshot)
+	route("GET "+o+"/graph/dependents", httpkit.MemberRole, a.graphDependents)
+	route("GET "+o+"/graph/dependencies", httpkit.MemberRole, a.graphDependencies)
+	route("GET "+o+"/graph/diff", httpkit.MemberRole, a.graphDiff)
+	route("GET "+o+"/audit", httpkit.AdminRole, a.audit)
+	route("GET "+o+"/workspace/revisions", httpkit.MemberRole, a.workspaceRevisions)
+	route("GET "+o+"/workspace/at", httpkit.MemberRole, a.workspaceAt)
 
-	route("GET "+o+"/tokens", adminRole, a.listTokens)
-	route("POST "+o+"/tokens", adminRole, a.createToken)
+	route("GET "+o+"/tokens", httpkit.AdminRole, a.listTokens)
+	route("POST "+o+"/tokens", httpkit.AdminRole, a.createToken)
 	// Writes the command that changes an installed agent. Pure computation (nothing is stored or issued), so any member may ask.
-	route("POST "+o+"/commands/agent-upgrade", memberRole, a.agentUpgradeCommand)
-	route("DELETE "+o+"/tokens/{id}", adminRole, a.deleteToken)
-	route("POST "+o+"/agents/{id}/approve", adminRole, a.approve)
-	route("POST "+o+"/agents/{id}/reject", adminRole, a.reject)
-	route("POST "+o+"/agents/{id}/revoke", adminRole, a.revoke)
+	route("POST "+o+"/commands/agent-upgrade", httpkit.MemberRole, a.agentUpgradeCommand)
+	route("DELETE "+o+"/tokens/{id}", httpkit.AdminRole, a.deleteToken)
+	route("POST "+o+"/agents/{id}/approve", httpkit.AdminRole, a.approve)
+	route("POST "+o+"/agents/{id}/reject", httpkit.AdminRole, a.reject)
+	route("POST "+o+"/agents/{id}/revoke", httpkit.AdminRole, a.revoke)
 	// Narrowing an agent's tier or consent is an editor's; widening either is an administrator's, like approving (checked in the hub).
-	route("POST "+o+"/agents/{id}/address-tests", adminRole, a.startAddressTests)
-	route("GET "+o+"/agents/{id}/address-tests", adminRole, a.listAddressTests)
-	route("POST "+o+"/agents/{id}/tier", editorRole, a.setAgentTier)
-	route("POST "+o+"/agents/{id}/consent", editorRole, a.setAgentConsent)
+	route("POST "+o+"/agents/{id}/address-tests", httpkit.AdminRole, a.startAddressTests)
+	route("GET "+o+"/agents/{id}/address-tests", httpkit.AdminRole, a.listAddressTests)
+	route("POST "+o+"/agents/{id}/tier", httpkit.EditorRole, a.setAgentTier)
+	route("POST "+o+"/agents/{id}/consent", httpkit.EditorRole, a.setAgentConsent)
 	// The decision loop: an advisor (an editor's API token) submits, a person decides. Widening is an administrator's, checked in the hub.
-	route("POST "+o+"/proposals", editorRole, a.submitProposal)
-	route("GET "+o+"/proposals", editorRole, a.listProposals)
-	route("GET "+o+"/proposals/advisors", editorRole, a.listAdvisors)
-	route("GET "+o+"/proposals/{id}", editorRole, a.getProposal)
-	route("POST "+o+"/proposals/{id}/accept", editorRole, a.decideProposal(true))
-	route("POST "+o+"/proposals/{id}/reject", editorRole, a.decideProposal(false))
+	route("POST "+o+"/proposals", httpkit.EditorRole, a.submitProposal)
+	route("GET "+o+"/proposals", httpkit.EditorRole, a.listProposals)
+	route("GET "+o+"/proposals/advisors", httpkit.EditorRole, a.listAdvisors)
+	route("GET "+o+"/proposals/{id}", httpkit.EditorRole, a.getProposal)
+	route("POST "+o+"/proposals/{id}/accept", httpkit.EditorRole, a.decideProposal(true))
+	route("POST "+o+"/proposals/{id}/reject", httpkit.EditorRole, a.decideProposal(false))
 
-	route("GET "+o+"/operators", adminRole, a.listOperators)
-	route("POST "+o+"/operators", adminRole, a.createOperator)
-	route("GET "+o+"/operators/{id}", adminRole, a.getOperator)
+	route("GET "+o+"/operators", httpkit.AdminRole, a.listOperators)
+	route("POST "+o+"/operators", httpkit.AdminRole, a.createOperator)
+	route("GET "+o+"/operators/{id}", httpkit.AdminRole, a.getOperator)
 	// What a person choosing where telemetry goes may pick: active operators and their state, no secrets - so
-	// editorRole (the wizard's), where the list above stays an admin's.
-	route("GET "+o+"/operator-destinations", editorRole, a.listOperatorDestinations)
-	route("GET "+o+"/fusion", adminRole, a.getFusion)
+	// httpkit.EditorRole (the wizard's), where the list above stays an admin's.
+	route("GET "+o+"/operator-destinations", httpkit.EditorRole, a.listOperatorDestinations)
+	route("GET "+o+"/fusion", httpkit.AdminRole, a.getFusion)
 	// The ticketed path that opens one of FUSION's own pages (Prometheus, Grafana) in a new tab; see fusion_ui_access.go.
-	route("POST "+o+"/fusion/pages", adminRole, a.openFusionPage)
-	route("POST "+o+"/fusion/enable", adminRole, a.enableFusion)
-	route("POST "+o+"/fusion/disable", adminRole, a.disableFusion)
-	route("GET "+o+"/fusion/retention", adminRole, a.getFusionRetention)
-	route("PUT "+o+"/fusion/retention", adminRole, a.setFusionRetention)
+	route("POST "+o+"/fusion/pages", httpkit.AdminRole, a.openFusionPage)
+	route("POST "+o+"/fusion/enable", httpkit.AdminRole, a.enableFusion)
+	route("POST "+o+"/fusion/disable", httpkit.AdminRole, a.disableFusion)
+	route("GET "+o+"/fusion/retention", httpkit.AdminRole, a.getFusionRetention)
+	route("PUT "+o+"/fusion/retention", httpkit.AdminRole, a.setFusionRetention)
 	// FUSION access tokens: read-only credentials for the shared data API below.
-	route("GET "+o+"/fusion/tokens", adminRole, a.listFusionTokens)
-	route("POST "+o+"/fusion/tokens", adminRole, a.createFusionToken)
-	route("DELETE "+o+"/fusion/tokens/{id}", adminRole, a.deleteFusionToken)
-	route("POST "+o+"/operators/{id}/scope", adminRole, a.updateOperatorScope)
+	route("GET "+o+"/fusion/tokens", httpkit.AdminRole, a.listFusionTokens)
+	route("POST "+o+"/fusion/tokens", httpkit.AdminRole, a.createFusionToken)
+	route("DELETE "+o+"/fusion/tokens/{id}", httpkit.AdminRole, a.deleteFusionToken)
+	route("POST "+o+"/operators/{id}/scope", httpkit.AdminRole, a.updateOperatorScope)
 	// Installs the operator again: fresh receiver and client certificates from its stored CA, and a new receiver
-	// token / heartbeat secret where it has one. Credential material, so adminRole and audited.
-	route("POST "+o+"/operators/{id}/install", adminRole, a.reissueOperatorInstall)
+	// token / heartbeat secret where it has one. Credential material, so httpkit.AdminRole and audited.
+	route("POST "+o+"/operators/{id}/install", httpkit.AdminRole, a.reissueOperatorInstall)
 	// What was issued for an operator (not the certificates: those are shown once): which sender holds which, and until when.
-	route("GET "+o+"/operators/{id}/certificates", adminRole, a.listOperatorCertificates)
-	route("POST "+o+"/operators/{id}/address", adminRole, a.setOperatorAddress)
+	route("GET "+o+"/operators/{id}/certificates", httpkit.AdminRole, a.listOperatorCertificates)
+	route("POST "+o+"/operators/{id}/address", httpkit.AdminRole, a.setOperatorAddress)
 	// One look at that address from this server: does anything answer there, and is it this operator.
-	route("POST "+o+"/operators/{id}/address/check", adminRole, a.checkOperatorAddress)
+	route("POST "+o+"/operators/{id}/address/check", httpkit.AdminRole, a.checkOperatorAddress)
 	// The addresses discovery says this operator can be reached at, to pick from instead of typing one.
-	route("GET "+o+"/operators/{id}/address-candidates", adminRole, a.listOperatorAddressCandidates)
-	route("PUT "+o+"/operators/{id}/server-cluster", adminRole, a.putServerCluster)
-	route("GET "+o+"/operators/{id}/senders", adminRole, a.listOperatorSenders)
-	// Mints (or rotates) the operator's heartbeat secret: credential material, so adminRole like the rest.
-	route("POST "+o+"/operators/{id}/heartbeat", adminRole, a.enableOperatorHeartbeat)
-	route("POST "+o+"/operators/{id}/revoke", adminRole, a.revokeOperator)
-	route("DELETE "+o+"/operators/{id}", adminRole, a.deleteOperator)
+	route("GET "+o+"/operators/{id}/address-candidates", httpkit.AdminRole, a.listOperatorAddressCandidates)
+	route("PUT "+o+"/operators/{id}/server-cluster", httpkit.AdminRole, a.putServerCluster)
+	route("GET "+o+"/operators/{id}/senders", httpkit.AdminRole, a.listOperatorSenders)
+	// Mints (or rotates) the operator's heartbeat secret: credential material, so httpkit.AdminRole like the rest.
+	route("POST "+o+"/operators/{id}/heartbeat", httpkit.AdminRole, a.enableOperatorHeartbeat)
+	route("POST "+o+"/operators/{id}/revoke", httpkit.AdminRole, a.revokeOperator)
+	route("DELETE "+o+"/operators/{id}", httpkit.AdminRole, a.deleteOperator)
 
 	// A telemetry intent only declares what one agent's bundled local operator should collect and where to
-	// export it; the credentials and the install command come from /command below (adminRole) and the cluster's
-	// owner still has to run it, so declaring takes editorRole rather than the adminRole an operator needs.
-	route("GET "+o+"/telemetry-intents", editorRole, a.listTelemetryIntents)
-	route("POST "+o+"/telemetry-intents", editorRole, a.createTelemetryIntent)
-	route("GET "+o+"/telemetry-intents/{id}", editorRole, a.getTelemetryIntent)
-	route("POST "+o+"/telemetry-intents/{id}/scope", editorRole, a.updateTelemetryIntentScope)
-	route("POST "+o+"/telemetry-intents/{id}/destination", editorRole, a.updateTelemetryIntentDestination)
-	route("POST "+o+"/telemetry-intents/{id}/revoke", editorRole, a.revokeTelemetryIntent)
-	route("DELETE "+o+"/telemetry-intents/{id}", editorRole, a.deleteTelemetryIntent)
+	// export it; the credentials and the install command come from /command below (httpkit.AdminRole) and the cluster's
+	// owner still has to run it, so declaring takes httpkit.EditorRole rather than the httpkit.AdminRole an operator needs.
+	route("GET "+o+"/telemetry-intents", httpkit.EditorRole, a.listTelemetryIntents)
+	route("POST "+o+"/telemetry-intents", httpkit.EditorRole, a.createTelemetryIntent)
+	route("GET "+o+"/telemetry-intents/{id}", httpkit.EditorRole, a.getTelemetryIntent)
+	route("POST "+o+"/telemetry-intents/{id}/scope", httpkit.EditorRole, a.updateTelemetryIntentScope)
+	route("POST "+o+"/telemetry-intents/{id}/destination", httpkit.EditorRole, a.updateTelemetryIntentDestination)
+	route("POST "+o+"/telemetry-intents/{id}/revoke", httpkit.EditorRole, a.revokeTelemetryIntent)
+	route("DELETE "+o+"/telemetry-intents/{id}", httpkit.EditorRole, a.deleteTelemetryIntent)
 	// /command mints and returns operator credential material when the destination is an operator (via
-	// IssueOperatorClientCert) - the same bar as operator CRUD itself (adminRole), higher than the
-	// editorRole the rest of this intent's own CRUD takes above.
-	route("POST "+o+"/telemetry-intents/{id}/command", adminRole, a.telemetryIntentCommand)
+	// IssueOperatorClientCert) - the same bar as operator CRUD itself (httpkit.AdminRole), higher than the
+	// httpkit.EditorRole the rest of this intent's own CRUD takes above.
+	route("POST "+o+"/telemetry-intents/{id}/command", httpkit.AdminRole, a.telemetryIntentCommand)
 
-	route("POST "+o+"/quick-start/{id}/gateway-token", adminRole, a.mintGatewayToken)
-	route("GET "+o+"/quick-start/{id}/gateway-token", adminRole, a.getGatewayToken)
+	route("POST "+o+"/quick-start/{id}/gateway-token", httpkit.AdminRole, a.mintGatewayToken)
+	route("GET "+o+"/quick-start/{id}/gateway-token", httpkit.AdminRole, a.getGatewayToken)
 
 	// The shared data API over FUSION. It authenticates for itself (a FUSION access token, or an administrator of the
 	// FUSION organisation) rather than through guard: the caller is not placed in an organisation by the path.
@@ -413,11 +403,11 @@ func (a *Admin) csrf(next http.Handler) http.Handler {
 			// still go through the check below - a bearer token is the one, narrow exception.
 			if _, isBearer := bearerToken(r); !isBearer {
 				if o := r.Header.Get("Origin"); o != "" && !a.originAllowed(o, r.Host) {
-					writeErr(w, http.StatusForbidden, "request came from an origin this server does not trust")
+					httpkit.WriteErr(w, http.StatusForbidden, "request came from an origin this server does not trust")
 					return
 				}
 				if r.Header.Get("X-Requested-With") == "" {
-					writeErr(w, http.StatusForbidden, "missing X-Requested-With header")
+					httpkit.WriteErr(w, http.StatusForbidden, "missing X-Requested-With header")
 					return
 				}
 			}
@@ -502,7 +492,7 @@ func bearerToken(r *http.Request) (string, bool) {
 // guard authenticates the session, places the caller in the organisation named in the path, applies
 // the role rule and bounds the request body. A person who is not a member of an organisation gets
 // the same 404 as for one that does not exist; a member with too little standing gets 403.
-func (a *Admin) guard(n need, next http.HandlerFunc) http.Handler {
+func (a *Admin) guard(n httpkit.Need, next http.HandlerFunc) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var p accounts.Principal
 		var err error
@@ -518,25 +508,25 @@ func (a *Admin) guard(n need, next http.HandlerFunc) http.Handler {
 			// Failed authentications are throttled per address; a valid session is never counted,
 			// so the UI polling every few seconds cannot lock itself out.
 			if !a.authRL.Allow(kernel.LimitKey(a.clientIP(r))) {
-				writeErr(w, http.StatusTooManyRequests, "too many failed attempts, wait a minute")
+				httpkit.WriteErr(w, http.StatusTooManyRequests, "too many failed attempts, wait a minute")
 				return
 			}
-			writeErr(w, http.StatusUnauthorized, "sign in required")
+			httpkit.WriteErr(w, http.StatusUnauthorized, "sign in required")
 			return
 		}
-		if n != anySession && p.User.MustChange {
-			writeErr(w, http.StatusForbidden, "you must choose a new password before doing anything else")
+		if n != httpkit.AnySession && p.User.MustChange {
+			httpkit.WriteErr(w, http.StatusForbidden, "you must choose a new password before doing anything else")
 			return
 		}
 		ctx := r.Context()
-		if n >= memberRole {
+		if n >= httpkit.MemberRole {
 			org := r.PathValue("org")
 			if p, err = a.C.Accounts.Member(ctx, p, org); err != nil {
 				a.fail(w, err)
 				return
 			}
-			if !accounts.Allows(p, n.action()) {
-				writeErr(w, http.StatusForbidden, "your role in this organisation ("+p.Role+") does not allow this")
+			if !accounts.Allows(p, n.Action()) {
+				httpkit.WriteErr(w, http.StatusForbidden, "your role in this organisation ("+p.Role+") does not allow this")
 				return
 			}
 			t, err := a.P.Tenant(ctx, org)
@@ -560,47 +550,8 @@ func (a *Admin) guard(n need, next http.HandlerFunc) http.Handler {
 	})
 }
 
-func principal(r *http.Request) accounts.Principal { return accounts.CallerFrom(r.Context()) }
-
-func actor(r *http.Request) string { return principal(r).User.Username }
-
-func writeJSON(w http.ResponseWriter, code int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(v)
-}
-
-func writeErr(w http.ResponseWriter, code int, msg string) {
-	writeJSON(w, code, map[string]string{"error": msg})
-}
-
-func (a *Admin) fail(w http.ResponseWriter, err error) {
-	var e *kernel.Error
-	if errors.As(err, &e) {
-		code := map[kernel.Kind]int{kernel.KindInvalid: 400, kernel.KindUnauthenticated: 401, kernel.KindNotFound: 404, kernel.KindConflict: 409, kernel.KindRateLimited: 429, kernel.KindInternal: 500, kernel.KindForbidden: 403, kernel.KindTwoFactorRequired: 401}[e.Kind]
-		if len(e.Data) > 0 {
-			out := map[string]any{"error": e.Msg}
-			for k, v := range e.Data {
-				out[k] = v
-			}
-			writeJSON(w, code, out)
-			return
-		}
-		writeErr(w, code, e.Msg)
-		return
-	}
-	a.C.Log.Error("admin request failed", "err", err)
-	writeErr(w, http.StatusInternalServerError, "internal error")
-}
-
-func decode(r *http.Request, v any) error {
-	dec := json.NewDecoder(r.Body)
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(v); err != nil {
-		return kernel.Errf(kernel.KindInvalid, "invalid request body")
-	}
-	return nil
-}
+// fail answers with the error (see httpkit.Fail), logging an unexpected one to the server's log.
+func (a *Admin) fail(w http.ResponseWriter, err error) { httpkit.Fail(w, a.C.Log, err) }
 
 // ---- sign-in ----
 
@@ -689,7 +640,7 @@ func (a *Admin) setCookie(w http.ResponseWriter, r *http.Request, value string, 
 // serverInfo is public: what the sign-in and sign-up pages need before anyone is signed in.
 func (a *Admin) serverInfo(w http.ResponseWriter, r *http.Request) {
 	mode := a.C.Accounts.EffectiveRegMode()
-	writeJSON(w, 200, map[string]any{"registration": mode, "version": a.Version, "sso": a.SSOHeaderName != ""})
+	httpkit.WriteJSON(w, 200, map[string]any{"registration": mode, "version": a.Version, "sso": a.SSOHeaderName != ""})
 }
 
 // chartFile is the packaged chart's file name. The server always serves its own copy, whether or not the
@@ -795,7 +746,7 @@ func (a *Admin) login(w http.ResponseWriter, r *http.Request) {
 		Username string `json:"username"`
 		Password string `json:"password"`
 	}
-	if err := decode(r, &req); err != nil {
+	if err := httpkit.Decode(r, &req); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -808,7 +759,7 @@ func (a *Admin) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.setCookie(w, r, secret, int(accounts.SessionMax.Seconds()))
-	writeJSON(w, 200, a.session(r.Context(), u))
+	httpkit.WriteJSON(w, 200, a.session(r.Context(), u))
 }
 
 // login2FA finishes a sign-in login left pending on a two-factor code.
@@ -818,7 +769,7 @@ func (a *Admin) login2FA(w http.ResponseWriter, r *http.Request) {
 		Pending string `json:"pending"`
 		Code    string `json:"code"`
 	}
-	if err := decode(r, &req); err != nil {
+	if err := httpkit.Decode(r, &req); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -828,7 +779,7 @@ func (a *Admin) login2FA(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.setCookie(w, r, secret, int(accounts.SessionMax.Seconds()))
-	writeJSON(w, 200, a.session(r.Context(), u))
+	httpkit.WriteJSON(w, 200, a.session(r.Context(), u))
 }
 
 // ssoLogin trades a trusted proxy's identity header for a session - see SSOHeaderName's doc comment for
@@ -838,14 +789,14 @@ func (a *Admin) ssoLogin(w http.ResponseWriter, r *http.Request) {
 	secret, u, err := a.C.Accounts.LoginSSO(r.Context(), a.clientIP(r), r.Header.Get(a.SSOHeaderName))
 	if err != nil {
 		if !a.authRL.Allow(kernel.LimitKey(a.clientIP(r))) {
-			writeErr(w, http.StatusTooManyRequests, "too many failed attempts, wait a minute")
+			httpkit.WriteErr(w, http.StatusTooManyRequests, "too many failed attempts, wait a minute")
 			return
 		}
 		a.fail(w, err)
 		return
 	}
 	a.setCookie(w, r, secret, int(accounts.SessionMax.Seconds()))
-	writeJSON(w, 200, a.session(r.Context(), u))
+	httpkit.WriteJSON(w, 200, a.session(r.Context(), u))
 }
 
 func (a *Admin) register(w http.ResponseWriter, r *http.Request) {
@@ -856,7 +807,7 @@ func (a *Admin) register(w http.ResponseWriter, r *http.Request) {
 		Invite   string `json:"invite"`
 		Org      string `json:"org"`
 	}
-	if err := decode(r, &req); err != nil {
+	if err := httpkit.Decode(r, &req); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -866,7 +817,7 @@ func (a *Admin) register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.setCookie(w, r, secret, int(accounts.SessionMax.Seconds()))
-	writeJSON(w, 201, a.session(r.Context(), u))
+	httpkit.WriteJSON(w, 201, a.session(r.Context(), u))
 }
 
 func (a *Admin) logout(w http.ResponseWriter, r *http.Request) {
@@ -882,7 +833,7 @@ func (a *Admin) logout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *Admin) me(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, a.session(r.Context(), principal(r).User))
+	httpkit.WriteJSON(w, 200, a.session(r.Context(), httpkit.Principal(r).User))
 }
 
 func (a *Admin) changePassword(w http.ResponseWriter, r *http.Request) {
@@ -890,30 +841,30 @@ func (a *Admin) changePassword(w http.ResponseWriter, r *http.Request) {
 		Current string `json:"current"`
 		New     string `json:"new"`
 	}
-	if err := decode(r, &req); err != nil {
+	if err := httpkit.Decode(r, &req); err != nil {
 		a.fail(w, err)
 		return
 	}
-	if err := a.C.Accounts.ChangePassword(r.Context(), principal(r), req.Current, req.New); err != nil {
+	if err := a.C.Accounts.ChangePassword(r.Context(), httpkit.Principal(r), req.Current, req.New); err != nil {
 		a.fail(w, err)
 		return
 	}
 	// Every other browser is signed out by a new password (ChangePassword); the pages they opened go with them.
-	a.fusionUIAccess.endUser(principal(r).User.ID)
-	u, _ := a.C.Store.GetUser(r.Context(), principal(r).User.ID)
-	writeJSON(w, 200, a.session(r.Context(), u))
+	a.fusionUIAccess.endUser(httpkit.Principal(r).User.ID)
+	u, _ := a.C.Store.GetUser(r.Context(), httpkit.Principal(r).User.ID)
+	httpkit.WriteJSON(w, 200, a.session(r.Context(), u))
 }
 
 // setup2FA starts turning two-factor authentication on: it returns the fresh secret and the otpauth://
 // URI for it, shown as text and a copyable key rather than a QR code (every authenticator app also
 // accepts typing a secret in by hand).
 func (a *Admin) setup2FA(w http.ResponseWriter, r *http.Request) {
-	secret, uri, err := a.C.Accounts.Setup2FA(r.Context(), principal(r))
+	secret, uri, err := a.C.Accounts.Setup2FA(r.Context(), httpkit.Principal(r))
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"secret": secret, "otpauthUrl": uri})
+	httpkit.WriteJSON(w, 200, map[string]any{"secret": secret, "otpauthUrl": uri})
 }
 
 // enable2FA confirms a setup with one code from it, turns two-factor authentication on, and hands back
@@ -922,32 +873,32 @@ func (a *Admin) enable2FA(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Code string `json:"code"`
 	}
-	if err := decode(r, &req); err != nil {
+	if err := httpkit.Decode(r, &req); err != nil {
 		a.fail(w, err)
 		return
 	}
-	codes, err := a.C.Accounts.Enable2FA(r.Context(), principal(r), req.Code)
+	codes, err := a.C.Accounts.Enable2FA(r.Context(), httpkit.Principal(r), req.Code)
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"recoveryCodes": codes})
+	httpkit.WriteJSON(w, 200, map[string]any{"recoveryCodes": codes})
 }
 
 func (a *Admin) disable2FA(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Password string `json:"password"`
 	}
-	if err := decode(r, &req); err != nil {
+	if err := httpkit.Decode(r, &req); err != nil {
 		a.fail(w, err)
 		return
 	}
-	if err := a.C.Accounts.Disable2FA(r.Context(), principal(r), req.Password); err != nil {
+	if err := a.C.Accounts.Disable2FA(r.Context(), httpkit.Principal(r), req.Password); err != nil {
 		a.fail(w, err)
 		return
 	}
-	u, _ := a.C.Store.GetUser(r.Context(), principal(r).User.ID)
-	writeJSON(w, 200, a.session(r.Context(), u))
+	u, _ := a.C.Store.GetUser(r.Context(), httpkit.Principal(r).User.ID)
+	httpkit.WriteJSON(w, 200, a.session(r.Context(), u))
 }
 
 // requestLoginEmailCode is called from the pending-2FA screen when a person picks "email me a code"
@@ -958,7 +909,7 @@ func (a *Admin) requestLoginEmailCode(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Pending string `json:"pending"`
 	}
-	if err := decode(r, &req); err != nil {
+	if err := httpkit.Decode(r, &req); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -974,16 +925,16 @@ func (a *Admin) requestEmailVerification(w http.ResponseWriter, r *http.Request)
 	var req struct {
 		Email string `json:"email"`
 	}
-	if err := decode(r, &req); err != nil {
+	if err := httpkit.Decode(r, &req); err != nil {
 		a.fail(w, err)
 		return
 	}
-	if err := a.C.Accounts.RequestEmailVerification(r.Context(), principal(r), req.Email); err != nil {
+	if err := a.C.Accounts.RequestEmailVerification(r.Context(), httpkit.Principal(r), req.Email); err != nil {
 		a.fail(w, err)
 		return
 	}
-	u, _ := a.C.Store.GetUser(r.Context(), principal(r).User.ID)
-	writeJSON(w, 200, a.session(r.Context(), u))
+	u, _ := a.C.Store.GetUser(r.Context(), httpkit.Principal(r).User.ID)
+	httpkit.WriteJSON(w, 200, a.session(r.Context(), u))
 }
 
 // confirmEmail finishes requestEmailVerification with the code that was mailed.
@@ -991,42 +942,42 @@ func (a *Admin) confirmEmail(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Code string `json:"code"`
 	}
-	if err := decode(r, &req); err != nil {
+	if err := httpkit.Decode(r, &req); err != nil {
 		a.fail(w, err)
 		return
 	}
-	if err := a.C.Accounts.ConfirmEmail(r.Context(), principal(r), req.Code); err != nil {
+	if err := a.C.Accounts.ConfirmEmail(r.Context(), httpkit.Principal(r), req.Code); err != nil {
 		a.fail(w, err)
 		return
 	}
-	u, _ := a.C.Store.GetUser(r.Context(), principal(r).User.ID)
-	writeJSON(w, 200, a.session(r.Context(), u))
+	u, _ := a.C.Store.GetUser(r.Context(), httpkit.Principal(r).User.ID)
+	httpkit.WriteJSON(w, 200, a.session(r.Context(), u))
 }
 
 // enableEmailOTP turns on email as a second sign-in factor for the already-verified address on the account.
 func (a *Admin) enableEmailOTP(w http.ResponseWriter, r *http.Request) {
-	if err := a.C.Accounts.EnableEmailOTP(r.Context(), principal(r)); err != nil {
+	if err := a.C.Accounts.EnableEmailOTP(r.Context(), httpkit.Principal(r)); err != nil {
 		a.fail(w, err)
 		return
 	}
-	u, _ := a.C.Store.GetUser(r.Context(), principal(r).User.ID)
-	writeJSON(w, 200, a.session(r.Context(), u))
+	u, _ := a.C.Store.GetUser(r.Context(), httpkit.Principal(r).User.ID)
+	httpkit.WriteJSON(w, 200, a.session(r.Context(), u))
 }
 
 func (a *Admin) disableEmailOTP(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Password string `json:"password"`
 	}
-	if err := decode(r, &req); err != nil {
+	if err := httpkit.Decode(r, &req); err != nil {
 		a.fail(w, err)
 		return
 	}
-	if err := a.C.Accounts.DisableEmailOTP(r.Context(), principal(r), req.Password); err != nil {
+	if err := a.C.Accounts.DisableEmailOTP(r.Context(), httpkit.Principal(r), req.Password); err != nil {
 		a.fail(w, err)
 		return
 	}
-	u, _ := a.C.Store.GetUser(r.Context(), principal(r).User.ID)
-	writeJSON(w, 200, a.session(r.Context(), u))
+	u, _ := a.C.Store.GetUser(r.Context(), httpkit.Principal(r).User.ID)
+	httpkit.WriteJSON(w, 200, a.session(r.Context(), u))
 }
 
 // writeOptions hands back a WebAuthn options object exactly as the provider built it - already valid JSON,
@@ -1040,7 +991,7 @@ func writeOptions(w http.ResponseWriter, options []byte) {
 // beginPasskeyRegistration starts registering a new passkey or security key on the signed-in account. The
 // response is the CredentialCreationOptions object navigator.credentials.create() takes directly.
 func (a *Admin) beginPasskeyRegistration(w http.ResponseWriter, r *http.Request) {
-	options, err := a.C.Accounts.BeginPasskeyRegistration(r.Context(), principal(r), a.relyingParty(r))
+	options, err := a.C.Accounts.BeginPasskeyRegistration(r.Context(), httpkit.Principal(r), a.relyingParty(r))
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -1054,16 +1005,16 @@ func (a *Admin) finishPasskeyRegistration(w http.ResponseWriter, r *http.Request
 		Name     string          `json:"name"`
 		Response json.RawMessage `json:"response"`
 	}
-	if err := decode(r, &req); err != nil {
+	if err := httpkit.Decode(r, &req); err != nil {
 		a.fail(w, err)
 		return
 	}
-	if err := a.C.Accounts.FinishPasskeyRegistration(r.Context(), principal(r), a.relyingParty(r), req.Name, req.Response); err != nil {
+	if err := a.C.Accounts.FinishPasskeyRegistration(r.Context(), httpkit.Principal(r), a.relyingParty(r), req.Name, req.Response); err != nil {
 		a.fail(w, err)
 		return
 	}
-	u, _ := a.C.Store.GetUser(r.Context(), principal(r).User.ID)
-	writeJSON(w, 200, a.session(r.Context(), u))
+	u, _ := a.C.Store.GetUser(r.Context(), httpkit.Principal(r).User.ID)
+	httpkit.WriteJSON(w, 200, a.session(r.Context(), u))
 }
 
 // beginPasskeyLogin starts the passkey half of a pending two-factor sign-in. No session exists yet, same as
@@ -1073,7 +1024,7 @@ func (a *Admin) beginPasskeyLogin(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Pending string `json:"pending"`
 	}
-	if err := decode(r, &req); err != nil {
+	if err := httpkit.Decode(r, &req); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -1096,7 +1047,7 @@ func (a *Admin) finishPasskeyLogin(w http.ResponseWriter, r *http.Request) {
 		Pending  string          `json:"pending"`
 		Response json.RawMessage `json:"response"`
 	}
-	if err := decode(r, &req); err != nil {
+	if err := httpkit.Decode(r, &req); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -1106,39 +1057,39 @@ func (a *Admin) finishPasskeyLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.setCookie(w, r, secret, int(accounts.SessionMax.Seconds()))
-	writeJSON(w, 200, a.session(r.Context(), u))
+	httpkit.WriteJSON(w, 200, a.session(r.Context(), u))
 }
 
 func (a *Admin) renamePasskey(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name string `json:"name"`
 	}
-	if err := decode(r, &req); err != nil {
+	if err := httpkit.Decode(r, &req); err != nil {
 		a.fail(w, err)
 		return
 	}
-	if err := a.C.Accounts.RenamePasskey(r.Context(), principal(r), r.PathValue("id"), req.Name); err != nil {
+	if err := a.C.Accounts.RenamePasskey(r.Context(), httpkit.Principal(r), r.PathValue("id"), req.Name); err != nil {
 		a.fail(w, err)
 		return
 	}
-	u, _ := a.C.Store.GetUser(r.Context(), principal(r).User.ID)
-	writeJSON(w, 200, a.session(r.Context(), u))
+	u, _ := a.C.Store.GetUser(r.Context(), httpkit.Principal(r).User.ID)
+	httpkit.WriteJSON(w, 200, a.session(r.Context(), u))
 }
 
 func (a *Admin) removePasskey(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Password string `json:"password"`
 	}
-	if err := decode(r, &req); err != nil {
+	if err := httpkit.Decode(r, &req); err != nil {
 		a.fail(w, err)
 		return
 	}
-	if err := a.C.Accounts.RemovePasskey(r.Context(), principal(r), r.PathValue("id"), req.Password); err != nil {
+	if err := a.C.Accounts.RemovePasskey(r.Context(), httpkit.Principal(r), r.PathValue("id"), req.Password); err != nil {
 		a.fail(w, err)
 		return
 	}
-	u, _ := a.C.Store.GetUser(r.Context(), principal(r).User.ID)
-	writeJSON(w, 200, a.session(r.Context(), u))
+	u, _ := a.C.Store.GetUser(r.Context(), httpkit.Principal(r).User.ID)
+	httpkit.WriteJSON(w, 200, a.session(r.Context(), u))
 }
 
 // ---- personal API tokens ----
@@ -1157,7 +1108,7 @@ func toAPITokenDoc(t store.APIToken) apiTokenDoc {
 }
 
 func (a *Admin) listAPITokens(w http.ResponseWriter, r *http.Request) {
-	toks, err := a.C.Accounts.ListAPITokens(r.Context(), principal(r))
+	toks, err := a.C.Accounts.ListAPITokens(r.Context(), httpkit.Principal(r))
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -1166,7 +1117,7 @@ func (a *Admin) listAPITokens(w http.ResponseWriter, r *http.Request) {
 	for i, t := range toks {
 		out[i] = toAPITokenDoc(t)
 	}
-	writeJSON(w, 200, out)
+	httpkit.WriteJSON(w, 200, out)
 }
 
 // createAPIToken is the one response that ever carries the raw secret: the caller must save it now,
@@ -1174,53 +1125,53 @@ func (a *Admin) listAPITokens(w http.ResponseWriter, r *http.Request) {
 func (a *Admin) createAPIToken(w http.ResponseWriter, r *http.Request) {
 	// A token that could mint more tokens would let one stolen secret outlive its own revocation.
 	if _, ok := sessionCookie(r); !ok {
-		writeErr(w, http.StatusForbidden, "create a token from a signed-in browser session, not with another token")
+		httpkit.WriteErr(w, http.StatusForbidden, "create a token from a signed-in browser session, not with another token")
 		return
 	}
 	var req struct {
 		Name string `json:"name"`
 	}
-	if err := decode(r, &req); err != nil {
+	if err := httpkit.Decode(r, &req); err != nil {
 		a.fail(w, err)
 		return
 	}
-	secret, tok, err := a.C.Accounts.CreateAPIToken(r.Context(), principal(r), req.Name)
+	secret, tok, err := a.C.Accounts.CreateAPIToken(r.Context(), httpkit.Principal(r), req.Name)
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
 	doc := toAPITokenDoc(tok)
-	writeJSON(w, 200, map[string]any{"token": secret, "id": doc.ID, "name": doc.Name, "createdAt": doc.CreatedAt})
+	httpkit.WriteJSON(w, 200, map[string]any{"token": secret, "id": doc.ID, "name": doc.Name, "createdAt": doc.CreatedAt})
 }
 
 func (a *Admin) revokeAPIToken(w http.ResponseWriter, r *http.Request) {
-	if err := a.C.Accounts.RevokeAPIToken(r.Context(), principal(r), r.PathValue("id")); err != nil {
+	if err := a.C.Accounts.RevokeAPIToken(r.Context(), httpkit.Principal(r), r.PathValue("id")); err != nil {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 200, map[string]bool{"ok": true})
+	httpkit.WriteJSON(w, 200, map[string]bool{"ok": true})
 }
 
 // ---- organisations, members, invitations ----
 
 func (a *Admin) listOrgs(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, a.session(r.Context(), principal(r).User)["orgs"])
+	httpkit.WriteJSON(w, 200, a.session(r.Context(), httpkit.Principal(r).User)["orgs"])
 }
 
 func (a *Admin) createOrg(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name string `json:"name"`
 	}
-	if err := decode(r, &req); err != nil {
+	if err := httpkit.Decode(r, &req); err != nil {
 		a.fail(w, err)
 		return
 	}
-	o, err := a.C.Accounts.CreateOrg(r.Context(), principal(r), req.Name)
+	o, err := a.C.Accounts.CreateOrg(r.Context(), httpkit.Principal(r), req.Name)
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 201, orgDoc{ID: o.ID, Name: o.Name, Role: accounts.RoleOwner})
+	httpkit.WriteJSON(w, 201, orgDoc{ID: o.ID, Name: o.Name, Role: accounts.RoleOwner})
 }
 
 func (a *Admin) previewInvite(w http.ResponseWriter, r *http.Request) {
@@ -1228,7 +1179,7 @@ func (a *Admin) previewInvite(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Token string `json:"token"`
 	}
-	if err := decode(r, &req); err != nil {
+	if err := httpkit.Decode(r, &req); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -1237,34 +1188,34 @@ func (a *Admin) previewInvite(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"organisation": name, "role": inv.Role, "expiresAt": kernel.RFC(inv.ExpiresAt)})
+	httpkit.WriteJSON(w, 200, map[string]any{"organisation": name, "role": inv.Role, "expiresAt": kernel.RFC(inv.ExpiresAt)})
 }
 
 func (a *Admin) acceptInvite(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Token string `json:"token"`
 	}
-	if err := decode(r, &req); err != nil {
+	if err := httpkit.Decode(r, &req); err != nil {
 		a.fail(w, err)
 		return
 	}
-	o, role, err := a.C.Accounts.AcceptInvite(r.Context(), a.clientIP(r), principal(r), strings.TrimSpace(req.Token))
+	o, role, err := a.C.Accounts.AcceptInvite(r.Context(), a.clientIP(r), httpkit.Principal(r), strings.TrimSpace(req.Token))
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 200, orgDoc{ID: o.ID, Name: o.Name, Role: role})
+	httpkit.WriteJSON(w, 200, orgDoc{ID: o.ID, Name: o.Name, Role: role})
 }
 
 func (a *Admin) renameOrg(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Name string `json:"name"`
 	}
-	if err := decode(r, &req); err != nil {
+	if err := httpkit.Decode(r, &req); err != nil {
 		a.fail(w, err)
 		return
 	}
-	if err := a.core(r).Accounts.RenameOrg(r.Context(), principal(r), req.Name); err != nil {
+	if err := a.core(r).Accounts.RenameOrg(r.Context(), httpkit.Principal(r), req.Name); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -1275,11 +1226,11 @@ func (a *Admin) deleteOrg(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Confirm string `json:"confirm"`
 	}
-	if err := decode(r, &req); err != nil {
+	if err := httpkit.Decode(r, &req); err != nil {
 		a.fail(w, err)
 		return
 	}
-	if err := a.core(r).Accounts.DeleteOrg(r.Context(), principal(r), req.Confirm); err != nil {
+	if err := a.core(r).Accounts.DeleteOrg(r.Context(), httpkit.Principal(r), req.Confirm); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -1287,7 +1238,7 @@ func (a *Admin) deleteOrg(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *Admin) leaveOrg(w http.ResponseWriter, r *http.Request) {
-	p := principal(r)
+	p := httpkit.Principal(r)
 	if err := a.core(r).Accounts.RemoveMember(r.Context(), p, p.User.ID); err != nil {
 		a.fail(w, err)
 		return
@@ -1313,20 +1264,20 @@ func (a *Admin) listMembers(w http.ResponseWriter, r *http.Request) {
 	}
 	out := []memberDoc{}
 	for _, m := range ms {
-		out = append(out, memberDoc{ID: m.User.ID, Username: m.Username, Role: m.Role, JoinedAt: kernel.RFC(m.JoinedAt), LastSeen: kernel.RFCP(m.LastLogin), You: m.User.ID == principal(r).User.ID})
+		out = append(out, memberDoc{ID: m.User.ID, Username: m.Username, Role: m.Role, JoinedAt: kernel.RFC(m.JoinedAt), LastSeen: kernel.RFCP(m.LastLogin), You: m.User.ID == httpkit.Principal(r).User.ID})
 	}
-	writeJSON(w, 200, out)
+	httpkit.WriteJSON(w, 200, out)
 }
 
 func (a *Admin) setMemberRole(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Role string `json:"role"`
 	}
-	if err := decode(r, &req); err != nil {
+	if err := httpkit.Decode(r, &req); err != nil {
 		a.fail(w, err)
 		return
 	}
-	if err := a.core(r).Accounts.SetMemberRole(r.Context(), principal(r), r.PathValue("id"), req.Role); err != nil {
+	if err := a.core(r).Accounts.SetMemberRole(r.Context(), httpkit.Principal(r), r.PathValue("id"), req.Role); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -1337,7 +1288,7 @@ func (a *Admin) setMemberRole(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *Admin) removeMember(w http.ResponseWriter, r *http.Request) {
-	if err := a.core(r).Accounts.RemoveMember(r.Context(), principal(r), r.PathValue("id")); err != nil {
+	if err := a.core(r).Accounts.RemoveMember(r.Context(), httpkit.Principal(r), r.PathValue("id")); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -1375,7 +1326,7 @@ func (a *Admin) listInvites(w http.ResponseWriter, r *http.Request) {
 	for _, i := range is {
 		out = append(out, a.inviteDoc(r.Context(), i))
 	}
-	writeJSON(w, 200, out)
+	httpkit.WriteJSON(w, 200, out)
 }
 
 func (a *Admin) createInvite(w http.ResponseWriter, r *http.Request) {
@@ -1383,21 +1334,21 @@ func (a *Admin) createInvite(w http.ResponseWriter, r *http.Request) {
 		Role  string `json:"role"`
 		Label string `json:"label"`
 	}
-	if err := decode(r, &req); err != nil {
+	if err := httpkit.Decode(r, &req); err != nil {
 		a.fail(w, err)
 		return
 	}
-	secret, inv, err := a.core(r).Accounts.CreateInvite(r.Context(), principal(r), req.Role, req.Label)
+	secret, inv, err := a.core(r).Accounts.CreateInvite(r.Context(), httpkit.Principal(r), req.Role, req.Label)
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
 	// The secret appears here once and is never retrievable again.
-	writeJSON(w, 201, map[string]any{"token": secret, "invite": a.inviteDoc(r.Context(), inv)})
+	httpkit.WriteJSON(w, 201, map[string]any{"token": secret, "invite": a.inviteDoc(r.Context(), inv)})
 }
 
 func (a *Admin) revokeInvite(w http.ResponseWriter, r *http.Request) {
-	if err := a.core(r).Accounts.RevokeInvite(r.Context(), principal(r), r.PathValue("id")); err != nil {
+	if err := a.core(r).Accounts.RevokeInvite(r.Context(), httpkit.Principal(r), r.PathValue("id")); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -1431,7 +1382,7 @@ func (a *Admin) getWorkspace(w http.ResponseWriter, r *http.Request) {
 			out["note"] = note
 		}
 	}
-	writeJSON(w, 200, out)
+	httpkit.WriteJSON(w, 200, out)
 }
 
 func rfcNZ(t time.Time) string {
@@ -1447,18 +1398,18 @@ func rfcNZ(t time.Time) string {
 func (a *Admin) putWorkspace(w http.ResponseWriter, r *http.Request) {
 	rev, err := strconv.ParseInt(strings.Trim(r.Header.Get("If-Match"), `"`), 10, 64)
 	if err != nil || rev < 0 {
-		writeErr(w, http.StatusPreconditionRequired, "send the revision you last saw in If-Match")
+		httpkit.WriteErr(w, http.StatusPreconditionRequired, "send the revision you last saw in If-Match")
 		return
 	}
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		writeErr(w, http.StatusRequestEntityTooLarge, "workspace is too large")
+		httpkit.WriteErr(w, http.StatusRequestEntityTooLarge, "workspace is too large")
 		return
 	}
-	ws, err := a.core(r).Estate.SaveWorkspace(r.Context(), actor(r), rev, body)
+	ws, err := a.core(r).Estate.SaveWorkspace(r.Context(), httpkit.Actor(r), rev, body)
 	var e *kernel.Error
 	if errors.As(err, &e) && e.Kind == kernel.KindConflict {
-		writeJSON(w, http.StatusConflict, map[string]any{"error": e.Msg, "rev": ws.Rev, "updatedAt": rfcNZ(ws.UpdatedAt), "updatedBy": ws.UpdatedBy})
+		httpkit.WriteJSON(w, http.StatusConflict, map[string]any{"error": e.Msg, "rev": ws.Rev, "updatedAt": rfcNZ(ws.UpdatedAt), "updatedBy": ws.UpdatedBy})
 		return
 	}
 	if err != nil {
@@ -1469,14 +1420,14 @@ func (a *Admin) putWorkspace(w http.ResponseWriter, r *http.Request) {
 	if ws.Note != "" {
 		out["note"] = ws.Note
 	}
-	writeJSON(w, 200, out)
+	httpkit.WriteJSON(w, 200, out)
 }
 
 func (a *Admin) info(w http.ResponseWriter, r *http.Request) {
 	t := a.tn(r)
 	o, _ := a.C.Store.GetOrg(r.Context(), t.ID)
 	img := a.images(t.C)
-	writeJSON(w, 200, map[string]any{"orgId": t.ID, "orgName": o.Name, "role": principal(r).Role, "agentAddress": a.AgentAddr, "agentExposure": a.AgentExposure, "releaseName": a.ReleaseName, "releaseNamespace": a.ReleaseNamespace, "caPin": a.C.CA.SPKIPin(), "version": a.Version, "implementedTier": kernel.ImplementedTier, "geoip": a.P.Geo.Info(),
+	httpkit.WriteJSON(w, 200, map[string]any{"orgId": t.ID, "orgName": o.Name, "role": httpkit.Principal(r).Role, "agentAddress": a.AgentAddr, "agentExposure": a.AgentExposure, "releaseName": a.ReleaseName, "releaseNamespace": a.ReleaseNamespace, "caPin": a.C.CA.SPKIPin(), "version": a.Version, "implementedTier": kernel.ImplementedTier, "geoip": a.P.Geo.Info(),
 		// What the install wizard tells the operator to bring to the cluster: the chart file this server hands out
 		// (empty when the command names a chart elsewhere) and where the image comes from (this organisation's
 		// Settings → Installation, else the server's flags; empty registry: the chart's built-in names).
@@ -1490,12 +1441,12 @@ func (a *Admin) info(w http.ResponseWriter, r *http.Request) {
 // state is what the UI polls. The audit trail is part of it only for administrators and owners: it names
 // people, and it is what they review; everyone else gets the topology and an empty list.
 func (a *Admin) state(w http.ResponseWriter, r *http.Request) {
-	doc, err := a.tn(r).Hub.StateFor(r.Context(), accounts.Allows(principal(r), accounts.ActAdminister))
+	doc, err := a.tn(r).Hub.StateFor(r.Context(), accounts.Allows(httpkit.Principal(r), accounts.ActAdminister))
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
-	if accounts.Allows(principal(r), accounts.ActEdit) {
+	if accounts.Allows(httpkit.Principal(r), accounts.ActEdit) {
 		img := a.images(a.core(r))
 		for i, ag := range doc.Agents {
 			if ag.AccessTier < ag.InstalledTier {
@@ -1509,7 +1460,7 @@ func (a *Admin) state(w http.ResponseWriter, r *http.Request) {
 	} else {
 		withoutDiagnostics(&doc)
 	}
-	writeJSON(w, 200, doc)
+	httpkit.WriteJSON(w, 200, doc)
 }
 
 type tokenDoc struct {
@@ -1538,7 +1489,7 @@ func (a *Admin) listTokens(w http.ResponseWriter, r *http.Request) {
 	for _, t := range ts {
 		out = append(out, toTokenDoc(t))
 	}
-	writeJSON(w, 200, out)
+	httpkit.WriteJSON(w, 200, out)
 }
 
 func (a *Admin) createToken(w http.ResponseWriter, r *http.Request) {
@@ -1552,7 +1503,7 @@ func (a *Admin) createToken(w http.ResponseWriter, r *http.Request) {
 		Collectors install.Collectors `json:"collectors"`
 		Scope      install.Scope      `json:"scope"`
 	}
-	if err := decode(r, &req); err != nil {
+	if err := httpkit.Decode(r, &req); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -1568,7 +1519,7 @@ func (a *Admin) createToken(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, a.installConfigError(err))
 		return
 	}
-	secret, t, err := a.core(r).Agents.CreateTokenFor(r.Context(), actor(r), req.Name, req.Tier, req.ExpectedCluster)
+	secret, t, err := a.core(r).Agents.CreateTokenFor(r.Context(), httpkit.Actor(r), req.Name, req.Tier, req.ExpectedCluster)
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -1578,7 +1529,7 @@ func (a *Admin) createToken(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, a.installConfigError(err))
 		return
 	}
-	writeJSON(w, 201, map[string]any{"token": secret, "meta": toTokenDoc(t), "install": cmd})
+	httpkit.WriteJSON(w, 201, map[string]any{"token": secret, "meta": toTokenDoc(t), "install": cmd})
 }
 
 // chartDefaultAccessTier mirrors continuum-agent/values.yaml's own access.tier default. Printing --set access.tier=N
@@ -1675,7 +1626,7 @@ func (a *Admin) agentChart(img kernel.ImageConfig) (ref, version string) {
 }
 
 func (a *Admin) deleteToken(w http.ResponseWriter, r *http.Request) {
-	if err := a.core(r).Agents.DeleteToken(r.Context(), actor(r), r.PathValue("id")); err != nil {
+	if err := a.core(r).Agents.DeleteToken(r.Context(), httpkit.Actor(r), r.PathValue("id")); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -1690,7 +1641,7 @@ func (a *Admin) approve(w http.ResponseWriter, r *http.Request) {
 		Confirm string `json:"confirm"`
 		Tier    int    `json:"tier"`
 	}
-	if err := decode(r, &req); err != nil {
+	if err := httpkit.Decode(r, &req); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -1698,7 +1649,7 @@ func (a *Admin) approve(w http.ResponseWriter, r *http.Request) {
 	if proof == "" {
 		proof = strings.TrimSpace(req.Confirm)
 	}
-	if err := a.core(r).Agents.Approve(r.Context(), actor(r), r.PathValue("id"), proof, req.Tier); err != nil {
+	if err := a.core(r).Agents.Approve(r.Context(), httpkit.Actor(r), r.PathValue("id"), proof, req.Tier); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -1707,13 +1658,13 @@ func (a *Admin) approve(w http.ResponseWriter, r *http.Request) {
 
 func (a *Admin) reject(w http.ResponseWriter, r *http.Request) {
 	a.reasoned(w, r, func(reason string) error {
-		return a.core(r).Agents.Reject(r.Context(), actor(r), r.PathValue("id"), reason)
+		return a.core(r).Agents.Reject(r.Context(), httpkit.Actor(r), r.PathValue("id"), reason)
 	})
 }
 
 func (a *Admin) revoke(w http.ResponseWriter, r *http.Request) {
 	a.reasoned(w, r, func(reason string) error {
-		return a.core(r).Agents.Revoke(r.Context(), actor(r), r.PathValue("id"), reason)
+		return a.core(r).Agents.Revoke(r.Context(), httpkit.Actor(r), r.PathValue("id"), reason)
 	})
 }
 
@@ -1721,7 +1672,7 @@ func (a *Admin) reasoned(w http.ResponseWriter, r *http.Request, do func(reason 
 	var req struct {
 		Reason string `json:"reason"`
 	}
-	if err := decode(r, &req); err != nil {
+	if err := httpkit.Decode(r, &req); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -1749,16 +1700,3 @@ func fileExists(p string) bool { _, err := os.Stat(p); return err == nil }
 
 // action is what a route's guard level asks of the caller. The levels below ActRead (a session with no organisation) ask nothing
 // of a role.
-func (n need) action() accounts.Action {
-	switch n {
-	case memberRole:
-		return accounts.ActRead
-	case editorRole:
-		return accounts.ActEdit
-	case adminRole:
-		return accounts.ActAdminister
-	case ownerRole:
-		return accounts.ActOwn
-	}
-	return 0
-}

@@ -3,6 +3,8 @@ package server
 import (
 	"net/http"
 	"strings"
+
+	"continuum/internal/httpkit"
 )
 
 // model serves the effective model: GET /api/v1/orgs/{org}/model. It carries an entity tag that changes exactly when
@@ -19,7 +21,7 @@ func (a *Admin) model(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotModified)
 		return
 	}
-	writeJSON(w, 200, m)
+	httpkit.WriteJSON(w, 200, m)
 }
 
 // etagMatches implements If-None-Match for a strong tag: "*" or any listed tag (a weak validator W/ counts).

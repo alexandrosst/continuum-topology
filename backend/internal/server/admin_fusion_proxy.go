@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"continuum/internal/fusion"
+	"continuum/internal/httpkit"
 	"continuum/internal/kernel"
 )
 
@@ -228,7 +229,7 @@ func grafanaUpstreamOf(f *fusion.FusionControl) string {
 func (a *Admin) fusionUI(component string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if a.Fusion == nil {
-			writeErr(w, http.StatusServiceUnavailable, a.Fusion.Status(r.Context()).Message)
+			httpkit.WriteErr(w, http.StatusServiceUnavailable, a.Fusion.Status(r.Context()).Message)
 			return
 		}
 		if t := ticketOf(r); t != "" {
@@ -245,23 +246,23 @@ func (a *Admin) fusionUI(component string) http.Handler {
 		if err != nil || who.Kind != "user" { // a FUSION access token reads data through the API; it does not get a web page
 			kernel.Metrics.AuthFailures.Add(1)
 			if !a.fusionPageRL.Allow(kernel.LimitKey(a.clientIP(r))) {
-				writeErr(w, http.StatusTooManyRequests, "too many failed attempts, wait a minute")
+				httpkit.WriteErr(w, http.StatusTooManyRequests, "too many failed attempts, wait a minute")
 				return
 			}
 			if e, ok := err.(*kernel.Error); ok && e.Kind == kernel.KindForbidden {
-				writeErr(w, http.StatusForbidden, e.Msg)
+				httpkit.WriteErr(w, http.StatusForbidden, e.Msg)
 				return
 			}
-			writeErr(w, http.StatusUnauthorized, "sign in required")
+			httpkit.WriteErr(w, http.StatusUnauthorized, "sign in required")
 			return
 		}
 		if !a.fusionRL.Allow("ui|" + who.ID) {
 			w.Header().Set("Retry-After", "5")
-			writeErr(w, http.StatusTooManyRequests, "too many requests, slow down")
+			httpkit.WriteErr(w, http.StatusTooManyRequests, "too many requests, slow down")
 			return
 		}
 		if wantsUpgrade(r.Header) {
-			writeErr(w, http.StatusBadRequest, "this page does not use WebSockets through the server")
+			httpkit.WriteErr(w, http.StatusBadRequest, "this page does not use WebSockets through the server")
 			return
 		}
 		// The path as the page sees it. Anything that is not already in its plain form is refused: a request is judged on one
@@ -271,20 +272,20 @@ func (a *Admin) fusionUI(component string) http.Handler {
 			path = "/" + strings.TrimPrefix(path, fusionPromPath)
 		}
 		if strings.Contains(path, "//") || strings.Contains(path, "/./") || strings.Contains(path, "/../") || strings.HasSuffix(path, "/..") || strings.Contains(path, "\\") {
-			writeErr(w, http.StatusBadRequest, "that path is not valid")
+			httpkit.WriteErr(w, http.StatusBadRequest, "that path is not valid")
 			return
 		}
 		if status, allow := fusionProxyPolicy(component, r.Method, path); status != 0 {
 			if allow != "" {
 				w.Header().Set("Allow", allow)
 			}
-			writeErr(w, status, "this request is not allowed through the server")
+			httpkit.WriteErr(w, status, "this request is not allowed through the server")
 			return
 		}
 		// A page of Grafana or Prometheus changes things with POST/PUT/DELETE: only from this origin.
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			if o := r.Header.Get("Origin"); o != "" && !a.originAllowed(o, r.Host) {
-				writeErr(w, http.StatusForbidden, "request came from an origin this server does not trust")
+				httpkit.WriteErr(w, http.StatusForbidden, "request came from an origin this server does not trust")
 				return
 			}
 			limit := int64(maxGrafanaBody)
@@ -297,7 +298,7 @@ func (a *Admin) fusionUI(component string) http.Handler {
 		st := a.Fusion.Status(ctx)
 		cancel()
 		if !st.Available || !st.ComponentUp(component) {
-			writeErr(w, http.StatusServiceUnavailable, map[string]string{"metrics": "Prometheus", "grafana": "Grafana"}[component]+" is not running. Turn FUSION on and wait for it to be up.")
+			httpkit.WriteErr(w, http.StatusServiceUnavailable, map[string]string{"metrics": "Prometheus", "grafana": "Grafana"}[component]+" is not running. Turn FUSION on and wait for it to be up.")
 			return
 		}
 		base := promUpstreamOf(a.Fusion)
@@ -306,7 +307,7 @@ func (a *Admin) fusionUI(component string) http.Handler {
 		}
 		target, err := url.Parse(base)
 		if err != nil {
-			writeErr(w, http.StatusInternalServerError, "FUSION's address is not valid")
+			httpkit.WriteErr(w, http.StatusInternalServerError, "FUSION's address is not valid")
 			return
 		}
 		// Our own policy was set before we got here; the other side's, if it has one, replaces it.
@@ -371,7 +372,7 @@ func (a *Admin) fusionUI(component string) http.Handler {
 				return nil
 			},
 			ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
-				writeErr(w, http.StatusBadGateway, "FUSION's page did not answer")
+				httpkit.WriteErr(w, http.StatusBadGateway, "FUSION's page did not answer")
 			},
 		}
 		rp.ServeHTTP(w, r)

@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"continuum/internal/httpkit"
 	"continuum/internal/kernel"
 	"continuum/internal/operators"
 	"continuum/internal/store"
@@ -290,11 +291,11 @@ func (a *Admin) checkOperatorAddress(w http.ResponseWriter, r *http.Request) {
 	addr, caPEM, serverName := a.probeSettings(c, op)
 	now := c.Now()
 	if addr == "" {
-		writeJSON(w, 200, AddressProbe{State: "no-address", Message: "No address is recorded for this operator, so there is nothing to check.", CheckedAt: kernel.RFC(now), From: "this server"})
+		httpkit.WriteJSON(w, 200, AddressProbe{State: "no-address", Message: "No address is recorded for this operator, so there is nothing to check.", CheckedAt: kernel.RFC(now), From: "this server"})
 		return
 	}
 	if res, ok := a.probes.get(op.ID, addr, now); ok {
-		writeJSON(w, 200, res)
+		httpkit.WriteJSON(w, 200, res)
 		return
 	}
 	dial := a.probeDial
@@ -303,5 +304,5 @@ func (a *Admin) checkOperatorAddress(w http.ResponseWriter, r *http.Request) {
 	}
 	res := probeAddress(r.Context(), addr, caPEM, serverName, now, dial)
 	a.probes.put(op.ID, addr, now, res)
-	writeJSON(w, 200, res)
+	httpkit.WriteJSON(w, 200, res)
 }

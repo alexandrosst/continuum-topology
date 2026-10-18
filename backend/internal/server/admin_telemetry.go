@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"continuum/internal/agents"
+	"continuum/internal/httpkit"
 	"continuum/internal/model"
 )
 
@@ -275,5 +276,5 @@ func (a *Admin) selfTelemetry(w http.ResponseWriter, r *http.Request) {
 	if serverHistory := h.ServerSelfStats(); len(serverHistory) > 0 {
 		out = append(out, SelfTelemetryEntity{ID: "server", Kind: "server", Samples: serverTelemetrySamples(serverHistory)})
 	}
-	writeJSON(w, 200, out)
+	httpkit.WriteJSON(w, 200, out)
 }

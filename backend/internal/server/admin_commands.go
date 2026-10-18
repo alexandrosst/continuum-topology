@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"continuum/internal/agents"
+	"continuum/internal/httpkit"
 	"continuum/internal/install"
 	"continuum/internal/kernel"
 )
@@ -42,7 +43,7 @@ type agentUpgradeDoc struct {
 // no certificate is issued, and the credential a Secret holds never reaches here (the command reads it from the person's shell).
 func (a *Admin) agentUpgradeCommand(w http.ResponseWriter, r *http.Request) {
 	var req agentUpgradeRequest
-	if err := decode(r, &req); err != nil {
+	if err := httpkit.Decode(r, &req); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -62,7 +63,7 @@ func (a *Admin) agentUpgradeCommand(w http.ResponseWriter, r *http.Request) {
 		// this server was set up, which is logged and not told.
 		if pe, ok := err.(*install.ProblemsError); ok {
 			doc.Problems = append(doc.Problems, pe.Problems...)
-			writeJSON(w, http.StatusOK, doc)
+			httpkit.WriteJSON(w, http.StatusOK, doc)
 			return
 		}
 		a.fail(w, a.installConfigError(err))
@@ -83,7 +84,7 @@ func (a *Admin) agentUpgradeCommand(w http.ResponseWriter, r *http.Request) {
 		doc.SecretCommand = install.Chain(commands)
 	}
 	doc.Command = install.Chain(append(commands, upgrade))
-	writeJSON(w, http.StatusOK, doc)
+	httpkit.WriteJSON(w, http.StatusOK, doc)
 }
 
 // installChoices are the Helm values for what a new install is asked to switch on or narrow: the collectors, then the scope. A collector

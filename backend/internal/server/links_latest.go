@@ -11,6 +11,7 @@ import (
 
 	"continuum/internal/connectivity"
 	"continuum/internal/fusionapi"
+	"continuum/internal/httpkit"
 	"continuum/internal/kernel"
 )
 
@@ -196,12 +197,12 @@ func (a *Admin) linksLatest(w http.ResponseWriter, r *http.Request) {
 	}
 	if !own {
 		doc.Reason = "no-fusion"
-		writeJSON(w, 200, doc)
+		httpkit.WriteJSON(w, 200, doc)
 		return
 	}
 	if len(links) == 0 {
 		doc.Available = true
-		writeJSON(w, 200, doc)
+		httpkit.WriteJSON(w, 200, doc)
 		return
 	}
 	pairs, sample, err := a.linkFigures(r.Context(), a.Fusion.DataClient(), links)
@@ -211,7 +212,7 @@ func (a *Admin) linksLatest(w http.ResponseWriter, r *http.Request) {
 		}
 		// What the store said is not for a viewer: it can name hosts. The administrator who needs it has FUSION's own page.
 		doc.Reason = "unavailable"
-		writeJSON(w, 200, doc)
+		httpkit.WriteJSON(w, 200, doc)
 		return
 	}
 	doc.Available = true
@@ -219,7 +220,7 @@ func (a *Admin) linksLatest(w http.ResponseWriter, r *http.Request) {
 	doc.Stale = sample.Stale
 	doc.Pairs = pairs
 	doc.Notes = withoutHintsOfMeasuredPairs(doc.Notes, pairs)
-	writeJSON(w, 200, doc)
+	httpkit.WriteJSON(w, 200, doc)
 }
 
 // withoutHintsOfMeasuredPairs drops the "private-range" hints of the pairs that have figures: the hint says where to look when
@@ -305,7 +306,7 @@ func (a *Admin) fusionLinks(w http.ResponseWriter, r *http.Request, c *fusionapi
 			case errors.Is(err, context.DeadlineExceeded):
 				a.fusionErr(w, r, err)
 			default: // what the store said can name hosts
-				writeErr(w, http.StatusServiceUnavailable, "the link figures could not be read from FUSION's metrics store")
+				httpkit.WriteErr(w, http.StatusServiceUnavailable, "the link figures could not be read from FUSION's metrics store")
 			}
 			return
 		}
@@ -318,7 +319,7 @@ func (a *Admin) fusionLinks(w http.ResponseWriter, r *http.Request, c *fusionapi
 			doc.Pairs = append(doc.Pairs, fusionLinkPair{LinkPairLatest: p.LinkPairLatest, MeasuredBy: by})
 		}
 	}
-	writeJSON(w, 200, doc)
+	httpkit.WriteJSON(w, 200, doc)
 }
 
 // fusionLinkSettings are the pairs the FUSION organisation asked to have watched.

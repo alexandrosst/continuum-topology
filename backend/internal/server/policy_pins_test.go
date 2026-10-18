@@ -6,6 +6,7 @@ import (
 
 	"continuum/internal/accounts"
 	"continuum/internal/agents"
+	"continuum/internal/httpkit"
 )
 
 // What the server lets a role do is decided in policy.go. These pin the answers - who may give or take away which role, who may
@@ -47,7 +48,7 @@ func TestOnlyAnAdministratorOrAboveMayWidenAnAgentsAccess(t *testing.T) {
 var pinnedRank = map[string]int{accounts.RoleViewer: 1, accounts.RoleEditor: 2, accounts.RoleAdmin: 3, accounts.RoleOwner: 4}
 
 func TestEachLevelOfTheRouteGuardAdmitsTheRolesAtOrAboveIt(t *testing.T) {
-	for level, min := range map[need]string{memberRole: accounts.RoleViewer, editorRole: accounts.RoleEditor, adminRole: accounts.RoleAdmin, ownerRole: accounts.RoleOwner} {
+	for level, min := range map[httpkit.Need]string{httpkit.MemberRole: accounts.RoleViewer, httpkit.EditorRole: accounts.RoleEditor, httpkit.AdminRole: accounts.RoleAdmin, httpkit.OwnerRole: accounts.RoleOwner} {
 		for _, role := range allRoles {
 			want := pinnedRank[role] >= pinnedRank[min]
 			if got := roleAdmitted(role, level); got != want {
@@ -64,6 +65,6 @@ func mayGrantRole(by, target string) bool {
 func mayWidenAccess(ctx context.Context) bool {
 	return accounts.Decide(accounts.CallerFrom(ctx), accounts.ActChangeAccess, accounts.Resource{Widening: true}).Allowed
 }
-func roleAdmitted(role string, n need) bool {
-	return accounts.Allows(accounts.Standing(role), n.action())
+func roleAdmitted(role string, n httpkit.Need) bool {
+	return accounts.Allows(accounts.Standing(role), n.Action())
 }

@@ -6,6 +6,7 @@ import (
 
 	"continuum/internal/agents"
 	"continuum/internal/estate"
+	"continuum/internal/httpkit"
 	"continuum/internal/install"
 	"continuum/internal/kernel"
 )
@@ -31,7 +32,7 @@ func (a *Admin) setAgentTier(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Tier *int `json:"tier"`
 	}
-	if err := decode(r, &req); err != nil || req.Tier == nil {
+	if err := httpkit.Decode(r, &req); err != nil || req.Tier == nil {
 		a.fail(w, kernel.Errf(kernel.KindInvalid, "invalid request body: expected {\"tier\": N}"))
 		return
 	}
@@ -39,7 +40,7 @@ func (a *Admin) setAgentTier(w http.ResponseWriter, r *http.Request) {
 	img := a.images(c)
 	hub := a.tn(r).Hub
 	ns, rel := hub.NamespaceOf(r.PathValue("id")), hub.ReleaseNameOf(r.PathValue("id"))
-	ag, err := hub.SetAgentTier(r.Context(), actor(r), r.PathValue("id"), *req.Tier, func(t int) string {
+	ag, err := hub.SetAgentTier(r.Context(), httpkit.Actor(r), r.PathValue("id"), *req.Tier, func(t int) string {
 		cmd, err := a.upgradeCommand(img, t, ns, rel)
 		if err != nil {
 			a.installConfigError(err) // logged; the audit entry is written without the command
@@ -62,7 +63,7 @@ func (a *Admin) setAgentTier(w http.ResponseWriter, r *http.Request) {
 		}
 		resp["hardenHelm"] = cmd
 	}
-	writeJSON(w, 200, resp)
+	httpkit.WriteJSON(w, 200, resp)
 }
 
 // setAgentConsent replaces the overrides on an agent: the optional collectors it is asked to stop and the namespaces it is asked to
@@ -72,20 +73,20 @@ func (a *Admin) setAgentConsent(w http.ResponseWriter, r *http.Request) {
 		PausedCollectors   []string `json:"pausedCollectors"`
 		ExcludedNamespaces []string `json:"excludedNamespaces"`
 	}
-	if err := decode(r, &req); err != nil {
+	if err := httpkit.Decode(r, &req); err != nil {
 		a.fail(w, err)
 		return
 	}
 	hub := a.tn(r).Hub
 	id := r.PathValue("id")
-	if _, err := hub.SetConsent(r.Context(), actor(r), id, agents.Consent{Paused: req.PausedCollectors, Excluded: req.ExcludedNamespaces}); err != nil {
+	if _, err := hub.SetConsent(r.Context(), httpkit.Actor(r), id, agents.Consent{Paused: req.PausedCollectors, Excluded: req.ExcludedNamespaces}); err != nil {
 		a.fail(w, err)
 		return
 	}
 	// The same projection the agent list already carries (see AgentDoc.Consent), not a bare echo of what was
 	// asked for: right after a save this is unconfirmed with a fresh SetAt (nothing has had time to apply
 	// yet), exactly as a client that reloaded the page a second later would also be told.
-	writeJSON(w, 200, hub.ConsentDocFor(id))
+	httpkit.WriteJSON(w, 200, hub.ConsentDocFor(id))
 }
 
 // withoutDiagnostics removes what only people who can change an agent's access may see.
@@ -100,16 +101,16 @@ func (a *Admin) startAddressTests(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Addresses []string `json:"addresses"`
 	}
-	if err := decode(r, &req); err != nil {
+	if err := httpkit.Decode(r, &req); err != nil {
 		a.fail(w, err)
 		return
 	}
-	tests, err := a.tn(r).Hub.StartAddressTests(r.Context(), actor(r), r.PathValue("id"), req.Addresses)
+	tests, err := a.tn(r).Hub.StartAddressTests(r.Context(), httpkit.Actor(r), r.PathValue("id"), req.Addresses)
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 202, map[string]any{"tests": tests})
+	httpkit.WriteJSON(w, 202, map[string]any{"tests": tests})
 }
 
 // listAddressTests answers GET .../agents/{id}/address-tests: the tests still held and what they found so far.
@@ -119,5 +120,5 @@ func (a *Admin) listAddressTests(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 200, map[string]any{"tests": tests})
+	httpkit.WriteJSON(w, 200, map[string]any{"tests": tests})
 }

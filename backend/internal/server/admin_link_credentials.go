@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"continuum/internal/connectivity"
+	"continuum/internal/httpkit"
 	"continuum/internal/kernel"
 )
 
@@ -19,7 +20,7 @@ func (a *Admin) rotateLinkCredentials(w http.ResponseWriter, r *http.Request) {
 		A       string `json:"a"`
 		B       string `json:"b"`
 	}
-	if err := decode(r, &req); err != nil {
+	if err := httpkit.Decode(r, &req); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -39,10 +40,10 @@ func (a *Admin) rotateLinkCredentials(w http.ResponseWriter, r *http.Request) {
 	// that does not ask for them) is refused before the audit row: Audited() writes the row first, and a refused request would
 	// leave two rows with text of the caller's choosing.
 	if why := rotateRefusal(links, req.Cluster, req.A, req.B); why != "" {
-		writeErr(w, http.StatusUnprocessableEntity, why)
+		httpkit.WriteErr(w, http.StatusUnprocessableEntity, why)
 		return
 	}
-	err := c.Audited(r.Context(), actor(r), "link-credentials-rotate", "links", target, "iperf3 credentials for the throughput tests", func() error {
+	err := c.Audited(r.Context(), httpkit.Actor(r), "link-credentials-rotate", "links", target, "iperf3 credentials for the throughput tests", func() error {
 		if err := c.Connectivity.RotateLinkCredentials(r.Context(), links, req.Cluster, req.A, req.B); err != nil {
 			return kernel.Errf(kernel.KindInvalid, "%s", err.Error())
 		}
@@ -53,7 +54,7 @@ func (a *Admin) rotateLinkCredentials(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	go a.tn(r).Hub.PushConfigs()
-	writeJSON(w, 200, map[string]any{"rotated": true})
+	httpkit.WriteJSON(w, 200, map[string]any{"rotated": true})
 }
 
 // rotateRefusal says why a rotation request cannot do anything, or "" when it can: against the pairs that ask for throughput tests,

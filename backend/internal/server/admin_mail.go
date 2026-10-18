@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"continuum/internal/accounts"
+	"continuum/internal/httpkit"
 	"continuum/internal/kernel"
 )
 
@@ -28,11 +29,11 @@ func (a *Admin) requireDefaultOwner(ctx context.Context, p accounts.Principal) e
 }
 
 func (a *Admin) getMailConfig(w http.ResponseWriter, r *http.Request) {
-	if err := a.requireDefaultOwner(r.Context(), principal(r)); err != nil {
+	if err := a.requireDefaultOwner(r.Context(), httpkit.Principal(r)); err != nil {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 200, accounts.NewMailConfigDoc(a.C.Accounts.Mailer()))
+	httpkit.WriteJSON(w, 200, accounts.NewMailConfigDoc(a.C.Accounts.Mailer()))
 }
 
 // putMailConfig never lets a client blank the password by accident: a GET never carries it (see
@@ -41,7 +42,7 @@ func (a *Admin) getMailConfig(w http.ResponseWriter, r *http.Request) {
 // client sets a new password by sending a non-empty `password`, and removes it, explicitly, with
 // `clearPassword: true` - the same three-way convention putSettings uses for the decider secret.
 func (a *Admin) putMailConfig(w http.ResponseWriter, r *http.Request) {
-	p := principal(r)
+	p := httpkit.Principal(r)
 	if err := a.requireDefaultOwner(r.Context(), p); err != nil {
 		a.fail(w, err)
 		return
@@ -50,8 +51,8 @@ func (a *Admin) putMailConfig(w http.ResponseWriter, r *http.Request) {
 		accounts.MailConfig
 		ClearPassword bool `json:"clearPassword"`
 	}
-	if err := decode(r, &body); err != nil {
-		writeErr(w, 400, err.Error())
+	if err := httpkit.Decode(r, &body); err != nil {
+		httpkit.WriteErr(w, 400, err.Error())
 		return
 	}
 	m := body.MailConfig
@@ -66,5 +67,5 @@ func (a *Admin) putMailConfig(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 200, accounts.NewMailConfigDoc(n))
+	httpkit.WriteJSON(w, 200, accounts.NewMailConfigDoc(n))
 }

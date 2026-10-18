@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"continuum/internal/httpkit"
 	"continuum/internal/install"
 	"continuum/internal/kernel"
 	"continuum/internal/operators"
@@ -38,16 +39,16 @@ func (a *Admin) operatorHeartbeat(w http.ResponseWriter, r *http.Request) {
 		// secrets from one place is slow and a healthy operator can never lock itself out.
 		if !a.hbFailRL.Allow(kernel.LimitKey(a.clientIP(r))) {
 			w.Header().Set("Retry-After", "60")
-			writeErr(w, http.StatusTooManyRequests, "too many failed attempts, wait a minute")
+			httpkit.WriteErr(w, http.StatusTooManyRequests, "too many failed attempts, wait a minute")
 			return
 		}
 		w.Header().Set("WWW-Authenticate", `Bearer realm="continuum operator heartbeat"`)
-		writeErr(w, http.StatusUnauthorized, "unauthorized")
+		httpkit.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
 	if errors.Is(err, operators.ErrHeartbeatRateLimited) {
 		w.Header().Set("Retry-After", "60")
-		writeErr(w, http.StatusTooManyRequests, "heartbeats are arriving too often")
+		httpkit.WriteErr(w, http.StatusTooManyRequests, "heartbeats are arriving too often")
 		return
 	}
 	if err != nil {
@@ -57,17 +58,17 @@ func (a *Admin) operatorHeartbeat(w http.ResponseWriter, r *http.Request) {
 	// Read and discard, bounded. Authentication came first so an unauthenticated caller never gets this
 	// server to read anything.
 	if r.ContentLength > operators.MaxHeartbeatBody {
-		writeErr(w, http.StatusRequestEntityTooLarge, "heartbeat too large")
+		httpkit.WriteErr(w, http.StatusRequestEntityTooLarge, "heartbeat too large")
 		return
 	}
 	if _, err := io.Copy(io.Discard, http.MaxBytesReader(w, r.Body, operators.MaxHeartbeatBody)); err != nil {
 		var tooBig *http.MaxBytesError
 		if errors.As(err, &tooBig) {
-			writeErr(w, http.StatusRequestEntityTooLarge, "heartbeat too large")
+			httpkit.WriteErr(w, http.StatusRequestEntityTooLarge, "heartbeat too large")
 			return
 		}
 		// A client that hung up mid-body gets nothing useful from any answer.
-		writeErr(w, http.StatusBadRequest, "could not read the request")
+		httpkit.WriteErr(w, http.StatusBadRequest, "could not read the request")
 		return
 	}
 	w.WriteHeader(http.StatusOK)
@@ -98,7 +99,7 @@ func (a *Admin) enableOperatorHeartbeat(w http.ResponseWriter, r *http.Request) 
 		a.fail(w, a.installConfigError(err))
 		return
 	}
-	secret, rotated, err := core.Operators.EnableOperatorHeartbeat(r.Context(), actor(r), id)
+	secret, rotated, err := core.Operators.EnableOperatorHeartbeat(r.Context(), httpkit.Actor(r), id)
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -148,7 +149,7 @@ func (a *Admin) enableOperatorHeartbeat(w http.ResponseWriter, r *http.Request) 
 	if caCmd != "" {
 		resp["heartbeatCaSecretCommand"] = caCmd
 	}
-	writeJSON(w, 200, resp)
+	httpkit.WriteJSON(w, 200, resp)
 }
 
 // heartbeatURL is the address an operator is told to report to: the server's configured public URL (PublicURL)

@@ -13,6 +13,7 @@ import (
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/estate"
 	"continuum/internal/facts"
+	"continuum/internal/httpkit"
 	"continuum/internal/install"
 	"continuum/internal/kernel"
 	"continuum/internal/operators"
@@ -820,7 +821,7 @@ func (a *Admin) listOperatorAddressCandidates(w http.ResponseWriter, r *http.Req
 	} else if !found {
 		res.Hints = append(res.Hints, noHostHint(op.ID == operators.CentralOperatorID))
 	}
-	writeJSON(w, 200, res)
+	httpkit.WriteJSON(w, 200, res)
 }
 
 // putServerCluster answers PUT .../operators/central/server-cluster: a person says which cluster the server, and so FUSION's
@@ -828,14 +829,14 @@ func (a *Admin) listOperatorAddressCandidates(w http.ResponseWriter, r *http.Req
 func (a *Admin) putServerCluster(w http.ResponseWriter, r *http.Request) {
 	c := a.core(r)
 	if r.PathValue("id") != operators.CentralOperatorID || a.Fusion == nil {
-		writeErr(w, 404, "only the central operator has a server cluster")
+		httpkit.WriteErr(w, 404, "only the central operator has a server cluster")
 		return
 	}
 	var body struct {
 		ClusterID string `json:"clusterId"`
 	}
-	if err := decode(r, &body); err != nil {
-		writeErr(w, 400, err.Error())
+	if err := httpkit.Decode(r, &body); err != nil {
+		httpkit.WriteErr(w, 400, err.Error())
 		return
 	}
 	id := strings.TrimSpace(body.ClusterID)
@@ -846,15 +847,15 @@ func (a *Admin) putServerCluster(w http.ResponseWriter, r *http.Request) {
 			known = known || o.ID == id
 		}
 		if !known {
-			writeErr(w, 400, "no approved agent is registered in that cluster")
+			httpkit.WriteErr(w, 400, "no approved agent is registered in that cluster")
 			return
 		}
 	}
 	s := c.Settings()
 	s.ServerClusterID = id
-	if _, err := c.SaveSettings(r.Context(), actor(r), s); err != nil {
+	if _, err := c.SaveSettings(r.Context(), httpkit.Actor(r), s); err != nil {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 200, map[string]string{"clusterId": id})
+	httpkit.WriteJSON(w, 200, map[string]string{"clusterId": id})
 }

@@ -10,6 +10,7 @@ import (
 
 	"continuum/internal/agents"
 	"continuum/internal/connectivity"
+	"continuum/internal/httpkit"
 	"continuum/internal/operators"
 	"continuum/internal/store"
 	"continuum/internal/telemetry"
@@ -391,7 +392,7 @@ func (a *Admin) listOperatorSenders(w http.ResponseWriter, r *http.Request) {
 	for _, p := range ps {
 		out.Senders = append(out.Senders, p.doc)
 	}
-	writeJSON(w, 200, out)
+	httpkit.WriteJSON(w, 200, out)
 }
 
 // sendersHealth is the health a diagnosis reads: a regional operator's heartbeat, and for the central operator, which has

@@ -13,6 +13,7 @@ import (
 	"continuum/internal/agents"
 	"continuum/internal/chart"
 	"continuum/internal/fusion"
+	"continuum/internal/httpkit"
 	"continuum/internal/install"
 	"continuum/internal/kernel"
 	"continuum/internal/operators"
@@ -275,7 +276,7 @@ func (a *Admin) listOperators(w http.ResponseWriter, r *http.Request) {
 	for _, op := range ops {
 		out = append(out, a.opDocWith(r, op, usages, fusion))
 	}
-	writeJSON(w, 200, out)
+	httpkit.WriteJSON(w, 200, out)
 }
 
 func (a *Admin) getOperator(w http.ResponseWriter, r *http.Request) {
@@ -284,7 +285,7 @@ func (a *Admin) getOperator(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 200, a.opDoc(r, op))
+	httpkit.WriteJSON(w, 200, a.opDoc(r, op))
 }
 
 func (a *Admin) createOperator(w http.ResponseWriter, r *http.Request) {
@@ -309,7 +310,7 @@ func (a *Admin) createOperator(w http.ResponseWriter, r *http.Request) {
 		// operator record does not keep them, so they are in this command and in no other.
 		ExtraProcessors []install.Processor `json:"extraProcessors,omitempty"`
 	}
-	if err := decode(r, &req); err != nil {
+	if err := httpkit.Decode(r, &req); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -334,7 +335,7 @@ func (a *Admin) createOperator(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// req.Exposure "" stays "": a client that was not asked has not said "this cluster only". The core validates it.
-	op, secret, tlsBundle, hbSecret, err := a.core(r).Operators.CreateOperatorWithOptions(r.Context(), actor(r), req.Name, req.SourceClusterIDs, req.Destination.toStore(), modalitiesFromDoc(req.AcceptedModalities), operators.OperatorOptions{Heartbeat: req.Heartbeat, Labels: labels, Exposure: req.Exposure})
+	op, secret, tlsBundle, hbSecret, err := a.core(r).Operators.CreateOperatorWithOptions(r.Context(), httpkit.Actor(r), req.Name, req.SourceClusterIDs, req.Destination.toStore(), modalitiesFromDoc(req.AcceptedModalities), operators.OperatorOptions{Heartbeat: req.Heartbeat, Labels: labels, Exposure: req.Exposure})
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -344,7 +345,7 @@ func (a *Admin) createOperator(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 201, doc)
+	httpkit.WriteJSON(w, 201, doc)
 }
 
 // installMaterial is what was minted for one install and is shown once: a bearer operator's receiver token, the
@@ -441,7 +442,7 @@ func (a *Admin) reissueOperatorInstall(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, a.installConfigError(err))
 		return
 	}
-	op, mat, err := a.core(r).Operators.ReissueOperatorInstall(r.Context(), actor(r), r.PathValue("id"))
+	op, mat, err := a.core(r).Operators.ReissueOperatorInstall(r.Context(), httpkit.Actor(r), r.PathValue("id"))
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -451,7 +452,7 @@ func (a *Admin) reissueOperatorInstall(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 200, doc)
+	httpkit.WriteJSON(w, 200, doc)
 }
 
 // issuedCertDoc is one ledger entry. state is "ok" or "expired": whether renewal is happening is a property of the
@@ -490,7 +491,7 @@ func (a *Admin) listOperatorCertificates(w http.ResponseWriter, r *http.Request)
 			IssuedAt: kernel.RFC(c.IssuedAt), NotBefore: kernel.RFC(c.NotBefore), NotAfter: kernel.RFC(c.NotAfter), State: state,
 		})
 	}
-	writeJSON(w, 200, map[string]any{"certificates": out})
+	httpkit.WriteJSON(w, 200, map[string]any{"certificates": out})
 }
 
 // operatorRestartCommand restarts the operator's pods, which is how they pick up a Secret read into the environment.
@@ -503,7 +504,7 @@ func (a *Admin) setOperatorAddress(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Address string `json:"address"`
 	}
-	if err := decode(r, &req); err != nil {
+	if err := httpkit.Decode(r, &req); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -511,7 +512,7 @@ func (a *Admin) setOperatorAddress(w http.ResponseWriter, r *http.Request) {
 	if id == operators.CentralOperatorID && a.Fusion != nil {
 		req.Address = a.Fusion.WithGatewayPort(r.Context(), req.Address) // a NodePort is not on 4317
 	}
-	addr, err := a.core(r).Operators.SetOperatorAddress(r.Context(), actor(r), id, req.Address)
+	addr, err := a.core(r).Operators.SetOperatorAddress(r.Context(), httpkit.Actor(r), id, req.Address)
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -524,7 +525,7 @@ func (a *Admin) setOperatorAddress(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 200, a.opDoc(r, op))
+	httpkit.WriteJSON(w, 200, a.opDoc(r, op))
 }
 
 func (a *Admin) updateOperatorScope(w http.ResponseWriter, r *http.Request) {
@@ -533,7 +534,7 @@ func (a *Admin) updateOperatorScope(w http.ResponseWriter, r *http.Request) {
 		Destination        destinationDoc `json:"destination"`
 		AcceptedModalities []string       `json:"acceptedModalities,omitempty"`
 	}
-	if err := decode(r, &req); err != nil {
+	if err := httpkit.Decode(r, &req); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -543,7 +544,7 @@ func (a *Admin) updateOperatorScope(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	if err := a.core(r).Operators.UpdateOperatorScope(r.Context(), actor(r), id, req.SourceClusterIDs, req.Destination.toStore(), modalitiesFromDoc(req.AcceptedModalities)); err != nil {
+	if err := a.core(r).Operators.UpdateOperatorScope(r.Context(), httpkit.Actor(r), id, req.SourceClusterIDs, req.Destination.toStore(), modalitiesFromDoc(req.AcceptedModalities)); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -559,11 +560,11 @@ func (a *Admin) updateOperatorScope(w http.ResponseWriter, r *http.Request) {
 	// cluster gets its own, naming it, signed by the operator's own CA, whose certificate the receiver trusts.
 	var tlsBundle operators.OperatorTLSBundle
 	if gained := clustersGained(before.SourceClusterIDs, op.SourceClusterIDs); len(gained) > 0 {
-		tlsBundle.Senders, tlsBundle.CACertPEM = a.core(r).Operators.MintSenderCerts(r.Context(), actor(r), op, gained)
+		tlsBundle.Senders, tlsBundle.CACertPEM = a.core(r).Operators.MintSenderCerts(r.Context(), httpkit.Actor(r), op, gained)
 	}
 	resp := map[string]any{"operator": a.opDoc(r, op), "reminders": a.operatorSourceReminders(r, op, tlsBundle)}
 	a.addOperatorTargetExport(r, resp, op)
-	writeJSON(w, 200, resp)
+	httpkit.WriteJSON(w, 200, resp)
 }
 
 // clustersGained are the clusters in now that were not in before.
@@ -605,25 +606,25 @@ func (a *Admin) revokeOperator(w http.ResponseWriter, r *http.Request) {
 		// Force confirms revoking an operator that others still send to (see Core.RevokeOperatorForce).
 		Force bool `json:"force,omitempty"`
 	}
-	if err := decode(r, &req); err != nil {
+	if err := httpkit.Decode(r, &req); err != nil {
 		a.fail(w, err)
 		return
 	}
 	id := r.PathValue("id")
-	if err := a.core(r).Operators.RevokeOperatorForce(r.Context(), actor(r), id, req.Reason, req.Force); err != nil {
+	if err := a.core(r).Operators.RevokeOperatorForce(r.Context(), httpkit.Actor(r), id, req.Reason, req.Force); err != nil {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 200, a.uninstallDoc(id))
+	httpkit.WriteJSON(w, 200, a.uninstallDoc(id))
 }
 
 func (a *Admin) deleteOperator(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if err := a.core(r).Operators.DeleteOperatorForce(r.Context(), actor(r), id, r.URL.Query().Get("force") == "true"); err != nil {
+	if err := a.core(r).Operators.DeleteOperatorForce(r.Context(), httpkit.Actor(r), id, r.URL.Query().Get("force") == "true"); err != nil {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 200, a.uninstallDoc(id))
+	httpkit.WriteJSON(w, 200, a.uninstallDoc(id))
 }
 
 // operatorReceiverTLSSecretName and operatorClientTLSSecretName are the fixed Secret names the operator
@@ -813,7 +814,7 @@ func (a *Admin) addOperatorTargetExport(r *http.Request, resp map[string]any, op
 		return
 	}
 	target = a.advertised(target)
-	certPEM, keyPEM, caPEM, err := core.Operators.IssueOperatorClientCertFor(r.Context(), actor(r), target.ID, op.ID, "for="+op.ID)
+	certPEM, keyPEM, caPEM, err := core.Operators.IssueOperatorClientCertFor(r.Context(), httpkit.Actor(r), target.ID, op.ID, "for="+op.ID)
 	if err != nil || len(certPEM) == 0 {
 		return
 	}

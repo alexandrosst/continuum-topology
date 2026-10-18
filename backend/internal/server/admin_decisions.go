@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"continuum/internal/decisionloop"
+	"continuum/internal/httpkit"
 	"continuum/internal/kernel"
 )
 
@@ -49,7 +50,7 @@ func (a *Admin) recordDecisions(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Entries []decisionEntryDoc `json:"entries"`
 	}
-	if err := decode(r, &body); err != nil {
+	if err := httpkit.Decode(r, &body); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -67,12 +68,12 @@ func (a *Admin) recordDecisions(w http.ResponseWriter, r *http.Request) {
 			Schema: e.Input.Schema, ClusterCount: e.Input.ClusterCount, ServiceCount: e.Input.ServiceCount, Policy: e.Input.Policy, Moves: moves,
 		}
 	}
-	n, err := a.core(r).Loop.RecordDecisions(r.Context(), actor(r), entries)
+	n, err := a.core(r).Loop.RecordDecisions(r.Context(), httpkit.Actor(r), entries)
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"recorded": n})
+	httpkit.WriteJSON(w, http.StatusCreated, map[string]any{"recorded": n})
 }
 
 type decisionLogDoc struct {
@@ -118,5 +119,5 @@ func (a *Admin) listDecisions(w http.ResponseWriter, r *http.Request) {
 			BeforeCost: d.BeforeCost, AfterCost: d.AfterCost, MigrationCost: d.MigrationCost,
 		}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"decisions": out})
+	httpkit.WriteJSON(w, http.StatusOK, map[string]any{"decisions": out})
 }

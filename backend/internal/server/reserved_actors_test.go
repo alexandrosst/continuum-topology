@@ -54,7 +54,7 @@ func TestRecoveryDoesNotCreateAReservedUsernameButStillResetsOneThatExists(t *te
 
 // serverCodeDirs are the directories that hold the server's own code: this package, the kernel and each module that is a package.
 // A module that leaves this package is added here, so that the rule below keeps covering it.
-var serverCodeDirs = []string{".", "../kernel", "../accounts", "../decisionloop", "../operators", "../telemetry", "../fusion", "../observed", "../agents", "../connectivity", "../estate"}
+var serverCodeDirs = []string{".", "../kernel", "../accounts", "../decisionloop", "../operators", "../telemetry", "../fusion", "../observed", "../agents", "../connectivity", "../estate", "../httpkit"}
 
 // The words the server uses for itself are defined in accounts/actor.go and nowhere else. This reads the server's own source: no string
 // literal outside that file may be a reserved word or an "agent:" form, so a call site that wrote "system" by hand (and a new server

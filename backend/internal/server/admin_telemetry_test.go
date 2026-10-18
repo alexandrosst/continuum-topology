@@ -233,7 +233,7 @@ func TestSelfTelemetryEndpointShapeAndRBAC(t *testing.T) {
 		t.Fatalf("with nothing sampled yet, want an empty array, got %q", s)
 	}
 
-	// Anonymous must be refused, the same as every other memberRole route.
+	// Anonymous must be refused, the same as every other httpkit.MemberRole route.
 	if c := a.do("GET", "/api/v1/telemetry/self", nil).Code; c != 401 {
 		t.Fatalf("anonymous: %d, want 401", c)
 	}

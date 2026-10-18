@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"continuum/internal/httpkit"
 	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
@@ -20,16 +21,16 @@ func (a *Admin) mintGatewayToken(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		TTLSeconds int `json:"ttlSeconds"`
 	}
-	if err := decode(r, &req); err != nil {
+	if err := httpkit.Decode(r, &req); err != nil {
 		a.fail(w, err)
 		return
 	}
-	t, secret, err := a.core(r).Telemetry.MintGatewayToken(r.Context(), actor(r), r.PathValue("id"), time.Duration(req.TTLSeconds)*time.Second)
+	t, secret, err := a.core(r).Telemetry.MintGatewayToken(r.Context(), httpkit.Actor(r), r.PathValue("id"), time.Duration(req.TTLSeconds)*time.Second)
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 201, map[string]any{
+	httpkit.WriteJSON(w, 201, map[string]any{
 		"token":     secret,
 		"createdAt": kernel.RFC(t.CreatedAt),
 		"expiresAt": kernel.RFC(t.ExpiresAt),
@@ -42,14 +43,14 @@ func (a *Admin) mintGatewayToken(w http.ResponseWriter, r *http.Request) {
 func (a *Admin) getGatewayToken(w http.ResponseWriter, r *http.Request) {
 	t, err := a.core(r).Telemetry.LatestGatewayToken(r.Context(), r.PathValue("id"))
 	if errors.Is(err, store.ErrNotFound) {
-		writeJSON(w, 200, map[string]any{"active": false})
+		httpkit.WriteJSON(w, 200, map[string]any{"active": false})
 		return
 	}
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 200, map[string]any{
+	httpkit.WriteJSON(w, 200, map[string]any{
 		"active":    true,
 		"expired":   !a.core(r).Now().Before(t.ExpiresAt),
 		"createdAt": kernel.RFC(t.CreatedAt),
