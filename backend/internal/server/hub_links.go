@@ -158,7 +158,7 @@ func (h *Hub) ownAddresses(a store.Agent) map[string]bool {
 // sorted, without repeats. Called with h.mu held.
 func (h *Hub) peerNodeAddresses(o store.Agent) []string {
 	if v := h.views[o.ID]; v != nil && v.state != nil {
-		return dedupeSorted(linkPeerAddresses(v.state))
+		return dedupeSorted(LinkPeerAddresses(v.state))
 	}
 	return nil
 }

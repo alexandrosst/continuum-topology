@@ -167,7 +167,7 @@ func TestBoundFlowFactsOmitsOnlyTheImplausibleSaturation(t *testing.T) {
 			{Iface: "veth1", ThroughputBps: 500}, // unset: no rated speed read, must be left alone
 		}},
 	}}
-	if n := boundFlowFacts(b); n != 1 {
+	if n := BoundFlowFacts(b); n != 1 {
 		t.Fatalf("dropped %d entries, want 1", n)
 	}
 	ls := b.Collectors[0].LinkSaturation

@@ -53,21 +53,21 @@ type suspect struct {
 const maxSuspicions = 10
 
 // suspicions works out, from what every cluster's agent saw, where unmanaged infrastructure may be.
-func suspicions(org string, observed, located []observedCluster, now time.Time) []model.Suggestion {
+func suspicions(org string, observed, located []Cluster, now time.Time) []model.Suggestion {
 	if len(observed) == 0 {
 		return nil
 	}
-	ix := buildAddrIndex(located)
+	ix := BuildAddrIndex(located)
 	byIP := map[netip.Addr]*suspect{}
 	nodeNets := map[string]map[netip.Prefix]bool{} // cluster name -> /24s its nodes are in
 	for _, c := range observed {
-		for _, n := range c.state.Nodes {
+		for _, n := range c.State.Nodes {
 			for _, s := range n.InternalIps {
 				if a, err := netip.ParseAddr(s); err == nil && a.Is4() {
-					if nodeNets[c.name] == nil {
-						nodeNets[c.name] = map[netip.Prefix]bool{}
+					if nodeNets[c.Name] == nil {
+						nodeNets[c.Name] = map[netip.Prefix]bool{}
 					}
-					nodeNets[c.name][netip.PrefixFrom(a, 24).Masked()] = true
+					nodeNets[c.Name][netip.PrefixFrom(a, 24).Masked()] = true
 				}
 			}
 		}
@@ -79,14 +79,14 @@ func suspicions(org string, observed, located []observedCluster, now time.Time) 
 	}
 	machines := map[netip.Addr]*machine{}
 
-	workloadName := func(c observedCluster, key string) string {
-		if w := c.state.Workloads[key]; w != nil {
-			return c.name + "/" + w.Name
+	workloadName := func(c Cluster, key string) string {
+		if w := c.State.Workloads[key]; w != nil {
+			return c.Name + "/" + w.Name
 		}
-		return c.name
+		return c.Name
 	}
 	for _, c := range observed {
-		for _, e := range c.flows.edges {
+		for _, e := range c.Flows.Edges {
 			k := e.Key
 			if k.Noise != "" {
 				continue
@@ -111,7 +111,7 @@ func suspicions(org string, observed, located []observedCluster, now time.Time) 
 			if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsMulticast() || ip.IsUnspecified() {
 				continue
 			}
-			if ix.clusterOf(ipStr, int(k.Port)) != "" {
+			if ix.ClusterOf(ipStr, int(k.Port)) != "" {
 				continue // an onboarded cluster's own address
 			}
 			if outbound {
@@ -132,10 +132,10 @@ func suspicions(org string, observed, located []observedCluster, now time.Time) 
 			}
 			if ip.Is4() {
 				p := netip.PrefixFrom(ip, 24).Masked()
-				if nodeNets[c.name][p] {
+				if nodeNets[c.Name][p] {
 					m := machines[ip]
 					if m == nil {
-						m = &machine{ip: ip, cluster: c.name}
+						m = &machine{ip: ip, cluster: c.Name}
 						machines[ip] = m
 					}
 					m.conns += e.Connections

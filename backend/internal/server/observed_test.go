@@ -21,7 +21,7 @@ func wk(ns, kind, name string, reach ...*continuumv1.Address) *continuumv1.Workl
 	return &continuumv1.WorkloadFacts{Key: ns + "/" + kind + "/" + name, Namespace: ns, Kind: kind, Name: name, Reachable: reach}
 }
 
-func cluster(id string, egress string, nodes []*continuumv1.NodeFacts, ws ...*continuumv1.WorkloadFacts) observedCluster {
+func cluster(id string, egress string, nodes []*continuumv1.NodeFacts, ws ...*continuumv1.WorkloadFacts) Cluster {
 	st := facts.New()
 	for _, w := range ws {
 		st.Workloads[w.Key] = w
@@ -29,7 +29,7 @@ func cluster(id string, egress string, nodes []*continuumv1.NodeFacts, ws ...*co
 	for _, n := range nodes {
 		st.Nodes[n.Key] = n
 	}
-	return observedCluster{id: id, name: id, agentID: "ag-" + id, state: st, flows: newFlowTable(), egressIP: egress}
+	return Cluster{ID: id, Name: id, AgentID: "ag-" + id, State: st, Flows: NewFlowTable(), EgressIP: egress}
 }
 
 func wep(key string) *continuumv1.FlowEndpoint {
@@ -43,8 +43,8 @@ func flowOf(src, dst *continuumv1.FlowEndpoint, port uint32, conns uint64) *cont
 	return &continuumv1.Flow{Src: src, Dst: dst, Port: port, Protocol: "tcp", Connections: conns, BytesOut: 1000 * conns, BytesIn: 3000 * conns, Method: "ebpf", BytesKnown: true}
 }
 
-func feed(c *observedCluster, at time.Time, window int32, fs ...*continuumv1.Flow) {
-	c.flows.apply(&continuumv1.FlowBatch{WindowSeconds: window, Flows: fs}, at)
+func feed(c *Cluster, at time.Time, window int32, fs ...*continuumv1.Flow) {
+	c.Flows.Apply(&continuumv1.FlowBatch{WindowSeconds: window, Flows: fs}, at)
 }
 
 func TestObservedTopologyAcrossClusters(t *testing.T) {
@@ -82,7 +82,7 @@ func TestObservedTopologyAcrossClusters(t *testing.T) {
 		flowOf(xep("203.0.113.1"), wep(db), 5432, 6),  // the edge cluster, but its own agent reported nothing to db: kept, as a cluster-level caller
 	)
 
-	deps, exts := observedTopology("org", []observedCluster{edge, cloud, other, third}, now, 24*time.Hour)
+	deps, exts := Topology("org", []Cluster{edge, cloud, other, third}, now, 24*time.Hour)
 	sv := func(c, k string) string { return interpret.ServiceID(c, k) }
 	find := func(from, to string, port int) *struct{ d int } {
 		for i, d := range deps {
@@ -217,7 +217,7 @@ func TestObservedTopologyResolvesOverlayTunnelAddress(t *testing.T) {
 	client, server := "app/Deployment/client", "app/Deployment/server"
 	feed(&caller, now, 60, flowOf(wep(client), xep("100.64.0.5"), 30444, 7))
 
-	deps, exts := observedTopology("org", []observedCluster{caller, target}, now, 24*time.Hour)
+	deps, exts := Topology("org", []Cluster{caller, target}, now, 24*time.Hour)
 	sv := func(c, k string) string { return interpret.ServiceID(c, k) }
 
 	var found *model.Dependency
@@ -272,7 +272,7 @@ func TestObservedTopologyResolvesLoadBalancerServiceOverTunnelAddress(t *testing
 	// Dialed on the tunnel address, same port the Service declares - never the reported LB ingress IP.
 	feed(&caller, seenAt, 60, flowOf(wep(client), xep("100.64.0.9"), 8080, 4))
 
-	deps, exts := observedTopology("org", []observedCluster{caller, target}, now, 24*time.Hour)
+	deps, exts := Topology("org", []Cluster{caller, target}, now, 24*time.Hour)
 	sv := func(c, k string) string { return interpret.ServiceID(c, k) }
 
 	var found *model.Dependency
@@ -323,7 +323,7 @@ func TestObservedTopologyNeverAttributesADedicatedLoadBalancerVIPToANodeAddress(
 	hostboundSv := "app/Deployment/hostbound-server"
 	feed(&caller, seenAt, 60, flowOf(wep(client), xep("100.64.0.9"), 9000, 3))
 
-	deps, _ := observedTopology("org", []observedCluster{caller, target}, now, 24*time.Hour)
+	deps, _ := Topology("org", []Cluster{caller, target}, now, 24*time.Hour)
 	sv := func(c, k string) string { return interpret.ServiceID(c, k) }
 
 	var found *model.Dependency
@@ -351,7 +351,7 @@ func TestObservedTopologyKeepsDifferentProtocolsOnTheSameServiceAndPortSeparate(
 
 	feed(&edge, now, 60, udpFlow, tcpFlow)
 
-	deps, _ := observedTopology("org", []observedCluster{edge}, now, 24*time.Hour)
+	deps, _ := Topology("org", []Cluster{edge}, now, 24*time.Hour)
 	sv := func(c, k string) string { return interpret.ServiceID(c, k) }
 
 	var udpConns, tcpConns uint64
@@ -385,12 +385,12 @@ func TestObservedStaleAndUnknownWorkloads(t *testing.T) {
 	c := cluster("c", "", nil, wk("a", "Deployment", "x"), wk("a", "Deployment", "y"))
 	feed(&c, now.Add(-48*time.Hour), 60, flowOf(wep("a/Deployment/x"), wep("a/Deployment/y"), 80, 1))
 	feed(&c, now.Add(-time.Minute), 60, flowOf(wep("a/Deployment/x"), wep("a/Deployment/ghost"), 80, 1)) // a workload the cluster does not have
-	deps, _ := observedTopology("org", []observedCluster{c}, now, 24*time.Hour)
+	deps, _ := Topology("org", []Cluster{c}, now, 24*time.Hour)
 	if len(deps) != 1 || !deps[0].Stale {
 		t.Fatalf("an edge unseen for 48 h is stale, not deleted; an edge to an unknown workload is dropped: %+v", deps)
 	}
 	feed(&c, now, 60, flowOf(wep("a/Deployment/x"), wep("a/Deployment/y"), 80, 1))
-	deps, _ = observedTopology("org", []observedCluster{c}, now, 24*time.Hour)
+	deps, _ = Topology("org", []Cluster{c}, now, 24*time.Hour)
 	if deps[0].Stale || deps[0].Connections != 2 {
 		t.Fatalf("seeing it again revives it and adds up: %+v", deps[0])
 	}
@@ -425,22 +425,22 @@ func TestFlowBatchBadItemsAreDroppedNotTheBatch(t *testing.T) {
 	for name, f := range bad {
 		// the bad item travels with a good one, as a flow and as a pod flow
 		b := &continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{good, f}, PodFlows: []*continuumv1.Flow{f, good}}
-		d, err := sanitizeFlowBatch(b)
-		if err != nil || d.n != 2 || d.first == nil || len(b.Flows) != 1 || b.Flows[0] != good || len(b.PodFlows) != 1 || b.PodFlows[0] != good {
-			t.Errorf("%s: err %v, dropped %d (%v), %d flows, %d pod flows", name, err, d.n, d.first, len(b.Flows), len(b.PodFlows))
+		d, err := SanitizeFlowBatch(b)
+		if err != nil || d.N != 2 || d.First == nil || len(b.Flows) != 1 || b.Flows[0] != good || len(b.PodFlows) != 1 || b.PodFlows[0] != good {
+			t.Errorf("%s: err %v, dropped %d (%v), %d flows, %d pod flows", name, err, d.N, d.First, len(b.Flows), len(b.PodFlows))
 		}
 	}
 	// A bad collector report goes the same way.
 	b := &continuumv1.FlowBatch{WindowSeconds: 60, Collectors: []*continuumv1.CollectorInfo{{Node: "n1", Method: "ebpf"}, {Node: "", Method: "ebpf"}, {Node: "n2", Method: "x"}, nil}}
-	if d, err := sanitizeFlowBatch(b); err != nil || d.n != 3 || len(b.Collectors) != 1 {
-		t.Errorf("collectors: err %v, dropped %d, kept %d", err, d.n, len(b.Collectors))
+	if d, err := SanitizeFlowBatch(b); err != nil || d.N != 3 || len(b.Collectors) != 1 {
+		t.Errorf("collectors: err %v, dropped %d, kept %d", err, d.N, len(b.Collectors))
 	}
 	// Free text that is merely too long is cut, not a reason to drop.
 	long := flowOf(wep("a/Deployment/x"), xep("1.2.3.4"), 443, 1)
 	long.SniHost, long.Iface, long.DnsQueryNames = strings.Repeat("s", 5000), strings.Repeat("i", 5000), make([]string, 100)
 	b = &continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{long}}
-	if d, err := sanitizeFlowBatch(b); err != nil || d.n != 0 || len(long.SniHost) > wire.MaxName || len(long.Iface) > wire.MaxIface || len(long.DnsQueryNames) > wire.MaxDNSNames {
-		t.Errorf("long text: err %v, dropped %d, sni %d iface %d names %d", err, d.n, len(long.SniHost), len(long.Iface), len(long.DnsQueryNames))
+	if d, err := SanitizeFlowBatch(b); err != nil || d.N != 0 || len(long.SniHost) > wire.MaxName || len(long.Iface) > wire.MaxIface || len(long.DnsQueryNames) > wire.MaxDNSNames {
+		t.Errorf("long text: err %v, dropped %d, sni %d iface %d names %d", err, d.N, len(long.SniHost), len(long.Iface), len(long.DnsQueryNames))
 	}
 	// A batch that is broken as a whole is refused.
 	for name, b := range map[string]*continuumv1.FlowBatch{
@@ -450,7 +450,7 @@ func TestFlowBatchBadItemsAreDroppedNotTheBatch(t *testing.T) {
 		"too many pod flows":     {WindowSeconds: 60, PodFlows: make([]*continuumv1.Flow, maxPodFlowsPerBatch+1)},
 		"too many collectors":    {WindowSeconds: 60, Collectors: make([]*continuumv1.CollectorInfo, 5001)},
 	} {
-		if _, err := sanitizeFlowBatch(b); err == nil {
+		if _, err := SanitizeFlowBatch(b); err == nil {
 			t.Errorf("%s must be refused", name)
 		}
 	}
@@ -459,29 +459,29 @@ func TestFlowBatchBadItemsAreDroppedNotTheBatch(t *testing.T) {
 func TestFlowTableApplyAndPersistence(t *testing.T) {
 	good := flowOf(wep("a/Deployment/x"), xep("1.2.3.4"), 443, 1)
 	// persistence round trip and the cap
-	tb := newFlowTable()
+	tb := NewFlowTable()
 	now := time.Now()
-	tb.apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{good}}, now)
-	data, err := tb.marshal()
+	tb.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{good}}, now)
+	data, err := tb.Marshal()
 	if err != nil {
 		t.Fatal(err)
 	}
-	back, err := unmarshalFlowTable(data)
-	if err != nil || len(back.edges) != 1 {
+	back, err := UnmarshalFlowTable(data)
+	if err != nil || len(back.Edges) != 1 {
 		t.Fatalf("round trip: %v %v", back, err)
 	}
-	for _, e := range back.edges {
+	for _, e := range back.Edges {
 		if e.Connections != 1 || e.FirstSeen == nil || e.Key.Dst.Ip != "1.2.3.4" {
 			t.Fatalf("edge = %v", e)
 		}
 	}
-	for i := 0; i < maxFlowEdges+50; i++ {
+	for i := 0; i < MaxFlowEdges+50; i++ {
 		f := flowOf(wep("a/Deployment/x"), wep("b/Deployment/"+string(rune('a'+i%26))+time.Duration(i).String()), 80, 1)
-		tb.edges[flowKey(f)] = &continuumv1.FlowEdge{Key: f, FirstSeen: timestamppb.New(now), LastSeen: timestamppb.New(now.Add(time.Duration(i) * time.Second))}
+		tb.Edges[FlowKey(f)] = &continuumv1.FlowEdge{Key: f, FirstSeen: timestamppb.New(now), LastSeen: timestamppb.New(now.Add(time.Duration(i) * time.Second))}
 	}
-	tb.apply(&continuumv1.FlowBatch{WindowSeconds: 60}, now)
-	if len(tb.edges) != maxFlowEdges {
-		t.Fatalf("the table is bounded: %d", len(tb.edges))
+	tb.Apply(&continuumv1.FlowBatch{WindowSeconds: 60}, now)
+	if len(tb.Edges) != MaxFlowEdges {
+		t.Fatalf("the table is bounded: %d", len(tb.Edges))
 	}
 }
 
@@ -492,17 +492,17 @@ func TestFlowCountersSaturateInsteadOfWrapping(t *testing.T) {
 	}
 	f := flowOf(wep("a/Deployment/x"), wep("b/Deployment/y"), 80, 1)
 	f.Connections, f.BytesOut, f.BytesIn = max-2, max-10, max
-	tb := newFlowTable()
+	tb := NewFlowTable()
 	now := time.Now()
-	tb.apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f}}, now)
+	tb.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f}}, now)
 	// A second batch that would wrap each counter past zero.
 	f2 := flowOf(wep("a/Deployment/x"), wep("b/Deployment/y"), 80, 1)
 	f2.Connections, f2.BytesOut, f2.BytesIn = 100, 100, 100
-	tb.apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f2}}, now)
-	if len(tb.edges) != 1 {
-		t.Fatalf("edges: %d", len(tb.edges))
+	tb.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f2}}, now)
+	if len(tb.Edges) != 1 {
+		t.Fatalf("edges: %d", len(tb.Edges))
 	}
-	for _, e := range tb.edges {
+	for _, e := range tb.Edges {
 		if e.Connections != max || e.BytesOut != max || e.BytesIn != max {
 			t.Errorf("counters wrapped: %d %d %d", e.Connections, e.BytesOut, e.BytesIn)
 		}
@@ -511,11 +511,11 @@ func TestFlowCountersSaturateInsteadOfWrapping(t *testing.T) {
 		}
 	}
 	// A single window's out+in that overflows saturates too.
-	tb2 := newFlowTable()
+	tb2 := NewFlowTable()
 	f3 := flowOf(wep("a/Deployment/x"), wep("b/Deployment/y"), 80, 1)
 	f3.BytesOut, f3.BytesIn = max, max
-	tb2.apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f3}}, now)
-	for _, e := range tb2.edges {
+	tb2.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f3}}, now)
+	for _, e := range tb2.Edges {
 		if e.WindowBytes != max {
 			t.Errorf("window bytes wrapped: %d", e.WindowBytes)
 		}
@@ -528,14 +528,14 @@ func TestFlowCountersSaturateInsteadOfWrapping(t *testing.T) {
 // still never show an interface or an RTT. Retransmits, the cumulative counter, is checked alongside it.
 func TestFlowTableCarriesIfaceRetransmitsAndRTT(t *testing.T) {
 	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
-	tbl := newFlowTable()
+	tbl := NewFlowTable()
 	src, dst := wep("a/Deployment/x"), wep("a/Deployment/y")
 	f1 := &continuumv1.Flow{Src: src, Dst: dst, Port: 5432, Protocol: "tcp", Connections: 1, BytesOut: 100, BytesIn: 200,
 		Method: "ebpf", BytesKnown: true, Iface: "eth0", Retransmits: 3, RttUs: 15000}
-	tbl.apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f1}}, now)
+	tbl.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f1}}, now)
 
-	k := flowKey(f1)
-	e := tbl.edges[k]
+	k := FlowKey(f1)
+	e := tbl.Edges[k]
 	if e == nil {
 		t.Fatal("edge not recorded")
 	}
@@ -551,8 +551,8 @@ func TestFlowTableCarriesIfaceRetransmitsAndRTT(t *testing.T) {
 
 	// A route change and more loss on the next report: iface/rtt are gauges (latest wins), retransmits accumulate.
 	f2 := &continuumv1.Flow{Src: src, Dst: dst, Port: 5432, Protocol: "tcp", Connections: 1, Method: "ebpf", Iface: "wlan0", Retransmits: 2, RttUs: 20000}
-	tbl.apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f2}}, now.Add(time.Minute))
-	e = tbl.edges[k]
+	tbl.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f2}}, now.Add(time.Minute))
+	e = tbl.Edges[k]
 	if e.Key.Iface != "wlan0" {
 		t.Errorf("iface after route change = %q, want %q", e.Key.Iface, "wlan0")
 	}
@@ -565,8 +565,8 @@ func TestFlowTableCarriesIfaceRetransmitsAndRTT(t *testing.T) {
 
 	// A conntrack report (no iface, no RTT, no retransmits) must not blank out what eBPF already established.
 	f3 := &continuumv1.Flow{Src: src, Dst: dst, Port: 5432, Protocol: "tcp", Connections: 1, Method: "conntrack"}
-	tbl.apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f3}}, now.Add(2*time.Minute))
-	e = tbl.edges[k]
+	tbl.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f3}}, now.Add(2*time.Minute))
+	e = tbl.Edges[k]
 	if e.Key.Iface != "wlan0" || e.Key.RttUs != 20000 {
 		t.Errorf("a zero-value report must not blank a previously known iface/rtt, got %q / %d", e.Key.Iface, e.Key.RttUs)
 	}
@@ -574,13 +574,13 @@ func TestFlowTableCarriesIfaceRetransmitsAndRTT(t *testing.T) {
 
 func TestFlowTableCarriesFailedAttempts(t *testing.T) {
 	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
-	tbl := newFlowTable()
+	tbl := NewFlowTable()
 	src, dst := wep("a/Deployment/x"), wep("a/Deployment/y")
 	// A window with nothing but failures: connections stays 0, failed_attempts carries the whole story.
 	f1 := &continuumv1.Flow{Src: src, Dst: dst, Port: 5432, Protocol: "tcp", Method: "ebpf", FailedAttempts: 2}
-	tbl.apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f1}}, now)
-	k := flowKey(f1)
-	e := tbl.edges[k]
+	tbl.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f1}}, now)
+	k := FlowKey(f1)
+	e := tbl.Edges[k]
 	if e == nil {
 		t.Fatal("edge not recorded")
 	}
@@ -588,8 +588,8 @@ func TestFlowTableCarriesFailedAttempts(t *testing.T) {
 		t.Errorf("connections=%d failedAttempts=%d/%d, want 0, 2/2", e.Connections, e.FailedAttempts, e.WindowFailedAttempts)
 	}
 	f2 := &continuumv1.Flow{Src: src, Dst: dst, Port: 5432, Protocol: "tcp", Connections: 1, Method: "ebpf", FailedAttempts: 3}
-	tbl.apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f2}}, now.Add(time.Minute))
-	e = tbl.edges[k]
+	tbl.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f2}}, now.Add(time.Minute))
+	e = tbl.Edges[k]
 	if e.FailedAttempts != 5 || e.WindowFailedAttempts != 3 || e.Connections != 1 {
 		t.Errorf("cumulative failedAttempts=%d window=%d connections=%d, want 5/3/1", e.FailedAttempts, e.WindowFailedAttempts, e.Connections)
 	}
@@ -605,7 +605,7 @@ func TestDependencyStatsIncludeRetransmitsAndRTT(t *testing.T) {
 		Method: "ebpf", BytesKnown: true, Iface: "eth0", Retransmits: 4, RttUs: 8000}
 	feed(&c, now, 60, f)
 
-	deps, _ := observedTopology("org", []observedCluster{c}, now, 24*time.Hour)
+	deps, _ := Topology("org", []Cluster{c}, now, 24*time.Hour)
 	var d *struct {
 		iface       string
 		retransmits uint64
@@ -660,7 +660,7 @@ func TestDependencyStatsIncludeJitterHandshakeAndLossPct(t *testing.T) {
 	fNoSegs := &continuumv1.Flow{Src: wep(x), Dst: wep(z), Port: 5432, Protocol: "tcp", Connections: 1, Retransmits: 1}
 	feed(&c, now, 60, f, fNoSegs)
 
-	deps, _ := observedTopology("org", []observedCluster{c}, now, 24*time.Hour)
+	deps, _ := Topology("org", []Cluster{c}, now, 24*time.Hour)
 	sv := func(c, k string) string { return interpret.ServiceID(c, k) }
 	var withSegs, withoutSegs *model.Dependency
 	for i := range deps {
@@ -714,7 +714,7 @@ func TestDependencyStatsLossPctSumsAcrossMergedEdges(t *testing.T) {
 	f2 := &continuumv1.Flow{Src: wep(x), Dst: xep("203.0.113.11"), Port: 5432, Protocol: "tcp", Connections: 1, Method: "ebpf", Retransmits: 1, SegsOut: 1}
 	feed(&c, now, 60, f1, f2)
 
-	deps, _ := observedTopology("org", []observedCluster{c}, now, 24*time.Hour)
+	deps, _ := Topology("org", []Cluster{c}, now, 24*time.Hour)
 	sv := func(c, k string) string { return interpret.ServiceID(c, k) }
 	var d *model.Dependency
 	for i := range deps {
@@ -749,7 +749,7 @@ func TestDependencyStatsIncludeCwndPacingAndBufferDrops(t *testing.T) {
 		Cwnd: 10, PacingBps: 125000, BufferDrops: 3}
 	feed(&c, now, 60, f)
 
-	deps, _ := observedTopology("org", []observedCluster{c}, now, 24*time.Hour)
+	deps, _ := Topology("org", []Cluster{c}, now, 24*time.Hour)
 	var d *model.Dependency
 	for i := range deps {
 		if deps[i].Port == 5432 {
@@ -779,7 +779,7 @@ func TestDependencyStatsIncludeDnsRttMs(t *testing.T) {
 	f := &continuumv1.Flow{Src: wep(x), Dst: wep(y), Port: 53, Protocol: "udp", Method: "ebpf", Noise: "dns", DnsRttUs: 4200}
 	feed(&c, now, 60, f)
 
-	deps, _ := observedTopology("org", []observedCluster{c}, now, 24*time.Hour)
+	deps, _ := Topology("org", []Cluster{c}, now, 24*time.Hour)
 	var d *model.Dependency
 	for i := range deps {
 		if deps[i].Port == 53 {
@@ -803,7 +803,7 @@ func TestDependencyStatsIncludeFailedAttempts(t *testing.T) {
 	f := &continuumv1.Flow{Src: wep(x), Dst: wep(y), Port: 5432, Protocol: "tcp", Method: "ebpf", FailedAttempts: 6}
 	feed(&c, now, 60, f)
 
-	deps, _ := observedTopology("org", []observedCluster{c}, now, 24*time.Hour)
+	deps, _ := Topology("org", []Cluster{c}, now, 24*time.Hour)
 	var failedAttempts uint64
 	var perMin float64
 	var found bool
@@ -829,31 +829,31 @@ func TestDependencyStatsIncludeFailedAttempts(t *testing.T) {
 
 func TestFlowTableCarriesSniHostAndDnsQueryNames(t *testing.T) {
 	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
-	tbl := newFlowTable()
+	tbl := NewFlowTable()
 	src, dst := wep("a/Deployment/x"), &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_EXTERNAL, Ip: "93.184.216.34"}
 	f1 := &continuumv1.Flow{Src: src, Dst: dst, Port: 443, Protocol: "tcp", Connections: 1, Method: "ebpf", SniHost: "example.com"}
-	tbl.apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f1}}, now)
-	k := flowKey(f1)
-	e := tbl.edges[k]
+	tbl.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f1}}, now)
+	k := FlowKey(f1)
+	e := tbl.Edges[k]
 	if e == nil || e.Key.SniHost != "example.com" {
 		t.Fatalf("sniHost = %q, want example.com", e.GetKey().GetSniHost())
 	}
 	// A later report on the same edge with no SNI (a conntrack report, or simply a window the eBPF
 	// collector never saw a fresh ClientHello in) must not blank out the hostname already known.
 	f2 := &continuumv1.Flow{Src: src, Dst: dst, Port: 443, Protocol: "tcp", Connections: 1, Method: "ebpf"}
-	tbl.apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f2}}, now.Add(time.Minute))
-	e = tbl.edges[k]
+	tbl.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f2}}, now.Add(time.Minute))
+	e = tbl.Edges[k]
 	if e.Key.SniHost != "example.com" {
 		t.Errorf("a report with no SNI must not blank a previously known one, got %q", e.Key.SniHost)
 	}
 
 	dnsSrc, resolver := wep("a/Deployment/x"), wep("kube-system/Deployment/coredns")
 	g1 := &continuumv1.Flow{Src: dnsSrc, Dst: resolver, Port: 53, Protocol: "udp", Connections: 1, Method: "ebpf", Noise: "dns", DnsQueryNames: []string{"api.example.com"}}
-	tbl.apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{g1}}, now)
+	tbl.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{g1}}, now)
 	g2 := &continuumv1.Flow{Src: dnsSrc, Dst: resolver, Port: 53, Protocol: "udp", Connections: 1, Method: "ebpf", Noise: "dns", DnsQueryNames: []string{"cdn.example.com"}}
-	tbl.apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{g2}}, now.Add(time.Minute))
-	dk := flowKey(g1)
-	de := tbl.edges[dk]
+	tbl.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{g2}}, now.Add(time.Minute))
+	dk := FlowKey(g1)
+	de := tbl.Edges[dk]
 	if de == nil || len(de.DnsQueryNames) != 2 || de.DnsQueryNames[0] != "cdn.example.com" || de.DnsQueryNames[1] != "api.example.com" {
 		t.Errorf("dnsQueryNames = %v, want [cdn.example.com api.example.com] accumulated across both reports", de.GetDnsQueryNames())
 	}
@@ -872,7 +872,7 @@ func TestDependencyIncludesSniHostAndDnsQueryNames(t *testing.T) {
 	f := &continuumv1.Flow{Src: wep(x), Dst: xep("93.184.216.34"), Port: 443, Protocol: "tcp", Method: "ebpf", SniHost: "example.com", DnsQueryNames: []string{"example.com"}}
 	feed(&c, seenAt, 60, f)
 
-	deps, _ := observedTopology("org", []observedCluster{c}, now, 24*time.Hour)
+	deps, _ := Topology("org", []Cluster{c}, now, 24*time.Hour)
 	var sniHost string
 	var names []string
 	var found bool
@@ -929,7 +929,7 @@ func TestExternalKnownRangeSetsIdentityAndAggregates(t *testing.T) {
 		flowOf(wep(worker), xep("93.184.216.34"), 443, 1), // not in the bundled table at all
 	)
 
-	_, exts := observedTopology("org", []observedCluster{c}, now, 24*time.Hour)
+	_, exts := Topology("org", []Cluster{c}, now, 24*time.Hour)
 	byID := map[string]struct {
 		host, kind, name string
 		port             int
@@ -1020,7 +1020,7 @@ func TestExternalASNFallbackNamesAnAddressNoOtherTierCovers(t *testing.T) {
 	deadline := time.Now().Add(2 * time.Second)
 	var name, kind, signal, confidence string
 	for time.Now().Before(deadline) && name == "" {
-		_, exts := observedTopology("org", []observedCluster{c}, now, 24*time.Hour)
+		_, exts := Topology("org", []Cluster{c}, now, 24*time.Hour)
 		for _, e := range exts {
 			if e.Host != "203.0.113.55" || e.Name == "" {
 				continue

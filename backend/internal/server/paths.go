@@ -75,7 +75,7 @@ func observedTargetID(ip string) string { return "ob-" + interpret.Hash("path", 
 // deriveTargets picks the addresses outside a cluster that its workloads call most: what to time to
 // learn how far away the places it really talks to are. Only TCP, only real (non-noise) traffic,
 // one target per address.
-func deriveTargets(ft *flowTable) []issuedTarget {
+func deriveTargets(ft *FlowTable) []issuedTarget {
 	if ft == nil {
 		return nil
 	}
@@ -86,7 +86,7 @@ func deriveTargets(ft *flowTable) []issuedTarget {
 		best  float64
 	}
 	byIP := map[string]*cand{}
-	for _, e := range ft.edges {
+	for _, e := range ft.Edges {
 		k := e.Key
 		if k.Src.Kind != continuumv1.FlowEndpoint_WORKLOAD || k.Dst.Kind != continuumv1.FlowEndpoint_EXTERNAL || k.Noise != "" || k.Port == 0 {
 			continue

@@ -12,12 +12,12 @@ import (
 // sums across batches, window holds only the latest batch's own contribution.
 func TestFlowTableCarriesRtoRetransmits(t *testing.T) {
 	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
-	tbl := newFlowTable()
+	tbl := NewFlowTable()
 	src, dst := wep("a/Deployment/x"), wep("a/Deployment/y")
 	f1 := &continuumv1.Flow{Src: src, Dst: dst, Port: 5432, Protocol: "tcp", Method: "ebpf", Retransmits: 5, RtoRetransmits: 2}
-	tbl.apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f1}}, now)
-	k := flowKey(f1)
-	e := tbl.edges[k]
+	tbl.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f1}}, now)
+	k := FlowKey(f1)
+	e := tbl.Edges[k]
 	if e == nil {
 		t.Fatal("edge not recorded")
 	}
@@ -25,8 +25,8 @@ func TestFlowTableCarriesRtoRetransmits(t *testing.T) {
 		t.Errorf("rtoRetransmits=%d/%d, want 2/2", e.RtoRetransmits, e.WindowRtoRetransmits)
 	}
 	f2 := &continuumv1.Flow{Src: src, Dst: dst, Port: 5432, Protocol: "tcp", Method: "ebpf", Retransmits: 1, RtoRetransmits: 1}
-	tbl.apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f2}}, now.Add(time.Minute))
-	e = tbl.edges[k]
+	tbl.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f2}}, now.Add(time.Minute))
+	e = tbl.Edges[k]
 	if e.RtoRetransmits != 3 || e.WindowRtoRetransmits != 1 {
 		t.Errorf("cumulative rtoRetransmits=%d window=%d, want 3/1", e.RtoRetransmits, e.WindowRtoRetransmits)
 	}
@@ -42,7 +42,7 @@ func TestDependencyStatsIncludeRtoRetransmits(t *testing.T) {
 	f := &continuumv1.Flow{Src: wep(x), Dst: wep(y), Port: 5432, Protocol: "tcp", Connections: 1, Method: "ebpf", Retransmits: 10, RtoRetransmits: 4}
 	feed(&c, now, 60, f)
 
-	deps, _ := observedTopology("org", []observedCluster{c}, now, 24*time.Hour)
+	deps, _ := Topology("org", []Cluster{c}, now, 24*time.Hour)
 	d := findDep(deps, 5432)
 	if d == nil {
 		t.Fatal("dependency not found")
@@ -63,7 +63,7 @@ func TestApplyMeshBypassFactsIsUnaffectedByRtoRetransmits(t *testing.T) {
 	// independent: a dependency with RTO retransmits but no mesh-bypass evidence is never flagged.
 	deps := []model.Dependency{{From: "s1", FromKind: "service", Port: 443, RtoRetransmits: 100}}
 	services := []model.Service{{ID: "s1"}}
-	applyMeshBypassFacts(deps, services)
+	ApplyMeshBypassFacts(deps, services)
 	if deps[0].MeshBypass {
 		t.Error("RtoRetransmits must never influence MeshBypass")
 	}

@@ -56,8 +56,8 @@ type estView struct {
 	savedAt   time.Time
 	connected bool
 
-	flows      *flowTable
-	obs        observerHealth
+	flows      *FlowTable
+	obs        Health
 	flowsDirty bool
 	flowsSaved time.Time
 	// podFlows is this agent's latest per-pod traffic breakdown (FlowBatch.pod_flows), replaced wholesale
@@ -89,7 +89,7 @@ type estView struct {
 }
 
 func newView() *view {
-	return &view{agtView: agtView{self: newSelfRing(selfStatsWindow, func(s SelfStatsSample) time.Time { return s.At })}, estView: estView{state: facts.New(), flows: newFlowTable()}, netView: netView{paths: map[string]*pathTrack{}, targets: map[string]issuedTarget{}}}
+	return &view{agtView: agtView{self: newSelfRing(selfStatsWindow, func(s SelfStatsSample) time.Time { return s.At })}, estView: estView{state: facts.New(), flows: NewFlowTable()}, netView: netView{paths: map[string]*pathTrack{}, targets: map[string]issuedTarget{}}}
 }
 
 type endReason struct {
@@ -570,35 +570,35 @@ func (h *Hub) noteFlows(agentID string, tier int, fb *continuumv1.FlowBatch, now
 		// gives the tier ceiling, extended to a paused collector.
 		return false, nil
 	}
-	dropped, err := sanitizeFlowBatch(fb)
+	dropped, err := SanitizeFlowBatch(fb)
 	if err != nil {
 		return false, err
 	}
 	// A data-integrity backstop independent of sanitizeFlowBatch's own shape checks above: a
 	// physically impossible value (e.g. a saturation percentage outside 0-100) is omitted from just
 	// its own field, never the whole batch - see boundFlowFacts' own doc comment.
-	implausible := boundFlowFacts(fb)
+	implausible := BoundFlowFacts(fb)
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	v := h.views[agentID]
 	if v == nil {
 		return false, nil
 	}
-	if dropped.n > 0 {
-		kernel.Metrics.FlowItemsDropped.Add(int64(dropped.n))
-		if v.obs.noteDropped(dropped.n, now) {
-			h.Log.Warn("flow batch had items the server cannot use; they were dropped, the rest of the batch kept", "agent", agentID, "dropped", dropped.n, "first_reason", dropped.first)
+	if dropped.N > 0 {
+		kernel.Metrics.FlowItemsDropped.Add(int64(dropped.N))
+		if v.obs.NoteDropped(dropped.N, now) {
+			h.Log.Warn("flow batch had items the server cannot use; they were dropped, the rest of the batch kept", "agent", agentID, "dropped", dropped.N, "first_reason", dropped.First)
 		}
 	}
 	if implausible > 0 {
 		kernel.Metrics.ImplausibleFacts.Add(int64(implausible))
-		if now.Sub(v.implausibleLogged) >= refusalEvery {
+		if now.Sub(v.implausibleLogged) >= RefusalEvery {
 			v.implausibleLogged = now
 			h.Log.Warn("flow batch had a physically impossible value; affected field(s) omitted, rest of the batch kept", "agent", agentID, "count", implausible)
 		}
 	}
-	v.flows.apply(fb, now)
-	v.obs.note(fb, now)
+	v.flows.Apply(fb, now)
+	v.obs.Note(fb, now)
 	v.podFlows = fb.PodFlows
 	linkSat := map[string][]*continuumv1.LinkSaturation{}
 	snatExhaustion := map[string]uint64{}
@@ -650,7 +650,7 @@ func (h *Hub) refuseSync(ctx context.Context, a store.Agent, v *view, why error)
 	now := h.C.Now()
 	h.mu.Lock()
 	v.refusal = clipText(why.Error(), 300)
-	record := now.Sub(v.refusalLogged) >= refusalEvery
+	record := now.Sub(v.refusalLogged) >= RefusalEvery
 	if record {
 		v.refusalLogged = now
 	}
@@ -687,18 +687,18 @@ func loadState(data []byte, l facts.Limits) (*facts.State, error) {
 }
 
 // loadFlowTable reads a stored flow table under the limits of a live one.
-func loadFlowTable(data []byte) (*flowTable, error) {
+func loadFlowTable(data []byte) (*FlowTable, error) {
 	if len(data) > facts.MaxBytes {
 		return nil, fmt.Errorf("the stored flow table is %d bytes, over the limit of %d", len(data), facts.MaxBytes)
 	}
-	t, err := unmarshalFlowTable(data)
+	t, err := UnmarshalFlowTable(data)
 	if err != nil {
 		return nil, err
 	}
-	if len(t.edges) > maxFlowEdges {
-		return nil, fmt.Errorf("the stored flow table has %d edges, over the limit of %d", len(t.edges), maxFlowEdges)
+	if len(t.Edges) > MaxFlowEdges {
+		return nil, fmt.Errorf("the stored flow table has %d edges, over the limit of %d", len(t.Edges), MaxFlowEdges)
 	}
-	for _, e := range t.edges {
+	for _, e := range t.Edges {
 		if err := wire.CheckKey(e.Key); err != nil {
 			return nil, err
 		}
@@ -865,7 +865,7 @@ func (h *Hub) noteImplausibleFacts(agentID string, v *view, n int) {
 	kernel.Metrics.ImplausibleFacts.Add(int64(n))
 	now := h.C.Now()
 	h.mu.Lock()
-	record := now.Sub(v.implausibleLogged) >= refusalEvery
+	record := now.Sub(v.implausibleLogged) >= RefusalEvery
 	if record {
 		v.implausibleLogged = now
 	}
@@ -919,7 +919,7 @@ func (h *Hub) persistFlows(ctx context.Context, id string, force bool) {
 		h.mu.Unlock()
 		return
 	}
-	data, err := v.flows.marshal()
+	data, err := v.flows.Marshal()
 	v.flowsSaved, v.flowsDirty = h.C.Now(), false
 	h.mu.Unlock()
 	if err == nil && len(data) > facts.MaxBytes {
@@ -1242,7 +1242,7 @@ func (h *Hub) buildAgentDocs(ctx context.Context, now time.Time) ([]AgentDoc, []
 			if sc := v.state.Cluster.GetScope(); sc != nil {
 				d.Scope = &ScopeDoc{Description: sc.Description, Total: int(sc.NamespacesTotal), InScope: int(sc.NamespacesInScope)}
 			}
-			d.Observer = v.obs.doc(h.C.Now())
+			d.Observer = v.obs.Doc(h.C.Now())
 			if a.Status == store.StatusApproved {
 				d.Diagnostics = v.diagDoc()
 				d.Consent = v.consentDoc()
@@ -1277,7 +1277,7 @@ func (h *Hub) buildTopology(ctx context.Context, agents []store.Agent, now time.
 	eb := newEffectiveBuild(window)
 	topo := model.Topology{Clusters: []model.Cluster{}, Nodes: []model.Node{}, Namespaces: []model.Namespace{}, Services: []model.Service{}, Agents: []model.Agent{}, Suggestions: []model.Suggestion{},
 		Dependencies: []model.Dependency{}, ExternalEndpoints: []model.ExternalEndpoint{}, Paths: []model.Path{}, ClusterLinks: []model.ClusterLink{}, ClusterPairConnectivity: []model.ClusterPairConnectivity{}}
-	var observed, located []observedCluster
+	var observed, located []Cluster
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	showRevoked := h.revokedToShow(agents)
@@ -1319,18 +1319,18 @@ func (h *Hub) buildTopology(ctx context.Context, agents []store.Agent, now time.
 		if revoked {
 			continue // a revoked agent's picture is kept to be shown, and is never used to draw traffic or place anything
 		}
-		oc := observedCluster{id: a.ClusterID, name: a.Name, agentID: a.ID, state: v.state, flows: v.flows, egressIP: publicIP(a.ConnectingIP)}
+		oc := Cluster{ID: a.ClusterID, Name: a.Name, AgentID: a.ID, State: v.state, Flows: v.flows, EgressIP: publicIP(a.ConnectingIP)}
 		located = append(located, oc)
 		if a.AccessTier >= 2 && v.flows != nil {
 			observed = append(observed, oc)
 		}
 	}
 	if len(observed) > 0 {
-		topo.Dependencies, topo.ExternalEndpoints = observedTopology(h.C.OrgID, observed, now, h.StaleFlows())
+		topo.Dependencies, topo.ExternalEndpoints = Topology(h.C.OrgID, observed, now, h.StaleFlows())
 		// Needs every cluster's services already collected into topo.Services above (their Mesh facts
 		// come from each agent's own interpret.Interpret, never seen by observedTopology itself) - see
 		// applyMeshBypassFacts' own doc comment for why this cross-check cannot happen any earlier.
-		applyMeshBypassFacts(topo.Dependencies, topo.Services)
+		ApplyMeshBypassFacts(topo.Dependencies, topo.Services)
 		topo.Suggestions = append(topo.Suggestions, suspicions(h.C.OrgID, observed, located, now)...)
 	}
 	// Needs every cluster's nodes in one list (a tunnel's other end is often in a different cluster, or
@@ -1367,7 +1367,7 @@ func (h *Hub) StaleFlows() time.Duration {
 	if s := h.C.Settings(); s.FlowStaleSeconds > 0 {
 		return time.Duration(s.FlowStaleSeconds) * time.Second
 	}
-	return defaultStaleWindow
+	return DefaultStaleWindow
 }
 
 // publicIP returns ip when it is a public address (the only kind that identifies a cluster from outside).

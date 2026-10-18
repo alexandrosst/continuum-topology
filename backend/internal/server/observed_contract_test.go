@@ -91,12 +91,12 @@ func TestWhatTheAgentCanSendIsAcceptedOrCountedAsDropped(t *testing.T) {
 		t.Fatalf("the aggregator kept %v flows, want %d", b, wantKept+wantDropped)
 	}
 	// A pod flow is a flow that names a pod: the batch carries both, and the same rules apply to both.
-	d, err := sanitizeFlowBatch(b)
+	d, err := SanitizeFlowBatch(b)
 	if err != nil {
 		t.Fatalf("a batch of agent-made flows was refused: %v", err)
 	}
-	if len(b.Flows) != wantKept || len(b.PodFlows) > wantKept || d.n < wantDropped {
-		t.Fatalf("%d flows kept, want %d; %d pod flows; %d dropped (%v), want at least %d", len(b.Flows), wantKept, len(b.PodFlows), d.n, d.first, wantDropped)
+	if len(b.Flows) != wantKept || len(b.PodFlows) > wantKept || d.N < wantDropped {
+		t.Fatalf("%d flows kept, want %d; %d pod flows; %d dropped (%v), want at least %d", len(b.Flows), wantKept, len(b.PodFlows), d.N, d.First, wantDropped)
 	}
 	for _, f := range append(slices.Clone(b.Flows), b.PodFlows...) {
 		if err := wire.Check(f); err != nil || f.Src.Kind == continuumv1.FlowEndpoint_NODE || f.Dst.Kind == continuumv1.FlowEndpoint_NODE {
@@ -106,16 +106,16 @@ func TestWhatTheAgentCanSendIsAcceptedOrCountedAsDropped(t *testing.T) {
 			t.Fatalf("a kept flow carries unbounded text: %d %d %d", len(f.SniHost), len(f.Iface), len(f.DnsQueryNames))
 		}
 	}
-	tb := newFlowTable()
-	tb.apply(b, time.Now())
-	if len(tb.edges) != wantKept {
-		t.Fatalf("%d edges stored, want %d", len(tb.edges), wantKept)
+	tb := NewFlowTable()
+	tb.Apply(b, time.Now())
+	if len(tb.Edges) != wantKept {
+		t.Fatalf("%d edges stored, want %d", len(tb.Edges), wantKept)
 	}
-	data, err := tb.marshal()
+	data, err := tb.Marshal()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if back, err := loadFlowTable(data); err != nil || len(back.edges) != wantKept {
+	if back, err := loadFlowTable(data); err != nil || len(back.Edges) != wantKept {
 		t.Fatalf("the stored table does not load again: %v", err)
 	}
 }
@@ -131,9 +131,9 @@ func TestFlowReferencesAtTheirLimits(t *testing.T) {
 		cs = append(cs, &continuumv1.CollectorInfo{Node: strings.Repeat("n", wire.MaxName-5) + fmt.Sprint(i%10000), Method: "conntrack"})
 	}
 	b := &continuumv1.FlowBatch{WindowSeconds: 24 * 3600, Flows: []*continuumv1.Flow{atLimit, over}, PodFlows: []*continuumv1.Flow{atLimit}, Collectors: cs}
-	d, err := sanitizeFlowBatch(b)
-	if err != nil || d.n != 1 || len(b.Flows) != 1 || len(b.PodFlows) != 1 || len(b.Collectors) != 5000 {
-		t.Fatalf("err %v, dropped %d, %d flows, %d pod flows, %d collectors", err, d.n, len(b.Flows), len(b.PodFlows), len(b.Collectors))
+	d, err := SanitizeFlowBatch(b)
+	if err != nil || d.N != 1 || len(b.Flows) != 1 || len(b.PodFlows) != 1 || len(b.Collectors) != 5000 {
+		t.Fatalf("err %v, dropped %d, %d flows, %d pod flows, %d collectors", err, d.N, len(b.Flows), len(b.PodFlows), len(b.Collectors))
 	}
 }
 

@@ -114,7 +114,7 @@ func overlayNode() *continuumv1.NodeFacts {
 
 func TestOverlayAndPodRangeAddressesAreNeverOfferedButMeshAndHostOnesAre(t *testing.T) {
 	st := &facts.State{Nodes: map[string]*continuumv1.NodeFacts{"n1": overlayNode()}, Cluster: &continuumv1.ClusterFacts{ServiceCidr: "10.43.0.0/16"}}
-	got := linkPeerAddresses(st)
+	got := LinkPeerAddresses(st)
 	for _, bad := range []string{"10.42.2.0", "10.42.3.1", "10.42.2.1", "10.42.2.77"} {
 		if hasAddr(got, bad) {
 			t.Errorf("%s (a CNI device or a pod-range address) was offered: %v", bad, got)
@@ -127,17 +127,17 @@ func TestOverlayAndPodRangeAddressesAreNeverOfferedButMeshAndHostOnesAre(t *test
 	}
 	// Probe-sourced addresses in the service range go too.
 	st.Nodes["n1"].Probe.HostAddresses = append(st.Nodes["n1"].Probe.HostAddresses, &continuumv1.HostAddress{Interface: "eth3", Address: "10.43.0.1/32"})
-	if got := linkPeerAddresses(st); hasAddr(got, "10.43.0.1") {
+	if got := LinkPeerAddresses(st); hasAddr(got, "10.43.0.1") {
 		t.Errorf("a service-range address was offered: %v", got)
 	}
 	// The node's own reported addresses are never tested against the pod ranges: on a flat network the pod range holds them.
 	flat := &facts.State{Nodes: map[string]*continuumv1.NodeFacts{"n1": {InternalIps: []string{"10.0.1.5"}, ExternalIps: []string{"10.0.1.6"}, PodCidrs: []string{"10.0.0.0/16"}}}}
-	if got := linkPeerAddresses(flat); !reflect.DeepEqual(dedupeSorted(got), []string{"10.0.1.5", "10.0.1.6"}) {
+	if got := LinkPeerAddresses(flat); !reflect.DeepEqual(dedupeSorted(got), []string{"10.0.1.5", "10.0.1.6"}) {
 		t.Errorf("flat network: %v", got)
 	}
 	// An IPv4-mapped IPv6 spelling is the IPv4 address.
 	mapped := &facts.State{Nodes: map[string]*continuumv1.NodeFacts{"n1": {InternalIps: []string{"::ffff:192.168.1.10", "192.168.1.10"}}}}
-	if got := dedupeSorted(linkPeerAddresses(mapped)); !reflect.DeepEqual(got, []string{"192.168.1.10"}) {
+	if got := dedupeSorted(LinkPeerAddresses(mapped)); !reflect.DeepEqual(got, []string{"192.168.1.10"}) {
 		t.Errorf("mapped: %v", got)
 	}
 

@@ -25,13 +25,13 @@ import (
 // ---- what the server keeps: totals per distinct edge, per agent ----
 
 const (
-	maxFlowEdges     = 20000
+	MaxFlowEdges     = 20000
 	maxFlowsPerBatch = 5000
 	// defaultStaleWindow only applies before any settings have ever been saved for an org (Core.Settings
 	// falls back to DefaultSettings, whose FlowStaleSeconds already matches this); kept as a named
 	// constant so this file's own tests can exercise observedTopology's staleness math without pulling
 	// in the settings package.
-	defaultStaleWindow = 5 * time.Minute
+	DefaultStaleWindow = 5 * time.Minute
 	// How long a newly-observed external address is withheld from the topology while its identity is
 	// still unknown, giving netid.ResolveCached/ResolveASNCached (both async, both kicked off as soon as
 	// this address is first seen) a chance to land before it's ever shown. Without this, a brand-new
@@ -44,11 +44,11 @@ const (
 	unmatchedGrace = 12 * time.Second
 )
 
-type flowTable struct {
-	edges map[string]*continuumv1.FlowEdge
+type FlowTable struct {
+	Edges map[string]*continuumv1.FlowEdge
 }
 
-func newFlowTable() *flowTable { return &flowTable{edges: map[string]*continuumv1.FlowEdge{}} }
+func NewFlowTable() *FlowTable { return &FlowTable{Edges: map[string]*continuumv1.FlowEdge{}} }
 
 func endpointKey(e *continuumv1.FlowEndpoint) string {
 	if e.Kind == continuumv1.FlowEndpoint_EXTERNAL {
@@ -57,7 +57,7 @@ func endpointKey(e *continuumv1.FlowEndpoint) string {
 	return fmt.Sprintf("%d:%s", e.Kind, e.Ref)
 }
 
-func flowKey(f *continuumv1.Flow) string {
+func FlowKey(f *continuumv1.Flow) string {
 	return endpointKey(f.Src) + ">" + endpointKey(f.Dst) + fmt.Sprintf("/%s:%d", f.Protocol, f.Port)
 }
 
@@ -70,14 +70,14 @@ const maxPodFlowsPerBatch = 4000
 var errNodeLevel = errors.New("a node-level flow cannot become a dependency")
 
 // droppedItems is what sanitizeFlowBatch removed from one batch: how many, and the first reason, for the log.
-type droppedItems struct {
-	n     int
-	first error
+type DroppedItems struct {
+	N     int
+	First error
 }
 
-func (d *droppedItems) note(err error) {
-	if d.n++; d.first == nil {
-		d.first = err
+func (d *DroppedItems) note(err error) {
+	if d.N++; d.First == nil {
+		d.First = err
 	}
 }
 
@@ -89,7 +89,7 @@ func (d *droppedItems) note(err error) {
 // Flows with a NODE end (a node-level process or hostNetwork pod the agent could not pin to a pod) are well-formed
 // but are dropped and counted too: no dependency is derived from them (see observedTopology), so storing them would
 // only spend the edge budget.
-func sanitizeFlowBatch(b *continuumv1.FlowBatch) (d droppedItems, err error) {
+func SanitizeFlowBatch(b *continuumv1.FlowBatch) (d DroppedItems, err error) {
 	if len(b.Flows) > maxFlowsPerBatch || len(b.PodFlows) > maxPodFlowsPerBatch || len(b.Collectors) > 5000 ||
 		b.WindowSeconds < 1 || b.WindowSeconds > 24*3600 {
 		return d, errors.New("flow batch is malformed")
@@ -127,7 +127,7 @@ func sanitizeFlowBatch(b *continuumv1.FlowBatch) (d droppedItems, err error) {
 // ThroughputBps on the same entry are left untouched, and the percentage is nulled - the same "not
 // reported" the field already uses when the interface's rated speed could not be read at all - never
 // clamped to 100, which would report a saturation level nothing actually measured.
-func boundFlowFacts(b *continuumv1.FlowBatch) int {
+func BoundFlowFacts(b *continuumv1.FlowBatch) int {
 	n := 0
 	for _, c := range b.Collectors {
 		if c == nil {
@@ -155,18 +155,18 @@ func satAdd(a, b uint64) uint64 {
 	return math.MaxUint64
 }
 
-func (t *flowTable) apply(b *continuumv1.FlowBatch, now time.Time) {
+func (t *FlowTable) Apply(b *continuumv1.FlowBatch, now time.Time) {
 	// One batch, one instant: every edge touched by this call - new or existing, however many flows the
 	// batch carries - shares the exact same timestamp, so there is no need for a fresh *timestamppb.
 	// Timestamp allocation per flow. Nothing here ever mutates a Timestamp in place (every reader goes through
 	// AsTime()), so sharing the pointer across however many FlowEdges this call touches is safe.
 	nowPb := timestamppb.New(now)
 	for _, f := range b.Flows {
-		k := flowKey(f)
-		e := t.edges[k]
+		k := FlowKey(f)
+		e := t.Edges[k]
 		if e == nil {
 			e = &continuumv1.FlowEdge{Key: &continuumv1.Flow{Src: f.Src, Dst: f.Dst, Port: f.Port, Protocol: f.Protocol, Method: f.Method}, FirstSeen: nowPb}
-			t.edges[k] = e
+			t.Edges[k] = e
 		}
 		e.LastSeen = nowPb
 		e.Connections = satAdd(e.Connections, f.Connections)
@@ -184,41 +184,41 @@ func (t *flowTable) apply(b *continuumv1.FlowBatch, now time.Time) {
 		wire.MergeGauges(e.Key, f)
 		e.DnsQueryNames = wire.MergeDNSNames(e.DnsQueryNames, f.DnsQueryNames)
 	}
-	if over := len(t.edges) - maxFlowEdges; over > 0 { // forget the `over` edges unseen for longest
+	if over := len(t.Edges) - MaxFlowEdges; over > 0 { // forget the `over` edges unseen for longest
 		for _, k := range wire.Oldest(over, func(yield func(string, int64) bool) {
-			for k, e := range t.edges {
+			for k, e := range t.Edges {
 				if !yield(k, e.LastSeen.AsTime().UnixNano()) {
 					return
 				}
 			}
 		}) {
-			delete(t.edges, k)
+			delete(t.Edges, k)
 		}
 	}
 }
 
-func (t *flowTable) marshal() ([]byte, error) {
+func (t *FlowTable) Marshal() ([]byte, error) {
 	m := &continuumv1.FlowTable{}
-	keys := make([]string, 0, len(t.edges))
-	for k := range t.edges {
+	keys := make([]string, 0, len(t.Edges))
+	for k := range t.Edges {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 	for _, k := range keys {
-		m.Edges = append(m.Edges, t.edges[k])
+		m.Edges = append(m.Edges, t.Edges[k])
 	}
 	return proto.Marshal(m)
 }
 
-func unmarshalFlowTable(b []byte) (*flowTable, error) {
+func UnmarshalFlowTable(b []byte) (*FlowTable, error) {
 	var m continuumv1.FlowTable
 	if err := proto.Unmarshal(b, &m); err != nil {
 		return nil, err
 	}
-	t := newFlowTable()
+	t := NewFlowTable()
 	for _, e := range m.Edges {
 		if e.Key != nil && e.Key.Src != nil && e.Key.Dst != nil && e.FirstSeen != nil && e.LastSeen != nil {
-			t.edges[flowKey(e.Key)] = e
+			t.Edges[FlowKey(e.Key)] = e
 		}
 	}
 	return t, nil
@@ -227,16 +227,16 @@ func unmarshalFlowTable(b []byte) (*flowTable, error) {
 // ---- turning edges into dependencies, across clusters ----
 
 // observedCluster is one onboarded cluster as far as traffic resolution is concerned.
-type observedCluster struct {
-	id, name, agentID string
-	state             *facts.State
-	flows             *flowTable
-	egressIP          string
+type Cluster struct {
+	ID, Name, AgentID string
+	State             *facts.State
+	Flows             *FlowTable
+	EgressIP          string
 }
 
 type target struct{ cluster, workload string }
 
-type addrIndex struct {
+type AddrIndex struct {
 	reach   map[string][]target // "ip:port" of a load balancer or external IP -> workload
 	nodeIPs map[string][]string // node address -> clusters
 	// nodePorts is "this cluster's own node's port" -> workload: a port reachable on any address one of
@@ -314,7 +314,7 @@ func nodeAddresses(st *facts.State) []string {
 // itself applies to HostAddresses) or when it lies in a pod or service range of the cluster. The InternalIps and ExternalIps
 // are never tested against the pod ranges: on a flat network (VPC CNI, Azure CNI) the pod range contains the nodes' own
 // addresses, and filtering them would empty the list. A WireGuard mesh device (wt0, wg0) stays.
-func linkPeerAddresses(st *facts.State) []string {
+func LinkPeerAddresses(st *facts.State) []string {
 	if st == nil {
 		return nil
 	}
@@ -381,27 +381,27 @@ func linkPeerAddresses(st *facts.State) []string {
 	return out
 }
 
-func buildAddrIndex(cs []observedCluster) *addrIndex {
-	ix := &addrIndex{reach: map[string][]target{}, nodeIPs: map[string][]string{}, nodePorts: map[string]map[int32][]string{}, egress: map[string][]string{}}
+func BuildAddrIndex(cs []Cluster) *AddrIndex {
+	ix := &AddrIndex{reach: map[string][]target{}, nodeIPs: map[string][]string{}, nodePorts: map[string]map[int32][]string{}, egress: map[string][]string{}}
 	for _, c := range cs {
-		if c.egressIP != "" {
-			ix.egress[c.egressIP] = append(ix.egress[c.egressIP], c.id)
+		if c.EgressIP != "" {
+			ix.egress[c.EgressIP] = append(ix.egress[c.EgressIP], c.ID)
 		}
 		// A node's own addresses, including its overlay/tunnel ones - see nodeAddresses for why the tunnel ones count.
-		for _, ip := range nodeAddresses(c.state) {
-			ix.nodeIPs[ip] = append(ix.nodeIPs[ip], c.id)
+		for _, ip := range nodeAddresses(c.State) {
+			ix.nodeIPs[ip] = append(ix.nodeIPs[ip], c.ID)
 		}
-		for _, w := range c.state.Workloads {
+		for _, w := range c.State.Workloads {
 			for _, a := range w.Reachable {
 				switch a.Kind {
 				case "node-port":
-					if ix.nodePorts[c.id] == nil {
-						ix.nodePorts[c.id] = map[int32][]string{}
+					if ix.nodePorts[c.ID] == nil {
+						ix.nodePorts[c.ID] = map[int32][]string{}
 					}
-					ix.nodePorts[c.id][a.Port] = append(ix.nodePorts[c.id][a.Port], w.Key)
+					ix.nodePorts[c.ID][a.Port] = append(ix.nodePorts[c.ID][a.Port], w.Key)
 				case "load-balancer":
 					k := fmt.Sprintf("%s:%d", a.Ip, a.Port)
-					ix.reach[k] = append(ix.reach[k], target{c.id, w.Key})
+					ix.reach[k] = append(ix.reach[k], target{c.ID, w.Key})
 					// A load balancer's reported ingress address is not always the only address its
 					// port is actually reachable on. k3s's built-in ServiceLB (klipper-lb) and other
 					// host-network-bound implementations report one of the cluster's own node
@@ -418,15 +418,15 @@ func buildAddrIndex(cs []observedCluster) *addrIndex {
 					// two would let an unrelated connection that merely happens to reach some node on
 					// a VIP's port number be misattributed to that VIP's workload, which an exact-IP
 					// mismatch should instead leave unresolved.
-					if slices.Contains(ix.nodeIPs[a.Ip], c.id) {
-						if ix.nodePorts[c.id] == nil {
-							ix.nodePorts[c.id] = map[int32][]string{}
+					if slices.Contains(ix.nodeIPs[a.Ip], c.ID) {
+						if ix.nodePorts[c.ID] == nil {
+							ix.nodePorts[c.ID] = map[int32][]string{}
 						}
-						ix.nodePorts[c.id][a.Port] = append(ix.nodePorts[c.id][a.Port], w.Key)
+						ix.nodePorts[c.ID][a.Port] = append(ix.nodePorts[c.ID][a.Port], w.Key)
 					}
 				default:
 					k := fmt.Sprintf("%s:%d", a.Ip, a.Port)
-					ix.reach[k] = append(ix.reach[k], target{c.id, w.Key})
+					ix.reach[k] = append(ix.reach[k], target{c.ID, w.Key})
 				}
 			}
 		}
@@ -493,7 +493,7 @@ func dbPort(p uint32) bool {
 // traffic to be intercepted. Run once, after every cluster's services and every observed dependency are
 // both in hand (see hub.go's buildTopology) - observedTopology itself never sees a model.Service at all,
 // only raw flow edges, and must not guess.
-func applyMeshBypassFacts(deps []model.Dependency, services []model.Service) {
+func ApplyMeshBypassFacts(deps []model.Dependency, services []model.Service) {
 	byID := make(map[string]*model.Service, len(services))
 	for i := range services {
 		byID[services[i].ID] = &services[i]
@@ -521,11 +521,11 @@ func applyMeshBypassFacts(deps []model.Dependency, services []model.Service) {
 	}
 }
 
-func observedTopology(org string, cs []observedCluster, now time.Time, stale time.Duration) ([]model.Dependency, []model.ExternalEndpoint) {
-	ix := buildAddrIndex(cs)
-	byID := map[string]*observedCluster{}
+func Topology(org string, cs []Cluster, now time.Time, stale time.Duration) ([]model.Dependency, []model.ExternalEndpoint) {
+	ix := BuildAddrIndex(cs)
+	byID := map[string]*Cluster{}
 	for i := range cs {
-		byID[cs[i].id] = &cs[i]
+		byID[cs[i].ID] = &cs[i]
 	}
 	deps := map[string]*model.Dependency{}
 	exts := map[string]model.ExternalEndpoint{}
@@ -655,7 +655,7 @@ func observedTopology(org string, cs []observedCluster, now time.Time, stale tim
 	}
 	serviceOf := func(cluster, key string) (string, bool) {
 		c := byID[cluster]
-		if c == nil || c.state.Workloads[key] == nil {
+		if c == nil || c.State.Workloads[key] == nil {
 			return "", false
 		}
 		return interpret.ServiceID(cluster, key), true
@@ -703,7 +703,7 @@ func observedTopology(org string, cs []observedCluster, now time.Time, stale tim
 	}
 
 	type pending struct {
-		c *observedCluster
+		c *Cluster
 		e *continuumv1.FlowEdge
 	}
 	var inbound []pending
@@ -832,7 +832,7 @@ func observedTopology(org string, cs []observedCluster, now time.Time, stale tim
 
 	for i := range cs {
 		c := &cs[i]
-		for _, e := range c.flows.edges {
+		for _, e := range c.Flows.Edges {
 			if e.Key.Src.Kind == continuumv1.FlowEndpoint_EXTERNAL {
 				inbound = append(inbound, pending{c, e})
 				continue
@@ -840,37 +840,37 @@ func observedTopology(org string, cs []observedCluster, now time.Time, stale tim
 			// A NODE-kind source (a node-level process, or a hostNetwork pod resolve.go could not pin to a pod)
 			// is not a workload and never matches serviceOf. New ones are dropped, and counted, on arrival
 			// (sanitizeFlowBatch); a table stored by an older server may still hold some, which end up here.
-			from, ok := serviceOf(c.id, e.Key.Src.Ref)
+			from, ok := serviceOf(c.ID, e.Key.Src.Ref)
 			if !ok {
 				continue
 			}
 			switch e.Key.Dst.Kind {
 			case continuumv1.FlowEndpoint_WORKLOAD:
-				if to, ok := serviceOf(c.id, e.Key.Dst.Ref); ok {
+				if to, ok := serviceOf(c.ID, e.Key.Dst.Ref); ok {
 					add(from, "service", to, "service", e, false, "")
 				}
 			case continuumv1.FlowEndpoint_EXTERNAL:
 				ip := e.Key.Dst.Ip
-				if t, note, ok := resolveExternal(c.id, ip, e.Key.Port); ok {
+				if t, note, ok := resolveExternal(c.ID, ip, e.Key.Port); ok {
 					if to, ok := serviceOf(t.cluster, t.workload); ok {
-						cross := t.cluster != c.id
+						cross := t.cluster != c.ID
 						add(from, "service", to, "service", e, cross, note)
 						if cross {
-							outboundTo[c.id+">"+to] = true
+							outboundTo[c.ID+">"+to] = true
 						}
 						continue
 					}
 				} else if note != "" {
-					if id, ready := external(c.agentID, ip, e.Key.Port, note, e.FirstSeen.AsTime()); ready {
+					if id, ready := external(c.AgentID, ip, e.Key.Port, note, e.FirstSeen.AsTime()); ready {
 						add(from, "service", id, "external", e, false, note)
 					}
 					continue
 				}
 				what := ""
-				if cl, ok := clusterOfAddr(ip); ok && cl != c.id {
-					what = "address belongs to cluster " + byID[cl].name
+				if cl, ok := clusterOfAddr(ip); ok && cl != c.ID {
+					what = "address belongs to cluster " + byID[cl].Name
 				}
-				if id, ready := external(c.agentID, ip, e.Key.Port, what, e.FirstSeen.AsTime()); ready {
+				if id, ready := external(c.AgentID, ip, e.Key.Port, what, e.FirstSeen.AsTime()); ready {
 					add(from, "service", id, "external", e, false, what)
 				}
 			}
@@ -880,22 +880,22 @@ func observedTopology(org string, cs []observedCluster, now time.Time, stale tim
 	// agent already reported the outbound edge to this workload, that edge is the better description
 	// (it names the calling workload), so the inbound record is not added a second time.
 	for _, p := range inbound {
-		to, ok := serviceOf(p.c.id, p.e.Key.Dst.Ref)
+		to, ok := serviceOf(p.c.ID, p.e.Key.Dst.Ref)
 		if !ok {
 			continue
 		}
 		ip := p.e.Key.Src.Ip
-		if cl, ok := clusterOfAddr(ip); ok && cl != p.c.id {
+		if cl, ok := clusterOfAddr(ip); ok && cl != p.c.ID {
 			// outboundTo is already keyed exactly "cl>to" - a direct lookup, not a scan over every entry.
 			if outboundTo[cl+">"+to] {
 				continue
 			}
-			if id, ready := external(p.c.agentID, ip, 0, "address belongs to cluster "+byID[cl].name, p.e.FirstSeen.AsTime()); ready {
+			if id, ready := external(p.c.AgentID, ip, 0, "address belongs to cluster "+byID[cl].Name, p.e.FirstSeen.AsTime()); ready {
 				add(id, "external", to, "service", p.e, true, "caller identified only as a cluster, by its address")
 			}
 			continue
 		}
-		if id, ready := external(p.c.agentID, ip, 0, "", p.e.FirstSeen.AsTime()); ready {
+		if id, ready := external(p.c.AgentID, ip, 0, "", p.e.FirstSeen.AsTime()); ready {
 			add(id, "external", to, "service", p.e, false, "")
 		}
 	}
@@ -941,7 +941,7 @@ type ObserverDoc struct {
 	Dropped uint64 `json:"dropped"`
 }
 
-type observerHealth struct {
+type Health struct {
 	at         time.Time
 	collectors []*continuumv1.CollectorInfo
 	lost       uint64
@@ -952,21 +952,21 @@ type observerHealth struct {
 }
 
 // noteDropped counts n dropped items and reports whether this is a time to log them (at most once per refusalEvery).
-func (o *observerHealth) noteDropped(n int, now time.Time) bool {
+func (o *Health) NoteDropped(n int, now time.Time) bool {
 	o.dropped += uint64(n)
-	if now.Sub(o.droppedLogged) < refusalEvery {
+	if now.Sub(o.droppedLogged) < RefusalEvery {
 		return false
 	}
 	o.droppedLogged = now
 	return true
 }
 
-func (o *observerHealth) note(b *continuumv1.FlowBatch, now time.Time) {
+func (o *Health) Note(b *continuumv1.FlowBatch, now time.Time) {
 	o.at, o.collectors = now, b.Collectors
 	o.lost += b.Lost
 }
 
-func (o *observerHealth) doc(now time.Time) *ObserverDoc {
+func (o *Health) Doc(now time.Time) *ObserverDoc {
 	if o.at.IsZero() {
 		return nil
 	}
@@ -981,7 +981,7 @@ func (o *observerHealth) doc(now time.Time) *ObserverDoc {
 }
 
 // clusterOf says which onboarded cluster an address belongs to, when that is unambiguous.
-func (ix *addrIndex) clusterOf(ip string, port int) string {
+func (ix *AddrIndex) ClusterOf(ip string, port int) string {
 	if ts := ix.reach[fmt.Sprintf("%s:%d", ip, port)]; len(ts) > 0 {
 		c := ts[0].cluster
 		for _, t := range ts {
@@ -1002,4 +1002,4 @@ func (ix *addrIndex) clusterOf(ip string, port int) string {
 
 // refusalEvery is how often one agent's refused messages are written to the audit trail and the event list;
 // an agent that keeps sending the same thing would otherwise fill both.
-const refusalEvery = 10 * time.Minute
+const RefusalEvery = 10 * time.Minute

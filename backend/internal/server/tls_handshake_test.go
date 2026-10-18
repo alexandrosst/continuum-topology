@@ -12,12 +12,12 @@ import (
 // ClientHello seen that window) must never clobber a real decided outcome already recorded.
 func TestFlowTableCarriesTlsHandshake(t *testing.T) {
 	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
-	tbl := newFlowTable()
+	tbl := NewFlowTable()
 	src, dst := wep("a/Deployment/x"), wep("a/Deployment/y")
 	f1 := &continuumv1.Flow{Src: src, Dst: dst, Port: 443, Protocol: "tcp", Method: "ebpf", TlsHandshake: continuumv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_OK}
-	tbl.apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f1}}, now)
-	k := flowKey(f1)
-	e := tbl.edges[k]
+	tbl.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f1}}, now)
+	k := FlowKey(f1)
+	e := tbl.Edges[k]
 	if e == nil {
 		t.Fatal("edge not recorded")
 	}
@@ -26,16 +26,16 @@ func TestFlowTableCarriesTlsHandshake(t *testing.T) {
 	}
 	// A later report whose own connection's handshake instead failed replaces the gauge.
 	f2 := &continuumv1.Flow{Src: src, Dst: dst, Port: 443, Protocol: "tcp", Method: "ebpf", TlsHandshake: continuumv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_FAILED}
-	tbl.apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f2}}, now.Add(time.Minute))
-	e = tbl.edges[k]
+	tbl.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f2}}, now.Add(time.Minute))
+	e = tbl.Edges[k]
 	if e.Key.TlsHandshake != continuumv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_FAILED {
 		t.Errorf("tlsHandshake after second report = %v, want FAILED", e.Key.TlsHandshake)
 	}
 	// A report with no ClientHello seen this window (UNKNOWN, the zero value) must not erase the last
 	// decided outcome - exactly the same "0 means no sample" rule MssBytes/RttUs already follow.
 	f3 := &continuumv1.Flow{Src: src, Dst: dst, Port: 443, Protocol: "tcp", Method: "ebpf"}
-	tbl.apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f3}}, now.Add(2*time.Minute))
-	e = tbl.edges[k]
+	tbl.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f3}}, now.Add(2*time.Minute))
+	e = tbl.Edges[k]
 	if e.Key.TlsHandshake != continuumv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_FAILED {
 		t.Errorf("tlsHandshake after UNKNOWN-sample report = %v, want unchanged FAILED", e.Key.TlsHandshake)
 	}
@@ -50,7 +50,7 @@ func TestDependencyStatsIncludeTlsHandshake(t *testing.T) {
 	f := &continuumv1.Flow{Src: wep(x), Dst: wep(y), Port: 443, Protocol: "tcp", Connections: 1, Method: "ebpf", TlsHandshake: continuumv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_FAILED}
 	feed(&c, now, 60, f)
 
-	deps, _ := observedTopology("org", []observedCluster{c}, now, 24*time.Hour)
+	deps, _ := Topology("org", []Cluster{c}, now, 24*time.Hour)
 	d := findDep(deps, 443)
 	if d == nil {
 		t.Fatal("dependency not found")
@@ -70,7 +70,7 @@ func TestDependencyStatsLeaveTlsHandshakeUnsetWhenUnknown(t *testing.T) {
 	f := &continuumv1.Flow{Src: wep(x), Dst: wep(y), Port: 443, Protocol: "tcp", Connections: 1, Method: "ebpf"}
 	feed(&c, now, 60, f)
 
-	deps, _ := observedTopology("org", []observedCluster{c}, now, 24*time.Hour)
+	deps, _ := Topology("org", []Cluster{c}, now, 24*time.Hour)
 	d := findDep(deps, 443)
 	if d == nil {
 		t.Fatal("dependency not found")

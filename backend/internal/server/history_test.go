@@ -357,15 +357,15 @@ func TestReportConsistencyStoresAWarningOnlyWhenSomethingDiffers(t *testing.T) {
 
 // ---- measurements ----
 
-func extEdge(ft *flowTable, src, dstIP string, port uint32, proto string, conns uint64, noise string) {
+func extEdge(ft *FlowTable, src, dstIP string, port uint32, proto string, conns uint64, noise string) {
 	f := flowOf(wep(src), xep(dstIP), port, conns)
 	f.Protocol = proto
 	f.Noise = noise
-	ft.apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f}}, time.Now())
+	ft.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f}}, time.Now())
 }
 
 func TestDeriveTargetsPicksBusiestSafeTCPDestinations(t *testing.T) {
-	ft := newFlowTable()
+	ft := NewFlowTable()
 	w := "ns/Deployment/a"
 	extEdge(ft, w, "198.51.100.10", 443, "tcp", 50, "")
 	extEdge(ft, w, "198.51.100.11", 5432, "tcp", 5, "")
@@ -383,7 +383,7 @@ func TestDeriveTargetsPicksBusiestSafeTCPDestinations(t *testing.T) {
 	if deriveTargets(nil) != nil {
 		t.Fatal("nil table")
 	}
-	big := newFlowTable()
+	big := NewFlowTable()
 	for i := 0; i < 40; i++ {
 		extEdge(big, w, "198.51.100."+itoa(int64(i+1)), 443, "tcp", uint64(i+1), "")
 	}
@@ -449,7 +449,7 @@ func TestConfigForIssuesManualAndObservedTargetsByTier(t *testing.T) {
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	v := &view{estView: estView{state: facts.New(), flows: newFlowTable()}, netView: netView{paths: map[string]*pathTrack{"stale": {}}, targets: map[string]issuedTarget{}}}
+	v := &view{estView: estView{state: facts.New(), flows: NewFlowTable()}, netView: netView{paths: map[string]*pathTrack{"stale": {}}, targets: map[string]issuedTarget{}}}
 	extEdge(v.flows, "ns/Deployment/a", "198.51.100.10", 443, "tcp", 20, "")
 
 	a.AccessTier = 1 // flows come from pods; tier 1 does not cover them
@@ -473,7 +473,7 @@ func TestConfigForIssuesManualAndObservedTargetsByTier(t *testing.T) {
 	if _, err := r.core.SaveSettings(r.ctx, "alex", kernel.Settings{}); err != nil {
 		t.Fatal(err)
 	}
-	bare := &view{estView: estView{state: facts.New(), flows: newFlowTable()}, netView: netView{paths: map[string]*pathTrack{}, targets: map[string]issuedTarget{}}}
+	bare := &view{estView: estView{state: facts.New(), flows: NewFlowTable()}, netView: netView{paths: map[string]*pathTrack{}, targets: map[string]issuedTarget{}}}
 	if cfg = r.hub.configFor(a, bare); cfg.MeasureSeconds != 0 || len(cfg.ProbeTargets) != 0 {
 		t.Fatalf("empty config = %+v", cfg)
 	}
@@ -495,8 +495,8 @@ func TestSuspicionsFromKubernetesPortsAndSharedNetworks(t *testing.T) {
 		flowOf(wep(w), xep("10.0.0.77"), 5432, 40),       // a machine in the nodes' network
 		flowOf(wep(w), xep("10.0.0.78"), 5432, 3),        // too little traffic to mention
 	)
-	all := []observedCluster{home, known}
-	got := suspicions("org-1", []observedCluster{home}, all, now)
+	all := []Cluster{home, known}
+	got := suspicions("org-1", []Cluster{home}, all, now)
 	var cluster198, machine10 bool
 	for _, s := range got {
 		if s.Kind != "infrastructure" || !strings.HasPrefix(s.ID, "sg-unk-") || s.Status != "open" {
@@ -517,7 +517,7 @@ func TestSuspicionsFromKubernetesPortsAndSharedNetworks(t *testing.T) {
 	if !cluster198 || !machine10 || len(got) != 2 {
 		t.Fatalf("got %d suspicions: cluster=%v machine=%v", len(got), cluster198, machine10)
 	}
-	again := suspicions("org-1", []observedCluster{home}, all, now.Add(time.Hour))
+	again := suspicions("org-1", []Cluster{home}, all, now.Add(time.Hour))
 	if len(again) != len(got) || again[0].ID != got[0].ID {
 		t.Fatal("suspicion ids are not stable")
 	}
@@ -532,7 +532,7 @@ func TestOnboardedClusterAddressesAreNeverSuspicious(t *testing.T) {
 	home := cluster("home", "", nil, wk("app", "Deployment", "api"))
 	peer := cluster("peer", "198.51.100.200", []*continuumv1.NodeFacts{{Key: "p", InternalIps: []string{"198.51.100.60"}}})
 	feed(&home, now, 60, flowOf(wep(w), xep("198.51.100.60"), 6443, 50), flowOf(wep(w), xep("198.51.100.200"), 6443, 50))
-	if got := suspicions("org-1", []observedCluster{home}, []observedCluster{home, peer}, now); len(got) != 0 {
+	if got := suspicions("org-1", []Cluster{home}, []Cluster{home, peer}, now); len(got) != 0 {
 		t.Fatalf("known clusters were suspected: %+v", got)
 	}
 }
@@ -545,7 +545,7 @@ func liveView(now time.Time, nodes ...string) *view {
 	for _, n := range nodes {
 		st.Nodes[n] = &continuumv1.NodeFacts{Key: n, Name: n, Ready: true}
 	}
-	return &view{estView: estView{state: st, lastSync: now, lastBeat: now, flows: newFlowTable()}, netView: netView{paths: map[string]*pathTrack{}, targets: map[string]issuedTarget{}}}
+	return &view{estView: estView{state: st, lastSync: now, lastBeat: now, flows: NewFlowTable()}, netView: netView{paths: map[string]*pathTrack{}, targets: map[string]issuedTarget{}}}
 }
 
 func TestRecorderStoresSnapshotsAndEventsOnlyForRealChanges(t *testing.T) {

@@ -20,13 +20,13 @@ func u32p(v uint32) *uint32 { return &v }
 // that truly carries no sample at all (the pointer itself nil, not the value 0) may leave the gauge alone.
 func TestFlowTableCarriesRcvWndBytes(t *testing.T) {
 	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
-	tbl := newFlowTable()
+	tbl := NewFlowTable()
 	src, dst := wep("a/Deployment/x"), wep("a/Deployment/y")
 
 	f1 := &continuumv1.Flow{Src: src, Dst: dst, Port: 5432, Protocol: "tcp", Method: "ebpf", RcvWndBytes: u32p(65535)}
-	tbl.apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f1}}, now)
-	k := flowKey(f1)
-	e := tbl.edges[k]
+	tbl.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f1}}, now)
+	k := FlowKey(f1)
+	e := tbl.Edges[k]
 	if e == nil {
 		t.Fatal("edge not recorded")
 	}
@@ -38,8 +38,8 @@ func TestFlowTableCarriesRcvWndBytes(t *testing.T) {
 	// the previous 65535 reading: that is the entire point of this field existing. Before this fix, the
 	// guard pattern treated a zero sample as if it were "no sample" and silently kept the stale 65535.
 	f2 := &continuumv1.Flow{Src: src, Dst: dst, Port: 5432, Protocol: "tcp", Method: "ebpf", RcvWndBytes: u32p(0)}
-	tbl.apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f2}}, now.Add(time.Minute))
-	e = tbl.edges[k]
+	tbl.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f2}}, now.Add(time.Minute))
+	e = tbl.Edges[k]
 	if e.Key.RcvWndBytes == nil {
 		t.Fatal("rcvWndBytes after zero-window report = nil, want a real sample of 0")
 	}
@@ -51,8 +51,8 @@ func TestFlowTableCarriesRcvWndBytes(t *testing.T) {
 	// eBPF snapshot ran this window) must leave the last real sample - the 0 above - exactly as it was:
 	// absence must never read as, or overwrite into, a measured value in either direction.
 	f3 := &continuumv1.Flow{Src: src, Dst: dst, Port: 5432, Protocol: "tcp", Method: "ebpf"}
-	tbl.apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f3}}, now.Add(2*time.Minute))
-	e = tbl.edges[k]
+	tbl.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f3}}, now.Add(2*time.Minute))
+	e = tbl.Edges[k]
 	if e.Key.RcvWndBytes == nil || *e.Key.RcvWndBytes != 0 {
 		t.Errorf("rcvWndBytes after a report with no sample = %v, want unchanged 0", e.Key.RcvWndBytes)
 	}
@@ -68,7 +68,7 @@ func TestDependencyStatsIncludeRcvWndBytes(t *testing.T) {
 	f := &continuumv1.Flow{Src: wep(x), Dst: wep(y), Port: 5432, Protocol: "tcp", Connections: 1, Method: "ebpf", RcvWndBytes: u32p(0)}
 	feed(&c, now, 60, f)
 
-	deps, _ := observedTopology("org", []observedCluster{c}, now, 24*time.Hour)
+	deps, _ := Topology("org", []Cluster{c}, now, 24*time.Hour)
 	d := findDep(deps, 5432)
 	if d == nil {
 		t.Fatal("dependency not found")
@@ -92,7 +92,7 @@ func TestDependencyStatsOmitRcvWndBytesWhenNeverSampled(t *testing.T) {
 	f := &continuumv1.Flow{Src: wep(x), Dst: wep(y), Port: 5432, Protocol: "tcp", Connections: 1, Method: "ebpf"}
 	feed(&c, now, 60, f)
 
-	deps, _ := observedTopology("org", []observedCluster{c}, now, 24*time.Hour)
+	deps, _ := Topology("org", []Cluster{c}, now, 24*time.Hour)
 	d := findDep(deps, 5432)
 	if d == nil {
 		t.Fatal("dependency not found")
@@ -107,13 +107,13 @@ func TestDependencyStatsOmitRcvWndBytesWhenNeverSampled(t *testing.T) {
 // zero-byte sample must overwrite a prior nonzero backlog reading rather than being silently skipped.
 func TestFlowTableCarriesWmemQueuedBytes(t *testing.T) {
 	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
-	tbl := newFlowTable()
+	tbl := NewFlowTable()
 	src, dst := wep("a/Deployment/x"), wep("a/Deployment/y")
 
 	f1 := &continuumv1.Flow{Src: src, Dst: dst, Port: 5432, Protocol: "tcp", Method: "ebpf", WmemQueuedBytes: u32p(4096), SndbufBytes: u32p(4096)}
-	tbl.apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f1}}, now)
-	k := flowKey(f1)
-	e := tbl.edges[k]
+	tbl.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f1}}, now)
+	k := FlowKey(f1)
+	e := tbl.Edges[k]
 	if e == nil {
 		t.Fatal("edge not recorded")
 	}
@@ -124,8 +124,8 @@ func TestFlowTableCarriesWmemQueuedBytes(t *testing.T) {
 	// The write queue drains to 0 - a real, common, healthy sample, which must replace the stale backlog
 	// reading rather than being skipped because it looks like "no sample".
 	f2 := &continuumv1.Flow{Src: src, Dst: dst, Port: 5432, Protocol: "tcp", Method: "ebpf", WmemQueuedBytes: u32p(0)}
-	tbl.apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f2}}, now.Add(time.Minute))
-	e = tbl.edges[k]
+	tbl.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f2}}, now.Add(time.Minute))
+	e = tbl.Edges[k]
 	if e.Key.WmemQueuedBytes == nil || *e.Key.WmemQueuedBytes != 0 {
 		t.Errorf("wmemQueuedBytes after a drained-queue report = %v, want a real sample of 0", e.Key.WmemQueuedBytes)
 	}

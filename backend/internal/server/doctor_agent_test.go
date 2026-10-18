@@ -87,12 +87,12 @@ func doctorAgentToServer(t *testing.T) {
 		if err := proto.Unmarshal(wireBytes, &arrived); err != nil {
 			t.Fatal(err)
 		}
-		dropped, err := sanitizeFlowBatch(&arrived)
+		dropped, err := SanitizeFlowBatch(&arrived)
 		if err != nil {
 			t.Fatalf("the batch an agent sent is refused, which ends its stream: %v", err)
 		}
-		if dropped.n != wantDropped {
-			t.Errorf("%d items dropped (%v), want %d: exactly the node-level flows, and they must be counted", dropped.n, dropped.first, wantDropped)
+		if dropped.N != wantDropped {
+			t.Errorf("%d items dropped (%v), want %d: exactly the node-level flows, and they must be counted", dropped.N, dropped.First, wantDropped)
 		}
 		if len(arrived.Flows) != len(cases)-wantDropped {
 			t.Fatalf("%d flows stored, want %d", len(arrived.Flows), len(cases)-wantDropped)
@@ -100,7 +100,7 @@ func doctorAgentToServer(t *testing.T) {
 
 		now := time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)
 		feed(&c, now.Add(-time.Minute), arrived.WindowSeconds, arrived.Flows...)
-		deps, exts := observedTopology("org", []observedCluster{c}, now, 24*time.Hour)
+		deps, exts := Topology("org", []Cluster{c}, now, 24*time.Hour)
 		id := func(end string) string {
 			if strings.Contains(end, "/") {
 				return interpret.ServiceID("c", end)
