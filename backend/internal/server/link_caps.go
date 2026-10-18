@@ -14,7 +14,7 @@ import (
 // linkSetup reads as unknown and never as "all off": an old agent behaves exactly as it did.
 
 // linkCaps is one agent's last report. Reported is when the server received it; the zero value is "never reported".
-type linkCaps struct {
+type LinkCaps struct {
 	Reported time.Time
 	// LinkMetrics, ProbeEnabled, CapacityEnabled and TelemetryExport are the switches the agent reported.
 	LinkMetrics, ProbeEnabled, CapacityEnabled, TelemetryExport bool
@@ -30,11 +30,11 @@ var earliestProberSeen = time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
 // previous report stands until linkCapsStaleAfter says it is too old to rely on. skewMs is the agent's clock minus the server's,
 // as the heartbeat measured it, so a time the agent names is read in the server's clock. Nothing the agent says can put the
 // prober's last visit in the future. Caller holds h.mu.
-func (v *agtView) noteLinkCaps(c *continuumv1.LinkCapabilities, now time.Time, skewMs int64) {
+func (v *View) NoteLinkCaps(c *continuumv1.LinkCapabilities, now time.Time, skewMs int64) {
 	if c == nil {
 		return
 	}
-	out := linkCaps{Reported: now, LinkMetrics: c.LinkMetrics, ProbeEnabled: c.ProbeEnabled, CapacityEnabled: c.CapacityEnabled, TelemetryExport: c.TelemetryExport}
+	out := LinkCaps{Reported: now, LinkMetrics: c.LinkMetrics, ProbeEnabled: c.ProbeEnabled, CapacityEnabled: c.CapacityEnabled, TelemetryExport: c.TelemetryExport}
 	if c.ProberSeenUnix > 0 && c.ProberSeenUnix < 1<<36 { // 1<<36 seconds is the year 4147: anything larger is not a clock
 		if t := time.Unix(c.ProberSeenUnix, 0).Add(-time.Duration(skewMs) * time.Millisecond); t.After(earliestProberSeen) {
 			if t.After(now) {
@@ -43,5 +43,5 @@ func (v *agtView) noteLinkCaps(c *continuumv1.LinkCapabilities, now time.Time, s
 			out.ProberSeen = t
 		}
 	}
-	v.ext.linkCaps = out
+	v.Ext.LinkCaps = out
 }

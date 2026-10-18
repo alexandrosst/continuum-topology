@@ -44,7 +44,7 @@ const (
 // the agent is told). Nothing is a field of the view itself, so a use of one is a use of the module that owns it.
 type view struct {
 	estView
-	agtView
+	View
 	netView
 }
 
@@ -90,7 +90,7 @@ type estView struct {
 }
 
 func newView() *view {
-	return &view{agtView: agtView{self: newSelfRing(selfStatsWindow, func(s SelfStatsSample) time.Time { return s.At })}, estView: estView{state: facts.New(), flows: observed.NewFlowTable()}, netView: netView{paths: map[string]*pathTrack{}, targets: map[string]issuedTarget{}}}
+	return &view{View: View{Self: NewSelfRing(SelfStatsWindow, func(s SelfStatsSample) time.Time { return s.At })}, estView: estView{state: facts.New(), flows: observed.NewFlowTable()}, netView: netView{paths: map[string]*pathTrack{}, targets: map[string]issuedTarget{}}}
 }
 
 type endReason struct {
@@ -134,9 +134,9 @@ type Hub struct {
 
 	// serverSelf is this server process's own self-telemetry history (see sampleSelfStats and
 	// ServerSelfStatsSample), sampled by Hub.Run's own ticker - guarded by mu, like views/sessions above.
-	serverSelf selfRing[ServerSelfStatsSample]
+	serverSelf SelfRing[ServerSelfStatsSample]
 	// flow is what sampleSelfStats diffs to derive ServerSelfStatsSample.FlowIngestBytesPerSec.
-	flow flowIngest
+	flow FlowIngest
 }
 
 func NewHub(c *Core) *Hub {
@@ -144,7 +144,7 @@ func NewHub(c *Core) *Hub {
 	c.Loop.Access, c.Loop.Load = hubAccess{h}, hubLoad{h}
 	h.rec = newRecorder(h)
 	h.tw = newTwinRT()
-	h.serverSelf = newSelfRing(0, func(s ServerSelfStatsSample) time.Time { return s.At })
+	h.serverSelf = NewSelfRing(0, func(s ServerSelfStatsSample) time.Time { return s.At })
 	c.OnWorkspace = h.workspaceChanged
 	c.OnRevoke = h.Drop
 	c.OnSettings = h.settingsChanged
@@ -216,7 +216,7 @@ func (h *Hub) Restore(ctx context.Context) {
 		if a.Status != store.StatusApproved {
 			continue
 		}
-		if data, _, err := h.C.Store.LoadSnapshot(ctx, consentKey(a.ID)); err == nil && len(data) > 2 {
+		if data, _, err := h.C.Store.LoadSnapshot(ctx, ConsentKey(a.ID)); err == nil && len(data) > 2 {
 			h.mu.Lock()
 			v := h.viewFor(a.ID)
 			h.mu.Unlock()
@@ -241,7 +241,7 @@ func (h *Hub) Connect(stream continuumv1.AgentService_ConnectServer) error {
 	if !ok {
 		return status.Error(codes.Unauthenticated, "no agent")
 	}
-	ip := peerIP(ctx)
+	ip := PeerIP(ctx)
 	log := h.Log.With("agent", agent.ID, "name", agent.Name)
 
 	type recvd struct {
@@ -294,8 +294,8 @@ func (h *Hub) Connect(stream continuumv1.AgentService_ConnectServer) error {
 		h.views[agent.ID] = v
 	}
 	v.connected = true
-	v.link.connects++
-	v.link.since = h.C.Now()
+	v.Link.Connects++
+	v.Link.Since = h.C.Now()
 	h.mu.Unlock()
 	defer func() {
 		h.mu.Lock()
@@ -313,7 +313,7 @@ func (h *Hub) Connect(stream continuumv1.AgentService_ConnectServer) error {
 	// reachable by Drop; look again now that it is registered, so no revoked agent stays connected.
 	fresh, err := h.C.AuthorizeAgent(ctx, agent.ID)
 	if err != nil {
-		return toStatus(err)
+		return ToStatus(err)
 	}
 	agent.AccessTier = fresh.AccessTier
 	if agent.ConnectingIP != "" && agent.ConnectingIP != ip {
@@ -344,21 +344,21 @@ func (h *Hub) Connect(stream continuumv1.AgentService_ConnectServer) error {
 	log.Info("agent connected", "ip", ip, "version", hello.AgentVersion)
 	if hello.Diagnostics != nil {
 		h.mu.Lock()
-		v.noteDiagnostics(hello.Diagnostics, true, h.C.Now())
+		v.NoteDiagnostics(hello.Diagnostics, true, h.C.Now())
 		h.mu.Unlock()
 	}
 	if ns := kernel.Printable(hello.Namespace, 63); ns != "" {
 		h.mu.Lock()
-		v.ext.namespace = ns
+		v.Ext.Namespace = ns
 		h.mu.Unlock()
 	}
 	if rel := kernel.Printable(hello.ReleaseName, 53); rel != "" { // Helm's own release-name length limit
 		h.mu.Lock()
-		v.ext.releaseName = rel
+		v.Ext.ReleaseName = rel
 		h.mu.Unlock()
 	}
 	h.mu.Lock()
-	v.ext.protocol, v.ext.caps = hello.ProtocolVersion, agentcaps.Clean(hello.Capabilities)
+	v.Ext.Protocol, v.Ext.Caps = hello.ProtocolVersion, agentcaps.Clean(hello.Capabilities)
 	h.mu.Unlock()
 	agent = h.noteCeiling(ctx, agent, fresh, int(hello.InstalledAccessTier))
 	if err := stream.Send(&continuumv1.ServerMessage{Msg: &continuumv1.ServerMessage_Config{Config: h.configFor(agent, v)}}); err != nil {
@@ -397,11 +397,11 @@ func (h *Hub) Connect(stream continuumv1.AgentService_ConnectServer) error {
 				return status.Error(codes.ResourceExhausted, "sending too fast")
 			}
 			h.mu.Lock()
-			v.link.note(r.m, h.C.Now())
+			v.Link.Note(r.m, h.C.Now())
 			h.mu.Unlock()
 			cur, err := h.C.AuthorizeAgent(ctx, agent.ID) // revocation applies mid-stream too
 			if err != nil {
-				return toStatus(err)
+				return ToStatus(err)
 			}
 			switch m := r.m.Msg.(type) {
 			case *continuumv1.AgentMessage_Sync:
@@ -494,18 +494,18 @@ func (h *Hub) Connect(stream continuumv1.AgentService_ConnectServer) error {
 				if len(m.Heartbeat.Modules) > 0 {
 					v.state.Modules = m.Heartbeat.Modules
 				}
-				v.noteSelfStats(m.Heartbeat.SelfStats, now)
-				v.noteLinkCaps(m.Heartbeat.LinkCapabilities, now, skew)
+				v.NoteSelfStats(m.Heartbeat.SelfStats, now)
+				v.NoteLinkCaps(m.Heartbeat.LinkCapabilities, now, skew)
 				if m.Heartbeat.Diagnostics != nil {
-					v.noteDiagnostics(m.Heartbeat.Diagnostics, false, h.C.Now())
+					v.NoteDiagnostics(m.Heartbeat.Diagnostics, false, h.C.Now())
 				}
 				resend := v.noteConfigEcho(m.Heartbeat.AppliedConfigDigest, now)
 				if asm != nil && asm.expired(h.C.Now()) {
 					asm = nil // a picture that never finished arriving
 				}
 				// The skew is stored only when it moved by more than a second, so a steady clock costs no writes.
-				storeSkew := !v.skewKnown && skew != cur.ClockSkewMs || v.skewKnown && abs64(skew-v.skewMs) > 1000
-				v.skewMs, v.skewKnown = skew, true
+				storeSkew := !v.SkewKnown && skew != cur.ClockSkewMs || v.SkewKnown && abs64(skew-v.SkewMs) > 1000
+				v.SkewMs, v.SkewKnown = skew, true
 				h.mu.Unlock()
 				if resend {
 					go h.pushOne(agent.ID)
@@ -525,7 +525,7 @@ func (h *Hub) Connect(stream continuumv1.AgentService_ConnectServer) error {
 // is a full picture that is not the first of its connection, it also says how far the server's own
 // picture had drifted from it (checked is true); applying it afterwards repairs the difference.
 func (h *Hub) applySync(a store.Agent, s *continuumv1.Sync, fullSeen bool) (drift facts.Drift, checked bool, err error) {
-	dropAboveTier(a.AccessTier, s)
+	DropAboveTier(a.AccessTier, s)
 	// Captured after the tier ceiling has narrowed s but before an admin's own exclusion list does, so a
 	// namespace the admin has asked to leave out is still counted as "reported" - see viewExt.knownNamespaces.
 	reportedNS := make([]string, 0, len(s.Namespaces))
@@ -543,7 +543,7 @@ func (h *Hub) applySync(a store.Agent, s *continuumv1.Sync, fullSeen bool) (drif
 	if err := v.state.Check(s, h.limits()); err != nil {
 		return drift, false, err
 	}
-	v.ext.noteNamespaces(reportedNS, s.Full)
+	v.Ext.NoteNamespaces(reportedNS, s.Full)
 	if s.Full && fullSeen {
 		drift, checked = v.state.CheckDrift(s), true
 		v.consAt, v.consDrift = h.C.Now(), drift
@@ -552,7 +552,7 @@ func (h *Hub) applySync(a store.Agent, s *continuumv1.Sync, fullSeen bool) (drif
 	h.noteVanished(a, v, s, h.C.Now()) // what this message removes is remembered as a tombstone before it goes
 	v.state.Apply(s)
 	h.tw.gen.Add(1)
-	v.refusal = ""
+	v.Refusal = ""
 	v.lastSync, v.lastBeat, v.dirtyAt = h.C.Now(), h.C.Now(), h.C.Now()
 	return drift, checked, nil
 }
@@ -566,7 +566,7 @@ func (h *Hub) noteFlows(agentID string, tier int, fb *continuumv1.FlowBatch, now
 	if tier < 2 {
 		return false, nil
 	}
-	if h.consentOf(agentID).has("flow") {
+	if h.consentOf(agentID).Has("flow") {
 		// The agent should already have stopped sending this; the same defense-in-depth dropAboveTier
 		// gives the tier ceiling, extended to a paused collector.
 		return false, nil
@@ -593,8 +593,8 @@ func (h *Hub) noteFlows(agentID string, tier int, fb *continuumv1.FlowBatch, now
 	}
 	if implausible > 0 {
 		kernel.Metrics.ImplausibleFacts.Add(int64(implausible))
-		if now.Sub(v.implausibleLogged) >= observed.RefusalEvery {
-			v.implausibleLogged = now
+		if now.Sub(v.ImplausibleLogged) >= observed.RefusalEvery {
+			v.ImplausibleLogged = now
 			h.Log.Warn("flow batch had a physically impossible value; affected field(s) omitted, rest of the batch kept", "agent", agentID, "count", implausible)
 		}
 	}
@@ -650,10 +650,10 @@ func (h *Hub) refuseSync(ctx context.Context, a store.Agent, v *view, why error)
 	kernel.Metrics.SyncsRefused.Add(1)
 	now := h.C.Now()
 	h.mu.Lock()
-	v.refusal = clipText(why.Error(), 300)
-	record := now.Sub(v.refusalLogged) >= observed.RefusalEvery
+	v.Refusal = clipText(why.Error(), 300)
+	record := now.Sub(v.RefusalLogged) >= observed.RefusalEvery
 	if record {
-		v.refusalLogged = now
+		v.RefusalLogged = now
 	}
 	h.mu.Unlock()
 	h.Log.Warn("agent message refused", "agent", a.ID, "name", a.Name, "reason", why.Error())
@@ -866,9 +866,9 @@ func (h *Hub) noteImplausibleFacts(agentID string, v *view, n int) {
 	kernel.Metrics.ImplausibleFacts.Add(int64(n))
 	now := h.C.Now()
 	h.mu.Lock()
-	record := now.Sub(v.implausibleLogged) >= observed.RefusalEvery
+	record := now.Sub(v.ImplausibleLogged) >= observed.RefusalEvery
 	if record {
-		v.implausibleLogged = now
+		v.ImplausibleLogged = now
 	}
 	h.mu.Unlock()
 	if record {
@@ -1200,22 +1200,22 @@ func (h *Hub) buildAgentDocs(ctx context.Context, now time.Time) ([]AgentDoc, []
 		if a.Status == store.StatusPending {
 			left := max(kernel.MaxApprovalAttempts-a.ApprovalAttempts, 0)
 			d.ApprovalAttemptsLeft = &left
-			d.PendingExpiresAt = kernel.RFC(a.CreatedAt.Add(h.C.pendingTTL()))
+			d.PendingExpiresAt = kernel.RFC(a.CreatedAt.Add(h.C.EffectivePendingTTL()))
 		}
 		d.ConnectingGeo = h.Geo.Locate(a.ConnectingIP)
 		if d.ConnectingGeo == nil {
 			d.ConnectingGeoReason = h.Geo.UnlocatableReason(a.ConnectingIP)
 		}
 		if v != nil {
-			d.Namespace, d.ReleaseName = v.ext.namespace, v.ext.releaseName
-			d.ProtocolVersion, d.Capabilities = v.ext.protocol, append([]string{}, v.ext.caps...)
+			d.Namespace, d.ReleaseName = v.Ext.Namespace, v.Ext.ReleaseName
+			d.ProtocolVersion, d.Capabilities = v.Ext.Protocol, append([]string{}, v.Ext.Caps...)
 		}
 		if d.Capabilities == nil {
 			d.Capabilities = []string{}
 		}
-		d.Conditions = agentConditions(condInputsOf(v), h.C.Now())
+		d.Conditions = AgentConditions(condInputsOf(v), h.C.Now())
 		if a.Status == store.StatusRevoked || a.Status == store.StatusRejected {
-			if helm, secret, guessed, err := teardownCommands(d.Namespace, d.ReleaseName); err != nil {
+			if helm, secret, guessed, err := TeardownCommands(d.Namespace, d.ReleaseName); err != nil {
 				h.C.Log.Error("the commands that remove an agent cannot be written", "err", err) // the agent is shown without them
 			} else {
 				d.Teardown = &TeardownDoc{Helm: helm, Secret: secret, NamespaceGuessed: guessed}
@@ -1227,16 +1227,16 @@ func (h *Hub) buildAgentDocs(ctx context.Context, now time.Time) ([]AgentDoc, []
 			if !v.lastBeat.IsZero() {
 				d.LastHeartbeat = kernel.RFC(v.lastBeat)
 			}
-			if v.link.connects > 0 {
-				l := &LinkDoc{Connects: v.link.connects, Bytes: v.link.bytes, Syncs: v.link.syncs, Flows: v.link.flows, Measurements: v.link.meas, Heartbeats: v.link.beats}
+			if v.Link.Connects > 0 {
+				l := &LinkDoc{Connects: v.Link.Connects, Bytes: v.Link.Bytes, Syncs: v.Link.Syncs, Flows: v.Link.Flows, Measurements: v.Link.Meas, Heartbeats: v.Link.Beats}
 				if v.connected {
-					l.ConnectedSince = kernel.RFC(v.link.since)
+					l.ConnectedSince = kernel.RFC(v.Link.Since)
 				}
-				if !v.link.lastSync.IsZero() {
-					l.LastSync = kernel.RFC(v.link.lastSync)
+				if !v.Link.LastSync.IsZero() {
+					l.LastSync = kernel.RFC(v.Link.LastSync)
 				}
-				if !v.link.lastFlows.IsZero() {
-					l.LastFlows = kernel.RFC(v.link.lastFlows)
+				if !v.Link.LastFlows.IsZero() {
+					l.LastFlows = kernel.RFC(v.Link.LastFlows)
 				}
 				d.Link = l
 			}
@@ -1259,8 +1259,8 @@ func (h *Hub) buildAgentDocs(ctx context.Context, now time.Time) ([]AgentDoc, []
 				d.Modules = append(d.Modules, ModuleDoc{Name: m.Name, Status: map[continuumv1.ModuleStatus_State]string{
 					continuumv1.ModuleStatus_OK: "ok", continuumv1.ModuleStatus_SKIPPED: "skipped", continuumv1.ModuleStatus_ERROR: "error"}[m.State], Reason: m.Reason})
 			}
-			if v.refusal != "" { // why nothing new is arriving from this agent
-				d.Modules = append(d.Modules, ModuleDoc{Name: "server limits", Status: "error", Reason: v.refusal})
+			if v.Refusal != "" { // why nothing new is arriving from this agent
+				d.Modules = append(d.Modules, ModuleDoc{Name: "server limits", Status: "error", Reason: v.Refusal})
 			}
 		}
 		agentDocs = append(agentDocs, d)
@@ -1293,7 +1293,7 @@ func (h *Hub) buildTopology(ctx context.Context, agents []store.Agent, now time.
 		// SelfStatsFor's own doc for the exported equivalent of this same read) - nil until its first
 		// heartbeat carrying SelfStats arrives, never fabricated.
 		var selfStats *model.AgentSelfStats
-		if hist := v.self.list(); len(hist) > 0 {
+		if hist := v.Self.List(); len(hist) > 0 {
 			last := hist[len(hist)-1]
 			selfStats = &model.AgentSelfStats{T: kernel.RFC(last.At), RSSBytes: last.RSSBytes, Goroutines: last.Goroutines}
 		}
@@ -1332,7 +1332,7 @@ func (h *Hub) buildTopology(ctx context.Context, agents []store.Agent, now time.
 		// come from each agent's own interpret.Interpret, never seen by observed.Topology itself) - see
 		// observed.ApplyMeshBypassFacts' own doc comment for why this cross-check cannot happen any earlier.
 		observed.ApplyMeshBypassFacts(topo.Dependencies, topo.Services)
-		topo.Suggestions = append(topo.Suggestions, suspicions(h.C.OrgID, onboarded, located, now)...)
+		topo.Suggestions = append(topo.Suggestions, Suspicions(h.C.OrgID, onboarded, located, now)...)
 	}
 	// Needs every cluster's nodes in one list (a tunnel's other end is often in a different cluster, or
 	// this very same one), so this runs once here rather than per cluster inside the loop above.

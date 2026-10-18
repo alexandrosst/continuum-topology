@@ -17,7 +17,7 @@ func (h *Hub) SelfStatsFor(agentID string) []SelfStatsSample {
 	if v == nil {
 		return nil
 	}
-	return v.self.list()
+	return v.Self.List()
 }
 
 // ServerSelfStats returns a copy of this server process's own self-telemetry history (see
@@ -25,7 +25,7 @@ func (h *Hub) SelfStatsFor(agentID string) []SelfStatsSample {
 func (h *Hub) ServerSelfStats() []ServerSelfStatsSample {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	return h.serverSelf.list()
+	return h.serverSelf.List()
 }
 
 // sampleSelfStats takes one sample of this server process's own self-telemetry and adds it to
@@ -40,29 +40,29 @@ func (h *Hub) sampleSelfStats(now time.Time) {
 	connected := len(h.sessions)
 	var totalFlowBytes int64
 	for _, v := range h.views {
-		totalFlowBytes += v.link.flowBytes
+		totalFlowBytes += v.Link.FlowBytes
 	}
 	h.mu.Unlock()
 
-	h.flow.mu.Lock()
+	h.flow.Mu.Lock()
 	var rate float64
-	if !h.flow.at.IsZero() {
-		if elapsed := now.Sub(h.flow.at).Seconds(); elapsed > 0 {
-			if d := totalFlowBytes - h.flow.totalBytes; d >= 0 {
+	if !h.flow.At.IsZero() {
+		if elapsed := now.Sub(h.flow.At).Seconds(); elapsed > 0 {
+			if d := totalFlowBytes - h.flow.TotalBytes; d >= 0 {
 				rate = float64(d) / elapsed
 			}
 		}
 	}
-	h.flow.totalBytes, h.flow.at = totalFlowBytes, now
-	h.flow.mu.Unlock()
+	h.flow.TotalBytes, h.flow.At = totalFlowBytes, now
+	h.flow.Mu.Unlock()
 
 	s := ServerSelfStatsSample{
-		At: now, RSSBytes: mem.Sys, Goroutines: uint32(runtime.NumGoroutine()), CPUSeconds: processCPUSeconds(),
+		At: now, RSSBytes: mem.Sys, Goroutines: uint32(runtime.NumGoroutine()), CPUSeconds: ProcessCPUSeconds(),
 		ConnectedAgents: connected, FlowIngestBytesPerSec: rate,
 		ModelCacheHits: h.tw.cacheHits.Load(), ModelCacheMisses: h.tw.cacheMisses.Load(),
 		GCPauseTotalNs: mem.PauseTotalNs, NumGC: mem.NumGC,
 	}
 	h.mu.Lock()
-	h.serverSelf.add(s, now)
+	h.serverSelf.Add(s, now)
 	h.mu.Unlock()
 }

@@ -152,7 +152,7 @@ func TestAgentSelfStatsFlowsIntoTheTopologyEntity(t *testing.T) {
 	}
 
 	h.mu.Lock()
-	h.views[a.ID].noteSelfStats(&continuumv1.SelfStats{RssBytes: 123456, Goroutines: 42}, h.C.Now())
+	h.views[a.ID].NoteSelfStats(&continuumv1.SelfStats{RssBytes: 123456, Goroutines: 42}, h.C.Now())
 	h.mu.Unlock()
 	// Bust stateFor's own short (modelCacheTTL) cache: a self-stats sample never bumps tw.gen (see
 	// Hub.sampleSelfStats' own doc for why that counter, like a tier narrowing, deliberately does not),

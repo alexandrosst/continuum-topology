@@ -151,7 +151,7 @@ func (p *pinRig) agentCommands() {
 	}
 	p.add(a, "agent/upgrade/unsafe-names-are-not-trusted", "agent", p.ok(a.upgradeCommand(kernel.ImageConfig{}, 2, "ns; rm -rf /", "rel$(id)")))
 	for _, c := range []struct{ name, ns, rel string }{{"unreported", "", ""}, {"namespace-only", "apps-team", ""}, {"named", "apps-team", "obs-agent"}} {
-		helm, secret, _, err := teardownCommands(c.ns, c.rel)
+		helm, secret, _, err := TeardownCommands(c.ns, c.rel)
 		if err != nil {
 			p.t.Fatal(err)
 		}

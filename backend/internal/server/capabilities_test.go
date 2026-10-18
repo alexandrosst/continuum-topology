@@ -19,7 +19,7 @@ func (f *fakeAgent) declared() (protocol uint32, caps []string) {
 	f.r.hub.mu.Lock()
 	defer f.r.hub.mu.Unlock()
 	v := f.r.hub.views[f.id]
-	return v.ext.protocol, append([]string(nil), v.ext.caps...)
+	return v.Ext.Protocol, append([]string(nil), v.Ext.Caps...)
 }
 
 // connectedWith is a fake agent whose hello is h.

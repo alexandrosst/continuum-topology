@@ -31,26 +31,26 @@ func (h *Hub) viewFor(id string) *view {
 // ensureConsent loads an agent's overrides from the store the first time they are needed. Do not hold h.mu.
 func (h *Hub) ensureConsent(id string, v *view) {
 	h.mu.Lock()
-	loaded := v.ext.consentLoad
+	loaded := v.Ext.ConsentLoad
 	h.mu.Unlock()
 	if loaded {
 		return
 	}
 	var c Consent
 	var at time.Time
-	if data, savedAt, err := h.C.Store.LoadSnapshot(bg(), consentKey(id)); err == nil {
+	if data, savedAt, err := h.C.Store.LoadSnapshot(bg(), ConsentKey(id)); err == nil {
 		at = savedAt
 		if json.Unmarshal(data, &c) != nil {
 			c = Consent{}
-		} else if cc, err := cleanConsent(c); err == nil {
+		} else if cc, err := CleanConsent(c); err == nil {
 			c = cc // stored data is not trusted more than a request
 		} else {
 			c = Consent{}
 		}
 	}
 	h.mu.Lock()
-	if !v.ext.consentLoad {
-		v.ext.consent, v.ext.consentAt, v.ext.consentLoad = c, at, true
+	if !v.Ext.ConsentLoad {
+		v.Ext.Consent, v.Ext.ConsentAt, v.Ext.ConsentLoad = c, at, true
 	}
 	h.mu.Unlock()
 }
@@ -61,7 +61,7 @@ func (h *Hub) NamespaceOf(id string) string {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if v := h.views[id]; v != nil {
-		return v.ext.namespace
+		return v.Ext.Namespace
 	}
 	return ""
 }
@@ -72,7 +72,7 @@ func (h *Hub) ReleaseNameOf(id string) string {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if v := h.views[id]; v != nil {
-		return v.ext.releaseName
+		return v.Ext.ReleaseName
 	}
 	return ""
 }
@@ -85,7 +85,7 @@ func (h *Hub) consentOf(id string) Consent {
 	h.ensureConsent(id, v)
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	return v.ext.consent
+	return v.Ext.Consent
 }
 
 // ConsentDocFor is consentDoc for one agent by id: what has been asked of it, and whether it has confirmed
@@ -145,7 +145,7 @@ func (h *Hub) SetAgentTier(ctx context.Context, actor, agentID string, tier int,
 		return a, kernel.Errf(kernel.KindInvalid, "access tier %d is above what the enrollment token allowed for this agent (%d)", tier, a.TierCap)
 	}
 	old := a.AccessTier
-	detail := fmt.Sprintf("%q: access tier %d (%s) to %d (%s); the agent's install allows up to %d", a.Name, old, tierName(old), tier, tierName(tier), a.InstalledTier)
+	detail := fmt.Sprintf("%q: access tier %d (%s) to %d (%s); the agent's install allows up to %d", a.Name, old, TierName(old), tier, TierName(tier), a.InstalledTier)
 	err = h.C.Store.SetAccessTier(ctx, a.ID, tier, store.WithAudit(h.C.AuditRow(h.C.OrgID, actor, "agent-tier-changed", "agent", a.ID, detail)))
 	if errors.Is(err, store.ErrBadState) {
 		err = kernel.Errf(kernel.KindConflict, "agent changed state while its access was being changed")
@@ -158,7 +158,7 @@ func (h *Hub) SetAgentTier(ctx context.Context, actor, agentID string, tier int,
 	if tier < old {
 		h.narrowState(a.ID, tier) // what the server holds above the new tier goes now, not at the agent's next full picture
 	}
-	h.C.recordAgentGraph(ctx, a, "agent-tier-changed", detail)
+	h.C.RecordAgentGraph(ctx, a, "agent-tier-changed", detail)
 	h.pushOne(a.ID)
 	return a, nil
 }
@@ -172,12 +172,12 @@ func (h *Hub) SetConsent(ctx context.Context, actor, agentID string, in Consent)
 	if a.Status != store.StatusApproved {
 		return Consent{}, kernel.Errf(kernel.KindConflict, "agent is %s: only an approved agent can be given overrides", a.Status)
 	}
-	next, err := cleanConsent(in)
+	next, err := CleanConsent(in)
 	if err != nil {
 		return Consent{}, err
 	}
 	cur := h.consentOf(a.ID)
-	if !accounts.Decide(accounts.CallerFrom(ctx), accounts.ActChangeAccess, accounts.Resource{Widening: consentNarrows(next, cur)}).Allowed { // cur has a pause or exclusion that next lifts
+	if !accounts.Decide(accounts.CallerFrom(ctx), accounts.ActChangeAccess, accounts.Resource{Widening: ConsentNarrows(next, cur)}).Allowed { // cur has a pause or exclusion that next lifts
 		return Consent{}, kernel.Errf(kernel.KindForbidden, "lifting a pause or an exclusion takes an administrator; adding one does not")
 	}
 	if strings.Join(cur.Paused, ",") == strings.Join(next.Paused, ",") && strings.Join(cur.Excluded, ",") == strings.Join(next.Excluded, ",") {
@@ -190,19 +190,19 @@ func (h *Hub) SetConsent(ctx context.Context, actor, agentID string, in Consent)
 	if err != nil {
 		return Consent{}, err
 	}
-	if err := h.C.AuditedWrite(h.C.Store.SaveSnapshot(ctx, consentKey(a.ID), data, now,
+	if err := h.C.AuditedWrite(h.C.Store.SaveSnapshot(ctx, ConsentKey(a.ID), data, now,
 		store.WithAudit(h.C.AuditRow(h.C.OrgID, actor, "agent-consent-changed", "agent", a.ID, detail))), "agent-consent-changed"); err != nil {
 		return Consent{}, err
 	}
 	kernel.Metrics.ConsentChanges.Add(1)
 	h.mu.Lock()
 	v := h.viewFor(a.ID)
-	v.ext.consent, v.ext.consentAt, v.ext.consentLoad = next, now, true
+	v.Ext.Consent, v.Ext.ConsentAt, v.Ext.ConsentLoad = next, now, true
 	h.mu.Unlock()
-	if consentNarrows(cur, next) {
+	if ConsentNarrows(cur, next) {
 		h.narrowConsent(a.ID, next)
 	}
-	h.C.recordAgentGraph(ctx, a, "agent-consent-changed", detail)
+	h.C.RecordAgentGraph(ctx, a, "agent-consent-changed", detail)
 	h.pushOne(a.ID)
 	return next, nil
 }
@@ -220,7 +220,7 @@ func (h *Hub) SetConsent(ctx context.Context, actor, agentID string, in Consent)
 // tightening later if that residual is ever a problem in practice; not attempted here because it would mean
 // parsing a flow key's namespace reliably enough to trust filtering by it.
 func (h *Hub) dropConsentOverrides(id string, s *continuumv1.Sync) {
-	applyConsent(h.consentOf(id), s)
+	ApplyConsent(h.consentOf(id), s)
 }
 
 // narrowState drops what the server holds for an agent above a tier that was just lowered, by replacing its picture with
@@ -246,7 +246,7 @@ func (h *Hub) narrowState(id string, tier int) {
 	for _, w := range st.Workloads {
 		s.Workloads = append(s.Workloads, w)
 	}
-	dropAboveTier(tier, s)
+	DropAboveTier(tier, s)
 	st.Apply(s)
 	v.dirtyAt = h.C.Now()
 }
@@ -275,7 +275,7 @@ func (h *Hub) narrowConsent(id string, c Consent) {
 	for _, w := range st.Workloads {
 		s.Workloads = append(s.Workloads, w)
 	}
-	applyConsent(c, s)
+	ApplyConsent(c, s)
 	st.Apply(s)
 	v.dirtyAt = h.C.Now()
 }
@@ -298,18 +298,18 @@ func (h *Hub) noteCeiling(ctx context.Context, agent, fresh store.Agent, reporte
 			}
 			return agent
 		}
-		ceilingDetail := fmt.Sprintf("%q: the install now allows up to tier %d (%s), was %d", agent.Name, ceiling, tierName(ceiling), fresh.InstalledTier)
+		ceilingDetail := fmt.Sprintf("%q: the install now allows up to tier %d (%s), was %d", agent.Name, ceiling, TierName(ceiling), fresh.InstalledTier)
 		h.C.Audit(ctx, actor, "agent-ceiling-changed", "agent", agent.ID, ceilingDetail)
 		agent.InstalledTier = ceiling
-		h.C.recordAgentGraph(ctx, agent, "agent-ceiling-changed", ceilingDetail)
+		h.C.RecordAgentGraph(ctx, agent, "agent-ceiling-changed", ceilingDetail)
 	}
 	if fresh.AccessTier > ceiling {
-		detail := fmt.Sprintf("%q: access tier %d (%s) to %d (%s), because the agent's install (Helm access.tier) now allows at most %d", agent.Name, fresh.AccessTier, tierName(fresh.AccessTier), ceiling, tierName(ceiling), ceiling)
+		detail := fmt.Sprintf("%q: access tier %d (%s) to %d (%s), because the agent's install (Helm access.tier) now allows at most %d", agent.Name, fresh.AccessTier, TierName(fresh.AccessTier), ceiling, TierName(ceiling), ceiling)
 		if err := h.C.AuditedWrite(h.C.Store.SetAccessTier(ctx, agent.ID, ceiling,
 			store.WithAudit(h.C.AuditRow(h.C.OrgID, actor, "agent-tier-changed", "agent", agent.ID, detail))), "agent-tier-changed"); err == nil {
 			agent.AccessTier = ceiling
 			h.narrowState(agent.ID, ceiling)
-			h.C.recordAgentGraph(ctx, agent, "agent-tier-changed", detail)
+			h.C.RecordAgentGraph(ctx, agent, "agent-tier-changed", detail)
 		}
 	}
 	return agent
@@ -325,16 +325,16 @@ func (h *Hub) reportsCeiling(id string) bool {
 	if v == nil {
 		return false
 	}
-	if v.ext.protocol >= 1 {
-		return slices.Contains(v.ext.caps, agentcaps.Diagnostics)
+	if v.Ext.Protocol >= 1 {
+		return slices.Contains(v.Ext.Caps, agentcaps.Diagnostics)
 	}
-	return v.ext.diag != nil
+	return v.Ext.Diag != nil
 }
 
 // consentDoc is what has been asked of the agent, and whether it has confirmed applying it. Caller holds
 // h.mu and has loaded the consent.
 func (v *view) consentDoc() *ConsentDoc {
-	out := &ConsentDoc{PausedCollectors: append([]string{}, v.ext.consent.Paused...), ExcludedNamespaces: append([]string{}, v.ext.consent.Excluded...)}
+	out := &ConsentDoc{PausedCollectors: append([]string{}, v.Ext.Consent.Paused...), ExcludedNamespaces: append([]string{}, v.Ext.Consent.Excluded...)}
 	if len(out.PausedCollectors) == 0 && len(out.ExcludedNamespaces) == 0 {
 		out.Confirmed = true // nothing narrowed here, so there is nothing for the agent to confirm
 		return out
@@ -344,12 +344,12 @@ func (v *view) consentDoc() *ConsentDoc {
 		// namespace stripped out of it by dropConsentOverrides by the time it is stored, so it can never
 		// contain the very names this exists to check (see viewExt.knownNamespaces's own doc comment).
 		for _, ns := range out.ExcludedNamespaces {
-			if !v.ext.knownNamespaces[ns] {
+			if !v.Ext.KnownNamespaces[ns] {
 				out.UnknownNamespaces = append(out.UnknownNamespaces, ns)
 			}
 		}
 	}
-	d := v.ext.diag
+	d := v.Ext.Diag
 	if d != nil {
 		// Collector names are matched exactly - the agent reports the actual list, sorted the same way
 		// cleanConsent already sorts what was asked for. Excluded namespaces can only be matched by count:
@@ -358,15 +358,15 @@ func (v *view) consentDoc() *ConsentDoc {
 		// different set of the same size would misreport as confirmed here. Good enough for the case this
 		// exists for - a narrowing a stuck or too-old agent never picked up at all - and tightening it
 		// further needs a proto change to carry the names, not just a count.
-		pausedConfirmed := sameStrings(d.PausedCollectors, v.ext.consent.Paused)
-		excludedConfirmed := int(d.ExcludedNamespaces) == len(v.ext.consent.Excluded)
+		pausedConfirmed := SameStrings(d.PausedCollectors, v.Ext.Consent.Paused)
+		excludedConfirmed := int(d.ExcludedNamespaces) == len(v.Ext.Consent.Excluded)
 		out.Confirmed = pausedConfirmed && excludedConfirmed
 	}
 	// out.Confirmed is false here either because a report arrived that does not yet match, or because none
 	// has arrived at all (d == nil) - both are "not yet confirmed" and both deserve the same elapsed-time
 	// signal, so SetAt is filled in the same way regardless of which.
-	if !out.Confirmed && !v.ext.consentAt.IsZero() {
-		out.SetAt = kernel.RFC(v.ext.consentAt)
+	if !out.Confirmed && !v.Ext.ConsentAt.IsZero() {
+		out.SetAt = kernel.RFC(v.Ext.ConsentAt)
 	}
 	return out
 }
@@ -375,12 +375,12 @@ func (v *view) consentDoc() *ConsentDoc {
 // Callers already gate this to editors/administrators before calling it (see DiagnosticsDoc's own doc comment) - there
 // is no further, per-tier redaction here, so it takes no tier of its own.
 func (v *view) diagDoc() *DiagnosticsDoc {
-	d := v.ext.diag
+	d := v.Ext.Diag
 	if d == nil {
 		return nil
 	}
 	out := &DiagnosticsDoc{
-		ReportedAt: kernel.RFC(v.ext.diagAt), Partial: v.ext.diagPartial, AgentVersion: kernel.Printable(d.AgentVersion, 40), Arch: kernel.Printable(d.Arch, 16), OS: kernel.Printable(d.Os, 16),
+		ReportedAt: kernel.RFC(v.Ext.DiagAt), Partial: v.Ext.DiagPartial, AgentVersion: kernel.Printable(d.AgentVersion, 40), Arch: kernel.Printable(d.Arch, 16), OS: kernel.Printable(d.Os, 16),
 		UptimeSeconds: d.UptimeSeconds, InstalledTier: int(d.InstalledTier), ApprovedTier: int(d.ApprovedTier), EffectiveTier: int(d.EffectiveTier),
 		OwnExcluded: int(d.OwnExcludedNamespaces), ExcludedNamespaces: int(d.ExcludedNamespaces), FlowDropped: d.FlowDropped,
 		PausedCollectors: []string{}, Collectors: []AgentCollectorDoc{}, Informers: []InformerDoc{}, Problems: []ProblemDoc{},
@@ -414,7 +414,7 @@ func (v *view) diagDoc() *DiagnosticsDoc {
 			doc.ScrapedAt = kernel.RFC(h.ScrapedAt.AsTime())
 		}
 		for _, r := range h.Routes {
-			state := exportHealthStates[r.State]
+			state := ExportHealthStates[r.State]
 			if state == "" {
 				state = "waiting"
 			}

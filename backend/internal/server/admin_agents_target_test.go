@@ -9,20 +9,6 @@ import (
 	"continuum/internal/store"
 )
 
-// What an agent reports about itself is pasted into commands, so only plain Kubernetes names count.
-func TestReleaseTargetIgnoresNamesThatAreNotKubernetesNames(t *testing.T) {
-	ns, rel, guessed := releaseTarget("prod-agents", "my-agent")
-	if ns != "prod-agents" || rel != "my-agent" || guessed {
-		t.Fatalf("valid names changed: %q %q %v", ns, rel, guessed)
-	}
-	for _, bad := range []string{"x; rm -rf /", "Has Caps", "a b", "$(id)", "-lead", "trail-", "a\nb"} {
-		ns, rel, guessed = releaseTarget(bad, bad)
-		if ns != "continuum-system" || rel != "continuum-agent" || !guessed {
-			t.Fatalf("%q was used: %q %q %v", bad, ns, rel, guessed)
-		}
-	}
-}
-
 // The regional operator runs the upstream collector image its chart names. A configured registry holds the
 // `continuum` image, not an operator one, so the command must not point the operator's image at it.
 func TestOperatorInstallCommandNeverOverridesTheImage(t *testing.T) {

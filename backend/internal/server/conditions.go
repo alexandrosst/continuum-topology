@@ -35,7 +35,7 @@ const (
 )
 
 // condInputs is everything agentConditions looks at, copied out of the view so the function itself touches no lock and no clock.
-type condInputs struct {
+type CondInputs struct {
 	// Seen is whether the agent has connected at least once since this server started.
 	Seen           bool
 	Connected      bool
@@ -57,11 +57,11 @@ func since(t time.Time) string {
 
 // agentConditions is the one place the conditions are decided. It never blocks anything: a condition that is False is a thing to
 // tell a person, and no part of the protocol reads it.
-func agentConditions(in condInputs, now time.Time) []Condition {
+func AgentConditions(in CondInputs, now time.Time) []Condition {
 	return []Condition{connectedCondition(in), configInForceCondition(in, now), compatibleCondition(in)}
 }
 
-func connectedCondition(in condInputs) Condition {
+func connectedCondition(in CondInputs) Condition {
 	if in.Connected {
 		return Condition{Type: CondConnected, Status: CondTrue, Reason: "Open", Message: "a stream from the agent is open", Since: since(in.ConnectedSince)}
 	}
@@ -74,7 +74,7 @@ func connectedCondition(in condInputs) Condition {
 
 // configInForceCondition says whether the Config the server last sent is the one the agent says it has in force. It follows an echo
 // that was actually seen: an agent that never states a protocol version but does name its Config is judged by what it named.
-func configInForceCondition(in condInputs, now time.Time) Condition {
+func configInForceCondition(in CondInputs, now time.Time) Condition {
 	c := Condition{Type: CondConfigInForce}
 	switch {
 	case !in.Connected:
@@ -94,7 +94,7 @@ func configInForceCondition(in condInputs, now time.Time) Condition {
 	return c
 }
 
-func compatibleCondition(in condInputs) Condition {
+func compatibleCondition(in CondInputs) Condition {
 	c := Condition{Type: CondCompatible}
 	switch {
 	case !in.Seen:

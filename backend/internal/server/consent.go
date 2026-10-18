@@ -34,7 +34,7 @@ type Consent struct {
 	Excluded []string `json:"excluded,omitempty"`
 }
 
-func (c Consent) has(name string) bool {
+func (c Consent) Has(name string) bool {
 	for _, p := range c.Paused {
 		if p == name {
 			return true
@@ -44,14 +44,14 @@ func (c Consent) has(name string) bool {
 }
 
 // consentKey is where an agent's overrides are stored: next to its snapshot, under a name no agent id can have.
-func consentKey(agentID string) string { return agentID + "#consent" }
+func ConsentKey(agentID string) string { return agentID + "#consent" }
 
 func systemNS(ns string) bool {
 	return ns == "kube-system" || ns == "kube-public" || ns == "kube-node-lease"
 }
 
 // cleanConsent validates an administrator's input and puts it in a canonical form (sorted, no repeats).
-func cleanConsent(in Consent) (Consent, error) {
+func CleanConsent(in Consent) (Consent, error) {
 	var out Consent
 	seen := map[string]bool{}
 	for _, p := range in.Paused {
@@ -93,29 +93,29 @@ func cleanConsent(in Consent) (Consent, error) {
 }
 
 // viewExt is what the server keeps per agent about its own account of itself and the overrides pushed to it.
-type viewExt struct {
-	diag        *continuumv1.Diagnostics
-	diagAt      time.Time
-	diagPartial bool // only what Hello carried: the ceiling, before the agent had looked at the cluster
+type ViewExt struct {
+	Diag        *continuumv1.Diagnostics
+	DiagAt      time.Time
+	DiagPartial bool // only what Hello carried: the ceiling, before the agent had looked at the cluster
 	// linkCaps is what this agent's heartbeat last said its install can do for the cluster-link telemetry (see linkCaps).
-	linkCaps    linkCaps
-	consent     Consent
-	consentAt   time.Time // when this consent was last changed (zero if it never has been); drives the staleness signal in consentDoc
-	consentLoad bool
+	LinkCaps    LinkCaps
+	Consent     Consent
+	ConsentAt   time.Time // when this consent was last changed (zero if it never has been); drives the staleness signal in consentDoc
+	ConsentLoad bool
 	// namespace is this agent's own Kubernetes namespace, from its Hello (empty before an agent that reports it has
 	// connected at least once since this server started; not persisted, same as diagnostics). Used to print a
 	// helm command against the release that is actually running instead of guessing continuum-system.
-	namespace string
+	Namespace string
 	// releaseName is the Helm release this agent's Hello says it was installed as (empty under the same conditions as
 	// namespace). Every object the chart creates has a fixed name regardless of the release, so this only matters for
 	// the two `helm` commands themselves; guessed as "continuum-agent" when unknown, same as namespace.
-	releaseName string
+	ReleaseName string
 	// protocol and caps are what the agent's last Hello said about the protocol it speaks and what it does (see
 	// internal/agentcaps). They are replaced by every Hello, so a stream that says nothing records protocol 0 and no names and
 	// not what an earlier stream said. In memory only: nothing about them is stored, so a restored database carries nothing
 	// from a Hello. Nothing the server sends depends on them.
-	protocol uint32
-	caps     []string
+	Protocol uint32
+	Caps     []string
 	// knownNamespaces are the Kubernetes namespace names this agent has actually reported, captured from a Sync
 	// after the tier ceiling narrows it but before an admin's own exclusion list does - so an excluded name can
 	// still be checked against what is real, which is the whole point of tracking it (see ConsentDoc.UnknownNamespaces).
@@ -124,20 +124,20 @@ type viewExt struct {
 	// full sync replaces this outright; a delta sync only adds to it, so a namespace that genuinely disappears
 	// between two full syncs stays "known" until the next one rather than needing DeletedNamespaces (which carries
 	// keys, not names) resolved back to a name here too - an acceptable staleness for a signal that only ever warns.
-	knownNamespaces map[string]bool
+	KnownNamespaces map[string]bool
 }
 
 // noteNamespaces folds a batch of namespace names an agent just reported into what it is known to have,
 // for later checking an excluded name against. full replaces the set outright (mirrors facts.State.Apply's
 // own handling of a full sync); otherwise names are only ever added.
-func (e *viewExt) noteNamespaces(names []string, full bool) {
+func (e *ViewExt) NoteNamespaces(names []string, full bool) {
 	if full {
-		e.knownNamespaces = make(map[string]bool, len(names))
-	} else if e.knownNamespaces == nil {
-		e.knownNamespaces = make(map[string]bool, len(names))
+		e.KnownNamespaces = make(map[string]bool, len(names))
+	} else if e.KnownNamespaces == nil {
+		e.KnownNamespaces = make(map[string]bool, len(names))
 	}
 	for _, n := range names {
-		e.knownNamespaces[n] = true
+		e.KnownNamespaces[n] = true
 	}
 }
 
@@ -150,8 +150,8 @@ func ActingAs(ctx context.Context, role string) context.Context {
 
 // applyConsent cuts a picture down to what an agent's overrides leave it: the node probe's machine-identifying
 // fields when that collector is paused, and every namespace (and workload in one) on the excluded list.
-func applyConsent(c Consent, s *continuumv1.Sync) {
-	if c.has("probes") {
+func ApplyConsent(c Consent, s *continuumv1.Sync) {
+	if c.Has("probes") {
 		for _, n := range s.Nodes {
 			n.MachineId, n.SystemUuid, n.ProviderId = "", "", ""
 			n.OsImage, n.KernelVersion, n.ContainerRuntime, n.KubeletVersion, n.Architecture = "", "", "", "", ""
@@ -182,7 +182,7 @@ func applyConsent(c Consent, s *continuumv1.Sync) {
 
 // dropAboveTier removes from a picture whatever the approved tier does not cover. The agent already sends no more than
 // it is approved for; this is the server not taking the agent's word for it.
-func dropAboveTier(tier int, s *continuumv1.Sync) {
+func DropAboveTier(tier int, s *continuumv1.Sync) {
 	if tier < 1 {
 		s.Nodes, s.DeletedNodes = nil, nil
 		if s.Cluster != nil { // storage and ingress classes are tier-1 facts
@@ -201,9 +201,9 @@ func dropAboveTier(tier int, s *continuumv1.Sync) {
 
 // consentNarrows is whether next takes anything away that cur still allowed: a collector newly paused, or a
 // namespace newly left out. Widening needs no purge (there is nothing held to drop).
-func consentNarrows(cur, next Consent) bool {
+func ConsentNarrows(cur, next Consent) bool {
 	for _, p := range next.Paused {
-		if !cur.has(p) {
+		if !cur.Has(p) {
 			return true
 		}
 	}
@@ -342,7 +342,7 @@ type ExportRouteHealthDoc struct {
 
 // exportHealthStates names the agent's states; one this server does not know is shown as waiting, the one
 // that claims nothing.
-var exportHealthStates = map[continuumv1.ExportRouteHealth_State]string{
+var ExportHealthStates = map[continuumv1.ExportRouteHealth_State]string{
 	continuumv1.ExportRouteHealth_WAITING:   "waiting",
 	continuumv1.ExportRouteHealth_EXPORTING: "exporting",
 	continuumv1.ExportRouteHealth_SILENT:    "silent",
@@ -367,14 +367,14 @@ type TelemetryConfigDoc struct {
 // maxDiag* bound what an agent may make the server hold about its own diagnostics.
 const (
 	maxDiagCollectors       = 8
-	maxDiagInformers        = 64
-	maxDiagProblems         = 32
+	MaxDiagInformers        = 64
+	MaxDiagProblems         = 32
 	maxDiagBytes            = 128 << 10
-	maxDiagTelemetrySignals = 16 // ten known signal names today; generous headroom, not unbounded
-	maxDiagExportRoutes     = 32 // one per exporter and signal type: a handful in practice
+	MaxDiagTelemetrySignals = 16 // ten known signal names today; generous headroom, not unbounded
+	MaxDiagExportRoutes     = 32 // one per exporter and signal type: a handful in practice
 )
 
-func tierName(t int) string {
+func TierName(t int) string {
 	switch t {
 	case 0:
 		return "registered only"
@@ -388,7 +388,7 @@ func tierName(t int) string {
 
 // noteDiagnostics keeps an agent's latest account of itself. It never refuses one: a diagnostics message that is too big is
 // cut down, because an agent that is in trouble is the one whose account is most wanted. Caller holds h.mu.
-func (v *agtView) noteDiagnostics(d *continuumv1.Diagnostics, partial bool, at time.Time) {
+func (v *View) NoteDiagnostics(d *continuumv1.Diagnostics, partial bool, at time.Time) {
 	if d == nil {
 		return
 	}
@@ -399,26 +399,26 @@ func (v *agtView) noteDiagnostics(d *continuumv1.Diagnostics, partial bool, at t
 	if len(d.Collectors) > maxDiagCollectors {
 		d.Collectors = d.Collectors[:maxDiagCollectors]
 	}
-	if len(d.Informers) > maxDiagInformers {
-		d.Informers = d.Informers[:maxDiagInformers]
+	if len(d.Informers) > MaxDiagInformers {
+		d.Informers = d.Informers[:MaxDiagInformers]
 	}
-	if len(d.Problems) > maxDiagProblems {
-		d.Problems = d.Problems[:maxDiagProblems]
+	if len(d.Problems) > MaxDiagProblems {
+		d.Problems = d.Problems[:MaxDiagProblems]
 	}
 	if len(d.PausedCollectors) > maxDiagCollectors {
 		d.PausedCollectors = d.PausedCollectors[:maxDiagCollectors]
 	}
-	if len(d.InstalledTelemetrySignals) > maxDiagTelemetrySignals {
-		d.InstalledTelemetrySignals = d.InstalledTelemetrySignals[:maxDiagTelemetrySignals]
+	if len(d.InstalledTelemetrySignals) > MaxDiagTelemetrySignals {
+		d.InstalledTelemetrySignals = d.InstalledTelemetrySignals[:MaxDiagTelemetrySignals]
 	}
-	if h := d.ExportHealth; h != nil && len(h.Routes) > maxDiagExportRoutes {
-		h.Routes = h.Routes[:maxDiagExportRoutes]
+	if h := d.ExportHealth; h != nil && len(h.Routes) > MaxDiagExportRoutes {
+		h.Routes = h.Routes[:MaxDiagExportRoutes]
 	}
-	v.ext.diag, v.ext.diagAt, v.ext.diagPartial = d, at, partial
+	v.Ext.Diag, v.Ext.DiagAt, v.Ext.DiagPartial = d, at, partial
 }
 
 // sameStrings says whether a and b hold the same strings, regardless of order or duplicates.
-func sameStrings(a, b []string) bool {
+func SameStrings(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
 	}
@@ -500,7 +500,7 @@ func agentSnapshot(a store.Agent, c Consent) AgentSnapshot {
 // view of a connected agent (recording history is one). Falls back to none rather than failing: a graph
 // version with no discovery intent recorded is far better than one skipped entirely over this.
 func consentFor(ctx context.Context, st store.Store, agentID string) Consent {
-	data, _, err := st.LoadSnapshot(ctx, consentKey(agentID))
+	data, _, err := st.LoadSnapshot(ctx, ConsentKey(agentID))
 	if err != nil {
 		return Consent{}
 	}
@@ -508,7 +508,7 @@ func consentFor(ctx context.Context, st store.Store, agentID string) Consent {
 	if json.Unmarshal(data, &c) != nil {
 		return Consent{}
 	}
-	if cc, err := cleanConsent(c); err == nil {
+	if cc, err := CleanConsent(c); err == nil {
 		return cc
 	}
 	return Consent{}
@@ -532,7 +532,7 @@ type entityRecorder interface {
 // Best-effort and silent on failure by design: the action itself is already durably audited (see Audited)
 // before this ever runs, so a graph outage narrows the timeline view of the change, never the change
 // itself.
-func (c *Core) recordAgentGraph(ctx context.Context, a store.Agent, kind, detail string) {
+func (c *Core) RecordAgentGraph(ctx context.Context, a store.Agent, kind, detail string) {
 	er, ok := c.Store.(entityRecorder)
 	if !ok {
 		return
@@ -551,7 +551,7 @@ func (c *Core) recordAgentGraph(ctx context.Context, a store.Agent, kind, detail
 		c.Log.Warn("history: could not record why the agent's state changed", "agent", a.ID, "err", err)
 		return
 	}
-	if el, ok := c.Store.(eventLinker); ok {
+	if el, ok := c.Store.(EventLinker); ok {
 		if err := el.LinkEventChanges(ctx, c.OrgID, now, []store.Event{ev}); err != nil {
 			c.Log.Warn("history: could not link the agent's event to what it explains", "agent", a.ID, "err", err)
 		}
@@ -569,6 +569,6 @@ type ScopeDoc struct {
 // the versions they explain (see graph.DB.LinkEventChanges). A plain store does not implement it - the
 // events themselves are already durably stored either way, this is enrichment on top, the same optional-
 // capability pattern entityRecorder uses in consent.go.
-type eventLinker interface {
+type EventLinker interface {
 	LinkEventChanges(ctx context.Context, org string, at time.Time, evs []store.Event) error
 }

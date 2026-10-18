@@ -17,7 +17,7 @@ import (
 	"crypto/subtle"
 )
 
-func (c *Core) pendingTTL() time.Duration {
+func (c *Core) EffectivePendingTTL() time.Duration {
 	if c.PendingTTL > 0 {
 		return c.PendingTTL
 	}
@@ -103,7 +103,7 @@ func (c *Core) Enroll(ctx context.Context, ip string, req *continuumv1.EnrollReq
 
 func (c *Core) enrollResponse(agentID, pollSecret string) *continuumv1.EnrollResponse {
 	return &continuumv1.EnrollResponse{AgentId: agentID, PollSecret: pollSecret, PollIntervalSeconds: kernel.PollIntervalSecond,
-		ServerTimeUnix: c.Now().Unix(), PendingTtlSeconds: int32(c.pendingTTL() / time.Second)}
+		ServerTimeUnix: c.Now().Unix(), PendingTtlSeconds: int32(c.EffectivePendingTTL() / time.Second)}
 }
 
 // resumeEnrollment recognises a retried enrollment (a spent token, but the agent it was spent on has this
@@ -129,7 +129,7 @@ func (c *Core) resumeEnrollment(ctx context.Context, ip string, req *continuumv1
 		if !bytes.Equal(prev.ApprovalHash, req.ApprovalCodeHash) {
 			return nil, kernel.Errf(kernel.KindConflict, "an enrollment with a different approval code is already waiting for this token")
 		}
-		if prev.Status == store.StatusPending && c.Now().Sub(prev.CreatedAt) > c.pendingTTL() {
+		if prev.Status == store.StatusPending && c.Now().Sub(prev.CreatedAt) > c.EffectivePendingTTL() {
 			// It ran out while the agent was away; treat it as expired and let it start over.
 			c.ExpirePending(ctx, prev.OrgID)
 			prev.Status = store.StatusExpired
@@ -161,16 +161,16 @@ func (c *Core) resumeEnrollment(ctx context.Context, ip string, req *continuumv1
 // records that, and deletes the records of expired ones nobody reopened. It returns how many expired.
 func (c *Core) ExpirePending(ctx context.Context, org string) int {
 	now := c.Now()
-	expired, err := c.Store.ExpirePending(ctx, org, now.Add(-c.pendingTTL()))
+	expired, err := c.Store.ExpirePending(ctx, org, now.Add(-c.EffectivePendingTTL()))
 	if err != nil {
 		c.Log.Error("expiring pending enrollments failed", "err", err)
 		return 0
 	}
 	for _, a := range expired {
-		detail := fmt.Sprintf("%q waited %s for approval and expired. The agent enrolls again on its own and shows a new approval code", a.Name, c.pendingTTL())
+		detail := fmt.Sprintf("%q waited %s for approval and expired. The agent enrolls again on its own and shows a new approval code", a.Name, c.EffectivePendingTTL())
 		c.AuditOrg(ctx, org, accounts.SystemActor.String(), "agent-enrollment-expired", "agent", a.ID, detail)
 		if err := c.Store.AddEvents(ctx, org, []store.Event{{At: now, Kind: "enrollment-expired", TargetKind: "agent", TargetID: a.ID, Name: a.Name, ClusterName: a.Name,
-			Detail: "The request from " + a.Name + " was not approved within " + c.pendingTTL().String() + " and was removed. The agent asks again by itself; look at its log for the new approval code.",
+			Detail: "The request from " + a.Name + " was not approved within " + c.EffectivePendingTTL().String() + " and was removed. The agent asks again by itself; look at its log for the new approval code.",
 			Cause:  "nobody approved it in time", Severity: "notice"}}); err != nil {
 			c.Log.Error("recording an expired enrollment failed", "err", err)
 		}
@@ -192,7 +192,7 @@ func (c *Core) Poll(ctx context.Context, ip string, req *continuumv1.PollRequest
 		return nil, kernel.Errf(kernel.KindUnauthenticated, "unknown agent or wrong secret")
 	}
 	now := c.Now().Unix()
-	if a.Status == store.StatusPending && c.Now().Sub(a.CreatedAt) > c.pendingTTL() {
+	if a.Status == store.StatusPending && c.Now().Sub(a.CreatedAt) > c.EffectivePendingTTL() {
 		c.ExpirePending(ctx, a.OrgID)
 		if a, err = c.Store.GetAgent(ctx, req.AgentId); err != nil {
 			return nil, kernel.Errf(kernel.KindUnauthenticated, "unknown agent or wrong secret")
@@ -226,7 +226,7 @@ func (c *Core) Approve(ctx context.Context, actor, agentID, proof string, tier i
 	if err != nil {
 		return err
 	}
-	if a.Status == store.StatusPending && c.Now().Sub(a.CreatedAt) > c.pendingTTL() {
+	if a.Status == store.StatusPending && c.Now().Sub(a.CreatedAt) > c.EffectivePendingTTL() {
 		c.ExpirePending(ctx, c.OrgID)
 		a.Status = store.StatusExpired
 	}
@@ -288,7 +288,7 @@ func (c *Core) Approve(ctx context.Context, actor, agentID, proof string, tier i
 		return err
 	}
 	if fresh, ferr := c.AgentInOrg(ctx, a.ID); ferr == nil {
-		c.recordAgentGraph(ctx, fresh, "agent-approved", approvedDetail)
+		c.RecordAgentGraph(ctx, fresh, "agent-approved", approvedDetail)
 	}
 	return nil
 }

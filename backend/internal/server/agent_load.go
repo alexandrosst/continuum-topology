@@ -17,7 +17,7 @@ func (l hubLoad) AgentLoad(agentID string) decisionloop.AgentLoad {
 		return decisionloop.AgentLoad{}
 	}
 	var samples []decisionloop.LoadSample
-	for _, s := range v.self.list() {
+	for _, s := range v.Self.List() {
 		samples = append(samples, decisionloop.LoadSample{At: s.At, RSSBytes: s.RSSBytes, CPUSeconds: s.CPUSeconds, LinkBytesCumulative: s.LinkBytesCumulative})
 	}
 	return decisionloop.AgentLoad{Known: true, Samples: samples, ConfigHash: v.cfgHash, ConfigApplied: v.cfgApplied, InForceAt: v.cfgInForceAt}

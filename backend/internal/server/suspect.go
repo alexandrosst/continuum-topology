@@ -54,7 +54,7 @@ type suspect struct {
 const maxSuspicions = 10
 
 // suspicions works out, from what every cluster's agent saw, where unmanaged infrastructure may be.
-func suspicions(org string, onboarded, located []observed.Cluster, now time.Time) []model.Suggestion {
+func Suspicions(org string, onboarded, located []observed.Cluster, now time.Time) []model.Suggestion {
 	if len(onboarded) == 0 {
 		return nil
 	}

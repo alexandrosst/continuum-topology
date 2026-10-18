@@ -131,3 +131,10 @@ func (f *PublicIPFinder) fetch(ctx context.Context) (netip.Addr, bool) {
 	}
 	return a, true
 }
+
+// SetForTest makes a the address the finder has found, as a successful fetch would, so a test can place a caller without a network.
+func (f *PublicIPFinder) SetForTest(a netip.Addr) {
+	f.mu.Lock()
+	f.cached, f.have = a, true
+	f.mu.Unlock()
+}

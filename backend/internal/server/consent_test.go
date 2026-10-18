@@ -213,25 +213,6 @@ func TestNarrowingConsentDropsWhatTheServerAlreadyHolds(t *testing.T) {
 	}
 }
 
-func TestConsentNarrowsOnlyWhenSomethingIsTakenAway(t *testing.T) {
-	for name, c := range map[string]struct {
-		cur, next Consent
-		want      bool
-	}{
-		"nothing to something paused": {Consent{}, Consent{Paused: []string{"flow"}}, true},
-		"something excluded":          {Consent{}, Consent{Excluded: []string{"shop"}}, true},
-		"swapping one for another":    {Consent{Excluded: []string{"shop"}}, Consent{Excluded: []string{"batch"}}, true},
-		"adding to what was there":    {Consent{Paused: []string{"flow"}}, Consent{Paused: []string{"flow", "probes"}}, true},
-		"unchanged":                   {Consent{Paused: []string{"flow"}, Excluded: []string{"shop"}}, Consent{Paused: []string{"flow"}, Excluded: []string{"shop"}}, false},
-		"only widening":               {Consent{Paused: []string{"flow", "probes"}, Excluded: []string{"shop", "batch"}}, Consent{Paused: []string{"flow"}, Excluded: []string{"shop"}}, false},
-		"clearing everything":         {Consent{Paused: []string{"flow"}, Excluded: []string{"shop"}}, Consent{}, false},
-	} {
-		if got := consentNarrows(c.cur, c.next); got != c.want {
-			t.Errorf("%s: consentNarrows = %v, want %v", name, got, c.want)
-		}
-	}
-}
-
 // ---- consent overrides ----
 
 func TestConsentOverridesAreValidatedPersistedAndPushed(t *testing.T) {
@@ -407,13 +388,13 @@ func TestHelloAdvertisesTheCeilingAndDiagnosticsFollowHeartbeats(t *testing.T) {
 
 func TestAnOversizedDiagnosticsAccountIsIgnoredNotRefused(t *testing.T) {
 	v := newView()
-	v.noteDiagnostics(&continuumv1.Diagnostics{AgentVersion: "1"}, false, time.Now())
+	v.NoteDiagnostics(&continuumv1.Diagnostics{AgentVersion: "1"}, false, time.Now())
 	huge := &continuumv1.Diagnostics{AgentVersion: "2"}
 	for i := 0; i < 5000; i++ {
 		huge.Problems = append(huge.Problems, &continuumv1.Problem{Code: "x", Message: strings.Repeat("m", 100)})
 	}
-	v.noteDiagnostics(huge, false, time.Now())
-	if v.ext.diag.AgentVersion != "1" {
+	v.NoteDiagnostics(huge, false, time.Now())
+	if v.Ext.Diag.AgentVersion != "1" {
 		t.Fatal("an oversized account replaced the previous one")
 	}
 	many := &continuumv1.Diagnostics{AgentVersion: "3"}
@@ -421,15 +402,15 @@ func TestAnOversizedDiagnosticsAccountIsIgnoredNotRefused(t *testing.T) {
 		many.Problems = append(many.Problems, &continuumv1.Problem{Code: "x"})
 		many.Informers = append(many.Informers, &continuumv1.InformerDiag{Name: "i"})
 	}
-	v.noteDiagnostics(many, false, time.Now())
-	if len(v.ext.diag.Problems) != maxDiagProblems || len(v.ext.diag.Informers) != maxDiagInformers {
-		t.Fatalf("lists were not cut: %d %d", len(v.ext.diag.Problems), len(v.ext.diag.Informers))
+	v.NoteDiagnostics(many, false, time.Now())
+	if len(v.Ext.Diag.Problems) != MaxDiagProblems || len(v.Ext.Diag.Informers) != MaxDiagInformers {
+		t.Fatalf("lists were not cut: %d %d", len(v.Ext.Diag.Problems), len(v.Ext.Diag.Informers))
 	}
 }
 
 func TestInstalledTelemetrySignalsRoundTripAndTruncate(t *testing.T) {
 	v := newView()
-	v.noteDiagnostics(&continuumv1.Diagnostics{AgentVersion: "1", InstalledTelemetrySignals: []string{"traces", "energy"}}, false, time.Now())
+	v.NoteDiagnostics(&continuumv1.Diagnostics{AgentVersion: "1", InstalledTelemetrySignals: []string{"traces", "energy"}}, false, time.Now())
 	doc := v.diagDoc()
 	if got := strings.Join(doc.InstalledTelemetry, ","); got != "traces,energy" {
 		t.Fatalf("InstalledTelemetry = %v, want [traces energy] (order preserved, the agent already sorts it)", doc.InstalledTelemetry)
@@ -438,12 +419,12 @@ func TestInstalledTelemetrySignalsRoundTripAndTruncate(t *testing.T) {
 	// A longer-than-bound list is truncated, not refused outright - same treatment as PausedCollectors/Problems.
 	v2 := newView()
 	long := &continuumv1.Diagnostics{AgentVersion: "1"}
-	for i := 0; i < maxDiagTelemetrySignals+5; i++ {
+	for i := 0; i < MaxDiagTelemetrySignals+5; i++ {
 		long.InstalledTelemetrySignals = append(long.InstalledTelemetrySignals, fmt.Sprintf("signal%d", i))
 	}
-	v2.noteDiagnostics(long, false, time.Now())
-	if len(v2.ext.diag.InstalledTelemetrySignals) != maxDiagTelemetrySignals {
-		t.Fatalf("InstalledTelemetrySignals not truncated: %d entries", len(v2.ext.diag.InstalledTelemetrySignals))
+	v2.NoteDiagnostics(long, false, time.Now())
+	if len(v2.Ext.Diag.InstalledTelemetrySignals) != MaxDiagTelemetrySignals {
+		t.Fatalf("InstalledTelemetrySignals not truncated: %d entries", len(v2.Ext.Diag.InstalledTelemetrySignals))
 	}
 }
 
@@ -451,7 +432,7 @@ func TestInstalledTelemetryConfigRoundTrips(t *testing.T) {
 	v := newView()
 	tracesPct := uint32(20)
 	energySource := "bundle-kepler"
-	v.noteDiagnostics(&continuumv1.Diagnostics{
+	v.NoteDiagnostics(&continuumv1.Diagnostics{
 		AgentVersion:              "1",
 		InstalledTelemetrySignals: []string{"traces", "energy"},
 		InstalledTelemetryConfig: &continuumv1.InstalledTelemetryConfig{
@@ -485,7 +466,7 @@ func TestInstalledTelemetryConfigRoundTrips(t *testing.T) {
 
 	// No telemetry config reported at all: the doc field stays nil, not present-with-zero-values.
 	v2 := newView()
-	v2.noteDiagnostics(&continuumv1.Diagnostics{AgentVersion: "1"}, false, time.Now())
+	v2.NoteDiagnostics(&continuumv1.Diagnostics{AgentVersion: "1"}, false, time.Now())
 	if doc2 := v2.diagDoc(); doc2.InstalledTelemetryConfig != nil {
 		t.Fatalf("InstalledTelemetryConfig = %v, want nil when the agent reported none", doc2.InstalledTelemetryConfig)
 	}
@@ -501,7 +482,7 @@ func TestExportHealthRelaysTheAgentsStatesAndBoundsThem(t *testing.T) {
 			{Exporter: "zipkin/traces", Signal: "traces", State: continuumv1.ExportRouteHealth_State(99)},
 		},
 	}
-	v.noteDiagnostics(&continuumv1.Diagnostics{AgentVersion: "1", ExportHealth: h}, false, at)
+	v.NoteDiagnostics(&continuumv1.Diagnostics{AgentVersion: "1", ExportHealth: h}, false, at)
 	got := v.diagDoc().ExportHealth
 	if got == nil || got.PodsReached != 3 || got.PodsFailed != 1 || got.ScrapedAt != "2026-10-06T12:00:00Z" || got.LastError == "" || len(got.Routes) != 2 {
 		t.Fatalf("ExportHealth = %+v", got)
@@ -517,20 +498,20 @@ func TestExportHealthRelaysTheAgentsStatesAndBoundsThem(t *testing.T) {
 
 	// Nothing reported (health off, or an older agent): no field at all, not an empty one.
 	v2 := newView()
-	v2.noteDiagnostics(&continuumv1.Diagnostics{AgentVersion: "1"}, false, at)
+	v2.NoteDiagnostics(&continuumv1.Diagnostics{AgentVersion: "1"}, false, at)
 	if v2.diagDoc().ExportHealth != nil {
 		t.Error("ExportHealth must be nil when the agent reported none")
 	}
 
 	// An agent cannot make the server hold more routes than it should.
 	many := &continuumv1.ExportHealth{}
-	for i := 0; i < maxDiagExportRoutes+10; i++ {
+	for i := 0; i < MaxDiagExportRoutes+10; i++ {
 		many.Routes = append(many.Routes, &continuumv1.ExportRouteHealth{Exporter: "e", Signal: "logs"})
 	}
 	v3 := newView()
-	v3.noteDiagnostics(&continuumv1.Diagnostics{AgentVersion: "1", ExportHealth: many}, false, at)
-	if n := len(v3.diagDoc().ExportHealth.Routes); n != maxDiagExportRoutes {
-		t.Errorf("%d routes kept, want %d", n, maxDiagExportRoutes)
+	v3.NoteDiagnostics(&continuumv1.Diagnostics{AgentVersion: "1", ExportHealth: many}, false, at)
+	if n := len(v3.diagDoc().ExportHealth.Routes); n != MaxDiagExportRoutes {
+		t.Errorf("%d routes kept, want %d", n, MaxDiagExportRoutes)
 	}
 }
 
@@ -879,14 +860,14 @@ func TestRecoverPanicHelpers(t *testing.T) {
 	e := newEnv(t)
 	before := kernel.Metrics.StreamPanics.Load()
 	err := func() (err error) {
-		defer e.base.recoverPanic("test", &err)
+		defer e.base.RecoverPanic("test", &err)
 		panic("x")
 	}()
 	if status.Code(err) != codes.Internal || strings.Contains(err.Error(), "x") {
 		t.Fatalf("err = %v (the panic text must not reach the caller)", err)
 	}
 	done := make(chan struct{})
-	go func() { defer close(done); e.base.safely("t", func() { panic("y") }) }()
+	go func() { defer close(done); e.base.Safely("t", func() { panic("y") }) }()
 	<-done
 	if kernel.Metrics.StreamPanics.Load() != before+2 {
 		t.Fatal("panics not counted")
@@ -982,34 +963,6 @@ func TestHelloNamespaceIsRecordedAndUsedInGeneratedCommands(t *testing.T) {
 	}
 	if polled = agentDoc(t, a, editor, id); polled.HardenHelm != "" {
 		t.Fatalf("hardenHelm should be empty once approved matches installed: %+v", polled)
-	}
-}
-
-func TestUpgradeAndTeardownCommandsGuessTheNamespaceWhenNeverReported(t *testing.T) {
-	helm, secret, guessed, err := teardownCommands("", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !guessed || !strings.Contains(helm, "helm uninstall continuum-agent ") || !strings.Contains(helm, "--namespace continuum-system") || !strings.Contains(secret, "--namespace continuum-system") {
-		t.Fatalf("teardown with nothing reported: %q %q %v", helm, secret, guessed)
-	}
-	helm, secret, guessed, err = teardownCommands("apps-team", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !guessed || !strings.Contains(helm, "helm uninstall continuum-agent ") || !strings.Contains(helm, "--namespace apps-team") || !strings.Contains(secret, "--namespace apps-team") {
-		t.Fatalf("teardown with a known namespace but no release: %q %q %v", helm, secret, guessed)
-	}
-	helm, secret, guessed, err = teardownCommands("apps-team", "obs-agent")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if guessed || !strings.Contains(helm, "helm uninstall obs-agent ") || !strings.Contains(helm, "--namespace apps-team") || !strings.Contains(secret, "--namespace apps-team") {
-		t.Fatalf("teardown with a known namespace and release: %q %q %v", helm, secret, guessed)
-	}
-	// The identity Secret's own name never depends on the release: every chart object has a fixed name.
-	if !strings.Contains(secret, "continuum-agent-identity") {
-		t.Fatalf("secret name should stay fixed regardless of release name: %q", secret)
 	}
 }
 
@@ -1302,7 +1255,7 @@ func TestConsentDocSaysWhetherTheAgentHasConfirmedANarrowing(t *testing.T) {
 	// The agent reports back something that does not yet match (an older report, or a different pause):
 	// still unconfirmed.
 	r.hub.mu.Lock()
-	v.noteDiagnostics(&continuumv1.Diagnostics{AgentVersion: "1", PausedCollectors: []string{}}, false, *r.now)
+	v.NoteDiagnostics(&continuumv1.Diagnostics{AgentVersion: "1", PausedCollectors: []string{}}, false, *r.now)
 	r.hub.mu.Unlock()
 	if cd := v.consentDoc(); cd.Confirmed || cd.SetAt == "" {
 		t.Fatalf("a report that does not yet show the pause should stay unconfirmed: %+v", cd)
@@ -1310,7 +1263,7 @@ func TestConsentDocSaysWhetherTheAgentHasConfirmedANarrowing(t *testing.T) {
 
 	// The agent catches up: confirmed, and SetAt drops off since there is nothing stale to show any more.
 	r.hub.mu.Lock()
-	v.noteDiagnostics(&continuumv1.Diagnostics{AgentVersion: "1", PausedCollectors: []string{"flow"}}, false, *r.now)
+	v.NoteDiagnostics(&continuumv1.Diagnostics{AgentVersion: "1", PausedCollectors: []string{"flow"}}, false, *r.now)
 	r.hub.mu.Unlock()
 	if cd := v.consentDoc(); !cd.Confirmed || cd.SetAt != "" {
 		t.Fatalf("a report matching the ask should be confirmed with no SetAt: %+v", cd)
@@ -1335,7 +1288,7 @@ func TestConsentDocSaysWhetherTheAgentHasConfirmedANarrowing(t *testing.T) {
 	// of excluded namespaces reads as confirmed even though this test cannot tell the diagnostic "batch" is
 	// the same namespace, which is the documented, accepted limitation.
 	r.hub.mu.Lock()
-	v.noteDiagnostics(&continuumv1.Diagnostics{AgentVersion: "1", PausedCollectors: []string{"flow"}, ExcludedNamespaces: 1}, false, *r.now)
+	v.NoteDiagnostics(&continuumv1.Diagnostics{AgentVersion: "1", PausedCollectors: []string{"flow"}, ExcludedNamespaces: 1}, false, *r.now)
 	r.hub.mu.Unlock()
 	if cd := v.consentDoc(); !cd.Confirmed {
 		t.Fatalf("matching pause and matching excluded count should confirm: %+v", cd)
@@ -1417,7 +1370,7 @@ func TestKnownNamespacesOnlyLearnsFromASyncTheServerActuallyAccepted(t *testing.
 		t.Fatal("a sync over the namespace limit should have been refused")
 	}
 	r.hub.mu.Lock()
-	known := r.hub.viewFor(id).ext.knownNamespaces
+	known := r.hub.viewFor(id).Ext.KnownNamespaces
 	r.hub.mu.Unlock()
 	if known["batch"] || known["shop"] {
 		t.Fatalf("a rejected sync should not have taught knownNamespaces anything: %v", known)

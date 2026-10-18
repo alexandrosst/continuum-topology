@@ -75,7 +75,7 @@ type setupEnd struct {
 	// Tier is the agent's access tier. Note is why the agent is not told about the other cluster (see endNote), nil if it is.
 	Tier int
 	Note *LinkNote
-	Caps linkCaps
+	Caps LinkCaps
 }
 
 func (e setupEnd) name() string {

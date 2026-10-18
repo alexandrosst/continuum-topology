@@ -52,7 +52,7 @@ func (h *Hub) Run(ctx context.Context) {
 	defer cfg.Stop()
 	t := time.NewTicker(tickEvery)
 	defer t.Stop()
-	self := time.NewTicker(selfStatsSampleEvery)
+	self := time.NewTicker(SelfStatsSampleEvery)
 	defer self.Stop()
 	drift := time.NewTicker(driftTick)
 	defer drift.Stop()
@@ -149,7 +149,7 @@ func (r *recorder) scan(ctx context.Context, now time.Time, periodic bool) {
 		// Now that both the events and the version they go with are written, connect them: the graph's own
 		// record of what an event explains, not just that the UI happened to show them at the same moment.
 		if len(evs) > 0 {
-			if el, ok := r.h.C.Store.(eventLinker); ok {
+			if el, ok := r.h.C.Store.(EventLinker); ok {
 				if err := el.LinkEventChanges(ctx, r.h.C.OrgID, now, evs); err != nil {
 					r.h.Log.Warn("history: could not link events to what they explain", "err", err)
 				}
@@ -170,7 +170,7 @@ func (r *recorder) reclaimRevoked(ctx context.Context) {
 	r.h.mu.Lock()
 	for _, a := range agents {
 		if a.Status == store.StatusRevoked && a.RevokedAt != nil && !r.h.revokedWithinRetention(a) {
-			keys = append(keys, a.ID, flowsKey(a.ID), consentKey(a.ID))
+			keys = append(keys, a.ID, flowsKey(a.ID), ConsentKey(a.ID))
 			delete(r.h.views, a.ID)
 		}
 	}

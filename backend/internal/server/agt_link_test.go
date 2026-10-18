@@ -19,15 +19,15 @@ func TestLinkStatsFlowBytesCountsOnlyFlowMessages(t *testing.T) {
 	flow1 := &continuumv1.AgentMessage{Msg: &continuumv1.AgentMessage_Flows{Flows: &continuumv1.FlowBatch{Seq: 1, Flows: []*continuumv1.Flow{{}, {}}}}}
 	flow2 := &continuumv1.AgentMessage{Msg: &continuumv1.AgentMessage_Flows{Flows: &continuumv1.FlowBatch{Seq: 2}}}
 	beat := &continuumv1.AgentMessage{Msg: &continuumv1.AgentMessage_Heartbeat{Heartbeat: &continuumv1.Heartbeat{}}}
-	l.note(flow1, at)
-	l.note(beat, at)
-	l.note(flow2, at)
+	l.Note(flow1, at)
+	l.Note(beat, at)
+	l.Note(flow2, at)
 	want := int64(proto.Size(flow1)) + int64(proto.Size(flow2))
-	if l.flowBytes != want {
-		t.Fatalf("flowBytes = %d, want %d (the two flow messages only, not the heartbeat)", l.flowBytes, want)
+	if l.FlowBytes != want {
+		t.Fatalf("flowBytes = %d, want %d (the two flow messages only, not the heartbeat)", l.FlowBytes, want)
 	}
-	if l.bytes != want+int64(proto.Size(beat)) {
-		t.Fatalf("bytes = %d, want every message counted", l.bytes)
+	if l.Bytes != want+int64(proto.Size(beat)) {
+		t.Fatalf("bytes = %d, want every message counted", l.Bytes)
 	}
 }
 
@@ -43,16 +43,16 @@ func TestLinkStatsCountEachMessageByKind(t *testing.T) {
 	}
 	var want int64
 	for i, m := range msgs {
-		l.note(m, at.Add(time.Duration(i)*time.Second))
+		l.Note(m, at.Add(time.Duration(i)*time.Second))
 		want += int64(proto.Size(m))
 	}
-	if l.beats != 2 || l.syncs != 1 || l.flows != 0 || l.meas != 0 {
+	if l.Beats != 2 || l.Syncs != 1 || l.Flows != 0 || l.Meas != 0 {
 		t.Fatalf("counts wrong: %+v", l)
 	}
-	if l.bytes != want {
-		t.Fatalf("bytes = %d, want %d", l.bytes, want)
+	if l.Bytes != want {
+		t.Fatalf("bytes = %d, want %d", l.Bytes, want)
 	}
-	if !l.lastSync.Equal(at.Add(2*time.Second)) || !l.lastAny.Equal(at.Add(2*time.Second)) {
+	if !l.LastSync.Equal(at.Add(2*time.Second)) || !l.lastAny.Equal(at.Add(2*time.Second)) {
 		t.Fatalf("timestamps wrong: %+v", l)
 	}
 }

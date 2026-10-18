@@ -75,7 +75,7 @@ func (c *Core) Reject(ctx context.Context, actor, agentID, reason string) error 
 	err = c.AuditedWrite(err, "agent-rejected")
 	if err == nil {
 		if fresh, ferr := c.AgentInOrg(ctx, agentID); ferr == nil {
-			c.recordAgentGraph(ctx, fresh, "agent-rejected", reason)
+			c.RecordAgentGraph(ctx, fresh, "agent-rejected", reason)
 		}
 	}
 	return err
@@ -94,7 +94,7 @@ func (c *Core) Revoke(ctx context.Context, actor, agentID, reason string) error 
 	err = c.AuditedWrite(err, "agent-revoked")
 	if err == nil {
 		if fresh, ferr := c.AgentInOrg(ctx, agentID); ferr == nil {
-			c.recordAgentGraph(ctx, fresh, "agent-revoked", reason)
+			c.RecordAgentGraph(ctx, fresh, "agent-revoked", reason)
 		}
 		// A revoked agent sends nothing, so its telemetry intents are dead letters. Left active, they still count
 		// as users of whatever operator they point at and make revoking that operator need force. They end with

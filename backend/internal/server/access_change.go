@@ -26,7 +26,7 @@ func minusStrings(list, drop []string) []string {
 // resolveChange checks a change against the agent as it is now and returns the access it would leave the agent with and whether
 // that is wider than the agent has: a higher tier, or a pause or exclusion lifted (even when the change also adds one). It is
 // used when a change is proposed and again when it is accepted.
-func resolveChange(a store.Agent, cur Consent, ch decisionloop.AccessChange) (nextTier int, next Consent, widens bool, err error) {
+func ResolveChange(a store.Agent, cur Consent, ch decisionloop.AccessChange) (nextTier int, next Consent, widens bool, err error) {
 	next = cur
 	nextTier = a.AccessTier
 	consentFields := len(ch.Pause)+len(ch.Resume)+len(ch.Exclude)+len(ch.Include) > 0
@@ -51,11 +51,11 @@ func resolveChange(a store.Agent, cur Consent, ch decisionloop.AccessChange) (ne
 		}
 		return t, cur, t > a.AccessTier, nil
 	}
-	pause, err := cleanConsent(Consent{Paused: ch.Pause, Excluded: ch.Exclude})
+	pause, err := CleanConsent(Consent{Paused: ch.Pause, Excluded: ch.Exclude})
 	if err != nil {
 		return 0, cur, false, err
 	}
-	resume, err := cleanConsent(Consent{Paused: ch.Resume, Excluded: ch.Include})
+	resume, err := CleanConsent(Consent{Paused: ch.Resume, Excluded: ch.Include})
 	if err != nil {
 		return 0, cur, false, err
 	}
@@ -71,7 +71,7 @@ func resolveChange(a store.Agent, cur Consent, ch decisionloop.AccessChange) (ne
 	}
 	next.Paused = addNew(minusStrings(cur.Paused, resume.Paused), pause.Paused)
 	next.Excluded = addNew(minusStrings(cur.Excluded, resume.Excluded), pause.Excluded)
-	next, err = cleanConsent(next)
+	next, err = CleanConsent(next)
 	if err != nil {
 		return 0, cur, false, err
 	}

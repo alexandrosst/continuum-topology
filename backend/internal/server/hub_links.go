@@ -205,7 +205,7 @@ func (h *Hub) runnersPaused(a store.Agent, agents []store.Agent, links []kernel.
 	out := map[string]bool{}
 	for _, o := range agents {
 		if runs[o.ClusterID] && o.Status == store.StatusApproved {
-			out[o.ID] = h.consentOf(o.ID).has("flow")
+			out[o.ID] = h.consentOf(o.ID).Has("flow")
 		}
 	}
 	return out

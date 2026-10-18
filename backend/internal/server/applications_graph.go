@@ -133,7 +133,7 @@ func (c *Core) recordApplicationsGraph(ctx context.Context, prevData, data []byt
 		c.Log.Warn("history: could not record why an application's state changed", "err", err)
 		return
 	}
-	if el, ok := c.Store.(eventLinker); ok {
+	if el, ok := c.Store.(EventLinker); ok {
 		if err := el.LinkEventChanges(ctx, c.OrgID, now, evs); err != nil {
 			c.Log.Warn("history: could not link an application's events to what they explain", "err", err)
 		}

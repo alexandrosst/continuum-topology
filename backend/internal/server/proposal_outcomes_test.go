@@ -21,7 +21,7 @@ func (r *propRig) feed(from time.Time, span time.Duration, bytesPerSec float64, 
 	for at := from; !at.After(from.Add(span)); at = at.Add(30 * time.Second) {
 		*cumulative += uint64(bytesPerSec * 30)
 		*cpuSeconds += 0.1 * 30
-		v.self.add(SelfStatsSample{At: at, RSSBytes: 50 << 20, CPUSeconds: *cpuSeconds, LinkBytesCumulative: *cumulative}, at)
+		v.Self.Add(SelfStatsSample{At: at, RSSBytes: 50 << 20, CPUSeconds: *cpuSeconds, LinkBytesCumulative: *cumulative}, at)
 	}
 }
 

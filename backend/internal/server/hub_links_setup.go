@@ -26,7 +26,7 @@ func (h *Hub) LinkReport(ctx context.Context, links []kernel.LinkSetting, haveFu
 	paused := map[string]bool{}
 	for _, o := range agents { // before h.mu: the consent may be read from the store
 		if o.Status == store.StatusApproved && in[o.ClusterID] {
-			paused[o.ID] = h.consentOf(o.ID).has("flow")
+			paused[o.ID] = h.consentOf(o.ID).Has("flow")
 		}
 	}
 	now := h.C.Now()
@@ -47,7 +47,7 @@ func (h *Hub) linkSetups(links []kernel.LinkSetting, agents []store.Agent, flowP
 		}
 		e.HasAgent, e.Name, e.Tier = true, a.Name, a.AccessTier
 		if v := h.views[a.ID]; v != nil {
-			e.Caps = v.ext.linkCaps
+			e.Caps = v.Ext.LinkCaps
 		}
 		if o, ok := byCluster[peer]; ok {
 			e.Note = h.endNote(l, a, o, plan(a), flowPausedOf[a.ID])

@@ -33,7 +33,7 @@ func AgentFrom(ctx context.Context) (store.Agent, bool) {
 	return a, ok
 }
 
-func toStatus(err error) error {
+func ToStatus(err error) error {
 	if err == nil {
 		return nil
 	}
@@ -49,7 +49,7 @@ func toStatus(err error) error {
 	return status.Error(code, e.Msg)
 }
 
-func peerIP(ctx context.Context) string {
+func PeerIP(ctx context.Context) string {
 	if p, ok := peer.FromContext(ctx); ok {
 		if h, _, err := net.SplitHostPort(p.Addr.String()); err == nil {
 			return h
@@ -97,7 +97,7 @@ func (c *Core) identity(ctx context.Context) (store.Agent, error) {
 			}
 			return store.Agent{}, st.Err()
 		}
-		return store.Agent{}, toStatus(err)
+		return store.Agent{}, ToStatus(err)
 	}
 	// The certificate must be the one currently issued to this agent or an earlier one from the
 	// same identity; revocation is what matters, and that is checked above on every call.
@@ -118,7 +118,7 @@ func hasClientAuth(c *x509.Certificate) bool {
 // verified client certificate is refused without its (up to 16 MB) message ever being received.
 func (c *Core) tap(ctx context.Context, info *tap.Info) (context.Context, error) {
 	if strings.HasPrefix(info.FullMethodName, enrollmentPrefix) {
-		if c.TapRL != nil && !c.TapRL.Allow("tap:"+kernel.LimitKey(peerIP(ctx))) {
+		if c.TapRL != nil && !c.TapRL.Allow("tap:"+kernel.LimitKey(PeerIP(ctx))) {
 			return nil, status.Error(codes.ResourceExhausted, "too many requests")
 		}
 		return ctx, nil
@@ -135,7 +135,7 @@ func (c *Core) tap(ctx context.Context, info *tap.Info) (context.Context, error)
 const enrollmentPrefix = "/continuum.v1.Enrollment/"
 
 func (c *Core) unary(ctx context.Context, req any, info *grpc.UnaryServerInfo, h grpc.UnaryHandler) (resp any, err error) {
-	defer c.recoverPanic(info.FullMethod, &err)
+	defer c.RecoverPanic(info.FullMethod, &err)
 	if strings.HasPrefix(info.FullMethod, enrollmentPrefix) {
 		// The listener already holds unauthenticated connections to a small message size; this also covers
 		// a caller that authenticated and then sent an enrollment call.
@@ -159,7 +159,7 @@ type wrappedStream struct {
 func (w wrappedStream) Context() context.Context { return w.ctx }
 
 func (c *Core) stream(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, h grpc.StreamHandler) (err error) {
-	defer c.recoverPanic(info.FullMethod, &err)
+	defer c.RecoverPanic(info.FullMethod, &err)
 	a, err := c.identity(ss.Context())
 	if err != nil {
 		kernel.Metrics.AuthFailures.Add(1)
@@ -415,23 +415,23 @@ type enrollmentServer struct {
 }
 
 func (e *enrollmentServer) Enroll(ctx context.Context, r *continuumv1.EnrollRequest) (*continuumv1.EnrollResponse, error) {
-	resp, err := e.c.Enroll(ctx, peerIP(ctx), r)
-	return resp, toStatus(err)
+	resp, err := e.c.Enroll(ctx, PeerIP(ctx), r)
+	return resp, ToStatus(err)
 }
 
 func (e *enrollmentServer) Rejoin(ctx context.Context, r *continuumv1.RejoinRequest) (*continuumv1.RenewResponse, error) {
-	resp, err := e.c.Rejoin(ctx, peerIP(ctx), r)
-	return resp, toStatus(err)
+	resp, err := e.c.Rejoin(ctx, PeerIP(ctx), r)
+	return resp, ToStatus(err)
 }
 
 func (e *enrollmentServer) RenewTelemetryCert(ctx context.Context, r *continuumv1.RenewTelemetryCertRequest) (*continuumv1.RenewTelemetryCertResponse, error) {
-	resp, err := e.c.Operators.RenewTelemetryCert(ctx, peerIP(ctx), r)
-	return resp, toStatus(err)
+	resp, err := e.c.Operators.RenewTelemetryCert(ctx, PeerIP(ctx), r)
+	return resp, ToStatus(err)
 }
 
 func (e *enrollmentServer) PollEnrollment(ctx context.Context, r *continuumv1.PollRequest) (*continuumv1.PollResponse, error) {
-	resp, err := e.c.Poll(ctx, peerIP(ctx), r)
-	return resp, toStatus(err)
+	resp, err := e.c.Poll(ctx, PeerIP(ctx), r)
+	return resp, ToStatus(err)
 }
 
 // BaseAgentService implements Renew; Connect is provided by the sync hub.
@@ -447,7 +447,7 @@ func (b *BaseAgentService) Renew(ctx context.Context, r *continuumv1.RenewReques
 	}
 	leaf, notAfter, err := b.C.Renew(ctx, a.ID, r.CsrDer)
 	if err != nil {
-		return nil, toStatus(err)
+		return nil, ToStatus(err)
 	}
 	return &continuumv1.RenewResponse{LeafDer: leaf, CaDer: b.C.CA.DER, NotAfter: kernel.TSProto(&notAfter)}, nil
 }

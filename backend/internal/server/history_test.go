@@ -497,7 +497,7 @@ func TestSuspicionsFromKubernetesPortsAndSharedNetworks(t *testing.T) {
 		flowOf(wep(w), xep("10.0.0.78"), 5432, 3),        // too little traffic to mention
 	)
 	all := []observed.Cluster{home, known}
-	got := suspicions("org-1", []observed.Cluster{home}, all, now)
+	got := Suspicions("org-1", []observed.Cluster{home}, all, now)
 	var cluster198, machine10 bool
 	for _, s := range got {
 		if s.Kind != "infrastructure" || !strings.HasPrefix(s.ID, "sg-unk-") || s.Status != "open" {
@@ -518,11 +518,11 @@ func TestSuspicionsFromKubernetesPortsAndSharedNetworks(t *testing.T) {
 	if !cluster198 || !machine10 || len(got) != 2 {
 		t.Fatalf("got %d suspicions: cluster=%v machine=%v", len(got), cluster198, machine10)
 	}
-	again := suspicions("org-1", []observed.Cluster{home}, all, now.Add(time.Hour))
+	again := Suspicions("org-1", []observed.Cluster{home}, all, now.Add(time.Hour))
 	if len(again) != len(got) || again[0].ID != got[0].ID {
 		t.Fatal("suspicion ids are not stable")
 	}
-	if suspicions("org-1", nil, nil, now) != nil {
+	if Suspicions("org-1", nil, nil, now) != nil {
 		t.Fatal("no clusters, no suspicions")
 	}
 }
@@ -533,7 +533,7 @@ func TestOnboardedClusterAddressesAreNeverSuspicious(t *testing.T) {
 	home := cluster("home", "", nil, wk("app", "Deployment", "api"))
 	peer := cluster("peer", "198.51.100.200", []*continuumv1.NodeFacts{{Key: "p", InternalIps: []string{"198.51.100.60"}}})
 	feed(&home, now, 60, flowOf(wep(w), xep("198.51.100.60"), 6443, 50), flowOf(wep(w), xep("198.51.100.200"), 6443, 50))
-	if got := suspicions("org-1", []observed.Cluster{home}, []observed.Cluster{home, peer}, now); len(got) != 0 {
+	if got := Suspicions("org-1", []observed.Cluster{home}, []observed.Cluster{home, peer}, now); len(got) != 0 {
 		t.Fatalf("known clusters were suspected: %+v", got)
 	}
 }
@@ -980,7 +980,7 @@ func TestRevokedAgentsAreReclaimedAfterTheirRetention(t *testing.T) {
 		r.hub.mu.Lock()
 		r.hub.views[id] = liveView(*r.now, "n1")
 		r.hub.mu.Unlock()
-		for _, k := range []string{id, flowsKey(id), consentKey(id)} {
+		for _, k := range []string{id, flowsKey(id), ConsentKey(id)} {
 			if err := r.st.SaveSnapshot(r.ctx, k, []byte("{}"), *r.now); err != nil {
 				t.Fatal(err)
 			}
@@ -993,7 +993,7 @@ func TestRevokedAgentsAreReclaimedAfterTheirRetention(t *testing.T) {
 		r.hub.mu.Lock()
 		view = r.hub.views[id] != nil
 		r.hub.mu.Unlock()
-		for _, k := range []string{id, flowsKey(id), consentKey(id)} {
+		for _, k := range []string{id, flowsKey(id), ConsentKey(id)} {
 			if _, _, err := r.st.LoadSnapshot(r.ctx, k); err == nil {
 				snaps++
 			}

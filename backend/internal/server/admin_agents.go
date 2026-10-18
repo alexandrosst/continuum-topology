@@ -19,7 +19,7 @@ import (
 // release on top, which is what "keep what I set" was always meant to say.
 func (a *Admin) upgradeCommand(img kernel.ImageConfig, tier int, namespace, release string) (string, error) {
 	ref, version := a.agentChart(img)
-	ns, name, _ := releaseTarget(namespace, release)
+	ns, name, _ := ReleaseTarget(namespace, release)
 	return install.Helm{Verb: install.Upgrade, Release: name, Chart: ref, Version: version, Namespace: ns, ResetThenReuse: true,
 		Values: []install.Value{install.Set("access.tier", strconv.Itoa(tier))}}.Render()
 }

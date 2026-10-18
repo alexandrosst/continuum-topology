@@ -12,18 +12,18 @@ import (
 // see selfRing's own doc comment. A var, not a const, so a test can shrink it; production code never
 // changes it. One hour at whatever cadence samples actually arrive: a heartbeat every HeartbeatSeconds
 // for an agent's own ring, selfStatsSampleEvery for the server's own.
-var selfStatsWindow = time.Hour
+var SelfStatsWindow = time.Hour
 
 // selfStatsSampleEvery is how often Hub.Run samples the server's own process self-stats (sampleSelfStats) -
 // see Hub.Run's own ticker. A var, not a const, so a test can shrink it without waiting out a real hour.
-var selfStatsSampleEvery = 30 * time.Second
+var SelfStatsSampleEvery = 30 * time.Second
 
 // selfRing is a small, fixed time-window ring of self-telemetry samples - one per agent (view.self) or
 // one for the server's own process (Hub.serverSelf). Samples always arrive in time order (one per
 // heartbeat received, or one per tick of the server's own ticker), so eviction is a simple trim from the
 // front; this is deliberately not the heap-based eviction this codebase uses elsewhere (see twin's
 // Tombstones) for caches keyed by an arbitrary, not-necessarily-time-ordered key.
-type selfRing[T any] struct {
+type SelfRing[T any] struct {
 	window  time.Duration
 	at      func(T) time.Time
 	samples []T
@@ -32,17 +32,17 @@ type selfRing[T any] struct {
 // newSelfRing builds a ring that keeps samples within window of the most recently added one's own
 // timestamp, as reported by at. window<=0 falls back to selfStatsWindow, the same "0 means the real
 // default" treatment Hub.FlowStaleAfter/ConsistencyEvery already use.
-func newSelfRing[T any](window time.Duration, at func(T) time.Time) selfRing[T] {
+func NewSelfRing[T any](window time.Duration, at func(T) time.Time) SelfRing[T] {
 	if window <= 0 {
-		window = selfStatsWindow
+		window = SelfStatsWindow
 	}
-	return selfRing[T]{window: window, at: at}
+	return SelfRing[T]{window: window, at: at}
 }
 
 // add appends s and evicts every sample older than window as measured from now, a plain trim from the
 // front since samples arrive in time order - see selfRing's own doc comment. now is passed in rather
 // than read from the clock here so a test can drive eviction without any real waiting.
-func (r *selfRing[T]) add(s T, now time.Time) {
+func (r *SelfRing[T]) Add(s T, now time.Time) {
 	r.samples = append(r.samples, s)
 	cut := 0
 	for cut < len(r.samples) && now.Sub(r.at(r.samples[cut])) > r.window {
@@ -59,7 +59,7 @@ func (r *selfRing[T]) add(s T, now time.Time) {
 
 // list returns a copy of the ring's current samples, oldest first, safe for the caller to range over
 // after the lock that guards the ring (h.mu, for both view.self and Hub.serverSelf) has been released.
-func (r *selfRing[T]) list() []T {
+func (r *SelfRing[T]) List() []T {
 	if len(r.samples) == 0 {
 		return nil
 	}
@@ -92,15 +92,15 @@ type SelfStatsSample struct {
 // holds h.mu" convention noteDiagnostics (consent.go) uses - called from Hub.Connect's own Heartbeat
 // case. A nil ss (an agent older than the field, or a heartbeat that for whatever reason carried none)
 // is simply ignored: there is nothing to add, never a fabricated zero-valued sample.
-func (v *agtView) noteSelfStats(ss *continuumv1.SelfStats, now time.Time) {
+func (v *View) NoteSelfStats(ss *continuumv1.SelfStats, now time.Time) {
 	if ss == nil {
 		return
 	}
-	v.self.add(SelfStatsSample{
+	v.Self.Add(SelfStatsSample{
 		At: now, RSSBytes: ss.RssBytes, Goroutines: ss.Goroutines, CPUSeconds: ss.CpuSeconds,
 		FlowIntervalSeconds: ss.FlowIntervalSeconds, ProbeIntervalSeconds: ss.ProbeIntervalSeconds,
 		LastFlowBatchFlows: ss.LastFlowBatchFlows, LastFlowBatchBytes: ss.LastFlowBatchBytes,
-		LinkBytesCumulative: uint64(v.link.bytes),
+		LinkBytesCumulative: uint64(v.Link.Bytes),
 	}, now)
 }
 
@@ -144,7 +144,7 @@ type ServerSelfStatsSample struct {
 // packages have no existing common dependency to hang a few lines of syscall code on, and this is small
 // enough that doing so would cost more clarity than it saves. 0 on the (practically never seen on this
 // server's own deployment target) platform where getrusage fails outright.
-func processCPUSeconds() float64 {
+func ProcessCPUSeconds() float64 {
 	var ru syscall.Rusage
 	if err := syscall.Getrusage(syscall.RUSAGE_SELF, &ru); err != nil {
 		return 0
@@ -157,8 +157,8 @@ func processCPUSeconds() float64 {
 // flowIngest tracks the running total sampleSelfStats diffs to derive FlowIngestBytesPerSec - see that
 // field's own doc comment. Guarded by its own lock, never Hub.mu: sampleSelfStats already releases
 // Hub.mu before touching this, so the two never need to be held together.
-type flowIngest struct {
-	mu         sync.Mutex
-	totalBytes int64
-	at         time.Time
+type FlowIngest struct {
+	Mu         sync.Mutex
+	TotalBytes int64
+	At         time.Time
 }

@@ -1048,7 +1048,7 @@ func (a *Admin) operatorSourceReminders(r *http.Request, op store.Operator, tlsB
 		if ok {
 			ns, name = hub.NamespaceOf(ag.ID), hub.ReleaseNameOf(ag.ID)
 		}
-		rns, rname, _ := releaseTarget(ns, name)
+		rns, rname, _ := ReleaseTarget(ns, name)
 		targets = append(targets, sourceTarget{cl, rns, rname})
 	}
 	out, err := a.sourceReminders(img, op, tlsBundle, targets)

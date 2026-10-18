@@ -320,7 +320,7 @@ func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 	// and the caller's `helm upgrade` must name the same namespace, or the release cannot find its
 	// certificate. Always returned so the caller does not have to guess it.
 	hub := a.tn(r).Hub
-	rns, rname, _ := releaseTarget(hub.NamespaceOf(agent.ID), hub.ReleaseNameOf(agent.ID))
+	rns, rname, _ := ReleaseTarget(hub.NamespaceOf(agent.ID), hub.ReleaseNameOf(agent.ID))
 	resp := map[string]any{"namespace": rns, "release": rname}
 	// With the page's telemetry the answer is the whole block. What is wrong with that telemetry is found before anything is issued: a
 	// certificate is minted and audited for a command that will be written, not for one that cannot be.

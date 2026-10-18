@@ -101,7 +101,7 @@ func (h *Hub) startAddressTests(ctx context.Context, actor string, a store.Agent
 	if len(wants) > maxAddressTests {
 		return nil, kernel.Errf(kernel.KindInvalid, "at most %d addresses are tested at once", maxAddressTests)
 	}
-	if h.consentOf(a.ID).has("measure") {
+	if h.consentOf(a.ID).Has("measure") {
 		return nil, kernel.Errf(kernel.KindConflict, "connection timing is paused for this cluster, and a test is a connection timing. Resume it in the cluster's access settings first")
 	}
 	now := h.C.Now()
@@ -111,7 +111,7 @@ func (h *Hub) startAddressTests(ctx context.Context, actor string, a store.Agent
 		h.mu.Unlock()
 		return nil, kernel.Errf(kernel.KindConflict, "this agent is not connected right now, so it cannot test anything. Try again once it is back")
 	}
-	if d := v.ext.diag; d != nil {
+	if d := v.Ext.Diag; d != nil {
 		for _, c := range d.GetCollectors() {
 			if c.GetName() == "measure" && !c.GetConfigured() {
 				h.mu.Unlock()

@@ -122,7 +122,7 @@ func TestSendersOfAnOperatorShowTheirAddressesAndHowDeliveryGoes(t *testing.T) {
 	}
 	v := liveView(*a.now, "n1")
 	v.connected = true
-	v.ext.diag = exportHealth("failing", "metrics", "dial tcp 10.20.0.14:31317: i/o timeout", 0, 12)
+	v.Ext.Diag = exportHealth("failing", "metrics", "dial tcp 10.20.0.14:31317: i/o timeout", 0, 12)
 	a.hub().mu.Lock()
 	a.hub().views[agentID] = v
 	a.hub().mu.Unlock()

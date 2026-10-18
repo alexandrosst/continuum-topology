@@ -191,7 +191,7 @@ var configSections = []configSection{
 			}
 			b.cfg.LinkPeers = append(b.cfg.LinkPeers, lp)
 		}
-		if f.Tier >= 2 && !f.Consent.has("flow") {
+		if f.Tier >= 2 && !f.Consent.Has("flow") {
 			b.cfg.LinkIperfServer = f.IperfServer
 		}
 	}},
@@ -202,7 +202,7 @@ var configSections = []configSection{
 		if f.Tier >= 2 {
 			ts = append(ts, f.DerivedTargets...)
 		}
-		if f.Consent.has("measure") {
+		if f.Consent.Has("measure") {
 			ts = nil // the agent is asked to stop measuring; nothing is issued, so nothing measured is accepted either
 		}
 		if len(ts) > measure.MaxTargets {

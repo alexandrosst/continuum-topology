@@ -254,9 +254,9 @@ func TestSelfTelemetryEndpointShapeAndRBAC(t *testing.T) {
 	h.mu.Lock()
 	v := h.views[ag.ID]
 	t0 := time.Unix(5000, 0)
-	v.self.add(SelfStatsSample{At: t0, RSSBytes: 111 << 20, Goroutines: 9, CPUSeconds: 1, FlowIntervalSeconds: 30, ProbeIntervalSeconds: 180, LinkBytesCumulative: 1000}, t0)
+	v.Self.Add(SelfStatsSample{At: t0, RSSBytes: 111 << 20, Goroutines: 9, CPUSeconds: 1, FlowIntervalSeconds: 30, ProbeIntervalSeconds: 180, LinkBytesCumulative: 1000}, t0)
 	t1 := t0.Add(10 * time.Second)
-	v.self.add(SelfStatsSample{At: t1, RSSBytes: 115 << 20, Goroutines: 9, CPUSeconds: 2, FlowIntervalSeconds: 30, ProbeIntervalSeconds: 180, LinkBytesCumulative: 2000}, t1)
+	v.Self.Add(SelfStatsSample{At: t1, RSSBytes: 115 << 20, Goroutines: 9, CPUSeconds: 2, FlowIntervalSeconds: 30, ProbeIntervalSeconds: 180, LinkBytesCumulative: 2000}, t1)
 	h.mu.Unlock()
 	h.sampleSelfStats(t1)
 

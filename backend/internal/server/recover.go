@@ -13,7 +13,7 @@ import (
 // recoverPanic turns a panic in a gRPC handler into an Internal status for that one call or stream: the process keeps
 // serving everyone else, the stack goes to the log, and the counter goes up. The agent whose stream it was sees a failed
 // connection and reconnects, which starts the stream loop again. Use it as `defer c.recoverPanic(what, &err)`.
-func (c *Core) recoverPanic(what string, err *error) {
+func (c *Core) RecoverPanic(what string, err *error) {
 	if p := recover(); p != nil {
 		kernel.Metrics.StreamPanics.Add(1)
 		c.Log.Error("panic recovered in a request handler", "handler", what, "panic", fmt.Sprint(p), "stack", string(debug.Stack()))
@@ -22,7 +22,7 @@ func (c *Core) recoverPanic(what string, err *error) {
 }
 
 // safely runs fn on a background goroutine of the server without letting a panic take the process down.
-func (c *Core) safely(what string, fn func()) {
+func (c *Core) Safely(what string, fn func()) {
 	defer func() {
 		if p := recover(); p != nil {
 			kernel.Metrics.StreamPanics.Add(1)

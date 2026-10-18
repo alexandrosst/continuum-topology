@@ -51,7 +51,7 @@ func (h *Hub) configForChecked(a store.Agent, v *view) (*continuumv1.Config, boo
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	facts.Peers = h.linkPeers(a, orgAgents, set.Links, consent.has("flow"), runnersPaused)
+	facts.Peers = h.linkPeers(a, orgAgents, set.Links, consent.Has("flow"), runnersPaused)
 	for _, p := range set.ProbeTargets {
 		if a.ClusterID != "" && p.ClusterID == a.ClusterID {
 			facts.ManualTargets = append(facts.ManualTargets, issuedTarget{ID: p.ID, Host: p.Host, Port: p.Port, Label: p.Label, Source: "manual"})
@@ -147,7 +147,7 @@ func (h *Hub) settingsChanged(kernel.Settings) {
 
 // noteMeasurements stores what an agent measured, for the targets the server issued.
 func (h *Hub) noteMeasurements(agentID string, m *continuumv1.Measurements) {
-	if h.consentOf(agentID).has("measure") {
+	if h.consentOf(agentID).Has("measure") {
 		// The agent should already have stopped sending this; the same defense-in-depth dropAboveTier
 		// gives the tier ceiling, extended to a paused collector.
 		return
