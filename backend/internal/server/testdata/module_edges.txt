@@ -1,13 +1,6 @@
 # Every place one module uses something declared in another, as "using module > declaring module", then what is used.
 # Not listed: any module using the kernel, and the shell using any module (see modules_test.go). The list may only get shorter.
 # Regenerate on purpose with: go test ./internal/server -run TestModule -update
-agents > observed	field Cluster.Flows
-agents > observed	field Cluster.Name
-agents > observed	field Cluster.State
-agents > observed	field FlowTable.Edges
-agents > observed	func BuildAddrIndex
-agents > observed	method AddrIndex.ClusterOf
-agents > observed	type Cluster
 connectivity > agents	field Consent.Excluded
 connectivity > agents	field Consent.Paused
 connectivity > agents	field linkCaps.CapacityEnabled
@@ -19,8 +12,6 @@ connectivity > agents	field linkCaps.TelemetryExport
 connectivity > agents	method Consent.has
 connectivity > agents	type Consent
 connectivity > agents	type linkCaps
-connectivity > observed	field FlowTable.Edges
-connectivity > observed	type FlowTable
 estate > agents	const TierAboveInstall
 estate > agents	const TierAboveToken
 estate > agents	const TierBelowZero
@@ -320,33 +311,3 @@ estate > connectivity	type pathTrack
 estate > connectivity	type peerPlan
 estate > connectivity	type plannedPeer
 estate > connectivity	type setupEnd
-estate > observed	const DefaultStaleWindow
-estate > observed	const MaxFlowEdges
-estate > observed	const RefusalEvery
-estate > observed	field Cluster.AgentID
-estate > observed	field Cluster.EgressIP
-estate > observed	field Cluster.Flows
-estate > observed	field Cluster.ID
-estate > observed	field Cluster.Name
-estate > observed	field Cluster.State
-estate > observed	field DroppedItems.First
-estate > observed	field DroppedItems.N
-estate > observed	field FlowTable.Edges
-estate > observed	func ApplyMeshBypassFacts
-estate > observed	func BoundFlowFacts
-estate > observed	func BuildAddrIndex
-estate > observed	func LinkPeerAddresses
-estate > observed	func NewFlowTable
-estate > observed	func SanitizeFlowBatch
-estate > observed	func Topology
-estate > observed	func UnmarshalFlowTable
-estate > observed	method AddrIndex.ClusterOf
-estate > observed	method FlowTable.Apply
-estate > observed	method FlowTable.Marshal
-estate > observed	method Health.Doc
-estate > observed	method Health.Note
-estate > observed	method Health.NoteDropped
-estate > observed	type Cluster
-estate > observed	type FlowTable
-estate > observed	type Health
-estate > observed	type ObserverDoc

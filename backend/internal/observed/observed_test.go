@@ -1,4 +1,4 @@
-package server
+package observed
 
 import (
 	"context"
@@ -35,6 +35,7 @@ func cluster(id string, egress string, nodes []*continuumv1.NodeFacts, ws ...*co
 func wep(key string) *continuumv1.FlowEndpoint {
 	return &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_WORKLOAD, Ref: key}
 }
+
 func xep(ip string) *continuumv1.FlowEndpoint {
 	return &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_EXTERNAL, Ip: ip}
 }
@@ -49,7 +50,7 @@ func feed(c *Cluster, at time.Time, window int32, fs ...*continuumv1.Flow) {
 
 func TestObservedTopologyAcrossClusters(t *testing.T) {
 	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
-	// Flows are fed as having first been seen a minute before observedTopology is asked to report on
+	// Flows are fed as having first been seen a minute before Topology is asked to report on
 	// them, not at the same instant - past unmatchedGrace (12s), so an address this test expects to show
 	// up unmatched/unlabeled (192.168.0.5, the ambiguous one) actually does, instead of being withheld as
 	// still-too-new. See unmatchedGrace's own comment in observed.go for why that grace period exists.
@@ -189,8 +190,8 @@ func TestObservedTopologyAcrossClusters(t *testing.T) {
 }
 
 // A workload very commonly talks to the same peer on the same port over both UDP and TCP - DNS being
-// the textbook case (UDP first, a TCP fallback for answers too large for one datagram). flowTable keys
-// on protocol too, so these arrive as two distinct edges; observedTopology's own dependency id must not
+// the textbook case (UDP first, a TCP fallback for answers too large for one datagram). FlowTable keys
+// on protocol too, so these arrive as two distinct edges; Topology's own dependency id must not
 // collapse them back into one, or the merged record's Protocol and traffic counters become a coin flip
 // depending on Go's (randomized) map iteration order.
 func TestObservedTopologyResolvesOverlayTunnelAddress(t *testing.T) {
@@ -863,7 +864,7 @@ func TestFlowTableCarriesSniHostAndDnsQueryNames(t *testing.T) {
 // model.Dependency, the same way retransmits and failedAttempts already do.
 func TestDependencyIncludesSniHostAndDnsQueryNames(t *testing.T) {
 	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
-	// Fed as first seen a minute ago, not at the same instant as the observedTopology call - past
+	// Fed as first seen a minute ago, not at the same instant as the Topology call - past
 	// unmatchedGrace (12s), so this unmatched-provider external IP is actually added to the topology
 	// instead of withheld as still-too-new. See unmatchedGrace's own comment in observed.go.
 	seenAt := now.Add(-1 * time.Minute)
@@ -1015,7 +1016,7 @@ func TestExternalASNFallbackNamesAnAddressNoOtherTierCovers(t *testing.T) {
 	feed(&c, now, 60, flowOf(wep(worker), xep("203.0.113.55"), 443, 1))
 
 	// Neither ResolveCached nor ResolveASNCached blocks - both just kick off a background lookup on a cache
-	// miss - so poll observedTopology until the ASN answer has landed and been reflected, rather than
+	// miss - so poll Topology until the ASN answer has landed and been reflected, rather than
 	// asserting on a single call.
 	deadline := time.Now().Add(2 * time.Second)
 	var name, kind, signal, confidence string

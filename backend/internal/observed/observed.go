@@ -1,4 +1,4 @@
-package server
+package observed
 
 import (
 	"errors"
@@ -27,9 +27,9 @@ import (
 const (
 	MaxFlowEdges     = 20000
 	maxFlowsPerBatch = 5000
-	// defaultStaleWindow only applies before any settings have ever been saved for an org (Core.Settings
+	// DefaultStaleWindow only applies before any settings have ever been saved for an org (Core.Settings
 	// falls back to DefaultSettings, whose FlowStaleSeconds already matches this); kept as a named
-	// constant so this file's own tests can exercise observedTopology's staleness math without pulling
+	// constant so this file's own tests can exercise Topology's staleness math without pulling
 	// in the settings package.
 	DefaultStaleWindow = 5 * time.Minute
 	// How long a newly-observed external address is withheld from the topology while its identity is
@@ -69,7 +69,7 @@ const maxPodFlowsPerBatch = 4000
 
 var errNodeLevel = errors.New("a node-level flow cannot become a dependency")
 
-// droppedItems is what sanitizeFlowBatch removed from one batch: how many, and the first reason, for the log.
+// DroppedItems is what SanitizeFlowBatch removed from one batch: how many, and the first reason, for the log.
 type DroppedItems struct {
 	N     int
 	First error
@@ -81,13 +81,13 @@ func (d *DroppedItems) note(err error) {
 	}
 }
 
-// sanitizeFlowBatch bounds what one agent may report, in place. A batch that is structurally broken (too many
+// SanitizeFlowBatch bounds what one agent may report, in place. A batch that is structurally broken (too many
 // items, a window that cannot be) is refused, which ends the stream: that is a protocol violation. A single bad
 // item is not: a flow or pod flow that wire.Check refuses is dropped and counted, the rest of the batch is kept,
 // and the strings of the kept ones are cut (wire.Clip), so one odd edge never costs the 5000 good ones next to it.
 //
 // Flows with a NODE end (a node-level process or hostNetwork pod the agent could not pin to a pod) are well-formed
-// but are dropped and counted too: no dependency is derived from them (see observedTopology), so storing them would
+// but are dropped and counted too: no dependency is derived from them (see Topology), so storing them would
 // only spend the edge budget.
 func SanitizeFlowBatch(b *continuumv1.FlowBatch) (d DroppedItems, err error) {
 	if len(b.Flows) > maxFlowsPerBatch || len(b.PodFlows) > maxPodFlowsPerBatch || len(b.Collectors) > 5000 ||
@@ -118,11 +118,11 @@ func SanitizeFlowBatch(b *continuumv1.FlowBatch) (d DroppedItems, err error) {
 	return d, nil
 }
 
-// boundFlowFacts nulls out a reported LinkSaturation.saturation_pct that falls outside what a
+// BoundFlowFacts nulls out a reported LinkSaturation.saturation_pct that falls outside what a
 // well-behaved collector ever computes it from (0-100 inclusive; see LinkSaturation.saturation_pct's
 // own doc comment: never negative, since it is a ratio against an unsigned throughput, and clamped to
 // 100 before the agent ever sends it) and returns how many entries, across every one of b's collectors,
-// it had to drop this way. A data-integrity backstop independent of sanitizeFlowBatch's own shape
+// it had to drop this way. A data-integrity backstop independent of SanitizeFlowBatch's own shape
 // checks above, for a compromised or merely buggy collector that skipped its own clamp: Iface and
 // ThroughputBps on the same entry are left untouched, and the percentage is nulled - the same "not
 // reported" the field already uses when the interface's rated speed could not be read at all - never
@@ -226,7 +226,7 @@ func UnmarshalFlowTable(b []byte) (*FlowTable, error) {
 
 // ---- turning edges into dependencies, across clusters ----
 
-// observedCluster is one onboarded cluster as far as traffic resolution is concerned.
+// Cluster is one onboarded cluster as far as traffic resolution is concerned.
 type Cluster struct {
 	ID, Name, AgentID string
 	State             *facts.State
@@ -242,7 +242,7 @@ type AddrIndex struct {
 	// nodePorts is "this cluster's own node's port" -> workload: a port reachable on any address one of
 	// this cluster's own nodes has, regardless of which specific address was dialed - populated from
 	// both an explicit NodePort and a load-balancer whose port binds across every node address (see
-	// the load-balancer case in buildAddrIndex for why the latter belongs here too).
+	// the load-balancer case in BuildAddrIndex for why the latter belongs here too).
 	nodePorts map[string]map[int32][]string
 	egress    map[string][]string // a cluster's connecting address -> clusters
 }
@@ -275,7 +275,7 @@ func uniq(in []string) []string {
 // traffic as belonging to a known cluster at all, and every such flow falls through to being recorded as an unresolved
 // external endpoint, by its raw tunnel IP, forever. They are included unconditionally (not gated on
 // TunnelInterface.Confirmed): confirmation is a cross-node correlation verdict that correlateTunnels computes later, from
-// topo.Nodes, after observedTopology has already run - what is needed here is only "this address is one of this node's
+// topo.Nodes, after Topology has already run - what is needed here is only "this address is one of this node's
 // own, reported by its own probe," which is true whether or not the far end is independently confirmed elsewhere.
 func nodeAddresses(st *facts.State) []string {
 	var out []string
@@ -301,7 +301,7 @@ func nodeAddresses(st *facts.State) []string {
 	return out
 }
 
-// linkPeerAddresses is the addresses another cluster can try to reach this one at, for the cluster-link metrics: its nodes'
+// LinkPeerAddresses is the addresses another cluster can try to reach this one at, for the cluster-link metrics: its nodes'
 // reported internal and external addresses, the addresses on the nodes' own interfaces (the probe's HostAddresses: a LAN, a
 // second NIC, a Tailscale or ZeroTier tun device, none of which the Node object lists), and the addresses of the tunnel
 // interfaces that are a mesh and not a container network. Every address is in its canonical form (an IPv4-mapped IPv6 address
@@ -485,13 +485,13 @@ func dbPort(p uint32) bool {
 	return isDatabase
 }
 
-// observedTopology derives dependencies and external endpoints from every cluster's flows.
-// applyMeshBypassFacts turns observedTopology's tentative model.Dependency.MeshBypass (set wherever a
+// Topology derives dependencies and external endpoints from every cluster's flows.
+// ApplyMeshBypassFacts turns Topology's tentative model.Dependency.MeshBypass (set wherever a
 // direct, non-redirected egress SYN was merely observed - see FlowEdge.MeshBypassSyns) into the real,
 // cross-checked fact: true only where the caller's own declared mesh configuration (services, built
 // separately by interpret.Interpret from each cluster's own WorkloadFacts) actually calls for this
 // traffic to be intercepted. Run once, after every cluster's services and every observed dependency are
-// both in hand (see hub.go's buildTopology) - observedTopology itself never sees a model.Service at all,
+// both in hand (see hub.go's buildTopology) - Topology itself never sees a model.Service at all,
 // only raw flow edges, and must not guess.
 func ApplyMeshBypassFacts(deps []model.Dependency, services []model.Service) {
 	byID := make(map[string]*model.Service, len(services))
@@ -713,7 +713,7 @@ func Topology(org string, cs []Cluster, now time.Time, stale time.Duration) ([]m
 		port := int(e.Key.Port)
 		// Protocol is part of the identity, not just a field on it: a workload very commonly talks to
 		// the same peer on the same port over both UDP and TCP (DNS being the obvious case - UDP first,
-		// TCP fallback for large answers), and those are two distinct edges in flowTable/flowKey. Leaving
+		// TCP fallback for large answers), and those are two distinct edges in FlowTable/FlowKey. Leaving
 		// protocol out of this hash used to merge such pairs into one Dependency, whose Protocol field
 		// then depended on map iteration order (non-deterministic) and whose Connections/Bytes silently
 		// summed traffic from two different protocols under one label.
@@ -789,7 +789,7 @@ func Topology(org string, cs []Cluster, now time.Time, stale time.Duration) ([]m
 		d.BufferDrops = satAdd(d.BufferDrops, e.BufferDrops)
 		// Tentative: true here means only "a direct, non-redirected egress SYN was observed on this edge
 		// at some point" (see FlowEdge.MeshBypassSyns/flow.c's note_mesh_bypass), nothing yet about
-		// whether this workload was ever supposed to be meshed at all. applyMeshBypassFacts (hub.go),
+		// whether this workload was ever supposed to be meshed at all. ApplyMeshBypassFacts (hub.go),
 		// run once every dependency and every service from every cluster are both in hand, clears this
 		// back to false wherever the caller's own declared mesh configuration does not actually call for
 		// interception - this layer has no access to that configuration (it never sees a Service, only
@@ -839,7 +839,7 @@ func Topology(org string, cs []Cluster, now time.Time, stale time.Duration) ([]m
 			}
 			// A NODE-kind source (a node-level process, or a hostNetwork pod resolve.go could not pin to a pod)
 			// is not a workload and never matches serviceOf. New ones are dropped, and counted, on arrival
-			// (sanitizeFlowBatch); a table stored by an older server may still hold some, which end up here.
+			// (SanitizeFlowBatch); a table stored by an older server may still hold some, which end up here.
 			from, ok := serviceOf(c.ID, e.Key.Src.Ref)
 			if !ok {
 				continue
@@ -945,13 +945,13 @@ type Health struct {
 	at         time.Time
 	collectors []*continuumv1.CollectorInfo
 	lost       uint64
-	// dropped counts the items of accepted batches that sanitizeFlowBatch removed, since the server started;
+	// dropped counts the items of accepted batches that SanitizeFlowBatch removed, since the server started;
 	// droppedLogged limits how often that is warned about.
 	dropped       uint64
 	droppedLogged time.Time
 }
 
-// noteDropped counts n dropped items and reports whether this is a time to log them (at most once per refusalEvery).
+// noteDropped counts n dropped items and reports whether this is a time to log them (at most once per RefusalEvery).
 func (o *Health) NoteDropped(n int, now time.Time) bool {
 	o.dropped += uint64(n)
 	if now.Sub(o.droppedLogged) < RefusalEvery {
@@ -1000,6 +1000,6 @@ func (ix *AddrIndex) ClusterOf(ip string, port int) string {
 	return ""
 }
 
-// refusalEvery is how often one agent's refused messages are written to the audit trail and the event list;
+// RefusalEvery is how often one agent's refused messages are written to the audit trail and the event list;
 // an agent that keeps sending the same thing would otherwise fill both.
 const RefusalEvery = 10 * time.Minute

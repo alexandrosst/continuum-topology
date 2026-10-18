@@ -24,7 +24,7 @@ type agtView struct {
 	refusal       string
 	refusalLogged time.Time
 	// implausibleLogged limits how often a report that was accepted but had a physically impossible
-	// value quietly omitted (see boundSyncFacts/boundFlowFacts) is itself warned about - the same
+	// value quietly omitted (see boundSyncFacts/observed.BoundFlowFacts) is itself warned about - the same
 	// per-agent rate limit refusalLogged above gives a full refusal.
 	implausibleLogged time.Time
 

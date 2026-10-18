@@ -1162,7 +1162,7 @@ func TestNoteFlowsRespectsTierAndPauseConsent(t *testing.T) {
 }
 
 // TestNoteFlowsReplacesPodFlowsWholesale covers view.podFlows' own "right now" rule directly: unlike
-// the flowTable's historically-accumulated edges, a new batch's pod_flows replaces what was held, never
+// the observed.FlowTable's historically-accumulated edges, a new batch's pod_flows replaces what was held, never
 // merges with it - so a pod pair missing from the latest batch must disappear, not linger from an
 // earlier report.
 func TestNoteFlowsReplacesPodFlowsWholesale(t *testing.T) {

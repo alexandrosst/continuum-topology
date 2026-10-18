@@ -22,10 +22,10 @@ type metrics struct {
 	// ImplausibleFacts is how many individual field values, across every agent, have been omitted
 	// (never clamped) for being physically impossible - a negative count, a percentage outside 0-100 -
 	// rather than the whole report being refused the way SyncsRefused above is. See
-	// boundSyncFacts/boundFlowFacts for exactly what this counts.
+	// boundSyncFacts/observed.BoundFlowFacts for exactly what this counts.
 	ImplausibleFacts atomic.Int64
 	// FlowItemsDropped is how many individual flows, pod flows or collector reports, across every agent, were
-	// dropped from an otherwise accepted flow batch for being unusable (see sanitizeFlowBatch).
+	// dropped from an otherwise accepted flow batch for being unusable (see observed.SanitizeFlowBatch).
 	FlowItemsDropped atomic.Int64
 }
 

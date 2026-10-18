@@ -14,6 +14,7 @@ import (
 	"continuum/internal/flow/wire"
 	"continuum/internal/interpret"
 	"continuum/internal/netid"
+	"continuum/internal/observed"
 
 	"google.golang.org/protobuf/proto"
 )
@@ -87,7 +88,7 @@ func doctorAgentToServer(t *testing.T) {
 		if err := proto.Unmarshal(wireBytes, &arrived); err != nil {
 			t.Fatal(err)
 		}
-		dropped, err := SanitizeFlowBatch(&arrived)
+		dropped, err := observed.SanitizeFlowBatch(&arrived)
 		if err != nil {
 			t.Fatalf("the batch an agent sent is refused, which ends its stream: %v", err)
 		}
@@ -100,7 +101,7 @@ func doctorAgentToServer(t *testing.T) {
 
 		now := time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)
 		feed(&c, now.Add(-time.Minute), arrived.WindowSeconds, arrived.Flows...)
-		deps, exts := Topology("org", []Cluster{c}, now, 24*time.Hour)
+		deps, exts := observed.Topology("org", []observed.Cluster{c}, now, 24*time.Hour)
 		id := func(end string) string {
 			if strings.Contains(end, "/") {
 				return interpret.ServiceID("c", end)

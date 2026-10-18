@@ -64,7 +64,7 @@ var (
 )
 
 // ResolveCached returns the reverse-DNS hostname for ip if it is already known, and never blocks on the
-// network to find out: observedTopology (this package's only caller, via ExternalHost below) runs on every
+// network to find out: observed.Topology (this package's only caller, via ExternalHost below) runs on every
 // state poll from every connected browser session, so a live DNS round-trip on that path would add
 // unpredictable, shared latency to a request several people are waiting on. A cache miss instead starts a
 // resolution in the background - bounded by maxInFlight so a burst of unfamiliar IPs can't spawn unbounded

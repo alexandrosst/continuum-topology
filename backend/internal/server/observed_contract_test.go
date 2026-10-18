@@ -12,6 +12,7 @@ import (
 	"continuum/internal/facts"
 	"continuum/internal/flow"
 	"continuum/internal/flow/wire"
+	"continuum/internal/observed"
 
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
@@ -91,7 +92,7 @@ func TestWhatTheAgentCanSendIsAcceptedOrCountedAsDropped(t *testing.T) {
 		t.Fatalf("the aggregator kept %v flows, want %d", b, wantKept+wantDropped)
 	}
 	// A pod flow is a flow that names a pod: the batch carries both, and the same rules apply to both.
-	d, err := SanitizeFlowBatch(b)
+	d, err := observed.SanitizeFlowBatch(b)
 	if err != nil {
 		t.Fatalf("a batch of agent-made flows was refused: %v", err)
 	}
@@ -106,7 +107,7 @@ func TestWhatTheAgentCanSendIsAcceptedOrCountedAsDropped(t *testing.T) {
 			t.Fatalf("a kept flow carries unbounded text: %d %d %d", len(f.SniHost), len(f.Iface), len(f.DnsQueryNames))
 		}
 	}
-	tb := NewFlowTable()
+	tb := observed.NewFlowTable()
 	tb.Apply(b, time.Now())
 	if len(tb.Edges) != wantKept {
 		t.Fatalf("%d edges stored, want %d", len(tb.Edges), wantKept)
@@ -131,7 +132,7 @@ func TestFlowReferencesAtTheirLimits(t *testing.T) {
 		cs = append(cs, &continuumv1.CollectorInfo{Node: strings.Repeat("n", wire.MaxName-5) + fmt.Sprint(i%10000), Method: "conntrack"})
 	}
 	b := &continuumv1.FlowBatch{WindowSeconds: 24 * 3600, Flows: []*continuumv1.Flow{atLimit, over}, PodFlows: []*continuumv1.Flow{atLimit}, Collectors: cs}
-	d, err := SanitizeFlowBatch(b)
+	d, err := observed.SanitizeFlowBatch(b)
 	if err != nil || d.N != 1 || len(b.Flows) != 1 || len(b.PodFlows) != 1 || len(b.Collectors) != 5000 {
 		t.Fatalf("err %v, dropped %d, %d flows, %d pod flows, %d collectors", err, d.N, len(b.Flows), len(b.PodFlows), len(b.Collectors))
 	}

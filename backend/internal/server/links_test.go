@@ -11,6 +11,7 @@ import (
 	"continuum/internal/accounts"
 	"continuum/internal/facts"
 	"continuum/internal/kernel"
+	"continuum/internal/observed"
 	"continuum/internal/store"
 )
 
@@ -338,7 +339,7 @@ func TestTheSecondClusterProbesAgainWhenTheFirstOnesFlowCollectorIsPaused(t *tes
 		t.Fatal(err)
 	}
 	newV := func(ip string) *view {
-		return &view{estView: estView{state: nodeState(ip), flows: NewFlowTable()}, netView: netView{paths: map[string]*pathTrack{}, targets: map[string]issuedTarget{}}}
+		return &view{estView: estView{state: nodeState(ip), flows: observed.NewFlowTable()}, netView: netView{paths: map[string]*pathTrack{}, targets: map[string]issuedTarget{}}}
 	}
 	fv, sv := newV("10.0.0.1"), newV("10.9.0.1")
 	r.hub.mu.Lock()

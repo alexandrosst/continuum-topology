@@ -22,6 +22,7 @@ import (
 	"continuum/internal/interpret"
 	"continuum/internal/kernel"
 	"continuum/internal/model"
+	"continuum/internal/observed"
 	"continuum/internal/store"
 	"continuum/internal/twin"
 
@@ -56,8 +57,8 @@ type estView struct {
 	savedAt   time.Time
 	connected bool
 
-	flows      *FlowTable
-	obs        Health
+	flows      *observed.FlowTable
+	obs        observed.Health
 	flowsDirty bool
 	flowsSaved time.Time
 	// podFlows is this agent's latest per-pod traffic breakdown (FlowBatch.pod_flows), replaced wholesale
@@ -89,7 +90,7 @@ type estView struct {
 }
 
 func newView() *view {
-	return &view{agtView: agtView{self: newSelfRing(selfStatsWindow, func(s SelfStatsSample) time.Time { return s.At })}, estView: estView{state: facts.New(), flows: NewFlowTable()}, netView: netView{paths: map[string]*pathTrack{}, targets: map[string]issuedTarget{}}}
+	return &view{agtView: agtView{self: newSelfRing(selfStatsWindow, func(s SelfStatsSample) time.Time { return s.At })}, estView: estView{state: facts.New(), flows: observed.NewFlowTable()}, netView: netView{paths: map[string]*pathTrack{}, targets: map[string]issuedTarget{}}}
 }
 
 type endReason struct {
@@ -570,14 +571,14 @@ func (h *Hub) noteFlows(agentID string, tier int, fb *continuumv1.FlowBatch, now
 		// gives the tier ceiling, extended to a paused collector.
 		return false, nil
 	}
-	dropped, err := SanitizeFlowBatch(fb)
+	dropped, err := observed.SanitizeFlowBatch(fb)
 	if err != nil {
 		return false, err
 	}
-	// A data-integrity backstop independent of sanitizeFlowBatch's own shape checks above: a
+	// A data-integrity backstop independent of observed.SanitizeFlowBatch's own shape checks above: a
 	// physically impossible value (e.g. a saturation percentage outside 0-100) is omitted from just
-	// its own field, never the whole batch - see boundFlowFacts' own doc comment.
-	implausible := BoundFlowFacts(fb)
+	// its own field, never the whole batch - see observed.BoundFlowFacts' own doc comment.
+	implausible := observed.BoundFlowFacts(fb)
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	v := h.views[agentID]
@@ -592,7 +593,7 @@ func (h *Hub) noteFlows(agentID string, tier int, fb *continuumv1.FlowBatch, now
 	}
 	if implausible > 0 {
 		kernel.Metrics.ImplausibleFacts.Add(int64(implausible))
-		if now.Sub(v.implausibleLogged) >= RefusalEvery {
+		if now.Sub(v.implausibleLogged) >= observed.RefusalEvery {
 			v.implausibleLogged = now
 			h.Log.Warn("flow batch had a physically impossible value; affected field(s) omitted, rest of the batch kept", "agent", agentID, "count", implausible)
 		}
@@ -643,14 +644,14 @@ func (h *Hub) limits() facts.Limits {
 }
 
 // refuseSync notes that an agent's message was refused: it is shown with the agent, logged, and (at
-// most once per refusalEvery) recorded as an audit row and a warning event, which is where an
+// most once per observed.RefusalEvery) recorded as an audit row and a warning event, which is where an
 // administrator looks. The agent itself receives the reason as the error that ends its stream.
 func (h *Hub) refuseSync(ctx context.Context, a store.Agent, v *view, why error) {
 	kernel.Metrics.SyncsRefused.Add(1)
 	now := h.C.Now()
 	h.mu.Lock()
 	v.refusal = clipText(why.Error(), 300)
-	record := now.Sub(v.refusalLogged) >= RefusalEvery
+	record := now.Sub(v.refusalLogged) >= observed.RefusalEvery
 	if record {
 		v.refusalLogged = now
 	}
@@ -687,16 +688,16 @@ func loadState(data []byte, l facts.Limits) (*facts.State, error) {
 }
 
 // loadFlowTable reads a stored flow table under the limits of a live one.
-func loadFlowTable(data []byte) (*FlowTable, error) {
+func loadFlowTable(data []byte) (*observed.FlowTable, error) {
 	if len(data) > facts.MaxBytes {
 		return nil, fmt.Errorf("the stored flow table is %d bytes, over the limit of %d", len(data), facts.MaxBytes)
 	}
-	t, err := UnmarshalFlowTable(data)
+	t, err := observed.UnmarshalFlowTable(data)
 	if err != nil {
 		return nil, err
 	}
-	if len(t.Edges) > MaxFlowEdges {
-		return nil, fmt.Errorf("the stored flow table has %d edges, over the limit of %d", len(t.Edges), MaxFlowEdges)
+	if len(t.Edges) > observed.MaxFlowEdges {
+		return nil, fmt.Errorf("the stored flow table has %d edges, over the limit of %d", len(t.Edges), observed.MaxFlowEdges)
 	}
 	for _, e := range t.Edges {
 		if err := wire.CheckKey(e.Key); err != nil {
@@ -766,14 +767,14 @@ func syncKeys(s *continuumv1.Sync) []string {
 
 // ---- data-integrity backstop: physically impossible values, independent of the shape checks above ----
 //
-// validateSync/sanitizeFlowBatch above refuse a message that is malformed - too big, too long, the
+// validateSync/observed.SanitizeFlowBatch above refuse a message that is malformed - too big, too long, the
 // wrong shape. They never ask whether a well-formed value could actually have been measured. A
 // negative RTT, a CPU-pressure percentage over 100, or a negative pod count cannot come from any real
 // kernel counter or kubelet reading; nothing stops a compromised or merely buggy agent from sending one
 // anyway, and nothing before this caught it, so it would otherwise sit in the topology model exactly
 // like a real reading, including feeding a placement decision.
 //
-// boundSyncFacts and boundFlowFacts below null out only the one field that is impossible, keeping the
+// boundSyncFacts and observed.BoundFlowFacts below null out only the one field that is impossible, keeping the
 // rest of the record - dropping the whole record would hide a real signal (and make a collector bug
 // harder to diagnose), and clamping the value to the nearest plausible number would fabricate a reading
 // that was never actually taken. Both are the same "absence is a fact, never a fabricated zero"
@@ -858,14 +859,14 @@ func boundSyncFacts(s *continuumv1.Sync) int {
 }
 
 // noteImplausibleFacts counts n field(s) just nulled out of one agent's report for being physically
-// impossible (see boundSyncFacts/boundFlowFacts) and, at most once per refusalEvery for this agent,
+// impossible (see boundSyncFacts/observed.BoundFlowFacts) and, at most once per observed.RefusalEvery for this agent,
 // warns about it - the same rate-limited-diagnostic treatment refuseSync already gives a full refusal,
 // extended to a report that was still accepted and applied, minus the one value nothing could trust.
 func (h *Hub) noteImplausibleFacts(agentID string, v *view, n int) {
 	kernel.Metrics.ImplausibleFacts.Add(int64(n))
 	now := h.C.Now()
 	h.mu.Lock()
-	record := now.Sub(v.implausibleLogged) >= RefusalEvery
+	record := now.Sub(v.implausibleLogged) >= observed.RefusalEvery
 	if record {
 		v.implausibleLogged = now
 	}
@@ -987,7 +988,7 @@ type AgentDoc struct {
 	Synced              bool        `json:"synced"`
 	Modules             []ModuleDoc `json:"modules"`
 	// Observer is what the traffic observer reports about itself; absent when no collector has ever reported.
-	Observer *ObserverDoc `json:"observer,omitempty"`
+	Observer *observed.ObserverDoc `json:"observer,omitempty"`
 	// Consistency is the result of the last check of the server's picture against the agent's full one.
 	Consistency *ConsistencyDoc `json:"consistency,omitempty"`
 	// Measuring is how many addresses the agent has been asked to time (0 when it is not measuring).
@@ -1277,7 +1278,7 @@ func (h *Hub) buildTopology(ctx context.Context, agents []store.Agent, now time.
 	eb := newEffectiveBuild(window)
 	topo := model.Topology{Clusters: []model.Cluster{}, Nodes: []model.Node{}, Namespaces: []model.Namespace{}, Services: []model.Service{}, Agents: []model.Agent{}, Suggestions: []model.Suggestion{},
 		Dependencies: []model.Dependency{}, ExternalEndpoints: []model.ExternalEndpoint{}, Paths: []model.Path{}, ClusterLinks: []model.ClusterLink{}, ClusterPairConnectivity: []model.ClusterPairConnectivity{}}
-	var observed, located []Cluster
+	var onboarded, located []observed.Cluster
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	showRevoked := h.revokedToShow(agents)
@@ -1319,19 +1320,19 @@ func (h *Hub) buildTopology(ctx context.Context, agents []store.Agent, now time.
 		if revoked {
 			continue // a revoked agent's picture is kept to be shown, and is never used to draw traffic or place anything
 		}
-		oc := Cluster{ID: a.ClusterID, Name: a.Name, AgentID: a.ID, State: v.state, Flows: v.flows, EgressIP: publicIP(a.ConnectingIP)}
+		oc := observed.Cluster{ID: a.ClusterID, Name: a.Name, AgentID: a.ID, State: v.state, Flows: v.flows, EgressIP: publicIP(a.ConnectingIP)}
 		located = append(located, oc)
 		if a.AccessTier >= 2 && v.flows != nil {
-			observed = append(observed, oc)
+			onboarded = append(onboarded, oc)
 		}
 	}
-	if len(observed) > 0 {
-		topo.Dependencies, topo.ExternalEndpoints = Topology(h.C.OrgID, observed, now, h.StaleFlows())
+	if len(onboarded) > 0 {
+		topo.Dependencies, topo.ExternalEndpoints = observed.Topology(h.C.OrgID, onboarded, now, h.StaleFlows())
 		// Needs every cluster's services already collected into topo.Services above (their Mesh facts
-		// come from each agent's own interpret.Interpret, never seen by observedTopology itself) - see
-		// applyMeshBypassFacts' own doc comment for why this cross-check cannot happen any earlier.
-		ApplyMeshBypassFacts(topo.Dependencies, topo.Services)
-		topo.Suggestions = append(topo.Suggestions, suspicions(h.C.OrgID, observed, located, now)...)
+		// come from each agent's own interpret.Interpret, never seen by observed.Topology itself) - see
+		// observed.ApplyMeshBypassFacts' own doc comment for why this cross-check cannot happen any earlier.
+		observed.ApplyMeshBypassFacts(topo.Dependencies, topo.Services)
+		topo.Suggestions = append(topo.Suggestions, suspicions(h.C.OrgID, onboarded, located, now)...)
 	}
 	// Needs every cluster's nodes in one list (a tunnel's other end is often in a different cluster, or
 	// this very same one), so this runs once here rather than per cluster inside the loop above.
@@ -1367,7 +1368,7 @@ func (h *Hub) StaleFlows() time.Duration {
 	if s := h.C.Settings(); s.FlowStaleSeconds > 0 {
 		return time.Duration(s.FlowStaleSeconds) * time.Second
 	}
-	return DefaultStaleWindow
+	return observed.DefaultStaleWindow
 }
 
 // publicIP returns ip when it is a public address (the only kind that identifies a cluster from outside).

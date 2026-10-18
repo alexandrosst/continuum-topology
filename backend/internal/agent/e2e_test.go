@@ -18,6 +18,7 @@ import (
 	"continuum/internal/flow"
 	"continuum/internal/kernel"
 	"continuum/internal/model"
+	"continuum/internal/observed"
 	"continuum/internal/pki"
 	"continuum/internal/probe"
 	"continuum/internal/server"
@@ -438,7 +439,7 @@ func TestObservedTrafficReachesTopology(t *testing.T) {
 	}
 
 	// The observer's health reaches the dashboard: which node is observed and how.
-	obs := func() *server.ObserverDoc { return state().Agents[0].Observer }
+	obs := func() *observed.ObserverDoc { return state().Agents[0].Observer }
 	waitFor(t, "observer health", 5*time.Second, func() bool { return obs() != nil && len(obs().Collectors) == 1 })
 	if c := obs().Collectors[0]; c.Node != "n1" || c.Method != "ebpf" || !c.BytesKnown {
 		t.Errorf("collector = %+v", c)

@@ -11,6 +11,7 @@ import (
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/facts"
 	"continuum/internal/kernel"
+	"continuum/internal/observed"
 	"continuum/internal/pki"
 	"continuum/internal/store"
 
@@ -139,7 +140,7 @@ func TestRepeatedRefusalsAreRecordedOncePerWindow(t *testing.T) {
 	for i := 0; i < 30; i++ {
 		r.hub.refuseSync(r.ctx, a, v, fmt.Errorf("too much %d", i))
 	}
-	*r.now = r.now.Add(RefusalEvery + time.Second)
+	*r.now = r.now.Add(observed.RefusalEvery + time.Second)
 	r.hub.refuseSync(r.ctx, a, v, fmt.Errorf("still too much"))
 	n := 0
 	evs, _ := r.st.ListAudit(r.ctx, "org-1", 100)

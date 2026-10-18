@@ -7,6 +7,7 @@ import (
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/kernel"
 	"continuum/internal/link"
+	"continuum/internal/observed"
 	"continuum/internal/store"
 )
 
@@ -144,7 +145,7 @@ func (h *Hub) planner(links []kernel.LinkSetting, agents []store.Agent) func(sto
 }
 
 // ownAddresses are the addresses that mean "inside agent a's cluster": the ones other clusters would be offered for it (see
-// linkPeerAddresses, the same function, so that an address two clusters share is removed on both sides) and the public address
+// observed.LinkPeerAddresses, the same function, so that an address two clusters share is removed on both sides) and the public address
 // its agent connects from. Called with h.mu held.
 func (h *Hub) ownAddresses(a store.Agent) map[string]bool {
 	own := map[string]bool{}
@@ -158,13 +159,13 @@ func (h *Hub) ownAddresses(a store.Agent) map[string]bool {
 // sorted, without repeats. Called with h.mu held.
 func (h *Hub) peerNodeAddresses(o store.Agent) []string {
 	if v := h.views[o.ID]; v != nil && v.state != nil {
-		return dedupeSorted(LinkPeerAddresses(v.state))
+		return dedupeSorted(observed.LinkPeerAddresses(v.state))
 	}
 	return nil
 }
 
 // peerAddresses are the addresses agent o's cluster is reached at, as far as the server knows them: its nodes' addresses (see
-// linkPeerAddresses) and the public address its agent connects from, sorted. The latter is the NAT's or gateway's, not a node's:
+// observed.LinkPeerAddresses) and the public address its agent connects from, sorted. The latter is the NAT's or gateway's, not a node's:
 // it stays in the list because traffic from a NATed cluster arrives from it, and the meter can only attribute it if it is
 // listed. Called with h.mu held.
 func (h *Hub) peerAddresses(o store.Agent) []string {

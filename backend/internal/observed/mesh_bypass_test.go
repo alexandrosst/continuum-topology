@@ -1,4 +1,4 @@
-package server
+package observed
 
 import (
 	"testing"
@@ -33,9 +33,9 @@ func TestFlowTableCarriesMeshBypassSyns(t *testing.T) {
 	}
 }
 
-// TestObservedTopologySetsTentativeMeshBypass checks that observedTopology, which never sees a
+// TestObservedTopologySetsTentativeMeshBypass checks that Topology, which never sees a
 // model.Service, sets Dependency.MeshBypass purely from the raw counter - the refinement against actual
-// mesh configuration is applyMeshBypassFacts' own job, tested separately below.
+// mesh configuration is ApplyMeshBypassFacts' own job, tested separately below.
 func TestObservedTopologySetsTentativeMeshBypass(t *testing.T) {
 	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
 	x, y := "a/Deployment/x", "a/Deployment/y"

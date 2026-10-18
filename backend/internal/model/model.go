@@ -951,7 +951,7 @@ type Dependency struct {
 	// configuration: proxies present, ports excluded, mutual-TLS policy), this is read straight off the
 	// wire by the node collector's optional name-capture (flow.c's observe_egress/note_mesh_bypass) and
 	// then cross-checked against that same declared configuration here on the server
-	// (applyMeshBypassFacts) - so it only ever flags a genuine surprise: injection that silently failed,
+	// (observed.ApplyMeshBypassFacts) - so it only ever flags a genuine surprise: injection that silently failed,
 	// an iptables rule that never applied, hostNetwork traffic that skipped the pod's own netns, and the
 	// like. Always false for a workload with no sidecar configured at all, or one that explicitly
 	// excludes this port - that traffic bypassing the mesh is expected, not a finding.

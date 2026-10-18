@@ -7,6 +7,7 @@ import (
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/interpret"
 	"continuum/internal/measure"
+	"continuum/internal/observed"
 
 	"google.golang.org/protobuf/proto"
 )
@@ -75,7 +76,7 @@ func observedTargetID(ip string) string { return "ob-" + interpret.Hash("path", 
 // deriveTargets picks the addresses outside a cluster that its workloads call most: what to time to
 // learn how far away the places it really talks to are. Only TCP, only real (non-noise) traffic,
 // one target per address.
-func deriveTargets(ft *FlowTable) []issuedTarget {
+func deriveTargets(ft *observed.FlowTable) []issuedTarget {
 	if ft == nil {
 		return nil
 	}

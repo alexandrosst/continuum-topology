@@ -10,6 +10,7 @@ import (
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/interpret"
 	"continuum/internal/model"
+	"continuum/internal/observed"
 )
 
 // A cluster or machine that nobody onboarded cannot be found by asking, but it leaves marks in the
@@ -53,14 +54,14 @@ type suspect struct {
 const maxSuspicions = 10
 
 // suspicions works out, from what every cluster's agent saw, where unmanaged infrastructure may be.
-func suspicions(org string, observed, located []Cluster, now time.Time) []model.Suggestion {
-	if len(observed) == 0 {
+func suspicions(org string, onboarded, located []observed.Cluster, now time.Time) []model.Suggestion {
+	if len(onboarded) == 0 {
 		return nil
 	}
-	ix := BuildAddrIndex(located)
+	ix := observed.BuildAddrIndex(located)
 	byIP := map[netip.Addr]*suspect{}
 	nodeNets := map[string]map[netip.Prefix]bool{} // cluster name -> /24s its nodes are in
-	for _, c := range observed {
+	for _, c := range onboarded {
 		for _, n := range c.State.Nodes {
 			for _, s := range n.InternalIps {
 				if a, err := netip.ParseAddr(s); err == nil && a.Is4() {
@@ -79,13 +80,13 @@ func suspicions(org string, observed, located []Cluster, now time.Time) []model.
 	}
 	machines := map[netip.Addr]*machine{}
 
-	workloadName := func(c Cluster, key string) string {
+	workloadName := func(c observed.Cluster, key string) string {
 		if w := c.State.Workloads[key]; w != nil {
 			return c.Name + "/" + w.Name
 		}
 		return c.Name
 	}
-	for _, c := range observed {
+	for _, c := range onboarded {
 		for _, e := range c.Flows.Edges {
 			k := e.Key
 			if k.Noise != "" {

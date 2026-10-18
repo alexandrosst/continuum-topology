@@ -16,7 +16,8 @@
 # operators     regional operators: their certificates, senders, addresses, heartbeat. It is the package internal/operators; their HTTP half
 #               and the node probe of the server's own cluster are the shell's.
 # observed      what the flows say: the table of observed edges, the sanitising of a flow batch, the topology read off them and the index of
-#               the addresses a cluster is known by. Pure: it knows no agent and no hub; the hub fills it and agents and connectivity read it.
+#               the addresses a cluster is known by. It is the package internal/observed; pure, it knows no agent and no hub, and no file of
+#               it is left here.
 # connectivity  paths, links, tunnels, addresses a cluster dials, the config an agent is told.
 # fusion        the FUSION stack: its control, retention and release naming. It is the package internal/fusion; its data API, proxy,
 #               OpenAPI document and UI access guard are the shell's.
@@ -84,7 +85,6 @@ links_latest.go shell
 links_setup.go                  connectivity
 metrics.go                      shell
 net_view.go connectivity
-observed.go                     observed
 operator_candidates.go shell
 operator_senders.go shell
 paths.go                        connectivity

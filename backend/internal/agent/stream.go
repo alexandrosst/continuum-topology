@@ -92,7 +92,7 @@ func splitSync(s *continuumv1.Sync, limit int) []*continuumv1.Sync {
 	return chunks
 }
 
-// maxFlowWindowSeconds is the longest window the server accepts on a flow batch (sanitizeFlowBatch refuses a longer one
+// maxFlowWindowSeconds is the longest window the server accepts on a flow batch (observed.SanitizeFlowBatch refuses a longer one
 // and ends the stream).
 const maxFlowWindowSeconds = 24 * 3600
 

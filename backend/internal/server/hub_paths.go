@@ -10,6 +10,7 @@ import (
 	"continuum/internal/kernel"
 	"continuum/internal/measure"
 	"continuum/internal/model"
+	"continuum/internal/observed"
 	"continuum/internal/store"
 )
 
@@ -180,8 +181,8 @@ func (h *Hub) noteMeasurements(agentID string, m *continuumv1.Measurements) {
 }
 
 // pathDocs turns the measured paths of every cluster into the documents the UI reads. Called with h.mu held.
-func (h *Hub) pathDocs(agents []store.Agent, observed []Cluster, names map[string]string, now time.Time) []model.Path {
-	ix := BuildAddrIndex(observed)
+func (h *Hub) pathDocs(agents []store.Agent, clusters []observed.Cluster, names map[string]string, now time.Time) []model.Path {
+	ix := observed.BuildAddrIndex(clusters)
 	staleAfter := 3 * time.Duration(h.C.Settings().MeasureSeconds) * time.Second
 	if staleAfter < 5*time.Minute {
 		staleAfter = 5 * time.Minute
