@@ -18,6 +18,7 @@ import (
 
 	"continuum/internal/accounts"
 	"continuum/internal/chart"
+	"continuum/internal/decisionloop"
 	"continuum/internal/estate"
 	"continuum/internal/fusion"
 	"continuum/internal/fusionapi"
@@ -161,6 +162,7 @@ func (a *Admin) Handler() http.Handler {
 	route := func(pattern string, n httpkit.Need, h http.HandlerFunc) {
 		a.handle(api, pattern, n.String(), a.guard(n, h))
 	}
+	routes := routeFunc(route)
 	open := func(pattern string, h http.HandlerFunc) { a.handle(api, pattern, accessPublic, h) }
 	open("GET /api/v1/server", a.serverInfo)
 	open("POST /api/v1/auth/login", a.login)
@@ -228,8 +230,7 @@ func (a *Admin) Handler() http.Handler {
 	route("POST "+o+"/history/record", httpkit.AdminRole, a.recordNow)
 	route("GET "+o+"/events", httpkit.MemberRole, a.listEvents)
 	route("POST "+o+"/decide", httpkit.EditorRole, a.decide)
-	route("POST "+o+"/decisions", httpkit.EditorRole, a.recordDecisions)
-	route("GET "+o+"/decisions", httpkit.MemberRole, a.listDecisions)
+	decisionloop.API{For: func(r *http.Request) *decisionloop.Service { return a.core(r).Loop }}.Mount(routes)
 	route("GET "+o+"/storage", httpkit.MemberRole, a.storage)
 	route("GET "+o+"/timeline", httpkit.MemberRole, a.timeline)
 	route("GET "+o+"/graph/snapshot", httpkit.MemberRole, a.graphSnapshot)

@@ -1,16 +1,27 @@
-package server
+package decisionloop
 
 import (
 	"encoding/json"
 	"net/http"
 	"strconv"
 
-	"continuum/internal/decisionloop"
 	"continuum/internal/httpkit"
 	"continuum/internal/kernel"
 )
 
 // The HTTP side of the decision log. What may be recorded, and how, is decisions.go's.
+
+// API is the decision log's routes. For finds the decision loop of the organisation a request is for: the shell does that from what its
+// guard put in the request, and the handlers know nothing of how.
+type API struct {
+	For func(r *http.Request) *Service
+}
+
+// Mount puts the routes on r.
+func (h API) Mount(r httpkit.Router) {
+	r.Handle("POST "+httpkit.OrgPath+"/decisions", httpkit.EditorRole, h.record)
+	r.Handle("GET "+httpkit.OrgPath+"/decisions", httpkit.MemberRole, h.list)
+}
 
 type decisionMoveDoc struct {
 	ServiceID     string  `json:"serviceId"`
@@ -43,34 +54,35 @@ type decisionEntryDoc struct {
 	Moves       []decisionMoveDoc `json:"moves"`
 }
 
-// recordDecisions is POST .../decisions. Editors only - the same role that can already run an external
+// record is POST .../decisions. Editors only - the same role that can already run an external
 // decider (route "POST .../decide") and the one RoleDescriptions already names for "manual records,
 // overrides, decisions".
-func (a *Admin) recordDecisions(w http.ResponseWriter, r *http.Request) {
+func (h API) record(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Entries []decisionEntryDoc `json:"entries"`
 	}
+	s := h.For(r)
 	if err := httpkit.Decode(r, &body); err != nil {
-		a.fail(w, err)
+		httpkit.Fail(w, s.Log, err)
 		return
 	}
-	entries := make([]decisionloop.DecisionEntry, len(body.Entries))
+	entries := make([]DecisionEntry, len(body.Entries))
 	for i, e := range body.Entries {
-		moves := make([]decisionloop.DecisionMove, len(e.Moves))
+		moves := make([]DecisionMove, len(e.Moves))
 		for j, m := range e.Moves {
-			moves[j] = decisionloop.DecisionMove{
+			moves[j] = DecisionMove{
 				ServiceID: m.ServiceID, ServiceName: m.ServiceName, From: m.From, To: m.To, Reason: m.Reason,
 				Confidence: m.Confidence, Verdict: m.Verdict, Benefit: m.Benefit, BeforeCost: m.BeforeCost, AfterCost: m.AfterCost, MigrationCost: m.MigrationCost,
 			}
 		}
-		entries[i] = decisionloop.DecisionEntry{
+		entries[i] = DecisionEntry{
 			DeciderID: e.DeciderID, DeciderName: e.DeciderName, DeciderKind: e.DeciderKind,
 			Schema: e.Input.Schema, ClusterCount: e.Input.ClusterCount, ServiceCount: e.Input.ServiceCount, Policy: e.Input.Policy, Moves: moves,
 		}
 	}
-	n, err := a.core(r).Loop.RecordDecisions(r.Context(), httpkit.Actor(r), entries)
+	n, err := s.RecordDecisions(r.Context(), httpkit.Actor(r), entries)
 	if err != nil {
-		a.fail(w, err)
+		httpkit.Fail(w, s.Log, err)
 		return
 	}
 	httpkit.WriteJSON(w, http.StatusCreated, map[string]any{"recorded": n})
@@ -96,17 +108,18 @@ type decisionLogDoc struct {
 	MigrationCost float64 `json:"migrationCost"`
 }
 
-// listDecisions is GET .../decisions: any member may read it back, the same reach as /events and /history.
-func (a *Admin) listDecisions(w http.ResponseWriter, r *http.Request) {
+// list is GET .../decisions: any member may read it back, the same reach as /events and /history.
+func (h API) list(w http.ResponseWriter, r *http.Request) {
 	limit := 0
 	if v := r.URL.Query().Get("limit"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
 			limit = n
 		}
 	}
-	ds, err := a.C.Store.ListDecisions(r.Context(), a.core(r).OrgID, limit)
+	s := h.For(r)
+	ds, err := s.Store.ListDecisions(r.Context(), s.OrgID, limit)
 	if err != nil {
-		a.fail(w, err)
+		httpkit.Fail(w, s.Log, err)
 		return
 	}
 	out := make([]decisionLogDoc, len(ds))

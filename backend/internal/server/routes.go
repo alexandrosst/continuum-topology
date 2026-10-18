@@ -1,6 +1,10 @@
 package server
 
-import "net/http"
+import (
+	"net/http"
+
+	"continuum/internal/httpkit"
+)
 
 // Every route under /api is mounted through Admin.handle, which records what the route asks of the caller. That record is
 // what the route-table test reads: it is how a person (or a test) can see, in one list, which routes are open, which need a
@@ -26,3 +30,8 @@ func (a *Admin) handle(mux *http.ServeMux, pattern, access string, h http.Handle
 	mux.Handle(pattern, h)
 	a.routes = append(a.routes, Route{Pattern: pattern, Access: access})
 }
+
+// routeFunc is a guarded route-adder (Admin.Handler's route) as the httpkit.Router a module mounts its handlers on.
+type routeFunc func(pattern string, n httpkit.Need, h http.HandlerFunc)
+
+func (f routeFunc) Handle(pattern string, n httpkit.Need, h http.HandlerFunc) { f(pattern, n, h) }

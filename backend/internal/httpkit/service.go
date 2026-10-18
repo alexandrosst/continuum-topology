@@ -138,3 +138,13 @@ func (n Need) Action() accounts.Action {
 	}
 	return 0
 }
+
+// OrgPath is the prefix of every route that belongs to one organisation. The {org} in it is what the guard checks the caller against.
+const OrgPath = "/api/v1/orgs/{org}"
+
+// Router is where a module's handlers are mounted. The shell's implementation guards each route by what it asks of the caller
+// (authentication, the organisation, the role, the size of the body) and records it in the route table, so a module cannot mount a
+// route that skips either.
+type Router interface {
+	Handle(pattern string, n Need, h http.HandlerFunc)
+}

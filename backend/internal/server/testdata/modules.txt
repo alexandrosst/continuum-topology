@@ -33,7 +33,6 @@ address_check.go shell
 admin.go                        shell
 admin_agents.go shell
 admin_commands.go shell
-admin_decisions.go              shell
 admin_fusion.go shell
 admin_fusion_proxy.go shell
 admin_graph.go shell
