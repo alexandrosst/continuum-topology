@@ -1,4 +1,4 @@
-package server
+package decisionloop
 
 import (
 	"context"
@@ -29,8 +29,8 @@ const (
 // Tests shrink them.
 type outcomeTimes struct{ window, giveUp time.Duration }
 
-func (h *Hub) outcomeTimes() outcomeTimes {
-	t := outcomeTimes{h.OutcomeWindow, h.OutcomeGiveUp}
+func (s *Service) outcomeTimes() outcomeTimes {
+	t := outcomeTimes{s.OutcomeWindow, s.OutcomeGiveUp}
 	if t.window <= 0 {
 		t.window = defaultOutcomeWindow
 	}
@@ -87,10 +87,10 @@ func windowMetrics(samples []LoadSample, from, to time.Time) map[string]float64 
 	return out
 }
 
-// recordOutcomes writes the Outcome of every applied proposal that is ready for one. It runs once a minute from Hub.Run.
-func (h *Hub) RecordOutcomes(ctx context.Context) {
-	now := h.C.Now()
-	applied, err := h.C.Store.ListProposals(ctx, h.C.OrgID, store.ProposalQuery{Status: store.ProposalApplied, Limit: 1000})
+// RecordOutcomes writes the Outcome of every applied proposal that is ready for one. It runs once a minute from Hub.Run.
+func (s *Service) RecordOutcomes(ctx context.Context) {
+	now := s.Now()
+	applied, err := s.Store.ListProposals(ctx, s.OrgID, store.ProposalQuery{Status: store.ProposalApplied, Limit: 1000})
 	if err != nil {
 		return
 	}
@@ -98,27 +98,27 @@ func (h *Hub) RecordOutcomes(ctx context.Context) {
 		if p.DecidedAt == nil || now.Sub(*p.DecidedAt) > outcomeLookback {
 			continue
 		}
-		if _, err := h.C.Store.GetProposalOutcome(ctx, h.C.OrgID, p.ID); err == nil {
+		if _, err := s.Store.GetProposalOutcome(ctx, s.OrgID, p.ID); err == nil {
 			continue
 		}
-		o, ready := h.outcomeFor(p, now)
+		o, ready := s.outcomeFor(p, now)
 		if !ready {
 			continue
 		}
 		detail := fmt.Sprintf("proposal %s from advisor %s: %s", p.ID, p.Advisor, o.Result)
-		err := h.C.Store.RecordProposalOutcome(ctx, o, store.WithAudit(h.C.AuditRow(h.C.OrgID, accounts.SystemActor.String(), "proposal-outcome", "proposal", p.ID, detail)))
+		err := s.Store.RecordProposalOutcome(ctx, o, store.WithAudit(s.AuditRow(s.OrgID, accounts.SystemActor.String(), "proposal-outcome", "proposal", p.ID, detail)))
 		if err != nil {
-			h.Log.Warn("a proposal's outcome could not be recorded", "proposal", p.ID, "err", err)
+			s.Log.Warn("a proposal's outcome could not be recorded", "proposal", p.ID, "err", err)
 		}
 	}
 }
 
 // outcomeFor works out the Outcome of one applied proposal as of now, or says it is not ready yet.
-func (h *Hub) outcomeFor(p store.Proposal, now time.Time) (store.ProposalOutcome, bool) {
-	tm := h.outcomeTimes()
+func (s *Service) outcomeFor(p store.Proposal, now time.Time) (store.ProposalOutcome, bool) {
+	tm := s.outcomeTimes()
 	decided := *p.DecidedAt
 	out := store.ProposalOutcome{ProposalID: p.ID, OrgID: p.OrgID, Predicted: p.Predicted, RecordedAt: now}
-	load := h.agentLoad(p.AgentID)
+	load := s.Load.AgentLoad(p.AgentID)
 	samples, inForce := load.Samples, load.InForceAt
 	confirmed := load.Known && load.ConfigHash != "" && load.ConfigHash == load.ConfigApplied && !load.InForceAt.Before(decided)
 

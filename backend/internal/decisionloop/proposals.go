@@ -1,4 +1,4 @@
-package server
+package decisionloop
 
 import (
 	"context"
@@ -24,7 +24,7 @@ import (
 const (
 	defaultProposalTTL = 4 * time.Hour
 	MaxProposalTTL     = 72 * time.Hour
-	// maxPendingPerAgent and maxPendingPerOrg bound what an advisor (or a bug in one) can leave waiting for a person.
+	// MaxPendingPerAgent and maxPendingPerOrg bound what an advisor (or a bug in one) can leave waiting for a person.
 	MaxPendingPerAgent = 20
 	maxPendingPerOrg   = 200
 	maxEvidenceFacts   = 20
@@ -163,8 +163,8 @@ func newProposalID() string { return "pr-" + kernel.RandHex(6) }
 
 // SubmitProposal stores a pending Proposal from an advisor. It validates the change against the agent as it is now and
 // computes whether it widens; the advisor cannot say.
-func (h *Hub) SubmitProposal(ctx context.Context, actor string, in ProposalInput) (store.Proposal, error) {
-	h.expireDueProposals(ctx)
+func (s *Service) SubmitProposal(ctx context.Context, actor string, in ProposalInput) (store.Proposal, error) {
+	s.expireDueProposals(ctx)
 	advisor := kernel.Printable(strings.TrimSpace(in.Advisor), maxAdvisorName)
 	if advisor == "" {
 		return store.Proposal{}, kernel.Errf(kernel.KindInvalid, "name the advisor that made this proposal")
@@ -172,14 +172,14 @@ func (h *Hub) SubmitProposal(ctx context.Context, actor string, in ProposalInput
 	if in.ModelVersion < 0 {
 		return store.Proposal{}, kernel.Errf(kernel.KindInvalid, "the model version cannot be negative")
 	}
-	a, err := h.C.AgentInOrg(ctx, in.Change.AgentID)
+	a, err := s.AgentInOrg(ctx, in.Change.AgentID)
 	if err != nil {
 		return store.Proposal{}, err
 	}
 	if a.Status != store.StatusApproved {
 		return store.Proposal{}, kernel.Errf(kernel.KindConflict, "agent is %s: only an approved agent's access can be proposed for change", a.Status)
 	}
-	plan, err := h.planAccessChange(a, in.Change)
+	plan, err := s.Access.PlanChange(a, in.Change)
 	if err != nil {
 		return store.Proposal{}, err
 	}
@@ -198,7 +198,7 @@ func (h *Hub) SubmitProposal(ctx context.Context, actor string, in ProposalInput
 	if ttl > MaxProposalTTL {
 		return store.Proposal{}, kernel.Errf(kernel.KindInvalid, "a proposal can wait at most %s for a decision", MaxProposalTTL)
 	}
-	pending, err := h.C.Store.ListProposals(ctx, h.C.OrgID, store.ProposalQuery{Status: store.ProposalPending, Limit: 1000})
+	pending, err := s.Store.ListProposals(ctx, s.OrgID, store.ProposalQuery{Status: store.ProposalPending, Limit: 1000})
 	if err != nil {
 		return store.Proposal{}, err
 	}
@@ -220,12 +220,12 @@ func (h *Hub) SubmitProposal(ctx context.Context, actor string, in ProposalInput
 	evidence, _ := json.Marshal(facts)
 	blastJSON, _ := json.Marshal(blast)
 	predicted, _ := json.Marshal(in.Predicted)
-	now := h.C.Now()
-	p := store.Proposal{ID: newProposalID(), OrgID: h.C.OrgID, AgentID: a.ID, Advisor: advisor, ModelVersion: in.ModelVersion,
+	now := s.Now()
+	p := store.Proposal{ID: newProposalID(), OrgID: s.OrgID, AgentID: a.ID, Advisor: advisor, ModelVersion: in.ModelVersion,
 		Change: change, Evidence: evidence, Confidence: conf, Blast: blastJSON, Predicted: predicted, Widens: widens, Mode: "advise",
 		Status: store.ProposalPending, CreatedAt: now, ExpiresAt: now.Add(ttl)}
 	detail := fmt.Sprintf("advisor %s proposes for %s (widens: %t, confidence: %s)", advisor, describeChange(a, in.Change), widens, conf)
-	if err := h.C.AuditedWrite(h.C.Store.CreateProposal(ctx, p, store.WithAudit(h.C.AuditRow(h.C.OrgID, actor, "proposal-submitted", "proposal", p.ID, detail))), "proposal-submitted"); err != nil {
+	if err := s.AuditedWrite(s.Store.CreateProposal(ctx, p, store.WithAudit(s.AuditRow(s.OrgID, actor, "proposal-submitted", "proposal", p.ID, detail))), "proposal-submitted"); err != nil {
 		return store.Proposal{}, err
 	}
 	return p, nil
@@ -233,41 +233,41 @@ func (h *Hub) SubmitProposal(ctx context.Context, actor string, in ProposalInput
 
 // expireDueProposals marks the pending proposals whose time has passed. It is called before anything reads or decides them, so a
 // proposal past its expiry can never be accepted and a list never shows one as pending.
-func (h *Hub) expireDueProposals(ctx context.Context) {
-	pending, err := h.C.Store.ListProposals(ctx, h.C.OrgID, store.ProposalQuery{Status: store.ProposalPending, Limit: 1000})
+func (s *Service) expireDueProposals(ctx context.Context) {
+	pending, err := s.Store.ListProposals(ctx, s.OrgID, store.ProposalQuery{Status: store.ProposalPending, Limit: 1000})
 	if err != nil {
 		return
 	}
-	now := h.C.Now()
+	now := s.Now()
 	for _, p := range pending {
 		if now.Before(p.ExpiresAt) {
 			continue
 		}
-		err := h.C.Store.TransitionProposal(ctx, h.C.OrgID, p.ID, []store.ProposalStatus{store.ProposalPending}, store.ProposalExpired, accounts.SystemActor.String(), "no decision before it expired", now,
-			store.WithAudit(h.C.AuditRow(h.C.OrgID, accounts.SystemActor.String(), "proposal-expired", "proposal", p.ID, "no decision before "+p.ExpiresAt.UTC().Format(time.RFC3339))))
+		err := s.Store.TransitionProposal(ctx, s.OrgID, p.ID, []store.ProposalStatus{store.ProposalPending}, store.ProposalExpired, accounts.SystemActor.String(), "no decision before it expired", now,
+			store.WithAudit(s.AuditRow(s.OrgID, accounts.SystemActor.String(), "proposal-expired", "proposal", p.ID, "no decision before "+p.ExpiresAt.UTC().Format(time.RFC3339))))
 		if err != nil && !errors.Is(err, store.ErrBadState) {
-			h.Log.Warn("a proposal could not be marked expired", "proposal", p.ID, "err", err)
+			s.Log.Warn("a proposal could not be marked expired", "proposal", p.ID, "err", err)
 		}
 	}
 }
 
 // ListProposals returns the organisation's proposals, newest first, after expiring the ones past their time.
-func (h *Hub) ListProposals(ctx context.Context, q store.ProposalQuery) ([]store.Proposal, error) {
-	h.expireDueProposals(ctx)
-	return h.C.Store.ListProposals(ctx, h.C.OrgID, q)
+func (s *Service) ListProposals(ctx context.Context, q store.ProposalQuery) ([]store.Proposal, error) {
+	s.expireDueProposals(ctx)
+	return s.Store.ListProposals(ctx, s.OrgID, q)
 }
 
 // GetProposal returns one proposal, with its Outcome when it has one.
-func (h *Hub) GetProposal(ctx context.Context, id string) (store.Proposal, *store.ProposalOutcome, error) {
-	h.expireDueProposals(ctx)
-	p, err := h.C.Store.GetProposal(ctx, h.C.OrgID, id)
+func (s *Service) GetProposal(ctx context.Context, id string) (store.Proposal, *store.ProposalOutcome, error) {
+	s.expireDueProposals(ctx)
+	p, err := s.Store.GetProposal(ctx, s.OrgID, id)
 	if errors.Is(err, store.ErrNotFound) {
 		return store.Proposal{}, nil, kernel.Errf(kernel.KindNotFound, "no such proposal")
 	}
 	if err != nil {
 		return store.Proposal{}, nil, err
 	}
-	o, err := h.C.Store.GetProposalOutcome(ctx, h.C.OrgID, id)
+	o, err := s.Store.GetProposalOutcome(ctx, s.OrgID, id)
 	if errors.Is(err, store.ErrNotFound) {
 		return p, nil, nil
 	}
@@ -277,13 +277,13 @@ func (h *Hub) GetProposal(ctx context.Context, id string) (store.Proposal, *stor
 	return p, &o, nil
 }
 
-func (h *Hub) decideTransition(ctx context.Context, p store.Proposal, from []store.ProposalStatus, to store.ProposalStatus, by, note, action string) error {
+func (s *Service) decideTransition(ctx context.Context, p store.Proposal, from []store.ProposalStatus, to store.ProposalStatus, by, note, action string) error {
 	detail := fmt.Sprintf("proposal %s from advisor %s: %s", p.ID, p.Advisor, string(to))
 	if note != "" {
 		detail += " (" + note + ")"
 	}
-	return h.C.AuditedWrite(h.C.Store.TransitionProposal(ctx, h.C.OrgID, p.ID, from, to, by, note, h.C.Now(),
-		store.WithAudit(h.C.AuditRow(h.C.OrgID, by, action, "proposal", p.ID, detail))), action)
+	return s.AuditedWrite(s.Store.TransitionProposal(ctx, s.OrgID, p.ID, from, to, by, note, s.Now(),
+		store.WithAudit(s.AuditRow(s.OrgID, by, action, "proposal", p.ID, detail))), action)
 }
 
 func cleanNote(note string) (string, error) {
@@ -295,23 +295,23 @@ func cleanNote(note string) (string, error) {
 }
 
 // RejectProposal ends a pending proposal without changing anything.
-func (h *Hub) RejectProposal(ctx context.Context, actor, id, note string) (store.Proposal, error) {
+func (s *Service) RejectProposal(ctx context.Context, actor, id, note string) (store.Proposal, error) {
 	note, err := cleanNote(note)
 	if err != nil {
 		return store.Proposal{}, err
 	}
-	p, _, err := h.GetProposal(ctx, id)
+	p, _, err := s.GetProposal(ctx, id)
 	if err != nil {
 		return p, err
 	}
-	err = h.decideTransition(ctx, p, []store.ProposalStatus{store.ProposalPending}, store.ProposalRejected, actor, note, "proposal-rejected")
+	err = s.decideTransition(ctx, p, []store.ProposalStatus{store.ProposalPending}, store.ProposalRejected, actor, note, "proposal-rejected")
 	if errors.Is(err, store.ErrBadState) {
 		return p, kernel.Errf(kernel.KindConflict, "the proposal is no longer pending")
 	}
 	if err != nil {
 		return p, err
 	}
-	p, _, err = h.GetProposal(ctx, id)
+	p, _, err = s.GetProposal(ctx, id)
 	return p, err
 }
 
@@ -320,12 +320,12 @@ func (h *Hub) RejectProposal(ctx context.Context, actor, id, note string) (store
 // valid, or may now widen what it narrowed. Widening takes an administrator. Of two people accepting at once, one wins; the
 // other is told it is no longer pending. The change is made by SetAgentTier or SetConsent, so it is delivered, validated and
 // audited exactly as a manual one is, and the proposal ends applied, or failed if that step did not complete.
-func (h *Hub) AcceptProposal(ctx context.Context, actor, id, note string) (store.Proposal, error) {
+func (s *Service) AcceptProposal(ctx context.Context, actor, id, note string) (store.Proposal, error) {
 	note, err := cleanNote(note)
 	if err != nil {
 		return store.Proposal{}, err
 	}
-	p, _, err := h.GetProposal(ctx, id)
+	p, _, err := s.GetProposal(ctx, id)
 	if err != nil {
 		return p, err
 	}
@@ -336,14 +336,14 @@ func (h *Hub) AcceptProposal(ctx context.Context, actor, id, note string) (store
 	if err := json.Unmarshal(p.Change, &ch); err != nil {
 		return p, kernel.Errf(kernel.KindInvalid, "the stored change could not be read")
 	}
-	a, err := h.C.AgentInOrg(ctx, p.AgentID)
+	a, err := s.AgentInOrg(ctx, p.AgentID)
 	if err != nil {
 		return p, err
 	}
 	if a.Status != store.StatusApproved {
 		return p, kernel.Errf(kernel.KindConflict, "agent is %s: only an approved agent's access can be changed", a.Status)
 	}
-	plan, err := h.planAccessChange(a, ch)
+	plan, err := s.Access.PlanChange(a, ch)
 	if err != nil {
 		return p, err
 	}
@@ -351,7 +351,7 @@ func (h *Hub) AcceptProposal(ctx context.Context, actor, id, note string) (store
 		return p, kernel.Errf(kernel.KindForbidden, "this change widens what the agent shares, and accepting it takes an administrator; narrowing does not")
 	}
 	// Claim the proposal first. Only one caller can move it out of pending, so only one makes the change.
-	if err := h.decideTransition(ctx, p, []store.ProposalStatus{store.ProposalPending}, store.ProposalAccepted, actor, note, "proposal-accepted"); err != nil {
+	if err := s.decideTransition(ctx, p, []store.ProposalStatus{store.ProposalPending}, store.ProposalAccepted, actor, note, "proposal-accepted"); err != nil {
 		if errors.Is(err, store.ErrBadState) {
 			return p, kernel.Errf(kernel.KindConflict, "the proposal is no longer pending")
 		}
@@ -362,10 +362,10 @@ func (h *Hub) AcceptProposal(ctx context.Context, actor, id, note string) (store
 	if applyErr != nil {
 		final, finalAction, finalNote = store.ProposalFailed, "proposal-failed", kernel.Printable(applyErr.Error(), maxProposalNote)
 	}
-	if err := h.decideTransition(ctx, p, []store.ProposalStatus{store.ProposalAccepted}, final, actor, finalNote, finalAction); err != nil {
-		h.Log.Error("a proposal's final state could not be recorded", "proposal", p.ID, "err", err)
+	if err := s.decideTransition(ctx, p, []store.ProposalStatus{store.ProposalAccepted}, final, actor, finalNote, finalAction); err != nil {
+		s.Log.Error("a proposal's final state could not be recorded", "proposal", p.ID, "err", err)
 	}
-	got, _, gerr := h.GetProposal(ctx, id)
+	got, _, gerr := s.GetProposal(ctx, id)
 	if gerr != nil {
 		return p, gerr
 	}

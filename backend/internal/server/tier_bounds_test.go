@@ -7,6 +7,7 @@ import (
 	continuumv1 "continuum/gen/continuumv1"
 
 	"continuum/internal/accounts"
+	"continuum/internal/decisionloop"
 	"continuum/internal/kernel"
 )
 
@@ -108,7 +109,7 @@ func TestAProposalSaysWhatItSaidBeforeAboutATiersBounds(t *testing.T) {
 		{"the tier it has", 2, "the agent already has access tier 2", kernel.KindConflict},
 	}
 	for _, c := range cases {
-		_, err := r.submit(t, AccessChange{Tier: intp(c.tier)})
+		_, err := r.submit(t, decisionloop.AccessChange{Tier: intp(c.tier)})
 		wantErr(t, c.name, err, c.kind, c.msg)
 	}
 	if err := r.st.SetAccessTier(r.ctx, r.id, 0); err != nil {
@@ -117,7 +118,7 @@ func TestAProposalSaysWhatItSaidBeforeAboutATiersBounds(t *testing.T) {
 	if err := r.st.SetInstalledTier(r.ctx, r.id, 1); err != nil {
 		t.Fatal(err)
 	}
-	_, err := r.submit(t, AccessChange{Tier: intp(2)})
+	_, err := r.submit(t, decisionloop.AccessChange{Tier: intp(2)})
 	wantErr(t, "over the install", err, kernel.KindInvalid, "this agent's install allows at most tier 1")
 }
 
@@ -160,7 +161,7 @@ func TestATokensCapStopsATierThatTheInstallWouldAllow(t *testing.T) {
 	h := a.hub()
 	_, err = h.SetAgentTier(asRole(accounts.RoleAdmin), "adam", r.AgentId, 2, nil)
 	wantErr(t, "setting above the token", err, kernel.KindInvalid, "access tier 2 is above what the enrollment token allowed for this agent (1)")
-	_, err = h.SubmitProposal(asRole(accounts.RoleEditor), "x", ProposalInput{Advisor: "rules-v1", Change: AccessChange{AgentID: r.AgentId, Tier: intp(2)}})
+	_, err = h.C.Loop.SubmitProposal(asRole(accounts.RoleEditor), "x", decisionloop.ProposalInput{Advisor: "rules-v1", Change: decisionloop.AccessChange{AgentID: r.AgentId, Tier: intp(2)}})
 	wantErr(t, "proposing above the token", err, kernel.KindInvalid, "access tier 2 is above what the enrollment token allowed for this agent (1)")
 	if _, err = h.SetAgentTier(asRole(accounts.RoleAdmin), "adam", r.AgentId, 1, nil); err != nil {
 		t.Fatalf("setting at the token's cap: %v", err)

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"continuum/internal/decisionloop"
 	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
@@ -70,22 +71,22 @@ func toProposalDoc(p store.Proposal, o *store.ProposalOutcome) proposalDoc {
 // submitProposal is POST .../proposals.
 func (a *Admin) submitProposal(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Advisor      string             `json:"advisor"`
-		ModelVersion int64              `json:"modelVersion"`
-		Change       AccessChange       `json:"change"`
-		Evidence     []EvidenceFact     `json:"evidence"`
-		Predicted    map[string]float64 `json:"predicted"`
-		TTLSeconds   int                `json:"ttlSeconds"`
+		Advisor      string                      `json:"advisor"`
+		ModelVersion int64                       `json:"modelVersion"`
+		Change       decisionloop.AccessChange   `json:"change"`
+		Evidence     []decisionloop.EvidenceFact `json:"evidence"`
+		Predicted    map[string]float64          `json:"predicted"`
+		TTLSeconds   int                         `json:"ttlSeconds"`
 	}
 	if err := decode(r, &req); err != nil {
 		a.fail(w, err)
 		return
 	}
-	if req.TTLSeconds < 0 || req.TTLSeconds > int(MaxProposalTTL/time.Second) {
-		a.fail(w, kernel.Errf(kernel.KindInvalid, "ttlSeconds must be between 0 and %d", int(MaxProposalTTL/time.Second)))
+	if req.TTLSeconds < 0 || req.TTLSeconds > int(decisionloop.MaxProposalTTL/time.Second) {
+		a.fail(w, kernel.Errf(kernel.KindInvalid, "ttlSeconds must be between 0 and %d", int(decisionloop.MaxProposalTTL/time.Second)))
 		return
 	}
-	p, err := a.tn(r).Hub.SubmitProposal(r.Context(), actor(r), ProposalInput{Advisor: req.Advisor, ModelVersion: req.ModelVersion, Change: req.Change,
+	p, err := a.tn(r).Hub.C.Loop.SubmitProposal(r.Context(), actor(r), decisionloop.ProposalInput{Advisor: req.Advisor, ModelVersion: req.ModelVersion, Change: req.Change,
 		Evidence: req.Evidence, Predicted: req.Predicted, TTL: time.Duration(req.TTLSeconds) * time.Second})
 	if err != nil {
 		a.fail(w, err)
@@ -111,7 +112,7 @@ func (a *Admin) listProposals(w http.ResponseWriter, r *http.Request) {
 		}
 		q.Limit = n
 	}
-	ps, err := a.tn(r).Hub.ListProposals(r.Context(), q)
+	ps, err := a.tn(r).Hub.C.Loop.ListProposals(r.Context(), q)
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -141,7 +142,7 @@ type advisorRecordDoc struct {
 
 // listAdvisors is GET .../proposals/advisors: what each advisor has proposed, what people did with it, and whether its predictions held.
 func (a *Admin) listAdvisors(w http.ResponseWriter, r *http.Request) {
-	rs, err := a.tn(r).Hub.AdvisorRecords(r.Context())
+	rs, err := a.tn(r).Hub.C.Loop.AdvisorRecords(r.Context())
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -167,7 +168,7 @@ func atoiPositive(s string) (int, bool) {
 
 // getProposal is GET .../proposals/{id}, with its Outcome once it has one.
 func (a *Admin) getProposal(w http.ResponseWriter, r *http.Request) {
-	p, o, err := a.tn(r).Hub.GetProposal(r.Context(), r.PathValue("id"))
+	p, o, err := a.tn(r).Hub.C.Loop.GetProposal(r.Context(), r.PathValue("id"))
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -188,9 +189,9 @@ func (a *Admin) decideProposal(accept bool) http.HandlerFunc {
 		var p store.Proposal
 		var err error
 		if accept {
-			p, err = hub.AcceptProposal(r.Context(), actor(r), r.PathValue("id"), req.Note)
+			p, err = hub.C.Loop.AcceptProposal(r.Context(), actor(r), r.PathValue("id"), req.Note)
 		} else {
-			p, err = hub.RejectProposal(r.Context(), actor(r), r.PathValue("id"), req.Note)
+			p, err = hub.C.Loop.RejectProposal(r.Context(), actor(r), r.PathValue("id"), req.Note)
 		}
 		if err != nil {
 			a.fail(w, err)

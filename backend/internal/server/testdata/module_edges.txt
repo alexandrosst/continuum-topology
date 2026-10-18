@@ -1,26 +1,6 @@
 # Every place one module uses something declared in another, as "using module > declaring module", then what is used.
 # Not listed: any module using the kernel, and the shell using any module (see modules_test.go). The list may only get shorter.
 # Regenerate on purpose with: go test ./internal/server -run TestModule -update
-advice > agents	field accessPlan.Apply
-advice > agents	field accessPlan.Widens
-advice > agents	method Hub.planAccessChange
-advice > estate	field Hub.C
-advice > estate	field Hub.Log
-advice > estate	field Hub.OutcomeGiveUp
-advice > estate	field Hub.OutcomeWindow
-advice > estate	type Hub
-advice > shell	field agentLoad.ConfigApplied
-advice > shell	field agentLoad.ConfigHash
-advice > shell	field agentLoad.InForceAt
-advice > shell	field agentLoad.Known
-advice > shell	field agentLoad.Samples
-advice > shell	method Hub.agentLoad
-agents > advice	field AccessChange.Exclude
-agents > advice	field AccessChange.Include
-agents > advice	field AccessChange.Pause
-agents > advice	field AccessChange.Resume
-agents > advice	field AccessChange.Tier
-agents > advice	type AccessChange
 agents > connectivity	method Hub.AddressTests
 agents > connectivity	method Hub.StartAddressTests
 agents > connectivity	method Hub.pushOne
@@ -164,9 +144,6 @@ connectivity > shell	method Admin.fail
 connectivity > shell	method Admin.tn
 connectivity > shell	method Platform.Tenant
 connectivity > shell	type Admin
-estate > advice	func EnrichDecision
-estate > advice	func SignDeciderRequest
-estate > advice	method Hub.RecordOutcomes
 estate > agents	field BaseAgentService.C
 estate > agents	field HistoricAgent.AgentSnapshot
 estate > agents	field HistoricAgent.ID
@@ -216,6 +193,7 @@ estate > agents	type HistoricAgent
 estate > agents	type SelfStatsSample
 estate > agents	type ServerSelfStatsSample
 estate > agents	type flowIngest
+estate > agents	type hubAccess
 estate > agents	type selfRing
 estate > agents	type viewExt
 estate > agents	var selfStatsSampleEvery
@@ -251,6 +229,7 @@ estate > shell	method Admin.fail
 estate > shell	method Admin.imageDefaults
 estate > shell	method Admin.tn
 estate > shell	type Admin
+estate > shell	type hubLoad
 fusion > connectivity	func addressWarnings
 fusion > connectivity	method Admin.fusionLinks
 fusion > estate	field StateDoc.GeneratedAt

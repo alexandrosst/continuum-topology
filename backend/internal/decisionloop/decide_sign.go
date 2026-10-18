@@ -1,4 +1,4 @@
-package server
+package decisionloop
 
 import (
 	"crypto/hmac"
@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// signDeciderRequest signs a decision request the way Stripe and GitHub sign outgoing webhooks: HMAC-SHA256 over
+// SignDeciderRequest signs a decision request the way Stripe and GitHub sign outgoing webhooks: HMAC-SHA256 over
 // "<unix timestamp>.<body>", keyed by the organisation's own decider secret (Settings.DeciderSecret). The decider
 // can then refuse anything that does not carry a valid signature under its copy of the secret, or whose
 // timestamp is too old to be the request it was sent - i.e. it can tell "this came from an Ikhnos server that
@@ -28,7 +28,7 @@ func SignDeciderRequest(secret string, body []byte, now time.Time) (timestamp, s
 	return timestamp, hex.EncodeToString(mac.Sum(nil))
 }
 
-// verifyDeciderSignature is not called by this server (it signs; it never receives a decision request), but is
+// VerifyDeciderSignature is not called by this server (it signs; it never receives a decision request), but is
 // exported in spirit through the OpenAPI doc's description of the scheme - kept here, and tested, as the
 // reference implementation a decider author can port line for line into whatever language they write in.
 func VerifyDeciderSignature(secret string, body []byte, timestamp, signature string, now time.Time, maxAge time.Duration) bool {

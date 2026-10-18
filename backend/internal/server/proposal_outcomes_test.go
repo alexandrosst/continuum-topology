@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"continuum/internal/accounts"
+	"continuum/internal/decisionloop"
 	"continuum/internal/store"
 )
 
@@ -28,7 +29,7 @@ func (r *propRig) feed(from time.Time, span time.Duration, bytesPerSec float64, 
 // heartbeat would.
 func (r *propRig) acceptAndConfirm(t *testing.T, id string) time.Time {
 	t.Helper()
-	if _, err := r.h.AcceptProposal(asRole(accounts.RoleEditor), "edith", id, ""); err != nil {
+	if _, err := r.h.C.Loop.AcceptProposal(asRole(accounts.RoleEditor), "edith", id, ""); err != nil {
 		t.Fatal(err)
 	}
 	r.h.mu.Lock()
@@ -53,19 +54,19 @@ func TestAnAppliedProposalGetsAnOutcomeThatSetsWhatWasObservedBesideWhatWasPredi
 	start := *r.now
 	r.feed(start, 4*time.Minute, 1000, &bytes, &cpu) // before: 1000 B/s
 	*r.now = start.Add(4 * time.Minute)
-	p, err := r.submit(t, AccessChange{Pause: []string{"flow"}}) // predicts link_bytes_per_sec -0.5
+	p, err := r.submit(t, decisionloop.AccessChange{Pause: []string{"flow"}}) // predicts link_bytes_per_sec -0.5
 	if err != nil {
 		t.Fatal(err)
 	}
 	inForce := r.acceptAndConfirm(t, p.ID)
 
-	r.h.RecordOutcomes(context.Background())
+	r.h.C.Loop.RecordOutcomes(context.Background())
 	if _, ok := outcomeOf(t, r, p.ID); ok {
 		t.Fatal("an outcome was recorded before the window after the change had filled")
 	}
 	r.feed(inForce, 5*time.Minute, 500, &bytes, &cpu) // after: 500 B/s
 	*r.now = inForce.Add(5*time.Minute + time.Second)
-	r.h.RecordOutcomes(context.Background())
+	r.h.C.Loop.RecordOutcomes(context.Background())
 
 	o, ok := outcomeOf(t, r, p.ID)
 	if !ok || o.Result != "measured" || o.InForceAt == nil || !o.InForceAt.Equal(inForce.Truncate(time.Millisecond)) {
@@ -85,7 +86,7 @@ func TestAnAppliedProposalGetsAnOutcomeThatSetsWhatWasObservedBesideWhatWasPredi
 	}
 	// once only, with one audit row
 	*r.now = r.now.Add(time.Minute)
-	r.h.RecordOutcomes(context.Background())
+	r.h.C.Loop.RecordOutcomes(context.Background())
 	if n := count(r.auditActions(t), "proposal-outcome"); n != 1 {
 		t.Fatalf("%d outcome rows", n)
 	}
@@ -100,17 +101,17 @@ func TestAnAppliedProposalGetsAnOutcomeThatSetsWhatWasObservedBesideWhatWasPredi
 
 func TestAnOutcomeSaysUnconfirmedIfTheAgentNeverReportsTheChangeInForce(t *testing.T) {
 	r := propRigFor(t)
-	p, _ := r.submit(t, AccessChange{Pause: []string{"flow"}})
-	if _, err := r.h.AcceptProposal(asRole(accounts.RoleEditor), "edith", p.ID, ""); err != nil {
+	p, _ := r.submit(t, decisionloop.AccessChange{Pause: []string{"flow"}})
+	if _, err := r.h.C.Loop.AcceptProposal(asRole(accounts.RoleEditor), "edith", p.ID, ""); err != nil {
 		t.Fatal(err)
 	}
 	*r.now = r.now.Add(10 * time.Minute)
-	r.h.RecordOutcomes(context.Background())
+	r.h.C.Loop.RecordOutcomes(context.Background())
 	if _, ok := outcomeOf(t, r, p.ID); ok {
 		t.Fatal("recorded before the give-up time")
 	}
 	*r.now = r.now.Add(25 * time.Minute)
-	r.h.RecordOutcomes(context.Background())
+	r.h.C.Loop.RecordOutcomes(context.Background())
 	o, ok := outcomeOf(t, r, p.ID)
 	if !ok || o.Result != "unconfirmed" || o.InForceAt != nil {
 		t.Fatalf("%+v %v", o, ok)
@@ -119,15 +120,15 @@ func TestAnOutcomeSaysUnconfirmedIfTheAgentNeverReportsTheChangeInForce(t *testi
 
 func TestAnOutcomeSaysNoDataIfThereAreTooFewSamplesToCompare(t *testing.T) {
 	r := propRigFor(t)
-	p, _ := r.submit(t, AccessChange{Pause: []string{"flow"}})
+	p, _ := r.submit(t, decisionloop.AccessChange{Pause: []string{"flow"}})
 	inForce := r.acceptAndConfirm(t, p.ID) // no samples were ever fed
 	*r.now = inForce.Add(10 * time.Minute)
-	r.h.RecordOutcomes(context.Background())
+	r.h.C.Loop.RecordOutcomes(context.Background())
 	if _, ok := outcomeOf(t, r, p.ID); ok {
 		t.Fatal("recorded before the give-up time although samples might still arrive")
 	}
 	*r.now = inForce.Add(40 * time.Minute)
-	r.h.RecordOutcomes(context.Background())
+	r.h.C.Loop.RecordOutcomes(context.Background())
 	o, ok := outcomeOf(t, r, p.ID)
 	if !ok || o.Result != "no_data" || o.InForceAt == nil {
 		t.Fatalf("%+v %v", o, ok)
@@ -137,13 +138,13 @@ func TestAnOutcomeSaysNoDataIfThereAreTooFewSamplesToCompare(t *testing.T) {
 // Only a proposal that was applied has an Outcome; a pending, rejected or failed one has none.
 func TestOnlyAppliedProposalsGetAnOutcome(t *testing.T) {
 	r := propRigFor(t)
-	pend, _ := r.submit(t, AccessChange{Pause: []string{"flow"}})
-	rej, _ := r.submit(t, AccessChange{Pause: []string{"probes"}})
-	if _, err := r.h.RejectProposal(asRole(accounts.RoleEditor), "edith", rej.ID, ""); err != nil {
+	pend, _ := r.submit(t, decisionloop.AccessChange{Pause: []string{"flow"}})
+	rej, _ := r.submit(t, decisionloop.AccessChange{Pause: []string{"probes"}})
+	if _, err := r.h.C.Loop.RejectProposal(asRole(accounts.RoleEditor), "edith", rej.ID, ""); err != nil {
 		t.Fatal(err)
 	}
 	*r.now = r.now.Add(2 * time.Hour)
-	r.h.RecordOutcomes(context.Background())
+	r.h.C.Loop.RecordOutcomes(context.Background())
 	for _, id := range []string{pend.ID, rej.ID} {
 		if _, ok := outcomeOf(t, r, id); ok {
 			t.Fatalf("%s has an outcome", id)
@@ -173,15 +174,15 @@ func TestAnEchoFromBeforeTheDecisionDoesNotConfirmTheChange(t *testing.T) {
 	v := r.h.viewFor(r.id)
 	v.cfgHash, v.cfgApplied, v.cfgInForceAt = "h-before", "h-before", r.now.Add(-time.Hour)
 	r.h.mu.Unlock()
-	p, _ := r.submit(t, AccessChange{Pause: []string{"flow"}})
-	if _, err := r.h.AcceptProposal(asRole(accounts.RoleEditor), "edith", p.ID, ""); err != nil {
+	p, _ := r.submit(t, decisionloop.AccessChange{Pause: []string{"flow"}})
+	if _, err := r.h.C.Loop.AcceptProposal(asRole(accounts.RoleEditor), "edith", p.ID, ""); err != nil {
 		t.Fatal(err)
 	}
 	r.h.mu.Lock()
 	v.cfgHash = "h-before" // the push did not change what the server holds as sent, and the agent still names it
 	r.h.mu.Unlock()
 	*r.now = r.now.Add(time.Hour)
-	r.h.RecordOutcomes(context.Background())
+	r.h.C.Loop.RecordOutcomes(context.Background())
 	o, ok := outcomeOf(t, r, p.ID)
 	if !ok || o.Result != "unconfirmed" {
 		t.Fatalf("%+v %v", o, ok)

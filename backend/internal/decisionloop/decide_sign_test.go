@@ -1,4 +1,4 @@
-package server
+package decisionloop
 
 import (
 	"strings"
@@ -44,5 +44,14 @@ func TestSignDeciderRequestRoundTripsAndRejectsTamperingReplayAndWrongSecret(t *
 	}
 	if strings.Contains(sig, "s3cr3t") {
 		t.Fatal("the secret leaked verbatim into its own signature's encoding")
+	}
+}
+
+// A decider is written in another language, from the contract: the signature is HMAC-SHA256, hex, over "<unix seconds>.<body>". The
+// vector was computed outside this code, so a change to the framing breaks every decider that already checks signatures.
+func TestSignDeciderRequestMatchesTheContractForAKnownInput(t *testing.T) {
+	ts, sig := SignDeciderRequest("shh", []byte(`{"a":1}`), time.Unix(1700000000, 0))
+	if ts != "1700000000" || sig != "be310eac0f84daf469d630347a950258de768b365563ab68f29f2f783473d547" {
+		t.Fatalf("got %s %s: the framing of the signed text changed", ts, sig)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"log/slog"
 
 	"continuum/internal/accounts"
+	"continuum/internal/decisionloop"
 	"continuum/internal/kernel"
 	"continuum/internal/pki"
 	"continuum/internal/store"
@@ -16,9 +17,13 @@ import (
 type Core struct {
 	*kernel.Core
 	Accounts *accounts.Service
+	// Loop is the decision loop. Its ports are set when the Hub is built.
+	Loop *decisionloop.Service
 }
 
-func wrap(k *kernel.Core) *Core { return &Core{Core: k, Accounts: accounts.NewService(k)} }
+func wrap(k *kernel.Core) *Core {
+	return &Core{Core: k, Accounts: accounts.NewService(k), Loop: decisionloop.NewService(k)}
+}
 
 // NewCore returns a Core scoped to org (see kernel.NewCore).
 func NewCore(st store.Store, ca *pki.CA, org string, log *slog.Logger) *Core {

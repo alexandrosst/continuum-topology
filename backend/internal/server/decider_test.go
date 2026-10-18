@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"continuum/internal/accounts"
+	"continuum/internal/decisionloop"
 	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
@@ -229,7 +230,7 @@ func TestDeciderSecretIsWriteOnlyAndSignsRequests(t *testing.T) {
 	if !ok {
 		t.Fatalf("unexpected signature header shape: %q", gotSig)
 	}
-	if !VerifyDeciderSignature(secret, gotBody, gotTS, sig, time.Now(), time.Minute) {
+	if !decisionloop.VerifyDeciderSignature(secret, gotBody, gotTS, sig, time.Now(), time.Minute) {
 		t.Fatal("the signature does not verify against the body and timestamp the decider actually received")
 	}
 

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"continuum/internal/accounts"
+	"continuum/internal/decisionloop"
 	"continuum/internal/history"
 	"continuum/internal/kernel"
 	"continuum/internal/store"
@@ -548,7 +549,7 @@ func (a *Admin) decide(w http.ResponseWriter, r *http.Request) {
 		fail(500, "the effective model could not be built")
 		return
 	}
-	if enriched, eerr := EnrichDecision(body, m); eerr == nil {
+	if enriched, eerr := decisionloop.EnrichDecision(body, m); eerr == nil {
 		body = enriched
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(set.DeciderTimeoutSec)*time.Second)
@@ -562,7 +563,7 @@ func (a *Admin) decide(w http.ResponseWriter, r *http.Request) {
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "continuum-server/"+a.Version)
 	if set.DeciderSecret != "" {
-		ts, sig := SignDeciderRequest(set.DeciderSecret, body, c.Now())
+		ts, sig := decisionloop.SignDeciderRequest(set.DeciderSecret, body, c.Now())
 		req.Header.Set("X-Continuum-Timestamp", ts)
 		req.Header.Set("X-Continuum-Signature", "sha256="+sig)
 	}

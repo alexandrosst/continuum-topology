@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+
+	"continuum/internal/decisionloop"
 )
 
 // The HTTP side of the decision log. What may be recorded, and how, is decisions.go's.
@@ -50,21 +52,21 @@ func (a *Admin) recordDecisions(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	entries := make([]DecisionEntry, len(body.Entries))
+	entries := make([]decisionloop.DecisionEntry, len(body.Entries))
 	for i, e := range body.Entries {
-		moves := make([]DecisionMove, len(e.Moves))
+		moves := make([]decisionloop.DecisionMove, len(e.Moves))
 		for j, m := range e.Moves {
-			moves[j] = DecisionMove{
+			moves[j] = decisionloop.DecisionMove{
 				ServiceID: m.ServiceID, ServiceName: m.ServiceName, From: m.From, To: m.To, Reason: m.Reason,
 				Confidence: m.Confidence, Verdict: m.Verdict, Benefit: m.Benefit, BeforeCost: m.BeforeCost, AfterCost: m.AfterCost, MigrationCost: m.MigrationCost,
 			}
 		}
-		entries[i] = DecisionEntry{
+		entries[i] = decisionloop.DecisionEntry{
 			DeciderID: e.DeciderID, DeciderName: e.DeciderName, DeciderKind: e.DeciderKind,
 			Schema: e.Input.Schema, ClusterCount: e.Input.ClusterCount, ServiceCount: e.Input.ServiceCount, Policy: e.Input.Policy, Moves: moves,
 		}
 	}
-	n, err := a.core(r).RecordDecisions(r.Context(), actor(r), entries)
+	n, err := a.core(r).Loop.RecordDecisions(r.Context(), actor(r), entries)
 	if err != nil {
 		a.fail(w, err)
 		return

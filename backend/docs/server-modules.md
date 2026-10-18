@@ -25,7 +25,7 @@ none of them. The **shell** wires the modules together and is the only thing tha
 | operators | Regional operators: certificates, senders, addresses, heartbeat, and the node probe of the server's own cluster | 12 | 4,687 | `operators`, `operator_certs` | 15 |
 | connectivity | Paths, links, tunnels, the addresses a cluster dials, and the config an agent is told (its digest and the compile of it) | 12 | 3,899 | `link_iperf_credentials` | 3 |
 | fusion | The FUSION stack: control, data API and its OpenAPI, retention, UI access | 12 | 4,600 | `fusion_tokens` | 69 |
-| advice | The decision loop: advice, proposals, outcomes, decisions, the advisor records | 7 | 1,487 | `decisions`, `proposals`, `proposal_outcomes` | 8 |
+| advice (now the package `internal/decisionloop`) | The decision loop: advice, proposals, outcomes, decisions, the advisor records | 7 | 1,487 | `decisions`, `proposals`, `proposal_outcomes` | 8 |
 | shell | The admin mux and its guards, the platform of organisations, routes, readiness, metrics | 5 | 2,145 | none | 4 |
 
 The routes add up to the 183 in `testdata/routes.txt`. The routes in `admin.go` were given to the module whose handler they
@@ -133,7 +133,7 @@ This is a proposal from the numbers above; each move starts with its own short p
 1. **The kernel's reaches into modules** (29 uses): done, in three cuts (see Progress).
 2. **The kernel as a package**: done (`internal/kernel`; see Progress). Still to do, because the module packages need it: the HTTP kit (not a module) beside it, the 82 plumbing uses out of `admin.go`. Until then a module package holds domain logic only, and its HTTP handlers stay in the shell as thin adapters.
 3. **Accounts**: done (`internal/accounts`; see Progress). The one edge to estate was not a callback in the end: `SaveWorkspace` had been written in `auth.go` and is estate's. Its 15 uses of the shell were HTTP handlers and the route guard's reading of a level, which went to the shell, and the key a context carries its caller under, which stayed with the caller's type.
-4. **Advice.** Invert the hub's 15 calls into it; define what advice reads as an interface of its own.
+4. **Advice**: done (`internal/decisionloop`; see Progress). The hub's 15 calls into it became one function for the placement request and one for the recorder; what the loop asks of agents and of the estate is two ports it owns (`Access`, `Load`), which those modules implement and the Hub wires in when it is built. The package is named for what it is; `internal/advice` was already the capacity calculation it uses.
 5. **Operators and telemetry** together (with the managed-operator interface and the schema addition), then **fusion** on top of them.
 6. **The hub cluster**: the `view` in three parts, then agents, estate and connectivity.
 
@@ -173,3 +173,6 @@ this repository that a module could be (it may use the store, the CA and the two
 | Accounts cut 1: nothing in accounts reaches outside it | `SaveWorkspace` to estate; the mail handlers and the guard's reading of a level to the shell; `WithCaller` | the accounts lines leave the edge list |
 | Accounts step 1: export | 13 unexported names other files use become exported (66 sites) | none |
 | Accounts step 2: the package | `internal/accounts` takes the 8 files and 12 of their tests; the server's `Core` holds an `*accounts.Service` (`Core.Accounts`) and the 66 methods the `Core` had for accounts are now `Core.Accounts.X` | the 39 lines with accounts in them leave the edge list: the compiler holds that line now |
+| Advice cuts: what the loop asks of agents and the estate is two seams | `planAccessChange` and the hub's views behind `accessPlan` and `agentLoad`; the HTTP halves of proposals and decisions to the shell | the advice lines to agents and estate shrink to those two |
+| Advice step 1: export | `enrichDecision` (with its document type) moves from `twin.go` next to the capacity view, so estate calls one function; the names others use are exported | none |
+| Advice step 2: the package | `internal/decisionloop` takes six files and the signing and enrichment tests; `Core.Loop` is a `*decisionloop.Service` whose ports `NewHub` sets; the Hub methods the loop had are `Hub.C.Loop.X` | the advice lines to estate and shell leave; what remains is the two adapters the Hub wires in, and `AccessChange`, which agents read |

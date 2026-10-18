@@ -189,9 +189,6 @@ type Hub struct {
 	// Limits, when set, replaces the default caps on what one agent may make the server hold (tests use small ones).
 	Limits *facts.Limits
 
-	// OutcomeWindow and OutcomeGiveUp, when set, replace the defaults of the Outcome recorder (tests use seconds).
-	OutcomeWindow, OutcomeGiveUp time.Duration
-
 	// TombstoneRetention is how long a record that disappeared stays visible as "gone" (0: seven days).
 	TombstoneRetention time.Duration
 
@@ -210,6 +207,7 @@ type Hub struct {
 
 func NewHub(c *Core) *Hub {
 	h := &Hub{BaseAgentService: &BaseAgentService{C: c}, C: c, Log: c.Log, views: map[string]*view{}, sessions: map[string]*session{}}
+	c.Loop.Access, c.Loop.Load = hubAccess{h}, hubLoad{h}
 	h.rec = newRecorder(h)
 	h.tw = newTwinRT()
 	h.serverSelf = newSelfRing(0, func(s ServerSelfStatsSample) time.Time { return s.At })

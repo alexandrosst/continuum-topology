@@ -95,7 +95,7 @@ func TestTheExampleAdvisorProposesThroughTheRealAPIAndOnlyProposes(t *testing.T)
 		t.Fatalf("show: %v\n%s", err, out)
 	}
 	// once a person accepts it, the collector is paused and the advisor has nothing more to say
-	if _, err := h.AcceptProposal(asRole(accounts.RoleEditor), "edith", ps[0].ID, ""); err != nil {
+	if _, err := h.C.Loop.AcceptProposal(asRole(accounts.RoleEditor), "edith", ps[0].ID, ""); err != nil {
 		t.Fatal(err)
 	}
 	if c := h.consentOf(id); len(c.Paused) != 1 || c.Paused[0] != "flow" {

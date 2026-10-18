@@ -1,4 +1,4 @@
-package server
+package decisionloop
 
 import (
 	"context"
@@ -19,7 +19,7 @@ import (
 // (MAX_MOVES in engine.ts); maxDecisionMovesTotal leaves generous headroom for comparing several
 // deciders (built-in and external) in the same run without trusting the client's own count of them.
 //
-// maxDecisionPolicyBytes bounds the policy an entry carries. The policy is copied onto every move row of that
+// MaxDecisionPolicyBytes bounds the policy an entry carries. The policy is copied onto every move row of that
 // entry (so each row stands alone), which multiplies its size by the move count: without a cap a request within
 // the body limit could write tens of megabytes. The frontend's Policy is a handful of numeric weights, well under
 // 1 KiB, so this leaves room for it to grow.
@@ -55,11 +55,11 @@ type DecisionEntry struct {
 // write this log must never stop the caller returning - or the dashboard having already shown - the
 // recommendation it describes. The frontend calls this fire-and-forget for exactly that reason (see
 // Deciders.tsx's run()).
-func (c *Core) RecordDecisions(ctx context.Context, actor string, entries []DecisionEntry) (int, error) {
+func (s *Service) RecordDecisions(ctx context.Context, actor string, entries []DecisionEntry) (int, error) {
 	if len(entries) > MaxDecisionEntries {
 		return 0, kernel.Errf(kernel.KindInvalid, "too many decider results in one call")
 	}
-	now := c.Now()
+	now := s.Now()
 	by := kernel.Printable(actor, kernel.MaxAuditActor)
 	var rows []store.DecisionLog
 	for _, e := range entries {
@@ -77,7 +77,7 @@ func (c *Core) RecordDecisions(ctx context.Context, actor string, entries []Deci
 				continue // nothing proposed for this one - not a move worth recording
 			}
 			rows = append(rows, store.DecisionLog{
-				OrgID: c.OrgID, At: now, RecordedBy: by,
+				OrgID: s.OrgID, At: now, RecordedBy: by,
 				DeciderID: kernel.Printable(e.DeciderID, 128), DeciderName: kernel.Printable(e.DeciderName, 128), DeciderKind: e.DeciderKind,
 				Schema: e.Schema, ClusterCount: e.ClusterCount, ServiceCount: e.ServiceCount, PolicyJSON: []byte(e.Policy),
 				ServiceID: kernel.Printable(m.ServiceID, kernel.MaxAuditTarget), ServiceName: kernel.Printable(m.ServiceName, kernel.MaxAuditTarget),
@@ -91,7 +91,7 @@ func (c *Core) RecordDecisions(ctx context.Context, actor string, entries []Deci
 	if len(rows) == 0 {
 		return 0, nil
 	}
-	if err := c.Store.AddDecisions(ctx, rows); err != nil {
+	if err := s.Store.AddDecisions(ctx, rows); err != nil {
 		return 0, err
 	}
 	return len(rows), nil

@@ -1,4 +1,4 @@
-package server
+package decisionloop
 
 import (
 	"encoding/json"

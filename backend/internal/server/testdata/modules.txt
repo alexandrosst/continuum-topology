@@ -40,16 +40,12 @@ admin_proposals.go              shell
 admin_quickstart.go             telemetry
 admin_telemetry.go              agents
 admin_telemetry_intents.go      telemetry
-advisor_records.go              advice
 agent_lifecycle.go              agents
 applications_graph.go           estate
 assemble.go                     estate
 conditions.go                   agents
 config_digest.go                connectivity
 consent.go                      agents
-decide_advice.go                advice
-decide_sign.go                  advice
-decisions.go                    advice
 enroll.go                       agents
 fusion.go                       fusion
 fusion_appinfo.go               fusion
@@ -81,8 +77,6 @@ operator_senders.go             operators
 operator_usage.go               operators
 operators.go                    operators
 paths.go                        connectivity
-proposal_outcomes.go            advice
-proposals.go                    advice
 proxyproto.go                   agents
 publicip.go                     agents
 quickstart.go                   telemetry

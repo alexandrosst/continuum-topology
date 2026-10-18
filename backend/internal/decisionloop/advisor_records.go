@@ -1,4 +1,4 @@
-package server
+package decisionloop
 
 import (
 	"context"
@@ -29,7 +29,7 @@ type AdvisorRecord struct {
 	Measured, Unconfirmed, NoData, Held, Missed int
 }
 
-// heldPrediction reports whether every predicted metric that was observed moved the way the advisor said and by at least half as
+// HeldPrediction reports whether every predicted metric that was observed moved the way the advisor said and by at least half as
 // much. compared is false when nothing it predicted could be observed, so the outcome says nothing about the advisor.
 func HeldPrediction(predicted, observed []byte) (held, compared bool) {
 	var p map[string]float64
@@ -54,13 +54,13 @@ func HeldPrediction(predicted, observed []byte) (held, compared bool) {
 }
 
 // AdvisorRecords returns every advisor that has made a proposal, by name.
-func (h *Hub) AdvisorRecords(ctx context.Context) ([]AdvisorRecord, error) {
-	h.expireDueProposals(ctx)
-	counts, err := h.C.Store.ProposalCountsByAdvisor(ctx, h.C.OrgID)
+func (s *Service) AdvisorRecords(ctx context.Context) ([]AdvisorRecord, error) {
+	s.expireDueProposals(ctx)
+	counts, err := s.Store.ProposalCountsByAdvisor(ctx, s.OrgID)
 	if err != nil {
 		return nil, err
 	}
-	outcomes, err := h.C.Store.ListAdvisorOutcomes(ctx, h.C.OrgID)
+	outcomes, err := s.Store.ListAdvisorOutcomes(ctx, s.OrgID)
 	if err != nil {
 		return nil, err
 	}

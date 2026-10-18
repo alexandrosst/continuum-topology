@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"continuum/internal/decisionloop"
 	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
@@ -13,21 +14,17 @@ import (
 // overrides are well formed, and whether the result shares more than before. The decision loop proposes a change and asks this; it
 // does not know what a tier or an override is.
 
-// accessPlan is what an access change would do to an agent as it is now.
-type accessPlan struct {
-	// Widens is whether the change leaves the agent sharing more than it does: a higher tier, or a pause or exclusion lifted.
-	Widens bool
-	// Apply makes the change the way a person making it by hand would: validated, delivered to the agent and audited.
-	Apply func(ctx context.Context, actor string) error
-}
+// hubAccess is the agents' answer to the decision loop (decisionloop.Access).
+type hubAccess struct{ h *Hub }
 
-// planAccessChange checks ch against a as it is now. It is used when a change is proposed and again when it is accepted.
-func (h *Hub) planAccessChange(a store.Agent, ch AccessChange) (accessPlan, error) {
+// PlanChange checks ch against a as it is now. It is used when a change is proposed and again when it is accepted.
+func (p hubAccess) PlanChange(a store.Agent, ch decisionloop.AccessChange) (decisionloop.AccessPlan, error) {
+	h := p.h
 	tier, next, widens, err := resolveChange(a, h.consentOf(a.ID), ch)
 	if err != nil {
-		return accessPlan{}, err
+		return decisionloop.AccessPlan{}, err
 	}
-	return accessPlan{Widens: widens, Apply: func(ctx context.Context, actor string) error {
+	return decisionloop.AccessPlan{Widens: widens, Apply: func(ctx context.Context, actor string) error {
 		if ch.Tier != nil {
 			_, err := h.SetAgentTier(ctx, actor, a.ID, tier, nil)
 			return err
@@ -50,7 +47,7 @@ func minusStrings(list, drop []string) []string {
 // resolveChange checks a change against the agent as it is now and returns the access it would leave the agent with and whether
 // that is wider than the agent has: a higher tier, or a pause or exclusion lifted (even when the change also adds one). It is
 // used when a change is proposed and again when it is accepted.
-func resolveChange(a store.Agent, cur Consent, ch AccessChange) (nextTier int, next Consent, widens bool, err error) {
+func resolveChange(a store.Agent, cur Consent, ch decisionloop.AccessChange) (nextTier int, next Consent, widens bool, err error) {
 	next = cur
 	nextTier = a.AccessTier
 	consentFields := len(ch.Pause)+len(ch.Resume)+len(ch.Exclude)+len(ch.Include) > 0

@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"encoding/json"
+	"flag"
 	"os"
 	"strings"
 	"testing"
@@ -14,6 +15,8 @@ import (
 
 	"google.golang.org/protobuf/encoding/protojson"
 )
+
+var updateGolden = flag.Bool("update", false, "rewrite the golden files")
 
 // configFor is the one function that assembles every agent's Config from consent, link pairs, credentials, probe targets and the
 // agent's tier. It is the code the config-channel work will move piece by piece, and the rule for that work is that the Config
