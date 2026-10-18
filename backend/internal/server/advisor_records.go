@@ -31,7 +31,7 @@ type AdvisorRecord struct {
 
 // heldPrediction reports whether every predicted metric that was observed moved the way the advisor said and by at least half as
 // much. compared is false when nothing it predicted could be observed, so the outcome says nothing about the advisor.
-func heldPrediction(predicted, observed []byte) (held, compared bool) {
+func HeldPrediction(predicted, observed []byte) (held, compared bool) {
 	var p map[string]float64
 	var o struct {
 		Change map[string]float64 `json:"change"`
@@ -93,7 +93,7 @@ func (h *Hub) AdvisorRecords(ctx context.Context) ([]AdvisorRecord, error) {
 		switch o.Result {
 		case "measured":
 			r.Measured++
-			if held, compared := heldPrediction(o.Predicted, o.Observed); compared {
+			if held, compared := HeldPrediction(o.Predicted, o.Observed); compared {
 				if held {
 					r.Held++
 				} else {

@@ -26,7 +26,7 @@ func TestAPredictionHeldWhenEveryObservedMetricWentTheWayAndByHalfAsMuch(t *test
 		{"nothing predicted", `{}`, `{"change":{"agent_cpu_cores":-0.3}}`, false, false},
 		{"unreadable", `nope`, `{}`, false, false},
 	} {
-		held, compared := heldPrediction([]byte(c.predicted), []byte(c.observed))
+		held, compared := HeldPrediction([]byte(c.predicted), []byte(c.observed))
 		if held != c.wantHeld || compared != c.wantCompared {
 			t.Errorf("%s: held=%v compared=%v, want %v %v", c.name, held, compared, c.wantHeld, c.wantCompared)
 		}

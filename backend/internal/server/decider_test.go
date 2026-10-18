@@ -229,7 +229,7 @@ func TestDeciderSecretIsWriteOnlyAndSignsRequests(t *testing.T) {
 	if !ok {
 		t.Fatalf("unexpected signature header shape: %q", gotSig)
 	}
-	if !verifyDeciderSignature(secret, gotBody, gotTS, sig, time.Now(), time.Minute) {
+	if !VerifyDeciderSignature(secret, gotBody, gotTS, sig, time.Now(), time.Minute) {
 		t.Fatal("the signature does not verify against the body and timestamp the decider actually received")
 	}
 

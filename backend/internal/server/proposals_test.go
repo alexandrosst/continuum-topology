@@ -357,7 +357,7 @@ func TestOfSeveralSimultaneousAcceptancesExactlyOneAppliesTheChange(t *testing.T
 
 func TestTooManyWaitingProposalsAreRefused(t *testing.T) {
 	r := propRigFor(t)
-	for i := 0; i < maxPendingPerAgent; i++ {
+	for i := 0; i < MaxPendingPerAgent; i++ {
 		if _, err := r.submit(t, AccessChange{Pause: []string{"flow"}}); err != nil {
 			t.Fatalf("proposal %d: %v", i, err)
 		}

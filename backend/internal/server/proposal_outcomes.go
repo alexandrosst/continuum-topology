@@ -88,7 +88,7 @@ func windowMetrics(samples []LoadSample, from, to time.Time) map[string]float64 
 }
 
 // recordOutcomes writes the Outcome of every applied proposal that is ready for one. It runs once a minute from Hub.Run.
-func (h *Hub) recordOutcomes(ctx context.Context) {
+func (h *Hub) RecordOutcomes(ctx context.Context) {
 	now := h.C.Now()
 	applied, err := h.C.Store.ListProposals(ctx, h.C.OrgID, store.ProposalQuery{Status: store.ProposalApplied, Limit: 1000})
 	if err != nil {

@@ -24,9 +24,9 @@ import (
 // the body limit could write tens of megabytes. The frontend's Policy is a handful of numeric weights, well under
 // 1 KiB, so this leaves room for it to grow.
 const (
-	maxDecisionEntries     = 20
+	MaxDecisionEntries     = 20
 	maxDecisionMovesTotal  = 500
-	maxDecisionPolicyBytes = 4 << 10
+	MaxDecisionPolicyBytes = 4 << 10
 )
 
 // DecisionMove is one service a decider proposed moving, exactly as the browser scored it.
@@ -56,7 +56,7 @@ type DecisionEntry struct {
 // recommendation it describes. The frontend calls this fire-and-forget for exactly that reason (see
 // Deciders.tsx's run()).
 func (c *Core) RecordDecisions(ctx context.Context, actor string, entries []DecisionEntry) (int, error) {
-	if len(entries) > maxDecisionEntries {
+	if len(entries) > MaxDecisionEntries {
 		return 0, kernel.Errf(kernel.KindInvalid, "too many decider results in one call")
 	}
 	now := c.Now()
@@ -66,7 +66,7 @@ func (c *Core) RecordDecisions(ctx context.Context, actor string, entries []Deci
 		if e.DeciderID == "" || (e.DeciderKind != "builtin" && e.DeciderKind != "external") {
 			return 0, kernel.Errf(kernel.KindInvalid, "each entry needs a decider id and a decider kind of \"builtin\" or \"external\"")
 		}
-		if len(e.Policy) > maxDecisionPolicyBytes {
+		if len(e.Policy) > MaxDecisionPolicyBytes {
 			return 0, kernel.Errf(kernel.KindInvalid, "a decider's policy is too large to record")
 		}
 		if len(rows)+len(e.Moves) > maxDecisionMovesTotal {

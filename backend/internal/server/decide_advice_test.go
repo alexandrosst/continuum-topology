@@ -98,7 +98,7 @@ func decodeAny(t *testing.T, b []byte) map[string]any {
 }
 
 func TestDecisionPayloadGolden(t *testing.T) {
-	out, err := enrichDecision([]byte(adviceBody), adviceModel())
+	out, err := EnrichDecision([]byte(adviceBody), adviceModel())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +128,7 @@ func TestDecisionPayloadGolden(t *testing.T) {
 // Everything the client sent is still there, with the same values, except the candidates the server removed. What was added is
 // only additions.
 func TestDecisionPayloadKeepsWhatWasSent(t *testing.T) {
-	out, err := enrichDecision([]byte(adviceBody), adviceModel())
+	out, err := EnrichDecision([]byte(adviceBody), adviceModel())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -203,7 +203,7 @@ type capOut struct {
 
 func capacityFor(t *testing.T, sid string) map[string]capOut {
 	t.Helper()
-	out, err := enrichDecision([]byte(adviceBody), adviceModel())
+	out, err := EnrichDecision([]byte(adviceBody), adviceModel())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -283,7 +283,7 @@ func TestDecisionCapacityVerdicts(t *testing.T) {
 }
 
 func TestDecisionClustersCarryFreeFacts(t *testing.T) {
-	out, _ := enrichDecision([]byte(adviceBody), adviceModel())
+	out, _ := EnrichDecision([]byte(adviceBody), adviceModel())
 	var got struct {
 		Clusters []struct {
 			ID   string
@@ -342,9 +342,9 @@ func TestDecisionClustersCarryFreeFacts(t *testing.T) {
 }
 
 func TestDecisionCapacityIsDeterministic(t *testing.T) {
-	first, _ := enrichDecision([]byte(adviceBody), adviceModel())
+	first, _ := EnrichDecision([]byte(adviceBody), adviceModel())
 	for i := 0; i < 20; i++ {
-		again, _ := enrichDecision([]byte(adviceBody), adviceModel())
+		again, _ := EnrichDecision([]byte(adviceBody), adviceModel())
 		if string(again) != string(first) {
 			t.Fatal("the same request and model gave a different document")
 		}
@@ -364,7 +364,7 @@ func TestDecisionAdviceAgesFactsFromTheModelClock(t *testing.T) {
 		}
 	}
 	body := strings.Replace(adviceBody, `"mobility":"free","candidates":["cl-big","cl-tight","cl-blind","cl-noreq","cl-old","cl-decl"]`, `"mobility":"free","candidates":["cl-big"]`, 1)
-	out, _ := enrichDecision([]byte(body), m)
+	out, _ := EnrichDecision([]byte(body), m)
 	var got struct{ Services []struct{ Capacity []capOut } }
 	_ = json.Unmarshal(out, &got)
 	c := got.Services[0].Capacity

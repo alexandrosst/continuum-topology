@@ -59,13 +59,13 @@ func TestAnAppliedProposalGetsAnOutcomeThatSetsWhatWasObservedBesideWhatWasPredi
 	}
 	inForce := r.acceptAndConfirm(t, p.ID)
 
-	r.h.recordOutcomes(context.Background())
+	r.h.RecordOutcomes(context.Background())
 	if _, ok := outcomeOf(t, r, p.ID); ok {
 		t.Fatal("an outcome was recorded before the window after the change had filled")
 	}
 	r.feed(inForce, 5*time.Minute, 500, &bytes, &cpu) // after: 500 B/s
 	*r.now = inForce.Add(5*time.Minute + time.Second)
-	r.h.recordOutcomes(context.Background())
+	r.h.RecordOutcomes(context.Background())
 
 	o, ok := outcomeOf(t, r, p.ID)
 	if !ok || o.Result != "measured" || o.InForceAt == nil || !o.InForceAt.Equal(inForce.Truncate(time.Millisecond)) {
@@ -85,7 +85,7 @@ func TestAnAppliedProposalGetsAnOutcomeThatSetsWhatWasObservedBesideWhatWasPredi
 	}
 	// once only, with one audit row
 	*r.now = r.now.Add(time.Minute)
-	r.h.recordOutcomes(context.Background())
+	r.h.RecordOutcomes(context.Background())
 	if n := count(r.auditActions(t), "proposal-outcome"); n != 1 {
 		t.Fatalf("%d outcome rows", n)
 	}
@@ -105,12 +105,12 @@ func TestAnOutcomeSaysUnconfirmedIfTheAgentNeverReportsTheChangeInForce(t *testi
 		t.Fatal(err)
 	}
 	*r.now = r.now.Add(10 * time.Minute)
-	r.h.recordOutcomes(context.Background())
+	r.h.RecordOutcomes(context.Background())
 	if _, ok := outcomeOf(t, r, p.ID); ok {
 		t.Fatal("recorded before the give-up time")
 	}
 	*r.now = r.now.Add(25 * time.Minute)
-	r.h.recordOutcomes(context.Background())
+	r.h.RecordOutcomes(context.Background())
 	o, ok := outcomeOf(t, r, p.ID)
 	if !ok || o.Result != "unconfirmed" || o.InForceAt != nil {
 		t.Fatalf("%+v %v", o, ok)
@@ -122,12 +122,12 @@ func TestAnOutcomeSaysNoDataIfThereAreTooFewSamplesToCompare(t *testing.T) {
 	p, _ := r.submit(t, AccessChange{Pause: []string{"flow"}})
 	inForce := r.acceptAndConfirm(t, p.ID) // no samples were ever fed
 	*r.now = inForce.Add(10 * time.Minute)
-	r.h.recordOutcomes(context.Background())
+	r.h.RecordOutcomes(context.Background())
 	if _, ok := outcomeOf(t, r, p.ID); ok {
 		t.Fatal("recorded before the give-up time although samples might still arrive")
 	}
 	*r.now = inForce.Add(40 * time.Minute)
-	r.h.recordOutcomes(context.Background())
+	r.h.RecordOutcomes(context.Background())
 	o, ok := outcomeOf(t, r, p.ID)
 	if !ok || o.Result != "no_data" || o.InForceAt == nil {
 		t.Fatalf("%+v %v", o, ok)
@@ -143,7 +143,7 @@ func TestOnlyAppliedProposalsGetAnOutcome(t *testing.T) {
 		t.Fatal(err)
 	}
 	*r.now = r.now.Add(2 * time.Hour)
-	r.h.recordOutcomes(context.Background())
+	r.h.RecordOutcomes(context.Background())
 	for _, id := range []string{pend.ID, rej.ID} {
 		if _, ok := outcomeOf(t, r, id); ok {
 			t.Fatalf("%s has an outcome", id)
@@ -181,7 +181,7 @@ func TestAnEchoFromBeforeTheDecisionDoesNotConfirmTheChange(t *testing.T) {
 	v.cfgHash = "h-before" // the push did not change what the server holds as sent, and the agent still names it
 	r.h.mu.Unlock()
 	*r.now = r.now.Add(time.Hour)
-	r.h.recordOutcomes(context.Background())
+	r.h.RecordOutcomes(context.Background())
 	o, ok := outcomeOf(t, r, p.ID)
 	if !ok || o.Result != "unconfirmed" {
 		t.Fatalf("%+v %v", o, ok)

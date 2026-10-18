@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -299,3 +300,176 @@ func (v *capView) clusterFree(c *capCluster) map[string]advice.FactDoc {
 	}
 	return out
 }
+
+// DecisionAdditions documents what the server adds to a placement decision request before it reaches an external
+// decider. Nothing the browser sent is renamed or removed except that clusters which are not eligible targets are
+// taken out of every service's "candidates": whatever the client believed, a decider is only ever offered live
+// targets, and is told which clusters were left out and why.
+//
+//	modelVersion  the version of the effective model the check was made against
+//	excluded      [{cluster, name, state, reason, kind, fix?}] clusters that are not eligible targets. kind is "not-live" or
+//	              "capacity-unknown": a live cluster that reports nothing about its free capacity is not ruled out, it
+//	              is "can't tell" (fix says what would change that)
+//	clusters[].state, clusters[].stateReason, clusters[].eligible
+//	clusters[].free  {cpu, memory} free capacity as facts with an interval, confidence and age
+//	services[].clusterState  the state of the cluster the service runs in
+//	services[].capacity      the server's own fits / cantTell / doesNotFit for cpu and memory at each other live cluster,
+//	                         with the facts used, what would change it and what would fix a "can't tell"
+//	services[].candidates    keeps only clusters where that verdict is "fits" (when the server knows the workload)
+//
+// See docs/advice.md for the rules.
+type excludedDoc struct {
+	twin.Exclusion
+	Fix *advice.Fix `json:"fix,omitempty"`
+}
+
+func EnrichDecision(body []byte, m twin.Model) ([]byte, error) {
+	dec := json.NewDecoder(bytes.NewReader(body))
+	dec.UseNumber()
+	var req map[string]any
+	if err := dec.Decode(&req); err != nil || req == nil {
+		return body, nil // not an object: nothing to add to, forwarded as it came
+	}
+	excl := twin.Exclusions(m)
+	bad := map[string]twin.Exclusion{}
+	for _, e := range excl {
+		bad[e.ClusterID] = e
+	}
+	state := map[string]twin.Entity{}
+	for _, e := range m.Entities {
+		if e.Kind == "cluster" {
+			state[e.ID] = e
+		}
+	}
+	view := buildCapView(m)
+	req["modelVersion"] = m.ModelVersion
+	docs := make([]excludedDoc, 0, len(excl))
+	for _, e := range excl {
+		d := excludedDoc{Exclusion: e}
+		if e.Kind == twin.ExcludedCapacityUnknown {
+			if c := view.clusters[e.ClusterID]; c != nil {
+				d.Fix = c.fixFor(c.pool(advice.CPU, view.now, view.window))
+			}
+		}
+		docs = append(docs, d)
+	}
+	req["excluded"] = docs
+	if cs, ok := req["clusters"].([]any); ok {
+		for _, c := range cs {
+			cm, ok := c.(map[string]any)
+			if !ok {
+				continue
+			}
+			id, _ := cm["id"].(string)
+			if e, ok := state[id]; ok {
+				cm["state"] = string(e.State)
+				if e.StateReason != "" {
+					cm["stateReason"] = e.StateReason
+				}
+			}
+			x, isBad := bad[id]
+			cm["eligible"] = !isBad
+			if isBad {
+				cm["stateReason"] = x.Reason
+			}
+			if vc := view.clusters[id]; vc != nil {
+				cm["free"] = view.clusterFree(vc)
+			}
+		}
+	}
+	// the clusters a workload could be judged against: everything that is not out because it is not live
+	var targets []*capCluster
+	for id, c := range view.clusters {
+		if x, isBad := bad[id]; isBad && x.Kind == twin.ExcludedNotLive {
+			continue
+		}
+		targets = append(targets, c)
+	}
+	sort.Slice(targets, func(i, j int) bool { return targets[i].id < targets[j].id })
+	docsLeft := maxCapacityDocs
+	if ss, ok := req["services"].([]any); ok {
+		for _, s := range ss {
+			sm, ok := s.(map[string]any)
+			if !ok {
+				continue
+			}
+			home, _ := sm["cluster"].(string)
+			if home != "" {
+				if e, ok := state[home]; ok {
+					sm["clusterState"] = string(e.State)
+				}
+			}
+			var verdicts map[string]advice.Verdict
+			if sid, _ := sm["id"].(string); sid != "" && view.services[sid] != nil {
+				if mob, _ := sm["mobility"].(string); mob != "pinned" {
+					verdicts = map[string]advice.Verdict{}
+					var caps []capacityDoc
+					for _, c := range targets {
+						if c.id == home {
+							continue
+						}
+						d := view.assess(view.services[sid], c)
+						verdicts[c.id] = d.Verdict
+						if docsLeft > 0 {
+							caps = append(caps, d)
+							docsLeft--
+						}
+					}
+					if caps == nil {
+						caps = []capacityDoc{}
+					}
+					sm["capacity"] = caps
+					if docsLeft <= 0 {
+						req["capacityTruncated"] = true
+					}
+				}
+			}
+			if cand, ok := sm["candidates"].([]any); ok {
+				kept := make([]any, 0, len(cand))
+				for _, c := range cand {
+					id, _ := c.(string)
+					if isExcluded(bad, id) {
+						continue
+					}
+					if v, judged := verdicts[id]; judged && v != advice.Fits {
+						continue
+					}
+					kept = append(kept, c)
+				}
+				sm["candidates"] = kept
+			}
+			// undecided: clusters the server itself cannot certify (verdict cantTell), union'd with whatever the
+			// client already believed was undecided. Never invented for a pinned service (verdicts is nil then).
+			undecided := map[string]bool{}
+			if u, ok := sm["undecided"].([]any); ok {
+				for _, c := range u {
+					if id, _ := c.(string); id != "" {
+						undecided[id] = true
+					}
+				}
+			}
+			for id, v := range verdicts {
+				if v == advice.CantTell {
+					undecided[id] = true
+				}
+			}
+			if len(undecided) > 0 || sm["undecided"] != nil {
+				ids := make([]string, 0, len(undecided))
+				for id := range undecided {
+					if !isExcluded(bad, id) {
+						ids = append(ids, id)
+					}
+				}
+				sort.Strings(ids)
+				out := make([]any, len(ids))
+				for i, id := range ids {
+					out[i] = id
+				}
+				sm["undecided"] = out
+			}
+		}
+	}
+	return json.Marshal(req)
+}
+
+func isExcluded(bad map[string]twin.Exclusion, id string) bool { _, ok := bad[id]; return ok }

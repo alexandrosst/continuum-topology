@@ -688,7 +688,7 @@ func TestDecisionRequestsOnlyOfferLiveTargets(t *testing.T) {
 	}}
 	body := `{"schema":1,"question":"placement","clusters":[{"id":"cl-live"},{"id":"cl-old"},{"id":"cl-rev"},{"id":"cl-unk"}],
 	  "services":[{"id":"sv-1","cluster":"cl-live","candidates":["cl-old","cl-rev","cl-unk","cl-live"],"bytes":12345678901234567}],"custom":{"keep":true}}`
-	out, err := enrichDecision([]byte(body), m)
+	out, err := EnrichDecision([]byte(body), m)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -731,7 +731,7 @@ func TestDecisionRequestsOnlyOfferLiveTargets(t *testing.T) {
 		t.Fatalf("reasons: %v", reasons)
 	}
 	// Not an object: forwarded as it came.
-	if out, _ := enrichDecision([]byte(`[1,2]`), m); string(out) != `[1,2]` {
+	if out, _ := EnrichDecision([]byte(`[1,2]`), m); string(out) != `[1,2]` {
 		t.Fatalf("%s", out)
 	}
 }

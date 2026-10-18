@@ -81,8 +81,8 @@ func (a *Admin) submitProposal(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	if req.TTLSeconds < 0 || req.TTLSeconds > int(maxProposalTTL/time.Second) {
-		a.fail(w, kernel.Errf(kernel.KindInvalid, "ttlSeconds must be between 0 and %d", int(maxProposalTTL/time.Second)))
+	if req.TTLSeconds < 0 || req.TTLSeconds > int(MaxProposalTTL/time.Second) {
+		a.fail(w, kernel.Errf(kernel.KindInvalid, "ttlSeconds must be between 0 and %d", int(MaxProposalTTL/time.Second)))
 		return
 	}
 	p, err := a.tn(r).Hub.SubmitProposal(r.Context(), actor(r), ProposalInput{Advisor: req.Advisor, ModelVersion: req.ModelVersion, Change: req.Change,

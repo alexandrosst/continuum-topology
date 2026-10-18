@@ -23,9 +23,9 @@ import (
 
 const (
 	defaultProposalTTL = 4 * time.Hour
-	maxProposalTTL     = 72 * time.Hour
+	MaxProposalTTL     = 72 * time.Hour
 	// maxPendingPerAgent and maxPendingPerOrg bound what an advisor (or a bug in one) can leave waiting for a person.
-	maxPendingPerAgent = 20
+	MaxPendingPerAgent = 20
 	maxPendingPerOrg   = 200
 	maxEvidenceFacts   = 20
 	maxAdvisorName     = 64
@@ -195,8 +195,8 @@ func (h *Hub) SubmitProposal(ctx context.Context, actor string, in ProposalInput
 	if ttl <= 0 {
 		ttl = defaultProposalTTL
 	}
-	if ttl > maxProposalTTL {
-		return store.Proposal{}, kernel.Errf(kernel.KindInvalid, "a proposal can wait at most %s for a decision", maxProposalTTL)
+	if ttl > MaxProposalTTL {
+		return store.Proposal{}, kernel.Errf(kernel.KindInvalid, "a proposal can wait at most %s for a decision", MaxProposalTTL)
 	}
 	pending, err := h.C.Store.ListProposals(ctx, h.C.OrgID, store.ProposalQuery{Status: store.ProposalPending, Limit: 1000})
 	if err != nil {
@@ -208,7 +208,7 @@ func (h *Hub) SubmitProposal(ctx context.Context, actor string, in ProposalInput
 			forAgent++
 		}
 	}
-	if forAgent >= maxPendingPerAgent || len(pending) >= maxPendingPerOrg {
+	if forAgent >= MaxPendingPerAgent || len(pending) >= maxPendingPerOrg {
 		return store.Proposal{}, kernel.Errf(kernel.KindConflict, "too many proposals are waiting for a decision; decide some first")
 	}
 	blast := proposalBlast{Agents: 1, ClusterID: a.ClusterID, Collectors: unionStrings(in.Change.Pause, in.Change.Resume), Namespaces: len(in.Change.Exclude) + len(in.Change.Include)}

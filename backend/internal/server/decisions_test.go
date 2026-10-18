@@ -121,7 +121,7 @@ func TestRecordDecisionsRejectsMalformedOrOversizedInput(t *testing.T) {
 
 	// Too many entries in one call is refused, not silently truncated.
 	var many []map[string]any
-	for i := 0; i < maxDecisionEntries+1; i++ {
+	for i := 0; i < MaxDecisionEntries+1; i++ {
 		many = append(many, map[string]any{"deciderId": "x", "deciderKind": "builtin", "input": map[string]any{}})
 	}
 	if r := a.do("POST", "/api/v1/decisions", map[string]any{"entries": many}, withCookie(editor)); r.Code != 400 {
@@ -131,7 +131,7 @@ func TestRecordDecisionsRejectsMalformedOrOversizedInput(t *testing.T) {
 	// The policy is copied onto every move row, so one that is large is refused rather than multiplied by the move count.
 	bigPolicy := map[string]any{"entries": []map[string]any{{
 		"deciderId": "x", "deciderKind": "builtin",
-		"input": map[string]any{"policy": map[string]any{"note": strings.Repeat("a", maxDecisionPolicyBytes)}},
+		"input": map[string]any{"policy": map[string]any{"note": strings.Repeat("a", MaxDecisionPolicyBytes)}},
 		"moves": []map[string]any{{"serviceId": "svc", "to": "cl-a"}},
 	}}}
 	if r := a.do("POST", "/api/v1/decisions", bigPolicy, withCookie(editor)); r.Code != 400 {
