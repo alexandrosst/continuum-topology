@@ -163,4 +163,6 @@ const OrgPath = "/api/v1/orgs/{org}"
 // route that skips either.
 type Router interface {
 	Handle(pattern string, n Need, h http.HandlerFunc)
+	// Open mounts a route that asks nothing of the caller: sign-in, registration, what the server says of itself.
+	Open(pattern string, h http.HandlerFunc)
 }

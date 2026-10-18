@@ -16,6 +16,8 @@ func (r recordedRoutes) Handle(pattern string, n httpkit.Need, h http.HandlerFun
 	r[pattern] = n
 }
 
+func (r recordedRoutes) Open(pattern string, h http.HandlerFunc) { r.Handle(pattern, -1, h) }
+
 func TestTelemetryMountsItsRoutesWithTheRolesTheyAsk(t *testing.T) {
 	got := recordedRoutes{}
 	API{}.Mount(got)

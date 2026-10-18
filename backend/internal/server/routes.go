@@ -31,7 +31,13 @@ func (a *Admin) handle(mux *http.ServeMux, pattern, access string, h http.Handle
 	a.routes = append(a.routes, Route{Pattern: pattern, Access: access})
 }
 
-// routeFunc is a guarded route-adder (Admin.Handler's route) as the httpkit.Router a module mounts its handlers on.
-type routeFunc func(pattern string, n httpkit.Need, h http.HandlerFunc)
+// routeFuncs are the guarded and the open route-adder of Admin.Handler as the httpkit.Router a module mounts its handlers on.
+type routeFuncs struct {
+	guarded func(pattern string, n httpkit.Need, h http.HandlerFunc)
+	open    func(pattern string, h http.HandlerFunc)
+}
 
-func (f routeFunc) Handle(pattern string, n httpkit.Need, h http.HandlerFunc) { f(pattern, n, h) }
+func (f routeFuncs) Handle(pattern string, n httpkit.Need, h http.HandlerFunc) {
+	f.guarded(pattern, n, h)
+}
+func (f routeFuncs) Open(pattern string, h http.HandlerFunc) { f.open(pattern, h) }

@@ -31,10 +31,6 @@ ListAudit	estate
 ListAudit	shell
 ListHistory	estate
 ListHistory	shell
-ListInvites	accounts
-ListInvites	shell
-ListMyOrgs	accounts
-ListMyOrgs	shell
 ListOperatorCerts	fusion
 ListOperatorCerts	operators
 ListOperators	estate
