@@ -34,7 +34,6 @@ admin.go                        shell
 admin_agents.go shell
 admin_fusion.go shell
 admin_fusion_proxy.go shell
-admin_history.go shell
 admin_images.go                 shell
 admin_link_credentials.go shell
 admin_mail.go                   shell

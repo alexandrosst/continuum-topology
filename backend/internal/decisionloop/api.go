@@ -7,6 +7,7 @@ import (
 
 	"continuum/internal/httpkit"
 	"continuum/internal/kernel"
+	"continuum/internal/twin"
 )
 
 // The HTTP side of the decision log. What may be recorded, and how, is decisions.go's.
@@ -15,10 +16,15 @@ import (
 // guard put in the request, and the handlers know nothing of how.
 type API struct {
 	For func(r *http.Request) *Service
+	// Model is the effective model of the organisation a request is for (the estate builds it), which a request to the external
+	// decider is checked against; Version is the server's, which the decider is told it is talking to.
+	Model   func(r *http.Request) (twin.Model, error)
+	Version string
 }
 
 // Mount puts the routes on r.
 func (h API) Mount(r httpkit.Router) {
+	r.Handle("POST "+httpkit.OrgPath+"/decide", httpkit.EditorRole, h.decide)
 	r.Handle("POST "+httpkit.OrgPath+"/decisions", httpkit.EditorRole, h.record)
 	r.Handle("GET "+httpkit.OrgPath+"/decisions", httpkit.MemberRole, h.list)
 	h.mountProposals(r)

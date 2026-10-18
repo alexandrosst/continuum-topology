@@ -23,8 +23,10 @@ import (
 	"continuum/internal/installcfg"
 	"continuum/internal/kernel"
 	"continuum/internal/probe"
+	"continuum/internal/settingsapi"
 	"continuum/internal/store"
 	"continuum/internal/telemetry"
+	"continuum/internal/twin"
 )
 
 // Admin is the JSON API the UI talks to. It listens on its own port, separate from the agent
@@ -151,13 +153,12 @@ func (a *Admin) Handler() http.Handler {
 	const o = "/api/v1/orgs/{org}"
 	route("GET "+o+"/info", httpkit.MemberRole, a.info)
 
-	route("GET "+o+"/settings", httpkit.MemberRole, a.getSettings)
 	route("GET "+o+"/telemetry/self", httpkit.MemberRole, a.selfTelemetry)
-	route("PUT "+o+"/settings", httpkit.AdminRole, a.putSettings)
 	route("GET "+o+"/links/latest", httpkit.MemberRole, a.linksLatest)
 	route("POST "+o+"/links/rotate-credentials", httpkit.AdminRole, a.rotateLinkCredentials)
-	route("POST "+o+"/decide", httpkit.EditorRole, a.decide)
-	decisionloop.API{For: func(r *http.Request) *decisionloop.Service { return a.core(r).Loop }}.Mount(routes)
+	decisionloop.API{For: func(r *http.Request) *decisionloop.Service { return a.core(r).Loop }, Version: a.Version,
+		Model: func(r *http.Request) (twin.Model, error) { m, _, err := a.tn(r).Hub.Model(r.Context()); return m, err }}.Mount(routes)
+	(&settingsapi.API{For: func(r *http.Request) *kernel.Core { return a.core(r).Core }, ImageDefaults: func() kernel.ImageConfig { return a.ImageDefaults() }}).Mount(routes)
 	telemetry.API{For: func(r *http.Request) *telemetry.Service { return a.core(r).Telemetry }}.Mount(routes)
 	(&estate.API{For: func(r *http.Request) *estate.Hub { return a.tn(r).Hub }, Settings: &a.Settings, CAPin: a.C.CA.SPKIPin}).Mount(routes)
 

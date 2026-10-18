@@ -24,6 +24,8 @@ func TestTheDecisionLoopMountsItsRoutesWithTheRolesTheyAsk(t *testing.T) {
 	want := recordedRoutes{
 		"POST /api/v1/orgs/{org}/decisions": httpkit.EditorRole, // recording is an editor's act, as running an external decider is
 		"GET /api/v1/orgs/{org}/decisions":  httpkit.MemberRole, // any member may read it back
+		// Asking the configured external decider makes the server send the topology to another system: an editor's.
+		"POST /api/v1/orgs/{org}/decide": httpkit.EditorRole,
 		// Every proposal route is an editor's: the proposals carry the evidence an advisor used about the agent.
 		"POST /api/v1/orgs/{org}/proposals":             httpkit.EditorRole,
 		"GET /api/v1/orgs/{org}/proposals":              httpkit.EditorRole,
