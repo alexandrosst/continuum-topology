@@ -20,33 +20,6 @@ import (
 	"continuum/internal/store"
 )
 
-type destinationDoc struct {
-	Kind           string `json:"kind"`
-	Endpoint       string `json:"endpoint"`
-	Insecure       bool   `json:"insecure,omitempty"`
-	CAFile         string `json:"caFile,omitempty"`
-	AuthHeaderName string `json:"authHeaderName,omitempty"`
-	AuthSecretName string `json:"authSecretName,omitempty"`
-	AuthSecretKey  string `json:"authSecretKey,omitempty"`
-	// TargetOperatorID is only meaningful for destination kind "operator" - see store.Destination's own
-	// field.
-	TargetOperatorID string `json:"targetOperatorId,omitempty"`
-	// Address is only meaningful for destination kind "operator" - see store.Destination's own field.
-	Address string `json:"address,omitempty"`
-	// FusionRelease and FusionNamespace are only meaningful for destination kind "fusion" - see
-	// store.Destination's own fields. Both default (to "fusion" and "continuum-system") when left empty.
-	FusionRelease   string `json:"fusionRelease,omitempty"`
-	FusionNamespace string `json:"fusionNamespace,omitempty"`
-}
-
-func toDestinationDoc(d store.Destination) destinationDoc {
-	return destinationDoc{Kind: string(d.Kind), Endpoint: d.Endpoint, Insecure: d.Insecure, CAFile: d.CAFile, AuthHeaderName: d.AuthHeaderName, AuthSecretName: d.AuthSecretName, AuthSecretKey: d.AuthSecretKey, TargetOperatorID: d.TargetOperatorID, Address: d.Address, FusionRelease: d.FusionRelease, FusionNamespace: d.FusionNamespace}
-}
-
-func (d destinationDoc) toStore() store.Destination {
-	return store.Destination{Kind: store.DestinationKind(d.Kind), Endpoint: d.Endpoint, Insecure: d.Insecure, CAFile: d.CAFile, AuthHeaderName: d.AuthHeaderName, AuthSecretName: d.AuthSecretName, AuthSecretKey: d.AuthSecretKey, TargetOperatorID: d.TargetOperatorID, Address: d.Address, FusionRelease: d.FusionRelease, FusionNamespace: d.FusionNamespace}
-}
-
 // operatorHealthDoc is an operator's liveness as the UI reads it: computed at read time from the stored
 // last-seen time and the server clock, never stored. state is "unknown" (no heartbeat credential), "waiting" (a
 // credential exists and no heartbeat has arrived yet), "online" (a heartbeat within the last three intervals) or
@@ -121,13 +94,13 @@ func addressStateOf(op store.Operator) string {
 }
 
 type operatorDoc struct {
-	ID                 string         `json:"id"`
-	Name               string         `json:"name"`
-	SiteID             string         `json:"siteId,omitempty"`
-	Status             string         `json:"status"`
-	SourceClusterIDs   []string       `json:"sourceClusterIds"`
-	Destination        destinationDoc `json:"destination"`
-	AcceptedModalities []string       `json:"acceptedModalities,omitempty"`
+	ID                 string                   `json:"id"`
+	Name               string                   `json:"name"`
+	SiteID             string                   `json:"siteId,omitempty"`
+	Status             string                   `json:"status"`
+	SourceClusterIDs   []string                 `json:"sourceClusterIds"`
+	Destination        operators.DestinationDoc `json:"destination"`
+	AcceptedModalities []string                 `json:"acceptedModalities,omitempty"`
 	// Labels are the tags this operator adds to everything it forwards, next to the continuum.operator.id and
 	// .name it always adds. Absent when there are none.
 	Labels    []labelDoc `json:"labels,omitempty"`
@@ -182,7 +155,7 @@ type operatorDoc struct {
 func toOperatorDoc(op store.Operator, now time.Time) operatorDoc {
 	d := operatorDoc{
 		ID: op.ID, Name: op.Name, SiteID: op.SiteID, Status: string(op.Status),
-		SourceClusterIDs: op.SourceClusterIDs, Destination: toDestinationDoc(op.Destination),
+		SourceClusterIDs: op.SourceClusterIDs, Destination: operators.ToDestinationDoc(op.Destination),
 		CreatedAt: kernel.RFC(op.CreatedAt), CreatedBy: op.CreatedBy, Reason: op.Reason, ReceiverAuth: string(op.ReceiverAuth), ClientCaScope: op.ClientCAScope(),
 		Health: toHealthDoc(operators.OperatorHealthAt(op, now)),
 	}
@@ -252,7 +225,7 @@ func (a *Admin) opDocWith(r *http.Request, op store.Operator, usages map[string]
 }
 
 // modalitiesFromDoc converts a request's plain-string modality list to store.Modality - validated later
-// by Core (validModalities), the same deferral destinationDoc.toStore's own untyped Kind follows.
+// by Core (validModalities), the same deferral operators.DestinationDoc.ToStore's own untyped Kind follows.
 func modalitiesFromDoc(in []string) []store.Modality {
 	if len(in) == 0 {
 		return nil
@@ -290,10 +263,10 @@ func (a *Admin) getOperator(w http.ResponseWriter, r *http.Request) {
 
 func (a *Admin) createOperator(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name               string         `json:"name"`
-		SourceClusterIDs   []string       `json:"sourceClusterIds"`
-		Destination        destinationDoc `json:"destination"`
-		AcceptedModalities []string       `json:"acceptedModalities,omitempty"`
+		Name               string                   `json:"name"`
+		SourceClusterIDs   []string                 `json:"sourceClusterIds"`
+		Destination        operators.DestinationDoc `json:"destination"`
+		AcceptedModalities []string                 `json:"acceptedModalities,omitempty"`
 		// Labels are fixed at creation: they live in the operator's own install (see store.OperatorLabel).
 		Labels []labelDoc `json:"labels,omitempty"`
 		// Heartbeat opts the new operator in to reporting that it is alive (see EnableOperatorHeartbeat).
@@ -335,7 +308,7 @@ func (a *Admin) createOperator(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// req.Exposure "" stays "": a client that was not asked has not said "this cluster only". The core validates it.
-	op, secret, tlsBundle, hbSecret, err := a.core(r).Operators.CreateOperatorWithOptions(r.Context(), httpkit.Actor(r), req.Name, req.SourceClusterIDs, req.Destination.toStore(), modalitiesFromDoc(req.AcceptedModalities), operators.OperatorOptions{Heartbeat: req.Heartbeat, Labels: labels, Exposure: req.Exposure})
+	op, secret, tlsBundle, hbSecret, err := a.core(r).Operators.CreateOperatorWithOptions(r.Context(), httpkit.Actor(r), req.Name, req.SourceClusterIDs, req.Destination.ToStore(), modalitiesFromDoc(req.AcceptedModalities), operators.OperatorOptions{Heartbeat: req.Heartbeat, Labels: labels, Exposure: req.Exposure})
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -530,9 +503,9 @@ func (a *Admin) setOperatorAddress(w http.ResponseWriter, r *http.Request) {
 
 func (a *Admin) updateOperatorScope(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		SourceClusterIDs   []string       `json:"sourceClusterIds"`
-		Destination        destinationDoc `json:"destination"`
-		AcceptedModalities []string       `json:"acceptedModalities,omitempty"`
+		SourceClusterIDs   []string                 `json:"sourceClusterIds"`
+		Destination        operators.DestinationDoc `json:"destination"`
+		AcceptedModalities []string                 `json:"acceptedModalities,omitempty"`
 	}
 	if err := httpkit.Decode(r, &req); err != nil {
 		a.fail(w, err)
@@ -544,7 +517,7 @@ func (a *Admin) updateOperatorScope(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	if err := a.core(r).Operators.UpdateOperatorScope(r.Context(), httpkit.Actor(r), id, req.SourceClusterIDs, req.Destination.toStore(), modalitiesFromDoc(req.AcceptedModalities)); err != nil {
+	if err := a.core(r).Operators.UpdateOperatorScope(r.Context(), httpkit.Actor(r), id, req.SourceClusterIDs, req.Destination.ToStore(), modalitiesFromDoc(req.AcceptedModalities)); err != nil {
 		a.fail(w, err)
 		return
 	}

@@ -135,3 +135,23 @@ func TestEachOrganisationLevelAsksForAHigherActThanTheOneBelow(t *testing.T) {
 		t.Error("names")
 	}
 }
+
+func TestReasonedHandsOverTheReasonAndAnswersNoContent(t *testing.T) {
+	var got string
+	w := httptest.NewRecorder()
+	Reasoned(w, httptest.NewRequest("POST", "/", strings.NewReader(`{"reason":"left the team"}`)), slog.Default(), func(reason string) error { got = reason; return nil })
+	if w.Code != 204 || got != "left the team" {
+		t.Fatalf("%d %q", w.Code, got)
+	}
+	w = httptest.NewRecorder()
+	Reasoned(w, httptest.NewRequest("POST", "/", strings.NewReader(`{"reason":"x"}`)), slog.Default(), func(string) error { return kernel.Errf(kernel.KindConflict, "already revoked") })
+	if w.Code != 409 {
+		t.Fatalf("a refusal is answered as one: %d", w.Code)
+	}
+	w = httptest.NewRecorder()
+	called := false
+	Reasoned(w, httptest.NewRequest("POST", "/", strings.NewReader(`{"why":"x"}`)), slog.Default(), func(string) error { called = true; return nil })
+	if w.Code != 400 || called {
+		t.Fatalf("an unknown field must be refused before anything is done: %d called=%v", w.Code, called)
+	}
+}

@@ -13,6 +13,7 @@ import (
 // Telemetry stands on the kernel, the store and operators (an intent may point at an operator), and on nothing else of this
 // repository: not the server, and not another module. Operators do not import telemetry; the direction is one way.
 var allowedRepoImports = map[string]bool{
+	"continuum/internal/httpkit":   true,
 	"continuum/internal/kernel":    true,
 	"continuum/internal/store":     true,
 	"continuum/internal/operators": true,

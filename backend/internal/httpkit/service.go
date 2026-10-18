@@ -74,6 +74,22 @@ func Decode(r *http.Request, v any) error {
 	return nil
 }
 
+// Reasoned answers a route whose body may carry {"reason": ...}: it hands the reason to do and answers 204 when do succeeds.
+func Reasoned(w http.ResponseWriter, r *http.Request, log *slog.Logger, do func(reason string) error) {
+	var req struct {
+		Reason string `json:"reason"`
+	}
+	if err := Decode(r, &req); err != nil {
+		Fail(w, log, err)
+		return
+	}
+	if err := do(req.Reason); err != nil {
+		Fail(w, log, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // ParseTime reads the RFC 3339 time in the query parameter name: the zero time if it is not there.
 func ParseTime(r *http.Request, name string) (time.Time, error) {
 	v := r.URL.Query().Get(name)

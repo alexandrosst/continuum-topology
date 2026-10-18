@@ -43,7 +43,6 @@ admin_mail.go                   shell
 admin_operator_destinations.go shell
 admin_operator_heartbeat.go shell
 admin_operators.go shell
-admin_quickstart.go shell
 admin_telemetry.go shell
 admin_telemetry_intents.go shell
 admin_twin.go shell

@@ -27,6 +27,7 @@ import (
 	"continuum/internal/kernel"
 	"continuum/internal/probe"
 	"continuum/internal/store"
+	"continuum/internal/telemetry"
 	"continuum/internal/workspace"
 )
 
@@ -231,6 +232,7 @@ func (a *Admin) Handler() http.Handler {
 	route("GET "+o+"/events", httpkit.MemberRole, a.listEvents)
 	route("POST "+o+"/decide", httpkit.EditorRole, a.decide)
 	decisionloop.API{For: func(r *http.Request) *decisionloop.Service { return a.core(r).Loop }}.Mount(routes)
+	telemetry.API{For: func(r *http.Request) *telemetry.Service { return a.core(r).Telemetry }}.Mount(routes)
 	route("GET "+o+"/storage", httpkit.MemberRole, a.storage)
 	route("GET "+o+"/timeline", httpkit.MemberRole, a.timeline)
 	route("GET "+o+"/graph/snapshot", httpkit.MemberRole, a.graphSnapshot)
@@ -294,20 +296,10 @@ func (a *Admin) Handler() http.Handler {
 	// A telemetry intent only declares what one agent's bundled local operator should collect and where to
 	// export it; the credentials and the install command come from /command below (httpkit.AdminRole) and the cluster's
 	// owner still has to run it, so declaring takes httpkit.EditorRole rather than the httpkit.AdminRole an operator needs.
-	route("GET "+o+"/telemetry-intents", httpkit.EditorRole, a.listTelemetryIntents)
-	route("POST "+o+"/telemetry-intents", httpkit.EditorRole, a.createTelemetryIntent)
-	route("GET "+o+"/telemetry-intents/{id}", httpkit.EditorRole, a.getTelemetryIntent)
-	route("POST "+o+"/telemetry-intents/{id}/scope", httpkit.EditorRole, a.updateTelemetryIntentScope)
-	route("POST "+o+"/telemetry-intents/{id}/destination", httpkit.EditorRole, a.updateTelemetryIntentDestination)
-	route("POST "+o+"/telemetry-intents/{id}/revoke", httpkit.EditorRole, a.revokeTelemetryIntent)
-	route("DELETE "+o+"/telemetry-intents/{id}", httpkit.EditorRole, a.deleteTelemetryIntent)
 	// /command mints and returns operator credential material when the destination is an operator (via
 	// IssueOperatorClientCert) - the same bar as operator CRUD itself (httpkit.AdminRole), higher than the
 	// httpkit.EditorRole the rest of this intent's own CRUD takes above.
 	route("POST "+o+"/telemetry-intents/{id}/command", httpkit.AdminRole, a.telemetryIntentCommand)
-
-	route("POST "+o+"/quick-start/{id}/gateway-token", httpkit.AdminRole, a.mintGatewayToken)
-	route("GET "+o+"/quick-start/{id}/gateway-token", httpkit.AdminRole, a.getGatewayToken)
 
 	// The shared data API over FUSION. It authenticates for itself (a FUSION access token, or an administrator of the
 	// FUSION organisation) rather than through guard: the caller is not placed in an organisation by the path.
@@ -1664,18 +1656,7 @@ func (a *Admin) revoke(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *Admin) reasoned(w http.ResponseWriter, r *http.Request, do func(reason string) error) {
-	var req struct {
-		Reason string `json:"reason"`
-	}
-	if err := httpkit.Decode(r, &req); err != nil {
-		a.fail(w, err)
-		return
-	}
-	if err := do(req.Reason); err != nil {
-		a.fail(w, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	httpkit.Reasoned(w, r, a.C.Log, do)
 }
 
 // ---- static UI with SPA fallback ----
