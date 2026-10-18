@@ -23,10 +23,15 @@ func TestTheEstateMountsItsRoutesWithTheRolesTheyAsk(t *testing.T) {
 	(&API{}).Mount(got)
 	want := recordedRoutes{
 		// What the page polls and saves: reading is any member's, saving the shared workspace an editor's.
-		"GET /api/v1/orgs/{org}/state":     httpkit.MemberRole,
-		"GET /api/v1/orgs/{org}/model":     httpkit.MemberRole,
-		"GET /api/v1/orgs/{org}/workspace": httpkit.MemberRole,
-		"PUT /api/v1/orgs/{org}/workspace": httpkit.EditorRole,
+		"GET /api/v1/orgs/{org}/state":                          httpkit.MemberRole,
+		"GET /api/v1/orgs/{org}/model":                          httpkit.MemberRole,
+		"GET /api/v1/orgs/{org}/workspace":                      httpkit.MemberRole,
+		"PUT /api/v1/orgs/{org}/workspace":                      httpkit.EditorRole,
+		"GET /api/v1/orgs/{org}/history":                        httpkit.MemberRole,
+		"GET /api/v1/orgs/{org}/history/snapshot":               httpkit.MemberRole,
+		"GET /api/v1/orgs/{org}/history/traffic":                httpkit.MemberRole,
+		"GET /api/v1/orgs/{org}/history/dependency/{id}/series": httpkit.MemberRole,
+		"POST /api/v1/orgs/{org}/history/record":                httpkit.AdminRole, // makes the server take a snapshot now
 		// The estate's memory: any member reads it, but the audit names people, so it is an administrator's.
 		"GET /api/v1/orgs/{org}/storage":             httpkit.MemberRole,
 		"GET /api/v1/orgs/{org}/timeline":            httpkit.MemberRole,

@@ -29,8 +29,6 @@ ListAgents	operators
 ListAgents	shell
 ListEvents	estate
 ListEvents	shell
-ListHistory	estate
-ListHistory	shell
 ListOperatorCerts	fusion
 ListOperatorCerts	operators
 ListOperators	estate
