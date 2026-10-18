@@ -296,3 +296,16 @@ func orDash(s string) string {
 	}
 	return s
 }
+
+// hintsOf is what the labels of the discovered services suggest, by service id: the application each belongs to once a
+// person has accepted that grouping, i.e. the application exists (workspace.Applications decides). Ikhnos does not store
+// this as a membership (the suggestion is the membership), so it is read from the topology the same way the UI reads it.
+func hintsOf(doc StateDoc) map[string]string {
+	hints := map[string]string{}
+	for _, s := range doc.Topology.Services {
+		if s.ApplicationHint != "" {
+			hints[s.ID] = s.ApplicationHint
+		}
+	}
+	return hints
+}

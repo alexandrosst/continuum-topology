@@ -15,8 +15,10 @@ GetWorkspace	shell
 ListAgents	connectivity
 ListAgents	estate
 ListAgents	shell
-ListEvents	estate
-ListEvents	shell
+ListAudit	estate
+ListAudit	shell
+ListHistory	estate
+ListHistory	shell
 LoadSnapshot	agents
 LoadSnapshot	estate
 SaveSnapshot	agents

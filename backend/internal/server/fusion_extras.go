@@ -159,19 +159,6 @@ func (e fusionExtras) applications(ctx context.Context) ([]fusionapi.AppGroup, e
 	return appGroups(ws.Data, doc), nil
 }
 
-// hintsOf is what the labels of the discovered services suggest, by service id: the application each belongs to once a
-// person has accepted that grouping, i.e. the application exists (workspace.Applications decides). Ikhnos does not store
-// this as a membership (the suggestion is the membership), so it is read from the topology the same way the UI reads it.
-func hintsOf(doc StateDoc) map[string]string {
-	hints := map[string]string{}
-	for _, s := range doc.Topology.Services {
-		if s.ApplicationHint != "" {
-			hints[s.ID] = s.ApplicationHint
-		}
-	}
-	return hints
-}
-
 // appGroups turns the applications of a saved workspace (workspace.Applications, the definition the graph uses too) into
 // groups of services by the identity telemetry carries. A member is a topology service the workspace names by id; one the
 // topology does not (or no longer) have is left out, since there is nothing to match telemetry with. The aliases are the

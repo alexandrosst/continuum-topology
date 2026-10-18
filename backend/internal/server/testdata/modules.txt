@@ -23,24 +23,24 @@
 #               It wires modules together and may use any of them; none may use it.
 #
 # A file added to the package must be added here, in the same change: a test fails otherwise.
-address_check.go                connectivity
+address_check.go shell
 address_drift.go                connectivity
 address_reach.go                connectivity
 admin.go                        shell
-admin_agents.go                 agents
-admin_commands.go               agents
+admin_agents.go shell
+admin_commands.go shell
 admin_fusion.go shell
 admin_fusion_proxy.go shell
-admin_graph.go                  estate
-admin_history.go                estate
+admin_graph.go shell
+admin_history.go shell
 admin_images.go                 shell
-admin_link_credentials.go       connectivity
+admin_link_credentials.go shell
 admin_operator_destinations.go shell
 admin_operator_heartbeat.go shell
 admin_operators.go shell
 admin_proposals.go              shell
 admin_quickstart.go shell
-admin_telemetry.go              agents
+admin_telemetry.go shell
 admin_telemetry_intents.go shell
 agent_lifecycle.go              agents
 applications_graph.go           estate
@@ -63,7 +63,7 @@ kernel_bridge.go                kernel
 link_caps.go                    connectivity
 linkcreds.go                    connectivity
 links.go                        connectivity
-links_latest.go                 connectivity
+links_latest.go shell
 links_setup.go                  connectivity
 metrics.go                      shell
 observed.go                     estate
@@ -86,7 +86,9 @@ twin.go                         estate
 workspace_save.go               estate
 admin_mail.go                   shell
 access_change.go                agents
-agent_load.go                   shell
+agent_load.go estate
 admin_decisions.go              shell
 agent_view.go agents
 net_view.go connectivity
+teardown.go agents
+admin_twin.go shell
