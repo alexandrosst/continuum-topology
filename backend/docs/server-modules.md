@@ -68,7 +68,7 @@ what they need, and mount themselves.
 
 **5. Operators and FUSION share a knot.** The central operator is the one FUSION runs. Operators uses 18 things of fusion's
 (`CentralOperatorID`, `guardCentral`, `FusionControl`'s endpoint and status) and fusion uses 11 of operators' (the TLS bundle, the
-issuer, the address recording). Which of the two owns the central operator is a decision, and the cut depends on it.
+issuer, the address recording). The central operator is an Operator that FUSION manages (see Decided), which settles the direction: fusion calls operators.
 
 **6. Advice is read-only and sits above the rest.** It reads agents (19), estate (13) and accounts (8: `Decide`), and nothing
 depends on it except estate (15: the hub builds the capacity view and records outcomes by calling into advice). Inverting that one
@@ -108,20 +108,33 @@ Agents using accounts (12) and everyone using `Decide` is the right direction: a
 sits under the others. The cells that are not are the ones above: agents and estate and connectivity with each other, operators
 with fusion, estate calling advice, and the kernel and the shell.
 
+## Decided
+
+**Each module becomes its own Go package.** The compiler then enforces the line, which the test lists only approximate. Two
+consequences. A package cannot import its caller, so the kernel (the `Core`, the store, the CA, the audit trail, the clock) has to
+be a package of its own before any module can leave, and the 29 places where the kernel reaches into modules have to be cut first.
+And a method cannot be defined on a type from another package, while `Core` has methods in every module's files, so each module
+turns its `Core` methods into a service of its own that holds the kernel. That rewrite is the work of each move. The hub cluster
+(agents, estate, connectivity) stays together in `internal/server` until the per-agent `view` is in three parts, and the test
+lists keep guarding whatever is still inside.
+
+**The central operator is an Operator that FUSION manages.** Operators owns the type and all its mechanics (certificates,
+address, senders, heartbeat). FUSION owns the lifecycle of the one instance: it creates and renews it by calling operators.
+Operators stops importing FUSION: it defines a small interface for an operator that someone else manages (the refusal to change
+it, the exposure hints, the address), FUSION implements it, and the operator row records who manages it instead of operators
+recognising an id. That is one small schema addition, to be brought as its own step.
+
 ## The order I would move in, and what each needs first
 
 This is a proposal from the numbers above; each move starts with its own short plan.
 
-1. **The HTTP kit** (not a module): take the 82 plumbing uses out of `admin.go`, and the 20 metrics counters into a registry the kernel owns. Mechanical, and it makes every later move smaller.
-2. **Accounts.** One edge to estate; a callback instead.
-3. **Advice.** Invert the hub's 15 calls into it; define what advice reads as an interface of its own.
-4. **The central operator question**, then **operators and telemetry** together, then **fusion**.
-5. **The hub cluster**: the `view` in three parts, then agents, estate and connectivity.
-6. **The kernel last**, or as it goes: each thing the kernel holds that belongs to a module leaves with that module.
+1. **The kernel's reaches into modules** (29 uses; the link settings are 12 of them): each thing the kernel holds that belongs to a module goes to that module's section or behind an interface.
+2. **The kernel as a package**, with the HTTP kit (not a module) beside it: the 82 plumbing uses out of `admin.go`, and the 20 metrics counters into a registry the kernel owns.
+3. **Accounts.** One edge to estate; a callback instead.
+4. **Advice.** Invert the hub's 15 calls into it; define what advice reads as an interface of its own.
+5. **Operators and telemetry** together (with the managed-operator interface and the schema addition), then **fusion** on top of them.
+6. **The hub cluster**: the `view` in three parts, then agents, estate and connectivity.
 
-Whether a module becomes its own Go package (so the compiler enforces the line) or stays a group of files in this one with the
-test enforcing it is the end-state decision. Packages are the stronger line, and the test's lists are the way there: a module can
-move into its own package when the lines about it have gone from both lists.
 
 ## The assignments I was least sure of
 
