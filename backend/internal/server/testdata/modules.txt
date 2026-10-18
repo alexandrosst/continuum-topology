@@ -36,7 +36,7 @@ admin_link_credentials.go       connectivity
 admin_operator_destinations.go  operators
 admin_operator_heartbeat.go     operators
 admin_operators.go              operators
-admin_proposals.go              advice
+admin_proposals.go              shell
 admin_quickstart.go             telemetry
 admin_telemetry.go              agents
 admin_telemetry_intents.go      telemetry
@@ -100,3 +100,6 @@ tunnels.go                      connectivity
 twin.go                         estate
 workspace_save.go               estate
 admin_mail.go                   shell
+access_change.go                agents
+agent_load.go                   shell
+admin_decisions.go              shell

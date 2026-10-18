@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -81,92 +82,15 @@ type proposalBlast struct {
 	Namespaces int      `json:"namespaces,omitempty"`
 }
 
-func hasString(list []string, s string) bool {
-	for _, x := range list {
-		if x == s {
-			return true
-		}
-	}
-	return false
-}
-
-func minusStrings(list, drop []string) []string {
-	var out []string
-	for _, x := range list {
-		if !hasString(drop, x) {
-			out = append(out, x)
-		}
-	}
-	return out
-}
-
+// unionStrings is a followed by what b has that a does not, in order.
 func unionStrings(a, b []string) []string {
 	out := append([]string(nil), a...)
 	for _, x := range b {
-		if !hasString(out, x) {
+		if !slices.Contains(out, x) {
 			out = append(out, x)
 		}
 	}
 	return out
-}
-
-// resolveChange checks a change against the agent as it is now and returns the access it would leave the agent with and whether
-// that is wider than the agent has: a higher tier, or a pause or exclusion lifted (even when the change also adds one). It is
-// used when a change is proposed and again when it is accepted.
-func resolveChange(a store.Agent, cur Consent, ch AccessChange) (nextTier int, next Consent, widens bool, err error) {
-	next = cur
-	nextTier = a.AccessTier
-	consentFields := len(ch.Pause)+len(ch.Resume)+len(ch.Exclude)+len(ch.Include) > 0
-	switch {
-	case ch.Tier != nil && consentFields:
-		return 0, cur, false, kernel.Errf(kernel.KindInvalid, "a proposal changes either the approved tier or the overrides, not both")
-	case ch.Tier == nil && !consentFields:
-		return 0, cur, false, kernel.Errf(kernel.KindInvalid, "the proposal changes nothing")
-	}
-	if ch.Tier != nil {
-		t := *ch.Tier
-		verdict := CheckTier(t, a.InstalledTier, a.TierCap)
-		switch {
-		case verdict == TierBelowZero || verdict == TierNotImplemented:
-			return 0, cur, false, kernel.Errf(kernel.KindInvalid, "access tier must be 0-%d in this release", kernel.ImplementedTier)
-		case t == a.AccessTier:
-			return 0, cur, false, kernel.Errf(kernel.KindConflict, "the agent already has access tier %d", t)
-		case verdict == TierAboveInstall:
-			return 0, cur, false, kernel.Errf(kernel.KindInvalid, "this agent's install allows at most tier %d", a.InstalledTier)
-		case verdict == TierAboveToken:
-			return 0, cur, false, kernel.Errf(kernel.KindInvalid, "access tier %d is above what the enrollment token allowed for this agent (%d)", t, a.TierCap)
-		}
-		return t, cur, t > a.AccessTier, nil
-	}
-	pause, err := cleanConsent(Consent{Paused: ch.Pause, Excluded: ch.Exclude})
-	if err != nil {
-		return 0, cur, false, err
-	}
-	resume, err := cleanConsent(Consent{Paused: ch.Resume, Excluded: ch.Include})
-	if err != nil {
-		return 0, cur, false, err
-	}
-	for _, p := range pause.Paused {
-		if hasString(resume.Paused, p) {
-			return 0, cur, false, kernel.Errf(kernel.KindInvalid, "%s is both paused and resumed in the same proposal", p)
-		}
-	}
-	for _, n := range pause.Excluded {
-		if hasString(resume.Excluded, n) {
-			return 0, cur, false, kernel.Errf(kernel.KindInvalid, "namespace %s is both excluded and included in the same proposal", n)
-		}
-	}
-	next.Paused = unionStrings(minusStrings(cur.Paused, resume.Paused), pause.Paused)
-	next.Excluded = unionStrings(minusStrings(cur.Excluded, resume.Excluded), pause.Excluded)
-	next, err = cleanConsent(next)
-	if err != nil {
-		return 0, cur, false, err
-	}
-	if strings.Join(next.Paused, ",") == strings.Join(cur.Paused, ",") && strings.Join(next.Excluded, ",") == strings.Join(cur.Excluded, ",") {
-		return 0, cur, false, kernel.Errf(kernel.KindConflict, "the agent's overrides are already as the proposal would leave them")
-	}
-	widens = len(minusStrings(cur.Paused, next.Paused)) > 0 || len(minusStrings(cur.Excluded, next.Excluded)) > 0
-	return nextTier, next, widens, nil
 }
 
 func describeChange(a store.Agent, ch AccessChange) string {
@@ -255,10 +179,11 @@ func (h *Hub) SubmitProposal(ctx context.Context, actor string, in ProposalInput
 	if a.Status != store.StatusApproved {
 		return store.Proposal{}, kernel.Errf(kernel.KindConflict, "agent is %s: only an approved agent's access can be proposed for change", a.Status)
 	}
-	_, _, widens, err := resolveChange(a, h.consentOf(a.ID), in.Change)
+	plan, err := h.planAccessChange(a, in.Change)
 	if err != nil {
 		return store.Proposal{}, err
 	}
+	widens := plan.Widens
 	facts, conf, err := cleanEvidence(in.Evidence)
 	if err != nil {
 		return store.Proposal{}, err
@@ -418,11 +343,11 @@ func (h *Hub) AcceptProposal(ctx context.Context, actor, id, note string) (store
 	if a.Status != store.StatusApproved {
 		return p, kernel.Errf(kernel.KindConflict, "agent is %s: only an approved agent's access can be changed", a.Status)
 	}
-	tier, next, widens, err := resolveChange(a, h.consentOf(a.ID), ch)
+	plan, err := h.planAccessChange(a, ch)
 	if err != nil {
 		return p, err
 	}
-	if !accounts.Decide(accounts.CallerFrom(ctx), accounts.ActChangeAccess, accounts.Resource{Widening: widens}).Allowed {
+	if !accounts.Decide(accounts.CallerFrom(ctx), accounts.ActChangeAccess, accounts.Resource{Widening: plan.Widens}).Allowed {
 		return p, kernel.Errf(kernel.KindForbidden, "this change widens what the agent shares, and accepting it takes an administrator; narrowing does not")
 	}
 	// Claim the proposal first. Only one caller can move it out of pending, so only one makes the change.
@@ -432,12 +357,7 @@ func (h *Hub) AcceptProposal(ctx context.Context, actor, id, note string) (store
 		}
 		return p, err
 	}
-	var applyErr error
-	if ch.Tier != nil {
-		_, applyErr = h.SetAgentTier(ctx, actor, a.ID, tier, nil)
-	} else {
-		_, applyErr = h.SetConsent(ctx, actor, a.ID, next)
-	}
+	applyErr := plan.Apply(ctx, actor)
 	final, finalAction, finalNote := store.ProposalApplied, "proposal-applied", ""
 	if applyErr != nil {
 		final, finalAction, finalNote = store.ProposalFailed, "proposal-failed", kernel.Printable(applyErr.Error(), maxProposalNote)

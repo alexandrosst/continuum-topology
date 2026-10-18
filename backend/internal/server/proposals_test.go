@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -225,13 +226,13 @@ func TestAcceptingAWideningProposalTakesAnAdministratorAndAnEditorIsRefusedWitho
 	if got, _, _ := r.h.GetProposal(context.Background(), p.ID); got.Status != store.ProposalPending {
 		t.Fatalf("a refused acceptance moved the proposal to %s", got.Status)
 	}
-	if c := r.h.consentOf(r.id); !hasString(c.Paused, "flow") {
+	if c := r.h.consentOf(r.id); !slices.Contains(c.Paused, "flow") {
 		t.Fatalf("a refused acceptance lifted the pause: %+v", c)
 	}
 	if got, err := r.h.AcceptProposal(asRole(accounts.RoleAdmin), "adam", p.ID, ""); err != nil || got.Status != store.ProposalApplied {
 		t.Fatalf("the administrator: %+v %v", got, err)
 	}
-	if c := r.h.consentOf(r.id); hasString(c.Paused, "flow") {
+	if c := r.h.consentOf(r.id); slices.Contains(c.Paused, "flow") {
 		t.Fatalf("the pause is still on: %+v", c)
 	}
 }

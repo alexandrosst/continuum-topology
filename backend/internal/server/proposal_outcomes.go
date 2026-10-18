@@ -40,9 +40,28 @@ func (h *Hub) outcomeTimes() outcomeTimes {
 	return t
 }
 
+// LoadSample is one reading of an agent's own load, as the loop sees it: when, the agent's memory, the CPU seconds it has used and the
+// bytes of its traffic the server has received, both counted from when the counting began.
+type LoadSample struct {
+	At                  time.Time
+	RSSBytes            uint64
+	CPUSeconds          float64
+	LinkBytesCumulative uint64
+}
+
+// ratePerSecond is the rate a counter grew at between two readings. ok is false when that means nothing: no time passed, or the
+// counter went backwards (a reconnect restarted it), and never a negative or infinite rate.
+func ratePerSecond(prev, cur float64, elapsed time.Duration) (float64, bool) {
+	secs := elapsed.Seconds()
+	if secs <= 0 || cur < prev {
+		return 0, false
+	}
+	return (cur - prev) / secs, true
+}
+
 // windowMetrics reads the metrics from the samples inside [from, to].
-func windowMetrics(samples []SelfStatsSample, from, to time.Time) map[string]float64 {
-	var in []SelfStatsSample
+func windowMetrics(samples []LoadSample, from, to time.Time) map[string]float64 {
+	var in []LoadSample
 	for _, s := range samples {
 		if !s.At.Before(from) && !s.At.After(to) {
 			in = append(in, s)
@@ -54,10 +73,10 @@ func windowMetrics(samples []SelfStatsSample, from, to time.Time) map[string]flo
 	}
 	first, last := in[0], in[len(in)-1]
 	el := last.At.Sub(first.At)
-	if r, ok := rateBetween(float64(first.LinkBytesCumulative), float64(last.LinkBytesCumulative), el); ok {
+	if r, ok := ratePerSecond(float64(first.LinkBytesCumulative), float64(last.LinkBytesCumulative), el); ok {
 		out["link_bytes_per_sec"] = r
 	}
-	if r, ok := rateBetween(first.CPUSeconds, last.CPUSeconds, el); ok {
+	if r, ok := ratePerSecond(first.CPUSeconds, last.CPUSeconds, el); ok {
 		out["agent_cpu_cores"] = r
 	}
 	var rss float64
@@ -99,17 +118,9 @@ func (h *Hub) outcomeFor(p store.Proposal, now time.Time) (store.ProposalOutcome
 	tm := h.outcomeTimes()
 	decided := *p.DecidedAt
 	out := store.ProposalOutcome{ProposalID: p.ID, OrgID: p.OrgID, Predicted: p.Predicted, RecordedAt: now}
-	h.mu.Lock()
-	v := h.views[p.AgentID]
-	var samples []SelfStatsSample
-	var inForce time.Time
-	confirmed := false
-	if v != nil {
-		samples = v.self.list()
-		confirmed = v.cfgHash != "" && v.cfgHash == v.cfgApplied && !v.cfgInForceAt.Before(decided)
-		inForce = v.cfgInForceAt
-	}
-	h.mu.Unlock()
+	load := h.agentLoad(p.AgentID)
+	samples, inForce := load.Samples, load.InForceAt
+	confirmed := load.Known && load.ConfigHash != "" && load.ConfigHash == load.ConfigApplied && !load.InForceAt.Before(decided)
 
 	if !confirmed {
 		if now.Sub(decided) < tm.giveUp {
