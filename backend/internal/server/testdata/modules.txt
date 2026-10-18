@@ -105,3 +105,5 @@ totp.go                         accounts
 tunnels.go                      connectivity
 twin.go                         estate
 webauthn.go                     accounts
+workspace_save.go               estate
+admin_mail.go                   shell

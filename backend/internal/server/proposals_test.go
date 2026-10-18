@@ -13,7 +13,7 @@ import (
 )
 
 func asRole(role string) context.Context {
-	return context.WithValue(context.Background(), ctxPrincipal{}, Principal{Role: role})
+	return WithCaller(context.Background(), Principal{Role: role})
 }
 
 type propRig struct {

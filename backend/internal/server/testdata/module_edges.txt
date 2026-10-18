@@ -1,20 +1,6 @@
 # Every place one module uses something declared in another, as "using module > declaring module", then what is used.
 # Not listed: any module using the kernel, and the shell using any module (see modules_test.go). The list may only get shorter.
 # Regenerate on purpose with: go test ./internal/server -run TestModule -update
-accounts > estate	method Core.recordApplicationsGraph
-accounts > shell	const adminRole
-accounts > shell	const editorRole
-accounts > shell	const memberRole
-accounts > shell	const ownerRole
-accounts > shell	field Admin.C
-accounts > shell	func decode
-accounts > shell	func principal
-accounts > shell	func writeErr
-accounts > shell	func writeJSON
-accounts > shell	method Admin.fail
-accounts > shell	type Admin
-accounts > shell	type ctxPrincipal
-accounts > shell	type need
 advice > accounts	const ActChangeAccess
 advice > accounts	field Decision.Allowed
 advice > accounts	field Resource.Widening
@@ -71,6 +57,7 @@ agents > accounts	field Resource.Widening
 agents > accounts	func AgentActor
 agents > accounts	func CallerFrom
 agents > accounts	func Decide
+agents > accounts	func WithCaller
 agents > accounts	method Actor.String
 agents > accounts	type Principal
 agents > accounts	type Resource
@@ -148,7 +135,6 @@ agents > shell	method Admin.images
 agents > shell	method Admin.installConfigError
 agents > shell	method Admin.tn
 agents > shell	type Admin
-agents > shell	type ctxPrincipal
 agents > telemetry	method Core.RevokeTelemetryIntent
 connectivity > agents	field Consent.Excluded
 connectivity > agents	field Consent.Paused

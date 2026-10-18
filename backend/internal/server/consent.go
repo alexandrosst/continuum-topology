@@ -234,7 +234,7 @@ func (h *Hub) ConsentDocFor(id string) *ConsentDoc {
 // that calls the hub or the core directly and has to say who is asking (a test that drives a real server, a tool): nothing is
 // checked about the role, so it is never called with a role taken from a request.
 func ActingAs(ctx context.Context, role string) context.Context {
-	return context.WithValue(ctx, ctxPrincipal{}, Principal{Role: role})
+	return WithCaller(ctx, Principal{Role: role})
 }
 
 // SetAgentTier changes what a human approved for an agent that is already approved. Anything up to the ceiling the agent's

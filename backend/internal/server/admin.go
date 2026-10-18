@@ -133,7 +133,6 @@ const (
 	hostCookieName = "__Host-" + cookieName
 )
 
-type ctxPrincipal struct{}
 type ctxTenant struct{}
 
 // need is what a route asks of the caller. The organisation levels also require the {org} in the path
@@ -554,7 +553,7 @@ func (a *Admin) guard(n need, next http.HandlerFunc) http.Handler {
 			limit = 256 << 10
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, limit)
-		next(w, r.WithContext(context.WithValue(ctx, ctxPrincipal{}, p)))
+		next(w, r.WithContext(WithCaller(ctx, p)))
 	})
 }
 
@@ -1740,3 +1739,19 @@ func spa(dir string) http.Handler {
 }
 
 func fileExists(p string) bool { _, err := os.Stat(p); return err == nil }
+
+// action is what a route's guard level asks of the caller. The levels below ActRead (a session with no organisation) ask nothing
+// of a role.
+func (n need) action() Action {
+	switch n {
+	case memberRole:
+		return ActRead
+	case editorRole:
+		return ActEdit
+	case adminRole:
+		return ActAdminister
+	case ownerRole:
+		return ActOwn
+	}
+	return 0
+}

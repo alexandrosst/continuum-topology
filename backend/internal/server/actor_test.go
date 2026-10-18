@@ -45,7 +45,7 @@ func TestTheZeroActorIsAnonymousAndGrantsNothing(t *testing.T) {
 }
 
 func TestTheActorOfAContextIsTheSignedInPerson(t *testing.T) {
-	ctx := context.WithValue(context.Background(), ctxPrincipal{}, Principal{Role: RoleViewer})
+	ctx := WithCaller(context.Background(), Principal{Role: RoleViewer})
 	if got := ActorFrom(ctx); !got.IsPerson() {
 		t.Fatalf("a context with a signed-in principal is %+v", got)
 	}

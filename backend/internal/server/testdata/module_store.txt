@@ -23,7 +23,6 @@ GetOrg	shell
 GetUser	accounts
 GetUser	fusion
 GetUser	shell
-GetWorkspace	accounts
 GetWorkspace	estate
 GetWorkspace	fusion
 GetWorkspace	shell

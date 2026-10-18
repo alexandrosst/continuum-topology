@@ -69,25 +69,16 @@ func Allows(who Principal, act Action) bool { return Decide(who, act, Resource{}
 // Standing is a caller known only by the role they hold, for code that has looked a role up (a membership) and not a request.
 func Standing(role string) Principal { return Principal{Role: role} }
 
+type ctxPrincipal struct{}
+
+// WithCaller is ctx carrying p as the caller, for CallerFrom and ActorFrom to read.
+func WithCaller(ctx context.Context, p Principal) context.Context {
+	return context.WithValue(ctx, ctxPrincipal{}, p)
+}
+
 // CallerFrom is the caller a context carries, or the zero Principal - which holds no role and so may do nothing - when it
 // carries none. A code path that forgot to carry one therefore cannot widen anything.
 func CallerFrom(ctx context.Context) Principal {
 	p, _ := ctx.Value(ctxPrincipal{}).(Principal)
 	return p
-}
-
-// action is what a route's guard level asks of the caller. The levels below ActRead (a session with no organisation) ask nothing
-// of a role.
-func (n need) action() Action {
-	switch n {
-	case memberRole:
-		return ActRead
-	case editorRole:
-		return ActEdit
-	case adminRole:
-		return ActAdminister
-	case ownerRole:
-		return ActOwn
-	}
-	return 0
 }
