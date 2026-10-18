@@ -53,7 +53,7 @@ func (a *Admin) agentUpgradeCommand(w http.ResponseWriter, r *http.Request) {
 	}
 	img := a.images(a.core(r))
 	up := install.AgentUpgrade{
-		ChartRef: a.chartRef(img), ChartVersion: a.agentChartVersion(), ChartFile: a.chartFile(),
+		ChartRef: a.AgentRef(img), ChartVersion: a.AgentVersion(), ChartFile: a.AgentChartFile(),
 		Namespace: req.Namespace, Release: req.Release, Tier: req.Tier, Telemetry: req.Telemetry,
 	}
 	doc := agentUpgradeDoc{Secrets: []credentialSecretDoc{}, Problems: []string{}}

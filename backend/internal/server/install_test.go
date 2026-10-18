@@ -9,6 +9,7 @@ import (
 
 	"continuum/internal/accounts"
 	"continuum/internal/chart"
+	"continuum/internal/installcfg"
 	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
@@ -18,7 +19,7 @@ const goodDigest = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef01234
 func testAdmin(t *testing.T) *Admin {
 	t.Helper()
 	e := newEnv(t)
-	return &Admin{P: NewPlatform(e.base, nil), C: e.base, AgentAddr: "srv.example.com:8443"}
+	return &Admin{P: NewPlatform(e.base, nil), C: e.base, Settings: installcfg.Settings{AgentAddr: "srv.example.com:8443"}}
 }
 
 func cmdFor(a *Admin, img kernel.ImageConfig) string {
@@ -48,8 +49,8 @@ func TestInstallCommandNamesAChartTheOperatorCanGet(t *testing.T) {
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("only the chart is served, got %d", rr.Code)
 	}
-	if a.chartFile() != chart.Filename() || a.chartRef(kernel.ImageConfig{}) != "" {
-		t.Fatalf("the wizard is told to offer %q", a.chartFile())
+	if a.AgentChartFile() != chart.Filename() || a.AgentRef(kernel.ImageConfig{}) != "" {
+		t.Fatalf("the wizard is told to offer %q", a.AgentChartFile())
 	}
 }
 
@@ -181,21 +182,6 @@ func TestExplicitChartRef(t *testing.T) {
 	}
 }
 
-func TestOCIBase(t *testing.T) {
-	for in, want := range map[string]string{
-		"myteam":                    "registry-1.docker.io/myteam",
-		"docker.io/myteam/":         "registry-1.docker.io/myteam",
-		"index.docker.io/team/sub":  "registry-1.docker.io/team/sub",
-		"ghcr.io/me/continuum":      "ghcr.io/me/continuum",
-		"localhost:5000/x":          "localhost:5000/x",
-		"reg.example.com:8443/team": "reg.example.com:8443/team",
-	} {
-		if got := OCIBase(in); got != want {
-			t.Errorf("OCIBase(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
 func TestImageValidation(t *testing.T) {
 	good := []string{"myteam", "docker.io/myteam", "ghcr.io/me/x", "reg.example.com:8443/team", "localhost:5000", "localhost:5000/a/b-c/d_e/f.g", "10.0.0.5:5000/team", "reg.example.com/team/"}
 	for _, g := range good {
@@ -321,7 +307,7 @@ func TestImagePrecedenceAndTheEndpoints(t *testing.T) {
 // The setting is per organisation: another organisation keeps using the server's flags.
 func TestImageSettingIsPerOrganisation(t *testing.T) {
 	e := newEnv(t)
-	a := &Admin{P: NewPlatform(e.base, nil), C: e.base, AgentAddr: "x:1", ImageRegistry: "flagreg"}
+	a := &Admin{P: NewPlatform(e.base, nil), C: e.base, Settings: installcfg.Settings{AgentAddr: "x:1", ImageRegistry: "flagreg"}}
 	if _, err := e.core.SaveSettings(e.ctx, "alex", kernel.Settings{ImageRegistry: "org1reg"}); err != nil {
 		t.Fatal(err)
 	}
@@ -426,7 +412,7 @@ func TestOperatorChartRefIsDerivedFromTheAgentChartRef(t *testing.T) {
 		{"nothing set: the image registry's own", "", "oci://reg.example.com/team/continuum-regional-operator", true},
 	} {
 		a.ChartRef = c.chartRef
-		ref, version := a.operatorChart(img)
+		ref, version := a.OperatorChart(img)
 		if ref != c.wantRef {
 			t.Errorf("%s: chart ref %q -> operator ref %q, want %q", c.name, c.chartRef, ref, c.wantRef)
 		}
@@ -439,7 +425,7 @@ func TestOperatorChartRefIsDerivedFromTheAgentChartRef(t *testing.T) {
 	}
 	// With no registry either, the served file.
 	a.ChartRef = ""
-	if ref, _ := a.operatorChart(kernel.ImageConfig{}); ref != local {
+	if ref, _ := a.OperatorChart(kernel.ImageConfig{}); ref != local {
 		t.Errorf("no reference at all: %q", ref)
 	}
 }

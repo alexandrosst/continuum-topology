@@ -73,13 +73,13 @@ func TestAgentUpgradeCommandNamesTheChartTheServerServes(t *testing.T) {
 
 	a.a.ChartRef = ""
 	_, out := a.upgrade(t, cookie, map[string]any{"tier": tier})
-	if want := "helm upgrade continuum-agent ./" + a.a.chartFile() + " --namespace continuum-system --reset-then-reuse-values --set access.tier=2"; out.Command != want || out.Upgrade != want {
+	if want := "helm upgrade continuum-agent ./" + a.a.AgentChartFile() + " --namespace continuum-system --reset-then-reuse-values --set access.tier=2"; out.Command != want || out.Upgrade != want {
 		t.Fatalf("a chart file: %q", out.Command)
 	}
 
 	a.a.ChartRef = "oci://registry.example.com/continuum-agent"
 	_, out = a.upgrade(t, cookie, map[string]any{"tier": tier, "namespace": "ikhnos", "release": "edge-agent"})
-	if !strings.Contains(out.Command, "helm upgrade edge-agent oci://registry.example.com/continuum-agent --version "+a.a.agentChartVersion()+" --namespace ikhnos ") {
+	if !strings.Contains(out.Command, "helm upgrade edge-agent oci://registry.example.com/continuum-agent --version "+a.a.AgentVersion()+" --namespace ikhnos ") {
 		t.Fatalf("a registry chart: %q", out.Command)
 	}
 
@@ -186,7 +186,7 @@ func TestAgentUpgradeCommandIsWhatTheRendererWritesForEveryPinnedTelemetry(t *te
 			if err := json.Unmarshal(c.Spec.Telemetry, &tel); err != nil {
 				t.Fatal(err)
 			}
-			up := install.AgentUpgrade{ChartFile: a.a.chartFile(), Namespace: "ikhnos", Release: "edge-agent", Telemetry: &tel}
+			up := install.AgentUpgrade{ChartFile: a.a.AgentChartFile(), Namespace: "ikhnos", Release: "edge-agent", Telemetry: &tel}
 			want, werr := up.Render()
 			code, got := a.upgrade(t, cookie, map[string]any{"namespace": "ikhnos", "release": "edge-agent", "telemetry": c.Spec.Telemetry})
 			if code != 200 {
@@ -253,7 +253,7 @@ func TestAgentUpgradeCommandIsWhatTheUIPinsForAnUpgrade(t *testing.T) {
 		checked++
 		t.Run(c.Name, func(t *testing.T) {
 			// The page pins the command for a chart file it was not told the name of; this server knows the name of the one it serves.
-			want := strings.Replace(c.Command, "./"+install.DefaultChartFile, "./"+a.a.chartFile(), 1)
+			want := strings.Replace(c.Command, "./"+install.DefaultChartFile, "./"+a.a.AgentChartFile(), 1)
 			code, got := a.upgrade(t, cookie, map[string]any{"tier": u.Tier, "namespace": u.Namespace, "release": u.Release})
 			if code != 200 || got.Command != want {
 				t.Fatalf("%d: the endpoint wrote\n%s\nthe page pins\n%s", code, got.Command, want)

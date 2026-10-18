@@ -160,7 +160,7 @@ func (a *Admin) enableOperatorHeartbeat(w http.ResponseWriter, r *http.Request) 
 // a configured URL wins, and heartbeatURLWarning says when the address it is left with cannot be right. Whichever it
 // is, the person can still edit heartbeat.url; it is only a --set flag.
 func (a *Admin) heartbeatURL(r *http.Request) string {
-	if base := a.publicBase(); base != "" {
+	if base := a.PublicBase(); base != "" {
 		return base + OperatorHeartbeatPath
 	}
 	scheme := "http"
@@ -168,15 +168,6 @@ func (a *Admin) heartbeatURL(r *http.Request) string {
 		scheme = "https"
 	}
 	return scheme + "://" + r.Host + OperatorHeartbeatPath
-}
-
-// publicBase is PublicURL cleaned up for use as a prefix ("" when it is not set, or is not an http(s) URL with a host).
-func (a *Admin) publicBase() string {
-	u, err := url.Parse(strings.TrimSpace(a.PublicURL))
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.RawQuery != "" || u.Fragment != "" || u.User != nil {
-		return ""
-	}
-	return u.Scheme + "://" + u.Host + strings.TrimRight(u.Path, "/")
 }
 
 // heartbeatURLWarning explains an address that cannot work as it stands: plain HTTP is refused by the chart by
@@ -222,7 +213,7 @@ func operatorHeartbeatCASecretName(op store.Operator) string { return op.ID + "-
 
 // heartbeatUpgradeCommand is the upgrade that turns the heartbeat on for a release that already runs.
 func (a *Admin) heartbeatUpgradeCommand(img kernel.ImageConfig, op store.Operator, heartbeatURL string) (string, error) {
-	ref, version := a.operatorChart(img)
+	ref, version := a.OperatorChart(img)
 	return install.Helm{Verb: install.Upgrade, Release: op.ID, Chart: ref, Version: version, Namespace: "continuum-system", ResetThenReuse: true,
 		Values: a.operatorHeartbeatValues(op, heartbeatURL)}.Render()
 }

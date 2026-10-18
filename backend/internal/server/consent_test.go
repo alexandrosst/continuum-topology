@@ -14,6 +14,7 @@ import (
 	"continuum/internal/accounts"
 	"continuum/internal/agents"
 	"continuum/internal/estate"
+	"continuum/internal/installcfg"
 	"continuum/internal/kernel"
 	"continuum/internal/pki"
 	"continuum/internal/testkit"
@@ -508,7 +509,7 @@ func TestHelloNamespaceIsRecordedAndUsedInGeneratedCommands(t *testing.T) {
 	rr := &hubRig{rig: &rig{env: e, addr: l.Addr().String()}, hub: tn.Hub}
 	id, key, leaf := rr.approvedAgent(t, testkit.FP) // approved at 2, installed at 2
 
-	admin := &Admin{P: p, C: e.base, AgentAddr: "x:1", ChartRef: "chart"}
+	admin := &Admin{P: p, C: e.base, Settings: installcfg.Settings{AgentAddr: "x:1", ChartRef: "chart"}}
 	a := &adminRig{env: e, h: admin.Handler(), a: admin}
 	_, editor := a.user(t, "edith", accounts.RoleEditor)
 	_, adm := a.user(t, "adam", accounts.RoleAdmin)

@@ -814,19 +814,6 @@ func (a *Admin) checkOperatorInstall(img kernel.ImageConfig) error {
 	return err
 }
 
-// operatorChart is where the regional-operator chart is, as agentChart is for the agent's: the chart reference and, for a repository
-// (not a packaged file), the version to fetch.
-func (a *Admin) operatorChart(img kernel.ImageConfig) (ref, version string) {
-	ref = a.operatorChartRef(img)
-	if ref == "" {
-		return "./" + chart.RegionalOperator.Filename(), ""
-	}
-	if !strings.HasSuffix(ref, ".tgz") {
-		version = a.operatorChartVersion()
-	}
-	return ref, version
-}
-
 // operatorInstallCommandWith is installCommand's own twin for the regional-operator chart: simpler, since this
 // chart does not dial the Ikhnos server unless its opt-in heartbeat is on (see store.Operator's own
 // comment) - there is no server.address or enrollment.key here, only where the operator exports to and how
@@ -956,7 +943,7 @@ func (a *Admin) operatorInstallCommandWith(img kernel.ImageConfig, secret string
 	if svcType, _ := operators.ServiceTypeFor(op.Exposure); svcType != "" {
 		set("service.type", svcType)
 	}
-	ref, version := a.operatorChart(img)
+	ref, version := a.OperatorChart(img)
 	h := install.Helm{Verb: install.Install, Release: op.ID, Chart: ref, Version: version, Namespace: "continuum-system", CreateNamespace: true, Values: v, Layout: install.Wrapped}
 	if reissue {
 		h.Verb, h.ResetThenReuse = install.UpgradeInstall, true
@@ -1041,7 +1028,7 @@ type sourceTarget struct{ cluster, ns, name string }
 // sourceReminders is operatorSourceReminders once the clusters are known: it reads nothing, so the text it builds is pinned
 // by a test (install_commands_test.go) like the other commands.
 func (a *Admin) sourceReminders(img kernel.ImageConfig, op store.Operator, tlsBundle operators.OperatorTLSBundle, targets []sourceTarget) ([]string, error) {
-	ref, version := a.agentChart(img)
+	ref, version := a.AgentChart(img)
 	out := make([]string, 0, 2*len(targets))
 	// Each cluster holds its own client certificate (see OperatorTLSBundle.Senders), so each gets its own Secret
 	// command, in its own namespace. Only wired in when that certificate was minted (see CreateOperator on why

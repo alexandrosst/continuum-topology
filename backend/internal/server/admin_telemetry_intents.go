@@ -261,7 +261,7 @@ func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 	if ask.Telemetry != nil {
 		img := a.images(a.core(r))
 		block, err := install.OperatorTelemetry{
-			AgentUpgrade: install.AgentUpgrade{ChartRef: a.chartRef(img), ChartVersion: a.agentChartVersion(), ChartFile: a.chartFile(), Namespace: rns, Release: rname, Telemetry: &spec},
+			AgentUpgrade: install.AgentUpgrade{ChartRef: a.AgentRef(img), ChartVersion: a.AgentVersion(), ChartFile: a.AgentChartFile(), Namespace: rns, Release: rname, Telemetry: &spec},
 			Certificates: secretCommands, Restated: values, ReceiverAuth: receiverAuth,
 		}.Render()
 		if err != nil {

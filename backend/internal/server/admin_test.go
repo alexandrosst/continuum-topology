@@ -11,6 +11,7 @@ import (
 
 	"continuum/internal/accounts"
 	"continuum/internal/estate"
+	"continuum/internal/installcfg"
 	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
@@ -32,7 +33,7 @@ func newAdminRig(t *testing.T) *adminRig { return adminRigOn(t, newEnv(t)) }
 func adminRigOn(t *testing.T, e *env) *adminRig {
 	t.Helper()
 	p := NewPlatform(e.base, nil)
-	a := &Admin{P: p, C: e.base, AgentAddr: "x:1", ChartRef: "chart"}
+	a := &Admin{P: p, C: e.base, Settings: installcfg.Settings{AgentAddr: "x:1", ChartRef: "chart"}}
 	return &adminRig{env: e, h: a.Handler(), a: a}
 }
 

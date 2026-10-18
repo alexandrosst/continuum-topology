@@ -24,6 +24,7 @@ import (
 	"continuum/internal/fusion"
 	"continuum/internal/geoip"
 	"continuum/internal/graph"
+	"continuum/internal/installcfg"
 	"continuum/internal/kernel"
 	"continuum/internal/operators"
 	"continuum/internal/passkey"
@@ -375,7 +376,10 @@ func run(log *slog.Logger, selfProbe probeOpts, dataDir, agentListen, agentAddr,
 		}
 	}()
 
-	admin := &server.Admin{P: platform, C: core, TrustProxy: behindProxy, SSOHeaderName: ssoHeader, SecureCookies: !isLoopback(adminListen), AgentAddr: agentAddr, AgentExposure: agentExposure, ReleaseName: releaseName, ReleaseNamespace: releaseNamespace, ChartRef: chartRef, ImageRegistry: img.Registry, ImageTag: img.Tag, ImageDigest: img.Digest, PublicURL: os.Getenv("CONTINUUM_PUBLIC_URL"), Origins: origins, UIDir: uiDir, Version: version, AgentChartVersion: agentChartVersion, OperatorChartVersion: operatorChartVersion}
+	admin := &server.Admin{P: platform, C: core, TrustProxy: behindProxy, SSOHeaderName: ssoHeader, SecureCookies: !isLoopback(adminListen), Origins: origins, UIDir: uiDir, Version: version,
+		Settings: installcfg.Settings{AgentAddr: agentAddr, AgentExposure: agentExposure, ReleaseName: releaseName, ReleaseNamespace: releaseNamespace, ChartRef: chartRef,
+			ImageRegistry: img.Registry, ImageTag: img.Tag, ImageDigest: img.Digest, PublicURL: os.Getenv("CONTINUUM_PUBLIC_URL"),
+			AgentChartVersion: agentChartVersion, OperatorChartVersion: operatorChartVersion}}
 	if err := admin.CheckInstallConfig(); err != nil {
 		return err
 	}

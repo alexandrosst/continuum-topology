@@ -24,6 +24,7 @@ import (
 	"continuum/internal/fusionapi"
 	"continuum/internal/httpkit"
 	"continuum/internal/install"
+	"continuum/internal/installcfg"
 	"continuum/internal/kernel"
 	"continuum/internal/probe"
 	"continuum/internal/store"
@@ -42,45 +43,14 @@ type Admin struct {
 	SelfProbe      *probe.Receiver
 	SelfProbeEvery time.Duration
 
-	P         *Platform
-	C         *Core  // the platform-wide core (accounts, sign-in); an organisation's own is a.core(r)
-	AgentAddr string // host:port agents dial, shown in the install command
-	// AgentExposure is how AgentAddr is reached (loadbalancer, nodeport, gateway, clusterip), from --agent-exposure.
-	// Purely descriptive - the server cannot check it against how the port is actually reachable - and only used to
-	// pick which guidance Settings → Installation shows for changing AgentAddr later. Empty on older installs (a
-	// server chart from before this flag existed): the UI then shows generic guidance for all three methods.
-	AgentExposure string
-	// ReleaseName and ReleaseNamespace are this Helm release's own name and namespace, from --release-name and
-	// --release-namespace. Also purely descriptive, also empty on an older install; together with AgentExposure they
-	// let Settings → Installation print an exact, ready-to-run helm upgrade command instead of one with blanks in it.
-	ReleaseName, ReleaseNamespace string
-	ChartRef                      string // an explicit chart reference for install commands; empty means the copy the server serves
-	// ImageRegistry, ImageTag and ImageDigest are the server-wide defaults (--image-registry, --image-tag,
-	// --image-digest) for where install commands pull the agent image and chart from. An organisation's own
-	// Settings → Installation wins over them; with neither, the chart's built-in image names apply. There is no
-	// built-in default registry: see images.go.
-	ImageRegistry, ImageTag, ImageDigest string
-	Origins                              []string // browsers allowed cross-origin (dev); empty = same origin only
-	UIDir                                string   // built UI to serve, optional
-	Version                              string
-	// AgentChartVersion is the continuum-agent chart version the release pipeline actually published alongside
-	// this exact server build (edge: 0.0.0-edge.<sha>; a tagged release: the tag) - set at link time, empty on a
-	// build that skipped that (a local `go build`, or an image scripts/publish.sh built without it). Only matters
-	// for a `--version` flag against an OCI/registry chart reference; a local ./file.tgz reference (no registry
-	// configured) always serves the exact chart this binary was built from and needs no version at all.
-	AgentChartVersion string
-	// PublicURL is the address operators and people outside the cluster reach this server at (scheme and host, and a
-	// path prefix if it has one), such as https://ikhnos.example.com. Empty means "whatever host the request came in
-	// on", which is wrong for anyone who reached the page through a port-forward or an internal name. Used for the
-	// heartbeat address in generated commands (see heartbeatURL).
-	PublicURL string
-	// HeartbeatCAPEM is the certificate of the private CA that signed the server's own HTTPS certificate, when it is
-	// not signed by a public one: regional operators verify the heartbeat endpoint with it (heartbeat.tls.caSecretName).
-	// Empty when the certificate chains to a root every image already trusts.
-	HeartbeatCAPEM []byte
-	// OperatorChartVersion is continuum-regional-operator's own equivalent of AgentChartVersion above - the
-	// version the release pipeline published this build's regional-operator chart under, when known.
-	OperatorChartVersion string
+	P *Platform
+	C *Core // the platform-wide core (accounts, sign-in); an organisation's own is a.core(r)
+	// Settings is how the server writes the commands it prints (the chart, the images, the address agents dial): see installcfg. Its
+	// fields are promoted, so a.ChartRef and a.AgentAddr are the server's flags.
+	installcfg.Settings
+	Origins []string // browsers allowed cross-origin (dev); empty = same origin only
+	UIDir   string   // built UI to serve, optional
+	Version string
 	// Fusion switches the FUSION bundled with the server's chart on and off. Nil when the server was installed without
 	// it or without the permission to scale it; the endpoints then report it as unavailable and say why.
 	Fusion *fusion.FusionControl
@@ -531,80 +501,6 @@ func (a *Admin) setCookie(w http.ResponseWriter, r *http.Request, value string, 
 	}
 }
 
-// chartFile is the packaged chart's file name. The server always serves its own copy, whether or not the
-// install command uses it, so an operator can fall back to it.
-func (a *Admin) chartFile() string { return chart.Agent.Filename() }
-
-// chartRef is the chart the install command names, or "" when it names the downloaded file. An explicit
-// --chart-ref wins ("local" forces the file). Otherwise a configured image registry also holds the chart, as an
-// OCI artifact next to the images, so the printed command needs nothing downloaded first.
-func (a *Admin) chartRef(img kernel.ImageConfig) string {
-	switch {
-	case a.ChartRef == "local":
-		return ""
-	case a.ChartRef != "":
-		return a.ChartRef
-	case img.Configured():
-		return "oci://" + OCIBase(img.Registry) + "/continuum-agent"
-	}
-	return ""
-}
-
-// operatorChartFile/operatorChartRef are chartFile/chartRef's own twins for the regional-operator chart -
-// same rules, parameterized on chart.RegionalOperator and the "continuum-regional-operator" OCI artifact
-// name instead of chart.Agent and "continuum-agent". There is no separate --chart-ref flag for it, and a.ChartRef
-// (set once, server-wide) names the AGENT chart - the flag's own help says so, and every agent install command uses it
-// as it is. Used verbatim here it installed the agent chart with the regional operator's flags (export.otlp.endpoint,
-// receiver.tls...): wrong chart, wrong values, a failed or - worse - half-working install. So the operator chart is derived
-// from it, on the one assumption that is safe to make: the two charts are published side by side under their own names.
-//
-//	oci://ghcr.io/acme/charts/continuum-agent          -> oci://ghcr.io/acme/charts/continuum-regional-operator
-//	https://charts.example.com/stable/continuum-agent  -> https://charts.example.com/stable/continuum-regional-operator
-//	acme/continuum-agent (a configured repo alias)     -> acme/continuum-regional-operator
-//
-// Only a reference whose last path segment is exactly the agent chart's name is rewritten. Everything else - a .tgz (a
-// packaged file of one chart, which says nothing about where the other is), a name that is not the agent chart's, "local" -
-// cannot be turned into the operator chart's address by guessing, so the command names the operator chart file this server
-// serves (the "./continuum-regional-operator-<version>.tgz" the page offers as a download, which operatorChartArgs
-// prints and which needs no --version), exactly as it does when there is no registry. That fallback is deliberate:
-// it is the only reference that is known to be the right chart.
-func (a *Admin) operatorChartFile() string { return chart.RegionalOperator.Filename() }
-
-func (a *Admin) operatorChartRef(img kernel.ImageConfig) string {
-	switch {
-	case a.ChartRef == "local":
-		return ""
-	case a.ChartRef != "":
-		ref := strings.TrimSpace(a.ChartRef)
-		if strings.HasSuffix(ref, ".tgz") {
-			return "" // a packaged agent chart: the operator's is the file this server serves
-		}
-		if i := strings.LastIndexByte(ref, '/'); ref[i+1:] == "continuum-agent" {
-			return ref[:i+1] + "continuum-regional-operator"
-		}
-		return "" // not recognisably the agent chart's address: serve the operator chart file instead of guessing
-	case img.Configured():
-		return "oci://" + OCIBase(img.Registry) + "/continuum-regional-operator"
-	}
-	return ""
-}
-
-// OCIBase turns an image registry setting into where an OCI registry keeps things under it. A bare name
-// ("myteam") is a Docker Hub namespace, and Docker Hub serves Helm charts from registry-1.docker.io.
-func OCIBase(registry string) string {
-	r := strings.Trim(strings.TrimSpace(registry), "/")
-	for _, p := range []string{"docker.io/", "index.docker.io/", "registry-1.docker.io/"} {
-		if rest, ok := strings.CutPrefix(r, p); ok {
-			return "registry-1.docker.io/" + rest
-		}
-	}
-	first, _, _ := strings.Cut(r, "/")
-	if strings.ContainsAny(first, ".:") || first == "localhost" {
-		return r
-	}
-	return "registry-1.docker.io/" + r
-}
-
 // serveChart hands out the packaged agent chart (or the regional-operator or FUSION chart, by file name). It holds no secrets (the enrollment token and the CA pin are
 // passed on the command line), so it needs no sign-in; that lets `helm install` take the URL directly.
 func (a *Admin) serveChart(w http.ResponseWriter, r *http.Request) {
@@ -708,7 +604,7 @@ func (a *Admin) info(w http.ResponseWriter, r *http.Request) {
 		// chart under (agentChartVersion), NOT chart.Version(): the browser builds several commands itself from this
 		// field, and the bundled Chart.yaml literal can name an old chart whose values schema rejects what this build
 		// sends (helm: "Additional property ... is not allowed").
-		"install": map[string]any{"chartFile": a.chartFile(), "chartRef": a.chartRef(img), "chartVersion": a.agentChartVersion(), "imagesConfigured": img.Configured(), "imageRegistry": img.Registry, "imageTag": img.Tag, "imageDigest": img.Digest}})
+		"install": map[string]any{"chartFile": a.AgentChartFile(), "chartRef": a.AgentRef(img), "chartVersion": a.AgentVersion(), "imagesConfigured": img.Configured(), "imageRegistry": img.Registry, "imageTag": img.Tag, "imageDigest": img.Digest}})
 }
 
 // state is what the UI polls. The audit trail is part of it only for administrators and owners: it names
@@ -805,21 +701,16 @@ func (a *Admin) createToken(w http.ResponseWriter, r *http.Request) {
 	httpkit.WriteJSON(w, 201, map[string]any{"token": secret, "meta": toTokenDoc(t), "install": cmd})
 }
 
-// chartDefaultAccessTier mirrors continuum-agent/values.yaml's own access.tier default. Printing --set access.tier=N
-// when N is already what the chart defaults to would only make the common case's command longer for no reason.
-const chartDefaultAccessTier = 2
+// installCommand is the agent's install command for the token's ceiling, with the server's CA pin the agent will verify it against.
+func (a *Admin) installCommand(img kernel.ImageConfig, secret string, t store.Token, extra ...install.Value) (string, error) {
+	return a.Settings.AgentInstallCommand(img, a.C.CA.SPKIPin(), secret, t.AccessTier, extra...)
+}
 
-// agentChartVersion is what a `--version` flag against an OCI/registry chart reference should say: the version the
-// release pipeline actually published this build's chart under, when the binary was linked with that information,
-// else chart.Version() (the chart's own Chart.yaml literal) as the best available guess. The two agree for a chart
-// packaged straight from a checkout with no `helm package --version` override (scripts/publish.sh does this); they
-// can disagree for a CI-published chart, whose OCI version is a separate, deliberately-overridden string (edge:
-// 0.0.0-edge.<sha>; a tagged release: the tag) that Chart.yaml's checked-in text was never meant to track.
 // CheckInstallConfig says, at start-up, whether the commands this server prints can be written with how it was set up: the chart it
 // names and the versions it asks for. A server that cannot is not started, which is better than one whose every install page fails.
 func (a *Admin) CheckInstallConfig() error {
-	img := a.imageDefaults()
-	if _, err := a.installCommand(img, "check", store.Token{AccessTier: chartDefaultAccessTier}); err != nil {
+	img := a.ImageDefaults()
+	if _, err := a.installCommand(img, "check", store.Token{AccessTier: installcfg.ChartDefaultAccessTier}); err != nil {
 		return fmt.Errorf("the agent install command cannot be written (check --chart-ref and the chart version): %w", err)
 	}
 	if err := a.checkOperatorInstall(img); err != nil {
@@ -833,69 +724,6 @@ func (a *Admin) CheckInstallConfig() error {
 func (a *Admin) installConfigError(err error) error {
 	a.C.Log.Error("an install command cannot be written: check --chart-ref and the chart versions", "err", err)
 	return kernel.Errf(kernel.KindInternal, "this server is set up with a chart it cannot name in an install command; see its log")
-}
-
-func (a *Admin) agentChartVersion() string {
-	if a.AgentChartVersion != "" {
-		return a.AgentChartVersion
-	}
-	return chart.Agent.Version()
-}
-
-// operatorChartVersion is agentChartVersion's own twin for the regional-operator chart.
-func (a *Admin) operatorChartVersion() string {
-	if a.OperatorChartVersion != "" {
-		return a.OperatorChartVersion
-	}
-	return chart.RegionalOperator.Version()
-}
-
-// installCommand is what the operator runs on the cluster. The token appears here once, in the
-// response to its creation, and is never retrievable again.
-//
-// With an image registry configured it also points the chart at the one image (image.repository, plus image.tag and
-// image.digest when set; with a digest the chart pulls repository@digest and ignores the tag) and fetches the chart
-// from the same registry. Without one it names the chart file the server serves and leaves every image value to the
-// chart's own defaults.
-func (a *Admin) installCommand(img kernel.ImageConfig, secret string, t store.Token, extra ...install.Value) (string, error) {
-	ref, version := a.agentChart(img)
-	// enrollment.key packs the CA pin and the one-time token into the single flag the chart splits back apart at
-	// render time (see continuum-agent's _helpers.tpl): one thing to paste instead of two, without hiding either
-	// value's own text - the pin is the CA's public-key pin (sha256/<base64>, which survives re-issuing the CA
-	// certificate), the token cannot contain ".", and base64 has no ".", so joining them is unambiguous.
-	values := []install.Value{
-		install.Set("server.address", a.AgentAddr),
-		install.Set("enrollment.key", a.C.CA.SPKIPin()+"."+secret),
-	}
-	if t.AccessTier != chartDefaultAccessTier {
-		values = append(values, install.Set("access.tier", strconv.Itoa(t.AccessTier)))
-	}
-	if img.Configured() {
-		values = append(values, install.Set("image.repository", img.Registry+"/continuum"))
-		if img.Tag != "" {
-			values = append(values, install.Set("image.tag", img.Tag))
-		}
-		if img.Digest != "" {
-			values = append(values, install.Set("image.digest", img.Digest))
-		}
-	}
-	// What the person chose to switch on or narrow, after what every install has.
-	values = append(values, extra...)
-	return install.Helm{Verb: install.Install, Release: "continuum-agent", Chart: ref, Version: version, Namespace: "continuum-system", CreateNamespace: true,
-		Values: values, Layout: install.Wrapped}.Render()
-}
-
-// agentChart is where the agent chart is, as the commands that install and upgrade it name it: the chart reference and, for one that
-// is a repository holding many versions (not a packaged file, which is one), the version to fetch.
-func (a *Admin) agentChart(img kernel.ImageConfig) (ref, version string) {
-	ref = a.chartRef(img)
-	if ref == "" {
-		return "./" + chart.Filename(), "" // the file the wizard offers to download
-	}
-	if !strings.HasSuffix(ref, ".tgz") {
-		version = a.agentChartVersion()
-	}
-	return ref, version
 }
 
 func (a *Admin) deleteToken(w http.ResponseWriter, r *http.Request) {

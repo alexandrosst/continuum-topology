@@ -2,29 +2,18 @@ package server
 
 import (
 	"net/http"
-	"strconv"
 
 	"continuum/internal/agents"
 	"continuum/internal/estate"
 	"continuum/internal/httpkit"
-	"continuum/internal/install"
 	"continuum/internal/kernel"
 )
 
-// upgradeCommand is what the owner of a cluster runs there to change the ceiling of an agent's install to a tier: raise it
-// (the only way widening ever happens; the server cannot do it) or, just as validly, lower it for real, which the tier
-// slider in the UI on its own does not do (see setAgentTier's doc comment).
-//
-// Every upgrade command this server prints uses --reset-then-reuse-values (Helm 3.14 or newer), never --reuse-values. The
-// older flag replaces the NEW chart's defaults with the values the OLD release was installed with, so a value block a
-// newer chart added after the release was installed does not exist at all and a template that reads it fails with a
-// nil-pointer error. The newer flag starts from the new chart's defaults and then puts the person's own values from the old
-// release on top, which is what "keep what I set" was always meant to say.
+// upgradeCommand is the command that changes the ceiling of an agent's install to a tier (installcfg's AgentUpgradeCommand), for the
+// namespace and release the agent reported, or the chart's documented defaults when it reported none we can trust in a command.
 func (a *Admin) upgradeCommand(img kernel.ImageConfig, tier int, namespace, release string) (string, error) {
-	ref, version := a.agentChart(img)
 	ns, name, _ := agents.ReleaseTarget(namespace, release)
-	return install.Helm{Verb: install.Upgrade, Release: name, Chart: ref, Version: version, Namespace: ns, ResetThenReuse: true,
-		Values: []install.Value{install.Set("access.tier", strconv.Itoa(tier))}}.Render()
+	return a.AgentUpgradeCommand(img, tier, ns, name)
 }
 
 // setAgentTier changes the access an approved agent has been given, within what its install allows.

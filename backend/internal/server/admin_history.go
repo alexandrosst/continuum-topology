@@ -53,7 +53,7 @@ func settingsDoc(s kernel.Settings, rev int64, admin bool) SettingsDoc {
 func (a *Admin) getSettings(w http.ResponseWriter, r *http.Request) {
 	cur, rev := a.core(r).SettingsAt()
 	d := settingsDoc(cur, rev, accounts.Allows(httpkit.Principal(r), accounts.ActAdminister))
-	d.ImageDefaults = a.imageDefaults()
+	d.ImageDefaults = a.ImageDefaults()
 	httpkit.WriteJSON(w, 200, d)
 }
 
@@ -97,7 +97,7 @@ func (a *Admin) putSettings(w http.ResponseWriter, r *http.Request) {
 	var ce *kernel.Error
 	if errors.As(err, &ce) && ce.Kind == kernel.KindConflict {
 		d := settingsDoc(n, rev, true)
-		d.ImageDefaults = a.imageDefaults()
+		d.ImageDefaults = a.ImageDefaults()
 		httpkit.WriteJSON(w, http.StatusConflict, struct {
 			SettingsDoc
 			Error string `json:"error"`
@@ -109,7 +109,7 @@ func (a *Admin) putSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d := settingsDoc(n, rev, true)
-	d.ImageDefaults = a.imageDefaults()
+	d.ImageDefaults = a.ImageDefaults()
 	httpkit.WriteJSON(w, 200, d)
 }
 
