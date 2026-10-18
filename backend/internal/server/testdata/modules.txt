@@ -44,7 +44,6 @@ admin_operator_heartbeat.go shell
 admin_operators.go shell
 admin_telemetry.go shell
 admin_telemetry_intents.go shell
-admin_twin.go shell
 fusion_appinfo.go shell
 fusion_data.go shell
 fusion_extras.go shell

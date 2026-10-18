@@ -31,6 +31,10 @@ func (h *API) fail(w http.ResponseWriter, r *http.Request, err error) {
 // Mount puts the routes on r.
 func (h *API) Mount(r httpkit.Router) {
 	const o = httpkit.OrgPath
+	r.Handle("GET "+o+"/state", httpkit.MemberRole, h.state)
+	r.Handle("GET "+o+"/model", httpkit.MemberRole, h.model)
+	r.Handle("GET "+o+"/workspace", httpkit.MemberRole, h.getWorkspace)
+	r.Handle("PUT "+o+"/workspace", httpkit.EditorRole, h.putWorkspace)
 	r.Handle("GET "+o+"/tokens", httpkit.AdminRole, h.listTokens)
 	r.Handle("POST "+o+"/tokens", httpkit.AdminRole, h.createToken)
 	// Writes the command that changes an installed agent. Pure computation (nothing is stored or issued), so any member may ask.

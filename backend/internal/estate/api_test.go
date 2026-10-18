@@ -22,6 +22,11 @@ func TestTheEstateMountsItsRoutesWithTheRolesTheyAsk(t *testing.T) {
 	got := recordedRoutes{}
 	(&API{}).Mount(got)
 	want := recordedRoutes{
+		// What the page polls and saves: reading is any member's, saving the shared workspace an editor's.
+		"GET /api/v1/orgs/{org}/state":          httpkit.MemberRole,
+		"GET /api/v1/orgs/{org}/model":          httpkit.MemberRole,
+		"GET /api/v1/orgs/{org}/workspace":      httpkit.MemberRole,
+		"PUT /api/v1/orgs/{org}/workspace":      httpkit.EditorRole,
 		"GET /api/v1/orgs/{org}/tokens":         httpkit.AdminRole, // a token is the secret that enrols an agent
 		"POST /api/v1/orgs/{org}/tokens":        httpkit.AdminRole,
 		"DELETE /api/v1/orgs/{org}/tokens/{id}": httpkit.AdminRole,

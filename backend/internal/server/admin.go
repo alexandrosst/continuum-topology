@@ -2,16 +2,12 @@ package server
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -29,7 +25,6 @@ import (
 	"continuum/internal/probe"
 	"continuum/internal/store"
 	"continuum/internal/telemetry"
-	"continuum/internal/workspace"
 )
 
 // Admin is the JSON API the UI talks to. It listens on its own port, separate from the agent
@@ -155,11 +150,6 @@ func (a *Admin) Handler() http.Handler {
 
 	const o = "/api/v1/orgs/{org}"
 	route("GET "+o+"/info", httpkit.MemberRole, a.info)
-
-	route("GET "+o+"/state", httpkit.MemberRole, a.state)
-	route("GET "+o+"/model", httpkit.MemberRole, a.model)
-	route("GET "+o+"/workspace", httpkit.MemberRole, a.getWorkspace)
-	route("PUT "+o+"/workspace", httpkit.EditorRole, a.putWorkspace)
 
 	route("GET "+o+"/settings", httpkit.MemberRole, a.getSettings)
 	route("GET "+o+"/telemetry/self", httpkit.MemberRole, a.selfTelemetry)
@@ -512,74 +502,6 @@ func (a *Admin) serveChart(w http.ResponseWriter, r *http.Request) {
 	w.Write(b)
 }
 
-// ---- workspace ----
-
-// getWorkspace returns the stored document. "?meta=1" returns only the revision, which is what the
-// UI polls to notice that someone else saved.
-func (a *Admin) getWorkspace(w http.ResponseWriter, r *http.Request) {
-	ws, err := a.C.Store.GetWorkspace(r.Context(), a.core(r).OrgID)
-	if err != nil {
-		a.fail(w, err)
-		return
-	}
-	out := map[string]any{"rev": ws.Rev, "updatedAt": rfcNZ(ws.UpdatedAt), "updatedBy": ws.UpdatedBy, "formatVersion": workspace.CurrentVersion}
-	if r.URL.Query().Get("meta") == "" && ws.Rev > 0 {
-		data, note := ws.Data, ws.Note
-		if workspace.Peek(data) < workspace.CurrentVersion {
-			// A document saved before observed facts were held apart from the workspace: shown as it would be saved now.
-			if d, rep, err := workspace.Declare(data); err == nil {
-				data = d
-				if note == "" && rep.Changed() {
-					note = rep.Note()
-				}
-			}
-		}
-		out["data"] = json.RawMessage(data)
-		if note != "" {
-			out["note"] = note
-		}
-	}
-	httpkit.WriteJSON(w, 200, out)
-}
-
-func rfcNZ(t time.Time) string {
-	if t.IsZero() {
-		return ""
-	}
-	return kernel.RFC(t)
-}
-
-// putWorkspace saves the document. The If-Match header carries the revision the client last saw
-// (0 for the first save); a mismatch answers 409 with the current revision so the UI can offer
-// "load theirs" or "overwrite".
-func (a *Admin) putWorkspace(w http.ResponseWriter, r *http.Request) {
-	rev, err := strconv.ParseInt(strings.Trim(r.Header.Get("If-Match"), `"`), 10, 64)
-	if err != nil || rev < 0 {
-		httpkit.WriteErr(w, http.StatusPreconditionRequired, "send the revision you last saw in If-Match")
-		return
-	}
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		httpkit.WriteErr(w, http.StatusRequestEntityTooLarge, "workspace is too large")
-		return
-	}
-	ws, err := a.core(r).Estate.SaveWorkspace(r.Context(), httpkit.Actor(r), rev, body)
-	var e *kernel.Error
-	if errors.As(err, &e) && e.Kind == kernel.KindConflict {
-		httpkit.WriteJSON(w, http.StatusConflict, map[string]any{"error": e.Msg, "rev": ws.Rev, "updatedAt": rfcNZ(ws.UpdatedAt), "updatedBy": ws.UpdatedBy})
-		return
-	}
-	if err != nil {
-		a.fail(w, err)
-		return
-	}
-	out := map[string]any{"rev": ws.Rev, "updatedAt": kernel.RFC(ws.UpdatedAt), "updatedBy": ws.UpdatedBy}
-	if ws.Note != "" {
-		out["note"] = ws.Note
-	}
-	httpkit.WriteJSON(w, 200, out)
-}
-
 func (a *Admin) info(w http.ResponseWriter, r *http.Request) {
 	t := a.tn(r)
 	o, _ := a.C.Store.GetOrg(r.Context(), t.ID)
@@ -593,31 +515,6 @@ func (a *Admin) info(w http.ResponseWriter, r *http.Request) {
 		// field, and the bundled Chart.yaml literal can name an old chart whose values schema rejects what this build
 		// sends (helm: "Additional property ... is not allowed").
 		"install": map[string]any{"chartFile": a.AgentChartFile(), "chartRef": a.AgentRef(img), "chartVersion": a.AgentVersion(), "imagesConfigured": img.Configured(), "imageRegistry": img.Registry, "imageTag": img.Tag, "imageDigest": img.Digest}})
-}
-
-// state is what the UI polls. The audit trail is part of it only for administrators and owners: it names
-// people, and it is what they review; everyone else gets the topology and an empty list.
-func (a *Admin) state(w http.ResponseWriter, r *http.Request) {
-	doc, err := a.tn(r).Hub.StateFor(r.Context(), accounts.Allows(httpkit.Principal(r), accounts.ActAdminister))
-	if err != nil {
-		a.fail(w, err)
-		return
-	}
-	if accounts.Allows(httpkit.Principal(r), accounts.ActEdit) {
-		img := a.images(a.core(r))
-		for i, ag := range doc.Agents {
-			if ag.AccessTier < ag.InstalledTier {
-				cmd, err := a.upgradeCommand(img, ag.AccessTier, ag.Namespace, ag.ReleaseName)
-				if err != nil {
-					a.installConfigError(err) // logged; the agent is shown without the command
-				}
-				doc.Agents[i].HardenHelm = cmd
-			}
-		}
-	} else {
-		withoutDiagnostics(&doc)
-	}
-	httpkit.WriteJSON(w, 200, doc)
 }
 
 // installCommand is the agent's install command for the token's ceiling, with the server's CA pin the agent will verify it against.
