@@ -302,7 +302,7 @@ func TestApplySyncReportsDriftOnlyForLaterFullPictures(t *testing.T) {
 	a, _ := r.st.GetAgent(r.ctx, id)
 	a.AccessTier = 2
 	r.hub.mu.Lock()
-	r.hub.views[id] = &view{state: facts.New()}
+	r.hub.views[id] = &view{estView: estView{state: facts.New()}}
 	r.hub.mu.Unlock()
 
 	n1 := &continuumv1.NodeFacts{Key: "n1", Name: "n1"}
@@ -420,8 +420,7 @@ func TestNoteMeasurementsAcceptsOnlyIssuedTargetsAndSaneNumbers(t *testing.T) {
 	r := newHubRig(t)
 	id, _, _ := r.approvedAgent(t, fp)
 	r.hub.mu.Lock()
-	r.hub.views[id] = &view{state: facts.New(), paths: map[string]*pathTrack{},
-		targets: map[string]issuedTarget{"t1": {ID: "t1", Host: "203.0.113.10", Port: 443, Source: "manual"}}}
+	r.hub.views[id] = &view{estView: estView{state: facts.New()}, netView: netView{paths: map[string]*pathTrack{}, targets: map[string]issuedTarget{"t1": {ID: "t1", Host: "203.0.113.10", Port: 443, Source: "manual"}}}}
 	r.hub.mu.Unlock()
 	r.hub.noteMeasurements(id, &continuumv1.Measurements{Results: []*continuumv1.PathResult{
 		{TargetId: "t1", Samples: 5, Failed: 1, RttMinMs: 10, RttP50Ms: 12, RttP95Ms: 1e12},
@@ -450,7 +449,7 @@ func TestConfigForIssuesManualAndObservedTargetsByTier(t *testing.T) {
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	v := &view{state: facts.New(), flows: newFlowTable(), paths: map[string]*pathTrack{"stale": {}}, targets: map[string]issuedTarget{}}
+	v := &view{estView: estView{state: facts.New(), flows: newFlowTable()}, netView: netView{paths: map[string]*pathTrack{"stale": {}}, targets: map[string]issuedTarget{}}}
 	extEdge(v.flows, "ns/Deployment/a", "198.51.100.10", 443, "tcp", 20, "")
 
 	a.AccessTier = 1 // flows come from pods; tier 1 does not cover them
@@ -474,7 +473,7 @@ func TestConfigForIssuesManualAndObservedTargetsByTier(t *testing.T) {
 	if _, err := r.core.SaveSettings(r.ctx, "alex", kernel.Settings{}); err != nil {
 		t.Fatal(err)
 	}
-	bare := &view{state: facts.New(), flows: newFlowTable(), paths: map[string]*pathTrack{}, targets: map[string]issuedTarget{}}
+	bare := &view{estView: estView{state: facts.New(), flows: newFlowTable()}, netView: netView{paths: map[string]*pathTrack{}, targets: map[string]issuedTarget{}}}
 	if cfg = r.hub.configFor(a, bare); cfg.MeasureSeconds != 0 || len(cfg.ProbeTargets) != 0 {
 		t.Fatalf("empty config = %+v", cfg)
 	}
@@ -546,7 +545,7 @@ func liveView(now time.Time, nodes ...string) *view {
 	for _, n := range nodes {
 		st.Nodes[n] = &continuumv1.NodeFacts{Key: n, Name: n, Ready: true}
 	}
-	return &view{state: st, lastSync: now, lastBeat: now, flows: newFlowTable(), paths: map[string]*pathTrack{}, targets: map[string]issuedTarget{}}
+	return &view{estView: estView{state: st, lastSync: now, lastBeat: now, flows: newFlowTable()}, netView: netView{paths: map[string]*pathTrack{}, targets: map[string]issuedTarget{}}}
 }
 
 func TestRecorderStoresSnapshotsAndEventsOnlyForRealChanges(t *testing.T) {

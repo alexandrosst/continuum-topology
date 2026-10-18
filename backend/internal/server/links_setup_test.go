@@ -330,8 +330,8 @@ func TestWhatAnAgentSaysAboutTheProberIsBounded(t *testing.T) {
 func TestTheHubBuildsTheChecklistFromAgentsAndTheirReports(t *testing.T) {
 	a, b := ag("ag-a", "cl-a", "alpha", "203.0.113.1", 2), ag("ag-b", "cl-b", "beta", "203.0.113.2", 2)
 	h := linkHub(map[string]*view{
-		"ag-a": {state: nodeState("10.0.0.1"), ext: viewExt{linkCaps: caps(without("export"))}},
-		"ag-b": {state: nodeState("10.1.0.1")}, // an agent that never reported
+		"ag-a": {agtView: agtView{ext: viewExt{linkCaps: caps(without("export"))}}, estView: estView{state: nodeState("10.0.0.1")}},
+		"ag-b": {estView: estView{state: nodeState("10.1.0.1")}}, // an agent that never reported
 	})
 	links := []kernel.LinkSetting{{A: "cl-a", B: "cl-b"}, {A: "cl-a", B: "cl-z"}}
 	got := h.linkSetups(links, []store.Agent{a, b}, nil, true, setupNow)

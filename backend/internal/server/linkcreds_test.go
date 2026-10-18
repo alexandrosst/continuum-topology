@@ -57,7 +57,7 @@ func newCredRig(t *testing.T) *credRig {
 			t.Fatal(err)
 		}
 		r.hub.mu.Lock()
-		r.hub.views[a.ID] = &view{state: nodeState("10.0." + strings.TrimPrefix(f[len(f)-2:], "0") + ".1"), flows: newFlowTable(), paths: map[string]*pathTrack{}, targets: map[string]issuedTarget{}}
+		r.hub.views[a.ID] = &view{estView: estView{state: nodeState("10.0." + strings.TrimPrefix(f[len(f)-2:], "0") + ".1"), flows: newFlowTable()}, netView: netView{paths: map[string]*pathTrack{}, targets: map[string]issuedTarget{}}}
 		r.hub.mu.Unlock()
 		ags = append(ags, a)
 	}

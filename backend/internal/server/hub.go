@@ -37,8 +37,18 @@ const (
 	snapshotEvery    = 30 * time.Second
 )
 
-// view is what the server currently knows about one agent's cluster.
+// view is what the server currently knows about one agent's cluster. It is three parts, one for each module that keeps something per
+// agent, and each part is declared with the module that owns it: estView here (what the agent reported about its cluster and the
+// liveness of its stream), agtView (the agent's own account of itself and its health) and netView (the paths, addresses and config
+// the agent is told). Nothing is a field of the view itself, so a use of one is a use of the module that owns it.
 type view struct {
+	estView
+	agtView
+	netView
+}
+
+// estView is what the hub holds of what an agent reported about its cluster, and of the liveness of its stream.
+type estView struct {
 	state     *facts.State
 	lastSync  time.Time
 	lastBeat  time.Time
@@ -72,59 +82,14 @@ type view struct {
 	// linkSat/snatExhaustion above, and for the same reason.
 	thermalThrottle map[string]*continuumv1.ThermalThrottle
 
-	// Measured network paths, keyed by the target id the server issued for them.
-	paths   map[string]*pathTrack
-	targets map[string]issuedTarget
-	// addrTests are the addresses an administrator asked this agent to try (see address_reach.go), keyed by test id.
-	addrTests map[string]*addressTest
-	// reach is the last result of testing each address from this cluster, kept after the test itself has expired so the
-	// senders list can show it (see address_drift.go). Keyed by address, bounded.
-	reach map[string]*addrReach
-	// cfgHash identifies the last Config pushed on the stream, so a new one is sent only when it differs.
-	cfgHash string
-	// cfgSentAt is when a Config was last put on the stream, and cfgApplied the digest the agent last said is in force (empty: it
-	// has not said, as an older agent never does). A heartbeat whose digest is not cfgHash, some time after cfgSentAt, means the
-	// Config did not arrive or was not applied, and it is sent again (see noteConfigEcho).
-	cfgSentAt  time.Time
-	cfgApplied string
-	// cfgInForceAt is when the agent first named the Config now held as sent (zero until it does).
-	cfgInForceAt time.Time
-	// pushMu serializes the building and queueing of this agent's Configs, so they are queued in the order they were read.
-	pushMu sync.Mutex
-
-	// What this agent has sent since the server started (lost on restart; not history, only a gauge of the link).
-	link linkStats
-
-	// self is this agent's own self-telemetry history (SelfStats off every heartbeat that carried one),
-	// a short fixed-window ring - see selfRing's own doc comment. Lost on restart, same as link above.
-	self selfRing[SelfStatsSample]
-
 	// The last consistency check: a full picture compared with what the server held.
 	consAt    time.Time
 	consDrift facts.Drift
 	consCount int
-
-	// The last message refused for being over a limit or malformed, until a later one is accepted. It is
-	// shown with the agent so its operator can see why nothing new arrives; refusalLogged limits how
-	// often the same problem is written to the audit trail and the event list.
-	refusal       string
-	refusalLogged time.Time
-	// implausibleLogged limits how often a report that was accepted but had a physically impossible
-	// value quietly omitted (see boundSyncFacts/boundFlowFacts) is itself warned about - the same
-	// per-agent rate limit refusalLogged above gives a full refusal.
-	implausibleLogged time.Time
-
-	// skewMs is the clock skew the agent last reported (its clock minus the server's); skewKnown says it was reported.
-	skewMs    int64
-	skewKnown bool
-
-	// ext is the agent's account of itself, the overrides pushed to it and the pieces of a picture still arriving.
-	ext viewExt
 }
 
 func newView() *view {
-	return &view{state: facts.New(), flows: newFlowTable(), paths: map[string]*pathTrack{}, targets: map[string]issuedTarget{},
-		self: newSelfRing(selfStatsWindow, func(s SelfStatsSample) time.Time { return s.At })}
+	return &view{agtView: agtView{self: newSelfRing(selfStatsWindow, func(s SelfStatsSample) time.Time { return s.At })}, estView: estView{state: facts.New(), flows: newFlowTable()}, netView: netView{paths: map[string]*pathTrack{}, targets: map[string]issuedTarget{}}}
 }
 
 // linkStats counts what one agent has sent over its stream.

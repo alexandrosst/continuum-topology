@@ -88,3 +88,5 @@ admin_mail.go                   shell
 access_change.go                agents
 agent_load.go                   shell
 admin_decisions.go              shell
+agent_view.go agents
+net_view.go connectivity

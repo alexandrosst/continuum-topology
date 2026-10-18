@@ -132,7 +132,7 @@ func TestRepeatedRefusalsAreRecordedOncePerWindow(t *testing.T) {
 	r.hub.Limits = &facts.Limits{Nodes: 5, Namespaces: 5, Workloads: 5, Bytes: 1 << 20}
 	id, _, _ := r.approvedAgent(t, fp)
 	a, _ := r.st.GetAgent(r.ctx, id)
-	v := &view{state: facts.New()}
+	v := &view{estView: estView{state: facts.New()}}
 	r.hub.mu.Lock()
 	r.hub.views[id] = v
 	r.hub.mu.Unlock()
@@ -160,7 +160,7 @@ func TestUniqueKeyFloodThroughApplySyncStopsAtTheLimit(t *testing.T) {
 	a, _ := r.st.GetAgent(r.ctx, id)
 	a.AccessTier = 2
 	r.hub.mu.Lock()
-	r.hub.views[id] = &view{state: facts.New()}
+	r.hub.views[id] = &view{estView: estView{state: facts.New()}}
 	r.hub.mu.Unlock()
 	refused := 0
 	for i := 0; i < 1000; i++ {
@@ -296,7 +296,7 @@ func TestOversizeSnapshotIsNotPersisted(t *testing.T) {
 	r := newHubRig(t)
 	r.hub.Limits = &facts.Limits{Nodes: 100, Namespaces: 100, Workloads: 100, Bytes: 1 << 10}
 	id, _, _ := r.approvedAgent(t, fp)
-	v := &view{state: facts.New(), dirtyAt: time.Now()}
+	v := &view{estView: estView{state: facts.New(), dirtyAt: time.Now()}}
 	// build a state that is over the cap by going around Check (as a bug or a poisoned store would)
 	v.state.Apply(&continuumv1.Sync{Workloads: []*continuumv1.WorkloadFacts{{Key: "w", Labels: map[string]string{"a": strings.Repeat("z", 1000)}}}, Nodes: nodes("n", 1)})
 	for i := 0; i < 30; i++ {

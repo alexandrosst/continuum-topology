@@ -1,6 +1,10 @@
 # Every place one module uses something declared in another, as "using module > declaring module", then what is used.
 # Not listed: any module using the kernel, and the shell using any module (see modules_test.go). The list may only get shorter.
 # Regenerate on purpose with: go test ./internal/server -run TestModule -update
+agents > connectivity	field netView.cfgApplied
+agents > connectivity	field netView.cfgHash
+agents > connectivity	field netView.cfgInForceAt
+agents > connectivity	field netView.cfgSentAt
 agents > connectivity	method Hub.AddressTests
 agents > connectivity	method Hub.StartAddressTests
 agents > connectivity	method Hub.pushOne
@@ -25,6 +29,10 @@ agents > estate	field ScopeDoc.InScope
 agents > estate	field ScopeDoc.Total
 agents > estate	field StateDoc.Agents
 agents > estate	field StateDoc.Topology
+agents > estate	field estView.connected
+agents > estate	field estView.dirtyAt
+agents > estate	field estView.lastSync
+agents > estate	field estView.state
 agents > estate	field flowTable.edges
 agents > estate	field linkStats.bytes
 agents > estate	field linkStats.connects
@@ -35,17 +43,6 @@ agents > estate	field observedCluster.name
 agents > estate	field observedCluster.state
 agents > estate	field twinRT.cacheHits
 agents > estate	field twinRT.cacheMisses
-agents > estate	field view.cfgApplied
-agents > estate	field view.cfgHash
-agents > estate	field view.cfgInForceAt
-agents > estate	field view.cfgSentAt
-agents > estate	field view.connected
-agents > estate	field view.dirtyAt
-agents > estate	field view.ext
-agents > estate	field view.lastSync
-agents > estate	field view.link
-agents > estate	field view.self
-agents > estate	field view.state
 agents > estate	func bg
 agents > estate	func buildAddrIndex
 agents > estate	func newView
@@ -56,6 +53,7 @@ agents > estate	type Hub
 agents > estate	type ScopeDoc
 agents > estate	type StateDoc
 agents > estate	type eventLinker
+agents > estate	type linkStats
 agents > estate	type observedCluster
 agents > estate	type view
 agents > shell	field Tenant.Hub
@@ -74,6 +72,7 @@ agents > shell	method Admin.tn
 agents > shell	type Admin
 connectivity > agents	field Consent.Excluded
 connectivity > agents	field Consent.Paused
+connectivity > agents	field agtView.ext
 connectivity > agents	field viewExt.diag
 connectivity > agents	field viewExt.linkCaps
 connectivity > agents	method Consent.has
@@ -89,21 +88,11 @@ connectivity > estate	field Hub.views
 connectivity > estate	field addrIndex.egress
 connectivity > estate	field addrIndex.nodeIPs
 connectivity > estate	field addrIndex.reach
+connectivity > estate	field estView.flows
+connectivity > estate	field estView.state
 connectivity > estate	field flowTable.edges
 connectivity > estate	field session.push
 connectivity > estate	field target.cluster
-connectivity > estate	field view.addrTests
-connectivity > estate	field view.cfgApplied
-connectivity > estate	field view.cfgHash
-connectivity > estate	field view.cfgInForceAt
-connectivity > estate	field view.cfgSentAt
-connectivity > estate	field view.ext
-connectivity > estate	field view.flows
-connectivity > estate	field view.paths
-connectivity > estate	field view.pushMu
-connectivity > estate	field view.reach
-connectivity > estate	field view.state
-connectivity > estate	field view.targets
 connectivity > estate	func bg
 connectivity > estate	func buildAddrIndex
 connectivity > estate	func linkPeerAddresses
@@ -145,6 +134,14 @@ estate > agents	field SelfStatsSample.At
 estate > agents	field SelfStatsSample.Goroutines
 estate > agents	field SelfStatsSample.RSSBytes
 estate > agents	field ServerSelfStatsSample.At
+estate > agents	field agtView.ext
+estate > agents	field agtView.implausibleLogged
+estate > agents	field agtView.link
+estate > agents	field agtView.refusal
+estate > agents	field agtView.refusalLogged
+estate > agents	field agtView.self
+estate > agents	field agtView.skewKnown
+estate > agents	field agtView.skewMs
 estate > agents	field viewExt.caps
 estate > agents	field viewExt.namespace
 estate > agents	field viewExt.protocol
@@ -186,13 +183,18 @@ estate > agents	type Geo
 estate > agents	type HistoricAgent
 estate > agents	type SelfStatsSample
 estate > agents	type ServerSelfStatsSample
+estate > agents	type agtView
 estate > agents	type flowIngest
 estate > agents	type hubAccess
 estate > agents	type selfRing
-estate > agents	type viewExt
 estate > agents	var selfStatsSampleEvery
 estate > agents	var selfStatsWindow
 estate > connectivity	const driftTick
+estate > connectivity	field netView.cfgApplied
+estate > connectivity	field netView.cfgInForceAt
+estate > connectivity	field netView.cfgSentAt
+estate > connectivity	field netView.paths
+estate > connectivity	field netView.targets
 estate > connectivity	func correlateClusterLinks
 estate > connectivity	func correlateClusterPairConnectivity
 estate > connectivity	func correlateTunnels
@@ -205,9 +207,8 @@ estate > connectivity	method Hub.pathDocs
 estate > connectivity	method Hub.pushConfigs
 estate > connectivity	method Hub.pushOne
 estate > connectivity	method Hub.settingsChanged
-estate > connectivity	type addrReach
-estate > connectivity	type addressTest
 estate > connectivity	type issuedTarget
+estate > connectivity	type netView
 estate > connectivity	type pathTrack
 estate > shell	field Admin.C
 estate > shell	field Admin.Version

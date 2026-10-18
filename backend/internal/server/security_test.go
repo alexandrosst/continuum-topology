@@ -294,7 +294,7 @@ func TestTierZeroDropsClassListsToo(t *testing.T) {
 	a, _ := r.st.GetAgent(r.ctx, id)
 	a.AccessTier = 0
 	r.hub.mu.Lock()
-	r.hub.views[id] = &view{state: facts.New()}
+	r.hub.views[id] = &view{estView: estView{state: facts.New()}}
 	r.hub.mu.Unlock()
 	r.hub.applySync(a, &continuumv1.Sync{Full: true,
 		Cluster: &continuumv1.ClusterFacts{Uid: fp, StorageClasses: []string{"gp3"}, IngressClasses: []string{"nginx"}},
@@ -313,7 +313,7 @@ func TestTierOneDropsPodDerivedNodeFigures(t *testing.T) {
 	a, _ := r.st.GetAgent(r.ctx, id)
 	a.AccessTier = 1
 	r.hub.mu.Lock()
-	r.hub.views[id] = &view{state: facts.New()}
+	r.hub.views[id] = &view{estView: estView{state: facts.New()}}
 	r.hub.mu.Unlock()
 	cnt := int32(12)
 	r.hub.applySync(a, &continuumv1.Sync{Full: true,
