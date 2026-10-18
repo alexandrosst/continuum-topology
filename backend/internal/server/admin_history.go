@@ -490,7 +490,7 @@ func (a *Admin) listEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]eventDoc, len(evs))
 	for i, e := range evs {
-		out[i] = eventDoc{ID: "ev-" + itoa(e.ID), At: kernel.RFC(e.At), Kind: e.Kind, TargetKind: e.TargetKind, TargetID: e.TargetID, Name: e.Name, ClusterID: e.ClusterID,
+		out[i] = eventDoc{ID: "ev-" + strconv.FormatInt(e.ID, 10), At: kernel.RFC(e.At), Kind: e.Kind, TargetKind: e.TargetKind, TargetID: e.TargetID, Name: e.Name, ClusterID: e.ClusterID,
 			ClusterName: e.ClusterName, Detail: e.Detail, Cause: e.Cause, Severity: e.Severity}
 	}
 	writeJSON(w, 200, map[string]any{"events": out})

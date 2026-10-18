@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	continuumv1 "continuum/gen/continuumv1"
+	"continuum/internal/facts"
 	"continuum/internal/install"
 	"continuum/internal/kernel"
 	"continuum/internal/operators"
@@ -179,20 +180,23 @@ func (h *Hub) hostWhere(ctx context.Context, match func(*continuumv1.WorkloadFac
 	if err != nil {
 		return operatorHost{}, false
 	}
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	for _, a := range agentList {
-		v := h.views[a.ID]
-		if a.Status != store.StatusApproved || v == nil || v.state == nil {
-			continue
-		}
-		for _, w := range v.state.Workloads {
-			if match(w) {
-				return clusterHost(a, v, w), true
+	var out operatorHost
+	found := false
+	h.ReadStates(func(states map[string]*facts.State) {
+		for _, a := range agentList {
+			st := states[a.ID]
+			if a.Status != store.StatusApproved || st == nil {
+				continue
+			}
+			for _, w := range st.Workloads {
+				if match(w) {
+					out, found = clusterHost(a, st, w), true
+					return
+				}
 			}
 		}
-	}
-	return operatorHost{}, false
+	})
+	return out, found
 }
 
 // clusterHost finds a cluster by its id. It is found whenever an approved agent is registered there, even one that has
@@ -203,30 +207,31 @@ func (h *Hub) clusterHost(ctx context.Context, clusterID string, match func(*con
 	if err != nil {
 		return operatorHost{}, false
 	}
-	h.mu.Lock()
-	defer h.mu.Unlock()
 	var out operatorHost
 	found := false
-	for _, a := range agentList {
-		if a.Status != store.StatusApproved || a.ClusterID != clusterID {
-			continue
-		}
-		v := h.views[a.ID]
-		if v == nil || v.state == nil {
-			if !found {
-				out, found = operatorHost{ClusterID: a.ClusterID, ClusterName: a.Name}, true
+	h.ReadStates(func(states map[string]*facts.State) {
+		for _, a := range agentList {
+			if a.Status != store.StatusApproved || a.ClusterID != clusterID {
+				continue
 			}
-			continue
-		}
-		var wl *continuumv1.WorkloadFacts
-		for _, w := range v.state.Workloads {
-			if match != nil && match(w) {
-				wl = w
-				break
+			st := states[a.ID]
+			if st == nil {
+				if !found {
+					out, found = operatorHost{ClusterID: a.ClusterID, ClusterName: a.Name}, true
+				}
+				continue
 			}
+			var wl *continuumv1.WorkloadFacts
+			for _, w := range st.Workloads {
+				if match != nil && match(w) {
+					wl = w
+					break
+				}
+			}
+			out, found = clusterHost(a, st, wl), true
+			return
 		}
-		return clusterHost(a, v, wl), true
-	}
+	})
 	return out, found
 }
 
@@ -276,35 +281,37 @@ func (h *Hub) nodeHost(ctx context.Context, ip string) (operatorHost, bool) {
 	if err != nil {
 		return operatorHost{}, false
 	}
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	for _, a := range agentList {
-		v := h.views[a.ID]
-		if a.Status != store.StatusApproved || v == nil || v.state == nil {
-			continue
-		}
-		for _, n := range v.state.Nodes {
-			found := has(n.InternalIps) || has(n.ExternalIps)
-			if !found && n.Probe != nil {
-				for _, ha := range n.Probe.HostAddresses {
-					if p, err := netip.ParsePrefix(ha.Address); err == nil && p.Addr() == want {
-						found = true
+	var out operatorHost
+	found := false
+	h.ReadStates(func(states map[string]*facts.State) {
+		for _, a := range agentList {
+			st := states[a.ID]
+			if a.Status != store.StatusApproved || st == nil {
+				continue
+			}
+			for _, n := range st.Nodes {
+				owns := has(n.InternalIps) || has(n.ExternalIps)
+				if !owns && n.Probe != nil {
+					for _, ha := range n.Probe.HostAddresses {
+						if p, err := netip.ParsePrefix(ha.Address); err == nil && p.Addr() == want {
+							owns = true
+						}
 					}
 				}
-			}
-			if found {
-				host := clusterHost(a, v, nil)
-				host.Reachable, host.PodNodes = nil, nil
-				return host, true
+				if owns {
+					out, found = clusterHost(a, st, nil), true
+					out.Reachable, out.PodNodes = nil, nil
+					return
+				}
 			}
 		}
-	}
-	return operatorHost{}, false
+	})
+	return out, found
 }
 
 // clusterHost describes the cluster of an agent's view, with what the agent says about the workload w (nil when it is not
 // known). The caller holds the hub's lock.
-func clusterHost(a store.Agent, v *view, w *continuumv1.WorkloadFacts) operatorHost {
+func clusterHost(a store.Agent, st *facts.State, w *continuumv1.WorkloadFacts) operatorHost {
 	host := operatorHost{ClusterID: a.ClusterID, ClusterName: a.Name}
 	if w != nil {
 		host.PodNodes = append([]string(nil), w.NodeNames...)
@@ -312,7 +319,7 @@ func clusterHost(a store.Agent, v *view, w *continuumv1.WorkloadFacts) operatorH
 			host.Reachable = append(host.Reachable, reachableAddr{IP: r.Ip, Port: r.Port, Kind: r.Kind})
 		}
 	}
-	for _, n := range v.state.Nodes {
+	for _, n := range st.Nodes {
 		hn := hostNode{Name: n.Name, Ready: n.Ready, Internal: append([]string(nil), n.InternalIps...), External: append([]string(nil), n.ExternalIps...), PodCIDRs: append([]string(nil), n.PodCidrs...)}
 		if n.Probe != nil {
 			for _, ha := range n.Probe.HostAddresses {
@@ -326,7 +333,7 @@ func clusterHost(a store.Agent, v *view, w *continuumv1.WorkloadFacts) operatorH
 		}
 		host.Nodes = append(host.Nodes, hn)
 	}
-	host.Providers = providersIn(v.state.Workloads)
+	host.Providers = providersIn(st.Workloads)
 	return host
 }
 

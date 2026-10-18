@@ -186,7 +186,7 @@ func appGroups(data []byte, doc StateDoc) []fusionapi.AppGroup {
 		}
 	}
 	str := func(r map[string]any, k string) string { v, _ := r[k].(string); return v }
-	apps := workspace.Applications(d, hintsOf(doc))
+	apps := workspace.Applications(d, HintsOf(doc))
 	out := make([]fusionapi.AppGroup, 0, len(apps))
 	for _, a := range apps {
 		g := fusionapi.AppGroup{ID: a.ID, Name: a.Name, Description: a.Description, Origin: a.Origin, Confidence: a.Confidence, Members: []fusionapi.AppMember{}}

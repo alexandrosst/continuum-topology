@@ -86,7 +86,7 @@ func TestTheServerRetestsASendersAddressOnItsOwnAndKeepsTheResult(t *testing.T) 
 
 	// The agent reports that nothing answered: the result is kept and the senders list says so.
 	h.noteMeasurements(agentID, &continuumv1.Measurements{Results: []*continuumv1.PathResult{{TargetId: q["10.20.0.14:31317"], Samples: 5, Failed: 5}}})
-	if r := h.reachOf(agentID, "10.20.0.14:31317", a.h2now(t)); r == nil || r.State != "unreachable" {
+	if r := h.ReachOf(agentID, "10.20.0.14:31317", a.h2now(t)); r == nil || r.State != "unreachable" {
 		t.Fatalf("reach: %+v", r)
 	}
 	senders := a.do("GET", "/api/v1/operators/"+opID+"/senders", nil, withCookie(cookie)).json(t)["senders"].([]any)
@@ -111,7 +111,7 @@ func TestTheServerRetestsASendersAddressOnItsOwnAndKeepsTheResult(t *testing.T) 
 		t.Fatalf("an old result was not refreshed: %v", q2)
 	}
 	*a.now = a.now.Add(2 * connectivity.ReachFresh)
-	if r := h.reachOf(agentID, "10.20.0.14:31317", *a.now); r != nil {
+	if r := h.ReachOf(agentID, "10.20.0.14:31317", *a.now); r != nil {
 		t.Fatalf("a result from hours ago is shown as current: %+v", r)
 	}
 }

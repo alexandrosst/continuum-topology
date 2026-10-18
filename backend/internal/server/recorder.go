@@ -63,12 +63,12 @@ func (h *Hub) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-cfg.C:
-			h.pushConfigs()
+			h.PushConfigs()
 			h.C.Loop.RecordOutcomes(ctx)
 			h.C.Agents.ExpirePending(ctx, h.C.OrgID)
 		case <-t.C:
 			h.rec.tick(ctx)
-			h.twinTick(ctx)
+			h.Flush(ctx)
 		case <-self.C:
 			h.sampleSelfStats(h.C.Now())
 		case <-drift.C:

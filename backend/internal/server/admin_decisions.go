@@ -111,7 +111,7 @@ func (a *Admin) listDecisions(w http.ResponseWriter, r *http.Request) {
 	out := make([]decisionLogDoc, len(ds))
 	for i, d := range ds {
 		out[i] = decisionLogDoc{
-			ID: "dec-" + itoa(d.ID), At: kernel.RFC(d.At), RecordedBy: d.RecordedBy,
+			ID: "dec-" + strconv.FormatInt(d.ID, 10), At: kernel.RFC(d.At), RecordedBy: d.RecordedBy,
 			DeciderID: d.DeciderID, DeciderName: d.DeciderName, DeciderKind: d.DeciderKind,
 			ServiceID: d.ServiceID, ServiceName: d.ServiceName, From: d.FromCluster, To: d.ToCluster,
 			Reason: d.Reason, Benefit: d.Benefit, Confidence: d.Confidence, Verdict: d.Verdict,

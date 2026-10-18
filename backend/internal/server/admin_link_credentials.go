@@ -52,7 +52,7 @@ func (a *Admin) rotateLinkCredentials(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	go a.tn(r).Hub.pushConfigs()
+	go a.tn(r).Hub.PushConfigs()
 	writeJSON(w, 200, map[string]any{"rotated": true})
 }
 

@@ -73,7 +73,7 @@ func TestTheLastConfigPushedToAnAgentIsTheCurrentOne(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("the first push never read the agent")
 	}
-	if err := hold.Store.SetAccessTier(bg(), agentID, 2); err != nil {
+	if err := hold.Store.SetAccessTier(context.Background(), agentID, 2); err != nil {
 		t.Fatal(err)
 	}
 	second := make(chan struct{})

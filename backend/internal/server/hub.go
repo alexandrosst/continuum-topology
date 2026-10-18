@@ -9,6 +9,7 @@ import (
 	"net/netip"
 	"runtime/debug"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -155,9 +156,43 @@ func NewHub(c *Core) *Hub {
 		if err != nil {
 			return nil
 		}
-		return hintsOf(doc)
+		return HintsOf(doc)
 	}
 	return h
+}
+
+// DropAll ends every live stream, telling the agents to stop for good.
+func (h *Hub) DropAll(reason string) {
+	h.mu.Lock()
+	ss := make([]*session, 0, len(h.sessions))
+	for _, s := range h.sessions {
+		ss = append(ss, s)
+	}
+	h.mu.Unlock()
+	for _, s := range ss {
+		s.cancel(endReason{reason, true})
+	}
+}
+
+// ReadStates runs fn with what each agent last reported, by agent id, while it holds the Hub's lock, for a caller outside
+// the Hub that wants to copy something out of it. fn must not keep the map or a state, and must not call the Hub.
+func (h *Hub) ReadStates(fn func(states map[string]*facts.State)) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	states := make(map[string]*facts.State, len(h.views))
+	for id, v := range h.views {
+		if v.state != nil {
+			states[id] = v.state
+		}
+	}
+	fn(states)
+}
+
+// Connected is how many agents have a live stream.
+func (h *Hub) Connected() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return len(h.sessions)
 }
 
 // Drop ends a live stream immediately (revocation).
@@ -1169,7 +1204,7 @@ func (h *Hub) finishState(agentDocs []AgentDoc, topology model.Topology, tombsto
 	doc.AuditLog = make([]AuditDoc, 0, len(auditEvents))
 	for i := len(auditEvents) - 1; i >= 0; i-- {
 		e := auditEvents[i]
-		doc.AuditLog = append(doc.AuditLog, AuditDoc{ID: "au-" + itoa(e.ID), OrgID: e.OrgID, At: kernel.RFC(e.At), Actor: e.Actor, Action: e.Action, TargetKind: e.TargetKind, TargetID: e.TargetID, Detail: e.Detail})
+		doc.AuditLog = append(doc.AuditLog, AuditDoc{ID: "au-" + strconv.FormatInt(e.ID, 10), OrgID: e.OrgID, At: kernel.RFC(e.At), Actor: e.Actor, Action: e.Action, TargetKind: e.TargetKind, TargetID: e.TargetID, Detail: e.Detail})
 	}
 	if after != nil {
 		after(&doc, eb)
@@ -1380,18 +1415,4 @@ func publicIP(ip string) string {
 		return ""
 	}
 	return a.String()
-}
-
-func itoa(n int64) string {
-	if n == 0 {
-		return "0"
-	}
-	var b [20]byte
-	i := len(b)
-	for n > 0 {
-		i--
-		b[i] = byte('0' + n%10)
-		n /= 10
-	}
-	return string(b[i:])
 }

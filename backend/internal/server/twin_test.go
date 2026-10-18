@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -215,7 +216,7 @@ func TestADeletedWorkloadBecomesATombstoneAndComesBack(t *testing.T) {
 		t.Fatalf("the model must show the deleted workload as gone: %+v", g)
 	}
 	// It survives a restart.
-	h.twinTick(r.ctx)
+	h.Flush(r.ctx)
 	if list, _ := r.st.ListTombstones(r.ctx, "org-1"); len(list) != 1 {
 		t.Fatalf("persisted tombstones: %+v", list)
 	}
@@ -237,7 +238,7 @@ func TestADeletedWorkloadBecomesATombstoneAndComesBack(t *testing.T) {
 	if len(doc.Tombstones) != 0 || len(doc.Topology.Services) != 2 {
 		t.Fatalf("after it came back: %+v", doc.Tombstones)
 	}
-	h.twinTick(r.ctx)
+	h.Flush(r.ctx)
 	if list, _ := r.st.ListTombstones(r.ctx, "org-1"); len(list) != 0 {
 		t.Fatalf("the persisted tombstone was not removed: %+v", list)
 	}
@@ -250,7 +251,7 @@ func TestADeletedWorkloadBecomesATombstoneAndComesBack(t *testing.T) {
 	if doc, _ = h.State(r.ctx); len(doc.Tombstones) != 0 {
 		t.Fatalf("retention not applied: %+v", doc.Tombstones)
 	}
-	h.twinTick(r.ctx)
+	h.Flush(r.ctx)
 	if list, _ := r.st.ListTombstones(r.ctx, "org-1"); len(list) != 0 {
 		t.Fatalf("expired tombstones were not swept from the store: %+v", list)
 	}
@@ -305,7 +306,7 @@ func TestRenamedNodeKeepsItsIdAndReplacedNodeGetsANewOne(t *testing.T) {
 		t.Fatalf("a replaced node inherited the old id: %s", idOf("worker-1"))
 	}
 	// The registry survives a restart: the rename is still one machine.
-	h.twinTick(r.ctx)
+	h.Flush(r.ctx)
 	h2 := NewHub(h.C)
 	h2.Restore(r.ctx)
 	doc2, _ := h2.StateFor(r.ctx, false)
@@ -445,7 +446,7 @@ func TestStateForTopologyCacheHitMissAndTTL(t *testing.T) {
 	// up in StateFor(ctx, true)'s AuditLog every time, cache hit or not.
 	auditedOnce := func() {
 		auditFetches++
-		if err := r.core.Audited(r.ctx, "tester", "note", "agent", a.ID, "looked at "+itoa(int64(auditFetches)), func() error { return nil }); err != nil {
+		if err := r.core.Audited(r.ctx, "tester", "note", "agent", a.ID, "looked at "+strconv.Itoa(auditFetches), func() error { return nil }); err != nil {
 			t.Fatalf("audited: %v", err)
 		}
 	}

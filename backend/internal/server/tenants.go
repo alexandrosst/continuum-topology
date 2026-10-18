@@ -101,7 +101,7 @@ func (p *Platform) FlushAll(ctx context.Context) {
 	}
 	p.mu.Unlock()
 	for _, h := range hubs {
-		h.twinTick(ctx)
+		h.Flush(ctx)
 	}
 }
 
@@ -128,17 +128,4 @@ func (p *Platform) Connect(stream continuumv1.AgentService_ConnectServer) error 
 		return status.Error(codes.Unauthenticated, "agent is not approved")
 	}
 	return t.Hub.Connect(stream)
-}
-
-// DropAll ends every live stream, telling the agents to stop for good.
-func (h *Hub) DropAll(reason string) {
-	h.mu.Lock()
-	ss := make([]*session, 0, len(h.sessions))
-	for _, s := range h.sessions {
-		ss = append(ss, s)
-	}
-	h.mu.Unlock()
-	for _, s := range ss {
-		s.cancel(endReason{reason, true})
-	}
 }

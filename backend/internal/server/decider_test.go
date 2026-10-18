@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -363,7 +364,7 @@ func TestDeciderDNSRebindingIsStoppedAtDialTime(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { hits.Add(1); _, _ = w.Write([]byte("internal")) }))
 	defer srv.Close()
 	port := srv.Listener.Addr().(*net.TCPAddr).Port
-	u := "http://decider.rebind.test.:" + itoa(int64(port)) + "/x"
+	u := "http://decider.rebind.test.:" + strconv.Itoa(port) + "/x"
 
 	// At save time the name points at a public address: accepted.
 	if err := p.CheckURL(context.Background(), u); err != nil {

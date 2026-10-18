@@ -218,7 +218,7 @@ func doctorQueries(t *testing.T) {
 			"refs":{"sv-ref":{"kind":"service","applicationId":"app-1"}},
 			"services":[{"id":"sv-inline","source":"manual","applicationId":"app-1","name":"inline"}]}`)
 		groups := appGroups(ws, doc)
-		apps, err := applicationsIn(ws, hintsOf(doc))
+		apps, err := applicationsIn(ws, HintsOf(doc))
 		if err != nil || len(apps) != 1 || len(groups) != 1 {
 			t.Fatalf("apps %v groups %v err %v", apps, groups, err)
 		}

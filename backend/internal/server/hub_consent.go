@@ -372,6 +372,20 @@ func (v *view) consentDoc() *agents.ConsentDoc {
 	return out
 }
 
+// ExportHealthOf is whether the agent is connected and what it reports about its exporters.
+func (h *Hub) ExportHealthOf(agentID string) (bool, *agents.ExportHealthDoc) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	v := h.views[agentID]
+	if v == nil {
+		return false, nil
+	}
+	if d := v.diagDoc(); d != nil {
+		return v.connected, d.ExportHealth
+	}
+	return v.connected, nil
+}
+
 // diagDoc turns the stored message into its document. Every string is cut to a sensible length: it came from the agent.
 // Callers already gate this to editors/administrators before calling it (see DiagnosticsDoc's own doc comment) - there
 // is no further, per-tier redaction here, so it takes no tier of its own.

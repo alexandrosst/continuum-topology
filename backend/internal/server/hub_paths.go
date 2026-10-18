@@ -76,8 +76,8 @@ func (h *Hub) configForChecked(a store.Agent, v *view) (*continuumv1.Config, boo
 	return cfg, complete
 }
 
-// pushConfigs sends a fresh Config to every live stream whose configuration changed.
-func (h *Hub) pushConfigs() {
+// PushConfigs sends a fresh Config to every live stream whose configuration changed.
+func (h *Hub) PushConfigs() {
 	h.mu.Lock()
 	ids := make([]string, 0, len(h.sessions))
 	for id := range h.sessions {
@@ -142,7 +142,7 @@ func (h *Hub) pushOne(id string) {
 func (h *Hub) settingsChanged(kernel.Settings) {
 	go func() {
 		h.syncLinkCredentials() // make what new pairs need and drop what is no longer needed, before the Configs are built
-		h.pushConfigs()
+		h.PushConfigs()
 	}()
 }
 

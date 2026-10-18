@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -387,7 +388,7 @@ func TestDeriveTargetsPicksBusiestSafeTCPDestinations(t *testing.T) {
 	}
 	big := observed.NewFlowTable()
 	for i := 0; i < 40; i++ {
-		extEdge(big, w, "198.51.100."+itoa(int64(i+1)), 443, "tcp", uint64(i+1), "")
+		extEdge(big, w, "198.51.100."+strconv.Itoa(i+1), 443, "tcp", uint64(i+1), "")
 	}
 	if n := len(connectivity.DeriveTargets(big)); n != connectivity.MaxObservedTargets {
 		t.Fatalf("%d targets, want %d", n, connectivity.MaxObservedTargets)

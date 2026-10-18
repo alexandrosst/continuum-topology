@@ -194,7 +194,7 @@ func (c *Core) linkApplications(ctx context.Context, now time.Time, doc StateDoc
 	if err != nil {
 		return
 	}
-	if apps, err := applicationsIn(ws.Data, hintsOf(doc)); err == nil {
+	if apps, err := applicationsIn(ws.Data, HintsOf(doc)); err == nil {
 		c.linkApplicationMembers(ctx, now, apps)
 	}
 }
@@ -298,10 +298,10 @@ func orDash(s string) string {
 	return s
 }
 
-// hintsOf is what the labels of the discovered services suggest, by service id: the application each belongs to once a
+// HintsOf is what the labels of the discovered services suggest, by service id: the application each belongs to once a
 // person has accepted that grouping, i.e. the application exists (workspace.Applications decides). Ikhnos does not store
 // this as a membership (the suggestion is the membership), so it is read from the topology the same way the UI reads it.
-func hintsOf(doc StateDoc) map[string]string {
+func HintsOf(doc StateDoc) map[string]string {
 	hints := map[string]string{}
 	for _, s := range doc.Topology.Services {
 		if s.ApplicationHint != "" {

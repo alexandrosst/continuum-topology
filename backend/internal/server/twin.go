@@ -282,8 +282,8 @@ func (h *Hub) Tombstones(ctx context.Context) []store.Tombstone {
 	return h.tw.tombs.List(h.C.Now())
 }
 
-// twinTick persists what changed in the registry and the tombstones and drops tombstones past retention.
-func (h *Hub) twinTick(ctx context.Context) {
+// Flush persists what changed in the registry and the tombstones and drops tombstones past retention.
+func (h *Hub) Flush(ctx context.Context) {
 	tw := h.tw
 	tw.mu.Lock()
 	loaded := tw.loaded

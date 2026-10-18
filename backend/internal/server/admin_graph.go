@@ -206,7 +206,7 @@ func (a *Admin) timeline(w http.ResponseWriter, r *http.Request) {
 	}
 	evs := make([]eventDoc, len(tl.Events))
 	for i, e := range tl.Events {
-		evs[i] = eventDoc{ID: "ev-" + itoa(e.ID), At: kernel.RFC(e.At), Kind: e.Kind, TargetKind: e.TargetKind, TargetID: e.TargetID, Name: e.Name, ClusterID: e.ClusterID,
+		evs[i] = eventDoc{ID: "ev-" + strconv.FormatInt(e.ID, 10), At: kernel.RFC(e.At), Kind: e.Kind, TargetKind: e.TargetKind, TargetID: e.TargetID, Name: e.Name, ClusterID: e.ClusterID,
 			ClusterName: e.ClusterName, Detail: e.Detail, Cause: e.Cause, Severity: e.Severity}
 	}
 	audit := tl.Audit

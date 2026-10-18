@@ -39,9 +39,7 @@ func (p *Platform) AgentCounts(ctx context.Context) (map[string]int, int, error)
 	connected := 0
 	p.mu.Lock()
 	for _, t := range p.tenants {
-		t.Hub.mu.Lock()
-		connected += len(t.Hub.sessions)
-		t.Hub.mu.Unlock()
+		connected += t.Hub.Connected()
 	}
 	p.mu.Unlock()
 	return out, connected, nil

@@ -188,8 +188,8 @@ func (h *Hub) AddressTests(ctx context.Context, agentID string) ([]connectivity.
 	return out, nil
 }
 
-// reachOf is the last test of an address from this agent's cluster, when it is recent enough to be a statement about now.
-func (h *Hub) reachOf(agentID, address string, now time.Time) *connectivity.AddressReachDoc {
+// ReachOf is the last test of an address from this agent's cluster, when it is recent enough to be a statement about now.
+func (h *Hub) ReachOf(agentID, address string, now time.Time) *connectivity.AddressReachDoc {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	v := h.views[agentID]

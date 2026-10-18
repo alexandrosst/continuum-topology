@@ -366,12 +366,12 @@ func (a *Admin) listOperatorSenders(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		for i := range addrs {
-			addrs[i].Reach = hub.reachOf(ti.AgentID, addrs[i].Address, now)
+			addrs[i].Reach = hub.ReachOf(ti.AgentID, addrs[i].Address, now)
 		}
 		ag := agentOf[ti.AgentID]
 		d := SenderDoc{IntentID: ti.ID, IntentName: ti.Name, AgentID: ti.AgentID, AgentName: ag.Name, ClusterID: ag.ClusterID, Addresses: addrs}
 		var export *agents.ExportHealthDoc
-		d.Connected, export = hub.exportHealthOf(ti.AgentID)
+		d.Connected, export = hub.ExportHealthOf(ti.AgentID)
 		d.Delivery = senderDelivery(export, mods)
 		ps = append(ps, pending{d, mods})
 	}
@@ -404,18 +404,4 @@ func (a *Admin) sendersHealth(r *http.Request, op store.Operator, now time.Time)
 	h := operators.CentralHealth(fusion.Managed())
 	h.LastSeenAt = fusion.LastDataAt
 	return h
-}
-
-// exportHealthOf is whether the agent is connected and what it reports about its exporters.
-func (h *Hub) exportHealthOf(agentID string) (bool, *agents.ExportHealthDoc) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	v := h.views[agentID]
-	if v == nil {
-		return false, nil
-	}
-	if d := v.diagDoc(); d != nil {
-		return v.connected, d.ExportHealth
-	}
-	return v.connected, nil
 }
