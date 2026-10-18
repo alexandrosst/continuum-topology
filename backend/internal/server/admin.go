@@ -470,7 +470,7 @@ func (a *Admin) relyingParty(r *http.Request) RelyingParty {
 	if a.secure(r) {
 		scheme = "https"
 	}
-	return RelyingParty{ID: host, Origin: scheme + "://" + r.Host, Name: totpIssuer}
+	return RelyingParty{ID: host, Origin: scheme + "://" + r.Host, Name: TOTPIssuer}
 }
 
 // sessionCookie is the session secret the request carries, under either name: the __Host- one is what a
@@ -685,7 +685,7 @@ func (a *Admin) setCookie(w http.ResponseWriter, r *http.Request, value string, 
 
 // serverInfo is public: what the sign-in and sign-up pages need before anyone is signed in.
 func (a *Admin) serverInfo(w http.ResponseWriter, r *http.Request) {
-	mode := a.C.regMode()
+	mode := a.C.EffectiveRegMode()
 	writeJSON(w, 200, map[string]any{"registration": mode, "version": a.Version, "sso": a.SSOHeaderName != ""})
 }
 
@@ -1355,9 +1355,9 @@ type inviteDoc struct {
 }
 
 func (a *Admin) inviteDoc(ctx context.Context, i store.Invite) inviteDoc {
-	d := inviteDoc{ID: i.ID, Role: i.Role, Label: i.Label, CreatedBy: a.C.nameOf(ctx, i.CreatedBy), CreatedAt: rfc(i.CreatedAt), ExpiresAt: rfc(i.ExpiresAt), Used: i.UsedAt != nil, Expired: i.UsedAt == nil && a.C.Now().After(i.ExpiresAt)}
+	d := inviteDoc{ID: i.ID, Role: i.Role, Label: i.Label, CreatedBy: a.C.NameOf(ctx, i.CreatedBy), CreatedAt: rfc(i.CreatedAt), ExpiresAt: rfc(i.ExpiresAt), Used: i.UsedAt != nil, Expired: i.UsedAt == nil && a.C.Now().After(i.ExpiresAt)}
 	if i.UsedBy != "" {
-		d.UsedBy = a.C.nameOf(ctx, i.UsedBy)
+		d.UsedBy = a.C.NameOf(ctx, i.UsedBy)
 	}
 	return d
 }

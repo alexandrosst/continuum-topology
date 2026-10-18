@@ -14,12 +14,12 @@ type sentMail struct{ to, body string }
 func captureMail(t *testing.T) *[]sentMail {
 	t.Helper()
 	var sent []sentMail
-	orig := smtpSendMail
-	smtpSendMail = func(addr string, a smtp.Auth, from string, to []string, msg []byte) error {
+	orig := SMTPSendMail
+	SMTPSendMail = func(addr string, a smtp.Auth, from string, to []string, msg []byte) error {
 		sent = append(sent, sentMail{to: to[0], body: string(msg)})
 		return nil
 	}
-	t.Cleanup(func() { smtpSendMail = orig })
+	t.Cleanup(func() { SMTPSendMail = orig })
 	return &sent
 }
 

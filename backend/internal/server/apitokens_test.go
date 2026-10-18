@@ -100,8 +100,8 @@ func TestAPITokenNameDefaultsAndTruncates(t *testing.T) {
 	if r.Code != 200 {
 		t.Fatalf("long name: %d %s", r.Code, r.Body.String())
 	}
-	if name, _ := r.json(t)["name"].(string); len(name) != maxAPITokenNameLen {
-		t.Fatalf("long name kept at %d chars, want %d", len(name), maxAPITokenNameLen)
+	if name, _ := r.json(t)["name"].(string); len(name) != MaxAPITokenNameLen {
+		t.Fatalf("long name kept at %d chars, want %d", len(name), MaxAPITokenNameLen)
 	}
 }
 

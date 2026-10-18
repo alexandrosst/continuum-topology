@@ -39,14 +39,14 @@ const (
 	// SessionMax is the hard limit however active it is.
 	SessionIdle = 8 * time.Hour
 	SessionMax  = 7 * 24 * time.Hour
-	// touchEvery avoids a database write on every poll of the UI.
-	touchEvery = time.Minute
+	// TouchEvery avoids a database write on every poll of the UI.
+	TouchEvery = time.Minute
 
 	pendingPrefix = "cnp_"
-	// pendingLoginTTL is how long a password-verified sign-in may wait for its TOTP code before it must
+	// PendingLoginTTL is how long a password-verified sign-in may wait for its TOTP code before it must
 	// start over - long enough to type a 6-digit code, short enough that an abandoned attempt does not sit
 	// around as a live secret.
-	pendingLoginTTL = 5 * time.Minute
+	PendingLoginTTL = 5 * time.Minute
 
 	// emailChallengeTTL is how long a mailed code stays valid - long enough to check an inbox and come back,
 	// short enough that a code nobody used does not sit around as a live secret.
@@ -198,7 +198,7 @@ func (c *Core) beginTwoFactor(userID string, methods []string) (string, error) {
 			delete(a.pending, k)
 		}
 	}
-	a.pending[token] = pendingLogin{userID: userID, expiresAt: now.Add(pendingLoginTTL), methods: methods}
+	a.pending[token] = pendingLogin{userID: userID, expiresAt: now.Add(PendingLoginTTL), methods: methods}
 	return token, nil
 }
 
@@ -584,7 +584,7 @@ func (c *Core) Authenticate(ctx context.Context, secret string) (Principal, erro
 		_ = c.Store.DeleteSession(ctx, h)
 		return Principal{}, deny
 	}
-	if now.Sub(se.LastUsed) > touchEvery {
+	if now.Sub(se.LastUsed) > TouchEvery {
 		_ = c.Store.TouchSession(ctx, h, now)
 	}
 	return Principal{User: u, SessionHash: h}, nil
@@ -611,8 +611,8 @@ func (c *Core) Logout(ctx context.Context, p Principal) {
 
 // ---- personal API tokens ----
 
-// maxAPITokenNameLen bounds a token's own label the same way an invite's is bounded.
-const maxAPITokenNameLen = 80
+// MaxAPITokenNameLen bounds a token's own label the same way an invite's is bounded.
+const MaxAPITokenNameLen = 80
 
 // CreateAPIToken mints a personal access token for p, named name (blank becomes a generic default).
 // The secret is returned once, exactly like an invite or a freshly opened session: only its hash is
@@ -622,8 +622,8 @@ func (c *Core) CreateAPIToken(ctx context.Context, p Principal, name string) (se
 	if name == "" {
 		name = "Unnamed token"
 	}
-	if len(name) > maxAPITokenNameLen {
-		name = name[:maxAPITokenNameLen]
+	if len(name) > MaxAPITokenNameLen {
+		name = name[:MaxAPITokenNameLen]
 	}
 	secret, err = kernel.NewAPITokenSecret()
 	if err != nil {
@@ -674,7 +674,7 @@ func (c *Core) AuthenticateAPIToken(ctx context.Context, secret string) (Princip
 		return Principal{}, deny
 	}
 	now := c.Now()
-	if tok.LastUsed == nil || now.Sub(*tok.LastUsed) > touchEvery {
+	if tok.LastUsed == nil || now.Sub(*tok.LastUsed) > TouchEvery {
 		_ = c.Store.TouchAPIToken(ctx, h, now)
 	}
 	return Principal{User: u, SessionHash: h}, nil
@@ -745,9 +745,9 @@ func (c *Core) revokeAPITokens(ctx context.Context, userID string) (int, error) 
 	return n, first
 }
 
-// totpIssuer is the "issuer" every otpauth:// URI carries, and what shows above the account name in an
+// TOTPIssuer is the "issuer" every otpauth:// URI carries, and what shows above the account name in an
 // authenticator app.
-const totpIssuer = "Ikhnos"
+const TOTPIssuer = "Ikhnos"
 
 // RecoveryCodeCount is how many one-time recovery codes Enable2FA hands out.
 const RecoveryCodeCount = 8
@@ -770,7 +770,7 @@ func (c *Core) Setup2FA(ctx context.Context, p Principal) (secret, otpauthURI st
 	if err := c.Store.SetTOTP(ctx, p.User.ID, secret, nil, nil); err != nil {
 		return "", "", err
 	}
-	return secret, otpauthURL(totpIssuer, p.User.Username, secret), nil
+	return secret, otpauthURL(TOTPIssuer, p.User.Username, secret), nil
 }
 
 // Enable2FA confirms a setup by checking one code from it, turns two-factor authentication on, and returns
@@ -993,7 +993,7 @@ func (c *Core) Register(ctx context.Context, ip, username, password, invite, org
 	}
 	var inv *store.Invite
 	switch {
-	case c.regMode() == RegClosed:
+	case c.EffectiveRegMode() == RegClosed:
 		return "", store.User{}, kernel.Errf(kernel.KindForbidden, "this server is not accepting new accounts")
 	case invite != "":
 		i, _, err := c.PreviewInvite(ctx, ip, invite)
@@ -1001,7 +1001,7 @@ func (c *Core) Register(ctx context.Context, ip, username, password, invite, org
 			return "", store.User{}, err
 		}
 		inv = &i
-	case c.regMode() == RegInvite:
+	case c.EffectiveRegMode() == RegInvite:
 		return "", store.User{}, kernel.Errf(kernel.KindForbidden, "this server is invitation-only: ask an administrator of your organisation for an invitation")
 	}
 	if inv == nil {
@@ -1031,7 +1031,7 @@ func (c *Core) Register(ctx context.Context, ip, username, password, invite, org
 			rollback()
 			return "", store.User{}, errBadInvite()
 		}
-		c.AuditOrg(ctx, used.OrgID, username, "user-registered", "user", u.ID, fmt.Sprintf("joined as %s with an invitation from %s", used.Role, c.nameOf(ctx, used.CreatedBy)))
+		c.AuditOrg(ctx, used.OrgID, username, "user-registered", "user", u.ID, fmt.Sprintf("joined as %s with an invitation from %s", used.Role, c.NameOf(ctx, used.CreatedBy)))
 	} else {
 		o := store.Org{ID: newOrgID(), Name: orgName, CreatedAt: now, CreatedBy: u.ID}
 		if err := c.Store.CreateOrg(ctx, o, u.ID); err != nil {
@@ -1049,7 +1049,7 @@ func (c *Core) Register(ctx context.Context, ip, username, password, invite, org
 
 func newOrgID() string { return "org-" + kernel.RandHex(6) }
 
-func (c *Core) nameOf(ctx context.Context, userID string) string {
+func (c *Core) NameOf(ctx context.Context, userID string) string {
 	if u, err := c.Store.GetUser(ctx, userID); err == nil {
 		return u.Username
 	}
@@ -1058,7 +1058,7 @@ func (c *Core) nameOf(ctx context.Context, userID string) string {
 
 // CreateOrg gives a signed-in person another organisation of their own (only where registration is open).
 func (c *Core) CreateOrg(ctx context.Context, p Principal, name string) (store.Org, error) {
-	if c.regMode() != RegOpen {
+	if c.EffectiveRegMode() != RegOpen {
 		return store.Org{}, kernel.Errf(kernel.KindForbidden, "this server does not let people create organisations")
 	}
 	name, err := cleanOrgName(name)
@@ -1105,7 +1105,7 @@ func (c *Core) AcceptInvite(ctx context.Context, ip string, p Principal, secret 
 	if err != nil {
 		return store.Org{}, "", err
 	}
-	c.AuditOrg(ctx, o.ID, p.User.Username, "member-joined", "user", p.User.ID, fmt.Sprintf("as %s, invited by %s", inv.Role, c.nameOf(ctx, inv.CreatedBy)))
+	c.AuditOrg(ctx, o.ID, p.User.Username, "member-joined", "user", p.User.ID, fmt.Sprintf("as %s, invited by %s", inv.Role, c.NameOf(ctx, inv.CreatedBy)))
 	return o, inv.Role, nil
 }
 
@@ -1377,7 +1377,7 @@ func (c *Core) CreateOrgFor(ctx context.Context, username, name string) (store.O
 func (c *Core) authSt() *authState { return kernel.ServerState(c, "accounts.auth", newAuthState) }
 
 // regMode is who may create an account: RegMode, or open when it was not set.
-func (c *Core) regMode() string {
+func (c *Core) EffectiveRegMode() string {
 	if c.RegMode == "" {
 		return RegOpen
 	}

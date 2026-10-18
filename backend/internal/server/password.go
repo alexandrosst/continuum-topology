@@ -17,9 +17,9 @@ import (
 // without invalidating existing passwords.
 // Variables only so tests can use cheap settings; production always runs the values below.
 var (
-	argonMemoryKiB uint32 = 64 * 1024
-	argonTime      uint32 = 2
-	argonThreads   uint8  = 2
+	ArgonMemoryKiB uint32 = 64 * 1024
+	ArgonTime      uint32 = 2
+	ArgonThreads   uint8  = 2
 )
 
 const (
@@ -36,8 +36,8 @@ func HashPassword(password string) (string, error) {
 	if _, err := rand.Read(salt); err != nil {
 		return "", err
 	}
-	key := argon2.IDKey([]byte(password), salt, argonTime, argonMemoryKiB, argonThreads, argonKeyLen)
-	return fmt.Sprintf("$argon2id$v=%d$m=%d,t=%d,p=%d$%s$%s", argon2.Version, argonMemoryKiB, argonTime, argonThreads,
+	key := argon2.IDKey([]byte(password), salt, ArgonTime, ArgonMemoryKiB, ArgonThreads, argonKeyLen)
+	return fmt.Sprintf("$argon2id$v=%d$m=%d,t=%d,p=%d$%s$%s", argon2.Version, ArgonMemoryKiB, ArgonTime, ArgonThreads,
 		base64.RawStdEncoding.EncodeToString(salt), base64.RawStdEncoding.EncodeToString(key)), nil
 }
 

@@ -16,7 +16,7 @@ import (
 )
 
 func init() { // cheap argon2 for tests; production values are exercised by TestProductionArgonParameters
-	argonMemoryKiB, argonTime, argonThreads = 1024, 1, 1
+	ArgonMemoryKiB, ArgonTime, ArgonThreads = 1024, 1, 1
 }
 
 const goodPW = "correct horse battery 9" // a digit too, now that CheckPasswordPolicy requires one (the spaces already count as its required symbol)
@@ -545,9 +545,9 @@ func TestPasswordHashing(t *testing.T) {
 }
 
 func TestProductionArgonParameters(t *testing.T) {
-	m, ti, p := argonMemoryKiB, argonTime, argonThreads
-	defer func() { argonMemoryKiB, argonTime, argonThreads = m, ti, p }()
-	argonMemoryKiB, argonTime, argonThreads = 64*1024, 2, 2
+	m, ti, p := ArgonMemoryKiB, ArgonTime, ArgonThreads
+	defer func() { ArgonMemoryKiB, ArgonTime, ArgonThreads = m, ti, p }()
+	ArgonMemoryKiB, ArgonTime, ArgonThreads = 64*1024, 2, 2
 	start := time.Now()
 	h, _ := HashPassword(goodPW)
 	if !strings.Contains(h, "m=65536,t=2,p=2") {
@@ -560,9 +560,9 @@ func TestProductionArgonParameters(t *testing.T) {
 		t.Errorf("two hashes took %v", d)
 	}
 	// A hash made with cheaper settings still verifies: parameters come from the hash.
-	argonMemoryKiB, argonTime, argonThreads = 1024, 1, 1
+	ArgonMemoryKiB, ArgonTime, ArgonThreads = 1024, 1, 1
 	old, _ := HashPassword(goodPW)
-	argonMemoryKiB, argonTime, argonThreads = 64*1024, 2, 2
+	ArgonMemoryKiB, ArgonTime, ArgonThreads = 64*1024, 2, 2
 	if ok, _ := VerifyPassword(goodPW, old); !ok {
 		t.Fatal("older hash no longer verifies")
 	}

@@ -178,7 +178,7 @@ func (c *Core) AuthenticateFusionToken(ctx context.Context, secret string) (stor
 	if !now.Before(tok.ExpiresAt) {
 		return store.FusionToken{}, deny
 	}
-	if tok.LastUsed == nil || now.Sub(*tok.LastUsed) > touchEvery {
+	if tok.LastUsed == nil || now.Sub(*tok.LastUsed) > TouchEvery {
 		_ = c.Store.TouchFusionToken(ctx, h, now)
 	}
 	return tok, nil

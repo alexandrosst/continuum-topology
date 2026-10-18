@@ -11,8 +11,8 @@ import (
 // mustTOTPCode computes the code the secret would show at now, the same way an authenticator app does.
 func mustTOTPCode(t *testing.T, secret string, now time.Time) string {
 	t.Helper()
-	step := uint64(now.Unix()) / uint64(totpStep.Seconds())
-	code, err := totpAt(secret, step)
+	step := uint64(now.Unix()) / uint64(TOTPStep.Seconds())
+	code, err := TOTPAt(secret, step)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +183,7 @@ func TestTwoFactorPendingLoginExpires(t *testing.T) {
 
 	_, body := a.doLogin(t, "10.9.2.1", "carol", goodPW)
 	pending, _ := body["pending"].(string)
-	*a.now = a.now.Add(pendingLoginTTL + time.Minute)
+	*a.now = a.now.Add(PendingLoginTTL + time.Minute)
 
 	if r, _ := a.doLogin2FA(t, "10.9.2.1", pending, mustTOTPCode(t, secret, *a.now)); r.Code != 401 {
 		t.Fatalf("expired pending token: %d %s", r.Code, r.Body.String())

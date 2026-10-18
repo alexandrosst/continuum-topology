@@ -31,11 +31,11 @@ func (a *Admin) getMailConfig(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 200, mailConfigDoc(a.C.Mailer()))
+	writeJSON(w, 200, NewMailConfigDoc(a.C.Mailer()))
 }
 
 // putMailConfig never lets a client blank the password by accident: a GET never carries it (see
-// mailConfigDoc), so a client that reads its config and PUTs most of it back unchanged - which is exactly
+// NewMailConfigDoc), so a client that reads its config and PUTs most of it back unchanged - which is exactly
 // what the UI does - naturally sends no `password` at all, or "". Both are treated as "leave it alone". A
 // client sets a new password by sending a non-empty `password`, and removes it, explicitly, with
 // `clearPassword: true` - the same three-way convention putSettings uses for the decider secret.
@@ -65,5 +65,5 @@ func (a *Admin) putMailConfig(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, 200, mailConfigDoc(n))
+	writeJSON(w, 200, NewMailConfigDoc(n))
 }

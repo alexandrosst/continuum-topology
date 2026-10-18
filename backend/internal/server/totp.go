@@ -20,7 +20,7 @@ import (
 // math. A 30-second step and 6 digits are what every one of those apps assumes; nothing here is configurable.
 const (
 	totpDigits = 6
-	totpStep   = 30 * time.Second
+	TOTPStep   = 30 * time.Second
 	// totpSecretBytes: 160 bits, the length RFC 4226 recommends and what every authenticator app expects -
 	// some accept longer secrets, not all of them.
 	totpSecretBytes = 20
@@ -41,8 +41,8 @@ func NewTOTPSecret() (string, error) {
 	return base32NoPad.EncodeToString(b), nil
 }
 
-// totpAt is HOTP(secret, counter) truncated to totpDigits, the way RFC 4226 §5.3 defines it.
-func totpAt(secret string, counter uint64) (string, error) {
+// TOTPAt is HOTP(secret, counter) truncated to totpDigits, the way RFC 4226 §5.3 defines it.
+func TOTPAt(secret string, counter uint64) (string, error) {
 	key, err := base32NoPad.DecodeString(strings.ToUpper(strings.TrimSpace(secret)))
 	if err != nil {
 		return "", fmt.Errorf("invalid secret: %w", err)
@@ -74,14 +74,14 @@ func VerifyTOTP(secret, code string, now time.Time) bool {
 			return false
 		}
 	}
-	step := uint64(now.Unix()) / uint64(totpStep.Seconds())
+	step := uint64(now.Unix()) / uint64(TOTPStep.Seconds())
 	for delta := int64(-totpSkew); delta <= int64(totpSkew); delta++ {
 		counter := step
 		if delta < 0 && uint64(-delta) > counter {
 			continue // never wrap before the epoch
 		}
 		counter += uint64(delta)
-		want, err := totpAt(secret, counter)
+		want, err := TOTPAt(secret, counter)
 		if err == nil && hmac.Equal([]byte(want), []byte(code)) {
 			return true
 		}

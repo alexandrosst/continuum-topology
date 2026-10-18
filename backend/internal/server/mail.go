@@ -121,9 +121,9 @@ func (c *Core) SaveMailConfig(ctx context.Context, by string, m MailConfig) (Mai
 	return m, nil
 }
 
-// smtpSendMail is sendMail by default; tests replace it with a fake that records the message instead of
+// SMTPSendMail is sendMail by default; tests replace it with a fake that records the message instead of
 // opening a real connection, the same seam Core.Now gives tests over the clock.
-var smtpSendMail = sendMail
+var SMTPSendMail = sendMail
 
 // mailLoopback reports whether host can only ever be reached without crossing a network - "localhost" or a
 // loopback literal - the one case a STARTTLS-stripping attacker has no position to sit in. This is the same
@@ -236,7 +236,7 @@ func (m MailConfig) send(to, subject, body string) error {
 		auth = smtp.PlainAuth("", m.Username, m.Password, m.Host)
 	}
 	msg := mimeMessage(m.From, to, subject, body)
-	return smtpSendMail(addr, auth, m.From, []string{to}, msg)
+	return SMTPSendMail(addr, auth, m.From, []string{to}, msg)
 }
 
 // mimeMessage builds the minimal RFC 5322 message smtp.SendMail wants as its raw DATA: headers, a blank
@@ -267,7 +267,7 @@ type MailConfigDoc struct {
 	Enabled     bool   `json:"enabled"`
 }
 
-func mailConfigDoc(m MailConfig) MailConfigDoc {
+func NewMailConfigDoc(m MailConfig) MailConfigDoc {
 	return MailConfigDoc{Host: m.Host, Port: m.Port, Username: m.Username, From: m.From, PasswordSet: m.Password != "", Enabled: m.Enabled()}
 }
 
