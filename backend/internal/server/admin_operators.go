@@ -239,7 +239,7 @@ func (a *Admin) opDocWith(r *http.Request, op store.Operator, usages map[string]
 			if d.ReachableFromOtherClusters = a.Fusion.Exposed(); d.ReachableFromOtherClusters {
 				d.Address = a.Fusion.CentralEndpoint()
 				d.AddressState = addressSet
-				d.AddressWarnings = a.Fusion.AddressWarnings(r.Context()) // checked against the gateway's own Service
+				d.AddressWarnings = fusionAddressWarnings(r.Context(), a.Fusion) // checked against the gateway's own Service
 			} else {
 				d.AddressState = addressNone
 			}
@@ -788,7 +788,7 @@ func (a *Admin) targetWarnings(ctx context.Context, op store.Operator) []string 
 	}
 	var svc *kernel.KubeService
 	if op.ID == operators.CentralOperatorID && a.Fusion != nil {
-		svc = a.Fusion.gatewayService(ctx)
+		svc = a.Fusion.GatewayService(ctx)
 	}
 	var out []string
 	for _, w := range addressWarnings(op.Address, svc) {

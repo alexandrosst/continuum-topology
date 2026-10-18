@@ -756,7 +756,7 @@ func (a *Admin) listOperatorAddressCandidates(w http.ResponseWriter, r *http.Req
 		if a.Fusion.Exposed() {
 			recorded = a.Fusion.CentralEndpoint()
 		}
-		gateway = a.Fusion.gatewayService(r.Context())
+		gateway = a.Fusion.GatewayService(r.Context())
 	}
 	hub := a.tn(r).Hub
 	var host operatorHost

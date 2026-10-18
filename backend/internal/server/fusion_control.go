@@ -226,10 +226,10 @@ func (f *FusionControl) DiscoverAddressSoon(c *Core) {
 // release, not from one second to the next, and every screen that shows the address asks.
 const fusionServiceEvery = 15 * time.Second
 
-// gatewayService is the gateway's own Service, so an address recorded for it can be compared with what the Service
+// GatewayService is the gateway's own Service, so an address recorded for it can be compared with what the Service
 // really publishes; nil when that cannot be told (this server's Role cannot read Services, the Service is not there, or
 // the KubeAPI is one that cannot say), in which case nothing is claimed either way.
-func (f *FusionControl) gatewayService(ctx context.Context) *kernel.KubeService {
+func (f *FusionControl) GatewayService(ctx context.Context) *kernel.KubeService {
 	if f == nil || f.Kube == nil {
 		return nil
 	}
@@ -254,15 +254,6 @@ func (f *FusionControl) gatewayService(ctx context.Context) *kernel.KubeService 
 	return f.svc
 }
 
-// AddressWarnings are the doubts about the public address recorded for the gateway (see addressWarnings), checked against
-// the gateway's own Service. Empty when there is no address, or nothing to doubt.
-func (f *FusionControl) AddressWarnings(ctx context.Context) []string {
-	if f == nil || !f.Exposed() {
-		return nil
-	}
-	return addressWarnings(f.CentralEndpoint(), f.gatewayService(ctx))
-}
-
 // WithGatewayPort completes an address typed without a port. Anything with a port is returned as it is. A bare host gets the
 // port the gateway really listens on from outside: the Service's node port when it is a NodePort (nothing listens on 4317
 // there: the receiver's own port is only the Service's), and otherwise the receiver's, which is what validOperatorAddress
@@ -276,7 +267,7 @@ func (f *FusionControl) WithGatewayPort(ctx context.Context, addr string) string
 	if _, _, err := net.SplitHostPort(addr); !errors.As(err, &ae) || !strings.Contains(ae.Err, "missing port") {
 		return addr
 	}
-	if svc := f.gatewayService(ctx); svc != nil && svc.Type == "NodePort" && svc.NodePort != 0 {
+	if svc := f.GatewayService(ctx); svc != nil && svc.Type == "NodePort" && svc.NodePort != 0 {
 		return net.JoinHostPort(strings.Trim(addr, "[]"), strconv.Itoa(svc.NodePort))
 	}
 	return addr

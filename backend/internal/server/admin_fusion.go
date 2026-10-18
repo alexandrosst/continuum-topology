@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net/http"
 
 	"continuum/internal/kernel"
@@ -48,7 +49,7 @@ func (a *Admin) fusionDoc(r *http.Request) fusionResponse {
 	}
 	if f != nil && st.Available {
 		_, err := core.Operators.GetOperator(r.Context(), operators.CentralOperatorID)
-		out.Central = &fusionCentralDoc{OperatorID: operators.CentralOperatorID, Endpoint: f.CentralEndpoint(), Exposed: f.Exposed(), Exists: err == nil, Service: f.ServiceName(), Namespace: f.Namespace, Warnings: f.AddressWarnings(r.Context())}
+		out.Central = &fusionCentralDoc{OperatorID: operators.CentralOperatorID, Endpoint: f.CentralEndpoint(), Exposed: f.Exposed(), Exists: err == nil, Service: f.ServiceName(), Namespace: f.Namespace, Warnings: fusionAddressWarnings(r.Context(), f)}
 		if out.Central.Exists && !out.Central.Exposed && st.State != "off" {
 			f.DiscoverAddressSoon(core) // the next read of this screen shows it
 		}
@@ -111,4 +112,13 @@ func (a *Admin) setFusionRetention(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, doc)
+}
+
+// fusionAddressWarnings are the doubts about the public address recorded for the gateway (see addressWarnings), checked against the
+// gateway's own Service. Empty when there is no address, or nothing to doubt.
+func fusionAddressWarnings(ctx context.Context, f *FusionControl) []string {
+	if f == nil || !f.Exposed() {
+		return nil
+	}
+	return addressWarnings(f.CentralEndpoint(), f.GatewayService(ctx))
 }
