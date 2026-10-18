@@ -49,9 +49,6 @@ func (c Consent) has(name string) bool {
 // consentKey is where an agent's overrides are stored: next to its snapshot, under a name no agent id can have.
 func consentKey(agentID string) string { return agentID + "#consent" }
 
-// maxExcluded bounds the namespaces one agent may be told to leave out.
-const maxExcluded = 200
-
 func systemNS(ns string) bool {
 	return ns == "kube-system" || ns == "kube-public" || ns == "kube-node-lease"
 }
@@ -90,8 +87,8 @@ func cleanConsent(in Consent) (Consent, error) {
 			out.Excluded = append(out.Excluded, ns)
 		}
 	}
-	if len(out.Excluded) > maxExcluded {
-		return out, kernel.Errf(kernel.KindInvalid, "at most %d namespaces can be left out from here; use the scope of the agent's install (helm) for more", maxExcluded)
+	if len(out.Excluded) > kernel.MaxExcluded {
+		return out, kernel.Errf(kernel.KindInvalid, "at most %d namespaces can be left out from here; use the scope of the agent's install (helm) for more", kernel.MaxExcluded)
 	}
 	sort.Strings(out.Paused)
 	sort.Strings(out.Excluded)

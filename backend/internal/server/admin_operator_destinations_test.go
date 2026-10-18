@@ -171,7 +171,7 @@ func TestCentralHealthMapsFusionsStates(t *testing.T) {
 		{FusionStatus{Available: true, State: "off"}, HealthOff},
 		{FusionStatus{State: "off", Reason: "not-configured"}, HealthUnknown},
 	} {
-		if got := centralHealth(c.st).State; got != c.want {
+		if got := centralHealth(c.st.Managed()).State; got != c.want {
 			t.Errorf("%+v: %s, want %s", c.st, got, c.want)
 		}
 	}

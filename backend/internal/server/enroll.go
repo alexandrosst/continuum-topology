@@ -297,16 +297,9 @@ func (c *Core) Approve(ctx context.Context, actor, agentID, proof string, tier i
 // request has been rejected.
 func errWrongCode(msg string, left int, locked bool) *kernel.Error {
 	if !locked {
-		msg = fmt.Sprintf("%s (%d %s left)", msg, left, plural(left, "attempt", "attempts"))
+		msg = fmt.Sprintf("%s (%d %s left)", msg, left, kernel.Plural(left, "attempt", "attempts"))
 	}
 	return &kernel.Error{Kind: kernel.KindInvalid, Msg: capitalise(msg), Data: map[string]any{"attemptsLeft": left, "locked": locked}}
-}
-
-func plural(n int, one, many string) string {
-	if n == 1 {
-		return one
-	}
-	return many
 }
 
 func capitalise(s string) string {

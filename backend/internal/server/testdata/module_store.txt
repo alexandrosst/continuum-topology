@@ -32,8 +32,6 @@ ListOperators	operators
 ListTelemetryIntents	connectivity
 ListTelemetryIntents	operators
 ListTelemetryIntents	telemetry
-ListTelemetryIntentsByAgent	agents
-ListTelemetryIntentsByAgent	telemetry
 LoadSnapshot	agents
 LoadSnapshot	estate
 SaveSnapshot	agents

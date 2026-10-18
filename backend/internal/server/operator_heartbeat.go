@@ -80,9 +80,9 @@ func operatorHealthAt(op store.Operator, now time.Time) OperatorHealth {
 	return h
 }
 
-// centralHealth is the central operator's health, which has no heartbeat: it is FUSION's state. A FUSION that is
+// centralHealth is the central operator's health, which has no heartbeat: it is its manager's state (FUSION's). A FUSION that is
 // not available on this server has no health to report.
-func centralHealth(st FusionStatus) OperatorHealth {
+func centralHealth(st ManagedStatus) OperatorHealth {
 	if !st.Available {
 		return OperatorHealth{State: HealthUnknown}
 	}

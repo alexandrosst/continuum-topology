@@ -26,10 +26,6 @@ import (
 // Other regional operators send to it over mTLS, with a client certificate this server issues from the gateway's own
 // CA, and it sends on to the three stores. The stores are not exposed outside the cluster; only the gateway may be.
 
-// CentralOperatorID is the id of the server-owned regional operator that fronts FUSION. One FUSION per server, so one
-// fixed id; only the server's primary organisation may turn FUSION on (see FusionControl.Org).
-const CentralOperatorID = "op-central"
-
 // fusionStore is one of the four workloads the switch drives.
 type fusionStore struct {
 	Component string // metrics | logs | traces | grafana | central
@@ -364,6 +360,11 @@ type FusionStatus struct {
 	// LastDataAt is when Prometheus last held a fresh sample, so "running" can be told from "running, nothing received
 	// yet". Omitted when unknown.
 	LastDataAt *time.Time `json:"lastDataAt,omitempty"`
+}
+
+// Managed is what the operators module needs of this state to report the central operator's health.
+func (st FusionStatus) Managed() ManagedStatus {
+	return ManagedStatus{Available: st.Available, State: st.State}
 }
 
 // clone is a copy that shares nothing with the cached one, so a caller may change what it was given.
@@ -966,12 +967,4 @@ func (c *Core) centralReceiverFresh(ctx context.Context) bool {
 		}
 	}
 	return false
-}
-
-// guardCentral refuses to change the server-owned operator through the ordinary operator calls.
-func guardCentral(id string) error {
-	if id == CentralOperatorID {
-		return kernel.Errf(kernel.KindConflict, "the central operator is managed by FUSION: turn FUSION off or on instead of changing it")
-	}
-	return nil
 }

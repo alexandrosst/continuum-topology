@@ -68,7 +68,7 @@ func (a *Admin) listOperatorDestinations(w http.ResponseWriter, r *http.Request)
 		regional = append(regional, e)
 	}
 	if !haveCentral && fusion.Available {
-		h := centralHealth(fusion)
+		h := centralHealth(fusion.Managed())
 		e := operatorDestinationDoc{ID: CentralOperatorID, Name: centralOperatorName, Kind: "central", Status: string(store.OperatorActive),
 			AddressState: addressNone, UsedBy: usageCount(usages[CentralOperatorID]), Recommended: h.State == HealthOnline || h.State == HealthStarting}
 		e.Health.State, e.Health.LastSeenAt = h.State, rfcp(fusion.LastDataAt)

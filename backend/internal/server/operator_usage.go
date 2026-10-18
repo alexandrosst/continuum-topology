@@ -128,12 +128,12 @@ func (u OperatorUsage) describe() string {
 		if len(names) > 5 {
 			names = append(names[:5], "...")
 		}
-		parts = append(parts, fmt.Sprintf("%d %s (%s)", n, plural(n, "operator", "operators"), strings.Join(names, ", ")))
+		parts = append(parts, fmt.Sprintf("%d %s (%s)", n, kernel.Plural(n, "operator", "operators"), strings.Join(names, ", ")))
 	}
 	if u.Intents > 0 {
-		s := fmt.Sprintf("%d %s", u.Intents, plural(u.Intents, "telemetry intent", "telemetry intents"))
+		s := fmt.Sprintf("%d %s", u.Intents, kernel.Plural(u.Intents, "telemetry intent", "telemetry intents"))
 		if u.Clusters > 0 {
-			s += fmt.Sprintf(" on %d %s", u.Clusters, plural(u.Clusters, "cluster", "clusters"))
+			s += fmt.Sprintf(" on %d %s", u.Clusters, kernel.Plural(u.Clusters, "cluster", "clusters"))
 		}
 		parts = append(parts, s)
 	}

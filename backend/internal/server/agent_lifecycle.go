@@ -107,24 +107,6 @@ func (c *Core) Revoke(ctx context.Context, actor, agentID, reason string) error 
 	return err
 }
 
-// endAgentIntents revokes the agent's active telemetry intents. A failure is logged and does not undo the
-// agent's revocation, which already took effect; OperatorUsages ignores the intents of revoked agents either way.
-func (c *Core) endAgentIntents(ctx context.Context, actor, agentID, reason string) {
-	intents, err := c.Store.ListTelemetryIntentsByAgent(ctx, agentID)
-	if err != nil {
-		c.Log.Error("agent revoked but its telemetry intents could not be listed", "agent", agentID, "err", err)
-		return
-	}
-	for _, ti := range intents {
-		if ti.Status != store.TelemetryIntentActive {
-			continue
-		}
-		if err := c.RevokeTelemetryIntent(ctx, actor, ti.ID, reason); err != nil {
-			c.Log.Error("agent revoked but one of its telemetry intents could not be revoked", "agent", agentID, "intent", ti.ID, "err", err)
-		}
-	}
-}
-
 // AuthorizeAgent is called on every authenticated request. Being signed by our CA is not
 // enough: the agent must still be approved right now, and belong to this organisation (the
 // platform-wide core, OrgID "", accepts any and reports which).

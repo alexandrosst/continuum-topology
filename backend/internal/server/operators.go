@@ -15,6 +15,39 @@ import (
 	"continuum/internal/store"
 )
 
+// CentralOperatorID is the id of the server-owned regional operator that fronts FUSION. One FUSION per server, so one
+// fixed id; only the server's primary organisation may turn FUSION on (see FusionControl.Org).
+const CentralOperatorID = "op-central"
+
+// guardCentral refuses to change the server-owned operator through the ordinary operator calls.
+func guardCentral(id string) error {
+	if id == CentralOperatorID {
+		return kernel.Errf(kernel.KindConflict, "the central operator is managed by FUSION: turn FUSION off or on instead of changing it")
+	}
+	return nil
+}
+
+// serviceTypeFor maps an exposure to the chart's service.type ("" keeps the chart's own default, ClusterIP) and says
+// whether it is one of the three that exist.
+func serviceTypeFor(exposure string) (string, error) {
+	switch exposure {
+	case "", "cluster":
+		return "", nil
+	case "loadbalancer":
+		return "LoadBalancer", nil
+	case "nodeport":
+		return "NodePort", nil
+	}
+	return "", kernel.Errf(kernel.KindInvalid, "exposure must be cluster, loadbalancer or nodeport")
+}
+
+// ManagedStatus is what whoever manages an operator says of it: whether there is anything managing it here, and its state
+// (off, starting, running or attention). The central operator has no heartbeat, so its health is its manager's state.
+type ManagedStatus struct {
+	Available bool
+	State     string
+}
+
 // OperatorTLSBundle is the mTLS material minted once, alongside the receiver bearer token, when a
 // regional operator is created: a server certificate for its own OTLP receiver, a client certificate
 // every one of its source clusters presents when exporting into it, and the certificate of the operator's

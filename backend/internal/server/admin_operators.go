@@ -231,7 +231,7 @@ func (a *Admin) opDocWith(r *http.Request, op store.Operator, usages map[string]
 	d.UsedBy = toUsedByDoc(usages[op.ID])
 	d.AddressWarnings = addressWarnings(op.Address, nil)
 	if op.ID == CentralOperatorID {
-		h := centralHealth(fusion)
+		h := centralHealth(fusion.Managed())
 		h.LastSeenAt = fusion.LastDataAt
 		d.Health = toHealthDoc(h)
 		if a.Fusion != nil {
@@ -493,20 +493,6 @@ func (a *Admin) listOperatorCertificates(w http.ResponseWriter, r *http.Request)
 // operatorRestartCommand restarts the operator's pods, which is how they pick up a Secret read into the environment.
 func operatorRestartCommand(op store.Operator) (string, error) {
 	return install.RestartDeployment{Deployment: operatorServiceName(op.ID), Namespace: "continuum-system"}.Render()
-}
-
-// serviceTypeFor maps an exposure to the chart's service.type ("" keeps the chart's own default, ClusterIP) and says
-// whether it is one of the three that exist.
-func serviceTypeFor(exposure string) (string, error) {
-	switch exposure {
-	case "", "cluster":
-		return "", nil
-	case "loadbalancer":
-		return "LoadBalancer", nil
-	case "nodeport":
-		return "NodePort", nil
-	}
-	return "", kernel.Errf(kernel.KindInvalid, "exposure must be cluster, loadbalancer or nodeport")
 }
 
 // setOperatorAddress records the host:port other clusters reach the operator at ({"address": ""} clears it).

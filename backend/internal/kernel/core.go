@@ -225,6 +225,17 @@ func (c *Core) AgentInOrg(ctx context.Context, id string) (store.Agent, error) {
 // the agent, shown to the agent's operator, and written to the audit trail.
 const MaxReason = 200
 
+// MaxExcluded bounds the namespaces one agent may be told to leave out, by its consent and by a telemetry intent alike.
+const MaxExcluded = 200
+
+// Plural picks the word that agrees with n.
+func Plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
+}
+
 // Printable clips s and replaces control characters, for values that end up in logs and the UI.
 func Printable(s string, n int) string {
 	s = clip(s, n)

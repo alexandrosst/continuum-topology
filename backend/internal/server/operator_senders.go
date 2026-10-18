@@ -325,7 +325,7 @@ func (a *Admin) listOperatorSenders(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	intents, err := c.Store.ListTelemetryIntents(r.Context(), c.OrgID)
+	intents, err := c.ListTelemetryIntents(r.Context())
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -397,7 +397,7 @@ func (a *Admin) sendersHealth(r *http.Request, op store.Operator, now time.Time)
 		return operatorHealthAt(op, now)
 	}
 	fusion := a.fusionState(r)
-	h := centralHealth(fusion)
+	h := centralHealth(fusion.Managed())
 	h.LastSeenAt = fusion.LastDataAt
 	return h
 }
