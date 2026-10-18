@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
 
@@ -28,14 +29,14 @@ import (
 
 // addressWarnings are the doubts about a recorded address, in plain words; empty when there is nothing to say. svc is
 // the gateway's Service when the address is the central operator's and the server could read it, nil otherwise.
-func addressWarnings(addr string, svc *KubeService) []string {
+func addressWarnings(addr string, svc *kernel.KubeService) []string {
 	return addressWarningsFor(addr, svc, true)
 }
 
 // addressWarningsFor is addressWarnings, with the private-address note optional. That note speaks of "a cluster
 // elsewhere", which is right for the address recorded for an operator (every other cluster is told it) and wrong for
 // one a single sender chose for itself on a network it shares with the operator.
-func addressWarningsFor(addr string, svc *KubeService, notePrivate bool) []string {
+func addressWarningsFor(addr string, svc *kernel.KubeService, notePrivate bool) []string {
 	if addr == "" {
 		return nil
 	}
@@ -57,7 +58,7 @@ func addressWarningsFor(addr string, svc *KubeService, notePrivate bool) []strin
 }
 
 // gatewayServiceWarnings compare an address with what the gateway's Service really publishes.
-func gatewayServiceWarnings(host, port string, svc KubeService) []string {
+func gatewayServiceWarnings(host, port string, svc kernel.KubeService) []string {
 	switch svc.Type {
 	case "NodePort":
 		if svc.NodePort != 0 && port != strconv.Itoa(svc.NodePort) {
@@ -154,7 +155,7 @@ func probeAddress(ctx context.Context, addr string, caPEM []byte, serverName str
 func classifyDialError(err error, addr string) (state, msg string) {
 	var dns *net.DNSError
 	switch {
-	case IsDeciderDenied(err):
+	case kernel.IsDeciderDenied(err):
 		// Say nothing of the address it resolved to or why: that would be the answer to the scan.
 		return "blocked", "this server will not connect to that address."
 	case errors.As(err, &dns):
@@ -212,7 +213,7 @@ func (p *addressProbes) put(id, addr string, now time.Time, res AddressProbe) {
 // what a cluster-internal or VPN-fronted operator looks like (validOperatorAddress accepts them and addressWarnings only
 // warns), so unlike the external decider the probe does not refuse them. Loopback stays out: the only thing there is
 // this server itself.
-var probeReachable = MustPrefixes(
+var probeReachable = kernel.MustPrefixes(
 	"10.0.0.0/8",
 	"172.16.0.0/12",
 	"192.168.0.0/16",
@@ -223,8 +224,8 @@ var probeReachable = MustPrefixes(
 // probePolicy is the decider's address policy (dp: nil is the default one) with probeReachable opened on top, so the
 // probe is held to the same rules as every other connection this server makes on a person's behalf: link-local, cloud
 // metadata and multicast never, loopback unless the operator listed it in --decider-allow-cidrs.
-func probePolicy(dp *DeciderPolicy) *DeciderPolicy {
-	p := &DeciderPolicy{}
+func probePolicy(dp *kernel.DeciderPolicy) *kernel.DeciderPolicy {
+	p := &kernel.DeciderPolicy{}
 	if dp != nil {
 		p.Resolver = dp.Resolver
 		p.Allow = append(p.Allow, dp.Allow...)
@@ -236,19 +237,19 @@ func probePolicy(dp *DeciderPolicy) *DeciderPolicy {
 // probeDialer is the probe's dialer. The address is checked after name resolution, on the address actually dialed: the
 // recorded address is only checked as text when it is saved, and a name that resolves to this server's own network
 // would otherwise let an administrator scan it from here, told apart by refused, no-answer and reachable.
-func probeDialer(dp *DeciderPolicy) func(ctx context.Context, network, addr string) (net.Conn, error) {
+func probeDialer(dp *kernel.DeciderPolicy) func(ctx context.Context, network, addr string) (net.Conn, error) {
 	p := probePolicy(dp)
 	d := net.Dialer{Resolver: p.Resolver, Control: func(network, address string, _ syscall.RawConn) error {
 		host, _, err := net.SplitHostPort(address)
 		if err != nil {
-			return ErrDeciderDenied{err}
+			return kernel.NewDeciderDenied(err)
 		}
 		a, err := netip.ParseAddr(host)
 		if err != nil {
-			return ErrDeciderDenied{fmt.Errorf("cannot check the address %q", host)}
+			return kernel.NewDeciderDenied(fmt.Errorf("cannot check the address %q", host))
 		}
 		if err := p.CheckAddr(a); err != nil {
-			return ErrDeciderDenied{err}
+			return kernel.NewDeciderDenied(err)
 		}
 		return nil
 	}}
@@ -282,7 +283,7 @@ func (a *Admin) checkOperatorAddress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if op.Status != store.OperatorActive {
-		a.fail(w, Errf(KindConflict, "only an active operator's address can be checked"))
+		a.fail(w, kernel.Errf(kernel.KindConflict, "only an active operator's address can be checked"))
 		return
 	}
 	addr, caPEM, serverName := a.probeSettings(c, op)

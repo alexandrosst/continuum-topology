@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"continuum/internal/geoip"
+	"continuum/internal/kernel"
 )
 
 // PublicIPFinder discovers this server's own public IP address by calling an operator-chosen echo
@@ -44,7 +45,7 @@ func NewPublicIPFinder(url string, ttl time.Duration) *PublicIPFinder {
 	// A zero-value DeciderPolicy has no allow-list of its own, so its client refuses to dial anything
 	// private, loopback or cloud-metadata - reused here only for that SSRF-safe transport, not because
 	// this has anything to do with the external decider feature.
-	return &PublicIPFinder{url: url, client: (&DeciderPolicy{}).Client(5 * time.Second), ttl: ttl}
+	return &PublicIPFinder{url: url, client: (&kernel.DeciderPolicy{}).Client(5 * time.Second), ttl: ttl}
 }
 
 // Start launches the background refresh loop and returns immediately: Current never blocks on the

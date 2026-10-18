@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
 
@@ -39,10 +40,10 @@ func TestExternalDestinationsAreValidatedForTheCommandLine(t *testing.T) {
 	} {
 		d := good
 		mutate(&d)
-		if err := e.core.validateDestination(e.ctx, d); kindOf(err) != KindInvalid {
+		if err := e.core.validateDestination(e.ctx, d); kindOf(err) != kernel.KindInvalid {
 			t.Errorf("%s: %v", name, err)
 		}
-		if _, _, _, err := e.core.CreateOperator(e.ctx, "alex", "bad", []string{cl}, d, nil); kindOf(err) != KindInvalid {
+		if _, _, _, err := e.core.CreateOperator(e.ctx, "alex", "bad", []string{cl}, d, nil); kindOf(err) != kernel.KindInvalid {
 			t.Errorf("%s (create): %v", name, err)
 		}
 	}
@@ -57,7 +58,7 @@ func TestCreateOperatorChecksExposureInTheCore(t *testing.T) {
 			t.Fatalf("exposure %q: %v", ok, err)
 		}
 	}
-	if _, _, _, _, err := e.core.CreateOperatorWithOptions(e.ctx, "alex", "x", []string{cl}, extDest("c:4317"), nil, OperatorOptions{Exposure: "ingress"}); kindOf(err) != KindInvalid {
+	if _, _, _, _, err := e.core.CreateOperatorWithOptions(e.ctx, "alex", "x", []string{cl}, extDest("c:4317"), nil, OperatorOptions{Exposure: "ingress"}); kindOf(err) != kernel.KindInvalid {
 		t.Fatalf("exposure ingress: %v", err)
 	}
 }
@@ -102,7 +103,7 @@ func TestInstallCommandQuotesEveryInterpolatedValue(t *testing.T) {
 	op := store.Operator{ID: "op-q", Name: "n", Status: store.OperatorActive, ReceiverAuth: store.ReceiverAuthMTLS,
 		Destination: store.Destination{Kind: store.DestinationExternal, Endpoint: "c:4317; touch /tmp/x", CAFile: "/etc/ca $(id).pem", AuthHeaderName: "A b", AuthSecretName: "s'1", AuthSecretKey: "k"}}
 	for _, reissue := range []bool{false, true} {
-		got, _, err := a.a.operatorInstallCommandWith(ImageConfig{}, "", op, OperatorTLSBundle{ReceiverCertPEM: []byte("x")}, "https://h.example/x'; id", nil, reissue)
+		got, _, err := a.a.operatorInstallCommandWith(kernel.ImageConfig{}, "", op, OperatorTLSBundle{ReceiverCertPEM: []byte("x")}, "https://h.example/x'; id", nil, reissue)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -31,7 +31,8 @@ import (
 //     database, which is also what has to be settled before either can move.
 //
 // Every module may use the kernel, and the shell may use every module, so those two are not listed. What is listed is everything
-// else, including the kernel using a module and a module using the shell, which are the cuts still to be made.
+// else, including a module using the shell, which is a cut still to be made. The kernel is already a package (internal/kernel), so
+// that it uses no module is the compiler's to say; the one file of it here is the bridge (kernel_bridge.go).
 //
 // To accept a change on purpose: go test ./internal/server -run 'TestModule' -update
 

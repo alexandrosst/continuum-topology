@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"continuum/internal/kernel"
 )
 
 // The two pages FUSION has of its own - Prometheus's and Grafana's - are opened from the Ikhnos UI through the server, so
@@ -240,12 +242,12 @@ func (a *Admin) fusionUI(component string) http.Handler {
 			}
 		}
 		if err != nil || who.Kind != "user" { // a FUSION access token reads data through the API; it does not get a web page
-			Metrics.AuthFailures.Add(1)
-			if !a.fusionPageRL.Allow(LimitKey(a.clientIP(r))) {
+			kernel.Metrics.AuthFailures.Add(1)
+			if !a.fusionPageRL.Allow(kernel.LimitKey(a.clientIP(r))) {
 				writeErr(w, http.StatusTooManyRequests, "too many failed attempts, wait a minute")
 				return
 			}
-			if e, ok := err.(*Error); ok && e.Kind == KindForbidden {
+			if e, ok := err.(*kernel.Error); ok && e.Kind == kernel.KindForbidden {
 				writeErr(w, http.StatusForbidden, e.Msg)
 				return
 			}

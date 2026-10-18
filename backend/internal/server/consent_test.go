@@ -13,6 +13,7 @@ import (
 
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/facts"
+	"continuum/internal/kernel"
 	"continuum/internal/pki"
 
 	"google.golang.org/grpc/codes"
@@ -86,9 +87,9 @@ func TestTierChangeStaysWithinTheInstalledCeilingAndIsAudited(t *testing.T) {
 	if !narrowed || !widened {
 		t.Fatalf("audit rows missing (narrowed %v, widened %v): %+v", narrowed, widened, evs)
 	}
-	before := Metrics.TierChanges.Load()
+	before := kernel.Metrics.TierChanges.Load()
 	tier(editor, 2) // unchanged: nothing to record
-	if Metrics.TierChanges.Load() != before {
+	if kernel.Metrics.TierChanges.Load() != before {
 		t.Fatal("a no-op tier change was counted")
 	}
 
@@ -587,7 +588,7 @@ func TestSixtyThousandWorkloadsArriveInChunksAndApplyOnTheLastOne(t *testing.T) 
 
 	const total, nChunks = 60000, 60 // more chunks than the per-stream burst: continuation pieces are not rate limited
 	all := pieces(2, cluster, nodes("n", 3), workloads(total, "w"), nChunks, "2-abc")
-	chunkedBefore := Metrics.SyncsChunked.Load()
+	chunkedBefore := kernel.Metrics.SyncsChunked.Load()
 	for i, c := range all {
 		if err := s.Send(syncMsg(c)); err != nil {
 			t.Fatalf("chunk %d: %v", i, err)
@@ -605,7 +606,7 @@ func TestSixtyThousandWorkloadsArriveInChunksAndApplyOnTheLastOne(t *testing.T) 
 	if n, w, _ := held(r, id); n != 3 || w != total {
 		t.Fatalf("after the last chunk: %d nodes, %d workloads", n, w)
 	}
-	if Metrics.SyncsChunked.Load() != chunkedBefore+1 {
+	if kernel.Metrics.SyncsChunked.Load() != chunkedBefore+1 {
 		t.Fatal("the chunked picture was not counted")
 	}
 	// The stream still works for ordinary messages afterwards.
@@ -720,7 +721,7 @@ func TestChunkSeriesBreakingARuleAreRefusedAndChangeNothing(t *testing.T) {
 			if _, err := s.Recv(); err != nil {
 				t.Fatal(err)
 			}
-			refused := Metrics.SyncsRefused.Load()
+			refused := kernel.Metrics.SyncsRefused.Load()
 			for _, m := range c.send(id) {
 				_ = s.Send(syncMsg(m))
 			}
@@ -731,7 +732,7 @@ func TestChunkSeriesBreakingARuleAreRefusedAndChangeNothing(t *testing.T) {
 			if n, w, _ := held(r, id); n != 2 || w != 5 {
 				t.Fatalf("a refused series changed the state: %d nodes, %d workloads", n, w)
 			}
-			if Metrics.SyncsRefused.Load() <= refused {
+			if kernel.Metrics.SyncsRefused.Load() <= refused {
 				t.Fatal("the refusal was not counted")
 			}
 		})
@@ -804,7 +805,7 @@ func TestHealthzReadyzAndMetrics(t *testing.T) {
 func TestMetricsTextAndToken(t *testing.T) {
 	a := newAdminRig(t)
 	a.approvedAgent(t, fp)
-	Metrics.RateLimited.Add(0)
+	kernel.Metrics.RateLimited.Add(0)
 	h := MetricsHandler(a.a.P, "v-test", "s3cret")
 	get := func(auth string) *httptest.ResponseRecorder {
 		rec := httptest.NewRecorder()
@@ -854,7 +855,7 @@ func TestAPanicInAnAgentStreamIsRecoveredAndTheServerKeepsServing(t *testing.T) 
 	r := &rig{env: e, addr: l.Addr().String()}
 	id, key, leaf := e.approvedAgent(t, fp)
 	_ = id
-	before := Metrics.StreamPanics.Load()
+	before := kernel.Metrics.StreamPanics.Load()
 	for i := 0; i < 2; i++ { // the second connection proves the process is still serving
 		cert := &tls.Certificate{Certificate: [][]byte{leaf}, PrivateKey: key}
 		c := continuumv1.NewAgentServiceClient(r.dial(t, pki.ClientTLS(e.base.CA.Pin(), "127.0.0.1", cert)))
@@ -868,14 +869,14 @@ func TestAPanicInAnAgentStreamIsRecoveredAndTheServerKeepsServing(t *testing.T) 
 			t.Fatalf("connection %d: %v", i, err)
 		}
 	}
-	if Metrics.StreamPanics.Load() != before+2 {
-		t.Fatalf("panics counted: %d", Metrics.StreamPanics.Load()-before)
+	if kernel.Metrics.StreamPanics.Load() != before+2 {
+		t.Fatalf("panics counted: %d", kernel.Metrics.StreamPanics.Load()-before)
 	}
 }
 
 func TestRecoverPanicHelpers(t *testing.T) {
 	e := newEnv(t)
-	before := Metrics.StreamPanics.Load()
+	before := kernel.Metrics.StreamPanics.Load()
 	err := func() (err error) {
 		defer e.base.recoverPanic("test", &err)
 		panic("x")
@@ -886,7 +887,7 @@ func TestRecoverPanicHelpers(t *testing.T) {
 	done := make(chan struct{})
 	go func() { defer close(done); e.base.safely("t", func() { panic("y") }) }()
 	<-done
-	if Metrics.StreamPanics.Load() != before+2 {
+	if kernel.Metrics.StreamPanics.Load() != before+2 {
 		t.Fatal("panics not counted")
 	}
 }

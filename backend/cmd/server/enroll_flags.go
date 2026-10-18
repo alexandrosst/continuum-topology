@@ -5,12 +5,12 @@ import (
 	"os"
 	"time"
 
-	"continuum/internal/server"
+	"continuum/internal/kernel"
 )
 
 // The enrollment flags live here, registered before main parses the command line.
 var (
-	pendingTTL = flag.Duration("pending-enrollment-ttl", envDuration("CONTINUUM_PENDING_ENROLLMENT_TTL", server.DefaultPendingTTL),
+	pendingTTL = flag.Duration("pending-enrollment-ttl", envDuration("CONTINUUM_PENDING_ENROLLMENT_TTL", kernel.DefaultPendingTTL),
 		"how long an agent that enrolled may wait for an administrator to approve it before the request expires (the agent then enrolls again by itself and shows a new approval code); env CONTINUUM_PENDING_ENROLLMENT_TTL")
 )
 

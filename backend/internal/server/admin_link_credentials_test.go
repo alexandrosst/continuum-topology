@@ -3,6 +3,8 @@ package server
 import (
 	"strings"
 	"testing"
+
+	"continuum/internal/kernel"
 )
 
 func TestRotatingLinkCredentialsIsAnAdminActionThatShowsNoSecrets(t *testing.T) {
@@ -18,7 +20,7 @@ func TestRotatingLinkCredentialsIsAnAdminActionThatShowsNoSecrets(t *testing.T) 
 		t.Fatalf("a viewer: %d", r.Code)
 	}
 
-	put := a.do("PUT", "/api/v1/settings", Settings{Links: []LinkSetting{{A: "cl-a", B: "cl-b", Throughput: &LinkThroughput{}}}}, withCookie(admin))
+	put := a.do("PUT", "/api/v1/settings", kernel.Settings{Links: []kernel.LinkSetting{{A: "cl-a", B: "cl-b", Throughput: &kernel.LinkThroughput{}}}}, withCookie(admin))
 	if put.Code != 200 {
 		t.Fatalf("%d %s", put.Code, put.Body.String())
 	}

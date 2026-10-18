@@ -3,6 +3,7 @@ package server
 import (
 	"testing"
 
+	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
 
@@ -27,7 +28,7 @@ func operatorWithIntentRig(t *testing.T) (*env, store.Operator, string, store.Te
 func TestRevokingAnAgentRevokesItsTelemetryIntents(t *testing.T) {
 	e, op, agentID, ti := operatorWithIntentRig(t)
 
-	if err := e.core.RevokeOperator(e.ctx, "alex", op.ID, "decom"); kindOf(err) != KindConflict {
+	if err := e.core.RevokeOperator(e.ctx, "alex", op.ID, "decom"); kindOf(err) != kernel.KindConflict {
 		t.Fatalf("sanity: a live intent should block revoking its operator, got %v", err)
 	}
 	if err := e.core.Revoke(e.ctx, "alex", agentID, "stolen"); err != nil {

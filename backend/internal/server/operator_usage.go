@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
 
@@ -106,7 +107,7 @@ func (c *Core) dependentsDetail(ctx context.Context, id string, force bool, note
 		return note, nil
 	}
 	if !force {
-		return "", Errf(KindConflict, "%s depends on this operator; revoking or deleting it leaves them with nowhere to send. Move them to another destination first, or confirm with force", u.describe())
+		return "", kernel.Errf(kernel.KindConflict, "%s depends on this operator; revoking or deleting it leaves them with nowhere to send. Move them to another destination first, or confirm with force", u.describe())
 	}
 	detail := fmt.Sprintf("forced; operators=%d intents=%d clusters=%d", len(u.Operators), u.Intents, u.Clusters)
 	if note != "" {

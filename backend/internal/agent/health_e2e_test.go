@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"continuum/internal/agent"
+	"continuum/internal/kernel"
 	"continuum/internal/pki"
 	"continuum/internal/server"
 	"continuum/internal/store"
@@ -27,7 +28,7 @@ func TestHealthFollowsTheAgentThroughEnrollmentAndRevocation(t *testing.T) {
 	defer st.Close()
 	ca, _ := pki.LoadOrCreate(t.TempDir())
 	core := server.NewCore(st, ca, "org", nil)
-	core.EnrollRL = server.NewLimiter(6000, 1000)
+	core.EnrollRL = kernel.NewLimiter(6000, 1000)
 	hub := server.NewHub(core)
 	srv := core.NewGRPC(pki.NewServerCerts(ca, []string{"127.0.0.1"}), hub)
 	l, _ := net.Listen("tcp", "127.0.0.1:0")

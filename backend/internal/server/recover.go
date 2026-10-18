@@ -6,6 +6,8 @@ import (
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	"continuum/internal/kernel"
 )
 
 // recoverPanic turns a panic in a gRPC handler into an Internal status for that one call or stream: the process keeps
@@ -13,7 +15,7 @@ import (
 // connection and reconnects, which starts the stream loop again. Use it as `defer c.recoverPanic(what, &err)`.
 func (c *Core) recoverPanic(what string, err *error) {
 	if p := recover(); p != nil {
-		Metrics.StreamPanics.Add(1)
+		kernel.Metrics.StreamPanics.Add(1)
 		c.Log.Error("panic recovered in a request handler", "handler", what, "panic", fmt.Sprint(p), "stack", string(debug.Stack()))
 		*err = status.Error(codes.Internal, "internal error")
 	}
@@ -23,7 +25,7 @@ func (c *Core) recoverPanic(what string, err *error) {
 func (c *Core) safely(what string, fn func()) {
 	defer func() {
 		if p := recover(); p != nil {
-			Metrics.StreamPanics.Add(1)
+			kernel.Metrics.StreamPanics.Add(1)
 			c.Log.Error("panic recovered in a background task", "task", what, "panic", fmt.Sprint(p), "stack", string(debug.Stack()))
 		}
 	}()

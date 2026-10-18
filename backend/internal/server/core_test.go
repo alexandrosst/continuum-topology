@@ -16,6 +16,7 @@ import (
 
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/approval"
+	"continuum/internal/kernel"
 	"continuum/internal/pki"
 	"continuum/internal/store"
 )
@@ -66,7 +67,7 @@ func newEnvBare(t *testing.T) *env {
 	now := time.Now()
 	e := &env{base: base, st: st, now: &now, ctx: context.Background(), dbPath: dbPath, codes: map[string]string{}}
 	base.Now = func() time.Time { return *e.now }
-	base.EnrollRL = NewLimiter(6000, 1000) // out of the way unless a test wants it
+	base.EnrollRL = kernel.NewLimiter(6000, 1000) // out of the way unless a test wants it
 	e.core = base.ForOrg("org-1")
 	return e
 }
@@ -122,8 +123,8 @@ func (e *env) approve(id string, tier int) error {
 	return e.core.Approve(e.ctx, "alex", id, e.codes[id], tier)
 }
 
-func kindOf(err error) Kind {
-	var e *Error
+func kindOf(err error) kernel.Kind {
+	var e *kernel.Error
 	if errors.As(err, &e) {
 		return e.Kind
 	}
@@ -158,7 +159,7 @@ func TestEnrollApprovePollHappyPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	a, _ := e.st.GetAgent(e.ctx, resp.AgentId)
-	if a.Name != "edge-patras" || a.AccessTier != 2 || a.ClusterID != ClusterIDFor("org-1", fp) || a.ApprovedBy != "alex" {
+	if a.Name != "edge-patras" || a.AccessTier != 2 || a.ClusterID != kernel.ClusterIDFor("org-1", fp) || a.ApprovedBy != "alex" {
 		t.Fatalf("agent = %+v", a)
 	}
 }
@@ -191,20 +192,20 @@ func TestTokenIsSingleUseEvenUnderRace(t *testing.T) {
 func TestTokenExpiryUnknownAndMalformed(t *testing.T) {
 	e := newEnv(t)
 	secret, _, _ := e.core.CreateToken(e.ctx, "admin", "c", 1)
-	*e.now = e.now.Add(TokenTTL + time.Second)
+	*e.now = e.now.Add(kernel.TokenTTL + time.Second)
 	d, _ := csr(t)
 	_, err := e.core.Enroll(e.ctx, "1.1.1.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fp, ApprovalCodeHash: hashFor(t, d)})
-	if kindOf(err) != KindUnauthenticated {
+	if kindOf(err) != kernel.KindUnauthenticated {
 		t.Fatalf("expired token: %v", err)
 	}
-	unknown, _ := NewTokenSecret()
+	unknown, _ := kernel.NewTokenSecret()
 	_, err = e.core.Enroll(e.ctx, "1.1.1.1", &continuumv1.EnrollRequest{Token: unknown, CsrDer: d, ClusterFingerprint: fp, ApprovalCodeHash: hashFor(t, d)})
-	if kindOf(err) != KindUnauthenticated {
+	if kindOf(err) != kernel.KindUnauthenticated {
 		t.Fatalf("unknown token: %v", err)
 	}
 	for _, bad := range []string{"", "cnt_", "short", "cnt_" + string(make([]byte, 43))} {
 		_, err = e.core.Enroll(e.ctx, "1.1.1.1", &continuumv1.EnrollRequest{Token: bad, CsrDer: d, ClusterFingerprint: fp, ApprovalCodeHash: hashFor(t, d)})
-		if kindOf(err) != KindUnauthenticated {
+		if kindOf(err) != kernel.KindUnauthenticated {
 			t.Fatalf("malformed %q: %v", bad, err)
 		}
 	}
@@ -215,14 +216,14 @@ func TestBadCSRDoesNotBurnTheToken(t *testing.T) {
 	secret, _, _ := e.core.CreateToken(e.ctx, "admin", "c", 1)
 	rk, _ := rsa.GenerateKey(rand.Reader, 2048)
 	rsaCSR, _ := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{}, rk)
-	if _, err := e.core.Enroll(e.ctx, "1.1.1.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: rsaCSR, ClusterFingerprint: fp}); kindOf(err) != KindInvalid {
+	if _, err := e.core.Enroll(e.ctx, "1.1.1.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: rsaCSR, ClusterFingerprint: fp}); kindOf(err) != kernel.KindInvalid {
 		t.Fatalf("rsa csr: %v", err)
 	}
-	if _, err := e.core.Enroll(e.ctx, "1.1.1.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: []byte("x"), ClusterFingerprint: fp}); kindOf(err) != KindInvalid {
+	if _, err := e.core.Enroll(e.ctx, "1.1.1.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: []byte("x"), ClusterFingerprint: fp}); kindOf(err) != kernel.KindInvalid {
 		t.Fatalf("garbage csr: %v", err)
 	}
 	d, _ := csr(t)
-	if _, err := e.core.Enroll(e.ctx, "1.1.1.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: "bad fp!"}); kindOf(err) != KindInvalid {
+	if _, err := e.core.Enroll(e.ctx, "1.1.1.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: "bad fp!"}); kindOf(err) != kernel.KindInvalid {
 		t.Fatalf("bad fingerprint: %v", err)
 	}
 	if _, err := e.core.Enroll(e.ctx, "1.1.1.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fp, ApprovalCodeHash: hashFor(t, d)}); err != nil {
@@ -235,7 +236,7 @@ func TestPollNeedsTheSecretAndDoesNotRevealAgents(t *testing.T) {
 	resp, _ := e.enroll(t, 1, fp)
 	_, err1 := e.core.Poll(e.ctx, "9.9.9.9", &continuumv1.PollRequest{AgentId: resp.AgentId, PollSecret: "wrong"})
 	_, err2 := e.core.Poll(e.ctx, "9.9.9.9", &continuumv1.PollRequest{AgentId: "ag-doesnotexist", PollSecret: "wrong"})
-	if kindOf(err1) != KindUnauthenticated || kindOf(err2) != KindUnauthenticated || err1.Error() != err2.Error() {
+	if kindOf(err1) != kernel.KindUnauthenticated || kindOf(err2) != kernel.KindUnauthenticated || err1.Error() != err2.Error() {
 		t.Fatalf("poll must answer identically: %v / %v", err1, err2)
 	}
 }
@@ -243,7 +244,7 @@ func TestPollNeedsTheSecretAndDoesNotRevealAgents(t *testing.T) {
 func TestTierIsCappedByInstalledRBACTokenAndRelease(t *testing.T) {
 	e := newEnv(t)
 	resp, _ := e.enroll(t, 1, fp) // RBAC installed at tier 1
-	if err := e.approve(resp.AgentId, 2); kindOf(err) != KindInvalid {
+	if err := e.approve(resp.AgentId, 2); kindOf(err) != kernel.KindInvalid {
 		t.Fatalf("tier above installed RBAC was granted: %v", err)
 	}
 	// A cluster whose RBAC claims tier 4 still cannot be granted more than this release implements.
@@ -252,10 +253,10 @@ func TestTierIsCappedByInstalledRBACTokenAndRelease(t *testing.T) {
 	d, _ := csr(t)
 	hash, code := approvalFor(t, d)
 	r2, _ := e2.core.Enroll(e2.ctx, "1.1.1.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fp, InstalledAccessTier: 4, ApprovalCodeHash: hash})
-	if err := e2.core.Approve(e2.ctx, "alex", r2.AgentId, code, 3); kindOf(err) != KindInvalid {
+	if err := e2.core.Approve(e2.ctx, "alex", r2.AgentId, code, 3); kindOf(err) != kernel.KindInvalid {
 		t.Fatalf("unimplemented tier was granted: %v", err)
 	}
-	if _, _, err := e2.core.CreateToken(e2.ctx, "a", "c", 3); kindOf(err) != KindInvalid {
+	if _, _, err := e2.core.CreateToken(e2.ctx, "a", "c", 3); kindOf(err) != kernel.KindInvalid {
 		t.Fatalf("token above implemented tier: %v", err)
 	}
 }
@@ -267,7 +268,7 @@ func TestOneLiveAgentPerClusterAndReplaceAfterRevoke(t *testing.T) {
 	if err := e.approve(a.AgentId, 1); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.approve(b.AgentId, 1); kindOf(err) != KindConflict {
+	if err := e.approve(b.AgentId, 1); kindOf(err) != kernel.KindConflict {
 		t.Fatalf("second live agent for the same cluster: %v", err)
 	}
 	if err := e.core.Revoke(e.ctx, "alex", a.AgentId, "replaced"); err != nil {
@@ -294,10 +295,10 @@ func TestRevokeStopsEverythingAndDropsTheStream(t *testing.T) {
 	if dropped != resp.AgentId {
 		t.Fatal("live stream was not dropped")
 	}
-	if _, err := e.core.AuthorizeAgent(e.ctx, resp.AgentId); kindOf(err) != KindUnauthenticated {
+	if _, err := e.core.AuthorizeAgent(e.ctx, resp.AgentId); kindOf(err) != kernel.KindUnauthenticated {
 		t.Fatalf("revoked agent still authorised: %v", err)
 	}
-	if _, _, err := e.core.Renew(e.ctx, resp.AgentId, d); kindOf(err) != KindUnauthenticated {
+	if _, _, err := e.core.Renew(e.ctx, resp.AgentId, d); kindOf(err) != kernel.KindUnauthenticated {
 		t.Fatalf("revoked agent renewed: %v", err)
 	}
 	a, _ := e.st.GetAgent(e.ctx, resp.AgentId)
@@ -315,7 +316,7 @@ func TestRejectAndRenewDetails(t *testing.T) {
 	if err := e.core.Reject(e.ctx, "alex", resp.AgentId, "not ours"); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.approve(resp.AgentId, 1); kindOf(err) != KindConflict {
+	if err := e.approve(resp.AgentId, 1); kindOf(err) != kernel.KindConflict {
 		t.Fatalf("approve after reject: %v", err)
 	}
 
@@ -335,27 +336,27 @@ func TestRejectAndRenewDetails(t *testing.T) {
 	if a, _ := e.st.GetAgent(e.ctx, r2.AgentId); len(a.PollSecretHash) != 0 {
 		t.Fatal("poll secret should be cleared after the first mTLS contact")
 	}
-	if _, _, err := e.core.Renew(e.ctx, r2.AgentId, []byte("junk")); kindOf(err) != KindInvalid {
+	if _, _, err := e.core.Renew(e.ctx, r2.AgentId, []byte("junk")); kindOf(err) != kernel.KindInvalid {
 		t.Fatalf("renew with junk csr: %v", err)
 	}
 }
 
 func TestEnrollmentIsRateLimitedPerAddress(t *testing.T) {
 	e := newEnv(t)
-	e.core.EnrollRL = NewLimiter(1, 3)
+	e.core.EnrollRL = kernel.NewLimiter(1, 3)
 	d, _ := csr(t)
 	var limited int
 	for i := 0; i < 10; i++ {
-		tok, _ := NewTokenSecret() // guessing tokens
-		if _, err := e.core.Enroll(e.ctx, "6.6.6.6", &continuumv1.EnrollRequest{Token: tok, CsrDer: d, ClusterFingerprint: fp, ApprovalCodeHash: hashFor(t, d)}); kindOf(err) == KindRateLimited {
+		tok, _ := kernel.NewTokenSecret() // guessing tokens
+		if _, err := e.core.Enroll(e.ctx, "6.6.6.6", &continuumv1.EnrollRequest{Token: tok, CsrDer: d, ClusterFingerprint: fp, ApprovalCodeHash: hashFor(t, d)}); kindOf(err) == kernel.KindRateLimited {
 			limited++
 		}
 	}
 	if limited < 6 {
 		t.Fatalf("only %d of 10 guesses were limited", limited)
 	}
-	tok, _ := NewTokenSecret()
-	if _, err := e.core.Enroll(e.ctx, "7.7.7.7", &continuumv1.EnrollRequest{Token: tok, CsrDer: d, ClusterFingerprint: fp, ApprovalCodeHash: hashFor(t, d)}); kindOf(err) == KindRateLimited {
+	tok, _ := kernel.NewTokenSecret()
+	if _, err := e.core.Enroll(e.ctx, "7.7.7.7", &continuumv1.EnrollRequest{Token: tok, CsrDer: d, ClusterFingerprint: fp, ApprovalCodeHash: hashFor(t, d)}); kindOf(err) == kernel.KindRateLimited {
 		t.Fatal("another address must not share the limit")
 	}
 }

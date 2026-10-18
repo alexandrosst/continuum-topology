@@ -7,13 +7,14 @@ import (
 	"strings"
 
 	continuumv1 "continuum/gen/continuumv1"
+	"continuum/internal/kernel"
 	"continuum/internal/link"
 	"continuum/internal/store"
 )
 
 // pairsOf is the pairs a cluster is in, by the id of the cluster at the other end.
-func pairsOf(links []LinkSetting, cluster string) map[string]LinkSetting {
-	out := map[string]LinkSetting{}
+func pairsOf(links []kernel.LinkSetting, cluster string) map[string]kernel.LinkSetting {
+	out := map[string]kernel.LinkSetting{}
 	for _, l := range links {
 		switch cluster {
 		case l.A:
@@ -26,7 +27,7 @@ func pairsOf(links []LinkSetting, cluster string) map[string]LinkSetting {
 }
 
 // peersOf is the clusters paired with one cluster, sorted.
-func peersOf(links []LinkSetting, cluster string) []string {
+func peersOf(links []kernel.LinkSetting, cluster string) []string {
 	var out []string
 	for _, l := range links {
 		switch cluster {
@@ -57,13 +58,13 @@ func linkRunner(a, b string) string { return min(a, b) }
 // tier 2, paused, silent, or whose list is full never leaves the pair with nobody measuring. flowPausedOf says which agents
 // (by agent id) have the flow collector paused; it is read by the caller beforehand because that may touch the store, and
 // only the runners' entries are looked at.
-func (h *Hub) linkPeers(a store.Agent, agents []store.Agent, links []LinkSetting, flowPaused bool, flowPausedOf map[string]bool) []*continuumv1.LinkPeer {
+func (h *Hub) linkPeers(a store.Agent, agents []store.Agent, links []kernel.LinkSetting, flowPaused bool, flowPausedOf map[string]bool) []*continuumv1.LinkPeer {
 	return h.peerList(a, agents, links, flowPaused, flowPausedOf, true)
 }
 
 // peerList is linkPeers; assign says whether to hand out the second cluster's SkipProbe (false when working out what the
 // other side was told, which must not recurse).
-func (h *Hub) peerList(a store.Agent, agents []store.Agent, links []LinkSetting, flowPaused bool, flowPausedOf map[string]bool, assign bool) []*continuumv1.LinkPeer {
+func (h *Hub) peerList(a store.Agent, agents []store.Agent, links []kernel.LinkSetting, flowPaused bool, flowPausedOf map[string]bool, assign bool) []*continuumv1.LinkPeer {
 	if a.ClusterID == "" || a.AccessTier < 2 || flowPaused {
 		return nil
 	}
@@ -123,7 +124,7 @@ type peerPlan struct {
 // from its own, every address also claimed by another peer) are filtered out FIRST and the list is cut at link.MaxPeers
 // after, in id order: a cut that came first would let peers with no agent yet use up the room of those that have one. For a
 // hub with no more than link.MaxPeers usable peers the list is the same as without a cut. Called with h.mu held.
-func (h *Hub) planPeers(a store.Agent, agents []store.Agent, links []LinkSetting) *peerPlan {
+func (h *Hub) planPeers(a store.Agent, agents []store.Agent, links []kernel.LinkSetting) *peerPlan {
 	plan := &peerPlan{byID: map[string]*plannedPeer{}, cut: map[string]bool{}}
 	if a.ClusterID == "" {
 		return plan
@@ -187,7 +188,7 @@ func (h *Hub) planPeers(a store.Agent, agents []store.Agent, links []LinkSetting
 
 // planner is planPeers memoised per agent, for a caller (the notes, the checklists) that asks about every pair of the
 // organisation. Called with h.mu held; the closure is for one call's use.
-func (h *Hub) planner(links []LinkSetting, agents []store.Agent) func(store.Agent) *peerPlan {
+func (h *Hub) planner(links []kernel.LinkSetting, agents []store.Agent) func(store.Agent) *peerPlan {
 	memo := map[string]*peerPlan{}
 	return func(a store.Agent) *peerPlan {
 		p, ok := memo[a.ID]
@@ -246,7 +247,7 @@ func withoutAddresses(addrs []string, drop map[string]bool) []string {
 // runnerMeasures says whether the runner of a pair, agent r, has been told to measure towards agent a: that is, whether a is
 // in the peer list r would be sent. It reuses linkPeers, so it holds exactly when r is approved, at tier 2, not paused, has a
 // peer list with room for a, and a has reported addresses r can use.
-func (h *Hub) runnerMeasures(r, a store.Agent, agents []store.Agent, links []LinkSetting, flowPausedOf map[string]bool) bool {
+func (h *Hub) runnerMeasures(r, a store.Agent, agents []store.Agent, links []kernel.LinkSetting, flowPausedOf map[string]bool) bool {
 	for _, lp := range h.peerList(r, agents, links, flowPausedOf[r.ID], flowPausedOf, false) {
 		if lp.ClusterId == a.ClusterID {
 			return !lp.NoProbe
@@ -257,7 +258,7 @@ func (h *Hub) runnerMeasures(r, a store.Agent, agents []store.Agent, links []Lin
 
 // runnersPaused is, for the agents that run the probes of the pairs agent a is in, whether their flow collector is paused. The
 // consent may have to be read from the store, so call it before taking h.mu, and only when a has pairs.
-func (h *Hub) runnersPaused(a store.Agent, agents []store.Agent, links []LinkSetting) map[string]bool {
+func (h *Hub) runnersPaused(a store.Agent, agents []store.Agent, links []kernel.LinkSetting) map[string]bool {
 	runs := map[string]bool{}
 	for _, id := range peersOf(links, a.ClusterID) {
 		if linkRunner(a.ClusterID, id) == id {
@@ -309,7 +310,7 @@ type LinkNote struct {
 // conditions one by one, so a pair that has no note is one whose agents are handed each other. Called with h.mu held;
 // agents is the organisation's agents and flowPausedOf (by agent id) says whose flow collector is paused, both read
 // beforehand because that may touch the store.
-func (h *Hub) linkNotes(links []LinkSetting, agents []store.Agent, flowPausedOf map[string]bool) []LinkNote {
+func (h *Hub) linkNotes(links []kernel.LinkSetting, agents []store.Agent, flowPausedOf map[string]bool) []LinkNote {
 	byCluster := approvedByCluster(agents)
 	plan := h.planner(links, agents)
 	var out []LinkNote
@@ -358,7 +359,7 @@ func approvedByCluster(agents []store.Agent) map[string]store.Agent {
 
 // endNote is the reason, if any, that agent a (one end of pair l, with approved agent o at the other, and plan the peer list a is
 // given) is not told about its peer: the one linkNotes reports for that end. Nil when a is handed o. Called with h.mu held.
-func (h *Hub) endNote(l LinkSetting, a, o store.Agent, plan *peerPlan, flowPaused bool) *LinkNote {
+func (h *Hub) endNote(l kernel.LinkSetting, a, o store.Agent, plan *peerPlan, flowPaused bool) *LinkNote {
 	c, peer := a.ClusterID, o.ClusterID
 	switch {
 	case a.AccessTier < 2:
@@ -375,7 +376,7 @@ func (h *Hub) endNote(l LinkSetting, a, o store.Agent, plan *peerPlan, flowPause
 	case pp == nil:
 		return &LinkNote{Cluster: c, Peer: peer, Code: "shared-address", Text: fmt.Sprintf("Every address of %s (%s) is also an address of this cluster, or the public address its agent connects from, so traffic to %s cannot be told from its own traffic and the pair is left out here.", peer, listed(raw), peer)}
 	case len(pp.addrs) == 0:
-		others := SortedKeys(pp.clash)
+		others := kernel.SortedKeys(pp.clash)
 		return &LinkNote{Cluster: c, Peer: peer, Code: "shared-address", Text: fmt.Sprintf("Every address of %s (%s) is also an address of %s, another cluster %s is paired with, so traffic to the two cannot be told apart and %s is left out here. Give the clusters addresses of their own, or pair %s with only one of them.", peer, listed(raw), listed(others), c, peer, c)}
 	case plan.cut[peer]:
 		return &LinkNote{Cluster: c, Peer: peer, Code: "too-many-peers", Text: fmt.Sprintf("This cluster is paired with more clusters that can be measured than one agent holds (%d), so %s, which sorts after them, is left out. Remove the pairs this cluster does not need.", link.MaxPeers, peer)}
@@ -392,11 +393,11 @@ func sharedHint(a, o store.Agent, pp *plannedPeer) *LinkNote {
 		return nil
 	}
 	var shared []string
-	for _, k := range SortedKeys(pp.clash) {
+	for _, k := range kernel.SortedKeys(pp.clash) {
 		shared = append(shared, pp.clash[k]...)
 	}
 	shared = dedupeSorted(shared)
-	return &LinkNote{Cluster: a.ClusterID, Peer: o.ClusterID, Code: "shared-address", Text: fmt.Sprintf("%s shares %s with %s, another cluster %s is paired with, so those addresses are left out for both and %s is measured through its other addresses only.", o.ClusterID, listed(shared), listed(SortedKeys(pp.clash)), a.ClusterID, o.ClusterID)}
+	return &LinkNote{Cluster: a.ClusterID, Peer: o.ClusterID, Code: "shared-address", Text: fmt.Sprintf("%s shares %s with %s, another cluster %s is paired with, so those addresses are left out for both and %s is measured through its other addresses only.", o.ClusterID, listed(shared), listed(kernel.SortedKeys(pp.clash)), a.ClusterID, o.ClusterID)}
 }
 
 // rangeHint is the hint for a pair whose peer has no public address: the addresses the cluster is told to measure towards are all of

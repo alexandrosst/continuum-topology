@@ -11,6 +11,7 @@ import (
 	"continuum/internal/agent"
 	"continuum/internal/agent/collect"
 	"continuum/internal/flow"
+	"continuum/internal/kernel"
 	"continuum/internal/link"
 	"continuum/internal/server"
 )
@@ -20,7 +21,7 @@ func peerUIDSorting(t *testing.T, mine string, after bool) string {
 	t.Helper()
 	for i := 0; i < 200; i++ {
 		uid := fmt.Sprintf("%012x", 0xabc000+i)
-		id, _ := server.ClusterIDForUID("org", "d1a90002-aaaa-4bbb-8ccc-"+uid)
+		id, _ := kernel.ClusterIDForUID("org", "d1a90002-aaaa-4bbb-8ccc-"+uid)
 		if (id > mine) == after {
 			return uid
 		}
@@ -56,7 +57,7 @@ func TestTheServerIssuesIperfCredentialsAndTheAgentHandsThemToThePodsOfItsRole(t
 				return link.FetchIperfServer(ctx, srv.Client(), srv.URL, iperfSecret, time.Now())
 			}
 
-			if _, err := d.core.SaveSettings(ctx, "test", server.Settings{Links: []server.LinkSetting{{A: min(mine, peer), B: max(mine, peer), Throughput: &server.LinkThroughput{}}}}); err != nil {
+			if _, err := d.core.SaveSettings(ctx, "test", kernel.Settings{Links: []kernel.LinkSetting{{A: min(mine, peer), B: max(mine, peer), Throughput: &kernel.LinkThroughput{}}}}); err != nil {
 				t.Fatal(err)
 			}
 			waitFor(t, "the peer list", 30*time.Second, func() bool { return !meter.Peers.Empty() })
@@ -105,7 +106,7 @@ func TestTheServerIssuesIperfCredentialsAndTheAgentHandsThemToThePodsOfItsRole(t
 				s, err := fetchServer()
 				return err == nil && !s.Empty()
 			})
-			if _, err := d.core.SaveSettings(ctx, "test", server.Settings{}); err != nil {
+			if _, err := d.core.SaveSettings(ctx, "test", kernel.Settings{}); err != nil {
 				t.Fatal(err)
 			}
 			waitFor(t, "the credentials to go", 30*time.Second, func() bool {

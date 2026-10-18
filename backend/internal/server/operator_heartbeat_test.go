@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
 
@@ -69,7 +70,7 @@ func TestCreateOperatorHeartbeatIsOptInAndSecretIsOnlyStoredHashed(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(hb, HeartbeatPrefix) || !LooksLikeHeartbeatSecret(hb) {
+	if !strings.HasPrefix(hb, kernel.HeartbeatPrefix) || !kernel.LooksLikeHeartbeatSecret(hb) {
 		t.Fatalf("heartbeat secret has the wrong shape: %q", hb)
 	}
 	if recv != "" {
@@ -83,7 +84,7 @@ func TestCreateOperatorHeartbeatIsOptInAndSecretIsOnlyStoredHashed(t *testing.T)
 		t.Fatal("the two credentials share a hash")
 	}
 	// A receiver-token-shaped secret does not open the heartbeat door.
-	recvShaped, _ := NewOperatorReceiverSecret()
+	recvShaped, _ := kernel.NewOperatorReceiverSecret()
 	if err := e.core.RecordOperatorHeartbeat(e.ctx, recvShaped); err != errHeartbeatRejected {
 		t.Fatalf("the receiver token was accepted as a heartbeat secret: %v", err)
 	}
@@ -91,7 +92,7 @@ func TestCreateOperatorHeartbeatIsOptInAndSecretIsOnlyStoredHashed(t *testing.T)
 		t.Fatalf("the heartbeat secret was refused: %v", err)
 	}
 	_, trail := auditActions(t, e)
-	if strings.Contains(trail, hb) || strings.Contains(trail, HeartbeatPrefix) {
+	if strings.Contains(trail, hb) || strings.Contains(trail, kernel.HeartbeatPrefix) {
 		t.Fatalf("audit trail holds secret material:\n%s", trail)
 	}
 	if !strings.Contains(trail, "operator-created|operator|"+op.ID+"|with-hb (heartbeat enabled)") {
@@ -145,7 +146,7 @@ func TestEnableAndRotateOperatorHeartbeat(t *testing.T) {
 	if enabled != 1 || rot != 1 {
 		t.Fatalf("audit actions = %v, want one enabled and one rotated", actions)
 	}
-	for _, s := range []string{first, second, first[len(HeartbeatPrefix):], second[len(HeartbeatPrefix):]} {
+	for _, s := range []string{first, second, first[len(kernel.HeartbeatPrefix):], second[len(kernel.HeartbeatPrefix):]} {
 		if strings.Contains(trail, s) {
 			t.Fatalf("audit trail contains secret material %q:\n%s", s, trail)
 		}
@@ -155,16 +156,16 @@ func TestEnableAndRotateOperatorHeartbeat(t *testing.T) {
 	if err := e.core.RevokeOperator(e.ctx, "alex", op.ID, "gone"); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := e.core.EnableOperatorHeartbeat(e.ctx, "alex", op.ID); kindOf(err) != KindConflict {
+	if _, _, err := e.core.EnableOperatorHeartbeat(e.ctx, "alex", op.ID); kindOf(err) != kernel.KindConflict {
 		t.Fatalf("revoked operator: %v", err)
 	}
-	if _, _, err := e.core.EnableOperatorHeartbeat(e.ctx, "alex", "op-nope"); kindOf(err) != KindNotFound {
+	if _, _, err := e.core.EnableOperatorHeartbeat(e.ctx, "alex", "op-nope"); kindOf(err) != kernel.KindNotFound {
 		t.Fatalf("unknown operator: %v", err)
 	}
 	if err := e.st.CreateOrg(e.ctx, store.Org{ID: "org-2", Name: "Two", CreatedAt: *e.now, CreatedBy: "u-owner"}, "u-owner"); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := e.base.ForOrg("org-2").EnableOperatorHeartbeat(e.ctx, "alex", op.ID); kindOf(err) != KindNotFound {
+	if _, _, err := e.base.ForOrg("org-2").EnableOperatorHeartbeat(e.ctx, "alex", op.ID); kindOf(err) != kernel.KindNotFound {
 		t.Fatalf("another organisation's operator: %v", err)
 	}
 }
@@ -358,7 +359,7 @@ func TestHeartbeatEndpointIsUniform401ForEveryKindOfFailure(t *testing.T) {
 	if err := a.core.RevokeOperator(a.ctx, "alex", revokedOp.ID, "x"); err != nil {
 		t.Fatal(err)
 	}
-	validShape := HeartbeatPrefix + strings.Repeat("A", 43)
+	validShape := kernel.HeartbeatPrefix + strings.Repeat("A", 43)
 	_, recv, _, _ := a.createReceiverOnly(t)
 
 	cases := map[string]*httptest.ResponseRecorder{
@@ -435,7 +436,7 @@ func TestHeartbeatEndpointCapsTheBodyAndRejectsOtherMethods(t *testing.T) {
 func TestHeartbeatEndpointThrottlesFailuresPerAddressButNeverAGoodOperator(t *testing.T) {
 	a := newAdminRig(t)
 	_, hb := a.hbOperator(t, "athens", fp)
-	bad := HeartbeatPrefix + strings.Repeat("B", 43)
+	bad := kernel.HeartbeatPrefix + strings.Repeat("B", 43)
 	var got429 bool
 	for i := 0; i < 40; i++ {
 		if a.beat(bad, nil, fromIP("10.9.9.9")).Code == 429 {
@@ -497,7 +498,7 @@ func TestOperatorsHTTPHealthShapeAndHeartbeatEnableRoute(t *testing.T) {
 	// Explicitly on at creation.
 	on := create(map[string]any{"heartbeat": true})
 	tok, _ := on["heartbeatToken"].(string)
-	if !strings.HasPrefix(tok, HeartbeatPrefix) {
+	if !strings.HasPrefix(tok, kernel.HeartbeatPrefix) {
 		t.Fatalf("no heartbeat token: %v", on)
 	}
 	if on["token"] == tok {

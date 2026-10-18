@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"continuum/internal/fusionapi"
+	"continuum/internal/kernel"
 )
 
 // pageRig is the data rig with FUSION fully up, Grafana among it, and fake Prometheus and Grafana pages that remember how
@@ -419,7 +420,7 @@ func TestFusionProxyRefusesProtocolUpgrades(t *testing.T) {
 
 func TestFusionProxyIsRateLimitedPerPerson(t *testing.T) {
 	p := newPageRig(t)
-	p.a.fusionRL = NewLimiter(60, 3)
+	p.a.fusionRL = kernel.NewLimiter(60, 3)
 	for i := range 3 {
 		if r := p.send("GET", fusionPromPath+"graph", nil); r.Code == 429 {
 			t.Fatalf("request %d was limited", i+1)

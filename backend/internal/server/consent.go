@@ -12,6 +12,7 @@ import (
 
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/agentcaps"
+	"continuum/internal/kernel"
 	"continuum/internal/store"
 
 	"google.golang.org/protobuf/proto"
@@ -65,7 +66,7 @@ func cleanConsent(in Consent) (Consent, error) {
 			known = known || k == p
 		}
 		if !known {
-			return out, Errf(KindInvalid, "%q is not a collector an agent can have (probes, flow or measure)", Printable(p, 40))
+			return out, kernel.Errf(kernel.KindInvalid, "%q is not a collector an agent can have (probes, flow or measure)", kernel.Printable(p, 40))
 		}
 		if !seen[p] {
 			seen[p] = true
@@ -78,10 +79,10 @@ func cleanConsent(in Consent) (Consent, error) {
 		switch {
 		case ns == "":
 			continue
-		case !NsNameRe.MatchString(ns):
-			return out, Errf(KindInvalid, "%q is not a valid namespace name (lowercase letters, digits and dashes, at most 63 characters)", Printable(ns, 64))
+		case !kernel.NsNameRe.MatchString(ns):
+			return out, kernel.Errf(kernel.KindInvalid, "%q is not a valid namespace name (lowercase letters, digits and dashes, at most 63 characters)", kernel.Printable(ns, 64))
 		case systemNS(ns):
-			return out, Errf(KindInvalid, "%s is a system namespace: the agent always reads those to recognise the cluster's own components", ns)
+			return out, kernel.Errf(kernel.KindInvalid, "%s is a system namespace: the agent always reads those to recognise the cluster's own components", ns)
 		}
 		if !seen[ns] {
 			seen[ns] = true
@@ -89,7 +90,7 @@ func cleanConsent(in Consent) (Consent, error) {
 		}
 	}
 	if len(out.Excluded) > maxExcluded {
-		return out, Errf(KindInvalid, "at most %d namespaces can be left out from here; use the scope of the agent's install (helm) for more", maxExcluded)
+		return out, kernel.Errf(kernel.KindInvalid, "at most %d namespaces can be left out from here; use the scope of the agent's install (helm) for more", maxExcluded)
 	}
 	sort.Strings(out.Paused)
 	sort.Strings(out.Excluded)
@@ -246,7 +247,7 @@ func (h *Hub) SetAgentTier(ctx context.Context, actor, agentID string, tier int,
 		return a, err
 	}
 	if a.Status != store.StatusApproved {
-		return a, Errf(KindConflict, "agent is %s: only an approved agent's access can be changed", a.Status)
+		return a, kernel.Errf(kernel.KindConflict, "agent is %s: only an approved agent's access can be changed", a.Status)
 	}
 	// The only real ceiling below is ImplementedTier: MaxTier is the type's absolute upper bound (tiers reserved
 	// for a future release), not a separate limit worth its own message, and duplicating "the highest allowed
@@ -255,39 +256,39 @@ func (h *Hub) SetAgentTier(ctx context.Context, actor, agentID string, tier int,
 	// while MaxTier=4 said otherwise. Only a genuinely out-of-domain value (negative) gets its own message here.
 	verdict := CheckTier(tier, a.InstalledTier, a.TierCap)
 	if verdict == TierBelowZero {
-		return a, Errf(KindInvalid, "access tier must be 0 or more")
+		return a, kernel.Errf(kernel.KindInvalid, "access tier must be 0 or more")
 	}
 	if tier == a.AccessTier {
 		return a, nil
 	}
 	if !Decide(CallerFrom(ctx), ActChangeAccess, Resource{Widening: tier > a.AccessTier}).Allowed {
-		return a, Errf(KindForbidden, "raising an agent's access takes an administrator, as approving it did; narrowing it does not")
+		return a, kernel.Errf(kernel.KindForbidden, "raising an agent's access takes an administrator, as approving it did; narrowing it does not")
 	}
 	if verdict == TierNotImplemented {
-		return a, Errf(KindInvalid, "access tier %d is not available in this release (the highest is %d)", tier, ImplementedTier)
+		return a, kernel.Errf(kernel.KindInvalid, "access tier %d is not available in this release (the highest is %d)", tier, kernel.ImplementedTier)
 	}
 	if verdict == TierAboveInstall {
 		cmd := ""
 		if upgradeCmd != nil {
 			cmd = upgradeCmd(tier)
 		}
-		e := Errf(KindInvalid, "this agent's install allows at most tier %d (its Helm value access.tier), and only the cluster's owner can raise that. Run this in that cluster, then set the tier here:\n%s", a.InstalledTier, cmd)
+		e := kernel.Errf(kernel.KindInvalid, "this agent's install allows at most tier %d (its Helm value access.tier), and only the cluster's owner can raise that. Run this in that cluster, then set the tier here:\n%s", a.InstalledTier, cmd)
 		e.Data = map[string]any{"installedTier": a.InstalledTier, "helm": cmd}
 		return a, e
 	}
 	if verdict == TierAboveToken {
-		return a, Errf(KindInvalid, "access tier %d is above what the enrollment token allowed for this agent (%d)", tier, a.TierCap)
+		return a, kernel.Errf(kernel.KindInvalid, "access tier %d is above what the enrollment token allowed for this agent (%d)", tier, a.TierCap)
 	}
 	old := a.AccessTier
 	detail := fmt.Sprintf("%q: access tier %d (%s) to %d (%s); the agent's install allows up to %d", a.Name, old, tierName(old), tier, tierName(tier), a.InstalledTier)
 	err = h.C.Store.SetAccessTier(ctx, a.ID, tier, store.WithAudit(h.C.AuditRow(h.C.OrgID, actor, "agent-tier-changed", "agent", a.ID, detail)))
 	if errors.Is(err, store.ErrBadState) {
-		err = Errf(KindConflict, "agent changed state while its access was being changed")
+		err = kernel.Errf(kernel.KindConflict, "agent changed state while its access was being changed")
 	}
 	if err := h.C.AuditedWrite(err, "agent-tier-changed"); err != nil {
 		return a, err
 	}
-	Metrics.TierChanges.Add(1)
+	kernel.Metrics.TierChanges.Add(1)
 	a.AccessTier = tier
 	if tier < old {
 		h.narrowState(a.ID, tier) // what the server holds above the new tier goes now, not at the agent's next full picture
@@ -304,7 +305,7 @@ func (h *Hub) SetConsent(ctx context.Context, actor, agentID string, in Consent)
 		return Consent{}, err
 	}
 	if a.Status != store.StatusApproved {
-		return Consent{}, Errf(KindConflict, "agent is %s: only an approved agent can be given overrides", a.Status)
+		return Consent{}, kernel.Errf(kernel.KindConflict, "agent is %s: only an approved agent can be given overrides", a.Status)
 	}
 	next, err := cleanConsent(in)
 	if err != nil {
@@ -312,7 +313,7 @@ func (h *Hub) SetConsent(ctx context.Context, actor, agentID string, in Consent)
 	}
 	cur := h.consentOf(a.ID)
 	if !Decide(CallerFrom(ctx), ActChangeAccess, Resource{Widening: consentNarrows(next, cur)}).Allowed { // cur has a pause or exclusion that next lifts
-		return Consent{}, Errf(KindForbidden, "lifting a pause or an exclusion takes an administrator; adding one does not")
+		return Consent{}, kernel.Errf(kernel.KindForbidden, "lifting a pause or an exclusion takes an administrator; adding one does not")
 	}
 	if strings.Join(cur.Paused, ",") == strings.Join(next.Paused, ",") && strings.Join(cur.Excluded, ",") == strings.Join(next.Excluded, ",") {
 		return cur, nil
@@ -328,7 +329,7 @@ func (h *Hub) SetConsent(ctx context.Context, actor, agentID string, in Consent)
 		store.WithAudit(h.C.AuditRow(h.C.OrgID, actor, "agent-consent-changed", "agent", a.ID, detail))), "agent-consent-changed"); err != nil {
 		return Consent{}, err
 	}
-	Metrics.ConsentChanges.Add(1)
+	kernel.Metrics.ConsentChanges.Add(1)
 	h.mu.Lock()
 	v := h.viewFor(a.ID)
 	v.ext.consent, v.ext.consentAt, v.ext.consentLoad = next, now, true
@@ -498,7 +499,7 @@ func (h *Hub) noteCeiling(ctx context.Context, agent, fresh store.Agent, reporte
 	if ceiling != fresh.InstalledTier {
 		if err := h.C.Store.SetInstalledTier(ctx, agent.ID, ceiling); err != nil {
 			if !errors.Is(err, store.ErrBadState) {
-				Metrics.StoreErrors.Add(1)
+				kernel.Metrics.StoreErrors.Add(1)
 				h.Log.Warn("could not record the agent's installed tier", "agent", agent.ID, "err", err)
 			}
 			return agent
@@ -803,27 +804,27 @@ func (v *view) diagDoc() *DiagnosticsDoc {
 		return nil
 	}
 	out := &DiagnosticsDoc{
-		ReportedAt: rfc(v.ext.diagAt), Partial: v.ext.diagPartial, AgentVersion: Printable(d.AgentVersion, 40), Arch: Printable(d.Arch, 16), OS: Printable(d.Os, 16),
+		ReportedAt: rfc(v.ext.diagAt), Partial: v.ext.diagPartial, AgentVersion: kernel.Printable(d.AgentVersion, 40), Arch: kernel.Printable(d.Arch, 16), OS: kernel.Printable(d.Os, 16),
 		UptimeSeconds: d.UptimeSeconds, InstalledTier: int(d.InstalledTier), ApprovedTier: int(d.ApprovedTier), EffectiveTier: int(d.EffectiveTier),
 		OwnExcluded: int(d.OwnExcludedNamespaces), ExcludedNamespaces: int(d.ExcludedNamespaces), FlowDropped: d.FlowDropped,
 		PausedCollectors: []string{}, Collectors: []AgentCollectorDoc{}, Informers: []InformerDoc{}, Problems: []ProblemDoc{},
 	}
 	if sc := d.Scope; sc != nil {
-		out.Scope = &ScopeDoc{Description: Printable(sc.Description, 300), Total: int(sc.NamespacesTotal), InScope: int(sc.NamespacesInScope)}
+		out.Scope = &ScopeDoc{Description: kernel.Printable(sc.Description, 300), Total: int(sc.NamespacesTotal), InScope: int(sc.NamespacesInScope)}
 	}
 	for _, p := range d.PausedCollectors {
-		out.PausedCollectors = append(out.PausedCollectors, Printable(p, 20))
+		out.PausedCollectors = append(out.PausedCollectors, kernel.Printable(p, 20))
 	}
 	for _, s := range d.InstalledTelemetrySignals {
-		out.InstalledTelemetry = append(out.InstalledTelemetry, Printable(s, 40))
+		out.InstalledTelemetry = append(out.InstalledTelemetry, kernel.Printable(s, 40))
 	}
 	if tc := d.InstalledTelemetryConfig; tc != nil {
 		cfg := &TelemetryConfigDoc{
-			ExportEndpoint:           Printable(tc.ExportEndpoint, 300),
+			ExportEndpoint:           kernel.Printable(tc.ExportEndpoint, 300),
 			RedactionEnabled:         tc.RedactionEnabled,
 			ResourceDetectionEnabled: tc.ResourceDetectionEnabled,
-			EnergySource:             Printable(tc.GetEnergySource(), 40),
-			AcceleratorsSource:       Printable(tc.GetAcceleratorsSource(), 40),
+			EnergySource:             kernel.Printable(tc.GetEnergySource(), 40),
+			AcceleratorsSource:       kernel.Printable(tc.GetAcceleratorsSource(), 40),
 		}
 		if tc.TracesSamplingPercentage != nil {
 			v := *tc.TracesSamplingPercentage
@@ -832,7 +833,7 @@ func (v *view) diagDoc() *DiagnosticsDoc {
 		out.InstalledTelemetryConfig = cfg
 	}
 	if h := d.ExportHealth; h != nil {
-		doc := &ExportHealthDoc{PodsReached: int(h.PodsReached), PodsFailed: int(h.PodsFailed), LastError: Printable(h.LastError, 300), Routes: []ExportRouteHealthDoc{}}
+		doc := &ExportHealthDoc{PodsReached: int(h.PodsReached), PodsFailed: int(h.PodsFailed), LastError: kernel.Printable(h.LastError, 300), Routes: []ExportRouteHealthDoc{}}
 		if h.ScrapedAt != nil {
 			doc.ScrapedAt = rfc(h.ScrapedAt.AsTime())
 		}
@@ -841,7 +842,7 @@ func (v *view) diagDoc() *DiagnosticsDoc {
 			if state == "" {
 				state = "waiting"
 			}
-			rd := ExportRouteHealthDoc{Exporter: Printable(r.Exporter, 80), Signal: Printable(r.Signal, 20), State: state, Sent: r.Sent, Failed: r.Failed}
+			rd := ExportRouteHealthDoc{Exporter: kernel.Printable(r.Exporter, 80), Signal: kernel.Printable(r.Signal, 20), State: state, Sent: r.Sent, Failed: r.Failed}
 			if r.LastSentAt != nil {
 				rd.LastSentAt = rfc(r.LastSentAt.AsTime())
 			}
@@ -853,18 +854,18 @@ func (v *view) diagDoc() *DiagnosticsDoc {
 		out.ExportHealth = doc
 	}
 	for _, c := range d.Collectors {
-		cd := AgentCollectorDoc{Name: Printable(c.Name, 20), Configured: c.Configured, Enabled: c.Enabled, PausedByServer: c.PausedByServer, Producing: c.Producing,
-			Reporting: int(c.Reporting), Expected: int(c.Expected), Note: Printable(c.Note, 200)}
+		cd := AgentCollectorDoc{Name: kernel.Printable(c.Name, 20), Configured: c.Configured, Enabled: c.Enabled, PausedByServer: c.PausedByServer, Producing: c.Producing,
+			Reporting: int(c.Reporting), Expected: int(c.Expected), Note: kernel.Printable(c.Note, 200)}
 		if c.LastData != nil {
 			cd.LastData = rfc(c.LastData.AsTime())
 		}
 		out.Collectors = append(out.Collectors, cd)
 	}
 	for _, i := range d.Informers {
-		out.Informers = append(out.Informers, InformerDoc{Name: Printable(i.Name, 80), Module: Printable(i.Module, 20), Synced: i.Synced, Objects: i.Objects, LastError: Printable(i.LastError, 300)})
+		out.Informers = append(out.Informers, InformerDoc{Name: kernel.Printable(i.Name, 80), Module: kernel.Printable(i.Module, 20), Synced: i.Synced, Objects: i.Objects, LastError: kernel.Printable(i.LastError, 300)})
 	}
 	for _, p := range d.Problems {
-		pd := ProblemDoc{Code: Printable(p.Code, 40), Severity: map[continuumv1.Problem_Severity]string{continuumv1.Problem_INFO: "info", continuumv1.Problem_WARN: "warn", continuumv1.Problem_ERROR: "error"}[p.Severity], Message: Printable(p.Message, 700)}
+		pd := ProblemDoc{Code: kernel.Printable(p.Code, 40), Severity: map[continuumv1.Problem_Severity]string{continuumv1.Problem_INFO: "info", continuumv1.Problem_WARN: "warn", continuumv1.Problem_ERROR: "error"}[p.Severity], Message: kernel.Printable(p.Message, 700)}
 		if p.Since != nil {
 			pd.Since = rfc(p.Since.AsTime())
 		}

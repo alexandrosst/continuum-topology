@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"continuum/internal/history"
+	"continuum/internal/kernel"
 	"continuum/internal/model"
 	"continuum/internal/store"
 )
@@ -187,7 +188,7 @@ func (r *recorder) reclaimRevoked(ctx context.Context) {
 	}
 }
 
-func (r *recorder) prune(ctx context.Context, now time.Time, set Settings) {
+func (r *recorder) prune(ctx context.Context, now time.Time, set kernel.Settings) {
 	r.reclaimRevoked(ctx)
 	pts, err := r.h.C.Store.ListHistory(ctx, r.h.C.OrgID, time.Time{}, time.Time{})
 	if err == nil {

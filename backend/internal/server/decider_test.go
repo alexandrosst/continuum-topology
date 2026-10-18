@@ -13,11 +13,12 @@ import (
 	"testing"
 	"time"
 
+	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
 
 func TestDeciderPolicyDeniesInternalAddressesByDefault(t *testing.T) {
-	var p *DeciderPolicy // the default policy
+	var p *kernel.DeciderPolicy // the default policy
 	denied := []string{
 		"127.0.0.1", "127.255.255.254", "::1", "10.0.0.1", "172.16.5.5", "172.31.255.255", "192.168.1.1",
 		"100.64.0.1", "100.127.255.254", // CGNAT
@@ -43,7 +44,7 @@ func TestDeciderPolicyDeniesInternalAddressesByDefault(t *testing.T) {
 }
 
 func TestDeciderAllowListPermitsPrivateRangesButNeverMetadata(t *testing.T) {
-	p, err := NewDeciderPolicy("10.0.0.0/8, 127.0.0.1, fd00::/8, 169.254.0.0/16, 168.63.129.16/32, ::ffff:192.168.0.0/112")
+	p, err := kernel.NewDeciderPolicy("10.0.0.0/8, 127.0.0.1, fd00::/8, 169.254.0.0/16, 168.63.129.16/32, ::ffff:192.168.0.0/112")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,22 +64,22 @@ func TestDeciderAllowListPermitsPrivateRangesButNeverMetadata(t *testing.T) {
 			t.Errorf("%s was allowed although the allow-list names it: metadata addresses are never allowed", s)
 		}
 	}
-	all, _ := NewDeciderPolicy("0.0.0.0/0,::/0")
+	all, _ := kernel.NewDeciderPolicy("0.0.0.0/0,::/0")
 	if err := all.CheckAddr(netip.MustParseAddr("169.254.169.254")); err == nil {
 		t.Error("an allow-everything list opened the metadata address")
 	}
 	for _, bad := range []string{"10.0.0.0/33", "not-an-address", "10.0.0.0/8;evil"} {
-		if _, err := NewDeciderPolicy(bad); err == nil || !strings.Contains(err.Error(), "--decider-allow-cidrs") {
+		if _, err := kernel.NewDeciderPolicy(bad); err == nil || !strings.Contains(err.Error(), "--decider-allow-cidrs") {
 			t.Errorf("%q: expected a clear error, got %v", bad, err)
 		}
 	}
-	if p, err := NewDeciderPolicy(""); err != nil || len(p.Allowed()) != 0 {
+	if p, err := kernel.NewDeciderPolicy(""); err != nil || len(p.Allowed()) != 0 {
 		t.Errorf("an empty list is the default policy: %v %v", p, err)
 	}
 }
 
 func TestDeciderURLIsCheckedWhenSaved(t *testing.T) {
-	p := &DeciderPolicy{Lookup: func(_ context.Context, host string) ([]netip.Addr, error) {
+	p := &kernel.DeciderPolicy{Lookup: func(_ context.Context, host string) ([]netip.Addr, error) {
 		switch host {
 		case "internal.example":
 			return []netip.Addr{netip.MustParseAddr("93.184.216.34"), netip.MustParseAddr("10.0.0.5")}, nil
@@ -113,8 +114,8 @@ func TestDeciderURLIsCheckedWhenSaved(t *testing.T) {
 
 func TestStoredDeciderThatIsNoLongerAllowedIsSwitchedOffAlone(t *testing.T) {
 	e := newEnv(t)
-	e.core.Decider, _ = NewDeciderPolicy("127.0.0.0/8")
-	if _, err := e.core.SaveSettings(e.ctx, "alex", Settings{SnapshotMinutes: 9, DeciderURL: "http://127.0.0.1:9/d"}); err != nil {
+	e.core.Decider, _ = kernel.NewDeciderPolicy("127.0.0.0/8")
+	if _, err := e.core.SaveSettings(e.ctx, "alex", kernel.Settings{SnapshotMinutes: 9, DeciderURL: "http://127.0.0.1:9/d"}); err != nil {
 		t.Fatal(err)
 	}
 	c2 := NewCore(e.st, e.core.CA, "org-1", nil) // a restart without --decider-allow-cidrs
@@ -128,7 +129,7 @@ func TestStoredDeciderThatIsNoLongerAllowedIsSwitchedOffAlone(t *testing.T) {
 func rigWithDecider(t *testing.T, policy string) (a *adminRig, admin, editor, viewer string, calls *atomic.Int32, url string) {
 	t.Helper()
 	a = newAdminRig(t)
-	p, err := NewDeciderPolicy(policy)
+	p, err := kernel.NewDeciderPolicy(policy)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +148,7 @@ func rigWithDecider(t *testing.T, policy string) (a *adminRig, admin, editor, vi
 
 func TestDecideNeedsAnEditorAndEveryCallIsAudited(t *testing.T) {
 	a, admin, editor, viewer, calls, url := rigWithDecider(t, "127.0.0.0/8")
-	if r := a.do("PUT", "/api/v1/settings", Settings{DeciderURL: url + "/decide?key=SECRET"}, withCookie(admin)); r.Code != 200 {
+	if r := a.do("PUT", "/api/v1/settings", kernel.Settings{DeciderURL: url + "/decide?key=SECRET"}, withCookie(admin)); r.Code != 200 {
 		t.Fatalf("settings: %d %s", r.Code, r.Body.String())
 	}
 	if r := a.do("POST", "/api/v1/decide", map[string]any{"schema": 1}, withCookie(viewer)); r.Code != 403 {
@@ -276,7 +277,7 @@ func TestDeciderSecretNeverAppearsInTheAuditTrail(t *testing.T) {
 
 func TestDecideRefusesAPrivateTargetAtDialTimeEvenIfSavedEarlier(t *testing.T) {
 	a, admin, editor, _, calls, url := rigWithDecider(t, "127.0.0.0/8")
-	if r := a.do("PUT", "/api/v1/settings", Settings{DeciderURL: url}, withCookie(admin)); r.Code != 200 {
+	if r := a.do("PUT", "/api/v1/settings", kernel.Settings{DeciderURL: url}, withCookie(admin)); r.Code != 200 {
 		t.Fatal(r.Body.String())
 	}
 	a.base.Decider.Allow = nil // the operator restarts without the allow-list (or a name now points inside)
@@ -292,14 +293,14 @@ func TestDecideRefusesAPrivateTargetAtDialTimeEvenIfSavedEarlier(t *testing.T) {
 func TestSavingAPrivateOrMetadataDeciderIsRefusedWithAClearMessage(t *testing.T) {
 	a, admin, _, _, _, url := rigWithDecider(t, "") // default policy
 	for name, u := range map[string]string{"loopback": url, "private": "http://10.1.1.1/d", "metadata": "http://169.254.169.254/", "ula": "http://[fd00::5]/"} {
-		r := a.do("PUT", "/api/v1/settings", Settings{DeciderURL: u}, withCookie(admin))
+		r := a.do("PUT", "/api/v1/settings", kernel.Settings{DeciderURL: u}, withCookie(admin))
 		if r.Code != 400 || !strings.Contains(r.Body.String(), "not allowed") {
 			t.Errorf("%s: %d %s", name, r.Code, r.Body.String())
 		}
 	}
 	// Even with the range allowed, the metadata address stays refused.
 	a2, admin2, _, _, _, _ := rigWithDecider(t, "0.0.0.0/0,169.254.0.0/16")
-	if r := a2.do("PUT", "/api/v1/settings", Settings{DeciderURL: "http://169.254.169.254/latest"}, withCookie(admin2)); r.Code != 400 {
+	if r := a2.do("PUT", "/api/v1/settings", kernel.Settings{DeciderURL: "http://169.254.169.254/latest"}, withCookie(admin2)); r.Code != 400 {
 		t.Fatalf("metadata although allow-listed: %d", r.Code)
 	}
 }
@@ -353,7 +354,7 @@ func TestDeciderDNSRebindingIsStoppedAtDialTime(t *testing.T) {
 	res := &net.Resolver{PreferGo: true, Dial: func(ctx context.Context, _, _ string) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, "udp", dns)
 	}}
-	p := &DeciderPolicy{Resolver: res}
+	p := &kernel.DeciderPolicy{Resolver: res}
 	p.Lookup = func(ctx context.Context, h string) ([]netip.Addr, error) { return res.LookupNetIP(ctx, "ip", h) }
 
 	var hits atomic.Int32
@@ -374,7 +375,7 @@ func TestDeciderDNSRebindingIsStoppedAtDialTime(t *testing.T) {
 		resp.Body.Close()
 		t.Fatal("the connection to a name that now resolves to loopback succeeded")
 	}
-	if !IsDeciderDenied(err) {
+	if !kernel.IsDeciderDenied(err) {
 		t.Fatalf("refused, but not by the policy: %v", err)
 	}
 	if hits.Load() != 0 {

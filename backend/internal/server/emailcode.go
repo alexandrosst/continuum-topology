@@ -7,6 +7,8 @@ import (
 	"math/big"
 	"net/mail"
 	"strings"
+
+	"continuum/internal/kernel"
 )
 
 // emailCodeDigits matches totpDigits: one shape of code to type back, whether it came from an app or an
@@ -31,7 +33,7 @@ func NewEmailCode() (string, error) {
 // challenge that only lives for a few minutes and is compared, never reproduced, doesn't need a code an
 // attacker who dumps process memory could immediately use, only one they'd have to guess.
 func emailCodeHash(code string) string {
-	return fmt.Sprintf("%x", HashSecret(strings.TrimSpace(code)))
+	return fmt.Sprintf("%x", kernel.HashSecret(strings.TrimSpace(code)))
 }
 
 func emailCodeMatches(hash, code string) bool {

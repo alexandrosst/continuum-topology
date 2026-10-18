@@ -8,6 +8,7 @@ import (
 	"time"
 
 	continuumv1 "continuum/gen/continuumv1"
+	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
 
@@ -83,9 +84,9 @@ func step(t *testing.T, steps []LinkSetupStep, code, cluster string) LinkSetupSt
 }
 
 func TestPairChecklistStatesTable(t *testing.T) {
-	plain := LinkSetting{A: "a", B: "b"}
-	tput := LinkSetting{A: "a", B: "b", Throughput: &LinkThroughput{}}
-	passive := LinkSetting{A: "a", B: "b", NoProbe: true}
+	plain := kernel.LinkSetting{A: "a", B: "b"}
+	tput := kernel.LinkSetting{A: "a", B: "b", Throughput: &kernel.LinkThroughput{}}
+	passive := kernel.LinkSetting{A: "a", B: "b", NoProbe: true}
 	old := setupEnd{ID: "b", Name: "B", HasAgent: true, Tier: 2}  // an agent that never reported
 	oldA := setupEnd{ID: "a", Name: "A", HasAgent: true, Tier: 2} // the same, as the first cluster
 	noAgent := setupEnd{ID: "b", Name: "B"}
@@ -105,7 +106,7 @@ func TestPairChecklistStatesTable(t *testing.T) {
 	ok := caps()
 	for _, tc := range []struct {
 		name   string
-		l      LinkSetting
+		l      kernel.LinkSetting
 		a, b   setupEnd
 		fusion bool
 		want   string
@@ -140,7 +141,7 @@ func TestPairChecklistStatesTable(t *testing.T) {
 			"agent/a=ok agent/b=ok links-on/a=ok links-on/b=ok export/a=ok prober/a=ok capacity/a=ok capacity/b=ok peer-export/b=ok"},
 		{"iperf3 is not asked about when the pair wants no throughput tests", plain, endOf("a", ok), endOf("b", ok), true,
 			"agent/a=ok agent/b=ok links-on/a=ok links-on/b=ok export/a=ok prober/a=ok peer-export/b=ok"},
-		{"throughput tests on a pair without probing still need the prober and iperf3", LinkSetting{A: "a", B: "b", NoProbe: true, Throughput: &LinkThroughput{}}, endOf("a", caps(with("capacity"))), endOf("b", caps(with("capacity"))), true,
+		{"throughput tests on a pair without probing still need the prober and iperf3", kernel.LinkSetting{A: "a", B: "b", NoProbe: true, Throughput: &kernel.LinkThroughput{}}, endOf("a", caps(with("capacity"))), endOf("b", caps(with("capacity"))), true,
 			"agent/a=ok agent/b=ok links-on/a=ok links-on/b=ok export/a=ok prober/a=ok capacity/a=ok capacity/b=ok peer-export/b=ok"},
 
 		// agents too old to say what their install can do: unknown, never todo
@@ -170,7 +171,7 @@ func TestPairChecklistStatesTable(t *testing.T) {
 			"agent/a=todo agent/b=ok links-on/a=ok links-on/b=ok export/b=ok prober/b=ok peer-export/a=ok"},
 		{"the first cluster cannot measure and neither can the second: the first stays the runner", plain, tier1(endOf("a", ok)), tier1(endOf("b", ok)), true,
 			"agent/a=todo agent/b=todo links-on/a=ok links-on/b=ok export/a=ok prober/a=ok peer-export/b=ok"},
-		{"throughput tests are the first cluster's alone, even when it cannot measure", LinkSetting{A: "a", B: "b", Throughput: &LinkThroughput{}}, tier1(endOf("a", caps(with("capacity")))), endOf("b", caps(with("capacity"))), true,
+		{"throughput tests are the first cluster's alone, even when it cannot measure", kernel.LinkSetting{A: "a", B: "b", Throughput: &kernel.LinkThroughput{}}, tier1(endOf("a", caps(with("capacity")))), endOf("b", caps(with("capacity"))), true,
 			"agent/a=todo agent/b=ok links-on/a=ok links-on/b=ok export/b=ok prober/b=ok capacity/a=ok capacity/b=ok peer-export/a=ok"},
 		{"the other cluster has not reported an address", plain, silentPeer(endOf("a", ok)), endOf("b", ok), true,
 			"agent/a=ok agent/b=ok addresses/a=todo links-on/a=ok links-on/b=ok export/b=ok prober/b=ok peer-export/a=ok"},
@@ -207,7 +208,7 @@ func TestPairChecklistStatesTable(t *testing.T) {
 // A step about an agent that said nothing is never a failure, whatever the pair asks for: it is "unknown", and the agent behaves
 // exactly as it did before it was asked.
 func TestAnAgentThatReportsNothingNeverMakesAStepFail(t *testing.T) {
-	for _, l := range []LinkSetting{{A: "a", B: "b"}, {A: "a", B: "b", NoProbe: true}, {A: "a", B: "b", Throughput: &LinkThroughput{}}} {
+	for _, l := range []kernel.LinkSetting{{A: "a", B: "b"}, {A: "a", B: "b", NoProbe: true}, {A: "a", B: "b", Throughput: &kernel.LinkThroughput{}}} {
 		for _, fusion := range []bool{true, false} {
 			for _, tc := range []struct {
 				a, b setupEnd
@@ -238,7 +239,7 @@ func TestAnAgentThatReportsNothingNeverMakesAStepFail(t *testing.T) {
 func TestChecklistSentencesSayWhatIsWrongNamingTheClusterAndWhatToDo(t *testing.T) {
 	a := setupEnd{ID: "cl-a", Name: "sunrise-cluster", HasAgent: true, Tier: 2, Caps: caps(without("export"))}
 	b := setupEnd{ID: "cl-b", Name: "harbour", HasAgent: true, Tier: 2, Caps: caps(without("links"))}
-	steps := linkSetup(LinkSetting{A: "cl-a", B: "cl-b", Throughput: &LinkThroughput{}}, a, b, true, setupNow)
+	steps := linkSetup(kernel.LinkSetting{A: "cl-a", B: "cl-b", Throughput: &kernel.LinkThroughput{}}, a, b, true, setupNow)
 	for code, cluster := range map[string]string{stepExport: "cl-a", stepLinksOn: "cl-b", stepCapacity: "cl-a"} {
 		s := step(t, steps, code, cluster)
 		if s.State != stepTodo {
@@ -254,21 +255,21 @@ func TestChecklistSentencesSayWhatIsWrongNamingTheClusterAndWhatToDo(t *testing.
 	if got := step(t, steps, stepCapacity, "cl-a").Text; !strings.Contains(got, "iperf3 is not switched on in sunrise-cluster") || !strings.Contains(got, "runs the throughput tests") {
 		t.Errorf("capacity: %s", got)
 	}
-	old := linkSetup(LinkSetting{A: "cl-a", B: "cl-b"}, setupEnd{ID: "cl-a", Name: "sunrise-cluster", HasAgent: true, Tier: 2}, b, true, setupNow)
+	old := linkSetup(kernel.LinkSetting{A: "cl-a", B: "cl-b"}, setupEnd{ID: "cl-a", Name: "sunrise-cluster", HasAgent: true, Tier: 2}, b, true, setupNow)
 	if got := step(t, old, stepCapabilities, "cl-a").Text; !strings.Contains(got, "The agent of sunrise-cluster is too old to say") {
 		t.Errorf("capabilities: %s", got)
 	}
 	// the prober step says how long it has been
-	p := linkSetup(LinkSetting{A: "cl-a", B: "cl-b"}, setupEnd{ID: "cl-a", Name: "sunrise-cluster", HasAgent: true, Tier: 2, Caps: caps(prober(3 * time.Hour))}, b, true, setupNow)
+	p := linkSetup(kernel.LinkSetting{A: "cl-a", B: "cl-b"}, setupEnd{ID: "cl-a", Name: "sunrise-cluster", HasAgent: true, Tier: 2, Caps: caps(prober(3 * time.Hour))}, b, true, setupNow)
 	if got := step(t, p, stepProber, "cl-a").Text; !strings.Contains(got, "last asked its agent for the clusters to measure 3 hours ago") {
 		t.Errorf("prober: %s", got)
 	}
 	// a cluster without a name reads by its id
-	if got := step(t, linkSetup(LinkSetting{A: "cl-a", B: "cl-b"}, setupEnd{ID: "cl-a"}, b, true, setupNow), stepAgent, "cl-a").Text; !strings.HasPrefix(got, "cl-a has no approved agent") {
+	if got := step(t, linkSetup(kernel.LinkSetting{A: "cl-a", B: "cl-b"}, setupEnd{ID: "cl-a"}, b, true, setupNow), stepAgent, "cl-a").Text; !strings.HasPrefix(got, "cl-a has no approved agent") {
 		t.Errorf("agent: %s", got)
 	}
 	// no FUSION: the one sentence, not a failure
-	nf := linkSetup(LinkSetting{A: "cl-a", B: "cl-b"}, a, b, false, setupNow)
+	nf := linkSetup(kernel.LinkSetting{A: "cl-a", B: "cl-b"}, a, b, false, setupNow)
 	if s := step(t, nf, stepExport, "cl-a"); s.State != stepUnknown || !strings.Contains(s.Text, "This server has no FUSION") {
 		t.Errorf("no FUSION: %+v", s)
 	}
@@ -331,7 +332,7 @@ func TestTheHubBuildsTheChecklistFromAgentsAndTheirReports(t *testing.T) {
 		"ag-a": {state: nodeState("10.0.0.1"), ext: viewExt{linkCaps: caps(without("export"))}},
 		"ag-b": {state: nodeState("10.1.0.1")}, // an agent that never reported
 	})
-	links := []LinkSetting{{A: "cl-a", B: "cl-b"}, {A: "cl-a", B: "cl-z"}}
+	links := []kernel.LinkSetting{{A: "cl-a", B: "cl-b"}, {A: "cl-a", B: "cl-z"}}
 	got := h.linkSetups(links, []store.Agent{a, b}, nil, true, setupNow)
 	if len(got) != 2 || got[0].A != "cl-a" || got[0].B != "cl-b" || got[1].B != "cl-z" {
 		t.Fatalf("%+v", got)
@@ -412,7 +413,7 @@ func TestTheHeartbeatCarriesWhatTheInstallCanDo(t *testing.T) {
 func TestLatestFiguresCarryTheChecklistWhetherOrNotFusionCanBeRead(t *testing.T) {
 	a := newAdminRig(t)
 	_, admin := a.user(t, "ada", RoleAdmin)
-	if r := a.do("PUT", "/api/v1/settings", Settings{SnapshotMinutes: 7, Links: []LinkSetting{{A: "cl-a", B: "cl-b", Throughput: &LinkThroughput{IntervalMinutes: 60}}}}, withCookie(admin)); r.Code != 200 {
+	if r := a.do("PUT", "/api/v1/settings", kernel.Settings{SnapshotMinutes: 7, Links: []kernel.LinkSetting{{A: "cl-a", B: "cl-b", Throughput: &kernel.LinkThroughput{IntervalMinutes: 60}}}}, withCookie(admin)); r.Code != 200 {
 		t.Fatalf("%d %s", r.Code, r.Body.String())
 	}
 	// no FUSION: the checklist is there, with the one reason
@@ -445,7 +446,7 @@ func TestLatestFiguresCarryTheChecklistWhetherOrNotFusionCanBeRead(t *testing.T)
 		}
 	}
 	// no pairs: an empty list, not null
-	a.do("PUT", "/api/v1/settings", Settings{SnapshotMinutes: 7}, withCookie(admin))
+	a.do("PUT", "/api/v1/settings", kernel.Settings{SnapshotMinutes: 7}, withCookie(admin))
 	raw := a.do("GET", "/api/v1/links/latest", nil, withCookie(admin)).Body.Bytes()
 	var shape struct {
 		Setup []json.RawMessage `json:"setup"`

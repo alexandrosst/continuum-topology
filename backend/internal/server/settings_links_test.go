@@ -5,83 +5,68 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"continuum/internal/kernel"
 )
 
-func settingsWithLinks(ls ...LinkSetting) Settings {
-	s := DefaultSettings()
+func settingsWithLinks(ls ...kernel.LinkSetting) kernel.Settings {
+	s := kernel.DefaultSettings()
 	s.Links = ls
 	return s
 }
 
 // Every choice of a pair that changes must show in the audit row, though the number of pairs stays the same.
 func TestSettingsDiffShowsEveryChangeToAPair(t *testing.T) {
-	base := LinkSetting{A: "cl-a", B: "cl-b"}
-	with := func(f func(*LinkSetting)) LinkSetting { l := base; f(&l); return l }
-	th := func(i, b uint32) *LinkThroughput { return &LinkThroughput{IntervalMinutes: i, BudgetMB: b} }
+	base := kernel.LinkSetting{A: "cl-a", B: "cl-b"}
+	with := func(f func(*kernel.LinkSetting)) kernel.LinkSetting { l := base; f(&l); return l }
+	th := func(i, b uint32) *kernel.LinkThroughput {
+		return &kernel.LinkThroughput{IntervalMinutes: i, BudgetMB: b}
+	}
 	for name, c := range map[string]struct {
-		from, to LinkSetting
+		from, to kernel.LinkSetting
 		want     string
 	}{
-		"via":              {base, with(func(l *LinkSetting) { l.Via = "mesh" }), "via follow traffic → mesh"},
-		"via back":         {with(func(l *LinkSetting) { l.Via = "public" }), base, "via public → follow traffic"},
-		"noProbe":          {base, with(func(l *LinkSetting) { l.NoProbe = true }), "noProbe false → true"},
-		"throughput on":    {base, with(func(l *LinkSetting) { l.Throughput = th(60, 1024) }), "throughput off → on (every 60 min, budget 1024 MB)"},
-		"throughput off":   {with(func(l *LinkSetting) { l.Throughput = th(0, 0) }), base, "throughput on → off"},
-		"interval":         {with(func(l *LinkSetting) { l.Throughput = th(60, 5) }), with(func(l *LinkSetting) { l.Throughput = th(30, 5) }), "throughput interval (min) 60 → 30"},
-		"budget":           {with(func(l *LinkSetting) { l.Throughput = th(60, 5) }), with(func(l *LinkSetting) { l.Throughput = th(60, 1<<20) }), "throughput budget (MB) 5 → 1048576"},
-		"pair replaced":    {base, LinkSetting{A: "cl-a", B: "cl-c"}, "pair cl-a/cl-c added"},
-		"pair replaced 2":  {base, LinkSetting{A: "cl-a", B: "cl-c"}, "pair cl-a/cl-b removed"},
-		"added with load":  {LinkSetting{A: "cl-x", B: "cl-y"}, with(func(l *LinkSetting) { l.Throughput = th(10, 99) }), "pair cl-a/cl-b added (throughput on (every 10 min, budget 99 MB))"},
-		"pair order alike": {LinkSetting{A: "cl-b", B: "cl-a", Via: "mesh"}, with(func(l *LinkSetting) { l.Via = "public" }), "pair cl-a/cl-b: via mesh → public"},
+		"via":              {base, with(func(l *kernel.LinkSetting) { l.Via = "mesh" }), "via follow traffic → mesh"},
+		"via back":         {with(func(l *kernel.LinkSetting) { l.Via = "public" }), base, "via public → follow traffic"},
+		"noProbe":          {base, with(func(l *kernel.LinkSetting) { l.NoProbe = true }), "noProbe false → true"},
+		"throughput on":    {base, with(func(l *kernel.LinkSetting) { l.Throughput = th(60, 1024) }), "throughput off → on (every 60 min, budget 1024 MB)"},
+		"throughput off":   {with(func(l *kernel.LinkSetting) { l.Throughput = th(0, 0) }), base, "throughput on → off"},
+		"interval":         {with(func(l *kernel.LinkSetting) { l.Throughput = th(60, 5) }), with(func(l *kernel.LinkSetting) { l.Throughput = th(30, 5) }), "throughput interval (min) 60 → 30"},
+		"budget":           {with(func(l *kernel.LinkSetting) { l.Throughput = th(60, 5) }), with(func(l *kernel.LinkSetting) { l.Throughput = th(60, 1<<20) }), "throughput budget (MB) 5 → 1048576"},
+		"pair replaced":    {base, kernel.LinkSetting{A: "cl-a", B: "cl-c"}, "pair cl-a/cl-c added"},
+		"pair replaced 2":  {base, kernel.LinkSetting{A: "cl-a", B: "cl-c"}, "pair cl-a/cl-b removed"},
+		"added with load":  {kernel.LinkSetting{A: "cl-x", B: "cl-y"}, with(func(l *kernel.LinkSetting) { l.Throughput = th(10, 99) }), "pair cl-a/cl-b added (throughput on (every 10 min, budget 99 MB))"},
+		"pair order alike": {kernel.LinkSetting{A: "cl-b", B: "cl-a", Via: "mesh"}, with(func(l *kernel.LinkSetting) { l.Via = "public" }), "pair cl-a/cl-b: via mesh → public"},
 	} {
-		got := SettingsDiff(settingsWithLinks(c.from), settingsWithLinks(c.to))
+		got := kernel.SettingsDiff(settingsWithLinks(c.from), settingsWithLinks(c.to))
 		if !strings.Contains(got, c.want) {
 			t.Errorf("%s: %q does not say %q", name, got, c.want)
 		}
 	}
 	// Nothing changed, however the list is ordered: no row.
-	a := settingsWithLinks(LinkSetting{A: "cl-a", B: "cl-b", Via: "mesh"}, LinkSetting{A: "cl-a", B: "cl-c"})
-	b := settingsWithLinks(LinkSetting{A: "cl-a", B: "cl-c"}, LinkSetting{A: "cl-b", B: "cl-a", Via: "mesh"})
-	if got := SettingsDiff(a, b); got != "" {
+	a := settingsWithLinks(kernel.LinkSetting{A: "cl-a", B: "cl-b", Via: "mesh"}, kernel.LinkSetting{A: "cl-a", B: "cl-c"})
+	b := settingsWithLinks(kernel.LinkSetting{A: "cl-a", B: "cl-c"}, kernel.LinkSetting{A: "cl-b", B: "cl-a", Via: "mesh"})
+	if got := kernel.SettingsDiff(a, b); got != "" {
 		t.Errorf("an unchanged list is audited: %q", got)
-	}
-}
-
-func TestSettingsDiffOfPairsIsBoundedAndHoldsIdsOnly(t *testing.T) {
-	var many []LinkSetting
-	for i := 0; i < 40; i++ {
-		many = append(many, LinkSetting{A: "cl-a", B: fmt.Sprintf("cl-%02d", i), Throughput: &LinkThroughput{}})
-	}
-	got := SettingsDiff(settingsWithLinks(), settingsWithLinks(many...))
-	if n := strings.Count(got, "pair cl-"); n != maxLinksDiffEntries || !strings.Contains(got, "and 30 more linked pair changes") {
-		t.Errorf("%d entries: %q", n, got)
-	}
-	if len(got) > 1200 {
-		t.Errorf("the row is %d bytes", len(got))
-	}
-	long := strings.Repeat("x", 500)
-	got = SettingsDiff(settingsWithLinks(), settingsWithLinks(LinkSetting{A: long, B: "y"}))
-	if len(got) > 300 {
-		t.Errorf("an id is not bounded: %d bytes", len(got))
 	}
 }
 
 func TestPairChangesAreAuditedWhenSaved(t *testing.T) {
 	e := newEnv(t)
-	save := func(ls ...LinkSetting) {
+	save := func(ls ...kernel.LinkSetting) {
 		t.Helper()
 		if _, err := e.core.SaveSettings(e.ctx, "alex", settingsWithLinks(ls...)); err != nil {
 			t.Fatal(err)
 		}
 	}
-	save(LinkSetting{A: "cl-a", B: "cl-b"})
+	save(kernel.LinkSetting{A: "cl-a", B: "cl-b"})
 	before := auditCount(t, e)
-	save(LinkSetting{A: "cl-a", B: "cl-b", Throughput: &LinkThroughput{BudgetMB: 1 << 20}}) // same number of pairs
+	save(kernel.LinkSetting{A: "cl-a", B: "cl-b", Throughput: &kernel.LinkThroughput{BudgetMB: 1 << 20}}) // same number of pairs
 	if after := auditCount(t, e); after != before+1 {
 		t.Fatalf("a throughput budget was switched on with %d new audit rows", after-before)
 	}
 	before = auditCount(t, e)
-	save(LinkSetting{A: "cl-a", B: "cl-b", Throughput: &LinkThroughput{BudgetMB: 1 << 20}}) // nothing changed
+	save(kernel.LinkSetting{A: "cl-a", B: "cl-b", Throughput: &kernel.LinkThroughput{BudgetMB: 1 << 20}}) // nothing changed
 	if after := auditCount(t, e); after != before {
 		t.Errorf("an unchanged save was audited")
 	}
@@ -98,7 +83,7 @@ func auditCount(t *testing.T, e *env) int {
 
 func TestASavedPairNeedsWellFormedIdsAndRoomInThePeerList(t *testing.T) {
 	e := newEnv(t)
-	for name, l := range map[string]LinkSetting{
+	for name, l := range map[string]kernel.LinkSetting{
 		"separator":    {A: "a\x1fb", B: "c"},
 		"control":      {A: "cl-a\n", B: "c\td"},
 		"unicode":      {A: "cl-ä", B: "cl-b"},
@@ -109,15 +94,15 @@ func TestASavedPairNeedsWellFormedIdsAndRoomInThePeerList(t *testing.T) {
 			t.Errorf("%s: a bad id was saved", name)
 		}
 	}
-	if _, err := e.core.SaveSettings(e.ctx, "alex", settingsWithLinks(LinkSetting{A: "a", B: "cl-3f2b6c1e9a"}, LinkSetting{A: "x.y_z-1", B: "b"})); err != nil {
+	if _, err := e.core.SaveSettings(e.ctx, "alex", settingsWithLinks(kernel.LinkSetting{A: "a", B: "cl-3f2b6c1e9a"}, kernel.LinkSetting{A: "x.y_z-1", B: "b"})); err != nil {
 		t.Errorf("ordinary ids refused: %v", err)
 	}
 	// 65 pairs of one cluster is a valid list for NormalizeLinks (the stored settings must still load) but not for a save.
-	var hub []LinkSetting
+	var hub []kernel.LinkSetting
 	for i := 0; i <= 64; i++ {
-		hub = append(hub, LinkSetting{A: "cl-hub", B: fmt.Sprintf("cl-s%02d", i)})
+		hub = append(hub, kernel.LinkSetting{A: "cl-hub", B: fmt.Sprintf("cl-s%02d", i)})
 	}
-	if _, err := NormalizeLinks(hub); err != nil {
+	if _, err := kernel.NormalizeLinks(hub); err != nil {
 		t.Fatalf("normalizeLinks refuses what stored settings may hold: %v", err)
 	}
 	_, err := e.core.SaveSettings(e.ctx, "alex", settingsWithLinks(hub...))
@@ -133,10 +118,10 @@ func TestASavedPairNeedsWellFormedIdsAndRoomInThePeerList(t *testing.T) {
 // document back to its defaults).
 func TestABadStoredPairIsDroppedWithoutResettingTheOtherSettings(t *testing.T) {
 	e := newEnv(t)
-	s := DefaultSettings()
+	s := kernel.DefaultSettings()
 	s.SnapshotMinutes = 7
-	s.Links = []LinkSetting{{A: "cl-a", B: "cl-b"}, {A: "bad\x1fid", B: "cl-c"}, {A: "cl-d", B: "cl-d"}, {A: "cl-e", B: "cl-f", Via: "wifi"}}
-	data, _ := json.Marshal(StoredSettings{Settings: s, Rev: 3})
+	s.Links = []kernel.LinkSetting{{A: "cl-a", B: "cl-b"}, {A: "bad\x1fid", B: "cl-c"}, {A: "cl-d", B: "cl-d"}, {A: "cl-e", B: "cl-f", Via: "wifi"}}
+	data, _ := json.Marshal(kernel.StoredSettings{Settings: s, Rev: 3})
 	if err := e.st.PutSettings(e.ctx, e.core.OrgID, data, e.core.Now()); err != nil {
 		t.Fatal(err)
 	}

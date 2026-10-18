@@ -18,6 +18,7 @@ import (
 	"sync"
 
 	continuumv1 "continuum/gen/continuumv1"
+	"continuum/internal/kernel"
 	"continuum/internal/link"
 	"continuum/internal/store"
 )
@@ -100,7 +101,7 @@ func (s *linkCredSet) Format(f fmt.State, _ rune) { _, _ = fmt.Fprint(f, s.Strin
 func linkServer(a, b string) string { return max(a, b) }
 
 // throughputPairs are the pairs that ask for throughput tests, by (a, b) with a before b.
-func throughputPairs(links []LinkSetting) [][2]string {
+func throughputPairs(links []kernel.LinkSetting) [][2]string {
 	var out [][2]string
 	for _, l := range links {
 		if l.Throughput != nil && l.A != "" && l.B != "" && l.A != l.B {
@@ -252,7 +253,7 @@ func (c *Core) putLinkCred(ctx context.Context, kind, id string, v any) error {
 // linkCredentials returns what the server holds for the pairs that ask for throughput tests, making what is missing (or
 // unreadable). With prune it also deletes what no pair needs any more; only a saved change of the settings does that, never the
 // ordinary building of a Config, so a settings document that failed to load cannot empty the table.
-func (c *Core) linkCredentials(ctx context.Context, links []LinkSetting, prune bool) (*linkCredSet, error) {
+func (c *Core) linkCredentials(ctx context.Context, links []kernel.LinkSetting, prune bool) (*linkCredSet, error) {
 	pairs := throughputPairs(links)
 	if len(pairs) == 0 && !prune {
 		return &linkCredSet{}, nil
@@ -385,7 +386,7 @@ func (s *linkCredSet) forCluster(cluster string) linkCredDelivery {
 
 // linkCredsFor is the delivery for one agent's Config, or the zero delivery when the cluster takes part in no pair with throughput
 // tests or the credentials cannot be had (which is logged, without material, and leaves the tests failing closed).
-func (h *Hub) linkCredsFor(a store.Agent, links []LinkSetting) linkCredDelivery {
+func (h *Hub) linkCredsFor(a store.Agent, links []kernel.LinkSetting) linkCredDelivery {
 	if a.ClusterID == "" {
 		return linkCredDelivery{}
 	}
@@ -431,7 +432,7 @@ func credDigest(parts ...string) string {
 // password of a pair (a and b set). Both are made again and reach the clusters in their next Config, within a minute; the tests of
 // the pair fail with `auth` until both ends have the new ones. It returns an error if there is nothing to rotate (no such pair asks
 // for throughput tests).
-func (c *Core) RotateLinkCredentials(ctx context.Context, links []LinkSetting, cluster, a, b string) error {
+func (c *Core) RotateLinkCredentials(ctx context.Context, links []kernel.LinkSetting, cluster, a, b string) error {
 	pairs := throughputPairs(links)
 	linkCredMu.Lock()
 	switch {

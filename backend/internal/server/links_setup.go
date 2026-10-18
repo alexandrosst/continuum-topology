@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
 
@@ -97,7 +98,7 @@ func (e setupEnd) ready() bool { return e.HasAgent && e.Note == nil }
 // linkSetup works out the checklist of one pair. It is a pure function of its arguments, so that every step and every state can be
 // tested without a hub: now is the time to compare the prober's last visit and the report's age with; haveFusion says whether this
 // server has a FUSION at all (without one it cannot say where the figures would go, and says so rather than call it a failure).
-func linkSetup(l LinkSetting, a, b setupEnd, haveFusion bool, now time.Time) []LinkSetupStep {
+func linkSetup(l kernel.LinkSetting, a, b setupEnd, haveFusion bool, now time.Time) []LinkSetupStep {
 	var out []LinkSetupStep
 	add := func(code string, e *setupEnd, state, format string, args ...any) {
 		s := LinkSetupStep{Code: code, State: state, Text: fmt.Sprintf(format, args...)}
@@ -273,7 +274,7 @@ func setupPlural(n int, w string) string {
 // LinkReport is the notes and the checklists of the listed pairs for the organisation's current agents, in one read of the agents.
 // haveFusion says whether this server has a FUSION at all (for this organisation). It fails when the agents cannot be read: an empty
 // list would read as "nothing needs doing", which is not known then.
-func (h *Hub) LinkReport(ctx context.Context, links []LinkSetting, haveFusion bool) ([]LinkNote, []LinkSetup, error) {
+func (h *Hub) LinkReport(ctx context.Context, links []kernel.LinkSetting, haveFusion bool) ([]LinkNote, []LinkSetup, error) {
 	if len(links) == 0 {
 		return nil, nil, nil
 	}
@@ -298,10 +299,10 @@ func (h *Hub) LinkReport(ctx context.Context, links []LinkSetting, haveFusion bo
 }
 
 // linkSetups is the checklist of each listed pair. Called with h.mu held; agents and paused as for linkNotes.
-func (h *Hub) linkSetups(links []LinkSetting, agents []store.Agent, flowPausedOf map[string]bool, haveFusion bool, now time.Time) []LinkSetup {
+func (h *Hub) linkSetups(links []kernel.LinkSetting, agents []store.Agent, flowPausedOf map[string]bool, haveFusion bool, now time.Time) []LinkSetup {
 	byCluster := approvedByCluster(agents)
 	plan := h.planner(links, agents)
-	end := func(l LinkSetting, c, peer string) setupEnd {
+	end := func(l kernel.LinkSetting, c, peer string) setupEnd {
 		e := setupEnd{ID: c}
 		a, ok := byCluster[c]
 		if !ok {

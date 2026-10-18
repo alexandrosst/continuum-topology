@@ -1,4 +1,4 @@
-package server
+package kernel
 
 import (
 	"container/list"
@@ -154,7 +154,7 @@ func NewFailureTracker() *FailureTracker {
 	return &FailureTracker{names: map[string]*failure{}, order: list.New(), max: maxFailureNames}
 }
 
-// blocked returns how long this name must still wait (0: not at all).
+// Blocked returns how long this name must still wait (0: not at all).
 func (t *FailureTracker) Blocked(name string, now time.Time) time.Duration {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -172,7 +172,7 @@ func (t *FailureTracker) Blocked(name string, now time.Time) time.Duration {
 	return 0
 }
 
-// fail records a failed attempt and returns the wait it earned.
+// Fail records a failed attempt and returns the wait it earned.
 func (t *FailureTracker) Fail(name string, now time.Time) time.Duration {
 	t.mu.Lock()
 	defer t.mu.Unlock()

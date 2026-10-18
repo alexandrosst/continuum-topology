@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"continuum/internal/fusionapi"
+	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
 
@@ -149,7 +150,7 @@ func (d *dataRig) mint(t *testing.T, body map[string]any) (secret, id string) {
 	j := r.json(t)
 	secret, _ = j["token"].(string)
 	id, _ = j["details"].(map[string]any)["id"].(string)
-	if !strings.HasPrefix(secret, FusionTokenPrefix) {
+	if !strings.HasPrefix(secret, kernel.FusionTokenPrefix) {
 		t.Fatalf("secret = %q", secret)
 	}
 	return secret, id
@@ -264,8 +265,8 @@ func TestFusionDataAuthentication(t *testing.T) {
 		want int
 	}{
 		"nobody":                    {nil, 401},
-		"a forged token":            {[]opt{bearer(FusionTokenPrefix + "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")}, 401},
-		"a malformed token":         {[]opt{bearer(FusionTokenPrefix + "nope")}, 401},
+		"a forged token":            {[]opt{bearer(kernel.FusionTokenPrefix + "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")}, 401},
+		"a malformed token":         {[]opt{bearer(kernel.FusionTokenPrefix + "nope")}, 401},
 		"a viewer's session":        {[]opt{withCookie(viewer)}, 403},
 		"an editor's session":       {[]opt{withCookie(editor)}, 403},
 		"an admin's session":        {[]opt{withCookie(d.admin)}, 200},
@@ -278,11 +279,11 @@ func TestFusionDataAuthentication(t *testing.T) {
 		}
 	}
 	// A personal access token acts as its owner: an administrator's reads, a viewer's is refused.
-	pat, err := NewAPITokenSecret()
+	pat, err := kernel.NewAPITokenSecret()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := d.st.CreateAPIToken(d.ctx, NewAPITokenID(), HashSecret(pat), d.adminID, "ci", *d.now); err != nil {
+	if err := d.st.CreateAPIToken(d.ctx, kernel.NewAPITokenID(), kernel.HashSecret(pat), d.adminID, "ci", *d.now); err != nil {
 		t.Fatal(err)
 	}
 	if r := d.get("/api/v1/fusion/status", bearer(pat)); r.Code != 200 || d.get("/api/v1/fusion/status", bearer(pat)).json(t)["access"].(map[string]any)["kind"] != "user" {
@@ -446,7 +447,7 @@ func TestFusionDataWhenFusionIsOff(t *testing.T) {
 
 func TestFusionDataIsRateLimitedPerCaller(t *testing.T) {
 	d := newDataRig(t)
-	d.a.fusionRL = NewLimiter(60, 2)
+	d.a.fusionRL = kernel.NewLimiter(60, 2)
 	a, _ := d.mint(t, map[string]any{"name": "a"})
 	b, _ := d.mint(t, map[string]any{"name": "b"})
 	codes := []int{}
@@ -464,7 +465,7 @@ func TestFusionDataIsRateLimitedPerCaller(t *testing.T) {
 func TestFusionTokenCap(t *testing.T) {
 	d := newDataRig(t)
 	for i := 0; i < maxFusionTokens; i++ {
-		if err := d.st.CreateFusionToken(d.ctx, store.FusionToken{ID: NewFusionTokenID(), OrgID: "org-1", Name: "n", CreatedAt: *d.now, ExpiresAt: d.now.Add(time.Hour)}, HashSecret(RandHex(8))); err != nil {
+		if err := d.st.CreateFusionToken(d.ctx, store.FusionToken{ID: kernel.NewFusionTokenID(), OrgID: "org-1", Name: "n", CreatedAt: *d.now, ExpiresAt: d.now.Add(time.Hour)}, kernel.HashSecret(kernel.RandHex(8))); err != nil {
 			t.Fatal(err)
 		}
 	}

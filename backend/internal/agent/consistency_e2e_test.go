@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"continuum/internal/agent"
+	"continuum/internal/kernel"
 	"continuum/internal/pki"
 	"continuum/internal/server"
 	"continuum/internal/store"
@@ -31,7 +32,7 @@ func TestConsistencyChecksAndMeasurementsEndToEnd(t *testing.T) {
 	defer st.Close()
 	ca, _ := pki.LoadOrCreate(t.TempDir())
 	core := server.NewCore(st, ca, "org", nil)
-	core.EnrollRL = server.NewLimiter(6000, 1000)
+	core.EnrollRL = kernel.NewLimiter(6000, 1000)
 	hub := server.NewHub(core)
 	hub.ConsistencyEvery = 2 * time.Second // the server limits a stream to 2 messages a second
 	srv := core.NewGRPC(pki.NewServerCerts(ca, []string{"127.0.0.1"}), hub)
@@ -110,7 +111,7 @@ func TestConsistencyChecksAndMeasurementsEndToEnd(t *testing.T) {
 	if state().Agents[0].Measuring != 0 {
 		t.Fatal("the agent was asked to measure with nothing configured")
 	}
-	if _, err := core.SaveSettings(context.Background(), "test", server.Settings{MeasureSeconds: 30, ProbeTargets: []server.ProbeTarget{
+	if _, err := core.SaveSettings(context.Background(), "test", kernel.Settings{MeasureSeconds: 30, ProbeTargets: []kernel.ProbeTarget{
 		{ClusterID: clusterID, Label: "cloud gateway", Host: "203.0.113.10", Port: 4433}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +138,7 @@ func TestConsistencyChecksAndMeasurementsEndToEnd(t *testing.T) {
 	}
 
 	// Removing the target stops the measurements and the path disappears.
-	if _, err := core.SaveSettings(context.Background(), "test", server.Settings{}); err != nil {
+	if _, err := core.SaveSettings(context.Background(), "test", kernel.Settings{}); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, "the path to go away", 20*time.Second, func() bool { return len(state().Topology.Paths) == 0 && state().Agents[0].Measuring == 0 })

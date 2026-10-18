@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"continuum/internal/install"
+	"continuum/internal/kernel"
 )
 
 // validKubeName is a DNS-1123 label, which is what both a namespace and a Helm release name must be.
@@ -44,7 +45,7 @@ func releaseTarget(namespace, release string) (ns, name string, guessed bool) {
 // newer chart added after the release was installed does not exist at all and a template that reads it fails with a
 // nil-pointer error. The newer flag starts from the new chart's defaults and then puts the person's own values from the old
 // release on top, which is what "keep what I set" was always meant to say.
-func (a *Admin) upgradeCommand(img ImageConfig, tier int, namespace, release string) (string, error) {
+func (a *Admin) upgradeCommand(img kernel.ImageConfig, tier int, namespace, release string) (string, error) {
 	ref, version := a.agentChart(img)
 	ns, name, _ := releaseTarget(namespace, release)
 	return install.Helm{Verb: install.Upgrade, Release: name, Chart: ref, Version: version, Namespace: ns, ResetThenReuse: true,
@@ -73,7 +74,7 @@ func (a *Admin) setAgentTier(w http.ResponseWriter, r *http.Request) {
 		Tier *int `json:"tier"`
 	}
 	if err := decode(r, &req); err != nil || req.Tier == nil {
-		a.fail(w, Errf(KindInvalid, "invalid request body: expected {\"tier\": N}"))
+		a.fail(w, kernel.Errf(kernel.KindInvalid, "invalid request body: expected {\"tier\": N}"))
 		return
 	}
 	c := a.core(r)

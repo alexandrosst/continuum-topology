@@ -16,6 +16,7 @@ import (
 	"continuum/internal/agent/collect"
 	"continuum/internal/facts"
 	"continuum/internal/flow"
+	"continuum/internal/kernel"
 	"continuum/internal/pki"
 	"continuum/internal/probe"
 	"continuum/internal/server"
@@ -69,8 +70,8 @@ func newDx(t *testing.T, o dxOpts) *dx {
 	t.Cleanup(func() { st.Close() })
 	ca, _ := pki.LoadOrCreate(t.TempDir())
 	core := server.NewCore(st, ca, "org", nil)
-	core.EnrollRL = server.NewLimiter(6000, 1000)
-	core.RenewRL = server.NewLimiter(6000, 1000)
+	core.EnrollRL = kernel.NewLimiter(6000, 1000)
+	core.RenewRL = kernel.NewLimiter(6000, 1000)
 	hub := server.NewHub(core)
 	hub.ConsistencyEvery = 30 * time.Second
 	d := &dx{t: t, st: st, core: core, hub: hub}
@@ -284,7 +285,7 @@ func TestAnOverCeilingTierIsRefusedWithTheHelmCommand(t *testing.T) {
 	_, err := d.hub.SetAgentTier(server.ActingAs(context.Background(), server.RoleAdmin), "test", d.id, 2, func(n int) string {
 		return fmt.Sprintf("helm upgrade continuum-agent ./chart.tgz --namespace continuum-system --reset-then-reuse-values --set access.tier=%d", n)
 	})
-	var se *server.Error
+	var se *kernel.Error
 	if !errors.As(err, &se) || !strings.Contains(se.Msg, "helm upgrade continuum-agent ./chart.tgz --namespace continuum-system --reset-then-reuse-values --set access.tier=2") {
 		t.Fatalf("err = %v", err)
 	}
@@ -430,7 +431,7 @@ func TestPausedCollectorsAndExcludedNamespacesTakeEffect(t *testing.T) {
 	}})
 	waitFor(t, "first picture", 20*time.Second, func() bool { return services(d, "shop") == 1 })
 	clusterID := d.agentDoc().ClusterID
-	if _, err := d.core.SaveSettings(context.Background(), "test", server.Settings{MeasureSeconds: 30, ProbeTargets: []server.ProbeTarget{{ClusterID: clusterID, Label: "gw", Host: "203.0.113.10", Port: 4433}}}); err != nil {
+	if _, err := d.core.SaveSettings(context.Background(), "test", kernel.Settings{MeasureSeconds: 30, ProbeTargets: []kernel.ProbeTarget{{ClusterID: clusterID, Label: "gw", Host: "203.0.113.10", Port: 4433}}}); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, "measuring", 30*time.Second, func() bool { return dials.Load() > 0 })
@@ -484,7 +485,7 @@ func TestAWideningOverrideFromTheServerIsIgnoredAndReported(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Any change of settings makes the server push a fresh Config, which now approves tier 2.
-	if _, err := d.core.SaveSettings(context.Background(), "test", server.Settings{MeasureSeconds: 45}); err != nil {
+	if _, err := d.core.SaveSettings(context.Background(), "test", kernel.Settings{MeasureSeconds: 45}); err != nil {
 		t.Fatal(err)
 	}
 	g := d.waitDiag("override_ignored", func(g *server.DiagnosticsDoc) bool { return problem(g, "override_ignored") != nil })
@@ -513,10 +514,10 @@ func manyDeployments(n int) []runtime.Object {
 }
 
 func TestALargePictureIsSentInChunksAndAppliedWhole(t *testing.T) {
-	before := server.Metrics.SyncsChunked.Load()
+	before := kernel.Metrics.SyncsChunked.Load()
 	d := newDx(t, dxOpts{objects: manyDeployments(400), tune: func(c *agent.Config, _ *server.Core, _ *server.Hub) { c.ChunkBytes = 4000 }})
 	waitFor(t, "all 401 workloads", 60*time.Second, func() bool { return services(d, "") == 401 })
-	if server.Metrics.SyncsChunked.Load() <= before {
+	if kernel.Metrics.SyncsChunked.Load() <= before {
 		t.Fatal("the picture was not chunked")
 	}
 	if p := problem(d.waitDiag("account", func(*server.DiagnosticsDoc) bool { return true }), "sync_too_large"); p != nil {
@@ -547,7 +548,7 @@ func TestSixtyThousandWorkloadsFromARealAgent(t *testing.T) {
 	if testing.Short() {
 		t.Skip("large")
 	}
-	before := server.Metrics.SyncsChunked.Load()
+	before := kernel.Metrics.SyncsChunked.Load()
 	d := newDx(t, dxOpts{objects: manyDeployments(60000), noApprove: true, tune: func(c *agent.Config, _ *server.Core, h *server.Hub) {
 		h.Limits = &facts.Limits{Nodes: 100, Namespaces: 1000, Workloads: 100000, Bytes: 128 << 20}
 		c.SyncWait = 90 * time.Second
@@ -556,7 +557,7 @@ func TestSixtyThousandWorkloadsFromARealAgent(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitFor(t, "60001 workloads", 150*time.Second, func() bool { return services(d, "") == 60001 })
-	if server.Metrics.SyncsChunked.Load() <= before {
+	if kernel.Metrics.SyncsChunked.Load() <= before {
 		t.Fatal("not chunked")
 	}
 }

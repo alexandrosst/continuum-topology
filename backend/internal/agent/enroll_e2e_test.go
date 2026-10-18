@@ -17,6 +17,7 @@ import (
 
 	"continuum/internal/agent"
 	agentcli "continuum/internal/cli/agent"
+	"continuum/internal/kernel"
 	"continuum/internal/pki"
 	"continuum/internal/server"
 	"continuum/internal/store"
@@ -62,8 +63,8 @@ func newERig(t *testing.T, tune func(*server.Core)) *erig {
 	ca, _ := pki.LoadOrCreate(t.TempDir())
 	gets := &atomic.Int64{}
 	core := server.NewCore(&countingStore{Store: st, gets: gets}, ca, "org", nil)
-	core.EnrollRL = server.NewLimiter(6000, 1000)
-	core.RenewRL = server.NewLimiter(6000, 1000)
+	core.EnrollRL = kernel.NewLimiter(6000, 1000)
+	core.RenewRL = kernel.NewLimiter(6000, 1000)
 	if tune != nil {
 		tune(core)
 	}

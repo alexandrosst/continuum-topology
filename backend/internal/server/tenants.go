@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	continuumv1 "continuum/gen/continuumv1"
+	"continuum/internal/kernel"
 	"continuum/internal/store"
 
 	"google.golang.org/grpc/codes"
@@ -67,7 +68,7 @@ func (p *Platform) Tenant(ctx context.Context, id string) (*Tenant, error) {
 	}
 	if _, err := p.Base.Store.GetOrg(ctx, id); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
-			return nil, Errf(KindNotFound, "no such organisation")
+			return nil, kernel.Errf(kernel.KindNotFound, "no such organisation")
 		}
 		return nil, err
 	}

@@ -1,5 +1,7 @@
-// Package server holds the control-plane logic shared by the gRPC and HTTP front ends.
-package server
+// Package kernel is the part of the control plane every module stands on: the Core (store, CA, organisation, audit, clock), the
+// errors the front ends map to statuses, the rate limiters, the token formats, the settings and the slots a module keeps its own
+// state in. It depends on no module and no front end.
+package kernel
 
 import (
 	"context"
@@ -122,7 +124,7 @@ type Core struct {
 	// ForOrg's copies.
 	IntentMu *sync.Mutex
 	// shared and orgState hold what each module keeps for itself (see state.go).
-	shared, orgState *stateSlots
+	shared, orgState *StateSlots
 }
 
 // ForOrg returns a view of the same server scoped to one organisation. It shares the database, the
@@ -133,7 +135,7 @@ func (c *Core) ForOrg(org string) *Core {
 	n := *c
 	n.OrgID = org
 	n.settings = &settingsHolder{}
-	n.orgState = &stateSlots{}
+	n.orgState = &StateSlots{}
 	n.OnRevoke, n.OnSettings, n.OnWorkspace, n.AppHints = nil, nil, nil, nil
 	return &n
 }
@@ -142,10 +144,10 @@ func NewCore(st store.Store, ca *pki.CA, org string, log *slog.Logger) *Core {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Core{Store: st, CA: ca, OrgID: org, Log: log, EnrollRL: NewLimiter(20, 10), RenewRL: NewLimiter(1, 5), TapRL: NewLimiter(60, 30), Now: time.Now, UserMu: &sync.Mutex{}, settings: &settingsHolder{}, shared: &stateSlots{}, orgState: &stateSlots{}, DepMu: &sync.RWMutex{}, IntentMu: &sync.Mutex{}}
+	return &Core{Store: st, CA: ca, OrgID: org, Log: log, EnrollRL: NewLimiter(20, 10), RenewRL: NewLimiter(1, 5), TapRL: NewLimiter(60, 30), Now: time.Now, UserMu: &sync.Mutex{}, settings: &settingsHolder{}, shared: &StateSlots{}, orgState: &StateSlots{}, DepMu: &sync.RWMutex{}, IntentMu: &sync.Mutex{}}
 }
 
-// audit records something that happened. It is best effort: a failure is logged and the caller carries on.
+// Audit records something that happened. It is best effort: a failure is logged and the caller carries on.
 // Use audited for anything a person with authority does, which must not happen without a record.
 func (c *Core) Audit(ctx context.Context, actor, action, kind, id, detail string) {
 	c.AuditOrg(ctx, c.OrgID, actor, action, kind, id, detail)
@@ -170,7 +172,7 @@ func (c *Core) AuditOrg(ctx context.Context, org, actor, action, kind, id, detai
 	}
 }
 
-// audited records that a privileged action is about to happen and then performs it; if the record cannot
+// Audited records that a privileged action is about to happen and then performs it; if the record cannot
 // be written the action is not performed and the caller gets an error (fail closed: nothing that needs
 // an administrator happens unseen). If the action itself then fails, a second row says so, so the trail
 // never claims something that did not take place.
@@ -223,7 +225,7 @@ func (c *Core) AgentInOrg(ctx context.Context, id string) (store.Agent, error) {
 // the agent, shown to the agent's operator, and written to the audit trail.
 const MaxReason = 200
 
-// printable clips s and replaces control characters, for values that end up in logs and the UI.
+// Printable clips s and replaces control characters, for values that end up in logs and the UI.
 func Printable(s string, n int) string {
 	s = clip(s, n)
 	return strings.Map(func(r rune) rune {

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	continuumv1 "continuum/gen/continuumv1"
+	"continuum/internal/kernel"
 	"continuum/internal/model"
 )
 
@@ -198,7 +199,7 @@ func TestNoteFlowsAppliesTheWholeBatchDespiteOneImplausibleSaturation(t *testing
 	r.hub.views[id] = newView()
 	r.hub.mu.Unlock()
 
-	before := Metrics.ImplausibleFacts.Load()
+	before := kernel.Metrics.ImplausibleFacts.Load()
 	good, bad := 10.0, -5.0
 	b := &continuumv1.FlowBatch{WindowSeconds: 60, Collectors: []*continuumv1.CollectorInfo{
 		{Node: "n1", Method: "ebpf", LinkSaturation: []*continuumv1.LinkSaturation{
@@ -210,7 +211,7 @@ func TestNoteFlowsAppliesTheWholeBatchDespiteOneImplausibleSaturation(t *testing
 	if !applied || err != nil {
 		t.Fatalf("a batch with one implausible field among good ones must still be applied in full: applied=%v err=%v", applied, err)
 	}
-	if got := Metrics.ImplausibleFacts.Load() - before; got != 1 {
+	if got := kernel.Metrics.ImplausibleFacts.Load() - before; got != 1 {
 		t.Fatalf("implausibleFacts counter rose by %d, want 1", got)
 	}
 	r.hub.mu.Lock()
@@ -258,13 +259,13 @@ func TestApplySyncKeepsTheWholeRecordDespiteOneImplausibleReading(t *testing.T) 
 	if err := validateSync(s); err != nil {
 		t.Fatalf("a shape-valid sync must not be refused: %v", err)
 	}
-	before := Metrics.ImplausibleFacts.Load()
+	before := kernel.Metrics.ImplausibleFacts.Load()
 	n := boundSyncFacts(s)
 	if n != 1 {
 		t.Fatalf("dropped %d fields, want 1", n)
 	}
 	r.hub.noteImplausibleFacts(id, v, n)
-	if got := Metrics.ImplausibleFacts.Load() - before; got != 1 {
+	if got := kernel.Metrics.ImplausibleFacts.Load() - before; got != 1 {
 		t.Fatalf("implausibleFacts counter rose by %d, want 1", got)
 	}
 	if _, _, err := r.hub.applySync(a, s, false); err != nil {

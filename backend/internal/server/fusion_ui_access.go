@@ -6,6 +6,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"continuum/internal/kernel"
 )
 
 // Opening Prometheus or Grafana from the UI is a link into a new tab. The session cookie is SameSite=Strict, which a browser
@@ -107,13 +109,13 @@ func (f *fusionUIAccess) put(m map[string]fusionUIGrant, g fusionUIGrant, now ti
 	if !f.makeRoomLocked(m, g.userID, now) {
 		return ""
 	}
-	secret, err := NewSecret()
+	secret, err := kernel.NewSecret()
 	if err != nil {
 		return ""
 	}
 	f.seq++
 	g.seq = f.seq
-	m[string(HashSecret(secret))] = g
+	m[string(kernel.HashSecret(secret))] = g
 	return secret
 }
 
@@ -139,7 +141,7 @@ const (
 func (f *fusionUIAccess) redeemAndOpen(ticket string, now time.Time) (secret string, who fusionUIGrant, out fusionTicketOutcome) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	k := string(HashSecret(ticket))
+	k := string(kernel.HashSecret(ticket))
 	g, ok := f.tickets[k]
 	if !ok {
 		return "", fusionUIGrant{}, fusionTicketInvalid
@@ -151,7 +153,7 @@ func (f *fusionUIAccess) redeemAndOpen(ticket string, now time.Time) (secret str
 	if !f.makeRoomLocked(f.sessions, g.userID, now) {
 		return "", g, fusionTicketBusy
 	}
-	secret, err := NewSecret()
+	secret, err := kernel.NewSecret()
 	if err != nil {
 		return "", g, fusionTicketBusy
 	}
@@ -159,7 +161,7 @@ func (f *fusionUIAccess) redeemAndOpen(ticket string, now time.Time) (secret str
 	g.expires = now.Add(fusionUISessionTTL)
 	f.seq++
 	g.seq = f.seq
-	f.sessions[string(HashSecret(secret))] = g
+	f.sessions[string(kernel.HashSecret(secret))] = g
 	return secret, g, fusionTicketOK
 }
 
@@ -167,7 +169,7 @@ func (f *fusionUIAccess) redeemAndOpen(ticket string, now time.Time) (secret str
 func (f *fusionUIAccess) session(secret string, now time.Time) (fusionUIGrant, bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	k := string(HashSecret(secret))
+	k := string(kernel.HashSecret(secret))
 	g, ok := f.sessions[k]
 	if ok && !g.expires.After(now) {
 		delete(f.sessions, k)
@@ -179,7 +181,7 @@ func (f *fusionUIAccess) session(secret string, now time.Time) (fusionUIGrant, b
 func (f *fusionUIAccess) end(secret string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	delete(f.sessions, string(HashSecret(secret)))
+	delete(f.sessions, string(kernel.HashSecret(secret)))
 }
 
 // endUser ends every page session and ticket a person holds. It is what signing out, a new password, and losing the role
@@ -247,10 +249,10 @@ func (a *Admin) redeemFusionTicket(w http.ResponseWriter, r *http.Request, ticke
 	secret, _, out := a.fusionUIAccess.redeemAndOpen(ticket, now)
 	switch out {
 	case fusionTicketInvalid:
-		Metrics.AuthFailures.Add(1)
+		kernel.Metrics.AuthFailures.Add(1)
 		// Not the sign-in's limiter: a stranger's bad links must not use up the budget a person signing in from the same
 		// address needs (see fusionPageRL).
-		if !a.fusionPageRL.Allow(LimitKey(a.clientIP(r))) {
+		if !a.fusionPageRL.Allow(kernel.LimitKey(a.clientIP(r))) {
 			writeErr(w, http.StatusTooManyRequests, "too many failed attempts, wait a minute")
 			return
 		}
@@ -280,11 +282,11 @@ func (a *Admin) openFusionPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if a.Fusion == nil {
-		a.fail(w, Errf(KindConflict, "%s", a.Fusion.Status(r.Context()).Message))
+		a.fail(w, kernel.Errf(kernel.KindConflict, "%s", a.Fusion.Status(r.Context()).Message))
 		return
 	}
 	if a.core(r).OrgID != a.fusionOrg() {
-		a.fail(w, Errf(KindForbidden, "FUSION's pages belong to this server's main organisation"))
+		a.fail(w, kernel.Errf(kernel.KindForbidden, "FUSION's pages belong to this server's main organisation"))
 		return
 	}
 	links := a.Fusion.uiLinks(a.Fusion.Status(r.Context()))
@@ -295,17 +297,17 @@ func (a *Admin) openFusionPage(w http.ResponseWriter, r *http.Request) {
 	case req.Page == "prometheus" && links != nil:
 		base = links.Prometheus
 	case req.Page != "grafana" && req.Page != "prometheus":
-		a.fail(w, Errf(KindInvalid, "page must be grafana or prometheus"))
+		a.fail(w, kernel.Errf(kernel.KindInvalid, "page must be grafana or prometheus"))
 		return
 	}
 	if base == "" {
-		a.fail(w, Errf(KindConflict, "%s is not running yet", map[string]string{"grafana": "Grafana", "prometheus": "Prometheus"}[req.Page]))
+		a.fail(w, kernel.Errf(kernel.KindConflict, "%s is not running yet", map[string]string{"grafana": "Grafana", "prometheus": "Prometheus"}[req.Page]))
 		return
 	}
 	p := principal(r)
 	t := a.fusionUIAccess.ticket(p.User.ID, p.User.Username, a.core(r).Now())
 	if t == "" {
-		a.fail(w, Errf(KindConflict, "too many pages are open, try again in a moment"))
+		a.fail(w, kernel.Errf(kernel.KindConflict, "too many pages are open, try again in a moment"))
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")

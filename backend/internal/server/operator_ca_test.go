@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"continuum/internal/kernel"
 	"continuum/internal/pki"
 	"continuum/internal/store"
 
@@ -198,7 +199,7 @@ func TestReissueUsesTheOperatorCAAndRefusesToFallBackToTheOrgCA(t *testing.T) {
 	other := newEnv(t)
 	withPassphraseCA(t, other, "an entirely different passphrase")
 	e.base.CA = other.base.CA
-	e.base.shared = &stateSlots{} // the opened CA of b is cached since it was created; a restart with the other passphrase starts all server state empty
+	e.base.ResetServerState() // the opened CA of b is cached since it was created; a restart with the other passphrase starts all server state empty
 	e.core = e.base.ForOrg("org-1")
 	if _, _, _, err := e.core.IssueOperatorClientCertFor(e.ctx, "alex", b.ID, "cl-test", ""); !errors.Is(err, pki.ErrWrongPassphrase) {
 		t.Fatalf("a server with another CA passphrase issued from operator b's CA: %v", err)
@@ -319,7 +320,7 @@ func TestClientCaScopeAndCommandsCarryTheRightCA(t *testing.T) {
 	legacyMTLSOperator(t, a.env, "op-legacy000009", cl)
 	bearer := store.Operator{ID: "op-bearer000009", OrgID: "org-1", Name: "bearer", Status: store.OperatorActive, ReceiverAuth: store.ReceiverAuthBearer,
 		SourceClusterIDs: []string{cl}, Destination: extDest("c:4317"), CreatedBy: "alex", CreatedAt: *a.now}
-	if err := a.st.CreateOperator(a.ctx, bearer, HashSecret("cno_old")); err != nil {
+	if err := a.st.CreateOperator(a.ctx, bearer, kernel.HashSecret("cno_old")); err != nil {
 		t.Fatal(err)
 	}
 	scopes := map[string]any{}
@@ -338,7 +339,7 @@ func TestBearerOperatorStillUsesTheOrgCA(t *testing.T) {
 	cl := e.approvedCluster(t, fp)
 	op := store.Operator{ID: "op-bearer000008", OrgID: "org-1", Name: "b", Status: store.OperatorActive, ReceiverAuth: store.ReceiverAuthBearer,
 		SourceClusterIDs: []string{cl}, Destination: extDest("c:4317"), CreatedBy: "alex", CreatedAt: e.core.Now()}
-	if err := e.st.CreateOperator(e.ctx, op, HashSecret("cno_old")); err != nil {
+	if err := e.st.CreateOperator(e.ctx, op, kernel.HashSecret("cno_old")); err != nil {
 		t.Fatal(err)
 	}
 	if op.ReceiverAuth != store.ReceiverAuthBearer || op.ClientCAScope() != "" || len(op.ClientCACertPEM) != 0 {

@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
 
@@ -56,18 +57,18 @@ func TestCreateTelemetryIntentRejectsASecondActiveIntentOnTheSameAgent(t *testin
 	if _, err := e.core.CreateTelemetryIntent(e.ctx, "alex", agentID, "first", nil, nil, nil, extDest("c:4317")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.core.CreateTelemetryIntent(e.ctx, "alex", agentID, "second", nil, nil, nil, extDest("c2:4317")); kindOf(err) != KindConflict {
+	if _, err := e.core.CreateTelemetryIntent(e.ctx, "alex", agentID, "second", nil, nil, nil, extDest("c2:4317")); kindOf(err) != kernel.KindConflict {
 		t.Fatalf("expected KindConflict creating a second active intent on the same agent, got %v", err)
 	}
 }
 
 func TestCreateTelemetryIntentRejectsAnUnapprovedOrForeignAgent(t *testing.T) {
 	e := newEnv(t)
-	if _, err := e.core.CreateTelemetryIntent(e.ctx, "alex", "ag-does-not-exist", "x", nil, nil, nil, extDest("c:4317")); kindOf(err) != KindNotFound {
+	if _, err := e.core.CreateTelemetryIntent(e.ctx, "alex", "ag-does-not-exist", "x", nil, nil, nil, extDest("c:4317")); kindOf(err) != kernel.KindNotFound {
 		t.Fatalf("expected KindNotFound for an unknown agent, got %v", err)
 	}
 	resp, _ := e.enroll(t, 2, fp)
-	if _, err := e.core.CreateTelemetryIntent(e.ctx, "alex", resp.AgentId, "x", nil, nil, nil, extDest("c:4317")); kindOf(err) != KindInvalid {
+	if _, err := e.core.CreateTelemetryIntent(e.ctx, "alex", resp.AgentId, "x", nil, nil, nil, extDest("c:4317")); kindOf(err) != kernel.KindInvalid {
 		t.Fatalf("expected KindInvalid targeting a pending (not yet approved) agent, got %v", err)
 	}
 }
@@ -75,16 +76,16 @@ func TestCreateTelemetryIntentRejectsAnUnapprovedOrForeignAgent(t *testing.T) {
 func TestCreateTelemetryIntentValidatesNameNamespacesAndSignals(t *testing.T) {
 	e := newEnv(t)
 	agentID := e.approvedAgentID(t, fp)
-	if _, err := e.core.CreateTelemetryIntent(e.ctx, "alex", agentID, "   ", nil, nil, nil, extDest("c:4317")); kindOf(err) != KindInvalid {
+	if _, err := e.core.CreateTelemetryIntent(e.ctx, "alex", agentID, "   ", nil, nil, nil, extDest("c:4317")); kindOf(err) != kernel.KindInvalid {
 		t.Fatalf("blank name: %v", err)
 	}
-	if _, err := e.core.CreateTelemetryIntent(e.ctx, "alex", agentID, "x", []string{"Not_Valid!"}, nil, nil, extDest("c:4317")); kindOf(err) != KindInvalid {
+	if _, err := e.core.CreateTelemetryIntent(e.ctx, "alex", agentID, "x", []string{"Not_Valid!"}, nil, nil, extDest("c:4317")); kindOf(err) != kernel.KindInvalid {
 		t.Fatalf("bad namespace: %v", err)
 	}
-	if _, err := e.core.CreateTelemetryIntent(e.ctx, "alex", agentID, "x", nil, nil, []store.SignalGrant{{ID: ""}}, extDest("c:4317")); kindOf(err) != KindInvalid {
+	if _, err := e.core.CreateTelemetryIntent(e.ctx, "alex", agentID, "x", nil, nil, []store.SignalGrant{{ID: ""}}, extDest("c:4317")); kindOf(err) != kernel.KindInvalid {
 		t.Fatalf("blank signal id: %v", err)
 	}
-	if _, err := e.core.CreateTelemetryIntent(e.ctx, "alex", agentID, "x", nil, nil, nil, extDest("")); kindOf(err) != KindInvalid {
+	if _, err := e.core.CreateTelemetryIntent(e.ctx, "alex", agentID, "x", nil, nil, nil, extDest("")); kindOf(err) != kernel.KindInvalid {
 		t.Fatalf("blank endpoint: %v", err)
 	}
 }
@@ -146,7 +147,7 @@ func TestRevokeThenDeleteTelemetryIntentLifecycle(t *testing.T) {
 	if got.Status != store.TelemetryIntentRevoked || got.Reason != "decommissioned" {
 		t.Fatalf("%+v", got)
 	}
-	if err := e.core.RevokeTelemetryIntent(e.ctx, "alex", ti.ID, "again"); kindOf(err) != KindConflict {
+	if err := e.core.RevokeTelemetryIntent(e.ctx, "alex", ti.ID, "again"); kindOf(err) != kernel.KindConflict {
 		t.Fatalf("expected KindConflict revoking twice, got %v", err)
 	}
 	// With the first intent revoked, a fresh one on the same agent is allowed again.
@@ -157,7 +158,7 @@ func TestRevokeThenDeleteTelemetryIntentLifecycle(t *testing.T) {
 	if err := e.core.DeleteTelemetryIntent(e.ctx, "alex", ti.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.core.GetTelemetryIntent(e.ctx, ti.ID); kindOf(err) != KindNotFound {
+	if _, err := e.core.GetTelemetryIntent(e.ctx, ti.ID); kindOf(err) != kernel.KindNotFound {
 		t.Fatalf("expected KindNotFound after delete, got %v", err)
 	}
 }
@@ -173,14 +174,14 @@ func TestTelemetryIntentsAreScopedToTheirOrganisation(t *testing.T) {
 		t.Fatal(err)
 	}
 	other := e.base.ForOrg("org-2")
-	if _, err := other.GetTelemetryIntent(e.ctx, ti.ID); kindOf(err) != KindNotFound {
+	if _, err := other.GetTelemetryIntent(e.ctx, ti.ID); kindOf(err) != kernel.KindNotFound {
 		t.Fatalf("a telemetry intent from another organisation must be invisible, got %v", err)
 	}
 	list, err := other.ListTelemetryIntents(e.ctx)
 	if err != nil || len(list) != 0 {
 		t.Fatalf("cross-org leak in ListTelemetryIntents: %+v %v", list, err)
 	}
-	if _, err := other.ListTelemetryIntentsForAgent(e.ctx, agentID); kindOf(err) != KindNotFound {
+	if _, err := other.ListTelemetryIntentsForAgent(e.ctx, agentID); kindOf(err) != kernel.KindNotFound {
 		t.Fatalf("an agent from another organisation must be invisible, got %v", err)
 	}
 }
@@ -201,7 +202,7 @@ func TestCreateTelemetryIntentRejectsASignalTheTargetOperatorDoesNotAccept(t *te
 	dest := store.Destination{Kind: store.DestinationOperator, TargetOperatorID: op.ID}
 	_, err = e.core.CreateTelemetryIntent(e.ctx, "alex", agentID, "patras-edge", nil, nil,
 		[]store.SignalGrant{{ID: "traces", Source: "existing"}}, dest)
-	if kindOf(err) != KindInvalid {
+	if kindOf(err) != kernel.KindInvalid {
 		t.Fatalf("expected KindInvalid granting traces into a metrics-only operator, got %v", err)
 	}
 	if err == nil || !strings.Contains(err.Error(), "traces") {
@@ -265,7 +266,7 @@ func TestUpdateTelemetryIntentScopeRejectsAnIncompatibleSignalAgainstTheCurrentO
 	}
 	err = e.core.UpdateTelemetryIntentScope(e.ctx, "alex", ti.ID, nil, nil,
 		[]store.SignalGrant{{ID: "resourceUsage", Source: "builtin"}, {ID: "traces", Source: "existing"}})
-	if kindOf(err) != KindInvalid {
+	if kindOf(err) != kernel.KindInvalid {
 		t.Fatalf("expected KindInvalid adding a traces signal against a metrics-only operator destination, got %v", err)
 	}
 }
@@ -287,7 +288,7 @@ func TestUpdateTelemetryIntentDestinationRejectsAnIncompatibleOperatorAgainstThe
 		t.Fatal(err)
 	}
 	dest := store.Destination{Kind: store.DestinationOperator, TargetOperatorID: op.ID}
-	if err := e.core.UpdateTelemetryIntentDestination(e.ctx, "alex", ti.ID, dest); kindOf(err) != KindInvalid {
+	if err := e.core.UpdateTelemetryIntentDestination(e.ctx, "alex", ti.ID, dest); kindOf(err) != kernel.KindInvalid {
 		t.Fatalf("expected KindInvalid repointing a metrics-only intent at a traces-only operator, got %v", err)
 	}
 }
@@ -328,7 +329,7 @@ func TestIntentRoutesAreCheckedPerSignalAgainstWhereEachGoes(t *testing.T) {
 	}
 	opDest := store.Destination{Kind: store.DestinationOperator, TargetOperatorID: op.ID}
 	// Everything to the metrics-only operator: refused, logs cannot go there.
-	if err := e.core.UpdateTelemetryIntentDestination(e.ctx, "alex", ti.ID, opDest); kindOf(err) != KindInvalid {
+	if err := e.core.UpdateTelemetryIntentDestination(e.ctx, "alex", ti.ID, opDest); kindOf(err) != kernel.KindInvalid {
 		t.Fatalf("expected KindInvalid sending logs to a metrics-only operator, got %v", err)
 	}
 	// Metrics to it and logs to an endpoint: fine.
@@ -342,7 +343,7 @@ func TestIntentRoutesAreCheckedPerSignalAgainstWhereEachGoes(t *testing.T) {
 	}
 	// Routing LOGS to it is the one that is not allowed.
 	bad := map[store.Modality]store.Destination{store.ModalityLogs: opDest}
-	if err := e.core.UpdateTelemetryIntentDestinations(e.ctx, "alex", ti.ID, extDest("gw:4317"), bad); kindOf(err) != KindInvalid {
+	if err := e.core.UpdateTelemetryIntentDestinations(e.ctx, "alex", ti.ID, extDest("gw:4317"), bad); kindOf(err) != kernel.KindInvalid {
 		t.Fatalf("expected KindInvalid routing logs to a metrics-only operator, got %v", err)
 	}
 	// Widening the scope is checked against the routes too: traces have no route, so they follow the default.
@@ -350,7 +351,7 @@ func TestIntentRoutesAreCheckedPerSignalAgainstWhereEachGoes(t *testing.T) {
 		t.Fatalf("traces follow the external default and should be fine: %v", err)
 	}
 	// ...and a route that is not one of the three signal types, or names an operator that is not there, is refused.
-	if err := e.core.UpdateTelemetryIntentDestinations(e.ctx, "alex", ti.ID, extDest("gw:4317"), map[store.Modality]store.Destination{"events": extDest("x:1")}); kindOf(err) != KindInvalid {
+	if err := e.core.UpdateTelemetryIntentDestinations(e.ctx, "alex", ti.ID, extDest("gw:4317"), map[store.Modality]store.Destination{"events": extDest("x:1")}); kindOf(err) != kernel.KindInvalid {
 		t.Fatalf("expected KindInvalid for an unknown signal type, got %v", err)
 	}
 	ghost := store.Destination{Kind: store.DestinationOperator, TargetOperatorID: "op-nope"}
@@ -381,7 +382,7 @@ func TestCreateTelemetryIntentWithRoutesChecksEachSignalWhereItGoes(t *testing.T
 
 	agentID := e.approvedAgentID(t, fp2)
 	// Without routes, the same grant is refused: the default would have to carry the logs.
-	if _, err := e.core.CreateTelemetryIntent(e.ctx, "alex", agentID, "patras-edge", nil, nil, signals, opDest); kindOf(err) != KindInvalid {
+	if _, err := e.core.CreateTelemetryIntent(e.ctx, "alex", agentID, "patras-edge", nil, nil, signals, opDest); kindOf(err) != kernel.KindInvalid {
 		t.Fatalf("expected KindInvalid without routes, got %v", err)
 	}
 	ti, err := e.core.CreateTelemetryIntentWithRoutes(e.ctx, "alex", agentID, "patras-edge", nil, nil, signals, opDest, routes)

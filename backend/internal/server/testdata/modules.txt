@@ -1,8 +1,11 @@
-# Which module each source file of this package belongs to. The server is one Go package today; this is the line it will be cut along.
+# Which module each source file of this package belongs to. The server is one Go package still, with the kernel already out of it;
+# this is the line the rest will be cut along.
 # Read docs/server-modules.md (backend/docs) for what each module is, what it owns and why the files sit where they do.
 #
 # kernel        what every module stands on: the Core (store, CA, organisation, audit, clock), settings, secrets, rate limits, the
-#               outbound address policy, the Kubernetes interface, install image settings. Depends on no module.
+#               outbound address policy, the Kubernetes interface, install image settings. It is the package internal/kernel and
+#               depends on nothing in this one; the only file of it here is the bridge, which is the Core with the methods the
+#               modules add to it.
 # accounts      people, organisations, roles, sessions, API tokens, passkeys and two-factor; the vocabulary of who is calling (Actor,
 #               Principal, Role) and the one decision of what a caller may do (Decide).
 # agents        an enrolled agent: tokens and enrolment, the stream, consent and access tier, diagnostics, the agent's own health.
@@ -45,11 +48,8 @@ auth.go                         accounts
 conditions.go                   agents
 config_digest.go                connectivity
 consent.go                      agents
-core.go                         kernel
-counters.go                     kernel
 decide_advice.go                advice
 decide_sign.go                  advice
-decider.go                      kernel
 decisions.go                    advice
 emailcode.go                    accounts
 enroll.go                       agents
@@ -66,9 +66,7 @@ fusion_ui_access.go             fusion
 geo.go                          agents
 grpc.go                         agents
 hub.go                          estate
-images.go                       kernel
-kube.go                         kernel
-limiter.go                      kernel
+kernel_bridge.go                kernel
 link_caps.go                    connectivity
 linkcreds.go                    connectivity
 links.go                        connectivity
@@ -90,7 +88,6 @@ paths.go                        connectivity
 policy.go                       accounts
 proposal_outcomes.go            advice
 proposals.go                    advice
-proto.go                        kernel
 proxyproto.go                   agents
 publicip.go                     agents
 quickstart.go                   telemetry
@@ -100,14 +97,10 @@ recover.go                      agents
 routes.go                       shell
 self_probe.go                   operators
 selfstats.go                    agents
-settings.go                     kernel
-settings_links.go               kernel
-state.go                        kernel
 suspect.go                      agents
 telemetry_intents.go            telemetry
 tenants.go                      shell
 tier.go                         agents
-tokens.go                       kernel
 totp.go                         accounts
 tunnels.go                      connectivity
 twin.go                         estate

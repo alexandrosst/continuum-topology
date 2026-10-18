@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	continuumv1 "continuum/gen/continuumv1"
+	"continuum/internal/kernel"
 	"continuum/internal/store"
 
 	"google.golang.org/protobuf/encoding/protojson"
@@ -48,7 +49,7 @@ func TestTheConfigEachClusterIsSentIsPinned(t *testing.T) {
 			out.WriteString("-- " + who + "\n" + pinnedConfig(t, cfg, names) + "\n")
 		}
 	}
-	save := func(s Settings) {
+	save := func(s kernel.Settings) {
 		t.Helper()
 		if _, err := cr.core.SaveSettings(cr.ctx, "alex", s); err != nil {
 			t.Fatal(err)
@@ -60,27 +61,27 @@ func TestTheConfigEachClusterIsSentIsPinned(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	pair := func(th *LinkThroughput, via string, noProbe bool) LinkSetting {
-		return LinkSetting{A: cr.first.ClusterID, B: cr.second.ClusterID, Throughput: th, Via: via, NoProbe: noProbe}
+	pair := func(th *kernel.LinkThroughput, via string, noProbe bool) kernel.LinkSetting {
+		return kernel.LinkSetting{A: cr.first.ClusterID, B: cr.second.ClusterID, Throughput: th, Via: via, NoProbe: noProbe}
 	}
 
 	step("nothing asked for")
 
-	targets := []ProbeTarget{{ID: "pt-1", ClusterID: cr.first.ClusterID, Label: "gateway", Host: "203.0.113.10", Port: 443}}
-	save(Settings{MeasureSeconds: 90, ProbeTargets: targets})
+	targets := []kernel.ProbeTarget{{ID: "pt-1", ClusterID: cr.first.ClusterID, Label: "gateway", Host: "203.0.113.10", Port: 443}}
+	save(kernel.Settings{MeasureSeconds: 90, ProbeTargets: targets})
 	step("a probe target for the first cluster, measured every 90 seconds")
 
-	save(Settings{MeasureSeconds: 90, ProbeTargets: targets, Links: []LinkSetting{pair(nil, "", false)}})
+	save(kernel.Settings{MeasureSeconds: 90, ProbeTargets: targets, Links: []kernel.LinkSetting{pair(nil, "", false)}})
 	step("a link pair between the first and the second")
 
-	save(Settings{MeasureSeconds: 90, ProbeTargets: targets, Links: []LinkSetting{pair(&LinkThroughput{IntervalMinutes: 60, BudgetMB: 2048}, "mesh", false)}})
+	save(kernel.Settings{MeasureSeconds: 90, ProbeTargets: targets, Links: []kernel.LinkSetting{pair(&kernel.LinkThroughput{IntervalMinutes: 60, BudgetMB: 2048}, "mesh", false)}})
 	cr.settle()
 	step("the pair also asks for throughput tests, pinned to the mesh addresses")
 
-	save(Settings{MeasureSeconds: 90, ProbeTargets: targets, Links: []LinkSetting{pair(nil, "public", true)}})
+	save(kernel.Settings{MeasureSeconds: 90, ProbeTargets: targets, Links: []kernel.LinkSetting{pair(nil, "public", true)}})
 	step("the pair with its one-way probe off, pinned to the public addresses")
 
-	save(Settings{MeasureSeconds: 90, ProbeTargets: targets, Links: []LinkSetting{pair(&LinkThroughput{}, "", false)}})
+	save(kernel.Settings{MeasureSeconds: 90, ProbeTargets: targets, Links: []kernel.LinkSetting{pair(&kernel.LinkThroughput{}, "", false)}})
 	consent("first", Consent{Paused: []string{"flow"}})
 	step("the first cluster's flow collector paused")
 

@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	continuumv1 "continuum/gen/continuumv1"
+
+	"continuum/internal/kernel"
 )
 
 // The central operator is reached the same way a regional one is: a sender can choose the address it dials, and when
@@ -51,7 +53,7 @@ func TestDiagnosisOfASenderToTheCentralOperatorReadsFusionsOwnState(t *testing.T
 func TestCentralOperatorAddressCandidatesAndSendersComeFromTheGatewayAndFusion(t *testing.T) {
 	a := newIntentRig(t)
 	f, k := newFusion(t, a.adminRig)
-	ik := &inspectingKube{fakeKube: k, svc: KubeService{Type: "LoadBalancer", Port: 4317, LoadBalancer: "203.0.113.50:4317"}}
+	ik := &inspectingKube{fakeKube: k, svc: kernel.KubeService{Type: "LoadBalancer", Port: 4317, LoadBalancer: "203.0.113.50:4317"}}
 	f.Kube = ik
 	a.a.Fusion = f
 	if _, err := f.Enable(a.ctx, a.core, "alex"); err != nil {
@@ -110,7 +112,7 @@ func TestCentralOperatorAddressCandidatesAndSendersComeFromTheGatewayAndFusion(t
 func TestCentralNodeAddressesNeedOnlyTheClusterAndTheServicesNodePort(t *testing.T) {
 	a := newIntentRig(t)
 	f, k := newFusion(t, a.adminRig)
-	f.Kube = &inspectingKube{fakeKube: k, svc: KubeService{Type: "LoadBalancer", Port: 4317, NodePort: 31999, LoadBalancer: "203.0.113.50:4317"}}
+	f.Kube = &inspectingKube{fakeKube: k, svc: kernel.KubeService{Type: "LoadBalancer", Port: 4317, NodePort: 31999, LoadBalancer: "203.0.113.50:4317"}}
 	a.a.Fusion = f
 	if _, err := f.Enable(a.ctx, a.core, "alex"); err != nil {
 		t.Fatal(err)
@@ -159,7 +161,7 @@ func TestCentralClusterIsFoundByTheNodeThatHasTheLoadBalancersAddress(t *testing
 		t.Run(tc.name, func(t *testing.T) {
 			a := newIntentRig(t)
 			f, k := newFusion(t, a.adminRig)
-			f.Kube = &inspectingKube{fakeKube: k, svc: KubeService{Type: "LoadBalancer", Port: 4317, NodePort: 31999, LoadBalancer: tc.lb}}
+			f.Kube = &inspectingKube{fakeKube: k, svc: kernel.KubeService{Type: "LoadBalancer", Port: 4317, NodePort: 31999, LoadBalancer: tc.lb}}
 			a.a.Fusion = f
 			if _, err := f.Enable(a.ctx, a.core, "alex"); err != nil {
 				t.Fatal(err)
@@ -205,7 +207,7 @@ func TestCentralClusterIsFoundByTheNodeThatHasTheLoadBalancersAddress(t *testing
 func TestAnUnexposedGatewayComesWithTheCommandThatExposesIt(t *testing.T) {
 	a := newIntentRig(t)
 	f, k := newFusion(t, a.adminRig)
-	f.Kube = &inspectingKube{fakeKube: k, svc: KubeService{Type: "ClusterIP", Port: 4317}}
+	f.Kube = &inspectingKube{fakeKube: k, svc: kernel.KubeService{Type: "ClusterIP", Port: 4317}}
 	a.a.Fusion = f
 	if _, err := f.Enable(a.ctx, a.core, "alex"); err != nil {
 		t.Fatal(err)
@@ -230,7 +232,7 @@ func centralRig(t *testing.T, uid string) (*intentRig, *FusionControl, string) {
 	t.Helper()
 	a := newIntentRig(t)
 	f, k := newFusion(t, a.adminRig)
-	f.Kube = &inspectingKube{fakeKube: k, svc: KubeService{Type: "LoadBalancer", Port: 4317, NodePort: 31999, LoadBalancer: "203.0.113.50:4317"}}
+	f.Kube = &inspectingKube{fakeKube: k, svc: kernel.KubeService{Type: "LoadBalancer", Port: 4317, NodePort: 31999, LoadBalancer: "203.0.113.50:4317"}}
 	a.a.Fusion = f
 	if _, err := f.Enable(a.ctx, a.core, "alex"); err != nil {
 		t.Fatal(err)
@@ -315,7 +317,7 @@ func TestAPersonCanSayWhichClusterTheServerIsInAndItWins(t *testing.T) {
 	const uid = "3f2b6c1e-9a4d-4e7b-8c55-0d1e2f3a4b5c"
 	a, f, _ := centralRig(t, uid)
 	f.ClusterUID = "11111111-2222-4333-8444-555555555555" // the install names a cluster with no agent
-	id, _ := ClusterIDForUID(a.core.OrgID, uid)
+	id, _ := kernel.ClusterIDForUID(a.core.OrgID, uid)
 
 	if r := a.do("PUT", "/api/v1/operators/"+CentralOperatorID+"/server-cluster", map[string]any{"clusterId": "cl-0000000000"}, withCookie(a.cookie)); r.Code != 400 {
 		t.Fatalf("a cluster no agent is in: %d %s", r.Code, r.Body.String())

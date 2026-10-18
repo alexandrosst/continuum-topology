@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"continuum/internal/fusionapi"
+	"continuum/internal/kernel"
 	"continuum/internal/pki"
 	"continuum/internal/store"
 )
@@ -48,7 +49,7 @@ type FusionControl struct {
 	// ClusterUID is the UID of this server's own kube-system namespace, which the chart passes in (CONTINUUM_CLUSTER_ID): the
 	// cluster the gateway runs in is the server's, so the agent whose cluster has this identity is the one that reports it.
 	ClusterUID string
-	Kube       KubeAPI
+	Kube       kernel.KubeAPI
 	// Data reads what FUSION saved (the shared API, fusion_data.go). Nil means the stores' in-cluster addresses by the
 	// chart's naming convention (see dataClient); tests point it at fakes.
 	Data *fusionapi.Client
@@ -78,7 +79,7 @@ type FusionControl struct {
 
 	// svc is the gateway's Service as it was last read (nil: unknown - not readable, or not asked yet), and svcAt when.
 	svcMu sync.Mutex
-	svc   *KubeService
+	svc   *kernel.KubeService
 	svcAt time.Time
 
 	// switchMu serialises the calls that change the cluster: Enable, Disable and Renew. Each is a read, a few writes and
@@ -186,7 +187,7 @@ func (f *FusionControl) DiscoverAddress(ctx context.Context, c *Core) (string, e
 	}
 	addr, err := f.Kube.ServiceAddress(ctx, f.ServiceName())
 	if err != nil {
-		if errors.Is(err, ErrKubeNotFound) || errors.Is(err, ErrKubeForbidden) { // an older Role cannot read it: no address, no complaint
+		if errors.Is(err, kernel.ErrKubeNotFound) || errors.Is(err, kernel.ErrKubeForbidden) { // an older Role cannot read it: no address, no complaint
 			return "", nil
 		}
 		return "", err
@@ -230,11 +231,11 @@ const fusionServiceEvery = 15 * time.Second
 // gatewayService is the gateway's own Service, so an address recorded for it can be compared with what the Service
 // really publishes; nil when that cannot be told (this server's Role cannot read Services, the Service is not there, or
 // the KubeAPI is one that cannot say), in which case nothing is claimed either way.
-func (f *FusionControl) gatewayService(ctx context.Context) *KubeService {
+func (f *FusionControl) gatewayService(ctx context.Context) *kernel.KubeService {
 	if f == nil || f.Kube == nil {
 		return nil
 	}
-	insp, ok := f.Kube.(ServiceInspector)
+	insp, ok := f.Kube.(kernel.ServiceInspector)
 	if !ok {
 		return nil
 	}
@@ -510,7 +511,7 @@ func (f *FusionControl) keep(st FusionStatus) {
 
 // storeRead is what one workload's reads found.
 type storeRead struct {
-	w      KubeWorkload
+	w      kernel.KubeWorkload
 	err    error
 	reason string
 	hard   bool
@@ -537,11 +538,11 @@ func (f *FusionControl) readStatus(ctx context.Context) FusionStatus {
 	for i, s := range stores {
 		r := reads[i]
 		switch {
-		case s.Optional && (errors.Is(r.err, ErrKubeNotFound) || errors.Is(r.err, ErrKubeForbidden)):
+		case s.Optional && (errors.Is(r.err, kernel.ErrKubeNotFound) || errors.Is(r.err, kernel.ErrKubeForbidden)):
 			continue // Grafana is off in this install (or this Role predates it): the rest of FUSION is unaffected
-		case errors.Is(r.err, ErrKubeNotFound):
+		case errors.Is(r.err, kernel.ErrKubeNotFound):
 			return FusionStatus{State: "off", Reason: "not-installed", Message: "FUSION's workloads are not in this release. Upgrade the server chart (fusion.enabled=true) to get them."}
-		case errors.Is(r.err, ErrKubeForbidden):
+		case errors.Is(r.err, kernel.ErrKubeForbidden):
 			return FusionStatus{State: "off", Reason: "no-access", Message: "This server is not allowed to read or scale FUSION's workloads. Check fusionControl.enabled in the server chart."}
 		case r.err != nil:
 			st.State, st.Message = "attention", "The Kubernetes API did not answer: "+r.err.Error()
@@ -595,7 +596,7 @@ func (f *FusionControl) whyNotReady(ctx context.Context, s fusionStore) (reason 
 
 // explainPod turns Kubernetes' reason codes into a short sentence for a person. hard is a fault that will not clear on
 // its own. A code it does not know says nothing rather than show a raw identifier.
-func explainPod(p KubePod, claimPhase string) (reason string, hard bool) {
+func explainPod(p kernel.KubePod, claimPhase string) (reason string, hard bool) {
 	switch p.WaitingReason {
 	case "ErrImagePull", "ImagePullBackOff":
 		return "Cannot download the image", true
@@ -747,10 +748,10 @@ func (f *FusionControl) Enable(ctx context.Context, c *Core, actor string) (Fusi
 	}
 	prev := f.Status(ctx)
 	if !prev.Available {
-		return prev, Errf(KindConflict, "%s", prev.Message)
+		return prev, kernel.Errf(kernel.KindConflict, "%s", prev.Message)
 	}
 	if f.Org != "" && c.OrgID != f.Org {
-		return FusionStatus{}, Errf(KindForbidden, "FUSION belongs to this server's main organisation, which is the only one that can turn it on")
+		return FusionStatus{}, kernel.Errf(kernel.KindForbidden, "FUSION belongs to this server's main organisation, which is the only one that can turn it on")
 	}
 	_, bundle, err := c.EnsureCentralOperator(ctx, actor, f.destination(), f.certHosts())
 	if err != nil {
@@ -825,10 +826,10 @@ func (f *FusionControl) Disable(ctx context.Context, c *Core, actor string) (Fus
 	}
 	prev := f.Status(ctx)
 	if !prev.Available {
-		return prev, Errf(KindConflict, "%s", prev.Message)
+		return prev, kernel.Errf(kernel.KindConflict, "%s", prev.Message)
 	}
 	if f.Org != "" && c.OrgID != f.Org {
-		return FusionStatus{}, Errf(KindForbidden, "FUSION belongs to this server's main organisation, which is the only one that can turn it off")
+		return FusionStatus{}, kernel.Errf(kernel.KindForbidden, "FUSION belongs to this server's main organisation, which is the only one that can turn it off")
 	}
 	st, err := f.scaleAndReport(ctx, prev, 0)
 	if err != nil {
@@ -874,7 +875,7 @@ func (f *FusionControl) scaleAll(ctx context.Context, replicas int) error {
 	}
 	for _, s := range ws {
 		err := f.Kube.Scale(ctx, s.Kind, s.Name, replicas)
-		if s.Optional && (errors.Is(err, ErrKubeNotFound) || errors.Is(err, ErrKubeForbidden)) {
+		if s.Optional && (errors.Is(err, kernel.ErrKubeNotFound) || errors.Is(err, kernel.ErrKubeForbidden)) {
 			continue
 		}
 		if err != nil {
@@ -885,10 +886,10 @@ func (f *FusionControl) scaleAll(ctx context.Context, replicas int) error {
 }
 
 func kubeFail(what string, err error) error {
-	if errors.Is(err, ErrKubeForbidden) {
-		return Errf(KindForbidden, "this server is not allowed to %s. Check fusionControl.enabled in the server chart", what)
+	if errors.Is(err, kernel.ErrKubeForbidden) {
+		return kernel.Errf(kernel.KindForbidden, "this server is not allowed to %s. Check fusionControl.enabled in the server chart", what)
 	}
-	return Errf(KindConflict, "could not %s: %v", what, err)
+	return kernel.Errf(kernel.KindConflict, "could not %s: %v", what, err)
 }
 
 // EnsureCentralOperator makes sure the central operator exists in this organisation and issues a fresh server
@@ -905,7 +906,7 @@ func (c *Core) EnsureCentralOperator(ctx context.Context, actor string, dest sto
 	if errors.Is(err, store.ErrNotFound) {
 		bundle, caKeyPEM, err := mintOperatorTLS(c, CentralOperatorID, hosts)
 		if err != nil {
-			return store.Operator{}, OperatorTLSBundle{}, Errf(KindInternal, "could not mint the central operator's certificates: %v", err)
+			return store.Operator{}, OperatorTLSBundle{}, kernel.Errf(kernel.KindInternal, "could not mint the central operator's certificates: %v", err)
 		}
 		op = store.Operator{
 			ID: CentralOperatorID, OrgID: c.OrgID, Name: "Central (FUSION)", Status: store.OperatorActive,
@@ -929,10 +930,10 @@ func (c *Core) EnsureCentralOperator(ctx context.Context, actor string, dest sto
 		return store.Operator{}, OperatorTLSBundle{}, err
 	}
 	if op.OrgID != c.OrgID {
-		return store.Operator{}, OperatorTLSBundle{}, Errf(KindConflict, "the central operator belongs to another organisation")
+		return store.Operator{}, OperatorTLSBundle{}, kernel.Errf(kernel.KindConflict, "the central operator belongs to another organisation")
 	}
 	if op.Status != store.OperatorActive {
-		return store.Operator{}, OperatorTLSBundle{}, Errf(KindConflict, "the central operator was revoked")
+		return store.Operator{}, OperatorTLSBundle{}, kernel.Errf(kernel.KindConflict, "the central operator was revoked")
 	}
 	issuer, caPEM, err := c.operatorIssuer(ctx, op)
 	if err != nil {
@@ -969,7 +970,7 @@ func (c *Core) centralReceiverFresh(ctx context.Context) bool {
 // guardCentral refuses to change the server-owned operator through the ordinary operator calls.
 func guardCentral(id string) error {
 	if id == CentralOperatorID {
-		return Errf(KindConflict, "the central operator is managed by FUSION: turn FUSION off or on instead of changing it")
+		return kernel.Errf(kernel.KindConflict, "the central operator is managed by FUSION: turn FUSION off or on instead of changing it")
 	}
 	return nil
 }

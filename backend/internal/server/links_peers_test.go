@@ -9,20 +9,21 @@ import (
 
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/facts"
+	"continuum/internal/kernel"
 	"continuum/internal/link"
 	"continuum/internal/store"
 )
 
 // hubOfPeers is a hub with one runner (cl-a) and n peers cl-p000.., each with a node address of its own, the first `missing` of
 // them without an approved agent.
-func hubOfPeers(n, missing int) (*Hub, store.Agent, []store.Agent, []LinkSetting) {
+func hubOfPeers(n, missing int) (*Hub, store.Agent, []store.Agent, []kernel.LinkSetting) {
 	a := ag("ag-a", "cl-a", "alpha", "", 2)
 	views := map[string]*view{"ag-a": {state: nodeState("10.0.0.1")}}
 	agents := []store.Agent{a}
-	var links []LinkSetting
+	var links []kernel.LinkSetting
 	for i := 0; i < n; i++ {
 		id := fmt.Sprintf("cl-p%03d", i)
-		links = append(links, LinkSetting{A: "cl-a", B: id})
+		links = append(links, kernel.LinkSetting{A: "cl-a", B: id})
 		o := ag("ag-"+id, id, id, "", 2)
 		if i < missing {
 			o.Status = store.StatusPending
@@ -144,7 +145,7 @@ func TestOverlayAndPodRangeAddressesAreNeverOfferedButMeshAndHostOnesAre(t *test
 	// flannel.1 addresses either.
 	a, b := ag("ag-a", "cl-a", "alpha", "", 2), ag("ag-b", "cl-b", "beta", "", 2)
 	h := linkHub(map[string]*view{"ag-a": {state: nodeState("10.0.0.1")}, "ag-b": {state: &facts.State{Nodes: map[string]*continuumv1.NodeFacts{"n1": overlayNode()}}}})
-	sent := h.linkPeers(a, []store.Agent{a, b}, []LinkSetting{{A: "cl-a", B: "cl-b"}}, false, nil)
+	sent := h.linkPeers(a, []store.Agent{a, b}, []kernel.LinkSetting{{A: "cl-a", B: "cl-b"}}, false, nil)
 	if len(sent) != 1 || hasAddr(sent[0].Addresses, "10.42.2.0") || !hasAddr(sent[0].Addresses, "100.64.0.45") || !hasAddr(sent[0].Addresses, "100.100.1.2") {
 		t.Fatalf("%+v", sent)
 	}
@@ -168,7 +169,7 @@ func TestAnAddressBothClustersHoldIsRemovedWhateverInterfaceReportsIt(t *testing
 		"ag-a": {state: nodeWith("10.0.0.1", "", "100.64.9.9/32")},
 		"ag-b": {state: nodeWith("10.1.0.1", "100.64.9.9/32", "")},
 	})
-	sent := h.linkPeers(a, []store.Agent{a, b}, []LinkSetting{{A: "cl-a", B: "cl-b"}}, false, nil)
+	sent := h.linkPeers(a, []store.Agent{a, b}, []kernel.LinkSetting{{A: "cl-a", B: "cl-b"}}, false, nil)
 	if len(sent) != 1 || hasAddr(sent[0].Addresses, "100.64.9.9") || !hasAddr(sent[0].Addresses, "10.1.0.1") {
 		t.Fatalf("%+v", sent)
 	}
@@ -179,7 +180,7 @@ func TestAnAddressBothClustersHoldIsRemovedWhateverInterfaceReportsIt(t *testing
 func TestAnAddressTwoPeersShareIsRemovedAndSaid(t *testing.T) {
 	a := ag("ag-a", "cl-a", "alpha", "", 2)
 	b, c := ag("ag-b", "cl-b", "beta", "", 2), ag("ag-c", "cl-c", "gamma", "", 2)
-	links := []LinkSetting{{A: "cl-a", B: "cl-b"}, {A: "cl-a", B: "cl-c"}}
+	links := []kernel.LinkSetting{{A: "cl-a", B: "cl-b"}, {A: "cl-a", B: "cl-c"}}
 	all := []store.Agent{a, b, c}
 
 	// Every address of both is the same: neither is sent, nobody measures, and both are told to probe.
@@ -242,7 +243,7 @@ func TestTheEgressAddressStaysListedButDoesNotSilenceThePrivateRangeHint(t *test
 	a := ag("ag-a", "cl-a", "alpha", "", 2)
 	b := ag("ag-b", "cl-b", "beta", "203.0.113.2", 2)
 	h := linkHub(map[string]*view{"ag-a": {state: nodeState("10.0.0.1")}, "ag-b": {state: nodeState("10.1.0.1")}})
-	links := []LinkSetting{{A: "cl-a", B: "cl-b"}}
+	links := []kernel.LinkSetting{{A: "cl-a", B: "cl-b"}}
 	sent := h.linkPeers(a, []store.Agent{a, b}, links, false, nil)
 	if len(sent) != 1 || !hasAddr(sent[0].Addresses, "203.0.113.2") {
 		t.Fatalf("the egress address left the list: %+v", sent)
@@ -284,7 +285,7 @@ func TestNotesNameAtMostSixAddresses(t *testing.T) {
 	}
 	h := linkHub(map[string]*view{"ag-a": {state: nodeState("10.0.0.1")}, "ag-b": {state: &facts.State{Nodes: map[string]*continuumv1.NodeFacts{"n1": n}}}})
 	var text string
-	for _, x := range h.linkNotes([]LinkSetting{{A: "cl-a", B: "cl-b"}}, []store.Agent{a, b}, nil) {
+	for _, x := range h.linkNotes([]kernel.LinkSetting{{A: "cl-a", B: "cl-b"}}, []store.Agent{a, b}, nil) {
 		if x.Code == "private-range" && x.Cluster == "cl-a" {
 			text = x.Text
 		}

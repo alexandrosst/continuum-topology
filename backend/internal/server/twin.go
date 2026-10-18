@@ -16,6 +16,7 @@ import (
 	"continuum/internal/advice"
 	"continuum/internal/facts"
 	"continuum/internal/interpret"
+	"continuum/internal/kernel"
 	"continuum/internal/model"
 	"continuum/internal/store"
 	"continuum/internal/twin"
@@ -388,7 +389,7 @@ func (h *Hub) saveModelVersion(ctx context.Context, at time.Time) {
 	}
 	st := store.ModelState{Version: tw.version, Fingerprint: tw.fp, At: at}
 	if err := h.C.Store.PutModelState(ctx, h.C.OrgID, st); err != nil {
-		Metrics.StoreErrors.Add(1)
+		kernel.Metrics.StoreErrors.Add(1)
 		h.Log.Error("twin: the model version could not be saved; it will be tried again on the next read", "version", tw.version, "err", err)
 		return
 	}

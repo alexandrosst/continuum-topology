@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
 
@@ -215,8 +216,8 @@ func TestAcceptingAWideningProposalTakesAnAdministratorAndAnEditorIsRefusedWitho
 	}
 	for name, ctx := range map[string]context.Context{"editor": asRole(RoleEditor), "no caller": context.Background()} {
 		_, err := r.h.AcceptProposal(ctx, "someone", p.ID, "")
-		var e *Error
-		if !errors.As(err, &e) || e.Kind != KindForbidden {
+		var e *kernel.Error
+		if !errors.As(err, &e) || e.Kind != kernel.KindForbidden {
 			t.Fatalf("%s: want a forbidden error, got %v", name, err)
 		}
 	}
@@ -262,8 +263,8 @@ func TestAProposalIsCheckedAgainstTheAgentAsItIsWhenItIsAccepted(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = r2.h.AcceptProposal(asRole(RoleEditor), "edith", set1.ID, "")
-	var e *Error
-	if !errors.As(err, &e) || e.Kind != KindForbidden {
+	var e *kernel.Error
+	if !errors.As(err, &e) || e.Kind != kernel.KindForbidden {
 		t.Fatalf("an editor accepting what now widens: %v", err)
 	}
 	if a, _ := r2.st.GetAgent(r2.ctx, r2.id); a.AccessTier != 0 {
@@ -279,8 +280,8 @@ func TestAnExpiredProposalCannotBeAccepted(t *testing.T) {
 	}
 	*r.now = r.now.Add(2 * time.Minute)
 	_, err = r.h.AcceptProposal(asRole(RoleAdmin), "adam", p.ID, "")
-	var e *Error
-	if !errors.As(err, &e) || e.Kind != KindConflict {
+	var e *kernel.Error
+	if !errors.As(err, &e) || e.Kind != kernel.KindConflict {
 		t.Fatalf("accepting after the expiry: %v", err)
 	}
 	got, _, _ := r.h.GetProposal(context.Background(), p.ID)

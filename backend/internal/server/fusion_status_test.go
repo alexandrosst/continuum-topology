@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"continuum/internal/fusionapi"
+	"continuum/internal/kernel"
 )
 
 // cachedFusion is a FusionControl with the status cache on and a clock the test moves, over a fake cluster with all four
@@ -303,29 +304,29 @@ func TestTheTokenStatusRouteDoesNotReadTheCluster(t *testing.T) {
 
 func TestExplainPod(t *testing.T) {
 	for name, tc := range map[string]struct {
-		pod    KubePod
+		pod    kernel.KubePod
 		claim  string
 		reason string
 		hard   bool
 	}{
-		"image pull":         {KubePod{WaitingReason: "ImagePullBackOff"}, "", "Cannot download the image", true},
-		"first image pull":   {KubePod{WaitingReason: "ErrImagePull"}, "", "Cannot download the image", true},
-		"bad image":          {KubePod{WaitingReason: "InvalidImageName"}, "", "The image name is not valid", true},
-		"crash loop":         {KubePod{WaitingReason: "CrashLoopBackOff", LastTerminatedReason: "Error"}, "", "Keeps stopping and restarting", true},
-		"out of memory":      {KubePod{WaitingReason: "CrashLoopBackOff", LastTerminatedReason: "OOMKilled"}, "", "Ran out of memory and keeps restarting", true},
-		"bad config":         {KubePod{WaitingReason: "CreateContainerConfigError"}, "", "Its configuration is incomplete", true},
-		"cannot start":       {KubePod{WaitingReason: "RunContainerError"}, "", "The container could not be started", true},
-		"creating":           {KubePod{WaitingReason: "ContainerCreating"}, "Bound", "Starting the container", false},
-		"creating, no claim": {KubePod{WaitingReason: "ContainerCreating"}, "", "Starting the container", false},
-		"creating, volume":   {KubePod{WaitingReason: "ContainerCreating"}, "Pending", "Waiting for a volume", true},
-		"init":               {KubePod{WaitingReason: "PodInitializing"}, "", "Starting up", false},
-		"no room":            {KubePod{Phase: "Pending", Unschedulable: true, ScheduleMessage: "0/3 nodes are available: 3 Insufficient memory."}, "", "No node has room", true},
-		"taints":             {KubePod{Phase: "Pending", Unschedulable: true, ScheduleMessage: "0/3 nodes are available: 3 node(s) had untolerated taint."}, "", "No suitable node", true},
-		"unbound claim":      {KubePod{Phase: "Pending", Unschedulable: true, ScheduleMessage: "0/3 nodes are available: pod has unbound immediate PersistentVolumeClaims."}, "", "Waiting for a volume", true},
-		"claim pending":      {KubePod{Phase: "Pending", Unschedulable: true, ScheduleMessage: "0/3 nodes are available: 3 Insufficient cpu."}, "Pending", "Waiting for a volume", true},
-		"pending, volume":    {KubePod{Phase: "Pending"}, "Pending", "Waiting for a volume", true},
-		"unknown code":       {KubePod{WaitingReason: "SomethingNew"}, "", "", false},
-		"nothing wrong":      {KubePod{Phase: "Running"}, "Bound", "", false},
+		"image pull":         {kernel.KubePod{WaitingReason: "ImagePullBackOff"}, "", "Cannot download the image", true},
+		"first image pull":   {kernel.KubePod{WaitingReason: "ErrImagePull"}, "", "Cannot download the image", true},
+		"bad image":          {kernel.KubePod{WaitingReason: "InvalidImageName"}, "", "The image name is not valid", true},
+		"crash loop":         {kernel.KubePod{WaitingReason: "CrashLoopBackOff", LastTerminatedReason: "Error"}, "", "Keeps stopping and restarting", true},
+		"out of memory":      {kernel.KubePod{WaitingReason: "CrashLoopBackOff", LastTerminatedReason: "OOMKilled"}, "", "Ran out of memory and keeps restarting", true},
+		"bad config":         {kernel.KubePod{WaitingReason: "CreateContainerConfigError"}, "", "Its configuration is incomplete", true},
+		"cannot start":       {kernel.KubePod{WaitingReason: "RunContainerError"}, "", "The container could not be started", true},
+		"creating":           {kernel.KubePod{WaitingReason: "ContainerCreating"}, "Bound", "Starting the container", false},
+		"creating, no claim": {kernel.KubePod{WaitingReason: "ContainerCreating"}, "", "Starting the container", false},
+		"creating, volume":   {kernel.KubePod{WaitingReason: "ContainerCreating"}, "Pending", "Waiting for a volume", true},
+		"init":               {kernel.KubePod{WaitingReason: "PodInitializing"}, "", "Starting up", false},
+		"no room":            {kernel.KubePod{Phase: "Pending", Unschedulable: true, ScheduleMessage: "0/3 nodes are available: 3 Insufficient memory."}, "", "No node has room", true},
+		"taints":             {kernel.KubePod{Phase: "Pending", Unschedulable: true, ScheduleMessage: "0/3 nodes are available: 3 node(s) had untolerated taint."}, "", "No suitable node", true},
+		"unbound claim":      {kernel.KubePod{Phase: "Pending", Unschedulable: true, ScheduleMessage: "0/3 nodes are available: pod has unbound immediate PersistentVolumeClaims."}, "", "Waiting for a volume", true},
+		"claim pending":      {kernel.KubePod{Phase: "Pending", Unschedulable: true, ScheduleMessage: "0/3 nodes are available: 3 Insufficient cpu."}, "Pending", "Waiting for a volume", true},
+		"pending, volume":    {kernel.KubePod{Phase: "Pending"}, "Pending", "Waiting for a volume", true},
+		"unknown code":       {kernel.KubePod{WaitingReason: "SomethingNew"}, "", "", false},
+		"nothing wrong":      {kernel.KubePod{Phase: "Running"}, "Bound", "", false},
 	} {
 		if reason, hard := explainPod(tc.pod, tc.claim); reason != tc.reason || hard != tc.hard {
 			t.Errorf("%s: %q hard=%v, want %q hard=%v", name, reason, hard, tc.reason, tc.hard)
@@ -339,7 +340,7 @@ func TestStatusNamesWhyAPartIsNotReady(t *testing.T) {
 	f, k, now := cachedFusion(t)
 	f.StatusTTL = -1
 	k.ready["continuum-fusion-loki"], k.ready["continuum-fusion-tempo"], k.ready["continuum-fusion-central"] = 1, 1, 1
-	k.pods["continuum-fusion-prometheus-0"] = KubePod{Phase: "Pending", WaitingReason: "ContainerCreating"}
+	k.pods["continuum-fusion-prometheus-0"] = kernel.KubePod{Phase: "Pending", WaitingReason: "ContainerCreating"}
 	k.claims["data-continuum-fusion-prometheus-0"] = "Pending"
 	st := f.Status(context.Background())
 	if st.State != "starting" {
@@ -374,7 +375,7 @@ func TestStatusNamesWhyAPartIsNotReady(t *testing.T) {
 
 // A Role from before the pod grants existed: nothing is lost but the reason.
 func TestWhyIsLeftOutWhenThePodCannotBeRead(t *testing.T) {
-	for name, err := range map[string]error{"forbidden": ErrKubeForbidden, "a failing API": errors.New("connection reset")} {
+	for name, err := range map[string]error{"forbidden": kernel.ErrKubeForbidden, "a failing API": errors.New("connection reset")} {
 		f, k, _ := cachedFusion(t)
 		f.StatusTTL = -1
 		k.podErr = err
@@ -401,7 +402,7 @@ func TestWhyIsLeftOutWhenThePodCannotBeRead(t *testing.T) {
 func TestAHardReasonShortensTheGrace(t *testing.T) {
 	f, k, now := cachedFusion(t)
 	f.StatusTTL = -1
-	k.pods["continuum-fusion-loki-0"] = KubePod{Phase: "Pending", WaitingReason: "ImagePullBackOff"}
+	k.pods["continuum-fusion-loki-0"] = kernel.KubePod{Phase: "Pending", WaitingReason: "ImagePullBackOff"}
 	ctx := context.Background()
 	if st := f.Status(ctx); st.State != "starting" {
 		t.Fatalf("at the start: %+v", st)
@@ -417,7 +418,7 @@ func TestAHardReasonShortensTheGrace(t *testing.T) {
 	}
 
 	// The same wait with a part that is only being created, or one whose reason is unknown, is still just starting.
-	for _, pod := range []KubePod{{Phase: "Pending", WaitingReason: "ContainerCreating"}, {Phase: "Pending", WaitingReason: "SomethingNew"}, {}} {
+	for _, pod := range []kernel.KubePod{{Phase: "Pending", WaitingReason: "ContainerCreating"}, {Phase: "Pending", WaitingReason: "SomethingNew"}, {}} {
 		f2, k2, now2 := cachedFusion(t)
 		f2.StatusTTL = -1
 		k2.pods["continuum-fusion-loki-0"] = pod
@@ -661,7 +662,7 @@ func TestDiscoveringTheAddressNeverGetsInTheWay(t *testing.T) {
 	}
 
 	// An older Role that cannot read the Service, or one that is not there: no address and no complaint.
-	for name, kerr := range map[string]error{"forbidden": ErrKubeForbidden, "missing": ErrKubeNotFound} {
+	for name, kerr := range map[string]error{"forbidden": kernel.ErrKubeForbidden, "missing": kernel.ErrKubeNotFound} {
 		b, f, k, _ := enabledCentral(t)
 		k.svcErr = kerr
 		if addr, err := f.DiscoverAddress(ctx, b.a.C); addr != "" || err != nil {

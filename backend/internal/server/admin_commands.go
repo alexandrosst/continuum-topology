@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"continuum/internal/install"
+	"continuum/internal/kernel"
 )
 
 // agentUpgradeRequest is what the page asks for a command from: where the agent's release lives, the access ceiling to set, and the
@@ -45,7 +46,7 @@ func (a *Admin) agentUpgradeCommand(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Tier != nil && !GrantableTier(*req.Tier) {
-		a.fail(w, Errf(KindInvalid, "the access tier must be between 0 and %d", ImplementedTier))
+		a.fail(w, kernel.Errf(kernel.KindInvalid, "the access tier must be between 0 and %d", kernel.ImplementedTier))
 		return
 	}
 	img := a.images(a.core(r))
@@ -95,11 +96,11 @@ func installChoices(tier int, c install.Collectors, s install.Scope) ([]install.
 		tier int
 	}{{c.NodeProbe, "the node probe", 1}, {c.FlowObserver, "the traffic observer", 2}, {c.Measurements, "path measurements", 2}} {
 		if need.on && tier < need.tier {
-			return nil, Errf(KindInvalid, "%s needs access tier %d or higher", need.name, need.tier)
+			return nil, kernel.Errf(kernel.KindInvalid, "%s needs access tier %d or higher", need.name, need.tier)
 		}
 	}
 	if p := s.Problems(); len(p) > 0 {
-		return nil, Errf(KindInvalid, "%s", p[0])
+		return nil, kernel.Errf(kernel.KindInvalid, "%s", p[0])
 	}
 	return append(c.Values(), s.Values()...), nil
 }

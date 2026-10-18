@@ -18,7 +18,7 @@ const autoPassphraseFile = "ca.passphrase"
 // LoadOrCreateWith is given) when the operator wants encryption at rest but has not supplied their own
 // passphrase with --ca-key-passphrase-file. On first call it mints 32 random bytes from crypto/rand and
 // encodes them URL-safe base64, unpadded - the exact generator and encoding every other secret this
-// codebase hands out already uses (see server.newSecret) - rather than lean on a template engine's
+// codebase hands out already uses (see kernel.NewSecret) - rather than lean on a template engine's
 // randomness, which carries no such guarantee. The result is written next to ca.crt/ca.key, mode 0600,
 // so a restart opens the same encrypted key instead of minting a fresh passphrase that cannot read it;
 // a later call simply reads that file back.

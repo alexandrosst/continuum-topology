@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"continuum/internal/fusionapi"
+	"continuum/internal/kernel"
 )
 
 // The data API, described once. Every route, and every parameter it takes, is an entry here; the router is built from
@@ -78,7 +79,7 @@ func (op fusionOp) checkQuery(q url.Values) error {
 	}
 	for k := range q {
 		if !allowed[k] {
-			return &fusionapi.Error{Status: http.StatusBadRequest, Msg: fmt.Sprintf("this route does not take %q; it takes %s", Printable(k, 40), takes(op))}
+			return &fusionapi.Error{Status: http.StatusBadRequest, Msg: fmt.Sprintf("this route does not take %q; it takes %s", kernel.Printable(k, 40), takes(op))}
 		}
 	}
 	if v := q.Get("category"); v != "" {

@@ -7,6 +7,7 @@ import (
 
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/interpret"
+	"continuum/internal/kernel"
 	"continuum/internal/measure"
 	"continuum/internal/model"
 	"continuum/internal/store"
@@ -385,7 +386,7 @@ func (h *Hub) pushOne(id string) {
 	}
 }
 
-func (h *Hub) settingsChanged(Settings) {
+func (h *Hub) settingsChanged(kernel.Settings) {
 	go func() {
 		h.syncLinkCredentials() // make what new pairs need and drop what is no longer needed, before the Configs are built
 		h.pushConfigs()

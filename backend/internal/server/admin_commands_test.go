@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"continuum/internal/install"
+	"continuum/internal/kernel"
 )
 
 const (
@@ -92,7 +93,7 @@ func TestAgentUpgradeCommandRefusesWhatCannotBeTrue(t *testing.T) {
 	_, cookie := a.user(t, "ed", RoleEditor)
 	for name, body := range map[string]any{
 		"a tier below the lowest":  map[string]any{"tier": -1},
-		"a tier above the highest": map[string]any{"tier": ImplementedTier + 1},
+		"a tier above the highest": map[string]any{"tier": kernel.ImplementedTier + 1},
 		"a field nobody knows":     map[string]any{"tier": 1, "nope": true},
 		"telemetry that is a list": map[string]any{"telemetry": []int{1}},
 		"not an object":            []byte(`"helm"`),

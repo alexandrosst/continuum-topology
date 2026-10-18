@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"continuum/internal/fusionapi"
+	"continuum/internal/kernel"
 )
 
 func (k *fakeKube) Settings(_ context.Context, name string) (map[string]string, error) {
@@ -20,7 +21,7 @@ func (k *fakeKube) Settings(_ context.Context, name string) (map[string]string, 
 		return nil, k.settingsErr
 	}
 	if k.settings == nil || name != "continuum-fusion-settings" {
-		return nil, ErrKubeNotFound
+		return nil, kernel.ErrKubeNotFound
 	}
 	out := map[string]string{}
 	for key, v := range k.settings {
@@ -42,12 +43,12 @@ func (k *fakeKube) PatchSettings(_ context.Context, name string, data map[string
 	return nil
 }
 
-func (k *fakeKube) Claim(_ context.Context, name string) (KubeClaim, error) {
+func (k *fakeKube) Claim(_ context.Context, name string) (kernel.KubeClaim, error) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	c, ok := k.rclaims[name]
 	if !ok {
-		return KubeClaim{}, ErrKubeNotFound
+		return kernel.KubeClaim{}, kernel.ErrKubeNotFound
 	}
 	return c, nil
 }
@@ -70,8 +71,8 @@ func (k *fakeKube) CheckResize(_ context.Context, name string, bytes int64) erro
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	k.checks = append(k.checks, name)
-	if errors.Is(k.resizeErr, ErrKubeNoResize) && (k.resizeErrOn == "" || k.resizeErrOn == name) {
-		return ErrKubeNoResize
+	if errors.Is(k.resizeErr, kernel.ErrKubeNoResize) && (k.resizeErrOn == "" || k.resizeErrOn == name) {
+		return kernel.ErrKubeNoResize
 	}
 	return nil
 }
@@ -97,9 +98,9 @@ func retentionRig(t *testing.T) (*FusionControl, *fakeKube, *adminRig) {
 	created := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
 	f.Now = func() time.Time { return time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC) }
 	k.settings = map[string]string{"prometheus.retention": "15d", "prometheus.retentionSize": "8704MB", "loki.retention": "168h", "tempo.retention": "72h"}
-	k.rclaims = map[string]KubeClaim{}
+	k.rclaims = map[string]kernel.KubeClaim{}
 	for _, n := range []string{"prometheus", "loki", "tempo"} {
-		k.rclaims["data-continuum-fusion-"+n+"-0"] = KubeClaim{Phase: "Bound", StorageClass: "fast", Requested: 10 * gib, Capacity: 10 * gib, Created: created}
+		k.rclaims["data-continuum-fusion-"+n+"-0"] = kernel.KubeClaim{Phase: "Bound", StorageClass: "fast", Requested: 10 * gib, Capacity: 10 * gib, Created: created}
 	}
 	for n := range k.replicas {
 		k.replicas[n] = 1
@@ -147,7 +148,7 @@ func TestRetentionSaysWhyItIsUnavailable(t *testing.T) {
 		t.Errorf("no settings object: %+v", d)
 	}
 	k.settings = map[string]string{}
-	k.settingsErr = ErrKubeForbidden
+	k.settingsErr = kernel.ErrKubeForbidden
 	if d := f.Retention(ctx, a.a.C.ForOrg("org-1")); d.Available || d.Reason != "forbidden" {
 		t.Errorf("Role without the grant: %+v", d)
 	}
@@ -218,7 +219,7 @@ func TestSetRetentionKeepsASizeLimitSomeoneChose(t *testing.T) {
 
 func TestSetRetentionLeavesTheSettingsAloneWhenTheVolumeCannotGrow(t *testing.T) {
 	f, k, a := retentionRig(t)
-	k.resizeErr = ErrKubeNoResize
+	k.resizeErr = kernel.ErrKubeNoResize
 	_, err := f.SetRetention(context.Background(), a.a.C.ForOrg("org-1"), "alex", RetentionRequest{Logs: &RetentionChange{Days: intp(30), VolumeGiB: intp(50)}})
 	if err == nil || !strings.Contains(err.Error(), "allowVolumeExpansion") || !strings.Contains(err.Error(), "fast") {
 		t.Fatalf("err = %v", err)
@@ -423,9 +424,9 @@ func TestFusionRetentionOverHTTP(t *testing.T) {
 	f, k := newFusion(t, a)
 	a.a.Fusion = f
 	k.settings = map[string]string{"prometheus.retention": "15d", "loki.retention": "168h", "tempo.retention": "72h"}
-	k.rclaims = map[string]KubeClaim{}
+	k.rclaims = map[string]kernel.KubeClaim{}
 	for _, n := range []string{"prometheus", "loki", "tempo"} {
-		k.rclaims["data-continuum-fusion-"+n+"-0"] = KubeClaim{Requested: 10 * gib, Capacity: 10 * gib}
+		k.rclaims["data-continuum-fusion-"+n+"-0"] = kernel.KubeClaim{Requested: 10 * gib, Capacity: 10 * gib}
 	}
 	r := a.do("GET", "/api/v1/fusion/retention", nil, withCookie(admin))
 	if doc := r.json(t); r.Code != 200 || doc["available"] != true || len(doc["stores"].([]any)) != 3 {
@@ -452,7 +453,7 @@ func TestFusionRetentionOverHTTP(t *testing.T) {
 func TestRetentionSaysBeforehandWhichVolumesCanGrow(t *testing.T) {
 	f, k, a := retentionRig(t)
 	ctx := context.Background()
-	k.resizeErr, k.resizeErrOn = ErrKubeNoResize, "data-continuum-fusion-loki-0"
+	k.resizeErr, k.resizeErrOn = kernel.ErrKubeNoResize, "data-continuum-fusion-loki-0"
 	c := k.rclaims["data-continuum-fusion-loki-0"]
 	c.Provisioner = "rancher.io/local-path"
 	k.rclaims["data-continuum-fusion-loki-0"] = c
@@ -478,7 +479,7 @@ func TestRetentionSaysBeforehandWhichVolumesCanGrow(t *testing.T) {
 
 func TestSetRetentionGrowsNothingIfAnyOfTheVolumesCannot(t *testing.T) {
 	f, k, a := retentionRig(t)
-	k.resizeErr, k.resizeErrOn = ErrKubeNoResize, "data-continuum-fusion-loki-0"
+	k.resizeErr, k.resizeErrOn = kernel.ErrKubeNoResize, "data-continuum-fusion-loki-0"
 	_, err := f.SetRetention(context.Background(), a.a.C.ForOrg("org-1"), "alex", RetentionRequest{
 		Metrics: &RetentionChange{VolumeGiB: intp(20)}, Logs: &RetentionChange{VolumeGiB: intp(20), Days: intp(30)}})
 	if err == nil || !strings.Contains(err.Error(), "Loki's volume cannot be grown") || !strings.Contains(err.Error(), "Nothing was changed") {

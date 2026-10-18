@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"continuum/internal/fusionapi"
+	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
 
@@ -69,15 +70,15 @@ func cleanScopeList(what string, in []string, re *regexp.Regexp) ([]string, erro
 			continue
 		}
 		if !re.MatchString(v) {
-			return nil, Errf(KindInvalid, "%q is not a valid %s", Printable(v, 40), what)
+			return nil, kernel.Errf(kernel.KindInvalid, "%q is not a valid %s", kernel.Printable(v, 40), what)
 		}
 		out = append(out, v)
 	}
 	if len(in) > 0 && len(out) == 0 {
-		return nil, Errf(KindInvalid, "name at least one %s, or leave the list out to allow every one", what)
+		return nil, kernel.Errf(kernel.KindInvalid, "name at least one %s, or leave the list out to allow every one", what)
 	}
 	if len(out) > maxScopeEntries {
-		return nil, Errf(KindInvalid, "a token can name at most %d %ss", maxScopeEntries, what)
+		return nil, kernel.Errf(kernel.KindInvalid, "a token can name at most %d %ss", maxScopeEntries, what)
 	}
 	return out, nil
 }
@@ -85,12 +86,12 @@ func cleanScopeList(what string, in []string, re *regexp.Regexp) ([]string, erro
 // CreateFusionToken mints a FUSION access token. The secret is returned once and never stored.
 func (c *Core) CreateFusionToken(ctx context.Context, actor string, spec FusionTokenSpec) (string, store.FusionToken, error) {
 	name := strings.TrimSpace(spec.Name)
-	if name == "" || len(name) > maxFusionTokenName || Printable(name, maxFusionTokenName+1) != name {
-		return "", store.FusionToken{}, Errf(KindInvalid, "give the token a name of up to %d characters", maxFusionTokenName)
+	if name == "" || len(name) > maxFusionTokenName || kernel.Printable(name, maxFusionTokenName+1) != name {
+		return "", store.FusionToken{}, kernel.Errf(kernel.KindInvalid, "give the token a name of up to %d characters", maxFusionTokenName)
 	}
 	signals, err := fusionapi.NormalizeSignals(spec.Signals)
 	if err != nil {
-		return "", store.FusionToken{}, Errf(KindInvalid, "%v", err)
+		return "", store.FusionToken{}, kernel.Errf(kernel.KindInvalid, "%v", err)
 	}
 	namespaces, err := cleanScopeList("namespace", spec.Namespaces, namespaceRe)
 	if err != nil {
@@ -105,7 +106,7 @@ func (c *Core) CreateFusionToken(ctx context.Context, actor string, spec FusionT
 		ttl = defaultFusionTokenTTL
 	}
 	if ttl < minFusionTokenTTL || ttl > maxFusionTokenTTL {
-		return "", store.FusionToken{}, Errf(KindInvalid, "a token lasts between an hour and %d days", int(maxFusionTokenTTL.Hours()/24))
+		return "", store.FusionToken{}, kernel.Errf(kernel.KindInvalid, "a token lasts between an hour and %d days", int(maxFusionTokenTTL.Hours()/24))
 	}
 	now := c.Now()
 	_ = c.Store.PurgeFusionTokens(ctx, now) // a lapsed token is of no use to anyone and should not count against the cap
@@ -114,16 +115,16 @@ func (c *Core) CreateFusionToken(ctx context.Context, actor string, spec FusionT
 		return "", store.FusionToken{}, err
 	}
 	if len(existing) >= maxFusionTokens {
-		return "", store.FusionToken{}, Errf(KindConflict, "there are already %d tokens; revoke one you no longer use first", maxFusionTokens)
+		return "", store.FusionToken{}, kernel.Errf(kernel.KindConflict, "there are already %d tokens; revoke one you no longer use first", maxFusionTokens)
 	}
-	secret, err := NewFusionTokenSecret()
+	secret, err := kernel.NewFusionTokenSecret()
 	if err != nil {
-		return "", store.FusionToken{}, Errf(KindInternal, "could not generate a token")
+		return "", store.FusionToken{}, kernel.Errf(kernel.KindInternal, "could not generate a token")
 	}
-	tok := store.FusionToken{ID: NewFusionTokenID(), OrgID: c.OrgID, Name: name, Signals: signals, Namespaces: namespaces, Clusters: clusters,
+	tok := store.FusionToken{ID: kernel.NewFusionTokenID(), OrgID: c.OrgID, Name: name, Signals: signals, Namespaces: namespaces, Clusters: clusters,
 		CreatedBy: actor, CreatedAt: now, ExpiresAt: now.Add(ttl)}
 	detail := fmt.Sprintf("%s: reads %s; namespaces %s; clusters %s; expires %s", name, strings.Join(signals, ", "), scopeWords(namespaces), scopeWords(clusters), tok.ExpiresAt.Format("2006-01-02"))
-	if err := c.AuditedWrite(c.Store.CreateFusionToken(ctx, tok, HashSecret(secret),
+	if err := c.AuditedWrite(c.Store.CreateFusionToken(ctx, tok, kernel.HashSecret(secret),
 		store.WithAudit(c.AuditRow(c.OrgID, actor, "fusion-token-created", "fusion-token", tok.ID, detail))), "fusion-token-created"); err != nil {
 		return "", store.FusionToken{}, err
 	}
@@ -156,7 +157,7 @@ func (c *Core) DeleteFusionToken(ctx context.Context, actor, id string) error {
 		}
 	}
 	if !found {
-		return Errf(KindNotFound, "no such token")
+		return kernel.Errf(kernel.KindNotFound, "no such token")
 	}
 	return c.AuditedWrite(c.Store.DeleteFusionToken(ctx, c.OrgID, id,
 		store.WithAudit(c.AuditRow(c.OrgID, actor, "fusion-token-revoked", "fusion-token", id, name))), "fusion-token-revoked")
@@ -164,11 +165,11 @@ func (c *Core) DeleteFusionToken(ctx context.Context, actor, id string) error {
 
 // AuthenticateFusionToken resolves a presented secret. A malformed, unknown or expired one is the same refusal.
 func (c *Core) AuthenticateFusionToken(ctx context.Context, secret string) (store.FusionToken, error) {
-	deny := Errf(KindUnauthenticated, "sign in required")
-	if !LooksLikeFusionToken(secret) {
+	deny := kernel.Errf(kernel.KindUnauthenticated, "sign in required")
+	if !kernel.LooksLikeFusionToken(secret) {
 		return store.FusionToken{}, deny
 	}
-	h := HashSecret(secret)
+	h := kernel.HashSecret(secret)
 	tok, err := c.Store.LookupFusionToken(ctx, h)
 	if err != nil {
 		return store.FusionToken{}, deny
@@ -225,11 +226,11 @@ func (a *Admin) fusionOrg() string {
 // fusionOrgOnly refuses a token request from any organisation but the one FUSION belongs to.
 func (a *Admin) fusionOrgOnly(w http.ResponseWriter, r *http.Request) bool {
 	if a.Fusion == nil {
-		a.fail(w, Errf(KindConflict, "%s", a.Fusion.Status(r.Context()).Message))
+		a.fail(w, kernel.Errf(kernel.KindConflict, "%s", a.Fusion.Status(r.Context()).Message))
 		return false
 	}
 	if a.core(r).OrgID != a.fusionOrg() {
-		a.fail(w, Errf(KindForbidden, "FUSION belongs to this server's main organisation, which is the only one that can give out access to it"))
+		a.fail(w, kernel.Errf(kernel.KindForbidden, "FUSION belongs to this server's main organisation, which is the only one that can give out access to it"))
 		return false
 	}
 	return true
@@ -268,7 +269,7 @@ func (a *Admin) createFusionToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.ExpiresInDays < 0 || req.ExpiresInDays > 3650 {
-		a.fail(w, Errf(KindInvalid, "expiresInDays must be between 1 and %d", int(maxFusionTokenTTL.Hours()/24)))
+		a.fail(w, kernel.Errf(kernel.KindInvalid, "expiresInDays must be between 1 and %d", int(maxFusionTokenTTL.Hours()/24)))
 		return
 	}
 	secret, tok, err := a.core(r).CreateFusionToken(r.Context(), actor(r), FusionTokenSpec{
@@ -316,14 +317,14 @@ func (a *Admin) fusionData(h fusionHandler) http.Handler {
 		}
 		who, err := a.fusionCaller(r)
 		if err != nil {
-			var e *Error
-			if errors.As(err, &e) && e.Kind == KindForbidden {
+			var e *kernel.Error
+			if errors.As(err, &e) && e.Kind == kernel.KindForbidden {
 				writeErr(w, http.StatusForbidden, e.Msg)
 				return
 			}
-			Metrics.AuthFailures.Add(1)
+			kernel.Metrics.AuthFailures.Add(1)
 			// Failed authentications are throttled per address, the same as the rest of the API.
-			if !a.authRL.Allow(LimitKey(a.clientIP(r))) {
+			if !a.authRL.Allow(kernel.LimitKey(a.clientIP(r))) {
 				writeErr(w, http.StatusTooManyRequests, "too many failed attempts, wait a minute")
 				return
 			}
@@ -345,13 +346,13 @@ func (a *Admin) fusionData(h fusionHandler) http.Handler {
 // fusionCaller works out who is asking: a FUSION token, or a signed-in administrator of the FUSION organisation.
 func (a *Admin) fusionCaller(r *http.Request) (fusionCaller, error) {
 	ctx := r.Context()
-	deny := Errf(KindUnauthenticated, "sign in required")
+	deny := kernel.Errf(kernel.KindUnauthenticated, "sign in required")
 	var p Principal
 	var err error
 	// A credential given on purpose beats one the browser sends along: someone trying a token on the docs page, signed in as
 	// an administrator, must be reading with the token's rights and not the administrator's.
 	if secret, ok := bearerToken(r); ok {
-		if LooksLikeFusionToken(secret) {
+		if kernel.LooksLikeFusionToken(secret) {
 			tok, err := a.C.AuthenticateFusionToken(ctx, secret)
 			if err != nil || tok.OrgID != a.fusionOrg() {
 				return fusionCaller{}, deny
@@ -370,13 +371,13 @@ func (a *Admin) fusionCaller(r *http.Request) (fusionCaller, error) {
 		return fusionCaller{}, deny
 	}
 	if p.User.MustChange {
-		return fusionCaller{}, Errf(KindForbidden, "you must choose a new password before doing anything else")
+		return fusionCaller{}, kernel.Errf(kernel.KindForbidden, "you must choose a new password before doing anything else")
 	}
 	if p, err = a.C.Member(ctx, p, a.fusionOrg()); err != nil {
 		return fusionCaller{}, deny
 	}
 	if !Allows(p, ActAdminister) {
-		return fusionCaller{}, Errf(KindForbidden, "reading FUSION's data takes an administrator of the organisation, or a FUSION access token")
+		return fusionCaller{}, kernel.Errf(kernel.KindForbidden, "reading FUSION's data takes an administrator of the organisation, or a FUSION access token")
 	}
 	return fusionCaller{Kind: "user", ID: p.User.ID, Name: p.User.Username, Scope: fusionapi.AllSignals()}, nil
 }
@@ -944,7 +945,7 @@ func (a *Admin) fusionTraceBatch(w http.ResponseWriter, r *http.Request, c *fusi
 	q := r.URL.Query() // options given in the query string are defaults the body overrides
 	for k, v := range body {
 		if k != "ids" && k != "stream" && !slices.Contains(fusionapi.FuseParamNames, k) {
-			a.fusionErr(w, r, &fusionapi.Error{Status: http.StatusBadRequest, Msg: fmt.Sprintf("unknown field %q", Printable(k, 40))})
+			a.fusionErr(w, r, &fusionapi.Error{Status: http.StatusBadRequest, Msg: fmt.Sprintf("unknown field %q", kernel.Printable(k, 40))})
 			return
 		}
 		if k == "fused" {

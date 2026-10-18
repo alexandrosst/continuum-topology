@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"continuum/internal/chart"
+	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
 
@@ -19,7 +20,7 @@ func testAdmin(t *testing.T) *Admin {
 	return &Admin{P: NewPlatform(e.base, nil), C: e.base, AgentAddr: "srv.example.com:8443"}
 }
 
-func cmdFor(a *Admin, img ImageConfig) string {
+func cmdFor(a *Admin, img kernel.ImageConfig) string {
 	cmd, err := a.installCommand(img, "cnt_1", store.Token{AccessTier: 2})
 	if err != nil {
 		panic(err)
@@ -30,7 +31,7 @@ func cmdFor(a *Admin, img ImageConfig) string {
 // The install command must never point at a directory that exists only in a source checkout.
 func TestInstallCommandNamesAChartTheOperatorCanGet(t *testing.T) {
 	a := testAdmin(t)
-	cmd := cmdFor(a, ImageConfig{})
+	cmd := cmdFor(a, kernel.ImageConfig{})
 	if strings.Contains(cmd, "deploy/helm") || !strings.Contains(cmd, "./"+chart.Filename()) {
 		t.Fatalf("default command should use the downloadable chart file:\n%s", cmd)
 	}
@@ -46,7 +47,7 @@ func TestInstallCommandNamesAChartTheOperatorCanGet(t *testing.T) {
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("only the chart is served, got %d", rr.Code)
 	}
-	if a.chartFile() != chart.Filename() || a.chartRef(ImageConfig{}) != "" {
+	if a.chartFile() != chart.Filename() || a.chartRef(kernel.ImageConfig{}) != "" {
 		t.Fatalf("the wizard is told to offer %q", a.chartFile())
 	}
 }
@@ -57,13 +58,13 @@ func TestInstallCommandForTheFourImageSettings(t *testing.T) {
 	ver := " --version " + chart.Version() + " "
 
 	// 1. Nothing set: no image values at all (the chart's own names apply), and the chart is the served file.
-	cmd := cmdFor(a, ImageConfig{})
+	cmd := cmdFor(a, kernel.ImageConfig{})
 	if strings.Contains(cmd, "image.") || strings.Contains(cmd, "oci://") || strings.Contains(cmd, "--version") || strings.Contains(cmd, "alexandrosst") {
 		t.Fatalf("nothing configured must print no image settings and no registry:\n%s", cmd)
 	}
 
 	// 2. Registry only: one image, the chart from the same registry, no tag and no digest.
-	cmd = cmdFor(a, ImageConfig{Registry: "myteam"})
+	cmd = cmdFor(a, kernel.ImageConfig{Registry: "myteam"})
 	for _, want := range []string{"helm install continuum-agent oci://registry-1.docker.io/myteam/continuum-agent" + ver + "\\\n", "--set image.repository=myteam/continuum", "--set enrollment.key=" + a.C.CA.SPKIPin() + ".cnt_1"} {
 		if !strings.Contains(cmd, want) {
 			t.Fatalf("missing %q in:\n%s", want, cmd)
@@ -76,7 +77,7 @@ func TestInstallCommandForTheFourImageSettings(t *testing.T) {
 	}
 
 	// 3. Registry and tag.
-	cmd = cmdFor(a, ImageConfig{Registry: "ghcr.io/me/x", Tag: "1.2.3"})
+	cmd = cmdFor(a, kernel.ImageConfig{Registry: "ghcr.io/me/x", Tag: "1.2.3"})
 	for _, want := range []string{"oci://ghcr.io/me/x/continuum-agent" + ver, "--set image.repository=ghcr.io/me/x/continuum", "--set image.tag=1.2.3"} {
 		if !strings.Contains(cmd, want) {
 			t.Fatalf("missing %q in:\n%s", want, cmd)
@@ -87,13 +88,13 @@ func TestInstallCommandForTheFourImageSettings(t *testing.T) {
 	}
 
 	// 4. Registry, tag and digest: the digest is printed too (the chart then pins by it).
-	cmd = cmdFor(a, ImageConfig{Registry: "reg.example.com:8443/team", Tag: "1.2.3", Digest: goodDigest})
+	cmd = cmdFor(a, kernel.ImageConfig{Registry: "reg.example.com:8443/team", Tag: "1.2.3", Digest: goodDigest})
 	for _, want := range []string{"--set image.repository=reg.example.com:8443/team/continuum", "--set image.tag=1.2.3", "--set image.digest=" + goodDigest} {
 		if !strings.Contains(cmd, want) {
 			t.Fatalf("missing %q in:\n%s", want, cmd)
 		}
 	}
-	cmd = cmdFor(a, ImageConfig{Registry: "myteam", Digest: goodDigest})
+	cmd = cmdFor(a, kernel.ImageConfig{Registry: "myteam", Digest: goodDigest})
 	if strings.Contains(cmd, "image.tag") || !strings.Contains(cmd, "image.digest="+goodDigest) {
 		t.Fatalf("digest without a tag:\n%s", cmd)
 	}
@@ -107,7 +108,7 @@ func TestInstallCommandForTheFourImageSettings(t *testing.T) {
 // server.caPin / enrollment.token flags the chart also still accepts on its own.
 func TestInstallCommandBundlesTheCAPinAndToken(t *testing.T) {
 	a := testAdmin(t)
-	cmd := cmdFor(a, ImageConfig{})
+	cmd := cmdFor(a, kernel.ImageConfig{})
 	want := "--set enrollment.key=" + a.C.CA.SPKIPin() + ".cnt_1"
 	if !strings.Contains(cmd, want) {
 		t.Fatalf("missing %q in:\n%s", want, cmd)
@@ -131,7 +132,7 @@ func TestInstallCommandBundlesTheCAPinAndToken(t *testing.T) {
 // value) still falls back to chart.Version(), same as before this existed.
 func TestInstallCommandUsesThePublishedChartVersionWhenKnown(t *testing.T) {
 	a := testAdmin(t)
-	img := ImageConfig{Registry: "myteam"}
+	img := kernel.ImageConfig{Registry: "myteam"}
 
 	// Unset: falls back to chart.Version(), unchanged from before.
 	if cmd := cmdFor(a, img); !strings.Contains(cmd, " --version "+chart.Version()+" ") {
@@ -166,7 +167,7 @@ func TestInstallCommandUsesThePublishedChartVersionWhenKnown(t *testing.T) {
 // An explicit --chart-ref wins over the registry's own chart, and "local" forces the served file.
 func TestExplicitChartRef(t *testing.T) {
 	a := testAdmin(t)
-	img := ImageConfig{Registry: "reg.example.com/team/", Tag: "1.2.3"}
+	img := kernel.ImageConfig{Registry: "reg.example.com/team/", Tag: "1.2.3"}
 	img, _ = img.Normalize()
 	a.ChartRef = "oci://reg.example.com/charts/continuum-agent"
 	cmd := cmdFor(a, img)
@@ -197,44 +198,44 @@ func TestOCIBase(t *testing.T) {
 func TestImageValidation(t *testing.T) {
 	good := []string{"myteam", "docker.io/myteam", "ghcr.io/me/x", "reg.example.com:8443/team", "localhost:5000", "localhost:5000/a/b-c/d_e/f.g", "10.0.0.5:5000/team", "reg.example.com/team/"}
 	for _, g := range good {
-		if _, err := CheckImageRegistry(g); err != nil {
+		if _, err := kernel.CheckImageRegistry(g); err != nil {
 			t.Errorf("registry %q should be valid: %v", g, err)
 		}
 	}
 	bad := []string{"https://reg.example.com/x", "Reg.Example.com/x", "reg example.com", "reg.example.com/x y", "reg.example.com/x@sha256:abc", "reg.example.com/x?y=1", "reg.example.com/x#f", "reg.example.com//x", "/x", "reg.example.com:99999999/x", "reg.example.com/-x", "reg.example.com/x,y", "reg.example.com/x;rm -rf", "reg.example.com/$(id)", "-reg.example.com", "reg.example.com/x'y", strings.Repeat("a", 256)}
 	for _, b := range bad {
-		if _, err := CheckImageRegistry(b); err == nil {
+		if _, err := kernel.CheckImageRegistry(b); err == nil {
 			t.Errorf("registry %q should be rejected", b)
 		}
 	}
-	if v, _ := CheckImageRegistry("  reg.example.com/team//  "); v != "reg.example.com/team" {
+	if v, _ := kernel.CheckImageRegistry("  reg.example.com/team//  "); v != "reg.example.com/team" {
 		t.Errorf("registry is trimmed, got %q", v)
 	}
 	for _, g := range []string{"1.2.3", "latest", "v1_2-3.rc1", "_x", strings.Repeat("a", 128)} {
-		if _, err := CheckImageTag(g); err != nil {
+		if _, err := kernel.CheckImageTag(g); err != nil {
 			t.Errorf("tag %q should be valid: %v", g, err)
 		}
 	}
 	for _, b := range []string{"-1", ".1", "a b", "a:b", "a@b", "a/b", "a,b", strings.Repeat("a", 129), "é"} {
-		if _, err := CheckImageTag(b); err == nil {
+		if _, err := kernel.CheckImageTag(b); err == nil {
 			t.Errorf("tag %q should be rejected", b)
 		}
 	}
-	if _, err := CheckImageDigest(goodDigest); err != nil {
+	if _, err := kernel.CheckImageDigest(goodDigest); err != nil {
 		t.Errorf("digest: %v", err)
 	}
 	for _, b := range []string{"sha256:abc", "sha512:" + strings.Repeat("a", 64), strings.Repeat("a", 64), "sha256:" + strings.Repeat("A", 64), "sha256:" + strings.Repeat("g", 64), goodDigest + "0"} {
-		if _, err := CheckImageDigest(b); err == nil {
+		if _, err := kernel.CheckImageDigest(b); err == nil {
 			t.Errorf("digest %q should be rejected", b)
 		}
 	}
 	// A tag or digest names something inside a registry.
-	for _, c := range []ImageConfig{{Tag: "1.0"}, {Digest: goodDigest}} {
+	for _, c := range []kernel.ImageConfig{{Tag: "1.0"}, {Digest: goodDigest}} {
 		if _, err := c.Normalize(); err == nil || !strings.Contains(err.Error(), "registry") {
 			t.Errorf("%+v needs a registry, got %v", c, err)
 		}
 	}
-	if _, err := (Settings{ImageRegistry: "https://x"}).Normalize(); err == nil {
+	if _, err := (kernel.Settings{ImageRegistry: "https://x"}).Normalize(); err == nil {
 		t.Error("settings must validate the registry")
 	}
 }
@@ -277,7 +278,7 @@ func TestImagePrecedenceAndTheEndpoints(t *testing.T) {
 	}
 
 	// The organisation's setting wins, as a whole: the flag's tag is not mixed in.
-	put := a.do("PUT", "/api/v1/settings", Settings{ImageRegistry: "uireg/x", ImageDigest: goodDigest}, withCookie(admin))
+	put := a.do("PUT", "/api/v1/settings", kernel.Settings{ImageRegistry: "uireg/x", ImageDigest: goodDigest}, withCookie(admin))
 	if put.Code != 200 || put.json(t)["imageRegistry"] != "uireg/x" {
 		t.Fatalf("put: %d %s", put.Code, put.Body.String())
 	}
@@ -290,7 +291,7 @@ func TestImagePrecedenceAndTheEndpoints(t *testing.T) {
 	}
 
 	// Clearing it falls back to the flags.
-	if r := a.do("PUT", "/api/v1/settings", Settings{}, withCookie(admin)); r.Code != 200 {
+	if r := a.do("PUT", "/api/v1/settings", kernel.Settings{}, withCookie(admin)); r.Code != 200 {
 		t.Fatalf("clear: %d %s", r.Code, r.Body.String())
 	}
 	if c := install(); !strings.Contains(c, "flagreg/team/continuum") || strings.Contains(c, "uireg") {
@@ -298,13 +299,13 @@ func TestImagePrecedenceAndTheEndpoints(t *testing.T) {
 	}
 
 	// Server-side validation: a bad value is a 400 with words, nothing is stored, and only admins may write.
-	for _, s := range []Settings{{ImageRegistry: "https://x.io/y"}, {ImageRegistry: "X.io"}, {ImageRegistry: "x.io", ImageTag: "a b"}, {ImageRegistry: "x.io", ImageDigest: "sha256:zz"}, {ImageTag: "1.0"}} {
+	for _, s := range []kernel.Settings{{ImageRegistry: "https://x.io/y"}, {ImageRegistry: "X.io"}, {ImageRegistry: "x.io", ImageTag: "a b"}, {ImageRegistry: "x.io", ImageDigest: "sha256:zz"}, {ImageTag: "1.0"}} {
 		r := a.do("PUT", "/api/v1/settings", s, withCookie(admin))
 		if r.Code != 400 || r.json(t)["error"] == "" {
 			t.Fatalf("%+v: %d %s", s, r.Code, r.Body.String())
 		}
 	}
-	if r := a.do("PUT", "/api/v1/settings", Settings{ImageRegistry: "evil.io/x"}, withCookie(viewer)); r.Code != 403 {
+	if r := a.do("PUT", "/api/v1/settings", kernel.Settings{ImageRegistry: "evil.io/x"}, withCookie(viewer)); r.Code != 403 {
 		t.Fatalf("a viewer changed the registry: %d", r.Code)
 	}
 	tn, err := a.a.P.Tenant(a.ctx, "org-1")
@@ -320,7 +321,7 @@ func TestImagePrecedenceAndTheEndpoints(t *testing.T) {
 func TestImageSettingIsPerOrganisation(t *testing.T) {
 	e := newEnv(t)
 	a := &Admin{P: NewPlatform(e.base, nil), C: e.base, AgentAddr: "x:1", ImageRegistry: "flagreg"}
-	if _, err := e.core.SaveSettings(e.ctx, "alex", Settings{ImageRegistry: "org1reg"}); err != nil {
+	if _, err := e.core.SaveSettings(e.ctx, "alex", kernel.Settings{ImageRegistry: "org1reg"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := a.images(e.core); got.Registry != "org1reg" {
@@ -336,10 +337,10 @@ func TestImageSettingIsPerOrganisation(t *testing.T) {
 // survives a restart.
 func TestImageChangesAreAuditedAndPersist(t *testing.T) {
 	e := newEnv(t)
-	if _, err := e.core.SaveSettings(e.ctx, "alex", Settings{ImageRegistry: "old.io/a", ImageTag: "1"}); err != nil {
+	if _, err := e.core.SaveSettings(e.ctx, "alex", kernel.Settings{ImageRegistry: "old.io/a", ImageTag: "1"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.core.SaveSettings(e.ctx, "alex", Settings{ImageRegistry: "new.io/b", ImageDigest: goodDigest}); err != nil {
+	if _, err := e.core.SaveSettings(e.ctx, "alex", kernel.Settings{ImageRegistry: "new.io/b", ImageDigest: goodDigest}); err != nil {
 		t.Fatal(err)
 	}
 	evs, _ := e.st.ListAudit(e.ctx, "org-1", 20)
@@ -357,7 +358,7 @@ func TestImageChangesAreAuditedAndPersist(t *testing.T) {
 	}
 	// Saving the same values again writes no new row.
 	n := len(details)
-	if _, err := e.core.SaveSettings(e.ctx, "alex", Settings{ImageRegistry: "new.io/b", ImageDigest: goodDigest}); err != nil {
+	if _, err := e.core.SaveSettings(e.ctx, "alex", kernel.Settings{ImageRegistry: "new.io/b", ImageDigest: goodDigest}); err != nil {
 		t.Fatal(err)
 	}
 	evs, _ = e.st.ListAudit(e.ctx, "org-1", 20)
@@ -405,7 +406,7 @@ func TestInfoReportsThePublishedChartVersion(t *testing.T) {
 // file this server serves.
 func TestOperatorChartRefIsDerivedFromTheAgentChartRef(t *testing.T) {
 	a := testAdmin(t)
-	img := ImageConfig{Registry: "reg.example.com/team/", Tag: "1.2.3"}
+	img := kernel.ImageConfig{Registry: "reg.example.com/team/", Tag: "1.2.3"}
 	img, _ = img.Normalize()
 	local := "./" + chart.RegionalOperator.Filename()
 	for _, c := range []struct {
@@ -437,7 +438,7 @@ func TestOperatorChartRefIsDerivedFromTheAgentChartRef(t *testing.T) {
 	}
 	// With no registry either, the served file.
 	a.ChartRef = ""
-	if ref, _ := a.operatorChart(ImageConfig{}); ref != local {
+	if ref, _ := a.operatorChart(kernel.ImageConfig{}); ref != local {
 		t.Errorf("no reference at all: %q", ref)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"continuum/internal/kernel"
 	"continuum/internal/store"
 
 	_ "modernc.org/sqlite"
@@ -23,7 +24,7 @@ func TestCorruptAcceptedModalitiesRefuseInsteadOfAcceptEverything(t *testing.T) 
 	dest := store.Destination{Kind: store.DestinationOperator, TargetOperatorID: op.ID}
 	traces := []store.SignalGrant{{ID: "traces", Source: "existing"}}
 
-	if _, err := e.core.CreateTelemetryIntent(e.ctx, "alex", agentID, "before", nil, nil, traces, dest); kindOf(err) != KindInvalid {
+	if _, err := e.core.CreateTelemetryIntent(e.ctx, "alex", agentID, "before", nil, nil, traces, dest); kindOf(err) != kernel.KindInvalid {
 		t.Fatalf("sanity: traces into a metrics-only operator should be refused, got %v", err)
 	}
 
@@ -45,7 +46,7 @@ func TestCorruptAcceptedModalitiesRefuseInsteadOfAcceptEverything(t *testing.T) 
 			t.Fatalf("corrupt %q: AcceptedModalities = %v, want [unreadable]", corrupt, got.AcceptedModalities)
 		}
 		_, err = e.core.CreateTelemetryIntent(e.ctx, "alex", agentID, "after", nil, nil, traces, dest)
-		if kindOf(err) != KindInvalid || !strings.Contains(err.Error(), "could not be read") {
+		if kindOf(err) != kernel.KindInvalid || !strings.Contains(err.Error(), "could not be read") {
 			t.Fatalf("corrupt %q: an intent must be refused with a clear reason, got %v", corrupt, err)
 		}
 	}

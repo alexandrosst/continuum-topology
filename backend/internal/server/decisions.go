@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
 
@@ -58,20 +59,20 @@ type DecisionEntry struct {
 // Deciders.tsx's run()).
 func (c *Core) RecordDecisions(ctx context.Context, actor string, entries []DecisionEntry) (int, error) {
 	if len(entries) > maxDecisionEntries {
-		return 0, Errf(KindInvalid, "too many decider results in one call")
+		return 0, kernel.Errf(kernel.KindInvalid, "too many decider results in one call")
 	}
 	now := c.Now()
-	by := Printable(actor, MaxAuditActor)
+	by := kernel.Printable(actor, kernel.MaxAuditActor)
 	var rows []store.DecisionLog
 	for _, e := range entries {
 		if e.DeciderID == "" || (e.DeciderKind != "builtin" && e.DeciderKind != "external") {
-			return 0, Errf(KindInvalid, "each entry needs a decider id and a decider kind of \"builtin\" or \"external\"")
+			return 0, kernel.Errf(kernel.KindInvalid, "each entry needs a decider id and a decider kind of \"builtin\" or \"external\"")
 		}
 		if len(e.Policy) > maxDecisionPolicyBytes {
-			return 0, Errf(KindInvalid, "a decider's policy is too large to record")
+			return 0, kernel.Errf(kernel.KindInvalid, "a decider's policy is too large to record")
 		}
 		if len(rows)+len(e.Moves) > maxDecisionMovesTotal {
-			return 0, Errf(KindInvalid, "too many proposed moves in one call")
+			return 0, kernel.Errf(kernel.KindInvalid, "too many proposed moves in one call")
 		}
 		for _, m := range e.Moves {
 			if m.ServiceID == "" || m.To == "" {
@@ -79,12 +80,12 @@ func (c *Core) RecordDecisions(ctx context.Context, actor string, entries []Deci
 			}
 			rows = append(rows, store.DecisionLog{
 				OrgID: c.OrgID, At: now, RecordedBy: by,
-				DeciderID: Printable(e.DeciderID, 128), DeciderName: Printable(e.DeciderName, 128), DeciderKind: e.DeciderKind,
+				DeciderID: kernel.Printable(e.DeciderID, 128), DeciderName: kernel.Printable(e.DeciderName, 128), DeciderKind: e.DeciderKind,
 				Schema: e.Schema, ClusterCount: e.ClusterCount, ServiceCount: e.ServiceCount, PolicyJSON: []byte(e.Policy),
-				ServiceID: Printable(m.ServiceID, MaxAuditTarget), ServiceName: Printable(m.ServiceName, MaxAuditTarget),
-				FromCluster: Printable(m.From, MaxAuditTarget), ToCluster: Printable(m.To, MaxAuditTarget),
-				Reason: Printable(m.Reason, MaxAuditDetail), Benefit: m.Benefit,
-				Confidence: Printable(m.Confidence, 32), Verdict: Printable(m.Verdict, 32),
+				ServiceID: kernel.Printable(m.ServiceID, kernel.MaxAuditTarget), ServiceName: kernel.Printable(m.ServiceName, kernel.MaxAuditTarget),
+				FromCluster: kernel.Printable(m.From, kernel.MaxAuditTarget), ToCluster: kernel.Printable(m.To, kernel.MaxAuditTarget),
+				Reason: kernel.Printable(m.Reason, kernel.MaxAuditDetail), Benefit: m.Benefit,
+				Confidence: kernel.Printable(m.Confidence, 32), Verdict: kernel.Printable(m.Verdict, 32),
 				BeforeCost: m.BeforeCost, AfterCost: m.AfterCost, MigrationCost: m.MigrationCost,
 			})
 		}

@@ -10,6 +10,7 @@ import (
 
 	"continuum/internal/chart"
 	"continuum/internal/install"
+	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
 
@@ -51,7 +52,7 @@ func (p *pinRig) admin(tweak func(*Admin)) *Admin {
 // flags writes values as the fragment of a command the server hands out.
 func (p *pinRig) flags(values []install.Value) string { return install.Flags(values) }
 
-func (p *pinRig) reminders(a *Admin, img ImageConfig, op store.Operator, b OperatorTLSBundle, targets []sourceTarget) []string {
+func (p *pinRig) reminders(a *Admin, img kernel.ImageConfig, op store.Operator, b OperatorTLSBundle, targets []sourceTarget) []string {
 	p.t.Helper()
 	out, err := a.sourceReminders(img, op, b, targets)
 	if err != nil {
@@ -112,13 +113,13 @@ var pinBundle = OperatorTLSBundle{
 func (p *pinRig) agentCommands() {
 	images := []struct {
 		name string
-		img  ImageConfig
+		img  kernel.ImageConfig
 	}{
-		{"no-registry", ImageConfig{}},
-		{"registry", ImageConfig{Registry: "registry.example.com/team"}},
-		{"registry-tag", ImageConfig{Registry: "registry.example.com/team", Tag: "1.4.0"}},
-		{"registry-digest", ImageConfig{Registry: "registry.example.com/team", Tag: "1.4.0", Digest: goodDigest}},
-		{"hub-namespace", ImageConfig{Registry: "myteam"}},
+		{"no-registry", kernel.ImageConfig{}},
+		{"registry", kernel.ImageConfig{Registry: "registry.example.com/team"}},
+		{"registry-tag", kernel.ImageConfig{Registry: "registry.example.com/team", Tag: "1.4.0"}},
+		{"registry-digest", kernel.ImageConfig{Registry: "registry.example.com/team", Tag: "1.4.0", Digest: goodDigest}},
+		{"hub-namespace", kernel.ImageConfig{Registry: "myteam"}},
 	}
 	charts := []struct {
 		name  string
@@ -147,7 +148,7 @@ func (p *pinRig) agentCommands() {
 		}
 		p.add(a, "agent/upgrade/"+i.name+"/named", "agent", p.ok(a.upgradeCommand(i.img, 2, "apps-team", "obs-agent")))
 	}
-	p.add(a, "agent/upgrade/unsafe-names-are-not-trusted", "agent", p.ok(a.upgradeCommand(ImageConfig{}, 2, "ns; rm -rf /", "rel$(id)")))
+	p.add(a, "agent/upgrade/unsafe-names-are-not-trusted", "agent", p.ok(a.upgradeCommand(kernel.ImageConfig{}, 2, "ns; rm -rf /", "rel$(id)")))
 	for _, c := range []struct{ name, ns, rel string }{{"unreported", "", ""}, {"namespace-only", "apps-team", ""}, {"named", "apps-team", "obs-agent"}} {
 		helm, secret, _, err := teardownCommands(c.ns, c.rel)
 		if err != nil {
@@ -196,16 +197,16 @@ func (p *pinRig) operatorCommands() {
 	}
 	images := []struct {
 		name  string
-		img   ImageConfig
+		img   kernel.ImageConfig
 		tweak func(*Admin)
 	}{
-		{"no-registry", ImageConfig{}, nil},
-		{"registry", ImageConfig{Registry: "registry.example.com/team", Tag: "1.4.0"}, nil},
-		{"repository", ImageConfig{}, func(a *Admin) {
+		{"no-registry", kernel.ImageConfig{}, nil},
+		{"registry", kernel.ImageConfig{Registry: "registry.example.com/team", Tag: "1.4.0"}, nil},
+		{"repository", kernel.ImageConfig{}, func(a *Admin) {
 			a.ChartRef = "oci://charts.example.com/stable/continuum-agent"
 			a.OperatorChartVersion = "0.9.1"
 		}},
-		{"no-server", ImageConfig{}, func(a *Admin) { a.AgentAddr = "" }},
+		{"no-server", kernel.ImageConfig{}, func(a *Admin) { a.AgentAddr = "" }},
 	}
 	for _, i := range images {
 		a := p.admin(i.tweak)
@@ -240,7 +241,7 @@ func (p *pinRig) operatorCommands() {
 	}
 	p.add(a, "operator/heartbeat/secret", "", p.ok(operatorHeartbeatSecretCommand(mtls(ext), "hb_SECRET")))
 	private := p.admin(func(a *Admin) { a.HeartbeatCAPEM = fakePEM("CERTIFICATE", "aGVhcnRiZWF0LWNh") })
-	p.add(private, "operator/heartbeat/private-ca/upgrade", "regional-operator", p.ok(private.heartbeatUpgradeCommand(ImageConfig{}, mtls(ext), hbURL)))
+	p.add(private, "operator/heartbeat/private-ca/upgrade", "regional-operator", p.ok(private.heartbeatUpgradeCommand(kernel.ImageConfig{}, mtls(ext), hbURL)))
 	p.add(private, "operator/heartbeat/private-ca/secret", "", p.ok(private.heartbeatCASecretCommand(mtls(ext))))
 
 	// What the source clusters of an operator are told: a Secret for each distinct namespace and an upgrade of each cluster's agent.
@@ -256,7 +257,7 @@ func (p *pinRig) operatorCommands() {
 		}
 	}
 	a = p.admin(nil)
-	for n, line := range p.reminders(a, ImageConfig{}, bearer(ext), OperatorTLSBundle{}, targets[:1]) {
+	for n, line := range p.reminders(a, kernel.ImageConfig{}, bearer(ext), OperatorTLSBundle{}, targets[:1]) {
 		chart := ""
 		if strings.HasPrefix(line, "helm ") {
 			chart = "agent"

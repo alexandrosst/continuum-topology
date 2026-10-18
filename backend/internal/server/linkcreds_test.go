@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	continuumv1 "continuum/gen/continuumv1"
+	"continuum/internal/kernel"
 	"continuum/internal/pki"
 	"continuum/internal/store"
 
@@ -68,9 +69,9 @@ func newCredRig(t *testing.T) *credRig {
 	return cr
 }
 
-func (cr *credRig) save(t *testing.T, links ...LinkSetting) {
+func (cr *credRig) save(t *testing.T, links ...kernel.LinkSetting) {
 	t.Helper()
-	if _, err := cr.core.SaveSettings(cr.ctx, "alex", Settings{Links: links}); err != nil {
+	if _, err := cr.core.SaveSettings(cr.ctx, "alex", kernel.Settings{Links: links}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -82,10 +83,10 @@ func (cr *credRig) cfg(a store.Agent) *continuumv1.Config {
 	return cr.hub.configFor(a, v)
 }
 
-func (cr *credRig) pair(throughput bool) LinkSetting {
-	l := LinkSetting{A: cr.first.ClusterID, B: cr.second.ClusterID}
+func (cr *credRig) pair(throughput bool) kernel.LinkSetting {
+	l := kernel.LinkSetting{A: cr.first.ClusterID, B: cr.second.ClusterID}
 	if throughput {
-		l.Throughput = &LinkThroughput{}
+		l.Throughput = &kernel.LinkThroughput{}
 	}
 	return l
 }
@@ -223,7 +224,7 @@ func TestCredentialsAreMadeOnceStoredSealedAndSurviveARestart(t *testing.T) {
 
 	// A restarted server (a new Core on the same database and the same CA key) reads the same credentials.
 	again := NewCore(cr.st, cr.core.CA, "org-1", nil).ForOrg("org-1")
-	set, err := again.linkCredentials(cr.ctx, []LinkSetting{cr.pair(true)}, false)
+	set, err := again.linkCredentials(cr.ctx, []kernel.LinkSetting{cr.pair(true)}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -240,7 +241,7 @@ func TestCredentialsAreMadeOnceStoredSealedAndSurviveARestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	other := NewCore(cr.st, ca2, "org-1", nil).ForOrg("org-1")
-	set2, err := other.linkCredentials(cr.ctx, []LinkSetting{cr.pair(true)}, false)
+	set2, err := other.linkCredentials(cr.ctx, []kernel.LinkSetting{cr.pair(true)}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -334,8 +335,8 @@ func TestAServingClustersKeyStaysWhileAnyPairNeedsIt(t *testing.T) {
 			others = append(others, id)
 		}
 	}
-	p := func(x string) LinkSetting {
-		return LinkSetting{A: min(x, big), B: max(x, big), Throughput: &LinkThroughput{}}
+	p := func(x string) kernel.LinkSetting {
+		return kernel.LinkSetting{A: min(x, big), B: max(x, big), Throughput: &kernel.LinkThroughput{}}
 	}
 	cr.save(t, p(others[0]), p(others[1]))
 	cr.settle()
@@ -365,8 +366,8 @@ func TestTheServerSeesAllTheUsersOfAllThePairsItServes(t *testing.T) {
 			agents = append(agents, a.ID)
 		}
 	}
-	p := func(x string) LinkSetting {
-		return LinkSetting{A: min(x, big), B: max(x, big), Throughput: &LinkThroughput{}}
+	p := func(x string) kernel.LinkSetting {
+		return kernel.LinkSetting{A: min(x, big), B: max(x, big), Throughput: &kernel.LinkThroughput{}}
 	}
 	cr.save(t, p(others[0]), p(others[1]))
 	var srv store.Agent
@@ -395,14 +396,14 @@ func TestTheConfigHashFollowsTheCredentialsWithoutHoldingThem(t *testing.T) {
 	if hash(cr.first) != h1 || hash(cr.second) != h2 {
 		t.Fatal("the hash of an unchanged Config changed")
 	}
-	if err := cr.core.RotateLinkCredentials(cr.ctx, []LinkSetting{cr.pair(true)}, "", cr.first.ClusterID, cr.second.ClusterID); err != nil {
+	if err := cr.core.RotateLinkCredentials(cr.ctx, []kernel.LinkSetting{cr.pair(true)}, "", cr.first.ClusterID, cr.second.ClusterID); err != nil {
 		t.Fatal(err)
 	}
 	if hash(cr.first) == h1 || hash(cr.second) == h2 {
 		t.Error("a rotated password did not change the hash, so the agents would never be sent it")
 	}
 	h1, h2 = hash(cr.first), hash(cr.second)
-	if err := cr.core.RotateLinkCredentials(cr.ctx, []LinkSetting{cr.pair(true)}, cr.second.ClusterID, "", ""); err != nil {
+	if err := cr.core.RotateLinkCredentials(cr.ctx, []kernel.LinkSetting{cr.pair(true)}, cr.second.ClusterID, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if hash(cr.first) == h1 || hash(cr.second) == h2 {
@@ -433,7 +434,7 @@ func TestTheConfigHashFollowsTheCredentialsWithoutHoldingThem(t *testing.T) {
 
 func TestRotationMakesNewCredentialsAndRefusesWhatDoesNotExist(t *testing.T) {
 	cr := newCredRig(t)
-	links := []LinkSetting{cr.pair(true)}
+	links := []kernel.LinkSetting{cr.pair(true)}
 	cr.save(t, links...)
 	before := cr.cfg(cr.first).LinkPeers[0].IperfClient
 	keyBefore := cr.cfg(cr.second).LinkIperfServer.PrivateKeyPem
@@ -468,7 +469,7 @@ func TestRotationMakesNewCredentialsAndRefusesWhatDoesNotExist(t *testing.T) {
 
 func TestNoLogAuditOrErrorHoldsCredentialMaterial(t *testing.T) {
 	cr := newCredRig(t)
-	links := []LinkSetting{cr.pair(true)}
+	links := []kernel.LinkSetting{cr.pair(true)}
 	cr.save(t, links...)
 	cr.settle()
 	ic := cr.cfg(cr.first).LinkPeers[0].IperfClient

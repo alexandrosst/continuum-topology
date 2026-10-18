@@ -5,13 +5,14 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"net"
-	"net/http"
 	"net/netip"
 	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"continuum/internal/kernel"
 )
 
 func TestAddressWarningsSayWhatLooksWrongAndNothingElse(t *testing.T) {
@@ -26,7 +27,7 @@ func TestAddressWarningsSayWhatLooksWrongAndNothingElse(t *testing.T) {
 	for _, c := range []struct {
 		name string
 		addr string
-		svc  *KubeService
+		svc  *kernel.KubeService
 		want []string // a warning containing each of these
 		none bool     // no warning at all
 	}{
@@ -35,12 +36,12 @@ func TestAddressWarningsSayWhatLooksWrongAndNothingElse(t *testing.T) {
 		{name: "the HTTP port, which every printed command's gRPC export cannot use", addr: "otlp.example.com:4318", want: []string{"OTLP/HTTP"}},
 		{name: "a private address", addr: "10.1.2.3:4317", want: []string{"private address"}},
 		{name: "an IPv6 unique-local address", addr: "[fd00::5]:4317", want: []string{"private address"}},
-		{name: "a ClusterIP gateway with an address nobody forwards", addr: "203.0.113.7:4317", svc: &KubeService{Type: "ClusterIP", Port: 4317}, want: []string{"ClusterIP", "listens only inside this cluster"}},
-		{name: "a NodePort gateway at 4317, where no node listens", addr: "198.51.100.4:4317", svc: &KubeService{Type: "NodePort", Port: 4317, NodePort: 31317}, want: []string{"31317"}},
-		{name: "a NodePort gateway at its node port", addr: "198.51.100.4:31317", svc: &KubeService{Type: "NodePort", Port: 4317, NodePort: 31317}, none: true},
-		{name: "a load balancer with no address yet", addr: "203.0.113.7:4317", svc: &KubeService{Type: "LoadBalancer", Port: 4317}, want: []string{"no address yet"}},
-		{name: "a load balancer that reports another address", addr: "203.0.113.7:4317", svc: &KubeService{Type: "LoadBalancer", Port: 4317, LoadBalancer: "203.0.113.99:4317"}, want: []string{"203.0.113.99:4317"}},
-		{name: "a load balancer at its address", addr: "203.0.113.99:4317", svc: &KubeService{Type: "LoadBalancer", Port: 4317, LoadBalancer: "203.0.113.99:4317"}, none: true},
+		{name: "a ClusterIP gateway with an address nobody forwards", addr: "203.0.113.7:4317", svc: &kernel.KubeService{Type: "ClusterIP", Port: 4317}, want: []string{"ClusterIP", "listens only inside this cluster"}},
+		{name: "a NodePort gateway at 4317, where no node listens", addr: "198.51.100.4:4317", svc: &kernel.KubeService{Type: "NodePort", Port: 4317, NodePort: 31317}, want: []string{"31317"}},
+		{name: "a NodePort gateway at its node port", addr: "198.51.100.4:31317", svc: &kernel.KubeService{Type: "NodePort", Port: 4317, NodePort: 31317}, none: true},
+		{name: "a load balancer with no address yet", addr: "203.0.113.7:4317", svc: &kernel.KubeService{Type: "LoadBalancer", Port: 4317}, want: []string{"no address yet"}},
+		{name: "a load balancer that reports another address", addr: "203.0.113.7:4317", svc: &kernel.KubeService{Type: "LoadBalancer", Port: 4317, LoadBalancer: "203.0.113.99:4317"}, want: []string{"203.0.113.99:4317"}},
+		{name: "a load balancer at its address", addr: "203.0.113.99:4317", svc: &kernel.KubeService{Type: "LoadBalancer", Port: 4317, LoadBalancer: "203.0.113.99:4317"}, none: true},
 	} {
 		got := addressWarnings(c.addr, c.svc)
 		if c.none && len(got) != 0 {
@@ -54,24 +55,16 @@ func TestAddressWarningsSayWhatLooksWrongAndNothingElse(t *testing.T) {
 	}
 }
 
-func TestKubeClientReadsTheGatewaysNodePort(t *testing.T) {
-	k := testKube(t, func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(`{"spec":{"type":"NodePort","ports":[{"port":4318,"nodePort":31318},{"port":4317,"nodePort":31317}]}}`))
-	})
-	svc, err := k.Service(context.Background(), "f-fusion-central")
-	if err != nil || svc.Type != "NodePort" || svc.Port != 4317 || svc.NodePort != 31317 || svc.LoadBalancer != "" {
-		t.Fatalf("%+v %v", svc, err)
-	}
-}
-
 // inspectingKube is a fakeKube that can also say what the gateway's Service is.
 type inspectingKube struct {
 	*fakeKube
-	svc KubeService
+	svc kernel.KubeService
 	err error
 }
 
-func (k *inspectingKube) Service(context.Context, string) (KubeService, error) { return k.svc, k.err }
+func (k *inspectingKube) Service(context.Context, string) (kernel.KubeService, error) {
+	return k.svc, k.err
+}
 
 // The address of the central operator is checked against the gateway's own Service wherever the server prints it: the
 // operator's document, FUSION's, and the command that points an agent at it. A ClusterIP Service with a recorded
@@ -79,7 +72,7 @@ func (k *inspectingKube) Service(context.Context, string) (KubeService, error) {
 func TestCentralAddressIsCheckedAgainstTheGatewaysService(t *testing.T) {
 	a := newIntentRig(t)
 	f, k := newFusion(t, a.adminRig)
-	ik := &inspectingKube{fakeKube: k, svc: KubeService{Type: "ClusterIP", Port: 4317}}
+	ik := &inspectingKube{fakeKube: k, svc: kernel.KubeService{Type: "ClusterIP", Port: 4317}}
 	f.Kube = ik
 	a.a.Fusion = f
 	if _, err := f.Enable(a.ctx, a.core, "alex"); err != nil {
@@ -121,7 +114,7 @@ func TestCentralAddressIsCheckedAgainstTheGatewaysService(t *testing.T) {
 	f.svcMu.Lock()
 	f.svcAt = time.Time{} // the Service was read a moment ago
 	f.svcMu.Unlock()
-	ik.svc = KubeService{Type: "NodePort", Port: 4317, NodePort: 31317}
+	ik.svc = kernel.KubeService{Type: "NodePort", Port: 4317, NodePort: 31317}
 	if got := warnings(set("198.51.100.4:4317")); !strings.Contains(got, "31317") {
 		t.Fatalf("4317 on a NodePort Service: %q", got)
 	}
@@ -134,7 +127,7 @@ func TestCentralAddressIsCheckedAgainstTheGatewaysService(t *testing.T) {
 	f.svcMu.Lock()
 	f.svcAt = time.Time{}
 	f.svcMu.Unlock()
-	ik.err = ErrKubeForbidden
+	ik.err = kernel.ErrKubeForbidden
 	if got := warnings(set("198.51.100.4:4317")); got != "" {
 		t.Fatalf("a Service this server may not read was held against the address: %q", got)
 	}
@@ -320,12 +313,12 @@ func TestAddressCheckRefusesNamesThatResolveToTheServersOwnNetwork(t *testing.T)
 		}
 	}()
 	port := strconv.Itoa(ln.Addr().(*net.TCPAddr).Port)
-	look := func(dp *DeciderPolicy, addr string) AddressProbe {
+	look := func(dp *kernel.DeciderPolicy, addr string) AddressProbe {
 		return probeAddress(context.Background(), addr, nil, "", time.Now(), probeDialer(dp))
 	}
 
 	name := "receiver.rebind.test.:" + port
-	got := look(&DeciderPolicy{Resolver: res}, name)
+	got := look(&kernel.DeciderPolicy{Resolver: res}, name)
 	if got.State != "blocked" {
 		t.Fatalf("a name that resolves to loopback: %+v", got)
 	}
@@ -342,7 +335,7 @@ func TestAddressCheckRefusesNamesThatResolveToTheServersOwnNetwork(t *testing.T)
 
 	// Cloud metadata is refused even when the operator opened every range.
 	target.Store(net.ParseIP("169.254.169.254"))
-	all, err := NewDeciderPolicy("0.0.0.0/0")
+	all, err := kernel.NewDeciderPolicy("0.0.0.0/0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -353,7 +346,7 @@ func TestAddressCheckRefusesNamesThatResolveToTheServersOwnNetwork(t *testing.T)
 
 	// What the decider policy opens stays open here: the same name is looked at once loopback is listed.
 	target.Store(net.ParseIP("127.0.0.1"))
-	allowed, err := NewDeciderPolicy("127.0.0.0/8")
+	allowed, err := kernel.NewDeciderPolicy("127.0.0.0/8")
 	if err != nil {
 		t.Fatal(err)
 	}

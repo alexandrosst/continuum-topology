@@ -12,6 +12,7 @@ import (
 
 	"continuum/internal/chart"
 	"continuum/internal/install"
+	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
 
@@ -313,7 +314,7 @@ func (a *Admin) createOperator(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		var pe *install.ProblemsError
 		if errors.As(err, &pe) {
-			a.fail(w, Errf(KindInvalid, "%s", pe.Problems[0]))
+			a.fail(w, kernel.Errf(kernel.KindInvalid, "%s", pe.Problems[0]))
 			return
 		}
 		a.fail(w, err)
@@ -505,7 +506,7 @@ func serviceTypeFor(exposure string) (string, error) {
 	case "nodeport":
 		return "NodePort", nil
 	}
-	return "", Errf(KindInvalid, "exposure must be cluster, loadbalancer or nodeport")
+	return "", kernel.Errf(kernel.KindInvalid, "exposure must be cluster, loadbalancer or nodeport")
 }
 
 // setOperatorAddress records the host:port other clusters reach the operator at ({"address": ""} clears it).
@@ -798,7 +799,7 @@ func (a *Admin) targetWarnings(ctx context.Context, op store.Operator) []string 
 	if op.Address == "" {
 		return []string{fmt.Sprintf("%s has no address recorded, so this command dials its in-cluster name (%s), which resolves only inside the cluster it runs in. If the cluster being pointed at it is another one, record where %s is reached from outside first.", name, a.operatorEndpoint(op), name)}
 	}
-	var svc *KubeService
+	var svc *kernel.KubeService
 	if op.ID == CentralOperatorID && a.Fusion != nil {
 		svc = a.Fusion.gatewayService(ctx)
 	}
@@ -843,7 +844,7 @@ func (a *Admin) addOperatorTargetExport(r *http.Request, resp map[string]any, op
 
 // checkOperatorInstall says whether the install command of a regional operator can be written with the chart this server names, before
 // anything for it is minted. Only the chart and the versions can stop it: the operator's own words are names this server made.
-func (a *Admin) checkOperatorInstall(img ImageConfig) error {
+func (a *Admin) checkOperatorInstall(img kernel.ImageConfig) error {
 	probe := store.Operator{ID: "op-check", Name: "check", Status: store.OperatorActive, ReceiverAuth: store.ReceiverAuthMTLS,
 		Destination: store.Destination{Kind: store.DestinationExternal, Endpoint: "check:4317"}}
 	_, _, err := a.operatorInstallCommandWith(img, "check", probe, OperatorTLSBundle{}, "", nil, true)
@@ -852,7 +853,7 @@ func (a *Admin) checkOperatorInstall(img ImageConfig) error {
 
 // operatorChart is where the regional-operator chart is, as agentChart is for the agent's: the chart reference and, for a repository
 // (not a packaged file), the version to fetch.
-func (a *Admin) operatorChart(img ImageConfig) (ref, version string) {
+func (a *Admin) operatorChart(img kernel.ImageConfig) (ref, version string) {
 	ref = a.operatorChartRef(img)
 	if ref == "" {
 		return "./" + chart.RegionalOperator.Filename(), ""
@@ -887,7 +888,7 @@ func (a *Admin) operatorChart(img ImageConfig) (ref, version string) {
 // With reissue the command upgrades a release that already runs: `helm upgrade --install --reset-then-reuse-values` (Helm 3.14 or
 // newer; see upgradeCommand for why not --reuse-values) keeps what the person tuned (resources, image), so every value this command is
 // about is stated, the unused ones empty - an export block left out would keep an old destination's settings.
-func (a *Admin) operatorInstallCommandWith(img ImageConfig, secret string, op store.Operator, tlsBundle OperatorTLSBundle, heartbeatURL string, target *store.Operator, reissue bool) (cmd, secretCmd string, err error) {
+func (a *Admin) operatorInstallCommandWith(img kernel.ImageConfig, secret string, op store.Operator, tlsBundle OperatorTLSBundle, heartbeatURL string, target *store.Operator, reissue bool) (cmd, secretCmd string, err error) {
 	var v []install.Value
 	set := func(key, value string) { v = append(v, install.Set(key, value)) }
 	if op.Destination.Kind == store.DestinationOperator {
@@ -1076,7 +1077,7 @@ type sourceTarget struct{ cluster, ns, name string }
 
 // sourceReminders is operatorSourceReminders once the clusters are known: it reads nothing, so the text it builds is pinned
 // by a test (install_commands_test.go) like the other commands.
-func (a *Admin) sourceReminders(img ImageConfig, op store.Operator, tlsBundle OperatorTLSBundle, targets []sourceTarget) ([]string, error) {
+func (a *Admin) sourceReminders(img kernel.ImageConfig, op store.Operator, tlsBundle OperatorTLSBundle, targets []sourceTarget) ([]string, error) {
 	ref, version := a.agentChart(img)
 	out := make([]string, 0, 2*len(targets))
 	// Each cluster holds its own client certificate (see OperatorTLSBundle.Senders), so each gets its own Secret

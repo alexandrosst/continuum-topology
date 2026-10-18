@@ -10,6 +10,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"continuum/internal/kernel"
 )
 
 // Two-factor authentication is TOTP (RFC 6238) over HOTP (RFC 4226): the same 6-digit-code-from-an-app
@@ -136,7 +138,7 @@ func normalizeRecoveryCode(s string) string {
 }
 
 func recoveryHash(code string) string {
-	return fmt.Sprintf("%x", HashSecret(normalizeRecoveryCode(code)))
+	return fmt.Sprintf("%x", kernel.HashSecret(normalizeRecoveryCode(code)))
 }
 
 // consumeRecoveryCode reports whether code matches one of hashes, and if so returns the remaining ones (the

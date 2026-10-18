@@ -14,6 +14,7 @@ import (
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/facts"
 	"continuum/internal/history"
+	"continuum/internal/kernel"
 	"continuum/internal/measure"
 	"continuum/internal/model"
 	"continuum/internal/store"
@@ -22,18 +23,18 @@ import (
 // ---- settings ----
 
 func TestSettingsDefaultsAndBounds(t *testing.T) {
-	n, err := Settings{}.Normalize()
+	n, err := kernel.Settings{}.Normalize()
 	if err != nil {
 		t.Fatal(err)
 	}
-	d := DefaultSettings()
+	d := kernel.DefaultSettings()
 	if n.SnapshotMinutes != d.SnapshotMinutes || n.ConsistencyMinutes != d.ConsistencyMinutes || n.RetentionDays != d.RetentionDays || n.DeciderTimeoutSec != d.DeciderTimeoutSec || n.FlowStaleSeconds != d.FlowStaleSeconds {
 		t.Fatalf("zero settings did not fall back to defaults: %+v", n)
 	}
 	if d.FlowStaleSeconds != 300 {
 		t.Fatalf("the quiet-link default changed without updating this test: %d", d.FlowStaleSeconds)
 	}
-	for name, s := range map[string]Settings{
+	for name, s := range map[string]kernel.Settings{
 		"snapshot too long":     {SnapshotMinutes: 100000},
 		"negative retention":    {RetentionDays: -1},
 		"retention beyond year": {RetentionDays: 400},
@@ -51,24 +52,24 @@ func TestSettingsDefaultsAndBounds(t *testing.T) {
 			t.Errorf("%s was accepted", name)
 		}
 	}
-	if n, err := (Settings{DeciderSecret: strings.Repeat("x", 32)}).Normalize(); err != nil || n.DeciderSecret != strings.Repeat("x", 32) {
+	if n, err := (kernel.Settings{DeciderSecret: strings.Repeat("x", 32)}).Normalize(); err != nil || n.DeciderSecret != strings.Repeat("x", 32) {
 		t.Fatalf("a decider secret of reasonable length was rejected: %v", err)
 	}
 }
 
 func TestTombstoneAndEventRetentionSettingsBoundsAndDefaults(t *testing.T) {
-	d := DefaultSettings()
+	d := kernel.DefaultSettings()
 	if d.TombstoneRetentionDays != 7 || d.EventRetentionDays != 0 {
 		t.Fatalf("defaults = %+v", d)
 	}
-	n, err := Settings{}.Normalize()
+	n, err := kernel.Settings{}.Normalize()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if n.TombstoneRetentionDays != 7 || n.EventRetentionDays != 0 {
 		t.Fatalf("zero settings did not fall back to defaults: %+v", n)
 	}
-	for name, s := range map[string]Settings{
+	for name, s := range map[string]kernel.Settings{
 		"negative tombstone retention": {TombstoneRetentionDays: -1},
 		"tombstone retention too long": {TombstoneRetentionDays: 91},
 		"negative event retention":     {EventRetentionDays: -1},
@@ -79,7 +80,7 @@ func TestTombstoneAndEventRetentionSettingsBoundsAndDefaults(t *testing.T) {
 			t.Errorf("%s was accepted", name)
 		}
 	}
-	ok, err := (Settings{TombstoneRetentionDays: 90, EventRetentionDays: 3650}).Normalize()
+	ok, err := (kernel.Settings{TombstoneRetentionDays: 90, EventRetentionDays: 3650}).Normalize()
 	if err != nil {
 		t.Fatalf("boundary values were refused: %v", err)
 	}
@@ -87,7 +88,7 @@ func TestTombstoneAndEventRetentionSettingsBoundsAndDefaults(t *testing.T) {
 		t.Fatalf("boundary values changed: %+v", ok)
 	}
 	// Event retention is opt-in: setting something else must not turn it on by itself.
-	off, err := (Settings{TombstoneRetentionDays: 14}).Normalize()
+	off, err := (kernel.Settings{TombstoneRetentionDays: 14}).Normalize()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,27 +98,27 @@ func TestTombstoneAndEventRetentionSettingsBoundsAndDefaults(t *testing.T) {
 }
 
 func TestSettingsDiffMentionsTombstoneAndEventRetention(t *testing.T) {
-	a := DefaultSettings()
+	a := kernel.DefaultSettings()
 	b := a
 	b.TombstoneRetentionDays = 14
 	b.EventRetentionDays = 90
-	d := SettingsDiff(a, b)
+	d := kernel.SettingsDiff(a, b)
 	if !strings.Contains(d, "tombstone retention (days) 7 → 14") || !strings.Contains(d, "event retention (days) 0 → 90") {
 		t.Fatalf("diff = %q", d)
 	}
-	if SettingsDiff(a, a) != "" {
+	if kernel.SettingsDiff(a, a) != "" {
 		t.Fatal("no change produced a diff")
 	}
 }
 
 func TestSettingsProbeTargetsAndDeciderURLAreChecked(t *testing.T) {
-	bad := map[string]Settings{
-		"loopback target":      {ProbeTargets: []ProbeTarget{{ClusterID: "c", Host: "127.0.0.1", Port: 80}}},
-		"metadata target":      {ProbeTargets: []ProbeTarget{{ClusterID: "c", Host: "169.254.169.254", Port: 80}}},
-		"url as host":          {ProbeTargets: []ProbeTarget{{ClusterID: "c", Host: "http://example.com", Port: 80}}},
-		"no port":              {ProbeTargets: []ProbeTarget{{ClusterID: "c", Host: "example.com"}}},
-		"no cluster":           {ProbeTargets: []ProbeTarget{{Host: "example.com", Port: 80}}},
-		"duplicate ids":        {ProbeTargets: []ProbeTarget{{ID: "a", ClusterID: "c", Host: "example.com", Port: 80}, {ID: "a", ClusterID: "c", Host: "example.org", Port: 80}}},
+	bad := map[string]kernel.Settings{
+		"loopback target":      {ProbeTargets: []kernel.ProbeTarget{{ClusterID: "c", Host: "127.0.0.1", Port: 80}}},
+		"metadata target":      {ProbeTargets: []kernel.ProbeTarget{{ClusterID: "c", Host: "169.254.169.254", Port: 80}}},
+		"url as host":          {ProbeTargets: []kernel.ProbeTarget{{ClusterID: "c", Host: "http://example.com", Port: 80}}},
+		"no port":              {ProbeTargets: []kernel.ProbeTarget{{ClusterID: "c", Host: "example.com"}}},
+		"no cluster":           {ProbeTargets: []kernel.ProbeTarget{{Host: "example.com", Port: 80}}},
+		"duplicate ids":        {ProbeTargets: []kernel.ProbeTarget{{ID: "a", ClusterID: "c", Host: "example.com", Port: 80}, {ID: "a", ClusterID: "c", Host: "example.org", Port: 80}}},
 		"ftp decider":          {DeciderURL: "ftp://x/y"},
 		"decider credentials":  {DeciderURL: "http://u:p@decider.local/x"},
 		"decider metadata":     {DeciderURL: "http://169.254.169.254/latest"},
@@ -132,19 +133,19 @@ func TestSettingsProbeTargetsAndDeciderURLAreChecked(t *testing.T) {
 			t.Errorf("%s was accepted", name)
 		}
 	}
-	many := Settings{}
+	many := kernel.Settings{}
 	for i := 0; i < 51; i++ {
-		many.ProbeTargets = append(many.ProbeTargets, ProbeTarget{ClusterID: "c", Host: "example.com", Port: 80 + i})
+		many.ProbeTargets = append(many.ProbeTargets, kernel.ProbeTarget{ClusterID: "c", Host: "example.com", Port: 80 + i})
 	}
 	if _, err := many.Normalize(); err == nil {
 		t.Error("51 targets were accepted")
 	}
-	ok, err := Settings{DeciderURL: "https://decider.example.com/decide", ProbeTargets: []ProbeTarget{{ClusterID: "c", Host: "example.com", Port: 443}}}.Normalize()
+	ok, err := kernel.Settings{DeciderURL: "https://decider.example.com/decide", ProbeTargets: []kernel.ProbeTarget{{ClusterID: "c", Host: "example.com", Port: 443}}}.Normalize()
 	if err != nil {
 		t.Fatalf("a public decider and a normal target were refused: %v", err)
 	}
-	local, _ := NewDeciderPolicy("127.0.0.0/8")
-	if _, err := (Settings{DeciderURL: "http://127.0.0.1:9000/decide"}).NormalizeFor(context.Background(), local); err != nil {
+	local, _ := kernel.NewDeciderPolicy("127.0.0.0/8")
+	if _, err := (kernel.Settings{DeciderURL: "http://127.0.0.1:9000/decide"}).NormalizeFor(context.Background(), local); err != nil {
 		t.Fatalf("a decider next to the server was refused although the operator allowed it: %v", err)
 	}
 	if ok.ProbeTargets[0].ID == "" {
@@ -153,17 +154,17 @@ func TestSettingsProbeTargetsAndDeciderURLAreChecked(t *testing.T) {
 }
 
 func TestSettingsQuickStartBackendsAreChecked(t *testing.T) {
-	bad := map[string]Settings{
-		"unknown kind":           {QuickStartBackends: []QuickStartBackend{{Kind: "tempo", Modality: "traces", Namespace: "observability", Retention: "72h"}}},
-		"zipkin is traces only":  {QuickStartBackends: []QuickStartBackend{{Kind: "zipkin", Modality: "logs", Namespace: "observability", Retention: "500000"}}},
-		"modality mismatch":      {QuickStartBackends: []QuickStartBackend{{Kind: "jaeger", Modality: "metrics", Namespace: "observability", Retention: "72h"}}},
-		"no namespace":           {QuickStartBackends: []QuickStartBackend{{Kind: "jaeger", Modality: "traces", Retention: "72h"}}},
-		"bad namespace":          {QuickStartBackends: []QuickStartBackend{{Kind: "jaeger", Modality: "traces", Namespace: "Not_Valid!", Retention: "72h"}}},
-		"no retention":           {QuickStartBackends: []QuickStartBackend{{Kind: "prometheus", Modality: "metrics", Namespace: "observability"}}},
-		"bad tool url":           {QuickStartBackends: []QuickStartBackend{{Kind: "jaeger", Modality: "traces", Namespace: "observability", Retention: "72h", ToolURL: "not a url"}}},
-		"ftp tool url":           {QuickStartBackends: []QuickStartBackend{{Kind: "jaeger", Modality: "traces", Namespace: "observability", Retention: "72h", ToolURL: "ftp://x/y"}}},
-		"duplicate ids":          {QuickStartBackends: []QuickStartBackend{{ID: "a", Kind: "jaeger", Modality: "traces", Namespace: "observability", Retention: "72h"}, {ID: "a", Kind: "prometheus", Modality: "metrics", Namespace: "observability", Retention: "15d"}}},
-		"loki modality mismatch": {QuickStartBackends: []QuickStartBackend{{Kind: "loki", Modality: "traces", Namespace: "observability", Retention: "168h"}}},
+	bad := map[string]kernel.Settings{
+		"unknown kind":           {QuickStartBackends: []kernel.QuickStartBackend{{Kind: "tempo", Modality: "traces", Namespace: "observability", Retention: "72h"}}},
+		"zipkin is traces only":  {QuickStartBackends: []kernel.QuickStartBackend{{Kind: "zipkin", Modality: "logs", Namespace: "observability", Retention: "500000"}}},
+		"modality mismatch":      {QuickStartBackends: []kernel.QuickStartBackend{{Kind: "jaeger", Modality: "metrics", Namespace: "observability", Retention: "72h"}}},
+		"no namespace":           {QuickStartBackends: []kernel.QuickStartBackend{{Kind: "jaeger", Modality: "traces", Retention: "72h"}}},
+		"bad namespace":          {QuickStartBackends: []kernel.QuickStartBackend{{Kind: "jaeger", Modality: "traces", Namespace: "Not_Valid!", Retention: "72h"}}},
+		"no retention":           {QuickStartBackends: []kernel.QuickStartBackend{{Kind: "prometheus", Modality: "metrics", Namespace: "observability"}}},
+		"bad tool url":           {QuickStartBackends: []kernel.QuickStartBackend{{Kind: "jaeger", Modality: "traces", Namespace: "observability", Retention: "72h", ToolURL: "not a url"}}},
+		"ftp tool url":           {QuickStartBackends: []kernel.QuickStartBackend{{Kind: "jaeger", Modality: "traces", Namespace: "observability", Retention: "72h", ToolURL: "ftp://x/y"}}},
+		"duplicate ids":          {QuickStartBackends: []kernel.QuickStartBackend{{ID: "a", Kind: "jaeger", Modality: "traces", Namespace: "observability", Retention: "72h"}, {ID: "a", Kind: "prometheus", Modality: "metrics", Namespace: "observability", Retention: "15d"}}},
+		"loki modality mismatch": {QuickStartBackends: []kernel.QuickStartBackend{{Kind: "loki", Modality: "traces", Namespace: "observability", Retention: "168h"}}},
 	}
 	for name, s := range bad {
 		if _, err := s.Normalize(); err == nil {
@@ -171,15 +172,15 @@ func TestSettingsQuickStartBackendsAreChecked(t *testing.T) {
 		}
 	}
 
-	many := Settings{}
+	many := kernel.Settings{}
 	for i := 0; i < 21; i++ {
-		many.QuickStartBackends = append(many.QuickStartBackends, QuickStartBackend{Kind: "jaeger", Modality: "traces", Namespace: "observability", Retention: "72h"})
+		many.QuickStartBackends = append(many.QuickStartBackends, kernel.QuickStartBackend{Kind: "jaeger", Modality: "traces", Namespace: "observability", Retention: "72h"})
 	}
 	if _, err := many.Normalize(); err == nil {
 		t.Error("21 quick-start backends were accepted")
 	}
 
-	ok, err := (Settings{QuickStartBackends: []QuickStartBackend{
+	ok, err := (kernel.Settings{QuickStartBackends: []kernel.QuickStartBackend{
 		{Kind: "jaeger", Modality: "traces", Namespace: "observability", Retention: "72h"},
 		{Kind: "prometheus", Modality: "metrics", Namespace: "observability", Retention: "15d", ToolURL: "http://localhost:9090"},
 		{Kind: "loki", Modality: "logs", Namespace: "observability", Retention: "168h"},
@@ -203,28 +204,28 @@ func TestSettingsQuickStartBackendsAreChecked(t *testing.T) {
 
 func TestSettingsAllowedBackendKindsGateQuickStartBackends(t *testing.T) {
 	// A custom backend is refused by default: "custom" is not in defaultAllowedBackendKinds.
-	if _, err := (Settings{QuickStartBackends: []QuickStartBackend{
+	if _, err := (kernel.Settings{QuickStartBackends: []kernel.QuickStartBackend{
 		{Kind: "custom", Modality: "traces", Namespace: "observability", Retention: "n/a", Label: "My APM", ToolURL: "https://apm.example.com"},
 	}}).Normalize(); err == nil {
 		t.Error("a custom backend was accepted although \"custom\" is not allowed by default")
 	}
 	// Once "custom" is allowed, a custom backend needs a label and a tool URL (there being no catalog
 	// entry to fall back to), but any of the three modalities is fine.
-	if _, err := (Settings{
+	if _, err := (kernel.Settings{
 		AllowedBackendKinds: []string{"custom"},
-		QuickStartBackends:  []QuickStartBackend{{Kind: "custom", Modality: "traces", Namespace: "observability", Retention: "n/a"}},
+		QuickStartBackends:  []kernel.QuickStartBackend{{Kind: "custom", Modality: "traces", Namespace: "observability", Retention: "n/a"}},
 	}).Normalize(); err == nil {
 		t.Error("a custom backend without a label was accepted")
 	}
-	if _, err := (Settings{
+	if _, err := (kernel.Settings{
 		AllowedBackendKinds: []string{"custom"},
-		QuickStartBackends:  []QuickStartBackend{{Kind: "custom", Modality: "traces", Namespace: "observability", Retention: "n/a", Label: "My APM"}},
+		QuickStartBackends:  []kernel.QuickStartBackend{{Kind: "custom", Modality: "traces", Namespace: "observability", Retention: "n/a", Label: "My APM"}},
 	}).Normalize(); err == nil {
 		t.Error("a custom backend without a tool URL was accepted")
 	}
-	ok, err := (Settings{
+	ok, err := (kernel.Settings{
 		AllowedBackendKinds: []string{"custom"},
-		QuickStartBackends:  []QuickStartBackend{{Kind: "custom", Modality: "logs", Namespace: "observability", Retention: "n/a", Label: "My APM", ToolURL: "https://apm.example.com"}},
+		QuickStartBackends:  []kernel.QuickStartBackend{{Kind: "custom", Modality: "logs", Namespace: "observability", Retention: "n/a", Label: "My APM", ToolURL: "https://apm.example.com"}},
 	}).Normalize()
 	if err != nil {
 		t.Fatalf("a well-formed custom backend was refused: %v", err)
@@ -234,18 +235,18 @@ func TestSettingsAllowedBackendKindsGateQuickStartBackends(t *testing.T) {
 	}
 	// Narrowing the allow-list away from a built-in kind refuses a backend of that kind, even though it
 	// would be fine on its own (the modality mismatch tests above already cover the unrestricted default).
-	if _, err := (Settings{
+	if _, err := (kernel.Settings{
 		AllowedBackendKinds: []string{"prometheus", "loki"},
-		QuickStartBackends:  []QuickStartBackend{{Kind: "jaeger", Modality: "traces", Namespace: "observability", Retention: "72h"}},
+		QuickStartBackends:  []kernel.QuickStartBackend{{Kind: "jaeger", Modality: "traces", Namespace: "observability", Retention: "72h"}},
 	}).Normalize(); err == nil {
 		t.Error("a jaeger backend was accepted although jaeger was removed from the allow-list")
 	}
 	// An unknown kind in the allow-list itself is refused.
-	if _, err := (Settings{AllowedBackendKinds: []string{"tempo"}}).Normalize(); err == nil {
+	if _, err := (kernel.Settings{AllowedBackendKinds: []string{"tempo"}}).Normalize(); err == nil {
 		t.Error("an unknown allowed backend kind was accepted")
 	}
 	// The allow-list is de-duplicated rather than rejected for repeats.
-	allow, err := (Settings{AllowedBackendKinds: []string{"jaeger", "jaeger", "loki"}}).Normalize()
+	allow, err := (kernel.Settings{AllowedBackendKinds: []string{"jaeger", "jaeger", "loki"}}).Normalize()
 	if err != nil {
 		t.Fatalf("a repeated allowed kind was refused: %v", err)
 	}
@@ -256,21 +257,21 @@ func TestSettingsAllowedBackendKindsGateQuickStartBackends(t *testing.T) {
 
 func TestSettingsAreAuditedAndSurviveARestart(t *testing.T) {
 	e := newEnv(t)
-	e.core.Decider, _ = NewDeciderPolicy("127.0.0.0/8")
+	e.core.Decider, _ = kernel.NewDeciderPolicy("127.0.0.0/8")
 	var pushed atomic.Int32
-	e.core.OnSettings = func(Settings) { pushed.Add(1) }
-	if _, err := e.core.SaveSettings(e.ctx, "alex", Settings{SnapshotMinutes: 2, DeciderURL: "http://127.0.0.1:1/x"}); err != nil {
+	e.core.OnSettings = func(kernel.Settings) { pushed.Add(1) }
+	if _, err := e.core.SaveSettings(e.ctx, "alex", kernel.Settings{SnapshotMinutes: 2, DeciderURL: "http://127.0.0.1:1/x"}); err != nil {
 		t.Fatal(err)
 	}
 	if pushed.Load() != 1 {
 		t.Fatal("agents were not told about new settings")
 	}
-	if _, err := e.core.SaveSettings(e.ctx, "alex", Settings{SnapshotMinutes: 3}); err != nil {
+	if _, err := e.core.SaveSettings(e.ctx, "alex", kernel.Settings{SnapshotMinutes: 3}); err != nil {
 		t.Fatal(err)
 	}
 	c2 := NewCore(e.st, e.core.CA, "org-1", nil)
 	c2.Decider = e.core.Decider
-	if c2.Settings().SnapshotMinutes != DefaultSettings().SnapshotMinutes {
+	if c2.Settings().SnapshotMinutes != kernel.DefaultSettings().SnapshotMinutes {
 		t.Fatal("settings should be defaults before loading")
 	}
 	c2.LoadSettings(e.ctx)
@@ -442,7 +443,7 @@ func TestConfigForIssuesManualAndObservedTargetsByTier(t *testing.T) {
 	r := newHubRig(t)
 	id, _, _ := r.approvedAgent(t, fp)
 	a, _ := r.st.GetAgent(r.ctx, id)
-	if _, err := r.core.SaveSettings(r.ctx, "alex", Settings{MeasureSeconds: 30, ProbeTargets: []ProbeTarget{
+	if _, err := r.core.SaveSettings(r.ctx, "alex", kernel.Settings{MeasureSeconds: 30, ProbeTargets: []kernel.ProbeTarget{
 		{ID: "mine", ClusterID: a.ClusterID, Host: "203.0.113.20", Port: 8443},
 		{ID: "theirs", ClusterID: "another-cluster", Host: "203.0.113.21", Port: 8443},
 	}}); err != nil {
@@ -469,7 +470,7 @@ func TestConfigForIssuesManualAndObservedTargetsByTier(t *testing.T) {
 	if cfg = r.hub.configFor(a, v); cfg.ResyncSeconds != 2 || v.cfgHash == h1 {
 		t.Fatalf("the test override was ignored: %+v", cfg)
 	}
-	if _, err := r.core.SaveSettings(r.ctx, "alex", Settings{}); err != nil {
+	if _, err := r.core.SaveSettings(r.ctx, "alex", kernel.Settings{}); err != nil {
 		t.Fatal(err)
 	}
 	bare := &view{state: facts.New(), flows: newFlowTable(), paths: map[string]*pathTrack{}, targets: map[string]issuedTarget{}}
@@ -611,14 +612,14 @@ func TestEventRetentionSettingPrunesByAgeOnlyForItsOwnOrgWhenOn(t *testing.T) {
 	}
 
 	// Off (the default): the opt-in setting is inert, nothing of ours is pruned by it.
-	r.hub.rec.prune(r.ctx, now, Settings{})
+	r.hub.rec.prune(r.ctx, now, kernel.Settings{})
 	evs, _ := r.st.ListEvents(r.ctx, "org-1", store.EventQuery{Limit: 100})
 	if len(evs) != 2 {
 		t.Fatalf("with EventRetentionDays=0, %d events remain, want 2 (the opt-in setting must stay inert)", len(evs))
 	}
 
 	// On: only the old event in org-1 is pruned; the recent one and org-2's event are untouched.
-	r.hub.rec.prune(r.ctx, now, Settings{EventRetentionDays: 7})
+	r.hub.rec.prune(r.ctx, now, kernel.Settings{EventRetentionDays: 7})
 	evs, _ = r.st.ListEvents(r.ctx, "org-1", store.EventQuery{Limit: 100})
 	if len(evs) != 1 || evs[0].Name != "recent" {
 		t.Fatalf("org-1 events after pruning = %+v", evs)
@@ -633,22 +634,22 @@ func TestEventRetentionSettingPrunesByAgeOnlyForItsOwnOrgWhenOn(t *testing.T) {
 
 func TestSettingsEndpointsRolesAndHiddenDeciderURL(t *testing.T) {
 	a := newAdminRig(t)
-	a.base.Decider, _ = NewDeciderPolicy("127.0.0.0/8")
+	a.base.Decider, _ = kernel.NewDeciderPolicy("127.0.0.0/8")
 	_, admin := a.user(t, "root", RoleAdmin)
 	_, viewer := a.user(t, "eve", RoleViewer)
 	_, editor := a.user(t, "eddy", RoleEditor)
 
-	put := a.do("PUT", "/api/v1/settings", Settings{SnapshotMinutes: 7, DeciderURL: "http://127.0.0.1:9/decide?key=secret", DeciderName: "Mine"}, withCookie(admin))
+	put := a.do("PUT", "/api/v1/settings", kernel.Settings{SnapshotMinutes: 7, DeciderURL: "http://127.0.0.1:9/decide?key=secret", DeciderName: "Mine"}, withCookie(admin))
 	if put.Code != 200 || put.json(t)["deciderUrl"] != "http://127.0.0.1:9/decide?key=secret" {
 		t.Fatalf("admin put: %d %s", put.Code, put.Body.String())
 	}
-	if r := a.do("PUT", "/api/v1/settings", Settings{SnapshotMinutes: 9}, withCookie(viewer)); r.Code != 403 {
+	if r := a.do("PUT", "/api/v1/settings", kernel.Settings{SnapshotMinutes: 9}, withCookie(viewer)); r.Code != 403 {
 		t.Fatalf("a viewer changed settings: %d", r.Code)
 	}
-	if r := a.do("PUT", "/api/v1/settings", Settings{SnapshotMinutes: 99999}, withCookie(admin)); r.Code != 400 {
+	if r := a.do("PUT", "/api/v1/settings", kernel.Settings{SnapshotMinutes: 99999}, withCookie(admin)); r.Code != 400 {
 		t.Fatalf("an out of range value: %d", r.Code)
 	}
-	if r := a.do("PUT", "/api/v1/settings", Settings{DeciderURL: "http://169.254.169.254/"}, withCookie(admin)); r.Code != 400 {
+	if r := a.do("PUT", "/api/v1/settings", kernel.Settings{DeciderURL: "http://169.254.169.254/"}, withCookie(admin)); r.Code != 400 {
 		t.Fatalf("a metadata address as decider: %d", r.Code)
 	}
 	adm := a.do("GET", "/api/v1/settings", nil, withCookie(admin)).json(t)
@@ -665,7 +666,7 @@ func TestSettingsEndpointsRolesAndHiddenDeciderURL(t *testing.T) {
 	if r := a.do("GET", "/api/v1/settings", nil); r.Code != 401 {
 		t.Fatalf("anonymous: %d", r.Code)
 	}
-	if r := a.do("PUT", "/api/v1/settings", Settings{}, withCookie(admin), withoutXRW()); r.Code == 200 {
+	if r := a.do("PUT", "/api/v1/settings", kernel.Settings{}, withCookie(admin), withoutXRW()); r.Code == 200 {
 		t.Fatal("a settings change without the CSRF header was accepted")
 	}
 }
@@ -817,7 +818,7 @@ func TestHistoryEndpoints(t *testing.T) {
 
 func TestDecideProxyForwardsOnlyToTheConfiguredDecider(t *testing.T) {
 	a := newAdminRig(t)
-	a.base.Decider, _ = NewDeciderPolicy("127.0.0.0/8") // the test decider listens on loopback
+	a.base.Decider, _ = kernel.NewDeciderPolicy("127.0.0.0/8") // the test decider listens on loopback
 	_, admin := a.user(t, "root", RoleAdmin)
 	_, viewer := a.user(t, "eve", RoleEditor) // deciding needs an editor; see TestDecideNeedsAnEditor
 
@@ -840,7 +841,7 @@ func TestDecideProxyForwardsOnlyToTheConfiguredDecider(t *testing.T) {
 		_, _ = w.Write([]byte(`{"recommendations":[]}`))
 	}))
 	defer dec.Close()
-	if r := a.do("PUT", "/api/v1/settings", Settings{DeciderURL: dec.URL + "/decide?k=1", DeciderName: "Test decider", DeciderTimeoutSec: 3}, withCookie(admin)); r.Code != 200 {
+	if r := a.do("PUT", "/api/v1/settings", kernel.Settings{DeciderURL: dec.URL + "/decide?k=1", DeciderName: "Test decider", DeciderTimeoutSec: 3}, withCookie(admin)); r.Code != 200 {
 		t.Fatalf("settings: %d %s", r.Code, r.Body.String())
 	}
 	// the request may not choose where it goes, whatever it contains
@@ -865,7 +866,7 @@ func TestDecideProxyForwardsOnlyToTheConfiguredDecider(t *testing.T) {
 }
 
 func TestDeciderClientRefusesLinkLocalAndRedirects(t *testing.T) {
-	loop, _ := NewDeciderPolicy("127.0.0.0/8")
+	loop, _ := kernel.NewDeciderPolicy("127.0.0.0/8")
 	c := loop.Client(2 * time.Second)
 	if _, err := c.Get("http://169.254.169.254/latest/meta-data"); err == nil {
 		t.Fatal("the metadata address was reachable")
@@ -999,12 +1000,12 @@ func TestRevokedAgentsAreReclaimedAfterTheirRetention(t *testing.T) {
 		return
 	}
 
-	r.hub.rec.prune(r.ctx, *r.now, Settings{})
+	r.hub.rec.prune(r.ctx, *r.now, kernel.Settings{})
 	if v, n := has(gone); !v || n != 3 {
 		t.Fatalf("within its retention a revoked agent keeps its view (%v) and snapshots (%d of 3)", v, n)
 	}
 	*r.now = r.now.Add(2 * time.Hour)
-	r.hub.rec.prune(r.ctx, *r.now, Settings{})
+	r.hub.rec.prune(r.ctx, *r.now, kernel.Settings{})
 	if v, n := has(gone); v || n != 0 {
 		t.Fatalf("past its retention a revoked agent keeps its view (%v) and snapshots (%d of 3)", v, n)
 	}
@@ -1090,7 +1091,7 @@ func TestSettingsRevisionRefusesAStaleSave(t *testing.T) {
 	minutes := func() int {
 		return int(a.do("GET", "/api/v1/settings", nil, withCookie(admin)).json(t)["snapshotMinutes"].(float64))
 	}
-	put := func(s Settings, ifMatch string) resp {
+	put := func(s kernel.Settings, ifMatch string) resp {
 		if ifMatch == "" {
 			return a.do("PUT", "/api/v1/settings", s, withCookie(admin))
 		}
@@ -1102,7 +1103,7 @@ func TestSettingsRevisionRefusesAStaleSave(t *testing.T) {
 		t.Fatalf("nothing was ever saved, rev = %v", first["rev"])
 	}
 	// A fresh revision is accepted and the revision goes up.
-	r := put(Settings{SnapshotMinutes: 7}, "0")
+	r := put(kernel.Settings{SnapshotMinutes: 7}, "0")
 	if r.Code != 200 || rev(r.json(t)) != 1 {
 		t.Fatalf("fresh save: %d %s", r.Code, r.Body.String())
 	}
@@ -1110,7 +1111,7 @@ func TestSettingsRevisionRefusesAStaleSave(t *testing.T) {
 		t.Fatalf("GET after the save: rev %d", got)
 	}
 	// A second admin who still holds revision 0 is refused, gets the current document, and nothing is stored.
-	r = put(Settings{SnapshotMinutes: 9}, "0")
+	r = put(kernel.Settings{SnapshotMinutes: 9}, "0")
 	if r.Code != 409 {
 		t.Fatalf("stale save: %d %s", r.Code, r.Body.String())
 	}
@@ -1122,17 +1123,17 @@ func TestSettingsRevisionRefusesAStaleSave(t *testing.T) {
 		t.Fatalf("a refused save changed the settings: %d", got)
 	}
 	// Having reloaded, the same edit goes through, quoted or not.
-	r = put(Settings{SnapshotMinutes: 9}, `"1"`)
+	r = put(kernel.Settings{SnapshotMinutes: 9}, `"1"`)
 	if r.Code != 200 || rev(r.json(t)) != 2 || minutes() != 9 {
 		t.Fatalf("save on the current revision: %d %s", r.Code, r.Body.String())
 	}
 	// Without a revision the save is accepted as before, and still counts.
-	r = put(Settings{SnapshotMinutes: 11}, "")
+	r = put(kernel.Settings{SnapshotMinutes: 11}, "")
 	if r.Code != 200 || rev(r.json(t)) != 3 || minutes() != 11 {
 		t.Fatalf("save without a revision: %d %s", r.Code, r.Body.String())
 	}
 	// A revision that is not a number is a mistake of the client's, not a conflict.
-	if r := put(Settings{SnapshotMinutes: 12}, "abc"); r.Code != 400 {
+	if r := put(kernel.Settings{SnapshotMinutes: 12}, "abc"); r.Code != 400 {
 		t.Fatalf("bad If-Match: %d", r.Code)
 	}
 	if got := minutes(); got != 11 {
@@ -1143,7 +1144,7 @@ func TestSettingsRevisionRefusesAStaleSave(t *testing.T) {
 func TestSettingsRevisionSurvivesARestartAndNonRevisedSaves(t *testing.T) {
 	e := newEnv(t)
 	for i := 1; i <= 2; i++ {
-		if _, err := e.core.SaveSettings(e.ctx, "alex", Settings{SnapshotMinutes: 2 + i}); err != nil {
+		if _, err := e.core.SaveSettings(e.ctx, "alex", kernel.Settings{SnapshotMinutes: 2 + i}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -1153,11 +1154,11 @@ func TestSettingsRevisionSurvivesARestartAndNonRevisedSaves(t *testing.T) {
 		t.Fatalf("after restart: rev %d, %+v", c2.SettingsRev(), c2.Settings())
 	}
 	stale := int64(1)
-	if _, _, err := c2.SaveSettingsAt(e.ctx, "alex", &stale, Settings{SnapshotMinutes: 8}); err == nil || !strings.Contains(err.Error(), "someone else") {
+	if _, _, err := c2.SaveSettingsAt(e.ctx, "alex", &stale, kernel.Settings{SnapshotMinutes: 8}); err == nil || !strings.Contains(err.Error(), "someone else") {
 		t.Fatalf("a revision from before the restart's state should conflict: %v", err)
 	}
 	cur := int64(2)
-	if n, rev, err := c2.SaveSettingsAt(e.ctx, "alex", &cur, Settings{SnapshotMinutes: 8}); err != nil || rev != 3 || n.SnapshotMinutes != 8 {
+	if n, rev, err := c2.SaveSettingsAt(e.ctx, "alex", &cur, kernel.Settings{SnapshotMinutes: 8}); err != nil || rev != 3 || n.SnapshotMinutes != 8 {
 		t.Fatalf("current revision: %+v %d %v", n, rev, err)
 	}
 }

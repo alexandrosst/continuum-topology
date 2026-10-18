@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"continuum/internal/history"
+	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
 
@@ -25,18 +26,18 @@ import (
 // stricter still: nobody ever sees it again once saved, administrator included, the same as a password field -
 // only whether one is set is exposed.
 type SettingsDoc struct {
-	Settings
+	kernel.Settings
 	DeciderConfigured bool `json:"deciderConfigured"`
 	DeciderSecretSet  bool `json:"deciderSecretSet"`
 	// ImageDefaults is what the server's --image-* flags say: what install commands use while this organisation's
 	// own image settings are empty. Derived; the UI shows it and never sends it back.
-	ImageDefaults ImageConfig `json:"imageDefaults"`
+	ImageDefaults kernel.ImageConfig `json:"imageDefaults"`
 	// Rev is the revision of this document: 0 until it was first saved, then up by one with every save. Derived; a save
 	// names the revision its edit started from in If-Match instead (see putSettings), and a body that carries `rev` is refused.
 	Rev int64 `json:"rev"`
 }
 
-func settingsDoc(s Settings, rev int64, admin bool) SettingsDoc {
+func settingsDoc(s kernel.Settings, rev int64, admin bool) SettingsDoc {
 	d := SettingsDoc{Settings: s, Rev: rev, DeciderConfigured: s.DeciderURL != "", DeciderSecretSet: s.DeciderSecret != ""}
 	d.Settings.DeciderSecret = "" // write-only, always - see SettingsDoc
 	if !admin {
@@ -72,7 +73,7 @@ func (a *Admin) putSettings(w http.ResponseWriter, r *http.Request) {
 		expect = &v
 	}
 	var body struct {
-		Settings
+		kernel.Settings
 		ClearDeciderSecret bool `json:"clearDeciderSecret"`
 	}
 	if err := decode(r, &body); err != nil {
@@ -89,8 +90,8 @@ func (a *Admin) putSettings(w http.ResponseWriter, r *http.Request) {
 	// Which cluster the server runs in is changed where it is shown (the central operator's address picker), not here.
 	s.ServerClusterID = a.core(r).Settings().ServerClusterID
 	n, rev, err := a.core(r).SaveSettingsAt(r.Context(), actor(r), expect, s)
-	var ce *Error
-	if errors.As(err, &ce) && ce.Kind == KindConflict {
+	var ce *kernel.Error
+	if errors.As(err, &ce) && ce.Kind == kernel.KindConflict {
 		d := settingsDoc(n, rev, true)
 		d.ImageDefaults = a.imageDefaults()
 		writeJSON(w, http.StatusConflict, struct {
@@ -566,7 +567,7 @@ func (a *Admin) decide(w http.ResponseWriter, r *http.Request) {
 	}
 	resp, err := c.Decider.Client(time.Duration(set.DeciderTimeoutSec) * time.Second).Do(req)
 	if err != nil {
-		if IsDeciderDenied(err) {
+		if kernel.IsDeciderDenied(err) {
 			c.Log.Warn("external decider refused by the address policy", "org", c.OrgID, "host", host, "err", err)
 			fail(502, "the server is not allowed to connect to the external decider's address: it is private, loopback or link-local. An operator can allow a range with --decider-allow-cidrs")
 			return
@@ -610,5 +611,5 @@ func scrubURLError(err error) error {
 // trafficSt is historyTraffic's short-TTL cache for its SQLite slow path. It is one per organisation, so one organisation's cached
 // traffic can never reach another's.
 func (c *Core) trafficSt() *trafficCache {
-	return OrgState(c, "estate.traffic", func() *trafficCache { return &trafficCache{} })
+	return kernel.OrgState(c, "estate.traffic", func() *trafficCache { return &trafficCache{} })
 }

@@ -17,7 +17,7 @@ none of them. The **shell** wires the modules together and is the only thing tha
 
 | Group | What it is | Files | Lines | Tables | Routes |
 |---|---|---|---|---|---|
-| kernel | The `Core` (store, CA, organisation, audit, clock, rate limits), settings, secrets, the outbound address policy (`decider.go`), the Kubernetes interface (`kube.go`), install image settings | 8 | 2,461 | `audit`, `settings` | 0 |
+| kernel (now the package `internal/kernel`) | The `Core` (store, CA, organisation, audit, clock, rate limits), settings, secrets, the outbound address policy (`decider.go`), the Kubernetes interface (`kube.go`), install image settings | 11 | 2,442 | `audit`, `settings` | 0 |
 | accounts | People, organisations, roles, sessions, API tokens, passkeys, two-factor, mail; the words for who is calling (`Actor`, `Principal`, `Role`) and the one decision of what a caller may do (`Decide`) | 8 | 2,609 | `users`, `orgs`, `memberships`, `invites`, `sessions`, `api_tokens`, `mail_config` | 40 |
 | agents | An enrolled agent: tokens and enrolment, the stream (gRPC), consent and access tier, the conditions, diagnostics and self-telemetry, the agent's connecting address and place | 14 | 3,542 | `tokens`, `agents` | 12 |
 | estate | What the server knows about the world: the hub, the per-agent views, observed flows, the twin, history, the applications graph | 8 | 4,683 | `workspace`, `history`, `events`, `snapshots`, `identities`, `model_state`, `tombstones` | 22 |
@@ -55,9 +55,9 @@ kernel with the document: the kernel owns the shape of `Settings` and the rules 
 is done with the values. The life of an agent's identity (tokens, reject, revoke, renew, rejoin: 6) had been written in `core.go`
 and moved to agents. What the `Core` held for modules (the sign-in state, the mail holder, the passkey implementation, the opened
 CAs of operators, the heartbeat coalescer, the traffic cache: 10) is now a slot each module fills itself (`state.go`), and the
-Core knows nothing of what is in the slots. The namespace-name check moved to the kernel, where three modules use it. What
-remains of the kernel's reaches is 6 uses of the shell (the image settings on `Admin` and the metrics counters), which go with
-the HTTP kit below. One edge was made visible by the moves and is to be inverted when telemetry is cut: agents ending an
+Core knows nothing of what is in the slots. The namespace-name check moved to the kernel, where three modules use it. The
+last 6 reaches, into the shell (the image settings on `Admin` and the metrics counters), were cut by splitting each: the shape and
+the checks stay in the kernel, and what the flags say, and the HTTP exposition of the counters, stay in the shell. One edge was made visible by the moves and is to be inverted when telemetry is cut: agents ending an
 agent's telemetry intents when it is revoked.
 
 **4. The shell is used by every module: 152 uses.** 82 of them are plain HTTP plumbing that every handler needs, and which sits
@@ -131,7 +131,7 @@ recognising an id. That is one small schema addition, to be brought as its own s
 This is a proposal from the numbers above; each move starts with its own short plan.
 
 1. **The kernel's reaches into modules** (29 uses): done, in three cuts (see Progress).
-2. **The kernel as a package**, with the HTTP kit (not a module) beside it: the 82 plumbing uses out of `admin.go`, and the 20 metrics counters into a registry the kernel owns.
+2. **The kernel as a package**: done (`internal/kernel`; see Progress). Still to do, because the module packages need it: the HTTP kit (not a module) beside it, the 82 plumbing uses out of `admin.go`. Until then a module package holds domain logic only, and its HTTP handlers stay in the shell as thin adapters.
 3. **Accounts.** One edge to estate; a callback instead.
 4. **Advice.** Invert the hub's 15 calls into it; define what advice reads as an interface of its own.
 5. **Operators and telemetry** together (with the managed-operator interface and the schema addition), then **fusion** on top of them.
@@ -155,7 +155,9 @@ added without choosing. The uses across modules are in `testdata/module_edges.tx
 names the file, and a line for a use that is gone also fails, so the list can only shrink without a decision. The store methods that
 more than one module calls are in `testdata/module_store.txt`, held the same way. Accept a change on purpose with
 `go test ./internal/server -run TestModule -update`. The test type-checks the package with `go list -export` and the standard
-library, so it adds no dependency; it is skipped with `-short`.
+library, so it adds no dependency; it is skipped with `-short`. The kernel needs no such test for its own direction: it is a package,
+so the compiler refuses an import of the server, and `internal/kernel/imports_test.go` refuses an import of any other package of
+this repository that a module could be (it may use the store, the CA and the two libraries its settings use).
 
 ## Progress
 
@@ -165,3 +167,6 @@ library, so it adds no dependency; it is skipped with `-short`.
 | Kernel cut 1: the link settings | the link types and checks move into the kernel with `Settings` | 12 lines leave |
 | Kernel cut 2: the life of an agent's identity | `core.go` to `agent_lifecycle.go` | 6 leave, 2 appear that were hidden (agents to telemetry, estate to agents) |
 | Kernel cut 3: what the Core held for modules | `state.go`: a slot per module; the namespace check to the kernel | 11 leave. The kernel depends on no module. Now 521 lines, and 21 shared store methods |
+| Kernel cut 4: the last reaches into the shell | `admin_images.go` and `counters.go`; the image settings and the metrics counters split in two | 28 lines leave; the kernel depends on nothing outside itself |
+| Kernel step 2a: export | 69 unexported names that other files use become exported, by object identity (933 sites) | none |
+| Kernel step 2b: the kernel as a package | `internal/kernel` takes the 11 files and their unit tests; `server.Core` embeds `*kernel.Core` (`kernel_bridge.go`), and every use of a kernel name is `kernel.X` (1,780 sites, in this package and in the five that import it) | the store list loses one line (the kernel no longer counts as a caller of `GetAgent`); the list of edges between modules is unchanged |

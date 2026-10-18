@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"continuum/internal/kernel"
 	"continuum/internal/pki"
 	"continuum/internal/store"
 )
@@ -300,7 +301,7 @@ func (c *Core) ReissueOperatorInstall(ctx context.Context, actor, id string) (st
 		return store.Operator{}, out, err
 	}
 	if op.Status != store.OperatorActive {
-		return store.Operator{}, out, Errf(KindConflict, "only an active operator can be installed again")
+		return store.Operator{}, out, kernel.Errf(kernel.KindConflict, "only an active operator can be installed again")
 	}
 	var recvEnd, clientEnd time.Time
 	var hbHash, tokenHash []byte
@@ -337,17 +338,17 @@ func (c *Core) ReissueOperatorInstall(ctx context.Context, actor, id string) (st
 		clientEnd = recvEnd // client certificates are minted with the same lifetime
 		did = append(did, "certificates until "+recvEnd.UTC().Format("2006-01-02"))
 	} else {
-		if out.ReceiverToken, err = NewOperatorReceiverSecret(); err != nil {
+		if out.ReceiverToken, err = kernel.NewOperatorReceiverSecret(); err != nil {
 			return store.Operator{}, out, err
 		}
-		tokenHash = HashSecret(out.ReceiverToken)
+		tokenHash = kernel.HashSecret(out.ReceiverToken)
 		did = append(did, "receiver token rotated")
 	}
 	if len(op.HeartbeatHash) > 0 {
-		if out.HeartbeatSecret, err = NewOperatorHeartbeatSecret(); err != nil {
+		if out.HeartbeatSecret, err = kernel.NewOperatorHeartbeatSecret(); err != nil {
 			return store.Operator{}, out, err
 		}
-		hbHash = HashSecret(out.HeartbeatSecret)
+		hbHash = kernel.HashSecret(out.HeartbeatSecret)
 		did = append(did, "heartbeat secret rotated")
 	}
 	// Only what was done, never any secret or hash: the trail records that it happened, by whom, to what.
@@ -364,7 +365,7 @@ func (c *Core) ReissueOperatorInstall(ctx context.Context, actor, id string) (st
 // stateErr words the store's "not active" answer for a caller.
 func stateErr(err error) error {
 	if errors.Is(err, store.ErrBadState) {
-		return Errf(KindConflict, "operator is not active")
+		return kernel.Errf(kernel.KindConflict, "operator is not active")
 	}
 	return err
 }

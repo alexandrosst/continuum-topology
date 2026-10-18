@@ -11,6 +11,7 @@ import (
 	"time"
 
 	continuumv1 "continuum/gen/continuumv1"
+	"continuum/internal/kernel"
 	"continuum/internal/pki"
 	"continuum/internal/store"
 
@@ -36,14 +37,14 @@ func toStatus(err error) error {
 	if err == nil {
 		return nil
 	}
-	var e *Error
+	var e *kernel.Error
 	if !errors.As(err, &e) {
 		return status.Error(codes.Internal, "internal error")
 	}
-	code := map[Kind]codes.Code{
-		KindInvalid: codes.InvalidArgument, KindUnauthenticated: codes.Unauthenticated, KindNotFound: codes.NotFound,
-		KindConflict: codes.FailedPrecondition, KindRateLimited: codes.ResourceExhausted, KindInternal: codes.Internal, KindForbidden: codes.PermissionDenied,
-		KindTwoFactorRequired: codes.Unauthenticated, // never actually reached over gRPC (agents don't sign in), kept correct for safety
+	code := map[kernel.Kind]codes.Code{
+		kernel.KindInvalid: codes.InvalidArgument, kernel.KindUnauthenticated: codes.Unauthenticated, kernel.KindNotFound: codes.NotFound,
+		kernel.KindConflict: codes.FailedPrecondition, kernel.KindRateLimited: codes.ResourceExhausted, kernel.KindInternal: codes.Internal, kernel.KindForbidden: codes.PermissionDenied,
+		kernel.KindTwoFactorRequired: codes.Unauthenticated, // never actually reached over gRPC (agents don't sign in), kept correct for safety
 	}[e.Kind]
 	return status.Error(code, e.Msg)
 }
@@ -117,7 +118,7 @@ func hasClientAuth(c *x509.Certificate) bool {
 // verified client certificate is refused without its (up to 16 MB) message ever being received.
 func (c *Core) tap(ctx context.Context, info *tap.Info) (context.Context, error) {
 	if strings.HasPrefix(info.FullMethodName, enrollmentPrefix) {
-		if c.TapRL != nil && !c.TapRL.Allow("tap:"+LimitKey(peerIP(ctx))) {
+		if c.TapRL != nil && !c.TapRL.Allow("tap:"+kernel.LimitKey(peerIP(ctx))) {
 			return nil, status.Error(codes.ResourceExhausted, "too many requests")
 		}
 		return ctx, nil
@@ -127,7 +128,7 @@ func (c *Core) tap(ctx context.Context, info *tap.Info) (context.Context, error)
 			return ctx, nil
 		}
 	}
-	Metrics.AuthFailures.Add(1)
+	kernel.Metrics.AuthFailures.Add(1)
 	return nil, status.Error(codes.Unauthenticated, "a client certificate is required")
 }
 
@@ -161,7 +162,7 @@ func (c *Core) stream(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo
 	defer c.recoverPanic(info.FullMethod, &err)
 	a, err := c.identity(ss.Context())
 	if err != nil {
-		Metrics.AuthFailures.Add(1)
+		kernel.Metrics.AuthFailures.Add(1)
 		return err
 	}
 	return h(srv, wrappedStream{ss, context.WithValue(ss.Context(), ctxKey{}, a)})
@@ -448,5 +449,5 @@ func (b *BaseAgentService) Renew(ctx context.Context, r *continuumv1.RenewReques
 	if err != nil {
 		return nil, toStatus(err)
 	}
-	return &continuumv1.RenewResponse{LeafDer: leaf, CaDer: b.C.CA.DER, NotAfter: TSProto(&notAfter)}, nil
+	return &continuumv1.RenewResponse{LeafDer: leaf, CaDer: b.C.CA.DER, NotAfter: kernel.TSProto(&notAfter)}, nil
 }

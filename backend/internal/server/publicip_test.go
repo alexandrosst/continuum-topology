@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"continuum/internal/kernel"
 )
 
 // permissiveFinder builds a *PublicIPFinder that trusts loopback (an httptest.Server listens on
@@ -15,7 +17,7 @@ import (
 // TestPublicIPFinderDefaultPolicyRefusesLoopback). Constructing the struct directly, rather than through
 // NewPublicIPFinder, is what lets a test open exactly that one hole without weakening the real default.
 func permissiveFinder(url string, ttl time.Duration) *PublicIPFinder {
-	allow, _ := NewDeciderPolicy("127.0.0.0/8, ::1/128")
+	allow, _ := kernel.NewDeciderPolicy("127.0.0.0/8, ::1/128")
 	return &PublicIPFinder{url: url, client: allow.Client(5 * time.Second), ttl: ttl}
 }
 

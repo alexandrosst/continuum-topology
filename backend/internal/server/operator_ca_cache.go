@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"continuum/internal/kernel"
 	"continuum/internal/pki"
 )
 
@@ -139,4 +140,4 @@ func (o *operatorCAs) forget(id string) {
 }
 
 // opCASt keeps operators' opened CAs (see operatorCAs). Server-wide.
-func (c *Core) opCASt() *operatorCAs { return ServerState(c, "operators.cas", newOperatorCAs) }
+func (c *Core) opCASt() *operatorCAs { return kernel.ServerState(c, "operators.cas", newOperatorCAs) }

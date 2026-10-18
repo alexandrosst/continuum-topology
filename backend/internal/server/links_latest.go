@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"continuum/internal/fusionapi"
+	"continuum/internal/kernel"
 )
 
 // The latest figures of each watched pair, for the Sites screen. The pairs come from the organisation's settings; the numbers
@@ -279,7 +280,7 @@ func (a *Admin) fusionLinks(w http.ResponseWriter, r *http.Request, c *fusionapi
 		a.fusionErr(w, r, err)
 		return
 	}
-	var want []LinkSetting
+	var want []kernel.LinkSetting
 	for _, l := range links {
 		switch {
 		case !who.Scope.LinkPairVisible(l.A, l.B):
@@ -320,7 +321,7 @@ func (a *Admin) fusionLinks(w http.ResponseWriter, r *http.Request, c *fusionapi
 }
 
 // fusionLinkSettings are the pairs the FUSION organisation asked to have watched.
-func (a *Admin) fusionLinkSettings(ctx context.Context) ([]LinkSetting, error) {
+func (a *Admin) fusionLinkSettings(ctx context.Context) ([]kernel.LinkSetting, error) {
 	org := a.fusionOrg()
 	if a.P == nil {
 		if a.C.OrgID == org {
@@ -339,7 +340,7 @@ func (a *Admin) fusionLinkSettings(ctx context.Context) ([]LinkSetting, error) {
 // the listed pairs, and when FUSION was read. The queries are fixed and run with an unrestricted scope of the server's own, whoever
 // asks: nothing a caller supplies reaches them, and what a caller may see of the answer is decided by the caller of this function
 // (the Sites screen by the organisation, the data API by the token's clusters). One read is shared by everyone for linksLatestEvery.
-func (a *Admin) linkFigures(ctx context.Context, c *fusionapi.Client, links []LinkSetting) ([]LinkPairLatest, linkSample, error) {
+func (a *Admin) linkFigures(ctx context.Context, c *fusionapi.Client, links []kernel.LinkSetting) ([]LinkPairLatest, linkSample, error) {
 	pairs, sample, err := a.linkPairReadings(ctx, c, links)
 	if err != nil {
 		return nil, sample, err
@@ -352,7 +353,7 @@ func (a *Admin) linkFigures(ctx context.Context, c *fusionapi.Client, links []Li
 }
 
 // linkPairReadings is linkFigures with, for each pair, which clusters' series the figures came from.
-func (a *Admin) linkPairReadings(ctx context.Context, c *fusionapi.Client, links []LinkSetting) ([]pairReading, linkSample, error) {
+func (a *Admin) linkPairReadings(ctx context.Context, c *fusionapi.Client, links []kernel.LinkSetting) ([]pairReading, linkSample, error) {
 	readings, sample, err := a.linkReadings.get(ctx, a.C.Now, func(ctx context.Context) (fusionapi.LinkReadings, error) {
 		// Seven or more queries at once would take most of the slots the other readers of FUSION share; the bulk lane leaves some.
 		return c.LinkReadings(fusionapi.WithBulk(ctx), fusionapi.AllSignals())
@@ -376,7 +377,7 @@ type pairReading struct {
 // then lets the second probe) or when an older agent still measures from both sides and the two disagree a little. The route
 // trace runs on both sides, so the MTU is the smaller of the two. now is when the readings were taken, which the age of a probe
 // is judged against.
-func latestPairs(links []LinkSetting, rd fusionapi.LinkReadings, now time.Time) []LinkPairLatest {
+func latestPairs(links []kernel.LinkSetting, rd fusionapi.LinkReadings, now time.Time) []LinkPairLatest {
 	in := readPairs(links, rd, now)
 	out := make([]LinkPairLatest, len(in))
 	for i, p := range in {
@@ -429,7 +430,7 @@ func knownFailureReason(r string) string {
 	return "other"
 }
 
-func readPairs(links []LinkSetting, rd fusionapi.LinkReadings, now time.Time) []pairReading {
+func readPairs(links []kernel.LinkSetting, rd fusionapi.LinkReadings, now time.Time) []pairReading {
 	loss, jitter, rtt, tput, probed, tested, up := linkIdx(rd.Loss, false), linkIdx(rd.Jitter, false), linkIdx(rd.RTT, false), linkIdx(rd.Throughput, false), linkIdx(rd.Probed, false), linkIdx(rd.Tested, false), linkIdx(rd.Up, false)
 	mtu := linkIdx(rd.MTU, true)
 	probeWhy, connectWhy := linkReasons(rd.ProbeFailure), linkReasons(rd.ConnectFailure)

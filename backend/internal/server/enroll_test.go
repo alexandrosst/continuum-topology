@@ -13,6 +13,7 @@ import (
 
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/approval"
+	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
 
@@ -94,7 +95,7 @@ func (e *env) chainOK(t *testing.T) {
 }
 
 func attemptsLeft(err error) (int, bool) {
-	var e *Error
+	var e *kernel.Error
 	if errors.As(err, &e) {
 		if n, ok := e.Data["attemptsLeft"].(int); ok {
 			return n, true
@@ -116,7 +117,7 @@ func TestApprovalCodeApprovesAndOnlyItsHashIsStored(t *testing.T) {
 
 	// A wrong code says how many tries are left and is audited.
 	err := e.core.Approve(e.ctx, "alex", c.resp.AgentId, "ZZZZ-ZZZZ", 2)
-	if kindOf(err) != KindInvalid {
+	if kindOf(err) != kernel.KindInvalid {
 		t.Fatalf("wrong code: %v", err)
 	}
 	if n, ok := attemptsLeft(err); !ok || n != 4 {
@@ -157,7 +158,7 @@ func TestFiveWrongCodesRejectTheEnrollment(t *testing.T) {
 		}
 	}
 	err := e.core.Approve(e.ctx, "alex", c.resp.AgentId, "ZZZZ-ZZZZ", 2)
-	var se *Error
+	var se *kernel.Error
 	if !errors.As(err, &se) || se.Data["locked"] != true {
 		t.Fatalf("fifth wrong code should lock: %v", err)
 	}
@@ -168,7 +169,7 @@ func TestFiveWrongCodesRejectTheEnrollment(t *testing.T) {
 		t.Fatalf("the agent must learn it was rejected, got %v", p.State)
 	}
 	// Even the right code is too late now.
-	if err := e.core.Approve(e.ctx, "alex", c.resp.AgentId, c.code, 2); kindOf(err) != KindConflict {
+	if err := e.core.Approve(e.ctx, "alex", c.resp.AgentId, c.code, 2); kindOf(err) != kernel.KindConflict {
 		t.Fatalf("right code after the lock: %v", err)
 	}
 	log := strings.Join(e.auditActions(t), "\n")
@@ -191,7 +192,7 @@ func TestParallelGuessesCannotExceedTheAttemptLimit(t *testing.T) {
 			err := e.core.Approve(e.ctx, "alex", c.resp.AgentId, fmt.Sprintf("ZZZZ-%04d", 1000+i), 2)
 			mu.Lock()
 			defer mu.Unlock()
-			var se *Error
+			var se *kernel.Error
 			if errors.As(err, &se) && se.Data != nil {
 				if se.Data["locked"] == true {
 					locked++
@@ -203,11 +204,11 @@ func TestParallelGuessesCannotExceedTheAttemptLimit(t *testing.T) {
 	}
 	wg.Wait()
 	a, _ := e.st.GetAgent(e.ctx, c.resp.AgentId)
-	if a.ApprovalAttempts > MaxApprovalAttempts+30 || a.Status != store.StatusRejected {
+	if a.ApprovalAttempts > kernel.MaxApprovalAttempts+30 || a.Status != store.StatusRejected {
 		t.Fatalf("agent = %+v", a)
 	}
-	if wrong > MaxApprovalAttempts-1 {
-		t.Fatalf("%d guesses were answered as merely wrong; at most %d may be", wrong, MaxApprovalAttempts-1)
+	if wrong > kernel.MaxApprovalAttempts-1 {
+		t.Fatalf("%d guesses were answered as merely wrong; at most %d may be", wrong, kernel.MaxApprovalAttempts-1)
 	}
 	if locked < 1 {
 		t.Fatal("the lock must be reported")
@@ -219,7 +220,7 @@ func TestAMalformedCodeDoesNotSpendAnAttempt(t *testing.T) {
 	c := e.enrollCoded(t, fp)
 	for _, junk := range []string{"", "abc", "K7QM-4TX", "K7QM-4TXDD", "K7QM-4TXU", "ünïcödé!"} {
 		err := e.core.Approve(e.ctx, "alex", c.resp.AgentId, junk, 2)
-		if n, ok := attemptsLeft(err); kindOf(err) != KindInvalid || !ok || n != 5 {
+		if n, ok := attemptsLeft(err); kindOf(err) != kernel.KindInvalid || !ok || n != 5 {
 			t.Errorf("%q: %v (left %d)", junk, err, n)
 		}
 	}
@@ -240,7 +241,7 @@ func TestAHashMadeForAnotherKeyDoesNotApprove(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := e.core.Approve(e.ctx, "alex", resp.AgentId, code, 2); kindOf(err) != KindInvalid {
+	if err := e.core.Approve(e.ctx, "alex", resp.AgentId, code, 2); kindOf(err) != kernel.KindInvalid {
 		t.Fatalf("a code bound to another key approved: %v", err)
 	}
 }
@@ -258,7 +259,7 @@ func TestEnrollWithoutAnApprovalCodeIsRefused(t *testing.T) {
 	short, _ := approvalFor(t, d)
 	for _, hash := range [][]byte{nil, {}, short[:8]} {
 		_, err := e.core.Enroll(e.ctx, "10.0.0.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fp, InstalledAccessTier: 2, ApprovalCodeHash: hash})
-		if kindOf(err) != KindInvalid {
+		if kindOf(err) != kernel.KindInvalid {
 			t.Fatalf("hash of %d bytes: %v", len(hash), err)
 		}
 	}
@@ -279,11 +280,11 @@ func TestATokenBoundToAClusterRefusesAnotherAndIsNotSpent(t *testing.T) {
 	}
 	other := "11111111-2222-4333-8444-555566667777"
 	_, err = e.tryEnroll(t, secret, other, nil, "")
-	if kindOf(err) != KindForbidden {
+	if kindOf(err) != kernel.KindForbidden {
 		t.Fatalf("a different cluster: %v", err)
 	}
 	log := strings.Join(e.auditActions(t), "\n")
-	if !strings.Contains(log, "enrollment-refused") || !strings.Contains(log, ShortFP(fp)) || !strings.Contains(log, ShortFP(other)) {
+	if !strings.Contains(log, "enrollment-refused") || !strings.Contains(log, kernel.ShortFP(fp)) || !strings.Contains(log, kernel.ShortFP(other)) {
 		t.Errorf("audit:\n%s", log)
 	}
 	// The token was not consumed: the right cluster can still use it.
@@ -296,7 +297,7 @@ func TestATokenBoundToAClusterRefusesAnotherAndIsNotSpent(t *testing.T) {
 func TestExpectedClusterMustBeAKubeSystemUID(t *testing.T) {
 	e := newEnv(t)
 	for _, bad := range []string{"prod", "1234", "8f3c2a9e-1111-4222-8333-94445555666"} {
-		if _, _, err := e.core.CreateTokenFor(e.ctx, "admin", "prod", 2, bad); kindOf(err) != KindInvalid {
+		if _, _, err := e.core.CreateTokenFor(e.ctx, "admin", "prod", 2, bad); kindOf(err) != kernel.KindInvalid {
 			t.Errorf("%q accepted: %v", bad, err)
 		}
 	}
@@ -323,7 +324,7 @@ func TestRetriedEnrollmentContinuesTheSameAgent(t *testing.T) {
 		t.Fatalf("%d agents", len(agents))
 	}
 	// The first poll secret went with the lost response; the new one works.
-	if _, err := e.core.Poll(e.ctx, "10.0.0.1", &continuumv1.PollRequest{AgentId: first.resp.AgentId, PollSecret: first.resp.PollSecret}); kindOf(err) != KindUnauthenticated {
+	if _, err := e.core.Poll(e.ctx, "10.0.0.1", &continuumv1.PollRequest{AgentId: first.resp.AgentId, PollSecret: first.resp.PollSecret}); kindOf(err) != kernel.KindUnauthenticated {
 		t.Fatalf("the old poll secret still works: %v", err)
 	}
 	if p := e.poll(t, again.resp.AgentId, again.resp.PollSecret); p.State != continuumv1.PollResponse_PENDING {
@@ -359,7 +360,7 @@ func TestRetryAfterApprovalStillCollectsTheCertificate(t *testing.T) {
 	if err := e.st.ClearPollSecret(e.ctx, first.resp.AgentId); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.tryEnroll(t, secret, fp, d, first.code); kindOf(err) != KindUnauthenticated {
+	if _, err := e.tryEnroll(t, secret, fp, d, first.code); kindOf(err) != kernel.KindUnauthenticated {
 		t.Fatalf("a retry after the agent went live: %v", err)
 	}
 }
@@ -370,15 +371,15 @@ func TestSpentTokenWithAnotherKeyOrCodeIsRefused(t *testing.T) {
 	d, _ := csr(t)
 	first := e.enrollCodedWith(t, secret, fp, d, "")
 	// Somebody else with the spent token and their own key.
-	if _, err := e.tryEnroll(t, secret, fp, nil, ""); kindOf(err) != KindUnauthenticated {
+	if _, err := e.tryEnroll(t, secret, fp, nil, ""); kindOf(err) != kernel.KindUnauthenticated {
 		t.Fatalf("another key: %v", err)
 	}
 	// The same key with a different code is not a retry of that enrollment.
-	if _, err := e.tryEnroll(t, secret, fp, d, ""); kindOf(err) != KindConflict {
+	if _, err := e.tryEnroll(t, secret, fp, d, ""); kindOf(err) != kernel.KindConflict {
 		t.Fatalf("another code: %v", err)
 	}
 	// Nor is the same key claiming another cluster.
-	if _, err := e.tryEnroll(t, secret, "11111111-2222-4333-8444-555566667777", d, first.code); kindOf(err) != KindUnauthenticated {
+	if _, err := e.tryEnroll(t, secret, "11111111-2222-4333-8444-555566667777", d, first.code); kindOf(err) != kernel.KindUnauthenticated {
 		t.Fatalf("another cluster: %v", err)
 	}
 	if agents, _ := e.st.ListAgents(e.ctx, "org-1"); len(agents) != 1 {
@@ -394,7 +395,7 @@ func TestARejectedEnrollmentCannotBeRetriedBack(t *testing.T) {
 	if err := e.core.Reject(e.ctx, "alex", first.resp.AgentId, "no"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.tryEnroll(t, secret, fp, d, first.code); kindOf(err) != KindUnauthenticated {
+	if _, err := e.tryEnroll(t, secret, fp, d, first.code); kindOf(err) != kernel.KindUnauthenticated {
 		t.Fatalf("a rejected enrollment came back: %v", err)
 	}
 }
@@ -408,7 +409,7 @@ func TestPendingEnrollmentsExpireAndCanBeReopenedWithANewCode(t *testing.T) {
 	d, _ := csr(t)
 	first := e.enrollCodedWith(t, secret, fp, d, "")
 	p := e.poll(t, first.resp.AgentId, first.resp.PollSecret)
-	if p.State != continuumv1.PollResponse_PENDING || p.PollAfterSeconds != PollIntervalSecond || p.ServerTimeUnix != e.now.Unix() {
+	if p.State != continuumv1.PollResponse_PENDING || p.PollAfterSeconds != kernel.PollIntervalSecond || p.ServerTimeUnix != e.now.Unix() {
 		t.Fatalf("pending poll: %+v", p)
 	}
 	if first.resp.PendingTtlSeconds != 3600 || first.resp.ServerTimeUnix != e.now.Unix() {
@@ -419,7 +420,7 @@ func TestPendingEnrollmentsExpireAndCanBeReopenedWithANewCode(t *testing.T) {
 	if p := e.poll(t, first.resp.AgentId, first.resp.PollSecret); p.State != continuumv1.PollResponse_EXPIRED {
 		t.Fatalf("after the lifetime: %v", p.State)
 	}
-	if err := e.core.Approve(e.ctx, "alex", first.resp.AgentId, first.code, 2); kindOf(err) != KindConflict {
+	if err := e.core.Approve(e.ctx, "alex", first.resp.AgentId, first.code, 2); kindOf(err) != kernel.KindConflict {
 		t.Fatalf("approving an expired request: %v", err)
 	}
 	evs, _ := e.st.ListEvents(e.ctx, "org-1", store.EventQuery{})
@@ -439,7 +440,7 @@ func TestPendingEnrollmentsExpireAndCanBeReopenedWithANewCode(t *testing.T) {
 	if second.resp.AgentId != first.resp.AgentId || second.code == first.code {
 		t.Fatalf("reopen: agent %s code %s", second.resp.AgentId, second.code)
 	}
-	if err := e.core.Approve(e.ctx, "alex", first.resp.AgentId, first.code, 2); kindOf(err) != KindInvalid {
+	if err := e.core.Approve(e.ctx, "alex", first.resp.AgentId, first.code, 2); kindOf(err) != kernel.KindInvalid {
 		t.Fatalf("the old code must not work: %v", err)
 	}
 	if err := e.core.Approve(e.ctx, "alex", second.resp.AgentId, second.code, 2); err != nil {

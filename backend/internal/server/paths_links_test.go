@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	continuumv1 "continuum/gen/continuumv1"
+	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
 
@@ -29,7 +30,7 @@ func TestAPushIsSkippedWhileTheAgentsCannotBeRead(t *testing.T) {
 		first, second = second, first
 	}
 	r.core.OnSettings = nil // the push a save starts runs in the background and would race the pushes under test
-	if _, err := r.core.SaveSettings(r.ctx, "alex", Settings{Links: []LinkSetting{{A: first.ClusterID, B: second.ClusterID}}}); err != nil {
+	if _, err := r.core.SaveSettings(r.ctx, "alex", kernel.Settings{Links: []kernel.LinkSetting{{A: first.ClusterID, B: second.ClusterID}}}); err != nil {
 		t.Fatal(err)
 	}
 	newV := func(ip string) *view {

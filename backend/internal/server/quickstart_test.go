@@ -3,12 +3,14 @@ package server
 import (
 	"testing"
 	"time"
+
+	"continuum/internal/kernel"
 )
 
 // savedBackend saves one quick-start backend and returns its id.
 func (e *env) savedBackend(t *testing.T, kind, modality string) string {
 	t.Helper()
-	n, err := e.core.SaveSettings(e.ctx, "alex", Settings{QuickStartBackends: []QuickStartBackend{
+	n, err := e.core.SaveSettings(e.ctx, "alex", kernel.Settings{QuickStartBackends: []kernel.QuickStartBackend{
 		{Kind: kind, Modality: modality, Namespace: "observability", Retention: "72h"},
 	}})
 	if err != nil {
@@ -50,7 +52,7 @@ func TestMintGatewayTokenHappyPathReturnsTheSecretOnceAndStoresOnlyItsHash(t *te
 
 func TestMintGatewayTokenRejectsAnUnknownBackend(t *testing.T) {
 	e := newEnv(t)
-	if _, _, err := e.core.MintGatewayToken(e.ctx, "alex", "qsb-does-not-exist", 0); kindOf(err) != KindNotFound {
+	if _, _, err := e.core.MintGatewayToken(e.ctx, "alex", "qsb-does-not-exist", 0); kindOf(err) != kernel.KindNotFound {
 		t.Fatalf("expected KindNotFound, got %v", err)
 	}
 }
@@ -77,7 +79,7 @@ func TestMintGatewayTokenClampsTTLIntoRange(t *testing.T) {
 func TestLatestGatewayTokenReportsNoneUntilOneIsMinted(t *testing.T) {
 	e := newEnv(t)
 	id := e.savedBackend(t, "prometheus", "metrics")
-	if _, err := e.core.LatestGatewayToken(e.ctx, id); kindOf(err) == KindInvalid {
+	if _, err := e.core.LatestGatewayToken(e.ctx, id); kindOf(err) == kernel.KindInvalid {
 		t.Fatalf("unexpected error before any mint: %v", err)
 	}
 	if _, _, err := e.core.MintGatewayToken(e.ctx, "alex", id, 0); err != nil {

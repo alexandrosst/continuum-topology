@@ -9,6 +9,7 @@ import (
 
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/facts"
+	"continuum/internal/kernel"
 	"continuum/internal/store"
 	"continuum/internal/twin"
 )
@@ -744,14 +745,14 @@ func TestRetentionUsesOverrideThenLiveSettingThenDefault(t *testing.T) {
 	if got := h.retention(); got != twin.DefaultRetention {
 		t.Fatalf("no settings saved: got %v, want the default %v", got, twin.DefaultRetention)
 	}
-	if _, err := e.core.SaveSettings(e.ctx, "alex", Settings{TombstoneRetentionDays: 21}); err != nil {
+	if _, err := e.core.SaveSettings(e.ctx, "alex", kernel.Settings{TombstoneRetentionDays: 21}); err != nil {
 		t.Fatal(err)
 	}
 	if got, want := h.retention(), 21*24*time.Hour; got != want {
 		t.Fatalf("a changed setting was not picked up live: got %v, want %v", got, want)
 	}
 	// A live setting change takes effect without touching the test-only override.
-	if _, err := e.core.SaveSettings(e.ctx, "alex", Settings{TombstoneRetentionDays: 5}); err != nil {
+	if _, err := e.core.SaveSettings(e.ctx, "alex", kernel.Settings{TombstoneRetentionDays: 5}); err != nil {
 		t.Fatal(err)
 	}
 	if got, want := h.retention(), 5*24*time.Hour; got != want {

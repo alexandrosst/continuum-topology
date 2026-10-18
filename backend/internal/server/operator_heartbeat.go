@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
 
@@ -102,11 +103,11 @@ type heartbeatSeen struct {
 	last map[string]time.Time
 	// rl bounds how many heartbeats one operator may send, authenticated or not: a healthy one sends one a
 	// minute, so this only ever bites a misconfigured exporter or someone holding a leaked secret.
-	rl *Limiter
+	rl *kernel.Limiter
 }
 
 func newHeartbeatSeen() *heartbeatSeen {
-	return &heartbeatSeen{last: map[string]time.Time{}, rl: NewLimiter(60, 20)}
+	return &heartbeatSeen{last: map[string]time.Time{}, rl: kernel.NewLimiter(60, 20)}
 }
 
 // reserve reports whether a write is due for this operator at now, and if so claims it (so a concurrent
@@ -149,9 +150,9 @@ func (c *Core) EnableOperatorHeartbeat(ctx context.Context, actor, id string) (s
 		return "", false, err
 	}
 	if op.Status != store.OperatorActive {
-		return "", false, Errf(KindConflict, "only an active operator can report a heartbeat")
+		return "", false, kernel.Errf(kernel.KindConflict, "only an active operator can report a heartbeat")
 	}
-	secret, err = NewOperatorHeartbeatSecret()
+	secret, err = kernel.NewOperatorHeartbeatSecret()
 	if err != nil {
 		return "", false, err
 	}
@@ -161,12 +162,12 @@ func (c *Core) EnableOperatorHeartbeat(ctx context.Context, actor, id string) (s
 		action = "operator-heartbeat-rotated"
 	}
 	// No secret, hash or prefix in the detail: the trail records that it happened, by whom, to what.
-	err = c.Store.SetOperatorHeartbeat(ctx, id, HashSecret(secret), c.Now(), store.WithAudit(c.AuditRow(c.OrgID, actor, action, "operator", id, "")))
+	err = c.Store.SetOperatorHeartbeat(ctx, id, kernel.HashSecret(secret), c.Now(), store.WithAudit(c.AuditRow(c.OrgID, actor, action, "operator", id, "")))
 	switch {
 	case errors.Is(err, store.ErrBadState):
-		err = Errf(KindConflict, "only an active operator can report a heartbeat")
+		err = kernel.Errf(kernel.KindConflict, "only an active operator can report a heartbeat")
 	case errors.Is(err, store.ErrNotFound):
-		err = Errf(KindNotFound, "no such regional operator")
+		err = kernel.Errf(kernel.KindNotFound, "no such regional operator")
 	}
 	if err = c.AuditedWrite(err, action); err != nil {
 		return "", false, err
@@ -179,10 +180,10 @@ func (c *Core) EnableOperatorHeartbeat(ctx context.Context, actor, id string) (s
 // Unknown, malformed, rotated-away and revoked all return errHeartbeatRejected. Database writes are
 // coalesced to one per heartbeatWriteEvery per operator; there is no audit row per heartbeat.
 func (c *Core) RecordOperatorHeartbeat(ctx context.Context, secret string) error {
-	if !LooksLikeHeartbeatSecret(secret) {
+	if !kernel.LooksLikeHeartbeatSecret(secret) {
 		return errHeartbeatRejected
 	}
-	h := HashSecret(secret)
+	h := kernel.HashSecret(secret)
 	op, err := c.Store.GetOperatorByHeartbeatHash(ctx, h)
 	if errors.Is(err, store.ErrNotFound) {
 		return errHeartbeatRejected
@@ -212,5 +213,5 @@ func (c *Core) RecordOperatorHeartbeat(ctx context.Context, secret string) error
 
 // heartbeatSt coalesces regional operators' heartbeat writes (see RecordOperatorHeartbeat). Server-wide, like the rate limiters.
 func (c *Core) heartbeatSt() *heartbeatSeen {
-	return ServerState(c, "operators.heartbeats", newHeartbeatSeen)
+	return kernel.ServerState(c, "operators.heartbeats", newHeartbeatSeen)
 }

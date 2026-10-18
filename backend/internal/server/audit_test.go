@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
 
@@ -306,7 +307,7 @@ func TestPrivilegedActionsFailClosedWhenTheAuditRowCannotBeWritten(t *testing.T)
 	expect("role change", a.do("POST", "/api/v1/members/"+edID+"/role", map[string]any{"role": "admin"}, withCookie(owner)))
 	expect("remove member", a.do("POST", "/api/v1/members/"+edID+"/remove", nil, withCookie(owner)))
 	expect("create invite", a.do("POST", "/api/v1/invites", map[string]any{"role": "viewer"}, withCookie(owner)))
-	expect("decider change", a.do("PUT", "/api/v1/settings", Settings{DeciderURL: "https://decider.example.com/x"}, withCookie(owner)))
+	expect("decider change", a.do("PUT", "/api/v1/settings", kernel.Settings{DeciderURL: "https://decider.example.com/x"}, withCookie(owner)))
 	expect("rename", a.do("POST", "/api/v1/rename", map[string]any{"name": "Renamed"}, withCookie(owner)))
 	expect("delete organisation", a.do("POST", org(carolOrg, "delete"), map[string]any{"confirm": "Carol Co"}, withCookie(carol)))
 
@@ -352,7 +353,7 @@ func TestPrivilegedActionsFailClosedWhenTheAuditRowCannotBeWritten(t *testing.T)
 	if r := a.do("POST", "/api/v1/agents/"+live.AgentId+"/revoke", map[string]any{"reason": "done"}, withCookie(owner)); r.Code != 204 {
 		t.Errorf("revoke once the trail works: %d %s", r.Code, r.Body.String())
 	}
-	if r := a.do("PUT", "/api/v1/settings", Settings{DeciderURL: "https://decider.example.com/x"}, withCookie(owner)); r.Code != 200 {
+	if r := a.do("PUT", "/api/v1/settings", kernel.Settings{DeciderURL: "https://decider.example.com/x"}, withCookie(owner)); r.Code != 200 {
 		t.Errorf("decider once the trail works: %d %s", r.Code, r.Body.String())
 	}
 }
@@ -361,9 +362,9 @@ func TestAFailedActionAfterItsAuditRowLeavesAFollowUpRow(t *testing.T) {
 	e := newEnv(t)
 	// the action is refused after the row was written: the trail must say so
 	err := e.core.Audited(e.ctx, "alex", "note", "agent", "a-1", "about to", func() error {
-		return Errf(KindConflict, "nothing to do")
+		return kernel.Errf(kernel.KindConflict, "nothing to do")
 	})
-	if kindOf(err) != KindConflict {
+	if kindOf(err) != kernel.KindConflict {
 		t.Fatalf("the action's own error must reach the caller: %v", err)
 	}
 	evs, _ := e.st.ListAudit(e.ctx, "org-1", 10)
@@ -387,17 +388,17 @@ func TestARefusedWriteWithItsOwnAuditRowLeavesNoRow(t *testing.T) {
 	if err := e.core.Reject(e.ctx, "alex", resp.AgentId, "first"); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.core.Reject(e.ctx, "alex", resp.AgentId, "again"); kindOf(err) != KindConflict {
+	if err := e.core.Reject(e.ctx, "alex", resp.AgentId, "again"); kindOf(err) != kernel.KindConflict {
 		t.Fatalf("second reject: %v", err)
 	}
 	other, _ := e.enroll(t, 2, "11111111-2222-4333-8444-555566667777")
 	if err := e.core.Revoke(e.ctx, "alex", other.AgentId, "x"); err != nil {
 		t.Fatalf("revoke: %v", err)
 	}
-	if err := e.core.Revoke(e.ctx, "alex", other.AgentId, "again"); kindOf(err) != KindConflict {
+	if err := e.core.Revoke(e.ctx, "alex", other.AgentId, "again"); kindOf(err) != kernel.KindConflict {
 		t.Fatalf("second revoke: %v", err)
 	}
-	if err := e.core.DeleteToken(e.ctx, "alex", "tk-nope"); kindOf(err) != KindNotFound {
+	if err := e.core.DeleteToken(e.ctx, "alex", "tk-nope"); kindOf(err) != kernel.KindNotFound {
 		t.Fatalf("delete of a missing token: %v", err)
 	}
 	evs, _ := e.st.ListAudit(e.ctx, "org-1", 20)
@@ -501,7 +502,7 @@ func TestRejectAndRevokeReasonsAreClippedEverywhere(t *testing.T) {
 		t.Fatal(err)
 	}
 	ag, _ := e.st.GetAgent(e.ctx, resp.AgentId)
-	if len(ag.Reason) > MaxReason {
+	if len(ag.Reason) > kernel.MaxReason {
 		t.Fatalf("stored reason is %d bytes", len(ag.Reason))
 	}
 	evs, _ := e.st.ListAudit(e.ctx, "org-1", 10)
@@ -509,7 +510,7 @@ func TestRejectAndRevokeReasonsAreClippedEverywhere(t *testing.T) {
 		if ev.Action != "agent-rejected" {
 			continue
 		}
-		if len(ev.Detail) > MaxReason || strings.ContainsAny(ev.Detail, "\n\x00") {
+		if len(ev.Detail) > kernel.MaxReason || strings.ContainsAny(ev.Detail, "\n\x00") {
 			t.Fatalf("audit detail: %d bytes %q", len(ev.Detail), ev.Detail)
 		}
 		if !strings.HasPrefix(ev.Detail, "é") || strings.ContainsRune(ev.Detail, '�') {
@@ -519,7 +520,7 @@ func TestRejectAndRevokeReasonsAreClippedEverywhere(t *testing.T) {
 	// Any other audit field is bounded too.
 	e.core.Audit(e.ctx, strings.Repeat("a", 999), "act", "k", strings.Repeat("i", 999), strings.Repeat("d", 99999))
 	evs, _ = e.st.ListAudit(e.ctx, "org-1", 1)
-	if len(evs[0].Actor) > MaxAuditActor || len(evs[0].TargetID) > MaxAuditTarget || len(evs[0].Detail) > MaxAuditDetail {
+	if len(evs[0].Actor) > kernel.MaxAuditActor || len(evs[0].TargetID) > kernel.MaxAuditTarget || len(evs[0].Detail) > kernel.MaxAuditDetail {
 		t.Fatalf("unbounded audit row: %d %d %d", len(evs[0].Actor), len(evs[0].TargetID), len(evs[0].Detail))
 	}
 }

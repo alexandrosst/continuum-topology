@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"continuum/internal/fusionapi"
+	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
 
@@ -27,7 +28,7 @@ type fakeKube struct {
 	secretIn string
 
 	reads                          int // Workload calls, to see how often the cluster is asked
-	pods                           map[string]KubePod
+	pods                           map[string]kernel.KubePod
 	podErr                         error // what reading any pod fails with (nil = the pods in `pods`)
 	claims                         map[string]string
 	svcAddr                        string
@@ -40,7 +41,7 @@ type fakeKube struct {
 	// the retention calls (fusion_retention_test.go)
 	settings    map[string]string // nil: there is no settings object
 	settingsErr error
-	rclaims     map[string]KubeClaim
+	rclaims     map[string]kernel.KubeClaim
 	resizeErr   error
 	resizeErrOn string // the claim resizeErr applies to ("": every one)
 	restartErr  error
@@ -49,14 +50,14 @@ type fakeKube struct {
 }
 
 func newFakeKube(names ...string) *fakeKube {
-	k := &fakeKube{replicas: map[string]int{}, ready: map[string]int{}, pods: map[string]KubePod{}, claims: map[string]string{}}
+	k := &fakeKube{replicas: map[string]int{}, ready: map[string]int{}, pods: map[string]kernel.KubePod{}, claims: map[string]string{}}
 	for _, n := range names {
 		k.replicas[n] = 0
 	}
 	return k
 }
 
-func (k *fakeKube) Workload(ctx context.Context, kind, name string) (KubeWorkload, error) {
+func (k *fakeKube) Workload(ctx context.Context, kind, name string) (kernel.KubeWorkload, error) {
 	k.mu.Lock()
 	k.reads++
 	slow := k.slow
@@ -64,7 +65,7 @@ func (k *fakeKube) Workload(ctx context.Context, kind, name string) (KubeWorkloa
 	select {
 	case <-time.After(slow):
 	case <-ctx.Done():
-		return KubeWorkload{}, ctx.Err()
+		return kernel.KubeWorkload{}, ctx.Err()
 	}
 	if k.onWorkload != nil {
 		k.onWorkload()
@@ -72,13 +73,13 @@ func (k *fakeKube) Workload(ctx context.Context, kind, name string) (KubeWorkloa
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	if k.err != nil {
-		return KubeWorkload{}, k.err
+		return kernel.KubeWorkload{}, k.err
 	}
 	r, ok := k.replicas[name]
 	if !ok || k.missing {
-		return KubeWorkload{}, ErrKubeNotFound
+		return kernel.KubeWorkload{}, kernel.ErrKubeNotFound
 	}
-	return KubeWorkload{Desired: r, Ready: k.ready[name]}, nil
+	return kernel.KubeWorkload{Desired: r, Ready: k.ready[name]}, nil
 }
 
 func (k *fakeKube) Scale(_ context.Context, kind, name string, replicas int) error {
@@ -88,7 +89,7 @@ func (k *fakeKube) Scale(_ context.Context, kind, name string, replicas int) err
 		return k.err
 	}
 	if _, ok := k.replicas[name]; !ok { // the real API has no such workload to scale
-		return ErrKubeNotFound
+		return kernel.ErrKubeNotFound
 	}
 	k.calls = append(k.calls, name)
 	k.replicas[name] = replicas
@@ -105,16 +106,16 @@ func (k *fakeKube) PatchSecret(_ context.Context, name string, data map[string][
 	return nil
 }
 
-func (k *fakeKube) Pod(_ context.Context, name string) (KubePod, error) {
+func (k *fakeKube) Pod(_ context.Context, name string) (kernel.KubePod, error) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	k.podReads++
 	if k.podErr != nil {
-		return KubePod{}, k.podErr
+		return kernel.KubePod{}, k.podErr
 	}
 	p, ok := k.pods[name]
 	if !ok {
-		return KubePod{}, ErrKubeNotFound
+		return kernel.KubePod{}, kernel.ErrKubeNotFound
 	}
 	return p, nil
 }
@@ -128,7 +129,7 @@ func (k *fakeKube) ClaimPhase(_ context.Context, name string) (string, error) {
 	}
 	p, ok := k.claims[name]
 	if !ok {
-		return "", ErrKubeNotFound
+		return "", kernel.ErrKubeNotFound
 	}
 	return p, nil
 }
@@ -208,7 +209,7 @@ func TestFusionStatusSaysWhyItCannotBeSwitched(t *testing.T) {
 	if st := f.Status(context.Background()); st.Available || st.Reason != "not-installed" {
 		t.Errorf("workloads absent: %+v", st)
 	}
-	k.missing, k.err = false, ErrKubeForbidden
+	k.missing, k.err = false, kernel.ErrKubeForbidden
 	if st := f.Status(context.Background()); st.Available || st.Reason != "no-access" {
 		t.Errorf("forbidden: %+v", st)
 	}
@@ -335,7 +336,7 @@ func TestEnableFusionRefusesWhatItCannotDo(t *testing.T) {
 	a := newAdminRig(t)
 	ctx := context.Background()
 	f, k := newFusion(t, a)
-	k.err = ErrKubeForbidden
+	k.err = kernel.ErrKubeForbidden
 	if _, err := f.Enable(ctx, a.a.C, "alex"); err == nil {
 		t.Error("enabled without permission")
 	}
@@ -345,8 +346,8 @@ func TestEnableFusionRefusesWhatItCannotDo(t *testing.T) {
 
 	f, _ = newFusion(t, a)
 	f.Org = "some-other-org"
-	var e *Error
-	if _, err := f.Enable(ctx, a.a.C, "alex"); !errors.As(err, &e) || e.Kind != KindForbidden {
+	var e *kernel.Error
+	if _, err := f.Enable(ctx, a.a.C, "alex"); !errors.As(err, &e) || e.Kind != kernel.KindForbidden {
 		t.Errorf("another organisation enabled FUSION: %v", err)
 	}
 }
@@ -363,8 +364,8 @@ func TestTheCentralOperatorIsNotEditableByHand(t *testing.T) {
 		"delete": a.a.C.DeleteOperator(ctx, "alex", CentralOperatorID),
 		"scope":  a.a.C.UpdateOperatorScope(ctx, "alex", CentralOperatorID, nil, store.Destination{Kind: store.DestinationExternal, Endpoint: "x:1"}, nil),
 	} {
-		var e *Error
-		if !errors.As(err, &e) || e.Kind != KindConflict {
+		var e *kernel.Error
+		if !errors.As(err, &e) || e.Kind != kernel.KindConflict {
 			t.Errorf("%s: %v", name, err)
 		}
 	}

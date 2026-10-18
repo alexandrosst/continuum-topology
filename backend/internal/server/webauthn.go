@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
 
@@ -70,7 +71,9 @@ type WebAuthnProvider interface {
 
 // errNoPasskeys is what every passkey endpoint returns when the server has no provider wired in - not
 // expected outside a build or test that deliberately left Core.WebAuthn nil.
-func errNoPasskeys() *Error { return Errf(KindConflict, "passkeys are not available on this server") }
+func errNoPasskeys() *kernel.Error {
+	return kernel.Errf(kernel.KindConflict, "passkeys are not available on this server")
+}
 
 // validRelyingPartyID reports whether id can be a WebAuthn RP ID at all: the spec requires a registrable
 // domain suffix (or exactly "localhost"), never a bare IP literal - a browser refuses the ceremony outright
@@ -145,18 +148,18 @@ func (c *Core) BeginPasskeyRegistration(ctx context.Context, p Principal, rp Rel
 		return nil, errNoPasskeys()
 	}
 	if !validRelyingPartyID(rp.ID) {
-		return nil, Errf(KindConflict, "passkeys need this server to be reached by a domain name, not a bare IP address (%s)", rp.ID)
+		return nil, kernel.Errf(kernel.KindConflict, "passkeys need this server to be reached by a domain name, not a bare IP address (%s)", rp.ID)
 	}
 	if !c.authSt().loginUser.Allow("2fa-setup|" + p.User.ID) {
-		return nil, Errf(KindRateLimited, "too many attempts, wait a minute")
+		return nil, kernel.Errf(kernel.KindRateLimited, "too many attempts, wait a minute")
 	}
 	u, err := c.Store.GetUser(ctx, p.User.ID)
 	if err != nil {
-		return nil, Errf(KindUnauthenticated, "sign in required")
+		return nil, kernel.Errf(kernel.KindUnauthenticated, "sign in required")
 	}
 	options, session, err := c.webAuthnP().BeginRegistration(rp, webauthnUser(u))
 	if err != nil {
-		return nil, Errf(KindInvalid, "could not start passkey registration: %v", err)
+		return nil, kernel.Errf(kernel.KindInvalid, "could not start passkey registration: %v", err)
 	}
 	c.putWebAuthnRegSession(u.ID, session)
 	return options, nil
@@ -172,11 +175,11 @@ func (c *Core) FinishPasskeyRegistration(ctx context.Context, p Principal, rp Re
 	}
 	name = strings.TrimSpace(name)
 	if l := len([]rune(name)); l > maxPasskeyName {
-		return Errf(KindInvalid, "the name is at most %d characters", maxPasskeyName)
+		return kernel.Errf(kernel.KindInvalid, "the name is at most %d characters", maxPasskeyName)
 	}
 	u, err := c.Store.GetUser(ctx, p.User.ID)
 	if err != nil {
-		return Errf(KindUnauthenticated, "sign in required")
+		return kernel.Errf(kernel.KindUnauthenticated, "sign in required")
 	}
 	if name == "" {
 		name = fmt.Sprintf("Passkey %d", len(u.WebAuthnCredentials)+1)
@@ -186,16 +189,16 @@ func (c *Core) FinishPasskeyRegistration(ctx context.Context, p Principal, rp Re
 	// instead of forcing the whole create() ceremony to run again.
 	session, ok := c.takeWebAuthnRegSession(p.User.ID)
 	if !ok {
-		return Errf(KindConflict, "that registration has expired; start again")
+		return kernel.Errf(kernel.KindConflict, "that registration has expired; start again")
 	}
 	cred, err := c.webAuthnP().FinishRegistration(rp, webauthnUser(u), session, response)
 	if err != nil {
-		return Errf(KindInvalid, "that passkey could not be registered: %v", err)
+		return kernel.Errf(kernel.KindInvalid, "that passkey could not be registered: %v", err)
 	}
 	cred.Name, cred.CreatedAt = name, c.Now()
 	if err := c.Store.AddWebAuthnCredential(ctx, u.ID, cred); err != nil {
 		if errors.Is(err, store.ErrExists) {
-			return Errf(KindConflict, "that passkey is already registered to this account")
+			return kernel.Errf(kernel.KindConflict, "that passkey is already registered to this account")
 		}
 		return err
 	}
@@ -210,22 +213,22 @@ func (c *Core) BeginPasskeyLogin(ctx context.Context, ip, pending string, rp Rel
 		return nil, errNoPasskeys()
 	}
 	if !validRelyingPartyID(rp.ID) {
-		return nil, Errf(KindConflict, "passkeys need this server to be reached by a domain name, not a bare IP address (%s)", rp.ID)
+		return nil, kernel.Errf(kernel.KindConflict, "passkeys need this server to be reached by a domain name, not a bare IP address (%s)", rp.ID)
 	}
-	if !c.authSt().loginIP.Allow(LimitKey(ip)) {
-		return nil, Errf(KindRateLimited, "too many sign-in attempts, wait a minute")
+	if !c.authSt().loginIP.Allow(kernel.LimitKey(ip)) {
+		return nil, kernel.Errf(kernel.KindRateLimited, "too many sign-in attempts, wait a minute")
 	}
 	pl, ok := c.peekPendingLogin(pending)
 	if !ok || !slices.Contains(pl.methods, "webauthn") {
-		return nil, Errf(KindUnauthenticated, "that sign-in has expired; enter your password again")
+		return nil, kernel.Errf(kernel.KindUnauthenticated, "that sign-in has expired; enter your password again")
 	}
 	u, err := c.Store.GetUser(ctx, pl.userID)
 	if err != nil || len(u.WebAuthnCredentials) == 0 {
-		return nil, Errf(KindUnauthenticated, "that sign-in has expired; enter your password again")
+		return nil, kernel.Errf(kernel.KindUnauthenticated, "that sign-in has expired; enter your password again")
 	}
 	options, session, err := c.webAuthnP().BeginLogin(rp, webauthnUser(u))
 	if err != nil {
-		return nil, Errf(KindInvalid, "could not start passkey sign-in: %v", err)
+		return nil, kernel.Errf(kernel.KindInvalid, "could not start passkey sign-in: %v", err)
 	}
 	c.putWebAuthnLoginSession(pending, session)
 	return options, nil
@@ -238,34 +241,34 @@ func (c *Core) FinishPasskeyLogin(ctx context.Context, ip, pending string, rp Re
 	if c.webAuthnP() == nil {
 		return "", store.User{}, errNoPasskeys()
 	}
-	key := LimitKey(ip)
+	key := kernel.LimitKey(ip)
 	if !c.authSt().loginIP.Allow(key) {
-		return "", store.User{}, Errf(KindRateLimited, "too many sign-in attempts, wait a minute")
+		return "", store.User{}, kernel.Errf(kernel.KindRateLimited, "too many sign-in attempts, wait a minute")
 	}
 	pl, ok := c.peekPendingLogin(pending)
 	if !ok || !slices.Contains(pl.methods, "webauthn") {
-		return "", store.User{}, Errf(KindUnauthenticated, "that sign-in has expired; enter your password again")
+		return "", store.User{}, kernel.Errf(kernel.KindUnauthenticated, "that sign-in has expired; enter your password again")
 	}
 	u, gerr := c.Store.GetUser(ctx, pl.userID)
 	if gerr != nil || u.DisabledAt != nil || len(u.WebAuthnCredentials) == 0 {
-		return "", store.User{}, Errf(KindUnauthenticated, "that sign-in has expired; enter your password again")
+		return "", store.User{}, kernel.Errf(kernel.KindUnauthenticated, "that sign-in has expired; enter your password again")
 	}
 	if !c.authSt().loginUser.Allow(key + "|" + u.Username) {
-		return "", store.User{}, Errf(KindRateLimited, "too many sign-in attempts, wait a minute")
+		return "", store.User{}, kernel.Errf(kernel.KindRateLimited, "too many sign-in attempts, wait a minute")
 	}
 	if wait := c.authSt().failures.Blocked(u.Username, c.Now()); wait > 0 {
-		return "", store.User{}, Errf(KindRateLimited, "too many failed sign-in attempts for this account; try again in %s", RoundWait(wait))
+		return "", store.User{}, kernel.Errf(kernel.KindRateLimited, "too many failed sign-in attempts for this account; try again in %s", kernel.RoundWait(wait))
 	}
 	session, ok := c.takeWebAuthnLoginSession(pending)
 	if !ok {
-		return "", store.User{}, Errf(KindUnauthenticated, "that sign-in has expired; enter your password again")
+		return "", store.User{}, kernel.Errf(kernel.KindUnauthenticated, "that sign-in has expired; enter your password again")
 	}
 	credID, signCount, verr := c.webAuthnP().FinishLogin(rp, webauthnUser(u), session, response)
 	if verr != nil {
 		c.authSt().failures.Fail(u.Username, c.Now())
-		Metrics.AuthFailures.Add(1)
-		c.AuditOrg(ctx, "", AnonymousActor.String(), "login-failed", "user", Printable(u.Username, 64), "wrong passkey from "+ip)
-		return "", store.User{}, Errf(KindUnauthenticated, "that passkey could not be verified")
+		kernel.Metrics.AuthFailures.Add(1)
+		c.AuditOrg(ctx, "", AnonymousActor.String(), "login-failed", "user", kernel.Printable(u.Username, 64), "wrong passkey from "+ip)
+		return "", store.User{}, kernel.Errf(kernel.KindUnauthenticated, "that passkey could not be verified")
 	}
 	c.authSt().failures.Succeed(u.Username)
 	c.consumePendingLogin(pending)
@@ -283,19 +286,19 @@ func (c *Core) FinishPasskeyLogin(ctx context.Context, ip, pending string, rp Re
 // RenamePasskey changes only a credential's own label.
 func (c *Core) RenamePasskey(ctx context.Context, p Principal, credentialIDB64, name string) error {
 	if !c.authSt().loginUser.Allow("2fa-setup|" + p.User.ID) {
-		return Errf(KindRateLimited, "too many attempts, wait a minute")
+		return kernel.Errf(kernel.KindRateLimited, "too many attempts, wait a minute")
 	}
 	name = strings.TrimSpace(name)
 	if name == "" || len([]rune(name)) > maxPasskeyName {
-		return Errf(KindInvalid, "name it 1-%d characters", maxPasskeyName)
+		return kernel.Errf(kernel.KindInvalid, "name it 1-%d characters", maxPasskeyName)
 	}
 	credID, err := base64.RawURLEncoding.DecodeString(credentialIDB64)
 	if err != nil {
-		return Errf(KindInvalid, "not a valid passkey id")
+		return kernel.Errf(kernel.KindInvalid, "not a valid passkey id")
 	}
 	if err := c.Store.RenameWebAuthnCredential(ctx, p.User.ID, credID, name); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
-			return Errf(KindNotFound, "no such passkey")
+			return kernel.Errf(kernel.KindNotFound, "no such passkey")
 		}
 		return err
 	}
@@ -307,23 +310,23 @@ func (c *Core) RenamePasskey(ctx context.Context, p Principal, credentialIDB64, 
 // as changing what it protects - a passkey has no separate "turn it off but keep it" state the way email does.
 func (c *Core) RemovePasskey(ctx context.Context, p Principal, credentialIDB64, password string) error {
 	if !c.authSt().loginUser.Allow("2fa-setup|" + p.User.ID) {
-		return Errf(KindRateLimited, "too many attempts, wait a minute")
+		return kernel.Errf(kernel.KindRateLimited, "too many attempts, wait a minute")
 	}
 	u, err := c.Store.GetUser(ctx, p.User.ID)
 	if err != nil {
-		return Errf(KindUnauthenticated, "sign in required")
+		return kernel.Errf(kernel.KindUnauthenticated, "sign in required")
 	}
 	ok, verr := c.verifyPassword(ctx, password, u.PasswordHash)
 	if verr != nil || !ok {
-		return Errf(KindInvalid, "your current password is not correct")
+		return kernel.Errf(kernel.KindInvalid, "your current password is not correct")
 	}
 	credID, err := base64.RawURLEncoding.DecodeString(credentialIDB64)
 	if err != nil {
-		return Errf(KindInvalid, "not a valid passkey id")
+		return kernel.Errf(kernel.KindInvalid, "not a valid passkey id")
 	}
 	if err := c.Store.RemoveWebAuthnCredential(ctx, u.ID, credID); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
-			return Errf(KindNotFound, "no such passkey")
+			return kernel.Errf(kernel.KindNotFound, "no such passkey")
 		}
 		return err
 	}
@@ -342,14 +345,14 @@ type webAuthnHolder struct {
 // cmd/server wires in the real one unconditionally - so nil in practice only means a build that omitted it (a test, say). It is
 // the same for every organisation's view of the Core.
 func (c *Core) SetWebAuthn(p WebAuthnProvider) {
-	h := ServerState(c, "accounts.webauthn", func() *webAuthnHolder { return &webAuthnHolder{} })
+	h := kernel.ServerState(c, "accounts.webauthn", func() *webAuthnHolder { return &webAuthnHolder{} })
 	h.mu.Lock()
 	h.p = p
 	h.mu.Unlock()
 }
 
 func (c *Core) webAuthnP() WebAuthnProvider {
-	h := ServerState(c, "accounts.webauthn", func() *webAuthnHolder { return &webAuthnHolder{} })
+	h := kernel.ServerState(c, "accounts.webauthn", func() *webAuthnHolder { return &webAuthnHolder{} })
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	return h.p

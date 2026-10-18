@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"continuum/internal/kernel"
 )
 
 func TestCheckTierNamesTheFirstLimitThatStopsATier(t *testing.T) {
@@ -33,8 +35,8 @@ func TestCheckTierNamesTheFirstLimitThatStopsATier(t *testing.T) {
 }
 
 func TestGrantableTierIsTheReleasesOwnRange(t *testing.T) {
-	for n := -2; n <= MaxTier+2; n++ {
-		if got, want := GrantableTier(n), n >= 0 && n <= ImplementedTier; got != want {
+	for n := -2; n <= kernel.MaxTier+2; n++ {
+		if got, want := GrantableTier(n), n >= 0 && n <= kernel.ImplementedTier; got != want {
 			t.Errorf("GrantableTier(%d) = %v, want %v", n, got, want)
 		}
 	}
@@ -44,7 +46,7 @@ func TestReportedTierIsHeldInsideTheTypesBoundNotTheReleases(t *testing.T) {
 	for _, c := range []struct {
 		in, out int
 		ok      bool
-	}{{-3, 0, false}, {0, 0, true}, {2, 2, true}, {3, 3, true}, {MaxTier, MaxTier, true}, {MaxTier + 1, MaxTier, false}, {1 << 20, MaxTier, false}} {
+	}{{-3, 0, false}, {0, 0, true}, {2, 2, true}, {3, 3, true}, {kernel.MaxTier, kernel.MaxTier, true}, {kernel.MaxTier + 1, kernel.MaxTier, false}, {1 << 20, kernel.MaxTier, false}} {
 		if out, ok := ReportedTier(c.in); out != c.out || ok != c.ok {
 			t.Errorf("ReportedTier(%d) = %d, %v; want %d, %v", c.in, out, ok, c.out, c.ok)
 		}

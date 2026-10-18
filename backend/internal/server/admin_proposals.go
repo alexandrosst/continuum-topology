@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"time"
 
+	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
 
@@ -81,7 +82,7 @@ func (a *Admin) submitProposal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.TTLSeconds < 0 || req.TTLSeconds > int(maxProposalTTL/time.Second) {
-		a.fail(w, Errf(KindInvalid, "ttlSeconds must be between 0 and %d", int(maxProposalTTL/time.Second)))
+		a.fail(w, kernel.Errf(kernel.KindInvalid, "ttlSeconds must be between 0 and %d", int(maxProposalTTL/time.Second)))
 		return
 	}
 	p, err := a.tn(r).Hub.SubmitProposal(r.Context(), actor(r), ProposalInput{Advisor: req.Advisor, ModelVersion: req.ModelVersion, Change: req.Change,
@@ -99,13 +100,13 @@ func (a *Admin) listProposals(w http.ResponseWriter, r *http.Request) {
 	switch q.Status {
 	case "", store.ProposalPending, store.ProposalAccepted, store.ProposalRejected, store.ProposalExpired, store.ProposalApplied, store.ProposalFailed:
 	default:
-		a.fail(w, Errf(KindInvalid, "status must be pending, accepted, rejected, expired, applied or failed"))
+		a.fail(w, kernel.Errf(kernel.KindInvalid, "status must be pending, accepted, rejected, expired, applied or failed"))
 		return
 	}
 	if v := r.URL.Query().Get("limit"); v != "" {
 		n, ok := atoiPositive(v)
 		if !ok {
-			a.fail(w, Errf(KindInvalid, "limit must be a positive number"))
+			a.fail(w, kernel.Errf(kernel.KindInvalid, "limit must be a positive number"))
 			return
 		}
 		q.Limit = n

@@ -1,4 +1,4 @@
-package server
+package kernel
 
 import (
 	"context"
@@ -265,7 +265,17 @@ func TestKubeClientReadsWhoProvisionedAClaim(t *testing.T) {
 		w.Write([]byte(`{"metadata":{"annotations":{"volume.kubernetes.io/storage-provisioner":"rancher.io/local-path"}},"spec":{"resources":{"requests":{"storage":"10Gi"}}},"status":{"phase":"Bound"}}`))
 	})
 	c, err := k.Claim(context.Background(), "data-f-loki-0")
-	if err != nil || c.Provisioner != "rancher.io/local-path" || !sizeNotEnforced(c.Provisioner) || sizeNotEnforced("ebs.csi.aws.com") {
+	if err != nil || c.Provisioner != "rancher.io/local-path" {
 		t.Fatalf("%+v %v", c, err)
+	}
+}
+
+func TestKubeClientReadsTheGatewaysNodePort(t *testing.T) {
+	k := testKube(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"spec":{"type":"NodePort","ports":[{"port":4318,"nodePort":31318},{"port":4317,"nodePort":31317}]}}`))
+	})
+	svc, err := k.Service(context.Background(), "f-fusion-central")
+	if err != nil || svc.Type != "NodePort" || svc.Port != 4317 || svc.NodePort != 31317 || svc.LoadBalancer != "" {
+		t.Fatalf("%+v %v", svc, err)
 	}
 }

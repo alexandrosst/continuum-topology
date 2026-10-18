@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"continuum/internal/kernel"
 )
 
 // mustTOTPCode computes the code the secret would show at now, the same way an authenticator app does.
@@ -220,18 +222,18 @@ func TestTwoFactorCorrectPasswordDoesNotClearTheBackoff(t *testing.T) {
 	// per-address limits stay out of it.
 	_, body := a.doLogin(t, "10.9.3.1", "carol", goodPW)
 	pending, _ := body["pending"].(string)
-	for i := 0; i <= FailFree; i++ {
+	for i := 0; i <= kernel.FailFree; i++ {
 		ip := "10.9.3." + string(rune('2'+i))
 		if r, _ := a.doLogin2FA(t, ip, pending, "000000"); r.Code != 401 {
 			t.Fatalf("wrong code %d: %d %s", i, r.Code, r.Body.String())
 		}
 	}
 	if r, _ := a.doLogin2FA(t, "10.9.3.20", pending, "000000"); r.Code != 429 {
-		t.Fatalf("the wait after %d wrong codes did not apply: %d %s", FailFree+1, r.Code, r.Body.String())
+		t.Fatalf("the wait after %d wrong codes did not apply: %d %s", kernel.FailFree+1, r.Code, r.Body.String())
 	}
 
 	// Once it has passed, entering the right password again starts a new pending sign-in...
-	*a.now = a.now.Add(FailBaseInterval + time.Second)
+	*a.now = a.now.Add(kernel.FailBaseInterval + time.Second)
 	r, body := a.doLogin(t, "10.9.3.21", "carol", goodPW)
 	if r.Code != 401 {
 		t.Fatalf("login after the wait: %d %s", r.Code, r.Body.String())

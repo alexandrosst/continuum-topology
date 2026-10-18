@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"continuum/internal/fusionapi"
+	"continuum/internal/kernel"
 )
 
 func lr(cluster, peer, dir string, v float64) fusionapi.LinkReading {
@@ -21,7 +22,7 @@ func lr(cluster, peer, dir string, v float64) fusionapi.LinkReading {
 }
 
 func TestPairsGetTheirFiguresFromWhicheverClusterMeasuredThem(t *testing.T) {
-	links := []LinkSetting{{A: "cl-a", B: "cl-b"}, {A: "cl-a", B: "cl-c"}, {A: "cl-d", B: "cl-e"}}
+	links := []kernel.LinkSetting{{A: "cl-a", B: "cl-b"}, {A: "cl-a", B: "cl-c"}, {A: "cl-d", B: "cl-e"}}
 	rd := fusionapi.LinkReadings{
 		// a measured towards b; b measured towards a and says something else: a is believed
 		Loss:       []fusionapi.LinkReading{lr("cl-a", "cl-b", "forward", 0.02), lr("cl-a", "cl-b", "reverse", 0), lr("cl-b", "cl-a", "forward", 0.5), lr("cl-b", "cl-a", "reverse", 0.5)},
@@ -101,7 +102,7 @@ func TestLatestFiguresOverHTTP(t *testing.T) {
 	if doc := a.do("GET", "/api/v1/links/latest", nil, withCookie(viewer)).json(t); doc["available"] != true || len(doc["pairs"].([]any)) != 0 || calls.Load() != 0 {
 		t.Fatalf("no pairs: %v (%d reads)", doc, calls.Load())
 	}
-	if r := a.do("PUT", "/api/v1/settings", Settings{SnapshotMinutes: 7, Links: []LinkSetting{{A: "cl-a", B: "cl-b"}}}, withCookie(admin)); r.Code != 200 {
+	if r := a.do("PUT", "/api/v1/settings", kernel.Settings{SnapshotMinutes: 7, Links: []kernel.LinkSetting{{A: "cl-a", B: "cl-b"}}}, withCookie(admin)); r.Code != 200 {
 		t.Fatalf("%d %s", r.Code, r.Body.String())
 	}
 	// a viewer reads the figures, and they are shared: a second read inside the window does not ask the store again
@@ -137,7 +138,7 @@ func TestAStoreThatFailsIsUnavailableAndNothingOfItsErrorIsShown(t *testing.T) {
 	defer bad.Close()
 	a.a.Fusion = &FusionControl{Name: "continuum-fusion", Namespace: "continuum", Kube: newFakeKube(fusionNames...), Org: "org-1", StatusTTL: -1,
 		Data: &fusionapi.Client{Prometheus: bad.URL}}
-	a.do("PUT", "/api/v1/settings", Settings{SnapshotMinutes: 7, Links: []LinkSetting{{A: "cl-a", B: "cl-b"}}}, withCookie(admin))
+	a.do("PUT", "/api/v1/settings", kernel.Settings{SnapshotMinutes: 7, Links: []kernel.LinkSetting{{A: "cl-a", B: "cl-b"}}}, withCookie(admin))
 	r := a.do("GET", "/api/v1/links/latest", nil, withCookie(admin))
 	if r.Code != 200 || strings.Contains(r.Body.String(), "secret.go") || strings.Contains(r.Body.String(), "10.2.3.4") {
 		t.Fatalf("%d %s", r.Code, r.Body.String())
@@ -176,8 +177,8 @@ func linkRig(t *testing.T, calls *atomic.Int32) *dataRig {
 	d := newDataRig(t)
 	st := linkFleetStore(t, calls)
 	d.a.Fusion.Data = &fusionapi.Client{Prometheus: st.URL}
-	links := []LinkSetting{{A: "cl-a", B: "cl-b"}, {A: "cl-a", B: "cl-c"}, {A: "cl-d", B: "cl-e"}}
-	if r := d.do("PUT", "/api/v1/settings", Settings{SnapshotMinutes: 7, Links: links}, withCookie(d.admin)); r.Code != 200 {
+	links := []kernel.LinkSetting{{A: "cl-a", B: "cl-b"}, {A: "cl-a", B: "cl-c"}, {A: "cl-d", B: "cl-e"}}
+	if r := d.do("PUT", "/api/v1/settings", kernel.Settings{SnapshotMinutes: 7, Links: links}, withCookie(d.admin)); r.Code != 200 {
 		t.Fatalf("%d %s", r.Code, r.Body.String())
 	}
 	return d
@@ -322,7 +323,7 @@ func TestFusionLinksWithoutPairsOrWithAFailingStore(t *testing.T) {
 	}))
 	defer bad.Close()
 	a.a.Fusion.Data = &fusionapi.Client{Prometheus: bad.URL}
-	a.do("PUT", "/api/v1/settings", Settings{SnapshotMinutes: 7, Links: []LinkSetting{{A: "cl-a", B: "cl-b"}}}, withCookie(a.admin))
+	a.do("PUT", "/api/v1/settings", kernel.Settings{SnapshotMinutes: 7, Links: []kernel.LinkSetting{{A: "cl-a", B: "cl-b"}}}, withCookie(a.admin))
 	r := a.get("/api/v1/fusion/links", withCookie(a.admin))
 	if r.Code != 503 || strings.Contains(r.Body.String(), "secret.go") || strings.Contains(r.Body.String(), "10.2.3.4") {
 		t.Fatalf("%d %s", r.Code, r.Body.String())
@@ -357,7 +358,7 @@ func lrr(cluster, peer, dir, reason string, v float64) fusionapi.LinkReading {
 // The store answers in no defined order, and a rolled pod can leave two series for one key. The figure shown must not depend on
 // which comes last: the worse loss, the larger delay variation and the smaller MTU win.
 func TestTwoSeriesOfOneKeyResolveTheSameWhicheverComesLast(t *testing.T) {
-	links := []LinkSetting{{A: "cl-a", B: "cl-b"}}
+	links := []kernel.LinkSetting{{A: "cl-a", B: "cl-b"}}
 	now := time.Unix(1791200200, 0)
 	loss := []fusionapi.LinkReading{lr("cl-a", "cl-b", "forward", 1), lr("cl-a", "cl-b", "forward", 0.1)}
 	jit := []fusionapi.LinkReading{lr("cl-a", "cl-b", "forward", 0.02), lr("cl-a", "cl-b", "forward", 0.001)}
@@ -439,14 +440,14 @@ func TestProbeStateAndDiagnosisRules(t *testing.T) {
 			wantA: "ok/", wantB: "never/", diagB: "one-way"},
 		{name: "probing off for the pair", noProbe: true, rd: fusionapi.LinkReadings{Up: []fusionapi.LinkReading{ab(0), ba(0)}}, wantA: "-", wantB: "-"},
 	} {
-		got := latestPairs([]LinkSetting{{A: "cl-a", B: "cl-b", NoProbe: c.noProbe}}, c.rd, now)[0]
+		got := latestPairs([]kernel.LinkSetting{{A: "cl-a", B: "cl-b", NoProbe: c.noProbe}}, c.rd, now)[0]
 		a, b, da, db := probeStateOf(got)
 		if a != c.wantA || b != c.wantB || da != c.diagA || db != c.diagB {
 			t.Errorf("%s: states %s %s, diagnoses %q %q; want %s %s, %q %q", c.name, a, b, da, db, c.wantA, c.wantB, c.diagA, c.diagB)
 		}
 	}
 	// the time of the last completed run is kept per direction
-	got := latestPairs([]LinkSetting{{A: "cl-a", B: "cl-b"}}, fusionapi.LinkReadings{Up: []fusionapi.LinkReading{ab(1), ba(0)}, Probed: []fusionapi.LinkReading{ab(fresh), ba(old)}}, now)[0]
+	got := latestPairs([]kernel.LinkSetting{{A: "cl-a", B: "cl-b"}}, fusionapi.LinkReadings{Up: []fusionapi.LinkReading{ab(1), ba(0)}, Probed: []fusionapi.LinkReading{ab(fresh), ba(old)}}, now)[0]
 	if got.ProbeAToB.At == nil || got.ProbeAToB.At.Unix() != int64(fresh) || got.ProbeBToA.At == nil || got.ProbeBToA.At.Unix() != int64(old) || got.ProbeBToA.State != "failing" {
 		t.Errorf("per-direction times: %+v %+v", got.ProbeAToB, got.ProbeBToA)
 	}
@@ -460,7 +461,7 @@ func TestDiagnosisNeverCarriesAnAddressOrWhatTheStoreSaid(t *testing.T) {
 		RTT:          []fusionapi.LinkReading{lr("cl-a", "cl-b", "", 0.01)},
 		ProbeFailure: []fusionapi.LinkReading{lrr("cl-a", "cl-b", "forward", "dial tcp 10.2.3.4:8861: i/o timeout", 3), lrr("cl-a", "cl-b", "reverse", "auth", 1)},
 	}
-	got := latestPairs([]LinkSetting{{A: "cl-a", B: "cl-b"}}, rd, now)[0]
+	got := latestPairs([]kernel.LinkSetting{{A: "cl-a", B: "cl-b"}}, rd, now)[0]
 	j, _ := json.Marshal(got)
 	if strings.Contains(string(j), "10.2.3.4") || strings.Contains(string(j), "dial") {
 		t.Fatalf("the store's text reached the answer: %s", j)
@@ -523,7 +524,7 @@ func TestAFailingProbeIsShownWithItsReasonAndNotItsLastGoodFigures(t *testing.T)
 	_, admin := a.user(t, "ada", RoleAdmin)
 	a.a.Fusion = &FusionControl{Name: "continuum-fusion", Namespace: "continuum", Kube: newFakeKube(fusionNames...), Org: "org-1", StatusTTL: -1,
 		Data: &fusionapi.Client{Prometheus: probeStore(t).URL}}
-	a.do("PUT", "/api/v1/settings", Settings{SnapshotMinutes: 7, Links: []LinkSetting{{A: "cl-a", B: "cl-b"}}}, withCookie(admin))
+	a.do("PUT", "/api/v1/settings", kernel.Settings{SnapshotMinutes: 7, Links: []kernel.LinkSetting{{A: "cl-a", B: "cl-b"}}}, withCookie(admin))
 	doc := a.do("GET", "/api/v1/links/latest", nil, withCookie(admin)).json(t)
 	p := doc["pairs"].([]any)[0].(map[string]any)
 	if p["lossAToB"] != 1.0 || p["lossBToA"] != nil {
@@ -547,7 +548,7 @@ func TestLatestFiguresOfAnotherOrganisationThanFusionsAreNotServed(t *testing.T)
 	}
 	org2, _ := r.json(t)["id"].(string)
 	// the other organisation lists a pair by the ids of the FUSION organisation's clusters
-	if r := a.do("PUT", "/api/v1/orgs/"+org2+"/settings", Settings{SnapshotMinutes: 7, Links: []LinkSetting{{A: "cl-a", B: "cl-b"}}}, withCookie(owner)); r.Code != 200 {
+	if r := a.do("PUT", "/api/v1/orgs/"+org2+"/settings", kernel.Settings{SnapshotMinutes: 7, Links: []kernel.LinkSetting{{A: "cl-a", B: "cl-b"}}}, withCookie(owner)); r.Code != 200 {
 		t.Fatalf("settings: %d %s", r.Code, r.Body.String())
 	}
 	doc := a.do("GET", "/api/v1/orgs/"+org2+"/links/latest", nil, withCookie(owner)).json(t)
@@ -559,7 +560,7 @@ func TestLatestFiguresOfAnotherOrganisationThanFusionsAreNotServed(t *testing.T)
 		t.Errorf("setup: %v", doc["setup"])
 	}
 	// FUSION's own organisation is served
-	a.do("PUT", "/api/v1/settings", Settings{SnapshotMinutes: 7, Links: []LinkSetting{{A: "cl-a", B: "cl-b"}}}, withCookie(owner))
+	a.do("PUT", "/api/v1/settings", kernel.Settings{SnapshotMinutes: 7, Links: []kernel.LinkSetting{{A: "cl-a", B: "cl-b"}}}, withCookie(owner))
 	if doc := a.do("GET", "/api/v1/links/latest", nil, withCookie(owner)).json(t); doc["available"] != true || calls.Load() != 1 {
 		t.Errorf("the FUSION organisation: %v (%d reads)", doc, calls.Load())
 	}
@@ -571,8 +572,8 @@ func TestLinkReportFailsWhenTheAgentsCannotBeReadAndTheScreenSaysSo(t *testing.T
 	var calls atomic.Int32
 	a.a.Fusion = &FusionControl{Name: "continuum-fusion", Namespace: "continuum", Kube: newFakeKube(fusionNames...), Org: "org-1", StatusTTL: -1,
 		Data: &fusionapi.Client{Prometheus: linkStore(t, &calls, "0.01").URL}}
-	links := []LinkSetting{{A: "cl-a", B: "cl-b"}}
-	a.do("PUT", "/api/v1/settings", Settings{SnapshotMinutes: 7, Links: links}, withCookie(admin))
+	links := []kernel.LinkSetting{{A: "cl-a", B: "cl-b"}}
+	a.do("PUT", "/api/v1/settings", kernel.Settings{SnapshotMinutes: 7, Links: links}, withCookie(admin))
 	h := a.hub()
 	if _, _, err := h.LinkReport(context.Background(), links, true); err != nil {
 		t.Fatal(err)
@@ -725,7 +726,7 @@ func TestAStoreThatStopsAnsweringKeepsTheScreenOnItsLastFiguresMarkedStale(t *te
 	defer proxy.Close()
 	a.a.Fusion = &FusionControl{Name: "continuum-fusion", Namespace: "continuum", Kube: newFakeKube(fusionNames...), Org: "org-1", StatusTTL: -1,
 		Data: &fusionapi.Client{Prometheus: proxy.URL}}
-	a.do("PUT", "/api/v1/settings", Settings{SnapshotMinutes: 7, Links: []LinkSetting{{A: "cl-a", B: "cl-b"}}}, withCookie(admin))
+	a.do("PUT", "/api/v1/settings", kernel.Settings{SnapshotMinutes: 7, Links: []kernel.LinkSetting{{A: "cl-a", B: "cl-b"}}}, withCookie(admin))
 	first := a.do("GET", "/api/v1/links/latest", nil, withCookie(admin)).json(t)
 	if first["available"] != true || first["stale"] != nil {
 		t.Fatalf("%v", first)

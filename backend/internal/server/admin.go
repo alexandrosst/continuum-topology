@@ -19,6 +19,7 @@ import (
 	"continuum/internal/chart"
 	"continuum/internal/fusionapi"
 	"continuum/internal/install"
+	"continuum/internal/kernel"
 	"continuum/internal/probe"
 	"continuum/internal/store"
 	"continuum/internal/workspace"
@@ -104,20 +105,20 @@ type Admin struct {
 	// which the server sets whenever the admin listener is not on loopback: a browser then never sends
 	// the session over plain HTTP. On loopback the cookie is Secure only when the request itself was HTTPS.
 	SecureCookies bool
-	authRL        *Limiter
+	authRL        *kernel.Limiter
 	// hbFailRL throttles failed regional-operator heartbeat authentications per address (see operatorHeartbeat).
-	hbFailRL *Limiter
+	hbFailRL *kernel.Limiter
 	// probes remembers the last look at each operator's address (see checkOperatorAddress); probeDial replaces the
 	// network in tests.
 	probes    addressProbes
 	probeDial func(ctx context.Context, network, addr string) (net.Conn, error)
 	// fusionRL limits how fast one FUSION data-API caller (a token or a person) may read.
-	fusionRL *Limiter
+	fusionRL *kernel.Limiter
 	// fusionPageRL throttles failed authentications on the Prometheus and Grafana pages per address. It is its own limiter, not
 	// authRL's: a page makes a request for every asset it loads, so a stranger (or a browser tab whose cookie just ended)
 	// can run through a budget in seconds, and on a shared limiter that would lock the sign-in out for everyone behind the
 	// same address - and the other way round.
-	fusionPageRL *Limiter
+	fusionPageRL *kernel.Limiter
 	// fusionUIAccess holds the one-time tickets and the page-only sessions of the Prometheus and Grafana pages (see fusion_ui_access.go).
 	fusionUIAccess *fusionUIAccess
 	// Readiness says what /readyz checks besides the database; nil checks only the database.
@@ -156,10 +157,10 @@ func (a *Admin) tn(r *http.Request) *Tenant {
 func (a *Admin) core(r *http.Request) *Core { return a.tn(r).C }
 
 func (a *Admin) Handler() http.Handler {
-	a.authRL = NewLimiter(30, 10)
-	a.hbFailRL = NewLimiter(30, 10)
-	a.fusionRL = NewLimiter(600, 60)
-	a.fusionPageRL = NewLimiter(30, 10)
+	a.authRL = kernel.NewLimiter(30, 10)
+	a.hbFailRL = kernel.NewLimiter(30, 10)
+	a.fusionRL = kernel.NewLimiter(600, 60)
+	a.fusionPageRL = kernel.NewLimiter(30, 10)
 	a.fusionUIAccess = newFusionUIAccess()
 	mux := http.NewServeMux()
 	a.handle(mux, "GET /healthz", accessPublic, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) }))
@@ -508,13 +509,13 @@ func (a *Admin) guard(n need, next http.HandlerFunc) http.Handler {
 		} else if secret, ok := bearerToken(r); ok {
 			p, err = a.C.AuthenticateAPIToken(r.Context(), secret)
 		} else {
-			err = Errf(KindUnauthenticated, "sign in required")
+			err = kernel.Errf(kernel.KindUnauthenticated, "sign in required")
 		}
 		if err != nil {
-			Metrics.AuthFailures.Add(1)
+			kernel.Metrics.AuthFailures.Add(1)
 			// Failed authentications are throttled per address; a valid session is never counted,
 			// so the UI polling every few seconds cannot lock itself out.
-			if !a.authRL.Allow(LimitKey(a.clientIP(r))) {
+			if !a.authRL.Allow(kernel.LimitKey(a.clientIP(r))) {
 				writeErr(w, http.StatusTooManyRequests, "too many failed attempts, wait a minute")
 				return
 			}
@@ -572,9 +573,9 @@ func writeErr(w http.ResponseWriter, code int, msg string) {
 }
 
 func (a *Admin) fail(w http.ResponseWriter, err error) {
-	var e *Error
+	var e *kernel.Error
 	if errors.As(err, &e) {
-		code := map[Kind]int{KindInvalid: 400, KindUnauthenticated: 401, KindNotFound: 404, KindConflict: 409, KindRateLimited: 429, KindInternal: 500, KindForbidden: 403, KindTwoFactorRequired: 401}[e.Kind]
+		code := map[kernel.Kind]int{kernel.KindInvalid: 400, kernel.KindUnauthenticated: 401, kernel.KindNotFound: 404, kernel.KindConflict: 409, kernel.KindRateLimited: 429, kernel.KindInternal: 500, kernel.KindForbidden: 403, kernel.KindTwoFactorRequired: 401}[e.Kind]
 		if len(e.Data) > 0 {
 			out := map[string]any{"error": e.Msg}
 			for k, v := range e.Data {
@@ -594,7 +595,7 @@ func decode(r *http.Request, v any) error {
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
-		return Errf(KindInvalid, "invalid request body")
+		return kernel.Errf(kernel.KindInvalid, "invalid request body")
 	}
 	return nil
 }
@@ -696,7 +697,7 @@ func (a *Admin) chartFile() string { return chart.Agent.Filename() }
 // chartRef is the chart the install command names, or "" when it names the downloaded file. An explicit
 // --chart-ref wins ("local" forces the file). Otherwise a configured image registry also holds the chart, as an
 // OCI artifact next to the images, so the printed command needs nothing downloaded first.
-func (a *Admin) chartRef(img ImageConfig) string {
+func (a *Admin) chartRef(img kernel.ImageConfig) string {
 	switch {
 	case a.ChartRef == "local":
 		return ""
@@ -728,7 +729,7 @@ func (a *Admin) chartRef(img ImageConfig) string {
 // it is the only reference that is known to be the right chart.
 func (a *Admin) operatorChartFile() string { return chart.RegionalOperator.Filename() }
 
-func (a *Admin) operatorChartRef(img ImageConfig) string {
+func (a *Admin) operatorChartRef(img kernel.ImageConfig) string {
 	switch {
 	case a.ChartRef == "local":
 		return ""
@@ -834,7 +835,7 @@ func (a *Admin) login2FA(w http.ResponseWriter, r *http.Request) {
 func (a *Admin) ssoLogin(w http.ResponseWriter, r *http.Request) {
 	secret, u, err := a.C.LoginSSO(r.Context(), a.clientIP(r), r.Header.Get(a.SSOHeaderName))
 	if err != nil {
-		if !a.authRL.Allow(LimitKey(a.clientIP(r))) {
+		if !a.authRL.Allow(kernel.LimitKey(a.clientIP(r))) {
 			writeErr(w, http.StatusTooManyRequests, "too many failed attempts, wait a minute")
 			return
 		}
@@ -1453,8 +1454,8 @@ func (a *Admin) putWorkspace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ws, err := a.core(r).SaveWorkspace(r.Context(), actor(r), rev, body)
-	var e *Error
-	if errors.As(err, &e) && e.Kind == KindConflict {
+	var e *kernel.Error
+	if errors.As(err, &e) && e.Kind == kernel.KindConflict {
 		writeJSON(w, http.StatusConflict, map[string]any{"error": e.Msg, "rev": ws.Rev, "updatedAt": rfcNZ(ws.UpdatedAt), "updatedBy": ws.UpdatedBy})
 		return
 	}
@@ -1473,7 +1474,7 @@ func (a *Admin) info(w http.ResponseWriter, r *http.Request) {
 	t := a.tn(r)
 	o, _ := a.C.Store.GetOrg(r.Context(), t.ID)
 	img := a.images(t.C)
-	writeJSON(w, 200, map[string]any{"orgId": t.ID, "orgName": o.Name, "role": principal(r).Role, "agentAddress": a.AgentAddr, "agentExposure": a.AgentExposure, "releaseName": a.ReleaseName, "releaseNamespace": a.ReleaseNamespace, "caPin": a.C.CA.SPKIPin(), "version": a.Version, "implementedTier": ImplementedTier, "geoip": a.P.Geo.Info(),
+	writeJSON(w, 200, map[string]any{"orgId": t.ID, "orgName": o.Name, "role": principal(r).Role, "agentAddress": a.AgentAddr, "agentExposure": a.AgentExposure, "releaseName": a.ReleaseName, "releaseNamespace": a.ReleaseNamespace, "caPin": a.C.CA.SPKIPin(), "version": a.Version, "implementedTier": kernel.ImplementedTier, "geoip": a.P.Geo.Info(),
 		// What the install wizard tells the operator to bring to the cluster: the chart file this server hands out
 		// (empty when the command names a chart elsewhere) and where the image comes from (this organisation's
 		// Settings → Installation, else the server's flags; empty registry: the chart's built-in names).
@@ -1605,7 +1606,7 @@ func (a *Admin) CheckInstallConfig() error {
 // because of anything in the request: logged in full, and told to the caller without the setting.
 func (a *Admin) installConfigError(err error) error {
 	a.C.Log.Error("an install command cannot be written: check --chart-ref and the chart versions", "err", err)
-	return Errf(KindInternal, "this server is set up with a chart it cannot name in an install command; see its log")
+	return kernel.Errf(kernel.KindInternal, "this server is set up with a chart it cannot name in an install command; see its log")
 }
 
 func (a *Admin) agentChartVersion() string {
@@ -1630,7 +1631,7 @@ func (a *Admin) operatorChartVersion() string {
 // image.digest when set; with a digest the chart pulls repository@digest and ignores the tag) and fetches the chart
 // from the same registry. Without one it names the chart file the server serves and leaves every image value to the
 // chart's own defaults.
-func (a *Admin) installCommand(img ImageConfig, secret string, t store.Token, extra ...install.Value) (string, error) {
+func (a *Admin) installCommand(img kernel.ImageConfig, secret string, t store.Token, extra ...install.Value) (string, error) {
 	ref, version := a.agentChart(img)
 	// enrollment.key packs the CA pin and the one-time token into the single flag the chart splits back apart at
 	// render time (see continuum-agent's _helpers.tpl): one thing to paste instead of two, without hiding either
@@ -1660,7 +1661,7 @@ func (a *Admin) installCommand(img ImageConfig, secret string, t store.Token, ex
 
 // agentChart is where the agent chart is, as the commands that install and upgrade it name it: the chart reference and, for one that
 // is a repository holding many versions (not a packaged file, which is one), the version to fetch.
-func (a *Admin) agentChart(img ImageConfig) (ref, version string) {
+func (a *Admin) agentChart(img kernel.ImageConfig) (ref, version string) {
 	ref = a.chartRef(img)
 	if ref == "" {
 		return "./" + chart.Filename(), "" // the file the wizard offers to download

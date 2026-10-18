@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
 
@@ -107,7 +108,7 @@ func (c *Core) LoadMailConfig(ctx context.Context) {
 func (c *Core) SaveMailConfig(ctx context.Context, by string, m MailConfig) (MailConfig, error) {
 	m, err := m.Normalize()
 	if err != nil {
-		return MailConfig{}, Errf(KindInvalid, "%v", err)
+		return MailConfig{}, kernel.Errf(kernel.KindInvalid, "%v", err)
 	}
 	data, err := json.Marshal(m)
 	if err != nil {
@@ -282,7 +283,7 @@ func mailConfigDoc(m MailConfig) MailConfigDoc {
 func (a *Admin) requireDefaultOwner(ctx context.Context, p Principal) error {
 	m, err := a.C.Member(ctx, p, a.C.DefaultOrg)
 	if err != nil || !Allows(Standing(m.Role), ActOwn) {
-		return Errf(KindForbidden, "only an owner of the default organisation may do this")
+		return kernel.Errf(kernel.KindForbidden, "only an owner of the default organisation may do this")
 	}
 	return nil
 }
@@ -335,5 +336,5 @@ func (a *Admin) putMailConfig(w http.ResponseWriter, r *http.Request) {
 // that needs to send mail (RequestEmailVerification, RequestLoginEmailCode) is reachable until an operator configures one, the
 // same way Decider being nil keeps decider-only paths unreachable.
 func (c *Core) mailSt() *mailHolder {
-	return ServerState(c, "accounts.mail", func() *mailHolder { return &mailHolder{} })
+	return kernel.ServerState(c, "accounts.mail", func() *mailHolder { return &mailHolder{} })
 }

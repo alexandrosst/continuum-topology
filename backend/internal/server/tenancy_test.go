@@ -12,6 +12,7 @@ import (
 	"time"
 
 	continuumv1 "continuum/gen/continuumv1"
+	"continuum/internal/kernel"
 	"continuum/internal/pki"
 	"continuum/internal/store"
 )
@@ -347,7 +348,7 @@ func TestRoleRulesAndTheLastOwner(t *testing.T) {
 	if c := a.do("GET", "/api/v1/tokens", nil, withCookie(editor)).Code; c != 403 {
 		t.Errorf("editor listed tokens: %d", c)
 	}
-	if c := a.do("PUT", "/api/v1/settings", Settings{}, withCookie(editor)).Code; c != 403 {
+	if c := a.do("PUT", "/api/v1/settings", kernel.Settings{}, withCookie(editor)).Code; c != 403 {
 		t.Errorf("editor changed settings: %d", c)
 	}
 
@@ -467,8 +468,8 @@ func TestDeletingAnOrganisationErasesItsDataAndEndsItsAgents(t *testing.T) {
 func TestTheMainOrganisationCannotBeDeleted(t *testing.T) {
 	e := newEnv(t)
 	err := e.core.DeleteOrg(e.ctx, Principal{User: store.User{Username: "x"}}, "Org One")
-	var se *Error
-	if !errors.As(err, &se) || se.Kind != KindInvalid {
+	var se *kernel.Error
+	if !errors.As(err, &se) || se.Kind != kernel.KindInvalid {
 		t.Fatalf("deleting the main organisation: %v", err)
 	}
 	if _, err := e.st.GetOrg(e.ctx, "org-1"); err != nil {
@@ -533,10 +534,10 @@ func TestAgentsAreServedByTheirOwnOrganisationsHubOnly(t *testing.T) {
 		t.Fatalf("renewed certificate names %q", o)
 	}
 	// A revocation in one organisation cannot be ordered from another.
-	if err := e.core.Revoke(ctx, "boss", id2, "not yours"); kindOf(err) != KindNotFound {
+	if err := e.core.Revoke(ctx, "boss", id2, "not yours"); kindOf(err) != kernel.KindNotFound {
 		t.Fatalf("org-1 revoking org-2's agent: %v", err)
 	}
-	if err := e.core.Reject(ctx, "boss", id2, "not yours"); kindOf(err) != KindNotFound {
+	if err := e.core.Reject(ctx, "boss", id2, "not yours"); kindOf(err) != kernel.KindNotFound {
 		t.Fatalf("org-1 rejecting org-2's agent: %v", err)
 	}
 }
@@ -548,7 +549,7 @@ func TestRejoinKeepsTheAgentsOwnOrganisation(t *testing.T) {
 	parsed, _ := pki.ParseCSR(csrWith(t, key))
 	wrong, _, _ := e.core.CA.IssueAgent(parsed, id, "org-9", time.Hour)
 	*e.now = e.now.Add(2 * time.Hour)
-	if _, err := e.base.Rejoin(e.ctx, "10.0.0.1", &continuumv1.RejoinRequest{ExpiredLeafDer: wrong, CsrDer: csrWith(t, key)}); kindOf(err) != KindUnauthenticated {
+	if _, err := e.base.Rejoin(e.ctx, "10.0.0.1", &continuumv1.RejoinRequest{ExpiredLeafDer: wrong, CsrDer: csrWith(t, key)}); kindOf(err) != kernel.KindUnauthenticated {
 		t.Fatalf("certificate for the wrong organisation: %v", err)
 	}
 	resp, err := e.base.Rejoin(e.ctx, "10.0.0.1", &continuumv1.RejoinRequest{ExpiredLeafDer: leaf, CsrDer: csrWith(t, key)})

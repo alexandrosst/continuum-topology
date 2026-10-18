@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
 
@@ -40,10 +41,10 @@ func TestAChartTheCommandCannotNameSpendsNoToken(t *testing.T) {
 func TestTheAgentCommandsAreRefusedForAnOptionAsChart(t *testing.T) {
 	a := testAdmin(t)
 	a.ChartRef = "--kubeconfig=/x"
-	if cmd, err := a.installCommand(ImageConfig{}, "cnt_1", store.Token{AccessTier: 2}); err == nil {
+	if cmd, err := a.installCommand(kernel.ImageConfig{}, "cnt_1", store.Token{AccessTier: 2}); err == nil {
 		t.Errorf("install: %s", cmd)
 	}
-	if cmd, err := a.upgradeCommand(ImageConfig{}, 2, "", ""); err == nil {
+	if cmd, err := a.upgradeCommand(kernel.ImageConfig{}, 2, "", ""); err == nil {
 		t.Errorf("upgrade: %s", cmd)
 	}
 }
@@ -83,7 +84,7 @@ func TestAnOperatorChartTheCommandCannotNameMintsNoHeartbeatSecret(t *testing.T)
 
 // operatorInstall is an operator's first install command (no reissue, no other operator as its destination), for a test that is about
 // what it says and not about whether it could be written.
-func operatorInstall(a *Admin, img ImageConfig, secret string, op store.Operator, bundle OperatorTLSBundle, heartbeatURL string) (cmd, secretCmd string) {
+func operatorInstall(a *Admin, img kernel.ImageConfig, secret string, op store.Operator, bundle OperatorTLSBundle, heartbeatURL string) (cmd, secretCmd string) {
 	cmd, secretCmd, err := a.operatorInstallCommandWith(img, secret, op, bundle, heartbeatURL, nil, false)
 	if err != nil {
 		panic(err)

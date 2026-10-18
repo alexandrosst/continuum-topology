@@ -12,7 +12,6 @@ CreateOperator	operators
 GetAgent	agents
 GetAgent	connectivity
 GetAgent	estate
-GetAgent	kernel
 GetHistory	estate
 GetHistory	fusion
 GetMembership	accounts

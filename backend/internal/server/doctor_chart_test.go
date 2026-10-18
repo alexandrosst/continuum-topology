@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"continuum/internal/fusionapi"
+	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
 
@@ -87,7 +88,7 @@ func doctorCommands(t *testing.T) {
 			want[attr] = given["telemetry.resource."+key]
 		}
 		// What the command says is what the cluster is: the id the stores will group by is the one the server gave it.
-		if want["continuum.org.id"] != a.core.OrgID || want["continuum.cluster.id"] != ClusterIDFor(a.core.OrgID, ag.Fingerprint) || want["continuum.cluster.id"] != ag.ClusterID {
+		if want["continuum.org.id"] != a.core.OrgID || want["continuum.cluster.id"] != kernel.ClusterIDFor(a.core.OrgID, ag.Fingerprint) || want["continuum.cluster.id"] != ag.ClusterID {
 			t.Errorf("the command stamps org %q and cluster %q; the server knows org %q and cluster %q", want["continuum.org.id"], want["continuum.cluster.id"], a.core.OrgID, ag.ClusterID)
 		}
 		if ti, err := a.core.GetTelemetryIntent(a.ctx, want["continuum.intent.id"]); err != nil || ti.AgentID != agentID || ti.Status != store.TelemetryIntentActive {

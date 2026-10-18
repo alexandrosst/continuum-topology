@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"continuum/internal/install"
+	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
 
@@ -31,10 +32,10 @@ func (a *Admin) operatorHeartbeat(w http.ResponseWriter, r *http.Request) {
 	secret, _ := bearerToken(r)
 	err := a.C.RecordOperatorHeartbeat(r.Context(), secret)
 	if errors.Is(err, errHeartbeatRejected) {
-		Metrics.AuthFailures.Add(1)
+		kernel.Metrics.AuthFailures.Add(1)
 		// Failed attempts are throttled per address (never a successful one, as in guard), so guessing
 		// secrets from one place is slow and a healthy operator can never lock itself out.
-		if !a.hbFailRL.Allow(LimitKey(a.clientIP(r))) {
+		if !a.hbFailRL.Allow(kernel.LimitKey(a.clientIP(r))) {
 			w.Header().Set("Retry-After", "60")
 			writeErr(w, http.StatusTooManyRequests, "too many failed attempts, wait a minute")
 			return
@@ -218,7 +219,7 @@ func operatorHeartbeatSecretName(op store.Operator) string   { return op.ID + "-
 func operatorHeartbeatCASecretName(op store.Operator) string { return op.ID + "-heartbeat-ca" }
 
 // heartbeatUpgradeCommand is the upgrade that turns the heartbeat on for a release that already runs.
-func (a *Admin) heartbeatUpgradeCommand(img ImageConfig, op store.Operator, heartbeatURL string) (string, error) {
+func (a *Admin) heartbeatUpgradeCommand(img kernel.ImageConfig, op store.Operator, heartbeatURL string) (string, error) {
 	ref, version := a.operatorChart(img)
 	return install.Helm{Verb: install.Upgrade, Release: op.ID, Chart: ref, Version: version, Namespace: "continuum-system", ResetThenReuse: true,
 		Values: a.operatorHeartbeatValues(op, heartbeatURL)}.Render()

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	continuumv1 "continuum/gen/continuumv1"
+	"continuum/internal/kernel"
 	"continuum/internal/link"
 )
 
@@ -71,7 +72,7 @@ func TestRealIperf3AuthenticatedRunWithIssuedCredentials(t *testing.T) {
 		t.Skip("iperf3 is not installed")
 	}
 	cr := newCredRig(t)
-	links := []LinkSetting{cr.pair(true)}
+	links := []kernel.LinkSetting{cr.pair(true)}
 	cr.save(t, links...)
 
 	meter := link.NewMeter(link.NewPeers())

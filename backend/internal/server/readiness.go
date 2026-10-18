@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"sync"
 	"time"
+
+	"continuum/internal/kernel"
 )
 
 // Readiness says what /readyz checks besides the process being up. Every field is optional.
@@ -52,7 +54,7 @@ func (rd *Readiness) check(ctx context.Context, a *Admin) (bool, string) {
 	ok, body := true, "ready"
 	var notes []string
 	if _, err := a.C.Store.CountUsers(cctx); err != nil {
-		Metrics.StoreErrors.Add(1)
+		kernel.Metrics.StoreErrors.Add(1)
 		ok, body = false, "not ready: the database is not reachable"
 	} else if rd.AgentsListening != nil && !rd.AgentsListening() {
 		ok, body = false, "not ready: the agents' listener is not accepting connections"

@@ -14,6 +14,7 @@ import (
 
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/facts"
+	"continuum/internal/kernel"
 	"continuum/internal/pki"
 
 	"google.golang.org/grpc/codes"
@@ -64,7 +65,7 @@ func TestFingerprintMustBeCanonicalUUID(t *testing.T) {
 		secret, _, _ := e.core.CreateToken(e.ctx, "admin", "c", 1)
 		d, _ := csr(t)
 		_, err := e.core.Enroll(e.ctx, "10.0.0.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: bad})
-		if kindOf(err) != KindInvalid {
+		if kindOf(err) != kernel.KindInvalid {
 			t.Errorf("fingerprint %q: %v, want invalid", bad, err)
 		}
 	}
@@ -75,7 +76,7 @@ func TestEnrollRejectsOversizedVersionAndScrubsControlCharacters(t *testing.T) {
 	secret, _, _ := e.core.CreateToken(e.ctx, "admin", "c", 1)
 	d, _ := csr(t)
 	_, err := e.core.Enroll(e.ctx, "10.0.0.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fp, AgentVersion: strings.Repeat("x", 65)})
-	if kindOf(err) != KindInvalid {
+	if kindOf(err) != kernel.KindInvalid {
 		t.Fatalf("long version: %v", err)
 	}
 	resp, err := e.core.Enroll(e.ctx, "10.0.0.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fp, AgentVersion: "1.0\n\x1b[31mred", ApprovalCodeHash: hashFor(t, d)})
@@ -109,23 +110,23 @@ func TestRejoinAfterOutageAndItsLimits(t *testing.T) {
 
 	// A request made with a different key is refused even though the certificate is genuine.
 	_, otherKey := csr(t)
-	if err := rejoin(leaf, otherKey); kindOf(err) != KindUnauthenticated {
+	if err := rejoin(leaf, otherKey); kindOf(err) != kernel.KindUnauthenticated {
 		t.Fatalf("someone else's key: %v", err)
 	}
 	// A certificate from a different CA is refused.
 	other, _ := pki.LoadOrCreate(t.TempDir())
 	parsed, _ := pki.ParseCSR(csrWith(t, key))
 	foreign, _, _ := other.IssueAgent(parsed, id, "org-1", time.Hour)
-	if err := rejoin(foreign, key); kindOf(err) != KindUnauthenticated {
+	if err := rejoin(foreign, key); kindOf(err) != kernel.KindUnauthenticated {
 		t.Fatalf("foreign CA: %v", err)
 	}
 	// Garbage is refused.
-	if err := rejoin([]byte("nope"), key); kindOf(err) != KindUnauthenticated {
+	if err := rejoin([]byte("nope"), key); kindOf(err) != kernel.KindUnauthenticated {
 		t.Fatalf("garbage: %v", err)
 	}
 	// Too long ago: the window is pki.RejoinWindow (60 days).
 	*e.now = real.Add(pki.RejoinWindow + 72*time.Hour)
-	if err := rejoin(leaf, key); kindOf(err) != KindUnauthenticated {
+	if err := rejoin(leaf, key); kindOf(err) != kernel.KindUnauthenticated {
 		t.Fatalf("outside the window: %v", err)
 	}
 	// Revocation always wins, even inside the window.
@@ -133,19 +134,19 @@ func TestRejoinAfterOutageAndItsLimits(t *testing.T) {
 	if err := e.core.Revoke(e.ctx, "alex", id, "test"); err != nil {
 		t.Fatal(err)
 	}
-	if err := rejoin(leaf, key); kindOf(err) != KindUnauthenticated {
+	if err := rejoin(leaf, key); kindOf(err) != kernel.KindUnauthenticated {
 		t.Fatalf("revoked agent rejoined: %v", err)
 	}
 }
 
 func TestRejoinIsRateLimitedPerAddress(t *testing.T) {
 	e := newEnv(t)
-	e.core.EnrollRL = NewLimiter(1, 2)
+	e.core.EnrollRL = kernel.NewLimiter(1, 2)
 	for i := 0; i < 5; i++ {
 		_, err := e.core.Rejoin(e.ctx, "10.9.9.9", &continuumv1.RejoinRequest{ExpiredLeafDer: []byte("x"), CsrDer: []byte("x")})
-		want := KindUnauthenticated
+		want := kernel.KindUnauthenticated
 		if i >= 2 {
-			want = KindRateLimited
+			want = kernel.KindRateLimited
 		}
 		if kindOf(err) != want {
 			t.Fatalf("attempt %d: %v, want kind %v", i, err, want)
@@ -156,11 +157,11 @@ func TestRejoinIsRateLimitedPerAddress(t *testing.T) {
 func TestRenewIsRateLimitedPerAgent(t *testing.T) {
 	e := newEnv(t)
 	id, _, _ := e.approvedAgent(t, fp)
-	e.core.RenewRL = NewLimiter(1, 2)
+	e.core.RenewRL = kernel.NewLimiter(1, 2)
 	var limited int
 	for i := 0; i < 5; i++ {
 		d, _ := csr(t)
-		if _, _, err := e.core.Renew(e.ctx, id, d); kindOf(err) == KindRateLimited {
+		if _, _, err := e.core.Renew(e.ctx, id, d); kindOf(err) == kernel.KindRateLimited {
 			limited++
 		} else if err != nil {
 			t.Fatal(err)
@@ -168,50 +169,6 @@ func TestRenewIsRateLimitedPerAgent(t *testing.T) {
 	}
 	if limited != 3 {
 		t.Fatalf("limited %d of 5 renewals, want 3", limited)
-	}
-}
-
-func TestLimiterForgetsIdleKeysAndEvictsTheOldestAtTheCap(t *testing.T) {
-	l := NewLimiter(60, 2)
-	clock := time.Unix(1_000_000, 0)
-	l.now = func() time.Time { return clock }
-	for i := 0; i < 10; i++ {
-		l.Allow(fmt.Sprintf("k%d", i))
-	}
-	if len(l.buckets) != 10 {
-		t.Fatalf("buckets = %d", len(l.buckets))
-	}
-	clock = clock.Add(time.Minute) // every bucket has refilled: forgetting them is lossless
-	l.Allow("fresh")
-	if len(l.buckets) != 1 || l.order.Len() != 1 {
-		t.Fatalf("idle buckets were not swept: %d left", len(l.buckets))
-	}
-
-	// At the cap a newcomer is admitted (it is not locked out by a spray of other addresses), the key used
-	// longest ago is the one forgotten, and a key that is being throttled right now is kept.
-	l = NewLimiter(1, 1)
-	l.max = 100
-	l.now = func() time.Time { return clock }
-	if !l.Allow("victim") || l.Allow("victim") {
-		t.Fatal("setup: the victim should be out of tokens")
-	}
-	for i := 0; i < 500; i++ {
-		clock = clock.Add(time.Millisecond)
-		if !l.Allow(fmt.Sprintf("spray%d", i)) {
-			t.Fatalf("spray key %d: a new key was refused at the cap", i)
-		}
-		if i%10 == 0 && l.Allow("victim") {
-			t.Fatal("the throttled key was forgotten and got a fresh bucket")
-		}
-	}
-	if len(l.buckets) != 100 || l.order.Len() != 100 {
-		t.Fatalf("memory is not bounded: %d keys, %d in the order", len(l.buckets), l.order.Len())
-	}
-	if _, ok := l.buckets["spray0"]; ok {
-		t.Fatal("the oldest key was not the one evicted")
-	}
-	if _, ok := l.buckets["spray499"]; !ok {
-		t.Fatal("the newest key was evicted")
 	}
 }
 
@@ -226,15 +183,15 @@ func TestLimitKeyGroupsIPv6ByPrefix(t *testing.T) {
 		"not an address":                   "not an address",
 		"unknown":                          "unknown",
 	} {
-		if got := LimitKey(in); got != want {
+		if got := kernel.LimitKey(in); got != want {
 			t.Errorf("LimitKey(%q) = %q, want %q", in, got, want)
 		}
 	}
 	// One host cycling through addresses in its /64 shares one allowance.
-	l := NewLimiter(1, 3)
+	l := kernel.NewLimiter(1, 3)
 	allowed := 0
 	for i := 0; i < 100; i++ {
-		if l.Allow(LimitKey(fmt.Sprintf("2001:db8:9:9::%x", i+1))) {
+		if l.Allow(kernel.LimitKey(fmt.Sprintf("2001:db8:9:9::%x", i+1))) {
 			allowed++
 		}
 	}
@@ -245,7 +202,7 @@ func TestLimitKeyGroupsIPv6ByPrefix(t *testing.T) {
 
 func TestTapCutsOffUnauthenticatedCallersBeforeTheBodyIsRead(t *testing.T) {
 	r := newRig(t)
-	r.base.TapRL = NewLimiter(1, 2)
+	r.base.TapRL = kernel.NewLimiter(1, 2)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	pin := r.core.CA.Pin()

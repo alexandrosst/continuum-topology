@@ -12,6 +12,7 @@ import (
 
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/install"
+	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
 
@@ -697,19 +698,19 @@ func exposureHint(candidates []AddressCandidate, found, central bool) string {
 // install named, is the answer even when no agent is registered there (then the state is noAgent, and there are no nodes to
 // list). Failing both, it is worked out from what agents report: a workload of the server's namespace, then a node that has
 // the load balancer's address; and when that finds nothing the state is unknown, with the registered clusters to choose from.
-func (a *Admin) serverClusterHost(ctx context.Context, c *Core, hub *Hub, namespace, workload string, gateway *KubeService) (operatorHost, bool, *ServerClusterDoc) {
+func (a *Admin) serverClusterHost(ctx context.Context, c *Core, hub *Hub, namespace, workload string, gateway *kernel.KubeService) (operatorHost, bool, *ServerClusterDoc) {
 	host, ok, doc := a.serverClusterFromAgents(ctx, c, hub, namespace, workload, gateway)
 	return a.withSelfProbe(host, ok, doc)
 }
 
 // serverClusterFromAgents is serverClusterHost before the server's own node probes are looked at: what the install, a
 // person's choice and the registered agents say.
-func (a *Admin) serverClusterFromAgents(ctx context.Context, c *Core, hub *Hub, namespace, workload string, gateway *KubeService) (operatorHost, bool, *ServerClusterDoc) {
+func (a *Admin) serverClusterFromAgents(ctx context.Context, c *Core, hub *Hub, namespace, workload string, gateway *kernel.KubeService) (operatorHost, bool, *ServerClusterDoc) {
 	gatewayWorkload := func(w *continuumv1.WorkloadFacts) bool { return w.Namespace == namespace && w.Name == workload }
 	id, source := c.Settings().ServerClusterID, "chosen"
 	if id == "" {
 		id, source = "", "install"
-		if cid, ok := ClusterIDForUID(c.OrgID, a.Fusion.ClusterUID); ok {
+		if cid, ok := kernel.ClusterIDForUID(c.OrgID, a.Fusion.ClusterUID); ok {
 			id = cid
 		}
 	}
@@ -746,7 +747,7 @@ func (a *Admin) listOperatorAddressCandidates(w http.ResponseWriter, r *http.Req
 	}
 	res := AddressCandidates{Candidates: []AddressCandidate{}}
 	namespace, workload, recorded := operatorNamespace, operatorServiceName(op.ID), op.Address
-	var gateway *KubeService
+	var gateway *kernel.KubeService
 	if op.ID == CentralOperatorID && a.Fusion != nil {
 		// The gateway is the server's own install: its Deployment is in the server's namespace, and the server reads its
 		// Service itself, which is how a load balancer's address is found even where no agent runs in that cluster.

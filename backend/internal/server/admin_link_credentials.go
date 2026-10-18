@@ -3,6 +3,8 @@ package server
 import (
 	"net/http"
 	"strings"
+
+	"continuum/internal/kernel"
 )
 
 // rotateLinkCredentials is POST /api/v1/orgs/{org}/links/rotate-credentials: it replaces the iperf3 credentials the server issued for the
@@ -23,7 +25,7 @@ func (a *Admin) rotateLinkCredentials(w http.ResponseWriter, r *http.Request) {
 	req.Cluster, req.A, req.B = strings.TrimSpace(req.Cluster), strings.TrimSpace(req.A), strings.TrimSpace(req.B)
 	byCluster, byPair := req.Cluster != "" && req.A == "" && req.B == "", req.Cluster == "" && req.A != "" && req.B != ""
 	if !byCluster && !byPair {
-		a.fail(w, Errf(KindInvalid, "invalid request body: expected {\"cluster\": \"id\"} or {\"a\": \"id\", \"b\": \"id\"}"))
+		a.fail(w, kernel.Errf(kernel.KindInvalid, "invalid request body: expected {\"cluster\": \"id\"} or {\"a\": \"id\", \"b\": \"id\"}"))
 		return
 	}
 	c := a.core(r)
@@ -41,7 +43,7 @@ func (a *Admin) rotateLinkCredentials(w http.ResponseWriter, r *http.Request) {
 	}
 	err := c.Audited(r.Context(), actor(r), "link-credentials-rotate", "links", target, "iperf3 credentials for the throughput tests", func() error {
 		if err := c.RotateLinkCredentials(r.Context(), links, req.Cluster, req.A, req.B); err != nil {
-			return Errf(KindInvalid, "%s", err.Error())
+			return kernel.Errf(kernel.KindInvalid, "%s", err.Error())
 		}
 		return nil
 	})
@@ -55,7 +57,7 @@ func (a *Admin) rotateLinkCredentials(w http.ResponseWriter, r *http.Request) {
 
 // rotateRefusal says why a rotation request cannot do anything, or "" when it can: against the pairs that ask for throughput tests,
 // which are the only ones that have credentials.
-func rotateRefusal(links []LinkSetting, cluster, a, b string) string {
+func rotateRefusal(links []kernel.LinkSetting, cluster, a, b string) string {
 	for _, id := range []string{cluster, a, b} {
 		if len(id) > 64 {
 			return "a cluster id is at most 64 characters"

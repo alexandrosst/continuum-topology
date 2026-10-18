@@ -21,6 +21,7 @@ import (
 
 	"continuum/internal/geoip"
 	"continuum/internal/graph"
+	"continuum/internal/kernel"
 	"continuum/internal/passkey"
 	"continuum/internal/pki"
 	"continuum/internal/probe"
@@ -124,7 +125,7 @@ func main() {
 	if regMode == server.RegOpen && !isLoopback(*adminListen) {
 		log.Warn("registration is open on a non-loopback address: anyone who can reach the admin address can create an account and an organization. Fine for a private network; on an exposed server use --registration invite", "admin", *adminListen)
 	}
-	decider, err := server.NewDeciderPolicy(*deciderAllow)
+	decider, err := kernel.NewDeciderPolicy(*deciderAllow)
 	if err != nil {
 		fatal(log, err)
 	}
@@ -154,7 +155,7 @@ func main() {
 	if *imageRegistry == "none" {
 		fatal(log, errors.New("--image-registry: \"none\" is no longer a value; leave it empty for the chart's own image names"))
 	}
-	img, err := server.ImageConfig{Registry: *imageRegistry, Tag: *imageTag, Digest: *imageDigest}.Normalize()
+	img, err := kernel.ImageConfig{Registry: *imageRegistry, Tag: *imageTag, Digest: *imageDigest}.Normalize()
 	if err != nil {
 		fatal(log, fmt.Errorf("--image-registry/--image-tag/--image-digest: %w", err))
 	}
@@ -248,7 +249,7 @@ func fatal(log *slog.Logger, err error) {
 	os.Exit(1)
 }
 
-func run(log *slog.Logger, selfProbe probeOpts, dataDir, agentListen, agentAddr, agentExposure, releaseName, releaseNamespace, fusionName, fusionCentralAddress, extraHosts, adminListen, adminCert, adminKey string, behindProxy, agentBehindProxy bool, ssoHeader, uiDir, chartRef string, img server.ImageConfig, org, registration, geoPath, geoPublicIP, geoASNPath string, decider *server.DeciderPolicy, neo *graph.Config, mail server.MailConfig, keys keyOpts, origins []string) error {
+func run(log *slog.Logger, selfProbe probeOpts, dataDir, agentListen, agentAddr, agentExposure, releaseName, releaseNamespace, fusionName, fusionCentralAddress, extraHosts, adminListen, adminCert, adminKey string, behindProxy, agentBehindProxy bool, ssoHeader, uiDir, chartRef string, img kernel.ImageConfig, org, registration, geoPath, geoPublicIP, geoASNPath string, decider *kernel.DeciderPolicy, neo *graph.Config, mail server.MailConfig, keys keyOpts, origins []string) error {
 	if err := checkSSOHeader(ssoHeader, behindProxy); err != nil {
 		return err
 	}
@@ -631,7 +632,7 @@ func fusionControl(log *slog.Logger, name, namespace, publicAddress, org string)
 	f := &server.FusionControl{Name: name, Namespace: namespace, PublicAddress: strings.TrimSpace(publicAddress), Org: org}
 	// The chart passes the UID of the kube-system namespace it was installed into: the cluster this server, and FUSION, are in.
 	f.ClusterUID = strings.TrimSpace(os.Getenv("CONTINUUM_CLUSTER_ID"))
-	if _, ok := server.ClusterIDForUID(org, f.ClusterUID); f.ClusterUID != "" && !ok {
+	if _, ok := kernel.ClusterIDForUID(org, f.ClusterUID); f.ClusterUID != "" && !ok {
 		log.Warn("CONTINUUM_CLUSTER_ID is not a namespace UID; ignored", "value", f.ClusterUID)
 		f.ClusterUID = ""
 	}
@@ -640,7 +641,7 @@ func fusionControl(log *slog.Logger, name, namespace, publicAddress, org string)
 			f.Namespace = strings.TrimSpace(string(b))
 		}
 	}
-	kube, err := server.InClusterKube(f.Namespace)
+	kube, err := kernel.InClusterKube(f.Namespace)
 	if err != nil {
 		log.Warn("FUSION cannot be switched from this server", "reason", err)
 		return f

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
 
@@ -69,7 +70,7 @@ func MetricsHandler(src MetricsSource, version, token string) http.Handler {
 }
 
 func writeMetrics(ctx context.Context, w http.ResponseWriter, src MetricsSource, version string) {
-	m := Metrics
+	m := kernel.Metrics
 	var b strings.Builder
 	line := func(name, help, typ string, v any, labels ...string) {
 		if help != "" {

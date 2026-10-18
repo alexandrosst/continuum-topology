@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
 
@@ -69,10 +70,10 @@ func (c *Core) checkOperatorAcceptsSignals(ctx context.Context, dest store.Desti
 			continue
 		}
 		if accepted[store.ModalityUnreadable] {
-			return Errf(KindInvalid, "the signal types operator %q accepts could not be read from its stored settings; save its scope again before pointing an intent at it", op.Name)
+			return kernel.Errf(kernel.KindInvalid, "the signal types operator %q accepts could not be read from its stored settings; save its scope again before pointing an intent at it", op.Name)
 		}
 		if !accepted[modality] {
-			return Errf(KindInvalid, "%q is a %s signal, but the target operator only accepts %v", sg.ID, modality, op.AcceptedModalities)
+			return kernel.Errf(kernel.KindInvalid, "%q is a %s signal, but the target operator only accepts %v", sg.ID, modality, op.AcceptedModalities)
 		}
 	}
 	return nil
@@ -110,7 +111,7 @@ func (c *Core) cleanRoutes(ctx context.Context, routes map[store.Modality]store.
 		switch m {
 		case store.ModalityMetrics, store.ModalityLogs, store.ModalityTraces:
 		default:
-			return nil, Errf(KindInvalid, "%q is not a signal type with a destination of its own (metrics, logs or traces)", Printable(string(m), 32))
+			return nil, kernel.Errf(kernel.KindInvalid, "%q is not a signal type with a destination of its own (metrics, logs or traces)", kernel.Printable(string(m), 32))
 		}
 		if err := c.validateDestination(ctx, d); err != nil {
 			return nil, err
@@ -125,7 +126,7 @@ func (c *Core) cleanRoutes(ctx context.Context, routes map[store.Modality]store.
 func (c *Core) telemetryIntentInOrg(ctx context.Context, id string) (store.TelemetryIntent, error) {
 	ti, err := c.Store.GetTelemetryIntent(ctx, id)
 	if errors.Is(err, store.ErrNotFound) || (err == nil && ti.OrgID != c.OrgID) {
-		return store.TelemetryIntent{}, Errf(KindNotFound, "no such telemetry intent")
+		return store.TelemetryIntent{}, kernel.Errf(kernel.KindNotFound, "no such telemetry intent")
 	}
 	return ti, err
 }
@@ -139,7 +140,7 @@ func (c *Core) approvedAgentInOrg(ctx context.Context, agentID string) (store.Ag
 		return a, err
 	}
 	if a.Status != store.StatusApproved {
-		return a, Errf(KindInvalid, "agent is %s: a telemetry intent can only target a currently approved agent", a.Status)
+		return a, kernel.Errf(kernel.KindInvalid, "agent is %s: a telemetry intent can only target a currently approved agent", a.Status)
 	}
 	return a, nil
 }
@@ -157,8 +158,8 @@ func cleanTelemetryScope(namespaces, exclude []string, signals []store.SignalGra
 			if ns == "" {
 				continue
 			}
-			if !NsNameRe.MatchString(ns) {
-				return nil, Errf(KindInvalid, "%q is not a valid namespace name (lowercase letters, digits and dashes, at most 63 characters)", Printable(ns, 64))
+			if !kernel.NsNameRe.MatchString(ns) {
+				return nil, kernel.Errf(kernel.KindInvalid, "%q is not a valid namespace name (lowercase letters, digits and dashes, at most 63 characters)", kernel.Printable(ns, 64))
 			}
 			if !seen[ns] {
 				seen[ns] = true
@@ -166,7 +167,7 @@ func cleanTelemetryScope(namespaces, exclude []string, signals []store.SignalGra
 			}
 		}
 		if len(out) > maxExcluded {
-			return nil, Errf(KindInvalid, "at most %d namespaces can be listed here", maxExcluded)
+			return nil, kernel.Errf(kernel.KindInvalid, "at most %d namespaces can be listed here", maxExcluded)
 		}
 		return out, nil
 	}
@@ -179,20 +180,20 @@ func cleanTelemetryScope(namespaces, exclude []string, signals []store.SignalGra
 		return nil, nil, nil, err
 	}
 	if len(signals) > maxTelemetrySignals {
-		return nil, nil, nil, Errf(KindInvalid, "at most %d telemetry signals can be granted here", maxTelemetrySignals)
+		return nil, nil, nil, kernel.Errf(kernel.KindInvalid, "at most %d telemetry signals can be granted here", maxTelemetrySignals)
 	}
 	seen := map[string]bool{}
 	out := make([]store.SignalGrant, 0, len(signals))
 	for _, sg := range signals {
 		id := strings.TrimSpace(sg.ID)
 		if id == "" {
-			return nil, nil, nil, Errf(KindInvalid, "a telemetry signal needs an id")
+			return nil, nil, nil, kernel.Errf(kernel.KindInvalid, "a telemetry signal needs an id")
 		}
 		if seen[id] {
-			return nil, nil, nil, Errf(KindInvalid, "signal %q is listed twice", Printable(id, 64))
+			return nil, nil, nil, kernel.Errf(kernel.KindInvalid, "signal %q is listed twice", kernel.Printable(id, 64))
 		}
 		seen[id] = true
-		out = append(out, store.SignalGrant{ID: Printable(id, 64), Source: Printable(strings.TrimSpace(sg.Source), 64)})
+		out = append(out, store.SignalGrant{ID: kernel.Printable(id, 64), Source: kernel.Printable(strings.TrimSpace(sg.Source), 64)})
 	}
 	return ns, exc, out, nil
 }
@@ -213,7 +214,7 @@ func (c *Core) CreateTelemetryIntentWithRoutes(ctx context.Context, actor, agent
 	defer c.DepMu.RUnlock()
 	name = strings.TrimSpace(name)
 	if name == "" || len(name) > maxTelemetryIntentName {
-		return store.TelemetryIntent{}, Errf(KindInvalid, "name the telemetry intent (1-%d characters)", maxTelemetryIntentName)
+		return store.TelemetryIntent{}, kernel.Errf(kernel.KindInvalid, "name the telemetry intent (1-%d characters)", maxTelemetryIntentName)
 	}
 	agent, err := c.approvedAgentInOrg(ctx, agentID)
 	if err != nil {
@@ -242,11 +243,11 @@ func (c *Core) CreateTelemetryIntentWithRoutes(ctx context.Context, actor, agent
 	}
 	for _, e := range existing {
 		if e.Status == store.TelemetryIntentActive {
-			return store.TelemetryIntent{}, Errf(KindConflict, "agent %q already has an active telemetry intent (%s); update it instead of creating a second one", agent.Name, e.ID)
+			return store.TelemetryIntent{}, kernel.Errf(kernel.KindConflict, "agent %q already has an active telemetry intent (%s); update it instead of creating a second one", agent.Name, e.ID)
 		}
 	}
 	ti := store.TelemetryIntent{
-		ID: NewTelemetryIntentID(), OrgID: c.OrgID, AgentID: agent.ID, Name: name, Status: store.TelemetryIntentActive,
+		ID: kernel.NewTelemetryIntentID(), OrgID: c.OrgID, AgentID: agent.ID, Name: name, Status: store.TelemetryIntentActive,
 		Namespaces: ns, Exclude: exc, Signals: sig, Destination: dest, Routes: routes, CreatedBy: actor, CreatedAt: c.Now(),
 	}
 	detail := fmt.Sprintf("%q for agent %q", name, agent.Name)
@@ -292,7 +293,7 @@ func (c *Core) UpdateTelemetryIntentScope(ctx context.Context, actor, id string,
 	detail := fmt.Sprintf("%q: scope changed", ti.Name)
 	err = c.Store.UpdateTelemetryIntentScope(ctx, id, ns, exc, sig, store.WithAudit(c.AuditRow(c.OrgID, actor, "telemetry-intent-scope-changed", "telemetry-intent", id, detail)))
 	if errors.Is(err, store.ErrBadState) {
-		err = Errf(KindConflict, "only an active telemetry intent's scope can be changed")
+		err = kernel.Errf(kernel.KindConflict, "only an active telemetry intent's scope can be changed")
 	}
 	return c.AuditedWrite(err, "telemetry-intent-scope-changed")
 }
@@ -316,7 +317,7 @@ func (c *Core) UpdateTelemetryIntentDestination(ctx context.Context, actor, id s
 	detail := fmt.Sprintf("%q: destination changed", ti.Name)
 	err = c.Store.UpdateTelemetryIntentDestination(ctx, id, dest, store.WithAudit(c.AuditRow(c.OrgID, actor, "telemetry-intent-destination-changed", "telemetry-intent", id, detail)))
 	if errors.Is(err, store.ErrBadState) {
-		err = Errf(KindConflict, "only an active telemetry intent's destination can be changed")
+		err = kernel.Errf(kernel.KindConflict, "only an active telemetry intent's destination can be changed")
 	}
 	return c.AuditedWrite(err, "telemetry-intent-destination-changed")
 }
@@ -348,7 +349,7 @@ func (c *Core) UpdateTelemetryIntentDestinations(ctx context.Context, actor, id 
 	}
 	err = c.Store.UpdateTelemetryIntentDestinations(ctx, id, dest, routes, store.WithAudit(c.AuditRow(c.OrgID, actor, "telemetry-intent-destination-changed", "telemetry-intent", id, detail)))
 	if errors.Is(err, store.ErrBadState) {
-		err = Errf(KindConflict, "only an active telemetry intent's destination can be changed")
+		err = kernel.Errf(kernel.KindConflict, "only an active telemetry intent's destination can be changed")
 	}
 	return c.AuditedWrite(err, "telemetry-intent-destination-changed")
 }
@@ -357,10 +358,10 @@ func (c *Core) RevokeTelemetryIntent(ctx context.Context, actor, id, reason stri
 	if _, err := c.telemetryIntentInOrg(ctx, id); err != nil {
 		return err
 	}
-	reason = Printable(reason, MaxReason)
+	reason = kernel.Printable(reason, kernel.MaxReason)
 	err := c.Store.RevokeTelemetryIntent(ctx, id, reason, c.Now(), store.WithAudit(c.AuditRow(c.OrgID, actor, "telemetry-intent-revoked", "telemetry-intent", id, reason)))
 	if errors.Is(err, store.ErrBadState) {
-		err = Errf(KindConflict, "telemetry intent is not active")
+		err = kernel.Errf(kernel.KindConflict, "telemetry intent is not active")
 	}
 	return c.AuditedWrite(err, "telemetry-intent-revoked")
 }
@@ -371,7 +372,7 @@ func (c *Core) DeleteTelemetryIntent(ctx context.Context, actor, id string) erro
 	}
 	err := c.Store.DeleteTelemetryIntent(ctx, id, store.WithAudit(c.AuditRow(c.OrgID, actor, "telemetry-intent-deleted", "telemetry-intent", id, "")))
 	if errors.Is(err, store.ErrNotFound) {
-		err = Errf(KindNotFound, "no such telemetry intent")
+		err = kernel.Errf(kernel.KindNotFound, "no such telemetry intent")
 	}
 	return c.AuditedWrite(err, "telemetry-intent-deleted")
 }

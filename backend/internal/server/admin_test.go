@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
 
@@ -124,7 +125,7 @@ func (a *adminRig) user(t *testing.T, name, role string) (id, cookie string) {
 // account makes a settled account (password goodPW) that belongs to no organisation.
 func (a *adminRig) account(t *testing.T, name string) string {
 	t.Helper()
-	u := store.User{ID: "u-" + RandHex(5), Username: name, PasswordHash: mustHash(t, goodPW), CreatedAt: *a.now}
+	u := store.User{ID: "u-" + kernel.RandHex(5), Username: name, PasswordHash: mustHash(t, goodPW), CreatedAt: *a.now}
 	if err := a.st.CreateUser(a.ctx, u); err != nil {
 		t.Fatal(err)
 	}
@@ -497,7 +498,7 @@ func TestWorkspaceSavesRaceExactlyOneWinner(t *testing.T) {
 			switch kindOf(err) {
 			case 0:
 				wins++
-			case KindConflict:
+			case kernel.KindConflict:
 				conflicts++
 			default:
 				t.Errorf("unexpected error: %v", err)

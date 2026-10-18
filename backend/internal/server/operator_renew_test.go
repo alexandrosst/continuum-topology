@@ -14,6 +14,7 @@ import (
 
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/certrenew"
+	"continuum/internal/kernel"
 	"continuum/internal/pki"
 	"continuum/internal/store"
 
@@ -179,7 +180,7 @@ func TestRenewalNeedsThePossessionProof(t *testing.T) {
 	swapped := &continuumv1.RenewTelemetryCertRequest{OldLeafDer: good.OldLeafDer, CsrDer: csrWith(t, thief), Proof: good.Proof}
 	empty := &continuumv1.RenewTelemetryCertRequest{OldLeafDer: good.OldLeafDer, CsrDer: good.CsrDer}
 	for name, r := range map[string]*continuumv1.RenewTelemetryCertRequest{"wrong key": wrongKey, "other request": swapped, "no proof": empty, "garbage certificate": {OldLeafDer: []byte("x"), CsrDer: good.CsrDer, Proof: good.Proof}} {
-		if _, err := s.e.base.RenewTelemetryCert(s.e.ctx, "203.0.113.5", r); kindOf(err) != KindUnauthenticated {
+		if _, err := s.e.base.RenewTelemetryCert(s.e.ctx, "203.0.113.5", r); kindOf(err) != kernel.KindUnauthenticated {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
@@ -199,7 +200,7 @@ func TestACertificateFromAnotherCAIsNotRenewed(t *testing.T) {
 			t.Fatal(err)
 		}
 		req, _ := renewalFor(t, certPEM, keyPEM)
-		if _, err := s.e.base.RenewTelemetryCert(s.e.ctx, "203.0.113.5", req); kindOf(err) != KindUnauthenticated {
+		if _, err := s.e.base.RenewTelemetryCert(s.e.ctx, "203.0.113.5", req); kindOf(err) != kernel.KindUnauthenticated {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
@@ -216,7 +217,7 @@ func TestRenewalWindowRunsToTheGraceAfterExpiry(t *testing.T) {
 	}
 	*s.e.now = old.NotAfter.Add(pki.OperatorRenewGrace + time.Hour)
 	req, _ = renewalFor(t, sc.CertPEM, sc.KeyPEM)
-	if _, err := s.e.base.RenewTelemetryCert(s.e.ctx, "203.0.113.5", req); kindOf(err) != KindUnauthenticated {
+	if _, err := s.e.base.RenewTelemetryCert(s.e.ctx, "203.0.113.5", req); kindOf(err) != kernel.KindUnauthenticated {
 		t.Fatalf("past the grace: %v", err)
 	}
 }
@@ -230,7 +231,7 @@ func TestEntitlementEndingStopsRenewal(t *testing.T) {
 		}
 		sc := s.bundle.Senders[0]
 		req, _ := renewalFor(t, sc.CertPEM, sc.KeyPEM)
-		if _, err := s.e.base.RenewTelemetryCert(s.e.ctx, "203.0.113.5", req); kindOf(err) != KindForbidden {
+		if _, err := s.e.base.RenewTelemetryCert(s.e.ctx, "203.0.113.5", req); kindOf(err) != kernel.KindForbidden {
 			t.Fatalf("a revoked agent's cluster was renewed: %v", err)
 		}
 		if n, _ := s.e.countAudit(t, "operator-cert-renewal-refused"); n != 1 {
@@ -244,7 +245,7 @@ func TestEntitlementEndingStopsRenewal(t *testing.T) {
 		}
 		sc := s.bundle.Senders[0]
 		req, _ := renewalFor(t, sc.CertPEM, sc.KeyPEM)
-		if _, err := s.e.base.RenewTelemetryCert(s.e.ctx, "203.0.113.5", req); kindOf(err) != KindForbidden {
+		if _, err := s.e.base.RenewTelemetryCert(s.e.ctx, "203.0.113.5", req); kindOf(err) != kernel.KindForbidden {
 			t.Fatalf("a cluster no longer in scope was renewed: %v", err)
 		}
 	})
@@ -255,7 +256,7 @@ func TestEntitlementEndingStopsRenewal(t *testing.T) {
 		}
 		for _, c := range []struct{ cert, key []byte }{{s.bundle.Senders[0].CertPEM, s.bundle.Senders[0].KeyPEM}, {s.bundle.ReceiverCertPEM, s.bundle.ReceiverKeyPEM}} {
 			req, _ := renewalFor(t, c.cert, c.key)
-			if _, err := s.e.base.RenewTelemetryCert(s.e.ctx, "203.0.113.5", req); kindOf(err) != KindUnauthenticated {
+			if _, err := s.e.base.RenewTelemetryCert(s.e.ctx, "203.0.113.5", req); kindOf(err) != kernel.KindUnauthenticated {
 				t.Fatalf("a revoked operator's certificate was renewed: %v", err)
 			}
 		}
@@ -264,14 +265,14 @@ func TestEntitlementEndingStopsRenewal(t *testing.T) {
 
 func TestRenewalIsRateLimitedPerCertificate(t *testing.T) {
 	s := newRenewSetup(t)
-	s.e.base.RenewRL = NewLimiter(1, 2)
+	s.e.base.RenewRL = kernel.NewLimiter(1, 2)
 	sc := s.bundle.Senders[0]
 	var last error
 	for i := 0; i < 4; i++ {
 		req, _ := renewalFor(t, sc.CertPEM, sc.KeyPEM)
 		_, last = s.e.base.RenewTelemetryCert(s.e.ctx, "203.0.113.5", req)
 	}
-	if kindOf(last) != KindRateLimited {
+	if kindOf(last) != kernel.KindRateLimited {
 		t.Fatalf("fourth renewal of one certificate: %v", last)
 	}
 }

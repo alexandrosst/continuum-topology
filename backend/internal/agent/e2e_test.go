@@ -16,6 +16,7 @@ import (
 	"continuum/internal/agent"
 	"continuum/internal/agent/collect"
 	"continuum/internal/flow"
+	"continuum/internal/kernel"
 	"continuum/internal/model"
 	"continuum/internal/pki"
 	"continuum/internal/probe"
@@ -72,8 +73,8 @@ func TestEnrollStreamRenewRevoke(t *testing.T) {
 	defer st.Close()
 	ca, _ := pki.LoadOrCreate(t.TempDir())
 	core := server.NewCore(st, ca, "org", nil)
-	core.EnrollRL = server.NewLimiter(6000, 1000)
-	core.RenewRL = server.NewLimiter(6000, 1000) // a few-second certificate renews constantly
+	core.EnrollRL = kernel.NewLimiter(6000, 1000)
+	core.RenewRL = kernel.NewLimiter(6000, 1000) // a few-second certificate renews constantly
 	hub := server.NewHub(core)
 	srv := core.NewGRPC(pki.NewServerCerts(ca, []string{"127.0.0.1"}), hub)
 	l, _ := net.Listen("tcp", "127.0.0.1:0")
@@ -175,8 +176,8 @@ func TestRejoinAfterCertificateExpiredWhileOffline(t *testing.T) {
 	defer st.Close()
 	ca, _ := pki.LoadOrCreate(t.TempDir())
 	core := server.NewCore(st, ca, "org", nil)
-	core.EnrollRL = server.NewLimiter(6000, 1000)
-	core.RenewRL = server.NewLimiter(6000, 1000)
+	core.EnrollRL = kernel.NewLimiter(6000, 1000)
+	core.RenewRL = kernel.NewLimiter(6000, 1000)
 	hub := server.NewHub(core)
 	srv := core.NewGRPC(pki.NewServerCerts(ca, []string{"127.0.0.1"}), hub)
 	l, _ := net.Listen("tcp", "127.0.0.1:0")
@@ -267,7 +268,7 @@ func TestNodeProbeReachesTopology(t *testing.T) {
 	defer st.Close()
 	ca, _ := pki.LoadOrCreate(t.TempDir())
 	core := server.NewCore(st, ca, "org", nil)
-	core.EnrollRL = server.NewLimiter(6000, 1000)
+	core.EnrollRL = kernel.NewLimiter(6000, 1000)
 	hub := server.NewHub(core)
 	srv := core.NewGRPC(pki.NewServerCerts(ca, []string{"127.0.0.1"}), hub)
 	l, _ := net.Listen("tcp", "127.0.0.1:0")
@@ -339,7 +340,7 @@ func TestObservedTrafficReachesTopology(t *testing.T) {
 	defer st.Close()
 	ca, _ := pki.LoadOrCreate(t.TempDir())
 	core := server.NewCore(st, ca, "org", nil)
-	core.EnrollRL = server.NewLimiter(6000, 1000)
+	core.EnrollRL = kernel.NewLimiter(6000, 1000)
 	hub := server.NewHub(core)
 	srv := core.NewGRPC(pki.NewServerCerts(ca, []string{"127.0.0.1"}), hub)
 	l, _ := net.Listen("tcp", "127.0.0.1:0")
@@ -463,7 +464,7 @@ func TestScopeAndMeshReachTheTopology(t *testing.T) {
 	defer st.Close()
 	ca, _ := pki.LoadOrCreate(t.TempDir())
 	core := server.NewCore(st, ca, "org", nil)
-	core.EnrollRL = server.NewLimiter(6000, 1000)
+	core.EnrollRL = kernel.NewLimiter(6000, 1000)
 	hub := server.NewHub(core)
 	srv := core.NewGRPC(pki.NewServerCerts(ca, []string{"127.0.0.1"}), hub)
 	l, _ := net.Listen("tcp", "127.0.0.1:0")

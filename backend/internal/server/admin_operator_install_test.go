@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
 
@@ -145,7 +146,7 @@ func TestInstallAgainRotatesABearerOperatorsToken(t *testing.T) {
 	const id = "op-bearer000007"
 	legacy := store.Operator{ID: id, OrgID: "org-1", Name: "bearer", Status: store.OperatorActive, ReceiverAuth: store.ReceiverAuthBearer,
 		SourceClusterIDs: []string{cl}, Destination: extDest("c:4317"), CreatedBy: "alex", CreatedAt: a.a.C.Now()}
-	if err := a.st.CreateOperator(a.ctx, legacy, HashSecret("cno_old")); err != nil {
+	if err := a.st.CreateOperator(a.ctx, legacy, kernel.HashSecret("cno_old")); err != nil {
 		t.Fatal(err)
 	}
 	created := map[string]any{"token": "cno_old"}
@@ -156,11 +157,11 @@ func TestInstallAgainRotatesABearerOperatorsToken(t *testing.T) {
 	}
 	doc := resp.json(t)
 	tok, _ := doc["token"].(string)
-	if !strings.HasPrefix(tok, OperatorPrefix) || tok == created["token"] || doc["secretCommand"] == nil {
+	if !strings.HasPrefix(tok, kernel.OperatorPrefix) || tok == created["token"] || doc["secretCommand"] == nil {
 		t.Fatalf("token = %q, secretCommand = %v", tok, doc["secretCommand"])
 	}
 	after, _ := a.st.GetOperator(a.ctx, id)
-	if string(after.ReceiverAuthTokenHash) != string(HashSecret(tok)) || string(after.ReceiverAuthTokenHash) == string(before.ReceiverAuthTokenHash) {
+	if string(after.ReceiverAuthTokenHash) != string(kernel.HashSecret(tok)) || string(after.ReceiverAuthTokenHash) == string(before.ReceiverAuthTokenHash) {
 		t.Fatal("the stored hash is not the new token's")
 	}
 	if _, has := doc["tlsSecretCommand"]; has {

@@ -12,6 +12,7 @@ import (
 	"continuum/internal/agent"
 	"continuum/internal/agent/collect"
 	"continuum/internal/flow"
+	"continuum/internal/kernel"
 	"continuum/internal/link"
 	"continuum/internal/server"
 
@@ -114,7 +115,7 @@ func TestTheServerNamesLinkPeersAndTheAgentLabelsTrafficWithThem(t *testing.T) {
 		t.Fatalf("peers were named before any pair was enabled: %v", meter.Peers.List())
 	}
 
-	if _, err := d.core.SaveSettings(context.Background(), "test", server.Settings{Links: []server.LinkSetting{{A: mine, B: peer}}}); err != nil {
+	if _, err := d.core.SaveSettings(context.Background(), "test", kernel.Settings{Links: []kernel.LinkSetting{{A: mine, B: peer}}}); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, "the peer list to reach the agent", 30*time.Second, func() bool { return !meter.Peers.Empty() })
@@ -154,7 +155,7 @@ func TestTheServerNamesLinkPeersAndTheAgentLabelsTrafficWithThem(t *testing.T) {
 	waitFor(t, "the peers to return", 30*time.Second, func() bool { return !meter.Peers.Empty() })
 
 	// Removing the pair removes the peer and its series.
-	if _, err := d.core.SaveSettings(context.Background(), "test", server.Settings{}); err != nil {
+	if _, err := d.core.SaveSettings(context.Background(), "test", kernel.Settings{}); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, "the peer to be withdrawn", 30*time.Second, func() bool { return meter.Peers.Empty() })
@@ -176,7 +177,7 @@ func TestTheServerLearnsWhatTheInstallCanDoAndChecksThePair(t *testing.T) {
 	waitFor(t, "first picture", 20*time.Second, func() bool { return services(d, "shop") == 1 })
 	mine := d.agentDoc().ClusterID
 	peer := d.addPeer("eeeeeeeeeeee", "10.9.9.9") // an agent whose install has no Cluster links
-	links := []server.LinkSetting{{A: mine, B: peer}}
+	links := []kernel.LinkSetting{{A: mine, B: peer}}
 
 	steps := func() map[string]string {
 		_, setup, _ := d.hub.LinkReport(context.Background(), links, true)

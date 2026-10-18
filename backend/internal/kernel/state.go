@@ -1,4 +1,4 @@
-package server
+package kernel
 
 import "sync"
 
@@ -8,12 +8,24 @@ import "sync"
 //
 // There are two kinds, as there were two kinds of field. ServerState is one for the whole server, shared by every organisation's
 // view of the Core (ForOrg copies the pointer). OrgState is one for each organisation (ForOrg starts it empty).
-type stateSlots struct {
+type StateSlots struct {
 	mu sync.Mutex
 	m  map[string]any
 }
 
-func slot[T any](s *stateSlots, key string, build func() T) T {
+// Stateful is what ServerState and OrgState need of a Core: its two sets of slots. Core has them; so does anything that embeds a Core.
+type Stateful interface {
+	ServerSlots() *StateSlots
+	OrgSlots() *StateSlots
+}
+
+func (c *Core) ServerSlots() *StateSlots { return c.shared }
+func (c *Core) OrgSlots() *StateSlots    { return c.orgState }
+
+// ResetServerState forgets everything modules keep for the whole server, as a restart does. For tests of what must not survive one.
+func (c *Core) ResetServerState() { c.shared = &StateSlots{} }
+
+func slot[T any](s *StateSlots, key string, build func() T) T {
 	if s == nil {
 		// A Core made by hand, not by NewCore (some tests): nothing is shared, and the state is made for the call.
 		return build()
@@ -32,7 +44,9 @@ func slot[T any](s *stateSlots, key string, build func() T) T {
 }
 
 // ServerState returns the state a module keeps for the whole server under key, building it with build the first time.
-func ServerState[T any](c *Core, key string, build func() T) T { return slot(c.shared, key, build) }
+func ServerState[T any](c Stateful, key string, build func() T) T {
+	return slot(c.ServerSlots(), key, build)
+}
 
 // OrgState returns the state a module keeps for this organisation under key, building it with build the first time.
-func OrgState[T any](c *Core, key string, build func() T) T { return slot(c.orgState, key, build) }
+func OrgState[T any](c Stateful, key string, build func() T) T { return slot(c.OrgSlots(), key, build) }

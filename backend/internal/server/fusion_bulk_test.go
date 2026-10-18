@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"continuum/internal/fusionapi"
+	"continuum/internal/kernel"
 )
 
 // post calls a data-API route that takes a body (it is not under an organisation's path).
@@ -213,7 +214,7 @@ func TestABatchStreamsEachTraceAsNDJSON(t *testing.T) {
 
 func TestABulkReadIsChargedPerTrace(t *testing.T) {
 	d := newDataRig(t)
-	d.a.fusionRL = NewLimiter(60, 5)
+	d.a.fusionRL = kernel.NewLimiter(60, 5)
 	tok, _ := d.mint(t, map[string]any{"name": "bulk"})
 	ids := make([]string, 8)
 	for i := range ids {

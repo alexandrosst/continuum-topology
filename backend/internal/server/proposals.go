@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
 
@@ -117,22 +118,22 @@ func resolveChange(a store.Agent, cur Consent, ch AccessChange) (nextTier int, n
 	consentFields := len(ch.Pause)+len(ch.Resume)+len(ch.Exclude)+len(ch.Include) > 0
 	switch {
 	case ch.Tier != nil && consentFields:
-		return 0, cur, false, Errf(KindInvalid, "a proposal changes either the approved tier or the overrides, not both")
+		return 0, cur, false, kernel.Errf(kernel.KindInvalid, "a proposal changes either the approved tier or the overrides, not both")
 	case ch.Tier == nil && !consentFields:
-		return 0, cur, false, Errf(KindInvalid, "the proposal changes nothing")
+		return 0, cur, false, kernel.Errf(kernel.KindInvalid, "the proposal changes nothing")
 	}
 	if ch.Tier != nil {
 		t := *ch.Tier
 		verdict := CheckTier(t, a.InstalledTier, a.TierCap)
 		switch {
 		case verdict == TierBelowZero || verdict == TierNotImplemented:
-			return 0, cur, false, Errf(KindInvalid, "access tier must be 0-%d in this release", ImplementedTier)
+			return 0, cur, false, kernel.Errf(kernel.KindInvalid, "access tier must be 0-%d in this release", kernel.ImplementedTier)
 		case t == a.AccessTier:
-			return 0, cur, false, Errf(KindConflict, "the agent already has access tier %d", t)
+			return 0, cur, false, kernel.Errf(kernel.KindConflict, "the agent already has access tier %d", t)
 		case verdict == TierAboveInstall:
-			return 0, cur, false, Errf(KindInvalid, "this agent's install allows at most tier %d", a.InstalledTier)
+			return 0, cur, false, kernel.Errf(kernel.KindInvalid, "this agent's install allows at most tier %d", a.InstalledTier)
 		case verdict == TierAboveToken:
-			return 0, cur, false, Errf(KindInvalid, "access tier %d is above what the enrollment token allowed for this agent (%d)", t, a.TierCap)
+			return 0, cur, false, kernel.Errf(kernel.KindInvalid, "access tier %d is above what the enrollment token allowed for this agent (%d)", t, a.TierCap)
 		}
 		return t, cur, t > a.AccessTier, nil
 	}
@@ -146,12 +147,12 @@ func resolveChange(a store.Agent, cur Consent, ch AccessChange) (nextTier int, n
 	}
 	for _, p := range pause.Paused {
 		if hasString(resume.Paused, p) {
-			return 0, cur, false, Errf(KindInvalid, "%s is both paused and resumed in the same proposal", p)
+			return 0, cur, false, kernel.Errf(kernel.KindInvalid, "%s is both paused and resumed in the same proposal", p)
 		}
 	}
 	for _, n := range pause.Excluded {
 		if hasString(resume.Excluded, n) {
-			return 0, cur, false, Errf(KindInvalid, "namespace %s is both excluded and included in the same proposal", n)
+			return 0, cur, false, kernel.Errf(kernel.KindInvalid, "namespace %s is both excluded and included in the same proposal", n)
 		}
 	}
 	next.Paused = unionStrings(minusStrings(cur.Paused, resume.Paused), pause.Paused)
@@ -161,7 +162,7 @@ func resolveChange(a store.Agent, cur Consent, ch AccessChange) (nextTier int, n
 		return 0, cur, false, err
 	}
 	if strings.Join(next.Paused, ",") == strings.Join(cur.Paused, ",") && strings.Join(next.Excluded, ",") == strings.Join(cur.Excluded, ",") {
-		return 0, cur, false, Errf(KindConflict, "the agent's overrides are already as the proposal would leave them")
+		return 0, cur, false, kernel.Errf(kernel.KindConflict, "the agent's overrides are already as the proposal would leave them")
 	}
 	widens = len(minusStrings(cur.Paused, next.Paused)) > 0 || len(minusStrings(cur.Excluded, next.Excluded)) > 0
 	return nextTier, next, widens, nil
@@ -185,12 +186,12 @@ func describeChange(a store.Agent, ch AccessChange) string {
 
 func cleanEvidence(in []EvidenceFact) ([]EvidenceFact, string, error) {
 	if len(in) > maxEvidenceFacts {
-		return nil, "", Errf(KindInvalid, "at most %d facts of evidence", maxEvidenceFacts)
+		return nil, "", kernel.Errf(kernel.KindInvalid, "at most %d facts of evidence", maxEvidenceFacts)
 	}
 	weakest := 0
 	out := make([]EvidenceFact, 0, len(in))
 	for _, f := range in {
-		f.Name, f.Value, f.Source = Printable(strings.TrimSpace(f.Name), 80), Printable(f.Value, 200), Printable(f.Source, 80)
+		f.Name, f.Value, f.Source = kernel.Printable(strings.TrimSpace(f.Name), 80), kernel.Printable(f.Value, 200), kernel.Printable(f.Source, 80)
 		f.Class = strings.ToLower(strings.TrimSpace(f.Class))
 		rank := -1
 		for i, c := range evidenceClasses {
@@ -199,11 +200,11 @@ func cleanEvidence(in []EvidenceFact) ([]EvidenceFact, string, error) {
 			}
 		}
 		if f.Name == "" || rank < 0 {
-			return nil, "", Errf(KindInvalid, "each fact needs a name and a class of measured, derived, declared or unknown")
+			return nil, "", kernel.Errf(kernel.KindInvalid, "each fact needs a name and a class of measured, derived, declared or unknown")
 		}
 		if f.ObservedAt != "" {
 			if _, err := time.Parse(time.RFC3339, f.ObservedAt); err != nil {
-				return nil, "", Errf(KindInvalid, "a fact's observedAt must be an RFC 3339 time")
+				return nil, "", kernel.Errf(kernel.KindInvalid, "a fact's observedAt must be an RFC 3339 time")
 			}
 		}
 		weakest = max(weakest, rank)
@@ -224,34 +225,34 @@ func cleanPredicted(in map[string]float64) error {
 				names = append(names, m)
 			}
 			sort.Strings(names)
-			return Errf(KindInvalid, "%q is not a metric a prediction can name (%s)", Printable(k, 40), strings.Join(names, ", "))
+			return kernel.Errf(kernel.KindInvalid, "%q is not a metric a prediction can name (%s)", kernel.Printable(k, 40), strings.Join(names, ", "))
 		}
 		if math.IsNaN(v) || math.IsInf(v, 0) || v < -1 || v > 100 {
-			return Errf(KindInvalid, "a predicted change is a relative amount between -1 (gone) and 100")
+			return kernel.Errf(kernel.KindInvalid, "a predicted change is a relative amount between -1 (gone) and 100")
 		}
 	}
 	return nil
 }
 
-func newProposalID() string { return "pr-" + RandHex(6) }
+func newProposalID() string { return "pr-" + kernel.RandHex(6) }
 
 // SubmitProposal stores a pending Proposal from an advisor. It validates the change against the agent as it is now and
 // computes whether it widens; the advisor cannot say.
 func (h *Hub) SubmitProposal(ctx context.Context, actor string, in ProposalInput) (store.Proposal, error) {
 	h.expireDueProposals(ctx)
-	advisor := Printable(strings.TrimSpace(in.Advisor), maxAdvisorName)
+	advisor := kernel.Printable(strings.TrimSpace(in.Advisor), maxAdvisorName)
 	if advisor == "" {
-		return store.Proposal{}, Errf(KindInvalid, "name the advisor that made this proposal")
+		return store.Proposal{}, kernel.Errf(kernel.KindInvalid, "name the advisor that made this proposal")
 	}
 	if in.ModelVersion < 0 {
-		return store.Proposal{}, Errf(KindInvalid, "the model version cannot be negative")
+		return store.Proposal{}, kernel.Errf(kernel.KindInvalid, "the model version cannot be negative")
 	}
 	a, err := h.C.AgentInOrg(ctx, in.Change.AgentID)
 	if err != nil {
 		return store.Proposal{}, err
 	}
 	if a.Status != store.StatusApproved {
-		return store.Proposal{}, Errf(KindConflict, "agent is %s: only an approved agent's access can be proposed for change", a.Status)
+		return store.Proposal{}, kernel.Errf(kernel.KindConflict, "agent is %s: only an approved agent's access can be proposed for change", a.Status)
 	}
 	_, _, widens, err := resolveChange(a, h.consentOf(a.ID), in.Change)
 	if err != nil {
@@ -269,7 +270,7 @@ func (h *Hub) SubmitProposal(ctx context.Context, actor string, in ProposalInput
 		ttl = defaultProposalTTL
 	}
 	if ttl > maxProposalTTL {
-		return store.Proposal{}, Errf(KindInvalid, "a proposal can wait at most %s for a decision", maxProposalTTL)
+		return store.Proposal{}, kernel.Errf(kernel.KindInvalid, "a proposal can wait at most %s for a decision", maxProposalTTL)
 	}
 	pending, err := h.C.Store.ListProposals(ctx, h.C.OrgID, store.ProposalQuery{Status: store.ProposalPending, Limit: 1000})
 	if err != nil {
@@ -282,7 +283,7 @@ func (h *Hub) SubmitProposal(ctx context.Context, actor string, in ProposalInput
 		}
 	}
 	if forAgent >= maxPendingPerAgent || len(pending) >= maxPendingPerOrg {
-		return store.Proposal{}, Errf(KindConflict, "too many proposals are waiting for a decision; decide some first")
+		return store.Proposal{}, kernel.Errf(kernel.KindConflict, "too many proposals are waiting for a decision; decide some first")
 	}
 	blast := proposalBlast{Agents: 1, ClusterID: a.ClusterID, Collectors: unionStrings(in.Change.Pause, in.Change.Resume), Namespaces: len(in.Change.Exclude) + len(in.Change.Include)}
 	if in.Change.Tier != nil {
@@ -335,7 +336,7 @@ func (h *Hub) GetProposal(ctx context.Context, id string) (store.Proposal, *stor
 	h.expireDueProposals(ctx)
 	p, err := h.C.Store.GetProposal(ctx, h.C.OrgID, id)
 	if errors.Is(err, store.ErrNotFound) {
-		return store.Proposal{}, nil, Errf(KindNotFound, "no such proposal")
+		return store.Proposal{}, nil, kernel.Errf(kernel.KindNotFound, "no such proposal")
 	}
 	if err != nil {
 		return store.Proposal{}, nil, err
@@ -360,9 +361,9 @@ func (h *Hub) decideTransition(ctx context.Context, p store.Proposal, from []sto
 }
 
 func cleanNote(note string) (string, error) {
-	note = Printable(strings.TrimSpace(note), maxProposalNote+1)
+	note = kernel.Printable(strings.TrimSpace(note), maxProposalNote+1)
 	if len(note) > maxProposalNote {
-		return "", Errf(KindInvalid, "a note is at most %d characters", maxProposalNote)
+		return "", kernel.Errf(kernel.KindInvalid, "a note is at most %d characters", maxProposalNote)
 	}
 	return note, nil
 }
@@ -379,7 +380,7 @@ func (h *Hub) RejectProposal(ctx context.Context, actor, id, note string) (store
 	}
 	err = h.decideTransition(ctx, p, []store.ProposalStatus{store.ProposalPending}, store.ProposalRejected, actor, note, "proposal-rejected")
 	if errors.Is(err, store.ErrBadState) {
-		return p, Errf(KindConflict, "the proposal is no longer pending")
+		return p, kernel.Errf(kernel.KindConflict, "the proposal is no longer pending")
 	}
 	if err != nil {
 		return p, err
@@ -403,30 +404,30 @@ func (h *Hub) AcceptProposal(ctx context.Context, actor, id, note string) (store
 		return p, err
 	}
 	if p.Status != store.ProposalPending {
-		return p, Errf(KindConflict, "the proposal is %s, not pending", p.Status)
+		return p, kernel.Errf(kernel.KindConflict, "the proposal is %s, not pending", p.Status)
 	}
 	var ch AccessChange
 	if err := json.Unmarshal(p.Change, &ch); err != nil {
-		return p, Errf(KindInvalid, "the stored change could not be read")
+		return p, kernel.Errf(kernel.KindInvalid, "the stored change could not be read")
 	}
 	a, err := h.C.AgentInOrg(ctx, p.AgentID)
 	if err != nil {
 		return p, err
 	}
 	if a.Status != store.StatusApproved {
-		return p, Errf(KindConflict, "agent is %s: only an approved agent's access can be changed", a.Status)
+		return p, kernel.Errf(kernel.KindConflict, "agent is %s: only an approved agent's access can be changed", a.Status)
 	}
 	tier, next, widens, err := resolveChange(a, h.consentOf(a.ID), ch)
 	if err != nil {
 		return p, err
 	}
 	if !Decide(CallerFrom(ctx), ActChangeAccess, Resource{Widening: widens}).Allowed {
-		return p, Errf(KindForbidden, "this change widens what the agent shares, and accepting it takes an administrator; narrowing does not")
+		return p, kernel.Errf(kernel.KindForbidden, "this change widens what the agent shares, and accepting it takes an administrator; narrowing does not")
 	}
 	// Claim the proposal first. Only one caller can move it out of pending, so only one makes the change.
 	if err := h.decideTransition(ctx, p, []store.ProposalStatus{store.ProposalPending}, store.ProposalAccepted, actor, note, "proposal-accepted"); err != nil {
 		if errors.Is(err, store.ErrBadState) {
-			return p, Errf(KindConflict, "the proposal is no longer pending")
+			return p, kernel.Errf(kernel.KindConflict, "the proposal is no longer pending")
 		}
 		return p, err
 	}
@@ -438,7 +439,7 @@ func (h *Hub) AcceptProposal(ctx context.Context, actor, id, note string) (store
 	}
 	final, finalAction, finalNote := store.ProposalApplied, "proposal-applied", ""
 	if applyErr != nil {
-		final, finalAction, finalNote = store.ProposalFailed, "proposal-failed", Printable(applyErr.Error(), maxProposalNote)
+		final, finalAction, finalNote = store.ProposalFailed, "proposal-failed", kernel.Printable(applyErr.Error(), maxProposalNote)
 	}
 	if err := h.decideTransition(ctx, p, []store.ProposalStatus{store.ProposalAccepted}, final, actor, finalNote, finalAction); err != nil {
 		h.Log.Error("a proposal's final state could not be recorded", "proposal", p.ID, "err", err)

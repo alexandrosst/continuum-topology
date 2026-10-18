@@ -9,6 +9,7 @@ import (
 
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/approval"
+	"continuum/internal/kernel"
 	"continuum/internal/pki"
 	"continuum/internal/store"
 
@@ -19,14 +20,14 @@ func (c *Core) pendingTTL() time.Duration {
 	if c.PendingTTL > 0 {
 		return c.PendingTTL
 	}
-	return DefaultPendingTTL
+	return kernel.DefaultPendingTTL
 }
 
 func (c *Core) pollAfter() int32 {
 	if c.PollAfter > 0 {
 		return int32(max(c.PollAfter/time.Second, 1))
 	}
-	return PollIntervalSecond
+	return kernel.PollIntervalSecond
 }
 
 // Enroll handles the first, unauthenticated call. ip is the peer address for rate limiting.
@@ -37,41 +38,41 @@ func (c *Core) pollAfter() int32 {
 // and it continues the same pending agent instead of failing or creating a second one. The agent gets a
 // fresh poll secret (the first was lost with the response). A different key with a spent token is refused.
 func (c *Core) Enroll(ctx context.Context, ip string, req *continuumv1.EnrollRequest) (*continuumv1.EnrollResponse, error) {
-	if !c.EnrollRL.Allow("enroll:" + LimitKey(ip)) {
-		return nil, Errf(KindRateLimited, "too many attempts, slow down")
+	if !c.EnrollRL.Allow("enroll:" + kernel.LimitKey(ip)) {
+		return nil, kernel.Errf(kernel.KindRateLimited, "too many attempts, slow down")
 	}
-	if !LooksLikeToken(req.Token) {
-		return nil, Errf(KindUnauthenticated, "invalid or expired token")
+	if !kernel.LooksLikeToken(req.Token) {
+		return nil, kernel.Errf(kernel.KindUnauthenticated, "invalid or expired token")
 	}
-	if !FingerprintRe.MatchString(req.ClusterFingerprint) {
-		return nil, Errf(KindInvalid, "cluster fingerprint is malformed")
+	if !kernel.FingerprintRe.MatchString(req.ClusterFingerprint) {
+		return nil, kernel.Errf(kernel.KindInvalid, "cluster fingerprint is malformed")
 	}
 	if _, err := pki.ParseCSR(req.CsrDer); err != nil {
-		return nil, Errf(KindInvalid, "%v", err)
+		return nil, kernel.Errf(kernel.KindInvalid, "%v", err)
 	}
 	if len(req.AgentVersion) > 64 || len(req.KubernetesVersion) > 64 {
-		return nil, Errf(KindInvalid, "version string too long")
+		return nil, kernel.Errf(kernel.KindInvalid, "version string too long")
 	}
 	if len(req.ApprovalCodeHash) != approval.HashLen {
-		return nil, Errf(KindInvalid, "approval code hash is missing or malformed")
+		return nil, kernel.Errf(kernel.KindInvalid, "approval code hash is missing or malformed")
 	}
 	tier, inRange := ReportedTier(int(req.InstalledAccessTier))
 	if !inRange {
-		return nil, Errf(KindInvalid, "installed access tier out of range")
+		return nil, kernel.Errf(kernel.KindInvalid, "installed access tier out of range")
 	}
-	pollSecret, err := NewSecret()
+	pollSecret, err := kernel.NewSecret()
 	if err != nil {
 		return nil, err
 	}
-	tokenHash := HashSecret(req.Token)
+	tokenHash := kernel.HashSecret(req.Token)
 	a := store.Agent{
-		ID:             NewAgentID(),
+		ID:             kernel.NewAgentID(),
 		InstalledTier:  tier,
 		Fingerprint:    req.ClusterFingerprint,
 		CSR:            req.CsrDer,
-		PollSecretHash: HashSecret(pollSecret),
-		Version:        Printable(req.AgentVersion, 40),
-		K8sVersion:     Printable(req.KubernetesVersion, 40),
+		PollSecretHash: kernel.HashSecret(pollSecret),
+		Version:        kernel.Printable(req.AgentVersion, 40),
+		K8sVersion:     kernel.Printable(req.KubernetesVersion, 40),
 		ConnectingIP:   ip,
 		ApprovalHash:   req.ApprovalCodeHash,
 	}
@@ -79,8 +80,8 @@ func (c *Core) Enroll(ctx context.Context, ip string, req *continuumv1.EnrollReq
 	if errors.Is(err, store.ErrWrongCluster) {
 		c.Log.Warn("enrollment refused: the token is bound to another cluster", "ip", ip)
 		c.AuditOrg(ctx, tok.OrgID, UnenrolledAgentActor.String(), "enrollment-refused", "token", tok.ID,
-			fmt.Sprintf("%q: the token is for cluster %s but the agent reported cluster %s (from %s)", tok.Label, ShortFP(tok.ExpectedFingerprint), ShortFP(req.ClusterFingerprint), ip))
-		return nil, Errf(KindForbidden, "this enrollment token was created for a different cluster")
+			fmt.Sprintf("%q: the token is for cluster %s but the agent reported cluster %s (from %s)", tok.Label, kernel.ShortFP(tok.ExpectedFingerprint), kernel.ShortFP(req.ClusterFingerprint), ip))
+		return nil, kernel.Errf(kernel.KindForbidden, "this enrollment token was created for a different cluster")
 	}
 	if errors.Is(err, store.ErrTokenInvalid) {
 		if resp, rerr := c.resumeEnrollment(ctx, ip, req, tokenHash, a, pollSecret); rerr != nil {
@@ -89,18 +90,18 @@ func (c *Core) Enroll(ctx context.Context, ip string, req *continuumv1.EnrollReq
 			return resp, nil
 		}
 		c.Log.Warn("enrollment refused: bad token", "ip", ip)
-		return nil, Errf(KindUnauthenticated, "invalid or expired token")
+		return nil, kernel.Errf(kernel.KindUnauthenticated, "invalid or expired token")
 	}
 	if err != nil {
 		return nil, err
 	}
 	c.AuditOrg(ctx, tok.OrgID, AgentActor(a.ID).String(), "agent-enrolled", "agent", a.ID,
-		fmt.Sprintf("%q from %s waiting for approval (installed tier %d, cluster %s)", tok.Label, ip, tier, ShortFP(req.ClusterFingerprint)))
+		fmt.Sprintf("%q from %s waiting for approval (installed tier %d, cluster %s)", tok.Label, ip, tier, kernel.ShortFP(req.ClusterFingerprint)))
 	return c.enrollResponse(a.ID, pollSecret), nil
 }
 
 func (c *Core) enrollResponse(agentID, pollSecret string) *continuumv1.EnrollResponse {
-	return &continuumv1.EnrollResponse{AgentId: agentID, PollSecret: pollSecret, PollIntervalSeconds: PollIntervalSecond,
+	return &continuumv1.EnrollResponse{AgentId: agentID, PollSecret: pollSecret, PollIntervalSeconds: kernel.PollIntervalSecond,
 		ServerTimeUnix: c.Now().Unix(), PendingTtlSeconds: int32(c.pendingTTL() / time.Second)}
 }
 
@@ -125,7 +126,7 @@ func (c *Core) resumeEnrollment(ctx context.Context, ip string, req *continuumv1
 	case store.StatusPending, store.StatusApproved:
 		// The same enrollment again. A different code under the same key and token is not a retry of it.
 		if !bytes.Equal(prev.ApprovalHash, req.ApprovalCodeHash) {
-			return nil, Errf(KindConflict, "an enrollment with a different approval code is already waiting for this token")
+			return nil, kernel.Errf(kernel.KindConflict, "an enrollment with a different approval code is already waiting for this token")
 		}
 		if prev.Status == store.StatusPending && c.Now().Sub(prev.CreatedAt) > c.pendingTTL() {
 			// It ran out while the agent was away; treat it as expired and let it start over.
@@ -173,7 +174,7 @@ func (c *Core) ExpirePending(ctx context.Context, org string) int {
 			c.Log.Error("recording an expired enrollment failed", "err", err)
 		}
 	}
-	if _, err := c.Store.PurgeExpired(ctx, org, now.Add(-ExpiredKeep)); err != nil {
+	if _, err := c.Store.PurgeExpired(ctx, org, now.Add(-kernel.ExpiredKeep)); err != nil {
 		c.Log.Error("purging expired enrollments failed", "err", err)
 	}
 	return len(expired)
@@ -181,19 +182,19 @@ func (c *Core) ExpirePending(ctx context.Context, org string) int {
 
 // Poll lets an enrolling agent learn its approval state and collect its certificate.
 func (c *Core) Poll(ctx context.Context, ip string, req *continuumv1.PollRequest) (*continuumv1.PollResponse, error) {
-	if !c.EnrollRL.Allow("poll:" + LimitKey(ip)) {
-		return nil, Errf(KindRateLimited, "too many attempts, slow down")
+	if !c.EnrollRL.Allow("poll:" + kernel.LimitKey(ip)) {
+		return nil, kernel.Errf(kernel.KindRateLimited, "too many attempts, slow down")
 	}
 	a, err := c.Store.GetAgent(ctx, req.AgentId)
 	// Same answer for "no such agent" and "wrong secret" so ids cannot be probed.
-	if err != nil || len(a.PollSecretHash) == 0 || subtle.ConstantTimeCompare(a.PollSecretHash, HashSecret(req.PollSecret)) != 1 {
-		return nil, Errf(KindUnauthenticated, "unknown agent or wrong secret")
+	if err != nil || len(a.PollSecretHash) == 0 || subtle.ConstantTimeCompare(a.PollSecretHash, kernel.HashSecret(req.PollSecret)) != 1 {
+		return nil, kernel.Errf(kernel.KindUnauthenticated, "unknown agent or wrong secret")
 	}
 	now := c.Now().Unix()
 	if a.Status == store.StatusPending && c.Now().Sub(a.CreatedAt) > c.pendingTTL() {
 		c.ExpirePending(ctx, a.OrgID)
 		if a, err = c.Store.GetAgent(ctx, req.AgentId); err != nil {
-			return nil, Errf(KindUnauthenticated, "unknown agent or wrong secret")
+			return nil, kernel.Errf(kernel.KindUnauthenticated, "unknown agent or wrong secret")
 		}
 	}
 	switch a.Status {
@@ -202,7 +203,7 @@ func (c *Core) Poll(ctx context.Context, ip string, req *continuumv1.PollRequest
 			State:          continuumv1.PollResponse_APPROVED,
 			LeafDer:        a.LeafDER,
 			CaDer:          c.CA.DER,
-			NotAfter:       TSProto(a.LeafNotAfter),
+			NotAfter:       kernel.TSProto(a.LeafNotAfter),
 			ServerTimeUnix: now,
 		}, nil
 	case store.StatusRejected, store.StatusRevoked:
@@ -231,30 +232,30 @@ func (c *Core) Approve(ctx context.Context, actor, agentID, proof string, tier i
 	switch a.Status {
 	case store.StatusPending:
 	case store.StatusExpired:
-		return Errf(KindConflict, "this request expired because nobody approved it in time. The agent asks again by itself and shows a new code in its log")
+		return kernel.Errf(kernel.KindConflict, "this request expired because nobody approved it in time. The agent asks again by itself and shows a new code in its log")
 	default:
-		return Errf(KindConflict, "agent is %s, not pending", a.Status)
+		return kernel.Errf(kernel.KindConflict, "agent is %s, not pending", a.Status)
 	}
 	// A string that cannot be a code cannot be a guess either: say so without spending an attempt.
 	norm, wellFormed := approval.Normalize(proof)
 	if !wellFormed {
-		left := max(MaxApprovalAttempts-a.ApprovalAttempts, 0)
+		left := max(kernel.MaxApprovalAttempts-a.ApprovalAttempts, 0)
 		return errWrongCode("that is not an approval code. It is 8 letters and digits, like K7QM-4TXD, and is printed in the agent's log", left, false)
 	}
 	n, err := c.Store.CountApprovalAttempt(ctx, a.ID)
 	if errors.Is(err, store.ErrBadState) {
-		return Errf(KindConflict, "agent changed state while approving")
+		return kernel.Errf(kernel.KindConflict, "agent changed state while approving")
 	}
 	if err != nil {
 		return err
 	}
-	if n > MaxApprovalAttempts {
+	if n > kernel.MaxApprovalAttempts {
 		return errWrongCode("too many wrong codes for this request", 0, true)
 	}
 	if !approval.Matches(norm, a.CSR, a.ApprovalHash) {
-		left := MaxApprovalAttempts - n
+		left := kernel.MaxApprovalAttempts - n
 		if left > 0 {
-			c.Audit(ctx, actor, "approval-refused", "agent", a.ID, fmt.Sprintf("wrong approval code (attempt %d of %d)", n, MaxApprovalAttempts))
+			c.Audit(ctx, actor, "approval-refused", "agent", a.ID, fmt.Sprintf("wrong approval code (attempt %d of %d)", n, kernel.MaxApprovalAttempts))
 			return errWrongCode("that is not the code this cluster's agent printed. Check the agent's log and try again", left, false)
 		}
 		reason := "too many wrong approval codes"
@@ -263,24 +264,24 @@ func (c *Core) Approve(ctx context.Context, actor, agentID, proof string, tier i
 		return errWrongCode("that was the last attempt. The request was rejected: enroll the agent again with a new token", 0, true)
 	}
 	if CheckTier(tier, a.InstalledTier, a.TierCap) != TierAllowed {
-		return Errf(KindInvalid, "access tier %d is above what is installed (%d), allowed by the token (%d) or implemented (%d)", tier, a.InstalledTier, a.TierCap, ImplementedTier)
+		return kernel.Errf(kernel.KindInvalid, "access tier %d is above what is installed (%d), allowed by the token (%d) or implemented (%d)", tier, a.InstalledTier, a.TierCap, kernel.ImplementedTier)
 	}
 	csr, err := pki.ParseCSR(a.CSR)
 	if err != nil {
-		return Errf(KindInvalid, "%v", err)
+		return kernel.Errf(kernel.KindInvalid, "%v", err)
 	}
 	leaf, notAfter, err := c.CA.IssueAgent(csr, a.ID, c.OrgID, pki.AgentCertTTL)
 	if err != nil {
 		return err
 	}
 	approvedDetail := fmt.Sprintf("%q at tier %d (approval code confirmed)", a.Name, tier)
-	err = c.Store.ApproveAgent(ctx, a.ID, tier, actor, ClusterIDFor(c.OrgID, a.Fingerprint), leaf, notAfter, c.Now(),
+	err = c.Store.ApproveAgent(ctx, a.ID, tier, actor, kernel.ClusterIDFor(c.OrgID, a.Fingerprint), leaf, notAfter, c.Now(),
 		store.WithAudit(c.AuditRow(c.OrgID, actor, "agent-approved", "agent", a.ID, approvedDetail)))
 	switch {
 	case errors.Is(err, store.ErrClusterEnrolled):
-		return Errf(KindConflict, "another agent is already approved for this cluster. Revoke it first to replace it")
+		return kernel.Errf(kernel.KindConflict, "another agent is already approved for this cluster. Revoke it first to replace it")
 	case errors.Is(err, store.ErrBadState):
-		return Errf(KindConflict, "agent changed state while approving")
+		return kernel.Errf(kernel.KindConflict, "agent changed state while approving")
 	}
 	if err := c.AuditedWrite(err, "agent-approved"); err != nil {
 		return err
@@ -293,11 +294,11 @@ func (c *Core) Approve(ctx context.Context, actor, agentID, proof string, tier i
 
 // errWrongCode is the answer to a code that did not fit. left is how many tries remain; locked says the
 // request has been rejected.
-func errWrongCode(msg string, left int, locked bool) *Error {
+func errWrongCode(msg string, left int, locked bool) *kernel.Error {
 	if !locked {
 		msg = fmt.Sprintf("%s (%d %s left)", msg, left, plural(left, "attempt", "attempts"))
 	}
-	return &Error{Kind: KindInvalid, Msg: capitalise(msg), Data: map[string]any{"attemptsLeft": left, "locked": locked}}
+	return &kernel.Error{Kind: kernel.KindInvalid, Msg: capitalise(msg), Data: map[string]any{"attemptsLeft": left, "locked": locked}}
 }
 
 func plural(n int, one, many string) string {

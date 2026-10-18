@@ -19,6 +19,7 @@ import (
 	"continuum/internal/flow/wire"
 	"continuum/internal/geoip"
 	"continuum/internal/interpret"
+	"continuum/internal/kernel"
 	"continuum/internal/model"
 	"continuum/internal/store"
 	"continuum/internal/twin"
@@ -320,7 +321,7 @@ func (h *Hub) Connect(stream continuumv1.AgentService_ConnectServer) error {
 	go func() {
 		defer func() {
 			if p := recover(); p != nil { // a panic while reading a message ends this stream, not the process
-				Metrics.StreamPanics.Add(1)
+				kernel.Metrics.StreamPanics.Add(1)
 				h.Log.Error("panic recovered while reading an agent's stream", "agent", agent.ID, "panic", fmt.Sprint(p), "stack", string(debug.Stack()))
 				select {
 				case msgs <- recvd{nil, status.Error(codes.Internal, "internal error")}:
@@ -404,7 +405,7 @@ func (h *Hub) Connect(stream continuumv1.AgentService_ConnectServer) error {
 	if hello == nil {
 		return status.Error(codes.InvalidArgument, "first message must be hello")
 	}
-	hello.AgentVersion, hello.KubernetesVersion = Printable(hello.AgentVersion, 40), Printable(hello.KubernetesVersion, 40)
+	hello.AgentVersion, hello.KubernetesVersion = kernel.Printable(hello.AgentVersion, 40), kernel.Printable(hello.KubernetesVersion, 40)
 	_ = h.C.Store.Touch(ctx, agent.ID, ip, hello.AgentVersion, hello.KubernetesVersion, h.C.Now())
 	_ = h.C.Store.ClearPollSecret(ctx, agent.ID)
 	log.Info("agent connected", "ip", ip, "version", hello.AgentVersion)
@@ -413,12 +414,12 @@ func (h *Hub) Connect(stream continuumv1.AgentService_ConnectServer) error {
 		noteDiagnostics(v, hello.Diagnostics, true, h.C.Now())
 		h.mu.Unlock()
 	}
-	if ns := Printable(hello.Namespace, 63); ns != "" {
+	if ns := kernel.Printable(hello.Namespace, 63); ns != "" {
 		h.mu.Lock()
 		v.ext.namespace = ns
 		h.mu.Unlock()
 	}
-	if rel := Printable(hello.ReleaseName, 53); rel != "" { // Helm's own release-name length limit
+	if rel := kernel.Printable(hello.ReleaseName, 53); rel != "" { // Helm's own release-name length limit
 		h.mu.Lock()
 		v.ext.releaseName = rel
 		h.mu.Unlock()
@@ -434,9 +435,9 @@ func (h *Hub) Connect(stream continuumv1.AgentService_ConnectServer) error {
 	v.cfgInForceAt = time.Time{}
 	v.cfgSentAt, v.cfgApplied = h.C.Now(), "" // a new stream: what the agent had in force on the last one says nothing about this
 	h.mu.Unlock()
-	fullSeen := false              // a full picture is a consistency check only after the first one of this connection
-	var asm *assembly              // the pieces of a picture that arrives in several messages, until the last one
-	limiter := NewLimiter(120, 20) // per minute, burst
+	fullSeen := false                     // a full picture is a consistency check only after the first one of this connection
+	var asm *assembly                     // the pieces of a picture that arrives in several messages, until the last one
+	limiter := kernel.NewLimiter(120, 20) // per minute, burst
 	for {
 		select {
 		case end := <-ended:
@@ -473,7 +474,7 @@ func (h *Hub) Connect(stream continuumv1.AgentService_ConnectServer) error {
 			case *continuumv1.AgentMessage_Sync:
 				// An agent speaks only for the cluster a human approved.
 				if c := m.Sync.Cluster; c != nil && c.Uid != cur.Fingerprint {
-					Metrics.SyncsRefused.Add(1)
+					kernel.Metrics.SyncsRefused.Add(1)
 					h.C.Audit(ctx, AgentActor(agent.ID).String(), "sync-refused", "agent", agent.ID, "facts claimed a different cluster than the one approved")
 					return status.Error(codes.PermissionDenied, "sync is for a different cluster than the one approved")
 				}
@@ -521,9 +522,9 @@ func (h *Hub) Connect(stream continuumv1.AgentService_ConnectServer) error {
 					h.refuseSync(ctx, cur, v, err)
 					return status.Error(codes.ResourceExhausted, err.Error())
 				}
-				Metrics.SyncsApplied.Add(1)
+				kernel.Metrics.SyncsApplied.Add(1)
 				if chunked {
-					Metrics.SyncsChunked.Add(1)
+					kernel.Metrics.SyncsChunked.Add(1)
 				}
 				if sy.Full {
 					fullSeen = true
@@ -652,13 +653,13 @@ func (h *Hub) noteFlows(agentID string, tier int, fb *continuumv1.FlowBatch, now
 		return false, nil
 	}
 	if dropped.n > 0 {
-		Metrics.FlowItemsDropped.Add(int64(dropped.n))
+		kernel.Metrics.FlowItemsDropped.Add(int64(dropped.n))
 		if v.obs.noteDropped(dropped.n, now) {
 			h.Log.Warn("flow batch had items the server cannot use; they were dropped, the rest of the batch kept", "agent", agentID, "dropped", dropped.n, "first_reason", dropped.first)
 		}
 	}
 	if implausible > 0 {
-		Metrics.ImplausibleFacts.Add(int64(implausible))
+		kernel.Metrics.ImplausibleFacts.Add(int64(implausible))
 		if now.Sub(v.implausibleLogged) >= refusalEvery {
 			v.implausibleLogged = now
 			h.Log.Warn("flow batch had a physically impossible value; affected field(s) omitted, rest of the batch kept", "agent", agentID, "count", implausible)
@@ -717,7 +718,7 @@ const refusalEvery = 10 * time.Minute
 // most once per refusalEvery) recorded as an audit row and a warning event, which is where an
 // administrator looks. The agent itself receives the reason as the error that ends its stream.
 func (h *Hub) refuseSync(ctx context.Context, a store.Agent, v *view, why error) {
-	Metrics.SyncsRefused.Add(1)
+	kernel.Metrics.SyncsRefused.Add(1)
 	now := h.C.Now()
 	h.mu.Lock()
 	v.refusal = clipText(why.Error(), 300)
@@ -735,7 +736,7 @@ func (h *Hub) refuseSync(ctx context.Context, a store.Agent, v *view, why error)
 		Detail: "The server refused a message from " + a.Name + ": " + clipText(why.Error(), 300), Cause: "the agent reported more, or larger, facts than this server accepts, or something malformed", Severity: "warning"})
 }
 
-func clipText(s string, n int) string { return Printable(s, n) }
+func clipText(s string, n int) string { return kernel.Printable(s, n) }
 
 // loadState reads a stored snapshot and applies the same rules as a live message.
 func loadState(data []byte, l facts.Limits) (*facts.State, error) {
@@ -933,7 +934,7 @@ func boundSyncFacts(s *continuumv1.Sync) int {
 // warns about it - the same rate-limited-diagnostic treatment refuseSync already gives a full refusal,
 // extended to a report that was still accepted and applied, minus the one value nothing could trust.
 func (h *Hub) noteImplausibleFacts(agentID string, v *view, n int) {
-	Metrics.ImplausibleFacts.Add(int64(n))
+	kernel.Metrics.ImplausibleFacts.Add(int64(n))
 	now := h.C.Now()
 	h.mu.Lock()
 	record := now.Sub(v.implausibleLogged) >= refusalEvery
@@ -954,7 +955,7 @@ func validateModules(ms []*continuumv1.ModuleStatus) error {
 		if len(m.Name) > 64 {
 			return errors.New("module status is malformed")
 		}
-		m.Reason = Printable(m.Reason, facts.MaxReason) // raw error text: cut, never a reason to end the stream
+		m.Reason = kernel.Printable(m.Reason, facts.MaxReason) // raw error text: cut, never a reason to end the stream
 	}
 	return nil
 }
@@ -976,7 +977,7 @@ func (h *Hub) persist(ctx context.Context, id string, force bool) {
 		err = h.C.Store.SaveSnapshot(ctx, id, data, h.C.Now())
 	}
 	if err != nil {
-		Metrics.StoreErrors.Add(1)
+		kernel.Metrics.StoreErrors.Add(1)
 		h.Log.Error("snapshot save failed", "agent", id, "err", err)
 	}
 }
@@ -999,7 +1000,7 @@ func (h *Hub) persistFlows(ctx context.Context, id string, force bool) {
 		err = h.C.Store.SaveSnapshot(ctx, flowsKey(id), data, h.C.Now())
 	}
 	if err != nil {
-		Metrics.StoreErrors.Add(1)
+		kernel.Metrics.StoreErrors.Add(1)
 		h.Log.Error("flow table save failed", "agent", id, "err", err)
 	}
 }
@@ -1283,7 +1284,7 @@ func (h *Hub) buildAgentDocs(ctx context.Context, now time.Time) ([]AgentDoc, []
 			Reason: a.Reason, Modules: []ModuleDoc{}, ClockSkewMs: a.ClockSkewMs,
 		}
 		if a.Status == store.StatusPending {
-			left := max(MaxApprovalAttempts-a.ApprovalAttempts, 0)
+			left := max(kernel.MaxApprovalAttempts-a.ApprovalAttempts, 0)
 			d.ApprovalAttemptsLeft = &left
 			d.PendingExpiresAt = rfc(a.CreatedAt.Add(h.C.pendingTTL()))
 		}

@@ -1,5 +1,9 @@
 package server
 
+import (
+	"continuum/internal/kernel"
+)
+
 // Four numbers bound the tier an agent may have: the type's outer bound (MaxTier), what this release honours
 // (ImplementedTier), what the agent's install allows (Agent.InstalledTier, the Helm value access.tier) and what its enrollment
 // token allowed (Agent.TierCap). Before this file each place that asked the question - token creation, approval, a tier change,
@@ -24,7 +28,7 @@ func CheckTier(tier, installed, tokenCap int) TierVerdict {
 	switch {
 	case tier < 0:
 		return TierBelowZero
-	case tier > ImplementedTier:
+	case tier > kernel.ImplementedTier:
 		return TierNotImplemented
 	case tier > installed:
 		return TierAboveInstall
@@ -37,13 +41,13 @@ func CheckTier(tier, installed, tokenCap int) TierVerdict {
 // GrantableTier is whether a token may be created for this tier: only the release's own range applies, because there is no
 // install or token yet.
 func GrantableTier(tier int) bool {
-	return CheckTier(tier, ImplementedTier, ImplementedTier) == TierAllowed
+	return CheckTier(tier, kernel.ImplementedTier, kernel.ImplementedTier) == TierAllowed
 }
 
 // ReportedTier is the ceiling an install reports, held inside the type's bound (which is wider than the release's, so a newer
 // install than this server is recorded as it says; the release ceiling applies when something is granted, not when it is
 // reported). ok is false when it was outside the bound and had to be held.
 func ReportedTier(reported int) (tier int, ok bool) {
-	tier = min(max(reported, 0), MaxTier)
+	tier = min(max(reported, 0), kernel.MaxTier)
 	return tier, tier == reported
 }

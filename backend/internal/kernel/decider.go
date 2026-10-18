@@ -1,4 +1,4 @@
-package server
+package kernel
 
 import (
 	"context"
@@ -204,10 +204,13 @@ func (p *DeciderPolicy) CheckURL(ctx context.Context, raw string) error {
 // ErrDeciderDenied marks a connection refused by the policy, so the caller can say why.
 type ErrDeciderDenied struct{ err error }
 
+// NewDeciderDenied marks err as a connection the policy refused.
+func NewDeciderDenied(err error) error { return ErrDeciderDenied{err} }
+
 func (e ErrDeciderDenied) Error() string { return e.err.Error() }
 func (e ErrDeciderDenied) Unwrap() error { return e.err }
 
-// client builds the HTTP client used for the decider. The policy is applied to the address actually
+// Client builds the HTTP client used for the decider. The policy is applied to the address actually
 // dialed, after name resolution, so it cannot be bypassed by DNS that answers differently the second
 // time. Redirects are not followed (a 3xx is reported as an unexpected status), proxies from the
 // environment are ignored, and connections are not reused.
