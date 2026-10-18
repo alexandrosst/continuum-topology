@@ -37,6 +37,7 @@ admin_quickstart.go             telemetry
 admin_telemetry.go              agents
 admin_telemetry_intents.go      telemetry
 advisor_records.go              advice
+agent_lifecycle.go              agents
 applications_graph.go           estate
 assemble.go                     estate
 auth.go                         accounts

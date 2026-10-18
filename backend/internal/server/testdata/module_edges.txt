@@ -156,6 +156,7 @@ agents > shell	method Admin.tn
 agents > shell	type Admin
 agents > shell	type ctxPrincipal
 agents > shell	var Metrics
+agents > telemetry	method Core.RevokeTelemetryIntent
 connectivity > agents	field Consent.Excluded
 connectivity > agents	field Consent.Paused
 connectivity > agents	field viewExt.diag
@@ -269,6 +270,7 @@ estate > agents	func suspicions
 estate > agents	func teardownCommands
 estate > agents	func toStatus
 estate > agents	method Consent.has
+estate > agents	method Core.AuthorizeAgent
 estate > agents	method Core.ExpirePending
 estate > agents	method Core.pendingTTL
 estate > agents	method Geo.Locate
@@ -401,16 +403,11 @@ fusion > shell	type Admin
 fusion > shell	type Tenant
 fusion > shell	var Metrics
 kernel > accounts	const RegOpen
-kernel > accounts	func AgentActor
 kernel > accounts	func newAuthState
-kernel > accounts	method Actor.String
 kernel > accounts	type WebAuthnProvider
 kernel > accounts	type authState
 kernel > accounts	type mailHolder
-kernel > agents	func GrantableTier
-kernel > agents	method Core.recordAgentGraph
 kernel > agents	var nsNameRe
-kernel > estate	func rfc
 kernel > estate	type trafficCache
 kernel > operators	func newHeartbeatSeen
 kernel > operators	func newOperatorCAs
@@ -422,7 +419,6 @@ kernel > shell	field Admin.ImageTag
 kernel > shell	field metrics.rateLimited
 kernel > shell	type Admin
 kernel > shell	var Metrics
-kernel > telemetry	method Core.RevokeTelemetryIntent
 operators > accounts	method Actor.String
 operators > accounts	var RenewalActor
 operators > agents	field DiagnosticsDoc.ExportHealth

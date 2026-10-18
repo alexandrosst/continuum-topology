@@ -3,8 +3,8 @@
 # Regenerate on purpose with: go test ./internal/server -run TestModule -update
 AddEvents	agents
 AddEvents	estate
+ClearPollSecret	agents
 ClearPollSecret	estate
-ClearPollSecret	kernel
 CountUsers	accounts
 CountUsers	shell
 CreateOperator	fusion
@@ -45,11 +45,9 @@ ListOperators	operators
 ListTelemetryIntents	connectivity
 ListTelemetryIntents	operators
 ListTelemetryIntents	telemetry
-ListTelemetryIntentsByAgent	kernel
+ListTelemetryIntentsByAgent	agents
 ListTelemetryIntentsByAgent	telemetry
 LoadSnapshot	agents
 LoadSnapshot	estate
-RejectAgent	agents
-RejectAgent	kernel
 SaveSnapshot	agents
 SaveSnapshot	estate
