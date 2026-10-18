@@ -23,20 +23,20 @@ import (
 // approvedAgent enrolls and approves an agent, returning its id, private key and first certificate.
 func (e *env) approvedAgent(t *testing.T, fingerprint string) (string, *ecdsa.PrivateKey, []byte) {
 	t.Helper()
-	secret, _, err := e.core.CreateToken(e.ctx, "admin", "edge", 2)
+	secret, _, err := e.core.Agents.CreateToken(e.ctx, "admin", "edge", 2)
 	if err != nil {
 		t.Fatal(err)
 	}
 	d, key := csr(t)
 	hash, code := approvalFor(t, d)
-	resp, err := e.core.Enroll(e.ctx, "10.0.0.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fingerprint, InstalledAccessTier: 2, ApprovalCodeHash: hash})
+	resp, err := e.core.Agents.Enroll(e.ctx, "10.0.0.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fingerprint, InstalledAccessTier: 2, ApprovalCodeHash: hash})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := e.core.Approve(e.ctx, "alex", resp.AgentId, code, 2); err != nil {
+	if err := e.core.Agents.Approve(e.ctx, "alex", resp.AgentId, code, 2); err != nil {
 		t.Fatal(err)
 	}
-	p, err := e.core.Poll(e.ctx, "10.0.0.1", &continuumv1.PollRequest{AgentId: resp.AgentId, PollSecret: resp.PollSecret})
+	p, err := e.core.Agents.Poll(e.ctx, "10.0.0.1", &continuumv1.PollRequest{AgentId: resp.AgentId, PollSecret: resp.PollSecret})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,9 +62,9 @@ func TestFingerprintMustBeCanonicalUUID(t *testing.T) {
 		"../../etc/passwd-0000-0000-0000-000000000000",
 		"",
 	} {
-		secret, _, _ := e.core.CreateToken(e.ctx, "admin", "c", 1)
+		secret, _, _ := e.core.Agents.CreateToken(e.ctx, "admin", "c", 1)
 		d, _ := csr(t)
-		_, err := e.core.Enroll(e.ctx, "10.0.0.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: bad})
+		_, err := e.core.Agents.Enroll(e.ctx, "10.0.0.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: bad})
 		if kindOf(err) != kernel.KindInvalid {
 			t.Errorf("fingerprint %q: %v, want invalid", bad, err)
 		}
@@ -73,13 +73,13 @@ func TestFingerprintMustBeCanonicalUUID(t *testing.T) {
 
 func TestEnrollRejectsOversizedVersionAndScrubsControlCharacters(t *testing.T) {
 	e := newEnv(t)
-	secret, _, _ := e.core.CreateToken(e.ctx, "admin", "c", 1)
+	secret, _, _ := e.core.Agents.CreateToken(e.ctx, "admin", "c", 1)
 	d, _ := csr(t)
-	_, err := e.core.Enroll(e.ctx, "10.0.0.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fp, AgentVersion: strings.Repeat("x", 65)})
+	_, err := e.core.Agents.Enroll(e.ctx, "10.0.0.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fp, AgentVersion: strings.Repeat("x", 65)})
 	if kindOf(err) != kernel.KindInvalid {
 		t.Fatalf("long version: %v", err)
 	}
-	resp, err := e.core.Enroll(e.ctx, "10.0.0.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fp, AgentVersion: "1.0\n\x1b[31mred", ApprovalCodeHash: hashFor(t, d)})
+	resp, err := e.core.Agents.Enroll(e.ctx, "10.0.0.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fp, AgentVersion: "1.0\n\x1b[31mred", ApprovalCodeHash: hashFor(t, d)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func TestRejoinAfterOutageAndItsLimits(t *testing.T) {
 	id, key, leaf := e.approvedAgent(t, fp)
 	real := *e.now
 	rejoin := func(leafDER []byte, k *ecdsa.PrivateKey) error {
-		_, err := e.core.Rejoin(e.ctx, "10.0.0.1", &continuumv1.RejoinRequest{ExpiredLeafDer: leafDER, CsrDer: csrWith(t, k)})
+		_, err := e.core.Agents.Rejoin(e.ctx, "10.0.0.1", &continuumv1.RejoinRequest{ExpiredLeafDer: leafDER, CsrDer: csrWith(t, k)})
 		return err
 	}
 
@@ -131,7 +131,7 @@ func TestRejoinAfterOutageAndItsLimits(t *testing.T) {
 	}
 	// Revocation always wins, even inside the window.
 	*e.now = real.Add(48 * time.Hour)
-	if err := e.core.Revoke(e.ctx, "alex", id, "test"); err != nil {
+	if err := e.core.Agents.Revoke(e.ctx, "alex", id, "test"); err != nil {
 		t.Fatal(err)
 	}
 	if err := rejoin(leaf, key); kindOf(err) != kernel.KindUnauthenticated {
@@ -143,7 +143,7 @@ func TestRejoinIsRateLimitedPerAddress(t *testing.T) {
 	e := newEnv(t)
 	e.core.EnrollRL = kernel.NewLimiter(1, 2)
 	for i := 0; i < 5; i++ {
-		_, err := e.core.Rejoin(e.ctx, "10.9.9.9", &continuumv1.RejoinRequest{ExpiredLeafDer: []byte("x"), CsrDer: []byte("x")})
+		_, err := e.core.Agents.Rejoin(e.ctx, "10.9.9.9", &continuumv1.RejoinRequest{ExpiredLeafDer: []byte("x"), CsrDer: []byte("x")})
 		want := kernel.KindUnauthenticated
 		if i >= 2 {
 			want = kernel.KindRateLimited
@@ -161,7 +161,7 @@ func TestRenewIsRateLimitedPerAgent(t *testing.T) {
 	var limited int
 	for i := 0; i < 5; i++ {
 		d, _ := csr(t)
-		if _, _, err := e.core.Renew(e.ctx, id, d); kindOf(err) == kernel.KindRateLimited {
+		if _, _, err := e.core.Agents.Renew(e.ctx, id, d); kindOf(err) == kernel.KindRateLimited {
 			limited++
 		} else if err != nil {
 			t.Fatal(err)
@@ -374,7 +374,7 @@ func newHubRig(t *testing.T) *hubRig {
 	}
 	hub := tn.Hub
 	e.core = tn.C // the hub reads its settings from this core
-	srv := e.base.NewGRPC(pki.NewServerCerts(e.core.CA, []string{"127.0.0.1"}), p)
+	srv := e.base.Agents.NewGRPC(pki.NewServerCerts(e.core.CA, []string{"127.0.0.1"}), p)
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)

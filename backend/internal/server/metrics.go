@@ -28,11 +28,11 @@ func (p *Platform) AgentCounts(ctx context.Context) (map[string]int, int, error)
 		return nil, 0, err
 	}
 	for _, o := range orgs {
-		agents, err := p.Base.Store.ListAgents(ctx, o.ID)
+		agentList, err := p.Base.Store.ListAgents(ctx, o.ID)
 		if err != nil {
 			return nil, 0, err
 		}
-		for _, a := range agents {
+		for _, a := range agentList {
 			out[string(a.Status)]++
 		}
 	}

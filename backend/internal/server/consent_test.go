@@ -13,6 +13,7 @@ import (
 
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/accounts"
+	"continuum/internal/agents"
 	"continuum/internal/facts"
 	"continuum/internal/kernel"
 	"continuum/internal/pki"
@@ -240,7 +241,7 @@ func TestConsentOverridesAreValidatedPersistedAndPushed(t *testing.T) {
 	if r.Code != 200 {
 		t.Fatalf("%d %s", r.Code, r.Body.String())
 	}
-	var got ConsentDoc
+	var got agents.ConsentDoc
 	if err := json.Unmarshal(r.Body.Bytes(), &got); err != nil || strings.Join(got.PausedCollectors, ",") != "flow,probes" || strings.Join(got.ExcludedNamespaces, ",") != "batch,shop" {
 		t.Fatalf("stored %+v %v", got, err)
 	}
@@ -274,14 +275,14 @@ func TestConsentOverridesAreValidatedPersistedAndPushed(t *testing.T) {
 	if v.cfgHash != h1 {
 		t.Fatal("the same overrides gave a different config hash")
 	}
-	if _, err := a.hub().SetConsent(asRole(accounts.RoleAdmin), "edith", id, Consent{Paused: []string{"flow"}}); err != nil {
+	if _, err := a.hub().SetConsent(asRole(accounts.RoleAdmin), "edith", id, agents.Consent{Paused: []string{"flow"}}); err != nil {
 		t.Fatal(err)
 	}
 	a.hub().configFor(ag, v)
 	if v.cfgHash == h1 {
 		t.Fatal("changed overrides did not change the config hash")
 	}
-	if _, err := a.hub().SetConsent(asRole(accounts.RoleAdmin), "edith", id, Consent{Paused: []string{"measure"}}); err != nil {
+	if _, err := a.hub().SetConsent(asRole(accounts.RoleAdmin), "edith", id, agents.Consent{Paused: []string{"measure"}}); err != nil {
 		t.Fatal(err)
 	}
 	if cfg := a.hub().configFor(ag, v); len(cfg.ProbeTargets) != 0 || cfg.MeasureSeconds != 0 {
@@ -369,7 +370,7 @@ func TestHelloAdvertisesTheCeilingAndDiagnosticsFollowHeartbeats(t *testing.T) {
 	if err := s.Send(&continuumv1.AgentMessage{Msg: &continuumv1.AgentMessage_Heartbeat{Heartbeat: &continuumv1.Heartbeat{Diagnostics: beat}}}); err != nil {
 		t.Fatal(err)
 	}
-	var got *DiagnosticsDoc
+	var got *agents.DiagnosticsDoc
 	end := time.Now().Add(5 * time.Second)
 	for time.Now().Before(end) {
 		doc, _ = r.hub.State(ctx)
@@ -403,7 +404,7 @@ func TestAnOversizedDiagnosticsAccountIsIgnoredNotRefused(t *testing.T) {
 		many.Informers = append(many.Informers, &continuumv1.InformerDiag{Name: "i"})
 	}
 	v.NoteDiagnostics(many, false, time.Now())
-	if len(v.Ext.Diag.Problems) != MaxDiagProblems || len(v.Ext.Diag.Informers) != MaxDiagInformers {
+	if len(v.Ext.Diag.Problems) != agents.MaxDiagProblems || len(v.Ext.Diag.Informers) != agents.MaxDiagInformers {
 		t.Fatalf("lists were not cut: %d %d", len(v.Ext.Diag.Problems), len(v.Ext.Diag.Informers))
 	}
 }
@@ -419,11 +420,11 @@ func TestInstalledTelemetrySignalsRoundTripAndTruncate(t *testing.T) {
 	// A longer-than-bound list is truncated, not refused outright - same treatment as PausedCollectors/Problems.
 	v2 := newView()
 	long := &continuumv1.Diagnostics{AgentVersion: "1"}
-	for i := 0; i < MaxDiagTelemetrySignals+5; i++ {
+	for i := 0; i < agents.MaxDiagTelemetrySignals+5; i++ {
 		long.InstalledTelemetrySignals = append(long.InstalledTelemetrySignals, fmt.Sprintf("signal%d", i))
 	}
 	v2.NoteDiagnostics(long, false, time.Now())
-	if len(v2.Ext.Diag.InstalledTelemetrySignals) != MaxDiagTelemetrySignals {
+	if len(v2.Ext.Diag.InstalledTelemetrySignals) != agents.MaxDiagTelemetrySignals {
 		t.Fatalf("InstalledTelemetrySignals not truncated: %d entries", len(v2.Ext.Diag.InstalledTelemetrySignals))
 	}
 }
@@ -505,13 +506,13 @@ func TestExportHealthRelaysTheAgentsStatesAndBoundsThem(t *testing.T) {
 
 	// An agent cannot make the server hold more routes than it should.
 	many := &continuumv1.ExportHealth{}
-	for i := 0; i < MaxDiagExportRoutes+10; i++ {
+	for i := 0; i < agents.MaxDiagExportRoutes+10; i++ {
 		many.Routes = append(many.Routes, &continuumv1.ExportRouteHealth{Exporter: "e", Signal: "logs"})
 	}
 	v3 := newView()
 	v3.NoteDiagnostics(&continuumv1.Diagnostics{AgentVersion: "1", ExportHealth: many}, false, at)
-	if n := len(v3.diagDoc().ExportHealth.Routes); n != MaxDiagExportRoutes {
-		t.Errorf("%d routes kept, want %d", n, MaxDiagExportRoutes)
+	if n := len(v3.diagDoc().ExportHealth.Routes); n != agents.MaxDiagExportRoutes {
+		t.Errorf("%d routes kept, want %d", n, agents.MaxDiagExportRoutes)
 	}
 }
 
@@ -830,7 +831,7 @@ func (panickyAgents) Connect(continuumv1.AgentService_ConnectServer) error { pan
 
 func TestAPanicInAnAgentStreamIsRecoveredAndTheServerKeepsServing(t *testing.T) {
 	e := newEnv(t)
-	srv := e.base.NewGRPC(pki.NewServerCerts(e.base.CA, []string{"127.0.0.1"}), panickyAgents{})
+	srv := e.base.Agents.NewGRPC(pki.NewServerCerts(e.base.CA, []string{"127.0.0.1"}), panickyAgents{})
 	l, _ := net.Listen("tcp", "127.0.0.1:0")
 	go srv.Serve(l)
 	defer srv.Stop()
@@ -860,14 +861,14 @@ func TestRecoverPanicHelpers(t *testing.T) {
 	e := newEnv(t)
 	before := kernel.Metrics.StreamPanics.Load()
 	err := func() (err error) {
-		defer e.base.RecoverPanic("test", &err)
+		defer e.base.Agents.RecoverPanic("test", &err)
 		panic("x")
 	}()
 	if status.Code(err) != codes.Internal || strings.Contains(err.Error(), "x") {
 		t.Fatalf("err = %v (the panic text must not reach the caller)", err)
 	}
 	done := make(chan struct{})
-	go func() { defer close(done); e.base.Safely("t", func() { panic("y") }) }()
+	go func() { defer close(done); e.base.Agents.Safely("t", func() { panic("y") }) }()
 	<-done
 	if kernel.Metrics.StreamPanics.Load() != before+2 {
 		t.Fatal("panics not counted")
@@ -884,7 +885,7 @@ func TestStopWithinDoesNotWaitForeverForALongLivedStream(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.core = tn.C
-	srv := e.base.NewGRPC(pki.NewServerCerts(e.core.CA, []string{"127.0.0.1"}), p)
+	srv := e.base.Agents.NewGRPC(pki.NewServerCerts(e.core.CA, []string{"127.0.0.1"}), p)
 	l, _ := net.Listen("tcp", "127.0.0.1:0")
 	go srv.Serve(l)
 	id, key, leaf := e.approvedAgent(t, fp)
@@ -911,7 +912,7 @@ func TestHelloNamespaceIsRecordedAndUsedInGeneratedCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.core = tn.C
-	srv := e.base.NewGRPC(pki.NewServerCerts(e.core.CA, []string{"127.0.0.1"}), p)
+	srv := e.base.Agents.NewGRPC(pki.NewServerCerts(e.core.CA, []string{"127.0.0.1"}), p)
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -971,7 +972,7 @@ func TestRevokedAgentCarriesTeardownCommandsOnlyForEditorsAndAbove(t *testing.T)
 	_, editor := a.user(t, "edith", accounts.RoleEditor)
 	_, viewer := a.user(t, "vic", accounts.RoleViewer)
 	id, _, _ := a.approvedAgent(t, fp)
-	if err := a.core.Revoke(a.ctx, "actor", id, "for the test"); err != nil {
+	if err := a.core.Agents.Revoke(a.ctx, "actor", id, "for the test"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -996,7 +997,7 @@ func TestRevokedAgentCarriesTeardownCommandsOnlyForEditorsAndAbove(t *testing.T)
 func TestDropConsentOverridesStripsPausedProbeFields(t *testing.T) {
 	r := newHubRig(t)
 	id, _, _ := r.approvedAgent(t, fp) // approved at tier 2
-	if _, err := r.hub.SetConsent(r.ctx, "actor", id, Consent{Paused: []string{"probes"}}); err != nil {
+	if _, err := r.hub.SetConsent(r.ctx, "actor", id, agents.Consent{Paused: []string{"probes"}}); err != nil {
 		t.Fatal(err)
 	}
 	a, _ := r.st.GetAgent(r.ctx, id)
@@ -1017,7 +1018,7 @@ func TestDropConsentOverridesStripsPausedProbeFields(t *testing.T) {
 	}
 
 	// Un-pausing lets the same fields through again (a fresh node: dropConsentOverrides mutates the one above in place).
-	if _, err := r.hub.SetConsent(asRole(accounts.RoleAdmin), "actor", id, Consent{}); err != nil {
+	if _, err := r.hub.SetConsent(asRole(accounts.RoleAdmin), "actor", id, agents.Consent{}); err != nil {
 		t.Fatal(err)
 	}
 	n2 := &continuumv1.NodeFacts{Key: "n", Name: "n", MachineId: "m", SystemUuid: "u", ProviderId: "p",
@@ -1036,7 +1037,7 @@ func TestDropConsentOverridesStripsPausedProbeFields(t *testing.T) {
 func TestDropConsentOverridesFiltersExcludedNamespaces(t *testing.T) {
 	r := newHubRig(t)
 	id, _, _ := r.approvedAgent(t, fp) // approved at tier 2
-	if _, err := r.hub.SetConsent(r.ctx, "actor", id, Consent{Excluded: []string{"batch"}}); err != nil {
+	if _, err := r.hub.SetConsent(r.ctx, "actor", id, agents.Consent{Excluded: []string{"batch"}}); err != nil {
 		t.Fatal(err)
 	}
 	a, _ := r.st.GetAgent(r.ctx, id)
@@ -1089,7 +1090,7 @@ func TestNoteFlowsRespectsTierAndPauseConsent(t *testing.T) {
 		t.Fatal("an applied batch did not mark flows dirty")
 	}
 
-	if _, err := r.hub.SetConsent(r.ctx, "actor", id, Consent{Paused: []string{"flow"}}); err != nil {
+	if _, err := r.hub.SetConsent(r.ctx, "actor", id, agents.Consent{Paused: []string{"flow"}}); err != nil {
 		t.Fatal(err)
 	}
 	r.hub.mu.Lock()
@@ -1106,7 +1107,7 @@ func TestNoteFlowsRespectsTierAndPauseConsent(t *testing.T) {
 	}
 
 	bad := &continuumv1.FlowBatch{WindowSeconds: 0} // malformed: still an error, not just skipped
-	if _, err := r.hub.SetConsent(asRole(accounts.RoleAdmin), "actor", id, Consent{}); err != nil {
+	if _, err := r.hub.SetConsent(asRole(accounts.RoleAdmin), "actor", id, agents.Consent{}); err != nil {
 		t.Fatal(err)
 	}
 	if applied, err := r.hub.noteFlows(id, 2, bad, time.Now()); applied || err == nil {
@@ -1214,7 +1215,7 @@ func TestNoteMeasurementsRespectsPauseConsent(t *testing.T) {
 		t.Fatalf("a measurement with no pause in force should be recorded: %+v", v.paths["t1"])
 	}
 
-	if _, err := r.hub.SetConsent(r.ctx, "actor", id, Consent{Paused: []string{"measure"}}); err != nil {
+	if _, err := r.hub.SetConsent(r.ctx, "actor", id, agents.Consent{Paused: []string{"measure"}}); err != nil {
 		t.Fatal(err)
 	}
 	r.hub.noteMeasurements(id, m)
@@ -1245,7 +1246,7 @@ func TestConsentDocSaysWhetherTheAgentHasConfirmedANarrowing(t *testing.T) {
 	}
 
 	// Narrow it: unconfirmed until the agent is heard from, and the change is timestamped.
-	if _, err := r.hub.SetConsent(r.ctx, "actor", id, Consent{Paused: []string{"flow"}}); err != nil {
+	if _, err := r.hub.SetConsent(r.ctx, "actor", id, agents.Consent{Paused: []string{"flow"}}); err != nil {
 		t.Fatal(err)
 	}
 	if cd := v.consentDoc(); cd.Confirmed || cd.SetAt == "" {
@@ -1272,7 +1273,7 @@ func TestConsentDocSaysWhetherTheAgentHasConfirmedANarrowing(t *testing.T) {
 	// Changing the ask again, with no new report yet, goes back to unconfirmed - the agent's last report
 	// matched the *previous* ask, not this one.
 	*r.now = r.now.Add(time.Minute)
-	if _, err := r.hub.SetConsent(r.ctx, "actor", id, Consent{Paused: []string{"flow"}, Excluded: []string{"batch"}}); err != nil {
+	if _, err := r.hub.SetConsent(r.ctx, "actor", id, agents.Consent{Paused: []string{"flow"}, Excluded: []string{"batch"}}); err != nil {
 		t.Fatal(err)
 	}
 	cd := v.consentDoc()
@@ -1306,7 +1307,7 @@ func TestConsentDocWarnsAboutExcludedNamespacesTheAgentHasNeverReported(t *testi
 
 	// Nothing has ever synced: no warning, even though nothing is known yet - there is no "reality" to
 	// check against, so silence here, not a false alarm about every excluded name.
-	if _, err := r.hub.SetConsent(r.ctx, "actor", id, Consent{Excluded: []string{"batch"}}); err != nil {
+	if _, err := r.hub.SetConsent(r.ctx, "actor", id, agents.Consent{Excluded: []string{"batch"}}); err != nil {
 		t.Fatal(err)
 	}
 	r.hub.mu.Lock()
@@ -1329,7 +1330,7 @@ func TestConsentDocWarnsAboutExcludedNamespacesTheAgentHasNeverReported(t *testi
 
 	// Widen the exclusion to also cover "shop", which the agent does report: only "batch" stays flagged -
 	// this is not a blanket "something is excluded" warning, it is specific to the name that is not real.
-	if _, err := r.hub.SetConsent(r.ctx, "actor", id, Consent{Excluded: []string{"batch", "shop"}}); err != nil {
+	if _, err := r.hub.SetConsent(r.ctx, "actor", id, agents.Consent{Excluded: []string{"batch", "shop"}}); err != nil {
 		t.Fatal(err)
 	}
 	if cd := v.consentDoc(); len(cd.UnknownNamespaces) != 1 || cd.UnknownNamespaces[0] != "batch" {
@@ -1354,7 +1355,7 @@ func TestConsentDocWarnsAboutExcludedNamespacesTheAgentHasNeverReported(t *testi
 }
 
 // TestKnownNamespacesOnlyLearnsFromASyncTheServerActuallyAccepted guards against a rejected sync teaching
-// viewExt.knownNamespaces about namespaces that were never actually accepted: applySync's own doc comment
+// agents.ViewExt.knownNamespaces about namespaces that were never actually accepted: applySync's own doc comment
 // says a sync Check refuses "changes nothing", and that has to hold for what an excluded name is later
 // checked against too, not just for the stored state itself.
 func TestKnownNamespacesOnlyLearnsFromASyncTheServerActuallyAccepted(t *testing.T) {
@@ -1400,16 +1401,16 @@ func TestAContextWithNoSignedInCallerMayNotWiden(t *testing.T) {
 	id, _, _ := r.approvedAgent(t, fp)
 	h := r.hub
 	bare := context.Background()
-	if _, err := h.SetConsent(bare, "nobody", id, Consent{Paused: []string{"flow"}}); err != nil {
+	if _, err := h.SetConsent(bare, "nobody", id, agents.Consent{Paused: []string{"flow"}}); err != nil {
 		t.Fatalf("pausing a collector narrows, so it needs no right: %v", err)
 	}
-	if _, err := h.SetConsent(bare, "nobody", id, Consent{}); err == nil {
+	if _, err := h.SetConsent(bare, "nobody", id, agents.Consent{}); err == nil {
 		t.Fatal("a caller nobody knows lifted a pause")
 	}
-	if _, err := h.SetConsent(asRole(accounts.RoleEditor), "edith", id, Consent{}); err == nil {
+	if _, err := h.SetConsent(asRole(accounts.RoleEditor), "edith", id, agents.Consent{}); err == nil {
 		t.Fatal("an editor lifted a pause")
 	}
-	if c, err := h.SetConsent(asRole(accounts.RoleAdmin), "adam", id, Consent{}); err != nil || len(c.Paused) != 0 {
+	if c, err := h.SetConsent(asRole(accounts.RoleAdmin), "adam", id, agents.Consent{}); err != nil || len(c.Paused) != 0 {
 		t.Fatalf("an administrator could not lift it: %+v %v", c, err)
 	}
 	if _, err := h.SetAgentTier(bare, "nobody", id, 3, nil); err == nil {

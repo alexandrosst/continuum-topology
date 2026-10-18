@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"continuum/internal/accounts"
+	"continuum/internal/agents"
 	"continuum/internal/fusion"
 	"continuum/internal/geoip"
 	"continuum/internal/graph"
@@ -257,13 +258,13 @@ func run(log *slog.Logger, selfProbe probeOpts, dataDir, agentListen, agentAddr,
 		return err
 	}
 	// Fail closed: a database that was asked for but cannot be used stops the server rather than silently turning the feature off.
-	var geo *server.Geo
+	var geo *agents.Geo
 	if geoPath != "" {
 		db, err := geoip.Open(geoPath)
 		if err != nil {
 			return fmt.Errorf("--geoip-db %s: %w", geoPath, err)
 		}
-		geo = server.NewGeo(db)
+		geo = agents.NewGeo(db)
 		gi := geo.Info()
 		log.Info("geoip database loaded", "type", gi.Database, "description", gi.Description, "built", gi.BuiltAt)
 		if geoASNPath != "" {
@@ -312,7 +313,7 @@ func run(log *slog.Logger, selfProbe probeOpts, dataDir, agentListen, agentAddr,
 	runCtx, stopRun := context.WithCancel(context.Background())
 	defer stopRun()
 	if geo != nil && geoPublicIP != "" {
-		finder := server.NewPublicIPFinder(geoPublicIP, 0)
+		finder := agents.NewPublicIPFinder(geoPublicIP, 0)
 		finder.Start(runCtx)
 		geo.SetPublicIPFallback(finder)
 		log.Info("an unlocatable agent (private, loopback or CGNAT address) is estimated from this server's own public address", "service", geoPublicIP)
@@ -362,7 +363,7 @@ func run(log *slog.Logger, selfProbe probeOpts, dataDir, agentListen, agentAddr,
 	if err := platform.Start(runCtx); err != nil {
 		return err
 	}
-	grpcSrv := core.NewGRPC(certs, platform)
+	grpcSrv := core.Agents.NewGRPC(certs, platform)
 
 	l, err := net.Listen("tcp", agentListen)
 	if err != nil {

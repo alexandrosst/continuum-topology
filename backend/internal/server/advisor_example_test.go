@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"continuum/internal/accounts"
+	"continuum/internal/agents"
 	"continuum/internal/store"
 )
 
@@ -41,7 +42,7 @@ func TestTheExampleAdvisorProposesThroughTheRealAPIAndOnlyProposes(t *testing.T)
 	for i := 0; i <= 8; i++ {
 		at := start.Add(time.Duration(i) * 30 * time.Second)
 		cpu += 0.5 * 30
-		v.Self.Add(SelfStatsSample{At: at, RSSBytes: 60 << 20, CPUSeconds: cpu, LinkBytesCumulative: uint64(i) * 30000}, at)
+		v.Self.Add(agents.SelfStatsSample{At: at, RSSBytes: 60 << 20, CPUSeconds: cpu, LinkBytesCumulative: uint64(i) * 30000}, at)
 	}
 	h.mu.Unlock()
 

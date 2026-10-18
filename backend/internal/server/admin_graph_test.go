@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"continuum/internal/accounts"
+	"continuum/internal/agents"
 	"continuum/internal/graph"
 	"continuum/internal/history"
 	"continuum/internal/model"
@@ -189,7 +190,7 @@ func TestHistorySnapshotCarriesAgentsAsOfTheSameMomentAndGraphSnapshotIsSchemaAg
 	if err := gs.AddHistory(a.ctx, aOrg, t0, snap("web", 1)); err != nil {
 		t.Fatal(err)
 	}
-	agentDoc := AgentSnapshot{Name: "edge-collector", Status: "approved", ClusterID: "c-1", InstalledTier: 2, TierCap: 2, AccessTier: 1}
+	agentDoc := agents.AgentSnapshot{Name: "edge-collector", Status: "approved", ClusterID: "c-1", InstalledTier: 2, TierCap: 2, AccessTier: 1}
 	if err := gs.RecordEntity(a.ctx, aOrg, t0, "agent", "ag-1", agentDoc.Name, agentDoc.Status, agentDoc.ClusterID, agentDoc); err != nil {
 		t.Fatal(err)
 	}
@@ -207,11 +208,11 @@ func TestHistorySnapshotCarriesAgentsAsOfTheSameMomentAndGraphSnapshotIsSchemaAg
 	if svcs := body["topology"].(map[string]any)["services"].([]any); len(svcs) != 1 {
 		t.Errorf("topology missing: %v", body["topology"])
 	}
-	agents, ok := body["agents"].([]any)
-	if !ok || len(agents) != 1 {
+	agentList, ok := body["agents"].([]any)
+	if !ok || len(agentList) != 1 {
 		t.Fatalf("expected one historic agent, got %v", body["agents"])
 	}
-	ag := agents[0].(map[string]any)
+	ag := agentList[0].(map[string]any)
 	if ag["id"] != "ag-1" || ag["name"] != "edge-collector" || ag["status"] != "approved" || ag["clusterId"] != "c-1" || ag["accessTier"].(float64) != 1 {
 		t.Errorf("historic agent = %v", ag)
 	}

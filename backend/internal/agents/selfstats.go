@@ -1,4 +1,4 @@
-package server
+package agents
 
 import (
 	"sync"
@@ -8,17 +8,17 @@ import (
 	continuumv1 "continuum/gen/continuumv1"
 )
 
-// selfStatsWindow is how far back a self-telemetry ring (per agent, or the server's own) keeps samples -
-// see selfRing's own doc comment. A var, not a const, so a test can shrink it; production code never
+// SelfStatsWindow is how far back a self-telemetry ring (per agent, or the server's own) keeps samples -
+// see SelfRing's own doc comment. A var, not a const, so a test can shrink it; production code never
 // changes it. One hour at whatever cadence samples actually arrive: a heartbeat every HeartbeatSeconds
-// for an agent's own ring, selfStatsSampleEvery for the server's own.
+// for an agent's own ring, SelfStatsSampleEvery for the server's own.
 var SelfStatsWindow = time.Hour
 
-// selfStatsSampleEvery is how often Hub.Run samples the server's own process self-stats (sampleSelfStats) -
+// SelfStatsSampleEvery is how often Hub.Run samples the server's own process self-stats (sampleSelfStats) -
 // see Hub.Run's own ticker. A var, not a const, so a test can shrink it without waiting out a real hour.
 var SelfStatsSampleEvery = 30 * time.Second
 
-// selfRing is a small, fixed time-window ring of self-telemetry samples - one per agent (view.self) or
+// SelfRing is a small, fixed time-window ring of self-telemetry samples - one per agent (view.self) or
 // one for the server's own process (Hub.serverSelf). Samples always arrive in time order (one per
 // heartbeat received, or one per tick of the server's own ticker), so eviction is a simple trim from the
 // front; this is deliberately not the heap-based eviction this codebase uses elsewhere (see twin's
@@ -29,8 +29,8 @@ type SelfRing[T any] struct {
 	samples []T
 }
 
-// newSelfRing builds a ring that keeps samples within window of the most recently added one's own
-// timestamp, as reported by at. window<=0 falls back to selfStatsWindow, the same "0 means the real
+// NewSelfRing builds a ring that keeps samples within window of the most recently added one's own
+// timestamp, as reported by at. window<=0 falls back to SelfStatsWindow, the same "0 means the real
 // default" treatment Hub.FlowStaleAfter/ConsistencyEvery already use.
 func NewSelfRing[T any](window time.Duration, at func(T) time.Time) SelfRing[T] {
 	if window <= 0 {
@@ -40,7 +40,7 @@ func NewSelfRing[T any](window time.Duration, at func(T) time.Time) SelfRing[T] 
 }
 
 // add appends s and evicts every sample older than window as measured from now, a plain trim from the
-// front since samples arrive in time order - see selfRing's own doc comment. now is passed in rather
+// front since samples arrive in time order - see SelfRing's own doc comment. now is passed in rather
 // than read from the clock here so a test can drive eviction without any real waiting.
 func (r *SelfRing[T]) Add(s T, now time.Time) {
 	r.samples = append(r.samples, s)
@@ -70,7 +70,7 @@ func (r *SelfRing[T]) List() []T {
 
 // SelfStatsSample is one agent's SelfStats, as received on one heartbeat, with the server's own receipt
 // time (not the agent's clock, which may have drifted - see Heartbeat.clock_skew_ms) attached. Held in
-// view.self, a short fixed-window ring (selfStatsWindow) - see newSelfRing's own doc comment.
+// view.self, a short fixed-window ring (SelfStatsWindow) - see NewSelfRing's own doc comment.
 type SelfStatsSample struct {
 	At                                        time.Time
 	RSSBytes                                  uint64
@@ -105,7 +105,7 @@ func (v *View) NoteSelfStats(ss *continuumv1.SelfStats, now time.Time) {
 }
 
 // ServerSelfStatsSample is this server process's own self-telemetry, sampled once per
-// selfStatsSampleEvery by Hub.Run's own ticker (sampleSelfStats) - see Hub.serverSelf.
+// SelfStatsSampleEvery by Hub.Run's own ticker (sampleSelfStats) - see Hub.serverSelf.
 type ServerSelfStatsSample struct {
 	At              time.Time
 	RSSBytes        uint64
@@ -137,7 +137,7 @@ type ServerSelfStatsSample struct {
 	NumGC          uint32
 }
 
-// processCPUSeconds is this process's own cumulative CPU time (user + system) in seconds, from the
+// ProcessCPUSeconds is this process's own cumulative CPU time (user + system) in seconds, from the
 // kernel's per-process accounting (getrusage(RUSAGE_SELF, ...)) - the same measure, and the same
 // raw-cumulative-counter-diffed-by-the-caller treatment, as the agent's own identically-named helper
 // (internal/agent/diag.go) uses for SelfStats.cpu_seconds; duplicated rather than shared because the two
@@ -154,7 +154,7 @@ func ProcessCPUSeconds() float64 {
 	return user + sys
 }
 
-// flowIngest tracks the running total sampleSelfStats diffs to derive FlowIngestBytesPerSec - see that
+// FlowIngest tracks the running total sampleSelfStats diffs to derive FlowIngestBytesPerSec - see that
 // field's own doc comment. Guarded by its own lock, never Hub.mu: sampleSelfStats already releases
 // Hub.mu before touching this, so the two never need to be held together.
 type FlowIngest struct {

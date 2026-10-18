@@ -10,6 +10,7 @@ import (
 
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/accounts"
+	"continuum/internal/agents"
 	"continuum/internal/kernel"
 	"continuum/internal/store"
 
@@ -59,7 +60,7 @@ func TestTheConfigEachClusterIsSentIsPinned(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	consent := func(who string, c Consent) {
+	consent := func(who string, c agents.Consent) {
 		t.Helper()
 		if _, err := cr.hub.SetConsent(asRole(accounts.RoleAdmin), "alex", byName[who].ID, c); err != nil {
 			t.Fatal(err)
@@ -86,13 +87,13 @@ func TestTheConfigEachClusterIsSentIsPinned(t *testing.T) {
 	step("the pair with its one-way probe off, pinned to the public addresses")
 
 	save(kernel.Settings{MeasureSeconds: 90, ProbeTargets: targets, Links: []kernel.LinkSetting{pair(&kernel.LinkThroughput{}, "", false)}})
-	consent("first", Consent{Paused: []string{"flow"}})
+	consent("first", agents.Consent{Paused: []string{"flow"}})
 	step("the first cluster's flow collector paused")
 
-	consent("second", Consent{Paused: []string{"flow"}})
+	consent("second", agents.Consent{Paused: []string{"flow"}})
 	step("the second cluster's flow collector paused as well")
 
-	consent("first", Consent{Paused: []string{"flow", "measure"}, Excluded: []string{"payments", "monitoring"}})
+	consent("first", agents.Consent{Paused: []string{"flow", "measure"}, Excluded: []string{"payments", "monitoring"}})
 	step("the first cluster also asked to stop measuring, and to leave two namespaces out")
 
 	if _, err := cr.hub.SetAgentTier(cr.ctx, "alex", cr.second.ID, 1, func(int) string { return "" }); err != nil {

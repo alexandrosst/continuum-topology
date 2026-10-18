@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	continuumv1 "continuum/gen/continuumv1"
+	"continuum/internal/agents"
 	"continuum/internal/measure"
 	"google.golang.org/protobuf/proto"
 )
@@ -61,7 +62,7 @@ func TestCompileConfigIssuesObservedTargetsOnlyFromTierTwo(t *testing.T) {
 
 func TestCompileConfigIssuesNothingWhenMeasuringIsPausedAndNoMeasureTimeWithoutTargets(t *testing.T) {
 	f := baseFacts()
-	f.Consent = Consent{Paused: []string{"measure"}}
+	f.Consent = agents.Consent{Paused: []string{"measure"}}
 	cfg, ts := compileConfig(f)
 	if len(cfg.ProbeTargets) != 0 || len(ts) != 0 || cfg.MeasureSeconds != 0 {
 		t.Fatalf("a paused measure collector was still given targets: %v %d", targetIDs(cfg), cfg.MeasureSeconds)
@@ -92,9 +93,9 @@ func TestCompileConfigHandsTheIperfServerOnlyToTierTwoWithFlowRunning(t *testing
 	for _, c := range []struct {
 		name    string
 		tier    int
-		consent Consent
+		consent agents.Consent
 		want    bool
-	}{{"tier 2", 2, Consent{}, true}, {"tier 1", 1, Consent{}, false}, {"flow paused", 2, Consent{Paused: []string{"flow"}}, false}} {
+	}{{"tier 2", 2, agents.Consent{}, true}, {"tier 1", 1, agents.Consent{}, false}, {"flow paused", 2, agents.Consent{Paused: []string{"flow"}}, false}} {
 		f := baseFacts()
 		f.Tier, f.Consent = c.tier, c.consent
 		if cfg, _ := compileConfig(f); (cfg.LinkIperfServer != nil) != c.want {
@@ -115,7 +116,7 @@ func TestCompileConfigHandsClientCredentialsOnlyToThePeersItTestsForThroughput(t
 
 func TestCompileConfigChangesNothingItIsGiven(t *testing.T) {
 	f := baseFacts()
-	f.Consent = Consent{Paused: []string{"flow"}, Excluded: []string{"shop"}}
+	f.Consent = agents.Consent{Paused: []string{"flow"}, Excluded: []string{"shop"}}
 	before := make([]*continuumv1.LinkPeer, len(f.Peers))
 	for i, p := range f.Peers {
 		before[i] = proto.Clone(p).(*continuumv1.LinkPeer)

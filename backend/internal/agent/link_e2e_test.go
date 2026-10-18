@@ -12,6 +12,7 @@ import (
 	"continuum/internal/accounts"
 	"continuum/internal/agent"
 	"continuum/internal/agent/collect"
+	"continuum/internal/agents"
 	"continuum/internal/flow"
 	"continuum/internal/kernel"
 	"continuum/internal/link"
@@ -39,7 +40,7 @@ func (d *dx) addPeer(uid, nodeIP string) string {
 		&appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: "api", Namespace: "default"}},
 	}...)
 	ids := agent.FileStore{Dir: filepath.Join(d.t.TempDir(), "id")}
-	token, _, err := d.core.CreateToken(context.Background(), "test", "peer", 2)
+	token, _, err := d.core.Agents.CreateToken(context.Background(), "test", "peer", 2)
 	if err != nil {
 		d.t.Fatal(err)
 	}
@@ -66,7 +67,7 @@ func (d *dx) addPeer(uid, nodeIP string) string {
 		}
 		return false
 	})
-	if err := d.core.Approve(context.Background(), "test", peer, codeOf(d.t, ids), 2); err != nil {
+	if err := d.core.Agents.Approve(context.Background(), "test", peer, codeOf(d.t, ids), 2); err != nil {
 		d.t.Fatal(err)
 	}
 	var cluster string
@@ -146,11 +147,11 @@ func TestTheServerNamesLinkPeersAndTheAgentLabelsTrafficWithThem(t *testing.T) {
 	}
 
 	// Pausing the flow collector for this agent stops it: no peers, no series.
-	if _, err := d.hub.SetConsent(context.Background(), "test", d.id, server.Consent{Paused: []string{"flow"}}); err != nil {
+	if _, err := d.hub.SetConsent(context.Background(), "test", d.id, agents.Consent{Paused: []string{"flow"}}); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, "the peers to be withdrawn while flow is paused", 30*time.Second, func() bool { return meter.Peers.Empty() })
-	if _, err := d.hub.SetConsent(server.ActingAs(context.Background(), accounts.RoleAdmin), "test", d.id, server.Consent{}); err != nil {
+	if _, err := d.hub.SetConsent(agents.ActingAs(context.Background(), accounts.RoleAdmin), "test", d.id, agents.Consent{}); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, "the peers to return", 30*time.Second, func() bool { return !meter.Peers.Empty() })

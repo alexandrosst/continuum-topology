@@ -106,9 +106,9 @@ type LinkNote struct {
 }
 
 // approvedByCluster is the organisation's approved agents by the cluster they report for.
-func approvedByCluster(agents []store.Agent) map[string]store.Agent {
+func approvedByCluster(agentList []store.Agent) map[string]store.Agent {
 	byCluster := map[string]store.Agent{}
-	for _, o := range agents {
+	for _, o := range agentList {
 		if o.Status == store.StatusApproved && o.ClusterID != "" {
 			byCluster[o.ClusterID] = o
 		}

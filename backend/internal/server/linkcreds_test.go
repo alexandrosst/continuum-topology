@@ -359,12 +359,12 @@ func TestTheServerSeesAllTheUsersOfAllThePairsItServes(t *testing.T) {
 	cr := newCredRig(t)
 	ids := []string{cr.first.ClusterID, cr.second.ClusterID, cr.third.ClusterID}
 	big := max(ids[0], ids[1], ids[2])
-	var others, agents []string
+	var others, agentList []string
 	for _, a := range []store.Agent{cr.first, cr.second, cr.third} {
 		if a.ClusterID != big {
 			others = append(others, a.ClusterID)
 		} else {
-			agents = append(agents, a.ID)
+			agentList = append(agentList, a.ID)
 		}
 	}
 	p := func(x string) kernel.LinkSetting {
@@ -381,7 +381,7 @@ func TestTheServerSeesAllTheUsersOfAllThePairsItServes(t *testing.T) {
 	if len(lines) != 2 || strings.Split(lines[0], ",")[0] == strings.Split(lines[1], ",")[0] {
 		t.Fatalf("users = %q", lines)
 	}
-	_ = agents
+	_ = agentList
 }
 
 func TestTheConfigHashFollowsTheCredentialsWithoutHoldingThem(t *testing.T) {

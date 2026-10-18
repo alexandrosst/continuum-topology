@@ -1567,7 +1567,7 @@ func (a *Admin) createToken(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, a.installConfigError(err))
 		return
 	}
-	secret, t, err := a.core(r).CreateTokenFor(r.Context(), actor(r), req.Name, req.Tier, req.ExpectedCluster)
+	secret, t, err := a.core(r).Agents.CreateTokenFor(r.Context(), actor(r), req.Name, req.Tier, req.ExpectedCluster)
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -1674,7 +1674,7 @@ func (a *Admin) agentChart(img kernel.ImageConfig) (ref, version string) {
 }
 
 func (a *Admin) deleteToken(w http.ResponseWriter, r *http.Request) {
-	if err := a.core(r).DeleteToken(r.Context(), actor(r), r.PathValue("id")); err != nil {
+	if err := a.core(r).Agents.DeleteToken(r.Context(), actor(r), r.PathValue("id")); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -1697,7 +1697,7 @@ func (a *Admin) approve(w http.ResponseWriter, r *http.Request) {
 	if proof == "" {
 		proof = strings.TrimSpace(req.Confirm)
 	}
-	if err := a.core(r).Approve(r.Context(), actor(r), r.PathValue("id"), proof, req.Tier); err != nil {
+	if err := a.core(r).Agents.Approve(r.Context(), actor(r), r.PathValue("id"), proof, req.Tier); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -1705,11 +1705,15 @@ func (a *Admin) approve(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *Admin) reject(w http.ResponseWriter, r *http.Request) {
-	a.reasoned(w, r, func(reason string) error { return a.core(r).Reject(r.Context(), actor(r), r.PathValue("id"), reason) })
+	a.reasoned(w, r, func(reason string) error {
+		return a.core(r).Agents.Reject(r.Context(), actor(r), r.PathValue("id"), reason)
+	})
 }
 
 func (a *Admin) revoke(w http.ResponseWriter, r *http.Request) {
-	a.reasoned(w, r, func(reason string) error { return a.core(r).Revoke(r.Context(), actor(r), r.PathValue("id"), reason) })
+	a.reasoned(w, r, func(reason string) error {
+		return a.core(r).Agents.Revoke(r.Context(), actor(r), r.PathValue("id"), reason)
+	})
 }
 
 func (a *Admin) reasoned(w http.ResponseWriter, r *http.Request, do func(reason string) error) {

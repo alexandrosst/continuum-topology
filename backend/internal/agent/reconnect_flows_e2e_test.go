@@ -67,7 +67,7 @@ func TestTrafficSeenWhileDisconnectedIsSentOnReconnect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := d.core.NewGRPC(pki.NewServerCerts(d.core.CA, []string{"127.0.0.1"}), d.hub)
+	srv := d.core.Agents.NewGRPC(pki.NewServerCerts(d.core.CA, []string{"127.0.0.1"}), d.hub)
 	go srv.Serve(l)
 	t.Cleanup(srv.Stop)
 

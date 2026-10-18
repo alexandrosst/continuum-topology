@@ -1,4 +1,4 @@
-package server
+package agents
 
 import (
 	"fmt"
@@ -10,7 +10,7 @@ import (
 )
 
 // A Condition is one fact about an agent that is either true, false or not known, with a short code for why and a sentence for a
-// person. It is computed, from what the hub holds and the server's clock, by agentConditions and by nothing else; the document
+// person. It is computed, from what the hub holds and the server's clock, by AgentConditions and by nothing else; the document
 // carries it and no screen reads it yet. A condition is a statement about now and not a record of events: the audit trail is the
 // record.
 //
@@ -34,7 +34,7 @@ const (
 	CondCompatible    = "Compatible"
 )
 
-// condInputs is everything agentConditions looks at, copied out of the view so the function itself touches no lock and no clock.
+// CondInputs is everything AgentConditions looks at, copied out of the view so the function itself touches no lock and no clock.
 type CondInputs struct {
 	// Seen is whether the agent has connected at least once since this server started.
 	Seen           bool
@@ -55,7 +55,7 @@ func since(t time.Time) string {
 	return kernel.RFC(t)
 }
 
-// agentConditions is the one place the conditions are decided. It never blocks anything: a condition that is False is a thing to
+// AgentConditions is the one place the conditions are decided. It never blocks anything: a condition that is False is a thing to
 // tell a person, and no part of the protocol reads it.
 func AgentConditions(in CondInputs, now time.Time) []Condition {
 	return []Condition{connectedCondition(in), configInForceCondition(in, now), compatibleCondition(in)}

@@ -1,4 +1,4 @@
-package server
+package agents
 
 import (
 	"context"
@@ -62,7 +62,7 @@ func PeerIP(ctx context.Context) string {
 // ServerTLS: TLS 1.3 only. A client certificate is verified when presented but is not
 // required by the handshake, because enrolling agents have none yet; the interceptor
 // below requires it for every AgentService call.
-func (c *Core) ServerTLS(certs *pki.ServerCerts) *tls.Config {
+func (c *Service) ServerTLS(certs *pki.ServerCerts) *tls.Config {
 	return &tls.Config{
 		MinVersion:     tls.VersionTLS13,
 		GetCertificate: certs.GetCertificate,
@@ -72,7 +72,7 @@ func (c *Core) ServerTLS(certs *pki.ServerCerts) *tls.Config {
 }
 
 // identity extracts and re-checks the agent behind the client certificate.
-func (c *Core) identity(ctx context.Context) (store.Agent, error) {
+func (c *Service) identity(ctx context.Context) (store.Agent, error) {
 	p, ok := peer.FromContext(ctx)
 	if !ok {
 		return store.Agent{}, status.Error(codes.Unauthenticated, "no peer")
@@ -116,7 +116,7 @@ func hasClientAuth(c *x509.Certificate) bool {
 // tap runs before a request's body is read, so it is where unauthenticated callers are cut off
 // cheaply: an enrollment call is rate limited per address, and an AgentService call without a
 // verified client certificate is refused without its (up to 16 MB) message ever being received.
-func (c *Core) tap(ctx context.Context, info *tap.Info) (context.Context, error) {
+func (c *Service) tap(ctx context.Context, info *tap.Info) (context.Context, error) {
 	if strings.HasPrefix(info.FullMethodName, enrollmentPrefix) {
 		if c.TapRL != nil && !c.TapRL.Allow("tap:"+kernel.LimitKey(PeerIP(ctx))) {
 			return nil, status.Error(codes.ResourceExhausted, "too many requests")
@@ -134,7 +134,7 @@ func (c *Core) tap(ctx context.Context, info *tap.Info) (context.Context, error)
 
 const enrollmentPrefix = "/continuum.v1.Enrollment/"
 
-func (c *Core) unary(ctx context.Context, req any, info *grpc.UnaryServerInfo, h grpc.UnaryHandler) (resp any, err error) {
+func (c *Service) unary(ctx context.Context, req any, info *grpc.UnaryServerInfo, h grpc.UnaryHandler) (resp any, err error) {
 	defer c.RecoverPanic(info.FullMethod, &err)
 	if strings.HasPrefix(info.FullMethod, enrollmentPrefix) {
 		// The listener already holds unauthenticated connections to a small message size; this also covers
@@ -158,7 +158,7 @@ type wrappedStream struct {
 
 func (w wrappedStream) Context() context.Context { return w.ctx }
 
-func (c *Core) stream(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, h grpc.StreamHandler) (err error) {
+func (c *Service) stream(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, h grpc.StreamHandler) (err error) {
 	defer c.RecoverPanic(info.FullMethod, &err)
 	a, err := c.identity(ss.Context())
 	if err != nil {
@@ -190,7 +190,7 @@ type GRPCServer struct {
 	// trustProxy is Core.TrustAgentProxy, copied in at construction: every connection must present a
 	// valid PROXY protocol header before its TLS handshake (readProxyHeader in proxyproto.go), and the
 	// address it declares - not the TCP socket's own peer, which would be the proxy itself - is what
-	// peerIP and gRPC's peer.FromContext report from here on.
+	// PeerIP and gRPC's peer.FromContext report from here on.
 	trustProxy bool
 
 	mu      sync.Mutex
@@ -200,7 +200,7 @@ type GRPCServer struct {
 
 // NewGRPC builds the listener-facing gRPC server. Every method not under the Enrollment service
 // requires an approved agent's client certificate.
-func (c *Core) NewGRPC(certs *pki.ServerCerts, agentSvc continuumv1.AgentServiceServer) *GRPCServer {
+func (c *Service) NewGRPC(certs *pki.ServerCerts, agentSvc continuumv1.AgentServiceServer) *GRPCServer {
 	cfg := c.ServerTLS(certs)
 	cfg.NextProtos = []string{"h2"}
 	build := func(maxRecv int) *grpc.Server {
@@ -411,7 +411,7 @@ func (g *GRPCServer) markStopped() {
 
 type enrollmentServer struct {
 	continuumv1.UnimplementedEnrollmentServer
-	c *Core
+	c *Service
 }
 
 func (e *enrollmentServer) Enroll(ctx context.Context, r *continuumv1.EnrollRequest) (*continuumv1.EnrollResponse, error) {
@@ -437,7 +437,7 @@ func (e *enrollmentServer) PollEnrollment(ctx context.Context, r *continuumv1.Po
 // BaseAgentService implements Renew; Connect is provided by the sync hub.
 type BaseAgentService struct {
 	continuumv1.UnimplementedAgentServiceServer
-	C *Core
+	C *Service
 }
 
 func (b *BaseAgentService) Renew(ctx context.Context, r *continuumv1.RenewRequest) (*continuumv1.RenewResponse, error) {

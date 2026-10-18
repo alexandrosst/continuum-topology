@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"time"
 
+	"continuum/internal/agents"
 	"continuum/internal/model"
 )
 
@@ -134,7 +135,7 @@ func clusterTotals(nodes []model.Node, clusterID string) (throughputBps uint64, 
 // deriving cpuPct/bandwidthSharePct from consecutive readings (rateBetween) and attaching the cluster's
 // current watts total, if any, as a live snapshot on every sample - not a historical reading of its own,
 // since this pass keeps no separate power time series (see (*Admin).selfTelemetry's own doc comment).
-func agentTelemetrySamples(history []SelfStatsSample, clusterThroughputBps uint64, watts *float64) []SelfTelemetrySample {
+func agentTelemetrySamples(history []agents.SelfStatsSample, clusterThroughputBps uint64, watts *float64) []SelfTelemetrySample {
 	out := make([]SelfTelemetrySample, 0, len(history))
 	for i, s := range history {
 		d := SelfTelemetrySample{
@@ -164,7 +165,7 @@ func agentTelemetrySamples(history []SelfStatsSample, clusterThroughputBps uint6
 // snapshot, always present), flowIngestBytesPerSec (already a rate when sampled, also always present),
 // and modelCacheHitPct/gcPauseMsPerSec (both derived here from consecutive cumulative readings via
 // rateBetween, the same way cpuPct already is - so omitted on the first sample).
-func serverTelemetrySamples(history []ServerSelfStatsSample) []SelfTelemetrySample {
+func serverTelemetrySamples(history []agents.ServerSelfStatsSample) []SelfTelemetrySample {
 	out := make([]SelfTelemetrySample, 0, len(history))
 	for i, s := range history {
 		connected, flowRate := s.ConnectedAgents, s.FlowIngestBytesPerSec
@@ -198,8 +199,8 @@ func serverTelemetrySamples(history []ServerSelfStatsSample) []SelfTelemetrySamp
 }
 
 // selfTelemetry serves GET /api/v1/orgs/{org}/telemetry/self: what running Ikhnos itself costs in
-// this organisation, over the last hour (selfStatsWindow) at whatever cadence samples actually arrived -
-// a heartbeat's own cadence for each agent, selfStatsSampleEvery for the server itself. Meant to be
+// this organisation, over the last hour (agents.SelfStatsWindow) at whatever cadence samples actually arrived -
+// a heartbeat's own cadence for each agent, agents.SelfStatsSampleEvery for the server itself. Meant to be
 // genuinely useful read directly, programmatically, not only as a UI data source.
 //
 // Response: a JSON array of entities, each shaped:

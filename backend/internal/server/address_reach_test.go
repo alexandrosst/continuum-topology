@@ -7,6 +7,7 @@ import (
 	continuumv1 "continuum/gen/continuumv1"
 
 	"continuum/internal/accounts"
+	"continuum/internal/agents"
 )
 
 // connectedAgent is an approved agent with a live view and a stream the hub can push a Config on.
@@ -151,7 +152,7 @@ func TestAnAddressTestNeedsAnAgentThatCanMeasure(t *testing.T) {
 		t.Fatalf("an agent that is not connected: %d", code)
 	}
 	agentID2, _ := connectedAgent2(t, a, agentID)
-	if _, err := a.hub().SetConsent(a.ctx, "alex", agentID2, Consent{Paused: []string{"measure"}}); err != nil {
+	if _, err := a.hub().SetConsent(a.ctx, "alex", agentID2, agents.Consent{Paused: []string{"measure"}}); err != nil {
 		t.Fatal(err)
 	}
 	if code, _ := startTests(t, a, cookie, agentID2, "10.0.0.1:4317"); code != 409 {

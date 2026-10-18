@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"continuum/internal/accounts"
+	"continuum/internal/agents"
 )
 
 // What the server lets a role do is decided in policy.go. These pin the answers - who may give or take away which role, who may
@@ -32,7 +33,7 @@ func TestWhoMayGiveOrTakeAwayWhichRole(t *testing.T) {
 func TestOnlyAnAdministratorOrAboveMayWidenAnAgentsAccess(t *testing.T) {
 	for _, role := range allRoles {
 		want := role == accounts.RoleAdmin || role == accounts.RoleOwner
-		if got := mayWidenAccess(ActingAs(context.Background(), role)); got != want {
+		if got := mayWidenAccess(agents.ActingAs(context.Background(), role)); got != want {
 			t.Errorf("%q widening: %v, want %v", role, got, want)
 		}
 	}

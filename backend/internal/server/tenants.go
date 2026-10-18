@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	continuumv1 "continuum/gen/continuumv1"
+	"continuum/internal/agents"
 	"continuum/internal/kernel"
 	"continuum/internal/store"
 
@@ -26,9 +27,9 @@ type Tenant struct {
 // Platform holds the tenants. It is also the AgentService the gRPC listener serves: an agent's stream
 // is handed to the hub of the organisation its certificate was issued for, and to no other.
 type Platform struct {
-	*BaseAgentService // Renew, which works for any organisation's agent
-	Base              *Core
-	Geo               *Geo
+	*agents.BaseAgentService // Renew, which works for any organisation's agent
+	Base                     *Core
+	Geo                      *agents.Geo
 	// Tune, when set, is applied to each new tenant's hub (tests use it to shorten intervals).
 	Tune func(*Hub)
 
@@ -37,8 +38,8 @@ type Platform struct {
 	ctx     context.Context
 }
 
-func NewPlatform(base *Core, geo *Geo) *Platform {
-	return &Platform{BaseAgentService: &BaseAgentService{C: base}, Base: base, Geo: geo, tenants: map[string]*Tenant{}, ctx: context.Background()}
+func NewPlatform(base *Core, geo *agents.Geo) *Platform {
+	return &Platform{BaseAgentService: &agents.BaseAgentService{C: base.Agents}, Base: base, Geo: geo, tenants: map[string]*Tenant{}, ctx: context.Background()}
 }
 
 // Start brings every existing organisation up (restoring what each last knew) and ties all their
@@ -118,7 +119,7 @@ func (p *Platform) drop(id string) {
 
 // Connect routes the agent's stream to its own organisation's hub.
 func (p *Platform) Connect(stream continuumv1.AgentService_ConnectServer) error {
-	a, ok := AgentFrom(stream.Context())
+	a, ok := agents.AgentFrom(stream.Context())
 	if !ok {
 		return status.Error(codes.Unauthenticated, "no agent")
 	}

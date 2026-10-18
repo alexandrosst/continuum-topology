@@ -51,7 +51,7 @@ var moduleNames = map[string]bool{
 
 // movedOut are the modules that are packages of their own now. They keep their name here for the lists, but no file of this package is
 // theirs: a file assigned to one of them is a file that should have moved with it.
-var movedOut = map[string]bool{"observed": true, "accounts": true, "advice": true, "operators": true, "telemetry": true, "fusion": true}
+var movedOut = map[string]bool{"agents": true, "observed": true, "accounts": true, "advice": true, "operators": true, "telemetry": true, "fusion": true}
 
 // moduleOfFile reads testdata/modules.txt: one line per file, the file name and then its module.
 func moduleOfFile(t *testing.T) map[string]string {
@@ -138,7 +138,21 @@ func typedServer(t *testing.T) ([]moduleUse, []moduleUse) {
 	if testing.Short() {
 		t.Skip("type-checks the whole package")
 	}
-	typedOnce.Do(func() { typedUses, typedStor, typedErr = readUses(moduleOfFile(t)) })
+	typedOnce.Do(func() {
+		typedUses, typedStor, typedErr = readUses(moduleOfFile(t))
+		if typedErr == nil {
+			// The modules that are packages of their own are held apart by the compiler, but the tables they own are still shared
+			// through the store, and that is read here: which module calls which store method.
+			for module, dir := range movedPackages {
+				more, err := readStoreUses(module, dir)
+				if err != nil {
+					typedErr = err
+					return
+				}
+				typedStor = append(typedStor, more...)
+			}
+		}
+	})
 	if typedErr != nil {
 		t.Fatal(typedErr)
 	}
@@ -346,7 +360,8 @@ const edgesHeader = `# Every place one module uses something declared in another
 `
 
 const storeHeader = `# The store methods that more than one module calls, and the modules that call them. A method used by one module is that
-# module's own and is not listed. The list may only get shorter: moving a module out settles what it shares.
+# module's own and is not listed. The modules that are packages are read too: the compiler holds them apart, but they share tables
+# through the store. The list may only get shorter: moving a module out settles what it shares.
 # Regenerate on purpose with: go test ./internal/server -run TestModule -update
 `
 
@@ -450,4 +465,83 @@ func TestModulesShareStoreMethodsOnlyWhereTheListSays(t *testing.T) {
 		t.Fatalf("only %d store calls were read: the reading has stopped seeing them", len(st))
 	}
 	compareList(t, moduleStoreFile, storeHeader, "store method(s) shared between modules", storeLines(st), map[string]string{})
+}
+
+// movedPackages are the modules that are packages of their own, with the import path of each.
+var movedPackages = map[string]string{
+	"accounts": "continuum/internal/accounts", "advice": "continuum/internal/decisionloop", "operators": "continuum/internal/operators",
+	"telemetry": "continuum/internal/telemetry", "fusion": "continuum/internal/fusion", "observed": "continuum/internal/observed",
+	"agents": "continuum/internal/agents",
+}
+
+// readStoreUses reads which store methods a module that is a package of its own calls.
+func readStoreUses(module, importPath string) ([]moduleUse, error) {
+	type listed struct {
+		ImportPath string
+		Export     string
+		GoFiles    []string
+		Dir        string
+	}
+	out, err := exec.Command("go", "list", "-export", "-deps", "-json=ImportPath,Export,GoFiles,Dir", importPath).Output()
+	if err != nil {
+		return nil, fmt.Errorf("go list %s: %v", importPath, err)
+	}
+	export := map[string]string{}
+	var self listed
+	for dec := json.NewDecoder(strings.NewReader(string(out))); ; {
+		var p listed
+		if err := dec.Decode(&p); err == io.EOF {
+			break
+		} else if err != nil {
+			return nil, err
+		}
+		export[p.ImportPath] = p.Export
+		if p.ImportPath == importPath {
+			self = p
+		}
+	}
+	fset := token.NewFileSet()
+	var files []*ast.File
+	for _, name := range self.GoFiles {
+		f, err := parser.ParseFile(fset, filepath.Join(self.Dir, name), nil, parser.SkipObjectResolution)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, f)
+	}
+	imp := importer.ForCompiler(fset, "gc", func(path string) (io.ReadCloser, error) {
+		p, ok := export[path]
+		if !ok || p == "" {
+			return nil, fmt.Errorf("no export data for %s", path)
+		}
+		return os.Open(p)
+	})
+	info := &types.Info{Uses: map[*ast.Ident]types.Object{}, Defs: map[*ast.Ident]types.Object{}}
+	var first error
+	conf := types.Config{Importer: imp, Error: func(e error) {
+		if first == nil {
+			first = e
+		}
+	}}
+	conf.Check(importPath, fset, files, info)
+	if first != nil {
+		return nil, first
+	}
+	var uses []moduleUse
+	for _, f := range files {
+		file := filepath.Base(fset.Position(f.Pos()).Filename)
+		ast.Inspect(f, func(n ast.Node) bool {
+			id, ok := n.(*ast.Ident)
+			if !ok {
+				return true
+			}
+			if fn, ok := info.Uses[id].(*types.Func); ok && fn.Pkg() != nil && fn.Pkg().Path() == storePackage {
+				if sig := fn.Type().(*types.Signature); sig.Recv() != nil && recvName(sig) == "Store" {
+					uses = append(uses, moduleUse{from: module, to: "store", what: fn.Name(), file: file})
+				}
+			}
+			return true
+		})
+	}
+	return uses, nil
 }

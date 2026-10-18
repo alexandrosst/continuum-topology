@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"continuum/internal/agents"
 	"continuum/internal/chart"
 	"continuum/internal/fusion"
 	"continuum/internal/install"
@@ -1022,7 +1023,7 @@ func operatorProvenanceJSON(op store.Operator) string {
 // upgrade` a person would run against that cluster's own continuum-agent release to actually point its
 // telemetry.export.otlp.endpoint at this operator - there is no live reparenting in this release (see the
 // plan), so nothing here is executed on the caller's behalf. Uses the same release-name/namespace guess
-// upgradeCommand/teardownCommands already fall back to when an agent has never reported its own.
+// upgradeCommand/agents.TeardownCommands already fall back to when an agent has never reported its own.
 //
 // Each upgrade states the whole destination block (see exportBlock), and the client certificate Secret goes once per
 // distinct namespace rather than once per cluster, so the private key is not repeated for every cluster that
@@ -1031,12 +1032,12 @@ func operatorProvenanceJSON(op store.Operator) string {
 func (a *Admin) operatorSourceReminders(r *http.Request, op store.Operator, tlsBundle operators.OperatorTLSBundle) []string {
 	hub := a.tn(r).Hub
 	img := a.images(a.core(r))
-	agents, err := a.core(r).Store.ListAgents(r.Context(), a.core(r).OrgID)
+	agentList, err := a.core(r).Store.ListAgents(r.Context(), a.core(r).OrgID)
 	if err != nil {
 		return nil
 	}
-	byCluster := make(map[string]store.Agent, len(agents))
-	for _, ag := range agents {
+	byCluster := make(map[string]store.Agent, len(agentList))
+	for _, ag := range agentList {
 		if ag.Status == store.StatusApproved && ag.ClusterID != "" {
 			byCluster[ag.ClusterID] = ag
 		}
@@ -1048,7 +1049,7 @@ func (a *Admin) operatorSourceReminders(r *http.Request, op store.Operator, tlsB
 		if ok {
 			ns, name = hub.NamespaceOf(ag.ID), hub.ReleaseNameOf(ag.ID)
 		}
-		rns, rname, _ := ReleaseTarget(ns, name)
+		rns, rname, _ := agents.ReleaseTarget(ns, name)
 		targets = append(targets, sourceTarget{cl, rns, rname})
 	}
 	out, err := a.sourceReminders(img, op, tlsBundle, targets)
@@ -1060,7 +1061,7 @@ func (a *Admin) operatorSourceReminders(r *http.Request, op store.Operator, tlsB
 }
 
 // sourceTarget is one source cluster of an operator and the release that is told to send to it: where it runs and what it is
-// called, as releaseTarget settles them.
+// called, as agents.ReleaseTarget settles them.
 type sourceTarget struct{ cluster, ns, name string }
 
 // sourceReminders is operatorSourceReminders once the clusters are known: it reads nothing, so the text it builds is pinned

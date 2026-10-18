@@ -9,7 +9,8 @@
 # accounts      people, organisations, roles, sessions, API tokens, passkeys and two-factor; the vocabulary of who is calling (Actor,
 #               Principal, Role) and the one decision of what a caller may do (Decide). It is the package internal/accounts; no file
 #               of it is left here.
-# agents        an enrolled agent: tokens and enrolment, the stream, consent and access tier, diagnostics, the agent's own health.
+# agents        an enrolled agent: tokens and enrolment, the stream, consent and access tier, diagnostics, the agent's own health. It is the
+#               package internal/agents; the live picture of all of them (the hub) is the estate's, and no file of agents is left here.
 # estate        what the servers know about the world: the hub, the per-agent views, the observed flows, the twin, history, the
 #               applications graph.
 # telemetry     telemetry intents and the quick-start backends. It is the package internal/telemetry; its HTTP half is the shell's.
@@ -26,7 +27,6 @@
 #               It wires modules together and may use any of them; none may use it.
 #
 # A file added to the package must be added here, in the same change: a test fails otherwise.
-access_change.go                agents
 address_check.go shell
 address_drift.go                connectivity
 address_reach.go                connectivity
@@ -49,15 +49,10 @@ admin_quickstart.go shell
 admin_telemetry.go shell
 admin_telemetry_intents.go shell
 admin_twin.go shell
-agent_lifecycle.go              agents
 agent_load.go estate
-agent_view.go agents
 applications_graph.go           estate
 assemble.go                     estate
-conditions.go                   agents
 config_digest.go                connectivity
-consent.go                      agents
-enroll.go                       agents
 fusion_appinfo.go shell
 fusion_data.go shell
 fusion_extras.go shell
@@ -65,8 +60,6 @@ fusion_native.go shell
 fusion_openapi.go shell
 fusion_ops.go shell
 fusion_ui_access.go shell
-geo.go                          agents
-grpc.go                         agents
 hub.go                          estate
 hub_access.go                   estate
 hub_address.go                  estate
@@ -78,7 +71,6 @@ hub_links_setup.go              estate
 hub_paths.go                    estate
 hub_selfstats.go                estate
 kernel_bridge.go                kernel
-link_caps.go                     agents
 linkcreds.go                    connectivity
 links.go                        connectivity
 links_latest.go shell
@@ -88,18 +80,11 @@ net_view.go connectivity
 operator_candidates.go shell
 operator_senders.go shell
 paths.go                        connectivity
-proxyproto.go                   agents
-publicip.go                     agents
 readiness.go                    shell
 recorder.go                     estate
-recover.go                      agents
 routes.go                       shell
 self_probe.go shell
-selfstats.go                    agents
-suspect.go                      agents
-teardown.go agents
 tenants.go                      shell
-tier.go                         agents
 tunnels.go                      connectivity
 twin.go                         estate
 workspace_save.go               estate

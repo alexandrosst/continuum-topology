@@ -1,4 +1,4 @@
-package server
+package agents
 
 import (
 	"bytes"
@@ -17,14 +17,14 @@ import (
 	"crypto/subtle"
 )
 
-func (c *Core) EffectivePendingTTL() time.Duration {
+func (c *Service) EffectivePendingTTL() time.Duration {
 	if c.PendingTTL > 0 {
 		return c.PendingTTL
 	}
 	return kernel.DefaultPendingTTL
 }
 
-func (c *Core) pollAfter() int32 {
+func (c *Service) pollAfter() int32 {
 	if c.PollAfter > 0 {
 		return int32(max(c.PollAfter/time.Second, 1))
 	}
@@ -38,7 +38,7 @@ func (c *Core) pollAfter() int32 {
 // request is recognised as the same enrollment, because it comes with the same token and the same key,
 // and it continues the same pending agent instead of failing or creating a second one. The agent gets a
 // fresh poll secret (the first was lost with the response). A different key with a spent token is refused.
-func (c *Core) Enroll(ctx context.Context, ip string, req *continuumv1.EnrollRequest) (*continuumv1.EnrollResponse, error) {
+func (c *Service) Enroll(ctx context.Context, ip string, req *continuumv1.EnrollRequest) (*continuumv1.EnrollResponse, error) {
 	if !c.EnrollRL.Allow("enroll:" + kernel.LimitKey(ip)) {
 		return nil, kernel.Errf(kernel.KindRateLimited, "too many attempts, slow down")
 	}
@@ -101,14 +101,14 @@ func (c *Core) Enroll(ctx context.Context, ip string, req *continuumv1.EnrollReq
 	return c.enrollResponse(a.ID, pollSecret), nil
 }
 
-func (c *Core) enrollResponse(agentID, pollSecret string) *continuumv1.EnrollResponse {
+func (c *Service) enrollResponse(agentID, pollSecret string) *continuumv1.EnrollResponse {
 	return &continuumv1.EnrollResponse{AgentId: agentID, PollSecret: pollSecret, PollIntervalSeconds: kernel.PollIntervalSecond,
 		ServerTimeUnix: c.Now().Unix(), PendingTtlSeconds: int32(c.EffectivePendingTTL() / time.Second)}
 }
 
 // resumeEnrollment recognises a retried enrollment (a spent token, but the agent it was spent on has this
 // very key and cluster) and continues it. It returns nil, nil when the request is not a retry.
-func (c *Core) resumeEnrollment(ctx context.Context, ip string, req *continuumv1.EnrollRequest, tokenHash []byte, fresh store.Agent, pollSecret string) (*continuumv1.EnrollResponse, error) {
+func (c *Service) resumeEnrollment(ctx context.Context, ip string, req *continuumv1.EnrollRequest, tokenHash []byte, fresh store.Agent, pollSecret string) (*continuumv1.EnrollResponse, error) {
 	prev, err := c.Store.AgentByToken(ctx, tokenHash)
 	if errors.Is(err, store.ErrNotFound) {
 		return nil, nil
@@ -159,7 +159,7 @@ func (c *Core) resumeEnrollment(ctx context.Context, ip string, req *continuumv1
 
 // ExpirePending expires the organisation's enrollments that nobody approved within the pending lifetime,
 // records that, and deletes the records of expired ones nobody reopened. It returns how many expired.
-func (c *Core) ExpirePending(ctx context.Context, org string) int {
+func (c *Service) ExpirePending(ctx context.Context, org string) int {
 	now := c.Now()
 	expired, err := c.Store.ExpirePending(ctx, org, now.Add(-c.EffectivePendingTTL()))
 	if err != nil {
@@ -182,7 +182,7 @@ func (c *Core) ExpirePending(ctx context.Context, org string) int {
 }
 
 // Poll lets an enrolling agent learn its approval state and collect its certificate.
-func (c *Core) Poll(ctx context.Context, ip string, req *continuumv1.PollRequest) (*continuumv1.PollResponse, error) {
+func (c *Service) Poll(ctx context.Context, ip string, req *continuumv1.PollRequest) (*continuumv1.PollResponse, error) {
 	if !c.EnrollRL.Allow("poll:" + kernel.LimitKey(ip)) {
 		return nil, kernel.Errf(kernel.KindRateLimited, "too many attempts, slow down")
 	}
@@ -221,7 +221,7 @@ func (c *Core) Poll(ctx context.Context, ip string, req *continuumv1.PollRequest
 //
 // At most MaxApprovalAttempts codes are tried per pending agent, counted before the comparison is made so
 // that parallel guesses cannot exceed it; the last wrong one rejects the enrollment.
-func (c *Core) Approve(ctx context.Context, actor, agentID, proof string, tier int) error {
+func (c *Service) Approve(ctx context.Context, actor, agentID, proof string, tier int) error {
 	a, err := c.AgentInOrg(ctx, agentID)
 	if err != nil {
 		return err

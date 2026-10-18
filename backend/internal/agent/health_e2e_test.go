@@ -30,14 +30,14 @@ func TestHealthFollowsTheAgentThroughEnrollmentAndRevocation(t *testing.T) {
 	core := server.NewCore(st, ca, "org", nil)
 	core.EnrollRL = kernel.NewLimiter(6000, 1000)
 	hub := server.NewHub(core)
-	srv := core.NewGRPC(pki.NewServerCerts(ca, []string{"127.0.0.1"}), hub)
+	srv := core.Agents.NewGRPC(pki.NewServerCerts(ca, []string{"127.0.0.1"}), hub)
 	l, _ := net.Listen("tcp", "127.0.0.1:0")
 	go srv.Serve(l)
 	defer srv.Stop()
 
 	kube := fake.NewSimpleClientset(&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "kube-system", UID: "e2e00002-aaaa-4bbb-8ccc-dddddddddddd"}})
 	ids := agent.FileStore{Dir: filepath.Join(t.TempDir(), "id")}
-	token, _, err := core.CreateToken(context.Background(), "test", "health", 1)
+	token, _, err := core.Agents.CreateToken(context.Background(), "test", "health", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,11 +62,11 @@ func TestHealthFollowsTheAgentThroughEnrollmentAndRevocation(t *testing.T) {
 		t.Error("not live while waiting")
 	}
 	agentID := state().Agents[0].ID
-	if err := core.Approve(context.Background(), "test", agentID, codeOf(t, ids), 1); err != nil {
+	if err := core.Agents.Approve(context.Background(), "test", agentID, codeOf(t, ids), 1); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, "connected", 15*time.Second, func() bool { _, why := h.Status(); return why == "connected" })
-	if err := core.Revoke(context.Background(), "test", agentID, "done"); err != nil {
+	if err := core.Agents.Revoke(context.Background(), "test", agentID, "done"); err != nil {
 		t.Fatal(err)
 	}
 	<-done

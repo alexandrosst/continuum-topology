@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"continuum/internal/agents"
 	"continuum/internal/kernel"
 )
 
@@ -75,7 +76,7 @@ type setupEnd struct {
 	// Tier is the agent's access tier. Note is why the agent is not told about the other cluster (see endNote), nil if it is.
 	Tier int
 	Note *LinkNote
-	Caps LinkCaps
+	Caps agents.LinkCaps
 }
 
 func (e setupEnd) name() string {

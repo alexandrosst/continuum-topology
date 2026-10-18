@@ -16,6 +16,7 @@ import (
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/accounts"
 	"continuum/internal/agentcaps"
+	"continuum/internal/agents"
 	"continuum/internal/facts"
 	"continuum/internal/flow/wire"
 	"continuum/internal/geoip"
@@ -40,11 +41,11 @@ const (
 
 // view is what the server currently knows about one agent's cluster. It is three parts, one for each module that keeps something per
 // agent, and each part is declared with the module that owns it: estView here (what the agent reported about its cluster and the
-// liveness of its stream), agtView (the agent's own account of itself and its health) and netView (the paths, addresses and config
+// liveness of its stream), agents.View (the agent's own account of itself and its health) and netView (the paths, addresses and config
 // the agent is told). Nothing is a field of the view itself, so a use of one is a use of the module that owns it.
 type view struct {
 	estView
-	View
+	agents.View
 	netView
 }
 
@@ -90,7 +91,7 @@ type estView struct {
 }
 
 func newView() *view {
-	return &view{View: View{Self: NewSelfRing(SelfStatsWindow, func(s SelfStatsSample) time.Time { return s.At })}, estView: estView{state: facts.New(), flows: observed.NewFlowTable()}, netView: netView{paths: map[string]*pathTrack{}, targets: map[string]issuedTarget{}}}
+	return &view{View: agents.View{Self: agents.NewSelfRing(agents.SelfStatsWindow, func(s agents.SelfStatsSample) time.Time { return s.At })}, estView: estView{state: facts.New(), flows: observed.NewFlowTable()}, netView: netView{paths: map[string]*pathTrack{}, targets: map[string]issuedTarget{}}}
 }
 
 type endReason struct {
@@ -106,7 +107,7 @@ type session struct {
 
 // Hub receives agent streams, keeps their facts, and builds the topology the UI reads.
 type Hub struct {
-	*BaseAgentService
+	*agents.BaseAgentService
 	C   *Core
 	Log *slog.Logger
 
@@ -118,7 +119,7 @@ type Hub struct {
 	ConsistencyEvery time.Duration
 
 	// Geo suggests a location for each agent's connecting address; nil when no database is configured.
-	Geo *Geo
+	Geo *agents.Geo
 
 	// Limits, when set, replaces the default caps on what one agent may make the server hold (tests use small ones).
 	Limits *facts.Limits
@@ -134,17 +135,17 @@ type Hub struct {
 
 	// serverSelf is this server process's own self-telemetry history (see sampleSelfStats and
 	// ServerSelfStatsSample), sampled by Hub.Run's own ticker - guarded by mu, like views/sessions above.
-	serverSelf SelfRing[ServerSelfStatsSample]
+	serverSelf agents.SelfRing[agents.ServerSelfStatsSample]
 	// flow is what sampleSelfStats diffs to derive ServerSelfStatsSample.FlowIngestBytesPerSec.
-	flow FlowIngest
+	flow agents.FlowIngest
 }
 
 func NewHub(c *Core) *Hub {
-	h := &Hub{BaseAgentService: &BaseAgentService{C: c}, C: c, Log: c.Log, views: map[string]*view{}, sessions: map[string]*session{}}
+	h := &Hub{BaseAgentService: &agents.BaseAgentService{C: c.Agents}, C: c, Log: c.Log, views: map[string]*view{}, sessions: map[string]*session{}}
 	c.Loop.Access, c.Loop.Load = hubAccess{h}, hubLoad{h}
 	h.rec = newRecorder(h)
 	h.tw = newTwinRT()
-	h.serverSelf = NewSelfRing(0, func(s ServerSelfStatsSample) time.Time { return s.At })
+	h.serverSelf = agents.NewSelfRing(0, func(s agents.ServerSelfStatsSample) time.Time { return s.At })
 	c.OnWorkspace = h.workspaceChanged
 	c.OnRevoke = h.Drop
 	c.OnSettings = h.settingsChanged
@@ -176,13 +177,13 @@ func (h *Hub) Drop(agentID string) {
 
 // Restore reloads the last persisted facts so the UI has data right after a server restart.
 func (h *Hub) Restore(ctx context.Context) {
-	agents, err := h.C.Store.ListAgents(ctx, h.C.OrgID)
+	agentList, err := h.C.Store.ListAgents(ctx, h.C.OrgID)
 	if err != nil {
 		h.Log.Error("restore failed", "err", err)
 		return
 	}
 	h.twinLoad(ctx)
-	for _, a := range agents {
+	for _, a := range agentList {
 		// A revoked agent's last picture is kept for the retention window, shown as revoked, never as a target.
 		if a.Status != store.StatusApproved && !h.revokedWithinRetention(a) {
 			continue
@@ -212,11 +213,11 @@ func (h *Hub) Restore(ctx context.Context) {
 		h.mu.Unlock()
 	}
 	// Overrides an administrator put on an agent outlive a restart, whether or not the agent has sent a picture yet.
-	for _, a := range agents {
+	for _, a := range agentList {
 		if a.Status != store.StatusApproved {
 			continue
 		}
-		if data, _, err := h.C.Store.LoadSnapshot(ctx, ConsentKey(a.ID)); err == nil && len(data) > 2 {
+		if data, _, err := h.C.Store.LoadSnapshot(ctx, agents.ConsentKey(a.ID)); err == nil && len(data) > 2 {
 			h.mu.Lock()
 			v := h.viewFor(a.ID)
 			h.mu.Unlock()
@@ -237,11 +238,11 @@ func peerNotAfter(ctx context.Context) time.Time {
 // Connect is the long-lived agent stream.
 func (h *Hub) Connect(stream continuumv1.AgentService_ConnectServer) error {
 	ctx := stream.Context()
-	agent, ok := AgentFrom(ctx)
+	agent, ok := agents.AgentFrom(ctx)
 	if !ok {
 		return status.Error(codes.Unauthenticated, "no agent")
 	}
-	ip := PeerIP(ctx)
+	ip := agents.PeerIP(ctx)
 	log := h.Log.With("agent", agent.ID, "name", agent.Name)
 
 	type recvd struct {
@@ -311,9 +312,9 @@ func (h *Hub) Connect(stream continuumv1.AgentService_ConnectServer) error {
 
 	// Revocation may have happened after the interceptor's check but before this session became
 	// reachable by Drop; look again now that it is registered, so no revoked agent stays connected.
-	fresh, err := h.C.AuthorizeAgent(ctx, agent.ID)
+	fresh, err := h.C.Agents.AuthorizeAgent(ctx, agent.ID)
 	if err != nil {
-		return ToStatus(err)
+		return agents.ToStatus(err)
 	}
 	agent.AccessTier = fresh.AccessTier
 	if agent.ConnectingIP != "" && agent.ConnectingIP != ip {
@@ -399,9 +400,9 @@ func (h *Hub) Connect(stream continuumv1.AgentService_ConnectServer) error {
 			h.mu.Lock()
 			v.Link.Note(r.m, h.C.Now())
 			h.mu.Unlock()
-			cur, err := h.C.AuthorizeAgent(ctx, agent.ID) // revocation applies mid-stream too
+			cur, err := h.C.Agents.AuthorizeAgent(ctx, agent.ID) // revocation applies mid-stream too
 			if err != nil {
-				return ToStatus(err)
+				return agents.ToStatus(err)
 			}
 			switch m := r.m.Msg.(type) {
 			case *continuumv1.AgentMessage_Sync:
@@ -525,9 +526,9 @@ func (h *Hub) Connect(stream continuumv1.AgentService_ConnectServer) error {
 // is a full picture that is not the first of its connection, it also says how far the server's own
 // picture had drifted from it (checked is true); applying it afterwards repairs the difference.
 func (h *Hub) applySync(a store.Agent, s *continuumv1.Sync, fullSeen bool) (drift facts.Drift, checked bool, err error) {
-	DropAboveTier(a.AccessTier, s)
+	agents.DropAboveTier(a.AccessTier, s)
 	// Captured after the tier ceiling has narrowed s but before an admin's own exclusion list does, so a
-	// namespace the admin has asked to leave out is still counted as "reported" - see viewExt.knownNamespaces.
+	// namespace the admin has asked to leave out is still counted as "reported" - see agents.ViewExt.knownNamespaces.
 	reportedNS := make([]string, 0, len(s.Namespaces))
 	for _, n := range s.Namespaces {
 		reportedNS = append(reportedNS, n.Name)
@@ -567,7 +568,7 @@ func (h *Hub) noteFlows(agentID string, tier int, fb *continuumv1.FlowBatch, now
 		return false, nil
 	}
 	if h.consentOf(agentID).Has("flow") {
-		// The agent should already have stopped sending this; the same defense-in-depth dropAboveTier
+		// The agent should already have stopped sending this; the same defense-in-depth agents.DropAboveTier
 		// gives the tier ceiling, extended to a paused collector.
 		return false, nil
 	}
@@ -967,10 +968,10 @@ type AgentDoc struct {
 	// the two apart). No screen reads them yet. Capabilities is never null.
 	ProtocolVersion uint32   `json:"protocolVersion"`
 	Capabilities    []string `json:"capabilities"`
-	// Conditions are facts about this agent decided in one place (agentConditions): whether a stream is open, whether the Config
+	// Conditions are facts about this agent decided in one place (agents.AgentConditions): whether a stream is open, whether the Config
 	// last sent is the one in force, whether its protocol is one this server serves. Computed with the server's clock each time
 	// the document is built. No screen reads them yet and nothing the server does depends on them.
-	Conditions []Condition `json:"conditions"`
+	Conditions []agents.Condition `json:"conditions"`
 	// ConnectingGeo is only a suggestion derived offline from ConnectingIP; a cloud cluster resolves to its provider's egress.
 	ConnectingGeo *geoip.Result `json:"connectingGeo,omitempty"`
 	// ConnectingGeoReason is set only when ConnectingGeo is nil because ConnectingIP itself could not be
@@ -996,7 +997,7 @@ type AgentDoc struct {
 	// Link is what this agent has sent since the server started; absent if it has not connected in that time.
 	Link *LinkDoc `json:"link,omitempty"`
 	// Scope is the rule the agent applies to which namespaces it reports; absent when it sees them all.
-	Scope *ScopeDoc `json:"scope,omitempty"`
+	Scope *agents.ScopeDoc `json:"scope,omitempty"`
 	// ClockSkewMs is the agent's clock minus the server's as the agent measured it; the UI warns when it is minutes.
 	ClockSkewMs int64 `json:"clockSkewMs,omitempty"`
 	// ApprovalAttemptsLeft is how many codes may still be tried for a pending agent that has one.
@@ -1005,8 +1006,8 @@ type AgentDoc struct {
 	PendingExpiresAt string `json:"pendingExpiresAt,omitempty"`
 	// Diagnostics is the agent's own account of itself and Consent the overrides an administrator has put on it. Both are only
 	// in the document for people who may change an agent's access; the state handler removes them for everyone else.
-	Diagnostics *DiagnosticsDoc `json:"diagnostics,omitempty"`
-	Consent     *ConsentDoc     `json:"consent,omitempty"`
+	Diagnostics *agents.DiagnosticsDoc `json:"diagnostics,omitempty"`
+	Consent     *agents.ConsentDoc     `json:"consent,omitempty"`
 	// HardenHelm is set whenever the approved tier is below the installed ceiling: the exact command that would
 	// also shrink the cluster's own RBAC to match, since narrowing here only changes what the agent reports.
 	// Filled in by the /state handler, which has the image settings this needs; empty until then.
@@ -1134,7 +1135,7 @@ func (h *Hub) stateFor(ctx context.Context, withAudit bool, after func(*StateDoc
 		auditEvents, _ = h.C.Store.ListAudit(ctx, h.C.OrgID, 50)
 	}
 
-	agentDocs, agents, err := h.buildAgentDocs(ctx, now)
+	agentDocs, agentList, err := h.buildAgentDocs(ctx, now)
 	if err != nil {
 		return StateDoc{}, err
 	}
@@ -1149,7 +1150,7 @@ func (h *Hub) stateFor(ctx context.Context, withAudit bool, after func(*StateDoc
 	}
 	tw.mu.Unlock()
 
-	topology, tombstones, observation, eb, err := h.buildTopology(ctx, agents, now, window)
+	topology, tombstones, observation, eb, err := h.buildTopology(ctx, agentList, now, window)
 	if err != nil {
 		return StateDoc{}, err
 	}
@@ -1182,14 +1183,14 @@ func (h *Hub) finishState(agentDocs []AgentDoc, topology model.Topology, tombsto
 // cached. Also returns the agent list fetched along the way, so buildTopology does not need to fetch it
 // again.
 func (h *Hub) buildAgentDocs(ctx context.Context, now time.Time) ([]AgentDoc, []store.Agent, error) {
-	agents, err := h.C.Store.ListAgents(ctx, h.C.OrgID)
+	agentList, err := h.C.Store.ListAgents(ctx, h.C.OrgID)
 	if err != nil {
 		return nil, nil, err
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	agentDocs := make([]AgentDoc, 0, len(agents))
-	for _, a := range agents {
+	agentDocs := make([]AgentDoc, 0, len(agentList))
+	for _, a := range agentList {
 		v := h.views[a.ID]
 		d := AgentDoc{
 			ID: a.ID, OrgID: a.OrgID, Name: a.Name, ClusterID: a.ClusterID, Version: a.Version, K8sVersion: a.K8sVersion,
@@ -1200,7 +1201,7 @@ func (h *Hub) buildAgentDocs(ctx context.Context, now time.Time) ([]AgentDoc, []
 		if a.Status == store.StatusPending {
 			left := max(kernel.MaxApprovalAttempts-a.ApprovalAttempts, 0)
 			d.ApprovalAttemptsLeft = &left
-			d.PendingExpiresAt = kernel.RFC(a.CreatedAt.Add(h.C.EffectivePendingTTL()))
+			d.PendingExpiresAt = kernel.RFC(a.CreatedAt.Add(h.C.Agents.EffectivePendingTTL()))
 		}
 		d.ConnectingGeo = h.Geo.Locate(a.ConnectingIP)
 		if d.ConnectingGeo == nil {
@@ -1213,9 +1214,9 @@ func (h *Hub) buildAgentDocs(ctx context.Context, now time.Time) ([]AgentDoc, []
 		if d.Capabilities == nil {
 			d.Capabilities = []string{}
 		}
-		d.Conditions = AgentConditions(condInputsOf(v), h.C.Now())
+		d.Conditions = agents.AgentConditions(condInputsOf(v), h.C.Now())
 		if a.Status == store.StatusRevoked || a.Status == store.StatusRejected {
-			if helm, secret, guessed, err := TeardownCommands(d.Namespace, d.ReleaseName); err != nil {
+			if helm, secret, guessed, err := agents.TeardownCommands(d.Namespace, d.ReleaseName); err != nil {
 				h.C.Log.Error("the commands that remove an agent cannot be written", "err", err) // the agent is shown without them
 			} else {
 				d.Teardown = &TeardownDoc{Helm: helm, Secret: secret, NamespaceGuessed: guessed}
@@ -1241,7 +1242,7 @@ func (h *Hub) buildAgentDocs(ctx context.Context, now time.Time) ([]AgentDoc, []
 				d.Link = l
 			}
 			if sc := v.state.Cluster.GetScope(); sc != nil {
-				d.Scope = &ScopeDoc{Description: sc.Description, Total: int(sc.NamespacesTotal), InScope: int(sc.NamespacesInScope)}
+				d.Scope = &agents.ScopeDoc{Description: sc.Description, Total: int(sc.NamespacesTotal), InScope: int(sc.NamespacesInScope)}
 			}
 			d.Observer = v.obs.Doc(h.C.Now())
 			if a.Status == store.StatusApproved {
@@ -1266,7 +1267,7 @@ func (h *Hub) buildAgentDocs(ctx context.Context, now time.Time) ([]AgentDoc, []
 		agentDocs = append(agentDocs, d)
 	}
 	sort.Slice(agentDocs, func(i, j int) bool { return agentDocs[i].RequestedAt < agentDocs[j].RequestedAt })
-	return agentDocs, agents, nil
+	return agentDocs, agentList, nil
 }
 
 // buildTopology does the expensive, h.mu-guarded work of interpreting every approved agent's facts,
@@ -1274,15 +1275,15 @@ func (h *Hub) buildAgentDocs(ctx context.Context, now time.Time) ([]AgentDoc, []
 // inline, together with the agent-doc loop, on every single call. stateFor above caches this against
 // tw.gen; this function itself knows nothing about caching, so it is always a real, full rebuild. Takes
 // the agent list buildAgentDocs already fetched, rather than fetching it again.
-func (h *Hub) buildTopology(ctx context.Context, agents []store.Agent, now time.Time, window time.Duration) (model.Topology, []TombstoneDoc, twin.ObservationDoc, *effectiveBuild, error) {
+func (h *Hub) buildTopology(ctx context.Context, agentList []store.Agent, now time.Time, window time.Duration) (model.Topology, []TombstoneDoc, twin.ObservationDoc, *effectiveBuild, error) {
 	eb := newEffectiveBuild(window)
 	topo := model.Topology{Clusters: []model.Cluster{}, Nodes: []model.Node{}, Namespaces: []model.Namespace{}, Services: []model.Service{}, Agents: []model.Agent{}, Suggestions: []model.Suggestion{},
 		Dependencies: []model.Dependency{}, ExternalEndpoints: []model.ExternalEndpoint{}, Paths: []model.Path{}, ClusterLinks: []model.ClusterLink{}, ClusterPairConnectivity: []model.ClusterPairConnectivity{}}
 	var onboarded, located []observed.Cluster
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	showRevoked := h.revokedToShow(agents)
-	for _, a := range agents {
+	showRevoked := h.revokedToShow(agentList)
+	for _, a := range agentList {
 		v := h.views[a.ID]
 		revoked := showRevoked[a.ID]
 		if (a.Status != store.StatusApproved && !revoked) || v == nil || v.lastSync.IsZero() {
@@ -1332,7 +1333,7 @@ func (h *Hub) buildTopology(ctx context.Context, agents []store.Agent, now time.
 		// come from each agent's own interpret.Interpret, never seen by observed.Topology itself) - see
 		// observed.ApplyMeshBypassFacts' own doc comment for why this cross-check cannot happen any earlier.
 		observed.ApplyMeshBypassFacts(topo.Dependencies, topo.Services)
-		topo.Suggestions = append(topo.Suggestions, Suspicions(h.C.OrgID, onboarded, located, now)...)
+		topo.Suggestions = append(topo.Suggestions, agents.Suspicions(h.C.OrgID, onboarded, located, now)...)
 	}
 	// Needs every cluster's nodes in one list (a tunnel's other end is often in a different cluster, or
 	// this very same one), so this runs once here rather than per cluster inside the loop above.
@@ -1354,7 +1355,7 @@ func (h *Hub) buildTopology(ctx context.Context, agents []store.Agent, now time.
 	// Builds on topo.ClusterLinks just computed above - see correlateClusterPairConnectivity's own doc
 	// for why it takes that output as-is rather than recomputing the tunnel/subnet correlation itself.
 	topo.ClusterPairConnectivity = correlateClusterPairConnectivity(topo.Nodes, names, topo.Dependencies, serviceClusterID, topo.ClusterLinks)
-	topo.Paths = h.pathDocs(agents, located, names, now)
+	topo.Paths = h.pathDocs(agentList, located, names, now)
 	tombstones := h.tombstoneDocs(now)
 	observation := twin.ObservationDoc{StaleAfterSeconds: int(window / time.Second), TombstoneRetentionDays: int(h.retention() / (24 * time.Hour))}
 	return topo, tombstones, observation, eb, nil

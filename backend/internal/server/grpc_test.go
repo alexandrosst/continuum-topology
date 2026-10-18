@@ -8,6 +8,7 @@ import (
 	"time"
 
 	continuumv1 "continuum/gen/continuumv1"
+	"continuum/internal/agents"
 	"continuum/internal/pki"
 
 	"google.golang.org/grpc"
@@ -25,7 +26,7 @@ func newRig(t *testing.T) *rig {
 	t.Helper()
 	e := newEnv(t)
 	certs := pki.NewServerCerts(e.core.CA, []string{"127.0.0.1"})
-	srv := e.base.NewGRPC(certs, &BaseAgentService{C: e.base})
+	srv := e.base.Agents.NewGRPC(certs, &agents.BaseAgentService{C: e.base.Agents})
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -55,7 +56,7 @@ func newRigTrustProxy(t *testing.T) *rig {
 	e := newEnv(t)
 	e.base.TrustAgentProxy = true
 	certs := pki.NewServerCerts(e.core.CA, []string{"127.0.0.1"})
-	srv := e.base.NewGRPC(certs, &BaseAgentService{C: e.base})
+	srv := e.base.Agents.NewGRPC(certs, &agents.BaseAgentService{C: e.base.Agents})
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -95,7 +96,7 @@ func TestAgentBehindProxyUsesTheDeclaredAddressNotTheTCPPeer(t *testing.T) {
 	r := newRigTrustProxy(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	secret, _, _ := r.core.CreateToken(ctx, "admin", "edge", 2)
+	secret, _, _ := r.core.Agents.CreateToken(ctx, "admin", "edge", 2)
 	d, _ := csr(t)
 	enr := continuumv1.NewEnrollmentClient(r.dialProxied(t, pki.ClientTLS(r.core.CA.Pin(), "127.0.0.1", nil), "203.0.113.42"))
 	hash, _ := approvalFor(t, d)
@@ -132,7 +133,7 @@ func TestTransportEnrollThenMutualTLS(t *testing.T) {
 	pin := r.core.CA.Pin()
 
 	// 1. Enroll over pinned TLS, no client certificate.
-	secret, _, _ := r.core.CreateToken(ctx, "admin", "edge", 2)
+	secret, _, _ := r.core.Agents.CreateToken(ctx, "admin", "edge", 2)
 	d, key := csr(t)
 	enr := continuumv1.NewEnrollmentClient(r.dial(t, pki.ClientTLS(pin, "127.0.0.1", nil)))
 	hash, appr := approvalFor(t, d)
@@ -141,7 +142,7 @@ func TestTransportEnrollThenMutualTLS(t *testing.T) {
 		t.Fatal(err)
 	}
 	// 2. Human approval, then the agent collects its certificate.
-	if err := r.core.Approve(ctx, "alex", resp.AgentId, appr, 2); err != nil {
+	if err := r.core.Agents.Approve(ctx, "alex", resp.AgentId, appr, 2); err != nil {
 		t.Fatal(err)
 	}
 	poll, err := enr.PollEnrollment(ctx, &continuumv1.PollRequest{AgentId: resp.AgentId, PollSecret: resp.PollSecret})
@@ -162,7 +163,7 @@ func TestTransportEnrollThenMutualTLS(t *testing.T) {
 		t.Fatalf("renew without client cert: %v", err)
 	}
 	// 4. Revocation is effective on the very next call even though the certificate is still valid.
-	if err := r.core.Revoke(ctx, "alex", resp.AgentId, "test"); err != nil {
+	if err := r.core.Agents.Revoke(ctx, "alex", resp.AgentId, "test"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := ag.Renew(ctx, &continuumv1.RenewRequest{CsrDer: nd}); code(err) != codes.Unauthenticated {

@@ -8,6 +8,8 @@ import (
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
+
+	"continuum/internal/agents"
 )
 
 // What an agent is told is the sum of the configSections, each of which owns named fields of the Config. These keep that true:
@@ -47,7 +49,7 @@ func TestEveryFieldOfTheConfigBelongsToExactlyOneSectionOrTheEnvelope(t *testing
 // A section that wrote a field it does not own would make the table above a lie.
 func TestASectionSetsOnlyTheFieldsItOwns(t *testing.T) {
 	f := baseFacts()
-	f.Consent = Consent{Paused: []string{"flow"}, Excluded: []string{"shop"}}
+	f.Consent = agents.Consent{Paused: []string{"flow"}, Excluded: []string{"shop"}}
 	f.Tier = 2
 	for _, s := range configSections {
 		b := &configBuild{cfg: &continuumv1.Config{}}
@@ -64,7 +66,7 @@ func TestASectionSetsOnlyTheFieldsItOwns(t *testing.T) {
 // And every owned field is really set by its section when the facts have it (so a field listed but never filled is noticed).
 func TestASectionSetsEachFieldItOwnsWhenTheFactsHaveIt(t *testing.T) {
 	f := baseFacts()
-	f.Consent = Consent{Paused: []string{"x"}, Excluded: []string{"shop"}}
+	f.Consent = agents.Consent{Paused: []string{"x"}, Excluded: []string{"shop"}}
 	f.Tier = 2
 	for _, s := range configSections {
 		b := &configBuild{cfg: &continuumv1.Config{}}
@@ -84,7 +86,7 @@ func TestASectionSetsEachFieldItOwnsWhenTheFactsHaveIt(t *testing.T) {
 
 func TestTheSectionsTogetherMakeTheSameConfigAsAWholeCompile(t *testing.T) {
 	f := baseFacts()
-	f.Consent = Consent{Paused: []string{"x"}, Excluded: []string{"shop"}}
+	f.Consent = agents.Consent{Paused: []string{"x"}, Excluded: []string{"shop"}}
 	whole, _ := compileConfig(f)
 	merged := &continuumv1.Config{}
 	for _, s := range configSections {

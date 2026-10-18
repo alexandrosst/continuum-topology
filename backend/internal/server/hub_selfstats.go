@@ -3,6 +3,8 @@ package server
 import (
 	"runtime"
 	"time"
+
+	"continuum/internal/agents"
 )
 
 // SelfStatsFor returns a copy of one agent's self-telemetry history (see view.self/SelfStatsSample),
@@ -10,7 +12,7 @@ import (
 // view for it at all (never approved, or forgotten after a restart with nothing restored for it yet).
 // Exported so the self-telemetry API handler (admin_telemetry.go) never reaches into Hub internals
 // directly - the same "small accessor, the lock stays inside the package" shape StateFor already uses.
-func (h *Hub) SelfStatsFor(agentID string) []SelfStatsSample {
+func (h *Hub) SelfStatsFor(agentID string) []agents.SelfStatsSample {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	v := h.views[agentID]
@@ -22,7 +24,7 @@ func (h *Hub) SelfStatsFor(agentID string) []SelfStatsSample {
 
 // ServerSelfStats returns a copy of this server process's own self-telemetry history (see
 // Hub.serverSelf/ServerSelfStatsSample), oldest first.
-func (h *Hub) ServerSelfStats() []ServerSelfStatsSample {
+func (h *Hub) ServerSelfStats() []agents.ServerSelfStatsSample {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.serverSelf.List()
@@ -56,8 +58,8 @@ func (h *Hub) sampleSelfStats(now time.Time) {
 	h.flow.TotalBytes, h.flow.At = totalFlowBytes, now
 	h.flow.Mu.Unlock()
 
-	s := ServerSelfStatsSample{
-		At: now, RSSBytes: mem.Sys, Goroutines: uint32(runtime.NumGoroutine()), CPUSeconds: ProcessCPUSeconds(),
+	s := agents.ServerSelfStatsSample{
+		At: now, RSSBytes: mem.Sys, Goroutines: uint32(runtime.NumGoroutine()), CPUSeconds: agents.ProcessCPUSeconds(),
 		ConnectedAgents: connected, FlowIngestBytesPerSec: rate,
 		ModelCacheHits: h.tw.cacheHits.Load(), ModelCacheMisses: h.tw.cacheMisses.Load(),
 		GCPauseTotalNs: mem.PauseTotalNs, NumGC: mem.NumGC,

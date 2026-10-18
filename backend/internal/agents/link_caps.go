@@ -1,4 +1,4 @@
-package server
+package agents
 
 import (
 	"time"
@@ -13,7 +13,7 @@ import (
 // An agent that does not send it (one older than the field) leaves this zero, and the zero value means "not reported", which
 // linkSetup reads as unknown and never as "all off": an old agent behaves exactly as it did.
 
-// linkCaps is one agent's last report. Reported is when the server received it; the zero value is "never reported".
+// LinkCaps is one agent's last report. Reported is when the server received it; the zero value is "never reported".
 type LinkCaps struct {
 	Reported time.Time
 	// LinkMetrics, ProbeEnabled, CapacityEnabled and TelemetryExport are the switches the agent reported.

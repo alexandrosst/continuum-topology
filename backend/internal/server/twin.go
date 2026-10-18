@@ -406,15 +406,15 @@ func (h *Hub) revokedWithinRetention(a store.Agent) bool {
 
 // revokedToShow picks the revoked agents whose last picture is still shown: those within the retention window, and
 // only the latest per cluster, and none for a cluster an approved agent now reports (that agent replaced it).
-func (h *Hub) revokedToShow(agents []store.Agent) map[string]bool {
+func (h *Hub) revokedToShow(agentList []store.Agent) map[string]bool {
 	owned := map[string]bool{}
-	for _, a := range agents {
+	for _, a := range agentList {
 		if a.Status == store.StatusApproved {
 			owned[a.ClusterID] = true
 		}
 	}
 	best := map[string]store.Agent{}
-	for _, a := range agents {
+	for _, a := range agentList {
 		if !h.revokedWithinRetention(a) || owned[a.ClusterID] {
 			continue
 		}

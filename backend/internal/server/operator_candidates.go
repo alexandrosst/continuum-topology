@@ -175,13 +175,13 @@ func (h *Hub) namespaceHost(ctx context.Context, namespace string) (operatorHost
 }
 
 func (h *Hub) hostWhere(ctx context.Context, match func(*continuumv1.WorkloadFacts) bool) (operatorHost, bool) {
-	agents, err := h.C.Store.ListAgents(ctx, h.C.OrgID)
+	agentList, err := h.C.Store.ListAgents(ctx, h.C.OrgID)
 	if err != nil {
 		return operatorHost{}, false
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	for _, a := range agents {
+	for _, a := range agentList {
 		v := h.views[a.ID]
 		if a.Status != store.StatusApproved || v == nil || v.state == nil {
 			continue
@@ -199,7 +199,7 @@ func (h *Hub) hostWhere(ctx context.Context, match func(*continuumv1.WorkloadFac
 // reported nothing yet (then it has no nodes to list). A workload that match accepts, if the agent reports one, says which
 // node the pod is on.
 func (h *Hub) clusterHost(ctx context.Context, clusterID string, match func(*continuumv1.WorkloadFacts) bool) (operatorHost, bool) {
-	agents, err := h.C.Store.ListAgents(ctx, h.C.OrgID)
+	agentList, err := h.C.Store.ListAgents(ctx, h.C.OrgID)
 	if err != nil {
 		return operatorHost{}, false
 	}
@@ -207,7 +207,7 @@ func (h *Hub) clusterHost(ctx context.Context, clusterID string, match func(*con
 	defer h.mu.Unlock()
 	var out operatorHost
 	found := false
-	for _, a := range agents {
+	for _, a := range agentList {
 		if a.Status != store.StatusApproved || a.ClusterID != clusterID {
 			continue
 		}
@@ -238,13 +238,13 @@ type ClusterOption struct {
 
 // clusterOptions lists the clusters approved agents are registered in, one entry per cluster, by name.
 func (h *Hub) clusterOptions(ctx context.Context) []ClusterOption {
-	agents, err := h.C.Store.ListAgents(ctx, h.C.OrgID)
+	agentList, err := h.C.Store.ListAgents(ctx, h.C.OrgID)
 	if err != nil {
 		return nil
 	}
 	seen := map[string]bool{}
 	out := []ClusterOption{}
-	for _, a := range agents {
+	for _, a := range agentList {
 		if a.Status != store.StatusApproved || a.ClusterID == "" || seen[a.ClusterID] {
 			continue
 		}
@@ -272,13 +272,13 @@ func (h *Hub) nodeHost(ctx context.Context, ip string) (operatorHost, bool) {
 		}
 		return false
 	}
-	agents, err := h.C.Store.ListAgents(ctx, h.C.OrgID)
+	agentList, err := h.C.Store.ListAgents(ctx, h.C.OrgID)
 	if err != nil {
 		return operatorHost{}, false
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	for _, a := range agents {
+	for _, a := range agentList {
 		v := h.views[a.ID]
 		if a.Status != store.StatusApproved || v == nil || v.state == nil {
 			continue

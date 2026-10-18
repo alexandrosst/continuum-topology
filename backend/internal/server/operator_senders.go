@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"continuum/internal/agents"
 	"continuum/internal/operators"
 	"continuum/internal/store"
 	"continuum/internal/telemetry"
@@ -128,7 +129,7 @@ func (a *Admin) senderAddresses(op store.Operator, ti store.TelemetryIntent) ([]
 var exportRank = map[string]int{"waiting": 0, "exporting": 1, "silent": 2, "failing": 3}
 
 // senderDelivery reads the worst state of the agent's exporters for the given signal types. Nil when the agent reports no counters.
-func senderDelivery(h *ExportHealthDoc, mods []store.Modality) *SenderDeliveryDoc {
+func senderDelivery(h *agents.ExportHealthDoc, mods []store.Modality) *SenderDeliveryDoc {
 	if h == nil || (h.PodsReached == 0 && h.PodsFailed > 0) {
 		return nil // nothing reported, or the counters could not be read: that says nothing about the data
 	}
@@ -332,13 +333,13 @@ func (a *Admin) listOperatorSenders(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	agents, err := c.Store.ListAgents(r.Context(), c.OrgID)
+	agentList, err := c.Store.ListAgents(r.Context(), c.OrgID)
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
-	agentOf := make(map[string]store.Agent, len(agents))
-	for _, ag := range agents {
+	agentOf := make(map[string]store.Agent, len(agentList))
+	for _, ag := range agentList {
 		agentOf[ag.ID] = ag
 	}
 	hub := a.tn(r).Hub
@@ -368,7 +369,7 @@ func (a *Admin) listOperatorSenders(w http.ResponseWriter, r *http.Request) {
 		}
 		ag := agentOf[ti.AgentID]
 		d := SenderDoc{IntentID: ti.ID, IntentName: ti.Name, AgentID: ti.AgentID, AgentName: ag.Name, ClusterID: ag.ClusterID, Addresses: addrs}
-		var export *ExportHealthDoc
+		var export *agents.ExportHealthDoc
 		d.Connected, export = hub.exportHealthOf(ti.AgentID)
 		d.Delivery = senderDelivery(export, mods)
 		ps = append(ps, pending{d, mods})
@@ -405,7 +406,7 @@ func (a *Admin) sendersHealth(r *http.Request, op store.Operator, now time.Time)
 }
 
 // exportHealthOf is whether the agent is connected and what it reports about its exporters.
-func (h *Hub) exportHealthOf(agentID string) (bool, *ExportHealthDoc) {
+func (h *Hub) exportHealthOf(agentID string) (bool, *agents.ExportHealthDoc) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	v := h.views[agentID]

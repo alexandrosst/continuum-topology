@@ -1,21 +1,46 @@
 # The store methods that more than one module calls, and the modules that call them. A method used by one module is that
-# module's own and is not listed. The list may only get shorter: moving a module out settles what it shares.
+# module's own and is not listed. The modules that are packages are read too: the compiler holds them apart, but they share tables
+# through the store. The list may only get shorter: moving a module out settles what it shares.
 # Regenerate on purpose with: go test ./internal/server -run TestModule -update
 AddEvents	agents
 AddEvents	estate
 ClearPollSecret	agents
 ClearPollSecret	estate
+CountUsers	accounts
+CountUsers	shell
+CreateOperator	fusion
+CreateOperator	operators
 GetAgent	agents
 GetAgent	estate
 GetHistory	estate
 GetHistory	shell
+GetMembership	accounts
+GetMembership	shell
+GetOperator	fusion
+GetOperator	operators
+GetOrg	accounts
+GetOrg	shell
+GetUser	accounts
+GetUser	shell
 GetWorkspace	estate
 GetWorkspace	shell
 ListAgents	estate
+ListAgents	operators
 ListAgents	shell
 ListAudit	estate
 ListAudit	shell
 ListHistory	estate
 ListHistory	shell
+ListInvites	accounts
+ListInvites	shell
+ListMyOrgs	accounts
+ListMyOrgs	shell
+ListOperatorCerts	fusion
+ListOperatorCerts	operators
+ListOperators	estate
+ListOperators	operators
+ListTelemetryIntents	estate
+ListTelemetryIntents	operators
+ListTelemetryIntents	telemetry
 LoadSnapshot	agents
 LoadSnapshot	estate

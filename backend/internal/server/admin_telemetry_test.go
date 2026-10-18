@@ -6,6 +6,7 @@ import (
 
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/accounts"
+	"continuum/internal/agents"
 	"continuum/internal/model"
 )
 
@@ -81,7 +82,7 @@ func TestClusterTotalsSumsOnlyNodesInTheGivenCluster(t *testing.T) {
 // straight through on every sample.
 func TestAgentTelemetrySamplesOmitsRatesOnTheFirstSampleAndDerivesThemOnLater(t *testing.T) {
 	base := time.Unix(1000, 0)
-	history := []SelfStatsSample{
+	history := []agents.SelfStatsSample{
 		{At: base, RSSBytes: 111, Goroutines: 10, CPUSeconds: 1, FlowIntervalSeconds: 30, ProbeIntervalSeconds: 180, LinkBytesCumulative: 1000},
 		{At: base.Add(10 * time.Second), RSSBytes: 222, Goroutines: 12, CPUSeconds: 3, FlowIntervalSeconds: 30, ProbeIntervalSeconds: 180, LinkBytesCumulative: 6000},
 	}
@@ -134,7 +135,7 @@ func TestAgentTelemetrySamplesOmitsRatesOnTheFirstSampleAndDerivesThemOnLater(t 
 // unset (omitted), while cpuPct is still derived the same way agentTelemetrySamples derives its own.
 func TestServerTelemetrySamplesNeverSetsAgentOnlyFields(t *testing.T) {
 	base := time.Unix(2000, 0)
-	history := []ServerSelfStatsSample{
+	history := []agents.ServerSelfStatsSample{
 		{At: base, RSSBytes: 50 << 20, Goroutines: 20, CPUSeconds: 2},
 		{At: base.Add(5 * time.Second), RSSBytes: 60 << 20, Goroutines: 21, CPUSeconds: 3},
 	}
@@ -161,7 +162,7 @@ func TestServerTelemetrySamplesNeverSetsAgentOnlyFields(t *testing.T) {
 // consecutive samples the same way cpuPct already is, and so omitted on the first.
 func TestServerTelemetrySamplesDerivesConnectedAgentsFlowRateCacheHitPctAndGCPause(t *testing.T) {
 	base := time.Unix(3000, 0)
-	history := []ServerSelfStatsSample{
+	history := []agents.ServerSelfStatsSample{
 		{At: base, RSSBytes: 50 << 20, Goroutines: 20, CPUSeconds: 2, ConnectedAgents: 3, FlowIngestBytesPerSec: 0,
 			ModelCacheHits: 10, ModelCacheMisses: 5, GCPauseTotalNs: 1_000_000},
 		{At: base.Add(5 * time.Second), RSSBytes: 60 << 20, Goroutines: 21, CPUSeconds: 3, ConnectedAgents: 4,
@@ -203,7 +204,7 @@ func TestServerTelemetrySamplesDerivesConnectedAgentsFlowRateCacheHitPctAndGCPau
 // must omit modelCacheHitPct rather than divide by zero.
 func TestServerTelemetrySamplesOmitsModelCacheHitPctWhenNoLookupHappened(t *testing.T) {
 	base := time.Unix(4000, 0)
-	history := []ServerSelfStatsSample{
+	history := []agents.ServerSelfStatsSample{
 		{At: base, ModelCacheHits: 5, ModelCacheMisses: 5},
 		{At: base.Add(time.Second), ModelCacheHits: 5, ModelCacheMisses: 5},
 	}
@@ -254,9 +255,9 @@ func TestSelfTelemetryEndpointShapeAndRBAC(t *testing.T) {
 	h.mu.Lock()
 	v := h.views[ag.ID]
 	t0 := time.Unix(5000, 0)
-	v.Self.Add(SelfStatsSample{At: t0, RSSBytes: 111 << 20, Goroutines: 9, CPUSeconds: 1, FlowIntervalSeconds: 30, ProbeIntervalSeconds: 180, LinkBytesCumulative: 1000}, t0)
+	v.Self.Add(agents.SelfStatsSample{At: t0, RSSBytes: 111 << 20, Goroutines: 9, CPUSeconds: 1, FlowIntervalSeconds: 30, ProbeIntervalSeconds: 180, LinkBytesCumulative: 1000}, t0)
 	t1 := t0.Add(10 * time.Second)
-	v.Self.Add(SelfStatsSample{At: t1, RSSBytes: 115 << 20, Goroutines: 9, CPUSeconds: 2, FlowIntervalSeconds: 30, ProbeIntervalSeconds: 180, LinkBytesCumulative: 2000}, t1)
+	v.Self.Add(agents.SelfStatsSample{At: t1, RSSBytes: 115 << 20, Goroutines: 9, CPUSeconds: 2, FlowIntervalSeconds: 30, ProbeIntervalSeconds: 180, LinkBytesCumulative: 2000}, t1)
 	h.mu.Unlock()
 	h.sampleSelfStats(t1)
 

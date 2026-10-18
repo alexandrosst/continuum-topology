@@ -157,7 +157,7 @@ func TestNobodyReachesAnotherOrganisation(t *testing.T) {
 	}
 	d, _ := csr(t)
 	hash, code := approvalFor(t, d)
-	resp, err := a.base.Enroll(a.ctx, "10.0.0.9", &continuumv1.EnrollRequest{Token: tok.json(t)["token"].(string), CsrDer: d, ClusterFingerprint: fp, InstalledAccessTier: 1, ApprovalCodeHash: hash})
+	resp, err := a.base.Agents.Enroll(a.ctx, "10.0.0.9", &continuumv1.EnrollRequest{Token: tok.json(t)["token"].(string), CsrDer: d, ClusterFingerprint: fp, InstalledAccessTier: 1, ApprovalCodeHash: hash})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +188,7 @@ func TestNobodyReachesAnotherOrganisation(t *testing.T) {
 	btok := a.do("POST", org(bOrg, "tokens"), map[string]any{"name": "edge-b", "tier": 1}, withCookie(bob)).json(t)["token"].(string)
 	d2, _ := csr(t)
 	fp2 := "11111111-2222-4333-8444-555555555555"
-	r2, err := a.base.Enroll(a.ctx, "10.0.0.9", &continuumv1.EnrollRequest{Token: btok, CsrDer: d2, ClusterFingerprint: fp2, InstalledAccessTier: 1, ApprovalCodeHash: hashFor(t, d2)})
+	r2, err := a.base.Agents.Enroll(a.ctx, "10.0.0.9", &continuumv1.EnrollRequest{Token: btok, CsrDer: d2, ClusterFingerprint: fp2, InstalledAccessTier: 1, ApprovalCodeHash: hashFor(t, d2)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +205,7 @@ func TestSameClusterCanBeRegisteredByTwoTenantsIndependently(t *testing.T) {
 		tok := a.do("POST", "/api/v1/orgs/"+org+"/tokens", map[string]any{"name": "shared", "tier": 1}, withCookie(cookie)).json(t)["token"].(string)
 		d, _ := csr(t)
 		hash, code := approvalFor(t, d)
-		r, err := a.base.Enroll(a.ctx, "10.0.0.9", &continuumv1.EnrollRequest{Token: tok, CsrDer: d, ClusterFingerprint: fp, InstalledAccessTier: 1, ApprovalCodeHash: hash})
+		r, err := a.base.Agents.Enroll(a.ctx, "10.0.0.9", &continuumv1.EnrollRequest{Token: tok, CsrDer: d, ClusterFingerprint: fp, InstalledAccessTier: 1, ApprovalCodeHash: hash})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -422,7 +422,7 @@ func TestDeletingAnOrganisationErasesItsDataAndEndsItsAgents(t *testing.T) {
 	a.do("PUT", org(bOrg, "workspace"), []byte(`{"schemaVersion":3,"keep":true}`), withCookie(bob), withHeader("If-Match", "0"))
 	tok := a.do("POST", org(aOrg, "tokens"), map[string]any{"name": "edge", "tier": 1}, withCookie(alice)).json(t)["token"].(string)
 	d, _ := csr(t)
-	resp, err := a.base.Enroll(a.ctx, "10.0.0.9", &continuumv1.EnrollRequest{Token: tok, CsrDer: d, ClusterFingerprint: fp, InstalledAccessTier: 1, ApprovalCodeHash: hashFor(t, d)})
+	resp, err := a.base.Agents.Enroll(a.ctx, "10.0.0.9", &continuumv1.EnrollRequest{Token: tok, CsrDer: d, ClusterFingerprint: fp, InstalledAccessTier: 1, ApprovalCodeHash: hashFor(t, d)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -486,7 +486,7 @@ func TestAgentsAreServedByTheirOwnOrganisationsHubOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	plat := NewPlatform(e.base, nil)
-	srv := e.base.NewGRPC(pki.NewServerCerts(e.base.CA, []string{"127.0.0.1"}), plat)
+	srv := e.base.Agents.NewGRPC(pki.NewServerCerts(e.base.CA, []string{"127.0.0.1"}), plat)
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -527,7 +527,7 @@ func TestAgentsAreServedByTheirOwnOrganisationsHubOnly(t *testing.T) {
 	}
 	// The certificate carries its organisation and renewal keeps it, through the platform-wide core.
 	d, _ := csr(t)
-	renewed, _, err := e.base.Renew(ctx, id2, d)
+	renewed, _, err := e.base.Agents.Renew(ctx, id2, d)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -535,10 +535,10 @@ func TestAgentsAreServedByTheirOwnOrganisationsHubOnly(t *testing.T) {
 		t.Fatalf("renewed certificate names %q", o)
 	}
 	// A revocation in one organisation cannot be ordered from another.
-	if err := e.core.Revoke(ctx, "boss", id2, "not yours"); kindOf(err) != kernel.KindNotFound {
+	if err := e.core.Agents.Revoke(ctx, "boss", id2, "not yours"); kindOf(err) != kernel.KindNotFound {
 		t.Fatalf("org-1 revoking org-2's agent: %v", err)
 	}
-	if err := e.core.Reject(ctx, "boss", id2, "not yours"); kindOf(err) != kernel.KindNotFound {
+	if err := e.core.Agents.Reject(ctx, "boss", id2, "not yours"); kindOf(err) != kernel.KindNotFound {
 		t.Fatalf("org-1 rejecting org-2's agent: %v", err)
 	}
 }
@@ -550,10 +550,10 @@ func TestRejoinKeepsTheAgentsOwnOrganisation(t *testing.T) {
 	parsed, _ := pki.ParseCSR(csrWith(t, key))
 	wrong, _, _ := e.core.CA.IssueAgent(parsed, id, "org-9", time.Hour)
 	*e.now = e.now.Add(2 * time.Hour)
-	if _, err := e.base.Rejoin(e.ctx, "10.0.0.1", &continuumv1.RejoinRequest{ExpiredLeafDer: wrong, CsrDer: csrWith(t, key)}); kindOf(err) != kernel.KindUnauthenticated {
+	if _, err := e.base.Agents.Rejoin(e.ctx, "10.0.0.1", &continuumv1.RejoinRequest{ExpiredLeafDer: wrong, CsrDer: csrWith(t, key)}); kindOf(err) != kernel.KindUnauthenticated {
 		t.Fatalf("certificate for the wrong organisation: %v", err)
 	}
-	resp, err := e.base.Rejoin(e.ctx, "10.0.0.1", &continuumv1.RejoinRequest{ExpiredLeafDer: leaf, CsrDer: csrWith(t, key)})
+	resp, err := e.base.Agents.Rejoin(e.ctx, "10.0.0.1", &continuumv1.RejoinRequest{ExpiredLeafDer: leaf, CsrDer: csrWith(t, key)})
 	if err != nil {
 		t.Fatal(err)
 	}

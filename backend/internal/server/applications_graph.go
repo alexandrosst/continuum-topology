@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"continuum/internal/agents"
 	"continuum/internal/graph"
 	"continuum/internal/store"
 	"continuum/internal/workspace"
@@ -133,7 +134,7 @@ func (c *Core) recordApplicationsGraph(ctx context.Context, prevData, data []byt
 		c.Log.Warn("history: could not record why an application's state changed", "err", err)
 		return
 	}
-	if el, ok := c.Store.(EventLinker); ok {
+	if el, ok := c.Store.(agents.EventLinker); ok {
 		if err := el.LinkEventChanges(ctx, c.OrgID, now, evs); err != nil {
 			c.Log.Warn("history: could not link an application's events to what they explain", "err", err)
 		}

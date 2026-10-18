@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"continuum/internal/accounts"
+	"continuum/internal/agents"
 	"continuum/internal/decisionloop"
 	"continuum/internal/history"
 	"continuum/internal/kernel"
@@ -170,8 +171,8 @@ func (a *Admin) historySnapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := map[string]any{"at": kernel.RFC(p.At), "topology": t}
-	if agents := a.historicAgents(r, p.At); agents != nil {
-		out["agents"] = agents
+	if agentList := a.historicAgents(r, p.At); agentList != nil {
+		out["agents"] = agentList
 	}
 	writeJSON(w, 200, out)
 }
@@ -182,7 +183,7 @@ func (a *Admin) historySnapshot(w http.ResponseWriter, r *http.Request) {
 // error -- whenever that is not possible: no graph configured, or nothing recorded about any agent that
 // far back. The UI already treats a snapshot with no "agents" field as "show today's agents unchanged,"
 // which is the honest answer when this server has no memory of what they looked like then.
-func (a *Admin) historicAgents(r *http.Request, at time.Time) []HistoricAgent {
+func (a *Admin) historicAgents(r *http.Request, at time.Time) []agents.HistoricAgent {
 	g := a.graphAPI()
 	if g == nil {
 		return nil
@@ -191,16 +192,16 @@ func (a *Admin) historicAgents(r *http.Request, at time.Time) []HistoricAgent {
 	if err != nil {
 		return nil
 	}
-	var out []HistoricAgent
+	var out []agents.HistoricAgent
 	for _, e := range entities {
 		if e.Kind != "agent" {
 			continue
 		}
-		var snap AgentSnapshot
+		var snap agents.AgentSnapshot
 		if json.Unmarshal(e.Doc, &snap) != nil {
 			continue
 		}
-		out = append(out, HistoricAgent{ID: e.ID, AgentSnapshot: snap})
+		out = append(out, agents.HistoricAgent{ID: e.ID, AgentSnapshot: snap})
 	}
 	return out
 }

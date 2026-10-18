@@ -12,6 +12,7 @@ import (
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/accounts"
 	"continuum/internal/agentcaps"
+	"continuum/internal/agents"
 	"continuum/internal/kernel"
 	"continuum/internal/store"
 
@@ -36,16 +37,16 @@ func (h *Hub) ensureConsent(id string, v *view) {
 	if loaded {
 		return
 	}
-	var c Consent
+	var c agents.Consent
 	var at time.Time
-	if data, savedAt, err := h.C.Store.LoadSnapshot(bg(), ConsentKey(id)); err == nil {
+	if data, savedAt, err := h.C.Store.LoadSnapshot(bg(), agents.ConsentKey(id)); err == nil {
 		at = savedAt
 		if json.Unmarshal(data, &c) != nil {
-			c = Consent{}
-		} else if cc, err := CleanConsent(c); err == nil {
+			c = agents.Consent{}
+		} else if cc, err := agents.CleanConsent(c); err == nil {
 			c = cc // stored data is not trusted more than a request
 		} else {
-			c = Consent{}
+			c = agents.Consent{}
 		}
 	}
 	h.mu.Lock()
@@ -78,7 +79,7 @@ func (h *Hub) ReleaseNameOf(id string) string {
 }
 
 // consentOf returns an agent's overrides.
-func (h *Hub) consentOf(id string) Consent {
+func (h *Hub) consentOf(id string) agents.Consent {
 	h.mu.Lock()
 	v := h.viewFor(id)
 	h.mu.Unlock()
@@ -92,7 +93,7 @@ func (h *Hub) consentOf(id string) Consent {
 // applying it. Used wherever an HTTP handler needs to hand back the same shape the agent list already
 // carries per agent (see AgentDoc.Consent) - so a client reading either one sees Confirmed and SetAt
 // computed the same way, not a bare echo of what was just asked for.
-func (h *Hub) ConsentDocFor(id string) *ConsentDoc {
+func (h *Hub) ConsentDocFor(id string) *agents.ConsentDoc {
 	h.mu.Lock()
 	v := h.viewFor(id)
 	h.mu.Unlock()
@@ -119,8 +120,8 @@ func (h *Hub) SetAgentTier(ctx context.Context, actor, agentID string, tier int,
 	// tier" as two different numbers in two different checks is exactly how enroll.go's approval-time check and
 	// this one drifted apart in wording before - a tier of 5+ used to be rejected citing "0-2" as the range
 	// while MaxTier=4 said otherwise. Only a genuinely out-of-domain value (negative) gets its own message here.
-	verdict := CheckTier(tier, a.InstalledTier, a.TierCap)
-	if verdict == TierBelowZero {
+	verdict := agents.CheckTier(tier, a.InstalledTier, a.TierCap)
+	if verdict == agents.TierBelowZero {
 		return a, kernel.Errf(kernel.KindInvalid, "access tier must be 0 or more")
 	}
 	if tier == a.AccessTier {
@@ -129,10 +130,10 @@ func (h *Hub) SetAgentTier(ctx context.Context, actor, agentID string, tier int,
 	if !accounts.Decide(accounts.CallerFrom(ctx), accounts.ActChangeAccess, accounts.Resource{Widening: tier > a.AccessTier}).Allowed {
 		return a, kernel.Errf(kernel.KindForbidden, "raising an agent's access takes an administrator, as approving it did; narrowing it does not")
 	}
-	if verdict == TierNotImplemented {
+	if verdict == agents.TierNotImplemented {
 		return a, kernel.Errf(kernel.KindInvalid, "access tier %d is not available in this release (the highest is %d)", tier, kernel.ImplementedTier)
 	}
-	if verdict == TierAboveInstall {
+	if verdict == agents.TierAboveInstall {
 		cmd := ""
 		if upgradeCmd != nil {
 			cmd = upgradeCmd(tier)
@@ -141,11 +142,11 @@ func (h *Hub) SetAgentTier(ctx context.Context, actor, agentID string, tier int,
 		e.Data = map[string]any{"installedTier": a.InstalledTier, "helm": cmd}
 		return a, e
 	}
-	if verdict == TierAboveToken {
+	if verdict == agents.TierAboveToken {
 		return a, kernel.Errf(kernel.KindInvalid, "access tier %d is above what the enrollment token allowed for this agent (%d)", tier, a.TierCap)
 	}
 	old := a.AccessTier
-	detail := fmt.Sprintf("%q: access tier %d (%s) to %d (%s); the agent's install allows up to %d", a.Name, old, TierName(old), tier, TierName(tier), a.InstalledTier)
+	detail := fmt.Sprintf("%q: access tier %d (%s) to %d (%s); the agent's install allows up to %d", a.Name, old, agents.TierName(old), tier, agents.TierName(tier), a.InstalledTier)
 	err = h.C.Store.SetAccessTier(ctx, a.ID, tier, store.WithAudit(h.C.AuditRow(h.C.OrgID, actor, "agent-tier-changed", "agent", a.ID, detail)))
 	if errors.Is(err, store.ErrBadState) {
 		err = kernel.Errf(kernel.KindConflict, "agent changed state while its access was being changed")
@@ -158,27 +159,27 @@ func (h *Hub) SetAgentTier(ctx context.Context, actor, agentID string, tier int,
 	if tier < old {
 		h.narrowState(a.ID, tier) // what the server holds above the new tier goes now, not at the agent's next full picture
 	}
-	h.C.RecordAgentGraph(ctx, a, "agent-tier-changed", detail)
+	h.C.Agents.RecordAgentGraph(ctx, a, "agent-tier-changed", detail)
 	h.pushOne(a.ID)
 	return a, nil
 }
 
 // SetConsent replaces an agent's overrides. Lifting a pause or an exclusion widens what is shared, so it takes an administrator.
-func (h *Hub) SetConsent(ctx context.Context, actor, agentID string, in Consent) (Consent, error) {
+func (h *Hub) SetConsent(ctx context.Context, actor, agentID string, in agents.Consent) (agents.Consent, error) {
 	a, err := h.C.AgentInOrg(ctx, agentID)
 	if err != nil {
-		return Consent{}, err
+		return agents.Consent{}, err
 	}
 	if a.Status != store.StatusApproved {
-		return Consent{}, kernel.Errf(kernel.KindConflict, "agent is %s: only an approved agent can be given overrides", a.Status)
+		return agents.Consent{}, kernel.Errf(kernel.KindConflict, "agent is %s: only an approved agent can be given overrides", a.Status)
 	}
-	next, err := CleanConsent(in)
+	next, err := agents.CleanConsent(in)
 	if err != nil {
-		return Consent{}, err
+		return agents.Consent{}, err
 	}
 	cur := h.consentOf(a.ID)
-	if !accounts.Decide(accounts.CallerFrom(ctx), accounts.ActChangeAccess, accounts.Resource{Widening: ConsentNarrows(next, cur)}).Allowed { // cur has a pause or exclusion that next lifts
-		return Consent{}, kernel.Errf(kernel.KindForbidden, "lifting a pause or an exclusion takes an administrator; adding one does not")
+	if !accounts.Decide(accounts.CallerFrom(ctx), accounts.ActChangeAccess, accounts.Resource{Widening: agents.ConsentNarrows(next, cur)}).Allowed { // cur has a pause or exclusion that next lifts
+		return agents.Consent{}, kernel.Errf(kernel.KindForbidden, "lifting a pause or an exclusion takes an administrator; adding one does not")
 	}
 	if strings.Join(cur.Paused, ",") == strings.Join(next.Paused, ",") && strings.Join(cur.Excluded, ",") == strings.Join(next.Excluded, ",") {
 		return cur, nil
@@ -188,28 +189,28 @@ func (h *Hub) SetConsent(ctx context.Context, actor, agentID string, in Consent)
 	now := h.C.Now()
 	data, err := json.Marshal(next)
 	if err != nil {
-		return Consent{}, err
+		return agents.Consent{}, err
 	}
-	if err := h.C.AuditedWrite(h.C.Store.SaveSnapshot(ctx, ConsentKey(a.ID), data, now,
+	if err := h.C.AuditedWrite(h.C.Store.SaveSnapshot(ctx, agents.ConsentKey(a.ID), data, now,
 		store.WithAudit(h.C.AuditRow(h.C.OrgID, actor, "agent-consent-changed", "agent", a.ID, detail))), "agent-consent-changed"); err != nil {
-		return Consent{}, err
+		return agents.Consent{}, err
 	}
 	kernel.Metrics.ConsentChanges.Add(1)
 	h.mu.Lock()
 	v := h.viewFor(a.ID)
 	v.Ext.Consent, v.Ext.ConsentAt, v.Ext.ConsentLoad = next, now, true
 	h.mu.Unlock()
-	if ConsentNarrows(cur, next) {
+	if agents.ConsentNarrows(cur, next) {
 		h.narrowConsent(a.ID, next)
 	}
-	h.C.RecordAgentGraph(ctx, a, "agent-consent-changed", detail)
+	h.C.Agents.RecordAgentGraph(ctx, a, "agent-consent-changed", detail)
 	h.pushOne(a.ID)
 	return next, nil
 }
 
 // dropConsentOverrides removes from a picture whatever this agent has been asked to narrow beyond its tier: a
 // paused node-probe collector's machine-identifying fields, and any namespace (or workload in one) on the excluded
-// list. The agent already applies both itself and should never send them; this is dropAboveTier's own defense in
+// list. The agent already applies both itself and should never send them; this is agents.DropAboveTier's own defense in
 // depth, extended to the two narrowing dimensions a tier check does not cover. flow and measure are dropped
 // whole, before they are ever applied, at the AgentMessage_Flows/AgentMessage_Measurements cases in Hub's stream
 // loop -- they arrive as their own message type, so there is nothing to filter here.
@@ -220,7 +221,7 @@ func (h *Hub) SetConsent(ctx context.Context, actor, agentID string, in Consent)
 // tightening later if that residual is ever a problem in practice; not attempted here because it would mean
 // parsing a flow key's namespace reliably enough to trust filtering by it.
 func (h *Hub) dropConsentOverrides(id string, s *continuumv1.Sync) {
-	ApplyConsent(h.consentOf(id), s)
+	agents.ApplyConsent(h.consentOf(id), s)
 }
 
 // narrowState drops what the server holds for an agent above a tier that was just lowered, by replacing its picture with
@@ -246,7 +247,7 @@ func (h *Hub) narrowState(id string, tier int) {
 	for _, w := range st.Workloads {
 		s.Workloads = append(s.Workloads, w)
 	}
-	DropAboveTier(tier, s)
+	agents.DropAboveTier(tier, s)
 	st.Apply(s)
 	v.dirtyAt = h.C.Now()
 }
@@ -254,7 +255,7 @@ func (h *Hub) narrowState(id string, tier int) {
 // narrowConsent is narrowState for the overrides: what the server already holds for an agent that has just had a
 // collector paused or a namespace left out goes now, not whenever the agent next sends a full picture (which a stuck,
 // disconnected or out-of-date agent never would). The picture is replaced by itself cut down to the new overrides.
-func (h *Hub) narrowConsent(id string, c Consent) {
+func (h *Hub) narrowConsent(id string, c agents.Consent) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	v := h.views[id]
@@ -267,7 +268,7 @@ func (h *Hub) narrowConsent(id string, c Consent) {
 		s.Cluster = proto.Clone(st.Cluster).(*continuumv1.ClusterFacts)
 	}
 	for _, n := range st.Nodes {
-		s.Nodes = append(s.Nodes, proto.Clone(n).(*continuumv1.NodeFacts)) // cloned: applyConsent blanks fields in place
+		s.Nodes = append(s.Nodes, proto.Clone(n).(*continuumv1.NodeFacts)) // cloned: agents.ApplyConsent blanks fields in place
 	}
 	for _, n := range st.Namespaces {
 		s.Namespaces = append(s.Namespaces, n)
@@ -275,7 +276,7 @@ func (h *Hub) narrowConsent(id string, c Consent) {
 	for _, w := range st.Workloads {
 		s.Workloads = append(s.Workloads, w)
 	}
-	ApplyConsent(c, s)
+	agents.ApplyConsent(c, s)
 	st.Apply(s)
 	v.dirtyAt = h.C.Now()
 }
@@ -288,7 +289,7 @@ func (h *Hub) noteCeiling(ctx context.Context, agent, fresh store.Agent, reporte
 	if reported <= 0 && fresh.InstalledTier > 0 && !h.reportsCeiling(agent.ID) {
 		return agent // an older agent that does not say: keep what enrollment recorded
 	}
-	ceiling, _ := ReportedTier(reported)
+	ceiling, _ := agents.ReportedTier(reported)
 	actor := accounts.AgentActor(agent.ID).String()
 	if ceiling != fresh.InstalledTier {
 		if err := h.C.Store.SetInstalledTier(ctx, agent.ID, ceiling); err != nil {
@@ -298,18 +299,18 @@ func (h *Hub) noteCeiling(ctx context.Context, agent, fresh store.Agent, reporte
 			}
 			return agent
 		}
-		ceilingDetail := fmt.Sprintf("%q: the install now allows up to tier %d (%s), was %d", agent.Name, ceiling, TierName(ceiling), fresh.InstalledTier)
+		ceilingDetail := fmt.Sprintf("%q: the install now allows up to tier %d (%s), was %d", agent.Name, ceiling, agents.TierName(ceiling), fresh.InstalledTier)
 		h.C.Audit(ctx, actor, "agent-ceiling-changed", "agent", agent.ID, ceilingDetail)
 		agent.InstalledTier = ceiling
-		h.C.RecordAgentGraph(ctx, agent, "agent-ceiling-changed", ceilingDetail)
+		h.C.Agents.RecordAgentGraph(ctx, agent, "agent-ceiling-changed", ceilingDetail)
 	}
 	if fresh.AccessTier > ceiling {
-		detail := fmt.Sprintf("%q: access tier %d (%s) to %d (%s), because the agent's install (Helm access.tier) now allows at most %d", agent.Name, fresh.AccessTier, TierName(fresh.AccessTier), ceiling, TierName(ceiling), ceiling)
+		detail := fmt.Sprintf("%q: access tier %d (%s) to %d (%s), because the agent's install (Helm access.tier) now allows at most %d", agent.Name, fresh.AccessTier, agents.TierName(fresh.AccessTier), ceiling, agents.TierName(ceiling), ceiling)
 		if err := h.C.AuditedWrite(h.C.Store.SetAccessTier(ctx, agent.ID, ceiling,
 			store.WithAudit(h.C.AuditRow(h.C.OrgID, actor, "agent-tier-changed", "agent", agent.ID, detail))), "agent-tier-changed"); err == nil {
 			agent.AccessTier = ceiling
 			h.narrowState(agent.ID, ceiling)
-			h.C.RecordAgentGraph(ctx, agent, "agent-tier-changed", detail)
+			h.C.Agents.RecordAgentGraph(ctx, agent, "agent-tier-changed", detail)
 		}
 	}
 	return agent
@@ -333,8 +334,8 @@ func (h *Hub) reportsCeiling(id string) bool {
 
 // consentDoc is what has been asked of the agent, and whether it has confirmed applying it. Caller holds
 // h.mu and has loaded the consent.
-func (v *view) consentDoc() *ConsentDoc {
-	out := &ConsentDoc{PausedCollectors: append([]string{}, v.Ext.Consent.Paused...), ExcludedNamespaces: append([]string{}, v.Ext.Consent.Excluded...)}
+func (v *view) consentDoc() *agents.ConsentDoc {
+	out := &agents.ConsentDoc{PausedCollectors: append([]string{}, v.Ext.Consent.Paused...), ExcludedNamespaces: append([]string{}, v.Ext.Consent.Excluded...)}
 	if len(out.PausedCollectors) == 0 && len(out.ExcludedNamespaces) == 0 {
 		out.Confirmed = true // nothing narrowed here, so there is nothing for the agent to confirm
 		return out
@@ -342,7 +343,7 @@ func (v *view) consentDoc() *ConsentDoc {
 	if !v.lastSync.IsZero() {
 		// v.ext.knownNamespaces, not v.state.Namespaces: the latter has already had any currently-excluded
 		// namespace stripped out of it by dropConsentOverrides by the time it is stored, so it can never
-		// contain the very names this exists to check (see viewExt.knownNamespaces's own doc comment).
+		// contain the very names this exists to check (see agents.ViewExt.knownNamespaces's own doc comment).
 		for _, ns := range out.ExcludedNamespaces {
 			if !v.Ext.KnownNamespaces[ns] {
 				out.UnknownNamespaces = append(out.UnknownNamespaces, ns)
@@ -352,13 +353,13 @@ func (v *view) consentDoc() *ConsentDoc {
 	d := v.Ext.Diag
 	if d != nil {
 		// Collector names are matched exactly - the agent reports the actual list, sorted the same way
-		// cleanConsent already sorts what was asked for. Excluded namespaces can only be matched by count:
+		// agents.CleanConsent already sorts what was asked for. Excluded namespaces can only be matched by count:
 		// the agent's diagnostics carry how many extra namespaces it is leaving out, never their names (see
 		// Diagnostics.ExcludedNamespaces's own doc comment), so an agent that coincidentally excludes a
 		// different set of the same size would misreport as confirmed here. Good enough for the case this
 		// exists for - a narrowing a stuck or too-old agent never picked up at all - and tightening it
 		// further needs a proto change to carry the names, not just a count.
-		pausedConfirmed := SameStrings(d.PausedCollectors, v.Ext.Consent.Paused)
+		pausedConfirmed := agents.SameStrings(d.PausedCollectors, v.Ext.Consent.Paused)
 		excludedConfirmed := int(d.ExcludedNamespaces) == len(v.Ext.Consent.Excluded)
 		out.Confirmed = pausedConfirmed && excludedConfirmed
 	}
@@ -374,19 +375,19 @@ func (v *view) consentDoc() *ConsentDoc {
 // diagDoc turns the stored message into its document. Every string is cut to a sensible length: it came from the agent.
 // Callers already gate this to editors/administrators before calling it (see DiagnosticsDoc's own doc comment) - there
 // is no further, per-tier redaction here, so it takes no tier of its own.
-func (v *view) diagDoc() *DiagnosticsDoc {
+func (v *view) diagDoc() *agents.DiagnosticsDoc {
 	d := v.Ext.Diag
 	if d == nil {
 		return nil
 	}
-	out := &DiagnosticsDoc{
+	out := &agents.DiagnosticsDoc{
 		ReportedAt: kernel.RFC(v.Ext.DiagAt), Partial: v.Ext.DiagPartial, AgentVersion: kernel.Printable(d.AgentVersion, 40), Arch: kernel.Printable(d.Arch, 16), OS: kernel.Printable(d.Os, 16),
 		UptimeSeconds: d.UptimeSeconds, InstalledTier: int(d.InstalledTier), ApprovedTier: int(d.ApprovedTier), EffectiveTier: int(d.EffectiveTier),
 		OwnExcluded: int(d.OwnExcludedNamespaces), ExcludedNamespaces: int(d.ExcludedNamespaces), FlowDropped: d.FlowDropped,
-		PausedCollectors: []string{}, Collectors: []AgentCollectorDoc{}, Informers: []InformerDoc{}, Problems: []ProblemDoc{},
+		PausedCollectors: []string{}, Collectors: []agents.AgentCollectorDoc{}, Informers: []agents.InformerDoc{}, Problems: []agents.ProblemDoc{},
 	}
 	if sc := d.Scope; sc != nil {
-		out.Scope = &ScopeDoc{Description: kernel.Printable(sc.Description, 300), Total: int(sc.NamespacesTotal), InScope: int(sc.NamespacesInScope)}
+		out.Scope = &agents.ScopeDoc{Description: kernel.Printable(sc.Description, 300), Total: int(sc.NamespacesTotal), InScope: int(sc.NamespacesInScope)}
 	}
 	for _, p := range d.PausedCollectors {
 		out.PausedCollectors = append(out.PausedCollectors, kernel.Printable(p, 20))
@@ -395,7 +396,7 @@ func (v *view) diagDoc() *DiagnosticsDoc {
 		out.InstalledTelemetry = append(out.InstalledTelemetry, kernel.Printable(s, 40))
 	}
 	if tc := d.InstalledTelemetryConfig; tc != nil {
-		cfg := &TelemetryConfigDoc{
+		cfg := &agents.TelemetryConfigDoc{
 			ExportEndpoint:           kernel.Printable(tc.ExportEndpoint, 300),
 			RedactionEnabled:         tc.RedactionEnabled,
 			ResourceDetectionEnabled: tc.ResourceDetectionEnabled,
@@ -409,16 +410,16 @@ func (v *view) diagDoc() *DiagnosticsDoc {
 		out.InstalledTelemetryConfig = cfg
 	}
 	if h := d.ExportHealth; h != nil {
-		doc := &ExportHealthDoc{PodsReached: int(h.PodsReached), PodsFailed: int(h.PodsFailed), LastError: kernel.Printable(h.LastError, 300), Routes: []ExportRouteHealthDoc{}}
+		doc := &agents.ExportHealthDoc{PodsReached: int(h.PodsReached), PodsFailed: int(h.PodsFailed), LastError: kernel.Printable(h.LastError, 300), Routes: []agents.ExportRouteHealthDoc{}}
 		if h.ScrapedAt != nil {
 			doc.ScrapedAt = kernel.RFC(h.ScrapedAt.AsTime())
 		}
 		for _, r := range h.Routes {
-			state := ExportHealthStates[r.State]
+			state := agents.ExportHealthStates[r.State]
 			if state == "" {
 				state = "waiting"
 			}
-			rd := ExportRouteHealthDoc{Exporter: kernel.Printable(r.Exporter, 80), Signal: kernel.Printable(r.Signal, 20), State: state, Sent: r.Sent, Failed: r.Failed}
+			rd := agents.ExportRouteHealthDoc{Exporter: kernel.Printable(r.Exporter, 80), Signal: kernel.Printable(r.Signal, 20), State: state, Sent: r.Sent, Failed: r.Failed}
 			if r.LastSentAt != nil {
 				rd.LastSentAt = kernel.RFC(r.LastSentAt.AsTime())
 			}
@@ -430,7 +431,7 @@ func (v *view) diagDoc() *DiagnosticsDoc {
 		out.ExportHealth = doc
 	}
 	for _, c := range d.Collectors {
-		cd := AgentCollectorDoc{Name: kernel.Printable(c.Name, 20), Configured: c.Configured, Enabled: c.Enabled, PausedByServer: c.PausedByServer, Producing: c.Producing,
+		cd := agents.AgentCollectorDoc{Name: kernel.Printable(c.Name, 20), Configured: c.Configured, Enabled: c.Enabled, PausedByServer: c.PausedByServer, Producing: c.Producing,
 			Reporting: int(c.Reporting), Expected: int(c.Expected), Note: kernel.Printable(c.Note, 200)}
 		if c.LastData != nil {
 			cd.LastData = kernel.RFC(c.LastData.AsTime())
@@ -438,10 +439,10 @@ func (v *view) diagDoc() *DiagnosticsDoc {
 		out.Collectors = append(out.Collectors, cd)
 	}
 	for _, i := range d.Informers {
-		out.Informers = append(out.Informers, InformerDoc{Name: kernel.Printable(i.Name, 80), Module: kernel.Printable(i.Module, 20), Synced: i.Synced, Objects: i.Objects, LastError: kernel.Printable(i.LastError, 300)})
+		out.Informers = append(out.Informers, agents.InformerDoc{Name: kernel.Printable(i.Name, 80), Module: kernel.Printable(i.Module, 20), Synced: i.Synced, Objects: i.Objects, LastError: kernel.Printable(i.LastError, 300)})
 	}
 	for _, p := range d.Problems {
-		pd := ProblemDoc{Code: kernel.Printable(p.Code, 40), Severity: map[continuumv1.Problem_Severity]string{continuumv1.Problem_INFO: "info", continuumv1.Problem_WARN: "warn", continuumv1.Problem_ERROR: "error"}[p.Severity], Message: kernel.Printable(p.Message, 700)}
+		pd := agents.ProblemDoc{Code: kernel.Printable(p.Code, 40), Severity: map[continuumv1.Problem_Severity]string{continuumv1.Problem_INFO: "info", continuumv1.Problem_WARN: "warn", continuumv1.Problem_ERROR: "error"}[p.Severity], Message: kernel.Printable(p.Message, 700)}
 		if p.Since != nil {
 			pd.Since = kernel.RFC(p.Since.AsTime())
 		}

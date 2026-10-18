@@ -589,7 +589,7 @@ func (r *runner) diagToSend(force bool) *continuumv1.Diagnostics {
 	return d
 }
 
-// processCPUSeconds is this process's own cumulative CPU time (user + system) in seconds, from the
+// agents.ProcessCPUSeconds is this process's own cumulative CPU time (user + system) in seconds, from the
 // kernel's per-process accounting (getrusage(RUSAGE_SELF, ...)) - see SelfStats.cpu_seconds' own doc
 // comment for why this is reported raw rather than converted to a percentage here. 0 on the (practically
 // never seen in this agent's own deployment target) platform where getrusage fails outright, rather than

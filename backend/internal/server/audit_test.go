@@ -386,20 +386,20 @@ func TestAFailedActionAfterItsAuditRowLeavesAFollowUpRow(t *testing.T) {
 func TestARefusedWriteWithItsOwnAuditRowLeavesNoRow(t *testing.T) {
 	e := newEnv(t)
 	resp, _ := e.enroll(t, 2, fp)
-	if err := e.core.Reject(e.ctx, "alex", resp.AgentId, "first"); err != nil {
+	if err := e.core.Agents.Reject(e.ctx, "alex", resp.AgentId, "first"); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.core.Reject(e.ctx, "alex", resp.AgentId, "again"); kindOf(err) != kernel.KindConflict {
+	if err := e.core.Agents.Reject(e.ctx, "alex", resp.AgentId, "again"); kindOf(err) != kernel.KindConflict {
 		t.Fatalf("second reject: %v", err)
 	}
 	other, _ := e.enroll(t, 2, "11111111-2222-4333-8444-555566667777")
-	if err := e.core.Revoke(e.ctx, "alex", other.AgentId, "x"); err != nil {
+	if err := e.core.Agents.Revoke(e.ctx, "alex", other.AgentId, "x"); err != nil {
 		t.Fatalf("revoke: %v", err)
 	}
-	if err := e.core.Revoke(e.ctx, "alex", other.AgentId, "again"); kindOf(err) != kernel.KindConflict {
+	if err := e.core.Agents.Revoke(e.ctx, "alex", other.AgentId, "again"); kindOf(err) != kernel.KindConflict {
 		t.Fatalf("second revoke: %v", err)
 	}
-	if err := e.core.DeleteToken(e.ctx, "alex", "tk-nope"); kindOf(err) != kernel.KindNotFound {
+	if err := e.core.Agents.DeleteToken(e.ctx, "alex", "tk-nope"); kindOf(err) != kernel.KindNotFound {
 		t.Fatalf("delete of a missing token: %v", err)
 	}
 	evs, _ := e.st.ListAudit(e.ctx, "org-1", 20)
@@ -499,7 +499,7 @@ func TestRejectAndRevokeReasonsAreClippedEverywhere(t *testing.T) {
 	e := newEnv(t)
 	long := strings.Repeat("é", 1000) + "\n\x00" + strings.Repeat("x", 5000)
 	resp, _ := e.enroll(t, 2, fp)
-	if err := e.core.Reject(e.ctx, "alex", resp.AgentId, long); err != nil {
+	if err := e.core.Agents.Reject(e.ctx, "alex", resp.AgentId, long); err != nil {
 		t.Fatal(err)
 	}
 	ag, _ := e.st.GetAgent(e.ctx, resp.AgentId)

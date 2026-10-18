@@ -1,4 +1,4 @@
-package server
+package agents
 
 import (
 	"slices"
@@ -23,7 +23,7 @@ func minusStrings(list, drop []string) []string {
 	return out
 }
 
-// resolveChange checks a change against the agent as it is now and returns the access it would leave the agent with and whether
+// ResolveChange checks a change against the agent as it is now and returns the access it would leave the agent with and whether
 // that is wider than the agent has: a higher tier, or a pause or exclusion lifted (even when the change also adds one). It is
 // used when a change is proposed and again when it is accepted.
 func ResolveChange(a store.Agent, cur Consent, ch decisionloop.AccessChange) (nextTier int, next Consent, widens bool, err error) {

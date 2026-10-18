@@ -15,7 +15,7 @@ func (h *Hub) LinkReport(ctx context.Context, links []kernel.LinkSetting, haveFu
 	if len(links) == 0 {
 		return nil, nil, nil
 	}
-	agents, err := h.C.Store.ListAgents(ctx, h.C.OrgID)
+	agentList, err := h.C.Store.ListAgents(ctx, h.C.OrgID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -24,7 +24,7 @@ func (h *Hub) LinkReport(ctx context.Context, links []kernel.LinkSetting, haveFu
 		in[l.A], in[l.B] = true, true
 	}
 	paused := map[string]bool{}
-	for _, o := range agents { // before h.mu: the consent may be read from the store
+	for _, o := range agentList { // before h.mu: the consent may be read from the store
 		if o.Status == store.StatusApproved && in[o.ClusterID] {
 			paused[o.ID] = h.consentOf(o.ID).Has("flow")
 		}
@@ -32,13 +32,13 @@ func (h *Hub) LinkReport(ctx context.Context, links []kernel.LinkSetting, haveFu
 	now := h.C.Now()
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	return h.linkNotes(links, agents, paused), h.linkSetups(links, agents, paused, haveFusion, now), nil
+	return h.linkNotes(links, agentList, paused), h.linkSetups(links, agentList, paused, haveFusion, now), nil
 }
 
 // linkSetups is the checklist of each listed pair. Called with h.mu held; agents and paused as for linkNotes.
-func (h *Hub) linkSetups(links []kernel.LinkSetting, agents []store.Agent, flowPausedOf map[string]bool, haveFusion bool, now time.Time) []LinkSetup {
-	byCluster := approvedByCluster(agents)
-	plan := h.planner(links, agents)
+func (h *Hub) linkSetups(links []kernel.LinkSetting, agentList []store.Agent, flowPausedOf map[string]bool, haveFusion bool, now time.Time) []LinkSetup {
+	byCluster := approvedByCluster(agentList)
+	plan := h.planner(links, agentList)
 	end := func(l kernel.LinkSetting, c, peer string) setupEnd {
 		e := setupEnd{ID: c}
 		a, ok := byCluster[c]

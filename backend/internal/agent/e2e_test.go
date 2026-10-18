@@ -77,7 +77,7 @@ func TestEnrollStreamRenewRevoke(t *testing.T) {
 	core.EnrollRL = kernel.NewLimiter(6000, 1000)
 	core.RenewRL = kernel.NewLimiter(6000, 1000) // a few-second certificate renews constantly
 	hub := server.NewHub(core)
-	srv := core.NewGRPC(pki.NewServerCerts(ca, []string{"127.0.0.1"}), hub)
+	srv := core.Agents.NewGRPC(pki.NewServerCerts(ca, []string{"127.0.0.1"}), hub)
 	l, _ := net.Listen("tcp", "127.0.0.1:0")
 	go srv.Serve(l)
 	defer srv.Stop()
@@ -90,7 +90,7 @@ func TestEnrollStreamRenewRevoke(t *testing.T) {
 			Capacity: corev1.ResourceList{"cpu": q("2"), "memory": q("4Gi")}, Conditions: []corev1.NodeCondition{{Type: corev1.NodeReady, Status: corev1.ConditionTrue}}}},
 	)
 	ids := agent.FileStore{Dir: filepath.Join(t.TempDir(), "id")}
-	token, _, err := core.CreateToken(context.Background(), "test", "e2e-cluster", 2)
+	token, _, err := core.Agents.CreateToken(context.Background(), "test", "e2e-cluster", 2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +107,7 @@ func TestEnrollStreamRenewRevoke(t *testing.T) {
 	if len(state().Topology.Clusters) != 0 {
 		t.Fatal("nothing may be shown before approval")
 	}
-	if err := core.Approve(context.Background(), "test", agentID, codeOf(t, ids), 2); err != nil {
+	if err := core.Agents.Approve(context.Background(), "test", agentID, codeOf(t, ids), 2); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, "first sync", 15*time.Second, func() bool { return len(state().Topology.Nodes) == 1 })
@@ -147,7 +147,7 @@ func TestEnrollStreamRenewRevoke(t *testing.T) {
 		return false
 	})
 
-	if err := core.Revoke(context.Background(), "test", agentID, "done"); err != nil {
+	if err := core.Agents.Revoke(context.Background(), "test", agentID, "done"); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -180,14 +180,14 @@ func TestRejoinAfterCertificateExpiredWhileOffline(t *testing.T) {
 	core.EnrollRL = kernel.NewLimiter(6000, 1000)
 	core.RenewRL = kernel.NewLimiter(6000, 1000)
 	hub := server.NewHub(core)
-	srv := core.NewGRPC(pki.NewServerCerts(ca, []string{"127.0.0.1"}), hub)
+	srv := core.Agents.NewGRPC(pki.NewServerCerts(ca, []string{"127.0.0.1"}), hub)
 	l, _ := net.Listen("tcp", "127.0.0.1:0")
 	go srv.Serve(l)
 	defer srv.Stop()
 
 	kube := fake.NewSimpleClientset(&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "kube-system", UID: "e2e00002-aaaa-4bbb-8ccc-dddddddddddd"}})
 	ids := agent.FileStore{Dir: filepath.Join(t.TempDir(), "id")}
-	token, _, _ := core.CreateToken(context.Background(), "test", "rejoin-cluster", 2)
+	token, _, _ := core.Agents.CreateToken(context.Background(), "test", "rejoin-cluster", 2)
 	cfg := func(tok string) agent.Config {
 		return agent.Config{Server: l.Addr().String(), CAPin: ca.Pin(), Token: tok, Tier: 2, Kube: kube, Identity: ids, Version: "test", Debounce: 100 * time.Millisecond}
 	}
@@ -202,7 +202,7 @@ func TestRejoinAfterCertificateExpiredWhileOffline(t *testing.T) {
 	cancel, done := run(token)
 	waitFor(t, "pending agent", 10*time.Second, func() bool { a := state().Agents; return len(a) == 1 && a[0].Status == "pending" })
 	agentID := state().Agents[0].ID
-	if err := core.Approve(context.Background(), "test", agentID, codeOf(t, ids), 2); err != nil {
+	if err := core.Agents.Approve(context.Background(), "test", agentID, codeOf(t, ids), 2); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, "first sync", 15*time.Second, func() bool { return len(state().Topology.Clusters) == 1 })
@@ -244,7 +244,7 @@ func TestRejoinAfterCertificateExpiredWhileOffline(t *testing.T) {
 	// A revoked agent cannot use rejoin to come back: it must stop and wipe its identity.
 	cancel2()
 	<-done2
-	if err := core.Revoke(context.Background(), "test", agentID, "gone"); err != nil {
+	if err := core.Agents.Revoke(context.Background(), "test", agentID, "gone"); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(4 * time.Second)
@@ -271,7 +271,7 @@ func TestNodeProbeReachesTopology(t *testing.T) {
 	core := server.NewCore(st, ca, "org", nil)
 	core.EnrollRL = kernel.NewLimiter(6000, 1000)
 	hub := server.NewHub(core)
-	srv := core.NewGRPC(pki.NewServerCerts(ca, []string{"127.0.0.1"}), hub)
+	srv := core.Agents.NewGRPC(pki.NewServerCerts(ca, []string{"127.0.0.1"}), hub)
 	l, _ := net.Listen("tcp", "127.0.0.1:0")
 	go srv.Serve(l)
 	defer srv.Stop()
@@ -286,7 +286,7 @@ func TestNodeProbeReachesTopology(t *testing.T) {
 	probeAddr := pl.Addr().String()
 	pl.Close()
 	secret := []byte("0123456789abcdef0123456789abcdef")
-	token, _, _ := core.CreateToken(context.Background(), "test", "probe-cluster", 2)
+	token, _, _ := core.Agents.CreateToken(context.Background(), "test", "probe-cluster", 2)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ids := agent.FileStore{Dir: filepath.Join(t.TempDir(), "id")}
@@ -296,7 +296,7 @@ func TestNodeProbeReachesTopology(t *testing.T) {
 
 	state := func() server.StateDoc { d, _ := hub.State(context.Background()); return d }
 	waitFor(t, "pending agent", 10*time.Second, func() bool { return len(state().Agents) == 1 })
-	if err := core.Approve(context.Background(), "test", state().Agents[0].ID, codeOf(t, ids), 2); err != nil {
+	if err := core.Agents.Approve(context.Background(), "test", state().Agents[0].ID, codeOf(t, ids), 2); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, "first sync", 15*time.Second, func() bool { return len(state().Topology.Nodes) == 1 })
@@ -343,7 +343,7 @@ func TestObservedTrafficReachesTopology(t *testing.T) {
 	core := server.NewCore(st, ca, "org", nil)
 	core.EnrollRL = kernel.NewLimiter(6000, 1000)
 	hub := server.NewHub(core)
-	srv := core.NewGRPC(pki.NewServerCerts(ca, []string{"127.0.0.1"}), hub)
+	srv := core.Agents.NewGRPC(pki.NewServerCerts(ca, []string{"127.0.0.1"}), hub)
 	l, _ := net.Listen("tcp", "127.0.0.1:0")
 	go srv.Serve(l)
 	defer srv.Stop()
@@ -372,7 +372,7 @@ func TestObservedTrafficReachesTopology(t *testing.T) {
 	addr := pl.Addr().String()
 	pl.Close()
 	flowSecret, probeSecret := []byte("flow-secret-0123456789abcdef0123"), []byte("probe-secret-0123456789abcdef012")
-	token, _, _ := core.CreateToken(context.Background(), "test", "flow-cluster", 2)
+	token, _, _ := core.Agents.CreateToken(context.Background(), "test", "flow-cluster", 2)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ids := agent.FileStore{Dir: filepath.Join(t.TempDir(), "id")}
@@ -383,7 +383,7 @@ func TestObservedTrafficReachesTopology(t *testing.T) {
 
 	state := func() server.StateDoc { d, _ := hub.State(context.Background()); return d }
 	waitFor(t, "pending agent", 10*time.Second, func() bool { return len(state().Agents) == 1 })
-	if err := core.Approve(context.Background(), "test", state().Agents[0].ID, codeOf(t, ids), 2); err != nil {
+	if err := core.Agents.Approve(context.Background(), "test", state().Agents[0].ID, codeOf(t, ids), 2); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, "workloads", 15*time.Second, func() bool { return len(state().Topology.Services) == 2 })
@@ -467,7 +467,7 @@ func TestScopeAndMeshReachTheTopology(t *testing.T) {
 	core := server.NewCore(st, ca, "org", nil)
 	core.EnrollRL = kernel.NewLimiter(6000, 1000)
 	hub := server.NewHub(core)
-	srv := core.NewGRPC(pki.NewServerCerts(ca, []string{"127.0.0.1"}), hub)
+	srv := core.Agents.NewGRPC(pki.NewServerCerts(ca, []string{"127.0.0.1"}), hub)
 	l, _ := net.Listen("tcp", "127.0.0.1:0")
 	go srv.Serve(l)
 	defer srv.Stop()
@@ -505,7 +505,7 @@ func TestScopeAndMeshReachTheTopology(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	token, _, _ := core.CreateToken(context.Background(), "test", "mesh-cluster", 2)
+	token, _, _ := core.Agents.CreateToken(context.Background(), "test", "mesh-cluster", 2)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	ids := agent.FileStore{Dir: filepath.Join(t.TempDir(), "id")}
@@ -514,7 +514,7 @@ func TestScopeAndMeshReachTheTopology(t *testing.T) {
 
 	state := func() server.StateDoc { d, _ := hub.State(context.Background()); return d }
 	waitFor(t, "pending agent", 10*time.Second, func() bool { return len(state().Agents) == 1 })
-	if err := core.Approve(context.Background(), "test", state().Agents[0].ID, codeOf(t, ids), 2); err != nil {
+	if err := core.Agents.Approve(context.Background(), "test", state().Agents[0].ID, codeOf(t, ids), 2); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, "services in the topology", 15*time.Second, func() bool { return len(state().Topology.Services) >= 2 })

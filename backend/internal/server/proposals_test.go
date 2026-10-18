@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"continuum/internal/accounts"
+	"continuum/internal/agents"
 	"continuum/internal/decisionloop"
 	"continuum/internal/kernel"
 	"continuum/internal/store"
@@ -143,7 +144,7 @@ func TestAProposalIsValidatedAndTheServerWorksOutWhetherItWidens(t *testing.T) {
 	if err != nil || down.Widens {
 		t.Fatalf("a lower tier: %+v %v", down, err)
 	}
-	if _, err := r.h.SetConsent(asRole(accounts.RoleAdmin), "adam", r.id, Consent{Paused: []string{"flow"}}); err != nil {
+	if _, err := r.h.SetConsent(asRole(accounts.RoleAdmin), "adam", r.id, agents.Consent{Paused: []string{"flow"}}); err != nil {
 		t.Fatal(err)
 	}
 	lift, err := r.submit(t, decisionloop.AccessChange{Resume: []string{"flow"}})
@@ -154,7 +155,7 @@ func TestAProposalIsValidatedAndTheServerWorksOutWhetherItWidens(t *testing.T) {
 	if err != nil || !mixed.Widens {
 		t.Fatalf("lifting one pause while adding another still widens: %+v %v", mixed, err)
 	}
-	if _, err := r.h.SetConsent(asRole(accounts.RoleAdmin), "adam", r.id, Consent{Paused: []string{"flow"}, Excluded: []string{"shop"}}); err != nil {
+	if _, err := r.h.SetConsent(asRole(accounts.RoleAdmin), "adam", r.id, agents.Consent{Paused: []string{"flow"}, Excluded: []string{"shop"}}); err != nil {
 		t.Fatal(err)
 	}
 	inc, err := r.submit(t, decisionloop.AccessChange{Include: []string{"shop"}})
@@ -210,7 +211,7 @@ func TestAcceptingANarrowingProposalMakesTheChangeThroughTheUsualPathAndAuditsEa
 // it is refused too.
 func TestAcceptingAWideningProposalTakesAnAdministratorAndAnEditorIsRefusedWithoutAnyChange(t *testing.T) {
 	r := propRigFor(t)
-	if _, err := r.h.SetConsent(asRole(accounts.RoleAdmin), "adam", r.id, Consent{Paused: []string{"flow"}}); err != nil {
+	if _, err := r.h.SetConsent(asRole(accounts.RoleAdmin), "adam", r.id, agents.Consent{Paused: []string{"flow"}}); err != nil {
 		t.Fatal(err)
 	}
 	p, err := r.submit(t, decisionloop.AccessChange{Resume: []string{"flow"}})

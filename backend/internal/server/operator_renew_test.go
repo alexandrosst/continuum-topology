@@ -227,7 +227,7 @@ func TestRenewalWindowRunsToTheGraceAfterExpiry(t *testing.T) {
 func TestEntitlementEndingStopsRenewal(t *testing.T) {
 	t.Run("agent revoked", func(t *testing.T) {
 		s := newRenewSetup(t)
-		if err := s.e.core.Revoke(s.e.ctx, "alex", s.agent, "test"); err != nil {
+		if err := s.e.core.Agents.Revoke(s.e.ctx, "alex", s.agent, "test"); err != nil {
 			t.Fatal(err)
 		}
 		sc := s.bundle.Senders[0]
@@ -351,7 +351,7 @@ func TestRenewerAgainstTheRealServerReplacesTheSecret(t *testing.T) {
 	}
 
 	// And once the agent is revoked the same renewer is refused, and says so.
-	if err := r.core.Revoke(r.ctx, "alex", agent, "test"); err != nil {
+	if err := r.core.Agents.Revoke(r.ctx, "alex", agent, "test"); err != nil {
 		t.Fatal(err)
 	}
 	var res certrenew.Result

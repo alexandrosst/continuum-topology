@@ -5,6 +5,7 @@ import (
 	"time"
 
 	continuumv1 "continuum/gen/continuumv1"
+	"continuum/internal/agents"
 	"continuum/internal/interpret"
 	"continuum/internal/measure"
 	"continuum/internal/observed"
@@ -135,7 +136,7 @@ func deriveTargets(ft *observed.FlowTable) []issuedTarget {
 type configFacts struct {
 	Tier      int
 	ClusterID string
-	Consent   Consent
+	Consent   agents.Consent
 
 	Heartbeat, Resync int32
 	ServerTime        int64

@@ -31,20 +31,20 @@ func TestEachPlaceThatBoundsATierSaysWhatItSaidBefore(t *testing.T) {
 	// Token creation: only the release's range.
 	e := newEnv(t)
 	for _, n := range []int{-1, 3, 9} {
-		_, _, err := e.core.CreateToken(e.ctx, "a", "c", n)
+		_, _, err := e.core.Agents.CreateToken(e.ctx, "a", "c", n)
 		wantErr(t, fmt.Sprintf("token tier %d", n), err, kernel.KindInvalid, "access tier must be 0-2 in this release")
 	}
 	for _, n := range []int{0, 1, 2} {
-		if _, _, err := e.core.CreateToken(e.ctx, "a", "c", n); err != nil {
+		if _, _, err := e.core.Agents.CreateToken(e.ctx, "a", "c", n); err != nil {
 			t.Errorf("token tier %d: %v", n, err)
 		}
 	}
 
 	// Enrollment: what an install reports must be inside the type's bound, which is wider than the release's.
-	secret, _, _ := e.core.CreateToken(e.ctx, "a", "c", 2)
+	secret, _, _ := e.core.Agents.CreateToken(e.ctx, "a", "c", 2)
 	d, _ := csr(t)
 	enrollAt := func(tier uint32) error {
-		_, err := e.core.Enroll(e.ctx, "1.1.1.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fp, InstalledAccessTier: tier, ApprovalCodeHash: hashFor(t, d)})
+		_, err := e.core.Agents.Enroll(e.ctx, "1.1.1.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fp, InstalledAccessTier: tier, ApprovalCodeHash: hashFor(t, d)})
 		return err
 	}
 	wantErr(t, "enrolling at 5", enrollAt(5), kernel.KindInvalid, "installed access tier out of range")
@@ -59,16 +59,16 @@ func TestEachPlaceThatBoundsATierSaysWhatItSaidBefore(t *testing.T) {
 	wantErr(t, "approving above the install", e2.approve(r1.AgentId, 2), kernel.KindInvalid, fmt.Sprintf(approveMsg, 2, 1, 2, 2))
 	wantErr(t, "approving below zero", e2.approve(r1.AgentId, -1), kernel.KindInvalid, fmt.Sprintf(approveMsg, -1, 1, 2, 2))
 	e3 := newEnv(t)
-	secret3, _, _ := e3.core.CreateToken(e3.ctx, "a", "c", 1) // token 1
+	secret3, _, _ := e3.core.Agents.CreateToken(e3.ctx, "a", "c", 1) // token 1
 	d3, _ := csr(t)
 	hash3, code3 := approvalFor(t, d3)
-	r3, err := e3.core.Enroll(e3.ctx, "1.1.1.1", &continuumv1.EnrollRequest{Token: secret3, CsrDer: d3, ClusterFingerprint: fp, InstalledAccessTier: 4, ApprovalCodeHash: hash3})
+	r3, err := e3.core.Agents.Enroll(e3.ctx, "1.1.1.1", &continuumv1.EnrollRequest{Token: secret3, CsrDer: d3, ClusterFingerprint: fp, InstalledAccessTier: 4, ApprovalCodeHash: hash3})
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantErr(t, "approving above the token", e3.core.Approve(e3.ctx, "alex", r3.AgentId, code3, 2), kernel.KindInvalid, fmt.Sprintf(approveMsg, 2, 4, 1, 2))
-	wantErr(t, "approving above the release", e3.core.Approve(e3.ctx, "alex", r3.AgentId, code3, 3), kernel.KindInvalid, fmt.Sprintf(approveMsg, 3, 4, 1, 2))
-	if err := e3.core.Approve(e3.ctx, "alex", r3.AgentId, code3, 1); err != nil {
+	wantErr(t, "approving above the token", e3.core.Agents.Approve(e3.ctx, "alex", r3.AgentId, code3, 2), kernel.KindInvalid, fmt.Sprintf(approveMsg, 2, 4, 1, 2))
+	wantErr(t, "approving above the release", e3.core.Agents.Approve(e3.ctx, "alex", r3.AgentId, code3, 3), kernel.KindInvalid, fmt.Sprintf(approveMsg, 3, 4, 1, 2))
+	if err := e3.core.Agents.Approve(e3.ctx, "alex", r3.AgentId, code3, 1); err != nil {
 		t.Errorf("approving at the token's cap: %v", err)
 	}
 }
@@ -145,17 +145,17 @@ func TestAReportedCeilingIsHeldInsideTheTypesBound(t *testing.T) {
 // limit that stops a raise.
 func TestATokensCapStopsATierThatTheInstallWouldAllow(t *testing.T) {
 	a := newAdminRig(t)
-	secret, _, err := a.core.CreateToken(a.ctx, "a", "c", 1)
+	secret, _, err := a.core.Agents.CreateToken(a.ctx, "a", "c", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
 	d, _ := csr(t)
 	hash, code := approvalFor(t, d)
-	r, err := a.core.Enroll(a.ctx, "1.1.1.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fp, InstalledAccessTier: 2, ApprovalCodeHash: hash})
+	r, err := a.core.Agents.Enroll(a.ctx, "1.1.1.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fp, InstalledAccessTier: 2, ApprovalCodeHash: hash})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := a.core.Approve(a.ctx, "alex", r.AgentId, code, 0); err != nil {
+	if err := a.core.Agents.Approve(a.ctx, "alex", r.AgentId, code, 0); err != nil {
 		t.Fatal(err)
 	}
 	h := a.hub()

@@ -11,6 +11,7 @@ import (
 	"continuum/internal/accounts"
 	"continuum/internal/agent"
 	"continuum/internal/agent/collect"
+	"continuum/internal/agents"
 	"continuum/internal/flow"
 	"continuum/internal/kernel"
 	"continuum/internal/link"
@@ -93,14 +94,14 @@ func TestTheServerIssuesIperfCredentialsAndTheAgentHandsThemToThePodsOfItsRole(t
 			}
 
 			// Pausing the flow collector withdraws them with the peers; so does removing the pair.
-			if _, err := d.hub.SetConsent(ctx, "test", d.id, server.Consent{Paused: []string{"flow"}}); err != nil {
+			if _, err := d.hub.SetConsent(ctx, "test", d.id, agents.Consent{Paused: []string{"flow"}}); err != nil {
 				t.Fatal(err)
 			}
 			waitFor(t, "the credentials to be withdrawn while flow is paused", 30*time.Second, func() bool {
 				s, err := fetchServer()
 				return err == nil && s.Empty()
 			})
-			if _, err := d.hub.SetConsent(server.ActingAs(ctx, accounts.RoleAdmin), "test", d.id, server.Consent{}); err != nil {
+			if _, err := d.hub.SetConsent(agents.ActingAs(ctx, accounts.RoleAdmin), "test", d.id, agents.Consent{}); err != nil {
 				t.Fatal(err)
 			}
 			waitFor(t, "the credentials to return", 30*time.Second, func() bool {

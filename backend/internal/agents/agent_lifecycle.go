@@ -1,4 +1,4 @@
-package server
+package agents
 
 import (
 	"context"
@@ -19,13 +19,13 @@ import (
 // rejoin of one whose certificate lapsed. These were written beside the Core they are methods of; they are the agents module's.
 
 // CreateToken issues a one-time enrollment token. The secret is returned once and never stored.
-func (c *Core) CreateToken(ctx context.Context, actor, label string, tier int) (string, store.Token, error) {
+func (c *Service) CreateToken(ctx context.Context, actor, label string, tier int) (string, store.Token, error) {
 	return c.CreateTokenFor(ctx, actor, label, tier, "")
 }
 
 // CreateTokenFor is CreateToken for a token that only the cluster with this identity (the UID of its
 // kube-system namespace) may use; empty means any cluster.
-func (c *Core) CreateTokenFor(ctx context.Context, actor, label string, tier int, expectedCluster string) (string, store.Token, error) {
+func (c *Service) CreateTokenFor(ctx context.Context, actor, label string, tier int, expectedCluster string) (string, store.Token, error) {
 	expectedCluster = strings.ToLower(strings.TrimSpace(expectedCluster))
 	if expectedCluster != "" && !kernel.FingerprintRe.MatchString(expectedCluster) {
 		return "", store.Token{}, kernel.Errf(kernel.KindInvalid, "the expected cluster is the UID of its kube-system namespace, like 3f2b6c1e-9a4d-4e7b-8c55-0d1e2f3a4b5c (kubectl get namespace kube-system -o jsonpath='{.metadata.uid}')")
@@ -55,7 +55,7 @@ func (c *Core) CreateTokenFor(ctx context.Context, actor, label string, tier int
 }
 
 // DeleteToken withdraws an enrollment token that was not used yet.
-func (c *Core) DeleteToken(ctx context.Context, actor, id string) error {
+func (c *Service) DeleteToken(ctx context.Context, actor, id string) error {
 	err := c.Store.DeleteToken(ctx, c.OrgID, id, store.WithAudit(c.AuditRow(c.OrgID, actor, "token-deleted", "token", id, "")))
 	if errors.Is(err, store.ErrNotFound) {
 		return kernel.Errf(kernel.KindNotFound, "no such unused token")
@@ -63,7 +63,7 @@ func (c *Core) DeleteToken(ctx context.Context, actor, id string) error {
 	return c.AuditedWrite(err, "token-deleted")
 }
 
-func (c *Core) Reject(ctx context.Context, actor, agentID, reason string) error {
+func (c *Service) Reject(ctx context.Context, actor, agentID, reason string) error {
 	if _, err := c.AgentInOrg(ctx, agentID); err != nil {
 		return err
 	}
@@ -82,7 +82,7 @@ func (c *Core) Reject(ctx context.Context, actor, agentID, reason string) error 
 }
 
 // Revoke takes effect on the agent's next call and drops its live stream immediately.
-func (c *Core) Revoke(ctx context.Context, actor, agentID, reason string) error {
+func (c *Service) Revoke(ctx context.Context, actor, agentID, reason string) error {
 	if _, err := c.AgentInOrg(ctx, agentID); err != nil {
 		return err
 	}
@@ -110,7 +110,7 @@ func (c *Core) Revoke(ctx context.Context, actor, agentID, reason string) error 
 // AuthorizeAgent is called on every authenticated request. Being signed by our CA is not
 // enough: the agent must still be approved right now, and belong to this organisation (the
 // platform-wide core, OrgID "", accepts any and reports which).
-func (c *Core) AuthorizeAgent(ctx context.Context, agentID string) (store.Agent, error) {
+func (c *Service) AuthorizeAgent(ctx context.Context, agentID string) (store.Agent, error) {
 	a, err := c.Store.GetAgent(ctx, agentID)
 	if err != nil || a.Status != store.StatusApproved || (c.OrgID != "" && a.OrgID != c.OrgID) {
 		return store.Agent{}, kernel.Errf(kernel.KindUnauthenticated, "agent is not approved")
@@ -119,7 +119,7 @@ func (c *Core) AuthorizeAgent(ctx context.Context, agentID string) (store.Agent,
 }
 
 // Renew issues a new 24 h certificate for an agent that is still approved.
-func (c *Core) Renew(ctx context.Context, agentID string, csrDER []byte) ([]byte, time.Time, error) {
+func (c *Service) Renew(ctx context.Context, agentID string, csrDER []byte) ([]byte, time.Time, error) {
 	a, err := c.AuthorizeAgent(ctx, agentID)
 	if err != nil {
 		return nil, time.Time{}, err
@@ -146,7 +146,7 @@ func (c *Core) Renew(ctx context.Context, agentID string, csrDER []byte) ([]byte
 // It needs no token, so it is tightly bounded: the expired certificate must be ours, must have
 // expired no more than pki.RejoinWindow ago, the request must be signed by the same key, the
 // agent must still be approved right now, and the call is rate limited per address and per agent.
-func (c *Core) Rejoin(ctx context.Context, ip string, req *continuumv1.RejoinRequest) (*continuumv1.RenewResponse, error) {
+func (c *Service) Rejoin(ctx context.Context, ip string, req *continuumv1.RejoinRequest) (*continuumv1.RenewResponse, error) {
 	if !c.EnrollRL.Allow("rejoin:" + kernel.LimitKey(ip)) {
 		return nil, kernel.Errf(kernel.KindRateLimited, "too many attempts, slow down")
 	}

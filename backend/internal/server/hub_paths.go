@@ -148,7 +148,7 @@ func (h *Hub) settingsChanged(kernel.Settings) {
 // noteMeasurements stores what an agent measured, for the targets the server issued.
 func (h *Hub) noteMeasurements(agentID string, m *continuumv1.Measurements) {
 	if h.consentOf(agentID).Has("measure") {
-		// The agent should already have stopped sending this; the same defense-in-depth dropAboveTier
+		// The agent should already have stopped sending this; the same defense-in-depth agents.DropAboveTier
 		// gives the tier ceiling, extended to a paused collector.
 		return
 	}
@@ -181,14 +181,14 @@ func (h *Hub) noteMeasurements(agentID string, m *continuumv1.Measurements) {
 }
 
 // pathDocs turns the measured paths of every cluster into the documents the UI reads. Called with h.mu held.
-func (h *Hub) pathDocs(agents []store.Agent, clusters []observed.Cluster, names map[string]string, now time.Time) []model.Path {
+func (h *Hub) pathDocs(agentList []store.Agent, clusters []observed.Cluster, names map[string]string, now time.Time) []model.Path {
 	ix := observed.BuildAddrIndex(clusters)
 	staleAfter := 3 * time.Duration(h.C.Settings().MeasureSeconds) * time.Second
 	if staleAfter < 5*time.Minute {
 		staleAfter = 5 * time.Minute
 	}
 	var out []model.Path
-	for _, a := range agents {
+	for _, a := range agentList {
 		v := h.views[a.ID]
 		if v == nil || a.Status != store.StatusApproved {
 			continue

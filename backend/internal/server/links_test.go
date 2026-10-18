@@ -9,6 +9,7 @@ import (
 
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/accounts"
+	"continuum/internal/agents"
 	"continuum/internal/facts"
 	"continuum/internal/kernel"
 	"continuum/internal/observed"
@@ -359,13 +360,13 @@ func TestTheSecondClusterProbesAgainWhenTheFirstOnesFlowCollectorIsPaused(t *tes
 	if !skips() {
 		t.Error("the second cluster still probes beside a first cluster that measures")
 	}
-	if _, err := r.hub.SetConsent(r.ctx, "edith", first.ID, Consent{Paused: []string{"flow"}}); err != nil {
+	if _, err := r.hub.SetConsent(r.ctx, "edith", first.ID, agents.Consent{Paused: []string{"flow"}}); err != nil {
 		t.Fatal(err)
 	}
 	if skips() {
 		t.Error("the first cluster's flow collector is paused, so nobody measures, yet the second skips its probe")
 	}
-	if _, err := r.hub.SetConsent(asRole(accounts.RoleAdmin), "edith", first.ID, Consent{}); err != nil {
+	if _, err := r.hub.SetConsent(asRole(accounts.RoleAdmin), "edith", first.ID, agents.Consent{}); err != nil {
 		t.Fatal(err)
 	}
 	if !skips() {

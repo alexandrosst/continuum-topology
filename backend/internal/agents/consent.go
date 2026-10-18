@@ -1,4 +1,4 @@
-package server
+package agents
 
 import (
 	"context"
@@ -43,14 +43,14 @@ func (c Consent) Has(name string) bool {
 	return false
 }
 
-// consentKey is where an agent's overrides are stored: next to its snapshot, under a name no agent id can have.
+// ConsentKey is where an agent's overrides are stored: next to its snapshot, under a name no agent id can have.
 func ConsentKey(agentID string) string { return agentID + "#consent" }
 
 func systemNS(ns string) bool {
 	return ns == "kube-system" || ns == "kube-public" || ns == "kube-node-lease"
 }
 
-// cleanConsent validates an administrator's input and puts it in a canonical form (sorted, no repeats).
+// CleanConsent validates an administrator's input and puts it in a canonical form (sorted, no repeats).
 func CleanConsent(in Consent) (Consent, error) {
 	var out Consent
 	seen := map[string]bool{}
@@ -92,12 +92,12 @@ func CleanConsent(in Consent) (Consent, error) {
 	return out, nil
 }
 
-// viewExt is what the server keeps per agent about its own account of itself and the overrides pushed to it.
+// ViewExt is what the server keeps per agent about its own account of itself and the overrides pushed to it.
 type ViewExt struct {
 	Diag        *continuumv1.Diagnostics
 	DiagAt      time.Time
 	DiagPartial bool // only what Hello carried: the ceiling, before the agent had looked at the cluster
-	// linkCaps is what this agent's heartbeat last said its install can do for the cluster-link telemetry (see linkCaps).
+	// LinkCaps is what this agent's heartbeat last said its install can do for the cluster-link telemetry (see LinkCaps).
 	LinkCaps    LinkCaps
 	Consent     Consent
 	ConsentAt   time.Time // when this consent was last changed (zero if it never has been); drives the staleness signal in consentDoc
@@ -120,7 +120,7 @@ type ViewExt struct {
 	// after the tier ceiling narrows it but before an admin's own exclusion list does - so an excluded name can
 	// still be checked against what is real, which is the whole point of tracking it (see ConsentDoc.UnknownNamespaces).
 	// Only names are kept, never a namespace's own facts, so nothing more survives its exclusion than the fact it
-	// exists. Best-effort like the rest of viewExt: not persisted, rebuilt from the agent's next full picture. A
+	// exists. Best-effort like the rest of ViewExt: not persisted, rebuilt from the agent's next full picture. A
 	// full sync replaces this outright; a delta sync only adds to it, so a namespace that genuinely disappears
 	// between two full syncs stays "known" until the next one rather than needing DeletedNamespaces (which carries
 	// keys, not names) resolved back to a name here too - an acceptable staleness for a signal that only ever warns.
@@ -148,7 +148,7 @@ func ActingAs(ctx context.Context, role string) context.Context {
 	return accounts.WithCaller(ctx, accounts.Principal{Role: role})
 }
 
-// applyConsent cuts a picture down to what an agent's overrides leave it: the node probe's machine-identifying
+// ApplyConsent cuts a picture down to what an agent's overrides leave it: the node probe's machine-identifying
 // fields when that collector is paused, and every namespace (and workload in one) on the excluded list.
 func ApplyConsent(c Consent, s *continuumv1.Sync) {
 	if c.Has("probes") {
@@ -180,7 +180,7 @@ func ApplyConsent(c Consent, s *continuumv1.Sync) {
 	s.Workloads = workloads
 }
 
-// dropAboveTier removes from a picture whatever the approved tier does not cover. The agent already sends no more than
+// DropAboveTier removes from a picture whatever the approved tier does not cover. The agent already sends no more than
 // it is approved for; this is the server not taking the agent's word for it.
 func DropAboveTier(tier int, s *continuumv1.Sync) {
 	if tier < 1 {
@@ -199,7 +199,7 @@ func DropAboveTier(tier int, s *continuumv1.Sync) {
 	}
 }
 
-// consentNarrows is whether next takes anything away that cur still allowed: a collector newly paused, or a
+// ConsentNarrows is whether next takes anything away that cur still allowed: a collector newly paused, or a
 // namespace newly left out. Widening needs no purge (there is nothing held to drop).
 func ConsentNarrows(cur, next Consent) bool {
 	for _, p := range next.Paused {
@@ -237,7 +237,7 @@ type ConsentDoc struct {
 	// yet confirmed" means five seconds or five days.
 	SetAt string `json:"setAt,omitempty"`
 	// UnknownNamespaces are excluded namespace names this agent has never actually reported, checked once
-	// it has reported anything at all to check against. cleanConsent only rejects a name that cannot be a
+	// it has reported anything at all to check against. CleanConsent only rejects a name that cannot be a
 	// namespace (bad syntax, a system namespace); it cannot know whether "checkout-v2" is a typo for
 	// "checkout" or a namespace that simply has not rolled out yet, and an administrator may legitimately
 	// pre-declare one before its first workload appears - so this warns instead of blocking the request
@@ -340,7 +340,7 @@ type ExportRouteHealthDoc struct {
 	LastFailedAt string `json:"lastFailedAt,omitempty"`
 }
 
-// exportHealthStates names the agent's states; one this server does not know is shown as waiting, the one
+// ExportHealthStates names the agent's states; one this server does not know is shown as waiting, the one
 // that claims nothing.
 var ExportHealthStates = map[continuumv1.ExportRouteHealth_State]string{
 	continuumv1.ExportRouteHealth_WAITING:   "waiting",
@@ -417,7 +417,7 @@ func (v *View) NoteDiagnostics(d *continuumv1.Diagnostics, partial bool, at time
 	v.Ext.Diag, v.Ext.DiagAt, v.Ext.DiagPartial = d, at, partial
 }
 
-// sameStrings says whether a and b hold the same strings, regardless of order or duplicates.
+// SameStrings says whether a and b hold the same strings, regardless of order or duplicates.
 func SameStrings(a, b []string) bool {
 	if len(a) != len(b) {
 		return false
@@ -532,7 +532,7 @@ type entityRecorder interface {
 // Best-effort and silent on failure by design: the action itself is already durably audited (see Audited)
 // before this ever runs, so a graph outage narrows the timeline view of the change, never the change
 // itself.
-func (c *Core) RecordAgentGraph(ctx context.Context, a store.Agent, kind, detail string) {
+func (c *Service) RecordAgentGraph(ctx context.Context, a store.Agent, kind, detail string) {
 	er, ok := c.Store.(entityRecorder)
 	if !ok {
 		return
@@ -565,7 +565,7 @@ type ScopeDoc struct {
 	InScope     int    `json:"inScope"`
 }
 
-// eventLinker is what a store adds when it keeps a graph: the ability to connect a batch of events to
+// EventLinker is what a store adds when it keeps a graph: the ability to connect a batch of events to
 // the versions they explain (see graph.DB.LinkEventChanges). A plain store does not implement it - the
 // events themselves are already durably stored either way, this is enrichment on top, the same optional-
 // capability pattern entityRecorder uses in consent.go.

@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"continuum/internal/agents"
 	"continuum/internal/history"
 	"continuum/internal/kernel"
 	"continuum/internal/model"
@@ -52,7 +53,7 @@ func (h *Hub) Run(ctx context.Context) {
 	defer cfg.Stop()
 	t := time.NewTicker(tickEvery)
 	defer t.Stop()
-	self := time.NewTicker(SelfStatsSampleEvery)
+	self := time.NewTicker(agents.SelfStatsSampleEvery)
 	defer self.Stop()
 	drift := time.NewTicker(driftTick)
 	defer drift.Stop()
@@ -63,7 +64,7 @@ func (h *Hub) Run(ctx context.Context) {
 		case <-cfg.C:
 			h.pushConfigs()
 			h.C.Loop.RecordOutcomes(ctx)
-			h.C.ExpirePending(ctx, h.C.OrgID)
+			h.C.Agents.ExpirePending(ctx, h.C.OrgID)
 		case <-t.C:
 			h.rec.tick(ctx)
 			h.twinTick(ctx)
@@ -149,7 +150,7 @@ func (r *recorder) scan(ctx context.Context, now time.Time, periodic bool) {
 		// Now that both the events and the version they go with are written, connect them: the graph's own
 		// record of what an event explains, not just that the UI happened to show them at the same moment.
 		if len(evs) > 0 {
-			if el, ok := r.h.C.Store.(EventLinker); ok {
+			if el, ok := r.h.C.Store.(agents.EventLinker); ok {
 				if err := el.LinkEventChanges(ctx, r.h.C.OrgID, now, evs); err != nil {
 					r.h.Log.Warn("history: could not link events to what they explain", "err", err)
 				}
@@ -162,15 +163,15 @@ func (r *recorder) scan(ctx context.Context, now time.Time, periodic bool) {
 // view in memory and its snapshots (facts, flows, overrides) in the store. Every reinstall enrols a new agent,
 // so without this each one keeps up to three large blobs, and its facts in RAM until the next restart.
 func (r *recorder) reclaimRevoked(ctx context.Context) {
-	agents, err := r.h.C.Store.ListAgents(ctx, r.h.C.OrgID)
+	agentList, err := r.h.C.Store.ListAgents(ctx, r.h.C.OrgID)
 	if err != nil {
 		return
 	}
 	var keys []string
 	r.h.mu.Lock()
-	for _, a := range agents {
+	for _, a := range agentList {
 		if a.Status == store.StatusRevoked && a.RevokedAt != nil && !r.h.revokedWithinRetention(a) {
-			keys = append(keys, a.ID, flowsKey(a.ID), ConsentKey(a.ID))
+			keys = append(keys, a.ID, flowsKey(a.ID), agents.ConsentKey(a.ID))
 			delete(r.h.views, a.ID)
 		}
 	}

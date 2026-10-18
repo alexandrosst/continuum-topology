@@ -11,6 +11,7 @@ import (
 
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/accounts"
+	"continuum/internal/agents"
 	"continuum/internal/kernel"
 	"continuum/internal/pki"
 
@@ -136,7 +137,7 @@ func TestAuthenticatedStreamsKeepTheLargeReceiveLimit(t *testing.T) {
 
 func TestGRPCServerStopsCleanly(t *testing.T) {
 	e := newEnv(t)
-	srv := e.base.NewGRPC(pki.NewServerCerts(e.core.CA, []string{"127.0.0.1"}), &BaseAgentService{C: e.base})
+	srv := e.base.Agents.NewGRPC(pki.NewServerCerts(e.core.CA, []string{"127.0.0.1"}), &agents.BaseAgentService{C: e.base.Agents})
 	l := listenLocal(t)
 	done := make(chan error, 1)
 	go func() { done <- srv.Serve(l) }()

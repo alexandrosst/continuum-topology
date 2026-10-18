@@ -24,13 +24,13 @@ import (
 // tier 2, paused, silent, or whose list is full never leaves the pair with nobody measuring. flowPausedOf says which agents
 // (by agent id) have the flow collector paused; it is read by the caller beforehand because that may touch the store, and
 // only the runners' entries are looked at.
-func (h *Hub) linkPeers(a store.Agent, agents []store.Agent, links []kernel.LinkSetting, flowPaused bool, flowPausedOf map[string]bool) []*continuumv1.LinkPeer {
-	return h.peerList(a, agents, links, flowPaused, flowPausedOf, true)
+func (h *Hub) linkPeers(a store.Agent, agentList []store.Agent, links []kernel.LinkSetting, flowPaused bool, flowPausedOf map[string]bool) []*continuumv1.LinkPeer {
+	return h.peerList(a, agentList, links, flowPaused, flowPausedOf, true)
 }
 
 // peerList is linkPeers; assign says whether to hand out the second cluster's SkipProbe (false when working out what the
 // other side was told, which must not recurse).
-func (h *Hub) peerList(a store.Agent, agents []store.Agent, links []kernel.LinkSetting, flowPaused bool, flowPausedOf map[string]bool, assign bool) []*continuumv1.LinkPeer {
+func (h *Hub) peerList(a store.Agent, agentList []store.Agent, links []kernel.LinkSetting, flowPaused bool, flowPausedOf map[string]bool, assign bool) []*continuumv1.LinkPeer {
 	if a.ClusterID == "" || a.AccessTier < 2 || flowPaused {
 		return nil
 	}
@@ -39,7 +39,7 @@ func (h *Hub) peerList(a store.Agent, agents []store.Agent, links []kernel.LinkS
 		return nil
 	}
 	var out []*continuumv1.LinkPeer
-	for _, pp := range h.planPeers(a, agents, links).sent {
+	for _, pp := range h.planPeers(a, agentList, links).sent {
 		id := pp.id
 		addrs := pp.addrs
 		if len(addrs) > link.MaxAddresses {
@@ -56,7 +56,7 @@ func (h *Hub) peerList(a store.Agent, agents []store.Agent, links []kernel.LinkS
 			lp.ThroughputBudgetBytes = uint64(t.BudgetMB) << 20
 		}
 		// The same side runs the one-way probe and the connect timing; this one only serves them, while the runner measures.
-		if assign && !l.NoProbe && linkRunner(a.ClusterID, id) == id && h.runnerMeasures(pp.agent, a, agents, links, flowPausedOf) {
+		if assign && !l.NoProbe && linkRunner(a.ClusterID, id) == id && h.runnerMeasures(pp.agent, a, agentList, links, flowPausedOf) {
 			lp.SkipProbe = true
 		}
 		out = append(out, lp)
@@ -68,12 +68,12 @@ func (h *Hub) peerList(a store.Agent, agents []store.Agent, links []kernel.LinkS
 // from its own, every address also claimed by another peer) are filtered out FIRST and the list is cut at link.MaxPeers
 // after, in id order: a cut that came first would let peers with no agent yet use up the room of those that have one. For a
 // hub with no more than link.MaxPeers usable peers the list is the same as without a cut. Called with h.mu held.
-func (h *Hub) planPeers(a store.Agent, agents []store.Agent, links []kernel.LinkSetting) *peerPlan {
+func (h *Hub) planPeers(a store.Agent, agentList []store.Agent, links []kernel.LinkSetting) *peerPlan {
 	plan := &peerPlan{byID: map[string]*plannedPeer{}, cut: map[string]bool{}}
 	if a.ClusterID == "" {
 		return plan
 	}
-	byCluster := approvedByCluster(agents)
+	byCluster := approvedByCluster(agentList)
 	// An address the paired cluster shares with this one (two clusters on the same private range, say) cannot tell traffic
 	// to the peer from traffic inside this cluster, so it is left out rather than mislabelled.
 	own := h.ownAddresses(a)
@@ -132,12 +132,12 @@ func (h *Hub) planPeers(a store.Agent, agents []store.Agent, links []kernel.Link
 
 // planner is planPeers memoised per agent, for a caller (the notes, the checklists) that asks about every pair of the
 // organisation. Called with h.mu held; the closure is for one call's use.
-func (h *Hub) planner(links []kernel.LinkSetting, agents []store.Agent) func(store.Agent) *peerPlan {
+func (h *Hub) planner(links []kernel.LinkSetting, agentList []store.Agent) func(store.Agent) *peerPlan {
 	memo := map[string]*peerPlan{}
 	return func(a store.Agent) *peerPlan {
 		p, ok := memo[a.ID]
 		if !ok {
-			p = h.planPeers(a, agents, links)
+			p = h.planPeers(a, agentList, links)
 			memo[a.ID] = p
 		}
 		return p
@@ -181,8 +181,8 @@ func (h *Hub) peerAddresses(o store.Agent) []string {
 // runnerMeasures says whether the runner of a pair, agent r, has been told to measure towards agent a: that is, whether a is
 // in the peer list r would be sent. It reuses linkPeers, so it holds exactly when r is approved, at tier 2, not paused, has a
 // peer list with room for a, and a has reported addresses r can use.
-func (h *Hub) runnerMeasures(r, a store.Agent, agents []store.Agent, links []kernel.LinkSetting, flowPausedOf map[string]bool) bool {
-	for _, lp := range h.peerList(r, agents, links, flowPausedOf[r.ID], flowPausedOf, false) {
+func (h *Hub) runnerMeasures(r, a store.Agent, agentList []store.Agent, links []kernel.LinkSetting, flowPausedOf map[string]bool) bool {
+	for _, lp := range h.peerList(r, agentList, links, flowPausedOf[r.ID], flowPausedOf, false) {
 		if lp.ClusterId == a.ClusterID {
 			return !lp.NoProbe
 		}
@@ -192,7 +192,7 @@ func (h *Hub) runnerMeasures(r, a store.Agent, agents []store.Agent, links []ker
 
 // runnersPaused is, for the agents that run the probes of the pairs agent a is in, whether their flow collector is paused. The
 // consent may have to be read from the store, so call it before taking h.mu, and only when a has pairs.
-func (h *Hub) runnersPaused(a store.Agent, agents []store.Agent, links []kernel.LinkSetting) map[string]bool {
+func (h *Hub) runnersPaused(a store.Agent, agentList []store.Agent, links []kernel.LinkSetting) map[string]bool {
 	runs := map[string]bool{}
 	for _, id := range peersOf(links, a.ClusterID) {
 		if linkRunner(a.ClusterID, id) == id {
@@ -203,7 +203,7 @@ func (h *Hub) runnersPaused(a store.Agent, agents []store.Agent, links []kernel.
 		return nil
 	}
 	out := map[string]bool{}
-	for _, o := range agents {
+	for _, o := range agentList {
 		if runs[o.ClusterID] && o.Status == store.StatusApproved {
 			out[o.ID] = h.consentOf(o.ID).Has("flow")
 		}
@@ -215,9 +215,9 @@ func (h *Hub) runnersPaused(a store.Agent, agents []store.Agent, links []kernel.
 // conditions one by one, so a pair that has no note is one whose agents are handed each other. Called with h.mu held;
 // agents is the organisation's agents and flowPausedOf (by agent id) says whose flow collector is paused, both read
 // beforehand because that may touch the store.
-func (h *Hub) linkNotes(links []kernel.LinkSetting, agents []store.Agent, flowPausedOf map[string]bool) []LinkNote {
-	byCluster := approvedByCluster(agents)
-	plan := h.planner(links, agents)
+func (h *Hub) linkNotes(links []kernel.LinkSetting, agentList []store.Agent, flowPausedOf map[string]bool) []LinkNote {
+	byCluster := approvedByCluster(agentList)
+	plan := h.planner(links, agentList)
 	var out []LinkNote
 	noAgent := map[string]bool{}
 	for _, l := range links {

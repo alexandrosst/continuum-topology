@@ -17,7 +17,7 @@ const maxTelemetryIntentName = 80
 
 // maxTelemetrySignals bounds how many signal grants one intent may hold - generous headroom over the
 // eleven known TELEMETRY_SIGNALS ids (see store.SignalGrant's own comment), the same reasoning
-// maxDiagTelemetrySignals gives for the agent's own report of what it has installed.
+// agents.MaxDiagTelemetrySignals gives for the agent's own report of what it has installed.
 const maxTelemetrySignals = 32
 
 // signalModality mirrors the frontend's TELEMETRY_SIGNALS table (src/lib/install.ts) - the only place a
@@ -147,7 +147,7 @@ func (c *Service) approvedAgentInOrg(ctx context.Context, agentID string) (store
 }
 
 // cleanTelemetryScope validates and canonicalises the namespaces/exclude/signals a telemetry intent asks
-// for. Namespace names use the same syntax consent.go's cleanConsent already checks for an agent's own
+// for. Namespace names use the same syntax consent.go's agents.CleanConsent already checks for an agent's own
 // excluded namespaces; unlike validSourceClusters's source cluster list, Namespaces is not required to be
 // non-empty - empty means "every namespace the agent's own tier/consent already allows".
 func cleanTelemetryScope(namespaces, exclude []string, signals []store.SignalGrant) ([]string, []string, []store.SignalGrant, error) {

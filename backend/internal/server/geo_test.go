@@ -6,6 +6,7 @@ import (
 
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/accounts"
+	"continuum/internal/agents"
 	"continuum/internal/geoip"
 	"continuum/internal/geoip/geoiptest"
 )
@@ -14,12 +15,12 @@ func TestStateAndInfoCarryGeoOnlyWhenConfigured(t *testing.T) {
 	a := newAdminRig(t)
 	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	enrollFrom := func(ip string) string {
-		secret, _, err := a.core.CreateToken(a.ctx, "admin", "c-"+ip, 1)
+		secret, _, err := a.core.Agents.CreateToken(a.ctx, "admin", "c-"+ip, 1)
 		if err != nil {
 			t.Fatal(err)
 		}
 		d, _ := csr(t)
-		resp, err := a.core.Enroll(a.ctx, ip, &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fp, InstalledAccessTier: 1, AgentVersion: "0.1.0", ApprovalCodeHash: hashFor(t, d)})
+		resp, err := a.core.Agents.Enroll(a.ctx, ip, &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fp, InstalledAccessTier: 1, AgentVersion: "0.1.0", ApprovalCodeHash: hashFor(t, d)})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -54,7 +55,7 @@ func TestStateAndInfoCarryGeoOnlyWhenConfigured(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	gdb := NewGeo(db)
+	gdb := agents.NewGeo(db)
 	a.hub().Geo, a.a.P.Geo = gdb, gdb
 
 	g := geoOf()
@@ -75,12 +76,12 @@ func TestStateAndInfoCarryGeoOnlyWhenConfigured(t *testing.T) {
 func TestStateCarriesEstimatedGeoThroughTheFallback(t *testing.T) {
 	a := newAdminRig(t)
 	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
-	secret, _, err := a.core.CreateToken(a.ctx, "admin", "c-priv", 1)
+	secret, _, err := a.core.Agents.CreateToken(a.ctx, "admin", "c-priv", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
 	d, _ := csr(t)
-	resp, err := a.core.Enroll(a.ctx, "10.0.0.7", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fp, InstalledAccessTier: 1, AgentVersion: "0.1.0", ApprovalCodeHash: hashFor(t, d)})
+	resp, err := a.core.Agents.Enroll(a.ctx, "10.0.0.7", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fp, InstalledAccessTier: 1, AgentVersion: "0.1.0", ApprovalCodeHash: hashFor(t, d)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,8 +90,8 @@ func TestStateCarriesEstimatedGeoThroughTheFallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	gdb := NewGeo(db)
-	f := &PublicIPFinder{}
+	gdb := agents.NewGeo(db)
+	f := &agents.PublicIPFinder{}
 	f.SetForTest(netip.MustParseAddr("203.0.113.24"))
 	gdb.SetPublicIPFallback(f)
 	a.hub().Geo, a.a.P.Geo = gdb, gdb
@@ -119,12 +120,12 @@ func TestStateCarriesEstimatedGeoThroughTheFallback(t *testing.T) {
 func TestStateCarriesConnectingGeoReasonWithoutFallback(t *testing.T) {
 	a := newAdminRig(t)
 	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
-	secret, _, err := a.core.CreateToken(a.ctx, "admin", "c-priv", 1)
+	secret, _, err := a.core.Agents.CreateToken(a.ctx, "admin", "c-priv", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
 	d, _ := csr(t)
-	resp, err := a.core.Enroll(a.ctx, "10.0.0.7", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fp, InstalledAccessTier: 1, AgentVersion: "0.1.0", ApprovalCodeHash: hashFor(t, d)})
+	resp, err := a.core.Agents.Enroll(a.ctx, "10.0.0.7", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fp, InstalledAccessTier: 1, AgentVersion: "0.1.0", ApprovalCodeHash: hashFor(t, d)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +134,7 @@ func TestStateCarriesConnectingGeoReasonWithoutFallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	gdb := NewGeo(db) // no public-IP fallback configured
+	gdb := agents.NewGeo(db) // no public-IP fallback configured
 	a.hub().Geo, a.a.P.Geo = gdb, gdb
 
 	r := a.do("GET", "/api/v1/state", nil, withCookie(cookie))

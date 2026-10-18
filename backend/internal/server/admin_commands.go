@@ -3,6 +3,7 @@ package server
 import (
 	"net/http"
 
+	"continuum/internal/agents"
 	"continuum/internal/install"
 	"continuum/internal/kernel"
 )
@@ -45,7 +46,7 @@ func (a *Admin) agentUpgradeCommand(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	if req.Tier != nil && !GrantableTier(*req.Tier) {
+	if req.Tier != nil && !agents.GrantableTier(*req.Tier) {
 		a.fail(w, kernel.Errf(kernel.KindInvalid, "the access tier must be between 0 and %d", kernel.ImplementedTier))
 		return
 	}

@@ -35,7 +35,7 @@ func TestConsistencyChecksAndMeasurementsEndToEnd(t *testing.T) {
 	core.EnrollRL = kernel.NewLimiter(6000, 1000)
 	hub := server.NewHub(core)
 	hub.ConsistencyEvery = 2 * time.Second // the server limits a stream to 2 messages a second
-	srv := core.NewGRPC(pki.NewServerCerts(ca, []string{"127.0.0.1"}), hub)
+	srv := core.Agents.NewGRPC(pki.NewServerCerts(ca, []string{"127.0.0.1"}), hub)
 	l, _ := net.Listen("tcp", "127.0.0.1:0")
 	go srv.Serve(l)
 	defer srv.Stop()
@@ -58,7 +58,7 @@ func TestConsistencyChecksAndMeasurementsEndToEnd(t *testing.T) {
 		return a, nil
 	}
 	ids := agent.FileStore{Dir: filepath.Join(t.TempDir(), "id")}
-	token, _, _ := core.CreateToken(context.Background(), "test", "measured", 2)
+	token, _, _ := core.Agents.CreateToken(context.Background(), "test", "measured", 2)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go func() {
@@ -68,7 +68,7 @@ func TestConsistencyChecksAndMeasurementsEndToEnd(t *testing.T) {
 	state := func() server.StateDoc { d, _ := hub.State(context.Background()); return d }
 	waitFor(t, "pending agent", 10*time.Second, func() bool { a := state().Agents; return len(a) == 1 && a[0].Status == "pending" })
 	agentID := state().Agents[0].ID
-	if err := core.Approve(context.Background(), "test", agentID, codeOf(t, ids), 2); err != nil {
+	if err := core.Agents.Approve(context.Background(), "test", agentID, codeOf(t, ids), 2); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, "first sync", 15*time.Second, func() bool { return len(state().Topology.Nodes) == 1 })

@@ -69,7 +69,7 @@ func newERig(t *testing.T, tune func(*server.Core)) *erig {
 		tune(core)
 	}
 	hub := server.NewHub(core)
-	srv := core.NewGRPC(pki.NewServerCerts(ca, []string{"127.0.0.1"}), hub)
+	srv := core.Agents.NewGRPC(pki.NewServerCerts(ca, []string{"127.0.0.1"}), hub)
 	l, _ := net.Listen("tcp", "127.0.0.1:0")
 	go srv.Serve(l)
 	t.Cleanup(srv.Stop)
@@ -121,7 +121,7 @@ func (r *erig) start(cfg agent.Config) (stop func(), done <-chan error) {
 func (r *erig) agents() []server.AgentDoc { d, _ := r.hub.State(context.Background()); return d.Agents }
 
 func (r *erig) token(name string) string {
-	tok, _, err := r.core.CreateToken(context.Background(), "test", name, 2)
+	tok, _, err := r.core.Agents.CreateToken(context.Background(), "test", name, 2)
 	if err != nil {
 		r.t.Fatal(err)
 	}
@@ -174,10 +174,10 @@ func TestApprovalByCodeEndToEndWithAWrongCodeFirst(t *testing.T) {
 	if a.ApprovalAttemptsLeft == nil || *a.ApprovalAttemptsLeft != 5 {
 		t.Fatalf("the server must know this agent has a code: %+v", a)
 	}
-	if err := r.core.Approve(context.Background(), "test", agentID, "AAAA-AAAA", 2); err == nil {
+	if err := r.core.Agents.Approve(context.Background(), "test", agentID, "AAAA-AAAA", 2); err == nil {
 		t.Fatal("a wrong code approved")
 	}
-	if err := r.core.Approve(context.Background(), "test", agentID, code, 2); err != nil {
+	if err := r.core.Agents.Approve(context.Background(), "test", agentID, code, 2); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, "first sync", 15*time.Second, r.synced)
@@ -195,7 +195,7 @@ func TestFiveWrongCodesEndTheAgentPermanently(t *testing.T) {
 	waitFor(t, "pending agent", 10*time.Second, func() bool { a := r.agents(); return len(a) == 1 && a[0].Status == "pending" })
 	agentID := r.agents()[0].ID
 	for i := 0; i < 5; i++ {
-		_ = r.core.Approve(context.Background(), "test", agentID, "AAAA-AAA"+string(rune('A'+i)), 2)
+		_ = r.core.Agents.Approve(context.Background(), "test", agentID, "AAAA-AAA"+string(rune('A'+i)), 2)
 	}
 	err := waitDone(t, done, "after the lock")
 	if !errors.Is(err, agent.ErrRevoked) {
@@ -236,7 +236,7 @@ func TestCrashAndRestartWhilePendingKeepsTheCodeAndTheAgent(t *testing.T) {
 	if a := r.agents(); len(a) != 1 || a[0].ID != agentID || a[0].Status != "pending" {
 		t.Fatalf("agents after the restart: %+v", a)
 	}
-	if err := r.core.Approve(context.Background(), "test", agentID, code, 2); err != nil {
+	if err := r.core.Agents.Approve(context.Background(), "test", agentID, code, 2); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, "first sync after the restart", 15*time.Second, r.synced)
@@ -284,7 +284,7 @@ func TestLostEnrollResponseDoesNotBurnTheTokenOrDuplicateTheAgent(t *testing.T) 
 	if !strings.Contains(r.auditText(), "agent-enrollment-retried") {
 		t.Fatalf("the retry must be audited:\n%s", r.auditText())
 	}
-	if err := r.core.Approve(context.Background(), "test", a[0].ID, code, 2); err != nil {
+	if err := r.core.Agents.Approve(context.Background(), "test", a[0].ID, code, 2); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, "first sync", 15*time.Second, r.synced)
@@ -312,7 +312,7 @@ func TestSpentTokenWithAnotherKeyStopsTheSecondAgent(t *testing.T) {
 
 func TestABoundTokenIsRefusedByTheWrongClusterAndTheAgentStops(t *testing.T) {
 	r := newERig(t, nil)
-	token, _, err := r.core.CreateTokenFor(context.Background(), "test", "prod", 2, "11111111-2222-4333-8444-555566667777")
+	token, _, err := r.core.Agents.CreateTokenFor(context.Background(), "test", "prod", 2, "11111111-2222-4333-8444-555566667777")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -329,7 +329,7 @@ func TestABoundTokenIsRefusedByTheWrongClusterAndTheAgentStops(t *testing.T) {
 		t.Fatalf("audit:\n%s", r.auditText())
 	}
 	// The token was not spent: a cluster it is bound to can still use it.
-	right, _, _ := r.core.CreateTokenFor(context.Background(), "test", "prod", 2, rigUID)
+	right, _, _ := r.core.Agents.CreateTokenFor(context.Background(), "test", "prod", 2, rigUID)
 	r.start(r.cfg(agent.FileStore{Dir: filepath.Join(t.TempDir(), "ok")}, right, nil))
 	waitFor(t, "the right cluster enrolls", 10*time.Second, func() bool { a := r.agents(); return len(a) == 1 && a[0].Status == "pending" })
 }
@@ -358,12 +358,12 @@ func TestAnExpiredRequestIsReEnrolledWithANewCode(t *testing.T) {
 	if !sawEvent || !strings.Contains(r.auditText(), "agent-enrollment-expired") || !strings.Contains(r.auditText(), "agent-enrollment-reopened") {
 		t.Fatalf("expiry and reopening must be recorded (event %v):\n%s", sawEvent, r.auditText())
 	}
-	if err := r.core.Approve(context.Background(), "test", agentID, first, 2); err == nil {
+	if err := r.core.Agents.Approve(context.Background(), "test", agentID, first, 2); err == nil {
 		t.Fatal("the code of the expired request still works")
 	}
 	// Approve before the new request runs out too.
 	waitFor(t, "approval with the new code", 10*time.Second, func() bool {
-		return r.core.Approve(context.Background(), "test", agentID, newCode, 2) == nil
+		return r.core.Agents.Approve(context.Background(), "test", agentID, newCode, 2) == nil
 	})
 	waitFor(t, "first sync", 15*time.Second, r.synced)
 }
@@ -408,9 +408,9 @@ func TestARevokedRunningAgentReturnsErrRevokedAndKeepsOnlyAMarker(t *testing.T) 
 	code := codeOf(t, ids)
 	waitFor(t, "pending agent", 10*time.Second, func() bool { a := r.agents(); return len(a) == 1 })
 	id0 := r.agents()[0].ID
-	_ = r.core.Approve(context.Background(), "test", id0, code, 2)
+	_ = r.core.Agents.Approve(context.Background(), "test", id0, code, 2)
 	waitFor(t, "first sync", 15*time.Second, r.synced)
-	if err := r.core.Revoke(context.Background(), "test", id0, "cluster decommissioned"); err != nil {
+	if err := r.core.Agents.Revoke(context.Background(), "test", id0, "cluster decommissioned"); err != nil {
 		t.Fatal(err)
 	}
 	if err := waitDone(t, done, "revocation"); !errors.Is(err, agent.ErrRevoked) || !strings.Contains(err.Error(), "cluster decommissioned") {
@@ -432,11 +432,11 @@ func TestAgentRevokedWhileOfflineLearnsItOnReconnect(t *testing.T) {
 	code := codeOf(t, ids)
 	waitFor(t, "pending agent", 10*time.Second, func() bool { a := r.agents(); return len(a) == 1 })
 	id0 := r.agents()[0].ID
-	_ = r.core.Approve(context.Background(), "test", id0, code, 2)
+	_ = r.core.Agents.Approve(context.Background(), "test", id0, code, 2)
 	waitFor(t, "first sync", 15*time.Second, r.synced)
 	stop()
 	waitDone(t, done, "stop")
-	if err := r.core.Revoke(context.Background(), "test", id0, "lost the laptop"); err != nil {
+	if err := r.core.Agents.Revoke(context.Background(), "test", id0, "lost the laptop"); err != nil {
 		t.Fatal(err)
 	}
 	log, buf := newLog()
@@ -484,9 +484,9 @@ func TestANewTokenAfterRevocationStartsOver(t *testing.T) {
 	code := codeOf(t, ids)
 	waitFor(t, "pending agent", 10*time.Second, func() bool { return len(r.agents()) == 1 })
 	id0 := r.agents()[0].ID
-	_ = r.core.Approve(context.Background(), "test", id0, code, 2)
+	_ = r.core.Agents.Approve(context.Background(), "test", id0, code, 2)
 	waitFor(t, "first sync", 15*time.Second, r.synced)
-	_ = r.core.Revoke(context.Background(), "test", id0, "rotate")
+	_ = r.core.Agents.Revoke(context.Background(), "test", id0, "rotate")
 	waitDone(t, done, "revocation")
 	stop()
 
@@ -506,7 +506,7 @@ func TestANewTokenAfterRevocationStartsOver(t *testing.T) {
 	}
 	id1 := r.agents()[1].ID
 	waitFor(t, "approval of the new enrollment", 10*time.Second, func() bool {
-		return r.core.Approve(context.Background(), "test", id1, codesLogged(buf)[0], 2) == nil
+		return r.core.Agents.Approve(context.Background(), "test", id1, codesLogged(buf)[0], 2) == nil
 	})
 	waitFor(t, "sync of the new agent", 15*time.Second, r.synced)
 }
@@ -544,7 +544,7 @@ func TestAClockThatIsOffIsWarnedAboutAndReported(t *testing.T) {
 	r.start(r.cfg(ids, r.token("e2e"), log))
 	code := codeOf(t, ids)
 	waitFor(t, "pending agent", 10*time.Second, func() bool { return len(r.agents()) == 1 })
-	_ = r.core.Approve(context.Background(), "test", r.agents()[0].ID, code, 2)
+	_ = r.core.Agents.Approve(context.Background(), "test", r.agents()[0].ID, code, 2)
 	waitFor(t, "first sync", 15*time.Second, r.synced)
 	waitFor(t, "the skew on the agent record", 15*time.Second, func() bool {
 		a := r.agents()
@@ -562,7 +562,7 @@ func TestASmallClockDifferenceIsNotWarnedAbout(t *testing.T) {
 	r.start(r.cfg(ids, r.token("e2e"), log))
 	code := codeOf(t, ids)
 	waitFor(t, "pending agent", 10*time.Second, func() bool { return len(r.agents()) == 1 })
-	_ = r.core.Approve(context.Background(), "test", r.agents()[0].ID, code, 2)
+	_ = r.core.Agents.Approve(context.Background(), "test", r.agents()[0].ID, code, 2)
 	waitFor(t, "first sync", 15*time.Second, r.synced)
 	waitFor(t, "the skew on the agent record", 15*time.Second, func() bool {
 		a := r.agents()

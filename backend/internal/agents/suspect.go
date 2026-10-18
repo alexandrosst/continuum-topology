@@ -1,4 +1,4 @@
-package server
+package agents
 
 import (
 	"fmt"
@@ -16,7 +16,7 @@ import (
 // A cluster or machine that nobody onboarded cannot be found by asking, but it leaves marks in the
 // traffic of the clusters that are onboarded: workloads calling a Kubernetes API server, a kubelet
 // or an etcd at an address no onboarded cluster owns, or an overlay network port. These are
-// suspicions with their evidence, for a person to act on or dismiss; they are never conclusions.
+// Suspicions with their evidence, for a person to act on or dismiss; they are never conclusions.
 
 // k8sSignal is a port that says "a Kubernetes component lives here", and how strongly.
 func k8sSignal(port uint32, protocol string) (what string, weight int) {
@@ -53,7 +53,7 @@ type suspect struct {
 
 const maxSuspicions = 10
 
-// suspicions works out, from what every cluster's agent saw, where unmanaged infrastructure may be.
+// Suspicions works out, from what every cluster's agent saw, where unmanaged infrastructure may be.
 func Suspicions(org string, onboarded, located []observed.Cluster, now time.Time) []model.Suggestion {
 	if len(onboarded) == 0 {
 		return nil

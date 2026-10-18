@@ -15,6 +15,7 @@ import (
 	"continuum/internal/accounts"
 	"continuum/internal/agent"
 	"continuum/internal/agent/collect"
+	"continuum/internal/agents"
 	"continuum/internal/facts"
 	"continuum/internal/flow"
 	"continuum/internal/kernel"
@@ -41,7 +42,7 @@ type dx struct {
 	st     *store.SQLite
 	core   *server.Core
 	hub    *server.Hub
-	srv    *server.GRPCServer
+	srv    *agents.GRPCServer
 	l      net.Listener
 	kube   *fake.Clientset
 	ids    agent.IdentityStore
@@ -96,11 +97,11 @@ func newDx(t *testing.T, o dxOpts) *dx {
 		ids = o.ids(ids)
 	}
 	d.ids = ids
-	d.srv = core.NewGRPC(pki.NewServerCerts(ca, []string{"127.0.0.1"}), hub)
+	d.srv = core.Agents.NewGRPC(pki.NewServerCerts(ca, []string{"127.0.0.1"}), hub)
 	d.l, _ = net.Listen("tcp", "127.0.0.1:0")
 	go d.srv.Serve(d.l)
 	t.Cleanup(d.srv.Stop)
-	token, _, err := core.CreateToken(context.Background(), "test", "dx", 2)
+	token, _, err := core.Agents.CreateToken(context.Background(), "test", "dx", 2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +114,7 @@ func newDx(t *testing.T, o dxOpts) *dx {
 	waitFor(t, "pending agent", 15*time.Second, func() bool { a := d.state().Agents; return len(a) == 1 && a[0].Status == "pending" })
 	d.id = d.state().Agents[0].ID
 	if !o.noApprove {
-		if err := core.Approve(context.Background(), "test", d.id, codeOf(t, ids), o.approve); err != nil {
+		if err := core.Agents.Approve(context.Background(), "test", d.id, codeOf(t, ids), o.approve); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -148,12 +149,12 @@ func (d *dx) agentDoc() server.AgentDoc {
 	return server.AgentDoc{}
 }
 
-func (d *dx) diag() *server.DiagnosticsDoc { return d.agentDoc().Diagnostics }
+func (d *dx) diag() *agents.DiagnosticsDoc { return d.agentDoc().Diagnostics }
 
 // waitDiagAny is waitDiag for an account that may be the one the hello carried (a stream that ends before its first heartbeat).
-func (d *dx) waitDiagAny(what string, cond func(*server.DiagnosticsDoc) bool) *server.DiagnosticsDoc {
+func (d *dx) waitDiagAny(what string, cond func(*agents.DiagnosticsDoc) bool) *agents.DiagnosticsDoc {
 	d.t.Helper()
-	var got *server.DiagnosticsDoc
+	var got *agents.DiagnosticsDoc
 	waitFor(d.t, what, 30*time.Second, func() bool {
 		got = d.diag()
 		return got != nil && cond(got)
@@ -162,9 +163,9 @@ func (d *dx) waitDiagAny(what string, cond func(*server.DiagnosticsDoc) bool) *s
 }
 
 // waitDiag waits for a full (not just the hello's) account that satisfies cond.
-func (d *dx) waitDiag(what string, cond func(*server.DiagnosticsDoc) bool) *server.DiagnosticsDoc {
+func (d *dx) waitDiag(what string, cond func(*agents.DiagnosticsDoc) bool) *agents.DiagnosticsDoc {
 	d.t.Helper()
-	var got *server.DiagnosticsDoc
+	var got *agents.DiagnosticsDoc
 	waitFor(d.t, what, 30*time.Second, func() bool {
 		got = d.diag()
 		return got != nil && !got.Partial && cond(got)
@@ -172,7 +173,7 @@ func (d *dx) waitDiag(what string, cond func(*server.DiagnosticsDoc) bool) *serv
 	return got
 }
 
-func problem(d *server.DiagnosticsDoc, code string) *server.ProblemDoc {
+func problem(d *agents.DiagnosticsDoc, code string) *agents.ProblemDoc {
 	for i := range d.Problems {
 		if d.Problems[i].Code == code {
 			return &d.Problems[i]
@@ -195,7 +196,7 @@ func services(d *dx, ns string) int {
 
 func TestDiagnosticsShowInstalledApprovedAndEffectiveTiers(t *testing.T) {
 	d := newDx(t, dxOpts{installed: 2, approve: 1})
-	g := d.waitDiag("the first full account", func(g *server.DiagnosticsDoc) bool { return len(g.Informers) > 0 })
+	g := d.waitDiag("the first full account", func(g *agents.DiagnosticsDoc) bool { return len(g.Informers) > 0 })
 	if g.InstalledTier != 2 || g.ApprovedTier != 1 || g.EffectiveTier != 1 {
 		t.Fatalf("tiers: installed %d approved %d effective %d", g.InstalledTier, g.ApprovedTier, g.EffectiveTier)
 	}
@@ -231,11 +232,11 @@ func TestDiagnosticsShowInstalledApprovedAndEffectiveTiers(t *testing.T) {
 	}
 
 	// Widening within the ceiling is taken up by the running agent (it reconnects to collect at the new tier).
-	if _, err := d.hub.SetAgentTier(server.ActingAs(context.Background(), accounts.RoleAdmin), "test", d.id, 2, nil); err != nil {
+	if _, err := d.hub.SetAgentTier(agents.ActingAs(context.Background(), accounts.RoleAdmin), "test", d.id, 2, nil); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, "workloads at tier 2", 20*time.Second, func() bool { return services(d, "shop") == 1 })
-	g = d.waitDiag("effective 2", func(g *server.DiagnosticsDoc) bool { return g.EffectiveTier == 2 && g.ApprovedTier == 2 })
+	g = d.waitDiag("effective 2", func(g *agents.DiagnosticsDoc) bool { return g.EffectiveTier == 2 && g.ApprovedTier == 2 })
 	if g.InstalledTier != 2 || g.ApprovedTier != 2 || g.EffectiveTier != 2 {
 		t.Fatalf("tiers: installed %d approved %d effective %d", g.InstalledTier, g.ApprovedTier, g.EffectiveTier)
 	}
@@ -258,7 +259,7 @@ func TestDiagnosticsShowInstalledApprovedAndEffectiveTiers(t *testing.T) {
 	if _, err := d.hub.SetAgentTier(context.Background(), "test", d.id, 0, nil); err != nil {
 		t.Fatal(err)
 	}
-	g = d.waitDiag("effective 0", func(g *server.DiagnosticsDoc) bool { return g.EffectiveTier == 0 && g.ApprovedTier == 0 })
+	g = d.waitDiag("effective 0", func(g *agents.DiagnosticsDoc) bool { return g.EffectiveTier == 0 && g.ApprovedTier == 0 })
 	waitFor(t, "no workloads at tier 0", 10*time.Second, func() bool { return services(d, "") == 0 && len(d.state().Topology.Nodes) == 0 })
 	if g.InstalledTier != 2 || g.ApprovedTier != 0 || g.EffectiveTier != 0 {
 		t.Fatalf("tiers: installed %d approved %d effective %d", g.InstalledTier, g.ApprovedTier, g.EffectiveTier)
@@ -283,7 +284,7 @@ func TestDiagnosticsShowInstalledApprovedAndEffectiveTiers(t *testing.T) {
 func TestAnOverCeilingTierIsRefusedWithTheHelmCommand(t *testing.T) {
 	d := newDx(t, dxOpts{installed: 1, approve: 1})
 	waitFor(t, "first picture", 15*time.Second, func() bool { return d.agentDoc().Synced })
-	_, err := d.hub.SetAgentTier(server.ActingAs(context.Background(), accounts.RoleAdmin), "test", d.id, 2, func(n int) string {
+	_, err := d.hub.SetAgentTier(agents.ActingAs(context.Background(), accounts.RoleAdmin), "test", d.id, 2, func(n int) string {
 		return fmt.Sprintf("helm upgrade continuum-agent ./chart.tgz --namespace continuum-system --reset-then-reuse-values --set access.tier=%d", n)
 	})
 	var se *kernel.Error
@@ -302,7 +303,7 @@ func TestForbiddenResourcesAreReportedAndTheAgentCarriesOn(t *testing.T) {
 			return true, nil, apierrors.NewForbidden(schema.GroupResource{Group: "apps", Resource: "deployments"}, "", errors.New(`User "system:serviceaccount:continuum-system:continuum-agent" cannot list resource "deployments" in API group "apps" at the cluster scope`))
 		})
 	}})
-	g := d.waitDiag("an rbac problem", func(g *server.DiagnosticsDoc) bool { return problem(g, "rbac_forbidden") != nil })
+	g := d.waitDiag("an rbac problem", func(g *agents.DiagnosticsDoc) bool { return problem(g, "rbac_forbidden") != nil })
 	p := problem(g, "rbac_forbidden")
 	if p.Severity != "error" || !strings.Contains(p.Message, "deployments") || !strings.Contains(p.Message, "list") || !strings.Contains(p.Message, "helm upgrade --reset-then-reuse-values") {
 		t.Fatalf("problem = %+v", p)
@@ -334,7 +335,7 @@ func TestScopeEmptyAndClockSkewAreReported(t *testing.T) {
 		c.Scope = sc
 		core.Now = func() time.Time { return time.Now().Add(-10 * time.Minute) } // the server's clock is ten minutes behind the agent's
 	}})
-	g := d.waitDiag("scope and clock problems", func(g *server.DiagnosticsDoc) bool {
+	g := d.waitDiag("scope and clock problems", func(g *agents.DiagnosticsDoc) bool {
 		return problem(g, "scope_empty") != nil && problem(g, "clock_skew") != nil
 	})
 	if p := problem(g, "scope_empty"); p.Severity != "warn" || !strings.Contains(p.Message, "no-such-namespace") {
@@ -354,12 +355,12 @@ func TestASilentCollectorIsReported(t *testing.T) {
 		// would have to wait out that real multi-minute floor.
 		c.CollectorStartupGrace = 100 * time.Millisecond
 	}})
-	g := d.waitDiag("collector_silent", func(g *server.DiagnosticsDoc) bool { return problem(g, "collector_silent") != nil })
+	g := d.waitDiag("collector_silent", func(g *agents.DiagnosticsDoc) bool { return problem(g, "collector_silent") != nil })
 	p := problem(g, "collector_silent")
 	if p.Severity == "info" || !strings.Contains(p.Message, "node probe") {
 		t.Fatalf("problem = %+v", p)
 	}
-	var probes server.AgentCollectorDoc
+	var probes agents.AgentCollectorDoc
 	for _, c := range g.Collectors {
 		if c.Name == "probes" {
 			probes = c
@@ -385,7 +386,7 @@ func TestACollectorThatHasNeverReportedWaitsOutTheStartupGraceNotJustAFewInterva
 			t.Fatalf("collector_silent fired after 500ms, before the 1.2s startup grace elapsed: %+v", p)
 		}
 	}
-	d.waitDiag("collector_silent once the startup grace actually elapses", func(g *server.DiagnosticsDoc) bool {
+	d.waitDiag("collector_silent once the startup grace actually elapses", func(g *agents.DiagnosticsDoc) bool {
 		return problem(g, "collector_silent") != nil
 	})
 }
@@ -438,10 +439,10 @@ func TestPausedCollectorsAndExcludedNamespacesTakeEffect(t *testing.T) {
 	waitFor(t, "measuring", 30*time.Second, func() bool { return dials.Load() > 0 })
 
 	// Pause everything optional, and leave the shop namespace out.
-	if _, err := d.hub.SetConsent(context.Background(), "test", d.id, server.Consent{Paused: []string{"flow", "probes", "measure"}, Excluded: []string{"shop"}}); err != nil {
+	if _, err := d.hub.SetConsent(context.Background(), "test", d.id, agents.Consent{Paused: []string{"flow", "probes", "measure"}, Excluded: []string{"shop"}}); err != nil {
 		t.Fatal(err)
 	}
-	g := d.waitDiag("the overrides in force", func(g *server.DiagnosticsDoc) bool { return len(g.PausedCollectors) == 3 && g.ExcludedNamespaces == 1 })
+	g := d.waitDiag("the overrides in force", func(g *agents.DiagnosticsDoc) bool { return len(g.PausedCollectors) == 3 && g.ExcludedNamespaces == 1 })
 	for _, c := range g.Collectors {
 		if !c.PausedByServer || c.Producing {
 			t.Errorf("collector %s should be paused and not producing: %+v", c.Name, c)
@@ -467,10 +468,10 @@ func TestPausedCollectorsAndExcludedNamespacesTakeEffect(t *testing.T) {
 	}
 
 	// Lifting the overrides brings it all back.
-	if _, err := d.hub.SetConsent(server.ActingAs(context.Background(), accounts.RoleAdmin), "test", d.id, server.Consent{}); err != nil {
+	if _, err := d.hub.SetConsent(agents.ActingAs(context.Background(), accounts.RoleAdmin), "test", d.id, agents.Consent{}); err != nil {
 		t.Fatal(err)
 	}
-	d.waitDiag("the overrides lifted", func(g *server.DiagnosticsDoc) bool { return len(g.PausedCollectors) == 0 && g.ExcludedNamespaces == 0 })
+	d.waitDiag("the overrides lifted", func(g *agents.DiagnosticsDoc) bool { return len(g.PausedCollectors) == 0 && g.ExcludedNamespaces == 0 })
 	waitFor(t, "shop to return", 20*time.Second, func() bool { return services(d, "shop") == 1 })
 	waitFor(t, "timing to resume", 40*time.Second, func() bool { return dials.Load() > settled })
 }
@@ -489,7 +490,7 @@ func TestAWideningOverrideFromTheServerIsIgnoredAndReported(t *testing.T) {
 	if _, err := d.core.SaveSettings(context.Background(), "test", kernel.Settings{MeasureSeconds: 45}); err != nil {
 		t.Fatal(err)
 	}
-	g := d.waitDiag("override_ignored", func(g *server.DiagnosticsDoc) bool { return problem(g, "override_ignored") != nil })
+	g := d.waitDiag("override_ignored", func(g *agents.DiagnosticsDoc) bool { return problem(g, "override_ignored") != nil })
 	p := problem(g, "override_ignored")
 	if !strings.Contains(p.Message, "helm upgrade --reset-then-reuse-values") || !strings.Contains(p.Message, "above the tier 1") {
 		t.Fatalf("problem = %+v", p)
@@ -521,7 +522,7 @@ func TestALargePictureIsSentInChunksAndAppliedWhole(t *testing.T) {
 	if kernel.Metrics.SyncsChunked.Load() <= before {
 		t.Fatal("the picture was not chunked")
 	}
-	if p := problem(d.waitDiag("account", func(*server.DiagnosticsDoc) bool { return true }), "sync_too_large"); p != nil {
+	if p := problem(d.waitDiag("account", func(*agents.DiagnosticsDoc) bool { return true }), "sync_too_large"); p != nil {
 		t.Fatalf("problem: %+v", p)
 	}
 }
@@ -532,10 +533,10 @@ func TestAPictureOverTheServersLimitsIsReportedAsAProblem(t *testing.T) {
 		h.Limits = limits
 		c.ChunkBytes = 4000
 	}})
-	if err := d.core.Approve(context.Background(), "test", d.id, codeOf(t, d.ids), 2); err != nil {
+	if err := d.core.Agents.Approve(context.Background(), "test", d.id, codeOf(t, d.ids), 2); err != nil {
 		t.Fatal(err)
 	}
-	g := d.waitDiagAny("sync_too_large", func(g *server.DiagnosticsDoc) bool { return problem(g, "sync_too_large") != nil })
+	g := d.waitDiagAny("sync_too_large", func(g *agents.DiagnosticsDoc) bool { return problem(g, "sync_too_large") != nil })
 	p := problem(g, "sync_too_large")
 	if p.Severity != "error" || !strings.Contains(p.Message, "workloads") {
 		t.Fatalf("problem = %+v", p)
@@ -554,7 +555,7 @@ func TestSixtyThousandWorkloadsFromARealAgent(t *testing.T) {
 		h.Limits = &facts.Limits{Nodes: 100, Namespaces: 1000, Workloads: 100000, Bytes: 128 << 20}
 		c.SyncWait = 90 * time.Second
 	}})
-	if err := d.core.Approve(context.Background(), "test", d.id, codeOf(t, d.ids), 2); err != nil {
+	if err := d.core.Agents.Approve(context.Background(), "test", d.id, codeOf(t, d.ids), 2); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, "60001 workloads", 150*time.Second, func() bool { return services(d, "") == 60001 })
@@ -603,7 +604,7 @@ func TestShutdownDoesNotHangOnAKubernetesAPIThatNeverAnswers(t *testing.T) {
 		c.SyncWait = time.Minute
 	}, noApprove: true})
 	block.Store(true)
-	if err := d.core.Approve(context.Background(), "test", d.id, codeOf(t, d.ids), 2); err != nil {
+	if err := d.core.Agents.Approve(context.Background(), "test", d.id, codeOf(t, d.ids), 2); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(2 * time.Second) // the agent is now approved and its collector is waiting for an API that does not answer
@@ -640,7 +641,7 @@ func TestAPanicInTheStreamLoopIsRecoveredAndReported(t *testing.T) {
 	if _, err := d.hub.SetAgentTier(context.Background(), "test", d.id, 1, nil); err != nil { // makes the agent reconnect; loading its identity then panics
 		t.Fatal(err)
 	}
-	g := d.waitDiagAny("internal_error", func(g *server.DiagnosticsDoc) bool { return problem(g, "internal_error") != nil })
+	g := d.waitDiagAny("internal_error", func(g *agents.DiagnosticsDoc) bool { return problem(g, "internal_error") != nil })
 	if p := problem(g, "internal_error"); p.Severity != "error" || !strings.Contains(p.Message, "identity store exploded") {
 		t.Fatalf("problem = %+v", p)
 	}
@@ -687,7 +688,7 @@ func TestRBACSelfCheckFlagsAClusterThatStillGrantsMoreThanTheInstallDeclares(t *
 		// `helm upgrade --set access.tier=1` that never actually ran against this cluster.
 		c.Kube.(*fake.Clientset).PrependReactor("create", "selfsubjectaccessreviews", selfSubjectAccessReviewReactor("nodes", "pods"))
 	}})
-	g := d.waitDiagAny("rbac_wider_than_tier", func(g *server.DiagnosticsDoc) bool { return problem(g, agent.CodeRBACWiderThanTier) != nil })
+	g := d.waitDiagAny("rbac_wider_than_tier", func(g *agents.DiagnosticsDoc) bool { return problem(g, agent.CodeRBACWiderThanTier) != nil })
 	p := problem(g, agent.CodeRBACWiderThanTier)
 	if p.Severity != "warn" || !strings.Contains(p.Message, "tier 2") || !strings.Contains(p.Message, "tier 1") {
 		t.Fatalf("problem = %+v", p)
@@ -702,7 +703,7 @@ func TestRBACSelfCheckIsQuietWhenTheGrantMatchesWhatIsDeclared(t *testing.T) {
 	// Give the check several rounds to have run, then confirm it never raised the problem: a tier-2 install being
 	// granted tier 2 is exactly what should happen, not a drift to report.
 	time.Sleep(300 * time.Millisecond)
-	g := d.waitDiag("a full account", func(g *server.DiagnosticsDoc) bool { return len(g.Informers) > 0 })
+	g := d.waitDiag("a full account", func(g *agents.DiagnosticsDoc) bool { return len(g.Informers) > 0 })
 	if p := problem(g, agent.CodeRBACWiderThanTier); p != nil {
 		t.Fatalf("should be quiet when the grant matches the declared tier: %+v", p)
 	}
@@ -715,7 +716,7 @@ func TestRBACSelfCheckIsOffByDefault(t *testing.T) {
 		c.Kube.(*fake.Clientset).PrependReactor("create", "selfsubjectaccessreviews", selfSubjectAccessReviewReactor("nodes", "pods"))
 	}})
 	time.Sleep(200 * time.Millisecond)
-	g := d.waitDiag("a full account", func(g *server.DiagnosticsDoc) bool { return len(g.Informers) > 0 })
+	g := d.waitDiag("a full account", func(g *agents.DiagnosticsDoc) bool { return len(g.Informers) > 0 })
 	if p := problem(g, agent.CodeRBACWiderThanTier); p != nil {
 		t.Fatalf("the check should not run at all when RBACSelfCheck is false: %+v", p)
 	}
@@ -754,7 +755,7 @@ func TestRBACSelfCheckCatchesALeftoverPerNamespaceRoleUnderNamespacedRBAC(t *tes
 		// from before was never removed (a partial upgrade, same class of bug as the ClusterRoleBinding case).
 		c.Kube.(*fake.Clientset).PrependReactor("create", "selfsubjectaccessreviews", selfSubjectAccessReviewReactorNS([]string{"nodes"}, "shop"))
 	}})
-	g := d.waitDiagAny("rbac_wider_than_tier", func(g *server.DiagnosticsDoc) bool { return problem(g, agent.CodeRBACWiderThanTier) != nil })
+	g := d.waitDiagAny("rbac_wider_than_tier", func(g *agents.DiagnosticsDoc) bool { return problem(g, agent.CodeRBACWiderThanTier) != nil })
 	p := problem(g, agent.CodeRBACWiderThanTier)
 	if p.Severity != "warn" || !strings.Contains(p.Message, "tier 2") || !strings.Contains(p.Message, "tier 1") {
 		t.Fatalf("problem = %+v", p)
@@ -773,7 +774,7 @@ func TestRBACSelfCheckUnderNamespacedRBACIsQuietWhenTheGrantMatchesWhatIsDeclare
 		c.Kube.(*fake.Clientset).PrependReactor("create", "selfsubjectaccessreviews", selfSubjectAccessReviewReactorNS([]string{"nodes"}, "shop"))
 	}})
 	time.Sleep(300 * time.Millisecond)
-	g := d.waitDiag("a full account", func(g *server.DiagnosticsDoc) bool { return len(g.Informers) > 0 })
+	g := d.waitDiag("a full account", func(g *agents.DiagnosticsDoc) bool { return len(g.Informers) > 0 })
 	if p := problem(g, agent.CodeRBACWiderThanTier); p != nil {
 		t.Fatalf("should be quiet when the grant matches the declared tier: %+v", p)
 	}
@@ -792,7 +793,7 @@ func TestAnIdentityThatCannotBeSavedIsReported(t *testing.T) {
 	d := newDx(t, dxOpts{ids: func(s agent.IdentityStore) agent.IdentityStore { fs = &failingSave{IdentityStore: s}; return fs }})
 	waitFor(t, "connected and synced", 20*time.Second, func() bool { a := d.agentDoc(); return a.Connected && a.Synced })
 	fs.armed.Store(true) // the renewal, half way through the certificate's life, cannot be stored
-	g := d.waitDiagAny("identity_secret_unwritable", func(g *server.DiagnosticsDoc) bool { return problem(g, "identity_secret_unwritable") != nil })
+	g := d.waitDiagAny("identity_secret_unwritable", func(g *agents.DiagnosticsDoc) bool { return problem(g, "identity_secret_unwritable") != nil })
 	if p := problem(g, "identity_secret_unwritable"); p.Severity != "error" || !strings.Contains(p.Message, "forbidden") {
 		t.Fatalf("problem = %+v", p)
 	}
@@ -807,7 +808,7 @@ func TestTheAgentEchoesTheDigestOfTheConfigItApplied(t *testing.T) {
 	waitFor(t, "the first Config to be echoed", 20*time.Second, inForce)
 	first, _ := d.hub.ConfigDigests(d.id)
 
-	if _, err := d.hub.SetConsent(context.Background(), "test", d.id, server.Consent{Excluded: []string{"shop"}}); err != nil {
+	if _, err := d.hub.SetConsent(context.Background(), "test", d.id, agents.Consent{Excluded: []string{"shop"}}); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, "the changed Config to be echoed", 20*time.Second, func() bool {

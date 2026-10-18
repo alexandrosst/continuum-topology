@@ -20,7 +20,7 @@ import (
 func hubOfPeers(n, missing int) (*Hub, store.Agent, []store.Agent, []kernel.LinkSetting) {
 	a := ag("ag-a", "cl-a", "alpha", "", 2)
 	views := map[string]*view{"ag-a": {estView: estView{state: nodeState("10.0.0.1")}}}
-	agents := []store.Agent{a}
+	agentList := []store.Agent{a}
 	var links []kernel.LinkSetting
 	for i := 0; i < n; i++ {
 		id := fmt.Sprintf("cl-p%03d", i)
@@ -30,9 +30,9 @@ func hubOfPeers(n, missing int) (*Hub, store.Agent, []store.Agent, []kernel.Link
 			o.Status = store.StatusPending
 		}
 		views[o.ID] = &view{estView: estView{state: nodeState(fmt.Sprintf("10.%d.%d.1", 1+i/200, i%200))}}
-		agents = append(agents, o)
+		agentList = append(agentList, o)
 	}
-	return linkHub(views), a, agents, links
+	return linkHub(views), a, agentList, links
 }
 
 func peerIDs(ps []*continuumv1.LinkPeer) []string {
@@ -46,8 +46,8 @@ func peerIDs(ps []*continuumv1.LinkPeer) []string {
 // The cut at link.MaxPeers comes after the peers that cannot be told about are filtered out, not before: peers with no agent yet
 // must not use up the room of those that have one.
 func TestThePeerListIsCutAfterFilteringNotBefore(t *testing.T) {
-	h, a, agents, links := hubOfPeers(80, 30)
-	got := h.linkPeers(a, agents, links, false, nil)
+	h, a, agentList, links := hubOfPeers(80, 30)
+	got := h.linkPeers(a, agentList, links, false, nil)
 	if len(got) != 50 {
 		t.Fatalf("80 peers, 30 without an agent: %d sent, want the 50 usable ones", len(got))
 	}
@@ -56,13 +56,13 @@ func TestThePeerListIsCutAfterFilteringNotBefore(t *testing.T) {
 	}
 
 	// More usable peers than the list holds: the first link.MaxPeers by id are sent, the rest are said to be left out.
-	h, a, agents, links = hubOfPeers(80, 10)
-	got = h.linkPeers(a, agents, links, false, nil)
+	h, a, agentList, links = hubOfPeers(80, 10)
+	got = h.linkPeers(a, agentList, links, false, nil)
 	if len(got) != link.MaxPeers || got[0].ClusterId != "cl-p010" || got[len(got)-1].ClusterId != "cl-p073" {
 		t.Fatalf("%d sent, %v", len(got), peerIDs(got))
 	}
 	var cut []string
-	for _, n := range h.linkNotes(links, agents, nil) {
+	for _, n := range h.linkNotes(links, agentList, nil) {
 		if n.Code == "too-many-peers" {
 			if n.Cluster != "cl-a" {
 				t.Errorf("note about %s", n.Cluster)
@@ -74,18 +74,18 @@ func TestThePeerListIsCutAfterFilteringNotBefore(t *testing.T) {
 		t.Fatalf("too-many-peers notes for %v, want %v", cut, want)
 	}
 	// A peer left out is not told to skip anything on its side: nobody measures towards it from here, so it probes itself.
-	p79 := agents[80]
+	p79 := agentList[80]
 	h.views[p79.ID] = &view{estView: estView{state: nodeState("10.1.79.1")}}
-	if sent := h.linkPeers(p79, agents, links, false, nil); len(sent) != 1 || sent[0].SkipProbe {
+	if sent := h.linkPeers(p79, agentList, links, false, nil); len(sent) != 1 || sent[0].SkipProbe {
 		t.Errorf("a cluster the runner cut skips its probe: %+v", sent)
 	}
 
 	// A hub within the limit is sent exactly the list it always was: every usable peer, in id order.
-	h, a, agents, links = hubOfPeers(64, 0)
-	if got := h.linkPeers(a, agents, links, false, nil); len(got) != 64 || got[0].ClusterId != "cl-p000" {
+	h, a, agentList, links = hubOfPeers(64, 0)
+	if got := h.linkPeers(a, agentList, links, false, nil); len(got) != 64 || got[0].ClusterId != "cl-p000" {
 		t.Fatalf("%d sent", len(got))
 	}
-	for _, n := range h.linkNotes(links, agents, nil) {
+	for _, n := range h.linkNotes(links, agentList, nil) {
 		if n.Code == "too-many-peers" {
 			t.Errorf("a full list of exactly %d peers has a cut note: %+v", link.MaxPeers, n)
 		}

@@ -7,12 +7,13 @@ import (
 
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/agentcaps"
+	"continuum/internal/agents"
 )
 
 // ---------- through the hub: a real stream, an echo, a change, a drop ----------
 
 // cond is the named condition on the document the API would serve for the agent.
-func (f *fakeAgent) cond(typ string) Condition {
+func (f *fakeAgent) cond(typ string) agents.Condition {
 	f.t.Helper()
 	for _, c := range f.r.agentDoc(f.t, f.id).Conditions {
 		if c.Type == typ {
@@ -20,7 +21,7 @@ func (f *fakeAgent) cond(typ string) Condition {
 		}
 	}
 	f.t.Fatalf("no %s condition on the document", typ)
-	return Condition{}
+	return agents.Condition{}
 }
 
 func (f *fakeAgent) expect(typ, status, reason string) {
@@ -31,57 +32,57 @@ func (f *fakeAgent) expect(typ, status, reason string) {
 func TestTheConditionsFollowAnAgentThatEchoesThroughAChangeAndADrop(t *testing.T) {
 	r := newHubRig(t)
 	f := r.connectedWith(t, &continuumv1.Hello{AgentVersion: "fake", ProtocolVersion: 1, Capabilities: agentcaps.Names()})
-	f.expect(CondConnected, CondTrue, "Open")
-	f.expect(CondCompatible, CondTrue, "Current")
-	f.expect(CondConfigInForce, CondFalse, "NotEchoed") // it says it echoes, and has not yet
+	f.expect(agents.CondConnected, agents.CondTrue, "Open")
+	f.expect(agents.CondCompatible, agents.CondTrue, "Current")
+	f.expect(agents.CondConfigInForce, agents.CondFalse, "NotEchoed") // it says it echoes, and has not yet
 
 	f.beat(f.configs[0].Digest)
-	f.expect(CondConfigInForce, CondTrue, "Echoed")
-	if c := f.cond(CondConfigInForce); c.Since == "" {
+	f.expect(agents.CondConfigInForce, agents.CondTrue, "Echoed")
+	if c := f.cond(agents.CondConfigInForce); c.Since == "" {
 		t.Fatal("an echoed Config has no moment it came into force")
 	}
 
 	next := f.changeTier()
-	f.expect(CondConfigInForce, CondFalse, "NotEchoed") // the newer one is sent and only the older is named
+	f.expect(agents.CondConfigInForce, agents.CondFalse, "NotEchoed") // the newer one is sent and only the older is named
 	f.beat(next.Digest)
-	f.expect(CondConfigInForce, CondTrue, "Echoed")
+	f.expect(agents.CondConfigInForce, agents.CondTrue, "Echoed")
 
 	f.drop()
-	f.expect(CondConnected, CondFalse, "NoStream")
-	f.expect(CondConfigInForce, CondUnknown, "NotConnected")
-	f.expect(CondCompatible, CondTrue, "Current") // what it speaks is still what it said
+	f.expect(agents.CondConnected, agents.CondFalse, "NoStream")
+	f.expect(agents.CondConfigInForce, agents.CondUnknown, "NotConnected")
+	f.expect(agents.CondCompatible, agents.CondTrue, "Current") // what it speaks is still what it said
 
 	f.connect()
-	f.expect(CondConnected, CondTrue, "Open")
-	f.expect(CondConfigInForce, CondFalse, "NotEchoed") // a new stream: the old stream's echo says nothing about it
+	f.expect(agents.CondConnected, agents.CondTrue, "Open")
+	f.expect(agents.CondConfigInForce, agents.CondFalse, "NotEchoed") // a new stream: the old stream's echo says nothing about it
 }
 
 func TestAnAgentWithNoProtocolVersionIsLegacyAndIsJudgedByAnyEchoItGives(t *testing.T) {
 	r := newHubRig(t)
 	f := r.connectedWith(t, &continuumv1.Hello{AgentVersion: "old"})
-	f.expect(CondCompatible, CondTrue, "LegacyAgent")
-	f.expect(CondConfigInForce, CondUnknown, "AgentDoesNotEcho")
+	f.expect(agents.CondCompatible, agents.CondTrue, "LegacyAgent")
+	f.expect(agents.CondConfigInForce, agents.CondUnknown, "AgentDoesNotEcho")
 	f.beat("") // an agent from before the echo says nothing
 	f.beat(f.configs[0].Digest)
-	f.expect(CondConfigInForce, CondTrue, "Echoed")
+	f.expect(agents.CondConfigInForce, agents.CondTrue, "Echoed")
 }
 
 func TestAnAgentFromTheFutureIsNotCompatibleAndIsServedAllTheSame(t *testing.T) {
 	r := newHubRig(t)
 	f := r.connectedWith(t, &continuumv1.Hello{ProtocolVersion: 99})
-	f.expect(CondCompatible, CondFalse, "ProtocolTooNew")
+	f.expect(agents.CondCompatible, agents.CondFalse, "ProtocolTooNew")
 	if len(f.configs) != 1 {
 		t.Fatalf("%d Configs", len(f.configs))
 	}
 	f.beat(f.configs[0].Digest)
-	f.expect(CondConfigInForce, CondTrue, "Echoed") // the condition being False blocks nothing
+	f.expect(agents.CondConfigInForce, agents.CondTrue, "Echoed") // the condition being False blocks nothing
 }
 
 func TestAnAgentTheServerHasNotHeardFromSinceItStartedIsNotSeen(t *testing.T) {
 	r := newHubRig(t)
 	id, _, _ := r.approvedAgent(t, fp)
 	doc := r.agentDoc(t, id)
-	want := map[string][2]string{CondConnected: {CondFalse, "NoStream"}, CondConfigInForce: {CondUnknown, "NotConnected"}, CondCompatible: {CondUnknown, "NotSeenSinceStart"}}
+	want := map[string][2]string{agents.CondConnected: {agents.CondFalse, "NoStream"}, agents.CondConfigInForce: {agents.CondUnknown, "NotConnected"}, agents.CondCompatible: {agents.CondUnknown, "NotSeenSinceStart"}}
 	if len(doc.Conditions) != 3 {
 		t.Fatalf("%d conditions", len(doc.Conditions))
 	}

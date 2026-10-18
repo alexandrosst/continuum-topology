@@ -1,4 +1,4 @@
-package server
+package agents
 
 import (
 	"time"
@@ -8,14 +8,14 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// agtView is what the server keeps per agent about the agent itself: what it has sent, its own load, why it was last refused, its
+// View is what the server keeps per agent about the agent itself: what it has sent, its own load, why it was last refused, its
 // clock, and its account of itself and the overrides pushed to it.
 type View struct {
 	// What this agent has sent since the server started (lost on restart; not history, only a gauge of the link).
 	Link linkStats
 
 	// self is this agent's own self-telemetry history (SelfStats off every heartbeat that carried one),
-	// a short fixed-window ring - see selfRing's own doc comment. Lost on restart, same as link above.
+	// a short fixed-window ring - see SelfRing's own doc comment. Lost on restart, same as link above.
 	Self SelfRing[SelfStatsSample]
 
 	// The last message refused for being over a limit or malformed, until a later one is accepted. It is

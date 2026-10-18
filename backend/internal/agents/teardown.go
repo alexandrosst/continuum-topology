@@ -1,4 +1,4 @@
-package server
+package agents
 
 import (
 	"regexp"
@@ -6,7 +6,7 @@ import (
 	"continuum/internal/install"
 )
 
-// teardownCommands is what the owner of a cluster runs there to remove an agent's install for good: helm uninstall drops
+// TeardownCommands is what the owner of a cluster runs there to remove an agent's install for good: helm uninstall drops
 // the ServiceAccount, the RBAC and the workloads, but not the identity Secret (the chart marks it
 // helm.sh/resource-policy: keep, so an accidental uninstall cannot orphan re-enrollment or need a new CA trust); the second
 // command is only needed if the Secret itself should go too, e.g. before installing fresh in the same namespace. The
@@ -25,7 +25,7 @@ func TeardownCommands(namespace, release string) (helm, secret string, guessed b
 // validKubeName is a DNS-1123 label, which is what both a namespace and a Helm release name must be.
 var validKubeName = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`)
 
-// releaseTarget is the namespace and Helm release name a command should target: the agent's own, as it reported in its
+// ReleaseTarget is the namespace and Helm release name a command should target: the agent's own, as it reported in its
 // last Hello, or a guess when either is not yet known (an agent older than these fields, or one that has never
 // connected to this server). Every object the chart creates has a fixed name (see agent.name in _helpers.tpl) regardless
 // of the release name, so only the two `helm` commands need it; `kubectl` commands only ever need the namespace. The

@@ -32,7 +32,7 @@ func TestRevokingAnAgentRevokesItsTelemetryIntents(t *testing.T) {
 	if err := e.core.Operators.RevokeOperator(e.ctx, "alex", op.ID, "decom"); kindOf(err) != kernel.KindConflict {
 		t.Fatalf("sanity: a live intent should block revoking its operator, got %v", err)
 	}
-	if err := e.core.Revoke(e.ctx, "alex", agentID, "stolen"); err != nil {
+	if err := e.core.Agents.Revoke(e.ctx, "alex", agentID, "stolen"); err != nil {
 		t.Fatal(err)
 	}
 	got, err := e.core.Telemetry.GetTelemetryIntent(e.ctx, ti.ID)

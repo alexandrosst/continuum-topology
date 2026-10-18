@@ -9,6 +9,7 @@ import (
 
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/accounts"
+	"continuum/internal/agents"
 	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
@@ -16,16 +17,16 @@ import (
 var setupNow = time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
 
 // caps is a fresh report: Cluster links and probing on, telemetry sent onward, the prober seen a minute ago.
-func caps(f ...func(*LinkCaps)) LinkCaps {
-	c := LinkCaps{Reported: setupNow.Add(-30 * time.Second), LinkMetrics: true, ProbeEnabled: true, TelemetryExport: true, ProberSeen: setupNow.Add(-time.Minute)}
+func caps(f ...func(*agents.LinkCaps)) agents.LinkCaps {
+	c := agents.LinkCaps{Reported: setupNow.Add(-30 * time.Second), LinkMetrics: true, ProbeEnabled: true, TelemetryExport: true, ProberSeen: setupNow.Add(-time.Minute)}
 	for _, g := range f {
 		g(&c)
 	}
 	return c
 }
 
-func without(what string) func(*LinkCaps) {
-	return func(c *LinkCaps) {
+func without(what string) func(*agents.LinkCaps) {
+	return func(c *agents.LinkCaps) {
 		switch what {
 		case "links":
 			c.LinkMetrics = false
@@ -39,8 +40,8 @@ func without(what string) func(*LinkCaps) {
 	}
 }
 
-func with(what string) func(*LinkCaps) {
-	return func(c *LinkCaps) {
+func with(what string) func(*agents.LinkCaps) {
+	return func(c *agents.LinkCaps) {
 		switch what {
 		case "capacity":
 			c.CapacityEnabled = true
@@ -48,15 +49,15 @@ func with(what string) func(*LinkCaps) {
 	}
 }
 
-func prober(ago time.Duration) func(*LinkCaps) {
-	return func(c *LinkCaps) { c.ProberSeen = setupNow.Add(-ago) }
+func prober(ago time.Duration) func(*agents.LinkCaps) {
+	return func(c *agents.LinkCaps) { c.ProberSeen = setupNow.Add(-ago) }
 }
 
-func reported(ago time.Duration) func(*LinkCaps) {
-	return func(c *LinkCaps) { c.Reported = setupNow.Add(-ago) }
+func reported(ago time.Duration) func(*agents.LinkCaps) {
+	return func(c *agents.LinkCaps) { c.Reported = setupNow.Add(-ago) }
 }
 
-func endOf(id string, c LinkCaps) setupEnd {
+func endOf(id string, c agents.LinkCaps) setupEnd {
 	return setupEnd{ID: id, Name: strings.ToUpper(id), HasAgent: true, Tier: 2, Caps: c}
 }
 
@@ -150,9 +151,9 @@ func TestPairChecklistStatesTable(t *testing.T) {
 			"agent/a=ok agent/b=ok links-on/a=ok capabilities/b=unknown export/a=ok prober/a=ok"},
 		{"the runner reports nothing", plain, oldA, endOf("b", ok), true,
 			"agent/a=ok agent/b=ok capabilities/a=unknown links-on/b=ok peer-export/b=ok"},
-		{"two old agents", tput, endOf("a", LinkCaps{}), endOf("b", LinkCaps{}), true,
+		{"two old agents", tput, endOf("a", agents.LinkCaps{}), endOf("b", agents.LinkCaps{}), true,
 			"agent/a=ok agent/b=ok capabilities/a=unknown capabilities/b=unknown"},
-		{"two old agents, no FUSION", plain, endOf("a", LinkCaps{}), endOf("b", LinkCaps{}), false,
+		{"two old agents, no FUSION", plain, endOf("a", agents.LinkCaps{}), endOf("b", agents.LinkCaps{}), false,
 			"agent/a=ok agent/b=ok capabilities/a=unknown capabilities/b=unknown export/a=unknown"},
 		{"a report that is too old is not relied on", plain, endOf("a", caps(reported(20*time.Minute), without("export"))), endOf("b", ok), true,
 			"agent/a=ok agent/b=ok capabilities/a=unknown links-on/b=ok peer-export/b=ok"},
@@ -184,7 +185,7 @@ func TestPairChecklistStatesTable(t *testing.T) {
 			"agent/a=ok agent/b=ok links-on/a=ok links-on/b=ok export/a=ok export/b=optional"},
 		{"passive, neither sends", passive, endOf("a", caps(without("export"))), endOf("b", caps(without("export"))), true,
 			"agent/a=ok agent/b=ok links-on/a=ok links-on/b=ok export/a=todo export/b=todo"},
-		{"passive, one sends nothing and the other cannot say", passive, endOf("a", caps(without("export"))), endOf("b", LinkCaps{}), true,
+		{"passive, one sends nothing and the other cannot say", passive, endOf("a", caps(without("export"))), endOf("b", agents.LinkCaps{}), true,
 			"agent/a=ok agent/b=ok links-on/a=ok capabilities/b=unknown export/a=unknown"},
 		{"passive, no FUSION", passive, endOf("a", ok), endOf("b", ok), false,
 			"agent/a=ok agent/b=ok links-on/a=ok links-on/b=ok export=unknown"},
@@ -215,9 +216,9 @@ func TestAnAgentThatReportsNothingNeverMakesAStepFail(t *testing.T) {
 				a, b setupEnd
 				mute map[string]bool // the clusters that said nothing
 			}{
-				{endOf("a", LinkCaps{}), endOf("b", LinkCaps{}), map[string]bool{"a": true, "b": true}},
-				{endOf("a", LinkCaps{}), endOf("b", caps()), map[string]bool{"a": true}},
-				{endOf("a", caps()), endOf("b", LinkCaps{}), map[string]bool{"b": true}},
+				{endOf("a", agents.LinkCaps{}), endOf("b", agents.LinkCaps{}), map[string]bool{"a": true, "b": true}},
+				{endOf("a", agents.LinkCaps{}), endOf("b", caps()), map[string]bool{"a": true}},
+				{endOf("a", caps()), endOf("b", agents.LinkCaps{}), map[string]bool{"b": true}},
 			} {
 				for _, s := range linkSetup(l, tc.a, tc.b, fusion, setupNow) {
 					if s.State == stepTodo && tc.mute[s.Cluster] && s.Code != stepAgent {
@@ -302,7 +303,7 @@ func TestTheServerKeepsWhatAnAgentReportedAndNeverReadsSilenceAsOff(t *testing.T
 }
 
 func TestWhatAnAgentSaysAboutTheProberIsBounded(t *testing.T) {
-	at := func(unix int64, skewMs int64) LinkCaps {
+	at := func(unix int64, skewMs int64) agents.LinkCaps {
 		v := newView()
 		v.NoteLinkCaps(&continuumv1.LinkCapabilities{ProberSeenUnix: unix}, setupNow, skewMs)
 		return v.Ext.LinkCaps
@@ -330,7 +331,7 @@ func TestWhatAnAgentSaysAboutTheProberIsBounded(t *testing.T) {
 func TestTheHubBuildsTheChecklistFromAgentsAndTheirReports(t *testing.T) {
 	a, b := ag("ag-a", "cl-a", "alpha", "203.0.113.1", 2), ag("ag-b", "cl-b", "beta", "203.0.113.2", 2)
 	h := linkHub(map[string]*view{
-		"ag-a": {View: View{Ext: ViewExt{LinkCaps: caps(without("export"))}}, estView: estView{state: nodeState("10.0.0.1")}},
+		"ag-a": {View: agents.View{Ext: agents.ViewExt{LinkCaps: caps(without("export"))}}, estView: estView{state: nodeState("10.0.0.1")}},
 		"ag-b": {estView: estView{state: nodeState("10.1.0.1")}}, // an agent that never reported
 	})
 	links := []kernel.LinkSetting{{A: "cl-a", B: "cl-b"}, {A: "cl-a", B: "cl-z"}}
@@ -369,15 +370,15 @@ func TestTheHeartbeatCarriesWhatTheInstallCanDo(t *testing.T) {
 	id, key, leaf := r.approvedAgent(t, fp)
 	s := r.connect(t, ctx, key, leaf, &continuumv1.Hello{AgentVersion: "9.9", InstalledAccessTier: 2})
 
-	caps := func() LinkCaps {
+	caps := func() agents.LinkCaps {
 		r.hub.mu.Lock()
 		defer r.hub.mu.Unlock()
 		if v := r.hub.views[id]; v != nil {
 			return v.Ext.LinkCaps
 		}
-		return LinkCaps{}
+		return agents.LinkCaps{}
 	}
-	wait := func(what string, ok func(LinkCaps) bool) {
+	wait := func(what string, ok func(agents.LinkCaps) bool) {
 		t.Helper()
 		end := time.Now().Add(5 * time.Second)
 		for time.Now().Before(end) {
@@ -401,7 +402,7 @@ func TestTheHeartbeatCarriesWhatTheInstallCanDo(t *testing.T) {
 		LinkCapabilities: &continuumv1.LinkCapabilities{LinkMetrics: true, ProbeEnabled: true, TelemetryExport: true, ProberSeenUnix: seen}}}}); err != nil {
 		t.Fatal(err)
 	}
-	wait("the report is kept", func(c LinkCaps) bool {
+	wait("the report is kept", func(c agents.LinkCaps) bool {
 		return c.LinkMetrics && c.ProbeEnabled && c.TelemetryExport && !c.CapacityEnabled
 	})
 	if got := caps().ProberSeen.Unix(); got != seen {

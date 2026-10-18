@@ -112,7 +112,7 @@ func TestObservationStateFollowsTheClockTheConnectionAndRevocation(t *testing.T)
 	}
 
 	// Revocation: the picture stays, marked revoked, and is never a target.
-	if err := h.C.Revoke(r.ctx, "alex", a.ID, "decommissioned"); err != nil {
+	if err := h.C.Agents.Revoke(r.ctx, "alex", a.ID, "decommissioned"); err != nil {
 		t.Fatal(err)
 	}
 	m, _, _ = h.Model(r.ctx)
@@ -178,7 +178,7 @@ func TestARevokedAgentsPictureSurvivesARestartAsRevoked(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.persist(r.ctx, a.ID, true)
-	if err := h.C.Revoke(r.ctx, "alex", a.ID, "gone"); err != nil {
+	if err := h.C.Agents.Revoke(r.ctx, "alex", a.ID, "gone"); err != nil {
 		t.Fatal(err)
 	}
 	h2 := NewHub(h.C)
