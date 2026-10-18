@@ -11,7 +11,7 @@ import (
 
 func fullConfig(t *testing.T) *continuumv1.Config {
 	t.Helper()
-	cfg, _ := compileConfig(baseFacts())
+	cfg, _ := CompileConfig(baseFacts())
 	return cfg
 }
 
@@ -44,7 +44,7 @@ func TestOnlyTheSectionThatChangedChangesItsDigest(t *testing.T) {
 				t.Errorf("editing %s: section %s changed = %v", section, name, changed)
 			}
 		}
-		if configHash(c) == configHash(base) {
+		if ConfigHash(c) == ConfigHash(base) {
 			t.Errorf("editing %s did not change the digest of the Config", section)
 		}
 	}
@@ -55,20 +55,20 @@ func TestTheServerTimeAndTheDigestAreNotInTheDigest(t *testing.T) {
 	c := proto.Clone(base).(*continuumv1.Config)
 	c.ServerTimeUnix += 3600
 	c.Digest = "something else"
-	if configHash(c) != configHash(base) {
+	if ConfigHash(c) != ConfigHash(base) {
 		t.Fatal("the moment a Config was made, or the digest it carries, changed its digest")
 	}
 }
 
 func TestADigestIsTheSameForTheSameConfigAndNeverHoldsACredential(t *testing.T) {
 	a, b := fullConfig(t), fullConfig(t)
-	if configHash(a) != configHash(b) || a.Digest != b.Digest || a.Digest == "" {
+	if ConfigHash(a) != ConfigHash(b) || a.Digest != b.Digest || a.Digest == "" {
 		t.Fatalf("two compiles of the same facts give %q and %q", a.Digest, b.Digest)
 	}
 	secret := proto.Clone(a).(*continuumv1.Config)
 	secret.LinkPeers[0].IperfClient.Password = "S3cret-Passw0rd-Material"
 	secret.LinkIperfServer.UsersCsv = "someone:S3cret-Server-Material"
-	all := configHash(secret)
+	all := ConfigHash(secret)
 	for _, d := range sectionDigests(secret) {
 		all += d.Digest
 	}
@@ -78,12 +78,12 @@ func TestADigestIsTheSameForTheSameConfigAndNeverHoldsACredential(t *testing.T) 
 	// Rotating a credential changes the digest, so the rotation reaches the agent.
 	c := proto.Clone(a).(*continuumv1.Config)
 	c.LinkPeers[0].IperfClient.Password = "rotated"
-	if configHash(c) == configHash(a) {
+	if ConfigHash(c) == ConfigHash(a) {
 		t.Fatal("a rotated client password did not change the digest")
 	}
 	c = proto.Clone(a).(*continuumv1.Config)
 	c.LinkIperfServer.UsersCsv = "u:rotated"
-	if configHash(c) == configHash(a) {
+	if ConfigHash(c) == ConfigHash(a) {
 		t.Fatal("a rotated server user list did not change the digest")
 	}
 }
@@ -92,10 +92,10 @@ func TestAChangeToAStringThatCannotBeMarshalledStillChangesTheDigest(t *testing.
 	a := &continuumv1.Config{ClusterId: "cl-a", LinkPeers: []*continuumv1.LinkPeer{{ClusterId: "cl-b", Name: "bad\xffname"}}}
 	b := proto.Clone(a).(*continuumv1.Config)
 	b.LinkPeers[0].Name = "bad\xfeother"
-	if configHash(a) == "" || configHash(a) != configHash(a) {
+	if ConfigHash(a) == "" || ConfigHash(a) != ConfigHash(a) {
 		t.Fatal("no stable digest for a Config with a string that is not valid UTF-8")
 	}
-	if configHash(a) == configHash(b) {
+	if ConfigHash(a) == ConfigHash(b) {
 		t.Fatal("a change to a string that is not valid UTF-8 did not change the digest, so it would never be pushed")
 	}
 }

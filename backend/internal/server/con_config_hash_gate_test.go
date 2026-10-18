@@ -25,11 +25,11 @@ var outOfTheConfigHash = map[protoreflect.FullName]string{
 func TestEveryFieldOfAConfigIsInItsHash(t *testing.T) {
 	full := &continuumv1.Config{}
 	fillEveryField(t, full.ProtoReflect())
-	base := configHash(full)
-	if base == "" || base != configHash(proto.Clone(full).(*continuumv1.Config)) {
+	base := ConfigHash(full)
+	if base == "" || base != ConfigHash(proto.Clone(full).(*continuumv1.Config)) {
 		t.Fatalf("the hash of a full Config is empty or not stable: %q", base)
 	}
-	if base == configHash(&continuumv1.Config{}) {
+	if base == ConfigHash(&continuumv1.Config{}) {
 		t.Fatal("a full Config hashes as an empty one")
 	}
 
@@ -49,7 +49,7 @@ func TestEveryFieldOfAConfigIsInItsHash(t *testing.T) {
 				t.Helper()
 				c := proto.Clone(full).(*continuumv1.Config)
 				edit(at(c))
-				if configHash(c) == base {
+				if ConfigHash(c) == base {
 					t.Errorf("%s: %s does not change the hash, so a change to it would never be pushed to an agent. Add it to configHash, or list it in outOfTheConfigHash with the reason", fd.FullName(), what)
 				}
 			}

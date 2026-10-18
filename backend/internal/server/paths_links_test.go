@@ -35,7 +35,7 @@ func TestAPushIsSkippedWhileTheAgentsCannotBeRead(t *testing.T) {
 		t.Fatal(err)
 	}
 	newV := func(ip string) *view {
-		return &view{estView: estView{state: nodeState(ip), flows: observed.NewFlowTable()}, netView: netView{paths: map[string]*pathTrack{}, targets: map[string]issuedTarget{}}}
+		return &view{estView: estView{state: nodeState(ip), flows: observed.NewFlowTable()}, NetView: NetView{Paths: map[string]*PathTrack{}, Targets: map[string]IssuedTarget{}}}
 	}
 	fv, sv := newV("10.0.0.1"), newV("10.9.0.1")
 	push := make(chan *continuumv1.ServerMessage, 4)
@@ -49,21 +49,21 @@ func TestAPushIsSkippedWhileTheAgentsCannotBeRead(t *testing.T) {
 	if len(cfg.LinkPeers) != 1 {
 		t.Fatalf("peers = %v", cfg.LinkPeers)
 	}
-	sent := sv.cfgHash
+	sent := sv.CfgHash
 
 	real := r.hub.C.Store
 	r.hub.C.Store = agentsDown{real}
 	if _, complete := r.hub.configForChecked(second, sv); complete {
 		t.Error("a Config built without the agents is reported as complete")
 	}
-	sv.cfgHash = sent
+	sv.CfgHash = sent
 	r.hub.pushOne(second.ID)
 	select {
 	case m := <-push:
 		t.Fatalf("a Config was pushed while the agents could not be read: %v", m.GetConfig().GetLinkPeers())
 	default:
 	}
-	if sv.cfgHash != sent {
+	if sv.CfgHash != sent {
 		t.Error("the Config that was not sent is remembered as sent, so the retry would find nothing to do")
 	}
 	// A cluster in no pair is unaffected by the failure: it does not read the agents at all.

@@ -22,7 +22,7 @@ import (
 // newOtherKey is the private key of some other cluster.
 func newOtherKey(t *testing.T) string {
 	t.Helper()
-	id, err := newClusterIdentity()
+	id, err := NewClusterIdentity()
 	if err != nil {
 		t.Fatal(err)
 	}

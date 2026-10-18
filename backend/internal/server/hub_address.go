@@ -18,36 +18,36 @@ import (
 
 // pruneAddressTests drops the tests whose time is up. Called with h.mu held.
 func (h *Hub) pruneAddressTests(v *view, now time.Time) {
-	for id, t := range v.addrTests {
-		if now.Sub(t.Created) > addressTestTTL {
-			delete(v.addrTests, id)
+	for id, t := range v.AddrTests {
+		if now.Sub(t.Created) > AddressTestTTL {
+			delete(v.AddrTests, id)
 		}
 	}
 }
 
 // addressTestTargets are the live tests as targets for configFor. Called with h.mu held.
-func (h *Hub) addressTestTargets(v *view, now time.Time) []issuedTarget {
+func (h *Hub) addressTestTargets(v *view, now time.Time) []IssuedTarget {
 	h.pruneAddressTests(v, now)
-	ts := make([]*addressTest, 0, len(v.addrTests))
-	for _, t := range v.addrTests {
+	ts := make([]*AddressTest, 0, len(v.AddrTests))
+	for _, t := range v.AddrTests {
 		ts = append(ts, t)
 	}
 	sort.Slice(ts, func(i, j int) bool { return ts[i].ID < ts[j].ID })
-	out := make([]issuedTarget, 0, len(ts))
+	out := make([]IssuedTarget, 0, len(ts))
 	for _, t := range ts {
-		out = append(out, issuedTarget{ID: t.ID, Host: t.Host, Port: t.Port, Label: "address test", Source: sourceAddressTest})
+		out = append(out, IssuedTarget{ID: t.ID, Host: t.Host, Port: t.Port, Label: "address test", Source: SourceAddressTest})
 	}
 	return out
 }
 
 // noteAddressTest records what the agent measured for a test target. Called with h.mu held; reports whether t was one.
-func (h *Hub) noteAddressTest(v *view, t issuedTarget, samples, failed uint32, min, p50, p95 float64, now time.Time) bool {
-	if t.Source != sourceAddressTest {
+func (h *Hub) noteAddressTest(v *view, t IssuedTarget, samples, failed uint32, min, p50, p95 float64, now time.Time) bool {
+	if t.Source != SourceAddressTest {
 		return false
 	}
-	if x := v.addrTests[t.ID]; x != nil {
+	if x := v.AddrTests[t.ID]; x != nil {
 		x.Done, x.Samples, x.Failed, x.Min, x.P50, x.P95, x.At = true, int(samples), int(failed), min, p50, p95, now
-		v.noteReach(x)
+		v.NoteReach(x)
 	}
 	return true
 }
@@ -98,8 +98,8 @@ func (h *Hub) startAddressTests(ctx context.Context, actor string, a store.Agent
 	if len(wants) == 0 {
 		return nil, kernel.Errf(kernel.KindInvalid, "give at least one address to test")
 	}
-	if len(wants) > maxAddressTests {
-		return nil, kernel.Errf(kernel.KindInvalid, "at most %d addresses are tested at once", maxAddressTests)
+	if len(wants) > MaxAddressTests {
+		return nil, kernel.Errf(kernel.KindInvalid, "at most %d addresses are tested at once", MaxAddressTests)
 	}
 	if h.consentOf(a.ID).Has("measure") {
 		return nil, kernel.Errf(kernel.KindConflict, "connection timing is paused for this cluster, and a test is a connection timing. Resume it in the cluster's access settings first")
@@ -119,27 +119,27 @@ func (h *Hub) startAddressTests(ctx context.Context, actor string, a store.Agent
 			}
 		}
 	}
-	if v.addrTests == nil {
-		v.addrTests = map[string]*addressTest{}
+	if v.AddrTests == nil {
+		v.AddrTests = map[string]*AddressTest{}
 	}
 	h.pruneAddressTests(v, now)
-	for id, t := range v.addrTests {
+	for id, t := range v.AddrTests {
 		// Tested again: the old result must not pass for the new one. A person's test also takes the place of the server's
 		// own quiet ones, which come back at the next sweep, so that checking in the background never uses up the room.
 		if seen[t.Address] || (t.Quiet && !quiet) {
-			delete(v.addrTests, id)
+			delete(v.AddrTests, id)
 		}
 	}
-	if len(v.addrTests)+len(wants) > maxAddressTests {
+	if len(v.AddrTests)+len(wants) > MaxAddressTests {
 		h.mu.Unlock()
-		return nil, kernel.Errf(kernel.KindConflict, "this agent is already testing %d addresses; wait for them to finish (they expire after %d minutes)", len(v.addrTests), int(addressTestTTL/time.Minute))
+		return nil, kernel.Errf(kernel.KindConflict, "this agent is already testing %d addresses; wait for them to finish (they expire after %d minutes)", len(v.AddrTests), int(AddressTestTTL/time.Minute))
 	}
 	// A fresh id each time: the agent re-times when its targets change, and an unchanged list would wait for its next round.
 	out := make([]AddressTestDoc, 0, len(wants))
 	for _, w := range wants {
-		t := &addressTest{ID: "at-" + interpret.Hash(w.addr, strconv.FormatInt(now.UnixNano(), 10))[:12], Address: w.addr, Host: w.host, Port: w.port, Created: now, Quiet: quiet}
-		v.addrTests[t.ID] = t
-		out = append(out, t.doc())
+		t := &AddressTest{ID: "at-" + interpret.Hash(w.addr, strconv.FormatInt(now.UnixNano(), 10))[:12], Address: w.addr, Host: w.host, Port: w.port, Created: now, Quiet: quiet}
+		v.AddrTests[t.ID] = t
+		out = append(out, t.Doc())
 	}
 	h.mu.Unlock()
 
@@ -153,7 +153,7 @@ func (h *Hub) startAddressTests(ctx context.Context, actor string, a store.Agent
 	}
 	h.pushOne(a.ID)
 	// When the test expires its target has to leave the agent's list too.
-	time.AfterFunc(addressTestTTL+time.Second, func() { h.pushOne(a.ID) })
+	time.AfterFunc(AddressTestTTL+time.Second, func() { h.pushOne(a.ID) })
 	return out, nil
 }
 
@@ -168,8 +168,8 @@ func (h *Hub) AddressTests(ctx context.Context, agentID string) ([]AddressTestDo
 	defer h.mu.Unlock()
 	v := h.viewFor(a.ID)
 	h.pruneAddressTests(v, now)
-	ts := make([]*addressTest, 0, len(v.addrTests))
-	for _, t := range v.addrTests {
+	ts := make([]*AddressTest, 0, len(v.AddrTests))
+	for _, t := range v.AddrTests {
 		if !t.Quiet {
 			ts = append(ts, t)
 		}
@@ -182,7 +182,7 @@ func (h *Hub) AddressTests(ctx context.Context, agentID string) ([]AddressTestDo
 	})
 	out := make([]AddressTestDoc, 0, len(ts))
 	for _, t := range ts {
-		out = append(out, t.doc())
+		out = append(out, t.Doc())
 	}
 	return out, nil
 }
@@ -195,8 +195,8 @@ func (h *Hub) reachOf(agentID, address string, now time.Time) *AddressReachDoc {
 	if v == nil {
 		return nil
 	}
-	r := v.reach[address]
-	if r == nil || now.Sub(r.At) > reachFresh {
+	r := v.Reach[address]
+	if r == nil || now.Sub(r.At) > ReachFresh {
 		return nil
 	}
 	d := &AddressReachDoc{State: "unreachable", At: kernel.RFC(r.At)}
@@ -272,13 +272,13 @@ func (h *Hub) driftSweep(ctx context.Context) {
 		live := map[string]bool{}
 		if v != nil {
 			h.pruneAddressTests(v, now) // a test past its time is not running
-			for _, t := range v.addrTests {
+			for _, t := range v.AddrTests {
 				live[t.Address] = true
 			}
 		}
 		for _, addr := range targets[id] {
 			if v != nil { // an agent with no view yet has never been tested
-				if r := v.reachRecord(addr); r != nil && now.Sub(r.At) < driftEvery {
+				if r := v.ReachRecord(addr); r != nil && now.Sub(r.At) < DriftEvery {
 					continue
 				}
 			}
@@ -290,8 +290,8 @@ func (h *Hub) driftSweep(ctx context.Context) {
 		if len(due) == 0 {
 			continue
 		}
-		if len(due) > maxAddressTests {
-			due = due[:maxAddressTests]
+		if len(due) > MaxAddressTests {
+			due = due[:MaxAddressTests]
 		}
 		// A refusal (not connected, timing paused) is the answer: nothing is tested and the last result ages out.
 		_, _ = h.startAddressTests(ctx, "", a, due, true)

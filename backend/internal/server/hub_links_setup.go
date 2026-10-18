@@ -37,10 +37,10 @@ func (h *Hub) LinkReport(ctx context.Context, links []kernel.LinkSetting, haveFu
 
 // linkSetups is the checklist of each listed pair. Called with h.mu held; agents and paused as for linkNotes.
 func (h *Hub) linkSetups(links []kernel.LinkSetting, agentList []store.Agent, flowPausedOf map[string]bool, haveFusion bool, now time.Time) []LinkSetup {
-	byCluster := approvedByCluster(agentList)
+	byCluster := ApprovedByCluster(agentList)
 	plan := h.planner(links, agentList)
-	end := func(l kernel.LinkSetting, c, peer string) setupEnd {
-		e := setupEnd{ID: c}
+	end := func(l kernel.LinkSetting, c, peer string) SetupEnd {
+		e := SetupEnd{ID: c}
 		a, ok := byCluster[c]
 		if !ok {
 			return e
@@ -56,7 +56,7 @@ func (h *Hub) linkSetups(links []kernel.LinkSetting, agentList []store.Agent, fl
 	}
 	out := make([]LinkSetup, 0, len(links))
 	for _, l := range links {
-		out = append(out, LinkSetup{A: l.A, B: l.B, Steps: linkSetup(l, end(l, l.A, l.B), end(l, l.B, l.A), haveFusion, now)})
+		out = append(out, LinkSetup{A: l.A, B: l.B, Steps: LinkSetupSteps(l, end(l, l.A, l.B), end(l, l.B, l.A), haveFusion, now)})
 	}
 	return out
 }

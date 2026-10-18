@@ -58,7 +58,7 @@ func digestOfSection(part *continuumv1.Config) string {
 }
 
 // configHash is the digest of the whole Config: a hash of the digests of its sections.
-func configHash(c *continuumv1.Config) string {
+func ConfigHash(c *continuumv1.Config) string {
 	ds := sectionDigests(c)
 	parts := make([]string, 0, len(ds))
 	for _, d := range ds {

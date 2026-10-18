@@ -12,6 +12,6 @@ func condInputsOf(v *view) agents.CondInputs {
 	return agents.CondInputs{
 		Seen: v.Link.Connects > 0, Connected: v.connected, ConnectedSince: v.Link.Since,
 		Protocol: v.Ext.Protocol, Caps: v.Ext.Caps,
-		CfgSent: v.cfgHash, CfgApplied: v.cfgApplied, CfgSentAt: v.cfgSentAt, CfgInForceAt: v.cfgInForceAt,
+		CfgSent: v.CfgHash, CfgApplied: v.CfgApplied, CfgSentAt: v.CfgSentAt, CfgInForceAt: v.CfgInForceAt,
 	}
 }

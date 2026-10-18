@@ -12,10 +12,6 @@ import (
 	"continuum/internal/agents"
 )
 
-// What an agent is told is the sum of the configSections, each of which owns named fields of the Config. These keep that true:
-// every field of the Config has exactly one owner (or is in the envelope, which is no section's), and a section sets only what it
-// owns. A field added to the proto and given to no one fails here, instead of being left out of what the agent is sent.
-
 func configFieldNames() []string {
 	var names []string
 	fields := (&continuumv1.Config{}).ProtoReflect().Descriptor().Fields()
@@ -87,7 +83,7 @@ func TestASectionSetsEachFieldItOwnsWhenTheFactsHaveIt(t *testing.T) {
 func TestTheSectionsTogetherMakeTheSameConfigAsAWholeCompile(t *testing.T) {
 	f := baseFacts()
 	f.Consent = agents.Consent{Paused: []string{"x"}, Excluded: []string{"shop"}}
-	whole, _ := compileConfig(f)
+	whole, _ := CompileConfig(f)
 	merged := &continuumv1.Config{}
 	for _, s := range configSections {
 		b := &configBuild{cfg: &continuumv1.Config{}}

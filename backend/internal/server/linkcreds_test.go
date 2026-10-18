@@ -58,7 +58,7 @@ func newCredRig(t *testing.T) *credRig {
 			t.Fatal(err)
 		}
 		r.hub.mu.Lock()
-		r.hub.views[a.ID] = &view{estView: estView{state: nodeState("10.0." + strings.TrimPrefix(f[len(f)-2:], "0") + ".1"), flows: observed.NewFlowTable()}, netView: netView{paths: map[string]*pathTrack{}, targets: map[string]issuedTarget{}}}
+		r.hub.views[a.ID] = &view{estView: estView{state: nodeState("10.0." + strings.TrimPrefix(f[len(f)-2:], "0") + ".1"), flows: observed.NewFlowTable()}, NetView: NetView{Paths: map[string]*PathTrack{}, Targets: map[string]IssuedTarget{}}}
 		r.hub.mu.Unlock()
 		ags = append(ags, a)
 	}
@@ -225,14 +225,14 @@ func TestCredentialsAreMadeOnceStoredSealedAndSurviveARestart(t *testing.T) {
 
 	// A restarted server (a new Core on the same database and the same CA key) reads the same credentials.
 	again := NewCore(cr.st, cr.core.CA, "org-1", nil).ForOrg("org-1")
-	set, err := again.linkCredentials(cr.ctx, []kernel.LinkSetting{cr.pair(true)}, false)
+	set, err := again.LinkCredentials(cr.ctx, []kernel.LinkSetting{cr.pair(true)}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d := set.forCluster(cr.first.ClusterID); d.clients[cr.second.ClusterID].Password != a.Password {
+	if d := set.ForCluster(cr.first.ClusterID); d.Clients[cr.second.ClusterID].Password != a.Password {
 		t.Error("the restarted server issued a different password")
 	}
-	if d := set.forCluster(cr.second.ClusterID); d.server.PrivateKeyPem != srv.PrivateKeyPem {
+	if d := set.ForCluster(cr.second.ClusterID); d.Server.PrivateKeyPem != srv.PrivateKeyPem {
 		t.Error("the restarted server issued a different key")
 	}
 
@@ -242,11 +242,11 @@ func TestCredentialsAreMadeOnceStoredSealedAndSurviveARestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	other := NewCore(cr.st, ca2, "org-1", nil).ForOrg("org-1")
-	set2, err := other.linkCredentials(cr.ctx, []kernel.LinkSetting{cr.pair(true)}, false)
+	set2, err := other.LinkCredentials(cr.ctx, []kernel.LinkSetting{cr.pair(true)}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if set2.forCluster(cr.first.ClusterID).clients[cr.second.ClusterID].Password == a.Password {
+	if set2.ForCluster(cr.first.ClusterID).Clients[cr.second.ClusterID].Password == a.Password {
 		t.Error("credentials sealed under another CA key were read")
 	}
 	if n := len(cr.rows(t)); n != 2 {
@@ -261,15 +261,15 @@ func TestASealedRowDoesNotOpenAnywhereElse(t *testing.T) {
 	cr.cfg(cr.first)
 	var pairRow store.LinkCredential
 	for _, r := range cr.rows(t) {
-		if r.Kind == linkCredPair {
+		if r.Kind == LinkCredPair {
 			pairRow = r
 		}
 	}
 	for name, f := range map[string]func() error{
-		"another id":   func() error { _, err := cr.core.openLinkCred(linkCredPair, "x\x1fy", pairRow.Sealed); return err },
-		"another kind": func() error { _, err := cr.core.openLinkCred(linkCredCluster, pairRow.ID, pairRow.Sealed); return err },
+		"another id":   func() error { _, err := cr.core.OpenLinkCred(LinkCredPair, "x\x1fy", pairRow.Sealed); return err },
+		"another kind": func() error { _, err := cr.core.OpenLinkCred(LinkCredCluster, pairRow.ID, pairRow.Sealed); return err },
 		"another org": func() error {
-			_, err := cr.core.ForOrg("org-2").openLinkCred(linkCredPair, pairRow.ID, pairRow.Sealed)
+			_, err := cr.core.ForOrg("org-2").OpenLinkCred(LinkCredPair, pairRow.ID, pairRow.Sealed)
 			return err
 		},
 	} {
@@ -277,7 +277,7 @@ func TestASealedRowDoesNotOpenAnywhereElse(t *testing.T) {
 			t.Errorf("%s: the row opened", name)
 		}
 	}
-	if _, err := cr.core.openLinkCred(linkCredPair, pairRow.ID, pairRow.Sealed); err != nil {
+	if _, err := cr.core.OpenLinkCred(LinkCredPair, pairRow.ID, pairRow.Sealed); err != nil {
 		t.Errorf("the row does not open where it belongs: %v", err)
 	}
 	// Moved by hand in the database: the pair gets a fresh login instead of someone else's.
@@ -286,7 +286,7 @@ func TestASealedRowDoesNotOpenAnywhereElse(t *testing.T) {
 	if err := cr.st.PutLinkCredential(cr.ctx, moved); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := cr.core.readPairCred(moved); ok {
+	if _, ok := cr.core.ReadPairCred(moved); ok {
 		t.Error("a row moved to another id was read")
 	}
 }
@@ -350,7 +350,7 @@ func TestAServingClustersKeyStaysWhileAnyPairNeedsIt(t *testing.T) {
 	for _, r := range cr.rows(t) {
 		kinds[r.Kind]++
 	}
-	if kinds[linkCredCluster] != 1 || kinds[linkCredPair] != 1 {
+	if kinds[LinkCredCluster] != 1 || kinds[LinkCredPair] != 1 {
 		t.Errorf("rows after one pair left = %v", kinds)
 	}
 }
@@ -391,7 +391,7 @@ func TestTheConfigHashFollowsTheCredentialsWithoutHoldingThem(t *testing.T) {
 		cr.cfg(a)
 		cr.hub.mu.Lock()
 		defer cr.hub.mu.Unlock()
-		return cr.hub.views[a.ID].cfgHash
+		return cr.hub.views[a.ID].CfgHash
 	}
 	h1, h2 := hash(cr.first), hash(cr.second)
 	if hash(cr.first) != h1 || hash(cr.second) != h2 {
@@ -412,23 +412,23 @@ func TestTheConfigHashFollowsTheCredentialsWithoutHoldingThem(t *testing.T) {
 	}
 	// The hash is of the Config text and holds no credential: build one with a distinctive password.
 	c := &continuumv1.Config{ClusterId: "cl-a", LinkPeers: []*continuumv1.LinkPeer{{ClusterId: "cl-b", Throughput: true, IperfClient: &continuumv1.LinkIperfClient{PublicKeyPem: "pub", Username: "u", Password: "PASSWORDMARK"}}}, LinkIperfServer: &continuumv1.LinkIperfServer{PrivateKeyPem: "KEYMARK", UsersCsv: "u,HASHMARK"}}
-	h := configHash(c)
+	h := ConfigHash(c)
 	for _, m := range []string{"PASSWORDMARK", "KEYMARK", "HASHMARK"} {
 		if strings.Contains(h, m) {
 			t.Errorf("the hash contains %s", m)
 		}
 	}
 	c2 := &continuumv1.Config{ClusterId: "cl-a", LinkPeers: []*continuumv1.LinkPeer{{ClusterId: "cl-b", Throughput: true, IperfClient: &continuumv1.LinkIperfClient{PublicKeyPem: "pub", Username: "u", Password: "PASSWORDMARK2"}}}, LinkIperfServer: c.LinkIperfServer}
-	if configHash(c2) == h {
+	if ConfigHash(c2) == h {
 		t.Error("a different password gave the same hash")
 	}
 	c3 := &continuumv1.Config{ClusterId: "cl-a", LinkPeers: c.LinkPeers, LinkIperfServer: &continuumv1.LinkIperfServer{PrivateKeyPem: "KEYMARK2", UsersCsv: "u,HASHMARK"}}
-	if configHash(c3) == h {
+	if ConfigHash(c3) == h {
 		t.Error("a different server key gave the same hash")
 	}
 	// A Config without credentials hashes as it always did.
 	plain := &continuumv1.Config{ClusterId: "cl-a", LinkPeers: []*continuumv1.LinkPeer{{ClusterId: "cl-b", Name: "B", Addresses: []string{"10.0.0.1"}}}}
-	if configHash(plain) != configHash(&continuumv1.Config{ClusterId: "cl-a", LinkPeers: []*continuumv1.LinkPeer{{ClusterId: "cl-b", Name: "B", Addresses: []string{"10.0.0.1"}}}}) {
+	if ConfigHash(plain) != ConfigHash(&continuumv1.Config{ClusterId: "cl-a", LinkPeers: []*continuumv1.LinkPeer{{ClusterId: "cl-b", Name: "B", Addresses: []string{"10.0.0.1"}}}}) {
 		t.Error("unstable hash")
 	}
 }
@@ -485,13 +485,13 @@ func TestNoLogAuditOrErrorHoldsCredentialMaterial(t *testing.T) {
 	for _, e := range events {
 		fmt.Fprintf(&audit, "%+v\n", e)
 	}
-	set, _ := cr.core.linkCredentials(cr.ctx, links, false)
+	set, _ := cr.core.LinkCredentials(cr.ctx, links, false)
 	var dump strings.Builder
 	fmt.Fprintf(&dump, "%v %+v %#v %s", set, set, set, set)
-	for _, c := range set.clusters {
+	for _, c := range set.Clusters {
 		fmt.Fprintf(&dump, "%v %+v %#v", c, c, c)
 	}
-	for _, l := range set.pairs {
+	for _, l := range set.Pairs {
 		fmt.Fprintf(&dump, "%v %+v %#v", l, l, l)
 	}
 	marks := []string{ic.Password, "PRIVATE KEY", srv.PrivateKeyPem[120:170], strings.TrimSpace(srv.UsersCsv[len(ic.Username)+1:])}

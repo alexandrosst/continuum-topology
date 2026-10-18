@@ -95,7 +95,7 @@ func TestAnAddressIsTestedFromTheAgentAndTheResultReadBack(t *testing.T) {
 	}
 	// A test is not a measured path: it must never show up among the paths the topology draws.
 	a.hub().mu.Lock()
-	n := len(a.hub().views[agentID].paths)
+	n := len(a.hub().views[agentID].Paths)
 	a.hub().mu.Unlock()
 	if n != 0 {
 		t.Fatalf("a test result was added to the measured paths: %d", n)
@@ -184,7 +184,7 @@ func TestAnAddressTestExpiresAndLeavesTheAgentsTargets(t *testing.T) {
 	if cfg := a.hub().configFor(ag, v); len(cfg.ProbeTargets) != 1 {
 		t.Fatalf("targets while the test is live: %v", cfg.ProbeTargets)
 	}
-	*a.now = a.now.Add(addressTestTTL + time.Minute)
+	*a.now = a.now.Add(AddressTestTTL + time.Minute)
 	if got := readTests(t, a, cookie, agentID); len(got) != 0 {
 		t.Fatalf("an expired test is still listed: %v", got)
 	}

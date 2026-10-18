@@ -133,12 +133,12 @@ func TestOverlayAndPodRangeAddressesAreNeverOfferedButMeshAndHostOnesAre(t *test
 	}
 	// The node's own reported addresses are never tested against the pod ranges: on a flat network the pod range holds them.
 	flat := &facts.State{Nodes: map[string]*continuumv1.NodeFacts{"n1": {InternalIps: []string{"10.0.1.5"}, ExternalIps: []string{"10.0.1.6"}, PodCidrs: []string{"10.0.0.0/16"}}}}
-	if got := observed.LinkPeerAddresses(flat); !reflect.DeepEqual(dedupeSorted(got), []string{"10.0.1.5", "10.0.1.6"}) {
+	if got := observed.LinkPeerAddresses(flat); !reflect.DeepEqual(DedupeSorted(got), []string{"10.0.1.5", "10.0.1.6"}) {
 		t.Errorf("flat network: %v", got)
 	}
 	// An IPv4-mapped IPv6 spelling is the IPv4 address.
 	mapped := &facts.State{Nodes: map[string]*continuumv1.NodeFacts{"n1": {InternalIps: []string{"::ffff:192.168.1.10", "192.168.1.10"}}}}
-	if got := dedupeSorted(observed.LinkPeerAddresses(mapped)); !reflect.DeepEqual(got, []string{"192.168.1.10"}) {
+	if got := DedupeSorted(observed.LinkPeerAddresses(mapped)); !reflect.DeepEqual(got, []string{"192.168.1.10"}) {
 		t.Errorf("mapped: %v", got)
 	}
 
@@ -294,7 +294,7 @@ func TestNotesNameAtMostSixAddresses(t *testing.T) {
 	if strings.Count(text, "10.1.0.") != 6 || !strings.Contains(text, "+14 more") {
 		t.Errorf("%q", text)
 	}
-	if got := listed([]string{"a", "b"}); got != "a, b" {
+	if got := Listed([]string{"a", "b"}); got != "a, b" {
 		t.Errorf("%q", got)
 	}
 }

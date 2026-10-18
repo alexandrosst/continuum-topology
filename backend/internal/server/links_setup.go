@@ -31,21 +31,21 @@ const (
 
 // Step states.
 const (
-	stepOK       = "ok"
-	stepTodo     = "todo"
-	stepUnknown  = "unknown"
-	stepOptional = "optional"
+	StepOK       = "ok"
+	StepTodo     = "todo"
+	StepUnknown  = "unknown"
+	StepOptional = "optional"
 )
 
 // Step codes. They are part of the interface: the Sites screen keys on them.
 const (
-	stepAgent        = "agent"        // the cluster has an approved agent at access tier 2 with the flow collector running
+	StepAgent        = "agent"        // the cluster has an approved agent at access tier 2 with the flow collector running
 	stepAddresses    = "addresses"    // the cluster's agent can be told which addresses of the peer to measure (only shown when it cannot)
-	stepCapabilities = "capabilities" // unknown: the agent has not said what its install can do
-	stepLinksOn      = "links-on"     // Cluster links (and, when the pair asks for active measurement, probing) is switched on in the install
-	stepExport       = "export"       // the cluster whose measurements the pair needs sends telemetry onward
-	stepProber       = "prober"       // the runner's link prober has asked its agent for peers recently
-	stepCapacity     = "capacity"     // iperf3 is switched on, for a pair that asks for throughput tests
+	StepCapabilities = "capabilities" // unknown: the agent has not said what its install can do
+	StepLinksOn      = "links-on"     // Cluster links (and, when the pair asks for active measurement, probing) is switched on in the install
+	StepExport       = "export"       // the cluster whose measurements the pair needs sends telemetry onward
+	StepProber       = "prober"       // the runner's link prober has asked its agent for peers recently
+	StepCapacity     = "capacity"     // iperf3 is switched on, for a pair that asks for throughput tests
 	stepPeerExport   = "peer-export"  // optional: the other cluster sends telemetry onward too
 )
 
@@ -68,7 +68,7 @@ type LinkSetup struct {
 }
 
 // setupEnd is what linkSetup is given about one cluster of a pair.
-type setupEnd struct {
+type SetupEnd struct {
 	ID string
 	// Name is how the cluster reads in a sentence; empty falls back to ID.
 	Name     string
@@ -79,7 +79,7 @@ type setupEnd struct {
 	Caps agents.LinkCaps
 }
 
-func (e setupEnd) name() string {
+func (e SetupEnd) name() string {
 	if e.Name != "" {
 		return e.Name
 	}
@@ -87,27 +87,27 @@ func (e setupEnd) name() string {
 }
 
 // fresh says whether the report of what the install can do can be relied on.
-func (e setupEnd) fresh(now time.Time) bool {
+func (e SetupEnd) fresh(now time.Time) bool {
 	return !e.Caps.Reported.IsZero() && now.Sub(e.Caps.Reported) <= linkCapsStaleAfter
 }
 
 // ready says whether the end can measure at all: an approved agent that is told about the other cluster.
-func (e setupEnd) ready() bool { return e.HasAgent && e.Note == nil }
+func (e SetupEnd) ready() bool { return e.HasAgent && e.Note == nil }
 
 // linkSetup works out the checklist of one pair. It is a pure function of its arguments, so that every step and every state can be
 // tested without a hub: now is the time to compare the prober's last visit and the report's age with; haveFusion says whether this
 // server has a FUSION at all (without one it cannot say where the figures would go, and says so rather than call it a failure).
-func linkSetup(l kernel.LinkSetting, a, b setupEnd, haveFusion bool, now time.Time) []LinkSetupStep {
+func LinkSetupSteps(l kernel.LinkSetting, a, b SetupEnd, haveFusion bool, now time.Time) []LinkSetupStep {
 	var out []LinkSetupStep
-	add := func(code string, e *setupEnd, state, format string, args ...any) {
+	add := func(code string, e *SetupEnd, state, format string, args ...any) {
 		s := LinkSetupStep{Code: code, State: state, Text: fmt.Sprintf(format, args...)}
 		if e != nil {
 			s.Cluster = e.ID
 		}
 		out = append(out, s)
 	}
-	ends := []*setupEnd{&a, &b}
-	other := func(e *setupEnd) *setupEnd {
+	ends := []*SetupEnd{&a, &b}
+	other := func(e *SetupEnd) *SetupEnd {
 		if e == &a {
 			return &b
 		}
@@ -118,7 +118,7 @@ func linkSetup(l kernel.LinkSetting, a, b setupEnd, haveFusion bool, now time.Ti
 	// The cluster whose measurements the pair gives: the one whose id sorts first, or the other while the first cannot measure (the
 	// server then lets the second probe, see peerList). Throughput tests are run by the first only.
 	runner, second := &a, &b
-	if linkRunner(a.ID, b.ID) == b.ID {
+	if LinkRunner(a.ID, b.ID) == b.ID {
 		runner, second = &b, &a
 	}
 	if !l.NoProbe && !runner.ready() && second.ready() {
@@ -129,23 +129,23 @@ func linkSetup(l kernel.LinkSetting, a, b setupEnd, haveFusion bool, now time.Ti
 	for _, e := range ends {
 		switch {
 		case !e.HasAgent:
-			add(stepAgent, e, stepTodo, "%s has no approved agent, so it can neither measure its pairs nor be measured. Install the Ikhnos agent there and approve it under Agents.", e.name())
+			add(StepAgent, e, StepTodo, "%s has no approved agent, so it can neither measure its pairs nor be measured. Install the Ikhnos agent there and approve it under Agents.", e.name())
 		case e.Note != nil && e.Note.Code == "tier":
-			add(stepAgent, e, stepTodo, "The agent of %s is at access tier %d. Link measuring needs tier 2, so the agent is not told which clusters to measure. Raise its access tier to 2 under Agents.", e.name(), e.Tier)
+			add(StepAgent, e, StepTodo, "The agent of %s is at access tier %d. Link measuring needs tier 2, so the agent is not told which clusters to measure. Raise its access tier to 2 under Agents.", e.name(), e.Tier)
 		case e.Note != nil && e.Note.Code == "paused":
-			add(stepAgent, e, stepTodo, "The flow collector is paused for the agent of %s, which pauses link measuring there too. Resume it under Agents.", e.name())
+			add(StepAgent, e, StepTodo, "The flow collector is paused for the agent of %s, which pauses link measuring there too. Resume it under Agents.", e.name())
 		default:
-			add(stepAgent, e, stepOK, "%s has an approved agent at access tier 2 or higher, with the flow collector not paused.", e.name())
+			add(StepAgent, e, StepOK, "%s has an approved agent at access tier 2 or higher, with the flow collector not paused.", e.name())
 		}
 	}
 	for _, e := range ends {
 		if e.HasAgent && e.Note != nil && e.Note.Code != "tier" && e.Note.Code != "paused" {
-			add(stepAddresses, e, stepTodo, "%s: %s", e.name(), e.Note.Text)
+			add(stepAddresses, e, StepTodo, "%s: %s", e.name(), e.Note.Text)
 		}
 	}
 
 	// 2. What each install can do. An agent that has not said (too old, or silent for a while) is not called missing.
-	known := func(e *setupEnd) bool { return e.HasAgent && e.fresh(now) }
+	known := func(e *SetupEnd) bool { return e.HasAgent && e.fresh(now) }
 	for _, e := range ends {
 		if !e.HasAgent {
 			continue
@@ -153,17 +153,17 @@ func linkSetup(l kernel.LinkSetting, a, b setupEnd, haveFusion bool, now time.Ti
 		c := e.Caps
 		switch {
 		case c.Reported.IsZero():
-			add(stepCapabilities, e, stepUnknown, "The agent of %s is too old to say what its install can do, so whether Cluster links, probing, telemetry and iperf3 are switched on there cannot be checked.", e.name())
+			add(StepCapabilities, e, StepUnknown, "The agent of %s is too old to say what its install can do, so whether Cluster links, probing, telemetry and iperf3 are switched on there cannot be checked.", e.name())
 		case !e.fresh(now):
-			add(stepCapabilities, e, stepUnknown, "The agent of %s has not reported lately, so what its install can do is not known right now.", e.name())
+			add(StepCapabilities, e, StepUnknown, "The agent of %s has not reported lately, so what its install can do is not known right now.", e.name())
 		case !c.LinkMetrics:
-			add(stepLinksOn, e, stepTodo, "Cluster links is not switched on in the install of %s, so it neither measures nor can be measured. Turn on Cluster links in the telemetry settings of that install.", e.name())
+			add(StepLinksOn, e, StepTodo, "Cluster links is not switched on in the install of %s, so it neither measures nor can be measured. Turn on Cluster links in the telemetry settings of that install.", e.name())
 		case active && !c.ProbeEnabled:
-			add(stepLinksOn, e, stepTodo, "Cluster links is on in %s but probing is off, so there is no prober or responder there for this pair. Turn on Probing under Cluster links in the telemetry settings of that install.", e.name())
+			add(StepLinksOn, e, StepTodo, "Cluster links is on in %s but probing is off, so there is no prober or responder there for this pair. Turn on Probing under Cluster links in the telemetry settings of that install.", e.name())
 		case active:
-			add(stepLinksOn, e, stepOK, "Cluster links and probing are switched on in %s.", e.name())
+			add(StepLinksOn, e, StepOK, "Cluster links and probing are switched on in %s.", e.name())
 		default:
-			add(stepLinksOn, e, stepOK, "Cluster links is switched on in %s.", e.name())
+			add(StepLinksOn, e, StepOK, "Cluster links is switched on in %s.", e.name())
 		}
 	}
 
@@ -171,20 +171,20 @@ func linkSetup(l kernel.LinkSetting, a, b setupEnd, haveFusion bool, now time.Ti
 	switch {
 	case active && !haveFusion:
 		if runner.HasAgent {
-			add(stepExport, runner, stepUnknown, "This server has no FUSION, so it cannot tell whether what %s measures for this pair arrives anywhere. It reaches FUSION only through the telemetry %s sends; check that on the server that has the FUSION.", runner.name(), runner.name())
+			add(StepExport, runner, StepUnknown, "This server has no FUSION, so it cannot tell whether what %s measures for this pair arrives anywhere. It reaches FUSION only through the telemetry %s sends; check that on the server that has the FUSION.", runner.name(), runner.name())
 		}
 	case active:
 		if known(runner) {
 			if runner.Caps.TelemetryExport {
-				add(stepExport, runner, stepOK, "%s runs the probes for this pair and sends its telemetry onward, so what it measures can reach FUSION.", runner.name())
+				add(StepExport, runner, StepOK, "%s runs the probes for this pair and sends its telemetry onward, so what it measures can reach FUSION.", runner.name())
 			} else {
-				add(stepExport, runner, stepTodo, "%s runs the probes for this pair but has no telemetry sent to FUSION, so what it measures stays in the cluster. Turn on telemetry with Cluster links there and point it at a regional operator or backend.", runner.name())
+				add(StepExport, runner, StepTodo, "%s runs the probes for this pair but has no telemetry sent to FUSION, so what it measures stays in the cluster. Turn on telemetry with Cluster links there and point it at a regional operator or backend.", runner.name())
 			}
 		}
 	case !haveFusion:
 		// Passive only, and nothing to say it to: the same single sentence below.
 		if known(&a) || known(&b) {
-			add(stepExport, nil, stepUnknown, "This server has no FUSION, so it cannot tell whether the traffic series of %s and %s arrive anywhere. They reach FUSION only through the telemetry each cluster sends.", a.name(), b.name())
+			add(StepExport, nil, StepUnknown, "This server has no FUSION, so it cannot tell whether the traffic series of %s and %s arrive anywhere. They reach FUSION only through the telemetry each cluster sends.", a.name(), b.name())
 		}
 	default:
 		// Passive only: each cluster's own traffic series leave through its own telemetry, and one cluster sending is enough to see the pair.
@@ -195,13 +195,13 @@ func linkSetup(l kernel.LinkSetting, a, b setupEnd, haveFusion bool, now time.Ti
 			o := other(e)
 			switch {
 			case e.Caps.TelemetryExport:
-				add(stepExport, e, stepOK, "%s sends its telemetry onward, so the traffic it sees on this link can reach FUSION.", e.name())
+				add(StepExport, e, StepOK, "%s sends its telemetry onward, so the traffic it sees on this link can reach FUSION.", e.name())
 			case known(o) && o.Caps.TelemetryExport:
-				add(stepExport, e, stepOptional, "%s sends no telemetry to FUSION. Optional here: %s does, and sending from both would also give FUSION the traffic series of %s and its half of the path MTU.", e.name(), o.name(), e.name())
+				add(StepExport, e, StepOptional, "%s sends no telemetry to FUSION. Optional here: %s does, and sending from both would also give FUSION the traffic series of %s and its half of the path MTU.", e.name(), o.name(), e.name())
 			case o.HasAgent && !known(o):
-				add(stepExport, e, stepUnknown, "%s sends no telemetry to FUSION, and whether %s does cannot be checked, so it is not known whether the traffic on this link reaches FUSION.", e.name(), o.name())
+				add(StepExport, e, StepUnknown, "%s sends no telemetry to FUSION, and whether %s does cannot be checked, so it is not known whether the traffic on this link reaches FUSION.", e.name(), o.name())
 			default:
-				add(stepExport, e, stepTodo, "%s has no telemetry sent to FUSION, so the traffic it sees on this link stays in the cluster. Turn on telemetry with Cluster links there and point it at a regional operator or backend.", e.name())
+				add(StepExport, e, StepTodo, "%s has no telemetry sent to FUSION, so the traffic it sees on this link stays in the cluster. Turn on telemetry with Cluster links there and point it at a regional operator or backend.", e.name())
 			}
 		}
 	}
@@ -211,21 +211,21 @@ func linkSetup(l kernel.LinkSetting, a, b setupEnd, haveFusion bool, now time.Ti
 		seen := runner.Caps.ProberSeen
 		switch {
 		case seen.IsZero():
-			add(stepProber, runner, stepTodo, "The link prober in %s has not asked its agent for the clusters to measure, so nothing is probed from there. Check that its link prober pod is running and can reach the agent.", runner.name())
+			add(StepProber, runner, StepTodo, "The link prober in %s has not asked its agent for the clusters to measure, so nothing is probed from there. Check that its link prober pod is running and can reach the agent.", runner.name())
 		case now.Sub(seen) > proberFreshFor:
-			add(stepProber, runner, stepTodo, "The link prober in %s last asked its agent for the clusters to measure %s ago, so probing from there has stopped. Check that its link prober pod is running and can reach the agent.", runner.name(), setupAgo(now.Sub(seen)))
+			add(StepProber, runner, StepTodo, "The link prober in %s last asked its agent for the clusters to measure %s ago, so probing from there has stopped. Check that its link prober pod is running and can reach the agent.", runner.name(), setupAgo(now.Sub(seen)))
 		default:
-			add(stepProber, runner, stepOK, "The link prober in %s is asking its agent for the clusters to measure.", runner.name())
+			add(StepProber, runner, StepOK, "The link prober in %s is asking its agent for the clusters to measure.", runner.name())
 		}
 	}
 
 	// 5. Throughput tests need iperf3 in both clusters: the first runs them, the other answers.
 	if l.Throughput != nil {
 		first := &a
-		if linkRunner(a.ID, b.ID) == b.ID {
+		if LinkRunner(a.ID, b.ID) == b.ID {
 			first = &b
 		}
-		for _, e := range []*setupEnd{first, other(first)} {
+		for _, e := range []*SetupEnd{first, other(first)} {
 			if !known(e) {
 				continue
 			}
@@ -234,9 +234,9 @@ func linkSetup(l kernel.LinkSetting, a, b setupEnd, haveFusion bool, now time.Ti
 				role = "runs the throughput tests of this pair"
 			}
 			if e.Caps.CapacityEnabled {
-				add(stepCapacity, e, stepOK, "iperf3 is switched on in %s, which %s.", e.name(), role)
+				add(StepCapacity, e, StepOK, "iperf3 is switched on in %s, which %s.", e.name(), role)
 			} else {
-				add(stepCapacity, e, stepTodo, "iperf3 is not switched on in %s, which %s. Turn on Throughput tests under Cluster links in the telemetry settings of that install (in both clusters).", e.name(), role)
+				add(StepCapacity, e, StepTodo, "iperf3 is not switched on in %s, which %s. Turn on Throughput tests under Cluster links in the telemetry settings of that install (in both clusters).", e.name(), role)
 			}
 		}
 	}
@@ -244,9 +244,9 @@ func linkSetup(l kernel.LinkSetting, a, b setupEnd, haveFusion bool, now time.Ti
 	// 6. Optional: the other cluster sends telemetry too.
 	if active && haveFusion && known(second) {
 		if second.Caps.TelemetryExport {
-			add(stepPeerExport, second, stepOK, "%s also sends its telemetry onward, which adds its traffic series and its half of the path MTU in FUSION.", second.name())
+			add(stepPeerExport, second, StepOK, "%s also sends its telemetry onward, which adds its traffic series and its half of the path MTU in FUSION.", second.name())
 		} else {
-			add(stepPeerExport, second, stepOptional, "%s sends no telemetry to FUSION. Optional: with it, FUSION would also hold its traffic series and its half of the path MTU.", second.name())
+			add(stepPeerExport, second, StepOptional, "%s sends no telemetry to FUSION. Optional: with it, FUSION would also hold its traffic series and its half of the path MTU.", second.name())
 		}
 	}
 	return out

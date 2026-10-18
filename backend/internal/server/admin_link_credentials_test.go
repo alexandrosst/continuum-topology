@@ -80,15 +80,15 @@ func TestRotatingLinkCredentialsIsAnAdminActionThatShowsNoSecrets(t *testing.T) 
 	}
 
 	// Nothing secret in the answers or the audit trail.
-	creds, err := a.hub().C.linkCredentials(a.ctx, a.hub().C.Settings().Links, false)
+	creds, err := a.hub().C.LinkCredentials(a.ctx, a.hub().C.Settings().Links, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var secrets []string
-	for _, k := range creds.clusters {
+	for _, k := range creds.Clusters {
 		secrets = append(secrets, k.Private.Reveal())
 	}
-	for _, p := range creds.pairs {
+	for _, p := range creds.Pairs {
 		secrets = append(secrets, p.Password.Reveal())
 	}
 	if len(secrets) == 0 {

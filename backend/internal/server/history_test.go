@@ -17,7 +17,6 @@ import (
 	"continuum/internal/facts"
 	"continuum/internal/history"
 	"continuum/internal/kernel"
-	"continuum/internal/measure"
 	"continuum/internal/model"
 	"continuum/internal/observed"
 	"continuum/internal/store"
@@ -375,46 +374,22 @@ func TestDeriveTargetsPicksBusiestSafeTCPDestinations(t *testing.T) {
 	extEdge(ft, w, "169.254.169.254", 80, "tcp", 900, "") // forbidden
 	extEdge(ft, w, "127.0.0.1", 80, "tcp", 900, "")       // forbidden
 	extEdge(ft, w, "198.51.100.13", 80, "tcp", 900, "dns")
-	got := deriveTargets(ft)
+	got := DeriveTargets(ft)
 	if len(got) != 2 || got[0].Host != "198.51.100.10" || got[0].Port != 443 || got[1].Host != "198.51.100.11" {
 		t.Fatalf("targets = %+v", got)
 	}
-	if got[0].Source != "observed" || got[0].ID != observedTargetID("198.51.100.10") {
+	if got[0].Source != "observed" || got[0].ID != ObservedTargetID("198.51.100.10") {
 		t.Fatalf("target = %+v", got[0])
 	}
-	if deriveTargets(nil) != nil {
+	if DeriveTargets(nil) != nil {
 		t.Fatal("nil table")
 	}
 	big := observed.NewFlowTable()
 	for i := 0; i < 40; i++ {
 		extEdge(big, w, "198.51.100."+itoa(int64(i+1)), 443, "tcp", uint64(i+1), "")
 	}
-	if n := len(deriveTargets(big)); n != maxObservedTargets {
-		t.Fatalf("%d targets, want %d", n, maxObservedTargets)
-	}
-}
-
-func TestPathSummaryMergesRounds(t *testing.T) {
-	p := &pathTrack{}
-	at := time.Now()
-	p.add(measure.Result{Samples: 5, Failed: 0, Min: 10, P50: 12, P95: 20}, at)
-	p.add(measure.Result{Samples: 5, Failed: 5}, at) // an outage round must not pull times to zero
-	p.add(measure.Result{Samples: 5, Failed: 1, Min: 9, P50: 14, P95: 30}, at)
-	min, p50, p95, loss, n := p.summary()
-	if min != 9 || p50 != 14 || p95 != 30 || n != 15 {
-		t.Fatalf("summary = %v %v %v %v %v", min, p50, p95, loss, n)
-	}
-	if loss < 39 || loss > 41 { // 6 of 15
-		t.Fatalf("loss = %v", loss)
-	}
-	for i := 0; i < 10; i++ {
-		p.add(measure.Result{Samples: 5, Min: 1, P50: 2, P95: 3}, at)
-	}
-	if len(p.rounds) != roundsKept {
-		t.Fatalf("kept %d rounds", len(p.rounds))
-	}
-	if _, _, _, loss, _ := p.summary(); loss != 0 {
-		t.Fatal("old failures were not forgotten")
+	if n := len(DeriveTargets(big)); n != MaxObservedTargets {
+		t.Fatalf("%d targets, want %d", n, MaxObservedTargets)
 	}
 }
 
@@ -422,7 +397,7 @@ func TestNoteMeasurementsAcceptsOnlyIssuedTargetsAndSaneNumbers(t *testing.T) {
 	r := newHubRig(t)
 	id, _, _ := r.approvedAgent(t, fp)
 	r.hub.mu.Lock()
-	r.hub.views[id] = &view{estView: estView{state: facts.New()}, netView: netView{paths: map[string]*pathTrack{}, targets: map[string]issuedTarget{"t1": {ID: "t1", Host: "203.0.113.10", Port: 443, Source: "manual"}}}}
+	r.hub.views[id] = &view{estView: estView{state: facts.New()}, NetView: NetView{Paths: map[string]*PathTrack{}, Targets: map[string]IssuedTarget{"t1": {ID: "t1", Host: "203.0.113.10", Port: 443, Source: "manual"}}}}
 	r.hub.mu.Unlock()
 	r.hub.noteMeasurements(id, &continuumv1.Measurements{Results: []*continuumv1.PathResult{
 		{TargetId: "t1", Samples: 5, Failed: 1, RttMinMs: 10, RttP50Ms: 12, RttP95Ms: 1e12},
@@ -432,10 +407,10 @@ func TestNoteMeasurementsAcceptsOnlyIssuedTargetsAndSaneNumbers(t *testing.T) {
 		{TargetId: "t1", Samples: 5, Failed: 6},        // more failures than attempts
 	}})
 	v := r.hub.views[id]
-	if len(v.paths) != 1 || v.paths["t1"] == nil || len(v.paths["t1"].rounds) != 1 {
-		t.Fatalf("paths = %+v", v.paths)
+	if len(v.Paths) != 1 || v.Paths["t1"] == nil || len(v.Paths["t1"].Rounds) != 1 {
+		t.Fatalf("paths = %+v", v.Paths)
 	}
-	if got := v.paths["t1"].rounds[0].P95; got != 60000 {
+	if got := v.Paths["t1"].Rounds[0].P95; got != 60000 {
 		t.Fatalf("an absurd time was not clamped: %v", got)
 	}
 	r.hub.noteMeasurements("unknown-agent", &continuumv1.Measurements{}) // must not panic
@@ -451,7 +426,7 @@ func TestConfigForIssuesManualAndObservedTargetsByTier(t *testing.T) {
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	v := &view{estView: estView{state: facts.New(), flows: observed.NewFlowTable()}, netView: netView{paths: map[string]*pathTrack{"stale": {}}, targets: map[string]issuedTarget{}}}
+	v := &view{estView: estView{state: facts.New(), flows: observed.NewFlowTable()}, NetView: NetView{Paths: map[string]*PathTrack{"stale": {}}, Targets: map[string]IssuedTarget{}}}
 	extEdge(v.flows, "ns/Deployment/a", "198.51.100.10", 443, "tcp", 20, "")
 
 	a.AccessTier = 1 // flows come from pods; tier 1 does not cover them
@@ -464,18 +439,18 @@ func TestConfigForIssuesManualAndObservedTargetsByTier(t *testing.T) {
 	if len(cfg.ProbeTargets) != 2 || cfg.ResyncSeconds != int32(15*60) {
 		t.Fatalf("tier 2 config = %+v", cfg)
 	}
-	if _, ok := v.paths["stale"]; ok {
+	if _, ok := v.Paths["stale"]; ok {
 		t.Fatal("a path for a target no longer issued was kept")
 	}
-	h1 := v.cfgHash
+	h1 := v.CfgHash
 	r.hub.ConsistencyEvery = 2 * time.Second
-	if cfg = r.hub.configFor(a, v); cfg.ResyncSeconds != 2 || v.cfgHash == h1 {
+	if cfg = r.hub.configFor(a, v); cfg.ResyncSeconds != 2 || v.CfgHash == h1 {
 		t.Fatalf("the test override was ignored: %+v", cfg)
 	}
 	if _, err := r.core.SaveSettings(r.ctx, "alex", kernel.Settings{}); err != nil {
 		t.Fatal(err)
 	}
-	bare := &view{estView: estView{state: facts.New(), flows: observed.NewFlowTable()}, netView: netView{paths: map[string]*pathTrack{}, targets: map[string]issuedTarget{}}}
+	bare := &view{estView: estView{state: facts.New(), flows: observed.NewFlowTable()}, NetView: NetView{Paths: map[string]*PathTrack{}, Targets: map[string]IssuedTarget{}}}
 	if cfg = r.hub.configFor(a, bare); cfg.MeasureSeconds != 0 || len(cfg.ProbeTargets) != 0 {
 		t.Fatalf("empty config = %+v", cfg)
 	}
@@ -547,7 +522,7 @@ func liveView(now time.Time, nodes ...string) *view {
 	for _, n := range nodes {
 		st.Nodes[n] = &continuumv1.NodeFacts{Key: n, Name: n, Ready: true}
 	}
-	return &view{estView: estView{state: st, lastSync: now, lastBeat: now, flows: observed.NewFlowTable()}, netView: netView{paths: map[string]*pathTrack{}, targets: map[string]issuedTarget{}}}
+	return &view{estView: estView{state: st, lastSync: now, lastBeat: now, flows: observed.NewFlowTable()}, NetView: NetView{Paths: map[string]*PathTrack{}, Targets: map[string]IssuedTarget{}}}
 }
 
 func TestRecorderStoresSnapshotsAndEventsOnlyForRealChanges(t *testing.T) {

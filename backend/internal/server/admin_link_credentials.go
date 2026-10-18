@@ -63,16 +63,16 @@ func rotateRefusal(links []kernel.LinkSetting, cluster, a, b string) string {
 			return "a cluster id is at most 64 characters"
 		}
 	}
-	pairs := throughputPairs(links)
+	pairs := ThroughputPairs(links)
 	if cluster != "" {
 		for _, p := range pairs {
-			if linkServer(p[0], p[1]) == cluster {
+			if LinkServer(p[0], p[1]) == cluster {
 				return ""
 			}
 		}
 		return "that cluster serves no pair with throughput tests"
 	}
-	if !containsPair(pairs, [2]string{min(a, b), max(a, b)}) {
+	if !ContainsPair(pairs, [2]string{min(a, b), max(a, b)}) {
 		return "that pair does not ask for throughput tests"
 	}
 	return ""

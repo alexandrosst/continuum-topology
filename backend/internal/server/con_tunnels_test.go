@@ -18,7 +18,7 @@ func TestCorrelateTunnelsConfirmsAReciprocalPair(t *testing.T) {
 		Name: "wg0", Kind: "wireguard", Addresses: []string{"10.8.0.2/24"}, Routes: []string{"10.8.0.0/24"},
 	})
 	nodes := []model.Node{a, b}
-	correlateTunnels(nodes)
+	CorrelateTunnels(nodes)
 	if nodes[0].Tunnels[0].Confirmed != "node-b" {
 		t.Errorf("node-a's tunnel Confirmed = %q, want node-b", nodes[0].Tunnels[0].Confirmed)
 	}
@@ -35,7 +35,7 @@ func TestCorrelateTunnelsLeavesAOneSidedTunnelUnconfirmed(t *testing.T) {
 		Name: "wg0", Kind: "wireguard", Addresses: []string{"10.8.0.1/24"}, Routes: []string{"10.8.0.0/24"},
 	})
 	nodes := []model.Node{a}
-	correlateTunnels(nodes)
+	CorrelateTunnels(nodes)
 	if got := nodes[0].Tunnels[0].Confirmed; got != "" {
 		t.Errorf("Confirmed = %q, want empty (nothing corroborates it)", got)
 	}
@@ -51,7 +51,7 @@ func TestCorrelateTunnelsRequiresAgreementInBothDirections(t *testing.T) {
 		Name: "wg0", Kind: "wireguard", Addresses: []string{"10.9.0.2/24"}, Routes: []string{"10.8.0.0/24"},
 	})
 	nodes := []model.Node{a, b}
-	correlateTunnels(nodes)
+	CorrelateTunnels(nodes)
 	if nodes[0].Tunnels[0].Confirmed != "" || nodes[1].Tunnels[0].Confirmed != "" {
 		t.Errorf("got %q / %q, want both empty (agreement is one-directional only)", nodes[0].Tunnels[0].Confirmed, nodes[1].Tunnels[0].Confirmed)
 	}
@@ -63,7 +63,7 @@ func TestCorrelateTunnelsNeverMatchesTwoTunnelsOnTheSameNode(t *testing.T) {
 		model.TunnelInterface{Name: "wg1", Kind: "wireguard", Addresses: []string{"10.9.0.1/24"}, Routes: []string{"10.8.0.0/24"}},
 	)
 	nodes := []model.Node{a}
-	correlateTunnels(nodes)
+	CorrelateTunnels(nodes)
 	for i, tu := range nodes[0].Tunnels {
 		if tu.Confirmed != "" {
 			t.Errorf("tunnel %d Confirmed = %q, want empty (a node cannot corroborate its own tunnel)", i, tu.Confirmed)
@@ -85,7 +85,7 @@ func TestCorrelateTunnelsRejectsCoincidentalOverlapOnABroadSharedSupernet(t *tes
 		Name: "wg0", Kind: "wireguard", Addresses: []string{"10.9.8.7/32"}, Routes: []string{"10.0.0.0/8"},
 	})
 	nodes := []model.Node{a, b}
-	correlateTunnels(nodes)
+	CorrelateTunnels(nodes)
 	if nodes[0].Tunnels[0].Confirmed != "" || nodes[1].Tunnels[0].Confirmed != "" {
 		t.Errorf("got %q / %q, want both empty - a shared /8 is not specific evidence of a real link", nodes[0].Tunnels[0].Confirmed, nodes[1].Tunnels[0].Confirmed)
 	}
@@ -101,7 +101,7 @@ func TestCorrelateTunnelsStillConfirmsASpecificEnoughRoute(t *testing.T) {
 		Name: "wg0", Kind: "wireguard", Addresses: []string{"10.8.0.2/24"}, Routes: []string{"10.8.0.0/24"},
 	})
 	nodes := []model.Node{a, b}
-	correlateTunnels(nodes)
+	CorrelateTunnels(nodes)
 	if nodes[0].Tunnels[0].Confirmed != "node-b" || nodes[1].Tunnels[0].Confirmed != "node-a" {
 		t.Errorf("a /24 route should still confirm normally: got %q / %q", nodes[0].Tunnels[0].Confirmed, nodes[1].Tunnels[0].Confirmed)
 	}
@@ -114,11 +114,12 @@ func TestCorrelateTunnelsFindsAMatchAcrossManyNodes(t *testing.T) {
 		nodeWithTunnel("y", "noise-2"),
 		nodeWithTunnel("b", "node-b", model.TunnelInterface{Name: "wg0", Kind: "wireguard", Addresses: []string{"10.8.0.2/24"}, Routes: []string{"10.8.0.0/24"}}),
 	}
-	correlateTunnels(nodes)
+	CorrelateTunnels(nodes)
 	if nodes[1].Tunnels[0].Confirmed != "node-b" || nodes[3].Tunnels[0].Confirmed != "node-a" {
 		t.Errorf("node-a/node-b did not confirm each other: %q / %q", nodes[1].Tunnels[0].Confirmed, nodes[3].Tunnels[0].Confirmed)
 	}
 }
+
 func nodeForClusterLink(clusterID, id, name string) model.Node {
 	return model.Node{ClusterID: clusterID, ID: id, Name: name}
 }
@@ -129,7 +130,7 @@ func TestCorrelateClusterLinksConfirmsAnOverlayLinkAcrossClusters(t *testing.T) 
 	b := nodeForClusterLink("cluster-b", "b", "node-b")
 	b.Tunnels = []model.TunnelInterface{{Name: "wg0", Kind: "wireguard", Addresses: []string{"10.8.0.2/24"}, Routes: []string{"10.8.0.0/24"}}}
 	names := map[string]string{"cluster-a": "Cluster A", "cluster-b": "Cluster B"}
-	got := correlateClusterLinks([]model.Node{a, b}, names, nil, nil)
+	got := CorrelateClusterLinks([]model.Node{a, b}, names, nil, nil)
 	if len(got) != 1 {
 		t.Fatalf("got %d links, want 1: %+v", len(got), got)
 	}
@@ -160,7 +161,7 @@ func TestCorrelateClusterLinksCountsRedundancyInsteadOfDroppingExtraCorroboratio
 		{Name: "wg1", Kind: "wireguard", Addresses: []string{"10.9.0.2/24"}, Routes: []string{"10.9.0.0/24"}},
 	}
 	names := map[string]string{"cluster-a": "Cluster A", "cluster-b": "Cluster B"}
-	got := correlateClusterLinks([]model.Node{a, b}, names, nil, nil)
+	got := CorrelateClusterLinks([]model.Node{a, b}, names, nil, nil)
 	if len(got) != 1 {
 		t.Fatalf("got %d links, want exactly 1 (same pair, same kind - two paths, not two links): %+v", len(got), got)
 	}
@@ -176,7 +177,7 @@ func TestCorrelateClusterLinksIgnoresATunnelMatchWithinOneCluster(t *testing.T) 
 	a.Tunnels = []model.TunnelInterface{{Name: "wg0", Kind: "wireguard", Addresses: []string{"10.8.0.1/24"}, Routes: []string{"10.8.0.0/24"}}}
 	b := nodeForClusterLink("cluster-a", "b", "node-b")
 	b.Tunnels = []model.TunnelInterface{{Name: "wg0", Kind: "wireguard", Addresses: []string{"10.8.0.2/24"}, Routes: []string{"10.8.0.0/24"}}}
-	if got := correlateClusterLinks([]model.Node{a, b}, nil, nil, nil); got != nil {
+	if got := CorrelateClusterLinks([]model.Node{a, b}, nil, nil, nil); got != nil {
 		t.Errorf("got %+v, want nil - both ends are in the same cluster", got)
 	}
 }
@@ -187,7 +188,7 @@ func TestCorrelateClusterLinksConfirmsASubnetLinkAcrossClusters(t *testing.T) {
 	b := nodeForClusterLink("cluster-b", "b", "node-b")
 	b.HostSubnets = []string{"10.20.30.9/24"}
 	names := map[string]string{"cluster-a": "Cluster A", "cluster-b": "Cluster B"}
-	got := correlateClusterLinks([]model.Node{a, b}, names, nil, nil)
+	got := CorrelateClusterLinks([]model.Node{a, b}, names, nil, nil)
 	if len(got) != 1 {
 		t.Fatalf("got %d links, want 1: %+v", len(got), got)
 	}
@@ -204,7 +205,7 @@ func TestCorrelateClusterLinksRejectsATooBroadSharedSubnet(t *testing.T) {
 	a.HostSubnets = []string{"10.1.2.3/8"}
 	b := nodeForClusterLink("cluster-b", "b", "node-b")
 	b.HostSubnets = []string{"10.9.8.7/8"}
-	if got := correlateClusterLinks([]model.Node{a, b}, nil, nil, nil); got != nil {
+	if got := CorrelateClusterLinks([]model.Node{a, b}, nil, nil, nil); got != nil {
 		t.Errorf("got %+v, want nil - a shared /8 is not specific evidence", got)
 	}
 }
@@ -214,7 +215,7 @@ func TestCorrelateClusterLinksDifferentNetworksDoNotMatch(t *testing.T) {
 	a.HostSubnets = []string{"10.20.30.5/24"}
 	b := nodeForClusterLink("cluster-b", "b", "node-b")
 	b.HostSubnets = []string{"10.20.31.5/24"} // a genuinely different /24 - must not match
-	if got := correlateClusterLinks([]model.Node{a, b}, nil, nil, nil); got != nil {
+	if got := CorrelateClusterLinks([]model.Node{a, b}, nil, nil, nil); got != nil {
 		t.Errorf("got %+v, want nil - these are different networks", got)
 	}
 }
@@ -230,7 +231,7 @@ func TestCorrelateClusterLinksDedupsAcrossSeveralCorroboratingNodePairs(t *testi
 	b1.HostSubnets = []string{"10.20.30.7/24"}
 	b2 := nodeForClusterLink("cluster-b", "b2", "node-b2")
 	b2.HostSubnets = []string{"10.20.30.8/24"}
-	got := correlateClusterLinks([]model.Node{a1, a2, b1, b2}, nil, nil, nil)
+	got := CorrelateClusterLinks([]model.Node{a1, a2, b1, b2}, nil, nil, nil)
 	if len(got) != 1 {
 		t.Fatalf("got %d links, want exactly 1 deduped link: %+v", len(got), got)
 	}
@@ -242,7 +243,7 @@ func TestCorrelateClusterLinksOrdersFromToByClusterIDRegardlessOfScanOrder(t *te
 	b := nodeForClusterLink("a-cluster", "b", "node-b")
 	b.HostSubnets = []string{"10.20.30.9/24"}
 	// b ("a-cluster") is scanned second, but its cluster ID sorts first.
-	got := correlateClusterLinks([]model.Node{a, b}, nil, nil, nil)
+	got := CorrelateClusterLinks([]model.Node{a, b}, nil, nil, nil)
 	if len(got) != 1 || got[0].FromCluster != "a-cluster" || got[0].ToCluster != "z-cluster" {
 		t.Errorf("got %+v, want from=a-cluster to=z-cluster regardless of scan order", got)
 	}
@@ -255,7 +256,7 @@ func TestCorrelateClusterLinksBothKindsCanCoexistForTheSamePair(t *testing.T) {
 	b := nodeForClusterLink("cluster-b", "b", "node-b")
 	b.Tunnels = []model.TunnelInterface{{Name: "wg0", Kind: "wireguard", Addresses: []string{"10.8.0.2/24"}, Routes: []string{"10.8.0.0/24"}}}
 	b.HostSubnets = []string{"10.20.30.9/24"}
-	got := correlateClusterLinks([]model.Node{a, b}, nil, nil, nil)
+	got := CorrelateClusterLinks([]model.Node{a, b}, nil, nil, nil)
 	if len(got) != 2 {
 		t.Fatalf("got %d links, want 2 (overlay and subnet are independent facts): %+v", len(got), got)
 	}
@@ -295,7 +296,7 @@ func TestCorrelateClusterLinksRollsUpFlowsCrossingAConfirmedOverlayLink(t *testi
 		"svc-c1": "cluster-z", "svc-c2": "cluster-z",
 	}
 
-	got := correlateClusterLinks([]model.Node{a, b}, names, deps, serviceClusterID)
+	got := CorrelateClusterLinks([]model.Node{a, b}, names, deps, serviceClusterID)
 	if len(got) != 1 {
 		t.Fatalf("got %d links, want 1: %+v", len(got), got)
 	}
@@ -340,7 +341,7 @@ func TestCorrelateClusterLinksAnnotatesMatchingDependenciesWithTunnelLink(t *tes
 		"svc-c1": "cluster-z", "svc-c2": "cluster-z",
 	}
 
-	got := correlateClusterLinks([]model.Node{a, b}, names, deps, serviceClusterID)
+	got := CorrelateClusterLinks([]model.Node{a, b}, names, deps, serviceClusterID)
 	l := got[0]
 
 	for i, want := range []bool{true, true, false, false} {
@@ -371,7 +372,7 @@ func TestCorrelateClusterLinksRollupLeavesRttAndLossUnsetWithoutAnyMeasuredSampl
 	deps := []model.Dependency{{From: "svc-a1", FromKind: "service", To: "svc-b1", ToKind: "service", Iface: "wg0", Via: "conntrack"}}
 	serviceClusterID := map[string]string{"svc-a1": "cluster-a", "svc-b1": "cluster-b"}
 
-	got := correlateClusterLinks([]model.Node{a, b}, names, deps, serviceClusterID)
+	got := CorrelateClusterLinks([]model.Node{a, b}, names, deps, serviceClusterID)
 	l := got[0]
 	if l.FlowsObserved != 1 {
 		t.Errorf("FlowsObserved = %d, want 1", l.FlowsObserved)
@@ -395,7 +396,7 @@ func TestCorrelateClusterLinksRollupNeverAppliesToASubnetLink(t *testing.T) {
 	deps := []model.Dependency{{From: "svc-a1", FromKind: "service", Iface: "eth0", RttMs: 10}}
 	serviceClusterID := map[string]string{"svc-a1": "cluster-a"}
 
-	got := correlateClusterLinks([]model.Node{a, b}, names, deps, serviceClusterID)
+	got := CorrelateClusterLinks([]model.Node{a, b}, names, deps, serviceClusterID)
 	if len(got) != 1 || got[0].Kind != "subnet" {
 		t.Fatalf("got %+v, want exactly one subnet link", got)
 	}
@@ -424,7 +425,7 @@ func TestCorrelateClusterLinksRollupCountsFlowsOnAnyRedundantInterface(t *testin
 	}
 	serviceClusterID := map[string]string{"svc-a1": "cluster-a", "svc-a2": "cluster-a", "svc-b1": "cluster-b"}
 
-	got := correlateClusterLinks([]model.Node{a, b}, names, deps, serviceClusterID)
+	got := CorrelateClusterLinks([]model.Node{a, b}, names, deps, serviceClusterID)
 	if len(got) != 1 || got[0].Redundancy != 2 {
 		t.Fatalf("got %+v, want one link with Redundancy=2", got)
 	}
@@ -442,7 +443,7 @@ func TestCorrelateClusterLinksClassifiesAWireGuardOverlayAsEncrypted(t *testing.
 	b := nodeForClusterLink("cluster-b", "b", "node-b")
 	b.Tunnels = []model.TunnelInterface{{Name: "wg0", Kind: "wireguard", Addresses: []string{"10.8.0.2/24"}, Routes: []string{"10.8.0.0/24"}}}
 	names := map[string]string{"cluster-a": "Cluster A", "cluster-b": "Cluster B"}
-	got := correlateClusterLinks([]model.Node{a, b}, names, nil, nil)
+	got := CorrelateClusterLinks([]model.Node{a, b}, names, nil, nil)
 	if len(got) != 1 || got[0].Encryption != "encrypted" {
 		t.Fatalf("got %+v, want exactly one link with Encryption=\"encrypted\" (WireGuard encrypts by design)", got)
 	}
@@ -456,7 +457,7 @@ func TestCorrelateClusterLinksClassifiesAGREOverlayAsPlaintext(t *testing.T) {
 	b := nodeForClusterLink("cluster-b", "b", "node-b")
 	b.Tunnels = []model.TunnelInterface{{Name: "gre0", Kind: "gre", Addresses: []string{"192.0.2.2/30"}, Routes: []string{"192.0.2.0/24"}}}
 	names := map[string]string{"cluster-a": "Cluster A", "cluster-b": "Cluster B"}
-	got := correlateClusterLinks([]model.Node{a, b}, names, nil, nil)
+	got := CorrelateClusterLinks([]model.Node{a, b}, names, nil, nil)
 	if len(got) != 1 || got[0].Encryption != "plaintext" {
 		t.Fatalf("got %+v, want exactly one link with Encryption=\"plaintext\" (GRE carries no cryptography of its own)", got)
 	}
@@ -470,7 +471,7 @@ func TestCorrelateClusterLinksNeverClassifiesASubnetLink(t *testing.T) {
 	b := nodeForClusterLink("cluster-b", "b", "node-b")
 	b.HostSubnets = []string{"10.20.30.9/24"}
 	names := map[string]string{"cluster-a": "Cluster A", "cluster-b": "Cluster B"}
-	got := correlateClusterLinks([]model.Node{a, b}, names, nil, nil)
+	got := CorrelateClusterLinks([]model.Node{a, b}, names, nil, nil)
 	if len(got) != 1 || got[0].Encryption != "" {
 		t.Fatalf("got %+v, want Encryption empty for a subnet link", got)
 	}
@@ -514,7 +515,7 @@ func TestCorrelateClusterLinksDoesNotMisattributeAcrossCollidingInterfaceNamesOn
 		"svc-b-callee": "cluster-b", "svc-c-callee": "cluster-c",
 	}
 
-	got := correlateClusterLinks([]model.Node{a1, b1, a2, c1}, names, deps, serviceClusterID)
+	got := CorrelateClusterLinks([]model.Node{a1, b1, a2, c1}, names, deps, serviceClusterID)
 	if len(got) != 2 {
 		t.Fatalf("got %d links, want 2 (cluster-a<->cluster-b and cluster-a<->cluster-c are distinct pairs): %+v", len(got), got)
 	}
@@ -554,9 +555,9 @@ func TestCorrelateClusterPairConnectivityReportsTunnelStatusFromAnExistingOverla
 	b.Tunnels = []model.TunnelInterface{{Name: "wg0", Kind: "wireguard", Addresses: []string{"10.8.0.2/24"}, Routes: []string{"10.8.0.0/24"}}}
 	names := map[string]string{"cluster-a": "Cluster A", "cluster-b": "Cluster B"}
 	nodes := []model.Node{a, b}
-	links := correlateClusterLinks(nodes, names, nil, nil)
+	links := CorrelateClusterLinks(nodes, names, nil, nil)
 
-	got := correlateClusterPairConnectivity(nodes, names, nil, nil, links)
+	got := CorrelateClusterPairConnectivity(nodes, names, nil, nil, links)
 	if len(got) != 1 {
 		t.Fatalf("got %d pairs, want 1: %+v", len(got), got)
 	}
@@ -579,9 +580,9 @@ func TestCorrelateClusterPairConnectivityReportsSubnetStatusFromAnExistingSubnet
 	b.HostSubnets = []string{"10.20.30.9/24"}
 	names := map[string]string{"cluster-a": "Cluster A", "cluster-b": "Cluster B"}
 	nodes := []model.Node{a, b}
-	links := correlateClusterLinks(nodes, names, nil, nil)
+	links := CorrelateClusterLinks(nodes, names, nil, nil)
 
-	got := correlateClusterPairConnectivity(nodes, names, nil, nil, links)
+	got := CorrelateClusterPairConnectivity(nodes, names, nil, nil, links)
 	if len(got) != 1 || got[0].Status != "subnet" {
 		t.Fatalf("got %+v, want exactly 1 pair with Status=subnet", got)
 	}
@@ -603,12 +604,12 @@ func TestCorrelateClusterPairConnectivityPrefersTunnelStatusWhenBothKindsCoexist
 	b.HostSubnets = []string{"10.20.30.9/24"}
 	names := map[string]string{"cluster-a": "Cluster A", "cluster-b": "Cluster B"}
 	nodes := []model.Node{a, b}
-	links := correlateClusterLinks(nodes, names, nil, nil)
+	links := CorrelateClusterLinks(nodes, names, nil, nil)
 	if len(links) != 2 {
 		t.Fatalf("setup: got %d links, want 2", len(links))
 	}
 
-	got := correlateClusterPairConnectivity(nodes, names, nil, nil, links)
+	got := CorrelateClusterPairConnectivity(nodes, names, nil, nil, links)
 	if len(got) != 1 || got[0].Status != "tunnel" {
 		t.Fatalf("got %+v, want exactly 1 pair with Status=tunnel", got)
 	}
@@ -628,7 +629,7 @@ func TestCorrelateClusterPairConnectivityFlagsUnexplainedCrossClusterTrafficWith
 	b.HostSubnets = []string{"10.20.31.5/24"} // ...a genuinely different /24 - no subnet link, no tunnel.
 	names := map[string]string{"cluster-a": "Cluster A", "cluster-b": "Cluster B"}
 	nodes := []model.Node{a, b}
-	links := correlateClusterLinks(nodes, names, nil, nil)
+	links := CorrelateClusterLinks(nodes, names, nil, nil)
 	if links != nil {
 		t.Fatalf("setup: got %+v, want no ClusterLink for these two clusters", links)
 	}
@@ -638,7 +639,7 @@ func TestCorrelateClusterPairConnectivityFlagsUnexplainedCrossClusterTrafficWith
 	}
 	serviceClusterID := map[string]string{"svc-a": "cluster-a", "svc-b": "cluster-b"}
 
-	got := correlateClusterPairConnectivity(nodes, names, deps, serviceClusterID, links)
+	got := CorrelateClusterPairConnectivity(nodes, names, deps, serviceClusterID, links)
 	if len(got) != 1 {
 		t.Fatalf("got %d pairs, want 1: %+v", len(got), got)
 	}
@@ -673,7 +674,7 @@ func TestCorrelateClusterPairConnectivityFlagsUnknownWhenOneSideHasNoNetworkEvid
 	}
 	serviceClusterID := map[string]string{"svc-a": "cluster-a", "svc-b": "cluster-b"}
 
-	got := correlateClusterPairConnectivity(nodes, names, deps, serviceClusterID, nil)
+	got := CorrelateClusterPairConnectivity(nodes, names, deps, serviceClusterID, nil)
 	if len(got) != 1 {
 		t.Fatalf("got %d pairs, want 1: %+v", len(got), got)
 	}
@@ -693,7 +694,7 @@ func TestCorrelateClusterPairConnectivitySkipsPairsWithNoRelationshipAtAll(t *te
 	a := nodeForClusterLink("cluster-a", "a", "node-a")
 	b := nodeForClusterLink("cluster-b", "b", "node-b")
 	names := map[string]string{"cluster-a": "Cluster A", "cluster-b": "Cluster B"}
-	got := correlateClusterPairConnectivity([]model.Node{a, b}, names, nil, nil, nil)
+	got := CorrelateClusterPairConnectivity([]model.Node{a, b}, names, nil, nil, nil)
 	if got != nil {
 		t.Errorf("got %+v, want nil - these two clusters have no relationship to report on", got)
 	}
@@ -708,7 +709,7 @@ func TestCorrelateClusterPairConnectivityOrdersFromToByClusterIDRegardlessOfScan
 	}
 	serviceClusterID := map[string]string{"svc-z": "z-cluster", "svc-a": "a-cluster"}
 
-	got := correlateClusterPairConnectivity([]model.Node{a, b}, names, deps, serviceClusterID, nil)
+	got := CorrelateClusterPairConnectivity([]model.Node{a, b}, names, deps, serviceClusterID, nil)
 	if len(got) != 1 || got[0].FromCluster != "a-cluster" || got[0].ToCluster != "z-cluster" {
 		t.Errorf("got %+v, want from=a-cluster to=z-cluster regardless of scan/dependency order", got)
 	}
@@ -731,7 +732,7 @@ func TestCorrelateClusterPairConnectivityCountsEveryCrossClusterDependencyRegard
 		"svc-b1": "cluster-b",
 	}
 
-	got := correlateClusterPairConnectivity([]model.Node{a, b}, names, deps, serviceClusterID, nil)
+	got := CorrelateClusterPairConnectivity([]model.Node{a, b}, names, deps, serviceClusterID, nil)
 	if len(got) != 1 {
 		t.Fatalf("got %d pairs, want 1: %+v", len(got), got)
 	}

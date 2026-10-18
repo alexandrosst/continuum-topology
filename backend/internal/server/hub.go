@@ -46,7 +46,7 @@ const (
 type view struct {
 	estView
 	agents.View
-	netView
+	NetView
 }
 
 // estView is what the hub holds of what an agent reported about its cluster, and of the liveness of its stream.
@@ -91,7 +91,7 @@ type estView struct {
 }
 
 func newView() *view {
-	return &view{View: agents.View{Self: agents.NewSelfRing(agents.SelfStatsWindow, func(s agents.SelfStatsSample) time.Time { return s.At })}, estView: estView{state: facts.New(), flows: observed.NewFlowTable()}, netView: netView{paths: map[string]*pathTrack{}, targets: map[string]issuedTarget{}}}
+	return &view{View: agents.View{Self: agents.NewSelfRing(agents.SelfStatsWindow, func(s agents.SelfStatsSample) time.Time { return s.At })}, estView: estView{state: facts.New(), flows: observed.NewFlowTable()}, NetView: NetView{Paths: map[string]*PathTrack{}, Targets: map[string]IssuedTarget{}}}
 }
 
 type endReason struct {
@@ -366,8 +366,8 @@ func (h *Hub) Connect(stream continuumv1.AgentService_ConnectServer) error {
 		return err
 	}
 	h.mu.Lock()
-	v.cfgInForceAt = time.Time{}
-	v.cfgSentAt, v.cfgApplied = h.C.Now(), "" // a new stream: what the agent had in force on the last one says nothing about this
+	v.CfgInForceAt = time.Time{}
+	v.CfgSentAt, v.CfgApplied = h.C.Now(), "" // a new stream: what the agent had in force on the last one says nothing about this
 	h.mu.Unlock()
 	fullSeen := false                     // a full picture is a consistency check only after the first one of this connection
 	var asm *assembly                     // the pieces of a picture that arrives in several messages, until the last one
@@ -500,7 +500,7 @@ func (h *Hub) Connect(stream continuumv1.AgentService_ConnectServer) error {
 				if m.Heartbeat.Diagnostics != nil {
 					v.NoteDiagnostics(m.Heartbeat.Diagnostics, false, h.C.Now())
 				}
-				resend := v.noteConfigEcho(m.Heartbeat.AppliedConfigDigest, now)
+				resend := v.NoteConfigEcho(m.Heartbeat.AppliedConfigDigest, now)
 				if asm != nil && asm.expired(h.C.Now()) {
 					asm = nil // a picture that never finished arriving
 				}
@@ -1249,7 +1249,7 @@ func (h *Hub) buildAgentDocs(ctx context.Context, now time.Time) ([]AgentDoc, []
 				d.Diagnostics = v.diagDoc()
 				d.Consent = v.consentDoc()
 			}
-			d.Measuring = len(v.targets)
+			d.Measuring = len(v.Targets)
 			if v.consCount > 0 {
 				d.Consistency = &ConsistencyDoc{LastCheck: kernel.RFC(v.consAt), Checks: v.consCount, Differences: v.consDrift.Total()}
 				if v.consDrift.Total() > 0 {
@@ -1337,7 +1337,7 @@ func (h *Hub) buildTopology(ctx context.Context, agentList []store.Agent, now ti
 	}
 	// Needs every cluster's nodes in one list (a tunnel's other end is often in a different cluster, or
 	// this very same one), so this runs once here rather than per cluster inside the loop above.
-	correlateTunnels(topo.Nodes)
+	CorrelateTunnels(topo.Nodes)
 	names := map[string]string{}
 	for _, c := range topo.Clusters {
 		names[c.ID] = c.Name
@@ -1351,10 +1351,10 @@ func (h *Hub) buildTopology(ctx context.Context, agentList []store.Agent, now ti
 	}
 	// Same reasoning as correlateTunnels just above: a cluster-pair relationship can only be seen once
 	// every cluster's nodes are in one list, so this also runs once here, after names is built.
-	topo.ClusterLinks = correlateClusterLinks(topo.Nodes, names, topo.Dependencies, serviceClusterID)
+	topo.ClusterLinks = CorrelateClusterLinks(topo.Nodes, names, topo.Dependencies, serviceClusterID)
 	// Builds on topo.ClusterLinks just computed above - see correlateClusterPairConnectivity's own doc
 	// for why it takes that output as-is rather than recomputing the tunnel/subnet correlation itself.
-	topo.ClusterPairConnectivity = correlateClusterPairConnectivity(topo.Nodes, names, topo.Dependencies, serviceClusterID, topo.ClusterLinks)
+	topo.ClusterPairConnectivity = CorrelateClusterPairConnectivity(topo.Nodes, names, topo.Dependencies, serviceClusterID, topo.ClusterLinks)
 	topo.Paths = h.pathDocs(agentList, located, names, now)
 	tombstones := h.tombstoneDocs(now)
 	observation := twin.ObservationDoc{StaleAfterSeconds: int(window / time.Second), TombstoneRetentionDays: int(h.retention() / (24 * time.Hour))}

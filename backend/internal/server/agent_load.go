@@ -20,5 +20,5 @@ func (l hubLoad) AgentLoad(agentID string) decisionloop.AgentLoad {
 	for _, s := range v.Self.List() {
 		samples = append(samples, decisionloop.LoadSample{At: s.At, RSSBytes: s.RSSBytes, CPUSeconds: s.CPUSeconds, LinkBytesCumulative: s.LinkBytesCumulative})
 	}
-	return decisionloop.AgentLoad{Known: true, Samples: samples, ConfigHash: v.cfgHash, ConfigApplied: v.cfgApplied, InForceAt: v.cfgInForceAt}
+	return decisionloop.AgentLoad{Known: true, Samples: samples, ConfigHash: v.CfgHash, ConfigApplied: v.CfgApplied, InForceAt: v.CfgInForceAt}
 }

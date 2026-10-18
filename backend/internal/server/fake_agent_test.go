@@ -153,7 +153,7 @@ func (f *fakeAgent) inForce() (sent, applied string, since time.Time) {
 	f.r.hub.mu.Lock()
 	defer f.r.hub.mu.Unlock()
 	v := f.r.hub.views[f.id]
-	return v.cfgHash, v.cfgApplied, v.cfgInForceAt
+	return v.CfgHash, v.CfgApplied, v.CfgInForceAt
 }
 
 // changeTier is an administrator's change that makes the next Config differ, and the push that follows it.
@@ -235,7 +235,7 @@ func TestAnAgentThatSaysNothingAboutItsConfigIsNeverSentOneAgain(t *testing.T) {
 	f := r.newFakeAgent(t, fakeAgentCtx(t))
 	f.changeTier()
 	r.hub.mu.Lock()
-	r.hub.views[f.id].cfgSentAt = time.Now().Add(-time.Hour) // long past the grace
+	r.hub.views[f.id].CfgSentAt = time.Now().Add(-time.Hour) // long past the grace
 	r.hub.mu.Unlock()
 	for i := 0; i < 5; i++ {
 		f.beat("") // an agent from before the echo

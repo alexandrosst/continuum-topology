@@ -14,13 +14,13 @@ import (
 )
 
 const (
-	maxObservedTargets = 16
+	MaxObservedTargets = 16
 	roundsKept         = 5
 )
 
 // issuedTarget is an address the server asked an agent to time. Results are accepted only for
 // targets the server issued, so an agent cannot make up paths for places it was never asked about.
-type issuedTarget struct {
+type IssuedTarget struct {
 	ID     string
 	Host   string
 	Port   int
@@ -29,27 +29,27 @@ type issuedTarget struct {
 }
 
 // pathTrack keeps the last few rounds of samples for one target.
-type pathTrack struct {
-	t      issuedTarget
-	rounds []measure.Result
-	at     time.Time
+type PathTrack struct {
+	T      IssuedTarget
+	Rounds []measure.Result
+	At     time.Time
 }
 
-func (p *pathTrack) add(r measure.Result, at time.Time) {
-	p.rounds = append(p.rounds, r)
-	if len(p.rounds) > roundsKept {
-		p.rounds = p.rounds[len(p.rounds)-roundsKept:]
+func (p *PathTrack) Add(r measure.Result, at time.Time) {
+	p.Rounds = append(p.Rounds, r)
+	if len(p.Rounds) > roundsKept {
+		p.Rounds = p.Rounds[len(p.Rounds)-roundsKept:]
 	}
-	p.at = at
+	p.At = at
 }
 
 // summary merges the kept rounds: the median of the medians, the worst 95th percentile, the best
 // minimum, and the share of failed attempts. Rounds where every attempt failed do not drag the
 // round-trip times toward zero.
-func (p *pathTrack) summary() (min, p50, p95, lossPct float64, samples int) {
+func (p *PathTrack) Summary() (min, p50, p95, lossPct float64, samples int) {
 	var meds []float64
 	var failed int
-	for _, r := range p.rounds {
+	for _, r := range p.Rounds {
 		samples += r.Samples
 		failed += r.Failed
 		if r.Samples-r.Failed > 0 {
@@ -72,12 +72,12 @@ func (p *pathTrack) summary() (min, p50, p95, lossPct float64, samples int) {
 	return
 }
 
-func observedTargetID(ip string) string { return "ob-" + interpret.Hash("path", ip) }
+func ObservedTargetID(ip string) string { return "ob-" + interpret.Hash("path", ip) }
 
 // deriveTargets picks the addresses outside a cluster that its workloads call most: what to time to
 // learn how far away the places it really talks to are. Only TCP, only real (non-noise) traffic,
 // one target per address.
-func deriveTargets(ft *observed.FlowTable) []issuedTarget {
+func DeriveTargets(ft *observed.FlowTable) []IssuedTarget {
 	if ft == nil {
 		return nil
 	}
@@ -120,12 +120,12 @@ func deriveTargets(ft *observed.FlowTable) []issuedTarget {
 		}
 		return all[i].ip < all[j].ip
 	})
-	if len(all) > maxObservedTargets {
-		all = all[:maxObservedTargets]
+	if len(all) > MaxObservedTargets {
+		all = all[:MaxObservedTargets]
 	}
-	out := make([]issuedTarget, 0, len(all))
+	out := make([]IssuedTarget, 0, len(all))
 	for _, c := range all {
-		out = append(out, issuedTarget{ID: observedTargetID(c.ip), Host: c.ip, Port: int(c.port), Source: "observed"})
+		out = append(out, IssuedTarget{ID: ObservedTargetID(c.ip), Host: c.ip, Port: int(c.port), Source: "observed"})
 	}
 	return out
 }
@@ -133,7 +133,7 @@ func deriveTargets(ft *observed.FlowTable) []issuedTarget {
 // configFacts is everything the Config of one agent depends on, gathered: what the agent is allowed (its tier and consent), what the
 // organisation set (link peers, credentials, probe targets) and the moment. Gathering reads the store and the hub's views;
 // compileConfig does not.
-type configFacts struct {
+type ConfigFacts struct {
 	Tier      int
 	ClusterID string
 	Consent   agents.Consent
@@ -150,13 +150,13 @@ type configFacts struct {
 
 	// The candidate probe targets, in the order they are issued: chosen by an administrator, derived to test an address, and derived
 	// from observed flows (only at tier 2 and above).
-	ManualTargets, AddressTargets, DerivedTargets []issuedTarget
+	ManualTargets, AddressTargets, DerivedTargets []IssuedTarget
 }
 
 // configBuild is a Config being compiled and the targets issued with it.
 type configBuild struct {
 	cfg    *continuumv1.Config
-	issued []issuedTarget
+	issued []IssuedTarget
 }
 
 // A configSection is one part of an agent's Config and the facts it is made from. Each owns named fields of the Config and sets
@@ -165,23 +165,23 @@ type configBuild struct {
 type configSection struct {
 	name   string
 	fields []string // the proto names of the Config fields this section sets
-	fill   func(f configFacts, b *configBuild)
+	fill   func(f ConfigFacts, b *configBuild)
 }
 
 // configSections are the parts of a Config, in the order they are compiled.
 var configSections = []configSection{
-	{"policy", []string{"approved_access_tier", "paused_collectors", "excluded_namespaces"}, func(f configFacts, b *configBuild) {
+	{"policy", []string{"approved_access_tier", "paused_collectors", "excluded_namespaces"}, func(f ConfigFacts, b *configBuild) {
 		b.cfg.ApprovedAccessTier = uint32(f.Tier)
 		b.cfg.PausedCollectors = append([]string(nil), f.Consent.Paused...)
 		b.cfg.ExcludedNamespaces = append([]string(nil), f.Consent.Excluded...)
 	}},
-	{"timing", []string{"heartbeat_seconds", "resync_seconds"}, func(f configFacts, b *configBuild) {
+	{"timing", []string{"heartbeat_seconds", "resync_seconds"}, func(f ConfigFacts, b *configBuild) {
 		b.cfg.HeartbeatSeconds, b.cfg.ResyncSeconds = f.Heartbeat, f.Resync
 	}},
-	{"cluster", []string{"cluster_id"}, func(f configFacts, b *configBuild) {
+	{"cluster", []string{"cluster_id"}, func(f ConfigFacts, b *configBuild) {
 		b.cfg.ClusterId = f.ClusterID
 	}},
-	{"links", []string{"link_peers", "link_iperf_server"}, func(f configFacts, b *configBuild) {
+	{"links", []string{"link_peers", "link_iperf_server"}, func(f ConfigFacts, b *configBuild) {
 		// The iperf3 credentials follow the same gates as the peers (tier 2, flow collector not paused) and go only where the cluster
 		// has the role: the client side to the runner's LinkPeer for the server, the server side to the server's own Config. The peers
 		// are copied, so the facts are left as they were given.
@@ -196,8 +196,8 @@ var configSections = []configSection{
 			b.cfg.LinkIperfServer = f.IperfServer
 		}
 	}},
-	{"probes", []string{"probe_targets", "measure_seconds"}, func(f configFacts, b *configBuild) {
-		var ts []issuedTarget
+	{"probes", []string{"probe_targets", "measure_seconds"}, func(f ConfigFacts, b *configBuild) {
+		var ts []IssuedTarget
 		ts = append(ts, f.ManualTargets...)
 		ts = append(ts, f.AddressTargets...)
 		if f.Tier >= 2 {
@@ -226,13 +226,13 @@ var configEnvelope = []string{"server_time_unix", "digest"}
 // compileConfig is the whole of what an agent is told, decided from the facts alone, section by section: what it may send, how
 // often to check itself, the link peers and which credentials go where, and which targets it measures. It returns the Config, with
 // its digest, and the targets it issued. It reads nothing and records nothing.
-func compileConfig(f configFacts) (*continuumv1.Config, []issuedTarget) {
+func CompileConfig(f ConfigFacts) (*continuumv1.Config, []IssuedTarget) {
 	b := &configBuild{cfg: &continuumv1.Config{}}
 	for _, s := range configSections {
 		s.fill(f, b)
 	}
 	b.cfg.ServerTimeUnix = f.ServerTime
-	b.cfg.Digest = configHash(b.cfg)
+	b.cfg.Digest = ConfigHash(b.cfg)
 	return b.cfg, b.issued
 }
 
@@ -244,24 +244,24 @@ const configEchoGrace = 15 * time.Second
 // agent named one, it is not the one last sent, and the last send is old enough that it cannot still be on its way. It clears
 // cfgHash so the next pushOne sends whatever is current. An empty digest (an older agent) never asks for anything. The caller
 // holds h.mu.
-func (v *netView) noteConfigEcho(digest string, now time.Time) bool {
+func (v *NetView) NoteConfigEcho(digest string, now time.Time) bool {
 	if digest == "" {
 		return false
 	}
-	prev := v.cfgApplied
-	v.cfgApplied = digest
-	if digest == v.cfgHash && prev != digest {
-		v.cfgInForceAt = now
+	prev := v.CfgApplied
+	v.CfgApplied = digest
+	if digest == v.CfgHash && prev != digest {
+		v.CfgInForceAt = now
 	}
-	if v.cfgHash == "" || digest == v.cfgHash || now.Sub(v.cfgSentAt) < configEchoGrace {
+	if v.CfgHash == "" || digest == v.CfgHash || now.Sub(v.CfgSentAt) < configEchoGrace {
 		return false
 	}
-	v.cfgHash = ""
+	v.CfgHash = ""
 	return true
 }
 
 // sane keeps a reported time within what a TCP connect can plausibly take.
-func sane(ms float64) float64 {
+func Sane(ms float64) float64 {
 	if ms != ms || ms < 0 {
 		return 0
 	}

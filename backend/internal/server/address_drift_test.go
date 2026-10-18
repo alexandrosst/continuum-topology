@@ -40,7 +40,7 @@ func quietTests(a *adminRig, agentID string) map[string]string {
 	a.hub().mu.Lock()
 	defer a.hub().mu.Unlock()
 	out := map[string]string{}
-	for id, t := range a.hub().views[agentID].addrTests {
+	for id, t := range a.hub().views[agentID].AddrTests {
 		if t.Quiet {
 			out[t.Address] = id
 		}
@@ -104,12 +104,12 @@ func TestTheServerRetestsASendersAddressOnItsOwnAndKeepsTheResult(t *testing.T) 
 	}
 
 	// Once the result is old enough it is tested again, and an old one is no longer shown.
-	*a.now = a.now.Add(driftEvery + time.Minute)
+	*a.now = a.now.Add(DriftEvery + time.Minute)
 	h.driftSweep(a.ctx)
 	if q2 := quietTests(a, agentID); q2["10.20.0.14:31317"] == "" || q2["10.20.0.14:31317"] == q["10.20.0.14:31317"] {
 		t.Fatalf("an old result was not refreshed: %v", q2)
 	}
-	*a.now = a.now.Add(2 * reachFresh)
+	*a.now = a.now.Add(2 * ReachFresh)
 	if r := h.reachOf(agentID, "10.20.0.14:31317", *a.now); r != nil {
 		t.Fatalf("a result from hours ago is shown as current: %+v", r)
 	}
@@ -136,7 +136,7 @@ func TestDriftTestsGiveWayToAPersonsAndSkipWhatCannotBeTested(t *testing.T) {
 	// A cluster that is not connected is not tested, and nothing is said about it.
 	a.hub().mu.Lock()
 	delete(a.hub().sessions, agentID)
-	a.hub().views[agentID].addrTests = nil
+	a.hub().views[agentID].AddrTests = nil
 	a.hub().mu.Unlock()
 	h.driftSweep(a.ctx)
 	if q := quietTests(a, agentID); len(q) != 0 {

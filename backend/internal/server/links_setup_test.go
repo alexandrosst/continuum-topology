@@ -57,8 +57,8 @@ func reported(ago time.Duration) func(*agents.LinkCaps) {
 	return func(c *agents.LinkCaps) { c.Reported = setupNow.Add(-ago) }
 }
 
-func endOf(id string, c agents.LinkCaps) setupEnd {
-	return setupEnd{ID: id, Name: strings.ToUpper(id), HasAgent: true, Tier: 2, Caps: c}
+func endOf(id string, c agents.LinkCaps) SetupEnd {
+	return SetupEnd{ID: id, Name: strings.ToUpper(id), HasAgent: true, Tier: 2, Caps: c}
 }
 
 // states writes the steps as "code/cluster=state", in order.
@@ -89,19 +89,19 @@ func TestPairChecklistStatesTable(t *testing.T) {
 	plain := kernel.LinkSetting{A: "a", B: "b"}
 	tput := kernel.LinkSetting{A: "a", B: "b", Throughput: &kernel.LinkThroughput{}}
 	passive := kernel.LinkSetting{A: "a", B: "b", NoProbe: true}
-	old := setupEnd{ID: "b", Name: "B", HasAgent: true, Tier: 2}  // an agent that never reported
-	oldA := setupEnd{ID: "a", Name: "A", HasAgent: true, Tier: 2} // the same, as the first cluster
-	noAgent := setupEnd{ID: "b", Name: "B"}
-	noAgentA := setupEnd{ID: "a", Name: "A"}
-	tier1 := func(e setupEnd) setupEnd {
+	old := SetupEnd{ID: "b", Name: "B", HasAgent: true, Tier: 2}  // an agent that never reported
+	oldA := SetupEnd{ID: "a", Name: "A", HasAgent: true, Tier: 2} // the same, as the first cluster
+	noAgent := SetupEnd{ID: "b", Name: "B"}
+	noAgentA := SetupEnd{ID: "a", Name: "A"}
+	tier1 := func(e SetupEnd) SetupEnd {
 		e.Tier, e.Note = 1, &LinkNote{Cluster: e.ID, Code: "tier"}
 		return e
 	}
-	paused := func(e setupEnd) setupEnd {
+	paused := func(e SetupEnd) SetupEnd {
 		e.Note = &LinkNote{Cluster: e.ID, Code: "paused"}
 		return e
 	}
-	silentPeer := func(e setupEnd) setupEnd {
+	silentPeer := func(e SetupEnd) SetupEnd {
 		e.Note = &LinkNote{Cluster: e.ID, Peer: "x", Code: "peer-silent", Text: "The agent of x has not reported any node address yet."}
 		return e
 	}
@@ -109,7 +109,7 @@ func TestPairChecklistStatesTable(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		l      kernel.LinkSetting
-		a, b   setupEnd
+		a, b   SetupEnd
 		fusion bool
 		want   string
 	}{
@@ -191,7 +191,7 @@ func TestPairChecklistStatesTable(t *testing.T) {
 			"agent/a=ok agent/b=ok links-on/a=ok links-on/b=ok export=unknown"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got := linkSetup(tc.l, tc.a, tc.b, tc.fusion, setupNow)
+			got := LinkSetupSteps(tc.l, tc.a, tc.b, tc.fusion, setupNow)
 			if g := states(got); g != tc.want {
 				t.Fatalf("\n got  %s\n want %s", g, tc.want)
 			}
@@ -199,7 +199,7 @@ func TestPairChecklistStatesTable(t *testing.T) {
 				if s.Text == "" {
 					t.Errorf("%s has no text", s.Code)
 				}
-				if s.State != stepOK && s.State != stepTodo && s.State != stepUnknown && s.State != stepOptional {
+				if s.State != StepOK && s.State != StepTodo && s.State != StepUnknown && s.State != StepOptional {
 					t.Errorf("%s has state %q", s.Code, s.State)
 				}
 			}
@@ -213,22 +213,22 @@ func TestAnAgentThatReportsNothingNeverMakesAStepFail(t *testing.T) {
 	for _, l := range []kernel.LinkSetting{{A: "a", B: "b"}, {A: "a", B: "b", NoProbe: true}, {A: "a", B: "b", Throughput: &kernel.LinkThroughput{}}} {
 		for _, fusion := range []bool{true, false} {
 			for _, tc := range []struct {
-				a, b setupEnd
+				a, b SetupEnd
 				mute map[string]bool // the clusters that said nothing
 			}{
 				{endOf("a", agents.LinkCaps{}), endOf("b", agents.LinkCaps{}), map[string]bool{"a": true, "b": true}},
 				{endOf("a", agents.LinkCaps{}), endOf("b", caps()), map[string]bool{"a": true}},
 				{endOf("a", caps()), endOf("b", agents.LinkCaps{}), map[string]bool{"b": true}},
 			} {
-				for _, s := range linkSetup(l, tc.a, tc.b, fusion, setupNow) {
-					if s.State == stepTodo && tc.mute[s.Cluster] && s.Code != stepAgent {
+				for _, s := range LinkSetupSteps(l, tc.a, tc.b, fusion, setupNow) {
+					if s.State == StepTodo && tc.mute[s.Cluster] && s.Code != StepAgent {
 						t.Errorf("%+v: %s/%s is todo for an agent that reported nothing: %s", l, s.Code, s.Cluster, s.Text)
 					}
 				}
 				// and what nobody has said is not claimed either: a pair-level step needs someone who has
 				if tc.mute["a"] && tc.mute["b"] {
-					for _, s := range linkSetup(l, tc.a, tc.b, fusion, setupNow) {
-						if s.State == stepTodo || s.State == stepOptional {
+					for _, s := range LinkSetupSteps(l, tc.a, tc.b, fusion, setupNow) {
+						if s.State == StepTodo || s.State == StepOptional {
 							t.Errorf("%+v: %s/%s is %s with two mute agents", l, s.Code, s.Cluster, s.State)
 						}
 					}
@@ -239,40 +239,40 @@ func TestAnAgentThatReportsNothingNeverMakesAStepFail(t *testing.T) {
 }
 
 func TestChecklistSentencesSayWhatIsWrongNamingTheClusterAndWhatToDo(t *testing.T) {
-	a := setupEnd{ID: "cl-a", Name: "sunrise-cluster", HasAgent: true, Tier: 2, Caps: caps(without("export"))}
-	b := setupEnd{ID: "cl-b", Name: "harbour", HasAgent: true, Tier: 2, Caps: caps(without("links"))}
-	steps := linkSetup(kernel.LinkSetting{A: "cl-a", B: "cl-b", Throughput: &kernel.LinkThroughput{}}, a, b, true, setupNow)
-	for code, cluster := range map[string]string{stepExport: "cl-a", stepLinksOn: "cl-b", stepCapacity: "cl-a"} {
+	a := SetupEnd{ID: "cl-a", Name: "sunrise-cluster", HasAgent: true, Tier: 2, Caps: caps(without("export"))}
+	b := SetupEnd{ID: "cl-b", Name: "harbour", HasAgent: true, Tier: 2, Caps: caps(without("links"))}
+	steps := LinkSetupSteps(kernel.LinkSetting{A: "cl-a", B: "cl-b", Throughput: &kernel.LinkThroughput{}}, a, b, true, setupNow)
+	for code, cluster := range map[string]string{StepExport: "cl-a", StepLinksOn: "cl-b", StepCapacity: "cl-a"} {
 		s := step(t, steps, code, cluster)
-		if s.State != stepTodo {
+		if s.State != StepTodo {
 			t.Errorf("%s/%s = %s", code, cluster, s.State)
 		}
 	}
-	if got := step(t, steps, stepExport, "cl-a").Text; got != "sunrise-cluster runs the probes for this pair but has no telemetry sent to FUSION, so what it measures stays in the cluster. Turn on telemetry with Cluster links there and point it at a regional operator or backend." {
+	if got := step(t, steps, StepExport, "cl-a").Text; got != "sunrise-cluster runs the probes for this pair but has no telemetry sent to FUSION, so what it measures stays in the cluster. Turn on telemetry with Cluster links there and point it at a regional operator or backend." {
 		t.Errorf("export: %s", got)
 	}
-	if got := step(t, steps, stepLinksOn, "cl-b").Text; !strings.Contains(got, "Cluster links is not switched on in the install of harbour") || !strings.Contains(got, "Turn on Cluster links") {
+	if got := step(t, steps, StepLinksOn, "cl-b").Text; !strings.Contains(got, "Cluster links is not switched on in the install of harbour") || !strings.Contains(got, "Turn on Cluster links") {
 		t.Errorf("links-on: %s", got)
 	}
-	if got := step(t, steps, stepCapacity, "cl-a").Text; !strings.Contains(got, "iperf3 is not switched on in sunrise-cluster") || !strings.Contains(got, "runs the throughput tests") {
+	if got := step(t, steps, StepCapacity, "cl-a").Text; !strings.Contains(got, "iperf3 is not switched on in sunrise-cluster") || !strings.Contains(got, "runs the throughput tests") {
 		t.Errorf("capacity: %s", got)
 	}
-	old := linkSetup(kernel.LinkSetting{A: "cl-a", B: "cl-b"}, setupEnd{ID: "cl-a", Name: "sunrise-cluster", HasAgent: true, Tier: 2}, b, true, setupNow)
-	if got := step(t, old, stepCapabilities, "cl-a").Text; !strings.Contains(got, "The agent of sunrise-cluster is too old to say") {
+	old := LinkSetupSteps(kernel.LinkSetting{A: "cl-a", B: "cl-b"}, SetupEnd{ID: "cl-a", Name: "sunrise-cluster", HasAgent: true, Tier: 2}, b, true, setupNow)
+	if got := step(t, old, StepCapabilities, "cl-a").Text; !strings.Contains(got, "The agent of sunrise-cluster is too old to say") {
 		t.Errorf("capabilities: %s", got)
 	}
 	// the prober step says how long it has been
-	p := linkSetup(kernel.LinkSetting{A: "cl-a", B: "cl-b"}, setupEnd{ID: "cl-a", Name: "sunrise-cluster", HasAgent: true, Tier: 2, Caps: caps(prober(3 * time.Hour))}, b, true, setupNow)
-	if got := step(t, p, stepProber, "cl-a").Text; !strings.Contains(got, "last asked its agent for the clusters to measure 3 hours ago") {
+	p := LinkSetupSteps(kernel.LinkSetting{A: "cl-a", B: "cl-b"}, SetupEnd{ID: "cl-a", Name: "sunrise-cluster", HasAgent: true, Tier: 2, Caps: caps(prober(3 * time.Hour))}, b, true, setupNow)
+	if got := step(t, p, StepProber, "cl-a").Text; !strings.Contains(got, "last asked its agent for the clusters to measure 3 hours ago") {
 		t.Errorf("prober: %s", got)
 	}
 	// a cluster without a name reads by its id
-	if got := step(t, linkSetup(kernel.LinkSetting{A: "cl-a", B: "cl-b"}, setupEnd{ID: "cl-a"}, b, true, setupNow), stepAgent, "cl-a").Text; !strings.HasPrefix(got, "cl-a has no approved agent") {
+	if got := step(t, LinkSetupSteps(kernel.LinkSetting{A: "cl-a", B: "cl-b"}, SetupEnd{ID: "cl-a"}, b, true, setupNow), StepAgent, "cl-a").Text; !strings.HasPrefix(got, "cl-a has no approved agent") {
 		t.Errorf("agent: %s", got)
 	}
 	// no FUSION: the one sentence, not a failure
-	nf := linkSetup(kernel.LinkSetting{A: "cl-a", B: "cl-b"}, a, b, false, setupNow)
-	if s := step(t, nf, stepExport, "cl-a"); s.State != stepUnknown || !strings.Contains(s.Text, "This server has no FUSION") {
+	nf := LinkSetupSteps(kernel.LinkSetting{A: "cl-a", B: "cl-b"}, a, b, false, setupNow)
+	if s := step(t, nf, StepExport, "cl-a"); s.State != StepUnknown || !strings.Contains(s.Text, "This server has no FUSION") {
 		t.Errorf("no FUSION: %+v", s)
 	}
 }
@@ -342,7 +342,7 @@ func TestTheHubBuildsTheChecklistFromAgentsAndTheirReports(t *testing.T) {
 	if s := states(got[0].Steps); s != "agent/cl-a=ok agent/cl-b=ok links-on/cl-a=ok capabilities/cl-b=unknown export/cl-a=todo prober/cl-a=ok" {
 		t.Errorf("a-b: %s", s)
 	}
-	if s := step(t, got[0].Steps, stepAgent, "cl-a").Text; !strings.Contains(s, "alpha") {
+	if s := step(t, got[0].Steps, StepAgent, "cl-a").Text; !strings.Contains(s, "alpha") {
 		t.Errorf("the cluster is named by the agent's name: %s", s)
 	}
 	if s := states(got[1].Steps); !strings.HasPrefix(s, "agent/cl-a=ok agent/cl-z=todo") {
@@ -352,11 +352,11 @@ func TestTheHubBuildsTheChecklistFromAgentsAndTheirReports(t *testing.T) {
 	low := a
 	low.AccessTier = 1
 	got = h.linkSetups(links[:1], []store.Agent{low, b}, nil, true, setupNow)
-	if s := step(t, got[0].Steps, stepAgent, "cl-a"); s.State != stepTodo || !strings.Contains(s.Text, "access tier 1") {
+	if s := step(t, got[0].Steps, StepAgent, "cl-a"); s.State != StepTodo || !strings.Contains(s.Text, "access tier 1") {
 		t.Errorf("%+v", s)
 	}
 	got = h.linkSetups(links[:1], []store.Agent{a, b}, map[string]bool{"ag-b": true}, true, setupNow)
-	if s := step(t, got[0].Steps, stepAgent, "cl-b"); s.State != stepTodo || !strings.Contains(s.Text, "paused") {
+	if s := step(t, got[0].Steps, StepAgent, "cl-b"); s.State != StepTodo || !strings.Contains(s.Text, "paused") {
 		t.Errorf("%+v", s)
 	}
 }

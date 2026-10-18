@@ -12,7 +12,7 @@ import (
 )
 
 // pairsOf is the pairs a cluster is in, by the id of the cluster at the other end.
-func pairsOf(links []kernel.LinkSetting, cluster string) map[string]kernel.LinkSetting {
+func PairsOf(links []kernel.LinkSetting, cluster string) map[string]kernel.LinkSetting {
 	out := map[string]kernel.LinkSetting{}
 	for _, l := range links {
 		switch cluster {
@@ -26,7 +26,7 @@ func pairsOf(links []kernel.LinkSetting, cluster string) map[string]kernel.LinkS
 }
 
 // peersOf is the clusters paired with one cluster, sorted.
-func peersOf(links []kernel.LinkSetting, cluster string) []string {
+func PeersOf(links []kernel.LinkSetting, cluster string) []string {
 	var out []string
 	for _, l := range links {
 		switch cluster {
@@ -42,31 +42,31 @@ func peersOf(links []kernel.LinkSetting, cluster string) []string {
 
 // linkRunner is the cluster of a pair that runs the one-way probe, the connect timing and the throughput tests: the one whose
 // id sorts first. The other only serves them.
-func linkRunner(a, b string) string { return min(a, b) }
+func LinkRunner(a, b string) string { return min(a, b) }
 
 // plannedPeer is one cluster paired with agent a's, as a's peer list holds it.
-type plannedPeer struct {
-	id    string
-	agent store.Agent
+type PlannedPeer struct {
+	ID    string
+	Agent store.Agent
 	// addrs is what a is told: the cluster's addresses less those of a's own cluster and those another peer of a claims too.
-	addrs []string
+	Addrs []string
 	// clash is, by the id of the other peer, the addresses both peers claim, which are left out of both.
-	clash map[string][]string
+	Clash map[string][]string
 }
 
 // peerPlan is what peerList, linkNotes and the checklist all work from, so that what a pair says it is missing is exactly what
 // the agent is not sent.
-type peerPlan struct {
+type PeerPlan struct {
 	// byID holds every paired cluster that has an approved agent and an address a can tell from its own, told or not.
-	byID map[string]*plannedPeer
+	ByID map[string]*PlannedPeer
 	// sent are the peers a is told, in id order: those left with an address after the shared ones are removed, cut at
 	// link.MaxPeers.
-	sent []*plannedPeer
+	Sent []*PlannedPeer
 	// cut are the peers that had an address to be told but no room in the list.
-	cut map[string]bool
+	Cut map[string]bool
 }
 
-func withoutAddresses(addrs []string, drop map[string]bool) []string {
+func WithoutAddresses(addrs []string, drop map[string]bool) []string {
 	kept := addrs[:0:0]
 	for _, ip := range addrs {
 		if !drop[ip] {
@@ -76,7 +76,7 @@ func withoutAddresses(addrs []string, drop map[string]bool) []string {
 	return kept
 }
 
-func dedupeSorted(in []string) []string {
+func DedupeSorted(in []string) []string {
 	if len(in) < 2 {
 		return in
 	}
@@ -106,7 +106,7 @@ type LinkNote struct {
 }
 
 // approvedByCluster is the organisation's approved agents by the cluster they report for.
-func approvedByCluster(agentList []store.Agent) map[string]store.Agent {
+func ApprovedByCluster(agentList []store.Agent) map[string]store.Agent {
 	byCluster := map[string]store.Agent{}
 	for _, o := range agentList {
 		if o.Status == store.StatusApproved && o.ClusterID != "" {
@@ -118,30 +118,30 @@ func approvedByCluster(agentList []store.Agent) map[string]store.Agent {
 
 // sharedHint is the note for a peer that is told about but has addresses another peer of the same cluster claims too: they are
 // left out for both, and the pair is measured through the rest. Nil when none is shared.
-func sharedHint(a, o store.Agent, pp *plannedPeer) *LinkNote {
-	if pp == nil || len(pp.clash) == 0 || len(pp.addrs) == 0 {
+func SharedHint(a, o store.Agent, pp *PlannedPeer) *LinkNote {
+	if pp == nil || len(pp.Clash) == 0 || len(pp.Addrs) == 0 {
 		return nil
 	}
 	var shared []string
-	for _, k := range kernel.SortedKeys(pp.clash) {
-		shared = append(shared, pp.clash[k]...)
+	for _, k := range kernel.SortedKeys(pp.Clash) {
+		shared = append(shared, pp.Clash[k]...)
 	}
-	shared = dedupeSorted(shared)
-	return &LinkNote{Cluster: a.ClusterID, Peer: o.ClusterID, Code: "shared-address", Text: fmt.Sprintf("%s shares %s with %s, another cluster %s is paired with, so those addresses are left out for both and %s is measured through its other addresses only.", o.ClusterID, listed(shared), listed(kernel.SortedKeys(pp.clash)), a.ClusterID, o.ClusterID)}
+	shared = DedupeSorted(shared)
+	return &LinkNote{Cluster: a.ClusterID, Peer: o.ClusterID, Code: "shared-address", Text: fmt.Sprintf("%s shares %s with %s, another cluster %s is paired with, so those addresses are left out for both and %s is measured through its other addresses only.", o.ClusterID, Listed(shared), Listed(kernel.SortedKeys(pp.Clash)), a.ClusterID, o.ClusterID)}
 }
 
 // maxListedAddresses bounds how many addresses (or clusters) a note spells out.
 const maxListedAddresses = 6
 
 // listed joins at most maxListedAddresses of items for a note's text and counts the rest: "a, b, c +4 more".
-func listed(items []string) string {
+func Listed(items []string) string {
 	if len(items) <= maxListedAddresses {
 		return strings.Join(items, ", ")
 	}
 	return fmt.Sprintf("%s +%d more", strings.Join(items[:maxListedAddresses], ", "), len(items)-maxListedAddresses)
 }
 
-func hasAddress(addrs []string, s string) bool {
+func HasAddress(addrs []string, s string) bool {
 	for _, x := range addrs {
 		if x == s {
 			return true
@@ -151,7 +151,7 @@ func hasAddress(addrs []string, s string) bool {
 }
 
 // hasAddressOfKind says whether any of the addresses is of the kind via (see link.Class).
-func hasAddressOfKind(addrs []string, via string) bool {
+func HasAddressOfKind(addrs []string, via string) bool {
 	for _, s := range addrs {
 		if a, err := netip.ParseAddr(s); err == nil && link.Class(a) == via {
 			return true

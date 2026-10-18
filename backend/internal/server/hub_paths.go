@@ -35,7 +35,7 @@ func (h *Hub) configForChecked(a store.Agent, v *view) (*continuumv1.Config, boo
 	consent := h.consentOf(a.ID) // before taking h.mu: it may read the store
 	var orgAgents []store.Agent
 	var runnersPaused map[string]bool
-	if a.ClusterID != "" && len(peersOf(set.Links, a.ClusterID)) > 0 {
+	if a.ClusterID != "" && len(PeersOf(set.Links, a.ClusterID)) > 0 {
 		var err error
 		orgAgents, err = h.C.Store.ListAgents(bg(), h.C.OrgID) // also before h.mu, for the same reason
 		if err != nil {
@@ -45,31 +45,31 @@ func (h *Hub) configForChecked(a store.Agent, v *view) (*continuumv1.Config, boo
 		runnersPaused = h.runnersPaused(a, orgAgents, set.Links)
 	}
 	creds := h.linkCredsFor(a, set.Links) // before h.mu: it may read and write the store
-	facts := configFacts{
+	facts := ConfigFacts{
 		Tier: a.AccessTier, ClusterID: a.ClusterID, Consent: consent, Heartbeat: HeartbeatSeconds, Resync: resync,
-		ServerTime: h.C.Now().Unix(), MeasureSeconds: int32(set.MeasureSeconds), IperfClients: creds.clients, IperfServer: creds.server,
+		ServerTime: h.C.Now().Unix(), MeasureSeconds: int32(set.MeasureSeconds), IperfClients: creds.Clients, IperfServer: creds.Server,
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	facts.Peers = h.linkPeers(a, orgAgents, set.Links, consent.Has("flow"), runnersPaused)
 	for _, p := range set.ProbeTargets {
 		if a.ClusterID != "" && p.ClusterID == a.ClusterID {
-			facts.ManualTargets = append(facts.ManualTargets, issuedTarget{ID: p.ID, Host: p.Host, Port: p.Port, Label: p.Label, Source: "manual"})
+			facts.ManualTargets = append(facts.ManualTargets, IssuedTarget{ID: p.ID, Host: p.Host, Port: p.Port, Label: p.Label, Source: "manual"})
 		}
 	}
 	facts.AddressTargets = h.addressTestTargets(v, h.C.Now())
-	facts.DerivedTargets = deriveTargets(v.flows)
+	facts.DerivedTargets = DeriveTargets(v.flows)
 
-	cfg, ts := compileConfig(facts)
-	v.targets = map[string]issuedTarget{}
+	cfg, ts := CompileConfig(facts)
+	v.Targets = map[string]IssuedTarget{}
 	for _, t := range ts {
-		v.targets[t.ID] = t
+		v.Targets[t.ID] = t
 	}
-	v.cfgHash = cfg.Digest
+	v.CfgHash = cfg.Digest
 	// forget paths for targets that are no longer issued
-	for id := range v.paths {
-		if _, ok := v.targets[id]; !ok {
-			delete(v.paths, id)
+	for id := range v.Paths {
+		if _, ok := v.Targets[id]; !ok {
+			delete(v.Paths, id)
 		}
 	}
 	return cfg, complete
@@ -101,14 +101,14 @@ func (h *Hub) pushOne(id string) {
 	if v == nil || s == nil {
 		return
 	}
-	v.pushMu.Lock()
-	defer v.pushMu.Unlock()
+	v.PushMu.Lock()
+	defer v.PushMu.Unlock()
 	a, err := h.C.Store.GetAgent(bg(), id)
 	if err != nil || a.Status != store.StatusApproved {
 		return
 	}
 	h.mu.Lock()
-	old := v.cfgHash
+	old := v.CfgHash
 	h.mu.Unlock()
 	cfg, complete := h.configForChecked(a, v)
 	if !complete {
@@ -116,12 +116,12 @@ func (h *Hub) pushOne(id string) {
 		// back so nothing counts as sent, and the next minute tries again. (At first connect the agent has nothing to lose, so
 		// configFor still answers there.)
 		h.mu.Lock()
-		v.cfgHash = old
+		v.CfgHash = old
 		h.mu.Unlock()
 		return
 	}
 	h.mu.Lock()
-	same := v.cfgHash == old
+	same := v.CfgHash == old
 	h.mu.Unlock()
 	if same {
 		return
@@ -129,11 +129,11 @@ func (h *Hub) pushOne(id string) {
 	select {
 	case s.push <- &continuumv1.ServerMessage{Msg: &continuumv1.ServerMessage_Config{Config: cfg}}:
 		h.mu.Lock()
-		v.cfgSentAt = h.C.Now()
+		v.CfgSentAt = h.C.Now()
 		h.mu.Unlock()
 	default: // the stream is busy; the next refresh tries again
 		h.mu.Lock()
-		v.cfgHash = old
+		v.CfgHash = old
 		h.mu.Unlock()
 	}
 }
@@ -163,20 +163,20 @@ func (h *Hub) noteMeasurements(agentID string, m *continuumv1.Measurements) {
 		m.Results = m.Results[:measure.MaxTargets]
 	}
 	for _, r := range m.Results {
-		t, ok := v.targets[r.TargetId]
+		t, ok := v.Targets[r.TargetId]
 		if !ok || r.Samples == 0 || r.Samples > 100 || r.Failed > r.Samples {
 			continue
 		}
-		if h.noteAddressTest(v, t, r.Samples, r.Failed, sane(r.RttMinMs), sane(r.RttP50Ms), sane(r.RttP95Ms), now) {
+		if h.noteAddressTest(v, t, r.Samples, r.Failed, Sane(r.RttMinMs), Sane(r.RttP50Ms), Sane(r.RttP95Ms), now) {
 			continue // a test's result is read back on its own, never added to the measured paths
 		}
-		tr := v.paths[t.ID]
+		tr := v.Paths[t.ID]
 		if tr == nil {
-			tr = &pathTrack{t: t}
-			v.paths[t.ID] = tr
+			tr = &PathTrack{T: t}
+			v.Paths[t.ID] = tr
 		}
-		tr.t = t
-		tr.add(measure.Result{ID: t.ID, Samples: int(r.Samples), Failed: int(r.Failed), Min: sane(r.RttMinMs), P50: sane(r.RttP50Ms), P95: sane(r.RttP95Ms)}, now)
+		tr.T = t
+		tr.Add(measure.Result{ID: t.ID, Samples: int(r.Samples), Failed: int(r.Failed), Min: Sane(r.RttMinMs), P50: Sane(r.RttP50Ms), P95: Sane(r.RttP95Ms)}, now)
 	}
 }
 
@@ -193,14 +193,14 @@ func (h *Hub) pathDocs(agentList []store.Agent, clusters []observed.Cluster, nam
 		if v == nil || a.Status != store.StatusApproved {
 			continue
 		}
-		for _, tr := range v.paths {
-			min, p50, p95, loss, samples := tr.summary()
+		for _, tr := range v.Paths {
+			min, p50, p95, loss, samples := tr.Summary()
 			p := model.Path{
-				ID: "path-" + interpret.Hash(a.ClusterID, tr.t.Host, fmt.Sprint(tr.t.Port)), FromCluster: a.ClusterID, FromName: a.Name,
-				Host: tr.t.Host, Port: tr.t.Port, Label: tr.t.Label, Source: tr.t.Source,
-				RTTMin: min, RTTP50: p50, RTTP95: p95, LossPct: loss, Samples: samples, At: kernel.RFC(tr.at), Stale: now.Sub(tr.at) > staleAfter,
+				ID: "path-" + interpret.Hash(a.ClusterID, tr.T.Host, fmt.Sprint(tr.T.Port)), FromCluster: a.ClusterID, FromName: a.Name,
+				Host: tr.T.Host, Port: tr.T.Port, Label: tr.T.Label, Source: tr.T.Source,
+				RTTMin: min, RTTP50: p50, RTTP95: p95, LossPct: loss, Samples: samples, At: kernel.RFC(tr.At), Stale: now.Sub(tr.At) > staleAfter,
 			}
-			if to := ix.ClusterOf(tr.t.Host, tr.t.Port); to != "" && to != a.ClusterID {
+			if to := ix.ClusterOf(tr.T.Host, tr.T.Port); to != "" && to != a.ClusterID {
 				p.ToCluster, p.ToName = to, names[to]
 			}
 			out = append(out, p)
@@ -217,7 +217,7 @@ func (h *Hub) ConfigDigests(agentID string) (sent, applied string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if v := h.views[agentID]; v != nil {
-		return v.cfgHash, v.cfgApplied
+		return v.CfgHash, v.CfgApplied
 	}
 	return "", ""
 }

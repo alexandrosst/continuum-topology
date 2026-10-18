@@ -55,7 +55,7 @@ func (h *Hub) Run(ctx context.Context) {
 	defer t.Stop()
 	self := time.NewTicker(agents.SelfStatsSampleEvery)
 	defer self.Stop()
-	drift := time.NewTicker(driftTick)
+	drift := time.NewTicker(DriftTick)
 	defer drift.Stop()
 	for {
 		select {

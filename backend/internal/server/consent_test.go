@@ -270,16 +270,16 @@ func TestConsentOverridesAreValidatedPersistedAndPushed(t *testing.T) {
 	if strings.Join(cfg.PausedCollectors, ",") != "flow,probes" || strings.Join(cfg.ExcludedNamespaces, ",") != "batch,shop" {
 		t.Fatalf("config = %v", cfg)
 	}
-	h1 := v.cfgHash
+	h1 := v.CfgHash
 	a.hub().configFor(ag, v)
-	if v.cfgHash != h1 {
+	if v.CfgHash != h1 {
 		t.Fatal("the same overrides gave a different config hash")
 	}
 	if _, err := a.hub().SetConsent(asRole(accounts.RoleAdmin), "edith", id, agents.Consent{Paused: []string{"flow"}}); err != nil {
 		t.Fatal(err)
 	}
 	a.hub().configFor(ag, v)
-	if v.cfgHash == h1 {
+	if v.CfgHash == h1 {
 		t.Fatal("changed overrides did not change the config hash")
 	}
 	if _, err := a.hub().SetConsent(asRole(accounts.RoleAdmin), "edith", id, agents.Consent{Paused: []string{"measure"}}); err != nil {
@@ -1205,22 +1205,22 @@ func TestNoteMeasurementsRespectsPauseConsent(t *testing.T) {
 	id, _, _ := r.approvedAgent(t, fp)
 	r.hub.mu.Lock()
 	v := newView()
-	v.targets["t1"] = issuedTarget{ID: "t1", Host: "h", Port: 80, Label: "l", Source: "observed"}
+	v.Targets["t1"] = IssuedTarget{ID: "t1", Host: "h", Port: 80, Label: "l", Source: "observed"}
 	r.hub.views[id] = v
 	r.hub.mu.Unlock()
 
 	m := &continuumv1.Measurements{Results: []*continuumv1.PathResult{{TargetId: "t1", Samples: 5, RttMinMs: 1, RttP50Ms: 2, RttP95Ms: 3}}}
 	r.hub.noteMeasurements(id, m)
-	if len(v.paths["t1"].rounds) != 1 {
-		t.Fatalf("a measurement with no pause in force should be recorded: %+v", v.paths["t1"])
+	if len(v.Paths["t1"].Rounds) != 1 {
+		t.Fatalf("a measurement with no pause in force should be recorded: %+v", v.Paths["t1"])
 	}
 
 	if _, err := r.hub.SetConsent(r.ctx, "actor", id, agents.Consent{Paused: []string{"measure"}}); err != nil {
 		t.Fatal(err)
 	}
 	r.hub.noteMeasurements(id, m)
-	if len(v.paths["t1"].rounds) != 1 {
-		t.Fatalf("a paused measure collector must not record anything new: %+v", v.paths["t1"])
+	if len(v.Paths["t1"].Rounds) != 1 {
+		t.Fatalf("a paused measure collector must not record anything new: %+v", v.Paths["t1"])
 	}
 }
 

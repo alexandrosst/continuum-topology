@@ -17,15 +17,15 @@ import (
 
 const (
 	// addressTestTTL is how long a test stays in the agent's targets and its result stays readable.
-	addressTestTTL = 10 * time.Minute
+	AddressTestTTL = 10 * time.Minute
 	// maxAddressTests bounds the tests one agent holds at once, so a person cannot turn the agent into a port scanner.
-	maxAddressTests = 6
+	MaxAddressTests = 6
 	// sourceAddressTest marks a target issued for a test, as opposed to an observed or a manual one.
-	sourceAddressTest = "address-test"
+	SourceAddressTest = "address-test"
 )
 
 // addressTest is one address being tried from one agent. Kept on the agent's view and lost with it on a restart.
-type addressTest struct {
+type AddressTest struct {
 	ID      string
 	Address string
 	Host    string
@@ -55,7 +55,7 @@ type AddressTestDoc struct {
 	Created  string  `json:"created"`
 }
 
-func (t *addressTest) doc() AddressTestDoc {
+func (t *AddressTest) Doc() AddressTestDoc {
 	d := AddressTestDoc{ID: t.ID, Address: t.Address, State: "pending", Created: kernel.RFC(t.Created)}
 	if t.Done {
 		d.Samples, d.Failed, d.RTTMinMs, d.RTTP50Ms, d.RTTP95Ms, d.At = t.Samples, t.Failed, t.Min, t.P50, t.P95, kernel.RFC(t.At)

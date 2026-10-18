@@ -48,7 +48,7 @@ func specificEnough(route *net.IPNet) bool {
 // own, which is what makes it straightforward to test directly (see tunnels_test.go) without a real
 // cluster or tunnel. Called once, after every cluster's nodes have been merged into one list (see
 // Hub.stateFor) - a single node's own tunnels can never corroborate each other.
-func correlateTunnels(nodes []model.Node) {
+func CorrelateTunnels(nodes []model.Node) {
 	type ref struct {
 		nodeIdx, tunIdx int
 		addrs           []net.IP     // this tunnel's own addresses
@@ -126,7 +126,7 @@ func correlateTunnels(nodes []model.Node) {
 // ClusterLink per distinct (cluster pair, kind) - a pair corroborated by several node pairs, or by both a
 // tunnel and a shared subnet, is never duplicated, and from/to are ordered by cluster ID so the same pair
 // is never recorded twice under swapped ends depending on scan order.
-func correlateClusterLinks(nodes []model.Node, names map[string]string, dependencies []model.Dependency, serviceClusterID map[string]string) []model.ClusterLink {
+func CorrelateClusterLinks(nodes []model.Node, names map[string]string, dependencies []model.Dependency, serviceClusterID map[string]string) []model.ClusterLink {
 	type tunRef struct {
 		nodeIdx, tunIdx int
 		addrs           []net.IP
@@ -382,7 +382,7 @@ func correlateClusterLinks(nodes []model.Node, names map[string]string, dependen
 //
 // Pure data matching over already-built values, with no I/O of its own - the same testable-in-isolation
 // style as correlateTunnels/correlateClusterLinks above (see tunnels_test.go).
-func correlateClusterPairConnectivity(nodes []model.Node, names map[string]string, dependencies []model.Dependency, serviceClusterID map[string]string, clusterLinks []model.ClusterLink) []model.ClusterPairConnectivity {
+func CorrelateClusterPairConnectivity(nodes []model.Node, names map[string]string, dependencies []model.Dependency, serviceClusterID map[string]string, clusterLinks []model.ClusterLink) []model.ClusterPairConnectivity {
 	// hasNetworkEvidence says whether a cluster reported ANYTHING correlateClusterLinks could have
 	// matched from its side - at least one node with a Tunnel or a HostSubnets prefix. This is exactly
 	// what separates "unknown" (this server never got to check) from "unexplained" (it checked, on both

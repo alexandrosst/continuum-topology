@@ -124,20 +124,6 @@ func TestAddressesTheTwoClustersShareAreNotSent(t *testing.T) {
 	}
 }
 
-func TestTheConfigHashChangesWithThePeers(t *testing.T) {
-	base := &continuumv1.Config{ApprovedAccessTier: 2, ClusterId: "cl-a"}
-	h1 := configHash(base)
-	withPeer := &continuumv1.Config{ApprovedAccessTier: 2, ClusterId: "cl-a", LinkPeers: []*continuumv1.LinkPeer{{ClusterId: "cl-b", Name: "beta", Addresses: []string{"10.1.0.1"}}}}
-	h2 := configHash(withPeer)
-	moved := &continuumv1.Config{ApprovedAccessTier: 2, ClusterId: "cl-a", LinkPeers: []*continuumv1.LinkPeer{{ClusterId: "cl-b", Name: "beta", Addresses: []string{"10.1.0.2"}}}}
-	if h1 == h2 || h2 == configHash(moved) {
-		t.Fatal("a change in the peer list does not change the config hash, so it would never be pushed")
-	}
-	if configHash(withPeer) != h2 {
-		t.Fatal("the hash is not stable")
-	}
-}
-
 func hasAddr(xs []string, s string) bool {
 	for _, x := range xs {
 		if x == s {
@@ -286,24 +272,6 @@ func TestOnlyTheFirstClusterOfAPairRunsTheProbeWhileItCan(t *testing.T) {
 	}
 }
 
-func TestTheConfigHashChangesWithThePairChoices(t *testing.T) {
-	mk := func(lp *continuumv1.LinkPeer) string {
-		lp.ClusterId, lp.Name, lp.Addresses = "cl-b", "beta", []string{"10.1.0.1"}
-		return configHash(&continuumv1.Config{ApprovedAccessTier: 2, ClusterId: "cl-a", LinkPeers: []*continuumv1.LinkPeer{lp}})
-	}
-	base := mk(&continuumv1.LinkPeer{})
-	seen := map[string]bool{base: true}
-	for name, lp := range map[string]*continuumv1.LinkPeer{
-		"no probe": {NoProbe: true}, "skip probe": {SkipProbe: true}, "via mesh": {Via: "mesh"}, "via public": {Via: "public"}, "throughput": {Throughput: true}, "interval": {Throughput: true, ThroughputIntervalSeconds: 600}, "budget": {Throughput: true, ThroughputBudgetBytes: 1 << 20},
-	} {
-		h := mk(lp)
-		if seen[h] {
-			t.Errorf("%s does not change the hash, so it would never be pushed", name)
-		}
-		seen[h] = true
-	}
-}
-
 func TestPairChoicesAreSavedWithTheSettingsUnderTheNamesTheUIUses(t *testing.T) {
 	var s kernel.Settings
 	in := `{"links":[{"a":"cl-b","b":"cl-a","noProbe":true,"via":"mesh","throughput":{"intervalMinutes":120,"budgetMB":4096}},{"a":"cl-a","b":"cl-c"}]}`
@@ -340,7 +308,7 @@ func TestTheSecondClusterProbesAgainWhenTheFirstOnesFlowCollectorIsPaused(t *tes
 		t.Fatal(err)
 	}
 	newV := func(ip string) *view {
-		return &view{estView: estView{state: nodeState(ip), flows: observed.NewFlowTable()}, netView: netView{paths: map[string]*pathTrack{}, targets: map[string]issuedTarget{}}}
+		return &view{estView: estView{state: nodeState(ip), flows: observed.NewFlowTable()}, NetView: NetView{Paths: map[string]*PathTrack{}, Targets: map[string]IssuedTarget{}}}
 	}
 	fv, sv := newV("10.0.0.1"), newV("10.9.0.1")
 	r.hub.mu.Lock()

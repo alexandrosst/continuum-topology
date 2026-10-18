@@ -18,10 +18,10 @@ import (
 
 const (
 	// driftTick is how often the server looks for addresses whose last result is old; driftEvery is how old that is.
-	driftTick  = 5 * time.Minute
-	driftEvery = 15 * time.Minute
+	DriftTick  = 5 * time.Minute
+	DriftEvery = 15 * time.Minute
 	// reachFresh is how long a result may be shown and used for a diagnosis: it is a statement about now.
-	reachFresh = time.Hour
+	ReachFresh = time.Hour
 	// maxReach bounds the results one cluster's view keeps.
 	maxReach = 32
 )
@@ -45,26 +45,26 @@ type AddressReachDoc struct {
 }
 
 // noteReach keeps what a finished test found. Called with h.mu held.
-func (v *netView) noteReach(t *addressTest) {
-	if v.reach == nil {
-		v.reach = map[string]*addrReach{}
+func (v *NetView) NoteReach(t *AddressTest) {
+	if v.Reach == nil {
+		v.Reach = map[string]*addrReach{}
 	}
-	v.reach[t.Address] = &addrReach{Address: t.Address, At: t.At, Reachable: t.Failed < t.Samples, Samples: t.Samples, Failed: t.Failed, P50: t.P50}
-	for len(v.reach) > maxReach {
+	v.Reach[t.Address] = &addrReach{Address: t.Address, At: t.At, Reachable: t.Failed < t.Samples, Samples: t.Samples, Failed: t.Failed, P50: t.P50}
+	for len(v.Reach) > maxReach {
 		oldest := ""
-		for k, r := range v.reach {
-			if oldest == "" || r.At.Before(v.reach[oldest].At) {
+		for k, r := range v.Reach {
+			if oldest == "" || r.At.Before(v.Reach[oldest].At) {
 				oldest = k
 			}
 		}
-		delete(v.reach, oldest)
+		delete(v.Reach, oldest)
 	}
 }
 
 // reachRecord is the stored result for an address; a nil view has none.
-func (v *netView) reachRecord(addr string) *addrReach {
+func (v *NetView) ReachRecord(addr string) *addrReach {
 	if v == nil {
 		return nil
 	}
-	return v.reach[addr]
+	return v.Reach[addr]
 }

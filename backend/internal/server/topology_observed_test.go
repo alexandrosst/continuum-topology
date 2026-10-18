@@ -41,7 +41,7 @@ func TestOnlyAClusterAtTierTwoOrAboveDrawsObservedTraffic(t *testing.T) {
 		v.flows.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: fs}, time.Now().Add(-time.Minute))
 		if id == wide {
 			now := time.Now()
-			v.paths["p"] = &pathTrack{t: issuedTarget{ID: "p", Host: "198.51.100.60", Port: 6443, Source: "manual"}, at: now}
+			v.Paths["p"] = &PathTrack{T: IssuedTarget{ID: "p", Host: "198.51.100.60", Port: 6443, Source: "manual"}, At: now}
 		}
 		r.hub.mu.Lock()
 		r.hub.views[id] = v

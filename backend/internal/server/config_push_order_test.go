@@ -108,7 +108,7 @@ func TestAConfigCarriesItsDigest(t *testing.T) {
 		t.Fatalf("want one Config with a digest, got %+v", got)
 	}
 	h.mu.Lock()
-	want := h.views[agentID].cfgHash
+	want := h.views[agentID].CfgHash
 	h.mu.Unlock()
 	if got[0].Digest != want {
 		t.Fatalf("digest %q is not the one the server holds as sent, %q", got[0].Digest, want)
@@ -127,7 +127,7 @@ func TestAHeartbeatNamingAnOlderConfigAsksForItToBeSentAgain(t *testing.T) {
 	now := time.Now()
 	h.mu.Lock()
 	v := h.views[agentID]
-	v.cfgSentAt = now.Add(-time.Minute)
+	v.CfgSentAt = now.Add(-time.Minute)
 	cases := []struct {
 		name, digest string
 		at           time.Time
@@ -135,26 +135,26 @@ func TestAHeartbeatNamingAnOlderConfigAsksForItToBeSentAgain(t *testing.T) {
 	}{
 		{"an older agent echoes nothing", "", now, false},
 		{"the digest in force is the one sent", sent[0].Digest, now, false},
-		{"an older Config, inside the grace", "old", v.cfgSentAt.Add(time.Second), false},
+		{"an older Config, inside the grace", "old", v.CfgSentAt.Add(time.Second), false},
 		{"an older Config, after the grace", "old", now, true},
 	}
 	for _, c := range cases {
-		if got := v.noteConfigEcho(c.digest, c.at); got != c.want {
+		if got := v.NoteConfigEcho(c.digest, c.at); got != c.want {
 			t.Errorf("%s: asked again = %v, want %v", c.name, got, c.want)
 		}
-		if !c.want && v.cfgHash == "" {
+		if !c.want && v.CfgHash == "" {
 			t.Errorf("%s: the sent hash was cleared", c.name)
 		}
 		if c.want {
-			v.cfgHash = sent[0].Digest // the test puts it back, as the next push would
+			v.CfgHash = sent[0].Digest // the test puts it back, as the next push would
 		}
 	}
 	h.mu.Unlock()
 
 	// End to end through pushOne: the lost Config is queued again, once.
 	h.mu.Lock()
-	v.cfgSentAt = now.Add(-time.Minute)
-	_ = v.noteConfigEcho("old", now)
+	v.CfgSentAt = now.Add(-time.Minute)
+	_ = v.NoteConfigEcho("old", now)
 	h.mu.Unlock()
 	h.pushOne(agentID)
 	again := drain(push)
@@ -191,7 +191,7 @@ func TestALostConfigIsSentAgainWhenTheAgentNamesAnOlderOne(t *testing.T) {
 	}
 	// The agent behaves as if that Config was lost: it still names the old digest. A heartbeat inside the grace changes nothing.
 	r.hub.mu.Lock()
-	r.hub.views[id].cfgSentAt = time.Now().Add(-time.Minute)
+	r.hub.views[id].CfgSentAt = time.Now().Add(-time.Minute)
 	r.hub.mu.Unlock()
 	beat := &continuumv1.AgentMessage{Msg: &continuumv1.AgentMessage_Heartbeat{Heartbeat: &continuumv1.Heartbeat{AppliedConfigDigest: "an-older-digest"}}}
 	if err := s.Send(beat); err != nil {
