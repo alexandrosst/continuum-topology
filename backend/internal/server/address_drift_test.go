@@ -9,6 +9,7 @@ import (
 
 	"continuum/internal/accounts"
 	"continuum/internal/connectivity"
+	"continuum/internal/estate"
 	"continuum/internal/operators"
 )
 
@@ -32,7 +33,7 @@ func driftRig(t *testing.T) (a *adminRig, cookie, opID, agentID string, push cha
 	v.Connected = true
 	a.hub().Mu.Lock()
 	a.hub().Views[agentID] = v
-	a.hub().Sessions[agentID] = &Session{Push: push, Cancel: func(EndReason) {}}
+	a.hub().Sessions[agentID] = &estate.Session{Push: push, Cancel: func(estate.EndReason) {}}
 	a.hub().Mu.Unlock()
 	return a, cookie, opID, agentID, push
 }

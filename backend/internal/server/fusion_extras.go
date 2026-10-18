@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"continuum/internal/estate"
 	"continuum/internal/fusionapi"
 	"continuum/internal/history"
 	"continuum/internal/model"
@@ -110,7 +111,7 @@ func topologyAt(ctx context.Context, c *Core, appID string, at time.Time) (*fusi
 			members = append(members, fusionapi.AppMember{ID: r.ID, Name: s.Name, Namespace: s.Namespace, Cluster: s.ClusterID, Kind: s.Kind})
 		}
 	}
-	return topologyView(StateDoc{GeneratedAt: p.At.UTC().Format(time.RFC3339), Topology: topo}), members, nil
+	return topologyView(estate.StateDoc{GeneratedAt: p.At.UTC().Format(time.RFC3339), Topology: topo}), members, nil
 }
 
 // appGroupTTL is how long the applications are reused: an application edited in Ikhnos shows in the API within this.
@@ -163,7 +164,7 @@ func (e fusionExtras) applications(ctx context.Context) ([]fusionapi.AppGroup, e
 // groups of services by the identity telemetry carries. A member is a topology service the workspace names by id; one the
 // topology does not (or no longer) have is left out, since there is nothing to match telemetry with. The aliases are the
 // app labels a service's telemetry often takes as its service.name instead of the workload name.
-func appGroups(data []byte, doc StateDoc) []fusionapi.AppGroup {
+func appGroups(data []byte, doc estate.StateDoc) []fusionapi.AppGroup {
 	if len(data) == 0 {
 		return nil
 	}
@@ -186,7 +187,7 @@ func appGroups(data []byte, doc StateDoc) []fusionapi.AppGroup {
 		}
 	}
 	str := func(r map[string]any, k string) string { v, _ := r[k].(string); return v }
-	apps := workspace.Applications(d, HintsOf(doc))
+	apps := workspace.Applications(d, estate.HintsOf(doc))
 	out := make([]fusionapi.AppGroup, 0, len(apps))
 	for _, a := range apps {
 		g := fusionapi.AppGroup{ID: a.ID, Name: a.Name, Description: a.Description, Origin: a.Origin, Confidence: a.Confidence, Members: []fusionapi.AppMember{}}
@@ -238,7 +239,7 @@ func annotateApplications(v *fusionapi.TopologyView, groups []fusionapi.AppGroup
 }
 
 // topologyView is the part of the state a fused read joins.
-func topologyView(doc StateDoc) *fusionapi.TopologyView {
+func topologyView(doc estate.StateDoc) *fusionapi.TopologyView {
 	topo := doc.Topology
 	v := &fusionapi.TopologyView{Externals: map[string]string{}}
 	if at, err := time.Parse(time.RFC3339, doc.GeneratedAt); err == nil {

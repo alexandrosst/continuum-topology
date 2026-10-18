@@ -9,6 +9,7 @@ import (
 	"continuum/internal/accounts"
 	"continuum/internal/agents"
 	"continuum/internal/connectivity"
+	"continuum/internal/estate"
 )
 
 // connectedAgent is an approved agent with a live view and a stream the hub can push a Config on.
@@ -18,7 +19,7 @@ func connectedAgent(t *testing.T, a *adminRig) (agentID string, push chan *conti
 	push = make(chan *continuumv1.ServerMessage, 8)
 	a.hub().Mu.Lock()
 	a.hub().Views[agentID] = liveView(*a.now, "n1")
-	a.hub().Sessions[agentID] = &Session{Push: push, Cancel: func(EndReason) {}}
+	a.hub().Sessions[agentID] = &estate.Session{Push: push, Cancel: func(estate.EndReason) {}}
 	a.hub().Mu.Unlock()
 	return agentID, push
 }
@@ -166,7 +167,7 @@ func connectedAgent2(t *testing.T, a *adminRig, agentID string) (string, chan *c
 	t.Helper()
 	push := make(chan *continuumv1.ServerMessage, 8)
 	a.hub().Mu.Lock()
-	a.hub().Sessions[agentID] = &Session{Push: push, Cancel: func(EndReason) {}}
+	a.hub().Sessions[agentID] = &estate.Session{Push: push, Cancel: func(estate.EndReason) {}}
 	a.hub().Mu.Unlock()
 	return agentID, push
 }

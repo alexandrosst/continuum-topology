@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"continuum/internal/agent"
+	"continuum/internal/estate"
 	"continuum/internal/kernel"
 	"continuum/internal/pki"
 	"continuum/internal/server"
@@ -33,7 +34,7 @@ func TestConsistencyChecksAndMeasurementsEndToEnd(t *testing.T) {
 	ca, _ := pki.LoadOrCreate(t.TempDir())
 	core := server.NewCore(st, ca, "org", nil)
 	core.EnrollRL = kernel.NewLimiter(6000, 1000)
-	hub := server.NewHub(core)
+	hub := estate.NewHub(core.Estate)
 	hub.ConsistencyEvery = 2 * time.Second // the server limits a stream to 2 messages a second
 	srv := core.Agents.NewGRPC(pki.NewServerCerts(ca, []string{"127.0.0.1"}), hub)
 	l, _ := net.Listen("tcp", "127.0.0.1:0")
@@ -65,7 +66,7 @@ func TestConsistencyChecksAndMeasurementsEndToEnd(t *testing.T) {
 		_ = agent.Run(ctx, agent.Config{Server: l.Addr().String(), CAPin: ca.Pin(), Token: token, Tier: 2, Kube: kube, Identity: ids, Version: "test",
 			Debounce: 50 * time.Millisecond, Measure: true, Floors: agent.Floors{Resync: time.Second, Beat: time.Second}, MeasureDial: dial})
 	}()
-	state := func() server.StateDoc { d, _ := hub.State(context.Background()); return d }
+	state := func() estate.StateDoc { d, _ := hub.State(context.Background()); return d }
 	waitFor(t, "pending agent", 10*time.Second, func() bool { a := state().Agents; return len(a) == 1 && a[0].Status == "pending" })
 	agentID := state().Agents[0].ID
 	if err := core.Agents.Approve(context.Background(), "test", agentID, codeOf(t, ids), 2); err != nil {

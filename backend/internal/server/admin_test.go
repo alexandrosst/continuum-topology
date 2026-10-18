@@ -3,15 +3,14 @@ package server
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	"continuum/internal/accounts"
+	"continuum/internal/estate"
 	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
@@ -38,7 +37,7 @@ func adminRigOn(t *testing.T, e *env) *adminRig {
 }
 
 // hub is organisation org-1's live hub.
-func (a *adminRig) hub() *Hub {
+func (a *adminRig) hub() *estate.Hub {
 	t, err := a.a.P.Tenant(a.ctx, "org-1")
 	if err != nil {
 		panic(err)
@@ -478,37 +477,9 @@ func TestWorkspaceRevisionsAndConflicts(t *testing.T) {
 			t.Errorf("%s accepted: %d", name, r.Code)
 		}
 	}
-	huge := []byte(`{"schemaVersion":3,"x":"` + strings.Repeat("a", MaxWorkspaceBytes) + `"}`)
+	huge := []byte(`{"schemaVersion":3,"x":"` + strings.Repeat("a", estate.MaxWorkspaceBytes) + `"}`)
 	if r := put("2", huge); r.Code != 400 && r.Code != 413 {
 		t.Errorf("oversized workspace: %d", r.Code)
-	}
-}
-
-func TestWorkspaceSavesRaceExactlyOneWinner(t *testing.T) {
-	e := newEnv(t)
-	var wg sync.WaitGroup
-	var mu sync.Mutex
-	var wins, conflicts int
-	for i := 0; i < 20; i++ {
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			_, err := e.core.SaveWorkspace(e.ctx, fmt.Sprint("u", i), 0, []byte(`{"schemaVersion":3}`))
-			mu.Lock()
-			defer mu.Unlock()
-			switch kindOf(err) {
-			case 0:
-				wins++
-			case kernel.KindConflict:
-				conflicts++
-			default:
-				t.Errorf("unexpected error: %v", err)
-			}
-		}(i)
-	}
-	wg.Wait()
-	if wins != 1 || conflicts != 19 {
-		t.Fatalf("%d winners and %d conflicts among 20 simultaneous first saves", wins, conflicts)
 	}
 }
 

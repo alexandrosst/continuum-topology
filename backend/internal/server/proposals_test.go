@@ -12,6 +12,7 @@ import (
 	"continuum/internal/accounts"
 	"continuum/internal/agents"
 	"continuum/internal/decisionloop"
+	"continuum/internal/estate"
 	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
@@ -22,7 +23,7 @@ func asRole(role string) context.Context {
 
 type propRig struct {
 	*adminRig
-	h  *Hub
+	h  *estate.Hub
 	id string
 }
 

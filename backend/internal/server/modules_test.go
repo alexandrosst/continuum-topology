@@ -51,7 +51,7 @@ var moduleNames = map[string]bool{
 
 // movedOut are the modules that are packages of their own now. They keep their name here for the lists, but no file of this package is
 // theirs: a file assigned to one of them is a file that should have moved with it.
-var movedOut = map[string]bool{"connectivity": true, "agents": true, "observed": true, "accounts": true, "advice": true, "operators": true, "telemetry": true, "fusion": true}
+var movedOut = map[string]bool{"estate": true, "connectivity": true, "agents": true, "observed": true, "accounts": true, "advice": true, "operators": true, "telemetry": true, "fusion": true}
 
 // moduleOfFile reads testdata/modules.txt: one line per file, the file name and then its module.
 func moduleOfFile(t *testing.T) map[string]string {
@@ -470,7 +470,7 @@ func TestModulesShareStoreMethodsOnlyWhereTheListSays(t *testing.T) {
 var movedPackages = map[string]string{
 	"accounts": "continuum/internal/accounts", "advice": "continuum/internal/decisionloop", "operators": "continuum/internal/operators",
 	"telemetry": "continuum/internal/telemetry", "fusion": "continuum/internal/fusion", "observed": "continuum/internal/observed",
-	"agents": "continuum/internal/agents", "connectivity": "continuum/internal/connectivity",
+	"agents": "continuum/internal/agents", "connectivity": "continuum/internal/connectivity", "estate": "continuum/internal/estate",
 }
 
 // readStoreUses reads which store methods a module that is a package of its own calls.

@@ -18,6 +18,7 @@ import (
 
 	"continuum/internal/accounts"
 	"continuum/internal/chart"
+	"continuum/internal/estate"
 	"continuum/internal/fusion"
 	"continuum/internal/fusionapi"
 	"continuum/internal/install"
@@ -548,7 +549,7 @@ func (a *Admin) guard(n need, next http.HandlerFunc) http.Handler {
 		limit := int64(64 << 10)
 		switch {
 		case r.Method == http.MethodPut && strings.HasSuffix(r.URL.Path, "/workspace"):
-			limit = MaxWorkspaceBytes + 4<<10
+			limit = estate.MaxWorkspaceBytes + 4<<10
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/decisions"):
 			// A run can compare several deciders at once, each with up to MAX_MOVES proposals
 			// (see maxDecisionMovesTotal's own comment) - comfortably more than the default limit.
@@ -1454,7 +1455,7 @@ func (a *Admin) putWorkspace(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusRequestEntityTooLarge, "workspace is too large")
 		return
 	}
-	ws, err := a.core(r).SaveWorkspace(r.Context(), actor(r), rev, body)
+	ws, err := a.core(r).Estate.SaveWorkspace(r.Context(), actor(r), rev, body)
 	var e *kernel.Error
 	if errors.As(err, &e) && e.Kind == kernel.KindConflict {
 		writeJSON(w, http.StatusConflict, map[string]any{"error": e.Msg, "rev": ws.Rev, "updatedAt": rfcNZ(ws.UpdatedAt), "updatedBy": ws.UpdatedBy})

@@ -15,6 +15,7 @@ import (
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/agent"
 	"continuum/internal/agent/collect"
+	"continuum/internal/estate"
 	"continuum/internal/flow"
 	"continuum/internal/kernel"
 	"continuum/internal/model"
@@ -76,7 +77,7 @@ func TestEnrollStreamRenewRevoke(t *testing.T) {
 	core := server.NewCore(st, ca, "org", nil)
 	core.EnrollRL = kernel.NewLimiter(6000, 1000)
 	core.RenewRL = kernel.NewLimiter(6000, 1000) // a few-second certificate renews constantly
-	hub := server.NewHub(core)
+	hub := estate.NewHub(core.Estate)
 	srv := core.Agents.NewGRPC(pki.NewServerCerts(ca, []string{"127.0.0.1"}), hub)
 	l, _ := net.Listen("tcp", "127.0.0.1:0")
 	go srv.Serve(l)
@@ -101,7 +102,7 @@ func TestEnrollStreamRenewRevoke(t *testing.T) {
 		done <- agent.Run(ctx, agent.Config{Server: l.Addr().String(), CAPin: ca.Pin(), Token: token, Tier: 2, Kube: kube, Identity: ids, Version: "test", Debounce: 100 * time.Millisecond})
 	}()
 
-	state := func() server.StateDoc { d, _ := hub.State(context.Background()); return d }
+	state := func() estate.StateDoc { d, _ := hub.State(context.Background()); return d }
 	waitFor(t, "pending agent", 10*time.Second, func() bool { a := state().Agents; return len(a) == 1 && a[0].Status == "pending" })
 	agentID := state().Agents[0].ID
 	if len(state().Topology.Clusters) != 0 {
@@ -179,7 +180,7 @@ func TestRejoinAfterCertificateExpiredWhileOffline(t *testing.T) {
 	core := server.NewCore(st, ca, "org", nil)
 	core.EnrollRL = kernel.NewLimiter(6000, 1000)
 	core.RenewRL = kernel.NewLimiter(6000, 1000)
-	hub := server.NewHub(core)
+	hub := estate.NewHub(core.Estate)
 	srv := core.Agents.NewGRPC(pki.NewServerCerts(ca, []string{"127.0.0.1"}), hub)
 	l, _ := net.Listen("tcp", "127.0.0.1:0")
 	go srv.Serve(l)
@@ -197,7 +198,7 @@ func TestRejoinAfterCertificateExpiredWhileOffline(t *testing.T) {
 		go func() { done <- agent.Run(ctx, cfg(tok)) }()
 		return cancel, done
 	}
-	state := func() server.StateDoc { d, _ := hub.State(context.Background()); return d }
+	state := func() estate.StateDoc { d, _ := hub.State(context.Background()); return d }
 
 	cancel, done := run(token)
 	waitFor(t, "pending agent", 10*time.Second, func() bool { a := state().Agents; return len(a) == 1 && a[0].Status == "pending" })
@@ -270,7 +271,7 @@ func TestNodeProbeReachesTopology(t *testing.T) {
 	ca, _ := pki.LoadOrCreate(t.TempDir())
 	core := server.NewCore(st, ca, "org", nil)
 	core.EnrollRL = kernel.NewLimiter(6000, 1000)
-	hub := server.NewHub(core)
+	hub := estate.NewHub(core.Estate)
 	srv := core.Agents.NewGRPC(pki.NewServerCerts(ca, []string{"127.0.0.1"}), hub)
 	l, _ := net.Listen("tcp", "127.0.0.1:0")
 	go srv.Serve(l)
@@ -294,7 +295,7 @@ func TestNodeProbeReachesTopology(t *testing.T) {
 		Identity: ids, Version: "test", Debounce: 100 * time.Millisecond,
 		Probes: probe.NewReceiver(secret, nil), ProbeListen: probeAddr})
 
-	state := func() server.StateDoc { d, _ := hub.State(context.Background()); return d }
+	state := func() estate.StateDoc { d, _ := hub.State(context.Background()); return d }
 	waitFor(t, "pending agent", 10*time.Second, func() bool { return len(state().Agents) == 1 })
 	if err := core.Agents.Approve(context.Background(), "test", state().Agents[0].ID, codeOf(t, ids), 2); err != nil {
 		t.Fatal(err)
@@ -342,7 +343,7 @@ func TestObservedTrafficReachesTopology(t *testing.T) {
 	ca, _ := pki.LoadOrCreate(t.TempDir())
 	core := server.NewCore(st, ca, "org", nil)
 	core.EnrollRL = kernel.NewLimiter(6000, 1000)
-	hub := server.NewHub(core)
+	hub := estate.NewHub(core.Estate)
 	srv := core.Agents.NewGRPC(pki.NewServerCerts(ca, []string{"127.0.0.1"}), hub)
 	l, _ := net.Listen("tcp", "127.0.0.1:0")
 	go srv.Serve(l)
@@ -381,7 +382,7 @@ func TestObservedTrafficReachesTopology(t *testing.T) {
 		Probes: probe.NewReceiver(probeSecret, nil), Flows: flow.NewPipeline(flowSecret, func() *collect.Index { return nil }, nil),
 		ProbeListen: addr, FlowWindow: 300 * time.Millisecond})
 
-	state := func() server.StateDoc { d, _ := hub.State(context.Background()); return d }
+	state := func() estate.StateDoc { d, _ := hub.State(context.Background()); return d }
 	waitFor(t, "pending agent", 10*time.Second, func() bool { return len(state().Agents) == 1 })
 	if err := core.Agents.Approve(context.Background(), "test", state().Agents[0].ID, codeOf(t, ids), 2); err != nil {
 		t.Fatal(err)
@@ -466,7 +467,7 @@ func TestScopeAndMeshReachTheTopology(t *testing.T) {
 	ca, _ := pki.LoadOrCreate(t.TempDir())
 	core := server.NewCore(st, ca, "org", nil)
 	core.EnrollRL = kernel.NewLimiter(6000, 1000)
-	hub := server.NewHub(core)
+	hub := estate.NewHub(core.Estate)
 	srv := core.Agents.NewGRPC(pki.NewServerCerts(ca, []string{"127.0.0.1"}), hub)
 	l, _ := net.Listen("tcp", "127.0.0.1:0")
 	go srv.Serve(l)
@@ -512,7 +513,7 @@ func TestScopeAndMeshReachTheTopology(t *testing.T) {
 	go agent.Run(ctx, agent.Config{Server: l.Addr().String(), CAPin: ca.Pin(), Token: token, Tier: 2, Kube: kube, Scope: scope,
 		Identity: ids, Version: "test", Debounce: 100 * time.Millisecond})
 
-	state := func() server.StateDoc { d, _ := hub.State(context.Background()); return d }
+	state := func() estate.StateDoc { d, _ := hub.State(context.Background()); return d }
 	waitFor(t, "pending agent", 10*time.Second, func() bool { return len(state().Agents) == 1 })
 	if err := core.Agents.Approve(context.Background(), "test", state().Agents[0].ID, codeOf(t, ids), 2); err != nil {
 		t.Fatal(err)

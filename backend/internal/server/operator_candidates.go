@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	continuumv1 "continuum/gen/continuumv1"
+	"continuum/internal/estate"
 	"continuum/internal/facts"
 	"continuum/internal/install"
 	"continuum/internal/kernel"
@@ -153,29 +154,32 @@ type hostAddr struct {
 	Interface, Kind, IP string
 }
 
+// hubHosts finds the clusters of the approved agents, from what the hub holds of them.
+type hubHosts struct{ *estate.Hub }
+
 // operatorHost finds the cluster the operator with this id runs in. The second result is false when no approved
 // agent has reported its Deployment.
-func (h *Hub) operatorHost(ctx context.Context, operatorID string) (operatorHost, bool) {
+func (h hubHosts) operatorHost(ctx context.Context, operatorID string) (operatorHost, bool) {
 	return h.workloadHost(ctx, operatorNamespace, operators.OperatorServiceName(operatorID))
 }
 
 // workloadHost finds the cluster a Deployment runs in, from what the approved agents report about their clusters.
 // The regional operators are all in continuum-system under a name worked out from their id; the central operator's
 // gateway is the server's own install, in the server's namespace under FUSION's name.
-func (h *Hub) workloadHost(ctx context.Context, namespace, want string) (operatorHost, bool) {
+func (h hubHosts) workloadHost(ctx context.Context, namespace, want string) (operatorHost, bool) {
 	return h.hostWhere(ctx, func(w *continuumv1.WorkloadFacts) bool { return w.Namespace == namespace && w.Name == want })
 }
 
 // namespaceHost finds a cluster by something else running in a namespace, for when the Deployment itself is not among
 // what an agent reports (the agent is there, but has not been told to read that Deployment or its Service). It says which
 // cluster, and so which nodes; it says nothing about the Deployment's Service, which the caller must get another way.
-func (h *Hub) namespaceHost(ctx context.Context, namespace string) (operatorHost, bool) {
+func (h hubHosts) namespaceHost(ctx context.Context, namespace string) (operatorHost, bool) {
 	host, ok := h.hostWhere(ctx, func(w *continuumv1.WorkloadFacts) bool { return w.Namespace == namespace })
 	host.Reachable, host.PodNodes = nil, nil
 	return host, ok
 }
 
-func (h *Hub) hostWhere(ctx context.Context, match func(*continuumv1.WorkloadFacts) bool) (operatorHost, bool) {
+func (h hubHosts) hostWhere(ctx context.Context, match func(*continuumv1.WorkloadFacts) bool) (operatorHost, bool) {
 	agentList, err := h.C.Store.ListAgents(ctx, h.C.OrgID)
 	if err != nil {
 		return operatorHost{}, false
@@ -202,7 +206,7 @@ func (h *Hub) hostWhere(ctx context.Context, match func(*continuumv1.WorkloadFac
 // clusterHost finds a cluster by its id. It is found whenever an approved agent is registered there, even one that has
 // reported nothing yet (then it has no nodes to list). A workload that match accepts, if the agent reports one, says which
 // node the pod is on.
-func (h *Hub) clusterHost(ctx context.Context, clusterID string, match func(*continuumv1.WorkloadFacts) bool) (operatorHost, bool) {
+func (h hubHosts) clusterHost(ctx context.Context, clusterID string, match func(*continuumv1.WorkloadFacts) bool) (operatorHost, bool) {
 	agentList, err := h.C.Store.ListAgents(ctx, h.C.OrgID)
 	if err != nil {
 		return operatorHost{}, false
@@ -242,7 +246,7 @@ type ClusterOption struct {
 }
 
 // clusterOptions lists the clusters approved agents are registered in, one entry per cluster, by name.
-func (h *Hub) clusterOptions(ctx context.Context) []ClusterOption {
+func (h hubHosts) clusterOptions(ctx context.Context) []ClusterOption {
 	agentList, err := h.C.Store.ListAgents(ctx, h.C.OrgID)
 	if err != nil {
 		return nil
@@ -264,7 +268,7 @@ func (h *Hub) clusterOptions(ctx context.Context) []ClusterOption {
 // It is the way to the right cluster when no agent reports anything of the workload's namespace but the Service's load
 // balancer address is a node's own (k3s's built-in load balancer, or MetalLB announcing on a node). Like namespaceHost it
 // says which cluster and so which nodes, and nothing about the Deployment's Service. An address that no node has finds nothing.
-func (h *Hub) nodeHost(ctx context.Context, ip string) (operatorHost, bool) {
+func (h hubHosts) nodeHost(ctx context.Context, ip string) (operatorHost, bool) {
 	want, err := netip.ParseAddr(ip)
 	if err != nil {
 		return operatorHost{}, false
@@ -706,14 +710,15 @@ func exposureHint(candidates []AddressCandidate, found, central bool) string {
 // install named, is the answer even when no agent is registered there (then the state is noAgent, and there are no nodes to
 // list). Failing both, it is worked out from what agents report: a workload of the server's namespace, then a node that has
 // the load balancer's address; and when that finds nothing the state is unknown, with the registered clusters to choose from.
-func (a *Admin) serverClusterHost(ctx context.Context, c *Core, hub *Hub, namespace, workload string, gateway *kernel.KubeService) (operatorHost, bool, *ServerClusterDoc) {
+func (a *Admin) serverClusterHost(ctx context.Context, c *Core, hub *estate.Hub, namespace, workload string, gateway *kernel.KubeService) (operatorHost, bool, *ServerClusterDoc) {
 	host, ok, doc := a.serverClusterFromAgents(ctx, c, hub, namespace, workload, gateway)
 	return a.withSelfProbe(host, ok, doc)
 }
 
 // serverClusterFromAgents is serverClusterHost before the server's own node probes are looked at: what the install, a
 // person's choice and the registered agents say.
-func (a *Admin) serverClusterFromAgents(ctx context.Context, c *Core, hub *Hub, namespace, workload string, gateway *kernel.KubeService) (operatorHost, bool, *ServerClusterDoc) {
+func (a *Admin) serverClusterFromAgents(ctx context.Context, c *Core, hub *estate.Hub, namespace, workload string, gateway *kernel.KubeService) (operatorHost, bool, *ServerClusterDoc) {
+	hosts := hubHosts{hub}
 	gatewayWorkload := func(w *continuumv1.WorkloadFacts) bool { return w.Namespace == namespace && w.Name == workload }
 	id, source := c.Settings().ServerClusterID, "chosen"
 	if id == "" {
@@ -723,26 +728,26 @@ func (a *Admin) serverClusterFromAgents(ctx context.Context, c *Core, hub *Hub, 
 		}
 	}
 	if id != "" {
-		if host, ok := hub.clusterHost(ctx, id, gatewayWorkload); ok {
-			return host, true, &ServerClusterDoc{State: serverClusterKnown, Source: source, ClusterID: id, Options: hub.clusterOptions(ctx)}
+		if host, ok := hosts.clusterHost(ctx, id, gatewayWorkload); ok {
+			return host, true, &ServerClusterDoc{State: serverClusterKnown, Source: source, ClusterID: id, Options: hosts.clusterOptions(ctx)}
 		}
-		return operatorHost{}, false, &ServerClusterDoc{State: serverClusterNoAgent, Source: source, ClusterID: id, Options: hub.clusterOptions(ctx)}
+		return operatorHost{}, false, &ServerClusterDoc{State: serverClusterNoAgent, Source: source, ClusterID: id, Options: hosts.clusterOptions(ctx)}
 	}
-	host, ok := hub.workloadHost(ctx, namespace, workload)
+	host, ok := hosts.workloadHost(ctx, namespace, workload)
 	if !ok {
-		host, ok = hub.namespaceHost(ctx, namespace)
+		host, ok = hosts.namespaceHost(ctx, namespace)
 	}
 	if !ok && gateway != nil && gateway.LoadBalancer != "" {
 		// No agent reports anything of that namespace. A load balancer address that is one of a cluster's nodes' own
 		// (k3s's built-in load balancer, MetalLB on a node) still says which cluster the gateway is in.
 		if lbHost, _, err := net.SplitHostPort(gateway.LoadBalancer); err == nil {
-			host, ok = hub.nodeHost(ctx, lbHost)
+			host, ok = hosts.nodeHost(ctx, lbHost)
 		}
 	}
 	if ok {
-		return host, true, &ServerClusterDoc{State: serverClusterKnown, Source: "matched", ClusterID: host.ClusterID, Options: hub.clusterOptions(ctx)}
+		return host, true, &ServerClusterDoc{State: serverClusterKnown, Source: "matched", ClusterID: host.ClusterID, Options: hosts.clusterOptions(ctx)}
 	}
-	return operatorHost{}, false, &ServerClusterDoc{State: serverClusterUnknown, Options: hub.clusterOptions(ctx)}
+	return operatorHost{}, false, &ServerClusterDoc{State: serverClusterUnknown, Options: hosts.clusterOptions(ctx)}
 }
 
 // listOperatorAddressCandidates answers GET .../operators/{id}/address-candidates.
@@ -773,7 +778,7 @@ func (a *Admin) listOperatorAddressCandidates(w http.ResponseWriter, r *http.Req
 		// server: a person's choice, else what the install told it. Only then is it worked out from what agents report.
 		host, found, res.ServerCluster = a.serverClusterHost(r.Context(), c, hub, namespace, workload, gateway)
 	} else {
-		host, found = hub.workloadHost(r.Context(), namespace, workload)
+		host, found = hubHosts{hub}.workloadHost(r.Context(), namespace, workload)
 	}
 	if found {
 		res.Found, res.HostClusterID, res.HostClusterName = true, host.ClusterID, host.ClusterName
@@ -836,7 +841,8 @@ func (a *Admin) putServerCluster(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimSpace(body.ClusterID)
 	if id != "" {
 		known := false
-		for _, o := range a.tn(r).Hub.clusterOptions(r.Context()) {
+		hosts := hubHosts{a.tn(r).Hub}
+		for _, o := range hosts.clusterOptions(r.Context()) {
 			known = known || o.ID == id
 		}
 		if !known {

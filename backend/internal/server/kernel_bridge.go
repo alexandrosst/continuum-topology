@@ -8,6 +8,7 @@ import (
 	"continuum/internal/agents"
 	"continuum/internal/connectivity"
 	"continuum/internal/decisionloop"
+	"continuum/internal/estate"
 	"continuum/internal/fusion"
 	"continuum/internal/kernel"
 	"continuum/internal/operators"
@@ -31,6 +32,8 @@ type Core struct {
 	// Operators and Telemetry are the regional operators and the telemetry intents that may point at them.
 	Operators *operators.Service
 	Telemetry *telemetry.Service
+	// Estate is the hub's side of the Core: what the Hub does with it and the saved workspace.
+	Estate *estate.Service
 	// Fusion is what the FUSION control stands on: the Core and the operators the central operator is one of.
 	Fusion *fusion.Service
 }
@@ -38,7 +41,8 @@ type Core struct {
 func wrap(k *kernel.Core) *Core {
 	ops := operators.NewService(k)
 	tel := telemetry.NewService(k, ops)
-	return &Core{Core: k, Accounts: accounts.NewService(k), Agents: agents.NewService(k, ops, tel), Connectivity: connectivity.NewService(k), Loop: decisionloop.NewService(k), Operators: ops, Telemetry: tel, Fusion: fusion.NewService(k, ops)}
+	ag, conn, loop := agents.NewService(k, ops, tel), connectivity.NewService(k), decisionloop.NewService(k)
+	return &Core{Core: k, Accounts: accounts.NewService(k), Agents: ag, Connectivity: conn, Loop: loop, Operators: ops, Telemetry: tel, Estate: estate.NewService(k, ag, conn, loop), Fusion: fusion.NewService(k, ops)}
 }
 
 // NewCore returns a Core scoped to org (see kernel.NewCore).

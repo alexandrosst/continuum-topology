@@ -194,12 +194,12 @@ func TestTheTopologyOfAnApplicationInThePastComesFromTheGraph(t *testing.T) {
 	}
 	gs.Sync(a.ctx)
 	*a.now = t0.Add(time.Minute)
-	if _, err := c.SaveWorkspace(a.ctx, "ann", 0, []byte(`{"schemaVersion":4,"applications":[{"id":"app-1","name":"One"}],"refs":{"svc-a":{"kind":"service","applicationId":"app-1"},"svc-b":{"kind":"service","applicationId":"app-1"}}}`)); err != nil {
+	if _, err := c.Estate.SaveWorkspace(a.ctx, "ann", 0, []byte(`{"schemaVersion":4,"applications":[{"id":"app-1","name":"One"}],"refs":{"svc-a":{"kind":"service","applicationId":"app-1"},"svc-b":{"kind":"service","applicationId":"app-1"}}}`)); err != nil {
 		t.Fatal(err)
 	}
 	// later, svc-b leaves the application
 	*a.now = t0.Add(30 * time.Minute)
-	if _, err := c.SaveWorkspace(a.ctx, "ann", 1, []byte(`{"schemaVersion":4,"applications":[{"id":"app-1","name":"One"}],"refs":{"svc-a":{"kind":"service","applicationId":"app-1"}}}`)); err != nil {
+	if _, err := c.Estate.SaveWorkspace(a.ctx, "ann", 1, []byte(`{"schemaVersion":4,"applications":[{"id":"app-1","name":"One"}],"refs":{"svc-a":{"kind":"service","applicationId":"app-1"}}}`)); err != nil {
 		t.Fatal(err)
 	}
 

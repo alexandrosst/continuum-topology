@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"continuum/internal/agents"
+	"continuum/internal/estate"
 	"continuum/internal/install"
 	"continuum/internal/kernel"
 )
@@ -88,7 +89,7 @@ func (a *Admin) setAgentConsent(w http.ResponseWriter, r *http.Request) {
 }
 
 // withoutDiagnostics removes what only people who can change an agent's access may see.
-func withoutDiagnostics(doc *StateDoc) {
+func withoutDiagnostics(doc *estate.StateDoc) {
 	for i := range doc.Agents {
 		doc.Agents[i].Diagnostics, doc.Agents[i].Consent, doc.Agents[i].Teardown = nil, nil, nil
 	}

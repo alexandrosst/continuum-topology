@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"continuum/internal/estate"
 	"continuum/internal/graph"
 	"continuum/internal/history"
 	"continuum/internal/model"
@@ -27,35 +28,6 @@ func (s *linkSpy) LinkEntitiesBatch(_ context.Context, _ string, _ time.Time, _,
 	return nil
 }
 
-// Membership can change without a workspace being saved (a hint starts to apply once its service appears), so the recorder's
-// scan links the applications too, with the members the API shows.
-func TestTheScanLinksApplicationsToTheirMembers(t *testing.T) {
-	r := newHubRig(t)
-	spy := &linkSpy{Store: r.hub.C.Store}
-	r.hub.C.Store = spy
-	ws := []byte(`{"schemaVersion":4,"applications":[{"id":"app-core","name":"Core"},{"id":"app-old","name":"Old","deletedAt":"2026-10-01T00:00:00Z"}],
-		"refs":{"sv-ref":{"kind":"service","applicationId":"app-core"}}}`)
-	if _, err := spy.PutWorkspace(r.ctx, "org-1", 0, ws, "ann", *r.now); err != nil {
-		t.Fatal(err)
-	}
-	doc := StateDoc{Topology: model.Topology{Services: []model.Service{{ID: "sv-hint", ApplicationHint: "app-core"}, {ID: "sv-old", ApplicationHint: "app-old"}}}}
-	r.hub.C.linkApplications(r.ctx, *r.now, doc)
-	want := map[string][]string{"app-core": {"sv-hint", "sv-ref"}}
-	if !reflect.DeepEqual(spy.sets, want) {
-		t.Fatalf("linked %v, want %v", spy.sets, want)
-	}
-
-	id, _, _ := r.approvedAgent(t, fp)
-	r.hub.Mu.Lock()
-	r.hub.Views[id] = liveView(*r.now, "n1")
-	r.hub.Mu.Unlock()
-	spy.sets = nil
-	r.hub.ScanNow(r.ctx)
-	if got := spy.sets["app-core"]; !slices.Contains(got, "sv-ref") {
-		t.Fatalf("a scan did not link: %v", spy.sets)
-	}
-}
-
 // The graph and the API must agree on who is in an application: refs, inline records and accepted hints, and nothing that was
 // soft-deleted. An application deleted in the workspace leaves the graph, with its membership closed.
 func TestTheGraphHoldsTheMembersTheAPIShows(t *testing.T) {
@@ -64,7 +36,7 @@ func TestTheGraphHoldsTheMembersTheAPIShows(t *testing.T) {
 	hub := a.core.ForOrg(aOrg)
 	hints := map[string]string{"sv-hint": "app-1", "sv-hint-old": "app-gone"}
 	hub.AppHints = func(context.Context) map[string]string { return hints }
-	doc := StateDoc{Topology: model.Topology{Services: []model.Service{
+	doc := estate.StateDoc{Topology: model.Topology{Services: []model.Service{
 		{ID: "sv-ref", Name: "ref"}, {ID: "sv-inline", Name: "inline"}, {ID: "sv-hint", Name: "hint", ApplicationHint: "app-1"}, {ID: "sv-hint-old", Name: "hint-old", ApplicationHint: "app-gone"}}}}
 	// every service is in the graph, as a topology poll would have put it there
 	tp := doc.Topology
@@ -108,7 +80,7 @@ func TestTheGraphHoldsTheMembersTheAPIShows(t *testing.T) {
 	save := func(rev int64, data string) {
 		t.Helper()
 		*a.now = a.now.Add(time.Minute)
-		if _, err := hub.SaveWorkspace(a.ctx, "ann", rev, []byte(data)); err != nil {
+		if _, err := hub.Estate.SaveWorkspace(a.ctx, "ann", rev, []byte(data)); err != nil {
 			t.Fatal(err)
 		}
 	}

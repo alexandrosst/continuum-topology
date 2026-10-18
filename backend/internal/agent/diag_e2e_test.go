@@ -16,6 +16,7 @@ import (
 	"continuum/internal/agent"
 	"continuum/internal/agent/collect"
 	"continuum/internal/agents"
+	"continuum/internal/estate"
 	"continuum/internal/facts"
 	"continuum/internal/flow"
 	"continuum/internal/kernel"
@@ -41,7 +42,7 @@ type dx struct {
 	t      *testing.T
 	st     *store.SQLite
 	core   *server.Core
-	hub    *server.Hub
+	hub    *estate.Hub
 	srv    *agents.GRPCServer
 	l      net.Listener
 	kube   *fake.Clientset
@@ -58,7 +59,7 @@ type dxOpts struct {
 	approve   int // the tier the administrator approves
 	objects   []runtime.Object
 	uid       string
-	tune      func(*agent.Config, *server.Core, *server.Hub)
+	tune      func(*agent.Config, *server.Core, *estate.Hub)
 	ids       func(agent.IdentityStore) agent.IdentityStore
 	noApprove bool
 }
@@ -74,7 +75,7 @@ func newDx(t *testing.T, o dxOpts) *dx {
 	core := server.NewCore(st, ca, "org", nil)
 	core.EnrollRL = kernel.NewLimiter(6000, 1000)
 	core.RenewRL = kernel.NewLimiter(6000, 1000)
-	hub := server.NewHub(core)
+	hub := estate.NewHub(core.Estate)
 	hub.ConsistencyEvery = 30 * time.Second
 	d := &dx{t: t, st: st, core: core, hub: hub}
 	if o.uid == "" {
@@ -138,15 +139,15 @@ func (d *dx) start() {
 	})
 }
 
-func (d *dx) state() server.StateDoc { s, _ := d.hub.State(context.Background()); return s }
+func (d *dx) state() estate.StateDoc { s, _ := d.hub.State(context.Background()); return s }
 
-func (d *dx) agentDoc() server.AgentDoc {
+func (d *dx) agentDoc() estate.AgentDoc {
 	for _, a := range d.state().Agents {
 		if a.ID == d.id {
 			return a
 		}
 	}
-	return server.AgentDoc{}
+	return estate.AgentDoc{}
 }
 
 func (d *dx) diag() *agents.DiagnosticsDoc { return d.agentDoc().Diagnostics }
@@ -297,7 +298,7 @@ func TestAnOverCeilingTierIsRefusedWithTheHelmCommand(t *testing.T) {
 }
 
 func TestForbiddenResourcesAreReportedAndTheAgentCarriesOn(t *testing.T) {
-	d := newDx(t, dxOpts{tune: func(c *agent.Config, _ *server.Core, _ *server.Hub) {
+	d := newDx(t, dxOpts{tune: func(c *agent.Config, _ *server.Core, _ *estate.Hub) {
 		kube := c.Kube.(*fake.Clientset)
 		kube.PrependReactor("list", "deployments", func(k8stesting.Action) (bool, runtime.Object, error) {
 			return true, nil, apierrors.NewForbidden(schema.GroupResource{Group: "apps", Resource: "deployments"}, "", errors.New(`User "system:serviceaccount:continuum-system:continuum-agent" cannot list resource "deployments" in API group "apps" at the cluster scope`))
@@ -327,7 +328,7 @@ func TestForbiddenResourcesAreReportedAndTheAgentCarriesOn(t *testing.T) {
 }
 
 func TestScopeEmptyAndClockSkewAreReported(t *testing.T) {
-	d := newDx(t, dxOpts{tune: func(c *agent.Config, core *server.Core, _ *server.Hub) {
+	d := newDx(t, dxOpts{tune: func(c *agent.Config, core *server.Core, _ *estate.Hub) {
 		sc, err := collect.ParseScope("no-such-namespace", "", "")
 		if err != nil {
 			t.Fatal(err)
@@ -347,7 +348,7 @@ func TestScopeEmptyAndClockSkewAreReported(t *testing.T) {
 }
 
 func TestASilentCollectorIsReported(t *testing.T) {
-	d := newDx(t, dxOpts{tune: func(c *agent.Config, _ *server.Core, _ *server.Hub) {
+	d := newDx(t, dxOpts{tune: func(c *agent.Config, _ *server.Core, _ *estate.Hub) {
 		c.Probes = probe.NewReceiver([]byte("secret-secret-secret-secret-1234"), nil)
 		c.ProbeInterval = 100 * time.Millisecond // silent after three of these
 		// This probe receiver has never reported even once, so silent() would otherwise apply the real
@@ -375,7 +376,7 @@ func TestASilentCollectorIsReported(t *testing.T) {
 // may still be scheduling, pulling its image, or - for the flow collector - attaching eBPF) must not be called
 // silent after only a few missed report intervals. It gets the flatter, more patient startup floor instead.
 func TestACollectorThatHasNeverReportedWaitsOutTheStartupGraceNotJustAFewIntervals(t *testing.T) {
-	d := newDx(t, dxOpts{tune: func(c *agent.Config, _ *server.Core, _ *server.Hub) {
+	d := newDx(t, dxOpts{tune: func(c *agent.Config, _ *server.Core, _ *estate.Hub) {
 		c.Probes = probe.NewReceiver([]byte("secret-secret-secret-secret-1234"), nil)
 		c.ProbeInterval = 50 * time.Millisecond           // 3 of these = 150ms
 		c.CollectorStartupGrace = 1200 * time.Millisecond // comfortably longer than 150ms
@@ -395,7 +396,7 @@ func TestACollectorThatHasNeverReportedWaitsOutTheStartupGraceNotJustAFewInterva
 // fast, at 3*its own interval - never the much more patient startup floor, which only applies before a first report.
 func TestACollectorThatHadReportedGoesSilentAtTheFastThresholdNotTheStartupGrace(t *testing.T) {
 	var pipe *flow.Pipeline
-	d := newDx(t, dxOpts{tune: func(c *agent.Config, _ *server.Core, _ *server.Hub) {
+	d := newDx(t, dxOpts{tune: func(c *agent.Config, _ *server.Core, _ *estate.Hub) {
 		pipe = flow.NewPipeline([]byte("secret-secret-secret-secret-1234"), nil, nil)
 		c.Flows = pipe
 		c.FlowInterval = 50 * time.Millisecond    // 3 of these = 150ms
@@ -418,7 +419,7 @@ func TestPausedCollectorsAndExcludedNamespacesTakeEffect(t *testing.T) {
 	var dials atomic.Int64
 	var pipe *flow.Pipeline
 	var recv *probe.Receiver
-	d := newDx(t, dxOpts{tune: func(c *agent.Config, _ *server.Core, _ *server.Hub) {
+	d := newDx(t, dxOpts{tune: func(c *agent.Config, _ *server.Core, _ *estate.Hub) {
 		recv = probe.NewReceiver(secret, nil)
 		pipe = flow.NewPipeline(secret, nil, nil)
 		c.Probes, c.Flows = recv, pipe
@@ -517,7 +518,7 @@ func manyDeployments(n int) []runtime.Object {
 
 func TestALargePictureIsSentInChunksAndAppliedWhole(t *testing.T) {
 	before := kernel.Metrics.SyncsChunked.Load()
-	d := newDx(t, dxOpts{objects: manyDeployments(400), tune: func(c *agent.Config, _ *server.Core, _ *server.Hub) { c.ChunkBytes = 4000 }})
+	d := newDx(t, dxOpts{objects: manyDeployments(400), tune: func(c *agent.Config, _ *server.Core, _ *estate.Hub) { c.ChunkBytes = 4000 }})
 	waitFor(t, "all 401 workloads", 60*time.Second, func() bool { return services(d, "") == 401 })
 	if kernel.Metrics.SyncsChunked.Load() <= before {
 		t.Fatal("the picture was not chunked")
@@ -529,7 +530,7 @@ func TestALargePictureIsSentInChunksAndAppliedWhole(t *testing.T) {
 
 func TestAPictureOverTheServersLimitsIsReportedAsAProblem(t *testing.T) {
 	limits := &facts.Limits{Nodes: 10, Namespaces: 100, Workloads: 100, Bytes: 8 << 20}
-	d := newDx(t, dxOpts{objects: manyDeployments(300), noApprove: true, tune: func(c *agent.Config, _ *server.Core, h *server.Hub) {
+	d := newDx(t, dxOpts{objects: manyDeployments(300), noApprove: true, tune: func(c *agent.Config, _ *server.Core, h *estate.Hub) {
 		h.Limits = limits
 		c.ChunkBytes = 4000
 	}})
@@ -551,7 +552,7 @@ func TestSixtyThousandWorkloadsFromARealAgent(t *testing.T) {
 		t.Skip("large")
 	}
 	before := kernel.Metrics.SyncsChunked.Load()
-	d := newDx(t, dxOpts{objects: manyDeployments(60000), noApprove: true, tune: func(c *agent.Config, _ *server.Core, h *server.Hub) {
+	d := newDx(t, dxOpts{objects: manyDeployments(60000), noApprove: true, tune: func(c *agent.Config, _ *server.Core, h *estate.Hub) {
 		h.Limits = &facts.Limits{Nodes: 100, Namespaces: 1000, Workloads: 100000, Bytes: 128 << 20}
 		c.SyncWait = 90 * time.Second
 	}})
@@ -594,7 +595,7 @@ func TestShutdownDoesNotHangOnAKubernetesAPIThatNeverAnswers(t *testing.T) {
 	var once sync.Once
 	t.Cleanup(func() { once.Do(func() { close(release) }) })
 	var block atomic.Bool
-	d := newDx(t, dxOpts{tune: func(c *agent.Config, _ *server.Core, _ *server.Hub) {
+	d := newDx(t, dxOpts{tune: func(c *agent.Config, _ *server.Core, _ *estate.Hub) {
 		c.Kube.(*fake.Clientset).PrependReactor("list", "nodes", func(k8stesting.Action) (bool, runtime.Object, error) {
 			if block.Load() {
 				<-release
@@ -682,7 +683,7 @@ func selfSubjectAccessReviewReactor(allow ...string) k8stesting.ReactionFunc {
 }
 
 func TestRBACSelfCheckFlagsAClusterThatStillGrantsMoreThanTheInstallDeclares(t *testing.T) {
-	d := newDx(t, dxOpts{installed: 1, approve: 1, tune: func(c *agent.Config, _ *server.Core, _ *server.Hub) {
+	d := newDx(t, dxOpts{installed: 1, approve: 1, tune: func(c *agent.Config, _ *server.Core, _ *estate.Hub) {
 		c.RBACSelfCheck, c.RBACCheckEvery = true, 50*time.Millisecond
 		// The cluster still grants tier 2 (pods), even though this install declares --tier 1: the leftover from a
 		// `helm upgrade --set access.tier=1` that never actually ran against this cluster.
@@ -696,7 +697,7 @@ func TestRBACSelfCheckFlagsAClusterThatStillGrantsMoreThanTheInstallDeclares(t *
 }
 
 func TestRBACSelfCheckIsQuietWhenTheGrantMatchesWhatIsDeclared(t *testing.T) {
-	d := newDx(t, dxOpts{installed: 2, approve: 2, tune: func(c *agent.Config, _ *server.Core, _ *server.Hub) {
+	d := newDx(t, dxOpts{installed: 2, approve: 2, tune: func(c *agent.Config, _ *server.Core, _ *estate.Hub) {
 		c.RBACSelfCheck, c.RBACCheckEvery = true, 50*time.Millisecond
 		c.Kube.(*fake.Clientset).PrependReactor("create", "selfsubjectaccessreviews", selfSubjectAccessReviewReactor("nodes", "pods"))
 	}})
@@ -712,7 +713,7 @@ func TestRBACSelfCheckIsQuietWhenTheGrantMatchesWhatIsDeclared(t *testing.T) {
 func TestRBACSelfCheckIsOffByDefault(t *testing.T) {
 	// A bare Config (what every other test in this package uses, and what RBACSelfCheck defaults to false in) never
 	// runs the check, even if the cluster would otherwise have tripped it: only the CLI turns it on.
-	d := newDx(t, dxOpts{installed: 1, approve: 1, tune: func(c *agent.Config, _ *server.Core, _ *server.Hub) {
+	d := newDx(t, dxOpts{installed: 1, approve: 1, tune: func(c *agent.Config, _ *server.Core, _ *estate.Hub) {
 		c.Kube.(*fake.Clientset).PrependReactor("create", "selfsubjectaccessreviews", selfSubjectAccessReviewReactor("nodes", "pods"))
 	}})
 	time.Sleep(200 * time.Millisecond)
@@ -747,7 +748,7 @@ func selfSubjectAccessReviewReactorNS(clusterWide []string, podsNamespace string
 // mode would never see a leftover per-namespace Role at all - it would ask the wrong question and always get "no".
 // The self-check must ask about the declared namespaces instead when the cluster-wide ask comes back empty.
 func TestRBACSelfCheckCatchesALeftoverPerNamespaceRoleUnderNamespacedRBAC(t *testing.T) {
-	d := newDx(t, dxOpts{installed: 1, approve: 1, tune: func(c *agent.Config, _ *server.Core, _ *server.Hub) {
+	d := newDx(t, dxOpts{installed: 1, approve: 1, tune: func(c *agent.Config, _ *server.Core, _ *estate.Hub) {
 		c.RBACSelfCheck, c.RBACCheckEvery = true, 50*time.Millisecond
 		c.RBACNamespaced = true
 		c.Scope = &collect.Scope{Include: []string{"shop"}}
@@ -767,7 +768,7 @@ func TestRBACSelfCheckCatchesALeftoverPerNamespaceRoleUnderNamespacedRBAC(t *tes
 // cluster-wide, ever, in this mode) - the real test is that this stays true even for the CORRECT case, once the
 // self-check also asks about the declared namespaces.
 func TestRBACSelfCheckUnderNamespacedRBACIsQuietWhenTheGrantMatchesWhatIsDeclared(t *testing.T) {
-	d := newDx(t, dxOpts{installed: 2, approve: 2, tune: func(c *agent.Config, _ *server.Core, _ *server.Hub) {
+	d := newDx(t, dxOpts{installed: 2, approve: 2, tune: func(c *agent.Config, _ *server.Core, _ *estate.Hub) {
 		c.RBACSelfCheck, c.RBACCheckEvery = true, 50*time.Millisecond
 		c.RBACNamespaced = true
 		c.Scope = &collect.Scope{Include: []string{"shop"}}

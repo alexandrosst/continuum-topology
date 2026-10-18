@@ -8,6 +8,7 @@ import (
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/agent"
 	"continuum/internal/agent/collect"
+	"continuum/internal/estate"
 	"continuum/internal/flow"
 	"continuum/internal/pki"
 	"continuum/internal/server"
@@ -34,7 +35,7 @@ func TestTrafficSeenWhileDisconnectedIsSentOnReconnect(t *testing.T) {
 			&corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "cart-1-a", Namespace: "shop", OwnerReferences: []metav1.OwnerReference{{Kind: "ReplicaSet", Name: "cart-1"}}},
 				Spec: corev1.PodSpec{NodeName: "n1"}, Status: corev1.PodStatus{Phase: corev1.PodRunning, PodIP: "10.42.0.5"}},
 		},
-		tune: func(c *agent.Config, _ *server.Core, _ *server.Hub) {
+		tune: func(c *agent.Config, _ *server.Core, _ *estate.Hub) {
 			pipe = flow.NewPipeline([]byte("flow-secret-0123456789abcdef0123"), func() *collect.Index { return nil }, nil)
 			c.Flows, c.FlowWindow = pipe, time.Hour
 			// The resolver learns the cluster's pods from the agent only once the receiver is listening.

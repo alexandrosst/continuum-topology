@@ -7,6 +7,7 @@ import (
 
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/agents"
+	"continuum/internal/estate"
 	"continuum/internal/kernel"
 	"continuum/internal/store"
 
@@ -20,7 +21,7 @@ import (
 type Tenant struct {
 	ID   string
 	C    *Core
-	Hub  *Hub
+	Hub  *estate.Hub
 	stop context.CancelFunc
 }
 
@@ -31,7 +32,7 @@ type Platform struct {
 	Base                     *Core
 	Geo                      *agents.Geo
 	// Tune, when set, is applied to each new tenant's hub (tests use it to shorten intervals).
-	Tune func(*Hub)
+	Tune func(*estate.Hub)
 
 	mu      sync.Mutex
 	tenants map[string]*Tenant
@@ -76,7 +77,7 @@ func (p *Platform) Tenant(ctx context.Context, id string) (*Tenant, error) {
 	c := p.Base.ForOrg(id)
 	c.OnOrgDeleted = p.drop
 	c.LoadSettings(ctx)
-	h := NewHub(c)
+	h := estate.NewHub(c.Estate)
 	h.Geo = p.Geo
 	if p.Tune != nil {
 		p.Tune(h)
@@ -95,7 +96,7 @@ func (p *Platform) Tenant(ctx context.Context, id string) (*Tenant, error) {
 // It is deliberately not part of drop: a deleted organisation's data is gone and must not be written back.
 func (p *Platform) FlushAll(ctx context.Context) {
 	p.mu.Lock()
-	hubs := make([]*Hub, 0, len(p.tenants))
+	hubs := make([]*estate.Hub, 0, len(p.tenants))
 	for _, t := range p.tenants {
 		hubs = append(hubs, t.Hub)
 	}

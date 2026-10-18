@@ -8,6 +8,7 @@ import (
 
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/agentcaps"
+	"continuum/internal/estate"
 )
 
 // What an agent says about the protocol it speaks and what it does is recorded when it says hello. These scenarios are the ways
@@ -114,19 +115,6 @@ func TestAHelloWithNeitherFieldIsProtocolZeroAndTheConfigIsTheSameAsForOneWithBo
 
 // ---------- the agent document ----------
 
-func TestTheAgentDocumentCarriesWhatTheAgentDeclared(t *testing.T) {
-	r := newHubRig(t)
-	f := r.connectedWith(t, &continuumv1.Hello{ProtocolVersion: 1, Capabilities: []string{"self-stats", "config-digest"}})
-	doc := r.agentDoc(t, f.id)
-	if doc.ProtocolVersion != 1 || strings.Join(doc.Capabilities, ",") != "config-digest,self-stats" {
-		t.Fatalf("document says protocol %d, names %v", doc.ProtocolVersion, doc.Capabilities)
-	}
-	raw, _ := json.Marshal(doc)
-	if !strings.Contains(string(raw), `"protocolVersion":1`) || !strings.Contains(string(raw), `"capabilities":["config-digest","self-stats"]`) {
-		t.Fatalf("the JSON names are not the contract: %s", raw)
-	}
-}
-
 func TestTheDocumentOfAnAgentThatSaidNothingHasAnEmptyListAndNotNull(t *testing.T) {
 	r := newHubRig(t)
 	f := r.connectedWith(t, &continuumv1.Hello{AgentVersion: "old"})
@@ -146,7 +134,7 @@ func TestTheDocumentOfAnAgentNeverSeenSinceTheServerStartedHasAnEmptyList(t *tes
 }
 
 // agentDoc is the document the API serves for one agent, as the hub builds it.
-func (r *hubRig) agentDoc(t *testing.T, id string) AgentDoc {
+func (r *hubRig) agentDoc(t *testing.T, id string) estate.AgentDoc {
 	t.Helper()
 	s, err := r.hub.State(context.Background())
 	if err != nil {
@@ -158,5 +146,5 @@ func (r *hubRig) agentDoc(t *testing.T, id string) AgentDoc {
 		}
 	}
 	t.Fatalf("agent %s is not in the state", id)
-	return AgentDoc{}
+	return estate.AgentDoc{}
 }

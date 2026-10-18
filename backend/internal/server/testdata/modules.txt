@@ -1,5 +1,5 @@
-# Which module each source file of this package belongs to. The server is one Go package still, with the kernel already out of it;
-# this is the line the rest will be cut along.
+# Which module each source file of this package belongs to. Every module but the kernel bridge and the shell is a package of its own now;
+# this is the line the last of them was cut along.
 # Read docs/server-modules.md (backend/docs) for what each module is, what it owns and why the files sit where they do.
 #
 # kernel        what every module stands on: the Core (store, CA, organisation, audit, clock), settings, secrets, rate limits, the
@@ -10,9 +10,10 @@
 #               Principal, Role) and the one decision of what a caller may do (Decide). It is the package internal/accounts; no file
 #               of it is left here.
 # agents        an enrolled agent: tokens and enrolment, the stream, consent and access tier, diagnostics, the agent's own health. It is the
-#               package internal/agents; the live picture of all of them (the hub) is the estate's, and no file of agents is left here.
-# estate        what the servers know about the world: the hub, the per-agent views, the observed flows, the twin, history, the
-#               applications graph.
+#               package internal/agents; the live picture of all of them (the hub) is the estate's.
+# estate        what the server knows about the world: the hub, the per-agent views, the twin built from them, the history recorded as it
+#               changes, the applications graph, the saved workspace. It is the package internal/estate, the top of the hub cluster; its
+#               HTTP half is the shell's, and no file of it is left here.
 # telemetry     telemetry intents and the quick-start backends. It is the package internal/telemetry; its HTTP half is the shell's.
 # operators     regional operators: their certificates, senders, addresses, heartbeat. It is the package internal/operators; their HTTP half
 #               and the node probe of the server's own cluster are the shell's.
@@ -48,9 +49,6 @@ admin_quickstart.go shell
 admin_telemetry.go shell
 admin_telemetry_intents.go shell
 admin_twin.go shell
-agent_load.go estate
-applications_graph.go           estate
-assemble.go                     estate
 fusion_appinfo.go shell
 fusion_data.go shell
 fusion_extras.go shell
@@ -58,25 +56,12 @@ fusion_native.go shell
 fusion_openapi.go shell
 fusion_ops.go shell
 fusion_ui_access.go shell
-hub.go                          estate
-hub_access.go                   estate
-hub_address.go                  estate
-hub_conditions.go              estate
-hub_consent.go                  estate
-hub_linkcreds.go                estate
-hub_links.go                    estate
-hub_links_setup.go              estate
-hub_paths.go                    estate
-hub_selfstats.go                estate
 kernel_bridge.go                kernel
 links_latest.go shell
 metrics.go                      shell
 operator_candidates.go shell
 operator_senders.go shell
 readiness.go                    shell
-recorder.go                     estate
 routes.go                       shell
 self_probe.go shell
 tenants.go                      shell
-twin.go                         estate
-workspace_save.go               estate

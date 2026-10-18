@@ -13,6 +13,7 @@ import (
 	"continuum/internal/agent"
 	"continuum/internal/agent/collect"
 	"continuum/internal/agents"
+	"continuum/internal/estate"
 	"continuum/internal/flow"
 	"continuum/internal/kernel"
 	"continuum/internal/link"
@@ -102,7 +103,7 @@ func TestTheServerNamesLinkPeersAndTheAgentLabelsTrafficWithThem(t *testing.T) {
 	secret := []byte("secret-secret-secret-secret-1234")
 	meter := link.NewMeter(link.NewPeers())
 	var pipe *flow.Pipeline
-	d := newDx(t, dxOpts{tune: func(c *agent.Config, _ *server.Core, _ *server.Hub) {
+	d := newDx(t, dxOpts{tune: func(c *agent.Config, _ *server.Core, _ *estate.Hub) {
 		pipe = flow.NewPipeline(secret, func() *collect.Index { return nil }, nil)
 		pipe.Links = meter
 		c.Flows, c.Links = pipe, meter
@@ -171,7 +172,7 @@ func TestTheServerNamesLinkPeersAndTheAgentLabelsTrafficWithThem(t *testing.T) {
 func TestTheServerLearnsWhatTheInstallCanDoAndChecksThePair(t *testing.T) {
 	meter := link.NewMeter(link.NewPeers())
 	meter.SetInstall(link.Install{Probe: true, TelemetryExport: true})
-	d := newDx(t, dxOpts{tune: func(c *agent.Config, _ *server.Core, _ *server.Hub) {
+	d := newDx(t, dxOpts{tune: func(c *agent.Config, _ *server.Core, _ *estate.Hub) {
 		pipe := flow.NewPipeline([]byte("secret-secret-secret-secret-1234"), func() *collect.Index { return nil }, nil)
 		pipe.Links = meter
 		c.Flows, c.Links = pipe, meter
