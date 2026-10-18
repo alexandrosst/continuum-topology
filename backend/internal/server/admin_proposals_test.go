@@ -6,6 +6,7 @@ import (
 
 	"continuum/internal/accounts"
 	"continuum/internal/store"
+	"continuum/internal/testkit"
 )
 
 func TestTheProposalRoutesAreForEditorsAndAWideningAcceptanceNeedsAnAdministrator(t *testing.T) {
@@ -13,7 +14,7 @@ func TestTheProposalRoutesAreForEditorsAndAWideningAcceptanceNeedsAnAdministrato
 	_, editor := a.user(t, "edith", accounts.RoleEditor)
 	_, admin := a.user(t, "adam", accounts.RoleAdmin)
 	_, viewer := a.user(t, "vic", accounts.RoleViewer)
-	id, _, _ := a.approvedAgent(t, fp) // approved at 2, installed at 2
+	id, _, _ := a.approvedAgent(t, testkit.FP) // approved at 2, installed at 2
 
 	submit := func(cookie string, body map[string]any) resp {
 		return a.do("POST", "/api/v1/proposals", body, withCookie(cookie))

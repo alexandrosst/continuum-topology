@@ -7,6 +7,7 @@ import (
 
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/agentcaps"
+	"continuum/internal/testkit"
 )
 
 // A hello that says the install allows tier 0 is believed only from an agent that states its ceiling: a hello that says 0 because
@@ -34,7 +35,7 @@ func TestWhoseZeroCeilingIsBelieved(t *testing.T) {
 			r := newHubRig(t)
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
-			id, key, leaf := r.approvedAgent(t, fp) // approved at 2, installed 2
+			id, key, leaf := r.approvedAgent(t, testkit.FP) // approved at 2, installed 2
 			r.connect(t, ctx, key, leaf, c.hello)
 			a, err := r.st.GetAgent(ctx, id)
 			if err != nil {
@@ -55,7 +56,7 @@ func TestAHigherCeilingNeverRaisesAnApproval(t *testing.T) {
 	} {
 		r := newHubRig(t)
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		id, key, leaf := r.approvedAgent(t, fp)
+		id, key, leaf := r.approvedAgent(t, testkit.FP)
 		if err := r.st.SetAccessTier(ctx, id, 1); err != nil {
 			t.Fatal(err)
 		}

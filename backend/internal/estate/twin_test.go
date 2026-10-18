@@ -1,6 +1,8 @@
 package estate
 
 import (
+	"continuum/internal/store"
+	"continuum/internal/testkit"
 	"encoding/json"
 	"strconv"
 	"strings"
@@ -24,8 +26,8 @@ func entityOf(m twin.Model, kind, name string) *twin.Entity {
 func TestObservationStateFollowsTheClockTheConnectionAndRevocation(t *testing.T) {
 	r := newHubRig(t)
 	h := r.hub
-	a := twinAgent(t, r.env, h, fp)
-	if _, _, err := h.ApplySync(a, twinFull(fp, []*continuumv1.NodeFacts{twinNode("n1", "")}, twinWorkload("shop", "cart")), false); err != nil {
+	a := twinAgent(t, r.env, h, testkit.FP)
+	if _, _, err := h.ApplySync(a, testkit.TwinFull(testkit.FP, []*continuumv1.NodeFacts{testkit.TwinNode("n1", "")}, testkit.TwinWorkload("shop", "cart")), false); err != nil {
 		t.Fatal(err)
 	}
 	state := func() string {
@@ -103,8 +105,8 @@ func TestObservationStateFollowsTheClockTheConnectionAndRevocation(t *testing.T)
 func TestAgentSelfStatsFlowsIntoTheTopologyEntity(t *testing.T) {
 	r := newHubRig(t)
 	h := r.hub
-	a := twinAgent(t, r.env, h, fp)
-	if _, _, err := h.ApplySync(a, twinFull(fp, []*continuumv1.NodeFacts{twinNode("n1", "")}), false); err != nil {
+	a := twinAgent(t, r.env, h, testkit.FP)
+	if _, _, err := h.ApplySync(a, testkit.TwinFull(testkit.FP, []*continuumv1.NodeFacts{testkit.TwinNode("n1", "")}), false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -138,8 +140,8 @@ func TestAgentSelfStatsFlowsIntoTheTopologyEntity(t *testing.T) {
 func TestARevokedAgentsPictureSurvivesARestartAsRevoked(t *testing.T) {
 	r := newHubRig(t)
 	h := r.hub
-	a := twinAgent(t, r.env, h, fp)
-	if _, _, err := h.ApplySync(a, twinFull(fp, []*continuumv1.NodeFacts{twinNode("n1", "")}, twinWorkload("shop", "cart")), false); err != nil {
+	a := twinAgent(t, r.env, h, testkit.FP)
+	if _, _, err := h.ApplySync(a, testkit.TwinFull(testkit.FP, []*continuumv1.NodeFacts{testkit.TwinNode("n1", "")}, testkit.TwinWorkload("shop", "cart")), false); err != nil {
 		t.Fatal(err)
 	}
 	h.persist(r.ctx, a.ID, true)
@@ -160,12 +162,12 @@ func TestARevokedAgentsPictureSurvivesARestartAsRevoked(t *testing.T) {
 func TestADeletedWorkloadBecomesATombstoneAndComesBack(t *testing.T) {
 	r := newHubRig(t)
 	h := r.hub
-	a := twinAgent(t, r.env, h, fp)
-	nodes := []*continuumv1.NodeFacts{twinNode("n1", "")}
-	cart, pay := twinWorkload("shop", "cart"), twinWorkload("shop", "pay")
-	h.ApplySync(a, twinFull(fp, nodes, cart, pay), false)
+	a := twinAgent(t, r.env, h, testkit.FP)
+	nodes := []*continuumv1.NodeFacts{testkit.TwinNode("n1", "")}
+	cart, pay := testkit.TwinWorkload("shop", "cart"), testkit.TwinWorkload("shop", "pay")
+	h.ApplySync(a, testkit.TwinFull(testkit.FP, nodes, cart, pay), false)
 	*r.now = r.now.Add(time.Minute)
-	h.ApplySync(a, twinFull(fp, nodes, cart), true) // pay was deleted
+	h.ApplySync(a, testkit.TwinFull(testkit.FP, nodes, cart), true) // pay was deleted
 	doc, _ := h.State(r.ctx)
 	if len(doc.Topology.Services) != 1 || len(doc.Tombstones) != 1 {
 		t.Fatalf("services %d tombstones %+v", len(doc.Topology.Services), doc.Tombstones)
@@ -191,13 +193,13 @@ func TestADeletedWorkloadBecomesATombstoneAndComesBack(t *testing.T) {
 	}
 	// A Job finishing is not news.
 	job := &continuumv1.WorkloadFacts{Key: "shop/Job/migrate", Namespace: "shop", Kind: "Job", Name: "migrate", Replicas: 1}
-	h.ApplySync(a, twinFull(fp, nodes, cart, job), true)
-	h.ApplySync(a, twinFull(fp, nodes, cart), true)
+	h.ApplySync(a, testkit.TwinFull(testkit.FP, nodes, cart, job), true)
+	h.ApplySync(a, testkit.TwinFull(testkit.FP, nodes, cart), true)
 	if doc, _ = h.State(r.ctx); len(doc.Tombstones) != 1 {
 		t.Fatalf("a Job that completed must not leave a tombstone: %+v", doc.Tombstones)
 	}
 	// The workload is back: the tombstone goes.
-	h.ApplySync(a, twinFull(fp, nodes, cart, pay), true)
+	h.ApplySync(a, testkit.TwinFull(testkit.FP, nodes, cart, pay), true)
 	doc, _ = h.State(r.ctx)
 	if len(doc.Tombstones) != 0 || len(doc.Topology.Services) != 2 {
 		t.Fatalf("after it came back: %+v", doc.Tombstones)
@@ -207,7 +209,7 @@ func TestADeletedWorkloadBecomesATombstoneAndComesBack(t *testing.T) {
 		t.Fatalf("the persisted tombstone was not removed: %+v", list)
 	}
 	// Retention: a tombstone older than the window disappears.
-	h.ApplySync(a, twinFull(fp, nodes, cart), true)
+	h.ApplySync(a, testkit.TwinFull(testkit.FP, nodes, cart), true)
 	if doc, _ = h.State(r.ctx); len(doc.Tombstones) != 1 {
 		t.Fatal("no tombstone")
 	}
@@ -224,11 +226,11 @@ func TestADeletedWorkloadBecomesATombstoneAndComesBack(t *testing.T) {
 func TestLoweringTheAccessTierIsNotADeletion(t *testing.T) {
 	r := newHubRig(t)
 	h := r.hub
-	a := twinAgent(t, r.env, h, fp)
-	nodes := []*continuumv1.NodeFacts{twinNode("n1", "")}
-	h.ApplySync(a, twinFull(fp, nodes, twinWorkload("shop", "cart")), false)
+	a := twinAgent(t, r.env, h, testkit.FP)
+	nodes := []*continuumv1.NodeFacts{testkit.TwinNode("n1", "")}
+	h.ApplySync(a, testkit.TwinFull(testkit.FP, nodes, testkit.TwinWorkload("shop", "cart")), false)
 	a.AccessTier = 1 // workloads are no longer read
-	h.ApplySync(a, twinFull(fp, nodes), true)
+	h.ApplySync(a, testkit.TwinFull(testkit.FP, nodes), true)
 	doc, _ := h.State(r.ctx)
 	for _, ts := range doc.Tombstones {
 		if ts.Kind == "service" && !strings.Contains(ts.Reason, "access tier") {
@@ -240,7 +242,7 @@ func TestLoweringTheAccessTierIsNotADeletion(t *testing.T) {
 func TestRenamedNodeKeepsItsIdAndReplacedNodeGetsANewOne(t *testing.T) {
 	r := newHubRig(t)
 	h := r.hub
-	a := twinAgent(t, r.env, h, fp)
+	a := twinAgent(t, r.env, h, testkit.FP)
 	idOf := func(name string) string {
 		doc, _ := h.State(r.ctx)
 		for _, n := range doc.Topology.Nodes {
@@ -250,13 +252,13 @@ func TestRenamedNodeKeepsItsIdAndReplacedNodeGetsANewOne(t *testing.T) {
 		}
 		return ""
 	}
-	h.ApplySync(a, twinFull(fp, []*continuumv1.NodeFacts{twinNode("worker-1", "4f1c0a9b2d7e4c3a8b6d5e2f1a0b9c8d")}), false)
+	h.ApplySync(a, testkit.TwinFull(testkit.FP, []*continuumv1.NodeFacts{testkit.TwinNode("worker-1", "4f1c0a9b2d7e4c3a8b6d5e2f1a0b9c8d")}), false)
 	first := idOf("worker-1")
 	if first == "" {
 		t.Fatal("no node")
 	}
 	// The same machine under a new name is the same record, and remembers its old name.
-	h.ApplySync(a, twinFull(fp, []*continuumv1.NodeFacts{twinNode("edge-7", "4f1c0a9b2d7e4c3a8b6d5e2f1a0b9c8d")}), true)
+	h.ApplySync(a, testkit.TwinFull(testkit.FP, []*continuumv1.NodeFacts{testkit.TwinNode("edge-7", "4f1c0a9b2d7e4c3a8b6d5e2f1a0b9c8d")}), true)
 	if got := idOf("edge-7"); got != first {
 		t.Fatalf("a rename created a new node: %s vs %s", got, first)
 	}
@@ -265,7 +267,7 @@ func TestRenamedNodeKeepsItsIdAndReplacedNodeGetsANewOne(t *testing.T) {
 		t.Fatalf("aliases/basis: %+v %s", n.Aliases, n.IdentityBasis)
 	}
 	// A different machine that takes the old name is a different node.
-	h.ApplySync(a, twinFull(fp, []*continuumv1.NodeFacts{twinNode("edge-7", "4f1c0a9b2d7e4c3a8b6d5e2f1a0b9c8d"), twinNode("worker-1", "aaaaaaaabbbbccccddddeeeeffff0000")}), true)
+	h.ApplySync(a, testkit.TwinFull(testkit.FP, []*continuumv1.NodeFacts{testkit.TwinNode("edge-7", "4f1c0a9b2d7e4c3a8b6d5e2f1a0b9c8d"), testkit.TwinNode("worker-1", "aaaaaaaabbbbccccddddeeeeffff0000")}), true)
 	if idOf("worker-1") == first || idOf("worker-1") == "" {
 		t.Fatalf("a replaced node inherited the old id: %s", idOf("worker-1"))
 	}
@@ -289,9 +291,9 @@ func TestRenamedNodeKeepsItsIdAndReplacedNodeGetsANewOne(t *testing.T) {
 func TestStateForCachesTopologyButNeverAgentDocsOrAudit(t *testing.T) {
 	r := newHubRig(t)
 	h := r.hub
-	a := twinAgent(t, r.env, h, fp)
-	nodes := []*continuumv1.NodeFacts{twinNode("n1", "")}
-	h.ApplySync(a, twinFull(fp, nodes, twinWorkload("shop", "cart")), false)
+	a := twinAgent(t, r.env, h, testkit.FP)
+	nodes := []*continuumv1.NodeFacts{testkit.TwinNode("n1", "")}
+	h.ApplySync(a, testkit.TwinFull(testkit.FP, nodes, testkit.TwinWorkload("shop", "cart")), false)
 
 	first, _ := h.State(r.ctx)
 	second, _ := h.State(r.ctx) // same gen, well within modelCacheTTL: must agree with the first
@@ -311,7 +313,7 @@ func TestStateForCachesTopologyButNeverAgentDocsOrAudit(t *testing.T) {
 
 	// A real topology-affecting change (another sync) is reflected immediately too, even inside the TTL
 	// window: tw.gen, not the clock, is what invalidates the cache.
-	h.ApplySync(a, twinFull(fp, nodes, twinWorkload("shop", "cart"), twinWorkload("shop", "pay")), true)
+	h.ApplySync(a, testkit.TwinFull(testkit.FP, nodes, testkit.TwinWorkload("shop", "cart"), testkit.TwinWorkload("shop", "pay")), true)
 	fourth, _ := h.State(r.ctx)
 	if len(fourth.Topology.Services) != 2 {
 		t.Fatalf("a gen-bumping change must invalidate the topology cache immediately: %d services", len(fourth.Topology.Services))
@@ -337,9 +339,9 @@ func TestStateForCachesTopologyButNeverAgentDocsOrAudit(t *testing.T) {
 func TestStateForTopologyCacheHitMissAndTTL(t *testing.T) {
 	r := newHubRig(t)
 	h := r.hub
-	a := twinAgent(t, r.env, h, fp)
-	nodes := []*continuumv1.NodeFacts{twinNode("n1", "")}
-	h.ApplySync(a, twinFull(fp, nodes, twinWorkload("shop", "cart")), false)
+	a := twinAgent(t, r.env, h, testkit.FP)
+	nodes := []*continuumv1.NodeFacts{testkit.TwinNode("n1", "")}
+	h.ApplySync(a, testkit.TwinFull(testkit.FP, nodes, testkit.TwinWorkload("shop", "cart")), false)
 
 	var auditFetches int
 	// stateFor's own after callback does not see the fetched audit rows directly, so the count is taken
@@ -375,7 +377,7 @@ func TestStateForTopologyCacheHitMissAndTTL(t *testing.T) {
 
 	// A real input change (another sync, which bumps tw.gen) forces a miss on the very next call, even
 	// though it happens well inside the TTL window.
-	h.ApplySync(a, twinFull(fp, nodes, twinWorkload("shop", "cart"), twinWorkload("shop", "pay")), true)
+	h.ApplySync(a, testkit.TwinFull(testkit.FP, nodes, testkit.TwinWorkload("shop", "cart"), testkit.TwinWorkload("shop", "pay")), true)
 	eb3 := captureEB()
 	if eb3 == eb2 {
 		t.Fatal("a gen-bumping change must force a rebuild, not reuse the cached effectiveBuild")
@@ -439,4 +441,21 @@ func TestRetentionUsesOverrideThenLiveSettingThenDefault(t *testing.T) {
 	if got, want := h.retention(), 3*time.Hour; got != want {
 		t.Fatalf("the override was not honoured: got %v, want %v", got, want)
 	}
+}
+
+// twinAgent approves an agent for a cluster in the hub's organisation and gives it an empty picture, connected.
+func twinAgent(t *testing.T, e *env, h *Hub, cluster string) store.Agent {
+	t.Helper()
+	id, _, _ := e.approvedAgent(t, cluster)
+	a, err := e.st.GetAgent(e.ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.Mu.Lock()
+	v := NewView()
+	v.Connected = true
+	v.LastBeat = h.C.Now()
+	h.Views[id] = v
+	h.Mu.Unlock()
+	return a
 }

@@ -14,23 +14,24 @@ import (
 	"continuum/internal/link"
 	"continuum/internal/observed"
 	"continuum/internal/store"
+	"continuum/internal/testkit"
 )
 
 // hubOfPeers is a hub with one runner (cl-a) and n peers cl-p000.., each with a node address of its own, the first `missing` of
 // them without an approved agent.
 func hubOfPeers(n, missing int) (*Hub, store.Agent, []store.Agent, []kernel.LinkSetting) {
-	a := ag("ag-a", "cl-a", "alpha", "", 2)
-	views := map[string]*View{"ag-a": {EstView: EstView{State: nodeState("10.0.0.1")}}}
+	a := testkit.Agent("ag-a", "cl-a", "alpha", "", 2)
+	views := map[string]*View{"ag-a": {EstView: EstView{State: testkit.NodeState("10.0.0.1")}}}
 	agentList := []store.Agent{a}
 	var links []kernel.LinkSetting
 	for i := 0; i < n; i++ {
 		id := fmt.Sprintf("cl-p%03d", i)
 		links = append(links, kernel.LinkSetting{A: "cl-a", B: id})
-		o := ag("ag-"+id, id, id, "", 2)
+		o := testkit.Agent("ag-"+id, id, id, "", 2)
 		if i < missing {
 			o.Status = store.StatusPending
 		}
-		views[o.ID] = &View{EstView: EstView{State: nodeState(fmt.Sprintf("10.%d.%d.1", 1+i/200, i%200))}}
+		views[o.ID] = &View{EstView: EstView{State: testkit.NodeState(fmt.Sprintf("10.%d.%d.1", 1+i/200, i%200))}}
 		agentList = append(agentList, o)
 	}
 	return linkHub(views), a, agentList, links
@@ -76,7 +77,7 @@ func TestThePeerListIsCutAfterFilteringNotBefore(t *testing.T) {
 	}
 	// A peer left out is not told to skip anything on its side: nobody measures towards it from here, so it probes itself.
 	p79 := agentList[80]
-	h.Views[p79.ID] = &View{EstView: EstView{State: nodeState("10.1.79.1")}}
+	h.Views[p79.ID] = &View{EstView: EstView{State: testkit.NodeState("10.1.79.1")}}
 	if sent := h.linkPeers(p79, agentList, links, false, nil); len(sent) != 1 || sent[0].SkipProbe {
 		t.Errorf("a cluster the runner cut skips its probe: %+v", sent)
 	}
@@ -145,8 +146,8 @@ func TestOverlayAndPodRangeAddressesAreNeverOfferedButMeshAndHostOnesAre(t *test
 
 	// End to end: the peer list carries them, and a cluster with a smaller flannel range than the peer's does not get the peer's
 	// flannel.1 addresses either.
-	a, b := ag("ag-a", "cl-a", "alpha", "", 2), ag("ag-b", "cl-b", "beta", "", 2)
-	h := linkHub(map[string]*View{"ag-a": {EstView: EstView{State: nodeState("10.0.0.1")}}, "ag-b": {EstView: EstView{State: &facts.State{Nodes: map[string]*continuumv1.NodeFacts{"n1": overlayNode()}}}}})
+	a, b := testkit.Agent("ag-a", "cl-a", "alpha", "", 2), testkit.Agent("ag-b", "cl-b", "beta", "", 2)
+	h := linkHub(map[string]*View{"ag-a": {EstView: EstView{State: testkit.NodeState("10.0.0.1")}}, "ag-b": {EstView: EstView{State: &facts.State{Nodes: map[string]*continuumv1.NodeFacts{"n1": overlayNode()}}}}})
 	sent := h.linkPeers(a, []store.Agent{a, b}, []kernel.LinkSetting{{A: "cl-a", B: "cl-b"}}, false, nil)
 	if len(sent) != 1 || hasAddr(sent[0].Addresses, "10.42.2.0") || !hasAddr(sent[0].Addresses, "100.64.0.45") || !hasAddr(sent[0].Addresses, "100.100.1.2") {
 		t.Fatalf("%+v", sent)
@@ -156,7 +157,7 @@ func TestOverlayAndPodRangeAddressesAreNeverOfferedButMeshAndHostOnesAre(t *test
 // Both clusters see an address of the other that is its own too (symmetric): a mesh address one reports as a tunnel address
 // and the other as a host address is the same address and is removed on both sides.
 func TestAnAddressBothClustersHoldIsRemovedWhateverInterfaceReportsIt(t *testing.T) {
-	a, b := ag("ag-a", "cl-a", "alpha", "", 2), ag("ag-b", "cl-b", "beta", "", 2)
+	a, b := testkit.Agent("ag-a", "cl-a", "alpha", "", 2), testkit.Agent("ag-b", "cl-b", "beta", "", 2)
 	nodeWith := func(internal string, tunnel, host string) *facts.State {
 		n := &continuumv1.NodeFacts{InternalIps: []string{internal}, Probe: &continuumv1.HostProbe{}}
 		if tunnel != "" {
@@ -180,13 +181,13 @@ func TestAnAddressBothClustersHoldIsRemovedWhateverInterfaceReportsIt(t *testing
 // Two peers of one cluster claiming the same address: it is left out for both, with a note naming both, and the pair that is
 // left with nothing is not measured, so the other side keeps probing.
 func TestAnAddressTwoPeersShareIsRemovedAndSaid(t *testing.T) {
-	a := ag("ag-a", "cl-a", "alpha", "", 2)
-	b, c := ag("ag-b", "cl-b", "beta", "", 2), ag("ag-c", "cl-c", "gamma", "", 2)
+	a := testkit.Agent("ag-a", "cl-a", "alpha", "", 2)
+	b, c := testkit.Agent("ag-b", "cl-b", "beta", "", 2), testkit.Agent("ag-c", "cl-c", "gamma", "", 2)
 	links := []kernel.LinkSetting{{A: "cl-a", B: "cl-b"}, {A: "cl-a", B: "cl-c"}}
 	all := []store.Agent{a, b, c}
 
 	// Every address of both is the same: neither is sent, nobody measures, and both are told to probe.
-	h := linkHub(map[string]*View{"ag-a": {EstView: EstView{State: nodeState("10.0.0.1")}}, "ag-b": {EstView: EstView{State: nodeState("192.168.1.5")}}, "ag-c": {EstView: EstView{State: nodeState("192.168.1.5")}}})
+	h := linkHub(map[string]*View{"ag-a": {EstView: EstView{State: testkit.NodeState("10.0.0.1")}}, "ag-b": {EstView: EstView{State: testkit.NodeState("192.168.1.5")}}, "ag-c": {EstView: EstView{State: testkit.NodeState("192.168.1.5")}}})
 	if got := h.linkPeers(a, all, links, false, nil); len(got) != 0 {
 		t.Fatalf("peers that share their only address were sent: %+v", got)
 	}
@@ -209,8 +210,8 @@ func TestAnAddressTwoPeersShareIsRemovedAndSaid(t *testing.T) {
 	}
 
 	// Only one address is shared (a NAT egress both sit behind): it goes from both, the rest stays, and the note is a hint.
-	bn, cn := ag("ag-b", "cl-b", "beta", "203.0.113.7", 2), ag("ag-c", "cl-c", "gamma", "203.0.113.7", 2)
-	h2 := linkHub(map[string]*View{"ag-a": {EstView: EstView{State: nodeState("10.0.0.1")}}, "ag-b": {EstView: EstView{State: nodeState("10.1.0.1")}}, "ag-c": {EstView: EstView{State: nodeState("10.2.0.1")}}})
+	bn, cn := testkit.Agent("ag-b", "cl-b", "beta", "203.0.113.7", 2), testkit.Agent("ag-c", "cl-c", "gamma", "203.0.113.7", 2)
+	h2 := linkHub(map[string]*View{"ag-a": {EstView: EstView{State: testkit.NodeState("10.0.0.1")}}, "ag-b": {EstView: EstView{State: testkit.NodeState("10.1.0.1")}}, "ag-c": {EstView: EstView{State: testkit.NodeState("10.2.0.1")}}})
 	got := h2.linkPeers(a, []store.Agent{a, bn, cn}, links, false, nil)
 	if len(got) != 2 || !reflect.DeepEqual(got[0].Addresses, []string{"10.1.0.1"}) || !reflect.DeepEqual(got[1].Addresses, []string{"10.2.0.1"}) {
 		t.Fatalf("%+v", got)
@@ -233,7 +234,7 @@ func TestAnAddressTwoPeersShareIsRemovedAndSaid(t *testing.T) {
 		}
 	}
 	// The same address spelled as IPv4-mapped IPv6 is the same address.
-	bm := ag("ag-b", "cl-b", "beta", "::ffff:203.0.113.7", 2)
+	bm := testkit.Agent("ag-b", "cl-b", "beta", "::ffff:203.0.113.7", 2)
 	if got := h2.linkPeers(a, []store.Agent{a, bm, cn}, links, false, nil); len(got) != 2 || hasAddr(got[0].Addresses, "203.0.113.7") || hasAddr(got[1].Addresses, "203.0.113.7") {
 		t.Errorf("mapped spelling: %+v", got)
 	}
@@ -242,9 +243,9 @@ func TestAnAddressTwoPeersShareIsRemovedAndSaid(t *testing.T) {
 // The agent's connecting address (a NAT's) is kept in the list for attribution but is not a node address: it must not make the
 // private-range hint disappear for a NATed cluster.
 func TestTheEgressAddressStaysListedButDoesNotSilenceThePrivateRangeHint(t *testing.T) {
-	a := ag("ag-a", "cl-a", "alpha", "", 2)
-	b := ag("ag-b", "cl-b", "beta", "203.0.113.2", 2)
-	h := linkHub(map[string]*View{"ag-a": {EstView: EstView{State: nodeState("10.0.0.1")}}, "ag-b": {EstView: EstView{State: nodeState("10.1.0.1")}}})
+	a := testkit.Agent("ag-a", "cl-a", "alpha", "", 2)
+	b := testkit.Agent("ag-b", "cl-b", "beta", "203.0.113.2", 2)
+	h := linkHub(map[string]*View{"ag-a": {EstView: EstView{State: testkit.NodeState("10.0.0.1")}}, "ag-b": {EstView: EstView{State: testkit.NodeState("10.1.0.1")}}})
 	links := []kernel.LinkSetting{{A: "cl-a", B: "cl-b"}}
 	sent := h.linkPeers(a, []store.Agent{a, b}, links, false, nil)
 	if len(sent) != 1 || !hasAddr(sent[0].Addresses, "203.0.113.2") {
@@ -261,15 +262,15 @@ func TestTheEgressAddressStaysListedButDoesNotSilenceThePrivateRangeHint(t *test
 		t.Fatalf("hint: %+v", hint)
 	}
 	// A node that really has the public address is a way across, whatever the agent connects from.
-	h = linkHub(map[string]*View{"ag-a": {EstView: EstView{State: nodeState("10.0.0.1")}}, "ag-b": {EstView: EstView{State: nodeState("10.1.0.1", "203.0.113.2")}}})
+	h = linkHub(map[string]*View{"ag-a": {EstView: EstView{State: testkit.NodeState("10.0.0.1")}}, "ag-b": {EstView: EstView{State: testkit.NodeState("10.1.0.1", "203.0.113.2")}}})
 	for _, n := range h.LinkNotes(links, []store.Agent{a, b}, nil) {
 		if n.Code == "private-range" && n.Cluster == "cl-a" {
 			t.Errorf("a node with a public address still gets the hint: %+v", n)
 		}
 	}
 	// A CGNAT egress address counts as public to publicIP but is mesh to the pair: it is not a way across either.
-	cg := ag("ag-b", "cl-b", "beta", "100.64.3.3", 2)
-	h = linkHub(map[string]*View{"ag-a": {EstView: EstView{State: nodeState("10.0.0.1")}}, "ag-b": {EstView: EstView{State: nodeState("10.1.0.1")}}})
+	cg := testkit.Agent("ag-b", "cl-b", "beta", "100.64.3.3", 2)
+	h = linkHub(map[string]*View{"ag-a": {EstView: EstView{State: testkit.NodeState("10.0.0.1")}}, "ag-b": {EstView: EstView{State: testkit.NodeState("10.1.0.1")}}})
 	var found bool
 	for _, n := range h.LinkNotes(links, []store.Agent{a, cg}, nil) {
 		found = found || n.Code == "private-range" && n.Cluster == "cl-a"
@@ -280,12 +281,12 @@ func TestTheEgressAddressStaysListedButDoesNotSilenceThePrivateRangeHint(t *test
 }
 
 func TestNotesNameAtMostSixAddresses(t *testing.T) {
-	a, b := ag("ag-a", "cl-a", "alpha", "", 2), ag("ag-b", "cl-b", "beta", "", 2)
+	a, b := testkit.Agent("ag-a", "cl-a", "alpha", "", 2), testkit.Agent("ag-b", "cl-b", "beta", "", 2)
 	n := &continuumv1.NodeFacts{}
 	for i := 1; i <= 20; i++ {
 		n.InternalIps = append(n.InternalIps, fmt.Sprintf("10.1.0.%d", i))
 	}
-	h := linkHub(map[string]*View{"ag-a": {EstView: EstView{State: nodeState("10.0.0.1")}}, "ag-b": {EstView: EstView{State: &facts.State{Nodes: map[string]*continuumv1.NodeFacts{"n1": n}}}}})
+	h := linkHub(map[string]*View{"ag-a": {EstView: EstView{State: testkit.NodeState("10.0.0.1")}}, "ag-b": {EstView: EstView{State: &facts.State{Nodes: map[string]*continuumv1.NodeFacts{"n1": n}}}}})
 	var text string
 	for _, x := range h.LinkNotes([]kernel.LinkSetting{{A: "cl-a", B: "cl-b"}}, []store.Agent{a, b}, nil) {
 		if x.Code == "private-range" && x.Cluster == "cl-a" {

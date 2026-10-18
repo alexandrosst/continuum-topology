@@ -6,6 +6,7 @@ import (
 
 	"continuum/internal/operators"
 	"continuum/internal/pki"
+	"continuum/internal/testkit"
 )
 
 // countOpens counts how many times an operator CA is really opened (each is an Argon2id run) for the rest of the test.
@@ -25,7 +26,7 @@ func countOpens(t *testing.T) *atomic.Int32 {
 func TestOperatorCAIsOpenedOnceNotOncePerCertificate(t *testing.T) {
 	opens := countOpens(t)
 	e := newEnv(t)
-	cl := e.approvedCluster(t, fp)
+	cl := e.approvedCluster(t, testkit.FP)
 	op, _, _, err := e.core.Operators.CreateOperator(e.ctx, "alex", "athens", []string{cl}, extDest("c:4317"), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -46,7 +47,7 @@ func TestOperatorCAIsOpenedOnceNotOncePerCertificate(t *testing.T) {
 // A revoked or deleted operator's key does not stay in memory.
 func TestRevokingOrDeletingAnOperatorDropsItsOpenedCA(t *testing.T) {
 	e := newEnv(t)
-	cl := e.approvedCluster(t, fp)
+	cl := e.approvedCluster(t, testkit.FP)
 	mk := func(name string) string {
 		op, _, _, err := e.core.Operators.CreateOperator(e.ctx, "alex", name, []string{cl}, extDest("c:4317"), nil)
 		if err != nil {

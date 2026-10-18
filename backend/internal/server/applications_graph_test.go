@@ -8,25 +8,9 @@ import (
 	"time"
 
 	"continuum/internal/estate"
-	"continuum/internal/graph"
 	"continuum/internal/history"
 	"continuum/internal/model"
-	"continuum/internal/store"
 )
-
-// linkSpy is a store that keeps what the graph would be asked to link.
-type linkSpy struct {
-	store.Store
-	sets map[string][]string
-}
-
-func (s *linkSpy) LinkEntitiesBatch(_ context.Context, _ string, _ time.Time, _, _, _ string, sets []graph.MemberSet) error {
-	s.sets = map[string][]string{}
-	for _, m := range sets {
-		s.sets[m.ID] = m.TargetIDs
-	}
-	return nil
-}
 
 // The graph and the API must agree on who is in an application: refs, inline records and accepted hints, and nothing that was
 // soft-deleted. An application deleted in the workspace leaves the graph, with its membership closed.

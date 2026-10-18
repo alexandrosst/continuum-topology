@@ -9,6 +9,7 @@ import (
 	"continuum/internal/agents"
 	"continuum/internal/geoip"
 	"continuum/internal/geoip/geoiptest"
+	"continuum/internal/testkit"
 )
 
 func TestStateAndInfoCarryGeoOnlyWhenConfigured(t *testing.T) {
@@ -19,8 +20,8 @@ func TestStateAndInfoCarryGeoOnlyWhenConfigured(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		d, _ := csr(t)
-		resp, err := a.core.Agents.Enroll(a.ctx, ip, &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fp, InstalledAccessTier: 1, AgentVersion: "0.1.0", ApprovalCodeHash: hashFor(t, d)})
+		d, _ := testkit.CSR(t)
+		resp, err := a.core.Agents.Enroll(a.ctx, ip, &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: testkit.FP, InstalledAccessTier: 1, AgentVersion: "0.1.0", ApprovalCodeHash: testkit.HashFor(t, d)})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -80,8 +81,8 @@ func TestStateCarriesEstimatedGeoThroughTheFallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d, _ := csr(t)
-	resp, err := a.core.Agents.Enroll(a.ctx, "10.0.0.7", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fp, InstalledAccessTier: 1, AgentVersion: "0.1.0", ApprovalCodeHash: hashFor(t, d)})
+	d, _ := testkit.CSR(t)
+	resp, err := a.core.Agents.Enroll(a.ctx, "10.0.0.7", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: testkit.FP, InstalledAccessTier: 1, AgentVersion: "0.1.0", ApprovalCodeHash: testkit.HashFor(t, d)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,8 +125,8 @@ func TestStateCarriesConnectingGeoReasonWithoutFallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d, _ := csr(t)
-	resp, err := a.core.Agents.Enroll(a.ctx, "10.0.0.7", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fp, InstalledAccessTier: 1, AgentVersion: "0.1.0", ApprovalCodeHash: hashFor(t, d)})
+	d, _ := testkit.CSR(t)
+	resp, err := a.core.Agents.Enroll(a.ctx, "10.0.0.7", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: testkit.FP, InstalledAccessTier: 1, AgentVersion: "0.1.0", ApprovalCodeHash: testkit.HashFor(t, d)})
 	if err != nil {
 		t.Fatal(err)
 	}

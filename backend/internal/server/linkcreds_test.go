@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"sync"
 	"testing"
 
 	continuumv1 "continuum/gen/continuumv1"
@@ -20,47 +19,34 @@ import (
 	"continuum/internal/observed"
 	"continuum/internal/pki"
 	"continuum/internal/store"
+	"continuum/internal/testkit"
 
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/encoding/prototext"
 )
-
-const fp3 = "8f3c2a9e-3333-4222-8333-944455556688"
-
-type lockedBuf struct {
-	mu sync.Mutex
-	b  bytes.Buffer
-}
-
-func (l *lockedBuf) Write(p []byte) (int, error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return l.b.Write(p)
-}
-func (l *lockedBuf) String() string { l.mu.Lock(); defer l.mu.Unlock(); return l.b.String() }
 
 // credRig is a hub with three approved clusters: first and second are the pair (first runs the tests, second serves them), third
 // is in no pair.
 type credRig struct {
 	*hubRig
 	first, second, third store.Agent
-	log                  *lockedBuf
+	log                  *testkit.LockedBuf
 }
 
 func newCredRig(t *testing.T) *credRig {
 	t.Helper()
 	r := newHubRig(t)
-	cr := &credRig{hubRig: r, log: &lockedBuf{}}
+	cr := &credRig{hubRig: r, log: &testkit.LockedBuf{}}
 	r.core.Log = slog.New(slog.NewTextHandler(cr.log, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	var ags []store.Agent
-	for _, f := range []string{fp, fp2, fp3} {
+	for _, f := range []string{testkit.FP, testkit.FP2, testkit.FP3} {
 		id, _, _ := r.approvedAgent(t, f)
 		a, err := r.st.GetAgent(r.ctx, id)
 		if err != nil {
 			t.Fatal(err)
 		}
 		r.hub.Mu.Lock()
-		r.hub.Views[a.ID] = &estate.View{EstView: estate.EstView{State: nodeState("10.0." + strings.TrimPrefix(f[len(f)-2:], "0") + ".1"), Flows: observed.NewFlowTable()}, NetView: connectivity.NetView{Paths: map[string]*connectivity.PathTrack{}, Targets: map[string]connectivity.IssuedTarget{}}}
+		r.hub.Views[a.ID] = &estate.View{EstView: estate.EstView{State: testkit.NodeState("10.0." + strings.TrimPrefix(f[len(f)-2:], "0") + ".1"), Flows: observed.NewFlowTable()}, NetView: connectivity.NetView{Paths: map[string]*connectivity.PathTrack{}, Targets: map[string]connectivity.IssuedTarget{}}}
 		r.hub.Mu.Unlock()
 		ags = append(ags, a)
 	}

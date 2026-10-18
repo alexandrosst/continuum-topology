@@ -6,6 +6,7 @@ import (
 
 	"continuum/internal/accounts"
 	"continuum/internal/operators"
+	"continuum/internal/testkit"
 )
 
 // Creating an operator for two clusters issues each its own certificate, and the ledger says so: one receiver
@@ -15,7 +16,7 @@ func TestOperatorCertificatesLedgerNamesWhoHoldsWhat(t *testing.T) {
 	a := newAdminRig(t)
 	_, admin := a.user(t, "alex", accounts.RoleAdmin)
 	_, editor := a.user(t, "ed", accounts.RoleEditor)
-	clA, clB := a.approvedCluster(t, fp), a.approvedCluster(t, fp2)
+	clA, clB := a.approvedCluster(t, testkit.FP), a.approvedCluster(t, testkit.FP2)
 	id := a.createOperatorDoc(t, admin, extBody("athens", clA, clB))["operator"].(map[string]any)["id"].(string)
 
 	list := func() []any {

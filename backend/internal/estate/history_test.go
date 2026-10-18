@@ -12,11 +12,12 @@ import (
 	"continuum/internal/kernel"
 	"continuum/internal/observed"
 	"continuum/internal/store"
+	"continuum/internal/testkit"
 )
 
 func TestApplySyncReportsDriftOnlyForLaterFullPictures(t *testing.T) {
 	r := newHubRig(t)
-	id, _, _ := r.approvedAgent(t, fp)
+	id, _, _ := r.approvedAgent(t, testkit.FP)
 	a, _ := r.st.GetAgent(r.ctx, id)
 	a.AccessTier = 2
 	r.hub.Mu.Lock()
@@ -26,7 +27,7 @@ func TestApplySyncReportsDriftOnlyForLaterFullPictures(t *testing.T) {
 	n1 := &continuumv1.NodeFacts{Key: "n1", Name: "n1"}
 	w1 := &continuumv1.WorkloadFacts{Key: "ns/Deployment/a", Namespace: "ns", Kind: "Deployment", Name: "a", Replicas: 1}
 	full := func(nodes []*continuumv1.NodeFacts, ws ...*continuumv1.WorkloadFacts) *continuumv1.Sync {
-		return &continuumv1.Sync{Full: true, Cluster: &continuumv1.ClusterFacts{Uid: fp}, Nodes: nodes, Workloads: ws}
+		return &continuumv1.Sync{Full: true, Cluster: &continuumv1.ClusterFacts{Uid: testkit.FP}, Nodes: nodes, Workloads: ws}
 	}
 	if _, checked, _ := r.hub.ApplySync(a, full([]*continuumv1.NodeFacts{n1}, w1), false); checked {
 		t.Fatal("the first full picture was treated as a check")
@@ -59,7 +60,7 @@ func TestApplySyncReportsDriftOnlyForLaterFullPictures(t *testing.T) {
 
 func TestReportConsistencyStoresAWarningOnlyWhenSomethingDiffers(t *testing.T) {
 	r := newHubRig(t)
-	id, _, _ := r.approvedAgent(t, fp)
+	id, _, _ := r.approvedAgent(t, testkit.FP)
 	a, _ := r.st.GetAgent(r.ctx, id)
 	r.hub.reportConsistency(r.ctx, a, facts.Drift{})
 	evs, _ := r.st.ListEvents(r.ctx, "org-1", store.EventQuery{Since: r.now.Add(-time.Hour)})
@@ -75,7 +76,7 @@ func TestReportConsistencyStoresAWarningOnlyWhenSomethingDiffers(t *testing.T) {
 
 func TestNoteMeasurementsAcceptsOnlyIssuedTargetsAndSaneNumbers(t *testing.T) {
 	r := newHubRig(t)
-	id, _, _ := r.approvedAgent(t, fp)
+	id, _, _ := r.approvedAgent(t, testkit.FP)
 	r.hub.Mu.Lock()
 	r.hub.Views[id] = &View{EstView: EstView{State: facts.New()}, NetView: connectivity.NetView{Paths: map[string]*connectivity.PathTrack{}, Targets: map[string]connectivity.IssuedTarget{"t1": {ID: "t1", Host: "203.0.113.10", Port: 443, Source: "manual"}}}}
 	r.hub.Mu.Unlock()
@@ -98,7 +99,7 @@ func TestNoteMeasurementsAcceptsOnlyIssuedTargetsAndSaneNumbers(t *testing.T) {
 
 func TestConfigForIssuesManualAndObservedTargetsByTier(t *testing.T) {
 	r := newHubRig(t)
-	id, _, _ := r.approvedAgent(t, fp)
+	id, _, _ := r.approvedAgent(t, testkit.FP)
 	a, _ := r.st.GetAgent(r.ctx, id)
 	if _, err := r.core.SaveSettings(r.ctx, "alex", kernel.Settings{MeasureSeconds: 30, ProbeTargets: []kernel.ProbeTarget{
 		{ID: "mine", ClusterID: a.ClusterID, Host: "203.0.113.20", Port: 8443},
@@ -107,7 +108,7 @@ func TestConfigForIssuesManualAndObservedTargetsByTier(t *testing.T) {
 		t.Fatal(err)
 	}
 	v := &View{EstView: EstView{State: facts.New(), Flows: observed.NewFlowTable()}, NetView: connectivity.NetView{Paths: map[string]*connectivity.PathTrack{"stale": {}}, Targets: map[string]connectivity.IssuedTarget{}}}
-	extEdge(v.Flows, "ns/Deployment/a", "198.51.100.10", 443, "tcp", 20, "")
+	testkit.ExtEdge(v.Flows, "ns/Deployment/a", "198.51.100.10", 443, "tcp", 20, "")
 
 	a.AccessTier = 1 // flows come from pods; tier 1 does not cover them
 	cfg := r.hub.ConfigFor(a, v)
@@ -138,7 +139,7 @@ func TestConfigForIssuesManualAndObservedTargetsByTier(t *testing.T) {
 
 func TestRecorderStoresSnapshotsAndEventsOnlyForRealChanges(t *testing.T) {
 	r := newHubRig(t)
-	id, _, _ := r.approvedAgent(t, fp)
+	id, _, _ := r.approvedAgent(t, testkit.FP)
 	r.hub.Mu.Lock()
 	r.hub.Views[id] = liveView(*r.now, "n1", "n2")
 	r.hub.Mu.Unlock()
@@ -222,8 +223,8 @@ func TestEventRetentionSettingPrunesByAgeOnlyForItsOwnOrgWhenOn(t *testing.T) {
 // lost snapshot write does not store its events a second time.
 func TestRecorderLosesNoEventAndRepeatsNoneAfterAFailedWrite(t *testing.T) {
 	r := newHubRig(t)
-	id, _, _ := r.approvedAgent(t, fp)
-	f := &failHistory{Store: r.hub.C.Store}
+	id, _, _ := r.approvedAgent(t, testkit.FP)
+	f := &testkit.FailHistory{Store: r.hub.C.Store}
 	r.hub.C.Store = f
 	setNodes := func(names ...string) {
 		r.hub.Mu.Lock()
@@ -255,26 +256,26 @@ func TestRecorderLosesNoEventAndRepeatsNoneAfterAFailedWrite(t *testing.T) {
 	}
 
 	// The events cannot be written: nothing is stored, and once the database answers the change is still found.
-	f.events.Store(true)
+	f.Events.Store(true)
 	setNodes("n1", "n2", "n3")
 	scan()
 	if nodeEvents() != 0 || snapshots() != 1 {
 		t.Fatalf("while events fail: %d node events, %d snapshots", nodeEvents(), snapshots())
 	}
-	f.events.Store(false)
+	f.Events.Store(false)
 	scan()
 	if nodeEvents() != 1 || snapshots() != 2 {
 		t.Fatalf("after events recover: %d node events, %d snapshots, want 1 and 2", nodeEvents(), snapshots())
 	}
 
 	// The snapshot cannot be written: the events are, once; the snapshot follows, and the events are not repeated.
-	f.snapshots.Store(true)
+	f.Snapshots.Store(true)
 	setNodes("n1", "n2")
 	scan()
 	if nodeEvents() != 2 || snapshots() != 2 {
 		t.Fatalf("while snapshots fail: %d node events, %d snapshots, want 2 and 2", nodeEvents(), snapshots())
 	}
-	f.snapshots.Store(false)
+	f.Snapshots.Store(false)
 	scan()
 	if nodeEvents() != 2 || snapshots() != 3 {
 		t.Fatalf("after snapshots recover: %d node events, %d snapshots, want 2 and 3", nodeEvents(), snapshots())
@@ -286,7 +287,7 @@ func TestRecorderLosesNoEventAndRepeatsNoneAfterAFailedWrite(t *testing.T) {
 func TestRevokedAgentsAreReclaimedAfterTheirRetention(t *testing.T) {
 	r := newHubRig(t)
 	r.hub.TombstoneRetention = time.Hour
-	live, _, _ := r.approvedAgent(t, fp)
+	live, _, _ := r.approvedAgent(t, testkit.FP)
 	gone, _, _ := r.approvedAgent(t, "11111111-2222-4333-8444-555566667777")
 	for _, id := range []string{live, gone} {
 		r.hub.Mu.Lock()

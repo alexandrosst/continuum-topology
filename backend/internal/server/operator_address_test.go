@@ -8,13 +8,14 @@ import (
 	"continuum/internal/install"
 	"continuum/internal/operators"
 	"continuum/internal/store"
+	"continuum/internal/testkit"
 )
 
 func TestAnOperatorAddressIsSetShownAuditedAndUsedByEveryCommandThatPointsAtIt(t *testing.T) {
 	a := newAdminRig(t)
 	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	_, viewer := a.user(t, "vera", accounts.RoleViewer)
-	cl := a.approvedCluster(t, fp)
+	cl := a.approvedCluster(t, testkit.FP)
 
 	create := func(name string, dest map[string]any, extra map[string]any) map[string]any {
 		body := map[string]any{"name": name, "sourceClusterIds": []string{cl}, "destination": dest}
@@ -152,7 +153,7 @@ func TestTheCentralOperatorsAddressIsSetFromTheUIAndUsedByEveryCommand(t *testin
 		t.Fatalf("fusion status: %s", r.Body.String())
 	}
 	// A cluster's own telemetry pointed at it dials that address and verifies the stable name.
-	cl := a.approvedCluster(t, fp)
+	cl := a.approvedCluster(t, testkit.FP)
 	r := a.do("POST", "/api/v1/operators", map[string]any{"name": "athens", "sourceClusterIds": []string{cl}, "destination": map[string]any{"kind": "operator", "targetOperatorId": operators.CentralOperatorID}}, withCookie(cookie))
 	if r.Code != 201 {
 		t.Fatalf("create: %d %s", r.Code, r.Body.String())
@@ -176,7 +177,7 @@ func TestTheCentralOperatorsAddressIsSetFromTheUIAndUsedByEveryCommand(t *testin
 func TestATelemetryIntentCommandDialsTheOperatorsAddress(t *testing.T) {
 	a := newAdminRig(t)
 	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
-	opCluster := a.approvedCluster(t, fp)
+	opCluster := a.approvedCluster(t, testkit.FP)
 	r := a.do("POST", "/api/v1/operators", map[string]any{"name": "eu-hub", "sourceClusterIds": []string{opCluster},
 		"destination": map[string]any{"kind": "external", "endpoint": "collector.example:4317"}}, withCookie(cookie))
 	if r.Code != 201 {
@@ -186,7 +187,7 @@ func TestATelemetryIntentCommandDialsTheOperatorsAddress(t *testing.T) {
 	if r := a.do("POST", "/api/v1/operators/"+opID+"/address", map[string]any{"address": "203.0.113.7:4317"}, withCookie(cookie)); r.Code != 200 {
 		t.Fatalf("set address: %d %s", r.Code, r.Body.String())
 	}
-	agentID := a.approvedAgentID(t, fp2)
+	agentID := a.approvedAgentID(t, testkit.FP2)
 	r = a.do("POST", "/api/v1/telemetry-intents", map[string]any{"agentId": agentID, "name": "patras-edge",
 		"destination": map[string]any{"kind": "operator", "targetOperatorId": opID}}, withCookie(cookie))
 	if r.Code != 201 {

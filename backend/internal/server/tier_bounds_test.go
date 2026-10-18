@@ -9,6 +9,7 @@ import (
 	"continuum/internal/accounts"
 	"continuum/internal/decisionloop"
 	"continuum/internal/kernel"
+	"continuum/internal/testkit"
 )
 
 // Every place that asks "may this agent have this tier" answers from the same four numbers: the release's ceiling
@@ -22,8 +23,8 @@ func wantErr(t *testing.T, what string, err error, kind kernel.Kind, msg string)
 		t.Errorf("%s: accepted, want %q", what, msg)
 		return
 	}
-	if kindOf(err) != kind || err.Error() != msg {
-		t.Errorf("%s: got %d %q, want %d %q", what, kindOf(err), err.Error(), kind, msg)
+	if testkit.KindOf(err) != kind || err.Error() != msg {
+		t.Errorf("%s: got %d %q, want %d %q", what, testkit.KindOf(err), err.Error(), kind, msg)
 	}
 }
 
@@ -42,9 +43,9 @@ func TestEachPlaceThatBoundsATierSaysWhatItSaidBefore(t *testing.T) {
 
 	// Enrollment: what an install reports must be inside the type's bound, which is wider than the release's.
 	secret, _, _ := e.core.Agents.CreateToken(e.ctx, "a", "c", 2)
-	d, _ := csr(t)
+	d, _ := testkit.CSR(t)
 	enrollAt := func(tier uint32) error {
-		_, err := e.core.Agents.Enroll(e.ctx, "1.1.1.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fp, InstalledAccessTier: tier, ApprovalCodeHash: hashFor(t, d)})
+		_, err := e.core.Agents.Enroll(e.ctx, "1.1.1.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: testkit.FP, InstalledAccessTier: tier, ApprovalCodeHash: testkit.HashFor(t, d)})
 		return err
 	}
 	wantErr(t, "enrolling at 5", enrollAt(5), kernel.KindInvalid, "installed access tier out of range")
@@ -55,14 +56,14 @@ func TestEachPlaceThatBoundsATierSaysWhatItSaidBefore(t *testing.T) {
 	// Approval: one message for any of installed, token and release.
 	const approveMsg = "access tier %d is above what is installed (%d), allowed by the token (%d) or implemented (%d)"
 	e2 := newEnv(t)
-	r1, _ := e2.enroll(t, 1, fp) // installed 1, token 2
+	r1, _ := e2.enroll(t, 1, testkit.FP) // installed 1, token 2
 	wantErr(t, "approving above the install", e2.approve(r1.AgentId, 2), kernel.KindInvalid, fmt.Sprintf(approveMsg, 2, 1, 2, 2))
 	wantErr(t, "approving below zero", e2.approve(r1.AgentId, -1), kernel.KindInvalid, fmt.Sprintf(approveMsg, -1, 1, 2, 2))
 	e3 := newEnv(t)
 	secret3, _, _ := e3.core.Agents.CreateToken(e3.ctx, "a", "c", 1) // token 1
-	d3, _ := csr(t)
-	hash3, code3 := approvalFor(t, d3)
-	r3, err := e3.core.Agents.Enroll(e3.ctx, "1.1.1.1", &continuumv1.EnrollRequest{Token: secret3, CsrDer: d3, ClusterFingerprint: fp, InstalledAccessTier: 4, ApprovalCodeHash: hash3})
+	d3, _ := testkit.CSR(t)
+	hash3, code3 := testkit.ApprovalFor(t, d3)
+	r3, err := e3.core.Agents.Enroll(e3.ctx, "1.1.1.1", &continuumv1.EnrollRequest{Token: secret3, CsrDer: d3, ClusterFingerprint: testkit.FP, InstalledAccessTier: 4, ApprovalCodeHash: hash3})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +76,7 @@ func TestEachPlaceThatBoundsATierSaysWhatItSaidBefore(t *testing.T) {
 
 func TestSettingATierSaysWhatItSaidBeforeAndInTheSameOrder(t *testing.T) {
 	r := propRigFor(t) // approved 2, installed 2, token cap whatever the rig made
-	adm := asRole(accounts.RoleAdmin)
+	adm := testkit.AsRole(accounts.RoleAdmin)
 	set := func(tier int) error {
 		_, err := r.h.SetAgentTier(adm, "adam", r.id, tier, func(n int) string { return fmt.Sprintf("HELM %d", n) })
 		return err
@@ -86,7 +87,7 @@ func TestSettingATierSaysWhatItSaidBeforeAndInTheSameOrder(t *testing.T) {
 	if err := r.st.SetAccessTier(r.ctx, r.id, 0); err != nil {
 		t.Fatal(err)
 	}
-	_, err := r.h.SetAgentTier(asRole(accounts.RoleEditor), "edith", r.id, 9, nil)
+	_, err := r.h.SetAgentTier(testkit.AsRole(accounts.RoleEditor), "edith", r.id, 9, nil)
 	wantErr(t, "an editor raising past the release", err, kernel.KindForbidden, "raising an agent's access takes an administrator, as approving it did; narrowing it does not")
 	// Over the install: the message carries the command.
 	if err := r.st.SetInstalledTier(r.ctx, r.id, 1); err != nil {
@@ -149,9 +150,9 @@ func TestATokensCapStopsATierThatTheInstallWouldAllow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d, _ := csr(t)
-	hash, code := approvalFor(t, d)
-	r, err := a.core.Agents.Enroll(a.ctx, "1.1.1.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fp, InstalledAccessTier: 2, ApprovalCodeHash: hash})
+	d, _ := testkit.CSR(t)
+	hash, code := testkit.ApprovalFor(t, d)
+	r, err := a.core.Agents.Enroll(a.ctx, "1.1.1.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: testkit.FP, InstalledAccessTier: 2, ApprovalCodeHash: hash})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,11 +160,11 @@ func TestATokensCapStopsATierThatTheInstallWouldAllow(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := a.hub()
-	_, err = h.SetAgentTier(asRole(accounts.RoleAdmin), "adam", r.AgentId, 2, nil)
+	_, err = h.SetAgentTier(testkit.AsRole(accounts.RoleAdmin), "adam", r.AgentId, 2, nil)
 	wantErr(t, "setting above the token", err, kernel.KindInvalid, "access tier 2 is above what the enrollment token allowed for this agent (1)")
-	_, err = h.C.Loop.SubmitProposal(asRole(accounts.RoleEditor), "x", decisionloop.ProposalInput{Advisor: "rules-v1", Change: decisionloop.AccessChange{AgentID: r.AgentId, Tier: intp(2)}})
+	_, err = h.C.Loop.SubmitProposal(testkit.AsRole(accounts.RoleEditor), "x", decisionloop.ProposalInput{Advisor: "rules-v1", Change: decisionloop.AccessChange{AgentID: r.AgentId, Tier: intp(2)}})
 	wantErr(t, "proposing above the token", err, kernel.KindInvalid, "access tier 2 is above what the enrollment token allowed for this agent (1)")
-	if _, err = h.SetAgentTier(asRole(accounts.RoleAdmin), "adam", r.AgentId, 1, nil); err != nil {
+	if _, err = h.SetAgentTier(testkit.AsRole(accounts.RoleAdmin), "adam", r.AgentId, 1, nil); err != nil {
 		t.Fatalf("setting at the token's cap: %v", err)
 	}
 }

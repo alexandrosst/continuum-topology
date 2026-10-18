@@ -8,14 +8,15 @@ import (
 	"continuum/internal/kernel"
 	"continuum/internal/observed"
 	"continuum/internal/store"
+	"continuum/internal/testkit"
 )
 
 // While the organisation's agents cannot be read the peer list would come out empty, not because nobody is paired: pushing that
 // Config would make the agent drop every peer until the next good minute. The agent keeps what it has and the push is retried.
 func TestAPushIsSkippedWhileTheAgentsCannotBeRead(t *testing.T) {
 	r := newHubRig(t)
-	id1, _, _ := r.approvedAgent(t, fp)
-	id2, _, _ := r.approvedAgent(t, fp2)
+	id1, _, _ := r.approvedAgent(t, testkit.FP)
+	id2, _, _ := r.approvedAgent(t, testkit.FP2)
 	a1, _ := r.st.GetAgent(r.ctx, id1)
 	a2, _ := r.st.GetAgent(r.ctx, id2)
 	first, second := a1, a2
@@ -27,7 +28,7 @@ func TestAPushIsSkippedWhileTheAgentsCannotBeRead(t *testing.T) {
 		t.Fatal(err)
 	}
 	newV := func(ip string) *View {
-		return &View{EstView: EstView{State: nodeState(ip), Flows: observed.NewFlowTable()}, NetView: connectivity.NetView{Paths: map[string]*connectivity.PathTrack{}, Targets: map[string]connectivity.IssuedTarget{}}}
+		return &View{EstView: EstView{State: testkit.NodeState(ip), Flows: observed.NewFlowTable()}, NetView: connectivity.NetView{Paths: map[string]*connectivity.PathTrack{}, Targets: map[string]connectivity.IssuedTarget{}}}
 	}
 	fv, sv := newV("10.0.0.1"), newV("10.9.0.1")
 	push := make(chan *continuumv1.ServerMessage, 4)
@@ -44,7 +45,7 @@ func TestAPushIsSkippedWhileTheAgentsCannotBeRead(t *testing.T) {
 	sent := sv.CfgHash
 
 	real := r.hub.C.Store
-	r.hub.C.Store = agentsDown{real}
+	r.hub.C.Store = testkit.AgentsDown{Store: real}
 	if _, complete := r.hub.configForChecked(second, sv); complete {
 		t.Error("a Config built without the agents is reported as complete")
 	}
@@ -66,7 +67,7 @@ func TestAPushIsSkippedWhileTheAgentsCannotBeRead(t *testing.T) {
 	// The next good minute: the peer list changed (the peer reported a new address), so it is sent, with the peer.
 	r.hub.C.Store = real
 	r.hub.Mu.Lock()
-	fv.State = nodeState("10.0.0.77")
+	fv.State = testkit.NodeState("10.0.0.77")
 	r.hub.Mu.Unlock()
 	r.hub.PushOne(second.ID)
 	select {
@@ -79,7 +80,7 @@ func TestAPushIsSkippedWhileTheAgentsCannotBeRead(t *testing.T) {
 	}
 
 	// At first connect the agent has nothing to lose: ConfigFor still answers, with whatever it could build.
-	r.hub.C.Store = agentsDown{real}
+	r.hub.C.Store = testkit.AgentsDown{Store: real}
 	if cfg := r.hub.ConfigFor(second, sv); cfg == nil || len(cfg.LinkPeers) != 0 {
 		t.Errorf("first connect: %+v", cfg)
 	}

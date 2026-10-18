@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -23,6 +22,7 @@ import (
 	"continuum/internal/model"
 	"continuum/internal/observed"
 	"continuum/internal/store"
+	"continuum/internal/testkit"
 )
 
 // ---- settings ----
@@ -302,22 +302,15 @@ func TestSettingsAreAuditedAndSurviveARestart(t *testing.T) {
 
 // ---- measurements ----
 
-func extEdge(ft *observed.FlowTable, src, dstIP string, port uint32, proto string, conns uint64, noise string) {
-	f := flowOf(wep(src), xep(dstIP), port, conns)
-	f.Protocol = proto
-	f.Noise = noise
-	ft.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f}}, time.Now())
-}
-
 func TestDeriveTargetsPicksBusiestSafeTCPDestinations(t *testing.T) {
 	ft := observed.NewFlowTable()
 	w := "ns/Deployment/a"
-	extEdge(ft, w, "198.51.100.10", 443, "tcp", 50, "")
-	extEdge(ft, w, "198.51.100.11", 5432, "tcp", 5, "")
-	extEdge(ft, w, "198.51.100.12", 53, "udp", 500, "")   // UDP is not timed
-	extEdge(ft, w, "169.254.169.254", 80, "tcp", 900, "") // forbidden
-	extEdge(ft, w, "127.0.0.1", 80, "tcp", 900, "")       // forbidden
-	extEdge(ft, w, "198.51.100.13", 80, "tcp", 900, "dns")
+	testkit.ExtEdge(ft, w, "198.51.100.10", 443, "tcp", 50, "")
+	testkit.ExtEdge(ft, w, "198.51.100.11", 5432, "tcp", 5, "")
+	testkit.ExtEdge(ft, w, "198.51.100.12", 53, "udp", 500, "")   // UDP is not timed
+	testkit.ExtEdge(ft, w, "169.254.169.254", 80, "tcp", 900, "") // forbidden
+	testkit.ExtEdge(ft, w, "127.0.0.1", 80, "tcp", 900, "")       // forbidden
+	testkit.ExtEdge(ft, w, "198.51.100.13", 80, "tcp", 900, "dns")
 	got := connectivity.DeriveTargets(ft)
 	if len(got) != 2 || got[0].Host != "198.51.100.10" || got[0].Port != 443 || got[1].Host != "198.51.100.11" {
 		t.Fatalf("targets = %+v", got)
@@ -330,7 +323,7 @@ func TestDeriveTargetsPicksBusiestSafeTCPDestinations(t *testing.T) {
 	}
 	big := observed.NewFlowTable()
 	for i := 0; i < 40; i++ {
-		extEdge(big, w, "198.51.100."+strconv.Itoa(i+1), 443, "tcp", uint64(i+1), "")
+		testkit.ExtEdge(big, w, "198.51.100."+strconv.Itoa(i+1), 443, "tcp", uint64(i+1), "")
 	}
 	if n := len(connectivity.DeriveTargets(big)); n != connectivity.MaxObservedTargets {
 		t.Fatalf("%d targets, want %d", n, connectivity.MaxObservedTargets)
@@ -342,16 +335,16 @@ func TestDeriveTargetsPicksBusiestSafeTCPDestinations(t *testing.T) {
 func TestSuspicionsFromKubernetesPortsAndSharedNetworks(t *testing.T) {
 	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
 	w := "app/Deployment/api"
-	home := cluster("home", "203.0.113.1", []*continuumv1.NodeFacts{{Key: "n1", InternalIps: []string{"10.0.0.5"}}}, wk("app", "Deployment", "api"))
+	home := cluster("home", "203.0.113.1", []*continuumv1.NodeFacts{{Key: "n1", InternalIps: []string{"10.0.0.5"}}}, testkit.Workload("app", "Deployment", "api"))
 	known := cluster("known", "", []*continuumv1.NodeFacts{{Key: "k1", InternalIps: []string{"192.0.2.10"}}})
 	feed(&home, now, 60,
-		flowOf(wep(w), xep("198.51.100.50"), 6443, 8),    // an API server nobody onboarded
-		flowOf(wep(w), xep("198.51.100.51"), 10250, 4),   // and a kubelet next to it (same /24)
-		flowOf(wep(w), xep("192.0.2.10"), 6443, 30),      // an onboarded cluster's node: not a suspicion
-		flowOf(wep(w), xep("198.51.100.90"), 31000, 100), // one NodePort alone is too weak
-		flowOf(wep(w), xep("198.51.100.91"), 443, 100),   // ordinary HTTPS
-		flowOf(wep(w), xep("10.0.0.77"), 5432, 40),       // a machine in the nodes' network
-		flowOf(wep(w), xep("10.0.0.78"), 5432, 3),        // too little traffic to mention
+		testkit.FlowOf(testkit.WorkloadEndpoint(w), testkit.ExternalEndpoint("198.51.100.50"), 6443, 8),    // an API server nobody onboarded
+		testkit.FlowOf(testkit.WorkloadEndpoint(w), testkit.ExternalEndpoint("198.51.100.51"), 10250, 4),   // and a kubelet next to it (same /24)
+		testkit.FlowOf(testkit.WorkloadEndpoint(w), testkit.ExternalEndpoint("192.0.2.10"), 6443, 30),      // an onboarded cluster's node: not a suspicion
+		testkit.FlowOf(testkit.WorkloadEndpoint(w), testkit.ExternalEndpoint("198.51.100.90"), 31000, 100), // one NodePort alone is too weak
+		testkit.FlowOf(testkit.WorkloadEndpoint(w), testkit.ExternalEndpoint("198.51.100.91"), 443, 100),   // ordinary HTTPS
+		testkit.FlowOf(testkit.WorkloadEndpoint(w), testkit.ExternalEndpoint("10.0.0.77"), 5432, 40),       // a machine in the nodes' network
+		testkit.FlowOf(testkit.WorkloadEndpoint(w), testkit.ExternalEndpoint("10.0.0.78"), 5432, 3),        // too little traffic to mention
 	)
 	all := []observed.Cluster{home, known}
 	got := agents.Suspicions("org-1", []observed.Cluster{home}, all, now)
@@ -387,9 +380,9 @@ func TestSuspicionsFromKubernetesPortsAndSharedNetworks(t *testing.T) {
 func TestOnboardedClusterAddressesAreNeverSuspicious(t *testing.T) {
 	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
 	w := "app/Deployment/api"
-	home := cluster("home", "", nil, wk("app", "Deployment", "api"))
+	home := cluster("home", "", nil, testkit.Workload("app", "Deployment", "api"))
 	peer := cluster("peer", "198.51.100.200", []*continuumv1.NodeFacts{{Key: "p", InternalIps: []string{"198.51.100.60"}}})
-	feed(&home, now, 60, flowOf(wep(w), xep("198.51.100.60"), 6443, 50), flowOf(wep(w), xep("198.51.100.200"), 6443, 50))
+	feed(&home, now, 60, testkit.FlowOf(testkit.WorkloadEndpoint(w), testkit.ExternalEndpoint("198.51.100.60"), 6443, 50), testkit.FlowOf(testkit.WorkloadEndpoint(w), testkit.ExternalEndpoint("198.51.100.200"), 6443, 50))
 	if got := agents.Suspicions("org-1", []observed.Cluster{home}, []observed.Cluster{home, peer}, now); len(got) != 0 {
 		t.Fatalf("known clusters were suspected: %+v", got)
 	}
@@ -399,7 +392,7 @@ func TestOnboardedClusterAddressesAreNeverSuspicious(t *testing.T) {
 
 func liveView(now time.Time, nodes ...string) *estate.View {
 	st := facts.New()
-	st.Cluster = &continuumv1.ClusterFacts{Uid: fp}
+	st.Cluster = &continuumv1.ClusterFacts{Uid: testkit.FP}
 	for _, n := range nodes {
 		st.Nodes[n] = &continuumv1.NodeFacts{Key: n, Name: n, Ready: true}
 	}
@@ -531,7 +524,7 @@ func TestHistoryEndpoints(t *testing.T) {
 	a := newAdminRig(t)
 	_, admin := a.user(t, "root", accounts.RoleAdmin)
 	_, viewer := a.user(t, "eve", accounts.RoleViewer)
-	id, _, _ := a.approvedAgent(t, fp)
+	id, _, _ := a.approvedAgent(t, testkit.FP)
 	a.hub().Mu.Lock()
 	a.hub().Views[id] = liveView(*a.now, "n1")
 	a.hub().Mu.Unlock()
@@ -659,26 +652,6 @@ func TestDeciderClientRefusesLinkLocalAndRedirects(t *testing.T) {
 	if resp.StatusCode != http.StatusFound {
 		t.Fatalf("a redirect was followed: %d", resp.StatusCode)
 	}
-}
-
-// failHistory fails the event and snapshot writes while its flags are set.
-type failHistory struct {
-	store.Store
-	events, snapshots atomic.Bool
-}
-
-func (f *failHistory) AddEvents(ctx context.Context, org string, evs []store.Event) error {
-	if f.events.Load() {
-		return errors.New("database is locked")
-	}
-	return f.Store.AddEvents(ctx, org, evs)
-}
-
-func (f *failHistory) AddHistory(ctx context.Context, org string, at time.Time, data []byte) error {
-	if f.snapshots.Load() {
-		return errors.New("database is locked")
-	}
-	return f.Store.AddHistory(ctx, org, at, data)
 }
 
 // countGets counts the snapshots read from the store.

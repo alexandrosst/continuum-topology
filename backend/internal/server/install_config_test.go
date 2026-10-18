@@ -8,6 +8,7 @@ import (
 	"continuum/internal/kernel"
 	"continuum/internal/operators"
 	"continuum/internal/store"
+	"continuum/internal/testkit"
 )
 
 // A server told to name a chart that Helm would read as an option does not print a command for it, and it finds that before the
@@ -68,7 +69,7 @@ func TestAServerThatCannotNameItsChartDoesNotStart(t *testing.T) {
 func TestAnOperatorChartTheCommandCannotNameMintsNoHeartbeatSecret(t *testing.T) {
 	a := newAdminRig(t)
 	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
-	cl := a.approvedCluster(t, fp)
+	cl := a.approvedCluster(t, testkit.FP)
 	id := a.createOperatorDoc(t, cookie, extBody("athens", cl))["operator"].(map[string]any)["id"].(string)
 
 	a.a.ChartRef = "--post-renderer=/tmp/x/continuum-agent" // the operator chart is derived from it
@@ -99,7 +100,7 @@ func operatorInstall(a *Admin, img kernel.ImageConfig, secret string, op store.O
 func TestAnOperatorChartTheCommandCannotNameMakesNoOperatorAndRotatesNothing(t *testing.T) {
 	a := newAdminRig(t)
 	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
-	cl := a.approvedCluster(t, fp)
+	cl := a.approvedCluster(t, testkit.FP)
 	id := a.createOperatorDoc(t, cookie, extBody("athens", cl))["operator"].(map[string]any)["id"].(string)
 	before, err := a.st.ListOperatorCerts(a.ctx, id)
 	if err != nil || len(before) == 0 {

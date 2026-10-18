@@ -8,6 +8,7 @@ import (
 	"continuum/internal/accounts"
 	"continuum/internal/agents"
 	"continuum/internal/model"
+	"continuum/internal/testkit"
 )
 
 // TestRateBetweenDerivesAPlainPerSecondDiff covers rateBetween's own contract: a real diff over a real
@@ -237,8 +238,8 @@ func TestSelfTelemetryEndpointShapeAndRBAC(t *testing.T) {
 		t.Fatalf("anonymous: %d, want 401", c)
 	}
 
-	ag := twinAgent(t, a.env, h, fp)
-	h.ApplySync(ag, twinFull(fp, []*continuumv1.NodeFacts{twinNode("n1", "")}), false)
+	ag := twinAgent(t, a.env, h, testkit.FP)
+	h.ApplySync(ag, testkit.TwinFull(testkit.FP, []*continuumv1.NodeFacts{testkit.TwinNode("n1", "")}), false)
 
 	// This agent has an approved cluster but has never sent a heartbeat carrying SelfStats: still absent,
 	// not listed with an empty samples list.

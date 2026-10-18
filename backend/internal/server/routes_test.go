@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"continuum/internal/accounts"
+	"continuum/internal/testkit"
 )
 
 // Every route the server mounts, and what it asks of the caller, is written down in testdata/routes.txt, one line each: the access
@@ -49,7 +50,7 @@ func TestEveryRouteAndItsAccessIsPinned(t *testing.T) {
 		t.Fatalf("%v (create it with -update)", err)
 	}
 	if string(want) != got {
-		t.Errorf("the routes or what they ask of the caller changed. The difference, as lines only in one side:\n%s\nIf this is intended, run: go test ./internal/server -run TestEveryRouteAndItsAccessIsPinned -update", lineDiff(string(want), got))
+		t.Errorf("the routes or what they ask of the caller changed. The difference, as lines only in one side:\n%s\nIf this is intended, run: go test ./internal/server -run TestEveryRouteAndItsAccessIsPinned -update", testkit.LineDiff(string(want), got))
 	}
 }
 
@@ -130,30 +131,4 @@ func TestEachGuardedRouteTurnsAwayWhoIsBelowItsLevel(t *testing.T) {
 	if checked < 90 {
 		t.Fatalf("only %d guarded routes were checked", checked)
 	}
-}
-
-// lineDiff lists the lines found in only one of the two texts, "-" for the golden file and "+" for what the source now says.
-func lineDiff(want, got string) string {
-	count := func(s string) map[string]int {
-		m := map[string]int{}
-		for _, l := range strings.Split(strings.TrimSuffix(s, "\n"), "\n") {
-			m[l]++
-		}
-		return m
-	}
-	w, g := count(want), count(got)
-	var b strings.Builder
-	for _, l := range strings.Split(strings.TrimSuffix(want, "\n"), "\n") {
-		if g[l] < w[l] {
-			b.WriteString("- " + l + "\n")
-			w[l]--
-		}
-	}
-	for _, l := range strings.Split(strings.TrimSuffix(got, "\n"), "\n") {
-		if w[l] < g[l] {
-			b.WriteString("+ " + l + "\n")
-			g[l]--
-		}
-	}
-	return b.String()
 }

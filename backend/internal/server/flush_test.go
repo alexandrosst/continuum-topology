@@ -4,6 +4,8 @@ import (
 	continuumv1 "continuum/gen/continuumv1"
 	"testing"
 	"time"
+
+	"continuum/internal/testkit"
 )
 
 // Tombstones and node identities are written behind a timer. A graceful shutdown must save what the timer had
@@ -11,13 +13,13 @@ import (
 func TestFlushAllSavesWriteBehindStateBeforeShutdown(t *testing.T) {
 	r := newHubRig(t)
 	h := r.hub
-	a := twinAgent(t, r.env, h, fp)
-	nodes := []*continuumv1.NodeFacts{twinNode("worker-1", "4f1c0a9b2d7e4c3a8b6d5e2f1a0b9c8d")}
-	cart, pay := twinWorkload("shop", "cart"), twinWorkload("shop", "pay")
-	h.ApplySync(a, twinFull(fp, nodes, cart, pay), false)
+	a := twinAgent(t, r.env, h, testkit.FP)
+	nodes := []*continuumv1.NodeFacts{testkit.TwinNode("worker-1", "4f1c0a9b2d7e4c3a8b6d5e2f1a0b9c8d")}
+	cart, pay := testkit.TwinWorkload("shop", "cart"), testkit.TwinWorkload("shop", "pay")
+	h.ApplySync(a, testkit.TwinFull(testkit.FP, nodes, cart, pay), false)
 	*r.now = r.now.Add(time.Minute)
-	h.ApplySync(a, twinFull(fp, nodes, cart), true) // pay is gone: a tombstone, so far only in memory
-	h.State(r.ctx)                                  // loads the model and builds the identities
+	h.ApplySync(a, testkit.TwinFull(testkit.FP, nodes, cart), true) // pay is gone: a tombstone, so far only in memory
+	h.State(r.ctx)                                                  // loads the model and builds the identities
 
 	before, _ := r.st.ListTombstones(r.ctx, "org-1")
 	if len(before) != 0 {

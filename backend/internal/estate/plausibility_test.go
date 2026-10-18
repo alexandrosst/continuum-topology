@@ -8,6 +8,7 @@ import (
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/kernel"
 	"continuum/internal/model"
+	"continuum/internal/testkit"
 )
 
 func f64(v float64) *float64 { return &v }
@@ -105,7 +106,7 @@ func TestBoundCountKeepsPlausibleAndNullsNegative(t *testing.T) {
 // must match exactly how many fields were actually dropped.
 func TestBoundSyncFactsOmitsOnlyTheImplausibleFieldAcrossARecord(t *testing.T) {
 	s := &continuumv1.Sync{
-		Cluster: &continuumv1.ClusterFacts{Uid: fp, PendingPodCount: i32(-4)}, // implausible
+		Cluster: &continuumv1.ClusterFacts{Uid: testkit.FP, PendingPodCount: i32(-4)}, // implausible
 		Nodes: []*continuumv1.NodeFacts{
 			{
 				Key: "n1", Name: "n1", PodCount: i32(-1), // implausible
@@ -162,7 +163,7 @@ func TestBoundSyncFactsOmitsOnlyTheImplausibleFieldAcrossARecord(t *testing.T) {
 // reading survives, and the anomaly is counted rather than silently lost.
 func TestNoteFlowsAppliesTheWholeBatchDespiteOneImplausibleSaturation(t *testing.T) {
 	r := newHubRig(t)
-	id, _, _ := r.approvedAgent(t, fp)
+	id, _, _ := r.approvedAgent(t, testkit.FP)
 	r.hub.Mu.Lock()
 	r.hub.Views[id] = NewView()
 	r.hub.Mu.Unlock()
@@ -209,7 +210,7 @@ func TestNoteFlowsAppliesTheWholeBatchDespiteOneImplausibleSaturation(t *testing
 // and the node itself is still there.
 func TestApplySyncKeepsTheWholeRecordDespiteOneImplausibleReading(t *testing.T) {
 	r := newHubRig(t)
-	id, _, _ := r.approvedAgent(t, fp)
+	id, _, _ := r.approvedAgent(t, testkit.FP)
 	a, err := r.st.GetAgent(r.ctx, id)
 	if err != nil {
 		t.Fatal(err)
@@ -220,7 +221,7 @@ func TestApplySyncKeepsTheWholeRecordDespiteOneImplausibleReading(t *testing.T) 
 	r.hub.Views[id] = v
 	r.hub.Mu.Unlock()
 
-	s := &continuumv1.Sync{Full: true, Cluster: &continuumv1.ClusterFacts{Uid: fp}, Nodes: []*continuumv1.NodeFacts{{
+	s := &continuumv1.Sync{Full: true, Cluster: &continuumv1.ClusterFacts{Uid: testkit.FP}, Nodes: []*continuumv1.NodeFacts{{
 		Key: "n1", Name: "n1", Ready: true,
 		Probe: &continuumv1.HostProbe{CpuPressurePct: f64(150), MemoryPressurePct: f64(12.5)},
 	}}}

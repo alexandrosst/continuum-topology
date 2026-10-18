@@ -16,6 +16,7 @@ import (
 	"continuum/internal/estate"
 	"continuum/internal/kernel"
 	"continuum/internal/pki"
+	"continuum/internal/testkit"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -47,7 +48,7 @@ func TestTierChangeStaysWithinTheInstalledCeilingAndIsAudited(t *testing.T) {
 	_, editor := a.user(t, "edith", accounts.RoleEditor)
 	_, admin := a.user(t, "adam", accounts.RoleAdmin)
 	_, viewer := a.user(t, "vic", accounts.RoleViewer)
-	id, _, _ := a.approvedAgent(t, fp) // approved at 2, installed at 2
+	id, _, _ := a.approvedAgent(t, testkit.FP) // approved at 2, installed at 2
 
 	tier := func(cookie string, n any) resp {
 		return a.do("POST", "/api/v1/agents/"+id+"/tier", map[string]any{"tier": n}, withCookie(cookie))
@@ -139,7 +140,7 @@ func TestTierChangeStaysWithinTheInstalledCeilingAndIsAudited(t *testing.T) {
 func TestNarrowingATierDropsWhatTheServerHoldsAboveIt(t *testing.T) {
 	a := newAdminRig(t)
 	_, editor := a.user(t, "edith", accounts.RoleEditor)
-	id, _, _ := a.approvedAgent(t, fp)
+	id, _, _ := a.approvedAgent(t, testkit.FP)
 	v := liveView(*a.now, "n1")
 	v.State.Apply(&continuumv1.Sync{Namespaces: []*continuumv1.NamespaceFacts{{Key: "ns/shop", Name: "shop"}},
 		Workloads: []*continuumv1.WorkloadFacts{{Key: "shop/Deployment/web", Name: "web"}}})
@@ -162,7 +163,7 @@ func TestNarrowingATierDropsWhatTheServerHoldsAboveIt(t *testing.T) {
 func TestNarrowingConsentDropsWhatTheServerAlreadyHolds(t *testing.T) {
 	a := newAdminRig(t)
 	_, editor := a.user(t, "edith", accounts.RoleEditor)
-	id, _, _ := a.approvedAgent(t, fp)
+	id, _, _ := a.approvedAgent(t, testkit.FP)
 	v := liveView(*a.now, "n1")
 	v.State.Nodes["n1"].MachineId, v.State.Nodes["n1"].KernelVersion = "mid-1", "6.1"
 	v.State.Apply(&continuumv1.Sync{
@@ -218,7 +219,7 @@ func TestConsentOverridesAreValidatedPersistedAndPushed(t *testing.T) {
 	a := newAdminRig(t)
 	_, editor := a.user(t, "edith", accounts.RoleEditor)
 	_, viewer := a.user(t, "vic", accounts.RoleViewer)
-	id, _, _ := a.approvedAgent(t, fp)
+	id, _, _ := a.approvedAgent(t, testkit.FP)
 	put := func(cookie string, body any) resp {
 		return a.do("POST", "/api/v1/agents/"+id+"/consent", body, withCookie(cookie))
 	}
@@ -273,14 +274,14 @@ func TestConsentOverridesAreValidatedPersistedAndPushed(t *testing.T) {
 	if v.CfgHash != h1 {
 		t.Fatal("the same overrides gave a different config hash")
 	}
-	if _, err := a.hub().SetConsent(asRole(accounts.RoleAdmin), "edith", id, agents.Consent{Paused: []string{"flow"}}); err != nil {
+	if _, err := a.hub().SetConsent(testkit.AsRole(accounts.RoleAdmin), "edith", id, agents.Consent{Paused: []string{"flow"}}); err != nil {
 		t.Fatal(err)
 	}
 	a.hub().ConfigFor(ag, v)
 	if v.CfgHash == h1 {
 		t.Fatal("changed overrides did not change the config hash")
 	}
-	if _, err := a.hub().SetConsent(asRole(accounts.RoleAdmin), "edith", id, agents.Consent{Paused: []string{"measure"}}); err != nil {
+	if _, err := a.hub().SetConsent(testkit.AsRole(accounts.RoleAdmin), "edith", id, agents.Consent{Paused: []string{"measure"}}); err != nil {
 		t.Fatal(err)
 	}
 	if cfg := a.hub().ConfigFor(ag, v); len(cfg.ProbeTargets) != 0 || cfg.MeasureSeconds != 0 {
@@ -373,7 +374,7 @@ func TestHealthzReadyzAndMetrics(t *testing.T) {
 
 func TestMetricsTextAndToken(t *testing.T) {
 	a := newAdminRig(t)
-	a.approvedAgent(t, fp)
+	a.approvedAgent(t, testkit.FP)
 	kernel.Metrics.RateLimited.Add(0)
 	h := MetricsHandler(a.a.P, "v-test", "s3cret")
 	get := func(auth string) *httptest.ResponseRecorder {
@@ -422,7 +423,7 @@ func TestAPanicInAnAgentStreamIsRecoveredAndTheServerKeepsServing(t *testing.T) 
 	go srv.Serve(l)
 	defer srv.Stop()
 	r := &rig{env: e, addr: l.Addr().String()}
-	id, key, leaf := e.approvedAgent(t, fp)
+	id, key, leaf := e.approvedAgent(t, testkit.FP)
 	_ = id
 	before := kernel.Metrics.StreamPanics.Load()
 	for i := 0; i < 2; i++ { // the second connection proves the process is still serving
@@ -474,7 +475,7 @@ func TestStopWithinDoesNotWaitForeverForALongLivedStream(t *testing.T) {
 	srv := e.base.Agents.NewGRPC(pki.NewServerCerts(e.core.CA, []string{"127.0.0.1"}), p)
 	l, _ := net.Listen("tcp", "127.0.0.1:0")
 	go srv.Serve(l)
-	id, key, leaf := e.approvedAgent(t, fp)
+	id, key, leaf := e.approvedAgent(t, testkit.FP)
 	rr := &hubRig{rig: &rig{env: e, addr: l.Addr().String()}, hub: tn.Hub}
 	s := rr.agentStream(t, ctx, id, key, leaf)
 	start := time.Now()
@@ -505,7 +506,7 @@ func TestHelloNamespaceIsRecordedAndUsedInGeneratedCommands(t *testing.T) {
 	}
 	go srv.Serve(l)
 	rr := &hubRig{rig: &rig{env: e, addr: l.Addr().String()}, hub: tn.Hub}
-	id, key, leaf := rr.approvedAgent(t, fp) // approved at 2, installed at 2
+	id, key, leaf := rr.approvedAgent(t, testkit.FP) // approved at 2, installed at 2
 
 	admin := &Admin{P: p, C: e.base, AgentAddr: "x:1", ChartRef: "chart"}
 	a := &adminRig{env: e, h: admin.Handler(), a: admin}
@@ -557,7 +558,7 @@ func TestRevokedAgentCarriesTeardownCommandsOnlyForEditorsAndAbove(t *testing.T)
 	a := newAdminRig(t)
 	_, editor := a.user(t, "edith", accounts.RoleEditor)
 	_, viewer := a.user(t, "vic", accounts.RoleViewer)
-	id, _, _ := a.approvedAgent(t, fp)
+	id, _, _ := a.approvedAgent(t, testkit.FP)
 	if err := a.core.Agents.Revoke(a.ctx, "actor", id, "for the test"); err != nil {
 		t.Fatal(err)
 	}

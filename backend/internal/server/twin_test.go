@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"continuum/internal/store"
+	"continuum/internal/testkit"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -12,40 +14,8 @@ import (
 	"continuum/internal/decisionloop"
 	"continuum/internal/estate"
 	"continuum/internal/facts"
-	"continuum/internal/store"
 	"continuum/internal/twin"
 )
-
-// twinAgent approves an agent for a cluster in the hub's organisation and gives it an empty picture, connected.
-func twinAgent(t *testing.T, e *env, h *estate.Hub, cluster string) store.Agent {
-	t.Helper()
-	id, _, _ := e.approvedAgent(t, cluster)
-	a, err := e.st.GetAgent(e.ctx, id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	h.Mu.Lock()
-	v := estate.NewView()
-	v.Connected = true
-	v.LastBeat = h.C.Now()
-	h.Views[id] = v
-	h.Mu.Unlock()
-	return a
-}
-
-func twinNode(name, machine string) *continuumv1.NodeFacts {
-	return &continuumv1.NodeFacts{Key: name, Name: name, MachineId: machine, CpuCapacityMillis: 4000, CpuAllocatableMillis: 3800,
-		MemoryCapacityBytes: 8 << 30, MemoryAllocatableBytes: 7 << 30, Ready: true}
-}
-
-func twinWorkload(ns, name string) *continuumv1.WorkloadFacts {
-	return &continuumv1.WorkloadFacts{Key: ns + "/Deployment/" + name, Namespace: ns, Kind: "Deployment", Name: name, Replicas: 1, ReadyReplicas: 1, CpuRequestMillis: 250, MemoryRequestBytes: 256 << 20}
-}
-
-func twinFull(cluster string, nodes []*continuumv1.NodeFacts, ws ...*continuumv1.WorkloadFacts) *continuumv1.Sync {
-	return &continuumv1.Sync{Full: true, Cluster: &continuumv1.ClusterFacts{Uid: cluster}, Nodes: nodes, Workloads: ws,
-		Namespaces: []*continuumv1.NamespaceFacts{{Key: "shop", Name: "shop"}}}
-}
 
 func TestSameNamesInTwoClustersAndTwoOrganisationsNeverCollide(t *testing.T) {
 	a := newAdminRig(t)
@@ -55,14 +25,14 @@ func TestSameNamesInTwoClustersAndTwoOrganisationsNeverCollide(t *testing.T) {
 	t2, _ := p.Tenant(a.ctx, bobOrg)
 	const fpB = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
 	const fpC = "bbbbbbbb-bbbb-4ccc-8ddd-eeeeeeeeeeee"
-	a1 := twinAgent(t, a.env, t1.Hub, fp)
+	a1 := twinAgent(t, a.env, t1.Hub, testkit.FP)
 	a2 := twinAgent(t, a.env, t1.Hub, fpB)
 	e2 := &env{base: a.base, core: t2.C, st: a.st, now: a.now, ctx: a.ctx}
 	b1 := twinAgent(t, e2, t2.Hub, fpC)
 	same := func(c string) *continuumv1.Sync {
-		return twinFull(c, []*continuumv1.NodeFacts{twinNode("node-1", "")}, twinWorkload("shop", "cart"), twinWorkload("shop", "pay"))
+		return testkit.TwinFull(c, []*continuumv1.NodeFacts{testkit.TwinNode("node-1", "")}, testkit.TwinWorkload("shop", "cart"), testkit.TwinWorkload("shop", "pay"))
 	}
-	t1.Hub.ApplySync(a1, same(fp), false)
+	t1.Hub.ApplySync(a1, same(testkit.FP), false)
 	t1.Hub.ApplySync(a2, same(fpB), false)
 	t2.Hub.ApplySync(b1, same(fpC), false)
 	seen := map[string]string{}
@@ -117,12 +87,12 @@ func TestModelAPIContractETagAndTenancy(t *testing.T) {
 	_, viewer := a.user(t, "vera", accounts.RoleViewer)
 	bobCookie, bobOrg := a.register(t, "bob", "Bob Works")
 	h := a.hub()
-	ag := twinAgent(t, a.env, h, fp)
-	h.ApplySync(ag, twinFull(fp, []*continuumv1.NodeFacts{twinNode("n1", "")}, twinWorkload("shop", "cart")), false)
+	ag := twinAgent(t, a.env, h, testkit.FP)
+	h.ApplySync(ag, testkit.TwinFull(testkit.FP, []*continuumv1.NodeFacts{testkit.TwinNode("n1", "")}, testkit.TwinWorkload("shop", "cart")), false)
 	t2, _ := a.a.P.Tenant(a.ctx, bobOrg)
 	e2 := &env{base: a.base, core: t2.C, st: a.st, now: a.now, ctx: a.ctx}
 	bag := twinAgent(t, e2, t2.Hub, "cccccccc-bbbb-4ccc-8ddd-eeeeeeeeeeee")
-	t2.Hub.ApplySync(bag, twinFull("cccccccc-bbbb-4ccc-8ddd-eeeeeeeeeeee", []*continuumv1.NodeFacts{twinNode("bob-node", "")}, twinWorkload("bobs", "secret")), false)
+	t2.Hub.ApplySync(bag, testkit.TwinFull("cccccccc-bbbb-4ccc-8ddd-eeeeeeeeeeee", []*continuumv1.NodeFacts{testkit.TwinNode("bob-node", "")}, testkit.TwinWorkload("bobs", "secret")), false)
 
 	r := a.do("GET", "/api/v1/model", nil)
 	if r.Code != 401 {
@@ -176,7 +146,7 @@ func TestModelAPIContractETagAndTenancy(t *testing.T) {
 		t.Fatalf("the clock alone changed the model: %d", r.Code)
 	}
 	// A real change moves the version forward, monotonically, and the tag with it.
-	h.ApplySync(ag, twinFull(fp, []*continuumv1.NodeFacts{twinNode("n1", "")}, twinWorkload("shop", "cart"), twinWorkload("shop", "pay")), true)
+	h.ApplySync(ag, testkit.TwinFull(testkit.FP, []*continuumv1.NodeFacts{testkit.TwinNode("n1", "")}, testkit.TwinWorkload("shop", "cart"), testkit.TwinWorkload("shop", "pay")), true)
 	*a.now = a.now.Add(3 * time.Second) // past the short cache
 	r = a.do("GET", "/api/v1/model", nil, withCookie(ownerCookie), withHeader("If-None-Match", etag))
 	if r.Code != 200 {
@@ -210,8 +180,8 @@ func TestModelAPIContractETagAndTenancy(t *testing.T) {
 func TestModelCacheHitsAndMissesAreCounted(t *testing.T) {
 	a := newAdminRig(t)
 	h := a.hub()
-	ag := twinAgent(t, a.env, h, fp)
-	h.ApplySync(ag, twinFull(fp, []*continuumv1.NodeFacts{twinNode("n1", "")}, twinWorkload("shop", "cart")), false)
+	ag := twinAgent(t, a.env, h, testkit.FP)
+	h.ApplySync(ag, testkit.TwinFull(testkit.FP, []*continuumv1.NodeFacts{testkit.TwinNode("n1", "")}, testkit.TwinWorkload("shop", "cart")), false)
 
 	if h.Tw.CacheHits.Load() != 0 || h.Tw.CacheMisses.Load() != 0 {
 		t.Fatalf("before any call: hits=%d misses=%d, want 0/0", h.Tw.CacheHits.Load(), h.Tw.CacheMisses.Load())
@@ -230,7 +200,7 @@ func TestModelCacheHitsAndMissesAreCounted(t *testing.T) {
 		t.Fatalf("second call (cached): hits=%d misses=%d, want 1/1", h.Tw.CacheHits.Load(), h.Tw.CacheMisses.Load())
 	}
 	// A real change (gen bumps) forces a rebuild on the next call: another miss, not a third hit.
-	h.ApplySync(ag, twinFull(fp, []*continuumv1.NodeFacts{twinNode("n1", "")}, twinWorkload("shop", "cart"), twinWorkload("shop", "pay")), true)
+	h.ApplySync(ag, testkit.TwinFull(testkit.FP, []*continuumv1.NodeFacts{testkit.TwinNode("n1", "")}, testkit.TwinWorkload("shop", "cart"), testkit.TwinWorkload("shop", "pay")), true)
 	*a.now = a.now.Add(3 * time.Second) // past the short cache, same as TestModelAPIContractETagAndTenancy
 	if _, _, err := h.Model(a.ctx); err != nil {
 		t.Fatal(err)
@@ -337,3 +307,20 @@ func TestDecisionRequestsOnlyOfferLiveTargets(t *testing.T) {
 var _ = facts.New
 
 // ---- tombstone retention ----
+
+// twinAgent approves an agent for a cluster in the hub's organisation and gives it an empty picture, connected.
+func twinAgent(t *testing.T, e *env, h *estate.Hub, cluster string) store.Agent {
+	t.Helper()
+	id, _, _ := e.approvedAgent(t, cluster)
+	a, err := e.st.GetAgent(e.ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.Mu.Lock()
+	v := estate.NewView()
+	v.Connected = true
+	v.LastBeat = h.C.Now()
+	h.Views[id] = v
+	h.Mu.Unlock()
+	return a
+}

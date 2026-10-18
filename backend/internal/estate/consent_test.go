@@ -13,6 +13,7 @@ import (
 	"continuum/internal/connectivity"
 	"continuum/internal/facts"
 	"continuum/internal/kernel"
+	"continuum/internal/testkit"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -23,7 +24,7 @@ func TestHelloAdvertisesTheCeilingAndDiagnosticsFollowHeartbeats(t *testing.T) {
 	r := newHubRig(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	id, key, leaf := r.approvedAgent(t, fp) // approved at 2, installed 2
+	id, key, leaf := r.approvedAgent(t, testkit.FP) // approved at 2, installed 2
 
 	// The owner has since run `helm upgrade --set access.tier=1`: the hello says so, the server records it and the approval follows it down.
 	hello := &continuumv1.Hello{AgentVersion: "9.9", InstalledAccessTier: 1, Diagnostics: &continuumv1.Diagnostics{AgentVersion: "9.9", Arch: "arm64", InstalledTier: 1, EffectiveTier: 1, ApprovedTier: 2}}
@@ -240,12 +241,12 @@ func TestSixtyThousandWorkloadsArriveInChunksAndApplyOnTheLastOne(t *testing.T) 
 	r.hub.Limits = &facts.Limits{Nodes: 100, Namespaces: 100, Workloads: 100000, Bytes: 64 << 20}
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	id, key, leaf := r.approvedAgent(t, fp)
+	id, key, leaf := r.approvedAgent(t, testkit.FP)
 	s := r.agentStream(t, ctx, id, key, leaf)
-	cluster := &continuumv1.ClusterFacts{Uid: fp}
+	cluster := &continuumv1.ClusterFacts{Uid: testkit.FP}
 
 	// An earlier, smaller picture is what a reader sees until the whole new one is in.
-	if err := s.Send(syncMsg(&continuumv1.Sync{Seq: 1, Full: true, Cluster: cluster, Nodes: nodes("old", 2), Workloads: workloads(10, "old")})); err != nil {
+	if err := s.Send(testkit.SyncMsg(&continuumv1.Sync{Seq: 1, Full: true, Cluster: cluster, Nodes: nodes("old", 2), Workloads: workloads(10, "old")})); err != nil {
 		t.Fatal(err)
 	}
 	if m, err := s.Recv(); err != nil || m.GetAck().GetSeq() != 1 {
@@ -256,7 +257,7 @@ func TestSixtyThousandWorkloadsArriveInChunksAndApplyOnTheLastOne(t *testing.T) 
 	all := pieces(2, cluster, nodes("n", 3), workloads(total, "w"), nChunks, "2-abc")
 	chunkedBefore := kernel.Metrics.SyncsChunked.Load()
 	for i, c := range all {
-		if err := s.Send(syncMsg(c)); err != nil {
+		if err := s.Send(testkit.SyncMsg(c)); err != nil {
 			t.Fatalf("chunk %d: %v", i, err)
 		}
 		if i == nChunks/2 {
@@ -276,7 +277,7 @@ func TestSixtyThousandWorkloadsArriveInChunksAndApplyOnTheLastOne(t *testing.T) 
 		t.Fatal("the chunked picture was not counted")
 	}
 	// The stream still works for ordinary messages afterwards.
-	if err := s.Send(syncMsg(&continuumv1.Sync{Seq: 3, Workloads: workloads(1, "late")})); err != nil {
+	if err := s.Send(testkit.SyncMsg(&continuumv1.Sync{Seq: 3, Workloads: workloads(1, "late")})); err != nil {
 		t.Fatal(err)
 	}
 	if m, err := s.Recv(); err != nil || m.GetAck().GetSeq() != 3 {
@@ -288,11 +289,11 @@ func TestAConnectionDroppedMidPictureLeavesThePreviousStateAlone(t *testing.T) {
 	r := newHubRig(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	id, key, leaf := r.approvedAgent(t, fp)
-	cluster := &continuumv1.ClusterFacts{Uid: fp}
+	id, key, leaf := r.approvedAgent(t, testkit.FP)
+	cluster := &continuumv1.ClusterFacts{Uid: testkit.FP}
 	cctx, ccancel := context.WithCancel(ctx)
 	s := r.agentStream(t, cctx, id, key, leaf)
-	if err := s.Send(syncMsg(&continuumv1.Sync{Seq: 1, Full: true, Cluster: cluster, Nodes: nodes("old", 4), Workloads: workloads(20, "old")})); err != nil {
+	if err := s.Send(testkit.SyncMsg(&continuumv1.Sync{Seq: 1, Full: true, Cluster: cluster, Nodes: nodes("old", 4), Workloads: workloads(20, "old")})); err != nil {
 		t.Fatal(err)
 	}
 	if m, err := s.Recv(); err != nil || m.GetAck() == nil {
@@ -300,7 +301,7 @@ func TestAConnectionDroppedMidPictureLeavesThePreviousStateAlone(t *testing.T) {
 	}
 	all := pieces(2, cluster, nodes("new", 9), workloads(900, "new"), 6, "2-x")
 	for _, c := range all[:4] { // four of six, then the connection dies
-		if err := s.Send(syncMsg(c)); err != nil {
+		if err := s.Send(testkit.SyncMsg(c)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -321,7 +322,7 @@ func TestAConnectionDroppedMidPictureLeavesThePreviousStateAlone(t *testing.T) {
 	// The reconnected agent starts the picture again from chunk 0 and it applies.
 	s2 := r.agentStream(t, ctx, id, key, leaf)
 	for _, c := range pieces(3, cluster, nodes("new", 9), workloads(900, "new"), 6, "3-y") {
-		if err := s2.Send(syncMsg(c)); err != nil {
+		if err := s2.Send(testkit.SyncMsg(c)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -334,7 +335,7 @@ func TestAConnectionDroppedMidPictureLeavesThePreviousStateAlone(t *testing.T) {
 }
 
 func TestChunkSeriesBreakingARuleAreRefusedAndChangeNothing(t *testing.T) {
-	cluster := &continuumv1.ClusterFacts{Uid: fp}
+	cluster := &continuumv1.ClusterFacts{Uid: testkit.FP}
 	cases := []struct {
 		name   string
 		limits *facts.Limits
@@ -379,9 +380,9 @@ func TestChunkSeriesBreakingARuleAreRefusedAndChangeNothing(t *testing.T) {
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
-			id, key, leaf := r.approvedAgent(t, fp)
+			id, key, leaf := r.approvedAgent(t, testkit.FP)
 			s := r.agentStream(t, ctx, id, key, leaf)
-			if err := s.Send(syncMsg(&continuumv1.Sync{Seq: 1, Full: true, Cluster: cluster, Nodes: nodes("old", 2), Workloads: workloads(5, "old")})); err != nil {
+			if err := s.Send(testkit.SyncMsg(&continuumv1.Sync{Seq: 1, Full: true, Cluster: cluster, Nodes: nodes("old", 2), Workloads: workloads(5, "old")})); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := s.Recv(); err != nil {
@@ -389,7 +390,7 @@ func TestChunkSeriesBreakingARuleAreRefusedAndChangeNothing(t *testing.T) {
 			}
 			refused := kernel.Metrics.SyncsRefused.Load()
 			for _, m := range c.send(id) {
-				_ = s.Send(syncMsg(m))
+				_ = s.Send(testkit.SyncMsg(m))
 			}
 			_, err := s.Recv()
 			if status.Code(err) != c.code || !strings.Contains(err.Error(), c.text) {
@@ -435,7 +436,7 @@ func TestAnAssembledPictureMustMeetTheLimitsAsAWhole(t *testing.T) {
 // collector: even if an agent kept sending machine-identity fields, ApplySync must not let them through.
 func TestDropConsentOverridesStripsPausedProbeFields(t *testing.T) {
 	r := newHubRig(t)
-	id, _, _ := r.approvedAgent(t, fp) // approved at tier 2
+	id, _, _ := r.approvedAgent(t, testkit.FP) // approved at tier 2
 	if _, err := r.hub.SetConsent(r.ctx, "actor", id, agents.Consent{Paused: []string{"probes"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -445,7 +446,7 @@ func TestDropConsentOverridesStripsPausedProbeFields(t *testing.T) {
 	r.hub.Mu.Unlock()
 	n := &continuumv1.NodeFacts{Key: "n", Name: "n", MachineId: "m", SystemUuid: "u", ProviderId: "p",
 		OsImage: "o", KernelVersion: "k", ContainerRuntime: "c", KubeletVersion: "kv", Architecture: "amd64"}
-	if _, _, err := r.hub.ApplySync(a, &continuumv1.Sync{Full: true, Cluster: &continuumv1.ClusterFacts{Uid: fp}, Nodes: []*continuumv1.NodeFacts{n}}, false); err != nil {
+	if _, _, err := r.hub.ApplySync(a, &continuumv1.Sync{Full: true, Cluster: &continuumv1.ClusterFacts{Uid: testkit.FP}, Nodes: []*continuumv1.NodeFacts{n}}, false); err != nil {
 		t.Fatal(err)
 	}
 	got := r.hub.Views[id].State.Nodes["n"]
@@ -457,12 +458,12 @@ func TestDropConsentOverridesStripsPausedProbeFields(t *testing.T) {
 	}
 
 	// Un-pausing lets the same fields through again (a fresh node: dropConsentOverrides mutates the one above in place).
-	if _, err := r.hub.SetConsent(asRole(accounts.RoleAdmin), "actor", id, agents.Consent{}); err != nil {
+	if _, err := r.hub.SetConsent(testkit.AsRole(accounts.RoleAdmin), "actor", id, agents.Consent{}); err != nil {
 		t.Fatal(err)
 	}
 	n2 := &continuumv1.NodeFacts{Key: "n", Name: "n", MachineId: "m", SystemUuid: "u", ProviderId: "p",
 		OsImage: "o", KernelVersion: "k", ContainerRuntime: "c", KubeletVersion: "kv", Architecture: "amd64"}
-	if _, _, err := r.hub.ApplySync(a, &continuumv1.Sync{Cluster: &continuumv1.ClusterFacts{Uid: fp}, Nodes: []*continuumv1.NodeFacts{n2}}, true); err != nil {
+	if _, _, err := r.hub.ApplySync(a, &continuumv1.Sync{Cluster: &continuumv1.ClusterFacts{Uid: testkit.FP}, Nodes: []*continuumv1.NodeFacts{n2}}, true); err != nil {
 		t.Fatal(err)
 	}
 	if got := r.hub.Views[id].State.Nodes["n"]; got.MachineId != "m" || got.Architecture != "amd64" {
@@ -475,7 +476,7 @@ func TestDropConsentOverridesStripsPausedProbeFields(t *testing.T) {
 // independent from the tier check (both are tier-2 approvals here).
 func TestDropConsentOverridesFiltersExcludedNamespaces(t *testing.T) {
 	r := newHubRig(t)
-	id, _, _ := r.approvedAgent(t, fp) // approved at tier 2
+	id, _, _ := r.approvedAgent(t, testkit.FP) // approved at tier 2
 	if _, err := r.hub.SetConsent(r.ctx, "actor", id, agents.Consent{Excluded: []string{"batch"}}); err != nil {
 		t.Fatal(err)
 	}
@@ -483,7 +484,7 @@ func TestDropConsentOverridesFiltersExcludedNamespaces(t *testing.T) {
 	r.hub.Mu.Lock()
 	r.hub.Views[id] = NewView()
 	r.hub.Mu.Unlock()
-	sy := &continuumv1.Sync{Full: true, Cluster: &continuumv1.ClusterFacts{Uid: fp},
+	sy := &continuumv1.Sync{Full: true, Cluster: &continuumv1.ClusterFacts{Uid: testkit.FP},
 		Namespaces: []*continuumv1.NamespaceFacts{{Key: "ns/shop", Name: "shop"}, {Key: "ns/batch", Name: "batch"}},
 		Workloads:  []*continuumv1.WorkloadFacts{{Key: "shop/Deployment/web", Namespace: "shop"}, {Key: "batch/Job/x", Namespace: "batch"}}}
 	if _, _, err := r.hub.ApplySync(a, sy, false); err != nil {
@@ -510,7 +511,7 @@ func TestDropConsentOverridesFiltersExcludedNamespaces(t *testing.T) {
 // and that a genuinely malformed batch is still a real error, not another quiet skip.
 func TestNoteFlowsRespectsTierAndPauseConsent(t *testing.T) {
 	r := newHubRig(t)
-	id, _, _ := r.approvedAgent(t, fp)
+	id, _, _ := r.approvedAgent(t, testkit.FP)
 	r.hub.Mu.Lock()
 	r.hub.Views[id] = NewView()
 	r.hub.Mu.Unlock()
@@ -546,7 +547,7 @@ func TestNoteFlowsRespectsTierAndPauseConsent(t *testing.T) {
 	}
 
 	bad := &continuumv1.FlowBatch{WindowSeconds: 0} // malformed: still an error, not just skipped
-	if _, err := r.hub.SetConsent(asRole(accounts.RoleAdmin), "actor", id, agents.Consent{}); err != nil {
+	if _, err := r.hub.SetConsent(testkit.AsRole(accounts.RoleAdmin), "actor", id, agents.Consent{}); err != nil {
 		t.Fatal(err)
 	}
 	if applied, err := r.hub.noteFlows(id, 2, bad, time.Now()); applied || err == nil {
@@ -560,12 +561,12 @@ func TestNoteFlowsRespectsTierAndPauseConsent(t *testing.T) {
 // earlier report.
 func TestNoteFlowsReplacesPodFlowsWholesale(t *testing.T) {
 	r := newHubRig(t)
-	id, _, _ := r.approvedAgent(t, fp)
+	id, _, _ := r.approvedAgent(t, testkit.FP)
 	r.hub.Mu.Lock()
 	r.hub.Views[id] = NewView()
 	r.hub.Mu.Unlock()
 
-	first := flowOf(wep("a/Deployment/x"), xep("1.2.3.4"), 443, 1)
+	first := testkit.FlowOf(testkit.WorkloadEndpoint("a/Deployment/x"), testkit.ExternalEndpoint("1.2.3.4"), 443, 1)
 	first.SrcPod = "x-abc-1"
 	if applied, err := r.hub.noteFlows(id, 2, &continuumv1.FlowBatch{WindowSeconds: 60, PodFlows: []*continuumv1.Flow{first}}, time.Now()); !applied || err != nil {
 		t.Fatalf("applied=%v err=%v", applied, err)
@@ -577,7 +578,7 @@ func TestNoteFlowsReplacesPodFlowsWholesale(t *testing.T) {
 		t.Fatalf("podFlows after the first batch = %v", got)
 	}
 
-	second := flowOf(wep("a/Deployment/x"), xep("1.2.3.4"), 443, 1)
+	second := testkit.FlowOf(testkit.WorkloadEndpoint("a/Deployment/x"), testkit.ExternalEndpoint("1.2.3.4"), 443, 1)
 	second.SrcPod = "x-abc-2"
 	if applied, err := r.hub.noteFlows(id, 2, &continuumv1.FlowBatch{WindowSeconds: 60, PodFlows: []*continuumv1.Flow{second}}, time.Now()); !applied || err != nil {
 		t.Fatalf("applied=%v err=%v", applied, err)
@@ -606,7 +607,7 @@ func TestNoteFlowsReplacesPodFlowsWholesale(t *testing.T) {
 // it with nothing on any interface) must clear what was held for it, never let a stale reading linger.
 func TestNoteFlowsReplacesLinkSaturationWholesale(t *testing.T) {
 	r := newHubRig(t)
-	id, _, _ := r.approvedAgent(t, fp)
+	id, _, _ := r.approvedAgent(t, testkit.FP)
 	r.hub.Mu.Lock()
 	r.hub.Views[id] = NewView()
 	r.hub.Mu.Unlock()
@@ -641,7 +642,7 @@ func TestNoteFlowsReplacesLinkSaturationWholesale(t *testing.T) {
 // NoteMeasurements directly the way the existing tier tests use ApplySync directly.
 func TestNoteMeasurementsRespectsPauseConsent(t *testing.T) {
 	r := newHubRig(t)
-	id, _, _ := r.approvedAgent(t, fp)
+	id, _, _ := r.approvedAgent(t, testkit.FP)
 	r.hub.Mu.Lock()
 	v := NewView()
 	v.Targets["t1"] = connectivity.IssuedTarget{ID: "t1", Host: "h", Port: 80, Label: "l", Source: "observed"}
@@ -670,7 +671,7 @@ func TestNoteMeasurementsRespectsPauseConsent(t *testing.T) {
 // observability-intent panel needs to show a narrowing that a stuck or too-old agent never picked up.
 func TestConsentDocSaysWhetherTheAgentHasConfirmedANarrowing(t *testing.T) {
 	r := newHubRig(t)
-	id, _, _ := r.approvedAgent(t, fp)
+	id, _, _ := r.approvedAgent(t, testkit.FP)
 
 	// Nothing narrowed yet: trivially confirmed, nothing to time.
 	doc := r.hub.ConsentOf(id)
@@ -739,7 +740,7 @@ func TestConsentDocSaysWhetherTheAgentHasConfirmedANarrowing(t *testing.T) {
 // pre-declare a namespace before its first workload appears.
 func TestConsentDocWarnsAboutExcludedNamespacesTheAgentHasNeverReported(t *testing.T) {
 	r := newHubRig(t)
-	id, _, _ := r.approvedAgent(t, fp) // approved at tier 2
+	id, _, _ := r.approvedAgent(t, testkit.FP) // approved at tier 2
 	a, _ := r.st.GetAgent(r.ctx, id)
 
 	// Nothing has ever synced: no warning, even though nothing is known yet - there is no "reality" to
@@ -756,7 +757,7 @@ func TestConsentDocWarnsAboutExcludedNamespacesTheAgentHasNeverReported(t *testi
 
 	// The agent's first picture reports "shop" only. "batch" was asked to be excluded but the agent has
 	// never actually seen it - a likely typo, or one that has not rolled out yet either way.
-	sy := &continuumv1.Sync{Full: true, Cluster: &continuumv1.ClusterFacts{Uid: fp},
+	sy := &continuumv1.Sync{Full: true, Cluster: &continuumv1.ClusterFacts{Uid: testkit.FP},
 		Namespaces: []*continuumv1.NamespaceFacts{{Key: "ns/shop", Name: "shop"}}}
 	if _, _, err := r.hub.ApplySync(a, sy, false); err != nil {
 		t.Fatal(err)
@@ -798,11 +799,11 @@ func TestConsentDocWarnsAboutExcludedNamespacesTheAgentHasNeverReported(t *testi
 func TestKnownNamespacesOnlyLearnsFromASyncTheServerActuallyAccepted(t *testing.T) {
 	r := newHubRig(t)
 	r.hub.Limits = &facts.Limits{Nodes: 100, Namespaces: 1, Workloads: 100, Bytes: 64 << 20}
-	id, _, _ := r.approvedAgent(t, fp)
+	id, _, _ := r.approvedAgent(t, testkit.FP)
 	a, _ := r.st.GetAgent(r.ctx, id)
 
 	// Two namespaces against a limit of one: refused outright, nothing merged.
-	sy := &continuumv1.Sync{Full: true, Cluster: &continuumv1.ClusterFacts{Uid: fp},
+	sy := &continuumv1.Sync{Full: true, Cluster: &continuumv1.ClusterFacts{Uid: testkit.FP},
 		Namespaces: []*continuumv1.NamespaceFacts{{Key: "ns/shop", Name: "shop"}, {Key: "ns/batch", Name: "batch"}}}
 	if _, _, err := r.hub.ApplySync(a, sy, false); err == nil {
 		t.Fatal("a sync over the namespace limit should have been refused")
@@ -825,9 +826,9 @@ func TestAContextWithNoSignedInCallerMayNotWiden(t *testing.T) {
 		want bool
 	}{
 		{"no caller", context.Background(), false},
-		{"viewer", asRole(accounts.RoleViewer), false},
-		{"editor", asRole(accounts.RoleEditor), false},
-		{"administrator", asRole(accounts.RoleAdmin), true},
+		{"viewer", testkit.AsRole(accounts.RoleViewer), false},
+		{"editor", testkit.AsRole(accounts.RoleEditor), false},
+		{"administrator", testkit.AsRole(accounts.RoleAdmin), true},
 	} {
 		if got := accounts.Decide(accounts.CallerFrom(tc.ctx), accounts.ActChangeAccess, accounts.Resource{Widening: true}).Allowed; got != tc.want {
 			t.Errorf("%s: widening allowed = %v, want %v", tc.name, got, tc.want)
@@ -835,7 +836,7 @@ func TestAContextWithNoSignedInCallerMayNotWiden(t *testing.T) {
 	}
 
 	r := newHubRig(t)
-	id, _, _ := r.approvedAgent(t, fp)
+	id, _, _ := r.approvedAgent(t, testkit.FP)
 	h := r.hub
 	bare := context.Background()
 	if _, err := h.SetConsent(bare, "nobody", id, agents.Consent{Paused: []string{"flow"}}); err != nil {
@@ -844,10 +845,10 @@ func TestAContextWithNoSignedInCallerMayNotWiden(t *testing.T) {
 	if _, err := h.SetConsent(bare, "nobody", id, agents.Consent{}); err == nil {
 		t.Fatal("a caller nobody knows lifted a pause")
 	}
-	if _, err := h.SetConsent(asRole(accounts.RoleEditor), "edith", id, agents.Consent{}); err == nil {
+	if _, err := h.SetConsent(testkit.AsRole(accounts.RoleEditor), "edith", id, agents.Consent{}); err == nil {
 		t.Fatal("an editor lifted a pause")
 	}
-	if c, err := h.SetConsent(asRole(accounts.RoleAdmin), "adam", id, agents.Consent{}); err != nil || len(c.Paused) != 0 {
+	if c, err := h.SetConsent(testkit.AsRole(accounts.RoleAdmin), "adam", id, agents.Consent{}); err != nil || len(c.Paused) != 0 {
 		t.Fatalf("an administrator could not lift it: %+v %v", c, err)
 	}
 	if _, err := h.SetAgentTier(bare, "nobody", id, 3, nil); err == nil {

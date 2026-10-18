@@ -14,6 +14,7 @@ import (
 	"continuum/internal/kernel"
 	"continuum/internal/operators"
 	"continuum/internal/store"
+	"continuum/internal/testkit"
 )
 
 // hbOperator creates an operator with its heartbeat on, returning it and the heartbeat secret.
@@ -55,7 +56,7 @@ func auditActions(t *testing.T, e *env) (actions []string, all string) {
 
 func TestCreateOperatorHeartbeatIsOptInAndSecretIsOnlyStoredHashed(t *testing.T) {
 	e := newEnv(t)
-	cl := e.approvedCluster(t, fp)
+	cl := e.approvedCluster(t, testkit.FP)
 	// The pre-existing entry point never mints one.
 	plain, _, _, err := e.core.Operators.CreateOperator(e.ctx, "alex", "plain", []string{cl}, extDest("c:4317"), nil)
 	if err != nil {
@@ -104,7 +105,7 @@ func TestCreateOperatorHeartbeatIsOptInAndSecretIsOnlyStoredHashed(t *testing.T)
 
 func TestEnableAndRotateOperatorHeartbeat(t *testing.T) {
 	e := newEnv(t)
-	cl := e.approvedCluster(t, fp)
+	cl := e.approvedCluster(t, testkit.FP)
 	op, _, _, err := e.core.Operators.CreateOperator(e.ctx, "alex", "athens", []string{cl}, extDest("c:4317"), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -158,23 +159,23 @@ func TestEnableAndRotateOperatorHeartbeat(t *testing.T) {
 	if err := e.core.Operators.RevokeOperator(e.ctx, "alex", op.ID, "gone"); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := e.core.Operators.EnableOperatorHeartbeat(e.ctx, "alex", op.ID); kindOf(err) != kernel.KindConflict {
+	if _, _, err := e.core.Operators.EnableOperatorHeartbeat(e.ctx, "alex", op.ID); testkit.KindOf(err) != kernel.KindConflict {
 		t.Fatalf("revoked operator: %v", err)
 	}
-	if _, _, err := e.core.Operators.EnableOperatorHeartbeat(e.ctx, "alex", "op-nope"); kindOf(err) != kernel.KindNotFound {
+	if _, _, err := e.core.Operators.EnableOperatorHeartbeat(e.ctx, "alex", "op-nope"); testkit.KindOf(err) != kernel.KindNotFound {
 		t.Fatalf("unknown operator: %v", err)
 	}
 	if err := e.st.CreateOrg(e.ctx, store.Org{ID: "org-2", Name: "Two", CreatedAt: *e.now, CreatedBy: "u-owner"}, "u-owner"); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := e.base.ForOrg("org-2").Operators.EnableOperatorHeartbeat(e.ctx, "alex", op.ID); kindOf(err) != kernel.KindNotFound {
+	if _, _, err := e.base.ForOrg("org-2").Operators.EnableOperatorHeartbeat(e.ctx, "alex", op.ID); testkit.KindOf(err) != kernel.KindNotFound {
 		t.Fatalf("another organisation's operator: %v", err)
 	}
 }
 
 func TestRevokedOperatorHeartbeatIsRejected(t *testing.T) {
 	e := newEnv(t)
-	op, hb := e.hbOperator(t, "athens", fp)
+	op, hb := e.hbOperator(t, "athens", testkit.FP)
 	if err := e.core.Operators.RecordOperatorHeartbeat(e.ctx, hb); err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +196,7 @@ func TestRevokedOperatorHeartbeatIsRejected(t *testing.T) {
 
 func TestOperatorHeartbeatWritesAreCoalesced(t *testing.T) {
 	e := newEnv(t)
-	op, hb := e.hbOperator(t, "athens", fp)
+	op, hb := e.hbOperator(t, "athens", testkit.FP)
 	t0 := *e.now
 	seen := func() time.Time {
 		got, err := e.st.GetOperator(e.ctx, op.ID)
@@ -228,7 +229,7 @@ func TestOperatorHeartbeatWritesAreCoalesced(t *testing.T) {
 
 func TestOperatorHealthThresholds(t *testing.T) {
 	e := newEnv(t)
-	op, hb := e.hbOperator(t, "athens", fp)
+	op, hb := e.hbOperator(t, "athens", testkit.FP)
 	if h := e.health(t, op.ID); h.State != operators.HealthWaiting || h.Reporting || h.LastSeenAt != nil || h.HeartbeatEnabledAt == nil {
 		t.Fatalf("credential but no heartbeat yet = %+v", h)
 	}
@@ -272,7 +273,7 @@ func TestOperatorHealthThresholds(t *testing.T) {
 
 func TestOperatorHeartbeatIsRateLimitedPerOperator(t *testing.T) {
 	e := newEnv(t)
-	op, hb := e.hbOperator(t, "athens", fp)
+	op, hb := e.hbOperator(t, "athens", testkit.FP)
 	limited := 0
 	for i := 0; i < 60; i++ {
 		switch err := e.core.Operators.RecordOperatorHeartbeat(e.ctx, hb); err {
@@ -287,7 +288,7 @@ func TestOperatorHeartbeatIsRateLimitedPerOperator(t *testing.T) {
 		t.Fatal("60 back-to-back heartbeats from one operator were never limited")
 	}
 	// A different operator is unaffected.
-	_, other := e.hbOperator(t, "patras", fp2)
+	_, other := e.hbOperator(t, "patras", testkit.FP2)
 	if err := e.core.Operators.RecordOperatorHeartbeat(e.ctx, other); err != nil {
 		t.Fatalf("another operator was limited too: %v", err)
 	}
@@ -325,7 +326,7 @@ func collectorBody(t *testing.T) []byte {
 
 func TestHeartbeatEndpointAcceptsWhatTheRealCollectorSends(t *testing.T) {
 	a := newAdminRig(t)
-	op, hb := a.hbOperator(t, "athens", fp)
+	op, hb := a.hbOperator(t, "athens", testkit.FP)
 	body := collectorBody(t)
 
 	// Exactly as captured: protobuf, gzip, the collector's own User-Agent, and no cookie, no
@@ -352,12 +353,12 @@ func TestHeartbeatEndpointAcceptsWhatTheRealCollectorSends(t *testing.T) {
 
 func TestHeartbeatEndpointIsUniform401ForEveryKindOfFailure(t *testing.T) {
 	a := newAdminRig(t)
-	op, hb := a.hbOperator(t, "athens", fp)
+	op, hb := a.hbOperator(t, "athens", testkit.FP)
 	rotated, _, err := a.core.Operators.EnableOperatorHeartbeat(a.ctx, "alex", op.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	revokedOp, revokedSecret := a.hbOperator(t, "patras", fp2)
+	revokedOp, revokedSecret := a.hbOperator(t, "patras", testkit.FP2)
 	if err := a.core.Operators.RevokeOperator(a.ctx, "alex", revokedOp.ID, "x"); err != nil {
 		t.Fatal(err)
 	}
@@ -402,7 +403,7 @@ func (a *adminRig) createReceiverOnly(t *testing.T) (store.Operator, string, ope
 
 func TestHeartbeatEndpointCapsTheBodyAndRejectsOtherMethods(t *testing.T) {
 	a := newAdminRig(t)
-	_, hb := a.hbOperator(t, "athens", fp)
+	_, hb := a.hbOperator(t, "athens", testkit.FP)
 
 	if rec := a.beat(hb, bytes.Repeat([]byte("x"), operators.MaxHeartbeatBody)); rec.Code != 200 {
 		t.Fatalf("a body exactly at the cap: %d", rec.Code)
@@ -437,7 +438,7 @@ func TestHeartbeatEndpointCapsTheBodyAndRejectsOtherMethods(t *testing.T) {
 
 func TestHeartbeatEndpointThrottlesFailuresPerAddressButNeverAGoodOperator(t *testing.T) {
 	a := newAdminRig(t)
-	_, hb := a.hbOperator(t, "athens", fp)
+	_, hb := a.hbOperator(t, "athens", testkit.FP)
 	bad := kernel.HeartbeatPrefix + strings.Repeat("B", 43)
 	var got429 bool
 	for i := 0; i < 40; i++ {
@@ -470,7 +471,7 @@ func jsonMap(t *testing.T, b []byte) map[string]any {
 func TestOperatorsHTTPHealthShapeAndHeartbeatEnableRoute(t *testing.T) {
 	a := newAdminRig(t)
 	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
-	cl := a.approvedCluster(t, fp)
+	cl := a.approvedCluster(t, testkit.FP)
 	create := func(extra map[string]any) map[string]any {
 		body := map[string]any{"name": "athens", "sourceClusterIds": []string{cl}, "destination": map[string]any{"kind": "external", "endpoint": "c:4317"}}
 		for k, v := range extra {
@@ -575,7 +576,7 @@ func TestOperatorHeartbeatEnableRouteNeedsAdmin(t *testing.T) {
 	_, admin := a.user(t, "alex", accounts.RoleAdmin)
 	_, editor := a.user(t, "ed", accounts.RoleEditor)
 	_, viewer := a.user(t, "vi", accounts.RoleViewer)
-	cl := a.approvedCluster(t, fp)
+	cl := a.approvedCluster(t, testkit.FP)
 	r := a.do("POST", "/api/v1/operators", map[string]any{"name": "x", "sourceClusterIds": []string{cl}, "destination": map[string]any{"kind": "external", "endpoint": "c:4317"}}, withCookie(admin))
 	id := r.json(t)["operator"].(map[string]any)["id"].(string)
 	for name, c := range map[string]string{"editor": editor, "viewer": viewer} {

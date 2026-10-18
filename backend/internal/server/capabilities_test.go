@@ -9,6 +9,7 @@ import (
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/agentcaps"
 	"continuum/internal/estate"
+	"continuum/internal/testkit"
 )
 
 // What an agent says about the protocol it speaks and what it does is recorded when it says hello. These scenarios are the ways
@@ -126,7 +127,7 @@ func TestTheDocumentOfAnAgentThatSaidNothingHasAnEmptyListAndNotNull(t *testing.
 
 func TestTheDocumentOfAnAgentNeverSeenSinceTheServerStartedHasAnEmptyList(t *testing.T) {
 	r := newHubRig(t)
-	id, _, _ := r.approvedAgent(t, fp)
+	id, _, _ := r.approvedAgent(t, testkit.FP)
 	raw, _ := json.Marshal(r.agentDoc(t, id))
 	if !strings.Contains(string(raw), `"capabilities":[]`) {
 		t.Fatalf("an agent with no view: %s", raw)

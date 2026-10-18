@@ -6,11 +6,10 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/estate"
-	"continuum/internal/facts"
 	"continuum/internal/kernel"
 	"continuum/internal/store"
+	"continuum/internal/testkit"
 )
 
 func TestSettingsNormalizeTheirLinks(t *testing.T) {
@@ -29,22 +28,7 @@ func TestSettingsNormalizeTheirLinks(t *testing.T) {
 	}
 }
 
-// nodeState is one node with the given internal address and, if any, external ones.
-func nodeState(internal string, external ...string) *facts.State {
-	n := &continuumv1.NodeFacts{InternalIps: []string{internal}}
-	for _, e := range external {
-		if e != "" {
-			n.ExternalIps = append(n.ExternalIps, e)
-		}
-	}
-	return &facts.State{Nodes: map[string]*continuumv1.NodeFacts{"n1": n}}
-}
-
 func linkHub(views map[string]*estate.View) *estate.Hub { return &estate.Hub{Views: views} }
-
-func ag(id, cluster, name, ip string, tier int) store.Agent {
-	return store.Agent{ID: id, ClusterID: cluster, Name: name, Status: store.StatusApproved, AccessTier: tier, ConnectingIP: ip}
-}
 
 func TestEachPairKeepsItsOwnChoicesAndTheLastEntryOfAPairStands(t *testing.T) {
 	got, err := kernel.NormalizeLinks([]kernel.LinkSetting{
@@ -99,23 +83,23 @@ func TestPairChoicesAreSavedWithTheSettingsUnderTheNamesTheUIUses(t *testing.T) 
 // A peer that has only mesh or private addresses is reachable only over a network the clusters share: the pair is measured, but
 // the Sites screen is told to hint at it, and the hint goes away when the peer has a public address or the pair has figures.
 func TestAPeerWithOnlyPrivateAddressesGetsAHint(t *testing.T) {
-	a, b := ag("ag-a", "cl-a", "alpha", "", 2), ag("ag-b", "cl-b", "beta", "", 2)
+	a, b := testkit.Agent("ag-a", "cl-a", "alpha", "", 2), testkit.Agent("ag-b", "cl-b", "beta", "", 2)
 	links := []kernel.LinkSetting{{A: "cl-a", B: "cl-b"}}
-	h := linkHub(map[string]*estate.View{"ag-a": {EstView: estate.EstView{State: nodeState("10.0.0.1")}}, "ag-b": {EstView: estate.EstView{State: nodeState("10.1.0.1", "100.64.0.45")}}})
+	h := linkHub(map[string]*estate.View{"ag-a": {EstView: estate.EstView{State: testkit.NodeState("10.0.0.1")}}, "ag-b": {EstView: estate.EstView{State: testkit.NodeState("10.1.0.1", "100.64.0.45")}}})
 	got := h.LinkNotes(links, []store.Agent{a, b}, nil)
 	if len(got) != 2 || got[0].Code != "private-range" || got[0].Cluster != "cl-a" || got[0].Peer != "cl-b" ||
 		!strings.Contains(got[0].Text, "mesh (100.64.0.0/10) and private") || !strings.Contains(got[0].Text, "100.64.0.45") {
 		t.Fatalf("%+v", got)
 	}
 	// a public address of one of the peer's nodes is a way across that needs no shared network
-	hPub := linkHub(map[string]*estate.View{"ag-a": {EstView: estate.EstView{State: nodeState("10.0.0.1")}}, "ag-b": {EstView: estate.EstView{State: nodeState("10.1.0.1", "198.51.100.9")}}})
+	hPub := linkHub(map[string]*estate.View{"ag-a": {EstView: estate.EstView{State: testkit.NodeState("10.0.0.1")}}, "ag-b": {EstView: estate.EstView{State: testkit.NodeState("10.1.0.1", "198.51.100.9")}}})
 	for _, n := range hPub.LinkNotes(links, []store.Agent{a, b}, nil) {
 		if n.Code == "private-range" && n.Cluster == "cl-a" {
 			t.Errorf("a peer with a public node address: %+v", n)
 		}
 	}
 	// the address the peer's agent connects from is its gateway's, not a node's: it does not silence the hint, and the text says so
-	pub := ag("ag-b", "cl-b", "beta", "203.0.113.2", 2)
+	pub := testkit.Agent("ag-b", "cl-b", "beta", "203.0.113.2", 2)
 	viaGateway := h.LinkNotes(links, []store.Agent{a, pub}, nil)
 	if len(viaGateway) == 0 || viaGateway[0].Code != "private-range" || viaGateway[0].Peer != "cl-b" || !strings.Contains(viaGateway[0].Text, "203.0.113.2") || !strings.Contains(viaGateway[0].Text, "is not counted") {
 		t.Errorf("a NATed peer lost the hint: %+v", viaGateway)

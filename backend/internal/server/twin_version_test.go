@@ -9,6 +9,7 @@ import (
 
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/store"
+	"continuum/internal/testkit"
 )
 
 // modelStateStore fails PutModelState while told to, and counts the calls that reached it.
@@ -35,8 +36,8 @@ func TestAModelVersionThatCouldNotBeSavedIsSavedLater(t *testing.T) {
 	h := a.hub()
 	ms := &modelStateStore{Store: h.C.Store}
 	h.C.Store = ms
-	ag := twinAgent(t, a.env, h, fp)
-	h.ApplySync(ag, twinFull(fp, []*continuumv1.NodeFacts{twinNode("n1", "")}, twinWorkload("shop", "cart")), false)
+	ag := twinAgent(t, a.env, h, testkit.FP)
+	h.ApplySync(ag, testkit.TwinFull(testkit.FP, []*continuumv1.NodeFacts{testkit.TwinNode("n1", "")}, testkit.TwinWorkload("shop", "cart")), false)
 
 	m1, _, err := h.Model(a.ctx)
 	if err != nil {
@@ -56,7 +57,7 @@ func TestAModelVersionThatCouldNotBeSavedIsSavedLater(t *testing.T) {
 
 	// The store stops accepting writes; the model changes and is read.
 	ms.fail.Store(true)
-	h.ApplySync(ag, twinFull(fp, []*continuumv1.NodeFacts{twinNode("n1", "")}, twinWorkload("shop", "cart"), twinWorkload("shop", "pay")), true)
+	h.ApplySync(ag, testkit.TwinFull(testkit.FP, []*continuumv1.NodeFacts{testkit.TwinNode("n1", "")}, testkit.TwinWorkload("shop", "cart"), testkit.TwinWorkload("shop", "pay")), true)
 	*a.now = a.now.Add(3 * time.Second) // past the short cache
 	m2, _, err := h.Model(a.ctx)
 	if err != nil {

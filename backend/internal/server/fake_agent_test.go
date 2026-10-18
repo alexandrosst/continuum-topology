@@ -8,6 +8,7 @@ import (
 
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/pki"
+	"continuum/internal/testkit"
 )
 
 // fakeAgent is a scripted agent on a real mutual-TLS stream to a real server. The real agent (internal/agent) is the thing the
@@ -48,7 +49,7 @@ func (r *hubRig) newFakeAgent(t *testing.T, ctx context.Context) *fakeAgent {
 // newFakeAgentWith is newFakeAgent with a hello of the test's choosing.
 func (r *hubRig) newFakeAgentWith(t *testing.T, ctx context.Context, hello *continuumv1.Hello) *fakeAgent {
 	t.Helper()
-	id, key, leaf := r.approvedAgent(t, fp)
+	id, key, leaf := r.approvedAgent(t, testkit.FP)
 	f := &fakeAgent{t: t, r: r, ctx: ctx, id: id, key: key, leaf: leaf, hello: hello}
 	f.connect()
 	return f

@@ -8,6 +8,7 @@ import (
 	"continuum/internal/operators"
 	"continuum/internal/pki"
 	"continuum/internal/store"
+	"continuum/internal/testkit"
 )
 
 const day = 24 * time.Hour
@@ -33,7 +34,7 @@ func (e *env) countAudit(t *testing.T, action string) (n int, detail string) {
 // A new operator records when its receiver and client certificates end, and the operator document shows them with the CA's.
 func TestCreatedOperatorRecordsItsCertificateDates(t *testing.T) {
 	e := newEnv(t)
-	cl := e.approvedCluster(t, fp)
+	cl := e.approvedCluster(t, testkit.FP)
 	op, _, bundle, err := e.core.Operators.CreateOperator(e.ctx, "alex", "athens", []string{cl}, extDest("c:4317"), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -97,7 +98,7 @@ func TestCertStateSaysWhetherRenewalIsHappening(t *testing.T) {
 // created, for a year, and nothing could renew them, so that is when they end; the CA's date is read off its stored certificate.
 func TestLegacyOperatorCertDatesAreDerivedFromWhatIsStored(t *testing.T) {
 	e := newEnv(t)
-	cl := e.approvedCluster(t, fp)
+	cl := e.approvedCluster(t, testkit.FP)
 	op, _, _, err := e.core.Operators.CreateOperator(e.ctx, "alex", "old", []string{cl}, extDest("c:4317"), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -120,7 +121,7 @@ func TestLegacyOperatorCertDatesAreDerivedFromWhatIsStored(t *testing.T) {
 // the install itself (there is no expiry warning to raise any more).
 func TestReissueRecordsTheNewDatesAndRaisesNoWarning(t *testing.T) {
 	e := newEnv(t)
-	cl := e.approvedCluster(t, fp)
+	cl := e.approvedCluster(t, testkit.FP)
 	old := pki.OperatorTLSTTL
 	pki.OperatorTLSTTL = 10 * day
 	op, _, _, err := e.core.Operators.CreateOperator(e.ctx, "alex", "athens", []string{cl}, extDest("c:4317"), nil)
@@ -150,7 +151,7 @@ func TestReissueRecordsTheNewDatesAndRaisesNoWarning(t *testing.T) {
 // certificate that had been replaced.
 func TestClientCertDateFollowsTheNewestCertificateOfEachSender(t *testing.T) {
 	e := newEnv(t)
-	cl := e.approvedCluster(t, fp)
+	cl := e.approvedCluster(t, testkit.FP)
 	short := 10 * day
 	old := pki.OperatorTLSTTL
 	pki.OperatorTLSTTL = short
@@ -180,7 +181,7 @@ func TestClientCertDateFollowsTheNewestCertificateOfEachSender(t *testing.T) {
 // configured does not count.
 func TestOperatorDatesFollowTheSenderWhoseCertificateEndsFirst(t *testing.T) {
 	e := newEnv(t)
-	c1 := e.approvedCluster(t, fp)
+	c1 := e.approvedCluster(t, testkit.FP)
 	c2 := e.approvedCluster(t, "9a3c2a9e-1111-4222-8333-944455556677")
 	oldTTL := pki.OperatorTLSTTL
 	t.Cleanup(func() { pki.OperatorTLSTTL = oldTTL })

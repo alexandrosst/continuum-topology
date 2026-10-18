@@ -15,6 +15,7 @@ import (
 	"continuum/internal/interpret"
 	"continuum/internal/netid"
 	"continuum/internal/observed"
+	"continuum/internal/testkit"
 
 	"google.golang.org/protobuf/proto"
 )
@@ -41,8 +42,8 @@ func doctorAgentToServer(t *testing.T) {
 			ServiceCIDR: netip.MustParsePrefix("10.43.0.0/16"),
 		}
 		const cart, db = "shop/Deployment/cart", "shop/Deployment/db"
-		c := cluster("c", "", []*continuumv1.NodeFacts{{Key: "n1"}}, wk("shop", "Deployment", "cart"), wk("shop", "Deployment", "db"),
-			wk("shop", "StatefulSet", strings.TrimPrefix(long, "shop/StatefulSet/")))
+		c := cluster("c", "", []*continuumv1.NodeFacts{{Key: "n1"}}, testkit.Workload("shop", "Deployment", "cart"), testkit.Workload("shop", "Deployment", "db"),
+			testkit.Workload("shop", "StatefulSet", strings.TrimPrefix(long, "shop/StatefulSet/")))
 
 		// What each node's collector sees, and what the server is to make of it: a dependency between the two ends (a
 		// workload by its key, an outside address by its IP), or nothing, because the traffic is a node's own.

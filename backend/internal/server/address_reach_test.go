@@ -10,12 +10,13 @@ import (
 	"continuum/internal/agents"
 	"continuum/internal/connectivity"
 	"continuum/internal/estate"
+	"continuum/internal/testkit"
 )
 
 // connectedAgent is an approved agent with a live view and a stream the hub can push a Config on.
 func connectedAgent(t *testing.T, a *adminRig) (agentID string, push chan *continuumv1.ServerMessage) {
 	t.Helper()
-	agentID = a.approvedAgentID(t, fp)
+	agentID = a.approvedAgentID(t, testkit.FP)
 	push = make(chan *continuumv1.ServerMessage, 8)
 	a.hub().Mu.Lock()
 	a.hub().Views[agentID] = liveView(*a.now, "n1")
@@ -145,7 +146,7 @@ func TestAnAddressTestIsHeldToTheSameRulesAsMeasuring(t *testing.T) {
 func TestAnAddressTestNeedsAnAgentThatCanMeasure(t *testing.T) {
 	a := newAdminRig(t)
 	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
-	agentID := a.approvedAgentID(t, fp)
+	agentID := a.approvedAgentID(t, testkit.FP)
 	// No stream: nothing can be asked of it.
 	a.hub().Mu.Lock()
 	a.hub().Views[agentID] = liveView(*a.now, "n1")

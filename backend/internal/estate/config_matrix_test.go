@@ -12,6 +12,7 @@ import (
 	"continuum/internal/agents"
 	"continuum/internal/kernel"
 	"continuum/internal/store"
+	"continuum/internal/testkit"
 
 	"google.golang.org/protobuf/encoding/protojson"
 )
@@ -59,7 +60,7 @@ func TestTheConfigEachClusterIsSentIsPinned(t *testing.T) {
 	}
 	consent := func(who string, c agents.Consent) {
 		t.Helper()
-		if _, err := cr.hub.SetConsent(asRole(accounts.RoleAdmin), "alex", byName[who].ID, c); err != nil {
+		if _, err := cr.hub.SetConsent(testkit.AsRole(accounts.RoleAdmin), "alex", byName[who].ID, c); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -110,7 +111,7 @@ func TestTheConfigEachClusterIsSentIsPinned(t *testing.T) {
 		t.Fatalf("%v (create it with -update)", err)
 	}
 	if !bytes.Equal(want, out.Bytes()) {
-		t.Errorf("the Config some cluster is sent changed. The difference, as lines only in one side:\n%s\nIf this is intended, run: go test ./internal/server -run TestTheConfigEachClusterIsSentIsPinned -update", lineDiff(string(want), out.String()))
+		t.Errorf("the Config some cluster is sent changed. The difference, as lines only in one side:\n%s\nIf this is intended, run: go test ./internal/server -run TestTheConfigEachClusterIsSentIsPinned -update", testkit.LineDiff(string(want), out.String()))
 	}
 }
 

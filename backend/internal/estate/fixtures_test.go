@@ -1,31 +1,21 @@
 package estate
 
 import (
-	"bytes"
 	"context"
-	"continuum/internal/accounts"
 	"continuum/internal/approval"
-	"continuum/internal/graph"
+	"continuum/internal/testkit"
 	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
 	"crypto/tls"
-	"crypto/x509"
-	"errors"
 	"flag"
 	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/status"
 	"log/slog"
 	"net"
 	"path/filepath"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/agents"
 	"continuum/internal/connectivity"
 	"continuum/internal/facts"
 	"continuum/internal/kernel"
@@ -34,7 +24,6 @@ import (
 	"continuum/internal/store"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
 )
 
 // These are the shell's fixtures (a server with one organisation, enrolled agents, a gRPC listener, a scripted agent) in the form the
@@ -42,12 +31,6 @@ import (
 // A fixture package both can import takes the place of this file.
 
 // ---- from applications_graph_test.go ----
-
-// linkSpy is a store that keeps what the graph would be asked to link.
-type linkSpy struct {
-	store.Store
-	sets map[string][]string
-}
 
 // ---- from capabilities_test.go ----
 
@@ -99,8 +82,6 @@ func (r *hubRig) connect(t *testing.T, ctx context.Context, key any, leaf []byte
 
 // ---- from core_test.go ----
 
-const fp = "8f3c2a9e-1111-4222-8333-944455556666"
-
 type env struct {
 	base *Service // the platform-wide core: accounts, sign-in, the gRPC listener
 	core *Service // organisation "org-1", which most tests work in
@@ -150,37 +131,6 @@ func newEnvBare(t *testing.T) *env {
 	return e
 }
 
-func csr(t *testing.T) ([]byte, *ecdsa.PrivateKey) {
-	t.Helper()
-	k, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	der, err := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{}, k)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return der, k
-}
-
-// approvalFor makes an approval code for the key in csrDER and the hash the agent sends for it.
-func approvalFor(t *testing.T, csrDER []byte) (hash []byte, code string) {
-	t.Helper()
-	code, err := approval.New()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if hash, err = approval.Hash(code, csrDER); err != nil {
-		t.Fatal(err)
-	}
-	return hash, code
-}
-
-func kindOf(err error) kernel.Kind {
-	var e *kernel.Error
-	if errors.As(err, &e) {
-		return e.Kind
-	}
-	return 0
-}
-
 // ---- from enroll_test.go ----
 
 // coded is one enrollment the way a current agent makes it: a key, a code, and only the code's hash sent.
@@ -213,7 +163,7 @@ func (e *env) enrollCodedWith(t *testing.T, token, fingerprint string, csrDER []
 func (e *env) tryEnroll(t *testing.T, token, fingerprint string, csrDER []byte, code string) (coded, error) {
 	t.Helper()
 	if csrDER == nil {
-		csrDER, _ = csr(t)
+		csrDER, _ = testkit.CSR(t)
 	}
 	if code == "" {
 		var err error
@@ -270,7 +220,7 @@ func (r *hubRig) newFakeAgent(t *testing.T, ctx context.Context) *fakeAgent {
 // newFakeAgentWith is newFakeAgent with a hello of the test's choosing.
 func (r *hubRig) newFakeAgentWith(t *testing.T, ctx context.Context, hello *continuumv1.Hello) *fakeAgent {
 	t.Helper()
-	id, key, leaf := r.approvedAgent(t, fp)
+	id, key, leaf := r.approvedAgent(t, testkit.FP)
 	f := &fakeAgent{t: t, r: r, ctx: ctx, id: id, key: key, leaf: leaf, hello: hello}
 	f.connect()
 	return f
@@ -390,30 +340,15 @@ func (r *rig) dial(t *testing.T, cfg *tls.Config) *grpc.ClientConn {
 	return cc
 }
 
-func code(err error) codes.Code { return status.Code(err) }
-
 // ---- from history_test.go ----
-
-func extEdge(ft *observed.FlowTable, src, dstIP string, port uint32, proto string, conns uint64, noise string) {
-	f := flowOf(wep(src), xep(dstIP), port, conns)
-	f.Protocol = proto
-	f.Noise = noise
-	ft.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f}}, time.Now())
-}
 
 func liveView(now time.Time, nodes ...string) *View {
 	st := facts.New()
-	st.Cluster = &continuumv1.ClusterFacts{Uid: fp}
+	st.Cluster = &continuumv1.ClusterFacts{Uid: testkit.FP}
 	for _, n := range nodes {
 		st.Nodes[n] = &continuumv1.NodeFacts{Key: n, Name: n, Ready: true}
 	}
 	return &View{EstView: EstView{State: st, LastSync: now, LastBeat: now, Flows: observed.NewFlowTable()}, NetView: connectivity.NetView{Paths: map[string]*connectivity.PathTrack{}, Targets: map[string]connectivity.IssuedTarget{}}}
-}
-
-// failHistory fails the event and snapshot writes while its flags are set.
-type failHistory struct {
-	store.Store
-	events, snapshots atomic.Bool
 }
 
 // ---- from limits_test.go ----
@@ -436,41 +371,30 @@ func (r *hubRig) agentStream(t *testing.T, ctx context.Context, id string, key a
 	return s
 }
 
-func syncMsg(s *continuumv1.Sync) *continuumv1.AgentMessage {
-	return &continuumv1.AgentMessage{Msg: &continuumv1.AgentMessage_Sync{Sync: s}}
-}
-
 // ---- from linkcreds_test.go ----
-
-const fp3 = "8f3c2a9e-3333-4222-8333-944455556688"
-
-type lockedBuf struct {
-	mu sync.Mutex
-	b  bytes.Buffer
-}
 
 // credRig is a hub with three approved clusters: first and second are the pair (first runs the tests, second serves them), third
 // is in no pair.
 type credRig struct {
 	*hubRig
 	first, second, third store.Agent
-	log                  *lockedBuf
+	log                  *testkit.LockedBuf
 }
 
 func newCredRig(t *testing.T) *credRig {
 	t.Helper()
 	r := newHubRig(t)
-	cr := &credRig{hubRig: r, log: &lockedBuf{}}
+	cr := &credRig{hubRig: r, log: &testkit.LockedBuf{}}
 	r.core.Log = slog.New(slog.NewTextHandler(cr.log, &slog.HandlerOptions{Level: slog.LevelDebug}))
 	var ags []store.Agent
-	for _, f := range []string{fp, fp2, fp3} {
+	for _, f := range []string{testkit.FP, testkit.FP2, testkit.FP3} {
 		id, _, _ := r.approvedAgent(t, f)
 		a, err := r.st.GetAgent(r.ctx, id)
 		if err != nil {
 			t.Fatal(err)
 		}
 		r.hub.Mu.Lock()
-		r.hub.Views[a.ID] = &View{EstView: EstView{State: nodeState("10.0." + strings.TrimPrefix(f[len(f)-2:], "0") + ".1"), Flows: observed.NewFlowTable()}, NetView: connectivity.NetView{Paths: map[string]*connectivity.PathTrack{}, Targets: map[string]connectivity.IssuedTarget{}}}
+		r.hub.Views[a.ID] = &View{EstView: EstView{State: testkit.NodeState("10.0." + strings.TrimPrefix(f[len(f)-2:], "0") + ".1"), Flows: observed.NewFlowTable()}, NetView: connectivity.NetView{Paths: map[string]*connectivity.PathTrack{}, Targets: map[string]connectivity.IssuedTarget{}}}
 		r.hub.Mu.Unlock()
 		ags = append(ags, a)
 	}
@@ -511,135 +435,19 @@ func (cr *credRig) settle() {
 
 // ---- from links_setup_test.go ----
 
-var setupNow = time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
-
-// caps is a fresh report: Cluster links and probing on, telemetry sent onward, the prober seen a minute ago.
-func caps(f ...func(*agents.LinkCaps)) agents.LinkCaps {
-	c := agents.LinkCaps{Reported: setupNow.Add(-30 * time.Second), LinkMetrics: true, ProbeEnabled: true, TelemetryExport: true, ProberSeen: setupNow.Add(-time.Minute)}
-	for _, g := range f {
-		g(&c)
-	}
-	return c
-}
-
-func without(what string) func(*agents.LinkCaps) {
-	return func(c *agents.LinkCaps) {
-		switch what {
-		case "links":
-			c.LinkMetrics = false
-		case "probe":
-			c.ProbeEnabled = false
-		case "export":
-			c.TelemetryExport = false
-		case "prober":
-			c.ProberSeen = time.Time{}
-		}
-	}
-}
-
-// states writes the steps as "code/cluster=state", in order.
-func states(steps []connectivity.LinkSetupStep) string {
-	var out []string
-	for _, s := range steps {
-		k := s.Code
-		if s.Cluster != "" {
-			k += "/" + s.Cluster
-		}
-		out = append(out, k+"="+s.State)
-	}
-	return strings.Join(out, " ")
-}
-
-func step(t *testing.T, steps []connectivity.LinkSetupStep, code, cluster string) connectivity.LinkSetupStep {
-	t.Helper()
-	for _, s := range steps {
-		if s.Code == code && s.Cluster == cluster {
-			return s
-		}
-	}
-	t.Fatalf("no %s step for %q in %s", code, cluster, states(steps))
-	return connectivity.LinkSetupStep{}
-}
-
 // ---- from links_test.go ----
-
-// nodeState is one node with the given internal address and, if any, external ones.
-func nodeState(internal string, external ...string) *facts.State {
-	n := &continuumv1.NodeFacts{InternalIps: []string{internal}}
-	for _, e := range external {
-		if e != "" {
-			n.ExternalIps = append(n.ExternalIps, e)
-		}
-	}
-	return &facts.State{Nodes: map[string]*continuumv1.NodeFacts{"n1": n}}
-}
 
 func linkHub(views map[string]*View) *Hub { return &Hub{Views: views} }
 
-func ag(id, cluster, name, ip string, tier int) store.Agent {
-	return store.Agent{ID: id, ClusterID: cluster, Name: name, Status: store.StatusApproved, AccessTier: tier, ConnectingIP: ip}
-}
-
 // ---- from observed_fixtures_test.go ----
-
-func wk(ns, kind, name string, reach ...*continuumv1.Address) *continuumv1.WorkloadFacts {
-	return &continuumv1.WorkloadFacts{Key: ns + "/" + kind + "/" + name, Namespace: ns, Kind: kind, Name: name, Reachable: reach}
-}
-
-func wep(key string) *continuumv1.FlowEndpoint {
-	return &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_WORKLOAD, Ref: key}
-}
-
-func xep(ip string) *continuumv1.FlowEndpoint {
-	return &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_EXTERNAL, Ip: ip}
-}
-
-func flowOf(src, dst *continuumv1.FlowEndpoint, port uint32, conns uint64) *continuumv1.Flow {
-	return &continuumv1.Flow{Src: src, Dst: dst, Port: port, Protocol: "tcp", Connections: conns, BytesOut: 1000 * conns, BytesIn: 3000 * conns, Method: "ebpf", BytesKnown: true}
-}
 
 // ---- from operators_test.go ----
 
-const fp2 = "8f3c2a9e-2222-4222-8333-944455556677"
-
 // ---- from paths_links_test.go ----
-
-// agentsDown is a store whose list of the organisation's agents cannot be read (a busy database).
-type agentsDown struct{ store.Store }
 
 // ---- from proposals_test.go ----
 
-func asRole(role string) context.Context {
-	return accounts.WithCaller(context.Background(), accounts.Principal{Role: role})
-}
-
 // ---- from routes_test.go ----
-
-// lineDiff lists the lines found in only one of the two texts, "-" for the golden file and "+" for what the source now says.
-func lineDiff(want, got string) string {
-	count := func(s string) map[string]int {
-		m := map[string]int{}
-		for _, l := range strings.Split(strings.TrimSuffix(s, "\n"), "\n") {
-			m[l]++
-		}
-		return m
-	}
-	w, g := count(want), count(got)
-	var b strings.Builder
-	for _, l := range strings.Split(strings.TrimSuffix(want, "\n"), "\n") {
-		if g[l] < w[l] {
-			b.WriteString("- " + l + "\n")
-			w[l]--
-		}
-	}
-	for _, l := range strings.Split(strings.TrimSuffix(got, "\n"), "\n") {
-		if w[l] < g[l] {
-			b.WriteString("+ " + l + "\n")
-			g[l]--
-		}
-	}
-	return b.String()
-}
 
 // ---- from security_test.go ----
 
@@ -650,8 +458,8 @@ func (e *env) approvedAgent(t *testing.T, fingerprint string) (string, *ecdsa.Pr
 	if err != nil {
 		t.Fatal(err)
 	}
-	d, key := csr(t)
-	hash, code := approvalFor(t, d)
+	d, key := testkit.CSR(t)
+	hash, code := testkit.ApprovalFor(t, d)
 	resp, err := e.core.Agents.Enroll(e.ctx, "10.0.0.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fingerprint, InstalledAccessTier: 2, ApprovalCodeHash: hash})
 	if err != nil {
 		t.Fatal(err)
@@ -695,57 +503,9 @@ func newHubRig(t *testing.T) *hubRig {
 
 // ---- from tenancy_test.go ----
 
-func certOrg(t *testing.T, der []byte) string {
-	t.Helper()
-	c, err := x509.ParseCertificate(der)
-	if err != nil || len(c.Subject.Organization) != 1 {
-		t.Fatalf("certificate: %v %v", c, err)
-	}
-	return c.Subject.Organization[0]
-}
-
 // ---- from twin_test.go ----
 
-// twinAgent approves an agent for a cluster in the hub's organisation and gives it an empty picture, connected.
-func twinAgent(t *testing.T, e *env, h *Hub, cluster string) store.Agent {
-	t.Helper()
-	id, _, _ := e.approvedAgent(t, cluster)
-	a, err := e.st.GetAgent(e.ctx, id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	h.Mu.Lock()
-	v := NewView()
-	v.Connected = true
-	v.LastBeat = h.C.Now()
-	h.Views[id] = v
-	h.Mu.Unlock()
-	return a
-}
-
-func twinNode(name, machine string) *continuumv1.NodeFacts {
-	return &continuumv1.NodeFacts{Key: name, Name: name, MachineId: machine, CpuCapacityMillis: 4000, CpuAllocatableMillis: 3800,
-		MemoryCapacityBytes: 8 << 30, MemoryAllocatableBytes: 7 << 30, Ready: true}
-}
-
-func twinWorkload(ns, name string) *continuumv1.WorkloadFacts {
-	return &continuumv1.WorkloadFacts{Key: ns + "/Deployment/" + name, Namespace: ns, Kind: "Deployment", Name: name, Replicas: 1, ReadyReplicas: 1, CpuRequestMillis: 250, MemoryRequestBytes: 256 << 20}
-}
-
-func twinFull(cluster string, nodes []*continuumv1.NodeFacts, ws ...*continuumv1.WorkloadFacts) *continuumv1.Sync {
-	return &continuumv1.Sync{Full: true, Cluster: &continuumv1.ClusterFacts{Uid: cluster}, Nodes: nodes, Workloads: ws,
-		Namespaces: []*continuumv1.NamespaceFacts{{Key: "shop", Name: "shop"}}}
-}
-
 // ---- from applications_graph_test.go ----
-
-func (s *linkSpy) LinkEntitiesBatch(_ context.Context, _ string, _ time.Time, _, _, _ string, sets []graph.MemberSet) error {
-	s.sets = map[string][]string{}
-	for _, m := range sets {
-		s.sets[m.ID] = m.TargetIDs
-	}
-	return nil
-}
 
 // ---- from grpc_test.go ----
 
@@ -777,20 +537,6 @@ func (r *rig) dialProxied(t *testing.T, cfg *tls.Config, proxiedIP string) *grpc
 
 // ---- from history_test.go ----
 
-func (f *failHistory) AddEvents(ctx context.Context, org string, evs []store.Event) error {
-	if f.events.Load() {
-		return errors.New("database is locked")
-	}
-	return f.Store.AddEvents(ctx, org, evs)
-}
-
-func (f *failHistory) AddHistory(ctx context.Context, org string, at time.Time, data []byte) error {
-	if f.snapshots.Load() {
-		return errors.New("database is locked")
-	}
-	return f.Store.AddHistory(ctx, org, at, data)
-}
-
 // ---- from linkcreds_test.go ----
 
 func (cr *credRig) rows(t *testing.T) []store.LinkCredential {
@@ -802,19 +548,7 @@ func (cr *credRig) rows(t *testing.T) []store.LinkCredential {
 	return rows
 }
 
-func (l *lockedBuf) Write(p []byte) (int, error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return l.b.Write(p)
-}
-
-func (l *lockedBuf) String() string { l.mu.Lock(); defer l.mu.Unlock(); return l.b.String() }
-
 // ---- from paths_links_test.go ----
-
-func (agentsDown) ListAgents(context.Context, string) ([]store.Agent, error) {
-	return nil, errors.New("database is locked")
-}
 
 // ---- from fake_agent_test.go ----
 

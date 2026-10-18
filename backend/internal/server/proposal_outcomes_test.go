@@ -11,6 +11,7 @@ import (
 	"continuum/internal/agents"
 	"continuum/internal/decisionloop"
 	"continuum/internal/store"
+	"continuum/internal/testkit"
 )
 
 // feed adds heartbeat self-telemetry samples to the agent's view: one every 30 seconds for the given span, with the link byte
@@ -30,7 +31,7 @@ func (r *propRig) feed(from time.Time, span time.Duration, bytesPerSec float64, 
 // heartbeat would.
 func (r *propRig) acceptAndConfirm(t *testing.T, id string) time.Time {
 	t.Helper()
-	if _, err := r.h.C.Loop.AcceptProposal(asRole(accounts.RoleEditor), "edith", id, ""); err != nil {
+	if _, err := r.h.C.Loop.AcceptProposal(testkit.AsRole(accounts.RoleEditor), "edith", id, ""); err != nil {
 		t.Fatal(err)
 	}
 	r.h.Mu.Lock()
@@ -103,7 +104,7 @@ func TestAnAppliedProposalGetsAnOutcomeThatSetsWhatWasObservedBesideWhatWasPredi
 func TestAnOutcomeSaysUnconfirmedIfTheAgentNeverReportsTheChangeInForce(t *testing.T) {
 	r := propRigFor(t)
 	p, _ := r.submit(t, decisionloop.AccessChange{Pause: []string{"flow"}})
-	if _, err := r.h.C.Loop.AcceptProposal(asRole(accounts.RoleEditor), "edith", p.ID, ""); err != nil {
+	if _, err := r.h.C.Loop.AcceptProposal(testkit.AsRole(accounts.RoleEditor), "edith", p.ID, ""); err != nil {
 		t.Fatal(err)
 	}
 	*r.now = r.now.Add(10 * time.Minute)
@@ -141,7 +142,7 @@ func TestOnlyAppliedProposalsGetAnOutcome(t *testing.T) {
 	r := propRigFor(t)
 	pend, _ := r.submit(t, decisionloop.AccessChange{Pause: []string{"flow"}})
 	rej, _ := r.submit(t, decisionloop.AccessChange{Pause: []string{"probes"}})
-	if _, err := r.h.C.Loop.RejectProposal(asRole(accounts.RoleEditor), "edith", rej.ID, ""); err != nil {
+	if _, err := r.h.C.Loop.RejectProposal(testkit.AsRole(accounts.RoleEditor), "edith", rej.ID, ""); err != nil {
 		t.Fatal(err)
 	}
 	*r.now = r.now.Add(2 * time.Hour)
@@ -162,7 +163,7 @@ func TestAnEchoFromBeforeTheDecisionDoesNotConfirmTheChange(t *testing.T) {
 	v.CfgHash, v.CfgApplied, v.CfgInForceAt = "h-before", "h-before", r.now.Add(-time.Hour)
 	r.h.Mu.Unlock()
 	p, _ := r.submit(t, decisionloop.AccessChange{Pause: []string{"flow"}})
-	if _, err := r.h.C.Loop.AcceptProposal(asRole(accounts.RoleEditor), "edith", p.ID, ""); err != nil {
+	if _, err := r.h.C.Loop.AcceptProposal(testkit.AsRole(accounts.RoleEditor), "edith", p.ID, ""); err != nil {
 		t.Fatal(err)
 	}
 	r.h.Mu.Lock()

@@ -14,6 +14,7 @@ import (
 	"continuum/internal/history"
 	"continuum/internal/model"
 	"continuum/internal/store"
+	"continuum/internal/testkit"
 )
 
 // graphRig is the admin API on a store that keeps memory in a real Neo4j (CONTINUUM_TEST_NEO4J).
@@ -501,7 +502,7 @@ func TestAgentTierAndConsentChangesExplainThemselvesInTheGraph(t *testing.T) {
 	a, gs := graphRig(t)
 	alice, aOrg := a.register(t, "alice", "Alice Lab") // an owner, so no separate editor account is needed
 	a.core = a.base.ForOrg(aOrg)                       // approvedAgent below enrolls and approves through this org's own Core
-	id, _, _ := a.approvedAgent(t, fp)                 // approved at tier 2, installed at 2
+	id, _, _ := a.approvedAgent(t, testkit.FP)         // approved at tier 2, installed at 2
 
 	if r := a.do("POST", org(aOrg, "agents/"+id+"/tier"), map[string]any{"tier": 0}, withCookie(alice)); r.Code != 200 {
 		t.Fatalf("narrow tier: %d %s", r.Code, r.Body.String())

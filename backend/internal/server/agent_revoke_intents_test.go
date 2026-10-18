@@ -6,17 +6,18 @@ import (
 	"continuum/internal/kernel"
 	"continuum/internal/operators"
 	"continuum/internal/store"
+	"continuum/internal/testkit"
 )
 
 func operatorWithIntentRig(t *testing.T) (*env, store.Operator, string, store.TelemetryIntent) {
 	t.Helper()
 	e := newEnv(t)
-	opCluster := e.approvedCluster(t, fp)
+	opCluster := e.approvedCluster(t, testkit.FP)
 	op, _, _, err := e.core.Operators.CreateOperator(e.ctx, "alex", "athens-regional", []string{opCluster}, extDest("collector.example:4317"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	agentID := e.approvedAgentID(t, fp2)
+	agentID := e.approvedAgentID(t, testkit.FP2)
 	ti, err := e.core.Telemetry.CreateTelemetryIntent(e.ctx, "alex", agentID, "patras-edge", nil, nil, nil,
 		store.Destination{Kind: store.DestinationOperator, TargetOperatorID: op.ID})
 	if err != nil {
@@ -29,7 +30,7 @@ func operatorWithIntentRig(t *testing.T) (*env, store.Operator, string, store.Te
 func TestRevokingAnAgentRevokesItsTelemetryIntents(t *testing.T) {
 	e, op, agentID, ti := operatorWithIntentRig(t)
 
-	if err := e.core.Operators.RevokeOperator(e.ctx, "alex", op.ID, "decom"); kindOf(err) != kernel.KindConflict {
+	if err := e.core.Operators.RevokeOperator(e.ctx, "alex", op.ID, "decom"); testkit.KindOf(err) != kernel.KindConflict {
 		t.Fatalf("sanity: a live intent should block revoking its operator, got %v", err)
 	}
 	if err := e.core.Agents.Revoke(e.ctx, "alex", agentID, "stolen"); err != nil {

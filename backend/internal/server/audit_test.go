@@ -12,6 +12,7 @@ import (
 	"continuum/internal/accounts"
 	"continuum/internal/kernel"
 	"continuum/internal/store"
+	"continuum/internal/testkit"
 )
 
 // failAudit is a store whose audit trail can be made unwritable.
@@ -283,7 +284,7 @@ func TestPrivilegedActionsFailClosedWhenTheAuditRowCannotBeWritten(t *testing.T)
 	_, owner := a.user(t, "boss", accounts.RoleOwner)
 	edID, _ := a.user(t, "ed", accounts.RoleEditor)
 
-	pending, _ := a.enroll(t, 2, fp)
+	pending, _ := a.enroll(t, 2, testkit.FP)
 	live, _ := a.enroll(t, 2, "11111111-2222-4333-8444-555566667777")
 	if r := a.do("POST", "/api/v1/agents/"+live.AgentId+"/approve", map[string]any{"confirm": a.codes[live.AgentId], "tier": 2}, withCookie(owner)); r.Code != 204 {
 		t.Fatalf("approve (audit working): %d %s", r.Code, r.Body.String())
@@ -365,7 +366,7 @@ func TestAFailedActionAfterItsAuditRowLeavesAFollowUpRow(t *testing.T) {
 	err := e.core.Audited(e.ctx, "alex", "note", "agent", "a-1", "about to", func() error {
 		return kernel.Errf(kernel.KindConflict, "nothing to do")
 	})
-	if kindOf(err) != kernel.KindConflict {
+	if testkit.KindOf(err) != kernel.KindConflict {
 		t.Fatalf("the action's own error must reach the caller: %v", err)
 	}
 	evs, _ := e.st.ListAudit(e.ctx, "org-1", 10)
@@ -385,21 +386,21 @@ func TestAFailedActionAfterItsAuditRowLeavesAFollowUpRow(t *testing.T) {
 // nothing, so it leaves nothing: no claim, and no follow-up row either.
 func TestARefusedWriteWithItsOwnAuditRowLeavesNoRow(t *testing.T) {
 	e := newEnv(t)
-	resp, _ := e.enroll(t, 2, fp)
+	resp, _ := e.enroll(t, 2, testkit.FP)
 	if err := e.core.Agents.Reject(e.ctx, "alex", resp.AgentId, "first"); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.core.Agents.Reject(e.ctx, "alex", resp.AgentId, "again"); kindOf(err) != kernel.KindConflict {
+	if err := e.core.Agents.Reject(e.ctx, "alex", resp.AgentId, "again"); testkit.KindOf(err) != kernel.KindConflict {
 		t.Fatalf("second reject: %v", err)
 	}
 	other, _ := e.enroll(t, 2, "11111111-2222-4333-8444-555566667777")
 	if err := e.core.Agents.Revoke(e.ctx, "alex", other.AgentId, "x"); err != nil {
 		t.Fatalf("revoke: %v", err)
 	}
-	if err := e.core.Agents.Revoke(e.ctx, "alex", other.AgentId, "again"); kindOf(err) != kernel.KindConflict {
+	if err := e.core.Agents.Revoke(e.ctx, "alex", other.AgentId, "again"); testkit.KindOf(err) != kernel.KindConflict {
 		t.Fatalf("second revoke: %v", err)
 	}
-	if err := e.core.Agents.DeleteToken(e.ctx, "alex", "tk-nope"); kindOf(err) != kernel.KindNotFound {
+	if err := e.core.Agents.DeleteToken(e.ctx, "alex", "tk-nope"); testkit.KindOf(err) != kernel.KindNotFound {
 		t.Fatalf("delete of a missing token: %v", err)
 	}
 	evs, _ := e.st.ListAudit(e.ctx, "org-1", 20)
@@ -498,7 +499,7 @@ func TestLoginAddressStaysInTheServerTrailNotTheOrganisations(t *testing.T) {
 func TestRejectAndRevokeReasonsAreClippedEverywhere(t *testing.T) {
 	e := newEnv(t)
 	long := strings.Repeat("é", 1000) + "\n\x00" + strings.Repeat("x", 5000)
-	resp, _ := e.enroll(t, 2, fp)
+	resp, _ := e.enroll(t, 2, testkit.FP)
 	if err := e.core.Agents.Reject(e.ctx, "alex", resp.AgentId, long); err != nil {
 		t.Fatal(err)
 	}

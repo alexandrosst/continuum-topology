@@ -7,12 +7,13 @@ import (
 
 	"continuum/internal/accounts"
 	"continuum/internal/operators"
+	"continuum/internal/testkit"
 )
 
 func TestTelemetryIntentsHTTPCreateListGetScopeDestinationRevokeDelete(t *testing.T) {
 	a := newAdminRig(t)
 	_, cookie := a.user(t, "alex", accounts.RoleEditor)
-	agentID := a.approvedAgentID(t, fp)
+	agentID := a.approvedAgentID(t, testkit.FP)
 
 	if r := a.do("GET", "/api/v1/telemetry-intents", nil, withCookie(cookie)); r.Code != 200 {
 		t.Fatalf("list (empty): %d %s", r.Code, r.Body.String())
@@ -98,7 +99,7 @@ func TestTelemetryIntentsHTTPCreateListGetScopeDestinationRevokeDelete(t *testin
 func TestTelemetryIntentsHTTPRequiresEditorRole(t *testing.T) {
 	a := newAdminRig(t)
 	_, viewer := a.user(t, "jamie", accounts.RoleViewer)
-	agentID := a.approvedAgentID(t, fp)
+	agentID := a.approvedAgentID(t, testkit.FP)
 	body := map[string]any{"agentId": agentID, "name": "x", "destination": map[string]any{"kind": "external", "endpoint": "c:4317"}}
 	if r := a.do("POST", "/api/v1/telemetry-intents", body, withCookie(viewer)); r.Code != 403 {
 		t.Fatalf("viewer creating a telemetry intent: %d %s", r.Code, r.Body.String())
@@ -111,7 +112,7 @@ func TestTelemetryIntentsHTTPRequiresEditorRole(t *testing.T) {
 func TestTelemetryIntentsHTTPRejectsASecondActiveIntentOnTheSameAgent(t *testing.T) {
 	a := newAdminRig(t)
 	_, cookie := a.user(t, "alex", accounts.RoleEditor)
-	agentID := a.approvedAgentID(t, fp)
+	agentID := a.approvedAgentID(t, testkit.FP)
 	body := map[string]any{"agentId": agentID, "name": "first", "destination": map[string]any{"kind": "external", "endpoint": "c:4317"}}
 	if r := a.do("POST", "/api/v1/telemetry-intents", body, withCookie(cookie)); r.Code != 201 {
 		t.Fatalf("first create: %d %s", r.Code, r.Body.String())
@@ -129,7 +130,7 @@ func TestTelemetryIntentsHTTPRejectsASecondActiveIntentOnTheSameAgent(t *testing
 func TestTelemetryIntentCommandExternalDestination(t *testing.T) {
 	a := newAdminRig(t)
 	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
-	agentID := a.approvedAgentID(t, fp)
+	agentID := a.approvedAgentID(t, testkit.FP)
 	ag, err := a.st.GetAgent(a.ctx, agentID)
 	if err != nil {
 		t.Fatal(err)
@@ -177,7 +178,7 @@ func TestTelemetryIntentCommandExternalDestination(t *testing.T) {
 func TestTelemetryIntentCommandOperatorDestinationReissuesEachTime(t *testing.T) {
 	a := newAdminRig(t)
 	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
-	opCluster := a.approvedCluster(t, fp)
+	opCluster := a.approvedCluster(t, testkit.FP)
 	opBody := map[string]any{
 		"name":             "athens-regional",
 		"sourceClusterIds": []string{opCluster},
@@ -189,7 +190,7 @@ func TestTelemetryIntentCommandOperatorDestinationReissuesEachTime(t *testing.T)
 	}
 	opID, _ := r.json(t)["operator"].(map[string]any)["id"].(string)
 
-	agentID := a.approvedAgentID(t, fp2)
+	agentID := a.approvedAgentID(t, testkit.FP2)
 	body := map[string]any{
 		"agentId":     agentID,
 		"name":        "patras-edge",
@@ -248,7 +249,7 @@ func TestTelemetryIntentCommandOperatorDestinationReissuesEachTime(t *testing.T)
 func TestTelemetryIntentCommandRequiresAdminRole(t *testing.T) {
 	a := newAdminRig(t)
 	_, editor := a.user(t, "jamie", accounts.RoleEditor)
-	agentID := a.approvedAgentID(t, fp)
+	agentID := a.approvedAgentID(t, testkit.FP)
 	body := map[string]any{"agentId": agentID, "name": "x", "destination": map[string]any{"kind": "external", "endpoint": "c:4317"}}
 	r := a.do("POST", "/api/v1/telemetry-intents", body, withCookie(editor))
 	if r.Code != 201 {
@@ -265,7 +266,7 @@ func TestTelemetryIntentCommandRequiresAdminRole(t *testing.T) {
 func TestTelemetryIntentCommandRoutesShareOneCertificatePerOperator(t *testing.T) {
 	a := newAdminRig(t)
 	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
-	opCluster := a.approvedCluster(t, fp)
+	opCluster := a.approvedCluster(t, testkit.FP)
 	r := a.do("POST", "/api/v1/operators", map[string]any{
 		"name": "athens-regional", "sourceClusterIds": []string{opCluster},
 		"destination": map[string]any{"kind": "external", "endpoint": "collector.example:4317"},
@@ -275,7 +276,7 @@ func TestTelemetryIntentCommandRoutesShareOneCertificatePerOperator(t *testing.T
 	}
 	opID, _ := r.json(t)["operator"].(map[string]any)["id"].(string)
 
-	agentID := a.approvedAgentID(t, fp2)
+	agentID := a.approvedAgentID(t, testkit.FP2)
 	opDest := map[string]any{"kind": "operator", "targetOperatorId": opID}
 	r = a.do("POST", "/api/v1/telemetry-intents", map[string]any{
 		"agentId": agentID, "name": "patras-edge", "destination": opDest,
@@ -364,7 +365,7 @@ func TestTelemetryIntentCommandRoutesShareOneCertificatePerOperator(t *testing.T
 func TestTelemetryIntentCommandRefusesARevokedIntent(t *testing.T) {
 	a := newAdminRig(t)
 	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
-	agentID := a.approvedAgentID(t, fp2)
+	agentID := a.approvedAgentID(t, testkit.FP2)
 	r := a.do("POST", "/api/v1/telemetry-intents", map[string]any{
 		"agentId": agentID, "name": "patras-edge",
 		"destination": map[string]any{"kind": "external", "endpoint": "collector.example:4317"},
@@ -389,7 +390,7 @@ func TestTelemetryIntentCommandRefusesARevokedIntent(t *testing.T) {
 func TestConcurrentTelemetryIntentCreatesLeaveOneActiveIntent(t *testing.T) {
 	a := newAdminRig(t)
 	_, cookie := a.user(t, "alex", accounts.RoleEditor)
-	agentID := a.approvedAgentID(t, fp)
+	agentID := a.approvedAgentID(t, testkit.FP)
 	body := map[string]any{"agentId": agentID, "name": "racing", "destination": map[string]any{"kind": "external", "endpoint": "c:4317"}}
 	const n = 24
 	codes := make(chan int, n)

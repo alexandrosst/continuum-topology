@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"continuum/internal/accounts"
+	"continuum/internal/testkit"
 )
 
 // What depends on an operator is shown on it, and revoking or deleting it then needs force; the audit entry says what
@@ -12,14 +13,14 @@ import (
 func TestRevokeAndDeleteAnOperatorSomethingSendsToNeedForce(t *testing.T) {
 	a := newAdminRig(t)
 	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
-	clA := a.approvedCluster(t, fp)
+	clA := a.approvedCluster(t, testkit.FP)
 	target := a.createOperatorDoc(t, cookie, extBody("upstream", clA))["operator"].(map[string]any)["id"].(string)
 	if _, has := a.do("GET", "/api/v1/operators/"+target, nil, withCookie(cookie)).json(t)["usedBy"]; has {
 		t.Fatal("usedBy on an operator nothing sends to")
 	}
 
 	// Another operator exports into it, and two intents (one by route) send a cluster to it.
-	clB := a.approvedCluster(t, fp2)
+	clB := a.approvedCluster(t, testkit.FP2)
 	dest := map[string]any{"kind": "operator", "targetOperatorId": target}
 	down := a.createOperatorDoc(t, cookie, map[string]any{"name": "downstream", "sourceClusterIds": []string{clB}, "destination": dest})["operator"].(map[string]any)["id"].(string)
 	agent := a.approvedAgentID(t, "5b8e1f2a-3333-4333-8444-955566667788")
@@ -70,10 +71,10 @@ func TestRevokeAndDeleteAnOperatorSomethingSendsToNeedForce(t *testing.T) {
 func TestOnlyActiveDependentsCountTowardUsedBy(t *testing.T) {
 	a := newAdminRig(t)
 	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
-	clA := a.approvedCluster(t, fp)
+	clA := a.approvedCluster(t, testkit.FP)
 	target := a.createOperatorDoc(t, cookie, extBody("upstream", clA))["operator"].(map[string]any)["id"].(string)
 	dest := map[string]any{"kind": "operator", "targetOperatorId": target}
-	agent := a.approvedAgentID(t, fp2)
+	agent := a.approvedAgentID(t, testkit.FP2)
 	iid := a.do("POST", "/api/v1/telemetry-intents", map[string]any{"agentId": agent, "name": "i", "destination": dest}, withCookie(cookie)).json(t)["id"].(string)
 	down := a.createOperatorDoc(t, cookie, map[string]any{"name": "downstream", "sourceClusterIds": []string{clA}, "destination": dest})["operator"].(map[string]any)["id"].(string)
 	a.do("POST", "/api/v1/telemetry-intents/"+iid+"/revoke", map[string]any{}, withCookie(cookie))
@@ -90,9 +91,9 @@ func TestOnlyActiveDependentsCountTowardUsedBy(t *testing.T) {
 func TestAnIntentWithSeveralRoutesToOneOperatorCountsOnce(t *testing.T) {
 	a := newAdminRig(t)
 	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
-	cl := a.approvedCluster(t, fp)
+	cl := a.approvedCluster(t, testkit.FP)
 	target := a.createOperatorDoc(t, cookie, extBody("upstream", cl))["operator"].(map[string]any)["id"].(string)
-	agent := a.approvedAgentID(t, fp2)
+	agent := a.approvedAgentID(t, testkit.FP2)
 	dest := map[string]any{"kind": "operator", "targetOperatorId": target}
 	r := a.do("POST", "/api/v1/telemetry-intents", map[string]any{
 		"agentId": agent, "name": "i", "destination": map[string]any{"kind": "external", "endpoint": "c:4317"},

@@ -7,6 +7,7 @@ import (
 	"continuum/internal/accounts"
 	"continuum/internal/kernel"
 	"continuum/internal/telemetry"
+	"continuum/internal/testkit"
 )
 
 // savedBackend saves one quick-start backend and returns its id.
@@ -54,7 +55,7 @@ func TestMintGatewayTokenHappyPathReturnsTheSecretOnceAndStoresOnlyItsHash(t *te
 
 func TestMintGatewayTokenRejectsAnUnknownBackend(t *testing.T) {
 	e := newEnv(t)
-	if _, _, err := e.core.Telemetry.MintGatewayToken(e.ctx, "alex", "qsb-does-not-exist", 0); kindOf(err) != kernel.KindNotFound {
+	if _, _, err := e.core.Telemetry.MintGatewayToken(e.ctx, "alex", "qsb-does-not-exist", 0); testkit.KindOf(err) != kernel.KindNotFound {
 		t.Fatalf("expected KindNotFound, got %v", err)
 	}
 }
@@ -81,7 +82,7 @@ func TestMintGatewayTokenClampsTTLIntoRange(t *testing.T) {
 func TestLatestGatewayTokenReportsNoneUntilOneIsMinted(t *testing.T) {
 	e := newEnv(t)
 	id := e.savedBackend(t, "prometheus", "metrics")
-	if _, err := e.core.Telemetry.LatestGatewayToken(e.ctx, id); kindOf(err) == kernel.KindInvalid {
+	if _, err := e.core.Telemetry.LatestGatewayToken(e.ctx, id); testkit.KindOf(err) == kernel.KindInvalid {
 		t.Fatalf("unexpected error before any mint: %v", err)
 	}
 	if _, _, err := e.core.Telemetry.MintGatewayToken(e.ctx, "alex", id, 0); err != nil {

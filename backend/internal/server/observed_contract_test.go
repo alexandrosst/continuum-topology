@@ -12,6 +12,7 @@ import (
 	"continuum/internal/flow"
 	"continuum/internal/flow/wire"
 	"continuum/internal/observed"
+	"continuum/internal/testkit"
 )
 
 // ---- the agent-to-server contract ----
@@ -22,9 +23,9 @@ import (
 func ep(kind continuumv1.FlowEndpoint_Kind, i int) *continuumv1.FlowEndpoint {
 	switch kind {
 	case continuumv1.FlowEndpoint_EXTERNAL:
-		return xep(fmt.Sprintf("93.184.%d.%d", i/250, i%250+1))
+		return testkit.ExternalEndpoint(fmt.Sprintf("93.184.%d.%d", i/250, i%250+1))
 	case continuumv1.FlowEndpoint_WORKLOAD:
-		return wep(fmt.Sprintf("ns/Deployment/w%d", i))
+		return testkit.WorkloadEndpoint(fmt.Sprintf("ns/Deployment/w%d", i))
 	}
 	return &continuumv1.FlowEndpoint{Kind: kind, Ref: fmt.Sprintf("node%d", i), Ip: ""}
 }
@@ -106,9 +107,9 @@ func TestWhatTheAgentCanSendIsAcceptedOrCountedAsDropped(t *testing.T) {
 // Maximum-length references and a full collector list are accepted; one past the limit is dropped, not refused.
 func TestFlowReferencesAtTheirLimits(t *testing.T) {
 	ref := func(n int) string { return "ns/Deployment/" + strings.Repeat("r", n-len("ns/Deployment/")) }
-	atLimit := flowOf(wep(ref(wire.MaxRef)), xep("1.2.3.4"), 443, 1)
+	atLimit := testkit.FlowOf(testkit.WorkloadEndpoint(ref(wire.MaxRef)), testkit.ExternalEndpoint("1.2.3.4"), 443, 1)
 	atLimit.SrcPod = strings.Repeat("p", wire.MaxName)
-	over := flowOf(wep(ref(wire.MaxRef+1)), xep("1.2.3.4"), 443, 1)
+	over := testkit.FlowOf(testkit.WorkloadEndpoint(ref(wire.MaxRef+1)), testkit.ExternalEndpoint("1.2.3.4"), 443, 1)
 	var cs []*continuumv1.CollectorInfo
 	for i := 0; i < 5000; i++ {
 		cs = append(cs, &continuumv1.CollectorInfo{Node: strings.Repeat("n", wire.MaxName-5) + fmt.Sprint(i%10000), Method: "conntrack"})

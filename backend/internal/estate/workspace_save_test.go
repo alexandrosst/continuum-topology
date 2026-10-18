@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"continuum/internal/kernel"
+	"continuum/internal/testkit"
 )
 
 func TestWorkspaceSavesRaceExactlyOneWinner(t *testing.T) {
@@ -20,7 +21,7 @@ func TestWorkspaceSavesRaceExactlyOneWinner(t *testing.T) {
 			_, err := e.core.SaveWorkspace(e.ctx, fmt.Sprint("u", i), 0, []byte(`{"schemaVersion":3}`))
 			mu.Lock()
 			defer mu.Unlock()
-			switch kindOf(err) {
+			switch testkit.KindOf(err) {
 			case 0:
 				wins++
 			case kernel.KindConflict:

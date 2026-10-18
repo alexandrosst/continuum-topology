@@ -7,14 +7,15 @@ import (
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/connectivity"
 	"continuum/internal/facts"
+	"continuum/internal/testkit"
 )
 
 // Traffic is drawn into the topology only from a cluster whose agent is allowed to report it (access tier 2 and above). A cluster
 // below that is still shown, and its flows are held back from the picture rather than deleted.
 func TestOnlyAClusterAtTierTwoOrAboveDrawsObservedTraffic(t *testing.T) {
 	r := newHubRig(t)
-	wide, _, _ := r.approvedAgent(t, fp)
-	narrow, _, _ := r.approvedAgent(t, fp2)
+	wide, _, _ := r.approvedAgent(t, testkit.FP)
+	narrow, _, _ := r.approvedAgent(t, testkit.FP2)
 	if _, err := r.hub.SetAgentTier(r.ctx, "alex", narrow, 1, func(int) string { return "" }); err != nil {
 		t.Fatal(err)
 	}
@@ -26,18 +27,18 @@ func TestOnlyAClusterAtTierTwoOrAboveDrawsObservedTraffic(t *testing.T) {
 			st.Nodes["p"] = &continuumv1.NodeFacts{Key: "p", InternalIps: []string{"198.51.100.60"}}
 		}
 		for _, n := range []string{"x", "y"} {
-			w := wk("a", "Deployment", n)
+			w := testkit.Workload("a", "Deployment", n)
 			st.Workloads[w.Key] = w
 		}
 		v := NewView()
 		v.State = st
 		v.Connected = true
 		v.LastSync = time.Now()
-		fs := []*continuumv1.Flow{flowOf(wep("a/Deployment/x"), wep("a/Deployment/y"), port, 5)}
+		fs := []*continuumv1.Flow{testkit.FlowOf(testkit.WorkloadEndpoint("a/Deployment/x"), testkit.WorkloadEndpoint("a/Deployment/y"), port, 5)}
 		if id == wide {
-			fs = append(fs, flowOf(wep("a/Deployment/x"), xep("198.51.100.60"), 6443, 50))
+			fs = append(fs, testkit.FlowOf(testkit.WorkloadEndpoint("a/Deployment/x"), testkit.ExternalEndpoint("198.51.100.60"), 6443, 50))
 		} else {
-			fs = append(fs, flowOf(wep("a/Deployment/x"), xep("203.0.113.9"), 6443, 50)) // what would be suspected, if this cluster's traffic counted
+			fs = append(fs, testkit.FlowOf(testkit.WorkloadEndpoint("a/Deployment/x"), testkit.ExternalEndpoint("203.0.113.9"), 6443, 50)) // what would be suspected, if this cluster's traffic counted
 		}
 		v.Flows.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: fs}, time.Now().Add(-time.Minute))
 		if id == wide {

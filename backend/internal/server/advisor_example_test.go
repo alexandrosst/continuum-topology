@@ -13,6 +13,7 @@ import (
 	"continuum/internal/accounts"
 	"continuum/internal/agents"
 	"continuum/internal/store"
+	"continuum/internal/testkit"
 )
 
 // The example advisor in docs/examples is run against the real handlers, so the script and the API cannot drift apart unseen.
@@ -27,7 +28,7 @@ func TestTheExampleAdvisorProposesThroughTheRealAPIAndOnlyProposes(t *testing.T)
 	}
 	a := newAdminRig(t)
 	_, editor := a.user(t, "edith", accounts.RoleEditor)
-	id, _, _ := a.approvedAgent(t, fp) // approved at tier 2
+	id, _, _ := a.approvedAgent(t, testkit.FP) // approved at tier 2
 	secret, _ := a.do("POST", "/api/v1/auth/tokens", map[string]string{"name": "advisor"}, withCookie(editor)).json(t)["token"].(string)
 	if secret == "" {
 		t.Fatal("no API token")
@@ -96,7 +97,7 @@ func TestTheExampleAdvisorProposesThroughTheRealAPIAndOnlyProposes(t *testing.T)
 		t.Fatalf("show: %v\n%s", err, out)
 	}
 	// once a person accepts it, the collector is paused and the advisor has nothing more to say
-	if _, err := h.C.Loop.AcceptProposal(asRole(accounts.RoleEditor), "edith", ps[0].ID, ""); err != nil {
+	if _, err := h.C.Loop.AcceptProposal(testkit.AsRole(accounts.RoleEditor), "edith", ps[0].ID, ""); err != nil {
 		t.Fatal(err)
 	}
 	if c := h.ConsentOf(id); len(c.Paused) != 1 || c.Paused[0] != "flow" {

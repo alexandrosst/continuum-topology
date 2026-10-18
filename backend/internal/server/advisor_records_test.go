@@ -7,6 +7,7 @@ import (
 	"continuum/internal/accounts"
 	"continuum/internal/decisionloop"
 	"continuum/internal/store"
+	"continuum/internal/testkit"
 )
 
 func TestAPredictionHeldWhenEveryObservedMetricWentTheWayAndByHalfAsMuch(t *testing.T) {
@@ -38,7 +39,7 @@ func TestEachAdvisorsRecordCountsItsProposalsDecisionsAndPredictions(t *testing.
 	a := newAdminRig(t)
 	_, editor := a.user(t, "edith", accounts.RoleEditor)
 	_, viewer := a.user(t, "vic", accounts.RoleViewer)
-	id, _, _ := a.approvedAgent(t, fp)
+	id, _, _ := a.approvedAgent(t, testkit.FP)
 
 	submit := func(advisor string, change map[string]any) string {
 		t.Helper()

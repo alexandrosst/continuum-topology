@@ -10,6 +10,7 @@ import (
 
 	"continuum/internal/accounts"
 	"continuum/internal/operators"
+	"continuum/internal/testkit"
 )
 
 func addrs(list []AddressCandidate) []string {
@@ -80,7 +81,7 @@ func TestOperatorAddressCandidatesComeFromWhatDiscoveryReportsForItsCluster(t *t
 	a := newAdminRig(t)
 	_, admin := a.user(t, "alex", accounts.RoleAdmin)
 	_, viewer := a.user(t, "vera", accounts.RoleViewer)
-	agentID := a.env.approvedAgentID(t, fp)
+	agentID := a.env.approvedAgentID(t, testkit.FP)
 	ag, err := a.env.st.GetAgent(a.env.ctx, agentID)
 	if err != nil {
 		t.Fatal(err)

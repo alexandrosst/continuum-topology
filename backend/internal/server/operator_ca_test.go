@@ -14,6 +14,7 @@ import (
 	"continuum/internal/operators"
 	"continuum/internal/pki"
 	"continuum/internal/store"
+	"continuum/internal/testkit"
 
 	_ "modernc.org/sqlite"
 )
@@ -81,7 +82,7 @@ func legacyMTLSOperator(t *testing.T, e *env, id, cluster string) store.Operator
 func TestCreateOperatorMintsItsOwnCAAndStoresNoPlaintextKey(t *testing.T) {
 	e := newEnv(t)
 	withPassphraseCA(t, e, "correct horse battery staple")
-	cl := e.approvedCluster(t, fp)
+	cl := e.approvedCluster(t, testkit.FP)
 	op, _, bundle, err := e.core.Operators.CreateOperator(e.ctx, "alex", "athens", []string{cl}, extDest("c:4317"), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -150,7 +151,7 @@ func TestCreateOperatorMintsItsOwnCAAndStoresNoPlaintextKey(t *testing.T) {
 func TestReissueUsesTheOperatorCAAndRefusesToFallBackToTheOrgCA(t *testing.T) {
 	e := newEnv(t)
 	withPassphraseCA(t, e, "correct horse battery staple")
-	cl := e.approvedCluster(t, fp)
+	cl := e.approvedCluster(t, testkit.FP)
 	a, _, bundleA, err := e.core.Operators.CreateOperator(e.ctx, "alex", "a", []string{cl}, extDest("c:4317"), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -210,7 +211,7 @@ func TestReissueUsesTheOperatorCAAndRefusesToFallBackToTheOrgCA(t *testing.T) {
 
 func TestLegacyMTLSOperatorKeepsIssuingFromTheOrgCA(t *testing.T) {
 	e := newEnv(t)
-	cl := e.approvedCluster(t, fp)
+	cl := e.approvedCluster(t, testkit.FP)
 	op := legacyMTLSOperator(t, e, "op-legacy000001", cl)
 	if got, _ := e.st.GetOperator(e.ctx, op.ID); got.ClientCAScope() != store.ClientCAScopeOrg {
 		t.Fatalf("scope = %q", got.ClientCAScope())
@@ -229,7 +230,7 @@ func TestLegacyMTLSOperatorKeepsIssuingFromTheOrgCA(t *testing.T) {
 
 func TestRevokeAndDeleteDropTheOperatorCAKey(t *testing.T) {
 	e := newEnv(t)
-	cl := e.approvedCluster(t, fp)
+	cl := e.approvedCluster(t, testkit.FP)
 	a, _, _, _ := e.core.Operators.CreateOperator(e.ctx, "alex", "a", []string{cl}, extDest("c:4317"), nil)
 	b, _, _, _ := e.core.Operators.CreateOperator(e.ctx, "alex", "b", []string{cl}, extDest("c:4317"), nil)
 	for _, id := range []string{a.ID, b.ID} {
@@ -259,7 +260,7 @@ func TestRevokeAndDeleteDropTheOperatorCAKey(t *testing.T) {
 func TestClientCaScopeAndCommandsCarryTheRightCA(t *testing.T) {
 	a := newAdminRig(t)
 	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
-	cl := a.approvedCluster(t, fp)
+	cl := a.approvedCluster(t, testkit.FP)
 	r := a.do("POST", "/api/v1/operators", map[string]any{"name": "new", "sourceClusterIds": []string{cl}, "destination": map[string]any{"kind": "external", "endpoint": "c:4317"}}, withCookie(cookie))
 	if r.Code != 201 {
 		t.Fatal(r.Body.String())
@@ -307,7 +308,7 @@ func TestClientCaScopeAndCommandsCarryTheRightCA(t *testing.T) {
 		}
 	}
 	// Telemetry-intent /command: same.
-	agentID := a.approvedAgentID(t, fp2)
+	agentID := a.approvedAgentID(t, testkit.FP2)
 	ir := a.do("POST", "/api/v1/telemetry-intents", map[string]any{"agentId": agentID, "name": "e", "destination": map[string]any{"kind": "operator", "targetOperatorId": newOp.ID}}, withCookie(cookie))
 	if ir.Code != 201 {
 		t.Fatalf("%d %s", ir.Code, ir.Body.String())
@@ -338,7 +339,7 @@ func TestClientCaScopeAndCommandsCarryTheRightCA(t *testing.T) {
 // per-operator CAs existed, and nothing about it gains a CA.
 func TestBearerOperatorStillUsesTheOrgCA(t *testing.T) {
 	e := newEnv(t)
-	cl := e.approvedCluster(t, fp)
+	cl := e.approvedCluster(t, testkit.FP)
 	op := store.Operator{ID: "op-bearer000008", OrgID: "org-1", Name: "b", Status: store.OperatorActive, ReceiverAuth: store.ReceiverAuthBearer,
 		SourceClusterIDs: []string{cl}, Destination: extDest("c:4317"), CreatedBy: "alex", CreatedAt: e.core.Now()}
 	if err := e.st.CreateOperator(e.ctx, op, kernel.HashSecret("cno_old")); err != nil {

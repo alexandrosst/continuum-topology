@@ -8,6 +8,7 @@ import (
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/estate"
 	"continuum/internal/store"
+	"continuum/internal/testkit"
 )
 
 // holdingStore lets a test stop one GetAgent call after it has read the record and before it returns it, which is exactly the
@@ -33,7 +34,7 @@ func (s *holdingStore) GetAgent(ctx context.Context, id string) (store.Agent, er
 func pushRig(t *testing.T) (*adminRig, *estate.Hub, string, chan *continuumv1.ServerMessage) {
 	t.Helper()
 	a := newAdminRig(t)
-	agentID := a.approvedAgentID(t, fp)
+	agentID := a.approvedAgentID(t, testkit.FP)
 	push := make(chan *continuumv1.ServerMessage, 64)
 	h := a.hub()
 	h.Mu.Lock()

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"continuum/internal/accounts"
+	"continuum/internal/testkit"
 )
 
 // Organisation scope is a convention here: the store takes raw ids, and every handler has to look the id up through an
@@ -28,7 +29,7 @@ func TestAnotherOrganisationsIdIsNotFoundOnEveryRouteThatTakesAnId(t *testing.T)
 	a.core = a.base.ForOrg(aOrg) // the fixtures below are made through Alice's organisation's own Core
 
 	// Alice's entities, one of each kind that has an id in a route.
-	agent, _, _ := a.approvedAgent(t, fp)
+	agent, _, _ := a.approvedAgent(t, testkit.FP)
 	a.core = a.base.ForOrg(aOrg)
 	var (
 		operator = a.do("POST", org(aOrg, "operators"), extBody("alice-op"), withCookie(alice)).json(t)["operator"].(map[string]any)["id"].(string)

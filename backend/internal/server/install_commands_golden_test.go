@@ -14,6 +14,7 @@ import (
 	"continuum/internal/kernel"
 	"continuum/internal/operators"
 	"continuum/internal/store"
+	"continuum/internal/testkit"
 )
 
 // The commands this server prints for a person to paste into a shell are pinned here, as text, in testdata/install_commands.golden.json.
@@ -335,6 +336,6 @@ func TestServerInstallCommandsArePinned(t *testing.T) {
 		t.Fatalf("%v (create it with -update)", err)
 	}
 	if string(want) != got {
-		t.Errorf("a command this server prints changed. The difference, as lines only in one side:\n%s\nIf this is intended, run: go test ./internal/server -run TestServerInstallCommandsArePinned -update", lineDiff(string(want), got))
+		t.Errorf("a command this server prints changed. The difference, as lines only in one side:\n%s\nIf this is intended, run: go test ./internal/server -run TestServerInstallCommandsArePinned -update", testkit.LineDiff(string(want), got))
 	}
 }

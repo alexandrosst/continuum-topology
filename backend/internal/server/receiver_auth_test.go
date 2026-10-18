@@ -11,6 +11,7 @@ import (
 	"continuum/internal/kernel"
 	"continuum/internal/operators"
 	"continuum/internal/store"
+	"continuum/internal/testkit"
 )
 
 // failTLSMint makes every operator TLS mint fail for the rest of the test.
@@ -26,7 +27,7 @@ func failTLSMint(t *testing.T) {
 func TestInstallCommandForAnMTLSOperatorHasNoBearerGate(t *testing.T) {
 	a := newAdminRig(t)
 	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
-	cl := a.approvedCluster(t, fp)
+	cl := a.approvedCluster(t, testkit.FP)
 	r := a.do("POST", "/api/v1/operators", map[string]any{"name": "x", "sourceClusterIds": []string{cl}, "destination": map[string]any{"kind": "external", "endpoint": "c:4317"}}, withCookie(cookie))
 	if r.Code != 201 {
 		t.Fatal(r.Body.String())
@@ -97,7 +98,7 @@ func TestCreateOperatorFailsWhenTheTLSMintFails(t *testing.T) {
 	failTLSMint(t)
 	a := newAdminRig(t)
 	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
-	cl := a.approvedCluster(t, fp)
+	cl := a.approvedCluster(t, testkit.FP)
 	r := a.do("POST", "/api/v1/operators", map[string]any{"name": "x", "sourceClusterIds": []string{cl}, "destination": map[string]any{"kind": "external", "endpoint": "c:4317"}}, withCookie(cookie))
 	if r.Code != 500 {
 		t.Fatalf("status %d, want 500: %s", r.Code, r.Body.String())
@@ -134,7 +135,7 @@ func TestOperatorDestinationCommandIsTheSameForBothAuthModes(t *testing.T) {
 func TestIntentCommandReportsTheOperatorsReceiverAuth(t *testing.T) {
 	a := newAdminRig(t)
 	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
-	opCluster := a.approvedCluster(t, fp)
+	opCluster := a.approvedCluster(t, testkit.FP)
 	mtls, _, _, err := a.core.Operators.CreateOperator(a.ctx, "alex", "new", []string{opCluster}, extDest("c:4317"), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -144,7 +145,7 @@ func TestIntentCommandReportsTheOperatorsReceiverAuth(t *testing.T) {
 	if err := a.st.CreateOperator(a.ctx, legacy, kernel.HashSecret("cno_old")); err != nil {
 		t.Fatal(err)
 	}
-	agentID := a.approvedAgentID(t, fp2)
+	agentID := a.approvedAgentID(t, testkit.FP2)
 	for _, c := range []struct {
 		id   string
 		want string
@@ -179,7 +180,7 @@ func TestIntentCommandReportsTheOperatorsReceiverAuth(t *testing.T) {
 func TestOperatorDocCarriesReceiverAuthForEveryOperator(t *testing.T) {
 	a := newAdminRig(t)
 	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
-	cl := a.approvedCluster(t, fp)
+	cl := a.approvedCluster(t, testkit.FP)
 	if _, _, _, err := a.core.Operators.CreateOperator(a.ctx, "alex", "new", []string{cl}, extDest("c:4317"), nil); err != nil {
 		t.Fatal(err)
 	}

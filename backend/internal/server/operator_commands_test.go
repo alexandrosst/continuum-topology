@@ -9,13 +9,14 @@ import (
 	"continuum/internal/kernel"
 	"continuum/internal/operators"
 	"continuum/internal/store"
+	"continuum/internal/testkit"
 )
 
 // Whatever reaches a command line is validated first: an external destination is a host and a port or a URL, a file
 // path, a header name and a Secret name and key, never anything a shell or Helm would read as more than one word.
 func TestExternalDestinationsAreValidatedForTheCommandLine(t *testing.T) {
 	e := newEnv(t)
-	cl := e.approvedCluster(t, fp)
+	cl := e.approvedCluster(t, testkit.FP)
 	good := store.Destination{Kind: store.DestinationExternal, Endpoint: "otlp.example.com:4317", CAFile: "/etc/ssl/ca.pem", AuthHeaderName: "X-Api-Key", AuthSecretName: "export-auth", AuthSecretKey: "token"}
 	if _, _, _, err := e.core.Operators.CreateOperator(e.ctx, "alex", "ok", []string{cl}, good, nil); err != nil {
 		t.Fatalf("a well-formed destination: %v", err)
@@ -42,10 +43,10 @@ func TestExternalDestinationsAreValidatedForTheCommandLine(t *testing.T) {
 	} {
 		d := good
 		mutate(&d)
-		if err := e.core.Operators.ValidateDestination(e.ctx, d); kindOf(err) != kernel.KindInvalid {
+		if err := e.core.Operators.ValidateDestination(e.ctx, d); testkit.KindOf(err) != kernel.KindInvalid {
 			t.Errorf("%s: %v", name, err)
 		}
-		if _, _, _, err := e.core.Operators.CreateOperator(e.ctx, "alex", "bad", []string{cl}, d, nil); kindOf(err) != kernel.KindInvalid {
+		if _, _, _, err := e.core.Operators.CreateOperator(e.ctx, "alex", "bad", []string{cl}, d, nil); testkit.KindOf(err) != kernel.KindInvalid {
 			t.Errorf("%s (create): %v", name, err)
 		}
 	}
@@ -54,13 +55,13 @@ func TestExternalDestinationsAreValidatedForTheCommandLine(t *testing.T) {
 // Exposure is checked in the core, not only by the one handler that happens to read it.
 func TestCreateOperatorChecksExposureInTheCore(t *testing.T) {
 	e := newEnv(t)
-	cl := e.approvedCluster(t, fp)
+	cl := e.approvedCluster(t, testkit.FP)
 	for _, ok := range []string{"", "cluster", "loadbalancer", "nodeport"} {
 		if _, _, _, _, err := e.core.Operators.CreateOperatorWithOptions(e.ctx, "alex", "x", []string{cl}, extDest("c:4317"), nil, operators.OperatorOptions{Exposure: ok}); err != nil {
 			t.Fatalf("exposure %q: %v", ok, err)
 		}
 	}
-	if _, _, _, _, err := e.core.Operators.CreateOperatorWithOptions(e.ctx, "alex", "x", []string{cl}, extDest("c:4317"), nil, operators.OperatorOptions{Exposure: "ingress"}); kindOf(err) != kernel.KindInvalid {
+	if _, _, _, _, err := e.core.Operators.CreateOperatorWithOptions(e.ctx, "alex", "x", []string{cl}, extDest("c:4317"), nil, operators.OperatorOptions{Exposure: "ingress"}); testkit.KindOf(err) != kernel.KindInvalid {
 		t.Fatalf("exposure ingress: %v", err)
 	}
 }
@@ -108,7 +109,7 @@ func TestInstallCommandQuotesEveryInterpolatedValue(t *testing.T) {
 func TestSourceRemindersStateTheWholeBlockAndOneSecretPerCluster(t *testing.T) {
 	a := newAdminRig(t)
 	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
-	clA, clB := a.approvedCluster(t, fp), a.approvedCluster(t, fp2)
+	clA, clB := a.approvedCluster(t, testkit.FP), a.approvedCluster(t, testkit.FP2)
 	created := a.createOperatorDoc(t, cookie, extBody("athens", clA, clB))
 	id := created["operator"].(map[string]any)["id"].(string)
 	reminders := created["reminders"].([]any)
@@ -146,9 +147,9 @@ func TestSourceRemindersStateTheWholeBlockAndOneSecretPerCluster(t *testing.T) {
 func TestIntentCommandStatesTheWholeBlockAndAuditsWhatTheCertIsFor(t *testing.T) {
 	a := newAdminRig(t)
 	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
-	cl := a.approvedCluster(t, fp)
+	cl := a.approvedCluster(t, testkit.FP)
 	opID := a.createOperatorDoc(t, cookie, extBody("athens", cl))["operator"].(map[string]any)["id"].(string)
-	agent := a.approvedAgentID(t, fp2)
+	agent := a.approvedAgentID(t, testkit.FP2)
 	iid := a.do("POST", "/api/v1/telemetry-intents", map[string]any{"agentId": agent, "name": "i", "destination": map[string]any{"kind": "operator", "targetOperatorId": opID}}, withCookie(cookie)).json(t)["id"].(string)
 	doc := a.do("POST", "/api/v1/telemetry-intents/"+iid+"/command", nil, withCookie(cookie)).json(t)
 	frag := doc["installFragment"].(string)
@@ -173,7 +174,7 @@ func TestIntentCommandStatesTheWholeBlockAndAuditsWhatTheCertIsFor(t *testing.T)
 func TestScopeUpdateIssuesAClientCertOnlyWhenAClusterIsGained(t *testing.T) {
 	a := newAdminRig(t)
 	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
-	clA, clB := a.approvedCluster(t, fp), a.approvedCluster(t, fp2)
+	clA, clB := a.approvedCluster(t, testkit.FP), a.approvedCluster(t, testkit.FP2)
 	id := a.createOperatorDoc(t, cookie, extBody("athens", clA))["operator"].(map[string]any)["id"].(string)
 	e := &env{st: a.st, ctx: a.ctx}
 	scope := func(clusters ...string) map[string]any {
@@ -248,7 +249,7 @@ func TestHeartbeatURLPrefersThePublicURLAndWarnsAboutAddressesThatCannotWork(t *
 func TestHeartbeatCASecretIsEmittedOnlyForAPrivateServerCertificate(t *testing.T) {
 	a := newAdminRig(t)
 	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
-	cl := a.approvedCluster(t, fp)
+	cl := a.approvedCluster(t, testkit.FP)
 	body := extBody("athens", cl)
 	body["heartbeat"] = true
 	doc := a.createOperatorDoc(t, cookie, body)

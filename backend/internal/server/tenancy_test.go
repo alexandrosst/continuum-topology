@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"crypto/x509"
 	"errors"
 	"fmt"
 	"strings"
@@ -15,6 +14,7 @@ import (
 	"continuum/internal/kernel"
 	"continuum/internal/pki"
 	"continuum/internal/store"
+	"continuum/internal/testkit"
 )
 
 // register signs someone up through the API and returns their cookie and the id of the organisation they got.
@@ -154,9 +154,9 @@ func TestNobodyReachesAnotherOrganisation(t *testing.T) {
 	if l := a.do("GET", org(bOrg, "tokens"), nil, withCookie(bob)).Body.String(); strings.Contains(l, "edge-a") {
 		t.Fatalf("bob lists alice's token: %s", l)
 	}
-	d, _ := csr(t)
-	hash, code := approvalFor(t, d)
-	resp, err := a.base.Agents.Enroll(a.ctx, "10.0.0.9", &continuumv1.EnrollRequest{Token: tok.json(t)["token"].(string), CsrDer: d, ClusterFingerprint: fp, InstalledAccessTier: 1, ApprovalCodeHash: hash})
+	d, _ := testkit.CSR(t)
+	hash, code := testkit.ApprovalFor(t, d)
+	resp, err := a.base.Agents.Enroll(a.ctx, "10.0.0.9", &continuumv1.EnrollRequest{Token: tok.json(t)["token"].(string), CsrDer: d, ClusterFingerprint: testkit.FP, InstalledAccessTier: 1, ApprovalCodeHash: hash})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,9 +185,9 @@ func TestNobodyReachesAnotherOrganisation(t *testing.T) {
 	}
 	// A token from Bob's organisation does not enroll into Alice's, and the agent takes the token's organisation.
 	btok := a.do("POST", org(bOrg, "tokens"), map[string]any{"name": "edge-b", "tier": 1}, withCookie(bob)).json(t)["token"].(string)
-	d2, _ := csr(t)
+	d2, _ := testkit.CSR(t)
 	fp2 := "11111111-2222-4333-8444-555555555555"
-	r2, err := a.base.Agents.Enroll(a.ctx, "10.0.0.9", &continuumv1.EnrollRequest{Token: btok, CsrDer: d2, ClusterFingerprint: fp2, InstalledAccessTier: 1, ApprovalCodeHash: hashFor(t, d2)})
+	r2, err := a.base.Agents.Enroll(a.ctx, "10.0.0.9", &continuumv1.EnrollRequest{Token: btok, CsrDer: d2, ClusterFingerprint: fp2, InstalledAccessTier: 1, ApprovalCodeHash: testkit.HashFor(t, d2)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,9 +202,9 @@ func TestSameClusterCanBeRegisteredByTwoTenantsIndependently(t *testing.T) {
 	bob, bOrg := a.register(t, "bob", "Org B")
 	enrollAndApprove := func(cookie, org string) string {
 		tok := a.do("POST", "/api/v1/orgs/"+org+"/tokens", map[string]any{"name": "shared", "tier": 1}, withCookie(cookie)).json(t)["token"].(string)
-		d, _ := csr(t)
-		hash, code := approvalFor(t, d)
-		r, err := a.base.Agents.Enroll(a.ctx, "10.0.0.9", &continuumv1.EnrollRequest{Token: tok, CsrDer: d, ClusterFingerprint: fp, InstalledAccessTier: 1, ApprovalCodeHash: hash})
+		d, _ := testkit.CSR(t)
+		hash, code := testkit.ApprovalFor(t, d)
+		r, err := a.base.Agents.Enroll(a.ctx, "10.0.0.9", &continuumv1.EnrollRequest{Token: tok, CsrDer: d, ClusterFingerprint: testkit.FP, InstalledAccessTier: 1, ApprovalCodeHash: hash})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -420,8 +420,8 @@ func TestDeletingAnOrganisationErasesItsDataAndEndsItsAgents(t *testing.T) {
 	a.do("PUT", org(aOrg, "workspace"), []byte(`{"schemaVersion":3}`), withCookie(alice), withHeader("If-Match", "0"))
 	a.do("PUT", org(bOrg, "workspace"), []byte(`{"schemaVersion":3,"keep":true}`), withCookie(bob), withHeader("If-Match", "0"))
 	tok := a.do("POST", org(aOrg, "tokens"), map[string]any{"name": "edge", "tier": 1}, withCookie(alice)).json(t)["token"].(string)
-	d, _ := csr(t)
-	resp, err := a.base.Agents.Enroll(a.ctx, "10.0.0.9", &continuumv1.EnrollRequest{Token: tok, CsrDer: d, ClusterFingerprint: fp, InstalledAccessTier: 1, ApprovalCodeHash: hashFor(t, d)})
+	d, _ := testkit.CSR(t)
+	resp, err := a.base.Agents.Enroll(a.ctx, "10.0.0.9", &continuumv1.EnrollRequest{Token: tok, CsrDer: d, ClusterFingerprint: testkit.FP, InstalledAccessTier: 1, ApprovalCodeHash: testkit.HashFor(t, d)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -479,19 +479,19 @@ func TestTheMainOrganisationCannotBeDeleted(t *testing.T) {
 
 func TestRejoinKeepsTheAgentsOwnOrganisation(t *testing.T) {
 	e := newEnv(t)
-	id, key, leaf := e.approvedAgent(t, fp)
+	id, key, leaf := e.approvedAgent(t, testkit.FP)
 	// A certificate that names another organisation than the agent belongs to is refused, even though our CA signed it.
-	parsed, _ := pki.ParseCSR(csrWith(t, key))
+	parsed, _ := pki.ParseCSR(testkit.CSRWith(t, key))
 	wrong, _, _ := e.core.CA.IssueAgent(parsed, id, "org-9", time.Hour)
 	*e.now = e.now.Add(2 * time.Hour)
-	if _, err := e.base.Agents.Rejoin(e.ctx, "10.0.0.1", &continuumv1.RejoinRequest{ExpiredLeafDer: wrong, CsrDer: csrWith(t, key)}); kindOf(err) != kernel.KindUnauthenticated {
+	if _, err := e.base.Agents.Rejoin(e.ctx, "10.0.0.1", &continuumv1.RejoinRequest{ExpiredLeafDer: wrong, CsrDer: testkit.CSRWith(t, key)}); testkit.KindOf(err) != kernel.KindUnauthenticated {
 		t.Fatalf("certificate for the wrong organisation: %v", err)
 	}
-	resp, err := e.base.Agents.Rejoin(e.ctx, "10.0.0.1", &continuumv1.RejoinRequest{ExpiredLeafDer: leaf, CsrDer: csrWith(t, key)})
+	resp, err := e.base.Agents.Rejoin(e.ctx, "10.0.0.1", &continuumv1.RejoinRequest{ExpiredLeafDer: leaf, CsrDer: testkit.CSRWith(t, key)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if o := certOrg(t, resp.LeafDer); o != "org-1" {
+	if o := testkit.CertOrg(t, resp.LeafDer); o != "org-1" {
 		t.Fatalf("rejoined certificate names %q", o)
 	}
 }
@@ -510,13 +510,4 @@ func TestMigrationOfALegacySingleOrganisationDatabase(t *testing.T) {
 		t.Fatalf("bootstrap organisation = %v", orgs)
 	}
 	var _ context.Context = a.ctx
-}
-
-func certOrg(t *testing.T, der []byte) string {
-	t.Helper()
-	c, err := x509.ParseCertificate(der)
-	if err != nil || len(c.Subject.Organization) != 1 {
-		t.Fatalf("certificate: %v %v", c, err)
-	}
-	return c.Subject.Organization[0]
 }

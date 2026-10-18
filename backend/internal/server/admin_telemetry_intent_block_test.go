@@ -7,6 +7,7 @@ import (
 	"continuum/internal/accounts"
 	"continuum/internal/install"
 	"continuum/internal/operators"
+	"continuum/internal/testkit"
 )
 
 // The page used to build the block that points an agent at a regional operator and merge what this endpoint returned into it by pattern.
@@ -30,14 +31,14 @@ func newBlockRig(t *testing.T) blockRig {
 	a := newAdminRig(t)
 	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	r := a.do("POST", "/api/v1/operators", map[string]any{
-		"name": "athens-regional", "sourceClusterIds": []string{a.approvedCluster(t, fp)},
+		"name": "athens-regional", "sourceClusterIds": []string{a.approvedCluster(t, testkit.FP)},
 		"destination": map[string]any{"kind": "external", "endpoint": "collector.example:4317"},
 	}, withCookie(cookie))
 	if r.Code != 201 {
 		t.Fatalf("create operator: %d %s", r.Code, r.Body.String())
 	}
 	opID, _ := r.json(t)["operator"].(map[string]any)["id"].(string)
-	agentID := a.approvedAgentID(t, fp2)
+	agentID := a.approvedAgentID(t, testkit.FP2)
 	return blockRig{a: a, cookie: withCookie(cookie), opID: opID, agentID: agentID}
 }
 

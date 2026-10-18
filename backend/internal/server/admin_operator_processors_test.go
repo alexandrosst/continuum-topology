@@ -8,6 +8,7 @@ import (
 
 	"continuum/internal/accounts"
 	"continuum/internal/install"
+	"continuum/internal/testkit"
 )
 
 // The processors a person adds to a regional operator are chart values and nothing else: the operator record does not keep them, so the
@@ -42,7 +43,7 @@ func goldenOperatorProcessors(t *testing.T) json.RawMessage {
 func TestAnOperatorIsInstalledWithTheProcessorsChosen(t *testing.T) {
 	a := newAdminRig(t)
 	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
-	cl := a.approvedCluster(t, fp)
+	cl := a.approvedCluster(t, testkit.FP)
 
 	plain := a.createOperatorDoc(t, cookie, extBody("athens", cl))
 	body := extBody("sparta", cl)
@@ -73,7 +74,7 @@ func TestAnOperatorIsInstalledWithTheProcessorsChosen(t *testing.T) {
 func TestProcessorsThatCannotBeInstalledAreRefusedBeforeAnOperatorExists(t *testing.T) {
 	a := newAdminRig(t)
 	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
-	cl := a.approvedCluster(t, fp)
+	cl := a.approvedCluster(t, testkit.FP)
 	list := func() int {
 		var ops []json.RawMessage
 		if err := json.Unmarshal(a.do("GET", "/api/v1/operators", nil, withCookie(cookie)).Body.Bytes(), &ops); err != nil {
@@ -113,7 +114,7 @@ func TestProcessorsThatCannotBeInstalledAreRefusedBeforeAnOperatorExists(t *test
 func TestAProcessorNameCannotChangeWhatTheCommandDoes(t *testing.T) {
 	a := newAdminRig(t)
 	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
-	cl := a.approvedCluster(t, fp)
+	cl := a.approvedCluster(t, testkit.FP)
 	body := extBody("athens", cl)
 	body["extraProcessors"] = json.RawMessage(`[{"id":"p1","kind":"filter","name":"a; rm -rf /$(id)","config":{"signal":"metric","conditions":[{"field":"a","op":"eq","value":"b","level":"record"}]}}]`)
 	cmd := a.createOperatorDoc(t, cookie, body)["install"].(string)

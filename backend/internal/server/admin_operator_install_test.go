@@ -12,6 +12,7 @@ import (
 	"continuum/internal/kernel"
 	"continuum/internal/operators"
 	"continuum/internal/store"
+	"continuum/internal/testkit"
 )
 
 // pemAfter is the PEM value of one key of a generated Secret manifest, as the cluster would read it.
@@ -49,7 +50,7 @@ func extBody(name string, clusters ...string) map[string]any {
 func TestInstallAgainReissuesCertificatesFromTheStoredCA(t *testing.T) {
 	a := newAdminRig(t)
 	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
-	cl := a.approvedCluster(t, fp)
+	cl := a.approvedCluster(t, testkit.FP)
 	created := a.createOperatorDoc(t, cookie, extBody("athens", cl))
 	id := created["operator"].(map[string]any)["id"].(string)
 	firstRecv := pemAfter(t, created["tlsSecretCommand"].(string), "tls.crt")
@@ -114,7 +115,7 @@ func TestInstallAgainReissuesCertificatesFromTheStoredCA(t *testing.T) {
 func TestInstallAgainRotatesTheHeartbeatSecret(t *testing.T) {
 	a := newAdminRig(t)
 	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
-	cl := a.approvedCluster(t, fp)
+	cl := a.approvedCluster(t, testkit.FP)
 	body := extBody("athens", cl)
 	body["heartbeat"] = true
 	created := a.createOperatorDoc(t, cookie, body)
@@ -144,7 +145,7 @@ func TestInstallAgainRotatesTheHeartbeatSecret(t *testing.T) {
 func TestInstallAgainRotatesABearerOperatorsToken(t *testing.T) {
 	a := newAdminRig(t)
 	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
-	cl := a.approvedCluster(t, fp)
+	cl := a.approvedCluster(t, testkit.FP)
 	const id = "op-bearer000007"
 	legacy := store.Operator{ID: id, OrgID: "org-1", Name: "bearer", Status: store.OperatorActive, ReceiverAuth: store.ReceiverAuthBearer,
 		SourceClusterIDs: []string{cl}, Destination: extDest("c:4317"), CreatedBy: "alex", CreatedAt: a.a.C.Now()}
@@ -175,7 +176,7 @@ func TestInstallAgainIsForActiveOperatorsAdminsOnly(t *testing.T) {
 	a := newAdminRig(t)
 	_, admin := a.user(t, "alex", accounts.RoleAdmin)
 	_, editor := a.user(t, "ed", accounts.RoleEditor)
-	cl := a.approvedCluster(t, fp)
+	cl := a.approvedCluster(t, testkit.FP)
 	id := a.createOperatorDoc(t, admin, extBody("athens", cl))["operator"].(map[string]any)["id"].(string)
 	if r := a.do("POST", "/api/v1/operators/"+id+"/install", nil, withCookie(editor)); r.Code != 403 {
 		t.Fatalf("editor: %d", r.Code)
@@ -198,7 +199,7 @@ func TestInstallAgainIsForActiveOperatorsAdminsOnly(t *testing.T) {
 func TestInstallAgainRecordsDatesForAnOperatorThatHadNone(t *testing.T) {
 	a := newAdminRig(t)
 	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
-	cl := a.approvedCluster(t, fp)
+	cl := a.approvedCluster(t, testkit.FP)
 	legacy := store.Operator{ID: "op-legacy000003", OrgID: "org-1", Name: "legacy", Status: store.OperatorActive, ReceiverAuth: store.ReceiverAuthMTLS,
 		SourceClusterIDs: []string{cl}, Destination: extDest("c:4317"), CreatedBy: "alex", CreatedAt: a.now.Add(-300 * day)}
 	if err := a.st.CreateOperator(a.ctx, legacy, nil); err != nil {

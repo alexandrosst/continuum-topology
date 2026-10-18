@@ -6,6 +6,8 @@ import (
 	"time"
 
 	continuumv1 "continuum/gen/continuumv1"
+
+	"continuum/internal/testkit"
 )
 
 // On a real stream: the agent names an older Config than the one the server sent (as if the newer one never arrived), and the
@@ -14,7 +16,7 @@ func TestALostConfigIsSentAgainWhenTheAgentNamesAnOlderOne(t *testing.T) {
 	r := newHubRig(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	id, key, leaf := r.approvedAgent(t, fp)
+	id, key, leaf := r.approvedAgent(t, testkit.FP)
 	s := r.agentStream(t, ctx, id, key, leaf)
 
 	cur, err := r.st.GetAgent(ctx, id)

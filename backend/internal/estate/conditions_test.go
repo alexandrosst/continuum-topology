@@ -6,11 +6,12 @@ import (
 	"testing"
 
 	"continuum/internal/agents"
+	"continuum/internal/testkit"
 )
 
 func TestAnAgentTheServerHasNotHeardFromSinceItStartedIsNotSeen(t *testing.T) {
 	r := newHubRig(t)
-	id, _, _ := r.approvedAgent(t, fp)
+	id, _, _ := r.approvedAgent(t, testkit.FP)
 	doc := r.agentDoc(t, id)
 	want := map[string][2]string{agents.CondConnected: {agents.CondFalse, "NoStream"}, agents.CondConfigInForce: {agents.CondUnknown, "NotConnected"}, agents.CondCompatible: {agents.CondUnknown, "NotSeenSinceStart"}}
 	if len(doc.Conditions) != 3 {

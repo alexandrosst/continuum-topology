@@ -7,13 +7,15 @@ import (
 	"time"
 
 	continuumv1 "continuum/gen/continuumv1"
+
+	"continuum/internal/testkit"
 )
 
 // The Run goroutine's ticker calls rec.tick (-> scan) while POST /history/record runs Hub.ScanNow (-> scan)
 // on an HTTP goroutine. Both write the recorder's bookkeeping, so they must not overlap; run with -race.
 func TestRecorderTickAndScanNowDoNotRace(t *testing.T) {
 	r := newHubRig(t)
-	id, _, _ := r.approvedAgent(t, fp)
+	id, _, _ := r.approvedAgent(t, testkit.FP)
 	r.hub.Mu.Lock()
 	r.hub.Views[id] = liveView(*r.now, "n1", "n2")
 	r.hub.Mu.Unlock()

@@ -12,6 +12,7 @@ import (
 	"continuum/internal/kernel"
 	"continuum/internal/observed"
 	"continuum/internal/store"
+	"continuum/internal/testkit"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/proto"
@@ -30,12 +31,12 @@ func TestADeltaStreamCannotGrowTheStateBeyondTheLimits(t *testing.T) {
 	r.hub.Limits = &facts.Limits{Nodes: 50, Namespaces: 50, Workloads: 50, Bytes: 1 << 20}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	id, key, leaf := r.approvedAgent(t, fp)
+	id, key, leaf := r.approvedAgent(t, testkit.FP)
 	s := r.agentStream(t, ctx, id, key, leaf)
-	cluster := &continuumv1.ClusterFacts{Uid: fp}
+	cluster := &continuumv1.ClusterFacts{Uid: testkit.FP}
 
 	send := func(m *continuumv1.Sync) {
-		if err := s.Send(syncMsg(m)); err != nil {
+		if err := s.Send(testkit.SyncMsg(m)); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -52,7 +53,7 @@ func TestADeltaStreamCannotGrowTheStateBeyondTheLimits(t *testing.T) {
 	}
 	send(&continuumv1.Sync{Seq: 4, Nodes: nodes("d4-", 5)})
 	_, err := s.Recv()
-	if code(err) != codes.ResourceExhausted || !strings.Contains(err.Error(), "nodes") || !strings.Contains(err.Error(), "at most 50") {
+	if testkit.StatusCode(err) != codes.ResourceExhausted || !strings.Contains(err.Error(), "nodes") || !strings.Contains(err.Error(), "at most 50") {
 		t.Fatalf("the delta that broke the limit: %v", err)
 	}
 	r.hub.Mu.Lock()
@@ -88,7 +89,7 @@ func TestADeltaStreamCannotGrowTheStateBeyondTheLimits(t *testing.T) {
 
 	// A well-behaved next connection recovers: a full picture within the limits replaces the state and clears the message.
 	s2 := r.agentStream(t, ctx, id, key, leaf)
-	if err := s2.Send(syncMsg(&continuumv1.Sync{Seq: 5, Full: true, Cluster: cluster, Nodes: nodes("ok", 10)})); err != nil {
+	if err := s2.Send(testkit.SyncMsg(&continuumv1.Sync{Seq: 5, Full: true, Cluster: cluster, Nodes: nodes("ok", 10)})); err != nil {
 		t.Fatal(err)
 	}
 	if m, err := s2.Recv(); err != nil || m.GetAck().GetSeq() != 5 {
@@ -107,7 +108,7 @@ func TestADeltaStreamCannotGrowTheStateBeyondTheLimits(t *testing.T) {
 func TestRepeatedRefusalsAreRecordedOncePerWindow(t *testing.T) {
 	r := newHubRig(t)
 	r.hub.Limits = &facts.Limits{Nodes: 5, Namespaces: 5, Workloads: 5, Bytes: 1 << 20}
-	id, _, _ := r.approvedAgent(t, fp)
+	id, _, _ := r.approvedAgent(t, testkit.FP)
 	a, _ := r.st.GetAgent(r.ctx, id)
 	v := &View{EstView: EstView{State: facts.New()}}
 	r.hub.Mu.Lock()
@@ -133,7 +134,7 @@ func TestRepeatedRefusalsAreRecordedOncePerWindow(t *testing.T) {
 func TestUniqueKeyFloodThroughApplySyncStopsAtTheLimit(t *testing.T) {
 	r := newHubRig(t)
 	r.hub.Limits = &facts.Limits{Nodes: 100, Namespaces: 100, Workloads: 300, Bytes: 1 << 30}
-	id, _, _ := r.approvedAgent(t, fp)
+	id, _, _ := r.approvedAgent(t, testkit.FP)
 	a, _ := r.st.GetAgent(r.ctx, id)
 	a.AccessTier = 2
 	r.hub.Mu.Lock()
@@ -141,7 +142,7 @@ func TestUniqueKeyFloodThroughApplySyncStopsAtTheLimit(t *testing.T) {
 	r.hub.Mu.Unlock()
 	refused := 0
 	for i := 0; i < 1000; i++ {
-		s := &continuumv1.Sync{Seq: uint64(i), Cluster: &continuumv1.ClusterFacts{Uid: fp}, Workloads: []*continuumv1.WorkloadFacts{{Key: fmt.Sprintf("ns/Deployment/%d", i), Name: "x"}}}
+		s := &continuumv1.Sync{Seq: uint64(i), Cluster: &continuumv1.ClusterFacts{Uid: testkit.FP}, Workloads: []*continuumv1.WorkloadFacts{{Key: fmt.Sprintf("ns/Deployment/%d", i), Name: "x"}}}
 		if _, _, err := r.hub.ApplySync(a, s, true); err != nil {
 			refused++
 		}
@@ -158,12 +159,12 @@ func TestLongKeysAreRefusedAndLongStringsAreCut(t *testing.T) {
 	r := newHubRig(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	id, key, leaf := r.approvedAgent(t, fp)
-	cluster := &continuumv1.ClusterFacts{Uid: fp}
+	id, key, leaf := r.approvedAgent(t, testkit.FP)
+	cluster := &continuumv1.ClusterFacts{Uid: testkit.FP}
 
 	s := r.agentStream(t, ctx, id, key, leaf)
 	long := &continuumv1.WorkloadFacts{Key: "ns/Deployment/a", Name: "a", Labels: map[string]string{"l": strings.Repeat("v", 50000)}}
-	if err := s.Send(syncMsg(&continuumv1.Sync{Seq: 1, Full: true, Cluster: cluster, Workloads: []*continuumv1.WorkloadFacts{long}})); err != nil {
+	if err := s.Send(testkit.SyncMsg(&continuumv1.Sync{Seq: 1, Full: true, Cluster: cluster, Workloads: []*continuumv1.WorkloadFacts{long}})); err != nil {
 		t.Fatal(err)
 	}
 	if m, err := s.Recv(); err != nil || m.GetAck() == nil {
@@ -182,10 +183,10 @@ func TestLongKeysAreRefusedAndLongStringsAreCut(t *testing.T) {
 		"empty key": {Key: ""},
 	} {
 		s := r.agentStream(t, ctx, id, key, leaf)
-		if err := s.Send(syncMsg(&continuumv1.Sync{Seq: 9, Cluster: cluster, Workloads: []*continuumv1.WorkloadFacts{w}})); err != nil {
+		if err := s.Send(testkit.SyncMsg(&continuumv1.Sync{Seq: 9, Cluster: cluster, Workloads: []*continuumv1.WorkloadFacts{w}})); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := s.Recv(); code(err) != codes.InvalidArgument {
+		if _, err := s.Recv(); testkit.StatusCode(err) != codes.InvalidArgument {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
@@ -194,7 +195,7 @@ func TestLongKeysAreRefusedAndLongStringsAreCut(t *testing.T) {
 		Workloads: []*continuumv1.WorkloadFacts{{Key: "ns/Deployment/b", Name: strings.Repeat("n", 5000),
 			Images: []*continuumv1.ContainerImage{{Image: strings.Repeat("i", 2000)}}, Labels: map[string]string{strings.Repeat("k", 2000): "v"}}},
 		Nodes: []*continuumv1.NodeFacts{{Key: "n", Name: strings.Repeat("n", 2000)}}}
-	_ = s.Send(syncMsg(cut))
+	_ = s.Send(testkit.SyncMsg(cut))
 	if m, err := s.Recv(); err != nil || m.GetAck() == nil {
 		t.Fatalf("an over-long name, image or label key should be cut, not refused: %v %v", m, err)
 	}
@@ -211,7 +212,7 @@ func TestLongKeysAreRefusedAndLongStringsAreCut(t *testing.T) {
 		mods[i] = &continuumv1.ModuleStatus{Name: "m", Reason: strings.Repeat("r", 100000)}
 	}
 	_ = s.Send(&continuumv1.AgentMessage{Msg: &continuumv1.AgentMessage_Heartbeat{Heartbeat: &continuumv1.Heartbeat{Modules: mods}}})
-	if _, err := s.Recv(); code(err) != codes.InvalidArgument {
+	if _, err := s.Recv(); testkit.StatusCode(err) != codes.InvalidArgument {
 		t.Errorf("huge heartbeat modules: %v", err)
 	}
 }
@@ -228,7 +229,7 @@ func marshalState(t *testing.T, m *continuumv1.Sync) []byte {
 
 func TestAPoisonedStoredSnapshotIsDroppedOnRestore(t *testing.T) {
 	e := newEnv(t)
-	good, _, _ := e.approvedAgent(t, fp)
+	good, _, _ := e.approvedAgent(t, testkit.FP)
 	tooMany, _, _ := e.approvedAgent(t, "aaaaaaaa-1111-4222-8333-944455556666")
 	longName, _, _ := e.approvedAgent(t, "bbbbbbbb-1111-4222-8333-944455556666")
 	tooBig, _, _ := e.approvedAgent(t, "cccccccc-1111-4222-8333-944455556666")
@@ -240,7 +241,7 @@ func TestAPoisonedStoredSnapshotIsDroppedOnRestore(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	save(good, marshalState(t, &continuumv1.Sync{Seq: 3, Cluster: &continuumv1.ClusterFacts{Uid: fp}, Nodes: nodes("n", 5)}))
+	save(good, marshalState(t, &continuumv1.Sync{Seq: 3, Cluster: &continuumv1.ClusterFacts{Uid: testkit.FP}, Nodes: nodes("n", 5)}))
 	save(tooMany, marshalState(t, &continuumv1.Sync{Nodes: nodes("n", 11)}))
 	save(longName, marshalState(t, &continuumv1.Sync{Nodes: []*continuumv1.NodeFacts{{Key: "n", Name: strings.Repeat("x", 3000)}}}))
 	save(tooBig, marshalState(t, &continuumv1.Sync{Workloads: []*continuumv1.WorkloadFacts{{Key: "w", Labels: map[string]string{"a": strings.Repeat("y", 1000), "b": strings.Repeat("y", 1000), "c": strings.Repeat("y", 1000), "d": strings.Repeat("y", 1000), "e": strings.Repeat("y", 1000)}}}}))
@@ -272,7 +273,7 @@ func TestAPoisonedStoredSnapshotIsDroppedOnRestore(t *testing.T) {
 func TestOversizeSnapshotIsNotPersisted(t *testing.T) {
 	r := newHubRig(t)
 	r.hub.Limits = &facts.Limits{Nodes: 100, Namespaces: 100, Workloads: 100, Bytes: 1 << 10}
-	id, _, _ := r.approvedAgent(t, fp)
+	id, _, _ := r.approvedAgent(t, testkit.FP)
 	v := &View{EstView: EstView{State: facts.New(), dirtyAt: time.Now()}}
 	// build a state that is over the cap by going around Check (as a bug or a poisoned store would)
 	v.State.Apply(&continuumv1.Sync{Workloads: []*continuumv1.WorkloadFacts{{Key: "w", Labels: map[string]string{"a": strings.Repeat("z", 1000)}}}, Nodes: nodes("n", 1)})

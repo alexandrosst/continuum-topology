@@ -10,33 +10,8 @@ import (
 	"continuum/internal/agents"
 	"continuum/internal/connectivity"
 	"continuum/internal/kernel"
+	"continuum/internal/testkit"
 )
-
-var setupNow = time.Date(2026, 10, 14, 12, 0, 0, 0, time.UTC)
-
-// caps is a fresh report: Cluster links and probing on, telemetry sent onward, the prober seen a minute ago.
-func caps(f ...func(*agents.LinkCaps)) agents.LinkCaps {
-	c := agents.LinkCaps{Reported: setupNow.Add(-30 * time.Second), LinkMetrics: true, ProbeEnabled: true, TelemetryExport: true, ProberSeen: setupNow.Add(-time.Minute)}
-	for _, g := range f {
-		g(&c)
-	}
-	return c
-}
-
-func without(what string) func(*agents.LinkCaps) {
-	return func(c *agents.LinkCaps) {
-		switch what {
-		case "links":
-			c.LinkMetrics = false
-		case "probe":
-			c.ProbeEnabled = false
-		case "export":
-			c.TelemetryExport = false
-		case "prober":
-			c.ProberSeen = time.Time{}
-		}
-	}
-}
 
 func with(what string) func(*agents.LinkCaps) {
 	return func(c *agents.LinkCaps) {
@@ -48,39 +23,15 @@ func with(what string) func(*agents.LinkCaps) {
 }
 
 func prober(ago time.Duration) func(*agents.LinkCaps) {
-	return func(c *agents.LinkCaps) { c.ProberSeen = setupNow.Add(-ago) }
+	return func(c *agents.LinkCaps) { c.ProberSeen = testkit.SetupNow.Add(-ago) }
 }
 
 func reported(ago time.Duration) func(*agents.LinkCaps) {
-	return func(c *agents.LinkCaps) { c.Reported = setupNow.Add(-ago) }
+	return func(c *agents.LinkCaps) { c.Reported = testkit.SetupNow.Add(-ago) }
 }
 
 func endOf(id string, c agents.LinkCaps) connectivity.SetupEnd {
 	return connectivity.SetupEnd{ID: id, Name: strings.ToUpper(id), HasAgent: true, Tier: 2, Caps: c}
-}
-
-// states writes the steps as "code/cluster=state", in order.
-func states(steps []connectivity.LinkSetupStep) string {
-	var out []string
-	for _, s := range steps {
-		k := s.Code
-		if s.Cluster != "" {
-			k += "/" + s.Cluster
-		}
-		out = append(out, k+"="+s.State)
-	}
-	return strings.Join(out, " ")
-}
-
-func step(t *testing.T, steps []connectivity.LinkSetupStep, code, cluster string) connectivity.LinkSetupStep {
-	t.Helper()
-	for _, s := range steps {
-		if s.Code == code && s.Cluster == cluster {
-			return s
-		}
-	}
-	t.Fatalf("no %s step for %q in %s", code, cluster, states(steps))
-	return connectivity.LinkSetupStep{}
 }
 
 func TestPairChecklistStatesTable(t *testing.T) {
@@ -103,7 +54,7 @@ func TestPairChecklistStatesTable(t *testing.T) {
 		e.Note = &connectivity.LinkNote{Cluster: e.ID, Peer: "x", Code: "peer-silent", Text: "The agent of x has not reported any node address yet."}
 		return e
 	}
-	ok := caps()
+	ok := testkit.Caps()
 	for _, tc := range []struct {
 		name   string
 		l      kernel.LinkSetting
@@ -113,35 +64,35 @@ func TestPairChecklistStatesTable(t *testing.T) {
 	}{
 		{"everything in place", plain, endOf("a", ok), endOf("b", ok), true,
 			"agent/a=ok agent/b=ok links-on/a=ok links-on/b=ok export/a=ok prober/a=ok peer-export/b=ok"},
-		{"the runner has no telemetry sent onward", plain, endOf("a", caps(without("export"))), endOf("b", ok), true,
+		{"the runner has no telemetry sent onward", plain, endOf("a", testkit.Caps(testkit.Without("export"))), endOf("b", ok), true,
 			"agent/a=ok agent/b=ok links-on/a=ok links-on/b=ok export/a=todo prober/a=ok peer-export/b=ok"},
-		{"the other cluster sending telemetry is optional", plain, endOf("a", ok), endOf("b", caps(without("export"))), true,
+		{"the other cluster sending telemetry is optional", plain, endOf("a", ok), endOf("b", testkit.Caps(testkit.Without("export"))), true,
 			"agent/a=ok agent/b=ok links-on/a=ok links-on/b=ok export/a=ok prober/a=ok peer-export/b=optional"},
-		{"the runner is the one whose id sorts first, whichever side it is listed on", plain, endOf("b", ok), endOf("a", caps(without("export"))), true,
+		{"the runner is the one whose id sorts first, whichever side it is listed on", plain, endOf("b", ok), endOf("a", testkit.Caps(testkit.Without("export"))), true,
 			"agent/b=ok agent/a=ok links-on/b=ok links-on/a=ok export/a=todo prober/a=ok peer-export/b=ok"},
 		{"no FUSION on this server is said once, as unknown", plain, endOf("a", ok), endOf("b", ok), false,
 			"agent/a=ok agent/b=ok links-on/a=ok links-on/b=ok export/a=unknown prober/a=ok"},
-		{"no FUSION is not a failure even when the runner sends nothing", plain, endOf("a", caps(without("export"))), endOf("b", ok), false,
+		{"no FUSION is not a failure even when the runner sends nothing", plain, endOf("a", testkit.Caps(testkit.Without("export"))), endOf("b", ok), false,
 			"agent/a=ok agent/b=ok links-on/a=ok links-on/b=ok export/a=unknown prober/a=ok"},
-		{"Cluster links off in one install", plain, endOf("a", ok), endOf("b", caps(without("links"))), true,
+		{"Cluster links off in one install", plain, endOf("a", ok), endOf("b", testkit.Caps(testkit.Without("links"))), true,
 			"agent/a=ok agent/b=ok links-on/a=ok links-on/b=todo export/a=ok prober/a=ok peer-export/b=ok"},
-		{"probing off in the runner", plain, endOf("a", caps(without("probe"))), endOf("b", ok), true,
+		{"probing off in the runner", plain, endOf("a", testkit.Caps(testkit.Without("probe"))), endOf("b", ok), true,
 			"agent/a=ok agent/b=ok links-on/a=todo links-on/b=ok export/a=ok peer-export/b=ok"},
-		{"probing off does not matter for a pair that is passive only", passive, endOf("a", caps(without("probe"))), endOf("b", caps(without("probe"))), true,
+		{"probing off does not matter for a pair that is passive only", passive, endOf("a", testkit.Caps(testkit.Without("probe"))), endOf("b", testkit.Caps(testkit.Without("probe"))), true,
 			"agent/a=ok agent/b=ok links-on/a=ok links-on/b=ok export/a=ok export/b=ok"},
-		{"the prober never asked", plain, endOf("a", caps(without("prober"))), endOf("b", ok), true,
+		{"the prober never asked", plain, endOf("a", testkit.Caps(testkit.Without("prober"))), endOf("b", ok), true,
 			"agent/a=ok agent/b=ok links-on/a=ok links-on/b=ok export/a=ok prober/a=todo peer-export/b=ok"},
-		{"the prober asked nine minutes ago", plain, endOf("a", caps(prober(9*time.Minute))), endOf("b", ok), true,
+		{"the prober asked nine minutes ago", plain, endOf("a", testkit.Caps(prober(9*time.Minute))), endOf("b", ok), true,
 			"agent/a=ok agent/b=ok links-on/a=ok links-on/b=ok export/a=ok prober/a=ok peer-export/b=ok"},
-		{"the prober asked eleven minutes ago", plain, endOf("a", caps(prober(11*time.Minute))), endOf("b", ok), true,
+		{"the prober asked eleven minutes ago", plain, endOf("a", testkit.Caps(prober(11*time.Minute))), endOf("b", ok), true,
 			"agent/a=ok agent/b=ok links-on/a=ok links-on/b=ok export/a=ok prober/a=todo peer-export/b=ok"},
-		{"throughput needs iperf3 in both clusters", tput, endOf("a", caps(with("capacity"))), endOf("b", ok), true,
+		{"throughput needs iperf3 in both clusters", tput, endOf("a", testkit.Caps(with("capacity"))), endOf("b", ok), true,
 			"agent/a=ok agent/b=ok links-on/a=ok links-on/b=ok export/a=ok prober/a=ok capacity/a=ok capacity/b=todo peer-export/b=ok"},
-		{"throughput with iperf3 in both", tput, endOf("a", caps(with("capacity"))), endOf("b", caps(with("capacity"))), true,
+		{"throughput with iperf3 in both", tput, endOf("a", testkit.Caps(with("capacity"))), endOf("b", testkit.Caps(with("capacity"))), true,
 			"agent/a=ok agent/b=ok links-on/a=ok links-on/b=ok export/a=ok prober/a=ok capacity/a=ok capacity/b=ok peer-export/b=ok"},
 		{"iperf3 is not asked about when the pair wants no throughput tests", plain, endOf("a", ok), endOf("b", ok), true,
 			"agent/a=ok agent/b=ok links-on/a=ok links-on/b=ok export/a=ok prober/a=ok peer-export/b=ok"},
-		{"throughput tests on a pair without probing still need the prober and iperf3", kernel.LinkSetting{A: "a", B: "b", NoProbe: true, Throughput: &kernel.LinkThroughput{}}, endOf("a", caps(with("capacity"))), endOf("b", caps(with("capacity"))), true,
+		{"throughput tests on a pair without probing still need the prober and iperf3", kernel.LinkSetting{A: "a", B: "b", NoProbe: true, Throughput: &kernel.LinkThroughput{}}, endOf("a", testkit.Caps(with("capacity"))), endOf("b", testkit.Caps(with("capacity"))), true,
 			"agent/a=ok agent/b=ok links-on/a=ok links-on/b=ok export/a=ok prober/a=ok capacity/a=ok capacity/b=ok peer-export/b=ok"},
 
 		// agents too old to say what their install can do: unknown, never todo
@@ -153,25 +104,25 @@ func TestPairChecklistStatesTable(t *testing.T) {
 			"agent/a=ok agent/b=ok capabilities/a=unknown capabilities/b=unknown"},
 		{"two old agents, no FUSION", plain, endOf("a", agents.LinkCaps{}), endOf("b", agents.LinkCaps{}), false,
 			"agent/a=ok agent/b=ok capabilities/a=unknown capabilities/b=unknown export/a=unknown"},
-		{"a report that is too old is not relied on", plain, endOf("a", caps(reported(20*time.Minute), without("export"))), endOf("b", ok), true,
+		{"a report that is too old is not relied on", plain, endOf("a", testkit.Caps(reported(20*time.Minute), testkit.Without("export"))), endOf("b", ok), true,
 			"agent/a=ok agent/b=ok capabilities/a=unknown links-on/b=ok peer-export/b=ok"},
-		{"a report from fourteen minutes ago still counts", plain, endOf("a", caps(reported(14*time.Minute), without("export"))), endOf("b", ok), true,
+		{"a report from fourteen minutes ago still counts", plain, endOf("a", testkit.Caps(reported(14*time.Minute), testkit.Without("export"))), endOf("b", ok), true,
 			"agent/a=ok agent/b=ok links-on/a=ok links-on/b=ok export/a=todo prober/a=ok peer-export/b=ok"},
 
 		// the agents themselves
 		{"no approved agent at one end", plain, endOf("a", ok), noAgent, true,
 			"agent/a=ok agent/b=todo links-on/a=ok export/a=ok prober/a=ok"},
-		{"no approved agent at the runner: the other one probes, so it is the one that has to send telemetry", plain, noAgentA, endOf("b", caps(without("export"))), true,
+		{"no approved agent at the runner: the other one probes, so it is the one that has to send telemetry", plain, noAgentA, endOf("b", testkit.Caps(testkit.Without("export"))), true,
 			"agent/a=todo agent/b=ok links-on/b=ok export/b=todo prober/b=ok"},
 		{"access tier 1 at the second cluster", plain, endOf("a", ok), tier1(endOf("b", ok)), true,
 			"agent/a=ok agent/b=todo links-on/a=ok links-on/b=ok export/a=ok prober/a=ok peer-export/b=ok"},
-		{"access tier 1 at the first cluster: the second probes instead", plain, tier1(endOf("a", ok)), endOf("b", caps(without("export"))), true,
+		{"access tier 1 at the first cluster: the second probes instead", plain, tier1(endOf("a", ok)), endOf("b", testkit.Caps(testkit.Without("export"))), true,
 			"agent/a=todo agent/b=ok links-on/a=ok links-on/b=ok export/b=todo prober/b=ok peer-export/a=ok"},
 		{"flow collector paused at the first cluster", plain, paused(endOf("a", ok)), endOf("b", ok), true,
 			"agent/a=todo agent/b=ok links-on/a=ok links-on/b=ok export/b=ok prober/b=ok peer-export/a=ok"},
 		{"the first cluster cannot measure and neither can the second: the first stays the runner", plain, tier1(endOf("a", ok)), tier1(endOf("b", ok)), true,
 			"agent/a=todo agent/b=todo links-on/a=ok links-on/b=ok export/a=ok prober/a=ok peer-export/b=ok"},
-		{"throughput tests are the first cluster's alone, even when it cannot measure", kernel.LinkSetting{A: "a", B: "b", Throughput: &kernel.LinkThroughput{}}, tier1(endOf("a", caps(with("capacity")))), endOf("b", caps(with("capacity"))), true,
+		{"throughput tests are the first cluster's alone, even when it cannot measure", kernel.LinkSetting{A: "a", B: "b", Throughput: &kernel.LinkThroughput{}}, tier1(endOf("a", testkit.Caps(with("capacity")))), endOf("b", testkit.Caps(with("capacity"))), true,
 			"agent/a=todo agent/b=ok links-on/a=ok links-on/b=ok export/b=ok prober/b=ok capacity/a=ok capacity/b=ok peer-export/a=ok"},
 		{"the other cluster has not reported an address", plain, silentPeer(endOf("a", ok)), endOf("b", ok), true,
 			"agent/a=ok agent/b=ok addresses/a=todo links-on/a=ok links-on/b=ok export/b=ok prober/b=ok peer-export/a=ok"},
@@ -179,18 +130,18 @@ func TestPairChecklistStatesTable(t *testing.T) {
 		// a pair that is passive only: each cluster's own traffic series leave through its own telemetry
 		{"passive, both send", passive, endOf("a", ok), endOf("b", ok), true,
 			"agent/a=ok agent/b=ok links-on/a=ok links-on/b=ok export/a=ok export/b=ok"},
-		{"passive, only one sends: the other is optional", passive, endOf("a", ok), endOf("b", caps(without("export"))), true,
+		{"passive, only one sends: the other is optional", passive, endOf("a", ok), endOf("b", testkit.Caps(testkit.Without("export"))), true,
 			"agent/a=ok agent/b=ok links-on/a=ok links-on/b=ok export/a=ok export/b=optional"},
-		{"passive, neither sends", passive, endOf("a", caps(without("export"))), endOf("b", caps(without("export"))), true,
+		{"passive, neither sends", passive, endOf("a", testkit.Caps(testkit.Without("export"))), endOf("b", testkit.Caps(testkit.Without("export"))), true,
 			"agent/a=ok agent/b=ok links-on/a=ok links-on/b=ok export/a=todo export/b=todo"},
-		{"passive, one sends nothing and the other cannot say", passive, endOf("a", caps(without("export"))), endOf("b", agents.LinkCaps{}), true,
+		{"passive, one sends nothing and the other cannot say", passive, endOf("a", testkit.Caps(testkit.Without("export"))), endOf("b", agents.LinkCaps{}), true,
 			"agent/a=ok agent/b=ok links-on/a=ok capabilities/b=unknown export/a=unknown"},
 		{"passive, no FUSION", passive, endOf("a", ok), endOf("b", ok), false,
 			"agent/a=ok agent/b=ok links-on/a=ok links-on/b=ok export=unknown"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got := connectivity.LinkSetupSteps(tc.l, tc.a, tc.b, tc.fusion, setupNow)
-			if g := states(got); g != tc.want {
+			got := connectivity.LinkSetupSteps(tc.l, tc.a, tc.b, tc.fusion, testkit.SetupNow)
+			if g := testkit.StepStates(got); g != tc.want {
 				t.Fatalf("\n got  %s\n want %s", g, tc.want)
 			}
 			for _, s := range got {
@@ -215,17 +166,17 @@ func TestAnAgentThatReportsNothingNeverMakesAStepFail(t *testing.T) {
 				mute map[string]bool // the clusters that said nothing
 			}{
 				{endOf("a", agents.LinkCaps{}), endOf("b", agents.LinkCaps{}), map[string]bool{"a": true, "b": true}},
-				{endOf("a", agents.LinkCaps{}), endOf("b", caps()), map[string]bool{"a": true}},
-				{endOf("a", caps()), endOf("b", agents.LinkCaps{}), map[string]bool{"b": true}},
+				{endOf("a", agents.LinkCaps{}), endOf("b", testkit.Caps()), map[string]bool{"a": true}},
+				{endOf("a", testkit.Caps()), endOf("b", agents.LinkCaps{}), map[string]bool{"b": true}},
 			} {
-				for _, s := range connectivity.LinkSetupSteps(l, tc.a, tc.b, fusion, setupNow) {
+				for _, s := range connectivity.LinkSetupSteps(l, tc.a, tc.b, fusion, testkit.SetupNow) {
 					if s.State == connectivity.StepTodo && tc.mute[s.Cluster] && s.Code != connectivity.StepAgent {
 						t.Errorf("%+v: %s/%s is todo for an agent that reported nothing: %s", l, s.Code, s.Cluster, s.Text)
 					}
 				}
 				// and what nobody has said is not claimed either: a pair-level step needs someone who has
 				if tc.mute["a"] && tc.mute["b"] {
-					for _, s := range connectivity.LinkSetupSteps(l, tc.a, tc.b, fusion, setupNow) {
+					for _, s := range connectivity.LinkSetupSteps(l, tc.a, tc.b, fusion, testkit.SetupNow) {
 						if s.State == connectivity.StepTodo || s.State == connectivity.StepOptional {
 							t.Errorf("%+v: %s/%s is %s with two mute agents", l, s.Code, s.Cluster, s.State)
 						}
@@ -237,40 +188,40 @@ func TestAnAgentThatReportsNothingNeverMakesAStepFail(t *testing.T) {
 }
 
 func TestChecklistSentencesSayWhatIsWrongNamingTheClusterAndWhatToDo(t *testing.T) {
-	a := connectivity.SetupEnd{ID: "cl-a", Name: "sunrise-cluster", HasAgent: true, Tier: 2, Caps: caps(without("export"))}
-	b := connectivity.SetupEnd{ID: "cl-b", Name: "harbour", HasAgent: true, Tier: 2, Caps: caps(without("links"))}
-	steps := connectivity.LinkSetupSteps(kernel.LinkSetting{A: "cl-a", B: "cl-b", Throughput: &kernel.LinkThroughput{}}, a, b, true, setupNow)
+	a := connectivity.SetupEnd{ID: "cl-a", Name: "sunrise-cluster", HasAgent: true, Tier: 2, Caps: testkit.Caps(testkit.Without("export"))}
+	b := connectivity.SetupEnd{ID: "cl-b", Name: "harbour", HasAgent: true, Tier: 2, Caps: testkit.Caps(testkit.Without("links"))}
+	steps := connectivity.LinkSetupSteps(kernel.LinkSetting{A: "cl-a", B: "cl-b", Throughput: &kernel.LinkThroughput{}}, a, b, true, testkit.SetupNow)
 	for code, cluster := range map[string]string{connectivity.StepExport: "cl-a", connectivity.StepLinksOn: "cl-b", connectivity.StepCapacity: "cl-a"} {
-		s := step(t, steps, code, cluster)
+		s := testkit.StepNamed(t, steps, code, cluster)
 		if s.State != connectivity.StepTodo {
 			t.Errorf("%s/%s = %s", code, cluster, s.State)
 		}
 	}
-	if got := step(t, steps, connectivity.StepExport, "cl-a").Text; got != "sunrise-cluster runs the probes for this pair but has no telemetry sent to FUSION, so what it measures stays in the cluster. Turn on telemetry with Cluster links there and point it at a regional operator or backend." {
+	if got := testkit.StepNamed(t, steps, connectivity.StepExport, "cl-a").Text; got != "sunrise-cluster runs the probes for this pair but has no telemetry sent to FUSION, so what it measures stays in the cluster. Turn on telemetry with Cluster links there and point it at a regional operator or backend." {
 		t.Errorf("export: %s", got)
 	}
-	if got := step(t, steps, connectivity.StepLinksOn, "cl-b").Text; !strings.Contains(got, "Cluster links is not switched on in the install of harbour") || !strings.Contains(got, "Turn on Cluster links") {
+	if got := testkit.StepNamed(t, steps, connectivity.StepLinksOn, "cl-b").Text; !strings.Contains(got, "Cluster links is not switched on in the install of harbour") || !strings.Contains(got, "Turn on Cluster links") {
 		t.Errorf("links-on: %s", got)
 	}
-	if got := step(t, steps, connectivity.StepCapacity, "cl-a").Text; !strings.Contains(got, "iperf3 is not switched on in sunrise-cluster") || !strings.Contains(got, "runs the throughput tests") {
+	if got := testkit.StepNamed(t, steps, connectivity.StepCapacity, "cl-a").Text; !strings.Contains(got, "iperf3 is not switched on in sunrise-cluster") || !strings.Contains(got, "runs the throughput tests") {
 		t.Errorf("capacity: %s", got)
 	}
-	old := connectivity.LinkSetupSteps(kernel.LinkSetting{A: "cl-a", B: "cl-b"}, connectivity.SetupEnd{ID: "cl-a", Name: "sunrise-cluster", HasAgent: true, Tier: 2}, b, true, setupNow)
-	if got := step(t, old, connectivity.StepCapabilities, "cl-a").Text; !strings.Contains(got, "The agent of sunrise-cluster is too old to say") {
+	old := connectivity.LinkSetupSteps(kernel.LinkSetting{A: "cl-a", B: "cl-b"}, connectivity.SetupEnd{ID: "cl-a", Name: "sunrise-cluster", HasAgent: true, Tier: 2}, b, true, testkit.SetupNow)
+	if got := testkit.StepNamed(t, old, connectivity.StepCapabilities, "cl-a").Text; !strings.Contains(got, "The agent of sunrise-cluster is too old to say") {
 		t.Errorf("capabilities: %s", got)
 	}
 	// the prober step says how long it has been
-	p := connectivity.LinkSetupSteps(kernel.LinkSetting{A: "cl-a", B: "cl-b"}, connectivity.SetupEnd{ID: "cl-a", Name: "sunrise-cluster", HasAgent: true, Tier: 2, Caps: caps(prober(3 * time.Hour))}, b, true, setupNow)
-	if got := step(t, p, connectivity.StepProber, "cl-a").Text; !strings.Contains(got, "last asked its agent for the clusters to measure 3 hours ago") {
+	p := connectivity.LinkSetupSteps(kernel.LinkSetting{A: "cl-a", B: "cl-b"}, connectivity.SetupEnd{ID: "cl-a", Name: "sunrise-cluster", HasAgent: true, Tier: 2, Caps: testkit.Caps(prober(3 * time.Hour))}, b, true, testkit.SetupNow)
+	if got := testkit.StepNamed(t, p, connectivity.StepProber, "cl-a").Text; !strings.Contains(got, "last asked its agent for the clusters to measure 3 hours ago") {
 		t.Errorf("prober: %s", got)
 	}
 	// a cluster without a name reads by its id
-	if got := step(t, connectivity.LinkSetupSteps(kernel.LinkSetting{A: "cl-a", B: "cl-b"}, connectivity.SetupEnd{ID: "cl-a"}, b, true, setupNow), connectivity.StepAgent, "cl-a").Text; !strings.HasPrefix(got, "cl-a has no approved agent") {
+	if got := testkit.StepNamed(t, connectivity.LinkSetupSteps(kernel.LinkSetting{A: "cl-a", B: "cl-b"}, connectivity.SetupEnd{ID: "cl-a"}, b, true, testkit.SetupNow), connectivity.StepAgent, "cl-a").Text; !strings.HasPrefix(got, "cl-a has no approved agent") {
 		t.Errorf("agent: %s", got)
 	}
 	// no FUSION: the one sentence, not a failure
-	nf := connectivity.LinkSetupSteps(kernel.LinkSetting{A: "cl-a", B: "cl-b"}, a, b, false, setupNow)
-	if s := step(t, nf, connectivity.StepExport, "cl-a"); s.State != connectivity.StepUnknown || !strings.Contains(s.Text, "This server has no FUSION") {
+	nf := connectivity.LinkSetupSteps(kernel.LinkSetting{A: "cl-a", B: "cl-b"}, a, b, false, testkit.SetupNow)
+	if s := testkit.StepNamed(t, nf, connectivity.StepExport, "cl-a"); s.State != connectivity.StepUnknown || !strings.Contains(s.Text, "This server has no FUSION") {
 		t.Errorf("no FUSION: %+v", s)
 	}
 }

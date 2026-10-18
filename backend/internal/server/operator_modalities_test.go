@@ -7,6 +7,7 @@ import (
 
 	"continuum/internal/kernel"
 	"continuum/internal/store"
+	"continuum/internal/testkit"
 
 	_ "modernc.org/sqlite"
 )
@@ -15,16 +16,16 @@ import (
 // send a signal type the operator was configured to refuse. It reads as accepting nothing until the scope is saved again.
 func TestCorruptAcceptedModalitiesRefuseInsteadOfAcceptEverything(t *testing.T) {
 	e := newEnv(t)
-	opCluster := e.approvedCluster(t, fp)
+	opCluster := e.approvedCluster(t, testkit.FP)
 	op, _, _, err := e.core.Operators.CreateOperator(e.ctx, "alex", "athens-regional", []string{opCluster}, extDest("collector.example:4317"), []store.Modality{store.ModalityMetrics})
 	if err != nil {
 		t.Fatal(err)
 	}
-	agentID := e.approvedAgentID(t, fp2)
+	agentID := e.approvedAgentID(t, testkit.FP2)
 	dest := store.Destination{Kind: store.DestinationOperator, TargetOperatorID: op.ID}
 	traces := []store.SignalGrant{{ID: "traces", Source: "existing"}}
 
-	if _, err := e.core.Telemetry.CreateTelemetryIntent(e.ctx, "alex", agentID, "before", nil, nil, traces, dest); kindOf(err) != kernel.KindInvalid {
+	if _, err := e.core.Telemetry.CreateTelemetryIntent(e.ctx, "alex", agentID, "before", nil, nil, traces, dest); testkit.KindOf(err) != kernel.KindInvalid {
 		t.Fatalf("sanity: traces into a metrics-only operator should be refused, got %v", err)
 	}
 
@@ -46,7 +47,7 @@ func TestCorruptAcceptedModalitiesRefuseInsteadOfAcceptEverything(t *testing.T) 
 			t.Fatalf("corrupt %q: AcceptedModalities = %v, want [unreadable]", corrupt, got.AcceptedModalities)
 		}
 		_, err = e.core.Telemetry.CreateTelemetryIntent(e.ctx, "alex", agentID, "after", nil, nil, traces, dest)
-		if kindOf(err) != kernel.KindInvalid || !strings.Contains(err.Error(), "could not be read") {
+		if testkit.KindOf(err) != kernel.KindInvalid || !strings.Contains(err.Error(), "could not be read") {
 			t.Fatalf("corrupt %q: an intent must be refused with a clear reason, got %v", corrupt, err)
 		}
 	}

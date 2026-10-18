@@ -26,7 +26,3 @@ func (r *hubRig) agentStream(t *testing.T, ctx context.Context, id string, key a
 	}
 	return s
 }
-
-func syncMsg(s *continuumv1.Sync) *continuumv1.AgentMessage {
-	return &continuumv1.AgentMessage{Msg: &continuumv1.AgentMessage_Sync{Sync: s}}
-}

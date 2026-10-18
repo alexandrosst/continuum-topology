@@ -11,6 +11,7 @@ import (
 	"continuum/internal/kernel"
 	"continuum/internal/pki"
 	"continuum/internal/store"
+	"continuum/internal/testkit"
 )
 
 func TestAgentsAreServedByTheirOwnOrganisationsHubOnly(t *testing.T) {
@@ -31,7 +32,7 @@ func TestAgentsAreServedByTheirOwnOrganisationsHubOnly(t *testing.T) {
 	r := &rig{env: e, addr: l.Addr().String()}
 
 	c2 := e.base.ForOrg("org-2")
-	id1, key1, leaf1 := e.approvedAgent(t, fp)
+	id1, key1, leaf1 := e.approvedAgent(t, testkit.FP)
 	e2 := &env{base: e.base, core: c2, st: e.st, now: e.now, ctx: e.ctx}
 	id2, key2, leaf2 := e2.approvedAgent(t, "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee")
 
@@ -61,19 +62,19 @@ func TestAgentsAreServedByTheirOwnOrganisationsHubOnly(t *testing.T) {
 		t.Fatalf("hubs mixed the tenants up: org-1 has %v/%v, org-2 has %v/%v", has(t1.Hub, id1), has(t1.Hub, id2), has(t2.Hub, id1), has(t2.Hub, id2))
 	}
 	// The certificate carries its organisation and renewal keeps it, through the platform-wide core.
-	d, _ := csr(t)
+	d, _ := testkit.CSR(t)
 	renewed, _, err := e.base.Agents.Renew(ctx, id2, d)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if o := certOrg(t, renewed); o != "org-2" {
+	if o := testkit.CertOrg(t, renewed); o != "org-2" {
 		t.Fatalf("renewed certificate names %q", o)
 	}
 	// A revocation in one organisation cannot be ordered from another.
-	if err := e.core.Agents.Revoke(ctx, "boss", id2, "not yours"); kindOf(err) != kernel.KindNotFound {
+	if err := e.core.Agents.Revoke(ctx, "boss", id2, "not yours"); testkit.KindOf(err) != kernel.KindNotFound {
 		t.Fatalf("org-1 revoking org-2's agent: %v", err)
 	}
-	if err := e.core.Agents.Reject(ctx, "boss", id2, "not yours"); kindOf(err) != kernel.KindNotFound {
+	if err := e.core.Agents.Reject(ctx, "boss", id2, "not yours"); testkit.KindOf(err) != kernel.KindNotFound {
 		t.Fatalf("org-1 rejecting org-2's agent: %v", err)
 	}
 }

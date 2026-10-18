@@ -11,6 +11,7 @@ import (
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/facts"
 	"continuum/internal/pki"
+	"continuum/internal/testkit"
 
 	"google.golang.org/grpc/codes"
 )
@@ -19,7 +20,7 @@ func TestSyncMustMatchTheApprovedClusterAndStayInsideItsTier(t *testing.T) {
 	r := newHubRig(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	id, key, leaf := r.approvedAgent(t, fp)
+	id, key, leaf := r.approvedAgent(t, testkit.FP)
 	// Pretend the agent last connected from another address: that must be audited, not blocked.
 	_ = r.st.Touch(ctx, id, "203.0.113.7", "", "", *r.now)
 
@@ -44,7 +45,7 @@ func TestSyncMustMatchTheApprovedClusterAndStayInsideItsTier(t *testing.T) {
 	_ = s.Send(&continuumv1.AgentMessage{Msg: &continuumv1.AgentMessage_Sync{Sync: &continuumv1.Sync{Seq: 1, Full: true,
 		Cluster: &continuumv1.ClusterFacts{Uid: "11111111-2222-4333-8444-555555555555"},
 		Nodes:   []*continuumv1.NodeFacts{{Key: "n1", Name: "n1"}}}}})
-	if _, err := s.Recv(); code(err) != codes.PermissionDenied {
+	if _, err := s.Recv(); testkit.StatusCode(err) != codes.PermissionDenied {
 		t.Fatalf("foreign cluster uid: %v", err)
 	}
 	if st, _ := r.hub.State(ctx); len(st.Topology.Nodes) != 0 {
@@ -57,8 +58,8 @@ func TestSyncMustMatchTheApprovedClusterAndStayInsideItsTier(t *testing.T) {
 	for i := range big {
 		big[i] = &continuumv1.NodeFacts{Key: fmt.Sprint(i)}
 	}
-	_ = s.Send(&continuumv1.AgentMessage{Msg: &continuumv1.AgentMessage_Sync{Sync: &continuumv1.Sync{Seq: 1, Full: true, Cluster: &continuumv1.ClusterFacts{Uid: fp}, Nodes: big}}})
-	if _, err := s.Recv(); code(err) != codes.InvalidArgument {
+	_ = s.Send(&continuumv1.AgentMessage{Msg: &continuumv1.AgentMessage_Sync{Sync: &continuumv1.Sync{Seq: 1, Full: true, Cluster: &continuumv1.ClusterFacts{Uid: testkit.FP}, Nodes: big}}})
+	if _, err := s.Recv(); testkit.StatusCode(err) != codes.InvalidArgument {
 		t.Fatalf("oversized sync: %v", err)
 	}
 
@@ -78,14 +79,14 @@ func TestSyncMustMatchTheApprovedClusterAndStayInsideItsTier(t *testing.T) {
 
 func TestTierZeroDropsClassListsToo(t *testing.T) {
 	r := newHubRig(t)
-	id, _, _ := r.approvedAgent(t, fp)
+	id, _, _ := r.approvedAgent(t, testkit.FP)
 	a, _ := r.st.GetAgent(r.ctx, id)
 	a.AccessTier = 0
 	r.hub.Mu.Lock()
 	r.hub.Views[id] = &View{EstView: EstView{State: facts.New()}}
 	r.hub.Mu.Unlock()
 	r.hub.ApplySync(a, &continuumv1.Sync{Full: true,
-		Cluster: &continuumv1.ClusterFacts{Uid: fp, StorageClasses: []string{"gp3"}, IngressClasses: []string{"nginx"}},
+		Cluster: &continuumv1.ClusterFacts{Uid: testkit.FP, StorageClasses: []string{"gp3"}, IngressClasses: []string{"nginx"}},
 		Nodes:   []*continuumv1.NodeFacts{{Key: "n", Name: "n"}}}, false)
 	st := r.hub.Views[id].State
 	if len(st.Nodes) != 0 || len(st.Cluster.StorageClasses) != 0 || len(st.Cluster.IngressClasses) != 0 {
@@ -97,7 +98,7 @@ func TestTierZeroDropsClassListsToo(t *testing.T) {
 // whatever a tier-2 agent happened to send.
 func TestTierOneDropsPodDerivedNodeFigures(t *testing.T) {
 	r := newHubRig(t)
-	id, _, _ := r.approvedAgent(t, fp)
+	id, _, _ := r.approvedAgent(t, testkit.FP)
 	a, _ := r.st.GetAgent(r.ctx, id)
 	a.AccessTier = 1
 	r.hub.Mu.Lock()
@@ -105,7 +106,7 @@ func TestTierOneDropsPodDerivedNodeFigures(t *testing.T) {
 	r.hub.Mu.Unlock()
 	cnt := int32(12)
 	r.hub.ApplySync(a, &continuumv1.Sync{Full: true,
-		Cluster:   &continuumv1.ClusterFacts{Uid: fp},
+		Cluster:   &continuumv1.ClusterFacts{Uid: testkit.FP},
 		Nodes:     []*continuumv1.NodeFacts{{Key: "n", Name: "n", PodCapacity: 110, PodCount: &cnt, CpuRequestedMillis: 900, MemoryRequestedBytes: 1 << 30}},
 		Workloads: []*continuumv1.WorkloadFacts{{Key: "ns/Deployment/x", VolumeClaims: []*continuumv1.VolumeClaim{{Name: "v"}}}}}, false)
 	st := r.hub.Views[id].State

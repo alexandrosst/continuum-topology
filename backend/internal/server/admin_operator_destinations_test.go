@@ -7,6 +7,7 @@ import (
 	"continuum/internal/accounts"
 	"continuum/internal/fusion"
 	"continuum/internal/operators"
+	"continuum/internal/testkit"
 )
 
 func destByID(list []map[string]any, id string) map[string]any {
@@ -24,7 +25,7 @@ func TestOperatorDestinationsAreForEditorsAndHoldNoSecrets(t *testing.T) {
 	_, admin := a.user(t, "alex", accounts.RoleAdmin)
 	_, editor := a.user(t, "ed", accounts.RoleEditor)
 	_, viewer := a.user(t, "vi", accounts.RoleViewer)
-	cl := a.approvedCluster(t, fp)
+	cl := a.approvedCluster(t, testkit.FP)
 	body := extBody("athens", cl)
 	body["exposure"] = "loadbalancer"
 	body["acceptedModalities"] = []string{"metrics"}
@@ -84,7 +85,7 @@ func TestOperatorDestinationsOfferCentralFromTheStart(t *testing.T) {
 	a := newAdminRig(t)
 	_, editor := a.user(t, "ed", accounts.RoleEditor)
 	_, admin := a.user(t, "alex", accounts.RoleAdmin)
-	cl := a.approvedCluster(t, fp)
+	cl := a.approvedCluster(t, testkit.FP)
 	regional := a.createOperatorDoc(t, admin, extBody("athens", cl))["operator"].(map[string]any)["id"].(string)
 
 	// A server with no FUSION has no central operator to offer.
@@ -182,7 +183,7 @@ func TestCentralHealthMapsFusionsStates(t *testing.T) {
 // Waiting is for an operator that can still report: a revoked one that never did is simply unknown.
 func TestHealthIsWaitingOnlyForAnActiveOperatorWithAHeartbeatCredential(t *testing.T) {
 	e := newEnv(t)
-	op, _ := e.hbOperator(t, "athens", fp)
+	op, _ := e.hbOperator(t, "athens", testkit.FP)
 	if h := operators.OperatorHealthAt(op, e.core.Now()); h.State != operators.HealthWaiting || h.HeartbeatEnabledAt == nil {
 		t.Fatalf("active, enabled, unseen: %+v", h)
 	}

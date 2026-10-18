@@ -17,6 +17,7 @@ import (
 	"continuum/internal/fusion"
 	"continuum/internal/fusionapi"
 	"continuum/internal/kernel"
+	"continuum/internal/testkit"
 )
 
 func lr(cluster, peer, dir string, v float64) fusionapi.LinkReading {
@@ -581,7 +582,7 @@ func TestLinkReportFailsWhenTheAgentsCannotBeReadAndTheScreenSaysSo(t *testing.T
 		t.Fatal(err)
 	}
 	real := h.C.Store
-	h.C.Store = agentsDown{real}
+	h.C.Store = testkit.AgentsDown{Store: real}
 	t.Cleanup(func() { h.C.Store = real })
 	if n, s, err := h.LinkReport(context.Background(), links, true); err == nil || n != nil || s != nil {
 		t.Fatalf("a store that failed was answered with %v %v %v", n, s, err)

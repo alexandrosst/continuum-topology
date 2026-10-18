@@ -5,12 +5,13 @@ import (
 	"testing"
 
 	"continuum/internal/accounts"
+	"continuum/internal/testkit"
 )
 
 func TestOperatorsHTTPCreateListGetRevokeDelete(t *testing.T) {
 	a := newAdminRig(t)
 	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
-	cl := a.approvedCluster(t, fp)
+	cl := a.approvedCluster(t, testkit.FP)
 
 	if r := a.do("GET", "/api/v1/operators", nil, withCookie(cookie)); r.Code != 200 {
 		t.Fatalf("list (empty): %d %s", r.Code, r.Body.String())
@@ -120,7 +121,7 @@ func TestOperatorsHTTPCreateListGetRevokeDelete(t *testing.T) {
 func TestOperatorsHTTPRequiresAdminRole(t *testing.T) {
 	a := newAdminRig(t)
 	_, viewer := a.user(t, "jamie", accounts.RoleViewer)
-	cl := a.approvedCluster(t, fp)
+	cl := a.approvedCluster(t, testkit.FP)
 	body := map[string]any{"name": "x", "sourceClusterIds": []string{cl}, "destination": map[string]any{"kind": "external", "endpoint": "c:4317"}}
 	if r := a.do("POST", "/api/v1/operators", body, withCookie(viewer)); r.Code != 403 {
 		t.Fatalf("viewer creating an operator: %d %s", r.Code, r.Body.String())
@@ -136,7 +137,7 @@ func TestOperatorsHTTPRequiresAdminRole(t *testing.T) {
 func TestOperatorsHTTPRejectsBadDestination(t *testing.T) {
 	a := newAdminRig(t)
 	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
-	cl := a.approvedCluster(t, fp)
+	cl := a.approvedCluster(t, testkit.FP)
 	body := map[string]any{"name": "x", "sourceClusterIds": []string{cl}, "destination": map[string]any{"kind": "operator", "targetOperatorId": "op-other"}}
 	if r := a.do("POST", "/api/v1/operators", body, withCookie(cookie)); r.Code != 404 {
 		t.Fatalf("chained destination naming an unknown operator: %d %s", r.Code, r.Body.String())
@@ -154,7 +155,7 @@ func TestOperatorsHTTPRejectsBadDestination(t *testing.T) {
 func TestOperatorsHTTPAcceptsChainingToAnActiveOperator(t *testing.T) {
 	a := newAdminRig(t)
 	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
-	clA := a.approvedCluster(t, fp)
+	clA := a.approvedCluster(t, testkit.FP)
 	upstreamBody := map[string]any{
 		"name":             "upstream",
 		"sourceClusterIds": []string{clA},
@@ -166,7 +167,7 @@ func TestOperatorsHTTPAcceptsChainingToAnActiveOperator(t *testing.T) {
 	}
 	upstreamID, _ := r.json(t)["operator"].(map[string]any)["id"].(string)
 
-	clB := a.approvedCluster(t, fp2)
+	clB := a.approvedCluster(t, testkit.FP2)
 	downstreamBody := map[string]any{
 		"name":             "downstream",
 		"sourceClusterIds": []string{clB},
@@ -192,7 +193,7 @@ func TestOperatorsHTTPAcceptsChainingToAnActiveOperator(t *testing.T) {
 func TestOperatorInstallCommandReleaseNameIsUniquePerOperator(t *testing.T) {
 	a := newAdminRig(t)
 	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
-	cl := a.approvedCluster(t, fp)
+	cl := a.approvedCluster(t, testkit.FP)
 
 	create := func(name string) string {
 		body := map[string]any{

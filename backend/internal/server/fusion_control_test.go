@@ -17,6 +17,7 @@ import (
 	"continuum/internal/kernel"
 	"continuum/internal/operators"
 	"continuum/internal/store"
+	"continuum/internal/testkit"
 )
 
 // fakeKube is the cluster as FusionControl sees it: four named workloads, a Secret, and the calls made on them.
@@ -430,7 +431,7 @@ func TestAnOperatorSendingToTheCentralOperator(t *testing.T) {
 		if r := a.do("POST", "/api/v1/fusion/enable", nil, withCookie(cookie)); r.Code != 200 {
 			t.Fatal(r.Body.String())
 		}
-		cl := a.approvedCluster(t, fp)
+		cl := a.approvedCluster(t, testkit.FP)
 		body := map[string]any{"name": "athens", "sourceClusterIds": []string{cl}, "destination": map[string]any{"kind": "operator", "targetOperatorId": operators.CentralOperatorID}}
 		r := a.do("POST", "/api/v1/operators", body, withCookie(cookie))
 		if r.Code != 201 {

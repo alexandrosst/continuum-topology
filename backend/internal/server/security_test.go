@@ -3,8 +3,6 @@ package server
 import (
 	"context"
 	"crypto/ecdsa"
-	"crypto/rand"
-	"crypto/x509"
 	"fmt"
 	"net"
 	"strings"
@@ -15,6 +13,7 @@ import (
 	"continuum/internal/estate"
 	"continuum/internal/kernel"
 	"continuum/internal/pki"
+	"continuum/internal/testkit"
 
 	"google.golang.org/grpc/codes"
 )
@@ -26,8 +25,8 @@ func (e *env) approvedAgent(t *testing.T, fingerprint string) (string, *ecdsa.Pr
 	if err != nil {
 		t.Fatal(err)
 	}
-	d, key := csr(t)
-	hash, code := approvalFor(t, d)
+	d, key := testkit.CSR(t)
+	hash, code := testkit.ApprovalFor(t, d)
 	resp, err := e.core.Agents.Enroll(e.ctx, "10.0.0.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fingerprint, InstalledAccessTier: 2, ApprovalCodeHash: hash})
 	if err != nil {
 		t.Fatal(err)
@@ -42,15 +41,6 @@ func (e *env) approvedAgent(t *testing.T, fingerprint string) (string, *ecdsa.Pr
 	return resp.AgentId, key, p.LeafDer
 }
 
-func csrWith(t *testing.T, key *ecdsa.PrivateKey) []byte {
-	t.Helper()
-	d, err := x509.CreateCertificateRequest(rand.Reader, &x509.CertificateRequest{}, key)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return d
-}
-
 func TestFingerprintMustBeCanonicalUUID(t *testing.T) {
 	e := newEnv(t)
 	for _, bad := range []string{
@@ -62,9 +52,9 @@ func TestFingerprintMustBeCanonicalUUID(t *testing.T) {
 		"",
 	} {
 		secret, _, _ := e.core.Agents.CreateToken(e.ctx, "admin", "c", 1)
-		d, _ := csr(t)
+		d, _ := testkit.CSR(t)
 		_, err := e.core.Agents.Enroll(e.ctx, "10.0.0.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: bad})
-		if kindOf(err) != kernel.KindInvalid {
+		if testkit.KindOf(err) != kernel.KindInvalid {
 			t.Errorf("fingerprint %q: %v, want invalid", bad, err)
 		}
 	}
@@ -73,12 +63,12 @@ func TestFingerprintMustBeCanonicalUUID(t *testing.T) {
 func TestEnrollRejectsOversizedVersionAndScrubsControlCharacters(t *testing.T) {
 	e := newEnv(t)
 	secret, _, _ := e.core.Agents.CreateToken(e.ctx, "admin", "c", 1)
-	d, _ := csr(t)
-	_, err := e.core.Agents.Enroll(e.ctx, "10.0.0.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fp, AgentVersion: strings.Repeat("x", 65)})
-	if kindOf(err) != kernel.KindInvalid {
+	d, _ := testkit.CSR(t)
+	_, err := e.core.Agents.Enroll(e.ctx, "10.0.0.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: testkit.FP, AgentVersion: strings.Repeat("x", 65)})
+	if testkit.KindOf(err) != kernel.KindInvalid {
 		t.Fatalf("long version: %v", err)
 	}
-	resp, err := e.core.Agents.Enroll(e.ctx, "10.0.0.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fp, AgentVersion: "1.0\n\x1b[31mred", ApprovalCodeHash: hashFor(t, d)})
+	resp, err := e.core.Agents.Enroll(e.ctx, "10.0.0.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: testkit.FP, AgentVersion: "1.0\n\x1b[31mred", ApprovalCodeHash: testkit.HashFor(t, d)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,10 +80,10 @@ func TestEnrollRejectsOversizedVersionAndScrubsControlCharacters(t *testing.T) {
 
 func TestRejoinAfterOutageAndItsLimits(t *testing.T) {
 	e := newEnv(t)
-	id, key, leaf := e.approvedAgent(t, fp)
+	id, key, leaf := e.approvedAgent(t, testkit.FP)
 	real := *e.now
 	rejoin := func(leafDER []byte, k *ecdsa.PrivateKey) error {
-		_, err := e.core.Agents.Rejoin(e.ctx, "10.0.0.1", &continuumv1.RejoinRequest{ExpiredLeafDer: leafDER, CsrDer: csrWith(t, k)})
+		_, err := e.core.Agents.Rejoin(e.ctx, "10.0.0.1", &continuumv1.RejoinRequest{ExpiredLeafDer: leafDER, CsrDer: testkit.CSRWith(t, k)})
 		return err
 	}
 
@@ -108,24 +98,24 @@ func TestRejoinAfterOutageAndItsLimits(t *testing.T) {
 	}
 
 	// A request made with a different key is refused even though the certificate is genuine.
-	_, otherKey := csr(t)
-	if err := rejoin(leaf, otherKey); kindOf(err) != kernel.KindUnauthenticated {
+	_, otherKey := testkit.CSR(t)
+	if err := rejoin(leaf, otherKey); testkit.KindOf(err) != kernel.KindUnauthenticated {
 		t.Fatalf("someone else's key: %v", err)
 	}
 	// A certificate from a different CA is refused.
 	other, _ := pki.LoadOrCreate(t.TempDir())
-	parsed, _ := pki.ParseCSR(csrWith(t, key))
+	parsed, _ := pki.ParseCSR(testkit.CSRWith(t, key))
 	foreign, _, _ := other.IssueAgent(parsed, id, "org-1", time.Hour)
-	if err := rejoin(foreign, key); kindOf(err) != kernel.KindUnauthenticated {
+	if err := rejoin(foreign, key); testkit.KindOf(err) != kernel.KindUnauthenticated {
 		t.Fatalf("foreign CA: %v", err)
 	}
 	// Garbage is refused.
-	if err := rejoin([]byte("nope"), key); kindOf(err) != kernel.KindUnauthenticated {
+	if err := rejoin([]byte("nope"), key); testkit.KindOf(err) != kernel.KindUnauthenticated {
 		t.Fatalf("garbage: %v", err)
 	}
 	// Too long ago: the window is pki.RejoinWindow (60 days).
 	*e.now = real.Add(pki.RejoinWindow + 72*time.Hour)
-	if err := rejoin(leaf, key); kindOf(err) != kernel.KindUnauthenticated {
+	if err := rejoin(leaf, key); testkit.KindOf(err) != kernel.KindUnauthenticated {
 		t.Fatalf("outside the window: %v", err)
 	}
 	// Revocation always wins, even inside the window.
@@ -133,7 +123,7 @@ func TestRejoinAfterOutageAndItsLimits(t *testing.T) {
 	if err := e.core.Agents.Revoke(e.ctx, "alex", id, "test"); err != nil {
 		t.Fatal(err)
 	}
-	if err := rejoin(leaf, key); kindOf(err) != kernel.KindUnauthenticated {
+	if err := rejoin(leaf, key); testkit.KindOf(err) != kernel.KindUnauthenticated {
 		t.Fatalf("revoked agent rejoined: %v", err)
 	}
 }
@@ -147,7 +137,7 @@ func TestRejoinIsRateLimitedPerAddress(t *testing.T) {
 		if i >= 2 {
 			want = kernel.KindRateLimited
 		}
-		if kindOf(err) != want {
+		if testkit.KindOf(err) != want {
 			t.Fatalf("attempt %d: %v, want kind %v", i, err, want)
 		}
 	}
@@ -155,12 +145,12 @@ func TestRejoinIsRateLimitedPerAddress(t *testing.T) {
 
 func TestRenewIsRateLimitedPerAgent(t *testing.T) {
 	e := newEnv(t)
-	id, _, _ := e.approvedAgent(t, fp)
+	id, _, _ := e.approvedAgent(t, testkit.FP)
 	e.core.RenewRL = kernel.NewLimiter(1, 2)
 	var limited int
 	for i := 0; i < 5; i++ {
-		d, _ := csr(t)
-		if _, _, err := e.core.Agents.Renew(e.ctx, id, d); kindOf(err) == kernel.KindRateLimited {
+		d, _ := testkit.CSR(t)
+		if _, _, err := e.core.Agents.Renew(e.ctx, id, d); testkit.KindOf(err) == kernel.KindRateLimited {
 			limited++
 		} else if err != nil {
 			t.Fatal(err)
@@ -211,7 +201,7 @@ func TestTapCutsOffUnauthenticatedCallersBeforeTheBodyIsRead(t *testing.T) {
 	var limited int
 	for i := 0; i < 4; i++ {
 		_, err := enr.PollEnrollment(ctx, &continuumv1.PollRequest{AgentId: "ag-x", PollSecret: "s"})
-		if code(err) == codes.ResourceExhausted {
+		if testkit.StatusCode(err) == codes.ResourceExhausted {
 			limited++
 		}
 	}
@@ -221,7 +211,7 @@ func TestTapCutsOffUnauthenticatedCallersBeforeTheBodyIsRead(t *testing.T) {
 
 	// AgentService without a certificate: refused even with a 12 MB message.
 	anon := continuumv1.NewAgentServiceClient(r.dial(t, pki.ClientTLS(pin, "127.0.0.1", nil)))
-	if _, err := anon.Renew(ctx, &continuumv1.RenewRequest{CsrDer: make([]byte, 12<<20)}); code(err) != codes.Unauthenticated {
+	if _, err := anon.Renew(ctx, &continuumv1.RenewRequest{CsrDer: make([]byte, 12<<20)}); testkit.StatusCode(err) != codes.Unauthenticated {
 		t.Fatalf("large anonymous message: %v", err)
 	}
 }

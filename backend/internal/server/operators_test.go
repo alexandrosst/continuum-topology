@@ -14,9 +14,8 @@ import (
 	"continuum/internal/kernel"
 	"continuum/internal/operators"
 	"continuum/internal/store"
+	"continuum/internal/testkit"
 )
-
-const fp2 = "8f3c2a9e-2222-4222-8333-944455556677"
 
 // approvedCluster enrolls and approves one agent, returning the cluster id CreateOperator's own
 // validation checks source clusters against.
@@ -50,7 +49,7 @@ func extDest(endpoint string) store.Destination {
 
 func TestCreateOperatorHappyPathIsMTLSOnlyWithNoReceiverToken(t *testing.T) {
 	e := newEnv(t)
-	cl := e.approvedCluster(t, fp)
+	cl := e.approvedCluster(t, testkit.FP)
 	op, secret, bundle, err := e.core.Operators.CreateOperator(e.ctx, "alex", "athens-regional", []string{cl}, extDest("collector.example:4317"), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -87,12 +86,12 @@ func TestCreateOperatorWithNoSourceClustersIsValid(t *testing.T) {
 
 func TestCreateOperatorRejectsAnUnapprovedOrForeignClusterID(t *testing.T) {
 	e := newEnv(t)
-	if _, _, _, err := e.core.Operators.CreateOperator(e.ctx, "alex", "x", []string{"cl-does-not-exist"}, extDest("c:4317"), nil); kindOf(err) != kernel.KindInvalid {
+	if _, _, _, err := e.core.Operators.CreateOperator(e.ctx, "alex", "x", []string{"cl-does-not-exist"}, extDest("c:4317"), nil); testkit.KindOf(err) != kernel.KindInvalid {
 		t.Fatalf("expected KindInvalid for an unknown cluster id, got %v", err)
 	}
 	// A pending (not yet approved) agent's cluster is not eligible either - it has no ClusterID yet.
-	e.enroll(t, 2, fp)
-	if _, _, _, err := e.core.Operators.CreateOperator(e.ctx, "alex", "x", []string{""}, extDest("c:4317"), nil); kindOf(err) != kernel.KindInvalid {
+	e.enroll(t, 2, testkit.FP)
+	if _, _, _, err := e.core.Operators.CreateOperator(e.ctx, "alex", "x", []string{""}, extDest("c:4317"), nil); testkit.KindOf(err) != kernel.KindInvalid {
 		t.Fatalf("expected KindInvalid for an empty cluster id, got %v", err)
 	}
 }
@@ -104,30 +103,30 @@ func TestCreateOperatorRejectsAnUnapprovedOrForeignClusterID(t *testing.T) {
 // itself follows.
 func TestCreateOperatorAcceptsChainingToAnActiveOperatorInOrg(t *testing.T) {
 	e := newEnv(t)
-	clA := e.approvedCluster(t, fp)
+	clA := e.approvedCluster(t, testkit.FP)
 	target, _, _, err := e.core.Operators.CreateOperator(e.ctx, "alex", "upstream", []string{clA}, extDest("upstream.example:4317"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	clB := e.approvedCluster(t, fp2)
+	clB := e.approvedCluster(t, testkit.FP2)
 	dest := store.Destination{Kind: store.DestinationOperator, TargetOperatorID: target.ID}
 	if _, _, _, err := e.core.Operators.CreateOperator(e.ctx, "alex", "downstream", []string{clB}, dest, nil); err != nil {
 		t.Fatalf("expected an active in-org operator destination to be accepted, got %v", err)
 	}
 
 	// An operator that something sends to is not revoked by accident; forced, it is.
-	if err := e.core.Operators.RevokeOperator(e.ctx, "alex", target.ID, "decommissioned"); kindOf(err) != kernel.KindConflict {
+	if err := e.core.Operators.RevokeOperator(e.ctx, "alex", target.ID, "decommissioned"); testkit.KindOf(err) != kernel.KindConflict {
 		t.Fatalf("revoking an operator another one exports into: %v", err)
 	}
 	if err := e.core.Operators.RevokeOperatorForce(e.ctx, "alex", target.ID, "decommissioned", true); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, err := e.core.Operators.CreateOperator(e.ctx, "alex", "downstream-2", []string{clB}, dest, nil); kindOf(err) != kernel.KindInvalid {
+	if _, _, _, err := e.core.Operators.CreateOperator(e.ctx, "alex", "downstream-2", []string{clB}, dest, nil); testkit.KindOf(err) != kernel.KindInvalid {
 		t.Fatalf("expected KindInvalid chaining to a revoked operator, got %v", err)
 	}
 
-	if _, _, _, err := e.core.Operators.CreateOperator(e.ctx, "alex", "downstream-3", []string{clB}, store.Destination{Kind: store.DestinationOperator, TargetOperatorID: "op-does-not-exist"}, nil); kindOf(err) != kernel.KindNotFound {
+	if _, _, _, err := e.core.Operators.CreateOperator(e.ctx, "alex", "downstream-3", []string{clB}, store.Destination{Kind: store.DestinationOperator, TargetOperatorID: "op-does-not-exist"}, nil); testkit.KindOf(err) != kernel.KindNotFound {
 		t.Fatalf("expected KindNotFound chaining to an unknown operator, got %v", err)
 	}
 
@@ -138,34 +137,34 @@ func TestCreateOperatorAcceptsChainingToAnActiveOperatorInOrg(t *testing.T) {
 	// cluster list does not mask the destination check this is exercising.
 	other := e.base.ForOrg("org-2")
 	foreignDest := store.Destination{Kind: store.DestinationOperator, TargetOperatorID: target.ID}
-	if _, _, _, err := other.Operators.CreateOperator(e.ctx, "alex", "cross-org", []string{"irrelevant"}, foreignDest, nil); kindOf(err) != kernel.KindNotFound {
+	if _, _, _, err := other.Operators.CreateOperator(e.ctx, "alex", "cross-org", []string{"irrelevant"}, foreignDest, nil); testkit.KindOf(err) != kernel.KindNotFound {
 		t.Fatalf("expected KindNotFound chaining to another organisation's operator, got %v", err)
 	}
 }
 
 func TestCreateOperatorValidatesNameAndEndpoint(t *testing.T) {
 	e := newEnv(t)
-	cl := e.approvedCluster(t, fp)
-	if _, _, _, err := e.core.Operators.CreateOperator(e.ctx, "alex", "   ", []string{cl}, extDest("c:4317"), nil); kindOf(err) != kernel.KindInvalid {
+	cl := e.approvedCluster(t, testkit.FP)
+	if _, _, _, err := e.core.Operators.CreateOperator(e.ctx, "alex", "   ", []string{cl}, extDest("c:4317"), nil); testkit.KindOf(err) != kernel.KindInvalid {
 		t.Fatalf("blank name: %v", err)
 	}
-	if _, _, _, err := e.core.Operators.CreateOperator(e.ctx, "alex", "x", []string{cl}, extDest(""), nil); kindOf(err) != kernel.KindInvalid {
+	if _, _, _, err := e.core.Operators.CreateOperator(e.ctx, "alex", "x", []string{cl}, extDest(""), nil); testkit.KindOf(err) != kernel.KindInvalid {
 		t.Fatalf("blank endpoint: %v", err)
 	}
 }
 
 func TestCreateOperatorRejectsADuplicateSourceCluster(t *testing.T) {
 	e := newEnv(t)
-	cl := e.approvedCluster(t, fp)
-	if _, _, _, err := e.core.Operators.CreateOperator(e.ctx, "alex", "x", []string{cl, cl}, extDest("c:4317"), nil); kindOf(err) != kernel.KindInvalid {
+	cl := e.approvedCluster(t, testkit.FP)
+	if _, _, _, err := e.core.Operators.CreateOperator(e.ctx, "alex", "x", []string{cl, cl}, extDest("c:4317"), nil); testkit.KindOf(err) != kernel.KindInvalid {
 		t.Fatalf("expected KindInvalid for a duplicate source cluster, got %v", err)
 	}
 }
 
 func TestUpdateScopeRevokeAndDeleteOperator(t *testing.T) {
 	e := newEnv(t)
-	clA := e.approvedCluster(t, fp)
-	clB := e.approvedCluster(t, fp2)
+	clA := e.approvedCluster(t, testkit.FP)
+	clB := e.approvedCluster(t, testkit.FP2)
 	op, _, _, err := e.core.Operators.CreateOperator(e.ctx, "alex", "athens-regional", []string{clA}, extDest("collector.example:4317"), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -186,24 +185,24 @@ func TestUpdateScopeRevokeAndDeleteOperator(t *testing.T) {
 	if got.Status != store.OperatorRevoked || got.Reason != "decommissioned" {
 		t.Fatalf("%+v", got)
 	}
-	if err := e.core.Operators.UpdateOperatorScope(e.ctx, "alex", op.ID, []string{clA}, extDest("x:4317"), nil); kindOf(err) != kernel.KindConflict {
+	if err := e.core.Operators.UpdateOperatorScope(e.ctx, "alex", op.ID, []string{clA}, extDest("x:4317"), nil); testkit.KindOf(err) != kernel.KindConflict {
 		t.Fatalf("expected KindConflict changing a revoked operator's scope, got %v", err)
 	}
-	if err := e.core.Operators.RevokeOperator(e.ctx, "alex", op.ID, "again"); kindOf(err) != kernel.KindConflict {
+	if err := e.core.Operators.RevokeOperator(e.ctx, "alex", op.ID, "again"); testkit.KindOf(err) != kernel.KindConflict {
 		t.Fatalf("expected KindConflict revoking twice, got %v", err)
 	}
 
 	if err := e.core.Operators.DeleteOperator(e.ctx, "alex", op.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.core.Operators.GetOperator(e.ctx, op.ID); kindOf(err) != kernel.KindNotFound {
+	if _, err := e.core.Operators.GetOperator(e.ctx, op.ID); testkit.KindOf(err) != kernel.KindNotFound {
 		t.Fatalf("expected KindNotFound after delete, got %v", err)
 	}
 }
 
 func TestOperatorsAreScopedToTheirOrganisation(t *testing.T) {
 	e := newEnv(t)
-	cl := e.approvedCluster(t, fp)
+	cl := e.approvedCluster(t, testkit.FP)
 	op, _, _, err := e.core.Operators.CreateOperator(e.ctx, "alex", "athens-regional", []string{cl}, extDest("collector.example:4317"), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -212,7 +211,7 @@ func TestOperatorsAreScopedToTheirOrganisation(t *testing.T) {
 		t.Fatal(err)
 	}
 	other := e.base.ForOrg("org-2")
-	if _, err := other.Operators.GetOperator(e.ctx, op.ID); kindOf(err) != kernel.KindNotFound {
+	if _, err := other.Operators.GetOperator(e.ctx, op.ID); testkit.KindOf(err) != kernel.KindNotFound {
 		t.Fatalf("an operator from another organisation must be invisible, got %v", err)
 	}
 	list, err := other.Operators.ListOperators(e.ctx)
@@ -223,7 +222,7 @@ func TestOperatorsAreScopedToTheirOrganisation(t *testing.T) {
 
 func TestCreateOperatorAudits(t *testing.T) {
 	e := newEnv(t)
-	cl := e.approvedCluster(t, fp)
+	cl := e.approvedCluster(t, testkit.FP)
 	op, _, _, err := e.core.Operators.CreateOperator(e.ctx, "alex", "athens-regional", []string{cl}, extDest("collector.example:4317"), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -249,7 +248,7 @@ func TestCreateOperatorAudits(t *testing.T) {
 // same not-found-not-forbidden convention operatorInOrg already uses for the last of those.
 func TestIssueOperatorClientCertReissuesOnDemand(t *testing.T) {
 	e := newEnv(t)
-	cl := e.approvedCluster(t, fp)
+	cl := e.approvedCluster(t, testkit.FP)
 	op, _, _, err := e.core.Operators.CreateOperator(e.ctx, "alex", "athens-regional", []string{cl}, extDest("collector.example:4317"), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -290,11 +289,11 @@ func TestIssueOperatorClientCertReissuesOnDemand(t *testing.T) {
 	if err := e.core.Operators.RevokeOperator(e.ctx, "alex", op.ID, "decommissioned"); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, err := e.core.Operators.IssueOperatorClientCertFor(e.ctx, "alex", op.ID, "cl-test", ""); kindOf(err) != kernel.KindConflict {
+	if _, _, _, err := e.core.Operators.IssueOperatorClientCertFor(e.ctx, "alex", op.ID, "cl-test", ""); testkit.KindOf(err) != kernel.KindConflict {
 		t.Fatalf("expected KindConflict reissuing for a revoked operator, got %v", err)
 	}
 
-	if _, _, _, err := e.core.Operators.IssueOperatorClientCertFor(e.ctx, "alex", "op-does-not-exist", "cl-test", ""); kindOf(err) != kernel.KindNotFound {
+	if _, _, _, err := e.core.Operators.IssueOperatorClientCertFor(e.ctx, "alex", "op-does-not-exist", "cl-test", ""); testkit.KindOf(err) != kernel.KindNotFound {
 		t.Fatalf("expected KindNotFound reissuing for an unknown operator, got %v", err)
 	}
 
@@ -302,14 +301,14 @@ func TestIssueOperatorClientCertReissuesOnDemand(t *testing.T) {
 		t.Fatal(err)
 	}
 	other := e.base.ForOrg("org-2")
-	if _, _, _, err := other.Operators.IssueOperatorClientCertFor(e.ctx, "alex", op.ID, "cl-test", ""); kindOf(err) != kernel.KindNotFound {
+	if _, _, _, err := other.Operators.IssueOperatorClientCertFor(e.ctx, "alex", op.ID, "cl-test", ""); testkit.KindOf(err) != kernel.KindNotFound {
 		t.Fatalf("expected KindNotFound reissuing for another organisation's operator, got %v", err)
 	}
 }
 
 func TestOperatorLabelsAreValidatedTrimmedAndStored(t *testing.T) {
 	e := newEnv(t)
-	cl := e.approvedCluster(t, fp)
+	cl := e.approvedCluster(t, testkit.FP)
 	create := func(labels ...store.OperatorLabel) (store.Operator, error) {
 		op, _, _, _, err := e.core.Operators.CreateOperatorWithOptions(e.ctx, "alex", "op-"+t.Name(), []string{cl}, extDest("c:4317"), nil, operators.OperatorOptions{Labels: labels})
 		return op, err
@@ -324,7 +323,7 @@ func TestOperatorLabelsAreValidatedTrimmedAndStored(t *testing.T) {
 		"duplicate":       {{Key: "region", Value: "a"}, {Key: "region", Value: "b"}},
 	}
 	for name, labels := range bad {
-		if _, err := create(labels...); kindOf(err) != kernel.KindInvalid {
+		if _, err := create(labels...); testkit.KindOf(err) != kernel.KindInvalid {
 			t.Fatalf("%s: err = %v, want KindInvalid", name, err)
 		}
 	}
@@ -332,7 +331,7 @@ func TestOperatorLabelsAreValidatedTrimmedAndStored(t *testing.T) {
 	for i := 0; i <= operators.MaxOperatorLabels; i++ {
 		tooMany = append(tooMany, store.OperatorLabel{Key: fmt.Sprintf("k%d", i), Value: "v"})
 	}
-	if _, err := create(tooMany...); kindOf(err) != kernel.KindInvalid {
+	if _, err := create(tooMany...); testkit.KindOf(err) != kernel.KindInvalid {
 		t.Fatalf("too many labels: err = %v", err)
 	}
 	op, err := create(store.OperatorLabel{Key: " region ", Value: " eu-south "})
@@ -365,13 +364,13 @@ func TestOperatorDestinationsCannotLoop(t *testing.T) {
 	b := mk("b", toOp(a.ID))
 	c := mk("c", toOp(b.ID)) // a plain chain c -> b -> a -> backend
 
-	if err := e.core.Operators.UpdateOperatorScope(e.ctx, "alex", a.ID, nil, toOp(a.ID), nil); kindOf(err) != kernel.KindInvalid {
+	if err := e.core.Operators.UpdateOperatorScope(e.ctx, "alex", a.ID, nil, toOp(a.ID), nil); testkit.KindOf(err) != kernel.KindInvalid {
 		t.Fatalf("an operator exporting to itself: %v", err)
 	}
-	if err := e.core.Operators.UpdateOperatorScope(e.ctx, "alex", a.ID, nil, toOp(b.ID), nil); kindOf(err) != kernel.KindInvalid {
+	if err := e.core.Operators.UpdateOperatorScope(e.ctx, "alex", a.ID, nil, toOp(b.ID), nil); testkit.KindOf(err) != kernel.KindInvalid {
 		t.Fatalf("a -> b -> a: %v", err)
 	}
-	if err := e.core.Operators.UpdateOperatorScope(e.ctx, "alex", a.ID, nil, toOp(c.ID), nil); kindOf(err) != kernel.KindInvalid {
+	if err := e.core.Operators.UpdateOperatorScope(e.ctx, "alex", a.ID, nil, toOp(c.ID), nil); testkit.KindOf(err) != kernel.KindInvalid {
 		t.Fatalf("a -> c -> b -> a: %v", err)
 	}
 	got, _ := e.core.Operators.GetOperator(e.ctx, a.ID)
@@ -392,7 +391,7 @@ func TestOperatorDestinationsCannotLoop(t *testing.T) {
 	if err := e.st.UpdateOperatorScope(e.ctx, d.ID, nil, toOp(c.ID), nil); err != nil { // d -> c -> b -> d
 		t.Fatal(err)
 	}
-	if _, _, _, err := e.core.Operators.CreateOperator(e.ctx, "alex", "e", nil, toOp(c.ID), nil); kindOf(err) != kernel.KindInvalid {
+	if _, _, _, err := e.core.Operators.CreateOperator(e.ctx, "alex", "e", nil, toOp(c.ID), nil); testkit.KindOf(err) != kernel.KindInvalid {
 		t.Fatalf("a new operator exporting into an existing loop: %v", err)
 	}
 }
@@ -417,8 +416,8 @@ func (e *env) auditDetail(t *testing.T, action, id string) string {
 // enough to answer "who pointed this at what, and when" from the trail alone, and nothing that is a secret.
 func TestOperatorAuditRowsSayWhereItSendsAndWhoCameAndWent(t *testing.T) {
 	e := newEnv(t)
-	clA := e.approvedCluster(t, fp)
-	clB := e.approvedCluster(t, fp2)
+	clA := e.approvedCluster(t, testkit.FP)
+	clB := e.approvedCluster(t, testkit.FP2)
 	op, _, _, err := e.core.Operators.CreateOperator(e.ctx, "alex", "athens-regional", []string{clA}, extDest("collector.example:4317"), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -472,7 +471,7 @@ func (s *ledgerStore) AddOperatorCert(ctx context.Context, c store.OperatorCert)
 // with what it has and the person simply runs it again.
 func TestAReceiverCertificateThatCannotBeRecordedIsNotHandedOut(t *testing.T) {
 	e := newEnv(t)
-	cl := e.approvedCluster(t, fp)
+	cl := e.approvedCluster(t, testkit.FP)
 	ls := &ledgerStore{Store: e.core.Store, fail: true}
 	core := e.base.ForOrg("org-1")
 	core.Store = ls
@@ -509,7 +508,7 @@ func TestAReceiverCertificateThatCannotBeRecordedIsNotHandedOut(t *testing.T) {
 // certificate is never minted and recorded for an operator that was revoked in the middle.
 func TestCertificateIssuingIsOrderedAgainstRevokeAndDelete(t *testing.T) {
 	e := newEnv(t)
-	cl := e.approvedCluster(t, fp)
+	cl := e.approvedCluster(t, testkit.FP)
 	op, _, _, err := e.core.Operators.CreateOperator(e.ctx, "alex", "x", []string{cl}, extDest("c:4317"), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -546,7 +545,7 @@ func TestCertificateIssuingIsOrderedAgainstRevokeAndDelete(t *testing.T) {
 // with a revoke queued behind them they must not wait on themselves.
 func TestIssuingInsideTheLockDoesNotDeadlockWithAWaitingRevoke(t *testing.T) {
 	e := newEnv(t)
-	cl := e.approvedCluster(t, fp)
+	cl := e.approvedCluster(t, testkit.FP)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
