@@ -1,4 +1,4 @@
-package server
+package connectivity
 
 import (
 	"crypto/sha256"
@@ -57,7 +57,7 @@ func digestOfSection(part *continuumv1.Config) string {
 	return hex.EncodeToString(sum[:16])
 }
 
-// configHash is the digest of the whole Config: a hash of the digests of its sections.
+// ConfigHash is the digest of the whole Config: a hash of the digests of its sections.
 func ConfigHash(c *continuumv1.Config) string {
 	ds := sectionDigests(c)
 	parts := make([]string, 0, len(ds))

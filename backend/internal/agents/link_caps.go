@@ -8,10 +8,10 @@ import (
 
 // What an agent says its install can do for the cluster-link telemetry (Heartbeat.link_capabilities). The server keeps the latest
 // one per agent in memory, like the diagnostics (not persisted: the next heartbeat, at most two minutes after a connect, brings it
-// back), and uses it to tell an administrator which step of setting a pair up is missing (see linkSetup).
+// back), and uses it to tell an administrator which step of setting a pair up is missing (see connectivity.LinkSetupSteps).
 //
 // An agent that does not send it (one older than the field) leaves this zero, and the zero value means "not reported", which
-// linkSetup reads as unknown and never as "all off": an old agent behaves exactly as it did.
+// connectivity.LinkSetupSteps reads as unknown and never as "all off": an old agent behaves exactly as it did.
 
 // LinkCaps is one agent's last report. Reported is when the server received it; the zero value is "never reported".
 type LinkCaps struct {

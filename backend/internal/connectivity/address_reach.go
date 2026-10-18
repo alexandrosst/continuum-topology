@@ -1,4 +1,4 @@
-package server
+package connectivity
 
 import (
 	"time"
@@ -16,15 +16,15 @@ import (
 // checked when data is sent, and the operator's stable name is what it is checked against.
 
 const (
-	// addressTestTTL is how long a test stays in the agent's targets and its result stays readable.
+	// AddressTestTTL is how long a test stays in the agent's targets and its result stays readable.
 	AddressTestTTL = 10 * time.Minute
-	// maxAddressTests bounds the tests one agent holds at once, so a person cannot turn the agent into a port scanner.
+	// MaxAddressTests bounds the tests one agent holds at once, so a person cannot turn the agent into a port scanner.
 	MaxAddressTests = 6
-	// sourceAddressTest marks a target issued for a test, as opposed to an observed or a manual one.
+	// SourceAddressTest marks a target issued for a test, as opposed to an observed or a manual one.
 	SourceAddressTest = "address-test"
 )
 
-// addressTest is one address being tried from one agent. Kept on the agent's view and lost with it on a restart.
+// AddressTest is one address being tried from one agent. Kept on the agent's view and lost with it on a restart.
 type AddressTest struct {
 	ID      string
 	Address string

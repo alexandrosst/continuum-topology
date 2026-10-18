@@ -8,6 +8,7 @@ import (
 	continuumv1 "continuum/gen/continuumv1"
 
 	"continuum/internal/accounts"
+	"continuum/internal/connectivity"
 	"continuum/internal/operators"
 )
 
@@ -104,12 +105,12 @@ func TestTheServerRetestsASendersAddressOnItsOwnAndKeepsTheResult(t *testing.T) 
 	}
 
 	// Once the result is old enough it is tested again, and an old one is no longer shown.
-	*a.now = a.now.Add(DriftEvery + time.Minute)
+	*a.now = a.now.Add(connectivity.DriftEvery + time.Minute)
 	h.driftSweep(a.ctx)
 	if q2 := quietTests(a, agentID); q2["10.20.0.14:31317"] == "" || q2["10.20.0.14:31317"] == q["10.20.0.14:31317"] {
 		t.Fatalf("an old result was not refreshed: %v", q2)
 	}
-	*a.now = a.now.Add(2 * ReachFresh)
+	*a.now = a.now.Add(2 * connectivity.ReachFresh)
 	if r := h.reachOf(agentID, "10.20.0.14:31317", *a.now); r != nil {
 		t.Fatalf("a result from hours ago is shown as current: %+v", r)
 	}
@@ -146,8 +147,8 @@ func TestDriftTestsGiveWayToAPersonsAndSkipWhatCannotBeTested(t *testing.T) {
 
 func TestDiagnosisUsesAnAddressTestFromTheSendersOwnCluster(t *testing.T) {
 	base := diagnosisInput{ClusterName: "patras-edge", Connected: true, Address: "10.20.0.14:31317", AddrSource: "chosen", OperatorID: "op-1", OperatorState: operators.HealthOnline}
-	down := &AddressReachDoc{State: "unreachable", At: "2026-10-12T10:00:00Z"}
-	up := &AddressReachDoc{State: "reachable", At: "2026-10-12T10:00:00Z"}
+	down := &connectivity.AddressReachDoc{State: "unreachable", At: "2026-10-12T10:00:00Z"}
+	up := &connectivity.AddressReachDoc{State: "reachable", At: "2026-10-12T10:00:00Z"}
 
 	in := base
 	in.Reach, in.Delivery = down, &SenderDeliveryDoc{State: "waiting"}

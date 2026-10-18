@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"continuum/internal/connectivity"
 	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
@@ -11,7 +12,7 @@ import (
 // LinkReport is the notes and the checklists of the listed pairs for the organisation's current agents, in one read of the agents.
 // haveFusion says whether this server has a FUSION at all (for this organisation). It fails when the agents cannot be read: an empty
 // list would read as "nothing needs doing", which is not known then.
-func (h *Hub) LinkReport(ctx context.Context, links []kernel.LinkSetting, haveFusion bool) ([]LinkNote, []LinkSetup, error) {
+func (h *Hub) LinkReport(ctx context.Context, links []kernel.LinkSetting, haveFusion bool) ([]connectivity.LinkNote, []connectivity.LinkSetup, error) {
 	if len(links) == 0 {
 		return nil, nil, nil
 	}
@@ -36,11 +37,11 @@ func (h *Hub) LinkReport(ctx context.Context, links []kernel.LinkSetting, haveFu
 }
 
 // linkSetups is the checklist of each listed pair. Called with h.mu held; agents and paused as for linkNotes.
-func (h *Hub) linkSetups(links []kernel.LinkSetting, agentList []store.Agent, flowPausedOf map[string]bool, haveFusion bool, now time.Time) []LinkSetup {
-	byCluster := ApprovedByCluster(agentList)
+func (h *Hub) linkSetups(links []kernel.LinkSetting, agentList []store.Agent, flowPausedOf map[string]bool, haveFusion bool, now time.Time) []connectivity.LinkSetup {
+	byCluster := connectivity.ApprovedByCluster(agentList)
 	plan := h.planner(links, agentList)
-	end := func(l kernel.LinkSetting, c, peer string) SetupEnd {
-		e := SetupEnd{ID: c}
+	end := func(l kernel.LinkSetting, c, peer string) connectivity.SetupEnd {
+		e := connectivity.SetupEnd{ID: c}
 		a, ok := byCluster[c]
 		if !ok {
 			return e
@@ -54,9 +55,9 @@ func (h *Hub) linkSetups(links []kernel.LinkSetting, agentList []store.Agent, fl
 		}
 		return e
 	}
-	out := make([]LinkSetup, 0, len(links))
+	out := make([]connectivity.LinkSetup, 0, len(links))
 	for _, l := range links {
-		out = append(out, LinkSetup{A: l.A, B: l.B, Steps: LinkSetupSteps(l, end(l, l.A, l.B), end(l, l.B, l.A), haveFusion, now)})
+		out = append(out, connectivity.LinkSetup{A: l.A, B: l.B, Steps: connectivity.LinkSetupSteps(l, end(l, l.A, l.B), end(l, l.B, l.A), haveFusion, now)})
 	}
 	return out
 }

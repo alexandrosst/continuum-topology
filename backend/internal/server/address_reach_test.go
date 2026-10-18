@@ -8,6 +8,7 @@ import (
 
 	"continuum/internal/accounts"
 	"continuum/internal/agents"
+	"continuum/internal/connectivity"
 )
 
 // connectedAgent is an approved agent with a live view and a stream the hub can push a Config on.
@@ -184,7 +185,7 @@ func TestAnAddressTestExpiresAndLeavesTheAgentsTargets(t *testing.T) {
 	if cfg := a.hub().configFor(ag, v); len(cfg.ProbeTargets) != 1 {
 		t.Fatalf("targets while the test is live: %v", cfg.ProbeTargets)
 	}
-	*a.now = a.now.Add(AddressTestTTL + time.Minute)
+	*a.now = a.now.Add(connectivity.AddressTestTTL + time.Minute)
 	if got := readTests(t, a, cookie, agentID); len(got) != 0 {
 		t.Fatalf("an expired test is still listed: %v", got)
 	}

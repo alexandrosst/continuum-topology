@@ -10,6 +10,7 @@ import (
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/accounts"
 	"continuum/internal/agents"
+	"continuum/internal/connectivity"
 	"continuum/internal/facts"
 	"continuum/internal/kernel"
 	"continuum/internal/observed"
@@ -308,7 +309,7 @@ func TestTheSecondClusterProbesAgainWhenTheFirstOnesFlowCollectorIsPaused(t *tes
 		t.Fatal(err)
 	}
 	newV := func(ip string) *view {
-		return &view{estView: estView{state: nodeState(ip), flows: observed.NewFlowTable()}, NetView: NetView{Paths: map[string]*PathTrack{}, Targets: map[string]IssuedTarget{}}}
+		return &view{estView: estView{state: nodeState(ip), flows: observed.NewFlowTable()}, NetView: connectivity.NetView{Paths: map[string]*connectivity.PathTrack{}, Targets: map[string]connectivity.IssuedTarget{}}}
 	}
 	fv, sv := newV("10.0.0.1"), newV("10.9.0.1")
 	r.hub.mu.Lock()
@@ -345,7 +346,7 @@ func TestTheSecondClusterProbesAgainWhenTheFirstOnesFlowCollectorIsPaused(t *tes
 func TestAPairThatIsNotMeasuredSaysWhy(t *testing.T) {
 	a, b := ag("ag-a", "cl-a", "alpha", "203.0.113.1", 2), ag("ag-b", "cl-b", "beta", "203.0.113.2", 2)
 	links := []kernel.LinkSetting{{A: "cl-a", B: "cl-b"}}
-	codes := func(ns []LinkNote) string {
+	codes := func(ns []connectivity.LinkNote) string {
 		var out []string
 		for _, n := range ns {
 			if n.Code != "private-range" { // a hint, tested on its own
@@ -425,8 +426,8 @@ func TestAPairPinnedToAKindThePeerHasNoneOfSaysSo(t *testing.T) {
 	a, b := ag("ag-a", "cl-a", "alpha", "203.0.113.1", 2), ag("ag-b", "cl-b", "beta", "203.0.113.2", 2)
 	h := linkHub(map[string]*view{"ag-a": {estView: estView{state: nodeState("10.0.0.1")}}, "ag-b": {estView: estView{state: nodeState("10.1.0.1")}}})
 	// The private-range hint is about something else and is tested on its own.
-	notes := func(l kernel.LinkSetting) []LinkNote {
-		var out []LinkNote
+	notes := func(l kernel.LinkSetting) []connectivity.LinkNote {
+		var out []connectivity.LinkNote
 		for _, n := range h.linkNotes([]kernel.LinkSetting{l}, []store.Agent{a, b}, nil) {
 			if n.Code != "private-range" {
 				out = append(out, n)
@@ -452,7 +453,7 @@ func TestAPairPinnedToAKindThePeerHasNoneOfSaysSo(t *testing.T) {
 	h2 := linkHub(map[string]*view{"ag-a": {estView: estView{state: nodeState("10.0.0.1")}}, "ag-b": {estView: estView{state: nodeState("10.0.0.1", "100.64.1.1")}}})
 	// cl-b has a mesh address, so cl-a measures through it; cl-a has none left once the shared one is out, and cl-b is told so.
 	got := h2.linkNotes([]kernel.LinkSetting{{A: "cl-a", B: "cl-b", Via: "mesh"}}, []store.Agent{a, b}, nil)
-	var kind []LinkNote
+	var kind []connectivity.LinkNote
 	for _, n := range got {
 		if n.Code == "no-address-of-kind" {
 			kind = append(kind, n)

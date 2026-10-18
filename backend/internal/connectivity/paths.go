@@ -1,4 +1,4 @@
-package server
+package connectivity
 
 import (
 	"sort"
@@ -18,7 +18,7 @@ const (
 	roundsKept         = 5
 )
 
-// issuedTarget is an address the server asked an agent to time. Results are accepted only for
+// IssuedTarget is an address the server asked an agent to time. Results are accepted only for
 // targets the server issued, so an agent cannot make up paths for places it was never asked about.
 type IssuedTarget struct {
 	ID     string
@@ -28,7 +28,7 @@ type IssuedTarget struct {
 	Source string // observed | manual | address-test
 }
 
-// pathTrack keeps the last few rounds of samples for one target.
+// PathTrack keeps the last few rounds of samples for one target.
 type PathTrack struct {
 	T      IssuedTarget
 	Rounds []measure.Result
@@ -74,7 +74,7 @@ func (p *PathTrack) Summary() (min, p50, p95, lossPct float64, samples int) {
 
 func ObservedTargetID(ip string) string { return "ob-" + interpret.Hash("path", ip) }
 
-// deriveTargets picks the addresses outside a cluster that its workloads call most: what to time to
+// DeriveTargets picks the addresses outside a cluster that its workloads call most: what to time to
 // learn how far away the places it really talks to are. Only TCP, only real (non-noise) traffic,
 // one target per address.
 func DeriveTargets(ft *observed.FlowTable) []IssuedTarget {
@@ -130,9 +130,9 @@ func DeriveTargets(ft *observed.FlowTable) []IssuedTarget {
 	return out
 }
 
-// configFacts is everything the Config of one agent depends on, gathered: what the agent is allowed (its tier and consent), what the
+// ConfigFacts is everything the Config of one agent depends on, gathered: what the agent is allowed (its tier and consent), what the
 // organisation set (link peers, credentials, probe targets) and the moment. Gathering reads the store and the hub's views;
-// compileConfig does not.
+// CompileConfig does not.
 type ConfigFacts struct {
 	Tier      int
 	ClusterID string
@@ -223,7 +223,7 @@ var configSections = []configSection{
 // Neither is something an administrator or the organisation set, so neither is part of what the digest stands for.
 var configEnvelope = []string{"server_time_unix", "digest"}
 
-// compileConfig is the whole of what an agent is told, decided from the facts alone, section by section: what it may send, how
+// CompileConfig is the whole of what an agent is told, decided from the facts alone, section by section: what it may send, how
 // often to check itself, the link peers and which credentials go where, and which targets it measures. It returns the Config, with
 // its digest, and the targets it issued. It reads nothing and records nothing.
 func CompileConfig(f ConfigFacts) (*continuumv1.Config, []IssuedTarget) {

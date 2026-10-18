@@ -5,6 +5,7 @@ import (
 	"net/netip"
 
 	continuumv1 "continuum/gen/continuumv1"
+	"continuum/internal/connectivity"
 	"continuum/internal/kernel"
 	"continuum/internal/link"
 	"continuum/internal/observed"
@@ -34,7 +35,7 @@ func (h *Hub) peerList(a store.Agent, agentList []store.Agent, links []kernel.Li
 	if a.ClusterID == "" || a.AccessTier < 2 || flowPaused {
 		return nil
 	}
-	pairs := PairsOf(links, a.ClusterID)
+	pairs := connectivity.PairsOf(links, a.ClusterID)
 	if len(pairs) == 0 {
 		return nil
 	}
@@ -56,7 +57,7 @@ func (h *Hub) peerList(a store.Agent, agentList []store.Agent, links []kernel.Li
 			lp.ThroughputBudgetBytes = uint64(t.BudgetMB) << 20
 		}
 		// The same side runs the one-way probe and the connect timing; this one only serves them, while the runner measures.
-		if assign && !l.NoProbe && LinkRunner(a.ClusterID, id) == id && h.runnerMeasures(pp.Agent, a, agentList, links, flowPausedOf) {
+		if assign && !l.NoProbe && connectivity.LinkRunner(a.ClusterID, id) == id && h.runnerMeasures(pp.Agent, a, agentList, links, flowPausedOf) {
 			lp.SkipProbe = true
 		}
 		out = append(out, lp)
@@ -68,27 +69,27 @@ func (h *Hub) peerList(a store.Agent, agentList []store.Agent, links []kernel.Li
 // from its own, every address also claimed by another peer) are filtered out FIRST and the list is cut at link.MaxPeers
 // after, in id order: a cut that came first would let peers with no agent yet use up the room of those that have one. For a
 // hub with no more than link.MaxPeers usable peers the list is the same as without a cut. Called with h.mu held.
-func (h *Hub) planPeers(a store.Agent, agentList []store.Agent, links []kernel.LinkSetting) *PeerPlan {
-	plan := &PeerPlan{ByID: map[string]*PlannedPeer{}, Cut: map[string]bool{}}
+func (h *Hub) planPeers(a store.Agent, agentList []store.Agent, links []kernel.LinkSetting) *connectivity.PeerPlan {
+	plan := &connectivity.PeerPlan{ByID: map[string]*connectivity.PlannedPeer{}, Cut: map[string]bool{}}
 	if a.ClusterID == "" {
 		return plan
 	}
-	byCluster := ApprovedByCluster(agentList)
+	byCluster := connectivity.ApprovedByCluster(agentList)
 	// An address the paired cluster shares with this one (two clusters on the same private range, say) cannot tell traffic
 	// to the peer from traffic inside this cluster, so it is left out rather than mislabelled.
 	own := h.ownAddresses(a)
-	var cands []*PlannedPeer
-	claims := map[string][]*PlannedPeer{}
-	for _, id := range PeersOf(links, a.ClusterID) {
+	var cands []*connectivity.PlannedPeer
+	claims := map[string][]*connectivity.PlannedPeer{}
+	for _, id := range connectivity.PeersOf(links, a.ClusterID) {
 		o, ok := byCluster[id]
 		if !ok {
 			continue
 		}
-		addrs := WithoutAddresses(h.peerAddresses(o), own)
+		addrs := connectivity.WithoutAddresses(h.peerAddresses(o), own)
 		if len(addrs) == 0 {
 			continue
 		}
-		pp := &PlannedPeer{ID: id, Agent: o, Addrs: addrs}
+		pp := &connectivity.PlannedPeer{ID: id, Agent: o, Addrs: addrs}
 		cands = append(cands, pp)
 		plan.ByID[id] = pp
 		for _, ad := range addrs {
@@ -132,9 +133,9 @@ func (h *Hub) planPeers(a store.Agent, agentList []store.Agent, links []kernel.L
 
 // planner is planPeers memoised per agent, for a caller (the notes, the checklists) that asks about every pair of the
 // organisation. Called with h.mu held; the closure is for one call's use.
-func (h *Hub) planner(links []kernel.LinkSetting, agentList []store.Agent) func(store.Agent) *PeerPlan {
-	memo := map[string]*PeerPlan{}
-	return func(a store.Agent) *PeerPlan {
+func (h *Hub) planner(links []kernel.LinkSetting, agentList []store.Agent) func(store.Agent) *connectivity.PeerPlan {
+	memo := map[string]*connectivity.PeerPlan{}
+	return func(a store.Agent) *connectivity.PeerPlan {
 		p, ok := memo[a.ID]
 		if !ok {
 			p = h.planPeers(a, agentList, links)
@@ -159,7 +160,7 @@ func (h *Hub) ownAddresses(a store.Agent) map[string]bool {
 // sorted, without repeats. Called with h.mu held.
 func (h *Hub) peerNodeAddresses(o store.Agent) []string {
 	if v := h.views[o.ID]; v != nil && v.state != nil {
-		return DedupeSorted(observed.LinkPeerAddresses(v.state))
+		return connectivity.DedupeSorted(observed.LinkPeerAddresses(v.state))
 	}
 	return nil
 }
@@ -175,7 +176,7 @@ func (h *Hub) peerAddresses(o store.Agent) []string {
 			addrs = append(addrs[:len(addrs):len(addrs)], a.Unmap().String())
 		}
 	}
-	return DedupeSorted(addrs)
+	return connectivity.DedupeSorted(addrs)
 }
 
 // runnerMeasures says whether the runner of a pair, agent r, has been told to measure towards agent a: that is, whether a is
@@ -194,8 +195,8 @@ func (h *Hub) runnerMeasures(r, a store.Agent, agentList []store.Agent, links []
 // consent may have to be read from the store, so call it before taking h.mu, and only when a has pairs.
 func (h *Hub) runnersPaused(a store.Agent, agentList []store.Agent, links []kernel.LinkSetting) map[string]bool {
 	runs := map[string]bool{}
-	for _, id := range PeersOf(links, a.ClusterID) {
-		if LinkRunner(a.ClusterID, id) == id {
+	for _, id := range connectivity.PeersOf(links, a.ClusterID) {
+		if connectivity.LinkRunner(a.ClusterID, id) == id {
 			runs[id] = true
 		}
 	}
@@ -215,10 +216,10 @@ func (h *Hub) runnersPaused(a store.Agent, agentList []store.Agent, links []kern
 // conditions one by one, so a pair that has no note is one whose agents are handed each other. Called with h.mu held;
 // agents is the organisation's agents and flowPausedOf (by agent id) says whose flow collector is paused, both read
 // beforehand because that may touch the store.
-func (h *Hub) linkNotes(links []kernel.LinkSetting, agentList []store.Agent, flowPausedOf map[string]bool) []LinkNote {
-	byCluster := ApprovedByCluster(agentList)
+func (h *Hub) linkNotes(links []kernel.LinkSetting, agentList []store.Agent, flowPausedOf map[string]bool) []connectivity.LinkNote {
+	byCluster := connectivity.ApprovedByCluster(agentList)
 	plan := h.planner(links, agentList)
-	var out []LinkNote
+	var out []connectivity.LinkNote
 	noAgent := map[string]bool{}
 	for _, l := range links {
 		for _, end := range [][2]string{{l.A, l.B}, {l.B, l.A}} {
@@ -227,7 +228,7 @@ func (h *Hub) linkNotes(links []kernel.LinkSetting, agentList []store.Agent, flo
 			if !ok {
 				if !noAgent[c] {
 					noAgent[c] = true
-					out = append(out, LinkNote{Cluster: c, Code: "no-agent", Text: "No approved agent reports for this cluster, so it can neither measure its pairs nor be measured."})
+					out = append(out, connectivity.LinkNote{Cluster: c, Code: "no-agent", Text: "No approved agent reports for this cluster, so it can neither measure its pairs nor be measured."})
 				}
 				continue
 			}
@@ -240,7 +241,7 @@ func (h *Hub) linkNotes(links []kernel.LinkSetting, agentList []store.Agent, flo
 				out = append(out, *n)
 				continue
 			}
-			if n := SharedHint(a, o, p.ByID[peer]); n != nil {
+			if n := connectivity.SharedHint(a, o, p.ByID[peer]); n != nil {
 				out = append(out, *n)
 			}
 			if n := h.rangeHint(a, o, p.ByID[peer]); n != nil {
@@ -253,29 +254,29 @@ func (h *Hub) linkNotes(links []kernel.LinkSetting, agentList []store.Agent, flo
 
 // endNote is the reason, if any, that agent a (one end of pair l, with approved agent o at the other, and plan the peer list a is
 // given) is not told about its peer: the one linkNotes reports for that end. Nil when a is handed o. Called with h.mu held.
-func (h *Hub) endNote(l kernel.LinkSetting, a, o store.Agent, plan *PeerPlan, flowPaused bool) *LinkNote {
+func (h *Hub) endNote(l kernel.LinkSetting, a, o store.Agent, plan *connectivity.PeerPlan, flowPaused bool) *connectivity.LinkNote {
 	c, peer := a.ClusterID, o.ClusterID
 	switch {
 	case a.AccessTier < 2:
-		return &LinkNote{Cluster: c, Peer: peer, Code: "tier", Text: fmt.Sprintf("This cluster's agent is at access tier %d. Link measuring needs tier 2, so the agent is not told which clusters to measure.", a.AccessTier)}
+		return &connectivity.LinkNote{Cluster: c, Peer: peer, Code: "tier", Text: fmt.Sprintf("This cluster's agent is at access tier %d. Link measuring needs tier 2, so the agent is not told which clusters to measure.", a.AccessTier)}
 	case flowPaused:
-		return &LinkNote{Cluster: c, Peer: peer, Code: "paused", Text: "The flow collector is paused for this cluster's agent, which pauses link measuring there too."}
+		return &connectivity.LinkNote{Cluster: c, Peer: peer, Code: "paused", Text: "The flow collector is paused for this cluster's agent, which pauses link measuring there too."}
 	}
 	raw := h.peerAddresses(o)
 	if len(raw) == 0 {
-		return &LinkNote{Cluster: c, Peer: peer, Code: "peer-silent", Text: "The agent of " + peer + " has not reported any node address yet, so there is nothing to measure towards."}
+		return &connectivity.LinkNote{Cluster: c, Peer: peer, Code: "peer-silent", Text: "The agent of " + peer + " has not reported any node address yet, so there is nothing to measure towards."}
 	}
 	pp := plan.ByID[peer]
 	switch {
 	case pp == nil:
-		return &LinkNote{Cluster: c, Peer: peer, Code: "shared-address", Text: fmt.Sprintf("Every address of %s (%s) is also an address of this cluster, or the public address its agent connects from, so traffic to %s cannot be told from its own traffic and the pair is left out here.", peer, Listed(raw), peer)}
+		return &connectivity.LinkNote{Cluster: c, Peer: peer, Code: "shared-address", Text: fmt.Sprintf("Every address of %s (%s) is also an address of this cluster, or the public address its agent connects from, so traffic to %s cannot be told from its own traffic and the pair is left out here.", peer, connectivity.Listed(raw), peer)}
 	case len(pp.Addrs) == 0:
 		others := kernel.SortedKeys(pp.Clash)
-		return &LinkNote{Cluster: c, Peer: peer, Code: "shared-address", Text: fmt.Sprintf("Every address of %s (%s) is also an address of %s, another cluster %s is paired with, so traffic to the two cannot be told apart and %s is left out here. Give the clusters addresses of their own, or pair %s with only one of them.", peer, Listed(raw), Listed(others), c, peer, c)}
+		return &connectivity.LinkNote{Cluster: c, Peer: peer, Code: "shared-address", Text: fmt.Sprintf("Every address of %s (%s) is also an address of %s, another cluster %s is paired with, so traffic to the two cannot be told apart and %s is left out here. Give the clusters addresses of their own, or pair %s with only one of them.", peer, connectivity.Listed(raw), connectivity.Listed(others), c, peer, c)}
 	case plan.Cut[peer]:
-		return &LinkNote{Cluster: c, Peer: peer, Code: "too-many-peers", Text: fmt.Sprintf("This cluster is paired with more clusters that can be measured than one agent holds (%d), so %s, which sorts after them, is left out. Remove the pairs this cluster does not need.", link.MaxPeers, peer)}
-	case l.Via != "" && (!l.NoProbe || l.Throughput != nil) && !HasAddressOfKind(pp.Addrs, l.Via):
-		return &LinkNote{Cluster: c, Peer: peer, Code: "no-address-of-kind", Text: fmt.Sprintf("The pair is set to measure through %s addresses, but %s has none, so the active measurements towards it fail until the choice or the addresses change.", l.Via, peer)}
+		return &connectivity.LinkNote{Cluster: c, Peer: peer, Code: "too-many-peers", Text: fmt.Sprintf("This cluster is paired with more clusters that can be measured than one agent holds (%d), so %s, which sorts after them, is left out. Remove the pairs this cluster does not need.", link.MaxPeers, peer)}
+	case l.Via != "" && (!l.NoProbe || l.Throughput != nil) && !connectivity.HasAddressOfKind(pp.Addrs, l.Via):
+		return &connectivity.LinkNote{Cluster: c, Peer: peer, Code: "no-address-of-kind", Text: fmt.Sprintf("The pair is set to measure through %s addresses, but %s has none, so the active measurements towards it fail until the choice or the addresses change.", l.Via, peer)}
 	}
 	return nil
 }
@@ -287,7 +288,7 @@ func (h *Hub) endNote(l kernel.LinkSetting, a, o store.Agent, plan *PeerPlan, fl
 // usable ones or none is usable. Only the nodes' own addresses count: the public address the peer's agent connects from is its
 // NAT's or gateway's, which a node of this cluster reaches only if that gateway forwards the measurement ports, and treating it as
 // a way across would hide the hint from every NATed cluster. Called with h.mu held.
-func (h *Hub) rangeHint(a, o store.Agent, pp *PlannedPeer) *LinkNote {
+func (h *Hub) rangeHint(a, o store.Agent, pp *connectivity.PlannedPeer) *connectivity.LinkNote {
 	if pp == nil {
 		return nil
 	}
@@ -328,9 +329,9 @@ func (h *Hub) rangeHint(a, o store.Agent, pp *PlannedPeer) *LinkNote {
 		kinds = "mesh (100.64.0.0/10)"
 	}
 	c, peer := a.ClusterID, o.ClusterID
-	text := fmt.Sprintf("Every node address of %s that %s is told to measure towards (%s) is a %s one, so the measurements work only if the two clusters share that network, a LAN, a VPN or the mesh itself. If nothing arrives, check that a node of this cluster can reach those addresses.", peer, c, Listed(usable), kinds)
-	if egress := publicIP(o.ConnectingIP); egress != "" && !isNode[egress] && HasAddress(pp.Addrs, egress) {
+	text := fmt.Sprintf("Every node address of %s that %s is told to measure towards (%s) is a %s one, so the measurements work only if the two clusters share that network, a LAN, a VPN or the mesh itself. If nothing arrives, check that a node of this cluster can reach those addresses.", peer, c, connectivity.Listed(usable), kinds)
+	if egress := publicIP(o.ConnectingIP); egress != "" && !isNode[egress] && connectivity.HasAddress(pp.Addrs, egress) {
 		text += fmt.Sprintf(" The public address the agent of %s connects from (%s) is not counted: it is the address of its gateway, which leads to a node only if the measurement ports are forwarded.", peer, egress)
 	}
-	return &LinkNote{Cluster: c, Peer: peer, Code: "private-range", Text: text}
+	return &connectivity.LinkNote{Cluster: c, Peer: peer, Code: "private-range", Text: text}
 }

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"continuum/internal/agents"
+	"continuum/internal/connectivity"
 	"continuum/internal/history"
 	"continuum/internal/kernel"
 	"continuum/internal/model"
@@ -55,7 +56,7 @@ func (h *Hub) Run(ctx context.Context) {
 	defer t.Stop()
 	self := time.NewTicker(agents.SelfStatsSampleEvery)
 	defer self.Stop()
-	drift := time.NewTicker(DriftTick)
+	drift := time.NewTicker(connectivity.DriftTick)
 	defer drift.Stop()
 	for {
 		select {

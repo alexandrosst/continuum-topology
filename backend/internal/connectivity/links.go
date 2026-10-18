@@ -1,4 +1,4 @@
-package server
+package connectivity
 
 import (
 	"fmt"
@@ -11,7 +11,7 @@ import (
 	"continuum/internal/store"
 )
 
-// pairsOf is the pairs a cluster is in, by the id of the cluster at the other end.
+// PairsOf is the pairs a cluster is in, by the id of the cluster at the other end.
 func PairsOf(links []kernel.LinkSetting, cluster string) map[string]kernel.LinkSetting {
 	out := map[string]kernel.LinkSetting{}
 	for _, l := range links {
@@ -25,7 +25,7 @@ func PairsOf(links []kernel.LinkSetting, cluster string) map[string]kernel.LinkS
 	return out
 }
 
-// peersOf is the clusters paired with one cluster, sorted.
+// PeersOf is the clusters paired with one cluster, sorted.
 func PeersOf(links []kernel.LinkSetting, cluster string) []string {
 	var out []string
 	for _, l := range links {
@@ -40,11 +40,11 @@ func PeersOf(links []kernel.LinkSetting, cluster string) []string {
 	return out
 }
 
-// linkRunner is the cluster of a pair that runs the one-way probe, the connect timing and the throughput tests: the one whose
+// LinkRunner is the cluster of a pair that runs the one-way probe, the connect timing and the throughput tests: the one whose
 // id sorts first. The other only serves them.
 func LinkRunner(a, b string) string { return min(a, b) }
 
-// plannedPeer is one cluster paired with agent a's, as a's peer list holds it.
+// PlannedPeer is one cluster paired with agent a's, as a's peer list holds it.
 type PlannedPeer struct {
 	ID    string
 	Agent store.Agent
@@ -54,7 +54,7 @@ type PlannedPeer struct {
 	Clash map[string][]string
 }
 
-// peerPlan is what peerList, linkNotes and the checklist all work from, so that what a pair says it is missing is exactly what
+// PeerPlan is what peerList, linkNotes and the checklist all work from, so that what a pair says it is missing is exactly what
 // the agent is not sent.
 type PeerPlan struct {
 	// byID holds every paired cluster that has an approved agent and an address a can tell from its own, told or not.
@@ -105,7 +105,7 @@ type LinkNote struct {
 	Text string `json:"text"`
 }
 
-// approvedByCluster is the organisation's approved agents by the cluster they report for.
+// ApprovedByCluster is the organisation's approved agents by the cluster they report for.
 func ApprovedByCluster(agentList []store.Agent) map[string]store.Agent {
 	byCluster := map[string]store.Agent{}
 	for _, o := range agentList {
@@ -116,7 +116,7 @@ func ApprovedByCluster(agentList []store.Agent) map[string]store.Agent {
 	return byCluster
 }
 
-// sharedHint is the note for a peer that is told about but has addresses another peer of the same cluster claims too: they are
+// SharedHint is the note for a peer that is told about but has addresses another peer of the same cluster claims too: they are
 // left out for both, and the pair is measured through the rest. Nil when none is shared.
 func SharedHint(a, o store.Agent, pp *PlannedPeer) *LinkNote {
 	if pp == nil || len(pp.Clash) == 0 || len(pp.Addrs) == 0 {
@@ -150,7 +150,7 @@ func HasAddress(addrs []string, s string) bool {
 	return false
 }
 
-// hasAddressOfKind says whether any of the addresses is of the kind via (see link.Class).
+// HasAddressOfKind says whether any of the addresses is of the kind via (see link.Class).
 func HasAddressOfKind(addrs []string, via string) bool {
 	for _, s := range addrs {
 		if a, err := netip.ParseAddr(s); err == nil && link.Class(a) == via {

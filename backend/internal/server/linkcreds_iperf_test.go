@@ -15,6 +15,7 @@ import (
 	"time"
 
 	continuumv1 "continuum/gen/continuumv1"
+	"continuum/internal/connectivity"
 	"continuum/internal/kernel"
 	"continuum/internal/link"
 )
@@ -22,7 +23,7 @@ import (
 // newOtherKey is the private key of some other cluster.
 func newOtherKey(t *testing.T) string {
 	t.Helper()
-	id, err := NewClusterIdentity()
+	id, err := connectivity.NewClusterIdentity()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +157,7 @@ func TestRealIperf3AuthenticatedRunWithIssuedCredentials(t *testing.T) {
 	}
 
 	// A rotation: the server hands the agent new credentials, the responder restarts iperf3 with them, the old password is refused.
-	if err := cr.core.RotateLinkCredentials(cr.ctx, links, "", cr.first.ClusterID, cr.second.ClusterID); err != nil {
+	if err := cr.core.Connectivity.RotateLinkCredentials(cr.ctx, links, "", cr.first.ClusterID, cr.second.ClusterID); err != nil {
 		t.Fatal(err)
 	}
 	if why := meter.SetIperfServer(cr.cfg(cr.second).LinkIperfServer); why != "" {

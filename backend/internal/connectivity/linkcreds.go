@@ -1,4 +1,4 @@
-package server
+package connectivity
 
 import (
 	"context"
@@ -25,7 +25,7 @@ import (
 
 // The iperf3 credentials of the throughput tests, issued and kept by the server so that nobody has to create Secrets by hand.
 //
-// What exists. For every cluster that SERVES the tests of at least one pair (the second of the pair, see linkRunner) the server
+// What exists. For every cluster that SERVES the tests of at least one pair (the second of the pair, see LinkRunner) the server
 // holds an RSA-2048 key pair: that cluster's iperf3 server identity. For every pair with throughput tests (Settings.Links[i].Throughput
 // != nil) it holds a user name and a random password. They are made the first time a pair asks for the tests (when the settings are
 // saved, or when an agent's Config is built, whichever comes first) and again whenever they are missing, and they are deleted when the
@@ -97,10 +97,10 @@ func (s *linkCredSet) String() string {
 func (s *linkCredSet) GoString() string           { return s.String() }
 func (s *linkCredSet) Format(f fmt.State, _ rune) { _, _ = fmt.Fprint(f, s.String()) }
 
-// linkServer is the cluster of a pair that serves the throughput tests: the one that is not the runner.
+// LinkServer is the cluster of a pair that serves the throughput tests: the one that is not the runner.
 func LinkServer(a, b string) string { return max(a, b) }
 
-// throughputPairs are the pairs that ask for throughput tests, by (a, b) with a before b.
+// ThroughputPairs are the pairs that ask for throughput tests, by (a, b) with a before b.
 func ThroughputPairs(links []kernel.LinkSetting) [][2]string {
 	var out [][2]string
 	for _, l := range links {
@@ -115,7 +115,7 @@ func pairRowID(p [2]string) string { return p[0] + "\x1f" + p[1] }
 
 // ---- sealing ----
 
-func (c *Core) linkCredAEAD() (cipher.AEAD, error) {
+func (c *Service) linkCredAEAD() (cipher.AEAD, error) {
 	if c.CA == nil {
 		return nil, errors.New("no CA to protect link credentials with")
 	}
@@ -131,11 +131,11 @@ func (c *Core) linkCredAEAD() (cipher.AEAD, error) {
 	return cipher.NewGCM(blk)
 }
 
-func (c *Core) linkCredAAD(kind, id string) []byte {
+func (c *Service) linkCredAAD(kind, id string) []byte {
 	return []byte(c.OrgID + "\x00" + kind + "\x00" + id)
 }
 
-func (c *Core) sealLinkCred(kind, id string, plain []byte) ([]byte, error) {
+func (c *Service) sealLinkCred(kind, id string, plain []byte) ([]byte, error) {
 	g, err := c.linkCredAEAD()
 	if err != nil {
 		return nil, err
@@ -147,7 +147,7 @@ func (c *Core) sealLinkCred(kind, id string, plain []byte) ([]byte, error) {
 	return g.Seal(append([]byte{linkCredVersion}, n...), n, plain, c.linkCredAAD(kind, id)), nil
 }
 
-func (c *Core) OpenLinkCred(kind, id string, sealed []byte) ([]byte, error) {
+func (c *Service) OpenLinkCred(kind, id string, sealed []byte) ([]byte, error) {
 	g, err := c.linkCredAEAD()
 	if err != nil {
 		return nil, err
@@ -172,7 +172,7 @@ type pairWire struct {
 	Password string `json:"password"`
 }
 
-func (c *Core) readClusterCred(row store.LinkCredential) (clusterIdentity, bool) {
+func (c *Service) readClusterCred(row store.LinkCredential) (clusterIdentity, bool) {
 	plain, err := c.OpenLinkCred(LinkCredCluster, row.ID, row.Sealed)
 	if err != nil {
 		return clusterIdentity{}, false
@@ -185,7 +185,7 @@ func (c *Core) readClusterCred(row store.LinkCredential) (clusterIdentity, bool)
 	return clusterIdentity{Private: link.Secret(w.Private), Public: w.Public}, true
 }
 
-func (c *Core) ReadPairCred(row store.LinkCredential) (pairLogin, bool) {
+func (c *Service) ReadPairCred(row store.LinkCredential) (pairLogin, bool) {
 	plain, err := c.OpenLinkCred(LinkCredPair, row.ID, row.Sealed)
 	if err != nil {
 		return pairLogin{}, false
@@ -237,7 +237,7 @@ func newPairLogin(taken map[string]bool) (pairLogin, error) {
 	return pairLogin{}, errors.New("could not find an unused user name")
 }
 
-func (c *Core) putLinkCred(ctx context.Context, kind, id string, v any) error {
+func (c *Service) putLinkCred(ctx context.Context, kind, id string, v any) error {
 	plain, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -253,7 +253,7 @@ func (c *Core) putLinkCred(ctx context.Context, kind, id string, v any) error {
 // linkCredentials returns what the server holds for the pairs that ask for throughput tests, making what is missing (or
 // unreadable). With prune it also deletes what no pair needs any more; only a saved change of the settings does that, never the
 // ordinary building of a Config, so a settings document that failed to load cannot empty the table.
-func (c *Core) LinkCredentials(ctx context.Context, links []kernel.LinkSetting, prune bool) (*linkCredSet, error) {
+func (c *Service) LinkCredentials(ctx context.Context, links []kernel.LinkSetting, prune bool) (*linkCredSet, error) {
 	pairs := ThroughputPairs(links)
 	if len(pairs) == 0 && !prune {
 		return &linkCredSet{}, nil
@@ -343,7 +343,7 @@ func (c *Core) LinkCredentials(ctx context.Context, links []kernel.LinkSetting, 
 
 // ---- who gets what ----
 
-// linkCredDelivery is what one cluster's Config carries.
+// LinkCredDelivery is what one cluster's Config carries.
 type LinkCredDelivery struct {
 	// clients are the client credentials by the id of the peer they test (this cluster is the runner of those pairs).
 	Clients map[string]*continuumv1.LinkIperfClient
@@ -400,7 +400,7 @@ func credDigest(parts ...string) string {
 // password of a pair (a and b set). Both are made again and reach the clusters in their next Config, within a minute; the tests of
 // the pair fail with `auth` until both ends have the new ones. It returns an error if there is nothing to rotate (no such pair asks
 // for throughput tests).
-func (c *Core) RotateLinkCredentials(ctx context.Context, links []kernel.LinkSetting, cluster, a, b string) error {
+func (c *Service) RotateLinkCredentials(ctx context.Context, links []kernel.LinkSetting, cluster, a, b string) error {
 	pairs := ThroughputPairs(links)
 	linkCredMu.Lock()
 	switch {

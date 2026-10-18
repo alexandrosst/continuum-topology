@@ -471,7 +471,7 @@ func TestInterpretPopulatesCPUAndInterfacesFromProbe(t *testing.T) {
 		t.Errorf("disks = %+v", n.Disks)
 	}
 	// Regression guard: this copy was previously missing entirely, which made the server's same-subnet
-	// cluster-link detection (correlateClusterLinks) permanently dead in production - model.Node.HostSubnets
+	// cluster-link detection (connectivity.CorrelateClusterLinks) permanently dead in production - model.Node.HostSubnets
 	// was always empty no matter what the probe actually reported, since nothing ever copied it across.
 	if len(n.HostSubnets) != 1 || n.HostSubnets[0] != "10.0.5.0/24" {
 		t.Errorf("host subnets = %+v, want [10.0.5.0/24]", n.HostSubnets)

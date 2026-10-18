@@ -9,6 +9,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"continuum/internal/connectivity"
 	"continuum/internal/fusionapi"
 	"continuum/internal/kernel"
 )
@@ -94,10 +95,10 @@ type LinksLatestDoc struct {
 	Stale bool             `json:"stale,omitempty"`
 	Pairs []LinkPairLatest `json:"pairs"`
 	// Notes say why a pair is not measured from one of its clusters (see LinkNote), whether or not FUSION can be read.
-	Notes []LinkNote `json:"notes"`
-	// Setup is, for each listed pair, the checklist of what it needs before its figures reach FUSION (see linkSetup), whether or
+	Notes []connectivity.LinkNote `json:"notes"`
+	// Setup is, for each listed pair, the checklist of what it needs before its figures reach FUSION (see connectivity.LinkSetupSteps), whether or
 	// not FUSION can be read. An agent too old to report what its install can do gives "unknown" steps, never failures.
-	Setup []LinkSetup `json:"setup"`
+	Setup []connectivity.LinkSetup `json:"setup"`
 	// SetupReason is "unavailable" when the organisation's agents could not be read, so Notes and Setup are empty because they are
 	// not known, not because nothing needs doing.
 	SetupReason string    `json:"setupReason,omitempty"`
@@ -172,7 +173,7 @@ func (c *linkReadingsCache) get(ctx context.Context, now func() time.Time, read 
 
 func (a *Admin) linksLatest(w http.ResponseWriter, r *http.Request) {
 	now := a.C.Now
-	doc := LinksLatestDoc{Pairs: []LinkPairLatest{}, Notes: []LinkNote{}, Setup: []LinkSetup{}, At: now().UTC()}
+	doc := LinksLatestDoc{Pairs: []LinkPairLatest{}, Notes: []connectivity.LinkNote{}, Setup: []connectivity.LinkSetup{}, At: now().UTC()}
 	core := a.core(r)
 	links := core.Settings().Links
 	// FUSION belongs to one organisation. Another one's administrator could otherwise save a pair with the FUSION organisation's
@@ -223,7 +224,7 @@ func (a *Admin) linksLatest(w http.ResponseWriter, r *http.Request) {
 
 // withoutHintsOfMeasuredPairs drops the "private-range" hints of the pairs that have figures: the hint says where to look when
 // nothing arrives, and a pair that is being measured has no use for it.
-func withoutHintsOfMeasuredPairs(notes []LinkNote, pairs []LinkPairLatest) []LinkNote {
+func withoutHintsOfMeasuredPairs(notes []connectivity.LinkNote, pairs []LinkPairLatest) []connectivity.LinkNote {
 	measured := map[[2]string]bool{}
 	for _, p := range pairs {
 		if p.hasFigures() {

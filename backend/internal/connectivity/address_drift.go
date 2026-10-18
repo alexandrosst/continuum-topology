@@ -1,4 +1,4 @@
-package server
+package connectivity
 
 import (
 	"time"
@@ -17,10 +17,10 @@ import (
 // timing, or has its own tests running.
 
 const (
-	// driftTick is how often the server looks for addresses whose last result is old; driftEvery is how old that is.
+	// DriftTick is how often the server looks for addresses whose last result is old; DriftEvery is how old that is.
 	DriftTick  = 5 * time.Minute
 	DriftEvery = 15 * time.Minute
-	// reachFresh is how long a result may be shown and used for a diagnosis: it is a statement about now.
+	// ReachFresh is how long a result may be shown and used for a diagnosis: it is a statement about now.
 	ReachFresh = time.Hour
 	// maxReach bounds the results one cluster's view keeps.
 	maxReach = 32

@@ -274,7 +274,7 @@ func uniq(in []string) []string {
 // Kubernetes-visible node IP. Without them, resolveExternal/clusterOfAddr have no way to recognize the peer side of that
 // traffic as belonging to a known cluster at all, and every such flow falls through to being recorded as an unresolved
 // external endpoint, by its raw tunnel IP, forever. They are included unconditionally (not gated on
-// TunnelInterface.Confirmed): confirmation is a cross-node correlation verdict that correlateTunnels computes later, from
+// TunnelInterface.Confirmed): confirmation is a cross-node correlation verdict that connectivity.CorrelateTunnels computes later, from
 // topo.Nodes, after Topology has already run - what is needed here is only "this address is one of this node's
 // own, reported by its own probe," which is true whether or not the far end is independently confirmed elsewhere.
 func nodeAddresses(st *facts.State) []string {

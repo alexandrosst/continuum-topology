@@ -671,7 +671,7 @@ type ClusterLink struct {
 
 // ClusterPairConnectivity is the server's answer to "can these two onboarded clusters actually reach
 // each other, and how" - for a cluster pair that has SOME existing relationship (an observed
-// cross-cluster Dependency, or a ClusterLink already confirmed by correlateClusterLinks), not only the
+// cross-cluster Dependency, or a ClusterLink already confirmed by connectivity.CorrelateClusterLinks), not only the
 // two cases a ClusterLink alone can positively confirm. Status is one of four honest outcomes:
 //
 //   - "tunnel": an overlay ClusterLink backs this pair - Links holds it (and, rarely, a "subnet" link
@@ -686,7 +686,7 @@ type ClusterLink struct {
 //     which would claim a negative this server never actually got to check.
 //
 // Never computed for every pair of onboarded clusters - only pairs with some existing relationship
-// qualify for a row at all, the same cardinality-bounded spirit correlateClusterLinks itself already
+// qualify for a row at all, the same cardinality-bounded spirit connectivity.CorrelateClusterLinks itself already
 // follows. Derived fresh, like ClusterLink, never part of the stored workspace.
 type ClusterPairConnectivity struct {
 	FromCluster string `json:"fromCluster"`
@@ -936,7 +936,7 @@ type Dependency struct {
 	Bytes       uint64           `json:"bytes,omitempty"`
 	Stats       *DependencyStats `json:"stats,omitempty"`
 	// TunnelLink is set when Iface (above) matched one side of a confirmed, named overlay ClusterLink
-	// between this dependency's own two endpoints' clusters - see correlateClusterLinks' own matching
+	// between this dependency's own two endpoints' clusters - see connectivity.CorrelateClusterLinks' own matching
 	// rule (cluster AND interface name together, never interface name alone: a generic name like "wg0"
 	// is commonly reused across entirely unrelated tunnels). Lets the UI show "this traffic crosses a
 	// confirmed tunnel, and here is what kind" directly on the edge that carries it, in addition to -

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"continuum/internal/agents"
+	"continuum/internal/connectivity"
 	"continuum/internal/operators"
 	"continuum/internal/store"
 	"continuum/internal/telemetry"
@@ -30,7 +31,7 @@ type SenderAddressDoc struct {
 	Signals []string `json:"signals"`
 	// Reach is the last connection test of the address from the sending cluster, which the server repeats on its own
 	// (see address_drift.go). Absent when there is no recent one.
-	Reach *AddressReachDoc `json:"reach,omitempty"`
+	Reach *connectivity.AddressReachDoc `json:"reach,omitempty"`
 }
 
 // SenderDeliveryDoc is what the sending agent reports about exporting to this operator.
@@ -181,7 +182,7 @@ type diagnosisInput struct {
 	OperatorSeen  string
 	Peers         []peerOutcome
 	// Reach is the last test of Address from the sending cluster, when there is a recent one.
-	Reach *AddressReachDoc
+	Reach *connectivity.AddressReachDoc
 }
 
 func hostOf(addr string) string {

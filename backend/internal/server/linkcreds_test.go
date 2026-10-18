@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	continuumv1 "continuum/gen/continuumv1"
+	"continuum/internal/connectivity"
 	"continuum/internal/kernel"
 	"continuum/internal/observed"
 	"continuum/internal/pki"
@@ -58,7 +59,7 @@ func newCredRig(t *testing.T) *credRig {
 			t.Fatal(err)
 		}
 		r.hub.mu.Lock()
-		r.hub.views[a.ID] = &view{estView: estView{state: nodeState("10.0." + strings.TrimPrefix(f[len(f)-2:], "0") + ".1"), flows: observed.NewFlowTable()}, NetView: NetView{Paths: map[string]*PathTrack{}, Targets: map[string]IssuedTarget{}}}
+		r.hub.views[a.ID] = &view{estView: estView{state: nodeState("10.0." + strings.TrimPrefix(f[len(f)-2:], "0") + ".1"), flows: observed.NewFlowTable()}, NetView: connectivity.NetView{Paths: map[string]*connectivity.PathTrack{}, Targets: map[string]connectivity.IssuedTarget{}}}
 		r.hub.mu.Unlock()
 		ags = append(ags, a)
 	}
@@ -225,7 +226,7 @@ func TestCredentialsAreMadeOnceStoredSealedAndSurviveARestart(t *testing.T) {
 
 	// A restarted server (a new Core on the same database and the same CA key) reads the same credentials.
 	again := NewCore(cr.st, cr.core.CA, "org-1", nil).ForOrg("org-1")
-	set, err := again.LinkCredentials(cr.ctx, []kernel.LinkSetting{cr.pair(true)}, false)
+	set, err := again.Connectivity.LinkCredentials(cr.ctx, []kernel.LinkSetting{cr.pair(true)}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +243,7 @@ func TestCredentialsAreMadeOnceStoredSealedAndSurviveARestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	other := NewCore(cr.st, ca2, "org-1", nil).ForOrg("org-1")
-	set2, err := other.LinkCredentials(cr.ctx, []kernel.LinkSetting{cr.pair(true)}, false)
+	set2, err := other.Connectivity.LinkCredentials(cr.ctx, []kernel.LinkSetting{cr.pair(true)}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -261,15 +262,21 @@ func TestASealedRowDoesNotOpenAnywhereElse(t *testing.T) {
 	cr.cfg(cr.first)
 	var pairRow store.LinkCredential
 	for _, r := range cr.rows(t) {
-		if r.Kind == LinkCredPair {
+		if r.Kind == connectivity.LinkCredPair {
 			pairRow = r
 		}
 	}
 	for name, f := range map[string]func() error{
-		"another id":   func() error { _, err := cr.core.OpenLinkCred(LinkCredPair, "x\x1fy", pairRow.Sealed); return err },
-		"another kind": func() error { _, err := cr.core.OpenLinkCred(LinkCredCluster, pairRow.ID, pairRow.Sealed); return err },
+		"another id": func() error {
+			_, err := cr.core.Connectivity.OpenLinkCred(connectivity.LinkCredPair, "x\x1fy", pairRow.Sealed)
+			return err
+		},
+		"another kind": func() error {
+			_, err := cr.core.Connectivity.OpenLinkCred(connectivity.LinkCredCluster, pairRow.ID, pairRow.Sealed)
+			return err
+		},
 		"another org": func() error {
-			_, err := cr.core.ForOrg("org-2").OpenLinkCred(LinkCredPair, pairRow.ID, pairRow.Sealed)
+			_, err := cr.core.ForOrg("org-2").Connectivity.OpenLinkCred(connectivity.LinkCredPair, pairRow.ID, pairRow.Sealed)
 			return err
 		},
 	} {
@@ -277,7 +284,7 @@ func TestASealedRowDoesNotOpenAnywhereElse(t *testing.T) {
 			t.Errorf("%s: the row opened", name)
 		}
 	}
-	if _, err := cr.core.OpenLinkCred(LinkCredPair, pairRow.ID, pairRow.Sealed); err != nil {
+	if _, err := cr.core.Connectivity.OpenLinkCred(connectivity.LinkCredPair, pairRow.ID, pairRow.Sealed); err != nil {
 		t.Errorf("the row does not open where it belongs: %v", err)
 	}
 	// Moved by hand in the database: the pair gets a fresh login instead of someone else's.
@@ -286,7 +293,7 @@ func TestASealedRowDoesNotOpenAnywhereElse(t *testing.T) {
 	if err := cr.st.PutLinkCredential(cr.ctx, moved); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := cr.core.ReadPairCred(moved); ok {
+	if _, ok := cr.core.Connectivity.ReadPairCred(moved); ok {
 		t.Error("a row moved to another id was read")
 	}
 }
@@ -350,7 +357,7 @@ func TestAServingClustersKeyStaysWhileAnyPairNeedsIt(t *testing.T) {
 	for _, r := range cr.rows(t) {
 		kinds[r.Kind]++
 	}
-	if kinds[LinkCredCluster] != 1 || kinds[LinkCredPair] != 1 {
+	if kinds[connectivity.LinkCredCluster] != 1 || kinds[connectivity.LinkCredPair] != 1 {
 		t.Errorf("rows after one pair left = %v", kinds)
 	}
 }
@@ -397,14 +404,14 @@ func TestTheConfigHashFollowsTheCredentialsWithoutHoldingThem(t *testing.T) {
 	if hash(cr.first) != h1 || hash(cr.second) != h2 {
 		t.Fatal("the hash of an unchanged Config changed")
 	}
-	if err := cr.core.RotateLinkCredentials(cr.ctx, []kernel.LinkSetting{cr.pair(true)}, "", cr.first.ClusterID, cr.second.ClusterID); err != nil {
+	if err := cr.core.Connectivity.RotateLinkCredentials(cr.ctx, []kernel.LinkSetting{cr.pair(true)}, "", cr.first.ClusterID, cr.second.ClusterID); err != nil {
 		t.Fatal(err)
 	}
 	if hash(cr.first) == h1 || hash(cr.second) == h2 {
 		t.Error("a rotated password did not change the hash, so the agents would never be sent it")
 	}
 	h1, h2 = hash(cr.first), hash(cr.second)
-	if err := cr.core.RotateLinkCredentials(cr.ctx, []kernel.LinkSetting{cr.pair(true)}, cr.second.ClusterID, "", ""); err != nil {
+	if err := cr.core.Connectivity.RotateLinkCredentials(cr.ctx, []kernel.LinkSetting{cr.pair(true)}, cr.second.ClusterID, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if hash(cr.first) == h1 || hash(cr.second) == h2 {
@@ -412,23 +419,23 @@ func TestTheConfigHashFollowsTheCredentialsWithoutHoldingThem(t *testing.T) {
 	}
 	// The hash is of the Config text and holds no credential: build one with a distinctive password.
 	c := &continuumv1.Config{ClusterId: "cl-a", LinkPeers: []*continuumv1.LinkPeer{{ClusterId: "cl-b", Throughput: true, IperfClient: &continuumv1.LinkIperfClient{PublicKeyPem: "pub", Username: "u", Password: "PASSWORDMARK"}}}, LinkIperfServer: &continuumv1.LinkIperfServer{PrivateKeyPem: "KEYMARK", UsersCsv: "u,HASHMARK"}}
-	h := ConfigHash(c)
+	h := connectivity.ConfigHash(c)
 	for _, m := range []string{"PASSWORDMARK", "KEYMARK", "HASHMARK"} {
 		if strings.Contains(h, m) {
 			t.Errorf("the hash contains %s", m)
 		}
 	}
 	c2 := &continuumv1.Config{ClusterId: "cl-a", LinkPeers: []*continuumv1.LinkPeer{{ClusterId: "cl-b", Throughput: true, IperfClient: &continuumv1.LinkIperfClient{PublicKeyPem: "pub", Username: "u", Password: "PASSWORDMARK2"}}}, LinkIperfServer: c.LinkIperfServer}
-	if ConfigHash(c2) == h {
+	if connectivity.ConfigHash(c2) == h {
 		t.Error("a different password gave the same hash")
 	}
 	c3 := &continuumv1.Config{ClusterId: "cl-a", LinkPeers: c.LinkPeers, LinkIperfServer: &continuumv1.LinkIperfServer{PrivateKeyPem: "KEYMARK2", UsersCsv: "u,HASHMARK"}}
-	if ConfigHash(c3) == h {
+	if connectivity.ConfigHash(c3) == h {
 		t.Error("a different server key gave the same hash")
 	}
 	// A Config without credentials hashes as it always did.
 	plain := &continuumv1.Config{ClusterId: "cl-a", LinkPeers: []*continuumv1.LinkPeer{{ClusterId: "cl-b", Name: "B", Addresses: []string{"10.0.0.1"}}}}
-	if ConfigHash(plain) != ConfigHash(&continuumv1.Config{ClusterId: "cl-a", LinkPeers: []*continuumv1.LinkPeer{{ClusterId: "cl-b", Name: "B", Addresses: []string{"10.0.0.1"}}}}) {
+	if connectivity.ConfigHash(plain) != connectivity.ConfigHash(&continuumv1.Config{ClusterId: "cl-a", LinkPeers: []*continuumv1.LinkPeer{{ClusterId: "cl-b", Name: "B", Addresses: []string{"10.0.0.1"}}}}) {
 		t.Error("unstable hash")
 	}
 }
@@ -440,7 +447,7 @@ func TestRotationMakesNewCredentialsAndRefusesWhatDoesNotExist(t *testing.T) {
 	before := cr.cfg(cr.first).LinkPeers[0].IperfClient
 	keyBefore := cr.cfg(cr.second).LinkIperfServer.PrivateKeyPem
 
-	if err := cr.core.RotateLinkCredentials(cr.ctx, links, "", cr.second.ClusterID, cr.first.ClusterID); err != nil { // either way round
+	if err := cr.core.Connectivity.RotateLinkCredentials(cr.ctx, links, "", cr.second.ClusterID, cr.first.ClusterID); err != nil { // either way round
 		t.Fatal(err)
 	}
 	after := cr.cfg(cr.first).LinkPeers[0].IperfClient
@@ -454,16 +461,16 @@ func TestRotationMakesNewCredentialsAndRefusesWhatDoesNotExist(t *testing.T) {
 		t.Error("the server's users file did not follow the rotation")
 	}
 
-	if err := cr.core.RotateLinkCredentials(cr.ctx, links, cr.second.ClusterID, "", ""); err != nil {
+	if err := cr.core.Connectivity.RotateLinkCredentials(cr.ctx, links, cr.second.ClusterID, "", ""); err != nil {
 		t.Fatal(err)
 	}
 	if cr.cfg(cr.second).LinkIperfServer.PrivateKeyPem == keyBefore || cr.cfg(cr.first).LinkPeers[0].IperfClient.PublicKeyPem == before.PublicKeyPem {
 		t.Error("the cluster's key pair did not change on both ends")
 	}
-	if err := cr.core.RotateLinkCredentials(cr.ctx, links, cr.first.ClusterID, "", ""); err == nil {
+	if err := cr.core.Connectivity.RotateLinkCredentials(cr.ctx, links, cr.first.ClusterID, "", ""); err == nil {
 		t.Error("rotated the key of a cluster that serves nothing")
 	}
-	if err := cr.core.RotateLinkCredentials(cr.ctx, links, "", cr.first.ClusterID, cr.third.ClusterID); err == nil {
+	if err := cr.core.Connectivity.RotateLinkCredentials(cr.ctx, links, "", cr.first.ClusterID, cr.third.ClusterID); err == nil {
 		t.Error("rotated a pair that is not set up")
 	}
 }
@@ -476,16 +483,16 @@ func TestNoLogAuditOrErrorHoldsCredentialMaterial(t *testing.T) {
 	ic := cr.cfg(cr.first).LinkPeers[0].IperfClient
 	srv := cr.cfg(cr.second).LinkIperfServer
 	_ = cr.cfg(cr.third)
-	if err := cr.core.RotateLinkCredentials(cr.ctx, links, "", cr.first.ClusterID, cr.second.ClusterID); err != nil {
+	if err := cr.core.Connectivity.RotateLinkCredentials(cr.ctx, links, "", cr.first.ClusterID, cr.second.ClusterID); err != nil {
 		t.Fatal(err)
 	}
-	err := cr.core.RotateLinkCredentials(cr.ctx, links, "no-such", "", "")
+	err := cr.core.Connectivity.RotateLinkCredentials(cr.ctx, links, "no-such", "", "")
 	events, _ := cr.st.ListAudit(cr.ctx, "org-1", 200)
 	var audit strings.Builder
 	for _, e := range events {
 		fmt.Fprintf(&audit, "%+v\n", e)
 	}
-	set, _ := cr.core.LinkCredentials(cr.ctx, links, false)
+	set, _ := cr.core.Connectivity.LinkCredentials(cr.ctx, links, false)
 	var dump strings.Builder
 	fmt.Fprintf(&dump, "%v %+v %#v %s", set, set, set, set)
 	for _, c := range set.Clusters {

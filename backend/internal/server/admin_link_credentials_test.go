@@ -80,7 +80,7 @@ func TestRotatingLinkCredentialsIsAnAdminActionThatShowsNoSecrets(t *testing.T) 
 	}
 
 	// Nothing secret in the answers or the audit trail.
-	creds, err := a.hub().C.LinkCredentials(a.ctx, a.hub().C.Settings().Links, false)
+	creds, err := a.hub().C.Connectivity.LinkCredentials(a.ctx, a.hub().C.Settings().Links, false)
 	if err != nil {
 		t.Fatal(err)
 	}

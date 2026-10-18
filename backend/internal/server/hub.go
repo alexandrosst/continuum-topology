@@ -17,6 +17,7 @@ import (
 	"continuum/internal/accounts"
 	"continuum/internal/agentcaps"
 	"continuum/internal/agents"
+	"continuum/internal/connectivity"
 	"continuum/internal/facts"
 	"continuum/internal/flow/wire"
 	"continuum/internal/geoip"
@@ -41,12 +42,12 @@ const (
 
 // view is what the server currently knows about one agent's cluster. It is three parts, one for each module that keeps something per
 // agent, and each part is declared with the module that owns it: estView here (what the agent reported about its cluster and the
-// liveness of its stream), agents.View (the agent's own account of itself and its health) and netView (the paths, addresses and config
+// liveness of its stream), agents.View (the agent's own account of itself and its health) and connectivity.NetView (the paths, addresses and config
 // the agent is told). Nothing is a field of the view itself, so a use of one is a use of the module that owns it.
 type view struct {
 	estView
 	agents.View
-	NetView
+	connectivity.NetView
 }
 
 // estView is what the hub holds of what an agent reported about its cluster, and of the liveness of its stream.
@@ -91,7 +92,7 @@ type estView struct {
 }
 
 func newView() *view {
-	return &view{View: agents.View{Self: agents.NewSelfRing(agents.SelfStatsWindow, func(s agents.SelfStatsSample) time.Time { return s.At })}, estView: estView{state: facts.New(), flows: observed.NewFlowTable()}, NetView: NetView{Paths: map[string]*PathTrack{}, Targets: map[string]IssuedTarget{}}}
+	return &view{View: agents.View{Self: agents.NewSelfRing(agents.SelfStatsWindow, func(s agents.SelfStatsSample) time.Time { return s.At })}, estView: estView{state: facts.New(), flows: observed.NewFlowTable()}, NetView: connectivity.NetView{Paths: map[string]*connectivity.PathTrack{}, Targets: map[string]connectivity.IssuedTarget{}}}
 }
 
 type endReason struct {
@@ -1337,24 +1338,24 @@ func (h *Hub) buildTopology(ctx context.Context, agentList []store.Agent, now ti
 	}
 	// Needs every cluster's nodes in one list (a tunnel's other end is often in a different cluster, or
 	// this very same one), so this runs once here rather than per cluster inside the loop above.
-	CorrelateTunnels(topo.Nodes)
+	connectivity.CorrelateTunnels(topo.Nodes)
 	names := map[string]string{}
 	for _, c := range topo.Clusters {
 		names[c.ID] = c.Name
 	}
-	// So correlateClusterLinks can tell which cluster a dependency's calling service belongs to, for its
+	// So connectivity.CorrelateClusterLinks can tell which cluster a dependency's calling service belongs to, for its
 	// own network-health rollup (FlowsObserved/AvgRttMs/AvgLossPct) - built here rather than inside it,
 	// keeping that function pure data matching with no topology-wide bookkeeping of its own.
 	serviceClusterID := map[string]string{}
 	for _, s := range topo.Services {
 		serviceClusterID[s.ID] = s.ClusterID
 	}
-	// Same reasoning as correlateTunnels just above: a cluster-pair relationship can only be seen once
+	// Same reasoning as connectivity.CorrelateTunnels just above: a cluster-pair relationship can only be seen once
 	// every cluster's nodes are in one list, so this also runs once here, after names is built.
-	topo.ClusterLinks = CorrelateClusterLinks(topo.Nodes, names, topo.Dependencies, serviceClusterID)
-	// Builds on topo.ClusterLinks just computed above - see correlateClusterPairConnectivity's own doc
+	topo.ClusterLinks = connectivity.CorrelateClusterLinks(topo.Nodes, names, topo.Dependencies, serviceClusterID)
+	// Builds on topo.ClusterLinks just computed above - see connectivity.CorrelateClusterPairConnectivity's own doc
 	// for why it takes that output as-is rather than recomputing the tunnel/subnet correlation itself.
-	topo.ClusterPairConnectivity = CorrelateClusterPairConnectivity(topo.Nodes, names, topo.Dependencies, serviceClusterID, topo.ClusterLinks)
+	topo.ClusterPairConnectivity = connectivity.CorrelateClusterPairConnectivity(topo.Nodes, names, topo.Dependencies, serviceClusterID, topo.ClusterLinks)
 	topo.Paths = h.pathDocs(agentList, located, names, now)
 	tombstones := h.tombstoneDocs(now)
 	observation := twin.ObservationDoc{StaleAfterSeconds: int(window / time.Second), TombstoneRetentionDays: int(h.retention() / (24 * time.Hour))}

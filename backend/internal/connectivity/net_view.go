@@ -1,11 +1,11 @@
-package server
+package connectivity
 
 import (
 	"sync"
 	"time"
 )
 
-// netView is what the server keeps per agent about the network it is told to measure and the Config it has sent: the paths and the
+// NetView is what the server keeps per agent about the network it is told to measure and the Config it has sent: the paths and the
 // targets it issued, the addresses an administrator asked it to try, and the echo that says whether its Config arrived.
 type NetView struct {
 	// Measured network paths, keyed by the target id the server issued for them.

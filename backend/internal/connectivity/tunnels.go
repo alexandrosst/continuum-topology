@@ -1,4 +1,4 @@
-package server
+package connectivity
 
 import (
 	"fmt"
@@ -10,7 +10,7 @@ import (
 
 // minRoutePrefixV4/minRoutePrefixV6 are the narrowest-allowed (i.e. the SMALLEST acceptable prefix
 // length - "narrowest" in the networking sense of "most specific") route a tunnel may offer as evidence
-// for correlateTunnels below. Without this floor, two completely unrelated tunnels that each happen to
+// for CorrelateTunnels below. Without this floor, two completely unrelated tunnels that each happen to
 // route a whole shared private supernet (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 - an entirely ordinary
 // way to configure a "route everything on this VPN" tunnel) would corroborate each other purely by
 // coincidental overlap in commonly-reused address space, never having exchanged a single packet. A real
@@ -34,7 +34,7 @@ func specificEnough(route *net.IPNet) bool {
 	return ones >= minRoutePrefixV6 // IPv6 (bits == 128)
 }
 
-// correlateTunnels looks, across every node in the whole topology (any cluster, not just one), for a
+// CorrelateTunnels looks, across every node in the whole topology (any cluster, not just one), for a
 // pair of tunnel interfaces that corroborate each other: each one's own address falls inside a
 // sufficiently specific (see specificEnough) routed prefix the OTHER one reports sending traffic
 // through. That two-way agreement is what makes this an honest "confirmed" label rather than a guess
@@ -98,16 +98,16 @@ func CorrelateTunnels(nodes []model.Node) {
 	}
 }
 
-// correlateClusterLinks looks across every node in the topology for two kinds of confirmed, cluster-pair
-// network relationship - distinct from, and a coarser-grained sibling of, correlateTunnels above:
+// CorrelateClusterLinks looks across every node in the topology for two kinds of confirmed, cluster-pair
+// network relationship - distinct from, and a coarser-grained sibling of, CorrelateTunnels above:
 //
 //   - "overlay": the exact same two-way, specificity-floored tunnel-reaches-address match
-//     correlateTunnels performs (an address one tunnel owns falls inside a sufficiently specific prefix
+//     CorrelateTunnels performs (an address one tunnel owns falls inside a sufficiently specific prefix
 //     the OTHER tunnel routes traffic through, and vice versa), kept here only when the two ends belong
 //     to different clusters. The matching is deliberately recomputed independently rather than reusing
-//     correlateTunnels' side effect on TunnelInterface.Confirmed (which records node names, not cluster
-//     IDs, and is a separate, per-node-pair fact) - this keeps correlateClusterLinks pure and testable on
-//     its own, the same way correlateTunnels is.
+//     CorrelateTunnels' side effect on TunnelInterface.Confirmed (which records node names, not cluster
+//     IDs, and is a separate, per-node-pair fact) - this keeps CorrelateClusterLinks pure and testable on
+//     its own, the same way CorrelateTunnels is.
 //   - "subnet": two nodes in different clusters report a HostSubnets prefix that is, exactly, the same
 //     network (equal network address and mask) at or above the same specificity floor tunnel routes are
 //     held to. Because a node's own reported subnet always contains the node's own address by
@@ -367,23 +367,23 @@ func CorrelateClusterLinks(nodes []model.Node, names map[string]string, dependen
 	return out
 }
 
-// correlateClusterPairConnectivity answers, for every cluster pair that has SOME existing relationship
-// already (an observed cross-cluster Dependency, or a ClusterLink correlateClusterLinks above already
+// CorrelateClusterPairConnectivity answers, for every cluster pair that has SOME existing relationship
+// already (an observed cross-cluster Dependency, or a ClusterLink CorrelateClusterLinks above already
 // confirmed), the broader question a ClusterLink alone cannot: can these two clusters actually reach
 // each other, and how - see model.ClusterPairConnectivity's own doc for exactly what each of its four
-// Status values means and is backed by. clusterLinks is correlateClusterLinks' own output for this same
+// Status values means and is backed by. clusterLinks is CorrelateClusterLinks' own output for this same
 // build, reused as-is (never recomputed) for the "tunnel"/"subnet" cases; dependencies/serviceClusterID
-// are the same inputs correlateClusterLinks' flow rollup already takes.
+// are the same inputs CorrelateClusterLinks' flow rollup already takes.
 //
-// Deliberately bounded the same way correlateClusterLinks itself already is: this never iterates every
+// Deliberately bounded the same way CorrelateClusterLinks itself already is: this never iterates every
 // possible pair of onboarded clusters, only the pairs that earn a row by already having a relationship -
 // a confirmed ClusterLink, or at least one observed cross-cluster Dependency between them. Two clusters
 // that have never spoken and share no confirmed link get no row, not a manufactured "unknown".
 //
 // Pure data matching over already-built values, with no I/O of its own - the same testable-in-isolation
-// style as correlateTunnels/correlateClusterLinks above (see tunnels_test.go).
+// style as CorrelateTunnels/CorrelateClusterLinks above (see tunnels_test.go).
 func CorrelateClusterPairConnectivity(nodes []model.Node, names map[string]string, dependencies []model.Dependency, serviceClusterID map[string]string, clusterLinks []model.ClusterLink) []model.ClusterPairConnectivity {
-	// hasNetworkEvidence says whether a cluster reported ANYTHING correlateClusterLinks could have
+	// hasNetworkEvidence says whether a cluster reported ANYTHING CorrelateClusterLinks could have
 	// matched from its side - at least one node with a Tunnel or a HostSubnets prefix. This is exactly
 	// what separates "unknown" (this server never got to check) from "unexplained" (it checked, on both
 	// sides, and nothing matched) below.
@@ -395,7 +395,7 @@ func CorrelateClusterPairConnectivity(nodes []model.Node, names map[string]strin
 	}
 
 	type pairKey struct{ from, to string }
-	// orderedPair mirrors correlateClusterLinks' own add() convention (from/to ordered by cluster ID, so
+	// orderedPair mirrors CorrelateClusterLinks' own add() convention (from/to ordered by cluster ID, so
 	// the same pair is never recorded twice under swapped ends depending on scan order).
 	orderedPair := func(a, b string) pairKey {
 		if a > b {

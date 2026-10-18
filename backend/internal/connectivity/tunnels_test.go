@@ -1,4 +1,4 @@
-package server
+package connectivity
 
 import (
 	"testing"
@@ -724,7 +724,7 @@ func TestCorrelateClusterPairConnectivityCountsEveryCrossClusterDependencyRegard
 		{From: "svc-a2", FromKind: "service", To: "svc-b1", ToKind: "service", Iface: "eth0"},
 		// Same cluster on both ends - must not be counted as a cross-cluster flow.
 		{From: "svc-a1", FromKind: "service", To: "svc-a2", ToKind: "service"},
-		// A device, not a service - must not be counted (mirrors correlateClusterLinks' own rollup rule).
+		// A device, not a service - must not be counted (mirrors CorrelateClusterLinks' own rollup rule).
 		{From: "dev-a1", FromKind: "device", To: "svc-b1", ToKind: "service"},
 	}
 	serviceClusterID := map[string]string{

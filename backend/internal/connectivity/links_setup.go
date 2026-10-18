@@ -1,4 +1,4 @@
-package server
+package connectivity
 
 import (
 	"fmt"
@@ -67,7 +67,7 @@ type LinkSetup struct {
 	Steps []LinkSetupStep `json:"steps"`
 }
 
-// setupEnd is what linkSetup is given about one cluster of a pair.
+// SetupEnd is what LinkSetup is given about one cluster of a pair.
 type SetupEnd struct {
 	ID string
 	// Name is how the cluster reads in a sentence; empty falls back to ID.
@@ -94,7 +94,7 @@ func (e SetupEnd) fresh(now time.Time) bool {
 // ready says whether the end can measure at all: an approved agent that is told about the other cluster.
 func (e SetupEnd) ready() bool { return e.HasAgent && e.Note == nil }
 
-// linkSetup works out the checklist of one pair. It is a pure function of its arguments, so that every step and every state can be
+// LinkSetupSteps works out the checklist of one pair. It is a pure function of its arguments, so that every step and every state can be
 // tested without a hub: now is the time to compare the prober's last visit and the report's age with; haveFusion says whether this
 // server has a FUSION at all (without one it cannot say where the figures would go, and says so rather than call it a failure).
 func LinkSetupSteps(l kernel.LinkSetting, a, b SetupEnd, haveFusion bool, now time.Time) []LinkSetupStep {

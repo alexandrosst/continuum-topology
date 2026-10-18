@@ -51,7 +51,7 @@ var moduleNames = map[string]bool{
 
 // movedOut are the modules that are packages of their own now. They keep their name here for the lists, but no file of this package is
 // theirs: a file assigned to one of them is a file that should have moved with it.
-var movedOut = map[string]bool{"agents": true, "observed": true, "accounts": true, "advice": true, "operators": true, "telemetry": true, "fusion": true}
+var movedOut = map[string]bool{"connectivity": true, "agents": true, "observed": true, "accounts": true, "advice": true, "operators": true, "telemetry": true, "fusion": true}
 
 // moduleOfFile reads testdata/modules.txt: one line per file, the file name and then its module.
 func moduleOfFile(t *testing.T) map[string]string {
@@ -453,9 +453,8 @@ func compareList(t *testing.T, golden, header, newThing string, got []string, ex
 func TestModulesReachIntoEachOtherOnlyWhereTheListSays(t *testing.T) {
 	uses, _ := typedServer(t)
 	lines, example := edgeLines(uses)
-	if len(lines) < 100 {
-		t.Fatalf("only %d cross-module uses were read: the reading has stopped seeing them", len(lines))
-	}
+	// With every module but the estate a package of its own, the compiler holds almost everything and this list may be empty; the store
+	// list below still shows that the reading works.
 	compareList(t, moduleEdgesFile, edgesHeader, "use(s) across a module boundary", lines, example)
 }
 
@@ -471,7 +470,7 @@ func TestModulesShareStoreMethodsOnlyWhereTheListSays(t *testing.T) {
 var movedPackages = map[string]string{
 	"accounts": "continuum/internal/accounts", "advice": "continuum/internal/decisionloop", "operators": "continuum/internal/operators",
 	"telemetry": "continuum/internal/telemetry", "fusion": "continuum/internal/fusion", "observed": "continuum/internal/observed",
-	"agents": "continuum/internal/agents",
+	"agents": "continuum/internal/agents", "connectivity": "continuum/internal/connectivity",
 }
 
 // readStoreUses reads which store methods a module that is a package of its own calls.

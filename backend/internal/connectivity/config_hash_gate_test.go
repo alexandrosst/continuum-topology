@@ -1,4 +1,4 @@
-package server
+package connectivity
 
 import (
 	"testing"
@@ -9,7 +9,7 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
-// The Config the server sends an agent is pushed only when its hash changes. configHash is written out by hand, so a field added to
+// The Config the server sends an agent is pushed only when its hash changes. ConfigHash is written out by hand, so a field added to
 // the Config and forgotten there is never pushed: the agent keeps running on the old value and nothing says so.
 //
 // This test is the gate for that. It fills every field of a Config (and of every message inside it) with a value, then takes the

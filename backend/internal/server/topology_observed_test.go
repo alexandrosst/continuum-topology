@@ -5,6 +5,7 @@ import (
 	"time"
 
 	continuumv1 "continuum/gen/continuumv1"
+	"continuum/internal/connectivity"
 	"continuum/internal/facts"
 )
 
@@ -41,7 +42,7 @@ func TestOnlyAClusterAtTierTwoOrAboveDrawsObservedTraffic(t *testing.T) {
 		v.flows.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: fs}, time.Now().Add(-time.Minute))
 		if id == wide {
 			now := time.Now()
-			v.Paths["p"] = &PathTrack{T: IssuedTarget{ID: "p", Host: "198.51.100.60", Port: 6443, Source: "manual"}, At: now}
+			v.Paths["p"] = &connectivity.PathTrack{T: connectivity.IssuedTarget{ID: "p", Host: "198.51.100.60", Port: 6443, Source: "manual"}, At: now}
 		}
 		r.hub.mu.Lock()
 		r.hub.views[id] = v

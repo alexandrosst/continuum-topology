@@ -6,6 +6,7 @@ import (
 	"time"
 
 	continuumv1 "continuum/gen/continuumv1"
+	"continuum/internal/connectivity"
 	"continuum/internal/interpret"
 	"continuum/internal/kernel"
 	"continuum/internal/measure"
@@ -35,7 +36,7 @@ func (h *Hub) configForChecked(a store.Agent, v *view) (*continuumv1.Config, boo
 	consent := h.consentOf(a.ID) // before taking h.mu: it may read the store
 	var orgAgents []store.Agent
 	var runnersPaused map[string]bool
-	if a.ClusterID != "" && len(PeersOf(set.Links, a.ClusterID)) > 0 {
+	if a.ClusterID != "" && len(connectivity.PeersOf(set.Links, a.ClusterID)) > 0 {
 		var err error
 		orgAgents, err = h.C.Store.ListAgents(bg(), h.C.OrgID) // also before h.mu, for the same reason
 		if err != nil {
@@ -45,7 +46,7 @@ func (h *Hub) configForChecked(a store.Agent, v *view) (*continuumv1.Config, boo
 		runnersPaused = h.runnersPaused(a, orgAgents, set.Links)
 	}
 	creds := h.linkCredsFor(a, set.Links) // before h.mu: it may read and write the store
-	facts := ConfigFacts{
+	facts := connectivity.ConfigFacts{
 		Tier: a.AccessTier, ClusterID: a.ClusterID, Consent: consent, Heartbeat: HeartbeatSeconds, Resync: resync,
 		ServerTime: h.C.Now().Unix(), MeasureSeconds: int32(set.MeasureSeconds), IperfClients: creds.Clients, IperfServer: creds.Server,
 	}
@@ -54,14 +55,14 @@ func (h *Hub) configForChecked(a store.Agent, v *view) (*continuumv1.Config, boo
 	facts.Peers = h.linkPeers(a, orgAgents, set.Links, consent.Has("flow"), runnersPaused)
 	for _, p := range set.ProbeTargets {
 		if a.ClusterID != "" && p.ClusterID == a.ClusterID {
-			facts.ManualTargets = append(facts.ManualTargets, IssuedTarget{ID: p.ID, Host: p.Host, Port: p.Port, Label: p.Label, Source: "manual"})
+			facts.ManualTargets = append(facts.ManualTargets, connectivity.IssuedTarget{ID: p.ID, Host: p.Host, Port: p.Port, Label: p.Label, Source: "manual"})
 		}
 	}
 	facts.AddressTargets = h.addressTestTargets(v, h.C.Now())
-	facts.DerivedTargets = DeriveTargets(v.flows)
+	facts.DerivedTargets = connectivity.DeriveTargets(v.flows)
 
-	cfg, ts := CompileConfig(facts)
-	v.Targets = map[string]IssuedTarget{}
+	cfg, ts := connectivity.CompileConfig(facts)
+	v.Targets = map[string]connectivity.IssuedTarget{}
 	for _, t := range ts {
 		v.Targets[t.ID] = t
 	}
@@ -167,16 +168,16 @@ func (h *Hub) noteMeasurements(agentID string, m *continuumv1.Measurements) {
 		if !ok || r.Samples == 0 || r.Samples > 100 || r.Failed > r.Samples {
 			continue
 		}
-		if h.noteAddressTest(v, t, r.Samples, r.Failed, Sane(r.RttMinMs), Sane(r.RttP50Ms), Sane(r.RttP95Ms), now) {
+		if h.noteAddressTest(v, t, r.Samples, r.Failed, connectivity.Sane(r.RttMinMs), connectivity.Sane(r.RttP50Ms), connectivity.Sane(r.RttP95Ms), now) {
 			continue // a test's result is read back on its own, never added to the measured paths
 		}
 		tr := v.Paths[t.ID]
 		if tr == nil {
-			tr = &PathTrack{T: t}
+			tr = &connectivity.PathTrack{T: t}
 			v.Paths[t.ID] = tr
 		}
 		tr.T = t
-		tr.Add(measure.Result{ID: t.ID, Samples: int(r.Samples), Failed: int(r.Failed), Min: Sane(r.RttMinMs), P50: Sane(r.RttP50Ms), P95: Sane(r.RttP95Ms)}, now)
+		tr.Add(measure.Result{ID: t.ID, Samples: int(r.Samples), Failed: int(r.Failed), Min: connectivity.Sane(r.RttMinMs), P50: connectivity.Sane(r.RttP50Ms), P95: connectivity.Sane(r.RttP95Ms)}, now)
 	}
 }
 

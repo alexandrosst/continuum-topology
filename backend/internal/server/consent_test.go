@@ -14,6 +14,7 @@ import (
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/accounts"
 	"continuum/internal/agents"
+	"continuum/internal/connectivity"
 	"continuum/internal/facts"
 	"continuum/internal/kernel"
 	"continuum/internal/pki"
@@ -1205,7 +1206,7 @@ func TestNoteMeasurementsRespectsPauseConsent(t *testing.T) {
 	id, _, _ := r.approvedAgent(t, fp)
 	r.hub.mu.Lock()
 	v := newView()
-	v.Targets["t1"] = IssuedTarget{ID: "t1", Host: "h", Port: 80, Label: "l", Source: "observed"}
+	v.Targets["t1"] = connectivity.IssuedTarget{ID: "t1", Host: "h", Port: 80, Label: "l", Source: "observed"}
 	r.hub.views[id] = v
 	r.hub.mu.Unlock()
 

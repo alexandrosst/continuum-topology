@@ -6,6 +6,7 @@ import (
 
 	"continuum/internal/accounts"
 	"continuum/internal/agents"
+	"continuum/internal/connectivity"
 	"continuum/internal/decisionloop"
 	"continuum/internal/fusion"
 	"continuum/internal/kernel"
@@ -23,6 +24,8 @@ type Core struct {
 	Accounts *accounts.Service
 	// Agents is the enrolled agents' side of the Core: enrolment, consent, tiers, conditions, the stream.
 	Agents *agents.Service
+	// Connectivity holds the sealed credentials of the links.
+	Connectivity *connectivity.Service
 	// Loop is the decision loop. Its ports are set when the Hub is built.
 	Loop *decisionloop.Service
 	// Operators and Telemetry are the regional operators and the telemetry intents that may point at them.
@@ -35,7 +38,7 @@ type Core struct {
 func wrap(k *kernel.Core) *Core {
 	ops := operators.NewService(k)
 	tel := telemetry.NewService(k, ops)
-	return &Core{Core: k, Accounts: accounts.NewService(k), Agents: agents.NewService(k, ops, tel), Loop: decisionloop.NewService(k), Operators: ops, Telemetry: tel, Fusion: fusion.NewService(k, ops)}
+	return &Core{Core: k, Accounts: accounts.NewService(k), Agents: agents.NewService(k, ops, tel), Connectivity: connectivity.NewService(k), Loop: decisionloop.NewService(k), Operators: ops, Telemetry: tel, Fusion: fusion.NewService(k, ops)}
 }
 
 // NewCore returns a Core scoped to org (see kernel.NewCore).

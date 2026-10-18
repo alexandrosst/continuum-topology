@@ -19,7 +19,8 @@
 # observed      what the flows say: the table of observed edges, the sanitising of a flow batch, the topology read off them and the index of
 #               the addresses a cluster is known by. It is the package internal/observed; pure, it knows no agent and no hub, and no file of
 #               it is left here.
-# connectivity  paths, links, tunnels, addresses a cluster dials, the config an agent is told.
+# connectivity  paths, links, tunnels, addresses a cluster dials, the config an agent is told. It is the package internal/connectivity; no file
+#               of it is left here.
 # fusion        the FUSION stack: its control, retention and release naming. It is the package internal/fusion; its data API, proxy,
 #               OpenAPI document and UI access guard are the shell's.
 # advice        the decision loop: advice, proposals, outcomes, decisions.
@@ -28,8 +29,6 @@
 #
 # A file added to the package must be added here, in the same change: a test fails otherwise.
 address_check.go shell
-address_drift.go                connectivity
-address_reach.go                connectivity
 admin.go                        shell
 admin_agents.go shell
 admin_commands.go shell
@@ -52,7 +51,6 @@ admin_twin.go shell
 agent_load.go estate
 applications_graph.go           estate
 assemble.go                     estate
-config_digest.go                connectivity
 fusion_appinfo.go shell
 fusion_data.go shell
 fusion_extras.go shell
@@ -71,20 +69,14 @@ hub_links_setup.go              estate
 hub_paths.go                    estate
 hub_selfstats.go                estate
 kernel_bridge.go                kernel
-linkcreds.go                    connectivity
-links.go                        connectivity
 links_latest.go shell
-links_setup.go                  connectivity
 metrics.go                      shell
-net_view.go connectivity
 operator_candidates.go shell
 operator_senders.go shell
-paths.go                        connectivity
 readiness.go                    shell
 recorder.go                     estate
 routes.go                       shell
 self_probe.go shell
 tenants.go                      shell
-tunnels.go                      connectivity
 twin.go                         estate
 workspace_save.go               estate

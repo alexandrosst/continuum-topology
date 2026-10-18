@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 
+	"continuum/internal/connectivity"
 	"continuum/internal/kernel"
 )
 
@@ -42,7 +43,7 @@ func (a *Admin) rotateLinkCredentials(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	err := c.Audited(r.Context(), actor(r), "link-credentials-rotate", "links", target, "iperf3 credentials for the throughput tests", func() error {
-		if err := c.RotateLinkCredentials(r.Context(), links, req.Cluster, req.A, req.B); err != nil {
+		if err := c.Connectivity.RotateLinkCredentials(r.Context(), links, req.Cluster, req.A, req.B); err != nil {
 			return kernel.Errf(kernel.KindInvalid, "%s", err.Error())
 		}
 		return nil
@@ -63,16 +64,16 @@ func rotateRefusal(links []kernel.LinkSetting, cluster, a, b string) string {
 			return "a cluster id is at most 64 characters"
 		}
 	}
-	pairs := ThroughputPairs(links)
+	pairs := connectivity.ThroughputPairs(links)
 	if cluster != "" {
 		for _, p := range pairs {
-			if LinkServer(p[0], p[1]) == cluster {
+			if connectivity.LinkServer(p[0], p[1]) == cluster {
 				return ""
 			}
 		}
 		return "that cluster serves no pair with throughput tests"
 	}
-	if !ContainsPair(pairs, [2]string{min(a, b), max(a, b)}) {
+	if !connectivity.ContainsPair(pairs, [2]string{min(a, b), max(a, b)}) {
 		return "that pair does not ask for throughput tests"
 	}
 	return ""
