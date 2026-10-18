@@ -6,6 +6,7 @@ import (
 
 	"continuum/internal/accounts"
 	"continuum/internal/kernel"
+	"continuum/internal/operators"
 	"continuum/internal/store"
 )
 
@@ -85,7 +86,7 @@ func TestAnOperatorChartTheCommandCannotNameMintsNoHeartbeatSecret(t *testing.T)
 
 // operatorInstall is an operator's first install command (no reissue, no other operator as its destination), for a test that is about
 // what it says and not about whether it could be written.
-func operatorInstall(a *Admin, img kernel.ImageConfig, secret string, op store.Operator, bundle OperatorTLSBundle, heartbeatURL string) (cmd, secretCmd string) {
+func operatorInstall(a *Admin, img kernel.ImageConfig, secret string, op store.Operator, bundle operators.OperatorTLSBundle, heartbeatURL string) (cmd, secretCmd string) {
 	cmd, secretCmd, err := a.operatorInstallCommandWith(img, secret, op, bundle, heartbeatURL, nil, false)
 	if err != nil {
 		panic(err)

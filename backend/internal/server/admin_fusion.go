@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"continuum/internal/kernel"
+	"continuum/internal/operators"
 )
 
 // fusionCentralDoc is the central operator as the UI shows it next to the switch.
@@ -46,8 +47,8 @@ func (a *Admin) fusionDoc(r *http.Request) fusionResponse {
 		out.Links = f.uiLinks(st)
 	}
 	if f != nil && st.Available {
-		_, err := core.GetOperator(r.Context(), CentralOperatorID)
-		out.Central = &fusionCentralDoc{OperatorID: CentralOperatorID, Endpoint: f.CentralEndpoint(), Exposed: f.Exposed(), Exists: err == nil, Service: f.ServiceName(), Namespace: f.Namespace, Warnings: f.AddressWarnings(r.Context())}
+		_, err := core.Operators.GetOperator(r.Context(), operators.CentralOperatorID)
+		out.Central = &fusionCentralDoc{OperatorID: operators.CentralOperatorID, Endpoint: f.CentralEndpoint(), Exposed: f.Exposed(), Exists: err == nil, Service: f.ServiceName(), Namespace: f.Namespace, Warnings: f.AddressWarnings(r.Context())}
 		if out.Central.Exists && !out.Central.Exposed && st.State != "off" {
 			f.DiscoverAddressSoon(core) // the next read of this screen shows it
 		}

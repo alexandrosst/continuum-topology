@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"continuum/internal/accounts"
+	"continuum/internal/operators"
 )
 
 func destByID(list []map[string]any, id string) map[string]any {
@@ -51,7 +52,7 @@ func TestOperatorDestinationsAreForEditorsAndHoldNoSecrets(t *testing.T) {
 	if m, _ := d["acceptedModalities"].([]any); len(m) != 1 || m[0] != "metrics" {
 		t.Fatalf("acceptedModalities = %v", d["acceptedModalities"])
 	}
-	if d["endpoint"] != OperatorServiceName(id)+".continuum-system.svc:4317" {
+	if d["endpoint"] != operators.OperatorServiceName(id)+".continuum-system.svc:4317" {
 		t.Fatalf("endpoint = %v", d["endpoint"])
 	}
 	if h, _ := d["health"].(map[string]any); h["state"] != "unknown" {
@@ -87,14 +88,14 @@ func TestOperatorDestinationsOfferCentralFromTheStart(t *testing.T) {
 
 	// A server with no FUSION has no central operator to offer.
 	list := a.do("GET", "/api/v1/operator-destinations", nil, withCookie(editor)).jsonArray(t)
-	if destByID(list, CentralOperatorID) != nil {
+	if destByID(list, operators.CentralOperatorID) != nil {
 		t.Fatalf("central offered without FUSION: %v", list)
 	}
 
 	f, k := newFusion(t, a)
 	a.a.Fusion = f
 	list = a.do("GET", "/api/v1/operator-destinations", nil, withCookie(editor)).jsonArray(t)
-	if len(list) != 2 || list[0]["id"] != CentralOperatorID || list[1]["id"] != regional {
+	if len(list) != 2 || list[0]["id"] != operators.CentralOperatorID || list[1]["id"] != regional {
 		t.Fatalf("central is not first: %v", list)
 	}
 	c := list[0]
@@ -113,12 +114,12 @@ func TestOperatorDestinationsOfferCentralFromTheStart(t *testing.T) {
 		t.Fatal(err)
 	}
 	list = a.do("GET", "/api/v1/operator-destinations", nil, withCookie(editor)).jsonArray(t)
-	c = destByID(list, CentralOperatorID)
+	c = destByID(list, operators.CentralOperatorID)
 	if len(list) != 2 || c["kind"] != "central" || c["recommended"] != true || c["health"].(map[string]any)["state"] != "starting" || c["endpoint"] == nil {
 		t.Fatalf("central while starting = %v", list)
 	}
 	k.allReady()
-	c = destByID(a.do("GET", "/api/v1/operator-destinations", nil, withCookie(editor)).jsonArray(t), CentralOperatorID)
+	c = destByID(a.do("GET", "/api/v1/operator-destinations", nil, withCookie(editor)).jsonArray(t), operators.CentralOperatorID)
 	if c["recommended"] != true || c["health"].(map[string]any)["state"] != "online" {
 		t.Fatalf("central while running = %v", c)
 	}
@@ -126,7 +127,7 @@ func TestOperatorDestinationsOfferCentralFromTheStart(t *testing.T) {
 	if _, err := f.Disable(a.ctx, a.core, "alex"); err != nil {
 		t.Fatal(err)
 	}
-	c = destByID(a.do("GET", "/api/v1/operator-destinations", nil, withCookie(editor)).jsonArray(t), CentralOperatorID)
+	c = destByID(a.do("GET", "/api/v1/operator-destinations", nil, withCookie(editor)).jsonArray(t), operators.CentralOperatorID)
 	if c["recommended"] != false || c["health"].(map[string]any)["state"] != "off" {
 		t.Fatalf("central after turning it off = %v", c)
 	}
@@ -145,7 +146,7 @@ func TestCentralOperatorHealthIsFusionsState(t *testing.T) {
 		t.Fatal(err)
 	}
 	health := func() map[string]any {
-		return a.do("GET", "/api/v1/operators/"+CentralOperatorID, nil, withCookie(admin)).json(t)["health"].(map[string]any)
+		return a.do("GET", "/api/v1/operators/"+operators.CentralOperatorID, nil, withCookie(admin)).json(t)["health"].(map[string]any)
 	}
 	if h := health(); h["state"] != "starting" || h["reporting"] != false {
 		t.Fatalf("starting: %v", h)
@@ -154,7 +155,7 @@ func TestCentralOperatorHealthIsFusionsState(t *testing.T) {
 	if h := health(); h["state"] != "online" {
 		t.Fatalf("running: %v", h)
 	}
-	doc := a.do("GET", "/api/v1/operators/"+CentralOperatorID, nil, withCookie(admin)).json(t)
+	doc := a.do("GET", "/api/v1/operators/"+operators.CentralOperatorID, nil, withCookie(admin)).json(t)
 	if doc["addressState"] != "none" || strings.Contains(a.do("GET", "/api/v1/operators", nil, withCookie(admin)).Body.String(), `"state":"waiting"`) {
 		t.Fatalf("central doc = %v", doc)
 	}
@@ -165,13 +166,13 @@ func TestCentralHealthMapsFusionsStates(t *testing.T) {
 		st   FusionStatus
 		want string
 	}{
-		{FusionStatus{Available: true, State: "running"}, HealthOnline},
-		{FusionStatus{Available: true, State: "starting"}, HealthStarting},
-		{FusionStatus{Available: true, State: "attention"}, HealthAttention},
-		{FusionStatus{Available: true, State: "off"}, HealthOff},
-		{FusionStatus{State: "off", Reason: "not-configured"}, HealthUnknown},
+		{FusionStatus{Available: true, State: "running"}, operators.HealthOnline},
+		{FusionStatus{Available: true, State: "starting"}, operators.HealthStarting},
+		{FusionStatus{Available: true, State: "attention"}, operators.HealthAttention},
+		{FusionStatus{Available: true, State: "off"}, operators.HealthOff},
+		{FusionStatus{State: "off", Reason: "not-configured"}, operators.HealthUnknown},
 	} {
-		if got := CentralHealth(c.st.Managed()).State; got != c.want {
+		if got := operators.CentralHealth(c.st.Managed()).State; got != c.want {
 			t.Errorf("%+v: %s, want %s", c.st, got, c.want)
 		}
 	}
@@ -181,15 +182,15 @@ func TestCentralHealthMapsFusionsStates(t *testing.T) {
 func TestHealthIsWaitingOnlyForAnActiveOperatorWithAHeartbeatCredential(t *testing.T) {
 	e := newEnv(t)
 	op, _ := e.hbOperator(t, "athens", fp)
-	if h := OperatorHealthAt(op, e.core.Now()); h.State != HealthWaiting || h.HeartbeatEnabledAt == nil {
+	if h := operators.OperatorHealthAt(op, e.core.Now()); h.State != operators.HealthWaiting || h.HeartbeatEnabledAt == nil {
 		t.Fatalf("active, enabled, unseen: %+v", h)
 	}
 	op.Status = "revoked"
-	if h := OperatorHealthAt(op, e.core.Now()); h.State != HealthUnknown {
+	if h := operators.OperatorHealthAt(op, e.core.Now()); h.State != operators.HealthUnknown {
 		t.Fatalf("revoked, never seen: %+v", h)
 	}
 	op.Status, op.HeartbeatHash, op.HeartbeatEnabledAt = "active", nil, nil
-	if h := OperatorHealthAt(op, e.core.Now()); h.State != HealthUnknown || h.HeartbeatEnabledAt != nil {
+	if h := operators.OperatorHealthAt(op, e.core.Now()); h.State != operators.HealthUnknown || h.HeartbeatEnabledAt != nil {
 		t.Fatalf("no credential: %+v", h)
 	}
 }

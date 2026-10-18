@@ -7,8 +7,10 @@ import (
 	"continuum/internal/accounts"
 	"continuum/internal/decisionloop"
 	"continuum/internal/kernel"
+	"continuum/internal/operators"
 	"continuum/internal/pki"
 	"continuum/internal/store"
+	"continuum/internal/telemetry"
 )
 
 // Core is the kernel's Core with what the modules do with it. The kernel does not know the modules, so each module that is a package
@@ -19,10 +21,14 @@ type Core struct {
 	Accounts *accounts.Service
 	// Loop is the decision loop. Its ports are set when the Hub is built.
 	Loop *decisionloop.Service
+	// Operators and Telemetry are the regional operators and the telemetry intents that may point at them.
+	Operators *operators.Service
+	Telemetry *telemetry.Service
 }
 
 func wrap(k *kernel.Core) *Core {
-	return &Core{Core: k, Accounts: accounts.NewService(k), Loop: decisionloop.NewService(k)}
+	ops := operators.NewService(k)
+	return &Core{Core: k, Accounts: accounts.NewService(k), Loop: decisionloop.NewService(k), Operators: ops, Telemetry: telemetry.NewService(k, ops)}
 }
 
 // NewCore returns a Core scoped to org (see kernel.NewCore).

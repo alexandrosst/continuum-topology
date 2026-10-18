@@ -91,7 +91,7 @@ func doctorCommands(t *testing.T) {
 		if want["continuum.org.id"] != a.core.OrgID || want["continuum.cluster.id"] != kernel.ClusterIDFor(a.core.OrgID, ag.Fingerprint) || want["continuum.cluster.id"] != ag.ClusterID {
 			t.Errorf("the command stamps org %q and cluster %q; the server knows org %q and cluster %q", want["continuum.org.id"], want["continuum.cluster.id"], a.core.OrgID, ag.ClusterID)
 		}
-		if ti, err := a.core.GetTelemetryIntent(a.ctx, want["continuum.intent.id"]); err != nil || ti.AgentID != agentID || ti.Status != store.TelemetryIntentActive {
+		if ti, err := a.core.Telemetry.GetTelemetryIntent(a.ctx, want["continuum.intent.id"]); err != nil || ti.AgentID != agentID || ti.Status != store.TelemetryIntentActive {
 			t.Errorf("the intent the command stamps is not this agent's active one: %v", err)
 		}
 

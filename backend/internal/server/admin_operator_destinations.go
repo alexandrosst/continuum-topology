@@ -3,6 +3,7 @@ package server
 import (
 	"net/http"
 
+	"continuum/internal/operators"
 	"continuum/internal/store"
 )
 
@@ -38,12 +39,12 @@ const centralOperatorName = "Central (FUSION)"
 // no FUSION at all it is not offered.
 func (a *Admin) listOperatorDestinations(w http.ResponseWriter, r *http.Request) {
 	core := a.core(r)
-	ops, err := core.ListOperators(r.Context())
+	ops, err := core.Operators.ListOperators(r.Context())
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
-	usages, _ := core.OperatorUsages(r.Context())
+	usages, _ := core.Operators.OperatorUsages(r.Context())
 	fusion := a.fusionState(r)
 	out := []operatorDestinationDoc{}
 	var regional []operatorDestinationDoc
@@ -59,18 +60,18 @@ func (a *Admin) listOperatorDestinations(w http.ResponseWriter, r *http.Request)
 			AcceptedModalities: d.AcceptedModalities, UsedBy: usageCount(usages[op.ID]),
 		}
 		e.Health.State, e.Health.LastSeenAt = d.Health.State, d.Health.LastSeenAt
-		if op.ID == CentralOperatorID {
+		if op.ID == operators.CentralOperatorID {
 			e.Kind, haveCentral = "central", true
-			e.Recommended = d.Health.State == HealthOnline || d.Health.State == HealthStarting
+			e.Recommended = d.Health.State == operators.HealthOnline || d.Health.State == operators.HealthStarting
 			out = append(out, e)
 			continue
 		}
 		regional = append(regional, e)
 	}
 	if !haveCentral && fusion.Available {
-		h := CentralHealth(fusion.Managed())
-		e := operatorDestinationDoc{ID: CentralOperatorID, Name: centralOperatorName, Kind: "central", Status: string(store.OperatorActive),
-			AddressState: addressNone, UsedBy: usageCount(usages[CentralOperatorID]), Recommended: h.State == HealthOnline || h.State == HealthStarting}
+		h := operators.CentralHealth(fusion.Managed())
+		e := operatorDestinationDoc{ID: operators.CentralOperatorID, Name: centralOperatorName, Kind: "central", Status: string(store.OperatorActive),
+			AddressState: addressNone, UsedBy: usageCount(usages[operators.CentralOperatorID]), Recommended: h.State == operators.HealthOnline || h.State == operators.HealthStarting}
 		e.Health.State, e.Health.LastSeenAt = h.State, rfcp(fusion.LastDataAt)
 		if a.Fusion.Exposed() {
 			e.AddressState, e.Endpoint, e.ReachableFromOtherClusters = addressSet, a.Fusion.CentralEndpoint(), true
@@ -80,4 +81,4 @@ func (a *Admin) listOperatorDestinations(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, 200, append(out, regional...))
 }
 
-func usageCount(u OperatorUsage) int { return len(u.Operators) + u.Intents }
+func usageCount(u operators.OperatorUsage) int { return len(u.Operators) + u.Intents }

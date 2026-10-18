@@ -1,4 +1,4 @@
-package server
+package operators
 
 import (
 	"context"
@@ -144,7 +144,7 @@ var ErrHeartbeatRateLimited = errors.New("heartbeat rate limited")
 // replacing (so invalidating) any earlier one. It is both "turn it on" and "rotate it": the audit action
 // says which. The secret is returned once and never stored. Nothing is sent to the operator - the person
 // applies it with the commands the admin API returns.
-func (c *Core) EnableOperatorHeartbeat(ctx context.Context, actor, id string) (secret string, rotated bool, err error) {
+func (c *Service) EnableOperatorHeartbeat(ctx context.Context, actor, id string) (secret string, rotated bool, err error) {
 	op, err := c.OperatorInOrg(ctx, id)
 	if err != nil {
 		return "", false, err
@@ -179,7 +179,7 @@ func (c *Core) EnableOperatorHeartbeat(ctx context.Context, actor, id string) (s
 // alive. It is not organisation-scoped (the caller holds no session), so call it on the platform-wide core.
 // Unknown, malformed, rotated-away and revoked all return errHeartbeatRejected. Database writes are
 // coalesced to one per heartbeatWriteEvery per operator; there is no audit row per heartbeat.
-func (c *Core) RecordOperatorHeartbeat(ctx context.Context, secret string) error {
+func (c *Service) RecordOperatorHeartbeat(ctx context.Context, secret string) error {
 	if !kernel.LooksLikeHeartbeatSecret(secret) {
 		return ErrHeartbeatRejected
 	}
@@ -212,6 +212,6 @@ func (c *Core) RecordOperatorHeartbeat(ctx context.Context, secret string) error
 }
 
 // heartbeatSt coalesces regional operators' heartbeat writes (see RecordOperatorHeartbeat). Server-wide, like the rate limiters.
-func (c *Core) heartbeatSt() *heartbeatSeen {
+func (c *Service) heartbeatSt() *heartbeatSeen {
 	return kernel.ServerState(c, "operators.heartbeats", newHeartbeatSeen)
 }

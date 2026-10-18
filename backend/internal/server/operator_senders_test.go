@@ -7,6 +7,7 @@ import (
 	continuumv1 "continuum/gen/continuumv1"
 
 	"continuum/internal/accounts"
+	"continuum/internal/operators"
 )
 
 func failing(err string) *SenderDeliveryDoc {
@@ -14,7 +15,7 @@ func failing(err string) *SenderDeliveryDoc {
 }
 
 func TestDiagnosisSaysWhichEndIsAtFault(t *testing.T) {
-	base := diagnosisInput{ClusterName: "patras-edge", Connected: true, Address: "10.20.0.14:31317", AddrSource: "recorded", OperatorID: "op-1", OperatorName: "site-athens", OperatorState: HealthUnknown}
+	base := diagnosisInput{ClusterName: "patras-edge", Connected: true, Address: "10.20.0.14:31317", AddrSource: "recorded", OperatorID: "op-1", OperatorName: "site-athens", OperatorState: operators.HealthUnknown}
 	peerOK := []peerOutcome{{Name: "athens-edge", Address: "10.20.0.14:31317", State: "exporting"}}
 	peerElsewhere := []peerOutcome{{Name: "athens-edge", Address: "203.0.113.9:4317", State: "exporting"}}
 
@@ -37,12 +38,12 @@ func TestDiagnosisSaysWhichEndIsAtFault(t *testing.T) {
 		}, "sender-network", []string{"203.0.113.9:4317", "try that one"}},
 		{"timeout, operator offline and nobody else getting through: the operator", func(in *diagnosisInput) {
 			in.Delivery = failing("i/o timeout")
-			in.OperatorState = HealthOffline
+			in.OperatorState = operators.HealthOffline
 			in.OperatorSeen = "2026-10-12T10:00:00Z"
 		}, "operator", []string{"stopped reporting", "2026-10-12T10:00:00Z", "get pods"}},
 		{"timeout, operator offline but a peer exports: the path again", func(in *diagnosisInput) {
 			in.Delivery = failing("i/o timeout")
-			in.OperatorState = HealthOffline
+			in.OperatorState = operators.HealthOffline
 			in.Peers = peerOK
 		}, "sender-network", nil},
 		{"timeout with nothing to compare", func(in *diagnosisInput) { in.Delivery = failing("i/o timeout") }, "unclear", []string{"nothing to compare", "Test"}},

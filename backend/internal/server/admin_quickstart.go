@@ -23,7 +23,7 @@ func (a *Admin) mintGatewayToken(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
-	t, secret, err := a.core(r).MintGatewayToken(r.Context(), actor(r), r.PathValue("id"), time.Duration(req.TTLSeconds)*time.Second)
+	t, secret, err := a.core(r).Telemetry.MintGatewayToken(r.Context(), actor(r), r.PathValue("id"), time.Duration(req.TTLSeconds)*time.Second)
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -39,7 +39,7 @@ func (a *Admin) mintGatewayToken(w http.ResponseWriter, r *http.Request) {
 // expires - never the secret itself, which is shown once, at mint time, and nowhere else. No token minted
 // yet is not an error: it is simply {"active": false}, the normal state for a backend nobody has gated yet.
 func (a *Admin) getGatewayToken(w http.ResponseWriter, r *http.Request) {
-	t, err := a.core(r).LatestGatewayToken(r.Context(), r.PathValue("id"))
+	t, err := a.core(r).Telemetry.LatestGatewayToken(r.Context(), r.PathValue("id"))
 	if errors.Is(err, store.ErrNotFound) {
 		writeJSON(w, 200, map[string]any{"active": false})
 		return

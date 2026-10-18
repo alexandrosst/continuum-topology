@@ -6,6 +6,7 @@ import (
 
 	"continuum/internal/accounts"
 	"continuum/internal/kernel"
+	"continuum/internal/telemetry"
 )
 
 // savedBackend saves one quick-start backend and returns its id.
@@ -23,7 +24,7 @@ func (e *env) savedBackend(t *testing.T, kind, modality string) string {
 func TestMintGatewayTokenHappyPathReturnsTheSecretOnceAndStoresOnlyItsHash(t *testing.T) {
 	e := newEnv(t)
 	id := e.savedBackend(t, "jaeger", "traces")
-	tok, secret, err := e.core.MintGatewayToken(e.ctx, "alex", id, 0)
+	tok, secret, err := e.core.Telemetry.MintGatewayToken(e.ctx, "alex", id, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +34,7 @@ func TestMintGatewayTokenHappyPathReturnsTheSecretOnceAndStoresOnlyItsHash(t *te
 	if tok.BackendID != id || tok.OrgID != "org-1" {
 		t.Fatalf("%+v", tok)
 	}
-	if !tok.ExpiresAt.Equal(tok.CreatedAt.Add(DefaultGatewayTokenTTL)) {
+	if !tok.ExpiresAt.Equal(tok.CreatedAt.Add(telemetry.DefaultGatewayTokenTTL)) {
 		t.Fatalf("expiry not the default TTL from creation: %+v", tok)
 	}
 	stored, err := e.st.LatestGatewayToken(e.ctx, "org-1", id)
@@ -53,7 +54,7 @@ func TestMintGatewayTokenHappyPathReturnsTheSecretOnceAndStoresOnlyItsHash(t *te
 
 func TestMintGatewayTokenRejectsAnUnknownBackend(t *testing.T) {
 	e := newEnv(t)
-	if _, _, err := e.core.MintGatewayToken(e.ctx, "alex", "qsb-does-not-exist", 0); kindOf(err) != kernel.KindNotFound {
+	if _, _, err := e.core.Telemetry.MintGatewayToken(e.ctx, "alex", "qsb-does-not-exist", 0); kindOf(err) != kernel.KindNotFound {
 		t.Fatalf("expected KindNotFound, got %v", err)
 	}
 }
@@ -61,18 +62,18 @@ func TestMintGatewayTokenRejectsAnUnknownBackend(t *testing.T) {
 func TestMintGatewayTokenClampsTTLIntoRange(t *testing.T) {
 	e := newEnv(t)
 	id := e.savedBackend(t, "loki", "logs")
-	tooShort, _, err := e.core.MintGatewayToken(e.ctx, "alex", id, time.Second)
+	tooShort, _, err := e.core.Telemetry.MintGatewayToken(e.ctx, "alex", id, time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := tooShort.ExpiresAt.Sub(tooShort.CreatedAt); got != MinGatewayTokenTTL {
+	if got := tooShort.ExpiresAt.Sub(tooShort.CreatedAt); got != telemetry.MinGatewayTokenTTL {
 		t.Fatalf("a 1s ttl was not clamped up to the minimum: got %v", got)
 	}
-	tooLong, _, err := e.core.MintGatewayToken(e.ctx, "alex", id, 365*24*time.Hour)
+	tooLong, _, err := e.core.Telemetry.MintGatewayToken(e.ctx, "alex", id, 365*24*time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := tooLong.ExpiresAt.Sub(tooLong.CreatedAt); got != MaxGatewayTokenTTL {
+	if got := tooLong.ExpiresAt.Sub(tooLong.CreatedAt); got != telemetry.MaxGatewayTokenTTL {
 		t.Fatalf("a 1y ttl was not clamped down to the maximum: got %v", got)
 	}
 }
@@ -80,13 +81,13 @@ func TestMintGatewayTokenClampsTTLIntoRange(t *testing.T) {
 func TestLatestGatewayTokenReportsNoneUntilOneIsMinted(t *testing.T) {
 	e := newEnv(t)
 	id := e.savedBackend(t, "prometheus", "metrics")
-	if _, err := e.core.LatestGatewayToken(e.ctx, id); kindOf(err) == kernel.KindInvalid {
+	if _, err := e.core.Telemetry.LatestGatewayToken(e.ctx, id); kindOf(err) == kernel.KindInvalid {
 		t.Fatalf("unexpected error before any mint: %v", err)
 	}
-	if _, _, err := e.core.MintGatewayToken(e.ctx, "alex", id, 0); err != nil {
+	if _, _, err := e.core.Telemetry.MintGatewayToken(e.ctx, "alex", id, 0); err != nil {
 		t.Fatal(err)
 	}
-	got, err := e.core.LatestGatewayToken(e.ctx, id)
+	got, err := e.core.Telemetry.LatestGatewayToken(e.ctx, id)
 	if err != nil {
 		t.Fatalf("expected the just-minted token, got error: %v", err)
 	}
@@ -145,7 +146,7 @@ func TestGatewayTokenHTTPReportsExpiredOncePastTTL(t *testing.T) {
 	_, adminCookie := a.user(t, "alex", accounts.RoleAdmin)
 	id := a.savedBackend(t, "loki", "logs")
 
-	r := a.do("POST", "/api/v1/quick-start/"+id+"/gateway-token", map[string]any{"ttlSeconds": int(MinGatewayTokenTTL.Seconds())}, withCookie(adminCookie))
+	r := a.do("POST", "/api/v1/quick-start/"+id+"/gateway-token", map[string]any{"ttlSeconds": int(telemetry.MinGatewayTokenTTL.Seconds())}, withCookie(adminCookie))
 	if r.Code != 201 {
 		t.Fatalf("mint: %d %s", r.Code, r.Body.String())
 	}
@@ -156,7 +157,7 @@ func TestGatewayTokenHTTPReportsExpiredOncePastTTL(t *testing.T) {
 		t.Fatalf("expected not yet expired: %v", got)
 	}
 
-	*a.now = a.now.Add(MinGatewayTokenTTL + time.Second)
+	*a.now = a.now.Add(telemetry.MinGatewayTokenTTL + time.Second)
 
 	if r := a.do("GET", "/api/v1/quick-start/"+id+"/gateway-token", nil, withCookie(adminCookie)); r.Code != 200 {
 		t.Fatalf("status after ttl elapsed: %d %s", r.Code, r.Body.String())

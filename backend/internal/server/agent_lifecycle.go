@@ -99,7 +99,7 @@ func (c *Core) Revoke(ctx context.Context, actor, agentID, reason string) error 
 		// A revoked agent sends nothing, so its telemetry intents are dead letters. Left active, they still count
 		// as users of whatever operator they point at and make revoking that operator need force. They end with
 		// the agent, each audited on its own like any other intent revocation.
-		c.EndAgentIntents(ctx, actor, agentID, "the agent was revoked")
+		c.Telemetry.EndAgentIntents(ctx, actor, agentID, "the agent was revoked")
 		if c.OnRevoke != nil {
 			c.OnRevoke(agentID)
 		}

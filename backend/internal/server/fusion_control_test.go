@@ -14,6 +14,7 @@ import (
 	"continuum/internal/accounts"
 	"continuum/internal/fusionapi"
 	"continuum/internal/kernel"
+	"continuum/internal/operators"
 	"continuum/internal/store"
 )
 
@@ -247,7 +248,7 @@ func TestEnableFusionPreparesTheCentralOperatorThenStartsEverything(t *testing.T
 		}
 	}
 	// The central operator is a real, active, mTLS regional operator whose destination is the three stores.
-	op, err := a.a.C.GetOperator(ctx, CentralOperatorID)
+	op, err := a.a.C.Operators.GetOperator(ctx, operators.CentralOperatorID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -272,7 +273,7 @@ func TestEnableFusionPreparesTheCentralOperatorThenStartsEverything(t *testing.T
 	}
 
 	// A sender's client certificate, issued from the same CA, is accepted by it.
-	certPEM, _, caPEM, err := a.a.C.IssueOperatorClientCertFor(ctx, "alex", CentralOperatorID, "cl-test", "")
+	certPEM, _, caPEM, err := a.a.C.Operators.IssueOperatorClientCertFor(ctx, "alex", operators.CentralOperatorID, "cl-test", "")
 	if err != nil || string(caPEM) != string(k.secret["ca.crt"]) {
 		t.Fatalf("client cert: %v (CA matches the gateway's: %v)", err, string(caPEM) == string(k.secret["ca.crt"]))
 	}
@@ -290,10 +291,10 @@ func TestEnableFusionPreparesTheCentralOperatorThenStartsEverything(t *testing.T
 	if string(k.secret["ca.crt"]) != first {
 		t.Error("a second enable replaced the CA, which would orphan every sender's certificate")
 	}
-	ops, _ := a.a.C.ListOperators(ctx)
+	ops, _ := a.a.C.Operators.ListOperators(ctx)
 	n := 0
 	for _, o := range ops {
-		if o.ID == CentralOperatorID {
+		if o.ID == operators.CentralOperatorID {
 			n++
 		}
 	}
@@ -328,7 +329,7 @@ func TestDisableFusionStopsTheGatewayFirstAndKeepsTheOperator(t *testing.T) {
 	if got := strings.Join(k.calls, ","); got != "continuum-fusion-central,continuum-fusion-tempo,continuum-fusion-loki,continuum-fusion-prometheus" {
 		t.Errorf("scale-down order = %s", got)
 	}
-	if op, err := a.a.C.GetOperator(ctx, CentralOperatorID); err != nil || op.Status != store.OperatorActive {
+	if op, err := a.a.C.Operators.GetOperator(ctx, operators.CentralOperatorID); err != nil || op.Status != store.OperatorActive {
 		t.Errorf("turning FUSION off must keep the central operator (its CA is what every sender trusts): %+v %v", op, err)
 	}
 }
@@ -341,7 +342,7 @@ func TestEnableFusionRefusesWhatItCannotDo(t *testing.T) {
 	if _, err := f.Enable(ctx, a.a.C, "alex"); err == nil {
 		t.Error("enabled without permission")
 	}
-	if _, err := a.a.C.GetOperator(ctx, CentralOperatorID); err == nil {
+	if _, err := a.a.C.Operators.GetOperator(ctx, operators.CentralOperatorID); err == nil {
 		t.Error("a central operator was created though FUSION could not be started")
 	}
 
@@ -361,9 +362,9 @@ func TestTheCentralOperatorIsNotEditableByHand(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, err := range map[string]error{
-		"revoke": a.a.C.RevokeOperator(ctx, "alex", CentralOperatorID, "x"),
-		"delete": a.a.C.DeleteOperator(ctx, "alex", CentralOperatorID),
-		"scope":  a.a.C.UpdateOperatorScope(ctx, "alex", CentralOperatorID, nil, store.Destination{Kind: store.DestinationExternal, Endpoint: "x:1"}, nil),
+		"revoke": a.a.C.Operators.RevokeOperator(ctx, "alex", operators.CentralOperatorID, "x"),
+		"delete": a.a.C.Operators.DeleteOperator(ctx, "alex", operators.CentralOperatorID),
+		"scope":  a.a.C.Operators.UpdateOperatorScope(ctx, "alex", operators.CentralOperatorID, nil, store.Destination{Kind: store.DestinationExternal, Endpoint: "x:1"}, nil),
 	} {
 		var e *kernel.Error
 		if !errors.As(err, &e) || e.Kind != kernel.KindConflict {
@@ -394,7 +395,7 @@ func TestFusionHTTPSwitch(t *testing.T) {
 	}
 	doc := r.json(t)
 	central, _ := doc["central"].(map[string]any)
-	if central["operatorId"] != CentralOperatorID || central["exposed"] != false || central["exists"] != true || central["endpoint"] != "continuum-fusion-central.continuum.svc:4317" {
+	if central["operatorId"] != operators.CentralOperatorID || central["exposed"] != false || central["exists"] != true || central["endpoint"] != "continuum-fusion-central.continuum.svc:4317" {
 		t.Errorf("central = %v", central)
 	}
 	k.allReady()
@@ -429,7 +430,7 @@ func TestAnOperatorSendingToTheCentralOperator(t *testing.T) {
 			t.Fatal(r.Body.String())
 		}
 		cl := a.approvedCluster(t, fp)
-		body := map[string]any{"name": "athens", "sourceClusterIds": []string{cl}, "destination": map[string]any{"kind": "operator", "targetOperatorId": CentralOperatorID}}
+		body := map[string]any{"name": "athens", "sourceClusterIds": []string{cl}, "destination": map[string]any{"kind": "operator", "targetOperatorId": operators.CentralOperatorID}}
 		r := a.do("POST", "/api/v1/operators", body, withCookie(cookie))
 		if r.Code != 201 {
 			t.Fatalf("create: %d %s", r.Code, r.Body.String())
@@ -684,13 +685,13 @@ func TestEnsureCentralOperatorReusesTheOneARivalCreatedFirst(t *testing.T) {
 	core := a.a.C.ForOrg("org-1")
 	var rivalCA []byte
 	core.Store = &racingStore{Store: core.Store, rival: func(st store.Store) {
-		bundle, key, err := MintOperatorTLS(core, CentralOperatorID, []string{"x.svc"})
+		bundle, key, err := operators.MintOperatorTLS(core.Core, operators.CentralOperatorID, []string{"x.svc"})
 		if err != nil {
 			t.Fatal(err)
 		}
 		rivalCA = bundle.CACertPEM
 		if err := st.CreateOperator(context.Background(), store.Operator{
-			ID: CentralOperatorID, OrgID: "org-1", Name: "Central (FUSION)", Status: store.OperatorActive,
+			ID: operators.CentralOperatorID, OrgID: "org-1", Name: "Central (FUSION)", Status: store.OperatorActive,
 			ReceiverAuth: store.ReceiverAuthMTLS, ClientCACertPEM: bundle.CACertPEM, ClientCAKeyPEM: key, CreatedBy: "other", CreatedAt: time.Now(),
 		}, nil); err != nil {
 			t.Fatal(err)
@@ -700,7 +701,7 @@ func TestEnsureCentralOperatorReusesTheOneARivalCreatedFirst(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the second first-time caller failed: %v", err)
 	}
-	if op.ID != CentralOperatorID || op.CreatedBy != "other" {
+	if op.ID != operators.CentralOperatorID || op.CreatedBy != "other" {
 		t.Errorf("did not reuse the existing operator: %+v", op)
 	}
 	if string(bundle.CACertPEM) != string(rivalCA) {

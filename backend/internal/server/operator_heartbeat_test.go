@@ -12,6 +12,7 @@ import (
 
 	"continuum/internal/accounts"
 	"continuum/internal/kernel"
+	"continuum/internal/operators"
 	"continuum/internal/store"
 )
 
@@ -19,7 +20,7 @@ import (
 func (e *env) hbOperator(t *testing.T, name, fingerprint string) (store.Operator, string) {
 	t.Helper()
 	cl := e.approvedCluster(t, fingerprint)
-	op, _, _, hb, err := e.core.CreateOperatorWithHeartbeat(e.ctx, "alex", name, []string{cl}, extDest("collector.example:4317"), nil, true)
+	op, _, _, hb, err := e.core.Operators.CreateOperatorWithHeartbeat(e.ctx, "alex", name, []string{cl}, extDest("collector.example:4317"), nil, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,13 +30,13 @@ func (e *env) hbOperator(t *testing.T, name, fingerprint string) (store.Operator
 	return op, hb
 }
 
-func (e *env) health(t *testing.T, id string) OperatorHealth {
+func (e *env) health(t *testing.T, id string) operators.OperatorHealth {
 	t.Helper()
 	op, err := e.st.GetOperator(e.ctx, id)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return OperatorHealthAt(op, e.core.Now())
+	return operators.OperatorHealthAt(op, e.core.Now())
 }
 
 func auditActions(t *testing.T, e *env) (actions []string, all string) {
@@ -56,18 +57,18 @@ func TestCreateOperatorHeartbeatIsOptInAndSecretIsOnlyStoredHashed(t *testing.T)
 	e := newEnv(t)
 	cl := e.approvedCluster(t, fp)
 	// The pre-existing entry point never mints one.
-	plain, _, _, err := e.core.CreateOperator(e.ctx, "alex", "plain", []string{cl}, extDest("c:4317"), nil)
+	plain, _, _, err := e.core.Operators.CreateOperator(e.ctx, "alex", "plain", []string{cl}, extDest("c:4317"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := e.st.GetOperator(e.ctx, plain.ID); len(got.HeartbeatHash) != 0 || got.HeartbeatEnabledAt != nil {
 		t.Fatalf("an operator created without the heartbeat has one: %+v", got)
 	}
-	if h := e.health(t, plain.ID); h.State != HealthUnknown || h.Reporting || h.LastSeenAt != nil {
+	if h := e.health(t, plain.ID); h.State != operators.HealthUnknown || h.Reporting || h.LastSeenAt != nil {
 		t.Fatalf("health of an operator that never opted in = %+v", h)
 	}
 
-	op, recv, _, hb, err := e.core.CreateOperatorWithHeartbeat(e.ctx, "alex", "with-hb", []string{cl}, extDest("c:4317"), nil, true)
+	op, recv, _, hb, err := e.core.Operators.CreateOperatorWithHeartbeat(e.ctx, "alex", "with-hb", []string{cl}, extDest("c:4317"), nil, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,10 +87,10 @@ func TestCreateOperatorHeartbeatIsOptInAndSecretIsOnlyStoredHashed(t *testing.T)
 	}
 	// A receiver-token-shaped secret does not open the heartbeat door.
 	recvShaped, _ := kernel.NewOperatorReceiverSecret()
-	if err := e.core.RecordOperatorHeartbeat(e.ctx, recvShaped); err != ErrHeartbeatRejected {
+	if err := e.core.Operators.RecordOperatorHeartbeat(e.ctx, recvShaped); err != operators.ErrHeartbeatRejected {
 		t.Fatalf("the receiver token was accepted as a heartbeat secret: %v", err)
 	}
-	if err := e.core.RecordOperatorHeartbeat(e.ctx, hb); err != nil {
+	if err := e.core.Operators.RecordOperatorHeartbeat(e.ctx, hb); err != nil {
 		t.Fatalf("the heartbeat secret was refused: %v", err)
 	}
 	_, trail := auditActions(t, e)
@@ -104,29 +105,29 @@ func TestCreateOperatorHeartbeatIsOptInAndSecretIsOnlyStoredHashed(t *testing.T)
 func TestEnableAndRotateOperatorHeartbeat(t *testing.T) {
 	e := newEnv(t)
 	cl := e.approvedCluster(t, fp)
-	op, _, _, err := e.core.CreateOperator(e.ctx, "alex", "athens", []string{cl}, extDest("c:4317"), nil)
+	op, _, _, err := e.core.Operators.CreateOperator(e.ctx, "alex", "athens", []string{cl}, extDest("c:4317"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	first, rotated, err := e.core.EnableOperatorHeartbeat(e.ctx, "alex", op.ID)
+	first, rotated, err := e.core.Operators.EnableOperatorHeartbeat(e.ctx, "alex", op.ID)
 	if err != nil || rotated {
 		t.Fatalf("first enable: rotated=%v err=%v", rotated, err)
 	}
-	if err := e.core.RecordOperatorHeartbeat(e.ctx, first); err != nil {
+	if err := e.core.Operators.RecordOperatorHeartbeat(e.ctx, first); err != nil {
 		t.Fatalf("first secret refused: %v", err)
 	}
 
-	second, rotated, err := e.core.EnableOperatorHeartbeat(e.ctx, "alex", op.ID)
+	second, rotated, err := e.core.Operators.EnableOperatorHeartbeat(e.ctx, "alex", op.ID)
 	if err != nil || !rotated {
 		t.Fatalf("second enable: rotated=%v err=%v", rotated, err)
 	}
 	if second == first {
 		t.Fatal("rotation returned the same secret")
 	}
-	if err := e.core.RecordOperatorHeartbeat(e.ctx, first); err != ErrHeartbeatRejected {
+	if err := e.core.Operators.RecordOperatorHeartbeat(e.ctx, first); err != operators.ErrHeartbeatRejected {
 		t.Fatalf("the replaced secret still works: %v", err)
 	}
-	if err := e.core.RecordOperatorHeartbeat(e.ctx, second); err != nil {
+	if err := e.core.Operators.RecordOperatorHeartbeat(e.ctx, second); err != nil {
 		t.Fatalf("the new secret is refused: %v", err)
 	}
 	// Rotation keeps what was last seen: the operator did not stop existing.
@@ -154,19 +155,19 @@ func TestEnableAndRotateOperatorHeartbeat(t *testing.T) {
 	}
 
 	// Only an active operator of this organisation.
-	if err := e.core.RevokeOperator(e.ctx, "alex", op.ID, "gone"); err != nil {
+	if err := e.core.Operators.RevokeOperator(e.ctx, "alex", op.ID, "gone"); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := e.core.EnableOperatorHeartbeat(e.ctx, "alex", op.ID); kindOf(err) != kernel.KindConflict {
+	if _, _, err := e.core.Operators.EnableOperatorHeartbeat(e.ctx, "alex", op.ID); kindOf(err) != kernel.KindConflict {
 		t.Fatalf("revoked operator: %v", err)
 	}
-	if _, _, err := e.core.EnableOperatorHeartbeat(e.ctx, "alex", "op-nope"); kindOf(err) != kernel.KindNotFound {
+	if _, _, err := e.core.Operators.EnableOperatorHeartbeat(e.ctx, "alex", "op-nope"); kindOf(err) != kernel.KindNotFound {
 		t.Fatalf("unknown operator: %v", err)
 	}
 	if err := e.st.CreateOrg(e.ctx, store.Org{ID: "org-2", Name: "Two", CreatedAt: *e.now, CreatedBy: "u-owner"}, "u-owner"); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := e.base.ForOrg("org-2").EnableOperatorHeartbeat(e.ctx, "alex", op.ID); kindOf(err) != kernel.KindNotFound {
+	if _, _, err := e.base.ForOrg("org-2").Operators.EnableOperatorHeartbeat(e.ctx, "alex", op.ID); kindOf(err) != kernel.KindNotFound {
 		t.Fatalf("another organisation's operator: %v", err)
 	}
 }
@@ -174,20 +175,20 @@ func TestEnableAndRotateOperatorHeartbeat(t *testing.T) {
 func TestRevokedOperatorHeartbeatIsRejected(t *testing.T) {
 	e := newEnv(t)
 	op, hb := e.hbOperator(t, "athens", fp)
-	if err := e.core.RecordOperatorHeartbeat(e.ctx, hb); err != nil {
+	if err := e.core.Operators.RecordOperatorHeartbeat(e.ctx, hb); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.core.RevokeOperator(e.ctx, "alex", op.ID, "decommissioned"); err != nil {
+	if err := e.core.Operators.RevokeOperator(e.ctx, "alex", op.ID, "decommissioned"); err != nil {
 		t.Fatal(err)
 	}
 	*e.now = e.now.Add(time.Minute) // past the write coalescing window too
-	if err := e.core.RecordOperatorHeartbeat(e.ctx, hb); err != ErrHeartbeatRejected {
+	if err := e.core.Operators.RecordOperatorHeartbeat(e.ctx, hb); err != operators.ErrHeartbeatRejected {
 		t.Fatalf("a revoked operator's heartbeat was accepted: %v", err)
 	}
-	if err := e.core.DeleteOperator(e.ctx, "alex", op.ID); err != nil {
+	if err := e.core.Operators.DeleteOperator(e.ctx, "alex", op.ID); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.core.RecordOperatorHeartbeat(e.ctx, hb); err != ErrHeartbeatRejected {
+	if err := e.core.Operators.RecordOperatorHeartbeat(e.ctx, hb); err != operators.ErrHeartbeatRejected {
 		t.Fatalf("a deleted operator's heartbeat was accepted: %v", err)
 	}
 }
@@ -205,7 +206,7 @@ func TestOperatorHeartbeatWritesAreCoalesced(t *testing.T) {
 	}
 	beat := func() {
 		t.Helper()
-		if err := e.core.RecordOperatorHeartbeat(e.ctx, hb); err != nil {
+		if err := e.core.Operators.RecordOperatorHeartbeat(e.ctx, hb); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -213,39 +214,39 @@ func TestOperatorHeartbeatWritesAreCoalesced(t *testing.T) {
 	if got := seen(); !got.Equal(t0.Truncate(time.Millisecond)) {
 		t.Fatalf("first heartbeat not recorded: %v want %v", got, t0)
 	}
-	*e.now = t0.Add(HeartbeatWriteEvery - time.Second)
+	*e.now = t0.Add(operators.HeartbeatWriteEvery - time.Second)
 	beat()
 	if got := seen(); !got.Equal(t0.Truncate(time.Millisecond)) {
-		t.Fatalf("a heartbeat %v after the last write hit the database: last seen moved to %v", HeartbeatWriteEvery-time.Second, got)
+		t.Fatalf("a heartbeat %v after the last write hit the database: last seen moved to %v", operators.HeartbeatWriteEvery-time.Second, got)
 	}
-	*e.now = t0.Add(HeartbeatWriteEvery)
+	*e.now = t0.Add(operators.HeartbeatWriteEvery)
 	beat()
 	if got := seen(); !got.Equal(e.now.Truncate(time.Millisecond)) {
-		t.Fatalf("a heartbeat %v after the last write was not recorded: %v", HeartbeatWriteEvery, got)
+		t.Fatalf("a heartbeat %v after the last write was not recorded: %v", operators.HeartbeatWriteEvery, got)
 	}
 }
 
 func TestOperatorHealthThresholds(t *testing.T) {
 	e := newEnv(t)
 	op, hb := e.hbOperator(t, "athens", fp)
-	if h := e.health(t, op.ID); h.State != HealthWaiting || h.Reporting || h.LastSeenAt != nil || h.HeartbeatEnabledAt == nil {
+	if h := e.health(t, op.ID); h.State != operators.HealthWaiting || h.Reporting || h.LastSeenAt != nil || h.HeartbeatEnabledAt == nil {
 		t.Fatalf("credential but no heartbeat yet = %+v", h)
 	}
 	// Last-seen is stored to the millisecond, so start the clock on one.
 	*e.now = e.now.Truncate(time.Millisecond)
 	t0 := *e.now
-	if err := e.core.RecordOperatorHeartbeat(e.ctx, hb); err != nil {
+	if err := e.core.Operators.RecordOperatorHeartbeat(e.ctx, hb); err != nil {
 		t.Fatal(err)
 	}
 	for _, c := range []struct {
 		after time.Duration
 		want  string
 	}{
-		{0, HealthOnline},
-		{OperatorHeartbeatInterval, HealthOnline},
-		{3 * OperatorHeartbeatInterval, HealthOnline}, // exactly three intervals: still online
-		{3*OperatorHeartbeatInterval + time.Second, HealthOffline},
-		{24 * time.Hour, HealthOffline},
+		{0, operators.HealthOnline},
+		{operators.OperatorHeartbeatInterval, operators.HealthOnline},
+		{3 * operators.OperatorHeartbeatInterval, operators.HealthOnline}, // exactly three intervals: still online
+		{3*operators.OperatorHeartbeatInterval + time.Second, operators.HealthOffline},
+		{24 * time.Hour, operators.HealthOffline},
 	} {
 		*e.now = t0.Add(c.after)
 		h := e.health(t, op.ID)
@@ -254,17 +255,17 @@ func TestOperatorHealthThresholds(t *testing.T) {
 		}
 	}
 	// A heartbeat brings it back.
-	if err := e.core.RecordOperatorHeartbeat(e.ctx, hb); err != nil {
+	if err := e.core.Operators.RecordOperatorHeartbeat(e.ctx, hb); err != nil {
 		t.Fatal(err)
 	}
-	if h := e.health(t, op.ID); h.State != HealthOnline {
+	if h := e.health(t, op.ID); h.State != operators.HealthOnline {
 		t.Fatalf("after a fresh heartbeat: %+v", h)
 	}
 	// Revoked: it can no longer report, so it is not "online" however recent its last heartbeat.
-	if err := e.core.RevokeOperator(e.ctx, "alex", op.ID, "x"); err != nil {
+	if err := e.core.Operators.RevokeOperator(e.ctx, "alex", op.ID, "x"); err != nil {
 		t.Fatal(err)
 	}
-	if h := e.health(t, op.ID); h.State != HealthOffline || h.LastSeenAt == nil {
+	if h := e.health(t, op.ID); h.State != operators.HealthOffline || h.LastSeenAt == nil {
 		t.Fatalf("revoked = %+v", h)
 	}
 }
@@ -274,9 +275,9 @@ func TestOperatorHeartbeatIsRateLimitedPerOperator(t *testing.T) {
 	op, hb := e.hbOperator(t, "athens", fp)
 	limited := 0
 	for i := 0; i < 60; i++ {
-		switch err := e.core.RecordOperatorHeartbeat(e.ctx, hb); err {
+		switch err := e.core.Operators.RecordOperatorHeartbeat(e.ctx, hb); err {
 		case nil:
-		case ErrHeartbeatRateLimited:
+		case operators.ErrHeartbeatRateLimited:
 			limited++
 		default:
 			t.Fatal(err)
@@ -287,7 +288,7 @@ func TestOperatorHeartbeatIsRateLimitedPerOperator(t *testing.T) {
 	}
 	// A different operator is unaffected.
 	_, other := e.hbOperator(t, "patras", fp2)
-	if err := e.core.RecordOperatorHeartbeat(e.ctx, other); err != nil {
+	if err := e.core.Operators.RecordOperatorHeartbeat(e.ctx, other); err != nil {
 		t.Fatalf("another operator was limited too: %v", err)
 	}
 	_ = op
@@ -339,7 +340,7 @@ func TestHeartbeatEndpointAcceptsWhatTheRealCollectorSends(t *testing.T) {
 	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
 		t.Fatalf("the heartbeat endpoint must not speak CORS, got %q", got)
 	}
-	if h := a.health(t, op.ID); h.State != HealthOnline || !h.Reporting {
+	if h := a.health(t, op.ID); h.State != operators.HealthOnline || !h.Reporting {
 		t.Fatalf("health after the captured heartbeat = %+v", h)
 	}
 	// A cross-origin browser request is not given permission either.
@@ -352,12 +353,12 @@ func TestHeartbeatEndpointAcceptsWhatTheRealCollectorSends(t *testing.T) {
 func TestHeartbeatEndpointIsUniform401ForEveryKindOfFailure(t *testing.T) {
 	a := newAdminRig(t)
 	op, hb := a.hbOperator(t, "athens", fp)
-	rotated, _, err := a.core.EnableOperatorHeartbeat(a.ctx, "alex", op.ID)
+	rotated, _, err := a.core.Operators.EnableOperatorHeartbeat(a.ctx, "alex", op.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	revokedOp, revokedSecret := a.hbOperator(t, "patras", fp2)
-	if err := a.core.RevokeOperator(a.ctx, "alex", revokedOp.ID, "x"); err != nil {
+	if err := a.core.Operators.RevokeOperator(a.ctx, "alex", revokedOp.ID, "x"); err != nil {
 		t.Fatal(err)
 	}
 	validShape := kernel.HeartbeatPrefix + strings.Repeat("A", 43)
@@ -393,24 +394,24 @@ func TestHeartbeatEndpointIsUniform401ForEveryKindOfFailure(t *testing.T) {
 }
 
 // createReceiverOnly makes an operator with no heartbeat and returns its receiver token.
-func (a *adminRig) createReceiverOnly(t *testing.T) (store.Operator, string, OperatorTLSBundle, error) {
+func (a *adminRig) createReceiverOnly(t *testing.T) (store.Operator, string, operators.OperatorTLSBundle, error) {
 	t.Helper()
 	cl := a.approvedCluster(t, "5b8e1f2a-3333-4333-8444-955566667788")
-	return a.core.CreateOperator(a.ctx, "alex", "no-heartbeat", []string{cl}, extDest("c:4317"), nil)
+	return a.core.Operators.CreateOperator(a.ctx, "alex", "no-heartbeat", []string{cl}, extDest("c:4317"), nil)
 }
 
 func TestHeartbeatEndpointCapsTheBodyAndRejectsOtherMethods(t *testing.T) {
 	a := newAdminRig(t)
 	_, hb := a.hbOperator(t, "athens", fp)
 
-	if rec := a.beat(hb, bytes.Repeat([]byte("x"), MaxHeartbeatBody)); rec.Code != 200 {
+	if rec := a.beat(hb, bytes.Repeat([]byte("x"), operators.MaxHeartbeatBody)); rec.Code != 200 {
 		t.Fatalf("a body exactly at the cap: %d", rec.Code)
 	}
-	if rec := a.beat(hb, bytes.Repeat([]byte("x"), MaxHeartbeatBody+1)); rec.Code != http.StatusRequestEntityTooLarge {
+	if rec := a.beat(hb, bytes.Repeat([]byte("x"), operators.MaxHeartbeatBody+1)); rec.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("a body one byte over the cap (declared length): %d", rec.Code)
 	}
 	// An undeclared length (chunked) is caught by the reader, not the header.
-	req := httptest.NewRequest(http.MethodPost, OperatorHeartbeatPath, bytes.NewReader(bytes.Repeat([]byte("x"), 2*MaxHeartbeatBody)))
+	req := httptest.NewRequest(http.MethodPost, OperatorHeartbeatPath, bytes.NewReader(bytes.Repeat([]byte("x"), 2*operators.MaxHeartbeatBody)))
 	req.ContentLength = -1
 	req.RemoteAddr = "10.7.7.7:4000"
 	req.Header.Set("Authorization", "Bearer "+hb)
@@ -420,7 +421,7 @@ func TestHeartbeatEndpointCapsTheBodyAndRejectsOtherMethods(t *testing.T) {
 		t.Fatalf("an oversized chunked body: %d", rec.Code)
 	}
 	// An unauthenticated oversized request is a plain 401: the body is never read for it.
-	if rec := a.beat("", bytes.Repeat([]byte("x"), 4*MaxHeartbeatBody)); rec.Code != 401 {
+	if rec := a.beat("", bytes.Repeat([]byte("x"), 4*operators.MaxHeartbeatBody)); rec.Code != 401 {
 		t.Fatalf("unauthenticated oversized: %d", rec.Code)
 	}
 	for _, m := range []string{http.MethodGet, http.MethodPut, http.MethodDelete} {

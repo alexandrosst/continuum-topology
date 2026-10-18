@@ -7,6 +7,7 @@ import (
 	continuumv1 "continuum/gen/continuumv1"
 
 	"continuum/internal/kernel"
+	"continuum/internal/operators"
 )
 
 // The central operator is reached the same way a regional one is: a sender can choose the address it dials, and when
@@ -15,7 +16,7 @@ import (
 
 func TestDiagnosisOfASenderToTheCentralOperatorReadsFusionsOwnState(t *testing.T) {
 	base := diagnosisInput{ClusterName: "patras-edge", Connected: true, Address: "203.0.113.50:4317", AddrSource: "recorded",
-		OperatorID: CentralOperatorID, OperatorName: "FUSION", Central: true, Delivery: failing("rpc error: code = Unavailable desc = connection error: i/o timeout")}
+		OperatorID: operators.CentralOperatorID, OperatorName: "FUSION", Central: true, Delivery: failing("rpc error: code = Unavailable desc = connection error: i/o timeout")}
 	peerOK := []peerOutcome{{Name: "athens-edge", Address: "203.0.113.50:4317", State: "exporting"}}
 
 	for _, c := range []struct {
@@ -25,12 +26,12 @@ func TestDiagnosisOfASenderToTheCentralOperatorReadsFusionsOwnState(t *testing.T
 		where  string
 		phrase string
 	}{
-		{"off", HealthOff, nil, "operator", "FUSION is off"},
-		{"starting", HealthStarting, nil, "operator", "still starting"},
-		{"attention", HealthAttention, nil, "operator", "reports a problem"},
+		{"off", operators.HealthOff, nil, "operator", "FUSION is off"},
+		{"starting", operators.HealthStarting, nil, "operator", "still starting"},
+		{"attention", operators.HealthAttention, nil, "operator", "reports a problem"},
 		// Another cluster getting through is stronger evidence than FUSION's own word: the path is what is wrong.
-		{"off while a peer exports", HealthOff, peerOK, "sender-network", "athens-edge is exporting"},
-		{"online, nobody to compare", HealthOnline, nil, "sender-network", "reports itself online"},
+		{"off while a peer exports", operators.HealthOff, peerOK, "sender-network", "athens-edge is exporting"},
+		{"online, nobody to compare", operators.HealthOnline, nil, "sender-network", "reports itself online"},
 	} {
 		in := base
 		in.OperatorState, in.Peers = c.state, c.peers
@@ -42,7 +43,7 @@ func TestDiagnosisOfASenderToTheCentralOperatorReadsFusionsOwnState(t *testing.T
 
 	// A certificate refusal does not send anyone to a "Renew certificates" row the central operator does not have.
 	in := base
-	in.OperatorState = HealthOnline
+	in.OperatorState = operators.HealthOnline
 	in.Delivery = failing("x509: certificate signed by unknown authority")
 	got := diagnoseSender(in)
 	if got == nil || got.Where != "certificate" || strings.Contains(got.Detail, "Renew certificates") {
@@ -62,7 +63,7 @@ func TestCentralOperatorAddressCandidatesAndSendersComeFromTheGatewayAndFusion(t
 	k.allReady()
 
 	// The server reads the gateway's own Service, so a load balancer's address is offered with no agent in that cluster.
-	path := "/api/v1/operators/" + CentralOperatorID + "/address-candidates"
+	path := "/api/v1/operators/" + operators.CentralOperatorID + "/address-candidates"
 	r := a.do("GET", path, nil, withCookie(a.cookie))
 	if r.Code != 200 {
 		t.Fatalf("%d %s", r.Code, r.Body.String())
@@ -93,14 +94,14 @@ func TestCentralOperatorAddressCandidatesAndSendersComeFromTheGatewayAndFusion(t
 	}
 
 	// Who sends to it: judged by FUSION's state, which is running here.
-	a.command(t, map[string]any{"agentId": agentID, "name": "to fusion", "signals": []map[string]any{{"id": "resourceUsage", "source": "builtin"}}, "destination": map[string]any{"kind": "operator", "targetOperatorId": CentralOperatorID, "address": "10.0.0.7:31317"}})
-	s := a.do("GET", "/api/v1/operators/"+CentralOperatorID+"/senders", nil, withCookie(a.cookie))
+	a.command(t, map[string]any{"agentId": agentID, "name": "to fusion", "signals": []map[string]any{{"id": "resourceUsage", "source": "builtin"}}, "destination": map[string]any{"kind": "operator", "targetOperatorId": operators.CentralOperatorID, "address": "10.0.0.7:31317"}})
+	s := a.do("GET", "/api/v1/operators/"+operators.CentralOperatorID+"/senders", nil, withCookie(a.cookie))
 	if s.Code != 200 {
 		t.Fatalf("senders: %d %s", s.Code, s.Body.String())
 	}
 	doc := s.json(t)
 	senders := doc["senders"].([]any)
-	if doc["operatorState"] != HealthOnline || len(senders) != 1 {
+	if doc["operatorState"] != operators.HealthOnline || len(senders) != 1 {
 		t.Fatalf("senders of the central operator: %v", doc)
 	}
 	addrs := senders[0].(map[string]any)["addresses"].([]any)
@@ -133,7 +134,7 @@ func TestCentralNodeAddressesNeedOnlyTheClusterAndTheServicesNodePort(t *testing
 	a.hub().views[agentID] = v
 	a.hub().mu.Unlock()
 
-	got := a.do("GET", "/api/v1/operators/"+CentralOperatorID+"/address-candidates", nil, withCookie(a.cookie)).json(t)
+	got := a.do("GET", "/api/v1/operators/"+operators.CentralOperatorID+"/address-candidates", nil, withCookie(a.cookie)).json(t)
 	by := map[string]map[string]any{}
 	for _, c := range got["candidates"].([]any) {
 		m := c.(map[string]any)
@@ -179,7 +180,7 @@ func TestCentralClusterIsFoundByTheNodeThatHasTheLoadBalancersAddress(t *testing
 			a.hub().views[agentID] = v
 			a.hub().mu.Unlock()
 
-			got := a.do("GET", "/api/v1/operators/"+CentralOperatorID+"/address-candidates", nil, withCookie(a.cookie)).json(t)
+			got := a.do("GET", "/api/v1/operators/"+operators.CentralOperatorID+"/address-candidates", nil, withCookie(a.cookie)).json(t)
 			by := map[string]map[string]any{}
 			for _, c := range got["candidates"].([]any) {
 				m := c.(map[string]any)
@@ -213,7 +214,7 @@ func TestAnUnexposedGatewayComesWithTheCommandThatExposesIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	k.allReady()
-	got := a.do("GET", "/api/v1/operators/"+CentralOperatorID+"/address-candidates", nil, withCookie(a.cookie)).json(t)
+	got := a.do("GET", "/api/v1/operators/"+operators.CentralOperatorID+"/address-candidates", nil, withCookie(a.cookie)).json(t)
 	e, _ := got["expose"].(map[string]any)
 	if e == nil || e["service"] != f.ServiceName() || e["namespace"] != f.Namespace || e["value"] != "fusion.central.service.type" {
 		t.Fatalf("expose: %v", got["expose"])
@@ -254,7 +255,7 @@ func centralRig(t *testing.T, uid string) (*intentRig, *FusionControl, string) {
 
 func centralCandidates(t *testing.T, a *intentRig) map[string]any {
 	t.Helper()
-	return a.do("GET", "/api/v1/operators/"+CentralOperatorID+"/address-candidates", nil, withCookie(a.cookie)).json(t)
+	return a.do("GET", "/api/v1/operators/"+operators.CentralOperatorID+"/address-candidates", nil, withCookie(a.cookie)).json(t)
 }
 
 func serverCluster(t *testing.T, got map[string]any) map[string]any {
@@ -319,10 +320,10 @@ func TestAPersonCanSayWhichClusterTheServerIsInAndItWins(t *testing.T) {
 	f.ClusterUID = "11111111-2222-4333-8444-555555555555" // the install names a cluster with no agent
 	id, _ := kernel.ClusterIDForUID(a.core.OrgID, uid)
 
-	if r := a.do("PUT", "/api/v1/operators/"+CentralOperatorID+"/server-cluster", map[string]any{"clusterId": "cl-0000000000"}, withCookie(a.cookie)); r.Code != 400 {
+	if r := a.do("PUT", "/api/v1/operators/"+operators.CentralOperatorID+"/server-cluster", map[string]any{"clusterId": "cl-0000000000"}, withCookie(a.cookie)); r.Code != 400 {
 		t.Fatalf("a cluster no agent is in: %d %s", r.Code, r.Body.String())
 	}
-	if r := a.do("PUT", "/api/v1/operators/"+CentralOperatorID+"/server-cluster", map[string]any{"clusterId": id}, withCookie(a.cookie)); r.Code != 200 {
+	if r := a.do("PUT", "/api/v1/operators/"+operators.CentralOperatorID+"/server-cluster", map[string]any{"clusterId": id}, withCookie(a.cookie)); r.Code != 200 {
 		t.Fatalf("choose: %d %s", r.Code, r.Body.String())
 	}
 	if sc := serverCluster(t, centralCandidates(t, a)); sc["state"] != "known" || sc["source"] != "chosen" || sc["clusterId"] != id {
@@ -336,7 +337,7 @@ func TestAPersonCanSayWhichClusterTheServerIsInAndItWins(t *testing.T) {
 		t.Fatalf("the choice was lost: %v", sc)
 	}
 	// Taking it back falls to the install's.
-	if r := a.do("PUT", "/api/v1/operators/"+CentralOperatorID+"/server-cluster", map[string]any{"clusterId": ""}, withCookie(a.cookie)); r.Code != 200 {
+	if r := a.do("PUT", "/api/v1/operators/"+operators.CentralOperatorID+"/server-cluster", map[string]any{"clusterId": ""}, withCookie(a.cookie)); r.Code != 200 {
 		t.Fatalf("clear: %d", r.Code)
 	}
 	if sc := serverCluster(t, centralCandidates(t, a)); sc["state"] != "noAgent" {

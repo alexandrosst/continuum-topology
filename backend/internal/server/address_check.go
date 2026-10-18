@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"continuum/internal/kernel"
+	"continuum/internal/operators"
 	"continuum/internal/store"
 )
 
@@ -269,7 +270,7 @@ func (a *Admin) probeSettings(c *Core, op store.Operator) (addr string, caPEM []
 			caPEM = c.CA.CertPEM()
 		}
 	}
-	return addr, caPEM, OperatorServerName(op)
+	return addr, caPEM, operators.OperatorServerName(op)
 }
 
 // checkOperatorAddress is POST /operators/{id}/address/check: one look at the operator's recorded address from this
@@ -277,7 +278,7 @@ func (a *Admin) probeSettings(c *Core, op store.Operator) (addr string, caPEM []
 // request chooses a target), at most once every probeReuse per operator, and tells what it found in coarse words.
 func (a *Admin) checkOperatorAddress(w http.ResponseWriter, r *http.Request) {
 	c := a.core(r)
-	op, err := c.GetOperator(r.Context(), r.PathValue("id"))
+	op, err := c.Operators.GetOperator(r.Context(), r.PathValue("id"))
 	if err != nil {
 		a.fail(w, err)
 		return

@@ -12,8 +12,9 @@
 # agents        an enrolled agent: tokens and enrolment, the stream, consent and access tier, diagnostics, the agent's own health.
 # estate        what the servers know about the world: the hub, the per-agent views, the observed flows, the twin, history, the
 #               applications graph.
-# telemetry     telemetry intents and the quick-start backends.
-# operators     regional operators: their certificates, senders, addresses, heartbeat, and the node probe of the server's own cluster.
+# telemetry     telemetry intents and the quick-start backends. It is the package internal/telemetry; its HTTP half is the shell's.
+# operators     regional operators: their certificates, senders, addresses, heartbeat. It is the package internal/operators; their HTTP half
+#               and the node probe of the server's own cluster are the shell's.
 # connectivity  paths, links, tunnels, addresses a cluster dials, the config an agent is told.
 # fusion        the FUSION stack: its control, data API, retention, access.
 # advice        the decision loop: advice, proposals, outcomes, decisions.
@@ -68,18 +69,11 @@ links_latest.go                 connectivity
 links_setup.go                  connectivity
 metrics.go                      shell
 observed.go                     estate
-operator_ca_cache.go            operators
 operator_candidates.go shell
-operator_certs.go               operators
-operator_heartbeat.go           operators
-operator_renew.go               operators
 operator_senders.go shell
-operator_usage.go               operators
-operators.go                    operators
 paths.go                        connectivity
 proxyproto.go                   agents
 publicip.go                     agents
-quickstart.go                   telemetry
 readiness.go                    shell
 recorder.go                     estate
 recover.go                      agents
@@ -87,7 +81,6 @@ routes.go                       shell
 self_probe.go shell
 selfstats.go                    agents
 suspect.go                      agents
-telemetry_intents.go            telemetry
 tenants.go                      shell
 tier.go                         agents
 tunnels.go                      connectivity

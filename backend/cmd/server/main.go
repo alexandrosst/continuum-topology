@@ -23,6 +23,7 @@ import (
 	"continuum/internal/geoip"
 	"continuum/internal/graph"
 	"continuum/internal/kernel"
+	"continuum/internal/operators"
 	"continuum/internal/passkey"
 	"continuum/internal/pki"
 	"continuum/internal/probe"
@@ -390,7 +391,7 @@ func run(log *slog.Logger, selfProbe probeOpts, dataDir, agentListen, agentAddr,
 		admin.Fusion = fusionControl(log, fusionName, releaseNamespace, fusionCentralAddress, core.Accounts.MainOrg())
 		// An address set from the screen (Reachable at on the central operator) outranks the startup flag, which is
 		// only the first value.
-		if op, err := core.Store.GetOperator(context.Background(), server.CentralOperatorID); err == nil && op.Address != "" {
+		if op, err := core.Store.GetOperator(context.Background(), operators.CentralOperatorID); err == nil && op.Address != "" {
 			admin.Fusion.SetPublicAddress(op.Address)
 		}
 		// The renewal has no signed-in user to take an organisation from, and the platform core has none: FUSION's

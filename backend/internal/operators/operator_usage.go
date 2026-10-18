@@ -1,4 +1,4 @@
-package server
+package operators
 
 import (
 	"context"
@@ -30,7 +30,7 @@ func (u OperatorUsage) Empty() bool { return len(u.Operators) == 0 && u.Intents 
 
 // OperatorUsages computes the usage of every operator of the organisation in one pass over the operators, the
 // intents and the agents, so listing N operators does not scan N times. An operator nothing sends to has no entry.
-func (c *Core) OperatorUsages(ctx context.Context) (map[string]OperatorUsage, error) {
+func (c *Service) OperatorUsages(ctx context.Context) (map[string]OperatorUsage, error) {
 	ops, err := c.Store.ListOperators(ctx, c.OrgID)
 	if err != nil {
 		return nil, err
@@ -97,7 +97,7 @@ func (c *Core) OperatorUsages(ctx context.Context) (map[string]OperatorUsage, er
 
 // dependentsDetail is the audit detail for revoking or deleting an operator, and the guard: while something sends
 // to it and force is not set, a KindConflict that says what. note (the revoke reason) is kept in the detail.
-func (c *Core) dependentsDetail(ctx context.Context, id string, force bool, note string) (string, error) {
+func (c *Service) dependentsDetail(ctx context.Context, id string, force bool, note string) (string, error) {
 	usages, err := c.OperatorUsages(ctx)
 	if err != nil {
 		return "", err

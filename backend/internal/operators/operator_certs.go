@@ -1,4 +1,4 @@
-package server
+package operators
 
 import (
 	"context"
@@ -106,7 +106,7 @@ func (c OperatorCerts) CertState(now time.Time) (state string, since *time.Time)
 // sends is not one whose renewal matters. The sender names are the ones the ledger records (a cluster id, or an operator id).
 // A cluster counts only while one of its agents is approved, so revoking the agent ends the cluster's certificate
 // renewals (see RenewTelemetryCert) and the certificate ends within pki.OperatorTLSTTL.
-func (c *Core) operatorSenders(ctx context.Context) (map[string]map[string]bool, error) {
+func (c *Service) operatorSenders(ctx context.Context) (map[string]map[string]bool, error) {
 	ops, err := c.Store.ListOperators(ctx, c.OrgID)
 	if err != nil {
 		return nil, err
@@ -176,7 +176,7 @@ func (c *Core) operatorSenders(ctx context.Context) (map[string]map[string]bool,
 // an old date kept showing for a certificate that had since been replaced. Now the client date is the soonest of the NEWEST certificate of each current sender. It is only
 // replaced when every current sender has a ledger entry; with a sender that predates the ledger, or none at all, the date
 // already stored is the best known and stays. Replacing a date starts the expiry warnings over for the new generation.
-func (c *Core) refreshCertEnds(ctx context.Context, op store.Operator, senders map[string]bool) (store.Operator, string, error) {
+func (c *Service) refreshCertEnds(ctx context.Context, op store.Operator, senders map[string]bool) (store.Operator, string, error) {
 	if op.ReceiverAuth != store.ReceiverAuthMTLS {
 		return op, "", nil
 	}
@@ -262,7 +262,7 @@ func (c *Core) refreshCertEnds(ctx context.Context, op store.Operator, senders m
 
 // noteCertEnds brings the dates shown for op in line with the ledger after a certificate was issued or renewed. Best
 // effort: the certificate is already recorded, and the next issue repeats this.
-func (c *Core) NoteCertEnds(ctx context.Context, op store.Operator) {
+func (c *Service) NoteCertEnds(ctx context.Context, op store.Operator) {
 	senders, err := c.operatorSenders(ctx)
 	if err == nil {
 		_, _, err = c.refreshCertEnds(ctx, op, senders[op.ID])
@@ -289,7 +289,7 @@ type OperatorReissue struct {
 // CA, a new bearer token for a bearer operator, and a new heartbeat secret for one that reports a heartbeat. The
 // earlier certificates are not revoked (nothing here can) and keep working until they expire; the replaced
 // tokens stop working at once. The new certificate dates are recorded and the expiry warning starts over.
-func (c *Core) ReissueOperatorInstall(ctx context.Context, actor, id string) (store.Operator, OperatorReissue, error) {
+func (c *Service) ReissueOperatorInstall(ctx context.Context, actor, id string) (store.Operator, OperatorReissue, error) {
 	c.DepMu.RLock() // see Core.DepMu: a revoke or delete cannot come between the check that it is active and the writes below
 	defer c.DepMu.RUnlock()
 	var out OperatorReissue

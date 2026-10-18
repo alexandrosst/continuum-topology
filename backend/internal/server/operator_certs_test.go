@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"continuum/internal/operators"
 	"continuum/internal/pki"
 	"continuum/internal/store"
 )
@@ -32,7 +33,7 @@ func (e *env) countAudit(t *testing.T, action string) (n int, detail string) {
 func TestCreatedOperatorRecordsItsCertificateDates(t *testing.T) {
 	e := newEnv(t)
 	cl := e.approvedCluster(t, fp)
-	op, _, bundle, err := e.core.CreateOperator(e.ctx, "alex", "athens", []string{cl}, extDest("c:4317"), nil)
+	op, _, bundle, err := e.core.Operators.CreateOperator(e.ctx, "alex", "athens", []string{cl}, extDest("c:4317"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,13 +68,13 @@ func TestCertStateSaysWhetherRenewalIsHappening(t *testing.T) {
 	for _, c := range []struct {
 		left time.Duration
 		want string
-	}{{200 * day, CertStateOK}, {25 * day, CertStateOK}, {16 * day, CertStateOK}, {14 * day, CertStateRenewalFailing}, {1 * day, CertStateRenewalFailing}, {-time.Hour, CertStateExpired}} {
+	}{{200 * day, operators.CertStateOK}, {25 * day, operators.CertStateOK}, {16 * day, operators.CertStateOK}, {14 * day, operators.CertStateRenewalFailing}, {1 * day, operators.CertStateRenewalFailing}, {-time.Hour, operators.CertStateExpired}} {
 		d := toOperatorDoc(mk(now.Add(c.left)), now)
 		if d.CertState != c.want {
 			t.Errorf("%v left: certState = %q, want %q", c.left, d.CertState, c.want)
 		}
 		wantSince := ""
-		if c.want != CertStateOK {
+		if c.want != operators.CertStateOK {
 			wantSince = rfc(now.Add(c.left).Add(-pki.OperatorRenewBefore))
 		}
 		if d.CertStateSince != wantSince {
@@ -96,20 +97,20 @@ func TestCertStateSaysWhetherRenewalIsHappening(t *testing.T) {
 func TestLegacyOperatorCertDatesAreDerivedFromWhatIsStored(t *testing.T) {
 	e := newEnv(t)
 	cl := e.approvedCluster(t, fp)
-	op, _, _, err := e.core.CreateOperator(e.ctx, "alex", "old", []string{cl}, extDest("c:4317"), nil)
+	op, _, _, err := e.core.Operators.CreateOperator(e.ctx, "alex", "old", []string{cl}, extDest("c:4317"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	stored, _ := e.st.GetOperator(e.ctx, op.ID)
 	stored.ReceiverNotAfter, stored.ClientNotAfter = nil, nil // as read from a schema 15 row
-	c := OperatorCertDates(stored)
+	c := operators.OperatorCertDates(stored)
 	want := stored.CreatedAt.Add(pki.LegacyOperatorTLSTTL)
 	if c.Receiver == nil || !c.Receiver.Equal(want) || c.Client == nil || !c.Client.Equal(want) || c.CA == nil {
 		t.Fatalf("derived dates = %+v, want receiver and client at %v", c, want)
 	}
 	// The central operator's receiver certificate is renewed daily by FUSION itself: no date is guessed for it.
-	stored.ID = CentralOperatorID
-	if c := OperatorCertDates(stored); c.Receiver != nil || c.Client != nil || c.CA == nil {
+	stored.ID = operators.CentralOperatorID
+	if c := operators.OperatorCertDates(stored); c.Receiver != nil || c.Client != nil || c.CA == nil {
 		t.Fatalf("central dates = %+v", c)
 	}
 }
@@ -121,14 +122,14 @@ func TestReissueRecordsTheNewDatesAndRaisesNoWarning(t *testing.T) {
 	cl := e.approvedCluster(t, fp)
 	old := pki.OperatorTLSTTL
 	pki.OperatorTLSTTL = 10 * day
-	op, _, _, err := e.core.CreateOperator(e.ctx, "alex", "athens", []string{cl}, extDest("c:4317"), nil)
+	op, _, _, err := e.core.Operators.CreateOperator(e.ctx, "alex", "athens", []string{cl}, extDest("c:4317"), nil)
 	pki.OperatorTLSTTL = old
 	if err != nil {
 		t.Fatal(err)
 	}
 	before, _ := e.st.GetOperator(e.ctx, op.ID)
 	*e.now = e.now.Add(time.Minute)
-	if _, _, err := e.core.ReissueOperatorInstall(e.ctx, "alex", op.ID); err != nil {
+	if _, _, err := e.core.Operators.ReissueOperatorInstall(e.ctx, "alex", op.ID); err != nil {
 		t.Fatal(err)
 	}
 	after, _ := e.st.GetOperator(e.ctx, op.ID)
@@ -152,7 +153,7 @@ func TestClientCertDateFollowsTheNewestCertificateOfEachSender(t *testing.T) {
 	short := 10 * day
 	old := pki.OperatorTLSTTL
 	pki.OperatorTLSTTL = short
-	op, _, _, err := e.core.CreateOperator(e.ctx, "alex", "athens", []string{cl}, extDest("c:4317"), nil)
+	op, _, _, err := e.core.Operators.CreateOperator(e.ctx, "alex", "athens", []string{cl}, extDest("c:4317"), nil)
 	pki.OperatorTLSTTL = old
 	if err != nil {
 		t.Fatal(err)
@@ -162,7 +163,7 @@ func TestClientCertDateFollowsTheNewestCertificateOfEachSender(t *testing.T) {
 		t.Fatalf("setup: client certificate ends %v, want about 10 days out", before.ClientNotAfter)
 	}
 	*e.now = e.now.Add(time.Minute) // issued later than the first: the ledger orders by issue time
-	if _, _, _, err := e.core.IssueOperatorClientCertFor(e.ctx, "alex", op.ID, cl, "again"); err != nil {
+	if _, _, _, err := e.core.Operators.IssueOperatorClientCertFor(e.ctx, "alex", op.ID, cl, "again"); err != nil {
 		t.Fatal(err)
 	}
 	after, _ := e.st.GetOperator(e.ctx, op.ID)
@@ -183,14 +184,14 @@ func TestOperatorDatesFollowTheSenderWhoseCertificateEndsFirst(t *testing.T) {
 	oldTTL := pki.OperatorTLSTTL
 	t.Cleanup(func() { pki.OperatorTLSTTL = oldTTL })
 	pki.OperatorTLSTTL = 365 * day
-	op, _, _, err := e.core.CreateOperator(e.ctx, "alex", "athens", []string{c1, c2}, extDest("c:4317"), nil)
+	op, _, _, err := e.core.Operators.CreateOperator(e.ctx, "alex", "athens", []string{c1, c2}, extDest("c:4317"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// c2 gets a certificate that ends in 20 days; c1 keeps its year.
 	pki.OperatorTLSTTL = 20 * day
 	*e.now = e.now.Add(time.Minute) // issued later than the first: the ledger orders by issue time
-	if _, _, _, err := e.core.IssueOperatorClientCertFor(e.ctx, "alex", op.ID, c2, "short"); err != nil {
+	if _, _, _, err := e.core.Operators.IssueOperatorClientCertFor(e.ctx, "alex", op.ID, c2, "short"); err != nil {
 		t.Fatal(err)
 	}
 	pki.OperatorTLSTTL = 365 * day
@@ -199,7 +200,7 @@ func TestOperatorDatesFollowTheSenderWhoseCertificateEndsFirst(t *testing.T) {
 		t.Fatalf("client date = %v, want about 20 days out", st.ClientNotAfter)
 	}
 	// c2 leaves the operator: the other sender's year is what counts.
-	if err := e.core.UpdateOperatorScope(e.ctx, "alex", op.ID, []string{c1}, extDest("c:4317"), nil); err != nil {
+	if err := e.core.Operators.UpdateOperatorScope(e.ctx, "alex", op.ID, []string{c1}, extDest("c:4317"), nil); err != nil {
 		t.Fatal(err)
 	}
 	st, _ = e.st.GetOperator(e.ctx, op.ID)

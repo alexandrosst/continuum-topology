@@ -17,6 +17,7 @@ import (
 	"continuum/internal/accounts"
 	"continuum/internal/fusionapi"
 	"continuum/internal/kernel"
+	"continuum/internal/operators"
 )
 
 // cachedFusion is a FusionControl with the status cache on and a clock the test moves, over a fake cluster with all four
@@ -558,7 +559,7 @@ func TestTheGatewaysAddressIsRecordedWhenNoneIs(t *testing.T) {
 		t.Fatalf("recorded %q: %v", addr, err)
 	}
 	// Recorded where the screens read it, and in use at once.
-	op, _ := a.a.C.GetOperator(ctx, CentralOperatorID)
+	op, _ := a.a.C.Operators.GetOperator(ctx, operators.CentralOperatorID)
 	if op.Address != "203.0.113.7:4317" || !f.Exposed() || f.CentralEndpoint() != "203.0.113.7:4317" {
 		t.Fatalf("operator address %q, exposed %v, endpoint %q", op.Address, f.Exposed(), f.CentralEndpoint())
 	}
@@ -583,7 +584,7 @@ func TestTheGatewaysAddressIsRecordedWhenNoneIs(t *testing.T) {
 func TestAManuallyRecordedAddressIsNeverReplaced(t *testing.T) {
 	a, f, k, _ := enabledCentral(t)
 	ctx := context.Background()
-	if _, err := a.a.C.SetOperatorAddress(ctx, "alex", CentralOperatorID, "fusion.example.com:4317"); err != nil {
+	if _, err := a.a.C.Operators.SetOperatorAddress(ctx, "alex", operators.CentralOperatorID, "fusion.example.com:4317"); err != nil {
 		t.Fatal(err)
 	}
 	k.svcAddr = "203.0.113.7:4317"
@@ -591,7 +592,7 @@ func TestAManuallyRecordedAddressIsNeverReplaced(t *testing.T) {
 	if addr, err := f.DiscoverAddress(ctx, a.a.C); addr != "" || err != nil {
 		t.Fatalf("%q %v", addr, err)
 	}
-	if op, _ := a.a.C.GetOperator(ctx, CentralOperatorID); op.Address != "fusion.example.com:4317" {
+	if op, _ := a.a.C.Operators.GetOperator(ctx, operators.CentralOperatorID); op.Address != "fusion.example.com:4317" {
 		t.Fatalf("the manual address was replaced by %q", op.Address)
 	}
 	if f.CentralEndpoint() != "fusion.example.com:4317" {
@@ -606,7 +607,7 @@ func TestAManuallyRecordedAddressIsNeverReplaced(t *testing.T) {
 	f2.PublicAddress = "flag.example.com:4317"
 	k2.svcAddr = "203.0.113.7:4317"
 	f2.DiscoverAddress(ctx, b.a.C)
-	if op, _ := b.a.C.GetOperator(ctx, CentralOperatorID); op.Address != "" || f2.CentralEndpoint() != "flag.example.com:4317" || k2.svcReads != 0 {
+	if op, _ := b.a.C.Operators.GetOperator(ctx, operators.CentralOperatorID); op.Address != "" || f2.CentralEndpoint() != "flag.example.com:4317" || k2.svcReads != 0 {
 		t.Errorf("the flag's address was overridden: operator %q, endpoint %q", op.Address, f2.CentralEndpoint())
 	}
 }
@@ -620,7 +621,7 @@ func TestAnAddressTypedWhileTheServerIsAskingTheClusterIsKept(t *testing.T) {
 	k.svcAddr = "203.0.113.7:4317"
 	k.onService = func() {
 		// What the "Reachable at" handler does: record it, then tell the running switch.
-		if _, err := a.a.C.SetOperatorAddress(ctx, "alex", CentralOperatorID, "fusion.example.com:4317"); err != nil {
+		if _, err := a.a.C.Operators.SetOperatorAddress(ctx, "alex", operators.CentralOperatorID, "fusion.example.com:4317"); err != nil {
 			t.Error(err)
 		}
 		f.SetPublicAddress("fusion.example.com:4317")
@@ -628,7 +629,7 @@ func TestAnAddressTypedWhileTheServerIsAskingTheClusterIsKept(t *testing.T) {
 	if addr, err := f.DiscoverAddress(ctx, a.a.C); addr != "" || err != nil {
 		t.Fatalf("the server reported recording %q (%v) over a person's address", addr, err)
 	}
-	if op, _ := a.a.C.GetOperator(ctx, CentralOperatorID); op.Address != "fusion.example.com:4317" {
+	if op, _ := a.a.C.Operators.GetOperator(ctx, operators.CentralOperatorID); op.Address != "fusion.example.com:4317" {
 		t.Fatalf("the person's address was overwritten by %q", op.Address)
 	}
 	if f.CentralEndpoint() != "fusion.example.com:4317" {

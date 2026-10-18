@@ -12,6 +12,7 @@ import (
 
 	"continuum/internal/install"
 	"continuum/internal/kernel"
+	"continuum/internal/operators"
 	"continuum/internal/store"
 )
 
@@ -30,8 +31,8 @@ const OperatorHeartbeatPath = "/api/v1/operator-heartbeat"
 // carrying only the collector's own health probe result; it is read, bounded, and thrown away.
 func (a *Admin) operatorHeartbeat(w http.ResponseWriter, r *http.Request) {
 	secret, _ := bearerToken(r)
-	err := a.C.RecordOperatorHeartbeat(r.Context(), secret)
-	if errors.Is(err, ErrHeartbeatRejected) {
+	err := a.C.Operators.RecordOperatorHeartbeat(r.Context(), secret)
+	if errors.Is(err, operators.ErrHeartbeatRejected) {
 		kernel.Metrics.AuthFailures.Add(1)
 		// Failed attempts are throttled per address (never a successful one, as in guard), so guessing
 		// secrets from one place is slow and a healthy operator can never lock itself out.
@@ -44,7 +45,7 @@ func (a *Admin) operatorHeartbeat(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	if errors.Is(err, ErrHeartbeatRateLimited) {
+	if errors.Is(err, operators.ErrHeartbeatRateLimited) {
 		w.Header().Set("Retry-After", "60")
 		writeErr(w, http.StatusTooManyRequests, "heartbeats are arriving too often")
 		return
@@ -55,11 +56,11 @@ func (a *Admin) operatorHeartbeat(w http.ResponseWriter, r *http.Request) {
 	}
 	// Read and discard, bounded. Authentication came first so an unauthenticated caller never gets this
 	// server to read anything.
-	if r.ContentLength > MaxHeartbeatBody {
+	if r.ContentLength > operators.MaxHeartbeatBody {
 		writeErr(w, http.StatusRequestEntityTooLarge, "heartbeat too large")
 		return
 	}
-	if _, err := io.Copy(io.Discard, http.MaxBytesReader(w, r.Body, MaxHeartbeatBody)); err != nil {
+	if _, err := io.Copy(io.Discard, http.MaxBytesReader(w, r.Body, operators.MaxHeartbeatBody)); err != nil {
 		var tooBig *http.MaxBytesError
 		if errors.As(err, &tooBig) {
 			writeErr(w, http.StatusRequestEntityTooLarge, "heartbeat too large")
@@ -80,7 +81,7 @@ func (a *Admin) enableOperatorHeartbeat(w http.ResponseWriter, r *http.Request) 
 	img := a.images(core)
 	url := a.heartbeatURL(r)
 	// The secret is shown once, with the commands that use it: a command that cannot be written is found before the secret is minted.
-	before, err := core.GetOperator(r.Context(), id)
+	before, err := core.Operators.GetOperator(r.Context(), id)
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -97,12 +98,12 @@ func (a *Admin) enableOperatorHeartbeat(w http.ResponseWriter, r *http.Request) 
 		a.fail(w, a.installConfigError(err))
 		return
 	}
-	secret, rotated, err := core.EnableOperatorHeartbeat(r.Context(), actor(r), id)
+	secret, rotated, err := core.Operators.EnableOperatorHeartbeat(r.Context(), actor(r), id)
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
-	op, err := core.GetOperator(r.Context(), id)
+	op, err := core.Operators.GetOperator(r.Context(), id)
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -124,7 +125,7 @@ func (a *Admin) enableOperatorHeartbeat(w http.ResponseWriter, r *http.Request) 
 		"heartbeatSecretCommand":   secretCmd,
 		"heartbeatUpgradeCommand":  upgrade,
 		"heartbeatUrl":             url,
-		"heartbeatIntervalSeconds": int(OperatorHeartbeatInterval / time.Second),
+		"heartbeatIntervalSeconds": int(operators.OperatorHeartbeatInterval / time.Second),
 	}
 	if rotated {
 		// A Secret's new value is not seen by a running pod's environment: the collector has to restart
@@ -209,7 +210,7 @@ func unreachableHostWhy(host string) string {
 	switch {
 	case host == "localhost" || strings.HasSuffix(host, ".localhost"):
 		return "this machine"
-	case IsClusterLocalName(host):
+	case operators.IsClusterLocalName(host):
 		return "a name that only exists inside one Kubernetes cluster"
 	}
 	return ""

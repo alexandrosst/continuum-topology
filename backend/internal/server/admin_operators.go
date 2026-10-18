@@ -13,6 +13,7 @@ import (
 	"continuum/internal/chart"
 	"continuum/internal/install"
 	"continuum/internal/kernel"
+	"continuum/internal/operators"
 	"continuum/internal/store"
 )
 
@@ -57,7 +58,7 @@ type operatorHealthDoc struct {
 	HeartbeatEnabledAt string `json:"heartbeatEnabledAt,omitempty"`
 }
 
-func toHealthDoc(h OperatorHealth) operatorHealthDoc {
+func toHealthDoc(h operators.OperatorHealth) operatorHealthDoc {
 	return operatorHealthDoc{State: h.State, LastSeenAt: rfcp(h.LastSeenAt), Reporting: h.Reporting, HeartbeatEnabledAt: rfcp(h.HeartbeatEnabledAt)}
 }
 
@@ -87,7 +88,7 @@ type operatorRefDoc struct {
 	Name string `json:"name"`
 }
 
-func toUsedByDoc(u OperatorUsage) *usedByDoc {
+func toUsedByDoc(u operators.OperatorUsage) *usedByDoc {
 	if u.Empty() {
 		return nil
 	}
@@ -180,7 +181,7 @@ func toOperatorDoc(op store.Operator, now time.Time) operatorDoc {
 		ID: op.ID, Name: op.Name, SiteID: op.SiteID, Status: string(op.Status),
 		SourceClusterIDs: op.SourceClusterIDs, Destination: toDestinationDoc(op.Destination),
 		CreatedAt: rfc(op.CreatedAt), CreatedBy: op.CreatedBy, Reason: op.Reason, ReceiverAuth: string(op.ReceiverAuth), ClientCaScope: op.ClientCAScope(),
-		Health: toHealthDoc(OperatorHealthAt(op, now)),
+		Health: toHealthDoc(operators.OperatorHealthAt(op, now)),
 	}
 	if op.SourceClusterIDs == nil {
 		d.SourceClusterIDs = []string{}
@@ -195,7 +196,7 @@ func toOperatorDoc(op store.Operator, now time.Time) operatorDoc {
 		d.RevokedAt = rfc(*op.RevokedAt)
 	}
 	if op.Status == store.OperatorActive {
-		if c := OperatorCertDates(op); c.Known() {
+		if c := operators.OperatorCertDates(op); c.Known() {
 			d.Certs = &certsDoc{ReceiverNotAfter: rfcp(c.Receiver), ClientNotAfter: rfcp(c.Client), CANotAfter: rfcp(c.CA)}
 			var since *time.Time
 			d.CertState, since = c.CertState(now)
@@ -211,7 +212,7 @@ func toOperatorDoc(op store.Operator, now time.Time) operatorDoc {
 // What depends on the operator is worked out here, so a caller with many operators passes the usages it already
 // computed (opDocWith) instead of scanning once per operator.
 func (a *Admin) opDoc(r *http.Request, op store.Operator) operatorDoc {
-	usages, _ := a.core(r).OperatorUsages(r.Context()) // best effort: without it the document simply has no usedBy
+	usages, _ := a.core(r).Operators.OperatorUsages(r.Context()) // best effort: without it the document simply has no usedBy
 	return a.opDocWith(r, op, usages, a.fusionState(r))
 }
 
@@ -225,13 +226,13 @@ func (a *Admin) fusionState(r *http.Request) FusionStatus {
 	return a.Fusion.Status(r.Context())
 }
 
-func (a *Admin) opDocWith(r *http.Request, op store.Operator, usages map[string]OperatorUsage, fusion FusionStatus) operatorDoc {
+func (a *Admin) opDocWith(r *http.Request, op store.Operator, usages map[string]operators.OperatorUsage, fusion FusionStatus) operatorDoc {
 	d := toOperatorDoc(op, a.core(r).Now())
 	d.Endpoint = a.operatorEndpoint(op)
 	d.UsedBy = toUsedByDoc(usages[op.ID])
 	d.AddressWarnings = addressWarnings(op.Address, nil)
-	if op.ID == CentralOperatorID {
-		h := CentralHealth(fusion.Managed())
+	if op.ID == operators.CentralOperatorID {
+		h := operators.CentralHealth(fusion.Managed())
 		h.LastSeenAt = fusion.LastDataAt
 		d.Health = toHealthDoc(h)
 		if a.Fusion != nil {
@@ -261,12 +262,12 @@ func modalitiesFromDoc(in []string) []store.Modality {
 }
 
 func (a *Admin) listOperators(w http.ResponseWriter, r *http.Request) {
-	ops, err := a.core(r).ListOperators(r.Context())
+	ops, err := a.core(r).Operators.ListOperators(r.Context())
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
-	usages, _ := a.core(r).OperatorUsages(r.Context())
+	usages, _ := a.core(r).Operators.OperatorUsages(r.Context())
 	fusion := a.fusionState(r)
 	out := []operatorDoc{}
 	for _, op := range ops {
@@ -276,7 +277,7 @@ func (a *Admin) listOperators(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *Admin) getOperator(w http.ResponseWriter, r *http.Request) {
-	op, err := a.core(r).GetOperator(r.Context(), r.PathValue("id"))
+	op, err := a.core(r).Operators.GetOperator(r.Context(), r.PathValue("id"))
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -331,7 +332,7 @@ func (a *Admin) createOperator(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// req.Exposure "" stays "": a client that was not asked has not said "this cluster only". The core validates it.
-	op, secret, tlsBundle, hbSecret, err := a.core(r).CreateOperatorWithOptions(r.Context(), actor(r), req.Name, req.SourceClusterIDs, req.Destination.toStore(), modalitiesFromDoc(req.AcceptedModalities), OperatorOptions{Heartbeat: req.Heartbeat, Labels: labels, Exposure: req.Exposure})
+	op, secret, tlsBundle, hbSecret, err := a.core(r).Operators.CreateOperatorWithOptions(r.Context(), actor(r), req.Name, req.SourceClusterIDs, req.Destination.toStore(), modalitiesFromDoc(req.AcceptedModalities), operators.OperatorOptions{Heartbeat: req.Heartbeat, Labels: labels, Exposure: req.Exposure})
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -349,7 +350,7 @@ func (a *Admin) createOperator(w http.ResponseWriter, r *http.Request) {
 // the commands upgrade it in place instead of installing it.
 type installMaterial struct {
 	Secret          string
-	TLS             OperatorTLSBundle
+	TLS             operators.OperatorTLSBundle
 	HeartbeatSecret string
 	Reissue         bool
 	// Processors are the chart values of the extra processors a person asked for, which follow the rest of the command.
@@ -367,7 +368,7 @@ func (a *Admin) operatorInstallDoc(r *http.Request, op store.Operator, m install
 	}
 	var target *store.Operator
 	if op.Destination.Kind == store.DestinationOperator {
-		if t, err := core.GetOperator(r.Context(), op.Destination.TargetOperatorID); err == nil {
+		if t, err := core.Operators.GetOperator(r.Context(), op.Destination.TargetOperatorID); err == nil {
 			t = a.advertised(t)
 			target = &t
 		}
@@ -398,7 +399,7 @@ func (a *Admin) operatorInstallDoc(r *http.Request, op store.Operator, m install
 		}
 		resp["heartbeatSecretCommand"] = hbCmd
 		resp["heartbeatUrl"] = hbURL
-		resp["heartbeatIntervalSeconds"] = int(OperatorHeartbeatInterval / time.Second)
+		resp["heartbeatIntervalSeconds"] = int(operators.OperatorHeartbeatInterval / time.Second)
 		if warn := heartbeatURLWarning(hbURL); warn != "" {
 			resp["heartbeatWarning"] = warn
 		}
@@ -438,7 +439,7 @@ func (a *Admin) reissueOperatorInstall(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, a.installConfigError(err))
 		return
 	}
-	op, mat, err := a.core(r).ReissueOperatorInstall(r.Context(), actor(r), r.PathValue("id"))
+	op, mat, err := a.core(r).Operators.ReissueOperatorInstall(r.Context(), actor(r), r.PathValue("id"))
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -469,7 +470,7 @@ type issuedCertDoc struct {
 // stop": the ledger newest first. It never returns a certificate or key.
 func (a *Admin) listOperatorCertificates(w http.ResponseWriter, r *http.Request) {
 	core := a.core(r)
-	certs, err := core.OperatorCertificates(r.Context(), r.PathValue("id"))
+	certs, err := core.Operators.OperatorCertificates(r.Context(), r.PathValue("id"))
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -478,9 +479,9 @@ func (a *Admin) listOperatorCertificates(w http.ResponseWriter, r *http.Request)
 	out := make([]issuedCertDoc, 0, len(certs))
 	for _, c := range certs {
 		end := c.NotAfter
-		state := CertStateOK
+		state := operators.CertStateOK
 		if !end.After(now) {
-			state = CertStateExpired
+			state = operators.CertStateExpired
 		}
 		out = append(out, issuedCertDoc{
 			Serial: c.Serial, Kind: string(c.Kind), Subject: c.Subject, Sender: c.Sender, IssuedBy: c.IssuedBy,
@@ -492,7 +493,7 @@ func (a *Admin) listOperatorCertificates(w http.ResponseWriter, r *http.Request)
 
 // operatorRestartCommand restarts the operator's pods, which is how they pick up a Secret read into the environment.
 func operatorRestartCommand(op store.Operator) (string, error) {
-	return install.RestartDeployment{Deployment: OperatorServiceName(op.ID), Namespace: "continuum-system"}.Render()
+	return install.RestartDeployment{Deployment: operators.OperatorServiceName(op.ID), Namespace: "continuum-system"}.Render()
 }
 
 // setOperatorAddress records the host:port other clusters reach the operator at ({"address": ""} clears it).
@@ -505,18 +506,18 @@ func (a *Admin) setOperatorAddress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
-	if id == CentralOperatorID && a.Fusion != nil {
+	if id == operators.CentralOperatorID && a.Fusion != nil {
 		req.Address = a.Fusion.WithGatewayPort(r.Context(), req.Address) // a NodePort is not on 4317
 	}
-	addr, err := a.core(r).SetOperatorAddress(r.Context(), actor(r), id, req.Address)
+	addr, err := a.core(r).Operators.SetOperatorAddress(r.Context(), actor(r), id, req.Address)
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
-	if id == CentralOperatorID && a.Fusion != nil {
+	if id == operators.CentralOperatorID && a.Fusion != nil {
 		a.Fusion.SetPublicAddress(addr) // from now on every command and the screens use it; no certificate changes
 	}
-	op, err := a.core(r).GetOperator(r.Context(), id)
+	op, err := a.core(r).Operators.GetOperator(r.Context(), id)
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -535,16 +536,16 @@ func (a *Admin) updateOperatorScope(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
-	before, err := a.core(r).GetOperator(r.Context(), id)
+	before, err := a.core(r).Operators.GetOperator(r.Context(), id)
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
-	if err := a.core(r).UpdateOperatorScope(r.Context(), actor(r), id, req.SourceClusterIDs, req.Destination.toStore(), modalitiesFromDoc(req.AcceptedModalities)); err != nil {
+	if err := a.core(r).Operators.UpdateOperatorScope(r.Context(), actor(r), id, req.SourceClusterIDs, req.Destination.toStore(), modalitiesFromDoc(req.AcceptedModalities)); err != nil {
 		a.fail(w, err)
 		return
 	}
-	op, err := a.core(r).GetOperator(r.Context(), id)
+	op, err := a.core(r).Operators.GetOperator(r.Context(), id)
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -554,9 +555,9 @@ func (a *Admin) updateOperatorScope(w http.ResponseWriter, r *http.Request) {
 	// job), so a scope change that adds nobody costs no certificate and no key derivation. Nothing about the
 	// previously issued ones stops working either: there is no per-certificate revocation here. Each gained
 	// cluster gets its own, naming it, signed by the operator's own CA, whose certificate the receiver trusts.
-	var tlsBundle OperatorTLSBundle
+	var tlsBundle operators.OperatorTLSBundle
 	if gained := clustersGained(before.SourceClusterIDs, op.SourceClusterIDs); len(gained) > 0 {
-		tlsBundle.Senders, tlsBundle.CACertPEM = a.core(r).MintSenderCerts(r.Context(), actor(r), op, gained)
+		tlsBundle.Senders, tlsBundle.CACertPEM = a.core(r).Operators.MintSenderCerts(r.Context(), actor(r), op, gained)
 	}
 	resp := map[string]any{"operator": a.opDoc(r, op), "reminders": a.operatorSourceReminders(r, op, tlsBundle)}
 	a.addOperatorTargetExport(r, resp, op)
@@ -607,7 +608,7 @@ func (a *Admin) revokeOperator(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
-	if err := a.core(r).RevokeOperatorForce(r.Context(), actor(r), id, req.Reason, req.Force); err != nil {
+	if err := a.core(r).Operators.RevokeOperatorForce(r.Context(), actor(r), id, req.Reason, req.Force); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -616,7 +617,7 @@ func (a *Admin) revokeOperator(w http.ResponseWriter, r *http.Request) {
 
 func (a *Admin) deleteOperator(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
-	if err := a.core(r).DeleteOperatorForce(r.Context(), actor(r), id, r.URL.Query().Get("force") == "true"); err != nil {
+	if err := a.core(r).Operators.DeleteOperatorForce(r.Context(), actor(r), id, r.URL.Query().Get("force") == "true"); err != nil {
 		a.fail(w, err)
 		return
 	}
@@ -634,7 +635,7 @@ func operatorClientTLSSecretName(op store.Operator) string   { return op.ID + "-
 // installed once, wherever the operator itself runs. Empty if CreateOperator could not mint the TLS
 // material (a rare failure it already tolerates - see its own comment): that operator is then a bearer
 // one, and the bearer token is its only gate.
-func operatorTLSSecretCommand(op store.Operator, b OperatorTLSBundle) (string, error) {
+func operatorTLSSecretCommand(op store.Operator, b operators.OperatorTLSBundle) (string, error) {
 	if len(b.ReceiverCertPEM) == 0 {
 		return "", nil
 	}
@@ -657,8 +658,8 @@ func exportBlock(prefix string, op store.Operator, endpoint string, withMTLS boo
 		install.Set(prefix+".tls.caFile", ""),
 	}
 	serverName := ""
-	if OperatorNeedsServerName(op) {
-		serverName = OperatorServerName(op)
+	if operators.OperatorNeedsServerName(op) {
+		serverName = operators.OperatorServerName(op)
 	}
 	if withMTLS {
 		values = append(values, install.Set(prefix+".tls.mtls.enabled", "true"), install.Set(prefix+".tls.mtls.secretName", operatorClientTLSSecretName(op)))
@@ -727,7 +728,7 @@ func operatorRouteValues(op store.Operator, endpoint string, m store.Modality) [
 // (empty when it is not, which leaves its in-cluster name), so from here on it is handled like any operator that has an
 // advertised address - dialled there, and verified by its stable name.
 func (a *Admin) advertised(op store.Operator) store.Operator {
-	if op.ID == CentralOperatorID && a.Fusion != nil && a.Fusion.Exposed() {
+	if op.ID == operators.CentralOperatorID && a.Fusion != nil && a.Fusion.Exposed() {
 		op.Address = a.Fusion.CentralEndpoint()
 	}
 	return op
@@ -738,13 +739,13 @@ func (a *Admin) advertised(op store.Operator) store.Operator {
 // exposed - the address FusionControl says (see CentralEndpoint). Any other operator with an advertised address
 // (see store.Operator.Address) is reached there, so a cluster elsewhere can find it.
 func (a *Admin) operatorEndpoint(op store.Operator) string {
-	if op.ID == CentralOperatorID && a.Fusion != nil {
+	if op.ID == operators.CentralOperatorID && a.Fusion != nil {
 		return a.Fusion.CentralEndpoint()
 	}
 	if op.Address != "" {
 		return op.Address
 	}
-	return OperatorInClusterEndpoint(op)
+	return operators.OperatorInClusterEndpoint(op)
 }
 
 // destEndpoint is the endpoint a sender dials to reach op as its destination d: the address that sender chose
@@ -761,7 +762,7 @@ func (a *Admin) destEndpoint(op store.Operator, d store.Destination) string {
 func (a *Admin) destWarnings(ctx context.Context, op store.Operator, d store.Destination) []string {
 	if d.Kind == store.DestinationOperator && d.TargetOperatorID == op.ID && d.Address != "" {
 		name := op.Name
-		if op.ID == CentralOperatorID && name == "" {
+		if op.ID == operators.CentralOperatorID && name == "" {
 			name = centralOperatorName
 		}
 		var out []string
@@ -778,7 +779,7 @@ func (a *Admin) destWarnings(ctx context.Context, op store.Operator, d store.Des
 // is recorded is only what a person typed (see addressWarnings). Empty when there is nothing to say.
 func (a *Admin) targetWarnings(ctx context.Context, op store.Operator) []string {
 	name := op.Name
-	if op.ID == CentralOperatorID && name == "" {
+	if op.ID == operators.CentralOperatorID && name == "" {
 		name = centralOperatorName
 	}
 	op = a.advertised(op)
@@ -786,7 +787,7 @@ func (a *Admin) targetWarnings(ctx context.Context, op store.Operator) []string 
 		return []string{fmt.Sprintf("%s has no address recorded, so this command dials its in-cluster name (%s), which resolves only inside the cluster it runs in. If the cluster being pointed at it is another one, record where %s is reached from outside first.", name, a.operatorEndpoint(op), name)}
 	}
 	var svc *kernel.KubeService
-	if op.ID == CentralOperatorID && a.Fusion != nil {
+	if op.ID == operators.CentralOperatorID && a.Fusion != nil {
 		svc = a.Fusion.gatewayService(ctx)
 	}
 	var out []string
@@ -805,12 +806,12 @@ func (a *Admin) addOperatorTargetExport(r *http.Request, resp map[string]any, op
 		return
 	}
 	core := a.core(r)
-	target, err := core.GetOperator(r.Context(), op.Destination.TargetOperatorID)
+	target, err := core.Operators.GetOperator(r.Context(), op.Destination.TargetOperatorID)
 	if err != nil {
 		return
 	}
 	target = a.advertised(target)
-	certPEM, keyPEM, caPEM, err := core.IssueOperatorClientCertFor(r.Context(), actor(r), target.ID, op.ID, "for="+op.ID)
+	certPEM, keyPEM, caPEM, err := core.Operators.IssueOperatorClientCertFor(r.Context(), actor(r), target.ID, op.ID, "for="+op.ID)
 	if err != nil || len(certPEM) == 0 {
 		return
 	}
@@ -833,7 +834,7 @@ func (a *Admin) addOperatorTargetExport(r *http.Request, resp map[string]any, op
 func (a *Admin) checkOperatorInstall(img kernel.ImageConfig) error {
 	probe := store.Operator{ID: "op-check", Name: "check", Status: store.OperatorActive, ReceiverAuth: store.ReceiverAuthMTLS,
 		Destination: store.Destination{Kind: store.DestinationExternal, Endpoint: "check:4317"}}
-	_, _, err := a.operatorInstallCommandWith(img, "check", probe, OperatorTLSBundle{}, "", nil, true)
+	_, _, err := a.operatorInstallCommandWith(img, "check", probe, operators.OperatorTLSBundle{}, "", nil, true)
 	return err
 }
 
@@ -874,7 +875,7 @@ func (a *Admin) operatorChart(img kernel.ImageConfig) (ref, version string) {
 // With reissue the command upgrades a release that already runs: `helm upgrade --install --reset-then-reuse-values` (Helm 3.14 or
 // newer; see upgradeCommand for why not --reuse-values) keeps what the person tuned (resources, image), so every value this command is
 // about is stated, the unused ones empty - an export block left out would keep an old destination's settings.
-func (a *Admin) operatorInstallCommandWith(img kernel.ImageConfig, secret string, op store.Operator, tlsBundle OperatorTLSBundle, heartbeatURL string, target *store.Operator, reissue bool) (cmd, secretCmd string, err error) {
+func (a *Admin) operatorInstallCommandWith(img kernel.ImageConfig, secret string, op store.Operator, tlsBundle operators.OperatorTLSBundle, heartbeatURL string, target *store.Operator, reissue bool) (cmd, secretCmd string, err error) {
 	var v []install.Value
 	set := func(key, value string) { v = append(v, install.Set(key, value)) }
 	if op.Destination.Kind == store.DestinationOperator {
@@ -892,8 +893,8 @@ func (a *Admin) operatorInstallCommandWith(img kernel.ImageConfig, secret string
 		}
 		set("export.otlp.tls.mtls.enabled", "true")
 		set("export.otlp.tls.mtls.secretName", operatorClientTLSSecretName(tgt))
-		if OperatorNeedsServerName(tgt) {
-			set("export.otlp.tls.serverName", OperatorServerName(tgt))
+		if operators.OperatorNeedsServerName(tgt) {
+			set("export.otlp.tls.serverName", operators.OperatorServerName(tgt))
 		} else if reissue {
 			set("export.otlp.tls.serverName", "")
 		}
@@ -976,7 +977,7 @@ func (a *Admin) operatorInstallCommandWith(img kernel.ImageConfig, secret string
 	// and image.tag itself (see the chart's values.yaml).
 	//
 	// How its Service is made reachable from other clusters (see Operator.Exposure).
-	if svcType, _ := ServiceTypeFor(op.Exposure); svcType != "" {
+	if svcType, _ := operators.ServiceTypeFor(op.Exposure); svcType != "" {
 		set("service.type", svcType)
 	}
 	ref, version := a.operatorChart(img)
@@ -1026,7 +1027,7 @@ func operatorProvenanceJSON(op store.Operator) string {
 // distinct namespace rather than once per cluster, so the private key is not repeated for every cluster that
 // shares a namespace name; it is applied in each of the clusters listed above it. A Secret is only listed when a
 // certificate was just minted (tlsBundle): without one the clusters keep the Secret they have.
-func (a *Admin) operatorSourceReminders(r *http.Request, op store.Operator, tlsBundle OperatorTLSBundle) []string {
+func (a *Admin) operatorSourceReminders(r *http.Request, op store.Operator, tlsBundle operators.OperatorTLSBundle) []string {
 	hub := a.tn(r).Hub
 	img := a.images(a.core(r))
 	agents, err := a.core(r).Store.ListAgents(r.Context(), a.core(r).OrgID)
@@ -1063,7 +1064,7 @@ type sourceTarget struct{ cluster, ns, name string }
 
 // sourceReminders is operatorSourceReminders once the clusters are known: it reads nothing, so the text it builds is pinned
 // by a test (install_commands_test.go) like the other commands.
-func (a *Admin) sourceReminders(img kernel.ImageConfig, op store.Operator, tlsBundle OperatorTLSBundle, targets []sourceTarget) ([]string, error) {
+func (a *Admin) sourceReminders(img kernel.ImageConfig, op store.Operator, tlsBundle operators.OperatorTLSBundle, targets []sourceTarget) ([]string, error) {
 	ref, version := a.agentChart(img)
 	out := make([]string, 0, 2*len(targets))
 	// Each cluster holds its own client certificate (see OperatorTLSBundle.Senders), so each gets its own Secret

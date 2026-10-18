@@ -8,7 +8,9 @@ import (
 	"strings"
 	"time"
 
+	"continuum/internal/operators"
 	"continuum/internal/store"
+	"continuum/internal/telemetry"
 )
 
 // The clusters that send to a regional operator, how each reaches it, and, where one is not getting through, which end
@@ -75,7 +77,7 @@ var modalityOrder = []store.Modality{store.ModalityMetrics, store.ModalityLogs, 
 func intentModalities(ti store.TelemetryIntent) map[store.Modality]bool {
 	out := map[store.Modality]bool{}
 	for _, s := range ti.Signals {
-		if m, ok := SignalModality[s.ID]; ok {
+		if m, ok := telemetry.SignalModality[s.ID]; ok {
 			out[m] = true
 		}
 	}
@@ -223,17 +225,17 @@ func diagnoseSender(in diagnosisInput) *SenderDiagnosisDoc {
 			working = append(working, p)
 		}
 	}
-	operatorUp := len(working) > 0 || in.OperatorState == HealthOnline
+	operatorUp := len(working) > 0 || in.OperatorState == operators.HealthOnline
 	if in.Central && len(working) == 0 {
 		// FUSION says itself whether its gateway can take anything: nothing a path could do is the first thing to look at.
 		switch in.OperatorState {
-		case HealthOff:
+		case operators.HealthOff:
 			return &SenderDiagnosisDoc{Where: "operator", Title: "FUSION is off",
 				Detail: "The gateway that receives what this cluster sends is not running, so nothing is accepted anywhere. Turn FUSION on from its section; collectors keep what they cannot deliver and send it once it is up."}
-		case HealthStarting:
+		case operators.HealthStarting:
 			return &SenderDiagnosisDoc{Where: "operator", Title: "FUSION is still starting",
 				Detail: "The gateway is not ready yet. This takes a minute or two after FUSION is turned on; collectors keep what they cannot deliver and send it once it is up."}
-		case HealthAttention:
+		case operators.HealthAttention:
 			return &SenderDiagnosisDoc{Where: "operator", Title: "FUSION reports a problem",
 				Detail: "One of its parts is not working, and the gateway may not be taking anything. Open FUSION: its overview says which part and what to do."}
 		}
@@ -265,7 +267,7 @@ func diagnoseSender(in diagnosisInput) *SenderDiagnosisDoc {
 		switch {
 		case len(working) > 0:
 			d = peerLine + " That points at this cluster's own client certificate (expired, or from another operator): run its generated command again to install a fresh one."
-		case in.OperatorState == HealthOffline:
+		case in.OperatorState == operators.HealthOffline:
 			d += " The operator has also stopped reporting" + seen + ": check that its receiver certificate has not expired" + renew + "."
 		default:
 			d += " Common causes: the operator's or this cluster's certificate has expired" + renew + ", this cluster's certificate Secret is missing or belongs to another operator."
@@ -276,7 +278,7 @@ func diagnoseSender(in diagnosisInput) *SenderDiagnosisDoc {
 			Detail: "The connection works, but what this cluster presented was not accepted: a receiver token that is wrong or was rotated, or a client certificate the operator does not trust. Run the cluster's generated command again; for an operator with a receiver token, check the Secret that holds it." + quote}
 	}
 
-	if in.OperatorState == HealthOffline && len(working) == 0 {
+	if in.OperatorState == operators.HealthOffline && len(working) == 0 {
 		return &SenderDiagnosisDoc{Where: "operator", Title: "The operator itself is not reporting",
 			Detail: "No other cluster is getting through, and the operator has stopped reporting its own health" + seen + ". Look at the operator first: `kubectl -n continuum-system get pods` in its cluster. " + who + "'s path is not shown to be at fault." + quote}
 	}
@@ -320,12 +322,12 @@ func diagnoseSender(in diagnosisInput) *SenderDiagnosisDoc {
 // listOperatorSenders answers GET .../operators/{id}/senders.
 func (a *Admin) listOperatorSenders(w http.ResponseWriter, r *http.Request) {
 	c := a.core(r)
-	op, err := c.GetOperator(r.Context(), r.PathValue("id"))
+	op, err := c.Operators.GetOperator(r.Context(), r.PathValue("id"))
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
-	intents, err := c.ListTelemetryIntents(r.Context())
+	intents, err := c.Telemetry.ListTelemetryIntents(r.Context())
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -375,7 +377,7 @@ func (a *Admin) listOperatorSenders(w http.ResponseWriter, r *http.Request) {
 	for i := range ps {
 		d := &ps[i].doc
 		in := diagnosisInput{ClusterName: d.AgentName, Connected: d.Connected, Delivery: d.Delivery, Address: d.Addresses[0].Address, AddrSource: d.Addresses[0].Source,
-			OperatorID: op.ID, OperatorName: op.Name, OperatorState: health.State, OperatorSeen: seen, Central: op.ID == CentralOperatorID, Reach: d.Addresses[0].Reach}
+			OperatorID: op.ID, OperatorName: op.Name, OperatorState: health.State, OperatorSeen: seen, Central: op.ID == operators.CentralOperatorID, Reach: d.Addresses[0].Reach}
 		for j := range ps {
 			if j != i && ps[j].doc.Delivery != nil {
 				in.Peers = append(in.Peers, peerOutcome{Name: ps[j].doc.AgentName, Address: ps[j].doc.Addresses[0].Address, State: ps[j].doc.Delivery.State})
@@ -392,12 +394,12 @@ func (a *Admin) listOperatorSenders(w http.ResponseWriter, r *http.Request) {
 
 // sendersHealth is the health a diagnosis reads: a regional operator's heartbeat, and for the central operator, which has
 // none, FUSION's own state (the same as its row shows).
-func (a *Admin) sendersHealth(r *http.Request, op store.Operator, now time.Time) OperatorHealth {
-	if op.ID != CentralOperatorID {
-		return OperatorHealthAt(op, now)
+func (a *Admin) sendersHealth(r *http.Request, op store.Operator, now time.Time) operators.OperatorHealth {
+	if op.ID != operators.CentralOperatorID {
+		return operators.OperatorHealthAt(op, now)
 	}
 	fusion := a.fusionState(r)
-	h := CentralHealth(fusion.Managed())
+	h := operators.CentralHealth(fusion.Managed())
 	h.LastSeenAt = fusion.LastDataAt
 	return h
 }

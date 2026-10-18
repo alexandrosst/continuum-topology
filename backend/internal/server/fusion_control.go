@@ -13,6 +13,7 @@ import (
 	"continuum/internal/accounts"
 	"continuum/internal/fusionapi"
 	"continuum/internal/kernel"
+	"continuum/internal/operators"
 	"continuum/internal/pki"
 	"continuum/internal/store"
 )
@@ -174,7 +175,7 @@ func (f *FusionControl) DiscoverAddress(ctx context.Context, c *Core) (string, e
 		return "", nil
 	}
 	f.discoverAt = f.now()
-	op, err := c.Store.GetOperator(ctx, CentralOperatorID)
+	op, err := c.Store.GetOperator(ctx, operators.CentralOperatorID)
 	if err != nil || op.Status != store.OperatorActive || op.OrgID != c.OrgID {
 		return "", nil // not set up yet (or revoked): there is nothing to record an address on
 	}
@@ -195,7 +196,7 @@ func (f *FusionControl) DiscoverAddress(ctx context.Context, c *Core) (string, e
 	// Validated, audited and refused for the same reasons as the administrator's "Reachable at", but written only
 	// while no address is recorded: the look at the operator above and this write are not one step, and a person
 	// who typed an address in between must keep it (in the database and in what this server answers with).
-	current, wrote, err := c.RecordOperatorAddressIfUnset(ctx, accounts.SystemActor.String(), CentralOperatorID, addr)
+	current, wrote, err := c.Operators.RecordOperatorAddressIfUnset(ctx, accounts.SystemActor.String(), operators.CentralOperatorID, addr)
 	if err != nil {
 		return "", err
 	}
@@ -290,7 +291,7 @@ func (f *FusionControl) certHosts() []string {
 	// The last name is the one that never changes (operatorServerName): senders that reach the gateway at its public
 	// address verify against it, so the address, or the IP behind it, can change without reissuing anything.
 	h := []string{f.Name + "-central", f.Name + "-central." + f.Namespace, f.centralHost(), f.centralHost() + ".cluster.local",
-		OperatorServerName(store.Operator{ID: CentralOperatorID})}
+		operators.OperatorServerName(store.Operator{ID: operators.CentralOperatorID})}
 	if pa := f.publicAddress(); pa != "" {
 		host := pa
 		if i := strings.LastIndex(host, ":"); i >= 0 && !strings.HasSuffix(host, "]") {
@@ -363,8 +364,8 @@ type FusionStatus struct {
 }
 
 // Managed is what the operators module needs of this state to report the central operator's health.
-func (st FusionStatus) Managed() ManagedStatus {
-	return ManagedStatus{Available: st.Available, State: st.State}
+func (st FusionStatus) Managed() operators.ManagedStatus {
+	return operators.ManagedStatus{Available: st.Available, State: st.State}
 }
 
 // clone is a copy that shares nothing with the cached one, so a caller may change what it was given.
@@ -792,7 +793,7 @@ func (f *FusionControl) Renew(ctx context.Context, c *Core) error {
 	if st := f.Status(ctx); !st.Available || st.State == "off" {
 		return nil
 	}
-	if _, err := c.Store.GetOperator(ctx, CentralOperatorID); err != nil {
+	if _, err := c.Store.GetOperator(ctx, operators.CentralOperatorID); err != nil {
 		return nil // never enabled from here: nothing to renew
 	}
 	// Only when there is something to do: the certificate is within pki.OperatorRenewBefore of its end, or the names it
@@ -903,15 +904,15 @@ func kubeFail(what string, err error) error {
 // the second insert fails on the operator's id. That second caller must not report the raw store error: the operator is
 // there, it is just not its own. It throws away the CA it minted - nothing has used it, and a certificate from it
 // would not verify against the CA that won - and goes round again as a later call, issuing from the winner's CA.
-func (c *Core) EnsureCentralOperator(ctx context.Context, actor string, dest store.Destination, hosts []string) (store.Operator, OperatorTLSBundle, error) {
-	op, err := c.Store.GetOperator(ctx, CentralOperatorID)
+func (c *Core) EnsureCentralOperator(ctx context.Context, actor string, dest store.Destination, hosts []string) (store.Operator, operators.OperatorTLSBundle, error) {
+	op, err := c.Store.GetOperator(ctx, operators.CentralOperatorID)
 	if errors.Is(err, store.ErrNotFound) {
-		bundle, caKeyPEM, err := MintOperatorTLS(c, CentralOperatorID, hosts)
+		bundle, caKeyPEM, err := operators.MintOperatorTLS(c.Core, operators.CentralOperatorID, hosts)
 		if err != nil {
-			return store.Operator{}, OperatorTLSBundle{}, kernel.Errf(kernel.KindInternal, "could not mint the central operator's certificates: %v", err)
+			return store.Operator{}, operators.OperatorTLSBundle{}, kernel.Errf(kernel.KindInternal, "could not mint the central operator's certificates: %v", err)
 		}
 		op = store.Operator{
-			ID: CentralOperatorID, OrgID: c.OrgID, Name: "Central (FUSION)", Status: store.OperatorActive,
+			ID: operators.CentralOperatorID, OrgID: c.OrgID, Name: "Central (FUSION)", Status: store.OperatorActive,
 			Destination: dest, ReceiverAuth: store.ReceiverAuthMTLS,
 			ClientCACertPEM: bundle.CACertPEM, ClientCAKeyPEM: caKeyPEM,
 			CreatedBy: actor, CreatedAt: c.Now(),
@@ -923,41 +924,41 @@ func (c *Core) EnsureCentralOperator(ctx context.Context, actor string, dest sto
 		}
 		// Lost the race? Then the operator exists now and is the one to use. Anything else (the audit trail, the
 		// database) is the caller's error as it was.
-		won, getErr := c.Store.GetOperator(ctx, CentralOperatorID)
+		won, getErr := c.Store.GetOperator(ctx, operators.CentralOperatorID)
 		if getErr != nil {
-			return store.Operator{}, OperatorTLSBundle{}, createErr
+			return store.Operator{}, operators.OperatorTLSBundle{}, createErr
 		}
 		op = won
 	} else if err != nil {
-		return store.Operator{}, OperatorTLSBundle{}, err
+		return store.Operator{}, operators.OperatorTLSBundle{}, err
 	}
 	if op.OrgID != c.OrgID {
-		return store.Operator{}, OperatorTLSBundle{}, kernel.Errf(kernel.KindConflict, "the central operator belongs to another organisation")
+		return store.Operator{}, operators.OperatorTLSBundle{}, kernel.Errf(kernel.KindConflict, "the central operator belongs to another organisation")
 	}
 	if op.Status != store.OperatorActive {
-		return store.Operator{}, OperatorTLSBundle{}, kernel.Errf(kernel.KindConflict, "the central operator was revoked")
+		return store.Operator{}, operators.OperatorTLSBundle{}, kernel.Errf(kernel.KindConflict, "the central operator was revoked")
 	}
-	issuer, caPEM, err := c.OperatorIssuer(ctx, op)
+	issuer, caPEM, err := c.Operators.OperatorIssuer(ctx, op)
 	if err != nil {
-		return store.Operator{}, OperatorTLSBundle{}, err
+		return store.Operator{}, operators.OperatorTLSBundle{}, err
 	}
 	certPEM, keyPEM, err := issuer.IssueOperatorReceiverTLS(op.ID, c.OrgID, hosts)
 	if err != nil {
-		return store.Operator{}, OperatorTLSBundle{}, err
+		return store.Operator{}, operators.OperatorTLSBundle{}, err
 	}
 	// In the ledger like every other certificate the server issues: it is how the dates shown for the operator, and
 	// Renew's "is this still fresh", know what the gateway holds. One that cannot be recorded is not handed out.
-	if err := c.RecordOperatorCert(ctx, actor, op, store.OperatorCertReceiver, "", certPEM); err != nil {
-		return store.Operator{}, OperatorTLSBundle{}, err
+	if err := c.Operators.RecordOperatorCert(ctx, actor, op, store.OperatorCertReceiver, "", certPEM); err != nil {
+		return store.Operator{}, operators.OperatorTLSBundle{}, err
 	}
-	c.NoteCertEnds(ctx, op)
-	return op, OperatorTLSBundle{ReceiverCertPEM: certPEM, ReceiverKeyPEM: keyPEM, CACertPEM: caPEM}, nil
+	c.Operators.NoteCertEnds(ctx, op)
+	return op, operators.OperatorTLSBundle{ReceiverCertPEM: certPEM, ReceiverKeyPEM: keyPEM, CACertPEM: caPEM}, nil
 }
 
 // centralReceiverFresh says whether the gateway's newest certificate in the ledger still has more than
 // pki.OperatorRenewBefore left, so that Renew has nothing to do.
 func (c *Core) centralReceiverFresh(ctx context.Context) bool {
-	certs, err := c.Store.ListOperatorCerts(ctx, CentralOperatorID) // newest first
+	certs, err := c.Store.ListOperatorCerts(ctx, operators.CentralOperatorID) // newest first
 	if err != nil {
 		return false
 	}

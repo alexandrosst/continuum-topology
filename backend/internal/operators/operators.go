@@ -1,4 +1,4 @@
-package server
+package operators
 
 import (
 	"context"
@@ -84,7 +84,7 @@ func (b OperatorTLSBundle) ForSender(sender string) (SenderCert, bool) {
 // certificate (never the org CA's); caKeyPEM is the CA's private key sealed like the org CA key, for the
 // caller to store - it is not part of the bundle so nothing that renders a bundle can leak it. A variable
 // only so a test can make the mint fail and check that no operator is created then.
-var MintOperatorTLS = func(c *Core, operatorID string, hosts []string) (bundle OperatorTLSBundle, caKeyPEM []byte, err error) {
+var MintOperatorTLS = func(c *kernel.Core, operatorID string, hosts []string) (bundle OperatorTLSBundle, caKeyPEM []byte, err error) {
 	issuer, caCertPEM, caKeyPEM, err := c.CA.NewOperatorCA(operatorID, c.OrgID)
 	if err != nil {
 		return OperatorTLSBundle{}, nil, err
@@ -120,7 +120,7 @@ const maxOperatorName = 80
 
 // operatorInOrg finds a regional operator of this organisation. One belonging to another organisation is
 // reported as not existing, the same convention AgentInOrg uses.
-func (c *Core) OperatorInOrg(ctx context.Context, id string) (store.Operator, error) {
+func (c *Service) OperatorInOrg(ctx context.Context, id string) (store.Operator, error) {
 	op, err := c.Store.GetOperator(ctx, id)
 	if errors.Is(err, store.ErrNotFound) || (err == nil && op.OrgID != c.OrgID) {
 		return store.Operator{}, kernel.Errf(kernel.KindNotFound, "no such regional operator")
@@ -167,7 +167,7 @@ func validExternalDestination(dest store.Destination) error {
 // hop - the target operator's own Destination (if it is itself "operator") is not walked or re-validated
 // here. (Operator-to-operator chains, and the loops they could form, are checked for operators' own destinations by
 // operatorDestination.)
-func (c *Core) ValidateDestination(ctx context.Context, dest store.Destination) error {
+func (c *Service) ValidateDestination(ctx context.Context, dest store.Destination) error {
 	switch dest.Kind {
 	case store.DestinationExternal:
 		if strings.TrimSpace(dest.Endpoint) == "" {
@@ -219,7 +219,7 @@ func NormalizeDestination(d store.Destination) store.Destination {
 // selfID is the operator whose destination this is ("" for one being created, which has no id yet and nothing sends to
 // it). A destination that sends an operator to itself, or back round to it through others, is refused: telemetry would
 // circle between the operators forever and never reach a backend.
-func (c *Core) operatorDestination(ctx context.Context, selfID string, dest store.Destination) (store.Destination, error) {
+func (c *Service) operatorDestination(ctx context.Context, selfID string, dest store.Destination) (store.Destination, error) {
 	if dest.Kind == store.DestinationFusion {
 		return dest, kernel.Errf(kernel.KindInvalid, "FUSION is reached through the central operator: choose it as the destination (kind %q), or turn FUSION on in the server's Settings", store.DestinationOperator)
 	}
@@ -239,7 +239,7 @@ const maxOperatorChain = 16
 // leads back to selfID (itself, or A -> B -> A), or into a loop, or into a chain longer than maxOperatorChain. It stops
 // at the first operator that exports to a backend or to FUSION, and at one that does not exist or cannot be read
 // (validateDestination has already said what is wrong with a target that is missing or revoked).
-func (c *Core) checkOperatorChain(ctx context.Context, selfID string, dest store.Destination) error {
+func (c *Service) checkOperatorChain(ctx context.Context, selfID string, dest store.Destination) error {
 	if dest.Kind != store.DestinationOperator {
 		return nil
 	}
@@ -317,7 +317,7 @@ func validOperatorLabels(in []store.OperatorLabel) ([]store.OperatorLabel, error
 // validSourceClusters checks that every id names a currently approved agent's cluster in this
 // organisation - the same source of truth the wizard itself reads from, re-checked here since the
 // client's own list can be stale by the time it submits.
-func (c *Core) validSourceClusters(ctx context.Context, ids []string) error {
+func (c *Service) validSourceClusters(ctx context.Context, ids []string) error {
 	// No source is a valid operator: it is a place to send to, and clusters are pointed at it later (a telemetry intent issues
 	// each one its own client certificate). Requiring one here forced a cluster to be named before anything could aggregate.
 	if len(ids) == 0 {
@@ -350,7 +350,7 @@ func (c *Core) validSourceClusters(ctx context.Context, ids []string) error {
 // CreateOperatorWithHeartbeat) the returned receiver secret is "": there is no bearer token. For a bearer
 // operator the secret is returned once and never stored - the same rule CreateToken follows. The operator
 // is created without a heartbeat; see CreateOperatorWithHeartbeat.
-func (c *Core) CreateOperator(ctx context.Context, actor, name string, sourceClusterIDs []string, dest store.Destination, acceptedModalities []store.Modality) (store.Operator, string, OperatorTLSBundle, error) {
+func (c *Service) CreateOperator(ctx context.Context, actor, name string, sourceClusterIDs []string, dest store.Destination, acceptedModalities []store.Modality) (store.Operator, string, OperatorTLSBundle, error) {
 	op, secret, bundle, _, err := c.CreateOperatorWithHeartbeat(ctx, actor, name, sourceClusterIDs, dest, acceptedModalities, false)
 	return op, secret, bundle, err
 }
@@ -358,7 +358,7 @@ func (c *Core) CreateOperator(ctx context.Context, actor, name string, sourceClu
 // CreateOperatorWithHeartbeat is CreateOperator that can also mint the operator's heartbeat secret in the
 // same step (heartbeat true): returned once as the fourth value, "" when heartbeat is false. The heartbeat
 // is opt-in everywhere - see EnableOperatorHeartbeat for what it is.
-func (c *Core) CreateOperatorWithHeartbeat(ctx context.Context, actor, name string, sourceClusterIDs []string, dest store.Destination, acceptedModalities []store.Modality, heartbeat bool) (store.Operator, string, OperatorTLSBundle, string, error) {
+func (c *Service) CreateOperatorWithHeartbeat(ctx context.Context, actor, name string, sourceClusterIDs []string, dest store.Destination, acceptedModalities []store.Modality, heartbeat bool) (store.Operator, string, OperatorTLSBundle, string, error) {
 	return c.CreateOperatorWithOptions(ctx, actor, name, sourceClusterIDs, dest, acceptedModalities, OperatorOptions{Heartbeat: heartbeat})
 }
 
@@ -375,7 +375,7 @@ type OperatorOptions struct {
 }
 
 // CreateOperatorWithOptions is CreateOperatorWithHeartbeat with the options named.
-func (c *Core) CreateOperatorWithOptions(ctx context.Context, actor, name string, sourceClusterIDs []string, dest store.Destination, acceptedModalities []store.Modality, opts OperatorOptions) (store.Operator, string, OperatorTLSBundle, string, error) {
+func (c *Service) CreateOperatorWithOptions(ctx context.Context, actor, name string, sourceClusterIDs []string, dest store.Destination, acceptedModalities []store.Modality, opts OperatorOptions) (store.Operator, string, OperatorTLSBundle, string, error) {
 	c.DepMu.RLock() // see Core.DepMu
 	defer c.DepMu.RUnlock()
 	heartbeat := opts.Heartbeat
@@ -431,7 +431,7 @@ func (c *Core) CreateOperatorWithOptions(ctx context.Context, actor, name string
 	// only gate, and no receiver bearer token is minted at all. If the CA or the receiver certificate cannot be made the
 	// request fails before anything is stored, rather than creating an operator with a weaker gate. (Operators stored
 	// earlier as bearer or org-CA operators are still served; they are simply no longer created.)
-	bundle, caKeyPEM, tlsErr := MintOperatorTLS(c, op.ID, operatorReceiverHosts(op.ID))
+	bundle, caKeyPEM, tlsErr := MintOperatorTLS(c.Core, op.ID, operatorReceiverHosts(op.ID))
 	if tlsErr != nil {
 		c.Audit(ctx, actor, "operator-tls-mint-failed", "operator", op.ID, tlsErr.Error())
 		return store.Operator{}, "", OperatorTLSBundle{}, "", kernel.Errf(kernel.KindInternal, "the operator's certificates could not be made, so the operator was not created: %v", tlsErr)
@@ -465,7 +465,7 @@ func (c *Core) CreateOperatorWithOptions(ctx context.Context, actor, name string
 
 // mintSenderCerts issues each of clusters its own client certificate from op's CA, under DepMu (see Core.DepMu) like
 // IssueOperatorClientCertFor: for a caller that does not already hold it.
-func (c *Core) MintSenderCerts(ctx context.Context, actor string, op store.Operator, clusters []string) (out []SenderCert, caPEM []byte) {
+func (c *Service) MintSenderCerts(ctx context.Context, actor string, op store.Operator, clusters []string) (out []SenderCert, caPEM []byte) {
 	c.DepMu.RLock()
 	defer c.DepMu.RUnlock()
 	return c.mintSenderCertsHeld(ctx, actor, op, clusters)
@@ -475,7 +475,7 @@ func (c *Core) MintSenderCerts(ctx context.Context, actor string, op store.Opera
 // second RLock from the same goroutine would deadlock the moment a revoke or delete (which takes the write lock) is waiting
 // between the two. One that cannot be issued is left out and audited, not fatal: the operator exists, and Renew certificates
 // issues them again.
-func (c *Core) mintSenderCertsHeld(ctx context.Context, actor string, op store.Operator, clusters []string) (out []SenderCert, caPEM []byte) {
+func (c *Service) mintSenderCertsHeld(ctx context.Context, actor string, op store.Operator, clusters []string) (out []SenderCert, caPEM []byte) {
 	for _, cl := range clusters {
 		certPEM, keyPEM, ca, err := c.issueOperatorClientCertHeld(ctx, actor, op.ID, cl, "cluster="+cl)
 		if err != nil {
@@ -487,18 +487,18 @@ func (c *Core) mintSenderCertsHeld(ctx context.Context, actor string, op store.O
 	return out, caPEM
 }
 
-func (c *Core) GetOperator(ctx context.Context, id string) (store.Operator, error) {
+func (c *Service) GetOperator(ctx context.Context, id string) (store.Operator, error) {
 	return c.OperatorInOrg(ctx, id)
 }
 
-func (c *Core) ListOperators(ctx context.Context) ([]store.Operator, error) {
+func (c *Service) ListOperators(ctx context.Context) ([]store.Operator, error) {
 	return c.Store.ListOperators(ctx, c.OrgID)
 }
 
 // UpdateOperatorScope replaces which clusters feed this operator and where it exports to. There is no
 // live reparenting here (see the plan): applying the corresponding change to each source cluster's own
 // agent release remains a manual step, printed as a reminder by operatorInstallCommand.
-func (c *Core) UpdateOperatorScope(ctx context.Context, actor, id string, sourceClusterIDs []string, dest store.Destination, acceptedModalities []store.Modality) error {
+func (c *Service) UpdateOperatorScope(ctx context.Context, actor, id string, sourceClusterIDs []string, dest store.Destination, acceptedModalities []store.Modality) error {
 	c.DepMu.RLock() // see Core.DepMu
 	defer c.DepMu.RUnlock()
 	if err := GuardCentral(id); err != nil {
@@ -669,7 +669,7 @@ func ValidOperatorAddress(in string) (string, error) {
 // central operator too (the gateway in front of FUSION): that is where its public address is set from the UI. Nothing about
 // the operator's certificates changes: callers verify it by its stable in-cluster name (operatorServerName),
 // so the address can be changed, or an IP can move, without reissuing anything. Empty clears it.
-func (c *Core) SetOperatorAddress(ctx context.Context, actor, id, address string) (string, error) {
+func (c *Service) SetOperatorAddress(ctx context.Context, actor, id, address string) (string, error) {
 	if _, err := c.OperatorInOrg(ctx, id); err != nil {
 		return "", err
 	}
@@ -691,7 +691,7 @@ func (c *Core) SetOperatorAddress(ctx context.Context, actor, id, address string
 // RecordOperatorAddressIfUnset is SetOperatorAddress for the server's own discovery: it writes only while the operator
 // has no address, as one compare-and-set in the store, so what an administrator types between the server's look and its
 // write is never replaced. wrote is false (and err nil) when an address is already there; current is then what it is.
-func (c *Core) RecordOperatorAddressIfUnset(ctx context.Context, actor, id, address string) (current string, wrote bool, err error) {
+func (c *Service) RecordOperatorAddressIfUnset(ctx context.Context, actor, id, address string) (current string, wrote bool, err error) {
 	op, err := c.OperatorInOrg(ctx, id)
 	if err != nil {
 		return "", false, err
@@ -753,7 +753,7 @@ func OperatorNeedsServerName(op store.Operator) bool {
 }
 
 // RevokeOperator revokes an operator nothing depends on; see RevokeOperatorForce.
-func (c *Core) RevokeOperator(ctx context.Context, actor, id, reason string) error {
+func (c *Service) RevokeOperator(ctx context.Context, actor, id, reason string) error {
 	return c.RevokeOperatorForce(ctx, actor, id, reason, false)
 }
 
@@ -762,7 +762,7 @@ func (c *Core) RevokeOperator(ctx context.Context, actor, id, reason string) err
 // operator exporting into it, a telemetry intent granting a cluster export to it. While anything does, this refuses
 // with KindConflict naming what depends on it, unless force is set; the audit entry then records the counts, so the
 // trail says what was knowingly left behind.
-func (c *Core) RevokeOperatorForce(ctx context.Context, actor, id, reason string, force bool) error {
+func (c *Service) RevokeOperatorForce(ctx context.Context, actor, id, reason string, force bool) error {
 	if err := GuardCentral(id); err != nil {
 		return err
 	}
@@ -788,12 +788,12 @@ func (c *Core) RevokeOperatorForce(ctx context.Context, actor, id, reason string
 }
 
 // DeleteOperator deletes an operator nothing depends on; see DeleteOperatorForce.
-func (c *Core) DeleteOperator(ctx context.Context, actor, id string) error {
+func (c *Service) DeleteOperator(ctx context.Context, actor, id string) error {
 	return c.DeleteOperatorForce(ctx, actor, id, false)
 }
 
 // DeleteOperatorForce deletes an operator, under the same dependents rule as RevokeOperatorForce.
-func (c *Core) DeleteOperatorForce(ctx context.Context, actor, id string, force bool) error {
+func (c *Service) DeleteOperatorForce(ctx context.Context, actor, id string, force bool) error {
 	if err := GuardCentral(id); err != nil {
 		return err
 	}
@@ -822,7 +822,7 @@ func (c *Core) DeleteOperatorForce(ctx context.Context, actor, id string, force 
 // "operator") signs with it: its sealed key is read, opened with the org CA's passphrase, and used in memory
 // only. Any other operator - a legacy mTLS one, or a bearer one - signs with the org CA, which is exactly what
 // it always did and what its receiver already trusts.
-func (c *Core) OperatorIssuer(ctx context.Context, op store.Operator) (*pki.CA, []byte, error) {
+func (c *Service) OperatorIssuer(ctx context.Context, op store.Operator) (*pki.CA, []byte, error) {
 	if len(op.ClientCACertPEM) == 0 {
 		return c.CA, c.CA.CertPEM(), nil
 	}
@@ -849,14 +849,14 @@ func (c *Core) OperatorIssuer(ctx context.Context, op store.Operator) (*pki.CA, 
 //
 // It holds DepMu for reading (see Core.DepMu) from the check that the operator is active to the ledger write, so a revoke or
 // a delete cannot slip in between and leave a certificate minted and recorded for an operator that is gone or revoked.
-func (c *Core) IssueOperatorClientCertFor(ctx context.Context, actor, operatorID, sender, forWhat string) (certPEM, keyPEM, caPEM []byte, err error) {
+func (c *Service) IssueOperatorClientCertFor(ctx context.Context, actor, operatorID, sender, forWhat string) (certPEM, keyPEM, caPEM []byte, err error) {
 	c.DepMu.RLock()
 	defer c.DepMu.RUnlock()
 	return c.issueOperatorClientCertHeld(ctx, actor, operatorID, sender, forWhat)
 }
 
 // issueOperatorClientCertHeld is IssueOperatorClientCertFor for a caller that already holds DepMu for reading.
-func (c *Core) issueOperatorClientCertHeld(ctx context.Context, actor, operatorID, sender, forWhat string) (certPEM, keyPEM, caPEM []byte, err error) {
+func (c *Service) issueOperatorClientCertHeld(ctx context.Context, actor, operatorID, sender, forWhat string) (certPEM, keyPEM, caPEM []byte, err error) {
 	op, err := c.OperatorInOrg(ctx, operatorID)
 	if err != nil {
 		return nil, nil, nil, err
@@ -891,7 +891,7 @@ func (c *Core) issueOperatorClientCertHeld(ctx context.Context, actor, operatorI
 }
 
 // recordOperatorCert writes the ledger entry for a certificate just issued: what it is, whose, and when it ends.
-func (c *Core) RecordOperatorCert(ctx context.Context, actor string, op store.Operator, kind store.OperatorCertKind, sender string, certPEM []byte) error {
+func (c *Service) RecordOperatorCert(ctx context.Context, actor string, op store.Operator, kind store.OperatorCertKind, sender string, certPEM []byte) error {
 	cert, err := pki.ParseCertificate(certPEM)
 	if err != nil {
 		return fmt.Errorf("the certificate just issued could not be read back: %w", err)
@@ -903,7 +903,7 @@ func (c *Core) RecordOperatorCert(ctx context.Context, actor string, op store.Op
 }
 
 // OperatorCertificates is the ledger of what was issued for an operator, newest first.
-func (c *Core) OperatorCertificates(ctx context.Context, id string) ([]store.OperatorCert, error) {
+func (c *Service) OperatorCertificates(ctx context.Context, id string) ([]store.OperatorCert, error) {
 	if _, err := c.OperatorInOrg(ctx, id); err != nil {
 		return nil, err
 	}

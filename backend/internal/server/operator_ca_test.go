@@ -11,6 +11,7 @@ import (
 
 	"continuum/internal/accounts"
 	"continuum/internal/kernel"
+	"continuum/internal/operators"
 	"continuum/internal/pki"
 	"continuum/internal/store"
 
@@ -81,7 +82,7 @@ func TestCreateOperatorMintsItsOwnCAAndStoresNoPlaintextKey(t *testing.T) {
 	e := newEnv(t)
 	withPassphraseCA(t, e, "correct horse battery staple")
 	cl := e.approvedCluster(t, fp)
-	op, _, bundle, err := e.core.CreateOperator(e.ctx, "alex", "athens", []string{cl}, extDest("c:4317"), nil)
+	op, _, bundle, err := e.core.Operators.CreateOperator(e.ctx, "alex", "athens", []string{cl}, extDest("c:4317"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +106,7 @@ func TestCreateOperatorMintsItsOwnCAAndStoresNoPlaintextKey(t *testing.T) {
 		t.Fatalf("receiver certificate does not verify against the operator CA: %v", err)
 	}
 	// And by the Service name the chart creates, which is what a sender in the same cluster dials.
-	if _, err := certOf(t, bundle.ReceiverCertPEM).Verify(x509.VerifyOptions{Roots: opPool, DNSName: OperatorServiceName(op.ID) + ".continuum-system.svc", KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}); err != nil {
+	if _, err := certOf(t, bundle.ReceiverCertPEM).Verify(x509.VerifyOptions{Roots: opPool, DNSName: operators.OperatorServiceName(op.ID) + ".continuum-system.svc", KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}); err != nil {
 		t.Fatalf("receiver certificate does not carry the Service name: %v", err)
 	}
 	if clientOK(certOf(t, sc.CertPEM), e.core.CA.Pool()) {
@@ -137,7 +138,7 @@ func TestCreateOperatorMintsItsOwnCAAndStoresNoPlaintextKey(t *testing.T) {
 		t.Fatalf("key material in the audit trail:\n%s", trail)
 	}
 	// Each operator gets a different CA.
-	op2, _, b2, err := e.core.CreateOperator(e.ctx, "alex", "sparta", []string{cl}, extDest("c:4317"), nil)
+	op2, _, b2, err := e.core.Operators.CreateOperator(e.ctx, "alex", "sparta", []string{cl}, extDest("c:4317"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,15 +151,15 @@ func TestReissueUsesTheOperatorCAAndRefusesToFallBackToTheOrgCA(t *testing.T) {
 	e := newEnv(t)
 	withPassphraseCA(t, e, "correct horse battery staple")
 	cl := e.approvedCluster(t, fp)
-	a, _, bundleA, err := e.core.CreateOperator(e.ctx, "alex", "a", []string{cl}, extDest("c:4317"), nil)
+	a, _, bundleA, err := e.core.Operators.CreateOperator(e.ctx, "alex", "a", []string{cl}, extDest("c:4317"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, _, bundleB, err := e.core.CreateOperator(e.ctx, "alex", "b", []string{cl}, extDest("c:4317"), nil)
+	b, _, bundleB, err := e.core.Operators.CreateOperator(e.ctx, "alex", "b", []string{cl}, extDest("c:4317"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	certPEM, keyPEM, caPEM, err := e.core.IssueOperatorClientCertFor(e.ctx, "alex", a.ID, "cl-test", "")
+	certPEM, keyPEM, caPEM, err := e.core.Operators.IssueOperatorClientCertFor(e.ctx, "alex", a.ID, "cl-test", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,7 +194,7 @@ func TestReissueUsesTheOperatorCAAndRefusesToFallBackToTheOrgCA(t *testing.T) {
 	if _, err := rawDB(t, e).Exec(`UPDATE operators SET client_ca_key=NULL WHERE id=?`, a.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, err := e.core.IssueOperatorClientCertFor(e.ctx, "alex", a.ID, "cl-test", ""); err == nil {
+	if _, _, _, err := e.core.Operators.IssueOperatorClientCertFor(e.ctx, "alex", a.ID, "cl-test", ""); err == nil {
 		t.Fatal("reissue succeeded without the operator's CA key")
 	}
 	// A CA whose key was sealed under a different passphrase cannot be reopened either.
@@ -202,7 +203,7 @@ func TestReissueUsesTheOperatorCAAndRefusesToFallBackToTheOrgCA(t *testing.T) {
 	e.base.CA = other.base.CA
 	e.base.ResetServerState() // the opened CA of b is cached since it was created; a restart with the other passphrase starts all server state empty
 	e.core = e.base.ForOrg("org-1")
-	if _, _, _, err := e.core.IssueOperatorClientCertFor(e.ctx, "alex", b.ID, "cl-test", ""); !errors.Is(err, pki.ErrWrongPassphrase) {
+	if _, _, _, err := e.core.Operators.IssueOperatorClientCertFor(e.ctx, "alex", b.ID, "cl-test", ""); !errors.Is(err, pki.ErrWrongPassphrase) {
 		t.Fatalf("a server with another CA passphrase issued from operator b's CA: %v", err)
 	}
 }
@@ -214,7 +215,7 @@ func TestLegacyMTLSOperatorKeepsIssuingFromTheOrgCA(t *testing.T) {
 	if got, _ := e.st.GetOperator(e.ctx, op.ID); got.ClientCAScope() != store.ClientCAScopeOrg {
 		t.Fatalf("scope = %q", got.ClientCAScope())
 	}
-	certPEM, _, caPEM, err := e.core.IssueOperatorClientCertFor(e.ctx, "alex", op.ID, "cl-test", "")
+	certPEM, _, caPEM, err := e.core.Operators.IssueOperatorClientCertFor(e.ctx, "alex", op.ID, "cl-test", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,14 +230,14 @@ func TestLegacyMTLSOperatorKeepsIssuingFromTheOrgCA(t *testing.T) {
 func TestRevokeAndDeleteDropTheOperatorCAKey(t *testing.T) {
 	e := newEnv(t)
 	cl := e.approvedCluster(t, fp)
-	a, _, _, _ := e.core.CreateOperator(e.ctx, "alex", "a", []string{cl}, extDest("c:4317"), nil)
-	b, _, _, _ := e.core.CreateOperator(e.ctx, "alex", "b", []string{cl}, extDest("c:4317"), nil)
+	a, _, _, _ := e.core.Operators.CreateOperator(e.ctx, "alex", "a", []string{cl}, extDest("c:4317"), nil)
+	b, _, _, _ := e.core.Operators.CreateOperator(e.ctx, "alex", "b", []string{cl}, extDest("c:4317"), nil)
 	for _, id := range []string{a.ID, b.ID} {
 		if _, err := e.st.GetOperatorClientCAKey(e.ctx, id); err != nil {
 			t.Fatalf("%s: no key to start with: %v", id, err)
 		}
 	}
-	if err := e.core.RevokeOperator(e.ctx, "alex", a.ID, "gone"); err != nil {
+	if err := e.core.Operators.RevokeOperator(e.ctx, "alex", a.ID, "gone"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := e.st.GetOperatorClientCAKey(e.ctx, a.ID); !errors.Is(err, store.ErrNotFound) {
@@ -245,7 +246,7 @@ func TestRevokeAndDeleteDropTheOperatorCAKey(t *testing.T) {
 	if _, err := e.st.GetOperatorClientCAKey(e.ctx, b.ID); err != nil {
 		t.Fatalf("revoking a erased b's key: %v", err)
 	}
-	if err := e.core.DeleteOperator(e.ctx, "alex", b.ID); err != nil {
+	if err := e.core.Operators.DeleteOperator(e.ctx, "alex", b.ID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := e.st.GetOperatorClientCAKey(e.ctx, b.ID); !errors.Is(err, store.ErrNotFound) {
@@ -349,7 +350,7 @@ func TestBearerOperatorStillUsesTheOrgCA(t *testing.T) {
 	if _, err := e.st.GetOperatorClientCAKey(e.ctx, op.ID); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("a bearer operator has a CA key: %v", err)
 	}
-	certPEM, _, caPEM, err := e.core.IssueOperatorClientCertFor(e.ctx, "alex", op.ID, "cl-test", "")
+	certPEM, _, caPEM, err := e.core.Operators.IssueOperatorClientCertFor(e.ctx, "alex", op.ID, "cl-test", "")
 	if err != nil {
 		t.Fatal(err)
 	}

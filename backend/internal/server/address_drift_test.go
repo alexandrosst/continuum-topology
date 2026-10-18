@@ -8,6 +8,7 @@ import (
 	continuumv1 "continuum/gen/continuumv1"
 
 	"continuum/internal/accounts"
+	"continuum/internal/operators"
 )
 
 // driftRig is an operator with one sender that chose an address, the sender connected and able to time connections.
@@ -144,7 +145,7 @@ func TestDriftTestsGiveWayToAPersonsAndSkipWhatCannotBeTested(t *testing.T) {
 }
 
 func TestDiagnosisUsesAnAddressTestFromTheSendersOwnCluster(t *testing.T) {
-	base := diagnosisInput{ClusterName: "patras-edge", Connected: true, Address: "10.20.0.14:31317", AddrSource: "chosen", OperatorID: "op-1", OperatorState: HealthOnline}
+	base := diagnosisInput{ClusterName: "patras-edge", Connected: true, Address: "10.20.0.14:31317", AddrSource: "chosen", OperatorID: "op-1", OperatorState: operators.HealthOnline}
 	down := &AddressReachDoc{State: "unreachable", At: "2026-10-12T10:00:00Z"}
 	up := &AddressReachDoc{State: "reachable", At: "2026-10-12T10:00:00Z"}
 

@@ -58,7 +58,6 @@ agents > estate	type StateDoc
 agents > estate	type eventLinker
 agents > estate	type observedCluster
 agents > estate	type view
-agents > operators	method Core.RenewTelemetryCert
 agents > shell	field Tenant.Hub
 agents > shell	func actor
 agents > shell	func decode
@@ -73,7 +72,6 @@ agents > shell	method Admin.images
 agents > shell	method Admin.installConfigError
 agents > shell	method Admin.tn
 agents > shell	type Admin
-agents > telemetry	method Core.EndAgentIntents
 connectivity > agents	field Consent.Excluded
 connectivity > agents	field Consent.Paused
 connectivity > agents	field viewExt.diag
@@ -122,9 +120,6 @@ connectivity > fusion	method Admin.fusionErr
 connectivity > fusion	method Admin.fusionOrg
 connectivity > fusion	method FusionControl.dataClient
 connectivity > fusion	type fusionCaller
-connectivity > operators	func OperatorServerName
-connectivity > operators	func ValidOperatorAddress
-connectivity > operators	method Core.GetOperator
 connectivity > shell	field Admin.C
 connectivity > shell	field Admin.Fusion
 connectivity > shell	field Admin.P
@@ -240,21 +235,6 @@ fusion > estate	method GraphAPI.Dependencies
 fusion > estate	method Hub.State
 fusion > estate	type GraphAPI
 fusion > estate	type StateDoc
-fusion > operators	const CentralOperatorID
-fusion > operators	field ManagedStatus.Available
-fusion > operators	field ManagedStatus.State
-fusion > operators	field OperatorTLSBundle.CACertPEM
-fusion > operators	field OperatorTLSBundle.ReceiverCertPEM
-fusion > operators	field OperatorTLSBundle.ReceiverKeyPEM
-fusion > operators	func OperatorServerName
-fusion > operators	method Core.GetOperator
-fusion > operators	method Core.NoteCertEnds
-fusion > operators	method Core.OperatorIssuer
-fusion > operators	method Core.RecordOperatorAddressIfUnset
-fusion > operators	method Core.RecordOperatorCert
-fusion > operators	type ManagedStatus
-fusion > operators	type OperatorTLSBundle
-fusion > operators	var MintOperatorTLS
 fusion > shell	const accessFusionCredential
 fusion > shell	const accessPublic
 fusion > shell	field Admin.C
@@ -285,6 +265,3 @@ fusion > shell	method Admin.secure
 fusion > shell	method Platform.Tenant
 fusion > shell	type Admin
 fusion > shell	type Tenant
-telemetry > operators	func NormalizeDestination
-telemetry > operators	method Core.OperatorInOrg
-telemetry > operators	method Core.ValidateDestination

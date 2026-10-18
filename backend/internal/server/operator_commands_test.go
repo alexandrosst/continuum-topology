@@ -7,6 +7,7 @@ import (
 
 	"continuum/internal/accounts"
 	"continuum/internal/kernel"
+	"continuum/internal/operators"
 	"continuum/internal/store"
 )
 
@@ -16,11 +17,11 @@ func TestExternalDestinationsAreValidatedForTheCommandLine(t *testing.T) {
 	e := newEnv(t)
 	cl := e.approvedCluster(t, fp)
 	good := store.Destination{Kind: store.DestinationExternal, Endpoint: "otlp.example.com:4317", CAFile: "/etc/ssl/ca.pem", AuthHeaderName: "X-Api-Key", AuthSecretName: "export-auth", AuthSecretKey: "token"}
-	if _, _, _, err := e.core.CreateOperator(e.ctx, "alex", "ok", []string{cl}, good, nil); err != nil {
+	if _, _, _, err := e.core.Operators.CreateOperator(e.ctx, "alex", "ok", []string{cl}, good, nil); err != nil {
 		t.Fatalf("a well-formed destination: %v", err)
 	}
 	for _, endpoint := range []string{"https://tempo.example.com/v1/traces", "[2001:db8::1]:4317", "zipkin.tracing.svc:9411/api/v2/spans"} {
-		if err := e.core.ValidateDestination(e.ctx, store.Destination{Kind: store.DestinationExternal, Endpoint: endpoint}); err != nil {
+		if err := e.core.Operators.ValidateDestination(e.ctx, store.Destination{Kind: store.DestinationExternal, Endpoint: endpoint}); err != nil {
 			t.Fatalf("%q was refused: %v", endpoint, err)
 		}
 	}
@@ -41,10 +42,10 @@ func TestExternalDestinationsAreValidatedForTheCommandLine(t *testing.T) {
 	} {
 		d := good
 		mutate(&d)
-		if err := e.core.ValidateDestination(e.ctx, d); kindOf(err) != kernel.KindInvalid {
+		if err := e.core.Operators.ValidateDestination(e.ctx, d); kindOf(err) != kernel.KindInvalid {
 			t.Errorf("%s: %v", name, err)
 		}
-		if _, _, _, err := e.core.CreateOperator(e.ctx, "alex", "bad", []string{cl}, d, nil); kindOf(err) != kernel.KindInvalid {
+		if _, _, _, err := e.core.Operators.CreateOperator(e.ctx, "alex", "bad", []string{cl}, d, nil); kindOf(err) != kernel.KindInvalid {
 			t.Errorf("%s (create): %v", name, err)
 		}
 	}
@@ -55,26 +56,12 @@ func TestCreateOperatorChecksExposureInTheCore(t *testing.T) {
 	e := newEnv(t)
 	cl := e.approvedCluster(t, fp)
 	for _, ok := range []string{"", "cluster", "loadbalancer", "nodeport"} {
-		if _, _, _, _, err := e.core.CreateOperatorWithOptions(e.ctx, "alex", "x", []string{cl}, extDest("c:4317"), nil, OperatorOptions{Exposure: ok}); err != nil {
+		if _, _, _, _, err := e.core.Operators.CreateOperatorWithOptions(e.ctx, "alex", "x", []string{cl}, extDest("c:4317"), nil, operators.OperatorOptions{Exposure: ok}); err != nil {
 			t.Fatalf("exposure %q: %v", ok, err)
 		}
 	}
-	if _, _, _, _, err := e.core.CreateOperatorWithOptions(e.ctx, "alex", "x", []string{cl}, extDest("c:4317"), nil, OperatorOptions{Exposure: "ingress"}); kindOf(err) != kernel.KindInvalid {
+	if _, _, _, _, err := e.core.Operators.CreateOperatorWithOptions(e.ctx, "alex", "x", []string{cl}, extDest("c:4317"), nil, operators.OperatorOptions{Exposure: "ingress"}); kindOf(err) != kernel.KindInvalid {
 		t.Fatalf("exposure ingress: %v", err)
-	}
-}
-
-// What `kubectl get svc` prints cannot be reached from another cluster, however well it is spelled.
-func TestAddressRefusesNamesThatOnlyResolveInsideOneCluster(t *testing.T) {
-	for _, in := range []string{"op-a.continuum-system.svc", "op-a.continuum-system.svc:4317", "op-a.continuum-system.svc.cluster.local:4317", "x.cluster.local", "OP-A.NS.SVC.", "svc"} {
-		if _, err := ValidOperatorAddress(in); err == nil {
-			t.Errorf("%q was accepted", in)
-		}
-	}
-	for in, want := range map[string]string{"op-a.continuum-system.svc.clusterset.local": "op-a.continuum-system.svc.clusterset.local:4317", "svc.example.com:4317": "svc.example.com:4317", "mysvc.example.com": "mysvc.example.com:4317"} {
-		if got, err := ValidOperatorAddress(in); err != nil || got != want {
-			t.Errorf("%q = %q, %v", in, got, err)
-		}
 	}
 }
 
@@ -104,7 +91,7 @@ func TestInstallCommandQuotesEveryInterpolatedValue(t *testing.T) {
 	op := store.Operator{ID: "op-q", Name: "n", Status: store.OperatorActive, ReceiverAuth: store.ReceiverAuthMTLS,
 		Destination: store.Destination{Kind: store.DestinationExternal, Endpoint: "c:4317; touch /tmp/x", CAFile: "/etc/ca $(id).pem", AuthHeaderName: "A b", AuthSecretName: "s'1", AuthSecretKey: "k"}}
 	for _, reissue := range []bool{false, true} {
-		got, _, err := a.a.operatorInstallCommandWith(kernel.ImageConfig{}, "", op, OperatorTLSBundle{ReceiverCertPEM: []byte("x")}, "https://h.example/x'; id", nil, reissue)
+		got, _, err := a.a.operatorInstallCommandWith(kernel.ImageConfig{}, "", op, operators.OperatorTLSBundle{ReceiverCertPEM: []byte("x")}, "https://h.example/x'; id", nil, reissue)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -141,7 +128,7 @@ func TestSourceRemindersStateTheWholeBlockAndOneSecretPerCluster(t *testing.T) {
 	}
 	for _, r := range reminders[2:] {
 		up := r.(string)
-		for _, want := range []string{"--reset-then-reuse-values", "--set telemetry.export.otlp.endpoint=" + OperatorServiceName(id) + ".continuum-system.svc:4317", "--set telemetry.export.otlp.protocol=grpc",
+		for _, want := range []string{"--reset-then-reuse-values", "--set telemetry.export.otlp.endpoint=" + operators.OperatorServiceName(id) + ".continuum-system.svc:4317", "--set telemetry.export.otlp.protocol=grpc",
 			"--set telemetry.export.otlp.tls.insecure=false", "--set telemetry.export.otlp.tls.caFile= ", "--set telemetry.export.otlp.tls.mtls.enabled=true",
 			"--set telemetry.export.otlp.tls.mtls.secretName=" + id + "-export-mtls", "--set telemetry.export.otlp.tls.serverName=" + id + ".continuum-system.svc", "--set telemetry.export.otlp.auth.secretName="} {
 			if !strings.Contains(up, want) {

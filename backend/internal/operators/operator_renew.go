@@ -1,4 +1,4 @@
-package server
+package operators
 
 import (
 	"context"
@@ -33,7 +33,7 @@ import (
 // have been signed by the operator's own CA and ended no more than pki.OperatorRenewGrace ago. What the new
 // certificate says (name, organisation, usage, hosts) is copied from the old one, which this server wrote; nothing
 // the caller asks for is used except the public key.
-func (c *Core) RenewTelemetryCert(ctx context.Context, ip string, req *continuumv1.RenewTelemetryCertRequest) (*continuumv1.RenewTelemetryCertResponse, error) {
+func (c *Service) RenewTelemetryCert(ctx context.Context, ip string, req *continuumv1.RenewTelemetryCertRequest) (*continuumv1.RenewTelemetryCertResponse, error) {
 	if !c.EnrollRL.Allow("renew-cert:" + kernel.LimitKey(ip)) {
 		return nil, kernel.Errf(kernel.KindRateLimited, "too many attempts, slow down")
 	}
@@ -133,7 +133,7 @@ func (c *Core) RenewTelemetryCert(ctx context.Context, ip string, req *continuum
 // entitledSender says which current sender of op a client certificate named cn belongs to. The name is made from
 // the sender's id by one function (pki.OperatorClientCN), so asking it for each current sender and comparing is
 // exact, and works for a certificate issued before the ledger existed.
-func (c *Core) entitledSender(ctx context.Context, op store.Operator, cn string) (string, bool, error) {
+func (c *Service) entitledSender(ctx context.Context, op store.Operator, cn string) (string, bool, error) {
 	senders, err := c.operatorSenders(ctx)
 	if err != nil {
 		return "", false, fmt.Errorf("cannot decide right now: %w", err)

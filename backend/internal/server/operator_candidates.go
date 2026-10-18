@@ -13,6 +13,7 @@ import (
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/install"
 	"continuum/internal/kernel"
+	"continuum/internal/operators"
 	"continuum/internal/store"
 )
 
@@ -154,7 +155,7 @@ type hostAddr struct {
 // operatorHost finds the cluster the operator with this id runs in. The second result is false when no approved
 // agent has reported its Deployment.
 func (h *Hub) operatorHost(ctx context.Context, operatorID string) (operatorHost, bool) {
-	return h.workloadHost(ctx, operatorNamespace, OperatorServiceName(operatorID))
+	return h.workloadHost(ctx, operatorNamespace, operators.OperatorServiceName(operatorID))
 }
 
 // workloadHost finds the cluster a Deployment runs in, from what the approved agents report about their clusters.
@@ -740,15 +741,15 @@ func (a *Admin) serverClusterFromAgents(ctx context.Context, c *Core, hub *Hub, 
 // listOperatorAddressCandidates answers GET .../operators/{id}/address-candidates.
 func (a *Admin) listOperatorAddressCandidates(w http.ResponseWriter, r *http.Request) {
 	c := a.core(r)
-	op, err := c.GetOperator(r.Context(), r.PathValue("id"))
+	op, err := c.Operators.GetOperator(r.Context(), r.PathValue("id"))
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
 	res := AddressCandidates{Candidates: []AddressCandidate{}}
-	namespace, workload, recorded := operatorNamespace, OperatorServiceName(op.ID), op.Address
+	namespace, workload, recorded := operatorNamespace, operators.OperatorServiceName(op.ID), op.Address
 	var gateway *kernel.KubeService
-	if op.ID == CentralOperatorID && a.Fusion != nil {
+	if op.ID == operators.CentralOperatorID && a.Fusion != nil {
 		// The gateway is the server's own install: its Deployment is in the server's namespace, and the server reads its
 		// Service itself, which is how a load balancer's address is found even where no agent runs in that cluster.
 		namespace, workload = a.Fusion.Namespace, a.Fusion.ServiceName()
@@ -760,7 +761,7 @@ func (a *Admin) listOperatorAddressCandidates(w http.ResponseWriter, r *http.Req
 	hub := a.tn(r).Hub
 	var host operatorHost
 	var found bool
-	if op.ID == CentralOperatorID && a.Fusion != nil {
+	if op.ID == operators.CentralOperatorID && a.Fusion != nil {
 		// The gateway lies in the server's own cluster, so which cluster that is comes first from what is known of the
 		// server: a person's choice, else what the install told it. Only then is it worked out from what agents report.
 		host, found, res.ServerCluster = a.serverClusterHost(r.Context(), c, hub, namespace, workload, gateway)
@@ -791,7 +792,7 @@ func (a *Admin) listOperatorAddressCandidates(w http.ResponseWriter, r *http.Req
 			res.Hints = append(res.Hints, "No agent reports which node runs the pod, so the nodes are listed in name order. Any of them works, since its node port forwards to the pod, but the pod's own node saves a hop.")
 		}
 	}
-	if h := exposureHint(res.Candidates, found, op.ID == CentralOperatorID); h != "" && op.ID == CentralOperatorID && a.Fusion != nil {
+	if h := exposureHint(res.Candidates, found, op.ID == operators.CentralOperatorID); h != "" && op.ID == operators.CentralOperatorID && a.Fusion != nil {
 		// The page shows this as a card with the command in it, so the sentence is not repeated as a hint.
 		e := &ExposeDoc{Service: workload, Namespace: namespace, Value: "fusion.central.service.type"}
 		nodePort, err1 := exposeCommand(namespace, workload, install.NodePort)
@@ -805,7 +806,7 @@ func (a *Admin) listOperatorAddressCandidates(w http.ResponseWriter, r *http.Req
 	} else if h != "" {
 		res.Hints = append(res.Hints, h)
 	} else if !found {
-		res.Hints = append(res.Hints, noHostHint(op.ID == CentralOperatorID))
+		res.Hints = append(res.Hints, noHostHint(op.ID == operators.CentralOperatorID))
 	}
 	writeJSON(w, 200, res)
 }
@@ -814,7 +815,7 @@ func (a *Admin) listOperatorAddressCandidates(w http.ResponseWriter, r *http.Req
 // gateway, runs in, for when the install did not tell it. An empty cluster id takes the choice back.
 func (a *Admin) putServerCluster(w http.ResponseWriter, r *http.Request) {
 	c := a.core(r)
-	if r.PathValue("id") != CentralOperatorID || a.Fusion == nil {
+	if r.PathValue("id") != operators.CentralOperatorID || a.Fusion == nil {
 		writeErr(w, 404, "only the central operator has a server cluster")
 		return
 	}

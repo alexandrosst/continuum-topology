@@ -13,6 +13,7 @@ import (
 
 	"continuum/internal/accounts"
 	"continuum/internal/chart"
+	"continuum/internal/operators"
 	"continuum/internal/store"
 
 	"k8s.io/apimachinery/pkg/util/yaml"
@@ -417,9 +418,9 @@ func TestPrintedAgentCommandsRenderTheDeclaredExporters(t *testing.T) {
 	a := newIntentRig(t)
 	opA, opB := a.operator(t, "athens"), a.operator(t, "patras")
 	mtls := func(op store.Operator, endpoint, name string) wantExport {
-		return wantExport{endpoint: endpoint, serverName: OperatorServerName(op), mtlsSecret: operatorClientTLSSecretName(op), name: name}
+		return wantExport{endpoint: endpoint, serverName: operators.OperatorServerName(op), mtlsSecret: operatorClientTLSSecretName(op), name: name}
 	}
-	inCluster := func(op store.Operator) string { return OperatorInClusterEndpoint(op) }
+	inCluster := func(op store.Operator) string { return operators.OperatorInClusterEndpoint(op) }
 
 	t.Run("one regional operator for everything", func(t *testing.T) {
 		doc := a.command(t, map[string]any{"agentId": a.agent(t), "name": "one", "destination": opDest(opA.ID)})
@@ -512,7 +513,7 @@ func TestPrintedAgentCommandsForTheCentralOperator(t *testing.T) {
 	if _, err := f.Enable(a.ctx, a.core, "alex"); err != nil {
 		t.Fatal(err)
 	}
-	central, err := a.st.GetOperator(a.ctx, CentralOperatorID)
+	central, err := a.st.GetOperator(a.ctx, operators.CentralOperatorID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -521,11 +522,11 @@ func TestPrintedAgentCommandsForTheCentralOperator(t *testing.T) {
 		want          wantExport
 	}{
 		{"in-cluster", "", wantExport{endpoint: f.centralHost() + ":4317", mtlsSecret: operatorClientTLSSecretName(central), name: "otlp"}},
-		{"public", "203.0.113.7:30317", wantExport{endpoint: "203.0.113.7:30317", serverName: OperatorServerName(central), mtlsSecret: operatorClientTLSSecretName(central), name: "otlp"}},
+		{"public", "203.0.113.7:30317", wantExport{endpoint: "203.0.113.7:30317", serverName: operators.OperatorServerName(central), mtlsSecret: operatorClientTLSSecretName(central), name: "otlp"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			f.SetPublicAddress(c.address)
-			doc := a.command(t, map[string]any{"agentId": a.agent(t), "name": c.name, "destination": opDest(CentralOperatorID)})
+			doc := a.command(t, map[string]any{"agentId": a.agent(t), "name": c.name, "destination": opDest(operators.CentralOperatorID)})
 			want := map[string]wantExport{"metrics": c.want, "logs": c.want, "traces": c.want}
 			assertAgentExports(t, want, "--set telemetry.export.otlp.endpoint=placeholder:4317", doc["installFragment"].(string))
 		})
@@ -570,7 +571,7 @@ func TestPrintedOperatorInstallsRenderTheDeclaredReceiverAndExporter(t *testing.
 	if _, err := f.Enable(a.ctx, a.core, "alex"); err != nil {
 		t.Fatal(err)
 	}
-	central, _ := a.st.GetOperator(a.ctx, CentralOperatorID)
+	central, _ := a.st.GetOperator(a.ctx, operators.CentralOperatorID)
 	cl := a.approvedCluster(t, "8f3c2a9e-0777-4222-8333-944455556666")
 
 	creates := map[string]map[string]any{
@@ -578,7 +579,7 @@ func TestPrintedOperatorInstallsRenderTheDeclaredReceiverAndExporter(t *testing.
 		"external insecure with CA file and a credential": {"name": "ext2", "sourceClusterIds": []string{cl}, "destination": map[string]any{
 			"kind": "external", "endpoint": "backend.example:4317", "insecure": true, "caFile": "/etc/ssl/certs/ca.pem",
 			"authHeaderName": "Authorization", "authSecretName": "backend-token", "authSecretKey": "token"}},
-		"to the central operator": {"name": "toc", "sourceClusterIds": []string{cl}, "destination": opDest(CentralOperatorID), "heartbeat": true},
+		"to the central operator": {"name": "toc", "sourceClusterIds": []string{cl}, "destination": opDest(operators.CentralOperatorID), "heartbeat": true},
 		"with an exposure":        {"name": "exp", "sourceClusterIds": []string{cl}, "destination": map[string]any{"kind": "external", "endpoint": "backend.example:4317"}, "exposure": "nodeport", "heartbeat": true},
 	}
 	for name, body := range creates {
@@ -609,7 +610,7 @@ func TestPrintedOperatorInstallsRenderTheDeclaredReceiverAndExporter(t *testing.
 					if d := body["destination"].(map[string]any); d["kind"] == "operator" {
 						want = wantExport{endpoint: f.CentralEndpoint(), mtlsSecret: operatorClientTLSSecretName(central), name: "otlp"}
 						if pub.address != "" {
-							want.serverName = OperatorServerName(central)
+							want.serverName = operators.OperatorServerName(central)
 						}
 					} else if d["insecure"] == true {
 						want.insecure = true
@@ -653,7 +654,7 @@ func TestPrintedSourceRemindersRenderTheOperatorAsDestination(t *testing.T) {
 			continue
 		}
 		n++
-		want := wantExport{endpoint: OperatorInClusterEndpoint(op), serverName: OperatorServerName(op), mtlsSecret: operatorClientTLSSecretName(op), name: "otlp"}
+		want := wantExport{endpoint: operators.OperatorInClusterEndpoint(op), serverName: operators.OperatorServerName(op), mtlsSecret: operatorClientTLSSecretName(op), name: "otlp"}
 		everyPipelineExports(t, agentRender(t, staleDefaultAndRoutes, s), map[string]wantExport{"metrics": want, "logs": want, "traces": want})
 	}
 	if n != 2 {

@@ -1,4 +1,4 @@
-package server
+package operators
 
 import (
 	"context"
@@ -42,8 +42,8 @@ func newOperatorCAs() *operatorCAs {
 	return &operatorCAs{opened: map[string]openedOperatorCA{}, inflight: map[string]*openCall{}, slots: make(chan struct{}, 2)}
 }
 
-// openOperatorCA is how a sealed operator CA is opened; a variable only so a test can count the opens.
-var openOperatorCA = func(c *Core, certPEM, keyPEM []byte) (*pki.CA, error) { return c.CA.OpenOperatorCA(certPEM, keyPEM) }
+// OpenOperatorCA is how a sealed operator CA is opened; a variable only so a test can count the opens.
+var OpenOperatorCA = func(c *Service, certPEM, keyPEM []byte) (*pki.CA, error) { return c.CA.OpenOperatorCA(certPEM, keyPEM) }
 
 // openCall is an open in progress, which callers for the same operator and sealed key wait for instead of repeating.
 type openCall struct {
@@ -75,9 +75,9 @@ func (o *operatorCAs) find(id string, sum [sha256.Size]byte, now time.Time) (*pk
 // open returns the operator's opened CA, from the cache when the sealed key is the one it was opened from. Callers that
 // arrive together for one operator (a page asking for each of its commands) share one open: it is an Argon2 run at
 // 64 MiB, and the pod has room for two of them.
-func (o *operatorCAs) open(ctx context.Context, c *Core, id string, certPEM, keyPEM []byte) (*pki.CA, error) {
+func (o *operatorCAs) open(ctx context.Context, c *Service, id string, certPEM, keyPEM []byte) (*pki.CA, error) {
 	if o == nil {
-		return openOperatorCA(c, certPEM, keyPEM)
+		return OpenOperatorCA(c, certPEM, keyPEM)
 	}
 	sum := sha256.Sum256(append(append([]byte{}, certPEM...), keyPEM...))
 	for {
@@ -118,14 +118,14 @@ func (o *operatorCAs) open(ctx context.Context, c *Core, id string, certPEM, key
 }
 
 // openInSlot runs the open once one of the few slots is free.
-func (o *operatorCAs) openInSlot(ctx context.Context, c *Core, certPEM, keyPEM []byte) (*pki.CA, error) {
+func (o *operatorCAs) openInSlot(ctx context.Context, c *Service, certPEM, keyPEM []byte) (*pki.CA, error) {
 	select {
 	case o.slots <- struct{}{}:
 		defer func() { <-o.slots }()
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
-	return openOperatorCA(c, certPEM, keyPEM)
+	return OpenOperatorCA(c, certPEM, keyPEM)
 }
 
 // forget drops an operator's entry: it was revoked or deleted, and its key must not outlive it in memory.
@@ -140,4 +140,15 @@ func (o *operatorCAs) forget(id string) {
 }
 
 // opCASt keeps operators' opened CAs (see operatorCAs). Server-wide.
-func (c *Core) opCASt() *operatorCAs { return kernel.ServerState(c, "operators.cas", newOperatorCAs) }
+func (c *Service) opCASt() *operatorCAs {
+	return kernel.ServerState(c, "operators.cas", newOperatorCAs)
+}
+
+// HasOpenedCA is whether the CA of the operator is held decrypted in memory right now.
+func (s *Service) HasOpenedCA(id string) bool {
+	o := s.opCASt()
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	_, ok := o.opened[id]
+	return ok
+}

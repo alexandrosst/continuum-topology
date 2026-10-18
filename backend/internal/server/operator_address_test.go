@@ -1,61 +1,14 @@
 package server
 
 import (
-	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"continuum/internal/accounts"
-	"continuum/internal/chart"
 	"continuum/internal/install"
+	"continuum/internal/operators"
 	"continuum/internal/store"
 )
-
-func TestValidOperatorAddress(t *testing.T) {
-	for in, want := range map[string]string{
-		"":                             "",
-		"  ":                           "",
-		"otlp.example.com:4317":        "otlp.example.com:4317",
-		"  OTLP.Example.COM.:4317":     "otlp.example.com:4317",
-		"203.0.113.7:4317":             "203.0.113.7:4317",
-		"[2001:db8::1]:4317":           "[2001:db8::1]:4317",
-		"otlp.example.com":             "otlp.example.com:4317", // a bare host gets the receiver's own port
-		"203.0.113.7":                  "203.0.113.7:4317",
-		"Otlp.Example.com:+4317":       "otlp.example.com:4317", // the port is stored as the number it is
-		"otlp.example.com:04317":       "otlp.example.com:4317",
-		"op-1.svc.clusterset.local:80": "op-1.svc.clusterset.local:80",
-	} {
-		got, err := ValidOperatorAddress(in)
-		if err != nil || got != want {
-			t.Errorf("%q -> %q, %v (want %q)", in, got, err, want)
-		}
-	}
-	for _, in := range []string{
-		"https://otlp.example.com:4317", // a scheme
-		"otlp.example.com:4317/x",       // a path
-		"u:p@otlp.example.com:4317",     // credentials
-		"otlp.example.com:0",
-		"otlp.example.com:70000",
-		"otlp.example.com:abc",
-		"2001:db8::1", // an IPv6 address needs its brackets
-		"otlp.example.com:",
-		"127.0.0.1:4317",
-		"[::1]:4317",
-		"0.0.0.0:4317",
-		"169.254.1.1:4317",
-		"localhost:4317",
-		"a b.example.com:4317",
-		"-bad.example.com:4317",
-		"bad_name.example.com:4317",
-		strings.Repeat("a", 300) + ":4317",
-	} {
-		if got, err := ValidOperatorAddress(in); err == nil {
-			t.Errorf("%q was accepted as %q", in, got)
-		}
-	}
-}
 
 func TestAnOperatorAddressIsSetShownAuditedAndUsedByEveryCommandThatPointsAtIt(t *testing.T) {
 	a := newAdminRig(t)
@@ -103,7 +56,7 @@ func TestAnOperatorAddressIsSetShownAuditedAndUsedByEveryCommandThatPointsAtIt(t
 	// While there is no address, an operator pointing at it gets its Service name in the cluster, and verifies the
 	// certificate by the stable name (the Service name is not on it).
 	down := create("edge", map[string]any{"kind": "operator", "targetOperatorId": upID}, nil)
-	if !strings.Contains(down["install"].(string), "--set export.otlp.endpoint="+OperatorServiceName(upID)+".continuum-system.svc:4317") || !strings.Contains(down["install"].(string), "--set export.otlp.tls.serverName="+upID+".continuum-system.svc") {
+	if !strings.Contains(down["install"].(string), "--set export.otlp.endpoint="+operators.OperatorServiceName(upID)+".continuum-system.svc:4317") || !strings.Contains(down["install"].(string), "--set export.otlp.tls.serverName="+upID+".continuum-system.svc") {
 		t.Fatalf("before an address is set: %v", down["install"])
 	}
 
@@ -170,7 +123,7 @@ func TestTheCentralOperatorsAddressIsSetFromTheUIAndUsedByEveryCommand(t *testin
 		t.Fatal(r.Body.String())
 	}
 	central := func() map[string]any {
-		r := a.do("GET", "/api/v1/operators/"+CentralOperatorID, nil, withCookie(cookie))
+		r := a.do("GET", "/api/v1/operators/"+operators.CentralOperatorID, nil, withCookie(cookie))
 		if r.Code != 200 {
 			t.Fatalf("get central: %d %s", r.Code, r.Body.String())
 		}
@@ -179,7 +132,7 @@ func TestTheCentralOperatorsAddressIsSetFromTheUIAndUsedByEveryCommand(t *testin
 	if d := central(); d["reachableFromOtherClusters"] != false || d["address"] != nil || d["endpoint"] != "continuum-fusion-central.continuum.svc:4317" {
 		t.Fatalf("before an address: %v", d)
 	}
-	path := "/api/v1/operators/" + CentralOperatorID + "/address"
+	path := "/api/v1/operators/" + operators.CentralOperatorID + "/address"
 	if r := a.do("POST", path, map[string]any{"address": "fusion.example.com:4317"}, withCookie(viewer)); r.Code != 403 {
 		t.Fatalf("a viewer set it: %d", r.Code)
 	}
@@ -200,7 +153,7 @@ func TestTheCentralOperatorsAddressIsSetFromTheUIAndUsedByEveryCommand(t *testin
 	}
 	// A cluster's own telemetry pointed at it dials that address and verifies the stable name.
 	cl := a.approvedCluster(t, fp)
-	r := a.do("POST", "/api/v1/operators", map[string]any{"name": "athens", "sourceClusterIds": []string{cl}, "destination": map[string]any{"kind": "operator", "targetOperatorId": CentralOperatorID}}, withCookie(cookie))
+	r := a.do("POST", "/api/v1/operators", map[string]any{"name": "athens", "sourceClusterIds": []string{cl}, "destination": map[string]any{"kind": "operator", "targetOperatorId": operators.CentralOperatorID}}, withCookie(cookie))
 	if r.Code != 201 {
 		t.Fatalf("create: %d %s", r.Code, r.Body.String())
 	}
@@ -216,12 +169,6 @@ func TestTheCentralOperatorsAddressIsSetFromTheUIAndUsedByEveryCommand(t *testin
 	}
 	if d := central(); d["address"] != nil || d["reachableFromOtherClusters"] != false || f.Exposed() {
 		t.Fatalf("after clearing it: %v", d)
-	}
-}
-
-func TestGuardCentralStillProtectsEverythingElse(t *testing.T) {
-	if err := GuardCentral(CentralOperatorID); err == nil {
-		t.Fatal("the central operator can be edited by hand")
 	}
 }
 
@@ -269,71 +216,8 @@ func TestAnOperatorRouteVerifiesTheStableNameWhenItHasAnAddress(t *testing.T) {
 	}
 	// The central operator in its own cluster is dialled by a name its certificate carries.
 	// The route states the name anyway, empty, so a server name left by an earlier destination cannot linger.
-	inCluster := install.Flags(operatorRouteValues(store.Operator{ID: CentralOperatorID}, "x.continuum.svc:4317", store.ModalityTraces))
+	inCluster := install.Flags(operatorRouteValues(store.Operator{ID: operators.CentralOperatorID}, "x.continuum.svc:4317", store.ModalityTraces))
 	if !strings.Contains(inCluster, "--set telemetry.export.routes.traces.tls.serverName= --set") {
 		t.Fatalf("the in-cluster central operator needs no server name override, and must clear any earlier one: %s", inCluster)
-	}
-}
-
-// The Service the chart creates, and the name a sender in the same cluster dials, are one and the same: the chart's
-// own naming rule (release name, plus "-regional-operator" unless it already says so), and the receiver certificate
-// carries both that name and the stable one.
-func TestOperatorServiceNameFollowsTheChartAndIsOnTheCertificate(t *testing.T) {
-	for _, c := range []struct{ id, want string }{
-		{"op-abc", "op-abc-regional-operator"},
-		{"my-regional-operator", "my-regional-operator"},
-		{"op-" + strings.Repeat("x", 70), ("op-" + strings.Repeat("x", 70) + "-regional-operator")[:63]},
-	} {
-		if got := OperatorServiceName(c.id); got != c.want {
-			t.Fatalf("operatorServiceName(%q) = %q, want %q", c.id, got, c.want)
-		}
-	}
-	op := store.Operator{ID: "op-abc"}
-	if got := OperatorInClusterEndpoint(op); got != "op-abc-regional-operator.continuum-system.svc:4317" {
-		t.Fatalf("in-cluster endpoint: %s", got)
-	}
-	if !OperatorNeedsServerName(op) || OperatorNeedsServerName(store.Operator{ID: CentralOperatorID}) || !OperatorNeedsServerName(store.Operator{ID: CentralOperatorID, Address: "a:1"}) {
-		t.Fatal("which operators need a server name override")
-	}
-}
-
-// What the server tells a sender to dial is the Service the chart really creates for that release: rendered here
-// for the exact release name the install command uses (the operator's id), for plain and "regional-operator" names.
-func TestTheDialledServiceNameIsTheOneTheChartRenders(t *testing.T) {
-	h, err := exec.LookPath("helm")
-	if err != nil {
-		t.Skip("helm is not installed")
-	}
-	pkg, err := chart.RegionalOperator.Package()
-	if err != nil {
-		t.Fatal(err)
-	}
-	tgz := filepath.Join(t.TempDir(), chart.RegionalOperator.Filename())
-	if err := os.WriteFile(tgz, pkg, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	for _, id := range []string{"op-52c91de1fa99", "eu-regional-operator"} {
-		out, err := exec.Command(h, "template", id, tgz, "--set", "export.otlp.endpoint=c:4317").CombinedOutput()
-		if err != nil {
-			t.Fatalf("helm template %s: %v\n%s", id, err, out)
-		}
-		var svc string
-		for _, doc := range strings.Split(string(out), "\n---") {
-			if !strings.Contains(doc, "\nkind: Service\n") {
-				continue
-			}
-			for _, line := range strings.Split(doc, "\n") {
-				if strings.HasPrefix(line, "  name: ") {
-					svc = strings.TrimSpace(strings.TrimPrefix(line, "  name: "))
-					break
-				}
-			}
-		}
-		if svc == "" || svc != OperatorServiceName(id) {
-			t.Fatalf("release %s renders Service %q, the server dials %q", id, svc, OperatorServiceName(id))
-		}
-		if want := svc + ".continuum-system.svc:4317"; OperatorInClusterEndpoint(store.Operator{ID: id}) != want {
-			t.Fatalf("endpoint %s, want %s", OperatorInClusterEndpoint(store.Operator{ID: id}), want)
-		}
 	}
 }

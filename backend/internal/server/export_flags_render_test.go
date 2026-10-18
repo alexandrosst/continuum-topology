@@ -11,6 +11,7 @@ import (
 
 	"continuum/internal/chart"
 	"continuum/internal/install"
+	"continuum/internal/operators"
 	"continuum/internal/store"
 )
 
@@ -118,7 +119,7 @@ func TestExportFlagsTakeEffectInTheRenderedExporter(t *testing.T) {
 	regional := store.Operator{ID: "op-abc123", ReceiverAuth: store.ReceiverAuthMTLS}
 	advertised := regional
 	advertised.Address = "ops.example.com:4317"
-	central := store.Operator{ID: CentralOperatorID, ReceiverAuth: store.ReceiverAuthMTLS}
+	central := store.Operator{ID: operators.CentralOperatorID, ReceiverAuth: store.ReceiverAuthMTLS}
 
 	type want struct {
 		endpoint, serverName, dir string
@@ -129,7 +130,7 @@ func TestExportFlagsTakeEffectInTheRenderedExporter(t *testing.T) {
 		ep   string
 		want want
 	}{
-		{"regional operator in the same cluster", regional, OperatorInClusterEndpoint(regional), want{"op-abc123-regional-operator.continuum-system.svc:4317", "op-abc123.continuum-system.svc", ""}},
+		{"regional operator in the same cluster", regional, operators.OperatorInClusterEndpoint(regional), want{"op-abc123-regional-operator.continuum-system.svc:4317", "op-abc123.continuum-system.svc", ""}},
 		{"regional operator at an advertised address", advertised, advertised.Address, want{"ops.example.com:4317", "op-abc123.continuum-system.svc", ""}},
 		{"central operator in its own cluster", central, "continuum-fusion-central.continuum-system.svc:4317", want{"continuum-fusion-central.continuum-system.svc:4317", "", ""}},
 	}
@@ -179,7 +180,7 @@ func TestExportFlagsTakeEffectInTheRenderedExporter(t *testing.T) {
 func TestExportFlagsWithoutAClientCertificateSwitchTheCertificateOff(t *testing.T) {
 	op := store.Operator{ID: "op-abc123", ReceiverAuth: store.ReceiverAuthBearer}
 	extra := append(staleDestination("telemetry.export.otlp"), "--set", "telemetry.export.otlp.auth.secretName=my-token")
-	extra = append(extra, flagWords(t, install.Flags(exportBlock("telemetry.export.otlp", op, OperatorInClusterEndpoint(op), false)))...)
+	extra = append(extra, flagWords(t, install.Flags(exportBlock("telemetry.export.otlp", op, operators.OperatorInClusterEndpoint(op), false)))...)
 	ex := mustMap(t, agentExporters(t, "continuum-telemetry-host-config", extra)["otlp"], "exporter otlp")
 	tls := mustMap(t, ex["tls"], "tls")
 	if tls["cert_file"] != nil || tls["key_file"] != nil || tls["insecure"] != false {

@@ -14,6 +14,7 @@ import (
 
 	"continuum/internal/accounts"
 	"continuum/internal/kernel"
+	"continuum/internal/operators"
 )
 
 func TestAddressWarningsSayWhatLooksWrongAndNothingElse(t *testing.T) {
@@ -82,7 +83,7 @@ func TestCentralAddressIsCheckedAgainstTheGatewaysService(t *testing.T) {
 	k.allReady()
 
 	set := func(addr string) map[string]any {
-		r := a.do("POST", "/api/v1/operators/"+CentralOperatorID+"/address", map[string]any{"address": addr}, withCookie(a.cookie))
+		r := a.do("POST", "/api/v1/operators/"+operators.CentralOperatorID+"/address", map[string]any{"address": addr}, withCookie(a.cookie))
 		if r.Code != 200 {
 			t.Fatalf("set address %q: %d %s", addr, r.Code, r.Body.String())
 		}
@@ -106,7 +107,7 @@ func TestCentralAddressIsCheckedAgainstTheGatewaysService(t *testing.T) {
 	if ws, _ := fusion["central"].(map[string]any)["warnings"].([]any); len(ws) == 0 {
 		t.Fatalf("FUSION's own document does not carry the doubt: %v", fusion["central"])
 	}
-	cmd := a.command(t, map[string]any{"agentId": a.agent(t), "name": "w", "destination": opDest(CentralOperatorID)})
+	cmd := a.command(t, map[string]any{"agentId": a.agent(t), "name": "w", "destination": opDest(operators.CentralOperatorID)})
 	if ws, _ := cmd["warnings"].([]any); len(ws) == 0 || !strings.Contains(ws[0].(string), "ClusterIP") {
 		t.Fatalf("the command that points an agent there does not say so: %v", cmd["warnings"])
 	}

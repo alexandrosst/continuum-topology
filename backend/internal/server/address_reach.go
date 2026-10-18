@@ -12,6 +12,7 @@ import (
 	"continuum/internal/interpret"
 	"continuum/internal/kernel"
 	"continuum/internal/measure"
+	"continuum/internal/operators"
 	"continuum/internal/store"
 )
 
@@ -134,7 +135,7 @@ func (h *Hub) startAddressTests(ctx context.Context, actor string, a store.Agent
 	var wants []want
 	seen := map[string]bool{}
 	for _, in := range addrs {
-		addr, err := ValidOperatorAddress(in)
+		addr, err := operators.ValidOperatorAddress(in)
 		if err != nil {
 			if quiet {
 				continue

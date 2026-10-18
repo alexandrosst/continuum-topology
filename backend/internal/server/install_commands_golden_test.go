@@ -11,6 +11,7 @@ import (
 	"continuum/internal/chart"
 	"continuum/internal/install"
 	"continuum/internal/kernel"
+	"continuum/internal/operators"
 	"continuum/internal/store"
 )
 
@@ -52,7 +53,7 @@ func (p *pinRig) admin(tweak func(*Admin)) *Admin {
 // flags writes values as the fragment of a command the server hands out.
 func (p *pinRig) flags(values []install.Value) string { return install.Flags(values) }
 
-func (p *pinRig) reminders(a *Admin, img kernel.ImageConfig, op store.Operator, b OperatorTLSBundle, targets []sourceTarget) []string {
+func (p *pinRig) reminders(a *Admin, img kernel.ImageConfig, op store.Operator, b operators.OperatorTLSBundle, targets []sourceTarget) []string {
 	p.t.Helper()
 	out, err := a.sourceReminders(img, op, b, targets)
 	if err != nil {
@@ -100,11 +101,11 @@ func fakePEM(kind, body string) []byte {
 	return []byte("-----BEGIN " + kind + "-----\n" + body + "\n-----END " + kind + "-----\n")
 }
 
-var pinBundle = OperatorTLSBundle{
+var pinBundle = operators.OperatorTLSBundle{
 	ReceiverCertPEM: fakePEM("CERTIFICATE", "cmVjZWl2ZXItY2VydA=="),
 	ReceiverKeyPEM:  fakePEM("EC PRIVATE KEY", "cmVjZWl2ZXIta2V5"),
 	CACertPEM:       fakePEM("CERTIFICATE", "b3BlcmF0b3ItY2E="),
-	Senders: []SenderCert{
+	Senders: []operators.SenderCert{
 		{Sender: "cl-a", CertPEM: fakePEM("CERTIFICATE", "c2VuZGVyLWEtY2VydA=="), KeyPEM: fakePEM("EC PRIVATE KEY", "c2VuZGVyLWEta2V5")},
 		{Sender: "cl-b", CertPEM: fakePEM("CERTIFICATE", "c2VuZGVyLWItY2VydA=="), KeyPEM: fakePEM("EC PRIVATE KEY", "c2VuZGVyLWIta2V5")},
 	},
@@ -173,12 +174,12 @@ func (p *pinRig) operatorCommands() {
 	}
 	exposed := func(op store.Operator, exposure string) store.Operator { op.Exposure = exposure; return op }
 	tgt := store.Operator{ID: "tgt", Name: "tgt", Status: store.OperatorActive, ReceiverAuth: store.ReceiverAuthMTLS, Address: "tgt.example.com:4317"}
-	central := store.Operator{ID: CentralOperatorID, Name: "central", Status: store.OperatorActive, ReceiverAuth: store.ReceiverAuthMTLS}
+	central := store.Operator{ID: operators.CentralOperatorID, Name: "central", Status: store.OperatorActive, ReceiverAuth: store.ReceiverAuthMTLS}
 
 	type opCase struct {
 		name   string
 		op     store.Operator
-		bundle OperatorTLSBundle
+		bundle operators.OperatorTLSBundle
 		hb     string
 		target *store.Operator
 	}
@@ -189,9 +190,9 @@ func (p *pinRig) operatorCommands() {
 		{"mtls-to-central", mtls(viaOperator), pinBundle, "", &central},
 		{"mtls-to-operator-id-only", mtls(viaOperator), pinBundle, "", nil},
 		{"mtls-to-operator-address", mtls(viaAddress), pinBundle, "", &tgt},
-		{"bearer-external", bearer(ext), OperatorTLSBundle{}, "", nil},
+		{"bearer-external", bearer(ext), operators.OperatorTLSBundle{}, "", nil},
 		{"bearer-external-tls", bearer(extFull), pinBundle, "", nil},
-		{"bearer-to-operator", bearer(viaOperator), OperatorTLSBundle{}, "", &central},
+		{"bearer-to-operator", bearer(viaOperator), operators.OperatorTLSBundle{}, "", &central},
 		{"mtls-exposed-loadbalancer", exposed(mtls(ext), "loadbalancer"), pinBundle, "", nil},
 		{"mtls-exposed-nodeport", exposed(mtls(ext), "nodeport"), pinBundle, "", nil},
 	}
@@ -257,7 +258,7 @@ func (p *pinRig) operatorCommands() {
 		}
 	}
 	a = p.admin(nil)
-	for n, line := range p.reminders(a, kernel.ImageConfig{}, bearer(ext), OperatorTLSBundle{}, targets[:1]) {
+	for n, line := range p.reminders(a, kernel.ImageConfig{}, bearer(ext), operators.OperatorTLSBundle{}, targets[:1]) {
 		chart := ""
 		if strings.HasPrefix(line, "helm ") {
 			chart = "agent"
@@ -272,7 +273,7 @@ func (p *pinRig) operatorCommands() {
 func (p *pinRig) fragments() {
 	mtls := store.Operator{ID: "athens", Name: "athens", Status: store.OperatorActive, ReceiverAuth: store.ReceiverAuthMTLS}
 	bearer := store.Operator{ID: "oslo", Name: "oslo", Status: store.OperatorActive, ReceiverAuth: store.ReceiverAuthBearer}
-	central := store.Operator{ID: CentralOperatorID, Name: "central", Status: store.OperatorActive, ReceiverAuth: store.ReceiverAuthMTLS}
+	central := store.Operator{ID: operators.CentralOperatorID, Name: "central", Status: store.OperatorActive, ReceiverAuth: store.ReceiverAuthMTLS}
 	a := p.admin(nil)
 	for _, o := range []store.Operator{mtls, bearer, central} {
 		for _, withMTLS := range []bool{true, false} {

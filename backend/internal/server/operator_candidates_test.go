@@ -9,6 +9,7 @@ import (
 	continuumv1 "continuum/gen/continuumv1"
 
 	"continuum/internal/accounts"
+	"continuum/internal/operators"
 )
 
 func addrs(list []AddressCandidate) []string {
@@ -111,13 +112,13 @@ func TestOperatorAddressCandidatesComeFromWhatDiscoveryReportsForItsCluster(t *t
 	v.state.Nodes["athens-edge-1"].Probe = &continuumv1.HostProbe{HostAddresses: []*continuumv1.HostAddress{
 		{Interface: "eth0", Address: "10.20.0.14/24"}, {Interface: "tailscale0", Kind: "tun", Address: "100.64.3.7/32"},
 	}}
-	v.state.Workloads["continuum-system/Deployment/"+OperatorServiceName(id)] = &continuumv1.WorkloadFacts{
-		Key: "continuum-system/Deployment/" + OperatorServiceName(id), Namespace: operatorNamespace, Kind: "Deployment", Name: OperatorServiceName(id),
+	v.state.Workloads["continuum-system/Deployment/"+operators.OperatorServiceName(id)] = &continuumv1.WorkloadFacts{
+		Key: "continuum-system/Deployment/" + operators.OperatorServiceName(id), Namespace: operatorNamespace, Kind: "Deployment", Name: operators.OperatorServiceName(id),
 		NodeNames: []string{"athens-edge-1"}, Reachable: []*continuumv1.Address{{Port: 31317, Kind: "node-port"}},
 	}
 	// A workload of the same name in another namespace is somebody else's.
-	v.state.Workloads["other/Deployment/"+OperatorServiceName(id)] = &continuumv1.WorkloadFacts{
-		Key: "other/Deployment/" + OperatorServiceName(id), Namespace: "other", Kind: "Deployment", Name: OperatorServiceName(id),
+	v.state.Workloads["other/Deployment/"+operators.OperatorServiceName(id)] = &continuumv1.WorkloadFacts{
+		Key: "other/Deployment/" + operators.OperatorServiceName(id), Namespace: "other", Kind: "Deployment", Name: operators.OperatorServiceName(id),
 		Reachable: []*continuumv1.Address{{Ip: "198.51.100.77", Port: 4317, Kind: "load-balancer"}},
 	}
 	a.hub().mu.Lock()
