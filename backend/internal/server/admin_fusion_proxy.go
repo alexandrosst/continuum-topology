@@ -188,27 +188,9 @@ func grafanaLogin(username string) string {
 	return b.String()
 }
 
-// fusionUILinks are the paths the UI opens, present only for a page that is up right now.
-type fusionUILinks struct {
-	Prometheus string `json:"prometheus,omitempty"`
-	Grafana    string `json:"grafana,omitempty"`
-}
-
-func uiLinksOf(f *fusion.FusionControl, st fusion.FusionStatus) *fusionUILinks {
-	if f == nil || !st.Available {
-		return nil
-	}
-	var l fusionUILinks
-	if st.ComponentUp("metrics") {
-		l.Prometheus = fusionPromPath
-	}
-	if st.ComponentUp("grafana") {
-		l.Grafana = fusionGrafanaPath
-	}
-	if l == (fusionUILinks{}) {
-		return nil
-	}
-	return &l
+// uiLinksOf are the pages of FUSION that are up, at the paths this server serves them at.
+func uiLinksOf(f *fusion.FusionControl, st fusion.FusionStatus) *fusion.PageLinks {
+	return f.PageLinks(st, fusionPromPath, fusionGrafanaPath)
 }
 
 func promUpstreamOf(f *fusion.FusionControl) string {

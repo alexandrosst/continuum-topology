@@ -2,7 +2,7 @@
 // stores, the certificates and public address of the gateway, and the central operator the gateway is.
 //
 // The central operator is an operator that FUSION manages: this package calls operators, and operators know nothing of FUSION (they are
-// handed a ManagedStatus). The handlers and the proxy to the data API are the shell's and call through the FusionControl.
+// handed a ManagedStatus). The routes of the switch (its state, on and off, retention) are API; the data API, its access tokens and FUSION's own pages are the shell's, and call through the FusionControl.
 package fusion
 
 import (

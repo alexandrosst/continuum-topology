@@ -131,6 +131,9 @@ func (a *Admin) operatorsAPI() *operatorsapi.API {
 	return a.ops
 }
 
+// central is the central operator as the server runs it, or nil when the server has no FUSION to run it.
+func (a *Admin) central() operators.Central { return a.Fusion.Central() }
+
 func (a *Admin) tn(r *http.Request) *Tenant {
 	t, _ := r.Context().Value(ctxTenant{}).(*Tenant)
 	return t
@@ -181,13 +184,15 @@ func (a *Admin) Handler() http.Handler {
 		Operators: func(r *http.Request) *operators.Service { return a.core(r).Operators }, Central: a.central, ServerNodes: a.selfProbeNodes}).Mount(routes)
 
 	a.operatorsAPI().Mount(routes)
-	route("GET "+o+"/fusion", httpkit.AdminRole, a.getFusion)
+	(&fusion.API{
+		For:             func(r *http.Request) *fusion.Service { return a.core(r).Fusion },
+		Control:         func() *fusion.FusionControl { return a.Fusion },
+		PrometheusPath:  fusionPromPath,
+		GrafanaPath:     fusionGrafanaPath,
+		CentralWarnings: operatorsapi.CentralAddressWarnings,
+	}).Mount(routes)
 	// The ticketed path that opens one of FUSION's own pages (Prometheus, Grafana) in a new tab; see fusion_ui_access.go.
 	route("POST "+o+"/fusion/pages", httpkit.AdminRole, a.openFusionPage)
-	route("POST "+o+"/fusion/enable", httpkit.AdminRole, a.enableFusion)
-	route("POST "+o+"/fusion/disable", httpkit.AdminRole, a.disableFusion)
-	route("GET "+o+"/fusion/retention", httpkit.AdminRole, a.getFusionRetention)
-	route("PUT "+o+"/fusion/retention", httpkit.AdminRole, a.setFusionRetention)
 	// FUSION access tokens: read-only credentials for the shared data API below.
 	route("GET "+o+"/fusion/tokens", httpkit.AdminRole, a.listFusionTokens)
 	route("POST "+o+"/fusion/tokens", httpkit.AdminRole, a.createFusionToken)

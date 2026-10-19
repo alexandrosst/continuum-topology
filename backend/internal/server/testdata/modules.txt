@@ -33,7 +33,6 @@
 # A file added to the package must be added here, in the same change: a test fails otherwise.
 admin.go                        shell
 admin_agents.go shell
-admin_fusion.go shell
 admin_fusion_proxy.go shell
 admin_images.go                 shell
 admin_link_credentials.go shell

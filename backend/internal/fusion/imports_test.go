@@ -14,6 +14,7 @@ import (
 // under), operators (the central operator is one of them) and the data API's client library, and on nothing else of this repository:
 // not the server, and not another module. Operators do not import it.
 var allowedRepoImports = map[string]bool{
+	"continuum/internal/httpkit":   true,
 	"continuum/internal/kernel":    true,
 	"continuum/internal/store":     true,
 	"continuum/internal/pki":       true,
