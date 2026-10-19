@@ -1,21 +1,16 @@
-package server
+package estate
 
 import (
 	"context"
-	"errors"
 	"net"
-	"net/http"
 	"net/netip"
 	"sort"
 	"strconv"
 	"strings"
 
 	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/estate"
 	"continuum/internal/facts"
-	"continuum/internal/httpkit"
 	"continuum/internal/install"
-	"continuum/internal/kernel"
 	"continuum/internal/operators"
 	"continuum/internal/store"
 )
@@ -120,8 +115,8 @@ type ExposeDoc struct {
 	Value string `json:"value"`
 }
 
-// exposeCommand is the kubectl line that gives a Service the type.
-func exposeCommand(namespace, service string, typ install.ServiceType) (string, error) {
+// ExposeCommand is the kubectl line that gives a Service the type.
+func ExposeCommand(namespace, service string, typ install.ServiceType) (string, error) {
 	return install.SetServiceType{Namespace: namespace, Service: service, Type: typ}.Render()
 }
 
@@ -130,7 +125,7 @@ type operatorHost struct {
 	ClusterID, ClusterName string
 	Reachable              []reachableAddr
 	PodNodes               []string
-	Nodes                  []hostNode
+	Nodes                  []HostNode
 	// Providers names the load balancer or mesh providers the cluster runs ("metallb", "kube-vip", "tailscale").
 	Providers []string
 }
@@ -140,23 +135,23 @@ type reachableAddr struct {
 	Port     int32
 }
 
-type hostNode struct {
+type HostNode struct {
 	Name     string
 	Ready    bool
 	Internal []string
 	External []string
 	// Interfaces are the addresses on the node's own network interfaces, as its node probe reports them.
-	Interfaces []hostAddr
+	Interfaces []HostAddr
 	PodCIDRs   []string
 }
 
-// hostAddr is one address read from a node's network interface.
-type hostAddr struct {
+// HostAddr is one address read from a node's network interface.
+type HostAddr struct {
 	Interface, Kind, IP string
 }
 
 // hubHosts finds the clusters of the approved agents, from what the hub holds of them.
-type hubHosts struct{ *estate.Hub }
+type hubHosts struct{ *Hub }
 
 // operatorHost finds the cluster the operator with this id runs in. The second result is false when no approved
 // agent has reported its Deployment.
@@ -325,14 +320,14 @@ func clusterHost(a store.Agent, st *facts.State, w *continuumv1.WorkloadFacts) o
 		}
 	}
 	for _, n := range st.Nodes {
-		hn := hostNode{Name: n.Name, Ready: n.Ready, Internal: append([]string(nil), n.InternalIps...), External: append([]string(nil), n.ExternalIps...), PodCIDRs: append([]string(nil), n.PodCidrs...)}
+		hn := HostNode{Name: n.Name, Ready: n.Ready, Internal: append([]string(nil), n.InternalIps...), External: append([]string(nil), n.ExternalIps...), PodCIDRs: append([]string(nil), n.PodCidrs...)}
 		if n.Probe != nil {
 			for _, ha := range n.Probe.HostAddresses {
 				if len(hn.Interfaces) >= 32 { // the probe sends at most 16; a larger list is not believed
 					break
 				}
 				if p, err := netip.ParsePrefix(ha.Address); err == nil {
-					hn.Interfaces = append(hn.Interfaces, hostAddr{Interface: ha.Interface, Kind: ha.Kind, IP: p.Addr().String()})
+					hn.Interfaces = append(hn.Interfaces, HostAddr{Interface: ha.Interface, Kind: ha.Kind, IP: p.Addr().String()})
 				}
 			}
 		}
@@ -453,7 +448,7 @@ func addressCandidates(h operatorHost, recorded string) []AddressCandidate {
 			ports = append(ports, nodePortSpec{r.Port, candidateNodeServicePort, "on the Service's own port: its load balancer address is a node's own, so the node answers on that port too."})
 		}
 	}
-	var nodes []hostNode
+	var nodes []HostNode
 	if len(ports) > 0 {
 		onPod := map[string]bool{}
 		for _, n := range h.PodNodes {
@@ -479,7 +474,7 @@ func addressCandidates(h operatorHost, recorded string) []AddressCandidate {
 			nodes = nodes[:limit]
 		}
 	}
-	nodeAddrs := func(pick func(hostNode) []nodeAddr) {
+	nodeAddrs := func(pick func(HostNode) []nodeAddr) {
 		for _, n := range nodes {
 			for _, na := range pick(n) {
 				for _, p := range ports {
@@ -492,14 +487,14 @@ func addressCandidates(h operatorHost, recorded string) []AddressCandidate {
 		}
 	}
 	// What Kubernetes calls the node's internal address, then what the node's own interfaces add on a LAN or a mesh.
-	nodeAddrs(func(n hostNode) []nodeAddr { return n.addresses(true, false) })
+	nodeAddrs(func(n HostNode) []nodeAddr { return n.addresses(true, false) })
 	for _, r := range h.Reachable {
 		if r.Kind == "external-ip" && r.IP != "" {
 			add(AddressCandidate{Kind: candidateExternalIP, Address: hp(r.IP, r.Port), Source: "An external IP set on the operator's Service.", Network: classifyNetwork("", "", r.IP)})
 		}
 	}
 	// Last, the public ones: what Kubernetes calls the external address and any public address on an interface.
-	nodeAddrs(func(n hostNode) []nodeAddr { return n.addresses(false, true) })
+	nodeAddrs(func(n HostNode) []nodeAddr { return n.addresses(false, true) })
 
 	if recorded != "" {
 		if seen[recorded] {
@@ -554,7 +549,7 @@ type nodeAddr struct {
 // own interfaces by how local they are (a LAN, then a mesh), and last the public ones. near picks the first group
 // and far the second, so the two calls together list each address once. Addresses that mean something only inside the
 // cluster (a pod range's) are left out, as is an address listed under two names.
-func (n hostNode) addresses(near, far bool) []nodeAddr {
+func (n HostNode) addresses(near, far bool) []nodeAddr {
 	var pods []netip.Prefix
 	for _, c := range n.PodCIDRs {
 		if p, err := netip.ParsePrefix(c); err == nil {
@@ -705,158 +700,4 @@ func exposureHint(candidates []AddressCandidate, found, central bool) string {
 		return "This operator's Service is only reachable inside its own cluster, so there is no node or load balancer address to offer yet. Install it with a node port or a load balancer; the node addresses, mesh ones included, then appear here."
 	}
 	return "No agent has reported this operator in a cluster yet. Once one does, the addresses it can be reached at appear here."
-}
-
-// serverClusterHost finds the cluster FUSION's gateway runs in, and says how it is known. A cluster a person chose, or the
-// install named, is the answer even when no agent is registered there (then the state is noAgent, and there are no nodes to
-// list). Failing both, it is worked out from what agents report: a workload of the server's namespace, then a node that has
-// the load balancer's address; and when that finds nothing the state is unknown, with the registered clusters to choose from.
-func (a *Admin) serverClusterHost(ctx context.Context, c *Core, hub *estate.Hub, namespace, workload string, gateway *kernel.KubeService) (operatorHost, bool, *ServerClusterDoc) {
-	host, ok, doc := a.serverClusterFromAgents(ctx, c, hub, namespace, workload, gateway)
-	return a.withSelfProbe(host, ok, doc)
-}
-
-// serverClusterFromAgents is serverClusterHost before the server's own node probes are looked at: what the install, a
-// person's choice and the registered agents say.
-func (a *Admin) serverClusterFromAgents(ctx context.Context, c *Core, hub *estate.Hub, namespace, workload string, gateway *kernel.KubeService) (operatorHost, bool, *ServerClusterDoc) {
-	hosts := hubHosts{hub}
-	gatewayWorkload := func(w *continuumv1.WorkloadFacts) bool { return w.Namespace == namespace && w.Name == workload }
-	id, source := c.Settings().ServerClusterID, "chosen"
-	if id == "" {
-		id, source = "", "install"
-		if cid, ok := kernel.ClusterIDForUID(c.OrgID, a.central().ClusterUID()); ok {
-			id = cid
-		}
-	}
-	if id != "" {
-		if host, ok := hosts.clusterHost(ctx, id, gatewayWorkload); ok {
-			return host, true, &ServerClusterDoc{State: serverClusterKnown, Source: source, ClusterID: id, Options: hosts.clusterOptions(ctx)}
-		}
-		return operatorHost{}, false, &ServerClusterDoc{State: serverClusterNoAgent, Source: source, ClusterID: id, Options: hosts.clusterOptions(ctx)}
-	}
-	host, ok := hosts.workloadHost(ctx, namespace, workload)
-	if !ok {
-		host, ok = hosts.namespaceHost(ctx, namespace)
-	}
-	if !ok && gateway != nil && gateway.LoadBalancer != "" {
-		// No agent reports anything of that namespace. A load balancer address that is one of a cluster's nodes' own
-		// (k3s's built-in load balancer, MetalLB on a node) still says which cluster the gateway is in.
-		if lbHost, _, err := net.SplitHostPort(gateway.LoadBalancer); err == nil {
-			host, ok = hosts.nodeHost(ctx, lbHost)
-		}
-	}
-	if ok {
-		return host, true, &ServerClusterDoc{State: serverClusterKnown, Source: "matched", ClusterID: host.ClusterID, Options: hosts.clusterOptions(ctx)}
-	}
-	return operatorHost{}, false, &ServerClusterDoc{State: serverClusterUnknown, Options: hosts.clusterOptions(ctx)}
-}
-
-// listOperatorAddressCandidates answers GET .../operators/{id}/address-candidates.
-func (a *Admin) listOperatorAddressCandidates(w http.ResponseWriter, r *http.Request) {
-	c := a.core(r)
-	op, err := c.Operators.GetOperator(r.Context(), r.PathValue("id"))
-	if err != nil {
-		a.fail(w, err)
-		return
-	}
-	res := AddressCandidates{Candidates: []AddressCandidate{}}
-	namespace, workload, recorded := operatorNamespace, operators.OperatorServiceName(op.ID), op.Address
-	var gateway *kernel.KubeService
-	cen := a.central()
-	if op.ID == operators.CentralOperatorID && cen != nil {
-		// The gateway is the server's own install: its Deployment is in the server's namespace, and the server reads its
-		// Service itself, which is how a load balancer's address is found even where no agent runs in that cluster.
-		namespace, workload = cen.Namespace(), cen.ServiceName()
-		if cen.Exposed() {
-			recorded = cen.Endpoint()
-		}
-		gateway = cen.GatewayService(r.Context())
-	}
-	hub := a.tn(r).Hub
-	var host operatorHost
-	var found bool
-	if op.ID == operators.CentralOperatorID && cen != nil {
-		// The gateway lies in the server's own cluster, so which cluster that is comes first from what is known of the
-		// server: a person's choice, else what the install told it. Only then is it worked out from what agents report.
-		host, found, res.ServerCluster = a.serverClusterHost(r.Context(), c, hub, namespace, workload, gateway)
-	} else {
-		host, found = hubHosts{hub}.workloadHost(r.Context(), namespace, workload)
-	}
-	if found {
-		res.Found, res.HostClusterID, res.HostClusterName = true, host.ClusterID, host.ClusterName
-	}
-	if gateway != nil && gateway.NodePort != 0 {
-		// A node port is open on every node: the server read it from the Service, whatever an agent reports.
-		host.Reachable = append(host.Reachable, reachableAddr{Port: int32(gateway.NodePort), Kind: "node-port"})
-	}
-	if gateway != nil && gateway.LoadBalancer != "" {
-		if h, p, err := net.SplitHostPort(gateway.LoadBalancer); err == nil {
-			if port, err := strconv.Atoi(p); err == nil {
-				host.Reachable = append(host.Reachable, reachableAddr{IP: h, Port: int32(port), Kind: "load-balancer"})
-				res.Found = true
-			}
-		}
-	}
-	if list := addressCandidates(host, recorded); list != nil {
-		res.Candidates = list
-	}
-	if found {
-		res.Hints = host.hints(res.Candidates)
-		if len(host.PodNodes) == 0 && len(host.Nodes) > 0 {
-			res.Hints = append(res.Hints, "No agent reports which node runs the pod, so the nodes are listed in name order. Any of them works, since its node port forwards to the pod, but the pod's own node saves a hop.")
-		}
-	}
-	if h := exposureHint(res.Candidates, found, op.ID == operators.CentralOperatorID); h != "" && op.ID == operators.CentralOperatorID && cen != nil {
-		// The page shows this as a card with the command in it, so the sentence is not repeated as a hint.
-		e := &ExposeDoc{Service: workload, Namespace: namespace, Value: "fusion.central.service.type"}
-		nodePort, err1 := exposeCommand(namespace, workload, install.NodePort)
-		loadBalancer, err2 := exposeCommand(namespace, workload, install.LoadBalancer)
-		if err := errors.Join(err1, err2); err != nil {
-			a.installConfigError(err) // logged; the page is shown without the commands
-		} else {
-			e.Commands.NodePort, e.Commands.LoadBalancer = nodePort, loadBalancer
-			res.Expose = e
-		}
-	} else if h != "" {
-		res.Hints = append(res.Hints, h)
-	} else if !found {
-		res.Hints = append(res.Hints, noHostHint(op.ID == operators.CentralOperatorID))
-	}
-	httpkit.WriteJSON(w, 200, res)
-}
-
-// putServerCluster answers PUT .../operators/central/server-cluster: a person says which cluster the server, and so FUSION's
-// gateway, runs in, for when the install did not tell it. An empty cluster id takes the choice back.
-func (a *Admin) putServerCluster(w http.ResponseWriter, r *http.Request) {
-	c := a.core(r)
-	if r.PathValue("id") != operators.CentralOperatorID || a.central() == nil {
-		httpkit.WriteErr(w, 404, "only the central operator has a server cluster")
-		return
-	}
-	var body struct {
-		ClusterID string `json:"clusterId"`
-	}
-	if err := httpkit.Decode(r, &body); err != nil {
-		httpkit.WriteErr(w, 400, err.Error())
-		return
-	}
-	id := strings.TrimSpace(body.ClusterID)
-	if id != "" {
-		known := false
-		hosts := hubHosts{a.tn(r).Hub}
-		for _, o := range hosts.clusterOptions(r.Context()) {
-			known = known || o.ID == id
-		}
-		if !known {
-			httpkit.WriteErr(w, 400, "no approved agent is registered in that cluster")
-			return
-		}
-	}
-	s := c.Settings()
-	s.ServerClusterID = id
-	if _, err := c.SaveSettings(r.Context(), httpkit.Actor(r), s); err != nil {
-		a.fail(w, err)
-		return
-	}
-	httpkit.WriteJSON(w, 200, map[string]string{"clusterId": id})
 }

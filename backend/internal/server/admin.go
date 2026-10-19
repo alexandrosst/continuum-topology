@@ -177,7 +177,8 @@ func (a *Admin) Handler() http.Handler {
 		Model: func(r *http.Request) (twin.Model, error) { m, _, err := a.tn(r).Hub.Model(r.Context()); return m, err }}.Mount(routes)
 	(&settingsapi.API{For: func(r *http.Request) *kernel.Core { return a.core(r).Core }, ImageDefaults: func() kernel.ImageConfig { return a.ImageDefaults() }}).Mount(routes)
 	telemetry.API{For: func(r *http.Request) *telemetry.Service { return a.core(r).Telemetry }}.Mount(routes)
-	(&estate.API{For: func(r *http.Request) *estate.Hub { return a.tn(r).Hub }, Settings: &a.Settings, CAPin: a.C.CA.SPKIPin}).Mount(routes)
+	(&estate.API{For: func(r *http.Request) *estate.Hub { return a.tn(r).Hub }, Settings: &a.Settings, CAPin: a.C.CA.SPKIPin,
+		Operators: func(r *http.Request) *operators.Service { return a.core(r).Operators }, Central: a.central, ServerNodes: a.selfProbeNodes}).Mount(routes)
 
 	a.operatorsAPI().Mount(routes)
 	route("GET "+o+"/fusion", httpkit.AdminRole, a.getFusion)
@@ -191,9 +192,6 @@ func (a *Admin) Handler() http.Handler {
 	route("GET "+o+"/fusion/tokens", httpkit.AdminRole, a.listFusionTokens)
 	route("POST "+o+"/fusion/tokens", httpkit.AdminRole, a.createFusionToken)
 	route("DELETE "+o+"/fusion/tokens/{id}", httpkit.AdminRole, a.deleteFusionToken)
-	// The addresses discovery says this operator can be reached at, to pick from instead of typing one.
-	route("GET "+o+"/operators/{id}/address-candidates", httpkit.AdminRole, a.listOperatorAddressCandidates)
-	route("PUT "+o+"/operators/{id}/server-cluster", httpkit.AdminRole, a.putServerCluster)
 
 	// A telemetry intent only declares what one agent's bundled local operator should collect and where to
 	// export it; the credentials and the install command come from /command below (httpkit.AdminRole) and the cluster's

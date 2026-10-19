@@ -10,6 +10,7 @@ import (
 
 	"continuum/internal/agents"
 	"continuum/internal/chart"
+	"continuum/internal/estate"
 	"continuum/internal/install"
 	"continuum/internal/kernel"
 	"continuum/internal/operators"
@@ -234,8 +235,8 @@ func (p *pinRig) operatorCommands() {
 	p.add(a, "operator/client-secret", "", p.ok(operatorsapi.ClientSecretCommand(mtls(ext), pinBundle.Senders[0].CertPEM, pinBundle.Senders[0].KeyPEM, pinBundle.CACertPEM, "apps-team", false)))
 	p.add(a, "operator/restart", "", p.ok(operatorsapi.RestartCommand(mtls(ext))))
 	p.add(a, "operator/uninstall", "", p.ok(operatorsapi.UninstallCommand("athens")))
-	p.add(a, "operator/expose/nodeport", "", p.ok(exposeCommand("continuum-system", "athens-regional-operator", install.NodePort)))
-	p.add(a, "operator/expose/loadbalancer", "", p.ok(exposeCommand("continuum-system", "athens-regional-operator", install.LoadBalancer)))
+	p.add(a, "operator/expose/nodeport", "", p.ok(estate.ExposeCommand("continuum-system", "athens-regional-operator", install.NodePort)))
+	p.add(a, "operator/expose/loadbalancer", "", p.ok(estate.ExposeCommand("continuum-system", "athens-regional-operator", install.LoadBalancer)))
 
 	// The heartbeat: the upgrade that turns it on, the Secret that carries its token and, for a private CA, the Secret for that.
 	hbURL := "https://ikhnos.example.com/api/v1/operator-heartbeat"

@@ -9,6 +9,7 @@ import (
 	"continuum/internal/install"
 	"continuum/internal/installcfg"
 	"continuum/internal/kernel"
+	"continuum/internal/operators"
 	"continuum/internal/store"
 )
 
@@ -22,6 +23,27 @@ type API struct {
 	// the server against (the commands carry it).
 	Settings *installcfg.Settings
 	CAPin    func() string
+	// Operators is the operators of the organisation a request is for and Central the operator that runs next to the server (nil on an install
+	// without one): the routes that say where an operator can be reached read the two, and the hub's facts about the cluster it runs in.
+	Operators func(r *http.Request) *operators.Service
+	Central   func() operators.Central
+	// ServerNodes are the nodes of the server's own cluster that the node probes shipped with its chart have reported, for an install where no
+	// agent runs there (nil when the server has no such probes).
+	ServerNodes func() []HostNode
+}
+
+func (h *API) central() operators.Central {
+	if h.Central == nil {
+		return nil
+	}
+	return h.Central()
+}
+
+func (h *API) serverNodes() []HostNode {
+	if h.ServerNodes == nil {
+		return nil
+	}
+	return h.ServerNodes()
 }
 
 func (h *API) fail(w http.ResponseWriter, r *http.Request, err error) {
@@ -54,6 +76,10 @@ func (h *API) Mount(r httpkit.Router) {
 	r.Handle("GET "+o+"/tokens", httpkit.AdminRole, h.listTokens)
 	r.Handle("POST "+o+"/tokens", httpkit.AdminRole, h.createToken)
 	// Writes the command that changes an installed agent. Pure computation (nothing is stored or issued), so any member may ask.
+	// Where an operator can be reached from other clusters, read from what discovery holds of the cluster it runs in; and, for the central one,
+	// which cluster the server itself is in.
+	r.Handle("GET "+o+"/operators/{id}/address-candidates", httpkit.AdminRole, h.listOperatorAddressCandidates)
+	r.Handle("PUT "+o+"/operators/{id}/server-cluster", httpkit.AdminRole, h.putServerCluster)
 	r.Handle("POST "+o+"/commands/agent-upgrade", httpkit.MemberRole, h.agentUpgradeCommand)
 	r.Handle("DELETE "+o+"/tokens/{id}", httpkit.AdminRole, h.deleteToken)
 	r.Handle("POST "+o+"/agents/{id}/approve", httpkit.AdminRole, h.approve)
