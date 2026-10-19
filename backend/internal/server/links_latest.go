@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"continuum/internal/fusionhttp"
 	"errors"
 	"math"
 	"net/http"
@@ -260,26 +261,26 @@ type fusionLinkPair struct {
 // the server's own scope and fixed queries (see linkFigures), and what the caller may see is then decided here by cluster id: a
 // pair is shown only when the token may read both of its clusters, and a token without the metrics signal, or one limited to
 // namespaces, is refused (Scope.NeedLinks).
-func (a *Admin) fusionLinks(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionCaller) {
+func (a *Admin) fusionLinks(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionhttp.Caller) {
 	if err := who.Scope.NeedLinks(); err != nil {
-		a.fusionErr(w, r, err)
+		a.fd().Err(w, err)
 		return
 	}
 	q := r.URL.Query()
 	for _, k := range []string{"cluster", "peer"} {
 		if v := q.Get(k); q.Has(k) && (v == "" || len(v) > 253 || !utf8.ValidString(v)) {
-			a.fusionErr(w, r, &fusionapi.Error{Status: http.StatusBadRequest, Msg: k + " must be 1 to 253 characters of text"})
+			a.fd().Err(w, &fusionapi.Error{Status: http.StatusBadRequest, Msg: k + " must be 1 to 253 characters of text"})
 			return
 		}
 	}
 	cluster, peer := q.Get("cluster"), q.Get("peer")
 	if peer != "" && cluster == "" {
-		a.fusionErr(w, r, &fusionapi.Error{Status: http.StatusBadRequest, Msg: "peer needs cluster: it names the other end of the link"})
+		a.fd().Err(w, &fusionapi.Error{Status: http.StatusBadRequest, Msg: "peer needs cluster: it names the other end of the link"})
 		return
 	}
 	links, err := a.fusionLinkSettings(r.Context())
 	if err != nil {
-		a.fusionErr(w, r, err)
+		a.fd().Err(w, err)
 		return
 	}
 	var want []kernel.LinkSetting
@@ -304,7 +305,7 @@ func (a *Admin) fusionLinks(w http.ResponseWriter, r *http.Request, c *fusionapi
 			switch {
 			case errors.Is(r.Context().Err(), context.Canceled):
 			case errors.Is(err, context.DeadlineExceeded):
-				a.fusionErr(w, r, err)
+				a.fd().Err(w, err)
 			default: // what the store said can name hosts
 				httpkit.WriteErr(w, http.StatusServiceUnavailable, "the link figures could not be read from FUSION's metrics store")
 			}

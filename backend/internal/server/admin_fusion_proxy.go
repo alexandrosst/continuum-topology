@@ -218,7 +218,7 @@ func (a *Admin) fusionUI(component string) http.Handler {
 			a.redeemFusionTicket(w, r, t)
 			return
 		}
-		who, err := a.fusionCaller(r)
+		who, err := a.fd().Caller(r)
 		if err != nil || who.Kind != "user" {
 			// The session cookie does not come with a navigation that starts elsewhere (a new tab); the page cookie does.
 			if pu, ok := a.fusionUISessionCaller(r); ok {

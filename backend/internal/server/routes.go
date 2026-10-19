@@ -33,11 +33,15 @@ func (a *Admin) handle(mux *http.ServeMux, pattern, access string, h http.Handle
 
 // routeFuncs are the guarded and the open route-adder of Admin.Handler as the httpkit.Router a module mounts its handlers on.
 type routeFuncs struct {
-	guarded func(pattern string, n httpkit.Need, h http.HandlerFunc)
-	open    func(pattern string, h http.HandlerFunc)
+	guarded    func(pattern string, n httpkit.Need, h http.HandlerFunc)
+	open       func(pattern string, h http.HandlerFunc)
+	credential func(pattern string, h http.Handler)
 }
 
 func (f routeFuncs) Handle(pattern string, n httpkit.Need, h http.HandlerFunc) {
 	f.guarded(pattern, n, h)
 }
 func (f routeFuncs) Open(pattern string, h http.HandlerFunc) { f.open(pattern, h) }
+
+// Credential mounts a route that authenticates itself with a FUSION credential (fusionhttp.Router).
+func (f routeFuncs) Credential(pattern string, h http.Handler) { f.credential(pattern, h) }

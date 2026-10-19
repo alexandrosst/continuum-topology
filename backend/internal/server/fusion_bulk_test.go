@@ -3,6 +3,7 @@ package server
 import (
 	"bufio"
 	"bytes"
+	"continuum/internal/fusionhttp"
 	"encoding/json"
 	"net/http/httptest"
 	"os"
@@ -214,7 +215,7 @@ func TestABatchStreamsEachTraceAsNDJSON(t *testing.T) {
 
 func TestABulkReadIsChargedPerTrace(t *testing.T) {
 	d := newDataRig(t)
-	d.a.fusionRL = kernel.NewLimiter(60, 5)
+	d.a.fd().Reads = kernel.NewLimiter(60, 5)
 	tok, _ := d.mint(t, map[string]any{"name": "bulk"})
 	ids := make([]string, 8)
 	for i := range ids {
@@ -243,13 +244,13 @@ func TestTheOpenAPIDescriptionIsPublicAndCoversEveryRoute(t *testing.T) {
 		t.Fatalf("%v %s", err, spec.OpenAPI)
 	}
 	for _, op := range fusionOps(nil) {
-		o := spec.Paths[fusionAPIPath+op.Path][strings.ToLower(op.Method)]
+		o := spec.Paths[fusionhttp.APIPath+op.Path][strings.ToLower(op.Method)]
 		if o == nil {
 			t.Errorf("%s %s is not in the description", op.Method, op.Path)
 			continue
 		}
 		// And the route is really served (anything but "no such route").
-		path := fusionAPIPath + strings.NewReplacer("{id}", testTraceID, "{name}", "Shop", "{label}", "service_name", "{tag}", "resource.service.name").Replace(op.Path)
+		path := fusionhttp.APIPath + strings.NewReplacer("{id}", testTraceID, "{name}", "Shop", "{label}", "service_name", "{tag}", "resource.service.name").Replace(op.Path)
 		var rr resp
 		if op.Method == "POST" {
 			rr = d.post(path, map[string]any{"ids": []string{testTraceID}}, withCookie(d.admin))
@@ -276,12 +277,12 @@ func TestEveryQueryParameterTheHandlersReadIsDocumented(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, m := range regexp.MustCompile(`\.(?:Get|Has)\("([a-z_]+)"\)`).FindAllStringSubmatch(string(src), -1) {
-		if _, ok := fusionParams[m[1]]; !ok && m[1] != "ids" {
-			t.Errorf("the handlers read %q but it is not described in fusionParams", m[1])
+		if _, ok := fusionhttp.ParamDefs[m[1]]; !ok && m[1] != "ids" {
+			t.Errorf("the handlers read %q but it is not described in fusionhttp.ParamDefs", m[1])
 		}
 	}
 	for _, n := range fusionapi.FuseParamNames {
-		if _, ok := fusionParams[n]; !ok {
+		if _, ok := fusionhttp.ParamDefs[n]; !ok {
 			t.Errorf("the fused read takes %q but it is not described", n)
 		}
 	}
@@ -291,12 +292,12 @@ func TestEveryQueryParameterTheHandlersReadIsDocumented(t *testing.T) {
 	for _, op := range fusionOps(nil) {
 		for _, n := range op.Params {
 			used[n] = true
-			if _, ok := fusionParams[n]; !ok {
+			if _, ok := fusionhttp.ParamDefs[n]; !ok {
 				t.Errorf("%s %s lists %q, which is not described", op.Method, op.Path, n)
 			}
 		}
 		for _, n := range op.PathParams {
-			if _, ok := fusionPathParams[n]; !ok || !strings.Contains(op.Path, "{"+n+"}") {
+			if _, ok := fusionhttp.PathParamDefs[n]; !ok || !strings.Contains(op.Path, "{"+n+"}") {
 				t.Errorf("%s %s: path parameter %q", op.Method, op.Path, n)
 			}
 		}
@@ -304,7 +305,7 @@ func TestEveryQueryParameterTheHandlersReadIsDocumented(t *testing.T) {
 			t.Errorf("%s %s has no body", op.Method, op.Path)
 		}
 	}
-	for n := range fusionParams {
+	for n := range fusionhttp.ParamDefs {
 		if !used[n] && n != "ids" {
 			t.Errorf("%q is described but no route takes it", n)
 		}
@@ -327,7 +328,7 @@ func TestEveryQueryParameterTheHandlersReadIsDocumented(t *testing.T) {
 }
 
 func TestTheOpenAPIReferencesResolve(t *testing.T) {
-	spec := fusionOpenAPI()
+	spec := fusionhttp.OpenAPI(fusionOps(nil))
 	raw, _ := json.Marshal(spec)
 	comps := spec["components"].(obj)
 	schemas := comps["schemas"].(obj)
@@ -344,7 +345,7 @@ func TestTheOpenAPIReferencesResolve(t *testing.T) {
 	// Operation ids are unique, because client generators need that.
 	seen := map[string]bool{}
 	for _, op := range fusionOps(nil) {
-		if id := opID(op); seen[id] {
+		if id := fusionhttp.OperationID(op); seen[id] {
 			t.Errorf("operation id %q repeats", id)
 		} else {
 			seen[id] = true
@@ -386,3 +387,6 @@ func TestTheDocsPageIsSelfContainedAndNeedsNoCredential(t *testing.T) {
 		t.Errorf("openapi without FUSION: %d", r.Code)
 	}
 }
+
+// obj is the shape of a JSON object in the OpenAPI document.
+type obj = map[string]any

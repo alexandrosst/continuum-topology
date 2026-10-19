@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"continuum/internal/fusionhttp"
 	"fmt"
 	"net"
 	"net/http"
@@ -89,6 +90,8 @@ type Admin struct {
 	opsOnce sync.Once
 	// fusionRL limits how fast one FUSION data-API caller (a token or a person) may read.
 	fusionRL *kernel.Limiter
+	// dataGuard authenticates and bounds the calls of the data API over FUSION (see fd).
+	dataGuard *fusionhttp.Guard
 	// fusionPageRL throttles failed authentications on the Prometheus and Grafana pages per address. It is its own limiter, not
 	// authRL's: a page makes a request for every asset it loads, so a stranger (or a browser tab whose cookie just ended)
 	// can run through a budget in seconds, and on a shared limiter that would lock the sign-in out for everyone behind the
@@ -147,6 +150,7 @@ func (a *Admin) Handler() http.Handler {
 	a.fusionRL = kernel.NewLimiter(600, 60)
 	a.fusionPageRL = kernel.NewLimiter(30, 10)
 	a.fusionUIAccess = newFusionUIAccess()
+	a.dataGuard = a.newDataGuard()
 	mux := http.NewServeMux()
 	a.handle(mux, "GET /healthz", accessPublic, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) }))
 	a.handle(mux, "GET /readyz", accessPublic, http.HandlerFunc(a.readyz))
@@ -157,7 +161,8 @@ func (a *Admin) Handler() http.Handler {
 		a.handle(api, pattern, n.String(), a.guard(n, h))
 	}
 	open := func(pattern string, h http.HandlerFunc) { a.handle(api, pattern, accessPublic, h) }
-	routes := routeFuncs{route, open}
+	credential := func(pattern string, h http.Handler) { a.handle(api, pattern, accessFusionCredential, h) }
+	routes := routeFuncs{route, open, credential}
 	(&accountsapi.API{
 		Accounts: a.C.Accounts,
 		For:      func(r *http.Request) *accounts.Service { return a.core(r).Accounts },
@@ -197,7 +202,7 @@ func (a *Admin) Handler() http.Handler {
 
 	// The shared data API over FUSION. It authenticates for itself (a FUSION access token, or an administrator of the
 	// FUSION organisation) rather than through guard: the caller is not placed in an organisation by the path.
-	a.registerFusionData(api)
+	a.fd().Mount(routes, fusionOps(a))
 
 	// A regional operator's collector reports that it is alive here. Authenticated by its own secret, with
 	// no session, so it sits beside - not inside - the browser-facing wrappers: no CORS, no CSRF.

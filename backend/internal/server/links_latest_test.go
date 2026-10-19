@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"continuum/internal/fusionhttp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -334,8 +335,8 @@ func TestFusionLinksWithoutPairsOrWithAFailingStore(t *testing.T) {
 }
 
 func TestFusionLinksIsDocumented(t *testing.T) {
-	spec := fusionOpenAPI()
-	op := spec["paths"].(obj)[fusionAPIPath+"/links"].(obj)["get"].(obj)
+	spec := fusionhttp.OpenAPI(fusionOps(nil))
+	op := spec["paths"].(obj)[fusionhttp.APIPath+"/links"].(obj)["get"].(obj)
 	if op["description"] == nil || op["tags"].([]string)[0] != "Links" {
 		t.Fatalf("%v", op)
 	}

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"continuum/internal/fusionhttp"
 	"net/url"
 	"strings"
 	"testing"
@@ -163,7 +164,7 @@ func TestChangesComeFromTheEventStoreNarrowedToTheClusters(t *testing.T) {
 func urlEscape(s string) string { return url.QueryEscape(s) }
 
 func TestTheBatchBodySchemaNamesEveryFusedOption(t *testing.T) {
-	spec := fusionOpenAPI()
+	spec := fusionhttp.OpenAPI(fusionOps(nil))
 	props := spec["components"].(obj)["schemas"].(obj)["BatchRequest"].(map[string]any)["properties"].(map[string]any)
 	for _, n := range fusionapi.FuseParamNames {
 		if n == fusionapi.ParamFused {

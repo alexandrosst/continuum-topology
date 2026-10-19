@@ -39,8 +39,8 @@ admin_link_credentials.go shell
 fusion_appinfo.go shell
 fusion_data.go shell
 fusion_extras.go shell
+fusion_guard.go shell
 fusion_native.go shell
-fusion_openapi.go shell
 fusion_ops.go shell
 fusion_ui_access.go shell
 graph_api.go shell

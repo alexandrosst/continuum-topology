@@ -1,4 +1,4 @@
-package server
+package fusionhttp
 
 import (
 	"embed"
@@ -8,50 +8,48 @@ import (
 	"sync"
 )
 
-// The OpenAPI description of the data API and the page that renders it. Both are built from fusion_ops.go, so the page
-// can never describe a route or a parameter the server does not have, nor miss one it has (fusion_openapi_test.go checks
+// The OpenAPI description of the data API and the page that renders it. Both are built from the table of routes (Op), so the page
+// can never describe a route or a parameter the server does not have, nor miss one it has (the server's tests check
 // both directions).
 
-//go:embed fusion_docs
-var fusionDocsFS embed.FS
+//go:embed docs
+var docsFS embed.FS
 
-// fusionDocsCSP lets the docs page run its own script and style and call this server, and nothing else: no inline
+// docsCSP lets the docs page run its own script and style and call this server, and nothing else: no inline
 // script, nothing from another host.
-const fusionDocsCSP = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src data:; " +
+const docsCSP = "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src data:; " +
 	"frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
 
-var (
-	specOnce sync.Once
-	specJSON []byte
-)
-
-func (a *Admin) registerFusionDocs(api *http.ServeMux) {
-	asset := func(name, ctype string) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			b, err := fusionDocsFS.ReadFile("fusion_docs/" + name)
+// mountDocs serves the description of the API and the page that renders it. Describing the API is not reading data: these need no
+// credential, and what they show is what the code would tell anyone.
+func mountDocs(r Router, ops []Op) {
+	asset := func(name, ctype string) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			b, err := docsFS.ReadFile("docs/" + name)
 			if err != nil {
 				http.NotFound(w, r)
 				return
 			}
 			w.Header().Set("Content-Type", ctype)
-			w.Header().Set("Content-Security-Policy", fusionDocsCSP)
+			w.Header().Set("Content-Security-Policy", docsCSP)
 			_, _ = w.Write(b)
-		})
+		}
 	}
-	// Describing the API is not reading data: these need no credential. What they show is what the code would tell anyone.
-	a.handle(api, "GET "+fusionAPIPath+"/docs", accessPublic, asset("index.html", "text/html; charset=utf-8"))
-	a.handle(api, "GET "+fusionAPIPath+"/docs/app.js", accessPublic, asset("app.js", "text/javascript; charset=utf-8"))
-	a.handle(api, "GET "+fusionAPIPath+"/docs/app.css", accessPublic, asset("app.css", "text/css; charset=utf-8"))
-	a.handle(api, "GET "+fusionAPIPath+"/openapi.json", accessPublic, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		specOnce.Do(func() { specJSON, _ = json.Marshal(fusionOpenAPI()) })
+	var once sync.Once
+	var spec []byte
+	r.Open("GET "+APIPath+"/docs", asset("index.html", "text/html; charset=utf-8"))
+	r.Open("GET "+APIPath+"/docs/app.js", asset("app.js", "text/javascript; charset=utf-8"))
+	r.Open("GET "+APIPath+"/docs/app.css", asset("app.css", "text/css; charset=utf-8"))
+	r.Open("GET "+APIPath+"/openapi.json", func(w http.ResponseWriter, r *http.Request) {
+		once.Do(func() { spec, _ = json.Marshal(OpenAPI(ops)) })
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write(specJSON)
-	}))
+		_, _ = w.Write(spec)
+	})
 }
 
 type obj = map[string]any
 
-func paramSchema(p fusionParam) obj {
+func paramSchema(p Param) obj {
 	item := obj{"type": p.Type}
 	if len(p.Enum) > 0 {
 		item["enum"] = p.Enum
@@ -62,7 +60,7 @@ func paramSchema(p fusionParam) obj {
 	return item
 }
 
-func openAPIParam(name, in string, p fusionParam, note string) obj {
+func openAPIParam(name, in string, p Param, note string) obj {
 	desc := p.Desc
 	if note != "" {
 		desc = note
@@ -86,15 +84,15 @@ func openAPIParam(name, in string, p fusionParam, note string) obj {
 	return o
 }
 
-// fusionOpenAPI is the OpenAPI 3.0 description of the data API, generated from fusionOps.
-func fusionOpenAPI() obj {
+// OpenAPI is the OpenAPI 3.0 description of the data API, generated from Ops.
+func OpenAPI(ops []Op) obj {
 	var schemas obj
-	raw, err := fusionDocsFS.ReadFile("fusion_docs/schemas.json")
+	raw, err := docsFS.ReadFile("docs/schemas.json")
 	if err == nil {
 		err = json.Unmarshal(raw, &schemas)
 	}
 	if err != nil {
-		panic("fusion_docs/schemas.json: " + err.Error()) // it is embedded: a test catches this long before a user would
+		panic("docs/schemas.json: " + err.Error()) // it is embedded: a test catches this long before a user would
 	}
 	errResp := func(desc string) obj {
 		return obj{"description": desc, "content": obj{"application/json": obj{"schema": obj{"$ref": "#/components/schemas/Error"}}}}
@@ -102,18 +100,18 @@ func fusionOpenAPI() obj {
 	paths := obj{}
 	tagSeen := map[string]bool{}
 	var tags []obj
-	for i, op := range fusionOps(nil) {
+	for i, op := range ops {
 		if !tagSeen[op.Tag] {
 			tagSeen[op.Tag] = true
 			tags = append(tags, obj{"name": op.Tag})
 		}
 		var params []obj
 		for _, n := range op.PathParams {
-			params = append(params, openAPIParam(n, "path", fusionPathParams[n], ""))
+			params = append(params, openAPIParam(n, "path", PathParamDefs[n], ""))
 		}
 		for _, n := range op.Params {
-			pm := openAPIParam(n, "query", fusionParams[n], op.Notes[n])
-			if ex := op.excluded(n); len(ex) > 0 { // the page greys the others out while this one is filled in
+			pm := openAPIParam(n, "query", ParamDefs[n], op.Notes[n])
+			if ex := op.Conflicts(n); len(ex) > 0 { // the page greys the others out while this one is filled in
 				pm["x-excludes"] = ex
 			}
 			if op.Body == "" && fusedOptionNeedsFused(op, n) {
@@ -125,7 +123,7 @@ func fusionOpenAPI() obj {
 		if op.Stream {
 			ok["content"].(obj)["application/x-ndjson"] = obj{"schema": obj{"type": "string", "description": "One JSON object per line."}}
 		}
-		o := obj{"tags": []string{op.Tag}, "summary": op.Summary, "operationId": opID(op), "parameters": params, "x-order": i,
+		o := obj{"tags": []string{op.Tag}, "summary": op.Summary, "operationId": OperationID(op), "parameters": params, "x-order": i,
 			"responses": obj{"200": ok, "400": obj{"$ref": "#/components/responses/BadRequest"}, "401": obj{"$ref": "#/components/responses/Unauthorized"},
 				"403": obj{"$ref": "#/components/responses/Forbidden"}, "429": obj{"$ref": "#/components/responses/TooManyRequests"},
 				"503": obj{"$ref": "#/components/responses/Unavailable"}, "504": obj{"$ref": "#/components/responses/Timeout"}}}
@@ -136,7 +134,7 @@ func fusionOpenAPI() obj {
 			o["requestBody"] = obj{"required": true, "content": obj{"application/json": obj{
 				"schema": obj{"$ref": "#/components/schemas/" + op.Body}, "example": json.RawMessage(op.BodyExample)}}}
 		}
-		path := fusionAPIPath + op.Path
+		path := APIPath + op.Path
 		if paths[path] == nil {
 			paths[path] = obj{}
 		}
@@ -170,7 +168,8 @@ func fusionOpenAPI() obj {
 	}
 }
 
-func opID(op fusionOp) string {
+// OperationID is the operationId the description gives a route.
+func OperationID(op Op) string {
 	var b strings.Builder
 	b.WriteString(strings.ToLower(op.Method))
 	for _, seg := range strings.FieldsFunc(op.Path, func(r rune) bool { return r == '/' || r == '{' || r == '}' || r == '_' }) {

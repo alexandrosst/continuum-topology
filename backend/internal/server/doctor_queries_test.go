@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"continuum/internal/fusionhttp"
 	"fmt"
 	"io"
 	"net/http"
@@ -77,7 +78,7 @@ var sampleParams = map[string]string{"application": "shop", "service": "cart", "
 	"node": "n1", "trace_id": testTraceID, "span_id": "00f067aa0ba902b7", "contains": "boom"}
 
 func sampleValue(p string) string {
-	fp := fusionParams[p]
+	fp := fusionhttp.ParamDefs[p]
 	switch {
 	case sampleParams[p] != "":
 		return sampleParams[p]
@@ -100,16 +101,16 @@ func readEverything(t *testing.T, d *dataRig, auth opt, all bool) []string {
 		if op.Method != "GET" || op.Open || strings.HasPrefix(op.Path, "/metrics/query") || op.Path == "/status" {
 			continue // a raw query is sent as written, and cannot be built from the vocabulary
 		}
-		path := fusionAPIPath + strings.NewReplacer("{id}", testTraceID, "{name}", "shop").Replace(op.Path)
+		path := fusionhttp.APIPath + strings.NewReplacer("{id}", testTraceID, "{name}", "shop").Replace(op.Path)
 		if strings.HasPrefix(op.Path, "/services/") {
-			path = fusionAPIPath + "/services/cart"
+			path = fusionhttp.APIPath + "/services/cart"
 		}
 		q := url.Values{}
 		for _, p := range op.Params {
 			if !all && p != "from" && p != "to" {
 				continue
 			}
-			if !slices.ContainsFunc(op.excluded(p), q.Has) && p != "query" && p != "q" {
+			if !slices.ContainsFunc(op.Conflicts(p), q.Has) && p != "query" && p != "q" {
 				q.Set(p, sampleValue(p))
 			}
 		}
@@ -261,7 +262,7 @@ func doctorQueries(t *testing.T) {
 		slices.Sort(dims)
 		before := d.stores.count()
 		for _, p := range []string{"/metrics/series", "/logs", "/traces"} {
-			if r := d.get(fusionAPIPath+p+"?application=shop", withCookie(d.admin)); r.Code != 200 {
+			if r := d.get(fusionhttp.APIPath+p+"?application=shop", withCookie(d.admin)); r.Code != 200 {
 				t.Fatalf("%s: %d %s", p, r.Code, r.Body.String())
 			}
 		}

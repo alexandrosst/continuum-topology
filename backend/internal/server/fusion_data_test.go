@@ -1,6 +1,7 @@
 package server
 
 import (
+	"continuum/internal/fusionhttp"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -449,7 +450,7 @@ func TestFusionDataWhenFusionIsOff(t *testing.T) {
 
 func TestFusionDataIsRateLimitedPerCaller(t *testing.T) {
 	d := newDataRig(t)
-	d.a.fusionRL = kernel.NewLimiter(60, 2)
+	d.a.fd().Reads = kernel.NewLimiter(60, 2)
 	a, _ := d.mint(t, map[string]any{"name": "a"})
 	b, _ := d.mint(t, map[string]any{"name": "b"})
 	codes := []int{}
@@ -513,8 +514,8 @@ func TestFusionDataExtendsTheWriteDeadlinePastItsBudget(t *testing.T) {
 	if rec.Code != 200 {
 		t.Fatalf("%d %s", rec.Code, rec.Body.String())
 	}
-	if min := before.Add(fusionRequestTimeout + time.Second); rec.deadline.Before(min) {
-		t.Fatalf("write deadline %v is not past the %v budget", rec.deadline, fusionRequestTimeout)
+	if min := before.Add(fusionhttp.RequestTimeout + time.Second); rec.deadline.Before(min) {
+		t.Fatalf("write deadline %v is not past the %v budget", rec.deadline, fusionhttp.RequestTimeout)
 	}
 }
 

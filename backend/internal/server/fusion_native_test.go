@@ -1,6 +1,7 @@
 package server
 
 import (
+	"continuum/internal/fusionhttp"
 	"net/url"
 	"strings"
 	"testing"
@@ -126,7 +127,7 @@ func TestTheNativeMirrorIsForCallersWithoutALimit(t *testing.T) {
 }
 
 func TestTheNativeMirrorIsDescribedWithTheRestOfTheAPI(t *testing.T) {
-	spec := fusionOpenAPI()
+	spec := fusionhttp.OpenAPI(fusionOps(nil))
 	paths := spec["paths"].(obj)
 	for _, p := range []string{"/api/v1/fusion/prometheus/api/v1/query", "/api/v1/fusion/loki/loki/api/v1/query_range", "/api/v1/fusion/tempo/api/search"} {
 		if paths[p] == nil {

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"continuum/internal/fusionhttp"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -22,27 +23,27 @@ const (
 const nativeNote = "\n\nAnswered exactly as %[1]s answers it (its own format and error shape), so a client written for it works unchanged: point it at `/api/v1/fusion/%[2]s` and send the token as a bearer credential. A hand-written query cannot be narrowed to a namespace or cluster, so only an administrator or a token with no such limit may use this. A POST with a form (`application/x-www-form-urlencoded`) is accepted too, for a long query. What the parameters mean is in %[1]s's HTTP API documentation."
 
 // nativeOp is one mirrored route. Path is the backend's own path; the route is served under the store's name.
-func (a *Admin) nativeOp(store, tag, name string, path, summary string, pathParams, params []string, post bool, notes map[string]string) fusionOp {
-	return fusionOp{Method: "GET", Path: "/" + store + path, Tag: tag, Summary: summary,
+func (a *Admin) nativeOp(store, tag, name string, path, summary string, pathParams, params []string, post bool, notes map[string]string) fusionhttp.Op {
+	return fusionhttp.Op{Method: "GET", Path: "/" + store + path, Tag: tag, Summary: summary,
 		Description: strings.TrimSpace(fmt.Sprintf(nativeNote, name, store)),
 		PathParams:  pathParams, Params: params, Notes: notes, Response: "NativeResponse", AlsoPost: post, Open: true, Handler: a.fusionNative(store, path, pathParams)}
 }
 
 // fusionNative forwards one mirrored route to its store.
-func (a *Admin) fusionNative(store, template string, pathParams []string) fusionHandler {
-	return func(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionCaller) {
+func (a *Admin) fusionNative(store, template string, pathParams []string) fusionhttp.Handler {
+	return func(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionhttp.Caller) {
 		path := template
 		for _, n := range pathParams {
 			v := r.PathValue(n)
 			if err := fusionapi.MirrorSegment(n, v); err != nil {
-				a.fusionErr(w, r, err)
+				a.fd().Err(w, err)
 				return
 			}
 			path = strings.Replace(path, "{"+n+"}", url.PathEscape(v), 1)
 		}
 		resp, err := c.Mirror(r.Context(), who.Scope, store, path, r)
 		if err != nil {
-			a.fusionErr(w, r, err)
+			a.fd().Err(w, err)
 			return
 		}
 		w.Header().Set("Content-Type", resp.ContentType)
@@ -51,7 +52,7 @@ func (a *Admin) fusionNative(store, template string, pathParams []string) fusion
 	}
 }
 
-func nativeOps(a *Admin) []fusionOp {
+func nativeOps(a *Admin) []fusionhttp.Op {
 	rng := []string{"start", "end"}
 	cat := func(g ...[]string) []string {
 		var out []string
@@ -62,7 +63,7 @@ func nativeOps(a *Admin) []fusionOp {
 	}
 	q := func(s string) map[string]string { return map[string]string{"query": s} }
 	lbl := []string{"label"}
-	return []fusionOp{
+	return []fusionhttp.Op{
 		a.nativeOp("prometheus", tagProm, "Prometheus", "/api/v1/query", "Instant query", nil, []string{"query", "time", "timeout"}, true, q("The PromQL expression.")),
 		a.nativeOp("prometheus", tagProm, "Prometheus", "/api/v1/query_range", "Range query", nil, cat([]string{"query"}, rng, []string{"step", "timeout"}), true, q("The PromQL expression.")),
 		a.nativeOp("prometheus", tagProm, "Prometheus", "/api/v1/query_exemplars", "Exemplars of a query", nil, cat([]string{"query"}, rng), true, q("The PromQL selector.")),

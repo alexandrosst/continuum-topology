@@ -1,6 +1,7 @@
 package server
 
 import (
+	"continuum/internal/fusionhttp"
 	"net/http"
 	"net/url"
 	"strings"
@@ -207,27 +208,27 @@ func (f *fusionUIAccess) endUser(userID string) {
 
 // fusionUISessionCaller is the person a page cookie stands for, if they are still an administrator of FUSION's organisation
 // and could still sign in: an account that has been disabled, or that must choose a new password before anything else (the
-// same two refusals fusionCaller makes for the session cookie), loses the pages at its next request too.
-func (a *Admin) fusionUISessionCaller(r *http.Request) (fusionCaller, bool) {
+// same two refusals the guard (fusionhttp.Guard.Caller) makes for the session cookie), loses the pages at its next request too.
+func (a *Admin) fusionUISessionCaller(r *http.Request) (fusionhttp.Caller, bool) {
 	ck, err := r.Cookie(fusionUICookie)
 	if err != nil || ck.Value == "" {
-		return fusionCaller{}, false
+		return fusionhttp.Caller{}, false
 	}
 	g, ok := a.fusionUIAccess.session(ck.Value, a.C.Now())
 	if !ok {
-		return fusionCaller{}, false
+		return fusionhttp.Caller{}, false
 	}
 	u, err := a.C.Store.GetUser(r.Context(), g.userID)
 	if err != nil || u.DisabledAt != nil || u.MustChange {
 		a.fusionUIAccess.end(ck.Value)
-		return fusionCaller{}, false
+		return fusionhttp.Caller{}, false
 	}
 	m, err := a.C.Store.GetMembership(r.Context(), a.fusionOrg(), g.userID)
 	if err != nil || !accounts.Allows(accounts.Standing(m.Role), accounts.ActAdminister) {
 		a.fusionUIAccess.end(ck.Value)
-		return fusionCaller{}, false
+		return fusionhttp.Caller{}, false
 	}
-	return fusionCaller{Kind: "user", ID: g.userID, Name: u.Username}, true
+	return fusionhttp.Caller{Kind: "user", ID: g.userID, Name: u.Username}, true
 }
 
 // endFusionPagesIn ends a person's page sessions when what changed was their standing in FUSION's organisation (the pages

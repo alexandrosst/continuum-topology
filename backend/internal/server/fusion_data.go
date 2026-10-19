@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"continuum/internal/fusionhttp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"continuum/internal/accounts"
 	"continuum/internal/fusion"
 	"continuum/internal/fusionapi"
 	"continuum/internal/httpkit"
@@ -20,26 +20,8 @@ import (
 )
 
 // The shared API over FUSION: one place another system reads the metrics, logs and traces FUSION saved, signal by
-// signal or joined around a trace, with a credential that can read nothing else.
-//
-// Two kinds of caller:
-//
-//   - a FUSION access token ("cnf_..."): minted here by an administrator of the server's main organisation, shown once,
-//     read-only, limited to the signal types, namespaces and clusters it names, and it expires. The one a script, a
-//     dashboard or a decision engine holds.
-//   - a person signed in (a session, or a personal access token) as an administrator of that organisation: the full
-//     read, which is what lets the UI explore the data without minting a token for itself.
-//
-// What a caller may read is a fusionapi.Scope; the queries and the answers are checked against it in internal/fusionapi.
-// The stores themselves authenticate nothing and are not exposed outside the cluster: everything goes through here.
-
-const (
-	fusionRequestTimeout = 30 * time.Second
-	// fusionWriteGrace is how long after the request budget the connection can still be written to, so the partial answer
-	// (the 504 items of a bulk read, the last line of a stream) reaches the caller. The http.Server's WriteTimeout is as
-	// long as the budget and started earlier, so without it the budget would end after the connection could be written.
-	fusionWriteGrace = 5 * time.Second
-)
+// signal or joined around a trace, with a credential that can read nothing else. Who may read, and how the routes are guarded,
+// described and mounted, is internal/fusionhttp; what is left here are the handlers, which read with what Ikhnos knows.
 
 func orEmpty(v []string) []string {
 	if v == nil {
@@ -63,132 +45,7 @@ func (a *Admin) fusionOrg() string {
 
 // ---- the data routes ----
 
-// fusionCaller is who is reading and what they may read.
-type fusionCaller struct {
-	Kind      string // token | user
-	ID        string
-	Name      string
-	Scope     fusionapi.Scope
-	ExpiresAt *time.Time
-}
-
-type fusionHandler func(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionCaller)
-
-// fusionData authenticates the caller, rate-limits it, bounds the request, and hands the handler a client for the
-// stores and the Scope it may read with.
-func (a *Admin) fusionData(h fusionHandler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if a.Fusion == nil { // nothing to read, so nothing to authenticate for
-			httpkit.WriteErr(w, http.StatusServiceUnavailable, a.Fusion.Status(r.Context()).Message)
-			return
-		}
-		who, err := a.fusionCaller(r)
-		if err != nil {
-			var e *kernel.Error
-			if errors.As(err, &e) && e.Kind == kernel.KindForbidden {
-				httpkit.WriteErr(w, http.StatusForbidden, e.Msg)
-				return
-			}
-			kernel.Metrics.AuthFailures.Add(1)
-			// Failed authentications are throttled per address, the same as the rest of the API.
-			if !a.authRL.Allow(kernel.LimitKey(a.clientIP(r))) {
-				httpkit.WriteErr(w, http.StatusTooManyRequests, "too many failed attempts, wait a minute")
-				return
-			}
-			httpkit.WriteErr(w, http.StatusUnauthorized, "sign in required")
-			return
-		}
-		if !a.fusionRL.Allow(who.Kind + "|" + who.ID) {
-			w.Header().Set("Retry-After", "5")
-			httpkit.WriteErr(w, http.StatusTooManyRequests, "too many requests, slow down")
-			return
-		}
-		_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(fusionRequestTimeout + fusionWriteGrace))
-		ctx, cancel := context.WithTimeout(r.Context(), fusionRequestTimeout)
-		defer cancel()
-		h(w, r.WithContext(ctx), a.Fusion.DataClient(), who)
-	})
-}
-
-// fusionCaller works out who is asking: a FUSION token, or a signed-in administrator of the FUSION organisation.
-func (a *Admin) fusionCaller(r *http.Request) (fusionCaller, error) {
-	ctx := r.Context()
-	deny := kernel.Errf(kernel.KindUnauthenticated, "sign in required")
-	var p accounts.Principal
-	var err error
-	// A credential given on purpose beats one the browser sends along: someone trying a token on the docs page, signed in as
-	// an administrator, must be reading with the token's rights and not the administrator's.
-	if secret, ok := bearerToken(r); ok {
-		if kernel.LooksLikeFusionToken(secret) {
-			tok, err := a.C.Fusion.AuthenticateFusionToken(ctx, secret)
-			if err != nil || tok.OrgID != a.fusionOrg() {
-				return fusionCaller{}, deny
-			}
-			exp := tok.ExpiresAt
-			return fusionCaller{Kind: "token", ID: tok.ID, Name: tok.Name, ExpiresAt: &exp,
-				Scope: fusionapi.Scope{Signals: tok.Signals, Namespaces: tok.Namespaces, Clusters: tok.Clusters}}, nil
-		}
-		p, err = a.C.Accounts.AuthenticateAPIToken(ctx, secret)
-	} else if secret, ok := sessionCookie(r); ok {
-		p, err = a.C.Accounts.Authenticate(ctx, secret)
-	} else {
-		return fusionCaller{}, deny
-	}
-	if err != nil {
-		return fusionCaller{}, deny
-	}
-	if p.User.MustChange {
-		return fusionCaller{}, kernel.Errf(kernel.KindForbidden, "you must choose a new password before doing anything else")
-	}
-	if p, err = a.C.Accounts.Member(ctx, p, a.fusionOrg()); err != nil {
-		return fusionCaller{}, deny
-	}
-	if !accounts.Allows(p, accounts.ActAdminister) {
-		return fusionCaller{}, kernel.Errf(kernel.KindForbidden, "reading FUSION's data takes an administrator of the organisation, or a FUSION access token")
-	}
-	return fusionCaller{Kind: "user", ID: p.User.ID, Name: p.User.Username, Scope: fusionapi.AllSignals()}, nil
-}
-
-// fusionErr writes a failure from the query package (or the request's own context).
-func (a *Admin) fusionErr(w http.ResponseWriter, r *http.Request, err error) {
-	var fe *fusionapi.Error
-	switch {
-	case errors.As(err, &fe):
-		httpkit.WriteErr(w, fe.Status, fe.Msg)
-	case errors.Is(err, context.DeadlineExceeded):
-		httpkit.WriteErr(w, http.StatusGatewayTimeout, "FUSION took too long to answer; narrow the time range or the filters")
-	case errors.Is(err, context.Canceled):
-		// The caller went away; nothing to tell it.
-	default:
-		a.fail(w, err)
-	}
-}
-
-// registerFusionData mounts the data API from the one table that also describes it (fusion_ops.go), so a route cannot
-// exist without being documented.
-func (a *Admin) registerFusionData(api *http.ServeMux) {
-	for _, op := range fusionOps(a) {
-		h := a.fusionChecked(op)
-		a.handle(api, op.Method+" "+fusionAPIPath+op.Path, accessFusionCredential, a.fusionData(h))
-		if op.AlsoPost {
-			a.handle(api, "POST "+fusionAPIPath+op.Path, accessFusionCredential, a.fusionData(h))
-		}
-	}
-	a.registerFusionDocs(api)
-}
-
-// fusionChecked refuses a query string the route does not take (fusionOp.checkQuery) before its handler runs.
-func (a *Admin) fusionChecked(op fusionOp) fusionHandler {
-	return func(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionCaller) {
-		if err := op.checkQuery(r.URL.Query()); err != nil {
-			a.fusionErr(w, r, err)
-			return
-		}
-		op.Handler(w, r, c, who)
-	}
-}
-
-func (a *Admin) fusionStatus(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionCaller) {
+func (a *Admin) fusionStatus(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionhttp.Caller) {
 	access := map[string]any{"kind": who.Kind, "name": who.Name, "signals": who.Scope.Signals,
 		"namespaces": orEmpty(who.Scope.Namespaces), "clusters": orEmpty(who.Scope.Clusters), "rawQueries": who.Scope.Unrestricted()}
 	if who.ExpiresAt != nil {
@@ -209,45 +66,6 @@ func (a *Admin) fusionStatus(w http.ResponseWriter, r *http.Request, c *fusionap
 
 // ---- parameters ----
 
-func fusionRange(r *http.Request, now time.Time) (fusionapi.TimeRange, error) {
-	q := r.URL.Query()
-	return fusionapi.ParseRange(q.Get("from"), q.Get("to"), now)
-}
-
-// fusionScope is the Scope a structured list read runs with: the caller's own, narrowed to one Ikhnos application when the
-// request names one (application=<id or name>). The application is resolved here, at read time, from what Ikhnos knows
-// now, so changing an application changes what it shows without touching any stored telemetry. The caller's own Scope
-// (who.Scope) is what everything not narrowed keeps using: reading one trace, and the fused joins around a search hit.
-func (a *Admin) fusionScope(r *http.Request, who fusionCaller) (fusionapi.Scope, error) {
-	q := r.URL.Query()
-	if !q.Has("application") {
-		return who.Scope, nil
-	}
-	groups, err := a.fusionGroups(r, who)
-	if err != nil {
-		return fusionapi.Scope{}, err
-	}
-	g, err := fusionapi.FindGroup(groups, q.Get("application"))
-	if err != nil {
-		return fusionapi.Scope{}, err
-	}
-	return who.Scope.FocusOn(g)
-}
-
-// fusionGroups are the Ikhnos applications the caller may know of: each with only the services in the caller's namespaces
-// and clusters, and only those that have any (fusionapi.VisibleGroups).
-func (a *Admin) fusionGroups(r *http.Request, who fusionCaller) ([]fusionapi.AppGroup, error) {
-	ex := a.fusionExtras()
-	if ex == nil {
-		return nil, &fusionapi.Error{Status: http.StatusServiceUnavailable, Msg: "this server does not know the applications"}
-	}
-	groups, err := ex.Applications(r.Context())
-	if err != nil {
-		return nil, err
-	}
-	return fusionapi.VisibleGroups(groups, who.Scope), nil
-}
-
 func metricFilter(q url.Values) fusionapi.MetricFilter {
 	cats, _ := fusionapi.ParseCategories(q.Get("category")) // already checked by the route (checkQuery)
 	return fusionapi.MetricFilter{Name: q.Get("name"), NameRegex: q.Get("metric"), Service: q.Get("service"), Namespace: q.Get("namespace"),
@@ -257,20 +75,20 @@ func metricFilter(q url.Values) fusionapi.MetricFilter {
 // fusionApplications lists the Ikhnos applications, each with its services and which signals FUSION has for them in the range.
 // An application here is what Ikhnos calls one (a group of services); the services themselves, as the telemetry names them, are
 // listed by fusionServices.
-func (a *Admin) fusionApplications(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionCaller) {
-	tr, err := fusionRange(r, a.C.Now())
+func (a *Admin) fusionApplications(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionhttp.Caller) {
+	tr, err := fusionhttp.Range(r, a.C.Now())
 	if err != nil {
-		a.fusionErr(w, r, err)
+		a.fd().Err(w, err)
 		return
 	}
-	groups, err := a.fusionGroups(r, who)
+	groups, err := a.fd().Groups(r, who)
 	if err != nil {
-		a.fusionErr(w, r, err)
+		a.fd().Err(w, err)
 		return
 	}
 	svcs, sources, warnings, err := c.Applications(r.Context(), who.Scope, tr)
 	if err != nil {
-		a.fusionErr(w, r, err)
+		a.fd().Err(w, err)
 		return
 	}
 	httpkit.WriteJSON(w, 200, map[string]any{"applications": fusionapi.DescribeGroups(groups, svcs), "sources": sources, "warnings": orEmpty(warnings), "from": tr.From, "to": tr.To})
@@ -278,20 +96,20 @@ func (a *Admin) fusionApplications(w http.ResponseWriter, r *http.Request, c *fu
 
 // fusionServices lists the services that have telemetry (their service.name), each with its signals and the Ikhnos
 // applications it is in. These are what the telemetry itself calls an application, which is not what Ikhnos does.
-func (a *Admin) fusionServices(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionCaller) {
-	tr, err := fusionRange(r, a.C.Now())
+func (a *Admin) fusionServices(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionhttp.Caller) {
+	tr, err := fusionhttp.Range(r, a.C.Now())
 	if err != nil {
-		a.fusionErr(w, r, err)
+		a.fd().Err(w, err)
 		return
 	}
-	scope, err := a.fusionScope(r, who)
+	scope, err := a.fd().Scope(r, who)
 	if err != nil {
-		a.fusionErr(w, r, err)
+		a.fd().Err(w, err)
 		return
 	}
 	svcs, sources, warnings, err := c.Applications(r.Context(), scope, tr)
 	if err != nil {
-		a.fusionErr(w, r, err)
+		a.fd().Err(w, err)
 		return
 	}
 	type item struct {
@@ -299,7 +117,7 @@ func (a *Admin) fusionServices(w http.ResponseWriter, r *http.Request, c *fusion
 		Applications []string `json:"applications"`
 	}
 	in := map[string][]string{}
-	if groups, err := a.fusionGroups(r, who); err == nil { // best effort: the list is useful without it
+	if groups, err := a.fd().Groups(r, who); err == nil { // best effort: the list is useful without it
 		for _, g := range groups {
 			for _, n := range g.ServiceNames() {
 				in[n] = append(in[n], g.Name)
@@ -318,25 +136,25 @@ func (a *Admin) fusionServices(w http.ResponseWriter, r *http.Request, c *fusion
 }
 
 // fusionApplication is one Ikhnos application at a glance, named by its id or its name.
-func (a *Admin) fusionApplication(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionCaller) {
-	tr, err := fusionRange(r, a.C.Now())
+func (a *Admin) fusionApplication(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionhttp.Caller) {
+	tr, err := fusionhttp.Range(r, a.C.Now())
 	if err != nil {
-		a.fusionErr(w, r, err)
+		a.fd().Err(w, err)
 		return
 	}
-	groups, err := a.fusionGroups(r, who)
+	groups, err := a.fd().Groups(r, who)
 	if err != nil {
-		a.fusionErr(w, r, err)
+		a.fd().Err(w, err)
 		return
 	}
 	g, err := fusionapi.FindGroup(groups, r.PathValue("name"))
 	if err != nil {
-		a.fusionErr(w, r, err)
+		a.fd().Err(w, err)
 		return
 	}
 	o, err := c.ApplicationOverview(r.Context(), who.Scope, g, tr)
 	if err != nil {
-		a.fusionErr(w, r, err)
+		a.fd().Err(w, err)
 		return
 	}
 	httpkit.WriteJSON(w, 200, o)
@@ -349,7 +167,7 @@ type topologyAter interface {
 
 // fusionAppTopology is one application's services and the traffic between them and the rest of the estate, now or (at=) as of a
 // past moment, with what changed around them in the window before it.
-func (a *Admin) fusionAppTopology(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionCaller) {
+func (a *Admin) fusionAppTopology(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionhttp.Caller) {
 	q := r.URL.Query()
 	window, err := fusionapi.DurationParam(q.Get("window"))
 	if err == nil && (window < 0 || window > fusionapi.MaxTopologyWindow) {
@@ -369,16 +187,16 @@ func (a *Admin) fusionAppTopology(w http.ResponseWriter, r *http.Request, c *fus
 		}
 	}
 	if err != nil {
-		a.fusionErr(w, r, err)
+		a.fd().Err(w, err)
 		return
 	}
-	groups, err := a.fusionGroups(r, who)
+	groups, err := a.fd().Groups(r, who)
 	var g *fusionapi.AppGroup
 	if err == nil {
 		g, err = fusionapi.FindGroup(groups, r.PathValue("name"))
 	}
 	if err != nil {
-		a.fusionErr(w, r, err)
+		a.fd().Err(w, err)
 		return
 	}
 	ex, until := a.fusionExtras(), a.C.Now()
@@ -386,7 +204,7 @@ func (a *Admin) fusionAppTopology(w http.ResponseWriter, r *http.Request, c *fus
 	if !at.IsZero() {
 		h, ok := ex.(topologyAter)
 		if !ok {
-			a.fusionErr(w, r, &fusionapi.Error{Status: 404, Msg: "history is not enabled on this server: it needs the graph database"})
+			a.fd().Err(w, &fusionapi.Error{Status: 404, Msg: "history is not enabled on this server: it needs the graph database"})
 			return
 		}
 		var members []fusionapi.AppMember
@@ -403,7 +221,7 @@ func (a *Admin) fusionAppTopology(w http.ResponseWriter, r *http.Request, c *fus
 		v, err = ex.Topology(r.Context())
 	}
 	if err != nil {
-		a.fusionErr(w, r, err)
+		a.fd().Err(w, err)
 		return
 	}
 	t := fusionapi.BuildAppTopology(g, v, who.Scope, noise)
@@ -413,7 +231,7 @@ func (a *Admin) fusionAppTopology(w http.ResponseWriter, r *http.Request, c *fus
 	}
 	evs, err := ex.Changes(r.Context(), until.Add(-window), until, nil, t.Targets(), fusionapi.MaxAppChanges+1)
 	if err != nil {
-		a.fusionErr(w, r, err)
+		a.fd().Err(w, err)
 		return
 	}
 	t.AddChanges(evs)
@@ -421,39 +239,39 @@ func (a *Admin) fusionAppTopology(w http.ResponseWriter, r *http.Request, c *fus
 }
 
 // fusionService is one service at a glance, by the service.name its telemetry carries.
-func (a *Admin) fusionService(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionCaller) {
-	tr, err := fusionRange(r, a.C.Now())
+func (a *Admin) fusionService(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionhttp.Caller) {
+	tr, err := fusionhttp.Range(r, a.C.Now())
 	if err != nil {
-		a.fusionErr(w, r, err)
+		a.fd().Err(w, err)
 		return
 	}
 	o, err := c.ServiceOverview(r.Context(), who.Scope, r.PathValue("name"), tr)
 	if err != nil {
-		a.fusionErr(w, r, err)
+		a.fd().Err(w, err)
 		return
 	}
 	httpkit.WriteJSON(w, 200, o)
 }
 
-func (a *Admin) fusionMetricNames(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionCaller) {
-	tr, err := fusionRange(r, a.C.Now())
+func (a *Admin) fusionMetricNames(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionhttp.Caller) {
+	tr, err := fusionhttp.Range(r, a.C.Now())
 	if err != nil {
-		a.fusionErr(w, r, err)
+		a.fd().Err(w, err)
 		return
 	}
 	limit, err := fusionapi.Limit(r.URL.Query().Get("limit"), 500, 5000)
 	if err != nil {
-		a.fusionErr(w, r, err)
+		a.fd().Err(w, err)
 		return
 	}
-	scope, err := a.fusionScope(r, who)
+	scope, err := a.fd().Scope(r, who)
 	if err != nil {
-		a.fusionErr(w, r, err)
+		a.fd().Err(w, err)
 		return
 	}
 	names, truncated, err := c.MetricNames(r.Context(), scope, metricFilter(r.URL.Query()), tr, limit)
 	if err != nil {
-		a.fusionErr(w, r, err)
+		a.fd().Err(w, err)
 		return
 	}
 	cat := make(map[string]string, len(names))
@@ -463,25 +281,25 @@ func (a *Admin) fusionMetricNames(w http.ResponseWriter, r *http.Request, c *fus
 	httpkit.WriteJSON(w, 200, map[string]any{"names": orEmpty(names), "categories": cat, "truncated": truncated, "limit": limit, "from": tr.From, "to": tr.To})
 }
 
-func (a *Admin) fusionMetricSeries(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionCaller) {
-	tr, err := fusionRange(r, a.C.Now())
+func (a *Admin) fusionMetricSeries(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionhttp.Caller) {
+	tr, err := fusionhttp.Range(r, a.C.Now())
 	if err != nil {
-		a.fusionErr(w, r, err)
+		a.fd().Err(w, err)
 		return
 	}
 	limit, err := fusionapi.Limit(r.URL.Query().Get("limit"), 200, 2000)
 	if err != nil {
-		a.fusionErr(w, r, err)
+		a.fd().Err(w, err)
 		return
 	}
-	scope, err := a.fusionScope(r, who)
+	scope, err := a.fd().Scope(r, who)
 	if err != nil {
-		a.fusionErr(w, r, err)
+		a.fd().Err(w, err)
 		return
 	}
 	series, truncated, err := c.Series(r.Context(), scope, metricFilter(r.URL.Query()), tr, limit)
 	if err != nil {
-		a.fusionErr(w, r, err)
+		a.fd().Err(w, err)
 		return
 	}
 	if series == nil {
@@ -490,41 +308,41 @@ func (a *Admin) fusionMetricSeries(w http.ResponseWriter, r *http.Request, c *fu
 	httpkit.WriteJSON(w, 200, map[string]any{"series": series, "truncated": truncated, "limit": limit, "from": tr.From, "to": tr.To})
 }
 
-func (a *Admin) fusionMetricRange(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionCaller) {
+func (a *Admin) fusionMetricRange(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionhttp.Caller) {
 	q := r.URL.Query()
-	tr, err := fusionRange(r, a.C.Now())
+	tr, err := fusionhttp.Range(r, a.C.Now())
 	if err != nil {
-		a.fusionErr(w, r, err)
+		a.fd().Err(w, err)
 		return
 	}
 	limit, err := fusionapi.Limit(q.Get("limit"), 20, 100)
 	if err != nil {
-		a.fusionErr(w, r, err)
+		a.fd().Err(w, err)
 		return
 	}
 	req, err := fusionapi.DurationParam(q.Get("step"))
 	if err != nil {
-		a.fusionErr(w, r, err)
+		a.fd().Err(w, err)
 		return
 	}
 	step, err := fusionapi.ChooseStep(tr, req, 120)
 	if err != nil {
-		a.fusionErr(w, r, err)
+		a.fd().Err(w, err)
 		return
 	}
-	scope, err := a.fusionScope(r, who)
+	scope, err := a.fd().Scope(r, who)
 	if err != nil {
-		a.fusionErr(w, r, err)
+		a.fd().Err(w, err)
 		return
 	}
 	f := metricFilter(q)
 	if err := f.NeedSelective(scope); err != nil {
-		a.fusionErr(w, r, err)
+		a.fd().Err(w, err)
 		return
 	}
 	series, truncated, err := c.MetricRange(r.Context(), scope, f, tr, step, limit)
 	if err != nil {
-		a.fusionErr(w, r, err)
+		a.fd().Err(w, err)
 		return
 	}
 	if series == nil {
@@ -534,11 +352,11 @@ func (a *Admin) fusionMetricRange(w http.ResponseWriter, r *http.Request, c *fus
 }
 
 // fusionMetricRaw is PromQL as written, answered the way Prometheus itself answers.
-func (a *Admin) fusionMetricRaw(endpoint string) fusionHandler {
-	return func(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionCaller) {
+func (a *Admin) fusionMetricRaw(endpoint string) fusionhttp.Handler {
+	return func(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionhttp.Caller) {
 		data, err := c.RawMetricQuery(r.Context(), who.Scope, endpoint, r.URL.Query())
 		if err != nil {
-			a.fusionErr(w, r, err)
+			a.fd().Err(w, err)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -548,23 +366,23 @@ func (a *Admin) fusionMetricRaw(endpoint string) fusionHandler {
 	}
 }
 
-func (a *Admin) fusionLogs(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionCaller) {
+func (a *Admin) fusionLogs(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionhttp.Caller) {
 	q := r.URL.Query()
-	tr, err := fusionRange(r, a.C.Now())
+	tr, err := fusionhttp.Range(r, a.C.Now())
 	if err != nil {
-		a.fusionErr(w, r, err)
+		a.fd().Err(w, err)
 		return
 	}
 	limit, err := fusionapi.Limit(q.Get("limit"), 200, 2000)
 	if err != nil {
-		a.fusionErr(w, r, err)
+		a.fd().Err(w, err)
 		return
 	}
 	var order string
 	switch order = q.Get("order"); order {
 	case "", "newest", "oldest":
 	default:
-		a.fusionErr(w, r, &fusionapi.Error{Status: http.StatusBadRequest, Msg: "order must be newest or oldest"})
+		a.fd().Err(w, &fusionapi.Error{Status: http.StatusBadRequest, Msg: "order must be newest or oldest"})
 		return
 	}
 	backward := order != "oldest"
@@ -572,7 +390,7 @@ func (a *Admin) fusionLogs(w http.ResponseWriter, r *http.Request, c *fusionapi.
 	var truncated bool
 	if raw := q.Get("query"); raw != "" {
 		entries, truncated, err = c.RawLogQuery(r.Context(), who.Scope, raw, backward, tr, limit)
-	} else if scope, serr := a.fusionScope(r, who); serr != nil {
+	} else if scope, serr := a.fd().Scope(r, who); serr != nil {
 		err = serr
 	} else {
 		cats, _ := fusionapi.ParseCategories(q.Get("category")) // already checked by the route (checkQuery)
@@ -582,7 +400,7 @@ func (a *Admin) fusionLogs(w http.ResponseWriter, r *http.Request, c *fusionapi.
 		}, tr, limit)
 	}
 	if err != nil {
-		a.fusionErr(w, r, err)
+		a.fd().Err(w, err)
 		return
 	}
 	if entries == nil {
@@ -591,22 +409,22 @@ func (a *Admin) fusionLogs(w http.ResponseWriter, r *http.Request, c *fusionapi.
 	httpkit.WriteJSON(w, 200, map[string]any{"entries": entries, "truncated": truncated, "limit": limit, "from": tr.From, "to": tr.To})
 }
 
-func (a *Admin) fusionTraces(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionCaller) {
+func (a *Admin) fusionTraces(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionhttp.Caller) {
 	q := r.URL.Query()
-	tr, err := fusionRange(r, a.C.Now())
+	tr, err := fusionhttp.Range(r, a.C.Now())
 	if err != nil {
-		a.fusionErr(w, r, err)
+		a.fd().Err(w, err)
 		return
 	}
 	opts, fused, err := fusionapi.ParseFuseParams(q)
 	if err != nil {
-		a.fusionErr(w, r, err)
+		a.fd().Err(w, err)
 		return
 	}
 	opts.Extras = a.fusionExtras()
 	stream, err := wantsStream(r)
 	if err != nil {
-		a.fusionErr(w, r, err)
+		a.fd().Err(w, err)
 		return
 	}
 	def, max := 20, 100
@@ -615,7 +433,7 @@ func (a *Admin) fusionTraces(w http.ResponseWriter, r *http.Request, c *fusionap
 	}
 	limit, err := fusionapi.Limit(q.Get("limit"), def, max)
 	if err != nil {
-		a.fusionErr(w, r, err)
+		a.fd().Err(w, err)
 		return
 	}
 	var traces []fusionapi.TraceSummary
@@ -629,7 +447,7 @@ func (a *Admin) fusionTraces(w http.ResponseWriter, r *http.Request, c *fusionap
 		}
 		var scope fusionapi.Scope
 		if err == nil {
-			scope, err = a.fusionScope(r, who)
+			scope, err = a.fd().Scope(r, who)
 		}
 		if err == nil {
 			cats, _ := fusionapi.ParseCategories(q.Get("category")) // already checked by the route (checkQuery)
@@ -640,7 +458,7 @@ func (a *Admin) fusionTraces(w http.ResponseWriter, r *http.Request, c *fusionap
 		}
 	}
 	if err != nil {
-		a.fusionErr(w, r, err)
+		a.fd().Err(w, err)
 		return
 	}
 	if traces == nil {
@@ -670,18 +488,18 @@ func (a *Admin) fusionTraces(w http.ResponseWriter, r *http.Request, c *fusionap
 
 // fusionTrace is one trace; with fused=true (or an include list) it is the fused object: each span carrying its log
 // lines and each resource its metric series, and whatever else the options ask for.
-func (a *Admin) fusionTrace(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionCaller) {
+func (a *Admin) fusionTrace(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionhttp.Caller) {
 	id := r.PathValue("id")
 	opts, fused, err := fusionapi.ParseFuseParams(r.URL.Query())
 	if err != nil {
-		a.fusionErr(w, r, err)
+		a.fd().Err(w, err)
 		return
 	}
 	opts.Extras = a.fusionExtras()
 	if !fused {
 		tr, err := c.Trace(r.Context(), who.Scope, id)
 		if err != nil {
-			a.fusionErr(w, r, err)
+			a.fd().Err(w, err)
 			return
 		}
 		httpkit.WriteJSON(w, 200, tr)
@@ -689,7 +507,7 @@ func (a *Admin) fusionTrace(w http.ResponseWriter, r *http.Request, c *fusionapi
 	}
 	f, err := c.FuseTrace(r.Context(), who.Scope, id, opts)
 	if err != nil {
-		a.fusionErr(w, r, err)
+		a.fd().Err(w, err)
 		return
 	}
 	httpkit.WriteJSON(w, 200, f)
@@ -700,29 +518,29 @@ const maxBatchBody = 64 << 10
 
 // fusionTraceBatch reads many traces in one request. The body names the ids and any option the single read takes
 // (include, pad, metric, omit, span_status ...), so a script states once what it wants from all of them.
-func (a *Admin) fusionTraceBatch(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionCaller) {
+func (a *Admin) fusionTraceBatch(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionhttp.Caller) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxBatchBody)
 	dec := json.NewDecoder(r.Body)
 	dec.UseNumber()
 	var body map[string]any
 	if err := dec.Decode(&body); err != nil {
-		a.fusionErr(w, r, &fusionapi.Error{Status: http.StatusBadRequest, Msg: "the body must be a JSON object such as {\"ids\": [\"<trace id>\"], \"include\": [\"logs\", \"metrics\"]}"})
+		a.fd().Err(w, &fusionapi.Error{Status: http.StatusBadRequest, Msg: "the body must be a JSON object such as {\"ids\": [\"<trace id>\"], \"include\": [\"logs\", \"metrics\"]}"})
 		return
 	}
 	q := r.URL.Query() // options given in the query string are defaults the body overrides
 	for k, v := range body {
 		if k != "ids" && k != "stream" && !slices.Contains(fusionapi.FuseParamNames, k) {
-			a.fusionErr(w, r, &fusionapi.Error{Status: http.StatusBadRequest, Msg: fmt.Sprintf("unknown field %q", kernel.Printable(k, 40))})
+			a.fd().Err(w, &fusionapi.Error{Status: http.StatusBadRequest, Msg: fmt.Sprintf("unknown field %q", kernel.Printable(k, 40))})
 			return
 		}
 		if k == "fused" {
-			a.fusionErr(w, r, &fusionapi.Error{Status: http.StatusBadRequest, Msg: "a batch is always fused; use include=none for the traces alone"})
+			a.fd().Err(w, &fusionapi.Error{Status: http.StatusBadRequest, Msg: "a batch is always fused; use include=none for the traces alone"})
 			return
 		}
 		if k == fusionapi.ParamPromQL { // queries hold commas, so they are not a comma-joined list
 			qs, err := promqlValues(v)
 			if err != nil {
-				a.fusionErr(w, r, &fusionapi.Error{Status: http.StatusBadRequest, Msg: fmt.Sprintf("%s: %v", k, err)})
+				a.fd().Err(w, &fusionapi.Error{Status: http.StatusBadRequest, Msg: fmt.Sprintf("%s: %v", k, err)})
 				return
 			}
 			q[k] = qs
@@ -730,34 +548,34 @@ func (a *Admin) fusionTraceBatch(w http.ResponseWriter, r *http.Request, c *fusi
 		}
 		str, err := paramString(v)
 		if err != nil {
-			a.fusionErr(w, r, &fusionapi.Error{Status: http.StatusBadRequest, Msg: fmt.Sprintf("%s: %v", k, err)})
+			a.fd().Err(w, &fusionapi.Error{Status: http.StatusBadRequest, Msg: fmt.Sprintf("%s: %v", k, err)})
 			return
 		}
 		q.Set(k, str)
 	}
 	if q.Has("fused") {
-		a.fusionErr(w, r, &fusionapi.Error{Status: http.StatusBadRequest, Msg: "a batch is always fused; use include=none for the traces alone"})
+		a.fd().Err(w, &fusionapi.Error{Status: http.StatusBadRequest, Msg: "a batch is always fused; use include=none for the traces alone"})
 		return
 	}
 	ids, err := fusionapi.NormalizeIDs(strings.Split(q.Get("ids"), ","))
 	if err != nil {
-		a.fusionErr(w, r, err)
+		a.fd().Err(w, err)
 		return
 	}
 	opts, err := fusionapi.ParseFuseOptions(q)
 	if err != nil {
-		a.fusionErr(w, r, err)
+		a.fd().Err(w, err)
 		return
 	}
 	opts.Extras = a.fusionExtras()
 	stream := false
 	if v := q.Get("stream"); v != "" {
 		if stream, err = fusionapi.ParseBool("stream", v, false); err != nil {
-			a.fusionErr(w, r, err)
+			a.fd().Err(w, err)
 			return
 		}
 	} else if stream, err = wantsStream(r); err != nil {
-		a.fusionErr(w, r, err)
+		a.fd().Err(w, err)
 		return
 	}
 	if !a.fusionBulkAllowed(w, who, len(ids)) {
@@ -842,9 +660,9 @@ func nonNilItems(items []fusionapi.BulkItem) []fusionapi.BulkItem {
 
 // fusionBulkAllowed charges the caller's rate limit for the traces beyond the first: reading 25 is 25 reads, whatever
 // the number of requests.
-func (a *Admin) fusionBulkAllowed(w http.ResponseWriter, who fusionCaller, n int) bool {
+func (a *Admin) fusionBulkAllowed(w http.ResponseWriter, who fusionhttp.Caller, n int) bool {
 	for i := 1; i < n; i++ {
-		if !a.fusionRL.Allow(who.Kind + "|" + who.ID) {
+		if !a.fd().Allow(who) {
 			w.Header().Set("Retry-After", "5")
 			httpkit.WriteErr(w, http.StatusTooManyRequests, "too many requests, slow down; read fewer traces at a time")
 			return false
@@ -865,7 +683,7 @@ func wantsStream(r *http.Request) (bool, error) {
 // trace as soon as it is read - in the order they finish, not the order asked - and a last line that counts them. A
 // caller can start on the first trace while the rest are still being read, and a deadline costs it only the traces not
 // yet done. The status is 200 once the first line is out; each line carries its own status.
-func (a *Admin) streamBulk(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionCaller, ids []string, opts fusionapi.FuseOptions, head any) {
+func (a *Admin) streamBulk(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionhttp.Caller, ids []string, opts fusionapi.FuseOptions, head any) {
 	w.Header().Set("Content-Type", "application/x-ndjson")
 	w.Header().Set("X-Accel-Buffering", "no") // a reverse proxy must pass lines on as they come
 	w.WriteHeader(http.StatusOK)
