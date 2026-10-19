@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -18,7 +17,6 @@ import (
 	"continuum/internal/fusionapi"
 	"continuum/internal/httpkit"
 	"continuum/internal/kernel"
-	"continuum/internal/store"
 )
 
 // The shared API over FUSION: one place another system reads the metrics, logs and traces FUSION saved, signal by
@@ -36,181 +34,18 @@ import (
 // The stores themselves authenticate nothing and are not exposed outside the cluster: everything goes through here.
 
 const (
-	maxFusionTokens       = 50
-	maxFusionTokenName    = 64
-	defaultFusionTokenTTL = 90 * 24 * time.Hour
-	minFusionTokenTTL     = time.Hour
-	maxFusionTokenTTL     = 365 * 24 * time.Hour
-	maxScopeEntries       = 50
-	fusionRequestTimeout  = 30 * time.Second
+	fusionRequestTimeout = 30 * time.Second
 	// fusionWriteGrace is how long after the request budget the connection can still be written to, so the partial answer
 	// (the 504 items of a bulk read, the last line of a stream) reaches the caller. The http.Server's WriteTimeout is as
 	// long as the budget and started earlier, so without it the budget would end after the connection could be written.
 	fusionWriteGrace = 5 * time.Second
 )
 
-var (
-	namespaceRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,252}$`)
-	clusterRe   = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
-)
-
-// FusionTokenSpec is what a new FUSION access token is allowed.
-type FusionTokenSpec struct {
-	Name       string
-	Signals    []string // empty = all three
-	Namespaces []string // empty = every namespace
-	Clusters   []string // empty = every cluster
-	TTL        time.Duration
-}
-
-func cleanScopeList(what string, in []string, re *regexp.Regexp) ([]string, error) {
-	var out []string
-	// (An empty list means "no limit", so one that was given but cleans down to nothing is refused below.)
-
-	for _, v := range in {
-		v = strings.TrimSpace(v)
-		if v == "" || slices.Contains(out, v) {
-			continue
-		}
-		if !re.MatchString(v) {
-			return nil, kernel.Errf(kernel.KindInvalid, "%q is not a valid %s", kernel.Printable(v, 40), what)
-		}
-		out = append(out, v)
-	}
-	if len(in) > 0 && len(out) == 0 {
-		return nil, kernel.Errf(kernel.KindInvalid, "name at least one %s, or leave the list out to allow every one", what)
-	}
-	if len(out) > maxScopeEntries {
-		return nil, kernel.Errf(kernel.KindInvalid, "a token can name at most %d %ss", maxScopeEntries, what)
-	}
-	return out, nil
-}
-
-// CreateFusionToken mints a FUSION access token. The secret is returned once and never stored.
-func (c *Core) CreateFusionToken(ctx context.Context, actor string, spec FusionTokenSpec) (string, store.FusionToken, error) {
-	name := strings.TrimSpace(spec.Name)
-	if name == "" || len(name) > maxFusionTokenName || kernel.Printable(name, maxFusionTokenName+1) != name {
-		return "", store.FusionToken{}, kernel.Errf(kernel.KindInvalid, "give the token a name of up to %d characters", maxFusionTokenName)
-	}
-	signals, err := fusionapi.NormalizeSignals(spec.Signals)
-	if err != nil {
-		return "", store.FusionToken{}, kernel.Errf(kernel.KindInvalid, "%v", err)
-	}
-	namespaces, err := cleanScopeList("namespace", spec.Namespaces, namespaceRe)
-	if err != nil {
-		return "", store.FusionToken{}, err
-	}
-	clusters, err := cleanScopeList("cluster id", spec.Clusters, clusterRe)
-	if err != nil {
-		return "", store.FusionToken{}, err
-	}
-	ttl := spec.TTL
-	if ttl == 0 {
-		ttl = defaultFusionTokenTTL
-	}
-	if ttl < minFusionTokenTTL || ttl > maxFusionTokenTTL {
-		return "", store.FusionToken{}, kernel.Errf(kernel.KindInvalid, "a token lasts between an hour and %d days", int(maxFusionTokenTTL.Hours()/24))
-	}
-	now := c.Now()
-	_ = c.Store.PurgeFusionTokens(ctx, now) // a lapsed token is of no use to anyone and should not count against the cap
-	existing, err := c.Store.ListFusionTokens(ctx, c.OrgID)
-	if err != nil {
-		return "", store.FusionToken{}, err
-	}
-	if len(existing) >= maxFusionTokens {
-		return "", store.FusionToken{}, kernel.Errf(kernel.KindConflict, "there are already %d tokens; revoke one you no longer use first", maxFusionTokens)
-	}
-	secret, err := kernel.NewFusionTokenSecret()
-	if err != nil {
-		return "", store.FusionToken{}, kernel.Errf(kernel.KindInternal, "could not generate a token")
-	}
-	tok := store.FusionToken{ID: kernel.NewFusionTokenID(), OrgID: c.OrgID, Name: name, Signals: signals, Namespaces: namespaces, Clusters: clusters,
-		CreatedBy: actor, CreatedAt: now, ExpiresAt: now.Add(ttl)}
-	detail := fmt.Sprintf("%s: reads %s; namespaces %s; clusters %s; expires %s", name, strings.Join(signals, ", "), scopeWords(namespaces), scopeWords(clusters), tok.ExpiresAt.Format("2006-01-02"))
-	if err := c.AuditedWrite(c.Store.CreateFusionToken(ctx, tok, kernel.HashSecret(secret),
-		store.WithAudit(c.AuditRow(c.OrgID, actor, "fusion-token-created", "fusion-token", tok.ID, detail))), "fusion-token-created"); err != nil {
-		return "", store.FusionToken{}, err
-	}
-	return secret, tok, nil
-}
-
-func scopeWords(v []string) string {
-	if len(v) == 0 {
-		return "all"
-	}
-	return strings.Join(v, ", ")
-}
-
-// ListFusionTokens lists this organisation's tokens, never a secret.
-func (c *Core) ListFusionTokens(ctx context.Context) ([]store.FusionToken, error) {
-	return c.Store.ListFusionTokens(ctx, c.OrgID)
-}
-
-// DeleteFusionToken revokes a token; it stops working at once.
-func (c *Core) DeleteFusionToken(ctx context.Context, actor, id string) error {
-	toks, err := c.Store.ListFusionTokens(ctx, c.OrgID)
-	if err != nil {
-		return err
-	}
-	var name string
-	found := false
-	for _, t := range toks {
-		if t.ID == id {
-			name, found = t.Name, true
-		}
-	}
-	if !found {
-		return kernel.Errf(kernel.KindNotFound, "no such token")
-	}
-	return c.AuditedWrite(c.Store.DeleteFusionToken(ctx, c.OrgID, id,
-		store.WithAudit(c.AuditRow(c.OrgID, actor, "fusion-token-revoked", "fusion-token", id, name))), "fusion-token-revoked")
-}
-
-// AuthenticateFusionToken resolves a presented secret. A malformed, unknown or expired one is the same refusal.
-func (c *Core) AuthenticateFusionToken(ctx context.Context, secret string) (store.FusionToken, error) {
-	deny := kernel.Errf(kernel.KindUnauthenticated, "sign in required")
-	if !kernel.LooksLikeFusionToken(secret) {
-		return store.FusionToken{}, deny
-	}
-	h := kernel.HashSecret(secret)
-	tok, err := c.Store.LookupFusionToken(ctx, h)
-	if err != nil {
-		return store.FusionToken{}, deny
-	}
-	now := c.Now()
-	if !now.Before(tok.ExpiresAt) {
-		return store.FusionToken{}, deny
-	}
-	if tok.LastUsed == nil || now.Sub(*tok.LastUsed) > accounts.TouchEvery {
-		_ = c.Store.TouchFusionToken(ctx, h, now)
-	}
-	return tok, nil
-}
-
-// ---- token routes (administrators of the FUSION organisation) ----
-
-type fusionTokenDoc struct {
-	ID         string   `json:"id"`
-	Name       string   `json:"name"`
-	Signals    []string `json:"signals"`
-	Namespaces []string `json:"namespaces"`
-	Clusters   []string `json:"clusters"`
-	CreatedBy  string   `json:"createdBy"`
-	CreatedAt  string   `json:"createdAt"`
-	ExpiresAt  string   `json:"expiresAt"`
-	LastUsedAt string   `json:"lastUsedAt,omitempty"`
-}
-
 func orEmpty(v []string) []string {
 	if v == nil {
 		return []string{}
 	}
 	return v
-}
-
-func toFusionTokenDoc(t store.FusionToken) fusionTokenDoc {
-	return fusionTokenDoc{ID: t.ID, Name: t.Name, Signals: orEmpty(t.Signals), Namespaces: orEmpty(t.Namespaces), Clusters: orEmpty(t.Clusters),
-		CreatedBy: t.CreatedBy, CreatedAt: kernel.RFC(t.CreatedAt), ExpiresAt: kernel.RFC(t.ExpiresAt), LastUsedAt: kernel.RFCP(t.LastUsed)}
 }
 
 // fusionOrg is the organisation FUSION belongs to: the one the server was told, else the server's main organisation. (Not
@@ -224,77 +59,6 @@ func (a *Admin) fusionOrg() string {
 		return a.C.OrgID
 	}
 	return a.C.Accounts.MainOrg()
-}
-
-// fusionOrgOnly refuses a token request from any organisation but the one FUSION belongs to.
-func (a *Admin) fusionOrgOnly(w http.ResponseWriter, r *http.Request) bool {
-	if a.Fusion == nil {
-		a.fail(w, kernel.Errf(kernel.KindConflict, "%s", a.Fusion.Status(r.Context()).Message))
-		return false
-	}
-	if a.core(r).OrgID != a.fusionOrg() {
-		a.fail(w, kernel.Errf(kernel.KindForbidden, "FUSION belongs to this server's main organisation, which is the only one that can give out access to it"))
-		return false
-	}
-	return true
-}
-
-func (a *Admin) listFusionTokens(w http.ResponseWriter, r *http.Request) {
-	if !a.fusionOrgOnly(w, r) {
-		return
-	}
-	toks, err := a.core(r).ListFusionTokens(r.Context())
-	if err != nil {
-		a.fail(w, err)
-		return
-	}
-	out := make([]fusionTokenDoc, len(toks))
-	for i, t := range toks {
-		out[i] = toFusionTokenDoc(t)
-	}
-	httpkit.WriteJSON(w, 200, out)
-}
-
-// createFusionToken is the one response that ever carries the raw secret.
-func (a *Admin) createFusionToken(w http.ResponseWriter, r *http.Request) {
-	if !a.fusionOrgOnly(w, r) {
-		return
-	}
-	var req struct {
-		Name          string   `json:"name"`
-		Signals       []string `json:"signals"`
-		Namespaces    []string `json:"namespaces"`
-		Clusters      []string `json:"clusters"`
-		ExpiresInDays int      `json:"expiresInDays"`
-	}
-	if err := httpkit.Decode(r, &req); err != nil {
-		a.fail(w, err)
-		return
-	}
-	if req.ExpiresInDays < 0 || req.ExpiresInDays > 3650 {
-		a.fail(w, kernel.Errf(kernel.KindInvalid, "expiresInDays must be between 1 and %d", int(maxFusionTokenTTL.Hours()/24)))
-		return
-	}
-	secret, tok, err := a.core(r).CreateFusionToken(r.Context(), httpkit.Actor(r), FusionTokenSpec{
-		Name: req.Name, Signals: req.Signals, Namespaces: req.Namespaces, Clusters: req.Clusters,
-		TTL: time.Duration(req.ExpiresInDays) * 24 * time.Hour,
-	})
-	if err != nil {
-		a.fail(w, err)
-		return
-	}
-	httpkit.WriteJSON(w, 200, map[string]any{"token": secret, "details": toFusionTokenDoc(tok)})
-}
-
-func (a *Admin) deleteFusionToken(w http.ResponseWriter, r *http.Request) {
-	if !a.fusionOrgOnly(w, r) {
-		return
-	}
-	if err := a.core(r).DeleteFusionToken(r.Context(), httpkit.Actor(r), r.PathValue("id")); err != nil {
-		a.fail(w, err)
-		return
-	}
-	httpkit.WriteJSON(w, 200, map[string]bool{"ok": true})
 }
 
 // ---- the data routes ----
@@ -356,7 +120,7 @@ func (a *Admin) fusionCaller(r *http.Request) (fusionCaller, error) {
 	// an administrator, must be reading with the token's rights and not the administrator's.
 	if secret, ok := bearerToken(r); ok {
 		if kernel.LooksLikeFusionToken(secret) {
-			tok, err := a.C.AuthenticateFusionToken(ctx, secret)
+			tok, err := a.C.Fusion.AuthenticateFusionToken(ctx, secret)
 			if err != nil || tok.OrgID != a.fusionOrg() {
 				return fusionCaller{}, deny
 			}

@@ -187,16 +187,13 @@ func (a *Admin) Handler() http.Handler {
 	(&fusion.API{
 		For:             func(r *http.Request) *fusion.Service { return a.core(r).Fusion },
 		Control:         func() *fusion.FusionControl { return a.Fusion },
+		Org:             a.fusionOrg,
 		PrometheusPath:  fusionPromPath,
 		GrafanaPath:     fusionGrafanaPath,
 		CentralWarnings: operatorsapi.CentralAddressWarnings,
 	}).Mount(routes)
 	// The ticketed path that opens one of FUSION's own pages (Prometheus, Grafana) in a new tab; see fusion_ui_access.go.
 	route("POST "+o+"/fusion/pages", httpkit.AdminRole, a.openFusionPage)
-	// FUSION access tokens: read-only credentials for the shared data API below.
-	route("GET "+o+"/fusion/tokens", httpkit.AdminRole, a.listFusionTokens)
-	route("POST "+o+"/fusion/tokens", httpkit.AdminRole, a.createFusionToken)
-	route("DELETE "+o+"/fusion/tokens/{id}", httpkit.AdminRole, a.deleteFusionToken)
 
 	// The shared data API over FUSION. It authenticates for itself (a FUSION access token, or an administrator of the
 	// FUSION organisation) rather than through guard: the caller is not placed in an organisation by the path.

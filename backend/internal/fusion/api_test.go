@@ -24,11 +24,14 @@ func TestTheSwitchMountsWithTheRolesItAsks(t *testing.T) {
 	(&API{}).Mount(got)
 	const o = "/api/v1/orgs/{org}"
 	want := recordedRoutes{
-		"GET " + o + "/fusion":           httpkit.AdminRole,
-		"POST " + o + "/fusion/enable":   httpkit.AdminRole,
-		"POST " + o + "/fusion/disable":  httpkit.AdminRole,
-		"GET " + o + "/fusion/retention": httpkit.AdminRole,
-		"PUT " + o + "/fusion/retention": httpkit.AdminRole,
+		"GET " + o + "/fusion":                httpkit.AdminRole,
+		"POST " + o + "/fusion/enable":        httpkit.AdminRole,
+		"POST " + o + "/fusion/disable":       httpkit.AdminRole,
+		"GET " + o + "/fusion/tokens":         httpkit.AdminRole,
+		"POST " + o + "/fusion/tokens":        httpkit.AdminRole, // the one response that carries a raw secret
+		"DELETE " + o + "/fusion/tokens/{id}": httpkit.AdminRole,
+		"GET " + o + "/fusion/retention":      httpkit.AdminRole,
+		"PUT " + o + "/fusion/retention":      httpkit.AdminRole,
 	}
 	if len(got) != len(want) {
 		t.Fatalf("mounted %v, want %v", got, want)

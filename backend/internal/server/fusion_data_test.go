@@ -466,7 +466,7 @@ func TestFusionDataIsRateLimitedPerCaller(t *testing.T) {
 
 func TestFusionTokenCap(t *testing.T) {
 	d := newDataRig(t)
-	for i := 0; i < maxFusionTokens; i++ {
+	for i := 0; i < fusion.MaxTokens; i++ {
 		if err := d.st.CreateFusionToken(d.ctx, store.FusionToken{ID: kernel.NewFusionTokenID(), OrgID: "org-1", Name: "n", CreatedAt: *d.now, ExpiresAt: d.now.Add(time.Hour)}, kernel.HashSecret(kernel.RandHex(8))); err != nil {
 			t.Fatal(err)
 		}

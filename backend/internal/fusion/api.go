@@ -17,6 +17,8 @@ type API struct {
 	// Control is the server's control of FUSION, which is nil when it was installed without it or without the permission to scale it (the
 	// routes then report it unavailable, and say why). Read for every request.
 	Control func() *FusionControl
+	// Org is the organisation FUSION belongs to: the only one that manages it and gives out access to it.
+	Org func() string
 	// PrometheusPath and GrafanaPath are where the server serves FUSION's own pages; a page that is up is offered at its path.
 	PrometheusPath, GrafanaPath string
 	// CentralWarnings are the doubts about the public address recorded for the central operator: what an address looks like is the
@@ -98,6 +100,10 @@ func (h *API) Mount(r httpkit.Router) {
 	r.Handle("GET "+o+"/fusion", httpkit.AdminRole, h.get)
 	r.Handle("POST "+o+"/fusion/enable", httpkit.AdminRole, h.enable)
 	r.Handle("POST "+o+"/fusion/disable", httpkit.AdminRole, h.disable)
+	// FUSION access tokens: read-only credentials for the shared data API.
+	r.Handle("GET "+o+"/fusion/tokens", httpkit.AdminRole, h.listTokens)
+	r.Handle("POST "+o+"/fusion/tokens", httpkit.AdminRole, h.createToken)
+	r.Handle("DELETE "+o+"/fusion/tokens/{id}", httpkit.AdminRole, h.deleteToken)
 	r.Handle("GET "+o+"/fusion/retention", httpkit.AdminRole, h.getRetention)
 	r.Handle("PUT "+o+"/fusion/retention", httpkit.AdminRole, h.setRetention)
 }

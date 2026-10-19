@@ -96,7 +96,7 @@ func TestAnotherOrganisationsIdIsNotFoundOnEveryRouteThatTakesAnId(t *testing.T)
 	}
 	// Routes with an id that have no case, and why. A reason that stops being true is a reason to add the case.
 	exempt := map[string]string{
-		"DELETE /fusion/tokens/{id}":          "FUSION belongs to the main organisation only (fusionOrgOnly): neither of two ordinary organisations has one, so there is no token of Alice's to name",
+		"DELETE /fusion/tokens/{id}":          "FUSION belongs to the main organisation only (the FUSION token routes): neither of two ordinary organisations has one, so there is no token of Alice's to name",
 		"GET /history/dependency/{id}/series": "the id selects a series inside the caller's own organisation's history; another organisation's id finds nothing there by construction, and no entity of Alice's is addressed",
 	}
 
