@@ -140,6 +140,59 @@ This is a proposal from the numbers above; each move starts with its own short p
 7. **The hub cluster**: in progress. The `view` is in three parts (done) and the cluster no longer reaches the shell. The Hub-receiver methods that sat in agents and connectivity files are estate's now (they are operations on the live hub). What the flows say became a module of its own, `observed`, under agents and connectivity. The layers are observed, then agents, then connectivity, then estate on top, and the edge list shows no use upward. `observed`, `agents`, `connectivity` and the estate are packages now, and the hub cluster is done: what is left in `internal/server` is the shell, and the edge list between modules is empty. The estate took the sixteen files of the Hub and 94 of its tests; `Core.Estate` holds the Core for the Hub, which `Platform` makes for each organisation. The 66 fixture declarations those tests need (the environment, the gRPC rig, the scripted agent) are copied into `internal/estate/fixtures_test.go`, because the shell's tests need the originals; one fixture package both import is what removes the copy.
 
 
+## The handlers that remain: operators and FUSION
+
+Everything else has left the shell's route list (see Progress, Handlers steps 1 to 11). What is left is two groups of files, about 2,400
+lines for the operators and about 3,600 for FUSION, plus the two small things that stay on purpose (`info`, which is the server describing
+itself, and the chart download). They are one knot and not two, so this is the plan for the knot before any of it moves.
+
+**What they share.** Read from what each file takes from `Admin`:
+
+- *The central operator.* The operators' handlers treat one operator (`operators.CentralOperatorID`, the gateway FUSION runs) differently
+  in about a dozen places: its address is FUSION's `CentralEndpoint()` while FUSION is exposed, setting its address sets FUSION's
+  public address and asks the gateway's Service for its port, its candidates are looked up in the gateway's namespace, its health is
+  FUSION's. Each of these is a call on `*fusion.FusionControl` (`Exposed`, `CentralEndpoint`, `WithGatewayPort`, `SetPublicAddress`,
+  `GatewayService`, `ServiceName`, `Status`) or a read of two of its fields (`Namespace`, `ClusterUID`), which become methods on the port. The direction the code already has is FUSION calls operators and
+  operators do not know FUSION (`ManagedStatus`), so the handlers cannot import `fusion` either. They need a port that operators own.
+- *The install settings* (`installcfg.Settings`): solved in Handlers step 5. Operators use the chart, version and image methods; FUSION
+  uses none.
+- *The hub.* The operators' address candidates and sender health read what agents reported (`estate.Hub`). Those two files are hub-bound
+  routes, like the agents' were, and belong with `estate.API`, not with the operators' own.
+- *FUSION serves one organisation* (`FusionControl.Org`), and its data routes check the request's organisation against it (`fusionOrg`).
+  The link routes and the history snapshot FUSION reads (`topologyAt`, `GraphAPI`, now estate's) sit on the same side.
+- *What FUSION adds that is the shell's own*: the limiters (`fusionRL`, `fusionPageRL`), the client address, the secure-cookie setting,
+  the ticket and cookie that open FUSION's own pages (`fusion_ui_access.go`, `admin_fusion_proxy.go`).
+
+**The steps, in this order, each its own patch with the tests and ratchets as before.**
+
+1. *The central operator is a port* (small, no routes move). `operators.Central` is an interface of the calls above; `FusionControl`
+   satisfies it (a compile-time assertion in `fusion`); the shell hands the operators' handlers `a.central()`, which returns a nil
+   interface, not a typed nil, when the server has no FUSION. The operators' docs take a `ManagedStatus`, not a `fusion.FusionStatus`.
+   After this the operators' files name no `fusion` type.
+2. *The operators' routes* (about 1,500 lines: create, list, get, scope, install and uninstall documents, certificates, address and its
+   check, revoke, delete, the destinations list, and the heartbeat: the administrators' route and the operators' own secret-authenticated
+   one) become `operatorsapi`, a package of its own like `accountsapi`. It imports operators, installcfg, install, telemetry, httpkit,
+   kernel, store and accounts, and is given the `Central` port, the install settings and the CA pin.
+3. *The hub-bound operator routes* (address candidates, the server cluster, sender health: about 1,300 lines) join `estate.API`, with
+   the operators service and the `Central` port as further things the shell hands it.
+4. *The telemetry-intent command route* (it composes an operator's endpoint with the install command for an agent) joins
+   `operatorsapi`, because the operators' addressing is what it needs; it is mounted from the shell like the rest.
+5. *FUSION's control routes* (status, enable, disable, retention, tokens: about 130 lines) become `fusion.API`; the package already owns
+   the control, and the kit and accounts are the only imports it gains.
+6. *FUSION's data routes* (the proxied data, the operations table, the native operations, the OpenAPI document, application info, the
+   extras it is given, the links and the credential rotation: about 3,000 lines) become `fusionhttp`, standing on fusion, fusionapi,
+   estate, httpkit and accounts. This is the largest and goes in three patches by file group, the shared plumbing (`fusionCaller`,
+   `fusionScope`, `fusionErr`) first.
+7. *The gateway to FUSION's own pages* (the ticket, the cookie, the proxy: about 700 lines) is last, and may stay in the shell. It is
+   cookies, origins and the limiters, which are the shell's, and a package would be handed everything it needs and own only the
+   control flow.
+
+**What I would watch.** A typed nil in step 1 (an interface holding a nil `*FusionControl` is not nil). The body-size limits that the
+guard keys by path (the workspace save, `/decisions`; none for these routes today, but FUSION's bulk routes stream and must keep doing
+so). The limiters, which are per server and not per request, so they are handed in as functions and not copied. The `module_store.txt`
+ratchet will list `ListOperatorCerts` and a few other store methods as shared by operators and FUSION until step 6; that is true, and
+settles when FUSION's handlers are a package.
+
 ## The assignments I was least sure of
 
 These are the files whose place could be argued; moving one changes the lists, and the test shows by how much.
