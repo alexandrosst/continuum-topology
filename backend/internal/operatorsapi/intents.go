@@ -1,4 +1,4 @@
-package server
+package operatorsapi
 
 import (
 	"encoding/json"
@@ -11,21 +11,12 @@ import (
 	"continuum/internal/httpkit"
 	"continuum/internal/install"
 	"continuum/internal/kernel"
-	"continuum/internal/operatorsapi"
 	"continuum/internal/store"
 )
 
-// telemetryIntentCommand returns the --set flags (and, for an operator destination, the kubectl secret
-// command) a person runs against the intent's own agent to actually point its bundled local operator's
-// export at what the intent now grants - the single-agent counterpart of operatorsapi.SourceReminders, built
-// on demand rather than only once at creation/scope-update time, so it can hand out a freshly minted
-// client certificate (see Core.IssueOperatorClientCert) no matter when the intent's destination was set.
-// Provenance flags (telemetry.resource.orgId/clusterId/intentId - added in the chart alongside this
-// intent model) are always included; an external destination gets nothing beyond them, since the
-// endpoint/auth flags for that are already built client-side by the frontend's own withTelemetry().
-// intentProvenanceValues are the values that stamp who an agent's telemetry belongs to on everything it sends, whatever a person adds
+// IntentProvenanceValues are the values that stamp who an agent's telemetry belongs to on everything it sends, whatever a person adds
 // to the pipeline themselves: the chart puts them in a processor that runs last.
-func intentProvenanceValues(orgID, clusterID, intentID string) []install.Value {
+func IntentProvenanceValues(orgID, clusterID, intentID string) []install.Value {
 	return []install.Value{
 		install.Set("telemetry.resource.orgId", orgID),
 		install.Set("telemetry.resource.clusterId", clusterID),
@@ -53,14 +44,14 @@ func decodeOptional(r *http.Request, v any) error {
 // the page's (the page may be showing settings the intent no longer holds), and how each operator's receiver authenticates comes from the
 // operator itself. A page whose settings and the intent disagree about whether signal types go separately is told to start again, never
 // given a command for something else.
-func (a *Admin) operatorTelemetry(r *http.Request, ti store.TelemetryIntent, spec install.Telemetry) (install.Telemetry, map[string]string, error) {
+func (h *API) operatorTelemetry(r *http.Request, ti store.TelemetryIntent, spec install.Telemetry) (install.Telemetry, map[string]string, error) {
 	auth := map[string]string{}
 	operatorOf := func(d store.Destination) (string, error) {
 		if d.Kind != store.DestinationOperator {
 			return "", nil
 		}
 		if _, ok := auth[d.TargetOperatorID]; !ok {
-			op, err := a.core(r).Operators.GetOperator(r.Context(), d.TargetOperatorID)
+			op, err := h.For(r).GetOperator(r.Context(), d.TargetOperatorID)
 			if err != nil {
 				return "", err
 			}
@@ -97,36 +88,44 @@ func (a *Admin) operatorTelemetry(r *http.Request, ti store.TelemetryIntent, spe
 	return spec, auth, nil
 }
 
-func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
+// telemetryIntentCommand answers POST .../telemetry-intents/{id}/command. It returns the --set flags (and, for an operator destination, the kubectl secret
+// command) a person runs against the intent's own agent to actually point its bundled local operator's
+// export at what the intent now grants - the single-agent counterpart of SourceReminders, built
+// on demand rather than only once at creation/scope-update time, so it can hand out a freshly minted
+// client certificate (see Core.IssueOperatorClientCert) no matter when the intent's destination was set.
+// Provenance flags (telemetry.resource.orgId/clusterId/intentId - added in the chart alongside this
+// intent model) are always included; an external destination gets nothing beyond them, since the
+// endpoint/auth flags for that are already built client-side by the frontend's own withTelemetry().
+func (h *API) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 	var ask intentCommandRequest
 	if err := decodeOptional(r, &ask); err != nil {
-		a.fail(w, err)
+		h.fail(w, r, err)
 		return
 	}
-	ti, err := a.core(r).Telemetry.GetTelemetryIntent(r.Context(), r.PathValue("id"))
+	ti, err := h.Intents(r).GetTelemetryIntent(r.Context(), r.PathValue("id"))
 	if err != nil {
-		a.fail(w, err)
+		h.fail(w, r, err)
 		return
 	}
 	// A revoked intent grants nothing: handing out a command (and a freshly issued client certificate) for it would
 	// quietly restore what was taken away.
 	if ti.Status != store.TelemetryIntentActive {
-		a.fail(w, kernel.Errf(kernel.KindConflict, "this telemetry intent is %s; create a new one to get a command", ti.Status))
+		h.fail(w, r, kernel.Errf(kernel.KindConflict, "this telemetry intent is %s; create a new one to get a command", ti.Status))
 		return
 	}
-	agent, err := a.core(r).AgentInOrg(r.Context(), ti.AgentID)
+	agent, err := h.For(r).AgentInOrg(r.Context(), ti.AgentID)
 	if err != nil {
-		a.fail(w, err)
+		h.fail(w, r, err)
 		return
 	}
-	values := intentProvenanceValues(a.core(r).OrgID, agent.ClusterID, ti.ID) // the Helm values of the fragment, written once at the end
+	values := IntentProvenanceValues(h.For(r).OrgID, agent.ClusterID, ti.ID) // the Helm values of the fragment, written once at the end
 	secretCommands := []string{}
 	forWhat := fmt.Sprintf("intent=%s cluster=%s", ti.ID, agent.ClusterID) // what the audit entry of each certificate says it was for
 	// Where the agent really runs (or the chart's documented defaults when it never said): the Secret below
 	// and the caller's `helm upgrade` must name the same namespace, or the release cannot find its
 	// certificate. Always returned so the caller does not have to guess it.
-	hub := a.tn(r).Hub
-	rns, rname, _ := agents.ReleaseTarget(hub.NamespaceOf(agent.ID), hub.ReleaseNameOf(agent.ID))
+	ns, name := h.AgentRelease(r, agent.ID)
+	rns, rname, _ := agents.ReleaseTarget(ns, name)
 	resp := map[string]any{"namespace": rns, "release": rname}
 	// With the page's telemetry the answer is the whole block. What is wrong with that telemetry is found before anything is issued: a
 	// certificate is minted and audited for a command that will be written, not for one that cannot be.
@@ -134,9 +133,9 @@ func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 	var receiverAuth map[string]string
 	if ask.Telemetry != nil {
 		var err error
-		spec, receiverAuth, err = a.operatorTelemetry(r, ti, *ask.Telemetry)
+		spec, receiverAuth, err = h.operatorTelemetry(r, ti, *ask.Telemetry)
 		if err != nil {
-			a.fail(w, err)
+			h.fail(w, r, err)
 			return
 		}
 		if problems := spec.TowardOperators(receiverAuth).Problems(); len(problems) > 0 {
@@ -145,13 +144,13 @@ func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// What the printed endpoints are only taken on trust for (see targetWarnings), once per operator.
+	// What the printed endpoints are only taken on trust for (see DestWarnings), once per operator.
 	var warnings []string
 	warned := map[string]bool{}
 	warn := func(op store.Operator, d store.Destination) {
 		if key := op.ID + "|" + d.Address; !warned[key] {
 			warned[key] = true
-			warnings = append(warnings, a.operatorsAPI().DestWarnings(r.Context(), op, d)...)
+			warnings = append(warnings, h.DestWarnings(r.Context(), op, d)...)
 		}
 	}
 	if len(ti.Routes) > 0 {
@@ -166,14 +165,14 @@ func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 			if issued[op.ID] {
 				return nil
 			}
-			certPEM, keyPEM, caPEM, err := a.core(r).Operators.IssueOperatorClientCertFor(r.Context(), httpkit.Actor(r), op.ID, agent.ClusterID, forWhat)
+			certPEM, keyPEM, caPEM, err := h.For(r).IssueOperatorClientCertFor(r.Context(), httpkit.Actor(r), op.ID, agent.ClusterID, forWhat)
 			if err != nil {
 				return err
 			}
 			issued[op.ID] = true
 			auth[op.ID] = string(op.ReceiverAuth)
 			if len(certPEM) > 0 {
-				secretCmd, err := operatorsapi.ClientSecretCommand(op, certPEM, keyPEM, caPEM, rns, false)
+				secretCmd, err := ClientSecretCommand(op, certPEM, keyPEM, caPEM, rns, false)
 				if err != nil {
 					return err
 				}
@@ -182,7 +181,7 @@ func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 			return nil
 		}
 		var unrouted []store.Modality
-		for _, m := range operatorsapi.RouteModalities {
+		for _, m := range RouteModalities {
 			d, ok := ti.Routes[m]
 			if !ok {
 				unrouted = append(unrouted, m)
@@ -191,82 +190,82 @@ func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 			if d.Kind != store.DestinationOperator {
 				continue
 			}
-			op, err := a.core(r).Operators.GetOperator(r.Context(), d.TargetOperatorID)
+			op, err := h.For(r).GetOperator(r.Context(), d.TargetOperatorID)
 			if err != nil {
-				a.fail(w, err)
+				h.fail(w, r, err)
 				return
 			}
-			op = a.operatorsAPI().Advertised(op)
+			op = h.Advertised(op)
 			if err := issue(op); err != nil {
-				a.fail(w, err)
+				h.fail(w, r, err)
 				return
 			}
 			warn(op, d)
-			values = append(values, operatorsapi.RouteValues(op, a.operatorsAPI().DestEndpoint(op, d), m)...)
+			values = append(values, RouteValues(op, h.DestEndpoint(op, d), m)...)
 		}
 		if len(unrouted) > 0 {
 			// The signal types without a route of their own go to the intent's default destination. When that is a
 			// regional operator it is stated in full here, like a route, and the routes these types may still carry from
 			// an earlier command are cleared: a route outranks the default.
 			if ti.Destination.Kind == store.DestinationOperator {
-				op, err := a.core(r).Operators.GetOperator(r.Context(), ti.Destination.TargetOperatorID)
+				op, err := h.For(r).GetOperator(r.Context(), ti.Destination.TargetOperatorID)
 				if err != nil {
-					a.fail(w, err)
+					h.fail(w, r, err)
 					return
 				}
-				op = a.operatorsAPI().Advertised(op)
+				op = h.Advertised(op)
 				if err := issue(op); err != nil {
-					a.fail(w, err)
+					h.fail(w, r, err)
 					return
 				}
 				warn(op, ti.Destination)
-				values = append(values, operatorsapi.ExportBlock("telemetry.export.otlp", op, a.operatorsAPI().DestEndpoint(op, ti.Destination), true)...)
+				values = append(values, ExportBlock("telemetry.export.otlp", op, h.DestEndpoint(op, ti.Destination), true)...)
 			}
-			values = append(values, operatorsapi.ClearRoutes(unrouted...)...)
+			values = append(values, ClearRoutes(unrouted...)...)
 		}
 		if len(auth) > 0 {
 			resp["operators"] = auth
 		}
 	} else if ti.Destination.Kind == store.DestinationOperator {
-		op, err := a.core(r).Operators.GetOperator(r.Context(), ti.Destination.TargetOperatorID)
+		op, err := h.For(r).GetOperator(r.Context(), ti.Destination.TargetOperatorID)
 		if err != nil {
-			a.fail(w, err)
+			h.fail(w, r, err)
 			return
 		}
-		op = a.operatorsAPI().Advertised(op)
-		certPEM, keyPEM, caPEM, err := a.core(r).Operators.IssueOperatorClientCertFor(r.Context(), httpkit.Actor(r), op.ID, agent.ClusterID, forWhat)
+		op = h.Advertised(op)
+		certPEM, keyPEM, caPEM, err := h.For(r).IssueOperatorClientCertFor(r.Context(), httpkit.Actor(r), op.ID, agent.ClusterID, forWhat)
 		if err != nil {
-			a.fail(w, err)
+			h.fail(w, r, err)
 			return
 		}
 		warn(op, ti.Destination)
-		destination, secretCmd, err := operatorsapi.DestinationCommand(op, a.operatorsAPI().DestEndpoint(op, ti.Destination), certPEM, keyPEM, caPEM, rns)
+		destination, secretCmd, err := DestinationCommand(op, h.DestEndpoint(op, ti.Destination), certPEM, keyPEM, caPEM, rns)
 		if err != nil {
-			a.fail(w, a.installConfigError(err))
+			h.fail(w, r, h.cfgErr(r, err))
 			return
 		}
 		// Every signal type goes to this one destination, so no per-signal route may stay: a route outranks the default,
 		// and one an earlier command set (--reset-then-reuse-values keeps it) would keep sending to the old destination.
-		values = append(append(values, destination...), operatorsapi.ClearRoutes(operatorsapi.RouteModalities...)...)
+		values = append(append(values, destination...), ClearRoutes(RouteModalities...)...)
 		// Whether the person must also supply a receiver bearer token: not for an "mtls" operator, whose
 		// only gate is the client certificate in the Secret above; for a "bearer" one the flags are exactly
 		// what they always were and the caller still supplies the token itself.
 		resp["receiverAuth"] = string(op.ReceiverAuth)
 		resp["operators"] = map[string]string{op.ID: string(op.ReceiverAuth)}
-		resp["endpoint"] = a.operatorsAPI().DestEndpoint(op, ti.Destination)
+		resp["endpoint"] = h.DestEndpoint(op, ti.Destination)
 		if secretCmd != "" {
 			secretCommands = append(secretCommands, secretCmd)
 		}
 	}
 	resp["installFragment"], resp["secretCommands"] = install.Flags(values), secretCommands
 	if ask.Telemetry != nil {
-		img := a.images(a.core(r))
+		img := h.images(r)
 		block, err := install.OperatorTelemetry{
-			AgentUpgrade: install.AgentUpgrade{ChartRef: a.AgentRef(img), ChartVersion: a.AgentVersion(), ChartFile: a.AgentChartFile(), Namespace: rns, Release: rname, Telemetry: &spec},
+			AgentUpgrade: install.AgentUpgrade{ChartRef: h.Settings.AgentRef(img), ChartVersion: h.Settings.AgentVersion(), ChartFile: h.Settings.AgentChartFile(), Namespace: rns, Release: rname, Telemetry: &spec},
 			Certificates: secretCommands, Restated: values, ReceiverAuth: receiverAuth,
 		}.Render()
 		if err != nil {
-			a.fail(w, a.installConfigError(err))
+			h.fail(w, r, h.cfgErr(r, err))
 			return
 		}
 		resp["command"], resp["problems"] = block, []string{}

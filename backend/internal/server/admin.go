@@ -193,14 +193,6 @@ func (a *Admin) Handler() http.Handler {
 	route("POST "+o+"/fusion/tokens", httpkit.AdminRole, a.createFusionToken)
 	route("DELETE "+o+"/fusion/tokens/{id}", httpkit.AdminRole, a.deleteFusionToken)
 
-	// A telemetry intent only declares what one agent's bundled local operator should collect and where to
-	// export it; the credentials and the install command come from /command below (httpkit.AdminRole) and the cluster's
-	// owner still has to run it, so declaring takes httpkit.EditorRole rather than the httpkit.AdminRole an operator needs.
-	// /command mints and returns operator credential material when the destination is an operator (via
-	// IssueOperatorClientCert) - the same bar as operator CRUD itself (httpkit.AdminRole), higher than the
-	// httpkit.EditorRole the rest of this intent's own CRUD takes above.
-	route("POST "+o+"/telemetry-intents/{id}/command", httpkit.AdminRole, a.telemetryIntentCommand)
-
 	// The shared data API over FUSION. It authenticates for itself (a FUSION access token, or an administrator of the
 	// FUSION organisation) rather than through guard: the caller is not placed in an organisation by the path.
 	a.registerFusionData(api)

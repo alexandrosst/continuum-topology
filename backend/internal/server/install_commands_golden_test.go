@@ -306,7 +306,7 @@ func (p *pinRig) fragments() {
 	p.add(a, "fragment/heartbeat", "", p.flags(a.operatorsAPI().HeartbeatValues(mtls, "https://ikhnos.example.com/api/v1/operator-heartbeat")))
 	private := p.admin(func(a *Admin) { a.HeartbeatCAPEM = fakePEM("CERTIFICATE", "aGVhcnRiZWF0LWNh") })
 	p.add(private, "fragment/heartbeat-private-ca", "", p.flags(private.operatorsAPI().HeartbeatValues(mtls, "https://ikhnos.example.com/api/v1/operator-heartbeat")))
-	p.add(a, "fragment/intent-provenance", "", p.flags(intentProvenanceValues("org-1", "cl-a", "ti_1")))
+	p.add(a, "fragment/intent-provenance", "", p.flags(operatorsapi.IntentProvenanceValues("org-1", "cl-a", "ti_1")))
 }
 
 func TestServerInstallCommandsArePinned(t *testing.T) {

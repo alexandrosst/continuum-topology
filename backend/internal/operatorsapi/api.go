@@ -106,6 +106,10 @@ func (h *API) Mount(r httpkit.Router) {
 	// The clusters that send to the operator, how each reaches it, and which end a fault is on: read from the telemetry intents and what the
 	// hub holds, nothing dialled.
 	r.Handle("GET "+o+"/operators/{id}/senders", httpkit.AdminRole, h.listOperatorSenders)
+	// The command that points one agent's bundled local operator at what its telemetry intent grants. It mints and returns operator
+	// credential material when the destination is an operator (a client certificate) - the same bar as operator CRUD itself, higher than
+	// the editor's the rest of the intent's own routes (telemetry.API) ask.
+	r.Handle("POST "+o+"/telemetry-intents/{id}/command", httpkit.AdminRole, h.telemetryIntentCommand)
 	r.Handle("POST "+o+"/operators/{id}/revoke", httpkit.AdminRole, h.revokeOperator)
 	r.Handle("DELETE "+o+"/operators/{id}", httpkit.AdminRole, h.deleteOperator)
 }
