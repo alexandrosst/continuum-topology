@@ -35,6 +35,7 @@ func (h *API) Mount(r httpkit.Router) {
 	r.Handle("GET "+o+"/model", httpkit.MemberRole, h.model)
 	r.Handle("GET "+o+"/workspace", httpkit.MemberRole, h.getWorkspace)
 	r.Handle("PUT "+o+"/workspace", httpkit.EditorRole, h.putWorkspace)
+	r.Handle("GET "+o+"/telemetry/self", httpkit.MemberRole, h.selfTelemetry)
 	r.Handle("GET "+o+"/history", httpkit.MemberRole, h.historyIndex)
 	r.Handle("GET "+o+"/history/snapshot", httpkit.MemberRole, h.historySnapshot)
 	r.Handle("GET "+o+"/history/traffic", httpkit.MemberRole, h.historyTraffic)

@@ -53,6 +53,9 @@ func TestTheAccountsMountTheirRoutesWithWhatEachAsksOfTheCaller(t *testing.T) {
 		"POST /api/v1/auth/tokens":                   httpkit.AnySession,
 		"POST /api/v1/auth/tokens/{id}/revoke":       httpkit.AnySession,
 		// Organisations: any settled account lists, makes and joins; inside one, the role decides.
+		// The server's mail settings are not an organisation's: settled in one is all the guard asks, and the handler asks for an owner of the default organisation.
+		"GET /api/v1/mail":                   httpkit.Settled,
+		"PUT /api/v1/mail":                   httpkit.Settled,
 		"GET /api/v1/orgs":                   httpkit.Settled,
 		"POST /api/v1/orgs":                  httpkit.Settled,
 		"POST /api/v1/invites/accept":        httpkit.Settled,

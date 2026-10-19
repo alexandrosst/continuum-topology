@@ -1,4 +1,4 @@
-package server
+package accountsapi
 
 import (
 	"context"
@@ -9,8 +9,8 @@ import (
 	"continuum/internal/kernel"
 )
 
-// The HTTP side of the server's mail settings. What they are, how they are checked and sent is mail.go's (accounts); who may change
-// them and how the request is read is the shell's.
+// The HTTP side of the server's mail settings. What they are, how they are checked and sent is the accounts' (mail.go); who may change
+// them and how the request is read is here.
 
 // requireDefaultOwner reports whether p is specifically an owner of the default organisation - regardless
 // of which organisation, if any, their current request happens to be scoped to (mail configuration is not
@@ -20,20 +20,20 @@ import (
 // org a stranger could just create for themselves (see Settings.ImageRegistry's comment for that same
 // reasoning) - an owner of the one organisation that exists from first boot is the closest thing this
 // server has to "the operator".
-func (a *Admin) requireDefaultOwner(ctx context.Context, p accounts.Principal) error {
-	m, err := a.C.Accounts.Member(ctx, p, a.C.DefaultOrg)
+func (h *API) requireDefaultOwner(ctx context.Context, p accounts.Principal) error {
+	m, err := h.Accounts.Member(ctx, p, h.Accounts.DefaultOrg)
 	if err != nil || !accounts.Allows(accounts.Standing(m.Role), accounts.ActOwn) {
 		return kernel.Errf(kernel.KindForbidden, "only an owner of the default organisation may do this")
 	}
 	return nil
 }
 
-func (a *Admin) getMailConfig(w http.ResponseWriter, r *http.Request) {
-	if err := a.requireDefaultOwner(r.Context(), httpkit.Principal(r)); err != nil {
-		a.fail(w, err)
+func (h *API) getMailConfig(w http.ResponseWriter, r *http.Request) {
+	if err := h.requireDefaultOwner(r.Context(), httpkit.Principal(r)); err != nil {
+		h.fail(w, err)
 		return
 	}
-	httpkit.WriteJSON(w, 200, accounts.NewMailConfigDoc(a.C.Accounts.Mailer()))
+	httpkit.WriteJSON(w, 200, accounts.NewMailConfigDoc(h.Accounts.Mailer()))
 }
 
 // putMailConfig never lets a client blank the password by accident: a GET never carries it (see
@@ -41,10 +41,10 @@ func (a *Admin) getMailConfig(w http.ResponseWriter, r *http.Request) {
 // what the UI does - naturally sends no `password` at all, or "". Both are treated as "leave it alone". A
 // client sets a new password by sending a non-empty `password`, and removes it, explicitly, with
 // `clearPassword: true` - the same three-way convention putSettings uses for the decider secret.
-func (a *Admin) putMailConfig(w http.ResponseWriter, r *http.Request) {
+func (h *API) putMailConfig(w http.ResponseWriter, r *http.Request) {
 	p := httpkit.Principal(r)
-	if err := a.requireDefaultOwner(r.Context(), p); err != nil {
-		a.fail(w, err)
+	if err := h.requireDefaultOwner(r.Context(), p); err != nil {
+		h.fail(w, err)
 		return
 	}
 	var body struct {
@@ -60,11 +60,11 @@ func (a *Admin) putMailConfig(w http.ResponseWriter, r *http.Request) {
 	case body.ClearPassword:
 		m.Password = ""
 	case m.Password == "":
-		m.Password = a.C.Accounts.Mailer().Password
+		m.Password = h.Accounts.Mailer().Password
 	}
-	n, err := a.C.Accounts.SaveMailConfig(r.Context(), p.User.Username, m)
+	n, err := h.Accounts.SaveMailConfig(r.Context(), p.User.Username, m)
 	if err != nil {
-		a.fail(w, err)
+		h.fail(w, err)
 		return
 	}
 	httpkit.WriteJSON(w, 200, accounts.NewMailConfigDoc(n))

@@ -1,4 +1,4 @@
-package server
+package estate
 
 import (
 	"net/http"
@@ -9,7 +9,7 @@ import (
 	"continuum/internal/model"
 )
 
-// SelfTelemetrySample is one point in one entity's self-telemetry history - see (*Admin).selfTelemetry's
+// SelfTelemetrySample is one point in one entity's self-telemetry history - see (*API).selfTelemetry's
 // own doc comment for the full response shape this appears in.
 type SelfTelemetrySample struct {
 	T          string `json:"t"`
@@ -19,11 +19,11 @@ type SelfTelemetrySample struct {
 	// entity's very first sample, since there is nothing yet to derive a rate from (see rateBetween).
 	CPUPct *float64 `json:"cpuPct,omitempty"`
 	// BandwidthSharePct/Watts are agent entities only (always omitted for the "server" entity, which has
-	// no cluster of its own) - see (*Admin).selfTelemetry's own doc comment for exactly what each is,
+	// no cluster of its own) - see (*API).selfTelemetry's own doc comment for exactly what each is,
 	// including why both are cluster-wide figures rather than one specific node's own reading.
 	BandwidthSharePct *float64 `json:"bandwidthSharePct,omitempty"`
 	Watts             *float64 `json:"watts,omitempty"`
-	// ContinuumWattsEstimate is always omitted in this pass - see (*Admin).selfTelemetry's own "Deferred"
+	// ContinuumWattsEstimate is always omitted in this pass - see (*API).selfTelemetry's own "Deferred"
 	// paragraph for why. Kept in the shape now so a client written against it today needs no change
 	// once a later pass fills it in.
 	ContinuumWattsEstimate *float64 `json:"continuumWattsEstimate,omitempty"`
@@ -59,7 +59,7 @@ type SelfTelemetrySample struct {
 }
 
 // SelfTelemetryEntity is one agent (one organisation's cluster) or the server itself, with its own
-// self-telemetry history - see (*Admin).selfTelemetry's own doc comment for the full response shape.
+// self-telemetry history - see (*API).selfTelemetry's own doc comment for the full response shape.
 type SelfTelemetryEntity struct {
 	ID   string `json:"id"`
 	Kind string `json:"kind"` // agent | server
@@ -135,7 +135,7 @@ func clusterTotals(nodes []model.Node, clusterID string) (throughputBps uint64, 
 // agentTelemetrySamples turns one agent's raw self-stats ring into the API's own sample shape,
 // deriving cpuPct/bandwidthSharePct from consecutive readings (rateBetween) and attaching the cluster's
 // current watts total, if any, as a live snapshot on every sample - not a historical reading of its own,
-// since this pass keeps no separate power time series (see (*Admin).selfTelemetry's own doc comment).
+// since this pass keeps no separate power time series (see (*API).selfTelemetry's own doc comment).
 func agentTelemetrySamples(history []agents.SelfStatsSample, clusterThroughputBps uint64, watts *float64) []SelfTelemetrySample {
 	out := make([]SelfTelemetrySample, 0, len(history))
 	for i, s := range history {
@@ -252,16 +252,16 @@ func serverTelemetrySamples(history []agents.ServerSelfStatsSample) []SelfTeleme
 //     opt-in exception is the content-free heartbeat (operator_heartbeat.go), which reports liveness and
 //     nothing else, so there is still no channel for one to report resource usage back over, and this pass
 //     does not build one.
-func (a *Admin) selfTelemetry(w http.ResponseWriter, r *http.Request) {
-	h := a.tn(r).Hub
-	doc, err := h.StateFor(r.Context(), false)
+func (h *API) selfTelemetry(w http.ResponseWriter, r *http.Request) {
+	hub := h.For(r)
+	doc, err := hub.StateFor(r.Context(), false)
 	if err != nil {
-		a.fail(w, err)
+		h.fail(w, r, err)
 		return
 	}
 	out := []SelfTelemetryEntity{}
 	for _, ag := range doc.Agents {
-		history := h.SelfStatsFor(ag.ID)
+		history := hub.SelfStatsFor(ag.ID)
 		if len(history) == 0 {
 			continue
 		}
@@ -273,7 +273,7 @@ func (a *Admin) selfTelemetry(w http.ResponseWriter, r *http.Request) {
 		out = append(out, SelfTelemetryEntity{ID: ag.ID, Kind: "agent", ClusterName: ag.Name,
 			Samples: agentTelemetrySamples(history, throughputBps, watts)})
 	}
-	if serverHistory := h.ServerSelfStats(); len(serverHistory) > 0 {
+	if serverHistory := hub.ServerSelfStats(); len(serverHistory) > 0 {
 		out = append(out, SelfTelemetryEntity{ID: "server", Kind: "server", Samples: serverTelemetrySamples(serverHistory)})
 	}
 	httpkit.WriteJSON(w, 200, out)

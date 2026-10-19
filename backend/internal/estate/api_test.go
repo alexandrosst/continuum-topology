@@ -27,6 +27,7 @@ func TestTheEstateMountsItsRoutesWithTheRolesTheyAsk(t *testing.T) {
 		"GET /api/v1/orgs/{org}/model":                          httpkit.MemberRole,
 		"GET /api/v1/orgs/{org}/workspace":                      httpkit.MemberRole,
 		"PUT /api/v1/orgs/{org}/workspace":                      httpkit.EditorRole,
+		"GET /api/v1/orgs/{org}/telemetry/self":                 httpkit.MemberRole, // the self-reports of the agents and of this server
 		"GET /api/v1/orgs/{org}/history":                        httpkit.MemberRole,
 		"GET /api/v1/orgs/{org}/history/snapshot":               httpkit.MemberRole,
 		"GET /api/v1/orgs/{org}/history/traffic":                httpkit.MemberRole,

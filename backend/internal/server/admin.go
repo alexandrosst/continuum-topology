@@ -145,15 +145,9 @@ func (a *Admin) Handler() http.Handler {
 		},
 	}).Mount(routes)
 
-	// Mail is server-wide, not one organisation's, and is gated to an owner of the default organisation
-	// specifically - see requireDefaultOwner - rather than to any of the per-org role checks above.
-	route("GET /api/v1/mail", httpkit.Settled, a.getMailConfig)
-	route("PUT /api/v1/mail", httpkit.Settled, a.putMailConfig)
-
 	const o = "/api/v1/orgs/{org}"
 	route("GET "+o+"/info", httpkit.MemberRole, a.info)
 
-	route("GET "+o+"/telemetry/self", httpkit.MemberRole, a.selfTelemetry)
 	route("GET "+o+"/links/latest", httpkit.MemberRole, a.linksLatest)
 	route("POST "+o+"/links/rotate-credentials", httpkit.AdminRole, a.rotateLinkCredentials)
 	decisionloop.API{For: func(r *http.Request) *decisionloop.Service { return a.core(r).Loop }, Version: a.Version,

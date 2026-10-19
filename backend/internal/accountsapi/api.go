@@ -54,6 +54,10 @@ func (h *API) fail(w http.ResponseWriter, err error) { httpkit.Fail(w, h.Account
 
 // Mount puts the routes on r.
 func (h *API) Mount(r httpkit.Router) {
+	// The server's mail settings are not an organisation's: the guard asks only that the person has settled in one, and the handlers
+	// that they own the default organisation specifically (requireDefaultOwner).
+	r.Handle("GET /api/v1/mail", httpkit.Settled, h.getMailConfig)
+	r.Handle("PUT /api/v1/mail", httpkit.Settled, h.putMailConfig)
 	r.Open("GET /api/v1/server", h.serverInfo)
 	r.Open("POST /api/v1/auth/login", h.login)
 	if h.Edge.SSOHeader != "" {
