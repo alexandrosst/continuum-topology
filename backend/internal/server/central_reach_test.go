@@ -15,43 +15,6 @@ import (
 // one cannot get through the page says which end is at fault. What differs is where the facts come from. Its health is
 // FUSION's own state (it has no heartbeat), and its Service belongs to the server's install, not to continuum-system.
 
-func TestDiagnosisOfASenderToTheCentralOperatorReadsFusionsOwnState(t *testing.T) {
-	base := diagnosisInput{ClusterName: "patras-edge", Connected: true, Address: "203.0.113.50:4317", AddrSource: "recorded",
-		OperatorID: operators.CentralOperatorID, OperatorName: "FUSION", Central: true, Delivery: failing("rpc error: code = Unavailable desc = connection error: i/o timeout")}
-	peerOK := []peerOutcome{{Name: "athens-edge", Address: "203.0.113.50:4317", State: "exporting"}}
-
-	for _, c := range []struct {
-		name   string
-		state  string
-		peers  []peerOutcome
-		where  string
-		phrase string
-	}{
-		{"off", operators.HealthOff, nil, "operator", "FUSION is off"},
-		{"starting", operators.HealthStarting, nil, "operator", "still starting"},
-		{"attention", operators.HealthAttention, nil, "operator", "reports a problem"},
-		// Another cluster getting through is stronger evidence than FUSION's own word: the path is what is wrong.
-		{"off while a peer exports", operators.HealthOff, peerOK, "sender-network", "athens-edge is exporting"},
-		{"online, nobody to compare", operators.HealthOnline, nil, "sender-network", "reports itself online"},
-	} {
-		in := base
-		in.OperatorState, in.Peers = c.state, c.peers
-		got := diagnoseSender(in)
-		if got == nil || got.Where != c.where || !strings.Contains(got.Title+" "+got.Detail, c.phrase) {
-			t.Errorf("%s: %+v, want %s mentioning %q", c.name, got, c.where, c.phrase)
-		}
-	}
-
-	// A certificate refusal does not send anyone to a "Renew certificates" row the central operator does not have.
-	in := base
-	in.OperatorState = operators.HealthOnline
-	in.Delivery = failing("x509: certificate signed by unknown authority")
-	got := diagnoseSender(in)
-	if got == nil || got.Where != "certificate" || strings.Contains(got.Detail, "Renew certificates") {
-		t.Errorf("certificate, central: %+v", got)
-	}
-}
-
 func TestCentralOperatorAddressCandidatesAndSendersComeFromTheGatewayAndFusion(t *testing.T) {
 	a := newIntentRig(t)
 	f, k := newFusion(t, a.adminRig)

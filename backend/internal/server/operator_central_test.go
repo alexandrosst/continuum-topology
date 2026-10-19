@@ -10,7 +10,7 @@ import (
 // holds the ones still in the shell (the hub-bound routes and the telemetry intents' command, which move next) to it, so that step finds
 // nothing of FUSION to take along.
 func TestTheOperatorsHandlersNameNothingOfFusion(t *testing.T) {
-	for _, f := range []string{"operator_candidates.go", "operator_senders.go", "admin_telemetry_intents.go"} {
+	for _, f := range []string{"operator_candidates.go", "admin_telemetry_intents.go"} {
 		src, err := os.ReadFile(f)
 		if err != nil {
 			t.Fatal(err)

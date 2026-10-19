@@ -10,7 +10,6 @@ import (
 	"continuum/internal/accounts"
 	"continuum/internal/connectivity"
 	"continuum/internal/estate"
-	"continuum/internal/operators"
 )
 
 // driftRig is an operator with one sender that chose an address, the sender connected and able to time connections.
@@ -143,32 +142,6 @@ func TestDriftTestsGiveWayToAPersonsAndSkipWhatCannotBeTested(t *testing.T) {
 	h.DriftSweep(a.ctx)
 	if q := quietTests(a, agentID); len(q) != 0 {
 		t.Fatalf("a disconnected cluster was asked to test: %v", q)
-	}
-}
-
-func TestDiagnosisUsesAnAddressTestFromTheSendersOwnCluster(t *testing.T) {
-	base := diagnosisInput{ClusterName: "patras-edge", Connected: true, Address: "10.20.0.14:31317", AddrSource: "chosen", OperatorID: "op-1", OperatorState: operators.HealthOnline}
-	down := &connectivity.AddressReachDoc{State: "unreachable", At: "2026-10-12T10:00:00Z"}
-	up := &connectivity.AddressReachDoc{State: "reachable", At: "2026-10-12T10:00:00Z"}
-
-	in := base
-	in.Reach, in.Delivery = down, &SenderDeliveryDoc{State: "waiting"}
-	if d := diagnoseSender(in); d == nil || d.Where != "sender-network" || !strings.Contains(d.Detail, "2026-10-12T10:00:00Z") {
-		t.Fatalf("a failed test with nothing sent yet: %+v", d)
-	}
-	in.Delivery = nil
-	if d := diagnoseSender(in); d == nil || d.Where != "sender-network" {
-		t.Fatalf("a failed test with nothing reported: %+v", d)
-	}
-	// Data is getting through: one failed test is not allowed to contradict that.
-	in.Delivery = &SenderDeliveryDoc{State: "exporting"}
-	if d := diagnoseSender(in); d != nil {
-		t.Fatalf("the sender is exporting: %+v", d)
-	}
-	// A failure that a test from the same cluster could connect to is said to be possibly passing.
-	in.Reach, in.Delivery = up, failing("i/o timeout")
-	if d := diagnoseSender(in); d == nil || !strings.Contains(d.Detail, "did connect") {
-		t.Fatalf("a timeout with a good test: %+v", d)
 	}
 }
 

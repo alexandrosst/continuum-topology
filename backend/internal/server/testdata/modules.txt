@@ -51,7 +51,6 @@ links_latest.go shell
 metrics.go                      shell
 operator_candidates.go shell
 operator_heartbeat_receiver.go shell
-operator_senders.go shell
 readiness.go                    shell
 routes.go                       shell
 self_probe.go shell

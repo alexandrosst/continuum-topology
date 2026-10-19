@@ -9,7 +9,12 @@
 package operatorsapi
 
 import (
+	"time"
+
 	"context"
+	"continuum/internal/agents"
+	"continuum/internal/connectivity"
+	"continuum/internal/telemetry"
 	"net"
 	"net/http"
 
@@ -40,10 +45,21 @@ type API struct {
 	Secure func(r *http.Request) bool
 	// AgentRelease is the namespace and the Helm release the agent with this id was installed as ("" when it never said).
 	AgentRelease func(r *http.Request, agentID string) (namespace, release string)
+	// Hub is what the hub of the organisation a request is for knows of the agents that send to an operator (the senders route reads
+	// it); Intents is the telemetry intents that name the operators.
+	Hub     func(r *http.Request) SenderHub
+	Intents func(r *http.Request) *telemetry.Service
 	// ProbeDial replaces the network the address check dials with (a test); nil dials as the decider allows.
 	ProbeDial func(ctx context.Context, network, addr string) (net.Conn, error)
 
 	probes addressProbes
+}
+
+// SenderHub is what the operators' routes ask the hub about a sending agent: how its address was last tested from its own cluster, and
+// how its exporters fare. *estate.Hub is one.
+type SenderHub interface {
+	ReachOf(agentID, address string, now time.Time) *connectivity.AddressReachDoc
+	ExportHealthOf(agentID string) (connected bool, export *agents.ExportHealthDoc)
 }
 
 func (h *API) fail(w http.ResponseWriter, r *http.Request, err error) {
@@ -87,6 +103,9 @@ func (h *API) Mount(r httpkit.Router) {
 	r.Handle("POST "+o+"/operators/{id}/address/check", httpkit.AdminRole, h.checkOperatorAddress)
 	// Mints (or rotates) the operator's heartbeat secret: credential material, so an administrator's like the rest.
 	r.Handle("POST "+o+"/operators/{id}/heartbeat", httpkit.AdminRole, h.enableOperatorHeartbeat)
+	// The clusters that send to the operator, how each reaches it, and which end a fault is on: read from the telemetry intents and what the
+	// hub holds, nothing dialled.
+	r.Handle("GET "+o+"/operators/{id}/senders", httpkit.AdminRole, h.listOperatorSenders)
 	r.Handle("POST "+o+"/operators/{id}/revoke", httpkit.AdminRole, h.revokeOperator)
 	r.Handle("DELETE "+o+"/operators/{id}", httpkit.AdminRole, h.deleteOperator)
 }

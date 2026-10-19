@@ -1,4 +1,4 @@
-package server
+package operatorsapi
 
 import (
 	"fmt"
@@ -88,7 +88,7 @@ func intentModalities(ti store.TelemetryIntent) map[store.Modality]bool {
 }
 
 // senderAddresses groups, by address, the signal types of the intent that go to op.
-func (a *Admin) senderAddresses(op store.Operator, ti store.TelemetryIntent) ([]SenderAddressDoc, []store.Modality) {
+func (h *API) senderAddresses(op store.Operator, ti store.TelemetryIntent) ([]SenderAddressDoc, []store.Modality) {
 	on := intentModalities(ti)
 	byAddr := map[string]*SenderAddressDoc{}
 	var order []string
@@ -105,7 +105,7 @@ func (a *Admin) senderAddresses(op store.Operator, ti store.TelemetryIntent) ([]
 			continue
 		}
 		mods = append(mods, m)
-		addr := a.operatorsAPI().DestEndpoint(op, d)
+		addr := h.DestEndpoint(op, d)
 		src := "in-cluster"
 		switch {
 		case d.Address != "":
@@ -323,30 +323,30 @@ func diagnoseSender(in diagnosisInput) *SenderDiagnosisDoc {
 }
 
 // listOperatorSenders answers GET .../operators/{id}/senders.
-func (a *Admin) listOperatorSenders(w http.ResponseWriter, r *http.Request) {
-	c := a.core(r)
-	op, err := c.Operators.GetOperator(r.Context(), r.PathValue("id"))
+func (h *API) listOperatorSenders(w http.ResponseWriter, r *http.Request) {
+	c := h.For(r)
+	op, err := c.GetOperator(r.Context(), r.PathValue("id"))
 	if err != nil {
-		a.fail(w, err)
+		h.fail(w, r, err)
 		return
 	}
-	intents, err := c.Telemetry.ListTelemetryIntents(r.Context())
+	intents, err := h.Intents(r).ListTelemetryIntents(r.Context())
 	if err != nil {
-		a.fail(w, err)
+		h.fail(w, r, err)
 		return
 	}
 	agentList, err := c.Store.ListAgents(r.Context(), c.OrgID)
 	if err != nil {
-		a.fail(w, err)
+		h.fail(w, r, err)
 		return
 	}
 	agentOf := make(map[string]store.Agent, len(agentList))
 	for _, ag := range agentList {
 		agentOf[ag.ID] = ag
 	}
-	hub := a.tn(r).Hub
+	hub := h.Hub(r)
 	now := c.Now()
-	health := a.sendersHealth(r, op, now)
+	health := h.sendersHealth(r, op, now)
 	seen := ""
 	if health.LastSeenAt != nil {
 		seen = health.LastSeenAt.UTC().Format(time.RFC3339)
@@ -362,7 +362,7 @@ func (a *Admin) listOperatorSenders(w http.ResponseWriter, r *http.Request) {
 		if ti.Status != store.TelemetryIntentActive {
 			continue
 		}
-		addrs, mods := a.senderAddresses(op, ti)
+		addrs, mods := h.senderAddresses(op, ti)
 		if len(addrs) == 0 {
 			continue
 		}
@@ -397,12 +397,12 @@ func (a *Admin) listOperatorSenders(w http.ResponseWriter, r *http.Request) {
 
 // sendersHealth is the health a diagnosis reads: a regional operator's heartbeat, and for the central operator, which has
 // none, FUSION's own state (the same as its row shows).
-func (a *Admin) sendersHealth(r *http.Request, op store.Operator, now time.Time) operators.OperatorHealth {
+func (h *API) sendersHealth(r *http.Request, op store.Operator, now time.Time) operators.OperatorHealth {
 	if op.ID != operators.CentralOperatorID {
 		return operators.OperatorHealthAt(op, now)
 	}
-	managed := a.operatorsAPI().ManagedState(r)
-	h := operators.CentralHealth(managed)
-	h.LastSeenAt = managed.LastDataAt
-	return h
+	managed := h.ManagedState(r)
+	health := operators.CentralHealth(managed)
+	health.LastSeenAt = managed.LastDataAt
+	return health
 }

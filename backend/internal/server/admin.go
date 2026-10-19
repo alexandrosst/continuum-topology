@@ -120,6 +120,8 @@ func (a *Admin) operatorsAPI() *operatorsapi.API {
 			Settings: &a.Settings,
 			CAPin:    func() string { return a.C.CA.SPKIPin() },
 			Secure:   a.secure,
+			Hub:      func(r *http.Request) operatorsapi.SenderHub { return a.tn(r).Hub },
+			Intents:  func(r *http.Request) *telemetry.Service { return a.core(r).Telemetry },
 			AgentRelease: func(r *http.Request, id string) (string, string) {
 				hub := a.tn(r).Hub
 				return hub.NamespaceOf(id), hub.ReleaseNameOf(id)
@@ -192,7 +194,6 @@ func (a *Admin) Handler() http.Handler {
 	// The addresses discovery says this operator can be reached at, to pick from instead of typing one.
 	route("GET "+o+"/operators/{id}/address-candidates", httpkit.AdminRole, a.listOperatorAddressCandidates)
 	route("PUT "+o+"/operators/{id}/server-cluster", httpkit.AdminRole, a.putServerCluster)
-	route("GET "+o+"/operators/{id}/senders", httpkit.AdminRole, a.listOperatorSenders)
 
 	// A telemetry intent only declares what one agent's bundled local operator should collect and where to
 	// export it; the credentials and the install command come from /command below (httpkit.AdminRole) and the cluster's
