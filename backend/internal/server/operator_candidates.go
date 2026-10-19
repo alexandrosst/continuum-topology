@@ -724,7 +724,7 @@ func (a *Admin) serverClusterFromAgents(ctx context.Context, c *Core, hub *estat
 	id, source := c.Settings().ServerClusterID, "chosen"
 	if id == "" {
 		id, source = "", "install"
-		if cid, ok := kernel.ClusterIDForUID(c.OrgID, a.Fusion.ClusterUID); ok {
+		if cid, ok := kernel.ClusterIDForUID(c.OrgID, a.central().ClusterUID()); ok {
 			id = cid
 		}
 	}
@@ -762,19 +762,20 @@ func (a *Admin) listOperatorAddressCandidates(w http.ResponseWriter, r *http.Req
 	res := AddressCandidates{Candidates: []AddressCandidate{}}
 	namespace, workload, recorded := operatorNamespace, operators.OperatorServiceName(op.ID), op.Address
 	var gateway *kernel.KubeService
-	if op.ID == operators.CentralOperatorID && a.Fusion != nil {
+	cen := a.central()
+	if op.ID == operators.CentralOperatorID && cen != nil {
 		// The gateway is the server's own install: its Deployment is in the server's namespace, and the server reads its
 		// Service itself, which is how a load balancer's address is found even where no agent runs in that cluster.
-		namespace, workload = a.Fusion.Namespace, a.Fusion.ServiceName()
-		if a.Fusion.Exposed() {
-			recorded = a.Fusion.CentralEndpoint()
+		namespace, workload = cen.Namespace(), cen.ServiceName()
+		if cen.Exposed() {
+			recorded = cen.Endpoint()
 		}
-		gateway = a.Fusion.GatewayService(r.Context())
+		gateway = cen.GatewayService(r.Context())
 	}
 	hub := a.tn(r).Hub
 	var host operatorHost
 	var found bool
-	if op.ID == operators.CentralOperatorID && a.Fusion != nil {
+	if op.ID == operators.CentralOperatorID && cen != nil {
 		// The gateway lies in the server's own cluster, so which cluster that is comes first from what is known of the
 		// server: a person's choice, else what the install told it. Only then is it worked out from what agents report.
 		host, found, res.ServerCluster = a.serverClusterHost(r.Context(), c, hub, namespace, workload, gateway)
@@ -805,7 +806,7 @@ func (a *Admin) listOperatorAddressCandidates(w http.ResponseWriter, r *http.Req
 			res.Hints = append(res.Hints, "No agent reports which node runs the pod, so the nodes are listed in name order. Any of them works, since its node port forwards to the pod, but the pod's own node saves a hop.")
 		}
 	}
-	if h := exposureHint(res.Candidates, found, op.ID == operators.CentralOperatorID); h != "" && op.ID == operators.CentralOperatorID && a.Fusion != nil {
+	if h := exposureHint(res.Candidates, found, op.ID == operators.CentralOperatorID); h != "" && op.ID == operators.CentralOperatorID && cen != nil {
 		// The page shows this as a card with the command in it, so the sentence is not repeated as a hint.
 		e := &ExposeDoc{Service: workload, Namespace: namespace, Value: "fusion.central.service.type"}
 		nodePort, err1 := exposeCommand(namespace, workload, install.NodePort)
@@ -828,7 +829,7 @@ func (a *Admin) listOperatorAddressCandidates(w http.ResponseWriter, r *http.Req
 // gateway, runs in, for when the install did not tell it. An empty cluster id takes the choice back.
 func (a *Admin) putServerCluster(w http.ResponseWriter, r *http.Request) {
 	c := a.core(r)
-	if r.PathValue("id") != operators.CentralOperatorID || a.Fusion == nil {
+	if r.PathValue("id") != operators.CentralOperatorID || a.central() == nil {
 		httpkit.WriteErr(w, 404, "only the central operator has a server cluster")
 		return
 	}

@@ -46,6 +46,8 @@ func ServiceTypeFor(exposure string) (string, error) {
 type ManagedStatus struct {
 	Available bool
 	State     string
+	// LastDataAt is when the central operator last received data, as its manager knows it; nil when not known.
+	LastDataAt *time.Time
 }
 
 // OperatorTLSBundle is the mTLS material minted once, alongside the receiver bearer token, when a

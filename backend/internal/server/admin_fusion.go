@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"net/http"
 
 	"continuum/internal/fusion"
@@ -51,7 +50,7 @@ func (a *Admin) fusionDoc(r *http.Request) fusionResponse {
 	}
 	if f != nil && st.Available {
 		_, err := core.Operators.GetOperator(r.Context(), operators.CentralOperatorID)
-		out.Central = &fusionCentralDoc{OperatorID: operators.CentralOperatorID, Endpoint: f.CentralEndpoint(), Exposed: f.Exposed(), Exists: err == nil, Service: f.ServiceName(), Namespace: f.Namespace, Warnings: fusionAddressWarnings(r.Context(), f)}
+		out.Central = &fusionCentralDoc{OperatorID: operators.CentralOperatorID, Endpoint: f.CentralEndpoint(), Exposed: f.Exposed(), Exists: err == nil, Service: f.ServiceName(), Namespace: f.Namespace, Warnings: centralAddressWarnings(r.Context(), f.Central())}
 		if out.Central.Exists && !out.Central.Exposed && st.State != "off" {
 			f.DiscoverAddressSoon(core.Fusion) // the next read of this screen shows it
 		}
@@ -116,11 +115,5 @@ func (a *Admin) setFusionRetention(w http.ResponseWriter, r *http.Request) {
 	httpkit.WriteJSON(w, 200, doc)
 }
 
-// fusionAddressWarnings are the doubts about the public address recorded for the gateway (see addressWarnings), checked against the
-// gateway's own Service. Empty when there is no address, or nothing to doubt.
-func fusionAddressWarnings(ctx context.Context, f *fusion.FusionControl) []string {
-	if f == nil || !f.Exposed() {
-		return nil
-	}
-	return addressWarnings(f.CentralEndpoint(), f.GatewayService(ctx))
-}
+// central is the central operator as the server runs it, or nil when the server has no FUSION to run it.
+func (a *Admin) central() operators.Central { return a.Fusion.Central() }

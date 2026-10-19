@@ -357,7 +357,7 @@ type FusionStatus struct {
 
 // Managed is what the operators module needs of this state to report the central operator's health.
 func (st FusionStatus) Managed() operators.ManagedStatus {
-	return operators.ManagedStatus{Available: st.Available, State: st.State}
+	return operators.ManagedStatus{Available: st.Available, State: st.State, LastDataAt: st.LastDataAt}
 }
 
 // clone is a copy that shares nothing with the cached one, so a caller may change what it was given.

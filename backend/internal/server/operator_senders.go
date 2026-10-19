@@ -401,8 +401,8 @@ func (a *Admin) sendersHealth(r *http.Request, op store.Operator, now time.Time)
 	if op.ID != operators.CentralOperatorID {
 		return operators.OperatorHealthAt(op, now)
 	}
-	fusion := a.fusionState(r)
-	h := operators.CentralHealth(fusion.Managed())
-	h.LastSeenAt = fusion.LastDataAt
+	managed := a.managedState(r)
+	h := operators.CentralHealth(managed)
+	h.LastSeenAt = managed.LastDataAt
 	return h
 }

@@ -196,3 +196,25 @@ func TestHealthIsWaitingOnlyForAnActiveOperatorWithAHeartbeatCredential(t *testi
 		t.Fatalf("no credential: %+v", h)
 	}
 }
+
+// FUSION is managed from one organisation. For any other, its state is not the central operator's: the row, if one exists, does not
+// say another organisation's FUSION is starting or running, and does not recommend it.
+func TestTheCentralOperatorTakesNoStateFromAnotherOrganisationsFusion(t *testing.T) {
+	a := newAdminRig(t)
+	_, editor := a.user(t, "ed", accounts.RoleEditor)
+	f, _ := newFusion(t, a)
+	if _, err := f.Enable(a.ctx, a.core.Fusion, "alex"); err != nil {
+		t.Fatal(err)
+	}
+	a.a.Fusion = f
+	central := func() map[string]any {
+		return destByID(a.do("GET", "/api/v1/operator-destinations", nil, withCookie(editor)).jsonArray(t), operators.CentralOperatorID)
+	}
+	if c := central(); c == nil || c["health"].(map[string]any)["state"] != "starting" || c["recommended"] != true {
+		t.Fatalf("FUSION's own organisation sees its state: %v", c)
+	}
+	f.Org = "some-other-organisation"
+	if c := central(); c != nil && (c["health"].(map[string]any)["state"] != "unknown" || c["recommended"] != false) {
+		t.Fatalf("another organisation was told FUSION's state: %v", c)
+	}
+}

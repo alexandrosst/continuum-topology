@@ -12,7 +12,6 @@ import (
 
 	"continuum/internal/agents"
 	"continuum/internal/chart"
-	"continuum/internal/fusion"
 	"continuum/internal/httpkit"
 	"continuum/internal/install"
 	"continuum/internal/kernel"
@@ -189,33 +188,37 @@ func toOperatorDoc(op store.Operator, now time.Time) operatorDoc {
 // computed (opDocWith) instead of scanning once per operator.
 func (a *Admin) opDoc(r *http.Request, op store.Operator) operatorDoc {
 	usages, _ := a.core(r).Operators.OperatorUsages(r.Context()) // best effort: without it the document simply has no usedBy
-	return a.opDocWith(r, op, usages, a.fusionState(r))
+	return a.opDocWith(r, op, usages, a.managedState(r))
 }
 
-// fusionState is FUSION's status for the documents of the central operator; read once per request by the callers
+// managedState is the state of whoever runs the central operator, for its documents of the central operator; read once per request by the callers
 // that build several. FUSION is managed from the server's main organisation only, so for any other it is not
 // available (there is no central operator to speak of).
-func (a *Admin) fusionState(r *http.Request) fusion.FusionStatus {
-	if f := a.Fusion; f != nil && f.Org != "" && a.core(r).OrgID != f.Org {
-		return fusion.FusionStatus{State: "off", Reason: "other-org"}
+func (a *Admin) managedState(r *http.Request) operators.ManagedStatus {
+	c := a.central()
+	if c == nil {
+		return operators.ManagedStatus{State: "off"}
 	}
-	return a.Fusion.Status(r.Context())
+	if org := c.Org(); org != "" && a.core(r).OrgID != org {
+		return operators.ManagedStatus{State: "off"}
+	}
+	return c.Managed(r.Context())
 }
 
-func (a *Admin) opDocWith(r *http.Request, op store.Operator, usages map[string]operators.OperatorUsage, fusion fusion.FusionStatus) operatorDoc {
+func (a *Admin) opDocWith(r *http.Request, op store.Operator, usages map[string]operators.OperatorUsage, managed operators.ManagedStatus) operatorDoc {
 	d := toOperatorDoc(op, a.core(r).Now())
 	d.Endpoint = a.operatorEndpoint(op)
 	d.UsedBy = toUsedByDoc(usages[op.ID])
 	d.AddressWarnings = addressWarnings(op.Address, nil)
 	if op.ID == operators.CentralOperatorID {
-		h := operators.CentralHealth(fusion.Managed())
-		h.LastSeenAt = fusion.LastDataAt
+		h := operators.CentralHealth(managed)
+		h.LastSeenAt = managed.LastDataAt
 		d.Health = toHealthDoc(h)
-		if a.Fusion != nil {
-			if d.ReachableFromOtherClusters = a.Fusion.Exposed(); d.ReachableFromOtherClusters {
-				d.Address = a.Fusion.CentralEndpoint()
+		if c := a.central(); c != nil {
+			if d.ReachableFromOtherClusters = c.Exposed(); d.ReachableFromOtherClusters {
+				d.Address = c.Endpoint()
 				d.AddressState = addressSet
-				d.AddressWarnings = fusionAddressWarnings(r.Context(), a.Fusion) // checked against the gateway's own Service
+				d.AddressWarnings = centralAddressWarnings(r.Context(), c) // checked against the gateway's own Service
 			} else {
 				d.AddressState = addressNone
 			}
@@ -244,10 +247,10 @@ func (a *Admin) listOperators(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	usages, _ := a.core(r).Operators.OperatorUsages(r.Context())
-	fusion := a.fusionState(r)
+	managed := a.managedState(r)
 	out := []operatorDoc{}
 	for _, op := range ops {
-		out = append(out, a.opDocWith(r, op, usages, fusion))
+		out = append(out, a.opDocWith(r, op, usages, managed))
 	}
 	httpkit.WriteJSON(w, 200, out)
 }
@@ -482,16 +485,16 @@ func (a *Admin) setOperatorAddress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
-	if id == operators.CentralOperatorID && a.Fusion != nil {
-		req.Address = a.Fusion.WithGatewayPort(r.Context(), req.Address) // a NodePort is not on 4317
+	if c := a.central(); id == operators.CentralOperatorID && c != nil {
+		req.Address = c.WithGatewayPort(r.Context(), req.Address) // a NodePort is not on 4317
 	}
 	addr, err := a.core(r).Operators.SetOperatorAddress(r.Context(), httpkit.Actor(r), id, req.Address)
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
-	if id == operators.CentralOperatorID && a.Fusion != nil {
-		a.Fusion.SetPublicAddress(addr) // from now on every command and the screens use it; no certificate changes
+	if c := a.central(); id == operators.CentralOperatorID && c != nil {
+		c.SetPublicAddress(addr) // from now on every command and the screens use it; no certificate changes
 	}
 	op, err := a.core(r).Operators.GetOperator(r.Context(), id)
 	if err != nil {
@@ -704,8 +707,8 @@ func operatorRouteValues(op store.Operator, endpoint string, m store.Modality) [
 // (empty when it is not, which leaves its in-cluster name), so from here on it is handled like any operator that has an
 // advertised address - dialled there, and verified by its stable name.
 func (a *Admin) advertised(op store.Operator) store.Operator {
-	if op.ID == operators.CentralOperatorID && a.Fusion != nil && a.Fusion.Exposed() {
-		op.Address = a.Fusion.CentralEndpoint()
+	if c := a.central(); op.ID == operators.CentralOperatorID && c != nil && c.Exposed() {
+		op.Address = c.Endpoint()
 	}
 	return op
 }
@@ -715,8 +718,8 @@ func (a *Admin) advertised(op store.Operator) store.Operator {
 // exposed - the address FusionControl says (see CentralEndpoint). Any other operator with an advertised address
 // (see store.Operator.Address) is reached there, so a cluster elsewhere can find it.
 func (a *Admin) operatorEndpoint(op store.Operator) string {
-	if op.ID == operators.CentralOperatorID && a.Fusion != nil {
-		return a.Fusion.CentralEndpoint()
+	if c := a.central(); op.ID == operators.CentralOperatorID && c != nil {
+		return c.Endpoint()
 	}
 	if op.Address != "" {
 		return op.Address
@@ -763,8 +766,8 @@ func (a *Admin) targetWarnings(ctx context.Context, op store.Operator) []string 
 		return []string{fmt.Sprintf("%s has no address recorded, so this command dials its in-cluster name (%s), which resolves only inside the cluster it runs in. If the cluster being pointed at it is another one, record where %s is reached from outside first.", name, a.operatorEndpoint(op), name)}
 	}
 	var svc *kernel.KubeService
-	if op.ID == operators.CentralOperatorID && a.Fusion != nil {
-		svc = a.Fusion.GatewayService(ctx)
+	if c := a.central(); op.ID == operators.CentralOperatorID && c != nil {
+		svc = c.GatewayService(ctx)
 	}
 	var out []string
 	for _, w := range addressWarnings(op.Address, svc) {
@@ -1062,4 +1065,13 @@ func (a *Admin) sourceReminders(img kernel.ImageConfig, op store.Operator, tlsBu
 		out = append(out, upgrade+fmt.Sprintf("  # cluster %s", t.cluster))
 	}
 	return out, nil
+}
+
+// centralAddressWarnings are the doubts about the public address recorded for the gateway (see addressWarnings), checked against the
+// gateway's own Service. Empty when there is no address, or nothing to doubt.
+func centralAddressWarnings(ctx context.Context, c operators.Central) []string {
+	if c == nil || !c.Exposed() {
+		return nil
+	}
+	return addressWarnings(c.Endpoint(), c.GatewayService(ctx))
 }

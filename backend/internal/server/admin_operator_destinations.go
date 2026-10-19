@@ -47,7 +47,7 @@ func (a *Admin) listOperatorDestinations(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	usages, _ := core.Operators.OperatorUsages(r.Context())
-	fusion := a.fusionState(r)
+	managed := a.managedState(r)
 	out := []operatorDestinationDoc{}
 	var regional []operatorDestinationDoc
 	haveCentral := false
@@ -55,7 +55,7 @@ func (a *Admin) listOperatorDestinations(w http.ResponseWriter, r *http.Request)
 		if op.Status != store.OperatorActive {
 			continue
 		}
-		d := a.opDocWith(r, op, usages, fusion)
+		d := a.opDocWith(r, op, usages, managed)
 		e := operatorDestinationDoc{
 			ID: d.ID, Name: d.Name, Kind: "regional", Status: d.Status,
 			AddressState: d.AddressState, Endpoint: d.Endpoint, ReachableFromOtherClusters: d.ReachableFromOtherClusters,
@@ -70,13 +70,13 @@ func (a *Admin) listOperatorDestinations(w http.ResponseWriter, r *http.Request)
 		}
 		regional = append(regional, e)
 	}
-	if !haveCentral && fusion.Available {
-		h := operators.CentralHealth(fusion.Managed())
+	if !haveCentral && managed.Available {
+		h := operators.CentralHealth(managed)
 		e := operatorDestinationDoc{ID: operators.CentralOperatorID, Name: centralOperatorName, Kind: "central", Status: string(store.OperatorActive),
 			AddressState: addressNone, UsedBy: usageCount(usages[operators.CentralOperatorID]), Recommended: h.State == operators.HealthOnline || h.State == operators.HealthStarting}
-		e.Health.State, e.Health.LastSeenAt = h.State, kernel.RFCP(fusion.LastDataAt)
-		if a.Fusion.Exposed() {
-			e.AddressState, e.Endpoint, e.ReachableFromOtherClusters = addressSet, a.Fusion.CentralEndpoint(), true
+		e.Health.State, e.Health.LastSeenAt = h.State, kernel.RFCP(managed.LastDataAt)
+		if c := a.central(); c.Exposed() {
+			e.AddressState, e.Endpoint, e.ReachableFromOtherClusters = addressSet, c.Endpoint(), true
 		}
 		out = append([]operatorDestinationDoc{e}, out...)
 	}
