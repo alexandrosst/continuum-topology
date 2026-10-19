@@ -11,12 +11,13 @@ import (
 	"continuum/internal/httpkit"
 	"continuum/internal/install"
 	"continuum/internal/kernel"
+	"continuum/internal/operatorsapi"
 	"continuum/internal/store"
 )
 
 // telemetryIntentCommand returns the --set flags (and, for an operator destination, the kubectl secret
 // command) a person runs against the intent's own agent to actually point its bundled local operator's
-// export at what the intent now grants - the single-agent counterpart of operatorSourceReminders, built
+// export at what the intent now grants - the single-agent counterpart of operatorsapi.SourceReminders, built
 // on demand rather than only once at creation/scope-update time, so it can hand out a freshly minted
 // client certificate (see Core.IssueOperatorClientCert) no matter when the intent's destination was set.
 // Provenance flags (telemetry.resource.orgId/clusterId/intentId - added in the chart alongside this
@@ -150,7 +151,7 @@ func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 	warn := func(op store.Operator, d store.Destination) {
 		if key := op.ID + "|" + d.Address; !warned[key] {
 			warned[key] = true
-			warnings = append(warnings, a.destWarnings(r.Context(), op, d)...)
+			warnings = append(warnings, a.operatorsAPI().DestWarnings(r.Context(), op, d)...)
 		}
 	}
 	if len(ti.Routes) > 0 {
@@ -172,7 +173,7 @@ func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 			issued[op.ID] = true
 			auth[op.ID] = string(op.ReceiverAuth)
 			if len(certPEM) > 0 {
-				secretCmd, err := operatorClientSecretCommand(op, certPEM, keyPEM, caPEM, rns, false)
+				secretCmd, err := operatorsapi.ClientSecretCommand(op, certPEM, keyPEM, caPEM, rns, false)
 				if err != nil {
 					return err
 				}
@@ -181,7 +182,7 @@ func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 			return nil
 		}
 		var unrouted []store.Modality
-		for _, m := range routeModalities {
+		for _, m := range operatorsapi.RouteModalities {
 			d, ok := ti.Routes[m]
 			if !ok {
 				unrouted = append(unrouted, m)
@@ -195,13 +196,13 @@ func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 				a.fail(w, err)
 				return
 			}
-			op = a.advertised(op)
+			op = a.operatorsAPI().Advertised(op)
 			if err := issue(op); err != nil {
 				a.fail(w, err)
 				return
 			}
 			warn(op, d)
-			values = append(values, operatorRouteValues(op, a.destEndpoint(op, d), m)...)
+			values = append(values, operatorsapi.RouteValues(op, a.operatorsAPI().DestEndpoint(op, d), m)...)
 		}
 		if len(unrouted) > 0 {
 			// The signal types without a route of their own go to the intent's default destination. When that is a
@@ -213,15 +214,15 @@ func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 					a.fail(w, err)
 					return
 				}
-				op = a.advertised(op)
+				op = a.operatorsAPI().Advertised(op)
 				if err := issue(op); err != nil {
 					a.fail(w, err)
 					return
 				}
 				warn(op, ti.Destination)
-				values = append(values, exportBlock("telemetry.export.otlp", op, a.destEndpoint(op, ti.Destination), true)...)
+				values = append(values, operatorsapi.ExportBlock("telemetry.export.otlp", op, a.operatorsAPI().DestEndpoint(op, ti.Destination), true)...)
 			}
-			values = append(values, clearRoutes(unrouted...)...)
+			values = append(values, operatorsapi.ClearRoutes(unrouted...)...)
 		}
 		if len(auth) > 0 {
 			resp["operators"] = auth
@@ -232,27 +233,27 @@ func (a *Admin) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 			a.fail(w, err)
 			return
 		}
-		op = a.advertised(op)
+		op = a.operatorsAPI().Advertised(op)
 		certPEM, keyPEM, caPEM, err := a.core(r).Operators.IssueOperatorClientCertFor(r.Context(), httpkit.Actor(r), op.ID, agent.ClusterID, forWhat)
 		if err != nil {
 			a.fail(w, err)
 			return
 		}
 		warn(op, ti.Destination)
-		destination, secretCmd, err := operatorDestinationCommand(op, a.destEndpoint(op, ti.Destination), certPEM, keyPEM, caPEM, rns)
+		destination, secretCmd, err := operatorsapi.DestinationCommand(op, a.operatorsAPI().DestEndpoint(op, ti.Destination), certPEM, keyPEM, caPEM, rns)
 		if err != nil {
 			a.fail(w, a.installConfigError(err))
 			return
 		}
 		// Every signal type goes to this one destination, so no per-signal route may stay: a route outranks the default,
 		// and one an earlier command set (--reset-then-reuse-values keeps it) would keep sending to the old destination.
-		values = append(append(values, destination...), clearRoutes(routeModalities...)...)
+		values = append(append(values, destination...), operatorsapi.ClearRoutes(operatorsapi.RouteModalities...)...)
 		// Whether the person must also supply a receiver bearer token: not for an "mtls" operator, whose
 		// only gate is the client certificate in the Secret above; for a "bearer" one the flags are exactly
 		// what they always were and the caller still supplies the token itself.
 		resp["receiverAuth"] = string(op.ReceiverAuth)
 		resp["operators"] = map[string]string{op.ID: string(op.ReceiverAuth)}
-		resp["endpoint"] = a.destEndpoint(op, ti.Destination)
+		resp["endpoint"] = a.operatorsAPI().DestEndpoint(op, ti.Destination)
 		if secretCmd != "" {
 			secretCommands = append(secretCommands, secretCmd)
 		}

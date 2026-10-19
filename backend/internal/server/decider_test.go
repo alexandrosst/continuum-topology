@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"encoding/binary"
 	"io"
 	"net"
 	"net/http"
@@ -18,6 +17,7 @@ import (
 	"continuum/internal/decisionloop"
 	"continuum/internal/kernel"
 	"continuum/internal/store"
+	"continuum/internal/testkit"
 )
 
 func TestDeciderPolicyDeniesInternalAddressesByDefault(t *testing.T) {
@@ -308,52 +308,10 @@ func TestSavingAPrivateOrMetadataDeciderIsRefusedWithAClearMessage(t *testing.T)
 	}
 }
 
-// fakeDNS answers A queries for any name with whatever answer() returns, and nothing for AAAA.
-func fakeDNS(t *testing.T, answer func() net.IP) string {
-	t.Helper()
-	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { pc.Close() })
-	go func() {
-		buf := make([]byte, 512)
-		for {
-			n, from, err := pc.ReadFrom(buf)
-			if err != nil {
-				return
-			}
-			if n < 12 {
-				continue
-			}
-			q := append([]byte(nil), buf[:n]...)
-			i := 12
-			for i < n && q[i] != 0 {
-				i += int(q[i]) + 1
-			}
-			end := i + 5 // the zero byte, type, class
-			if end > n {
-				continue
-			}
-			qtype := binary.BigEndian.Uint16(q[i+1:])
-			resp := append([]byte(nil), q[:end]...)
-			resp[2], resp[3] = 0x81, 0x80 // response, recursion available, no error
-			resp[6], resp[7], resp[8], resp[9], resp[10], resp[11] = 0, 0, 0, 0, 0, 0
-			if qtype == 1 {
-				resp[7] = 1
-				resp = append(resp, 0xc0, 0x0c, 0, 1, 0, 1, 0, 0, 0, 0, 0, 4)
-				resp = append(resp, answer().To4()...)
-			}
-			_, _ = pc.WriteTo(resp, from)
-		}
-	}()
-	return pc.LocalAddr().String()
-}
-
 func TestDeciderDNSRebindingIsStoppedAtDialTime(t *testing.T) {
 	var target atomic.Value
 	target.Store(net.ParseIP("93.184.216.34"))
-	dns := fakeDNS(t, func() net.IP { return target.Load().(net.IP) })
+	dns := testkit.FakeDNS(t, func() net.IP { return target.Load().(net.IP) })
 	res := &net.Resolver{PreferGo: true, Dial: func(ctx context.Context, _, _ string) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, "udp", dns)
 	}}

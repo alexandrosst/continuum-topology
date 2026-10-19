@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"continuum/internal/accounts"
@@ -22,6 +23,8 @@ import (
 	"continuum/internal/install"
 	"continuum/internal/installcfg"
 	"continuum/internal/kernel"
+	"continuum/internal/operators"
+	"continuum/internal/operatorsapi"
 	"continuum/internal/probe"
 	"continuum/internal/settingsapi"
 	"continuum/internal/store"
@@ -81,10 +84,9 @@ type Admin struct {
 	authRL        *kernel.Limiter
 	// hbFailRL throttles failed regional-operator heartbeat authentications per address (see operatorHeartbeat).
 	hbFailRL *kernel.Limiter
-	// probes remembers the last look at each operator's address (see checkOperatorAddress); probeDial replaces the
-	// network in tests.
-	probes    addressProbes
-	probeDial func(ctx context.Context, network, addr string) (net.Conn, error)
+	// ops is the operators' API (see operatorsAPI).
+	ops     *operatorsapi.API
+	opsOnce sync.Once
 	// fusionRL limits how fast one FUSION data-API caller (a token or a person) may read.
 	fusionRL *kernel.Limiter
 	// fusionPageRL throttles failed authentications on the Prometheus and Grafana pages per address. It is its own limiter, not
@@ -107,6 +109,25 @@ const (
 )
 
 type ctxTenant struct{}
+
+// operatorsAPI is the operators' API: the shell mounts its routes, and the parts of the shell that write commands for an operator
+// (the telemetry intents, the senders, the install check) ask it. Built on first use, from the settings as they are then.
+func (a *Admin) operatorsAPI() *operatorsapi.API {
+	a.opsOnce.Do(func() {
+		a.ops = &operatorsapi.API{
+			For:      func(r *http.Request) *operators.Service { return a.core(r).Operators },
+			Central:  a.central,
+			Settings: &a.Settings,
+			CAPin:    func() string { return a.C.CA.SPKIPin() },
+			Secure:   a.secure,
+			AgentRelease: func(r *http.Request, id string) (string, string) {
+				hub := a.tn(r).Hub
+				return hub.NamespaceOf(id), hub.ReleaseNameOf(id)
+			},
+		}
+	})
+	return a.ops
+}
 
 func (a *Admin) tn(r *http.Request) *Tenant {
 	t, _ := r.Context().Value(ctxTenant{}).(*Tenant)
@@ -156,14 +177,7 @@ func (a *Admin) Handler() http.Handler {
 	telemetry.API{For: func(r *http.Request) *telemetry.Service { return a.core(r).Telemetry }}.Mount(routes)
 	(&estate.API{For: func(r *http.Request) *estate.Hub { return a.tn(r).Hub }, Settings: &a.Settings, CAPin: a.C.CA.SPKIPin}).Mount(routes)
 
-	// The decision loop: an advisor (an editor's API token) submits, a person decides. Widening is an administrator's, checked in the hub.
-
-	route("GET "+o+"/operators", httpkit.AdminRole, a.listOperators)
-	route("POST "+o+"/operators", httpkit.AdminRole, a.createOperator)
-	route("GET "+o+"/operators/{id}", httpkit.AdminRole, a.getOperator)
-	// What a person choosing where telemetry goes may pick: active operators and their state, no secrets - so
-	// httpkit.EditorRole (the wizard's), where the list above stays an admin's.
-	route("GET "+o+"/operator-destinations", httpkit.EditorRole, a.listOperatorDestinations)
+	a.operatorsAPI().Mount(routes)
 	route("GET "+o+"/fusion", httpkit.AdminRole, a.getFusion)
 	// The ticketed path that opens one of FUSION's own pages (Prometheus, Grafana) in a new tab; see fusion_ui_access.go.
 	route("POST "+o+"/fusion/pages", httpkit.AdminRole, a.openFusionPage)
@@ -175,23 +189,10 @@ func (a *Admin) Handler() http.Handler {
 	route("GET "+o+"/fusion/tokens", httpkit.AdminRole, a.listFusionTokens)
 	route("POST "+o+"/fusion/tokens", httpkit.AdminRole, a.createFusionToken)
 	route("DELETE "+o+"/fusion/tokens/{id}", httpkit.AdminRole, a.deleteFusionToken)
-	route("POST "+o+"/operators/{id}/scope", httpkit.AdminRole, a.updateOperatorScope)
-	// Installs the operator again: fresh receiver and client certificates from its stored CA, and a new receiver
-	// token / heartbeat secret where it has one. Credential material, so httpkit.AdminRole and audited.
-	route("POST "+o+"/operators/{id}/install", httpkit.AdminRole, a.reissueOperatorInstall)
-	// What was issued for an operator (not the certificates: those are shown once): which sender holds which, and until when.
-	route("GET "+o+"/operators/{id}/certificates", httpkit.AdminRole, a.listOperatorCertificates)
-	route("POST "+o+"/operators/{id}/address", httpkit.AdminRole, a.setOperatorAddress)
-	// One look at that address from this server: does anything answer there, and is it this operator.
-	route("POST "+o+"/operators/{id}/address/check", httpkit.AdminRole, a.checkOperatorAddress)
 	// The addresses discovery says this operator can be reached at, to pick from instead of typing one.
 	route("GET "+o+"/operators/{id}/address-candidates", httpkit.AdminRole, a.listOperatorAddressCandidates)
 	route("PUT "+o+"/operators/{id}/server-cluster", httpkit.AdminRole, a.putServerCluster)
 	route("GET "+o+"/operators/{id}/senders", httpkit.AdminRole, a.listOperatorSenders)
-	// Mints (or rotates) the operator's heartbeat secret: credential material, so httpkit.AdminRole like the rest.
-	route("POST "+o+"/operators/{id}/heartbeat", httpkit.AdminRole, a.enableOperatorHeartbeat)
-	route("POST "+o+"/operators/{id}/revoke", httpkit.AdminRole, a.revokeOperator)
-	route("DELETE "+o+"/operators/{id}", httpkit.AdminRole, a.deleteOperator)
 
 	// A telemetry intent only declares what one agent's bundled local operator should collect and where to
 	// export it; the credentials and the install command come from /command below (httpkit.AdminRole) and the cluster's
@@ -509,7 +510,7 @@ func (a *Admin) CheckInstallConfig() error {
 	if _, err := a.installCommand(img, "check", store.Token{AccessTier: installcfg.ChartDefaultAccessTier}); err != nil {
 		return fmt.Errorf("the agent install command cannot be written (check --chart-ref and the chart version): %w", err)
 	}
-	if err := a.checkOperatorInstall(img); err != nil {
+	if err := a.operatorsAPI().CheckInstall(img); err != nil {
 		return fmt.Errorf("the regional operator's install command cannot be written (check --chart-ref and the chart version): %w", err)
 	}
 	return nil

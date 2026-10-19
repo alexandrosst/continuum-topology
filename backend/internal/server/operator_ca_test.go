@@ -255,7 +255,7 @@ func TestRevokeAndDeleteDropTheOperatorCAKey(t *testing.T) {
 	}
 }
 
-// operatorDoc.clientCaScope for each kind, through the HTTP API; the commands hand out the operator's CA, and
+// operatorsapi.Doc.clientCaScope for each kind, through the HTTP API; the commands hand out the operator's CA, and
 // only for an operator that has one.
 func TestClientCaScopeAndCommandsCarryTheRightCA(t *testing.T) {
 	a := newAdminRig(t)

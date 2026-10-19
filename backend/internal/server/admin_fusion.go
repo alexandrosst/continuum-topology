@@ -7,6 +7,7 @@ import (
 	"continuum/internal/httpkit"
 	"continuum/internal/kernel"
 	"continuum/internal/operators"
+	"continuum/internal/operatorsapi"
 )
 
 // fusionCentralDoc is the central operator as the UI shows it next to the switch.
@@ -21,7 +22,7 @@ type fusionCentralDoc struct {
 	Service   string `json:"service"`
 	Namespace string `json:"namespace"`
 	// Warnings are the doubts about Endpoint when it is a public address: it is something a person typed, not something
-	// seen to answer (see operatorDoc.AddressWarnings). Absent when there is nothing to say.
+	// seen to answer (see operatorsapi.Doc.AddressWarnings). Absent when there is nothing to say.
 	Warnings []string `json:"warnings,omitempty"`
 }
 
@@ -50,7 +51,7 @@ func (a *Admin) fusionDoc(r *http.Request) fusionResponse {
 	}
 	if f != nil && st.Available {
 		_, err := core.Operators.GetOperator(r.Context(), operators.CentralOperatorID)
-		out.Central = &fusionCentralDoc{OperatorID: operators.CentralOperatorID, Endpoint: f.CentralEndpoint(), Exposed: f.Exposed(), Exists: err == nil, Service: f.ServiceName(), Namespace: f.Namespace, Warnings: centralAddressWarnings(r.Context(), f.Central())}
+		out.Central = &fusionCentralDoc{OperatorID: operators.CentralOperatorID, Endpoint: f.CentralEndpoint(), Exposed: f.Exposed(), Exists: err == nil, Service: f.ServiceName(), Namespace: f.Namespace, Warnings: operatorsapi.CentralAddressWarnings(r.Context(), f.Central())}
 		if out.Central.Exists && !out.Central.Exposed && st.State != "off" {
 			f.DiscoverAddressSoon(core.Fusion) // the next read of this screen shows it
 		}

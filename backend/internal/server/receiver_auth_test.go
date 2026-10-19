@@ -10,6 +10,7 @@ import (
 	"continuum/internal/install"
 	"continuum/internal/kernel"
 	"continuum/internal/operators"
+	"continuum/internal/operatorsapi"
 	"continuum/internal/store"
 	"continuum/internal/testkit"
 )
@@ -109,13 +110,13 @@ func TestCreateOperatorFailsWhenTheTLSMintFails(t *testing.T) {
 	}
 }
 
-// operatorDestinationCommand builds the same flags for both kinds when a certificate is minted - neither needs a bearer in
+// DestinationCommand builds the same flags for both kinds when a certificate is minted - neither needs a bearer in
 // the agent's export flags - and the /command response says which kind it was talking to, so a caller knows whether a
 // receiver token is its own business.
 func TestOperatorDestinationCommandIsTheSameForBothAuthModes(t *testing.T) {
 	for _, mode := range []store.ReceiverAuth{store.ReceiverAuthMTLS, store.ReceiverAuthBearer} {
 		op := store.Operator{ID: "op-abc123", ReceiverAuth: mode}
-		values, secret, err := operatorDestinationCommand(op, "op-abc123-regional-operator.continuum-system.svc:4317", []byte("CERT"), []byte("KEY"), []byte("CA"), "ns1")
+		values, secret, err := operatorsapi.DestinationCommand(op, "op-abc123-regional-operator.continuum-system.svc:4317", []byte("CERT"), []byte("KEY"), []byte("CA"), "ns1")
 		// The whole destination block, every field stated (the unused ones empty), so --reset-then-reuse-values leaves nothing stale.
 		wantFlags := "--set telemetry.export.otlp.endpoint=op-abc123-regional-operator.continuum-system.svc:4317 --set telemetry.export.otlp.protocol=grpc --set telemetry.export.otlp.tls.insecure=false --set telemetry.export.otlp.tls.caFile= " +
 			"--set telemetry.export.otlp.tls.mtls.enabled=true --set telemetry.export.otlp.tls.mtls.secretName=op-abc123-export-mtls --set telemetry.export.otlp.tls.serverName=op-abc123.continuum-system.svc --set telemetry.export.otlp.auth.secretName="
@@ -216,14 +217,14 @@ func TestInstallCommandQuotesOperatorNameAndLabels(t *testing.T) {
 // The operator's own Secrets are applied before its install creates the namespace, so each starts by making sure
 // the namespace is there; the Secrets that go to a source cluster's existing namespace do not.
 func TestOperatorOwnSecretsEnsureTheNamespaceFirst(t *testing.T) {
-	tls, err := operatorTLSSecretCommand(store.Operator{ID: "op-abc"}, operators.OperatorTLSBundle{ReceiverCertPEM: []byte("C"), ReceiverKeyPEM: []byte("K"), CACertPEM: []byte("A")})
+	tls, err := operatorsapi.TLSSecretCommand(store.Operator{ID: "op-abc"}, operators.OperatorTLSBundle{ReceiverCertPEM: []byte("C"), ReceiverKeyPEM: []byte("K"), CACertPEM: []byte("A")})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.HasPrefix(tls, "kubectl create namespace continuum-system --dry-run=client -o yaml | kubectl apply -f - && \\\n") || !strings.Contains(tls, "name: op-abc-receiver-tls") {
 		t.Fatalf("receiver TLS secret command: %q", tls)
 	}
-	client, err := operatorClientSecretCommand(store.Operator{ID: "op-abc"}, []byte("C"), []byte("K"), []byte("A"), "continuum-system", false)
+	client, err := operatorsapi.ClientSecretCommand(store.Operator{ID: "op-abc"}, []byte("C"), []byte("K"), []byte("A"), "continuum-system", false)
 	if err != nil {
 		t.Fatal(err)
 	}

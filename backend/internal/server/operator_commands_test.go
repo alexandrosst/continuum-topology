@@ -8,6 +8,7 @@ import (
 	"continuum/internal/accounts"
 	"continuum/internal/kernel"
 	"continuum/internal/operators"
+	"continuum/internal/operatorsapi"
 	"continuum/internal/store"
 	"continuum/internal/testkit"
 )
@@ -80,7 +81,7 @@ func TestAddressStateIsDerived(t *testing.T) {
 		{store.Operator{Exposure: "loadbalancer", Address: "a.example.com:4317"}, "set"},
 		{store.Operator{Address: "a.example.com:4317"}, "set"},
 	} {
-		if got := addressStateOf(c.op); got != c.want {
+		if got := operatorsapi.AddressState(c.op); got != c.want {
 			t.Errorf("%+v: %s, want %s", c.op, got, c.want)
 		}
 	}
@@ -92,7 +93,7 @@ func TestInstallCommandQuotesEveryInterpolatedValue(t *testing.T) {
 	op := store.Operator{ID: "op-q", Name: "n", Status: store.OperatorActive, ReceiverAuth: store.ReceiverAuthMTLS,
 		Destination: store.Destination{Kind: store.DestinationExternal, Endpoint: "c:4317; touch /tmp/x", CAFile: "/etc/ca $(id).pem", AuthHeaderName: "A b", AuthSecretName: "s'1", AuthSecretKey: "k"}}
 	for _, reissue := range []bool{false, true} {
-		got, _, err := a.a.operatorInstallCommandWith(kernel.ImageConfig{}, "", op, operators.OperatorTLSBundle{ReceiverCertPEM: []byte("x")}, "https://h.example/x'; id", nil, reissue)
+		got, _, err := a.a.operatorsAPI().InstallCommand(kernel.ImageConfig{}, "", op, operators.OperatorTLSBundle{ReceiverCertPEM: []byte("x")}, "https://h.example/x'; id", nil, reissue)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -209,19 +210,19 @@ func TestHeartbeatURLPrefersThePublicURLAndWarnsAboutAddressesThatCannotWork(t *
 	a := newAdminRig(t)
 	req := httptest.NewRequest("GET", "/", nil)
 	req.Host = "localhost:8443"
-	if got := a.a.heartbeatURL(req); got != "http://localhost:8443"+OperatorHeartbeatPath {
+	if got := a.a.operatorsAPI().HeartbeatURL(req); got != "http://localhost:8443"+OperatorHeartbeatPath {
 		t.Fatalf("without a public URL: %s", got)
 	}
 	a.a.PublicURL = "https://ikhnos.example.com/"
-	if got := a.a.heartbeatURL(req); got != "https://ikhnos.example.com"+OperatorHeartbeatPath {
+	if got := a.a.operatorsAPI().HeartbeatURL(req); got != "https://ikhnos.example.com"+OperatorHeartbeatPath {
 		t.Fatalf("with a public URL: %s", got)
 	}
 	a.a.PublicURL = "https://example.com/ikhnos"
-	if got := a.a.heartbeatURL(req); got != "https://example.com/ikhnos"+OperatorHeartbeatPath {
+	if got := a.a.operatorsAPI().HeartbeatURL(req); got != "https://example.com/ikhnos"+OperatorHeartbeatPath {
 		t.Fatalf("with a path prefix: %s", got)
 	}
 	a.a.PublicURL = "not a url"
-	if got := a.a.heartbeatURL(req); got != "http://localhost:8443"+OperatorHeartbeatPath {
+	if got := a.a.operatorsAPI().HeartbeatURL(req); got != "http://localhost:8443"+OperatorHeartbeatPath {
 		t.Fatalf("an unusable public URL falls back to the request: %s", got)
 	}
 	for url, wantWarning := range map[string]string{
@@ -235,12 +236,12 @@ func TestHeartbeatURLPrefersThePublicURLAndWarnsAboutAddressesThatCannotWork(t *
 		"https://192.168.1.5" + OperatorHeartbeatPath:                 "a private address",
 		"https://172.16.0.9" + OperatorHeartbeatPath:                  "a private address",
 	} {
-		got := heartbeatURLWarning(url)
+		got := operatorsapi.HeartbeatURLWarning(url)
 		if (wantWarning == "") != (got == "") || !strings.Contains(got, wantWarning) {
 			t.Errorf("%s: warning %q, want one mentioning %q", url, got, wantWarning)
 		}
 	}
-	if got := heartbeatURLWarning("http://localhost:8443" + OperatorHeartbeatPath); !strings.Contains(got, "plain HTTP") || !strings.Contains(got, "this machine") {
+	if got := operatorsapi.HeartbeatURLWarning("http://localhost:8443" + OperatorHeartbeatPath); !strings.Contains(got, "plain HTTP") || !strings.Contains(got, "this machine") {
 		t.Errorf("both problems at once: %q", got)
 	}
 }

@@ -6,6 +6,7 @@ import (
 
 	"continuum/internal/accounts"
 	"continuum/internal/operators"
+	"continuum/internal/operatorsapi"
 	"continuum/internal/testkit"
 )
 
@@ -78,10 +79,10 @@ func TestCentralOperatorCAIsReportedWhenItsEndIsNear(t *testing.T) {
 		t.Fatal(err)
 	}
 	caEnd := *operators.CertNotAfter(op.ClientCACertPEM)
-	if d := toOperatorDoc(op, caEnd.Add(-400*day)); d.CertState != operators.CertStateOK {
+	if d := operatorsapi.ToDoc(op, caEnd.Add(-400*day)); d.CertState != operators.CertStateOK {
 		t.Fatalf("a CA with more than a year left: %q", d.CertState)
 	}
-	if d := toOperatorDoc(op, caEnd.Add(-10*day)); d.CertState != operators.CertStateRenewalFailing || d.Certs == nil || d.Certs.CANotAfter == "" {
+	if d := operatorsapi.ToDoc(op, caEnd.Add(-10*day)); d.CertState != operators.CertStateRenewalFailing || d.Certs == nil || d.Certs.CANotAfter == "" {
 		t.Fatalf("a CA ending in ten days: state %q, certs %+v", d.CertState, d.Certs)
 	}
 }

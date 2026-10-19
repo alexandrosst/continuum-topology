@@ -1,4 +1,4 @@
-package server
+package operatorsapi
 
 import (
 	"context"
@@ -23,22 +23,22 @@ import (
 
 // What this server can say about the "Reachable at" address of an operator without being told, which is every
 // statement an address can be checked against: the shape of the address itself, the gateway's own Service (for the
-// central operator, which lives next to this server), and a look at what answers there (probeAddress).
+// central operator, which lives next to this server), and a look at what answers there (ProbeAddress).
 //
 // None of it refuses an address: a load balancer, an Ingress or a DNS name in front of a receiver can make an address
 // that looks wrong right, and this server cannot see them. What it does is stop printing an address as if it were a
 // fact: the document says what is doubtful about it, in words a person can act on.
 
-// addressWarnings are the doubts about a recorded address, in plain words; empty when there is nothing to say. svc is
+// AddressWarnings are the doubts about a recorded address, in plain words; empty when there is nothing to say. svc is
 // the gateway's Service when the address is the central operator's and the server could read it, nil otherwise.
-func addressWarnings(addr string, svc *kernel.KubeService) []string {
-	return addressWarningsFor(addr, svc, true)
+func AddressWarnings(addr string, svc *kernel.KubeService) []string {
+	return AddressWarningsFor(addr, svc, true)
 }
 
-// addressWarningsFor is addressWarnings, with the private-address note optional. That note speaks of "a cluster
+// AddressWarningsFor is AddressWarnings, with the private-address note optional. That note speaks of "a cluster
 // elsewhere", which is right for the address recorded for an operator (every other cluster is told it) and wrong for
 // one a single sender chose for itself on a network it shares with the operator.
-func addressWarningsFor(addr string, svc *kernel.KubeService, notePrivate bool) []string {
+func AddressWarningsFor(addr string, svc *kernel.KubeService, notePrivate bool) []string {
 	if addr == "" {
 		return nil
 	}
@@ -50,7 +50,7 @@ func addressWarningsFor(addr string, svc *kernel.KubeService, notePrivate bool) 
 	if port == "4318" {
 		out = append(out, "4318 is the OTLP/HTTP port. Every command this server prints exports over gRPC, which is on 4317: unless a load balancer or an Ingress maps 4318 to a receiver's gRPC port, exports to this address fail.")
 	}
-	if why := unreachableHostWhy(host); notePrivate && why == "a private address" {
+	if why := UnreachableHostWhy(host); notePrivate && why == "a private address" {
 		out = append(out, fmt.Sprintf("%s is a private address: only a network that can route to it (the same network, a VPN, peering) reaches it. A cluster elsewhere cannot.", host))
 	}
 	if svc != nil {
@@ -104,11 +104,11 @@ type AddressProbe struct {
 
 const probeTimeout = 5 * time.Second
 
-// probeAddress connects to addr and, for an operator whose receiver speaks TLS, completes a handshake that verifies the
+// ProbeAddress connects to addr and, for an operator whose receiver speaks TLS, completes a handshake that verifies the
 // server certificate against the operator's own CA by its stable name (serverName), the same check a sending collector
 // makes. It sends no credential and no telemetry. caPEM nil means the receiver is not known to speak TLS: only the
 // connection is checked. dial is the network (net.Dialer's DialContext; a test replaces it).
-func probeAddress(ctx context.Context, addr string, caPEM []byte, serverName string, now time.Time, dial func(ctx context.Context, network, addr string) (net.Conn, error)) AddressProbe {
+func ProbeAddress(ctx context.Context, addr string, caPEM []byte, serverName string, now time.Time, dial func(ctx context.Context, network, addr string) (net.Conn, error)) AddressProbe {
 	res := AddressProbe{CheckedAt: kernel.RFC(now), From: "this server"}
 	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
@@ -212,7 +212,7 @@ func (p *addressProbes) put(id, addr string, now time.Time, res AddressProbe) {
 }
 
 // probeReachable are the private ranges the probe may still connect to by default. A receiver on a private address is
-// what a cluster-internal or VPN-fronted operator looks like (validOperatorAddress accepts them and addressWarnings only
+// what a cluster-internal or VPN-fronted operator looks like (validOperatorAddress accepts them and AddressWarnings only
 // warns), so unlike the external decider the probe does not refuse them. Loopback stays out: the only thing there is
 // this server itself.
 var probeReachable = kernel.MustPrefixes(
@@ -236,10 +236,10 @@ func probePolicy(dp *kernel.DeciderPolicy) *kernel.DeciderPolicy {
 	return p
 }
 
-// probeDialer is the probe's dialer. The address is checked after name resolution, on the address actually dialed: the
+// ProbeDialer is the probe's dialer. The address is checked after name resolution, on the address actually dialed: the
 // recorded address is only checked as text when it is saved, and a name that resolves to this server's own network
 // would otherwise let an administrator scan it from here, told apart by refused, no-answer and reachable.
-func probeDialer(dp *kernel.DeciderPolicy) func(ctx context.Context, network, addr string) (net.Conn, error) {
+func ProbeDialer(dp *kernel.DeciderPolicy) func(ctx context.Context, network, addr string) (net.Conn, error) {
 	p := probePolicy(dp)
 	d := net.Dialer{Resolver: p.Resolver, Control: func(network, address string, _ syscall.RawConn) error {
 		host, _, err := net.SplitHostPort(address)
@@ -261,8 +261,8 @@ func probeDialer(dp *kernel.DeciderPolicy) func(ctx context.Context, network, ad
 // probeSettings is what looking at an operator's address needs: where it is (the address recorded for it - never its
 // in-cluster name, which says nothing about what a cluster elsewhere reaches), which CA signed its receiver certificate
 // and the name that certificate is verified by. A receiver known to speak no TLS has no CA.
-func (a *Admin) probeSettings(c *Core, op store.Operator) (addr string, caPEM []byte, serverName string) {
-	op = a.advertised(op)
+func (h *API) probeSettings(c *operators.Service, op store.Operator) (addr string, caPEM []byte, serverName string) {
+	op = h.Advertised(op)
 	addr = op.Address
 	if op.ReceiverAuth == store.ReceiverAuthMTLS {
 		if len(op.ClientCACertPEM) > 0 {
@@ -277,32 +277,39 @@ func (a *Admin) probeSettings(c *Core, op store.Operator) (addr string, caPEM []
 // checkOperatorAddress is POST /operators/{id}/address/check: one look at the operator's recorded address from this
 // server, reported as it is. It only ever connects to the address the operator already has recorded (nothing in the
 // request chooses a target), at most once every probeReuse per operator, and tells what it found in coarse words.
-func (a *Admin) checkOperatorAddress(w http.ResponseWriter, r *http.Request) {
-	c := a.core(r)
-	op, err := c.Operators.GetOperator(r.Context(), r.PathValue("id"))
+func (h *API) checkOperatorAddress(w http.ResponseWriter, r *http.Request) {
+	c := h.For(r)
+	op, err := c.GetOperator(r.Context(), r.PathValue("id"))
 	if err != nil {
-		a.fail(w, err)
+		h.fail(w, r, err)
 		return
 	}
 	if op.Status != store.OperatorActive {
-		a.fail(w, kernel.Errf(kernel.KindConflict, "only an active operator's address can be checked"))
+		h.fail(w, r, kernel.Errf(kernel.KindConflict, "only an active operator's address can be checked"))
 		return
 	}
-	addr, caPEM, serverName := a.probeSettings(c, op)
+	addr, caPEM, serverName := h.probeSettings(c, op)
 	now := c.Now()
 	if addr == "" {
 		httpkit.WriteJSON(w, 200, AddressProbe{State: "no-address", Message: "No address is recorded for this operator, so there is nothing to check.", CheckedAt: kernel.RFC(now), From: "this server"})
 		return
 	}
-	if res, ok := a.probes.get(op.ID, addr, now); ok {
+	if res, ok := h.probes.get(op.ID, addr, now); ok {
 		httpkit.WriteJSON(w, 200, res)
 		return
 	}
-	dial := a.probeDial
+	dial := h.ProbeDial
 	if dial == nil {
-		dial = probeDialer(c.Decider)
+		dial = ProbeDialer(c.Decider)
 	}
-	res := probeAddress(r.Context(), addr, caPEM, serverName, now, dial)
-	a.probes.put(op.ID, addr, now, res)
+	res := ProbeAddress(r.Context(), addr, caPEM, serverName, now, dial)
+	h.probes.put(op.ID, addr, now, res)
 	httpkit.WriteJSON(w, 200, res)
+}
+
+// ForgetProbes drops the last look at every address, so the next ask makes its own (a test that asks twice in a moment).
+func (h *API) ForgetProbes() {
+	h.probes.mu.Lock()
+	defer h.probes.mu.Unlock()
+	h.probes.last = nil
 }

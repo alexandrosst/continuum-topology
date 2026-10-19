@@ -1,4 +1,4 @@
-package server
+package operatorsapi
 
 import (
 	"net/http"
@@ -32,22 +32,22 @@ type operatorDestinationDoc struct {
 	UsedBy int `json:"usedBy"`
 }
 
-// centralOperatorName is what the central operator is called, before it exists and after.
-const centralOperatorName = "Central (FUSION)"
+// CentralOperatorName is what the central operator is called, before it exists and after.
+const CentralOperatorName = "Central (FUSION)"
 
 // listOperatorDestinations is GET /operator-destinations: the active operators, central first. The central operator
 // is listed from the start, even before FUSION was ever turned on (it does not exist yet then, so its entry is made
 // up from FUSION's state), so a person can choose it and be told it still has to be turned on; when this server has
 // no FUSION at all it is not offered.
-func (a *Admin) listOperatorDestinations(w http.ResponseWriter, r *http.Request) {
-	core := a.core(r)
-	ops, err := core.Operators.ListOperators(r.Context())
+func (h *API) listOperatorDestinations(w http.ResponseWriter, r *http.Request) {
+	core := h.For(r)
+	ops, err := core.ListOperators(r.Context())
 	if err != nil {
-		a.fail(w, err)
+		h.fail(w, r, err)
 		return
 	}
-	usages, _ := core.Operators.OperatorUsages(r.Context())
-	managed := a.managedState(r)
+	usages, _ := core.OperatorUsages(r.Context())
+	managed := h.ManagedState(r)
 	out := []operatorDestinationDoc{}
 	var regional []operatorDestinationDoc
 	haveCentral := false
@@ -55,7 +55,7 @@ func (a *Admin) listOperatorDestinations(w http.ResponseWriter, r *http.Request)
 		if op.Status != store.OperatorActive {
 			continue
 		}
-		d := a.opDocWith(r, op, usages, managed)
+		d := h.opDocWith(r, op, usages, managed)
 		e := operatorDestinationDoc{
 			ID: d.ID, Name: d.Name, Kind: "regional", Status: d.Status,
 			AddressState: d.AddressState, Endpoint: d.Endpoint, ReachableFromOtherClusters: d.ReachableFromOtherClusters,
@@ -71,11 +71,11 @@ func (a *Admin) listOperatorDestinations(w http.ResponseWriter, r *http.Request)
 		regional = append(regional, e)
 	}
 	if !haveCentral && managed.Available {
-		h := operators.CentralHealth(managed)
-		e := operatorDestinationDoc{ID: operators.CentralOperatorID, Name: centralOperatorName, Kind: "central", Status: string(store.OperatorActive),
-			AddressState: addressNone, UsedBy: usageCount(usages[operators.CentralOperatorID]), Recommended: h.State == operators.HealthOnline || h.State == operators.HealthStarting}
-		e.Health.State, e.Health.LastSeenAt = h.State, kernel.RFCP(managed.LastDataAt)
-		if c := a.central(); c.Exposed() {
+		health := operators.CentralHealth(managed)
+		e := operatorDestinationDoc{ID: operators.CentralOperatorID, Name: CentralOperatorName, Kind: "central", Status: string(store.OperatorActive),
+			AddressState: addressNone, UsedBy: usageCount(usages[operators.CentralOperatorID]), Recommended: health.State == operators.HealthOnline || health.State == operators.HealthStarting}
+		e.Health.State, e.Health.LastSeenAt = health.State, kernel.RFCP(managed.LastDataAt)
+		if c := h.central(); c.Exposed() {
 			e.AddressState, e.Endpoint, e.ReachableFromOtherClusters = addressSet, c.Endpoint(), true
 		}
 		out = append([]operatorDestinationDoc{e}, out...)

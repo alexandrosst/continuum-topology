@@ -105,7 +105,7 @@ func (a *Admin) senderAddresses(op store.Operator, ti store.TelemetryIntent) ([]
 			continue
 		}
 		mods = append(mods, m)
-		addr := a.destEndpoint(op, d)
+		addr := a.operatorsAPI().DestEndpoint(op, d)
 		src := "in-cluster"
 		switch {
 		case d.Address != "":
@@ -401,7 +401,7 @@ func (a *Admin) sendersHealth(r *http.Request, op store.Operator, now time.Time)
 	if op.ID != operators.CentralOperatorID {
 		return operators.OperatorHealthAt(op, now)
 	}
-	managed := a.managedState(r)
+	managed := a.operatorsAPI().ManagedState(r)
 	h := operators.CentralHealth(managed)
 	h.LastSeenAt = managed.LastDataAt
 	return h

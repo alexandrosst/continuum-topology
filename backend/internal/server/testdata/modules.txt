@@ -16,7 +16,9 @@
 #               HTTP half is the shell's, and no file of it is left here.
 # telemetry     telemetry intents and the quick-start backends. It is the package internal/telemetry; its HTTP half is the shell's.
 # operators     regional operators: their certificates, senders, addresses, heartbeat. It is the package internal/operators; their HTTP half
-#               and the node probe of the server's own cluster are the shell's.
+#               is the package internal/operatorsapi, apart from the routes that need the hub (address candidates, the server's cluster,
+#               senders), the heartbeat receiver (open, authenticated by its own secret) and the node probe of the server's own cluster,
+#               which are the shell's.
 # observed      what the flows say: the table of observed edges, the sanitising of a flow batch, the topology read off them and the index of
 #               the addresses a cluster is known by. It is the package internal/observed; pure, it knows no agent and no hub, and no file of
 #               it is left here.
@@ -29,16 +31,12 @@
 #               It wires modules together and may use any of them; none may use it.
 #
 # A file added to the package must be added here, in the same change: a test fails otherwise.
-address_check.go shell
 admin.go                        shell
 admin_agents.go shell
 admin_fusion.go shell
 admin_fusion_proxy.go shell
 admin_images.go                 shell
 admin_link_credentials.go shell
-admin_operator_destinations.go shell
-admin_operator_heartbeat.go shell
-admin_operators.go shell
 admin_telemetry_intents.go shell
 fusion_appinfo.go shell
 fusion_data.go shell
@@ -52,6 +50,7 @@ kernel_bridge.go                kernel
 links_latest.go shell
 metrics.go                      shell
 operator_candidates.go shell
+operator_heartbeat_receiver.go shell
 operator_senders.go shell
 readiness.go                    shell
 routes.go                       shell

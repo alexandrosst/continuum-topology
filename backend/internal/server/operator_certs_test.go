@@ -6,6 +6,7 @@ import (
 
 	"continuum/internal/kernel"
 	"continuum/internal/operators"
+	"continuum/internal/operatorsapi"
 	"continuum/internal/pki"
 	"continuum/internal/store"
 	"continuum/internal/testkit"
@@ -52,7 +53,7 @@ func TestCreatedOperatorRecordsItsCertificateDates(t *testing.T) {
 	if d := wantClient.Sub(*stored.ClientNotAfter); d > time.Minute || d < -time.Minute {
 		t.Fatalf("recorded client end %v, issued %v", stored.ClientNotAfter, wantClient)
 	}
-	d := toOperatorDoc(stored, *e.now)
+	d := operatorsapi.ToDoc(stored, *e.now)
 	caEnd, _ := pki.NotAfter(stored.ClientCACertPEM)
 	if d.Certs == nil || d.Certs.ReceiverNotAfter == "" || d.Certs.ClientNotAfter == "" || d.Certs.CANotAfter != kernel.RFC(caEnd) || d.CertState != "ok" {
 		t.Fatalf("certs = %+v state %q", d.Certs, d.CertState)
@@ -71,7 +72,7 @@ func TestCertStateSaysWhetherRenewalIsHappening(t *testing.T) {
 		left time.Duration
 		want string
 	}{{200 * day, operators.CertStateOK}, {25 * day, operators.CertStateOK}, {16 * day, operators.CertStateOK}, {14 * day, operators.CertStateRenewalFailing}, {1 * day, operators.CertStateRenewalFailing}, {-time.Hour, operators.CertStateExpired}} {
-		d := toOperatorDoc(mk(now.Add(c.left)), now)
+		d := operatorsapi.ToDoc(mk(now.Add(c.left)), now)
 		if d.CertState != c.want {
 			t.Errorf("%v left: certState = %q, want %q", c.left, d.CertState, c.want)
 		}
@@ -84,12 +85,12 @@ func TestCertStateSaysWhetherRenewalIsHappening(t *testing.T) {
 		}
 	}
 	bearer := store.Operator{ID: "op-b", Status: store.OperatorActive, ReceiverAuth: store.ReceiverAuthBearer, CreatedAt: now}
-	if d := toOperatorDoc(bearer, now); d.Certs != nil || d.CertState != "" {
+	if d := operatorsapi.ToDoc(bearer, now); d.Certs != nil || d.CertState != "" {
 		t.Fatalf("a bearer operator shows certificates: %+v %q", d.Certs, d.CertState)
 	}
 	revoked := mk(now.Add(-day))
 	revoked.Status = store.OperatorRevoked
-	if d := toOperatorDoc(revoked, now); d.Certs != nil || d.CertState != "" {
+	if d := operatorsapi.ToDoc(revoked, now); d.Certs != nil || d.CertState != "" {
 		t.Fatalf("a revoked operator shows certificates: %+v %q", d.Certs, d.CertState)
 	}
 }

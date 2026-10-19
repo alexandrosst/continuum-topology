@@ -13,6 +13,7 @@ import (
 	"continuum/internal/install"
 	"continuum/internal/kernel"
 	"continuum/internal/operators"
+	"continuum/internal/operatorsapi"
 	"continuum/internal/store"
 	"continuum/internal/testkit"
 )
@@ -55,9 +56,9 @@ func (p *pinRig) admin(tweak func(*Admin)) *Admin {
 // flags writes values as the fragment of a command the server hands out.
 func (p *pinRig) flags(values []install.Value) string { return install.Flags(values) }
 
-func (p *pinRig) reminders(a *Admin, img kernel.ImageConfig, op store.Operator, b operators.OperatorTLSBundle, targets []sourceTarget) []string {
+func (p *pinRig) reminders(a *Admin, img kernel.ImageConfig, op store.Operator, b operators.OperatorTLSBundle, targets []operatorsapi.SourceTarget) []string {
 	p.t.Helper()
-	out, err := a.sourceReminders(img, op, b, targets)
+	out, err := a.operatorsAPI().Reminders(img, op, b, targets)
 	if err != nil {
 		p.t.Fatal(err)
 	}
@@ -215,7 +216,7 @@ func (p *pinRig) operatorCommands() {
 		a := p.admin(i.tweak)
 		for _, o := range ops {
 			for _, reissue := range []bool{false, true} {
-				install, secret, err := a.operatorInstallCommandWith(i.img, "cno_SECRET", o.op, o.bundle, o.hb, o.target, reissue)
+				install, secret, err := a.operatorsAPI().InstallCommand(i.img, "cno_SECRET", o.op, o.bundle, o.hb, o.target, reissue)
 				if err != nil {
 					p.t.Fatal(err)
 				}
@@ -229,10 +230,10 @@ func (p *pinRig) operatorCommands() {
 	}
 
 	a := p.admin(nil)
-	p.add(a, "operator/receiver-secret/mtls", "", p.ok(operatorTLSSecretCommand(mtls(ext), pinBundle)))
-	p.add(a, "operator/client-secret", "", p.ok(operatorClientSecretCommand(mtls(ext), pinBundle.Senders[0].CertPEM, pinBundle.Senders[0].KeyPEM, pinBundle.CACertPEM, "apps-team", false)))
-	p.add(a, "operator/restart", "", p.ok(operatorRestartCommand(mtls(ext))))
-	p.add(a, "operator/uninstall", "", p.ok(operatorUninstallCommand("athens")))
+	p.add(a, "operator/receiver-secret/mtls", "", p.ok(operatorsapi.TLSSecretCommand(mtls(ext), pinBundle)))
+	p.add(a, "operator/client-secret", "", p.ok(operatorsapi.ClientSecretCommand(mtls(ext), pinBundle.Senders[0].CertPEM, pinBundle.Senders[0].KeyPEM, pinBundle.CACertPEM, "apps-team", false)))
+	p.add(a, "operator/restart", "", p.ok(operatorsapi.RestartCommand(mtls(ext))))
+	p.add(a, "operator/uninstall", "", p.ok(operatorsapi.UninstallCommand("athens")))
 	p.add(a, "operator/expose/nodeport", "", p.ok(exposeCommand("continuum-system", "athens-regional-operator", install.NodePort)))
 	p.add(a, "operator/expose/loadbalancer", "", p.ok(exposeCommand("continuum-system", "athens-regional-operator", install.LoadBalancer)))
 
@@ -240,15 +241,15 @@ func (p *pinRig) operatorCommands() {
 	hbURL := "https://ikhnos.example.com/api/v1/operator-heartbeat"
 	for _, i := range images[:3] {
 		a := p.admin(i.tweak)
-		p.add(a, "operator/heartbeat/"+i.name+"/upgrade", "regional-operator", p.ok(a.heartbeatUpgradeCommand(i.img, mtls(ext), hbURL)))
+		p.add(a, "operator/heartbeat/"+i.name+"/upgrade", "regional-operator", p.ok(a.operatorsAPI().HeartbeatUpgradeCommand(i.img, mtls(ext), hbURL)))
 	}
-	p.add(a, "operator/heartbeat/secret", "", p.ok(operatorHeartbeatSecretCommand(mtls(ext), "hb_SECRET")))
+	p.add(a, "operator/heartbeat/secret", "", p.ok(operatorsapi.HeartbeatSecretCommand(mtls(ext), "hb_SECRET")))
 	private := p.admin(func(a *Admin) { a.HeartbeatCAPEM = fakePEM("CERTIFICATE", "aGVhcnRiZWF0LWNh") })
-	p.add(private, "operator/heartbeat/private-ca/upgrade", "regional-operator", p.ok(private.heartbeatUpgradeCommand(kernel.ImageConfig{}, mtls(ext), hbURL)))
-	p.add(private, "operator/heartbeat/private-ca/secret", "", p.ok(private.heartbeatCASecretCommand(mtls(ext))))
+	p.add(private, "operator/heartbeat/private-ca/upgrade", "regional-operator", p.ok(private.operatorsAPI().HeartbeatUpgradeCommand(kernel.ImageConfig{}, mtls(ext), hbURL)))
+	p.add(private, "operator/heartbeat/private-ca/secret", "", p.ok(private.operatorsAPI().HeartbeatCASecretCommand(mtls(ext))))
 
 	// What the source clusters of an operator are told: a Secret for each distinct namespace and an upgrade of each cluster's agent.
-	targets := []sourceTarget{{"cl-a", "continuum-system", "continuum-agent"}, {"cl-b", "apps-team", "obs-agent"}}
+	targets := []operatorsapi.SourceTarget{{Cluster: "cl-a", NS: "continuum-system", Name: "continuum-agent"}, {Cluster: "cl-b", NS: "apps-team", Name: "obs-agent"}}
 	for _, i := range images[:2] {
 		a := p.admin(i.tweak)
 		for n, line := range p.reminders(a, i.img, mtls(ext), pinBundle, targets) {
@@ -279,20 +280,20 @@ func (p *pinRig) fragments() {
 	a := p.admin(nil)
 	for _, o := range []store.Operator{mtls, bearer, central} {
 		for _, withMTLS := range []bool{true, false} {
-			p.add(a, fmt.Sprintf("fragment/export-block/%s/mtls=%v", o.ID, withMTLS), "", p.flags(exportBlock("telemetry.export.otlp", o, "op.example.com:4317", withMTLS)))
+			p.add(a, fmt.Sprintf("fragment/export-block/%s/mtls=%v", o.ID, withMTLS), "", p.flags(operatorsapi.ExportBlock("telemetry.export.otlp", o, "op.example.com:4317", withMTLS)))
 		}
 	}
-	for _, m := range routeModalities {
-		p.add(a, "fragment/route/"+string(m), "", p.flags(operatorRouteValues(mtls, "op.example.com:4317", m)))
+	for _, m := range operatorsapi.RouteModalities {
+		p.add(a, "fragment/route/"+string(m), "", p.flags(operatorsapi.RouteValues(mtls, "op.example.com:4317", m)))
 	}
-	p.add(a, "fragment/clear-routes/all", "", p.flags(clearRoutes(routeModalities...)))
-	p.add(a, "fragment/clear-routes/logs-traces", "", p.flags(clearRoutes(store.ModalityLogs, store.ModalityTraces)))
+	p.add(a, "fragment/clear-routes/all", "", p.flags(operatorsapi.ClearRoutes(operatorsapi.RouteModalities...)))
+	p.add(a, "fragment/clear-routes/logs-traces", "", p.flags(operatorsapi.ClearRoutes(store.ModalityLogs, store.ModalityTraces)))
 	for _, c := range []struct {
 		name string
 		op   store.Operator
 		cert []byte
 	}{{"mtls-new-certificate", mtls, pinBundle.Senders[0].CertPEM}, {"mtls-certificate-in-place", mtls, nil}, {"bearer-new-certificate", bearer, pinBundle.Senders[0].CertPEM}, {"bearer", bearer, nil}} {
-		values, secret, err := operatorDestinationCommand(c.op, "op.example.com:4317", c.cert, pinBundle.Senders[0].KeyPEM, pinBundle.CACertPEM, "apps-team")
+		values, secret, err := operatorsapi.DestinationCommand(c.op, "op.example.com:4317", c.cert, pinBundle.Senders[0].KeyPEM, pinBundle.CACertPEM, "apps-team")
 		if err != nil {
 			p.t.Fatal(err)
 		}
@@ -301,9 +302,9 @@ func (p *pinRig) fragments() {
 			p.add(a, "fragment/destination/"+c.name+"/secret", "", secret)
 		}
 	}
-	p.add(a, "fragment/heartbeat", "", p.flags(a.operatorHeartbeatValues(mtls, "https://ikhnos.example.com/api/v1/operator-heartbeat")))
+	p.add(a, "fragment/heartbeat", "", p.flags(a.operatorsAPI().HeartbeatValues(mtls, "https://ikhnos.example.com/api/v1/operator-heartbeat")))
 	private := p.admin(func(a *Admin) { a.HeartbeatCAPEM = fakePEM("CERTIFICATE", "aGVhcnRiZWF0LWNh") })
-	p.add(private, "fragment/heartbeat-private-ca", "", p.flags(private.operatorHeartbeatValues(mtls, "https://ikhnos.example.com/api/v1/operator-heartbeat")))
+	p.add(private, "fragment/heartbeat-private-ca", "", p.flags(private.operatorsAPI().HeartbeatValues(mtls, "https://ikhnos.example.com/api/v1/operator-heartbeat")))
 	p.add(a, "fragment/intent-provenance", "", p.flags(intentProvenanceValues("org-1", "cl-a", "ti_1")))
 }
 

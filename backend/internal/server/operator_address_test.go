@@ -7,6 +7,7 @@ import (
 	"continuum/internal/accounts"
 	"continuum/internal/install"
 	"continuum/internal/operators"
+	"continuum/internal/operatorsapi"
 	"continuum/internal/store"
 	"continuum/internal/testkit"
 )
@@ -207,17 +208,17 @@ func TestATelemetryIntentCommandDialsTheOperatorsAddress(t *testing.T) {
 // The per-signal route flags carry the server name too, since each route is its own exporter.
 func TestAnOperatorRouteVerifiesTheStableNameWhenItHasAnAddress(t *testing.T) {
 	op := store.Operator{ID: "op-abc", Address: "otlp.example.com:4317"}
-	got := install.Flags(operatorRouteValues(op, op.Address, store.ModalityTraces))
+	got := install.Flags(operatorsapi.RouteValues(op, op.Address, store.ModalityTraces))
 	if !strings.Contains(got, "--set telemetry.export.routes.traces.tls.serverName=op-abc.continuum-system.svc") {
 		t.Fatalf("%s", got)
 	}
 	// With no address it is dialled by its Service name, which is not on the certificate: the stable name still is.
-	if !strings.Contains(install.Flags(operatorRouteValues(store.Operator{ID: "op-abc"}, "op-abc-regional-operator.continuum-system.svc:4317", store.ModalityTraces)), "--set telemetry.export.routes.traces.tls.serverName=op-abc.continuum-system.svc") {
+	if !strings.Contains(install.Flags(operatorsapi.RouteValues(store.Operator{ID: "op-abc"}, "op-abc-regional-operator.continuum-system.svc:4317", store.ModalityTraces)), "--set telemetry.export.routes.traces.tls.serverName=op-abc.continuum-system.svc") {
 		t.Fatal("a regional operator with no address must still be verified by its stable name")
 	}
 	// The central operator in its own cluster is dialled by a name its certificate carries.
 	// The route states the name anyway, empty, so a server name left by an earlier destination cannot linger.
-	inCluster := install.Flags(operatorRouteValues(store.Operator{ID: operators.CentralOperatorID}, "x.continuum.svc:4317", store.ModalityTraces))
+	inCluster := install.Flags(operatorsapi.RouteValues(store.Operator{ID: operators.CentralOperatorID}, "x.continuum.svc:4317", store.ModalityTraces))
 	if !strings.Contains(inCluster, "--set telemetry.export.routes.traces.tls.serverName= --set") {
 		t.Fatalf("the in-cluster central operator needs no server name override, and must clear any earlier one: %s", inCluster)
 	}
