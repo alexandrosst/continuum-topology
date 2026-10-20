@@ -1,18 +1,13 @@
-package server
+package linksapi
 
 import (
 	"context"
-	"errors"
 	"math"
-	"net/http"
 	"sync"
 	"time"
-	"unicode/utf8"
 
 	"continuum/internal/connectivity"
 	"continuum/internal/fusionapi"
-	"continuum/internal/fusionhttp"
-	"continuum/internal/httpkit"
 	"continuum/internal/kernel"
 )
 
@@ -21,12 +16,12 @@ import (
 // here: a figure is whatever FUSION held a moment ago, and a pair FUSION has nothing for simply has no figures.
 
 const (
-	// linksLatestEvery is how long one read of FUSION is shared. The screen refreshes itself, and several people may have it open.
-	linksLatestEvery   = 15 * time.Second
+	// LatestEvery is how long one read of FUSION is shared. The screen refreshes itself, and several people may have it open.
+	LatestEvery        = 15 * time.Second
 	linksLatestTimeout = 10 * time.Second
-	// linksLatestStaleFor is how long the last good readings are still served, marked stale, when FUSION cannot be read. Longer
+	// LatestStaleFor is how long the last good readings are still served, marked stale, when FUSION cannot be read. Longer
 	// than that, old figures would pass for current ones.
-	linksLatestStaleFor = 5 * time.Minute
+	LatestStaleFor = 5 * time.Minute
 	// linkStaleAfter is the age after which a probe that still reports "up" is called stale: it runs about once a minute, so this
 	// is many missed runs. The Sites screen uses the same number (STALE_AFTER_MS).
 	linkStaleAfter = 15 * time.Minute
@@ -113,8 +108,8 @@ type linkSample struct {
 	Stale bool
 }
 
-// linkReadingsCache shares one read of FUSION between everyone who asks. A zero value is ready to use.
-type linkReadingsCache struct {
+// readingsCache shares one read of FUSION between everyone who asks. A zero value is ready to use.
+type readingsCache struct {
 	// gate lets one reader in at a time. It is a channel and not a mutex so that those who wait can give up with their request.
 	once sync.Once
 	gate chan struct{}
@@ -131,7 +126,7 @@ type linkReadingsCache struct {
 	goodAt time.Time
 }
 
-func (c *linkReadingsCache) enter(ctx context.Context) error {
+func (c *readingsCache) enter(ctx context.Context) error {
 	c.once.Do(func() { c.gate = make(chan struct{}, 1) })
 	select {
 	case c.gate <- struct{}{}:
@@ -141,19 +136,19 @@ func (c *linkReadingsCache) enter(ctx context.Context) error {
 	}
 }
 
-func (c *linkReadingsCache) leave() { <-c.gate }
+func (c *readingsCache) leave() { <-c.gate }
 
-// get returns the readings, reading FUSION again when the kept ones are older than linksLatestEvery. One read at a time: those
+// get returns the readings, reading FUSION again when the kept ones are older than LatestEvery. One read at a time: those
 // who arrive during it wait for it (and stop waiting when their request ends) and share its result. The read is not the caller's:
 // it runs with a deadline of its own and survives the caller leaving, so one closed tab does not throw away a read that the next
 // viewer needs. A failure is kept as long as a success would be, so a store that is down is not asked again by every refresh;
-// meanwhile the last good readings are served, marked stale, for linksLatestStaleFor, and only after that is the failure shown.
-func (c *linkReadingsCache) get(ctx context.Context, now func() time.Time, read func(context.Context) (fusionapi.LinkReadings, error)) (fusionapi.LinkReadings, linkSample, error) {
+// meanwhile the last good readings are served, marked stale, for LatestStaleFor, and only after that is the failure shown.
+func (c *readingsCache) get(ctx context.Context, now func() time.Time, read func(context.Context) (fusionapi.LinkReadings, error)) (fusionapi.LinkReadings, linkSample, error) {
 	if err := c.enter(ctx); err != nil {
 		return fusionapi.LinkReadings{}, linkSample{}, err
 	}
 	defer c.leave()
-	if c.have && now().Sub(c.tried) < linksLatestEvery {
+	if c.have && now().Sub(c.tried) < LatestEvery {
 		return c.r, linkSample{At: c.at, Stale: c.stale}, c.err
 	}
 	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), linksLatestTimeout)
@@ -165,7 +160,7 @@ func (c *linkReadingsCache) get(ctx context.Context, now func() time.Time, read 
 	case err == nil:
 		c.r, c.err, c.at, c.stale = r, nil, t, false
 		c.good, c.goodAt = r, t
-	case !c.goodAt.IsZero() && t.Sub(c.goodAt) <= linksLatestStaleFor:
+	case !c.goodAt.IsZero() && t.Sub(c.goodAt) <= LatestStaleFor:
 		c.r, c.err, c.at, c.stale = c.good, nil, c.goodAt, true
 	default:
 		c.r, c.err, c.at, c.stale = fusionapi.LinkReadings{}, err, t, false
@@ -173,60 +168,9 @@ func (c *linkReadingsCache) get(ctx context.Context, now func() time.Time, read 
 	return c.r, linkSample{At: c.at, Stale: c.stale}, c.err
 }
 
-func (a *Admin) linksLatest(w http.ResponseWriter, r *http.Request) {
-	now := a.C.Now
-	doc := LinksLatestDoc{Pairs: []LinkPairLatest{}, Notes: []connectivity.LinkNote{}, Setup: []connectivity.LinkSetup{}, At: now().UTC()}
-	core := a.core(r)
-	links := core.Settings().Links
-	// FUSION belongs to one organisation. Another one's administrator could otherwise save a pair with the FUSION organisation's
-	// cluster ids and read its figures, and an organisation with no FUSION of its own would be told it has one.
-	own := a.Fusion != nil && core.OrgID == a.fusionOrg()
-	notes, setup, err := a.tn(r).Hub.LinkReport(r.Context(), links, own)
-	switch {
-	case err != nil:
-		if errors.Is(r.Context().Err(), context.Canceled) {
-			return
-		}
-		doc.SetupReason = "unavailable"
-	default:
-		if notes != nil {
-			doc.Notes = notes
-		}
-		if setup != nil {
-			doc.Setup = setup
-		}
-	}
-	if !own {
-		doc.Reason = "no-fusion"
-		httpkit.WriteJSON(w, 200, doc)
-		return
-	}
-	if len(links) == 0 {
-		doc.Available = true
-		httpkit.WriteJSON(w, 200, doc)
-		return
-	}
-	pairs, sample, err := a.linkFigures(r.Context(), a.Fusion.DataClient(), links)
-	if err != nil {
-		if errors.Is(r.Context().Err(), context.Canceled) {
-			return
-		}
-		// What the store said is not for a viewer: it can name hosts. The administrator who needs it has FUSION's own page.
-		doc.Reason = "unavailable"
-		httpkit.WriteJSON(w, 200, doc)
-		return
-	}
-	doc.Available = true
-	doc.At = sample.At.UTC()
-	doc.Stale = sample.Stale
-	doc.Pairs = pairs
-	doc.Notes = withoutHintsOfMeasuredPairs(doc.Notes, pairs)
-	httpkit.WriteJSON(w, 200, doc)
-}
-
-// withoutHintsOfMeasuredPairs drops the "private-range" hints of the pairs that have figures: the hint says where to look when
+// WithoutHintsOfMeasuredPairs drops the "private-range" hints of the pairs that have figures: the hint says where to look when
 // nothing arrives, and a pair that is being measured has no use for it.
-func withoutHintsOfMeasuredPairs(notes []connectivity.LinkNote, pairs []LinkPairLatest) []connectivity.LinkNote {
+func WithoutHintsOfMeasuredPairs(notes []connectivity.LinkNote, pairs []LinkPairLatest) []connectivity.LinkNote {
 	measured := map[[2]string]bool{}
 	for _, p := range pairs {
 		if p.hasFigures() {
@@ -254,117 +198,6 @@ type fusionLinkPair struct {
 	LinkPairLatest
 	// MeasuredBy is the pair's clusters (a, b or both) whose series supplied the figures.
 	MeasuredBy []string `json:"measuredBy"`
-}
-
-// fusionLinks is GET /api/v1/fusion/links: the figures of the Sites screen for a script, a dashboard or a decision engine that holds
-// a FUSION access token. The pairs are those of the FUSION organisation's settings. The figures are read for everyone alike, with
-// the server's own scope and fixed queries (see linkFigures), and what the caller may see is then decided here by cluster id: a
-// pair is shown only when the token may read both of its clusters, and a token without the metrics signal, or one limited to
-// namespaces, is refused (Scope.NeedLinks).
-func (a *Admin) fusionLinks(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionhttp.Caller) {
-	if err := who.Scope.NeedLinks(); err != nil {
-		a.fd().Err(w, err)
-		return
-	}
-	q := r.URL.Query()
-	for _, k := range []string{"cluster", "peer"} {
-		if v := q.Get(k); q.Has(k) && (v == "" || len(v) > 253 || !utf8.ValidString(v)) {
-			a.fd().Err(w, &fusionapi.Error{Status: http.StatusBadRequest, Msg: k + " must be 1 to 253 characters of text"})
-			return
-		}
-	}
-	cluster, peer := q.Get("cluster"), q.Get("peer")
-	if peer != "" && cluster == "" {
-		a.fd().Err(w, &fusionapi.Error{Status: http.StatusBadRequest, Msg: "peer needs cluster: it names the other end of the link"})
-		return
-	}
-	links, err := a.fusionLinkSettings(r.Context())
-	if err != nil {
-		a.fd().Err(w, err)
-		return
-	}
-	var want []kernel.LinkSetting
-	for _, l := range links {
-		switch {
-		case !who.Scope.LinkPairVisible(l.A, l.B):
-		case cluster != "" && l.A != cluster && l.B != cluster:
-		case peer != "" && l.A != peer && l.B != peer:
-		default:
-			want = append(want, l)
-		}
-	}
-	doc := struct {
-		Pairs []fusionLinkPair `json:"pairs"`
-		At    time.Time        `json:"at"`
-		// Stale says At is older than the last attempt: FUSION could not be read just now and these are the previous figures.
-		Stale bool `json:"stale,omitempty"`
-	}{Pairs: []fusionLinkPair{}, At: a.C.Now().UTC()}
-	if len(want) > 0 {
-		pairs, sample, err := a.linkPairReadings(r.Context(), c, want)
-		if err != nil {
-			switch {
-			case errors.Is(r.Context().Err(), context.Canceled):
-			case errors.Is(err, context.DeadlineExceeded):
-				a.fd().Err(w, err)
-			default: // what the store said can name hosts
-				httpkit.WriteErr(w, http.StatusServiceUnavailable, "the link figures could not be read from FUSION's metrics store")
-			}
-			return
-		}
-		doc.At, doc.Stale = sample.At.UTC(), sample.Stale
-		for _, p := range pairs {
-			by := p.By
-			if by == nil {
-				by = []string{}
-			}
-			doc.Pairs = append(doc.Pairs, fusionLinkPair{LinkPairLatest: p.LinkPairLatest, MeasuredBy: by})
-		}
-	}
-	httpkit.WriteJSON(w, 200, doc)
-}
-
-// fusionLinkSettings are the pairs the FUSION organisation asked to have watched.
-func (a *Admin) fusionLinkSettings(ctx context.Context) ([]kernel.LinkSetting, error) {
-	org := a.fusionOrg()
-	if a.P == nil {
-		if a.C.OrgID == org {
-			return a.C.Settings().Links, nil
-		}
-		return nil, &fusionapi.Error{Status: http.StatusServiceUnavailable, Msg: "the organisation's settings are not available"}
-	}
-	t, err := a.P.Tenant(ctx, org)
-	if err != nil || t == nil {
-		return nil, &fusionapi.Error{Status: http.StatusServiceUnavailable, Msg: "the organisation's settings are not available"}
-	}
-	return t.C.Settings().Links, nil
-}
-
-// linkFigures is the one place the figures are read, for the Sites screen and for FUSION's data API alike: the latest figures of
-// the listed pairs, and when FUSION was read. The queries are fixed and run with an unrestricted scope of the server's own, whoever
-// asks: nothing a caller supplies reaches them, and what a caller may see of the answer is decided by the caller of this function
-// (the Sites screen by the organisation, the data API by the token's clusters). One read is shared by everyone for linksLatestEvery.
-func (a *Admin) linkFigures(ctx context.Context, c *fusionapi.Client, links []kernel.LinkSetting) ([]LinkPairLatest, linkSample, error) {
-	pairs, sample, err := a.linkPairReadings(ctx, c, links)
-	if err != nil {
-		return nil, sample, err
-	}
-	out := make([]LinkPairLatest, len(pairs))
-	for i, p := range pairs {
-		out[i] = p.LinkPairLatest
-	}
-	return out, sample, nil
-}
-
-// linkPairReadings is linkFigures with, for each pair, which clusters' series the figures came from.
-func (a *Admin) linkPairReadings(ctx context.Context, c *fusionapi.Client, links []kernel.LinkSetting) ([]pairReading, linkSample, error) {
-	readings, sample, err := a.linkReadings.get(ctx, a.C.Now, func(ctx context.Context) (fusionapi.LinkReadings, error) {
-		// Seven or more queries at once would take most of the slots the other readers of FUSION share; the bulk lane leaves some.
-		return c.LinkReadings(fusionapi.WithBulk(ctx), fusionapi.AllSignals())
-	})
-	if err != nil {
-		return nil, sample, err
-	}
-	return readPairs(links, readings, sample.At), sample, nil
 }
 
 // pairReading is a pair's figures and the clusters whose series supplied them.

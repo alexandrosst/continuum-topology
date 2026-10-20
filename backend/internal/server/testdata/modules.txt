@@ -35,14 +35,13 @@ admin.go                        shell
 admin_agents.go shell
 admin_fusion_proxy.go shell
 admin_images.go                 shell
-admin_link_credentials.go shell
 fusion_appinfo.go shell
 fusion_extras.go shell
 fusion_guard.go shell
 fusion_ui_access.go shell
 graph_api.go shell
 kernel_bridge.go                kernel
-links_latest.go shell
+links_wire.go shell
 metrics.go                      shell
 operator_heartbeat_receiver.go shell
 readiness.go                    shell

@@ -8,6 +8,7 @@ import (
 
 	"continuum/internal/estate"
 	"continuum/internal/kernel"
+	"continuum/internal/linksapi"
 	"continuum/internal/store"
 	"continuum/internal/testkit"
 )
@@ -106,11 +107,11 @@ func TestAPeerWithOnlyPrivateAddressesGetsAHint(t *testing.T) {
 	}
 	// a pair FUSION holds figures for needs no hint
 	one := 0.01
-	notes := withoutHintsOfMeasuredPairs(got, []LinkPairLatest{{A: "cl-a", B: "cl-b", RTTSeconds: &one}})
+	notes := linksapi.WithoutHintsOfMeasuredPairs(got, []linksapi.LinkPairLatest{{A: "cl-a", B: "cl-b", RTTSeconds: &one}})
 	if len(notes) != 0 {
 		t.Errorf("a measured pair keeps its hint: %+v", notes)
 	}
-	if notes := withoutHintsOfMeasuredPairs(got, []LinkPairLatest{{A: "cl-a", B: "cl-b"}}); len(notes) != 2 {
+	if notes := linksapi.WithoutHintsOfMeasuredPairs(got, []linksapi.LinkPairLatest{{A: "cl-a", B: "cl-b"}}); len(notes) != 2 {
 		t.Errorf("a pair with nothing lost its hint: %+v", notes)
 	}
 	// and a hint never stands for an unmet step of the checklist: nothing in the setup is made to fail by it

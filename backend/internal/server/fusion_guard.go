@@ -23,7 +23,7 @@ func (a *Admin) newDataGuard() *fusionhttp.Guard {
 		Reads:        a.fusionRL,
 		Extras:       a.fusionExtras,
 		Now:          func() time.Time { return a.C.Now() },
-		Links:        a.fusionLinks,
+		Links:        a.linksAPI().FusionLinks,
 		Log:          a.C.Log,
 	}
 }

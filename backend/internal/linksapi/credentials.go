@@ -1,4 +1,4 @@
-package server
+package linksapi
 
 import (
 	"net/http"
@@ -9,28 +9,28 @@ import (
 	"continuum/internal/kernel"
 )
 
-// rotateLinkCredentials is POST /api/v1/orgs/{org}/links/rotate-credentials: it replaces the iperf3 credentials the server issued for the
+// rotateCredentials is POST /api/v1/orgs/{org}/links/rotate-credentials: it replaces the iperf3 credentials the server issued for the
 // throughput tests, with no work on the clusters. The body names either one cluster that serves tests ({"cluster": "cl-us"}: its key pair is
 // made again) or one pair ({"a": "cl-eu", "b": "cl-us"}: its user name and password are). The new credentials reach the clusters in their next
 // Config, within a minute, and the pair's tests fail with `auth` until both ends have them. Nothing secret is in the request or the answer,
 // and the audit row names clusters only. Disabling a pair's tests and enabling them again also makes new ones.
-func (a *Admin) rotateLinkCredentials(w http.ResponseWriter, r *http.Request) {
+func (x *API) rotateCredentials(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Cluster string `json:"cluster"`
 		A       string `json:"a"`
 		B       string `json:"b"`
 	}
 	if err := httpkit.Decode(r, &req); err != nil {
-		a.fail(w, err)
+		httpkit.Fail(w, x.For(r).Log, err)
 		return
 	}
 	req.Cluster, req.A, req.B = strings.TrimSpace(req.Cluster), strings.TrimSpace(req.A), strings.TrimSpace(req.B)
 	byCluster, byPair := req.Cluster != "" && req.A == "" && req.B == "", req.Cluster == "" && req.A != "" && req.B != ""
 	if !byCluster && !byPair {
-		a.fail(w, kernel.Errf(kernel.KindInvalid, "invalid request body: expected {\"cluster\": \"id\"} or {\"a\": \"id\", \"b\": \"id\"}"))
+		httpkit.Fail(w, x.For(r).Log, kernel.Errf(kernel.KindInvalid, "invalid request body: expected {\"cluster\": \"id\"} or {\"a\": \"id\", \"b\": \"id\"}"))
 		return
 	}
-	c := a.core(r)
+	c := x.For(r)
 	target := req.Cluster
 	if target == "" {
 		target = min(req.A, req.B) + " " + max(req.A, req.B)
@@ -44,16 +44,16 @@ func (a *Admin) rotateLinkCredentials(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	err := c.Audited(r.Context(), httpkit.Actor(r), "link-credentials-rotate", "links", target, "iperf3 credentials for the throughput tests", func() error {
-		if err := c.Connectivity.RotateLinkCredentials(r.Context(), links, req.Cluster, req.A, req.B); err != nil {
+		if err := x.Connectivity(r).RotateLinkCredentials(r.Context(), links, req.Cluster, req.A, req.B); err != nil {
 			return kernel.Errf(kernel.KindInvalid, "%s", err.Error())
 		}
 		return nil
 	})
 	if err != nil {
-		a.fail(w, err)
+		httpkit.Fail(w, x.For(r).Log, err)
 		return
 	}
-	go a.tn(r).Hub.PushConfigs()
+	go x.Hub(r).PushConfigs()
 	httpkit.WriteJSON(w, 200, map[string]any{"rotated": true})
 }
 

@@ -24,6 +24,7 @@ import (
 	"continuum/internal/install"
 	"continuum/internal/installcfg"
 	"continuum/internal/kernel"
+	"continuum/internal/linksapi"
 	"continuum/internal/operators"
 	"continuum/internal/operatorsapi"
 	"continuum/internal/probe"
@@ -60,8 +61,9 @@ type Admin struct {
 	// appCache holds the Ikhnos applications for a few seconds: working them out builds the whole state document (every agent
 	// and the topology) and a dashboard or a script reading the API many times a second would otherwise redo it each time.
 	appCache appGroupCache
-	// linkReadings shares one read of the link figures in FUSION between everyone who has the Sites screen open.
-	linkReadings linkReadingsCache
+	// links is the organisation's links API (see linksAPI).
+	links     *linksapi.API
+	linksOnce sync.Once
 	// TrustProxy is set when a TLS-terminating proxy sits in front: the client address is read from
 	// the last entry of X-Forwarded-For (what the proxy itself saw), and the request counts as HTTPS
 	// when the proxy says so in X-Forwarded-Proto. Only correct when the proxy is the sole way in and
@@ -179,8 +181,7 @@ func (a *Admin) Handler() http.Handler {
 	const o = "/api/v1/orgs/{org}"
 	route("GET "+o+"/info", httpkit.MemberRole, a.info)
 
-	route("GET "+o+"/links/latest", httpkit.MemberRole, a.linksLatest)
-	route("POST "+o+"/links/rotate-credentials", httpkit.AdminRole, a.rotateLinkCredentials)
+	a.linksAPI().Mount(routes)
 	decisionloop.API{For: func(r *http.Request) *decisionloop.Service { return a.core(r).Loop }, Version: a.Version,
 		Model: func(r *http.Request) (twin.Model, error) { m, _, err := a.tn(r).Hub.Model(r.Context()); return m, err }}.Mount(routes)
 	(&settingsapi.API{For: func(r *http.Request) *kernel.Core { return a.core(r).Core }, ImageDefaults: func() kernel.ImageConfig { return a.ImageDefaults() }}).Mount(routes)
