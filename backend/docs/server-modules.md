@@ -5,12 +5,64 @@ but nothing stops any file from using anything in any other, and the compiler ca
 somebody's internals. This page draws the lines the package is to be cut along, from the code and not from its file names, and
 says what has to be settled before each cut. **Nothing was moved to make it.** The lines are held by a test (see the end).
 
+That is how the page began. The cuts have been made since, so the next section is the picture as it stands, and everything after it is
+the reasoning and the log of how it got there, with the numbers of the first reading (549 uses, about 31,000 lines in one package).
+
 How it was made: the package was type-checked, and every identifier was resolved to the file that declares it (a function, a type,
 a field of a struct, a method, a constant). Each file was assigned to a module (`testdata/modules.txt`), and a use is a place where
 a file names something declared in a file of another module. At the first reading there were 549 such uses, once each, in
 `testdata/module_edges.txt`. The store was read the same way: which module calls which store method.
 
-## The groups
+## The picture now
+
+Every module is a package, the handlers have left the shell module by module, and `internal/server` is what the compiler could not
+take from it: 17 source files and about 1,950 lines, the wiring. The lines between the packages are held by the compiler (a package
+cannot import its caller), by a test in each package that refuses an import outside its list, and by one list of all of them,
+`testdata/packages.txt` in the server's tests (`TestPackagesImportEachOtherOnlyWhereTheListSays`): 184 imports between 39 packages.
+`module_edges.txt` is empty, because there is no longer a use across a module boundary inside the shell to list.
+
+Read from the bottom, what the packages stand on:
+
+- **The libraries** know nothing of the server: `model`, `facts`, `netid`, `probe`, `link`, `measure`, `pki`, `store` (with `workspace`),
+  `interpret`, `twin`, `history`, `graph`, `chart`, `install`, `geoip`, `approval`, `advice`. Several of them are also the agent's.
+- **The kernel** (`internal/kernel`) stands on the store, the CA and the two settings libraries and on no module. Everything above may use it.
+- **The vocabulary of who is calling** is `internal/accounts` (with `internal/passkey` beside it), on the kernel and the store alone.
+  The HTTP kit `internal/httpkit` is on top of it: the router that records what a route asks of its caller, the roles, the error
+  and JSON helpers. Module logic does not need it; the packages that mount routes do, and several modules carry their routes in the same package.
+- **The domain modules** are `internal/operators`, `internal/telemetry`, `internal/fusion` (on `operators`: it calls the central
+  operator, and `operators` does not know it, through the `operators.Central` port), `internal/decisionloop` and the hub cluster:
+  `internal/observed` (pure, below), `internal/agents`, `internal/connectivity` and `internal/estate` on top, which owns the hub and the
+  twin built from it. The decision loop is inverted: it owns the two ports it asks the rest through (`Access`, which the agents'
+  side answers, and `Load`, which the estate answers) and imports neither.
+- **The API packages** are the routes of a module: `accountsapi`, `settingsapi`, `operatorsapi`, `fusionhttp` (FUSION's whole data API
+  over `fusionapi`, the client library for it), `linksapi` (the Sites figures), `fusionpages` (the rules of the gateway to FUSION's
+  pages). Each mounts through the kit's router and is handed what it needs as functions and ports.
+- **The shell** (`internal/server`) builds the `Core`, the hub and the services, hands each API what it asks for, and holds what
+  is cookies, origins, limiters, the reverse proxy and the topology and application knowledge FUSION is given. `internal/testkit` is the
+  fixtures the tests share.
+
+| Package | Source lines | Files |
+|---|---|---|
+| `internal/kernel` | 2,464 | 11 |
+| `internal/accounts`, `internal/accountsapi`, `internal/settingsapi`, `internal/httpkit` | 2,547 + 856 + 115 + 168 | 9 + 2 + 1 + 1 |
+| `internal/agents` | 2,982 | 17 |
+| `internal/observed`, `internal/connectivity` | 1,013 + 1,907 | 2 + 10 |
+| `internal/estate` | 6,671 | 25 |
+| `internal/decisionloop` | 1,826 | 10 |
+| `internal/operators`, `internal/operatorsapi` | 2,025 + 2,500 | 9 + 10 |
+| `internal/telemetry` | 788 | 4 |
+| `internal/fusion`, `internal/fusionhttp`, `internal/fusionpages`, `internal/linksapi`, `internal/fusionapi` | 2,196 + 1,622 + 381 + 696 + 5,795 | 8 + 12 + 2 + 3 + 19 |
+| `internal/installcfg` | 269 | 1 |
+| `internal/server` (the shell) | 1,951 | 17 |
+
+**What is left that is not yet the shape the plan wants.** Three things, none of them a boundary the compiler would let through today:
+`agents` and `telemetry` still import `operators` concretely (the service and the destination documents), where a read interface the
+consumer owns would do, as `fusion` does through `operators.Central`; `agents` takes the shape of an access change from `decisionloop`
+(`AccessChange`), the one place a module takes a type from the loop; and `estate` builds with the loop (`Loop *decisionloop.Service`)
+because the hub answers both of its ports. These are the "small read interface" of the plan and are the next cuts; none of them is
+a large move.
+
+## The groups (as of the first reading)
 
 Nine modules, and two things around them that are not modules. The **kernel** is what every module stands on and must depend on
 none of them. The **shell** wires the modules together and is the only thing that may use all of them.
@@ -275,3 +327,4 @@ this repository that a module could be (it may use the store, the CA and the two
 | Operators and FUSION step 6d: the whole data API is `fusionhttp` but for the link figures | The status, application, service and application-topology handlers, the native Prometheus, Loki and Tempo mirror, and the table of routes itself (`Guard.Ops`) are in `fusionhttp`; `fusion_data.go`, `fusion_native.go` and `fusion_ops.go` leave the shell. What Ikhnos knows reaches them through the one edge that already carried it (`Extras`: applications, topology, events), and the `/links` route is described in the table but answered by a handler the server hands in (`Guard.Links`), because it reads the links the organisation watches. The check that every query parameter a handler reads is described is made in `fusionhttp` for its handlers and in the shell for the links handler | what is left of FUSION in the shell is the Ikhnos side: extras, application info pushed to FUSION, the link figures and credential rotation, and the gateway to FUSION's own pages (step 7) |
 | Operators and FUSION step 6e: the links are `linksapi` | The Sites screen's latest figures (`GET links/latest`), the same figures in FUSION's data API (`/fusion/links`) and the replacing of the throughput tests' credentials (`POST links/rotate-credentials`) are `linksapi.API`, with the pure work of turning what the clusters reported into a pair's figures, probe state and diagnosis, and the cache that shares one read of FUSION between everyone who has the screen open. It is handed the organisation's core and connectivity, the hub (two methods: the notes and setup it works out, and the push of new configuration), FUSION's data client and organisation, the settings of the organisation FUSION belongs to, and the data API's way of writing a failure. It imports connectivity, fusionapi, fusionhttp, httpkit and the kernel, and the hub is a port it is given. `links_latest.go` and `admin_link_credentials.go` leave the shell; `links_wire.go` builds the API once, since the cache is its state | what is left of FUSION in the shell is extras, the application info pushed to FUSION, and the gateway to FUSION's own pages (step 7) |
 | Operators and FUSION step 7: the rules of the gateway to FUSION's pages are `fusionpages` | The ticket and page-session table (one-time tickets that live thirty seconds, page sessions of eight hours, a cap per person and in all, the person's oldest dropped first, a full table that answers busy without spending the ticket) and the proxy's rules (which methods and paths a page may use on Prometheus and Grafana, what is refused outright, redirects only to this server, what is stripped from a response, the namespaced Grafana login) are in `fusionpages`, which imports only the kernel and has its own tests. The cookie, the origin check, the two limiters, the reverse proxy and the three handlers stay in the shell, because they are the server's cookies and limiters and a package would be handed all of them to own only the control flow | the FUSION handler moves are done: what stays in the shell for FUSION is wiring (guard, links and operators API construction), extras, and the application info pushed to FUSION |
+| Whole-graph list: the picture now | step 8 | `testdata/packages.txt` and `TestPackagesImportEachOtherOnlyWhereTheListSays`: every import between the packages of `internal/` in one list; this page's first section brought up to the present |
