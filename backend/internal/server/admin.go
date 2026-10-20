@@ -20,6 +20,7 @@ import (
 	"continuum/internal/fusion"
 	"continuum/internal/fusionapi"
 	"continuum/internal/fusionhttp"
+	"continuum/internal/fusionpages"
 	"continuum/internal/httpkit"
 	"continuum/internal/install"
 	"continuum/internal/installcfg"
@@ -100,7 +101,7 @@ type Admin struct {
 	// same address - and the other way round.
 	fusionPageRL *kernel.Limiter
 	// fusionUIAccess holds the one-time tickets and the page-only sessions of the Prometheus and Grafana pages (see fusion_ui_access.go).
-	fusionUIAccess *fusionUIAccess
+	fusionUIAccess *fusionpages.Access
 	// Readiness says what /readyz checks besides the database; nil checks only the database.
 	Readiness *Readiness
 }
@@ -151,7 +152,7 @@ func (a *Admin) Handler() http.Handler {
 	a.hbFailRL = kernel.NewLimiter(30, 10)
 	a.fusionRL = kernel.NewLimiter(600, 60)
 	a.fusionPageRL = kernel.NewLimiter(30, 10)
-	a.fusionUIAccess = newFusionUIAccess()
+	a.fusionUIAccess = fusionpages.NewAccess()
 	a.dataGuard = a.newDataGuard()
 	mux := http.NewServeMux()
 	a.handle(mux, "GET /healthz", accessPublic, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("ok")) }))
@@ -171,7 +172,7 @@ func (a *Admin) Handler() http.Handler {
 		Edge: accountsapi.Edge{
 			ClientIP: a.clientIP, SetCookie: a.setCookie, SessionCookie: sessionCookie, RelyingParty: a.relyingParty,
 			AllowFailure:    func(r *http.Request) bool { return a.authRL.Allow(kernel.LimitKey(a.clientIP(r))) },
-			EndPages:        func(userID string) { a.fusionUIAccess.endUser(userID) },
+			EndPages:        func(userID string) { a.fusionUIAccess.EndUser(userID) },
 			EndPagesIn:      a.endFusionPagesIn,
 			ClearPageCookie: a.clearFusionUICookie,
 			Version:         a.Version, SSOHeader: a.SSOHeaderName,

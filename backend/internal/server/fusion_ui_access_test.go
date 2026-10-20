@@ -9,6 +9,7 @@ import (
 
 	"continuum/internal/accounts"
 	"continuum/internal/fusion"
+	"continuum/internal/fusionpages"
 	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
@@ -16,7 +17,7 @@ import (
 // pageCookie is the cookie a redeemed ticket sets, nil when there is none.
 func pageCookie(r resp) *http.Cookie {
 	for _, c := range r.Result().Cookies() {
-		if c.Name == fusionUICookie {
+		if c.Name == fusionpages.Cookie {
 			return c
 		}
 	}
@@ -43,7 +44,7 @@ func (p *pageRig) ticketPath(t *testing.T, page string, session ...string) strin
 func TestAPageOpensFromATicketWithoutTheSessionCookie(t *testing.T) {
 	p := newPageRig(t)
 	path := p.ticketPath(t, "grafana")
-	if !strings.HasPrefix(path, fusionGrafanaPath+"?"+fusionTicketParam+"=") {
+	if !strings.HasPrefix(path, fusionGrafanaPath+"?"+fusionpages.TicketParam+"=") {
 		t.Fatalf("path = %s", path)
 	}
 	// The new tab: no cookie of any kind.
@@ -109,7 +110,7 @@ func TestAPageTicketIsSingleUseAndShortLived(t *testing.T) {
 		t.Fatalf("second use: %d %q", r.Code, r.Body.String())
 	}
 	path = p.ticketPath(t, "grafana")
-	*p.now = p.now.Add(fusionTicketTTL + time.Second)
+	*p.now = p.now.Add(fusionpages.TicketTTL + time.Second)
 	if r := p.get(path); r.Code != 401 || pageCookie(r) != nil {
 		t.Fatalf("an old ticket: %d", r.Code)
 	}
@@ -118,7 +119,7 @@ func TestAPageTicketIsSingleUseAndShortLived(t *testing.T) {
 		t.Fatal("a POST redeemed a ticket")
 	}
 	// The ticket is a credential for exactly one person's pages: a made-up one is not.
-	if r := p.get(fusionGrafanaPath + "?" + fusionTicketParam + "=nope"); r.Code != 401 {
+	if r := p.get(fusionGrafanaPath + "?" + fusionpages.TicketParam + "=nope"); r.Code != 401 {
 		t.Fatalf("a made-up ticket: %d", r.Code)
 	}
 }
@@ -159,7 +160,7 @@ func TestThePageCookieStopsWhenThePersonIsNoLongerAnAdministrator(t *testing.T) 
 	}
 	// And by the clock.
 	ck = pageCookie(p.get(p.ticketPath(t, "grafana")))
-	*p.now = p.now.Add(fusionUISessionTTL + time.Minute)
+	*p.now = p.now.Add(fusionpages.SessionTTL + time.Minute)
 	if c := open(); c != 401 {
 		t.Fatalf("after eight hours: %d", c)
 	}
@@ -339,85 +340,6 @@ func TestLosingTheRoleOrTheMembershipEndsThePageSessions(t *testing.T) {
 	}
 }
 
-// One person cannot fill the table: past the cap their oldest page session goes, and others are not touched.
-func TestAPersonHoldsAtMostSomePageSessionsAndTheOldestGoesFirst(t *testing.T) {
-	f := newFusionUIAccess()
-	now := time.Now()
-	var secrets []string
-	for i := 0; i < maxFusionUIGrantsPerUser+4; i++ {
-		secret, _, out := f.redeemAndOpen(f.ticket("u-1", "dana", now), now)
-		if out != fusionTicketOK {
-			t.Fatalf("open %d: %v", i, out)
-		}
-		secrets = append(secrets, secret)
-	}
-	other, _, _ := f.redeemAndOpen(f.ticket("u-2", "olga", now), now)
-	if n := len(f.sessions); n != maxFusionUIGrantsPerUser+1 {
-		t.Fatalf("%d sessions held, want %d for dana and 1 for olga", n, maxFusionUIGrantsPerUser)
-	}
-	for i, s := range secrets {
-		_, ok := f.session(s, now)
-		if want := i >= 4; ok != want {
-			t.Errorf("dana's session %d alive = %v, want %v (the 4 oldest go)", i, ok, want)
-		}
-	}
-	if _, ok := f.session(other, now); !ok {
-		t.Error("another person's session was evicted for dana's")
-	}
-	// Tickets are capped the same way.
-	for i := 0; i < maxFusionUIGrantsPerUser+3; i++ {
-		f.ticket("u-3", "sam", now)
-	}
-	n := 0
-	for _, g := range f.tickets {
-		if g.userID == "u-3" {
-			n++
-		}
-	}
-	if n != maxFusionUIGrantsPerUser {
-		t.Fatalf("%d tickets held for one person, want %d", n, maxFusionUIGrantsPerUser)
-	}
-}
-
-// Expired entries are cleared out as time goes by, not only once the table is full.
-func TestExpiredPageGrantsAreSweptWithoutTheTableBeingFull(t *testing.T) {
-	f := newFusionUIAccess()
-	now := time.Now()
-	for i := 0; i < 5; i++ {
-		f.ticket("u-"+string(rune('a'+i)), "x", now)
-		f.redeemAndOpen(f.ticket("u-"+string(rune('a'+i)), "x", now), now)
-	}
-	later := now.Add(fusionUISessionTTL + time.Minute)
-	f.ticket("u-new", "x", later)
-	if len(f.tickets) != 1 || len(f.sessions) != 0 {
-		t.Fatalf("after the sweep: %d tickets and %d sessions left, want 1 and 0", len(f.tickets), len(f.sessions))
-	}
-}
-
-// A table with no room for another page session answers "busy" and does not spend the ticket: the same link works as soon
-// as there is room.
-func TestAFullTableDoesNotBurnATicket(t *testing.T) {
-	p := newPageRig(t)
-	path := p.ticketPath(t, "grafana")
-	far := p.now.Add(24 * time.Hour)
-	f := p.a.fusionUIAccess
-	f.mu.Lock()
-	for i := 0; i < maxFusionUIGrants; i++ {
-		f.sessions[strconv.Itoa(i)] = fusionUIGrant{userID: "u-" + strconv.Itoa(i), expires: far}
-	}
-	f.mu.Unlock()
-	r := p.get(path)
-	if r.Code != http.StatusServiceUnavailable || pageCookie(r) != nil {
-		t.Fatalf("a full table: %d %q", r.Code, r.Body.String())
-	}
-	f.mu.Lock()
-	delete(f.sessions, "0")
-	f.mu.Unlock()
-	if r := p.get(path); r.Code != http.StatusSeeOther || pageCookie(r) == nil {
-		t.Fatalf("the same link once there was room: %d %q", r.Code, r.Body.String())
-	}
-}
-
 // A stranger's failed requests to the pages are throttled on their own budget, not the one sign-in and the rest of the API
 // share: after a page's assets have all been refused, the same address can still sign in and get an ordinary 401 (not a 429).
 func TestFailedPageRequestsDoNotUseUpTheSignInBudget(t *testing.T) {
@@ -437,5 +359,33 @@ func TestFailedPageRequestsDoNotUseUpTheSignInBudget(t *testing.T) {
 	}
 	if r := p.do("POST", "/api/v1/auth/login", map[string]string{"username": "root", "password": "wrong"}, ip); r.Code == http.StatusTooManyRequests {
 		t.Fatalf("sign-in from the same address was throttled: %d", r.Code)
+	}
+}
+
+// A table with no room for another page session answers "busy" and does not spend the ticket: the same link works as soon
+// as there is room.
+func TestAFullTableDoesNotBurnATicket(t *testing.T) {
+	p := newPageRig(t)
+	path := p.ticketPath(t, "grafana")
+	now := *p.now
+	f := p.a.fusionUIAccess
+	// Fill the table of page sessions the way people do: each holds at most a few, so it takes many people.
+	var first string
+	for i := 0; i < fusionpages.MaxGrants; i++ {
+		secret, _, out := f.RedeemAndOpen(f.Ticket("u-"+strconv.Itoa(i/fusionpages.MaxGrantsPerUser), "x", now), now)
+		if out != fusionpages.Opened {
+			t.Fatalf("session %d: %v", i, out)
+		}
+		if first == "" {
+			first = secret
+		}
+	}
+	r := p.get(path)
+	if r.Code != http.StatusServiceUnavailable || pageCookie(r) != nil {
+		t.Fatalf("a full table: %d %q", r.Code, r.Body.String())
+	}
+	f.End(first)
+	if r := p.get(path); r.Code != http.StatusSeeOther || pageCookie(r) == nil {
+		t.Fatalf("the same link once there was room: %d %q", r.Code, r.Body.String())
 	}
 }

@@ -14,6 +14,7 @@ import (
 	"continuum/internal/accounts"
 	"continuum/internal/fusion"
 	"continuum/internal/fusionapi"
+	"continuum/internal/fusionpages"
 	"continuum/internal/kernel"
 )
 
@@ -262,59 +263,6 @@ func TestGrafanaIsSwitchedWithFusionWhereItExists(t *testing.T) {
 
 // ---- what the proxy lets through ----
 
-func TestFusionProxyPolicy(t *testing.T) {
-	for _, tc := range []struct {
-		component, method, path string
-		status                  int
-		allow                   string
-	}{
-		// Prometheus: read with GET and HEAD; POST only where a long expression needs it.
-		{"metrics", "GET", "/graph", 0, ""},
-		{"metrics", "HEAD", "/api/v1/query", 0, ""},
-		{"metrics", "GET", "/api/v1/label/job/values", 0, ""},
-		{"metrics", "GET", "/api/v1/status/config", 0, ""},
-		{"metrics", "POST", "/api/v1/query", 0, ""},
-		{"metrics", "POST", "/api/v1/query_range", 0, ""},
-		{"metrics", "POST", "/api/v1/series", 0, ""},
-		{"metrics", "POST", "/api/v1/labels", 0, ""},
-		{"metrics", "POST", "/api/v1/query_exemplars", 0, ""},
-		{"metrics", "POST", "/graph", 405, "GET, HEAD"},
-		{"metrics", "POST", "/api/v1/label/job/values", 405, "GET, HEAD"},
-		{"metrics", "PUT", "/api/v1/query", 405, "GET, HEAD, POST"},
-		{"metrics", "DELETE", "/api/v1/series", 405, "GET, HEAD, POST"},
-		{"metrics", "OPTIONS", "/api/v1/query", 405, "GET, HEAD, POST"},
-		{"metrics", "TRACE", "/graph", 405, "GET, HEAD"},
-		// ... and never the doors that write, reconfigure or stop it, by any method.
-		{"metrics", "POST", "/api/v1/otlp/v1/metrics", 403, ""},
-		{"metrics", "GET", "/api/v1/otlp/v1/metrics", 403, ""},
-		{"metrics", "POST", "/api/v1/write", 403, ""},
-		{"metrics", "POST", "/api/v1/read", 403, ""},
-		{"metrics", "POST", "/api/v1/admin/tsdb/delete_series", 403, ""},
-		{"metrics", "PUT", "/api/v1/admin/tsdb/snapshot", 403, ""},
-		{"metrics", "GET", "/api/v1/admin/tsdb/snapshot", 403, ""},
-		{"metrics", "POST", "/-/reload", 403, ""},
-		{"metrics", "PUT", "/-/quit", 403, ""},
-		{"metrics", "GET", "/-/healthy", 403, ""},
-		{"metrics", "GET", "/-", 403, ""},
-		{"metrics", "GET", "/debug/pprof/heap", 403, ""},
-		// Grafana saves what it is given, so it takes the methods a web page uses; Live is off, and stays unreachable.
-		{"grafana", "GET", "/fusion/grafana/d/abc", 0, ""},
-		{"grafana", "POST", "/fusion/grafana/api/ds/query", 0, ""},
-		{"grafana", "PUT", "/fusion/grafana/api/dashboards/uid/abc", 0, ""},
-		{"grafana", "PATCH", "/fusion/grafana/api/user/preferences", 0, ""},
-		{"grafana", "DELETE", "/fusion/grafana/api/dashboards/uid/abc", 0, ""},
-		{"grafana", "OPTIONS", "/fusion/grafana/api/ds/query", 405, "GET, HEAD, POST, PUT, PATCH, DELETE"},
-		{"grafana", "TRACE", "/fusion/grafana/", 405, "GET, HEAD, POST, PUT, PATCH, DELETE"},
-		{"grafana", "GET", "/fusion/grafana/api/live/ws", 403, ""},
-		{"grafana", "POST", "/fusion/grafana/api/live/publish", 403, ""},
-	} {
-		status, allow := fusionProxyPolicy(tc.component, tc.method, tc.path)
-		if status != tc.status || allow != tc.allow {
-			t.Errorf("%s %s %s: %d %q, want %d %q", tc.component, tc.method, tc.path, status, allow, tc.status, tc.allow)
-		}
-	}
-}
-
 func (p *pageRig) send(method, path string, body io.Reader, opts ...opt) resp {
 	req := httptest.NewRequest(method, path, body)
 	req.RemoteAddr = "10.1.1.1:5555"
@@ -530,9 +478,9 @@ func TestFusionProxyBoundsWhatAPageCanSend(t *testing.T) {
 	if ok.Code != 200 || ok.Body.String() != "read 1000" {
 		t.Fatalf("a normal query: %d %q", ok.Code, ok.Body.String())
 	}
-	big := p.send("POST", fusionPromPath+"api/v1/query", strings.NewReader(strings.Repeat("a", maxPromBody+10)))
+	big := p.send("POST", fusionPromPath+"api/v1/query", strings.NewReader(strings.Repeat("a", fusionpages.MaxPromBody+10)))
 	if big.Code == 200 {
-		t.Errorf("a %d byte query went through: %q", maxPromBody+10, big.Body.String())
+		t.Errorf("a %d byte query went through: %q", fusionpages.MaxPromBody+10, big.Body.String())
 	}
 }
 
@@ -552,27 +500,6 @@ func TestFusionProxyDoesNotReadTheClusterForEveryAsset(t *testing.T) {
 	}
 }
 
-func TestLocalLocation(t *testing.T) {
-	up, _ := url.Parse("http://continuum-fusion-prometheus.continuum.svc:9090")
-	for loc, want := range map[string]string{
-		"/fusion/prometheus/graph": "/fusion/prometheus/graph",
-		"graph":                    "graph",
-		"?x=1":                     "?x=1",
-		"http://localhost:3000/fusion/grafana/login":                  "/fusion/grafana/login",
-		"http://continuum-fusion-prometheus.continuum.svc:9090/graph": "/graph",
-		"https://ikhnos.example/fusion/grafana/":                      "/fusion/grafana/",
-	} {
-		if got, err := localLocation(loc, "ikhnos.example", up); err != nil || got != want {
-			t.Errorf("%q: %q %v, want %q", loc, got, err, want)
-		}
-	}
-	for _, loc := range []string{"https://evil.example/", "//evil.example", `/\evil.example`, "http://%zz", "mailto:a@b", "file:///etc/passwd"} {
-		if got, err := localLocation(loc, "ikhnos.example", up); err == nil {
-			t.Errorf("%q was passed on as %q", loc, got)
-		}
-	}
-}
-
 // Grafana has a built-in administrator called "admin", and Ikhnos's own first account has the same name. Sent as it was,
 // that account would be signed in to Grafana as its Server Admin whatever role Grafana is configured to give people who
 // arrive through the proxy: so the login Grafana is told always carries Ikhnos's prefix.
@@ -584,32 +511,5 @@ func TestGrafanaIsToldANamespacedLoginSoTheBootstrapAdminIsNotGrafanasAdmin(t *t
 	}
 	if got := p.last("grafana").Header.Get("X-WEBAUTH-USER"); got != "ikhnos-admin" {
 		t.Fatalf("Grafana was told %q for the Ikhnos account admin, want ikhnos-admin", got)
-	}
-}
-
-func TestGrafanaLogin(t *testing.T) {
-	for in, want := range map[string]string{
-		"admin":           "ikhnos-admin",
-		"Alex.Smith@x.io": "ikhnos-alex.smith@x.io", // case only: Ikhnos reads these as one account
-		"first_last-2":    "ikhnos-first_last-2",
-		"a b":             "ikhnos-a+20+b", // cannot come from a valid username; never reaches the header as it is
-		"a+b":             "ikhnos-a+2b+b",
-		"ünï":             "ikhnos-+fc+n+ef+",
-	} {
-		if got := grafanaLogin(in); got != want {
-			t.Errorf("grafanaLogin(%q) = %q, want %q", in, got, want)
-		}
-	}
-	// No two names share a login, and none can be Grafana's own: every login starts with the prefix.
-	seen := map[string]string{}
-	for _, n := range []string{"admin", "Admin", "a b", "a+20+b", "a+b", "a+2b+b", "x_y", "x-y"} {
-		g := grafanaLogin(n)
-		if !strings.HasPrefix(g, "ikhnos-") {
-			t.Errorf("%q: %q has no prefix", n, g)
-		}
-		if prev, dup := seen[g]; dup && !strings.EqualFold(prev, n) {
-			t.Errorf("%q and %q give the same login %q", prev, n, g)
-		}
-		seen[g] = n
 	}
 }
