@@ -8,20 +8,28 @@
 package agents
 
 import (
+	"context"
+
+	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/kernel"
-	"continuum/internal/operators"
 	"continuum/internal/telemetry"
 )
 
+// TelemetryCerts renews the certificate of an agent's telemetry on the agent's stream. The operators do it; this package asks and knows
+// nothing else of them.
+type TelemetryCerts interface {
+	RenewTelemetryCert(ctx context.Context, ip string, req *continuumv1.RenewTelemetryCertRequest) (*continuumv1.RenewTelemetryCertResponse, error)
+}
+
 // Service is what the agents do with the Core of one organisation. Telemetry is told when an agent is revoked, so the intents that were
-// its own end with it; Operators renews the certificate of an agent's telemetry on its stream.
+// its own end with it; Certs renews the certificate of an agent's telemetry on its stream.
 type Service struct {
 	*kernel.Core
-	Operators *operators.Service
+	Certs     TelemetryCerts
 	Telemetry *telemetry.Service
 }
 
 // NewService returns the agents' view of the organisation k is scoped to.
-func NewService(k *kernel.Core, ops *operators.Service, tel *telemetry.Service) *Service {
-	return &Service{Core: k, Operators: ops, Telemetry: tel}
+func NewService(k *kernel.Core, certs TelemetryCerts, tel *telemetry.Service) *Service {
+	return &Service{Core: k, Certs: certs, Telemetry: tel}
 }

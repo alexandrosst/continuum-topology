@@ -22,6 +22,7 @@ var allowedRepoImports = map[string]bool{
 	"continuum/internal/install":      true,
 	"continuum/internal/installcfg":   true,
 	"continuum/internal/kernel":       true,
+	"continuum/internal/destination":  true,
 	"continuum/internal/operators":    true,
 	"continuum/internal/store":        true,
 	"continuum/internal/telemetry":    true,

@@ -1,10 +1,12 @@
-package operators
+// Package destination is the API form of a telemetry destination, the one shape the operators' routes and the telemetry intents that point
+// at an operator or an external backend both carry. It is a document and nothing more: what makes a destination acceptable is the operators'.
+package destination
 
 import "continuum/internal/store"
 
-// DestinationDoc is a destination as the API carries it, for the operators' routes and for the telemetry intents that point at an
+// Doc is a destination as the API carries it, for the operators' routes and for the telemetry intents that point at an
 // operator or at an external backend.
-type DestinationDoc struct {
+type Doc struct {
 	Kind           string `json:"kind"`
 	Endpoint       string `json:"endpoint"`
 	Insecure       bool   `json:"insecure,omitempty"`
@@ -23,12 +25,12 @@ type DestinationDoc struct {
 	FusionNamespace string `json:"fusionNamespace,omitempty"`
 }
 
-// ToDestinationDoc is the API form of d.
-func ToDestinationDoc(d store.Destination) DestinationDoc {
-	return DestinationDoc{Kind: string(d.Kind), Endpoint: d.Endpoint, Insecure: d.Insecure, CAFile: d.CAFile, AuthHeaderName: d.AuthHeaderName, AuthSecretName: d.AuthSecretName, AuthSecretKey: d.AuthSecretKey, TargetOperatorID: d.TargetOperatorID, Address: d.Address, FusionRelease: d.FusionRelease, FusionNamespace: d.FusionNamespace}
+// Of is the API form of d.
+func Of(d store.Destination) Doc {
+	return Doc{Kind: string(d.Kind), Endpoint: d.Endpoint, Insecure: d.Insecure, CAFile: d.CAFile, AuthHeaderName: d.AuthHeaderName, AuthSecretName: d.AuthSecretName, AuthSecretKey: d.AuthSecretKey, TargetOperatorID: d.TargetOperatorID, Address: d.Address, FusionRelease: d.FusionRelease, FusionNamespace: d.FusionNamespace}
 }
 
-// ToStore is the destination the API form names, not yet validated (Core.validateDestination does that).
-func (d DestinationDoc) ToStore() store.Destination {
+// ToStore is the destination the API form names, not yet validated (operators.Service.CheckDestination does that).
+func (d Doc) ToStore() store.Destination {
 	return store.Destination{Kind: store.DestinationKind(d.Kind), Endpoint: d.Endpoint, Insecure: d.Insecure, CAFile: d.CAFile, AuthHeaderName: d.AuthHeaderName, AuthSecretName: d.AuthSecretName, AuthSecretKey: d.AuthSecretKey, TargetOperatorID: d.TargetOperatorID, Address: d.Address, FusionRelease: d.FusionRelease, FusionNamespace: d.FusionNamespace}
 }

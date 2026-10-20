@@ -4,7 +4,6 @@ import (
 	"slices"
 	"strings"
 
-	"continuum/internal/decisionloop"
 	"continuum/internal/kernel"
 	"continuum/internal/store"
 )
@@ -12,6 +11,17 @@ import (
 // What a change to an agent's access does to the agent is the agents' to say: which tiers its install and its token allow, which
 // overrides are well formed, and whether the result shares more than before. The decision loop proposes a change and asks this; it
 // does not know what a tier or an override is.
+
+// AccessChange is a change to one agent's access as the agents understand it: exactly one of a new approved tier, or additions and
+// removals on the agent's overrides (so they apply to what the agent has when the change is made, not to what it had when it was asked
+// for). The decision loop has its own record of what it proposed and the estate converts it; this package does not know the loop.
+type AccessChange struct {
+	Tier    *int
+	Pause   []string
+	Resume  []string
+	Exclude []string
+	Include []string
+}
 
 func minusStrings(list, drop []string) []string {
 	var out []string
@@ -26,7 +36,7 @@ func minusStrings(list, drop []string) []string {
 // ResolveChange checks a change against the agent as it is now and returns the access it would leave the agent with and whether
 // that is wider than the agent has: a higher tier, or a pause or exclusion lifted (even when the change also adds one). It is
 // used when a change is proposed and again when it is accepted.
-func ResolveChange(a store.Agent, cur Consent, ch decisionloop.AccessChange) (nextTier int, next Consent, widens bool, err error) {
+func ResolveChange(a store.Agent, cur Consent, ch AccessChange) (nextTier int, next Consent, widens bool, err error) {
 	next = cur
 	nextTier = a.AccessTier
 	consentFields := len(ch.Pause)+len(ch.Resume)+len(ch.Exclude)+len(ch.Include) > 0

@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"time"
 
+	"continuum/internal/destination"
 	"continuum/internal/httpkit"
 	"continuum/internal/kernel"
-	"continuum/internal/operators"
 	"continuum/internal/store"
 )
 
@@ -47,33 +47,33 @@ func (d signalGrantDoc) toStore() store.SignalGrant {
 }
 
 type telemetryIntentDoc struct {
-	ID          string                   `json:"id"`
-	AgentID     string                   `json:"agentId"`
-	Name        string                   `json:"name"`
-	Status      string                   `json:"status"`
-	Namespaces  []string                 `json:"namespaces"`
-	Exclude     []string                 `json:"exclude"`
-	Signals     []signalGrantDoc         `json:"signals"`
-	Destination operators.DestinationDoc `json:"destination"`
+	ID          string           `json:"id"`
+	AgentID     string           `json:"agentId"`
+	Name        string           `json:"name"`
+	Status      string           `json:"status"`
+	Namespaces  []string         `json:"namespaces"`
+	Exclude     []string         `json:"exclude"`
+	Signals     []signalGrantDoc `json:"signals"`
+	Destination destination.Doc  `json:"destination"`
 	// Routes is a destination per signal type (metrics, logs, traces) that has one of its own; absent when
 	// every signal goes to Destination.
-	Routes    map[string]operators.DestinationDoc `json:"routes,omitempty"`
-	CreatedAt string                              `json:"createdAt"`
-	CreatedBy string                              `json:"createdBy"`
-	RevokedAt string                              `json:"revokedAt,omitempty"`
-	Reason    string                              `json:"reason,omitempty"`
+	Routes    map[string]destination.Doc `json:"routes,omitempty"`
+	CreatedAt string                     `json:"createdAt"`
+	CreatedBy string                     `json:"createdBy"`
+	RevokedAt string                     `json:"revokedAt,omitempty"`
+	Reason    string                     `json:"reason,omitempty"`
 }
 
 func toTelemetryIntentDoc(ti store.TelemetryIntent) telemetryIntentDoc {
 	d := telemetryIntentDoc{
 		ID: ti.ID, AgentID: ti.AgentID, Name: ti.Name, Status: string(ti.Status),
-		Namespaces: ti.Namespaces, Exclude: ti.Exclude, Destination: operators.ToDestinationDoc(ti.Destination),
+		Namespaces: ti.Namespaces, Exclude: ti.Exclude, Destination: destination.Of(ti.Destination),
 		CreatedAt: kernel.RFC(ti.CreatedAt), CreatedBy: ti.CreatedBy, Reason: ti.Reason,
 	}
 	if len(ti.Routes) > 0 {
-		d.Routes = map[string]operators.DestinationDoc{}
+		d.Routes = map[string]destination.Doc{}
 		for m, r := range ti.Routes {
-			d.Routes[string(m)] = operators.ToDestinationDoc(r)
+			d.Routes[string(m)] = destination.Of(r)
 		}
 	}
 	if d.Namespaces == nil {
@@ -135,14 +135,14 @@ func (h API) getTelemetryIntent(w http.ResponseWriter, r *http.Request) {
 func (h API) createTelemetryIntent(w http.ResponseWriter, r *http.Request) {
 	s := h.For(r)
 	var req struct {
-		AgentID     string                   `json:"agentId"`
-		Name        string                   `json:"name"`
-		Namespaces  []string                 `json:"namespaces"`
-		Exclude     []string                 `json:"exclude"`
-		Signals     []signalGrantDoc         `json:"signals"`
-		Destination operators.DestinationDoc `json:"destination"`
+		AgentID     string           `json:"agentId"`
+		Name        string           `json:"name"`
+		Namespaces  []string         `json:"namespaces"`
+		Exclude     []string         `json:"exclude"`
+		Signals     []signalGrantDoc `json:"signals"`
+		Destination destination.Doc  `json:"destination"`
 		// Routes: a destination per signal type that has one of its own - see store.TelemetryIntent.Routes.
-		Routes map[string]operators.DestinationDoc `json:"routes"`
+		Routes map[string]destination.Doc `json:"routes"`
 	}
 	if err := httpkit.Decode(r, &req); err != nil {
 		httpkit.Fail(w, s.Log, err)
@@ -190,10 +190,10 @@ func (h API) updateTelemetryIntentScope(w http.ResponseWriter, r *http.Request) 
 func (h API) updateTelemetryIntentDestination(w http.ResponseWriter, r *http.Request) {
 	s := h.For(r)
 	var req struct {
-		Destination operators.DestinationDoc `json:"destination"`
+		Destination destination.Doc `json:"destination"`
 		// Routes, when present (even empty), replaces the per-signal-type destinations together with the
 		// default; absent leaves them as they are.
-		Routes map[string]operators.DestinationDoc `json:"routes"`
+		Routes map[string]destination.Doc `json:"routes"`
 	}
 	if err := httpkit.Decode(r, &req); err != nil {
 		httpkit.Fail(w, s.Log, err)

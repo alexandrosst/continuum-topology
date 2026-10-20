@@ -425,7 +425,7 @@ func (e *enrollmentServer) Rejoin(ctx context.Context, r *continuumv1.RejoinRequ
 }
 
 func (e *enrollmentServer) RenewTelemetryCert(ctx context.Context, r *continuumv1.RenewTelemetryCertRequest) (*continuumv1.RenewTelemetryCertResponse, error) {
-	resp, err := e.c.Operators.RenewTelemetryCert(ctx, PeerIP(ctx), r)
+	resp, err := e.c.Certs.RenewTelemetryCert(ctx, PeerIP(ctx), r)
 	return resp, ToStatus(err)
 }
 

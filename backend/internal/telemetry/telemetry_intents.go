@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"continuum/internal/kernel"
-	"continuum/internal/operators"
 	"continuum/internal/store"
 )
 
@@ -114,10 +113,11 @@ func (c *Service) cleanRoutes(ctx context.Context, routes map[store.Modality]sto
 		default:
 			return nil, kernel.Errf(kernel.KindInvalid, "%q is not a signal type with a destination of its own (metrics, logs or traces)", kernel.Printable(string(m), 32))
 		}
-		if err := c.Operators.ValidateDestination(ctx, d); err != nil {
+		nd, err := c.Operators.CheckDestination(ctx, d)
+		if err != nil {
 			return nil, err
 		}
-		out[m] = operators.NormalizeDestination(d)
+		out[m] = nd
 	}
 	return out, nil
 }
@@ -221,10 +221,10 @@ func (c *Service) CreateTelemetryIntentWithRoutes(ctx context.Context, actor, ag
 	if err != nil {
 		return store.TelemetryIntent{}, err
 	}
-	if err := c.Operators.ValidateDestination(ctx, dest); err != nil {
+	dest, err = c.Operators.CheckDestination(ctx, dest)
+	if err != nil {
 		return store.TelemetryIntent{}, err
 	}
-	dest = operators.NormalizeDestination(dest)
 	routes, err = c.cleanRoutes(ctx, routes)
 	if err != nil {
 		return store.TelemetryIntent{}, err
@@ -308,10 +308,10 @@ func (c *Service) UpdateTelemetryIntentDestination(ctx context.Context, actor, i
 	if err != nil {
 		return err
 	}
-	if err := c.Operators.ValidateDestination(ctx, dest); err != nil {
+	dest, err = c.Operators.CheckDestination(ctx, dest)
+	if err != nil {
 		return err
 	}
-	dest = operators.NormalizeDestination(dest)
 	if err := c.checkDestinationsAcceptSignals(ctx, dest, ti.Routes, ti.Signals); err != nil {
 		return err
 	}
@@ -333,10 +333,10 @@ func (c *Service) UpdateTelemetryIntentDestinations(ctx context.Context, actor, 
 	if err != nil {
 		return err
 	}
-	if err := c.Operators.ValidateDestination(ctx, dest); err != nil {
+	dest, err = c.Operators.CheckDestination(ctx, dest)
+	if err != nil {
 		return err
 	}
-	dest = operators.NormalizeDestination(dest)
 	routes, err = c.cleanRoutes(ctx, routes)
 	if err != nil {
 		return err

@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"time"
 
+	"continuum/internal/destination"
 	"continuum/internal/kernel"
 	"continuum/internal/operators"
 	"continuum/internal/store"
@@ -83,13 +84,13 @@ func AddressState(op store.Operator) string {
 }
 
 type Doc struct {
-	ID                 string                   `json:"id"`
-	Name               string                   `json:"name"`
-	SiteID             string                   `json:"siteId,omitempty"`
-	Status             string                   `json:"status"`
-	SourceClusterIDs   []string                 `json:"sourceClusterIds"`
-	Destination        operators.DestinationDoc `json:"destination"`
-	AcceptedModalities []string                 `json:"acceptedModalities,omitempty"`
+	ID                 string          `json:"id"`
+	Name               string          `json:"name"`
+	SiteID             string          `json:"siteId,omitempty"`
+	Status             string          `json:"status"`
+	SourceClusterIDs   []string        `json:"sourceClusterIds"`
+	Destination        destination.Doc `json:"destination"`
+	AcceptedModalities []string        `json:"acceptedModalities,omitempty"`
 	// Labels are the tags this operator adds to everything it forwards, next to the continuum.operator.id and
 	// .name it always adds. Absent when there are none.
 	Labels    []labelDoc `json:"labels,omitempty"`
@@ -144,7 +145,7 @@ type Doc struct {
 func ToDoc(op store.Operator, now time.Time) Doc {
 	d := Doc{
 		ID: op.ID, Name: op.Name, SiteID: op.SiteID, Status: string(op.Status),
-		SourceClusterIDs: op.SourceClusterIDs, Destination: operators.ToDestinationDoc(op.Destination),
+		SourceClusterIDs: op.SourceClusterIDs, Destination: destination.Of(op.Destination),
 		CreatedAt: kernel.RFC(op.CreatedAt), CreatedBy: op.CreatedBy, Reason: op.Reason, ReceiverAuth: string(op.ReceiverAuth), ClientCaScope: op.ClientCAScope(),
 		Health: toHealthDoc(operators.OperatorHealthAt(op, now)),
 	}
@@ -187,7 +188,7 @@ type issuedCertDoc struct {
 }
 
 // modalitiesFromDoc converts a request's plain-string modality list to store.Modality - validated later
-// by Core (validModalities), the same deferral operators.DestinationDoc.ToStore's own untyped Kind follows.
+// by Core (validModalities), the same deferral destination.Doc.ToStore's own untyped Kind follows.
 func modalitiesFromDoc(in []string) []store.Modality {
 	if len(in) == 0 {
 		return nil

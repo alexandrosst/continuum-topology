@@ -201,10 +201,19 @@ func (c *Service) ValidateDestination(ctx context.Context, dest store.Destinatio
 	}
 }
 
+// CheckDestination is ValidateDestination, and then the destination with the address it carries written the way a recorded address
+// is stored. It is what a telemetry intent asks of the operators before it keeps a destination.
+func (c *Service) CheckDestination(ctx context.Context, dest store.Destination) (store.Destination, error) {
+	if err := c.ValidateDestination(ctx, dest); err != nil {
+		return dest, err
+	}
+	return normalizeDestination(dest), nil
+}
+
 // normalizeDestination writes the address a destination carries the way a recorded address is stored (a bare host gets
-// the receiver's port, a host name is lower-cased). Call it after validateDestination, which has already refused one
+// the receiver's port, a host name is lower-cased). Call it after ValidateDestination, which has already refused one
 // that cannot be normalized.
-func NormalizeDestination(d store.Destination) store.Destination {
+func normalizeDestination(d store.Destination) store.Destination {
 	if d.Address != "" {
 		if a, err := ValidOperatorAddress(d.Address); err == nil {
 			d.Address = a
@@ -225,10 +234,10 @@ func (c *Service) operatorDestination(ctx context.Context, selfID string, dest s
 	if dest.Kind == store.DestinationFusion {
 		return dest, kernel.Errf(kernel.KindInvalid, "FUSION is reached through the central operator: choose it as the destination (kind %q), or turn FUSION on in the server's Settings", store.DestinationOperator)
 	}
-	if err := c.ValidateDestination(ctx, dest); err != nil {
+	dest, err := c.CheckDestination(ctx, dest)
+	if err != nil {
 		return dest, err
 	}
-	dest = NormalizeDestination(dest)
 	return dest, c.checkOperatorChain(ctx, selfID, dest)
 }
 

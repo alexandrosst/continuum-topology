@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 
+	"continuum/internal/destination"
 	"continuum/internal/httpkit"
 	"continuum/internal/install"
 	"continuum/internal/kernel"
@@ -37,10 +38,10 @@ func (h *API) getOperator(w http.ResponseWriter, r *http.Request) {
 
 func (h *API) createOperator(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name               string                   `json:"name"`
-		SourceClusterIDs   []string                 `json:"sourceClusterIds"`
-		Destination        operators.DestinationDoc `json:"destination"`
-		AcceptedModalities []string                 `json:"acceptedModalities,omitempty"`
+		Name               string          `json:"name"`
+		SourceClusterIDs   []string        `json:"sourceClusterIds"`
+		Destination        destination.Doc `json:"destination"`
+		AcceptedModalities []string        `json:"acceptedModalities,omitempty"`
 		// Labels are fixed at creation: they live in the operator's own install (see store.OperatorLabel).
 		Labels []labelDoc `json:"labels,omitempty"`
 		// Heartbeat opts the new operator in to reporting that it is alive (see EnableOperatorHeartbeat).
@@ -172,9 +173,9 @@ func (h *API) setOperatorAddress(w http.ResponseWriter, r *http.Request) {
 
 func (h *API) updateOperatorScope(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		SourceClusterIDs   []string                 `json:"sourceClusterIds"`
-		Destination        operators.DestinationDoc `json:"destination"`
-		AcceptedModalities []string                 `json:"acceptedModalities,omitempty"`
+		SourceClusterIDs   []string        `json:"sourceClusterIds"`
+		Destination        destination.Doc `json:"destination"`
+		AcceptedModalities []string        `json:"acceptedModalities,omitempty"`
 	}
 	if err := httpkit.Decode(r, &req); err != nil {
 		h.fail(w, r, err)

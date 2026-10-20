@@ -23,14 +23,12 @@ agent/collect > facts
 agents > accounts
 agents > agentcaps
 agents > approval
-agents > decisionloop
 agents > geoip
 agents > install
 agents > interpret
 agents > kernel
 agents > model
 agents > observed
-agents > operators
 agents > pki
 agents > store
 agents > telemetry
@@ -70,6 +68,7 @@ decisionloop > httpkit
 decisionloop > kernel
 decisionloop > store
 decisionloop > twin
+destination > store
 estate > accounts
 estate > agentcaps
 estate > agents
@@ -150,6 +149,7 @@ operators > store
 operatorsapi > agents
 operatorsapi > chart
 operatorsapi > connectivity
+operatorsapi > destination
 operatorsapi > httpkit
 operatorsapi > install
 operatorsapi > installcfg
@@ -163,9 +163,9 @@ settingsapi > accounts
 settingsapi > httpkit
 settingsapi > kernel
 store > workspace
+telemetry > destination
 telemetry > httpkit
 telemetry > kernel
-telemetry > operators
 telemetry > store
 testkit > accounts
 testkit > agents
