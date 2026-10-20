@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"continuum/internal/fusionhttp"
 	"fmt"
 	"io"
 	"net/http"
@@ -17,6 +16,7 @@ import (
 
 	"continuum/internal/estate"
 	"continuum/internal/fusionapi"
+	"continuum/internal/fusionhttp"
 	"continuum/internal/model"
 )
 

@@ -1,7 +1,6 @@
 package server
 
 import (
-	"continuum/internal/fusionhttp"
 	"net/http"
 	"net/url"
 	"strings"
@@ -9,6 +8,7 @@ import (
 	"time"
 
 	"continuum/internal/accounts"
+	"continuum/internal/fusionhttp"
 	"continuum/internal/httpkit"
 	"continuum/internal/kernel"
 )

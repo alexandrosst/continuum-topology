@@ -1,10 +1,11 @@
 package server
 
 import (
-	"continuum/internal/fusionhttp"
 	"net/url"
 	"strings"
 	"testing"
+
+	"continuum/internal/fusionhttp"
 )
 
 func (d *dataRig) form(path string, form url.Values, opts ...opt) resp {

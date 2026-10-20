@@ -46,3 +46,11 @@ func (g *Guard) Groups(r *http.Request, who Caller) ([]fusionapi.AppGroup, error
 	}
 	return fusionapi.VisibleGroups(groups, who.Scope), nil
 }
+
+// orEmpty is v, or an empty list where it is nil, so it is answered as [] and not as null.
+func orEmpty(v []string) []string {
+	if v == nil {
+		return []string{}
+	}
+	return v
+}

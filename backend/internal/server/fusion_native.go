@@ -1,13 +1,13 @@
 package server
 
 import (
-	"continuum/internal/fusionhttp"
 	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
 
 	"continuum/internal/fusionapi"
+	"continuum/internal/fusionhttp"
 )
 
 // The native mirror (internal/fusionapi/mirror.go): Prometheus', Loki's and Tempo's own read endpoints under

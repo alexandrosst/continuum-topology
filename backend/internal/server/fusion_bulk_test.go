@@ -3,7 +3,6 @@ package server
 import (
 	"bufio"
 	"bytes"
-	"continuum/internal/fusionhttp"
 	"encoding/json"
 	"net/http/httptest"
 	"os"
@@ -12,6 +11,7 @@ import (
 	"testing"
 
 	"continuum/internal/fusionapi"
+	"continuum/internal/fusionhttp"
 	"continuum/internal/kernel"
 )
 
@@ -159,7 +159,7 @@ func TestABatchRefusesWhatItCannotRead(t *testing.T) {
 		}
 	}
 	// A body past the cap is refused before it is read in full.
-	big := `{"ids":["` + strings.Repeat("a", maxBatchBody) + `"]}`
+	big := `{"ids":["` + strings.Repeat("a", fusionhttp.MaxBatchBody) + `"]}`
 	if r := d.post("/api/v1/fusion/traces/batch", big, withCookie(d.admin)); r.Code != 400 {
 		t.Errorf("a body of %d bytes: %d", len(big), r.Code)
 	}

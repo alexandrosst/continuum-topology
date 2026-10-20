@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"continuum/internal/fusionhttp"
 	"errors"
 	"math"
 	"net/http"
@@ -12,6 +11,7 @@ import (
 
 	"continuum/internal/connectivity"
 	"continuum/internal/fusionapi"
+	"continuum/internal/fusionhttp"
 	"continuum/internal/httpkit"
 	"continuum/internal/kernel"
 )

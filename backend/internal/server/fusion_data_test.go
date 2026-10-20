@@ -1,7 +1,6 @@
 package server
 
 import (
-	"continuum/internal/fusionhttp"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +12,7 @@ import (
 	"continuum/internal/accounts"
 	"continuum/internal/fusion"
 	"continuum/internal/fusionapi"
+	"continuum/internal/fusionhttp"
 	"continuum/internal/kernel"
 	"continuum/internal/store"
 )

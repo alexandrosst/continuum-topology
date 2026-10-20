@@ -1,6 +1,8 @@
 package server
 
 import (
+	"time"
+
 	"continuum/internal/fusion"
 	"continuum/internal/fusionhttp"
 )
@@ -20,6 +22,7 @@ func (a *Admin) newDataGuard() *fusionhttp.Guard {
 		AuthFailures: a.authRL,
 		Reads:        a.fusionRL,
 		Extras:       a.fusionExtras,
+		Now:          func() time.Time { return a.C.Now() },
 		Log:          a.C.Log,
 	}
 }

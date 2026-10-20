@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"continuum/internal/fusionhttp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,6 +16,7 @@ import (
 	"continuum/internal/accounts"
 	"continuum/internal/fusion"
 	"continuum/internal/fusionapi"
+	"continuum/internal/fusionhttp"
 	"continuum/internal/kernel"
 	"continuum/internal/testkit"
 )

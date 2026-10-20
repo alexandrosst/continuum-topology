@@ -79,7 +79,9 @@ type Guard struct {
 	AuthFailures, Reads *kernel.Limiter
 	// Extras is what Ikhnos itself knows (applications, topology, events); nil on a server with no platform behind it.
 	Extras func() fusionapi.Extras
-	Log    *slog.Logger
+	// Now is the clock a time range is read against.
+	Now func() time.Time
+	Log *slog.Logger
 }
 
 // Serve authenticates the caller, rate-limits it, bounds the request, and calls h.
