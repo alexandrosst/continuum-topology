@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// FusionToken is a read credential for FUSION's data API (see server/fusion_data.go): what another system - a
+// FusionToken is a read credential for FUSION's data API (see internal/fusionhttp): what another system - a
 // decision engine, a dashboard, a script - presents to read the metrics, logs and traces saved in FUSION without
 // being a person with a session. It is deliberately not a personal access token: that one acts as its owner with
 // the owner's whole role, whereas this one can read nothing but FUSION's data, only the signal types it names, and

@@ -23,6 +23,7 @@ func (a *Admin) newDataGuard() *fusionhttp.Guard {
 		Reads:        a.fusionRL,
 		Extras:       a.fusionExtras,
 		Now:          func() time.Time { return a.C.Now() },
+		Links:        a.fusionLinks,
 		Log:          a.C.Log,
 	}
 }
@@ -33,4 +34,17 @@ func (a *Admin) fd() *fusionhttp.Guard {
 		a.dataGuard = a.newDataGuard()
 	}
 	return a.dataGuard
+}
+
+// fusionOrg is the organisation FUSION belongs to: the one the server was told, else the server's main organisation. (Not
+// a.C.OrgID alone: the server's platform-wide core has none, which once made every request look like it came from another
+// organisation.)
+func (a *Admin) fusionOrg() string {
+	if a.Fusion != nil && a.Fusion.Org != "" {
+		return a.Fusion.Org
+	}
+	if a.C.OrgID != "" {
+		return a.C.OrgID
+	}
+	return a.C.Accounts.MainOrg()
 }

@@ -20,6 +20,9 @@ type Router interface {
 // serves that description beside it. Each route refuses a query string it does not take (Op.CheckQuery) before its handler runs.
 func (g *Guard) Mount(r Router, ops []Op) {
 	for _, op := range ops {
+		if op.Handler == nil { // the table can be read without handlers to describe the API, but not mounted without them
+			panic("fusionhttp: " + op.Method + " " + op.Path + " has no handler")
+		}
 		h := g.Serve(g.checked(op))
 		r.Credential(op.Method+" "+APIPath+op.Path, h)
 		if op.AlsoPost {

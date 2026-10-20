@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -746,5 +748,19 @@ func TestAStoreThatStopsAnsweringKeepsTheScreenOnItsLastFiguresMarkedStale(t *te
 	*a.now = a.now.Add(linksLatestStaleFor + time.Minute)
 	if doc := a.do("GET", "/api/v1/links/latest", nil, withCookie(admin)).json(t); doc["available"] != false || doc["reason"] != "unavailable" {
 		t.Errorf("%v", doc)
+	}
+}
+
+// The links handler is the one data handler that stays in the server (it reads the links the organisation watches), so the check that
+// every parameter a handler reads is described, which fusionhttp makes of its own handlers, is made here of this one.
+func TestEveryQueryParameterTheLinksHandlerReadsIsDocumented(t *testing.T) {
+	src, err := os.ReadFile("links_latest.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range regexp.MustCompile(`\.(?:Get|Has)\("([a-z_]+)"\)`).FindAllStringSubmatch(string(src), -1) {
+		if _, ok := fusionhttp.ParamDefs[m[1]]; !ok {
+			t.Errorf("the links handlers read %q but it is not described in fusionhttp.ParamDefs", m[1])
+		}
 	}
 }

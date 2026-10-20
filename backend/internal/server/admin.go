@@ -202,7 +202,7 @@ func (a *Admin) Handler() http.Handler {
 
 	// The shared data API over FUSION. It authenticates for itself (a FUSION access token, or an administrator of the
 	// FUSION organisation) rather than through guard: the caller is not placed in an organisation by the path.
-	a.fd().Mount(routes, fusionOps(a))
+	a.fd().Mount(routes, a.fd().Ops())
 
 	// A regional operator's collector reports that it is alive here. Authenticated by its own secret, with
 	// no session, so it sits beside - not inside - the browser-facing wrappers: no CORS, no CSRF.

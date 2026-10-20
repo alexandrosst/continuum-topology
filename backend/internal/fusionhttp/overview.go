@@ -1,4 +1,4 @@
-package server
+package fusionhttp
 
 import (
 	"context"
@@ -7,38 +7,11 @@ import (
 
 	"continuum/internal/fusion"
 	"continuum/internal/fusionapi"
-	"continuum/internal/fusionhttp"
 	"continuum/internal/httpkit"
 	"continuum/internal/kernel"
 )
 
-// The shared API over FUSION: one place another system reads the metrics, logs and traces FUSION saved, signal by
-// signal or joined around a trace, with a credential that can read nothing else. Who may read, and how the routes are guarded,
-// described and mounted, is internal/fusionhttp; what is left here are the handlers, which read with what Ikhnos knows.
-
-func orEmpty(v []string) []string {
-	if v == nil {
-		return []string{}
-	}
-	return v
-}
-
-// fusionOrg is the organisation FUSION belongs to: the one the server was told, else the server's main organisation. (Not
-// a.C.OrgID alone: the server's platform-wide core has none, which once made every request look like it came from another
-// organisation.)
-func (a *Admin) fusionOrg() string {
-	if a.Fusion != nil && a.Fusion.Org != "" {
-		return a.Fusion.Org
-	}
-	if a.C.OrgID != "" {
-		return a.C.OrgID
-	}
-	return a.C.Accounts.MainOrg()
-}
-
-// ---- the data routes ----
-
-func (a *Admin) fusionStatus(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionhttp.Caller) {
+func (g *Guard) Status(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who Caller) {
 	access := map[string]any{"kind": who.Kind, "name": who.Name, "signals": who.Scope.Signals,
 		"namespaces": orEmpty(who.Scope.Namespaces), "clusters": orEmpty(who.Scope.Clusters), "rawQueries": who.Scope.Unrestricted()}
 	if who.ExpiresAt != nil {
@@ -47,56 +20,55 @@ func (a *Admin) fusionStatus(w http.ResponseWriter, r *http.Request, c *fusionap
 	// A token holder learns whether the stores are up, not how the cluster is set up: the full status carries workload
 	// names, the namespace and Kubernetes API error text, which are for administrators. Nor does it read the cluster for
 	// them: a token can poll as fast as the rate limit lets it, so it is answered from the last read (TokenStatus).
+	fc := g.Control()
 	var st fusion.FusionStatus
 	if who.Kind == "token" {
-		t := a.Fusion.TokenStatus(r.Context())
+		t := fc.TokenStatus(r.Context())
 		st = fusion.FusionStatus{Available: t.Available, State: t.State}
 	} else {
-		st = a.Fusion.Status(r.Context())
+		st = fc.Status(r.Context())
 	}
 	httpkit.WriteJSON(w, 200, map[string]any{"fusion": st, "access": access})
 }
 
-// ---- parameters ----
-
-// fusionApplications lists the Ikhnos applications, each with its services and which signals FUSION has for them in the range.
+// Applications lists the Ikhnos applications, each with its services and which signals FUSION has for them in the range.
 // An application here is what Ikhnos calls one (a group of services); the services themselves, as the telemetry names them, are
 // listed by fusionServices.
-func (a *Admin) fusionApplications(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionhttp.Caller) {
-	tr, err := fusionhttp.Range(r, a.C.Now())
+func (g *Guard) Applications(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who Caller) {
+	tr, err := Range(r, g.Now())
 	if err != nil {
-		a.fd().Err(w, err)
+		g.Err(w, err)
 		return
 	}
-	groups, err := a.fd().Groups(r, who)
+	groups, err := g.Groups(r, who)
 	if err != nil {
-		a.fd().Err(w, err)
+		g.Err(w, err)
 		return
 	}
 	svcs, sources, warnings, err := c.Applications(r.Context(), who.Scope, tr)
 	if err != nil {
-		a.fd().Err(w, err)
+		g.Err(w, err)
 		return
 	}
 	httpkit.WriteJSON(w, 200, map[string]any{"applications": fusionapi.DescribeGroups(groups, svcs), "sources": sources, "warnings": orEmpty(warnings), "from": tr.From, "to": tr.To})
 }
 
-// fusionServices lists the services that have telemetry (their service.name), each with its signals and the Ikhnos
+// Services lists the services that have telemetry (their service.name), each with its signals and the Ikhnos
 // applications it is in. These are what the telemetry itself calls an application, which is not what Ikhnos does.
-func (a *Admin) fusionServices(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionhttp.Caller) {
-	tr, err := fusionhttp.Range(r, a.C.Now())
+func (g *Guard) Services(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who Caller) {
+	tr, err := Range(r, g.Now())
 	if err != nil {
-		a.fd().Err(w, err)
+		g.Err(w, err)
 		return
 	}
-	scope, err := a.fd().Scope(r, who)
+	scope, err := g.Scope(r, who)
 	if err != nil {
-		a.fd().Err(w, err)
+		g.Err(w, err)
 		return
 	}
 	svcs, sources, warnings, err := c.Applications(r.Context(), scope, tr)
 	if err != nil {
-		a.fd().Err(w, err)
+		g.Err(w, err)
 		return
 	}
 	type item struct {
@@ -104,10 +76,10 @@ func (a *Admin) fusionServices(w http.ResponseWriter, r *http.Request, c *fusion
 		Applications []string `json:"applications"`
 	}
 	in := map[string][]string{}
-	if groups, err := a.fd().Groups(r, who); err == nil { // best effort: the list is useful without it
-		for _, g := range groups {
-			for _, n := range g.ServiceNames() {
-				in[n] = append(in[n], g.Name)
+	if groups, err := g.Groups(r, who); err == nil { // best effort: the list is useful without it
+		for _, grp := range groups {
+			for _, n := range grp.ServiceNames() {
+				in[n] = append(in[n], grp.Name)
 			}
 		}
 	}
@@ -122,39 +94,39 @@ func (a *Admin) fusionServices(w http.ResponseWriter, r *http.Request, c *fusion
 	httpkit.WriteJSON(w, 200, map[string]any{"services": out, "sources": sources, "warnings": orEmpty(warnings), "from": tr.From, "to": tr.To})
 }
 
-// fusionApplication is one Ikhnos application at a glance, named by its id or its name.
-func (a *Admin) fusionApplication(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionhttp.Caller) {
-	tr, err := fusionhttp.Range(r, a.C.Now())
+// Application is one Ikhnos application at a glance, named by its id or its name.
+func (g *Guard) Application(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who Caller) {
+	tr, err := Range(r, g.Now())
 	if err != nil {
-		a.fd().Err(w, err)
+		g.Err(w, err)
 		return
 	}
-	groups, err := a.fd().Groups(r, who)
+	groups, err := g.Groups(r, who)
 	if err != nil {
-		a.fd().Err(w, err)
+		g.Err(w, err)
 		return
 	}
-	g, err := fusionapi.FindGroup(groups, r.PathValue("name"))
+	app, err := fusionapi.FindGroup(groups, r.PathValue("name"))
 	if err != nil {
-		a.fd().Err(w, err)
+		g.Err(w, err)
 		return
 	}
-	o, err := c.ApplicationOverview(r.Context(), who.Scope, g, tr)
+	o, err := c.ApplicationOverview(r.Context(), who.Scope, app, tr)
 	if err != nil {
-		a.fd().Err(w, err)
+		g.Err(w, err)
 		return
 	}
 	httpkit.WriteJSON(w, 200, o)
 }
 
-// topologyAter is what the extras add when the server remembers the past (fusionExtras.TopologyAt).
+// topologyAter is what the extras add when the server remembers the past (the server's TopologyAt).
 type topologyAter interface {
 	TopologyAt(ctx context.Context, appID string, at time.Time) (*fusionapi.TopologyView, []fusionapi.AppMember, error)
 }
 
-// fusionAppTopology is one application's services and the traffic between them and the rest of the estate, now or (at=) as of a
+// AppTopology is one application's services and the traffic between them and the rest of the estate, now or (at=) as of a
 // past moment, with what changed around them in the window before it.
-func (a *Admin) fusionAppTopology(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionhttp.Caller) {
+func (g *Guard) AppTopology(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who Caller) {
 	q := r.URL.Query()
 	window, err := fusionapi.DurationParam(q.Get("window"))
 	if err == nil && (window < 0 || window > fusionapi.MaxTopologyWindow) {
@@ -174,32 +146,32 @@ func (a *Admin) fusionAppTopology(w http.ResponseWriter, r *http.Request, c *fus
 		}
 	}
 	if err != nil {
-		a.fd().Err(w, err)
+		g.Err(w, err)
 		return
 	}
-	groups, err := a.fd().Groups(r, who)
-	var g *fusionapi.AppGroup
+	groups, err := g.Groups(r, who)
+	var app *fusionapi.AppGroup
 	if err == nil {
-		g, err = fusionapi.FindGroup(groups, r.PathValue("name"))
+		app, err = fusionapi.FindGroup(groups, r.PathValue("name"))
 	}
 	if err != nil {
-		a.fd().Err(w, err)
+		g.Err(w, err)
 		return
 	}
-	ex, until := a.fusionExtras(), a.C.Now()
+	ex, until := g.Extras(), g.Now()
 	var v *fusionapi.TopologyView
 	if !at.IsZero() {
 		h, ok := ex.(topologyAter)
 		if !ok {
-			a.fd().Err(w, &fusionapi.Error{Status: 404, Msg: "history is not enabled on this server: it needs the graph database"})
+			g.Err(w, &fusionapi.Error{Status: 404, Msg: "history is not enabled on this server: it needs the graph database"})
 			return
 		}
 		var members []fusionapi.AppMember
-		if v, members, err = h.TopologyAt(r.Context(), g.ID, at); err == nil {
-			then := *g
+		if v, members, err = h.TopologyAt(r.Context(), app.ID, at); err == nil {
+			then := *app
 			then.Members, then.Unresolved = members, 0
 			if vis := fusionapi.VisibleGroups([]fusionapi.AppGroup{then}, who.Scope); len(vis) > 0 { // as the caller may see it, then
-				g, until = &vis[0], at
+				app, until = &vis[0], at
 			} else {
 				err = &fusionapi.Error{Status: 404, Msg: "the application had no services you may see at that time"}
 			}
@@ -208,33 +180,33 @@ func (a *Admin) fusionAppTopology(w http.ResponseWriter, r *http.Request, c *fus
 		v, err = ex.Topology(r.Context())
 	}
 	if err != nil {
-		a.fd().Err(w, err)
+		g.Err(w, err)
 		return
 	}
-	t := fusionapi.BuildAppTopology(g, v, who.Scope, noise)
+	t := fusionapi.BuildAppTopology(app, v, who.Scope, noise)
 	if !at.IsZero() {
 		snap := v.At
 		t.Source, t.AsOf, t.SnapshotAt = "history", at, &snap
 	}
 	evs, err := ex.Changes(r.Context(), until.Add(-window), until, nil, t.Targets(), fusionapi.MaxAppChanges+1)
 	if err != nil {
-		a.fd().Err(w, err)
+		g.Err(w, err)
 		return
 	}
 	t.AddChanges(evs)
 	httpkit.WriteJSON(w, 200, t)
 }
 
-// fusionService is one service at a glance, by the service.name its telemetry carries.
-func (a *Admin) fusionService(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who fusionhttp.Caller) {
-	tr, err := fusionhttp.Range(r, a.C.Now())
+// Service is one service at a glance, by the service.name its telemetry carries.
+func (g *Guard) Service(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who Caller) {
+	tr, err := Range(r, g.Now())
 	if err != nil {
-		a.fd().Err(w, err)
+		g.Err(w, err)
 		return
 	}
 	o, err := c.ServiceOverview(r.Context(), who.Scope, r.PathValue("name"), tr)
 	if err != nil {
-		a.fd().Err(w, err)
+		g.Err(w, err)
 		return
 	}
 	httpkit.WriteJSON(w, 200, o)

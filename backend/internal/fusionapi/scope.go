@@ -1,7 +1,7 @@
 // Package fusionapi reads what FUSION saved - metrics from Prometheus, logs from Loki, traces from Tempo - on behalf of a
 // caller whose rights are a Scope, and joins the three into one object around a trace.
 //
-// It knows nothing about tokens, organisations or HTTP routes: the server (internal/server/fusion_data.go) decides who
+// It knows nothing about tokens, organisations or HTTP routes: the server (internal/fusionhttp) decides who
 // the caller is and hands this package a Scope; everything here is about turning that Scope into restrictions the
 // stores themselves enforce (a matcher added to every query it builds), and then checking the answers once more.
 //

@@ -63,3 +63,12 @@ func TestTheDescriptionNamesEveryRouteOfTheTable(t *testing.T) {
 		t.Errorf("paths = %v", paths)
 	}
 }
+
+func TestARouteWithoutAHandlerIsNotMounted(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Error("a route with no handler was mounted")
+		}
+	}()
+	newGuard(fakeAccounts{}, fakeTokens{}).Mount(&recorded{mux: http.NewServeMux()}, []Op{{Method: "GET", Path: "/x", Tag: "T", Response: "R"}})
+}
