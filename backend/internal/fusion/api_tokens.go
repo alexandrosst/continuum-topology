@@ -44,13 +44,7 @@ func (h *API) createToken(w http.ResponseWriter, r *http.Request) {
 	if !h.orgOnly(w, r) {
 		return
 	}
-	var req struct {
-		Name          string   `json:"name"`
-		Signals       []string `json:"signals"`
-		Namespaces    []string `json:"namespaces"`
-		Clusters      []string `json:"clusters"`
-		ExpiresInDays int      `json:"expiresInDays"`
-	}
+	var req CreateTokenRequest
 	if err := httpkit.Decode(r, &req); err != nil {
 		h.fail(w, r, err)
 		return
@@ -67,7 +61,7 @@ func (h *API) createToken(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	httpkit.WriteJSON(w, 200, map[string]any{"token": secret, "details": toTokenDoc(tok)})
+	httpkit.WriteJSON(w, 200, CreatedTokenDoc{Token: secret, Details: toTokenDoc(tok)})
 }
 
 func (h *API) deleteToken(w http.ResponseWriter, r *http.Request) {
@@ -78,5 +72,5 @@ func (h *API) deleteToken(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	httpkit.WriteJSON(w, 200, map[string]bool{"ok": true})
+	httpkit.WriteJSON(w, 200, httpkit.OKDoc{OK: true})
 }

@@ -28,7 +28,7 @@ func WriteJSON(w http.ResponseWriter, code int, v any) {
 
 // WriteErr writes {"error": msg} with the status code.
 func WriteErr(w http.ResponseWriter, code int, msg string) {
-	WriteJSON(w, code, map[string]string{"error": msg})
+	WriteJSON(w, code, ErrorDoc{Error: msg})
 }
 
 // status is the HTTP status of each kind of error a module can return.
@@ -76,9 +76,7 @@ func Decode(r *http.Request, v any) error {
 
 // Reasoned answers a route whose body may carry {"reason": ...}: it hands the reason to do and answers 204 when do succeeds.
 func Reasoned(w http.ResponseWriter, r *http.Request, log *slog.Logger, do func(reason string) error) {
-	var req struct {
-		Reason string `json:"reason"`
-	}
+	var req ReasonRequest
 	if err := Decode(r, &req); err != nil {
 		Fail(w, log, err)
 		return

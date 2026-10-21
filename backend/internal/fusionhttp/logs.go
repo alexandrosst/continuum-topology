@@ -49,5 +49,5 @@ func (g *Guard) Logs(w http.ResponseWriter, r *http.Request, c *fusionapi.Client
 	if entries == nil {
 		entries = []fusionapi.LogEntry{}
 	}
-	httpkit.WriteJSON(w, 200, map[string]any{"entries": entries, "truncated": truncated, "limit": limit, "from": tr.From, "to": tr.To})
+	httpkit.WriteJSON(w, 200, logsDoc{Entries: entries, Truncated: truncated, Limit: limit, From: tr.From, To: tr.To})
 }

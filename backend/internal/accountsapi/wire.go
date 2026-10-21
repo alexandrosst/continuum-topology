@@ -21,7 +21,6 @@ func WireTypes() []wire.Root {
 		{Value: twoFactorSetupDoc{}},
 		{Value: recoveryCodesDoc{}},
 		{Value: createdAPITokenDoc{}},
-		{Value: okDoc{}},
 		{Value: invitePreviewDoc{}},
 		{Value: createdInviteDoc{}},
 		{Value: serverInfoDoc{}},

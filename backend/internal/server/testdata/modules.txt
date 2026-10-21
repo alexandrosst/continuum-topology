@@ -35,6 +35,7 @@ admin.go                        shell
 admin_agents.go shell
 admin_fusion_proxy.go shell
 admin_images.go                 shell
+docs.go shell
 fusion_appinfo.go shell
 fusion_extras.go shell
 fusion_guard.go shell
@@ -48,3 +49,4 @@ readiness.go                    shell
 routes.go                       shell
 self_probe.go shell
 tenants.go                      shell
+wire.go shell

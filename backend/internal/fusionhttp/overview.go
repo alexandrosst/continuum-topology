@@ -12,10 +12,10 @@ import (
 )
 
 func (g *Guard) Status(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who Caller) {
-	access := map[string]any{"kind": who.Kind, "name": who.Name, "signals": who.Scope.Signals,
-		"namespaces": orEmpty(who.Scope.Namespaces), "clusters": orEmpty(who.Scope.Clusters), "rawQueries": who.Scope.Unrestricted()}
+	access := callerAccessDoc{Kind: who.Kind, Name: who.Name, Signals: who.Scope.Signals,
+		Namespaces: orEmpty(who.Scope.Namespaces), Clusters: orEmpty(who.Scope.Clusters), RawQueries: who.Scope.Unrestricted()}
 	if who.ExpiresAt != nil {
-		access["expiresAt"] = kernel.RFC(*who.ExpiresAt)
+		access.ExpiresAt = kernel.RFC(*who.ExpiresAt)
 	}
 	// A token holder learns whether the stores are up, not how the cluster is set up: the full status carries workload
 	// names, the namespace and Kubernetes API error text, which are for administrators. Nor does it read the cluster for
@@ -28,7 +28,7 @@ func (g *Guard) Status(w http.ResponseWriter, r *http.Request, c *fusionapi.Clie
 	} else {
 		st = fc.Status(r.Context())
 	}
-	httpkit.WriteJSON(w, 200, map[string]any{"fusion": st, "access": access})
+	httpkit.WriteJSON(w, 200, statusDoc{Fusion: st, Access: access})
 }
 
 // Applications lists the Ikhnos applications, each with its services and which signals FUSION has for them in the range.
@@ -50,7 +50,7 @@ func (g *Guard) Applications(w http.ResponseWriter, r *http.Request, c *fusionap
 		g.Err(w, err)
 		return
 	}
-	httpkit.WriteJSON(w, 200, map[string]any{"applications": fusionapi.DescribeGroups(groups, svcs), "sources": sources, "warnings": orEmpty(warnings), "from": tr.From, "to": tr.To})
+	httpkit.WriteJSON(w, 200, applicationsDoc{Applications: fusionapi.DescribeGroups(groups, svcs), Sources: sources, Warnings: orEmpty(warnings), From: tr.From, To: tr.To})
 }
 
 // Services lists the services that have telemetry (their service.name), each with its signals and the Ikhnos
@@ -71,10 +71,6 @@ func (g *Guard) Services(w http.ResponseWriter, r *http.Request, c *fusionapi.Cl
 		g.Err(w, err)
 		return
 	}
-	type item struct {
-		fusionapi.Application
-		Applications []string `json:"applications"`
-	}
 	in := map[string][]string{}
 	if groups, err := g.Groups(r, who); err == nil { // best effort: the list is useful without it
 		for _, grp := range groups {
@@ -83,15 +79,15 @@ func (g *Guard) Services(w http.ResponseWriter, r *http.Request, c *fusionapi.Cl
 			}
 		}
 	}
-	out := make([]item, 0, len(svcs))
+	out := make([]serviceDoc, 0, len(svcs))
 	for _, sv := range svcs {
 		names := in[sv.Name]
 		if names == nil {
 			names = []string{}
 		}
-		out = append(out, item{sv, names})
+		out = append(out, serviceDoc{sv, names})
 	}
-	httpkit.WriteJSON(w, 200, map[string]any{"services": out, "sources": sources, "warnings": orEmpty(warnings), "from": tr.From, "to": tr.To})
+	httpkit.WriteJSON(w, 200, servicesDoc{Services: out, Sources: sources, Warnings: orEmpty(warnings), From: tr.From, To: tr.To})
 }
 
 // Application is one Ikhnos application at a glance, named by its id or its name.

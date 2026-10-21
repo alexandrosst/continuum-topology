@@ -14,5 +14,7 @@ func WireTypes() []wire.Root {
 		{Value: RetentionDoc{}},
 		{Value: RetentionRequest{}},
 		{Value: TokenDoc{}},
+		{Value: CreateTokenRequest{}},
+		{Value: CreatedTokenDoc{}},
 	}
 }

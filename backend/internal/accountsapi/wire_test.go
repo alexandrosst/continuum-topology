@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"continuum/internal/httpkit"
 	"continuum/internal/wire"
 )
 
@@ -24,7 +25,7 @@ func TestAnswersThatWereMapsAreWrittenAsTheyWere(t *testing.T) {
 		{"two-factor setup", twoFactorSetupDoc{OtpauthURL: "otpauth://x", Secret: "S"}, `{"otpauthUrl":"otpauth://x","secret":"S"}`},
 		{"recovery codes", recoveryCodesDoc{RecoveryCodes: []string{"a", "b"}}, `{"recoveryCodes":["a","b"]}`},
 		{"created token", createdAPITokenDoc{CreatedAt: "t", ID: "i", Name: "n", Token: "k"}, `{"createdAt":"t","id":"i","name":"n","token":"k"}`},
-		{"ok", okDoc{OK: true}, `{"ok":true}`},
+		{"ok", httpkit.OKDoc{OK: true}, `{"ok":true}`},
 		{"invite preview", invitePreviewDoc{ExpiresAt: "e", Organisation: "Acme", Role: "viewer"}, `{"expiresAt":"e","organisation":"Acme","role":"viewer"}`},
 		{"created invite", createdInviteDoc{Invite: inviteDoc{ID: "i", Role: "viewer", CreatedBy: "alex", CreatedAt: "c", ExpiresAt: "e"}, Token: "k"},
 			`{"invite":{"id":"i","role":"viewer","createdBy":"alex","createdAt":"c","expiresAt":"e","used":false},"token":"k"}`},

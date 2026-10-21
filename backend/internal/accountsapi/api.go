@@ -538,7 +538,7 @@ func (h *API) revokeAPIToken(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, err)
 		return
 	}
-	httpkit.WriteJSON(w, 200, okDoc{OK: true})
+	httpkit.WriteJSON(w, 200, httpkit.OKDoc{OK: true})
 }
 
 func (h *API) listOrgs(w http.ResponseWriter, r *http.Request) {

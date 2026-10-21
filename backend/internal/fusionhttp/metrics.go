@@ -41,7 +41,7 @@ func (g *Guard) MetricNames(w http.ResponseWriter, r *http.Request, c *fusionapi
 	for _, n := range names {
 		cat[n] = fusionapi.MetricCategory(n)
 	}
-	httpkit.WriteJSON(w, 200, map[string]any{"names": orEmpty(names), "categories": cat, "truncated": truncated, "limit": limit, "from": tr.From, "to": tr.To})
+	httpkit.WriteJSON(w, 200, metricNamesDoc{Names: orEmpty(names), Categories: cat, Truncated: truncated, Limit: limit, From: tr.From, To: tr.To})
 }
 
 func (g *Guard) MetricSeries(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who Caller) {
@@ -68,7 +68,7 @@ func (g *Guard) MetricSeries(w http.ResponseWriter, r *http.Request, c *fusionap
 	if series == nil {
 		series = []map[string]string{}
 	}
-	httpkit.WriteJSON(w, 200, map[string]any{"series": series, "truncated": truncated, "limit": limit, "from": tr.From, "to": tr.To})
+	httpkit.WriteJSON(w, 200, metricSeriesDoc{Series: series, Truncated: truncated, Limit: limit, From: tr.From, To: tr.To})
 }
 
 func (g *Guard) MetricRange(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who Caller) {
@@ -111,7 +111,7 @@ func (g *Guard) MetricRange(w http.ResponseWriter, r *http.Request, c *fusionapi
 	if series == nil {
 		series = []fusionapi.MetricSeries{}
 	}
-	httpkit.WriteJSON(w, 200, map[string]any{"series": series, "truncated": truncated, "limit": limit, "stepSeconds": step.Seconds(), "from": tr.From, "to": tr.To})
+	httpkit.WriteJSON(w, 200, metricRangeDoc{Series: series, Truncated: truncated, Limit: limit, StepSeconds: step.Seconds(), From: tr.From, To: tr.To})
 }
 
 // MetricRaw is PromQL as written, answered the way Prometheus itself answers.

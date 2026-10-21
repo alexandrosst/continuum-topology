@@ -15,5 +15,14 @@ func WireTypes() []wire.Root {
 		{Value: fusionapi.Overview{}},
 		{Value: fusionapi.Trace{}},
 		{Value: fusionapi.TraceSummary{}},
+		{Value: logsDoc{}},
+		{Value: metricNamesDoc{}},
+		{Value: metricSeriesDoc{}},
+		{Value: metricRangeDoc{}},
+		{Value: statusDoc{}},
+		{Value: applicationsDoc{}},
+		{Value: servicesDoc{}},
+		{Value: tracesDoc{}},
+		{Value: traceBatchDoc{}},
 	}
 }

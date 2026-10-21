@@ -28,11 +28,6 @@ type createdAPITokenDoc struct {
 	Token     string `json:"token"`
 }
 
-// okDoc is the answer of a route that has nothing to say but that it did it.
-type okDoc struct {
-	OK bool `json:"ok"`
-}
-
 // invitePreviewDoc is what an invitation is for, shown before it is accepted.
 type invitePreviewDoc struct {
 	ExpiresAt    string `json:"expiresAt"`

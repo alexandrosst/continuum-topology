@@ -83,9 +83,7 @@ func (a *Admin) redeemFusionTicket(w http.ResponseWriter, r *http.Request, ticke
 
 // openFusionPage is POST /fusion/pages {"page": "grafana" | "prometheus"}: the path to open, with a ticket in it.
 func (a *Admin) openFusionPage(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Page string `json:"page"`
-	}
+	var req openFusionPageRequest
 	if err := httpkit.Decode(r, &req); err != nil {
 		a.fail(w, err)
 		return
@@ -120,5 +118,5 @@ func (a *Admin) openFusionPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	httpkit.WriteJSON(w, 200, map[string]string{"path": base + "?" + fusionpages.TicketParam + "=" + t})
+	httpkit.WriteJSON(w, 200, fusionPageDoc{Path: base + "?" + fusionpages.TicketParam + "=" + t})
 }

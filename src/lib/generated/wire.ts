@@ -233,6 +233,16 @@ export interface AppInfo {
   confidence?: string
 }
 
+export interface AppServiceView {
+  id?: string
+  name: string
+  namespace?: string
+  cluster?: string
+  kind?: string
+  aliases?: string[]
+  signals: string[] | null
+}
+
 export interface AppTelemetry {
   member: string
   filter: AppTelemetryKey
@@ -313,12 +323,31 @@ export interface AppTruncated {
   changes: boolean
 }
 
+export interface AppView {
+  id: string
+  name: string
+  description?: string
+  services: AppServiceView[] | null
+  signals: string[] | null
+  namespaces: string[] | null
+  clusters: string[] | null
+  unresolvedMembers?: number
+}
+
 export interface ApplicationDoc {
   name: string
   description?: string
   origin?: string
   confidence?: string
   serviceIds?: string[]
+}
+
+export interface ApplicationsDoc {
+  applications: AppView[] | null
+  from: string
+  sources: Record<string, string> | null
+  to: string
+  warnings: string[] | null
 }
 
 export interface ApproveAgentRequest {
@@ -374,6 +403,29 @@ export interface Autoscaler {
 
 export interface BeginPasskeyLoginRequest {
   pending: string
+}
+
+export interface BulkItem {
+  id: string
+  status: number
+  error?: string
+  trace?: Fused
+}
+
+export interface BulkSummary {
+  requested: number
+  ok: number
+  failed: number
+}
+
+export interface CallerAccessDoc {
+  clusters: string[] | null
+  expiresAt?: string
+  kind: string
+  name: string
+  namespaces: string[] | null
+  rawQueries: boolean
+  signals: string[] | null
 }
 
 export interface CapacityDoc {
@@ -601,14 +653,6 @@ export interface CreateTelemetryIntentRequest {
   routes: Record<string, OperatorDestination> | null
 }
 
-export interface CreateTokenRequest {
-  name: string
-  tier: number
-  expectedCluster: string
-  collectors: Collectors
-  scope: Scope
-}
-
 export interface CreatedAPITokenDoc {
   createdAt: string
   id: string
@@ -618,12 +662,6 @@ export interface CreatedAPITokenDoc {
 
 export interface CreatedInviteDoc {
   invite: InviteDoc
-  token: string
-}
-
-export interface CreatedTokenDoc {
-  install: string
-  meta: EstateTokenDoc
   token: string
 }
 
@@ -875,6 +913,24 @@ export interface EntitySnapshot {
   doc: unknown
 }
 
+export interface ErrorDoc {
+  error: string
+}
+
+export interface EstateCreateTokenRequest {
+  name: string
+  tier: number
+  expectedCluster: string
+  collectors: Collectors
+  scope: Scope
+}
+
+export interface EstateCreatedTokenDoc {
+  install: string
+  meta: EstateTokenDoc
+  token: string
+}
+
 export interface EstateTokenDoc {
   id: string
   name: string
@@ -1065,6 +1121,29 @@ export interface FusionComponent {
   reason?: string
 }
 
+export interface FusionCreateTokenRequest {
+  name: string
+  signals: string[] | null
+  namespaces: string[] | null
+  clusters: string[] | null
+  expiresInDays: number
+}
+
+export interface FusionCreatedTokenDoc {
+  details: FusionTokenDoc
+  token: string
+}
+
+export interface FusionFusionStatus {
+  available: boolean
+  reason?: string
+  state: string
+  message?: string
+  since?: string
+  components?: FusionComponent[]
+  lastDataAt?: string
+}
+
 export interface FusionLinkPair {
   a: string
   b: string
@@ -1086,6 +1165,10 @@ export interface FusionLinksDoc {
   pairs: FusionLinkPair[] | null
   at: string
   stale?: boolean
+}
+
+export interface FusionPageDoc {
+  path: string
 }
 
 export interface FusionStatus {
@@ -1118,6 +1201,16 @@ export interface GatewayTokenDoc {
   createdAt?: string
   expired?: boolean
   expiresAt?: string
+}
+
+export interface GeoInfo {
+  enabled: boolean
+  database?: string
+  description?: string
+  builtAt?: string
+  attribution?: string
+  publicIpFallback?: boolean
+  asn?: boolean
 }
 
 export interface GraphDiffDoc {
@@ -1202,6 +1295,31 @@ export interface ImageConfig {
   registry: string
   tag: string
   digest: string
+}
+
+export interface InfoDoc {
+  agentAddress: string
+  agentExposure: string
+  caPin: string
+  geoip: GeoInfo
+  implementedTier: number
+  install: InfoInstallDoc
+  orgId: string
+  orgName: string
+  releaseName: string
+  releaseNamespace: string
+  role: string
+  version: string
+}
+
+export interface InfoInstallDoc {
+  chartFile: string
+  chartRef: string
+  chartVersion: string
+  imageDigest: string
+  imageRegistry: string
+  imageTag: string
+  imagesConfigured: boolean
 }
 
 export interface InformerDoc {
@@ -1383,6 +1501,14 @@ export interface LoginRequest {
   password: string
 }
 
+export interface LogsDoc {
+  entries: LogEntry[] | null
+  from: string
+  limit: number
+  to: string
+  truncated: boolean
+}
+
 export interface MailConfigDoc {
   host: string
   port: string
@@ -1401,6 +1527,24 @@ export interface MemberDoc {
   you?: boolean
 }
 
+export interface MetricNamesDoc {
+  categories: Record<string, string> | null
+  from: string
+  limit: number
+  names: string[] | null
+  to: string
+  truncated: boolean
+}
+
+export interface MetricRangeDoc {
+  from: string
+  limit: number
+  series: MetricSeries[] | null
+  stepSeconds: number
+  to: string
+  truncated: boolean
+}
+
 export interface MetricSeries {
   name: string
   category?: string
@@ -1410,6 +1554,14 @@ export interface MetricSeries {
   max: number
   avg: number
   last: number
+}
+
+export interface MetricSeriesDoc {
+  from: string
+  limit: number
+  series: (Record<string, string> | null)[] | null
+  to: string
+  truncated: boolean
 }
 
 export interface MintGatewayTokenRequest {
@@ -1534,6 +1686,10 @@ export interface Node {
   thermalTripCount?: number
 }
 
+export interface OKDoc {
+  ok: boolean
+}
+
 export interface ObservationDoc {
   staleAfterSeconds: number
   tombstoneRetentionDays: number
@@ -1546,8 +1702,8 @@ export interface ObserverDoc {
   dropped: number
 }
 
-export interface OkDoc {
-  ok: boolean
+export interface OpenFusionPageRequest {
+  page: string
 }
 
 export interface OperatorCertificatesDoc {
@@ -1810,6 +1966,10 @@ export interface Reached {
   cluster?: string
   doc: unknown
   hops: number
+}
+
+export interface ReasonRequest {
+  reason: string
 }
 
 export interface RecordDecisionsRequest {
@@ -2172,6 +2332,12 @@ export interface Service {
   pods?: Pod[]
 }
 
+export interface ServiceDoc {
+  name: string
+  signals: string[] | null
+  applications: string[] | null
+}
+
 export interface ServiceMesh {
   mesh: string
   proxy?: string
@@ -2179,6 +2345,14 @@ export interface ServiceMesh {
   excludedPorts?: string[]
   controlPlane?: boolean
   source?: string
+}
+
+export interface ServicesDoc {
+  from: string
+  services: ServiceDoc[] | null
+  sources: Record<string, string> | null
+  to: string
+  warnings: string[] | null
 }
 
 export interface SessionDoc {
@@ -2332,6 +2506,11 @@ export interface Stats {
   audit: number
   oldest?: string
   newest?: string
+}
+
+export interface StatusDoc {
+  access: CallerAccessDoc
+  fusion: FusionFusionStatus
 }
 
 export interface StorageDoc {
@@ -2506,6 +2685,11 @@ export interface Trace {
   truncated?: boolean
 }
 
+export interface TraceBatchDoc {
+  results: BulkItem[] | null
+  summary: BulkSummary
+}
+
 export interface TraceSummary {
   traceId: string
   rootService?: string
@@ -2514,6 +2698,17 @@ export interface TraceSummary {
   durationMs: number
   services?: string[]
   matchedSpans: number
+}
+
+export interface TracesDoc {
+  from: string
+  limit: number
+  results?: BulkItem[]
+  summary?: BulkSummary
+  to: string
+  traces: TraceSummary[] | null
+  truncated: boolean
+  type?: string
 }
 
 export interface TrafficDoc {

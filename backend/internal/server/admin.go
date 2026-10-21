@@ -487,7 +487,7 @@ func (a *Admin) info(w http.ResponseWriter, r *http.Request) {
 	t := a.tn(r)
 	o, _ := a.C.Store.GetOrg(r.Context(), t.ID)
 	img := a.images(t.C)
-	httpkit.WriteJSON(w, 200, map[string]any{"orgId": t.ID, "orgName": o.Name, "role": httpkit.Principal(r).Role, "agentAddress": a.AgentAddr, "agentExposure": a.AgentExposure, "releaseName": a.ReleaseName, "releaseNamespace": a.ReleaseNamespace, "caPin": a.C.CA.SPKIPin(), "version": a.Version, "implementedTier": kernel.ImplementedTier, "geoip": a.P.Geo.Info(),
+	httpkit.WriteJSON(w, 200, infoDoc{OrgID: t.ID, OrgName: o.Name, Role: httpkit.Principal(r).Role, AgentAddress: a.AgentAddr, AgentExposure: a.AgentExposure, ReleaseName: a.ReleaseName, ReleaseNamespace: a.ReleaseNamespace, CAPin: a.C.CA.SPKIPin(), Version: a.Version, ImplementedTier: kernel.ImplementedTier, GeoIP: a.P.Geo.Info(),
 		// What the install wizard tells the operator to bring to the cluster: the chart file this server hands out
 		// (empty when the command names a chart elsewhere) and where the image comes from (this organisation's
 		// Settings → Installation, else the server's flags; empty registry: the chart's built-in names).
@@ -495,7 +495,7 @@ func (a *Admin) info(w http.ResponseWriter, r *http.Request) {
 		// chart under (agentChartVersion), NOT chart.Version(): the browser builds several commands itself from this
 		// field, and the bundled Chart.yaml literal can name an old chart whose values schema rejects what this build
 		// sends (helm: "Additional property ... is not allowed").
-		"install": map[string]any{"chartFile": a.AgentChartFile(), "chartRef": a.AgentRef(img), "chartVersion": a.AgentVersion(), "imagesConfigured": img.Configured(), "imageRegistry": img.Registry, "imageTag": img.Tag, "imageDigest": img.Digest}})
+		Install: infoInstallDoc{ChartFile: a.AgentChartFile(), ChartRef: a.AgentRef(img), ChartVersion: a.AgentVersion(), ImagesConfigured: img.Configured(), ImageRegistry: img.Registry, ImageTag: img.Tag, ImageDigest: img.Digest}})
 }
 
 // installCommand is the agent's install command for the token's ceiling, with the server's CA pin the agent will verify it against.

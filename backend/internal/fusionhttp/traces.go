@@ -72,7 +72,7 @@ func (g *Guard) Traces(w http.ResponseWriter, r *http.Request, c *fusionapi.Clie
 	if traces == nil {
 		traces = []fusionapi.TraceSummary{}
 	}
-	page := map[string]any{"traces": traces, "truncated": truncated, "limit": limit, "from": tr.From, "to": tr.To}
+	page := tracesDoc{Traces: traces, Truncated: truncated, Limit: limit, From: tr.From, To: tr.To}
 	if !fused {
 		httpkit.WriteJSON(w, 200, page)
 		return
@@ -85,12 +85,13 @@ func (g *Guard) Traces(w http.ResponseWriter, r *http.Request, c *fusionapi.Clie
 		return
 	}
 	if stream {
-		page["type"] = "traces"
+		page.Type = "traces"
 		g.streamBulk(w, r, c, who, ids, opts, page)
 		return
 	}
 	items := c.FuseMany(r.Context(), who.Scope, ids, opts, nil)
-	page["results"], page["summary"] = nonNilItems(items), fusionapi.Summarise(items)
+	summary := fusionapi.Summarise(items)
+	page.Results, page.Summary = nonNilItems(items), &summary
 	httpkit.WriteJSON(w, 200, page)
 }
 
@@ -191,7 +192,7 @@ func (g *Guard) TraceBatch(w http.ResponseWriter, r *http.Request, c *fusionapi.
 		return
 	}
 	items := c.FuseMany(r.Context(), who.Scope, ids, opts, nil)
-	httpkit.WriteJSON(w, 200, map[string]any{"results": nonNilItems(items), "summary": fusionapi.Summarise(items)})
+	httpkit.WriteJSON(w, 200, traceBatchDoc{Results: nonNilItems(items), Summary: fusionapi.Summarise(items)})
 }
 
 // promqlValues turns the promql field of a batch body into the repeated name=expression values the shared parser reads:
