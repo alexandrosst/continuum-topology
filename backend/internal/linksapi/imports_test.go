@@ -19,6 +19,7 @@ var allowedRepoImports = map[string]bool{
 	"continuum/internal/fusionhttp":   true,
 	"continuum/internal/httpkit":      true,
 	"continuum/internal/kernel":       true,
+	"continuum/internal/wire":         true,
 }
 
 func TestLinksapiImportsNoOtherModuleOfTheServer(t *testing.T) {

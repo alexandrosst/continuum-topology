@@ -14,6 +14,7 @@ import (
 // repository: not the server, and not another module. What only the server knows is handed in as the Edge.
 var allowedRepoImports = map[string]bool{
 	"continuum/internal/kernel":   true,
+	"continuum/internal/wire":     true,
 	"continuum/internal/accounts": true,
 	"continuum/internal/httpkit":  true,
 	"continuum/internal/store":    true,

@@ -18,7 +18,7 @@ a file names something declared in a file of another module. At the first readin
 Every module is a package, the handlers have left the shell module by module, and `internal/server` is what the compiler could not
 take from it: 17 source files and about 1,950 lines, the wiring. The lines between the packages are held by the compiler (a package
 cannot import its caller), by a test in each package that refuses an import outside its list, and by one list of all of them,
-`testdata/packages.txt` in the server's tests (`TestPackagesImportEachOtherOnlyWhereTheListSays`): 179 imports among 57 packages.
+`testdata/packages.txt` in the server's tests (`TestPackagesImportEachOtherOnlyWhereTheListSays`): 188 imports among 58 packages.
 `module_edges.txt` is empty, because there is no longer a use across a module boundary inside the shell to list.
 
 Read from the bottom, what the packages stand on:
@@ -37,6 +37,12 @@ Read from the bottom, what the packages stand on:
 - **The API packages** are the routes of a module: `accountsapi`, `settingsapi`, `operatorsapi`, `fusionhttp` (FUSION's whole data API
   over `fusionapi`, the client library for it), `linksapi` (the Sites figures), `fusionpages` (the rules of the gateway to FUSION's
   pages). Each mounts through the kit's router and is handed what it needs as functions and ports.
+- **The wire** (`internal/wire`) writes the shapes the API puts on the wire as TypeScript, from the Go types, with reflection and nothing of
+  this repository. Each API package lists the shapes it writes in a `WireTypes()` of its own; the shell's test generates
+  `src/lib/generated/wire.ts` from them and fails when the committed file is not what the types say, so a renamed or dropped field shows
+  as a changed line in the review of the change that made it. What it says follows `encoding/json`: omitempty makes a field optional, and a
+  nil slice, map or pointer without it is `| null`. The inventory behind it: of 135 places a handler writes or reads JSON, 49 pass a named
+  type, 83 write an inline map and 46 read an anonymous struct, so those shapes are not in the file until they are named.
 - **The shell** (`internal/server`) builds the `Core`, the hub and the services, hands each API what it asks for, and holds what
   is cookies, origins, limiters, the reverse proxy and the topology and application knowledge FUSION is given. `internal/testkit` is the
   fixtures the tests share.
@@ -334,3 +340,4 @@ this repository that a module could be (it may use the store, the CA and the two
 | Operators and FUSION step 7: the rules of the gateway to FUSION's pages are `fusionpages` | The ticket and page-session table (one-time tickets that live thirty seconds, page sessions of eight hours, a cap per person and in all, the person's oldest dropped first, a full table that answers busy without spending the ticket) and the proxy's rules (which methods and paths a page may use on Prometheus and Grafana, what is refused outright, redirects only to this server, what is stripped from a response, the namespaced Grafana login) are in `fusionpages`, which imports only the kernel and has its own tests. The cookie, the origin check, the two limiters, the reverse proxy and the three handlers stay in the shell, because they are the server's cookies and limiters and a package would be handed all of them to own only the control flow | the FUSION handler moves are done: what stays in the shell for FUSION is wiring (guard, links and operators API construction), extras, and the application info pushed to FUSION |
 | Whole-graph list: the picture now | step 8 | `testdata/packages.txt` and `TestPackagesImportEachOtherOnlyWhereTheListSays`: every import between the packages of `internal/` in one list; this page's first section brought up to the present |
 | Small read interfaces: telemetry, agents | step 9 | `telemetry` owns `Operators` (the operator a destination names; `CheckDestination`, which is the validation and the normalising of the address in one call, added to the operators) and no longer imports them; the destination document (`operators.DestinationDoc`, now `destination.Doc`) is the package `internal/destination` that both the operators' routes and the intents carry; `agents` owns `TelemetryCerts` for the certificate renewed on the stream and its own `AccessChange`, and imports neither the operators nor the decision loop. In the whole-graph list three edges go (`agents` to `operators`, `agents` to `decisionloop`, `telemetry` to `operators`) and three come (`destination` to `store`, `telemetry` and `operatorsapi` to `destination`) | the three concrete reaches left by step 8 are gone; `estate` building the loop stays, on purpose |
+| The wire shapes are generated | step 10 | `internal/wire` (the generator, tests for each kind it writes) and a `WireTypes()` in the nine packages that mount routes; `TestWireFileIsWhatTheServerEncodes` holds `src/lib/generated/wire.ts` (166 interfaces) to the Go types. Nothing reads the file yet; the page adopts it area by area | 188 edges (nine `> wire`); the unnamed shapes (83 maps, 46 request structs) are named next |

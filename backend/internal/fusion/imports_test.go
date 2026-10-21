@@ -16,6 +16,7 @@ import (
 var allowedRepoImports = map[string]bool{
 	"continuum/internal/httpkit":   true,
 	"continuum/internal/kernel":    true,
+	"continuum/internal/wire":      true,
 	"continuum/internal/store":     true,
 	"continuum/internal/pki":       true,
 	"continuum/internal/accounts":  true,

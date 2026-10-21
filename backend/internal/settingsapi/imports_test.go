@@ -14,6 +14,7 @@ import (
 // they are written with, and on nothing else of this repository.
 var allowedRepoImports = map[string]bool{
 	"continuum/internal/kernel":   true,
+	"continuum/internal/wire":     true,
 	"continuum/internal/accounts": true,
 	"continuum/internal/httpkit":  true,
 }

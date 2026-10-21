@@ -9,6 +9,7 @@ accountsapi > accounts
 accountsapi > httpkit
 accountsapi > kernel
 accountsapi > store
+accountsapi > wire
 agent > agent/collect
 agent > agent/exporthealth
 agent > agentcaps
@@ -68,6 +69,7 @@ decisionloop > httpkit
 decisionloop > kernel
 decisionloop > store
 decisionloop > twin
+decisionloop > wire
 destination > store
 estate > accounts
 estate > agentcaps
@@ -91,6 +93,7 @@ estate > observed
 estate > operators
 estate > store
 estate > twin
+estate > wire
 estate > workspace
 flow > agent/collect
 flow > flow/wire
@@ -106,6 +109,7 @@ fusion > kernel
 fusion > operators
 fusion > pki
 fusion > store
+fusion > wire
 fusionapi > model
 fusionhttp > accounts
 fusionhttp > fusion
@@ -113,6 +117,7 @@ fusionhttp > fusionapi
 fusionhttp > httpkit
 fusionhttp > kernel
 fusionhttp > store
+fusionhttp > wire
 fusionpages > kernel
 graph > history
 graph > model
@@ -136,6 +141,7 @@ linksapi > fusionapi
 linksapi > fusionhttp
 linksapi > httpkit
 linksapi > kernel
+linksapi > wire
 observed > facts
 observed > flow/wire
 observed > interpret
@@ -157,16 +163,19 @@ operatorsapi > kernel
 operatorsapi > operators
 operatorsapi > store
 operatorsapi > telemetry
+operatorsapi > wire
 passkey > accounts
 passkey > store
 settingsapi > accounts
 settingsapi > httpkit
 settingsapi > kernel
+settingsapi > wire
 store > workspace
 telemetry > destination
 telemetry > httpkit
 telemetry > kernel
 telemetry > store
+telemetry > wire
 testkit > accounts
 testkit > agents
 testkit > approval

@@ -30,6 +30,7 @@ var allowedRepoImports = map[string]bool{
 	"continuum/internal/installcfg":   true,
 	"continuum/internal/interpret":    true,
 	"continuum/internal/kernel":       true,
+	"continuum/internal/wire":         true,
 	"continuum/internal/link":         true,
 	"continuum/internal/measure":      true,
 	"continuum/internal/model":        true,
