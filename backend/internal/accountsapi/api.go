@@ -9,7 +9,6 @@ package accountsapi
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -195,10 +194,7 @@ func toAPITokenDoc(t store.APIToken) apiTokenDoc {
 
 func (h *API) login(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
-	var req struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
-	}
+	var req loginRequest
 	if err := httpkit.Decode(r, &req); err != nil {
 		h.fail(w, err)
 		return
@@ -218,10 +214,7 @@ func (h *API) login(w http.ResponseWriter, r *http.Request) {
 // login2FA finishes a sign-in login left pending on a two-factor code.
 func (h *API) login2FA(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
-	var req struct {
-		Pending string `json:"pending"`
-		Code    string `json:"code"`
-	}
+	var req login2FARequest
 	if err := httpkit.Decode(r, &req); err != nil {
 		h.fail(w, err)
 		return
@@ -254,12 +247,7 @@ func (h *API) ssoLogin(w http.ResponseWriter, r *http.Request) {
 
 func (h *API) register(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
-	var req struct {
-		Username string `json:"username"`
-		Password string `json:"password"`
-		Invite   string `json:"invite"`
-		Org      string `json:"org"`
-	}
+	var req registerRequest
 	if err := httpkit.Decode(r, &req); err != nil {
 		h.fail(w, err)
 		return
@@ -290,10 +278,7 @@ func (h *API) me(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *API) changePassword(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Current string `json:"current"`
-		New     string `json:"new"`
-	}
+	var req changePasswordRequest
 	if err := httpkit.Decode(r, &req); err != nil {
 		h.fail(w, err)
 		return
@@ -317,15 +302,13 @@ func (h *API) setup2FA(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, err)
 		return
 	}
-	httpkit.WriteJSON(w, 200, map[string]any{"secret": secret, "otpauthUrl": uri})
+	httpkit.WriteJSON(w, 200, twoFactorSetupDoc{OtpauthURL: uri, Secret: secret})
 }
 
 // enable2FA confirms a setup with one code from it, turns two-factor authentication on, and hands back
 // this account's recovery codes - shown once, since only their hashes are kept from here on.
 func (h *API) enable2FA(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Code string `json:"code"`
-	}
+	var req enable2FARequest
 	if err := httpkit.Decode(r, &req); err != nil {
 		h.fail(w, err)
 		return
@@ -335,13 +318,11 @@ func (h *API) enable2FA(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, err)
 		return
 	}
-	httpkit.WriteJSON(w, 200, map[string]any{"recoveryCodes": codes})
+	httpkit.WriteJSON(w, 200, recoveryCodesDoc{RecoveryCodes: codes})
 }
 
 func (h *API) disable2FA(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Password string `json:"password"`
-	}
+	var req disable2FARequest
 	if err := httpkit.Decode(r, &req); err != nil {
 		h.fail(w, err)
 		return
@@ -359,9 +340,7 @@ func (h *API) disable2FA(w http.ResponseWriter, r *http.Request) {
 // a TOTP one. No session exists yet at this point, same as login and login2FA themselves.
 func (h *API) requestLoginEmailCode(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
-	var req struct {
-		Pending string `json:"pending"`
-	}
+	var req requestLoginEmailCodeRequest
 	if err := httpkit.Decode(r, &req); err != nil {
 		h.fail(w, err)
 		return
@@ -375,9 +354,7 @@ func (h *API) requestLoginEmailCode(w http.ResponseWriter, r *http.Request) {
 
 // requestEmailVerification starts confirming a new email address on the signed-in account.
 func (h *API) requestEmailVerification(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Email string `json:"email"`
-	}
+	var req requestEmailVerificationRequest
 	if err := httpkit.Decode(r, &req); err != nil {
 		h.fail(w, err)
 		return
@@ -392,9 +369,7 @@ func (h *API) requestEmailVerification(w http.ResponseWriter, r *http.Request) {
 
 // confirmEmail finishes requestEmailVerification with the code that was mailed.
 func (h *API) confirmEmail(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Code string `json:"code"`
-	}
+	var req confirmEmailRequest
 	if err := httpkit.Decode(r, &req); err != nil {
 		h.fail(w, err)
 		return
@@ -418,9 +393,7 @@ func (h *API) enableEmailOTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *API) disableEmailOTP(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Password string `json:"password"`
-	}
+	var req disableEmailOTPRequest
 	if err := httpkit.Decode(r, &req); err != nil {
 		h.fail(w, err)
 		return
@@ -446,10 +419,7 @@ func (h *API) beginPasskeyRegistration(w http.ResponseWriter, r *http.Request) {
 
 // finishPasskeyRegistration completes a registration beginPasskeyRegistration started.
 func (h *API) finishPasskeyRegistration(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Name     string          `json:"name"`
-		Response json.RawMessage `json:"response"`
-	}
+	var req finishPasskeyRegistrationRequest
 	if err := httpkit.Decode(r, &req); err != nil {
 		h.fail(w, err)
 		return
@@ -466,9 +436,7 @@ func (h *API) finishPasskeyRegistration(w http.ResponseWriter, r *http.Request) 
 // login and login2FA.
 func (h *API) beginPasskeyLogin(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
-	var req struct {
-		Pending string `json:"pending"`
-	}
+	var req beginPasskeyLoginRequest
 	if err := httpkit.Decode(r, &req); err != nil {
 		h.fail(w, err)
 		return
@@ -488,10 +456,7 @@ func (h *API) finishPasskeyLogin(w http.ResponseWriter, r *http.Request) {
 	// its own limit the same way its sibling beginPasskeyLogin, login and login2FA do - otherwise an
 	// unauthenticated caller could hand this a response of any size before WebAuthn verification ever runs.
 	r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
-	var req struct {
-		Pending  string          `json:"pending"`
-		Response json.RawMessage `json:"response"`
-	}
+	var req finishPasskeyLoginRequest
 	if err := httpkit.Decode(r, &req); err != nil {
 		h.fail(w, err)
 		return
@@ -506,9 +471,7 @@ func (h *API) finishPasskeyLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *API) renamePasskey(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Name string `json:"name"`
-	}
+	var req renamePasskeyRequest
 	if err := httpkit.Decode(r, &req); err != nil {
 		h.fail(w, err)
 		return
@@ -522,9 +485,7 @@ func (h *API) renamePasskey(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *API) removePasskey(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Password string `json:"password"`
-	}
+	var req removePasskeyRequest
 	if err := httpkit.Decode(r, &req); err != nil {
 		h.fail(w, err)
 		return
@@ -558,9 +519,7 @@ func (h *API) createAPIToken(w http.ResponseWriter, r *http.Request) {
 		httpkit.WriteErr(w, http.StatusForbidden, "create a token from a signed-in browser session, not with another token")
 		return
 	}
-	var req struct {
-		Name string `json:"name"`
-	}
+	var req createAPITokenRequest
 	if err := httpkit.Decode(r, &req); err != nil {
 		h.fail(w, err)
 		return
@@ -571,7 +530,7 @@ func (h *API) createAPIToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	doc := toAPITokenDoc(tok)
-	httpkit.WriteJSON(w, 200, map[string]any{"token": secret, "id": doc.ID, "name": doc.Name, "createdAt": doc.CreatedAt})
+	httpkit.WriteJSON(w, 200, createdAPITokenDoc{CreatedAt: doc.CreatedAt, ID: doc.ID, Name: doc.Name, Token: secret})
 }
 
 func (h *API) revokeAPIToken(w http.ResponseWriter, r *http.Request) {
@@ -579,17 +538,15 @@ func (h *API) revokeAPIToken(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, err)
 		return
 	}
-	httpkit.WriteJSON(w, 200, map[string]bool{"ok": true})
+	httpkit.WriteJSON(w, 200, okDoc{OK: true})
 }
 
 func (h *API) listOrgs(w http.ResponseWriter, r *http.Request) {
-	httpkit.WriteJSON(w, 200, h.session(r.Context(), httpkit.Principal(r).User)["orgs"])
+	httpkit.WriteJSON(w, 200, h.session(r.Context(), httpkit.Principal(r).User).Orgs)
 }
 
 func (h *API) createOrg(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Name string `json:"name"`
-	}
+	var req createOrgRequest
 	if err := httpkit.Decode(r, &req); err != nil {
 		h.fail(w, err)
 		return
@@ -604,9 +561,7 @@ func (h *API) createOrg(w http.ResponseWriter, r *http.Request) {
 
 func (h *API) previewInvite(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
-	var req struct {
-		Token string `json:"token"`
-	}
+	var req previewInviteRequest
 	if err := httpkit.Decode(r, &req); err != nil {
 		h.fail(w, err)
 		return
@@ -616,13 +571,11 @@ func (h *API) previewInvite(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, err)
 		return
 	}
-	httpkit.WriteJSON(w, 200, map[string]any{"organisation": name, "role": inv.Role, "expiresAt": kernel.RFC(inv.ExpiresAt)})
+	httpkit.WriteJSON(w, 200, invitePreviewDoc{ExpiresAt: kernel.RFC(inv.ExpiresAt), Organisation: name, Role: inv.Role})
 }
 
 func (h *API) acceptInvite(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Token string `json:"token"`
-	}
+	var req acceptInviteRequest
 	if err := httpkit.Decode(r, &req); err != nil {
 		h.fail(w, err)
 		return
@@ -636,9 +589,7 @@ func (h *API) acceptInvite(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *API) renameOrg(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Name string `json:"name"`
-	}
+	var req renameOrgRequest
 	if err := httpkit.Decode(r, &req); err != nil {
 		h.fail(w, err)
 		return
@@ -651,9 +602,7 @@ func (h *API) renameOrg(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *API) deleteOrg(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Confirm string `json:"confirm"`
-	}
+	var req deleteOrgRequest
 	if err := httpkit.Decode(r, &req); err != nil {
 		h.fail(w, err)
 		return
@@ -689,9 +638,7 @@ func (h *API) listMembers(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *API) setMemberRole(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Role string `json:"role"`
-	}
+	var req setMemberRoleRequest
 	if err := httpkit.Decode(r, &req); err != nil {
 		h.fail(w, err)
 		return
@@ -729,10 +676,7 @@ func (h *API) listInvites(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *API) createInvite(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Role  string `json:"role"`
-		Label string `json:"label"`
-	}
+	var req createInviteRequest
 	if err := httpkit.Decode(r, &req); err != nil {
 		h.fail(w, err)
 		return
@@ -743,7 +687,7 @@ func (h *API) createInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// The secret appears here once and is never retrievable again.
-	httpkit.WriteJSON(w, 201, map[string]any{"token": secret, "invite": h.inviteDoc(r.Context(), inv)})
+	httpkit.WriteJSON(w, 201, createdInviteDoc{Invite: h.inviteDoc(r.Context(), inv), Token: secret})
 }
 
 func (h *API) revokeInvite(w http.ResponseWriter, r *http.Request) {
@@ -764,7 +708,7 @@ func (h *API) inviteDoc(ctx context.Context, i store.Invite) inviteDoc {
 
 // session is the answer to sign-in, sign-up and "who am I": the person and every organisation they
 // belong to, so the UI needs no second call to know where it may go.
-func (h *API) session(ctx context.Context, u store.User) map[string]any {
+func (h *API) session(ctx context.Context, u store.User) sessionDoc {
 	orgs := []orgDoc{}
 	canManageMail := false
 	if mine, err := h.Accounts.Store.ListMyOrgs(ctx, u.ID); err == nil {
@@ -775,11 +719,11 @@ func (h *API) session(ctx context.Context, u store.User) map[string]any {
 			}
 		}
 	}
-	return map[string]any{"user": toUserDoc(u, h.Accounts.Mailer().Enabled(), canManageMail), "orgs": orgs}
+	return sessionDoc{User: toUserDoc(u, h.Accounts.Mailer().Enabled(), canManageMail), Orgs: orgs}
 }
 
 // serverInfo is public: what the sign-in and sign-up pages need before anyone is signed in.
 func (h *API) serverInfo(w http.ResponseWriter, r *http.Request) {
 	mode := h.Accounts.EffectiveRegMode()
-	httpkit.WriteJSON(w, 200, map[string]any{"registration": mode, "version": h.Edge.Version, "sso": h.Edge.SSOHeader != ""})
+	httpkit.WriteJSON(w, 200, serverInfoDoc{Registration: mode, SSO: h.Edge.SSOHeader != "", Version: h.Edge.Version})
 }

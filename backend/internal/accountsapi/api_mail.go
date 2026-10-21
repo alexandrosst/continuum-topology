@@ -47,10 +47,7 @@ func (h *API) putMailConfig(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, err)
 		return
 	}
-	var body struct {
-		accounts.MailConfig
-		ClearPassword bool `json:"clearPassword"`
-	}
+	var body putMailConfigRequest
 	if err := httpkit.Decode(r, &body); err != nil {
 		httpkit.WriteErr(w, 400, err.Error())
 		return

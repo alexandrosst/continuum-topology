@@ -16,6 +16,10 @@ export interface Accelerators {
   applyScope: boolean
 }
 
+export interface AcceptInviteRequest {
+  token: string
+}
+
 export interface AddressCandidate {
   id: string
   address: string
@@ -307,6 +311,10 @@ export interface Autoscaler {
   targets?: string[]
 }
 
+export interface BeginPasskeyLoginRequest {
+  pending: string
+}
+
 export interface CapacityDoc {
   cluster: string
   name: string
@@ -360,6 +368,11 @@ export interface ChangeEvent {
   severity?: string
   namespace?: string
   resource?: string
+}
+
+export interface ChangePasswordRequest {
+  current: string
+  new: string
 }
 
 export interface Cluster {
@@ -462,6 +475,10 @@ export interface Condition {
   since?: string
 }
 
+export interface ConfirmEmailRequest {
+  code: string
+}
+
 export interface ConsentDoc {
   pausedCollectors: string[] | null
   excludedNamespaces: string[] | null
@@ -475,6 +492,31 @@ export interface ConsistencyDoc {
   checks: number
   differences: number
   summary?: string
+}
+
+export interface CreateAPITokenRequest {
+  name: string
+}
+
+export interface CreateInviteRequest {
+  role: string
+  label: string
+}
+
+export interface CreateOrgRequest {
+  name: string
+}
+
+export interface CreatedAPITokenDoc {
+  createdAt: string
+  id: string
+  name: string
+  token: string
+}
+
+export interface CreatedInviteDoc {
+  invite: InviteDoc
+  token: string
 }
 
 export interface CredentialSecretDoc {
@@ -502,6 +544,10 @@ export interface DecisionLogDoc {
   beforeCost: number
   afterCost: number
   migrationCost: number
+}
+
+export interface DeleteOrgRequest {
+  confirm: string
 }
 
 export interface Dependency {
@@ -614,6 +660,14 @@ export interface DimDoc {
   reason: string
 }
 
+export interface Disable2FARequest {
+  password: string
+}
+
+export interface DisableEmailOTPRequest {
+  password: string
+}
+
 export interface Disk {
   name: string
   model?: string
@@ -625,6 +679,10 @@ export interface Disruption {
   minAvailable?: string
   maxUnavailable?: string
   allowed: number
+}
+
+export interface Enable2FARequest {
+  code: string
 }
 
 export interface Entity {
@@ -747,6 +805,16 @@ export interface FactDoc {
   aged?: boolean
 }
 
+export interface FinishPasskeyLoginRequest {
+  pending: string
+  response: unknown
+}
+
+export interface FinishPasskeyRegistrationRequest {
+  name: string
+  response: unknown
+}
+
 export interface Fix {
   action: string
   text: string
@@ -847,6 +915,12 @@ export interface InviteDoc {
   used: boolean
   usedBy?: string
   expired?: boolean
+}
+
+export interface InvitePreviewDoc {
+  expiresAt: string
+  organisation: string
+  role: string
 }
 
 export interface IssuedCertDoc {
@@ -973,6 +1047,16 @@ export interface LogEntry {
   category?: string
   labels?: Record<string, string>
   metadata?: Record<string, string>
+}
+
+export interface Login2FARequest {
+  pending: string
+  code: string
+}
+
+export interface LoginRequest {
+  username: string
+  password: string
 }
 
 export interface MailConfigDoc {
@@ -1128,6 +1212,10 @@ export interface ObserverDoc {
   dropped: number
 }
 
+export interface OkDoc {
+  ok: boolean
+}
+
 export interface OperatorDestination {
   kind: string
   endpoint: string
@@ -1253,6 +1341,10 @@ export interface PodPeer {
   bytesIn?: number
 }
 
+export interface PreviewInviteRequest {
+  token: string
+}
+
 export interface ProbeTarget {
   id: string
   clusterId: string
@@ -1305,6 +1397,15 @@ export interface ProposalDoc {
   outcome?: OutcomeDoc
 }
 
+export interface PutMailConfigRequest {
+  host: string
+  port: string
+  username: string
+  password?: string
+  from: string
+  clearPassword: boolean
+}
+
 export interface QueryResult {
   name: string
   query?: string
@@ -1321,6 +1422,10 @@ export interface QuickStartBackend {
   retention: string
   toolUrl?: string
   label: string
+}
+
+export interface RecoveryCodesDoc {
+  recoveryCodes: string[] | null
 }
 
 export interface RegionalOperator {
@@ -1349,6 +1454,33 @@ export interface RegionalOperator {
   endpoint?: string
   usedBy?: UsedByDoc
   addressWarnings?: string[]
+}
+
+export interface RegisterRequest {
+  username: string
+  password: string
+  invite: string
+  org: string
+}
+
+export interface RemovePasskeyRequest {
+  password: string
+}
+
+export interface RenameOrgRequest {
+  name: string
+}
+
+export interface RenamePasskeyRequest {
+  name: string
+}
+
+export interface RequestEmailVerificationRequest {
+  email: string
+}
+
+export interface RequestLoginEmailCodeRequest {
+  pending: string
 }
 
 export interface Resource {
@@ -1538,6 +1670,12 @@ export interface ServerClusterDoc {
   nodes?: string
 }
 
+export interface ServerInfoDoc {
+  registration: string
+  sso: boolean
+  version: string
+}
+
 export interface Service {
   orgId: string
   source: string
@@ -1591,6 +1729,15 @@ export interface ServiceMesh {
   excludedPorts?: string[]
   controlPlane?: boolean
   source?: string
+}
+
+export interface SessionDoc {
+  orgs: OrgDoc[] | null
+  user: UserDoc
+}
+
+export interface SetMemberRoleRequest {
+  role: string
 }
 
 export interface SettingsDoc {
@@ -1836,6 +1983,11 @@ export interface TwinModel {
   observation: ObservationDoc
   entities: Entity[] | null
   warnings: string[] | null
+}
+
+export interface TwoFactorSetupDoc {
+  otpauthUrl: string
+  secret: string
 }
 
 export interface UsedByDoc {
