@@ -29,33 +29,48 @@ const (
 	linkCapsStaleAfter = 15 * time.Minute
 )
 
+// StepState is where a step of the checklist stands.
+type StepState string
+
 // Step states.
 const (
-	StepOK       = "ok"
-	StepTodo     = "todo"
-	StepUnknown  = "unknown"
-	StepOptional = "optional"
+	StepOK       StepState = "ok"
+	StepTodo     StepState = "todo"
+	StepUnknown  StepState = "unknown"
+	StepOptional StepState = "optional"
 )
+
+// WireWords is the list of StepState's words, as the generated types give it.
+func (StepState) WireWords() []string {
+	return []string{string(StepOK), string(StepTodo), string(StepUnknown), string(StepOptional)}
+}
+
+// StepCode names a step of the checklist.
+type StepCode string
 
 // Step codes. They are part of the interface: the Sites screen keys on them.
 const (
-	StepAgent        = "agent"        // the cluster has an approved agent at access tier 2 with the flow collector running
-	stepAddresses    = "addresses"    // the cluster's agent can be told which addresses of the peer to measure (only shown when it cannot)
-	StepCapabilities = "capabilities" // unknown: the agent has not said what its install can do
-	StepLinksOn      = "links-on"     // Cluster links (and, when the pair asks for active measurement, probing) is switched on in the install
-	StepExport       = "export"       // the cluster whose measurements the pair needs sends telemetry onward
-	StepProber       = "prober"       // the runner's link prober has asked its agent for peers recently
-	StepCapacity     = "capacity"     // iperf3 is switched on, for a pair that asks for throughput tests
-	stepPeerExport   = "peer-export"  // optional: the other cluster sends telemetry onward too
+	StepAgent        StepCode = "agent"        // the cluster has an approved agent at access tier 2 with the flow collector running
+	stepAddresses    StepCode = "addresses"    // the cluster's agent can be told which addresses of the peer to measure (only shown when it cannot)
+	StepCapabilities StepCode = "capabilities" // unknown: the agent has not said what its install can do
+	StepLinksOn      StepCode = "links-on"     // Cluster links (and, when the pair asks for active measurement, probing) is switched on in the install
+	StepExport       StepCode = "export"       // the cluster whose measurements the pair needs sends telemetry onward
+	StepProber       StepCode = "prober"       // the runner's link prober has asked its agent for peers recently
+	StepCapacity     StepCode = "capacity"     // iperf3 is switched on, for a pair that asks for throughput tests
+	stepPeerExport   StepCode = "peer-export"  // optional: the other cluster sends telemetry onward too
 )
+
+// WireWords is the list of StepCode's words, as the generated types give it.
+func (StepCode) WireWords() []string {
+	return []string{string(StepAgent), string(stepAddresses), string(StepCapabilities), string(StepLinksOn), string(StepExport), string(StepProber), string(StepCapacity), string(stepPeerExport)}
+}
 
 // LinkSetupStep is one line of a pair's checklist.
 type LinkSetupStep struct {
-	Code string `json:"code"`
+	Code StepCode `json:"code"`
 	// Cluster is the cluster the step is about; empty when it is about the pair.
-	Cluster string `json:"cluster,omitempty"`
-	// State is ok | todo | unknown | optional.
-	State string `json:"state"`
+	Cluster string    `json:"cluster,omitempty"`
+	State   StepState `json:"state"`
 	// Text says what is wrong and what to do (or, for ok, what is fine), naming the cluster.
 	Text string `json:"text"`
 }
@@ -99,7 +114,7 @@ func (e SetupEnd) ready() bool { return e.HasAgent && e.Note == nil }
 // server has a FUSION at all (without one it cannot say where the figures would go, and says so rather than call it a failure).
 func LinkSetupSteps(l kernel.LinkSetting, a, b SetupEnd, haveFusion bool, now time.Time) []LinkSetupStep {
 	var out []LinkSetupStep
-	add := func(code string, e *SetupEnd, state, format string, args ...any) {
+	add := func(code StepCode, e *SetupEnd, state StepState, format string, args ...any) {
 		s := LinkSetupStep{Code: code, State: state, Text: fmt.Sprintf(format, args...)}
 		if e != nil {
 			s.Cluster = e.ID
@@ -130,16 +145,16 @@ func LinkSetupSteps(l kernel.LinkSetting, a, b SetupEnd, haveFusion bool, now ti
 		switch {
 		case !e.HasAgent:
 			add(StepAgent, e, StepTodo, "%s has no approved agent, so it can neither measure its pairs nor be measured. Install the Ikhnos agent there and approve it under Agents.", e.name())
-		case e.Note != nil && e.Note.Code == "tier":
+		case e.Note != nil && e.Note.Code == NoteTier:
 			add(StepAgent, e, StepTodo, "The agent of %s is at access tier %d. Link measuring needs tier 2, so the agent is not told which clusters to measure. Raise its access tier to 2 under Agents.", e.name(), e.Tier)
-		case e.Note != nil && e.Note.Code == "paused":
+		case e.Note != nil && e.Note.Code == NotePaused:
 			add(StepAgent, e, StepTodo, "The flow collector is paused for the agent of %s, which pauses link measuring there too. Resume it under Agents.", e.name())
 		default:
 			add(StepAgent, e, StepOK, "%s has an approved agent at access tier 2 or higher, with the flow collector not paused.", e.name())
 		}
 	}
 	for _, e := range ends {
-		if e.HasAgent && e.Note != nil && e.Note.Code != "tier" && e.Note.Code != "paused" {
+		if e.HasAgent && e.Note != nil && e.Note.Code != NoteTier && e.Note.Code != NotePaused {
 			add(stepAddresses, e, StepTodo, "%s: %s", e.name(), e.Note.Text)
 		}
 	}

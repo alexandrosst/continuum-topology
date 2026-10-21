@@ -67,7 +67,7 @@ func (x *API) latest(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(r.Context().Err(), context.Canceled) {
 			return
 		}
-		doc.SetupReason = "unavailable"
+		doc.SetupReason = setupUnavailable
 	default:
 		if notes != nil {
 			doc.Notes = notes
@@ -77,7 +77,7 @@ func (x *API) latest(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !own {
-		doc.Reason = "no-fusion"
+		doc.Reason = reasonNoFusion
 		httpkit.WriteJSON(w, 200, doc)
 		return
 	}
@@ -92,7 +92,7 @@ func (x *API) latest(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// What the store said is not for a viewer: it can name hosts. The administrator who needs it has FUSION's own page.
-		doc.Reason = "unavailable"
+		doc.Reason = reasonUnavailable
 		httpkit.WriteJSON(w, 200, doc)
 		return
 	}

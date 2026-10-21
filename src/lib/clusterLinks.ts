@@ -210,7 +210,7 @@ export function normalizeProbe(raw: unknown): ProbeLatest | undefined {
   if (typeof p.state !== 'string' || !PROBE_STATES.includes(p.state)) return undefined
   return {
     state: p.state as ProbeLatest['state'],
-    ...(typeof p.reason === 'string' && p.reason !== '' ? { reason: p.reason } : {}),
+    ...(typeof p.reason === 'string' && p.reason !== '' ? { reason: p.reason as W.ProbeFailure } : {}),
     ...(typeof p.diagnosis === 'string' && DIAGNOSES.includes(p.diagnosis) ? { diagnosis: p.diagnosis as ProbeDiagnosis } : {}),
     ...(typeof p.at === 'string' && p.at !== '' ? { at: p.at } : {}),
   }

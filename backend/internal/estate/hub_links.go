@@ -49,7 +49,7 @@ func (h *Hub) peerList(a store.Agent, agentList []store.Agent, links []kernel.Li
 		lp := &continuumv1.LinkPeer{ClusterId: id, Name: pp.Agent.Name, Addresses: addrs}
 		l := pairs[id]
 		lp.NoProbe = l.NoProbe
-		lp.Via = l.Via
+		lp.Via = string(l.Via)
 		// One side of the pair runs the throughput tests: the one whose id sorts first.
 		if t := l.Throughput; t != nil && a.ClusterID < id {
 			lp.Throughput = true
@@ -228,7 +228,7 @@ func (h *Hub) LinkNotes(links []kernel.LinkSetting, agentList []store.Agent, flo
 			if !ok {
 				if !noAgent[c] {
 					noAgent[c] = true
-					out = append(out, connectivity.LinkNote{Cluster: c, Code: "no-agent", Text: "No approved agent reports for this cluster, so it can neither measure its pairs nor be measured."})
+					out = append(out, connectivity.LinkNote{Cluster: c, Code: connectivity.NoteNoAgent, Text: "No approved agent reports for this cluster, so it can neither measure its pairs nor be measured."})
 				}
 				continue
 			}
@@ -258,25 +258,25 @@ func (h *Hub) endNote(l kernel.LinkSetting, a, o store.Agent, plan *connectivity
 	c, peer := a.ClusterID, o.ClusterID
 	switch {
 	case a.AccessTier < 2:
-		return &connectivity.LinkNote{Cluster: c, Peer: peer, Code: "tier", Text: fmt.Sprintf("This cluster's agent is at access tier %d. Link measuring needs tier 2, so the agent is not told which clusters to measure.", a.AccessTier)}
+		return &connectivity.LinkNote{Cluster: c, Peer: peer, Code: connectivity.NoteTier, Text: fmt.Sprintf("This cluster's agent is at access tier %d. Link measuring needs tier 2, so the agent is not told which clusters to measure.", a.AccessTier)}
 	case flowPaused:
-		return &connectivity.LinkNote{Cluster: c, Peer: peer, Code: "paused", Text: "The flow collector is paused for this cluster's agent, which pauses link measuring there too."}
+		return &connectivity.LinkNote{Cluster: c, Peer: peer, Code: connectivity.NotePaused, Text: "The flow collector is paused for this cluster's agent, which pauses link measuring there too."}
 	}
 	raw := h.peerAddresses(o)
 	if len(raw) == 0 {
-		return &connectivity.LinkNote{Cluster: c, Peer: peer, Code: "peer-silent", Text: "The agent of " + peer + " has not reported any node address yet, so there is nothing to measure towards."}
+		return &connectivity.LinkNote{Cluster: c, Peer: peer, Code: connectivity.NotePeerSilent, Text: "The agent of " + peer + " has not reported any node address yet, so there is nothing to measure towards."}
 	}
 	pp := plan.ByID[peer]
 	switch {
 	case pp == nil:
-		return &connectivity.LinkNote{Cluster: c, Peer: peer, Code: "shared-address", Text: fmt.Sprintf("Every address of %s (%s) is also an address of this cluster, or the public address its agent connects from, so traffic to %s cannot be told from its own traffic and the pair is left out here.", peer, connectivity.Listed(raw), peer)}
+		return &connectivity.LinkNote{Cluster: c, Peer: peer, Code: connectivity.NoteSharedAddress, Text: fmt.Sprintf("Every address of %s (%s) is also an address of this cluster, or the public address its agent connects from, so traffic to %s cannot be told from its own traffic and the pair is left out here.", peer, connectivity.Listed(raw), peer)}
 	case len(pp.Addrs) == 0:
 		others := kernel.SortedKeys(pp.Clash)
-		return &connectivity.LinkNote{Cluster: c, Peer: peer, Code: "shared-address", Text: fmt.Sprintf("Every address of %s (%s) is also an address of %s, another cluster %s is paired with, so traffic to the two cannot be told apart and %s is left out here. Give the clusters addresses of their own, or pair %s with only one of them.", peer, connectivity.Listed(raw), connectivity.Listed(others), c, peer, c)}
+		return &connectivity.LinkNote{Cluster: c, Peer: peer, Code: connectivity.NoteSharedAddress, Text: fmt.Sprintf("Every address of %s (%s) is also an address of %s, another cluster %s is paired with, so traffic to the two cannot be told apart and %s is left out here. Give the clusters addresses of their own, or pair %s with only one of them.", peer, connectivity.Listed(raw), connectivity.Listed(others), c, peer, c)}
 	case plan.Cut[peer]:
-		return &connectivity.LinkNote{Cluster: c, Peer: peer, Code: "too-many-peers", Text: fmt.Sprintf("This cluster is paired with more clusters that can be measured than one agent holds (%d), so %s, which sorts after them, is left out. Remove the pairs this cluster does not need.", link.MaxPeers, peer)}
-	case l.Via != "" && (!l.NoProbe || l.Throughput != nil) && !connectivity.HasAddressOfKind(pp.Addrs, l.Via):
-		return &connectivity.LinkNote{Cluster: c, Peer: peer, Code: "no-address-of-kind", Text: fmt.Sprintf("The pair is set to measure through %s addresses, but %s has none, so the active measurements towards it fail until the choice or the addresses change.", l.Via, peer)}
+		return &connectivity.LinkNote{Cluster: c, Peer: peer, Code: connectivity.NoteTooManyPeers, Text: fmt.Sprintf("This cluster is paired with more clusters that can be measured than one agent holds (%d), so %s, which sorts after them, is left out. Remove the pairs this cluster does not need.", link.MaxPeers, peer)}
+	case l.Via != "" && (!l.NoProbe || l.Throughput != nil) && !connectivity.HasAddressOfKind(pp.Addrs, string(l.Via)):
+		return &connectivity.LinkNote{Cluster: c, Peer: peer, Code: connectivity.NoteNoAddressOfKind, Text: fmt.Sprintf("The pair is set to measure through %s addresses, but %s has none, so the active measurements towards it fail until the choice or the addresses change.", l.Via, peer)}
 	}
 	return nil
 }
@@ -333,5 +333,5 @@ func (h *Hub) rangeHint(a, o store.Agent, pp *connectivity.PlannedPeer) *connect
 	if egress := publicIP(o.ConnectingIP); egress != "" && !isNode[egress] && connectivity.HasAddress(pp.Addrs, egress) {
 		text += fmt.Sprintf(" The public address the agent of %s connects from (%s) is not counted: it is the address of its gateway, which leads to a node only if the measurement ports are forwarded.", peer, egress)
 	}
-	return &connectivity.LinkNote{Cluster: c, Peer: peer, Code: "private-range", Text: text}
+	return &connectivity.LinkNote{Cluster: c, Peer: peer, Code: connectivity.NotePrivateRange, Text: text}
 }

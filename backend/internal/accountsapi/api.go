@@ -130,9 +130,9 @@ type passkeyDoc struct {
 }
 
 type orgDoc struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
-	Role string `json:"role"`
+	ID   string        `json:"id"`
+	Name string        `json:"name"`
+	Role accounts.Role `json:"role"`
 }
 
 // apiTokenDoc never carries a secret or hash - only what settings needs to show a person their own
@@ -145,24 +145,24 @@ type apiTokenDoc struct {
 }
 
 type memberDoc struct {
-	ID       string `json:"id"`
-	Username string `json:"username"`
-	Role     string `json:"role"`
-	JoinedAt string `json:"joinedAt"`
-	LastSeen string `json:"lastLogin,omitempty"`
-	You      bool   `json:"you,omitempty"`
+	ID       string        `json:"id"`
+	Username string        `json:"username"`
+	Role     accounts.Role `json:"role"`
+	JoinedAt string        `json:"joinedAt"`
+	LastSeen string        `json:"lastLogin,omitempty"`
+	You      bool          `json:"you,omitempty"`
 }
 
 type inviteDoc struct {
-	ID        string `json:"id"`
-	Role      string `json:"role"`
-	Label     string `json:"label,omitempty"`
-	CreatedBy string `json:"createdBy"`
-	CreatedAt string `json:"createdAt"`
-	ExpiresAt string `json:"expiresAt"`
-	Used      bool   `json:"used"`
-	UsedBy    string `json:"usedBy,omitempty"`
-	Expired   bool   `json:"expired,omitempty"`
+	ID        string        `json:"id"`
+	Role      accounts.Role `json:"role"`
+	Label     string        `json:"label,omitempty"`
+	CreatedBy string        `json:"createdBy"`
+	CreatedAt string        `json:"createdAt"`
+	ExpiresAt string        `json:"expiresAt"`
+	Used      bool          `json:"used"`
+	UsedBy    string        `json:"usedBy,omitempty"`
+	Expired   bool          `json:"expired,omitempty"`
 }
 
 // writeOptions hands back a WebAuthn options object exactly as the provider built it - already valid JSON,
@@ -571,7 +571,7 @@ func (h *API) previewInvite(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, err)
 		return
 	}
-	httpkit.WriteJSON(w, 200, invitePreviewDoc{ExpiresAt: kernel.RFC(inv.ExpiresAt), Organisation: name, Role: inv.Role})
+	httpkit.WriteJSON(w, 200, invitePreviewDoc{ExpiresAt: kernel.RFC(inv.ExpiresAt), Organisation: name, Role: accounts.Role(inv.Role)})
 }
 
 func (h *API) acceptInvite(w http.ResponseWriter, r *http.Request) {
@@ -585,7 +585,7 @@ func (h *API) acceptInvite(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, err)
 		return
 	}
-	httpkit.WriteJSON(w, 200, orgDoc{ID: o.ID, Name: o.Name, Role: role})
+	httpkit.WriteJSON(w, 200, orgDoc{ID: o.ID, Name: o.Name, Role: accounts.Role(role)})
 }
 
 func (h *API) renameOrg(w http.ResponseWriter, r *http.Request) {
@@ -632,7 +632,7 @@ func (h *API) listMembers(w http.ResponseWriter, r *http.Request) {
 	}
 	out := []memberDoc{}
 	for _, m := range ms {
-		out = append(out, memberDoc{ID: m.User.ID, Username: m.Username, Role: m.Role, JoinedAt: kernel.RFC(m.JoinedAt), LastSeen: kernel.RFCP(m.LastLogin), You: m.User.ID == httpkit.Principal(r).User.ID})
+		out = append(out, memberDoc{ID: m.User.ID, Username: m.Username, Role: accounts.Role(m.Role), JoinedAt: kernel.RFC(m.JoinedAt), LastSeen: kernel.RFCP(m.LastLogin), You: m.User.ID == httpkit.Principal(r).User.ID})
 	}
 	httpkit.WriteJSON(w, 200, out)
 }
@@ -643,11 +643,11 @@ func (h *API) setMemberRole(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, err)
 		return
 	}
-	if err := h.For(r).SetMemberRole(r.Context(), httpkit.Principal(r), r.PathValue("id"), req.Role); err != nil {
+	if err := h.For(r).SetMemberRole(r.Context(), httpkit.Principal(r), r.PathValue("id"), string(req.Role)); err != nil {
 		h.fail(w, err)
 		return
 	}
-	if !accounts.Allows(accounts.Standing(req.Role), accounts.ActAdminister) { // a downgrade below what the pages need; a promotion changes nothing for them
+	if !accounts.Allows(accounts.Standing(string(req.Role)), accounts.ActAdminister) { // a downgrade below what the pages need; a promotion changes nothing for them
 		h.Edge.EndPagesIn(r, r.PathValue("id"))
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -681,7 +681,7 @@ func (h *API) createInvite(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, err)
 		return
 	}
-	secret, inv, err := h.For(r).CreateInvite(r.Context(), httpkit.Principal(r), req.Role, req.Label)
+	secret, inv, err := h.For(r).CreateInvite(r.Context(), httpkit.Principal(r), string(req.Role), req.Label)
 	if err != nil {
 		h.fail(w, err)
 		return
@@ -699,7 +699,7 @@ func (h *API) revokeInvite(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *API) inviteDoc(ctx context.Context, i store.Invite) inviteDoc {
-	d := inviteDoc{ID: i.ID, Role: i.Role, Label: i.Label, CreatedBy: h.Accounts.NameOf(ctx, i.CreatedBy), CreatedAt: kernel.RFC(i.CreatedAt), ExpiresAt: kernel.RFC(i.ExpiresAt), Used: i.UsedAt != nil, Expired: i.UsedAt == nil && h.Accounts.Now().After(i.ExpiresAt)}
+	d := inviteDoc{ID: i.ID, Role: accounts.Role(i.Role), Label: i.Label, CreatedBy: h.Accounts.NameOf(ctx, i.CreatedBy), CreatedAt: kernel.RFC(i.CreatedAt), ExpiresAt: kernel.RFC(i.ExpiresAt), Used: i.UsedAt != nil, Expired: i.UsedAt == nil && h.Accounts.Now().After(i.ExpiresAt)}
 	if i.UsedBy != "" {
 		d.UsedBy = h.Accounts.NameOf(ctx, i.UsedBy)
 	}
@@ -713,7 +713,7 @@ func (h *API) session(ctx context.Context, u store.User) sessionDoc {
 	canManageMail := false
 	if mine, err := h.Accounts.Store.ListMyOrgs(ctx, u.ID); err == nil {
 		for _, o := range mine {
-			orgs = append(orgs, orgDoc{ID: o.ID, Name: o.Name, Role: o.Role})
+			orgs = append(orgs, orgDoc{ID: o.ID, Name: o.Name, Role: accounts.Role(o.Role)})
 			if o.ID == h.Accounts.DefaultOrg && accounts.Allows(accounts.Standing(o.Role), accounts.ActOwn) {
 				canManageMail = true
 			}
@@ -725,5 +725,5 @@ func (h *API) session(ctx context.Context, u store.User) sessionDoc {
 // serverInfo is public: what the sign-in and sign-up pages need before anyone is signed in.
 func (h *API) serverInfo(w http.ResponseWriter, r *http.Request) {
 	mode := h.Accounts.EffectiveRegMode()
-	httpkit.WriteJSON(w, 200, serverInfoDoc{Registration: mode, SSO: h.Edge.SSOHeader != "", Version: h.Edge.Version})
+	httpkit.WriteJSON(w, 200, serverInfoDoc{Registration: accounts.Registration(mode), SSO: h.Edge.SSOHeader != "", Version: h.Edge.Version})
 }

@@ -30,3 +30,8 @@ func sameBytes(t *testing.T, name string, got, was any) {
 func TestRotatedIsWrittenAsTheMapWas(t *testing.T) {
 	sameBytes(t, "rotated", rotatedDoc{Rotated: true}, map[string]any{"rotated": true})
 }
+
+// The words the page switches on are the constants the code writes, no more and no fewer.
+func TestTheWordsOfTheFiguresAreTheirConstants(t *testing.T) {
+	wire.RequireWordsComplete(t, ".", ProbeState(""), ProbeDiagnosis(""), ProbeFailure(""), LinksReason(""), SetupReason(""))
+}

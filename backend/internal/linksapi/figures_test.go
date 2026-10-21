@@ -90,13 +90,13 @@ func probeStateOf(p LinkPairLatest) (string, string, string, string) {
 		if s == nil {
 			return "-"
 		}
-		return s.State + "/" + s.Reason
+		return string(s.State) + "/" + string(s.Reason)
 	}
 	d := func(s *LinkProbeLatest) string {
 		if s == nil {
 			return ""
 		}
-		return s.Diagnosis
+		return string(s.Diagnosis)
 	}
 	return f(p.ProbeAToB), f(p.ProbeBToA), d(p.ProbeAToB), d(p.ProbeBToA)
 }
@@ -179,9 +179,12 @@ func TestDiagnosisNeverCarriesAnAddressOrWhatTheStoreSaid(t *testing.T) {
 	if got.ProbeAToB.Reason != "other" || got.ProbeAToB.Diagnosis != "denied" || got.ProbeBToA.Reason != "auth" {
 		t.Errorf("%+v %+v", got.ProbeAToB, got.ProbeBToA)
 	}
-	known := map[string]bool{"": true, "udp-lost": true, "denied": true, "no-responder": true, "filtered": true, "one-way": true, "stale": true}
+	known := map[string]bool{"": true}
+	for _, w := range ProbeDiagnosis("").WireWords() {
+		known[w] = true
+	}
 	for _, s := range []*LinkProbeLatest{got.ProbeAToB, got.ProbeBToA} {
-		if !known[s.Diagnosis] {
+		if !known[string(s.Diagnosis)] {
 			t.Errorf("a diagnosis outside the bounded words: %q", s.Diagnosis)
 		}
 	}

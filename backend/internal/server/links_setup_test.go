@@ -191,7 +191,7 @@ func TestChecklistSentencesSayWhatIsWrongNamingTheClusterAndWhatToDo(t *testing.
 	a := connectivity.SetupEnd{ID: "cl-a", Name: "sunrise-cluster", HasAgent: true, Tier: 2, Caps: testkit.Caps(testkit.Without("export"))}
 	b := connectivity.SetupEnd{ID: "cl-b", Name: "harbour", HasAgent: true, Tier: 2, Caps: testkit.Caps(testkit.Without("links"))}
 	steps := connectivity.LinkSetupSteps(kernel.LinkSetting{A: "cl-a", B: "cl-b", Throughput: &kernel.LinkThroughput{}}, a, b, true, testkit.SetupNow)
-	for code, cluster := range map[string]string{connectivity.StepExport: "cl-a", connectivity.StepLinksOn: "cl-b", connectivity.StepCapacity: "cl-a"} {
+	for code, cluster := range map[connectivity.StepCode]string{connectivity.StepExport: "cl-a", connectivity.StepLinksOn: "cl-b", connectivity.StepCapacity: "cl-a"} {
 		s := testkit.StepNamed(t, steps, code, cluster)
 		if s.State != connectivity.StepTodo {
 			t.Errorf("%s/%s = %s", code, cluster, s.State)

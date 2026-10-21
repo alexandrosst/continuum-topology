@@ -264,7 +264,7 @@ func TestAPairThatIsNotMeasuredSaysWhy(t *testing.T) {
 		var out []string
 		for _, n := range ns {
 			if n.Code != "private-range" { // a hint, tested on its own
-				out = append(out, n.Cluster+":"+n.Code)
+				out = append(out, n.Cluster+":"+string(n.Code))
 			}
 		}
 		return strings.Join(out, " ")
@@ -312,12 +312,12 @@ func TestAPairThatIsNotMeasuredSaysWhy(t *testing.T) {
 
 func TestAPairCanBePinnedToOneKindOfAddress(t *testing.T) {
 	for _, via := range []string{"", "mesh", "private", "public"} {
-		if _, err := kernel.NormalizeLinks([]kernel.LinkSetting{{A: "cl-a", B: "cl-b", Via: via}}); err != nil {
+		if _, err := kernel.NormalizeLinks([]kernel.LinkSetting{{A: "cl-a", B: "cl-b", Via: kernel.LinkVia(via)}}); err != nil {
 			t.Errorf("%q refused: %v", via, err)
 		}
 	}
 	for _, via := range []string{"Mesh", "tailscale", "10.0.0.0/8", " public"} {
-		_, err := kernel.NormalizeLinks([]kernel.LinkSetting{{A: "cl-a", B: "cl-b", Via: via}})
+		_, err := kernel.NormalizeLinks([]kernel.LinkSetting{{A: "cl-a", B: "cl-b", Via: kernel.LinkVia(via)}})
 		if err == nil || !strings.Contains(err.Error(), "cl-a") || !strings.Contains(err.Error(), "mesh, private or public") {
 			t.Errorf("%q: %v", via, err)
 		}
@@ -355,7 +355,7 @@ func TestAPairPinnedToAKindThePeerHasNoneOfSaysSo(t *testing.T) {
 	}
 	// Both of the peers' kinds are there (a node address on a private range, the address its agent connects from).
 	for _, via := range []string{"", "private", "public"} {
-		if got := notes(kernel.LinkSetting{A: "cl-a", B: "cl-b", Via: via}); len(got) != 0 {
+		if got := notes(kernel.LinkSetting{A: "cl-a", B: "cl-b", Via: kernel.LinkVia(via)}); len(got) != 0 {
 			t.Errorf("%q: %+v", via, got)
 		}
 	}

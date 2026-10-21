@@ -15,6 +15,15 @@ import (
 // maxLinks bounds how many cluster pairs one organisation can ask to have watched.
 const maxLinks = 100
 
+// LinkVia is the kind of address a pair's active measurements are pinned to: the classes of package link (empty is not one of them,
+// it is the absence of a choice).
+type LinkVia string
+
+// WireWords is the list of LinkVia's words, as the generated types give it.
+func (LinkVia) WireWords() []string {
+	return []string{link.ClassMesh, link.ClassPrivate, link.ClassPublic}
+}
+
 // LinkSetting is an administrator's request to watch the link between two clusters. A pair is measured in both directions:
 // each cluster is told about the other and nothing else, so a cluster only ever learns the addresses of the clusters it was
 // paired with. A pair that is not listed is not measured at all.
@@ -30,9 +39,9 @@ type LinkSetting struct {
 	// NoProbe turns the one-way probe, the connect timing and the route trace off for the pair; the passive metrics stay.
 	NoProbe bool `json:"noProbe,omitempty"`
 	// Via pins the active measurements of the pair (one-way probe, connect timing, route trace, throughput tests) to one kind
-	// of the peer's addresses: "mesh", "private" or "public". Empty, the default, follows the address the real traffic between
-	// the clusters is seen using. The passive metrics always match against all of the peer's addresses.
-	Via string `json:"via,omitempty"`
+	// of the peer's addresses. Empty, the default, follows the address the real traffic between the clusters is seen using. The
+	// passive metrics always match against all of the peer's addresses.
+	Via LinkVia `json:"via,omitempty"`
 	// Throughput, when present, asks for the throughput tests (iperf3) on the pair. Only one cluster of the pair runs
 	// them, in both directions, and the other serves them: the one whose id sorts first, so the link is not loaded twice.
 	Throughput *LinkThroughput `json:"throughput,omitempty"`
@@ -75,7 +84,7 @@ func NormalizeLinks(in []LinkSetting) ([]LinkSetting, error) {
 		if l.B < l.A {
 			l.A, l.B = l.B, l.A
 		}
-		if !link.ValidVia(l.Via) {
+		if !link.ValidVia(string(l.Via)) {
 			return nil, fmt.Errorf("the pair of %s and %s: measure through must be mesh, private or public addresses, or empty to follow the traffic", l.A, l.B)
 		}
 		if t := l.Throughput; t != nil {

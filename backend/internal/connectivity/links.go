@@ -90,6 +90,26 @@ func DedupeSorted(in []string) []string {
 	return out
 }
 
+// NoteCode is what a LinkNote is about. The Sites screen keys on it, and the generated types give the page the whole list.
+type NoteCode string
+
+// The words of a NoteCode.
+const (
+	NoteNoAgent         NoteCode = "no-agent"           // the cluster has no approved agent
+	NoteTier            NoteCode = "tier"               // its agent is below the access tier that link measuring needs
+	NotePaused          NoteCode = "paused"             // its flow collector is paused, which pauses link measuring too
+	NotePeerSilent      NoteCode = "peer-silent"        // the peer's agent has reported no node address yet
+	NoteSharedAddress   NoteCode = "shared-address"     // addresses of the peer are claimed by another peer, or by the cluster itself
+	NoteTooManyPeers    NoteCode = "too-many-peers"     // more peers than one agent holds
+	NoteNoAddressOfKind NoteCode = "no-address-of-kind" // the pair asks for a kind of address the peer has none of
+	NotePrivateRange    NoteCode = "private-range"      // a hint for a pair that measures nothing yet
+)
+
+// WireWords is the list of NoteCode's words, as the generated types give it.
+func (NoteCode) WireWords() []string {
+	return []string{string(NoteNoAgent), string(NoteTier), string(NotePaused), string(NotePeerSilent), string(NoteSharedAddress), string(NoteTooManyPeers), string(NoteNoAddressOfKind), string(NotePrivateRange)}
+}
+
 // LinkNote explains why a pair is not (fully) measured from one of its clusters: the reasons the server has for sending that
 // cluster's agent no peer list, or one without the other cluster. Nothing here is secret: it is what the administrator who
 // set the pair up needs to see, and it names only clusters and addresses of the organisation's own agents.
@@ -101,8 +121,8 @@ type LinkNote struct {
 	// seven say what keeps a cluster from measuring the peer (shared-address is also given, as a hint that leaves the pair measured,
 	// when only some of the peer's addresses are claimed by another peer); private-range is only a hint, for a pair that measures
 	// nothing yet (the Sites screen leaves it out when it does).
-	Code string `json:"code"`
-	Text string `json:"text"`
+	Code NoteCode `json:"code"`
+	Text string   `json:"text"`
 }
 
 // ApprovedByCluster is the organisation's approved agents by the cluster they report for.
@@ -127,7 +147,7 @@ func SharedHint(a, o store.Agent, pp *PlannedPeer) *LinkNote {
 		shared = append(shared, pp.Clash[k]...)
 	}
 	shared = DedupeSorted(shared)
-	return &LinkNote{Cluster: a.ClusterID, Peer: o.ClusterID, Code: "shared-address", Text: fmt.Sprintf("%s shares %s with %s, another cluster %s is paired with, so those addresses are left out for both and %s is measured through its other addresses only.", o.ClusterID, Listed(shared), Listed(kernel.SortedKeys(pp.Clash)), a.ClusterID, o.ClusterID)}
+	return &LinkNote{Cluster: a.ClusterID, Peer: o.ClusterID, Code: NoteSharedAddress, Text: fmt.Sprintf("%s shares %s with %s, another cluster %s is paired with, so those addresses are left out for both and %s is measured through its other addresses only.", o.ClusterID, Listed(shared), Listed(kernel.SortedKeys(pp.Clash)), a.ClusterID, o.ClusterID)}
 }
 
 // maxListedAddresses bounds how many addresses (or clusters) a note spells out.

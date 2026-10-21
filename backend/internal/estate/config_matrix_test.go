@@ -65,7 +65,7 @@ func TestTheConfigEachClusterIsSentIsPinned(t *testing.T) {
 		}
 	}
 	pair := func(th *kernel.LinkThroughput, via string, noProbe bool) kernel.LinkSetting {
-		return kernel.LinkSetting{A: cr.first.ClusterID, B: cr.second.ClusterID, Throughput: th, Via: via, NoProbe: noProbe}
+		return kernel.LinkSetting{A: cr.first.ClusterID, B: cr.second.ClusterID, Throughput: th, Via: kernel.LinkVia(via), NoProbe: noProbe}
 	}
 
 	step("nothing asked for")

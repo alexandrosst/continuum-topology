@@ -55,30 +55,91 @@ type LinkPairLatest struct {
 	ProbeBToA *LinkProbeLatest `json:"probeBToA,omitempty"`
 }
 
-// The states of the one-way probe in one direction, and the diagnoses the server may add to it. They are bounded words, not text:
-// the screen words them, and nothing a store or a cluster said reaches them.
-const (
-	probeOK      = "ok"      // the latest run completed
-	probeFailing = "failing" // the latest run failed; an earlier one completed
-	probeNever   = "never"   // the latest run failed and none completed within a day
+// ProbeState is how the one-way probe stands in one direction of a pair.
+type ProbeState string
 
-	diagUDPLost     = "udp-lost"     // the run completed but nearly every test packet was lost
-	diagDenied      = "denied"       // the responder is reached but the test fails
-	diagNoResponder = "no-responder" // nothing answers on the responder's control port
-	diagFiltered    = "filtered"     // the control port does not answer at all
-	diagOneWay      = "one-way"      // this direction fails and the other works
-	diagStale       = "stale"        // the probe says up but has not completed a run for long
+// The states of the one-way probe. They are bounded words, not text: the screen words them, and nothing a store or a cluster said
+// reaches them.
+const (
+	probeOK      ProbeState = "ok"      // the latest run completed
+	probeFailing ProbeState = "failing" // the latest run failed; an earlier one completed
+	probeNever   ProbeState = "never"   // the latest run failed and none completed within a day
 )
+
+// WireWords is the list of ProbeState's words, as the generated types give it.
+func (ProbeState) WireWords() []string {
+	return []string{string(probeOK), string(probeFailing), string(probeNever)}
+}
+
+// ProbeDiagnosis is a conservative reading of the evidence about a failing or doubtful probe.
+type ProbeDiagnosis string
+
+// The diagnoses the server may add to a probe.
+const (
+	diagUDPLost     ProbeDiagnosis = "udp-lost"     // the run completed but nearly every test packet was lost
+	diagDenied      ProbeDiagnosis = "denied"       // the responder is reached but the test fails
+	diagNoResponder ProbeDiagnosis = "no-responder" // nothing answers on the responder's control port
+	diagFiltered    ProbeDiagnosis = "filtered"     // the control port does not answer at all
+	diagOneWay      ProbeDiagnosis = "one-way"      // this direction fails and the other works
+	diagStale       ProbeDiagnosis = "stale"        // the probe says up but has not completed a run for long
+)
+
+// WireWords is the list of ProbeDiagnosis' words, as the generated types give it.
+func (ProbeDiagnosis) WireWords() []string {
+	return []string{string(diagUDPLost), string(diagDenied), string(diagNoResponder), string(diagFiltered), string(diagOneWay), string(diagStale)}
+}
+
+// ProbeFailure is why the latest runs of a probe or a connect timing failed. What the cluster's metrics said is read as one of
+// these words and as "other" when it is none of them.
+type ProbeFailure string
+
+// The reasons a probe or a connect timing fails.
+const (
+	failUnreachable ProbeFailure = "unreachable"
+	failRefused     ProbeFailure = "refused"
+	failTimeout     ProbeFailure = "timeout"
+	failAuth        ProbeFailure = "auth"
+	failNoSuchKind  ProbeFailure = "no_such_kind"
+	failReset       ProbeFailure = "reset"
+	failOther       ProbeFailure = "other"
+)
+
+// WireWords is the list of ProbeFailure's words, as the generated types give it.
+func (ProbeFailure) WireWords() []string {
+	return []string{string(failUnreachable), string(failRefused), string(failTimeout), string(failAuth), string(failNoSuchKind), string(failReset), string(failOther)}
+}
+
+// LinksReason is why a LinksLatestDoc has no figures.
+type LinksReason string
+
+// The reasons FUSION's figures are not given.
+const (
+	reasonNoFusion    LinksReason = "no-fusion"   // this server has no FUSION
+	reasonUnavailable LinksReason = "unavailable" // it has one, which could not be read
+)
+
+// WireWords is the list of LinksReason's words, as the generated types give it.
+func (LinksReason) WireWords() []string {
+	return []string{string(reasonNoFusion), string(reasonUnavailable)}
+}
+
+// SetupReason is why the checklists of a LinksLatestDoc are not known.
+type SetupReason string
+
+// The one reason the checklists are not known.
+const setupUnavailable SetupReason = "unavailable"
+
+// WireWords is the list of SetupReason's words, as the generated types give it.
+func (SetupReason) WireWords() []string { return []string{string(setupUnavailable)} }
 
 // LinkProbeLatest is the state of the one-way probe in one direction of a pair.
 type LinkProbeLatest struct {
-	// State is ok | failing | never.
-	State string `json:"state"`
-	// Reason is why the latest runs failed (unreachable | refused | timeout | auth | other | no_such_kind), only when they did.
-	Reason string `json:"reason,omitempty"`
-	// Diagnosis is a conservative reading of the evidence: udp-lost | denied | no-responder | filtered | one-way | stale. Several
-	// causes can look the same from here, so a diagnosis names what the evidence fits, and is absent when it fits nothing.
-	Diagnosis string `json:"diagnosis,omitempty"`
+	State ProbeState `json:"state"`
+	// Reason is why the latest runs failed, only when they did.
+	Reason ProbeFailure `json:"reason,omitempty"`
+	// Diagnosis is a conservative reading of the evidence. Several causes can look the same from here, so a diagnosis names what the
+	// evidence fits, and is absent when it fits nothing.
+	Diagnosis ProbeDiagnosis `json:"diagnosis,omitempty"`
 	// At is when a run in this direction last completed.
 	At *time.Time `json:"at,omitempty"`
 }
@@ -86,8 +147,8 @@ type LinkProbeLatest struct {
 // LinksLatestDoc is the answer. When FUSION cannot be read, Available is false and Reason says why in a word the screen turns into
 // a sentence; the pairs are then not listed.
 type LinksLatestDoc struct {
-	Available bool   `json:"available"`
-	Reason    string `json:"reason,omitempty"` // no-fusion | unavailable
+	Available bool        `json:"available"`
+	Reason    LinksReason `json:"reason,omitempty"`
 	// Stale says the figures are the last ones read, because FUSION could not be read just now; At is then when they were read.
 	Stale bool             `json:"stale,omitempty"`
 	Pairs []LinkPairLatest `json:"pairs"`
@@ -96,10 +157,10 @@ type LinksLatestDoc struct {
 	// Setup is, for each listed pair, the checklist of what it needs before its figures reach FUSION (see connectivity.LinkSetupSteps), whether or
 	// not FUSION can be read. An agent too old to report what its install can do gives "unknown" steps, never failures.
 	Setup []connectivity.LinkSetup `json:"setup"`
-	// SetupReason is "unavailable" when the organisation's agents could not be read, so Notes and Setup are empty because they are
+	// SetupReason says, when the organisation's agents could not be read, why Notes and Setup are empty: because they are
 	// not known, not because nothing needs doing.
-	SetupReason string    `json:"setupReason,omitempty"`
-	At          time.Time `json:"at"`
+	SetupReason SetupReason `json:"setupReason,omitempty"`
+	At          time.Time   `json:"at"`
 }
 
 // linkSample says what the readings handed out are: when FUSION was read for them, and whether that was not the latest attempt.
@@ -179,7 +240,7 @@ func WithoutHintsOfMeasuredPairs(notes []connectivity.LinkNote, pairs []LinkPair
 	}
 	out := notes[:0:0]
 	for _, n := range notes {
-		if n.Code == "private-range" && measured[[2]string{n.Cluster, n.Peer}] {
+		if n.Code == connectivity.NotePrivateRange && measured[[2]string{n.Cluster, n.Peer}] {
 			continue
 		}
 		out = append(out, n)
@@ -240,30 +301,31 @@ func linkIdx(in []fusionapi.LinkReading, lower bool) map[[3]string]float64 {
 // linkReasons indexes failure readings by key to the reason that failed most often, the first in alphabetical order on a tie, so
 // the choice does not depend on the order of the store's answer either. A reason outside the known words reads as "other": the
 // label is whatever the cluster's metrics said, and it is not shown as it is.
-func linkReasons(in []fusionapi.LinkReading) map[[3]string]string {
+func linkReasons(in []fusionapi.LinkReading) map[[3]string]ProbeFailure {
 	best := make(map[[3]string]fusionapi.LinkReading, len(in))
 	for _, x := range in {
 		k := [3]string{x.Cluster, x.Peer, x.Direction}
-		x.Reason = knownFailureReason(x.Reason)
+		x.Reason = string(knownFailureReason(x.Reason))
 		if old, ok := best[k]; ok && (x.Value < old.Value || x.Value == old.Value && x.Reason >= old.Reason) {
 			continue
 		}
 		best[k] = x
 	}
-	m := make(map[[3]string]string, len(best))
+	m := make(map[[3]string]ProbeFailure, len(best))
 	for k, x := range best {
-		m[k] = x.Reason
+		m[k] = ProbeFailure(x.Reason)
 	}
 	return m
 }
 
 // knownFailureReason is r when it is one of the failure reasons the probe and the connect timing count by, else "other".
-func knownFailureReason(r string) string {
-	switch r {
-	case "unreachable", "refused", "timeout", "auth", "no_such_kind", "reset":
-		return r
+func knownFailureReason(r string) ProbeFailure {
+	for _, w := range (ProbeFailure("")).WireWords() {
+		if r == w {
+			return ProbeFailure(r)
+		}
 	}
-	return "other"
+	return failOther
 }
 
 func readPairs(links []kernel.LinkSetting, rd fusionapi.LinkReadings, now time.Time) []pairReading {
@@ -376,7 +438,7 @@ func readPairs(links []kernel.LinkSetting, rd fusionapi.LinkReadings, now time.T
 // trip is the mean over the last minutes) and whether rounds failed lately, and the commonest reason.
 type connectEvidence struct {
 	timed, failed bool
-	reason        string
+	reason        ProbeFailure
 }
 
 // diagnose adds to one direction's probe state what the evidence fits. The rules are conservative: a wrong diagnosis is worse
@@ -400,13 +462,13 @@ func diagnose(s, other *LinkProbeLatest, loss *float64, c connectEvidence, now t
 		}
 	default:
 		switch {
-		case s.Reason == "no_such_kind":
+		case s.Reason == failNoSuchKind:
 			// The pair is pinned to a kind of address the peer lacks: the note says so, and no connection could say more.
 		case unanswered && c.reason == "refused":
 			s.Diagnosis = diagNoResponder
 		case unanswered && (c.reason == "timeout" || c.reason == "unreachable"):
 			s.Diagnosis = diagFiltered
-		case answers && (s.Reason == "other" || s.Reason == "auth"):
+		case answers && (s.Reason == failOther || s.Reason == failAuth):
 			s.Diagnosis = diagDenied
 		case other != nil && other.State == probeOK:
 			s.Diagnosis = diagOneWay

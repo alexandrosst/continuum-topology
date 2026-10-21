@@ -123,3 +123,82 @@ func TestOutputDoesNotDependOnTheOrderOfTheRoots(t *testing.T) {
 		t.Fatalf("the order of the roots changed the file:\n%s\n---\n%s", x, y)
 	}
 }
+
+type Level string
+
+func (Level) WireWords() []string { return []string{"low", "mid", "high"} }
+
+type gauge struct {
+	Now   Level   `json:"now"`
+	Limit *Level  `json:"limit"`
+	Past  []Level `json:"past"`
+	Opt   Level   `json:"opt,omitempty"`
+	Raw   string  `json:"raw"`
+}
+
+type bareLevel string
+
+func (bareLevel) WireWords() []string { return nil }
+
+type twice string
+
+func (twice) WireWords() []string { return []string{"a", "a"} }
+
+type quote string
+
+func (quote) WireWords() []string { return []string{"it's"} }
+
+type holds struct {
+	B bareLevel `json:"b"`
+}
+type holdsTwice struct {
+	T twice `json:"t"`
+}
+type holdsQuote struct {
+	Q quote `json:"q"`
+}
+
+func TestAStringTypeThatListsItsWordsIsTheUnionOfThem(t *testing.T) {
+	got, err := Generate([]Root{{Name: "Gauge", Value: gauge{}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range []string{
+		"export type Level = 'low' | 'mid' | 'high'",
+		"  now: Level",
+		"  limit: Level | null",
+		"  past: Level[]",
+		"  opt?: Level",
+		"  raw: string",
+	} {
+		if !strings.Contains(got, line+"\n") {
+			t.Errorf("the generated file has no %q:\n%s", line, got)
+		}
+	}
+}
+
+func TestAWordListThatCannotBeAUnionIsRefused(t *testing.T) {
+	for name, v := range map[string]any{"empty": holds{}, "twice": holdsTwice{}, "quote": holdsQuote{}} {
+		if _, err := Generate([]Root{{Value: v}}); err == nil {
+			t.Errorf("%s: a list of words that cannot be written as a union must be refused", name)
+		}
+	}
+}
+
+// Shade has the name of the fixture's type in testdata/words, which RequireWordsComplete finds by name.
+type Shade string
+
+func (Shade) WireWords() []string { return []string{"red", "blue"} }
+
+func TestEveryConstantOfAWordsTypeIsListedAndEveryWordHasOne(t *testing.T) {
+	problems, err := wordsProblems("testdata/words", []Words{Shade("")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(problems) != 2 {
+		t.Fatalf("want one problem for the constant that is not listed and one for the word without a constant, got %q", problems)
+	}
+	if all := strings.Join(problems, "\n"); !strings.Contains(all, `"blue", which no constant`) || !strings.Contains(all, `"green" is not among`) {
+		t.Errorf("the problems name the wrong words: %q", problems)
+	}
+}

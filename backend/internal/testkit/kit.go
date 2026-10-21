@@ -178,17 +178,17 @@ func Without(what string) func(*agents.LinkCaps) {
 func StepStates(steps []connectivity.LinkSetupStep) string {
 	var out []string
 	for _, s := range steps {
-		k := s.Code
+		k := string(s.Code)
 		if s.Cluster != "" {
 			k += "/" + s.Cluster
 		}
-		out = append(out, k+"="+s.State)
+		out = append(out, k+"="+string(s.State))
 	}
 	return strings.Join(out, " ")
 }
 
 // StepNamed is the step with the code, for the cluster, or a test failure.
-func StepNamed(t *testing.T, steps []connectivity.LinkSetupStep, code, cluster string) connectivity.LinkSetupStep {
+func StepNamed(t *testing.T, steps []connectivity.LinkSetupStep, code connectivity.StepCode, cluster string) connectivity.LinkSetupStep {
 	t.Helper()
 	for _, s := range steps {
 		if s.Code == code && s.Cluster == cluster {

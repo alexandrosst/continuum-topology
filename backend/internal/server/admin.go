@@ -487,7 +487,7 @@ func (a *Admin) info(w http.ResponseWriter, r *http.Request) {
 	t := a.tn(r)
 	o, _ := a.C.Store.GetOrg(r.Context(), t.ID)
 	img := a.images(t.C)
-	httpkit.WriteJSON(w, 200, infoDoc{OrgID: t.ID, OrgName: o.Name, Role: httpkit.Principal(r).Role, AgentAddress: a.AgentAddr, AgentExposure: a.AgentExposure, ReleaseName: a.ReleaseName, ReleaseNamespace: a.ReleaseNamespace, CAPin: a.C.CA.SPKIPin(), Version: a.Version, ImplementedTier: kernel.ImplementedTier, GeoIP: a.P.Geo.Info(),
+	httpkit.WriteJSON(w, 200, infoDoc{OrgID: t.ID, OrgName: o.Name, Role: accounts.Role(httpkit.Principal(r).Role), AgentAddress: a.AgentAddr, AgentExposure: a.AgentExposure, ReleaseName: a.ReleaseName, ReleaseNamespace: a.ReleaseNamespace, CAPin: a.C.CA.SPKIPin(), Version: a.Version, ImplementedTier: kernel.ImplementedTier, GeoIP: a.P.Geo.Info(),
 		// What the install wizard tells the operator to bring to the cluster: the chart file this server hands out
 		// (empty when the command names a chart elsewhere) and where the image comes from (this organisation's
 		// Settings → Installation, else the server's flags; empty registry: the chart's built-in names).

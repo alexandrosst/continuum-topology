@@ -123,13 +123,13 @@ type deleteOrgRequest struct {
 
 // setMemberRoleRequest is the body of setMemberRole.
 type setMemberRoleRequest struct {
-	Role string `json:"role"`
+	Role accounts.Role `json:"role"`
 }
 
 // createInviteRequest is the body of createInvite.
 type createInviteRequest struct {
-	Role  string `json:"role"`
-	Label string `json:"label"`
+	Role  accounts.Role `json:"role"`
+	Label string        `json:"label"`
 }
 
 // putMailConfigRequest is the body of putMailConfig.

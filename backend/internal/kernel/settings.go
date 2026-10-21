@@ -49,7 +49,7 @@ type Settings struct {
 	// may add. Empty falls back to defaultAllowedBackendKinds (jaeger, zipkin, prometheus, loki) - "custom" is
 	// deliberately never on by default, since it is a new capability an administrator opts an organisation
 	// into, not one every existing organisation should gain silently. See allowedBackendKindsOrDefault.
-	AllowedBackendKinds []string `json:"allowedBackendKinds"`
+	AllowedBackendKinds []BackendKind `json:"allowedBackendKinds"`
 	// QuickStartBackends are observability backends (Jaeger, Prometheus) an administrator generated a
 	// quick-start install command for - see QuickStartBackend.
 	QuickStartBackends []QuickStartBackend `json:"quickStartBackends"`
@@ -85,24 +85,64 @@ type ProbeTarget struct {
 	Port      int    `json:"port"`
 }
 
+func joinKinds(kinds []BackendKind) string {
+	words := make([]string, len(kinds))
+	for i, k := range kinds {
+		words[i] = string(k)
+	}
+	return strings.Join(words, ",")
+}
+
+// BackendKind is the kind of a quick-start backend (see QuickStartBackend.Kind).
+type BackendKind string
+
+// The kinds of quick-start backend.
+const (
+	BackendJaeger     BackendKind = "jaeger"
+	BackendZipkin     BackendKind = "zipkin"
+	BackendPrometheus BackendKind = "prometheus"
+	BackendLoki       BackendKind = "loki"
+	BackendCustom     BackendKind = "custom"
+)
+
+// WireWords is the list of BackendKind's words, as the generated types give it.
+func (BackendKind) WireWords() []string {
+	return []string{string(BackendJaeger), string(BackendZipkin), string(BackendPrometheus), string(BackendLoki), string(BackendCustom)}
+}
+
+// Modality is the kind of telemetry a quick-start backend takes.
+type Modality string
+
+// The modalities.
+const (
+	ModalityTraces  Modality = "traces"
+	ModalityMetrics Modality = "metrics"
+	ModalityLogs    Modality = "logs"
+)
+
+// WireWords is the list of Modality's words, as the generated types give it.
+func (Modality) WireWords() []string {
+	return []string{string(ModalityTraces), string(ModalityMetrics), string(ModalityLogs)}
+}
+
 // quickStartBackendModality is which modality each built-in quick-start kind is fixed to - a physical
 // fact about the backend (Jaeger only ingests traces; this app's Prometheus quick-start only turns on its
 // OTLP metrics receiver; the Loki quick-start's config only turns on its OTLP logs endpoint), not
 // something a person picks independently of Kind. The "custom" kind (see QuickStartBackend.Kind) is not
 // in here on purpose: it names no built-in chart, so its Modality is whatever the person who added it says.
-var quickStartBackendModality = map[string]string{"jaeger": "traces", "zipkin": "traces", "prometheus": "metrics", "loki": "logs"}
+var quickStartBackendModality = map[BackendKind]Modality{BackendJaeger: ModalityTraces, BackendZipkin: ModalityTraces, BackendPrometheus: ModalityMetrics, BackendLoki: ModalityLogs}
 
 // knownBackendKinds is every value QuickStartBackend.Kind may take: the three built-in catalog kinds
 // above, plus "custom" - an open entry for a backend this app has no upstream chart for (a user-supplied
 // display name and tool URL, nothing this server generates an install command for). The same "small fixed
 // typed set plus an open escape hatch" shape processorCatalog.ts uses for extra OTel processors.
-var knownBackendKinds = []string{"jaeger", "zipkin", "prometheus", "loki", "custom"}
+var knownBackendKinds = []BackendKind{BackendJaeger, BackendZipkin, BackendPrometheus, BackendLoki, BackendCustom}
 
 // defaultAllowedBackendKinds is what Settings.AllowedBackendKinds falls back to when empty - see its own
 // comment on why "custom" is left out.
-var defaultAllowedBackendKinds = []string{"jaeger", "zipkin", "prometheus", "loki"}
+var defaultAllowedBackendKinds = []BackendKind{BackendJaeger, BackendZipkin, BackendPrometheus, BackendLoki}
 
-func allowedBackendKindsOrDefault(allow []string) []string {
+func allowedBackendKindsOrDefault(allow []BackendKind) []BackendKind {
 	if len(allow) == 0 {
 		return defaultAllowedBackendKinds
 	}
@@ -121,11 +161,11 @@ type QuickStartBackend struct {
 	// quickStartBackendModality; quickStartBackends.ts has what each one's install command actually does);
 	// "custom" does not - its Modality is whatever the person who added it says, and it must also be in
 	// this organisation's AllowedBackendKinds (see Settings) the same as any other kind.
-	Kind string `json:"kind"`
+	Kind BackendKind `json:"kind"`
 	// Modality must match Kind's own fixed modality for a built-in kind; for "custom" it is simply
 	// validated to be one of the three known values. Kept explicit (rather than derived server-side only
 	// for the built-ins) so a client can filter/display without a copy of quickStartBackendModality of its own.
-	Modality string `json:"modality"`
+	Modality Modality `json:"modality"`
 	// Namespace is what the generated install command targets - also most of what ToolURL/the chart's own
 	// Service DNS name depend on, so it's kept even though the server never acts on it directly. For a
 	// "custom" backend it is still required, informationally, even though nothing here generates an
@@ -239,14 +279,14 @@ func (s Settings) NormalizeFor(ctx context.Context, dp *DeciderPolicy) (Settings
 	if len(s.AllowedBackendKinds) > len(knownBackendKinds) {
 		return s, fmt.Errorf("too many allowed backend kinds")
 	}
-	knownKind := map[string]bool{}
+	knownKind := map[BackendKind]bool{}
 	for _, k := range knownBackendKinds {
 		knownKind[k] = true
 	}
-	allowSeen := map[string]bool{}
-	allowOut := make([]string, 0, len(s.AllowedBackendKinds))
+	allowSeen := map[BackendKind]bool{}
+	allowOut := make([]BackendKind, 0, len(s.AllowedBackendKinds))
 	for _, k := range s.AllowedBackendKinds {
-		k = strings.TrimSpace(k)
+		k = BackendKind(strings.TrimSpace(string(k)))
 		if !knownKind[k] {
 			return s, fmt.Errorf(`%q is not a quick-start backend kind ("jaeger", "zipkin", "prometheus", "loki" or "custom")`, k)
 		}
@@ -257,7 +297,7 @@ func (s Settings) NormalizeFor(ctx context.Context, dp *DeciderPolicy) (Settings
 		allowOut = append(allowOut, k)
 	}
 	s.AllowedBackendKinds = allowOut
-	allowedKind := map[string]bool{}
+	allowedKind := map[BackendKind]bool{}
 	for _, k := range allowedBackendKindsOrDefault(s.AllowedBackendKinds) {
 		allowedKind[k] = true
 	}
@@ -270,10 +310,10 @@ func (s Settings) NormalizeFor(ctx context.Context, dp *DeciderPolicy) (Settings
 		if !allowedKind[b.Kind] {
 			return s, fmt.Errorf("the %q quick-start backend kind is not enabled for this organisation", b.Kind)
 		}
-		if b.Kind == "custom" {
+		if b.Kind == BackendCustom {
 			// "custom" names no built-in chart (see knownBackendKinds), so its modality is simply
 			// whatever the person who added it says, within the three values any kind may carry.
-			if b.Modality != "traces" && b.Modality != "metrics" && b.Modality != "logs" {
+			if b.Modality != ModalityTraces && b.Modality != ModalityMetrics && b.Modality != ModalityLogs {
 				return s, fmt.Errorf(`a custom quick-start backend's modality must be "traces", "metrics" or "logs"`)
 			}
 		} else {
@@ -298,7 +338,7 @@ func (s Settings) NormalizeFor(ctx context.Context, dp *DeciderPolicy) (Settings
 		if len(b.Retention) > 20 {
 			return s, fmt.Errorf("a quick-start backend's retention is at most 20 characters")
 		}
-		if b.Kind == "custom" && b.Label == "" {
+		if b.Kind == BackendCustom && b.Label == "" {
 			return s, fmt.Errorf("a custom quick-start backend needs a display name")
 		}
 		if len(b.Label) > 80 {
@@ -312,7 +352,7 @@ func (s Settings) NormalizeFor(ctx context.Context, dp *DeciderPolicy) (Settings
 			if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 				return s, fmt.Errorf("%q is not an http(s) URL", b.ToolURL)
 			}
-		} else if b.Kind == "custom" {
+		} else if b.Kind == BackendCustom {
 			// A custom backend has no catalog entry of its own (see QuickStartBackend.ToolURL) - without
 			// a URL there is nothing for "open this tool", or the Part C gateway, to point at.
 			return s, fmt.Errorf("a custom quick-start backend needs a tool URL")
@@ -503,7 +543,7 @@ func SettingsDiff(a, b Settings) string {
 	add("measurement targets", len(a.ProbeTargets), len(b.ProbeTargets))
 	d = append(d, linksDiff(a.Links, b.Links)...)
 	add("quick-start backends", len(a.QuickStartBackends), len(b.QuickStartBackends))
-	add("allowed backend kinds", strings.Join(a.AllowedBackendKinds, ","), strings.Join(b.AllowedBackendKinds, ","))
+	add("allowed backend kinds", joinKinds(a.AllowedBackendKinds), joinKinds(b.AllowedBackendKinds))
 	if a.DeciderURL != b.DeciderURL {
 		if b.DeciderURL == "" {
 			d = append(d, "external decider removed")
@@ -635,7 +675,7 @@ func linksDiff(a, b []LinkSetting) []string {
 		}
 		var ch []string
 		if o.Via != n.Via {
-			ch = append(ch, fmt.Sprintf("via %s → %s", orFollow(o.Via), orFollow(n.Via)))
+			ch = append(ch, fmt.Sprintf("via %s → %s", orFollow(string(o.Via)), orFollow(string(n.Via))))
 		}
 		if o.NoProbe != n.NoProbe {
 			ch = append(ch, fmt.Sprintf("noProbe %t → %t", o.NoProbe, n.NoProbe))
@@ -680,7 +720,7 @@ func orFollow(via string) string {
 func linkBrief(l LinkSetting) string {
 	var p []string
 	if l.Via != "" {
-		p = append(p, "via "+l.Via)
+		p = append(p, "via "+string(l.Via))
 	}
 	if l.NoProbe {
 		p = append(p, "no probe")

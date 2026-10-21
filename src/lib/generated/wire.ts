@@ -401,6 +401,8 @@ export interface Autoscaler {
   targets?: string[]
 }
 
+export type BackendKind = 'jaeger' | 'zipkin' | 'prometheus' | 'loki' | 'custom'
+
 export interface BeginPasskeyLoginRequest {
   pending: string
 }
@@ -624,7 +626,7 @@ export interface CreateAPITokenRequest {
 }
 
 export interface CreateInviteRequest {
-  role: string
+  role: Role
   label: string
 }
 
@@ -1308,7 +1310,7 @@ export interface InfoDoc {
   orgName: string
   releaseName: string
   releaseNamespace: string
-  role: string
+  role: Role
   version: string
 }
 
@@ -1349,7 +1351,7 @@ export interface IntentCommandRequest {
 
 export interface InviteDoc {
   id: string
-  role: string
+  role: Role
   label?: string
   createdBy: string
   createdAt: string
@@ -1362,7 +1364,7 @@ export interface InviteDoc {
 export interface InvitePreviewDoc {
   expiresAt: string
   organisation: string
-  role: string
+  role: Role
 }
 
 export interface IssuedCertDoc {
@@ -1397,7 +1399,7 @@ export interface LinkDoc {
 export interface LinkNote {
   cluster: string
   peer?: string
-  code: string
+  code: NoteCode
   text: string
 }
 
@@ -1418,9 +1420,9 @@ export interface LinkPairLatest {
 }
 
 export interface LinkProbeLatest {
-  state: string
-  reason?: string
-  diagnosis?: string
+  state: ProbeState
+  reason?: ProbeFailure
+  diagnosis?: ProbeDiagnosis
   at?: string
 }
 
@@ -1434,7 +1436,7 @@ export interface LinkSetting {
   a: string
   b: string
   noProbe?: boolean
-  via?: string
+  via?: LinkVia
   throughput?: LinkThroughput
 }
 
@@ -1445,9 +1447,9 @@ export interface LinkSetup {
 }
 
 export interface LinkSetupStep {
-  code: string
+  code: StepCode
   cluster?: string
-  state: string
+  state: StepState
   text: string
 }
 
@@ -1465,16 +1467,20 @@ export interface LinkTraffic {
   retransmitsPerMin: number
 }
 
+export type LinkVia = 'mesh' | 'private' | 'public'
+
 export interface LinksLatestDoc {
   available: boolean
-  reason?: string
+  reason?: LinksReason
   stale?: boolean
   pairs: LinkPairLatest[]
   notes: LinkNote[]
   setup: LinkSetup[]
-  setupReason?: string
+  setupReason?: SetupReason
   at: string
 }
+
+export type LinksReason = 'no-fusion' | 'unavailable'
 
 export interface LogEntry {
   time: string
@@ -1521,7 +1527,7 @@ export interface MailConfigDoc {
 export interface MemberDoc {
   id: string
   username: string
-  role: string
+  role: Role
   joinedAt: string
   lastLogin?: string
   you?: boolean
@@ -1573,6 +1579,8 @@ export interface MintedGatewayTokenDoc {
   expiresAt: string
   token: string
 }
+
+export type Modality = 'traces' | 'metrics' | 'logs'
 
 export interface ModuleDoc {
   name: string
@@ -1686,6 +1694,8 @@ export interface Node {
   thermalTripCount?: number
 }
 
+export type NoteCode = 'no-agent' | 'tier' | 'paused' | 'peer-silent' | 'shared-address' | 'too-many-peers' | 'no-address-of-kind' | 'private-range'
+
 export interface OKDoc {
   ok: boolean
 }
@@ -1782,7 +1792,7 @@ export interface OperatorUninstallDoc {
 export interface OrgDoc {
   id: string
   name: string
-  role: string
+  role: Role
 }
 
 export interface OutcomeDoc {
@@ -1868,6 +1878,12 @@ export interface PreviewInviteRequest {
   token: string
 }
 
+export type ProbeDiagnosis = 'udp-lost' | 'denied' | 'no-responder' | 'filtered' | 'one-way' | 'stale'
+
+export type ProbeFailure = 'unreachable' | 'refused' | 'timeout' | 'auth' | 'no_such_kind' | 'reset' | 'other'
+
+export type ProbeState = 'ok' | 'failing' | 'never'
+
 export interface ProbeTarget {
   id: string
   clusterId: string
@@ -1943,8 +1959,8 @@ export interface QueryResult {
 
 export interface QuickStartBackend {
   id: string
-  kind: string
-  modality: string
+  kind: BackendKind
+  modality: Modality
   namespace: string
   retention: string
   toolUrl?: string
@@ -2018,6 +2034,8 @@ export interface RegisterRequest {
   invite: string
   org: string
 }
+
+export type Registration = 'open' | 'invite' | 'closed'
 
 export interface RemovePasskeyRequest {
   password: string
@@ -2133,6 +2151,8 @@ export interface RevokeOperatorRequest {
   force?: boolean
 }
 
+export type Role = 'viewer' | 'editor' | 'admin' | 'owner'
+
 export interface RotateCredentialsRequest {
   cluster: string
   a: string
@@ -2164,7 +2184,7 @@ export interface SaveSettingsRequest {
   measureSeconds: number
   probeTargets: ProbeTarget[]
   links: LinkSetting[]
-  allowedBackendKinds: string[]
+  allowedBackendKinds: BackendKind[]
   quickStartBackends: QuickStartBackend[]
   deciderUrl: string
   deciderName: string
@@ -2281,7 +2301,7 @@ export interface ServerClusterRequest {
 }
 
 export interface ServerInfoDoc {
-  registration: string
+  registration: Registration
   sso: boolean
   version: string
 }
@@ -2370,7 +2390,7 @@ export interface SetAgentTierRequest {
 }
 
 export interface SetMemberRoleRequest {
-  role: string
+  role: Role
 }
 
 export interface SetOperatorAddressRequest {
@@ -2389,7 +2409,7 @@ export interface SettingsConflictDoc {
   measureSeconds: number
   probeTargets: ProbeTarget[]
   links: LinkSetting[]
-  allowedBackendKinds: string[]
+  allowedBackendKinds: BackendKind[]
   quickStartBackends: QuickStartBackend[]
   deciderUrl: string
   deciderName: string
@@ -2418,7 +2438,7 @@ export interface SettingsDoc {
   measureSeconds: number
   probeTargets: ProbeTarget[]
   links: LinkSetting[]
-  allowedBackendKinds: string[]
+  allowedBackendKinds: BackendKind[]
   quickStartBackends: QuickStartBackend[]
   deciderUrl: string
   deciderName: string
@@ -2433,6 +2453,8 @@ export interface SettingsDoc {
   imageDefaults: ImageConfig
   rev: number
 }
+
+export type SetupReason = 'unavailable'
 
 export interface SignalGrantDoc {
   id: string
@@ -2512,6 +2534,10 @@ export interface StatusDoc {
   access: CallerAccessDoc
   fusion: FusionFusionStatus
 }
+
+export type StepCode = 'agent' | 'addresses' | 'capabilities' | 'links-on' | 'export' | 'prober' | 'capacity' | 'peer-export'
+
+export type StepState = 'ok' | 'todo' | 'unknown' | 'optional'
 
 export interface StorageDoc {
   backend: string

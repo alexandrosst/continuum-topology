@@ -12,6 +12,19 @@ import "context"
 
 // The roles inside an organisation, weakest first. A role that is not in this list (an empty one included) has no rank, and no
 // rank is below every level.
+// Role is a person's role in an organisation. The constants (RoleViewer ... RoleOwner) are plain strings, because the roles are
+// compared and kept as strings throughout; Role is the type an answer or a body gives them, so that the generated types hold the list.
+type Role string
+
+// WireWords is the list of Role's words, weakest first, as the generated types give it.
+func (Role) WireWords() []string { return []string{RoleViewer, RoleEditor, RoleAdmin, RoleOwner} }
+
+// Registration is who may create an account (RegOpen, RegInvite or RegClosed), as the sign-up page is told.
+type Registration string
+
+// WireWords is the list of Registration's words, as the generated types give it.
+func (Registration) WireWords() []string { return []string{RegOpen, RegInvite, RegClosed} }
+
 var roleRank = map[string]int{RoleViewer: 1, RoleEditor: 2, RoleAdmin: 3, RoleOwner: 4}
 
 func validRole(r string) bool { return roleRank[r] > 0 }

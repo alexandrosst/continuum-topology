@@ -187,7 +187,7 @@ func TestTheServerLearnsWhatTheInstallCanDoAndChecksThePair(t *testing.T) {
 		out := map[string]string{}
 		if len(setup) == 1 {
 			for _, s := range setup[0].Steps {
-				out[s.Code+"/"+s.Cluster] = s.State
+				out[string(s.Code)+"/"+s.Cluster] = string(s.State)
 			}
 		}
 		return out

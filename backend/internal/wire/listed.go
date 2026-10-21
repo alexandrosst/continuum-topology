@@ -1,11 +1,14 @@
 package wire
 
 import (
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
 	"path/filepath"
 	"reflect"
+	"sort"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -79,4 +82,79 @@ func hasKeySuffix(m map[string]bool, suffix string) bool {
 		}
 	}
 	return false
+}
+
+// RequireWordsComplete fails the test of a package when the constants it declares of a words type (see Words) are not the words the
+// type lists: a constant that is not listed would be written by the server and missing from the page's union, and a word that has no
+// constant would be a string literal somewhere, which nothing ties to the list. dir is the package's directory (the test's working
+// directory) and each argument is a value of one of its words types.
+func RequireWordsComplete(t *testing.T, dir string, types ...Words) {
+	t.Helper()
+	problems, err := wordsProblems(dir, types)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range problems {
+		t.Error(p)
+	}
+}
+
+func wordsProblems(dir string, types []Words) ([]string, error) {
+	var out []string
+	files, _ := filepath.Glob(filepath.Join(dir, "*.go"))
+	fset := token.NewFileSet()
+	consts := map[string]map[string]string{} // type name → word → the constant
+	for _, f := range files {
+		if strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		af, err := parser.ParseFile(fset, f, nil, 0)
+		if err != nil {
+			return nil, err
+		}
+		for _, d := range af.Decls {
+			gd, ok := d.(*ast.GenDecl)
+			if !ok || gd.Tok != token.CONST {
+				continue
+			}
+			for _, sp := range gd.Specs {
+				vs := sp.(*ast.ValueSpec)
+				id, ok := vs.Type.(*ast.Ident)
+				if !ok {
+					continue
+				}
+				for i, v := range vs.Values {
+					lit, ok := v.(*ast.BasicLit)
+					if !ok || lit.Kind != token.STRING || i >= len(vs.Names) {
+						continue
+					}
+					w, err := strconv.Unquote(lit.Value)
+					if err != nil {
+						return nil, err
+					}
+					if consts[id.Name] == nil {
+						consts[id.Name] = map[string]string{}
+					}
+					consts[id.Name][w] = vs.Names[i].Name
+				}
+			}
+		}
+	}
+	for _, w := range types {
+		name := reflect.TypeOf(w).Name()
+		listed := map[string]bool{}
+		for _, word := range w.WireWords() {
+			listed[word] = true
+			if consts[name][word] == "" {
+				out = append(out, fmt.Sprintf("%s lists %q, which no constant of %s holds: declare it, so the code that writes it cannot misspell it", name, word, name))
+			}
+		}
+		for word, c := range consts[name] {
+			if !listed[word] {
+				out = append(out, fmt.Sprintf("%s is a %s but %q is not among its words: add it, or the page's union does not have it", c, name, word))
+			}
+		}
+	}
+	sort.Strings(out)
+	return out, nil
 }

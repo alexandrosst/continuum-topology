@@ -217,19 +217,19 @@ func TestSettingsAllowedBackendKindsGateQuickStartBackends(t *testing.T) {
 	// Once "custom" is allowed, a custom backend needs a label and a tool URL (there being no catalog
 	// entry to fall back to), but any of the three modalities is fine.
 	if _, err := (kernel.Settings{
-		AllowedBackendKinds: []string{"custom"},
+		AllowedBackendKinds: []kernel.BackendKind{"custom"},
 		QuickStartBackends:  []kernel.QuickStartBackend{{Kind: "custom", Modality: "traces", Namespace: "observability", Retention: "n/a"}},
 	}).Normalize(); err == nil {
 		t.Error("a custom backend without a label was accepted")
 	}
 	if _, err := (kernel.Settings{
-		AllowedBackendKinds: []string{"custom"},
+		AllowedBackendKinds: []kernel.BackendKind{"custom"},
 		QuickStartBackends:  []kernel.QuickStartBackend{{Kind: "custom", Modality: "traces", Namespace: "observability", Retention: "n/a", Label: "My APM"}},
 	}).Normalize(); err == nil {
 		t.Error("a custom backend without a tool URL was accepted")
 	}
 	ok, err := (kernel.Settings{
-		AllowedBackendKinds: []string{"custom"},
+		AllowedBackendKinds: []kernel.BackendKind{"custom"},
 		QuickStartBackends:  []kernel.QuickStartBackend{{Kind: "custom", Modality: "logs", Namespace: "observability", Retention: "n/a", Label: "My APM", ToolURL: "https://apm.example.com"}},
 	}).Normalize()
 	if err != nil {
@@ -241,17 +241,17 @@ func TestSettingsAllowedBackendKindsGateQuickStartBackends(t *testing.T) {
 	// Narrowing the allow-list away from a built-in kind refuses a backend of that kind, even though it
 	// would be fine on its own (the modality mismatch tests above already cover the unrestricted default).
 	if _, err := (kernel.Settings{
-		AllowedBackendKinds: []string{"prometheus", "loki"},
+		AllowedBackendKinds: []kernel.BackendKind{"prometheus", "loki"},
 		QuickStartBackends:  []kernel.QuickStartBackend{{Kind: "jaeger", Modality: "traces", Namespace: "observability", Retention: "72h"}},
 	}).Normalize(); err == nil {
 		t.Error("a jaeger backend was accepted although jaeger was removed from the allow-list")
 	}
 	// An unknown kind in the allow-list itself is refused.
-	if _, err := (kernel.Settings{AllowedBackendKinds: []string{"tempo"}}).Normalize(); err == nil {
+	if _, err := (kernel.Settings{AllowedBackendKinds: []kernel.BackendKind{"tempo"}}).Normalize(); err == nil {
 		t.Error("an unknown allowed backend kind was accepted")
 	}
 	// The allow-list is de-duplicated rather than rejected for repeats.
-	allow, err := (kernel.Settings{AllowedBackendKinds: []string{"jaeger", "jaeger", "loki"}}).Normalize()
+	allow, err := (kernel.Settings{AllowedBackendKinds: []kernel.BackendKind{"jaeger", "jaeger", "loki"}}).Normalize()
 	if err != nil {
 		t.Fatalf("a repeated allowed kind was refused: %v", err)
 	}

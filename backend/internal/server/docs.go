@@ -1,6 +1,9 @@
 package server
 
-import "continuum/internal/agents"
+import (
+	"continuum/internal/accounts"
+	"continuum/internal/agents"
+)
 
 // The shapes the shell itself puts on the wire: the server describing itself, and the one page ticket it hands out. Everything else a
 // route says is a module's (see wire.go).
@@ -25,7 +28,7 @@ type infoDoc struct {
 	OrgName          string         `json:"orgName"`
 	ReleaseName      string         `json:"releaseName"`
 	ReleaseNamespace string         `json:"releaseNamespace"`
-	Role             string         `json:"role"`
+	Role             accounts.Role  `json:"role"`
 	Version          string         `json:"version"`
 }
 
