@@ -9,13 +9,7 @@ import type { AdvisorRecord, Proposal, ProposalStatus } from './proposals'
 import type { SelfTelemetryEntity } from './selfHealth'
 import type { EffectiveModel } from './provenance'
 import type * as W from './generated/wire'
-
-/** The page's own words for a shape the server writes: the generated type, with the fields the page knows more about than the server says
- *  (a role is one of four words; the server writes it as text). */
-type Narrowed<T, N> = Omit<T, keyof N> & N
-/** What a call may send. The server reads a body field by field and takes one that is missing as empty, so each may be left out; what it
- *  refuses is a field it does not know, and a field of the wrong kind, which is what this catches. */
-type Body<T> = Partial<T>
+import type { Body, Narrowed } from './narrow'
 
 export class ApiError extends Error {
   status: number
@@ -761,9 +755,9 @@ export const api = {
   // never part of `AppSettings` (a GET never carries the secret to round-trip), only ever sent on the way in.
   // `rev` (the document's revision, which a GET carries) is not part of the body either: it goes in If-Match, so the server
   // refuses the save with 409 - the current document in the error's `body` - when another save came in since. Left out, the save replaces whatever is there.
-  saveSettings: (c: Conn, s: Partial<AppSettings> & { deciderSecret?: string; clearDeciderSecret?: boolean }, rev?: number) => {
+  saveSettings: (c: Conn, s: Partial<AppSettings> & Pick<Body<W.SaveSettingsRequest>, 'deciderSecret' | 'clearDeciderSecret'>, rev?: number) => {
     const { deciderConfigured: _derived, deciderSecretSet: _secretSet, imageDefaults: _defaults, rev: _rev, ...body } = s
-    return call<Partial<AppSettings>>(c, 'PUT', '/api/v1/settings', body, rev === undefined ? {} : { 'If-Match': String(rev) }).then(normalizeSettings)
+    return call<Partial<AppSettings>>(c, 'PUT', '/api/v1/settings', body satisfies Body<W.SaveSettingsRequest>, rev === undefined ? {} : { 'If-Match': String(rev) }).then(normalizeSettings)
   },
   // The latest figures of every watched cluster pair, read from the link series in FUSION (nothing is stored by the server).
   linksLatest: (c: Conn) => call<Partial<LinksLatest>>(c, 'GET', '/api/v1/links/latest').then(normalizeLinksLatest),

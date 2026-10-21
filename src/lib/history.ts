@@ -1,79 +1,25 @@
+import type * as W from './generated/wire'
+import type { Narrowed } from './narrow'
 import type { AccessTier, Agent, Cluster, Dependency, ExternalEndpoint, MachineNode, Model, Namespace, Path, Service } from './types'
 
 /* ---------- what the server sends ---------- */
 
 /** The knobs an administrator can turn. Everything else in Ikhnos works without them. */
 /** Two clusters whose link an administrator asked to have measured; see `Settings.Links` on the server. */
-export interface LinkPair {
-  a: string
-  b: string
-  /** Turns the one-way probe and the route trace off for the pair; the passive metrics stay. Default: the probe runs. */
-  noProbe?: boolean
-  /** Pins the active measurements (probe, connect timing, route trace, throughput tests) to one kind of the peer's addresses.
-   *  Omitted: they follow the address the real traffic between the two clusters is seen using. */
-  via?: 'mesh' | 'private' | 'public'
-  /** Asks for the throughput tests on the pair (default: none). Only the cluster whose id sorts first runs them. */
-  throughput?: {
-    /** Replaces the cluster's own time between two sets of tests, in minutes (10 to 10080; omitted: keep it). */
-    intervalMinutes?: number
-    /** Most the tests may carry on this link in a day, in MB (up to 1048576; omitted: only the cluster's budget applies). */
-    budgetMB?: number
+export type LinkPair = Narrowed<W.LinkSetting, { via?: 'mesh' | 'private' | 'public' }>
+
+export type AppSettings = Narrowed<
+  W.SettingsDoc,
+  {
+    allowedBackendKinds: QuickStartKind[]
+    quickStartBackends: QuickStartBackend[]
+    links: LinkPair[]
+    /** The revision of this document on the server (0 until first saved). A save names the revision its edit started from (`api.saveSettings` sends it in If-Match), and the server refuses it with 409 when someone else saved in between. */
+    rev?: number
   }
-}
+>
 
-export interface AppSettings {
-  snapshotMinutes: number
-  retentionDays: number
-  maxHistoryMb: number
-  /** How long a record that disappeared from an agent's report is still shown as gone before it is removed. */
-  tombstoneRetentionDays: number
-  /** How long the event/drift log is kept before old entries are pruned. 0 (the default) keeps it forever; this
-   * never affects the audit trail, which is never pruned from here. */
-  eventRetentionDays: number
-  consistencyMinutes: number
-  staleAfterBeats: number
-  /** How long an observed link may go unseen before it is shown as quiet, in seconds (not hours) - a
-   * deliberate change (a migration, decommissioning a service) can be reflected quickly instead of waiting
-   * out a coarse unit. The Settings UI offers a seconds/minutes/hours/days picker over this same value. */
-  flowStaleSeconds: number
-  measureSeconds: number
-  probeTargets: ProbeTarget[]
-  /** Pairs of clusters whose link is watched (in both directions); a pair that is not listed is not measured. `a` sorts before `b`. */
-  links: LinkPair[]
-  /** Which quick-start backend kinds this organisation may add - see QuickStartBackend.kind and
-   * effectiveAllowedBackendKinds (empty means the default, DEFAULT_ALLOWED_BACKEND_KINDS). */
-  allowedBackendKinds: QuickStartKind[]
-  /** Observability backends (Jaeger, Zipkin, Prometheus, Loki, or a custom one) an administrator quick-started an install command for, or registered by hand - see QuickStartBackend. */
-  quickStartBackends: QuickStartBackend[]
-  /** Only administrators receive the address; everyone else learns that one is configured. */
-  deciderUrl: string
-  deciderName: string
-  deciderTimeoutSec: number
-  deciderConfigured: boolean
-  /** Whether a shared secret is set to sign requests to the external decider (HMAC-SHA256; see the decider
-   * webhook contract). Write-only: once saved, the secret itself is never sent back to anyone, administrators
-   * included - only this flag is. To set one, save `deciderSecret`; to remove it, save `clearDeciderSecret: true`
-   * (see `api.saveSettings`). Derived; never sent back either. */
-  deciderSecretSet: boolean
-  /** Where install commands get the agent image and chart (Settings → Installation); empty registry: use the server's default. */
-  imageRegistry: string
-  imageTag: string
-  imageDigest: string
-  /** What the server's --image-* flags say, used while the three above are empty. Derived; never sent back. */
-  imageDefaults: { registry: string; tag: string; digest: string }
-  /** The revision of this document on the server (0 until first saved; up by one with every save). Derived; never sent back as part of
-   * the body. A save names the revision its edit started from (`api.saveSettings` sends it in If-Match), and the server refuses it with 409
-   * when someone else saved in between. */
-  rev?: number
-}
-
-export interface ProbeTarget {
-  id: string
-  clusterId: string
-  label: string
-  host: string
-  port: number
-}
+export type ProbeTarget = W.ProbeTarget
 
 export type QuickStartKind = 'jaeger' | 'zipkin' | 'prometheus' | 'loki' | 'custom'
 
@@ -81,17 +27,7 @@ export type QuickStartKind = 'jaeger' | 'zipkin' | 'prometheus' | 'loki' | 'cust
  * quickStartBackends.ts for what each kind's install command actually does. The server never deploys or
  * dials any of this; it's a note kept so the picker can offer it again and "open this tool" has somewhere
  * to go once toolUrl is filled in. */
-export interface QuickStartBackend {
-  id: string
-  /** 'custom' names no built-in chart (see quickStartBackends.ts's fixed catalog) - a user-supplied label
-   * and toolUrl stand in for what a catalog entry would otherwise provide. */
-  kind: QuickStartKind
-  modality: 'traces' | 'metrics' | 'logs'
-  namespace: string
-  retention: string
-  toolUrl?: string
-  label: string
-}
+export type QuickStartBackend = Narrowed<W.QuickStartBackend, { kind: QuickStartKind; modality: 'traces' | 'metrics' | 'logs' }>
 
 export const DEFAULT_SETTINGS: AppSettings = {
   snapshotMinutes: 5,

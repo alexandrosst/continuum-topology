@@ -1,4 +1,6 @@
+import type * as W from './generated/wire'
 import type { LinkPair } from './history'
+import type { Narrowed } from './narrow'
 import { ago } from './observed'
 import type { Agent } from './types'
 import { PROBE_STALE_AFTER_MS } from './status'
@@ -149,77 +151,30 @@ export function runsFromWords(p: LinkPair, runner: string): string {
 
 /** What the server knows about one pair from the link series in FUSION (GET /links/latest). A figure FUSION does not hold is absent. "A to B" is
  * from the pair's first cluster to its second, in the order the pair is stored (the order the table shows them in). */
-export interface LinkPairLatest {
-  a: string
-  b: string
-  rttSeconds?: number
-  lossAToB?: number
-  lossBToA?: number
-  jitterSeconds?: number
-  mtuBytes?: number
-  throughputAToB?: number
-  throughputBToA?: number
-  probedAt?: string
-  testedAt?: string
-  /** How the one-way probe stands in each direction. Absent where FUSION holds no state (probing off, an older agent, nothing arrived yet). */
-  probeAToB?: ProbeLatest
-  probeBToA?: ProbeLatest
-}
+export type LinkPairLatest = Narrowed<W.LinkPairLatest, { probeAToB?: ProbeLatest; probeBToA?: ProbeLatest }>
 
 /** What the server read the evidence to fit; a bounded word, never text from the clusters. Several causes can look the same from the prober's side. */
 export type ProbeDiagnosis = 'udp-lost' | 'denied' | 'no-responder' | 'filtered' | 'one-way' | 'stale'
 const DIAGNOSES: readonly string[] = ['udp-lost', 'denied', 'no-responder', 'filtered', 'one-way', 'stale']
 
 /** The state of the one-way probe in one direction: the latest run completed (ok), failed after an earlier one completed (failing), or failed and none ever did (never). */
-export interface ProbeLatest {
-  state: 'ok' | 'failing' | 'never'
-  /** Why the latest runs failed, as a word the server counts by (unreachable, refused, timeout, auth, other, no_such_kind, reset). */
-  reason?: string
-  diagnosis?: ProbeDiagnosis
-  /** When a run in this direction last completed. */
-  at?: string
-}
+export type ProbeLatest = Narrowed<W.LinkProbeLatest, { state: 'ok' | 'failing' | 'never'; diagnosis?: ProbeDiagnosis }>
 
 /** Why a pair is not measured from one of its clusters, as the server worked it out. */
-export interface LinkNote {
-  cluster: string
-  peer?: string
-  code: 'no-agent' | 'tier' | 'paused' | 'peer-silent' | 'shared-address' | 'no-address-of-kind' | 'private-range' | 'too-many-peers'
-  text: string
-}
+export type LinkNote = Narrowed<
+  W.LinkNote,
+  { code: 'no-agent' | 'tier' | 'paused' | 'peer-silent' | 'shared-address' | 'no-address-of-kind' | 'private-range' | 'too-many-peers' }
+>
 
 /** One line of a pair's checklist, as the server worked it out (`setup` in GET /links/latest). */
 export type SetupState = 'ok' | 'todo' | 'unknown' | 'optional'
-export interface SetupStep {
-  /** agent | addresses | capabilities | links-on | export | prober | capacity | peer-export */
-  code: string
-  /** The cluster the step is about; absent when it is about the pair. */
-  cluster?: string
-  state: SetupState
-  /** What is wrong and what to do (or what is fine), naming the cluster. */
-  text: string
-}
-export interface PairSetup {
-  a: string
-  b: string
-  steps: SetupStep[]
-}
+export type SetupStep = Narrowed<W.LinkSetupStep, { state: SetupState }>
+export type PairSetup = Narrowed<W.LinkSetup, { steps: SetupStep[] }>
 
-export interface LinksLatest {
-  available: boolean
-  /** Why the figures cannot be had: this server has no FUSION, or it could not be read just now. */
-  reason?: 'no-fusion' | 'unavailable'
-  pairs: LinkPairLatest[]
-  /** Reasons a pair is not measured, whether or not FUSION could be read. */
-  notes: LinkNote[]
-  /** The checklist of each pair, whether or not FUSION could be read. Empty from a server that does not send it. */
-  setup: PairSetup[]
-  /** The notes and the checklist could not be worked out (the server could not read the agents), so their being empty says nothing. */
-  setupReason?: 'unavailable'
-  /** FUSION could not be read just now: `pairs` are the last ones read, at `at`. */
-  stale?: boolean
-  at: string
-}
+export type LinksLatest = Narrowed<
+  W.LinksLatestDoc,
+  { reason?: 'no-fusion' | 'unavailable'; pairs: LinkPairLatest[]; notes: LinkNote[]; setup: PairSetup[]; setupReason?: 'unavailable' }
+>
 
 const SETUP_STATES: readonly string[] = ['ok', 'todo', 'unknown', 'optional']
 const MAX_SETUP_PAIRS = 200
