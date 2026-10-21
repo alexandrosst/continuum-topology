@@ -576,6 +576,17 @@ export interface CreateInviteRequest {
   label: string
 }
 
+export interface CreateOperatorRequest {
+  name: string
+  sourceClusterIds: string[] | null
+  destination: OperatorDestination
+  acceptedModalities?: string[]
+  labels?: LabelDoc[]
+  heartbeat?: boolean
+  exposure?: string
+  extraProcessors?: Processor[]
+}
+
 export interface CreateOrgRequest {
   name: string
 }
@@ -941,6 +952,14 @@ export interface ExportRouteHealthDoc {
   lastFailedAt?: string
 }
 
+export interface ExportTargetDoc {
+  endpoint: string
+  name: string
+  operatorId: string
+  reachableFromOtherClusters: boolean
+  warnings?: string[]
+}
+
 export interface ExposeDoc {
   service: string
   namespace: string
@@ -1122,6 +1141,19 @@ export interface GraphWalkDoc {
   reached: Reached[] | null
 }
 
+export interface HeartbeatEnabledDoc {
+  heartbeatCaSecretCommand?: string
+  heartbeatIntervalSeconds: number
+  heartbeatRestartCommand?: string
+  heartbeatSecretCommand: string
+  heartbeatToken: string
+  heartbeatUpgradeCommand: string
+  heartbeatUrl: string
+  heartbeatWarning?: string
+  operator: RegionalOperator
+  rotated: boolean
+}
+
 export interface HistoricAgent {
   id: string
   name: string
@@ -1178,6 +1210,23 @@ export interface InformerDoc {
   synced: boolean
   objects: number
   lastError?: string
+}
+
+export interface IntentCommandDoc {
+  command?: string
+  endpoint?: string
+  installFragment: string
+  namespace: string
+  operators?: Record<string, string>
+  problems?: string[]
+  receiverAuth?: string
+  release: string
+  secretCommands: string[] | null
+  warnings?: string[]
+}
+
+export interface IntentCommandRequest {
+  telemetry: Telemetry | null
 }
 
 export interface InviteDoc {
@@ -1501,6 +1550,10 @@ export interface OkDoc {
   ok: boolean
 }
 
+export interface OperatorCertificatesDoc {
+  certificates: IssuedCertDoc[] | null
+}
+
 export interface OperatorDestination {
   kind: string
   endpoint: string
@@ -1536,9 +1589,38 @@ export interface OperatorHealthDoc {
   heartbeatEnabledAt?: string
 }
 
+export interface OperatorInstalledDoc {
+  exportSecretCommand?: string
+  exportTarget?: ExportTargetDoc
+  heartbeatCaSecretCommand?: string
+  heartbeatIntervalSeconds?: number
+  heartbeatSecretCommand?: string
+  heartbeatToken?: string
+  heartbeatUrl?: string
+  heartbeatWarning?: string
+  install: string
+  operator: RegionalOperator
+  reminders: string[] | null
+  restartCommand?: string
+  secretCommand?: string
+  tlsSecretCommand?: string
+  token?: string
+}
+
 export interface OperatorRefDoc {
   id: string
   name: string
+}
+
+export interface OperatorScopeChangedDoc {
+  exportSecretCommand?: string
+  exportTarget?: ExportTargetDoc
+  operator: RegionalOperator
+  reminders: string[] | null
+}
+
+export interface OperatorUninstallDoc {
+  uninstall?: string
 }
 
 export interface OrgDoc {
@@ -1886,6 +1968,11 @@ export interface RetentionStore {
   sizeLimitDays?: number
 }
 
+export interface RevokeOperatorRequest {
+  reason: string
+  force?: boolean
+}
+
 export interface RotateCredentialsRequest {
   cluster: string
   a: string
@@ -2110,6 +2197,10 @@ export interface SetAgentTierRequest {
 
 export interface SetMemberRoleRequest {
   role: string
+}
+
+export interface SetOperatorAddressRequest {
+  address: string
 }
 
 export interface SettingsConflictDoc {
@@ -2453,6 +2544,12 @@ export interface TwinModel {
 export interface TwoFactorSetupDoc {
   otpauthUrl: string
   secret: string
+}
+
+export interface UpdateOperatorScopeRequest {
+  sourceClusterIds: string[] | null
+  destination: OperatorDestination
+  acceptedModalities?: string[]
 }
 
 export interface UsedByDoc {

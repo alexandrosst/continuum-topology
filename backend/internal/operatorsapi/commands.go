@@ -401,7 +401,7 @@ type installMaterial struct {
 
 // operatorInstallDoc is the response of creating an operator and of installing it again: the operator, the install
 // command, what to apply in the source clusters, and the Secrets the install points at.
-func (h *API) operatorInstallDoc(r *http.Request, op store.Operator, m installMaterial) (map[string]any, error) {
+func (h *API) operatorInstallDoc(r *http.Request, op store.Operator, m installMaterial) (operatorInstalledDoc, error) {
 	core := h.For(r)
 	img := h.Settings.Images(core.Core)
 	hbURL := ""
@@ -417,90 +417,83 @@ func (h *API) operatorInstallDoc(r *http.Request, op store.Operator, m installMa
 	}
 	cmd, secretCmd, err := h.InstallCommand(img, m.Secret, op, m.TLS, hbURL, target, m.Reissue)
 	if err != nil {
-		return nil, h.cfgErr(r, err)
+		return operatorInstalledDoc{}, h.cfgErr(r, err)
 	}
-	resp := map[string]any{
-		"operator":  h.opDoc(r, op),
-		"install":   strings.TrimRight(cmd, "\n ") + install.Continued(m.Processors),
-		"reminders": h.SourceReminders(r, op, m.TLS),
+	resp := operatorInstalledDoc{
+		Operator:  h.opDoc(r, op),
+		Install:   strings.TrimRight(cmd, "\n ") + install.Continued(m.Processors),
+		Reminders: h.SourceReminders(r, op, m.TLS),
 	}
 	// A receiver bearer token exists only for a bearer operator (see operatorInstallCommand): for an mTLS
 	// one, "token" and "secretCommand" are absent - there is nothing to show, and operator.receiverAuth
 	// says why.
 	if op.ReceiverAuth != store.ReceiverAuthMTLS {
-		resp["token"] = m.Secret
-		resp["secretCommand"] = secretCmd
+		resp.Token = &m.Secret
+		resp.SecretCommand = &secretCmd
 	}
 	if m.HeartbeatSecret != "" {
 		// The install command above already carries the heartbeat --set flags; this is the one extra
 		// Secret it points at, plus the same facts a UI wants to show next to it.
-		resp["heartbeatToken"] = m.HeartbeatSecret
+		resp.HeartbeatToken = m.HeartbeatSecret
 		hbCmd, err := HeartbeatSecretCommand(op, m.HeartbeatSecret)
 		if err != nil {
-			return nil, h.cfgErr(r, err)
+			return operatorInstalledDoc{}, h.cfgErr(r, err)
 		}
-		resp["heartbeatSecretCommand"] = hbCmd
-		resp["heartbeatUrl"] = hbURL
-		resp["heartbeatIntervalSeconds"] = int(operators.OperatorHeartbeatInterval / time.Second)
-		if warn := HeartbeatURLWarning(hbURL); warn != "" {
-			resp["heartbeatWarning"] = warn
-		}
+		resp.HeartbeatSecretCommand = hbCmd
+		resp.HeartbeatURL = hbURL
+		resp.HeartbeatIntervalSeconds = int(operators.OperatorHeartbeatInterval / time.Second)
+		resp.HeartbeatWarning = HeartbeatURLWarning(hbURL)
 		caCmd, err := h.HeartbeatCASecretCommand(op)
 		if err != nil {
-			return nil, h.cfgErr(r, err)
+			return operatorInstalledDoc{}, h.cfgErr(r, err)
 		}
-		if caCmd != "" {
-			resp["heartbeatCaSecretCommand"] = caCmd
-		}
+		resp.HeartbeatCaSecretCommand = caCmd
 	}
 	tlsCmd, err := TLSSecretCommand(op, m.TLS)
 	if err != nil {
-		return nil, h.cfgErr(r, err)
+		return operatorInstalledDoc{}, h.cfgErr(r, err)
 	}
-	if tlsCmd != "" {
-		resp["tlsSecretCommand"] = tlsCmd
-	}
+	resp.TLSSecretCommand = tlsCmd
 	if m.Reissue {
 		// A Secret's new value is not seen by a running pod until it is restarted (its certificates reload on their
 		// own, a changed token or heartbeat secret does not).
 		restart, err := RestartCommand(op)
 		if err != nil {
-			return nil, h.cfgErr(r, err)
+			return operatorInstalledDoc{}, h.cfgErr(r, err)
 		}
-		resp["restartCommand"] = restart
+		resp.RestartCommand = restart
 	}
-	h.addOperatorTargetExport(r, resp, op)
+	resp.ExportSecretCommand, resp.ExportTarget = h.operatorTargetExport(r, op)
 	return resp, nil
 }
 
-// addOperatorTargetExport adds, for a regional operator that exports to ANOTHER operator (the central one, usually),
+// operatorTargetExport gives, for a regional operator that exports to ANOTHER operator (the central one, usually),
 // the one Secret its install command depends on: the client certificate the target's receiver requires, issued now
 // from the target's own CA. The install command itself already points the exporter at it (operatorInstallCommand).
 // The Secret lands in the operator's own namespace, which on a first install does not exist yet, so the command makes it.
-func (h *API) addOperatorTargetExport(r *http.Request, resp map[string]any, op store.Operator) {
+func (h *API) operatorTargetExport(r *http.Request, op store.Operator) (secretCommand string, exported *exportTargetDoc) {
 	if op.Destination.Kind != store.DestinationOperator {
-		return
+		return "", nil
 	}
 	core := h.For(r)
 	target, err := core.GetOperator(r.Context(), op.Destination.TargetOperatorID)
 	if err != nil {
-		return
+		return "", nil
 	}
 	target = h.Advertised(target)
 	certPEM, keyPEM, caPEM, err := core.IssueOperatorClientCertFor(r.Context(), httpkit.Actor(r), target.ID, op.ID, "for="+op.ID)
 	if err != nil || len(certPEM) == 0 {
-		return
+		return "", nil
 	}
 	secretCmd, err := ClientSecretCommand(target, certPEM, keyPEM, caPEM, "continuum-system", true)
 	if err != nil {
 		h.cfgErr(r, err) // logged; the response is without the Secret
-		return
+		return "", nil
 	}
-	resp["exportSecretCommand"] = secretCmd
 	endpoint := h.DestEndpoint(target, op.Destination)
-	exportTarget := map[string]any{"operatorId": target.ID, "name": target.Name, "endpoint": endpoint, "reachableFromOtherClusters": target.Address != "" || endpoint != h.Endpoint(target)}
-	if w := h.DestWarnings(r.Context(), target, op.Destination); len(w) > 0 {
-		exportTarget["warnings"] = w
+	return secretCmd, &exportTargetDoc{
+		OperatorID: target.ID, Name: target.Name, Endpoint: endpoint,
+		ReachableFromOtherClusters: target.Address != "" || endpoint != h.Endpoint(target),
+		Warnings:                   h.DestWarnings(r.Context(), target, op.Destination),
 	}
-	resp["exportTarget"] = exportTarget
 }

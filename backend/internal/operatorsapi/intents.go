@@ -126,7 +126,7 @@ func (h *API) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 	// certificate. Always returned so the caller does not have to guess it.
 	ns, name := h.AgentRelease(r, agent.ID)
 	rns, rname, _ := agents.ReleaseTarget(ns, name)
-	resp := map[string]any{"namespace": rns, "release": rname}
+	resp := intentCommandDoc{Namespace: rns, Release: rname}
 	// With the page's telemetry the answer is the whole block. What is wrong with that telemetry is found before anything is issued: a
 	// certificate is minted and audited for a command that will be written, not for one that cannot be.
 	var spec install.Telemetry
@@ -139,7 +139,7 @@ func (h *API) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if problems := spec.TowardOperators(receiverAuth).Problems(); len(problems) > 0 {
-			resp["installFragment"], resp["secretCommands"], resp["problems"] = "", []string{}, problems
+			resp.InstallFragment, resp.SecretCommands, resp.Problems = "", []string{}, problems
 			httpkit.WriteJSON(w, 200, resp)
 			return
 		}
@@ -224,7 +224,7 @@ func (h *API) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 			values = append(values, ClearRoutes(unrouted...)...)
 		}
 		if len(auth) > 0 {
-			resp["operators"] = auth
+			resp.Operators = auth
 		}
 	} else if ti.Destination.Kind == store.DestinationOperator {
 		op, err := h.For(r).GetOperator(r.Context(), ti.Destination.TargetOperatorID)
@@ -250,14 +250,14 @@ func (h *API) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 		// Whether the person must also supply a receiver bearer token: not for an "mtls" operator, whose
 		// only gate is the client certificate in the Secret above; for a "bearer" one the flags are exactly
 		// what they always were and the caller still supplies the token itself.
-		resp["receiverAuth"] = string(op.ReceiverAuth)
-		resp["operators"] = map[string]string{op.ID: string(op.ReceiverAuth)}
-		resp["endpoint"] = h.DestEndpoint(op, ti.Destination)
+		receiverAuthName, endpoint := string(op.ReceiverAuth), h.DestEndpoint(op, ti.Destination)
+		resp.ReceiverAuth, resp.Endpoint = &receiverAuthName, &endpoint
+		resp.Operators = map[string]string{op.ID: receiverAuthName}
 		if secretCmd != "" {
 			secretCommands = append(secretCommands, secretCmd)
 		}
 	}
-	resp["installFragment"], resp["secretCommands"] = install.Flags(values), secretCommands
+	resp.InstallFragment, resp.SecretCommands = install.Flags(values), secretCommands
 	if ask.Telemetry != nil {
 		img := h.images(r)
 		block, err := install.OperatorTelemetry{
@@ -268,10 +268,8 @@ func (h *API) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 			h.fail(w, r, h.cfgErr(r, err))
 			return
 		}
-		resp["command"], resp["problems"] = block, []string{}
+		resp.Command, resp.Problems = block, []string{}
 	}
-	if len(warnings) > 0 {
-		resp["warnings"] = warnings
-	}
+	resp.Warnings = warnings
 	httpkit.WriteJSON(w, 200, resp)
 }

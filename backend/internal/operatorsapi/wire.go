@@ -16,5 +16,17 @@ func WireTypes() []wire.Root {
 		{Name: "RegionalOperator", Value: Doc{}},
 		{Value: SendersDoc{}},
 		{Value: issuedCertDoc{}},
+		{Value: operatorInstalledDoc{}},
+		{Value: exportTargetDoc{}},
+		{Value: operatorScopeChangedDoc{}},
+		{Value: operatorCertificatesDoc{}},
+		{Value: operatorUninstallDoc{}},
+		{Value: heartbeatEnabledDoc{}},
+		{Value: intentCommandDoc{}},
+		{Value: createOperatorRequest{}},
+		{Value: setOperatorAddressRequest{}},
+		{Value: updateOperatorScopeRequest{}},
+		{Value: revokeOperatorRequest{}},
+		{Value: intentCommandRequest{}},
 	}
 }

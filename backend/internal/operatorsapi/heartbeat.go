@@ -60,14 +60,14 @@ func (h *API) enableOperatorHeartbeat(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, h.cfgErr(r, err))
 		return
 	}
-	resp := map[string]any{
-		"operator":                 h.opDoc(r, op),
-		"rotated":                  rotated,
-		"heartbeatToken":           secret,
-		"heartbeatSecretCommand":   secretCmd,
-		"heartbeatUpgradeCommand":  upgrade,
-		"heartbeatUrl":             url,
-		"heartbeatIntervalSeconds": int(operators.OperatorHeartbeatInterval / time.Second),
+	resp := heartbeatEnabledDoc{
+		Operator:                 h.opDoc(r, op),
+		Rotated:                  rotated,
+		HeartbeatToken:           secret,
+		HeartbeatSecretCommand:   secretCmd,
+		HeartbeatUpgradeCommand:  upgrade,
+		HeartbeatURL:             url,
+		HeartbeatIntervalSeconds: int(operators.OperatorHeartbeatInterval / time.Second),
 	}
 	if rotated {
 		// A Secret's new value is not seen by a running pod's environment: the collector has to restart
@@ -77,19 +77,15 @@ func (h *API) enableOperatorHeartbeat(w http.ResponseWriter, r *http.Request) {
 			h.fail(w, r, h.cfgErr(r, err))
 			return
 		}
-		resp["heartbeatRestartCommand"] = restart
+		resp.HeartbeatRestartCommand = restart
 	}
-	if warn := HeartbeatURLWarning(url); warn != "" {
-		resp["heartbeatWarning"] = warn
-	}
+	resp.HeartbeatWarning = HeartbeatURLWarning(url)
 	caCmd, err := h.HeartbeatCASecretCommand(op)
 	if err != nil {
 		h.fail(w, r, h.cfgErr(r, err))
 		return
 	}
-	if caCmd != "" {
-		resp["heartbeatCaSecretCommand"] = caCmd
-	}
+	resp.HeartbeatCaSecretCommand = caCmd
 	httpkit.WriteJSON(w, 200, resp)
 }
 

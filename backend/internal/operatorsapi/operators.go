@@ -4,7 +4,6 @@ import (
 	"errors"
 	"net/http"
 
-	"continuum/internal/destination"
 	"continuum/internal/httpkit"
 	"continuum/internal/install"
 	"continuum/internal/kernel"
@@ -37,27 +36,7 @@ func (h *API) getOperator(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *API) createOperator(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Name               string          `json:"name"`
-		SourceClusterIDs   []string        `json:"sourceClusterIds"`
-		Destination        destination.Doc `json:"destination"`
-		AcceptedModalities []string        `json:"acceptedModalities,omitempty"`
-		// Labels are fixed at creation: they live in the operator's own install (see store.OperatorLabel).
-		Labels []labelDoc `json:"labels,omitempty"`
-		// Heartbeat opts the new operator in to reporting that it is alive (see EnableOperatorHeartbeat).
-		// Absent means false: an older client that has never heard of the field must not quietly make an
-		// operator start calling this server (and an install whose heartbeat.url is plain HTTP is refused by the
-		// chart). The UI sends true by default and says what it does.
-		Heartbeat bool `json:"heartbeat,omitempty"`
-		// Exposure is how the operator's Service is made reachable from other clusters: "" or "cluster" (it is
-		// not: in-cluster only), "loadbalancer" or "nodeport". It sets the install command's service.type and is
-		// kept (store.Operator.Exposure) so the page can say an address is still to be recorded; the address that
-		// results is learned afterwards (POST .../address).
-		Exposure string `json:"exposure,omitempty"`
-		// ExtraProcessors are the OTel Collector processors to add to the operator's pipelines. They are chart values and nothing more: the
-		// operator record does not keep them, so they are in this command and in no other.
-		ExtraProcessors []install.Processor `json:"extraProcessors,omitempty"`
-	}
+	var req createOperatorRequest
 	if err := httpkit.Decode(r, &req); err != nil {
 		h.fail(w, r, err)
 		return
@@ -139,14 +118,12 @@ func (h *API) listOperatorCertificates(w http.ResponseWriter, r *http.Request) {
 			IssuedAt: kernel.RFC(c.IssuedAt), NotBefore: kernel.RFC(c.NotBefore), NotAfter: kernel.RFC(c.NotAfter), State: state,
 		})
 	}
-	httpkit.WriteJSON(w, 200, map[string]any{"certificates": out})
+	httpkit.WriteJSON(w, 200, operatorCertificatesDoc{Certificates: out})
 }
 
 // setOperatorAddress records the host:port other clusters reach the operator at ({"address": ""} clears it).
 func (h *API) setOperatorAddress(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Address string `json:"address"`
-	}
+	var req setOperatorAddressRequest
 	if err := httpkit.Decode(r, &req); err != nil {
 		h.fail(w, r, err)
 		return
@@ -172,11 +149,7 @@ func (h *API) setOperatorAddress(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *API) updateOperatorScope(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		SourceClusterIDs   []string        `json:"sourceClusterIds"`
-		Destination        destination.Doc `json:"destination"`
-		AcceptedModalities []string        `json:"acceptedModalities,omitempty"`
-	}
+	var req updateOperatorScopeRequest
 	if err := httpkit.Decode(r, &req); err != nil {
 		h.fail(w, r, err)
 		return
@@ -205,8 +178,8 @@ func (h *API) updateOperatorScope(w http.ResponseWriter, r *http.Request) {
 	if gained := clustersGained(before.SourceClusterIDs, op.SourceClusterIDs); len(gained) > 0 {
 		tlsBundle.Senders, tlsBundle.CACertPEM = h.For(r).MintSenderCerts(r.Context(), httpkit.Actor(r), op, gained)
 	}
-	resp := map[string]any{"operator": h.opDoc(r, op), "reminders": h.SourceReminders(r, op, tlsBundle)}
-	h.addOperatorTargetExport(r, resp, op)
+	resp := operatorScopeChangedDoc{Operator: h.opDoc(r, op), Reminders: h.SourceReminders(r, op, tlsBundle)}
+	resp.ExportSecretCommand, resp.ExportTarget = h.operatorTargetExport(r, op)
 	httpkit.WriteJSON(w, 200, resp)
 }
 
@@ -228,21 +201,17 @@ func clustersGained(before, now []string) []string {
 // uninstallDoc is the response of revoking or deleting an operator, which has been done by now: the command that removes the running
 // receiver, or no command (and a line in the log) when it cannot be written, which the operator's id, a name this server made, makes
 // unlikely.
-func (h *API) uninstallDoc(r *http.Request, id string) map[string]any {
+func (h *API) uninstallDoc(r *http.Request, id string) operatorUninstallDoc {
 	cmd, err := UninstallCommand(id)
 	if err != nil {
 		h.cfgErr(r, err)
-		return map[string]any{}
+		return operatorUninstallDoc{}
 	}
-	return map[string]any{"uninstall": cmd}
+	return operatorUninstallDoc{Uninstall: cmd}
 }
 
 func (h *API) revokeOperator(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Reason string `json:"reason"`
-		// Force confirms revoking an operator that others still send to (see Core.RevokeOperatorForce).
-		Force bool `json:"force,omitempty"`
-	}
+	var req revokeOperatorRequest
 	if err := httpkit.Decode(r, &req); err != nil {
 		h.fail(w, r, err)
 		return
