@@ -8,6 +8,14 @@ import type { DecisionLogEntry } from './placement/deciders'
 import type { AdvisorRecord, Proposal, ProposalStatus } from './proposals'
 import type { SelfTelemetryEntity } from './selfHealth'
 import type { EffectiveModel } from './provenance'
+import type * as W from './generated/wire'
+
+/** The page's own words for a shape the server writes: the generated type, with the fields the page knows more about than the server says
+ *  (a role is one of four words; the server writes it as text). */
+type Narrowed<T, N> = Omit<T, keyof N> & N
+/** What a call may send. The server reads a body field by field and takes one that is missing as empty, so each may be left out; what it
+ *  refuses is a field it does not know, and a field of the wrong kind, which is what this catches. */
+type Body<T> = Partial<T>
 
 export class ApiError extends Error {
   status: number
@@ -29,36 +37,7 @@ export function twoFactorPending(err: unknown): err is ApiError & { body: { pend
 
 export type TwoFactorMethod = 'totp' | 'email' | 'webauthn'
 
-export interface ServerInfo {
-  orgId: string
-  orgName: string
-  role: Role
-  agentAddress: string
-  /** How agentAddress is exposed (loadbalancer, nodeport, gateway, clusterip), or empty on an older install. See lib/exposure. */
-  agentExposure: string
-  /** This server's own Helm release name and namespace, when it knows them, for an exact (not fill-in-the-blank)
-   *  upgrade command in Settings → Server address. Empty on an older install. */
-  releaseName: string
-  releaseNamespace: string
-  caPin: string
-  version: string
-  /** Highest access tier this server release will grant. */
-  implementedTier: number
-  /**
-   * What the install command needs. `chartRef` is the registry chart it pulls (empty when it names the file this
-   * server hands out, `chartFile`). `imageRegistry`, `imageTag` and `imageDigest` are where the one agent image comes
-   * from, as the organisation's Settings → Installation (or else the server's flags) say; with no registry
-   * (`imagesConfigured` false) the chart's own image name applies and nothing here is published for you. A digest
-   * pins the image; a tag alone is mutable.
-   */
-  install?: { chartFile: string; chartRef: string; chartVersion: string; imagesConfigured: boolean; imageRegistry: string; imageTag: string; imageDigest: string }
-  /**
-   * Whether this server can suggest a location from an agent's connecting address. Off by default: the operator
-   * has to bring their own offline database (see Settings). Cloud region codes and city names typed into labels
-   * still work as placement signals either way; this only covers the IP-based one.
-   */
-  geoip?: { enabled: boolean; database?: string; description?: string; builtAt?: string; attribution?: string; publicIpFallback?: boolean; asn?: boolean }
-}
+export type ServerInfo = Narrowed<W.InfoDoc, { role: Role }>
 
 /** What a new install is asked to switch on (the per-node collectors) and to narrow (the namespaces the agent may report). */
 export interface TokenInstallOptions {
@@ -373,89 +352,30 @@ export const grantable = (by: Role | undefined): Role[] => (by === 'owner' ? ROL
 
 /** One passkey or security key registered to an account. id is what rename/remove address it by; it never
  *  carries anything that could be used to sign in with it. */
-export interface Passkey {
-  id: string
-  name: string
-  createdAt: string
-  lastUsedAt?: string
-}
+export type Passkey = W.PasskeyDoc
 
 /** One personal access token: a long-lived secret for calling the HTTP API without a signed-in browser
  *  (a script, a CI job, curl). Never carries the secret itself - only what settings needs to tell one
  *  apart from another before revoking it. */
-export interface ApiToken {
-  id: string
-  name: string
-  createdAt: string
-  lastUsedAt?: string
-}
+export type ApiToken = W.ApiTokenDoc
 
 /** The one-time answer to creating a token: the same fields as ApiToken, plus the secret itself. It is
  *  shown once, here, and never appears in a later call - listApiTokens returns only ApiToken. */
-export interface CreatedApiToken extends ApiToken {
-  token: string
-}
+export type CreatedApiToken = W.CreatedAPITokenDoc
 
-export interface User {
-  id: string
-  username: string
-  mustChangePassword: boolean
-  createdAt: string
-  lastLogin?: string
-  twoFactorEnabled: boolean
-  /** Shown even while unverified, so Settings can say "verifying jane@example.com...". Absent until set. */
-  email?: string
-  emailVerified: boolean
-  emailOtpEnabled: boolean
-  /** Whether this server can send mail at all - when false, email-OTP isn't offered regardless of the above. */
-  mailConfigured: boolean
-  /** Whether this account may read and change the server's SMTP configuration: true only for an owner of
-   *  the default organisation (the one created with the first account) - see Settings → Email. */
-  canManageMail: boolean
-  /** Every passkey/security key on the account, oldest first. Unlike the other two methods there is no
-   *  separate enabled flag: having at least one of these is what turns "webauthn" on as a sign-in method. */
-  passkeys: Passkey[]
-}
+export type User = W.UserDoc
 
-export interface OrgRef {
-  id: string
-  name: string
-  role: Role
-}
+export type OrgRef = Narrowed<W.OrgDoc, { role: Role }>
 
-export interface Session {
-  user: User
-  orgs: OrgRef[]
-}
+export type Session = Narrowed<W.SessionDoc, { orgs: OrgRef[] }>
 
 export type Registration = 'open' | 'invite' | 'closed'
 
-export interface Member {
-  id: string
-  username: string
-  role: Role
-  joinedAt: string
-  lastLogin?: string
-  you?: boolean
-}
+export type Member = Narrowed<W.MemberDoc, { role: Role }>
 
-export interface Invite {
-  id: string
-  role: Role
-  label?: string
-  createdBy: string
-  createdAt: string
-  expiresAt: string
-  used: boolean
-  usedBy?: string
-  expired?: boolean
-}
+export type Invite = Narrowed<W.InviteDoc, { role: Role }>
 
-export interface InvitePreview {
-  organisation: string
-  role: Role
-  expiresAt: string
-}
+export type InvitePreview = Narrowed<W.InvitePreviewDoc, { role: Role }>
 
 export interface WorkspaceMeta {
   rev: number
@@ -594,15 +514,7 @@ export interface WorkspaceRevision {
 /** The server's outgoing-mail (SMTP) configuration, server-wide rather than per organisation - see
  *  Settings → Email. Only visible to and settable by an owner of the default organisation
  *  (`User.canManageMail`); the password is never sent back, only `passwordSet`. */
-export interface MailConfig {
-  host: string
-  port: string
-  username: string
-  from: string
-  passwordSet: boolean
-  /** Derived: same as `host` being non-empty, for convenience. */
-  enabled: boolean
-}
+export type MailConfig = W.MailConfigDoc
 
 /** Where the server lives. An empty url means the address this page was loaded from. The session is a cookie, so there is no token here. */
 export interface Conn {
@@ -655,9 +567,9 @@ async function call<T>(c: Conn, method: string, path: string, body?: unknown, he
 
 export const api = {
   // session and accounts
-  serverInfo: (c: Conn) => call<{ registration: Registration; version: string; sso?: boolean }>(c, 'GET', '/api/v1/server'),
+  serverInfo: (c: Conn) => call<Narrowed<W.ServerInfoDoc, { registration: Registration }>>(c, 'GET', '/api/v1/server'),
   me: (c: Conn) => call<Session>(c, 'GET', '/api/v1/auth/me'),
-  login: (c: Conn, username: string, password: string) => call<Session>(c, 'POST', '/api/v1/auth/login', { username, password }),
+  login: (c: Conn, username: string, password: string) => call<Session>(c, 'POST', '/api/v1/auth/login', { username, password } satisfies Body<W.LoginRequest>),
   // Trusted-header SSO: succeeds only when the server has --admin-sso-header configured AND its reverse proxy
   // asserted an identity that matches an existing account - see serverInfo's `sso` flag, which is what tells the
   // UI it's worth trying this before showing the ordinary sign-in form. A 401 (no header, unknown identity, or
@@ -665,59 +577,59 @@ export const api = {
   ssoLogin: (c: Conn) => call<Session>(c, 'GET', '/api/v1/auth/sso'),
   // Called after `login` throws with `twoFactorPending(err)` true, with the code from an authenticator app
   // (or one of the account's recovery codes) and the `pending` token that error carried.
-  login2FA: (c: Conn, pending: string, code: string) => call<Session>(c, 'POST', '/api/v1/auth/login/2fa', { pending, code }),
+  login2FA: (c: Conn, pending: string, code: string) => call<Session>(c, 'POST', '/api/v1/auth/login/2fa', { pending, code } satisfies Body<W.Login2FARequest>),
   // Mails a fresh code for a pending sign-in that offers 'email' as a method; the code comes back through
   // login2FA's `code` field exactly like a TOTP or recovery code.
-  requestLoginEmailCode: (c: Conn, pending: string) => call<void>(c, 'POST', '/api/v1/auth/login/2fa/email', { pending }),
+  requestLoginEmailCode: (c: Conn, pending: string) => call<void>(c, 'POST', '/api/v1/auth/login/2fa/email', { pending } satisfies Body<W.RequestLoginEmailCodeRequest>),
   register: (c: Conn, username: string, password: string, opts: { org?: string; invite?: string } = {}) =>
-    call<Session>(c, 'POST', '/api/v1/auth/register', { username, password, ...(opts.org ? { org: opts.org } : {}), ...(opts.invite ? { invite: opts.invite } : {}) }),
+    call<Session>(c, 'POST', '/api/v1/auth/register', { username, password, ...(opts.org ? { org: opts.org } : {}), ...(opts.invite ? { invite: opts.invite } : {}) } satisfies Body<W.RegisterRequest>),
   logout: (c: Conn) => call<void>(c, 'POST', '/api/v1/auth/logout'),
-  changePassword: (c: Conn, current: string, next: string) => call<Session>(c, 'POST', '/api/v1/auth/password', { current, new: next }),
+  changePassword: (c: Conn, current: string, next: string) => call<Session>(c, 'POST', '/api/v1/auth/password', { current, new: next } satisfies Body<W.ChangePasswordRequest>),
   // Two-factor authentication (TOTP): setup2FA hands back a fresh secret (and its otpauth:// URI, for a
   // copyable key rather than a QR code) that isn't active until enable2FA confirms one code from it - at
   // which point it returns this account's one-time recovery codes. disable2FA needs the current password.
-  setup2FA: (c: Conn) => call<{ secret: string; otpauthUrl: string }>(c, 'POST', '/api/v1/auth/2fa/setup'),
-  enable2FA: (c: Conn, code: string) => call<{ recoveryCodes: string[] }>(c, 'POST', '/api/v1/auth/2fa/enable', { code }),
-  disable2FA: (c: Conn, password: string) => call<Session>(c, 'POST', '/api/v1/auth/2fa/disable', { password }),
+  setup2FA: (c: Conn) => call<W.TwoFactorSetupDoc>(c, 'POST', '/api/v1/auth/2fa/setup'),
+  enable2FA: (c: Conn, code: string) => call<W.RecoveryCodesDoc>(c, 'POST', '/api/v1/auth/2fa/enable', { code } satisfies Body<W.Enable2FARequest>),
+  disable2FA: (c: Conn, password: string) => call<Session>(c, 'POST', '/api/v1/auth/2fa/disable', { password } satisfies Body<W.Disable2FARequest>),
   // Email as a second factor: requestEmailVerification mails a code to a (possibly new) address and shows it
   // right away, unverified; confirmEmail proves the account can read it. Changing the address this way resets
   // verification and turns email-OTP back off (enforced server-side), so re-verifying is always required after
   // a change. enableEmailOTP needs no code of its own since verification already proved deliverability;
   // disableEmailOTP needs the current password and leaves the address itself verified.
-  requestEmailVerification: (c: Conn, email: string) => call<Session>(c, 'POST', '/api/v1/auth/email/request', { email }),
-  confirmEmail: (c: Conn, code: string) => call<Session>(c, 'POST', '/api/v1/auth/email/confirm', { code }),
+  requestEmailVerification: (c: Conn, email: string) => call<Session>(c, 'POST', '/api/v1/auth/email/request', { email } satisfies Body<W.RequestEmailVerificationRequest>),
+  confirmEmail: (c: Conn, code: string) => call<Session>(c, 'POST', '/api/v1/auth/email/confirm', { code } satisfies Body<W.ConfirmEmailRequest>),
   enableEmailOTP: (c: Conn) => call<Session>(c, 'POST', '/api/v1/auth/email-otp/enable'),
-  disableEmailOTP: (c: Conn, password: string) => call<Session>(c, 'POST', '/api/v1/auth/email-otp/disable', { password }),
+  disableEmailOTP: (c: Conn, password: string) => call<Session>(c, 'POST', '/api/v1/auth/email-otp/disable', { password } satisfies Body<W.DisableEmailOTPRequest>),
   // Passkeys (WebAuthn): begin* returns the options object exactly as the server's provider built it - hand
   // it straight to lib/webauthn's createPasskey/getPasskey, and send what they return back as `response`
   // unchanged. Registering and signing in with a passkey are each two calls for that reason: the browser
   // ceremony has to happen between them.
   beginPasskeyRegistration: (c: Conn) => call<unknown>(c, 'POST', '/api/v1/auth/webauthn/register/begin'),
-  finishPasskeyRegistration: (c: Conn, name: string, response: unknown) => call<Session>(c, 'POST', '/api/v1/auth/webauthn/register/finish', { name, response }),
-  renamePasskey: (c: Conn, id: string, name: string) => call<Session>(c, 'POST', `/api/v1/auth/webauthn/${encodeURIComponent(id)}/rename`, { name }),
-  removePasskey: (c: Conn, id: string, password: string) => call<Session>(c, 'POST', `/api/v1/auth/webauthn/${encodeURIComponent(id)}/remove`, { password }),
+  finishPasskeyRegistration: (c: Conn, name: string, response: unknown) => call<Session>(c, 'POST', '/api/v1/auth/webauthn/register/finish', { name, response } satisfies Body<W.FinishPasskeyRegistrationRequest>),
+  renamePasskey: (c: Conn, id: string, name: string) => call<Session>(c, 'POST', `/api/v1/auth/webauthn/${encodeURIComponent(id)}/rename`, { name } satisfies Body<W.RenamePasskeyRequest>),
+  removePasskey: (c: Conn, id: string, password: string) => call<Session>(c, 'POST', `/api/v1/auth/webauthn/${encodeURIComponent(id)}/remove`, { password } satisfies Body<W.RemovePasskeyRequest>),
   // The login half needs no session yet, same as login/login2FA: `pending` is the token login() returned.
-  beginPasskeyLogin: (c: Conn, pending: string) => call<unknown>(c, 'POST', '/api/v1/auth/login/2fa/webauthn/begin', { pending }),
-  finishPasskeyLogin: (c: Conn, pending: string, response: unknown) => call<Session>(c, 'POST', '/api/v1/auth/login/2fa/webauthn/finish', { pending, response }),
+  beginPasskeyLogin: (c: Conn, pending: string) => call<unknown>(c, 'POST', '/api/v1/auth/login/2fa/webauthn/begin', { pending } satisfies Body<W.BeginPasskeyLoginRequest>),
+  finishPasskeyLogin: (c: Conn, pending: string, response: unknown) => call<Session>(c, 'POST', '/api/v1/auth/login/2fa/webauthn/finish', { pending, response } satisfies Body<W.FinishPasskeyLoginRequest>),
   // Personal API tokens: a self-service list, entirely separate from the session/passkey machinery above -
   // revoking or creating one never touches (or returns) the signed-in session itself.
   listApiTokens: (c: Conn) => call<ApiToken[]>(c, 'GET', '/api/v1/auth/tokens'),
-  createApiToken: (c: Conn, name: string) => call<CreatedApiToken>(c, 'POST', '/api/v1/auth/tokens', { name }),
+  createApiToken: (c: Conn, name: string) => call<CreatedApiToken>(c, 'POST', '/api/v1/auth/tokens', { name } satisfies Body<W.CreateAPITokenRequest>),
   revokeApiToken: (c: Conn, id: string) => call<void>(c, 'POST', `/api/v1/auth/tokens/${encodeURIComponent(id)}/revoke`),
 
   // organisations, members, invitations
   orgs: (c: Conn) => call<OrgRef[]>(c, 'GET', '/api/v1/orgs'),
-  createOrg: (c: Conn, name: string) => call<OrgRef>(c, 'POST', '/api/v1/orgs', { name }),
-  previewInvite: (c: Conn, token: string) => call<InvitePreview>(c, 'POST', '/api/v1/invites/preview', { token }),
-  acceptInvite: (c: Conn, token: string) => call<OrgRef>(c, 'POST', '/api/v1/invites/accept', { token }),
+  createOrg: (c: Conn, name: string) => call<OrgRef>(c, 'POST', '/api/v1/orgs', { name } satisfies Body<W.CreateOrgRequest>),
+  previewInvite: (c: Conn, token: string) => call<InvitePreview>(c, 'POST', '/api/v1/invites/preview', { token } satisfies Body<W.PreviewInviteRequest>),
+  acceptInvite: (c: Conn, token: string) => call<OrgRef>(c, 'POST', '/api/v1/invites/accept', { token } satisfies Body<W.AcceptInviteRequest>),
   renameOrg: (c: Conn, name: string) => call<void>(c, 'POST', '/api/v1/rename', { name }),
   deleteOrg: (c: Conn, confirm: string) => call<void>(c, 'POST', '/api/v1/delete', { confirm }),
   leaveOrg: (c: Conn) => call<void>(c, 'POST', '/api/v1/leave'),
   members: (c: Conn) => call<Member[]>(c, 'GET', '/api/v1/members'),
-  setMemberRole: (c: Conn, id: string, role: Role) => call<void>(c, 'POST', `/api/v1/members/${id}/role`, { role }),
+  setMemberRole: (c: Conn, id: string, role: Role) => call<void>(c, 'POST', `/api/v1/members/${id}/role`, { role } satisfies Body<W.SetMemberRoleRequest>),
   removeMember: (c: Conn, id: string) => call<void>(c, 'POST', `/api/v1/members/${id}/remove`),
   invites: (c: Conn) => call<Invite[]>(c, 'GET', '/api/v1/invites'),
-  createInvite: (c: Conn, role: Role, label: string) => call<{ token: string; invite: Invite }>(c, 'POST', '/api/v1/invites', { role, label }),
+  createInvite: (c: Conn, role: Role, label: string) => call<Narrowed<W.CreatedInviteDoc, { invite: Invite }>>(c, 'POST', '/api/v1/invites', { role, label } satisfies Body<W.CreateInviteRequest>),
   revokeInvite: (c: Conn, id: string) => call<void>(c, 'DELETE', `/api/v1/invites/${id}`),
 
   info: (c: Conn) => call<ServerInfo>(c, 'GET', '/api/v1/info'),
@@ -860,7 +772,7 @@ export const api = {
   // saveSettings' decider secret: omit `password` (or send "") to leave it alone, `clearPassword: true` to
   // remove it, a non-empty `password` to set a new one.
   mailConfig: (c: Conn) => call<MailConfig>(c, 'GET', '/api/v1/mail'),
-  saveMailConfig: (c: Conn, m: { host: string; port: string; username: string; from: string; password?: string; clearPassword?: boolean }) =>
+  saveMailConfig: (c: Conn, m: Body<W.PutMailConfigRequest>) =>
     call<MailConfig>(c, 'PUT', '/api/v1/mail', m),
   history: (c: Conn, since?: string) =>
     call<Partial<HistoryIndex>>(c, 'GET', `/api/v1/history${since ? `?since=${encodeURIComponent(since)}` : ''}`).then((h) => ({ points: h.points ?? [], snapshotMinutes: h.snapshotMinutes ?? 5, retentionDays: h.retentionDays ?? 30 }) as HistoryIndex),
