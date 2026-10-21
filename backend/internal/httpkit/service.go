@@ -8,6 +8,7 @@
 package httpkit
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,11 +21,28 @@ import (
 )
 
 // WriteJSON writes v as the body of the answer, with the status code.
+//
+// A nil slice or map in v is written as [] or {}, not null (see ListsAsLists): what the TypeScript written from the Go types promises. The
+// answer is encoded before anything is sent, so a value that cannot be encoded is a 500 and not a status line followed by half a body.
 func WriteJSON(w http.ResponseWriter, code int, v any) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	err := enc.Encode(v)
+	if err == nil && bytes.Contains(buf.Bytes(), nullText) { // the common answer has none and is not walked
+		buf.Reset()
+		err = enc.Encode(ListsAsLists(v))
+	}
 	w.Header().Set("Content-Type", "application/json")
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(ErrorDoc{Error: "the answer could not be written"})
+		return
+	}
 	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(v)
+	_, _ = w.Write(buf.Bytes())
 }
+
+var nullText = []byte("null")
 
 // WriteErr writes {"error": msg} with the status code.
 func WriteErr(w http.ResponseWriter, code int, msg string) {
