@@ -10,5 +10,8 @@ import (
 func WireTypes() []wire.Root {
 	return []wire.Root{
 		{Value: LinksLatestDoc{}},
+		{Value: rotateCredentialsRequest{}},
+		{Value: rotatedDoc{}},
+		{Value: fusionLinksDoc{}},
 	}
 }

@@ -141,12 +141,7 @@ func (x *API) FusionLinks(w http.ResponseWriter, r *http.Request, c *fusionapi.C
 			want = append(want, l)
 		}
 	}
-	doc := struct {
-		Pairs []fusionLinkPair `json:"pairs"`
-		At    time.Time        `json:"at"`
-		// Stale says At is older than the last attempt: FUSION could not be read just now and these are the previous figures.
-		Stale bool `json:"stale,omitempty"`
-	}{Pairs: []fusionLinkPair{}, At: x.Now().UTC()}
+	doc := fusionLinksDoc{Pairs: []fusionLinkPair{}, At: x.Now().UTC()}
 	if len(want) > 0 {
 		pairs, sample, err := x.linkPairReadings(r.Context(), c, want)
 		if err != nil {

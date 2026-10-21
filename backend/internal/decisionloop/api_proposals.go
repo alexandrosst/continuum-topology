@@ -81,14 +81,7 @@ func toProposalDoc(p store.Proposal, o *store.ProposalOutcome) proposalDoc {
 // submitProposal is POST .../proposals.
 func (h API) submitProposal(w http.ResponseWriter, r *http.Request) {
 	s := h.For(r)
-	var req struct {
-		Advisor      string             `json:"advisor"`
-		ModelVersion int64              `json:"modelVersion"`
-		Change       AccessChange       `json:"change"`
-		Evidence     []EvidenceFact     `json:"evidence"`
-		Predicted    map[string]float64 `json:"predicted"`
-		TTLSeconds   int                `json:"ttlSeconds"`
-	}
+	var req submitProposalRequest
 	if err := httpkit.Decode(r, &req); err != nil {
 		httpkit.Fail(w, s.Log, err)
 		return
@@ -133,7 +126,7 @@ func (h API) listProposals(w http.ResponseWriter, r *http.Request) {
 	for i, p := range ps {
 		out[i] = toProposalDoc(p, nil)
 	}
-	httpkit.WriteJSON(w, http.StatusOK, map[string]any{"proposals": out})
+	httpkit.WriteJSON(w, http.StatusOK, proposalsDoc{Proposals: out})
 }
 
 // advisorRecordDoc is one advisor's record, as GET .../proposals/advisors returns it.
@@ -165,7 +158,7 @@ func (h API) listAdvisors(w http.ResponseWriter, r *http.Request) {
 		out[i] = advisorRecordDoc{Advisor: x.Advisor, Proposals: x.Proposals, Pending: x.Pending, Accepted: x.Accepted, Failed: x.Failed, Rejected: x.Rejected,
 			Expired: x.Expired, Measured: x.Measured, Unconfirmed: x.Unconfirmed, NoData: x.NoData, Held: x.Held, Missed: x.Missed}
 	}
-	httpkit.WriteJSON(w, http.StatusOK, map[string]any{"advisors": out})
+	httpkit.WriteJSON(w, http.StatusOK, advisorsDoc{Advisors: out})
 }
 
 func atoiPositive(s string) (int, bool) {
@@ -193,9 +186,7 @@ func (h API) getProposal(w http.ResponseWriter, r *http.Request) {
 func (h API) decideProposal(accept bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		s := h.For(r)
-		var req struct {
-			Note string `json:"note"`
-		}
+		var req decideProposalRequest
 		if err := httpkit.Decode(r, &req); err != nil {
 			httpkit.Fail(w, s.Log, err)
 			return

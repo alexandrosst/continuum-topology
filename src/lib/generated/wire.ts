@@ -20,6 +20,15 @@ export interface AcceptInviteRequest {
   token: string
 }
 
+export interface AccessChange {
+  agentId: string
+  tier?: number
+  pause?: string[]
+  resume?: string[]
+  exclude?: string[]
+  include?: string[]
+}
+
 export interface AddressCandidate {
   id: string
   address: string
@@ -88,6 +97,10 @@ export interface AdvisorRecordDoc {
   noData: number
   held: number
   missed: number
+}
+
+export interface AdvisorsDoc {
+  advisors: AdvisorRecordDoc[] | null
 }
 
 export interface Agent {
@@ -567,6 +580,16 @@ export interface CreateOrgRequest {
   name: string
 }
 
+export interface CreateTelemetryIntentRequest {
+  agentId: string
+  name: string
+  namespaces: string[] | null
+  exclude: string[] | null
+  signals: SignalGrantDoc[] | null
+  destination: OperatorDestination
+  routes: Record<string, OperatorDestination> | null
+}
+
 export interface CreateTokenRequest {
   name: string
   tier: number
@@ -600,6 +623,25 @@ export interface CredentialSecretDoc {
   command: string
 }
 
+export interface DecideProposalRequest {
+  note: string
+}
+
+export interface DecisionEntryDoc {
+  deciderId: string
+  deciderName: string
+  deciderKind: string
+  input: DecisionInputDoc
+  moves: DecisionMoveDoc[] | null
+}
+
+export interface DecisionInputDoc {
+  schema: number
+  clusterCount: number
+  serviceCount: number
+  policy: unknown
+}
+
 export interface DecisionLogDoc {
   id: string
   at: string
@@ -618,6 +660,24 @@ export interface DecisionLogDoc {
   beforeCost: number
   afterCost: number
   migrationCost: number
+}
+
+export interface DecisionMoveDoc {
+  serviceId: string
+  serviceName: string
+  from: string
+  to: string
+  reason: string
+  benefit: number
+  confidence: string
+  verdict: string
+  beforeCost: number
+  afterCost: number
+  migrationCost: number
+}
+
+export interface DecisionsDoc {
+  decisions: DecisionLogDoc[] | null
 }
 
 export interface DeleteOrgRequest {
@@ -839,6 +899,14 @@ export interface Evidence {
   detail?: string
 }
 
+export interface EvidenceFact {
+  name: string
+  value?: string
+  class: string
+  observedAt?: string
+  source?: string
+}
+
 export interface ExcludedDoc {
   cluster: string
   name: string
@@ -878,6 +946,11 @@ export interface ExposeDoc {
   namespace: string
   commands: { nodePort: string; loadBalancer: string }
   value: string
+}
+
+export interface ExternalDecisionDoc {
+  decider: string
+  result: unknown
 }
 
 export interface ExternalEndpoint {
@@ -973,6 +1046,29 @@ export interface FusionComponent {
   reason?: string
 }
 
+export interface FusionLinkPair {
+  a: string
+  b: string
+  rttSeconds?: number
+  lossAToB?: number
+  lossBToA?: number
+  jitterSeconds?: number
+  mtuBytes?: number
+  throughputAToB?: number
+  throughputBToA?: number
+  probedAt?: string
+  testedAt?: string
+  probeAToB?: LinkProbeLatest
+  probeBToA?: LinkProbeLatest
+  measuredBy: string[] | null
+}
+
+export interface FusionLinksDoc {
+  pairs: FusionLinkPair[] | null
+  at: string
+  stale?: boolean
+}
+
 export interface FusionStatus {
   available: boolean
   reason?: string
@@ -996,6 +1092,13 @@ export interface FusionTokenDoc {
   createdAt: string
   expiresAt: string
   lastUsedAt?: string
+}
+
+export interface GatewayTokenDoc {
+  active: boolean
+  createdAt?: string
+  expired?: boolean
+  expiresAt?: string
 }
 
 export interface GraphDiffDoc {
@@ -1258,6 +1361,16 @@ export interface MetricSeries {
   max: number
   avg: number
   last: number
+}
+
+export interface MintGatewayTokenRequest {
+  ttlSeconds: number
+}
+
+export interface MintedGatewayTokenDoc {
+  createdAt: string
+  expiresAt: string
+  token: string
 }
 
 export interface ModuleDoc {
@@ -1569,6 +1682,10 @@ export interface ProposalDoc {
   outcome?: OutcomeDoc
 }
 
+export interface ProposalsDoc {
+  proposals: ProposalDoc[] | null
+}
+
 export interface PutMailConfigRequest {
   host: string
   port: string
@@ -1611,6 +1728,14 @@ export interface Reached {
   cluster?: string
   doc: unknown
   hops: number
+}
+
+export interface RecordDecisionsRequest {
+  entries: DecisionEntryDoc[] | null
+}
+
+export interface RecordedDoc {
+  recorded: number
 }
 
 export interface RecoveryCodesDoc {
@@ -1761,6 +1886,16 @@ export interface RetentionStore {
   sizeLimitDays?: number
 }
 
+export interface RotateCredentialsRequest {
+  cluster: string
+  a: string
+  b: string
+}
+
+export interface RotatedDoc {
+  rotated: boolean
+}
+
 export interface Routes {
   split: boolean
   metrics: Destination
@@ -1768,6 +1903,31 @@ export interface Routes {
   traces: Destination
   installed: boolean
   kept: string[] | null
+}
+
+export interface SaveSettingsRequest {
+  snapshotMinutes: number
+  retentionDays: number
+  maxHistoryMb: number
+  tombstoneRetentionDays: number
+  eventRetentionDays: number
+  consistencyMinutes: number
+  staleAfterBeats: number
+  flowStaleSeconds: number
+  measureSeconds: number
+  probeTargets: ProbeTarget[] | null
+  links: LinkSetting[] | null
+  allowedBackendKinds: string[] | null
+  quickStartBackends: QuickStartBackend[] | null
+  deciderUrl: string
+  deciderName: string
+  deciderTimeoutSec: number
+  deciderSecret?: string
+  imageRegistry: string
+  imageTag: string
+  imageDigest: string
+  serverClusterId?: string
+  clearDeciderSecret: boolean
 }
 
 export interface Scope {
@@ -1952,6 +2112,35 @@ export interface SetMemberRoleRequest {
   role: string
 }
 
+export interface SettingsConflictDoc {
+  snapshotMinutes: number
+  retentionDays: number
+  maxHistoryMb: number
+  tombstoneRetentionDays: number
+  eventRetentionDays: number
+  consistencyMinutes: number
+  staleAfterBeats: number
+  flowStaleSeconds: number
+  measureSeconds: number
+  probeTargets: ProbeTarget[] | null
+  links: LinkSetting[] | null
+  allowedBackendKinds: string[] | null
+  quickStartBackends: QuickStartBackend[] | null
+  deciderUrl: string
+  deciderName: string
+  deciderTimeoutSec: number
+  deciderSecret?: string
+  imageRegistry: string
+  imageTag: string
+  imageDigest: string
+  serverClusterId?: string
+  deciderConfigured: boolean
+  deciderSecretSet: boolean
+  imageDefaults: ImageConfig
+  rev: number
+  error: string
+}
+
 export interface SettingsDoc {
   snapshotMinutes: number
   retentionDays: number
@@ -2064,6 +2253,15 @@ export interface StorageDoc {
   stats?: Stats
 }
 
+export interface SubmitProposalRequest {
+  advisor: string
+  modelVersion: number
+  change: AccessChange
+  evidence: EvidenceFact[] | null
+  predicted: Record<string, number> | null
+  ttlSeconds: number
+}
+
 export interface Suggestion {
   id: string
   orgId: string
@@ -2118,6 +2316,11 @@ export interface TelemetryConfigDoc {
   acceleratorsSource?: string
 }
 
+export interface TelemetryIntentDestinationRequest {
+  destination: OperatorDestination
+  routes: Record<string, OperatorDestination> | null
+}
+
 export interface TelemetryIntentDoc {
   id: string
   agentId: string
@@ -2132,6 +2335,12 @@ export interface TelemetryIntentDoc {
   createdBy: string
   revokedAt?: string
   reason?: string
+}
+
+export interface TelemetryIntentScopeRequest {
+  namespaces: string[] | null
+  exclude: string[] | null
+  signals: SignalGrantDoc[] | null
 }
 
 export interface TimelineDoc {

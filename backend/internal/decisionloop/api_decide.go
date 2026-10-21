@@ -111,7 +111,7 @@ func (h API) decide(w http.ResponseWriter, r *http.Request) {
 	if name == "" {
 		name = "External decider"
 	}
-	httpkit.WriteJSON(w, 200, map[string]any{"decider": name, "result": json.RawMessage(out)})
+	httpkit.WriteJSON(w, 200, externalDecisionDoc{Decider: name, Result: json.RawMessage(out)})
 }
 
 // scrubURLError keeps the address (which may carry a secret in its query) out of logs.

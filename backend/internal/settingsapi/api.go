@@ -77,10 +77,7 @@ func (h *API) putSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		expect = &v
 	}
-	var body struct {
-		kernel.Settings
-		ClearDeciderSecret bool `json:"clearDeciderSecret"`
-	}
+	var body saveSettingsRequest
 	if err := httpkit.Decode(r, &body); err != nil {
 		httpkit.WriteErr(w, 400, err.Error())
 		return
@@ -99,10 +96,7 @@ func (h *API) putSettings(w http.ResponseWriter, r *http.Request) {
 	if errors.As(err, &ce) && ce.Kind == kernel.KindConflict {
 		d := settingsDoc(n, rev, true)
 		d.ImageDefaults = h.ImageDefaults()
-		httpkit.WriteJSON(w, http.StatusConflict, struct {
-			SettingsDoc
-			Error string `json:"error"`
-		}{d, ce.Msg})
+		httpkit.WriteJSON(w, http.StatusConflict, settingsConflictDoc{d, ce.Msg})
 		return
 	}
 	if err != nil {

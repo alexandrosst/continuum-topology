@@ -134,16 +134,7 @@ func (h API) getTelemetryIntent(w http.ResponseWriter, r *http.Request) {
 
 func (h API) createTelemetryIntent(w http.ResponseWriter, r *http.Request) {
 	s := h.For(r)
-	var req struct {
-		AgentID     string           `json:"agentId"`
-		Name        string           `json:"name"`
-		Namespaces  []string         `json:"namespaces"`
-		Exclude     []string         `json:"exclude"`
-		Signals     []signalGrantDoc `json:"signals"`
-		Destination destination.Doc  `json:"destination"`
-		// Routes: a destination per signal type that has one of its own - see store.TelemetryIntent.Routes.
-		Routes map[string]destination.Doc `json:"routes"`
-	}
+	var req createTelemetryIntentRequest
 	if err := httpkit.Decode(r, &req); err != nil {
 		httpkit.Fail(w, s.Log, err)
 		return
@@ -165,11 +156,7 @@ func (h API) createTelemetryIntent(w http.ResponseWriter, r *http.Request) {
 
 func (h API) updateTelemetryIntentScope(w http.ResponseWriter, r *http.Request) {
 	s := h.For(r)
-	var req struct {
-		Namespaces []string         `json:"namespaces"`
-		Exclude    []string         `json:"exclude"`
-		Signals    []signalGrantDoc `json:"signals"`
-	}
+	var req telemetryIntentScopeRequest
 	if err := httpkit.Decode(r, &req); err != nil {
 		httpkit.Fail(w, s.Log, err)
 		return
@@ -189,12 +176,7 @@ func (h API) updateTelemetryIntentScope(w http.ResponseWriter, r *http.Request) 
 
 func (h API) updateTelemetryIntentDestination(w http.ResponseWriter, r *http.Request) {
 	s := h.For(r)
-	var req struct {
-		Destination destination.Doc `json:"destination"`
-		// Routes, when present (even empty), replaces the per-signal-type destinations together with the
-		// default; absent leaves them as they are.
-		Routes map[string]destination.Doc `json:"routes"`
-	}
+	var req telemetryIntentDestinationRequest
 	if err := httpkit.Decode(r, &req); err != nil {
 		httpkit.Fail(w, s.Log, err)
 		return
@@ -247,9 +229,7 @@ func (h API) deleteTelemetryIntent(w http.ResponseWriter, r *http.Request) {
 // clamped server-side, see MintGatewayToken's own comment.
 func (h API) mintGatewayToken(w http.ResponseWriter, r *http.Request) {
 	s := h.For(r)
-	var req struct {
-		TTLSeconds int `json:"ttlSeconds"`
-	}
+	var req mintGatewayTokenRequest
 	if err := httpkit.Decode(r, &req); err != nil {
 		httpkit.Fail(w, s.Log, err)
 		return
@@ -259,11 +239,7 @@ func (h API) mintGatewayToken(w http.ResponseWriter, r *http.Request) {
 		httpkit.Fail(w, s.Log, err)
 		return
 	}
-	httpkit.WriteJSON(w, 201, map[string]any{
-		"token":     secret,
-		"createdAt": kernel.RFC(t.CreatedAt),
-		"expiresAt": kernel.RFC(t.ExpiresAt),
-	})
+	httpkit.WriteJSON(w, 201, mintedGatewayTokenDoc{Token: secret, CreatedAt: kernel.RFC(t.CreatedAt), ExpiresAt: kernel.RFC(t.ExpiresAt)})
 }
 
 // getGatewayToken reports whether a gateway token has been minted for this backend and, if so, when it
@@ -273,17 +249,13 @@ func (h API) getGatewayToken(w http.ResponseWriter, r *http.Request) {
 	s := h.For(r)
 	t, err := s.LatestGatewayToken(r.Context(), r.PathValue("id"))
 	if errors.Is(err, store.ErrNotFound) {
-		httpkit.WriteJSON(w, 200, map[string]any{"active": false})
+		httpkit.WriteJSON(w, 200, gatewayTokenDoc{})
 		return
 	}
 	if err != nil {
 		httpkit.Fail(w, s.Log, err)
 		return
 	}
-	httpkit.WriteJSON(w, 200, map[string]any{
-		"active":    true,
-		"expired":   !s.Now().Before(t.ExpiresAt),
-		"createdAt": kernel.RFC(t.CreatedAt),
-		"expiresAt": kernel.RFC(t.ExpiresAt),
-	})
+	expired := !s.Now().Before(t.ExpiresAt)
+	httpkit.WriteJSON(w, 200, gatewayTokenDoc{Active: true, Expired: &expired, CreatedAt: kernel.RFC(t.CreatedAt), ExpiresAt: kernel.RFC(t.ExpiresAt)})
 }

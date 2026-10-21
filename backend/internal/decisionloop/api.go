@@ -65,9 +65,7 @@ type decisionEntryDoc struct {
 // decider (route "POST .../decide") and the one RoleDescriptions already names for "manual records,
 // overrides, decisions".
 func (h API) record(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		Entries []decisionEntryDoc `json:"entries"`
-	}
+	var body recordDecisionsRequest
 	s := h.For(r)
 	if err := httpkit.Decode(r, &body); err != nil {
 		httpkit.Fail(w, s.Log, err)
@@ -92,7 +90,7 @@ func (h API) record(w http.ResponseWriter, r *http.Request) {
 		httpkit.Fail(w, s.Log, err)
 		return
 	}
-	httpkit.WriteJSON(w, http.StatusCreated, map[string]any{"recorded": n})
+	httpkit.WriteJSON(w, http.StatusCreated, recordedDoc{Recorded: n})
 }
 
 type decisionLogDoc struct {
@@ -139,5 +137,5 @@ func (h API) list(w http.ResponseWriter, r *http.Request) {
 			BeforeCost: d.BeforeCost, AfterCost: d.AfterCost, MigrationCost: d.MigrationCost,
 		}
 	}
-	httpkit.WriteJSON(w, http.StatusOK, map[string]any{"decisions": out})
+	httpkit.WriteJSON(w, http.StatusOK, decisionsDoc{Decisions: out})
 }

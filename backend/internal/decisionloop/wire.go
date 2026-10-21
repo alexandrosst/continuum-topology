@@ -15,5 +15,13 @@ func WireTypes() []wire.Root {
 		{Value: outcomeDoc{}},
 		{Value: capacityDoc{}},
 		{Value: excludedDoc{}},
+		{Value: recordedDoc{}},
+		{Value: decisionsDoc{}},
+		{Value: externalDecisionDoc{}},
+		{Value: proposalsDoc{}},
+		{Value: advisorsDoc{}},
+		{Value: recordDecisionsRequest{}},
+		{Value: submitProposalRequest{}},
+		{Value: decideProposalRequest{}},
 	}
 }

@@ -10,5 +10,7 @@ import (
 func WireTypes() []wire.Root {
 	return []wire.Root{
 		{Value: SettingsDoc{}},
+		{Value: saveSettingsRequest{}},
+		{Value: settingsConflictDoc{}},
 	}
 }

@@ -15,11 +15,7 @@ import (
 // Config, within a minute, and the pair's tests fail with `auth` until both ends have them. Nothing secret is in the request or the answer,
 // and the audit row names clusters only. Disabling a pair's tests and enabling them again also makes new ones.
 func (x *API) rotateCredentials(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Cluster string `json:"cluster"`
-		A       string `json:"a"`
-		B       string `json:"b"`
-	}
+	var req rotateCredentialsRequest
 	if err := httpkit.Decode(r, &req); err != nil {
 		httpkit.Fail(w, x.For(r).Log, err)
 		return
@@ -54,7 +50,7 @@ func (x *API) rotateCredentials(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	go x.Hub(r).PushConfigs()
-	httpkit.WriteJSON(w, 200, map[string]any{"rotated": true})
+	httpkit.WriteJSON(w, 200, rotatedDoc{Rotated: true})
 }
 
 // rotateRefusal says why a rotation request cannot do anything, or "" when it can: against the pairs that ask for throughput tests,
