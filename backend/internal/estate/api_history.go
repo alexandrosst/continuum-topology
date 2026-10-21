@@ -28,16 +28,12 @@ func (h *API) historyIndex(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	type point struct {
-		At    string `json:"at"`
-		Bytes int    `json:"bytes"`
-	}
-	out := make([]point, len(pts))
+	out := make([]historyPointDoc, len(pts))
 	for i, p := range pts {
-		out[i] = point{kernel.RFC(p.At), p.Bytes}
+		out[i] = historyPointDoc{kernel.RFC(p.At), p.Bytes}
 	}
 	set := h.For(r).C.Settings()
-	httpkit.WriteJSON(w, 200, map[string]any{"points": out, "snapshotMinutes": set.SnapshotMinutes, "retentionDays": set.RetentionDays})
+	httpkit.WriteJSON(w, 200, historyIndexDoc{Points: out, SnapshotMinutes: set.SnapshotMinutes, RetentionDays: set.RetentionDays})
 }
 
 func (h *API) historySnapshot(w http.ResponseWriter, r *http.Request) {
@@ -60,11 +56,7 @@ func (h *API) historySnapshot(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	out := map[string]any{"at": kernel.RFC(p.At), "topology": t}
-	if agentList := h.historicAgents(r, p.At); agentList != nil {
-		out["agents"] = agentList
-	}
-	httpkit.WriteJSON(w, 200, out)
+	httpkit.WriteJSON(w, 200, historySnapshotDoc{At: kernel.RFC(p.At), Topology: t, Agents: h.historicAgents(r, p.At)})
 }
 
 // historicAgents projects AsOfEntities' "agent" kind into the shape the UI overlays onto live agent
@@ -104,7 +96,7 @@ const trafficCacheTTL = 45 * time.Second
 type trafficCacheEntry struct {
 	hours   int
 	at      time.Time
-	payload map[string]any
+	payload trafficDoc
 }
 
 // trafficCache is a tiny per-organisation cache for historyTraffic's slow path: on a plain SQLite
@@ -178,19 +170,19 @@ func snapshotDeps(ctx context.Context, core *Service, p store.HistoryPoint) (map
 	return m, true
 }
 
-func (c *trafficCache) get(hours int, now time.Time) (map[string]any, bool) {
+func (c *trafficCache) get(hours int, now time.Time) (trafficDoc, bool) {
 	if c == nil {
-		return nil, false
+		return trafficDoc{}, false
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.entry == nil || c.entry.hours != hours || now.Sub(c.entry.at) > trafficCacheTTL {
-		return nil, false
+		return trafficDoc{}, false
 	}
 	return c.entry.payload, true
 }
 
-func (c *trafficCache) set(hours int, now time.Time, payload map[string]any) {
+func (c *trafficCache) set(hours int, now time.Time, payload trafficDoc) {
 	if c == nil {
 		return
 	}
@@ -223,7 +215,7 @@ func (h *API) historyTraffic(w http.ResponseWriter, r *http.Request) {
 				}
 				samples = keep
 			}
-			httpkit.WriteJSON(w, 200, map[string]any{"hours": hours, "snapshots": len(samples), "rates": history.Rates(samples)})
+			httpkit.WriteJSON(w, 200, trafficDoc{Hours: hours, Snapshots: len(samples), Rates: history.Rates(samples)})
 			return
 		}
 	}
@@ -257,7 +249,7 @@ func (h *API) historyTraffic(w http.ResponseWriter, r *http.Request) {
 		}
 		samples = append(samples, s)
 	}
-	payload := map[string]any{"hours": hours, "snapshots": len(samples), "rates": history.Rates(samples)}
+	payload := trafficDoc{Hours: hours, Snapshots: len(samples), Rates: history.Rates(samples)}
 	trafficSt(core).set(hours, now, payload)
 	httpkit.WriteJSON(w, 200, payload)
 }
@@ -340,7 +332,7 @@ func (h *API) historyDependencySeries(w http.ResponseWriter, r *http.Request) {
 		out = append(out, pt)
 		prevBytes, prevAt, havePrev = dep.bytes, p.At, true
 	}
-	httpkit.WriteJSON(w, 200, map[string]any{"id": id, "hours": hours, "points": out})
+	httpkit.WriteJSON(w, 200, dependencySeriesDoc{ID: id, Hours: hours, Points: out})
 }
 
 func (h *API) recordNow(w http.ResponseWriter, r *http.Request) {

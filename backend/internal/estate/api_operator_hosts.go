@@ -179,9 +179,7 @@ func (h *API) putServerCluster(w http.ResponseWriter, r *http.Request) {
 		httpkit.WriteErr(w, 404, "only the central operator has a server cluster")
 		return
 	}
-	var body struct {
-		ClusterID string `json:"clusterId"`
-	}
+	var body serverClusterRequest
 	if err := httpkit.Decode(r, &body); err != nil {
 		httpkit.WriteErr(w, 400, err.Error())
 		return
@@ -204,5 +202,5 @@ func (h *API) putServerCluster(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	httpkit.WriteJSON(w, 200, map[string]string{"clusterId": id})
+	httpkit.WriteJSON(w, 200, serverClusterChoiceDoc{ClusterID: id})
 }

@@ -54,6 +54,27 @@ export interface AddressReachDoc {
   rttP50Ms?: number
 }
 
+export interface AddressTestDoc {
+  id: string
+  address: string
+  state: string
+  samples?: number
+  failed?: number
+  rttMinMs?: number
+  rttP50Ms?: number
+  rttP95Ms?: number
+  at?: string
+  created: string
+}
+
+export interface AddressTestsDoc {
+  tests: AddressTestDoc[] | null
+}
+
+export interface AddressTestsRequest {
+  addresses: string[] | null
+}
+
 export interface AdvisorRecordDoc {
   advisor: string
   proposals: number
@@ -145,6 +166,12 @@ export interface AgentSelfStats {
   t: string
   rssBytes: number
   goroutines: number
+}
+
+export interface AgentTierDoc {
+  accessTier: number
+  hardenHelm?: string
+  installedTier: number
 }
 
 export interface AgentUpgradeDoc {
@@ -281,6 +308,12 @@ export interface ApplicationDoc {
   serviceIds?: string[]
 }
 
+export interface ApproveAgentRequest {
+  code: string
+  confirm: string
+  tier: number
+}
+
 export interface Attr {
   value: unknown
   unit?: string
@@ -302,6 +335,21 @@ export interface AuditDoc {
   targetKind: string
   targetId: string
   detail?: string
+}
+
+export interface AuditRow {
+  id: number
+  at: string
+  actor: string
+  action: string
+  targetKind?: string
+  targetId?: string
+  detail?: string
+}
+
+export interface AuditSearchDoc {
+  rows: AuditRow[] | null
+  source: string
 }
 
 export interface Autoscaler {
@@ -342,6 +390,12 @@ export interface CertsDoc {
   receiverNotAfter?: string
   clientNotAfter?: string
   caNotAfter?: string
+}
+
+export interface Change {
+  field: string
+  from?: unknown
+  to?: unknown
 }
 
 export interface ChangeDoc {
@@ -467,6 +521,12 @@ export interface CollectorDoc {
   bytesKnown: boolean
 }
 
+export interface Collectors {
+  nodeProbe: boolean
+  flowObserver: boolean
+  measurements: boolean
+}
+
 export interface Condition {
   type: string
   status: string
@@ -507,6 +567,14 @@ export interface CreateOrgRequest {
   name: string
 }
 
+export interface CreateTokenRequest {
+  name: string
+  tier: number
+  expectedCluster: string
+  collectors: Collectors
+  scope: Scope
+}
+
 export interface CreatedAPITokenDoc {
   createdAt: string
   id: string
@@ -516,6 +584,12 @@ export interface CreatedAPITokenDoc {
 
 export interface CreatedInviteDoc {
   invite: InviteDoc
+  token: string
+}
+
+export interface CreatedTokenDoc {
+  install: string
+  meta: EstateTokenDoc
   token: string
 }
 
@@ -594,6 +668,19 @@ export interface Dependency {
   tunnelLink?: DependencyTunnelLink
   meshBypass?: boolean
   tlsHandshake?: string
+}
+
+export interface DependencySeriesDoc {
+  hours: number
+  id: string
+  points: DependencySeriesPoint[] | null
+}
+
+export interface DependencySeriesPoint {
+  at: string
+  rttMs?: number
+  lossPct?: number
+  bytesPerSec?: number
 }
 
 export interface DependencyStats {
@@ -701,6 +788,22 @@ export interface Entity {
   attributes: Record<string, Attr> | null
 }
 
+export interface EntityDiff {
+  kind: string
+  id: string
+  name?: string
+  changes: Change[] | null
+}
+
+export interface EntitySnapshot {
+  kind: string
+  id: string
+  name?: string
+  status?: string
+  cluster?: string
+  doc: unknown
+}
+
 export interface EstateTokenDoc {
   id: string
   name: string
@@ -726,6 +829,10 @@ export interface EventDoc {
   severity: string
 }
 
+export interface EventsDoc {
+  events: EventDoc[] | null
+}
+
 export interface Evidence {
   signal: string
   confidence: string
@@ -739,6 +846,13 @@ export interface ExcludedDoc {
   reason: string
   kind: string
   fix?: Fix
+}
+
+export interface ExplainingEvent {
+  id: number
+  kind: string
+  detail?: string
+  cause?: string
 }
 
 export interface ExportHealthDoc {
@@ -882,6 +996,64 @@ export interface FusionTokenDoc {
   createdAt: string
   expiresAt: string
   lastUsedAt?: string
+}
+
+export interface GraphDiffDoc {
+  added: EntitySnapshot[] | null
+  changed: EntityDiff[] | null
+  from: string
+  removed: EntitySnapshot[] | null
+  to: string
+}
+
+export interface GraphSnapshotDoc {
+  at: string
+  entities: EntitySnapshot[] | null
+}
+
+export interface GraphWalkDoc {
+  at: string
+  hops: number
+  id: string
+  kind: string
+  reached: Reached[] | null
+}
+
+export interface HistoricAgent {
+  id: string
+  name: string
+  status: string
+  clusterId?: string
+  installedTier: number
+  tierCap: number
+  accessTier: number
+  version?: string
+  k8sVersion?: string
+  createdAt?: string
+  approvedAt?: string
+  approvedBy?: string
+  revokedAt?: string
+  reason?: string
+  lastSeen?: string
+  pausedCollectors?: string[]
+  excludedNamespaces?: string[]
+}
+
+export interface HistoryIndexDoc {
+  points: HistoryPointDoc[] | null
+  retentionDays: number
+  snapshotMinutes: number
+}
+
+export interface HistoryPointDoc {
+  at: string
+  bytes: number
+}
+
+export interface HistorySnapshotDoc {
+  agents?: HistoricAgent[]
+  at: string
+  topology: Topology
 }
 
 export interface IdentityDoc {
@@ -1424,6 +1596,23 @@ export interface QuickStartBackend {
   label: string
 }
 
+export interface Rate {
+  id: string
+  avgBytesPerSec: number
+  peakBytesPerSec: number
+  seconds: number
+}
+
+export interface Reached {
+  kind: string
+  id: string
+  name?: string
+  status?: string
+  cluster?: string
+  doc: unknown
+  hops: number
+}
+
 export interface RecoveryCodesDoc {
   recoveryCodes: string[] | null
 }
@@ -1581,6 +1770,12 @@ export interface Routes {
   kept: string[] | null
 }
 
+export interface Scope {
+  namespaces: string[] | null
+  exclude: string[] | null
+  selector: string
+}
+
 export interface ScopeDoc {
   description: string
   namespaces: number
@@ -1662,12 +1857,20 @@ export interface SendersDoc {
   senders: SenderDoc[] | null
 }
 
+export interface ServerClusterChoiceDoc {
+  clusterId: string
+}
+
 export interface ServerClusterDoc {
   state: string
   source?: string
   clusterId?: string
   options?: ClusterOption[]
   nodes?: string
+}
+
+export interface ServerClusterRequest {
+  clusterId: string
 }
 
 export interface ServerInfoDoc {
@@ -1734,6 +1937,15 @@ export interface ServiceMesh {
 export interface SessionDoc {
   orgs: OrgDoc[] | null
   user: UserDoc
+}
+
+export interface SetAgentConsentRequest {
+  pausedCollectors: string[] | null
+  excludedNamespaces: string[] | null
+}
+
+export interface SetAgentTierRequest {
+  tier: number | null
 }
 
 export interface SetMemberRoleRequest {
@@ -1832,6 +2044,26 @@ export interface StateDoc {
   observation: ObservationDoc
 }
 
+export interface Stats {
+  snapshots: number
+  versions: number
+  entities: number
+  events: number
+  audit: number
+  oldest?: string
+  newest?: string
+}
+
+export interface StorageDoc {
+  backend: string
+  buffering?: boolean
+  connected?: boolean
+  enabled: boolean
+  error?: string
+  ready?: boolean
+  stats?: Stats
+}
+
 export interface Suggestion {
   id: string
   orgId: string
@@ -1902,6 +2134,24 @@ export interface TelemetryIntentDoc {
   reason?: string
 }
 
+export interface TimelineDoc {
+  audit: AuditRow[] | null
+  events: EventDoc[] | null
+  id: string
+  kind: string
+  versions: TimelineVersion[] | null
+}
+
+export interface TimelineVersion {
+  from: string
+  to?: string
+  name: string
+  status?: string
+  changes: Change[] | null
+  explains?: ExplainingEvent[]
+  doc: unknown
+}
+
 export interface TombstoneDoc {
   kind: string
   id: string
@@ -1966,6 +2216,12 @@ export interface TraceSummary {
   matchedSpans: number
 }
 
+export interface TrafficDoc {
+  hours: number
+  rates: Rate[] | null
+  snapshots: number
+}
+
 export interface TunnelInterface {
   name: string
   kind: string
@@ -2023,4 +2279,47 @@ export interface Volume {
 export interface Workload {
   namespace: string
   names: string[] | null
+}
+
+export interface WorkspaceAtDoc {
+  data: unknown
+  note?: string
+  rev: number
+  updatedAt: string
+  updatedBy: string
+}
+
+export interface WorkspaceConflictDoc {
+  error: string
+  rev: number
+  updatedAt: string
+  updatedBy: string
+}
+
+export interface WorkspaceDoc {
+  data?: unknown
+  formatVersion: number
+  note?: string
+  rev: number
+  updatedAt: string
+  updatedBy: string
+}
+
+export interface WorkspaceRev {
+  rev: number
+  at: string
+  by: string
+  bytes: number
+  data?: unknown
+}
+
+export interface WorkspaceRevisionsDoc {
+  revisions: WorkspaceRev[] | null
+}
+
+export interface WorkspaceSavedDoc {
+  note?: string
+  rev: number
+  updatedAt: string
+  updatedBy: string
 }

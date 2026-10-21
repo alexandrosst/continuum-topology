@@ -2,7 +2,6 @@ package estate
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -43,16 +42,13 @@ type GraphAPI interface {
 func (h *API) storage(w http.ResponseWriter, r *http.Request) {
 	g := h.graph(r)
 	if g == nil {
-		httpkit.WriteJSON(w, 200, map[string]any{"backend": "sqlite", "enabled": false})
+		httpkit.WriteJSON(w, 200, storageDoc{Backend: "sqlite"})
 		return
 	}
 	st := g.Status(r.Context(), h.For(r).C.OrgID)
-	out := map[string]any{"backend": "neo4j", "enabled": true, "connected": st.Connected, "ready": st.Ready, "buffering": st.Buffering}
+	out := storageDoc{Backend: "neo4j", Enabled: true, Connected: &st.Connected, Ready: &st.Ready, Buffering: &st.Buffering}
 	if accounts.Allows(httpkit.Principal(r), accounts.ActAdminister) {
-		out["error"] = st.Error
-		if st.Stats != nil {
-			out["stats"] = st.Stats
-		}
+		out.Error, out.Stats = &st.Error, st.Stats
 	}
 	httpkit.WriteJSON(w, 200, out)
 }
@@ -81,7 +77,7 @@ func (h *API) graphSnapshot(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	httpkit.WriteJSON(w, 200, map[string]any{"at": kernel.RFC(sat), "entities": entities})
+	httpkit.WriteJSON(w, 200, graphSnapshotDoc{At: kernel.RFC(sat), Entities: entities})
 }
 
 // parseWalkParams reads the kind/id/at/hops query parameters Dependents and Dependencies share. hops
@@ -126,7 +122,7 @@ func (h *API) graphDependents(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	httpkit.WriteJSON(w, 200, map[string]any{"at": kernel.RFC(sat), "kind": kind, "id": id, "hops": hops, "reached": reached})
+	httpkit.WriteJSON(w, 200, graphWalkDoc{At: kernel.RFC(sat), Kind: kind, ID: id, Hops: hops, Reached: reached})
 }
 
 // GET /graph/dependencies?kind=&id=&at=&hops=: everything this entity itself relies on at that moment -
@@ -152,7 +148,7 @@ func (h *API) graphDependencies(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	httpkit.WriteJSON(w, 200, map[string]any{"at": kernel.RFC(sat), "kind": kind, "id": id, "hops": hops, "reached": reached})
+	httpkit.WriteJSON(w, 200, graphWalkDoc{At: kernel.RFC(sat), Kind: kind, ID: id, Hops: hops, Reached: reached})
 }
 
 // GET /graph/diff?from=&to=: what changed structurally across the whole estate between two moments -
@@ -180,7 +176,7 @@ func (h *API) graphDiff(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	httpkit.WriteJSON(w, 200, map[string]any{"from": kernel.RFC(diff.From), "to": kernel.RFC(diff.To), "added": diff.Added, "removed": diff.Removed, "changed": diff.Changed})
+	httpkit.WriteJSON(w, 200, graphDiffDoc{From: kernel.RFC(diff.From), To: kernel.RFC(diff.To), Added: diff.Added, Removed: diff.Removed, Changed: diff.Changed})
 }
 
 // GET /timeline?kind=service&id=...: every version of one record, what changed between them, the events
@@ -215,7 +211,7 @@ func (h *API) timeline(w http.ResponseWriter, r *http.Request) {
 	if !accounts.Allows(httpkit.Principal(r), accounts.ActAdminister) { // it names people, which /audit and the state document keep for administrators
 		audit = []graph.AuditRow{}
 	}
-	httpkit.WriteJSON(w, 200, map[string]any{"kind": tl.Kind, "id": tl.ID, "versions": tl.Versions, "events": evs, "audit": audit})
+	httpkit.WriteJSON(w, 200, timelineDoc{Kind: tl.Kind, ID: tl.ID, Versions: tl.Versions, Events: evs, Audit: audit})
 }
 
 // GET /audit: who did what in this organisation. Administrators only. With the graph it can be searched
@@ -232,7 +228,7 @@ func (h *API) audit(w http.ResponseWriter, r *http.Request) {
 	org := h.For(r).C.OrgID
 	if g := h.graph(r); g != nil {
 		if rows, err := g.Audit(r.Context(), org, q); err == nil {
-			httpkit.WriteJSON(w, 200, map[string]any{"source": "graph", "rows": rows})
+			httpkit.WriteJSON(w, 200, auditSearchDoc{Source: "graph", Rows: rows})
 			return
 		}
 	}
@@ -253,14 +249,14 @@ func (h *API) audit(w http.ResponseWriter, r *http.Request) {
 	if q.Limit > 0 && len(rows) > q.Limit {
 		rows = rows[:q.Limit]
 	}
-	httpkit.WriteJSON(w, 200, map[string]any{"source": "local", "rows": rows})
+	httpkit.WriteJSON(w, 200, auditSearchDoc{Source: "local", Rows: rows})
 }
 
 // GET /workspace/revisions and /workspace/at?at=: the human layer as it was saved over time.
 func (h *API) workspaceRevisions(w http.ResponseWriter, r *http.Request) {
 	g := h.graph(r)
 	if g == nil {
-		httpkit.WriteJSON(w, 200, map[string]any{"revisions": []graph.WorkspaceRev{}})
+		httpkit.WriteJSON(w, 200, workspaceRevisionsDoc{Revisions: []graph.WorkspaceRev{}})
 		return
 	}
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
@@ -269,7 +265,7 @@ func (h *API) workspaceRevisions(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	httpkit.WriteJSON(w, 200, map[string]any{"revisions": revs})
+	httpkit.WriteJSON(w, 200, workspaceRevisionsDoc{Revisions: revs})
 }
 
 func (h *API) workspaceAt(w http.ResponseWriter, r *http.Request) {
@@ -292,13 +288,13 @@ func (h *API) workspaceAt(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	out := map[string]any{"rev": rev.Rev, "updatedAt": kernel.RFC(rev.At), "updatedBy": rev.By, "data": rev.Data}
+	out := workspaceAtDoc{Rev: rev.Rev, UpdatedAt: kernel.RFC(rev.At), UpdatedBy: rev.By, Data: rev.Data}
 	if workspace.Peek(rev.Data) < workspace.CurrentVersion {
 		// A revision saved before observed facts were held apart from the workspace carries them; they are not shown.
 		if d, rep, err := workspace.Declare(rev.Data); err == nil {
-			out["data"] = json.RawMessage(d)
+			out.Data = d
 			if rep.Changed() {
-				out["note"] = rep.Note()
+				out.Note = rep.Note()
 			}
 		}
 	}
@@ -345,5 +341,5 @@ func (h *API) listEvents(w http.ResponseWriter, r *http.Request) {
 		out[i] = eventDoc{ID: "ev-" + strconv.FormatInt(e.ID, 10), At: kernel.RFC(e.At), Kind: e.Kind, TargetKind: e.TargetKind, TargetID: e.TargetID, Name: e.Name, ClusterID: e.ClusterID,
 			ClusterName: e.ClusterName, Detail: e.Detail, Cause: e.Cause, Severity: e.Severity}
 	}
-	httpkit.WriteJSON(w, 200, map[string]any{"events": out})
+	httpkit.WriteJSON(w, 200, eventsDoc{Events: out})
 }

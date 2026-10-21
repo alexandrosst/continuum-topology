@@ -1,7 +1,6 @@
 package estate
 
 import (
-	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -23,7 +22,7 @@ func (h *API) getWorkspace(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	out := map[string]any{"rev": ws.Rev, "updatedAt": rfcNZ(ws.UpdatedAt), "updatedBy": ws.UpdatedBy, "formatVersion": workspace.CurrentVersion}
+	out := workspaceDoc{Rev: ws.Rev, UpdatedAt: rfcNZ(ws.UpdatedAt), UpdatedBy: ws.UpdatedBy, FormatVersion: workspace.CurrentVersion}
 	if r.URL.Query().Get("meta") == "" && ws.Rev > 0 {
 		data, note := ws.Data, ws.Note
 		if workspace.Peek(data) < workspace.CurrentVersion {
@@ -35,10 +34,7 @@ func (h *API) getWorkspace(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		out["data"] = json.RawMessage(data)
-		if note != "" {
-			out["note"] = note
-		}
+		out.Data, out.Note = data, note
 	}
 	httpkit.WriteJSON(w, 200, out)
 }
@@ -67,18 +63,14 @@ func (h *API) putWorkspace(w http.ResponseWriter, r *http.Request) {
 	ws, err := h.For(r).C.SaveWorkspace(r.Context(), httpkit.Actor(r), rev, body)
 	var e *kernel.Error
 	if errors.As(err, &e) && e.Kind == kernel.KindConflict {
-		httpkit.WriteJSON(w, http.StatusConflict, map[string]any{"error": e.Msg, "rev": ws.Rev, "updatedAt": rfcNZ(ws.UpdatedAt), "updatedBy": ws.UpdatedBy})
+		httpkit.WriteJSON(w, http.StatusConflict, workspaceConflictDoc{Error: e.Msg, Rev: ws.Rev, UpdatedAt: rfcNZ(ws.UpdatedAt), UpdatedBy: ws.UpdatedBy})
 		return
 	}
 	if err != nil {
 		h.fail(w, r, err)
 		return
 	}
-	out := map[string]any{"rev": ws.Rev, "updatedAt": kernel.RFC(ws.UpdatedAt), "updatedBy": ws.UpdatedBy}
-	if ws.Note != "" {
-		out["note"] = ws.Note
-	}
-	httpkit.WriteJSON(w, 200, out)
+	httpkit.WriteJSON(w, 200, workspaceSavedDoc{Rev: ws.Rev, UpdatedAt: kernel.RFC(ws.UpdatedAt), UpdatedBy: ws.UpdatedBy, Note: ws.Note})
 }
 
 // state is what the UI polls. The audit trail is part of it only for administrators and owners: it names

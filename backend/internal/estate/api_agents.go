@@ -6,7 +6,6 @@ import (
 
 	"continuum/internal/agents"
 	"continuum/internal/httpkit"
-	"continuum/internal/install"
 	"continuum/internal/installcfg"
 	"continuum/internal/kernel"
 	"continuum/internal/operators"
@@ -135,16 +134,7 @@ func (h *API) listTokens(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *API) createToken(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Name string `json:"name"`
-		Tier int    `json:"tier"`
-		// ExpectedCluster optionally binds the token to one cluster: the UID of its kube-system namespace.
-		ExpectedCluster string `json:"expectedCluster"`
-		// Collectors are the optional per-node collectors the install switches on, and Scope the namespaces it may report. They are
-		// parts of the command and of nothing else: the token does not record them.
-		Collectors install.Collectors `json:"collectors"`
-		Scope      install.Scope      `json:"scope"`
-	}
+	var req createTokenRequest
 	if err := httpkit.Decode(r, &req); err != nil {
 		h.fail(w, r, err)
 		return
@@ -172,7 +162,7 @@ func (h *API) createToken(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, h.installConfigError(r, err))
 		return
 	}
-	httpkit.WriteJSON(w, 201, map[string]any{"token": secret, "meta": toTokenDoc(t), "install": cmd})
+	httpkit.WriteJSON(w, 201, createdTokenDoc{Token: secret, Meta: toTokenDoc(t), Install: cmd})
 }
 
 func (h *API) deleteToken(w http.ResponseWriter, r *http.Request) {
@@ -184,13 +174,7 @@ func (h *API) deleteToken(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *API) approve(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		// Code is the approval code the agent printed in its log. Confirm is the older fingerprint prefix,
-		// still accepted for an agent that enrolled without a code.
-		Code    string `json:"code"`
-		Confirm string `json:"confirm"`
-		Tier    int    `json:"tier"`
-	}
+	var req approveAgentRequest
 	if err := httpkit.Decode(r, &req); err != nil {
 		h.fail(w, r, err)
 		return
@@ -220,9 +204,7 @@ func (h *API) revoke(w http.ResponseWriter, r *http.Request) {
 
 // setAgentTier changes the access an approved agent has been given, within what its install allows.
 func (h *API) setAgentTier(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Tier *int `json:"tier"`
-	}
+	var req setAgentTierRequest
 	if err := httpkit.Decode(r, &req); err != nil || req.Tier == nil {
 		h.fail(w, r, kernel.Errf(kernel.KindInvalid, "invalid request body: expected {\"tier\": N}"))
 		return
@@ -241,7 +223,7 @@ func (h *API) setAgentTier(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	resp := map[string]any{"accessTier": ag.AccessTier, "installedTier": ag.InstalledTier}
+	resp := agentTierDoc{AccessTier: ag.AccessTier, InstalledTier: ag.InstalledTier}
 	// A tier below the ceiling changes what the agent reports right away, but not what the cluster's own RBAC still
 	// grants: that install-time ClusterRoleBinding stays until someone lowers access.tier there too. Hand back the
 	// exact command for whoever wants that narrower report to also be a narrower Kubernetes permission.
@@ -251,7 +233,7 @@ func (h *API) setAgentTier(w http.ResponseWriter, r *http.Request) {
 			h.fail(w, r, h.installConfigError(r, err))
 			return
 		}
-		resp["hardenHelm"] = cmd
+		resp.HardenHelm = cmd
 	}
 	httpkit.WriteJSON(w, 200, resp)
 }
@@ -259,10 +241,7 @@ func (h *API) setAgentTier(w http.ResponseWriter, r *http.Request) {
 // setAgentConsent replaces the overrides on an agent: the optional collectors it is asked to stop and the namespaces it is asked to
 // leave out. An editor may add to them; lifting one takes an administrator.
 func (h *API) setAgentConsent(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		PausedCollectors   []string `json:"pausedCollectors"`
-		ExcludedNamespaces []string `json:"excludedNamespaces"`
-	}
+	var req setAgentConsentRequest
 	if err := httpkit.Decode(r, &req); err != nil {
 		h.fail(w, r, err)
 		return
@@ -281,9 +260,7 @@ func (h *API) setAgentConsent(w http.ResponseWriter, r *http.Request) {
 
 // startAddressTests answers POST .../agents/{id}/address-tests: the cluster this agent is in tries each address.
 func (h *API) startAddressTests(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Addresses []string `json:"addresses"`
-	}
+	var req addressTestsRequest
 	if err := httpkit.Decode(r, &req); err != nil {
 		h.fail(w, r, err)
 		return
@@ -293,7 +270,7 @@ func (h *API) startAddressTests(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	httpkit.WriteJSON(w, 202, map[string]any{"tests": tests})
+	httpkit.WriteJSON(w, 202, addressTestsDoc{Tests: tests})
 }
 
 // listAddressTests answers GET .../agents/{id}/address-tests: the tests still held and what they found so far.
@@ -303,5 +280,5 @@ func (h *API) listAddressTests(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	httpkit.WriteJSON(w, 200, map[string]any{"tests": tests})
+	httpkit.WriteJSON(w, 200, addressTestsDoc{Tests: tests})
 }
