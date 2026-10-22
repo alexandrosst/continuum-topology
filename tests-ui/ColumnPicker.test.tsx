@@ -1,8 +1,8 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, test, vi } from 'vitest'
-import ColumnPicker from '@/components/ColumnPicker'
-import type { ColumnDef } from '@/lib/columns'
+import ColumnPicker from '@/features/topology/components/ColumnPicker'
+import type { ColumnDef } from '@/features/topology/lib/columns'
 
 const COLUMNS: ColumnDef[] = [
   { key: 'cluster', label: 'Cluster' },

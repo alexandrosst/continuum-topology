@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import type { AgentDiagnostics } from '@/lib/consent'
-import { buildPlatform } from '@/lib/platformLayer'
+import { buildPlatform } from '@/features/topology/lib/platformLayer'
 import { arrivalCheck } from '@/features/pipeline/lib/telemetrySetup'
 import type { RegionalOperator } from '@/lib/types'
 

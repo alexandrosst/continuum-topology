@@ -1,6 +1,6 @@
 import { act, renderHook } from '@testing-library/react'
 import { beforeEach, describe, expect, test } from 'vitest'
-import { useColumnVisibility } from '@/lib/columns'
+import { useColumnVisibility } from '@/features/topology/lib/columns'
 
 beforeEach(() => localStorage.clear())
 

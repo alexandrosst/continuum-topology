@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { ORTHO_MARGIN, ORTHO_STUB, orthoRoute, simpleOrthoRoute } from '@/components/topology/ortho'
+import { ORTHO_MARGIN, ORTHO_STUB, orthoRoute, simpleOrthoRoute } from '@/features/topology/components/ortho'
 
 const down = { x: 0, y: 1 }
 const up = { x: 0, y: -1 }

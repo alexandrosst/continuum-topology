@@ -2,9 +2,9 @@ import { ReactFlowProvider } from '@xyflow/react'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { useState } from 'react'
 import { describe, expect, test } from 'vitest'
-import { GroupBox } from '@/components/topology/nodes'
-import { clusterNets, PeerRingContext, peerIds, type ClusterNet } from '@/lib/clusterNets'
-import type { GroupData } from '@/lib/graph'
+import { GroupBox } from '@/features/topology/components/nodes'
+import { clusterNets, PeerRingContext, peerIds, type ClusterNet } from '@/features/topology/lib/clusterNets'
+import type { GroupData } from '@/features/topology/lib/graph'
 import type { ClusterLink } from '@/lib/types'
 
 const link = (over: Partial<ClusterLink>): ClusterLink => ({ fromCluster: 'a', fromName: 'alpha', toCluster: 'b', toName: 'bravo', kind: 'subnet', via: '10.30.0.0/16', redundancy: 1, ...over })

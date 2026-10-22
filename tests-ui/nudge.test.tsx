@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { LANE_GAP, nudgeRoutes, type Route } from '@/components/topology/nudge'
+import { LANE_GAP, nudgeRoutes, type Route } from '@/features/topology/components/nudge'
 
 // A line that leaves downward, runs along y, and comes back down: a Z with a long horizontal run.
 const z = (id: string, y: number, x0 = 0, x1 = 300): Route => ({

@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
-import { applyFilter, hopNeighborhood, isFreshApplicationView, knownOnly, NO_APP, parseFilter, encodeList } from '../src/lib/filter'
+import { applyFilter, hopNeighborhood, isFreshApplicationView, knownOnly, NO_APP, parseFilter, encodeList } from '../src/features/topology/lib/filter'
 import { clusterLoad, hasRoundTrip, lossBand, pathQuality, qualityLabel } from '../src/lib/metrics'
-import { siteConnections } from '../src/lib/geo'
-import { describeView, viewParams } from '../src/lib/views'
+import { siteConnections } from '../src/features/topology/lib/geo'
+import { describeView, viewParams } from '../src/features/topology/lib/views'
 import { seedTopology } from '../src/lib/seed'
 import { DEFAULT_ORG, type Dependency, type Path } from '../src/lib/types'
 

@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, test, vi } from 'vitest'
-import Inspector from '@/components/topology/Inspector'
+import Inspector from '@/features/topology/components/Inspector'
 import type { Cluster, ClusterLink, ClusterPairConnectivity, ExternalEndpoint, MachineNode } from '@/lib/types'
 
 // A focused Inspector test: only the 'external' selection branch is exercised here, so every store/hook
@@ -43,7 +43,7 @@ vi.mock('@/store/server', () => ({
 // the existing 'external' tests above never touched it, which is why this wasn't already mocked. Stubbed
 // out entirely rather than wired up for real: what it shows isn't what these tests are about, and doing so
 // for real would mean also faking useEffectiveModel's server-polling/etag machinery for no benefit here.
-vi.mock('@/components/EvidenceSection', () => ({
+vi.mock('@/features/topology/components/EvidenceSection', () => ({
   NeedsLook: () => null,
   SourcesFooter: () => null,
 }))

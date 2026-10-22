@@ -2,11 +2,11 @@ import { fireEvent, render, screen, within } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
-import TelemetryTab from '@/components/topology/TelemetryTab'
-import type { PlatformEntity, PlatformModel } from '@/lib/platformLayer'
+import TelemetryTab from '@/features/topology/components/TelemetryTab'
+import type { PlatformEntity, PlatformModel } from '@/features/topology/lib/platformLayer'
 
 let model: PlatformModel | undefined
-vi.mock('@/components/topology/usePlatformLayer', () => ({ usePlatformLayer: () => model }))
+vi.mock('@/features/topology/components/usePlatformLayer', () => ({ usePlatformLayer: () => model }))
 
 const part = (id: string, kind: PlatformEntity['kind'], over: Partial<PlatformEntity> = {}): PlatformEntity => ({ id, kind, name: kind, detail: '', status: 'healthy', sentence: '', sendsTo: [], ...over })
 const hop = (from: string, to: string, status: PlatformEntity['status'] = 'healthy', age?: string) => ({ id: `${from}>${to}`, from, to, status, age })

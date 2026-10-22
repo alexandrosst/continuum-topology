@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, test, vi } from 'vitest'
-import { PlatformNode, StatusGlyph } from '@/components/topology/PlatformNode'
-import { type PlatformEntity, type PlatformStatus } from '@/lib/platformLayer'
+import { PlatformNode, StatusGlyph } from '@/features/topology/components/PlatformNode'
+import { type PlatformEntity, type PlatformStatus } from '@/features/topology/lib/platformLayer'
 import { HEALTH_WORD } from '@/lib/status'
 
 const entity = (over: Partial<PlatformEntity> = {}): PlatformEntity => ({ id: 'local:a', kind: 'local', name: 'Local operator', detail: 'Metrics', status: 'healthy', sentence: '', sendsTo: [], ...over })

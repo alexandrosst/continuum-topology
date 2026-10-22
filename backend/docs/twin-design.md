@@ -161,4 +161,4 @@ restart from 1 after a restart, and clients that compare versions never see it g
 | `internal/server/twin.go` | the runtime in the hub, `Model`, the `/model` handler, decision enrichment |
 | `cmd/server/backup.go` | `server backup`, `server restore` |
 | `src/lib/declared.ts`, `provenance.ts` | declared/observed split and state/evidence rules in the browser |
-| `src/components/EvidenceSection.tsx`, `Observations.tsx`, `placement/Excluded.tsx` | Evidence, gone records, exclusions |
+| `src/features/topology/components/EvidenceSection.tsx`, `src/components/Observations.tsx`, `src/features/placement/components/Excluded.tsx` | Evidence, gone records, exclusions |

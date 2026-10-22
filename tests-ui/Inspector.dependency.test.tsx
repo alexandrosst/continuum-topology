@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, test, vi } from 'vitest'
-import Inspector from '@/components/topology/Inspector'
+import Inspector from '@/features/topology/components/Inspector'
 import type { Dependency } from '@/lib/types'
 
 // A focused Inspector test for the 'dependency' selection branch's trend sparklines (DependencyTrend) -
@@ -38,7 +38,7 @@ vi.mock('@/store/server', () => ({
     selector({ info: undefined, status: 'idle', url: '', orgId: 'o', state: undefined, conn: () => undefined }),
   useConn: () => ({ url: '', org: 'o' }),
 }))
-vi.mock('@/components/EvidenceSection', () => ({
+vi.mock('@/features/topology/components/EvidenceSection', () => ({
   NeedsLook: () => null,
   SourcesFooter: () => null,
 }))

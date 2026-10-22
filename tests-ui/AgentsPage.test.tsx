@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, test, vi } from 'vitest'
-import AgentsPage from '@/pages/AgentsPage'
+import AgentsPage from '@/features/agents/AgentsPage'
 import type { Agent, Cluster } from '@/lib/types'
 
 // A page test in the same style as NamespacesPage.test.tsx: everything AgentsPage reads from the shared

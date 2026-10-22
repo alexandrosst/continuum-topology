@@ -1,7 +1,6 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join, normalize, relative } from 'node:path'
 import { describe, expect, test } from 'vitest'
-import { PENDING } from './pendingMoves'
 
 // How the page is laid out, held by a test so that it stays so.
 //
@@ -18,7 +17,7 @@ import { PENDING } from './pendingMoves'
 const LAYERS: string[][] = [
   // Each of these needs nothing of the others.
   ['accounts', 'activity', 'fusion', 'health', 'history', 'links', 'proposals', 'settings'],
-  // The ones below are not moved yet (see pendingMoves.ts); their layers are what the moves will keep.
+  // From here each layer may use any layer listed before it, and none beside it.
   ['discovery', 'placement'],
   ['pipeline'],
   ['agents'],
@@ -50,11 +49,7 @@ function resolve(from: string, spec: string): string | undefined {
 
 type Where = { kind: 'app' } | { kind: 'feature'; name: string } | { kind: 'shared' }
 
-const PENDING_OF = new Map(Object.entries(PENDING).flatMap(([name, paths]) => paths.map((p) => [join(SRC, p), name] as const)))
-
 function where(file: string): Where {
-  const pending = PENDING_OF.get(file)
-  if (pending) return { kind: 'feature', name: pending }
   const rel = relative(SRC, file).split(/[\\/]/)
   if (rel[0] === 'app' || rel[0] === 'main.tsx') return { kind: 'app' }
   if (rel[0] === 'features' && rel.length > 2) return { kind: 'feature', name: rel[1] }
@@ -76,7 +71,7 @@ for (const file of walk(SRC)) {
 describe('the layout of the page', () => {
   test('every folder under features/ is in a layer, and every layer names a folder', () => {
     const dir = join(SRC, 'features')
-    const folders = [...(existsSync(dir) ? readdirSync(dir).filter((n) => statSync(join(dir, n)).isDirectory()) : []), ...Object.keys(PENDING)]
+    const folders = existsSync(dir) ? readdirSync(dir).filter((n) => statSync(join(dir, n)).isDirectory()) : []
     expect(folders.filter((n) => layerOf(n) < 0)).toEqual([])
     expect(LAYERS.flat().filter((n) => !folders.includes(n))).toEqual([])
   })

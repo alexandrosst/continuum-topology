@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { computeFocus, MAX_RIPPLE, type FocusEdge, type FocusNode } from '@/lib/focus'
+import { computeFocus, MAX_RIPPLE, type FocusEdge, type FocusNode } from '@/features/topology/lib/focus'
 
 const box = (id: string, x: number, y: number, parentId?: string, type = 'card'): FocusNode => ({ id, type, parentId, position: { x, y }, measured: { width: 100, height: 50 } })
 // Two clusters side by side; a and b in the first, c and d in the second, e on its own far away.

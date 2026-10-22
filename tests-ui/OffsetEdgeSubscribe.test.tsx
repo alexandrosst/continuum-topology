@@ -1,7 +1,7 @@
 import * as flow from '@xyflow/react'
 import { render } from '@testing-library/react'
 import { describe, expect, test, vi } from 'vitest'
-import { OffsetEdge, SquareRoutesContext } from '@/components/topology/OffsetEdge'
+import { OffsetEdge, SquareRoutesContext } from '@/features/topology/components/OffsetEdge'
 
 // A spy over the real store hook: the point is which edges subscribe to the store at all.
 vi.mock('@xyflow/react', async () => {

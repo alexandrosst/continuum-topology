@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { buildPlatform, shortAge, type PlatformInput } from '@/lib/platformLayer'
+import { buildPlatform, shortAge, type PlatformInput } from '@/features/topology/lib/platformLayer'
 import type { Agent, RegionalOperator, TelemetryIntent } from '@/lib/types'
 
 const NOW = Date.parse('2026-10-09T12:00:00Z')

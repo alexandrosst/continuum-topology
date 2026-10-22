@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
-import { NeedsLook, SourcesFooter } from '@/components/EvidenceSection'
+import { NeedsLook, SourcesFooter } from '@/features/topology/components/EvidenceSection'
 import type { ModelAttr, ModelEntity } from '@/lib/provenance'
 
 const confirmField = vi.fn()

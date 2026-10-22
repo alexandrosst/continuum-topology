@@ -17,8 +17,8 @@ import {
   sideIsClear,
   sideMidpoint,
   slideOnSide,
-} from '@/components/topology/OffsetEdge'
-import { HEADER, NS_HEADER } from '@/lib/graph'
+} from '@/features/topology/components/OffsetEdge'
+import { HEADER, NS_HEADER } from '@/features/topology/lib/graph'
 
 // A pure-math test, no rendering needed - kept in tests-ui/ (not tests/) purely because that's where the
 // vitest config's include glob looks; nothing here touches the DOM.

@@ -14,7 +14,7 @@ describe('MapView land loaders', () => {
       if (calls === 1) throw new Error('chunk failed')
       return { default: { type: 'Topology', objects: { countries: { type: 'GeometryCollection', geometries: [] } }, arcs: [] } }
     })
-    const { loadCoarse } = await import('@/components/topology/MapView')
+    const { loadCoarse } = await import('@/features/topology/components/MapView')
     await expect(loadCoarse()).rejects.toThrow()
     const land = await loadCoarse()
     expect(land.type).toBe('FeatureCollection')

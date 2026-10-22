@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
-import { ConsentPanel } from '@/components/agents/AgentInsight'
+import { ConsentPanel } from '@/features/agents/components/AgentInsight'
 import type { Agent } from '@/lib/types'
 import { answerTo, forgetUpgrades, lastUpgrade } from './upgradeServer'
 

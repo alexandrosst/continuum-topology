@@ -1,8 +1,8 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { ReactFlowProvider } from '@xyflow/react'
 import { describe, expect, test, vi } from 'vitest'
-import { PodPopover, PodRail } from '@/components/topology/Pods'
-import { buildPodsView, podLabel, podState, RAIL_LIMIT } from '@/lib/pods'
+import { PodPopover, PodRail } from '@/features/topology/components/Pods'
+import { buildPodsView, podLabel, podState, RAIL_LIMIT } from '@/features/topology/lib/pods'
 import type { MachineNode, Pod, Service } from '@/lib/types'
 
 const NOW = Date.parse('2026-01-10T12:00:00Z')

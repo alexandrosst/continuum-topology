@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { DETOUR_MARGIN, DETOUR_MAX_OBSTACLES, detourRoute, polylineMidpoint, segmentCrosses, type Pt, type Rect } from '@/components/topology/detour'
+import { DETOUR_MARGIN, DETOUR_MAX_OBSTACLES, detourRoute, polylineMidpoint, segmentCrosses, type Pt, type Rect } from '@/features/topology/components/detour'
 
 const box: Rect = { x: 100, y: 100, w: 100, h: 100 }
 const right = { x: 1, y: 0 }

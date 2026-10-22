@@ -1,8 +1,8 @@
 import { ReactFlowProvider } from '@xyflow/react'
 import { render, screen } from '@testing-library/react'
 import { describe, expect, test } from 'vitest'
-import { Card } from '@/components/topology/nodes'
-import type { CardData } from '@/lib/graph'
+import { Card } from '@/features/topology/components/nodes'
+import type { CardData } from '@/features/topology/lib/graph'
 
 const card = (over: Partial<CardData>): CardData => ({
   kind: 'service', entityId: 's', title: 'api', subtitle: 'core · Deployment', meta: '×4', status: 'healthy', tier: 'cloud', clusterName: 'c', ...over,

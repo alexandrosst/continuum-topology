@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { straightenJog, MAX_JOG } from '@/components/topology/straighten'
+import { straightenJog, MAX_JOG } from '@/features/topology/components/straighten'
 
 const box = { x: 0, y: 0, w: 100, h: 50 }
 const below = { x: 0, y: 200, w: 100, h: 50 }

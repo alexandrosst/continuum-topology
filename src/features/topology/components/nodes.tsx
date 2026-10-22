@@ -1,0 +1,459 @@
+import { Handle, useStore, type NodeProps } from '@xyflow/react'
+import clsx from 'clsx'
+import {
+  Funnel,
+  ArrowUpRight,
+  BatteryCharging,
+  Box,
+  Cable,
+  Camera,
+  Clock,
+  Cog,
+  Cpu,
+  Database,
+  Factory,
+  Gauge,
+  Globe,
+  HardDrive,
+  Layers,
+  Network,
+  Radio,
+  Router,
+  Server,
+  Shield,
+  Tag,
+  Truck,
+  type LucideIcon,
+} from 'lucide-react'
+import { ICON_MD, ICON_SM, TIER_ICON } from '@/components/ui/primitives'
+import { memo, useCallback, useContext, useState, type ComponentProps, type ReactNode } from 'react'
+import { PodPopover, PodRail } from '@/features/topology/components/Pods'
+import { LoadRow, peakLoad } from '@/features/topology/components/Load'
+import { DistroIcon, Flag } from '@/components/ui/brand'
+import { netLabel, netSentence, PeerRingContext, peerIds, type ClusterNet } from '@/features/topology/lib/clusterNets'
+import { middleTruncate } from '@/lib/present'
+import { SIDES, type CardNode, type GroupNode, type NamespaceNode } from '@/features/topology/lib/graph'
+import { STATUS_COLOR, TIER_COLOR, type DeviceKind, type ServiceKind } from '@/lib/types'
+
+export const DEVICE_ICON: Record<DeviceKind, LucideIcon> = {
+  sensor: Gauge,
+  actuator: Cog,
+  camera: Camera,
+  plc: Factory,
+  gateway: Router,
+  tag: Tag,
+  vehicle: Truck,
+  other: Radio,
+}
+
+/** Invisible handles on all four sides so edges can attach wherever routing picks. */
+export function AllHandles() {
+  return (
+    <>
+      {(Object.keys(SIDES) as (keyof typeof SIDES)[]).flatMap((side) => [
+        <Handle key={`${side}-s`} id={`${side}-s`} type="source" position={SIDES[side]} isConnectable={false} />,
+        <Handle key={`${side}-t`} id={`${side}-t`} type="target" position={SIDES[side]} isConnectable={false} />,
+      ])}
+    </>
+  )
+}
+
+/**
+ * Zoomed far out, small print is unreadable however it is drawn, so boxes keep only their name (drawn larger
+ * so it stays legible) and any warning; the detail returns as soon as you zoom in. Selecting the store value
+ * as a boolean means only a crossing of the threshold re-renders the nodes, not every step of a zoom.
+ */
+export const FAR_ZOOM = 0.62
+const useFar = () => useStore((s) => s.transform[2] < FAR_ZOOM)
+
+const TONE = { good: 'bg-ok/10 text-ok', warn: 'bg-warn/10 text-warn', bad: 'bg-bad/10 text-bad' } as const
+const MESH_TONE = { in: 'bg-ok/10 text-ok', control: 'bg-violet-400/10 text-violet-300', out: 'bg-nb-900 text-nb-400' } as const
+// The shared "neutral gray, no particular status" tone - used by both the networking badge and a card's
+// service chips, which previously used two adjacent-but-different grays (bg-nb-900 vs bg-nb-940) that never
+// meant anything different from each other, just drifted independently.
+const NEUTRAL_TONE = 'bg-nb-900 text-nb-400'
+// A cluster header's own chips (networks, CNI/ingress): a faint wash of the text colour, not a white pill, so they sit in the box's tint
+// instead of reading as separate stickers.
+const HEADER_TONE = 'bg-[color-mix(in_srgb,var(--color-nb-300)_8%,transparent)] text-nb-500'
+
+/** "1000" reads worse on a small badge than "1 Gbps" - the Inspector's own full interface list (Inspector.tsx)
+ *  keeps raw Mbps since it has room to be exact about every interface; this is a single at-a-glance number
+ *  for the fastest one, so the friendlier unit wins here. */
+function nicSpeedLabel(mbps: number) {
+  return mbps >= 1000 ? `${Number((mbps / 1000).toFixed(1))} Gbps` : `${mbps} Mbps`
+}
+
+/** One shared shape for every small text pill on a node (a cluster's mesh state, its detected networking,
+ * a service's "not ready" or placement-hint chip, a service-count chip) - these had each grown their own
+ * near-identical rounded/padding/icon/truncate markup, with small unintentional drift between them (radius,
+ * padding, whether an icon was included, two different neutral grays) rather than genuine differences.
+ * `tone` takes the caller's own pre-existing background+text color classes (TONE/MESH_TONE/NEUTRAL_TONE
+ * above, or a literal pair) rather than one shared enum, since these badges span at least two genuinely
+ * different semantic axes (a cluster's mesh mTLS verdict vs. a service's mesh membership state) that
+ * shouldn't be forced into one vocabulary just because they're drawn the same way. `dense` is the one real,
+ * deliberate size difference this keeps: the cluster subtitle row (mesh/networking badges) is tighter on
+ * vertical space than a card's own dedicated chip row, so it keeps the thinner py-px padding that row
+ * already had - an intentional density difference for a genuinely tighter row, not a return of the
+ * inconsistency this is meant to remove.
+ *
+ * Deliberately NOT folded in here: the tier badge (rounded-full, a dynamic per-tier color, not one of the
+ * fixed tones above) and the local-telemetry control (a circular icon button). Both are a different kind of
+ * thing from an info tag - a status/category classifier and an interactive control - and forcing them into
+ * this shape would blur that distinction rather than fix it. The peak-load badge (far-zoom only) is also
+ * left alone: it's deliberately sized to match that zoom level's much larger title text, not this family's
+ * compact scale. */
+function Badge({
+  tone,
+  dense,
+  icon: Icon,
+  title,
+  className,
+  suffix,
+  children,
+  ...rest
+}: {
+  tone: string
+  dense?: boolean
+  icon?: LucideIcon
+  title?: string
+  className?: string
+  /** A qualifier that gives up its room first when the badge is squeezed, so `children` keeps its text. */
+  suffix?: ReactNode
+  children: ReactNode
+} & ComponentProps<'span'>) {
+  return (
+    <span
+      className={clsx('inline-flex shrink-0 items-center gap-1 truncate rounded px-1.5 text-[10.5px]', dense ? 'py-px' : 'py-0.5', tone, className)}
+      title={title}
+      {...rest}
+    >
+      {Icon && <Icon size={ICON_SM} className="shrink-0" aria-hidden="true" />}
+      <span className={clsx('truncate', suffix && 'shrink-[0.01]')}>{children}</span>
+      {suffix && <span className="min-w-0 shrink-[100] truncate">{suffix}</span>}
+    </span>
+  )
+}
+
+/** A cluster's networks and tunnels as chips, the same two readable facts in both layers, on the title's own line
+ *  so the header keeps its height: they take the room the name leaves and truncate (the full sentence is the
+ *  tooltip) rather than push it, and only the first two are drawn. */
+function NetChips({ nets }: { nets: ClusterNet[] }) {
+  const { show } = useContext(PeerRingContext)
+  const shown = nets.slice(0, 2)
+  const more = nets.slice(2)
+  return (
+    <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden" data-testid="net-chips">
+      {shown.map((n) => {
+        const peers = peerIds([n])
+        const [label, suffix] = netLabel(n)
+        return (
+          <Badge
+            key={`${n.kind}:${n.via}`}
+            tone={HEADER_TONE}
+            dense
+            icon={n.kind === 'subnet' ? Network : Cable}
+            title={netSentence(n)}
+            className="min-w-0 !shrink"
+            suffix={suffix}
+            data-testid="net-chip"
+            tabIndex={0}
+            onMouseEnter={() => show(peers)}
+            onMouseLeave={() => show(null)}
+            onFocus={() => show(peers)}
+            onBlur={() => show(null)}
+          >
+            {label}
+          </Badge>
+        )
+      })}
+      {more.length > 0 && (
+        <Badge tone={HEADER_TONE} dense title={more.map(netSentence).join('\n')}>
+          +{more.length}
+        </Badge>
+      )}
+    </div>
+  )
+}
+
+/** The status dot, with a soft halo of its own colour; an offline one breathes slowly (still when motion is reduced). */
+function StatusDot({ status, className, title }: { status: keyof typeof STATUS_COLOR; className?: string; title?: string }) {
+  return <span className={clsx('topo-dot shrink-0 rounded-full', status === 'offline' && 'topo-dot-bad', className)} style={{ background: STATUS_COLOR[status], color: STATUS_COLOR[status] }} title={title} />
+}
+
+/** A service's replicas as small cells: green ready, amber not (yet) ready. Past EIGHT it falls back to the plain count. */
+const REPLICA_CELLS = 8
+function ReplicaCells({ replicas, label, far }: { replicas: { total: number; ready?: number }; label: string; far: boolean }) {
+  const { total, ready } = replicas
+  if (total > REPLICA_CELLS || total < 1) return <span className={clsx('text-nb-500', far ? 'text-[15px]' : 'text-[11px]')}>{label}</span>
+  const up = ready === undefined ? total : Math.min(ready, total)
+  return (
+    <span className="flex items-center gap-[3px]" title={ready === undefined ? `${total} replica${total === 1 ? '' : 's'}` : `${up} of ${total} replica${total === 1 ? '' : 's'} ready`}>
+      {Array.from({ length: total }, (_, i) => (
+        <span key={i} className={clsx('rounded-[2px]', far ? 'h-3 w-1.5' : 'h-2.5 w-1.5', i < up ? 'bg-ok/80' : 'bg-warn')} />
+      ))}
+      <span className="sr-only">{label}</span>
+    </span>
+  )
+}
+
+/* ---------- Cluster / tier boundary ---------- */
+export const GroupBox = memo(function GroupBox({ data, selected }: NodeProps<GroupNode>) {
+  const far = useFar()
+  const peer = useContext(PeerRingContext).ring.has(data.entityId) && data.groupBy === 'cluster' && !data.extra
+  const color = TIER_COLOR[data.tier]
+  const peak = data.load ? peakLoad(data.load) : undefined
+  const tierLabel =
+    data.extra === 'devices'
+      ? 'Devices'
+      : data.extra === 'external'
+        ? 'External'
+        : data.tier === 'far-edge'
+          ? 'Far edge'
+          : data.tier[0].toUpperCase() + data.tier.slice(1)
+  // Devices/External are synthetic grouping rows (always laid out as tier: 'cloud', see graph.ts), not a
+  // real tier - no tier icon for those, same as their label above already isn't a tier name.
+  const TierGlyph = data.extra ? undefined : TIER_ICON[data.tier]
+  return (
+    // The selection ring is `inset`, not the plain outward `0_0_0_Npx` box-shadow it used to be: OffsetEdge
+    // places an incoming edge's arrowhead tip with zero gap exactly on this box's true boundary (see its
+    // own pullBackEnds doc comment for why), and an outward ring bleeds a couple of px past that same
+    // boundary on top of it - painted after the edge, since every node sits above the edges' own SVG layer
+    // regardless of z-index. The visible result was a selected card's own ring appearing to swallow the
+    // very tip of any edge pointing at it. Inset keeps the identical highlight look without ever drawing
+    // outside the box OffsetEdge's own math already treats as this card's exact, true extent.
+    <div
+      className={clsx('topo-box h-full w-full rounded-2xl border transition-shadow', selected ? 'topo-pop shadow-[0_10px_30px_-12px_rgb(0_0_0/0.35)]' : peer && 'shadow-[inset_0_0_0_1.5px_var(--color-nb-500)]')}
+      style={{
+        '--pop': 1.012,
+        // Selected is a change of colour and a small lift, not a heavier border.
+        borderColor: selected ? 'var(--color-accent)' : `color-mix(in srgb, ${color} 32%, transparent)`,
+        background: `linear-gradient(180deg, color-mix(in srgb, ${color} 9%, var(--color-nb-920)), color-mix(in srgb, ${color} 4%, var(--color-nb-920)) 38%)`,
+      } as React.CSSProperties}
+    >
+      <AllHandles />
+      <div className="flex items-start justify-between gap-3 px-5 pt-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <StatusDot status={data.status} className="size-2" />
+            {data.distribution && <DistroIcon distribution={data.distribution} size={ICON_SM} />}
+            <span className={clsx('truncate font-semibold tracking-tight text-nb-200', far ? 'text-[26px] leading-8' : 'text-sm')} title={data.title}>{data.title}</span>
+            {!far && data.nets && <NetChips nets={data.nets} />}
+            {far && peak !== undefined && peak >= 70 && (
+              <span className={clsx('rounded px-1.5 py-0.5 text-[15px] font-medium', peak >= 90 ? 'bg-bad/15 text-bad' : 'bg-warn/15 text-warn')} title="Busiest resource: share requested by pods">{peak}%</span>
+            )}
+          </div>
+          {!far && (
+            <div className="mt-0.5 flex items-center gap-1.5 truncate pl-4 text-xs text-nb-500">
+              {data.country && <Flag code={data.country} className="!h-2.5 !w-[15px]" />}
+              <span className="truncate" title={data.subtitle || undefined}>{data.subtitle || ' '}</span>
+              {data.mesh && (
+                <Badge tone={TONE[data.mesh.tone]} dense title={data.mesh.title} data-testid="mesh-badge">
+                  {data.mesh.label}
+                </Badge>
+              )}
+              {data.networking && (
+                <Badge
+                  tone={HEADER_TONE}
+                  dense
+                  icon={Router}
+                  title={`Detected in this cluster: ${[data.networking.cni && `${data.networking.cni} (CNI)`, data.networking.ingress && `${data.networking.ingress} (ingress)`].filter(Boolean).join(' · ')}`}
+                  data-testid="networking-badge"
+                >
+                  {[data.networking.cni, data.networking.ingress].filter(Boolean).join(' · ')}
+                </Badge>
+              )}
+            </div>
+          )}
+          {!far && data.load && (data.load.cpuPct !== undefined || data.load.memPct !== undefined || data.load.podPct !== undefined || data.load.ready < data.load.nodes || data.load.unready > 0) && (
+            <LoadRow load={data.load} className="mt-1 pl-4" />
+          )}
+        </div>
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          <div className="flex items-center gap-1">
+            {data.localTelemetry && (
+              <button
+                type="button"
+                data-testid="local-telemetry-badge"
+                data-local-telemetry-cluster={data.entityId}
+                title={`Local telemetry running: ${data.localTelemetry.layers.join(', ') || 'signals active'}. Click to configure.`}
+                aria-label={`Local telemetry running: ${data.localTelemetry.layers.join(', ') || 'signals active'}. Click to configure.`}
+                className="grid size-5 shrink-0 place-items-center rounded-full bg-accent-soft text-accent transition-colors hover:bg-accent/20"
+              >
+                <Funnel size={ICON_MD} />
+              </button>
+            )}
+            <span
+              // Background fill added per this round's visual review: every other badge in this header
+              // (mesh, networking, the status dot) reads as "a label" because it has a tinted fill behind
+              // it - this one was border-only, so at default zoom it nearly disappeared against the box's
+              // own faint tier-tinted background. Same color-mix approach as the border, just lower opacity.
+              className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[9.5px] font-semibold uppercase tracking-[0.08em]"
+              style={{
+                color,
+                borderColor: `color-mix(in srgb, ${color} 22%, transparent)`,
+                background: `color-mix(in srgb, ${color} 11%, transparent)`,
+              }}
+            >
+              {TierGlyph && <TierGlyph size={ICON_SM - 2} aria-hidden="true" />}
+              {tierLabel}
+            </span>
+          </div>
+          {!far && <span className="text-[11px] text-nb-500">{data.stats}</span>}
+        </div>
+      </div>
+    </div>
+  )
+})
+
+/* ---------- Namespace sub-box (nests inside a cluster box, one level in from it) ---------- */
+export const NamespaceBox = memo(function NamespaceBox({ data }: NodeProps<NamespaceNode>) {
+  return (
+    <div className="h-full w-full rounded-lg border border-dashed border-nb-800 bg-black/10">
+      <AllHandles />
+      <div className="flex items-center gap-1.5 px-3 pt-2">
+        <span className="size-1.5 shrink-0 rounded-full" style={{ background: STATUS_COLOR[data.status] }} />
+        <span className="truncate text-[11px] font-medium uppercase tracking-wide text-nb-500">{data.namespace}</span>
+        <span className="ml-auto shrink-0 text-[10.5px] normal-case tracking-normal text-nb-600">{data.count}</span>
+      </div>
+    </div>
+  )
+})
+
+/* ---------- Service / machine card ---------- */
+// A card's own footprint stays legible how ever many services a busy node/namespace box has - past this
+// many chips, the rest collapse into one "+N more" chip (its title lists every one of them) instead of the
+// card growing to fit an unbounded list, mirroring how a crowded Grafana panel legend collapses long series.
+const CHIP_LIMIT = 6
+const MACHINE_ICON = { vm: Server, 'bare-metal': HardDrive, 'edge-device': Cpu } as const
+// A bare Service with no controller behind it (or one whose kind isn't one of these four) keeps the
+// generic Box - same as before this map existed.
+export const WORKLOAD_ICON: Record<ServiceKind, LucideIcon> = {
+  Deployment: Layers,
+  StatefulSet: Database,
+  DaemonSet: Shield,
+  Job: Clock,
+}
+
+export const Card = memo(function Card({ data, selected }: NodeProps<CardNode>) {
+  const isMachine = data.kind === 'machine'
+  // The pod popover is local, transient UI state: nothing else on the canvas needs to know a card has it open.
+  const [podsOpen, setPodsOpen] = useState(false)
+  const [podsAnchor, setPodsAnchor] = useState<HTMLElement | null>(null)
+  const closePods = useCallback(() => setPodsOpen(false), [])
+  const Icon =
+    data.kind === 'device'
+      ? DEVICE_ICON[data.deviceKind ?? 'other']
+      : data.kind === 'external'
+        ? Globe
+        : isMachine
+          ? MACHINE_ICON[data.machineKind ?? 'vm']
+          : data.serviceKind
+            ? WORKLOAD_ICON[data.serviceKind]
+            : Box
+  const far = useFar()
+  const color = TIER_COLOR[data.tier]
+  return (
+    <div
+      data-far={far ? '1' : undefined}
+      className={clsx(
+        'flex h-full w-full flex-col justify-start gap-2 rounded-xl border bg-nb-925 px-3.5 pb-2.5 pt-4',
+        // inset, not outward - see the identical note on the group/boundary box above: an outward ring
+        // here would bleed past this card's own true boundary and sit on top of any edge arrowhead
+        // pointing at it, since edges always render beneath every node regardless of z-index.
+        // Selected: the border changes colour (not weight), the card lifts a little and pops once (index.css).
+        selected ? 'topo-pop border-accent shadow-[0_10px_26px_-12px_rgb(0_0_0/0.4)]' : ['topo-card', data.status === 'degraded' ? 'topo-sev-warn' : data.status === 'offline' ? 'topo-sev-bad' : 'border-nb-800 hover:border-nb-700'],
+      )}
+      style={{ '--pop': 1.04 } as React.CSSProperties}
+    >
+      <AllHandles />
+      <div className="flex items-center gap-3">
+        <div
+          className="grid size-9 shrink-0 place-items-center rounded-lg"
+          style={{ background: `color-mix(in srgb, ${color} 14%, transparent)`, color }}
+        >
+          <Icon size={ICON_SM} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            {/* title= added per this round's visual review: several common service/device names (e.g.
+                "inference-regional", "Temperature sensors") truncate at this card's fixed width, and there
+                was no way to see the full name short of opening the Inspector - a native tooltip on hover
+                costs nothing and needs no layout change. */}
+            {isMachine ? (
+              // A machine name is often a long generated one whose start and end both matter ("ip-10-0-12-34.eu-west-1...internal"), so
+              // the middle goes, not the end; the full name stays in the tooltip and for screen readers.
+              <>
+                <span className={clsx('truncate font-medium text-nb-300', far ? 'text-[21px] leading-tight' : 'text-[13px]')} title={data.title} aria-hidden="true">{middleTruncate(data.title, far ? 15 : 24)}</span>
+                <span className="sr-only">{data.title}</span>
+              </>
+            ) : (
+              <span className={clsx('truncate font-medium text-nb-300', far ? 'text-[21px] leading-tight' : 'text-[13px]')} title={data.title}>{data.title}</span>
+            )}
+          </div>
+          {far && data.clusterTag && <div className="truncate text-[14px] leading-4 text-nb-500">{data.clusterTag}</div>}
+          {!far && <div className="truncate text-[11px] text-nb-500" title={data.subtitle}>{data.subtitle}</div>}
+          {!far && isMachine && <div className="truncate text-[11px] text-nb-500" title={data.meta}>{data.meta}</div>}
+        </div>
+        <div className="flex shrink-0 flex-col items-end gap-1.5">
+          <StatusDot status={data.status} className={far ? 'size-3' : 'size-2'} title={data.status} />
+          {!far && !isMachine && (data.replicas ? <ReplicaCells replicas={data.replicas} label={data.meta} far={false} /> : <span className="text-[11px] text-nb-500">{data.meta}</span>)}
+          {far && (data.hint || data.notReady) && <span className={clsx('size-2.5 rounded-sm', data.notReady ? 'bg-warn' : 'bg-accent')} title={data.notReady ?? `Better in ${data.hint}`} />}
+        </div>
+      </div>
+      {!far && (data.hint || data.notReady || data.mesh || data.hardware) && (
+        <div className="flex flex-wrap items-center gap-1.5 text-[10.5px]">
+          {data.mesh && (
+            <Badge tone={MESH_TONE[data.mesh.tone]} title={data.mesh.title} data-testid="mesh-chip" className="max-w-full">
+              {data.mesh.label}
+            </Badge>
+          )}
+          {data.notReady && <Badge tone="bg-warn/10 text-warn" title="Fewer replicas are ready than wanted">{data.notReady}</Badge>}
+          {data.hint && (
+            <Badge tone="bg-accent-soft text-accent" icon={ArrowUpRight} title={`The placement advice would move this to ${data.hint}. Open it for the evidence.`} data-testid="placement-hint" className="max-w-full">
+              better in {data.hint}
+            </Badge>
+          )}
+          {data.hardware?.hasBattery && (
+            <Badge tone={NEUTRAL_TONE} icon={BatteryCharging} title="Node probe: this machine can run without mains power (has a battery)" data-testid="battery-badge">
+              Battery
+            </Badge>
+          )}
+          {data.hardware?.nicMbps !== undefined && (
+            <Badge tone={NEUTRAL_TONE} icon={Cable} title={`Node probe: fastest physical network interface seen on this machine is ${nicSpeedLabel(data.hardware.nicMbps)}`} data-testid="nic-badge">
+              {nicSpeedLabel(data.hardware.nicMbps)}
+            </Badge>
+          )}
+        </div>
+      )}
+
+      {data.pods && (
+        <>
+          <PodRail pods={data.pods} far={far} open={podsOpen} onToggle={() => setPodsOpen((v) => !v)} buttonRef={setPodsAnchor} />
+          {podsOpen && podsAnchor && <PodPopover pods={data.pods} name={data.title} anchor={podsAnchor} onClose={closePods} />}
+        </>
+      )}
+
+      {!far && data.chips && (
+        <div className="flex flex-wrap gap-1.5 border-t border-nb-850 pt-2">
+          {data.chips.length === 0 && <span className="text-[11px] text-nb-500">No services</span>}
+          {data.chips.slice(0, CHIP_LIMIT).map((c) => (
+            <Badge key={c.id} tone={NEUTRAL_TONE} icon={Box} title={c.name} className="max-w-[48%]">
+              {c.name}
+            </Badge>
+          ))}
+          {data.chips.length > CHIP_LIMIT && (
+            <Badge
+              tone={NEUTRAL_TONE}
+              title={data.chips.slice(CHIP_LIMIT).map((c) => c.name).join(', ')}
+              data-testid="chip-overflow"
+            >
+              +{data.chips.length - CHIP_LIMIT} more
+            </Badge>
+          )}
+        </div>
+      )}
+    </div>
+  )
+})
+
+export const nodeTypes = { boundary: GroupBox, card: Card, namespace: NamespaceBox }

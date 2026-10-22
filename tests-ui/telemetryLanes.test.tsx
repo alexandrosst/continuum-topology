@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
-import type { PlatformEntity, PlatformModel, PlatformStatus } from '@/lib/platformLayer'
-import { hopNeedsLabel, LANE, layoutLanes, nodeLabel } from '@/lib/telemetryLanes'
+import type { PlatformEntity, PlatformModel, PlatformStatus } from '@/features/topology/lib/platformLayer'
+import { hopNeedsLabel, LANE, layoutLanes, nodeLabel } from '@/features/topology/lib/telemetryLanes'
 
 const part = (id: string, kind: PlatformEntity['kind'], over: Partial<PlatformEntity> = {}): PlatformEntity => ({ id, kind, name: kind, detail: '', status: 'healthy', sentence: '', sendsTo: [], ...over })
 const hop = (from: string, to: string, status: PlatformStatus = 'healthy', age?: string) => ({ id: `${from}>${to}`, from, to, status, age })

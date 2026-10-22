@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, test } from 'vitest'
-import EdgeHoverCard from '@/components/topology/EdgeHoverCard'
-import type { EdgeData, TopoEdge } from '@/lib/graph'
+import EdgeHoverCard from '@/features/topology/components/EdgeHoverCard'
+import type { EdgeData, TopoEdge } from '@/features/topology/lib/graph'
 
 // Minimal fixture: a real DOM element stands in for `host` (jsdom gives any element a defined-but-zeroed
 // getBoundingClientRect, which is all this component needs to clear its `!box` early return) and `edge`

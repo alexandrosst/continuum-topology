@@ -1,6 +1,6 @@
 import { render, screen, within } from '@testing-library/react'
 import { describe, expect, test, vi } from 'vitest'
-import MeasuredPaths from '@/components/MeasuredPaths'
+import MeasuredPaths from '@/features/topology/components/MeasuredPaths'
 import type { Path } from '@/lib/types'
 
 // Only the table is exercised: the connection is reported as not connected, which leaves out the form for

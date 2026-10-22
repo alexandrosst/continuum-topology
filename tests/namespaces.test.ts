@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { buildNamespaceRows, excludedWords, namespaceMesh, rowMatches, scopeOf } from '../src/lib/namespaces'
+import { buildNamespaceRows, excludedWords, namespaceMesh, rowMatches, scopeOf } from '../src/features/topology/lib/namespaces'
 import type { Agent, Cluster, Namespace, Service } from '../src/lib/types'
 
 const cl = (over: Partial<Cluster> = {}) => ({ id: 'c1', name: 'edge', source: 'discovered', state: 'live', orgId: 'o', ...over }) as Cluster

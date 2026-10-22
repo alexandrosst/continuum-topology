@@ -2,7 +2,7 @@ import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, test, vi } from 'vitest'
-import NamespacesPage from '@/pages/NamespacesPage'
+import NamespacesPage from '@/features/topology/NamespacesPage'
 import type { Agent, Cluster, Service } from '@/lib/types'
 
 const cl = (over: Partial<Cluster> = {}) => ({ id: 'c1', name: 'edge-1', source: 'discovered', state: 'live', orgId: 'o', ...over }) as Cluster

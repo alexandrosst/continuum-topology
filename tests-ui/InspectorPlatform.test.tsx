@@ -1,8 +1,8 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, test, vi } from 'vitest'
-import Inspector from '@/components/topology/Inspector'
-import type { PlatformEntity, PlatformModel } from '@/lib/platformLayer'
+import Inspector from '@/features/topology/components/Inspector'
+import type { PlatformEntity, PlatformModel } from '@/features/topology/lib/platformLayer'
 import type { Cluster, DiscoveryAgent } from '@/lib/types'
 
 // A focused Inspector test: only the 'platform' selection branch is exercised here - see Inspector.test.tsx's
