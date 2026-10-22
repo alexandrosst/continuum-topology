@@ -1,5 +1,5 @@
-import type { Class } from '../advice'
-import type { ObsInfo, ObsKind } from '../provenance'
+import type { Class } from '../../../lib/advice'
+import type { ObsInfo, ObsKind } from '../../../lib/provenance'
 
 /** "2 of 3 inputs are guesses": how much of what decides an answer is not solid. */
 export function inputsSummary(inputs: { class: Class }[]): string {

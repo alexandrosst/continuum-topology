@@ -15,7 +15,7 @@ import { bytesPerSec } from '@/lib/observed'
 import { placeLabel } from '@/lib/present'
 import { LoadRow, peakLoad } from '@/components/topology/Load'
 import { usePlacementSuggestions } from '@/lib/usePlacement'
-import PlacementHint from '@/components/PlacementHint'
+import PlacementHint from '@/features/placement/components/PlacementHint'
 import { STATUS_COLOR, TIER_COLOR, TIERS, type Cluster } from '@/lib/types'
 import { usePaths, useTopology } from '@/store/topology'
 

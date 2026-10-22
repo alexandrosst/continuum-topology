@@ -2,7 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
-import ConnectClusterWizard from '@/components/discovery/ConnectClusterWizard'
+import ConnectClusterWizard from '@/features/discovery/components/ConnectClusterWizard'
 import { ApiError } from '@/lib/api'
 
 // The wizard that connects a cluster: what the person chooses (the access level, the per-node collectors, the namespaces the agent may

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { cleanCode, codeComplete, formatCode, fromPaste, hasStrayCharacters } from '../src/lib/approvalCode'
+import { cleanCode, codeComplete, formatCode, fromPaste, hasStrayCharacters } from '../src/features/discovery/lib/approvalCode'
 import { settleSkew, skewLabel, skewWarning } from '../src/lib/clock'
 
 test('an approval code is cleaned the way the server reads it', () => {

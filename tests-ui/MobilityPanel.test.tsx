@@ -1,7 +1,7 @@
 import { render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, test, vi } from 'vitest'
-import MobilityPanel from '@/components/MobilityPanel'
+import MobilityPanel from '@/features/placement/components/MobilityPanel'
 import type { Cluster, MachineNode, Plan, Service } from '@/lib/types'
 
 // Part 2's merged presentation: MobilityPanel's own feasibility sweep (real movability()/moveTargets(), run

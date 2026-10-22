@@ -20,7 +20,7 @@ vi.mock('@/store/topology', () => ({
 vi.mock('@/store/server', () => ({
   useServer: (selector: (s: { status: string }) => unknown) => selector({ status: 'connected' }),
 }))
-vi.mock('@/components/discovery/ConnectFlow', () => ({
+vi.mock('@/features/discovery/components/ConnectFlow', () => ({
   useConnectFlow: () => ({ start: vi.fn(), dialogs: null, canStart: true, wizardOpen: false }),
 }))
 

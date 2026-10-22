@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useState, type ReactNode } from 'react'
-import { WizardLoading } from '@/components/discovery/ConnectFlow'
+import { WizardLoading } from '@/features/discovery/components/ConnectFlow'
 import { useServer } from '@/store/server'
 
 // The wizard is large and most visits never open it.

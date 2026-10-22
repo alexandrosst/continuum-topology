@@ -1,7 +1,7 @@
 import { Loader2 } from 'lucide-react'
 import { lazy, Suspense, useCallback, useEffect, useState, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import ServerConnect from '@/components/discovery/ServerConnect'
+import ServerConnect from '@/features/discovery/components/ServerConnect'
 import { useServer } from '@/store/server'
 
 /** Covers the screen the instant the wizard is asked for, before its chunk has even arrived - so a click aimed
@@ -15,7 +15,7 @@ export function WizardLoading() {
 }
 
 // The wizard is large and most visits never open it.
-const ConnectClusterWizard = lazy(() => import('@/components/discovery/ConnectClusterWizard'))
+const ConnectClusterWizard = lazy(() => import('@/features/discovery/components/ConnectClusterWizard'))
 
 /**
  * "Connect a cluster" is one flow with one entry point, whichever page offers it (Discovery, Agents, the empty

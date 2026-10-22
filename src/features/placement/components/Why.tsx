@@ -4,7 +4,7 @@ import { useId, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { EvidenceChip, ICON_SM, ObservationChip } from '@/components/ui/primitives'
 import { formatFactValue, type Class, type FactRow, type Fix, type Verdict } from '@/lib/advice'
-import { factName, inputsSummary, obsOfState } from '@/lib/placement/why'
+import { factName, inputsSummary, obsOfState } from '@/features/placement/lib/why'
 import { ageLabel } from '@/lib/provenance'
 
 /* ---------- the verdict, never by colour alone: an icon, a word and a border style ---------- */

@@ -1,7 +1,7 @@
 import { ArrowRight, Plug } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { useConnectFlow } from '@/components/discovery/ConnectFlow'
+import { useConnectFlow } from '@/features/discovery/components/ConnectFlow'
 import ColumnPicker from '@/components/ColumnPicker'
 import { GoneRecords } from '@/components/Observations'
 import { Button, DeclaredMark, EmptyState, ICON_SM, ObservationChip, PageHeader, Select, Table, Td, Th } from '@/components/ui/primitives'

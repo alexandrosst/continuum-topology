@@ -1,7 +1,7 @@
 import { AlertTriangle, Cpu, HardDrive, Plug, Plus, Server } from 'lucide-react'
 import { useState } from 'react'
 import ColumnPicker from '@/components/ColumnPicker'
-import { useConnectFlow } from '@/components/discovery/ConnectFlow'
+import { useConnectFlow } from '@/features/discovery/components/ConnectFlow'
 import { ConfirmModal, NodeForm } from '@/components/forms'
 import { WithIcon } from '@/components/ui/brand'
 import { GoneRecords } from '@/components/Observations'
