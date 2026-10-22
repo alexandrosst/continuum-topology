@@ -97,3 +97,77 @@ func TestAModelVersionThatCouldNotBeSavedIsSavedLater(t *testing.T) {
 		t.Fatalf("reading an unchanged, stored model wrote %d times", n)
 	}
 }
+
+// blockingModelStore holds PutModelState until released, and says when a write has arrived.
+type blockingModelStore struct {
+	store.Store
+	arrived chan struct{}
+	release chan struct{}
+}
+
+func (s *blockingModelStore) PutModelState(ctx context.Context, org string, m store.ModelState) error {
+	select {
+	case s.arrived <- struct{}{}:
+	default:
+	}
+	<-s.release
+	return s.Store.PutModelState(ctx, org, m)
+}
+
+// A read that has to store the new version waits for the store, and nothing else may wait with it. The twin's lock is
+// taken by every sync and every saved workspace; if the write were made under it, one slow disk write would stop all
+// of them. The reader still gets its answer only after the version is stored.
+func TestAModelVersionBeingSavedDoesNotHoldUpTheTwin(t *testing.T) {
+	a := newAdminRig(t)
+	h := a.hub()
+	bs := &blockingModelStore{Store: h.C.Store, arrived: make(chan struct{}, 1), release: make(chan struct{})}
+	h.C.Store = bs
+	ag := twinAgent(t, a.env, h, testkit.FP)
+	h.ApplySync(ag, testkit.TwinFull(testkit.FP, []*continuumv1.NodeFacts{testkit.TwinNode("n1", "")}, testkit.TwinWorkload("shop", "cart")), false)
+
+	type result struct {
+		version int64
+		err     error
+	}
+	read := make(chan result, 1)
+	go func() {
+		m, _, err := h.Model(a.ctx)
+		read <- result{int64(m.ModelVersion), err}
+	}()
+	select {
+	case <-bs.arrived:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the read never reached the store")
+	}
+
+	// The write is in progress. Something that only needs the twin's lock must not wait for it.
+	other := make(chan struct{})
+	go func() {
+		h.Flush(a.ctx)
+		close(other)
+	}()
+	select {
+	case <-other:
+	case <-time.After(2 * time.Second):
+		t.Fatal("a write of the model version holds the twin's lock")
+	}
+	select {
+	case r := <-read:
+		t.Fatalf("the read returned (%+v) before its version was stored", r)
+	default:
+	}
+
+	close(bs.release)
+	select {
+	case r := <-read:
+		if r.err != nil {
+			t.Fatal(r.err)
+		}
+		st, err := h.C.Store.GetModelState(a.ctx, h.C.OrgID)
+		if err != nil || st.Version != r.version {
+			t.Fatalf("the read returned version %d but the store holds %+v (%v)", r.version, st, err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the read never finished")
+	}
+}

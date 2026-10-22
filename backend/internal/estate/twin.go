@@ -51,7 +51,11 @@ type TwinRT struct {
 	// unsaved is set while the current version has been handed out but the store has not accepted it yet. Until it
 	// has, a restart would read an older number and hand it out again for different content, so every read tries
 	// again.
-	unsaved    bool
+	unsaved bool
+	// saving serialises the writes of the version, so that they reach the store in order, and is taken before mu and
+	// never while holding it: the store is never called with mu held, where a slow write would hold up everything that
+	// only wants to note that the workspace changed.
+	saving     sync.Mutex
 	cache      *modelCache
 	stateCache *stateCache
 	declared   workspace.Declared
@@ -340,8 +344,8 @@ func (h *Hub) Model(ctx context.Context) (twin.Model, string, error) {
 	tw.mu.Lock()
 	if c := tw.cache; c != nil && c.gen == tw.gen.Load() && c.stale == window && now.Sub(c.at) >= 0 && now.Sub(c.at) < modelCacheTTL {
 		m, etag := c.m, c.etag
-		h.saveModelVersion(ctx, now)
 		tw.mu.Unlock()
+		h.saveModelVersion(ctx, now)
 		tw.CacheHits.Add(1)
 		return m, etag, nil
 	}
@@ -367,29 +371,41 @@ func (h *Hub) Model(ctx context.Context) (twin.Model, string, error) {
 		tw.fp = fp
 		tw.unsaved = true
 	}
-	h.saveModelVersion(ctx, now)
 	m.ModelVersion = tw.version
 	etag := fmt.Sprintf(`"m%d-%s"`, tw.version, fp[:12])
 	tw.cache = &modelCache{at: now, gen: gen, stale: window, m: m, etag: etag}
 	tw.mu.Unlock()
+	h.saveModelVersion(ctx, now)
 	return m, etag, nil
 }
 
-// saveModelVersion stores the current version if the store does not have it yet. The caller holds tw.mu. A version
-// that could not be stored stays marked, and the next read (hit or miss) tries again, so a refused write delays the
-// number reaching the store but never loses it.
+// saveModelVersion stores the current version if the store does not have it yet, before the read that handed it out
+// returns: a number a caller holds must not be reusable for other content after a restart. That is why a read can write,
+// and it does so only when the content changed (or a write failed before), never on every read. A version that could not
+// be stored stays marked, and the next read (hit or miss) tries again, so a refused write delays the number reaching the
+// store but never loses it. The caller does not hold tw.mu: the store is slow when another writer has it, and tw.mu is
+// taken by every sync and every saved workspace.
 func (h *Hub) saveModelVersion(ctx context.Context, at time.Time) {
 	tw := h.Tw
+	tw.saving.Lock()
+	defer tw.saving.Unlock()
+	tw.mu.Lock()
 	if !tw.unsaved {
+		tw.mu.Unlock()
 		return
 	}
 	st := store.ModelState{Version: tw.version, Fingerprint: tw.fp, At: at}
+	tw.mu.Unlock()
 	if err := h.C.Store.PutModelState(ctx, h.C.OrgID, st); err != nil {
 		kernel.Metrics.StoreErrors.Add(1)
-		h.Log.Error("twin: the model version could not be saved; it will be tried again on the next read", "version", tw.version, "err", err)
+		h.Log.Error("twin: the model version could not be saved; it will be tried again on the next read", "version", st.Version, "err", err)
 		return
 	}
-	tw.unsaved = false
+	tw.mu.Lock()
+	if tw.version == st.Version { // a newer one, made meanwhile, is still to be saved
+		tw.unsaved = false
+	}
+	tw.mu.Unlock()
 }
 
 // staleWindow is how long silence is tolerated before a record is stale.
