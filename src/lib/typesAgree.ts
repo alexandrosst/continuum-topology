@@ -26,6 +26,8 @@ type Expect<T extends true> = T
  *    yet (the screens show them when a mesh or FUSION supplies them).
  *  Suggestion.apply: the server stores what applying a suggestion does as an opaque document; the page reads it as a
  *    SuggestionAction.
+ * Site, SiteLink and Device are records only a person declares; the server keeps the workspace document as JSON and does
+ * not read them, but writes their shape down (workspace/declared.go) so that they are generated and held here like the rest.
  * The page's Topology and Agent are not paired: the page's Topology also holds what a person declared (devices, sites,
  * applications) and the server's agents, suggestions and paths come to the page apart from it.
  */
@@ -52,4 +54,8 @@ export type Agreements = [
   Expect<Agrees<P.DependencyStats, W.DependencyStats>>,
   Expect<Agrees<P.Dependency, W.Dependency, 'stats'>>,
   Expect<Agrees<P.Suggestion, W.Suggestion, 'apply'>>,
+  Expect<Agrees<P.Site, W.Site>>,
+  Expect<Agrees<P.SiteLink, W.SiteLink>>,
+  Expect<Agrees<P.Device, W.Device>>,
+  Expect<Agrees<P.Application, W.Application>>,
 ]

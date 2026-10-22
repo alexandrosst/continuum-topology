@@ -121,8 +121,8 @@ export interface DeclaredRef {
   siteId?: string
 }
 
-export type SiteKind = 'cloud-region' | 'data-center' | 'edge-site'
-export type TrustZone = 'public' | 'private' | 'restricted'
+export type SiteKind = W.SiteKind
+export type TrustZone = W.TrustZone
 
 /** A place on the map. Clusters and devices point at a site; sites are linked with measured RTT/loss. */
 export interface Site {
@@ -150,7 +150,7 @@ export interface SiteLink {
   lossPct?: number
   mbps?: number
   measuredAt?: string
-  source: 'measured' | 'declared'
+  source: W.SiteLinkSource
 }
 
 /**
@@ -734,7 +734,7 @@ export interface Service extends Provenance {
   sensitivity?: Sensitivity
 }
 
-export type DeviceKind = 'sensor' | 'actuator' | 'camera' | 'plc' | 'gateway' | 'tag' | 'vehicle' | 'other'
+export type DeviceKind = W.DeviceKind
 
 /**
  * A non-Kubernetes thing that belongs to an application: sensors, cameras, PLCs,

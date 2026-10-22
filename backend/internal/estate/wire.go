@@ -2,8 +2,10 @@ package estate
 
 import (
 	"continuum/internal/agents"
+	"continuum/internal/model"
 	"continuum/internal/twin"
 	"continuum/internal/wire"
+	"continuum/internal/workspace"
 )
 
 // WireTypes are the shapes this package puts on the wire (or reads from it), for the TypeScript the server writes of them
@@ -18,6 +20,10 @@ func WireTypes() []wire.Root {
 		{Value: eventDoc{}},
 		{Value: SelfTelemetryEntity{}},
 		{Value: applicationDoc{}},
+		{Value: model.Application{}},
+		{Value: workspace.Site{}},
+		{Value: workspace.SiteLink{}},
+		{Value: workspace.Device{}},
 		{Value: AgentDoc{}},
 		{Value: StateDoc{}},
 		{Value: TeardownDoc{}},

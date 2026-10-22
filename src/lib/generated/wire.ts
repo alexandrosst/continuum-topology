@@ -338,6 +338,26 @@ export interface AppView {
   unresolvedMembers?: number
 }
 
+export interface Application {
+  orgId: string
+  source: ModelSource
+  key?: string
+  lastSeen?: string
+  detectedAt?: string
+  agentId?: string
+  revision?: number
+  stale?: boolean
+  deletedAt?: string
+  evidence?: Record<string, Evidence>
+  state?: ObservationState
+  stateReason?: string
+  id: string
+  name: string
+  description: string
+  origin: string
+  confidence: Confidence
+}
+
 export interface ApplicationDoc {
   name: string
   description?: string
@@ -855,6 +875,36 @@ export interface Destination {
 export type DestinationKind = 'external' | 'operator' | 'fusion'
 
 export type DestinationRole = 'central' | 'regional'
+
+export interface Device {
+  orgId: string
+  source: ModelSource
+  key?: string
+  lastSeen?: string
+  detectedAt?: string
+  agentId?: string
+  revision?: number
+  stale?: boolean
+  deletedAt?: string
+  evidence?: Record<string, Evidence>
+  state?: ObservationState
+  stateReason?: string
+  id: string
+  name: string
+  kind: DeviceKind
+  count: number
+  applicationId?: string
+  siteId?: string
+  gatewayNodeId?: string
+  protocol: string
+  connectivity: Connectivity
+  hardwareModel?: string
+  firmware?: string
+  status: Status
+  labels: Record<string, string>
+}
+
+export type DeviceKind = 'sensor' | 'actuator' | 'camera' | 'plc' | 'gateway' | 'tag' | 'vehicle' | 'other'
 
 export interface DiagnosticsDoc {
   reportedAt: string
@@ -2608,6 +2658,35 @@ export interface Signals {
   accelerators: boolean
 }
 
+export interface Site {
+  id: string
+  orgId: string
+  name: string
+  kind: SiteKind
+  lat: number
+  lng: number
+  country: string
+  city?: string
+  dataResidency?: string
+  trustZone?: TrustZone
+}
+
+export type SiteKind = 'cloud-region' | 'data-center' | 'edge-site'
+
+export interface SiteLink {
+  id: string
+  orgId: string
+  a: string
+  b: string
+  rttMs?: number
+  lossPct?: number
+  mbps?: number
+  measuredAt?: string
+  source: SiteLinkSource
+}
+
+export type SiteLinkSource = 'measured' | 'declared'
+
 export interface Span {
   spanId: string
   parentSpanId?: string
@@ -2885,6 +2964,8 @@ export interface TrafficDoc {
   rates: Rate[]
   snapshots: number
 }
+
+export type TrustZone = 'public' | 'private' | 'restricted'
 
 export type TunnelEncryption = 'encrypted' | 'plaintext' | 'unknown'
 
