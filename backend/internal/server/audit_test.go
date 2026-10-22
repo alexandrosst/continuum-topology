@@ -207,39 +207,39 @@ func (f *failAudit) CreateTelemetryIntent(ctx context.Context, ti store.Telemetr
 	return f.Store.CreateTelemetryIntent(ctx, ti, opts...)
 }
 
-func (f *failAudit) UpdateTelemetryIntentScope(ctx context.Context, id string, ns, exc []string, sig []store.SignalGrant, opts ...store.WriteOption) error {
+func (f *failAudit) UpdateTelemetryIntentScope(ctx context.Context, org, id string, ns, exc []string, sig []store.SignalGrant, opts ...store.WriteOption) error {
 	if err := f.broken(opts); err != nil {
 		return err
 	}
-	return f.Store.UpdateTelemetryIntentScope(ctx, id, ns, exc, sig, opts...)
+	return f.Store.UpdateTelemetryIntentScope(ctx, org, id, ns, exc, sig, opts...)
 }
 
-func (f *failAudit) UpdateTelemetryIntentDestination(ctx context.Context, id string, dest store.Destination, opts ...store.WriteOption) error {
+func (f *failAudit) UpdateTelemetryIntentDestination(ctx context.Context, org, id string, dest store.Destination, opts ...store.WriteOption) error {
 	if err := f.broken(opts); err != nil {
 		return err
 	}
-	return f.Store.UpdateTelemetryIntentDestination(ctx, id, dest, opts...)
+	return f.Store.UpdateTelemetryIntentDestination(ctx, org, id, dest, opts...)
 }
 
-func (f *failAudit) UpdateTelemetryIntentDestinations(ctx context.Context, id string, dest store.Destination, routes map[store.Modality]store.Destination, opts ...store.WriteOption) error {
+func (f *failAudit) UpdateTelemetryIntentDestinations(ctx context.Context, org, id string, dest store.Destination, routes map[store.Modality]store.Destination, opts ...store.WriteOption) error {
 	if err := f.broken(opts); err != nil {
 		return err
 	}
-	return f.Store.UpdateTelemetryIntentDestinations(ctx, id, dest, routes, opts...)
+	return f.Store.UpdateTelemetryIntentDestinations(ctx, org, id, dest, routes, opts...)
 }
 
-func (f *failAudit) RevokeTelemetryIntent(ctx context.Context, id, reason string, now time.Time, opts ...store.WriteOption) error {
+func (f *failAudit) RevokeTelemetryIntent(ctx context.Context, org, id, reason string, now time.Time, opts ...store.WriteOption) error {
 	if err := f.broken(opts); err != nil {
 		return err
 	}
-	return f.Store.RevokeTelemetryIntent(ctx, id, reason, now, opts...)
+	return f.Store.RevokeTelemetryIntent(ctx, org, id, reason, now, opts...)
 }
 
-func (f *failAudit) DeleteTelemetryIntent(ctx context.Context, id string, opts ...store.WriteOption) error {
+func (f *failAudit) DeleteTelemetryIntent(ctx context.Context, org, id string, opts ...store.WriteOption) error {
 	if err := f.broken(opts); err != nil {
 		return err
 	}
-	return f.Store.DeleteTelemetryIntent(ctx, id, opts...)
+	return f.Store.DeleteTelemetryIntent(ctx, org, id, opts...)
 }
 
 func (f *failAudit) CreateFusionToken(ctx context.Context, tk store.FusionToken, hash []byte, opts ...store.WriteOption) error {

@@ -696,20 +696,20 @@ type Store interface {
 
 	// CreateTelemetryIntent inserts a new telemetry intent for one agent.
 	CreateTelemetryIntent(ctx context.Context, ti TelemetryIntent, opts ...WriteOption) error
-	GetTelemetryIntent(ctx context.Context, id string) (TelemetryIntent, error)
+	GetTelemetryIntent(ctx context.Context, org, id string) (TelemetryIntent, error)
 	// ListTelemetryIntentsByAgent lists every intent (active or revoked) belonging to one agent, oldest first.
-	ListTelemetryIntentsByAgent(ctx context.Context, agentID string) ([]TelemetryIntent, error)
+	ListTelemetryIntentsByAgent(ctx context.Context, org, agentID string) ([]TelemetryIntent, error)
 	ListTelemetryIntents(ctx context.Context, org string) ([]TelemetryIntent, error)
 	// UpdateTelemetryIntentScope replaces an intent's namespaces, exclusions and signal grants together,
 	// atomically, the same reasoning UpdateOperatorScope gives for an operator's own scope.
-	UpdateTelemetryIntentScope(ctx context.Context, id string, namespaces, exclude []string, signals []SignalGrant, opts ...WriteOption) error
+	UpdateTelemetryIntentScope(ctx context.Context, org, id string, namespaces, exclude []string, signals []SignalGrant, opts ...WriteOption) error
 	// UpdateTelemetryIntentDestination replaces where an intent exports to, kept separate from its scope
 	// since the two change independently (a destination rotates far less often than namespaces/signals do).
-	UpdateTelemetryIntentDestination(ctx context.Context, id string, dest Destination, opts ...WriteOption) error
+	UpdateTelemetryIntentDestination(ctx context.Context, org, id string, dest Destination, opts ...WriteOption) error
 	// UpdateTelemetryIntentDestinations replaces the default destination and the per-signal-type routes together.
-	UpdateTelemetryIntentDestinations(ctx context.Context, id string, dest Destination, routes map[Modality]Destination, opts ...WriteOption) error
-	RevokeTelemetryIntent(ctx context.Context, id, reason string, now time.Time, opts ...WriteOption) error
-	DeleteTelemetryIntent(ctx context.Context, id string, opts ...WriteOption) error
+	UpdateTelemetryIntentDestinations(ctx context.Context, org, id string, dest Destination, routes map[Modality]Destination, opts ...WriteOption) error
+	RevokeTelemetryIntent(ctx context.Context, org, id, reason string, now time.Time, opts ...WriteOption) error
+	DeleteTelemetryIntent(ctx context.Context, org, id string, opts ...WriteOption) error
 
 	// ---- quick-start gateway tokens ----
 

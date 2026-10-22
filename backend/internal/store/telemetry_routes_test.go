@@ -38,7 +38,7 @@ func TestTelemetryIntentFromSchemaTwelveHasNoRoutesAndKeepsWorking(t *testing.T)
 	if err := up.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != SchemaVersion {
 		t.Fatalf("user_version = %d (%v), want SchemaVersion %d", v, err, SchemaVersion)
 	}
-	got, err := up.GetTelemetryIntent(ctx, "ti-old")
+	got, err := up.GetTelemetryIntent(ctx, "o", "ti-old")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +60,7 @@ func TestTelemetryIntentRoutesRoundTripAndAreReplacedWhole(t *testing.T) {
 	if err := st.CreateTelemetryIntent(ctx, ti); err != nil {
 		t.Fatal(err)
 	}
-	got, _ := st.GetTelemetryIntent(ctx, "ti-r")
+	got, _ := st.GetTelemetryIntent(ctx, "o", "ti-r")
 	if len(got.Routes) != 1 || got.Routes[ModalityTraces].Endpoint != "z:9411" || !got.Routes[ModalityTraces].Insecure {
 		t.Fatalf("routes after create = %+v", got.Routes)
 	}
@@ -68,25 +68,25 @@ func TestTelemetryIntentRoutesRoundTripAndAreReplacedWhole(t *testing.T) {
 		ModalityMetrics: {Kind: DestinationOperator, TargetOperatorID: "op-eu", Endpoint: "op-eu.continuum-system.svc:4317"},
 		ModalityLogs:    extTestDest("loki:3100"),
 	}
-	if err := st.UpdateTelemetryIntentDestinations(ctx, "ti-r", extTestDest("other:4317"), routes); err != nil {
+	if err := st.UpdateTelemetryIntentDestinations(ctx, "o", "ti-r", extTestDest("other:4317"), routes); err != nil {
 		t.Fatal(err)
 	}
-	got, _ = st.GetTelemetryIntent(ctx, "ti-r")
+	got, _ = st.GetTelemetryIntent(ctx, "o", "ti-r")
 	if got.Destination.Endpoint != "other:4317" || len(got.Routes) != 2 || got.Routes[ModalityMetrics].TargetOperatorID != "op-eu" || got.Routes[ModalityTraces].Endpoint != "" {
 		t.Fatalf("after replacing: %+v / %+v", got.Destination, got.Routes)
 	}
-	if err := st.UpdateTelemetryIntentDestinations(ctx, "ti-r", extTestDest("gw:4317"), nil); err != nil {
+	if err := st.UpdateTelemetryIntentDestinations(ctx, "o", "ti-r", extTestDest("gw:4317"), nil); err != nil {
 		t.Fatal(err)
 	}
-	got, _ = st.GetTelemetryIntent(ctx, "ti-r")
+	got, _ = st.GetTelemetryIntent(ctx, "o", "ti-r")
 	if len(got.Routes) != 0 {
 		t.Fatalf("routes were not cleared: %+v", got.Routes)
 	}
 	// A revoked intent's destinations cannot be changed.
-	if err := st.RevokeTelemetryIntent(ctx, "ti-r", "done", time.Now()); err != nil {
+	if err := st.RevokeTelemetryIntent(ctx, "o", "ti-r", "done", time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.UpdateTelemetryIntentDestinations(ctx, "ti-r", extTestDest("x:1"), nil); err == nil {
+	if err := st.UpdateTelemetryIntentDestinations(ctx, "o", "ti-r", extTestDest("x:1"), nil); err == nil {
 		t.Fatal("changed the destinations of a revoked intent")
 	}
 }

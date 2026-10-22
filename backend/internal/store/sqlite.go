@@ -723,6 +723,23 @@ func needOne(res sql.Result) error {
 	return nil
 }
 
+// needOneIn is needOne for a change addressed by an id inside an organisation. When nothing changed it tells "there is no such
+// row in this organisation" (ErrNotFound, which is also what another organisation's row looks like) from "the row is there and
+// not in a state that allows this" (ErrBadState). table is one of the store's own table names, never input.
+func needOneIn(ctx context.Context, tx *sql.Tx, res sql.Result, table, org, id string) error {
+	if n, _ := res.RowsAffected(); n == 1 {
+		return nil
+	}
+	var one int
+	switch err := tx.QueryRowContext(ctx, `SELECT 1 FROM `+table+` WHERE id=? AND org_id=?`, id, org).Scan(&one); {
+	case errors.Is(err, sql.ErrNoRows):
+		return ErrNotFound
+	case err != nil:
+		return err
+	}
+	return ErrBadState
+}
+
 func isUnique(err error) bool {
 	return err != nil && (strings.Contains(err.Error(), "UNIQUE constraint failed") || strings.Contains(err.Error(), "constraint failed: UNIQUE"))
 }
@@ -1195,12 +1212,12 @@ func (s *SQLite) CreateTelemetryIntent(ctx context.Context, ti TelemetryIntent, 
 	})
 }
 
-func (s *SQLite) GetTelemetryIntent(ctx context.Context, id string) (TelemetryIntent, error) {
-	return scanTelemetryIntent(s.db.QueryRowContext(ctx, `SELECT `+telemetryIntentCols+` FROM telemetry_intents WHERE id=?`, id))
+func (s *SQLite) GetTelemetryIntent(ctx context.Context, org, id string) (TelemetryIntent, error) {
+	return scanTelemetryIntent(s.db.QueryRowContext(ctx, `SELECT `+telemetryIntentCols+` FROM telemetry_intents WHERE id=? AND org_id=?`, id, org))
 }
 
-func (s *SQLite) ListTelemetryIntentsByAgent(ctx context.Context, agentID string) ([]TelemetryIntent, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT `+telemetryIntentCols+` FROM telemetry_intents WHERE agent_id=? ORDER BY created_at`, agentID)
+func (s *SQLite) ListTelemetryIntentsByAgent(ctx context.Context, org, agentID string) ([]TelemetryIntent, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+telemetryIntentCols+` FROM telemetry_intents WHERE org_id=? AND agent_id=? ORDER BY created_at`, org, agentID)
 	if err != nil {
 		return nil, err
 	}
@@ -1233,53 +1250,53 @@ func (s *SQLite) ListTelemetryIntents(ctx context.Context, org string) ([]Teleme
 	return out, rows.Err()
 }
 
-func (s *SQLite) UpdateTelemetryIntentScope(ctx context.Context, id string, namespaces, exclude []string, signals []SignalGrant, opts ...WriteOption) error {
+func (s *SQLite) UpdateTelemetryIntentScope(ctx context.Context, org, id string, namespaces, exclude []string, signals []SignalGrant, opts ...WriteOption) error {
 	return s.write(ctx, opts, func(tx *sql.Tx) error {
 		res, err := tx.ExecContext(ctx,
-			`UPDATE telemetry_intents SET namespaces=?, exclude=?, signals=? WHERE id=? AND status='active'`,
-			namespacesJSON(namespaces), namespacesJSON(exclude), signalGrantsJSON(signals), id)
+			`UPDATE telemetry_intents SET namespaces=?, exclude=?, signals=? WHERE id=? AND org_id=? AND status='active'`,
+			namespacesJSON(namespaces), namespacesJSON(exclude), signalGrantsJSON(signals), id, org)
 		if err != nil {
 			return err
 		}
-		return needOne(res)
+		return needOneIn(ctx, tx, res, "telemetry_intents", org, id)
 	})
 }
 
-func (s *SQLite) UpdateTelemetryIntentDestination(ctx context.Context, id string, dest Destination, opts ...WriteOption) error {
+func (s *SQLite) UpdateTelemetryIntentDestination(ctx context.Context, org, id string, dest Destination, opts ...WriteOption) error {
 	return s.write(ctx, opts, func(tx *sql.Tx) error {
-		res, err := tx.ExecContext(ctx, `UPDATE telemetry_intents SET destination=? WHERE id=? AND status='active'`, destinationJSON(dest), id)
+		res, err := tx.ExecContext(ctx, `UPDATE telemetry_intents SET destination=? WHERE id=? AND org_id=? AND status='active'`, destinationJSON(dest), id, org)
 		if err != nil {
 			return err
 		}
-		return needOne(res)
+		return needOneIn(ctx, tx, res, "telemetry_intents", org, id)
 	})
 }
 
-func (s *SQLite) UpdateTelemetryIntentDestinations(ctx context.Context, id string, dest Destination, routes map[Modality]Destination, opts ...WriteOption) error {
+func (s *SQLite) UpdateTelemetryIntentDestinations(ctx context.Context, org, id string, dest Destination, routes map[Modality]Destination, opts ...WriteOption) error {
 	return s.write(ctx, opts, func(tx *sql.Tx) error {
-		res, err := tx.ExecContext(ctx, `UPDATE telemetry_intents SET destination=?, routes=? WHERE id=? AND status='active'`, destinationJSON(dest), routesJSON(routes), id)
+		res, err := tx.ExecContext(ctx, `UPDATE telemetry_intents SET destination=?, routes=? WHERE id=? AND org_id=? AND status='active'`, destinationJSON(dest), routesJSON(routes), id, org)
 		if err != nil {
 			return err
 		}
-		return needOne(res)
+		return needOneIn(ctx, tx, res, "telemetry_intents", org, id)
 	})
 }
 
-func (s *SQLite) RevokeTelemetryIntent(ctx context.Context, id, reason string, now time.Time, opts ...WriteOption) error {
+func (s *SQLite) RevokeTelemetryIntent(ctx context.Context, org, id, reason string, now time.Time, opts ...WriteOption) error {
 	return s.write(ctx, opts, func(tx *sql.Tx) error {
 		res, err := tx.ExecContext(ctx,
-			`UPDATE telemetry_intents SET status='revoked', reason=?, revoked_at=? WHERE id=? AND status='active'`,
-			reason, ms(now), id)
+			`UPDATE telemetry_intents SET status='revoked', reason=?, revoked_at=? WHERE id=? AND org_id=? AND status='active'`,
+			reason, ms(now), id, org)
 		if err != nil {
 			return err
 		}
-		return needOne(res)
+		return needOneIn(ctx, tx, res, "telemetry_intents", org, id)
 	})
 }
 
-func (s *SQLite) DeleteTelemetryIntent(ctx context.Context, id string, opts ...WriteOption) error {
+func (s *SQLite) DeleteTelemetryIntent(ctx context.Context, org, id string, opts ...WriteOption) error {
 	return s.write(ctx, opts, func(tx *sql.Tx) error {
-		res, err := tx.ExecContext(ctx, `DELETE FROM telemetry_intents WHERE id=?`, id)
+		res, err := tx.ExecContext(ctx, `DELETE FROM telemetry_intents WHERE id=? AND org_id=?`, id, org)
 		if err != nil {
 			return err
 		}

@@ -285,17 +285,17 @@ func TestTelemetryIntentWritesRollBackWithTheirAuditRow(t *testing.T) {
 	if err := s.CreateTelemetryIntent(ctx, ti, ev("telemetry-intent-created")); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.RevokeTelemetryIntent(ctx, "ti-1", "done", now, ev("telemetry-intent-revoked")); err != nil {
+	if err := s.RevokeTelemetryIntent(ctx, "o1", "ti-1", "done", now, ev("telemetry-intent-revoked")); err != nil {
 		t.Fatal(err)
 	}
 	// revoking again, scope change on a revoked one, and deleting a missing one are refused and leave nothing
-	if err := s.RevokeTelemetryIntent(ctx, "ti-1", "again", now, ev("telemetry-intent-revoked")); !errors.Is(err, ErrBadState) {
+	if err := s.RevokeTelemetryIntent(ctx, "o1", "ti-1", "again", now, ev("telemetry-intent-revoked")); !errors.Is(err, ErrBadState) {
 		t.Fatalf("second revoke: %v", err)
 	}
-	if err := s.UpdateTelemetryIntentScope(ctx, "ti-1", nil, nil, nil, ev("telemetry-intent-scope-changed")); !errors.Is(err, ErrBadState) {
+	if err := s.UpdateTelemetryIntentScope(ctx, "o1", "ti-1", nil, nil, nil, ev("telemetry-intent-scope-changed")); !errors.Is(err, ErrBadState) {
 		t.Fatalf("scope of a revoked intent: %v", err)
 	}
-	if err := s.DeleteTelemetryIntent(ctx, "ti-none", ev("telemetry-intent-deleted")); !errors.Is(err, ErrNotFound) {
+	if err := s.DeleteTelemetryIntent(ctx, "o1", "ti-none", ev("telemetry-intent-deleted")); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("delete of a missing intent: %v", err)
 	}
 	if rows() != 2 {
@@ -312,21 +312,21 @@ func TestTelemetryIntentWritesRollBackWithTheirAuditRow(t *testing.T) {
 	}
 	for name, err := range map[string]error{
 		"create":       s.CreateTelemetryIntent(ctx, TelemetryIntent{ID: "ti-3", OrgID: "o1", AgentID: "ag-3", Name: "x", Status: TelemetryIntentActive, CreatedBy: "a", CreatedAt: now}, ev("x")),
-		"scope":        s.UpdateTelemetryIntentScope(ctx, "ti-2", []string{"ns"}, nil, nil, ev("x")),
-		"destination":  s.UpdateTelemetryIntentDestination(ctx, "ti-2", Destination{}, ev("x")),
-		"destinations": s.UpdateTelemetryIntentDestinations(ctx, "ti-2", Destination{}, nil, ev("x")),
-		"revoke":       s.RevokeTelemetryIntent(ctx, "ti-2", "no", now, ev("x")),
-		"delete":       s.DeleteTelemetryIntent(ctx, "ti-2", ev("x")),
+		"scope":        s.UpdateTelemetryIntentScope(ctx, "o1", "ti-2", []string{"ns"}, nil, nil, ev("x")),
+		"destination":  s.UpdateTelemetryIntentDestination(ctx, "o1", "ti-2", Destination{}, ev("x")),
+		"destinations": s.UpdateTelemetryIntentDestinations(ctx, "o1", "ti-2", Destination{}, nil, ev("x")),
+		"revoke":       s.RevokeTelemetryIntent(ctx, "o1", "ti-2", "no", now, ev("x")),
+		"delete":       s.DeleteTelemetryIntent(ctx, "o1", "ti-2", ev("x")),
 	} {
 		if !errors.Is(err, ErrAuditWrite) {
 			t.Errorf("%s: %v, want ErrAuditWrite", name, err)
 		}
 	}
-	got, err := s.GetTelemetryIntent(ctx, "ti-2")
+	got, err := s.GetTelemetryIntent(ctx, "o1", "ti-2")
 	if err != nil || got.Status != TelemetryIntentActive || len(got.Namespaces) != 0 {
 		t.Fatalf("the intent changed although the trail was broken: %+v %v", got, err)
 	}
-	if _, err := s.GetTelemetryIntent(ctx, "ti-3"); !errors.Is(err, ErrNotFound) {
+	if _, err := s.GetTelemetryIntent(ctx, "o1", "ti-3"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("an intent was stored without its audit row: %v", err)
 	}
 }

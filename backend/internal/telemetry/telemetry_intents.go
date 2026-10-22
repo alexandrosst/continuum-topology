@@ -123,10 +123,10 @@ func (c *Service) cleanRoutes(ctx context.Context, routes map[store.Modality]sto
 }
 
 // telemetryIntentInOrg finds a telemetry intent of this organisation. One belonging to another
-// organisation is reported as not existing, the same convention operatorInOrg uses.
+// organisation is reported as not existing, which is what the store itself answers for it.
 func (c *Service) telemetryIntentInOrg(ctx context.Context, id string) (store.TelemetryIntent, error) {
-	ti, err := c.Store.GetTelemetryIntent(ctx, id)
-	if errors.Is(err, store.ErrNotFound) || (err == nil && ti.OrgID != c.OrgID) {
+	ti, err := c.Store.GetTelemetryIntent(ctx, c.OrgID, id)
+	if errors.Is(err, store.ErrNotFound) {
 		return store.TelemetryIntent{}, kernel.Errf(kernel.KindNotFound, "no such telemetry intent")
 	}
 	return ti, err
@@ -238,7 +238,7 @@ func (c *Service) CreateTelemetryIntentWithRoutes(ctx context.Context, actor, ag
 	}
 	c.IntentMu.Lock() // the check below and the insert are one step: see Core.IntentMu
 	defer c.IntentMu.Unlock()
-	existing, err := c.Store.ListTelemetryIntentsByAgent(ctx, agent.ID)
+	existing, err := c.Store.ListTelemetryIntentsByAgent(ctx, c.OrgID, agent.ID)
 	if err != nil {
 		return store.TelemetryIntent{}, err
 	}
@@ -269,7 +269,7 @@ func (c *Service) ListTelemetryIntentsForAgent(ctx context.Context, agentID stri
 	if _, err := c.AgentInOrg(ctx, agentID); err != nil {
 		return nil, err
 	}
-	return c.Store.ListTelemetryIntentsByAgent(ctx, agentID)
+	return c.Store.ListTelemetryIntentsByAgent(ctx, c.OrgID, agentID)
 }
 
 func (c *Service) ListTelemetryIntents(ctx context.Context) ([]store.TelemetryIntent, error) {
@@ -292,7 +292,7 @@ func (c *Service) UpdateTelemetryIntentScope(ctx context.Context, actor, id stri
 		return err
 	}
 	detail := fmt.Sprintf("%q: scope changed", ti.Name)
-	err = c.Store.UpdateTelemetryIntentScope(ctx, id, ns, exc, sig, store.WithAudit(c.AuditRow(c.OrgID, actor, "telemetry-intent-scope-changed", "telemetry-intent", id, detail)))
+	err = c.Store.UpdateTelemetryIntentScope(ctx, c.OrgID, id, ns, exc, sig, store.WithAudit(c.AuditRow(c.OrgID, actor, "telemetry-intent-scope-changed", "telemetry-intent", id, detail)))
 	if errors.Is(err, store.ErrBadState) {
 		err = kernel.Errf(kernel.KindConflict, "only an active telemetry intent's scope can be changed")
 	}
@@ -316,7 +316,7 @@ func (c *Service) UpdateTelemetryIntentDestination(ctx context.Context, actor, i
 		return err
 	}
 	detail := fmt.Sprintf("%q: destination changed", ti.Name)
-	err = c.Store.UpdateTelemetryIntentDestination(ctx, id, dest, store.WithAudit(c.AuditRow(c.OrgID, actor, "telemetry-intent-destination-changed", "telemetry-intent", id, detail)))
+	err = c.Store.UpdateTelemetryIntentDestination(ctx, c.OrgID, id, dest, store.WithAudit(c.AuditRow(c.OrgID, actor, "telemetry-intent-destination-changed", "telemetry-intent", id, detail)))
 	if errors.Is(err, store.ErrBadState) {
 		err = kernel.Errf(kernel.KindConflict, "only an active telemetry intent's destination can be changed")
 	}
@@ -348,7 +348,7 @@ func (c *Service) UpdateTelemetryIntentDestinations(ctx context.Context, actor, 
 	if len(routes) > 0 {
 		detail = fmt.Sprintf("%q: destinations changed (%d signal types routed separately)", ti.Name, len(routes))
 	}
-	err = c.Store.UpdateTelemetryIntentDestinations(ctx, id, dest, routes, store.WithAudit(c.AuditRow(c.OrgID, actor, "telemetry-intent-destination-changed", "telemetry-intent", id, detail)))
+	err = c.Store.UpdateTelemetryIntentDestinations(ctx, c.OrgID, id, dest, routes, store.WithAudit(c.AuditRow(c.OrgID, actor, "telemetry-intent-destination-changed", "telemetry-intent", id, detail)))
 	if errors.Is(err, store.ErrBadState) {
 		err = kernel.Errf(kernel.KindConflict, "only an active telemetry intent's destination can be changed")
 	}
@@ -360,7 +360,7 @@ func (c *Service) RevokeTelemetryIntent(ctx context.Context, actor, id, reason s
 		return err
 	}
 	reason = kernel.Printable(reason, kernel.MaxReason)
-	err := c.Store.RevokeTelemetryIntent(ctx, id, reason, c.Now(), store.WithAudit(c.AuditRow(c.OrgID, actor, "telemetry-intent-revoked", "telemetry-intent", id, reason)))
+	err := c.Store.RevokeTelemetryIntent(ctx, c.OrgID, id, reason, c.Now(), store.WithAudit(c.AuditRow(c.OrgID, actor, "telemetry-intent-revoked", "telemetry-intent", id, reason)))
 	if errors.Is(err, store.ErrBadState) {
 		err = kernel.Errf(kernel.KindConflict, "telemetry intent is not active")
 	}
@@ -371,7 +371,7 @@ func (c *Service) DeleteTelemetryIntent(ctx context.Context, actor, id string) e
 	if _, err := c.telemetryIntentInOrg(ctx, id); err != nil {
 		return err
 	}
-	err := c.Store.DeleteTelemetryIntent(ctx, id, store.WithAudit(c.AuditRow(c.OrgID, actor, "telemetry-intent-deleted", "telemetry-intent", id, "")))
+	err := c.Store.DeleteTelemetryIntent(ctx, c.OrgID, id, store.WithAudit(c.AuditRow(c.OrgID, actor, "telemetry-intent-deleted", "telemetry-intent", id, "")))
 	if errors.Is(err, store.ErrNotFound) {
 		err = kernel.Errf(kernel.KindNotFound, "no such telemetry intent")
 	}
@@ -381,7 +381,7 @@ func (c *Service) DeleteTelemetryIntent(ctx context.Context, actor, id string) e
 // endAgentIntents revokes the agent's active telemetry intents. A failure is logged and does not undo the
 // agent's revocation, which already took effect; OperatorUsages ignores the intents of revoked agents either way.
 func (c *Service) EndAgentIntents(ctx context.Context, actor, agentID, reason string) {
-	intents, err := c.Store.ListTelemetryIntentsByAgent(ctx, agentID)
+	intents, err := c.Store.ListTelemetryIntentsByAgent(ctx, c.OrgID, agentID)
 	if err != nil {
 		c.Log.Error("agent revoked but its telemetry intents could not be listed", "agent", agentID, "err", err)
 		return
