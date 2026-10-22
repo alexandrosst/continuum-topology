@@ -1,3 +1,6 @@
+import type * as W from './generated/wire'
+import type { Narrowed } from './narrow'
+
 /**
  * Domain model (schema v3).
  *
@@ -1194,81 +1197,48 @@ export interface AgentLink {
   lastFlows?: string
 }
 
-/** A regional operator's lifecycle: unlike Agent, there is no "pending" state - creating one issues its
- *  receiver credential immediately, since it never enrolls back to the server (see the operators feature's
- *  own design note: it is CRUD over a record plus a minted credential, not a live connection). */
-export type OperatorStatus = 'active' | 'revoked'
+/** A regional operator's lifecycle: unlike Agent, there is no "pending" state - creating one issues its receiver credential immediately,
+ *  since it never enrolls back to the server (it is CRUD over a record plus a minted credential, not a live connection). */
+export type OperatorStatus = W.OperatorStatus
 
-/** How a regional operator's receiver authenticates what exports into it: 'mtls' is the client certificate
- *  alone (operators created from now on - no receiver bearer token exists), 'bearer' is a bearer token (every
- *  operator created before that, which keeps it). Absent reads as 'bearer', the conservative reading. */
-export type ReceiverAuth = 'mtls' | 'bearer'
+/** How a regional operator's receiver authenticates what exports into it: 'mtls' is the client certificate alone (operators created from
+ *  now on - no receiver bearer token exists), 'bearer' is a bearer token (every operator created before that, which keeps it). */
+export type ReceiverAuth = W.ReceiverAuth
 
 /** What the UI knows of an operator's liveness. 'online' / 'offline' / 'unknown' come from its opt-in heartbeat
  *  (online = one within the last 180 s). 'waiting' = the heartbeat is enabled and nothing has arrived yet.
  *  'starting' / 'off' / 'attention' only ever describe the central operator: they are derived from FUSION's own state. */
-export type OperatorHealthState = 'unknown' | 'online' | 'offline' | 'waiting' | 'starting' | 'off' | 'attention'
+export type OperatorHealthState = W.HealthState
 
 /** An operator's liveness, computed by the server at read time. `reporting` is true only once at least one heartbeat
  *  has arrived. `heartbeatEnabledAt` says since when a first one has been expected (for the wait to be honest about its length). */
-export interface OperatorHealth {
-  state: OperatorHealthState
-  lastSeenAt?: string
-  reporting: boolean
-  heartbeatEnabledAt?: string
-}
+export type OperatorHealth = W.OperatorHealthDoc
 
 /** Whether other clusters can be told where to find an operator: 'none' = it only serves its own cluster, nothing to record;
  *  'pending' = it is exposed through a load balancer or node port and no address is recorded yet; 'set' = recorded. */
-export type AddressState = 'none' | 'pending' | 'set'
+export type AddressState = W.AddressStatus
 
 /** When the certificates behind an operator's mutual TLS run out (RFC 3339), per certificate. */
-export interface OperatorCerts {
-  receiverNotAfter?: string
-  clientNotAfter?: string
-  caNotAfter?: string
-}
+export type OperatorCerts = W.CertsDoc
 
 /** Operator certificates last 30 days and renew themselves. 'renewal-failing' = the soonest one is past the day it should have been renewed by
  *  and still runs, 'expired' = one has run out. Absent for an operator with no certificate information. */
-export type CertState = 'ok' | 'renewal-failing' | 'expired'
+export type CertState = W.CertState
 
 /** What still depends on an operator: revoking or deleting it breaks these, so the server asks for `force`. Absent when nothing does. */
-export interface OperatorUsedBy {
-  operators: { id: string; name: string }[]
-  intents: number
-  clusters: number
-}
+export type OperatorUsedBy = W.UsedByDoc
 
-/** Where a regional operator (or, via TelemetryIntent below, one agent's own bundled local operator)
- *  re-exports what it aggregates. 'operator' (chaining to another regional operator already active in
- *  this org) is now accepted by the server, alongside the original 'external' - see
- *  OperatorDestination.targetOperatorId. */
-export type DestinationKind = 'external' | 'operator' | 'fusion'
+/** Where a regional operator (or, via TelemetryIntent below, one agent's own bundled local operator) re-exports what it aggregates.
+ *  'operator' chains to another regional operator already active in this org (OperatorDestination.targetOperatorId); 'fusion' is only
+ *  ever the server's own central operator. */
+export type DestinationKind = W.DestinationKind
 
-/** An OTLP export target, shaped like TelemetryInput's own export block (see lib/install.ts) so the same
- *  rendering logic applies to both a cluster's own telemetry export and a regional operator's. Also the
- *  destination shape for TelemetryIntent below - this is the server's `destinationDoc`, shared by both. */
-export interface OperatorDestination {
-  kind: DestinationKind
-  endpoint: string
-  insecure?: boolean
-  caFile?: string
-  authHeaderName?: string
-  authSecretName?: string
-  authSecretKey?: string
-  /** Only meaningful for kind 'operator': the id of the active regional operator in this org this
-   *  destination chains to. The server rejects a kind 'operator' destination that doesn't name one. */
-  targetOperatorId?: string
-  /** Only meaningful for kind 'operator' on a telemetry intent: the host:port THIS sender dials to reach that operator, chosen on the
-   *  sending side. Absent means the address recorded for the operator. The certificate is verified by the operator's stable name either way. */
-  address?: string
-  /** Only meaningful for kind 'fusion', which only the server's own central operator carries (it is how that
-   *  operator is described, never something to create): the release and namespace of the FUSION bundled with the
-   *  server, whose three stores it saves into. */
-  fusionRelease?: string
-  fusionNamespace?: string
-}
+/** An OTLP export target, shaped like TelemetryInput's own export block (see lib/install.ts) so the same rendering logic applies to both a
+ *  cluster's own telemetry export and a regional operator's. Also the destination shape for TelemetryIntent below.
+ *  `targetOperatorId` is only meaningful for kind 'operator'; `address` for kind 'operator' on a telemetry intent (the host:port THIS
+ *  sender dials, chosen on the sending side; absent means the address recorded for the operator); `fusionRelease` and `fusionNamespace`
+ *  for kind 'fusion', which only the server's own central operator carries. */
+export type OperatorDestination = W.OperatorDestination
 
 /**
  * A regional operator: a standalone OTel Collector that aggregates telemetry already exported by a set of
@@ -1344,7 +1314,7 @@ export interface OperatorSender {
   diagnosis?: OperatorSenderDiagnosis
 }
 export interface OperatorSenders {
-  operatorState: string
+  operatorState: OperatorHealthState
   senders: OperatorSender[]
 }
 
@@ -1374,81 +1344,21 @@ export interface ServerCluster {
   options?: { id: string; name: string }[]
 }
 
-export interface RegionalOperator {
-  id: string
-  /** The server's operator document carries no organisation (the request's own is the organisation); only fixtures set it. */
-  orgId?: string
-  name: string
-  /** Optional: where this operator conceptually lives, for UI grouping only. */
-  siteId?: string
-  status: OperatorStatus
-  sourceClusterIds: string[]
-  destination: OperatorDestination
-  /** Which modalities ('metrics'/'logs'/'traces' - lib/install.ts's own Modality) this operator's
-   *  receiver accepts. Empty/absent means "accepts anything" - an operator created before this field
-   *  existed must read the same way, never as "accepts nothing" (see destinationCatalog.ts's own
-   *  compatibility check, the one place besides creation/scope-editing this is read). */
-  acceptedModalities?: string[]
-  /** Tags this operator stamps on everything it forwards (a region, an environment), set when it was created
-   *  and fixed after - they live in the operator's own install. Absent reads as none. */
-  labels?: { key: string; value: string }[]
-  createdAt: string
-  createdBy: string
-  revokedAt?: string
-  reason?: string
-  /** How its receiver authenticates agents - see ReceiverAuth. Optional so an older server (or a fixture)
-   *  that does not send it reads as 'bearer'. */
-  receiverAuth?: ReceiverAuth
-  /** Which CA its client certificates come from: 'operator' (its own - a certificate for another operator is
-   *  refused), 'org' (an mTLS operator created before per-operator CAs: any certificate this server's org CA
-   *  issued is accepted - the weaker legacy scope) or '' for a bearer operator. Absent reads as ''. */
-  clientCaScope?: 'operator' | 'org' | ''
-  /** Its opt-in heartbeat's verdict. Absent reads as never reported. */
-  health?: OperatorHealth
-  /** host:port other clusters reach its receiver at, once someone has told the server (or, for the central
-   *  operator, once FUSION is exposed). Absent until then. */
-  address?: string
-  /** False means the only address the server can hand out is the in-cluster name, which resolves in the
-   *  operator's own cluster alone. Absent (an older server) reads as false. */
-  reachableFromOtherClusters?: boolean
-  /** How its Service was exposed when it was created. Absent for an operator from before that was asked. */
-  exposure?: 'cluster' | 'loadbalancer' | 'nodeport'
-  /** What a command that points something at this operator dials: its recorded address, otherwise the in-cluster name
-   *  (which only resolves in its own cluster). Absent on an older server. */
-  endpoint?: string
-  /** The certificates behind its mutual TLS, with their expiry. Absent for a bearer or older operator. */
-  certs?: OperatorCerts
-  certState?: CertState
-  /** The day renewal should have happened by; present with 'renewal-failing' and 'expired'. */
-  certStateSince?: string
-  /** Whether other clusters have an address to dial - see AddressState. Absent on an older server (read as unknown). */
-  addressState?: AddressState
-  usedBy?: OperatorUsedBy
-}
+/** A regional operator as the server writes it. `orgId` is not on the wire (the request's own is the organisation); only fixtures set it.
+ *  `acceptedModalities` empty or absent means "accepts anything": an operator created before the field existed reads the same way, never as
+ *  "accepts nothing". `clientCaScope` is the CA its client certificates come from: 'operator' (its own - a certificate for another operator
+ *  is refused), 'org' (an mTLS operator created before per-operator CAs: any certificate this server's org CA issued is accepted - the weaker
+ *  legacy scope) or '' for a bearer operator. `reachableFromOtherClusters` false means the only address the server can hand out is the
+ *  in-cluster name, which resolves in the operator's own cluster alone. `endpoint` is what a command that points something at this operator
+ *  dials: its recorded address, otherwise the in-cluster name. `certStateSince` is the day renewal should have happened by. */
+export type RegionalOperator = Narrowed<W.RegionalOperator, { orgId?: string }>
 
 /**
  * One entry of GET /operator-destinations: the read model the destination picker uses, readable by editors (the full
  * operator list is administrators only) and free of anything secret. The central operator (op-central) is always in it
  * once FUSION is available on this server, even before FUSION was ever switched on, with its health taken from FUSION's state.
  */
-export interface OperatorDestinationEntry {
-  id: string
-  name: string
-  kind: 'central' | 'regional'
-  status: 'active'
-  health: { state: OperatorHealthState; lastSeenAt?: string }
-  addressState: AddressState
-  /** What a command dials; absent for the central operator until it is known. */
-  endpoint?: string
-  reachableFromOtherClusters: boolean
-  /** Absent or empty: takes any signal. */
-  acceptedModalities?: string[]
-  /** The server's pick: only ever the central operator, and only while it runs or is starting. Whether another operator already receives
-   *  a given cluster is not something it can say about a cluster it was not told about. */
-  recommended: boolean
-  /** How many other operators and telemetry requests already send to it (not clusters: those are counted in `usedBy` of the full document). */
-  usedBy: number
-}
+export type OperatorDestinationEntry = Narrowed<W.OperatorDestinationEntry, { status: 'active' }>
 
 /** One extractor signal a TelemetryIntent grants, and where it is sourced from - `id` matches one of
  *  TELEMETRY_SIGNALS' own ids (lib/consent.ts); `source` is 'builtin' for a signal with no source choice

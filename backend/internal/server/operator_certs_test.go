@@ -70,7 +70,7 @@ func TestCertStateSaysWhetherRenewalIsHappening(t *testing.T) {
 	}
 	for _, c := range []struct {
 		left time.Duration
-		want string
+		want operators.CertState
 	}{{200 * day, operators.CertStateOK}, {25 * day, operators.CertStateOK}, {16 * day, operators.CertStateOK}, {14 * day, operators.CertStateRenewalFailing}, {1 * day, operators.CertStateRenewalFailing}, {-time.Hour, operators.CertStateExpired}} {
 		d := operatorsapi.ToDoc(mk(now.Add(c.left)), now)
 		if d.CertState != c.want {

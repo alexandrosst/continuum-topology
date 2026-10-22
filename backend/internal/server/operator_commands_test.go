@@ -72,7 +72,7 @@ func TestCreateOperatorChecksExposureInTheCore(t *testing.T) {
 func TestAddressStateIsDerived(t *testing.T) {
 	for _, c := range []struct {
 		op   store.Operator
-		want string
+		want operatorsapi.AddressStatus
 	}{
 		{store.Operator{}, "none"},
 		{store.Operator{Exposure: "cluster"}, "none"},

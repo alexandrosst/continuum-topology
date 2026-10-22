@@ -110,18 +110,18 @@ func (BackendKind) WireWords() []string {
 	return []string{string(BackendJaeger), string(BackendZipkin), string(BackendPrometheus), string(BackendLoki), string(BackendCustom)}
 }
 
-// Modality is the kind of telemetry a quick-start backend takes.
-type Modality string
+// BackendModality is the kind of telemetry a quick-start backend takes.
+type BackendModality string
 
 // The modalities.
 const (
-	ModalityTraces  Modality = "traces"
-	ModalityMetrics Modality = "metrics"
-	ModalityLogs    Modality = "logs"
+	ModalityTraces  BackendModality = "traces"
+	ModalityMetrics BackendModality = "metrics"
+	ModalityLogs    BackendModality = "logs"
 )
 
-// WireWords is the list of Modality's words, as the generated types give it.
-func (Modality) WireWords() []string {
+// WireWords is the list of BackendModality's words, as the generated types give it.
+func (BackendModality) WireWords() []string {
 	return []string{string(ModalityTraces), string(ModalityMetrics), string(ModalityLogs)}
 }
 
@@ -130,7 +130,7 @@ func (Modality) WireWords() []string {
 // OTLP metrics receiver; the Loki quick-start's config only turns on its OTLP logs endpoint), not
 // something a person picks independently of Kind. The "custom" kind (see QuickStartBackend.Kind) is not
 // in here on purpose: it names no built-in chart, so its Modality is whatever the person who added it says.
-var quickStartBackendModality = map[BackendKind]Modality{BackendJaeger: ModalityTraces, BackendZipkin: ModalityTraces, BackendPrometheus: ModalityMetrics, BackendLoki: ModalityLogs}
+var quickStartBackendModality = map[BackendKind]BackendModality{BackendJaeger: ModalityTraces, BackendZipkin: ModalityTraces, BackendPrometheus: ModalityMetrics, BackendLoki: ModalityLogs}
 
 // knownBackendKinds is every value QuickStartBackend.Kind may take: the three built-in catalog kinds
 // above, plus "custom" - an open entry for a backend this app has no upstream chart for (a user-supplied
@@ -165,7 +165,7 @@ type QuickStartBackend struct {
 	// Modality must match Kind's own fixed modality for a built-in kind; for "custom" it is simply
 	// validated to be one of the three known values. Kept explicit (rather than derived server-side only
 	// for the built-ins) so a client can filter/display without a copy of quickStartBackendModality of its own.
-	Modality Modality `json:"modality"`
+	Modality BackendModality `json:"modality"`
 	// Namespace is what the generated install command targets - also most of what ToolURL/the chart's own
 	// Service DNS name depend on, so it's kept even though the server never acts on it directly. For a
 	// "custom" backend it is still required, informationally, even though nothing here generates an

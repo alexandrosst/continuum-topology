@@ -223,9 +223,7 @@ func (h *API) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 			}
 			values = append(values, ClearRoutes(unrouted...)...)
 		}
-		if len(auth) > 0 {
-			resp.Operators = auth
-		}
+		resp.Operators = receiverAuthOf(auth)
 	} else if ti.Destination.Kind == store.DestinationOperator {
 		op, err := h.For(r).GetOperator(r.Context(), ti.Destination.TargetOperatorID)
 		if err != nil {
@@ -250,9 +248,9 @@ func (h *API) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 		// Whether the person must also supply a receiver bearer token: not for an "mtls" operator, whose
 		// only gate is the client certificate in the Secret above; for a "bearer" one the flags are exactly
 		// what they always were and the caller still supplies the token itself.
-		receiverAuthName, endpoint := string(op.ReceiverAuth), h.DestEndpoint(op, ti.Destination)
-		resp.ReceiverAuth, resp.Endpoint = &receiverAuthName, &endpoint
-		resp.Operators = map[string]string{op.ID: receiverAuthName}
+		endpoint := h.DestEndpoint(op, ti.Destination)
+		resp.ReceiverAuth, resp.Endpoint = &op.ReceiverAuth, &endpoint
+		resp.Operators = map[string]store.ReceiverAuth{op.ID: op.ReceiverAuth}
 		if secretCmd != "" {
 			secretCommands = append(secretCommands, secretCmd)
 		}
@@ -272,4 +270,17 @@ func (h *API) telemetryIntentCommand(w http.ResponseWriter, r *http.Request) {
 	}
 	resp.Warnings = warnings
 	httpkit.WriteJSON(w, 200, resp)
+}
+
+// receiverAuthOf is the receiver auth of each operator in auth as the document names it, nothing when none is known: the install package
+// takes the words as plain strings, and the document says which words they are.
+func receiverAuthOf(auth map[string]string) map[string]store.ReceiverAuth {
+	if len(auth) == 0 {
+		return nil
+	}
+	out := make(map[string]store.ReceiverAuth, len(auth))
+	for id, a := range auth {
+		out[id] = store.ReceiverAuth(a)
+	}
+	return out
 }

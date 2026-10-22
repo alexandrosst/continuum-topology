@@ -37,19 +37,27 @@ const (
 // installed, or not yet running); starting, off and attention are only ever the central operator's, taken from
 // FUSION's own state (see centralHealth).
 const (
-	HealthUnknown   = "unknown"
-	HealthOnline    = "online"
-	HealthOffline   = "offline"
-	HealthWaiting   = "waiting"
-	HealthStarting  = "starting"
-	HealthOff       = "off"
-	HealthAttention = "attention"
+	HealthUnknown   HealthState = "unknown"
+	HealthOnline    HealthState = "online"
+	HealthOffline   HealthState = "offline"
+	HealthWaiting   HealthState = "waiting"
+	HealthStarting  HealthState = "starting"
+	HealthOff       HealthState = "off"
+	HealthAttention HealthState = "attention"
 )
+
+// HealthState is what the server says of an operator's liveness.
+type HealthState string
+
+// WireWords is the list of HealthState's words, as the generated types give it.
+func (HealthState) WireWords() []string {
+	return []string{string(HealthUnknown), string(HealthOnline), string(HealthOffline), string(HealthWaiting), string(HealthStarting), string(HealthOff), string(HealthAttention)}
+}
 
 // OperatorHealth is what the read model says about an operator's liveness, computed from its stored
 // last-seen time and the clock, never stored itself.
 type OperatorHealth struct {
-	State      string
+	State      HealthState
 	LastSeenAt *time.Time
 	// Reporting is true once the operator has an active heartbeat credential AND a heartbeat has arrived.
 	Reporting bool

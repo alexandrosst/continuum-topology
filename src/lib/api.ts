@@ -1,7 +1,7 @@
 import type { AgentUpgradeAnswer, AgentUpgradeRequest } from './agentUpgrade'
 import type { processorSpec } from './telemetrySpec'
 import { normalizeServerState, type ServerState } from './discovered'
-import type { AddressCandidates, AddressTest, OperatorSenders, OperatorDestination, OperatorDestinationEntry, ReceiverAuth, RegionalOperator, SignalGrant, TelemetryIntent } from './types'
+import type { AddressCandidates, AddressTest, OperatorSenders, OperatorDestination, OperatorDestinationEntry, RegionalOperator, SignalGrant, TelemetryIntent } from './types'
 import { normalizeSettings, normalizeSnapshot, type AppSettings, type DependencySeriesPoint, type HistoryIndex, type Snapshot, type TrafficRate } from './history'
 import { normalizeLinksLatest, type LinksLatest } from './clusterLinks'
 import type { DecisionLogEntry } from './placement/deciders'
@@ -45,93 +45,33 @@ export interface CreatedToken {
   meta: { id: string; name: string; tier: number; createdAt: string; expiresAt: string }
 }
 
-/** What creating or updating a regional operator's scope returns, beyond the operator itself:
- *  `reminders` is informational only (see the operators feature's own design note) - one `helm upgrade`
- *  line per source cluster for pointing that cluster's own agent release at this operator, never applied
- *  on the caller's behalf. `token` and `secretCommand` are present only on create, and only once: the
- *  receiver bearer token is never retrievable again after this response. */
-export interface CreatedOperator {
-  operator: RegionalOperator
-  /** Absent for an operator whose receiver is gated by the client certificate alone (`operator.receiverAuth`
-   *  is 'mtls'): there is no receiver token to show. Present, once, for a 'bearer' one. */
-  token?: string
-  install: string
-  /** The `kubectl create secret` for `token` - absent exactly when `token` is. */
-  secretCommand?: string
-  /** The `kubectl create secret` for the operator's own receiver TLS certificate (server cert + this
-   *  org's CA), wherever the operator itself is installed. Absent if minting it failed - see
-   *  OperatorTLSBundle's own comment server-side; the receiver bearer token above still works either way. */
-  tlsSecretCommand?: string
-  reminders: string[]
-  /** Present only when the create request asked for the heartbeat (`heartbeat: true`). The install command
-   *  already carries its `--set heartbeat.*` flags; this is the one extra Secret it points at, shown once. */
-  heartbeatToken?: string
-  heartbeatSecretCommand?: string
-  heartbeatUrl?: string
-  heartbeatIntervalSeconds?: number
-  /** Why the heartbeat address will not work as printed (plain HTTP) - show it next to the commands. */
-  heartbeatWarning?: string
-  /** The `kubectl` that stores this server's certificate authority, when the heartbeat address is served with a private one (the install
-   *  command's heartbeat flags name that Secret): run it before the install. Absent when the server's certificate is publicly trusted. */
-  heartbeatCaSecretCommand?: string
-  /** Only on "install again / renew": restarts the operator's pods. Its certificates reload on their own; a new receiver token or health
-   *  credential is read once at start. */
-  restartCommand?: string
-  /** Present only when the operator exports to ANOTHER operator (the central one in front of FUSION, usually): the
-   *  `kubectl create secret` holding the client certificate that operator's receiver requires, issued just now from
-   *  its own CA. Run it before the install command, which already points the exporter at it. */
-  exportSecretCommand?: string
-  exportTarget?: ExportTarget
-}
+/** What creating an operator, or installing it again, returns beyond the operator itself: `reminders` is informational only - one `helm
+ *  upgrade` line per source cluster for pointing that cluster's own agent release at this operator, never applied on the caller's behalf.
+ *  `token` and `secretCommand` are there for an operator whose receiver is a bearer one only, and only once: an 'mtls' operator
+ *  (`operator.receiverAuth`) has no receiver token to show. `tlsSecretCommand` is the Secret for its own receiver certificate (absent if
+ *  minting it failed). The heartbeat fields are present only when the request asked for the heartbeat; `exportSecretCommand` and
+ *  `exportTarget` only when the operator exports to ANOTHER operator (the central one in front of FUSION, usually), and then the command is
+ *  to run before the install. `restartCommand` is only on "install again / renew". */
+export type CreatedOperator = W.OperatorInstalledDoc
 
-/** Where an operator that exports to another operator sends, and whether that works from another cluster. */
-export interface ExportTarget {
-  operatorId: string
-  name: string
-  endpoint: string
-  /** False when the target is only addressable inside the server's own cluster (the central operator, until the
-   *  server is installed with a public address for it): an operator in another cluster cannot reach it. */
-  reachableFromOtherClusters: boolean
-}
+/** Where an operator that exports to another operator sends, and whether that works from another cluster: `reachableFromOtherClusters` is
+ *  false when the target is only addressable inside the server's own cluster (the central operator, until the server is installed with a
+ *  public address for it), so an operator in another cluster cannot reach it. */
+export type ExportTarget = W.ExportTargetDoc
 
-/** What POST /operators/{id}/heartbeat returns: the heartbeat credential, minted now and never shown again,
- *  and the one-time commands that put it to use. `rotated` is true when the operator already had one (the old
- *  one stopped working at once; the secret command then replaces the existing Secret, and the collector has to
- *  restart to present the new value - `heartbeatRestartCommand`). */
-export interface OperatorHeartbeatEnabled {
-  operator: RegionalOperator
-  rotated: boolean
-  heartbeatToken: string
-  heartbeatSecretCommand: string
-  heartbeatUpgradeCommand: string
-  heartbeatUrl: string
-  heartbeatIntervalSeconds: number
-  heartbeatRestartCommand?: string
-  heartbeatWarning?: string
-  /** As CreatedOperator.heartbeatCaSecretCommand. */
-  heartbeatCaSecretCommand?: string
-}
+/** What POST /operators/{id}/heartbeat returns: the heartbeat credential, minted now and never shown again, and the one-time commands that
+ *  put it to use. `rotated` is true when the operator already had one (the old one stopped working at once; the secret command then replaces
+ *  the existing Secret, and the collector has to restart to present the new value - `heartbeatRestartCommand`). */
+export type OperatorHeartbeatEnabled = W.HeartbeatEnabledDoc
 
-/** What revoking or deleting an operator hands back: revoking does not stop the receiver (there is no channel to it), so the
- *  server returns the command that removes it. Absent when the server has none to give (and on an older server, which answers 204). */
-/** One certificate the server issued for an operator, as its ledger records it: who holds it and when it ends. Never the certificate or its key. */
-export interface IssuedCertificate {
-  serial: string
-  /** 'receiver' is the operator's own server certificate; 'client' is one a sender (a cluster, or another operator) presents. */
-  kind: 'receiver' | 'client'
-  subject: string
-  /** The cluster or operator that holds a client certificate; absent for a receiver certificate. */
-  sender?: string
-  issuedBy: string
-  issuedAt: string
-  notBefore: string
-  notAfter: string
-  state: 'ok' | 'expired'
-}
+/** One certificate the server issued for an operator, as its ledger records it: who holds it and when it ends. Never the certificate or its
+ *  key. 'receiver' is the operator's own server certificate; 'client' is one a sender (a cluster, or another operator) presents, and `sender`
+ *  names who holds it. */
+export type IssuedCertificate = W.IssuedCertDoc
 
-export interface OperatorRemoval {
-  uninstall?: string
-}
+/** What revoking or deleting an operator hands back: revoking does not stop the receiver (there is no channel to it), so the server returns
+ *  the command that removes it. Absent when the server has none to give. */
+export type OperatorRemoval = W.OperatorUninstallDoc
 
 /** Options for creating a regional operator. `heartbeat` opts it in to reporting its health to this server;
  *  it is sent explicitly (never left to the server's default) so what the person saw is what was asked for. */
@@ -148,15 +88,11 @@ export interface CreateOperatorOptions {
 }
 
 /** cluster: this cluster only. loadbalancer / nodeport: the install command makes the Service one. */
-export type OperatorExposure = 'cluster' | 'loadbalancer' | 'nodeport'
+export type OperatorExposure = W.Exposure
 
-export interface UpdatedOperatorScope {
-  operator: RegionalOperator
-  reminders: string[]
-  /** As CreatedOperator.exportSecretCommand / exportTarget: present only for an operator-to-operator destination. */
-  exportSecretCommand?: string
-  exportTarget?: ExportTarget
-}
+/** What changing an operator's scope returns: the operator, the reminders, and for an operator-to-operator destination the export target and
+ *  the Secret to run first (as CreatedOperator's). */
+export type UpdatedOperatorScope = W.OperatorScopeChangedDoc
 
 /** One workload FUSION runs: the three stores and the central operator in front of them. */
 export type FusionComponent = W.FusionComponent
@@ -195,33 +131,16 @@ export type NewFusionAccessToken = W.FusionCreateTokenRequest
 /** The one answer that carries the token's secret: shown once, then only the details are ever returned again. */
 export type CreatedFusionAccessToken = W.FusionCreatedTokenDoc
 
-/** What GET /telemetry-intents/{id}/command returns: the `--set` flags a person runs against the
- *  intent's own agent to actually point its bundled local operator's export at what the intent grants,
- *  plus (for a destination chained to a regional operator) the `kubectl create secret` for a freshly
- *  minted mTLS client certificate - see admin_telemetry_intents.go's telemetryIntentCommand for exactly
- *  what each covers. Built fresh on every call (adminRole, unlike the rest of this feature), never cached:
- *  an operator-chained destination mints a new client certificate each time. */
-export interface TelemetryIntentCommand {
-  installFragment: string
-  secretCommands: string[]
-  /** Only for an operator destination: how that operator's receiver authenticates this agent. 'mtls' means the
-   *  client certificate in `secretCommands` is the only credential; anything else (including absent) means a
-   *  bearer token is also expected, supplied by the person. */
-  receiverAuth?: ReceiverAuth
-  /** For every regional operator the command involves, how its receiver authenticates this agent - the same as
-   *  `receiverAuth`, but per operator, for an install that sends signal types to different ones. */
-  operators?: Record<string, ReceiverAuth>
-  /** Where the agent's Helm release runs, as the server knows it (or the chart's defaults). Both the Secrets
-   *  above and the upgrade command must use it, so the release finds what was created for it. */
-  namespace?: string
-  release?: string
-  /** Only when the telemetry was sent: the whole block to paste, the Secrets first and the upgrade last. Absent with problems. */
-  command?: string
-  /** Only when the telemetry was sent: what makes it unfit to write a command from. No certificate was issued then. */
-  problems?: string[]
-  /** Only for one operator destination: the address the command sends to, which is the operator's recorded one, not the page's placeholder. */
-  endpoint?: string
-}
+/** What GET /telemetry-intents/{id}/command returns: the `--set` flags a person runs against the intent's own agent to actually point its
+ *  bundled local operator's export at what the intent grants, plus (for a destination chained to a regional operator) the `kubectl create
+ *  secret` for a freshly minted mTLS client certificate. Built fresh on every call, never cached: an operator-chained destination mints a new
+ *  client certificate each time. `receiverAuth` is for an operator destination only: 'mtls' means the client certificate in `secretCommands`
+ *  is the only credential, otherwise a bearer token is also expected, supplied by the person; `operators` says the same per operator, for an
+ *  install that sends signal types to different ones. `namespace` and `release` are where the agent's Helm release runs, which the Secrets
+ *  and the upgrade command must both use. `command` (the whole block to paste, Secrets first and the upgrade last) and `problems` (what makes
+ *  the telemetry unfit to write a command from; no certificate was issued then) are there only when the telemetry was sent; `endpoint` only
+ *  for one operator destination: the operator's recorded address, not the page's placeholder. */
+export type TelemetryIntentCommand = W.IntentCommandDoc
 
 /** What a person may do inside one organisation, weakest first. */
 export type Role = W.Role

@@ -9,21 +9,35 @@ import (
 	"continuum/internal/store"
 )
 
+// DestinationRole says whether a destination is the gateway in front of FUSION or an operator someone installed.
+type DestinationRole string
+
+// The roles of a destination.
+const (
+	RoleCentral  DestinationRole = "central"
+	RoleRegional DestinationRole = "regional"
+)
+
+// WireWords is the list of DestinationRole's words, as the generated types give it.
+func (DestinationRole) WireWords() []string {
+	return []string{string(RoleCentral), string(RoleRegional)}
+}
+
 // operatorDestinationDoc is one place telemetry can be sent, as the destination picker reads it: just enough to
 // choose and to say what is wrong with a choice, and no secret or credential of any kind.
 type operatorDestinationDoc struct {
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	Kind   string `json:"kind"` // central | regional
-	Status string `json:"status"`
+	ID     string               `json:"id"`
+	Name   string               `json:"name"`
+	Kind   DestinationRole      `json:"kind"`
+	Status store.OperatorStatus `json:"status"`
 	Health struct {
-		State      string `json:"state"`
-		LastSeenAt string `json:"lastSeenAt,omitempty"`
+		State      operators.HealthState `json:"state"`
+		LastSeenAt string                `json:"lastSeenAt,omitempty"`
 	} `json:"health"`
-	AddressState               string   `json:"addressState"`
-	Endpoint                   string   `json:"endpoint,omitempty"`
-	ReachableFromOtherClusters bool     `json:"reachableFromOtherClusters"`
-	AcceptedModalities         []string `json:"acceptedModalities,omitempty"`
+	AddressState               AddressStatus    `json:"addressState"`
+	Endpoint                   string           `json:"endpoint,omitempty"`
+	ReachableFromOtherClusters bool             `json:"reachableFromOtherClusters"`
+	AcceptedModalities         []store.Modality `json:"acceptedModalities,omitempty"`
 	// Recommended marks the central operator while it runs or is starting: that is what a person who just wants their
 	// telemetry saved should pick. Whether some other operator already receives a cluster is not something the
 	// server can say about a cluster it has not been told about, so nothing else is ever recommended here.
@@ -57,13 +71,13 @@ func (h *API) listOperatorDestinations(w http.ResponseWriter, r *http.Request) {
 		}
 		d := h.opDocWith(r, op, usages, managed)
 		e := operatorDestinationDoc{
-			ID: d.ID, Name: d.Name, Kind: "regional", Status: d.Status,
+			ID: d.ID, Name: d.Name, Kind: RoleRegional, Status: d.Status,
 			AddressState: d.AddressState, Endpoint: d.Endpoint, ReachableFromOtherClusters: d.ReachableFromOtherClusters,
 			AcceptedModalities: d.AcceptedModalities, UsedBy: usageCount(usages[op.ID]),
 		}
 		e.Health.State, e.Health.LastSeenAt = d.Health.State, d.Health.LastSeenAt
 		if op.ID == operators.CentralOperatorID {
-			e.Kind, haveCentral = "central", true
+			e.Kind, haveCentral = RoleCentral, true
 			e.Recommended = d.Health.State == operators.HealthOnline || d.Health.State == operators.HealthStarting
 			out = append(out, e)
 			continue
@@ -72,7 +86,7 @@ func (h *API) listOperatorDestinations(w http.ResponseWriter, r *http.Request) {
 	}
 	if !haveCentral && managed.Available {
 		health := operators.CentralHealth(managed)
-		e := operatorDestinationDoc{ID: operators.CentralOperatorID, Name: CentralOperatorName, Kind: "central", Status: string(store.OperatorActive),
+		e := operatorDestinationDoc{ID: operators.CentralOperatorID, Name: CentralOperatorName, Kind: RoleCentral, Status: store.OperatorActive,
 			AddressState: addressNone, UsedBy: usageCount(usages[operators.CentralOperatorID]), Recommended: health.State == operators.HealthOnline || health.State == operators.HealthStarting}
 		e.Health.State, e.Health.LastSeenAt = health.State, kernel.RFCP(managed.LastDataAt)
 		if c := h.central(); c.Exposed() {

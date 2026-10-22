@@ -97,6 +97,11 @@ const (
 	OperatorRevoked OperatorStatus = "revoked"
 )
 
+// WireWords is the list of OperatorStatus' words, as the generated types give it.
+func (OperatorStatus) WireWords() []string {
+	return []string{string(OperatorActive), string(OperatorRevoked)}
+}
+
 // DestinationKind is where a regional operator (or a local operator's own TelemetryIntent) re-exports
 // what it collects. "operator" points at another regional operator in this organisation directly - see
 // Core.validateDestination - rather than at an arbitrary external endpoint. Ikhnos's fleet is two
@@ -111,6 +116,11 @@ const (
 	// TelemetryIntent points at an operator or an external endpoint, never straight at the stores.
 	DestinationFusion DestinationKind = "fusion"
 )
+
+// WireWords is the list of DestinationKind's words, as the generated types give it.
+func (DestinationKind) WireWords() []string {
+	return []string{string(DestinationExternal), string(DestinationOperator), string(DestinationFusion)}
+}
 
 // Destination is an OTLP export target, shaped like the agent chart's own telemetry.export.otlp block
 // (endpoint/insecure/caFile/auth header+secret) so the same rendering logic applies to both.
@@ -154,6 +164,11 @@ const (
 	ModalityUnreadable Modality = "unreadable"
 )
 
+// WireWords is the list of Modality's words, as the generated types give it. ModalityUnreadable is in it: a damaged row reads back so.
+func (Modality) WireWords() []string {
+	return []string{string(ModalityMetrics), string(ModalityLogs), string(ModalityTraces), string(ModalityUnreadable)}
+}
+
 // ReceiverAuth is how a regional operator's OTLP receiver authenticates what exports into it.
 type ReceiverAuth string
 
@@ -169,15 +184,30 @@ const (
 	ReceiverAuthMTLS ReceiverAuth = "mtls"
 )
 
+// WireWords is the list of ReceiverAuth's words, as the generated types give it.
+func (ReceiverAuth) WireWords() []string {
+	return []string{string(ReceiverAuthMTLS), string(ReceiverAuthBearer)}
+}
+
+// CAScope says which CA vouches for an operator's client certificates.
+type CAScope string
+
+// WireWords is the list of CAScope's words, as the generated types give it.
+func (CAScope) WireWords() []string {
+	return []string{string(ClientCAScopeOperator), string(ClientCAScopeOrg), string(ClientCAScopeNone)}
+}
+
 // The scopes of the CA that vouches for an mTLS operator's client certificates (Operator.ClientCAScope).
 const (
+	// ClientCAScopeNone: a bearer operator, whose gate is the token and not a certificate.
+	ClientCAScopeNone CAScope = ""
 	// ClientCAScopeOperator: the operator's own private CA. A certificate from any other operator, or the
 	// org CA, is rejected by its receiver.
-	ClientCAScopeOperator = "operator"
+	ClientCAScopeOperator CAScope = "operator"
 	// ClientCAScopeOrg: the legacy scope of an mTLS operator created before it had a CA of its own - its
 	// receiver trusts the server-wide org CA, so ANY certificate that CA signed, for any operator, is
 	// accepted. Weaker; fixed only by recreating the operator.
-	ClientCAScopeOrg = "org"
+	ClientCAScopeOrg CAScope = "org"
 )
 
 // OperatorCertKind is what an issued certificate is for.
@@ -942,10 +972,10 @@ type EventQuery struct {
 
 // ClientCAScope says which CA a receiver trusts for client certificates: ClientCAScopeOperator, ClientCAScopeOrg,
 // or "" for a bearer operator (whose gate is the token, not a certificate).
-func (o Operator) ClientCAScope() string {
+func (o Operator) ClientCAScope() CAScope {
 	switch {
 	case o.ReceiverAuth != ReceiverAuthMTLS:
-		return ""
+		return ClientCAScopeNone
 	case len(o.ClientCACertPEM) > 0:
 		return ClientCAScopeOperator
 	default:

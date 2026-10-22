@@ -109,12 +109,12 @@ func (h *API) listOperatorCertificates(w http.ResponseWriter, r *http.Request) {
 	out := make([]issuedCertDoc, 0, len(certs))
 	for _, c := range certs {
 		end := c.NotAfter
-		state := operators.CertStateOK
+		state := CertValid
 		if !end.After(now) {
-			state = operators.CertStateExpired
+			state = CertExpired
 		}
 		out = append(out, issuedCertDoc{
-			Serial: c.Serial, Kind: string(c.Kind), Subject: c.Subject, Sender: c.Sender, IssuedBy: c.IssuedBy,
+			Serial: c.Serial, Kind: CertKind(c.Kind), Subject: c.Subject, Sender: c.Sender, IssuedBy: c.IssuedBy,
 			IssuedAt: kernel.RFC(c.IssuedAt), NotBefore: kernel.RFC(c.NotBefore), NotAfter: kernel.RFC(c.NotAfter), State: state,
 		})
 	}

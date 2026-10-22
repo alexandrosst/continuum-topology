@@ -893,7 +893,7 @@ func (c *Service) issueOperatorClientCertHeld(ctx context.Context, actor, operat
 	if scope == "" {
 		scope = store.ClientCAScopeOrg // a bearer operator's optional client cert is signed by the org CA
 	}
-	detail := "ca=" + scope
+	detail := "ca=" + string(scope)
 	if forWhat != "" {
 		detail += " " + forWhat
 	}

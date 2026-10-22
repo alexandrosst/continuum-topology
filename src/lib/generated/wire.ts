@@ -63,6 +63,8 @@ export interface AddressReachDoc {
   rttP50Ms?: number
 }
 
+export type AddressStatus = 'none' | 'pending' | 'set'
+
 export interface AddressTestDoc {
   id: string
   address: string
@@ -405,6 +407,8 @@ export interface Autoscaler {
 
 export type BackendKind = 'jaeger' | 'zipkin' | 'prometheus' | 'loki' | 'custom'
 
+export type BackendModality = 'traces' | 'metrics' | 'logs'
+
 export interface BeginPasskeyLoginRequest {
   pending: string
 }
@@ -421,6 +425,8 @@ export interface BulkSummary {
   ok: number
   failed: number
 }
+
+export type CAScope = 'operator' | 'org' | ''
 
 export interface CallerAccessDoc {
   clusters: string[]
@@ -454,6 +460,12 @@ export interface CentralDoc {
   namespace: string
   warnings?: string[]
 }
+
+export type CertKind = 'receiver' | 'client'
+
+export type CertState = 'ok' | 'renewal-failing' | 'expired'
+
+export type CertValidity = 'ok' | 'expired'
 
 export interface CertsDoc {
   receiverNotAfter?: string
@@ -828,6 +840,10 @@ export interface Destination {
   operator: string
 }
 
+export type DestinationKind = 'external' | 'operator' | 'fusion'
+
+export type DestinationRole = 'central' | 'regional'
+
 export interface DiagnosticsDoc {
   reportedAt: string
   partial?: boolean
@@ -1034,6 +1050,8 @@ export interface ExposeDoc {
   commands: { nodePort: string; loadBalancer: string }
   value: string
 }
+
+export type Exposure = 'cluster' | 'loadbalancer' | 'nodeport'
 
 export interface ExternalDecisionDoc {
   decider: string
@@ -1250,6 +1268,8 @@ export interface GraphWalkDoc {
   reached: Reached[]
 }
 
+export type HealthState = 'unknown' | 'online' | 'offline' | 'waiting' | 'starting' | 'off' | 'attention'
+
 export interface HeartbeatEnabledDoc {
   heartbeatCaSecretCommand?: string
   heartbeatIntervalSeconds: number
@@ -1351,9 +1371,9 @@ export interface IntentCommandDoc {
   endpoint?: string
   installFragment: string
   namespace: string
-  operators?: Record<string, string>
+  operators?: Record<string, ReceiverAuth>
   problems?: string[]
-  receiverAuth?: string
+  receiverAuth?: ReceiverAuth
   release: string
   secretCommands: string[]
   warnings?: string[]
@@ -1383,14 +1403,14 @@ export interface InvitePreviewDoc {
 
 export interface IssuedCertDoc {
   serial: string
-  kind: string
+  kind: CertKind
   subject: string
   sender?: string
   issuedBy: string
   issuedAt: string
   notBefore: string
   notAfter: string
-  state: string
+  state: CertValidity
 }
 
 export interface LabelDoc {
@@ -1594,7 +1614,7 @@ export interface MintedGatewayTokenDoc {
   token: string
 }
 
-export type Modality = 'traces' | 'metrics' | 'logs'
+export type Modality = 'metrics' | 'logs' | 'traces' | 'unreadable'
 
 export interface ModuleDoc {
   name: string
@@ -1735,7 +1755,7 @@ export interface OperatorCertificatesDoc {
 }
 
 export interface OperatorDestination {
-  kind: string
+  kind: DestinationKind
   endpoint: string
   insecure?: boolean
   caFile?: string
@@ -1751,19 +1771,19 @@ export interface OperatorDestination {
 export interface OperatorDestinationEntry {
   id: string
   name: string
-  kind: string
-  status: string
-  health: { state: string; lastSeenAt?: string }
-  addressState: string
+  kind: DestinationRole
+  status: OperatorStatus
+  health: { state: HealthState; lastSeenAt?: string }
+  addressState: AddressStatus
   endpoint?: string
   reachableFromOtherClusters: boolean
-  acceptedModalities?: string[]
+  acceptedModalities?: Modality[]
   recommended: boolean
   usedBy: number
 }
 
 export interface OperatorHealthDoc {
-  state: string
+  state: HealthState
   lastSeenAt?: string
   reporting: boolean
   heartbeatEnabledAt?: string
@@ -1798,6 +1818,8 @@ export interface OperatorScopeChangedDoc {
   operator: RegionalOperator
   reminders: string[]
 }
+
+export type OperatorStatus = 'active' | 'revoked'
 
 export interface OperatorUninstallDoc {
   uninstall?: string
@@ -1974,7 +1996,7 @@ export interface QueryResult {
 export interface QuickStartBackend {
   id: string
   kind: BackendKind
-  modality: Modality
+  modality: BackendModality
   namespace: string
   retention: string
   toolUrl?: string
@@ -2002,6 +2024,8 @@ export interface ReasonRequest {
   reason: string
 }
 
+export type ReceiverAuth = 'mtls' | 'bearer'
+
 export interface RecordDecisionsRequest {
   entries: DecisionEntryDoc[]
 }
@@ -2018,25 +2042,25 @@ export interface RegionalOperator {
   id: string
   name: string
   siteId?: string
-  status: string
+  status: OperatorStatus
   sourceClusterIds: string[]
   destination: OperatorDestination
-  acceptedModalities?: string[]
+  acceptedModalities?: Modality[]
   labels?: LabelDoc[]
   createdAt: string
   createdBy: string
   revokedAt?: string
   reason?: string
-  receiverAuth: string
-  clientCaScope: string
+  receiverAuth: ReceiverAuth
+  clientCaScope: CAScope
   certs?: CertsDoc
-  certState?: string
+  certState?: CertState
   certStateSince?: string
   health: OperatorHealthDoc
   address?: string
   reachableFromOtherClusters: boolean
-  addressState: string
-  exposure?: string
+  addressState: AddressStatus
+  exposure?: Exposure
   endpoint?: string
   usedBy?: UsedByDoc
   addressWarnings?: string[]
@@ -2296,7 +2320,7 @@ export interface SenderDoc {
 }
 
 export interface SendersDoc {
-  operatorState: string
+  operatorState: HealthState
   senders: SenderDoc[]
 }
 

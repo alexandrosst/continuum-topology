@@ -14,7 +14,7 @@ import (
 func (e *env) savedBackend(t *testing.T, kind, modality string) string {
 	t.Helper()
 	n, err := e.core.SaveSettings(e.ctx, "alex", kernel.Settings{QuickStartBackends: []kernel.QuickStartBackend{
-		{Kind: kernel.BackendKind(kind), Modality: kernel.Modality(modality), Namespace: "observability", Retention: "72h"},
+		{Kind: kernel.BackendKind(kind), Modality: kernel.BackendModality(modality), Namespace: "observability", Retention: "72h"},
 	}})
 	if err != nil {
 		t.Fatal(err)

@@ -125,7 +125,7 @@ func TestDiagnosisOfASenderToTheCentralOperatorReadsFusionsOwnState(t *testing.T
 
 	for _, c := range []struct {
 		name   string
-		state  string
+		state  operators.HealthState
 		peers  []peerOutcome
 		where  string
 		phrase string

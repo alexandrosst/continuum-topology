@@ -42,7 +42,7 @@ func TestOperatorsFromSchemaTenKeepNoCAAndReadBackAsOrgScope(t *testing.T) {
 	if err := up.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != SchemaVersion {
 		t.Fatalf("user_version = %d (%v), want SchemaVersion %d", v, err, SchemaVersion)
 	}
-	for id, want := range map[string]string{"op-mtls10": ClientCAScopeOrg, "op-bearer10": ""} {
+	for id, want := range map[string]CAScope{"op-mtls10": ClientCAScopeOrg, "op-bearer10": ""} {
 		got, err := up.GetOperator(ctx, id)
 		if err != nil {
 			t.Fatal(err)

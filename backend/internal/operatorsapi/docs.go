@@ -18,10 +18,10 @@ import (
 // reporting is true once the operator has a heartbeat credential and has sent at least one heartbeat.
 // heartbeatEnabledAt is when its heartbeat credential was last minted. See operatorHealthAt and centralHealth.
 type operatorHealthDoc struct {
-	State              string `json:"state"`
-	LastSeenAt         string `json:"lastSeenAt,omitempty"`
-	Reporting          bool   `json:"reporting"`
-	HeartbeatEnabledAt string `json:"heartbeatEnabledAt,omitempty"`
+	State              operators.HealthState `json:"state"`
+	LastSeenAt         string                `json:"lastSeenAt,omitempty"`
+	Reporting          bool                  `json:"reporting"`
+	HeartbeatEnabledAt string                `json:"heartbeatEnabledAt,omitempty"`
 }
 
 func toHealthDoc(h operators.OperatorHealth) operatorHealthDoc {
@@ -67,30 +67,53 @@ func toUsedByDoc(u operators.OperatorUsage) *usedByDoc {
 
 // The three states of an operator's reachability record: nothing to record (it is exposed to its own cluster only),
 // waiting for an address (it was installed as a LoadBalancer or NodePort and none is recorded yet), recorded.
+// AddressStatus is whether other clusters have an address to dial an operator at.
+type AddressStatus string
+
 const (
-	addressNone    = "none"
-	addressPending = "pending"
-	addressSet     = "set"
+	addressNone    AddressStatus = "none"    // it serves its own cluster only: nothing to record
+	addressPending AddressStatus = "pending" // exposed through a load balancer or node port, and no address recorded yet
+	addressSet     AddressStatus = "set"     // recorded
 )
 
-func AddressState(op store.Operator) string {
+// WireWords is the list of AddressStatus' words, as the generated types give it.
+func (AddressStatus) WireWords() []string {
+	return []string{string(addressNone), string(addressPending), string(addressSet)}
+}
+
+// Exposure is how an operator's Service was made reachable from other clusters when it was created.
+type Exposure string
+
+// The ways a Service is exposed.
+const (
+	ExposureCluster      Exposure = "cluster"
+	ExposureLoadBalancer Exposure = "loadbalancer"
+	ExposureNodePort     Exposure = "nodeport"
+)
+
+// WireWords is the list of Exposure's words, as the generated types give it.
+func (Exposure) WireWords() []string {
+	return []string{string(ExposureCluster), string(ExposureLoadBalancer), string(ExposureNodePort)}
+}
+
+func AddressState(op store.Operator) AddressStatus {
 	switch {
 	case op.Address != "":
 		return addressSet
-	case op.Exposure == "loadbalancer" || op.Exposure == "nodeport":
+	case Exposure(op.Exposure) == ExposureLoadBalancer || Exposure(op.Exposure) == ExposureNodePort:
 		return addressPending
 	}
 	return addressNone
 }
 
 type Doc struct {
-	ID                 string          `json:"id"`
-	Name               string          `json:"name"`
-	SiteID             string          `json:"siteId,omitempty"`
-	Status             string          `json:"status"`
-	SourceClusterIDs   []string        `json:"sourceClusterIds"`
-	Destination        destination.Doc `json:"destination"`
-	AcceptedModalities []string        `json:"acceptedModalities,omitempty"`
+	ID                 string               `json:"id"`
+	Name               string               `json:"name"`
+	SiteID             string               `json:"siteId,omitempty"`
+	Status             store.OperatorStatus `json:"status"`
+	SourceClusterIDs   []string             `json:"sourceClusterIds"`
+	Destination        destination.Doc      `json:"destination"`
+	AcceptedModalities []store.Modality     `json:"acceptedModalities,omitempty"`
 	// Labels are the tags this operator adds to everything it forwards, next to the continuum.operator.id and
 	// .name it always adds. Absent when there are none.
 	Labels    []labelDoc `json:"labels,omitempty"`
@@ -101,20 +124,20 @@ type Doc struct {
 	// ReceiverAuth is how the operator's receiver authenticates what exports into it: "mtls" (only the
 	// client certificate every source cluster presents, signed by the operator's own CA - no bearer token exists) or "bearer"
 	// (a bearer token, as every operator created before this field existed - read back as "bearer").
-	ReceiverAuth string `json:"receiverAuth"`
+	ReceiverAuth store.ReceiverAuth `json:"receiverAuth"`
 	// ClientCaScope says which CA the receiver trusts for client certificates: "operator" (the operator's
 	// own private CA: no other operator's certificate, and not the org CA's, is accepted), "org" (an mTLS
 	// operator created before per-operator CAs: its receiver trusts the server-wide org CA, so any
 	// certificate that CA signed is accepted - weaker, fixed by recreating the operator) or "" (a bearer
 	// operator: the token is the gate).
-	ClientCaScope string `json:"clientCaScope"`
+	ClientCaScope store.CAScope `json:"clientCaScope"`
 	// Certs and CertState say when the operator's certificates stop working and whether they are being renewed ("ok";
 	// "renewal-failing": the day they should have been renewed by has passed and they still run; "expired").
 	// CertStateSince is that day. Absent for an operator with no certificate the server can vouch for (a bearer one) and
 	// for a revoked one.
-	Certs          *certsDoc `json:"certs,omitempty"`
-	CertState      string    `json:"certState,omitempty"`
-	CertStateSince string    `json:"certStateSince,omitempty"`
+	Certs          *certsDoc           `json:"certs,omitempty"`
+	CertState      operators.CertState `json:"certState,omitempty"`
+	CertStateSince string              `json:"certStateSince,omitempty"`
 	// Health is always present; for an operator that never opted in to a heartbeat it is
 	// {state: "unknown", reporting: false}.
 	Health operatorHealthDoc `json:"health"`
@@ -126,10 +149,10 @@ type Doc struct {
 	ReachableFromOtherClusters bool   `json:"reachableFromOtherClusters"`
 	// AddressState is "none" (nothing to record: exposed to its own cluster only), "pending" (exposed as a
 	// LoadBalancer or NodePort, no address recorded yet) or "set".
-	AddressState string `json:"addressState"`
+	AddressState AddressStatus `json:"addressState"`
 	// Exposure is how its Service was exposed when it was created (cluster | loadbalancer | nodeport); absent for an
 	// operator from before it was asked.
-	Exposure string `json:"exposure,omitempty"`
+	Exposure Exposure `json:"exposure,omitempty"`
 	// Endpoint is what a command that points something at this operator dials: its address once one is recorded, and
 	// otherwise the in-cluster name, which only resolves in the operator's own cluster.
 	Endpoint string `json:"endpoint,omitempty"`
@@ -144,17 +167,15 @@ type Doc struct {
 
 func ToDoc(op store.Operator, now time.Time) Doc {
 	d := Doc{
-		ID: op.ID, Name: op.Name, SiteID: op.SiteID, Status: string(op.Status),
+		ID: op.ID, Name: op.Name, SiteID: op.SiteID, Status: op.Status,
 		SourceClusterIDs: op.SourceClusterIDs, Destination: destination.Of(op.Destination),
-		CreatedAt: kernel.RFC(op.CreatedAt), CreatedBy: op.CreatedBy, Reason: op.Reason, ReceiverAuth: string(op.ReceiverAuth), ClientCaScope: op.ClientCAScope(),
+		CreatedAt: kernel.RFC(op.CreatedAt), CreatedBy: op.CreatedBy, Reason: op.Reason, ReceiverAuth: op.ReceiverAuth, ClientCaScope: op.ClientCAScope(),
 		Health: toHealthDoc(operators.OperatorHealthAt(op, now)),
 	}
 	if op.SourceClusterIDs == nil {
 		d.SourceClusterIDs = []string{}
 	}
-	for _, m := range op.AcceptedModalities {
-		d.AcceptedModalities = append(d.AcceptedModalities, string(m))
-	}
+	d.AcceptedModalities = append(d.AcceptedModalities, op.AcceptedModalities...)
 	for _, l := range op.Labels {
 		d.Labels = append(d.Labels, labelDoc{Key: l.Key, Value: l.Value})
 	}
@@ -169,23 +190,47 @@ func ToDoc(op store.Operator, now time.Time) Doc {
 			d.CertStateSince = kernel.RFCP(since)
 		}
 	}
-	d.Address, d.ReachableFromOtherClusters, d.Exposure, d.AddressState = op.Address, op.Address != "", op.Exposure, AddressState(op)
+	d.Address, d.ReachableFromOtherClusters, d.Exposure, d.AddressState = op.Address, op.Address != "", Exposure(op.Exposure), AddressState(op)
 	return d
 }
 
 // issuedCertDoc is one ledger entry. state is "ok" or "expired": whether renewal is happening is a property of the
 // holder (the operator's certState), not of one of the certificates it has already replaced.
 type issuedCertDoc struct {
-	Serial    string `json:"serial"`
-	Kind      string `json:"kind"`
-	Subject   string `json:"subject"`
-	Sender    string `json:"sender,omitempty"`
-	IssuedBy  string `json:"issuedBy"`
-	IssuedAt  string `json:"issuedAt"`
-	NotBefore string `json:"notBefore"`
-	NotAfter  string `json:"notAfter"`
-	State     string `json:"state"`
+	Serial    string       `json:"serial"`
+	Kind      CertKind     `json:"kind"`
+	Subject   string       `json:"subject"`
+	Sender    string       `json:"sender,omitempty"`
+	IssuedBy  string       `json:"issuedBy"`
+	IssuedAt  string       `json:"issuedAt"`
+	NotBefore string       `json:"notBefore"`
+	NotAfter  string       `json:"notAfter"`
+	State     CertValidity `json:"state"`
 }
+
+// CertKind is whose certificate a ledger entry is.
+type CertKind string
+
+// The kinds of certificate in the ledger.
+const (
+	CertReceiver CertKind = "receiver" // the operator's own server certificate
+	CertClient   CertKind = "client"   // one a sender (a cluster, or another operator) presents
+)
+
+// WireWords is the list of CertKind's words, as the generated types give it.
+func (CertKind) WireWords() []string { return []string{string(CertReceiver), string(CertClient)} }
+
+// CertValidity is whether a ledger entry's certificate still runs.
+type CertValidity string
+
+// The validity of a certificate in the ledger.
+const (
+	CertValid   CertValidity = "ok"
+	CertExpired CertValidity = "expired"
+)
+
+// WireWords is the list of CertValidity's words, as the generated types give it.
+func (CertValidity) WireWords() []string { return []string{string(CertValid), string(CertExpired)} }
 
 // modalitiesFromDoc converts a request's plain-string modality list to store.Modality - validated later
 // by Core (validModalities), the same deferral destination.Doc.ToStore's own untyped Kind follows.

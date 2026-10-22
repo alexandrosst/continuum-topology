@@ -140,6 +140,15 @@ type bareLevel string
 
 func (bareLevel) WireWords() []string { return nil }
 
+type scope string
+
+// An empty word is a word: "" is what a bearer operator's CA scope reads, and the union says so.
+func (scope) WireWords() []string { return []string{"operator", "org", ""} }
+
+type holdsScope struct {
+	S scope `json:"s"`
+}
+
 type twice string
 
 func (twice) WireWords() []string { return []string{"a", "a"} }
@@ -200,5 +209,15 @@ func TestEveryConstantOfAWordsTypeIsListedAndEveryWordHasOne(t *testing.T) {
 	}
 	if all := strings.Join(problems, "\n"); !strings.Contains(all, `"blue", which no constant`) || !strings.Contains(all, `"green" is not among`) {
 		t.Errorf("the problems name the wrong words: %q", problems)
+	}
+}
+
+func TestTheEmptyStringCanBeAWord(t *testing.T) {
+	got, err := Generate([]Root{{Value: holdsScope{}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "export type Scope = 'operator' | 'org' | ''\n") || !strings.Contains(got, "  s: Scope\n") {
+		t.Errorf("the empty word is missing:\n%s", got)
 	}
 }

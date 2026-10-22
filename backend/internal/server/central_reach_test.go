@@ -65,7 +65,7 @@ func TestCentralOperatorAddressCandidatesAndSendersComeFromTheGatewayAndFusion(t
 	}
 	doc := s.json(t)
 	senders := doc["senders"].([]any)
-	if doc["operatorState"] != operators.HealthOnline || len(senders) != 1 {
+	if doc["operatorState"] != string(operators.HealthOnline) || len(senders) != 1 {
 		t.Fatalf("senders of the central operator: %v", doc)
 	}
 	addrs := senders[0].(map[string]any)["addresses"].([]any)

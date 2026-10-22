@@ -106,6 +106,8 @@ export function operatorFromDestination(d: OperatorDestinationEntry): RegionalOp
     health: { state: d.health.state, lastSeenAt: d.health.lastSeenAt, reporting: d.health.state === 'online' || d.health.state === 'offline' },
     endpoint: d.endpoint,
     address: d.reachableFromOtherClusters ? d.endpoint : undefined,
+    receiverAuth: 'bearer',
+    clientCaScope: '',
     reachableFromOtherClusters: d.reachableFromOtherClusters,
     addressState: d.addressState,
   }
@@ -169,8 +171,12 @@ function centralOperator(opts: { operators: RegionalOperator[]; destinations: Op
     destination: { kind: 'fusion', endpoint: '' },
     createdAt: '',
     createdBy: '',
+    receiverAuth: 'bearer',
+    clientCaScope: '',
+    health: { state: 'unknown', reporting: false },
     endpoint: opts.status?.central?.endpoint,
-    reachableFromOtherClusters: opts.status?.central?.exposed,
+    reachableFromOtherClusters: opts.status?.central?.exposed === true,
+    addressState: 'none',
   }
 }
 

@@ -166,7 +166,7 @@ func TestCentralOperatorHealthIsFusionsState(t *testing.T) {
 func TestCentralHealthMapsFusionsStates(t *testing.T) {
 	for _, c := range []struct {
 		st   fusion.FusionStatus
-		want string
+		want operators.HealthState
 	}{
 		{fusion.FusionStatus{Available: true, State: "running"}, operators.HealthOnline},
 		{fusion.FusionStatus{Available: true, State: "starting"}, operators.HealthStarting},

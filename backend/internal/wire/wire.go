@@ -258,7 +258,7 @@ func (g *gen) writeWords(b *strings.Builder, t reflect.Type) error {
 	seen := map[string]bool{}
 	quoted := make([]string, 0, len(words))
 	for _, w := range words {
-		if w == "" || strings.ContainsAny(w, "'\\\n\r") {
+		if strings.ContainsAny(w, "'\\\n\r") {
 			return fmt.Errorf("wire: %v lists the word %q, which the union cannot hold", t, w)
 		}
 		if seen[w] {

@@ -70,8 +70,8 @@ type SenderDoc struct {
 // SendersDoc is the answer for one operator.
 type SendersDoc struct {
 	// OperatorState is the operator's own health as it reports it (online, offline, unknown...).
-	OperatorState string      `json:"operatorState"`
-	Senders       []SenderDoc `json:"senders"`
+	OperatorState operators.HealthState `json:"operatorState"`
+	Senders       []SenderDoc           `json:"senders"`
 }
 
 var modalityOrder = []store.Modality{store.ModalityMetrics, store.ModalityLogs, store.ModalityTraces}
@@ -179,7 +179,7 @@ type diagnosisInput struct {
 	// which has no certificates of its own to renew from a row.
 	Central bool
 	// OperatorState is the operator's own health; OperatorSeen is when it last reported, when it ever has.
-	OperatorState string
+	OperatorState operators.HealthState
 	OperatorSeen  string
 	Peers         []peerOutcome
 	// Reach is the last test of Address from the sending cluster, when there is a recent one.

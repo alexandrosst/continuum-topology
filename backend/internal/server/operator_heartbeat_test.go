@@ -241,7 +241,7 @@ func TestOperatorHealthThresholds(t *testing.T) {
 	}
 	for _, c := range []struct {
 		after time.Duration
-		want  string
+		want  operators.HealthState
 	}{
 		{0, operators.HealthOnline},
 		{operators.OperatorHeartbeatInterval, operators.HealthOnline},

@@ -19,12 +19,20 @@ import (
 // have happened.
 const certRenewalSlack = 5 * 24 * time.Hour
 
+// CertState is whether an operator's certificates are being renewed.
+type CertState string
+
 // Certificate states in the operator document.
 const (
-	CertStateOK             = "ok"
-	CertStateRenewalFailing = "renewal-failing"
-	CertStateExpired        = "expired"
+	CertStateOK             CertState = "ok"
+	CertStateRenewalFailing CertState = "renewal-failing"
+	CertStateExpired        CertState = "expired"
 )
+
+// WireWords is the list of CertState's words, as the generated types give it.
+func (CertState) WireWords() []string {
+	return []string{string(CertStateOK), string(CertStateRenewalFailing), string(CertStateExpired)}
+}
 
 // OperatorCerts are the dates an operator's certificates stop being valid; a nil one is not known.
 type OperatorCerts struct {
@@ -85,7 +93,7 @@ func (c OperatorCerts) Known() bool { _, _, ok := c.soonest(); return ok }
 // certState is "ok", "renewal-failing" (the soonest certificate is past the day it should have been renewed by more
 // than certRenewalSlack and still runs) or "expired"; "" when no date is known. since is the day renewal should have
 // started for the soonest certificate: absent for "ok".
-func (c OperatorCerts) CertState(now time.Time) (state string, since *time.Time) {
+func (c OperatorCerts) CertState(now time.Time) (state CertState, since *time.Time) {
 	at, _, ok := c.soonest()
 	if !ok {
 		return "", nil

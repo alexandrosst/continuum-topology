@@ -9,7 +9,7 @@ import (
 
 // The words the page switches on are the constants the code writes, no more and no fewer.
 func TestTheWordsOfTheSettingsAreTheirConstants(t *testing.T) {
-	wire.RequireWordsComplete(t, ".", BackendKind(""), Modality(""))
+	wire.RequireWordsComplete(t, ".", BackendKind(""), BackendModality(""))
 }
 
 // A pair's via is one of the classes of address, and every class is one the page can choose.

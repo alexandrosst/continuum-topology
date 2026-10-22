@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"continuum/internal/store"
 	"continuum/internal/wire"
 )
 
@@ -77,7 +78,7 @@ func TestAnswersThatWereMapsAreWrittenAsTheyWere(t *testing.T) {
 			"heartbeatIntervalSeconds": 60, "heartbeatRestartCommand": "r", "heartbeatWarning": "w", "heartbeatCaSecretCommand": "ca"})
 
 	// the command for a telemetry intent, by the way it went
-	ep, ra := "c:4317", "mtls"
+	ep, ra := "c:4317", store.ReceiverAuthMTLS
 	sameBytes(t, "intent, parts", intentCommandDoc{Namespace: "ns", Release: "rel", InstallFragment: "--set a=b", SecretCommands: []string{}},
 		map[string]any{"namespace": "ns", "release": "rel", "installFragment": "--set a=b", "secretCommands": []string{}})
 	sameBytes(t, "intent, problems found", intentCommandDoc{Namespace: "ns", Release: "rel", InstallFragment: "", SecretCommands: []string{}, Problems: []string{"bad"}},
@@ -85,11 +86,16 @@ func TestAnswersThatWereMapsAreWrittenAsTheyWere(t *testing.T) {
 	sameBytes(t, "intent, whole block, no problems", intentCommandDoc{Namespace: "ns", Release: "rel", InstallFragment: "f", SecretCommands: []string{"s"}, Command: "block", Problems: []string{}},
 		map[string]any{"namespace": "ns", "release": "rel", "installFragment": "f", "secretCommands": []string{"s"}, "command": "block", "problems": []string{}})
 	sameBytes(t, "intent, one operator", intentCommandDoc{Namespace: "ns", Release: "rel", InstallFragment: "f", SecretCommands: []string{"s"}, ReceiverAuth: &ra, Endpoint: &ep,
-		Operators: map[string]string{"op1": "mtls"}, Warnings: []string{"w"}},
+		Operators: map[string]store.ReceiverAuth{"op1": store.ReceiverAuthMTLS}, Warnings: []string{"w"}},
 		map[string]any{"namespace": "ns", "release": "rel", "installFragment": "f", "secretCommands": []string{"s"}, "receiverAuth": "mtls", "endpoint": "c:4317",
 			"operators": map[string]string{"op1": "mtls"}, "warnings": []string{"w"}})
 }
 
 func target2() *exportTargetDoc {
 	return &exportTargetDoc{OperatorID: "c", Name: "central", Endpoint: "c:4317"}
+}
+
+// The words the page switches on are the constants the code writes, no more and no fewer.
+func TestTheWordsOfAnOperatorAreItsConstants(t *testing.T) {
+	wire.RequireWordsComplete(t, ".", AddressStatus(""), Exposure(""), DestinationRole(""), CertKind(""), CertValidity(""))
 }

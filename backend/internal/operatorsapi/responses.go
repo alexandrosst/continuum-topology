@@ -1,5 +1,7 @@
 package operatorsapi
 
+import "continuum/internal/store"
+
 // The answers this package's routes give that were maps at the handler. The fields are in the alphabetical order of their JSON names,
 // which is the order a map was encoded in: the bytes on the wire are the ones they were before. A key that a map had only sometimes is an
 // optional field (omitempty; omitzero where an empty list must stay different from no list).
@@ -73,14 +75,14 @@ type heartbeatEnabledDoc struct {
 // page's telemetry the whole block (Command). Problems says what is wrong with that telemetry, and is absent when none was asked about;
 // the other keys depend on where the intent sends.
 type intentCommandDoc struct {
-	Command         string            `json:"command,omitempty"`
-	Endpoint        *string           `json:"endpoint,omitempty"`
-	InstallFragment string            `json:"installFragment"`
-	Namespace       string            `json:"namespace"`
-	Operators       map[string]string `json:"operators,omitempty"`
-	Problems        []string          `json:"problems,omitzero"`
-	ReceiverAuth    *string           `json:"receiverAuth,omitempty"`
-	Release         string            `json:"release"`
-	SecretCommands  []string          `json:"secretCommands"`
-	Warnings        []string          `json:"warnings,omitempty"`
+	Command         string                        `json:"command,omitempty"`
+	Endpoint        *string                       `json:"endpoint,omitempty"`
+	InstallFragment string                        `json:"installFragment"`
+	Namespace       string                        `json:"namespace"`
+	Operators       map[string]store.ReceiverAuth `json:"operators,omitempty"`
+	Problems        []string                      `json:"problems,omitzero"`
+	ReceiverAuth    *store.ReceiverAuth           `json:"receiverAuth,omitempty"`
+	Release         string                        `json:"release"`
+	SecretCommands  []string                      `json:"secretCommands"`
+	Warnings        []string                      `json:"warnings,omitempty"`
 }
