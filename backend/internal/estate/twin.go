@@ -448,7 +448,7 @@ func markObservation(t *model.Topology, o twin.Observation, nodes map[string]twi
 		n := &t.Nodes[i]
 		n.Stale, n.State, n.StateReason = stale, state, reason
 		if r, ok := byID[n.ID]; ok {
-			n.IdentityBasis, n.Aliases = string(r.Identity.Basis), r.Aliases
+			n.IdentityBasis, n.Aliases = model.IdentityBasis(r.Identity.Basis), r.Aliases
 		}
 	}
 	for i := range t.Namespaces {

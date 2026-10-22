@@ -346,3 +346,66 @@ const (
 func (SuggestionStatus) WireWords() []string {
 	return []string{string(SuggestionStatusOpen), string(SuggestionStatusAccepted), string(SuggestionStatusDismissed)}
 }
+
+// MeshProxy is how a mesh handles a service's traffic.
+type MeshProxy string
+
+const (
+	MeshProxySidecar MeshProxy = "sidecar"
+	MeshProxyAmbient MeshProxy = "ambient"
+)
+
+// WireWords is the list of MeshProxy's words, as the generated types give it.
+func (MeshProxy) WireWords() []string {
+	return []string{string(MeshProxySidecar), string(MeshProxyAmbient)}
+}
+
+// IdentityBasis is what a node's identity is made of.
+type IdentityBasis string
+
+const (
+	IdentityBasisProviderId IdentityBasis = "provider-id"
+	IdentityBasisSystemUuid IdentityBasis = "system-uuid"
+	IdentityBasisMachineId  IdentityBasis = "machine-id"
+	IdentityBasisName       IdentityBasis = "name"
+)
+
+// WireWords is the list of IdentityBasis's words, as the generated types give it.
+func (IdentityBasis) WireWords() []string {
+	return []string{string(IdentityBasisProviderId), string(IdentityBasisSystemUuid), string(IdentityBasisMachineId), string(IdentityBasisName)}
+}
+
+// Connectivity is how a node reaches the network.
+type Connectivity string
+
+const (
+	ConnectivityEthernet  Connectivity = "ethernet"
+	ConnectivityWifi      Connectivity = "wifi"
+	ConnectivityCellular  Connectivity = "cellular"
+	ConnectivitySatellite Connectivity = "satellite"
+	ConnectivityLora      Connectivity = "lora"
+	ConnectivityZigbee    Connectivity = "zigbee"
+	ConnectivityBle       Connectivity = "ble"
+	ConnectivitySerial    Connectivity = "serial"
+	ConnectivityUnknown   Connectivity = "unknown"
+)
+
+// WireWords is the list of Connectivity's words, as the generated types give it.
+func (Connectivity) WireWords() []string {
+	return []string{string(ConnectivityEthernet), string(ConnectivityWifi), string(ConnectivityCellular), string(ConnectivitySatellite), string(ConnectivityLora), string(ConnectivityZigbee), string(ConnectivityBle), string(ConnectivitySerial), string(ConnectivityUnknown)}
+}
+
+// ServiceExposure is how a workload is reachable.
+type ServiceExposure string
+
+const (
+	ServiceExposureInternal     ServiceExposure = "internal"
+	ServiceExposureNodePort     ServiceExposure = "node-port"
+	ServiceExposureLoadBalancer ServiceExposure = "load-balancer"
+	ServiceExposureIngress      ServiceExposure = "ingress"
+)
+
+// WireWords is the list of ServiceExposure's words, as the generated types give it.
+func (ServiceExposure) WireWords() []string {
+	return []string{string(ServiceExposureInternal), string(ServiceExposureNodePort), string(ServiceExposureLoadBalancer), string(ServiceExposureIngress)}
+}

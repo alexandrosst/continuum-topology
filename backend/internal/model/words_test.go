@@ -32,5 +32,9 @@ func TestEveryWordOfTheRecordsIsListed(t *testing.T) {
 		TLSHandshake(""),
 		SuggestionKind(""),
 		SuggestionStatus(""),
+		MeshProxy(""),
+		IdentityBasis(""),
+		Connectivity(""),
+		ServiceExposure(""),
 	)
 }

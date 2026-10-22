@@ -103,11 +103,11 @@ type ClusterMesh struct {
 
 // ServiceMesh is one service's relation to the mesh.
 type ServiceMesh struct {
-	Mesh          string   `json:"mesh"`
-	Proxy         string   `json:"proxy,omitempty"` // sidecar | ambient; empty when no proxy handles its traffic
-	Bypass        bool     `json:"bypass,omitempty"`
-	ExcludedPorts []string `json:"excludedPorts,omitempty"` // "in:8080", "out:5432": ports kept out of the proxy
-	ControlPlane  bool     `json:"controlPlane,omitempty"`
+	Mesh          string    `json:"mesh"`
+	Proxy         MeshProxy `json:"proxy,omitempty"` // sidecar | ambient; empty when no proxy handles its traffic
+	Bypass        bool      `json:"bypass,omitempty"`
+	ExcludedPorts []string  `json:"excludedPorts,omitempty"` // "in:8080", "out:5432": ports kept out of the proxy
+	ControlPlane  bool      `json:"controlPlane,omitempty"`
 	// Source is where the answer came from: pods (a proxy was seen) | workload | namespace (what it asks for).
 	Source string `json:"source,omitempty"`
 }
@@ -187,13 +187,13 @@ type Node struct {
 	Role      NodeRole `json:"role"` // control-plane | worker
 	// Aliases are the names this machine had before (a rename keeps the record); IdentityBasis is what its
 	// identity is made of: provider-id | system-uuid | machine-id | name.
-	Aliases       []string    `json:"aliases,omitempty"`
-	IdentityBasis string      `json:"identityBasis,omitempty"`
-	Kind          MachineKind `json:"kind"` // vm | bare-metal | edge-device
-	IP            string      `json:"ip"`
-	OS            string      `json:"os"`
-	CPU           float64     `json:"cpu"`
-	MemoryGb      float64     `json:"memoryGb"`
+	Aliases       []string      `json:"aliases,omitempty"`
+	IdentityBasis IdentityBasis `json:"identityBasis,omitempty"`
+	Kind          MachineKind   `json:"kind"` // vm | bare-metal | edge-device
+	IP            string        `json:"ip"`
+	OS            string        `json:"os"`
+	CPU           float64       `json:"cpu"`
+	MemoryGb      float64       `json:"memoryGb"`
 	// DiskGb mirrors Resources.DiskGb above: this node's own root filesystem capacity, not wrapped in a
 	// *Resources pointer since - like CPU/MemoryGb just above - it is always known once the node itself
 	// is (kubelet reports it as part of node Capacity, not a separate observation that can be absent).
@@ -211,7 +211,7 @@ type Node struct {
 	// Virtualization names the hypervisor or cloud platform under a VM ("KVM/QEMU", "Amazon EC2"); set only from the node probe.
 	Virtualization string `json:"virtualization,omitempty"`
 	// Connectivity is the physical uplink kind (ethernet | wifi | cellular) the node probe saw on a machine that is not a VM.
-	Connectivity string `json:"connectivity,omitempty"`
+	Connectivity Connectivity `json:"connectivity,omitempty"`
 	// HasBattery: the machine can run without mains power (laptop, board with a battery hat).
 	HasBattery bool `json:"hasBattery,omitempty"`
 	// Probed: a node probe reported on this machine, so kind and hardware come from the machine itself.
@@ -379,7 +379,7 @@ type Service struct {
 	CPULimitM     int64             `json:"cpuLimitM,omitempty"`
 	MemLimitMi    int64             `json:"memLimitMi,omitempty"`
 	Ports         []int32           `json:"ports,omitempty"`
-	Exposure      string            `json:"exposure,omitempty"`
+	Exposure      ServiceExposure   `json:"exposure,omitempty"`
 	Hosts         []string          `json:"hosts,omitempty"`
 	ManagedBy     ManagedBy         `json:"managedBy,omitempty"`
 	NodeSelector  map[string]string `json:"nodeSelector,omitempty"`

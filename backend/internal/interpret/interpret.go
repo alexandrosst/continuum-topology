@@ -223,7 +223,7 @@ func Interpret(in Input) model.Topology {
 			mn.Evidence["hardwareModel"] = *k.hwEv
 		}
 		if k.probed {
-			mn.Probed, mn.Virtualization, mn.Connectivity, mn.HasBattery = true, k.virt, k.connectivity, k.battery
+			mn.Probed, mn.Virtualization, mn.Connectivity, mn.HasBattery = true, k.virt, model.Connectivity(k.connectivity), k.battery
 			if k.virtEv != nil {
 				mn.Evidence["virtualization"] = *k.virtEv
 			}
@@ -397,7 +397,7 @@ func Interpret(in Input) model.Topology {
 		s := model.Service{
 			Provenance: prov(in.ClusterID+"/"+w.Key, st.Seq), ID: id, Name: w.Name, Namespace: w.Namespace, ClusterID: in.ClusterID,
 			Kind: model.ServiceKind(w.Kind), Replicas: w.Replicas, ReadyReplicas: w.ReadyReplicas, Status: serviceStatus(w),
-			Labels: orEmpty(w.Labels), Exposure: w.Exposure, Hosts: w.Hosts, Ports: w.Ports, ManagedBy: managedBy(w),
+			Labels: orEmpty(w.Labels), Exposure: model.ServiceExposure(w.Exposure), Hosts: w.Hosts, Ports: w.Ports, ManagedBy: managedBy(w),
 			CPURequestM: w.CpuRequestMillis, MemRequestMi: w.MemoryRequestBytes >> 20, CPULimitM: w.CpuLimitMillis, MemLimitMi: w.MemoryLimitBytes >> 20,
 			NodeSelector: w.NodeSelector, Tolerations: w.Tolerations, Restarts: w.Restarts, OOMKills: w.OomKills, ApplicationHint: appID,
 			NodeIDs: []string{}, CreatedAt: rfc3339(w.CreatedAt),
@@ -418,7 +418,7 @@ func Interpret(in Input) model.Topology {
 			s.Disruption = &model.Disruption{MinAvailable: d.MinAvailable, MaxUnavailable: d.MaxUnavailable, Allowed: d.DisruptionsAllowed}
 		}
 		if m := w.Mesh; m != nil {
-			s.Mesh = &model.ServiceMesh{Mesh: m.Mesh, Proxy: m.Proxy, Bypass: m.Bypass, ExcludedPorts: m.ExcludedPorts, ControlPlane: m.ControlPlane, Source: m.Source}
+			s.Mesh = &model.ServiceMesh{Mesh: m.Mesh, Proxy: model.MeshProxy(m.Proxy), Bypass: m.Bypass, ExcludedPorts: m.ExcludedPorts, ControlPlane: m.ControlPlane, Source: m.Source}
 		}
 		if len(w.Images) > 0 {
 			s.Image, s.ImageDigest = w.Images[0].Image, w.Images[0].Digest

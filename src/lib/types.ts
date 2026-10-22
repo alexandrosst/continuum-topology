@@ -14,12 +14,12 @@ import type { Narrowed } from './narrow'
  */
 
 /** Position of a cluster on the computing continuum. */
-export type Tier = 'cloud' | 'edge' | 'far-edge'
+export type Tier = W.Tier
 
 /** Where an entity came from. Manual today; discovery/import tomorrow. */
-export type Source = 'manual' | 'discovered' | 'imported'
+export type Source = W.ModelSource
 
-export type Status = 'healthy' | 'degraded' | 'offline' | 'unknown'
+export type Status = W.Status
 
 /**
  * Format version of the stored workspace and of exported files.
@@ -30,7 +30,7 @@ export const SCHEMA_VERSION = 4
 /** Single-tenant today; every record carries an org id so multi-tenancy is additive later. */
 export const DEFAULT_ORG = 'default'
 
-export type Confidence = 'high' | 'medium' | 'low'
+export type Confidence = W.Confidence
 
 /** Why discovery believes a value: the signal it saw and how sure it is. */
 export interface Evidence {
@@ -92,7 +92,7 @@ export interface Provenance {
 }
 
 /** live: connected and heard from recently. disconnected: stream closed, picture recent. stale: silent too long. revoked: agent revoked. */
-export type ObservationState = 'live' | 'disconnected' | 'stale' | 'revoked'
+export type ObservationState = W.ObservationState
 
 /**
  * A record that disappeared from what its agent reports. Kept by the server for a retention window so it can be
@@ -168,7 +168,7 @@ export interface Path {
   toCluster?: string
   toName?: string
   /** observed: the cluster already talks to this address; manual: an administrator asked for it. */
-  source: 'observed' | 'manual'
+  source: W.PathSource
   rttMinMs: number
   rttP50Ms: number
   rttP95Ms: number
@@ -188,7 +188,7 @@ export interface Application extends Provenance {
   confidence: Confidence
 }
 
-export type ExternalKind = 'saas' | 'database' | 'unknown'
+export type ExternalKind = W.ExternalKind
 
 /** Something a service calls that lives outside every onboarded cluster. */
 export interface ExternalEndpoint extends Provenance {
@@ -223,7 +223,7 @@ export interface ClusterLink {
   toCluster: string
   toName: string
   /** overlay: joined through a tunnel/overlay interface. subnet: same flat network segment, no tunnel. */
-  kind: 'overlay' | 'subnet'
+  kind: W.LinkKind
   /** The specific evidence: a tunnel's name and kind ("wg0 (wireguard)") for an overlay link, or the
    *  shared subnet prefix ("10.0.5.0/24") for a subnet link - never just "connected" with nothing to
    *  point at. */
@@ -277,7 +277,7 @@ export interface ClusterLink {
    *  encryption very likely or very unlikely, but nothing here proves what a given packet actually was.
    *  "unknown" only for a driver kind outside that function's own closed list; undefined for a "subnet"
    *  link, which has no tunnel to classify at all. */
-  encryption?: 'encrypted' | 'plaintext' | 'unknown'
+  encryption?: W.TunnelEncryption
 }
 
 /**
@@ -301,7 +301,7 @@ export interface ClusterPairConnectivity {
    *  attempted, and none of it matched - a real finding, not an absence. unknown: one or both clusters
    *  never reported any tunnel or host subnet at all, so there is not enough evidence to say either way -
    *  never collapsed into "unexplained", which would claim a negative never actually checked. */
-  status: 'tunnel' | 'subnet' | 'unexplained' | 'unknown'
+  status: W.PairStatus
   /** This pair's own confirmed ClusterLink(s) when status is "tunnel" or "subnet" - the exact same
    *  record(s) already in Topology.clusterLinks (an overlay and a subnet link for the same pair are
    *  independent facts and can both be present). Undefined for "unexplained"/"unknown", which have no
@@ -353,7 +353,7 @@ export interface Cluster extends Provenance {
 }
 
 export type MeshKind = 'istio' | 'linkerd' | 'consul' | 'kuma' | string
-export type MtlsMode = 'strict' | 'permissive' | 'disabled' | 'automatic' | 'unknown'
+export type MtlsMode = W.MtlsMode
 
 /** What the cluster's mesh is configured to do. Inferred from labels, annotations, container names and policy objects. */
 export interface ClusterMesh {
@@ -373,7 +373,7 @@ export interface ClusterMesh {
 /** One service's relation to the mesh. */
 export interface ServiceMesh {
   mesh: MeshKind
-  proxy?: 'sidecar' | 'ambient'
+  proxy?: W.MeshProxy
   bypass?: boolean
   /** "in:8080", "out:5432": ports kept out of the proxy. */
   excludedPorts?: string[]
@@ -382,9 +382,9 @@ export interface ServiceMesh {
   source?: 'pods' | 'workload' | 'namespace' | string
 }
 
-export type NodeRole = 'control-plane' | 'worker'
-export type MachineKind = 'vm' | 'bare-metal' | 'edge-device'
-export type Connectivity = 'ethernet' | 'wifi' | 'cellular' | 'satellite' | 'lora' | 'zigbee' | 'ble' | 'serial' | 'unknown'
+export type NodeRole = W.NodeRole
+export type MachineKind = W.MachineKind
+export type Connectivity = W.Connectivity
 
 export interface Accelerator {
   vendor: string
@@ -453,7 +453,7 @@ export interface MachineNode extends Provenance {
   clusterId: string
   /** Names this machine had before (a rename keeps the record), and what its identity is made of. */
   aliases?: string[]
-  identityBasis?: 'provider-id' | 'system-uuid' | 'machine-id' | 'name'
+  identityBasis?: W.IdentityBasis
   role: NodeRole
   kind: MachineKind
   ip: string
@@ -529,6 +529,10 @@ export interface MachineNode extends Provenance {
    *  0. Worth reading alongside this node's own pods' flow data for the same window: a kill landing
    *  there is a real, node-side explanation a flow row's retransmit growth alone could never provide. */
   oomKillCount?: number
+  /** This node's host-wide power draw in watts, from the node probe's RAPL reading. Undefined on the hardware that has no
+   *  such counter (most of it), never a fabricated 0. It is the whole host's, not this product's share of it. No screen
+   *  shows it yet; it is here because the server sends it. */
+  hostWatts?: number
   /** This node's current per-interface network throughput and, where the interface's own rated speed
    *  could be read, what share of it is in use right now - computed by the flow collector from this
    *  window's real flow byte counters (see the backend's continuumv1.LinkSaturation proto doc), not by
@@ -596,9 +600,9 @@ export interface Namespace extends Provenance {
   mtls?: MtlsMode
 }
 
-export type ServiceKind = 'Deployment' | 'StatefulSet' | 'DaemonSet' | 'Job'
-export type Exposure = 'internal' | 'node-port' | 'load-balancer' | 'ingress'
-export type ManagedBy = 'helm' | 'argo' | 'flux' | 'kustomize' | 'operator' | 'kubectl' | 'unknown'
+export type ServiceKind = W.ServiceKind
+export type Exposure = W.ServiceExposure
+export type ManagedBy = W.ManagedBy
 export type Sensitivity = 'public' | 'internal' | 'confidential'
 
 /** A persistent volume claim used by a service. */
@@ -642,7 +646,7 @@ export interface Pod {
   nodeId?: string
   /** Pending | Running | Succeeded | Failed | Unknown - exactly as Kubernetes reports it. */
   phase: string
-  ready?: boolean
+  ready: boolean
   /** This pod's own restart count (every container's, summed) - Service.restarts above is already this same
    *  number summed again across every pod, which flattens one unusually-crashy replica among otherwise-
    *  healthy ones into an unremarkable average. */
@@ -667,9 +671,9 @@ export interface PodPeer {
    *  "external" - the backend cannot resolve that case to an id this early (see PodPeer's own Go doc
    *  comment), so it stays a bare address there. */
   peer: string
-  peerKind: 'service' | 'external'
+  peerKind: W.PeerKind
   /** This pod's own role in the flow: "out" when it is the caller, "in" when it is the one receiving. */
-  direction: 'out' | 'in'
+  direction: W.PodDirection
   port: number
   protocol: string
   connections: number
@@ -756,8 +760,8 @@ export interface Device extends Provenance {
 }
 
 /** declared = inferred from Kubernetes objects, observed = seen on the wire, manual = typed by a person. */
-export type DependencySource = 'declared' | 'observed' | 'manual'
-export type EndpointKind = 'service' | 'device' | 'external'
+export type DependencySource = W.DependencySource
+export type EndpointKind = W.EndpointKind
 
 export interface DependencyStats {
   bytesPerSec?: number
@@ -810,11 +814,11 @@ export interface Dependency {
   /** No traffic for longer than the server's stale window. */
   stale?: boolean
   /** Traffic that is machinery rather than the applications' own. */
-  noise?: 'dns' | 'system'
+  noise?: W.Noise
   /** The two ends are in different onboarded clusters. */
   crossCluster?: boolean
   /** How it was observed: eBPF counts every connection and its bytes; conntrack may not know bytes. */
-  via?: 'ebpf' | 'conntrack'
+  via?: W.ObservedVia
   /** The caller's physical network interface (e.g. "eth0", "wlan0"), read from the kernel's own route for
    * the socket - never guessed from the port or address, and only ever set by eBPF (conntrack has no way to
    * know it). Unset means not known, which matters on a multi-homed node (an edge box with both ethernet
@@ -920,13 +924,7 @@ export interface Dependency {
    * still matters for a tunnel used by several distinct dependencies at once, or by none right now.
    * Deliberately missing flowsObserved/avgRttMs/avgLossPct: those are an aggregate across every
    * dependency crossing the link, not a fact about this one. */
-  tunnelLink?: {
-    fromCluster: string
-    toCluster: string
-    via: string
-    redundancy: number
-    encryption?: ClusterLink['encryption']
-  }
+  tunnelLink?: W.DependencyTunnelLink
   /** True when this edge's traffic has actually been seen (eBPF only) leaving its caller directly -
    * without first being redirected to a local mesh sidecar proxy - even though that caller is configured
    * to run one and does not exclude this exact port from it. Unlike mesh.ts's connectionVerdict (which
@@ -947,7 +945,7 @@ export interface Dependency {
    * gauge: the latest connection's own outcome, not a history. Read alongside meshBypass above when
    * reasoning about a mesh workload - pairing the two is a stronger signal than either alone - but this
    * says nothing about whether a connection was supposed to go through a mesh in the first place. */
-  tlsHandshake?: 'ok' | 'failed'
+  tlsHandshake?: W.TLSHandshake
 }
 
 /** The graph. */
@@ -1396,12 +1394,12 @@ export type SuggestionAction =
 export interface Suggestion {
   id: string
   orgId: string
-  kind: 'device' | 'external-endpoint' | 'site' | 'application' | 'dependency' | 'infrastructure'
+  kind: W.SuggestionKind
   title: string
   detail: string
   agentId?: string
   createdAt: string
-  status: 'open' | 'accepted' | 'dismissed'
+  status: W.SuggestionStatus
   decidedBy?: string
   decidedAt?: string
   apply?: SuggestionAction

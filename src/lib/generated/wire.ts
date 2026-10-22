@@ -630,6 +630,8 @@ export interface ConfirmEmailRequest {
   code: string
 }
 
+export type Connectivity = 'ethernet' | 'wifi' | 'cellular' | 'satellite' | 'lora' | 'zigbee' | 'ble' | 'serial' | 'unknown'
+
 export interface ConsentDoc {
   pausedCollectors: string[]
   excludedNamespaces: string[]
@@ -1340,6 +1342,8 @@ export interface HistorySnapshotDoc {
   topology: Topology
 }
 
+export type IdentityBasis = 'provider-id' | 'system-uuid' | 'machine-id' | 'name'
+
 export interface IdentityDoc {
   basis: string
   key?: string
@@ -1598,6 +1602,8 @@ export interface MemberDoc {
   you?: boolean
 }
 
+export type MeshProxy = 'sidecar' | 'ambient'
+
 export interface MetricNamesDoc {
   categories: Record<string, string>
   from: string
@@ -1717,7 +1723,7 @@ export interface Node {
   clusterId: string
   role: NodeRole
   aliases?: string[]
-  identityBasis?: string
+  identityBasis?: IdentityBasis
   kind: MachineKind
   ip: string
   os: string
@@ -1734,7 +1740,7 @@ export interface Node {
   zone?: string
   hardwareModel?: string
   virtualization?: string
-  connectivity?: string
+  connectivity?: Connectivity
   hasBattery?: boolean
   probed?: boolean
   cpuModel?: string
@@ -2456,7 +2462,7 @@ export interface Service {
   cpuLimitM?: number
   memLimitMi?: number
   ports?: number[]
-  exposure?: string
+  exposure?: ServiceExposure
   hosts?: string[]
   managedBy?: ManagedBy
   nodeSelector?: Record<string, string>
@@ -2478,11 +2484,13 @@ export interface ServiceDoc {
   applications: string[]
 }
 
+export type ServiceExposure = 'internal' | 'node-port' | 'load-balancer' | 'ingress'
+
 export type ServiceKind = 'Deployment' | 'StatefulSet' | 'DaemonSet' | 'Job'
 
 export interface ServiceMesh {
   mesh: string
-  proxy?: string
+  proxy?: MeshProxy
   bypass?: boolean
   excludedPorts?: string[]
   controlPlane?: boolean

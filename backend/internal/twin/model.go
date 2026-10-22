@@ -483,7 +483,7 @@ func (b *builder) observed() {
 		}
 		if n.Probed {
 			b.evAttr(c, "virtualization", n.Virtualization, n.Evidence["virtualization"], true)
-			b.evAttr(c, "connectivity", n.Connectivity, n.Evidence["connectivity"], true)
+			b.evAttr(c, "connectivity", string(n.Connectivity), n.Evidence["connectivity"], true)
 			c.set("hasBattery", Attr{Value: n.HasBattery, Source: FromProbe, Confidence: Measured})
 		}
 		for name, v := range map[string]string{"arch": n.Arch, "os": n.OS, "kernel": n.Kernel, "runtime": n.Runtime, "kubeletVersion": n.KubeletVersion} {
@@ -562,7 +562,7 @@ func (b *builder) observed() {
 			c.rep("image", s.Image, "")
 		}
 		if s.Exposure != "" {
-			c.rep("exposure", s.Exposure, "")
+			c.rep("exposure", string(s.Exposure), "")
 		}
 		if len(s.Ports) > 0 {
 			c.rep("ports", s.Ports, "")
