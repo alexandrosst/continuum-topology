@@ -1,3 +1,4 @@
+import type * as W from './generated/wire'
 import { atLeast, type Role } from './api'
 import { COLLECTORS } from './consent'
 import { bytesPerSec, bytesTotal } from './observed'
@@ -7,70 +8,27 @@ import { ACCESS_TIERS } from './types'
 // advisor never changes anything; a person accepts or rejects. Everything here only turns the server's documents into words and
 // decides who may press which button; the server decides again, so a wrong guess here costs a refused request, not a wrong change.
 
-export type ProposalStatus = 'pending' | 'accepted' | 'rejected' | 'expired' | 'applied' | 'failed'
-export type EvidenceClass = 'measured' | 'derived' | 'declared' | 'unknown'
+export type ProposalStatus = W.ProposalStatus
+export type EvidenceClass = W.EvidenceClass
 
 /** Exactly one kind of change: a new approved tier, or additions and removals on the agent's overrides. */
-export interface ProposalChange {
-  agentId: string
-  tier?: number
-  pause?: string[]
-  resume?: string[]
-  exclude?: string[]
-  include?: string[]
-}
+export type ProposalChange = W.AccessChange
 
-export interface EvidenceFact {
-  name: string
-  value?: string
-  class: EvidenceClass
-  observedAt?: string
-  source?: string
-}
+export type EvidenceFact = W.EvidenceFact
 
 /** What the change touches, worked out by the server. */
-export interface ProposalBlast {
-  agents: number
-  clusterId?: string
-  tierFrom?: number
-  tierTo?: number
-  collectors?: string[]
-  namespaces?: number
-}
+export type ProposalBlast = W.ProposalBlast
 
 /** Expected (or observed) relative change per metric: -0.5 halves it. */
 export type MetricChanges = Record<string, number>
 
-export interface ProposalOutcome {
-  result: 'measured' | 'unconfirmed' | 'no_data'
-  predicted: MetricChanges
-  observed: { before?: Record<string, number>; after?: Record<string, number>; change?: MetricChanges }
-  inForceAt?: string
-  recordedAt: string
-}
+/** `result`: measured (the agent confirmed the change and the metrics were read), unconfirmed (it never did) or no_data. `observed` is the
+ *  load before and after the change and the relative change of each metric both had; empty unless measured. */
+export type ProposalOutcome = W.OutcomeDoc
 
-export interface Proposal {
-  id: string
-  agentId: string
-  advisor: string
-  modelVersion: number
-  change: ProposalChange
-  evidence: EvidenceFact[]
-  confidence: EvidenceClass
-  blast: ProposalBlast
-  predicted: MetricChanges
-  /** Worked out by the server, never taken from the advisor. */
-  widens: boolean
-  mode: string
-  status: ProposalStatus
-  createdAt: string
-  expiresAt: string
-  decidedBy?: string
-  decidedAt?: string
-  note?: string
-  /** Only on a single proposal read, once one has been recorded. */
-  outcome?: ProposalOutcome
-}
+/** A proposal as the server returns it. `widens` is worked out by the server, never taken from the advisor; `outcome` is there only on a
+ *  single proposal read, once one has been recorded. */
+export type Proposal = W.ProposalDoc
 
 const tierLabel = (t: number) => ACCESS_TIERS.find((x) => x.value === t)?.label ?? `tier ${t}`
 const collectorLabel = (id: string) => (COLLECTORS.find((c) => c.id === id)?.label ?? id).toLowerCase()
@@ -197,25 +155,11 @@ export function timeLeft(expiresAt: string, now = Date.now()): string {
 /** Waiting proposals first (newest first within each group, as the server sends them), then the decided ones. */
 export const waitingFirst = (ps: Proposal[]): Proposal[] => [...ps].sort((a, b) => Number(b.status === 'pending') - Number(a.status === 'pending'))
 
-/** What one advisor has done so far, as the server counts it (GET /proposals/advisors). */
-export interface AdvisorRecord {
-  advisor: string
-  proposals: number
-  pending: number
-  /** People said yes to these, whether or not the change then applied. */
-  accepted: number
-  /** Of the accepted ones, how many could not be made. */
-  failed: number
-  rejected: number
-  expired: number
-  /** Applied changes whose before and after load was compared, could not be confirmed, or had too little data. */
-  measured: number
-  unconfirmed: number
-  noData: number
-  /** Of the compared ones whose prediction could be checked: it went the predicted way and by at least half as much, or it did not. */
-  held: number
-  missed: number
-}
+/** What one advisor has done so far, as the server counts it (GET /proposals/advisors). `accepted` counts the ones people said yes to, whether
+ *  or not the change then applied, and `failed` how many of those could not be made. `measured`, `unconfirmed` and `noData` are applied changes
+ *  whose before and after load was compared, could not be confirmed, or had too little data; of the compared ones whose prediction could be
+ *  checked, `held` went the predicted way and by at least half as much, and `missed` did not. */
+export type AdvisorRecord = W.AdvisorRecordDoc
 
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
 

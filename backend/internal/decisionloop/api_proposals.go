@@ -25,51 +25,62 @@ func (h API) mountProposals(r httpkit.Router) {
 // advisor is a client holding an editor's API token; it can only submit, and submitting changes nothing. Accepting a proposal
 // that widens takes an administrator, checked in the hub.
 
+// observedDoc is what was read of the agent's load around the change: the metrics before it and after it, and the relative change of each
+// that both had. A metric one side lacks is not in the change.
+type observedDoc struct {
+	Before map[string]float64 `json:"before,omitempty"`
+	After  map[string]float64 `json:"after,omitempty"`
+	Change map[string]float64 `json:"change,omitempty"`
+}
+
 type outcomeDoc struct {
-	Result     string          `json:"result"`
-	Predicted  json.RawMessage `json:"predicted"`
-	Observed   json.RawMessage `json:"observed"`
-	InForceAt  string          `json:"inForceAt,omitempty"`
-	RecordedAt string          `json:"recordedAt"`
+	Result     store.OutcomeResult `json:"result"`
+	Predicted  map[string]float64  `json:"predicted"`
+	Observed   observedDoc         `json:"observed"`
+	InForceAt  string              `json:"inForceAt,omitempty"`
+	RecordedAt string              `json:"recordedAt"`
 }
 
 type proposalDoc struct {
-	ID           string          `json:"id"`
-	AgentID      string          `json:"agentId"`
-	Advisor      string          `json:"advisor"`
-	ModelVersion int64           `json:"modelVersion"`
-	Change       json.RawMessage `json:"change"`
-	Evidence     json.RawMessage `json:"evidence"`
-	Confidence   string          `json:"confidence"`
-	Blast        json.RawMessage `json:"blast"`
-	Predicted    json.RawMessage `json:"predicted"`
-	Widens       bool            `json:"widens"`
-	Mode         string          `json:"mode"`
-	Status       string          `json:"status"`
-	CreatedAt    string          `json:"createdAt"`
-	ExpiresAt    string          `json:"expiresAt"`
-	DecidedBy    string          `json:"decidedBy,omitempty"`
-	DecidedAt    string          `json:"decidedAt,omitempty"`
-	Note         string          `json:"note,omitempty"`
-	Outcome      *outcomeDoc     `json:"outcome,omitempty"`
+	ID           string               `json:"id"`
+	AgentID      string               `json:"agentId"`
+	Advisor      string               `json:"advisor"`
+	ModelVersion int64                `json:"modelVersion"`
+	Change       AccessChange         `json:"change"`
+	Evidence     []EvidenceFact       `json:"evidence"`
+	Confidence   store.EvidenceClass  `json:"confidence"`
+	Blast        proposalBlast        `json:"blast"`
+	Predicted    map[string]float64   `json:"predicted"`
+	Widens       bool                 `json:"widens"`
+	Mode         string               `json:"mode"`
+	Status       store.ProposalStatus `json:"status"`
+	CreatedAt    string               `json:"createdAt"`
+	ExpiresAt    string               `json:"expiresAt"`
+	DecidedBy    string               `json:"decidedBy,omitempty"`
+	DecidedAt    string               `json:"decidedAt,omitempty"`
+	Note         string               `json:"note,omitempty"`
+	Outcome      *outcomeDoc          `json:"outcome,omitempty"`
 }
 
-func rawOr(b []byte, empty string) json.RawMessage {
-	if len(b) == 0 || !json.Valid(b) {
-		return json.RawMessage(empty)
+// storedAs reads the JSON the store kept of a part of a proposal into v. What cannot be read, or was never kept, leaves v as it is: the
+// part is then empty, as it was written when it was empty.
+func storedAs[T any](b []byte) T {
+	var v T
+	if len(b) > 0 && json.Valid(b) {
+		_ = json.Unmarshal(b, &v)
 	}
-	return json.RawMessage(b)
+	return v
 }
 
 func toProposalDoc(p store.Proposal, o *store.ProposalOutcome) proposalDoc {
-	d := proposalDoc{ID: p.ID, AgentID: p.AgentID, Advisor: p.Advisor, ModelVersion: p.ModelVersion, Change: rawOr(p.Change, "{}"), Evidence: rawOr(p.Evidence, "[]"),
-		Confidence: p.Confidence, Blast: rawOr(p.Blast, "{}"), Predicted: rawOr(p.Predicted, "{}"), Widens: p.Widens, Mode: p.Mode, Status: string(p.Status),
+	d := proposalDoc{ID: p.ID, AgentID: p.AgentID, Advisor: p.Advisor, ModelVersion: p.ModelVersion, Change: storedAs[AccessChange](p.Change), Evidence: storedAs[[]EvidenceFact](p.Evidence),
+		Confidence: p.Confidence, Blast: storedAs[proposalBlast](p.Blast), Predicted: storedAs[map[string]float64](p.Predicted), Widens: p.Widens, Mode: p.Mode, Status: p.Status,
 		CreatedAt: kernel.RFC(p.CreatedAt), ExpiresAt: kernel.RFC(p.ExpiresAt), DecidedBy: p.DecidedBy, Note: p.Note}
 	if p.DecidedAt != nil {
 		d.DecidedAt = kernel.RFC(*p.DecidedAt)
 	}
 	if o != nil {
-		od := &outcomeDoc{Result: o.Result, Predicted: rawOr(o.Predicted, "{}"), Observed: rawOr(o.Observed, "{}"), RecordedAt: kernel.RFC(o.RecordedAt)}
+		od := &outcomeDoc{Result: o.Result, Predicted: storedAs[map[string]float64](o.Predicted), Observed: storedAs[observedDoc](o.Observed), RecordedAt: kernel.RFC(o.RecordedAt)}
 		if o.InForceAt != nil {
 			od.InForceAt = kernel.RFC(*o.InForceAt)
 		}

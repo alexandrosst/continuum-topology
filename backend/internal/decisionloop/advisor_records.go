@@ -91,7 +91,7 @@ func (s *Service) AdvisorRecords(ctx context.Context) ([]AdvisorRecord, error) {
 	for _, o := range outcomes {
 		r := rec(o.Advisor)
 		switch o.Result {
-		case "measured":
+		case store.OutcomeMeasured:
 			r.Measured++
 			if held, compared := HeldPrediction(o.Predicted, o.Observed); compared {
 				if held {
@@ -100,9 +100,9 @@ func (s *Service) AdvisorRecords(ctx context.Context) ([]AdvisorRecord, error) {
 					r.Missed++
 				}
 			}
-		case "unconfirmed":
+		case store.OutcomeUnconfirmed:
 			r.Unconfirmed++
-		case "no_data":
+		case store.OutcomeNoData:
 			r.NoData++
 		}
 	}

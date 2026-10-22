@@ -1000,10 +1000,12 @@ export interface Evidence {
   detail?: string
 }
 
+export type EvidenceClass = 'measured' | 'derived' | 'declared' | 'unknown'
+
 export interface EvidenceFact {
   name: string
   value?: string
-  class: string
+  class: EvidenceClass
   observedAt?: string
   source?: string
 }
@@ -1749,6 +1751,12 @@ export interface ObservationDoc {
   tombstoneRetentionDays: number
 }
 
+export interface ObservedDoc {
+  before?: Record<string, number>
+  after?: Record<string, number>
+  change?: Record<string, number>
+}
+
 export interface ObserverDoc {
   lastReport: string
   collectors: CollectorDoc[]
@@ -1842,12 +1850,14 @@ export interface OrgDoc {
 }
 
 export interface OutcomeDoc {
-  result: string
-  predicted: unknown
-  observed: unknown
+  result: OutcomeResult
+  predicted: Record<string, number>
+  observed: ObservedDoc
   inForceAt?: string
   recordedAt: string
 }
+
+export type OutcomeResult = 'measured' | 'unconfirmed' | 'no_data'
 
 export interface Overview {
   id?: string
@@ -1961,19 +1971,28 @@ export interface Processor {
   raw: string
 }
 
+export interface ProposalBlast {
+  agents: number
+  clusterId?: string
+  tierFrom?: number
+  tierTo?: number
+  collectors?: string[]
+  namespaces?: number
+}
+
 export interface ProposalDoc {
   id: string
   agentId: string
   advisor: string
   modelVersion: number
-  change: unknown
-  evidence: unknown
-  confidence: string
-  blast: unknown
-  predicted: unknown
+  change: AccessChange
+  evidence: EvidenceFact[]
+  confidence: EvidenceClass
+  blast: ProposalBlast
+  predicted: Record<string, number>
   widens: boolean
   mode: string
-  status: string
+  status: ProposalStatus
   createdAt: string
   expiresAt: string
   decidedBy?: string
@@ -1981,6 +2000,8 @@ export interface ProposalDoc {
   note?: string
   outcome?: OutcomeDoc
 }
+
+export type ProposalStatus = 'pending' | 'accepted' | 'rejected' | 'expired' | 'applied' | 'failed'
 
 export interface ProposalsDoc {
   proposals: ProposalDoc[]

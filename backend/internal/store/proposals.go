@@ -21,6 +21,42 @@ const (
 	ProposalFailed   ProposalStatus = "failed"
 )
 
+// WireWords is the list of ProposalStatus's words, as the generated types give it.
+func (ProposalStatus) WireWords() []string {
+	return []string{string(ProposalPending), string(ProposalAccepted), string(ProposalRejected), string(ProposalExpired), string(ProposalApplied), string(ProposalFailed)}
+}
+
+// EvidenceClass is how an advisor knows a fact it used, strongest first: measured, derived, declared or unknown. A proposal's confidence is the
+// weakest class among its facts.
+type EvidenceClass string
+
+const (
+	EvidenceMeasured EvidenceClass = "measured"
+	EvidenceDerived  EvidenceClass = "derived"
+	EvidenceDeclared EvidenceClass = "declared"
+	EvidenceUnknown  EvidenceClass = "unknown"
+)
+
+// WireWords is the list of EvidenceClass's words, as the generated types give it.
+func (EvidenceClass) WireWords() []string {
+	return []string{string(EvidenceMeasured), string(EvidenceDerived), string(EvidenceDeclared), string(EvidenceUnknown)}
+}
+
+// OutcomeResult is what a proposal's outcome found: measured (the agent confirmed the change and the metrics were read), unconfirmed (it never
+// did) or no_data (it confirmed, but there was too little to compare).
+type OutcomeResult string
+
+const (
+	OutcomeMeasured    OutcomeResult = "measured"
+	OutcomeUnconfirmed OutcomeResult = "unconfirmed"
+	OutcomeNoData      OutcomeResult = "no_data"
+)
+
+// WireWords is the list of OutcomeResult's words, as the generated types give it.
+func (OutcomeResult) WireWords() []string {
+	return []string{string(OutcomeMeasured), string(OutcomeUnconfirmed), string(OutcomeNoData)}
+}
+
 // Proposal is a change to one agent's access that an advisor suggests. The store keeps the typed parts (Change, Evidence, Blast)
 // as the JSON the server validated and does not read them: their shape belongs to the server package. An advisor never changes
 // anything; a Proposal is only a request for a person, or a narrow policy, to decide.
@@ -30,8 +66,8 @@ type Proposal struct {
 	ModelVersion int64
 	Change       []byte
 	Evidence     []byte
-	// Confidence is the weakest class among the evidence: measured, derived, declared or unknown.
-	Confidence string
+	// Confidence is the weakest class among the evidence.
+	Confidence EvidenceClass
 	Blast      []byte
 	// Predicted is what the advisor expects the change to do, as named metrics; the Outcome sets it beside what was observed.
 	Predicted []byte
@@ -57,10 +93,11 @@ type ProposalQuery struct {
 // ProposalOutcome is what a proposal led to: the advisor's prediction beside what was observed once the change was in force.
 // Result is "measured" when the agent confirmed the change and the metrics were read, "unconfirmed" when it never did.
 type ProposalOutcome struct {
-	ProposalID, OrgID, Result string
-	Predicted, Observed       []byte
-	InForceAt                 *time.Time
-	RecordedAt                time.Time
+	ProposalID, OrgID   string
+	Result              OutcomeResult
+	Predicted, Observed []byte
+	InForceAt           *time.Time
+	RecordedAt          time.Time
 }
 
 const proposalCols = `id, org_id, agent_id, advisor, model_version, change, evidence, confidence, blast, predicted, widens, mode, status, created_at, expires_at, decided_by, decided_at, note`
@@ -102,7 +139,7 @@ func (s *SQLite) CreateProposal(ctx context.Context, p Proposal, opts ...WriteOp
 	}
 	conf := p.Confidence
 	if conf == "" {
-		conf = "unknown"
+		conf = EvidenceUnknown
 	}
 	widens := 0
 	if p.Widens {
@@ -110,7 +147,7 @@ func (s *SQLite) CreateProposal(ctx context.Context, p Proposal, opts ...WriteOp
 	}
 	return s.write(ctx, opts, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx, `INSERT INTO proposals(`+proposalCols+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-			p.ID, p.OrgID, p.AgentID, p.Advisor, p.ModelVersion, orEmptyJSON(p.Change, "{}"), orEmptyJSON(p.Evidence, "[]"), conf, orEmptyJSON(p.Blast, "{}"), orEmptyJSON(p.Predicted, "{}"),
+			p.ID, p.OrgID, p.AgentID, p.Advisor, p.ModelVersion, orEmptyJSON(p.Change, "{}"), orEmptyJSON(p.Evidence, "[]"), string(conf), orEmptyJSON(p.Blast, "{}"), orEmptyJSON(p.Predicted, "{}"),
 			widens, mode, string(status), ms(p.CreatedAt), ms(p.ExpiresAt), p.DecidedBy, nullMS(p.DecidedAt), p.Note)
 		if isUnique(err) {
 			return ErrConflict
@@ -183,7 +220,7 @@ func (s *SQLite) RecordProposalOutcome(ctx context.Context, o ProposalOutcome, o
 		res, err := tx.ExecContext(ctx, `INSERT INTO proposal_outcomes(proposal_id, org_id, result, predicted, observed, in_force_at, recorded_at)
 			SELECT ?,?,?,?,?,?,? WHERE EXISTS (SELECT 1 FROM proposals WHERE org_id=? AND id=?)
 			ON CONFLICT(proposal_id) DO NOTHING`,
-			o.ProposalID, o.OrgID, o.Result, orEmptyJSON(o.Predicted, "{}"), orEmptyJSON(o.Observed, "{}"), nullMS(o.InForceAt), ms(o.RecordedAt), o.OrgID, o.ProposalID)
+			o.ProposalID, o.OrgID, string(o.Result), orEmptyJSON(o.Predicted, "{}"), orEmptyJSON(o.Observed, "{}"), nullMS(o.InForceAt), ms(o.RecordedAt), o.OrgID, o.ProposalID)
 		if err != nil {
 			return err
 		}

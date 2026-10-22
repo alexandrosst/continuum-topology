@@ -5,7 +5,7 @@ import type { AddressCandidates, AddressTest, OperatorSenders, OperatorDestinati
 import { normalizeSettings, normalizeSnapshot, type AppSettings, type DependencySeriesPoint, type HistoryIndex, type Snapshot, type TrafficRate } from './history'
 import { normalizeLinksLatest, type LinksLatest } from './clusterLinks'
 import type { DecisionLogEntry } from './placement/deciders'
-import type { AdvisorRecord, Proposal, ProposalStatus } from './proposals'
+import type { ProposalStatus } from './proposals'
 import type { SelfTelemetryEntity } from './selfHealth'
 import type { EffectiveModel } from './provenance'
 import type * as W from './generated/wire'
@@ -532,18 +532,18 @@ export const api = {
   listProposals: (c: Conn, q: { status?: ProposalStatus; agent?: string; limit?: number } = {}) => {
     const p = new URLSearchParams()
     for (const [k, v] of Object.entries(q)) if (v !== undefined && v !== '') p.set(k, String(v))
-    return call<{ proposals?: Proposal[] }>(c, 'GET', `/api/v1/proposals${p.size ? `?${p}` : ''}`).then((r) => r.proposals ?? [])
+    return call<W.ProposalsDoc>(c, 'GET', `/api/v1/proposals${p.size ? `?${p}` : ''}`).then((r) => r.proposals)
   },
-  listAdvisors: (c: Conn) => call<{ advisors?: AdvisorRecord[] }>(c, 'GET', '/api/v1/proposals/advisors').then((r) => r.advisors ?? []),
-  getProposal: (c: Conn, id: string) => call<Proposal>(c, 'GET', `/api/v1/proposals/${encodeURIComponent(id)}`),
-  acceptProposal: (c: Conn, id: string, note = '') => call<Proposal>(c, 'POST', `/api/v1/proposals/${encodeURIComponent(id)}/accept`, { note }),
-  rejectProposal: (c: Conn, id: string, note = '') => call<Proposal>(c, 'POST', `/api/v1/proposals/${encodeURIComponent(id)}/reject`, { note }),
+  listAdvisors: (c: Conn) => call<W.AdvisorsDoc>(c, 'GET', '/api/v1/proposals/advisors').then((r) => r.advisors),
+  getProposal: (c: Conn, id: string) => call<W.ProposalDoc>(c, 'GET', `/api/v1/proposals/${encodeURIComponent(id)}`),
+  acceptProposal: (c: Conn, id: string, note = '') => call<W.ProposalDoc>(c, 'POST', `/api/v1/proposals/${encodeURIComponent(id)}/accept`, { note }),
+  rejectProposal: (c: Conn, id: string, note = '') => call<W.ProposalDoc>(c, 'POST', `/api/v1/proposals/${encodeURIComponent(id)}/reject`, { note }),
   workspaceRevisions: (c: Conn) => call<W.WorkspaceRevisionsDoc>(c, 'GET', '/api/v1/workspace/revisions').then((r) => r.revisions),
   recordNow: (c: Conn) => call<void>(c, 'POST', '/api/v1/history/record'),
   decide: (c: Conn, input: unknown) => call<{ decider: string; result: unknown }>(c, 'POST', '/api/v1/decide', input),
   // Fire-and-forget from the caller's point of view - see recordDecisionLog in lib/placement/deciders.ts,
   // which is what actually calls this and swallows whatever it rejects with.
-  recordDecisions: (c: Conn, entries: DecisionLogEntry[]) => call<{ recorded: number }>(c, 'POST', '/api/v1/decisions', { entries }),
+  recordDecisions: (c: Conn, entries: DecisionLogEntry[]) => call<W.RecordedDoc>(c, 'POST', '/api/v1/decisions', { entries }),
   listDecisions: (c: Conn, limit?: number) =>
     call<W.DecisionsDoc>(c, 'GET', `/api/v1/decisions${limit ? `?limit=${limit}` : ''}`).then((r) => r.decisions),
 }

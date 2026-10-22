@@ -45,15 +45,15 @@ type AccessChange struct {
 }
 
 // The classes of evidence, strongest first. A Proposal's confidence is the weakest class among its facts.
-var evidenceClasses = []string{"measured", "derived", "declared", "unknown"}
+var evidenceClasses = []store.EvidenceClass{store.EvidenceMeasured, store.EvidenceDerived, store.EvidenceDeclared, store.EvidenceUnknown}
 
 // EvidenceFact is one fact an advisor used, with how it knows it and how old it is.
 type EvidenceFact struct {
-	Name       string `json:"name"`
-	Value      string `json:"value,omitempty"`
-	Class      string `json:"class"`
-	ObservedAt string `json:"observedAt,omitempty"`
-	Source     string `json:"source,omitempty"`
+	Name       string              `json:"name"`
+	Value      string              `json:"value,omitempty"`
+	Class      store.EvidenceClass `json:"class"`
+	ObservedAt string              `json:"observedAt,omitempty"`
+	Source     string              `json:"source,omitempty"`
 }
 
 // outcomeMetrics are the things an advisor may predict about a change and the server can later read for the agent. A value is
@@ -109,7 +109,7 @@ func describeChange(a store.Agent, ch AccessChange) string {
 	return fmt.Sprintf("%q: %s", a.Name, strings.Join(parts, "; "))
 }
 
-func cleanEvidence(in []EvidenceFact) ([]EvidenceFact, string, error) {
+func cleanEvidence(in []EvidenceFact) ([]EvidenceFact, store.EvidenceClass, error) {
 	if len(in) > maxEvidenceFacts {
 		return nil, "", kernel.Errf(kernel.KindInvalid, "at most %d facts of evidence", maxEvidenceFacts)
 	}
@@ -117,7 +117,7 @@ func cleanEvidence(in []EvidenceFact) ([]EvidenceFact, string, error) {
 	out := make([]EvidenceFact, 0, len(in))
 	for _, f := range in {
 		f.Name, f.Value, f.Source = kernel.Printable(strings.TrimSpace(f.Name), 80), kernel.Printable(f.Value, 200), kernel.Printable(f.Source, 80)
-		f.Class = strings.ToLower(strings.TrimSpace(f.Class))
+		f.Class = store.EvidenceClass(strings.ToLower(strings.TrimSpace(string(f.Class))))
 		rank := -1
 		for i, c := range evidenceClasses {
 			if c == f.Class {
@@ -135,7 +135,7 @@ func cleanEvidence(in []EvidenceFact) ([]EvidenceFact, string, error) {
 		weakest = max(weakest, rank)
 		out = append(out, f)
 	}
-	conf := "unknown"
+	conf := store.EvidenceUnknown
 	if len(out) > 0 {
 		conf = evidenceClasses[weakest]
 	}

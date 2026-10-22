@@ -126,7 +126,7 @@ func (s *Service) outcomeFor(p store.Proposal, now time.Time) (store.ProposalOut
 		if now.Sub(decided) < tm.giveUp {
 			return out, false
 		}
-		out.Result, out.Observed = "unconfirmed", []byte(`{}`)
+		out.Result, out.Observed = store.OutcomeUnconfirmed, []byte(`{}`)
 		return out, true
 	}
 	out.InForceAt = &inForce
@@ -161,10 +161,10 @@ func (s *Service) outcomeFor(p store.Proposal, now time.Time) (store.ProposalOut
 		if now.Sub(decided) < tm.giveUp {
 			return out, false // maybe the samples are still arriving
 		}
-		out.Result, out.Observed = "no_data", []byte(`{}`)
+		out.Result, out.Observed = store.OutcomeNoData, []byte(`{}`)
 		return out, true
 	}
-	out.Result = "measured"
+	out.Result = store.OutcomeMeasured
 	out.Observed, _ = json.Marshal(map[string]any{"before": before, "after": after, "change": change})
 	return out, true
 }
