@@ -156,6 +156,7 @@ export interface AgentDoc {
   protocolVersion: number
   capabilities: string[]
   conditions: Condition[]
+  lateAfterSeconds: number
   connectingGeo?: Result
   connectingGeoReason?: string
   certExpiresAt?: string

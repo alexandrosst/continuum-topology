@@ -23,6 +23,8 @@ export interface ServerAgent {
   connectingGeoReason?: GeoUnlocatableReason
   certExpiresAt?: string
   lastHeartbeat?: string
+  /** After this many seconds without a heartbeat the server's setting calls the agent late. */
+  lateAfterSeconds: number
   requestedAt: string
   reason?: string
   connected: boolean
@@ -217,6 +219,7 @@ export function mergeDiscovered(m: Model, doc: ServerState): Partial<Model> {
       connectingGeoReason: a.connectingGeoReason ?? undefined,
       certExpiresAt: a.certExpiresAt,
       lastHeartbeat: a.lastHeartbeat,
+      lateAfterSeconds: a.lateAfterSeconds,
       modules: a.modules,
       kubernetesVersion: a.kubernetesVersion,
       installedTier: a.installedTier,

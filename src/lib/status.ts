@@ -5,7 +5,7 @@ import type { Agent } from './types'
  * decides it any more.
  */
 
-/** An agent beats every 30 seconds; two and a half missed is "late". */
+/** An agent beats every 30 seconds; two and a half missed is "late". This is only the figure for an agent the server did not describe (a sample or hand-made one) and for the page's own samples: a real agent carries the server's `lateAfterSeconds`. */
 export const AGENT_LATE_AFTER_MS = 75_000
 /** An agent refreshes what it says about itself every 5 minutes; three missed means it is history, not news. */
 export const REPORT_STALE_AFTER_SECONDS = 15 * 60
@@ -22,13 +22,13 @@ export interface AgentLiveness {
 }
 
 /** Whether a heartbeat or a sample of this age is overdue. */
-export const isLate = (silentMs: number): boolean => silentMs > AGENT_LATE_AFTER_MS
+export const isLate = (silentMs: number, lateAfterMs: number = AGENT_LATE_AFTER_MS): boolean => silentMs > lateAfterMs
 
-export function agentLiveness(a: Pick<Agent, 'connected' | 'lastHeartbeat'>, now: number): AgentLiveness {
+export function agentLiveness(a: Pick<Agent, 'connected' | 'lastHeartbeat' | 'lateAfterSeconds'>, now: number): AgentLiveness {
   const silentMs = a.lastHeartbeat ? now - Date.parse(a.lastHeartbeat) : undefined
   if (a.connected === undefined) return { state: 'unknown', silentMs }
   if (a.connected === false) return { state: 'down', silentMs }
-  if (silentMs !== undefined && isLate(silentMs)) return { state: 'late', silentMs }
+  if (silentMs !== undefined && isLate(silentMs, a.lateAfterSeconds === undefined ? undefined : a.lateAfterSeconds * 1000)) return { state: 'late', silentMs }
   return { state: 'live', silentMs }
 }
 

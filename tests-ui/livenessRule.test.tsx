@@ -48,6 +48,20 @@ describe('an agent is late after 75 seconds without a heartbeat, in every screen
     expect(agentVerdict(a, NOW).state).toBe(onOperators)
   })
 
+  test('an agent that carries the server\'s number is late by that number, in every screen', () => {
+    // The server\'s setting is eight beats here, so it says 150 seconds and not 75.
+    const at = (age: number) => agent({ connected: true, lastHeartbeat: agoMs(age), lateAfterSeconds: 150 })
+    for (const age of [75_001, 149_999, 150_000]) {
+      const a = at(age)
+      expect([healthOf(a, NOW), platformStatus(a), agentVerdict(a, NOW).state]).toEqual(['ok', 'healthy', 'healthy'])
+    }
+    const late = at(150_001)
+    expect([healthOf(late, NOW), platformStatus(late), agentVerdict(late, NOW).state]).toEqual(['late', 'attention', 'attention'])
+    // and a shorter one is late sooner
+    const soon = agent({ connected: true, lastHeartbeat: agoMs(40_000), lateAfterSeconds: 37 })
+    expect(agentLiveness(soon, NOW).state).toBe('late')
+  })
+
   test('only an approved agent is judged by its heartbeat on the Agents page', () => {
     const live = { connected: true, lastHeartbeat: agoMs(0) }
     expect(healthOf(agent({ ...live, status: 'pending' }), NOW)).toBe('waiting')

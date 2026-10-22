@@ -3,7 +3,7 @@ import type { Hop, State } from './operatorsView'
 /** How often data is expected from each hop. Discovery agents beat every 30 s; collectors, operators and FUSION batch for seconds, so a
  *  minute is the rhythm to judge them by (FUSION's own "no new data" problem uses the same five-fold margin). */
 export const EXPECTED_MS: Record<Hop['key'], number> = { agent: 30_000, local: 60_000, regional: 60_000, central: 60_000, fusion: 60_000 }
-/** Late after this many expected intervals (75 s for an agent, as its own heartbeat check), stale after twice that. */
+/** Late after this many expected intervals (75 s for an agent at the server's default setting), stale after twice that. These are this drawing's own tempo: an agent's own lateness comes from the server (`agentLiveness`). */
 const LATE_AFTER = 2.5
 const STALE_AFTER = 5
 

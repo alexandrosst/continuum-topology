@@ -6,6 +6,7 @@ import (
 	continuumv1 "continuum/gen/continuumv1"
 	"continuum/internal/agentcaps"
 	"continuum/internal/agents"
+	"continuum/internal/kernel"
 )
 
 // ---------- through the hub: a real stream, an echo, a change, a drop ----------
@@ -74,4 +75,19 @@ func TestAnAgentFromTheFutureIsNotCompatibleAndIsServedAllTheSame(t *testing.T) 
 	}
 	f.Beat(f.Configs[0].Digest)
 	f.expect(agents.CondConfigInForce, agents.CondTrue, "Echoed") // the condition being False blocks nothing
+}
+
+// The number of seconds after which an agent is called late comes from the server's own stale setting, so the screens do not keep one.
+func TestTheLateAfterOfAnAgentFollowsTheStaleSetting(t *testing.T) {
+	r := newHubRig(t)
+	f := r.connectedWith(t, &continuumv1.Hello{AgentVersion: "fake", ProtocolVersion: 1, Capabilities: agentcaps.Names()})
+	if got := r.agentDoc(t, f.ID).LateAfterSeconds; got != 75 {
+		t.Fatalf("at the default of four beats an agent is late after %d s, want 75", got)
+	}
+	if _, err := r.env.core.SaveSettings(r.env.ctx, "alex", kernel.Settings{StaleAfterBeats: 8}); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.agentDoc(t, f.ID).LateAfterSeconds; got != 150 {
+		t.Fatalf("at eight beats an agent is late after %d s, want 150", got)
+	}
 }

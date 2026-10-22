@@ -1134,6 +1134,8 @@ export interface Agent {
   connectingGeoReason?: GeoUnlocatableReason
   certExpiresAt?: string
   lastHeartbeat?: string
+  /** After this many seconds without a heartbeat the agent is late: the server's number, from its stale setting. Absent on sample and hand-made agents, which are judged by the default (`AGENT_LATE_AFTER_MS`). */
+  lateAfterSeconds?: number
   modules: AgentModule[]
   /* reported by a real server; absent on hand-made and sample agents */
   kubernetesVersion?: string

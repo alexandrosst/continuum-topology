@@ -1015,6 +1015,9 @@ type AgentDoc struct {
 	// last sent is the one in force, whether its protocol is one this server serves. Computed with the server's clock each time
 	// the document is built. No screen reads them yet and nothing the server does depends on them.
 	Conditions []agents.Condition `json:"conditions"`
+	// LateAfterSeconds is how long this agent may be silent before it is called late: the server's stale setting scaled by agents.LateAfter.
+	// The screens use it as it stands, so what they call late and what the server calls stale move together when the setting is changed.
+	LateAfterSeconds int `json:"lateAfterSeconds"`
 	// ConnectingGeo is only a suggestion derived offline from ConnectingIP; a cloud cluster resolves to its provider's egress.
 	ConnectingGeo *geoip.Result `json:"connectingGeo,omitempty"`
 	// ConnectingGeoReason is set only when ConnectingGeo is nil because ConnectingIP itself could not be
@@ -1258,6 +1261,7 @@ func (h *Hub) buildAgentDocs(ctx context.Context, now time.Time) ([]AgentDoc, []
 			d.Capabilities = []string{}
 		}
 		d.Conditions = agents.AgentConditions(condInputsOf(v), h.C.Now())
+		d.LateAfterSeconds = int(agents.LateAfter(h.staleWindow()) / time.Second)
 		if a.Status == store.StatusRevoked || a.Status == store.StatusRejected {
 			if helm, secret, guessed, err := agents.TeardownCommands(d.Namespace, d.ReleaseName); err != nil {
 				h.C.Log.Error("the commands that remove an agent cannot be written", "err", err) // the agent is shown without them
