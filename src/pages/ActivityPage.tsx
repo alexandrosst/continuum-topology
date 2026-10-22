@@ -1,7 +1,7 @@
 import { Download, ScrollText } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Button, EmptyState, ErrorBanner, ICON_SM, Input, PageHeader, Select, Table, TableSkeleton, Td, Th } from '@/components/ui/primitives'
-import { api, atLeast, type AuditRow, type WorkspaceRevision } from '@/lib/api'
+import { api, atLeast, type AuditRow, type AuditSource, type WorkspaceRevision } from '@/lib/api'
 import { downloadCsv, toCsv } from '@/lib/csv'
 import { useConn, useServer } from '@/store/server'
 
@@ -32,7 +32,7 @@ export default function ActivityPage() {
   const [action, setAction] = useState('')
   const [hours, setHours] = useState(24 * 7)
   const [rows, setRows] = useState<AuditRow[] | null>(null)
-  const [source, setSource] = useState<'graph' | 'local'>('local')
+  const [source, setSource] = useState<AuditSource>('local')
   const [revs, setRevs] = useState<WorkspaceRevision[]>([])
   const [error, setError] = useState<string>()
   const allowed = status === 'connected' && atLeast(role, 'admin')

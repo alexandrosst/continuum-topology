@@ -80,7 +80,7 @@ func TestHistorySnapshotsAreWholeSecondAndPerOrganisation(t *testing.T) {
 }
 
 func ev(at time.Time, kind, target, cluster string) Event {
-	return Event{At: at, Kind: kind, TargetKind: "service", TargetID: target, Name: target, ClusterID: cluster, ClusterName: cluster + "-name", Detail: "d", Cause: "c"}
+	return Event{At: at, Kind: kind, TargetKind: TargetService, TargetID: target, Name: target, ClusterID: cluster, ClusterName: cluster + "-name", Detail: "d", Cause: "c"}
 }
 
 func TestEventsAreStoredFilteredAndOrderedNewestFirst(t *testing.T) {

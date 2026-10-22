@@ -42,11 +42,11 @@ type GraphAPI interface {
 func (h *API) storage(w http.ResponseWriter, r *http.Request) {
 	g := h.graph(r)
 	if g == nil {
-		httpkit.WriteJSON(w, 200, storageDoc{Backend: "sqlite"})
+		httpkit.WriteJSON(w, 200, storageDoc{Backend: BackendSQLite})
 		return
 	}
 	st := g.Status(r.Context(), h.For(r).C.OrgID)
-	out := storageDoc{Backend: "neo4j", Enabled: true, Connected: &st.Connected, Ready: &st.Ready, Buffering: &st.Buffering}
+	out := storageDoc{Backend: BackendNeo4j, Enabled: true, Connected: &st.Connected, Ready: &st.Ready, Buffering: &st.Buffering}
 	if accounts.Allows(httpkit.Principal(r), accounts.ActAdminister) {
 		out.Error, out.Stats = &st.Error, st.Stats
 	}
@@ -228,7 +228,7 @@ func (h *API) audit(w http.ResponseWriter, r *http.Request) {
 	org := h.For(r).C.OrgID
 	if g := h.graph(r); g != nil {
 		if rows, err := g.Audit(r.Context(), org, q); err == nil {
-			httpkit.WriteJSON(w, 200, auditSearchDoc{Source: "graph", Rows: rows})
+			httpkit.WriteJSON(w, 200, auditSearchDoc{Source: AuditGraph, Rows: rows})
 			return
 		}
 	}
@@ -249,7 +249,7 @@ func (h *API) audit(w http.ResponseWriter, r *http.Request) {
 	if q.Limit > 0 && len(rows) > q.Limit {
 		rows = rows[:q.Limit]
 	}
-	httpkit.WriteJSON(w, 200, auditSearchDoc{Source: "local", Rows: rows})
+	httpkit.WriteJSON(w, 200, auditSearchDoc{Source: AuditLocal, Rows: rows})
 }
 
 // GET /workspace/revisions and /workspace/at?at=: the human layer as it was saved over time.
@@ -302,17 +302,17 @@ func (h *API) workspaceAt(w http.ResponseWriter, r *http.Request) {
 }
 
 type eventDoc struct {
-	ID          string `json:"id"`
-	At          string `json:"at"`
-	Kind        string `json:"kind"`
-	TargetKind  string `json:"targetKind"`
-	TargetID    string `json:"targetId"`
-	Name        string `json:"name"`
-	ClusterID   string `json:"clusterId,omitempty"`
-	ClusterName string `json:"clusterName,omitempty"`
-	Detail      string `json:"detail"`
-	Cause       string `json:"cause,omitempty"`
-	Severity    string `json:"severity"`
+	ID          string              `json:"id"`
+	At          string              `json:"at"`
+	Kind        string              `json:"kind"`
+	TargetKind  store.EventTarget   `json:"targetKind"`
+	TargetID    string              `json:"targetId"`
+	Name        string              `json:"name"`
+	ClusterID   string              `json:"clusterId,omitempty"`
+	ClusterName string              `json:"clusterName,omitempty"`
+	Detail      string              `json:"detail"`
+	Cause       string              `json:"cause,omitempty"`
+	Severity    store.EventSeverity `json:"severity"`
 }
 
 func (h *API) listEvents(w http.ResponseWriter, r *http.Request) {

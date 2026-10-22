@@ -299,8 +299,8 @@ func (e fusionExtras) Changes(ctx context.Context, since, until time.Time, clust
 		if len(want) > 0 && !want[ev.ClusterID] {
 			continue
 		}
-		out = append(out, fusionapi.ChangeEvent{Time: ev.At.UTC(), Kind: ev.Kind, TargetKind: ev.TargetKind, TargetID: ev.TargetID, Name: ev.Name,
-			Cluster: ev.ClusterID, ClusterName: ev.ClusterName, Detail: ev.Detail, Cause: ev.Cause, Severity: ev.Severity})
+		out = append(out, fusionapi.ChangeEvent{Time: ev.At.UTC(), Kind: ev.Kind, TargetKind: string(ev.TargetKind), TargetID: ev.TargetID, Name: ev.Name,
+			Cluster: ev.ClusterID, ClusterName: ev.ClusterName, Detail: ev.Detail, Cause: ev.Cause, Severity: string(ev.Severity)})
 	}
 	return out, nil
 }

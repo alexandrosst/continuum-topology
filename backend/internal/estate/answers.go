@@ -17,16 +17,30 @@ import (
 // The fields are in the alphabetical order of their keys, which is the order a map was encoded in: the bytes on the wire are the ones
 // they were before.
 
+// StorageBackend is where history is kept.
+type StorageBackend string
+
+// The places history is kept.
+const (
+	BackendSQLite StorageBackend = "sqlite" // the server's own database: events and audit, no graph
+	BackendNeo4j  StorageBackend = "neo4j"  // the graph database
+)
+
+// WireWords is the list of StorageBackend's words, as the generated types give it.
+func (StorageBackend) WireWords() []string {
+	return []string{string(BackendSQLite), string(BackendNeo4j)}
+}
+
 // storageDoc answers GET /storage. Without the graph database only Backend and Enabled are there; with it the health follows, and an
 // administrator also has Error (empty when there is none) and Stats.
 type storageDoc struct {
-	Backend   string       `json:"backend"`
-	Buffering *bool        `json:"buffering,omitempty"`
-	Connected *bool        `json:"connected,omitempty"`
-	Enabled   bool         `json:"enabled"`
-	Error     *string      `json:"error,omitempty"`
-	Ready     *bool        `json:"ready,omitempty"`
-	Stats     *graph.Stats `json:"stats,omitempty"`
+	Backend   StorageBackend `json:"backend"`
+	Buffering *bool          `json:"buffering,omitempty"`
+	Connected *bool          `json:"connected,omitempty"`
+	Enabled   bool           `json:"enabled"`
+	Error     *string        `json:"error,omitempty"`
+	Ready     *bool          `json:"ready,omitempty"`
+	Stats     *graph.Stats   `json:"stats,omitempty"`
 }
 
 // graphSnapshotDoc answers GET /graph/snapshot: every entity the graph held at a moment.
@@ -62,11 +76,23 @@ type timelineDoc struct {
 	Versions []graph.TimelineVersion `json:"versions"`
 }
 
+// AuditSource says where the rows of an audit search came from.
+type AuditSource string
+
+// The places an audit search is read from.
+const (
+	AuditGraph AuditSource = "graph" // searchable
+	AuditLocal AuditSource = "local" // the latest actions the control plane keeps itself
+)
+
+// WireWords is the list of AuditSource's words, as the generated types give it.
+func (AuditSource) WireWords() []string { return []string{string(AuditGraph), string(AuditLocal)} }
+
 // auditSearchDoc answers GET /audit. Source says where the rows came from: "graph" (searchable) or "local" (the latest actions the control
 // store keeps, filtered by the server).
 type auditSearchDoc struct {
 	Rows   []graph.AuditRow `json:"rows"`
-	Source string           `json:"source"`
+	Source AuditSource      `json:"source"`
 }
 
 // workspaceRevisionsDoc answers GET /workspace/revisions.

@@ -36,3 +36,8 @@ func TestAnswersThatWereMapsAreWrittenAsTheyWere(t *testing.T) {
 	sameBytes(t, "proposals", proposalsDoc{Proposals: []proposalDoc{{ID: "p"}}}, map[string]any{"proposals": []proposalDoc{{ID: "p"}}})
 	sameBytes(t, "advisors", advisorsDoc{Advisors: []advisorRecordDoc{{Advisor: "a"}}}, map[string]any{"advisors": []advisorRecordDoc{{Advisor: "a"}}})
 }
+
+// The words the page switches on are the constants the code writes, no more and no fewer.
+func TestTheWordsOfADecisionAreItsConstants(t *testing.T) {
+	wire.RequireWordsComplete(t, ".", DeciderKind(""))
+}

@@ -2,7 +2,7 @@ import type { AgentUpgradeAnswer, AgentUpgradeRequest } from './agentUpgrade'
 import type { processorSpec } from './telemetrySpec'
 import { normalizeServerState, type ServerState } from './discovered'
 import type { AddressCandidates, AddressTest, OperatorSenders, OperatorDestination, OperatorDestinationEntry, ReceiverAuth, RegionalOperator, SignalGrant, TelemetryIntent } from './types'
-import { normalizeSettings, normalizeSnapshot, type AppSettings, type ChangeEvent, type DependencySeriesPoint, type HistoryIndex, type Snapshot, type TrafficRate } from './history'
+import { normalizeSettings, normalizeSnapshot, type AppSettings, type DependencySeriesPoint, type HistoryIndex, type Snapshot, type TrafficRate } from './history'
 import { normalizeLinksLatest, type LinksLatest } from './clusterLinks'
 import type { DecisionLogEntry } from './placement/deciders'
 import type { AdvisorRecord, Proposal, ProposalStatus } from './proposals'
@@ -371,139 +371,48 @@ export type Invite = W.InviteDoc
 
 export type InvitePreview = W.InvitePreviewDoc
 
-export interface WorkspaceMeta {
-  rev: number
-  updatedAt: string
-  updatedBy: string
-  /** What the server changed in the document, when it did (observed records removed from an older workspace). */
-  note?: string
-  /** The newest document format this server reads and writes. */
-  formatVersion?: number
-}
-
-export interface WorkspaceDoc extends WorkspaceMeta {
-  /** Absent when nothing was ever saved (rev 0). */
-  data?: unknown
-}
+/** The saved workspace as the server sends it: its revision and who saved it, and `data` unless only the meta was asked for. */
+export type WorkspaceDoc = W.WorkspaceDoc
+export type WorkspaceMeta = Omit<W.WorkspaceDoc, 'data'>
 
 /** Where history is kept and whether that place is healthy. Only administrators receive `error` and `stats`. */
-export interface StorageInfo {
-  backend: 'sqlite' | 'neo4j'
-  enabled: boolean
-  connected?: boolean
-  ready?: boolean
-  buffering?: boolean
-  error?: string
-  stats?: { snapshots: number; versions: number; entities: number; events: number; audit: number; oldest?: string; newest?: string }
-}
+export type StorageInfo = W.StorageDoc
 
-export interface TimelineChange {
-  field: string
-  from?: unknown
-  to?: unknown
-}
+export type TimelineChange = W.Change
 
 /** One event connected to a version by the graph's own EXPLAINS edge: why it looks the way it does, as
  * opposed to Timeline.events, which is everything noticed about the record regardless of whether it
  * produced this particular version. */
-export interface TimelineExplain {
-  id: number
-  kind: string
-  detail?: string
-  cause?: string
-}
+export type TimelineExplain = W.ExplainingEvent
 
 /** One period during which a record looked a certain way. `to` is absent while it is current. */
-export interface TimelineVersion {
-  from: string
-  to?: string
-  name: string
-  status?: string
-  changes: TimelineChange[]
-  explains?: TimelineExplain[]
-}
+export type TimelineVersion = W.TimelineVersion
 
 /** One entity a graph walk found or a structural diff reported, in the graph's own schema-agnostic
  * shape - whatever kind it is, known to this UI or not. */
-export interface GraphEntity {
-  kind: string
-  id: string
-  name?: string
-  status?: string
-  cluster?: string
-  doc: unknown
-}
+export type GraphEntity = W.EntitySnapshot
 
 /** One entity Dependents or Dependencies reached, alongside how many hops away it was. */
-export interface ReachedEntity extends GraphEntity {
-  hops: number
-}
+export type ReachedEntity = W.Reached
 
 /** How one entity looked different between two moments a structural diff compared. */
-export interface EntityDiff {
-  kind: string
-  id: string
-  name?: string
-  changes: TimelineChange[]
-}
+export type EntityDiff = W.EntityDiff
 
 /** What changed across the whole estate between two moments: entities added, entities removed, and
  * entities present at both that looked different by the second one. */
-export interface StructuralDiff {
-  from: string
-  to: string
-  added: GraphEntity[]
-  removed: GraphEntity[]
-  changed: EntityDiff[]
-}
+export type StructuralDiff = W.GraphDiffDoc
 
-export interface AuditRow {
-  id: number
-  at: string
-  actor: string
-  action: string
-  targetKind?: string
-  targetId?: string
-  detail?: string
-}
+export type AuditRow = W.AuditRow
+export type AuditSource = W.AuditSource
 
-export interface Timeline {
-  kind: string
-  id: string
-  versions: TimelineVersion[]
-  events: ChangeEvent[]
-  audit: AuditRow[]
-}
+export type Timeline = W.TimelineDoc
 
 /** One row of the decision log, as the server stores and returns it - see DecisionLogEntry in
  *  lib/placement/deciders.ts for what produces one and backend/internal/store/store.go's DecisionLog for
  *  the full field-by-field rationale. Read-only from here: there is no UI to edit or delete a row. */
-export interface DecisionLogRow {
-  id: string
-  at: string
-  recordedBy: string
-  deciderId: string
-  deciderName: string
-  deciderKind: 'builtin' | 'external'
-  serviceId: string
-  serviceName: string
-  from: string
-  to: string
-  reason?: string
-  benefit: number
-  confidence: string
-  verdict: string
-  beforeCost: number
-  afterCost: number
-  migrationCost: number
-}
+export type DecisionLogRow = W.DecisionLogDoc
 
-export interface WorkspaceRevision {
-  rev: number
-  at: string
-  by: string
-  bytes: number
-}
+export type WorkspaceRevision = W.WorkspaceRev
 
 /** The server's outgoing-mail (SMTP) configuration, server-wide rather than per organisation - see
  *  Settings → Email. Only visible to and settable by an owner of the default organisation
@@ -746,7 +655,7 @@ export const api = {
   // workspace: the human layer of the topology, shared by everyone who signs in
   workspace: (c: Conn) => call<WorkspaceDoc>(c, 'GET', '/api/v1/workspace'),
   workspaceMeta: (c: Conn) => call<WorkspaceMeta>(c, 'GET', '/api/v1/workspace?meta=1'),
-  saveWorkspace: (c: Conn, rev: number, doc: unknown) => call<WorkspaceMeta>(c, 'PUT', '/api/v1/workspace', doc, { 'If-Match': String(rev) }),
+  saveWorkspace: (c: Conn, rev: number, doc: unknown) => call<W.WorkspaceSavedDoc>(c, 'PUT', '/api/v1/workspace', doc, { 'If-Match': String(rev) }),
 
   // settings, history and decisions (viewers read; administrators change settings and force a recording)
   settings: (c: Conn) => call<Partial<AppSettings>>(c, 'GET', '/api/v1/settings').then(normalizeSettings),
@@ -783,7 +692,7 @@ export const api = {
   events: (c: Conn, q: { since?: string; until?: string; kind?: string; cluster?: string; limit?: number } = {}) => {
     const p = new URLSearchParams()
     for (const [k, v] of Object.entries(q)) if (v !== undefined && v !== '') p.set(k, String(v))
-    return call<{ events?: ChangeEvent[] }>(c, 'GET', `/api/v1/events${p.size ? `?${p}` : ''}`).then((r) => r.events ?? [])
+    return call<W.EventsDoc>(c, 'GET', `/api/v1/events${p.size ? `?${p}` : ''}`).then((r) => r.events)
   },
   storage: (c: Conn) => call<StorageInfo>(c, 'GET', '/api/v1/storage'),
   timeline: (c: Conn, kind: string, id: string) => call<Timeline>(c, 'GET', `/api/v1/timeline?kind=${encodeURIComponent(kind)}&id=${encodeURIComponent(id)}`),
@@ -791,21 +700,18 @@ export const api = {
   // of a moment: "what breaks if this goes down" and "what this needs in order to keep working." hops
   // defaults to 3 server-side when omitted.
   dependents: (c: Conn, kind: string, id: string, at: string, hops?: number) =>
-    call<{ at: string; hops: number; reached?: ReachedEntity[] }>(
+    call<W.GraphWalkDoc>(
       c, 'GET', `/api/v1/graph/dependents?kind=${encodeURIComponent(kind)}&id=${encodeURIComponent(id)}&at=${encodeURIComponent(at)}${hops ? `&hops=${hops}` : ''}`,
-    ).then((r) => ({ ...r, reached: r.reached ?? [] })),
-  dependencies: (c: Conn, kind: string, id: string, at: string, hops?: number) =>
-    call<{ at: string; hops: number; reached?: ReachedEntity[] }>(
-      c, 'GET', `/api/v1/graph/dependencies?kind=${encodeURIComponent(kind)}&id=${encodeURIComponent(id)}&at=${encodeURIComponent(at)}${hops ? `&hops=${hops}` : ''}`,
-    ).then((r) => ({ ...r, reached: r.reached ?? [] })),
-  structuralDiff: (c: Conn, from: string, to: string) =>
-    call<Partial<StructuralDiff>>(c, 'GET', `/api/v1/graph/diff?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`).then(
-      (r) => ({ from: r.from ?? from, to: r.to ?? to, added: r.added ?? [], removed: r.removed ?? [], changed: r.changed ?? [] }) as StructuralDiff,
     ),
+  dependencies: (c: Conn, kind: string, id: string, at: string, hops?: number) =>
+    call<W.GraphWalkDoc>(
+      c, 'GET', `/api/v1/graph/dependencies?kind=${encodeURIComponent(kind)}&id=${encodeURIComponent(id)}&at=${encodeURIComponent(at)}${hops ? `&hops=${hops}` : ''}`,
+    ),
+  structuralDiff: (c: Conn, from: string, to: string) => call<W.GraphDiffDoc>(c, 'GET', `/api/v1/graph/diff?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
   audit: (c: Conn, q: { actor?: string; action?: string; target?: string; since?: string; until?: string; limit?: number } = {}) => {
     const p = new URLSearchParams()
     for (const [k, v] of Object.entries(q)) if (v !== undefined && v !== '') p.set(k, String(v))
-    return call<{ source: 'graph' | 'local'; rows?: AuditRow[] }>(c, 'GET', `/api/v1/audit${p.size ? `?${p}` : ''}`).then((r) => ({ source: r.source, rows: r.rows ?? [] }))
+    return call<W.AuditSearchDoc>(c, 'GET', `/api/v1/audit${p.size ? `?${p}` : ''}`)
   },
   // proposals: what advisors suggest about an agent's access, and the decision on each (editors; widening takes an administrator).
   // Nothing here submits one: an advisor does that with an editor's API token, and submitting changes nothing.
@@ -818,14 +724,14 @@ export const api = {
   getProposal: (c: Conn, id: string) => call<Proposal>(c, 'GET', `/api/v1/proposals/${encodeURIComponent(id)}`),
   acceptProposal: (c: Conn, id: string, note = '') => call<Proposal>(c, 'POST', `/api/v1/proposals/${encodeURIComponent(id)}/accept`, { note }),
   rejectProposal: (c: Conn, id: string, note = '') => call<Proposal>(c, 'POST', `/api/v1/proposals/${encodeURIComponent(id)}/reject`, { note }),
-  workspaceRevisions: (c: Conn) => call<{ revisions?: WorkspaceRevision[] }>(c, 'GET', '/api/v1/workspace/revisions').then((r) => r.revisions ?? []),
+  workspaceRevisions: (c: Conn) => call<W.WorkspaceRevisionsDoc>(c, 'GET', '/api/v1/workspace/revisions').then((r) => r.revisions),
   recordNow: (c: Conn) => call<void>(c, 'POST', '/api/v1/history/record'),
   decide: (c: Conn, input: unknown) => call<{ decider: string; result: unknown }>(c, 'POST', '/api/v1/decide', input),
   // Fire-and-forget from the caller's point of view - see recordDecisionLog in lib/placement/deciders.ts,
   // which is what actually calls this and swallows whatever it rejects with.
   recordDecisions: (c: Conn, entries: DecisionLogEntry[]) => call<{ recorded: number }>(c, 'POST', '/api/v1/decisions', { entries }),
   listDecisions: (c: Conn, limit?: number) =>
-    call<{ decisions?: DecisionLogRow[] }>(c, 'GET', `/api/v1/decisions${limit ? `?limit=${limit}` : ''}`).then((r) => r.decisions ?? []),
+    call<W.DecisionsDoc>(c, 'GET', `/api/v1/decisions${limit ? `?limit=${limit}` : ''}`).then((r) => r.decisions),
 }
 
 /** What probe() above learns from its one request: whether an Ikhnos server is even there, and - when

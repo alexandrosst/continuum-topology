@@ -55,6 +55,20 @@ type DecisionEntry struct {
 // write this log must never stop the caller returning - or the dashboard having already shown - the
 // recommendation it describes. The frontend calls this fire-and-forget for exactly that reason (see
 // Deciders.tsx's run()).
+// DeciderKind says who decided: the page's own placement rules, or a decider the organisation pointed the server at.
+type DeciderKind string
+
+// The kinds of decider.
+const (
+	DeciderBuiltin  DeciderKind = "builtin"
+	DeciderExternal DeciderKind = "external"
+)
+
+// WireWords is the list of DeciderKind's words, as the generated types give it.
+func (DeciderKind) WireWords() []string {
+	return []string{string(DeciderBuiltin), string(DeciderExternal)}
+}
+
 func (s *Service) RecordDecisions(ctx context.Context, actor string, entries []DecisionEntry) (int, error) {
 	if len(entries) > MaxDecisionEntries {
 		return 0, kernel.Errf(kernel.KindInvalid, "too many decider results in one call")
@@ -63,7 +77,7 @@ func (s *Service) RecordDecisions(ctx context.Context, actor string, entries []D
 	by := kernel.Printable(actor, kernel.MaxAuditActor)
 	var rows []store.DecisionLog
 	for _, e := range entries {
-		if e.DeciderID == "" || (e.DeciderKind != "builtin" && e.DeciderKind != "external") {
+		if e.DeciderID == "" || (DeciderKind(e.DeciderKind) != DeciderBuiltin && DeciderKind(e.DeciderKind) != DeciderExternal) {
 			return 0, kernel.Errf(kernel.KindInvalid, "each entry needs a decider id and a decider kind of \"builtin\" or \"external\"")
 		}
 		if len(e.Policy) > MaxDecisionPolicyBytes {

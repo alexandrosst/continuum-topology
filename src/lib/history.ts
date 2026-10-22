@@ -140,22 +140,10 @@ export function normalizeSnapshot(s: { at: string; topology?: Partial<SnapshotTo
   }
 }
 
-export type Severity = 'info' | 'notice' | 'warning'
+export type Severity = W.EventSeverity
 
-export interface ChangeEvent {
-  id: string
-  at: string
-  kind: string
-  targetKind: 'cluster' | 'node' | 'service' | 'dependency' | 'agent'
-  targetId: string
-  name: string
-  clusterId?: string
-  clusterName?: string
-  detail: string
-  /** What most likely caused it, when that is known. */
-  cause?: string
-  severity: Severity
-}
+/** One thing worth telling a person about, as the server sends it: kind says what changed, cause what most likely made it. */
+export type ChangeEvent = W.EventDoc
 
 export interface TrafficRate {
   id: string

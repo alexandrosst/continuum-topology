@@ -391,8 +391,10 @@ export interface AuditRow {
 
 export interface AuditSearchDoc {
   rows: AuditRow[]
-  source: string
+  source: AuditSource
 }
+
+export type AuditSource = 'graph' | 'local'
 
 export interface Autoscaler {
   min: number
@@ -678,10 +680,12 @@ export interface DecideProposalRequest {
   note: string
 }
 
+export type DeciderKind = 'builtin' | 'external'
+
 export interface DecisionEntryDoc {
   deciderId: string
   deciderName: string
-  deciderKind: string
+  deciderKind: DeciderKind
   input: DecisionInputDoc
   moves: DecisionMoveDoc[]
 }
@@ -699,7 +703,7 @@ export interface DecisionLogDoc {
   recordedBy: string
   deciderId: string
   deciderName: string
-  deciderKind: string
+  deciderKind: DeciderKind
   serviceId: string
   serviceName: string
   from: string
@@ -948,15 +952,19 @@ export interface EventDoc {
   id: string
   at: string
   kind: string
-  targetKind: string
+  targetKind: EventTarget
   targetId: string
   name: string
   clusterId?: string
   clusterName?: string
   detail: string
   cause?: string
-  severity: string
+  severity: EventSeverity
 }
+
+export type EventSeverity = 'info' | 'notice' | 'warning'
+
+export type EventTarget = 'cluster' | 'node' | 'service' | 'dependency' | 'agent'
 
 export interface EventsDoc {
   events: EventDoc[]
@@ -2539,8 +2547,10 @@ export type StepCode = 'agent' | 'addresses' | 'capabilities' | 'links-on' | 'ex
 
 export type StepState = 'ok' | 'todo' | 'unknown' | 'optional'
 
+export type StorageBackend = 'sqlite' | 'neo4j'
+
 export interface StorageDoc {
-  backend: string
+  backend: StorageBackend
   buffering?: boolean
   connected?: boolean
   enabled: boolean

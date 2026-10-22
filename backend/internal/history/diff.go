@@ -50,7 +50,7 @@ func (d *Differ) Diff(prev *model.Topology, cur model.Topology, now time.Time) [
 	add := func(e store.Event) {
 		e.At = now
 		if e.Severity == "" {
-			e.Severity = "info"
+			e.Severity = store.SeverityInfo
 		}
 		evs = append(evs, e)
 	}
@@ -86,35 +86,35 @@ func (d *Differ) Diff(prev *model.Topology, cur model.Topology, now time.Time) [
 					ns++
 				}
 			}
-			add(store.Event{Kind: "cluster-added", TargetKind: "cluster", TargetID: c.ID, Name: c.Name, ClusterID: c.ID, ClusterName: c.Name,
-				Detail: fmt.Sprintf("%s joined with %s and %s", c.Name, plural(nn, "node", "nodes"), plural(ns, "service", "services")), Severity: "notice"})
+			add(store.Event{Kind: "cluster-added", TargetKind: store.TargetCluster, TargetID: c.ID, Name: c.Name, ClusterID: c.ID, ClusterName: c.Name,
+				Detail: fmt.Sprintf("%s joined with %s and %s", c.Name, plural(nn, "node", "nodes"), plural(ns, "service", "services")), Severity: store.SeverityNotice})
 			continue
 		}
 		if !p.Stale && c.Stale {
-			add(store.Event{Kind: "cluster-unreachable", TargetKind: "cluster", TargetID: c.ID, Name: c.Name, ClusterID: c.ID, ClusterName: c.Name,
-				Detail: "its agent stopped reporting; the last known state is kept and marked stale", Severity: "warning"})
+			add(store.Event{Kind: "cluster-unreachable", TargetKind: store.TargetCluster, TargetID: c.ID, Name: c.Name, ClusterID: c.ID, ClusterName: c.Name,
+				Detail: "its agent stopped reporting; the last known state is kept and marked stale", Severity: store.SeverityWarning})
 		}
 		if p.Stale && !c.Stale {
-			add(store.Event{Kind: "cluster-reachable", TargetKind: "cluster", TargetID: c.ID, Name: c.Name, ClusterID: c.ID, ClusterName: c.Name, Detail: "its agent is reporting again"})
+			add(store.Event{Kind: "cluster-reachable", TargetKind: store.TargetCluster, TargetID: c.ID, Name: c.Name, ClusterID: c.ID, ClusterName: c.Name, Detail: "its agent is reporting again"})
 		}
 		if p.Status != c.Status {
-			sev := "info"
+			sev := store.SeverityInfo
 			if c.Status != "healthy" {
-				sev = "warning"
+				sev = store.SeverityWarning
 			}
-			add(store.Event{Kind: "cluster-status", TargetKind: "cluster", TargetID: c.ID, Name: c.Name, ClusterID: c.ID, ClusterName: c.Name,
+			add(store.Event{Kind: "cluster-status", TargetKind: store.TargetCluster, TargetID: c.ID, Name: c.Name, ClusterID: c.ID, ClusterName: c.Name,
 				Detail: fmt.Sprintf("%s → %s", p.Status, c.Status), Severity: sev})
 		}
 		if p.Version != c.Version && p.Version != "" && c.Version != "" {
-			add(store.Event{Kind: "cluster-version", TargetKind: "cluster", TargetID: c.ID, Name: c.Name, ClusterID: c.ID, ClusterName: c.Name,
-				Detail: fmt.Sprintf("Kubernetes %s → %s", p.Version, c.Version), Severity: "notice"})
+			add(store.Event{Kind: "cluster-version", TargetKind: store.TargetCluster, TargetID: c.ID, Name: c.Name, ClusterID: c.ID, ClusterName: c.Name,
+				Detail: fmt.Sprintf("Kubernetes %s → %s", p.Version, c.Version), Severity: store.SeverityNotice})
 		}
 	}
 	for _, c := range prev.Clusters {
 		if _, ok := cc[c.ID]; !ok {
 			goneCluster[c.ID] = true
-			add(store.Event{Kind: "cluster-removed", TargetKind: "cluster", TargetID: c.ID, Name: c.Name, ClusterID: c.ID, ClusterName: c.Name,
-				Detail: c.Name + " is no longer part of the topology (its agent was revoked or removed)", Severity: "warning"})
+			add(store.Event{Kind: "cluster-removed", TargetKind: store.TargetCluster, TargetID: c.ID, Name: c.Name, ClusterID: c.ID, ClusterName: c.Name,
+				Detail: c.Name + " is no longer part of the topology (its agent was revoked or removed)", Severity: store.SeverityWarning})
 		}
 	}
 	skipCluster := func(id string) bool { return newCluster[id] || goneCluster[id] }
@@ -134,25 +134,25 @@ func (d *Differ) Diff(prev *model.Topology, cur model.Topology, now time.Time) [
 		}
 		p, had := pn[n.ID]
 		if !had {
-			add(store.Event{Kind: "node-added", TargetKind: "node", TargetID: n.ID, Name: n.Name, ClusterID: n.ClusterID, ClusterName: clusterName(n.ClusterID),
-				Detail: fmt.Sprintf("%s joined %s (%s, %s)", n.Name, clusterName(n.ClusterID), n.Role, n.Kind), Severity: "notice"})
+			add(store.Event{Kind: "node-added", TargetKind: store.TargetNode, TargetID: n.ID, Name: n.Name, ClusterID: n.ClusterID, ClusterName: clusterName(n.ClusterID),
+				Detail: fmt.Sprintf("%s joined %s (%s, %s)", n.Name, clusterName(n.ClusterID), n.Role, n.Kind), Severity: store.SeverityNotice})
 			continue
 		}
 		if p.Status != n.Status {
-			sev := "info"
+			sev := store.SeverityInfo
 			if n.Status != "healthy" {
-				sev = "warning"
+				sev = store.SeverityWarning
 				leftNodes[n.ID] = true
 			}
-			add(store.Event{Kind: "node-status", TargetKind: "node", TargetID: n.ID, Name: n.Name, ClusterID: n.ClusterID, ClusterName: clusterName(n.ClusterID),
+			add(store.Event{Kind: "node-status", TargetKind: store.TargetNode, TargetID: n.ID, Name: n.Name, ClusterID: n.ClusterID, ClusterName: clusterName(n.ClusterID),
 				Detail: fmt.Sprintf("%s: %s → %s", n.Name, p.Status, n.Status), Severity: sev})
 		}
 	}
 	for _, n := range prev.Nodes {
 		if _, ok := cn[n.ID]; !ok && !skipCluster(n.ClusterID) {
 			leftNodes[n.ID] = true
-			add(store.Event{Kind: "node-removed", TargetKind: "node", TargetID: n.ID, Name: n.Name, ClusterID: n.ClusterID, ClusterName: clusterName(n.ClusterID),
-				Detail: fmt.Sprintf("%s left %s", n.Name, clusterName(n.ClusterID)), Severity: "warning"})
+			add(store.Event{Kind: "node-removed", TargetKind: store.TargetNode, TargetID: n.ID, Name: n.Name, ClusterID: n.ClusterID, ClusterName: clusterName(n.ClusterID),
+				Detail: fmt.Sprintf("%s left %s", n.Name, clusterName(n.ClusterID)), Severity: store.SeverityWarning})
 		}
 	}
 	nodeName := func(id string) string {
@@ -185,12 +185,12 @@ func (d *Differ) Diff(prev *model.Topology, cur model.Topology, now time.Time) [
 		}
 		p, had := ps[s.ID]
 		cname := clusterName(s.ClusterID)
-		base := store.Event{TargetKind: "service", TargetID: s.ID, Name: s.Name, ClusterID: s.ClusterID, ClusterName: cname}
+		base := store.Event{TargetKind: store.TargetService, TargetID: s.ID, Name: s.Name, ClusterID: s.ClusterID, ClusterName: cname}
 		if !had {
 			k := svcKey(s)
 			if g, ok := gone[k]; ok && g.ClusterID != s.ClusterID {
 				e := base
-				e.Kind, e.Severity = "service-migrated", "notice"
+				e.Kind, e.Severity = "service-migrated", store.SeverityNotice
 				e.Detail = fmt.Sprintf("%s moved from %s to %s", s.Name, clusterName(g.ClusterID), cname)
 				add(e)
 				delete(gone, k)
@@ -198,14 +198,14 @@ func (d *Differ) Diff(prev *model.Topology, cur model.Topology, now time.Time) [
 			}
 			if r, ok := d.recent[k]; ok && r.cluster != s.ClusterID && now.Sub(r.at) <= migrationWindow {
 				e := base
-				e.Kind, e.Severity = "service-migrated", "notice"
+				e.Kind, e.Severity = "service-migrated", store.SeverityNotice
 				e.Detail = fmt.Sprintf("%s moved from %s to %s", s.Name, r.name, cname)
 				add(e)
 				delete(d.recent, k)
 				continue
 			}
 			e := base
-			e.Kind, e.Severity = "service-added", "notice"
+			e.Kind, e.Severity = "service-added", store.SeverityNotice
 			e.Detail = fmt.Sprintf("%s (%s) started in %s", s.Name, s.Kind, cname)
 			add(e)
 			continue
@@ -232,9 +232,9 @@ func (d *Differ) Diff(prev *model.Topology, cur model.Topology, now time.Time) [
 			add(e)
 		}
 		if p.Status != s.Status {
-			sev := "info"
+			sev := store.SeverityInfo
 			if s.Status != "healthy" {
-				sev = "warning"
+				sev = store.SeverityWarning
 			}
 			e := base
 			e.Kind, e.Severity = "service-status", sev
@@ -243,7 +243,7 @@ func (d *Differ) Diff(prev *model.Topology, cur model.Topology, now time.Time) [
 		}
 		if s.Restarts-p.Restarts >= restartBurst {
 			e := base
-			e.Kind, e.Severity = "service-restarts", "warning"
+			e.Kind, e.Severity = "service-restarts", store.SeverityWarning
 			e.Detail = fmt.Sprintf("%s restarted %d times", s.Name, s.Restarts-p.Restarts)
 			add(e)
 		}
@@ -257,7 +257,7 @@ func (d *Differ) Diff(prev *model.Topology, cur model.Topology, now time.Time) [
 				for _, f := range from {
 					if leftNodes[f] {
 						e.Cause = fmt.Sprintf("node %s went away or became unhealthy", nodeName(f))
-						e.Severity = "notice"
+						e.Severity = store.SeverityNotice
 						break
 					}
 				}
@@ -276,8 +276,8 @@ func (d *Differ) Diff(prev *model.Topology, cur model.Topology, now time.Time) [
 	for _, k := range keys {
 		s := gone[k]
 		d.recent[k] = removed{cluster: s.ClusterID, name: clusterName(s.ClusterID), at: now}
-		add(store.Event{Kind: "service-removed", TargetKind: "service", TargetID: s.ID, Name: s.Name, ClusterID: s.ClusterID, ClusterName: clusterName(s.ClusterID),
-			Detail: fmt.Sprintf("%s stopped running in %s", s.Name, clusterName(s.ClusterID)), Severity: "notice"})
+		add(store.Event{Kind: "service-removed", TargetKind: store.TargetService, TargetID: s.ID, Name: s.Name, ClusterID: s.ClusterID, ClusterName: clusterName(s.ClusterID),
+			Detail: fmt.Sprintf("%s stopped running in %s", s.Name, clusterName(s.ClusterID)), Severity: store.SeverityNotice})
 	}
 	for k, r := range d.recent { // forget old removals
 		if now.Sub(r.at) > migrationWindow {
@@ -319,19 +319,19 @@ func (d *Differ) Diff(prev *model.Topology, cur model.Topology, now time.Time) [
 		}
 		if !had {
 			label := fmt.Sprintf("%s → %s (%s %d)", endName(x.From, x.FromKind), endName(x.To, x.ToKind), x.Protocol, x.Port)
-			sev := "info"
+			sev := store.SeverityInfo
 			if x.CrossCluster {
-				sev = "notice"
+				sev = store.SeverityNotice
 			}
-			add(store.Event{Kind: "dependency-seen", TargetKind: "dependency", TargetID: x.ID, Name: label, ClusterID: clusterID, ClusterName: clusterName(clusterID),
+			add(store.Event{Kind: "dependency-seen", TargetKind: store.TargetDependency, TargetID: x.ID, Name: label, ClusterID: clusterID, ClusterName: clusterName(clusterID),
 				Detail: label + " seen in traffic for the first time", Severity: sev})
 		} else if !p.Stale && x.Stale {
 			label := fmt.Sprintf("%s → %s (%s %d)", endName(x.From, x.FromKind), endName(x.To, x.ToKind), x.Protocol, x.Port)
-			add(store.Event{Kind: "dependency-quiet", TargetKind: "dependency", TargetID: x.ID, Name: label, ClusterID: clusterID, ClusterName: clusterName(clusterID),
+			add(store.Event{Kind: "dependency-quiet", TargetKind: store.TargetDependency, TargetID: x.ID, Name: label, ClusterID: clusterID, ClusterName: clusterName(clusterID),
 				Detail: label + " has gone quiet"})
 		} else if p.Stale && !x.Stale {
 			label := fmt.Sprintf("%s → %s (%s %d)", endName(x.From, x.FromKind), endName(x.To, x.ToKind), x.Protocol, x.Port)
-			add(store.Event{Kind: "dependency-seen", TargetKind: "dependency", TargetID: x.ID, Name: label, ClusterID: clusterID, ClusterName: clusterName(clusterID),
+			add(store.Event{Kind: "dependency-seen", TargetKind: store.TargetDependency, TargetID: x.ID, Name: label, ClusterID: clusterID, ClusterName: clusterName(clusterID),
 				Detail: label + " is back in traffic"})
 		}
 	}
@@ -339,7 +339,7 @@ func (d *Differ) Diff(prev *model.Topology, cur model.Topology, now time.Time) [
 	if len(evs) > maxEventsPerDiff {
 		n := len(evs) - maxEventsPerDiff
 		evs = evs[:maxEventsPerDiff]
-		evs = append(evs, store.Event{At: now, Kind: "many-changes", TargetKind: "cluster", Detail: fmt.Sprintf("%d more changes in the same moment were not listed", n), Severity: "notice"})
+		evs = append(evs, store.Event{At: now, Kind: "many-changes", TargetKind: store.TargetCluster, Detail: fmt.Sprintf("%d more changes in the same moment were not listed", n), Severity: store.SeverityNotice})
 	}
 	return evs
 }

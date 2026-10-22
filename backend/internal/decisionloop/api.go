@@ -56,7 +56,7 @@ type decisionInputDoc struct {
 type decisionEntryDoc struct {
 	DeciderID   string            `json:"deciderId"`
 	DeciderName string            `json:"deciderName"`
-	DeciderKind string            `json:"deciderKind"`
+	DeciderKind DeciderKind       `json:"deciderKind"`
 	Input       decisionInputDoc  `json:"input"`
 	Moves       []decisionMoveDoc `json:"moves"`
 }
@@ -81,7 +81,7 @@ func (h API) record(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		entries[i] = DecisionEntry{
-			DeciderID: e.DeciderID, DeciderName: e.DeciderName, DeciderKind: e.DeciderKind,
+			DeciderID: e.DeciderID, DeciderName: e.DeciderName, DeciderKind: string(e.DeciderKind),
 			Schema: e.Input.Schema, ClusterCount: e.Input.ClusterCount, ServiceCount: e.Input.ServiceCount, Policy: e.Input.Policy, Moves: moves,
 		}
 	}
@@ -94,23 +94,23 @@ func (h API) record(w http.ResponseWriter, r *http.Request) {
 }
 
 type decisionLogDoc struct {
-	ID            string  `json:"id"`
-	At            string  `json:"at"`
-	RecordedBy    string  `json:"recordedBy"`
-	DeciderID     string  `json:"deciderId"`
-	DeciderName   string  `json:"deciderName"`
-	DeciderKind   string  `json:"deciderKind"`
-	ServiceID     string  `json:"serviceId"`
-	ServiceName   string  `json:"serviceName"`
-	From          string  `json:"from"`
-	To            string  `json:"to"`
-	Reason        string  `json:"reason,omitempty"`
-	Benefit       float64 `json:"benefit"`
-	Confidence    string  `json:"confidence"`
-	Verdict       string  `json:"verdict"`
-	BeforeCost    float64 `json:"beforeCost"`
-	AfterCost     float64 `json:"afterCost"`
-	MigrationCost float64 `json:"migrationCost"`
+	ID            string      `json:"id"`
+	At            string      `json:"at"`
+	RecordedBy    string      `json:"recordedBy"`
+	DeciderID     string      `json:"deciderId"`
+	DeciderName   string      `json:"deciderName"`
+	DeciderKind   DeciderKind `json:"deciderKind"`
+	ServiceID     string      `json:"serviceId"`
+	ServiceName   string      `json:"serviceName"`
+	From          string      `json:"from"`
+	To            string      `json:"to"`
+	Reason        string      `json:"reason,omitempty"`
+	Benefit       float64     `json:"benefit"`
+	Confidence    string      `json:"confidence"`
+	Verdict       string      `json:"verdict"`
+	BeforeCost    float64     `json:"beforeCost"`
+	AfterCost     float64     `json:"afterCost"`
+	MigrationCost float64     `json:"migrationCost"`
 }
 
 // list is GET .../decisions: any member may read it back, the same reach as /events and /history.
@@ -131,7 +131,7 @@ func (h API) list(w http.ResponseWriter, r *http.Request) {
 	for i, d := range ds {
 		out[i] = decisionLogDoc{
 			ID: "dec-" + strconv.FormatInt(d.ID, 10), At: kernel.RFC(d.At), RecordedBy: d.RecordedBy,
-			DeciderID: d.DeciderID, DeciderName: d.DeciderName, DeciderKind: d.DeciderKind,
+			DeciderID: d.DeciderID, DeciderName: d.DeciderName, DeciderKind: DeciderKind(d.DeciderKind),
 			ServiceID: d.ServiceID, ServiceName: d.ServiceName, From: d.FromCluster, To: d.ToCluster,
 			Reason: d.Reason, Benefit: d.Benefit, Confidence: d.Confidence, Verdict: d.Verdict,
 			BeforeCost: d.BeforeCost, AfterCost: d.AfterCost, MigrationCost: d.MigrationCost,

@@ -86,3 +86,8 @@ func TestAnswersThatWereMapsAreWrittenAsTheyWere(t *testing.T) {
 		}
 	}
 }
+
+// The words the page switches on are the constants the code writes, no more and no fewer.
+func TestTheWordsOfStorageAreItsConstants(t *testing.T) {
+	wire.RequireWordsComplete(t, ".", StorageBackend(""), AuditSource(""))
+}

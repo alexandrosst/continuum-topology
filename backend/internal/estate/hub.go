@@ -705,8 +705,8 @@ func (h *Hub) refuseSync(ctx context.Context, a store.Agent, v *View, why error)
 		return
 	}
 	h.C.Audit(ctx, accounts.AgentActor(a.ID).String(), "sync-refused", "agent", a.ID, why.Error())
-	h.storeEvent(ctx, store.Event{At: now, Kind: "sync-refused", TargetKind: "agent", TargetID: a.ID, Name: a.Name, ClusterID: a.ClusterID, ClusterName: a.Name,
-		Detail: "The server refused a message from " + a.Name + ": " + clipText(why.Error(), 300), Cause: "the agent reported more, or larger, facts than this server accepts, or something malformed", Severity: "warning"})
+	h.storeEvent(ctx, store.Event{At: now, Kind: "sync-refused", TargetKind: store.TargetAgent, TargetID: a.ID, Name: a.Name, ClusterID: a.ClusterID, ClusterName: a.Name,
+		Detail: "The server refused a message from " + a.Name + ": " + clipText(why.Error(), 300), Cause: "the agent reported more, or larger, facts than this server accepts, or something malformed", Severity: store.SeverityWarning})
 }
 
 func clipText(s string, n int) string { return kernel.Printable(s, n) }
@@ -762,8 +762,8 @@ func (h *Hub) reportConsistency(ctx context.Context, a store.Agent, d facts.Drif
 	if len(d.Samples) > 0 {
 		detail += " For example: " + strings.Join(d.Samples, ", ") + "."
 	}
-	h.storeEvent(ctx, store.Event{At: h.C.Now(), Kind: "drift", TargetKind: "agent", TargetID: a.ID, Name: a.Name, ClusterID: a.ClusterID,
-		ClusterName: a.Name, Detail: detail, Cause: "a change the agent sent did not reach the server, or the server was restarted between two syncs", Severity: "warning"})
+	h.storeEvent(ctx, store.Event{At: h.C.Now(), Kind: "drift", TargetKind: store.TargetAgent, TargetID: a.ID, Name: a.Name, ClusterID: a.ClusterID,
+		ClusterName: a.Name, Detail: detail, Cause: "a change the agent sent did not reach the server, or the server was restarted between two syncs", Severity: store.SeverityWarning})
 }
 
 // Bounds on what one agent may report. A real cluster is far below these; they exist so a

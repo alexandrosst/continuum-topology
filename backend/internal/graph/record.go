@@ -872,7 +872,7 @@ func (d *DB) LinkEventChanges(ctx context.Context, org string, at time.Time, evs
 		if e.TargetKind == "" || e.TargetID == "" {
 			continue
 		}
-		k := e.TargetKind + "\x00" + e.TargetID
+		k := string(e.TargetKind) + "\x00" + e.TargetID
 		if seen[k] {
 			continue
 		}

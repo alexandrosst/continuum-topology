@@ -84,8 +84,8 @@ ORDER BY e.at DESC, e.id DESC LIMIT $limit`, p))
 	}
 	out := make([]store.Event, 0, len(res[0].Rows))
 	for _, r := range res[0].Rows {
-		out = append(out, store.Event{ID: i64(r[0]), At: tm(r[1]), Kind: str(r[2]), TargetKind: str(r[3]), TargetID: str(r[4]), Name: str(r[5]),
-			ClusterID: str(r[6]), ClusterName: str(r[7]), Detail: str(r[8]), Cause: str(r[9]), Severity: str(r[10])})
+		out = append(out, store.Event{ID: i64(r[0]), At: tm(r[1]), Kind: str(r[2]), TargetKind: store.EventTarget(str(r[3])), TargetID: str(r[4]), Name: str(r[5]),
+			ClusterID: str(r[6]), ClusterName: str(r[7]), Detail: str(r[8]), Cause: str(r[9]), Severity: store.EventSeverity(str(r[10]))})
 	}
 	return out, nil
 }

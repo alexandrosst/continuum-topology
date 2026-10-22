@@ -186,8 +186,8 @@ func TestRecorderStoresSnapshotsAndEventsOnlyForRealChanges(t *testing.T) {
 func TestEventRetentionSettingPrunesByAgeOnlyForItsOwnOrgWhenOn(t *testing.T) {
 	r := newHubRig(t)
 	now := *r.now
-	old := store.Event{At: now.Add(-10 * 24 * time.Hour), Kind: "test", TargetKind: "node", TargetID: "n1", Name: "old"}
-	recent := store.Event{At: now.Add(-time.Hour), Kind: "test", TargetKind: "node", TargetID: "n2", Name: "recent"}
+	old := store.Event{At: now.Add(-10 * 24 * time.Hour), Kind: "test", TargetKind: store.TargetNode, TargetID: "n1", Name: "old"}
+	recent := store.Event{At: now.Add(-time.Hour), Kind: "test", TargetKind: store.TargetNode, TargetID: "n2", Name: "recent"}
 	if err := r.st.AddEvents(r.ctx, "org-1", []store.Event{old, recent}); err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +195,7 @@ func TestEventRetentionSettingPrunesByAgeOnlyForItsOwnOrgWhenOn(t *testing.T) {
 	if err := r.st.CreateOrg(r.ctx, store.Org{ID: "org-2", Name: "Org Two", CreatedAt: now, CreatedBy: "u-owner"}, "u-owner"); err != nil {
 		t.Fatal(err)
 	}
-	other := store.Event{At: now.Add(-10 * 24 * time.Hour), Kind: "test", TargetKind: "node", TargetID: "n3", Name: "other-org"}
+	other := store.Event{At: now.Add(-10 * 24 * time.Hour), Kind: "test", TargetKind: store.TargetNode, TargetID: "n3", Name: "other-org"}
 	if err := r.st.AddEvents(r.ctx, "org-2", []store.Event{other}); err != nil {
 		t.Fatal(err)
 	}

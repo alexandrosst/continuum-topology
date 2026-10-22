@@ -108,7 +108,7 @@ func (c *Service) recordApplicationsGraph(ctx context.Context, prevData, data []
 				name = p.Name
 			}
 			evs = append(evs, store.Event{At: now, Kind: "application-removed", TargetKind: "application", TargetID: id, Name: name,
-				Detail: fmt.Sprintf("%q was removed", name), Severity: "notice"})
+				Detail: fmt.Sprintf("%q was removed", name), Severity: store.SeverityNotice})
 		}
 	}
 
@@ -123,7 +123,7 @@ func (c *Service) recordApplicationsGraph(ctx context.Context, prevData, data []
 			evs = append(evs, diffApplicationDoc(prev, app, now)...)
 		} else {
 			evs = append(evs, store.Event{At: now, Kind: "application-added", TargetKind: "application", TargetID: app.ID, Name: app.Name,
-				Detail: fmt.Sprintf("%q was created with %d service(s)", app.Name, len(app.ServiceIDs)), Severity: "notice"})
+				Detail: fmt.Sprintf("%q was created with %d service(s)", app.Name, len(app.ServiceIDs)), Severity: store.SeverityNotice})
 		}
 	}
 
@@ -250,7 +250,7 @@ func diffApplicationDoc(prev, cur workspace.ApplicationDoc, now time.Time) []sto
 	added, removed := stringsAdded(cur.ServiceIDs, prev.ServiceIDs), stringsAdded(prev.ServiceIDs, cur.ServiceIDs)
 	if len(added) > 0 || len(removed) > 0 {
 		e := base
-		e.Kind, e.Severity = "application-membership", "notice"
+		e.Kind, e.Severity = "application-membership", store.SeverityNotice
 		switch {
 		case len(added) > 0 && len(removed) > 0:
 			e.Detail = fmt.Sprintf("%d service(s) added (%s), %d removed (%s)", len(added), shortList(added), len(removed), shortList(removed))

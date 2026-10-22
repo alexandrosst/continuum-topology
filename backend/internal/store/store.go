@@ -888,14 +888,46 @@ type Event struct {
 	ID          int64
 	At          time.Time
 	Kind        string // e.g. service-scaled, node-status, cluster-added, drift
-	TargetKind  string // cluster | node | service | dependency | agent
+	TargetKind  EventTarget
 	TargetID    string
 	Name        string
 	ClusterID   string
 	ClusterName string
 	Detail      string
 	Cause       string // what most likely caused it, when that is known ("autoscaler", "node drained")
-	Severity    string // info | notice | warning
+	Severity    EventSeverity
+}
+
+// EventSeverity is how much an event should be noticed.
+type EventSeverity string
+
+// The severities of an event.
+const (
+	SeverityInfo    EventSeverity = "info"
+	SeverityNotice  EventSeverity = "notice"
+	SeverityWarning EventSeverity = "warning"
+)
+
+// WireWords is the list of EventSeverity's words, as the generated types give it.
+func (EventSeverity) WireWords() []string {
+	return []string{string(SeverityInfo), string(SeverityNotice), string(SeverityWarning)}
+}
+
+// EventTarget is the kind of thing an event is about.
+type EventTarget string
+
+// The kinds of thing an event can be about.
+const (
+	TargetCluster    EventTarget = "cluster"
+	TargetNode       EventTarget = "node"
+	TargetService    EventTarget = "service"
+	TargetDependency EventTarget = "dependency"
+	TargetAgent      EventTarget = "agent"
+)
+
+// WireWords is the list of EventTarget's words, as the generated types give it.
+func (EventTarget) WireWords() []string {
+	return []string{string(TargetCluster), string(TargetNode), string(TargetService), string(TargetDependency), string(TargetAgent)}
 }
 
 // EventQuery filters ListEvents. Zero values mean no filter.
