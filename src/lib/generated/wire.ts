@@ -32,10 +32,10 @@ export interface AccessChange {
 export interface AddressCandidate {
   id: string
   address: string
-  kind: string
+  kind: CandidateKind
   source: string
   node?: string
-  network?: string
+  network?: AddressNetwork
   interface?: string
   recorded?: boolean
 }
@@ -50,15 +50,17 @@ export interface AddressCandidates {
   serverCluster?: ServerClusterDoc
 }
 
+export type AddressNetwork = 'mesh' | 'private' | 'public'
+
 export interface AddressProbe {
-  state: string
+  state: CheckState
   message: string
   checkedAt: string
   from: string
 }
 
 export interface AddressReachDoc {
-  state: string
+  state: ReachState
   at: string
   rttP50Ms?: number
 }
@@ -68,7 +70,7 @@ export type AddressStatus = 'none' | 'pending' | 'set'
 export interface AddressTestDoc {
   id: string
   address: string
-  state: string
+  state: TestState
   samples?: number
   failed?: number
   rttMinMs?: number
@@ -438,6 +440,8 @@ export interface CallerAccessDoc {
   signals: Signal[]
 }
 
+export type CandidateKind = 'load-balancer' | 'node-port' | 'node-service-port' | 'external-ip' | 'recorded'
+
 export interface CapacityDoc {
   cluster: string
   name: string
@@ -509,6 +513,8 @@ export interface ChangePasswordRequest {
   current: string
   new: string
 }
+
+export type CheckState = 'reachable' | 'no-tls' | 'wrong-certificate' | 'refused' | 'no-answer' | 'unresolved' | 'blocked' | 'error' | 'no-address'
 
 export interface Cluster {
   orgId: string
@@ -1029,12 +1035,14 @@ export interface ExportHealthDoc {
 export interface ExportRouteHealthDoc {
   exporter: string
   signal: string
-  state: string
+  state: ExportState
   sent: number
   failed: number
   lastSentAt?: string
   lastFailedAt?: string
 }
+
+export type ExportState = 'waiting' | 'exporting' | 'silent' | 'failing'
 
 export interface ExportTargetDoc {
   endpoint: string
@@ -1096,6 +1104,8 @@ export interface FactDoc {
   high?: number
   aged?: boolean
 }
+
+export type FaultAt = 'sender-network' | 'address' | 'certificate' | 'credential' | 'operator' | 'sender' | 'unclear'
 
 export interface FinishPasskeyLoginRequest {
   pending: string
@@ -2010,6 +2020,8 @@ export interface Rate {
   seconds: number
 }
 
+export type ReachState = 'reachable' | 'unreachable'
+
 export interface Reached {
   kind: string
   id: string
@@ -2287,13 +2299,13 @@ export interface SelfTelemetrySample {
 
 export interface SenderAddressDoc {
   address: string
-  source: string
+  source: SenderSource
   signals: string[]
   reach?: AddressReachDoc
 }
 
 export interface SenderDeliveryDoc {
-  state: string
+  state: ExportState
   sent: number
   failed: number
   lastError?: string
@@ -2302,7 +2314,7 @@ export interface SenderDeliveryDoc {
 }
 
 export interface SenderDiagnosisDoc {
-  where: string
+  where: FaultAt
   title: string
   detail: string
 }
@@ -2319,6 +2331,8 @@ export interface SenderDoc {
   diagnosis?: SenderDiagnosisDoc
 }
 
+export type SenderSource = 'chosen' | 'recorded' | 'in-cluster'
+
 export interface SendersDoc {
   operatorState: HealthState
   senders: SenderDoc[]
@@ -2329,16 +2343,22 @@ export interface ServerClusterChoiceDoc {
 }
 
 export interface ServerClusterDoc {
-  state: string
-  source?: string
+  state: ServerClusterState
+  source?: ServerClusterSource
   clusterId?: string
   options?: ClusterOption[]
-  nodes?: string
+  nodes?: ServerClusterNodes
 }
+
+export type ServerClusterNodes = 'agent' | 'probe'
 
 export interface ServerClusterRequest {
   clusterId: string
 }
+
+export type ServerClusterSource = 'install' | 'chosen' | 'matched' | 'probe'
+
+export type ServerClusterState = 'known' | 'noAgent' | 'unknown'
 
 export interface ServerInfoDoc {
   registration: Registration
@@ -2665,7 +2685,7 @@ export interface TelemetryIntentDoc {
   id: string
   agentId: string
   name: string
-  status: string
+  status: TelemetryIntentStatus
   namespaces: string[]
   exclude: string[]
   signals: SignalGrantDoc[]
@@ -2682,6 +2702,10 @@ export interface TelemetryIntentScopeRequest {
   exclude: string[]
   signals: SignalGrantDoc[]
 }
+
+export type TelemetryIntentStatus = 'active' | 'revoked'
+
+export type TestState = 'pending' | 'reachable' | 'unreachable'
 
 export interface TimelineDoc {
   audit: AuditRow[]

@@ -23,13 +23,50 @@ import (
 // signal type, the address each chose), and what each sending agent reports about its own exporters. Nothing is dialled
 // from here. The diagnosis is a reading of that evidence, in words, and says so when the evidence does not settle it.
 
+// SenderSource is who chose the address a sender dials.
+type SenderSource string
+
+// Who chose an address.
+const (
+	// SourceChosen: this sender picked it.
+	SourceChosen SenderSource = "chosen"
+	// SourceRecorded: the one recorded for the operator.
+	SourceRecorded SenderSource = "recorded"
+	// SourceInCluster: nothing is recorded, so the sender dials the operator's name inside its own cluster.
+	SourceInCluster SenderSource = "in-cluster"
+)
+
+// WireWords is the list of SenderSource's words, as the generated types give it.
+func (SenderSource) WireWords() []string {
+	return []string{string(SourceChosen), string(SourceRecorded), string(SourceInCluster)}
+}
+
+// FaultAt is where the fault of a sender that is not getting through is likely to be.
+type FaultAt string
+
+// The places a fault can be, and unclear when the evidence does not settle it.
+const (
+	FaultSenderNetwork FaultAt = "sender-network"
+	FaultAddress       FaultAt = "address"
+	FaultCertificate   FaultAt = "certificate"
+	FaultCredential    FaultAt = "credential"
+	FaultOperator      FaultAt = "operator"
+	FaultSender        FaultAt = "sender"
+	FaultUnclear       FaultAt = "unclear"
+)
+
+// WireWords is the list of FaultAt's words, as the generated types give it.
+func (FaultAt) WireWords() []string {
+	return []string{string(FaultSenderNetwork), string(FaultAddress), string(FaultCertificate), string(FaultCredential), string(FaultOperator), string(FaultSender), string(FaultUnclear)}
+}
+
 // SenderAddressDoc is one address a sender dials for some of its signal types.
 type SenderAddressDoc struct {
 	Address string `json:"address"`
 	// Source is chosen (this sender picked it), recorded (the one recorded for the operator) or in-cluster (nothing is
 	// recorded, so the sender dials the operator's name inside its own cluster).
-	Source  string   `json:"source"`
-	Signals []string `json:"signals"`
+	Source  SenderSource `json:"source"`
+	Signals []string     `json:"signals"`
 	// Reach is the last connection test of the address from the sending cluster, which the server repeats on its own
 	// (see address_drift.go). Absent when there is no recent one.
 	Reach *connectivity.AddressReachDoc `json:"reach,omitempty"`
@@ -38,20 +75,20 @@ type SenderAddressDoc struct {
 // SenderDeliveryDoc is what the sending agent reports about exporting to this operator.
 type SenderDeliveryDoc struct {
 	// State is the worst of the sender's exporters for the signal types that go here: failing, silent, exporting or waiting.
-	State        string `json:"state"`
-	Sent         uint64 `json:"sent"`
-	Failed       uint64 `json:"failed"`
-	LastError    string `json:"lastError,omitempty"`
-	LastSentAt   string `json:"lastSentAt,omitempty"`
-	LastFailedAt string `json:"lastFailedAt,omitempty"`
+	State        agents.ExportState `json:"state"`
+	Sent         uint64             `json:"sent"`
+	Failed       uint64             `json:"failed"`
+	LastError    string             `json:"lastError,omitempty"`
+	LastSentAt   string             `json:"lastSentAt,omitempty"`
+	LastFailedAt string             `json:"lastFailedAt,omitempty"`
 }
 
 // SenderDiagnosisDoc says where the fault is likely to be. Where is one of sender-network, address, certificate,
 // credential, operator, sender or unclear; Title is one line and Detail says what the evidence is and what to do.
 type SenderDiagnosisDoc struct {
-	Where  string `json:"where"`
-	Title  string `json:"title"`
-	Detail string `json:"detail"`
+	Where  FaultAt `json:"where"`
+	Title  string  `json:"title"`
+	Detail string  `json:"detail"`
 }
 
 // SenderDoc is one telemetry intent that sends to the operator.
@@ -106,12 +143,12 @@ func (h *API) senderAddresses(op store.Operator, ti store.TelemetryIntent) ([]Se
 		}
 		mods = append(mods, m)
 		addr := h.DestEndpoint(op, d)
-		src := "in-cluster"
+		src := SourceInCluster
 		switch {
 		case d.Address != "":
-			src = "chosen"
+			src = SourceChosen
 		case op.Address != "":
-			src = "recorded"
+			src = SourceRecorded
 		}
 		e := byAddr[addr]
 		if e == nil {
@@ -128,7 +165,7 @@ func (h *API) senderAddresses(op store.Operator, ti store.TelemetryIntent) ([]Se
 	return out, mods
 }
 
-var exportRank = map[string]int{"waiting": 0, "exporting": 1, "silent": 2, "failing": 3}
+var exportRank = map[agents.ExportState]int{agents.ExportWaiting: 0, agents.ExportExporting: 1, agents.ExportSilent: 2, agents.ExportFailing: 3}
 
 // senderDelivery reads the worst state of the agent's exporters for the given signal types. Nil when the agent reports no counters.
 func senderDelivery(h *agents.ExportHealthDoc, mods []store.Modality) *SenderDeliveryDoc {
@@ -139,7 +176,7 @@ func senderDelivery(h *agents.ExportHealthDoc, mods []store.Modality) *SenderDel
 	for _, m := range mods {
 		want[string(m)] = true
 	}
-	d := &SenderDeliveryDoc{State: "waiting"}
+	d := &SenderDeliveryDoc{State: agents.ExportWaiting}
 	for _, r := range h.Routes {
 		if !want[r.Signal] {
 			continue
@@ -156,7 +193,7 @@ func senderDelivery(h *agents.ExportHealthDoc, mods []store.Modality) *SenderDel
 			d.LastFailedAt = r.LastFailedAt
 		}
 	}
-	if d.State == "failing" {
+	if d.State == agents.ExportFailing {
 		d.LastError = h.LastError
 	}
 	return d
@@ -164,7 +201,8 @@ func senderDelivery(h *agents.ExportHealthDoc, mods []store.Modality) *SenderDel
 
 // peerOutcome is how another sender fares against the same operator.
 type peerOutcome struct {
-	Name, Address, State string
+	Name, Address string
+	State         agents.ExportState
 }
 
 type diagnosisInput struct {
@@ -172,7 +210,7 @@ type diagnosisInput struct {
 	Connected    bool
 	Delivery     *SenderDeliveryDoc
 	Address      string
-	AddrSource   string
+	AddrSource   SenderSource
 	OperatorID   string
 	OperatorName string
 	// Central says the operator is the central one, whose health is FUSION's own (online, starting, attention, off) and
@@ -200,16 +238,16 @@ func diagnoseSender(in diagnosisInput) *SenderDiagnosisDoc {
 		who = "This cluster"
 	}
 	if !in.Connected {
-		return &SenderDiagnosisDoc{Where: "sender", Title: who + "'s agent is not connected",
+		return &SenderDiagnosisDoc{Where: FaultSender, Title: who + "'s agent is not connected",
 			Detail: "Ikhnos cannot see how exporting is going until the agent reconnects, so nothing here says whether the operator or the address is at fault."}
 	}
 	// The address was tested from this cluster and nothing answered, and data is not flowing: the address is what to look at,
 	// and it can be said before the exporter has failed at all.
-	if in.Reach != nil && in.Reach.State == "unreachable" && (in.Delivery == nil || in.Delivery.State != "exporting") {
-		return &SenderDiagnosisDoc{Where: "sender-network", Title: who + " cannot reach " + in.Address,
+	if in.Reach != nil && in.Reach.State == connectivity.Unreachable && (in.Delivery == nil || in.Delivery.State != agents.ExportExporting) {
+		return &SenderDiagnosisDoc{Where: FaultSenderNetwork, Title: who + " cannot reach " + in.Address,
 			Detail: "A connection test from " + who + " at " + in.Reach.At + " found nothing answering at " + in.Address + ". An address can change under a running install (a node replaced, a Service recreated with a new node port, a mesh peer renumbered): choose another in the telemetry wizard under Address this cluster dials, and use Test to try it before installing."}
 	}
-	if in.Delivery == nil || in.Delivery.State != "failing" {
+	if in.Delivery == nil || in.Delivery.State != agents.ExportFailing {
 		return nil
 	}
 	errText := strings.ToLower(in.Delivery.LastError)
@@ -224,7 +262,7 @@ func diagnoseSender(in diagnosisInput) *SenderDiagnosisDoc {
 	// What the other senders show. One that is exporting proves the operator is up and its receiver is answering.
 	var working []peerOutcome
 	for _, p := range in.Peers {
-		if p.State == "exporting" {
+		if p.State == agents.ExportExporting {
 			working = append(working, p)
 		}
 	}
@@ -233,13 +271,13 @@ func diagnoseSender(in diagnosisInput) *SenderDiagnosisDoc {
 		// FUSION says itself whether its gateway can take anything: nothing a path could do is the first thing to look at.
 		switch in.OperatorState {
 		case operators.HealthOff:
-			return &SenderDiagnosisDoc{Where: "operator", Title: "FUSION is off",
+			return &SenderDiagnosisDoc{Where: FaultOperator, Title: "FUSION is off",
 				Detail: "The gateway that receives what this cluster sends is not running, so nothing is accepted anywhere. Turn FUSION on from its section; collectors keep what they cannot deliver and send it once it is up."}
 		case operators.HealthStarting:
-			return &SenderDiagnosisDoc{Where: "operator", Title: "FUSION is still starting",
+			return &SenderDiagnosisDoc{Where: FaultOperator, Title: "FUSION is still starting",
 				Detail: "The gateway is not ready yet. This takes a minute or two after FUSION is turned on; collectors keep what they cannot deliver and send it once it is up."}
 		case operators.HealthAttention:
-			return &SenderDiagnosisDoc{Where: "operator", Title: "FUSION reports a problem",
+			return &SenderDiagnosisDoc{Where: FaultOperator, Title: "FUSION reports a problem",
 				Detail: "One of its parts is not working, and the gateway may not be taking anything. Open FUSION: its overview says which part and what to do."}
 		}
 	}
@@ -275,14 +313,14 @@ func diagnoseSender(in diagnosisInput) *SenderDiagnosisDoc {
 		default:
 			d += " Common causes: the operator's or this cluster's certificate has expired" + renew + ", this cluster's certificate Secret is missing or belongs to another operator."
 		}
-		return &SenderDiagnosisDoc{Where: "certificate", Title: "The certificate was refused", Detail: d + quote}
+		return &SenderDiagnosisDoc{Where: FaultCertificate, Title: "The certificate was refused", Detail: d + quote}
 	case has("unauthenticated", "unauthorized", "401", "403", "permission denied", "forbidden"):
-		return &SenderDiagnosisDoc{Where: "credential", Title: "The operator rejected this cluster's credentials",
+		return &SenderDiagnosisDoc{Where: FaultCredential, Title: "The operator rejected this cluster's credentials",
 			Detail: "The connection works, but what this cluster presented was not accepted: a receiver token that is wrong or was rotated, or a client certificate the operator does not trust. Run the cluster's generated command again; for an operator with a receiver token, check the Secret that holds it." + quote}
 	}
 
 	if in.OperatorState == operators.HealthOffline && len(working) == 0 {
-		return &SenderDiagnosisDoc{Where: "operator", Title: "The operator itself is not reporting",
+		return &SenderDiagnosisDoc{Where: FaultOperator, Title: "The operator itself is not reporting",
 			Detail: "No other cluster is getting through, and the operator has stopped reporting its own health" + seen + ". Look at the operator first: `kubectl -n continuum-system get pods` in its cluster. " + who + "'s path is not shown to be at fault." + quote}
 	}
 
@@ -292,10 +330,10 @@ func diagnoseSender(in diagnosisInput) *SenderDiagnosisDoc {
 	}
 	switch {
 	case has("connection refused"):
-		return &SenderDiagnosisDoc{Where: "address", Title: "Something answered, but nothing listens on that port",
+		return &SenderDiagnosisDoc{Where: FaultAddress, Title: "Something answered, but nothing listens on that port",
 			Detail: "The host at " + in.Address + " is reachable from " + who + ", and refused the connection. Check that the operator's Service still uses that port: a node port or load balancer port changes when the Service is recreated. Choose the address again in the telemetry wizard." + quote}
 	case has("no such host", "lookup "):
-		return &SenderDiagnosisDoc{Where: "address", Title: "The name does not resolve from this cluster",
+		return &SenderDiagnosisDoc{Where: FaultAddress, Title: "The name does not resolve from this cluster",
 			Detail: "The address " + in.Address + " is a name, and " + who + " cannot look it up. Use an IP address, or a name its DNS knows." + quote}
 	}
 
@@ -306,19 +344,19 @@ func diagnoseSender(in diagnosisInput) *SenderDiagnosisDoc {
 			d = "The operator reports itself online."
 		}
 		d += fmt.Sprintf(" The path from %s to %s does not get through.", who, in.Address)
-		if private && in.AddrSource != "chosen" {
+		if private && in.AddrSource != SourceChosen {
 			d += " That is a private address, and a private address works only from a network that can route to it."
 		}
 		if len(working) > 0 && working[0].Address != in.Address {
 			d += " " + working[0].Name + " reaches it at " + working[0].Address + ": try that one from " + who + "."
 		}
-		if in.Reach != nil && in.Reach.State == "reachable" {
+		if in.Reach != nil && in.Reach.State == connectivity.Reachable {
 			d += " A connection test from " + who + " at " + in.Reach.At + " did connect to it, so the failure may be passing: check again shortly."
 		}
 		d += " Pick another address under Address this cluster dials in the telemetry wizard and use Test to try it from " + who + " before installing."
-		return &SenderDiagnosisDoc{Where: "sender-network", Title: who + " cannot reach " + in.Address, Detail: d + quote}
+		return &SenderDiagnosisDoc{Where: FaultSenderNetwork, Title: who + " cannot reach " + in.Address, Detail: d + quote}
 	}
-	return &SenderDiagnosisDoc{Where: "unclear", Title: "Cannot tell which end is at fault",
+	return &SenderDiagnosisDoc{Where: FaultUnclear, Title: "Cannot tell which end is at fault",
 		Detail: "No other cluster is exporting to this operator and it is not reporting its health, so there is nothing to compare with. Use Test on " + in.Address + " from " + who + ": if that fails, the path or the address is the problem; if it works, look at the operator's pods." + quote}
 }
 

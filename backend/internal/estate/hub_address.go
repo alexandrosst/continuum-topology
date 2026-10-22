@@ -200,9 +200,9 @@ func (h *Hub) ReachOf(agentID, address string, now time.Time) *connectivity.Addr
 	if r == nil || now.Sub(r.At) > connectivity.ReachFresh {
 		return nil
 	}
-	d := &connectivity.AddressReachDoc{State: "unreachable", At: kernel.RFC(r.At)}
+	d := &connectivity.AddressReachDoc{State: connectivity.Unreachable, At: kernel.RFC(r.At)}
 	if r.Reachable {
-		d.State, d.RTTP50Ms = "reachable", r.P50
+		d.State, d.RTTP50Ms = connectivity.Reachable, r.P50
 	}
 	return d
 }

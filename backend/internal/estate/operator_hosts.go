@@ -23,16 +23,24 @@ import (
 // continuum-system, so those facts are enough to list the addresses it can be reached at. Nothing here is a claim that
 // an address works from anywhere: that is a separate test, made from the sending cluster (see the address check).
 
+// CandidateKind is the kind of address a candidate is.
+type CandidateKind string
+
 // The kinds of address a candidate can be, in the order they are offered.
 const (
-	candidateLoadBalancer = "load-balancer"
-	candidateNodePort     = "node-port"
+	candidateLoadBalancer CandidateKind = "load-balancer"
+	candidateNodePort     CandidateKind = "node-port"
 	// candidateNodeServicePort is a node's own address on the Service's own port: open on the node when the load balancer is the
 	// node's (see nodeHostedLoadBalancer), and then reached the same way a node port is.
-	candidateNodeServicePort = "node-service-port"
-	candidateExternalIP      = "external-ip"
-	candidateRecorded        = "recorded"
+	candidateNodeServicePort CandidateKind = "node-service-port"
+	candidateExternalIP      CandidateKind = "external-ip"
+	candidateRecorded        CandidateKind = "recorded"
 )
+
+// WireWords is the list of CandidateKind's words, as the generated types give it.
+func (CandidateKind) WireWords() []string {
+	return []string{string(candidateLoadBalancer), string(candidateNodePort), string(candidateNodeServicePort), string(candidateExternalIP), string(candidateRecorded)}
+}
 
 // maxNodePortNodes bounds how many nodes are listed for a node port: it is open on every node, and a large cluster
 // would otherwise bury the few addresses worth trying.
@@ -43,15 +51,15 @@ type AddressCandidate struct {
 	// ID is stable for the same address and kind, so a client can keep a choice across refreshes.
 	ID      string `json:"id"`
 	Address string `json:"address"`
-	// Kind is load-balancer, node-port, external-ip or recorded (typed in by a person, or set earlier).
-	Kind string `json:"kind"`
+	// Kind is load-balancer, node-port, node-service-port, external-ip or recorded (typed in by a person, or set earlier).
+	Kind CandidateKind `json:"kind"`
 	// Source says in words where the address comes from.
 	Source string `json:"source"`
 	// Node names the node a node-port address belongs to; absent for the other kinds.
 	Node string `json:"node,omitempty"`
 	// Network says what sort of network the address is on: mesh (a VPN or overlay such as WireGuard or Tailscale),
 	// private (a LAN) or public. Absent when it is not known, as for a name typed in by a person.
-	Network string `json:"network,omitempty"`
+	Network AddressNetwork `json:"network,omitempty"`
 	// Interface names the node's network interface the address was read from, when the node probe reported it.
 	Interface string `json:"interface,omitempty"`
 	// Recorded is true for the address currently recorded for the operator.
@@ -77,28 +85,72 @@ type AddressCandidates struct {
 	ServerCluster *ServerClusterDoc `json:"serverCluster,omitempty"`
 }
 
+// ServerClusterState is whether the server knows which cluster it runs in.
+type ServerClusterState string
+
+// WireWords is the list of ServerClusterState's words, as the generated types give it.
+func (ServerClusterState) WireWords() []string {
+	return []string{string(serverClusterKnown), string(serverClusterNoAgent), string(serverClusterUnknown)}
+}
+
+// ServerClusterSource is how a known cluster is known.
+type ServerClusterSource string
+
+// How the server's cluster is known.
+const (
+	// ServerClusterInstall: the chart passed its identity.
+	ServerClusterInstall ServerClusterSource = "install"
+	// ServerClusterChosen: a person picked it.
+	ServerClusterChosen ServerClusterSource = "chosen"
+	// ServerClusterMatched: worked out from what agents report, and a person may correct it.
+	ServerClusterMatched ServerClusterSource = "matched"
+	// ServerClusterProbe: the server's own node probes reported from it.
+	ServerClusterProbe ServerClusterSource = "probe"
+)
+
+// WireWords is the list of ServerClusterSource's words, as the generated types give it.
+func (ServerClusterSource) WireWords() []string {
+	return []string{string(ServerClusterInstall), string(ServerClusterChosen), string(ServerClusterMatched), string(ServerClusterProbe)}
+}
+
+// ServerClusterNodes is where the nodes listed for the server's cluster come from.
+type ServerClusterNodes string
+
+// Where the server's nodes come from.
+const (
+	// ServerNodesAgent: an agent registered in the cluster.
+	ServerNodesAgent ServerClusterNodes = "agent"
+	// ServerNodesProbe: the node probes that ship with the server's chart, which need no agent.
+	ServerNodesProbe ServerClusterNodes = "probe"
+)
+
+// WireWords is the list of ServerClusterNodes' words, as the generated types give it.
+func (ServerClusterNodes) WireWords() []string {
+	return []string{string(ServerNodesAgent), string(ServerNodesProbe)}
+}
+
 // Server cluster states.
 const (
 	// serverClusterKnown: the cluster is known and an agent there reports its nodes.
-	serverClusterKnown = "known"
+	serverClusterKnown ServerClusterState = "known"
 	// serverClusterNoAgent: the cluster is known, but no agent is registered in it, so its nodes cannot be listed.
-	serverClusterNoAgent = "noAgent"
+	serverClusterNoAgent ServerClusterState = "noAgent"
 	// serverClusterUnknown: neither the install, a person nor what agents report says which cluster it is.
-	serverClusterUnknown = "unknown"
+	serverClusterUnknown ServerClusterState = "unknown"
 )
 
 // ServerClusterDoc says which cluster the server runs in and how that is known.
 type ServerClusterDoc struct {
-	State string `json:"state"`
-	// Source is how a known cluster is known: "install" (the chart passed its identity), "chosen" (a person picked it) or
-	// "matched" (worked out from what agents report, and a person may correct it).
-	Source    string `json:"source,omitempty"`
-	ClusterID string `json:"clusterId,omitempty"`
+	State ServerClusterState `json:"state"`
+	// Source is how a known cluster is known: install (the chart passed its identity), chosen (a person picked it), matched
+	// (worked out from what agents report, and a person may correct it) or probe (the server's own node probes reported from it).
+	Source    ServerClusterSource `json:"source,omitempty"`
+	ClusterID string              `json:"clusterId,omitempty"`
 	// Options are the registered clusters to choose from (to set the cluster, or to change it).
 	Options []ClusterOption `json:"options,omitempty"`
-	// Nodes says where the nodes listed come from: "agent" (an agent registered in the cluster) or "probe" (the node probes
+	// Nodes says where the nodes listed come from: agent (an agent registered in the cluster) or probe (the node probes
 	// that ship with the server's chart, which need no agent). Empty when no nodes are listed.
-	Nodes string `json:"nodes,omitempty"`
+	Nodes ServerClusterNodes `json:"nodes,omitempty"`
 }
 
 // ExposeDoc names the gateway's Service and the kubectl command that makes it reachable from other clusters.
@@ -337,11 +389,19 @@ func clusterHost(a store.Agent, st *facts.State, w *continuumv1.WorkloadFacts) o
 	return host
 }
 
+// AddressNetwork is what sort of network an address is on.
+type AddressNetwork string
+
+// WireWords is the list of AddressNetwork's words, as the generated types give it.
+func (AddressNetwork) WireWords() []string {
+	return []string{string(networkMesh), string(networkPrivate), string(networkPublic)}
+}
+
 // Network classes an address can have.
 const (
-	networkMesh    = "mesh"
-	networkPrivate = "private"
-	networkPublic  = "public"
+	networkMesh    AddressNetwork = "mesh"
+	networkPrivate AddressNetwork = "private"
+	networkPublic  AddressNetwork = "public"
 )
 
 // meshNames are the interface names the common mesh VPNs give their links; the link driver (WireGuard, tun) and the
@@ -352,7 +412,7 @@ var cgnat = netip.MustParsePrefix("100.64.0.0/10")
 
 // classifyNetwork says whether an address on an interface is a mesh, a private or a public one. Mesh is judged first,
 // because a mesh address is usually also in a private range and the difference is what a person choosing needs.
-func classifyNetwork(iface, kind, ip string) string {
+func classifyNetwork(iface, kind, ip string) AddressNetwork {
 	a, err := netip.ParseAddr(ip)
 	if err != nil {
 		return ""
@@ -416,7 +476,7 @@ func addressCandidates(h operatorHost, recorded string) []AddressCandidate {
 			return
 		}
 		seen[c.Address] = true
-		c.ID = c.Kind + "|" + c.Address
+		c.ID = string(c.Kind) + "|" + c.Address
 		c.Recorded = c.Address == recorded
 		out = append(out, c)
 	}
@@ -434,7 +494,7 @@ func addressCandidates(h operatorHost, recorded string) []AddressCandidate {
 	// operator's pod first.
 	type nodePortSpec struct {
 		port int32
-		kind string
+		kind CandidateKind
 		what string
 	}
 	var ports []nodePortSpec
@@ -542,7 +602,8 @@ const maxCandidates = 16
 
 // nodeAddr is one address a node can be dialled on.
 type nodeAddr struct {
-	ip, what, network, iface string
+	ip, what, iface string
+	network         AddressNetwork
 }
 
 // addresses lists a node's addresses in the order they are offered: its internal address first, then those on its

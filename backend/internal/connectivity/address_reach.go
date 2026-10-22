@@ -40,28 +40,43 @@ type AddressTest struct {
 	At              time.Time
 }
 
+// TestState is where a test of an address stands: pending (no result yet), or what it found.
+type TestState string
+
+// The states of a test of an address.
+const (
+	TestPending     TestState = "pending"
+	TestReachable   TestState = "reachable"
+	TestUnreachable TestState = "unreachable"
+)
+
+// WireWords is the list of TestState's words, as the generated types give it.
+func (TestState) WireWords() []string {
+	return []string{string(TestPending), string(TestReachable), string(TestUnreachable)}
+}
+
 // AddressTestDoc is what the UI reads about one test.
 type AddressTestDoc struct {
 	ID      string `json:"id"`
 	Address string `json:"address"`
 	// State is pending (no result yet), reachable (a connection was made) or unreachable (every attempt failed).
-	State    string  `json:"state"`
-	Samples  int     `json:"samples,omitempty"`
-	Failed   int     `json:"failed,omitempty"`
-	RTTMinMs float64 `json:"rttMinMs,omitempty"`
-	RTTP50Ms float64 `json:"rttP50Ms,omitempty"`
-	RTTP95Ms float64 `json:"rttP95Ms,omitempty"`
-	At       string  `json:"at,omitempty"`
-	Created  string  `json:"created"`
+	State    TestState `json:"state"`
+	Samples  int       `json:"samples,omitempty"`
+	Failed   int       `json:"failed,omitempty"`
+	RTTMinMs float64   `json:"rttMinMs,omitempty"`
+	RTTP50Ms float64   `json:"rttP50Ms,omitempty"`
+	RTTP95Ms float64   `json:"rttP95Ms,omitempty"`
+	At       string    `json:"at,omitempty"`
+	Created  string    `json:"created"`
 }
 
 func (t *AddressTest) Doc() AddressTestDoc {
-	d := AddressTestDoc{ID: t.ID, Address: t.Address, State: "pending", Created: kernel.RFC(t.Created)}
+	d := AddressTestDoc{ID: t.ID, Address: t.Address, State: TestPending, Created: kernel.RFC(t.Created)}
 	if t.Done {
 		d.Samples, d.Failed, d.RTTMinMs, d.RTTP50Ms, d.RTTP95Ms, d.At = t.Samples, t.Failed, t.Min, t.P50, t.P95, kernel.RFC(t.At)
-		d.State = "reachable"
+		d.State = TestReachable
 		if t.Failed >= t.Samples {
-			d.State = "unreachable"
+			d.State = TestUnreachable
 		}
 	}
 	return d

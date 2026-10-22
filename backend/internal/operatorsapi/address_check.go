@@ -90,14 +90,44 @@ func gatewayServiceWarnings(host, port string, svc kernel.KubeService) []string 
 	return nil
 }
 
+// CheckState is what one look at an address found.
+type CheckState string
+
+// What a look at an address can find.
+const (
+	// CheckReachable: a TLS server answered with this operator's own certificate (or, for a receiver not known to use TLS, a connection was made).
+	CheckReachable CheckState = "reachable"
+	// CheckNoTLS: a server answered, but not with TLS.
+	CheckNoTLS CheckState = "no-tls"
+	// CheckWrongCertificate: something answered with a certificate that is not this operator's.
+	CheckWrongCertificate CheckState = "wrong-certificate"
+	// CheckRefused: nothing listens on that port.
+	CheckRefused CheckState = "refused"
+	// CheckNoAnswer: the connection timed out.
+	CheckNoAnswer CheckState = "no-answer"
+	// CheckUnresolved: the name has no address.
+	CheckUnresolved CheckState = "unresolved"
+	// CheckBlocked: the name leads somewhere this server will not connect to.
+	CheckBlocked CheckState = "blocked"
+	// CheckError: anything else.
+	CheckError CheckState = "error"
+	// CheckNoAddress: no address is recorded, so there is nothing to look at.
+	CheckNoAddress CheckState = "no-address"
+)
+
+// WireWords is the list of CheckState's words, as the generated types give it.
+func (CheckState) WireWords() []string {
+	return []string{string(CheckReachable), string(CheckNoTLS), string(CheckWrongCertificate), string(CheckRefused), string(CheckNoAnswer), string(CheckUnresolved), string(CheckBlocked), string(CheckError), string(CheckNoAddress)}
+}
+
 // AddressProbe is what one look at an address found.
 type AddressProbe struct {
 	// State is reachable (a TLS server answered with this operator's own certificate), no-tls (a server answered, but not
 	// with TLS), wrong-certificate (something answered with a certificate that is not this operator's), refused (nothing
 	// listens on that port), no-answer (the connection timed out), unresolved (the name has no address), blocked (the name leads somewhere this server will not connect to) or error.
-	State     string `json:"state"`
-	Message   string `json:"message"`
-	CheckedAt string `json:"checkedAt"`
+	State     CheckState `json:"state"`
+	Message   string     `json:"message"`
+	CheckedAt string     `json:"checkedAt"`
 	// From says where the look was taken: this server, which sees the network it sits in, not the one a sender sits in.
 	From string `json:"from"`
 }
@@ -119,12 +149,12 @@ func ProbeAddress(ctx context.Context, addr string, caPEM []byte, serverName str
 	}
 	defer conn.Close()
 	if len(caPEM) == 0 {
-		res.State, res.Message = "reachable", fmt.Sprintf("%s accepts connections. This operator's receiver is not known to use TLS, so nothing more was checked.", addr)
+		res.State, res.Message = CheckReachable, fmt.Sprintf("%s accepts connections. This operator's receiver is not known to use TLS, so nothing more was checked.", addr)
 		return res
 	}
 	pool := x509.NewCertPool()
 	if !pool.AppendCertsFromPEM(caPEM) {
-		res.State, res.Message = "error", "the operator's CA certificate could not be read"
+		res.State, res.Message = CheckError, "the operator's CA certificate could not be read"
 		return res
 	}
 	c := tls.Client(conn, &tls.Config{ServerName: serverName, RootCAs: pool, MinVersion: tls.VersionTLS12, NextProtos: []string{"h2"}})
@@ -138,38 +168,38 @@ func ProbeAddress(ctx context.Context, addr string, caPEM []byte, serverName str
 		)
 		switch {
 		case errors.As(err, &recHdr):
-			res.State, res.Message = "no-tls", fmt.Sprintf("something answers on %s, but not with TLS: it is not a receiver that uses a certificate. A sender that verifies the receiver (every command this server prints does) cannot connect.", addr)
+			res.State, res.Message = CheckNoTLS, fmt.Sprintf("something answers on %s, but not with TLS: it is not a receiver that uses a certificate. A sender that verifies the receiver (every command this server prints does) cannot connect.", addr)
 		case errors.As(err, &unknown), errors.As(err, &hostErr), errors.As(err, &invalid), errors.As(err, &certVeri):
-			res.State, res.Message = "wrong-certificate", fmt.Sprintf("something answers on %s, but its certificate is not this operator's. The address points at something else, or at a receiver that was installed with other certificates.", addr)
+			res.State, res.Message = CheckWrongCertificate, fmt.Sprintf("something answers on %s, but its certificate is not this operator's. The address points at something else, or at a receiver that was installed with other certificates.", addr)
 		case strings.Contains(err.Error(), "bad certificate") || strings.Contains(err.Error(), "certificate required"):
 			// The server certificate was accepted and the server then asked for the client certificate this probe does not
 			// hold: that is what a receiver which requires mutual TLS does.
-			res.State, res.Message = "reachable", fmt.Sprintf("%s answers with this operator's certificate and asks for a client certificate, as it should.", addr)
+			res.State, res.Message = CheckReachable, fmt.Sprintf("%s answers with this operator's certificate and asks for a client certificate, as it should.", addr)
 		default:
 			res.State, res.Message = classifyDialError(err, addr)
 		}
 		return res
 	}
-	res.State, res.Message = "reachable", fmt.Sprintf("%s answers with this operator's certificate.", addr)
+	res.State, res.Message = CheckReachable, fmt.Sprintf("%s answers with this operator's certificate.", addr)
 	return res
 }
 
-func classifyDialError(err error, addr string) (state, msg string) {
+func classifyDialError(err error, addr string) (state CheckState, msg string) {
 	var dns *net.DNSError
 	switch {
 	case kernel.IsDeciderDenied(err):
 		// Say nothing of the address it resolved to or why: that would be the answer to the scan.
-		return "blocked", "this server will not connect to that address."
+		return CheckBlocked, "this server will not connect to that address."
 	case errors.As(err, &dns):
-		return "unresolved", fmt.Sprintf("the name in %s does not resolve to an address.", addr)
+		return CheckUnresolved, fmt.Sprintf("the name in %s does not resolve to an address.", addr)
 	case errors.Is(err, syscall.ECONNREFUSED):
-		return "refused", fmt.Sprintf("the connection to %s was refused: the host answers, nothing listens on that port.", addr)
+		return CheckRefused, fmt.Sprintf("the connection to %s was refused: the host answers, nothing listens on that port.", addr)
 	case errors.Is(err, context.DeadlineExceeded), isTimeout(err):
-		return "no-answer", fmt.Sprintf("%s did not answer within %d seconds: nothing routes there, or a firewall drops the connection.", addr, int(probeTimeout/time.Second))
+		return CheckNoAnswer, fmt.Sprintf("%s did not answer within %d seconds: nothing routes there, or a firewall drops the connection.", addr, int(probeTimeout/time.Second))
 	}
 	// No raw error text: what a dial or a handshake says about an address that is not the operator's is a window onto this
 	// server's network.
-	return "error", fmt.Sprintf("could not connect to %s.", addr)
+	return CheckError, fmt.Sprintf("could not connect to %s.", addr)
 }
 
 func isTimeout(err error) bool {
@@ -291,7 +321,7 @@ func (h *API) checkOperatorAddress(w http.ResponseWriter, r *http.Request) {
 	addr, caPEM, serverName := h.probeSettings(c, op)
 	now := c.Now()
 	if addr == "" {
-		httpkit.WriteJSON(w, 200, AddressProbe{State: "no-address", Message: "No address is recorded for this operator, so there is nothing to check.", CheckedAt: kernel.RFC(now), From: "this server"})
+		httpkit.WriteJSON(w, 200, AddressProbe{State: CheckNoAddress, Message: "No address is recorded for this operator, so there is nothing to check.", CheckedAt: kernel.RFC(now), From: "this server"})
 		return
 	}
 	if res, ok := h.probes.get(op.ID, addr, now); ok {

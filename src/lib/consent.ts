@@ -10,6 +10,7 @@ import { activeLanes, emptyExportTarget, cleanTags, emptyScopeOverride, emptyTel
 // Re-exported for every existing `from '@/lib/consent'` import site - Modality/TELEMETRY_SIGNALS/
 // enabledModalities now live in install.ts (see its own comment on why), consent.ts just re-exports them.
 import { operatorReceiverEndpoint } from './destinationCatalog'
+import type * as W from './generated/wire'
 import type { TelemetryIntent } from './types'
 import { processorKey } from './processorCatalog'
 import { reportIsStale } from './status'
@@ -85,30 +86,15 @@ export interface AgentDiagnostics {
 /** The agent's state for one route: waiting (nothing seen go out yet), exporting (data went out recently),
  *  silent (it did before, but not recently - not an error by itself: an idle signal looks like this) or
  *  failing (sends failed recently and none succeeded since). */
-export type ExportState = 'waiting' | 'exporting' | 'silent' | 'failing'
+export type ExportState = W.ExportState
 
-/** The server's ExportHealthDoc, one-to-one. */
-export interface AgentExportHealth {
-  scrapedAt?: string
-  /** Collector pods whose counters were read on the last attempt, and how many attempts failed. Reached 0
-   *  with failures means the counters cannot be read at all - which says nothing about the data itself. */
-  podsReached: number
-  podsFailed: number
-  lastError?: string
-  routes: AgentExportRoute[]
-}
+/** The server's ExportHealthDoc. `podsReached` is the collector pods whose counters were read on the last attempt, and `podsFailed` how many
+ *  attempts failed: reached 0 with failures means the counters cannot be read at all, which says nothing about the data itself. */
+export type AgentExportHealth = W.ExportHealthDoc
 
-export interface AgentExportRoute {
-  /** The exporter's id in the collector config: otlp, otlphttp/logs, zipkin/traces. */
-  exporter: string
-  signal: string
-  state: ExportState
-  /** Summed over the collector pods since each started, so they can go down when a pod restarts. */
-  sent: number
-  failed: number
-  lastSentAt?: string
-  lastFailedAt?: string
-}
+/** One exporter's state for one signal type. `exporter` is its id in the collector config (otlp, otlphttp/logs, zipkin/traces); `sent` and
+ *  `failed` are summed over the collector pods since each started, so they can go down when a pod restarts. */
+export type AgentExportRoute = W.ExportRouteHealthDoc
 
 /**
  * The effective configuration behind AgentDiagnostics.installedTelemetry - the server's DiagnosticsDoc.

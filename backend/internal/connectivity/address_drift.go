@@ -36,12 +36,26 @@ type addrReach struct {
 	P50             float64
 }
 
+// ReachState is what the last test of an address found.
+type ReachState string
+
+// The outcomes of a test of an address.
+const (
+	// Reachable: a connection was made.
+	Reachable ReachState = "reachable"
+	// Unreachable: every attempt failed.
+	Unreachable ReachState = "unreachable"
+)
+
+// WireWords is the list of ReachState's words, as the generated types give it.
+func (ReachState) WireWords() []string { return []string{string(Reachable), string(Unreachable)} }
+
 // AddressReachDoc is the last test of an address, from the cluster that dials it.
 type AddressReachDoc struct {
 	// State is reachable (a connection was made) or unreachable (every attempt failed).
-	State    string  `json:"state"`
-	At       string  `json:"at"`
-	RTTP50Ms float64 `json:"rttP50Ms,omitempty"`
+	State    ReachState `json:"state"`
+	At       string     `json:"at"`
+	RTTP50Ms float64    `json:"rttP50Ms,omitempty"`
 }
 
 // noteReach keeps what a finished test found. Called with h.mu held.

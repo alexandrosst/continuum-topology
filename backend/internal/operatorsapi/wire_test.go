@@ -97,5 +97,5 @@ func target2() *exportTargetDoc {
 
 // The words the page switches on are the constants the code writes, no more and no fewer.
 func TestTheWordsOfAnOperatorAreItsConstants(t *testing.T) {
-	wire.RequireWordsComplete(t, ".", AddressStatus(""), Exposure(""), DestinationRole(""), CertKind(""), CertValidity(""))
+	wire.RequireWordsComplete(t, ".", AddressStatus(""), Exposure(""), DestinationRole(""), CertKind(""), CertValidity(""), SenderSource(""), FaultAt(""), CheckState(""))
 }

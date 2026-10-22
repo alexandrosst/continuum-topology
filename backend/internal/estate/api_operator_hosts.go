@@ -29,9 +29,9 @@ func (h *API) serverClusterHost(ctx context.Context, hub *Hub, cen operators.Cen
 func (h *API) serverClusterFromAgents(ctx context.Context, hub *Hub, cen operators.Central, namespace, workload string, gateway *kernel.KubeService) (operatorHost, bool, *ServerClusterDoc) {
 	hosts := hubHosts{hub}
 	gatewayWorkload := func(w *continuumv1.WorkloadFacts) bool { return w.Namespace == namespace && w.Name == workload }
-	id, source := hub.C.Settings().ServerClusterID, "chosen"
+	id, source := hub.C.Settings().ServerClusterID, ServerClusterChosen
 	if id == "" {
-		id, source = "", "install"
+		id, source = "", ServerClusterInstall
 		if cid, ok := kernel.ClusterIDForUID(hub.C.OrgID, cen.ClusterUID()); ok {
 			id = cid
 		}
@@ -54,7 +54,7 @@ func (h *API) serverClusterFromAgents(ctx context.Context, hub *Hub, cen operato
 		}
 	}
 	if ok {
-		return host, true, &ServerClusterDoc{State: serverClusterKnown, Source: "matched", ClusterID: host.ClusterID, Options: hosts.clusterOptions(ctx)}
+		return host, true, &ServerClusterDoc{State: serverClusterKnown, Source: ServerClusterMatched, ClusterID: host.ClusterID, Options: hosts.clusterOptions(ctx)}
 	}
 	return operatorHost{}, false, &ServerClusterDoc{State: serverClusterUnknown, Options: hosts.clusterOptions(ctx)}
 }
@@ -82,7 +82,7 @@ func (h *API) withSelfProbe(host operatorHost, found bool, doc *ServerClusterDoc
 			}
 		}
 		host.Nodes = filled
-		doc.Nodes = "agent"
+		doc.Nodes = ServerNodesAgent
 		return host, true, doc
 	}
 	host = operatorHost{ClusterID: doc.ClusterID, ClusterName: "This server's cluster", Nodes: nodes}
@@ -91,9 +91,9 @@ func (h *API) withSelfProbe(host operatorHost, found bool, doc *ServerClusterDoc
 			host.ClusterName = o.Name
 		}
 	}
-	doc.State, doc.Nodes = serverClusterKnown, "probe"
+	doc.State, doc.Nodes = serverClusterKnown, ServerNodesProbe
 	if doc.Source == "" {
-		doc.Source = "probe"
+		doc.Source = ServerClusterProbe
 	}
 	return host, true, doc
 }

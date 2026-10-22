@@ -327,26 +327,43 @@ type ExportHealthDoc struct {
 	Routes      []ExportRouteHealthDoc `json:"routes"`
 }
 
+// ExportState is the agent's state for one route: waiting (nothing seen go out yet), exporting (data went out recently), silent (it did
+// before, but not recently: an idle signal looks like this) or failing (sends failed recently and none succeeded since).
+type ExportState string
+
+// The states of an export route, from the quietest to the loudest.
+const (
+	ExportWaiting   ExportState = "waiting"
+	ExportExporting ExportState = "exporting"
+	ExportSilent    ExportState = "silent"
+	ExportFailing   ExportState = "failing"
+)
+
+// WireWords is the list of ExportState's words, as the generated types give it.
+func (ExportState) WireWords() []string {
+	return []string{string(ExportWaiting), string(ExportExporting), string(ExportSilent), string(ExportFailing)}
+}
+
 // ExportRouteHealthDoc is one exporter's state for one signal type. State is waiting, exporting, silent or
 // failing; Sent and Failed are summed over the collector pods since each started (so they can go down when a
 // pod restarts), and the times are when the agent last saw each grow.
 type ExportRouteHealthDoc struct {
-	Exporter     string `json:"exporter"`
-	Signal       string `json:"signal"`
-	State        string `json:"state"`
-	Sent         uint64 `json:"sent"`
-	Failed       uint64 `json:"failed"`
-	LastSentAt   string `json:"lastSentAt,omitempty"`
-	LastFailedAt string `json:"lastFailedAt,omitempty"`
+	Exporter     string      `json:"exporter"`
+	Signal       string      `json:"signal"`
+	State        ExportState `json:"state"`
+	Sent         uint64      `json:"sent"`
+	Failed       uint64      `json:"failed"`
+	LastSentAt   string      `json:"lastSentAt,omitempty"`
+	LastFailedAt string      `json:"lastFailedAt,omitempty"`
 }
 
 // ExportHealthStates names the agent's states; one this server does not know is shown as waiting, the one
 // that claims nothing.
-var ExportHealthStates = map[continuumv1.ExportRouteHealth_State]string{
-	continuumv1.ExportRouteHealth_WAITING:   "waiting",
-	continuumv1.ExportRouteHealth_EXPORTING: "exporting",
-	continuumv1.ExportRouteHealth_SILENT:    "silent",
-	continuumv1.ExportRouteHealth_FAILING:   "failing",
+var ExportHealthStates = map[continuumv1.ExportRouteHealth_State]ExportState{
+	continuumv1.ExportRouteHealth_WAITING:   ExportWaiting,
+	continuumv1.ExportRouteHealth_EXPORTING: ExportExporting,
+	continuumv1.ExportRouteHealth_SILENT:    ExportSilent,
+	continuumv1.ExportRouteHealth_FAILING:   ExportFailing,
 }
 
 // TelemetryConfigDoc is the effective configuration behind DiagnosticsDoc.InstalledTelemetryConfig - see

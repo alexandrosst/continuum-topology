@@ -47,14 +47,14 @@ func (d signalGrantDoc) toStore() store.SignalGrant {
 }
 
 type telemetryIntentDoc struct {
-	ID          string           `json:"id"`
-	AgentID     string           `json:"agentId"`
-	Name        string           `json:"name"`
-	Status      string           `json:"status"`
-	Namespaces  []string         `json:"namespaces"`
-	Exclude     []string         `json:"exclude"`
-	Signals     []signalGrantDoc `json:"signals"`
-	Destination destination.Doc  `json:"destination"`
+	ID          string                      `json:"id"`
+	AgentID     string                      `json:"agentId"`
+	Name        string                      `json:"name"`
+	Status      store.TelemetryIntentStatus `json:"status"`
+	Namespaces  []string                    `json:"namespaces"`
+	Exclude     []string                    `json:"exclude"`
+	Signals     []signalGrantDoc            `json:"signals"`
+	Destination destination.Doc             `json:"destination"`
 	// Routes is a destination per signal type (metrics, logs, traces) that has one of its own; absent when
 	// every signal goes to Destination.
 	Routes    map[string]destination.Doc `json:"routes,omitempty"`
@@ -66,7 +66,7 @@ type telemetryIntentDoc struct {
 
 func toTelemetryIntentDoc(ti store.TelemetryIntent) telemetryIntentDoc {
 	d := telemetryIntentDoc{
-		ID: ti.ID, AgentID: ti.AgentID, Name: ti.Name, Status: string(ti.Status),
+		ID: ti.ID, AgentID: ti.AgentID, Name: ti.Name, Status: ti.Status,
 		Namespaces: ti.Namespaces, Exclude: ti.Exclude, Destination: destination.Of(ti.Destination),
 		CreatedAt: kernel.RFC(ti.CreatedAt), CreatedBy: ti.CreatedBy, Reason: ti.Reason,
 	}

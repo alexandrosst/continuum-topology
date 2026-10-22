@@ -20,7 +20,7 @@ func TestDiagnosisSaysWhichEndIsAtFault(t *testing.T) {
 	cases := []struct {
 		name  string
 		mod   func(*diagnosisInput)
-		where string
+		where FaultAt
 		has   []string
 	}{
 		{"nothing wrong when exporting", func(in *diagnosisInput) { in.Delivery = &SenderDeliveryDoc{State: "exporting"} }, "", nil},
@@ -127,7 +127,7 @@ func TestDiagnosisOfASenderToTheCentralOperatorReadsFusionsOwnState(t *testing.T
 		name   string
 		state  operators.HealthState
 		peers  []peerOutcome
-		where  string
+		where  FaultAt
 		phrase string
 	}{
 		{"off", operators.HealthOff, nil, "operator", "FUSION is off"},

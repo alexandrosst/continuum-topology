@@ -431,7 +431,7 @@ func (v *View) diagDoc() *agents.DiagnosticsDoc {
 		for _, r := range h.Routes {
 			state := agents.ExportHealthStates[r.State]
 			if state == "" {
-				state = "waiting"
+				state = agents.ExportWaiting
 			}
 			rd := agents.ExportRouteHealthDoc{Exporter: kernel.Printable(r.Exporter, 80), Signal: kernel.Printable(r.Signal, 20), State: state, Sent: r.Sent, Failed: r.Failed}
 			if r.LastSentAt != nil {

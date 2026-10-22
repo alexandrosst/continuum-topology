@@ -165,7 +165,7 @@ func TestAddressCheckTellsWhatAnswersThere(t *testing.T) {
 			t.Fatalf("check: %d %s", r.Code, r.Body.String())
 		}
 		j := r.json(t)
-		return operatorsapi.AddressProbe{State: j["state"].(string), Message: j["message"].(string)}
+		return operatorsapi.AddressProbe{State: operatorsapi.CheckState(j["state"].(string)), Message: j["message"].(string)}
 	}
 	if got := check(); got.State != "no-address" {
 		t.Fatalf("before an address: %+v", got)

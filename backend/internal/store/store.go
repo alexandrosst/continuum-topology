@@ -320,6 +320,11 @@ type OperatorLabel struct {
 	Value string
 }
 
+// WireWords is the list of TelemetryIntentStatus's words, as the generated types give it.
+func (TelemetryIntentStatus) WireWords() []string {
+	return []string{string(TelemetryIntentActive), string(TelemetryIntentRevoked)}
+}
+
 // TelemetryIntentStatus is the lifecycle of a TelemetryIntent. Like Operator there is no "pending" state:
 // creating one takes effect immediately, there being nothing external to wait on.
 type TelemetryIntentStatus string

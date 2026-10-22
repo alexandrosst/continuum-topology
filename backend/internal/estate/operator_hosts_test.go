@@ -12,7 +12,7 @@ import (
 func addrs(list []AddressCandidate) []string {
 	out := []string{}
 	for _, c := range list {
-		out = append(out, c.Kind+" "+c.Address)
+		out = append(out, string(c.Kind)+" "+c.Address)
 	}
 	return out
 }
@@ -74,7 +74,10 @@ func TestTheRecordedAddressIsMarkedWhereFoundAndListedLastWhenNot(t *testing.T) 
 }
 
 func TestClassifyNetworkTellsAMeshFromALanFromTheInternet(t *testing.T) {
-	for _, c := range []struct{ iface, kind, ip, want string }{
+	for _, c := range []struct {
+		iface, kind, ip string
+		want            AddressNetwork
+	}{
 		{"wg0", "wireguard", "10.8.0.3", networkMesh},
 		{"tailscale0", "tun", "100.64.3.7", networkMesh},
 		{"eth9", "", "100.101.102.103", networkMesh}, // the carrier-grade range meshes hand out, whatever the link is called
@@ -108,7 +111,7 @@ func TestNodeInterfaceAddressesAreOfferedLanThenMeshThenPublicAndNeverTheCluster
 	list := addressCandidates(host, "")
 	var got []string
 	for _, c := range list {
-		got = append(got, c.Address+" "+c.Network)
+		got = append(got, c.Address+" "+string(c.Network))
 	}
 	want := []string{
 		"10.20.0.11:31317 private", "192.168.7.4:31317 private", "100.64.3.7:31317 mesh",
@@ -242,7 +245,7 @@ func TestTheServicePortIsOfferedOnANodeWhenTheLoadBalancerIsTheNodeItself(t *tes
 	kinds := func(h operatorHost) map[string]string {
 		out := map[string]string{}
 		for _, c := range addressCandidates(h, "") {
-			out[c.Address] = c.Kind
+			out[c.Address] = string(c.Kind)
 		}
 		return out
 	}

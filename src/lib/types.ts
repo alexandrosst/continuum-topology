@@ -1246,103 +1246,39 @@ export type OperatorDestination = W.OperatorDestination
  * this server the way Agent does, unless its opt-in heartbeat (health) is on - not extending Provenance for the same reason Agent does not: this is
  * control-plane bookkeeping a person created directly, not a discovered record.
  */
-/** One host:port a regional operator can be reached at, worked out from what discovery reports about its cluster. */
-export interface AddressCandidate {
-  id: string
-  address: string
-  /** load-balancer | node-port | external-ip | recorded (typed in earlier). */
-  kind: 'load-balancer' | 'node-port' | 'node-service-port' | 'external-ip' | 'recorded'
-  /** Where the address comes from, in words. */
-  source: string
-  node?: string
-  /** What sort of network the address is on - a mesh (VPN or overlay), a private LAN, or public - when it is known. */
-  network?: 'mesh' | 'private' | 'public'
-  /** The node's network interface the address was read from, when its node probe reported it. */
-  interface?: string
-  /** True for the address currently recorded for the operator. */
-  recorded?: boolean
-}
+/** One host:port a regional operator can be reached at, worked out from what discovery reports about its cluster. `kind` is where the address
+ *  comes from (a load balancer, a node port, a node's own address on the Service's port, an external IP, or one typed in earlier); `source`
+ *  says so in words; `network` is what sort of network it is on (a mesh - VPN or overlay -, a private LAN, or public) when that is known;
+ *  `interface` is the node's network interface it was read from, when its node probe reported it; `recorded` is true for the address
+ *  currently recorded for the operator. */
+export type AddressCandidate = W.AddressCandidate
 
 /** One address being tried from the cluster that will dial it (see lib/useAddressTests.ts). `pending` until the agent has timed
  *  a connection; then `reachable` (a connection was made) or `unreachable` (every attempt failed). A TCP connection only: it shows the
  *  address answers on its port from that cluster, not that the operator is what answers. */
-export interface AddressTest {
-  id: string
-  address: string
-  state: 'pending' | 'reachable' | 'unreachable'
-  samples?: number
-  failed?: number
-  rttMinMs?: number
-  rttP50Ms?: number
-  rttP95Ms?: number
-  at?: string
-  created: string
-}
+export type AddressTest = W.AddressTestDoc
 
 /** A cluster that sends to a regional operator (admin: GET /operators/{id}/senders). `source` is who chose the address: the sender
- *  itself, the one recorded for the operator, or - with none recorded - the operator's name inside its own cluster. */
-export interface OperatorSenderAddress {
-  address: string
-  source: 'chosen' | 'recorded' | 'in-cluster'
-  signals: string[]
-  /** The last connection test of this address from the sending cluster, which the server repeats on its own. Absent without a recent one. */
-  reach?: { state: 'reachable' | 'unreachable'; at: string; rttP50Ms?: number }
-}
-export interface OperatorSenderDelivery {
-  state: 'waiting' | 'exporting' | 'silent' | 'failing'
-  sent: number
-  failed: number
-  lastError?: string
-  lastSentAt?: string
-  lastFailedAt?: string
-}
+ *  itself, the one recorded for the operator, or - with none recorded - the operator's name inside its own cluster. `reach` is the last
+ *  connection test of the address from the sending cluster, which the server repeats on its own; absent without a recent one. */
+export type OperatorSenderAddress = W.SenderAddressDoc
+export type OperatorSenderDelivery = W.SenderDeliveryDoc
 /** Where the fault is likely to be, from the evidence the server holds; `unclear` says the evidence does not settle it. */
-export interface OperatorSenderDiagnosis {
-  where: 'sender-network' | 'address' | 'certificate' | 'credential' | 'operator' | 'sender' | 'unclear'
-  title: string
-  detail: string
-}
-export interface OperatorSender {
-  intentId: string
-  intentName: string
-  agentId: string
-  agentName: string
-  clusterId?: string
-  connected: boolean
-  addresses: OperatorSenderAddress[]
-  delivery?: OperatorSenderDelivery
-  diagnosis?: OperatorSenderDiagnosis
-}
-export interface OperatorSenders {
-  operatorState: OperatorHealthState
-  senders: OperatorSender[]
-}
+export type OperatorSenderDiagnosis = W.SenderDiagnosisDoc
+export type OperatorSender = W.SenderDoc
+export type OperatorSenders = W.SendersDoc
 
-export interface AddressCandidates {
-  /** Whether discovery has seen the operator's Deployment. When false the list holds the recorded address only. */
-  found: boolean
-  hostClusterId?: string
-  hostClusterName?: string
-  candidates: AddressCandidate[]
-  /** Suggestions in words for getting a better address: turn on the node probe, or use a load balancer provider the cluster has. */
-  hints?: string[]
-  /** Set for the central operator while its gateway cannot be reached from other clusters: the Service and the kubectl commands that expose it. */
-  expose?: { service: string; namespace: string; commands: { nodePort: string; loadBalancer: string }; value: string }
-  /** Set for the central operator only: whether the server knows which cluster it (and so FUSION's gateway) runs in, and how. */
-  serverCluster?: ServerCluster
-}
+/** What GET /operators/{id}/address/candidates answers. `found` is whether discovery has seen the operator's Deployment (when false the list
+ *  holds the recorded address only); `hints` are suggestions in words for a better address; `expose` is set for the central operator while
+ *  its gateway cannot be reached from other clusters: the Service and the kubectl commands that expose it; `serverCluster` is set for the
+ *  central operator only: whether the server knows which cluster it (and so FUSION's gateway) runs in, and how. */
+export type AddressCandidates = W.AddressCandidates
 
-export interface ServerCluster {
-  /** `known`: an agent or the server's own node probes report its nodes. `noAgent`: the cluster is known but nothing there can read its nodes. `unknown`: nothing could say. */
-  state: 'known' | 'noAgent' | 'unknown'
-  /** How a known cluster is known: the install passed its identity, a person chose it, or it was matched from what agents report, or the server's own node probes reported from it. */
-  source?: 'install' | 'chosen' | 'matched' | 'probe'
-  /** Where the nodes listed come from: an agent registered in the cluster, or the node probes that ship with the server's chart. */
-  nodes?: 'agent' | 'probe'
-  clusterId?: string
-  /** The registered clusters, to choose among. */
-  options?: { id: string; name: string }[]
-}
+/** `state` is known (an agent or the server's own node probes report its nodes), noAgent (the cluster is known but nothing there can read its
+ *  nodes) or unknown (nothing could say). `source` is how a known cluster is known: the install passed its identity, a person chose it, it was
+ *  matched from what agents report, or the server's own node probes reported from it. `nodes` is where the nodes listed come from: an agent
+ *  registered in the cluster, or the node probes that ship with the server's chart. `options` are the registered clusters, to choose among. */
+export type ServerCluster = W.ServerClusterDoc
 
 /** A regional operator as the server writes it. `orgId` is not on the wire (the request's own is the organisation); only fixtures set it.
  *  `acceptedModalities` empty or absent means "accepts anything": an operator created before the field existed reads the same way, never as
@@ -1371,7 +1307,7 @@ export interface SignalGrant {
   source: string
 }
 
-export type TelemetryIntentStatus = 'active' | 'revoked'
+export type TelemetryIntentStatus = W.TelemetryIntentStatus
 
 /**
  * The server-side counterpart of a telemetry grant for one agent's bundled local-operator telemetry:
