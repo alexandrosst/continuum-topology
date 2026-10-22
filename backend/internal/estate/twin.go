@@ -215,7 +215,7 @@ func (h *Hub) noteVanished(a store.Agent, v *View, s *continuumv1.Sync, now time
 			raw, _ = json.Marshal(n)
 		default:
 			sv := t.Services[i]
-			if twin.Ephemeral(sv.Kind) {
+			if twin.Ephemeral(string(sv.Kind)) {
 				continue
 			}
 			sv.ClearObservation()
@@ -435,7 +435,7 @@ func (h *Hub) revokedToShow(agentList []store.Agent) map[string]bool {
 // says more (disconnected, revoked) and the reason says why.
 func markObservation(t *model.Topology, o twin.Observation, nodes map[string]twin.NodeRecord) {
 	stale := o.State == twin.Stale || o.State == twin.Revoked
-	state, reason := string(o.State), o.Reason
+	state, reason := model.ObservationState(o.State), o.Reason
 	byID := make(map[string]twin.NodeRecord, len(nodes))
 	for _, r := range nodes {
 		byID[r.ID] = r

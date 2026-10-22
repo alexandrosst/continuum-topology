@@ -14,7 +14,7 @@ import (
 )
 
 func ev(signal, conf, detail string) model.Evidence {
-	return model.Evidence{Signal: signal, Confidence: conf, Detail: detail}
+	return model.Evidence{Signal: signal, Confidence: model.Confidence(conf), Detail: detail}
 }
 
 // Distribution names, as shown in the UI.
@@ -231,7 +231,7 @@ func firstNonEmpty(v ...string) string {
 	return ""
 }
 
-func nodeRole(n *continuumv1.NodeFacts) string {
+func nodeRole(n *continuumv1.NodeFacts) model.NodeRole {
 	for k := range n.Labels {
 		if k == "node-role.kubernetes.io/control-plane" || k == "node-role.kubernetes.io/master" {
 			return "control-plane"
@@ -240,7 +240,7 @@ func nodeRole(n *continuumv1.NodeFacts) string {
 	return "worker"
 }
 
-func nodeStatus(n *continuumv1.NodeFacts) string {
+func nodeStatus(n *continuumv1.NodeFacts) model.Status {
 	switch {
 	case !n.Ready:
 		return "offline"

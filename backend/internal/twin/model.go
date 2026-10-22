@@ -339,7 +339,7 @@ func (b *builder) observed() {
 		}
 		b.evAttr(c, "distribution", cl.Distribution, cl.Evidence["distribution"], false)
 		b.evAttr(c, "provider", cl.Provider, cl.Evidence["provider"], false)
-		b.evAttr(c, "tier", cl.Tier, cl.Evidence["tier"], false)
+		b.evAttr(c, "tier", string(cl.Tier), cl.Evidence["tier"], false)
 		if cl.Region != "" {
 			b.evAttr(c, "region", cl.Region, cl.Evidence["region"], false)
 		} else if label := b.siteLabelFor(cl.ID); label != "" {
@@ -366,7 +366,7 @@ func (b *builder) observed() {
 		if cl.Status == "unknown" {
 			c.unk("status", "", "no nodes are known")
 		} else {
-			c.inf("status", cl.Status, model.Evidence{Signal: "readiness of the cluster's nodes", Confidence: "high"}, false)
+			c.inf("status", string(cl.Status), model.Evidence{Signal: "readiness of the cluster's nodes", Confidence: "high"}, false)
 		}
 		if a := aggs[cl.ID]; tier < 1 || a == nil || a.nodes == 0 {
 			why := WhyNodesNotRead
@@ -475,9 +475,9 @@ func (b *builder) observed() {
 				c.rep("accelerators", n.Accelerators, "")
 			}
 		}
-		c.rep("role", n.Role, "")
-		c.rep("status", n.Status, "")
-		b.evAttr(c, "kind", n.Kind, n.Evidence["kind"], n.Probed)
+		c.rep("role", string(n.Role), "")
+		c.rep("status", string(n.Status), "")
+		b.evAttr(c, "kind", string(n.Kind), n.Evidence["kind"], n.Probed)
 		if n.HardwareModel != "" {
 			b.evAttr(c, "hardwareModel", n.HardwareModel, n.Evidence["hardwareModel"], n.Probed)
 		}
@@ -519,7 +519,7 @@ func (b *builder) observed() {
 			c.rep("mesh", n.Mesh, "")
 		}
 		if n.Mtls != "" {
-			c.rep("mtls", n.Mtls, "")
+			c.rep("mtls", string(n.Mtls), "")
 		}
 		b.add(e)
 	}
@@ -532,13 +532,13 @@ func (b *builder) observed() {
 		c := &ctx{e: &e, obs: obs, agent: agent}
 		e.Identity = &IdentityDoc{Basis: "workload", Key: s.Key}
 		c.rep("namespace", s.Namespace, "")
-		c.rep("kind", s.Kind, "")
+		c.rep("kind", string(s.Kind), "")
 		c.rep("replicas", int(s.Replicas), "count")
 		c.rep("readyReplicas", int(s.ReadyReplicas), "count")
 		if s.Status == "unknown" {
 			c.unk("status", "", "the workload has no replicas to judge")
 		} else {
-			c.inf("status", s.Status, model.Evidence{Signal: "ready replicas against wanted replicas", Confidence: "high"}, false)
+			c.inf("status", string(s.Status), model.Evidence{Signal: "ready replicas against wanted replicas", Confidence: "high"}, false)
 		}
 		w := b.workloadFacts(s)
 		cpuReq, memReq, cpuLim, memLim := s.CPURequestM, s.MemRequestMi<<20, s.CPULimitM, s.MemLimitMi<<20
@@ -595,7 +595,7 @@ func (b *builder) observed() {
 		if x.Port > 0 {
 			c.rep("port", x.Port, "")
 		}
-		c.inf("kind", x.Kind, model.Evidence{Signal: "the address seen in traffic", Confidence: "low"}, false)
+		c.inf("kind", string(x.Kind), model.Evidence{Signal: "the address seen in traffic", Confidence: "low"}, false)
 		b.add(e)
 	}
 
@@ -673,7 +673,7 @@ func (b *builder) observed() {
 			c.set("connectionsPerMin", Attr{Value: d.Stats.ConnectionsPerMin, Unit: "per minute", Source: FromMeasured, Confidence: Measured})
 		}
 		if d.Noise != "" {
-			c.set("noise", Attr{Value: d.Noise, Source: FromMeasured, Confidence: Inferred, Evidence: "classified as machinery traffic, not the applications' own"})
+			c.set("noise", Attr{Value: string(d.Noise), Source: FromMeasured, Confidence: Inferred, Evidence: "classified as machinery traffic, not the applications' own"})
 		}
 		b.add(e)
 	}

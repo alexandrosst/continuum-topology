@@ -608,7 +608,7 @@ func Topology(org string, cs []Cluster, now time.Time, stale time.Duration) ([]m
 			}
 			e := model.ExternalEndpoint{
 				Provenance: model.Provenance{OrgID: org, Source: "discovered", Key: "obs/" + ip, LastSeen: stamp, DetectedAt: stamp, AgentID: agentID},
-				ID:         id, Host: ip, Port: int(port), Kind: kind, Service: svc, Name: name, IPs: []string{ip},
+				ID:         id, Host: ip, Port: int(port), Kind: model.ExternalKind(kind), Service: svc, Name: name, IPs: []string{ip},
 			}
 			switch {
 			case matched && resolvedHost != "":
@@ -721,8 +721,8 @@ func Topology(org string, cs []Cluster, now time.Time, stale time.Duration) ([]m
 		d := deps[id]
 		if d == nil {
 			svc, _ := wellKnownPort(e.Key.Port)
-			d = &model.Dependency{ID: id, OrgID: org, From: from, FromKind: fromKind, To: to, ToKind: toKind, Sources: []string{"observed"},
-				Confidence: "high", Protocol: strings.ToUpper(e.Key.Protocol), Port: port, Service: svc, Via: e.Key.Method, CrossCluster: cross, Noise: e.Key.Noise, Note: note,
+			d = &model.Dependency{ID: id, OrgID: org, From: from, FromKind: model.EndpointKind(fromKind), To: to, ToKind: model.EndpointKind(toKind), Sources: []model.DependencySource{model.DependencySourceObserved},
+				Confidence: "high", Protocol: strings.ToUpper(e.Key.Protocol), Port: port, Service: svc, Via: model.ObservedVia(e.Key.Method), CrossCluster: cross, Noise: model.Noise(e.Key.Noise), Note: note,
 				FirstSeen: e.FirstSeen.AsTime().UTC().Format(time.RFC3339), LastSeen: e.LastSeen.AsTime().UTC().Format(time.RFC3339)}
 			if cross && note != "" {
 				d.Confidence = "medium"

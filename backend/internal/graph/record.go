@@ -133,7 +133,7 @@ func extract(t model.Topology) (vs map[string]ver, es map[string]edge, tr map[st
 	for _, c := range t.Clusters {
 		c.LastSeen, c.Revision = "", 0
 		c.ClearObservation()
-		put("cluster", c.ID, c.Name, c.Status, c.ID, c)
+		put("cluster", c.ID, c.Name, string(c.Status), c.ID, c)
 	}
 	for _, n := range t.Nodes {
 		n.LastSeen, n.Revision = "", 0
@@ -143,7 +143,7 @@ func extract(t model.Topology) (vs map[string]ver, es map[string]edge, tr map[st
 		n.CPUPressurePct, n.MemoryPressurePct, n.IOPressurePct, n.HostWatts = nil, nil, nil, nil
 		n.OomKillCount, n.LinkSaturation = nil, nil
 		n.SnatExhaustion, n.CpuFreqChangeCount, n.ThermalTripCount = 0, 0, 0
-		put("node", n.ID, n.Name, n.Status, n.ClusterID, n)
+		put("node", n.ID, n.Name, string(n.Status), n.ClusterID, n)
 	}
 	for _, n := range t.Namespaces {
 		n.LastSeen, n.Revision = "", 0
@@ -159,7 +159,7 @@ func extract(t model.Topology) (vs map[string]ver, es map[string]edge, tr map[st
 		for i := range s.Pods {
 			s.Pods[i].Traffic = nil
 		}
-		put("service", s.ID, s.Name, s.Status, s.ClusterID, s)
+		put("service", s.ID, s.Name, string(s.Status), s.ClusterID, s)
 		v := vs[vkey("service", s.ID)]
 		v.Key, v.Ns = s.ServiceKey().String(), s.Namespace
 		vs[vkey("service", s.ID)] = v
@@ -219,7 +219,7 @@ func extract(t model.Topology) (vs map[string]ver, es map[string]edge, tr map[st
 		}
 	}
 	for _, d := range t.Dependencies {
-		fk, tk := d.FromKind, d.ToKind
+		fk, tk := string(d.FromKind), string(d.ToKind)
 		if fk == "" {
 			fk = "service"
 		}

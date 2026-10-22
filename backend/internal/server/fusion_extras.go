@@ -108,7 +108,7 @@ func topologyAt(ctx context.Context, c *Core, appID string, at time.Time) (*fusi
 	for _, r := range reached {
 		var s model.Service
 		if r.Kind == "service" && json.Unmarshal(r.Doc, &s) == nil {
-			members = append(members, fusionapi.AppMember{ID: r.ID, Name: s.Name, Namespace: s.Namespace, Cluster: s.ClusterID, Kind: s.Kind})
+			members = append(members, fusionapi.AppMember{ID: r.ID, Name: s.Name, Namespace: s.Namespace, Cluster: s.ClusterID, Kind: string(s.Kind)})
 		}
 	}
 	return topologyView(estate.StateDoc{GeneratedAt: p.At.UTC().Format(time.RFC3339), Topology: topo}), members, nil
@@ -198,7 +198,7 @@ func appGroups(data []byte, doc estate.StateDoc) []fusionapi.AppGroup {
 			var m fusionapi.AppMember
 			if i, ok := byID[id]; ok {
 				s := doc.Topology.Services[i]
-				m = fusionapi.AppMember{ID: id, Name: s.Name, Namespace: s.Namespace, Cluster: s.ClusterID, Kind: s.Kind}
+				m = fusionapi.AppMember{ID: id, Name: s.Name, Namespace: s.Namespace, Cluster: s.ClusterID, Kind: string(s.Kind)}
 				for _, k := range []string{"app", "app.kubernetes.io/name"} {
 					if v := s.Labels[k]; v != "" && v != s.Name && !slices.Contains(m.Aliases, v) {
 						m.Aliases = append(m.Aliases, v)
@@ -247,14 +247,14 @@ func topologyView(doc estate.StateDoc) *fusionapi.TopologyView {
 	}
 	for _, s := range topo.Services {
 		v.Services = append(v.Services, fusionapi.TopoService{ID: s.ID, Name: s.Name, Namespace: s.Namespace, Cluster: s.ClusterID,
-			Kind: s.Kind, Image: s.Image, Status: s.Status, Replicas: int(s.Replicas), Ready: int(s.ReadyReplicas), Restarts: int(s.Restarts), Labels: s.Labels})
+			Kind: string(s.Kind), Image: s.Image, Status: string(s.Status), Replicas: int(s.Replicas), Ready: int(s.ReadyReplicas), Restarts: int(s.Restarts), Labels: s.Labels})
 	}
 	for _, n := range topo.Nodes {
 		v.Nodes = append(v.Nodes, fusionapi.TopoNode{ID: n.ID, Name: n.Name, Cluster: n.ClusterID})
 	}
 	for _, d := range topo.Dependencies {
-		l := fusionapi.TopoLink{ID: d.ID, From: d.From, To: d.To, FromKind: d.FromKind, ToKind: d.ToKind, Protocol: d.Protocol,
-			Port: d.Port, Confidence: d.Confidence, Stale: d.Stale, Noise: d.Noise, CrossCluster: d.CrossCluster,
+		l := fusionapi.TopoLink{ID: d.ID, From: d.From, To: d.To, FromKind: string(d.FromKind), ToKind: string(d.ToKind), Protocol: d.Protocol,
+			Port: d.Port, Confidence: string(d.Confidence), Stale: d.Stale, Noise: string(d.Noise), CrossCluster: d.CrossCluster,
 			Traffic: fusionapi.LinkTraffic{Bytes: d.Bytes, Connections: d.Connections, RttMs: d.RttMs}}
 		if d.Stats != nil {
 			l.Traffic.BytesPerSec, l.Traffic.ConnectionsPerMin, l.Traffic.RetransmitsPerMin = d.Stats.BytesPerSec, d.Stats.ConnectionsPerMin, d.Stats.RetransmitsPerMin

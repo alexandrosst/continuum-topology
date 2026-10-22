@@ -109,7 +109,7 @@ export interface AdvisorsDoc {
 
 export interface Agent {
   orgId: string
-  source: string
+  source: ModelSource
   key?: string
   lastSeen?: string
   detectedAt?: string
@@ -118,7 +118,7 @@ export interface Agent {
   stale?: boolean
   deletedAt?: string
   evidence?: Record<string, Evidence>
-  state?: string
+  state?: ObservationState
   stateReason?: string
   id: string
   clusterId: string
@@ -518,7 +518,7 @@ export type CheckState = 'reachable' | 'no-tls' | 'wrong-certificate' | 'refused
 
 export interface Cluster {
   orgId: string
-  source: string
+  source: ModelSource
   key?: string
   lastSeen?: string
   detectedAt?: string
@@ -527,16 +527,16 @@ export interface Cluster {
   stale?: boolean
   deletedAt?: string
   evidence?: Record<string, Evidence>
-  state?: string
+  state?: ObservationState
   stateReason?: string
   id: string
   name: string
-  tier: string
+  tier: Tier
   distribution: string
   version: string
   provider: string
   region: string
-  status: string
+  status: Status
   labels: Record<string, string>
   apiEndpoint?: string
   cni?: string
@@ -554,7 +554,7 @@ export interface ClusterLink {
   fromName: string
   toCluster: string
   toName: string
-  kind: string
+  kind: LinkKind
   via: string
   redundancy: number
   fromNode?: string
@@ -566,7 +566,7 @@ export interface ClusterLink {
   avgLossPct?: number
   avgRtoRetransmitsPerMin?: number
   avgMssBytes?: number
-  encryption?: string
+  encryption?: TunnelEncryption
 }
 
 export interface ClusterLinks {
@@ -579,8 +579,8 @@ export interface ClusterMesh {
   kind: string
   mode: string
   version?: string
-  mtls: string
-  namespaceMtls?: Record<string, string>
+  mtls: MtlsMode
+  namespaceMtls?: Record<string, MtlsMode>
   controlPlane: string[]
   policyRead: boolean
   policyNote?: string
@@ -596,7 +596,7 @@ export interface ClusterPairConnectivity {
   fromName: string
   toCluster: string
   toName: string
-  status: string
+  status: PairStatus
   links?: ClusterLink[]
   dependencyFlows?: number
   evidence?: Evidence
@@ -623,6 +623,8 @@ export interface Condition {
   message: string
   since?: string
 }
+
+export type Confidence = 'high' | 'medium' | 'low'
 
 export interface ConfirmEmailRequest {
   code: string
@@ -763,11 +765,11 @@ export interface Dependency {
   id: string
   orgId: string
   from: string
-  fromKind: string
+  fromKind: EndpointKind
   to: string
-  toKind: string
-  sources: string[]
-  confidence: string
+  toKind: EndpointKind
+  sources: DependencySource[]
+  confidence: Confidence
   firstSeen?: string
   lastSeen?: string
   protocol: string
@@ -775,9 +777,9 @@ export interface Dependency {
   service?: string
   label?: string
   stale?: boolean
-  noise?: string
+  noise?: Noise
   crossCluster?: boolean
-  via?: string
+  via?: ObservedVia
   iface?: string
   retransmits?: number
   rtoRetransmits?: number
@@ -802,7 +804,7 @@ export interface Dependency {
   stats?: DependencyStats
   tunnelLink?: DependencyTunnelLink
   meshBypass?: boolean
-  tlsHandshake?: string
+  tlsHandshake?: TLSHandshake
 }
 
 export interface DependencySeriesDoc {
@@ -817,6 +819,8 @@ export interface DependencySeriesPoint {
   lossPct?: number
   bytesPerSec?: number
 }
+
+export type DependencySource = 'declared' | 'observed' | 'manual'
 
 export interface DependencyStats {
   bytesPerSec?: number
@@ -833,7 +837,7 @@ export interface DependencyTunnelLink {
   toCluster: string
   via: string
   redundancy: number
-  encryption?: string
+  encryption?: TunnelEncryption
 }
 
 export interface Destination {
@@ -910,6 +914,8 @@ export interface Disruption {
 export interface Enable2FARequest {
   code: string
 }
+
+export type EndpointKind = 'service' | 'device' | 'external'
 
 export interface Entity {
   kind: string
@@ -996,7 +1002,7 @@ export interface EventsDoc {
 
 export interface Evidence {
   signal: string
-  confidence: string
+  confidence: Confidence
   detail?: string
 }
 
@@ -1070,7 +1076,7 @@ export interface ExternalDecisionDoc {
 
 export interface ExternalEndpoint {
   orgId: string
-  source: string
+  source: ModelSource
   key?: string
   lastSeen?: string
   detectedAt?: string
@@ -1079,16 +1085,18 @@ export interface ExternalEndpoint {
   stale?: boolean
   deletedAt?: string
   evidence?: Record<string, Evidence>
-  state?: string
+  state?: ObservationState
   stateReason?: string
   id: string
   host: string
   port?: number
-  kind: string
+  kind: ExternalKind
   service?: string
   name?: string
   ips?: string[]
 }
+
+export type ExternalKind = 'saas' | 'database' | 'unknown'
 
 export interface FactDoc {
   attribute: string
@@ -1378,6 +1386,11 @@ export interface InformerDoc {
   lastError?: string
 }
 
+export interface InstallSource {
+  kind: string
+  endpoint: string
+}
+
 export interface IntentCommandDoc {
   command?: string
   endpoint?: string
@@ -1441,6 +1454,8 @@ export interface LinkDoc {
   lastSync?: string
   lastFlows?: string
 }
+
+export type LinkKind = 'overlay' | 'subnet'
 
 export interface LinkNote {
   cluster: string
@@ -1561,6 +1576,8 @@ export interface LogsDoc {
   truncated: boolean
 }
 
+export type MachineKind = 'vm' | 'bare-metal' | 'edge-device'
+
 export interface MailConfigDoc {
   host: string
   port: string
@@ -1569,6 +1586,8 @@ export interface MailConfigDoc {
   passwordSet: boolean
   enabled: boolean
 }
+
+export type ManagedBy = 'helm' | 'argo' | 'flux' | 'kustomize' | 'operator' | 'kubectl' | 'unknown'
 
 export interface MemberDoc {
   id: string
@@ -1628,15 +1647,19 @@ export interface MintedGatewayTokenDoc {
 
 export type Modality = 'metrics' | 'logs' | 'traces' | 'unreadable'
 
+export type ModelSource = 'manual' | 'discovered' | 'imported'
+
 export interface ModuleDoc {
   name: string
   status: string
   reason?: string
 }
 
+export type MtlsMode = 'strict' | 'permissive' | 'disabled' | 'automatic' | 'unknown'
+
 export interface Namespace {
   orgId: string
-  source: string
+  source: ModelSource
   key?: string
   lastSeen?: string
   detectedAt?: string
@@ -1645,7 +1668,7 @@ export interface Namespace {
   stale?: boolean
   deletedAt?: string
   evidence?: Record<string, Evidence>
-  state?: string
+  state?: ObservationState
   stateReason?: string
   id: string
   clusterId: string
@@ -1654,7 +1677,7 @@ export interface Namespace {
   mesh?: string
   meshProxy?: string
   meshOff?: boolean
-  mtls?: string
+  mtls?: MtlsMode
 }
 
 export interface Neighbour {
@@ -1678,7 +1701,7 @@ export interface NetworkInterface {
 
 export interface Node {
   orgId: string
-  source: string
+  source: ModelSource
   key?: string
   lastSeen?: string
   detectedAt?: string
@@ -1687,21 +1710,21 @@ export interface Node {
   stale?: boolean
   deletedAt?: string
   evidence?: Record<string, Evidence>
-  state?: string
+  state?: ObservationState
   stateReason?: string
   id: string
   name: string
   clusterId: string
-  role: string
+  role: NodeRole
   aliases?: string[]
   identityBasis?: string
-  kind: string
+  kind: MachineKind
   ip: string
   os: string
   cpu: number
   memoryGb: number
   diskGb?: number
-  status: string
+  status: Status
   labels: Record<string, string>
   arch?: string
   kernel?: string
@@ -1740,6 +1763,10 @@ export interface Node {
   thermalTripCount?: number
 }
 
+export type NodeRole = 'control-plane' | 'worker'
+
+export type Noise = 'dns' | 'system'
+
 export type NoteCode = 'no-agent' | 'tier' | 'paused' | 'peer-silent' | 'shared-address' | 'too-many-peers' | 'no-address-of-kind' | 'private-range'
 
 export interface OKDoc {
@@ -1751,11 +1778,15 @@ export interface ObservationDoc {
   tombstoneRetentionDays: number
 }
 
+export type ObservationState = 'live' | 'disconnected' | 'stale' | 'revoked'
+
 export interface ObservedDoc {
   before?: Record<string, number>
   after?: Record<string, number>
   change?: Record<string, number>
 }
+
+export type ObservedVia = 'ebpf' | 'conntrack'
 
 export interface ObserverDoc {
   lastReport: string
@@ -1883,6 +1914,8 @@ export interface PageLinks {
   grafana?: string
 }
 
+export type PairStatus = 'tunnel' | 'subnet' | 'unexplained' | 'unknown'
+
 export interface PasskeyDoc {
   id: string
   name: string
@@ -1899,7 +1932,7 @@ export interface Path {
   label?: string
   toCluster?: string
   toName?: string
-  source: string
+  source: PathSource
   rttMinMs: number
   rttP50Ms: number
   rttP95Ms: number
@@ -1908,6 +1941,10 @@ export interface Path {
   at: string
   stale?: boolean
 }
+
+export type PathSource = 'observed' | 'manual'
+
+export type PeerKind = 'service' | 'external'
 
 export interface Pod {
   name: string
@@ -1919,10 +1956,12 @@ export interface Pod {
   traffic?: PodPeer[]
 }
 
+export type PodDirection = 'out' | 'in'
+
 export interface PodPeer {
   peer: string
-  peerKind: string
-  direction: string
+  peerKind: PeerKind
+  direction: PodDirection
   port: number
   protocol: string
   connections: number
@@ -2389,7 +2428,7 @@ export interface ServerInfoDoc {
 
 export interface Service {
   orgId: string
-  source: string
+  source: ModelSource
   key?: string
   lastSeen?: string
   detectedAt?: string
@@ -2398,17 +2437,17 @@ export interface Service {
   stale?: boolean
   deletedAt?: string
   evidence?: Record<string, Evidence>
-  state?: string
+  state?: ObservationState
   stateReason?: string
   id: string
   name: string
   namespace: string
   clusterId: string
-  kind: string
+  kind: ServiceKind
   image: string
   replicas: number
   nodeIds: string[]
-  status: string
+  status: Status
   labels: Record<string, string>
   readyReplicas: number
   imageDigest?: string
@@ -2419,7 +2458,7 @@ export interface Service {
   ports?: number[]
   exposure?: string
   hosts?: string[]
-  managedBy?: string
+  managedBy?: ManagedBy
   nodeSelector?: Record<string, string>
   tolerations?: string[]
   restarts?: number
@@ -2438,6 +2477,8 @@ export interface ServiceDoc {
   signals: Signal[]
   applications: string[]
 }
+
+export type ServiceKind = 'Deployment' | 'StatefulSet' | 'DaemonSet' | 'Job'
 
 export interface ServiceMesh {
   mesh: string
@@ -2559,11 +2600,6 @@ export interface Signals {
   accelerators: boolean
 }
 
-export interface Source {
-  kind: string
-  endpoint: string
-}
-
 export interface Span {
   spanId: string
   parentSpanId?: string
@@ -2613,6 +2649,8 @@ export interface Stats {
   newest?: string
 }
 
+export type Status = 'healthy' | 'degraded' | 'offline' | 'unknown'
+
 export interface StatusDoc {
   access: CallerAccessDoc
   fusion: FusionFusionStatus
@@ -2646,14 +2684,18 @@ export interface SubmitProposalRequest {
 export interface Suggestion {
   id: string
   orgId: string
-  kind: string
+  kind: SuggestionKind
   title: string
   detail: string
   agentId?: string
   createdAt: string
-  status: string
+  status: SuggestionStatus
   apply?: unknown
 }
+
+export type SuggestionKind = 'device' | 'external-endpoint' | 'site' | 'application' | 'dependency' | 'infrastructure'
+
+export type SuggestionStatus = 'open' | 'accepted' | 'dismissed'
 
 export interface SystemLogs {
   namespaces: string[]
@@ -2661,6 +2703,8 @@ export interface SystemLogs {
   entries: LogEntry[]
   truncated?: boolean
 }
+
+export type TLSHandshake = 'ok' | 'failed'
 
 export interface Tag {
   key: string
@@ -2675,7 +2719,7 @@ export interface TeardownDoc {
 
 export interface Telemetry {
   signals: Signals
-  energy: Source
+  energy: InstallSource
   accelerators: Accelerators
   clusterLinks: ClusterLinks
   scopes: Scopes
@@ -2727,6 +2771,8 @@ export interface TelemetryIntentScopeRequest {
 export type TelemetryIntentStatus = 'active' | 'revoked'
 
 export type TestState = 'pending' | 'reachable' | 'unreachable'
+
+export type Tier = 'cloud' | 'edge' | 'far-edge'
 
 export interface TimelineDoc {
   audit: AuditRow[]
@@ -2831,6 +2877,8 @@ export interface TrafficDoc {
   rates: Rate[]
   snapshots: number
 }
+
+export type TunnelEncryption = 'encrypted' | 'plaintext' | 'unknown'
 
 export interface TunnelInterface {
   name: string

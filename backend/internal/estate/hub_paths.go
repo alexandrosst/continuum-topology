@@ -198,7 +198,7 @@ func (h *Hub) pathDocs(agentList []store.Agent, clusters []observed.Cluster, nam
 			min, p50, p95, loss, samples := tr.Summary()
 			p := model.Path{
 				ID: "path-" + interpret.Hash(a.ClusterID, tr.T.Host, fmt.Sprint(tr.T.Port)), FromCluster: a.ClusterID, FromName: a.Name,
-				Host: tr.T.Host, Port: tr.T.Port, Label: tr.T.Label, Source: tr.T.Source,
+				Host: tr.T.Host, Port: tr.T.Port, Label: tr.T.Label, Source: model.PathSource(tr.T.Source),
 				RTTMin: min, RTTP50: p50, RTTP95: p95, LossPct: loss, Samples: samples, At: kernel.RFC(tr.At), Stale: now.Sub(tr.At) > staleAfter,
 			}
 			if to := ix.ClusterOf(tr.T.Host, tr.T.Port); to != "" && to != a.ClusterID {

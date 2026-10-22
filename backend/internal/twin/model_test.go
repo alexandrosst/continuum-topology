@@ -516,3 +516,20 @@ func TestPathWithRoundTripsKeepsMeasuredTimes(t *testing.T) {
 		t.Errorf("rttP50 = %+v, want a measured 4", a)
 	}
 }
+
+// A word the agent did not send is "not detected", whatever type the record gives the word: the model keeps a value as
+// an any and an empty one is told by its being an empty string, which a named string type would not be.
+func TestAnEmptyWordOfARecordIsNotDetectedAndNotAValue(t *testing.T) {
+	in, _ := fixture(t, "cl-1", "ag-1", 2)
+	in.Topology.Clusters[0].Tier = ""
+	for i := range in.Topology.Nodes {
+		in.Topology.Nodes[i].Kind = ""
+	}
+	m := Build(in)
+	if a := find(m, "cluster", "edge-a").Attributes["tier"]; a.Value != nil || a.Confidence != Unknown {
+		t.Errorf("an empty tier is a value: %+v", a)
+	}
+	if a := find(m, "node", "edge-1").Attributes["kind"]; a.Value != nil || a.Confidence != Unknown {
+		t.Errorf("an empty machine kind is a value: %+v", a)
+	}
+}

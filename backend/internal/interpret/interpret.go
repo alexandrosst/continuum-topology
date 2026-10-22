@@ -146,7 +146,7 @@ func buildPodTraffic(flows []*continuumv1.Flow, clusterID string) map[podKey][]m
 		ns, _, _ := strings.Cut(self.Ref, "/")
 		k := podKey{ns, pod}
 		out[k] = append(out[k], model.PodPeer{
-			Peer: peer, PeerKind: peerKind, Direction: direction, Port: f.Port, Protocol: f.Protocol,
+			Peer: peer, PeerKind: model.PeerKind(peerKind), Direction: model.PodDirection(direction), Port: f.Port, Protocol: f.Protocol,
 			Connections: f.Connections, BytesOut: f.BytesOut, BytesIn: f.BytesIn,
 		})
 	}
@@ -198,7 +198,7 @@ func Interpret(in Input) model.Topology {
 		nodeIDs[n.Name] = id
 		mn := model.Node{
 			Provenance: prov(in.ClusterID+"/node/"+n.Key, st.Seq),
-			ID:         id, Name: n.Name, ClusterID: in.ClusterID, Role: nodeRole(n), Kind: k.kind,
+			ID:         id, Name: n.Name, ClusterID: in.ClusterID, Role: nodeRole(n), Kind: model.MachineKind(k.kind),
 			OS: n.OsImage, CPU: float64(n.CpuCapacityMillis) / 1000, MemoryGb: round1(memGB(n.MemoryCapacityBytes)),
 			DiskGb: round1(memGB(n.EphemeralStorageCapacityBytes)),
 			Status: nodeStatus(n), Labels: n.Labels, Arch: n.Architecture, Kernel: n.KernelVersion,
@@ -299,7 +299,7 @@ func Interpret(in Input) model.Topology {
 	// ---- cluster ----
 	tier, tierEv := tierFor(provider, nodes, kinds)
 	cl := model.Cluster{
-		Provenance: prov(st.ClusterUID(), st.Seq), ID: in.ClusterID, Name: in.Name, Tier: tier,
+		Provenance: prov(st.ClusterUID(), st.Seq), ID: in.ClusterID, Name: in.Name, Tier: model.Tier(tier),
 		Distribution: dist, Provider: provider, Labels: map[string]string{},
 		Status: clusterStatus(len(nodes), healthy),
 	}
@@ -367,7 +367,7 @@ func Interpret(in Input) model.Topology {
 		}
 		mn.Mesh, mn.MeshProxy, mn.MeshOff = facts.NamespaceMesh(n.Labels, n.Annotations)
 		if st.Cluster != nil && st.Cluster.Mesh != nil {
-			mn.Mtls = st.Cluster.Mesh.NamespaceMtls[name]
+			mn.Mtls = model.MtlsMode(st.Cluster.Mesh.NamespaceMtls[name])
 		}
 		out.Namespaces = append(out.Namespaces, mn)
 	}
@@ -396,7 +396,7 @@ func Interpret(in Input) model.Topology {
 		controlPlane := w.Mesh != nil && w.Mesh.ControlPlane
 		s := model.Service{
 			Provenance: prov(in.ClusterID+"/"+w.Key, st.Seq), ID: id, Name: w.Name, Namespace: w.Namespace, ClusterID: in.ClusterID,
-			Kind: w.Kind, Replicas: w.Replicas, ReadyReplicas: w.ReadyReplicas, Status: serviceStatus(w),
+			Kind: model.ServiceKind(w.Kind), Replicas: w.Replicas, ReadyReplicas: w.ReadyReplicas, Status: serviceStatus(w),
 			Labels: orEmpty(w.Labels), Exposure: w.Exposure, Hosts: w.Hosts, Ports: w.Ports, ManagedBy: managedBy(w),
 			CPURequestM: w.CpuRequestMillis, MemRequestMi: w.MemoryRequestBytes >> 20, CPULimitM: w.CpuLimitMillis, MemLimitMi: w.MemoryLimitBytes >> 20,
 			NodeSelector: w.NodeSelector, Tolerations: w.Tolerations, Restarts: w.Restarts, OOMKills: w.OomKills, ApplicationHint: appID,
@@ -455,7 +455,7 @@ func Interpret(in Input) model.Topology {
 
 	if st.Cluster != nil && st.Cluster.Mesh != nil {
 		m := st.Cluster.Mesh
-		cm := &model.ClusterMesh{Kind: m.Kind, Mode: m.Mode, Version: m.Version, Mtls: m.Mtls, NamespaceMtls: m.NamespaceMtls, ControlPlane: []string{}, PolicyRead: m.PolicyRead, PolicyNote: m.PolicyNote}
+		cm := &model.ClusterMesh{Kind: m.Kind, Mode: m.Mode, Version: m.Version, Mtls: model.MtlsMode(m.Mtls), NamespaceMtls: mtlsModes(m.NamespaceMtls), ControlPlane: []string{}, PolicyRead: m.PolicyRead, PolicyNote: m.PolicyNote}
 		for _, key := range m.ControlPlane {
 			if systemNamespace(namespaceOfKey(key)) {
 				continue // system namespaces are not in the topology
@@ -475,7 +475,7 @@ func Interpret(in Input) model.Topology {
 		name := g.ref.name
 		desc := fmt.Sprintf("Grouped from %s in %s", g.ref.signal, in.Name)
 		app := model.Application{
-			Provenance: prov("app/"+strings.ToLower(name), st.Seq), ID: appID, Name: name, Description: desc, Origin: g.ref.origin, Confidence: g.ref.confidence,
+			Provenance: prov("app/"+strings.ToLower(name), st.Seq), ID: appID, Name: name, Description: desc, Origin: g.ref.origin, Confidence: model.Confidence(g.ref.confidence),
 		}
 		app.Evidence = map[string]model.Evidence{"grouping": ev(g.ref.signal, g.ref.confidence, "")}
 		seen := map[string]bool{strings.ToLower(name): true}
@@ -486,7 +486,7 @@ func Interpret(in Input) model.Topology {
 				continue // the same name under another label is not a distinct choice
 			}
 			seen[key] = true
-			alts = append(alts, model.GroupingAlternative{Name: a.name, Origin: a.origin, Confidence: a.confidence, Signal: a.signal})
+			alts = append(alts, model.GroupingAlternative{Name: a.name, Origin: a.origin, Confidence: model.Confidence(a.confidence), Signal: a.signal})
 		}
 		out.Suggestions = append(out.Suggestions, model.Suggestion{
 			ID: "sg-app-" + appID + "-" + in.ClusterID, OrgID: in.OrgID, Kind: "application", AgentID: in.AgentID, CreatedAt: stamp, Status: "open",
@@ -521,7 +521,19 @@ func orEmpty(m map[string]string) map[string]string {
 	return m
 }
 
-func clusterStatus(total, healthy int) string {
+// mtlsModes is what the agent says about each namespace's mutual TLS, as the words of the record.
+func mtlsModes(in map[string]string) map[string]model.MtlsMode {
+	if in == nil {
+		return nil
+	}
+	out := make(map[string]model.MtlsMode, len(in))
+	for k, v := range in {
+		out[k] = model.MtlsMode(v)
+	}
+	return out
+}
+
+func clusterStatus(total, healthy int) model.Status {
 	switch {
 	case total == 0:
 		return "unknown"
@@ -533,7 +545,7 @@ func clusterStatus(total, healthy int) string {
 	return "degraded"
 }
 
-func serviceStatus(w *continuumv1.WorkloadFacts) string {
+func serviceStatus(w *continuumv1.WorkloadFacts) model.Status {
 	switch {
 	case w.Replicas == 0:
 		return "unknown"

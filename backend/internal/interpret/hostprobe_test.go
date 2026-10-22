@@ -66,7 +66,7 @@ func TestNodeKindFromProbe(t *testing.T) {
 	}
 	for _, c := range cases {
 		r := detectNodeKind(c.n)
-		if r.kind != c.kind || r.hardware != c.hw || r.virt != c.virt || r.connectivity != c.uplink || r.kindEv.Confidence != c.conf || !r.probed {
+		if r.kind != c.kind || r.hardware != c.hw || r.virt != c.virt || r.connectivity != c.uplink || string(r.kindEv.Confidence) != c.conf || !r.probed {
 			t.Errorf("%s: got kind=%q hw=%q virt=%q uplink=%q conf=%q probed=%v (%s)", c.name, r.kind, r.hardware, r.virt, r.connectivity, r.kindEv.Confidence, r.probed, r.kindEv.Signal)
 		}
 	}

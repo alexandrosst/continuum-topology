@@ -15,7 +15,7 @@ func cluster(id, name string) model.Cluster {
 	return model.Cluster{ID: id, Name: name, Status: "healthy", Version: "v1.30.5"}
 }
 func node(id, cl, name, status string) model.Node {
-	return model.Node{ID: id, ClusterID: cl, Name: name, Status: status, Role: "worker", Kind: "vm"}
+	return model.Node{ID: id, ClusterID: cl, Name: name, Status: model.Status(status), Role: "worker", Kind: "vm"}
 }
 func svc(id, cl, name string, replicas int32, nodes ...string) model.Service {
 	return model.Service{ID: id, ClusterID: cl, Name: name, Namespace: "shop", Kind: "Deployment", Replicas: replicas, ReadyReplicas: replicas, Status: "healthy", Image: "img:1", NodeIDs: nodes}
@@ -136,7 +136,7 @@ func TestAgentGoingQuietIsReportedOnceAtClusterLevel(t *testing.T) {
 func TestObservedDependenciesAppearAndGoQuiet(t *testing.T) {
 	cs := []model.Cluster{cluster("c1", "a"), cluster("c2", "b")}
 	ss := []model.Service{svc("s1", "c1", "web", 1), svc("s2", "c2", "api", 1)}
-	dep := model.Dependency{ID: "d1", From: "s1", FromKind: "service", To: "s2", ToKind: "service", Sources: []string{"observed"}, Protocol: "TCP", Port: 8080, CrossCluster: true}
+	dep := model.Dependency{ID: "d1", From: "s1", FromKind: "service", To: "s2", ToKind: "service", Sources: []model.DependencySource{"observed"}, Protocol: "TCP", Port: 8080, CrossCluster: true}
 	a := topo(cs, nil, ss)
 	b := topo(cs, nil, ss, dep)
 	evs := NewDiffer().Diff(&a, b, t0)

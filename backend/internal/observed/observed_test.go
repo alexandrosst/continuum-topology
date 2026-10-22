@@ -939,7 +939,7 @@ func TestExternalKnownRangeSetsIdentityAndAggregates(t *testing.T) {
 		byID[e.ID] = struct {
 			host, kind, name string
 			port             int
-		}{e.Host, e.Kind, e.Name, e.Port}
+		}{e.Host, string(e.Kind), e.Name, e.Port}
 	}
 
 	ghHTTPS, ghSSH := 0, 0
@@ -1026,9 +1026,9 @@ func TestExternalASNFallbackNamesAnAddressNoOtherTierCovers(t *testing.T) {
 			if e.Host != "203.0.113.55" || e.Name == "" {
 				continue
 			}
-			name, kind = e.Name, e.Kind
+			name, kind = e.Name, string(e.Kind)
 			if ev, ok := e.Evidence["identity"]; ok {
-				signal, confidence = ev.Signal, ev.Confidence
+				signal, confidence = ev.Signal, string(ev.Confidence)
 			}
 		}
 		if name == "" {

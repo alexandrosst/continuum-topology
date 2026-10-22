@@ -31,7 +31,7 @@ type Differ struct {
 
 func NewDiffer() *Differ { return &Differ{recent: map[string]removed{}} }
 
-func svcKey(s model.Service) string { return s.Namespace + "/" + s.Name + "/" + s.Kind }
+func svcKey(s model.Service) string { return s.Namespace + "/" + s.Name + "/" + string(s.Kind) }
 
 func plural(n int, one, many string) string {
 	if n == 1 {
@@ -294,7 +294,7 @@ func (d *Differ) Diff(prev *model.Topology, cur model.Topology, now time.Time) [
 	for _, e := range cur.ExternalEndpoints {
 		extHost[e.ID] = e.Host
 	}
-	endName := func(id, kind string) string {
+	endName := func(id string, kind model.EndpointKind) string {
 		if kind == "service" {
 			if s, ok := cs[id]; ok {
 				return s.Name
@@ -344,7 +344,7 @@ func (d *Differ) Diff(prev *model.Topology, cur model.Topology, now time.Time) [
 	return evs
 }
 
-func contains(l []string, s string) bool {
+func contains[T ~string](l []T, s T) bool {
 	for _, x := range l {
 		if x == s {
 			return true

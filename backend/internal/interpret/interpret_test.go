@@ -51,7 +51,7 @@ func TestDistributionDetection(t *testing.T) {
 	}
 	for _, c := range cases {
 		got, e := detectDistribution(&continuumv1.ClusterFacts{Version: c.version}, []*N{c.node})
-		if got != c.want || e.Confidence != c.conf || e.Signal == "" {
+		if got != c.want || string(e.Confidence) != c.conf || e.Signal == "" {
 			t.Errorf("%s: got %q (%s, %q), want %q (%s)", c.name, got, e.Confidence, e.Signal, c.want, c.conf)
 		}
 	}
@@ -90,7 +90,7 @@ func TestNodeKindDetection(t *testing.T) {
 	}
 	for _, c := range cases {
 		r := detectNodeKind(c.n)
-		if r.kind != c.kind || r.hardware != c.hw || r.kindEv.Confidence != c.conf {
+		if r.kind != c.kind || r.hardware != c.hw || string(r.kindEv.Confidence) != c.conf {
 			t.Errorf("%s: got kind=%s hw=%q conf=%s, want kind=%s hw=%q conf=%s", c.name, r.kind, r.hardware, r.kindEv.Confidence, c.kind, c.hw, c.conf)
 		}
 		if r.kindEv.Signal == "" {
@@ -119,7 +119,7 @@ func TestApplicationGroupingPrecedence(t *testing.T) {
 	}
 	for _, c := range cases {
 		r := applicationFor(c.w)
-		if r.name != c.app || r.origin != c.origin || r.confidence != c.conf || managedBy(c.w) != c.managed {
+		if r.name != c.app || r.origin != c.origin || r.confidence != c.conf || string(managedBy(c.w)) != c.managed {
 			t.Errorf("%s: got %+v managed=%s", c.name, r, managedBy(c.w))
 		}
 	}

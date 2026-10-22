@@ -47,7 +47,7 @@ func TestTunnelEncryptionPostureClassifiesEveryDocumentedKind(t *testing.T) {
 		"ppp":       "unknown", // not one of TunnelInterface.Kind's documented values - never guessed either way
 	}
 	for kind, want := range cases {
-		if got := TunnelEncryptionPosture(kind); got != want {
+		if got := string(TunnelEncryptionPosture(kind)); got != want {
 			t.Errorf("TunnelEncryptionPosture(%q) = %q, want %q", kind, got, want)
 		}
 	}

@@ -3,14 +3,14 @@
 package model
 
 type Evidence struct {
-	Signal     string `json:"signal"`
-	Confidence string `json:"confidence"` // high | medium | low
-	Detail     string `json:"detail,omitempty"`
+	Signal     string     `json:"signal"`
+	Confidence Confidence `json:"confidence"` // high | medium | low
+	Detail     string     `json:"detail,omitempty"`
 }
 
 type Provenance struct {
 	OrgID      string              `json:"orgId"`
-	Source     string              `json:"source"` // always "discovered" from the server
+	Source     Source              `json:"source"` // always "discovered" from the server
 	Key        string              `json:"key,omitempty"`
 	LastSeen   string              `json:"lastSeen,omitempty"`
 	DetectedAt string              `json:"detectedAt,omitempty"`
@@ -22,8 +22,8 @@ type Provenance struct {
 	// State is how far the record can be trusted right now: live | disconnected | stale | revoked. It is computed
 	// from the clock and the agent's connection (see internal/twin), never stored, and empty for records that no
 	// agent observes. StateReason is a sentence for a person ("stale for 2 h"); it contains ages.
-	State       string `json:"state,omitempty"`
-	StateReason string `json:"stateReason,omitempty"`
+	State       ObservationState `json:"state,omitempty"`
+	StateReason string           `json:"stateReason,omitempty"`
 }
 
 // ClearObservation removes what only the clock and the connection decide, so that recording a record for history
@@ -65,12 +65,12 @@ type Cluster struct {
 	Provenance
 	ID             string            `json:"id"`
 	Name           string            `json:"name"`
-	Tier           string            `json:"tier"` // cloud | edge | far-edge
+	Tier           Tier              `json:"tier"` // cloud | edge | far-edge
 	Distribution   string            `json:"distribution"`
 	Version        string            `json:"version"`
 	Provider       string            `json:"provider"`
 	Region         string            `json:"region"`
-	Status         string            `json:"status"`
+	Status         Status            `json:"status"`
 	Labels         map[string]string `json:"labels"`
 	APIEndpoint    string            `json:"apiEndpoint,omitempty"`
 	CNI            string            `json:"cni,omitempty"`
@@ -93,8 +93,8 @@ type ClusterMesh struct {
 	Mode    string `json:"mode"` // sidecar | ambient
 	Version string `json:"version,omitempty"`
 	// Mtls is the mesh-wide mutual-TLS mode between meshed workloads: strict | permissive | disabled | automatic | unknown.
-	Mtls          string            `json:"mtls"`
-	NamespaceMtls map[string]string `json:"namespaceMtls,omitempty"`
+	Mtls          MtlsMode            `json:"mtls"`
+	NamespaceMtls map[string]MtlsMode `json:"namespaceMtls,omitempty"`
 	// ControlPlane holds the ids of the services that are the mesh's control plane or gateways.
 	ControlPlane []string `json:"controlPlane"`
 	PolicyRead   bool     `json:"policyRead"`
@@ -181,25 +181,25 @@ type TunnelInterface struct {
 
 type Node struct {
 	Provenance
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	ClusterID string `json:"clusterId"`
-	Role      string `json:"role"` // control-plane | worker
+	ID        string   `json:"id"`
+	Name      string   `json:"name"`
+	ClusterID string   `json:"clusterId"`
+	Role      NodeRole `json:"role"` // control-plane | worker
 	// Aliases are the names this machine had before (a rename keeps the record); IdentityBasis is what its
 	// identity is made of: provider-id | system-uuid | machine-id | name.
-	Aliases       []string `json:"aliases,omitempty"`
-	IdentityBasis string   `json:"identityBasis,omitempty"`
-	Kind          string   `json:"kind"` // vm | bare-metal | edge-device
-	IP            string   `json:"ip"`
-	OS            string   `json:"os"`
-	CPU           float64  `json:"cpu"`
-	MemoryGb      float64  `json:"memoryGb"`
+	Aliases       []string    `json:"aliases,omitempty"`
+	IdentityBasis string      `json:"identityBasis,omitempty"`
+	Kind          MachineKind `json:"kind"` // vm | bare-metal | edge-device
+	IP            string      `json:"ip"`
+	OS            string      `json:"os"`
+	CPU           float64     `json:"cpu"`
+	MemoryGb      float64     `json:"memoryGb"`
 	// DiskGb mirrors Resources.DiskGb above: this node's own root filesystem capacity, not wrapped in a
 	// *Resources pointer since - like CPU/MemoryGb just above - it is always known once the node itself
 	// is (kubelet reports it as part of node Capacity, not a separate observation that can be absent).
 	// See Resources.DiskGb's own comment for why this is a plain float64, not a pointer like PendingPodCount.
 	DiskGb         float64           `json:"diskGb,omitempty"`
-	Status         string            `json:"status"`
+	Status         Status            `json:"status"`
 	Labels         map[string]string `json:"labels"`
 	Arch           string            `json:"arch,omitempty"`
 	Kernel         string            `json:"kernel,omitempty"`
@@ -342,7 +342,7 @@ type Namespace struct {
 	// MeshOff: the namespace explicitly opts out (istio-injection=disabled, linkerd.io/inject=disabled).
 	MeshOff bool `json:"meshOff,omitempty"`
 	// Mtls is the mutual-TLS mode this namespace has when it differs from the mesh-wide one.
-	Mtls string `json:"mtls,omitempty"`
+	Mtls MtlsMode `json:"mtls,omitempty"`
 }
 
 // ServiceKey is the identity telemetry gives a service: where it runs and what it is called. It is what Prometheus,
@@ -366,11 +366,11 @@ type Service struct {
 	Name          string            `json:"name"`
 	Namespace     string            `json:"namespace"`
 	ClusterID     string            `json:"clusterId"`
-	Kind          string            `json:"kind"`
+	Kind          ServiceKind       `json:"kind"`
 	Image         string            `json:"image"`
 	Replicas      int32             `json:"replicas"`
 	NodeIDs       []string          `json:"nodeIds"`
-	Status        string            `json:"status"`
+	Status        Status            `json:"status"`
 	Labels        map[string]string `json:"labels"`
 	ReadyReplicas int32             `json:"readyReplicas"`
 	ImageDigest   string            `json:"imageDigest,omitempty"`
@@ -381,7 +381,7 @@ type Service struct {
 	Ports         []int32           `json:"ports,omitempty"`
 	Exposure      string            `json:"exposure,omitempty"`
 	Hosts         []string          `json:"hosts,omitempty"`
-	ManagedBy     string            `json:"managedBy,omitempty"`
+	ManagedBy     ManagedBy         `json:"managedBy,omitempty"`
 	NodeSelector  map[string]string `json:"nodeSelector,omitempty"`
 	Tolerations   []string          `json:"tolerations,omitempty"`
 	Restarts      int32             `json:"restarts,omitempty"`
@@ -456,16 +456,16 @@ type PodPeer struct {
 	// here would need every cluster's reachability data assembled together, which happens later than one
 	// agent's own interpretation does; showing the bare address is accordingly its own honest limit, not
 	// a privacy choice.
-	Peer     string `json:"peer"`
-	PeerKind string `json:"peerKind"` // service | external
+	Peer     string   `json:"peer"`
+	PeerKind PeerKind `json:"peerKind"` // service | external
 	// Direction is this pod's own role in the flow: "out" when this pod is the caller, "in" when it is
 	// the one receiving.
-	Direction   string `json:"direction"`
-	Port        uint32 `json:"port"`
-	Protocol    string `json:"protocol"`
-	Connections uint64 `json:"connections"`
-	BytesOut    uint64 `json:"bytesOut,omitempty"`
-	BytesIn     uint64 `json:"bytesIn,omitempty"`
+	Direction   PodDirection `json:"direction"`
+	Port        uint32       `json:"port"`
+	Protocol    string       `json:"protocol"`
+	Connections uint64       `json:"connections"`
+	BytesOut    uint64       `json:"bytesOut,omitempty"`
+	BytesIn     uint64       `json:"bytesIn,omitempty"`
 }
 
 // Volume is a persistent volume claim used by a service.
@@ -493,24 +493,24 @@ type Disruption struct {
 
 type Application struct {
 	Provenance
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Origin      string `json:"origin"`
-	Confidence  string `json:"confidence"`
+	ID          string     `json:"id"`
+	Name        string     `json:"name"`
+	Description string     `json:"description"`
+	Origin      string     `json:"origin"`
+	Confidence  Confidence `json:"confidence"`
 }
 
 // Suggestion is something discovery found that a person must confirm.
 type Suggestion struct {
-	ID        string `json:"id"`
-	OrgID     string `json:"orgId"`
-	Kind      string `json:"kind"`
-	Title     string `json:"title"`
-	Detail    string `json:"detail"`
-	AgentID   string `json:"agentId,omitempty"`
-	CreatedAt string `json:"createdAt"`
-	Status    string `json:"status"`
-	Apply     any    `json:"apply,omitempty"`
+	ID        string           `json:"id"`
+	OrgID     string           `json:"orgId"`
+	Kind      SuggestionKind   `json:"kind"`
+	Title     string           `json:"title"`
+	Detail    string           `json:"detail"`
+	AgentID   string           `json:"agentId,omitempty"`
+	CreatedAt string           `json:"createdAt"`
+	Status    SuggestionStatus `json:"status"`
+	Apply     any              `json:"apply,omitempty"`
 }
 
 // CreateApplication is the action behind an application-grouping suggestion.
@@ -527,10 +527,10 @@ type CreateApplication struct {
 // GroupingAlternative is a different name discovery could have used for this application, from a
 // label or annotation that the winning rule outranked. Never applied on its own - a person chooses it.
 type GroupingAlternative struct {
-	Name       string `json:"name"`
-	Origin     string `json:"origin"`
-	Confidence string `json:"confidence"`
-	Signal     string `json:"signal"`
+	Name       string     `json:"name"`
+	Origin     string     `json:"origin"`
+	Confidence Confidence `json:"confidence"`
+	Signal     string     `json:"signal"`
 }
 
 type Topology struct {
@@ -576,10 +576,10 @@ type Path struct {
 	ToCluster string `json:"toCluster,omitempty"`
 	ToName    string `json:"toName,omitempty"`
 	// Source: observed (the cluster already talks to this address) | manual (an administrator asked for it).
-	Source string  `json:"source"`
-	RTTMin float64 `json:"rttMinMs"`
-	RTTP50 float64 `json:"rttP50Ms"`
-	RTTP95 float64 `json:"rttP95Ms"`
+	Source PathSource `json:"source"`
+	RTTMin float64    `json:"rttMinMs"`
+	RTTP50 float64    `json:"rttP50Ms"`
+	RTTP95 float64    `json:"rttP95Ms"`
 	// LossPct is the share of connection attempts that failed in the recent window (0-100).
 	LossPct float64 `json:"lossPct"`
 	Samples int     `json:"samples"`
@@ -604,7 +604,7 @@ type ClusterLink struct {
 	ToName      string `json:"toName"`
 	// Kind: "overlay" (joined through a tunnel/overlay interface) | "subnet" (same flat network segment,
 	// no tunnel involved).
-	Kind string `json:"kind"`
+	Kind LinkKind `json:"kind"`
 	// Via names the specific evidence behind this link: the tunnel interface's name and kind for an
 	// overlay link (e.g. "wg0 (wireguard)"), or the shared subnet prefix for a subnet link (e.g.
 	// "10.0.5.0/24") - so the UI never has to say just "connected" with nothing to point at.
@@ -666,7 +666,7 @@ type ClusterLink struct {
 	// kind makes it very likely the tunnel is encrypted, but nothing here proves a given packet actually
 	// was - only the wire could. Only set from the first corroborating pair for a link, same as
 	// FromNode/ToNode. Empty for a "subnet" link, which has no tunnel driver to classify at all.
-	Encryption string `json:"encryption,omitempty"`
+	Encryption TunnelEncryption `json:"encryption,omitempty"`
 }
 
 // ClusterPairConnectivity is the server's answer to "can these two onboarded clusters actually reach
@@ -695,7 +695,7 @@ type ClusterPairConnectivity struct {
 	ToName      string `json:"toName"`
 	// Status: "tunnel" | "subnet" | "unexplained" | "unknown" - see this type's own doc for what each
 	// means and exactly what evidence backs it.
-	Status string `json:"status"`
+	Status PairStatus `json:"status"`
 	// Links is this pair's own confirmed ClusterLink(s) when Status is "tunnel" or "subnet" - the exact
 	// same record(s) already in Topology.ClusterLinks, repeated here (not duplicated data, just a
 	// convenient reference) so a UI reading ClusterPairConnectivity alone has the full tunnel/subnet
@@ -718,11 +718,11 @@ type ClusterPairConnectivity struct {
 // copy of ClusterLink's own evidence fields: FlowsObserved/AvgRttMs/AvgLossPct stay on ClusterLink alone,
 // since those are an aggregate across every dependency crossing the link, not a fact about this one.
 type DependencyTunnelLink struct {
-	FromCluster string `json:"fromCluster"`
-	ToCluster   string `json:"toCluster"`
-	Via         string `json:"via"`
-	Redundancy  int    `json:"redundancy"`
-	Encryption  string `json:"encryption,omitempty"`
+	FromCluster string           `json:"fromCluster"`
+	ToCluster   string           `json:"toCluster"`
+	Via         string           `json:"via"`
+	Redundancy  int              `json:"redundancy"`
+	Encryption  TunnelEncryption `json:"encryption,omitempty"`
 }
 
 // encryptedTunnelKinds are the TunnelInterface.Kind values whose protocol encrypts traffic by design.
@@ -738,7 +738,7 @@ var plaintextTunnelKinds = map[string]bool{
 // TunnelEncryptionPosture classifies a TunnelInterface.Kind as "encrypted", "plaintext", or "unknown" (any
 // kind outside the two sets above - never fabricated as one or the other). See ClusterLink.Encryption's
 // own doc for what this inference does, and does not, establish.
-func TunnelEncryptionPosture(kind string) string {
+func TunnelEncryptionPosture(kind string) TunnelEncryption {
 	switch {
 	case encryptedTunnelKinds[kind]:
 		return "encrypted"
@@ -753,10 +753,10 @@ func TunnelEncryptionPosture(kind string) string {
 // coming from. Only its address is known.
 type ExternalEndpoint struct {
 	Provenance
-	ID   string `json:"id"`
-	Host string `json:"host"`
-	Port int    `json:"port,omitempty"`
-	Kind string `json:"kind"` // saas | database | unknown
+	ID   string       `json:"id"`
+	Host string       `json:"host"`
+	Port int          `json:"port,omitempty"`
+	Kind ExternalKind `json:"kind"` // saas | database | unknown
 	// Service names the application usually found on Port (e.g. "PostgreSQL", "Kafka") - a guess from the
 	// port number alone, the same way Kind's "database" bucket already was; empty when the port isn't one
 	// of the well-known ones. Never inferred from payload: nothing here reads a byte of one.
@@ -801,18 +801,18 @@ type DependencyStats struct {
 
 // Dependency is a service-to-service edge that was seen on the wire.
 type Dependency struct {
-	ID         string   `json:"id"`
-	OrgID      string   `json:"orgId"`
-	From       string   `json:"from"`
-	FromKind   string   `json:"fromKind"` // service | external
-	To         string   `json:"to"`
-	ToKind     string   `json:"toKind"`
-	Sources    []string `json:"sources"`
-	Confidence string   `json:"confidence"`
-	FirstSeen  string   `json:"firstSeen,omitempty"`
-	LastSeen   string   `json:"lastSeen,omitempty"`
-	Protocol   string   `json:"protocol"`
-	Port       int      `json:"port,omitempty"`
+	ID         string             `json:"id"`
+	OrgID      string             `json:"orgId"`
+	From       string             `json:"from"`
+	FromKind   EndpointKind       `json:"fromKind"` // service | external
+	To         string             `json:"to"`
+	ToKind     EndpointKind       `json:"toKind"`
+	Sources    []DependencySource `json:"sources"`
+	Confidence Confidence         `json:"confidence"`
+	FirstSeen  string             `json:"firstSeen,omitempty"`
+	LastSeen   string             `json:"lastSeen,omitempty"`
+	Protocol   string             `json:"protocol"`
+	Port       int                `json:"port,omitempty"`
 	// Service names the application usually found on Port (e.g. "PostgreSQL", "Kafka") - inferred from the
 	// port number alone, same as ExternalEndpoint.Service, and just as much a guess: a workload can run
 	// anything on any port. Empty when the port isn't one of the well-known ones. Never a substitute for
@@ -822,11 +822,11 @@ type Dependency struct {
 	Label   string `json:"label,omitempty"`
 	Stale   bool   `json:"stale,omitempty"`
 	// Noise marks traffic that is machinery rather than the applications' own: dns | system.
-	Noise string `json:"noise,omitempty"`
+	Noise Noise `json:"noise,omitempty"`
 	// CrossCluster: the two ends are in different onboarded clusters.
 	CrossCluster bool `json:"crossCluster,omitempty"`
 	// Via is how it was observed (ebpf | conntrack); Note says how the far end was identified, when it was not certain.
-	Via string `json:"via,omitempty"`
+	Via ObservedVia `json:"via,omitempty"`
 	// The caller's physical network interface (e.g. "eth0", "wlan0"), when the collector's kernel route
 	// lookup could name one - never guessed from the port or address. Empty means not known, which on a
 	// single-homed node is simply not interesting and on a multi-homed one (an edge box with both
@@ -968,5 +968,5 @@ type Dependency struct {
 	// own outcome, not a history. Read alongside MeshBypass above when reasoning about a mesh workload -
 	// pairing the two is a stronger signal than either alone - but this field says nothing at all about
 	// whether a connection was supposed to go through a mesh in the first place.
-	TlsHandshake string `json:"tlsHandshake,omitempty"`
+	TlsHandshake TLSHandshake `json:"tlsHandshake,omitempty"`
 }

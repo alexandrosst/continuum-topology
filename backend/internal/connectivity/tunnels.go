@@ -210,13 +210,13 @@ func CorrelateClusterLinks(nodes []model.Node, names map[string]string, dependen
 			return
 		}
 		seen[k] = len(out)
-		encryption := ""
+		encryption := model.TunnelEncryption("")
 		if driverKind != "" {
 			encryption = model.TunnelEncryptionPosture(driverKind)
 		}
 		out = append(out, model.ClusterLink{
 			FromCluster: from, FromName: names[from], ToCluster: to, ToName: names[to],
-			Kind: kind, Via: via, Redundancy: 1,
+			Kind: model.LinkKind(kind), Via: via, Redundancy: 1,
 			FromNode: fromNode, ToNode: toNode, FromAddress: fromAddr, ToAddress: toAddr,
 			Encryption: encryption,
 		})
@@ -291,7 +291,7 @@ func CorrelateClusterLinks(nodes []model.Node, names map[string]string, dependen
 		if out[i].Kind != "overlay" {
 			continue
 		}
-		k := linkKey{out[i].FromCluster, out[i].ToCluster, out[i].Kind}
+		k := linkKey{out[i].FromCluster, out[i].ToCluster, string(out[i].Kind)}
 		fIfaces, tIfaces := fromIfaces[k], toIfaces[k]
 		var flows int
 		var rttSum float64

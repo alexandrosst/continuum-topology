@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	continuumv1 "continuum/gen/continuumv1"
+	"continuum/internal/model"
 )
 
 // Grouping origins, strongest first.
@@ -59,7 +60,7 @@ func applicationCandidates(w *continuumv1.WorkloadFacts) []appRef {
 	return out
 }
 
-func managedBy(w *continuumv1.WorkloadFacts) string {
+func managedBy(w *continuumv1.WorkloadFacts) model.ManagedBy {
 	l, a := w.Labels, w.Annotations
 	switch {
 	case a["argocd.argoproj.io/tracking-id"] != "" || l["argocd.argoproj.io/instance"] != "":
