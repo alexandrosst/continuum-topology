@@ -2,7 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import '@fontsource-variable/inter/wght.css' // self-hosted: no request to a font CDN, so the server's strict CSP holds
 import './index.css'
-import App from './App.tsx'
+import App from './app/App.tsx'
 import { reloadForNewVersion } from '@/lib/staleBuild'
 import { initTheme, watchSystemTheme } from '@/lib/theme'
 

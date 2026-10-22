@@ -1,7 +1,7 @@
 import { lazy, useEffect } from 'react'
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
-import Layout from '@/components/Layout'
-import { prefetchAllRoutesWhenIdle, routeLoaders } from '@/lib/routeLoaders'
+import Layout from '@/app/Layout'
+import { prefetchAllRoutesWhenIdle, routeLoaders } from '@/app/routeLoaders'
 
 // Pages load on demand: the map, wizard and tables are big and most visits touch only one or two of them.
 // Built from routeLoaders (not `lazy(() => import(...))` inlined here) so Layout's nav can reuse the exact

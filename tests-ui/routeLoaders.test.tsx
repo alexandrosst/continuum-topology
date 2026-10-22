@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import { prefetchAllRoutesWhenIdle } from '@/lib/routeLoaders'
+import { prefetchAllRoutesWhenIdle } from '@/app/routeLoaders'
 
 // prefetchAllRoutesWhenIdle() is meant to be a free, after-the-fact background fetch of every route's own
 // (small, built, gzipped) chunk - see its own doc comment for the "a few KB to ~120KB" reasoning that makes
