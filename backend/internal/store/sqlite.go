@@ -1112,10 +1112,18 @@ func (s *SQLite) DeleteOperator(ctx context.Context, org, id string, opts ...Wri
 }
 
 // AddOperatorCert records one issued certificate. The serial is the primary key, so recording the same one twice is an error.
-// The row carries its organisation, and the ledger is read and erased only inside it. It is written before the operator's own row
-// on creation (a certificate that cannot be recorded is not handed out), so the operator is not required to exist yet.
+// The row carries its organisation, and the ledger is read and erased only inside it. A creation records its receiver certificate
+// with the operator in one transaction (WithOperatorCert); this is for every later one, where the operator already exists.
 func (s *SQLite) AddOperatorCert(ctx context.Context, c OperatorCert) error {
-	_, err := s.db.ExecContext(ctx,
+	return insertOperatorCert(ctx, s.db, c)
+}
+
+type execer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+func insertOperatorCert(ctx context.Context, db execer, c OperatorCert) error {
+	_, err := db.ExecContext(ctx,
 		`INSERT INTO operator_certs(serial, org_id, operator_id, kind, subject, sender, issued_by, issued_at, not_before, not_after) VALUES(?,?,?,?,?,?,?,?,?,?)`,
 		c.Serial, c.OrgID, c.OperatorID, string(c.Kind), c.Subject, c.Sender, c.IssuedBy, ms(c.IssuedAt), ms(c.NotBefore), ms(c.NotAfter))
 	return err

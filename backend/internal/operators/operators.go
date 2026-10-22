@@ -451,13 +451,14 @@ func (c *Service) CreateOperatorWithOptions(ctx context.Context, actor, name str
 	op.ClientCACertPEM, op.ClientCAKeyPEM = bundle.CACertPEM, caKeyPEM
 	op.ReceiverNotAfter = CertNotAfter(bundle.ReceiverCertPEM)
 	op.ClientNotAfter = op.ReceiverNotAfter // client certificates are minted with it, for the same time
-	// The receiver certificate is recorded in the ledger BEFORE the operator is stored, and a failure to record it is the
-	// request's failure: nothing has been stored or handed out yet, so nothing is lost by refusing, whereas after the
-	// operator exists the bundle is the only copy of its keys and could not be returned with an error. (The ledger has no
-	// foreign key; should the creation itself then fail, the ledger keeps a row for an id that never existed, which nothing
-	// lists.) The same rule the client certificates follow: a certificate that cannot be recorded is not handed out.
-	if err := c.RecordOperatorCert(ctx, actor, op, store.OperatorCertReceiver, "", bundle.ReceiverCertPEM); err != nil {
-		c.Log.Error("receiver certificate not recorded in the ledger; the operator was not created", "operator", op.ID, "err", err)
+	// The receiver certificate is recorded in the ledger in the same transaction as the operator (store.WithOperatorCert), so a
+	// certificate that cannot be recorded is a creation that did not happen: nothing has been handed out yet, whereas after the
+	// operator exists the bundle is the only copy of its keys and could not be returned with an error. The same rule the
+	// client certificates follow: a certificate that cannot be recorded is not handed out. A failed creation leaves no ledger
+	// row for an id that never existed, which an earlier version of this did.
+	receiverRow, err := c.operatorCertRow(actor, op, store.OperatorCertReceiver, "", bundle.ReceiverCertPEM)
+	if err != nil {
+		c.Log.Error("receiver certificate could not be read back; the operator was not created", "operator", op.ID, "err", err)
 		return store.Operator{}, "", OperatorTLSBundle{}, "", kernel.Errf(kernel.KindInternal, "the operator's certificate could not be recorded, so the operator was not created: %v", err)
 	}
 	detail := name
@@ -467,7 +468,12 @@ func (c *Service) CreateOperatorWithOptions(ctx context.Context, actor, name str
 	}
 	detail += "; " + operatorAuditSummary(dest, sourceClusterIDs)
 	if err := c.AuditedWrite(c.Store.CreateOperator(ctx, op, nil,
-		store.WithAudit(c.AuditRow(c.OrgID, actor, "operator-created", "operator", op.ID, detail))), "operator-created"); err != nil {
+		store.WithAudit(c.AuditRow(c.OrgID, actor, "operator-created", "operator", op.ID, detail)),
+		store.WithOperatorCert(receiverRow)), "operator-created"); err != nil {
+		if errors.Is(err, store.ErrLedgerWrite) {
+			c.Log.Error("receiver certificate not recorded in the ledger; the operator was not created", "operator", op.ID, "err", err)
+			return store.Operator{}, "", OperatorTLSBundle{}, "", kernel.Errf(kernel.KindInternal, "the operator's certificate could not be recorded, so the operator was not created: %v", err)
+		}
 		return store.Operator{}, "", OperatorTLSBundle{}, "", err
 	}
 	bundle.Senders, _ = c.mintSenderCertsHeld(ctx, actor, op, op.SourceClusterIDs)
@@ -903,14 +909,23 @@ func (c *Service) issueOperatorClientCertHeld(ctx context.Context, actor, operat
 
 // recordOperatorCert writes the ledger entry for a certificate just issued: what it is, whose, and when it ends.
 func (c *Service) RecordOperatorCert(ctx context.Context, actor string, op store.Operator, kind store.OperatorCertKind, sender string, certPEM []byte) error {
+	rec, err := c.operatorCertRow(actor, op, kind, sender, certPEM)
+	if err != nil {
+		return err
+	}
+	return c.Store.AddOperatorCert(ctx, rec)
+}
+
+// operatorCertRow is the ledger row for a certificate just issued, for a caller that stores it with something else.
+func (c *Service) operatorCertRow(actor string, op store.Operator, kind store.OperatorCertKind, sender string, certPEM []byte) (store.OperatorCert, error) {
 	cert, err := pki.ParseCertificate(certPEM)
 	if err != nil {
-		return fmt.Errorf("the certificate just issued could not be read back: %w", err)
+		return store.OperatorCert{}, fmt.Errorf("the certificate just issued could not be read back: %w", err)
 	}
-	return c.Store.AddOperatorCert(ctx, store.OperatorCert{
+	return store.OperatorCert{
 		Serial: cert.SerialNumber.Text(16), OrgID: c.OrgID, OperatorID: op.ID, Kind: kind, Subject: cert.Subject.CommonName,
 		Sender: sender, IssuedBy: actor, IssuedAt: c.Now(), NotBefore: cert.NotBefore, NotAfter: cert.NotAfter,
-	})
+	}, nil
 }
 
 // OperatorCertificates is the ledger of what was issued for an operator, newest first.

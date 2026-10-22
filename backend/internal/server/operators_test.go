@@ -456,6 +456,16 @@ type ledgerStore struct {
 
 func (s *ledgerStore) setFail(v bool) { s.mu.Lock(); s.fail = v; s.mu.Unlock() }
 
+func (s *ledgerStore) CreateOperator(ctx context.Context, op store.Operator, tokenHash []byte, opts ...store.WriteOption) error {
+	s.mu.Lock()
+	fail := s.fail
+	s.mu.Unlock()
+	if fail {
+		return fmt.Errorf("%w: ledger unavailable", store.ErrLedgerWrite)
+	}
+	return s.Store.CreateOperator(ctx, op, tokenHash, opts...)
+}
+
 func (s *ledgerStore) AddOperatorCert(ctx context.Context, c store.OperatorCert) error {
 	s.mu.Lock()
 	fail := s.fail

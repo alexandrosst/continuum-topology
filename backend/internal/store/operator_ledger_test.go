@@ -158,3 +158,57 @@ func TestAnotherOrganisationsOperatorIsNotFoundByEveryMethod(t *testing.T) {
 		t.Errorf("a second operator with the id: %v, want ErrExists", err)
 	}
 }
+
+// An operator and its first certificate are stored together: the certificate that cannot be recorded stops the operator
+// from being created, and a creation that fails for any reason leaves no ledger row for an id that never existed.
+func TestAnOperatorAndItsFirstCertificateAreStoredTogetherOrNotAtAll(t *testing.T) {
+	st, err := OpenSQLite(filepath.Join(t.TempDir(), "s.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	ctx := context.Background()
+	now := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	mk := func(id string) Operator {
+		return Operator{ID: id, OrgID: "alice", Name: id, Status: OperatorActive, ReceiverAuth: ReceiverAuthMTLS, ClientCACertPEM: []byte("ca"), ClientCAKeyPEM: []byte("key"),
+			CreatedAt: now, Destination: Destination{Kind: DestinationExternal, Endpoint: "a:4317"}}
+	}
+	cert := func(serial, op string) OperatorCert {
+		return OperatorCert{Serial: serial, OrgID: "alice", OperatorID: op, Kind: OperatorCertReceiver, IssuedAt: now, NotBefore: now, NotAfter: now.Add(time.Hour)}
+	}
+
+	if err := st.CreateOperator(ctx, mk("op-1"), nil, WithOperatorCert(cert("aa01", "op-1"))); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := st.ListOperatorCerts(ctx, "alice", "op-1"); err != nil || len(got) != 1 || got[0].Serial != "aa01" {
+		t.Fatalf("the certificate recorded with its operator: %v %v", got, err)
+	}
+
+	// The serial is already in the ledger: the certificate cannot be recorded, so the operator is not created.
+	err = st.CreateOperator(ctx, mk("op-2"), nil, WithOperatorCert(cert("aa01", "op-2")))
+	if !errors.Is(err, ErrLedgerWrite) {
+		t.Fatalf("a certificate that cannot be recorded: %v", err)
+	}
+	if _, err := st.GetOperator(ctx, "alice", "op-2"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("an operator was created whose certificate could not be recorded: %v", err)
+	}
+
+	// The id is taken: the creation fails and its certificate is not recorded either.
+	if err := st.CreateOperator(ctx, mk("op-1"), nil, WithOperatorCert(cert("aa03", "op-1"))); !errors.Is(err, ErrExists) {
+		t.Fatalf("a taken id: %v", err)
+	}
+	if got, _ := st.ListOperatorCerts(ctx, "alice", "op-1"); len(got) != 1 {
+		t.Fatalf("a failed creation left a ledger row behind: %v", got)
+	}
+
+	// The audit row travels with them: a failed ledger write leaves no audit row either.
+	before, _ := st.ListAudit(ctx, "alice", 100)
+	err = st.CreateOperator(ctx, mk("op-3"), nil, WithOperatorCert(cert("aa01", "op-3")), WithAudit(AuditEvent{OrgID: "alice", Actor: "alex", Action: "operator-created", TargetKind: "operator", TargetID: "op-3"}))
+	if !errors.Is(err, ErrLedgerWrite) {
+		t.Fatalf("%v", err)
+	}
+	after, _ := st.ListAudit(ctx, "alice", 100)
+	if len(after) != len(before) {
+		t.Fatalf("a refused creation left an audit row: %d before, %d after", len(before), len(after))
+	}
+}
