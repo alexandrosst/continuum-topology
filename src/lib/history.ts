@@ -6,14 +6,11 @@ import type { AccessTier, Agent, Cluster, Dependency, ExternalEndpoint, MachineN
 
 /** The knobs an administrator can turn. Everything else in Ikhnos works without them. */
 /** Two clusters whose link an administrator asked to have measured; see `Settings.Links` on the server. */
-export type LinkPair = Narrowed<W.LinkSetting, { via?: 'mesh' | 'private' | 'public' }>
+export type LinkPair = W.LinkSetting
 
 export type AppSettings = Narrowed<
   W.SettingsDoc,
   {
-    allowedBackendKinds: QuickStartKind[]
-    quickStartBackends: QuickStartBackend[]
-    links: LinkPair[]
     /** The revision of this document on the server (0 until first saved). A save names the revision its edit started from (`api.saveSettings` sends it in If-Match), and the server refuses it with 409 when someone else saved in between. */
     rev?: number
   }
@@ -21,13 +18,13 @@ export type AppSettings = Narrowed<
 
 export type ProbeTarget = W.ProbeTarget
 
-export type QuickStartKind = 'jaeger' | 'zipkin' | 'prometheus' | 'loki' | 'custom'
+export type QuickStartKind = W.BackendKind
 
 /** A quick-start observability backend a person set up from the telemetry destination picker - see
  * quickStartBackends.ts for what each kind's install command actually does. The server never deploys or
  * dials any of this; it's a note kept so the picker can offer it again and "open this tool" has somewhere
  * to go once toolUrl is filled in. */
-export type QuickStartBackend = Narrowed<W.QuickStartBackend, { kind: QuickStartKind; modality: 'traces' | 'metrics' | 'logs' }>
+export type QuickStartBackend = W.QuickStartBackend
 
 export const DEFAULT_SETTINGS: AppSettings = {
   snapshotMinutes: 5,

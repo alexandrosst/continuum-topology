@@ -303,3 +303,9 @@ test('"as of" is a clock time in the viewer\'s zone', () => {
   assert.equal(clockWords(undefined), '')
   assert.equal(clockWords('not a date'), '')
 })
+
+test('a word that only an object answers to is not a probe state, a diagnosis or a step state', () => {
+  assert.equal(normalizeProbe({ state: 'toString' }), undefined)
+  assert.equal(normalizeProbe({ state: 'failing', diagnosis: 'constructor' })?.diagnosis, undefined)
+  assert.equal(normalizeSetup([{ a: 'x', b: 'y', steps: [{ code: 'agent', state: '__proto__', text: 'fine' }] }])[0].steps[0].state, 'unknown')
+})

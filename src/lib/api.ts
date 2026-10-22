@@ -9,7 +9,7 @@ import type { AdvisorRecord, Proposal, ProposalStatus } from './proposals'
 import type { SelfTelemetryEntity } from './selfHealth'
 import type { EffectiveModel } from './provenance'
 import type * as W from './generated/wire'
-import type { Body, Narrowed } from './narrow'
+import type { Body } from './narrow'
 
 export class ApiError extends Error {
   status: number
@@ -31,7 +31,7 @@ export function twoFactorPending(err: unknown): err is ApiError & { body: { pend
 
 export type TwoFactorMethod = 'totp' | 'email' | 'webauthn'
 
-export type ServerInfo = Narrowed<W.InfoDoc, { role: Role }>
+export type ServerInfo = W.InfoDoc
 
 /** What a new install is asked to switch on (the per-node collectors) and to narrow (the namespaces the agent may report). */
 export interface TokenInstallOptions {
@@ -329,7 +329,7 @@ export interface TelemetryIntentCommand {
 }
 
 /** What a person may do inside one organisation, weakest first. */
-export type Role = 'viewer' | 'editor' | 'admin' | 'owner'
+export type Role = W.Role
 export const ROLES: Role[] = ['viewer', 'editor', 'admin', 'owner']
 export const ROLE_LABEL: Record<Role, string> = { viewer: 'Viewer', editor: 'Editor', admin: 'Administrator', owner: 'Owner' }
 export const ROLE_HELP: Record<Role, string> = {
@@ -359,17 +359,17 @@ export type CreatedApiToken = W.CreatedAPITokenDoc
 
 export type User = W.UserDoc
 
-export type OrgRef = Narrowed<W.OrgDoc, { role: Role }>
+export type OrgRef = W.OrgDoc
 
-export type Session = Narrowed<W.SessionDoc, { orgs: OrgRef[] }>
+export type Session = W.SessionDoc
 
-export type Registration = 'open' | 'invite' | 'closed'
+export type Registration = W.Registration
 
-export type Member = Narrowed<W.MemberDoc, { role: Role }>
+export type Member = W.MemberDoc
 
-export type Invite = Narrowed<W.InviteDoc, { role: Role }>
+export type Invite = W.InviteDoc
 
-export type InvitePreview = Narrowed<W.InvitePreviewDoc, { role: Role }>
+export type InvitePreview = W.InvitePreviewDoc
 
 export interface WorkspaceMeta {
   rev: number
@@ -561,7 +561,7 @@ async function call<T>(c: Conn, method: string, path: string, body?: unknown, he
 
 export const api = {
   // session and accounts
-  serverInfo: (c: Conn) => call<Narrowed<W.ServerInfoDoc, { registration: Registration }>>(c, 'GET', '/api/v1/server'),
+  serverInfo: (c: Conn) => call<W.ServerInfoDoc>(c, 'GET', '/api/v1/server'),
   me: (c: Conn) => call<Session>(c, 'GET', '/api/v1/auth/me'),
   login: (c: Conn, username: string, password: string) => call<Session>(c, 'POST', '/api/v1/auth/login', { username, password } satisfies Body<W.LoginRequest>),
   // Trusted-header SSO: succeeds only when the server has --admin-sso-header configured AND its reverse proxy
@@ -623,7 +623,7 @@ export const api = {
   setMemberRole: (c: Conn, id: string, role: Role) => call<void>(c, 'POST', `/api/v1/members/${id}/role`, { role } satisfies Body<W.SetMemberRoleRequest>),
   removeMember: (c: Conn, id: string) => call<void>(c, 'POST', `/api/v1/members/${id}/remove`),
   invites: (c: Conn) => call<Invite[]>(c, 'GET', '/api/v1/invites'),
-  createInvite: (c: Conn, role: Role, label: string) => call<Narrowed<W.CreatedInviteDoc, { invite: Invite }>>(c, 'POST', '/api/v1/invites', { role, label } satisfies Body<W.CreateInviteRequest>),
+  createInvite: (c: Conn, role: Role, label: string) => call<W.CreatedInviteDoc>(c, 'POST', '/api/v1/invites', { role, label } satisfies Body<W.CreateInviteRequest>),
   revokeInvite: (c: Conn, id: string) => call<void>(c, 'DELETE', `/api/v1/invites/${id}`),
 
   info: (c: Conn) => call<ServerInfo>(c, 'GET', '/api/v1/info'),

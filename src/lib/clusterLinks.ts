@@ -1,6 +1,6 @@
 import type * as W from './generated/wire'
 import type { LinkPair } from './history'
-import type { Narrowed } from './narrow'
+import { isWord } from './narrow'
 import { ago } from './observed'
 import type { Agent } from './types'
 import { PROBE_STALE_AFTER_MS } from './status'
@@ -151,32 +151,26 @@ export function runsFromWords(p: LinkPair, runner: string): string {
 
 /** What the server knows about one pair from the link series in FUSION (GET /links/latest). A figure FUSION does not hold is absent. "A to B" is
  * from the pair's first cluster to its second, in the order the pair is stored (the order the table shows them in). */
-export type LinkPairLatest = Narrowed<W.LinkPairLatest, { probeAToB?: ProbeLatest; probeBToA?: ProbeLatest }>
+export type LinkPairLatest = W.LinkPairLatest
 
 /** What the server read the evidence to fit; a bounded word, never text from the clusters. Several causes can look the same from the prober's side. */
-export type ProbeDiagnosis = 'udp-lost' | 'denied' | 'no-responder' | 'filtered' | 'one-way' | 'stale'
-const DIAGNOSES: readonly string[] = ['udp-lost', 'denied', 'no-responder', 'filtered', 'one-way', 'stale']
+export type ProbeDiagnosis = W.ProbeDiagnosis
+const DIAGNOSES = { 'udp-lost': 1, denied: 1, 'no-responder': 1, filtered: 1, 'one-way': 1, stale: 1 } satisfies Record<ProbeDiagnosis, 1>
 
 /** The state of the one-way probe in one direction: the latest run completed (ok), failed after an earlier one completed (failing), or failed and none ever did (never). */
-export type ProbeLatest = Narrowed<W.LinkProbeLatest, { state: 'ok' | 'failing' | 'never'; diagnosis?: ProbeDiagnosis }>
+export type ProbeLatest = W.LinkProbeLatest
 
 /** Why a pair is not measured from one of its clusters, as the server worked it out. */
-export type LinkNote = Narrowed<
-  W.LinkNote,
-  { code: 'no-agent' | 'tier' | 'paused' | 'peer-silent' | 'shared-address' | 'no-address-of-kind' | 'private-range' | 'too-many-peers' }
->
+export type LinkNote = W.LinkNote
 
 /** One line of a pair's checklist, as the server worked it out (`setup` in GET /links/latest). */
-export type SetupState = 'ok' | 'todo' | 'unknown' | 'optional'
-export type SetupStep = Narrowed<W.LinkSetupStep, { state: SetupState }>
-export type PairSetup = Narrowed<W.LinkSetup, { steps: SetupStep[] }>
+export type SetupState = W.StepState
+export type SetupStep = W.LinkSetupStep
+export type PairSetup = W.LinkSetup
 
-export type LinksLatest = Narrowed<
-  W.LinksLatestDoc,
-  { reason?: 'no-fusion' | 'unavailable'; pairs: LinkPairLatest[]; notes: LinkNote[]; setup: PairSetup[]; setupReason?: 'unavailable' }
->
+export type LinksLatest = W.LinksLatestDoc
 
-const SETUP_STATES: readonly string[] = ['ok', 'todo', 'unknown', 'optional']
+const SETUP_STATES = { ok: 1, todo: 1, unknown: 1, optional: 1 } satisfies Record<SetupState, 1>
 const MAX_SETUP_PAIRS = 200
 const MAX_SETUP_STEPS = 40
 
@@ -192,7 +186,7 @@ export function normalizeSetup(raw: unknown): PairSetup[] {
       steps.push({
         code: typeof s.code === 'string' ? s.code : '',
         ...(typeof s.cluster === 'string' && s.cluster !== '' ? { cluster: s.cluster } : {}),
-        state: SETUP_STATES.includes(s.state) ? (s.state as SetupState) : 'unknown',
+        state: isWord(SETUP_STATES, s.state) ? s.state : 'unknown',
         text: s.text,
       })
     }
@@ -201,17 +195,17 @@ export function normalizeSetup(raw: unknown): PairSetup[] {
   return out
 }
 
-const PROBE_STATES: readonly string[] = ['ok', 'failing', 'never']
+const PROBE_STATES = { ok: 1, failing: 1, never: 1 } satisfies Record<W.ProbeState, 1>
 
 /** One direction's probe state; a state this page does not know reads as none, so a newer server cannot make it show something false. */
 export function normalizeProbe(raw: unknown): ProbeLatest | undefined {
   if (!raw || typeof raw !== 'object') return undefined
   const p = raw as Record<string, unknown>
-  if (typeof p.state !== 'string' || !PROBE_STATES.includes(p.state)) return undefined
+  if (!isWord(PROBE_STATES, p.state)) return undefined
   return {
-    state: p.state as ProbeLatest['state'],
+    state: p.state,
     ...(typeof p.reason === 'string' && p.reason !== '' ? { reason: p.reason as W.ProbeFailure } : {}),
-    ...(typeof p.diagnosis === 'string' && DIAGNOSES.includes(p.diagnosis) ? { diagnosis: p.diagnosis as ProbeDiagnosis } : {}),
+    ...(isWord(DIAGNOSES, p.diagnosis) ? { diagnosis: p.diagnosis } : {}),
     ...(typeof p.at === 'string' && p.at !== '' ? { at: p.at } : {}),
   }
 }
