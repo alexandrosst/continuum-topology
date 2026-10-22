@@ -54,7 +54,7 @@ func (h *API) createToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	secret, tok, err := h.For(r).CreateFusionToken(r.Context(), httpkit.Actor(r), TokenSpec{
-		Name: req.Name, Signals: req.Signals, Namespaces: req.Namespaces, Clusters: req.Clusters,
+		Name: req.Name, Signals: signalStrings(req.Signals), Namespaces: req.Namespaces, Clusters: req.Clusters,
 		TTL: time.Duration(req.ExpiresInDays) * 24 * time.Hour,
 	})
 	if err != nil {

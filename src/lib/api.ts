@@ -159,146 +159,41 @@ export interface UpdatedOperatorScope {
 }
 
 /** One workload FUSION runs: the three stores and the central operator in front of them. */
-export interface FusionComponent {
-  component: 'metrics' | 'logs' | 'traces' | 'central' | 'grafana'
-  label: string
-  desired: number
-  ready: number
-  /** Why this part is not ready, in a few plain words ("Pulling the image", "Waiting for a volume", "No node has room"). Absent when ready or unknown. */
-  reason?: string
-}
+export type FusionComponent = W.FusionComponent
 
 /** GET /fusion: the bundled FUSION's switch. `available` is false when this server cannot switch it (the reason says
  *  why, in `message`); `state` is then 'off'. */
-export interface FusionStatus {
-  available: boolean
-  reason?: 'not-configured' | 'not-installed' | 'no-access' | 'other-org'
-  state: 'off' | 'starting' | 'running' | 'attention'
-  message?: string
-  since?: string
-  /** When FUSION last received data (RFC 3339); absent while unknown or before the first. */
-  lastDataAt?: string
-  components?: FusionComponent[]
-  central?: { operatorId: string; endpoint: string; exposed: boolean; exists: boolean; service?: string; namespace?: string; /** Doubts about the address recorded for the gateway (a private address, the plain-HTTP port ...), in words. */ warnings?: string[] }
-  /** Whether this server serves the shared data API (and its access tokens) for this organisation. */
-  data?: boolean
-  /** Same-origin paths of the web pages FUSION serves through this server, present only for a page that is up right now. */
-  links?: { prometheus?: string; grafana?: string }
-}
+export type FusionStatus = W.FusionStatus
 
-export type FusionSignal = 'metrics' | 'logs' | 'traces'
+export type FusionSignal = W.Signal
 
 /** One service of an Ikhnos application, with the signals FUSION has for it (GET /fusion/applications). */
-export interface FusionApplicationService {
-  name: string
-  namespace?: string
-  cluster?: string
-  signals: FusionSignal[]
-}
+export type FusionApplicationService = W.AppServiceView
 /** An Ikhnos application as the data API lists it: what it is made of and which signals FUSION holds for it in the range. */
-export interface FusionApplication {
-  id: string
-  name: string
-  description?: string
-  services: FusionApplicationService[]
-  signals: FusionSignal[]
-  namespaces: string[]
-  clusters: string[]
-  /** Members Ikhnos has an id for but cannot tie to a running service. */
-  unresolvedMembers?: number
-}
+export type FusionApplication = W.AppView
 /** Every service FUSION has data for (its service.name), with the applications it is in; empty for infrastructure that reports under its own name. */
-export interface FusionServiceItem {
-  name: string
-  signals: FusionSignal[]
-  applications: string[]
-}
+export type FusionServiceItem = W.ServiceDoc
 /** What each store answered: `ok`, or why it could not be read (`unavailable`, `error`). */
 export type FusionSources = Record<FusionSignal, string>
-export interface FusionApplications { applications: FusionApplication[]; sources: FusionSources; warnings: string[] }
-export interface FusionServices { services: FusionServiceItem[]; sources: FusionSources; warnings: string[] }
+export type FusionApplications = W.ApplicationsDoc
+export type FusionServices = W.ServicesDoc
 
 /** One store's retention and the volume it lives on (GET /fusion/retention). Sizes are bytes. */
-export interface FusionRetentionStore {
-  component: FusionSignal
-  label: string
-  /** The setting as the store takes it ("15d", "168h"); `days` is it in whole days, rounded up, and `exactDays` says it was a whole number of them. */
-  value: string
-  days: number
-  exactDays: boolean
-  minDays: number
-  maxDays: number
-  /** False when the volume could not be read; then none of the sizes mean anything. */
-  volumeKnown: boolean
-  /** What was asked of the cluster, and what it has made available so far (they differ while a volume is being grown). */
-  volumeBytes: number
-  capacityBytes: number
-  storageClass?: string
-  /** The cluster's answer to a trial resize: false when the storage class does not allow volumes to grow (`growNote` says so); absent when not known. */
-  canGrow?: boolean
-  growNote?: string
-  /** True on storage that does not hold a volume to its size (local-path and other host directories): the size is only what was asked for. */
-  sizeNotEnforced?: boolean
-  resizing?: boolean
-  resizeNote?: string
-  /** Measured use: `volume` is the kubelet's count for the whole volume, `database` Prometheus' account of its data. Absent when not measured. */
-  usedBytes?: number
-  usedSource?: 'volume' | 'database'
-  /** Growth to plan on, and how many days of data it is based on. Absent while there is too little data to tell. */
-  bytesPerDay?: number
-  dataDays?: number
-  /** The part of the volume the data should stay within; the volume a retention needs is bytesPerDay * days / share. */
-  share: number
-  /** Prometheus' own size cap, and how many days of data it keeps at today's growth. */
-  sizeLimitBytes?: number
-  sizeLimitDays?: number
-}
+export type FusionRetentionStore = W.RetentionStore
 
-export interface FusionRetention {
-  available: boolean
-  /** Why it cannot be set from here: `unmanaged` (installed without the server managing it), `forbidden` (the server's Role lacks the grant), ... */
-  reason?: string
-  message?: string
-  running: boolean
-  stores: FusionRetentionStore[]
-  warnings?: string[]
-}
+export type FusionRetention = W.RetentionDoc
 
-/** What to change for one store; a missing field is left alone. */
-export interface FusionRetentionChange {
-  days?: number
-  /** The size to grow the volume to, in GiB. Volumes can grow but not shrink. */
-  volumeGiB?: number
-}
+/** What to change for one store; a missing field is left alone. `volumeGiB` is the size to grow the volume to: volumes can grow but not shrink. */
+export type FusionRetentionChange = Partial<{ [K in keyof W.RetentionChange]: number }>
 export type FusionRetentionRequest = Partial<Record<FusionSignal, FusionRetentionChange>>
 
 /** A read-only credential for the shared data API over FUSION. The secret is never in this; see CreatedFusionAccessToken. */
-export interface FusionAccessToken {
-  id: string
-  name: string
-  signals: FusionSignal[]
-  /** Empty = every namespace (and every cluster, for `clusters`). */
-  namespaces: string[]
-  clusters: string[]
-  createdBy: string
-  createdAt: string
-  expiresAt: string
-  lastUsedAt?: string
-}
+export type FusionAccessToken = W.FusionTokenDoc
 
-export interface NewFusionAccessToken {
-  name: string
-  signals: FusionSignal[]
-  namespaces: string[]
-  clusters: string[]
-  expiresInDays: number
-}
+export type NewFusionAccessToken = W.FusionCreateTokenRequest
 
 /** The one answer that carries the token's secret: shown once, then only the details are ever returned again. */
-export interface CreatedFusionAccessToken {
-  token: string
-  details: FusionAccessToken
-}
+export type CreatedFusionAccessToken = W.FusionCreatedTokenDoc
 
 /** What GET /telemetry-intents/{id}/command returns: the `--set` flags a person runs against the
  *  intent's own agent to actually point its bundled local operator's export at what the intent grants,
@@ -608,7 +503,7 @@ export const api = {
   getFusion: (c: Conn) => call<FusionStatus>(c, 'GET', '/api/v1/fusion'),
   enableFusion: (c: Conn) => call<FusionStatus>(c, 'POST', '/api/v1/fusion/enable'),
   /** The path that opens one of FUSION's own pages in a new tab, with a ticket that works once for thirty seconds: the session cookie does not come with a link into a new tab, so the link carries its own way in. */
-  openFusionPage: (c: Conn, page: 'grafana' | 'prometheus') => call<{ path: string }>(c, 'POST', '/api/v1/fusion/pages', { page }),
+  openFusionPage: (c: Conn, page: 'grafana' | 'prometheus') => call<W.FusionPageDoc>(c, 'POST', '/api/v1/fusion/pages', { page } satisfies W.OpenFusionPageRequest),
   disableFusion: (c: Conn) => call<FusionStatus>(c, 'POST', '/api/v1/fusion/disable'),
   listFusionTokens: (c: Conn) => call<FusionAccessToken[]>(c, 'GET', '/api/v1/fusion/tokens'),
   createFusionToken: (c: Conn, req: NewFusionAccessToken) => call<CreatedFusionAccessToken>(c, 'POST', '/api/v1/fusion/tokens', req),

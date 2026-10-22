@@ -502,7 +502,7 @@ func TestApplicationsMergeTheThreeStores(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []Application{{"billing", []string{"metrics"}}, {"cart", []string{"metrics", "logs", "traces"}}, {"gateway", []string{"traces"}}}
+	want := []Application{{"billing", []Signal{"metrics"}}, {"cart", []Signal{"metrics", "logs", "traces"}}, {"gateway", []Signal{"traces"}}}
 	if !reflect.DeepEqual(apps, want) || sources[SignalLogs] != SourceOK {
 		t.Fatalf("apps %+v sources %v", apps, sources)
 	}

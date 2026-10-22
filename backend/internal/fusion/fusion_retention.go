@@ -42,7 +42,7 @@ const (
 )
 
 type retentionSpec struct {
-	component string
+	component fusionapi.Signal
 	key       string // the ConfigMap key
 	hours     bool   // written in hours (Loki, Tempo) rather than days (Prometheus)
 	maxDays   int
@@ -59,10 +59,45 @@ const oneGiB = int64(1) << 30
 
 const promSizeKey = "prometheus.retentionSize"
 
+// UsedSource says where a store's measured use came from.
+type UsedSource string
+
+// The places a store's use is read from.
+const (
+	UsedVolume   UsedSource = "volume"   // the kubelet's own count for the whole volume
+	UsedDatabase UsedSource = "database" // Prometheus' account of its data
+)
+
+// WireWords is the list of UsedSource's words, as the generated types give it.
+func (UsedSource) WireWords() []string { return []string{string(UsedVolume), string(UsedDatabase)} }
+
+// RetentionReason is why the retention cannot be read or set from here.
+type RetentionReason string
+
+// The reasons the retention card is unavailable.
+const (
+	RetentionOtherOrg    RetentionReason = "other-org"   // FUSION is managed from the server's main organisation
+	RetentionUnsupported RetentionReason = "unsupported" // this server cannot reach the settings at all
+	RetentionUnmanaged   RetentionReason = "unmanaged"   // installed without the server managing it
+	RetentionForbidden   RetentionReason = "forbidden"   // the server's Role lacks the grant
+	RetentionError       RetentionReason = "error"       // the settings could not be read
+	RetentionUnavailable RetentionReason = "unavailable" // FUSION could not be read
+
+	// The reasons the switch itself is not available are the retention's too (see FusionReason).
+	RetentionNotConfigured RetentionReason = "not-configured"
+	RetentionNotInstalled  RetentionReason = "not-installed"
+	RetentionNoAccess      RetentionReason = "no-access"
+)
+
+// WireWords is the list of RetentionReason's words, as the generated types give it.
+func (RetentionReason) WireWords() []string {
+	return []string{string(RetentionOtherOrg), string(RetentionUnsupported), string(RetentionUnmanaged), string(RetentionForbidden), string(RetentionError), string(RetentionUnavailable), string(RetentionNotConfigured), string(RetentionNotInstalled), string(RetentionNoAccess)}
+}
+
 // RetentionStore is one store's retention and the volume it lives on.
 type RetentionStore struct {
-	Component string `json:"component"` // metrics | logs | traces
-	Label     string `json:"label"`
+	Component fusionapi.Signal `json:"component"`
+	Label     string           `json:"label"`
 	// Value is the setting as written ("15d", "168h"); Days is it in whole days (rounded up) and ExactDays says whether it
 	// was a whole number of days (a value set with Helm may be "36h", and the card then says so rather than hide it).
 	Value     string `json:"value"`
@@ -88,8 +123,8 @@ type RetentionStore struct {
 
 	// Use. UsedSource says where UsedBytes came from: "volume" (the kubelet's own count for the whole volume) or "database"
 	// (Prometheus' account of its data). Absent when it was not measured.
-	UsedBytes  *int64 `json:"usedBytes,omitempty"`
-	UsedSource string `json:"usedSource,omitempty"`
+	UsedBytes  *int64     `json:"usedBytes,omitempty"`
+	UsedSource UsedSource `json:"usedSource,omitempty"`
 	// BytesPerDay is the growth to plan on and DataDays how many days of data that is based on; absent while there is too
 	// little data to tell.
 	BytesPerDay *int64   `json:"bytesPerDay,omitempty"`
@@ -104,9 +139,9 @@ type RetentionStore struct {
 
 // RetentionDoc is what the FUSION card shows.
 type RetentionDoc struct {
-	Available bool   `json:"available"`
-	Reason    string `json:"reason,omitempty"`
-	Message   string `json:"message,omitempty"`
+	Available bool            `json:"available"`
+	Reason    RetentionReason `json:"reason,omitempty"`
+	Message   string          `json:"message,omitempty"`
 	// Running says whether the stores are up; they are only restarted by a change when they are.
 	Running  bool             `json:"running"`
 	Stores   []RetentionStore `json:"stores"`
@@ -127,7 +162,7 @@ type RetentionRequest struct {
 	Traces  *RetentionChange `json:"traces"`
 }
 
-func (r RetentionRequest) of(component string) *RetentionChange {
+func (r RetentionRequest) of(component fusionapi.Signal) *RetentionChange {
 	switch component {
 	case "metrics":
 		return r.Metrics
@@ -141,9 +176,9 @@ func (r RetentionRequest) of(component string) *RetentionChange {
 
 func (f *FusionControl) settingsName() string { return f.Name + "-settings" }
 
-func (f *FusionControl) storeOf(component string) (fusionStore, bool) {
+func (f *FusionControl) storeOf(component fusionapi.Signal) (fusionStore, bool) {
 	for _, s := range f.stores() {
-		if s.Component == component {
+		if s.Component == Component(component) {
 			return s, true
 		}
 	}
@@ -325,31 +360,31 @@ func (f *FusionControl) forgetMeasure() {
 	f.retention.mu.Unlock()
 }
 
-func UnavailableRetention(reason, msg string) RetentionDoc {
+func UnavailableRetention(reason RetentionReason, msg string) RetentionDoc {
 	return RetentionDoc{Reason: reason, Message: msg, Stores: []RetentionStore{}}
 }
 
 // Retention reads every store's retention, volume and use.
 func (f *FusionControl) Retention(ctx context.Context, c *Service) RetentionDoc {
 	if f != nil && f.Org != "" && c.OrgID != f.Org {
-		return UnavailableRetention("other-org", "FUSION is shared by everything that sends to this server, so its retention is set from the server's main organisation.")
+		return UnavailableRetention(RetentionOtherOrg, "FUSION is shared by everything that sends to this server, so its retention is set from the server's main organisation.")
 	}
 	st := f.Status(ctx)
 	if !st.Available {
-		return UnavailableRetention(st.Reason, st.Message)
+		return UnavailableRetention(RetentionReason(st.Reason), st.Message)
 	}
 	rk, why := f.retentionKube()
 	if rk == nil {
-		return UnavailableRetention("unsupported", why)
+		return UnavailableRetention(RetentionUnsupported, why)
 	}
 	settings, err := rk.Settings(ctx, f.settingsName())
 	switch {
 	case errors.Is(err, kernel.ErrKubeNotFound):
-		return UnavailableRetention("unmanaged", "This FUSION is not managed by the server (its chart was installed without switch.managed), so its retention is set with Helm values: prometheus.retention, loki.retention and tempo.retention.")
+		return UnavailableRetention(RetentionUnmanaged, "This FUSION is not managed by the server (its chart was installed without switch.managed), so its retention is set with Helm values: prometheus.retention, loki.retention and tempo.retention.")
 	case errors.Is(err, kernel.ErrKubeForbidden):
-		return UnavailableRetention("forbidden", "This server is not allowed to read FUSION's settings. Upgrade the server chart so its Role includes them.")
+		return UnavailableRetention(RetentionForbidden, "This server is not allowed to read FUSION's settings. Upgrade the server chart so its Role includes them.")
 	case err != nil:
-		return UnavailableRetention("error", "FUSION's settings could not be read: "+err.Error())
+		return UnavailableRetention(RetentionError, "FUSION's settings could not be read: "+err.Error())
 	}
 	doc := RetentionDoc{Available: true, Stores: []RetentionStore{}}
 	for _, comp := range st.Components {
@@ -391,7 +426,7 @@ func (f *FusionControl) fillUse(rs *RetentionStore, sp retentionSpec, claim kern
 	s, _ := f.storeOf(sp.component)
 	if v, ok := m.vols[storeClaim(s)]; ok && (v.Namespace == "" || v.Namespace == f.Namespace) {
 		used := v.Used
-		rs.UsedBytes, rs.UsedSource = &used, "volume"
+		rs.UsedBytes, rs.UsedSource = &used, UsedVolume
 	}
 	day := 24 * time.Hour
 	var span time.Duration // how long the data on disk has been accumulating
@@ -399,7 +434,7 @@ func (f *FusionControl) fillUse(rs *RetentionStore, sp retentionSpec, claim kern
 	if sp.component == "metrics" && m.prom != nil {
 		if rs.UsedBytes == nil {
 			used := m.prom.Bytes
-			rs.UsedBytes, rs.UsedSource = &used, "database"
+			rs.UsedBytes, rs.UsedSource = &used, UsedDatabase
 		}
 		data = m.prom.Bytes
 		if !m.prom.Oldest.IsZero() {

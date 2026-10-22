@@ -29,7 +29,7 @@ import (
 
 // fusionStore is one of the four workloads the switch drives.
 type fusionStore struct {
-	Component string // metrics | logs | traces | grafana | central
+	Component Component
 	Label     string // what the UI calls it
 	Kind      string // statefulsets | deployments
 	Name      string
@@ -318,12 +318,61 @@ func (f *FusionControl) destination() store.Destination {
 	return store.Destination{Kind: store.DestinationFusion, FusionRelease: f.Name, FusionNamespace: f.Namespace}
 }
 
+// Component names one of the workloads the switch drives.
+type Component string
+
+// The workloads of FUSION.
+const (
+	ComponentMetrics Component = "metrics" // Prometheus
+	ComponentLogs    Component = "logs"    // Loki
+	ComponentTraces  Component = "traces"  // Tempo
+	ComponentGrafana Component = "grafana"
+	ComponentCentral Component = "central" // the central operator, the one door in
+)
+
+// WireWords is the list of Component's words, as the generated types give it.
+func (Component) WireWords() []string {
+	return []string{string(ComponentMetrics), string(ComponentLogs), string(ComponentTraces), string(ComponentGrafana), string(ComponentCentral)}
+}
+
+// FusionState is where the switch stands.
+type FusionState string
+
+// The states of the switch.
+const (
+	StateOff       FusionState = "off"
+	StateStarting  FusionState = "starting"
+	StateRunning   FusionState = "running"
+	StateAttention FusionState = "attention"
+)
+
+// WireWords is the list of FusionState's words, as the generated types give it.
+func (FusionState) WireWords() []string {
+	return []string{string(StateOff), string(StateStarting), string(StateRunning), string(StateAttention)}
+}
+
+// FusionReason is why the switch cannot be used from here (the state is then off).
+type FusionReason string
+
+// The reasons the switch is not available.
+const (
+	ReasonNotConfigured FusionReason = "not-configured" // the server was installed without it, or without the permission to scale it
+	ReasonNotInstalled  FusionReason = "not-installed"  // FUSION's workloads are not in this release
+	ReasonNoAccess      FusionReason = "no-access"      // the server may not read or scale them
+	ReasonOtherOrg      FusionReason = "other-org"      // FUSION is managed from the server's main organisation
+)
+
+// WireWords is the list of FusionReason's words, as the generated types give it.
+func (FusionReason) WireWords() []string {
+	return []string{string(ReasonNotConfigured), string(ReasonNotInstalled), string(ReasonNoAccess), string(ReasonOtherOrg)}
+}
+
 // FusionComponent is one workload's state, as the UI shows it.
 type FusionComponent struct {
-	Component string `json:"component"`
-	Label     string `json:"label"`
-	Desired   int    `json:"desired"`
-	Ready     int    `json:"ready"`
+	Component Component `json:"component"`
+	Label     string    `json:"label"`
+	Desired   int       `json:"desired"`
+	Ready     int       `json:"ready"`
 	// Reason is, in plain words, why this part is not ready ("Cannot download the image", "Waiting for a volume"); empty
 	// while it is ready, and when the cause cannot be told (no permission to read the pod, the pod does not exist yet).
 	Reason string `json:"reason,omitempty"`
@@ -333,7 +382,7 @@ type FusionComponent struct {
 }
 
 // componentUp says whether the named workload exists in this install and is fully ready.
-func (st FusionStatus) ComponentUp(component string) bool {
+func (st FusionStatus) ComponentUp(component Component) bool {
 	for _, c := range st.Components {
 		if c.Component == component {
 			return c.Desired > 0 && c.Ready >= c.Desired
@@ -345,8 +394,8 @@ func (st FusionStatus) ComponentUp(component string) bool {
 // FusionStatus is the switch's whole state.
 type FusionStatus struct {
 	Available  bool              `json:"available"`
-	Reason     string            `json:"reason,omitempty"`
-	State      string            `json:"state"` // off | starting | running | attention
+	Reason     FusionReason      `json:"reason,omitempty"`
+	State      FusionState       `json:"state"`
 	Message    string            `json:"message,omitempty"`
 	Since      *time.Time        `json:"since,omitempty"`
 	Components []FusionComponent `json:"components,omitempty"`
@@ -357,7 +406,7 @@ type FusionStatus struct {
 
 // Managed is what the operators module needs of this state to report the central operator's health.
 func (st FusionStatus) Managed() operators.ManagedStatus {
-	return operators.ManagedStatus{Available: st.Available, State: st.State, LastDataAt: st.LastDataAt}
+	return operators.ManagedStatus{Available: st.Available, State: string(st.State), LastDataAt: st.LastDataAt}
 }
 
 // clone is a copy that shares nothing with the cached one, so a caller may change what it was given.
@@ -439,7 +488,7 @@ func (f *FusionControl) TokenStatus(ctx context.Context) FusionStatus {
 
 func (f *FusionControl) statusWithin(ctx context.Context, maxAge time.Duration) FusionStatus {
 	if f == nil || f.Kube == nil {
-		return FusionStatus{State: "off", Reason: "not-configured", Message: "This server cannot switch FUSION: it was installed without it, or without the permission to scale it (fusion.enabled and fusionControl.enabled in the server chart)."}
+		return FusionStatus{State: StateOff, Reason: ReasonNotConfigured, Message: "This server cannot switch FUSION: it was installed without it, or without the permission to scale it (fusion.enabled and fusionControl.enabled in the server chart)."}
 	}
 	if maxAge <= 0 {
 		return f.readStatus(ctx)
@@ -456,10 +505,10 @@ func (f *FusionControl) statusWithin(ctx context.Context, maxAge time.Duration) 
 		case <-fl.done:
 			return fl.st.clone()
 		case <-ctx.Done():
-			return FusionStatus{Available: true, State: "attention", Message: "The Kubernetes API did not answer in time."}
+			return FusionStatus{Available: true, State: StateAttention, Message: "The Kubernetes API did not answer in time."}
 		}
 	}
-	fl := &statusFlight{done: make(chan struct{}), st: FusionStatus{Available: true, State: "attention", Message: "The Kubernetes API did not answer in time."}}
+	fl := &statusFlight{done: make(chan struct{}), st: FusionStatus{Available: true, State: StateAttention, Message: "The Kubernetes API did not answer in time."}}
 	f.cache.flight = fl
 	gen := f.cache.gen
 	f.cacheMu.Unlock()
@@ -536,18 +585,18 @@ func (f *FusionControl) readStatus(ctx context.Context) FusionStatus {
 		case s.Optional && (errors.Is(r.err, kernel.ErrKubeNotFound) || errors.Is(r.err, kernel.ErrKubeForbidden)):
 			continue // Grafana is off in this install (or this Role predates it): the rest of FUSION is unaffected
 		case errors.Is(r.err, kernel.ErrKubeNotFound):
-			return FusionStatus{State: "off", Reason: "not-installed", Message: "FUSION's workloads are not in this release. Upgrade the server chart (fusion.enabled=true) to get them."}
+			return FusionStatus{State: StateOff, Reason: ReasonNotInstalled, Message: "FUSION's workloads are not in this release. Upgrade the server chart (fusion.enabled=true) to get them."}
 		case errors.Is(r.err, kernel.ErrKubeForbidden):
-			return FusionStatus{State: "off", Reason: "no-access", Message: "This server is not allowed to read or scale FUSION's workloads. Check fusionControl.enabled in the server chart."}
+			return FusionStatus{State: StateOff, Reason: ReasonNoAccess, Message: "This server is not allowed to read or scale FUSION's workloads. Check fusionControl.enabled in the server chart."}
 		case r.err != nil:
-			st.State, st.Message = "attention", "The Kubernetes API did not answer: "+r.err.Error()
+			st.State, st.Message = StateAttention, "The Kubernetes API did not answer: "+r.err.Error()
 			return st
 		}
 		comps = append(comps, FusionComponent{Component: s.Component, Label: s.Label, Desired: r.w.Desired, Ready: r.w.Ready,
 			Reason: r.reason, hard: r.hard, optional: s.Optional})
 	}
 	st = f.assess(comps)
-	if st.ComponentUp("metrics") {
+	if st.ComponentUp(ComponentMetrics) {
 		st.LastDataAt = f.lastDataAt(ctx)
 	}
 	return st
@@ -646,13 +695,13 @@ func (f *FusionControl) assess(comps []FusionComponent) FusionStatus {
 	defer f.mu.Unlock()
 	switch {
 	case desired == 0:
-		st.State = "off"
+		st.State = StateOff
 		f.since, f.notReady = time.Time{}, time.Time{}
 	case ready >= desired:
-		st.State = "running"
+		st.State = StateRunning
 		f.notReady = time.Time{}
 	default:
-		st.State = "starting"
+		st.State = StateStarting
 		if f.since.IsZero() { // the server restarted while FUSION was starting: count from now
 			f.since = f.Clock()
 		}
@@ -665,9 +714,9 @@ func (f *FusionControl) assess(comps []FusionComponent) FusionStatus {
 		}
 		if waited := f.Clock().Sub(f.notReady); waited > grace {
 			if len(reasons) > 0 {
-				st.State, st.Message = "attention", fmt.Sprintf("%d of %d parts are up after %s. %s. Details: kubectl -n %s get pods", ready, desired, waitedFor(waited), strings.Join(reasons, ". "), f.Namespace)
+				st.State, st.Message = StateAttention, fmt.Sprintf("%d of %d parts are up after %s. %s. Details: kubectl -n %s get pods", ready, desired, waitedFor(waited), strings.Join(reasons, ". "), f.Namespace)
 			} else {
-				st.State, st.Message = "attention", fmt.Sprintf("%d of %d parts are up after %s. Check the pods (kubectl -n %s get pods) - most often an image that cannot be pulled or a volume that cannot be bound.", ready, desired, waitedFor(waited), f.Namespace)
+				st.State, st.Message = StateAttention, fmt.Sprintf("%d of %d parts are up after %s. Check the pods (kubectl -n %s get pods) - most often an image that cannot be pulled or a volume that cannot be bound.", ready, desired, waitedFor(waited), f.Namespace)
 			}
 		}
 	}
@@ -782,7 +831,7 @@ func (f *FusionControl) Renew(ctx context.Context, c *Service) error {
 	}
 	f.switchMu.Lock()
 	defer f.switchMu.Unlock()
-	if st := f.Status(ctx); !st.Available || st.State == "off" {
+	if st := f.Status(ctx); !st.Available || st.State == StateOff {
 		return nil
 	}
 	if _, err := c.Store.GetOperator(ctx, operators.CentralOperatorID); err != nil {

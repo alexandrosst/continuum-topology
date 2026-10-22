@@ -166,19 +166,19 @@ func (c *Service) AuthenticateFusionToken(ctx context.Context, secret string) (s
 }
 
 type TokenDoc struct {
-	ID         string   `json:"id"`
-	Name       string   `json:"name"`
-	Signals    []string `json:"signals"`
-	Namespaces []string `json:"namespaces"`
-	Clusters   []string `json:"clusters"`
-	CreatedBy  string   `json:"createdBy"`
-	CreatedAt  string   `json:"createdAt"`
-	ExpiresAt  string   `json:"expiresAt"`
-	LastUsedAt string   `json:"lastUsedAt,omitempty"`
+	ID         string             `json:"id"`
+	Name       string             `json:"name"`
+	Signals    []fusionapi.Signal `json:"signals"`
+	Namespaces []string           `json:"namespaces"`
+	Clusters   []string           `json:"clusters"`
+	CreatedBy  string             `json:"createdBy"`
+	CreatedAt  string             `json:"createdAt"`
+	ExpiresAt  string             `json:"expiresAt"`
+	LastUsedAt string             `json:"lastUsedAt,omitempty"`
 }
 
 func toTokenDoc(t store.FusionToken) TokenDoc {
-	return TokenDoc{ID: t.ID, Name: t.Name, Signals: orEmpty(t.Signals), Namespaces: orEmpty(t.Namespaces), Clusters: orEmpty(t.Clusters),
+	return TokenDoc{ID: t.ID, Name: t.Name, Signals: fusionapi.SignalsOf(t.Signals), Namespaces: orEmpty(t.Namespaces), Clusters: orEmpty(t.Clusters),
 		CreatedBy: t.CreatedBy, CreatedAt: kernel.RFC(t.CreatedAt), ExpiresAt: kernel.RFC(t.ExpiresAt), LastUsedAt: kernel.RFCP(t.LastUsed)}
 }
 
@@ -187,4 +187,12 @@ func orEmpty(v []string) []string {
 		return []string{}
 	}
 	return v
+}
+
+func signalStrings(v []fusionapi.Signal) []string {
+	out := make([]string, len(v))
+	for i, s := range v {
+		out[i] = string(s)
+	}
+	return out
 }

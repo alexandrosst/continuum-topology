@@ -128,7 +128,7 @@ func (a *Admin) fusionUI(component string) http.Handler {
 		ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 		st := a.Fusion.Status(ctx)
 		cancel()
-		if !st.Available || !st.ComponentUp(component) {
+		if !st.Available || !st.ComponentUp(fusion.Component(component)) {
 			httpkit.WriteErr(w, http.StatusServiceUnavailable, map[string]string{"metrics": "Prometheus", "grafana": "Grafana"}[component]+" is not running. Turn FUSION on and wait for it to be up.")
 			return
 		}

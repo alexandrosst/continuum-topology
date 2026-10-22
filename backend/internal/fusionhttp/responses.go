@@ -50,13 +50,13 @@ type metricRangeDoc struct {
 
 // callerAccessDoc says what the caller is and may read, as the status answer tells it back.
 type callerAccessDoc struct {
-	Clusters   []string `json:"clusters"`
-	ExpiresAt  string   `json:"expiresAt,omitempty"`
-	Kind       string   `json:"kind"`
-	Name       string   `json:"name"`
-	Namespaces []string `json:"namespaces"`
-	RawQueries bool     `json:"rawQueries"`
-	Signals    []string `json:"signals"`
+	Clusters   []string           `json:"clusters"`
+	ExpiresAt  string             `json:"expiresAt,omitempty"`
+	Kind       string             `json:"kind"`
+	Name       string             `json:"name"`
+	Namespaces []string           `json:"namespaces"`
+	RawQueries bool               `json:"rawQueries"`
+	Signals    []fusionapi.Signal `json:"signals"`
 }
 
 // statusDoc answers the data API's status: how FUSION is, and what the caller may read of it.

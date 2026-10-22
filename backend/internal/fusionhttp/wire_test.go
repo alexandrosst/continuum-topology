@@ -45,15 +45,15 @@ func TestAnswersThatWereMapsAreWrittenAsTheyWere(t *testing.T) {
 		map[string]any{"series": []fusionapi.MetricSeries{}, "truncated": false, "limit": 20, "stepSeconds": 30.0, "from": from, "to": to})
 
 	st := fusion.FusionStatus{Available: true, State: "running"}
-	sameBytes(t, "status, a user", statusDoc{Fusion: st, Access: callerAccessDoc{Kind: "user", Name: "alex", Signals: []string{"logs"}, Namespaces: []string{}, Clusters: []string{}, RawQueries: true}},
+	sameBytes(t, "status, a user", statusDoc{Fusion: st, Access: callerAccessDoc{Kind: "user", Name: "alex", Signals: []fusionapi.Signal{"logs"}, Namespaces: []string{}, Clusters: []string{}, RawQueries: true}},
 		map[string]any{"fusion": st, "access": map[string]any{"kind": "user", "name": "alex", "signals": []string{"logs"}, "namespaces": []string{}, "clusters": []string{}, "rawQueries": true}})
-	sameBytes(t, "status, a token that expires", statusDoc{Fusion: st, Access: callerAccessDoc{Kind: "token", Name: "ci", Signals: []string{"logs"}, Namespaces: []string{"a"}, Clusters: []string{}, ExpiresAt: "2026-02-01T00:00:00Z"}},
+	sameBytes(t, "status, a token that expires", statusDoc{Fusion: st, Access: callerAccessDoc{Kind: "token", Name: "ci", Signals: []fusionapi.Signal{"logs"}, Namespaces: []string{"a"}, Clusters: []string{}, ExpiresAt: "2026-02-01T00:00:00Z"}},
 		map[string]any{"fusion": st, "access": map[string]any{"kind": "token", "name": "ci", "signals": []string{"logs"}, "namespaces": []string{"a"}, "clusters": []string{}, "rawQueries": false, "expiresAt": "2026-02-01T00:00:00Z"}})
 
 	src := map[string]string{"metrics": "ok"}
 	sameBytes(t, "applications", applicationsDoc{Applications: []fusionapi.AppView{}, Sources: src, Warnings: []string{}, From: from, To: to},
 		map[string]any{"applications": []fusionapi.AppView{}, "sources": src, "warnings": []string{}, "from": from, "to": to})
-	svc := []serviceDoc{{Application: fusionapi.Application{Name: "web", Signals: []string{"logs"}}, Applications: []string{"shop"}}}
+	svc := []serviceDoc{{Application: fusionapi.Application{Name: "web", Signals: []fusionapi.Signal{"logs"}}, Applications: []string{"shop"}}}
 	sameBytes(t, "services", servicesDoc{Services: svc, Sources: src, Warnings: []string{}, From: from, To: to},
 		map[string]any{"services": svc, "sources": src, "warnings": []string{}, "from": from, "to": to})
 

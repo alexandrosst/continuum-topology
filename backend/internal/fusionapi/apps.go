@@ -125,7 +125,7 @@ type AppView struct {
 	Description string           `json:"description,omitempty"`
 	Services    []AppServiceView `json:"services"`
 	// Signals are the signal types any of its services has telemetry for in the range.
-	Signals    []string `json:"signals"`
+	Signals    []Signal `json:"signals"`
 	Namespaces []string `json:"namespaces"`
 	Clusters   []string `json:"clusters"`
 	// Unresolved is how many members Ikhnos has an id for but cannot tie to a running service, and so cannot match with
@@ -136,7 +136,7 @@ type AppView struct {
 // AppServiceView is one service of an application with the signals its telemetry has in the range.
 type AppServiceView struct {
 	AppMember
-	Signals []string `json:"signals"`
+	Signals []Signal `json:"signals"`
 }
 
 // DescribeGroups joins the applications with the services that have telemetry (from Client.Applications). A service is
@@ -148,7 +148,7 @@ func DescribeGroups(groups []AppGroup, withTelemetry []Application) []AppView {
 	for _, a := range withTelemetry {
 		have[a.Name] = map[string]bool{}
 		for _, sig := range a.Signals {
-			have[a.Name][sig] = true
+			have[a.Name][string(sig)] = true
 		}
 	}
 	out := make([]AppView, 0, len(groups))
@@ -179,11 +179,11 @@ func DescribeGroups(groups []AppGroup, withTelemetry []Application) []AppView {
 	return out
 }
 
-func signalList(set map[string]bool) []string {
-	out := []string{}
+func signalList(set map[string]bool) []Signal {
+	out := []Signal{}
 	for _, sig := range Signals {
 		if set[sig] {
-			out = append(out, sig)
+			out = append(out, Signal(sig))
 		}
 	}
 	return out

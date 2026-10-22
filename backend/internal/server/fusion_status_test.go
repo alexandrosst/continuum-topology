@@ -49,7 +49,7 @@ func TestStatusIsReadOnceForEveryoneAsking(t *testing.T) {
 	ctx := context.Background()
 
 	var wg sync.WaitGroup
-	states := make([]string, 20)
+	states := make([]fusion.FusionState, 20)
 	for i := range states {
 		wg.Add(1)
 		go func() {

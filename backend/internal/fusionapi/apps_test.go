@@ -99,11 +99,11 @@ func TestVisibleGroupsShowALimitedCallerOnlyWhatItCanSee(t *testing.T) {
 }
 
 func TestDescribeGroupsMarksWhatHasTelemetry(t *testing.T) {
-	v := DescribeGroups(testGroups()[:1], []Application{{"cart-app", []string{"logs"}}, {"cart", []string{"metrics"}}, {"other", []string{"traces"}}})
-	if len(v) != 1 || !reflect.DeepEqual(v[0].Signals, []string{"metrics", "logs"}) {
+	v := DescribeGroups(testGroups()[:1], []Application{{"cart-app", []Signal{"logs"}}, {"cart", []Signal{"metrics"}}, {"other", []Signal{"traces"}}})
+	if len(v) != 1 || !reflect.DeepEqual(v[0].Signals, []Signal{"metrics", "logs"}) {
 		t.Fatalf("%+v", v)
 	}
-	if !reflect.DeepEqual(v[0].Services[0].Signals, []string{"metrics", "logs"}) || len(v[0].Services[1].Signals) != 0 || v[0].Services[1].Signals == nil {
+	if !reflect.DeepEqual(v[0].Services[0].Signals, []Signal{"metrics", "logs"}) || len(v[0].Services[1].Signals) != 0 || v[0].Services[1].Signals == nil {
 		t.Fatalf("a service with none has [] not null: %+v", v[0].Services)
 	}
 }

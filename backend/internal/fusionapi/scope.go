@@ -27,6 +27,22 @@ const (
 	SignalTraces  = "traces"
 )
 
+// Signal is a signal type as an answer or a body names it. The constants above stay plain strings, because they key maps and are
+// compared with query parameters throughout; this is the type a document gives them.
+type Signal string
+
+// WireWords is the list of Signal's words, as the generated types give it.
+func (Signal) WireWords() []string { return []string{SignalMetrics, SignalLogs, SignalTraces} }
+
+// SignalsOf is a list of signal names as the documents give them.
+func SignalsOf(v []string) []Signal {
+	out := make([]Signal, len(v))
+	for i, s := range v {
+		out[i] = Signal(s)
+	}
+	return out
+}
+
 // Signals is every signal type, in the order the stores are listed everywhere.
 var Signals = []string{SignalMetrics, SignalLogs, SignalTraces}
 

@@ -54,10 +54,10 @@ func (f *FusionControl) PageLinks(st FusionStatus, prometheusPath, grafanaPath s
 		return nil
 	}
 	var l PageLinks
-	if st.ComponentUp("metrics") {
+	if st.ComponentUp(ComponentMetrics) {
 		l.Prometheus = prometheusPath
 	}
-	if st.ComponentUp("grafana") {
+	if st.ComponentUp(ComponentGrafana) {
 		l.Grafana = grafanaPath
 	}
 	if l == (PageLinks{}) {
@@ -114,7 +114,7 @@ func (h *API) doc(r *http.Request) Doc {
 	f := h.control()
 	st := f.Status(r.Context())
 	if f != nil && f.Org != "" && svc.OrgID != f.Org {
-		st = FusionStatus{State: "off", Reason: "other-org", Message: "FUSION is shared by everything that sends to this server, so it is managed from the server's main organisation."}
+		st = FusionStatus{State: StateOff, Reason: ReasonOtherOrg, Message: "FUSION is shared by everything that sends to this server, so it is managed from the server's main organisation."}
 	}
 	out := Doc{FusionStatus: st, Data: f != nil && (f.Org == "" || svc.OrgID == f.Org)}
 	if out.Data {
@@ -126,7 +126,7 @@ func (h *API) doc(r *http.Request) Doc {
 		if h.CentralWarnings != nil {
 			out.Central.Warnings = h.CentralWarnings(r.Context(), f.Central())
 		}
-		if out.Central.Exists && !out.Central.Exposed && st.State != "off" {
+		if out.Central.Exists && !out.Central.Exposed && st.State != StateOff {
 			f.DiscoverAddressSoon(svc) // the next read of this screen shows it
 		}
 	}
@@ -164,7 +164,7 @@ func (h *API) disable(w http.ResponseWriter, r *http.Request) {
 // getRetention is every store's retention, volume and measured use.
 func (h *API) getRetention(w http.ResponseWriter, r *http.Request) {
 	if h.control() == nil {
-		httpkit.WriteJSON(w, 200, UnavailableRetention("unavailable", h.control().Status(r.Context()).Message))
+		httpkit.WriteJSON(w, 200, UnavailableRetention(RetentionUnavailable, h.control().Status(r.Context()).Message))
 		return
 	}
 	httpkit.WriteJSON(w, 200, h.control().Retention(r.Context(), h.For(r)))

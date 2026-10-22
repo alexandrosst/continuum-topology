@@ -12,7 +12,7 @@ import (
 )
 
 func (g *Guard) Status(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who Caller) {
-	access := callerAccessDoc{Kind: who.Kind, Name: who.Name, Signals: who.Scope.Signals,
+	access := callerAccessDoc{Kind: who.Kind, Name: who.Name, Signals: fusionapi.SignalsOf(who.Scope.Signals),
 		Namespaces: orEmpty(who.Scope.Namespaces), Clusters: orEmpty(who.Scope.Clusters), RawQueries: who.Scope.Unrestricted()}
 	if who.ExpiresAt != nil {
 		access.ExpiresAt = kernel.RFC(*who.ExpiresAt)

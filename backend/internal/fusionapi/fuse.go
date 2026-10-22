@@ -759,7 +759,7 @@ func resourceMetrics(ctx context.Context, r *Resource, opts FuseOptions, reads *
 // Application is a service FUSION has data for, and which signal types.
 type Application struct {
 	Name    string   `json:"name"`
-	Signals []string `json:"signals"`
+	Signals []Signal `json:"signals"`
 }
 
 // Applications lists the services that have telemetry in the range, each with the signal types it has. Signals the
@@ -821,7 +821,7 @@ func (c *Client) Applications(ctx context.Context, s Scope, tr TimeRange) ([]App
 		a := Application{Name: name}
 		for _, sig := range Signals {
 			if sigs[sig] {
-				a.Signals = append(a.Signals, sig)
+				a.Signals = append(a.Signals, Signal(sig))
 			}
 		}
 		apps = append(apps, a)
@@ -857,7 +857,7 @@ type Overview struct {
 	ID          string         `json:"id,omitempty"`
 	Services    []string       `json:"services,omitempty"`
 	Name        string         `json:"name"`
-	Signals     []string       `json:"signals"`
+	Signals     []Signal       `json:"signals"`
 	Traces      []TraceSummary `json:"traces"`      // the most recent
 	ErrorTraces []TraceSummary `json:"errorTraces"` // the most recent with an error span
 	ErrorLogs   []LogEntry     `json:"errorLogs"`   // the most recent error-level lines
@@ -975,7 +975,7 @@ func (c *Client) overview(ctx context.Context, s Scope, name, label string, tr T
 	}
 	for _, sig := range Signals {
 		if has[sig] {
-			o.Signals = append(o.Signals, sig)
+			o.Signals = append(o.Signals, Signal(sig))
 		}
 	}
 	if len(o.Signals) == 0 && firstErr == nil {

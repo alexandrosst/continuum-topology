@@ -116,7 +116,7 @@ func intp(n int) *int { return &n }
 func storeOf(t *testing.T, d fusion.RetentionDoc, component string) fusion.RetentionStore {
 	t.Helper()
 	for _, s := range d.Stores {
-		if s.Component == component {
+		if string(s.Component) == component {
 			return s
 		}
 	}

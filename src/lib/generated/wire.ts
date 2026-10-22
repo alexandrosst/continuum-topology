@@ -240,7 +240,7 @@ export interface AppServiceView {
   cluster?: string
   kind?: string
   aliases?: string[]
-  signals: string[]
+  signals: Signal[]
 }
 
 export interface AppTelemetry {
@@ -328,7 +328,7 @@ export interface AppView {
   name: string
   description?: string
   services: AppServiceView[]
-  signals: string[]
+  signals: Signal[]
   namespaces: string[]
   clusters: string[]
   unresolvedMembers?: number
@@ -429,7 +429,7 @@ export interface CallerAccessDoc {
   name: string
   namespaces: string[]
   rawQueries: boolean
-  signals: string[]
+  signals: Signal[]
 }
 
 export interface CapacityDoc {
@@ -595,6 +595,8 @@ export interface Collectors {
   flowObserver: boolean
   measurements: boolean
 }
+
+export type Component = 'metrics' | 'logs' | 'traces' | 'grafana' | 'central'
 
 export interface Condition {
   type: string
@@ -1124,7 +1126,7 @@ export interface FusedLogs {
 }
 
 export interface FusionComponent {
-  component: string
+  component: Component
   label: string
   desired: number
   ready: number
@@ -1133,7 +1135,7 @@ export interface FusionComponent {
 
 export interface FusionCreateTokenRequest {
   name: string
-  signals: string[]
+  signals: Signal[]
   namespaces: string[]
   clusters: string[]
   expiresInDays: number
@@ -1146,8 +1148,8 @@ export interface FusionCreatedTokenDoc {
 
 export interface FusionFusionStatus {
   available: boolean
-  reason?: string
-  state: string
+  reason?: FusionReason
+  state: FusionState
   message?: string
   since?: string
   components?: FusionComponent[]
@@ -1181,10 +1183,14 @@ export interface FusionPageDoc {
   path: string
 }
 
+export type FusionReason = 'not-configured' | 'not-installed' | 'no-access' | 'other-org'
+
+export type FusionState = 'off' | 'starting' | 'running' | 'attention'
+
 export interface FusionStatus {
   available: boolean
-  reason?: string
-  state: string
+  reason?: FusionReason
+  state: FusionState
   message?: string
   since?: string
   components?: FusionComponent[]
@@ -1197,7 +1203,7 @@ export interface FusionStatus {
 export interface FusionTokenDoc {
   id: string
   name: string
-  signals: string[]
+  signals: Signal[]
   namespaces: string[]
   clusters: string[]
   createdBy: string
@@ -1815,7 +1821,7 @@ export interface Overview {
   id?: string
   services?: string[]
   name: string
-  signals: string[]
+  signals: Signal[]
   traces: TraceSummary[]
   errorTraces: TraceSummary[]
   errorLogs: LogEntry[]
@@ -2115,12 +2121,14 @@ export interface RetentionChange {
 
 export interface RetentionDoc {
   available: boolean
-  reason?: string
+  reason?: RetentionReason
   message?: string
   running: boolean
   stores: RetentionStore[]
   warnings?: string[]
 }
+
+export type RetentionReason = 'other-org' | 'unsupported' | 'unmanaged' | 'forbidden' | 'error' | 'unavailable' | 'not-configured' | 'not-installed' | 'no-access'
 
 export interface RetentionRequest {
   metrics: RetentionChange | null
@@ -2129,7 +2137,7 @@ export interface RetentionRequest {
 }
 
 export interface RetentionStore {
-  component: string
+  component: Signal
   label: string
   value: string
   days: number
@@ -2146,7 +2154,7 @@ export interface RetentionStore {
   resizing?: boolean
   resizeNote?: string
   usedBytes?: number
-  usedSource?: string
+  usedSource?: UsedSource
   bytesPerDay?: number
   dataDays?: number
   share: number
@@ -2362,7 +2370,7 @@ export interface Service {
 
 export interface ServiceDoc {
   name: string
-  signals: string[]
+  signals: Signal[]
   applications: string[]
 }
 
@@ -2463,6 +2471,8 @@ export interface SettingsDoc {
 }
 
 export type SetupReason = 'unavailable'
+
+export type Signal = 'metrics' | 'logs' | 'traces'
 
 export interface SignalGrantDoc {
   id: string
@@ -2788,6 +2798,8 @@ export interface UsedByDoc {
   intents: number
   clusters: number
 }
+
+export type UsedSource = 'volume' | 'database'
 
 export interface UserDoc {
   id: string
