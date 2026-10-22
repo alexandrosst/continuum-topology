@@ -46,6 +46,12 @@ imagePullSecrets: []
 # ---------------------------------------------------------------------------------------------------------------------
 registration: invite
 
+# One organization per server unless you ask for more. A server hosts one group's work (FUSION, the stack that stores the telemetry, is
+# one per server and is not partitioned by organization), so a second group gets a release of its own. Set true to let the server
+# host several organizations anyway: people can then create further ones where registration is open, and open registration gives every
+# newcomer an organization of their own (--multi-organisation). Organizations that already exist go on working either way.
+multiOrganisation: false
+
 # Id of the organization that is created together with the first account, on a fresh database only (--org).
 org: default
 

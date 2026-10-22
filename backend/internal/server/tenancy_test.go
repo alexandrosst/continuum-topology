@@ -99,6 +99,51 @@ func TestRegistrationModes(t *testing.T) {
 	}
 }
 
+// A server of a single organisation (the binary's default) gives nobody a second one: registration that would have made an organisation of
+// its own is by invitation, a signed-in person cannot create one, and an organisation that was there before goes on working.
+func TestAServerOfASingleOrganisationGivesNoOneAnotherOne(t *testing.T) {
+	a := newAdminRig(t)
+	a.base.RegMode = accounts.RegOpen
+	alice, aOrg := a.register(t, "alice", "Alice Lab") // from before the server was a single organisation's
+	_, owner := a.user(t, "boss", accounts.RoleOwner)
+
+	a.base.SingleOrg = true
+	if got := a.do("GET", "/api/v1/server", nil).json(t)["registration"]; got != accounts.RegInvite {
+		t.Errorf("open registration on a single-organisation server is announced as %v, want %q", got, accounts.RegInvite)
+	}
+	if c := a.do("POST", "/api/v1/auth/register", map[string]string{"username": "carol", "password": goodPW, "org": "Carol Co"}).Code; c != 403 {
+		t.Errorf("a plain sign-up that would have made an organisation: %d, want 403", c)
+	}
+	if _, err := a.st.GetUserByName(a.ctx, "carol"); err == nil {
+		t.Error("the refused sign-up left an account behind")
+	}
+	if r := a.do("POST", "/api/v1/orgs", map[string]string{"name": "Mine"}, withCookie(owner)); r.Code != 403 || !strings.Contains(r.Body.String(), "single organisation") {
+		t.Errorf("creating an organisation: %d %s", r.Code, r.Body.String())
+	}
+	// By invitation it works, into the organisation that invited.
+	tok := a.invite(t, owner, accounts.RoleViewer, "dave")
+	r := a.do("POST", "/api/v1/auth/register", map[string]string{"username": "dave", "password": goodPW, "invite": tok})
+	if r.Code != 201 {
+		t.Fatalf("sign-up with an invitation: %d %s", r.Code, r.Body.String())
+	}
+	if orgs := r.json(t)["orgs"].([]any); len(orgs) != 1 || orgs[0].(map[string]any)["id"] != "org-1" {
+		t.Errorf("orgs = %v", orgs)
+	}
+	// What was there goes on working.
+	if c := a.do("GET", org(aOrg, "state"), nil, withCookie(alice)).Code; c != 200 {
+		t.Errorf("an organisation from before: %d", c)
+	}
+	// A closed server stays closed, and the same server started with --multi-organisation behaves as it always did.
+	a.base.RegMode = accounts.RegClosed
+	if got := a.do("GET", "/api/v1/server", nil).json(t)["registration"]; got != accounts.RegClosed {
+		t.Errorf("closed is announced as %v", got)
+	}
+	a.base.RegMode, a.base.SingleOrg = accounts.RegOpen, false
+	if _, id := a.register(t, "erin", "Erin Lab"); id == "" {
+		t.Error("a multi-organisation server gave no organisation")
+	}
+}
+
 func (a *adminRig) invite(t *testing.T, cookie, role, label string) string {
 	t.Helper()
 	r := a.do("POST", "/api/v1/invites", map[string]string{"role": role, "label": label}, withCookie(cookie))

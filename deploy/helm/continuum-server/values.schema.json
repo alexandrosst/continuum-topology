@@ -57,6 +57,9 @@
         "closed"
       ]
     },
+    "multiOrganisation": {
+      "type": "boolean"
+    },
     "org": {
       "type": "string",
       "minLength": 1

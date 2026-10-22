@@ -91,6 +91,9 @@ spec:
             - {{ printf "--admin-sso-header=%s" . | quote }}
             {{- end }}
             - --registration={{ .Values.registration }}
+            {{- if .Values.multiOrganisation }}
+            - --multi-organisation
+            {{- end }}
             - {{ printf "--org=%s" .Values.org | quote }}
             {{- with .Values.agentInstall.imageRegistry }}
             - {{ printf "--image-registry=%s" . | quote }}

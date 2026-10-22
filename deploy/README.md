@@ -182,6 +182,8 @@ If you lost the password: `kubectl -n continuum exec deployment/continuum-server
 
 `registration` defaults to `invite`: people join through an invitation created by an organization administrator. `closed` disables self-registration entirely (accounts are provisioned with the commands above). `open` lets anyone who can reach the admin address create an account and an organization; use it only on a private network.
 
+A server is one organization's. FUSION, the stack that stores the telemetry, is one per server and is not partitioned by organization, so a second group should get a release of its own. A server that is started with `multiOrganisation: true` (`--multi-organisation`) hosts several: people can create further organizations where registration is `open`, and `open` gives each newcomer one of their own. Without it, `open` behaves as `invite` and nobody can create an organization through the API; `server create-org` still can, and organizations that exist go on working.
+
 ## Connect the first cluster
 
 1. In the UI open **Connect a cluster**. It prints a complete `helm install` for the agent, with `server.address` (your `agent.publicAddress`) and `enrollment.key` — the fingerprint of this server's CA and a one-hour enrollment token, joined as one value (`<caPin>.<token>`); the chart splits it back into the two on render, and also accepts `server.caPin` / `enrollment.token` set separately if you're writing the command by hand.
@@ -509,6 +511,7 @@ The important values; all of them are documented in `values.yaml` and tabulated 
 | `admin.tls.selfSigned` / `selfSignedHosts` | `true` / `[]` | fallback: chart-generated self-signed cert when nothing else protects the port |
 | `admin.existingPasswordSecret` | `""` | first administrator's password from a Secret |
 | `registration` | `invite` | `invite` / `closed` / `open` |
+| `multiOrganisation` | `false` | host more than one organization on this server |
 | `persistence.size` / `storageClass` / `existingClaim` | `5Gi` / default / `""` | the `/data` volume |
 | `pki.encryptAtRest` | `true` | encrypt the CA key at rest; the server mints and persists its own passphrase (`--ca-key-auto-passphrase`) |
 | `pki.caKeyPassphraseSecret.name` | `""` | bring your own passphrase Secret instead |

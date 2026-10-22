@@ -87,6 +87,11 @@ type Core struct {
 	UserMu *sync.Mutex // serialises membership changes so an organisation always keeps an owner
 	// RegMode says who may create an account: RegOpen, RegInvite or RegClosed (empty is RegOpen; see regMode).
 	RegMode string
+	// SingleOrg makes the server a single organisation's: nobody creates another one through the API, and registration that would
+	// have given a new account an organisation of its own (RegOpen) is by invitation instead. The zero value is a server that hosts
+	// several, which is what the organisation-scoped code and its tests are written for; the binary turns this on unless it is
+	// started with --multi-organisation. An organisation that exists already goes on working either way.
+	SingleOrg bool
 	// Decider is what the server may connect to on behalf of the external decider (nil: public addresses only).
 	Decider *DeciderPolicy
 	// PendingTTL is how long an enrollment may wait to be approved (0: DefaultPendingTTL).

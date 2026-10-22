@@ -1056,8 +1056,12 @@ func (c *Service) NameOf(ctx context.Context, userID string) string {
 	return "someone who has left"
 }
 
-// CreateOrg gives a signed-in person another organisation of their own (only where registration is open).
+// CreateOrg gives a signed-in person another organisation of their own (only where registration is open, and never on a server of a
+// single organisation).
 func (c *Service) CreateOrg(ctx context.Context, p Principal, name string) (store.Org, error) {
+	if c.SingleOrg {
+		return store.Org{}, kernel.Errf(kernel.KindForbidden, "this server hosts a single organisation; ask its administrator to start it with --multi-organisation to allow more")
+	}
 	if c.EffectiveRegMode() != RegOpen {
 		return store.Org{}, kernel.Errf(kernel.KindForbidden, "this server does not let people create organisations")
 	}
@@ -1376,10 +1380,15 @@ func (c *Service) CreateOrgFor(ctx context.Context, username, name string) (stor
 // Core, like the limiters it holds.
 func (c *Service) authSt() *authState { return kernel.ServerState(c, "accounts.auth", newAuthState) }
 
-// regMode is who may create an account: RegMode, or open when it was not set.
+// EffectiveRegMode is who may create an account: RegMode, or open when it was not set. On a server of a single organisation open
+// would give every newcomer an organisation of their own, which that server does not have to give, so it is by invitation.
 func (c *Service) EffectiveRegMode() string {
-	if c.RegMode == "" {
-		return RegOpen
+	mode := c.RegMode
+	if mode == "" {
+		mode = RegOpen
 	}
-	return c.RegMode
+	if mode == RegOpen && c.SingleOrg {
+		return RegInvite
+	}
+	return mode
 }

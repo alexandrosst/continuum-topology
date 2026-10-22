@@ -50,6 +50,7 @@ The chart only renders flags the server understands **when you ask for the featu
 | Value | Flag | Availability |
 |---|---|---|
 | always | `--data-dir --ui-dir --agent-listen --agent-address --admin-listen --registration --org` | all builds |
+| `multiOrganisation` | `--multi-organisation` | builds that have it (present in this tree); only rendered when true |
 | `agent.extraHosts` | `--agent-hosts` | all builds (there is no `--extra-hosts`) |
 | `admin.behindTlsProxy` / `admin.tls.*` | `--admin-behind-tls-proxy`, `--admin-tls-cert/-key` | all builds |
 | `agentInstall.*` | `--image-registry --image-tag --chart-ref` | all builds |
@@ -97,6 +98,7 @@ Everything is documented in `values.yaml`; these are the ones you are likely to 
 | `image.repository` / `tag` / `digest` | `continuum/server` / appVersion / `""` | image; a digest renders `repo@sha256:...` and wins over the tag |
 | `imagePullSecrets` | `[]` | registry credentials |
 | `registration` | `invite` | `invite`, `closed` or `open` |
+| `multiOrganisation` | `false` | let the server host more than one organization (`--multi-organisation`); by default it is one group's |
 | `org` | `default` | id of the first organization (fresh database only) |
 | `agent.publicAddress` | *required* | `host:port` agents dial |
 | `agent.extraHosts` | `[]` | more certificate names |

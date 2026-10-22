@@ -100,6 +100,7 @@ func main() {
 	imageDigest := flag.String("image-digest", os.Getenv("CONTINUUM_IMAGE_DIGEST"), "image digest (sha256:<64 hex>, printed by scripts/publish.sh) to pin install commands to, which makes them immutable and reproducible; the tag is then ignored by the chart. Needs --image-registry; env CONTINUUM_IMAGE_DIGEST")
 	org := flag.String("org", "default", "id of the organization created together with the first account, on a fresh database")
 	registration := flag.String("registration", os.Getenv("CONTINUUM_REGISTRATION"), "who may create an account: open (anyone, and they get an organization of their own), invite (only with an invitation from an organization) or closed (nobody; use the create-org and reset-password commands); env CONTINUUM_REGISTRATION. Default: open while --admin-listen is a loopback address (local use), invite otherwise")
+	multiOrg := flag.Bool("multi-organisation", os.Getenv("CONTINUUM_MULTI_ORGANISATION") == "true", "let this server host more than one organisation: people can create further ones (where registration is open) and open registration gives every newcomer an organisation of their own. Without it the server is one organisation's: the one created with the first account, joined by invitation. Organisations that already exist go on working either way; env CONTINUUM_MULTI_ORGANISATION=true")
 	geoDB := flag.String("geoip-db", os.Getenv("CONTINUUM_GEOIP_DB"), "optional MaxMind-format .mmdb (DB-IP Lite, GeoLite2) used offline to suggest a location for each agent's connecting address; env CONTINUUM_GEOIP_DB")
 	geoPublicIP := flag.String("geoip-public-ip-service", os.Getenv("CONTINUUM_GEOIP_PUBLIC_IP_SERVICE"), "needs --geoip-db. An http(s) URL that answers with this server's own public IP as plain text (a well known one: https://api.ipify.org). Used only as a fallback: when an agent's connecting address cannot be located at all (private, loopback, CGNAT - agent and server sharing a network is exactly why it looks that way), this server's own public address is the closest honest guess, looked up and returned marked estimated rather than exact. Called once at startup and then on an hourly cache, never per request; empty (default) never guesses, only an agent's own address is ever used. Nothing about your topology, applications or data goes out in the request - just an empty GET, to a URL you chose; env CONTINUUM_GEOIP_PUBLIC_IP_SERVICE")
 	geoASNDB := flag.String("geoip-asn-db", os.Getenv("CONTINUUM_GEOIP_ASN_DB"), "needs --geoip-db. A second, optional MaxMind-format .mmdb in ASN shape (GeoLite2-ASN, DB-IP ASN Lite) rather than city/country shape. Whenever --geoip-db places an address (including an --geoip-public-ip-service estimate), this adds which network it belongs to - its AS number and the organisation that announces it, e.g. 15169 / \"Google LLC\" - a steadier signal than city or country, and unaffected by a VPN or cloud egress moving the place shown. Shown only alongside a location, never on its own: an address --geoip-db has no record for stays unanswered even when this database recognises it. Entirely offline, same as --geoip-db: nothing is looked up over the network; env CONTINUUM_GEOIP_ASN_DB")
@@ -127,6 +128,9 @@ func main() {
 		fatal(log, fmt.Errorf("--registration must be open, invite or closed, not %q", regMode))
 	}
 	log.Info("account registration", "mode", regMode, "why", regWhy)
+	if !*multiOrg && regMode == accounts.RegOpen {
+		log.Info("this server hosts a single organisation, so open registration is by invitation (pass --multi-organisation to let people create organisations)")
+	}
 	if regMode == accounts.RegOpen && !isLoopback(*adminListen) {
 		log.Warn("registration is open on a non-loopback address: anyone who can reach the admin address can create an account and an organization. Fine for a private network; on an exposed server use --registration invite", "admin", *adminListen)
 	}
@@ -182,7 +186,7 @@ func main() {
 	if (*probeListen == "") != (*probeSecretFile == "") {
 		fatal(log, errors.New("--probe-listen and --probe-secret-file must be given together"))
 	}
-	if err := run(log, probeOpts{Listen: *probeListen, SecretFile: *probeSecretFile, Every: *probeEvery}, *dataDir, *agentListen, *agentAddr, *agentExposure, *releaseName, *releaseNamespace, *fusionName, *fusionCentralAddress, *extraHosts, *adminListen, *adminCert, *adminKey, *behindProxy, *agentBehindProxy, *ssoHeader, *uiDir, *chartRef, img, *org, regMode, *geoDB, *geoPublicIP, *geoASNDB, decider, neo, mail, keyOpts{PassphraseFile: *caPassFile, AutoPassphrase: *caAutoPass, AllowLoose: *looseOK}, origins); err != nil {
+	if err := run(log, probeOpts{Listen: *probeListen, SecretFile: *probeSecretFile, Every: *probeEvery}, *dataDir, *agentListen, *agentAddr, *agentExposure, *releaseName, *releaseNamespace, *fusionName, *fusionCentralAddress, *extraHosts, *adminListen, *adminCert, *adminKey, *behindProxy, *agentBehindProxy, *multiOrg, *ssoHeader, *uiDir, *chartRef, img, *org, regMode, *geoDB, *geoPublicIP, *geoASNDB, decider, neo, mail, keyOpts{PassphraseFile: *caPassFile, AutoPassphrase: *caAutoPass, AllowLoose: *looseOK}, origins); err != nil {
 		fatal(log, err)
 	}
 }
@@ -254,7 +258,7 @@ func fatal(log *slog.Logger, err error) {
 	os.Exit(1)
 }
 
-func run(log *slog.Logger, selfProbe probeOpts, dataDir, agentListen, agentAddr, agentExposure, releaseName, releaseNamespace, fusionName, fusionCentralAddress, extraHosts, adminListen, adminCert, adminKey string, behindProxy, agentBehindProxy bool, ssoHeader, uiDir, chartRef string, img kernel.ImageConfig, org, registration, geoPath, geoPublicIP, geoASNPath string, decider *kernel.DeciderPolicy, neo *graph.Config, mail accounts.MailConfig, keys keyOpts, origins []string) error {
+func run(log *slog.Logger, selfProbe probeOpts, dataDir, agentListen, agentAddr, agentExposure, releaseName, releaseNamespace, fusionName, fusionCentralAddress, extraHosts, adminListen, adminCert, adminKey string, behindProxy, agentBehindProxy, multiOrg bool, ssoHeader, uiDir, chartRef string, img kernel.ImageConfig, org, registration, geoPath, geoPublicIP, geoASNPath string, decider *kernel.DeciderPolicy, neo *graph.Config, mail accounts.MailConfig, keys keyOpts, origins []string) error {
 	if err := checkSSOHeader(ssoHeader, behindProxy); err != nil {
 		return err
 	}
@@ -346,6 +350,7 @@ func run(log *slog.Logger, selfProbe probeOpts, dataDir, agentListen, agentAddr,
 	// before an agent is known belong to it, and each organization gets a scoped view of it.
 	core := server.NewCore(st, ca, "", log)
 	core.DefaultOrg, core.RegMode, core.Decider = org, registration, decider
+	core.SingleOrg = !multiOrg
 	// mail is the --smtp-* flags' value: the boot-time default, in effect until an owner of the default
 	// organisation saves one through Settings, and again after that if the database is ever reset without
 	// the flags changing to match (see SetMailerDefault, LoadMailConfig).
