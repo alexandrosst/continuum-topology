@@ -112,7 +112,7 @@ func TestSenderCertificateIsRenewedByProofOfTheOldKey(t *testing.T) {
 		t.Fatal("the renewed certificate verifies against the org CA")
 	}
 	// The ledger knows who holds the new one, and the old one is untouched.
-	ledger, _ := s.e.st.ListOperatorCerts(s.e.ctx, s.op.ID)
+	ledger, _ := s.e.st.ListOperatorCerts(s.e.ctx, "org-1", s.op.ID)
 	var found bool
 	for _, c := range ledger {
 		if c.Serial == leaf.SerialNumber.Text(16) {
@@ -342,7 +342,7 @@ func TestRenewerAgainstTheRealServerReplacesTheSecret(t *testing.T) {
 	if _, err := cert.Verify(x509.VerifyOptions{Roots: pool, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}); err != nil {
 		t.Fatalf("the renewed certificate does not verify against the Secret's ca.crt: %v", err)
 	}
-	ledger, _ := r.st.ListOperatorCerts(r.ctx, op.ID)
+	ledger, _ := r.st.ListOperatorCerts(r.ctx, "org-1", op.ID)
 	var recorded bool
 	for _, c := range ledger {
 		recorded = recorded || c.Serial == cert.SerialNumber.Text(16)

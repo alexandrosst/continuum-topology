@@ -63,7 +63,7 @@ func TestCreateOperatorHappyPathIsMTLSOnlyWithNoReceiverToken(t *testing.T) {
 	if op.Status != store.OperatorActive || len(op.SourceClusterIDs) != 1 || op.SourceClusterIDs[0] != cl || op.ReceiverAuth != store.ReceiverAuthMTLS {
 		t.Fatalf("%+v", op)
 	}
-	stored, err := e.st.GetOperator(e.ctx, op.ID)
+	stored, err := e.st.GetOperator(e.ctx, "org-1", op.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -338,7 +338,7 @@ func TestOperatorLabelsAreValidatedTrimmedAndStored(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stored, err := e.st.GetOperator(e.ctx, op.ID)
+	stored, err := e.st.GetOperator(e.ctx, "org-1", op.ID)
 	if err != nil || len(stored.Labels) != 1 || stored.Labels[0] != (store.OperatorLabel{Key: "region", Value: "eu-south"}) {
 		t.Fatalf("stored labels = %+v (%v)", stored.Labels, err)
 	}
@@ -388,7 +388,7 @@ func TestOperatorDestinationsCannotLoop(t *testing.T) {
 
 	// A loop that is already in the database (from before this check) must not be followed for ever, and nothing new may
 	// be sent into it.
-	if err := e.st.UpdateOperatorScope(e.ctx, d.ID, nil, toOp(c.ID), nil); err != nil { // d -> c -> b -> d
+	if err := e.st.UpdateOperatorScope(e.ctx, "org-1", d.ID, nil, toOp(c.ID), nil); err != nil { // d -> c -> b -> d
 		t.Fatal(err)
 	}
 	if _, _, _, err := e.core.Operators.CreateOperator(e.ctx, "alex", "e", nil, toOp(c.ID), nil); testkit.KindOf(err) != kernel.KindInvalid {
@@ -489,11 +489,11 @@ func TestAReceiverCertificateThatCannotBeRecordedIsNotHandedOut(t *testing.T) {
 		t.Fatal(err)
 	}
 	ls.setFail(true)
-	before, _ := e.st.GetOperator(e.ctx, op.ID)
+	before, _ := e.st.GetOperator(e.ctx, "org-1", op.ID)
 	if _, _, err := core.Operators.ReissueOperatorInstall(e.ctx, "alex", op.ID); err == nil {
 		t.Fatal("a reissue succeeded although its certificate could not be recorded")
 	}
-	after, _ := e.st.GetOperator(e.ctx, op.ID)
+	after, _ := e.st.GetOperator(e.ctx, "org-1", op.ID)
 	if string(after.HeartbeatHash) != string(before.HeartbeatHash) || !after.HeartbeatEnabledAt.Equal(*before.HeartbeatEnabledAt) {
 		t.Fatal("the heartbeat secret was rotated by a reissue that failed: its new value was never shown")
 	}

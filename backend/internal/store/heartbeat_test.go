@@ -53,7 +53,7 @@ func TestOperatorCreatedUnderSchemaEightReadsBackWithNoHeartbeat(t *testing.T) {
 	if err := up.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != SchemaVersion {
 		t.Fatalf("user_version = %d (%v), want SchemaVersion", v, err)
 	}
-	got, err := up.GetOperator(ctx, "op-v8")
+	got, err := up.GetOperator(ctx, "o", "op-v8")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,10 +64,10 @@ func TestOperatorCreatedUnderSchemaEightReadsBackWithNoHeartbeat(t *testing.T) {
 		t.Fatalf("lookup of an unknown hash = %v, want ErrNotFound", err)
 	}
 	// And the upgraded operator can opt in afterwards.
-	if err := up.SetOperatorHeartbeat(ctx, "op-v8", []byte("h1"), time.Now()); err != nil {
+	if err := up.SetOperatorHeartbeat(ctx, "o", "op-v8", []byte("h1"), time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ = up.GetOperator(ctx, "op-v8"); string(got.HeartbeatHash) != "h1" || got.HeartbeatEnabledAt == nil {
+	if got, _ = up.GetOperator(ctx, "o", "op-v8"); string(got.HeartbeatHash) != "h1" || got.HeartbeatEnabledAt == nil {
 		t.Fatalf("%+v", got)
 	}
 	// The migration is idempotent: reopening a v9 database changes nothing.
@@ -77,7 +77,7 @@ func TestOperatorCreatedUnderSchemaEightReadsBackWithNoHeartbeat(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer again.Close()
-	if got, _ = again.GetOperator(ctx, "op-v8"); string(got.HeartbeatHash) != "h1" {
+	if got, _ = again.GetOperator(ctx, "o", "op-v8"); string(got.HeartbeatHash) != "h1" {
 		t.Fatalf("reopen lost the heartbeat hash: %+v", got)
 	}
 }
@@ -112,7 +112,7 @@ func TestOperatorHeartbeatStore(t *testing.T) {
 	if _, err := st.GetOperatorByHeartbeatHash(ctx, nil); err != ErrNotFound {
 		t.Fatalf("empty hash must never match an operator without one: %v", err)
 	}
-	if b, _ := st.GetOperator(ctx, "op-b"); b.HeartbeatHash != nil {
+	if b, _ := st.GetOperator(ctx, "o", "op-b"); b.HeartbeatHash != nil {
 		t.Fatalf("op-b has a heartbeat hash: %+v", b)
 	}
 	// The receiver token hash is not a heartbeat hash.
@@ -121,15 +121,15 @@ func TestOperatorHeartbeatStore(t *testing.T) {
 	}
 
 	seen := now.Add(time.Minute)
-	if err := st.TouchOperatorSeen(ctx, "op-a", seen); err != nil {
+	if err := st.TouchOperatorSeen(ctx, "o", "op-a", seen); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ = st.GetOperator(ctx, "op-a"); got.LastSeenAt == nil || !got.LastSeenAt.Equal(seen) {
+	if got, _ = st.GetOperator(ctx, "o", "op-a"); got.LastSeenAt == nil || !got.LastSeenAt.Equal(seen) {
 		t.Fatalf("last seen: %+v", got)
 	}
 
 	// Rotation replaces the hash (the old one stops matching) and keeps last seen.
-	if err := st.SetOperatorHeartbeat(ctx, "op-a", []byte("hash-a2"), now.Add(2*time.Minute)); err != nil {
+	if err := st.SetOperatorHeartbeat(ctx, "o", "op-a", []byte("hash-a2"), now.Add(2*time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := st.GetOperatorByHeartbeatHash(ctx, []byte("hash-a")); err != ErrNotFound {
@@ -140,16 +140,16 @@ func TestOperatorHeartbeatStore(t *testing.T) {
 	}
 
 	// Revoked: cannot be given one; unknown: not found.
-	if err := st.RevokeOperator(ctx, "op-b", "x", now); err != nil {
+	if err := st.RevokeOperator(ctx, "o", "op-b", "x", now); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.SetOperatorHeartbeat(ctx, "op-b", []byte("h"), now); err != ErrBadState {
+	if err := st.SetOperatorHeartbeat(ctx, "o", "op-b", []byte("h"), now); err != ErrBadState {
 		t.Fatalf("revoked operator: %v", err)
 	}
-	if err := st.SetOperatorHeartbeat(ctx, "op-nope", []byte("h"), now); err != ErrNotFound {
+	if err := st.SetOperatorHeartbeat(ctx, "o", "op-nope", []byte("h"), now); err != ErrNotFound {
 		t.Fatalf("unknown operator: %v", err)
 	}
-	if err := st.DeleteOperator(ctx, "op-a"); err != nil {
+	if err := st.DeleteOperator(ctx, "o", "op-a"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := st.GetOperatorByHeartbeatHash(ctx, []byte("hash-a2")); err != ErrNotFound {

@@ -215,13 +215,13 @@ func TestOperatorWritesRollBackWithTheirAuditRow(t *testing.T) {
 	}
 
 	// compare-and-set: the first writer wins and leaves a row; the loser changes nothing and leaves none
-	if ok, err := s.SetOperatorAddressIfEmpty(ctx, "op-1", "a.example:443", ev("operator-address-changed")); err != nil || !ok {
+	if ok, err := s.SetOperatorAddressIfEmpty(ctx, "o1", "op-1", "a.example:443", ev("operator-address-changed")); err != nil || !ok {
 		t.Fatalf("first: %v %v", ok, err)
 	}
-	if ok, err := s.SetOperatorAddressIfEmpty(ctx, "op-1", "b.example:443", ev("operator-address-changed")); err != nil || ok {
+	if ok, err := s.SetOperatorAddressIfEmpty(ctx, "o1", "op-1", "b.example:443", ev("operator-address-changed")); err != nil || ok {
 		t.Fatalf("second: %v %v", ok, err)
 	}
-	if op, _ := s.GetOperator(ctx, "op-1"); op.Address != "a.example:443" {
+	if op, _ := s.GetOperator(ctx, "o1", "op-1"); op.Address != "a.example:443" {
 		t.Fatalf("address = %q", op.Address)
 	}
 	if rows() != 2 {
@@ -232,17 +232,17 @@ func TestOperatorWritesRollBackWithTheirAuditRow(t *testing.T) {
 	if err := s.CreateOperator(ctx, mk("op-2", ReceiverAuthMTLS), nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.RevokeOperator(ctx, "op-2", "gone", now); err != nil {
+	if err := s.RevokeOperator(ctx, "o1", "op-2", "gone", now); err != nil {
 		t.Fatal(err)
 	}
-	err := s.ReissueOperatorInstall(ctx, "op-1", OperatorReissue{ReceiverNotAfter: now.Add(time.Hour), ClientNotAfter: now.Add(time.Hour), HeartbeatHash: []byte("hb"), Now: now}, ev("operator-install-reissued"))
+	err := s.ReissueOperatorInstall(ctx, "o1", "op-1", OperatorReissue{ReceiverNotAfter: now.Add(time.Hour), ClientNotAfter: now.Add(time.Hour), HeartbeatHash: []byte("hb"), Now: now}, ev("operator-install-reissued"))
 	if err != nil {
 		t.Fatalf("reissue: %v", err)
 	}
 	if rows() != 3 {
 		t.Fatalf("rows = %d, want 3", rows())
 	}
-	if err := s.ReissueOperatorInstall(ctx, "op-2", OperatorReissue{ReceiverNotAfter: now, ClientNotAfter: now}, ev("operator-install-reissued")); !errors.Is(err, ErrBadState) {
+	if err := s.ReissueOperatorInstall(ctx, "o1", "op-2", OperatorReissue{ReceiverNotAfter: now, ClientNotAfter: now}, ev("operator-install-reissued")); !errors.Is(err, ErrBadState) {
 		t.Fatalf("reissue of a revoked operator: %v", err)
 	}
 	if rows() != 3 {
@@ -255,21 +255,21 @@ func TestOperatorWritesRollBackWithTheirAuditRow(t *testing.T) {
 	}
 	for name, err := range map[string]error{
 		"create":    s.CreateOperator(ctx, mk("op-3", ReceiverAuthMTLS), nil, ev("x")),
-		"scope":     s.UpdateOperatorScope(ctx, "op-1", []string{"c1"}, Destination{}, nil, ev("x")),
-		"address":   s.SetOperatorAddress(ctx, "op-1", "z.example:1", ev("x")),
-		"heartbeat": s.SetOperatorHeartbeat(ctx, "op-1", []byte("new"), now, ev("x")),
-		"revoke":    s.RevokeOperator(ctx, "op-1", "no", now, ev("x")),
-		"delete":    s.DeleteOperator(ctx, "op-1", ev("x")),
+		"scope":     s.UpdateOperatorScope(ctx, "o1", "op-1", []string{"c1"}, Destination{}, nil, ev("x")),
+		"address":   s.SetOperatorAddress(ctx, "o1", "op-1", "z.example:1", ev("x")),
+		"heartbeat": s.SetOperatorHeartbeat(ctx, "o1", "op-1", []byte("new"), now, ev("x")),
+		"revoke":    s.RevokeOperator(ctx, "o1", "op-1", "no", now, ev("x")),
+		"delete":    s.DeleteOperator(ctx, "o1", "op-1", ev("x")),
 	} {
 		if !errors.Is(err, ErrAuditWrite) {
 			t.Errorf("%s: %v, want ErrAuditWrite", name, err)
 		}
 	}
-	op, err := s.GetOperator(ctx, "op-1")
+	op, err := s.GetOperator(ctx, "o1", "op-1")
 	if err != nil || op.Status != OperatorActive || op.Address != "a.example:443" || len(op.SourceClusterIDs) != 0 {
 		t.Fatalf("the operator changed although the trail was broken: %+v %v", op, err)
 	}
-	if _, err := s.GetOperator(ctx, "op-3"); !errors.Is(err, ErrNotFound) {
+	if _, err := s.GetOperator(ctx, "o1", "op-3"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("an operator was stored without its audit row: %v", err)
 	}
 }

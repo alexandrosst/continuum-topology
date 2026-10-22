@@ -48,7 +48,7 @@ func TestRevokeAndDeleteAnOperatorSomethingSendsToNeedForce(t *testing.T) {
 	if r := a.do("DELETE", "/api/v1/operators/"+target, nil, withCookie(cookie)); r.Code != 409 {
 		t.Fatalf("delete without force: %d %s", r.Code, r.Body.String())
 	}
-	if st, _ := a.st.GetOperator(a.ctx, target); st.Status != "active" {
+	if st, _ := a.st.GetOperator(a.ctx, "org-1", target); st.Status != "active" {
 		t.Fatal("the operator was revoked without force")
 	}
 

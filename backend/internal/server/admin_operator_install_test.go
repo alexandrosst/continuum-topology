@@ -81,7 +81,7 @@ func TestInstallAgainReissuesCertificatesFromTheStoredCA(t *testing.T) {
 	}
 
 	// The new receiver certificate is signed by the operator's own CA, for the stable name, and is a new certificate.
-	stored, _ := a.st.GetOperator(a.ctx, id)
+	stored, _ := a.st.GetOperator(a.ctx, "org-1", id)
 	recv := pemAfter(t, doc["tlsSecretCommand"].(string), "tls.crt")
 	if string(recv) == string(firstRecv) {
 		t.Fatal("the receiver certificate was not re-issued")
@@ -153,7 +153,7 @@ func TestInstallAgainRotatesABearerOperatorsToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	created := map[string]any{"token": "cno_old"}
-	before, _ := a.st.GetOperator(a.ctx, id)
+	before, _ := a.st.GetOperator(a.ctx, "org-1", id)
 	resp := a.do("POST", "/api/v1/operators/"+id+"/install", nil, withCookie(cookie))
 	if resp.Code != 200 {
 		t.Fatalf("%d %s", resp.Code, resp.Body.String())
@@ -163,7 +163,7 @@ func TestInstallAgainRotatesABearerOperatorsToken(t *testing.T) {
 	if !strings.HasPrefix(tok, kernel.OperatorPrefix) || tok == created["token"] || doc["secretCommand"] == nil {
 		t.Fatalf("token = %q, secretCommand = %v", tok, doc["secretCommand"])
 	}
-	after, _ := a.st.GetOperator(a.ctx, id)
+	after, _ := a.st.GetOperator(a.ctx, "org-1", id)
 	if string(after.ReceiverAuthTokenHash) != string(kernel.HashSecret(tok)) || string(after.ReceiverAuthTokenHash) == string(before.ReceiverAuthTokenHash) {
 		t.Fatal("the stored hash is not the new token's")
 	}
@@ -213,7 +213,7 @@ func TestInstallAgainRecordsDatesForAnOperatorThatHadNone(t *testing.T) {
 	if string(pemAfter(t, r.json(t)["tlsSecretCommand"].(string), "ca.crt")) != string(a.core.CA.CertPEM()) {
 		t.Fatal("a legacy operator's receiver trusts the org CA")
 	}
-	got, _ := a.st.GetOperator(a.ctx, legacy.ID)
+	got, _ := a.st.GetOperator(a.ctx, "org-1", legacy.ID)
 	if got.ReceiverNotAfter == nil || got.ReceiverNotAfter.Before(time.Now().Add(25*day)) {
 		t.Fatalf("receiver until %v", got.ReceiverNotAfter)
 	}
@@ -250,7 +250,7 @@ func TestAnotherOrganisationsOperatorIsOutOfReachOfEveryOperatorRoute(t *testing
 			t.Errorf("Bob %s %s through his own organisation with Alice's operator: %d, want 404", rt.m, rt.p, c)
 		}
 	}
-	if got, err := a.st.GetOperator(a.ctx, id); err != nil || got.Status != store.OperatorActive || got.Address != "" || len(got.HeartbeatHash) != 0 {
+	if got, err := a.st.GetOperator(a.ctx, aOrg, id); err != nil || got.Status != store.OperatorActive || got.Address != "" || len(got.HeartbeatHash) != 0 {
 		t.Fatalf("Alice's operator was touched: %+v %v", got, err)
 	}
 	if evs, _ := a.st.ListAudit(a.ctx, bOrg, 50); len(evs) != 0 {

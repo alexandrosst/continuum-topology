@@ -120,11 +120,11 @@ func CertNotAfter(certPEM []byte) *time.Time {
 // same kind of thing (a cluster, or here a fleet of them) for a person to recognise later.
 const maxOperatorName = 80
 
-// operatorInOrg finds a regional operator of this organisation. One belonging to another organisation is
-// reported as not existing, the same convention AgentInOrg uses.
+// OperatorInOrg finds a regional operator of this organisation. One belonging to another organisation is
+// reported as not existing, which is what the store itself answers for it.
 func (c *Service) OperatorInOrg(ctx context.Context, id string) (store.Operator, error) {
-	op, err := c.Store.GetOperator(ctx, id)
-	if errors.Is(err, store.ErrNotFound) || (err == nil && op.OrgID != c.OrgID) {
+	op, err := c.Store.GetOperator(ctx, c.OrgID, id)
+	if errors.Is(err, store.ErrNotFound) {
 		return store.Operator{}, kernel.Errf(kernel.KindNotFound, "no such regional operator")
 	}
 	return op, err
@@ -262,7 +262,7 @@ func (c *Service) checkOperatorChain(ctx context.Context, selfID string, dest st
 			}
 			return kernel.Errf(kernel.KindInvalid, "destination.targetOperatorId would make a loop: the operator it names already sends, through other operators, back to this one")
 		}
-		op, err := c.Store.GetOperator(ctx, cur)
+		op, err := c.Store.GetOperator(ctx, c.OrgID, cur)
 		if err != nil || op.Destination.Kind != store.DestinationOperator {
 			return nil
 		}
@@ -538,7 +538,7 @@ func (c *Service) UpdateOperatorScope(ctx context.Context, actor, id string, sou
 			detail += "; removed " + auditIDList(removed)
 		}
 	}
-	err = c.Store.UpdateOperatorScope(ctx, id, sourceClusterIDs, dest, acceptedModalities,
+	err = c.Store.UpdateOperatorScope(ctx, c.OrgID, id, sourceClusterIDs, dest, acceptedModalities,
 		store.WithAudit(c.AuditRow(c.OrgID, actor, "operator-scope-changed", "operator", id, detail)))
 	if errors.Is(err, store.ErrBadState) {
 		err = kernel.Errf(kernel.KindConflict, "only an active operator's scope can be changed")
@@ -692,7 +692,7 @@ func (c *Service) SetOperatorAddress(ctx context.Context, actor, id, address str
 	if detail == "" {
 		detail = "cleared"
 	}
-	err = c.Store.SetOperatorAddress(ctx, id, addr, store.WithAudit(c.AuditRow(c.OrgID, actor, "operator-address-changed", "operator", id, detail)))
+	err = c.Store.SetOperatorAddress(ctx, c.OrgID, id, addr, store.WithAudit(c.AuditRow(c.OrgID, actor, "operator-address-changed", "operator", id, detail)))
 	if errors.Is(err, store.ErrBadState) {
 		err = kernel.Errf(kernel.KindConflict, "only an active operator's address can be changed")
 	}
@@ -715,7 +715,7 @@ func (c *Service) RecordOperatorAddressIfUnset(ctx context.Context, actor, id, a
 		return "", false, err
 	}
 	// A person who recorded an address after the server looked wins: the store then changes nothing and adds no row.
-	ok, err := c.Store.SetOperatorAddressIfEmpty(ctx, id, addr, store.WithAudit(c.AuditRow(c.OrgID, actor, "operator-address-changed", "operator", id, addr)))
+	ok, err := c.Store.SetOperatorAddressIfEmpty(ctx, c.OrgID, id, addr, store.WithAudit(c.AuditRow(c.OrgID, actor, "operator-address-changed", "operator", id, addr)))
 	if errors.Is(err, store.ErrBadState) {
 		err = kernel.Errf(kernel.KindConflict, "only an active operator's address can be changed")
 	}
@@ -723,7 +723,7 @@ func (c *Service) RecordOperatorAddressIfUnset(ctx context.Context, actor, id, a
 		return "", false, err
 	}
 	if !ok {
-		again, gerr := c.Store.GetOperator(ctx, id)
+		again, gerr := c.Store.GetOperator(ctx, c.OrgID, id)
 		return again.Address, false, gerr
 	}
 	return addr, true, nil
@@ -787,7 +787,7 @@ func (c *Service) RevokeOperatorForce(ctx context.Context, actor, id, reason str
 	if err != nil {
 		return err
 	}
-	err = c.Store.RevokeOperator(ctx, id, reason, c.Now(), store.WithAudit(c.AuditRow(c.OrgID, actor, "operator-revoked", "operator", id, detail)))
+	err = c.Store.RevokeOperator(ctx, c.OrgID, id, reason, c.Now(), store.WithAudit(c.AuditRow(c.OrgID, actor, "operator-revoked", "operator", id, detail)))
 	if errors.Is(err, store.ErrBadState) {
 		err = kernel.Errf(kernel.KindConflict, "operator is not active")
 	}
@@ -817,7 +817,7 @@ func (c *Service) DeleteOperatorForce(ctx context.Context, actor, id string, for
 	if err != nil {
 		return err
 	}
-	err = c.Store.DeleteOperator(ctx, id, store.WithAudit(c.AuditRow(c.OrgID, actor, "operator-deleted", "operator", id, detail)))
+	err = c.Store.DeleteOperator(ctx, c.OrgID, id, store.WithAudit(c.AuditRow(c.OrgID, actor, "operator-deleted", "operator", id, detail)))
 	if errors.Is(err, store.ErrNotFound) {
 		err = kernel.Errf(kernel.KindNotFound, "no such regional operator")
 	}
@@ -837,7 +837,7 @@ func (c *Service) OperatorIssuer(ctx context.Context, op store.Operator) (*pki.C
 	if len(op.ClientCACertPEM) == 0 {
 		return c.CA, c.CA.CertPEM(), nil
 	}
-	keyPEM, err := c.Store.GetOperatorClientCAKey(ctx, op.ID)
+	keyPEM, err := c.Store.GetOperatorClientCAKey(ctx, c.OrgID, op.ID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("the operator's CA key is not available: %w", err)
 	}
@@ -918,5 +918,5 @@ func (c *Service) OperatorCertificates(ctx context.Context, id string) ([]store.
 	if _, err := c.OperatorInOrg(ctx, id); err != nil {
 		return nil, err
 	}
-	return c.Store.ListOperatorCerts(ctx, id)
+	return c.Store.ListOperatorCerts(ctx, c.OrgID, id)
 }

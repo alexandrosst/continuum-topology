@@ -76,7 +76,7 @@ func TestAnOperatorChartTheCommandCannotNameMintsNoHeartbeatSecret(t *testing.T)
 	if r := a.do("POST", "/api/v1/operators/"+id+"/heartbeat", nil, withCookie(cookie)); r.Code != 500 {
 		t.Fatalf("a chart that cannot be named: %d %s", r.Code, r.Body.String())
 	}
-	op, err := a.st.GetOperator(a.ctx, id)
+	op, err := a.st.GetOperator(a.ctx, "org-1", id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -102,7 +102,7 @@ func TestAnOperatorChartTheCommandCannotNameMakesNoOperatorAndRotatesNothing(t *
 	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	cl := a.approvedCluster(t, testkit.FP)
 	id := a.createOperatorDoc(t, cookie, extBody("athens", cl))["operator"].(map[string]any)["id"].(string)
-	before, err := a.st.ListOperatorCerts(a.ctx, id)
+	before, err := a.st.ListOperatorCerts(a.ctx, "org-1", id)
 	if err != nil || len(before) == 0 {
 		t.Fatalf("the operator has no certificates on record to compare with: %v %v", len(before), err)
 	}
@@ -121,7 +121,7 @@ func TestAnOperatorChartTheCommandCannotNameMakesNoOperatorAndRotatesNothing(t *
 	if r := a.do("POST", "/api/v1/operators/"+id+"/install", nil, withCookie(cookie)); r.Code != 500 {
 		t.Fatalf("install again with a chart that cannot be named: %d %s", r.Code, r.Body.String())
 	}
-	after, err := a.st.ListOperatorCerts(a.ctx, id)
+	after, err := a.st.ListOperatorCerts(a.ctx, "org-1", id)
 	if err != nil {
 		t.Fatal(err)
 	}

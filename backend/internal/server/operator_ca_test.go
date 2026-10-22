@@ -114,14 +114,14 @@ func TestCreateOperatorMintsItsOwnCAAndStoresNoPlaintextKey(t *testing.T) {
 		t.Fatal("client certificate verifies against the org CA")
 	}
 	// Stored: the certificate (public) as read back, and a sealed key - encrypted, no plaintext key block.
-	stored, err := e.st.GetOperator(e.ctx, op.ID)
+	stored, err := e.st.GetOperator(e.ctx, "org-1", op.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if string(stored.ClientCACertPEM) != string(bundle.CACertPEM) || len(stored.ClientCAKeyPEM) != 0 {
 		t.Fatalf("stored cert/key: %q / %d key bytes returned by a plain read", stored.ClientCACertPEM, len(stored.ClientCAKeyPEM))
 	}
-	key, err := e.st.GetOperatorClientCAKey(e.ctx, op.ID)
+	key, err := e.st.GetOperatorClientCAKey(e.ctx, "org-1", op.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -213,7 +213,7 @@ func TestLegacyMTLSOperatorKeepsIssuingFromTheOrgCA(t *testing.T) {
 	e := newEnv(t)
 	cl := e.approvedCluster(t, testkit.FP)
 	op := legacyMTLSOperator(t, e, "op-legacy000001", cl)
-	if got, _ := e.st.GetOperator(e.ctx, op.ID); got.ClientCAScope() != store.ClientCAScopeOrg {
+	if got, _ := e.st.GetOperator(e.ctx, "org-1", op.ID); got.ClientCAScope() != store.ClientCAScopeOrg {
 		t.Fatalf("scope = %q", got.ClientCAScope())
 	}
 	certPEM, _, caPEM, err := e.core.Operators.IssueOperatorClientCertFor(e.ctx, "alex", op.ID, "cl-test", "")
@@ -234,23 +234,23 @@ func TestRevokeAndDeleteDropTheOperatorCAKey(t *testing.T) {
 	a, _, _, _ := e.core.Operators.CreateOperator(e.ctx, "alex", "a", []string{cl}, extDest("c:4317"), nil)
 	b, _, _, _ := e.core.Operators.CreateOperator(e.ctx, "alex", "b", []string{cl}, extDest("c:4317"), nil)
 	for _, id := range []string{a.ID, b.ID} {
-		if _, err := e.st.GetOperatorClientCAKey(e.ctx, id); err != nil {
+		if _, err := e.st.GetOperatorClientCAKey(e.ctx, "org-1", id); err != nil {
 			t.Fatalf("%s: no key to start with: %v", id, err)
 		}
 	}
 	if err := e.core.Operators.RevokeOperator(e.ctx, "alex", a.ID, "gone"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.st.GetOperatorClientCAKey(e.ctx, a.ID); !errors.Is(err, store.ErrNotFound) {
+	if _, err := e.st.GetOperatorClientCAKey(e.ctx, "org-1", a.ID); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("revoked operator keeps its CA key: %v", err)
 	}
-	if _, err := e.st.GetOperatorClientCAKey(e.ctx, b.ID); err != nil {
+	if _, err := e.st.GetOperatorClientCAKey(e.ctx, "org-1", b.ID); err != nil {
 		t.Fatalf("revoking a erased b's key: %v", err)
 	}
 	if err := e.core.Operators.DeleteOperator(e.ctx, "alex", b.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.st.GetOperatorClientCAKey(e.ctx, b.ID); !errors.Is(err, store.ErrNotFound) {
+	if _, err := e.st.GetOperatorClientCAKey(e.ctx, "org-1", b.ID); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("deleted operator keeps its CA key: %v", err)
 	}
 }
@@ -270,7 +270,7 @@ func TestClientCaScopeAndCommandsCarryTheRightCA(t *testing.T) {
 	if opDoc["clientCaScope"] != "operator" || opDoc["receiverAuth"] != "mtls" {
 		t.Fatalf("new operator doc: %v", opDoc)
 	}
-	newOp, err := a.st.GetOperator(a.ctx, opDoc["id"].(string))
+	newOp, err := a.st.GetOperator(a.ctx, "org-1", opDoc["id"].(string))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -348,7 +348,7 @@ func TestBearerOperatorStillUsesTheOrgCA(t *testing.T) {
 	if op.ReceiverAuth != store.ReceiverAuthBearer || op.ClientCAScope() != "" || len(op.ClientCACertPEM) != 0 {
 		t.Fatalf("%+v", op)
 	}
-	if _, err := e.st.GetOperatorClientCAKey(e.ctx, op.ID); !errors.Is(err, store.ErrNotFound) {
+	if _, err := e.st.GetOperatorClientCAKey(e.ctx, "org-1", op.ID); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("a bearer operator has a CA key: %v", err)
 	}
 	certPEM, _, caPEM, err := e.core.Operators.IssueOperatorClientCertFor(e.ctx, "alex", op.ID, "cl-test", "")

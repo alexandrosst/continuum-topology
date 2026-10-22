@@ -38,7 +38,7 @@ func TestOperatorsFromSchemaThirteenHaveNoAddressAndKeepWorking(t *testing.T) {
 	if err := up.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != SchemaVersion {
 		t.Fatalf("user_version = %d (%v), want SchemaVersion %d", v, err, SchemaVersion)
 	}
-	got, err := up.GetOperator(ctx, "op-old13")
+	got, err := up.GetOperator(ctx, "o", "op-old13")
 	if err != nil || got.Address != "" || got.Name != "legacy" {
 		t.Fatalf("legacy operator = %+v, %v", got, err)
 	}
@@ -56,25 +56,25 @@ func TestSetOperatorAddressStoresAndClearsItForAnActiveOperatorOnly(t *testing.T
 	if err := st.CreateOperator(ctx, op, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.SetOperatorAddress(ctx, "op-1", "otlp.example.com:4317"); err != nil {
+	if err := st.SetOperatorAddress(ctx, "o", "op-1", "otlp.example.com:4317"); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := st.GetOperator(ctx, "op-1"); got.Address != "otlp.example.com:4317" {
+	if got, _ := st.GetOperator(ctx, "o", "op-1"); got.Address != "otlp.example.com:4317" {
 		t.Fatalf("address = %q", got.Address)
 	}
 	if list, _ := st.ListOperators(ctx, "o"); len(list) != 1 || list[0].Address != "otlp.example.com:4317" {
 		t.Fatalf("list = %+v", list)
 	}
-	if err := st.SetOperatorAddress(ctx, "op-1", ""); err != nil {
+	if err := st.SetOperatorAddress(ctx, "o", "op-1", ""); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := st.GetOperator(ctx, "op-1"); got.Address != "" {
+	if got, _ := st.GetOperator(ctx, "o", "op-1"); got.Address != "" {
 		t.Fatalf("cleared address = %q", got.Address)
 	}
-	if err := st.RevokeOperator(ctx, "op-1", "gone", time.Now()); err != nil {
+	if err := st.RevokeOperator(ctx, "o", "op-1", "gone", time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.SetOperatorAddress(ctx, "op-1", "a.example.com:1"); !errors.Is(err, ErrBadState) && !errors.Is(err, ErrNotFound) {
+	if err := st.SetOperatorAddress(ctx, "o", "op-1", "a.example.com:1"); !errors.Is(err, ErrBadState) && !errors.Is(err, ErrNotFound) {
 		t.Fatalf("a revoked operator's address was changed: %v", err)
 	}
 }
@@ -107,13 +107,13 @@ func TestOperatorExposureIsStoredAndLegacyRowsHaveNone(t *testing.T) {
 		t.Fatalf("opening a version 14 database: %v", err)
 	}
 	defer up.Close()
-	if got, err := up.GetOperator(ctx, "op-old14"); err != nil || got.Exposure != "" {
+	if got, err := up.GetOperator(ctx, "o", "op-old14"); err != nil || got.Exposure != "" {
 		t.Fatalf("legacy operator = %+v, %v", got, err)
 	}
 	if err := up.CreateOperator(ctx, Operator{ID: "op-y", OrgID: "o", Name: "y", Status: OperatorActive, SourceClusterIDs: []string{"cl-a"}, Destination: Destination{Kind: DestinationExternal, Endpoint: "c:4317"}, Exposure: "loadbalancer", CreatedBy: "a", CreatedAt: time.Now()}, nil); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := up.GetOperator(ctx, "op-y"); err != nil || got.Exposure != "loadbalancer" {
+	if got, err := up.GetOperator(ctx, "o", "op-y"); err != nil || got.Exposure != "loadbalancer" {
 		t.Fatalf("exposure = %+v, %v", got, err)
 	}
 }
@@ -131,22 +131,22 @@ func TestSetOperatorAddressIfEmptyNeverOverwritesAndNeedsAnActiveOperator(t *tes
 	if err := st.CreateOperator(ctx, op, []byte("h")); err != nil {
 		t.Fatal(err)
 	}
-	if ok, err := st.SetOperatorAddressIfEmpty(ctx, "op-1", "203.0.113.7:4317"); err != nil || !ok {
+	if ok, err := st.SetOperatorAddressIfEmpty(ctx, "o", "op-1", "203.0.113.7:4317"); err != nil || !ok {
 		t.Fatalf("first write: %v %v", ok, err)
 	}
-	if ok, err := st.SetOperatorAddressIfEmpty(ctx, "op-1", "198.51.100.9:4317"); err != nil || ok {
+	if ok, err := st.SetOperatorAddressIfEmpty(ctx, "o", "op-1", "198.51.100.9:4317"); err != nil || ok {
 		t.Fatalf("second write replaced a recorded address: %v %v", ok, err)
 	}
-	if got, _ := st.GetOperator(ctx, "op-1"); got.Address != "203.0.113.7:4317" {
+	if got, _ := st.GetOperator(ctx, "o", "op-1"); got.Address != "203.0.113.7:4317" {
 		t.Fatalf("address = %q", got.Address)
 	}
-	if _, err := st.SetOperatorAddressIfEmpty(ctx, "op-nope", "x.example.com:1"); !errors.Is(err, ErrNotFound) {
+	if _, err := st.SetOperatorAddressIfEmpty(ctx, "o", "op-nope", "x.example.com:1"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("unknown operator: %v", err)
 	}
-	if err := st.RevokeOperator(ctx, "op-1", "gone", time.Now()); err != nil {
+	if err := st.RevokeOperator(ctx, "o", "op-1", "gone", time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.SetOperatorAddressIfEmpty(ctx, "op-1", "x.example.com:1"); !errors.Is(err, ErrBadState) {
+	if _, err := st.SetOperatorAddressIfEmpty(ctx, "o", "op-1", "x.example.com:1"); !errors.Is(err, ErrBadState) {
 		t.Fatalf("revoked operator: %v", err)
 	}
 }

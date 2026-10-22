@@ -36,7 +36,7 @@ func TestOperatorsFromSchemaElevenGetNoLabelsAndKeepWorking(t *testing.T) {
 	if err := up.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != SchemaVersion {
 		t.Fatalf("user_version = %d (%v), want SchemaVersion %d (12, then the later migrations)", v, err, SchemaVersion)
 	}
-	got, err := up.GetOperator(ctx, "op-old11")
+	got, err := up.GetOperator(ctx, "o", "op-old11")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func TestOperatorLabelsRoundTripInOrder(t *testing.T) {
 	if err := st.CreateOperator(ctx, op, []byte("h")); err != nil {
 		t.Fatal(err)
 	}
-	got, err := st.GetOperator(ctx, "op-l")
+	got, err := st.GetOperator(ctx, "o", "op-l")
 	if err != nil {
 		t.Fatal(err)
 	}

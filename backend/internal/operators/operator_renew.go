@@ -57,8 +57,9 @@ func (c *Service) RenewTelemetryCert(ctx context.Context, ip string, req *contin
 	default:
 		return nil, deny
 	}
-	op, err := c.Store.GetOperator(ctx, opID)
-	if err != nil || op.OrgID != old.Subject.Organization[0] || len(op.ClientCACertPEM) == 0 {
+	// The organisation is the certificate's claim too, and the store looks the operator up inside it.
+	op, err := c.Store.GetOperator(ctx, old.Subject.Organization[0], opID)
+	if err != nil || len(op.ClientCACertPEM) == 0 {
 		return nil, deny
 	}
 	oc := c.ForOrg(op.OrgID)

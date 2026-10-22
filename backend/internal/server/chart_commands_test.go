@@ -395,7 +395,7 @@ func (a *intentRig) operator(t *testing.T, name string) store.Operator {
 	cl := a.approvedCluster(t, fmt.Sprintf("8f3c2a9e-%04d-4222-8333-944455556666", 900+a.n))
 	a.n++
 	id := a.createOperatorDoc(t, a.cookie, extBody(name, cl))["operator"].(map[string]any)["id"].(string)
-	op, err := a.st.GetOperator(a.ctx, id)
+	op, err := a.st.GetOperator(a.ctx, "org-1", id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -514,7 +514,7 @@ func TestPrintedAgentCommandsForTheCentralOperator(t *testing.T) {
 	if _, err := f.Enable(a.ctx, a.core.Fusion, "alex"); err != nil {
 		t.Fatal(err)
 	}
-	central, err := a.st.GetOperator(a.ctx, operators.CentralOperatorID)
+	central, err := a.st.GetOperator(a.ctx, "org-1", operators.CentralOperatorID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -572,7 +572,7 @@ func TestPrintedOperatorInstallsRenderTheDeclaredReceiverAndExporter(t *testing.
 	if _, err := f.Enable(a.ctx, a.core.Fusion, "alex"); err != nil {
 		t.Fatal(err)
 	}
-	central, _ := a.st.GetOperator(a.ctx, operators.CentralOperatorID)
+	central, _ := a.st.GetOperator(a.ctx, "org-1", operators.CentralOperatorID)
 	cl := a.approvedCluster(t, "8f3c2a9e-0777-4222-8333-944455556666")
 
 	creates := map[string]map[string]any{
@@ -588,7 +588,7 @@ func TestPrintedOperatorInstallsRenderTheDeclaredReceiverAndExporter(t *testing.
 			t.Run(name+"/"+pub.label, func(t *testing.T) {
 				f.SetPublicAddress(pub.address)
 				doc := a.createOperatorDoc(t, a.cookie, body)
-				op, err := a.st.GetOperator(a.ctx, doc["operator"].(map[string]any)["id"].(string))
+				op, err := a.st.GetOperator(a.ctx, "org-1", doc["operator"].(map[string]any)["id"].(string))
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -647,7 +647,7 @@ func TestPrintedSourceRemindersRenderTheOperatorAsDestination(t *testing.T) {
 	a := newIntentRig(t)
 	clA, clB := a.approvedCluster(t, "8f3c2a9e-0801-4222-8333-944455556666"), a.approvedCluster(t, "8f3c2a9e-0802-4222-8333-944455556666")
 	doc := a.createOperatorDoc(t, a.cookie, extBody("athens", clA, clB))
-	op, _ := a.st.GetOperator(a.ctx, doc["operator"].(map[string]any)["id"].(string))
+	op, _ := a.st.GetOperator(a.ctx, "org-1", doc["operator"].(map[string]any)["id"].(string))
 	n := 0
 	for _, r := range doc["reminders"].([]any) {
 		s := r.(string)

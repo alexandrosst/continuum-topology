@@ -130,7 +130,7 @@ func doctorCommands(t *testing.T) {
 		a := newIntentRig(t)
 		cl := a.approvedCluster(t, "8f3c2a9e-1001-4222-8333-944455556666")
 		doc := a.createOperatorDoc(t, a.cookie, extBody("athens", cl))
-		op, err := a.st.GetOperator(a.ctx, doc["operator"].(map[string]any)["id"].(string))
+		op, err := a.st.GetOperator(a.ctx, "org-1", doc["operator"].(map[string]any)["id"].(string))
 		if err != nil {
 			t.Fatal(err)
 		}

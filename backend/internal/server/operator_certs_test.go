@@ -40,7 +40,7 @@ func TestCreatedOperatorRecordsItsCertificateDates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stored, _ := e.st.GetOperator(e.ctx, op.ID)
+	stored, _ := e.st.GetOperator(e.ctx, "org-1", op.ID)
 	wantRecv, _ := pki.NotAfter(bundle.ReceiverCertPEM)
 	if len(bundle.Senders) != 1 {
 		t.Fatalf("senders = %d, want one certificate for the one source cluster", len(bundle.Senders))
@@ -104,7 +104,7 @@ func TestLegacyOperatorCertDatesAreDerivedFromWhatIsStored(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stored, _ := e.st.GetOperator(e.ctx, op.ID)
+	stored, _ := e.st.GetOperator(e.ctx, "org-1", op.ID)
 	stored.ReceiverNotAfter, stored.ClientNotAfter = nil, nil // as read from a schema 15 row
 	c := operators.OperatorCertDates(stored)
 	want := stored.CreatedAt.Add(pki.LegacyOperatorTLSTTL)
@@ -130,12 +130,12 @@ func TestReissueRecordsTheNewDatesAndRaisesNoWarning(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	before, _ := e.st.GetOperator(e.ctx, op.ID)
+	before, _ := e.st.GetOperator(e.ctx, "org-1", op.ID)
 	*e.now = e.now.Add(time.Minute)
 	if _, _, err := e.core.Operators.ReissueOperatorInstall(e.ctx, "alex", op.ID); err != nil {
 		t.Fatal(err)
 	}
-	after, _ := e.st.GetOperator(e.ctx, op.ID)
+	after, _ := e.st.GetOperator(e.ctx, "org-1", op.ID)
 	if after.ReceiverNotAfter == nil || !after.ReceiverNotAfter.After(before.ReceiverNotAfter.Add(15*day)) {
 		t.Fatalf("receiver date after installing again = %v (was %v)", after.ReceiverNotAfter, before.ReceiverNotAfter)
 	}
@@ -161,7 +161,7 @@ func TestClientCertDateFollowsTheNewestCertificateOfEachSender(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	before, _ := e.st.GetOperator(e.ctx, op.ID)
+	before, _ := e.st.GetOperator(e.ctx, "org-1", op.ID)
 	if before.ClientNotAfter == nil || before.ClientNotAfter.After(time.Now().Add(11*day)) {
 		t.Fatalf("setup: client certificate ends %v, want about 10 days out", before.ClientNotAfter)
 	}
@@ -169,7 +169,7 @@ func TestClientCertDateFollowsTheNewestCertificateOfEachSender(t *testing.T) {
 	if _, _, _, err := e.core.Operators.IssueOperatorClientCertFor(e.ctx, "alex", op.ID, cl, "again"); err != nil {
 		t.Fatal(err)
 	}
-	after, _ := e.st.GetOperator(e.ctx, op.ID)
+	after, _ := e.st.GetOperator(e.ctx, "org-1", op.ID)
 	if after.ClientNotAfter == nil || after.ClientNotAfter.Before(time.Now().Add(25*day)) {
 		t.Fatalf("client certificate end after issuing a new one = %v, want about 30 days out", after.ClientNotAfter)
 	}
@@ -198,7 +198,7 @@ func TestOperatorDatesFollowTheSenderWhoseCertificateEndsFirst(t *testing.T) {
 		t.Fatal(err)
 	}
 	pki.OperatorTLSTTL = 365 * day
-	st, _ := e.st.GetOperator(e.ctx, op.ID)
+	st, _ := e.st.GetOperator(e.ctx, "org-1", op.ID)
 	if st.ClientNotAfter == nil || st.ClientNotAfter.After(time.Now().Add(21*day)) {
 		t.Fatalf("client date = %v, want about 20 days out", st.ClientNotAfter)
 	}
@@ -206,7 +206,7 @@ func TestOperatorDatesFollowTheSenderWhoseCertificateEndsFirst(t *testing.T) {
 	if err := e.core.Operators.UpdateOperatorScope(e.ctx, "alex", op.ID, []string{c1}, extDest("c:4317"), nil); err != nil {
 		t.Fatal(err)
 	}
-	st, _ = e.st.GetOperator(e.ctx, op.ID)
+	st, _ = e.st.GetOperator(e.ctx, "org-1", op.ID)
 	if st.ClientNotAfter.Before(time.Now().Add(300 * day)) {
 		t.Fatalf("after the short sender left: client date %v", st.ClientNotAfter)
 	}

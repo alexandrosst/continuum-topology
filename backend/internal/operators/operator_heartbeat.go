@@ -170,7 +170,7 @@ func (c *Service) EnableOperatorHeartbeat(ctx context.Context, actor, id string)
 		action = "operator-heartbeat-rotated"
 	}
 	// No secret, hash or prefix in the detail: the trail records that it happened, by whom, to what.
-	err = c.Store.SetOperatorHeartbeat(ctx, id, kernel.HashSecret(secret), c.Now(), store.WithAudit(c.AuditRow(c.OrgID, actor, action, "operator", id, "")))
+	err = c.Store.SetOperatorHeartbeat(ctx, c.OrgID, id, kernel.HashSecret(secret), c.Now(), store.WithAudit(c.AuditRow(c.OrgID, actor, action, "operator", id, "")))
 	switch {
 	case errors.Is(err, store.ErrBadState):
 		err = kernel.Errf(kernel.KindConflict, "only an active operator can report a heartbeat")
@@ -212,7 +212,7 @@ func (c *Service) RecordOperatorHeartbeat(ctx context.Context, secret string) er
 	if !due {
 		return nil
 	}
-	if err := c.Store.TouchOperatorSeen(ctx, op.ID, now); err != nil {
+	if err := c.Store.TouchOperatorSeen(ctx, op.OrgID, op.ID, now); err != nil {
 		c.heartbeatSt().release(op.ID, prev, had)
 		return err
 	}

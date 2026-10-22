@@ -33,7 +33,7 @@ func (e *env) hbOperator(t *testing.T, name, fingerprint string) (store.Operator
 
 func (e *env) health(t *testing.T, id string) operators.OperatorHealth {
 	t.Helper()
-	op, err := e.st.GetOperator(e.ctx, id)
+	op, err := e.st.GetOperator(e.ctx, "org-1", id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestCreateOperatorHeartbeatIsOptInAndSecretIsOnlyStoredHashed(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := e.st.GetOperator(e.ctx, plain.ID); len(got.HeartbeatHash) != 0 || got.HeartbeatEnabledAt != nil {
+	if got, _ := e.st.GetOperator(e.ctx, "org-1", plain.ID); len(got.HeartbeatHash) != 0 || got.HeartbeatEnabledAt != nil {
 		t.Fatalf("an operator created without the heartbeat has one: %+v", got)
 	}
 	if h := e.health(t, plain.ID); h.State != operators.HealthUnknown || h.Reporting || h.LastSeenAt != nil {
@@ -79,7 +79,7 @@ func TestCreateOperatorHeartbeatIsOptInAndSecretIsOnlyStoredHashed(t *testing.T)
 	if recv != "" {
 		t.Fatalf("an mTLS operator has no receiver bearer token, got %q", recv)
 	}
-	got, _ := e.st.GetOperator(e.ctx, op.ID)
+	got, _ := e.st.GetOperator(e.ctx, "org-1", op.ID)
 	if string(got.HeartbeatHash) == hb || len(got.HeartbeatHash) == 0 || got.HeartbeatEnabledAt == nil {
 		t.Fatalf("stored heartbeat state is wrong: %+v", got)
 	}
@@ -132,7 +132,7 @@ func TestEnableAndRotateOperatorHeartbeat(t *testing.T) {
 		t.Fatalf("the new secret is refused: %v", err)
 	}
 	// Rotation keeps what was last seen: the operator did not stop existing.
-	if got, _ := e.st.GetOperator(e.ctx, op.ID); got.LastSeenAt == nil {
+	if got, _ := e.st.GetOperator(e.ctx, "org-1", op.ID); got.LastSeenAt == nil {
 		t.Fatal("rotation forgot last-seen")
 	}
 
@@ -199,7 +199,7 @@ func TestOperatorHeartbeatWritesAreCoalesced(t *testing.T) {
 	op, hb := e.hbOperator(t, "athens", testkit.FP)
 	t0 := *e.now
 	seen := func() time.Time {
-		got, err := e.st.GetOperator(e.ctx, op.ID)
+		got, err := e.st.GetOperator(e.ctx, "org-1", op.ID)
 		if err != nil || got.LastSeenAt == nil {
 			t.Fatalf("last seen: %v %+v", err, got)
 		}

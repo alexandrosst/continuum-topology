@@ -151,53 +151,53 @@ func (f *failAudit) CreateOperator(ctx context.Context, op store.Operator, token
 	return f.Store.CreateOperator(ctx, op, tokenHash, opts...)
 }
 
-func (f *failAudit) UpdateOperatorScope(ctx context.Context, id string, ids []string, dest store.Destination, m []store.Modality, opts ...store.WriteOption) error {
+func (f *failAudit) UpdateOperatorScope(ctx context.Context, org, id string, ids []string, dest store.Destination, m []store.Modality, opts ...store.WriteOption) error {
 	if err := f.broken(opts); err != nil {
 		return err
 	}
-	return f.Store.UpdateOperatorScope(ctx, id, ids, dest, m, opts...)
+	return f.Store.UpdateOperatorScope(ctx, org, id, ids, dest, m, opts...)
 }
 
-func (f *failAudit) SetOperatorAddress(ctx context.Context, id, address string, opts ...store.WriteOption) error {
+func (f *failAudit) SetOperatorAddress(ctx context.Context, org, id, address string, opts ...store.WriteOption) error {
 	if err := f.broken(opts); err != nil {
 		return err
 	}
-	return f.Store.SetOperatorAddress(ctx, id, address, opts...)
+	return f.Store.SetOperatorAddress(ctx, org, id, address, opts...)
 }
 
-func (f *failAudit) SetOperatorAddressIfEmpty(ctx context.Context, id, address string, opts ...store.WriteOption) (bool, error) {
+func (f *failAudit) SetOperatorAddressIfEmpty(ctx context.Context, org, id, address string, opts ...store.WriteOption) (bool, error) {
 	if err := f.broken(opts); err != nil {
 		return false, err
 	}
-	return f.Store.SetOperatorAddressIfEmpty(ctx, id, address, opts...)
+	return f.Store.SetOperatorAddressIfEmpty(ctx, org, id, address, opts...)
 }
 
-func (f *failAudit) RevokeOperator(ctx context.Context, id, reason string, now time.Time, opts ...store.WriteOption) error {
+func (f *failAudit) RevokeOperator(ctx context.Context, org, id, reason string, now time.Time, opts ...store.WriteOption) error {
 	if err := f.broken(opts); err != nil {
 		return err
 	}
-	return f.Store.RevokeOperator(ctx, id, reason, now, opts...)
+	return f.Store.RevokeOperator(ctx, org, id, reason, now, opts...)
 }
 
-func (f *failAudit) DeleteOperator(ctx context.Context, id string, opts ...store.WriteOption) error {
+func (f *failAudit) DeleteOperator(ctx context.Context, org, id string, opts ...store.WriteOption) error {
 	if err := f.broken(opts); err != nil {
 		return err
 	}
-	return f.Store.DeleteOperator(ctx, id, opts...)
+	return f.Store.DeleteOperator(ctx, org, id, opts...)
 }
 
-func (f *failAudit) SetOperatorHeartbeat(ctx context.Context, id string, hash []byte, now time.Time, opts ...store.WriteOption) error {
+func (f *failAudit) SetOperatorHeartbeat(ctx context.Context, org, id string, hash []byte, now time.Time, opts ...store.WriteOption) error {
 	if err := f.broken(opts); err != nil {
 		return err
 	}
-	return f.Store.SetOperatorHeartbeat(ctx, id, hash, now, opts...)
+	return f.Store.SetOperatorHeartbeat(ctx, org, id, hash, now, opts...)
 }
 
-func (f *failAudit) ReissueOperatorInstall(ctx context.Context, id string, in store.OperatorReissue, opts ...store.WriteOption) error {
+func (f *failAudit) ReissueOperatorInstall(ctx context.Context, org, id string, in store.OperatorReissue, opts ...store.WriteOption) error {
 	if err := f.broken(opts); err != nil {
 		return err
 	}
-	return f.Store.ReissueOperatorInstall(ctx, id, in, opts...)
+	return f.Store.ReissueOperatorInstall(ctx, org, id, in, opts...)
 }
 
 func (f *failAudit) CreateTelemetryIntent(ctx context.Context, ti store.TelemetryIntent, opts ...store.WriteOption) error {

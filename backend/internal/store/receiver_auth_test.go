@@ -38,7 +38,7 @@ func TestOperatorCreatedUnderSchemaNineReadsBackAsBearer(t *testing.T) {
 	if err := up.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != SchemaVersion {
 		t.Fatalf("user_version = %d (%v), want %d", v, err, SchemaVersion)
 	}
-	got, err := up.GetOperator(ctx, "op-v9")
+	got, err := up.GetOperator(ctx, "o", "op-v9")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,12 +67,12 @@ func TestOperatorReceiverAuthRoundTrip(t *testing.T) {
 	mk("op-b", ReceiverAuthBearer, []byte("h"))
 	mk("op-z", "", []byte("h")) // a caller that does not set it gets bearer, never mtls
 	for id, want := range map[string]ReceiverAuth{"op-m": ReceiverAuthMTLS, "op-b": ReceiverAuthBearer, "op-z": ReceiverAuthBearer} {
-		got, err := st.GetOperator(ctx, id)
+		got, err := st.GetOperator(ctx, "o", id)
 		if err != nil || got.ReceiverAuth != want {
 			t.Fatalf("%s: %v %+v, want %s", id, err, got, want)
 		}
 	}
-	if m, _ := st.GetOperator(ctx, "op-m"); len(m.ReceiverAuthTokenHash) != 0 {
+	if m, _ := st.GetOperator(ctx, "o", "op-m"); len(m.ReceiverAuthTokenHash) != 0 {
 		t.Fatalf("mtls operator has a token hash: %x", m.ReceiverAuthTokenHash)
 	}
 }

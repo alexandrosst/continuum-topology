@@ -55,7 +55,7 @@ func TestOperatorWithoutAcceptedModalitiesReopensEmptyNotError(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer reopened.Close()
-	got, err := reopened.GetOperator(ctx, "op-legacy")
+	got, err := reopened.GetOperator(ctx, "o", "op-legacy")
 	if err != nil {
 		t.Fatalf("reopening after the migration already ran should not error: %v", err)
 	}

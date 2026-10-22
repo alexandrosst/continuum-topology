@@ -878,6 +878,9 @@ func (s *SQLite) CreateOperator(ctx context.Context, op Operator, tokenHash []by
 			`INSERT INTO operators(id, org_id, name, site_id, status, source_cluster_ids, destination, accepted_modalities, receiver_auth_token_hash, created_by, created_at, reason, heartbeat_hash, heartbeat_enabled_at, receiver_auth, client_ca_cert, client_ca_key, labels, address, exposure, receiver_not_after, client_not_after)
 		 VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			op.ID, op.OrgID, op.Name, op.SiteID, string(op.Status), sourceClusterIDsJSON(op.SourceClusterIDs), destinationJSON(op.Destination), acceptedModalitiesJSON(op.AcceptedModalities), tokenHash, op.CreatedBy, ms(op.CreatedAt), op.Reason, hb, nullMS(op.HeartbeatEnabledAt), string(recv), caCert, caKey, operatorLabelsJSON(op.Labels), op.Address, op.Exposure, nullMS(op.ReceiverNotAfter), nullMS(op.ClientNotAfter))
+		if isUnique(err) {
+			return fmt.Errorf("%w: an operator has the id %q", ErrExists, op.ID)
+		}
 		return err
 	})
 }
@@ -886,36 +889,26 @@ func (s *SQLite) CreateOperator(ctx context.Context, op Operator, tokenHash []by
 // given in Operator.ClientCAKeyPEM). It is deliberately not part of Operator as read back: the key is
 // fetched only by the one caller that must sign with it, never listed. ErrNotFound when the operator does not
 // exist or has no key - a legacy or bearer operator, or one that has been revoked (RevokeOperator erases it).
-func (s *SQLite) GetOperatorClientCAKey(ctx context.Context, id string) ([]byte, error) {
+func (s *SQLite) GetOperatorClientCAKey(ctx context.Context, org, id string) ([]byte, error) {
 	var key []byte
-	err := s.db.QueryRowContext(ctx, `SELECT client_ca_key FROM operators WHERE id=?`, id).Scan(&key)
+	err := s.db.QueryRowContext(ctx, `SELECT client_ca_key FROM operators WHERE id=? AND org_id=?`, id, org).Scan(&key)
 	if errors.Is(err, sql.ErrNoRows) || (err == nil && len(key) == 0) {
 		return nil, ErrNotFound
 	}
 	return key, err
 }
 
-func (s *SQLite) SetOperatorHeartbeat(ctx context.Context, id string, hash []byte, now time.Time, opts ...WriteOption) error {
-	return s.write(ctx, opts, func(tx *sql.Tx) error { return setOperatorHeartbeatTx(ctx, tx, id, hash, now) })
+func (s *SQLite) SetOperatorHeartbeat(ctx context.Context, org, id string, hash []byte, now time.Time, opts ...WriteOption) error {
+	return s.write(ctx, opts, func(tx *sql.Tx) error { return setOperatorHeartbeatTx(ctx, tx, org, id, hash, now) })
 }
 
-func setOperatorHeartbeatTx(ctx context.Context, tx *sql.Tx, id string, hash []byte, now time.Time) error {
+func setOperatorHeartbeatTx(ctx context.Context, tx *sql.Tx, org, id string, hash []byte, now time.Time) error {
 	res, err := tx.ExecContext(ctx,
-		`UPDATE operators SET heartbeat_hash=?, heartbeat_enabled_at=? WHERE id=? AND status='active'`, hash, ms(now), id)
+		`UPDATE operators SET heartbeat_hash=?, heartbeat_enabled_at=? WHERE id=? AND org_id=? AND status='active'`, hash, ms(now), id, org)
 	if err != nil {
 		return err
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		// Tell "no such operator" from "not active" so the caller can word it.
-		var one int
-		if err := tx.QueryRowContext(ctx, `SELECT 1 FROM operators WHERE id=?`, id).Scan(&one); errors.Is(err, sql.ErrNoRows) {
-			return ErrNotFound
-		} else if err != nil {
-			return err
-		}
-		return ErrBadState
-	}
-	return nil
+	return needOneIn(ctx, tx, res, "operators", org, id)
 }
 
 func (s *SQLite) GetOperatorByHeartbeatHash(ctx context.Context, hash []byte) (Operator, error) {
@@ -925,13 +918,13 @@ func (s *SQLite) GetOperatorByHeartbeatHash(ctx context.Context, hash []byte) (O
 	return scanOperator(s.db.QueryRowContext(ctx, `SELECT `+operatorCols+` FROM operators WHERE heartbeat_hash=?`, hash))
 }
 
-func (s *SQLite) TouchOperatorSeen(ctx context.Context, id string, at time.Time) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE operators SET last_seen_at=? WHERE id=?`, ms(at), id)
+func (s *SQLite) TouchOperatorSeen(ctx context.Context, org, id string, at time.Time) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE operators SET last_seen_at=? WHERE id=? AND org_id=?`, ms(at), id, org)
 	return err
 }
 
-func (s *SQLite) GetOperator(ctx context.Context, id string) (Operator, error) {
-	return scanOperator(s.db.QueryRowContext(ctx, `SELECT `+operatorCols+` FROM operators WHERE id=?`, id))
+func (s *SQLite) GetOperator(ctx context.Context, org, id string) (Operator, error) {
+	return scanOperator(s.db.QueryRowContext(ctx, `SELECT `+operatorCols+` FROM operators WHERE id=? AND org_id=?`, id, org))
 }
 
 func (s *SQLite) ListOperators(ctx context.Context, org string) ([]Operator, error) {
@@ -951,26 +944,26 @@ func (s *SQLite) ListOperators(ctx context.Context, org string) ([]Operator, err
 	return out, rows.Err()
 }
 
-func (s *SQLite) UpdateOperatorScope(ctx context.Context, id string, sourceClusterIDs []string, dest Destination, acceptedModalities []Modality, opts ...WriteOption) error {
+func (s *SQLite) UpdateOperatorScope(ctx context.Context, org, id string, sourceClusterIDs []string, dest Destination, acceptedModalities []Modality, opts ...WriteOption) error {
 	return s.write(ctx, opts, func(tx *sql.Tx) error {
 		res, err := tx.ExecContext(ctx,
-			`UPDATE operators SET source_cluster_ids=?, destination=?, accepted_modalities=? WHERE id=? AND status='active'`,
-			sourceClusterIDsJSON(sourceClusterIDs), destinationJSON(dest), acceptedModalitiesJSON(acceptedModalities), id)
+			`UPDATE operators SET source_cluster_ids=?, destination=?, accepted_modalities=? WHERE id=? AND org_id=? AND status='active'`,
+			sourceClusterIDsJSON(sourceClusterIDs), destinationJSON(dest), acceptedModalitiesJSON(acceptedModalities), id, org)
 		if err != nil {
 			return err
 		}
-		return needOne(res)
+		return needOneIn(ctx, tx, res, "operators", org, id)
 	})
 }
 
 // SetOperatorAddress records the host:port other clusters reach the operator's receiver at ("" clears it).
-func (s *SQLite) SetOperatorAddress(ctx context.Context, id, address string, opts ...WriteOption) error {
+func (s *SQLite) SetOperatorAddress(ctx context.Context, org, id, address string, opts ...WriteOption) error {
 	return s.write(ctx, opts, func(tx *sql.Tx) error {
-		res, err := tx.ExecContext(ctx, `UPDATE operators SET address=? WHERE id=? AND status='active'`, address, id)
+		res, err := tx.ExecContext(ctx, `UPDATE operators SET address=? WHERE id=? AND org_id=? AND status='active'`, address, id, org)
 		if err != nil {
 			return err
 		}
-		return needOne(res)
+		return needOneIn(ctx, tx, res, "operators", org, id)
 	})
 }
 
@@ -978,10 +971,10 @@ func (s *SQLite) SetOperatorAddress(ctx context.Context, id, address string, opt
 // administrator typed in the meantime is never overwritten (the server learning an address by itself must lose to a
 // person). It reports whether it wrote; ErrNotFound / ErrBadState for an operator that is missing or not active.
 // When it did not write, no audit row is added either: the attempt changed nothing.
-func (s *SQLite) SetOperatorAddressIfEmpty(ctx context.Context, id, address string, opts ...WriteOption) (bool, error) {
+func (s *SQLite) SetOperatorAddressIfEmpty(ctx context.Context, org, id, address string, opts ...WriteOption) (bool, error) {
 	wrote := false
 	err := s.write(ctx, opts, func(tx *sql.Tx) error {
-		res, err := tx.ExecContext(ctx, `UPDATE operators SET address=? WHERE id=? AND status='active' AND address=''`, address, id)
+		res, err := tx.ExecContext(ctx, `UPDATE operators SET address=? WHERE id=? AND org_id=? AND status='active' AND address=''`, address, id, org)
 		if err != nil {
 			return err
 		}
@@ -990,7 +983,7 @@ func (s *SQLite) SetOperatorAddressIfEmpty(ctx context.Context, id, address stri
 			return nil
 		}
 		var status string
-		if err := tx.QueryRowContext(ctx, `SELECT status FROM operators WHERE id=?`, id).Scan(&status); errors.Is(err, sql.ErrNoRows) {
+		if err := tx.QueryRowContext(ctx, `SELECT status FROM operators WHERE id=? AND org_id=?`, id, org).Scan(&status); errors.Is(err, sql.ErrNoRows) {
 			return ErrNotFound
 		} else if err != nil {
 			return err
@@ -1005,42 +998,44 @@ func (s *SQLite) SetOperatorAddressIfEmpty(ctx context.Context, id, address stri
 
 // SetOperatorCerts records when the receiver and client certificates just issued expire, and starts the expiry
 // warnings over: what was raised for the certificates they replace says nothing about these.
-func (s *SQLite) SetOperatorCerts(ctx context.Context, id string, receiverNotAfter, clientNotAfter time.Time) error {
-	return s.write(ctx, nil, func(tx *sql.Tx) error { return setOperatorCertsTx(ctx, tx, id, receiverNotAfter, clientNotAfter) })
+func (s *SQLite) SetOperatorCerts(ctx context.Context, org, id string, receiverNotAfter, clientNotAfter time.Time) error {
+	return s.write(ctx, nil, func(tx *sql.Tx) error { return setOperatorCertsTx(ctx, tx, org, id, receiverNotAfter, clientNotAfter) })
 }
 
-func setOperatorCertsTx(ctx context.Context, tx *sql.Tx, id string, receiverNotAfter, clientNotAfter time.Time) error {
+func setOperatorCertsTx(ctx context.Context, tx *sql.Tx, org, id string, receiverNotAfter, clientNotAfter time.Time) error {
 	res, err := tx.ExecContext(ctx,
-		`UPDATE operators SET receiver_not_after=?, client_not_after=?, cert_alert_level=0 WHERE id=? AND status='active'`,
-		ms(receiverNotAfter), ms(clientNotAfter), id)
+		`UPDATE operators SET receiver_not_after=?, client_not_after=?, cert_alert_level=0 WHERE id=? AND org_id=? AND status='active'`,
+		ms(receiverNotAfter), ms(clientNotAfter), id, org)
 	if err != nil {
 		return err
 	}
-	return needOne(res)
+	return needOneIn(ctx, tx, res, "operators", org, id)
 }
 
 // SetOperatorCertAlertLevel records the expiry warning level already raised, so the daily check raises each only once.
-func (s *SQLite) SetOperatorCertAlertLevel(ctx context.Context, id string, level int) error {
-	res, err := s.db.ExecContext(ctx, `UPDATE operators SET cert_alert_level=? WHERE id=? AND status='active'`, level, id)
-	if err != nil {
-		return err
-	}
-	return needOne(res)
+func (s *SQLite) SetOperatorCertAlertLevel(ctx context.Context, org, id string, level int) error {
+	return s.write(ctx, nil, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, `UPDATE operators SET cert_alert_level=? WHERE id=? AND org_id=? AND status='active'`, level, id, org)
+		if err != nil {
+			return err
+		}
+		return needOneIn(ctx, tx, res, "operators", org, id)
+	})
 }
 
 // SetOperatorReceiverToken replaces the hash of a bearer operator's receiver token (the earlier token stops
 // working at once). ErrBadState for an operator that is not active or has no bearer gate.
-func (s *SQLite) SetOperatorReceiverToken(ctx context.Context, id string, hash []byte) error {
-	return s.write(ctx, nil, func(tx *sql.Tx) error { return setOperatorReceiverTokenTx(ctx, tx, id, hash) })
+func (s *SQLite) SetOperatorReceiverToken(ctx context.Context, org, id string, hash []byte) error {
+	return s.write(ctx, nil, func(tx *sql.Tx) error { return setOperatorReceiverTokenTx(ctx, tx, org, id, hash) })
 }
 
-func setOperatorReceiverTokenTx(ctx context.Context, tx *sql.Tx, id string, hash []byte) error {
+func setOperatorReceiverTokenTx(ctx context.Context, tx *sql.Tx, org, id string, hash []byte) error {
 	res, err := tx.ExecContext(ctx,
-		`UPDATE operators SET receiver_auth_token_hash=? WHERE id=? AND status='active' AND receiver_auth='bearer'`, hash, id)
+		`UPDATE operators SET receiver_auth_token_hash=? WHERE id=? AND org_id=? AND status='active' AND receiver_auth='bearer'`, hash, id, org)
 	if err != nil {
 		return err
 	}
-	return needOne(res)
+	return needOneIn(ctx, tx, res, "operators", org, id)
 }
 
 // OperatorReissue is what reissuing an operator's install changes on its row: a bearer operator's new receiver token
@@ -1054,37 +1049,37 @@ type OperatorReissue struct {
 }
 
 // ReissueOperatorInstall applies a reissue in one transaction, with its audit row when one is given.
-func (s *SQLite) ReissueOperatorInstall(ctx context.Context, id string, in OperatorReissue, opts ...WriteOption) error {
+func (s *SQLite) ReissueOperatorInstall(ctx context.Context, org, id string, in OperatorReissue, opts ...WriteOption) error {
 	return s.write(ctx, opts, func(tx *sql.Tx) error {
 		if in.ReceiverTokenHash != nil {
-			if err := setOperatorReceiverTokenTx(ctx, tx, id, in.ReceiverTokenHash); err != nil {
+			if err := setOperatorReceiverTokenTx(ctx, tx, org, id, in.ReceiverTokenHash); err != nil {
 				return err
 			}
-		} else if err := setOperatorCertsTx(ctx, tx, id, in.ReceiverNotAfter, in.ClientNotAfter); err != nil {
+		} else if err := setOperatorCertsTx(ctx, tx, org, id, in.ReceiverNotAfter, in.ClientNotAfter); err != nil {
 			return err
 		}
 		if in.HeartbeatHash != nil {
-			return setOperatorHeartbeatTx(ctx, tx, id, in.HeartbeatHash, in.Now)
+			return setOperatorHeartbeatTx(ctx, tx, org, id, in.HeartbeatHash, in.Now)
 		}
 		return nil
 	})
 }
 
-func (s *SQLite) RevokeOperator(ctx context.Context, id, reason string, now time.Time, opts ...WriteOption) error {
+func (s *SQLite) RevokeOperator(ctx context.Context, org, id, reason string, now time.Time, opts ...WriteOption) error {
 	return s.write(ctx, opts, func(tx *sql.Tx) error {
 		res, err := tx.ExecContext(ctx,
-			`UPDATE operators SET status='revoked', reason=?, revoked_at=?, client_ca_key=NULL WHERE id=? AND status='active'`,
-			reason, ms(now), id)
+			`UPDATE operators SET status='revoked', reason=?, revoked_at=?, client_ca_key=NULL WHERE id=? AND org_id=? AND status='active'`,
+			reason, ms(now), id, org)
 		if err != nil {
 			return err
 		}
-		return needOne(res)
+		return needOneIn(ctx, tx, res, "operators", org, id)
 	})
 }
 
-func (s *SQLite) DeleteOperator(ctx context.Context, id string, opts ...WriteOption) error {
+func (s *SQLite) DeleteOperator(ctx context.Context, org, id string, opts ...WriteOption) error {
 	return s.write(ctx, opts, func(tx *sql.Tx) error {
-		res, err := tx.ExecContext(ctx, `DELETE FROM operators WHERE id=?`, id)
+		res, err := tx.ExecContext(ctx, `DELETE FROM operators WHERE id=? AND org_id=?`, id, org)
 		if err != nil {
 			return err
 		}
@@ -1092,12 +1087,14 @@ func (s *SQLite) DeleteOperator(ctx context.Context, id string, opts ...WriteOpt
 			return ErrNotFound
 		}
 		// The ledger describes certificates of an operator that no longer exists; nothing is left to ask it about.
-		_, err = tx.ExecContext(ctx, `DELETE FROM operator_certs WHERE operator_id=?`, id)
+		_, err = tx.ExecContext(ctx, `DELETE FROM operator_certs WHERE operator_id=? AND org_id=?`, id, org)
 		return err
 	})
 }
 
 // AddOperatorCert records one issued certificate. The serial is the primary key, so recording the same one twice is an error.
+// The row carries its organisation, and the ledger is read and erased only inside it. It is written before the operator's own row
+// on creation (a certificate that cannot be recorded is not handed out), so the operator is not required to exist yet.
 func (s *SQLite) AddOperatorCert(ctx context.Context, c OperatorCert) error {
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO operator_certs(serial, org_id, operator_id, kind, subject, sender, issued_by, issued_at, not_before, not_after) VALUES(?,?,?,?,?,?,?,?,?,?)`,
@@ -1106,9 +1103,9 @@ func (s *SQLite) AddOperatorCert(ctx context.Context, c OperatorCert) error {
 }
 
 // ListOperatorCerts returns what was issued for an operator, newest first.
-func (s *SQLite) ListOperatorCerts(ctx context.Context, operatorID string) ([]OperatorCert, error) {
+func (s *SQLite) ListOperatorCerts(ctx context.Context, org, operatorID string) ([]OperatorCert, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT serial, org_id, operator_id, kind, subject, sender, issued_by, issued_at, not_before, not_after FROM operator_certs WHERE operator_id=? ORDER BY issued_at DESC, serial`, operatorID)
+		`SELECT serial, org_id, operator_id, kind, subject, sender, issued_by, issued_at, not_before, not_after FROM operator_certs WHERE org_id=? AND operator_id=? ORDER BY issued_at DESC, serial`, org, operatorID)
 	if err != nil {
 		return nil, err
 	}

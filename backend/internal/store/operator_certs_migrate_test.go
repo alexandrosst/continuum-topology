@@ -40,7 +40,7 @@ func TestOperatorsFromSchemaFifteenHaveNoCertDatesAndKeepWorking(t *testing.T) {
 	if err := up.db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil || v != SchemaVersion {
 		t.Fatalf("user_version = %d (%v), want SchemaVersion %d", v, err, SchemaVersion)
 	}
-	got, err := up.GetOperator(ctx, "op-old15")
+	got, err := up.GetOperator(ctx, "o", "op-old15")
 	if err != nil || got.ReceiverNotAfter != nil || got.ClientNotAfter != nil || got.CertAlertLevel != 0 || got.Name != "legacy" {
 		t.Fatalf("legacy operator = %+v, %v", got, err)
 	}
@@ -59,31 +59,31 @@ func TestOperatorCertDatesAreStoredResetTheWarningLevelAndNeedAnActiveOperator(t
 	if err := st.CreateOperator(ctx, op, nil); err != nil {
 		t.Fatal(err)
 	}
-	got, _ := st.GetOperator(ctx, "op-1")
+	got, _ := st.GetOperator(ctx, "o", "op-1")
 	if got.ReceiverNotAfter == nil || !got.ReceiverNotAfter.Equal(recv) || got.ClientNotAfter == nil || !got.ClientNotAfter.Equal(client) {
 		t.Fatalf("dates did not round-trip: %+v", got)
 	}
-	if err := st.SetOperatorCertAlertLevel(ctx, "op-1", 2); err != nil {
+	if err := st.SetOperatorCertAlertLevel(ctx, "o", "op-1", 2); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := st.GetOperator(ctx, "op-1"); got.CertAlertLevel != 2 {
+	if got, _ := st.GetOperator(ctx, "o", "op-1"); got.CertAlertLevel != 2 {
 		t.Fatalf("alert level = %d", got.CertAlertLevel)
 	}
 	later := recv.Add(365 * 24 * time.Hour)
-	if err := st.SetOperatorCerts(ctx, "op-1", later, later); err != nil {
+	if err := st.SetOperatorCerts(ctx, "o", "op-1", later, later); err != nil {
 		t.Fatal(err)
 	}
-	got, _ = st.GetOperator(ctx, "op-1")
+	got, _ = st.GetOperator(ctx, "o", "op-1")
 	if !got.ReceiverNotAfter.Equal(later) || got.CertAlertLevel != 0 {
 		t.Fatalf("re-issued dates must reset the warning level: %+v", got)
 	}
 	if list, _ := st.ListOperators(ctx, "o"); len(list) != 1 || list[0].ReceiverNotAfter == nil {
 		t.Fatalf("list = %+v", list)
 	}
-	if err := st.RevokeOperator(ctx, "op-1", "gone", time.Now()); err != nil {
+	if err := st.RevokeOperator(ctx, "o", "op-1", "gone", time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.SetOperatorCerts(ctx, "op-1", later, later); err != ErrBadState {
+	if err := st.SetOperatorCerts(ctx, "o", "op-1", later, later); err != ErrBadState {
 		t.Fatalf("a revoked operator's dates were changed: %v", err)
 	}
 }
@@ -104,13 +104,13 @@ func TestSetOperatorReceiverTokenReplacesTheHashOfAnActiveBearerOperatorOnly(t *
 	}
 	mk("op-b", ReceiverAuthBearer)
 	mk("op-m", ReceiverAuthMTLS)
-	if err := st.SetOperatorReceiverToken(ctx, "op-b", []byte("new")); err != nil {
+	if err := st.SetOperatorReceiverToken(ctx, "o", "op-b", []byte("new")); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := st.GetOperator(ctx, "op-b"); string(got.ReceiverAuthTokenHash) != "new" {
+	if got, _ := st.GetOperator(ctx, "o", "op-b"); string(got.ReceiverAuthTokenHash) != "new" {
 		t.Fatalf("hash = %q", got.ReceiverAuthTokenHash)
 	}
-	if err := st.SetOperatorReceiverToken(ctx, "op-m", []byte("new")); err != ErrBadState {
+	if err := st.SetOperatorReceiverToken(ctx, "o", "op-m", []byte("new")); err != ErrBadState {
 		t.Fatalf("an mTLS operator has no token to replace: %v", err)
 	}
 }
@@ -148,14 +148,14 @@ func TestASchemaFifteenDatabaseWithRowsMigratesToSixteenIntact(t *testing.T) {
 			t.Errorf("%s: a column from an earlier version changed: %+v", op.ID, op)
 		}
 	}
-	gone, err := st.GetOperator(ctx, "op-gone0001")
+	gone, err := st.GetOperator(ctx, "org-1", "op-gone0001")
 	if err != nil || gone.Status != OperatorRevoked || gone.Reason != "decommissioned" || gone.RevokedAt == nil {
 		t.Fatalf("the revoked operator: %+v %v", gone, err)
 	}
-	if key, err := st.GetOperatorClientCAKey(ctx, "op-mtls0001"); err != nil || string(key) != "sealed-key" {
+	if key, err := st.GetOperatorClientCAKey(ctx, "org-1", "op-mtls0001"); err != nil || string(key) != "sealed-key" {
 		t.Fatalf("the sealed CA key did not survive: %q %v", key, err)
 	}
-	if b, err := st.GetOperator(ctx, "op-bear0001"); err != nil || string(b.ReceiverAuthTokenHash) != "hash" || b.ReceiverAuth != ReceiverAuthBearer {
+	if b, err := st.GetOperator(ctx, "org-1", "op-bear0001"); err != nil || string(b.ReceiverAuthTokenHash) != "hash" || b.ReceiverAuth != ReceiverAuthBearer {
 		t.Fatalf("the bearer operator: %+v %v", b, err)
 	}
 	if tis, err := st.ListTelemetryIntents(ctx, "org-1"); err != nil || len(tis) != 1 || tis[0].Destination.TargetOperatorID != "op-mtls0001" {
@@ -166,10 +166,10 @@ func TestASchemaFifteenDatabaseWithRowsMigratesToSixteenIntact(t *testing.T) {
 	}
 	// The new columns work on a migrated row, and a second open changes nothing (migrations run once).
 	end := time.UnixMilli(1900000000000)
-	if err := st.SetOperatorCerts(ctx, "op-mtls0001", end, end); err != nil {
+	if err := st.SetOperatorCerts(ctx, "org-1", "op-mtls0001", end, end); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.SetOperatorCertAlertLevel(ctx, "op-mtls0001", 2); err != nil {
+	if err := st.SetOperatorCertAlertLevel(ctx, "org-1", "op-mtls0001", 2); err != nil {
 		t.Fatal(err)
 	}
 	st.Close()
@@ -178,7 +178,7 @@ func TestASchemaFifteenDatabaseWithRowsMigratesToSixteenIntact(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer again.Close()
-	if got, _ := again.GetOperator(ctx, "op-mtls0001"); got.ReceiverNotAfter == nil || !got.ReceiverNotAfter.Equal(end) || got.CertAlertLevel != 2 {
+	if got, _ := again.GetOperator(ctx, "org-1", "op-mtls0001"); got.ReceiverNotAfter == nil || !got.ReceiverNotAfter.Equal(end) || got.CertAlertLevel != 2 {
 		t.Fatalf("reopening lost the recorded dates: %+v", got)
 	}
 }

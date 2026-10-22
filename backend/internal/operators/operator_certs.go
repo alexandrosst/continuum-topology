@@ -193,7 +193,7 @@ func (c *Service) refreshCertEnds(ctx context.Context, op store.Operator, sender
 	if !central && (dates.Receiver == nil || dates.Client == nil) {
 		return op, "", nil
 	}
-	ledger, err := c.Store.ListOperatorCerts(ctx, op.ID) // newest first
+	ledger, err := c.Store.ListOperatorCerts(ctx, c.OrgID, op.ID) // newest first
 	if err != nil {
 		return op, "", err
 	}
@@ -261,7 +261,7 @@ func (c *Service) refreshCertEnds(ctx context.Context, op store.Operator, sender
 	if dates.Receiver != nil && dates.Client != nil && recv.Equal(*dates.Receiver) && client.Equal(*dates.Client) {
 		return op, holder, nil
 	}
-	if err := c.Store.SetOperatorCerts(ctx, op.ID, recv, client); err != nil {
+	if err := c.Store.SetOperatorCerts(ctx, c.OrgID, op.ID, recv, client); err != nil {
 		return op, holder, stateErr(err)
 	}
 	op.ReceiverNotAfter, op.ClientNotAfter = &recv, &client
@@ -361,7 +361,7 @@ func (c *Service) ReissueOperatorInstall(ctx context.Context, actor, id string) 
 	}
 	// Only what was done, never any secret or hash: the trail records that it happened, by whom, to what.
 	detail := strings.Join(did, "; ")
-	err = c.Store.ReissueOperatorInstall(ctx, id, store.OperatorReissue{ReceiverTokenHash: tokenHash, ReceiverNotAfter: recvEnd, ClientNotAfter: clientEnd, HeartbeatHash: hbHash, Now: c.Now()},
+	err = c.Store.ReissueOperatorInstall(ctx, c.OrgID, id, store.OperatorReissue{ReceiverTokenHash: tokenHash, ReceiverNotAfter: recvEnd, ClientNotAfter: clientEnd, HeartbeatHash: hbHash, Now: c.Now()},
 		store.WithAudit(c.AuditRow(c.OrgID, actor, "operator-install-reissued", "operator", id, detail)))
 	if err = c.AuditedWrite(stateErr(err), "operator-install-reissued"); err != nil {
 		return store.Operator{}, OperatorReissue{}, err

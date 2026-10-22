@@ -31,7 +31,7 @@ func TestOperatorCRUDInTheStore(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := st.GetOperator(ctx, "op-1")
+	got, err := st.GetOperator(ctx, "o", "op-1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,38 +48,38 @@ func TestOperatorCRUDInTheStore(t *testing.T) {
 		t.Fatalf("cross-org leak: %+v %v", other, err)
 	}
 
-	if err := st.UpdateOperatorScope(ctx, "op-1", []string{"cl-edge-c"}, Destination{Kind: DestinationExternal, Endpoint: "collector2.example:4317"}, []Modality{ModalityMetrics}); err != nil {
+	if err := st.UpdateOperatorScope(ctx, "o", "op-1", []string{"cl-edge-c"}, Destination{Kind: DestinationExternal, Endpoint: "collector2.example:4317"}, []Modality{ModalityMetrics}); err != nil {
 		t.Fatal(err)
 	}
-	got, _ = st.GetOperator(ctx, "op-1")
+	got, _ = st.GetOperator(ctx, "o", "op-1")
 	if len(got.SourceClusterIDs) != 1 || got.SourceClusterIDs[0] != "cl-edge-c" || got.Destination.Endpoint != "collector2.example:4317" ||
 		len(got.AcceptedModalities) != 1 || got.AcceptedModalities[0] != ModalityMetrics {
 		t.Fatalf("scope not updated: %+v", got)
 	}
 
-	if err := st.RevokeOperator(ctx, "op-1", "no longer needed", now); err != nil {
+	if err := st.RevokeOperator(ctx, "o", "op-1", "no longer needed", now); err != nil {
 		t.Fatal(err)
 	}
-	got, _ = st.GetOperator(ctx, "op-1")
+	got, _ = st.GetOperator(ctx, "o", "op-1")
 	if got.Status != OperatorRevoked || got.Reason != "no longer needed" || got.RevokedAt == nil {
 		t.Fatalf("not revoked: %+v", got)
 	}
 
 	// A revoked operator's scope can no longer be changed - the same "only active" guard RevokeOperator itself needs.
-	if err := st.UpdateOperatorScope(ctx, "op-1", []string{"cl-edge-d"}, Destination{Kind: DestinationExternal, Endpoint: "x"}, nil); err != ErrBadState {
+	if err := st.UpdateOperatorScope(ctx, "o", "op-1", []string{"cl-edge-d"}, Destination{Kind: DestinationExternal, Endpoint: "x"}, nil); err != ErrBadState {
 		t.Fatalf("expected ErrBadState updating a revoked operator's scope, got %v", err)
 	}
-	if err := st.RevokeOperator(ctx, "op-1", "again", now); err != ErrBadState {
+	if err := st.RevokeOperator(ctx, "o", "op-1", "again", now); err != ErrBadState {
 		t.Fatalf("expected ErrBadState revoking twice, got %v", err)
 	}
 
-	if err := st.DeleteOperator(ctx, "op-1"); err != nil {
+	if err := st.DeleteOperator(ctx, "o", "op-1"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.GetOperator(ctx, "op-1"); err != ErrNotFound {
+	if _, err := st.GetOperator(ctx, "o", "op-1"); err != ErrNotFound {
 		t.Fatalf("expected ErrNotFound after delete, got %v", err)
 	}
-	if err := st.DeleteOperator(ctx, "op-1"); err != ErrNotFound {
+	if err := st.DeleteOperator(ctx, "o", "op-1"); err != ErrNotFound {
 		t.Fatalf("expected ErrNotFound deleting again, got %v", err)
 	}
 }
@@ -99,7 +99,7 @@ func TestOperatorDestinationRoundTripsAllFields(t *testing.T) {
 	if err := st.CreateOperator(ctx, op, []byte("h")); err != nil {
 		t.Fatal(err)
 	}
-	got, err := st.GetOperator(ctx, "op-2")
+	got, err := st.GetOperator(ctx, "o", "op-2")
 	if err != nil {
 		t.Fatal(err)
 	}

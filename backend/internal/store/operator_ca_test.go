@@ -43,14 +43,14 @@ func TestOperatorsFromSchemaTenKeepNoCAAndReadBackAsOrgScope(t *testing.T) {
 		t.Fatalf("user_version = %d (%v), want SchemaVersion %d", v, err, SchemaVersion)
 	}
 	for id, want := range map[string]CAScope{"op-mtls10": ClientCAScopeOrg, "op-bearer10": ""} {
-		got, err := up.GetOperator(ctx, id)
+		got, err := up.GetOperator(ctx, "o", id)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if len(got.ClientCACertPEM) != 0 || got.ClientCAScope() != want {
 			t.Fatalf("%s: CA cert %q, scope %q, want none and %q", id, got.ClientCACertPEM, got.ClientCAScope(), want)
 		}
-		if _, err := up.GetOperatorClientCAKey(ctx, id); !errors.Is(err, ErrNotFound) {
+		if _, err := up.GetOperatorClientCAKey(ctx, "o", id); !errors.Is(err, ErrNotFound) {
 			t.Fatalf("%s: a pre-11 operator has a CA key: %v", id, err)
 		}
 	}
@@ -79,7 +79,7 @@ func TestOperatorClientCARoundTripRevokeAndDelete(t *testing.T) {
 	if err := st.CreateOperator(ctx, op, nil); err != nil {
 		t.Fatal(err)
 	}
-	got, err := st.GetOperator(ctx, "op-ca")
+	got, err := st.GetOperator(ctx, "o", "op-ca")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,30 +93,30 @@ func TestOperatorClientCARoundTripRevokeAndDelete(t *testing.T) {
 	if err != nil || len(list) != 1 || len(list[0].ClientCAKeyPEM) != 0 {
 		t.Fatalf("ListOperators: %v %+v", err, list)
 	}
-	if key, err := st.GetOperatorClientCAKey(ctx, "op-ca"); err != nil || string(key) != "SEALED-KEY-PEM" {
+	if key, err := st.GetOperatorClientCAKey(ctx, "o", "op-ca"); err != nil || string(key) != "SEALED-KEY-PEM" {
 		t.Fatalf("key = %q, %v", key, err)
 	}
 
 	// Revoking erases the key (the certificate is public and stays, so the scope still reads "operator").
-	if err := st.RevokeOperator(ctx, "op-ca", "gone", now); err != nil {
+	if err := st.RevokeOperator(ctx, "o", "op-ca", "gone", now); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.GetOperatorClientCAKey(ctx, "op-ca"); !errors.Is(err, ErrNotFound) {
+	if _, err := st.GetOperatorClientCAKey(ctx, "o", "op-ca"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("a revoked operator still has its CA key: %v", err)
 	}
 	var n int
 	if err := st.db.QueryRow(`SELECT count(*) FROM operators WHERE id='op-ca' AND client_ca_key IS NOT NULL`).Scan(&n); err != nil || n != 0 {
 		t.Fatalf("client_ca_key not NULL after revoke: %d %v", n, err)
 	}
-	if got, _ := st.GetOperator(ctx, "op-ca"); got.ClientCAScope() != ClientCAScopeOperator {
+	if got, _ := st.GetOperator(ctx, "o", "op-ca"); got.ClientCAScope() != ClientCAScopeOperator {
 		t.Fatalf("scope after revoke = %q", got.ClientCAScope())
 	}
 
 	// Deleting drops the row, key and all.
-	if err := st.DeleteOperator(ctx, "op-ca"); err != nil {
+	if err := st.DeleteOperator(ctx, "o", "op-ca"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.GetOperatorClientCAKey(ctx, "op-ca"); !errors.Is(err, ErrNotFound) {
+	if _, err := st.GetOperatorClientCAKey(ctx, "o", "op-ca"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("a deleted operator still has a CA key: %v", err)
 	}
 }
