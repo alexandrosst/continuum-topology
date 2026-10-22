@@ -19,12 +19,12 @@ func TestALostConfigIsSentAgainWhenTheAgentNamesAnOlderOne(t *testing.T) {
 	id, key, leaf := r.approvedAgent(t, testkit.FP)
 	s := r.agentStream(t, ctx, id, key, leaf)
 
-	cur, err := r.st.GetAgent(ctx, id)
+	cur, err := r.st.GetAgent(ctx, "org-1", id)
 	if err != nil {
 		t.Fatal(err)
 	}
 	newTier := (cur.AccessTier + 1) % 3 // any tier the agent does not have: the Config then differs from the one sent at hello
-	if err := r.st.SetAccessTier(ctx, id, newTier); err != nil {
+	if err := r.st.SetAccessTier(ctx, "org-1", id, newTier); err != nil {
 		t.Fatal(err)
 	}
 	r.hub.PushOne(id)

@@ -20,8 +20,8 @@ type holdingStore struct {
 	release chan struct{}
 }
 
-func (s *holdingStore) GetAgent(ctx context.Context, id string) (store.Agent, error) {
-	a, err := s.Store.GetAgent(ctx, id)
+func (s *holdingStore) GetAgent(ctx context.Context, org, id string) (store.Agent, error) {
+	a, err := s.Store.GetAgent(ctx, org, id)
 	select {
 	case <-s.armed:
 		close(s.reached)
@@ -75,7 +75,7 @@ func TestTheLastConfigPushedToAnAgentIsTheCurrentOne(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("the first push never read the agent")
 	}
-	if err := hold.Store.SetAccessTier(context.Background(), agentID, 2); err != nil {
+	if err := hold.Store.SetAccessTier(context.Background(), "org-1", agentID, 2); err != nil {
 		t.Fatal(err)
 	}
 	second := make(chan struct{})

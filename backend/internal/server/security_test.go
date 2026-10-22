@@ -55,7 +55,7 @@ func TestEnrollRejectsOversizedVersionAndScrubsControlCharacters(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a, _ := e.st.GetAgent(e.ctx, resp.AgentId)
+	a, _ := e.st.GetAgent(e.ctx, "org-1", resp.AgentId)
 	if strings.ContainsAny(a.Version, "\n\x1b") {
 		t.Fatalf("control characters survived: %q", a.Version)
 	}
@@ -75,7 +75,7 @@ func TestRejoinAfterOutageAndItsLimits(t *testing.T) {
 	if err := rejoin(leaf, key); err != nil {
 		t.Fatalf("rejoin after a two day outage: %v", err)
 	}
-	cur, _ := e.st.GetAgent(e.ctx, id)
+	cur, _ := e.st.GetAgent(e.ctx, "org-1", id)
 	if string(cur.LeafDER) == string(leaf) {
 		t.Fatal("the new certificate was not stored")
 	}

@@ -84,13 +84,13 @@ func TestSettingATierSaysWhatItSaidBeforeAndInTheSameOrder(t *testing.T) {
 	wantErr(t, "negative", set(-1), kernel.KindInvalid, "access tier must be 0 or more")
 	wantErr(t, "past the release", set(9), kernel.KindInvalid, "access tier 9 is not available in this release (the highest is 2)")
 	// A non-administrator raising is refused before anything about the number is said.
-	if err := r.st.SetAccessTier(r.ctx, r.id, 0); err != nil {
+	if err := r.st.SetAccessTier(r.ctx, "org-1", r.id, 0); err != nil {
 		t.Fatal(err)
 	}
 	_, err := r.h.SetAgentTier(testkit.AsRole(accounts.RoleEditor), "edith", r.id, 9, nil)
 	wantErr(t, "an editor raising past the release", err, kernel.KindForbidden, "raising an agent's access takes an administrator, as approving it did; narrowing it does not")
 	// Over the install: the message carries the command.
-	if err := r.st.SetInstalledTier(r.ctx, r.id, 1); err != nil {
+	if err := r.st.SetInstalledTier(r.ctx, "org-1", r.id, 1); err != nil {
 		t.Fatal(err)
 	}
 	wantErr(t, "over the install", set(2), kernel.KindInvalid,
@@ -113,10 +113,10 @@ func TestAProposalSaysWhatItSaidBeforeAboutATiersBounds(t *testing.T) {
 		_, err := r.submit(t, decisionloop.AccessChange{Tier: intp(c.tier)})
 		wantErr(t, c.name, err, c.kind, c.msg)
 	}
-	if err := r.st.SetAccessTier(r.ctx, r.id, 0); err != nil {
+	if err := r.st.SetAccessTier(r.ctx, "org-1", r.id, 0); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.st.SetInstalledTier(r.ctx, r.id, 1); err != nil {
+	if err := r.st.SetInstalledTier(r.ctx, "org-1", r.id, 1); err != nil {
 		t.Fatal(err)
 	}
 	_, err := r.submit(t, decisionloop.AccessChange{Tier: intp(2)})
@@ -125,19 +125,19 @@ func TestAProposalSaysWhatItSaidBeforeAboutATiersBounds(t *testing.T) {
 
 func TestAReportedCeilingIsHeldInsideTheTypesBound(t *testing.T) {
 	r := propRigFor(t)
-	fresh, _ := r.st.GetAgent(r.ctx, r.id)
+	fresh, _ := r.st.GetAgent(r.ctx, "org-1", r.id)
 	got := r.h.NoteCeiling(r.ctx, fresh, fresh, 9)
 	if got.InstalledTier != kernel.MaxTier {
 		t.Fatalf("a reported 9 became %d, want %d", got.InstalledTier, kernel.MaxTier)
 	}
-	if st, _ := r.st.GetAgent(r.ctx, r.id); st.InstalledTier != kernel.MaxTier || st.AccessTier != 2 {
+	if st, _ := r.st.GetAgent(r.ctx, "org-1", r.id); st.InstalledTier != kernel.MaxTier || st.AccessTier != 2 {
 		t.Fatalf("stored installed %d access %d, want %d and 2", st.InstalledTier, st.AccessTier, kernel.MaxTier)
 	}
-	fresh, _ = r.st.GetAgent(r.ctx, r.id)
+	fresh, _ = r.st.GetAgent(r.ctx, "org-1", r.id)
 	if got := r.h.NoteCeiling(r.ctx, fresh, fresh, 1); got.InstalledTier != 1 {
 		t.Fatalf("a reported 1 became %d", got.InstalledTier)
 	}
-	if st, _ := r.st.GetAgent(r.ctx, r.id); st.AccessTier != 1 {
+	if st, _ := r.st.GetAgent(r.ctx, "org-1", r.id); st.AccessTier != 1 {
 		t.Fatalf("lowering the ceiling to 1 left the approval at %d", st.AccessTier)
 	}
 }

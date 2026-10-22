@@ -180,7 +180,7 @@ func TestAnAddressTestExpiresAndLeavesTheAgentsTargets(t *testing.T) {
 	if code, _ := startTests(t, a, cookie, agentID, "10.20.0.14:31317"); code != 202 {
 		t.Fatalf("start: %d", code)
 	}
-	ag, _ := a.st.GetAgent(a.ctx, agentID)
+	ag, _ := a.st.GetAgent(a.ctx, "org-1", agentID)
 	a.hub().Mu.Lock()
 	v := a.hub().Views[agentID]
 	a.hub().Mu.Unlock()

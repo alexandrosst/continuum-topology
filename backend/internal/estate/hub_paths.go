@@ -104,7 +104,7 @@ func (h *Hub) PushOne(id string) {
 	}
 	v.PushMu.Lock()
 	defer v.PushMu.Unlock()
-	a, err := h.C.Store.GetAgent(bg(), id)
+	a, err := h.C.Store.GetAgent(bg(), h.C.OrgID, id)
 	if err != nil || a.Status != store.StatusApproved {
 		return
 	}

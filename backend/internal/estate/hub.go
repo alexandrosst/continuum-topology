@@ -211,7 +211,7 @@ func (h *Hub) Drop(agentID string) {
 	if s != nil {
 		// The agent is told why, in the words the administrator gave, so its operator can read it in the pod's log.
 		text := "revoked by an administrator"
-		if a, err := h.C.Store.GetAgent(bg(), agentID); err == nil && a.Reason != "" {
+		if a, err := h.C.Store.GetAgent(bg(), h.C.OrgID, agentID); err == nil && a.Reason != "" {
 			text += ": " + a.Reason
 		}
 		s.Cancel(EndReason{text, true})
@@ -383,8 +383,8 @@ func (h *Hub) Connect(stream continuumv1.AgentService_ConnectServer) error {
 		return status.Error(codes.InvalidArgument, "first message must be hello")
 	}
 	hello.AgentVersion, hello.KubernetesVersion = kernel.Printable(hello.AgentVersion, 40), kernel.Printable(hello.KubernetesVersion, 40)
-	_ = h.C.Store.Touch(ctx, agent.ID, ip, hello.AgentVersion, hello.KubernetesVersion, h.C.Now())
-	_ = h.C.Store.ClearPollSecret(ctx, agent.ID)
+	_ = h.C.Store.Touch(ctx, h.C.OrgID, agent.ID, ip, hello.AgentVersion, hello.KubernetesVersion, h.C.Now())
+	_ = h.C.Store.ClearPollSecret(ctx, h.C.OrgID, agent.ID)
 	log.Info("agent connected", "ip", ip, "version", hello.AgentVersion)
 	if hello.Diagnostics != nil {
 		h.Mu.Lock()
@@ -555,9 +555,9 @@ func (h *Hub) Connect(stream continuumv1.AgentService_ConnectServer) error {
 					go h.PushOne(agent.ID)
 				}
 				if storeSkew {
-					_ = h.C.Store.SetClockSkew(ctx, agent.ID, skew)
+					_ = h.C.Store.SetClockSkew(ctx, h.C.OrgID, agent.ID, skew)
 				}
-				_ = h.C.Store.Touch(ctx, agent.ID, ip, "", "", h.C.Now())
+				_ = h.C.Store.Touch(ctx, h.C.OrgID, agent.ID, ip, "", "", h.C.Now())
 			case *continuumv1.AgentMessage_Hello:
 				// ignore repeats
 			}

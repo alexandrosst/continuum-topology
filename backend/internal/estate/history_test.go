@@ -18,7 +18,7 @@ import (
 func TestApplySyncReportsDriftOnlyForLaterFullPictures(t *testing.T) {
 	r := newHubRig(t)
 	id, _, _ := r.approvedAgent(t, testkit.FP)
-	a, _ := r.st.GetAgent(r.ctx, id)
+	a, _ := r.st.GetAgent(r.ctx, "org-1", id)
 	a.AccessTier = 2
 	r.hub.Mu.Lock()
 	r.hub.Views[id] = &View{EstView: EstView{State: facts.New()}}
@@ -61,7 +61,7 @@ func TestApplySyncReportsDriftOnlyForLaterFullPictures(t *testing.T) {
 func TestReportConsistencyStoresAWarningOnlyWhenSomethingDiffers(t *testing.T) {
 	r := newHubRig(t)
 	id, _, _ := r.approvedAgent(t, testkit.FP)
-	a, _ := r.st.GetAgent(r.ctx, id)
+	a, _ := r.st.GetAgent(r.ctx, "org-1", id)
 	r.hub.reportConsistency(r.ctx, a, facts.Drift{})
 	evs, _ := r.st.ListEvents(r.ctx, "org-1", store.EventQuery{Since: r.now.Add(-time.Hour)})
 	if len(evs) != 0 {
@@ -100,7 +100,7 @@ func TestNoteMeasurementsAcceptsOnlyIssuedTargetsAndSaneNumbers(t *testing.T) {
 func TestConfigForIssuesManualAndObservedTargetsByTier(t *testing.T) {
 	r := newHubRig(t)
 	id, _, _ := r.approvedAgent(t, testkit.FP)
-	a, _ := r.st.GetAgent(r.ctx, id)
+	a, _ := r.st.GetAgent(r.ctx, "org-1", id)
 	if _, err := r.core.SaveSettings(r.ctx, "alex", kernel.Settings{MeasureSeconds: 30, ProbeTargets: []kernel.ProbeTarget{
 		{ID: "mine", ClusterID: a.ClusterID, Host: "203.0.113.20", Port: 8443},
 		{ID: "theirs", ClusterID: "another-cluster", Host: "203.0.113.21", Port: 8443},

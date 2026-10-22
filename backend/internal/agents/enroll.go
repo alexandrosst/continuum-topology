@@ -141,7 +141,7 @@ func (c *Service) resumeEnrollment(ctx context.Context, ip string, req *continuu
 	if prev.Status == store.StatusExpired {
 		reopen = true
 	}
-	if err := c.Store.ResumeEnrollment(ctx, prev.ID, r, reopen, c.Now()); err != nil {
+	if err := c.Store.ResumeEnrollment(ctx, prev.OrgID, prev.ID, r, reopen, c.Now()); err != nil {
 		if errors.Is(err, store.ErrBadState) {
 			return nil, nil // e.g. an approved agent that has already collected its certificate
 		}
@@ -186,7 +186,7 @@ func (c *Service) Poll(ctx context.Context, ip string, req *continuumv1.PollRequ
 	if !c.EnrollRL.Allow("poll:" + kernel.LimitKey(ip)) {
 		return nil, kernel.Errf(kernel.KindRateLimited, "too many attempts, slow down")
 	}
-	a, err := c.Store.GetAgent(ctx, req.AgentId)
+	a, err := c.Store.FindAgent(ctx, req.AgentId)
 	// Same answer for "no such agent" and "wrong secret" so ids cannot be probed.
 	if err != nil || len(a.PollSecretHash) == 0 || subtle.ConstantTimeCompare(a.PollSecretHash, kernel.HashSecret(req.PollSecret)) != 1 {
 		return nil, kernel.Errf(kernel.KindUnauthenticated, "unknown agent or wrong secret")
@@ -194,7 +194,7 @@ func (c *Service) Poll(ctx context.Context, ip string, req *continuumv1.PollRequ
 	now := c.Now().Unix()
 	if a.Status == store.StatusPending && c.Now().Sub(a.CreatedAt) > c.EffectivePendingTTL() {
 		c.ExpirePending(ctx, a.OrgID)
-		if a, err = c.Store.GetAgent(ctx, req.AgentId); err != nil {
+		if a, err = c.Store.GetAgent(ctx, a.OrgID, req.AgentId); err != nil {
 			return nil, kernel.Errf(kernel.KindUnauthenticated, "unknown agent or wrong secret")
 		}
 	}
@@ -243,7 +243,7 @@ func (c *Service) Approve(ctx context.Context, actor, agentID, proof string, tie
 		left := max(kernel.MaxApprovalAttempts-a.ApprovalAttempts, 0)
 		return errWrongCode("that is not an approval code. It is 8 letters and digits, like K7QM-4TXD, and is printed in the agent's log", left, false)
 	}
-	n, err := c.Store.CountApprovalAttempt(ctx, a.ID)
+	n, err := c.Store.CountApprovalAttempt(ctx, a.OrgID, a.ID)
 	if errors.Is(err, store.ErrBadState) {
 		return kernel.Errf(kernel.KindConflict, "agent changed state while approving")
 	}
@@ -260,7 +260,7 @@ func (c *Service) Approve(ctx context.Context, actor, agentID, proof string, tie
 			return errWrongCode("that is not the code this cluster's agent printed. Check the agent's log and try again", left, false)
 		}
 		reason := "too many wrong approval codes"
-		_ = c.Store.RejectAgent(ctx, a.ID, reason, c.Now(), store.WithAudit(c.AuditRow(c.OrgID, actor, "approval-locked", "agent", a.ID,
+		_ = c.Store.RejectAgent(ctx, a.OrgID, a.ID, reason, c.Now(), store.WithAudit(c.AuditRow(c.OrgID, actor, "approval-locked", "agent", a.ID,
 			fmt.Sprintf("%d wrong approval codes in a row: the request is rejected", n))))
 		return errWrongCode("that was the last attempt. The request was rejected: enroll the agent again with a new token", 0, true)
 	}
@@ -276,7 +276,7 @@ func (c *Service) Approve(ctx context.Context, actor, agentID, proof string, tie
 		return err
 	}
 	approvedDetail := fmt.Sprintf("%q at tier %d (approval code confirmed)", a.Name, tier)
-	err = c.Store.ApproveAgent(ctx, a.ID, tier, actor, kernel.ClusterIDFor(c.OrgID, a.Fingerprint), leaf, notAfter, c.Now(),
+	err = c.Store.ApproveAgent(ctx, a.OrgID, a.ID, tier, actor, kernel.ClusterIDFor(c.OrgID, a.Fingerprint), leaf, notAfter, c.Now(),
 		store.WithAudit(c.AuditRow(c.OrgID, actor, "agent-approved", "agent", a.ID, approvedDetail)))
 	switch {
 	case errors.Is(err, store.ErrClusterEnrolled):

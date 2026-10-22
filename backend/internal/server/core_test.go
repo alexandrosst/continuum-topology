@@ -85,7 +85,7 @@ func TestEnrollApprovePollHappyPath(t *testing.T) {
 	if _, err := leaf.Verify(x509.VerifyOptions{Roots: e.core.CA.Pool(), KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}}); err != nil {
 		t.Fatal(err)
 	}
-	a, _ := e.st.GetAgent(e.ctx, resp.AgentId)
+	a, _ := e.st.GetAgent(e.ctx, "org-1", resp.AgentId)
 	if a.Name != "edge-patras" || a.AccessTier != 2 || a.ClusterID != kernel.ClusterIDFor("org-1", testkit.FP) || a.ApprovedBy != "alex" {
 		t.Fatalf("agent = %+v", a)
 	}
@@ -228,7 +228,7 @@ func TestRevokeStopsEverythingAndDropsTheStream(t *testing.T) {
 	if _, _, err := e.core.Agents.Renew(e.ctx, resp.AgentId, d); testkit.KindOf(err) != kernel.KindUnauthenticated {
 		t.Fatalf("revoked agent renewed: %v", err)
 	}
-	a, _ := e.st.GetAgent(e.ctx, resp.AgentId)
+	a, _ := e.st.GetAgent(e.ctx, "org-1", resp.AgentId)
 	if len(a.LeafDER) != 0 || a.Status != store.StatusRevoked || a.Reason != "compromised" {
 		t.Fatalf("agent = %+v", a)
 	}
@@ -260,7 +260,7 @@ func TestRejectAndRenewDetails(t *testing.T) {
 	if c, _ := x509.ParseCertificate(leaf); c.Subject.CommonName != r2.AgentId {
 		t.Fatal("renewed certificate has the wrong identity")
 	}
-	if a, _ := e.st.GetAgent(e.ctx, r2.AgentId); len(a.PollSecretHash) != 0 {
+	if a, _ := e.st.GetAgent(e.ctx, "org-1", r2.AgentId); len(a.PollSecretHash) != 0 {
 		t.Fatal("poll secret should be cleared after the first mTLS contact")
 	}
 	if _, _, err := e.core.Agents.Renew(e.ctx, r2.AgentId, []byte("junk")); testkit.KindOf(err) != kernel.KindInvalid {

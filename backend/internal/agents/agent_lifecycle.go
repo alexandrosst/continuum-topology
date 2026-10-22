@@ -68,7 +68,7 @@ func (c *Service) Reject(ctx context.Context, actor, agentID, reason string) err
 		return err
 	}
 	reason = kernel.Printable(reason, kernel.MaxReason)
-	err := c.Store.RejectAgent(ctx, agentID, reason, c.Now(), store.WithAudit(c.AuditRow(c.OrgID, actor, "agent-rejected", "agent", agentID, reason)))
+	err := c.Store.RejectAgent(ctx, c.OrgID, agentID, reason, c.Now(), store.WithAudit(c.AuditRow(c.OrgID, actor, "agent-rejected", "agent", agentID, reason)))
 	if errors.Is(err, store.ErrBadState) {
 		err = kernel.Errf(kernel.KindConflict, "only pending agents can be rejected")
 	}
@@ -87,7 +87,7 @@ func (c *Service) Revoke(ctx context.Context, actor, agentID, reason string) err
 		return err
 	}
 	reason = kernel.Printable(reason, kernel.MaxReason)
-	err := c.Store.RevokeAgent(ctx, agentID, reason, c.Now(), store.WithAudit(c.AuditRow(c.OrgID, actor, "agent-revoked", "agent", agentID, reason)))
+	err := c.Store.RevokeAgent(ctx, c.OrgID, agentID, reason, c.Now(), store.WithAudit(c.AuditRow(c.OrgID, actor, "agent-revoked", "agent", agentID, reason)))
 	if errors.Is(err, store.ErrBadState) {
 		err = kernel.Errf(kernel.KindConflict, "agent is not active")
 	}
@@ -111,8 +111,15 @@ func (c *Service) Revoke(ctx context.Context, actor, agentID, reason string) err
 // enough: the agent must still be approved right now, and belong to this organisation (the
 // platform-wide core, OrgID "", accepts any and reports which).
 func (c *Service) AuthorizeAgent(ctx context.Context, agentID string) (store.Agent, error) {
-	a, err := c.Store.GetAgent(ctx, agentID)
-	if err != nil || a.Status != store.StatusApproved || (c.OrgID != "" && a.OrgID != c.OrgID) {
+	// The platform-wide core (OrgID "") does not know the organisation yet and learns it from the row; an organisation's own core only sees its agents.
+	var a store.Agent
+	var err error
+	if c.OrgID == "" {
+		a, err = c.Store.FindAgent(ctx, agentID)
+	} else {
+		a, err = c.Store.GetAgent(ctx, c.OrgID, agentID)
+	}
+	if err != nil || a.Status != store.StatusApproved {
 		return store.Agent{}, kernel.Errf(kernel.KindUnauthenticated, "agent is not approved")
 	}
 	return a, nil
@@ -135,10 +142,10 @@ func (c *Service) Renew(ctx context.Context, agentID string, csrDER []byte) ([]b
 	if err != nil {
 		return nil, time.Time{}, err
 	}
-	if err := c.Store.SetLeaf(ctx, agentID, leaf, notAfter); err != nil {
+	if err := c.Store.SetLeaf(ctx, a.OrgID, agentID, leaf, notAfter); err != nil {
 		return nil, time.Time{}, err
 	}
-	_ = c.Store.ClearPollSecret(ctx, agentID)
+	_ = c.Store.ClearPollSecret(ctx, a.OrgID, agentID)
 	return leaf, notAfter, nil
 }
 
@@ -181,7 +188,7 @@ func (c *Service) Rejoin(ctx context.Context, ip string, req *continuumv1.Rejoin
 	if err != nil {
 		return nil, err
 	}
-	if err := c.Store.SetLeaf(ctx, id, der, notAfter); err != nil {
+	if err := c.Store.SetLeaf(ctx, ag.OrgID, id, der, notAfter); err != nil {
 		return nil, err
 	}
 	c.AuditOrg(ctx, ag.OrgID, accounts.AgentActor(id).String(), "agent-rejoined", "agent", id, fmt.Sprintf("from %s after its certificate expired at %s", ip, kernel.RFC(leaf.NotAfter)))

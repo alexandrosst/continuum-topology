@@ -622,29 +622,32 @@ type Store interface {
 	// approved one that has not collected its certificate keeps its identity and gets a fresh poll secret;
 	// an expired one becomes pending again (reopen), with a new approval hash, no failed attempts and a new
 	// clock for its lifetime. ErrBadState if the agent is in none of those states.
-	ResumeEnrollment(ctx context.Context, id string, r Resume, reopen bool, now time.Time) error
+	ResumeEnrollment(ctx context.Context, org, id string, r Resume, reopen bool, now time.Time) error
 	// CountApprovalAttempt records one code typed for a pending agent and returns how many there are now.
-	CountApprovalAttempt(ctx context.Context, id string) (int, error)
+	CountApprovalAttempt(ctx context.Context, org, id string) (int, error)
 	// ExpirePending marks the organisation's pending agents created before the cutoff as expired and returns them.
 	ExpirePending(ctx context.Context, org string, cutoff time.Time) ([]Agent, error)
 	// PurgeExpired deletes expired agents whose record is older than the cutoff.
 	PurgeExpired(ctx context.Context, org string, cutoff time.Time) (int, error)
-	SetClockSkew(ctx context.Context, id string, ms int64) error
+	SetClockSkew(ctx context.Context, org, id string, ms int64) error
 	// SetAccessTier changes what an approved agent may report (an administrator narrowing or widening it later);
 	// ErrBadState unless the agent is approved. SetInstalledTier records the ceiling the agent says its install has.
-	SetAccessTier(ctx context.Context, id string, tier int, opts ...WriteOption) error
-	SetInstalledTier(ctx context.Context, id string, tier int) error
+	SetAccessTier(ctx context.Context, org, id string, tier int, opts ...WriteOption) error
+	SetInstalledTier(ctx context.Context, org, id string, tier int) error
 
-	GetAgent(ctx context.Context, id string) (Agent, error)
+	GetAgent(ctx context.Context, org, id string) (Agent, error)
+	// FindAgent is GetAgent across organisations, for the one kind of caller that does not know its organisation yet: an agent that has
+	// just proved who it is (by its certificate or its poll secret) and learns the organisation from the row. Everything else names its own.
+	FindAgent(ctx context.Context, id string) (Agent, error)
 	ListAgents(ctx context.Context, org string) ([]Agent, error)
 	// ApproveAgent moves pending -> approved. ErrClusterEnrolled if another approved agent has the same fingerprint.
-	ApproveAgent(ctx context.Context, id string, tier int, approver string, clusterID string, leaf []byte, notAfter, now time.Time, opts ...WriteOption) error
-	RejectAgent(ctx context.Context, id, reason string, now time.Time, opts ...WriteOption) error
-	RevokeAgent(ctx context.Context, id, reason string, now time.Time, opts ...WriteOption) error
+	ApproveAgent(ctx context.Context, org, id string, tier int, approver string, clusterID string, leaf []byte, notAfter, now time.Time, opts ...WriteOption) error
+	RejectAgent(ctx context.Context, org, id, reason string, now time.Time, opts ...WriteOption) error
+	RevokeAgent(ctx context.Context, org, id, reason string, now time.Time, opts ...WriteOption) error
 	// SetLeaf stores a renewed certificate; only for approved agents.
-	SetLeaf(ctx context.Context, id string, leaf []byte, notAfter time.Time) error
-	ClearPollSecret(ctx context.Context, id string) error
-	Touch(ctx context.Context, id, ip, version, k8sVersion string, now time.Time) error
+	SetLeaf(ctx context.Context, org, id string, leaf []byte, notAfter time.Time) error
+	ClearPollSecret(ctx context.Context, org, id string) error
+	Touch(ctx context.Context, org, id, ip, version, k8sVersion string, now time.Time) error
 
 	// ---- regional operators ----
 

@@ -41,7 +41,7 @@ func TestTheConfigEachClusterIsSentIsPinned(t *testing.T) {
 		cr.settle()
 		out.WriteString("== " + title + "\n")
 		for _, who := range []string{"first", "second", "third"} {
-			a, err := cr.st.GetAgent(cr.ctx, byName[who].ID) // the agent as the store now has it: its tier may have changed
+			a, err := cr.st.GetAgent(cr.ctx, "org-1", byName[who].ID) // the agent as the store now has it: its tier may have changed
 			if err != nil {
 				t.Fatal(err)
 			}

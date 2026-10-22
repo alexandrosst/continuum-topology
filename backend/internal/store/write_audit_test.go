@@ -152,10 +152,10 @@ func TestAgentLifecycleWritesRollBackWithTheirAuditRow(t *testing.T) {
 	rows := func() int { r, _ := s.ListAudit(ctx, "o1", 50); return len(r) }
 
 	// a refused approval (already handled) leaves no row; a good one leaves exactly one
-	if err := s.ApproveAgent(ctx, "ag-1", 2, "alex", "cl-1", []byte("leaf"), leafExp, now, ev("agent-approved")); err != nil {
+	if err := s.ApproveAgent(ctx, "o1", "ag-1", 2, "alex", "cl-1", []byte("leaf"), leafExp, now, ev("agent-approved")); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.ApproveAgent(ctx, "ag-1", 2, "alex", "cl-1", []byte("leaf"), leafExp, now, ev("agent-approved")); !errors.Is(err, ErrBadState) {
+	if err := s.ApproveAgent(ctx, "o1", "ag-1", 2, "alex", "cl-1", []byte("leaf"), leafExp, now, ev("agent-approved")); !errors.Is(err, ErrBadState) {
 		t.Fatalf("second approval: %v", err)
 	}
 	if rows() != 1 {
@@ -166,16 +166,16 @@ func TestAgentLifecycleWritesRollBackWithTheirAuditRow(t *testing.T) {
 	if _, err := s.db.Exec(`CREATE TRIGGER no_audit BEFORE INSERT ON audit BEGIN SELECT RAISE(ABORT, 'disk full'); END`); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.SetAccessTier(ctx, "ag-1", 1, ev("agent-tier-changed")); !errors.Is(err, ErrAuditWrite) {
+	if err := s.SetAccessTier(ctx, "o1", "ag-1", 1, ev("agent-tier-changed")); !errors.Is(err, ErrAuditWrite) {
 		t.Fatalf("tier: %v", err)
 	}
 	if err := s.SaveSnapshot(ctx, "ag-1#consent", []byte("{}"), now, ev("agent-consent-changed")); !errors.Is(err, ErrAuditWrite) {
 		t.Fatalf("consent: %v", err)
 	}
-	if err := s.RevokeAgent(ctx, "ag-1", "no", now, ev("agent-revoked")); !errors.Is(err, ErrAuditWrite) {
+	if err := s.RevokeAgent(ctx, "o1", "ag-1", "no", now, ev("agent-revoked")); !errors.Is(err, ErrAuditWrite) {
 		t.Fatalf("revoke: %v", err)
 	}
-	a, _ := s.GetAgent(ctx, "ag-1")
+	a, _ := s.GetAgent(ctx, "o1", "ag-1")
 	if a.Status != StatusApproved || a.AccessTier != 2 {
 		t.Fatalf("the agent changed although the trail was broken: %+v", a)
 	}
@@ -185,10 +185,10 @@ func TestAgentLifecycleWritesRollBackWithTheirAuditRow(t *testing.T) {
 
 	// enrol a second pending agent: approving it while the trail is broken leaves it pending
 	enroll(t, s, "tk-2", "ag-2", "fp-b", now)
-	if err := s.ApproveAgent(ctx, "ag-2", 1, "alex", "cl-2", []byte("leaf"), leafExp, now, ev("agent-approved")); !errors.Is(err, ErrAuditWrite) {
+	if err := s.ApproveAgent(ctx, "o1", "ag-2", 1, "alex", "cl-2", []byte("leaf"), leafExp, now, ev("agent-approved")); !errors.Is(err, ErrAuditWrite) {
 		t.Fatalf("approve: %v", err)
 	}
-	if b, _ := s.GetAgent(ctx, "ag-2"); b.Status != StatusPending {
+	if b, _ := s.GetAgent(ctx, "o1", "ag-2"); b.Status != StatusPending {
 		t.Fatalf("the agent was approved without its audit row: %s", b.Status)
 	}
 }

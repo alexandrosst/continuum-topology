@@ -63,7 +63,7 @@ func TestAgentBehindProxyUsesTheDeclaredAddressNotTheTCPPeer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a, err := r.core.Store.GetAgent(ctx, resp.AgentId)
+	a, err := r.core.Store.GetAgent(ctx, "org-1", resp.AgentId)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -68,11 +68,11 @@ func (f *fakeAgent) inForce() (sent, applied string, since time.Time) {
 // changeTier is an administrator's change that makes the next Config differ, and the push that follows it.
 func (f *fakeAgent) changeTier() *continuumv1.Config {
 	f.T.Helper()
-	cur, err := f.r.st.GetAgent(f.Ctx, f.ID)
+	cur, err := f.r.st.GetAgent(f.Ctx, "org-1", f.ID)
 	if err != nil {
 		f.T.Fatal(err)
 	}
-	if err := f.r.st.SetAccessTier(f.Ctx, f.ID, (cur.AccessTier+1)%3); err != nil {
+	if err := f.r.st.SetAccessTier(f.Ctx, "org-1", f.ID, (cur.AccessTier+1)%3); err != nil {
 		f.T.Fatal(err)
 	}
 	f.r.hub.PushOne(f.ID)
@@ -160,11 +160,11 @@ func TestARestartAfterAChangeIsSentTheChangedConfig(t *testing.T) {
 	f := r.newFakeAgent(t, fakeAgentCtx(t))
 	before := f.Configs[0]
 	f.drop()
-	cur, err := r.st.GetAgent(f.Ctx, f.ID) // changed while the agent was away: nothing to push to
+	cur, err := r.st.GetAgent(f.Ctx, "org-1", f.ID) // changed while the agent was away: nothing to push to
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := r.st.SetAccessTier(f.Ctx, f.ID, (cur.AccessTier+1)%3); err != nil {
+	if err := r.st.SetAccessTier(f.Ctx, "org-1", f.ID, (cur.AccessTier+1)%3); err != nil {
 		t.Fatal(err)
 	}
 	after := f.Connect()

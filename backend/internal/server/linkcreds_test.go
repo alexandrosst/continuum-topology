@@ -41,7 +41,7 @@ func newCredRig(t *testing.T) *credRig {
 	var ags []store.Agent
 	for _, f := range []string{testkit.FP, testkit.FP2, testkit.FP3} {
 		id, _, _ := r.approvedAgent(t, f)
-		a, err := r.st.GetAgent(r.ctx, id)
+		a, err := r.st.GetAgent(r.ctx, "org-1", id)
 		if err != nil {
 			t.Fatal(err)
 		}

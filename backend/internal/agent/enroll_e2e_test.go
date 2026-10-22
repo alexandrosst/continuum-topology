@@ -47,9 +47,14 @@ type countingStore struct {
 	gets *atomic.Int64
 }
 
-func (c *countingStore) GetAgent(ctx context.Context, id string) (store.Agent, error) {
+func (c *countingStore) GetAgent(ctx context.Context, org, id string) (store.Agent, error) {
 	c.gets.Add(1)
-	return c.Store.GetAgent(ctx, id)
+	return c.Store.GetAgent(ctx, org, id)
+}
+
+func (c *countingStore) FindAgent(ctx context.Context, id string) (store.Agent, error) {
+	c.gets.Add(1)
+	return c.Store.FindAgent(ctx, id)
 }
 
 const rigUID = "e2e00010-aaaa-4bbb-8ccc-dddddddddddd"

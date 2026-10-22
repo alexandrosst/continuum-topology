@@ -29,10 +29,10 @@ func propRigFor(t *testing.T) *propRig {
 	t.Helper()
 	a := newAdminRig(t)
 	id := a.approvedAgentID(t, testkit.FP)
-	if err := a.st.SetInstalledTier(a.ctx, id, 2); err != nil {
+	if err := a.st.SetInstalledTier(a.ctx, "org-1", id, 2); err != nil {
 		t.Fatal(err)
 	}
-	if err := a.st.SetAccessTier(a.ctx, id, 2); err != nil {
+	if err := a.st.SetAccessTier(a.ctx, "org-1", id, 2); err != nil {
 		t.Fatal(err)
 	}
 	return &propRig{adminRig: a, h: a.hub(), id: id}
@@ -71,7 +71,7 @@ func count(list []string, s string) (n int) {
 // An advisor changes nothing: after a submission the agent is exactly as it was, and the proposal waits.
 func TestSubmittingAProposalChangesNothingAboutTheAgent(t *testing.T) {
 	r := propRigFor(t)
-	before, _ := r.st.GetAgent(r.ctx, r.id)
+	before, _ := r.st.GetAgent(r.ctx, "org-1", r.id)
 	p, err := r.submit(t, decisionloop.AccessChange{Pause: []string{"flow"}})
 	if err != nil {
 		t.Fatal(err)
@@ -79,7 +79,7 @@ func TestSubmittingAProposalChangesNothingAboutTheAgent(t *testing.T) {
 	if p.Status != store.ProposalPending || p.Widens || p.Confidence != "declared" || p.Mode != "advise" || p.Advisor != "rules-v1" || p.ModelVersion != 3 {
 		t.Fatalf("the proposal: %+v", p)
 	}
-	after, _ := r.st.GetAgent(r.ctx, r.id)
+	after, _ := r.st.GetAgent(r.ctx, "org-1", r.id)
 	if after.AccessTier != before.AccessTier {
 		t.Fatalf("the tier moved from %d to %d on a submission", before.AccessTier, after.AccessTier)
 	}
@@ -131,7 +131,7 @@ func TestAProposalIsValidatedAndTheServerWorksOutWhetherItWidens(t *testing.T) {
 		t.Fatalf("a refused submission left audit rows: %v", got)
 	}
 
-	if err := r.st.SetAccessTier(r.ctx, r.id, 1); err != nil {
+	if err := r.st.SetAccessTier(r.ctx, "org-1", r.id, 1); err != nil {
 		t.Fatal(err)
 	}
 	up, err := r.submit(t, decisionloop.AccessChange{Tier: intp(2)})
@@ -197,7 +197,7 @@ func TestAcceptingANarrowingProposalMakesTheChangeThroughTheUsualPathAndAuditsEa
 	if got, err := r.h.C.Loop.AcceptProposal(testkit.AsRole(accounts.RoleEditor), "edith", tp.ID, ""); err != nil || got.Status != store.ProposalApplied {
 		t.Fatalf("the tier proposal: %+v %v", got, err)
 	}
-	if a, _ := r.st.GetAgent(r.ctx, r.id); a.AccessTier != 0 {
+	if a, _ := r.st.GetAgent(r.ctx, "org-1", r.id); a.AccessTier != 0 {
 		t.Fatalf("the tier is %d", a.AccessTier)
 	}
 	if count(r.auditActions(t), "agent-tier-changed") != 1 {
@@ -245,7 +245,7 @@ func TestAProposalIsCheckedAgainstTheAgentAsItIsWhenItIsAccepted(t *testing.T) {
 	if err != nil || narrow.Widens {
 		t.Fatalf("%+v %v", narrow, err)
 	}
-	if err := r.st.SetAccessTier(r.ctx, r.id, 0); err != nil { // someone has already done it
+	if err := r.st.SetAccessTier(r.ctx, "org-1", r.id, 0); err != nil { // someone has already done it
 		t.Fatal(err)
 	}
 	if _, err := r.h.C.Loop.AcceptProposal(testkit.AsRole(accounts.RoleAdmin), "adam", narrow.ID, ""); err == nil {
@@ -261,7 +261,7 @@ func TestAProposalIsCheckedAgainstTheAgentAsItIsWhenItIsAccepted(t *testing.T) {
 	if err != nil || set1.Widens {
 		t.Fatalf("%+v %v", set1, err)
 	}
-	if err := r2.st.SetAccessTier(r2.ctx, r2.id, 0); err != nil {
+	if err := r2.st.SetAccessTier(r2.ctx, "org-1", r2.id, 0); err != nil {
 		t.Fatal(err)
 	}
 	_, err = r2.h.C.Loop.AcceptProposal(testkit.AsRole(accounts.RoleEditor), "edith", set1.ID, "")
@@ -269,7 +269,7 @@ func TestAProposalIsCheckedAgainstTheAgentAsItIsWhenItIsAccepted(t *testing.T) {
 	if !errors.As(err, &e) || e.Kind != kernel.KindForbidden {
 		t.Fatalf("an editor accepting what now widens: %v", err)
 	}
-	if a, _ := r2.st.GetAgent(r2.ctx, r2.id); a.AccessTier != 0 {
+	if a, _ := r2.st.GetAgent(r2.ctx, "org-1", r2.id); a.AccessTier != 0 {
 		t.Fatalf("the tier moved to %d", a.AccessTier)
 	}
 }

@@ -214,8 +214,8 @@ const auditOutcomeTimeout = 5 * time.Second
 
 // AgentInOrg finds an agent of this organisation. An agent of another one is reported as not existing.
 func (c *Core) AgentInOrg(ctx context.Context, id string) (store.Agent, error) {
-	a, err := c.Store.GetAgent(ctx, id)
-	if errors.Is(err, store.ErrNotFound) || (err == nil && a.OrgID != c.OrgID) {
+	a, err := c.Store.GetAgent(ctx, c.OrgID, id)
+	if errors.Is(err, store.ErrNotFound) {
 		return store.Agent{}, Errf(KindNotFound, "no such agent")
 	}
 	return a, err

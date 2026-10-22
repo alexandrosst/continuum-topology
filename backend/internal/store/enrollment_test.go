@@ -39,7 +39,7 @@ PRAGMA user_version = 2;`
 		t.Fatal(err)
 	}
 	defer st.Close()
-	a, err := st.GetAgent(context.Background(), "ag-1")
+	a, err := st.GetAgent(context.Background(), "o", "ag-1")
 	if err != nil || len(a.ApprovalHash) != 0 || a.ApprovalAttempts != 0 || a.ClockSkewMs != 0 {
 		t.Fatalf("%+v %v", a, err)
 	}
@@ -75,7 +75,7 @@ func TestApprovalAttemptsAndExpiryInTheStore(t *testing.T) {
 		t.Fatal(err)
 	}
 	for want := 1; want <= 3; want++ {
-		if n, err := st.CountApprovalAttempt(ctx, "ag-1"); err != nil || n != want {
+		if n, err := st.CountApprovalAttempt(ctx, "o", "ag-1"); err != nil || n != want {
 			t.Fatalf("attempt %d = %d %v", want, n, err)
 		}
 	}
@@ -87,16 +87,16 @@ func TestApprovalAttemptsAndExpiryInTheStore(t *testing.T) {
 		t.Fatal(err)
 	}
 	// An agent that is not pending cannot be counted against.
-	if err := st.RejectAgent(ctx, "ag-1", "no", now); err != nil {
+	if err := st.RejectAgent(ctx, "o", "ag-1", "no", now); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.CountApprovalAttempt(ctx, "ag-1"); err != ErrBadState {
+	if _, err := st.CountApprovalAttempt(ctx, "o", "ag-1"); err != ErrBadState {
 		t.Fatalf("%v", err)
 	}
-	if err := st.SetClockSkew(ctx, "ag-1", -180000); err != nil {
+	if err := st.SetClockSkew(ctx, "o", "ag-1", -180000); err != nil {
 		t.Fatal(err)
 	}
-	if g, _ := st.GetAgent(ctx, "ag-1"); g.ClockSkewMs != -180000 {
+	if g, _ := st.GetAgent(ctx, "o", "ag-1"); g.ClockSkewMs != -180000 {
 		t.Fatalf("%+v", g)
 	}
 }

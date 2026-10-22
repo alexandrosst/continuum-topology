@@ -131,7 +131,7 @@ func TestTelemetryIntentCommandExternalDestination(t *testing.T) {
 	a := newAdminRig(t)
 	_, cookie := a.user(t, "alex", accounts.RoleAdmin)
 	agentID := a.approvedAgentID(t, testkit.FP)
-	ag, err := a.st.GetAgent(a.ctx, agentID)
+	ag, err := a.st.GetAgent(a.ctx, "org-1", agentID)
 	if err != nil {
 		t.Fatal(err)
 	}

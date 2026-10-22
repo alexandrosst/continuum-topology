@@ -37,7 +37,7 @@ func TestWhoseZeroCeilingIsBelieved(t *testing.T) {
 			defer cancel()
 			id, key, leaf := r.approvedAgent(t, testkit.FP) // approved at 2, installed 2
 			r.connect(t, ctx, key, leaf, c.hello)
-			a, err := r.st.GetAgent(ctx, id)
+			a, err := r.st.GetAgent(ctx, "org-1", id)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -57,11 +57,11 @@ func TestAHigherCeilingNeverRaisesAnApproval(t *testing.T) {
 		r := newHubRig(t)
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		id, key, leaf := r.approvedAgent(t, testkit.FP)
-		if err := r.st.SetAccessTier(ctx, id, 1); err != nil {
+		if err := r.st.SetAccessTier(ctx, "org-1", id, 1); err != nil {
 			t.Fatal(err)
 		}
 		r.connect(t, ctx, key, leaf, h)
-		a, _ := r.st.GetAgent(ctx, id)
+		a, _ := r.st.GetAgent(ctx, "org-1", id)
 		if a.AccessTier != 1 {
 			t.Fatalf("approval went from 1 to %d on a hello", a.AccessTier)
 		}

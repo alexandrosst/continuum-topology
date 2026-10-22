@@ -184,11 +184,11 @@ func (f *fakeAgent) inForce() (sent, applied string, since time.Time) {
 // changeTier is an administrator's change that makes the next Config differ, and the push that follows it.
 func (f *fakeAgent) changeTier() *continuumv1.Config {
 	f.T.Helper()
-	cur, err := f.r.st.GetAgent(f.Ctx, f.ID)
+	cur, err := f.r.st.GetAgent(f.Ctx, "org-1", f.ID)
 	if err != nil {
 		f.T.Fatal(err)
 	}
-	if err := f.r.st.SetAccessTier(f.Ctx, f.ID, (cur.AccessTier+1)%3); err != nil {
+	if err := f.r.st.SetAccessTier(f.Ctx, "org-1", f.ID, (cur.AccessTier+1)%3); err != nil {
 		f.T.Fatal(err)
 	}
 	f.r.hub.PushOne(f.ID)
@@ -260,7 +260,7 @@ func newCredRig(t *testing.T) *credRig {
 	var ags []store.Agent
 	for _, f := range []string{testkit.FP, testkit.FP2, testkit.FP3} {
 		id, _, _ := r.approvedAgent(t, f)
-		a, err := r.st.GetAgent(r.ctx, id)
+		a, err := r.st.GetAgent(r.ctx, "org-1", id)
 		if err != nil {
 			t.Fatal(err)
 		}

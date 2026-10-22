@@ -90,7 +90,7 @@ func (c *Service) identity(ctx context.Context) (store.Agent, error) {
 		// An agent that was revoked (or removed) while it was offline should learn that it is over, not
 		// just that it is unauthenticated: it would otherwise retry for ever. It holds a certificate this
 		// server issued to that very agent, so telling it its own state discloses nothing.
-		if prev, gerr := c.Store.GetAgent(ctx, leaf.Subject.CommonName); gerr == nil && (prev.Status == store.StatusRevoked || prev.Status == store.StatusRejected) {
+		if prev, gerr := c.Store.FindAgent(ctx, leaf.Subject.CommonName); gerr == nil && (prev.Status == store.StatusRevoked || prev.Status == store.StatusRejected) {
 			st := status.New(codes.Unauthenticated, "agent is not approved")
 			if withDetail, derr := st.WithDetails(&continuumv1.Revoked{Reason: prev.Reason}); derr == nil {
 				st = withDetail

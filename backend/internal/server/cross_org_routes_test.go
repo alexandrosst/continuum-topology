@@ -133,7 +133,7 @@ func TestAnotherOrganisationsIdIsNotFoundOnEveryRouteThatTakesAnId(t *testing.T)
 			r := a.do("GET", org(aOrg, p), nil, withCookie(alice))
 			fmt.Fprintf(&b, "%s %d %s\n", p, r.Code, r.Body.String())
 		}
-		ag, _ := a.st.GetAgent(a.ctx, agent)
+		ag, _ := a.st.GetAgent(a.ctx, aOrg, agent)
 		fmt.Fprintf(&b, "agent %s tier=%d consent=%+v\n", ag.Status, ag.AccessTier, a.hub().ConsentOf(agent))
 		return b.String()
 	}

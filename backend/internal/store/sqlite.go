@@ -508,37 +508,37 @@ func (s *SQLite) AgentByToken(ctx context.Context, tokenHash []byte) (Agent, err
 		`SELECT `+agentCols+` FROM agents WHERE id=(SELECT used_by FROM tokens WHERE hash=? AND used_at IS NOT NULL)`, tokenHash))
 }
 
-func (s *SQLite) ResumeEnrollment(ctx context.Context, id string, r Resume, reopen bool, now time.Time) error {
+func (s *SQLite) ResumeEnrollment(ctx context.Context, org, id string, r Resume, reopen bool, now time.Time) error {
 	var res sql.Result
 	var err error
 	if reopen {
 		res, err = s.db.ExecContext(ctx,
 			`UPDATE agents SET status='pending', poll_secret_hash=?, approval_hash=?, approval_attempts=0, csr=?, created_at=?, reason='', revoked_at=NULL,
-			   version=?, k8s_version=?, connecting_ip=? WHERE id=? AND status='expired'`,
-			r.PollSecretHash, nullBytes(r.ApprovalHash), r.CSR, ms(now), r.Version, r.K8sVersion, r.IP, id)
+			   version=?, k8s_version=?, connecting_ip=? WHERE id=? AND org_id=? AND status='expired'`,
+			r.PollSecretHash, nullBytes(r.ApprovalHash), r.CSR, ms(now), r.Version, r.K8sVersion, r.IP, id, org)
 	} else {
 		res, err = s.db.ExecContext(ctx,
-			`UPDATE agents SET poll_secret_hash=?, version=?, k8s_version=?, connecting_ip=? WHERE id=?
+			`UPDATE agents SET poll_secret_hash=?, version=?, k8s_version=?, connecting_ip=? WHERE id=? AND org_id=?
 			   AND (status='pending' OR (status='approved' AND poll_secret_hash IS NOT NULL))`,
-			r.PollSecretHash, r.Version, r.K8sVersion, r.IP, id)
+			r.PollSecretHash, r.Version, r.K8sVersion, r.IP, id, org)
 	}
 	if err != nil {
 		return err
 	}
-	return needOne(res)
+	return needOneAgent(ctx, s.db, res, org, id)
 }
 
-func (s *SQLite) CountApprovalAttempt(ctx context.Context, id string) (int, error) {
+func (s *SQLite) CountApprovalAttempt(ctx context.Context, org, id string) (int, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
 	}
 	defer tx.Rollback()
-	res, err := tx.ExecContext(ctx, `UPDATE agents SET approval_attempts=approval_attempts+1 WHERE id=? AND status='pending'`, id)
+	res, err := tx.ExecContext(ctx, `UPDATE agents SET approval_attempts=approval_attempts+1 WHERE id=? AND org_id=? AND status='pending'`, id, org)
 	if err != nil {
 		return 0, err
 	}
-	if err := needOne(res); err != nil {
+	if err := needOneIn(ctx, tx, res, "agents", org, id); err != nil {
 		return 0, err
 	}
 	var n int
@@ -589,23 +589,23 @@ func (s *SQLite) PurgeExpired(ctx context.Context, org string, cutoff time.Time)
 	return int(n), nil
 }
 
-func (s *SQLite) SetClockSkew(ctx context.Context, id string, skewMs int64) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE agents SET clock_skew_ms=? WHERE id=?`, skewMs, id)
+func (s *SQLite) SetClockSkew(ctx context.Context, org, id string, skewMs int64) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE agents SET clock_skew_ms=? WHERE id=? AND org_id=?`, skewMs, id, org)
 	return err
 }
 
-func (s *SQLite) SetAccessTier(ctx context.Context, id string, tier int, opts ...WriteOption) error {
+func (s *SQLite) SetAccessTier(ctx context.Context, org, id string, tier int, opts ...WriteOption) error {
 	return s.write(ctx, opts, func(tx *sql.Tx) error {
-		res, err := tx.ExecContext(ctx, `UPDATE agents SET access_tier=? WHERE id=? AND status='approved'`, tier, id)
+		res, err := tx.ExecContext(ctx, `UPDATE agents SET access_tier=? WHERE id=? AND org_id=? AND status='approved'`, tier, id, org)
 		if err != nil {
 			return err
 		}
-		return needOne(res)
+		return needOneIn(ctx, tx, res, "agents", org, id)
 	})
 }
 
-func (s *SQLite) SetInstalledTier(ctx context.Context, id string, tier int) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE agents SET installed_tier=? WHERE id=?`, tier, id)
+func (s *SQLite) SetInstalledTier(ctx context.Context, org, id string, tier int) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE agents SET installed_tier=? WHERE id=? AND org_id=?`, tier, id, org)
 	return err
 }
 
@@ -633,7 +633,11 @@ func scanAgent(r scanner) (Agent, error) {
 	return a, nil
 }
 
-func (s *SQLite) GetAgent(ctx context.Context, id string) (Agent, error) {
+func (s *SQLite) GetAgent(ctx context.Context, org, id string) (Agent, error) {
+	return scanAgent(s.db.QueryRowContext(ctx, `SELECT `+agentCols+` FROM agents WHERE id=? AND org_id=?`, id, org))
+}
+
+func (s *SQLite) FindAgent(ctx context.Context, id string) (Agent, error) {
 	return scanAgent(s.db.QueryRowContext(ctx, `SELECT `+agentCols+` FROM agents WHERE id=?`, id))
 }
 
@@ -654,12 +658,12 @@ func (s *SQLite) ListAgents(ctx context.Context, org string) ([]Agent, error) {
 	return out, rows.Err()
 }
 
-func (s *SQLite) ApproveAgent(ctx context.Context, id string, tier int, approver, clusterID string, leaf []byte, notAfter, now time.Time, opts ...WriteOption) error {
+func (s *SQLite) ApproveAgent(ctx context.Context, org, id string, tier int, approver, clusterID string, leaf []byte, notAfter, now time.Time, opts ...WriteOption) error {
 	return s.write(ctx, opts, func(tx *sql.Tx) error {
 		res, err := tx.ExecContext(ctx,
 			`UPDATE agents SET status='approved', access_tier=?, approved_by=?, approved_at=?, cluster_id=?, leaf=?, leaf_not_after=?, reason=''
-		 WHERE id=? AND status='pending'`,
-			tier, approver, ms(now), clusterID, leaf, ms(notAfter), id)
+		 WHERE id=? AND org_id=? AND status='pending'`,
+			tier, approver, ms(now), clusterID, leaf, ms(notAfter), id, org)
 		if err != nil {
 			// The partial unique index turns "second live agent for this cluster" into a constraint error.
 			if isUnique(err) {
@@ -667,52 +671,52 @@ func (s *SQLite) ApproveAgent(ctx context.Context, id string, tier int, approver
 			}
 			return err
 		}
-		return needOne(res)
+		return needOneIn(ctx, tx, res, "agents", org, id)
 	})
 }
 
 // RejectAgent and RevokeAgent keep the poll secret's hash on purpose: an agent that is still waiting asks
 // with it and is told REJECTED with the reason, instead of only "unknown agent". The secret opens nothing else.
-func (s *SQLite) RejectAgent(ctx context.Context, id, reason string, now time.Time, opts ...WriteOption) error {
+func (s *SQLite) RejectAgent(ctx context.Context, org, id, reason string, now time.Time, opts ...WriteOption) error {
 	return s.write(ctx, opts, func(tx *sql.Tx) error {
 		res, err := tx.ExecContext(ctx,
-			`UPDATE agents SET status='rejected', reason=?, revoked_at=? WHERE id=? AND status='pending'`, reason, ms(now), id)
+			`UPDATE agents SET status='rejected', reason=?, revoked_at=? WHERE id=? AND org_id=? AND status='pending'`, reason, ms(now), id, org)
 		if err != nil {
 			return err
 		}
-		return needOne(res)
+		return needOneIn(ctx, tx, res, "agents", org, id)
 	})
 }
 
-func (s *SQLite) RevokeAgent(ctx context.Context, id, reason string, now time.Time, opts ...WriteOption) error {
+func (s *SQLite) RevokeAgent(ctx context.Context, org, id, reason string, now time.Time, opts ...WriteOption) error {
 	return s.write(ctx, opts, func(tx *sql.Tx) error {
 		res, err := tx.ExecContext(ctx,
-			`UPDATE agents SET status='revoked', reason=?, revoked_at=?, leaf=NULL WHERE id=? AND status IN ('approved','pending')`,
-			reason, ms(now), id)
+			`UPDATE agents SET status='revoked', reason=?, revoked_at=?, leaf=NULL WHERE id=? AND org_id=? AND status IN ('approved','pending')`,
+			reason, ms(now), id, org)
 		if err != nil {
 			return err
 		}
-		return needOne(res)
+		return needOneIn(ctx, tx, res, "agents", org, id)
 	})
 }
 
-func (s *SQLite) SetLeaf(ctx context.Context, id string, leaf []byte, notAfter time.Time) error {
-	res, err := s.db.ExecContext(ctx, `UPDATE agents SET leaf=?, leaf_not_after=? WHERE id=? AND status='approved'`, leaf, ms(notAfter), id)
+func (s *SQLite) SetLeaf(ctx context.Context, org, id string, leaf []byte, notAfter time.Time) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE agents SET leaf=?, leaf_not_after=? WHERE id=? AND org_id=? AND status='approved'`, leaf, ms(notAfter), id, org)
 	if err != nil {
 		return err
 	}
-	return needOne(res)
+	return needOneAgent(ctx, s.db, res, org, id)
 }
 
-func (s *SQLite) ClearPollSecret(ctx context.Context, id string) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE agents SET poll_secret_hash=NULL WHERE id=?`, id)
+func (s *SQLite) ClearPollSecret(ctx context.Context, org, id string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE agents SET poll_secret_hash=NULL WHERE id=? AND org_id=?`, id, org)
 	return err
 }
 
-func (s *SQLite) Touch(ctx context.Context, id, ip, version, k8sVersion string, now time.Time) error {
+func (s *SQLite) Touch(ctx context.Context, org, id, ip, version, k8sVersion string, now time.Time) error {
 	_, err := s.db.ExecContext(ctx,
-		`UPDATE agents SET last_seen=?, connecting_ip=COALESCE(NULLIF(?,''), connecting_ip), version=COALESCE(NULLIF(?,''), version), k8s_version=COALESCE(NULLIF(?,''), k8s_version) WHERE id=?`,
-		ms(now), ip, version, k8sVersion, id)
+		`UPDATE agents SET last_seen=?, connecting_ip=COALESCE(NULLIF(?,''), connecting_ip), version=COALESCE(NULLIF(?,''), version), k8s_version=COALESCE(NULLIF(?,''), k8s_version) WHERE id=? AND org_id=?`,
+		ms(now), ip, version, k8sVersion, id, org)
 	return err
 }
 
@@ -732,6 +736,21 @@ func needOneIn(ctx context.Context, tx *sql.Tx, res sql.Result, table, org, id s
 	}
 	var one int
 	switch err := tx.QueryRowContext(ctx, `SELECT 1 FROM `+table+` WHERE id=? AND org_id=?`, id, org).Scan(&one); {
+	case errors.Is(err, sql.ErrNoRows):
+		return ErrNotFound
+	case err != nil:
+		return err
+	}
+	return ErrBadState
+}
+
+// needOneAgent is needOneIn for a change made outside a transaction (a statement of its own).
+func needOneAgent(ctx context.Context, db *sql.DB, res sql.Result, org, id string) error {
+	if n, _ := res.RowsAffected(); n == 1 {
+		return nil
+	}
+	var one int
+	switch err := db.QueryRowContext(ctx, `SELECT 1 FROM agents WHERE id=? AND org_id=?`, id, org).Scan(&one); {
 	case errors.Is(err, sql.ErrNoRows):
 		return ErrNotFound
 	case err != nil:

@@ -17,8 +17,8 @@ func TestAPushIsSkippedWhileTheAgentsCannotBeRead(t *testing.T) {
 	r := newHubRig(t)
 	id1, _, _ := r.approvedAgent(t, testkit.FP)
 	id2, _, _ := r.approvedAgent(t, testkit.FP2)
-	a1, _ := r.st.GetAgent(r.ctx, id1)
-	a2, _ := r.st.GetAgent(r.ctx, id2)
+	a1, _ := r.st.GetAgent(r.ctx, "org-1", id1)
+	a2, _ := r.st.GetAgent(r.ctx, "org-1", id2)
 	first, second := a1, a2
 	if second.ClusterID < first.ClusterID {
 		first, second = second, first

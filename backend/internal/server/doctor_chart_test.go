@@ -68,7 +68,7 @@ func doctorCommands(t *testing.T) {
 	t.Run("the command an agent is given makes the chart stamp what the vocabulary says an agent stamps", func(t *testing.T) {
 		a := newIntentRig(t)
 		agentID := a.agent(t)
-		ag, err := a.st.GetAgent(a.ctx, agentID)
+		ag, err := a.st.GetAgent(a.ctx, "org-1", agentID)
 		if err != nil {
 			t.Fatal(err)
 		}

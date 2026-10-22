@@ -22,7 +22,7 @@ func TestSyncMustMatchTheApprovedClusterAndStayInsideItsTier(t *testing.T) {
 	defer cancel()
 	id, key, leaf := r.approvedAgent(t, testkit.FP)
 	// Pretend the agent last connected from another address: that must be audited, not blocked.
-	_ = r.st.Touch(ctx, id, "203.0.113.7", "", "", *r.now)
+	_ = r.st.Touch(ctx, "org-1", id, "203.0.113.7", "", "", *r.now)
 
 	cert := &tls.Certificate{Certificate: [][]byte{leaf}, PrivateKey: key}
 	connect := func() continuumv1.AgentService_ConnectClient {
@@ -80,7 +80,7 @@ func TestSyncMustMatchTheApprovedClusterAndStayInsideItsTier(t *testing.T) {
 func TestTierZeroDropsClassListsToo(t *testing.T) {
 	r := newHubRig(t)
 	id, _, _ := r.approvedAgent(t, testkit.FP)
-	a, _ := r.st.GetAgent(r.ctx, id)
+	a, _ := r.st.GetAgent(r.ctx, "org-1", id)
 	a.AccessTier = 0
 	r.hub.Mu.Lock()
 	r.hub.Views[id] = &View{EstView: EstView{State: facts.New()}}
@@ -99,7 +99,7 @@ func TestTierZeroDropsClassListsToo(t *testing.T) {
 func TestTierOneDropsPodDerivedNodeFigures(t *testing.T) {
 	r := newHubRig(t)
 	id, _, _ := r.approvedAgent(t, testkit.FP)
-	a, _ := r.st.GetAgent(r.ctx, id)
+	a, _ := r.st.GetAgent(r.ctx, "org-1", id)
 	a.AccessTier = 1
 	r.hub.Mu.Lock()
 	r.hub.Views[id] = &View{EstView: EstView{State: facts.New()}}

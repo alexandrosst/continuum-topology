@@ -24,7 +24,7 @@ func enroll(t *testing.T, st *SQLite, tokenID, agentID, fingerprint string, now 
 	if _, err := st.EnrollAgent(ctx, []byte("hash-"+tokenID), a, now); err != nil {
 		t.Fatal(err)
 	}
-	got, err := st.GetAgent(ctx, agentID)
+	got, err := st.GetAgent(ctx, "o1", agentID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +56,7 @@ func TestEnrollmentConsumesTheTokenOnceAndStartsPending(t *testing.T) {
 	if _, err := st.EnrollAgent(ctx, []byte("unknown"), Agent{ID: "ag-4", CSR: []byte("c")}, now); !errors.Is(err, ErrTokenInvalid) {
 		t.Fatalf("unknown token: %v, want ErrTokenInvalid", err)
 	}
-	if _, err := st.GetAgent(ctx, "ag-2"); !errors.Is(err, ErrNotFound) {
+	if _, err := st.GetAgent(ctx, "o1", "ag-2"); !errors.Is(err, ErrNotFound) {
 		t.Fatal("a refused enrollment must leave no agent behind")
 	}
 }
@@ -84,80 +84,80 @@ func TestAgentStateMachineTransitions(t *testing.T) {
 
 	// pending -> approved
 	enroll(t, st, "tk-1", "ag-1", "fp-a", now)
-	if err := st.SetLeaf(ctx, "ag-1", []byte("leaf"), leafExp); !errors.Is(err, ErrBadState) {
+	if err := st.SetLeaf(ctx, "o1", "ag-1", []byte("leaf"), leafExp); !errors.Is(err, ErrBadState) {
 		t.Fatalf("a pending agent has no certificate to renew: %v, want ErrBadState", err)
 	}
-	if err := st.SetAccessTier(ctx, "ag-1", 2); !errors.Is(err, ErrBadState) {
+	if err := st.SetAccessTier(ctx, "o1", "ag-1", 2); !errors.Is(err, ErrBadState) {
 		t.Fatalf("a pending agent has no access tier to change: %v, want ErrBadState", err)
 	}
-	if err := st.ApproveAgent(ctx, "ag-1", 2, "alex", "cl-1", []byte("leaf0"), leafExp, now.Add(time.Minute)); err != nil {
+	if err := st.ApproveAgent(ctx, "o1", "ag-1", 2, "alex", "cl-1", []byte("leaf0"), leafExp, now.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
-	a, _ := st.GetAgent(ctx, "ag-1")
+	a, _ := st.GetAgent(ctx, "o1", "ag-1")
 	if a.Status != StatusApproved || a.AccessTier != 2 || a.ApprovedBy != "alex" || a.ClusterID != "cl-1" || !bytes.Equal(a.LeafDER, []byte("leaf0")) ||
 		a.ApprovedAt == nil || a.LeafNotAfter == nil || !a.LeafNotAfter.Equal(leafExp) || a.Reason != "" {
 		t.Fatalf("approved: %+v", a)
 	}
 	// An approved agent cannot be approved again, rejected, or counted against.
-	if err := st.ApproveAgent(ctx, "ag-1", 2, "alex", "cl-1", nil, leafExp, now); !errors.Is(err, ErrBadState) {
+	if err := st.ApproveAgent(ctx, "o1", "ag-1", 2, "alex", "cl-1", nil, leafExp, now); !errors.Is(err, ErrBadState) {
 		t.Fatalf("approve twice: %v, want ErrBadState", err)
 	}
-	if err := st.RejectAgent(ctx, "ag-1", "no", now); !errors.Is(err, ErrBadState) {
+	if err := st.RejectAgent(ctx, "o1", "ag-1", "no", now); !errors.Is(err, ErrBadState) {
 		t.Fatalf("reject an approved agent: %v, want ErrBadState", err)
 	}
-	if _, err := st.CountApprovalAttempt(ctx, "ag-1"); !errors.Is(err, ErrBadState) {
+	if _, err := st.CountApprovalAttempt(ctx, "o1", "ag-1"); !errors.Is(err, ErrBadState) {
 		t.Fatalf("count against an approved agent: %v, want ErrBadState", err)
 	}
 	// Approved agents can have their tier and certificate changed.
-	if err := st.SetAccessTier(ctx, "ag-1", 1); err != nil {
+	if err := st.SetAccessTier(ctx, "o1", "ag-1", 1); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.SetInstalledTier(ctx, "ag-1", 3); err != nil {
+	if err := st.SetInstalledTier(ctx, "o1", "ag-1", 3); err != nil {
 		t.Fatal(err)
 	}
 	newExp := leafExp.Add(24 * time.Hour)
-	if err := st.SetLeaf(ctx, "ag-1", []byte("leaf1"), newExp); err != nil {
+	if err := st.SetLeaf(ctx, "o1", "ag-1", []byte("leaf1"), newExp); err != nil {
 		t.Fatal(err)
 	}
-	a, _ = st.GetAgent(ctx, "ag-1")
+	a, _ = st.GetAgent(ctx, "o1", "ag-1")
 	if a.AccessTier != 1 || a.InstalledTier != 3 || !bytes.Equal(a.LeafDER, []byte("leaf1")) || !a.LeafNotAfter.Equal(newExp) {
 		t.Fatalf("after tier and leaf changes: %+v", a)
 	}
 
 	// approved -> revoked: the certificate is erased, and it cannot happen twice.
-	if err := st.RevokeAgent(ctx, "ag-1", "stolen", now.Add(time.Hour)); err != nil {
+	if err := st.RevokeAgent(ctx, "o1", "ag-1", "stolen", now.Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	a, _ = st.GetAgent(ctx, "ag-1")
+	a, _ = st.GetAgent(ctx, "o1", "ag-1")
 	if a.Status != StatusRevoked || a.Reason != "stolen" || a.RevokedAt == nil || len(a.LeafDER) != 0 {
 		t.Fatalf("revoked: %+v", a)
 	}
-	if err := st.RevokeAgent(ctx, "ag-1", "again", now); !errors.Is(err, ErrBadState) {
+	if err := st.RevokeAgent(ctx, "o1", "ag-1", "again", now); !errors.Is(err, ErrBadState) {
 		t.Fatalf("revoke twice: %v, want ErrBadState", err)
 	}
-	if err := st.SetAccessTier(ctx, "ag-1", 2); !errors.Is(err, ErrBadState) {
+	if err := st.SetAccessTier(ctx, "o1", "ag-1", 2); !errors.Is(err, ErrBadState) {
 		t.Fatalf("a revoked agent's tier: %v, want ErrBadState", err)
 	}
-	if err := st.SetLeaf(ctx, "ag-1", []byte("x"), newExp); !errors.Is(err, ErrBadState) {
+	if err := st.SetLeaf(ctx, "o1", "ag-1", []byte("x"), newExp); !errors.Is(err, ErrBadState) {
 		t.Fatalf("a revoked agent's certificate: %v, want ErrBadState", err)
 	}
 
 	// pending -> rejected, and pending -> revoked are both allowed; neither is reversible.
 	enroll(t, st, "tk-2", "ag-2", "fp-b", now)
-	if err := st.RejectAgent(ctx, "ag-2", "not ours", now); err != nil {
+	if err := st.RejectAgent(ctx, "o1", "ag-2", "not ours", now); err != nil {
 		t.Fatal(err)
 	}
-	if a, _ := st.GetAgent(ctx, "ag-2"); a.Status != StatusRejected || a.Reason != "not ours" || a.RevokedAt == nil {
+	if a, _ := st.GetAgent(ctx, "o1", "ag-2"); a.Status != StatusRejected || a.Reason != "not ours" || a.RevokedAt == nil {
 		t.Fatalf("rejected: %+v", a)
 	}
-	if err := st.ApproveAgent(ctx, "ag-2", 1, "alex", "cl-2", nil, leafExp, now); !errors.Is(err, ErrBadState) {
+	if err := st.ApproveAgent(ctx, "o1", "ag-2", 1, "alex", "cl-2", nil, leafExp, now); !errors.Is(err, ErrBadState) {
 		t.Fatalf("approving a rejected agent: %v, want ErrBadState", err)
 	}
 	enroll(t, st, "tk-3", "ag-3", "fp-c", now)
-	if err := st.RevokeAgent(ctx, "ag-3", "withdrawn", now); err != nil {
+	if err := st.RevokeAgent(ctx, "o1", "ag-3", "withdrawn", now); err != nil {
 		t.Fatal(err)
 	}
-	if a, _ := st.GetAgent(ctx, "ag-3"); a.Status != StatusRevoked {
+	if a, _ := st.GetAgent(ctx, "o1", "ag-3"); a.Status != StatusRevoked {
 		t.Fatalf("a pending agent can be revoked: %+v", a)
 	}
 }
@@ -168,20 +168,20 @@ func TestOnlyOneApprovedAgentMayRepresentACluster(t *testing.T) {
 
 	enroll(t, st, "tk-1", "ag-1", "fp-same", now)
 	enroll(t, st, "tk-2", "ag-2", "fp-same", now) // pending twins are allowed
-	if err := st.ApproveAgent(ctx, "ag-1", 1, "alex", "cl-1", nil, exp, now); err != nil {
+	if err := st.ApproveAgent(ctx, "o1", "ag-1", 1, "alex", "cl-1", nil, exp, now); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.ApproveAgent(ctx, "ag-2", 1, "alex", "cl-1", nil, exp, now); !errors.Is(err, ErrClusterEnrolled) {
+	if err := st.ApproveAgent(ctx, "o1", "ag-2", 1, "alex", "cl-1", nil, exp, now); !errors.Is(err, ErrClusterEnrolled) {
 		t.Fatalf("a second live agent for one cluster: %v, want ErrClusterEnrolled", err)
 	}
-	if a, _ := st.GetAgent(ctx, "ag-2"); a.Status != StatusPending {
+	if a, _ := st.GetAgent(ctx, "o1", "ag-2"); a.Status != StatusPending {
 		t.Fatalf("the refused approval must leave the agent pending: %+v", a)
 	}
 	// Once the first is revoked, the cluster can be taken over.
-	if err := st.RevokeAgent(ctx, "ag-1", "replaced", now); err != nil {
+	if err := st.RevokeAgent(ctx, "o1", "ag-1", "replaced", now); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.ApproveAgent(ctx, "ag-2", 1, "alex", "cl-1", nil, exp, now); err != nil {
+	if err := st.ApproveAgent(ctx, "o1", "ag-2", 1, "alex", "cl-1", nil, exp, now); err != nil {
 		t.Fatalf("after the revoke: %v", err)
 	}
 }
@@ -193,47 +193,47 @@ func TestResumeEnrollmentRulesPerState(t *testing.T) {
 
 	// pending: the poll secret and versions are refreshed; the CSR and approval code are not.
 	enroll(t, st, "tk-1", "ag-1", "fp-a", now)
-	if err := st.ResumeEnrollment(ctx, "ag-1", r, false, now); err != nil {
+	if err := st.ResumeEnrollment(ctx, "o1", "ag-1", r, false, now); err != nil {
 		t.Fatal(err)
 	}
-	a, _ := st.GetAgent(ctx, "ag-1")
+	a, _ := st.GetAgent(ctx, "o1", "ag-1")
 	if !bytes.Equal(a.PollSecretHash, []byte("poll2")) || a.Version != "v2" || a.K8sVersion != "1.31" || a.ConnectingIP != "198.51.100.7" || !bytes.Equal(a.CSR, []byte("csr")) {
 		t.Fatalf("resumed pending agent: %+v", a)
 	}
 	// approved with the poll secret still set (never made mTLS contact): allowed. Once cleared: refused.
-	if err := st.ApproveAgent(ctx, "ag-1", 1, "alex", "cl-1", nil, exp, now); err != nil {
+	if err := st.ApproveAgent(ctx, "o1", "ag-1", 1, "alex", "cl-1", nil, exp, now); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.ResumeEnrollment(ctx, "ag-1", r, false, now); err != nil {
+	if err := st.ResumeEnrollment(ctx, "o1", "ag-1", r, false, now); err != nil {
 		t.Fatalf("approved but never connected: %v", err)
 	}
-	if err := st.ClearPollSecret(ctx, "ag-1"); err != nil {
+	if err := st.ClearPollSecret(ctx, "o1", "ag-1"); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.ResumeEnrollment(ctx, "ag-1", r, false, now); !errors.Is(err, ErrBadState) {
+	if err := st.ResumeEnrollment(ctx, "o1", "ag-1", r, false, now); !errors.Is(err, ErrBadState) {
 		t.Fatalf("approved and connected: %v, want ErrBadState", err)
 	}
 
 	// expired: only reopen may revive it, and it returns to pending with a fresh CSR and counters.
 	enroll(t, st, "tk-2", "ag-2", "fp-b", now)
-	if _, err := st.CountApprovalAttempt(ctx, "ag-2"); err != nil {
+	if _, err := st.CountApprovalAttempt(ctx, "o1", "ag-2"); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := st.ExpirePending(ctx, "o1", now.Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
-	if err := st.ResumeEnrollment(ctx, "ag-2", r, false, now); !errors.Is(err, ErrBadState) {
+	if err := st.ResumeEnrollment(ctx, "o1", "ag-2", r, false, now); !errors.Is(err, ErrBadState) {
 		t.Fatalf("resuming an expired agent without reopening: %v, want ErrBadState", err)
 	}
 	later := now.Add(2 * time.Hour)
-	if err := st.ResumeEnrollment(ctx, "ag-2", r, true, later); err != nil {
+	if err := st.ResumeEnrollment(ctx, "o1", "ag-2", r, true, later); err != nil {
 		t.Fatal(err)
 	}
-	a, _ = st.GetAgent(ctx, "ag-2")
+	a, _ = st.GetAgent(ctx, "o1", "ag-2")
 	if a.Status != StatusPending || a.ApprovalAttempts != 0 || !bytes.Equal(a.CSR, []byte("csr2")) || !bytes.Equal(a.ApprovalHash, []byte("code2")) || !a.CreatedAt.Equal(later) || a.Reason != "" || a.RevokedAt != nil {
 		t.Fatalf("reopened: %+v", a)
 	}
-	if err := st.ResumeEnrollment(ctx, "ag-2", r, true, later); !errors.Is(err, ErrBadState) {
+	if err := st.ResumeEnrollment(ctx, "o1", "ag-2", r, true, later); !errors.Is(err, ErrBadState) {
 		t.Fatalf("reopening something that is no longer expired: %v, want ErrBadState", err)
 	}
 }
@@ -243,7 +243,7 @@ func TestExpireAndPurgePendingAgents(t *testing.T) {
 	enroll(t, st, "tk-1", "old", "fp-a", now)
 	enroll(t, st, "tk-2", "new", "fp-b", now.Add(2*time.Hour))
 	enroll(t, st, "tk-3", "approved", "fp-c", now)
-	if err := st.ApproveAgent(ctx, "approved", 1, "alex", "cl-3", nil, now.Add(time.Hour), now); err != nil {
+	if err := st.ApproveAgent(ctx, "o1", "approved", 1, "alex", "cl-3", nil, now.Add(time.Hour), now); err != nil {
 		t.Fatal(err)
 	}
 
@@ -254,13 +254,13 @@ func TestExpireAndPurgePendingAgents(t *testing.T) {
 	if len(expired) != 1 || expired[0].ID != "old" || expired[0].Status != StatusExpired {
 		t.Fatalf("ExpirePending = %+v", expired)
 	}
-	if a, _ := st.GetAgent(ctx, "old"); a.Status != StatusExpired || a.Reason != "nobody approved it in time" {
+	if a, _ := st.GetAgent(ctx, "o1", "old"); a.Status != StatusExpired || a.Reason != "nobody approved it in time" {
 		t.Fatalf("the stored agent: %+v", a)
 	}
-	if a, _ := st.GetAgent(ctx, "new"); a.Status != StatusPending {
+	if a, _ := st.GetAgent(ctx, "o1", "new"); a.Status != StatusPending {
 		t.Fatalf("a recent pending agent must stay pending: %+v", a)
 	}
-	if a, _ := st.GetAgent(ctx, "approved"); a.Status != StatusApproved {
+	if a, _ := st.GetAgent(ctx, "o1", "approved"); a.Status != StatusApproved {
 		t.Fatalf("an approved agent is never expired: %+v", a)
 	}
 	if again, _ := st.ExpirePending(ctx, "o1", now.Add(time.Hour)); len(again) != 0 {
@@ -273,7 +273,7 @@ func TestExpireAndPurgePendingAgents(t *testing.T) {
 	if n, err := st.PurgeExpired(ctx, "o1", now.Add(time.Hour)); err != nil || n != 1 {
 		t.Fatalf("purge: %d %v, want 1", n, err)
 	}
-	if _, err := st.GetAgent(ctx, "old"); !errors.Is(err, ErrNotFound) {
+	if _, err := st.GetAgent(ctx, "o1", "old"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("a purged agent: %v, want ErrNotFound", err)
 	}
 	agents, _ := st.ListAgents(ctx, "o1")
@@ -297,17 +297,17 @@ func TestTouchKeepsWhatAnEmptyValueDoesNotReplace(t *testing.T) {
 	enroll(t, st, "tk-1", "ag-1", "fp-a", now)
 
 	seen := now.Add(time.Minute)
-	if err := st.Touch(ctx, "ag-1", "", "", "", seen); err != nil {
+	if err := st.Touch(ctx, "o1", "ag-1", "", "", "", seen); err != nil {
 		t.Fatal(err)
 	}
-	a, _ := st.GetAgent(ctx, "ag-1")
+	a, _ := st.GetAgent(ctx, "o1", "ag-1")
 	if a.LastSeen == nil || !a.LastSeen.Equal(seen) || a.ConnectingIP != "203.0.113.5" || a.Version != "v1" || a.K8sVersion != "1.30" {
 		t.Fatalf("an empty ip or version leaves the stored one alone: %+v", a)
 	}
-	if err := st.Touch(ctx, "ag-1", "198.51.100.9", "v2", "1.31", seen.Add(time.Minute)); err != nil {
+	if err := st.Touch(ctx, "o1", "ag-1", "198.51.100.9", "v2", "1.31", seen.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
-	a, _ = st.GetAgent(ctx, "ag-1")
+	a, _ = st.GetAgent(ctx, "o1", "ag-1")
 	if a.ConnectingIP != "198.51.100.9" || a.Version != "v2" || a.K8sVersion != "1.31" {
 		t.Fatalf("a non-empty value replaces it: %+v", a)
 	}
@@ -587,5 +587,48 @@ func TestEveryOrganisationScopedTableIsAccountedForByDeleteOrg(t *testing.T) {
 	sort.Strings(want)
 	if !reflect.DeepEqual(scoped, want) {
 		t.Fatalf("the set of organisation-scoped tables changed.\n got  %v\n want %v\nDecide whether DeleteOrg must clear the new table, then update this list.", scoped, want)
+	}
+}
+
+// An agent is addressed by its id inside its organisation. Another organisation naming the same id finds no row, whatever it asks of it:
+// it reads nothing and changes nothing. Only FindAgent looks across organisations, for the caller that has just proved who it is.
+func TestAnotherOrganisationsAgentIsNotFoundByEveryMethod(t *testing.T) {
+	st, ctx, now := openAccounts(t)
+	enroll(t, st, "tk-1", "ag-1", "fp-a", now)
+
+	if _, err := st.GetAgent(ctx, "bob", "ag-1"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("get: %v", err)
+	}
+	for name, err := range map[string]error{
+		"approve":  st.ApproveAgent(ctx, "bob", "ag-1", 2, "bob", "c-1", []byte("leaf"), now.Add(time.Hour), now),
+		"reject":   st.RejectAgent(ctx, "bob", "ag-1", "no", now),
+		"revoke":   st.RevokeAgent(ctx, "bob", "ag-1", "no", now),
+		"tier":     st.SetAccessTier(ctx, "bob", "ag-1", 2),
+		"leaf":     st.SetLeaf(ctx, "bob", "ag-1", []byte("leaf"), now.Add(time.Hour)),
+		"resume":   st.ResumeEnrollment(ctx, "bob", "ag-1", Resume{PollSecretHash: []byte("x")}, false, now),
+		"attempts": func() error { _, err := st.CountApprovalAttempt(ctx, "bob", "ag-1"); return err }(),
+	} {
+		if !errors.Is(err, ErrNotFound) {
+			t.Errorf("%s: %v, want ErrNotFound", name, err)
+		}
+	}
+	// These report nothing (they are best-effort), and change nothing.
+	_ = st.SetInstalledTier(ctx, "bob", "ag-1", 3)
+	_ = st.SetClockSkew(ctx, "bob", "ag-1", 5000)
+	_ = st.ClearPollSecret(ctx, "bob", "ag-1")
+	_ = st.Touch(ctx, "bob", "ag-1", "198.51.100.9", "v9", "1.99", now)
+
+	a, err := st.GetAgent(ctx, "o1", "ag-1")
+	if err != nil || a.Status != StatusPending || a.AccessTier != 0 || a.InstalledTier != 2 || a.ClockSkewMs != 0 || len(a.PollSecretHash) == 0 ||
+		a.ConnectingIP != "203.0.113.5" || a.Version != "v1" || a.LastSeen != nil || a.ApprovalAttempts != 0 || len(a.LeafDER) != 0 {
+		t.Fatalf("o1's agent changed: %+v %v", a, err)
+	}
+	// The platform-wide lookup finds it, and says which organisation it is in.
+	if f, err := st.FindAgent(ctx, "ag-1"); err != nil || f.OrgID != "o1" {
+		t.Errorf("FindAgent: %+v %v", f, err)
+	}
+	// In its own organisation the wrong state is a different answer from a missing row.
+	if err := st.SetAccessTier(ctx, "o1", "ag-1", 2); !errors.Is(err, ErrBadState) {
+		t.Errorf("tier of a pending agent: %v, want ErrBadState", err)
 	}
 }

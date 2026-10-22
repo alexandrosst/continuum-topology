@@ -211,7 +211,7 @@ func TestNoteFlowsAppliesTheWholeBatchDespiteOneImplausibleSaturation(t *testing
 func TestApplySyncKeepsTheWholeRecordDespiteOneImplausibleReading(t *testing.T) {
 	r := newHubRig(t)
 	id, _, _ := r.approvedAgent(t, testkit.FP)
-	a, err := r.st.GetAgent(r.ctx, id)
+	a, err := r.st.GetAgent(r.ctx, "org-1", id)
 	if err != nil {
 		t.Fatal(err)
 	}

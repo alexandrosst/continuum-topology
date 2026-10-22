@@ -81,7 +81,7 @@ func attemptsLeft(err error) (int, bool) {
 func TestApprovalCodeApprovesAndOnlyItsHashIsStored(t *testing.T) {
 	e := newEnv(t)
 	c := e.enrollCoded(t, testkit.FP)
-	a, _ := e.st.GetAgent(e.ctx, c.Resp.AgentId)
+	a, _ := e.st.GetAgent(e.ctx, "org-1", c.Resp.AgentId)
 	if len(a.ApprovalHash) != approval.HashLen {
 		t.Fatalf("hash = %d bytes", len(a.ApprovalHash))
 	}
@@ -97,7 +97,7 @@ func TestApprovalCodeApprovesAndOnlyItsHashIsStored(t *testing.T) {
 	if n, ok := attemptsLeft(err); !ok || n != 4 {
 		t.Fatalf("attempts left = %d %v", n, ok)
 	}
-	if ag, _ := e.st.GetAgent(e.ctx, c.Resp.AgentId); ag.Status != store.StatusPending {
+	if ag, _ := e.st.GetAgent(e.ctx, "org-1", c.Resp.AgentId); ag.Status != store.StatusPending {
 		t.Fatal("still pending")
 	}
 
@@ -136,7 +136,7 @@ func TestFiveWrongCodesRejectTheEnrollment(t *testing.T) {
 	if !errors.As(err, &se) || se.Data["locked"] != true {
 		t.Fatalf("fifth wrong code should lock: %v", err)
 	}
-	if ag, _ := e.st.GetAgent(e.ctx, c.Resp.AgentId); ag.Status != store.StatusRejected || !strings.Contains(ag.Reason, "wrong approval codes") {
+	if ag, _ := e.st.GetAgent(e.ctx, "org-1", c.Resp.AgentId); ag.Status != store.StatusRejected || !strings.Contains(ag.Reason, "wrong approval codes") {
 		t.Fatalf("agent = %s %q", ag.Status, ag.Reason)
 	}
 	if p := e.poll(t, c.Resp.AgentId, c.Resp.PollSecret); p.State != continuumv1.PollResponse_REJECTED {
@@ -177,7 +177,7 @@ func TestParallelGuessesCannotExceedTheAttemptLimit(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-	a, _ := e.st.GetAgent(e.ctx, c.Resp.AgentId)
+	a, _ := e.st.GetAgent(e.ctx, "org-1", c.Resp.AgentId)
 	if a.ApprovalAttempts > kernel.MaxApprovalAttempts+30 || a.Status != store.StatusRejected {
 		t.Fatalf("agent = %+v", a)
 	}
@@ -198,7 +198,7 @@ func TestAMalformedCodeDoesNotSpendAnAttempt(t *testing.T) {
 			t.Errorf("%q: %v (left %d)", junk, err, n)
 		}
 	}
-	if a, _ := e.st.GetAgent(e.ctx, c.Resp.AgentId); a.ApprovalAttempts != 0 {
+	if a, _ := e.st.GetAgent(e.ctx, "org-1", c.Resp.AgentId); a.ApprovalAttempts != 0 {
 		t.Fatalf("attempts = %d", a.ApprovalAttempts)
 	}
 }
@@ -331,7 +331,7 @@ func TestRetryAfterApprovalStillCollectsTheCertificate(t *testing.T) {
 		t.Fatalf("state = %v", p.State)
 	}
 	// Once the agent has connected with its certificate, the poll secret is gone and the token is truly spent.
-	if err := e.st.ClearPollSecret(e.ctx, first.Resp.AgentId); err != nil {
+	if err := e.st.ClearPollSecret(e.ctx, "org-1", first.Resp.AgentId); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := e.tryEnroll(t, secret, testkit.FP, d, first.Code); testkit.KindOf(err) != kernel.KindUnauthenticated {
@@ -431,7 +431,7 @@ func TestSweepExpiresAndPurges(t *testing.T) {
 	if n := e.core.Agents.ExpirePending(e.ctx, "org-1"); n != 1 {
 		t.Fatalf("expired %d", n)
 	}
-	if a, _ := e.st.GetAgent(e.ctx, c.Resp.AgentId); a.Status != store.StatusExpired {
+	if a, _ := e.st.GetAgent(e.ctx, "org-1", c.Resp.AgentId); a.Status != store.StatusExpired {
 		t.Fatalf("status = %s", a.Status)
 	}
 	if n := e.core.Agents.ExpirePending(e.ctx, "org-1"); n != 0 {
@@ -439,7 +439,7 @@ func TestSweepExpiresAndPurges(t *testing.T) {
 	}
 	*e.now = e.now.Add(8 * 24 * time.Hour)
 	e.core.Agents.ExpirePending(e.ctx, "org-1")
-	if _, err := e.st.GetAgent(e.ctx, c.Resp.AgentId); !errors.Is(err, store.ErrNotFound) {
+	if _, err := e.st.GetAgent(e.ctx, "org-1", c.Resp.AgentId); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("an expired record nobody reopened should be deleted: %v", err)
 	}
 }

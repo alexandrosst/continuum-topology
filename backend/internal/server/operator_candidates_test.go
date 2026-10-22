@@ -15,7 +15,7 @@ func TestOperatorAddressCandidatesComeFromWhatDiscoveryReportsForItsCluster(t *t
 	_, admin := a.user(t, "alex", accounts.RoleAdmin)
 	_, viewer := a.user(t, "vera", accounts.RoleViewer)
 	agentID := a.env.approvedAgentID(t, testkit.FP)
-	ag, err := a.env.st.GetAgent(a.env.ctx, agentID)
+	ag, err := a.env.st.GetAgent(a.env.ctx, "org-1", agentID)
 	if err != nil {
 		t.Fatal(err)
 	}

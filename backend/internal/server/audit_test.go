@@ -67,11 +67,11 @@ func (f *failAudit) DeleteToken(ctx context.Context, org, id string, opts ...sto
 	return f.Store.DeleteToken(ctx, org, id, opts...)
 }
 
-func (f *failAudit) RejectAgent(ctx context.Context, id, reason string, now time.Time, opts ...store.WriteOption) error {
+func (f *failAudit) RejectAgent(ctx context.Context, org, id, reason string, now time.Time, opts ...store.WriteOption) error {
 	if err := f.broken(opts); err != nil {
 		return err
 	}
-	return f.Store.RejectAgent(ctx, id, reason, now, opts...)
+	return f.Store.RejectAgent(ctx, org, id, reason, now, opts...)
 }
 
 func (f *failAudit) CreateInvite(ctx context.Context, inv store.Invite, hash []byte, opts ...store.WriteOption) error {
@@ -116,25 +116,25 @@ func (f *failAudit) DeleteOrg(ctx context.Context, id string, opts ...store.Writ
 	return f.Store.DeleteOrg(ctx, id, opts...)
 }
 
-func (f *failAudit) ApproveAgent(ctx context.Context, id string, tier int, approver, clusterID string, leaf []byte, notAfter, now time.Time, opts ...store.WriteOption) error {
+func (f *failAudit) ApproveAgent(ctx context.Context, org, id string, tier int, approver, clusterID string, leaf []byte, notAfter, now time.Time, opts ...store.WriteOption) error {
 	if err := f.broken(opts); err != nil {
 		return err
 	}
-	return f.Store.ApproveAgent(ctx, id, tier, approver, clusterID, leaf, notAfter, now, opts...)
+	return f.Store.ApproveAgent(ctx, org, id, tier, approver, clusterID, leaf, notAfter, now, opts...)
 }
 
-func (f *failAudit) RevokeAgent(ctx context.Context, id, reason string, now time.Time, opts ...store.WriteOption) error {
+func (f *failAudit) RevokeAgent(ctx context.Context, org, id, reason string, now time.Time, opts ...store.WriteOption) error {
 	if err := f.broken(opts); err != nil {
 		return err
 	}
-	return f.Store.RevokeAgent(ctx, id, reason, now, opts...)
+	return f.Store.RevokeAgent(ctx, org, id, reason, now, opts...)
 }
 
-func (f *failAudit) SetAccessTier(ctx context.Context, id string, tier int, opts ...store.WriteOption) error {
+func (f *failAudit) SetAccessTier(ctx context.Context, org, id string, tier int, opts ...store.WriteOption) error {
 	if err := f.broken(opts); err != nil {
 		return err
 	}
-	return f.Store.SetAccessTier(ctx, id, tier, opts...)
+	return f.Store.SetAccessTier(ctx, org, id, tier, opts...)
 }
 
 func (f *failAudit) SaveSnapshot(ctx context.Context, agentID string, data []byte, now time.Time, opts ...store.WriteOption) error {
@@ -314,10 +314,10 @@ func TestPrivilegedActionsFailClosedWhenTheAuditRowCannotBeWritten(t *testing.T)
 	expect("delete organisation", a.do("POST", org(carolOrg, "delete"), map[string]any{"confirm": "Carol Co"}, withCookie(carol)))
 
 	// Nothing happened.
-	if ag, _ := a.st.GetAgent(a.ctx, pending.AgentId); ag.Status != store.StatusPending {
+	if ag, _ := a.st.GetAgent(a.ctx, "org-1", pending.AgentId); ag.Status != store.StatusPending {
 		t.Errorf("the pending agent changed state to %s", ag.Status)
 	}
-	if ag, _ := a.st.GetAgent(a.ctx, live.AgentId); ag.Status != store.StatusApproved {
+	if ag, _ := a.st.GetAgent(a.ctx, "org-1", live.AgentId); ag.Status != store.StatusApproved {
 		t.Errorf("the approved agent changed state to %s", ag.Status)
 	}
 	toks, _ := a.st.ListTokens(a.ctx, "org-1")
@@ -503,7 +503,7 @@ func TestRejectAndRevokeReasonsAreClippedEverywhere(t *testing.T) {
 	if err := e.core.Agents.Reject(e.ctx, "alex", resp.AgentId, long); err != nil {
 		t.Fatal(err)
 	}
-	ag, _ := e.st.GetAgent(e.ctx, resp.AgentId)
+	ag, _ := e.st.GetAgent(e.ctx, "org-1", resp.AgentId)
 	if len(ag.Reason) > kernel.MaxReason {
 		t.Fatalf("stored reason is %d bytes", len(ag.Reason))
 	}

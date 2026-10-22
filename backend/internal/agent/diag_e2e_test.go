@@ -292,7 +292,7 @@ func TestAnOverCeilingTierIsRefusedWithTheHelmCommand(t *testing.T) {
 	if !errors.As(err, &se) || !strings.Contains(se.Msg, "helm upgrade continuum-agent ./chart.tgz --namespace continuum-system --reset-then-reuse-values --set access.tier=2") {
 		t.Fatalf("err = %v", err)
 	}
-	if a, _ := d.st.GetAgent(context.Background(), d.id); a.AccessTier != 1 || a.InstalledTier != 1 {
+	if a, _ := d.st.GetAgent(context.Background(), "org", d.id); a.AccessTier != 1 || a.InstalledTier != 1 {
 		t.Fatalf("agent record changed: %+v", a)
 	}
 }
@@ -481,10 +481,10 @@ func TestAWideningOverrideFromTheServerIsIgnoredAndReported(t *testing.T) {
 	// A server that approves more than the install allows (a bug, or a hostile one) gains nothing: the agent stays at its own ceiling and says so.
 	d := newDx(t, dxOpts{installed: 1, approve: 1})
 	waitFor(t, "first picture", 15*time.Second, func() bool { return d.agentDoc().Synced })
-	if err := d.st.SetInstalledTier(context.Background(), d.id, 2); err != nil { // the record now claims the install allows 2
+	if err := d.st.SetInstalledTier(context.Background(), "org", d.id, 2); err != nil { // the record now claims the install allows 2
 		t.Fatal(err)
 	}
-	if err := d.st.SetAccessTier(context.Background(), d.id, 2); err != nil {
+	if err := d.st.SetAccessTier(context.Background(), "org", d.id, 2); err != nil {
 		t.Fatal(err)
 	}
 	// Any change of settings makes the server push a fresh Config, which now approves tier 2.

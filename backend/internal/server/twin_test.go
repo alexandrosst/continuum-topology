@@ -312,7 +312,7 @@ var _ = facts.New
 func twinAgent(t *testing.T, e *env, h *estate.Hub, cluster string) store.Agent {
 	t.Helper()
 	id, _, _ := e.approvedAgent(t, cluster)
-	a, err := e.st.GetAgent(e.ctx, id)
+	a, err := e.st.GetAgent(e.ctx, e.core.OrgID, id)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -169,7 +169,7 @@ func TestNobodyReachesAnotherOrganisation(t *testing.T) {
 			t.Errorf("bob %ss alice's agent: %d, want 404", act, c)
 		}
 	}
-	if ag, _ := a.st.GetAgent(a.ctx, resp.AgentId); ag.Status != store.StatusPending || ag.OrgID != aOrg {
+	if ag, _ := a.st.GetAgent(a.ctx, aOrg, resp.AgentId); ag.Status != store.StatusPending || ag.OrgID != aOrg {
 		t.Fatalf("agent = %+v", ag)
 	}
 	// The pending agent appears in Alice's view and never in Bob's.
@@ -191,7 +191,7 @@ func TestNobodyReachesAnotherOrganisation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ag, _ := a.st.GetAgent(a.ctx, r2.AgentId); ag.OrgID != bOrg {
+	if ag, _ := a.st.GetAgent(a.ctx, bOrg, r2.AgentId); ag.OrgID != bOrg {
 		t.Fatalf("agent enrolled with Bob's token belongs to %q", ag.OrgID)
 	}
 }
@@ -214,8 +214,8 @@ func TestSameClusterCanBeRegisteredByTwoTenantsIndependently(t *testing.T) {
 		return r.AgentId
 	}
 	ida, idb := enrollAndApprove(alice, aOrg), enrollAndApprove(bob, bOrg)
-	x, _ := a.st.GetAgent(a.ctx, ida)
-	y, _ := a.st.GetAgent(a.ctx, idb)
+	x, _ := a.st.GetAgent(a.ctx, aOrg, ida)
+	y, _ := a.st.GetAgent(a.ctx, bOrg, idb)
 	if x.ClusterID == y.ClusterID || x.ClusterID == "" {
 		t.Fatalf("cluster ids collide across tenants: %q %q", x.ClusterID, y.ClusterID)
 	}
@@ -436,7 +436,7 @@ func TestDeletingAnOrganisationErasesItsDataAndEndsItsAgents(t *testing.T) {
 	if c := a.do("GET", org(aOrg, "state"), nil, withCookie(alice)).Code; c != 404 {
 		t.Errorf("a deleted organisation still answers: %d", c)
 	}
-	if _, err := a.st.GetAgent(a.ctx, resp.AgentId); err == nil {
+	if _, err := a.st.FindAgent(a.ctx, resp.AgentId); err == nil {
 		t.Error("the organisation's agent survived")
 	}
 	for _, k := range []string{resp.AgentId, estate.FlowsKey(resp.AgentId)} {

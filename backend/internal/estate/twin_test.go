@@ -447,7 +447,7 @@ func TestRetentionUsesOverrideThenLiveSettingThenDefault(t *testing.T) {
 func twinAgent(t *testing.T, e *env, h *Hub, cluster string) store.Agent {
 	t.Helper()
 	id, _, _ := e.approvedAgent(t, cluster)
-	a, err := e.st.GetAgent(e.ctx, id)
+	a, err := e.st.GetAgent(e.ctx, "org-1", id)
 	if err != nil {
 		t.Fatal(err)
 	}

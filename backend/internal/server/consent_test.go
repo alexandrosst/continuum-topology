@@ -57,7 +57,7 @@ func TestTierChangeStaysWithinTheInstalledCeilingAndIsAudited(t *testing.T) {
 	if c := tier(viewer, 1).Code; c != 403 {
 		t.Fatalf("a viewer changed a tier: %d", c)
 	}
-	if got, _ := a.st.GetAgent(a.ctx, id); got.AccessTier != 2 {
+	if got, _ := a.st.GetAgent(a.ctx, "org-1", id); got.AccessTier != 2 {
 		t.Fatal("the refused request changed the tier")
 	}
 
@@ -65,14 +65,14 @@ func TestTierChangeStaysWithinTheInstalledCeilingAndIsAudited(t *testing.T) {
 	if r := tier(editor, 0); r.Code != 200 {
 		t.Fatalf("narrow to 0: %d %s", r.Code, r.Body.String())
 	}
-	if got, _ := a.st.GetAgent(a.ctx, id); got.AccessTier != 0 {
+	if got, _ := a.st.GetAgent(a.ctx, "org-1", id); got.AccessTier != 0 {
 		t.Fatalf("tier is %d after narrowing", got.AccessTier)
 	}
 	// Widening back up to what the install allows takes an administrator, as approving did.
 	if r := tier(editor, 2); r.Code != 403 {
 		t.Fatalf("an editor widened a tier: %d %s", r.Code, r.Body.String())
 	}
-	if got, _ := a.st.GetAgent(a.ctx, id); got.AccessTier != 0 {
+	if got, _ := a.st.GetAgent(a.ctx, "org-1", id); got.AccessTier != 0 {
 		t.Fatalf("the refused widening changed the tier to %d", got.AccessTier)
 	}
 	if r := tier(admin, 2); r.Code != 200 {
@@ -96,10 +96,10 @@ func TestTierChangeStaysWithinTheInstalledCeilingAndIsAudited(t *testing.T) {
 	}
 
 	// Above the ceiling: refused, with the exact command for the cluster's owner.
-	if err := a.st.SetInstalledTier(a.ctx, id, 1); err != nil {
+	if err := a.st.SetInstalledTier(a.ctx, "org-1", id, 1); err != nil {
 		t.Fatal(err)
 	}
-	if err := a.st.SetAccessTier(a.ctx, id, 1); err != nil {
+	if err := a.st.SetAccessTier(a.ctx, "org-1", id, 1); err != nil {
 		t.Fatal(err)
 	}
 	r := tier(admin, 2)
@@ -113,7 +113,7 @@ func TestTierChangeStaysWithinTheInstalledCeilingAndIsAudited(t *testing.T) {
 	if !strings.Contains(msg, "helm upgrade continuum-agent") || !strings.Contains(msg, want) || !strings.Contains(helm, want) {
 		t.Fatalf("the refusal does not carry the helm command: %v", j)
 	}
-	if got, _ := a.st.GetAgent(a.ctx, id); got.AccessTier != 1 {
+	if got, _ := a.st.GetAgent(a.ctx, "org-1", id); got.AccessTier != 1 {
 		t.Fatal("the refused request changed the tier")
 	}
 	// A tier past MaxTier and one merely past ImplementedTier (3, already covered by "over the ceiling" above via
@@ -261,7 +261,7 @@ func TestConsentOverridesAreValidatedPersistedAndPushed(t *testing.T) {
 	}
 
 	// The Config the agent receives carries them, and a change of them is a different Config.
-	ag, _ := a.st.GetAgent(a.ctx, id)
+	ag, _ := a.st.GetAgent(a.ctx, "org-1", id)
 	v := liveView(*a.now, "n1")
 	a.hub().Mu.Lock()
 	a.hub().Views[id] = v

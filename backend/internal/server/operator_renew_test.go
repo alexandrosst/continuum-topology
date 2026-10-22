@@ -67,7 +67,7 @@ func newRenewSetup(t *testing.T) renewSetup {
 	t.Helper()
 	e := newEnv(t)
 	agent := e.approvedAgentID(t, testkit.FP)
-	a, _ := e.st.GetAgent(e.ctx, agent)
+	a, _ := e.st.GetAgent(e.ctx, "org-1", agent)
 	op, _, bundle, err := e.core.Operators.CreateOperator(e.ctx, "alex", "athens", []string{a.ClusterID}, extDest("c:4317"), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -284,7 +284,7 @@ func TestRenewalIsRateLimitedPerCertificate(t *testing.T) {
 func TestRenewTelemetryCertOverTheAnonymousListener(t *testing.T) {
 	r := newRig(t)
 	agent := r.approvedAgentID(t, testkit.FP)
-	a, _ := r.st.GetAgent(r.ctx, agent)
+	a, _ := r.st.GetAgent(r.ctx, "org-1", agent)
 	_, _, bundle, err := r.core.Operators.CreateOperator(r.ctx, "alex", "athens", []string{a.ClusterID}, extDest("c:4317"), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -311,7 +311,7 @@ func TestRenewTelemetryCertOverTheAnonymousListener(t *testing.T) {
 func TestRenewerAgainstTheRealServerReplacesTheSecret(t *testing.T) {
 	r := newRig(t)
 	agent := r.approvedAgentID(t, testkit.FP)
-	a, _ := r.st.GetAgent(r.ctx, agent)
+	a, _ := r.st.GetAgent(r.ctx, "org-1", agent)
 	op, _, bundle, err := r.core.Operators.CreateOperator(r.ctx, "alex", "athens", []string{a.ClusterID}, extDest("c:4317"), nil)
 	if err != nil {
 		t.Fatal(err)

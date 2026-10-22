@@ -210,8 +210,8 @@ func TestTheSecondClusterProbesAgainWhenTheFirstOnesFlowCollectorIsPaused(t *tes
 	r := newHubRig(t)
 	id1, _, _ := r.approvedAgent(t, testkit.FP)
 	id2, _, _ := r.approvedAgent(t, testkit.FP2)
-	a1, _ := r.st.GetAgent(r.ctx, id1)
-	a2, _ := r.st.GetAgent(r.ctx, id2)
+	a1, _ := r.st.GetAgent(r.ctx, "org-1", id1)
+	a2, _ := r.st.GetAgent(r.ctx, "org-1", id2)
 	if a1.ClusterID == "" || a2.ClusterID == "" || a1.ClusterID == a2.ClusterID {
 		t.Fatalf("clusters %q %q", a1.ClusterID, a2.ClusterID)
 	}

@@ -147,7 +147,7 @@ func (h *Hub) SetAgentTier(ctx context.Context, actor, agentID string, tier int,
 	}
 	old := a.AccessTier
 	detail := fmt.Sprintf("%q: access tier %d (%s) to %d (%s); the agent's install allows up to %d", a.Name, old, agents.TierName(old), tier, agents.TierName(tier), a.InstalledTier)
-	err = h.C.Store.SetAccessTier(ctx, a.ID, tier, store.WithAudit(h.C.AuditRow(h.C.OrgID, actor, "agent-tier-changed", "agent", a.ID, detail)))
+	err = h.C.Store.SetAccessTier(ctx, h.C.OrgID, a.ID, tier, store.WithAudit(h.C.AuditRow(h.C.OrgID, actor, "agent-tier-changed", "agent", a.ID, detail)))
 	if errors.Is(err, store.ErrBadState) {
 		err = kernel.Errf(kernel.KindConflict, "agent changed state while its access was being changed")
 	}
@@ -292,7 +292,7 @@ func (h *Hub) NoteCeiling(ctx context.Context, agent, fresh store.Agent, reporte
 	ceiling, _ := agents.ReportedTier(reported)
 	actor := accounts.AgentActor(agent.ID).String()
 	if ceiling != fresh.InstalledTier {
-		if err := h.C.Store.SetInstalledTier(ctx, agent.ID, ceiling); err != nil {
+		if err := h.C.Store.SetInstalledTier(ctx, h.C.OrgID, agent.ID, ceiling); err != nil {
 			if !errors.Is(err, store.ErrBadState) {
 				kernel.Metrics.StoreErrors.Add(1)
 				h.Log.Warn("could not record the agent's installed tier", "agent", agent.ID, "err", err)
@@ -306,7 +306,7 @@ func (h *Hub) NoteCeiling(ctx context.Context, agent, fresh store.Agent, reporte
 	}
 	if fresh.AccessTier > ceiling {
 		detail := fmt.Sprintf("%q: access tier %d (%s) to %d (%s), because the agent's install (Helm access.tier) now allows at most %d", agent.Name, fresh.AccessTier, agents.TierName(fresh.AccessTier), ceiling, agents.TierName(ceiling), ceiling)
-		if err := h.C.AuditedWrite(h.C.Store.SetAccessTier(ctx, agent.ID, ceiling,
+		if err := h.C.AuditedWrite(h.C.Store.SetAccessTier(ctx, h.C.OrgID, agent.ID, ceiling,
 			store.WithAudit(h.C.AuditRow(h.C.OrgID, actor, "agent-tier-changed", "agent", agent.ID, detail))), "agent-tier-changed"); err == nil {
 			agent.AccessTier = ceiling
 			h.narrowState(agent.ID, ceiling)

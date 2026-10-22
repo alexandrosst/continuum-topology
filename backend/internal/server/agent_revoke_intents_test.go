@@ -55,7 +55,7 @@ func TestRevokingAnAgentRevokesItsTelemetryIntents(t *testing.T) {
 func TestOperatorUsageIgnoresActiveIntentsOfRevokedAgents(t *testing.T) {
 	e, op, agentID, ti := operatorWithIntentRig(t)
 
-	if err := e.st.RevokeAgent(e.ctx, agentID, "stolen", e.core.Now()); err != nil { // the store alone: no cascade, as in old data
+	if err := e.st.RevokeAgent(e.ctx, "org-1", agentID, "stolen", e.core.Now()); err != nil { // the store alone: no cascade, as in old data
 		t.Fatal(err)
 	}
 	got, _ := e.core.Telemetry.GetTelemetryIntent(e.ctx, ti.ID)

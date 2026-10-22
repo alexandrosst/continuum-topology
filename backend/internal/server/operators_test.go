@@ -25,7 +25,7 @@ func (e *env) approvedCluster(t *testing.T, fingerprint string) string {
 	if err := e.approve(resp.AgentId, 1); err != nil {
 		t.Fatal(err)
 	}
-	a, err := e.st.GetAgent(e.ctx, resp.AgentId)
+	a, err := e.st.GetAgent(e.ctx, "org-1", resp.AgentId)
 	if err != nil {
 		t.Fatal(err)
 	}

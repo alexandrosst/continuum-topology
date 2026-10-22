@@ -109,7 +109,7 @@ func TestRepeatedRefusalsAreRecordedOncePerWindow(t *testing.T) {
 	r := newHubRig(t)
 	r.hub.Limits = &facts.Limits{Nodes: 5, Namespaces: 5, Workloads: 5, Bytes: 1 << 20}
 	id, _, _ := r.approvedAgent(t, testkit.FP)
-	a, _ := r.st.GetAgent(r.ctx, id)
+	a, _ := r.st.GetAgent(r.ctx, "org-1", id)
 	v := &View{EstView: EstView{State: facts.New()}}
 	r.hub.Mu.Lock()
 	r.hub.Views[id] = v
@@ -135,7 +135,7 @@ func TestUniqueKeyFloodThroughApplySyncStopsAtTheLimit(t *testing.T) {
 	r := newHubRig(t)
 	r.hub.Limits = &facts.Limits{Nodes: 100, Namespaces: 100, Workloads: 300, Bytes: 1 << 30}
 	id, _, _ := r.approvedAgent(t, testkit.FP)
-	a, _ := r.st.GetAgent(r.ctx, id)
+	a, _ := r.st.GetAgent(r.ctx, "org-1", id)
 	a.AccessTier = 2
 	r.hub.Mu.Lock()
 	r.hub.Views[id] = &View{EstView: EstView{State: facts.New()}}

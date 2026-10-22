@@ -29,7 +29,7 @@ func TestHelloAdvertisesTheCeilingAndDiagnosticsFollowHeartbeats(t *testing.T) {
 	// The owner has since run `helm upgrade --set access.tier=1`: the hello says so, the server records it and the approval follows it down.
 	hello := &continuumv1.Hello{AgentVersion: "9.9", InstalledAccessTier: 1, Diagnostics: &continuumv1.Diagnostics{AgentVersion: "9.9", Arch: "arm64", InstalledTier: 1, EffectiveTier: 1, ApprovedTier: 2}}
 	s := r.connect(t, ctx, key, leaf, hello)
-	a, _ := r.st.GetAgent(ctx, id)
+	a, _ := r.st.GetAgent(ctx, "org-1", id)
 	if a.InstalledTier != 1 || a.AccessTier != 1 {
 		t.Fatalf("installed %d, approved %d after a hello that says 1", a.InstalledTier, a.AccessTier)
 	}
@@ -440,7 +440,7 @@ func TestDropConsentOverridesStripsPausedProbeFields(t *testing.T) {
 	if _, err := r.hub.SetConsent(r.ctx, "actor", id, agents.Consent{Paused: []string{"probes"}}); err != nil {
 		t.Fatal(err)
 	}
-	a, _ := r.st.GetAgent(r.ctx, id)
+	a, _ := r.st.GetAgent(r.ctx, "org-1", id)
 	r.hub.Mu.Lock()
 	r.hub.Views[id] = NewView()
 	r.hub.Mu.Unlock()
@@ -480,7 +480,7 @@ func TestDropConsentOverridesFiltersExcludedNamespaces(t *testing.T) {
 	if _, err := r.hub.SetConsent(r.ctx, "actor", id, agents.Consent{Excluded: []string{"batch"}}); err != nil {
 		t.Fatal(err)
 	}
-	a, _ := r.st.GetAgent(r.ctx, id)
+	a, _ := r.st.GetAgent(r.ctx, "org-1", id)
 	r.hub.Mu.Lock()
 	r.hub.Views[id] = NewView()
 	r.hub.Mu.Unlock()
@@ -741,7 +741,7 @@ func TestConsentDocSaysWhetherTheAgentHasConfirmedANarrowing(t *testing.T) {
 func TestConsentDocWarnsAboutExcludedNamespacesTheAgentHasNeverReported(t *testing.T) {
 	r := newHubRig(t)
 	id, _, _ := r.approvedAgent(t, testkit.FP) // approved at tier 2
-	a, _ := r.st.GetAgent(r.ctx, id)
+	a, _ := r.st.GetAgent(r.ctx, "org-1", id)
 
 	// Nothing has ever synced: no warning, even though nothing is known yet - there is no "reality" to
 	// check against, so silence here, not a false alarm about every excluded name.
@@ -800,7 +800,7 @@ func TestKnownNamespacesOnlyLearnsFromASyncTheServerActuallyAccepted(t *testing.
 	r := newHubRig(t)
 	r.hub.Limits = &facts.Limits{Nodes: 100, Namespaces: 1, Workloads: 100, Bytes: 64 << 20}
 	id, _, _ := r.approvedAgent(t, testkit.FP)
-	a, _ := r.st.GetAgent(r.ctx, id)
+	a, _ := r.st.GetAgent(r.ctx, "org-1", id)
 
 	// Two namespaces against a limit of one: refused outright, nothing merged.
 	sy := &continuumv1.Sync{Full: true, Cluster: &continuumv1.ClusterFacts{Uid: testkit.FP},
