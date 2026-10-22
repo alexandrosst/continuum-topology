@@ -2,7 +2,7 @@ import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 import { describe, expect, test } from 'vitest'
-import CollectStep from '@/components/telemetry/CollectStep'
+import CollectStep from '@/features/pipeline/components/telemetry/CollectStep'
 import { TELEMETRY_INTENT_PRESETS } from '@/lib/consent'
 import { emptyTelemetry, PICKABLE_SIGNALS, type TelemetryInput } from '@/lib/install'
 

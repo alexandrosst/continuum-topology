@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, test } from 'vitest'
-import ArrivalCheck from '@/components/telemetry/ArrivalCheck'
+import ArrivalCheck from '@/features/pipeline/components/telemetry/ArrivalCheck'
 import type { AgentDiagnostics, AgentExportHealth } from '@/lib/consent'
 
 const NOW = Date.parse('2026-10-06T12:10:00Z')

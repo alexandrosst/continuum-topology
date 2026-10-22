@@ -1,8 +1,8 @@
 import { render, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, test } from 'vitest'
-import PipelinePath from '@/components/operators/PipelinePath'
-import type { Hop } from '@/lib/operatorsView'
+import PipelinePath from '@/features/pipeline/components/operators/PipelinePath'
+import type { Hop } from '@/features/pipeline/lib/operatorsView'
 
 const NOW = Date.parse('2026-10-09T12:00:00Z')
 const fresh = new Date(NOW - 20_000).toISOString()

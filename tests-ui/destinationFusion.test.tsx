@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { buildDestinationCatalog, catalogOperators, fusionForCatalog, fusionOffer } from '@/lib/destinationCatalog'
+import { buildDestinationCatalog, catalogOperators, fusionForCatalog, fusionOffer } from '@/features/pipeline/lib/destinationCatalog'
 import type { FusionStatus } from '@/lib/api'
 import type { OperatorDestinationEntry, RegionalOperator } from '@/lib/types'
 

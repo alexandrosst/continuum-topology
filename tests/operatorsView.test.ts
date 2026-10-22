@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import {
   addressCell, agentVerdict, buildComponents, buildHops, certCell, duration, intentDestination, joinLocal, lastDataText, localVerdict, needAttention, operatorVerdict, operatorServiceName,
   type LocalRow,
-} from '../src/lib/operatorsView'
+} from '../src/features/pipeline/lib/operatorsView'
 import type { Agent, RegionalOperator, TelemetryIntent } from '../src/lib/types'
 
 const NOW = Date.parse('2026-10-06T12:00:00Z')

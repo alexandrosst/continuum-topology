@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process'
 import { describe, expect, test } from 'vitest'
-import { addressCommands, connectionCheckCommand } from '@/components/operators/OperatorAddress'
+import { addressCommands, connectionCheckCommand } from '@/features/pipeline/components/operators/OperatorAddress'
 import { serverAddressUpgradeCommand } from '@/features/settings/lib/exposure'
 import { quickStartProblems, quickStartSpec } from '@/lib/quickStartBackends'
 

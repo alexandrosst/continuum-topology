@@ -2,7 +2,7 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { OperatorAddressModal } from '@/components/operators/OperatorAddress'
+import { OperatorAddressModal } from '@/features/pipeline/components/operators/OperatorAddress'
 import type { AddressCandidates, RegionalOperator } from '@/lib/types'
 
 const candidates = vi.fn(async (..._a: unknown[]): Promise<AddressCandidates> => ({ found: false, candidates: [] }))

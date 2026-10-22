@@ -19,7 +19,7 @@ import { Funnel, Boxes, ChevronDown, Download, Ellipsis, Filter as FilterIcon, I
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useConnectFlow } from '@/features/discovery/components/ConnectFlow'
-import { useTelemetryFlow } from '@/components/telemetry/TelemetryFlow'
+import { useTelemetryFlow } from '@/features/pipeline/components/telemetry/TelemetryFlow'
 import { ClusterForm, DeviceForm, NodeForm, ServiceForm } from '@/components/forms'
 import GettingStarted, { useGettingStarted } from '@/components/GettingStarted'
 import Inspector, { type Selection } from '@/components/topology/Inspector'

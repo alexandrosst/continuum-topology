@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
-import { isReportingHealth, operatorLiveness, receiverAuthOf } from '@/lib/operatorHealth'
-import { operatorCommandDraft } from '@/lib/operatorIntent'
+import { isReportingHealth, operatorLiveness, receiverAuthOf } from '@/features/pipeline/lib/operatorHealth'
+import { operatorCommandDraft } from '@/features/pipeline/lib/operatorIntent'
 import { emptyTelemetry, type TelemetryInput } from '@/lib/install'
 
 const NOW = Date.parse('2026-10-05T12:00:00Z')

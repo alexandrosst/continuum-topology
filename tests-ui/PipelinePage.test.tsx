@@ -4,7 +4,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { ApiError } from '@/lib/api'
 import { isReloadHeld } from '@/lib/staleBuild'
-import PipelinePage from '@/pages/PipelinePage'
+import PipelinePage from '@/features/pipeline/PipelinePage'
 import type { CreatedOperator, FusionStatus, IssuedCertificate, OperatorHeartbeatEnabled, OperatorRemoval } from '@/lib/api'
 import type { Agent, Cluster, OperatorDestinationEntry, RegionalOperator, TelemetryIntent } from '@/lib/types'
 
@@ -80,7 +80,7 @@ vi.mock('@/store/server', () => ({
   },
 }))
 const telemetryStart = vi.fn()
-vi.mock('@/components/telemetry/TelemetryFlow', () => ({
+vi.mock('@/features/pipeline/components/telemetry/TelemetryFlow', () => ({
   useTelemetryFlow: () => ({ start: telemetryStart, dialogs: null, canStart: false }),
 }))
 vi.mock('@/lib/api', async (importOriginal) => {

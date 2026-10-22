@@ -1,6 +1,6 @@
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import OperatorSendersModal, { deliveryWord } from '@/components/operators/OperatorSendersModal'
+import OperatorSendersModal, { deliveryWord } from '@/features/pipeline/components/operators/OperatorSendersModal'
 import { ApiError } from '@/lib/api'
 import type { OperatorSender, OperatorSenders, RegionalOperator } from '@/lib/types'
 

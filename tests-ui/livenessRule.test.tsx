@@ -2,11 +2,11 @@ import { describe, expect, test } from 'vitest'
 import { healthOf } from '@/lib/agentHealth'
 import { healthSummary, type AgentDiagnostics } from '@/lib/consent'
 import { probeRecent, type LinkPairLatest } from '@/lib/clusterLinks'
-import { agentVerdict } from '@/lib/operatorsView'
+import { agentVerdict } from '@/features/pipeline/lib/operatorsView'
 import { buildPlatform } from '@/lib/platformLayer'
 import { freshnessOf, type SelfTelemetryEntity } from '@/lib/selfHealth'
 import { AGENT_LATE_AFTER_MS, agentLiveness, PROBE_STALE_AFTER_MS, REPORT_STALE_AFTER_SECONDS, reportIsStale } from '@/lib/status'
-import { arrivalCheck } from '@/lib/telemetrySetup'
+import { arrivalCheck } from '@/features/pipeline/lib/telemetrySetup'
 import type { Agent } from '@/lib/types'
 
 /**

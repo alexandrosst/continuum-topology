@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
-import GuidedWizard from '@/components/telemetry/GuidedWizard'
+import GuidedWizard from '@/features/pipeline/components/telemetry/GuidedWizard'
 import { DEFAULT_SETTINGS, type AppSettings, type QuickStartBackend } from '@/lib/history'
 import { emptyTelemetry, type TelemetryInput } from '@/lib/install'
 import type { FusionStatus } from '@/lib/api'
@@ -56,8 +56,8 @@ vi.mock('@/lib/api', async (importOriginal) => {
 // The create dialog itself is covered by PipelinePage's tests. Here it is the real one unless a test asks for a stand-in that
 // reports one creation at once, which is all this wizard has to react to.
 let fakeCreated: RegionalOperator | undefined
-vi.mock('@/components/operators/CreateOperatorModal', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@/components/operators/CreateOperatorModal')>()
+vi.mock('@/features/pipeline/components/operators/CreateOperatorModal', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/features/pipeline/components/operators/CreateOperatorModal')>()
   const Real = actual.default
   return {
     ...actual,

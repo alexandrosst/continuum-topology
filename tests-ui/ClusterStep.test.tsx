@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, test, vi } from 'vitest'
-import ClusterStep from '@/components/telemetry/ClusterStep'
+import ClusterStep from '@/features/pipeline/components/telemetry/ClusterStep'
 import type { Agent, Cluster } from '@/lib/types'
 
 const agent = (id: string, over: Partial<Agent> = {}) => ({ id, name: `${id}-agent`, clusterId: `cl-${id}`, status: 'approved', connected: true, ...over }) as Agent

@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, test } from 'vitest'
-import type { Hop } from '@/lib/operatorsView'
-import { certLife } from '@/lib/certLifetime'
-import { EXPECTED_MS, freshness, hopChip, linkState } from '@/lib/pipelineFlow'
+import type { Hop } from '@/features/pipeline/lib/operatorsView'
+import { certLife } from '@/features/pipeline/lib/certLifetime'
+import { EXPECTED_MS, freshness, hopChip, linkState } from '@/features/pipeline/lib/pipelineFlow'
 
 const NOW = Date.parse('2026-10-09T12:00:00Z')
 const ago = (s: number) => new Date(NOW - s * 1000).toISOString()

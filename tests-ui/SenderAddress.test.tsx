@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import SenderAddress from '@/components/telemetry/SenderAddress'
+import SenderAddress from '@/features/pipeline/components/telemetry/SenderAddress'
 import type { AddressCandidates, AddressTest, RegionalOperator } from '@/lib/types'
 
 const candidates = vi.fn(async (..._a: unknown[]): Promise<AddressCandidates> => ({ found: false, candidates: [] }))

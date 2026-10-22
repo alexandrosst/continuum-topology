@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { describe, expect, test, vi } from 'vitest'
-import TelemetryWizard from '@/components/telemetry/TelemetryWizard'
+import TelemetryWizard from '@/features/pipeline/components/telemetry/TelemetryWizard'
 import type { Agent, Cluster } from '@/lib/types'
 
 // Same recipe as PipelinePage.test.tsx: the shared stores this component reads from are faked

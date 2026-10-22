@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import type { AgentDiagnostics, AgentExportHealth } from '@/lib/consent'
 import { emptyTelemetry } from '@/lib/install'
-import { ARRIVAL_PATIENCE_SECONDS, arrivalCheck, clusterTelemetryLine, reviewNotes } from '@/lib/telemetrySetup'
+import { ARRIVAL_PATIENCE_SECONDS, arrivalCheck, clusterTelemetryLine, reviewNotes } from '@/features/pipeline/lib/telemetrySetup'
 
 const NOW = Date.parse('2026-10-06T12:10:00Z')
 const iso = (secondsAgo: number) => new Date(NOW - secondsAgo * 1000).toISOString()

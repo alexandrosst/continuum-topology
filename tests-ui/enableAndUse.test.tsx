@@ -1,8 +1,8 @@
 import { act, render, renderHook, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, test, vi } from 'vitest'
-import DestinationPicker, { useEnableAndUse, type FusionControls } from '@/components/telemetry/DestinationPicker'
-import { buildDestinationCatalog, fusionForCatalog, layoutDestinations, type DestinationCatalogEntry } from '@/lib/destinationCatalog'
+import DestinationPicker, { useEnableAndUse, type FusionControls } from '@/features/pipeline/components/telemetry/DestinationPicker'
+import { buildDestinationCatalog, fusionForCatalog, layoutDestinations, type DestinationCatalogEntry } from '@/features/pipeline/lib/destinationCatalog'
 import type { FusionStatus } from '@/lib/api'
 import type { RegionalOperator } from '@/lib/types'
 

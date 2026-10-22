@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { useState } from 'react'
 import { describe, expect, it } from 'vitest'
-import CollectStep from '@/components/telemetry/CollectStep'
+import CollectStep from '@/features/pipeline/components/telemetry/CollectStep'
 import { LINK_REQUIREMENT } from '@/lib/clusterLinks'
 import { emptyTelemetry, telemetryProblems, type TelemetryInput } from '@/lib/install'
 

@@ -2,7 +2,7 @@ import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 import { describe, expect, test } from 'vitest'
-import ProcessOptions from '@/components/telemetry/ProcessOptions'
+import ProcessOptions from '@/features/pipeline/components/telemetry/ProcessOptions'
 import { emptyTelemetry, type TelemetryInput } from '@/lib/install'
 
 // The extra processors a person can add behind "Extra processors" in the setup's tags/masking/sampling section: filters, transforms and a

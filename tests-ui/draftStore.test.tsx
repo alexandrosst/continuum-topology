@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import { clearDraft, loadDraft, saveDraft } from '@/lib/draftStore'
+import { clearDraft, loadDraft, saveDraft } from '@/features/pipeline/lib/draftStore'
 import { emptyTelemetry } from '@/lib/install'
 
 describe('draftStore', () => {

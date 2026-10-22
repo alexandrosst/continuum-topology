@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { emptyExportTarget, emptyTelemetry, type TelemetryInput } from '../src/lib/install'
 import { operatorReceiverEndpoint } from '../src/lib/operatorReceiver'
-import { exportOperatorId, intentDestinations, intentScope, intentSignals, laneOperatorId, operatorCommandDraft, operatorTargets } from '../src/lib/operatorIntent'
+import { exportOperatorId, intentDestinations, intentScope, intentSignals, laneOperatorId, operatorCommandDraft, operatorTargets } from '../src/features/pipeline/lib/operatorIntent'
 
 const operatorDraft = (over: Partial<TelemetryInput> = {}): TelemetryInput => ({ ...emptyTelemetry, resourceUsage: true, exportEndpoint: 'op-eu.continuum-system.svc:4317', exportOperatorId: 'op-eu', ...over })
 

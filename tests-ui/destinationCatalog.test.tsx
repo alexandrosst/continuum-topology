@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { applyDestination, buildDestinationCatalog, defaultDestination, destinationGroup, destinationKey, destinationNeedsCredential, fusionForCatalog, layoutDestinations, searchDestinations } from '@/lib/destinationCatalog'
+import { applyDestination, buildDestinationCatalog, defaultDestination, destinationGroup, destinationKey, destinationNeedsCredential, fusionForCatalog, layoutDestinations, searchDestinations } from '@/features/pipeline/lib/destinationCatalog'
 import { detectBackends, imageRepository } from '@/lib/detectBackends'
 import type { FusionStatus } from '@/lib/api'
 import { emptyTelemetry, type Modality } from '@/lib/install'
