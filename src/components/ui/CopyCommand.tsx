@@ -32,4 +32,3 @@ export function CopyCommand({ text, stale = false, multiline = false, testId = '
     </div>
   )
 }
-

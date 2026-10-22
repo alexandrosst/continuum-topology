@@ -1,6 +1,6 @@
 import { act, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import { ServerCommand } from '@/components/agents/AgentInsight'
+import { ServerCommand } from '@/components/ui/ServerCommand'
 import { type AgentUpgradeAnswer, type AgentUpgradeRequest, UPGRADE_DEBOUNCE_MS, upgradeRequest, useAgentUpgradeCommand } from '@/lib/agentUpgrade'
 import { emptyTelemetry } from '@/lib/install'
 

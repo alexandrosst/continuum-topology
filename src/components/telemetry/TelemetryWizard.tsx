@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { TelemetryPanel } from '@/components/agents/AgentInsight'
+import { TelemetryPanel } from '@/components/telemetry/TelemetryPanel'
 import { Button, Modal, WizardSteps } from '@/components/ui/primitives'
 import { extrasOf } from '@/lib/consent'
 import { SETUP_STEPS } from '@/lib/telemetrySetup'
