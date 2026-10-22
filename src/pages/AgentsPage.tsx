@@ -9,7 +9,7 @@ import { CheckLine, MODULE_STYLE, ObserverLine, ScopeLine, STATUS_STYLE, when } 
 import ApprovalCard from '@/components/discovery/ApprovalCard'
 import { useConnectFlow } from '@/components/discovery/ConnectFlow'
 import { useTelemetryFlow } from '@/components/telemetry/TelemetryFlow'
-import EntityHistory from '@/components/EntityHistory'
+import EntityHistory from '@/features/history/components/EntityHistory'
 import { ConfirmModal } from '@/components/forms'
 import { DistroIcon, Flag, WithIcon } from '@/components/ui/brand'
 import { Button, EmptyState, ErrorBanner, ICON_SM, LiveDot, type LiveKind, PageHeader, StatTile, Table, Td, Th, TierBadge } from '@/components/ui/primitives'

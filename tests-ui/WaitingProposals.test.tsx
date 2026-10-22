@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import type { Proposal } from '@/lib/proposals'
-import { usePollWaitingProposals, useWaitingProposals, WAITING_CAP } from '@/store/waitingProposals'
+import { usePollWaitingProposals, useWaitingProposals, WAITING_CAP } from '@/features/proposals/store/waitingProposals'
 
 let role: string | undefined = 'editor'
 let status = 'connected'

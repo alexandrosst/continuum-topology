@@ -2,7 +2,8 @@ import type { FusionStatus } from './api'
 import { detectBackends, type DetectedBackend } from './detectBackends'
 import type { ExportProtocol, Modality, TelemetryInput } from './install'
 import { EXPORT_PRESETS, type ExportPreset } from './exportPresets'
-import { CENTRAL_OPERATOR_ID, type FusionKind, fusionSentence } from './fusionStatus'
+import { operatorReceiverEndpoint } from './operatorReceiver'
+import { CENTRAL_OPERATOR_ID, type FusionKind, fusionSentence } from '../features/fusion/lib/fusionStatus'
 import type { QuickStartBackend } from './history'
 import { hasQuickStartSpec, quickStartSpec } from './quickStartBackends'
 import type { OperatorDestinationEntry, RegionalOperator, Service } from './types'
@@ -178,13 +179,6 @@ function centralOperator(opts: { operators: RegionalOperator[]; destinations: Op
     reachableFromOtherClusters: opts.status?.central?.exposed === true,
     addressState: 'none',
   }
-}
-
-/** The host:port a regional operator's own OTLP receiver answers on, in-cluster - the exact same string
- *  the backend's own operatorDestinationCommand builds (admin_operators.go) for pointing an agent's
- *  export at it. Always plain gRPC: the operator chart's receiver has no HTTP listener. */
-export function operatorReceiverEndpoint(op: { id: string }): string {
-  return `${op.id}.continuum-system.svc:4317`
 }
 
 /** "Does not accept logs or traces." - the one sentence every disabled destination carries: exactly what it cannot take of what was chosen. */

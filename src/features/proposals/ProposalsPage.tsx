@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import AdvisorRecords from '@/components/proposals/AdvisorRecords'
-import ProposalDialog, { ConfidencePill, StatusPill } from '@/components/proposals/ProposalDialog'
+import AdvisorRecords from '@/features/proposals/components/AdvisorRecords'
+import ProposalDialog, { ConfidencePill, StatusPill } from '@/features/proposals/components/ProposalDialog'
 import { Button, EmptyState, ErrorBanner, PageHeader, Pill, Select, Table, TableSkeleton, Td, Th } from '@/components/ui/primitives'
 import { api, atLeast } from '@/lib/api'
 import { ago } from '@/lib/observed'
 import { changeLines, effectLines, timeLeft, waitingFirst, type AdvisorRecord, type Proposal, type ProposalStatus } from '@/lib/proposals'
 import { useConn, useServer } from '@/store/server'
 import { useTopology } from '@/store/topology'
-import { refreshWaitingProposals, useWaitingProposals, WAITING_CAP } from '@/store/waitingProposals'
+import { refreshWaitingProposals, useWaitingProposals, WAITING_CAP } from '@/features/proposals/store/waitingProposals'
 
 const FILTERS: { value: ProposalStatus | 'all'; label: string }[] = [
   { value: 'pending', label: 'Waiting for a decision' },

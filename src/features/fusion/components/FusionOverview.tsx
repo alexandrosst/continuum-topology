@@ -1,14 +1,14 @@
 import clsx from 'clsx'
 import { CircleCheck } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { type useFusion } from '@/components/fusion/useFusion'
-import { FusionSection, ROWS } from '@/components/fusion/FusionSection'
-import { StatusChip } from '@/components/fusion/StatusChip'
-import { DiskBar, FillsIn } from '@/components/fusion/StoreBars'
+import { type useFusion } from '@/features/fusion/components/useFusion'
+import { FusionSection, ROWS } from '@/features/fusion/components/FusionSection'
+import { StatusChip } from '@/features/fusion/components/StatusChip'
+import { DiskBar, FillsIn } from '@/features/fusion/components/StoreBars'
 import { buttonClass } from '@/components/ui/buttonClass'
 import { Button, CopyButton, ICON_MD, Waiting } from '@/components/ui/primitives'
 import { type FusionComponent, type FusionRetention } from '@/lib/api'
-import { fusionSentence, type FusionProblem, partHealth } from '@/lib/fusionStatus'
+import { fusionSentence, type FusionProblem, partHealth } from '@/features/fusion/lib/fusionStatus'
 
 const PART_NOTE: Record<FusionComponent['component'], string> = {
   central: 'the way in',

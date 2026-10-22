@@ -1,5 +1,5 @@
 import type { FusionComponent, FusionRetention, FusionStatus } from '@/lib/api'
-import { fullness, neededBytes, retentionVerdict, volumeGiB } from '@/lib/fusionRetention'
+import { fullness, neededBytes, retentionVerdict, volumeGiB } from '@/features/fusion/lib/fusionRetention'
 import { ago } from '@/lib/observed'
 import { HEALTH_WORD, type Health } from '@/lib/status'
 

@@ -1,4 +1,4 @@
-import { fusionLabel } from './fusionStatus'
+import { fusionLabel } from '../features/fusion/lib/fusionStatus'
 import { ago } from './observed'
 import type { ReceiverAuth, RegionalOperator } from './types'
 

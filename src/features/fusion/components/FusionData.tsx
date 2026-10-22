@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { FusionSection, ROWS } from '@/components/fusion/FusionSection'
+import { FusionSection, ROWS } from '@/features/fusion/components/FusionSection'
 import { ErrorBanner, Pill, SkeletonBlock } from '@/components/ui/primitives'
 import { api, ApiError, type FusionApplications, type FusionServices, type FusionSignal } from '@/lib/api'
 import { useServer } from '@/store/server'

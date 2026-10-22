@@ -1,9 +1,9 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, test } from 'vitest'
 import { HealthWord } from '@/components/telemetry/ArrivalCheck'
-import { StatusChip } from '@/components/fusion/StatusChip'
+import { StatusChip } from '@/features/fusion/components/StatusChip'
 import StateChip from '@/components/operators/StateChip'
-import { SHOWN_WORD } from '@/lib/fusionStatus'
+import { SHOWN_WORD } from '@/features/fusion/lib/fusionStatus'
 import { HEALTH_WORD } from '@/lib/status'
 
 /**

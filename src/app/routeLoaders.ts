@@ -27,15 +27,15 @@ export const routeLoaders: Record<string, () => Promise<{ default: ComponentType
   '/sites': () => import('@/pages/SitesPage'),
   '/discovery': () => import('@/pages/DiscoveryPage'),
   '/agents': () => import('@/pages/AgentsPage'),
-  '/proposals': () => import('@/pages/ProposalsPage'),
+  '/proposals': () => import('@/features/proposals/ProposalsPage'),
   '/pipeline': () => import('@/pages/PipelinePage'),
-  '/fusion': () => import('@/pages/FusionPage'),
-  '/history': () => import('@/pages/HistoryPage'),
-  '/system-health': () => import('@/pages/SystemHealthPage'),
+  '/fusion': () => import('@/features/fusion/FusionPage'),
+  '/history': () => import('@/features/history/HistoryPage'),
+  '/system-health': () => import('@/features/health/SystemHealthPage'),
   '/placement': () => import('@/pages/PlacementPage'),
-  '/settings': () => import('@/pages/SettingsPage'),
-  '/activity': () => import('@/pages/ActivityPage'),
-  '/team': () => import('@/pages/TeamPage'),
+  '/settings': () => import('@/features/settings/SettingsPage'),
+  '/activity': () => import('@/features/activity/ActivityPage'),
+  '/team': () => import('@/features/accounts/TeamPage'),
 }
 
 /** Starts fetching a route's chunk ahead of navigation. Safe to call for any string, including redirects

@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, test, vi } from 'vitest'
-import TimeSeriesChart from '@/components/health/TimeSeriesChart'
+import TimeSeriesChart from '@/features/health/components/TimeSeriesChart'
 import type { ChartPoint } from '@/lib/selfHealth'
 
 const pct = (v: number) => `${v.toFixed(1)}%`

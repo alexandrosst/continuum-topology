@@ -2,7 +2,7 @@ import { Hourglass } from 'lucide-react'
 import { MeterBar } from '@/components/ui/MeterBar'
 import { ICON_SM } from '@/components/ui/primitives'
 import type { FusionRetentionStore } from '@/lib/api'
-import { daysText, diskBar, fillsInDays, formatBytes, keptBar } from '@/lib/fusionRetention'
+import { daysText, diskBar, fillsInDays, formatBytes, keptBar } from '@/features/fusion/lib/fusionRetention'
 
 /** A store's volume as a bar with the figure beside it. What else is known (the storage class, the growth a day) is its tooltip. */
 export function DiskBar({ s }: { s: FusionRetentionStore }) {

@@ -1,6 +1,6 @@
 import { extrasOf, releaseTarget, type AgentDiagnostics } from './consent'
 import { exportReach, exportRows } from './exportHealth'
-import { CENTRAL_OPERATOR_ID, type FusionKind } from './fusionStatus'
+import { CENTRAL_OPERATOR_ID, type FusionKind } from '../features/fusion/lib/fusionStatus'
 import { ago } from './observed'
 import type { Agent, Cluster, OperatorDestination, RegionalOperator, TelemetryIntent } from './types'
 import { agentLiveness, type HealthOrSetup, severity } from './status'

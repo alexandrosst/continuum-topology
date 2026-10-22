@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { ApiError, type FusionApplications, type FusionRetention, type FusionServices, type FusionStatus } from '@/lib/api'
-import FusionPage from '@/pages/FusionPage'
+import FusionPage from '@/features/fusion/FusionPage'
 
 let admin = true
 let status: FusionStatus

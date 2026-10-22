@@ -9,7 +9,7 @@
 import { activeLanes, emptyExportTarget, cleanTags, emptyScopeOverride, emptyTelemetry, enabledModalities, isKept, keepAsInstalled, ROUTE_MODALITIES, SECRET_KEY, SECRET_NAME, scopeProblems, splitNames, telemetryActive, telemetryProblems, type KeptGroup, type Modality, type TelemetryInput, PICKABLE_SIGNALS, TELEMETRY_SIGNALS } from './install'
 // Re-exported for every existing `from '@/lib/consent'` import site - Modality/TELEMETRY_SIGNALS/
 // enabledModalities now live in install.ts (see its own comment on why), consent.ts just re-exports them.
-import { operatorReceiverEndpoint } from './destinationCatalog'
+import { operatorReceiverEndpoint } from './operatorReceiver'
 import type * as W from './generated/wire'
 import type { TelemetryIntent } from './types'
 import { processorKey } from './processorCatalog'

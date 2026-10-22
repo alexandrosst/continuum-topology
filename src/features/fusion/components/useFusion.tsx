@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { LiveDot, type LiveKind } from '@/components/ui/primitives'
 import { api, ApiError, type FusionStatus } from '@/lib/api'
-import { type FusionKind, fusionSentence } from '@/lib/fusionStatus'
+import { type FusionKind, fusionSentence } from '@/features/fusion/lib/fusionStatus'
 import { useVisiblePolling } from '@/lib/usePolling'
 import { useServer } from '@/store/server'
 

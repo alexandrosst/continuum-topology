@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import EntityHealthCard from '@/components/health/EntityHealthCard'
+import EntityHealthCard from '@/features/health/components/EntityHealthCard'
 import { EmptyState, ErrorBanner, PageHeader, SkeletonBlock, SkeletonLines } from '@/components/ui/primitives'
 import { api, type Conn } from '@/lib/api'
 import { entityLabel, type SelfTelemetryEntity } from '@/lib/selfHealth'

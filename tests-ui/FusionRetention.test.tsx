@@ -1,9 +1,9 @@
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
-import { FusionRetentionCard, useFusionRetention } from '@/components/fusion/FusionRetention'
+import { FusionRetentionCard, useFusionRetention } from '@/features/fusion/components/FusionRetention'
 import type { FusionRetention, FusionRetentionStore } from '@/lib/api'
-import { daysThatFit, formatBytes, formChanges, fullness, formError, GIB, initialForm, neededGiB, restartedBy, retentionVerdict, shortened, diskBar, fillsInDays, keptBar } from '@/lib/fusionRetention'
+import { daysThatFit, formatBytes, formChanges, fullness, formError, GIB, initialForm, neededGiB, restartedBy, retentionVerdict, shortened, diskBar, fillsInDays, keptBar } from '@/features/fusion/lib/fusionRetention'
 
 /** The card as the Settings tab uses it: the hook reads, the card shows. */
 function Card({ state }: { state: string }) {

@@ -1,8 +1,8 @@
 import { act, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import { POLL_RUNNING_MS, POLL_SETTLING_MS, useFusion } from '@/components/fusion/useFusion'
+import { POLL_RUNNING_MS, POLL_SETTLING_MS, useFusion } from '@/features/fusion/components/useFusion'
 import type { FusionRetention, FusionStatus } from '@/lib/api'
-import { fusionHealth, fusionLabel, fusionProblems, fusionSentence, fusionUsable, lastDataText, partHealth, type FusionKind } from '@/lib/fusionStatus'
+import { fusionHealth, fusionLabel, fusionProblems, fusionSentence, fusionUsable, lastDataText, partHealth, type FusionKind } from '@/features/fusion/lib/fusionStatus'
 
 const parts = (ready: number[]) =>
   (['metrics', 'logs', 'traces', 'central'] as const).map((component, i) => ({ component, label: component, desired: 1, ready: ready[i] }))

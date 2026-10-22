@@ -1,7 +1,7 @@
 import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
-import ActivityPage from '@/pages/ActivityPage'
+import ActivityPage from '@/features/activity/ActivityPage'
 import type { AuditRow } from '@/lib/api'
 
 const audit = vi.fn(async (): Promise<{ rows: AuditRow[]; source: 'graph' | 'local' }> => ({ source: 'local', rows: [] }))

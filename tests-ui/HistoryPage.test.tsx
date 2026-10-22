@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, test, vi } from 'vitest'
-import HistoryPage, { RecordingSettings } from '@/pages/HistoryPage'
+import HistoryPage, { RecordingSettings } from '@/features/history/HistoryPage'
 import { DEFAULT_SETTINGS, type AppSettings, type ChangeEvent, type HistoryIndex } from '@/lib/history'
 
 // RecordingSettings is the "recording and checks" settings form on the History page. This file covers

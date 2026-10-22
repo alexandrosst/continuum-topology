@@ -1,4 +1,4 @@
-import { shArg } from './install'
+import { shArg } from '../../../lib/install'
 
 /** How the agent port (`server.address`, what every agent dials) is currently reached, as the server chart passes it
  *  down (`--agent-exposure`, from `agent.service.type` / `agent.tlsRoute.enabled`). Purely descriptive: the server

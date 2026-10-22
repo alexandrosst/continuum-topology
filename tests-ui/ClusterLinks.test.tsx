@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import ClusterLinks from '@/components/ClusterLinks'
+import ClusterLinks from '@/features/links/components/ClusterLinks'
 import { api } from '@/lib/api'
 import { LINK_REQUIREMENT, type LinksLatest, type SetupStep } from '@/lib/clusterLinks'
 import { DEFAULT_SETTINGS, type LinkPair } from '@/lib/history'

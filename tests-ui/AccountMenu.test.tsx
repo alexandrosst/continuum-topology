@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it, beforeEach } from 'vitest'
-import AccountMenu from '@/components/auth/AccountMenu'
+import AccountMenu from '@/features/accounts/components/AccountMenu'
 import { useServer } from '@/store/server'
 import { useWorkspace } from '@/store/workspace'
 import type { User } from '@/lib/api'

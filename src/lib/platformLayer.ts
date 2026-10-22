@@ -9,7 +9,7 @@
  */
 import { extrasOf } from './consent'
 import { exportReach, exportRows } from './exportHealth'
-import { CENTRAL_OPERATOR_ID } from './fusionStatus'
+import { CENTRAL_OPERATOR_ID } from '../features/fusion/lib/fusionStatus'
 import { TELEMETRY_SIGNALS, type Modality } from './install'
 import { ago } from './observed'
 import type { Agent, OperatorDestination, RegionalOperator, TelemetryIntent } from './types'

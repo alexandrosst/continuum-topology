@@ -1,15 +1,15 @@
 import clsx from 'clsx'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ConfirmModal } from '@/components/forms'
-import { FusionSection, ROWS } from '@/components/fusion/FusionSection'
-import { DiskBar, FillsIn, KeptBar } from '@/components/fusion/StoreBars'
+import { FusionSection, ROWS } from '@/features/fusion/components/FusionSection'
+import { DiskBar, FillsIn, KeptBar } from '@/features/fusion/components/StoreBars'
 import { buttonClass } from '@/components/ui/buttonClass'
 import { Button, ErrorBanner, Field, Input, Modal } from '@/components/ui/primitives'
 import { api, ApiError, type FusionRetention, type FusionRetentionStore } from '@/lib/api'
 import {
   daysText, daysThatFit, formatBytes, formChanges, formError, fullness, fullnessAdvice, initialForm, restartedBy, retentionVerdict, type RetentionFormState, shortened,
   sizeCapped, volumeGiB,
-} from '@/lib/fusionRetention'
+} from '@/features/fusion/lib/fusionRetention'
 import { useVisiblePolling } from '@/lib/usePolling'
 import { useServer } from '@/store/server'
 

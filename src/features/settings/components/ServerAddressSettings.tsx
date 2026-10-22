@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { CopyCommand } from '@/components/ui/CopyCommand'
 import { Field, Input } from '@/components/ui/primitives'
-import { exposureHelp, exposureIsAddressSwap, exposureLabel, serverAddressUpgradeCommand } from '@/lib/exposure'
+import { exposureHelp, exposureIsAddressSwap, exposureLabel, serverAddressUpgradeCommand } from '@/features/settings/lib/exposure'
 import { useServer } from '@/store/server'
 
 /**

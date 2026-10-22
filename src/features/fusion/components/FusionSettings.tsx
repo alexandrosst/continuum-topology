@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { ConfirmModal } from '@/components/forms'
-import { FusionRetentionCard, type useFusionRetention } from '@/components/fusion/FusionRetention'
-import { FusionSection } from '@/components/fusion/FusionSection'
-import { type useFusion } from '@/components/fusion/useFusion'
+import { FusionRetentionCard, type useFusionRetention } from '@/features/fusion/components/FusionRetention'
+import { FusionSection } from '@/features/fusion/components/FusionSection'
+import { type useFusion } from '@/features/fusion/components/useFusion'
 import { Button } from '@/components/ui/primitives'
 
 /** How long data is kept and on what volumes, and the switch: the settings that change what FUSION holds. */

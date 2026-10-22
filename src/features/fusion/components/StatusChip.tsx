@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { CircleCheck, CircleHelp, CircleX, Loader2, TriangleAlert } from 'lucide-react'
 import { ICON_SM } from '@/components/ui/primitives'
-import { SHOWN_WORD, type Shown } from '@/lib/fusionStatus'
+import { SHOWN_WORD, type Shown } from '@/features/fusion/lib/fusionStatus'
 import { TONE_CLASS, type Tone } from '@/lib/provenance'
 
 const LOOK: Record<Shown, { tone: Tone; icon?: typeof CircleCheck }> = {

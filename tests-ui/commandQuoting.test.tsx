@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import { describe, expect, test } from 'vitest'
 import { addressCommands, connectionCheckCommand } from '@/components/operators/OperatorAddress'
-import { serverAddressUpgradeCommand } from '@/lib/exposure'
+import { serverAddressUpgradeCommand } from '@/features/settings/lib/exposure'
 import { quickStartProblems, quickStartSpec } from '@/lib/quickStartBackends'
 
 const hasBash = spawnSync('bash', ['--version']).status === 0

@@ -1,5 +1,5 @@
 import { api, ApiError, type Conn, type TelemetryIntentCommand } from './api'
-import { operatorReceiverEndpoint } from './destinationCatalog'
+import { operatorReceiverEndpoint } from './operatorReceiver'
 import { activeLanes, TELEMETRY_SIGNALS, type ExportTarget, type Modality, type ScopeOverrideInput, type TelemetryInput } from './install'
 import type { OperatorDestination, ReceiverAuth, SignalGrant, TelemetryIntent } from './types'
 import { telemetrySpec } from './telemetrySpec'

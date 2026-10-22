@@ -2,7 +2,7 @@ import { ChevronsUpDown, Fingerprint, KeyRound, LogOut, Mail, Monitor, Moon, Plu
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, NavLink, useLocation } from 'react-router-dom'
 import { Button, CopyButton, CopyValue, ErrorBanner, Field, ICON_MD, ICON_SM, Input, Modal, PasswordInput, Select } from '@/components/ui/primitives'
-import { PasswordRequirements, passwordRules } from '@/components/auth/AuthGate'
+import { PasswordRequirements, passwordRules } from '@/features/accounts/components/AuthGate'
 import { useHoldReload } from '@/lib/useHoldReload'
 import { api, ApiError, atLeast, ROLE_LABEL, type ApiToken, type CreatedApiToken, type Passkey } from '@/lib/api'
 import { bareIpHost, passkeysSupported } from '@/lib/webauthn'

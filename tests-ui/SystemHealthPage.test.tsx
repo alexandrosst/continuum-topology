@@ -1,6 +1,6 @@
 import { act, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import SystemHealthPage from '@/pages/SystemHealthPage'
+import SystemHealthPage from '@/features/health/SystemHealthPage'
 import type { SelfTelemetryEntity } from '@/lib/selfHealth'
 
 const selfTelemetry = vi.fn<[], Promise<SelfTelemetryEntity[]>>()
