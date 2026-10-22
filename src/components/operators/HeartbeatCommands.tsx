@@ -1,4 +1,4 @@
-import { CopyCommand } from '@/components/agents/AgentInsight'
+import { CopyCommand } from '@/components/ui/CopyCommand'
 
 /** What health reporting sends, in one sentence both the create form, the confirmation and the created
  *  screen can lean on: not a telemetry payload, only an availability check, and only when opted in. */

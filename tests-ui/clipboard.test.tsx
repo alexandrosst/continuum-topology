@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import { CopyCommand } from '@/components/agents/AgentInsight'
+import { CopyCommand } from '@/components/ui/CopyCommand'
 import { CopyButton, CopyIconButton, CopyValue } from '@/components/ui/primitives'
 import { copyToClipboard } from '@/lib/clipboard'
 

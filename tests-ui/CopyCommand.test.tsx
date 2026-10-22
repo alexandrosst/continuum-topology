@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, test, vi } from 'vitest'
-import { CopyCommand } from '@/components/agents/AgentInsight'
+import { CopyCommand } from '@/components/ui/CopyCommand'
 import { useServer } from '@/store/server'
 
 describe('CopyCommand', () => {

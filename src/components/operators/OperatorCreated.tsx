@@ -1,6 +1,6 @@
 import { Plug } from 'lucide-react'
 import type { ReactNode } from 'react'
-import { CopyCommand } from '@/components/agents/AgentInsight'
+import { CopyCommand } from '@/components/ui/CopyCommand'
 import { FusionDot } from '@/components/fusion/useFusion'
 import { HeartbeatCommands } from '@/components/operators/HeartbeatCommands'
 import { FindTheAddress } from '@/components/operators/OperatorAddress'

@@ -1,4 +1,4 @@
-import { CopyCommand } from '@/components/agents/AgentInsight'
+import { CopyCommand } from '@/components/ui/CopyCommand'
 import { Button, Modal, RunStep } from '@/components/ui/primitives'
 import type { ComponentRow, Todo } from '@/lib/operatorsView'
 

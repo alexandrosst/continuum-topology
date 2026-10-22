@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { CopyCommand } from '@/components/agents/AgentInsight'
+import { CopyCommand } from '@/components/ui/CopyCommand'
 import { Button, ErrorBanner, Field, Input, Modal } from '@/components/ui/primitives'
 import { api, ApiError, type OperatorExposure } from '@/lib/api'
 import { shArg } from '@/lib/install'

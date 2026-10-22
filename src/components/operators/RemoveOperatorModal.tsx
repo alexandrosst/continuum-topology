@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { CopyCommand } from '@/components/agents/AgentInsight'
+import { CopyCommand } from '@/components/ui/CopyCommand'
 import { Button, ErrorBanner, Modal } from '@/components/ui/primitives'
 import { api, ApiError, type OperatorRemoval } from '@/lib/api'
 import type { OperatorUsedBy, RegionalOperator } from '@/lib/types'

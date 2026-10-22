@@ -1,6 +1,6 @@
 import { BookOpen, Plus } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { CopyCommand } from '@/components/agents/AgentInsight'
+import { CopyCommand } from '@/components/ui/CopyCommand'
 import { ConfirmModal } from '@/components/forms'
 import { FusionSection, ROWS } from '@/components/fusion/FusionSection'
 import { buttonClass } from '@/components/ui/buttonClass'
