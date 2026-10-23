@@ -3,7 +3,7 @@ package connectivity
 import (
 	"time"
 
-	"continuum/internal/kernel"
+	"ikhnos/internal/kernel"
 )
 
 // Testing an address from the cluster that will dial it.

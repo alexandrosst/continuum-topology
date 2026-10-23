@@ -16,10 +16,10 @@ import { forgetPending, useWorkspace } from './workspace'
  * secret or the password after submitting it. Once signed in, the server's workspace replaces the
  * browser's copy and every poll merges what agents discovered into it, keeping human overrides.
  */
-const URL_KEY = 'continuum-server/url'
-const ORG_KEY = 'continuum-server/org'
+const URL_KEY = 'ikhnos-server/url'
+const ORG_KEY = 'ikhnos-server/org'
 /** Which organisation the topology copy held in this browser mirrors, so it is never shown to, or uploaded into, another. */
-const OWNER_KEY = 'continuum-workspace-owner'
+const OWNER_KEY = 'ikhnos-workspace-owner'
 
 const read = (k: string) => {
   try {

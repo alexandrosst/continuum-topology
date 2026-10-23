@@ -8,12 +8,12 @@ import (
 	"strings"
 	"time"
 
-	"continuum/internal/accounts"
-	"continuum/internal/graph"
-	"continuum/internal/httpkit"
-	"continuum/internal/kernel"
-	"continuum/internal/store"
-	"continuum/internal/workspace"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/graph"
+	"ikhnos/internal/httpkit"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/store"
+	"ikhnos/internal/workspace"
 )
 
 // graph is the organisation's graph store, or nil when the server runs without one.

@@ -3,8 +3,8 @@ package fusionhttp
 import (
 	"time"
 
-	"continuum/internal/fusion"
-	"continuum/internal/fusionapi"
+	"ikhnos/internal/fusion"
+	"ikhnos/internal/fusionapi"
 )
 
 // The answers of the data API that were maps at the handler. The fields are in the alphabetical order of their JSON names, which is the

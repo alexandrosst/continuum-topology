@@ -37,7 +37,7 @@ func envSource(c corev1.Container, name string) *corev1.EnvVarSource {
 // dcgm-exporter's tags carry a variant suffix: 4.6.0-4.8.3 exists only as -distroless (and -ubuntu22.04 was
 // dropped in that release), so the unsuffixed tag this chart used to ship pulls nothing.
 func TestDcgmDefaultImageIsATagThatExists(t *testing.T) {
-	ds := render(t, accelOn...).daemonsets["continuum-telemetry-dcgm"]
+	ds := render(t, accelOn...).daemonsets["ikhnos-telemetry-dcgm"]
 	img := ds.Spec.Template.Spec.Containers[0].Image
 	if want := "nvcr.io/nvidia/k8s/dcgm-exporter:4.6.0-4.8.3-distroless"; img != want {
 		t.Errorf("dcgm-exporter image = %q, want %q (the unsuffixed 4.6.0-4.8.3 tag is not published)", img, want)
@@ -49,20 +49,20 @@ func TestDcgmDefaultImageIsATagThatExists(t *testing.T) {
 // the per-pod energy the operator turned the signal on for is never produced.
 func TestKeplerGetsItsOwnServiceAccountWithOnlyPodReadAccess(t *testing.T) {
 	r := render(t, energyOn...)
-	ds := r.daemonsets["continuum-telemetry-kepler"]
+	ds := r.daemonsets["ikhnos-telemetry-kepler"]
 	pod := ds.Spec.Template.Spec
-	if pod.ServiceAccountName != "continuum-agent-kepler" {
-		t.Fatalf("Kepler serviceAccountName = %q, want its own continuum-agent-kepler (never the agent's or the collectors')", pod.ServiceAccountName)
+	if pod.ServiceAccountName != "ikhnos-agent-kepler" {
+		t.Fatalf("Kepler serviceAccountName = %q, want its own ikhnos-agent-kepler (never the agent's or the collectors')", pod.ServiceAccountName)
 	}
 	if pod.AutomountServiceAccountToken == nil || !*pod.AutomountServiceAccountToken {
 		t.Error("Kepler must mount a token: its pod watcher uses the in-cluster config")
 	}
-	if _, ok := r.serviceaccounts["continuum-agent-kepler"]; !ok {
-		t.Fatal("ServiceAccount continuum-agent-kepler not rendered")
+	if _, ok := r.serviceaccounts["ikhnos-agent-kepler"]; !ok {
+		t.Fatal("ServiceAccount ikhnos-agent-kepler not rendered")
 	}
-	cr, ok := r.clusterroles["continuum-agent-kepler"]
+	cr, ok := r.clusterroles["ikhnos-agent-kepler"]
 	if !ok {
-		t.Fatal("ClusterRole continuum-agent-kepler not rendered")
+		t.Fatal("ClusterRole ikhnos-agent-kepler not rendered")
 	}
 	if len(cr.Rules) != 1 {
 		t.Fatalf("Kepler ClusterRole rules = %+v, want exactly one", cr.Rules)
@@ -72,11 +72,11 @@ func TestKeplerGetsItsOwnServiceAccountWithOnlyPodReadAccess(t *testing.T) {
 		strings.Join(rule.APIGroups, ",") != "" {
 		t.Errorf("Kepler rule = %+v, want core pods get/list/watch only", rule)
 	}
-	b, ok := r.clusterrolebindings["continuum-agent-kepler-default"]
+	b, ok := r.clusterrolebindings["ikhnos-agent-kepler-default"]
 	if !ok {
 		t.Fatalf("no ClusterRoleBinding for Kepler, have %v", keys(r.clusterrolebindings))
 	}
-	if b.RoleRef.Name != "continuum-agent-kepler" || len(b.Subjects) != 1 || b.Subjects[0].Name != "continuum-agent-kepler" || b.Subjects[0].Namespace != "default" {
+	if b.RoleRef.Name != "ikhnos-agent-kepler" || len(b.Subjects) != 1 || b.Subjects[0].Name != "ikhnos-agent-kepler" || b.Subjects[0].Namespace != "default" {
 		t.Errorf("binding = %+v", b)
 	}
 	// Without NODE_NAME Kepler falls back to os.Hostname(), which on a node whose hostname differs from
@@ -93,13 +93,13 @@ func TestKeplerRBACOnlyWhenKeplerIsBundled(t *testing.T) {
 		"accelerators":    accelOn,
 	} {
 		r := render(t, args...)
-		if _, ok := r.clusterroles["continuum-agent-kepler"]; ok {
+		if _, ok := r.clusterroles["ikhnos-agent-kepler"]; ok {
 			t.Errorf("%s: Kepler ClusterRole rendered", name)
 		}
-		if _, ok := r.serviceaccounts["continuum-agent-kepler"]; ok {
+		if _, ok := r.serviceaccounts["ikhnos-agent-kepler"]; ok {
 			t.Errorf("%s: Kepler ServiceAccount rendered", name)
 		}
-		if _, ok := r.clusterrolebindings["continuum-agent-kepler-default"]; ok {
+		if _, ok := r.clusterrolebindings["ikhnos-agent-kepler-default"]; ok {
 			t.Errorf("%s: Kepler ClusterRoleBinding rendered", name)
 		}
 	}
@@ -109,7 +109,7 @@ func TestKeplerRBACOnlyWhenKeplerIsBundled(t *testing.T) {
 // release-0.7.12 image is a multi-arch manifest (amd64 and arm64, checked against quay.io's registry API), so that kept Kepler
 // off arm64 nodes.
 func TestKeplerDefaultNodeSelectorDoesNotExcludeArm64(t *testing.T) {
-	ds := render(t, energyOn...).daemonsets["continuum-telemetry-kepler"]
+	ds := render(t, energyOn...).daemonsets["ikhnos-telemetry-kepler"]
 	ns := ds.Spec.Template.Spec.NodeSelector
 	if _, ok := ns["kubernetes.io/arch"]; ok {
 		t.Errorf("Kepler nodeSelector = %v: it must not pin an architecture", ns)
@@ -122,7 +122,7 @@ func TestKeplerDefaultNodeSelectorDoesNotExcludeArm64(t *testing.T) {
 // Kepler 0.7.12 with its eBPF maps and per-container series needs well over the 20Mi/64Mi-class defaults
 // the chart fell back to; an OOM-killed privileged DaemonSet is a crash loop on every node.
 func TestKeplerDefaultResourcesLeaveRoomForItsMaps(t *testing.T) {
-	c := render(t, energyOn...).daemonsets["continuum-telemetry-kepler"].Spec.Template.Spec.Containers[0]
+	c := render(t, energyOn...).daemonsets["ikhnos-telemetry-kepler"].Spec.Template.Spec.Containers[0]
 	req := c.Resources.Requests.Memory()
 	lim := c.Resources.Limits.Memory()
 	if req.Value() < 400<<20 {
@@ -134,7 +134,7 @@ func TestKeplerDefaultResourcesLeaveRoomForItsMaps(t *testing.T) {
 }
 
 func TestDcgmDefaultResources(t *testing.T) {
-	c := render(t, accelOn...).daemonsets["continuum-telemetry-dcgm"].Spec.Template.Spec.Containers[0]
+	c := render(t, accelOn...).daemonsets["ikhnos-telemetry-dcgm"].Spec.Template.Spec.Containers[0]
 	if c.Resources.Requests.Memory().Value() < 128<<20 || c.Resources.Limits.Memory().Value() < 512<<20 {
 		t.Errorf("dcgm-exporter resources = %+v, want at least NVIDIA's chart defaults (128Mi request, 512Mi limit)", c.Resources)
 	}
@@ -142,7 +142,7 @@ func TestDcgmDefaultResources(t *testing.T) {
 
 func TestBundledExportersHonourPriorityClassAndPodAnnotations(t *testing.T) {
 	r := render(t, append(both(), "--set", "priorityClassName=system-node-critical", "--set", "podAnnotations.team=obs")...)
-	for _, n := range []string{"continuum-telemetry-kepler", "continuum-telemetry-dcgm"} {
+	for _, n := range []string{"ikhnos-telemetry-kepler", "ikhnos-telemetry-dcgm"} {
 		ds := r.daemonsets[n]
 		if ds.Spec.Template.Spec.PriorityClassName != "system-node-critical" {
 			t.Errorf("%s priorityClassName = %q", n, ds.Spec.Template.Spec.PriorityClassName)
@@ -156,7 +156,7 @@ func TestBundledExportersHonourPriorityClassAndPodAnnotations(t *testing.T) {
 // dcgm-exporter publishes /health (200 once collection works) and serves nothing useful before its first
 // cycle; NVIDIA's own chart gates readiness on it after 45s.
 func TestDcgmIsReadyOnItsHealthEndpoint(t *testing.T) {
-	c := render(t, accelOn...).daemonsets["continuum-telemetry-dcgm"].Spec.Template.Spec.Containers[0]
+	c := render(t, accelOn...).daemonsets["ikhnos-telemetry-dcgm"].Spec.Template.Spec.Containers[0]
 	p := c.ReadinessProbe
 	if p == nil || p.HTTPGet == nil || p.HTTPGet.Path != "/health" || p.HTTPGet.Port.String() != "metrics" {
 		t.Fatalf("dcgm readiness probe = %+v, want httpGet /health on the metrics port", p)
@@ -170,10 +170,10 @@ func TestDcgmIsReadyOnItsHealthEndpoint(t *testing.T) {
 // with runtimeClassName: nvidia, so the chart needs a knob for it; it is off by default because on clusters whose default
 // runtime is nvidia the RuntimeClass need not exist and naming it would leave the pod unschedulable.
 func TestDcgmRuntimeClassIsOptIn(t *testing.T) {
-	if rc := render(t, accelOn...).daemonsets["continuum-telemetry-dcgm"].Spec.Template.Spec.RuntimeClassName; rc != nil {
+	if rc := render(t, accelOn...).daemonsets["ikhnos-telemetry-dcgm"].Spec.Template.Spec.RuntimeClassName; rc != nil {
 		t.Errorf("runtimeClassName defaults to %q, want unset", *rc)
 	}
-	rc := render(t, append(accelOn, "--set", "telemetry.accelerators.metrics.runtimeClassName=nvidia")...).daemonsets["continuum-telemetry-dcgm"].Spec.Template.Spec.RuntimeClassName
+	rc := render(t, append(accelOn, "--set", "telemetry.accelerators.metrics.runtimeClassName=nvidia")...).daemonsets["ikhnos-telemetry-dcgm"].Spec.Template.Spec.RuntimeClassName
 	if rc == nil || *rc != "nvidia" {
 		t.Errorf("runtimeClassName = %v, want nvidia", rc)
 	}
@@ -189,7 +189,7 @@ func TestDcgmRuntimeClassIsOptIn(t *testing.T) {
 func TestDcgmPodAttributionOnlyWithApplyScope(t *testing.T) {
 	for _, applyScope := range []bool{false, true} {
 		args := append(append([]string{}, accelOn...), "--set", "telemetry.scope.namespaces={a}", "--set", fmt.Sprintf("telemetry.accelerators.metrics.applyScope=%v", applyScope))
-		pod := render(t, args...).daemonsets["continuum-telemetry-dcgm"].Spec.Template.Spec
+		pod := render(t, args...).daemonsets["ikhnos-telemetry-dcgm"].Spec.Template.Spec
 		c := pod.Containers[0]
 		for _, e := range c.Env {
 			if strings.Contains(e.Name, "ENABLE_POD_LABELS") {
@@ -213,7 +213,7 @@ func TestDcgmPodAttributionOnlyWithApplyScope(t *testing.T) {
 
 func scrapeConfigs(t *testing.T, r rendered) map[string]map[string]any {
 	t.Helper()
-	cfg := otelConfig(t, r.configmaps["continuum-telemetry-cluster-config"].Data)
+	cfg := otelConfig(t, r.configmaps["ikhnos-telemetry-cluster-config"].Data)
 	prom, _ := cfg["receivers"].(map[string]any)["prometheus/infra"].(map[string]any)
 	out := map[string]map[string]any{}
 	for _, sc := range prom["config"].(map[string]any)["scrape_configs"].([]any) {
@@ -228,7 +228,7 @@ func scrapeConfigs(t *testing.T, r rendered) map[string]map[string]any {
 // second time and stamped it with this release's data.
 func TestBundledExportersAreDiscoveredOnlyInThisReleasesNamespaceAndInstance(t *testing.T) {
 	jobs := scrapeConfigs(t, render(t, append(both(), "--namespace", "mon")...))
-	for job, name := range map[string]string{"kepler": "continuum-telemetry-kepler", "dcgm-exporter": "continuum-telemetry-dcgm"} {
+	for job, name := range map[string]string{"kepler": "ikhnos-telemetry-kepler", "dcgm-exporter": "ikhnos-telemetry-dcgm"} {
 		sc, ok := jobs[job]
 		if !ok {
 			t.Fatalf("no %s job in %v", job, keys(jobs))
@@ -319,7 +319,7 @@ func TestExistingEndpointRejectsWhatTheCollectorCannotScrape(t *testing.T) {
 // node); the condition must read that, only touch dcgm-exporter's own records and never drop the scrape's `up`.
 func TestApplyScopeFiltersOnTheDataPointNamespace(t *testing.T) {
 	r := render(t, append(accelOn, "--set", "telemetry.scope.namespaces={a,b}", "--set", "telemetry.accelerators.metrics.applyScope=true")...)
-	cfg := otelConfig(t, r.configmaps["continuum-telemetry-cluster-config"].Data)
+	cfg := otelConfig(t, r.configmaps["ikhnos-telemetry-cluster-config"].Data)
 	f := cfg["processors"].(map[string]any)["filter/scope_accelerators"].(map[string]any)
 	if _, bad := f["datapoint_conditions"]; bad {
 		t.Fatal("datapoint_conditions is not a filterprocessor key")
@@ -343,7 +343,7 @@ func TestApplyScopeFiltersOnTheDataPointNamespace(t *testing.T) {
 // For Kepler and dcgm-exporter that is the exporter's own, not the workloads they report on, and telemetry.scope.infra
 // would then drop the whole energy signal for any scope that excludes the release namespace.
 func TestExporterIdentityIsRemovedFromKeplerAndDcgmResources(t *testing.T) {
-	cfg := otelConfig(t, render(t, both()...).configmaps["continuum-telemetry-cluster-config"].Data)
+	cfg := otelConfig(t, render(t, both()...).configmaps["ikhnos-telemetry-cluster-config"].Data)
 	procs := cfg["processors"].(map[string]any)
 	for proc, svc := range map[string]string{"transform/kepler_node": "kepler", "transform/dcgm_node": "dcgm-exporter"} {
 		p, ok := procs[proc].(map[string]any)
@@ -366,7 +366,7 @@ func TestExporterIdentityIsRemovedFromKeplerAndDcgmResources(t *testing.T) {
 		}
 	}
 	pl := pipelineLists(t, render(t, both()...))
-	infra := pl["continuum-telemetry-cluster-config/metrics/infra"][0]
+	infra := pl["ikhnos-telemetry-cluster-config/metrics/infra"][0]
 	for _, want := range []string{"transform/kepler_node", "transform/dcgm_node"} {
 		if !containsAny(infra, want) {
 			t.Errorf("metrics/infra processors %v lack %s", infra, want)
@@ -378,7 +378,7 @@ func TestExporterIdentityIsRemovedFromKeplerAndDcgmResources(t *testing.T) {
 func TestTelemetryEgressAllowsTheBundledExporterPorts(t *testing.T) {
 	args := append(both(), "--set", "networkPolicy.telemetryEgress.enabled=true",
 		"--set", "networkPolicy.telemetryEgress.allowedEgress[0].cidr=203.0.113.7/32")
-	p := render(t, args...).policies["continuum-telemetry-scrape-egress"] // its own policy, selecting the cluster collector only
+	p := render(t, args...).policies["ikhnos-telemetry-scrape-egress"] // its own policy, selecting the cluster collector only
 	found := map[string]int32{}
 	for _, rule := range p.Spec.Egress {
 		for _, to := range rule.To {
@@ -394,16 +394,16 @@ func TestTelemetryEgressAllowsTheBundledExporterPorts(t *testing.T) {
 			}
 		}
 	}
-	if found["continuum-telemetry-kepler"] != 9103 || found["continuum-telemetry-dcgm"] != 9400 {
+	if found["ikhnos-telemetry-kepler"] != 9103 || found["ikhnos-telemetry-dcgm"] != 9400 {
 		t.Errorf("egress to the exporters = %v, want kepler 9103 and dcgm 9400", found)
 	}
 	// And nothing extra when they are not bundled.
 	q := render(t, "--set", "telemetry.export.otlp.endpoint=x:4317", "--set", "telemetry.resourceUsage.metrics.enabled=true",
 		"--set", "networkPolicy.telemetryEgress.enabled=true", "--set", "networkPolicy.telemetryEgress.allowedEgress[0].cidr=203.0.113.7/32")
-	if _, ok := q.policies["continuum-telemetry-scrape-egress"]; ok {
+	if _, ok := q.policies["ikhnos-telemetry-scrape-egress"]; ok {
 		t.Errorf("a scrape-egress policy with nothing bundled")
 	}
-	for _, rule := range q.policies["continuum-telemetry-egress"].Spec.Egress {
+	for _, rule := range q.policies["ikhnos-telemetry-egress"].Spec.Egress {
 		for _, to := range rule.To {
 			if to.PodSelector != nil && to.NamespaceSelector == nil {
 				t.Errorf("unexpected pod egress rule in the shared policy: %+v", rule)
@@ -432,7 +432,7 @@ func TestClusterCollectorConfigLoadsInTheRealCollector(t *testing.T) {
 			"--set", "telemetry.energy.metrics.existing.prometheusEndpoint=k.monitoring.svc:9102/metrics"},
 	}
 	for name, args := range combos {
-		cm := render(t, args...).configmaps["continuum-telemetry-cluster-config"]
+		cm := render(t, args...).configmaps["ikhnos-telemetry-cluster-config"]
 		f := filepath.Join(t.TempDir(), "cfg.yaml")
 		if err := os.WriteFile(f, []byte(cm.Data["otel-collector-config.yaml"]), 0o600); err != nil {
 			t.Fatal(err)

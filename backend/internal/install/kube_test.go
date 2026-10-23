@@ -17,16 +17,16 @@ func TestTheKubectlAndHelmLinesTheServerPrints(t *testing.T) {
 		want string
 	}{
 		{"uninstall", Uninstall{Release: "obs-agent", Namespace: "apps-team"}, "helm uninstall obs-agent --namespace apps-team"},
-		{"delete the identity", DeleteSecret{Name: "continuum-agent-identity", Namespace: "apps-team"}, "kubectl delete secret continuum-agent-identity --namespace apps-team"},
-		{"restart", RestartDeployment{Deployment: "athens-regional-operator", Namespace: "continuum-system"}, "kubectl rollout restart deployment/athens-regional-operator --namespace continuum-system"},
-		{"expose", SetServiceType{Namespace: "continuum-system", Service: "athens-regional-operator", Type: NodePort},
-			`kubectl --namespace continuum-system patch svc athens-regional-operator -p '{"spec":{"type":"NodePort"}}'`},
-		{"a Secret", Secret{Name: "athens-heartbeat-auth", Namespace: "continuum-system", Entries: []Entry{{"token", "hb_SECRET"}}},
-			"kubectl apply --server-side --force-conflicts -f - <<'CONTINUUM_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: athens-heartbeat-auth\n  namespace: continuum-system\ntype: Opaque\nstringData:\n  token: \"hb_SECRET\"\nCONTINUUM_SECRET"},
+		{"delete the identity", DeleteSecret{Name: "ikhnos-agent-identity", Namespace: "apps-team"}, "kubectl delete secret ikhnos-agent-identity --namespace apps-team"},
+		{"restart", RestartDeployment{Deployment: "athens-regional-operator", Namespace: "ikhnos-system"}, "kubectl rollout restart deployment/athens-regional-operator --namespace ikhnos-system"},
+		{"expose", SetServiceType{Namespace: "ikhnos-system", Service: "athens-regional-operator", Type: NodePort},
+			`kubectl --namespace ikhnos-system patch svc athens-regional-operator -p '{"spec":{"type":"NodePort"}}'`},
+		{"a Secret", Secret{Name: "athens-heartbeat-auth", Namespace: "ikhnos-system", Entries: []Entry{{"token", "hb_SECRET"}}},
+			"kubectl apply --server-side --force-conflicts -f - <<'IKHNOS_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: athens-heartbeat-auth\n  namespace: ikhnos-system\ntype: Opaque\nstringData:\n  token: \"hb_SECRET\"\nIKHNOS_SECRET"},
 		{"a Secret in a namespace that may not exist yet", Secret{Name: "s", Namespace: "ns1", EnsureNamespace: true, Entries: []Entry{{"ca.crt", "-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n"}}},
 			"kubectl create namespace ns1 --dry-run=client -o yaml | kubectl apply -f - && \\\n" +
-				"kubectl apply --server-side --force-conflicts -f - <<'CONTINUUM_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: s\n  namespace: ns1\ntype: Opaque\nstringData:\n" +
-				"  ca.crt: |\n    -----BEGIN CERTIFICATE-----\n    AAAA\n    -----END CERTIFICATE-----\nCONTINUUM_SECRET"},
+				"kubectl apply --server-side --force-conflicts -f - <<'IKHNOS_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: s\n  namespace: ns1\ntype: Opaque\nstringData:\n" +
+				"  ca.crt: |\n    -----BEGIN CERTIFICATE-----\n    AAAA\n    -----END CERTIFICATE-----\nIKHNOS_SECRET"},
 	} {
 		got, err := c.r.Render()
 		if err != nil || got != c.want {
@@ -45,9 +45,9 @@ func TestASecretIsAppliedExactlyAsGiven(t *testing.T) {
 	data := []Entry{
 		{"plain", "value"},
 		{"quotes", `it's "x" $(touch /tmp/pwned) ` + "`id`"},
-		{"ends-early", "a\nCONTINUUM_SECRET\nb"},
-		{"ends-early-twice", "a\nCONTINUUM_SECRET\nCONTINUUM_SECRET_X\nb"},
-		{"indented-end", "a\n  CONTINUUM_SECRET  \nb"},
+		{"ends-early", "a\nIKHNOS_SECRET\nb"},
+		{"ends-early-twice", "a\nIKHNOS_SECRET\nIKHNOS_SECRET_X\nb"},
+		{"indented-end", "a\n  IKHNOS_SECRET  \nb"},
 		{"colon-and-hash", "a: b # c"},
 		{"pem", "-----BEGIN EC PRIVATE KEY-----\nMHcCAQEEIA\n-----END EC PRIVATE KEY-----"},
 		{"leading-space", " x\ny"},
@@ -122,11 +122,11 @@ func TestWhatIsNotAKubernetesNameIsRefused(t *testing.T) {
 
 // Nothing in the data can end the here-document early: its closing word moves out of the way of any line that is the same as it.
 func TestTheClosingWordMovesOutOfTheWayOfTheData(t *testing.T) {
-	got, err := Secret{Name: "s", Namespace: "ns1", Entries: []Entry{{"a", "x\nCONTINUUM_SECRET\ny"}}}.Render()
+	got, err := Secret{Name: "s", Namespace: "ns1", Entries: []Entry{{"a", "x\nIKHNOS_SECRET\ny"}}}.Render()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(got, "kubectl apply --server-side --force-conflicts -f - <<'CONTINUUM_SECRET_X'\n") || !strings.HasSuffix(got, "\nCONTINUUM_SECRET_X") {
+	if !strings.HasPrefix(got, "kubectl apply --server-side --force-conflicts -f - <<'IKHNOS_SECRET_X'\n") || !strings.HasSuffix(got, "\nIKHNOS_SECRET_X") {
 		t.Fatalf("closing word did not change:\n%s", got)
 	}
 }
@@ -138,8 +138,8 @@ func TestASecretIsCreateOrUpdateFromStdin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "kubectl apply --server-side --force-conflicts -f - <<'CONTINUUM_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: s\n  namespace: ns1\ntype: Opaque\nstringData:\n" +
-		"  a: \"1\"\n  b: \"\\\"2\\\"\"\n  pem: |\n    -----BEGIN X-----\n    AAA\n    -----END X-----\nCONTINUUM_SECRET"
+	want := "kubectl apply --server-side --force-conflicts -f - <<'IKHNOS_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: s\n  namespace: ns1\ntype: Opaque\nstringData:\n" +
+		"  a: \"1\"\n  b: \"\\\"2\\\"\"\n  pem: |\n    -----BEGIN X-----\n    AAA\n    -----END X-----\nIKHNOS_SECRET"
 	if got != want {
 		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
 	}

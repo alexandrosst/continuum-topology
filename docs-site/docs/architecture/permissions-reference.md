@@ -74,13 +74,13 @@ data:
 
 **Two collector pods, no elevated Kubernetes permissions, but real host access, gated by signal:**
 
-- `continuum-telemetry-host` (a DaemonSet): runs as `runAsUser: 65532`, not root, not privileged,
+- `ikhnos-telemetry-host` (a DaemonSet): runs as `runAsUser: 65532`, not root, not privileged,
   `capabilities: {drop: ["ALL"]}`. It mounts the host filesystem read-only (`hostPath: /`) to read it, plus
   `/var/log/pods` and `/var/log/journal` — each mount only actually used when the matching signal
   (`resourceUsage.metrics`, `systemLogs.logs`, with `journald` specifically for the journal mount) is on.
   A Pod Security "restricted" or "baseline" namespace label will refuse this hostPath volume outright; this
   is a deliberate, documented tradeoff of the feature, not an oversight.
-- `continuum-telemetry-cluster` (a Deployment): same non-root, no-capabilities posture, no hostPath at
+- `ikhnos-telemetry-cluster` (a Deployment): same non-root, no-capabilities posture, no hostPath at
   all — it only talks to the Kubernetes API, via the ClusterRole above, and receives OTLP on two ports.
 
 **Two more, each off by default and each gated twice** (the signal must be on *and* explicitly set to the

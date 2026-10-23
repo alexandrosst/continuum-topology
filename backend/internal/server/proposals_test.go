@@ -9,13 +9,13 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/accounts"
-	"continuum/internal/agents"
-	"continuum/internal/decisionloop"
-	"continuum/internal/estate"
-	"continuum/internal/kernel"
-	"continuum/internal/store"
-	"continuum/internal/testkit"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/agents"
+	"ikhnos/internal/decisionloop"
+	"ikhnos/internal/estate"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/store"
+	"ikhnos/internal/testkit"
 )
 
 type propRig struct {

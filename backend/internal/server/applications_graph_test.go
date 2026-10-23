@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/estate"
-	"continuum/internal/history"
-	"continuum/internal/model"
+	"ikhnos/internal/estate"
+	"ikhnos/internal/history"
+	"ikhnos/internal/model"
 )
 
 // The graph and the API must agree on who is in an application: refs, inline records and accepted hints, and nothing that was

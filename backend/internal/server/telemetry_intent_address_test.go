@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"continuum/internal/accounts"
-	"continuum/internal/testkit"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/testkit"
 )
 
 // intentToOperator makes a regional operator with a recorded address and an intent whose default destination is it.

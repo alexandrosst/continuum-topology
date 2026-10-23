@@ -57,9 +57,9 @@ func TestNoCommandIsWrittenByHandOutsideTheInstallPackage(t *testing.T) {
 // The tripwire catches the way a command is written and lets advice through.
 func TestTheHandWrittenCommandPatternSeparatesCommandsFromAdvice(t *testing.T) {
 	for _, s := range []string{
-		"helm upgrade %s %s --namespace %s", "helm install continuum-agent", "  helm uninstall %s", "`helm upgrade x`", "kubectl delete secret %s",
+		"helm upgrade %s %s --namespace %s", "helm install ikhnos-agent", "  helm uninstall %s", "`helm upgrade x`", "kubectl delete secret %s",
 		"kubectl apply -f -", "kubectl rollout restart deployment/%s", "--set access.tier=%d", "--set %s", "--set-json operator=%s", "--set telemetry.resource.orgId=%s",
-		"cat <<'EOF'", "kubectl apply -f - <<'CONTINUUM_SECRET'\napiVersion: v1",
+		"cat <<'EOF'", "kubectl apply -f - <<'IKHNOS_SECRET'\napiVersion: v1",
 	} {
 		if s == "--set %s" {
 			continue // a value written elsewhere, joined here: not an assignment
@@ -71,7 +71,7 @@ func TestTheHandWrittenCommandPatternSeparatesCommandsFromAdvice(t *testing.T) {
 	for _, s := range []string{
 		"Check the pods (kubectl -n %s get pods) - most often an image that cannot be pulled",
 		"Details: kubectl -n %s get pods", "run `helm upgrade --reset-then-reuse-values` to widen it", "the expected cluster is the UID (kubectl get namespace kube-system)",
-		"Look at the operator first: `kubectl -n continuum-system get pods` in its cluster. ", "set it with --set or in values.yaml", "heredoc", "a <b",
+		"Look at the operator first: `kubectl -n ikhnos-system get pods` in its cluster. ", "set it with --set or in values.yaml", "heredoc", "a <b",
 	} {
 		if handWrittenCommand.MatchString(s) {
 			t.Errorf("%q is advice and is caught", s)

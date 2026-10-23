@@ -82,7 +82,7 @@ func TestTheEncodedRequestIsTheOTLPMetricShape(t *testing.T) {
 		kv := readMsg(t, a)
 		labels[string(kv[1][0])] = string(readMsg(t, kv[2][0])[1][0])
 	}
-	want := map[string]string{"application": "Shop", "application_id": "app-1", "service_name": "cart", "k8s_namespace_name": "shop", "continuum_cluster_id": "cl-1", "member": "cart/shop/cl-1", "service_id": "sv-cart"}
+	want := map[string]string{"application": "Shop", "application_id": "app-1", "service_name": "cart", "k8s_namespace_name": "shop", "ikhnos_cluster_id": "cl-1", "member": "cart/shop/cl-1", "service_id": "sv-cart"}
 	if !reflect.DeepEqual(labels, want) {
 		t.Fatalf("labels %v", labels)
 	}

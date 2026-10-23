@@ -34,7 +34,7 @@ export default function ServerConnect({ open, onClose }: { open: boolean; onClos
         }}
       >
         <Field label="Server address" hint="Where the admin API listens. Leave empty to use the address this page was loaded from.">
-          <Input value={addr} onChange={(e) => setAddr(e.target.value)} placeholder="https://continuum.example.com" spellCheck={false} />
+          <Input value={addr} onChange={(e) => setAddr(e.target.value)} placeholder="https://ikhnos.example.com" spellCheck={false} />
         </Field>
         {status === 'error' && error && <ErrorBanner>{error}</ErrorBanner>}
       </form>

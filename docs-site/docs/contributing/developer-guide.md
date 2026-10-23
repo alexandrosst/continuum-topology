@@ -34,7 +34,7 @@ go build -o agent ./cmd/agent
 The first start prints a one-time password for the user `admin` to stderr. `--agent-address` has to be reachable **from wherever your agent runs**, not just from your own machine — for local development, an agent can run entirely outside a cluster:
 
 ```bash
-CONTINUUM_SERVER=host:8443 CONTINUUM_CA_PIN=<pin> CONTINUUM_TOKEN=<token> \
+IKHNOS_SERVER=host:8443 IKHNOS_CA_PIN=<pin> IKHNOS_TOKEN=<token> \
   ./agent --kubeconfig ~/.kube/config --state-dir ./agent-id
 ```
 
@@ -44,7 +44,7 @@ CONTINUUM_SERVER=host:8443 CONTINUUM_CA_PIN=<pin> CONTINUUM_TOKEN=<token> \
 cd backend && go vet ./... && go test -race ./...
 ```
 
-Neo4j-backed tests skip themselves unless `CONTINUUM_TEST_NEO4J` is set — you don't need a Neo4j instance running to get a meaningful pass. The frontend has three test suites: pure logic (`npm run test:unit`, plain `node:test`, no DOM), rendered components (`npm run test:ui`, Vitest + React Testing Library + jsdom, in `tests-ui/`), and end-to-end (`npm run test:e2e`, Playwright against a real Chromium browser and the real production build, in `e2e/`) - plus lint (`npm run lint`). All four run in CI on every push and pull request.
+Neo4j-backed tests skip themselves unless `IKHNOS_TEST_NEO4J` is set — you don't need a Neo4j instance running to get a meaningful pass. The frontend has three test suites: pure logic (`npm run test:unit`, plain `node:test`, no DOM), rendered components (`npm run test:ui`, Vitest + React Testing Library + jsdom, in `tests-ui/`), and end-to-end (`npm run test:e2e`, Playwright against a real Chromium browser and the real production build, in `e2e/`) - plus lint (`npm run lint`). All four run in CI on every push and pull request.
 
 The e2e suite exists for one specific class of bug the other two structurally can't see: a real infinite render loop born from the interaction between our state and a UI library's own internals (React Flow's selection/store-sync effects, React's own render-loop guard). jsdom doesn't run React Flow's actual drag/selection/store behavior, so a unit or component test never exercises the code path where that kind of bug lives - only a real browser against the real, built app does. `npm run test:e2e` builds the app and runs Playwright against `vite preview` (`playwright.config.ts`'s `webServer`), so `npx playwright install chromium` is a one-time local prerequisite; CI installs it fresh on every run.
 
@@ -60,16 +60,16 @@ src/
   components/          UI, grouped by feature area
   pages/               One file per route
 
-backend/               Go module "continuum" (Go 1.25)
+backend/               Go module "ikhnos" (Go 1.25)
   proto/               gRPC contract (Enrollment, AgentService)
   cmd/server           Control plane: CA, enrollment, sync stream, admin JSON API, serves the built UI
-  cmd/continuum        The one binary the cluster image runs: continuum agent | probe | flow
+  cmd/ikhnos        The one binary the cluster image runs: ikhnos agent | probe | flow
   cmd/agent            In-cluster agent (a thin wrapper over the same code)
   cmd/probe            Optional node probe
   internal/            pki, store (SQLite), server, agent, probe, facts, interpret, model
 internal/chart         The agent's Helm chart, embedded in the server, served as a .tgz to the wizard
 
-deploy/helm/continuum-server/   The server's own Helm chart
+deploy/helm/ikhnos-server/   The server's own Helm chart
 docs-site/                       This documentation site (Docusaurus)
 ```
 

@@ -111,7 +111,7 @@ type DestinationKind string
 const (
 	DestinationExternal DestinationKind = "external"
 	DestinationOperator DestinationKind = "operator"
-	// DestinationFusion is a FUSION install (the continuum-fusion chart: Prometheus, Loki and Tempo) that a
+	// DestinationFusion is a FUSION install (the ikhnos-fusion chart: Prometheus, Loki and Tempo) that a
 	// regional operator saves what it receives into. Only a regional operator takes one: a local operator's
 	// TelemetryIntent points at an operator or an external endpoint, never straight at the stores.
 	DestinationFusion DestinationKind = "fusion"
@@ -142,7 +142,7 @@ type Destination struct {
 	// in-cluster name). The target's certificate is verified by its stable name whatever the address.
 	Address string
 	// FusionRelease and FusionNamespace are only meaningful for DestinationFusion: the Helm release name and
-	// the namespace of the continuum-fusion install the operator exports into. The stores' Service names
+	// the namespace of the ikhnos-fusion install the operator exports into. The stores' Service names
 	// follow from them (see the chart's fusion.name helper and server.fusionName), so nothing else is stored.
 	FusionRelease   string
 	FusionNamespace string
@@ -314,7 +314,7 @@ type Operator struct {
 // OperatorLabel is one tag a regional operator adds to the resource of every signal passing through it
 // ("region" = "eu-west-1"). Added only when the signal does not already carry that key, so a tag set
 // closer to the source - by the cluster's owner, or the application - is never overwritten; the keys the
-// operator always adds itself (continuum.operator.id and .name) are not labels and are not stored here.
+// operator always adds itself (ikhnos.operator.id and .name) are not labels and are not stored here.
 type OperatorLabel struct {
 	Key   string
 	Value string
@@ -335,7 +335,7 @@ const (
 )
 
 // SignalGrant is one telemetry signal a TelemetryIntent asks an agent's bundled local operator (the
-// OTel-collector telemetry extractors in the continuum-agent chart) to collect. ID matches the frontend's
+// OTel-collector telemetry extractors in the ikhnos-agent chart) to collect. ID matches the frontend's
 // TELEMETRY_SIGNALS vocabulary (resourceUsage, energy, kubernetesState, nodeRuntime, networkLatency,
 // applicationMetrics, systemLogs, kubernetesEvents, applicationLogs, traces, accelerators) but is opaque
 // to this package - nothing here validates it against that list. Source says where the grant came from:
@@ -347,7 +347,7 @@ type SignalGrant struct {
 }
 
 // TelemetryIntent is what a local operator (the telemetry extractors bundled in one agent's own
-// continuum-agent install) is granted to collect and where to export it: the same server-side
+// ikhnos-agent install) is granted to collect and where to export it: the same server-side
 // professionalism Operator already gives the standalone regional-operator chart, but scoped to a single
 // agent instead of a fleet of source clusters. Namespaces/Exclude narrow which of the agent's own
 // namespaces are in scope (on top of whatever the agent's tier/consent already leaves out); Signals is

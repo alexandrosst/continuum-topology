@@ -11,18 +11,18 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/accounts"
-	"continuum/internal/agents"
-	"continuum/internal/connectivity"
-	"continuum/internal/estate"
-	"continuum/internal/facts"
-	"continuum/internal/history"
-	"continuum/internal/kernel"
-	"continuum/internal/model"
-	"continuum/internal/observed"
-	"continuum/internal/store"
-	"continuum/internal/testkit"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/agents"
+	"ikhnos/internal/connectivity"
+	"ikhnos/internal/estate"
+	"ikhnos/internal/facts"
+	"ikhnos/internal/history"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/model"
+	"ikhnos/internal/observed"
+	"ikhnos/internal/store"
+	"ikhnos/internal/testkit"
 )
 
 // ---- settings ----
@@ -335,8 +335,8 @@ func TestDeriveTargetsPicksBusiestSafeTCPDestinations(t *testing.T) {
 func TestSuspicionsFromKubernetesPortsAndSharedNetworks(t *testing.T) {
 	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
 	w := "app/Deployment/api"
-	home := cluster("home", "203.0.113.1", []*continuumv1.NodeFacts{{Key: "n1", InternalIps: []string{"10.0.0.5"}}}, testkit.Workload("app", "Deployment", "api"))
-	known := cluster("known", "", []*continuumv1.NodeFacts{{Key: "k1", InternalIps: []string{"192.0.2.10"}}})
+	home := cluster("home", "203.0.113.1", []*ikhnosv1.NodeFacts{{Key: "n1", InternalIps: []string{"10.0.0.5"}}}, testkit.Workload("app", "Deployment", "api"))
+	known := cluster("known", "", []*ikhnosv1.NodeFacts{{Key: "k1", InternalIps: []string{"192.0.2.10"}}})
 	feed(&home, now, 60,
 		testkit.FlowOf(testkit.WorkloadEndpoint(w), testkit.ExternalEndpoint("198.51.100.50"), 6443, 8),    // an API server nobody onboarded
 		testkit.FlowOf(testkit.WorkloadEndpoint(w), testkit.ExternalEndpoint("198.51.100.51"), 10250, 4),   // and a kubelet next to it (same /24)
@@ -381,7 +381,7 @@ func TestOnboardedClusterAddressesAreNeverSuspicious(t *testing.T) {
 	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
 	w := "app/Deployment/api"
 	home := cluster("home", "", nil, testkit.Workload("app", "Deployment", "api"))
-	peer := cluster("peer", "198.51.100.200", []*continuumv1.NodeFacts{{Key: "p", InternalIps: []string{"198.51.100.60"}}})
+	peer := cluster("peer", "198.51.100.200", []*ikhnosv1.NodeFacts{{Key: "p", InternalIps: []string{"198.51.100.60"}}})
 	feed(&home, now, 60, testkit.FlowOf(testkit.WorkloadEndpoint(w), testkit.ExternalEndpoint("198.51.100.60"), 6443, 50), testkit.FlowOf(testkit.WorkloadEndpoint(w), testkit.ExternalEndpoint("198.51.100.200"), 6443, 50))
 	if got := agents.Suspicions("org-1", []observed.Cluster{home}, []observed.Cluster{home, peer}, now); len(got) != 0 {
 		t.Fatalf("known clusters were suspected: %+v", got)
@@ -392,9 +392,9 @@ func TestOnboardedClusterAddressesAreNeverSuspicious(t *testing.T) {
 
 func liveView(now time.Time, nodes ...string) *estate.View {
 	st := facts.New()
-	st.Cluster = &continuumv1.ClusterFacts{Uid: testkit.FP}
+	st.Cluster = &ikhnosv1.ClusterFacts{Uid: testkit.FP}
 	for _, n := range nodes {
-		st.Nodes[n] = &continuumv1.NodeFacts{Key: n, Name: n, Ready: true}
+		st.Nodes[n] = &ikhnosv1.NodeFacts{Key: n, Name: n, Ready: true}
 	}
 	return &estate.View{EstView: estate.EstView{State: st, LastSync: now, LastBeat: now, Flows: observed.NewFlowTable()}, NetView: connectivity.NetView{Paths: map[string]*connectivity.PathTrack{}, Targets: map[string]connectivity.IssuedTarget{}}}
 }
@@ -537,7 +537,7 @@ func TestHistoryEndpoints(t *testing.T) {
 	}
 	*a.now = a.now.Add(time.Hour)
 	a.hub().Mu.Lock()
-	a.hub().Views[id].State.Nodes["n2"] = &continuumv1.NodeFacts{Key: "n2", Name: "n2", Ready: true}
+	a.hub().Views[id].State.Nodes["n2"] = &ikhnosv1.NodeFacts{Key: "n2", Name: "n2", Ready: true}
 	a.hub().Views[id].LastBeat = *a.now
 	a.hub().Mu.Unlock()
 	a.do("POST", "/api/v1/history/record", nil, withCookie(admin))

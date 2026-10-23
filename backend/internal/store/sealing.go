@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"continuum/internal/sealing"
+	"ikhnos/internal/sealing"
 )
 
 // What each sealed value is bound to. The same names are used wherever a sealed value is made or opened.

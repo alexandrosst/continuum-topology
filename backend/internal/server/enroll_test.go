@@ -11,12 +11,12 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/accounts"
-	"continuum/internal/approval"
-	"continuum/internal/kernel"
-	"continuum/internal/store"
-	"continuum/internal/testkit"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/approval"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/store"
+	"ikhnos/internal/testkit"
 )
 
 // coded is one enrollment the way a current agent makes it: a key, a code, and only the code's hash sent.
@@ -38,9 +38,9 @@ func (e *env) tryEnroll(t *testing.T, token, fingerprint string, csrDER []byte, 
 	return testkit.TryEnroll(t, e.ctx, e.core.Agents, token, fingerprint, csrDER, code)
 }
 
-func (e *env) poll(t *testing.T, id, secret string) *continuumv1.PollResponse {
+func (e *env) poll(t *testing.T, id, secret string) *ikhnosv1.PollResponse {
 	t.Helper()
-	p, err := e.core.Agents.Poll(e.ctx, "10.0.0.1", &continuumv1.PollRequest{AgentId: id, PollSecret: secret})
+	p, err := e.core.Agents.Poll(e.ctx, "10.0.0.1", &ikhnosv1.PollRequest{AgentId: id, PollSecret: secret})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +107,7 @@ func TestApprovalCodeApprovesAndOnlyItsHashIsStored(t *testing.T) {
 	if err := e.core.Agents.Approve(e.ctx, "alex", c.Resp.AgentId, typed, 2); err != nil {
 		t.Fatalf("right code %q: %v", typed, err)
 	}
-	if p := e.poll(t, c.Resp.AgentId, c.Resp.PollSecret); p.State != continuumv1.PollResponse_APPROVED {
+	if p := e.poll(t, c.Resp.AgentId, c.Resp.PollSecret); p.State != ikhnosv1.PollResponse_APPROVED {
 		t.Fatalf("state = %v", p.State)
 	}
 	log := strings.Join(e.auditActions(t), "\n")
@@ -139,7 +139,7 @@ func TestFiveWrongCodesRejectTheEnrollment(t *testing.T) {
 	if ag, _ := e.st.GetAgent(e.ctx, "org-1", c.Resp.AgentId); ag.Status != store.StatusRejected || !strings.Contains(ag.Reason, "wrong approval codes") {
 		t.Fatalf("agent = %s %q", ag.Status, ag.Reason)
 	}
-	if p := e.poll(t, c.Resp.AgentId, c.Resp.PollSecret); p.State != continuumv1.PollResponse_REJECTED {
+	if p := e.poll(t, c.Resp.AgentId, c.Resp.PollSecret); p.State != ikhnosv1.PollResponse_REJECTED {
 		t.Fatalf("the agent must learn it was rejected, got %v", p.State)
 	}
 	// Even the right code is too late now.
@@ -211,7 +211,7 @@ func TestAHashMadeForAnotherKeyDoesNotApprove(t *testing.T) {
 	code, _ := approval.New()
 	// The hash is bound to `other`'s key but sent with `victim`'s request.
 	hash, _ := approval.Hash(code, other)
-	resp, err := e.core.Agents.Enroll(e.ctx, "10.0.0.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: victim, ClusterFingerprint: testkit.FP, ApprovalCodeHash: hash})
+	resp, err := e.core.Agents.Enroll(e.ctx, "10.0.0.1", &ikhnosv1.EnrollRequest{Token: secret, CsrDer: victim, ClusterFingerprint: testkit.FP, ApprovalCodeHash: hash})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,7 +232,7 @@ func TestEnrollWithoutAnApprovalCodeIsRefused(t *testing.T) {
 	d, _ := testkit.CSR(t)
 	short, _ := testkit.ApprovalFor(t, d)
 	for _, hash := range [][]byte{nil, {}, short[:8]} {
-		_, err := e.core.Agents.Enroll(e.ctx, "10.0.0.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: testkit.FP, InstalledAccessTier: 2, ApprovalCodeHash: hash})
+		_, err := e.core.Agents.Enroll(e.ctx, "10.0.0.1", &ikhnosv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: testkit.FP, InstalledAccessTier: 2, ApprovalCodeHash: hash})
 		if testkit.KindOf(err) != kernel.KindInvalid {
 			t.Fatalf("hash of %d bytes: %v", len(hash), err)
 		}
@@ -298,10 +298,10 @@ func TestRetriedEnrollmentContinuesTheSameAgent(t *testing.T) {
 		t.Fatalf("%d agents", len(agentList))
 	}
 	// The first poll secret went with the lost response; the new one works.
-	if _, err := e.core.Agents.Poll(e.ctx, "10.0.0.1", &continuumv1.PollRequest{AgentId: first.Resp.AgentId, PollSecret: first.Resp.PollSecret}); testkit.KindOf(err) != kernel.KindUnauthenticated {
+	if _, err := e.core.Agents.Poll(e.ctx, "10.0.0.1", &ikhnosv1.PollRequest{AgentId: first.Resp.AgentId, PollSecret: first.Resp.PollSecret}); testkit.KindOf(err) != kernel.KindUnauthenticated {
 		t.Fatalf("the old poll secret still works: %v", err)
 	}
-	if p := e.poll(t, again.Resp.AgentId, again.Resp.PollSecret); p.State != continuumv1.PollResponse_PENDING {
+	if p := e.poll(t, again.Resp.AgentId, again.Resp.PollSecret); p.State != ikhnosv1.PollResponse_PENDING {
 		t.Fatalf("state = %v", p.State)
 	}
 	// Approving works once, with the code the agent printed, and the retry is audited as a retry.
@@ -327,7 +327,7 @@ func TestRetryAfterApprovalStillCollectsTheCertificate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p := e.poll(t, again.Resp.AgentId, again.Resp.PollSecret); p.State != continuumv1.PollResponse_APPROVED || len(p.LeafDer) == 0 {
+	if p := e.poll(t, again.Resp.AgentId, again.Resp.PollSecret); p.State != ikhnosv1.PollResponse_APPROVED || len(p.LeafDer) == 0 {
 		t.Fatalf("state = %v", p.State)
 	}
 	// Once the agent has connected with its certificate, the poll secret is gone and the token is truly spent.
@@ -383,7 +383,7 @@ func TestPendingEnrollmentsExpireAndCanBeReopenedWithANewCode(t *testing.T) {
 	d, _ := testkit.CSR(t)
 	first := e.enrollCodedWith(t, secret, testkit.FP, d, "")
 	p := e.poll(t, first.Resp.AgentId, first.Resp.PollSecret)
-	if p.State != continuumv1.PollResponse_PENDING || p.PollAfterSeconds != kernel.PollIntervalSecond || p.ServerTimeUnix != e.now.Unix() {
+	if p.State != ikhnosv1.PollResponse_PENDING || p.PollAfterSeconds != kernel.PollIntervalSecond || p.ServerTimeUnix != e.now.Unix() {
 		t.Fatalf("pending poll: %+v", p)
 	}
 	if first.Resp.PendingTtlSeconds != 3600 || first.Resp.ServerTimeUnix != e.now.Unix() {
@@ -391,7 +391,7 @@ func TestPendingEnrollmentsExpireAndCanBeReopenedWithANewCode(t *testing.T) {
 	}
 
 	*e.now = e.now.Add(61 * time.Minute)
-	if p := e.poll(t, first.Resp.AgentId, first.Resp.PollSecret); p.State != continuumv1.PollResponse_EXPIRED {
+	if p := e.poll(t, first.Resp.AgentId, first.Resp.PollSecret); p.State != ikhnosv1.PollResponse_EXPIRED {
 		t.Fatalf("after the lifetime: %v", p.State)
 	}
 	if err := e.core.Agents.Approve(e.ctx, "alex", first.Resp.AgentId, first.Code, 2); testkit.KindOf(err) != kernel.KindConflict {

@@ -13,9 +13,9 @@ import (
 	"sync"
 	"time"
 
-	"continuum/internal/history"
-	"continuum/internal/model"
-	"continuum/internal/store"
+	"ikhnos/internal/history"
+	"ikhnos/internal/model"
+	"ikhnos/internal/store"
 )
 
 // ErrOutOfOrder: a snapshot older than the newest recorded one cannot be placed in the past.

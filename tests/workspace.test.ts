@@ -380,7 +380,7 @@ await test('signing in loads the workspace; signing out saves pending work, then
   assert.equal(useServer.getState().status, 'signin')
   assert.equal(server.signedIn, false)
   assert.deepEqual(clusterNames(), [], 'the next person at this browser must not see the topology')
-  assert.ok(!(mem.get('continuum-topology/v1') ?? '').includes('secret-topology'), 'and it must not remain in browser storage')
+  assert.ok(!(mem.get('ikhnos/v1') ?? '').includes('secret-topology'), 'and it must not remain in browser storage')
 })
 
 await test('a session that ends on the server sends the person back to sign-in', async () => {
@@ -445,7 +445,7 @@ await test('a topology left in the browser by one organisation is not offered to
   server.second = true
   server.ws2 = { rev: 0, updatedBy: '', updatedAt: '' }
   // Someone worked in org-1 in this browser and the tab was closed: their copy stays behind, marked as org-1's.
-  mem.set('continuum-workspace-owner', '|org-1')
+  mem.set('ikhnos-workspace-owner', '|org-1')
   useRawTopology.getState().clear()
   addCluster('left-behind-from-org-1')
   server.signedIn = false

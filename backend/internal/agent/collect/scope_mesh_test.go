@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 
 	"google.golang.org/protobuf/encoding/protojson"
 	appsv1 "k8s.io/api/apps/v1"
@@ -83,15 +83,15 @@ func begin(t *testing.T, cs *fake.Clientset, scope *Scope, fetch policyFetcher) 
 	return c
 }
 
-func wlByKey(s *continuumv1.Sync) map[string]*continuumv1.WorkloadFacts {
-	m := map[string]*continuumv1.WorkloadFacts{}
+func wlByKey(s *ikhnosv1.Sync) map[string]*ikhnosv1.WorkloadFacts {
+	m := map[string]*ikhnosv1.WorkloadFacts{}
 	for _, w := range s.Workloads {
 		m[w.Key] = w
 	}
 	return m
 }
 
-func nsNames(s *continuumv1.Sync) string {
+func nsNames(s *ikhnosv1.Sync) string {
 	var n []string
 	for _, x := range s.Namespaces {
 		n = append(n, x.Name)
@@ -121,9 +121,9 @@ func TestScopeMatchRules(t *testing.T) {
 		{"exclude", mk("", "dev", ""), "dev", nil, false},
 		{"exclude leaves the rest", mk("", "dev", ""), "shop", nil, true},
 		{"exclude wins over include", mk("shop", "shop", ""), "shop", nil, false},
-		{"selector matches", mk("", "", "continuum.io/observe=true"), "a", map[string]string{"continuum.io/observe": "true"}, true},
-		{"selector misses", mk("", "", "continuum.io/observe=true"), "a", nil, false},
-		{"include and selector are a union", mk("shop", "", "continuum.io/team=x"), "b", map[string]string{"continuum.io/team": "x"}, true},
+		{"selector matches", mk("", "", "ikhnos.io/observe=true"), "a", map[string]string{"ikhnos.io/observe": "true"}, true},
+		{"selector misses", mk("", "", "ikhnos.io/observe=true"), "a", nil, false},
+		{"include and selector are a union", mk("shop", "", "ikhnos.io/team=x"), "b", map[string]string{"ikhnos.io/team": "x"}, true},
 		{"system namespaces are always read", mk("shop", "", ""), "kube-system", nil, true},
 		{"a namespace can opt itself out", nil, "shop", map[string]string{OptOutLabel: "false"}, false},
 		{"opt-out beats include", mk("shop", "", ""), "shop", map[string]string{OptOutLabel: "false"}, false},
@@ -164,7 +164,7 @@ func TestScopeKeepsOutOfScopeNamespacesInTheCluster(t *testing.T) {
 		t.Fatalf("namespaces without scope: %s", got)
 	}
 	if _, ok := wlByKey(s)["dev/Deployment/scratch"]; ok {
-		t.Fatal("a namespace labelled continuum.io/observe=false must never be reported")
+		t.Fatal("a namespace labelled ikhnos.io/observe=false must never be reported")
 	}
 	if s.Cluster.Scope == nil || s.Cluster.Scope.NamespacesTotal != 3 || s.Cluster.Scope.NamespacesInScope != 2 {
 		t.Fatalf("scope facts with an opted-out namespace: %+v", s.Cluster.Scope)
@@ -184,7 +184,7 @@ func TestScopeKeepsOutOfScopeNamespacesInTheCluster(t *testing.T) {
 	if f := s.Cluster.Scope; f == nil || f.NamespacesTotal != 3 || f.NamespacesInScope != 1 || f.Description != "only namespaces shop" {
 		t.Fatalf("scope facts: %+v", f)
 	}
-	b, _ := protojson.Marshal(&continuumv1.Sync{Cluster: s.Cluster, Workloads: s.Workloads, Namespaces: s.Namespaces})
+	b, _ := protojson.Marshal(&ikhnosv1.Sync{Cluster: s.Cluster, Workloads: s.Workloads, Namespaces: s.Namespaces})
 	for _, leak := range []string{"payments", "ledger", "scratch", "10.42.0.20"} {
 		if strings.Contains(string(b), leak) {
 			t.Errorf("%q leaked into what is sent to the server", leak)
@@ -241,13 +241,13 @@ func TestMeshIstioSidecars(t *testing.T) {
 	if mf.NamespaceMtls["meshed"] != "permissive" || len(mf.NamespaceMtls) != 1 {
 		t.Errorf("a namespace policy that differs is reported, a selector-bound one and one equal to the mesh-wide mode are not: %v", mf.NamespaceMtls)
 	}
-	var mod *continuumv1.ModuleStatus
+	var mod *ikhnosv1.ModuleStatus
 	for _, m := range s.Modules {
 		if m.Name == ModMesh {
 			mod = m
 		}
 	}
-	if mod == nil || mod.State != continuumv1.ModuleStatus_OK {
+	if mod == nil || mod.State != ikhnosv1.ModuleStatus_OK {
 		t.Errorf("mesh module: %+v", mod)
 	}
 }
@@ -263,7 +263,7 @@ func TestMeshIstioWithoutPolicyPermission(t *testing.T) {
 		t.Fatalf("mesh facts: %+v", mf)
 	}
 	for _, m := range s.Modules {
-		if m.Name == ModMesh && (m.State != continuumv1.ModuleStatus_SKIPPED || !strings.Contains(m.Reason, "RBAC")) {
+		if m.Name == ModMesh && (m.State != ikhnosv1.ModuleStatus_SKIPPED || !strings.Contains(m.Reason, "RBAC")) {
 			t.Errorf("mesh module should say why the policy is unread: %+v", m)
 		}
 	}

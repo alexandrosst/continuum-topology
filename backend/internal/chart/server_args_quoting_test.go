@@ -22,7 +22,7 @@ func TestServerArgsKeepFreeTextValuesIntact(t *testing.T) {
 	for key := range flags {
 		extra = append(extra, "--set-string", key+"="+tricky)
 	}
-	args, _ := serverContainer(t, serverRenderWith(t, "continuum", extra...))
+	args, _ := serverContainer(t, serverRenderWith(t, "ikhnos", extra...))
 	have := map[string]bool{}
 	for _, a := range args {
 		have[a] = true

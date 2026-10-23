@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 
 	"google.golang.org/protobuf/proto"
 )
@@ -13,15 +13,15 @@ import (
 // saturation no collector could compute, the checks must find nothing more the second time, and applying it must not panic or wrap a
 // counter. The seeds run with every `go test`; `go test -fuzz=FuzzFlowBatch ./internal/observed` looks for more.
 func FuzzFlowBatch(f *testing.F) {
-	pod := func(ref string) *continuumv1.FlowEndpoint {
-		return &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_WORKLOAD, Ref: ref}
+	pod := func(ref string) *ikhnosv1.FlowEndpoint {
+		return &ikhnosv1.FlowEndpoint{Kind: ikhnosv1.FlowEndpoint_WORKLOAD, Ref: ref}
 	}
 	sat := func(v float64) *float64 { return &v }
-	seeds := []*continuumv1.FlowBatch{
-		{WindowSeconds: 30, Flows: []*continuumv1.Flow{{Src: pod("a"), Dst: pod("b"), Port: 80, Protocol: "tcp", Connections: 1<<64 - 1, BytesOut: 1}}},
-		{WindowSeconds: 30, Flows: []*continuumv1.Flow{{Src: &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_NODE, Ref: "n"}, Dst: pod("b")}, {Src: pod("a")}}},
+	seeds := []*ikhnosv1.FlowBatch{
+		{WindowSeconds: 30, Flows: []*ikhnosv1.Flow{{Src: pod("a"), Dst: pod("b"), Port: 80, Protocol: "tcp", Connections: 1<<64 - 1, BytesOut: 1}}},
+		{WindowSeconds: 30, Flows: []*ikhnosv1.Flow{{Src: &ikhnosv1.FlowEndpoint{Kind: ikhnosv1.FlowEndpoint_NODE, Ref: "n"}, Dst: pod("b")}, {Src: pod("a")}}},
 		{WindowSeconds: 0},
-		{WindowSeconds: 10, Collectors: []*continuumv1.CollectorInfo{{Node: "n1", Method: "ebpf", LinkSaturation: []*continuumv1.LinkSaturation{{Iface: "eth0", SaturationPct: sat(250)}, {Iface: "eth1", SaturationPct: sat(40)}}}, {Node: "", Method: "x"}}},
+		{WindowSeconds: 10, Collectors: []*ikhnosv1.CollectorInfo{{Node: "n1", Method: "ebpf", LinkSaturation: []*ikhnosv1.LinkSaturation{{Iface: "eth0", SaturationPct: sat(250)}, {Iface: "eth1", SaturationPct: sat(40)}}}, {Node: "", Method: "x"}}},
 	}
 	for _, s := range seeds {
 		b, err := proto.Marshal(s)
@@ -31,7 +31,7 @@ func FuzzFlowBatch(f *testing.F) {
 		f.Add(b)
 	}
 	f.Fuzz(func(t *testing.T, data []byte) {
-		b := &continuumv1.FlowBatch{}
+		b := &ikhnosv1.FlowBatch{}
 		if proto.Unmarshal(data, b) != nil {
 			return
 		}
@@ -45,8 +45,8 @@ func FuzzFlowBatch(f *testing.F) {
 		if d, err := SanitizeFlowBatch(b); err != nil || d.N != 0 {
 			t.Fatalf("a sanitised batch lost %d more items on a second pass (%v)", d.N, err)
 		}
-		for _, fl := range append(append([]*continuumv1.Flow{}, b.Flows...), b.PodFlows...) {
-			if fl.Src.Kind == continuumv1.FlowEndpoint_NODE || fl.Dst.Kind == continuumv1.FlowEndpoint_NODE {
+		for _, fl := range append(append([]*ikhnosv1.Flow{}, b.Flows...), b.PodFlows...) {
+			if fl.Src.Kind == ikhnosv1.FlowEndpoint_NODE || fl.Dst.Kind == ikhnosv1.FlowEndpoint_NODE {
 				t.Fatalf("a node-level flow was kept: %v", fl)
 			}
 		}

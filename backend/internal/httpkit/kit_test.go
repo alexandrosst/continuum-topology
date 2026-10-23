@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"continuum/internal/accounts"
-	"continuum/internal/kernel"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/kernel"
 )
 
 func body(t *testing.T, w *httptest.ResponseRecorder) map[string]any {

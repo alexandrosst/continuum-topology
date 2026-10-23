@@ -7,8 +7,8 @@ import (
 	"sort"
 	"time"
 
-	"continuum/internal/accounts"
-	"continuum/internal/store"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/store"
 )
 
 // The Outcome of an applied proposal: what the advisor predicted beside what was observed. An agent's own load is read from the

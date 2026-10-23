@@ -7,21 +7,21 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/facts"
-	"continuum/internal/kernel"
-	"continuum/internal/observed"
-	"continuum/internal/store"
-	"continuum/internal/testkit"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/facts"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/observed"
+	"ikhnos/internal/store"
+	"ikhnos/internal/testkit"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/proto"
 )
 
-func nodes(prefix string, n int) []*continuumv1.NodeFacts {
-	var out []*continuumv1.NodeFacts
+func nodes(prefix string, n int) []*ikhnosv1.NodeFacts {
+	var out []*ikhnosv1.NodeFacts
 	for i := 0; i < n; i++ {
-		out = append(out, &continuumv1.NodeFacts{Key: fmt.Sprintf("%s%d", prefix, i), Name: fmt.Sprintf("%s%d", prefix, i)})
+		out = append(out, &ikhnosv1.NodeFacts{Key: fmt.Sprintf("%s%d", prefix, i), Name: fmt.Sprintf("%s%d", prefix, i)})
 	}
 	return out
 }
@@ -33,25 +33,25 @@ func TestADeltaStreamCannotGrowTheStateBeyondTheLimits(t *testing.T) {
 	defer cancel()
 	id, key, leaf := r.approvedAgent(t, testkit.FP)
 	s := r.agentStream(t, ctx, id, key, leaf)
-	cluster := &continuumv1.ClusterFacts{Uid: testkit.FP}
+	cluster := &ikhnosv1.ClusterFacts{Uid: testkit.FP}
 
-	send := func(m *continuumv1.Sync) {
+	send := func(m *ikhnosv1.Sync) {
 		if err := s.Send(testkit.SyncMsg(m)); err != nil {
 			t.Fatal(err)
 		}
 	}
-	send(&continuumv1.Sync{Seq: 1, Full: true, Cluster: cluster, Nodes: nodes("n", 40)})
+	send(&ikhnosv1.Sync{Seq: 1, Full: true, Cluster: cluster, Nodes: nodes("n", 40)})
 	if m, err := s.Recv(); err != nil || m.GetAck().GetSeq() != 1 {
 		t.Fatalf("the first full sync: %v %v", m, err)
 	}
 	// Each delta is small and within any per-message cap; the third takes the total past 50.
 	for i := 2; i <= 3; i++ {
-		send(&continuumv1.Sync{Seq: uint64(i), Nodes: nodes(fmt.Sprintf("d%d-", i), 5)})
+		send(&ikhnosv1.Sync{Seq: uint64(i), Nodes: nodes(fmt.Sprintf("d%d-", i), 5)})
 		if m, err := s.Recv(); err != nil || m.GetAck().GetSeq() != uint64(i) {
 			t.Fatalf("delta %d: %v %v", i, m, err)
 		}
 	}
-	send(&continuumv1.Sync{Seq: 4, Nodes: nodes("d4-", 5)})
+	send(&ikhnosv1.Sync{Seq: 4, Nodes: nodes("d4-", 5)})
 	_, err := s.Recv()
 	if testkit.StatusCode(err) != codes.ResourceExhausted || !strings.Contains(err.Error(), "nodes") || !strings.Contains(err.Error(), "at most 50") {
 		t.Fatalf("the delta that broke the limit: %v", err)
@@ -89,7 +89,7 @@ func TestADeltaStreamCannotGrowTheStateBeyondTheLimits(t *testing.T) {
 
 	// A well-behaved next connection recovers: a full picture within the limits replaces the state and clears the message.
 	s2 := r.agentStream(t, ctx, id, key, leaf)
-	if err := s2.Send(testkit.SyncMsg(&continuumv1.Sync{Seq: 5, Full: true, Cluster: cluster, Nodes: nodes("ok", 10)})); err != nil {
+	if err := s2.Send(testkit.SyncMsg(&ikhnosv1.Sync{Seq: 5, Full: true, Cluster: cluster, Nodes: nodes("ok", 10)})); err != nil {
 		t.Fatal(err)
 	}
 	if m, err := s2.Recv(); err != nil || m.GetAck().GetSeq() != 5 {
@@ -142,7 +142,7 @@ func TestUniqueKeyFloodThroughApplySyncStopsAtTheLimit(t *testing.T) {
 	r.hub.Mu.Unlock()
 	refused := 0
 	for i := 0; i < 1000; i++ {
-		s := &continuumv1.Sync{Seq: uint64(i), Cluster: &continuumv1.ClusterFacts{Uid: testkit.FP}, Workloads: []*continuumv1.WorkloadFacts{{Key: fmt.Sprintf("ns/Deployment/%d", i), Name: "x"}}}
+		s := &ikhnosv1.Sync{Seq: uint64(i), Cluster: &ikhnosv1.ClusterFacts{Uid: testkit.FP}, Workloads: []*ikhnosv1.WorkloadFacts{{Key: fmt.Sprintf("ns/Deployment/%d", i), Name: "x"}}}
 		if _, _, err := r.hub.ApplySync(a, s, true); err != nil {
 			refused++
 		}
@@ -160,11 +160,11 @@ func TestLongKeysAreRefusedAndLongStringsAreCut(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	id, key, leaf := r.approvedAgent(t, testkit.FP)
-	cluster := &continuumv1.ClusterFacts{Uid: testkit.FP}
+	cluster := &ikhnosv1.ClusterFacts{Uid: testkit.FP}
 
 	s := r.agentStream(t, ctx, id, key, leaf)
-	long := &continuumv1.WorkloadFacts{Key: "ns/Deployment/a", Name: "a", Labels: map[string]string{"l": strings.Repeat("v", 50000)}}
-	if err := s.Send(testkit.SyncMsg(&continuumv1.Sync{Seq: 1, Full: true, Cluster: cluster, Workloads: []*continuumv1.WorkloadFacts{long}})); err != nil {
+	long := &ikhnosv1.WorkloadFacts{Key: "ns/Deployment/a", Name: "a", Labels: map[string]string{"l": strings.Repeat("v", 50000)}}
+	if err := s.Send(testkit.SyncMsg(&ikhnosv1.Sync{Seq: 1, Full: true, Cluster: cluster, Workloads: []*ikhnosv1.WorkloadFacts{long}})); err != nil {
 		t.Fatal(err)
 	}
 	if m, err := s.Recv(); err != nil || m.GetAck() == nil {
@@ -178,12 +178,12 @@ func TestLongKeysAreRefusedAndLongStringsAreCut(t *testing.T) {
 	}
 
 	// A fact that names nothing is refused; one that is merely too long is cut, so it cannot end the stream.
-	for name, w := range map[string]*continuumv1.WorkloadFacts{
+	for name, w := range map[string]*ikhnosv1.WorkloadFacts{
 		"key":       {Key: strings.Repeat("k", 600)},
 		"empty key": {Key: ""},
 	} {
 		s := r.agentStream(t, ctx, id, key, leaf)
-		if err := s.Send(testkit.SyncMsg(&continuumv1.Sync{Seq: 9, Cluster: cluster, Workloads: []*continuumv1.WorkloadFacts{w}})); err != nil {
+		if err := s.Send(testkit.SyncMsg(&ikhnosv1.Sync{Seq: 9, Cluster: cluster, Workloads: []*ikhnosv1.WorkloadFacts{w}})); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := s.Recv(); testkit.StatusCode(err) != codes.InvalidArgument {
@@ -191,10 +191,10 @@ func TestLongKeysAreRefusedAndLongStringsAreCut(t *testing.T) {
 		}
 	}
 	s = r.agentStream(t, ctx, id, key, leaf)
-	cut := &continuumv1.Sync{Seq: 11, Cluster: cluster,
-		Workloads: []*continuumv1.WorkloadFacts{{Key: "ns/Deployment/b", Name: strings.Repeat("n", 5000),
-			Images: []*continuumv1.ContainerImage{{Image: strings.Repeat("i", 2000)}}, Labels: map[string]string{strings.Repeat("k", 2000): "v"}}},
-		Nodes: []*continuumv1.NodeFacts{{Key: "n", Name: strings.Repeat("n", 2000)}}}
+	cut := &ikhnosv1.Sync{Seq: 11, Cluster: cluster,
+		Workloads: []*ikhnosv1.WorkloadFacts{{Key: "ns/Deployment/b", Name: strings.Repeat("n", 5000),
+			Images: []*ikhnosv1.ContainerImage{{Image: strings.Repeat("i", 2000)}}, Labels: map[string]string{strings.Repeat("k", 2000): "v"}}},
+		Nodes: []*ikhnosv1.NodeFacts{{Key: "n", Name: strings.Repeat("n", 2000)}}}
 	_ = s.Send(testkit.SyncMsg(cut))
 	if m, err := s.Recv(); err != nil || m.GetAck() == nil {
 		t.Fatalf("an over-long name, image or label key should be cut, not refused: %v %v", m, err)
@@ -207,17 +207,17 @@ func TestLongKeysAreRefusedAndLongStringsAreCut(t *testing.T) {
 	}
 	// Heartbeat module lists are bounded too; they were not before.
 	s = r.agentStream(t, ctx, id, key, leaf)
-	mods := make([]*continuumv1.ModuleStatus, 100)
+	mods := make([]*ikhnosv1.ModuleStatus, 100)
 	for i := range mods {
-		mods[i] = &continuumv1.ModuleStatus{Name: "m", Reason: strings.Repeat("r", 100000)}
+		mods[i] = &ikhnosv1.ModuleStatus{Name: "m", Reason: strings.Repeat("r", 100000)}
 	}
-	_ = s.Send(&continuumv1.AgentMessage{Msg: &continuumv1.AgentMessage_Heartbeat{Heartbeat: &continuumv1.Heartbeat{Modules: mods}}})
+	_ = s.Send(&ikhnosv1.AgentMessage{Msg: &ikhnosv1.AgentMessage_Heartbeat{Heartbeat: &ikhnosv1.Heartbeat{Modules: mods}}})
 	if _, err := s.Recv(); testkit.StatusCode(err) != codes.InvalidArgument {
 		t.Errorf("huge heartbeat modules: %v", err)
 	}
 }
 
-func marshalState(t *testing.T, m *continuumv1.Sync) []byte {
+func marshalState(t *testing.T, m *ikhnosv1.Sync) []byte {
 	t.Helper()
 	m.Full = true
 	b, err := proto.Marshal(m)
@@ -241,10 +241,10 @@ func TestAPoisonedStoredSnapshotIsDroppedOnRestore(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	save(good, marshalState(t, &continuumv1.Sync{Seq: 3, Cluster: &continuumv1.ClusterFacts{Uid: testkit.FP}, Nodes: nodes("n", 5)}))
-	save(tooMany, marshalState(t, &continuumv1.Sync{Nodes: nodes("n", 11)}))
-	save(longName, marshalState(t, &continuumv1.Sync{Nodes: []*continuumv1.NodeFacts{{Key: "n", Name: strings.Repeat("x", 3000)}}}))
-	save(tooBig, marshalState(t, &continuumv1.Sync{Workloads: []*continuumv1.WorkloadFacts{{Key: "w", Labels: map[string]string{"a": strings.Repeat("y", 1000), "b": strings.Repeat("y", 1000), "c": strings.Repeat("y", 1000), "d": strings.Repeat("y", 1000), "e": strings.Repeat("y", 1000)}}}}))
+	save(good, marshalState(t, &ikhnosv1.Sync{Seq: 3, Cluster: &ikhnosv1.ClusterFacts{Uid: testkit.FP}, Nodes: nodes("n", 5)}))
+	save(tooMany, marshalState(t, &ikhnosv1.Sync{Nodes: nodes("n", 11)}))
+	save(longName, marshalState(t, &ikhnosv1.Sync{Nodes: []*ikhnosv1.NodeFacts{{Key: "n", Name: strings.Repeat("x", 3000)}}}))
+	save(tooBig, marshalState(t, &ikhnosv1.Sync{Workloads: []*ikhnosv1.WorkloadFacts{{Key: "w", Labels: map[string]string{"a": strings.Repeat("y", 1000), "b": strings.Repeat("y", 1000), "c": strings.Repeat("y", 1000), "d": strings.Repeat("y", 1000), "e": strings.Repeat("y", 1000)}}}}))
 	save(garbage, []byte("this is not a protobuf \xff\xff\xff"))
 
 	p := newTestPlatform(e.base)
@@ -276,9 +276,9 @@ func TestOversizeSnapshotIsNotPersisted(t *testing.T) {
 	id, _, _ := r.approvedAgent(t, testkit.FP)
 	v := &View{EstView: EstView{State: facts.New(), dirtyAt: time.Now()}}
 	// build a state that is over the cap by going around Check (as a bug or a poisoned store would)
-	v.State.Apply(&continuumv1.Sync{Workloads: []*continuumv1.WorkloadFacts{{Key: "w", Labels: map[string]string{"a": strings.Repeat("z", 1000)}}}, Nodes: nodes("n", 1)})
+	v.State.Apply(&ikhnosv1.Sync{Workloads: []*ikhnosv1.WorkloadFacts{{Key: "w", Labels: map[string]string{"a": strings.Repeat("z", 1000)}}}, Nodes: nodes("n", 1)})
 	for i := 0; i < 30; i++ {
-		v.State.Apply(&continuumv1.Sync{Workloads: []*continuumv1.WorkloadFacts{{Key: fmt.Sprint("w", i), Labels: map[string]string{"a": strings.Repeat("z", 1000)}}}})
+		v.State.Apply(&ikhnosv1.Sync{Workloads: []*ikhnosv1.WorkloadFacts{{Key: fmt.Sprint("w", i), Labels: map[string]string{"a": strings.Repeat("z", 1000)}}}})
 	}
 	r.hub.Mu.Lock()
 	r.hub.Views[id] = v
@@ -290,10 +290,10 @@ func TestOversizeSnapshotIsNotPersisted(t *testing.T) {
 }
 
 func TestPoisonedFlowTableIsDroppedOnRestore(t *testing.T) {
-	ok := &continuumv1.FlowTable{Edges: []*continuumv1.FlowEdge{edge("ns/Deployment/a", "1.2.3.4")}}
-	bad := &continuumv1.FlowTable{Edges: []*continuumv1.FlowEdge{edge(strings.Repeat("k", 5000), "1.2.3.4")}}
-	badIP := &continuumv1.FlowTable{Edges: []*continuumv1.FlowEdge{edge("ns/Deployment/a", "127.0.0.1")}}
-	for name, tb := range map[string]*continuumv1.FlowTable{"ok": ok, "long ref": bad, "loopback ip": badIP} {
+	ok := &ikhnosv1.FlowTable{Edges: []*ikhnosv1.FlowEdge{edge("ns/Deployment/a", "1.2.3.4")}}
+	bad := &ikhnosv1.FlowTable{Edges: []*ikhnosv1.FlowEdge{edge(strings.Repeat("k", 5000), "1.2.3.4")}}
+	badIP := &ikhnosv1.FlowTable{Edges: []*ikhnosv1.FlowEdge{edge("ns/Deployment/a", "127.0.0.1")}}
+	for name, tb := range map[string]*ikhnosv1.FlowTable{"ok": ok, "long ref": bad, "loopback ip": badIP} {
 		b, _ := proto.Marshal(tb)
 		_, err := LoadFlowTable(b)
 		if (name == "ok") != (err == nil) {
@@ -305,10 +305,10 @@ func TestPoisonedFlowTableIsDroppedOnRestore(t *testing.T) {
 	}
 }
 
-func edge(ref, ip string) *continuumv1.FlowEdge {
+func edge(ref, ip string) *ikhnosv1.FlowEdge {
 	now := time.Now()
 	t := kernel.TSProto(&now)
-	return &continuumv1.FlowEdge{FirstSeen: t, LastSeen: t, Key: &continuumv1.Flow{Port: 80, Protocol: "tcp",
-		Src: &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_WORKLOAD, Ref: ref},
-		Dst: &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_EXTERNAL, Ip: ip}}}
+	return &ikhnosv1.FlowEdge{FirstSeen: t, LastSeen: t, Key: &ikhnosv1.Flow{Port: 80, Protocol: "tcp",
+		Src: &ikhnosv1.FlowEndpoint{Kind: ikhnosv1.FlowEndpoint_WORKLOAD, Ref: ref},
+		Dst: &ikhnosv1.FlowEndpoint{Kind: ikhnosv1.FlowEndpoint_EXTERNAL, Ip: ip}}}
 }

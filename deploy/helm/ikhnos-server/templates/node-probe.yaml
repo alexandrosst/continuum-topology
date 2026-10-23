@@ -1,0 +1,111 @@
+{{- if .Values.nodeProbe.enabled }}
+{{- $name := include "ikhnos.probeName" . }}
+{{- $image := include "ikhnos.probeImage" . | fromJson }}
+# The node probes: they report which addresses each node of this cluster has to the server (port {{ .Values.nodeProbe.port }}), signed with a
+# secret generated here. See values.yaml nodeProbe.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "ikhnos.labels" . | nindent 4 }}
+    app.kubernetes.io/component: node-probe
+type: Opaque
+stringData:
+  secret: {{ include "ikhnos.probeSecret" . | quote }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "ikhnos.labels" . | nindent 4 }}
+    app.kubernetes.io/component: node-probe
+spec:
+  type: ClusterIP
+  selector: {{- include "ikhnos.selectorLabels" . | nindent 4 }}
+  ports:
+    - {name: probe, port: {{ .Values.nodeProbe.port }}, targetPort: probe, protocol: TCP}
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "ikhnos.labels" . | nindent 4 }}
+    app.kubernetes.io/component: node-probe
+spec:
+  selector:
+    matchLabels: {app.kubernetes.io/name: {{ $name }}, app.kubernetes.io/instance: {{ .Release.Name }}}
+  updateStrategy: {type: RollingUpdate, rollingUpdate: {maxUnavailable: 10%}}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ $name }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/part-of: ikhnos
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        checksum/secret: {{ include "ikhnos.probeSecretRevision" . }}   # a new secret rolls the pods: they read it at start
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . | quote }}
+      {{- end }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      automountServiceAccountToken: false   # the probe never talks to the Kubernetes API
+      {{- if .Values.nodeProbe.hostNetwork }}
+      # The netlink dump of a node's addresses is scoped to the reading process's own network namespace: without this the probe
+      # only sees its own pod's veth and loopback. dnsPolicy keeps the cluster's DNS for the Service name below.
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532   # lets the non-root probe read the mounted secret
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: probe
+          image: {{ include "ikhnos.imageRef" (dict "image" $image "defaultTag" .Chart.AppVersion) | quote }}
+          imagePullPolicy: {{ include "ikhnos.imagePullPolicy" (dict "image" $image "defaultTag" .Chart.AppVersion) }}
+          args: ["probe", "--interval={{ .Values.nodeProbe.interval }}"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          env:
+            - name: NODE_NAME
+              valueFrom: {fieldRef: {fieldPath: spec.nodeName}}
+            - {name: IKHNOS_PROBE_URL, value: "http://{{ $name }}.{{ .Release.Namespace }}.svc:{{ .Values.nodeProbe.port }}"}
+            - {name: IKHNOS_PROBE_SECRET_FILE, value: /secret/secret}
+            {{- if .Values.nodeProbe.hostSys }}
+            - {name: IKHNOS_PROBE_SYS, value: /host/sys}
+            {{- end }}
+          volumeMounts:
+            - {name: secret, mountPath: /secret, readOnly: true}
+            {{- if .Values.nodeProbe.hostSys }}
+            - {name: host-sys, mountPath: /host/sys, readOnly: true}
+            {{- end }}
+          resources: {{- toYaml .Values.nodeProbe.resources | nindent 12 }}
+      volumes:
+        - name: secret
+          secret: {secretName: {{ $name }}, defaultMode: 0440}
+        {{- if .Values.nodeProbe.hostSys }}
+        - name: host-sys
+          hostPath: {path: /sys, type: Directory}
+        {{- end }}
+      {{- with .Values.nodeProbe.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeProbe.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

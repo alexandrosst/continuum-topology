@@ -314,7 +314,7 @@ func scrub(err error) error {
 // docs-site/docs/troubleshooting/common-errors.md for the full diagnostic path.
 func hostUnreachableHint(err error) string {
 	if errors.Is(err, syscall.EHOSTUNREACH) {
-		return " (a host firewall outside Kubernetes - such as firewalld not knowing about the CNI bridge - is the most common cause of exactly this error; see https://alexandrosst.github.io/continuum-topology/troubleshooting/common-errors)"
+		return " (a host firewall outside Kubernetes - such as firewalld not knowing about the CNI bridge - is the most common cause of exactly this error; see https://alexandrosst.github.io/ikhnos/troubleshooting/common-errors)"
 	}
 	return ""
 }

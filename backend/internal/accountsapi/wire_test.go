@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"continuum/internal/httpkit"
-	"continuum/internal/wire"
+	"ikhnos/internal/httpkit"
+	"ikhnos/internal/wire"
 )
 
 func TestEveryDocumentIsListedForTheWire(t *testing.T) {

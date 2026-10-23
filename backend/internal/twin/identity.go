@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/interpret"
-	"continuum/internal/store"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/interpret"
+	"ikhnos/internal/store"
 )
 
 // Stable identity, and what it is made of.
@@ -81,7 +81,7 @@ func digest(v string) string {
 }
 
 // IdentityOf picks the most stable identity a node reports.
-func IdentityOf(n *continuumv1.NodeFacts) NodeIdentity {
+func IdentityOf(n *ikhnosv1.NodeFacts) NodeIdentity {
 	if p := strings.TrimSpace(n.ProviderId); p != "" && usable(p) {
 		derived := false
 		for _, s := range nameDerived {
@@ -154,10 +154,10 @@ func (r *Registry) put(e *store.Identity) {
 
 // Resolve assigns a record id to every node of one cluster's snapshot. It is deterministic for a given registry
 // state and snapshot (nodes are visited in name order).
-func (r *Registry) Resolve(cluster string, nodes []*continuumv1.NodeFacts, now time.Time) map[string]NodeRecord {
+func (r *Registry) Resolve(cluster string, nodes []*ikhnosv1.NodeFacts, now time.Time) map[string]NodeRecord {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	sorted := append([]*continuumv1.NodeFacts(nil), nodes...)
+	sorted := append([]*ikhnosv1.NodeFacts(nil), nodes...)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Name < sorted[j].Name })
 
 	idents := make(map[string]NodeIdentity, len(sorted))

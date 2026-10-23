@@ -1,5 +1,5 @@
 {
-  "capturedFrom": "otelcol-contrib 0.160.0 (the version the continuum-regional-operator chart pins), running the chart's own rendered heartbeat config (heartbeat.enabled=true, intervalSeconds=10, heartbeat.tls.caSecretName set), against a local HTTPS stub server",
+  "capturedFrom": "otelcol-contrib 0.160.0 (the version the ikhnos-regional-operator chart pins), running the chart's own rendered heartbeat config (heartbeat.enabled=true, intervalSeconds=10, heartbeat.tls.caSecretName set), against a local HTTPS stub server",
   "method": "POST",
   "path": "/api/v1/operator-heartbeat",
   "headers": {

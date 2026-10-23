@@ -1,7 +1,7 @@
 package agents
 
 import (
-	"continuum/internal/kernel"
+	"ikhnos/internal/kernel"
 )
 
 // Four numbers bound the tier an agent may have: the type's outer bound (MaxTier), what this release honours

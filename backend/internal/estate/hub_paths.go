@@ -5,19 +5,19 @@ import (
 	"sort"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/connectivity"
-	"continuum/internal/interpret"
-	"continuum/internal/kernel"
-	"continuum/internal/measure"
-	"continuum/internal/model"
-	"continuum/internal/observed"
-	"continuum/internal/store"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/connectivity"
+	"ikhnos/internal/interpret"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/measure"
+	"ikhnos/internal/model"
+	"ikhnos/internal/observed"
+	"ikhnos/internal/store"
 )
 
 // ConfigFor builds the Config for one agent: what it may send, how often to check itself, and what
 // to measure. It also records which targets were issued. The caller must not hold h.mu.
-func (h *Hub) ConfigFor(a store.Agent, v *View) *continuumv1.Config {
+func (h *Hub) ConfigFor(a store.Agent, v *View) *ikhnosv1.Config {
 	cfg, _ := h.configForChecked(a, v)
 	return cfg
 }
@@ -26,7 +26,7 @@ func (h *Hub) ConfigFor(a store.Agent, v *View) *continuumv1.Config {
 // organisation's agents could not be read, so the peer list is empty for want of data and not because nobody is paired. A caller
 // that replaces a Config the agent already has must not send an incomplete one: the agent would drop every peer until the next
 // good minute.
-func (h *Hub) configForChecked(a store.Agent, v *View) (*continuumv1.Config, bool) {
+func (h *Hub) configForChecked(a store.Agent, v *View) (*ikhnosv1.Config, bool) {
 	complete := true
 	set := h.C.Settings()
 	resync := int32(set.ConsistencyMinutes * 60)
@@ -128,7 +128,7 @@ func (h *Hub) PushOne(id string) {
 		return
 	}
 	select {
-	case s.Push <- &continuumv1.ServerMessage{Msg: &continuumv1.ServerMessage_Config{Config: cfg}}:
+	case s.Push <- &ikhnosv1.ServerMessage{Msg: &ikhnosv1.ServerMessage_Config{Config: cfg}}:
 		h.Mu.Lock()
 		v.CfgSentAt = h.C.Now()
 		h.Mu.Unlock()
@@ -147,7 +147,7 @@ func (h *Hub) settingsChanged(kernel.Settings) {
 }
 
 // NoteMeasurements stores what an agent measured, for the targets the server issued.
-func (h *Hub) NoteMeasurements(agentID string, m *continuumv1.Measurements) {
+func (h *Hub) NoteMeasurements(agentID string, m *ikhnosv1.Measurements) {
 	if h.ConsentOf(agentID).Has("measure") {
 		// The agent should already have stopped sending this; the same defense-in-depth agents.DropAboveTier
 		// gives the tier ceiling, extended to a paused collector.

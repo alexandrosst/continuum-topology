@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"continuum/internal/geoip"
-	"continuum/internal/kernel"
+	"ikhnos/internal/geoip"
+	"ikhnos/internal/kernel"
 )
 
 // PublicIPFinder discovers this server's own public IP address by calling an operator-chosen echo

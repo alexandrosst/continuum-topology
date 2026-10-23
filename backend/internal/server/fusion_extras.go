@@ -9,12 +9,12 @@ import (
 	"sync"
 	"time"
 
-	"continuum/internal/estate"
-	"continuum/internal/fusionapi"
-	"continuum/internal/history"
-	"continuum/internal/model"
-	"continuum/internal/store"
-	"continuum/internal/workspace"
+	"ikhnos/internal/estate"
+	"ikhnos/internal/fusionapi"
+	"ikhnos/internal/history"
+	"ikhnos/internal/model"
+	"ikhnos/internal/store"
+	"ikhnos/internal/workspace"
 )
 
 // fusionExtras gives a fused read what Ikhnos itself knows (fusionapi.Extras): the observed topology of the FUSION

@@ -3,7 +3,7 @@ package agents
 import (
 	"testing"
 
-	"continuum/internal/kernel"
+	"ikhnos/internal/kernel"
 )
 
 func TestCheckTierNamesTheFirstLimitThatStopsATier(t *testing.T) {

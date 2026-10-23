@@ -8,15 +8,15 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/accounts"
-	"continuum/internal/agent"
-	"continuum/internal/agent/collect"
-	"continuum/internal/agents"
-	"continuum/internal/estate"
-	"continuum/internal/flow"
-	"continuum/internal/kernel"
-	"continuum/internal/link"
-	"continuum/internal/server"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/agent"
+	"ikhnos/internal/agent/collect"
+	"ikhnos/internal/agents"
+	"ikhnos/internal/estate"
+	"ikhnos/internal/flow"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/link"
+	"ikhnos/internal/server"
 )
 
 // peerUIDSorting finds a 12-digit uid suffix whose cluster (as addPeer enrolls it) sorts after (or before) mine.

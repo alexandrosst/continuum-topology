@@ -7,12 +7,12 @@ import (
 	"net/http"
 	"time"
 
-	"continuum/internal/accounts"
-	"continuum/internal/fusion"
-	"continuum/internal/fusionapi"
-	"continuum/internal/httpkit"
-	"continuum/internal/kernel"
-	"continuum/internal/store"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/fusion"
+	"ikhnos/internal/fusionapi"
+	"ikhnos/internal/httpkit"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/store"
 )
 
 // Who is reading and what they may read.

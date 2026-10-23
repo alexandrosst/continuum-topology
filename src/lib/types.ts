@@ -535,7 +535,7 @@ export interface MachineNode extends Provenance {
   hostWatts?: number
   /** This node's current per-interface network throughput and, where the interface's own rated speed
    *  could be read, what share of it is in use right now - computed by the flow collector from this
-   *  window's real flow byte counters (see the backend's continuumv1.LinkSaturation proto doc), not by
+   *  window's real flow byte counters (see the backend's ikhnosv1.LinkSaturation proto doc), not by
    *  the node probe. A live, traffic-driven utilization gauge: distinct from
    *  NetworkInterface.speedMbps above, which is only ever a static, unrelated sysfs reading of the
    *  interface's own rated capacity with no throughput attached. Undefined when no flow collector has
@@ -543,7 +543,7 @@ export interface MachineNode extends Provenance {
   linkSaturation?: LinkSaturation[]
   /** How many connect() attempts on this node have failed with EADDRNOTAVAIL (ephemeral port / SNAT
    *  exhaustion) since its flow collector's eBPF program was loaded - a collector-side running total
-   *  (see the backend's continuumv1.FlowReport.snat_exhaustion doc for the full story, including why
+   *  (see the backend's ikhnosv1.FlowReport.snat_exhaustion doc for the full story, including why
    *  the kernel function behind this, inet_hash_connect, is an internal one with no ABI stability
    *  guarantee: a future kernel can simply stop this counting anything). Undefined when nothing has
    *  been reported for this node (an older collector, conntrack rather than eBPF, or a kernel where
@@ -555,7 +555,7 @@ export interface MachineNode extends Provenance {
    *  that failed before reaching ESTABLISHED never shows up as a Dependency or a retransmit. */
   snatExhaustion?: number
   /** This node's current tracepoint-derived CPU thermal-throttling counters (power:cpu_frequency /
-   *  thermal:thermal_zone_trip - see the backend's continuumv1.ThermalThrottle doc for the full story)
+   *  thermal:thermal_zone_trip - see the backend's ikhnosv1.ThermalThrottle doc for the full story)
    *  - computed by the flow collector's eBPF program, not the node probe, the same collector-sourced
    *  origin snatExhaustion above has. cpuFreqChangeCount is corroboration only, never itself throttling
    *  evidence (a cpufreq governor fires it constantly under completely ordinary load); thermalTripCount
@@ -578,7 +578,7 @@ export interface MachineNode extends Provenance {
 export interface LinkSaturation {
   iface: string
   throughputBps: number
-  /** 0-100, uncapped only below (never negative); see the backend's continuumv1.LinkSaturation.saturation_pct
+  /** 0-100, uncapped only below (never negative); see the backend's ikhnosv1.LinkSaturation.saturation_pct
    *  doc for why it is clamped at 100 but not 0, and absent (not a fabricated 0%) when the interface's
    *  own rated speed could not be read (e.g. a virtual interface, or sysfs permission denied). */
   saturationPct?: number
@@ -1002,7 +1002,7 @@ export const ACCESS_TIER_CAPTIONS: Record<AccessTier, string> = {
  * that is `get` on one resourceName ("kube-system"), not "read namespaces" in general; tier 2 needs `get`
  * on namespaces themselves (to enumerate scope), which nothing in its caption mentions at all.
  *
- * MUST be kept in sync with backend/internal/chart/continuum-agent/templates/rbac.yaml by hand — this is
+ * MUST be kept in sync with backend/internal/chart/ikhnos-agent/templates/rbac.yaml by hand — this is
  * frontend prose describing a Helm template, nothing wires them together at build time. What keeps them
  * from drifting apart silently is backend/internal/chart/agent_rbac_grants_test.go, which renders
  * rbac.yaml for every tier with `helm template` and fails if the real ClusterRole/Role rules stop

@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	"continuum/internal/agents"
-	"continuum/internal/kernel"
+	"ikhnos/internal/agents"
+	"ikhnos/internal/kernel"
 )
 
 // The checklist of one pair: what it needs before its figures reach FUSION, step by step, computed by the server from what it

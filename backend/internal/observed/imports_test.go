@@ -13,13 +13,13 @@ import (
 // Observed is pure: it stands on the vocabulary of the wire, the facts an agent sends and the model the topology is made of, and on
 // nothing of the server or of another module (not the kernel either: it has no organisation, no clock of its own and no store).
 var allowedRepoImports = map[string]bool{
-	"continuum/gen/continuumv1":    true,
-	"continuum/internal/facts":     true,
-	"continuum/internal/flow/wire": true,
-	"continuum/internal/interpret": true,
-	"continuum/internal/model":     true,
-	"continuum/internal/netid":     true,
-	"continuum/internal/probe":     true,
+	"ikhnos/gen/ikhnosv1":       true,
+	"ikhnos/internal/facts":     true,
+	"ikhnos/internal/flow/wire": true,
+	"ikhnos/internal/interpret": true,
+	"ikhnos/internal/model":     true,
+	"ikhnos/internal/netid":     true,
+	"ikhnos/internal/probe":     true,
 }
 
 func TestObservedImportsNothingOfTheServerOrAnotherModule(t *testing.T) {
@@ -38,7 +38,7 @@ func TestObservedImportsNothingOfTheServerOrAnotherModule(t *testing.T) {
 		}
 		for _, im := range af.Imports {
 			p, _ := strconv.Unquote(im.Path.Value)
-			if strings.HasPrefix(p, "continuum/") && !allowedRepoImports[p] {
+			if strings.HasPrefix(p, "ikhnos/") && !allowedRepoImports[p] {
 				t.Errorf("%s imports %s: observed may not stand on it", f, p)
 			}
 		}

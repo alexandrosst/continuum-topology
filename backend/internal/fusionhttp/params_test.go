@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"continuum/internal/fusionapi"
+	"ikhnos/internal/fusionapi"
 )
 
 func TestEveryQueryParameterTheHandlersReadIsDocumented(t *testing.T) {

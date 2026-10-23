@@ -18,8 +18,8 @@ import (
 	"strconv"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/probe"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/probe"
 )
 
 // How the iperf3 credentials get from the agent to the pods that use them.
@@ -45,9 +45,9 @@ const (
 	// IperfServerNode is the name the responder signs as; the agent accepts no other for this path.
 	IperfServerNode = "link-iperf-server"
 
-	iperfServerContext = "continuum-link-iperf-server-v1"
-	iperfServerSeal    = "continuum-link-iperf-server-seal-v1"
-	peersIperfSeal     = "continuum-link-peers-iperf-seal-v1"
+	iperfServerContext = "ikhnos-link-iperf-server-v1"
+	iperfServerSeal    = "ikhnos-link-iperf-server-seal-v1"
+	peersIperfSeal     = "ikhnos-link-peers-iperf-seal-v1"
 
 	maxCredBody     = 1 << 10
 	maxSealedAnswer = 256 << 10
@@ -153,7 +153,7 @@ func (m *Meter) ServeIperf(secret []byte) {
 
 // SetIperfServer replaces the credentials the responder pods fetch with those a Config carried (nil: none). It returns why it
 // refused them, if it did; a refused credential leaves the pods with nothing, which makes them stop serving, never serve open.
-func (m *Meter) SetIperfServer(c *continuumv1.LinkIperfServer) (refused string) {
+func (m *Meter) SetIperfServer(c *ikhnosv1.LinkIperfServer) (refused string) {
 	if m == nil {
 		return ""
 	}

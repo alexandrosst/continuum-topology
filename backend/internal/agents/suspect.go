@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/interpret"
-	"continuum/internal/model"
-	"continuum/internal/observed"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/interpret"
+	"ikhnos/internal/model"
+	"ikhnos/internal/observed"
 )
 
 // A cluster or machine that nobody onboarded cannot be found by asking, but it leaves marks in the
@@ -94,8 +94,8 @@ func Suspicions(org string, onboarded, located []observed.Cluster, now time.Time
 			}
 			var ipStr string
 			var caller string
-			outbound := k.Src.Kind == continuumv1.FlowEndpoint_WORKLOAD && k.Dst.Kind == continuumv1.FlowEndpoint_EXTERNAL
-			inbound := k.Src.Kind == continuumv1.FlowEndpoint_EXTERNAL && k.Dst.Kind == continuumv1.FlowEndpoint_WORKLOAD
+			outbound := k.Src.Kind == ikhnosv1.FlowEndpoint_WORKLOAD && k.Dst.Kind == ikhnosv1.FlowEndpoint_EXTERNAL
+			inbound := k.Src.Kind == ikhnosv1.FlowEndpoint_EXTERNAL && k.Dst.Kind == ikhnosv1.FlowEndpoint_WORKLOAD
 			switch {
 			case outbound:
 				ipStr, caller = k.Dst.Ip, workloadName(c, k.Src.Ref)

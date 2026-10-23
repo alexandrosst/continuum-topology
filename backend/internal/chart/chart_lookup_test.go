@@ -249,7 +249,7 @@ func TestRegionalOperatorChecksumCoversTheHeartbeatCA(t *testing.T) {
 	k, kc := startFakeKubernetes(t)
 	k.set("hb-ca", map[string]string{"ca.crt": "ca-1"})
 	args := []string{"--set", "export.otlp.endpoint=collector.example:4317",
-		"--set", "heartbeat.enabled=true", "--set", "heartbeat.url=https://continuum.example.com/api/v1/operator-heartbeat",
+		"--set", "heartbeat.enabled=true", "--set", "heartbeat.url=https://ikhnos.example.com/api/v1/operator-heartbeat",
 		"--set", "heartbeat.auth.secretName=hb-auth", "--set", "heartbeat.tls.caSecretName=hb-ca"}
 	read := func() string {
 		return podAnnotations(t, helmTemplateInCluster(t, RegionalOperator, kc, args...))["rel-regional-operator"]["checksum/mtls"]
@@ -281,7 +281,7 @@ func TestAgentCollectorsRestartWhenTheClientCertificateChanges(t *testing.T) {
 	read := func(extra ...string) map[string]map[string]string {
 		return podAnnotations(t, helmTemplateInCluster(t, Agent, kc, append(append([]string{}, args...), extra...)...))
 	}
-	const host, cluster = "continuum-telemetry-host", "continuum-telemetry-cluster"
+	const host, cluster = "ikhnos-telemetry-host", "ikhnos-telemetry-cluster"
 	first := read()
 	if first[host]["checksum/mtls"] == "" || first[cluster]["checksum/mtls"] == "" {
 		t.Fatalf("a collector has no checksum/mtls: host %q cluster %q", first[host]["checksum/mtls"], first[cluster]["checksum/mtls"])
@@ -290,7 +290,7 @@ func TestAgentCollectorsRestartWhenTheClientCertificateChanges(t *testing.T) {
 		t.Errorf("the cluster collector also mounts the logs route's certificate, the host collector does not: the digests should differ")
 	}
 
-	// The agent renews the client certificates itself (CONTINUUM_RENEW_SECRETS), every ~10 days: a new tls.crt and
+	// The agent renews the client certificates itself (IKHNOS_RENEW_SECRETS), every ~10 days: a new tls.crt and
 	// tls.key must not restart the collectors, they re-read the files. A new CA must, it is not re-read.
 	k.set("logs-client-tls", map[string]string{"tls.crt": "l-2", "tls.key": "lk-2", "ca.crt": "ca-1"})
 	k.set("op-client-tls", map[string]string{"tls.crt": "client-2", "tls.key": "ckey-2", "ca.crt": "ca-1"})

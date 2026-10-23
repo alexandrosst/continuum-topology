@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/kernel"
-	"continuum/internal/pki"
-	"continuum/internal/store"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/pki"
+	"ikhnos/internal/store"
 )
 
 // World is what a test server stands on: a SQLite file, a CA, a clock the test moves, and the kernel Core over them. The server and the

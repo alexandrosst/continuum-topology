@@ -8,14 +8,14 @@ import (
 	"sync/atomic"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/facts"
-	"continuum/internal/interpret"
-	"continuum/internal/kernel"
-	"continuum/internal/model"
-	"continuum/internal/store"
-	"continuum/internal/twin"
-	"continuum/internal/workspace"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/facts"
+	"ikhnos/internal/interpret"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/model"
+	"ikhnos/internal/store"
+	"ikhnos/internal/twin"
+	"ikhnos/internal/workspace"
 )
 
 // What the hub keeps for the twin: the identity registry (which record id each machine was given), the tombstones
@@ -148,7 +148,7 @@ func (h *Hub) declaredNow(ctx context.Context, now time.Time) workspace.Declared
 
 // nodeRecords decides the record id of every node of one cluster's facts. The caller holds h.mu.
 func (h *Hub) nodeRecords(clusterID string, st *facts.State, now time.Time) map[string]twin.NodeRecord {
-	nodes := make([]*continuumv1.NodeFacts, 0, len(st.Nodes))
+	nodes := make([]*ikhnosv1.NodeFacts, 0, len(st.Nodes))
 	for _, n := range st.Nodes {
 		nodes = append(nodes, n)
 	}
@@ -166,7 +166,7 @@ func nodeIDMap(rs map[string]twin.NodeRecord) map[string]string {
 // noteVanished records a tombstone for every record an incoming sync is about to remove from what the server
 // holds. It looks at the state as it is before the sync is applied, because that is the last known record. The
 // caller holds h.mu.
-func (h *Hub) noteVanished(a store.Agent, v *View, s *continuumv1.Sync, now time.Time) {
+func (h *Hub) noteVanished(a store.Agent, v *View, s *ikhnosv1.Sync, now time.Time) {
 	if v == nil || v.State == nil {
 		return
 	}

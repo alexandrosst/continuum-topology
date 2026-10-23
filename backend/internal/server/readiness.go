@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"continuum/internal/kernel"
+	"ikhnos/internal/kernel"
 )
 
 // Readiness says what /readyz checks besides the process being up. Every field is optional.

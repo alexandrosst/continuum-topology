@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/sealing"
+	"ikhnos/internal/sealing"
 )
 
 var testNow = time.UnixMilli(1_700_000_000_000).UTC()

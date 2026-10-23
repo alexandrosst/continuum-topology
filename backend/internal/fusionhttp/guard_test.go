@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/accounts"
-	"continuum/internal/fusion"
-	"continuum/internal/fusionapi"
-	"continuum/internal/kernel"
-	"continuum/internal/store"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/fusion"
+	"ikhnos/internal/fusionapi"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/store"
 )
 
 type fakeAccounts struct {

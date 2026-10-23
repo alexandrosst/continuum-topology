@@ -1,6 +1,6 @@
 package fusion
 
-import "continuum/internal/fusionapi"
+import "ikhnos/internal/fusionapi"
 
 // CreateTokenRequest is the body of POST .../fusion/tokens: what the token may read, and for how long (ExpiresInDays 0 is the default).
 type CreateTokenRequest struct {

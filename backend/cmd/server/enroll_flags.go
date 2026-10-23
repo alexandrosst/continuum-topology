@@ -5,13 +5,13 @@ import (
 	"os"
 	"time"
 
-	"continuum/internal/kernel"
+	"ikhnos/internal/kernel"
 )
 
 // The enrollment flags live here, registered before main parses the command line.
 var (
-	pendingTTL = flag.Duration("pending-enrollment-ttl", envDuration("CONTINUUM_PENDING_ENROLLMENT_TTL", kernel.DefaultPendingTTL),
-		"how long an agent that enrolled may wait for an administrator to approve it before the request expires (the agent then enrolls again by itself and shows a new approval code); env CONTINUUM_PENDING_ENROLLMENT_TTL")
+	pendingTTL = flag.Duration("pending-enrollment-ttl", envDuration("IKHNOS_PENDING_ENROLLMENT_TTL", kernel.DefaultPendingTTL),
+		"how long an agent that enrolled may wait for an administrator to approve it before the request expires (the agent then enrolls again by itself and shows a new approval code); env IKHNOS_PENDING_ENROLLMENT_TTL")
 )
 
 // envDuration reads a duration such as "12h" from the environment, falling back to def when it is unset

@@ -58,7 +58,7 @@ func (s Secret) Render() (string, error) {
 			return "", fmt.Errorf("install: %q is not a key of a Secret", e.Key)
 		}
 	}
-	delim := "CONTINUUM_SECRET"
+	delim := "IKHNOS_SECRET"
 	for clash := true; clash; {
 		clash = false
 		for _, e := range s.Entries {

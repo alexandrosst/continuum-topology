@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 )
 
 func write(t *testing.T, root, rel, content string) {
@@ -86,7 +86,7 @@ func TestReadDisks(t *testing.T) {
 	if len(h.Disks) != 2 {
 		t.Fatalf("disks = %v (sr0 and loop0 must be excluded)", h.Disks)
 	}
-	byName := map[string]*continuumv1.Disk{}
+	byName := map[string]*ikhnosv1.Disk{}
 	for _, d := range h.Disks {
 		byName[d.Name] = d
 	}
@@ -285,15 +285,15 @@ func TestCleanAndSanitize(t *testing.T) {
 	if got := Clean(strings.Repeat("a", 500)); len(got) != maxText {
 		t.Fatalf("length %d", len(got))
 	}
-	s := Sanitize(&continuumv1.HostProbe{ProductName: "<script>x", ChassisType: 9000, Uplinks: []string{"wifi", "wifi", "evil", "ethernet"}})
+	s := Sanitize(&ikhnosv1.HostProbe{ProductName: "<script>x", ChassisType: 9000, Uplinks: []string{"wifi", "wifi", "evil", "ethernet"}})
 	if s.ChassisType != 0 || len(s.Uplinks) != 2 || s.Uplinks[0] != "ethernet" {
 		t.Fatalf("Sanitize = %v", s)
 	}
 
-	untrusted := &continuumv1.HostProbe{
+	untrusted := &ikhnosv1.HostProbe{
 		CpuModel:   "Xeon\x00 Gold",
 		CpuThreads: 999999,
-		Interfaces: []*continuumv1.NetworkInterface{
+		Interfaces: []*ikhnosv1.NetworkInterface{
 			{Name: "eth0", Kind: "ethernet", SpeedMbps: 10000, Mtu: 1500},
 			{Name: "", Kind: "ethernet"},                             // no name: dropped
 			{Name: "tun0", Kind: "vpn"},                              // unknown kind: dropped
@@ -318,16 +318,16 @@ func TestCleanAndSanitize(t *testing.T) {
 		t.Fatalf("an out-of-range speed/mtu must be cleared rather than trusted: %v", su.Interfaces[1])
 	}
 
-	many := &continuumv1.HostProbe{}
+	many := &ikhnosv1.HostProbe{}
 	for i := 0; i < 50; i++ {
-		many.Interfaces = append(many.Interfaces, &continuumv1.NetworkInterface{Name: "eth", Kind: "ethernet"})
-		many.Disks = append(many.Disks, &continuumv1.Disk{Name: "sda", Type: "ssd"})
+		many.Interfaces = append(many.Interfaces, &ikhnosv1.NetworkInterface{Name: "eth", Kind: "ethernet"})
+		many.Disks = append(many.Disks, &ikhnosv1.Disk{Name: "sda", Type: "ssd"})
 	}
 	if got := Sanitize(many); len(got.Interfaces) != 32 || len(got.Disks) != 32 {
 		t.Fatalf("Interfaces/Disks must be capped at 32, got %d/%d", len(got.Interfaces), len(got.Disks))
 	}
 
-	untrustedDisks := &continuumv1.HostProbe{Disks: []*continuumv1.Disk{
+	untrustedDisks := &ikhnosv1.HostProbe{Disks: []*ikhnosv1.Disk{
 		{Name: "sda", Model: "Evil\x00 Drive", Type: "ssd", SizeBytes: 500 << 30},
 		{Name: "", Type: "ssd"},                        // no name: dropped
 		{Name: "sdb", Type: "floppy"},                  // unknown type: dropped
@@ -352,7 +352,7 @@ func TestCleanAndSanitize(t *testing.T) {
 // dropped to nil rather than stored or shown as if it were a real reading.
 func TestSanitizePressure(t *testing.T) {
 	ok, zero, tooHigh, negative, notANumber := 2.5, 0.0, 101.0, -0.1, math.NaN()
-	s := Sanitize(&continuumv1.HostProbe{CpuPressurePct: &ok, MemoryPressurePct: &zero, IoPressurePct: &tooHigh})
+	s := Sanitize(&ikhnosv1.HostProbe{CpuPressurePct: &ok, MemoryPressurePct: &zero, IoPressurePct: &tooHigh})
 	if s.CpuPressurePct == nil || *s.CpuPressurePct != 2.5 {
 		t.Fatalf("cpuPressurePct = %v, want 2.5", s.CpuPressurePct)
 	}
@@ -362,11 +362,11 @@ func TestSanitizePressure(t *testing.T) {
 	if s.IoPressurePct != nil {
 		t.Fatalf("ioPressurePct = %v, want nil (101%% is not a plausible percentage)", s.IoPressurePct)
 	}
-	s2 := Sanitize(&continuumv1.HostProbe{CpuPressurePct: &negative, MemoryPressurePct: &notANumber})
+	s2 := Sanitize(&ikhnosv1.HostProbe{CpuPressurePct: &negative, MemoryPressurePct: &notANumber})
 	if s2.CpuPressurePct != nil || s2.MemoryPressurePct != nil {
 		t.Fatalf("cpuPressurePct/memoryPressurePct = %v/%v, want both nil (negative and NaN are never real readings)", s2.CpuPressurePct, s2.MemoryPressurePct)
 	}
-	if Sanitize(&continuumv1.HostProbe{}).CpuPressurePct != nil {
+	if Sanitize(&ikhnosv1.HostProbe{}).CpuPressurePct != nil {
 		t.Fatal("an unset pressure field must stay nil, not become a fabricated 0")
 	}
 }
@@ -377,19 +377,19 @@ func TestSanitizePressure(t *testing.T) {
 // no negative or NaN case the way the PSI percentages do - is dropped to nil rather than trusted.
 func TestSanitizeOomKillCount(t *testing.T) {
 	ok, zero, tooHigh := uint64(5), uint64(0), uint64(maxPlausibleOomKillCount)
-	s := Sanitize(&continuumv1.HostProbe{OomKillCount: &ok})
+	s := Sanitize(&ikhnosv1.HostProbe{OomKillCount: &ok})
 	if s.OomKillCount == nil || *s.OomKillCount != 5 {
 		t.Fatalf("oomKillCount = %v, want 5", s.OomKillCount)
 	}
-	s2 := Sanitize(&continuumv1.HostProbe{OomKillCount: &zero})
+	s2 := Sanitize(&ikhnosv1.HostProbe{OomKillCount: &zero})
 	if s2.OomKillCount == nil || *s2.OomKillCount != 0 {
 		t.Fatalf("oomKillCount = %v, want a real, present 0", s2.OomKillCount)
 	}
-	s3 := Sanitize(&continuumv1.HostProbe{OomKillCount: &tooHigh})
+	s3 := Sanitize(&ikhnosv1.HostProbe{OomKillCount: &tooHigh})
 	if s3.OomKillCount != nil {
 		t.Fatalf("oomKillCount = %v, want nil (implausibly large)", s3.OomKillCount)
 	}
-	if Sanitize(&continuumv1.HostProbe{}).OomKillCount != nil {
+	if Sanitize(&ikhnosv1.HostProbe{}).OomKillCount != nil {
 		t.Fatal("an unset oomKillCount must stay nil, not become a fabricated 0")
 	}
 }
@@ -473,20 +473,20 @@ func TestRAPLDeltaHandlesWraparoundWithoutAnyRealTiming(t *testing.T) {
 
 func TestSanitizeWatts(t *testing.T) {
 	ok, neg, nan, tooHigh := 185.5, -1.0, math.NaN(), float64(maxPlausibleWatts)
-	s := Sanitize(&continuumv1.HostProbe{HostWatts: &ok})
+	s := Sanitize(&ikhnosv1.HostProbe{HostWatts: &ok})
 	if s.HostWatts == nil || *s.HostWatts != 185.5 {
 		t.Fatalf("hostWatts = %v, want 185.5", s.HostWatts)
 	}
-	if Sanitize(&continuumv1.HostProbe{HostWatts: &neg}).HostWatts != nil {
+	if Sanitize(&ikhnosv1.HostProbe{HostWatts: &neg}).HostWatts != nil {
 		t.Fatal("a negative watts figure must be dropped, not stored or shown as if it were real")
 	}
-	if Sanitize(&continuumv1.HostProbe{HostWatts: &nan}).HostWatts != nil {
+	if Sanitize(&ikhnosv1.HostProbe{HostWatts: &nan}).HostWatts != nil {
 		t.Fatal("NaN must be dropped")
 	}
-	if Sanitize(&continuumv1.HostProbe{HostWatts: &tooHigh}).HostWatts != nil {
+	if Sanitize(&ikhnosv1.HostProbe{HostWatts: &tooHigh}).HostWatts != nil {
 		t.Fatal("an implausibly large watts figure must be dropped")
 	}
-	if Sanitize(&continuumv1.HostProbe{}).HostWatts != nil {
+	if Sanitize(&ikhnosv1.HostProbe{}).HostWatts != nil {
 		t.Fatal("an unset hostWatts must stay nil, not become a fabricated 0")
 	}
 }
@@ -496,9 +496,9 @@ func TestSanitizeWatts(t *testing.T) {
 // node probe report silently lost its network-topology facts between the agent's receiver and
 // everything downstream - regardless of whether networkEvidence() itself found anything.
 func TestSanitizeKeepsTunnelsAndHostSubnets(t *testing.T) {
-	untrusted := &continuumv1.HostProbe{
+	untrusted := &ikhnosv1.HostProbe{
 		HostSubnets: []string{"10.8.0.0/24", "not-a-prefix", "192.168.1.0/24"},
-		Tunnels: []*continuumv1.TunnelInterface{
+		Tunnels: []*ikhnosv1.TunnelInterface{
 			{Name: "wt0", Kind: "wireguard", Up: true, Mtu: 1420, Addresses: []string{"100.64.0.45/24", "garbage"}, Routes: []string{"100.64.0.0/10", "0.0.0.0/0", "also-garbage"}},
 			{Name: "", Kind: "wireguard"},            // no name: dropped
 			{Name: "tun0", Kind: "openvpn"},          // unknown/unrecognized kind: dropped
@@ -530,9 +530,9 @@ func TestSanitizeKeepsTunnelsAndHostSubnets(t *testing.T) {
 		t.Fatalf("an out-of-range mtu must be cleared rather than trusted: %v", gre1)
 	}
 
-	many := &continuumv1.HostProbe{}
+	many := &ikhnosv1.HostProbe{}
 	for i := 0; i < 50; i++ {
-		many.Tunnels = append(many.Tunnels, &continuumv1.TunnelInterface{Name: "wt", Kind: "wireguard"})
+		many.Tunnels = append(many.Tunnels, &ikhnosv1.TunnelInterface{Name: "wt", Kind: "wireguard"})
 	}
 	if got := Sanitize(many); len(got.Tunnels) != 32 {
 		t.Fatalf("Tunnels must be capped at 32, got %d", len(got.Tunnels))
@@ -571,7 +571,7 @@ func TestReceiverEndToEnd(t *testing.T) {
 	srv := httptest.NewServer(r.Handler())
 	defer srv.Close()
 
-	h := &continuumv1.HostProbe{ProbeVersion: "1", HypervisorBit: true, SysVendor: "QEMU\x00"}
+	h := &ikhnosv1.HostProbe{ProbeVersion: "1", HypervisorBit: true, SysVendor: "QEMU\x00"}
 	if _, err := Push(context.Background(), srv.Client(), srv.URL, secret, "worker-1", h, time.Now()); err != nil {
 		t.Fatal(err)
 	}
@@ -600,7 +600,7 @@ func TestReceiverEndToEnd(t *testing.T) {
 	if _, err := Push(context.Background(), srv.Client(), srv.URL, secret, "../etc/passwd", h, time.Now()); err == nil {
 		t.Fatal("a bad node name must be refused")
 	}
-	big := &continuumv1.HostProbe{ProductName: strings.Repeat("x", MaxBody*2)}
+	big := &ikhnosv1.HostProbe{ProductName: strings.Repeat("x", MaxBody*2)}
 	if _, err := Push(context.Background(), srv.Client(), srv.URL, secret, "worker-3", big, time.Now()); err == nil {
 		t.Fatal("an oversized report must be refused")
 	}
@@ -621,7 +621,7 @@ func TestReceiverEndToEnd(t *testing.T) {
 
 func TestAPausedReceiverForgetsAndIgnoresNodes(t *testing.T) {
 	r := NewReceiver([]byte("secret-secret-secret-secret-1234"), nil)
-	if accepted, paused := r.put("node-a", &continuumv1.HostProbe{}); !accepted || paused {
+	if accepted, paused := r.put("node-a", &ikhnosv1.HostProbe{}); !accepted || paused {
 		t.Fatal("a report was not accepted")
 	}
 	if n, _ := r.Presence(time.Hour); n != 1 || r.Get("node-a") == nil {
@@ -636,14 +636,14 @@ func TestAPausedReceiverForgetsAndIgnoresNodes(t *testing.T) {
 	if n, _ := r.Presence(time.Hour); n != 0 || r.Get("node-a") != nil {
 		t.Fatal("pausing must forget what nodes reported")
 	}
-	if accepted, paused := r.put("node-b", &continuumv1.HostProbe{}); !accepted || !paused {
+	if accepted, paused := r.put("node-b", &ikhnosv1.HostProbe{}); !accepted || !paused {
 		t.Fatal("a paused receiver must still accept and mark the report as ignored")
 	} // answered as usual, thrown away
 	if n, _ := r.Presence(time.Hour); n != 0 {
 		t.Fatal("a paused receiver remembers a node")
 	}
 	r.SetPaused(false)
-	if accepted, paused := r.put("node-b", &continuumv1.HostProbe{}); !accepted || paused {
+	if accepted, paused := r.put("node-b", &ikhnosv1.HostProbe{}); !accepted || paused {
 		t.Fatal("a resumed receiver refuses reports")
 	}
 }

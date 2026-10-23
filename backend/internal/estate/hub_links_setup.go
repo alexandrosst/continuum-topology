@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
-	"continuum/internal/connectivity"
-	"continuum/internal/kernel"
-	"continuum/internal/store"
+	"ikhnos/internal/connectivity"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/store"
 )
 
 // LinkReport is the notes and the checklists of the listed pairs for the organisation's current agents, in one read of the agents.

@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/agent/collect"
-	"continuum/internal/flow"
-	"continuum/internal/probe"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/agent/collect"
+	"ikhnos/internal/flow"
+	"ikhnos/internal/probe"
 
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
@@ -23,7 +23,7 @@ import (
 type fake struct {
 	method string
 	bytes  bool
-	next   [][]*continuumv1.RawFlow
+	next   [][]*ikhnosv1.RawFlow
 	closed bool
 	// snat, when non-zero, makes fake implement SnatExhaustionSource (see its own method below) -
 	// left unset, a *fake behaves exactly like a source with no opinion on SNAT exhaustion at all, the
@@ -41,7 +41,7 @@ type fake struct {
 func (f *fake) Method() string   { return f.method }
 func (f *fake) BytesKnown() bool { return f.bytes }
 func (f *fake) Close() error     { f.closed = true; return nil }
-func (f *fake) Collect() ([]*continuumv1.RawFlow, uint64, error) {
+func (f *fake) Collect() ([]*ikhnosv1.RawFlow, uint64, error) {
 	f.calls.Add(1)
 	if len(f.next) == 0 {
 		return nil, 0, nil
@@ -85,8 +85,8 @@ func TestChooseFallsBackAndSaysWhy(t *testing.T) {
 	}
 }
 
-func rf(local, peer string, port uint32, n uint64) *continuumv1.RawFlow {
-	return &continuumv1.RawFlow{Client: true, LocalIp: local, PeerIp: peer, Port: port, Protocol: "tcp", Connections: n, BytesOut: n * 10, BytesIn: n * 20}
+func rf(local, peer string, port uint32, n uint64) *ikhnosv1.RawFlow {
+	return &ikhnosv1.RawFlow{Client: true, LocalIp: local, PeerIp: peer, Port: port, Protocol: "tcp", Connections: n, BytesOut: n * 10, BytesIn: n * 20}
 }
 
 func TestRunDeliversSignedReportsAndKeepsWhatCouldNotBeDelivered(t *testing.T) {
@@ -104,7 +104,7 @@ func TestRunDeliversSignedReportsAndKeepsWhatCouldNotBeDelivered(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	src := &fake{method: "ebpf", bytes: true, next: [][]*continuumv1.RawFlow{
+	src := &fake{method: "ebpf", bytes: true, next: [][]*ikhnosv1.RawFlow{
 		{rf("10.42.0.5", "10.43.1.1", 5432, 3)}, // window 1: the agent is down
 		{rf("10.42.0.5", "10.43.1.1", 5432, 4)}, // window 2: the agent is back
 	}}
@@ -119,7 +119,7 @@ func TestRunDeliversSignedReportsAndKeepsWhatCouldNotBeDelivered(t *testing.T) {
 	up.Store(true)
 
 	deadline := time.Now().Add(3 * time.Second)
-	var batch *continuumv1.FlowBatch
+	var batch *ikhnosv1.FlowBatch
 	for time.Now().Before(deadline) {
 		if b := p.Aggregator.Flush(); b != nil && len(b.Flows) > 0 {
 			batch = b
@@ -145,7 +145,7 @@ func TestRunWithTheWrongSecretDeliversNothing(t *testing.T) {
 	p := flow.NewPipeline([]byte("0123456789abcdef-right-secret"), func() *collect.Index { return &collect.Index{Pods: map[string]string{"10.42.0.5": "shop/web"}} }, nil)
 	srv := httptest.NewServer(p.Handler())
 	defer srv.Close()
-	src := &fake{method: "conntrack", next: [][]*continuumv1.RawFlow{{rf("10.42.0.5", "8.8.8.8", 443, 1)}}}
+	src := &fake{method: "conntrack", next: [][]*ikhnosv1.RawFlow{{rf("10.42.0.5", "8.8.8.8", 443, 1)}}}
 	ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
 	defer cancel()
 	Run(ctx, src, srv.URL, []byte("0123456789abcdef-wrong-secret!"), "node-a", 100*time.Millisecond, func(string, ...any) {})
@@ -210,7 +210,7 @@ func TestRunSkipsRealCollectionWhilePausedAndResumesPromptly(t *testing.T) {
 }
 
 func TestReportBoundsAndSaysWhatItDropped(t *testing.T) {
-	var many []*continuumv1.RawFlow
+	var many []*ikhnosv1.RawFlow
 	for i := 0; i < flow.MaxRawFlows+10; i++ {
 		many = append(many, rf("10.42.0.5", "10.43.1.1", uint32(1+i%60000), uint64(1+i%3)))
 	}
@@ -239,7 +239,7 @@ func TestRunReportsThermalThrottle(t *testing.T) {
 	}()
 
 	deadline := time.Now().Add(3 * time.Second)
-	var batch *continuumv1.FlowBatch
+	var batch *ikhnosv1.FlowBatch
 	for time.Now().Before(deadline) {
 		if b := p.Aggregator.Flush(); b != nil && len(b.Collectors) > 0 {
 			batch = b
@@ -274,7 +274,7 @@ func TestRunReportsSnatExhaustion(t *testing.T) {
 	}()
 
 	deadline := time.Now().Add(3 * time.Second)
-	var batch *continuumv1.FlowBatch
+	var batch *ikhnosv1.FlowBatch
 	for time.Now().Before(deadline) {
 		if b := p.Aggregator.Flush(); b != nil && len(b.Collectors) > 0 {
 			batch = b
@@ -290,7 +290,7 @@ func TestRunReportsSnatExhaustion(t *testing.T) {
 }
 
 func TestRollupSaturationSumsByIfaceAndDividesByWindow(t *testing.T) {
-	flows := []*continuumv1.RawFlow{
+	flows := []*ikhnosv1.RawFlow{
 		{Iface: "eth0", BytesOut: 1_000_000, BytesIn: 500_000},
 		{Iface: "eth0", BytesOut: 500_000, BytesIn: 0},
 		{Iface: "wlan0", BytesOut: 100, BytesIn: 100},
@@ -312,10 +312,10 @@ func TestRollupSaturationNilOnNothingToReport(t *testing.T) {
 	if got := rollupSaturation(nil, 30*time.Second); got != nil {
 		t.Errorf("no flows: got %+v, want nil", got)
 	}
-	if got := rollupSaturation([]*continuumv1.RawFlow{{Iface: "eth0", BytesOut: 1}}, 0); got != nil {
+	if got := rollupSaturation([]*ikhnosv1.RawFlow{{Iface: "eth0", BytesOut: 1}}, 0); got != nil {
 		t.Errorf("zero window: got %+v, want nil", got)
 	}
-	if got := rollupSaturation([]*continuumv1.RawFlow{{BytesOut: 1}}, time.Second); got != nil {
+	if got := rollupSaturation([]*ikhnosv1.RawFlow{{BytesOut: 1}}, time.Second); got != nil {
 		t.Errorf("no iface resolved anywhere: got %+v, want nil", got)
 	}
 }
@@ -341,13 +341,13 @@ func TestRollupSaturationComputesPctWhenSpeedIsReadable(t *testing.T) {
 	mk("wlan0", "")    // no speed file at all (virtual-like): same treatment
 
 	// eth0: 100,000,000 bytes/sec = 800 Mbps out of a 1000 Mbps link = 80%.
-	flows := []*continuumv1.RawFlow{
+	flows := []*ikhnosv1.RawFlow{
 		{Iface: "eth0", BytesOut: 100_000_000},
 		{Iface: "veth1", BytesOut: 123},
 		{Iface: "wlan0", BytesOut: 456},
 	}
 	got := rollupSaturation(flows, time.Second)
-	byIface := map[string]*continuumv1.LinkSaturation{}
+	byIface := map[string]*ikhnosv1.LinkSaturation{}
 	for _, ls := range got {
 		byIface[ls.Iface] = ls
 	}
@@ -374,7 +374,7 @@ func TestRollupSaturationClampsAt100(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Vastly more than 10 Mbps worth of bytes in one second - a counter race across the window boundary.
-	got := rollupSaturation([]*continuumv1.RawFlow{{Iface: "eth0", BytesOut: 100_000_000}}, time.Second)
+	got := rollupSaturation([]*ikhnosv1.RawFlow{{Iface: "eth0", BytesOut: 100_000_000}}, time.Second)
 	if len(got) != 1 || got[0].SaturationPct == nil || *got[0].SaturationPct != 100 {
 		t.Fatalf("got %+v, want clamped to 100", got)
 	}
@@ -393,8 +393,8 @@ func TestMergeKeepsEveryFieldOfTheNewerReading(t *testing.T) {
 		}
 		return false
 	}
-	fill := func(n uint64) *continuumv1.RawFlow {
-		f := &continuumv1.RawFlow{Client: true, LocalIp: "10.0.0.1", PeerIp: "10.0.0.2", Port: 80, Protocol: "tcp"}
+	fill := func(n uint64) *ikhnosv1.RawFlow {
+		f := &ikhnosv1.RawFlow{Client: true, LocalIp: "10.0.0.1", PeerIp: "10.0.0.2", Port: 80, Protocol: "tcp"}
 		m := f.ProtoReflect()
 		fields := m.Descriptor().Fields()
 		for i := 0; i < fields.Len(); i++ {
@@ -415,7 +415,7 @@ func TestMergeKeepsEveryFieldOfTheNewerReading(t *testing.T) {
 		}
 		return f
 	}
-	got := merge([]*continuumv1.RawFlow{fill(1)}, []*continuumv1.RawFlow{fill(2)})
+	got := merge([]*ikhnosv1.RawFlow{fill(1)}, []*ikhnosv1.RawFlow{fill(2)})
 	if len(got) != 1 {
 		t.Fatalf("%d flows after the merge, want 1", len(got))
 	}

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -76,7 +76,7 @@ func TestHoldForIsFiveToTenMinutesUnlessConfigured(t *testing.T) {
 
 func TestRevokedDetailComesOnlyFromUnauthenticatedStatusesThatCarryIt(t *testing.T) {
 	with := func(code codes.Code, reason string) error {
-		st, _ := status.New(code, "x").WithDetails(&continuumv1.Revoked{Reason: reason})
+		st, _ := status.New(code, "x").WithDetails(&ikhnosv1.Revoked{Reason: reason})
 		return st.Err()
 	}
 	if r, ok := revokedDetail(with(codes.Unauthenticated, "cluster decommissioned")); !ok || r != "cluster decommissioned" {

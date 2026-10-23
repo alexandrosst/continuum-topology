@@ -13,7 +13,7 @@ import (
 // The rules of the gateway stand on the kernel (the secrets of a ticket) and on nothing else of this repository: they are rules, and the
 // cookies, the origin check, the limiters and the proxy that apply them are the server's.
 var allowedRepoImports = map[string]bool{
-	"continuum/internal/kernel": true,
+	"ikhnos/internal/kernel": true,
 }
 
 func TestFusionpagesImportsNothingButTheKernel(t *testing.T) {
@@ -32,7 +32,7 @@ func TestFusionpagesImportsNothingButTheKernel(t *testing.T) {
 		}
 		for _, im := range af.Imports {
 			p, _ := strconv.Unquote(im.Path.Value)
-			if strings.HasPrefix(p, "continuum/") && !allowedRepoImports[p] {
+			if strings.HasPrefix(p, "ikhnos/") && !allowedRepoImports[p] {
 				t.Errorf("%s imports %s: fusionpages may import only %v", f, p, allowedRepoImports)
 			}
 		}

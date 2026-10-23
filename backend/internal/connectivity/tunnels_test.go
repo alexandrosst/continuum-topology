@@ -3,7 +3,7 @@ package connectivity
 import (
 	"testing"
 
-	"continuum/internal/model"
+	"ikhnos/internal/model"
 )
 
 func nodeWithTunnel(id, name string, tuns ...model.TunnelInterface) model.Node {

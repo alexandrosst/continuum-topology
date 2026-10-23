@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/estate"
-	"continuum/internal/kernel"
-	"continuum/internal/linksapi"
-	"continuum/internal/store"
-	"continuum/internal/testkit"
+	"ikhnos/internal/estate"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/linksapi"
+	"ikhnos/internal/store"
+	"ikhnos/internal/testkit"
 )
 
 func TestSettingsNormalizeTheirLinks(t *testing.T) {

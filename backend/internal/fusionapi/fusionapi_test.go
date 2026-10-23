@@ -108,16 +108,16 @@ func tempoTrace() map[string]any {
 	base := time.Date(2026, 10, 5, 11, 30, 0, 0, time.UTC).UnixNano()
 	return map[string]any{"trace": map[string]any{"resourceSpans": []any{
 		map[string]any{
-			"resource":   map[string]any{"attributes": []any{kv("service.name", "cart"), kv("k8s.namespace.name", "shop"), kv("k8s.pod.name", "cart-1"), kv("continuum.cluster.id", "cl-1")}},
+			"resource":   map[string]any{"attributes": []any{kv("service.name", "cart"), kv("k8s.namespace.name", "shop"), kv("k8s.pod.name", "cart-1"), kv("ikhnos.cluster.id", "cl-1")}},
 			"scopeSpans": []any{map[string]any{"spans": []any{span("00f067aa0ba902b7", "", "GET /cart", base, base+90e6, "STATUS_CODE_UNSET")}}},
 		},
 		map[string]any{
-			"resource": map[string]any{"attributes": []any{kv("service.name", "billing"), kv("k8s.namespace.name", "pay"), kv("k8s.pod.name", "billing-7"), kv("continuum.cluster.id", "cl-1")}},
+			"resource": map[string]any{"attributes": []any{kv("service.name", "billing"), kv("k8s.namespace.name", "pay"), kv("k8s.pod.name", "billing-7"), kv("ikhnos.cluster.id", "cl-1")}},
 			// base64 of 00f067aa0ba902b7 and of b7...: the id in the parent is the hex above, written as base64.
 			"scopeSpans": []any{map[string]any{"spans": []any{span("AAAAAAAAAAE=", "APBnqgupArc=", "charge", base+10e6, base+60e6, "STATUS_CODE_ERROR")}}},
 		},
 		map[string]any{
-			"resource":   map[string]any{"attributes": []any{kv("service.name", "audit"), kv("k8s.namespace.name", "secret"), kv("continuum.cluster.id", "cl-1")}},
+			"resource":   map[string]any{"attributes": []any{kv("service.name", "audit"), kv("k8s.namespace.name", "secret"), kv("ikhnos.cluster.id", "cl-1")}},
 			"scopeSpans": []any{map[string]any{"spans": []any{span("00000000000000aa", "AAAAAAAAAAE=", "write", base+20e6, base+30e6, "STATUS_CODE_UNSET")}}},
 		},
 	}}}
@@ -203,8 +203,8 @@ func TestMetricQueriesCarryTheScopeAndEscapeValues(t *testing.T) {
 		switch r.URL.Path {
 		case "/api/v1/series":
 			writeJSON(w, map[string]any{"status": "success", "data": []map[string]string{
-				{"__name__": "http_requests_total", "k8s_namespace_name": "shop", "continuum_cluster_id": "cl-1"},
-				{"__name__": "leak", "k8s_namespace_name": "secret", "continuum_cluster_id": "cl-1"}, // the store ignored the matcher
+				{"__name__": "http_requests_total", "k8s_namespace_name": "shop", "ikhnos_cluster_id": "cl-1"},
+				{"__name__": "leak", "k8s_namespace_name": "secret", "ikhnos_cluster_id": "cl-1"}, // the store ignored the matcher
 				{"__name__": "nolabel"},
 			}})
 		default:
@@ -220,7 +220,7 @@ func TestMetricQueriesCarryTheScopeAndEscapeValues(t *testing.T) {
 		t.Fatalf("a series outside the scope was returned: %v", series)
 	}
 	sel := f.last("/api/v1/series").Get("match[]")
-	for _, want := range []string{`k8s_namespace_name=~"shop|pay"`, `continuum_cluster_id=~"cl-1"`, `k8s_namespace_name="shop"`, `service_name="cart\"} or {job=~\".+"`} {
+	for _, want := range []string{`k8s_namespace_name=~"shop|pay"`, `ikhnos_cluster_id=~"cl-1"`, `k8s_namespace_name="shop"`, `service_name="cart\"} or {job=~\".+"`} {
 		if !strings.Contains(sel, want) {
 			t.Fatalf("selector %s lacks %s", sel, want)
 		}
@@ -316,11 +316,11 @@ func TestLogsBuildAScopedQueryAndDecodeStructuredMetadata(t *testing.T) {
 	f.loki = func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, lokiResult(
 			[]any{map[string]string{"service_name": "cart", "k8s_namespace_name": "shop", "k8s_pod_name": "cart-1"},
-				[]any{"1791200000000000000", "payment failed", map[string]any{"structuredMetadata": map[string]string{"trace_id": traceHex, "span_id": "0000000000000001", "severity_text": "ERROR", "continuum_cluster_id": "cl-1"}}}},
+				[]any{"1791200000000000000", "payment failed", map[string]any{"structuredMetadata": map[string]string{"trace_id": traceHex, "span_id": "0000000000000001", "severity_text": "ERROR", "ikhnos_cluster_id": "cl-1"}}}},
 			[]any{map[string]string{"service_name": "audit", "k8s_namespace_name": "secret"},
-				[]any{"1791200001000000000", "hidden", map[string]any{"structuredMetadata": map[string]string{"continuum_cluster_id": "cl-1"}}}},
+				[]any{"1791200001000000000", "hidden", map[string]any{"structuredMetadata": map[string]string{"ikhnos_cluster_id": "cl-1"}}}},
 			[]any{map[string]string{"service_name": "cart", "k8s_namespace_name": "shop"},
-				[]any{"1791200002000000000", "other cluster", map[string]any{"structuredMetadata": map[string]string{"continuum_cluster_id": "cl-9"}}}},
+				[]any{"1791200002000000000", "other cluster", map[string]any{"structuredMetadata": map[string]string{"ikhnos_cluster_id": "cl-9"}}}},
 		))
 	}
 	c := f.client()
@@ -333,7 +333,7 @@ func TestLogsBuildAScopedQueryAndDecodeStructuredMetadata(t *testing.T) {
 	}
 	q := f.last("/loki/api/v1/query_range")
 	query := q.Get("query")
-	for _, want := range []string{`{service_name=~".+",k8s_namespace_name=~"shop|pay"}`, `|= "fail\"ed"`, `| trace_id="0` + "af7651916cd43dd8448eb211c80319c" + `"`, `severity_text=~"(?i)error"`, `continuum_cluster_id=~"cl-1"`} {
+	for _, want := range []string{`{service_name=~".+",k8s_namespace_name=~"shop|pay"}`, `|= "fail\"ed"`, `| trace_id="0` + "af7651916cd43dd8448eb211c80319c" + `"`, `severity_text=~"(?i)error"`, `ikhnos_cluster_id=~"cl-1"`} {
 		if !strings.Contains(query, want) {
 			t.Fatalf("LogQL %s lacks %s", query, want)
 		}
@@ -379,7 +379,7 @@ func TestTraceSearchBuildsScopedTraceQLAndHidesTheRoot(t *testing.T) {
 	}
 	q := f.last("/api/search").Get("q")
 	for _, want := range []string{`resource.service.name = "cart"`, `name = "GET /cart"`, `status = error`, `traceDuration >= 250ms`,
-		`(resource.k8s.namespace.name = "shop" || resource.k8s.namespace.name = "pay")`, `(resource.continuum.cluster.id = "cl-1")`} {
+		`(resource.k8s.namespace.name = "shop" || resource.k8s.namespace.name = "pay")`, `(resource.ikhnos.cluster.id = "cl-1")`} {
 		if !strings.Contains(q, want) {
 			t.Fatalf("TraceQL %s lacks %s", q, want)
 		}
@@ -510,10 +510,10 @@ func TestApplicationsMergeTheThreeStores(t *testing.T) {
 	if _, _, _, err := c.Applications(context.Background(), limited, rangeAll); err != nil {
 		t.Fatal(err)
 	}
-	if m := f.last("/api/v1/label/service_name/values").Get("match[]"); !strings.Contains(m, `k8s_namespace_name=~"shop|pay"`) || !strings.Contains(m, `continuum_cluster_id=~"cl-1"`) {
+	if m := f.last("/api/v1/label/service_name/values").Get("match[]"); !strings.Contains(m, `k8s_namespace_name=~"shop|pay"`) || !strings.Contains(m, `ikhnos_cluster_id=~"cl-1"`) {
 		t.Fatalf("metrics listing was not scoped: %s", m)
 	}
-	if q := f.last("/loki/api/v1/query_range").Get("query"); !strings.Contains(q, `continuum_cluster_id=~"cl-1"`) {
+	if q := f.last("/loki/api/v1/query_range").Get("query"); !strings.Contains(q, `ikhnos_cluster_id=~"cl-1"`) {
 		t.Fatalf("logs listing for a cluster-limited scope: %s", q)
 	}
 	// A limited scope does not use tag-values (which need not honour the query); it samples the traces it may see.

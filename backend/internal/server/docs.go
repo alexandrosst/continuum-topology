@@ -1,8 +1,8 @@
 package server
 
 import (
-	"continuum/internal/accounts"
-	"continuum/internal/agents"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/agents"
 )
 
 // The shapes the shell itself puts on the wire: the server describing itself, and the one page ticket it hands out. Everything else a

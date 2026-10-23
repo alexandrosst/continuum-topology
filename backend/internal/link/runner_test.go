@@ -19,7 +19,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 )
 
 type fakeOwping struct {
@@ -47,7 +47,7 @@ func summary(t *testing.T, name string) []byte {
 func runnerFor(t *testing.T, f *fakeOwping, addrs ...string) *Runner {
 	t.Helper()
 	p := NewPeers()
-	p.Set("cl-me", []*continuumv1.LinkPeer{peer("cl-a", "A", addrs...)})
+	p.Set("cl-me", []*ikhnosv1.LinkPeer{peer("cl-a", "A", addrs...)})
 	m := NewMeter(p)
 	m.EnableProbes()
 	// The real route tracer must never run in unit tests; path tests inject their own.
@@ -70,8 +70,8 @@ func TestARoundMeasuresBothDirectionsAndRecordsTheLossOfEach(t *testing.T) {
 	r.Round(context.Background())
 	got := render(r.Meter)
 	base := `{cluster="cl-me",peer="cl-a",direction="`
-	if got["continuum_link_probe_packets_lost_total"+base+`forward",method="owamp"}`] != "18" ||
-		got["continuum_link_probe_packets_lost_total"+base+`reverse",method="owamp"}`] != "8" {
+	if got["ikhnos_link_probe_packets_lost_total"+base+`forward",method="owamp"}`] != "18" ||
+		got["ikhnos_link_probe_packets_lost_total"+base+`reverse",method="owamp"}`] != "8" {
 		t.Fatalf("directions mixed up or not recorded: %v", got)
 	}
 	// the arguments: one test to the peer, then one from it, machine-readable, against the responder port
@@ -118,7 +118,7 @@ func TestAFailureIsCountedOnceByReasonNotPerAddress(t *testing.T) {
 	r := runnerFor(t, f, "10.0.0.1", "10.0.0.2", "10.0.0.3")
 	r.Round(context.Background())
 	got := render(r.Meter)
-	k := `continuum_link_probe_failures_total{cluster="cl-me",peer="cl-a",direction="forward",method="owamp",reason="timeout"}`
+	k := `ikhnos_link_probe_failures_total{cluster="cl-me",peer="cl-a",direction="forward",method="owamp",reason="timeout"}`
 	if got[k] != "1" {
 		t.Fatalf("%s = %q", k, got[k])
 	}
@@ -136,7 +136,7 @@ func TestAnAuthenticationFailureStopsTryingOtherAddresses(t *testing.T) {
 	if len(f.calls) != 2 { // one per direction
 		t.Fatalf("%d runs; the other addresses should not have been tried", len(f.calls))
 	}
-	if got := render(r.Meter)[`continuum_link_probe_failures_total{cluster="cl-me",peer="cl-a",direction="forward",method="owamp",reason="auth"}`]; got != "1" {
+	if got := render(r.Meter)[`ikhnos_link_probe_failures_total{cluster="cl-me",peer="cl-a",direction="forward",method="owamp",reason="auth"}`]; got != "1" {
 		t.Fatalf("auth failures = %q", got)
 	}
 }
@@ -150,7 +150,7 @@ func TestASilentPeerCostsAFewAttemptsOnceAndIsThenLeftAloneForGrowingSpells(t *t
 		return nil, []byte("owping: Unable to open control connection"), errors.New("exit 1")
 	}
 	p := NewPeers()
-	p.Set("cl-me", []*continuumv1.LinkPeer{peer("cl-a", "A", "10.0.0.1", "10.0.0.2", "10.0.0.3", "10.0.0.4", "10.0.0.5"), peer("cl-b", "B", "10.0.1.1")})
+	p.Set("cl-me", []*ikhnosv1.LinkPeer{peer("cl-a", "A", "10.0.0.1", "10.0.0.2", "10.0.0.3", "10.0.0.4", "10.0.0.5"), peer("cl-b", "B", "10.0.1.1")})
 	m := NewMeter(p)
 	m.EnableProbes()
 	r := &Runner{Meter: m, Exec: f.exec, PathEvery: -1}
@@ -166,7 +166,7 @@ func TestASilentPeerCostsAFewAttemptsOnceAndIsThenLeftAloneForGrowingSpells(t *t
 		return
 	}
 	failed := func() string {
-		return render(m)[`continuum_link_probe_failures_total{cluster="cl-me",peer="cl-a",direction="reverse",method="owamp",reason="timeout"}`]
+		return render(m)[`ikhnos_link_probe_failures_total{cluster="cl-me",peer="cl-a",direction="reverse",method="owamp",reason="timeout"}`]
 	}
 	r.Round(context.Background())
 	// 5 addresses are not all tried, and the reverse direction is not tried at all, yet it is counted
@@ -344,12 +344,12 @@ func TestSettingsAreValidated(t *testing.T) {
 	}
 }
 
-// With the real OWAMP binaries (CONTINUUM_TEST_OWAMP_DIR holds bin/owampd and bin/owping) the runner measures a real
+// With the real OWAMP binaries (IKHNOS_TEST_OWAMP_DIR holds bin/owampd and bin/owping) the runner measures a real
 // responder over loopback. It is skipped where they are not installed.
 func TestAgainstARealResponder(t *testing.T) {
-	dir := os.Getenv("CONTINUUM_TEST_OWAMP_DIR")
+	dir := os.Getenv("IKHNOS_TEST_OWAMP_DIR")
 	if dir == "" {
-		t.Skip("CONTINUUM_TEST_OWAMP_DIR not set")
+		t.Skip("IKHNOS_TEST_OWAMP_DIR not set")
 	}
 	// Peers never include loopback, so the responder listens on one of the host's own addresses.
 	host := ""
@@ -383,7 +383,7 @@ func TestAgainstARealResponder(t *testing.T) {
 	time.Sleep(time.Second)
 
 	p := NewPeers()
-	p.Set("cl-me", []*continuumv1.LinkPeer{peer("cl-a", "A", host)})
+	p.Set("cl-me", []*ikhnosv1.LinkPeer{peer("cl-a", "A", host)})
 	m := NewMeter(p)
 	m.EnableProbes()
 	r := &Runner{Meter: m, Bin: filepath.Join(dir, "bin/owping"), Port: 18861, Packets: 20, Spacing: 50 * time.Millisecond}
@@ -391,7 +391,7 @@ func TestAgainstARealResponder(t *testing.T) {
 	r.Round(ctx)
 	got := render(m)
 	for _, d := range []string{"forward", "reverse"} {
-		k := `continuum_link_probe_packets_sent_total{cluster="cl-me",peer="cl-a",direction="` + d + `",method="owamp"}`
+		k := `ikhnos_link_probe_packets_sent_total{cluster="cl-me",peer="cl-a",direction="` + d + `",method="owamp"}`
 		if got[k] != "20" {
 			t.Errorf("%s = %q; all: %v", k, got[k], got)
 		}
@@ -403,7 +403,7 @@ func TestAPairWithTheProbeSwitchedOffIsNotProbedAndHasNoProbeSeries(t *testing.T
 	p := NewPeers()
 	off := peer("cl-a", "A", "10.0.0.1")
 	off.NoProbe = true
-	p.Set("cl-me", []*continuumv1.LinkPeer{off, peer("cl-b", "B", "10.0.1.1")})
+	p.Set("cl-me", []*ikhnosv1.LinkPeer{off, peer("cl-b", "B", "10.0.1.1")})
 	m := NewMeter(p)
 	m.EnableProbes()
 	r := &Runner{Meter: m, Exec: f.exec, PathEvery: -1}
@@ -429,7 +429,7 @@ func TestAPeerTheOtherClusterProbesIsOnlyTracedAndExportsNoProbeSeries(t *testin
 	p := NewPeers()
 	served := peer("cl-a", "A", "10.0.0.1")
 	served.SkipProbe = true
-	p.Set("cl-me", []*continuumv1.LinkPeer{served, peer("cl-b", "B", "10.0.1.1")})
+	p.Set("cl-me", []*ikhnosv1.LinkPeer{served, peer("cl-b", "B", "10.0.1.1")})
 	m := NewMeter(p)
 	m.EnableProbes()
 	m.EnableConnects()
@@ -452,11 +452,11 @@ func TestAPeerTheOtherClusterProbesIsOnlyTracedAndExportsNoProbeSeries(t *testin
 		t.Fatalf("the route to both peers is traced from both sides (the two directions can differ), got %v", traced)
 	}
 	got := render(m)
-	if got[`continuum_link_path_reached{cluster="cl-me",peer="cl-a"}`] != "1" {
+	if got[`ikhnos_link_path_reached{cluster="cl-me",peer="cl-a"}`] != "1" {
 		t.Errorf("no route series for the pair the other side probes: %v", got)
 	}
 	for k := range got {
-		if strings.Contains(k, `peer="cl-a"`) && (strings.Contains(k, "continuum_link_probe_") || strings.Contains(k, "tcp_connect")) {
+		if strings.Contains(k, `peer="cl-a"`) && (strings.Contains(k, "ikhnos_link_probe_") || strings.Contains(k, "tcp_connect")) {
 			t.Errorf("series for a measurement the other cluster makes: %s", k)
 		}
 	}
@@ -524,11 +524,11 @@ func TestAFullyLostRunIsUpWithLossOneAndNoDelaySeries(t *testing.T) {
 	got := render(r.Meter)
 	for _, d := range []string{"forward", "reverse"} {
 		base := `{cluster="cl-me",peer="cl-a",direction="` + d + `",method="owamp"}`
-		if got["continuum_link_probe_up"+base] != "1" || got["continuum_link_probe_loss_ratio"+base] != "1" {
-			t.Errorf("%s: up %q loss %q", d, got["continuum_link_probe_up"+base], got["continuum_link_probe_loss_ratio"+base])
+		if got["ikhnos_link_probe_up"+base] != "1" || got["ikhnos_link_probe_loss_ratio"+base] != "1" {
+			t.Errorf("%s: up %q loss %q", d, got["ikhnos_link_probe_up"+base], got["ikhnos_link_probe_loss_ratio"+base])
 		}
-		if got["continuum_link_probe_packets_sent_total"+base] != "100" || got["continuum_link_probe_packets_lost_total"+base] != "100" {
-			t.Errorf("%s: sent %q lost %q", d, got["continuum_link_probe_packets_sent_total"+base], got["continuum_link_probe_packets_lost_total"+base])
+		if got["ikhnos_link_probe_packets_sent_total"+base] != "100" || got["ikhnos_link_probe_packets_lost_total"+base] != "100" {
+			t.Errorf("%s: sent %q lost %q", d, got["ikhnos_link_probe_packets_sent_total"+base], got["ikhnos_link_probe_packets_lost_total"+base])
 		}
 	}
 	for k := range got {
@@ -581,14 +581,14 @@ func TestOneDirectionFailingLeavesTheOtherRecorded(t *testing.T) {
 	r.Round(context.Background())
 	got := render(r.Meter)
 	base := `{cluster="cl-me",peer="cl-a",direction="`
-	if got["continuum_link_probe_packets_lost_total"+base+`forward",method="owamp"}`] != "18" || got["continuum_link_probe_up"+base+`forward",method="owamp"}`] != "1" {
+	if got["ikhnos_link_probe_packets_lost_total"+base+`forward",method="owamp"}`] != "18" || got["ikhnos_link_probe_up"+base+`forward",method="owamp"}`] != "1" {
 		t.Errorf("the forward run was not recorded: %v", got)
 	}
-	if got["continuum_link_probe_up"+base+`reverse",method="owamp"}`] != "0" ||
-		got["continuum_link_probe_failures_total"+base+`reverse",method="owamp",reason="denied"}`] != "1" {
+	if got["ikhnos_link_probe_up"+base+`reverse",method="owamp"}`] != "0" ||
+		got["ikhnos_link_probe_failures_total"+base+`reverse",method="owamp",reason="denied"}`] != "1" {
 		t.Errorf("the reverse failure is not a denied one: %v", got)
 	}
-	if hasKey(got, `direction="reverse",method="owamp"} 18`) || got["continuum_link_probe_loss_ratio"+base+`reverse",method="owamp"}`] != "" {
+	if hasKey(got, `direction="reverse",method="owamp"} 18`) || got["ikhnos_link_probe_loss_ratio"+base+`reverse",method="owamp"}`] != "" {
 		t.Error("a figure for the failed direction")
 	}
 	// A refusal by a responder that answered is not silence: the peer is not backed off.
@@ -692,8 +692,8 @@ func TestAnUnfinishedSessionIsAFailureWithItsReasonInTheLog(t *testing.T) {
 	r.Log = lg
 	r.Round(context.Background())
 	got := render(r.Meter)
-	if got[`continuum_link_probe_up{cluster="cl-me",peer="cl-a",direction="forward",method="owamp"}`] != "0" ||
-		got[`continuum_link_probe_failures_total{cluster="cl-me",peer="cl-a",direction="forward",method="owamp",reason="other"}`] != "1" {
+	if got[`ikhnos_link_probe_up{cluster="cl-me",peer="cl-a",direction="forward",method="owamp"}`] != "0" ||
+		got[`ikhnos_link_probe_failures_total{cluster="cl-me",peer="cl-a",direction="forward",method="owamp",reason="other"}`] != "1" {
 		t.Errorf("a half-run session was recorded as a result: %v", got)
 	}
 	if !strings.Contains(buf.String(), "SESSION_FINISHED 0") {
@@ -712,7 +712,7 @@ func TestDeadPreferredAddressesDoNotStopTheProberReachingTheOneThatAnswered(t *t
 		return nil, []byte("owping: Unable to open control connection"), errors.New("exit 1")
 	}
 	p := NewPeers()
-	p.set("cl-me", []*continuumv1.LinkPeer{peer("cl-a", "A", "10.0.0.1", "10.0.0.2", "10.0.0.3", "10.0.0.9")}, map[string][]string{"cl-a": {"10.0.0.1", "10.0.0.2", "10.0.0.3"}})
+	p.set("cl-me", []*ikhnosv1.LinkPeer{peer("cl-a", "A", "10.0.0.1", "10.0.0.2", "10.0.0.3", "10.0.0.9")}, map[string][]string{"cl-a": {"10.0.0.1", "10.0.0.2", "10.0.0.3"}})
 	m := NewMeter(p)
 	m.EnableProbes()
 	r := &Runner{Meter: m, Exec: f.exec, PathEvery: -1}
@@ -728,7 +728,7 @@ func TestDeadPreferredAddressesDoNotStopTheProberReachingTheOneThatAnswered(t *t
 	}
 	got := render(m)
 	for _, d := range []string{"forward", "reverse"} {
-		if got[`continuum_link_probe_up{cluster="cl-me",peer="cl-a",direction="`+d+`",method="owamp"}`] != "1" {
+		if got[`ikhnos_link_probe_up{cluster="cl-me",peer="cl-a",direction="`+d+`",method="owamp"}`] != "1" {
 			t.Errorf("%s: the peer is reported down although the address that answered still does: %v", d, got)
 		}
 	}
@@ -767,7 +767,7 @@ func TestAnAddressThatReceivesNothingDoesNotPinTheOthersOut(t *testing.T) {
 	r := runnerFor(t, f, "10.0.0.1", "10.0.0.2", "10.0.0.3")
 	r.Round(context.Background())
 	got := render(r.Meter)
-	if got[`continuum_link_probe_packets_lost_total{cluster="cl-me",peer="cl-a",direction="forward",method="owamp"}`] != "18" {
+	if got[`ikhnos_link_probe_packets_lost_total{cluster="cl-me",peer="cl-a",direction="forward",method="owamp"}`] != "18" {
 		t.Errorf("the run of the address that works was not the one recorded: %v", got)
 	}
 	r.mu.Lock()
@@ -786,9 +786,9 @@ func TestAnAddressThatReceivesNothingDoesNotPinTheOthersOut(t *testing.T) {
 		t.Errorf("%d runs for two directions, want %d", len(f3.calls), want)
 	}
 	got = render(r3.Meter)
-	if got[`continuum_link_probe_loss_ratio{cluster="cl-me",peer="cl-a",direction="forward",method="owamp"}`] != "1" ||
-		got[`continuum_link_probe_up{cluster="cl-me",peer="cl-a",direction="forward",method="owamp"}`] != "1" ||
-		got[`continuum_link_probe_packets_sent_total{cluster="cl-me",peer="cl-a",direction="forward",method="owamp"}`] != "100" {
+	if got[`ikhnos_link_probe_loss_ratio{cluster="cl-me",peer="cl-a",direction="forward",method="owamp"}`] != "1" ||
+		got[`ikhnos_link_probe_up{cluster="cl-me",peer="cl-a",direction="forward",method="owamp"}`] != "1" ||
+		got[`ikhnos_link_probe_packets_sent_total{cluster="cl-me",peer="cl-a",direction="forward",method="owamp"}`] != "100" {
 		t.Errorf("the all-lost run was not recorded once: %v", got)
 	}
 	r3.mu.Lock()
@@ -809,7 +809,7 @@ func TestAnAddressThatReceivesNothingDoesNotPinTheOthersOut(t *testing.T) {
 	if why := r4.measure(context.Background(), r4.Meter.Peers.List()[0], Forward); why != "" {
 		t.Errorf("reason %q", why)
 	}
-	if render(r4.Meter)[`continuum_link_probe_loss_ratio{cluster="cl-me",peer="cl-a",direction="forward",method="owamp"}`] != "1" {
+	if render(r4.Meter)[`ikhnos_link_probe_loss_ratio{cluster="cl-me",peer="cl-a",direction="forward",method="owamp"}`] != "1" {
 		t.Error("the all-lost run was dropped because the next address was silent")
 	}
 }
@@ -820,7 +820,7 @@ func TestTheTraceTargetIsAnAddressTheTraceCanUseThatDoesNotJumpAround(t *testing
 	}
 	mk := func(addrs []string, pref ...string) Peer {
 		p := NewPeers()
-		p.set("cl-me", []*continuumv1.LinkPeer{peer("cl-a", "A", addrs...)}, map[string][]string{"cl-a": pref})
+		p.set("cl-me", []*ikhnosv1.LinkPeer{peer("cl-a", "A", addrs...)}, map[string][]string{"cl-a": pref})
 		return p.List()[0]
 	}
 	for _, tc := range []struct {
@@ -871,7 +871,7 @@ func TestAPeerWithOnlyIPv6AddressesIsCountedOnceAndNeverTakesTheGate(t *testing.
 		r.maybePath(ctx, p)
 		cancel()
 	}
-	if got := render(r.Meter)[`continuum_link_path_probe_failures_total{cluster="cl-me",peer="cl-a"}`]; got != "1" {
+	if got := render(r.Meter)[`ikhnos_link_path_probe_failures_total{cluster="cl-me",peer="cl-a"}`]; got != "1" {
 		t.Errorf("path failures = %q, want 1", got)
 	}
 	if countLines(buf, "level=INFO") != 1 {
@@ -885,7 +885,7 @@ func TestADualStackPeerIsTracedOverIPv4AndKeepsTheAddressItReached(t *testing.T)
 	}
 	f := &fakeOwping{run: func([]string) ([]byte, []byte, error) { return summary(t, "owping_to.txt"), nil, nil }}
 	p := NewPeers()
-	p.set("cl-me", []*continuumv1.LinkPeer{peer("cl-a", "A", "2001:db8::1", "10.0.0.1", "100.64.0.45")}, map[string][]string{"cl-a": {"2001:db8::1"}})
+	p.set("cl-me", []*ikhnosv1.LinkPeer{peer("cl-a", "A", "2001:db8::1", "10.0.0.1", "100.64.0.45")}, map[string][]string{"cl-a": {"2001:db8::1"}})
 	m := NewMeter(p)
 	m.EnableProbes()
 	var traced []string
@@ -911,7 +911,7 @@ func TestWhatTheRunnerRemembersOfAPeerSurvivesAShortBlipAndIsDroppedAfterTheGrac
 	r := runnerFor(t, f, "10.0.0.1")
 	now := time.Unix(1_700_000_000, 0)
 	r.Now = func() time.Time { return now }
-	r.Meter.Peers.Set("cl-me", []*continuumv1.LinkPeer{peer("cl-a", "A", "10.0.0.1")})
+	r.Meter.Peers.Set("cl-me", []*ikhnosv1.LinkPeer{peer("cl-a", "A", "10.0.0.1")})
 	r.Round(context.Background())
 	r.good = map[string]string{"cl-a": "10.0.0.1"}
 	r.lastPath = map[string]time.Time{"cl-a": now}
@@ -937,7 +937,7 @@ func TestWhatTheRunnerRemembersOfAPeerSurvivesAShortBlipAndIsDroppedAfterTheGrac
 		}
 	}
 	// It comes back: still remembered, and the clock of its absence starts again the next time.
-	r.Meter.Peers.Set("cl-me", []*continuumv1.LinkPeer{peer("cl-a", "A", "10.0.0.1")})
+	r.Meter.Peers.Set("cl-me", []*ikhnosv1.LinkPeer{peer("cl-a", "A", "10.0.0.1")})
 	r.Round(context.Background())
 	if d, _, _, _ := remembered(); !d {
 		t.Fatal("forgotten although the peer came back")
@@ -971,7 +971,7 @@ func TestWhatTheRunnerRemembersOfAPeerSurvivesAShortBlipAndIsDroppedAfterTheGrac
 func TestTheOverrunOfARoundIsSaidOnceWhenThePeersChangeAndNotEveryRound(t *testing.T) {
 	f := &fakeOwping{run: func(args []string) ([]byte, []byte, error) { return summary(t, "owping_to.txt"), nil, nil }}
 	p := NewPeers()
-	var lps []*continuumv1.LinkPeer
+	var lps []*ikhnosv1.LinkPeer
 	for _, id := range []string{"cl-a", "cl-b", "cl-c"} { // 3 peers x 2 x 15 s = 90 s against a minute
 		lps = append(lps, peer(id, id, "10.0.0."+strconv.Itoa(len(lps)+1)))
 	}

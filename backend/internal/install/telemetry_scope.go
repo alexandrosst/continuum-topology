@@ -103,7 +103,7 @@ func (t Telemetry) CombinedScope() ScopeOverride {
 	return ScopeOverride{Namespaces: namespaces, Exclude: exclude, Workloads: out}
 }
 
-// ScopeTag is what this telemetry covers, for the continuum.scope tag: the namespaces of the application signals that are narrowed
+// ScopeTag is what this telemetry covers, for the ikhnos.scope tag: the namespaces of the application signals that are narrowed
 // ("shop; payments"), a namespace narrowed to workloads as "payments: api+worker", plus what they leave out ("- excluding legacy+tmp").
 // No commas: the value travels through `helm --set`. Empty when nothing is narrowed (everything the agent can see).
 func (t Telemetry) ScopeTag() string {

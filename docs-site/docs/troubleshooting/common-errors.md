@@ -24,7 +24,7 @@ Fix: use `https://` (the chart's self-signed certificate, or a real one) instead
 
 ## `agent.publicAddress is required: ...`
 
-The chart refuses to render without this value — it's the address your agents will dial, and it becomes a name in the server's own TLS certificate, so it has to be set explicitly rather than defaulted to something that would silently be wrong. Set it to `host:port`, for example `continuum.example.com:8443` or, for a NodePort setup, `NODE_IP:30443`. See the [Quickstart](../getting-started/quickstart.md) for a working example end to end.
+The chart refuses to render without this value — it's the address your agents will dial, and it becomes a name in the server's own TLS certificate, so it has to be set explicitly rather than defaulted to something that would silently be wrong. Set it to `host:port`, for example `ikhnos.example.com:8443` or, for a NodePort setup, `NODE_IP:30443`. See the [Quickstart](../getting-started/quickstart.md) for a working example end to end.
 
 A related one: `agent.publicAddress must look like host:port (no scheme, no path), got "..."` means exactly what it says — no `https://`, no trailing path, just `host:port`.
 

@@ -8,8 +8,8 @@ package telemetry
 import (
 	"context"
 
-	"continuum/internal/kernel"
-	"continuum/internal/store"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/store"
 )
 
 // Operators is what the intents ask of the regional operators of the organisation: the operator a destination names, and whether a

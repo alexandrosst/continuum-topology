@@ -27,7 +27,7 @@ A token proves someone was *allowed* to install an agent — it doesn't prove th
 When the agent first contacts the server, it generates a short code and prints it **only in its own log**:
 
 ```bash
-kubectl -n continuum-system logs deploy/continuum-agent | grep -i 'approval code' | grep -oE '[A-Z0-9]{4}-[A-Z0-9]{4}'
+kubectl -n ikhnos-system logs deploy/ikhnos-agent | grep -i 'approval code' | grep -oE '[A-Z0-9]{4}-[A-Z0-9]{4}'
 ```
 
 That prints just the code itself — `K7QM-4TXD`, nothing else — piped through `grep` twice so there's no log line to read or trim by hand. (The UI's copy button next to this command copies exactly this, so most people never type it themselves.) Type or paste the code into the approve dialog (case, dashes and spaces don't matter). Because only someone with access to the cluster can read that log, approving it is confirmation that the agent asking to join really is the one running where you expect.

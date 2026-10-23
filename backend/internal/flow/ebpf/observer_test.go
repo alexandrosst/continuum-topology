@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 )
 
 // These tests load the real program into the running kernel and count real connections on the loopback
@@ -70,7 +70,7 @@ func exchange(t *testing.T, ln net.Listener, n, out, in int) {
 // A connection is counted when it starts (SYN_SENT/SYN_RECV) but its bytes, round-trip time and the rest are added when it closes,
 // which happens later on a busy machine: stopping at the count alone returns a half-finished picture, and the closes that land
 // afterwards show up in the next Collect as if the counters had not been emptied.
-func collectFor(t *testing.T, o *Observer, port uint32, want int) (client, server *continuumv1.RawFlow) {
+func collectFor(t *testing.T, o *Observer, port uint32, want int) (client, server *ikhnosv1.RawFlow) {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
 	// poll collects once and adds what it found for the port; it says whether anything was.
@@ -138,7 +138,7 @@ func TestCountsRealConnectionsAndBytes(t *testing.T) {
 	if client == nil || server == nil {
 		t.Fatalf("expected a client and a server observation, got client=%v server=%v", client, server)
 	}
-	for name, f := range map[string]*continuumv1.RawFlow{"client": client, "server": server} {
+	for name, f := range map[string]*ikhnosv1.RawFlow{"client": client, "server": server} {
 		if f.Connections != n {
 			t.Errorf("%s: connections = %d, want %d", name, f.Connections, n)
 		}
@@ -167,7 +167,7 @@ func TestReportsTheInterface(t *testing.T) {
 	port := uint32(ln.Addr().(*net.TCPAddr).Port)
 	exchange(t, ln, 1, 10, 10)
 	client, server := collectFor(t, o, port, 1)
-	for name, f := range map[string]*continuumv1.RawFlow{"client": client, "server": server} {
+	for name, f := range map[string]*ikhnosv1.RawFlow{"client": client, "server": server} {
 		if f == nil {
 			t.Fatalf("%s: no observation", name)
 		}
@@ -198,7 +198,7 @@ func TestReportsRTTAndCleanRetransmits(t *testing.T) {
 	port := uint32(ln.Addr().(*net.TCPAddr).Port)
 	exchange(t, ln, 3, 4096, 4096)
 	client, server := collectFor(t, o, port, 3)
-	for name, f := range map[string]*continuumv1.RawFlow{"client": client, "server": server} {
+	for name, f := range map[string]*ikhnosv1.RawFlow{"client": client, "server": server} {
 		if f == nil {
 			t.Fatalf("%s: no observation", name)
 		}
@@ -312,11 +312,11 @@ func TestLiveCountingOfAConnectionThatStaysOpen(t *testing.T) {
 	send(srv, c, 7000)
 	time.Sleep(200 * time.Millisecond) // let the sender's ACKs come back: bytes_acked counts acknowledged bytes
 
-	sum := func(fl []*continuumv1.RawFlow) (client *continuumv1.RawFlow) {
+	sum := func(fl []*ikhnosv1.RawFlow) (client *ikhnosv1.RawFlow) {
 		for _, f := range fl {
 			if f.Port == port && f.Client {
 				if client == nil {
-					client = &continuumv1.RawFlow{Client: true, Port: f.Port, Connections: f.Connections, BytesOut: f.BytesOut, BytesIn: f.BytesIn}
+					client = &ikhnosv1.RawFlow{Client: true, Port: f.Port, Connections: f.Connections, BytesOut: f.BytesOut, BytesIn: f.BytesIn}
 				} else {
 					client.Connections += f.Connections
 					client.BytesOut += f.BytesOut
@@ -433,7 +433,7 @@ func TestLiveCollectConcurrentWithCloseNeverUnderflowsBytes(t *testing.T) {
 
 	var mu sync.Mutex
 	var bad []string
-	check := func(fl []*continuumv1.RawFlow) {
+	check := func(fl []*ikhnosv1.RawFlow) {
 		for _, f := range fl {
 			if f.BytesOut > sanityBound || f.BytesIn > sanityBound {
 				mu.Lock()

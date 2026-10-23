@@ -12,7 +12,7 @@ import (
 
 // The shape of a destination is a document over the store's type and stands on the store alone: what makes one acceptable is the operators'.
 var allowedRepoImports = map[string]bool{
-	"continuum/internal/store": true,
+	"ikhnos/internal/store": true,
 }
 
 func TestDestinationImportsNothingButTheStore(t *testing.T) {
@@ -31,7 +31,7 @@ func TestDestinationImportsNothingButTheStore(t *testing.T) {
 		}
 		for _, im := range af.Imports {
 			p, _ := strconv.Unquote(im.Path.Value)
-			if strings.HasPrefix(p, "continuum/") && !allowedRepoImports[p] {
+			if strings.HasPrefix(p, "ikhnos/") && !allowedRepoImports[p] {
 				t.Errorf("%s imports %s: destination may import only %v", f, p, allowedRepoImports)
 			}
 		}

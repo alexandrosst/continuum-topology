@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"continuum/internal/model"
-	"continuum/internal/store"
+	"ikhnos/internal/model"
+	"ikhnos/internal/store"
 )
 
 const (

@@ -16,19 +16,19 @@ import (
 // which asks them about a change to access through a port of its own (decisionloop.Access) and which the estate answers; nor the server,
 // so not the hub that keeps the live picture of them, and not connectivity, which stands on them.
 var allowedRepoImports = map[string]bool{
-	"continuum/gen/continuumv1":    true,
-	"continuum/internal/kernel":    true,
-	"continuum/internal/store":     true,
-	"continuum/internal/pki":       true,
-	"continuum/internal/approval":  true,
-	"continuum/internal/agentcaps": true,
-	"continuum/internal/install":   true,
-	"continuum/internal/geoip":     true,
-	"continuum/internal/interpret": true,
-	"continuum/internal/model":     true,
-	"continuum/internal/accounts":  true,
-	"continuum/internal/observed":  true,
-	"continuum/internal/telemetry": true,
+	"ikhnos/gen/ikhnosv1":       true,
+	"ikhnos/internal/kernel":    true,
+	"ikhnos/internal/store":     true,
+	"ikhnos/internal/pki":       true,
+	"ikhnos/internal/approval":  true,
+	"ikhnos/internal/agentcaps": true,
+	"ikhnos/internal/install":   true,
+	"ikhnos/internal/geoip":     true,
+	"ikhnos/internal/interpret": true,
+	"ikhnos/internal/model":     true,
+	"ikhnos/internal/accounts":  true,
+	"ikhnos/internal/observed":  true,
+	"ikhnos/internal/telemetry": true,
 }
 
 func TestAgentsImportNothingOfTheServerOrAModuleAboveThem(t *testing.T) {
@@ -47,7 +47,7 @@ func TestAgentsImportNothingOfTheServerOrAModuleAboveThem(t *testing.T) {
 		}
 		for _, im := range af.Imports {
 			p, _ := strconv.Unquote(im.Path.Value)
-			if strings.HasPrefix(p, "continuum/") && !allowedRepoImports[p] {
+			if strings.HasPrefix(p, "ikhnos/") && !allowedRepoImports[p] {
 				t.Errorf("%s imports %s: the agents may not stand on it", f, p)
 			}
 		}

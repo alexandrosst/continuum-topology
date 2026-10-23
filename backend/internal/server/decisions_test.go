@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"continuum/internal/accounts"
-	"continuum/internal/decisionloop"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/decisionloop"
 )
 
 func TestRecordDecisionsNeedsAnEditorAndListDecisionsIsReadableByAnyMember(t *testing.T) {

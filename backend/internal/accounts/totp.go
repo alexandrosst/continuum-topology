@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"continuum/internal/kernel"
+	"ikhnos/internal/kernel"
 )
 
 // Two-factor authentication is TOTP (RFC 6238) over HOTP (RFC 4226): the same 6-digit-code-from-an-app

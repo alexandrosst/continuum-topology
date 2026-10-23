@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/accounts"
-	"continuum/internal/kernel"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/kernel"
 )
 
 // mustTOTPCode computes the code the secret would show at now, the same way an authenticator app does.

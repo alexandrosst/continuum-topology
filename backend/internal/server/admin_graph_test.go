@@ -8,24 +8,24 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/accounts"
-	"continuum/internal/agents"
-	"continuum/internal/estate"
-	"continuum/internal/graph"
-	"continuum/internal/history"
-	"continuum/internal/model"
-	"continuum/internal/store"
-	"continuum/internal/testkit"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/agents"
+	"ikhnos/internal/estate"
+	"ikhnos/internal/graph"
+	"ikhnos/internal/history"
+	"ikhnos/internal/model"
+	"ikhnos/internal/store"
+	"ikhnos/internal/testkit"
 )
 
-// graphRig is the admin API on a store that keeps memory in a real Neo4j (CONTINUUM_TEST_NEO4J).
+// graphRig is the admin API on a store that keeps memory in a real Neo4j (IKHNOS_TEST_NEO4J).
 func graphRig(t *testing.T) (*adminRig, *graph.Store) {
 	t.Helper()
-	u := os.Getenv("CONTINUUM_TEST_NEO4J")
+	u := os.Getenv("IKHNOS_TEST_NEO4J")
 	if u == "" {
-		t.Skip("set CONTINUUM_TEST_NEO4J to run the Neo4j tests")
+		t.Skip("set IKHNOS_TEST_NEO4J to run the Neo4j tests")
 	}
-	c, err := graph.NewClient(graph.Config{URL: u, User: "neo4j", Password: os.Getenv("CONTINUUM_TEST_NEO4J_PASSWORD")})
+	c, err := graph.NewClient(graph.Config{URL: u, User: "neo4j", Password: os.Getenv("IKHNOS_TEST_NEO4J_PASSWORD")})
 	if err != nil {
 		t.Fatal(err)
 	}

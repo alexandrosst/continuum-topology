@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/probe"
+	"ikhnos/internal/probe"
 )
 
 func TestTheMeterNoticesTheProberOnlyForAValidRequest(t *testing.T) {

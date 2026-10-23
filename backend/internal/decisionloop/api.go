@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"strconv"
 
-	"continuum/internal/httpkit"
-	"continuum/internal/kernel"
-	"continuum/internal/twin"
+	"ikhnos/internal/httpkit"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/twin"
 )
 
 // The HTTP side of the decision log. What may be recorded, and how, is decisions.go's.

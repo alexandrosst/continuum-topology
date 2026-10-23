@@ -318,12 +318,12 @@ describe('GuidedWizard destination step: the merged catalog', () => {
     await waitFor(() => expect(screen.getByTestId('t-guided-destination-name')).toHaveTextContent('EU regional operator'))
     expect(screen.getByTestId('t-guided-destination-auto')).toBeInTheDocument()
     // An operator's endpoint is its own receiver: shown, not editable.
-    expect(screen.getByTestId('t-guided-destination-endpoint')).toHaveTextContent('op-eu.continuum-system.svc:4317')
+    expect(screen.getByTestId('t-guided-destination-endpoint')).toHaveTextContent('op-eu.ikhnos-system.svc:4317')
     expect(screen.getByTestId('t-guided-destination-endpoint').tagName).not.toBe('INPUT')
     await user.click(screen.getByTestId('t-guided-continue'))
     expect(screen.getByTestId('t-guided-step-review')).toBeInTheDocument()
     expect(screen.getByTestId('t-review-changes')).toHaveTextContent('Sends it to EU regional operator.')
-    expect(latest.exportEndpoint).toBe('op-eu.continuum-system.svc:4317')
+    expect(latest.exportEndpoint).toBe('op-eu.ikhnos-system.svc:4317')
   })
 
   test('an operator says whether other clusters can reach it: the recorded address, or only its in-cluster name', async () => {
@@ -352,13 +352,13 @@ describe('GuidedWizard destination step: the merged catalog', () => {
     const user = userEvent.setup()
     role = 'admin'
     getFusion.mockResolvedValue(RUNNING)
-    listOperators.mockResolvedValue([operator({ id: 'op-central', name: 'Central (FUSION)', endpoint: 'continuum-fusion-central.continuum.svc:4317' })])
+    listOperators.mockResolvedValue([operator({ id: 'op-central', name: 'Central (FUSION)', endpoint: 'ikhnos-fusion-central.ikhnos.svc:4317' })])
     renderWizard()
     await gotoDestination(user)
     await waitFor(() => expect(screen.getByTestId('t-guided-destination-name')).toHaveTextContent('FUSION - this server'))
-    expect(screen.getByTestId('t-guided-destination-endpoint')).toHaveTextContent('continuum-fusion-central.continuum.svc:4317')
-    expect(screen.getByTestId('t-guided-destination-endpoint')).not.toHaveTextContent('op-central.continuum-system.svc')
-    expect(screen.getByTestId('t-guided-destination-operator-address')).toHaveTextContent('FUSION is reachable inside its own cluster only (continuum-fusion-central.continuum.svc:4317')
+    expect(screen.getByTestId('t-guided-destination-endpoint')).toHaveTextContent('ikhnos-fusion-central.ikhnos.svc:4317')
+    expect(screen.getByTestId('t-guided-destination-endpoint')).not.toHaveTextContent('op-central.ikhnos-system.svc')
+    expect(screen.getByTestId('t-guided-destination-operator-address')).toHaveTextContent('FUSION is reachable inside its own cluster only (ikhnos-fusion-central.ikhnos.svc:4317')
     // The draft keeps the operator's own name: it is the commands, not the draft, that dial the advertised address.
     expect(latest.exportOperatorId).toBe('op-central')
   })
@@ -385,7 +385,7 @@ describe('GuidedWizard destination step: the merged catalog', () => {
     await gotoDestination(user)
     await waitFor(() => expect(screen.getByTestId('t-guided-destination-name')).toHaveTextContent('EU regional operator'))
     expect(latest.exportOperatorId).toBe('op-eu')
-    expect(latest.exportEndpoint).toBe('op-eu.continuum-system.svc:4317')
+    expect(latest.exportEndpoint).toBe('op-eu.ikhnos-system.svc:4317')
     // The step no longer sends people to the Operators page for the connecting commands: the panel generates them.
     expect(screen.getByTestId('t-guided-destination-operator-note')).toHaveTextContent('generated on the last step')
     expect(screen.getByTestId('t-guided-destination-operator-note')).toHaveTextContent('administrators only')
@@ -637,7 +637,7 @@ describe('GuidedWizard destination step: no backend is deployed from here', () =
 })
 
 const OFF: FusionStatus = { available: true, state: 'off', components: [{ component: 'central', label: 'Central', desired: 0, ready: 0 }] }
-const CENTRAL = { id: 'op-central', name: 'Central', endpoint: 'continuum-fusion-central.continuum.svc:4317' } as const
+const CENTRAL = { id: 'op-central', name: 'Central', endpoint: 'ikhnos-fusion-central.ikhnos.svc:4317' } as const
 const centralEntry = (health: OperatorDestinationEntry['health']['state']): OperatorDestinationEntry => ({
   id: 'op-central',
   kind: 'central',

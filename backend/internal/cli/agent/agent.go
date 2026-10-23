@@ -16,15 +16,15 @@ import (
 	"syscall"
 	"time"
 
-	"continuum/internal/agent"
-	"continuum/internal/agent/collect"
-	"continuum/internal/agent/exporthealth"
-	"continuum/internal/certrenew"
-	"continuum/internal/cli"
-	"continuum/internal/flow"
-	"continuum/internal/link"
-	"continuum/internal/measure"
-	"continuum/internal/probe"
+	"ikhnos/internal/agent"
+	"ikhnos/internal/agent/collect"
+	"ikhnos/internal/agent/exporthealth"
+	"ikhnos/internal/certrenew"
+	"ikhnos/internal/cli"
+	"ikhnos/internal/flow"
+	"ikhnos/internal/link"
+	"ikhnos/internal/measure"
+	"ikhnos/internal/probe"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -34,54 +34,54 @@ import (
 
 // Main runs inside a cluster (or beside one, for development) and reports what it discovers. It returns the exit code.
 func Main(args []string) int {
-	fs := cli.NewFlagSet("continuum agent", os.Stderr)
-	server := fs.String("server", cli.Env("CONTINUUM_SERVER", ""), "server host:port")
-	pin := fs.String("ca-pin", cli.Env("CONTINUUM_CA_PIN", ""), "SHA-256 pin of the server CA (from the install command)")
-	tier := fs.Int("tier", cli.Atoi(cli.Env("CONTINUUM_TIER", "2")), "highest access tier the installed RBAC allows (0-2)")
+	fs := cli.NewFlagSet("ikhnos agent", os.Stderr)
+	server := fs.String("server", cli.Env("IKHNOS_SERVER", ""), "server host:port")
+	pin := fs.String("ca-pin", cli.Env("IKHNOS_CA_PIN", ""), "SHA-256 pin of the server CA (from the install command)")
+	tier := fs.Int("tier", cli.Atoi(cli.Env("IKHNOS_TIER", "2")), "highest access tier the installed RBAC allows (0-2)")
 	kubeconfig := fs.String("kubeconfig", "", "development only: use this kubeconfig instead of the in-cluster service account")
 	stateDir := fs.String("state-dir", "", "development only: keep the identity in this directory instead of a Kubernetes Secret")
-	secret := fs.String("identity-secret", cli.Env("CONTINUUM_IDENTITY_SECRET", "continuum-agent-identity"), "Secret (in the agent's namespace) that holds the identity")
-	ns := fs.String("namespace", cli.Env("POD_NAMESPACE", "continuum-system"), "the agent's namespace")
-	releaseName := fs.String("release-name", cli.Env("CONTINUUM_RELEASE_NAME", ""), "the Helm release this agent was installed as (the chart sets this; empty outside it)")
-	telemetrySignals := fs.String("telemetry-signals", cli.Env("CONTINUUM_TELEMETRY_SIGNALS", ""), "telemetry signals this install's chart enabled (telemetry.*.enabled), comma separated - purely informational, reported in Diagnostics; the chart sets this automatically")
+	secret := fs.String("identity-secret", cli.Env("IKHNOS_IDENTITY_SECRET", "ikhnos-agent-identity"), "Secret (in the agent's namespace) that holds the identity")
+	ns := fs.String("namespace", cli.Env("POD_NAMESPACE", "ikhnos-system"), "the agent's namespace")
+	releaseName := fs.String("release-name", cli.Env("IKHNOS_RELEASE_NAME", ""), "the Helm release this agent was installed as (the chart sets this; empty outside it)")
+	telemetrySignals := fs.String("telemetry-signals", cli.Env("IKHNOS_TELEMETRY_SIGNALS", ""), "telemetry signals this install's chart enabled (telemetry.*.enabled), comma separated - purely informational, reported in Diagnostics; the chart sets this automatically")
 	// The effective configuration behind telemetrySignals above - not just which signals are on, but how
 	// each is actually configured. Siblings of telemetry-signals, same "the chart sets this automatically"
 	// contract; see TelemetryConfig's own doc comment in internal/agent/run.go for why each is shaped as
 	// it is (and why three of these are read as strings here rather than typed, parsed only once telemetry
 	// actually turns out to be enabled, below).
-	telemetryDestination := fs.String("telemetry-destination", cli.Env("CONTINUUM_TELEMETRY_DESTINATION", ""), "effective telemetry.export.otlp.endpoint this install's chart configured the collector to send to - purely informational, reported in Diagnostics; the chart sets this automatically")
-	telemetryRedaction := fs.Bool("telemetry-redaction", cli.Env("CONTINUUM_TELEMETRY_REDACTION", "") == "true", "effective telemetry.processors.redaction.enabled - purely informational, reported in Diagnostics; the chart sets this automatically")
-	telemetryResourceDetection := fs.Bool("telemetry-resource-detection", cli.Env("CONTINUUM_TELEMETRY_RESOURCE_DETECTION", "") == "true", "effective telemetry.processors.resourceDetection.enabled - purely informational, reported in Diagnostics; the chart sets this automatically")
-	telemetryTracesSampling := fs.String("telemetry-traces-sampling", cli.Env("CONTINUUM_TELEMETRY_TRACES_SAMPLING", ""), "effective telemetry.processors.tracesSampling.percentage, only set by the chart when the traces signal is enabled - purely informational, reported in Diagnostics; the chart sets this automatically")
-	telemetryEnergySource := fs.String("telemetry-energy-source", cli.Env("CONTINUUM_TELEMETRY_ENERGY_SOURCE", ""), "effective telemetry.energy.metrics.source (bundle-kepler | existing), only set by the chart when the energy signal is enabled - purely informational, reported in Diagnostics; the chart sets this automatically")
-	telemetryHealthTargets := fs.String("telemetry-health-targets", cli.Env("CONTINUUM_TELEMETRY_HEALTH_TARGETS", ""), "host:port names of the telemetry collectors' own export counters (the chart's telemetry.health), comma separated; each resolves to every collector pod. The agent reads the counters (never telemetry) to report whether each destination is receiving data; the chart sets this automatically, and empty means do not")
-	telemetryAcceleratorsSource := fs.String("telemetry-accelerators-source", cli.Env("CONTINUUM_TELEMETRY_ACCELERATORS_SOURCE", ""), "effective telemetry.accelerators.metrics.source (bundle-dcgm | existing), only set by the chart when the accelerators signal is enabled - purely informational, reported in Diagnostics; the chart sets this automatically")
-	linkCapacity := fs.Bool("link-capacity", cli.Env("CONTINUUM_LINK_CAPACITY", "") == "true", "report that this install has the iperf3 server and client (telemetry.clusterLinks.probe.capacity.enabled), so the Sites screen can say whether a pair's throughput tests can run - purely informational, reported in the heartbeat; the chart sets this automatically")
-	linkTelemetryExport := fs.Bool("link-telemetry-export", cli.Env("CONTINUUM_LINK_TELEMETRY_EXPORT", "") == "true", "report that this install's cluster collector exports the link metrics to a destination, so what this cluster measures leaves it - purely informational, reported in the heartbeat; the chart sets this automatically")
-	rbacSelfCheck := fs.Bool("rbac-self-check", cli.Env("CONTINUUM_RBAC_SELF_CHECK", "true") == "true", "periodically ask the cluster (SelfSubjectAccessReview) whether it still grants more than --tier declares, and report it as a problem if so; catches a helm upgrade that narrowed access.tier locally but was never run against the cluster")
-	renewSecrets := fs.String("renew-secrets", cli.Env("CONTINUUM_RENEW_SECRETS", ""), "Secrets in the agent's namespace that hold this cluster's telemetry mTLS certificates (comma separated, each with tls.crt, tls.key, ca.crt); the agent renews them before they expire. The chart sets this automatically")
-	probeListen := fs.String("probe-listen", cli.Env("CONTINUUM_PROBE_LISTEN", ""), "address to listen on for node probe reports, e.g. :8081 (empty: no node probes)")
-	probeSecretFile := fs.String("probe-secret-file", cli.Env("CONTINUUM_PROBE_SECRET_FILE", ""), "file holding the secret shared with the node probes")
-	healthListen := fs.String("health-listen", cli.Env("CONTINUUM_HEALTH_LISTEN", ""), "address to serve /healthz (liveness) and /readyz (readiness) on, e.g. :8082 (empty: off)")
-	measureOn := fs.Bool("measure", cli.Env("CONTINUUM_MEASURE", "") == "true", "allow timing TCP connections to the addresses the server names (to learn how far away other places are); off by default")
-	flowWindow := fs.Duration("flow-window", envDuration("CONTINUUM_FLOW_WINDOW"), "how often observed traffic is sent to the server (the chart's flowObserver.window; default 15s)")
+	telemetryDestination := fs.String("telemetry-destination", cli.Env("IKHNOS_TELEMETRY_DESTINATION", ""), "effective telemetry.export.otlp.endpoint this install's chart configured the collector to send to - purely informational, reported in Diagnostics; the chart sets this automatically")
+	telemetryRedaction := fs.Bool("telemetry-redaction", cli.Env("IKHNOS_TELEMETRY_REDACTION", "") == "true", "effective telemetry.processors.redaction.enabled - purely informational, reported in Diagnostics; the chart sets this automatically")
+	telemetryResourceDetection := fs.Bool("telemetry-resource-detection", cli.Env("IKHNOS_TELEMETRY_RESOURCE_DETECTION", "") == "true", "effective telemetry.processors.resourceDetection.enabled - purely informational, reported in Diagnostics; the chart sets this automatically")
+	telemetryTracesSampling := fs.String("telemetry-traces-sampling", cli.Env("IKHNOS_TELEMETRY_TRACES_SAMPLING", ""), "effective telemetry.processors.tracesSampling.percentage, only set by the chart when the traces signal is enabled - purely informational, reported in Diagnostics; the chart sets this automatically")
+	telemetryEnergySource := fs.String("telemetry-energy-source", cli.Env("IKHNOS_TELEMETRY_ENERGY_SOURCE", ""), "effective telemetry.energy.metrics.source (bundle-kepler | existing), only set by the chart when the energy signal is enabled - purely informational, reported in Diagnostics; the chart sets this automatically")
+	telemetryHealthTargets := fs.String("telemetry-health-targets", cli.Env("IKHNOS_TELEMETRY_HEALTH_TARGETS", ""), "host:port names of the telemetry collectors' own export counters (the chart's telemetry.health), comma separated; each resolves to every collector pod. The agent reads the counters (never telemetry) to report whether each destination is receiving data; the chart sets this automatically, and empty means do not")
+	telemetryAcceleratorsSource := fs.String("telemetry-accelerators-source", cli.Env("IKHNOS_TELEMETRY_ACCELERATORS_SOURCE", ""), "effective telemetry.accelerators.metrics.source (bundle-dcgm | existing), only set by the chart when the accelerators signal is enabled - purely informational, reported in Diagnostics; the chart sets this automatically")
+	linkCapacity := fs.Bool("link-capacity", cli.Env("IKHNOS_LINK_CAPACITY", "") == "true", "report that this install has the iperf3 server and client (telemetry.clusterLinks.probe.capacity.enabled), so the Sites screen can say whether a pair's throughput tests can run - purely informational, reported in the heartbeat; the chart sets this automatically")
+	linkTelemetryExport := fs.Bool("link-telemetry-export", cli.Env("IKHNOS_LINK_TELEMETRY_EXPORT", "") == "true", "report that this install's cluster collector exports the link metrics to a destination, so what this cluster measures leaves it - purely informational, reported in the heartbeat; the chart sets this automatically")
+	rbacSelfCheck := fs.Bool("rbac-self-check", cli.Env("IKHNOS_RBAC_SELF_CHECK", "true") == "true", "periodically ask the cluster (SelfSubjectAccessReview) whether it still grants more than --tier declares, and report it as a problem if so; catches a helm upgrade that narrowed access.tier locally but was never run against the cluster")
+	renewSecrets := fs.String("renew-secrets", cli.Env("IKHNOS_RENEW_SECRETS", ""), "Secrets in the agent's namespace that hold this cluster's telemetry mTLS certificates (comma separated, each with tls.crt, tls.key, ca.crt); the agent renews them before they expire. The chart sets this automatically")
+	probeListen := fs.String("probe-listen", cli.Env("IKHNOS_PROBE_LISTEN", ""), "address to listen on for node probe reports, e.g. :8081 (empty: no node probes)")
+	probeSecretFile := fs.String("probe-secret-file", cli.Env("IKHNOS_PROBE_SECRET_FILE", ""), "file holding the secret shared with the node probes")
+	healthListen := fs.String("health-listen", cli.Env("IKHNOS_HEALTH_LISTEN", ""), "address to serve /healthz (liveness) and /readyz (readiness) on, e.g. :8082 (empty: off)")
+	measureOn := fs.Bool("measure", cli.Env("IKHNOS_MEASURE", "") == "true", "allow timing TCP connections to the addresses the server names (to learn how far away other places are); off by default")
+	flowWindow := fs.Duration("flow-window", envDuration("IKHNOS_FLOW_WINDOW"), "how often observed traffic is sent to the server (the chart's flowObserver.window; default 15s)")
 	revokedHold := fs.Duration("revoked-hold", 0, "development only: how long a restarted agent whose identity was revoked waits before it exits with code 3 (default: a random 5 to 10 minutes; negative: do not wait)")
-	linkListen := fs.String("link-metrics-listen", cli.Env("CONTINUUM_LINK_METRICS_LISTEN", ""), "address to serve the cluster-to-cluster link metrics on (Prometheus text at /metrics), e.g. :9104 (empty: off; needs --flow-secret-file, since the metrics are labelled from observed traffic). The server decides which clusters are peers; the chart's telemetry.clusterLinks sets this")
-	linkProberPorts := fs.String("link-prober-ports", cli.Env("CONTINUUM_LINK_PROBER_PORTS", ""), "ports (and ranges, e.g. 8861,8862,18900-18999) the link prober's own traffic uses, which the link metrics leave out so that the probes and throughput tests do not count as the link's traffic; the chart's telemetry.clusterLinks.probe sets this")
-	linkOwn := fs.String("link-own-addresses", cli.Env("CONTINUUM_LINK_OWN_ADDRESSES", ""), "the agent pod's own addresses (comma-separated), whose connections the link metrics leave out: the agent tests targets and holds its stream to the server itself, and those connections are not the traffic between clusters; the chart sets this from the pod's status")
-	linkServePeers := fs.Bool("link-serve-peers", cli.Env("CONTINUUM_LINK_SERVE_PEERS", "") == "true", "also answer the link prober's signed request for the peer clusters to measure (POST /v1/link/peers on the link metrics address), using --link-peers-secret-file; the chart's telemetry.clusterLinks.probe sets this")
-	linkPeersSecretFile := fs.String("link-peers-secret-file", cli.Env("CONTINUUM_LINK_PEERS_SECRET_FILE", ""), "file holding the secret shared with the link prober, for its request for the peers to measure (needs --link-serve-peers). It is not the flow secret: the prober must not be able to sign flow reports")
-	linkServeIperf := fs.Bool("link-serve-iperf", cli.Env("CONTINUUM_LINK_SERVE_IPERF", "") == "true", "also hold the iperf3 credentials the Ikhnos server issues for the throughput tests (in memory only) and hand them to the link pods: the client credentials to the prober (sealed, with the peer list) and the server credentials to the responder's iperf3 server (POST /v1/link/iperf-server), using --link-iperf-secret-file; the chart sets this when telemetry.clusterLinks.probe.capacity is on and no Secret of your own is named")
-	linkIperfSecretFile := fs.String("link-iperf-secret-file", cli.Env("CONTINUUM_LINK_IPERF_SECRET_FILE", ""), "file holding the secret shared with the responder's iperf3 server pods for the server-credentials request (needs --link-serve-iperf). Neither the prober's secret nor the flow secret: the prober must not be able to read the private key")
-	flowSecretFile := fs.String("flow-secret-file", cli.Env("CONTINUUM_FLOW_SECRET_FILE", ""), "file holding the secret shared with the node flow collectors (needs --probe-listen)")
-	rbacMode := fs.String("rbac-mode", cli.Env("CONTINUUM_RBAC_MODE", "cluster"), "how tier 2's installed RBAC was granted: cluster (one ClusterRole, default) or namespaced (a Role per namespace in --scope-namespaces instead). Must match the chart's rbac.mode; the chart sets this automatically")
-	scopeNS := fs.String("scope-namespaces", cli.Env("CONTINUUM_SCOPE_NAMESPACES", ""), "report only these namespaces, comma separated (empty: all). Combined with --scope-label as a union. Required, and the only way to select namespaces, when --rbac-mode=namespaced")
-	scopeExclude := fs.String("scope-exclude", cli.Env("CONTINUUM_SCOPE_EXCLUDE", ""), "never report these namespaces, comma separated")
-	scopeLabel := fs.String("scope-label", cli.Env("CONTINUUM_SCOPE_LABEL", ""), "report only namespaces matching this label selector, e.g. continuum.io/observe=true (only labels the agent keeps, such as continuum.io/*)")
-	probeEvery := fs.Duration("probe-interval", envDuration("CONTINUUM_PROBE_INTERVAL"), "how often the node probes were told to report (the chart's nodeProbe.interval); the agent calls them silent after three of these without a word (default 3m)")
-	flowEvery := fs.Duration("flow-interval", envDuration("CONTINUUM_FLOW_INTERVAL"), "how often the flow collectors were told to report (the chart's flowObserver.interval; default 10s)")
-	measurePorts := fs.String("measure-allow-ports", cli.Env("CONTINUUM_MEASURE_ALLOW_PORTS", ""), "comma separated control-plane ports (etcd, kubelet, ...) that connection timing may use anyway; refused by default")
-	measureCIDRs := fs.String("measure-allow-cidrs", cli.Env("CONTINUUM_MEASURE_ALLOW_CIDRS", ""), "comma separated ranges in which connection timing may reach the API server's address anyway; refused by default")
+	linkListen := fs.String("link-metrics-listen", cli.Env("IKHNOS_LINK_METRICS_LISTEN", ""), "address to serve the cluster-to-cluster link metrics on (Prometheus text at /metrics), e.g. :9104 (empty: off; needs --flow-secret-file, since the metrics are labelled from observed traffic). The server decides which clusters are peers; the chart's telemetry.clusterLinks sets this")
+	linkProberPorts := fs.String("link-prober-ports", cli.Env("IKHNOS_LINK_PROBER_PORTS", ""), "ports (and ranges, e.g. 8861,8862,18900-18999) the link prober's own traffic uses, which the link metrics leave out so that the probes and throughput tests do not count as the link's traffic; the chart's telemetry.clusterLinks.probe sets this")
+	linkOwn := fs.String("link-own-addresses", cli.Env("IKHNOS_LINK_OWN_ADDRESSES", ""), "the agent pod's own addresses (comma-separated), whose connections the link metrics leave out: the agent tests targets and holds its stream to the server itself, and those connections are not the traffic between clusters; the chart sets this from the pod's status")
+	linkServePeers := fs.Bool("link-serve-peers", cli.Env("IKHNOS_LINK_SERVE_PEERS", "") == "true", "also answer the link prober's signed request for the peer clusters to measure (POST /v1/link/peers on the link metrics address), using --link-peers-secret-file; the chart's telemetry.clusterLinks.probe sets this")
+	linkPeersSecretFile := fs.String("link-peers-secret-file", cli.Env("IKHNOS_LINK_PEERS_SECRET_FILE", ""), "file holding the secret shared with the link prober, for its request for the peers to measure (needs --link-serve-peers). It is not the flow secret: the prober must not be able to sign flow reports")
+	linkServeIperf := fs.Bool("link-serve-iperf", cli.Env("IKHNOS_LINK_SERVE_IPERF", "") == "true", "also hold the iperf3 credentials the Ikhnos server issues for the throughput tests (in memory only) and hand them to the link pods: the client credentials to the prober (sealed, with the peer list) and the server credentials to the responder's iperf3 server (POST /v1/link/iperf-server), using --link-iperf-secret-file; the chart sets this when telemetry.clusterLinks.probe.capacity is on and no Secret of your own is named")
+	linkIperfSecretFile := fs.String("link-iperf-secret-file", cli.Env("IKHNOS_LINK_IPERF_SECRET_FILE", ""), "file holding the secret shared with the responder's iperf3 server pods for the server-credentials request (needs --link-serve-iperf). Neither the prober's secret nor the flow secret: the prober must not be able to read the private key")
+	flowSecretFile := fs.String("flow-secret-file", cli.Env("IKHNOS_FLOW_SECRET_FILE", ""), "file holding the secret shared with the node flow collectors (needs --probe-listen)")
+	rbacMode := fs.String("rbac-mode", cli.Env("IKHNOS_RBAC_MODE", "cluster"), "how tier 2's installed RBAC was granted: cluster (one ClusterRole, default) or namespaced (a Role per namespace in --scope-namespaces instead). Must match the chart's rbac.mode; the chart sets this automatically")
+	scopeNS := fs.String("scope-namespaces", cli.Env("IKHNOS_SCOPE_NAMESPACES", ""), "report only these namespaces, comma separated (empty: all). Combined with --scope-label as a union. Required, and the only way to select namespaces, when --rbac-mode=namespaced")
+	scopeExclude := fs.String("scope-exclude", cli.Env("IKHNOS_SCOPE_EXCLUDE", ""), "never report these namespaces, comma separated")
+	scopeLabel := fs.String("scope-label", cli.Env("IKHNOS_SCOPE_LABEL", ""), "report only namespaces matching this label selector, e.g. ikhnos.io/observe=true (only labels the agent keeps, such as ikhnos.io/*)")
+	probeEvery := fs.Duration("probe-interval", envDuration("IKHNOS_PROBE_INTERVAL"), "how often the node probes were told to report (the chart's nodeProbe.interval); the agent calls them silent after three of these without a word (default 3m)")
+	flowEvery := fs.Duration("flow-interval", envDuration("IKHNOS_FLOW_INTERVAL"), "how often the flow collectors were told to report (the chart's flowObserver.interval; default 10s)")
+	measurePorts := fs.String("measure-allow-ports", cli.Env("IKHNOS_MEASURE_ALLOW_PORTS", ""), "comma separated control-plane ports (etcd, kubelet, ...) that connection timing may use anyway; refused by default")
+	measureCIDRs := fs.String("measure-allow-cidrs", cli.Env("IKHNOS_MEASURE_ALLOW_CIDRS", ""), "comma separated ranges in which connection timing may reach the API server's address anyway; refused by default")
 	if code, done := cli.Parse(fs, args); done {
 		return code
 	}
@@ -112,7 +112,7 @@ func Main(args []string) int {
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
 	// The token is read from the environment only, so it does not appear in the process list.
-	token := os.Getenv("CONTINUUM_TOKEN")
+	token := os.Getenv("IKHNOS_TOKEN")
 	if *server == "" || *pin == "" {
 		return cli.Fatal(log, fmt.Errorf("--server and --ca-pin are required"))
 	}
@@ -126,7 +126,7 @@ func Main(args []string) int {
 			telemetrySignalList = append(telemetrySignalList, s)
 		}
 	}
-	// Built only once there is a destination to report - the chart only ever sets CONTINUUM_TELEMETRY_
+	// Built only once there is a destination to report - the chart only ever sets IKHNOS_TELEMETRY_
 	// DESTINATION (and its siblings) when agent.telemetryEnabled, mirroring telemetrySignalList's own "nil
 	// outside the chart, or when no telemetry signal is enabled" contract exactly, rather than a second,
 	// independently-maintained condition that could drift from it.
@@ -238,7 +238,7 @@ func Main(args []string) int {
 	if err != nil {
 		return cli.Fatal(log, err)
 	}
-	rc.UserAgent = "continuum-agent/" + cli.Version
+	rc.UserAgent = "ikhnos-agent/" + cli.Version
 	client, err := kubernetes.NewForConfig(rc)
 	if err != nil {
 		return cli.Fatal(log, err)
@@ -260,7 +260,7 @@ func Main(args []string) int {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	log.Info("continuum agent starting", "version", cli.Version, "server", *server, "tier", *tier)
+	log.Info("ikhnos agent starting", "version", cli.Version, "server", *server, "tier", *tier)
 	var probes *probe.Receiver
 	if *probeListen != "" && *probeSecretFile != "" {
 		sec, rerr := os.ReadFile(*probeSecretFile)

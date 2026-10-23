@@ -12,10 +12,10 @@ import (
 	"net/http"
 	"strings"
 
-	"continuum/internal/accounts"
-	"continuum/internal/httpkit"
-	"continuum/internal/kernel"
-	"continuum/internal/store"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/httpkit"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/store"
 )
 
 // API is the accounts' routes.

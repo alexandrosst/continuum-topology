@@ -357,7 +357,7 @@ export const useRawTopology = create<RawState>()(
       }
     },
     {
-      name: 'continuum-topology/v1', // key kept so existing browsers upgrade in place via `version` + `migrate`
+      name: 'ikhnos/v1', // key kept so existing browsers upgrade in place via `version` + `migrate`
       version: SCHEMA_VERSION,
       partialize: (s) => pick(s),
       migrate: (persisted) => {

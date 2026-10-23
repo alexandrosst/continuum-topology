@@ -21,16 +21,16 @@ func TestRegionalOperatorPackageIsAChartHelmAccepts(t *testing.T) {
 	dir := t.TempDir()
 	names := unpack(t, b, dir)
 	want := map[string]bool{
-		"continuum-regional-operator/Chart.yaml": false, "continuum-regional-operator/values.yaml": false,
-		"continuum-regional-operator/templates/_helpers.tpl": false, "continuum-regional-operator/templates/deployment.yaml": false,
-		"continuum-regional-operator/templates/config.yaml": false, "continuum-regional-operator/templates/serviceaccount.yaml": false,
-		"continuum-regional-operator/values.schema.json": false, "continuum-regional-operator/templates/NOTES.txt": false,
+		"ikhnos-regional-operator/Chart.yaml": false, "ikhnos-regional-operator/values.yaml": false,
+		"ikhnos-regional-operator/templates/_helpers.tpl": false, "ikhnos-regional-operator/templates/deployment.yaml": false,
+		"ikhnos-regional-operator/templates/config.yaml": false, "ikhnos-regional-operator/templates/serviceaccount.yaml": false,
+		"ikhnos-regional-operator/values.schema.json": false, "ikhnos-regional-operator/templates/NOTES.txt": false,
 	}
 	for _, n := range names {
 		if _, ok := want[n]; ok {
 			want[n] = true
 		}
-		if !strings.HasPrefix(n, "continuum-regional-operator/") {
+		if !strings.HasPrefix(n, "ikhnos-regional-operator/") {
 			t.Fatalf("entry outside the chart directory: %s", n)
 		}
 	}
@@ -39,7 +39,7 @@ func TestRegionalOperatorPackageIsAChartHelmAccepts(t *testing.T) {
 			t.Fatalf("%s is missing from the package", n)
 		}
 	}
-	if RegionalOperator.Filename() != "continuum-regional-operator-"+RegionalOperator.Version()+".tgz" || RegionalOperator.Version() == "0.0.0" {
+	if RegionalOperator.Filename() != "ikhnos-regional-operator-"+RegionalOperator.Version()+".tgz" || RegionalOperator.Version() == "0.0.0" {
 		t.Fatalf("filename/version wrong: %s %s", RegionalOperator.Filename(), RegionalOperator.Version())
 	}
 	// The agent chart must be entirely unaffected by the regional-operator chart existing alongside it.

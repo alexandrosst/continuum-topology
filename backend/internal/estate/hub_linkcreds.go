@@ -1,9 +1,9 @@
 package estate
 
 import (
-	"continuum/internal/connectivity"
-	"continuum/internal/kernel"
-	"continuum/internal/store"
+	"ikhnos/internal/connectivity"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/store"
 )
 
 // linkCredsFor is the delivery for one agent's Config, or the zero delivery when the cluster takes part in no pair with throughput

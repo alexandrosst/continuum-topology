@@ -25,24 +25,24 @@ func TestTheThreeShapesTheServerPrints(t *testing.T) {
 		h    Helm
 		want string
 	}{
-		{"an agent install, wrapped", Helm{Verb: Install, Release: "continuum-agent", Chart: "oci://registry.example.com/team/continuum-agent", Version: "0.0.0-agent",
-			Namespace: "continuum-system", CreateNamespace: true, Layout: Wrapped,
-			Values: []Value{Set("server.address", "srv.example.com:8443"), Set("enrollment.key", "sha256/AAAA=.cnt_SECRET"), Set("access.tier", "3")}},
-			"helm install continuum-agent oci://registry.example.com/team/continuum-agent --version 0.0.0-agent \\\n" +
-				"  --namespace continuum-system --create-namespace \\\n" +
+		{"an agent install, wrapped", Helm{Verb: Install, Release: "ikhnos-agent", Chart: "oci://registry.example.com/team/ikhnos-agent", Version: "0.0.0-agent",
+			Namespace: "ikhnos-system", CreateNamespace: true, Layout: Wrapped,
+			Values: []Value{Set("server.address", "srv.example.com:8443"), Set("enrollment.key", "sha256/AAAA=.ikh_SECRET"), Set("access.tier", "3")}},
+			"helm install ikhnos-agent oci://registry.example.com/team/ikhnos-agent --version 0.0.0-agent \\\n" +
+				"  --namespace ikhnos-system --create-namespace \\\n" +
 				"  --set server.address=srv.example.com:8443 \\\n" +
-				"  --set enrollment.key=sha256/AAAA=.cnt_SECRET \\\n" +
+				"  --set enrollment.key=sha256/AAAA=.ikh_SECRET \\\n" +
 				"  --set access.tier=3"},
-		{"an operator that is changed in place, wrapped", Helm{Verb: UpgradeInstall, Release: "athens", Chart: "./continuum-regional-operator-0.0.0-operator.tgz",
-			Namespace: "continuum-system", CreateNamespace: true, ResetThenReuse: true, Layout: Wrapped,
+		{"an operator that is changed in place, wrapped", Helm{Verb: UpgradeInstall, Release: "athens", Chart: "./ikhnos-regional-operator-0.0.0-operator.tgz",
+			Namespace: "ikhnos-system", CreateNamespace: true, ResetThenReuse: true, Layout: Wrapped,
 			Values: []Value{Set("export.otlp.tls.caFile", ""), SetJSON("operator", `{"id":"athens","name":"it's","labels":[]}`)}},
-			"helm upgrade --install athens ./continuum-regional-operator-0.0.0-operator.tgz \\\n" +
-				"  --namespace continuum-system --create-namespace --reset-then-reuse-values \\\n" +
+			"helm upgrade --install athens ./ikhnos-regional-operator-0.0.0-operator.tgz \\\n" +
+				"  --namespace ikhnos-system --create-namespace --reset-then-reuse-values \\\n" +
 				"  --set export.otlp.tls.caFile= \\\n" +
 				`  --set-json operator='{"id":"athens","name":"it'\''s","labels":[]}'`},
-		{"an upgrade of one value, on one line", Helm{Verb: Upgrade, Release: "obs-agent", Chart: "oci://registry-1.docker.io/myteam/continuum-agent", Version: "0.0.0-agent",
+		{"an upgrade of one value, on one line", Helm{Verb: Upgrade, Release: "obs-agent", Chart: "oci://registry-1.docker.io/myteam/ikhnos-agent", Version: "0.0.0-agent",
 			Namespace: "apps-team", ResetThenReuse: true, Values: []Value{Set("access.tier", "2")}},
-			"helm upgrade obs-agent oci://registry-1.docker.io/myteam/continuum-agent --version 0.0.0-agent --namespace apps-team --reset-then-reuse-values --set access.tier=2"},
+			"helm upgrade obs-agent oci://registry-1.docker.io/myteam/ikhnos-agent --version 0.0.0-agent --namespace apps-team --reset-then-reuse-values --set access.tier=2"},
 	}
 	for _, c := range cases {
 		if got := render(t, c.h); got != c.want {
@@ -59,7 +59,7 @@ func TestEveryValueIsExactlyOneWordToARealShell(t *testing.T) {
 		t.Skip("bash is not installed")
 	}
 	hostile := []string{"", "plain", "has space", "it's", `"double"`, "$(touch /tmp/pwned)", "`id`", "a;b", "a && b", "a | b", "a\nb", `back\slash`, "-n", "--post-renderer=/x",
-		"*", "~", "#", "!", "{a,b}", "é世界", "'; touch /tmp/pwned; '", "$HOME", "EOF\nCONTINUUM_SECRET"}
+		"*", "~", "#", "!", "{a,b}", "é世界", "'; touch /tmp/pwned; '", "$HOME", "EOF\nIKHNOS_SECRET"}
 	for _, layout := range []Layout{OneLine, Wrapped} {
 		for _, verb := range []Verb{Install, Upgrade, UpgradeInstall} {
 			var values []Value

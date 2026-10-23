@@ -1,11 +1,11 @@
 package server
 
 import (
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 	"testing"
 	"time"
 
-	"continuum/internal/testkit"
+	"ikhnos/internal/testkit"
 )
 
 // Tombstones and node identities are written behind a timer. A graceful shutdown must save what the timer had
@@ -14,7 +14,7 @@ func TestFlushAllSavesWriteBehindStateBeforeShutdown(t *testing.T) {
 	r := newHubRig(t)
 	h := r.hub
 	a := twinAgent(t, r.env, h, testkit.FP)
-	nodes := []*continuumv1.NodeFacts{testkit.TwinNode("worker-1", "4f1c0a9b2d7e4c3a8b6d5e2f1a0b9c8d")}
+	nodes := []*ikhnosv1.NodeFacts{testkit.TwinNode("worker-1", "4f1c0a9b2d7e4c3a8b6d5e2f1a0b9c8d")}
 	cart, pay := testkit.TwinWorkload("shop", "cart"), testkit.TwinWorkload("shop", "pay")
 	h.ApplySync(a, testkit.TwinFull(testkit.FP, nodes, cart, pay), false)
 	*r.now = r.now.Add(time.Minute)

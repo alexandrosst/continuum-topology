@@ -5,15 +5,15 @@
 // Method: eBPF where the kernel supports it, the kernel's connection-tracking table otherwise. Run it
 // with --print 30s to see exactly what a window contains; that sends nothing.
 //
-// It is a thin wrapper: the same code is `continuum flow` in the single Ikhnos binary (cmd/continuum), which is what
+// It is a thin wrapper: the same code is `ikhnos flow` in the single Ikhnos binary (cmd/ikhnos), which is what
 // the container image and the Helm chart run. This binary keeps the old name working for development and tests.
 package main
 
 import (
 	"os"
 
-	"continuum/internal/cli"
-	flowcli "continuum/internal/cli/flow"
+	"ikhnos/internal/cli"
+	flowcli "ikhnos/internal/cli/flow"
 )
 
 var version = "0.1.0-dev"

@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 )
 
 // TestFlowTableCarriesTlsHandshake mirrors TestFlowTableCarriesMssBytes: FlowEdge.Key.TlsHandshake is a
@@ -14,29 +14,29 @@ func TestFlowTableCarriesTlsHandshake(t *testing.T) {
 	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
 	tbl := NewFlowTable()
 	src, dst := wep("a/Deployment/x"), wep("a/Deployment/y")
-	f1 := &continuumv1.Flow{Src: src, Dst: dst, Port: 443, Protocol: "tcp", Method: "ebpf", TlsHandshake: continuumv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_OK}
-	tbl.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f1}}, now)
+	f1 := &ikhnosv1.Flow{Src: src, Dst: dst, Port: 443, Protocol: "tcp", Method: "ebpf", TlsHandshake: ikhnosv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_OK}
+	tbl.Apply(&ikhnosv1.FlowBatch{WindowSeconds: 60, Flows: []*ikhnosv1.Flow{f1}}, now)
 	k := FlowKey(f1)
 	e := tbl.Edges[k]
 	if e == nil {
 		t.Fatal("edge not recorded")
 	}
-	if e.Key.TlsHandshake != continuumv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_OK {
+	if e.Key.TlsHandshake != ikhnosv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_OK {
 		t.Errorf("tlsHandshake = %v, want OK", e.Key.TlsHandshake)
 	}
 	// A later report whose own connection's handshake instead failed replaces the gauge.
-	f2 := &continuumv1.Flow{Src: src, Dst: dst, Port: 443, Protocol: "tcp", Method: "ebpf", TlsHandshake: continuumv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_FAILED}
-	tbl.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f2}}, now.Add(time.Minute))
+	f2 := &ikhnosv1.Flow{Src: src, Dst: dst, Port: 443, Protocol: "tcp", Method: "ebpf", TlsHandshake: ikhnosv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_FAILED}
+	tbl.Apply(&ikhnosv1.FlowBatch{WindowSeconds: 60, Flows: []*ikhnosv1.Flow{f2}}, now.Add(time.Minute))
 	e = tbl.Edges[k]
-	if e.Key.TlsHandshake != continuumv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_FAILED {
+	if e.Key.TlsHandshake != ikhnosv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_FAILED {
 		t.Errorf("tlsHandshake after second report = %v, want FAILED", e.Key.TlsHandshake)
 	}
 	// A report with no ClientHello seen this window (UNKNOWN, the zero value) must not erase the last
 	// decided outcome - exactly the same "0 means no sample" rule MssBytes/RttUs already follow.
-	f3 := &continuumv1.Flow{Src: src, Dst: dst, Port: 443, Protocol: "tcp", Method: "ebpf"}
-	tbl.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f3}}, now.Add(2*time.Minute))
+	f3 := &ikhnosv1.Flow{Src: src, Dst: dst, Port: 443, Protocol: "tcp", Method: "ebpf"}
+	tbl.Apply(&ikhnosv1.FlowBatch{WindowSeconds: 60, Flows: []*ikhnosv1.Flow{f3}}, now.Add(2*time.Minute))
 	e = tbl.Edges[k]
-	if e.Key.TlsHandshake != continuumv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_FAILED {
+	if e.Key.TlsHandshake != ikhnosv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_FAILED {
 		t.Errorf("tlsHandshake after UNKNOWN-sample report = %v, want unchanged FAILED", e.Key.TlsHandshake)
 	}
 }
@@ -47,7 +47,7 @@ func TestDependencyStatsIncludeTlsHandshake(t *testing.T) {
 	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
 	x, y := "a/Deployment/x", "a/Deployment/y"
 	c := cluster("a", "", nil, wk("a", "Deployment", "x"), wk("a", "Deployment", "y"))
-	f := &continuumv1.Flow{Src: wep(x), Dst: wep(y), Port: 443, Protocol: "tcp", Connections: 1, Method: "ebpf", TlsHandshake: continuumv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_FAILED}
+	f := &ikhnosv1.Flow{Src: wep(x), Dst: wep(y), Port: 443, Protocol: "tcp", Connections: 1, Method: "ebpf", TlsHandshake: ikhnosv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_FAILED}
 	feed(&c, now, 60, f)
 
 	deps, _ := Topology("org", []Cluster{c}, now, 24*time.Hour)
@@ -67,7 +67,7 @@ func TestDependencyStatsLeaveTlsHandshakeUnsetWhenUnknown(t *testing.T) {
 	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
 	x, y := "a/Deployment/x", "a/Deployment/y"
 	c := cluster("a", "", nil, wk("a", "Deployment", "x"), wk("a", "Deployment", "y"))
-	f := &continuumv1.Flow{Src: wep(x), Dst: wep(y), Port: 443, Protocol: "tcp", Connections: 1, Method: "ebpf"}
+	f := &ikhnosv1.Flow{Src: wep(x), Dst: wep(y), Port: 443, Protocol: "tcp", Connections: 1, Method: "ebpf"}
 	feed(&c, now, 60, f)
 
 	deps, _ := Topology("org", []Cluster{c}, now, 24*time.Hour)

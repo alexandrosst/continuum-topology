@@ -10,7 +10,7 @@ import { answerTo, forgetUpgrades, lastUpgrade } from './upgradeServer'
 
 const reloadInfo = vi.fn(async () => undefined)
 const serverState = {
-  info: { implementedTier: 2, install: { chartRef: 'oci://registry.example.com/team/continuum-agent', chartVersion: '0.9.0' } },
+  info: { implementedTier: 2, install: { chartRef: 'oci://registry.example.com/team/ikhnos-agent', chartVersion: '0.9.0' } },
   conn: () => ({ url: '', org: 'o' }),
   refresh: async () => undefined,
   reloadInfo,

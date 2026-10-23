@@ -3,10 +3,10 @@ package telemetry
 import (
 	"net/http"
 
-	"continuum/internal/destination"
-	"continuum/internal/httpkit"
-	"continuum/internal/kernel"
-	"continuum/internal/store"
+	"ikhnos/internal/destination"
+	"ikhnos/internal/httpkit"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/store"
 )
 
 // The HTTP side of telemetry: the intents' routes. What an intent may say, and how it is audited, is

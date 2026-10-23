@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/fusionapi"
-	"continuum/internal/history"
-	"continuum/internal/model"
+	"ikhnos/internal/fusionapi"
+	"ikhnos/internal/history"
+	"ikhnos/internal/model"
 )
 
 // topoExtras serves a topology from memory, and records what it was asked for.

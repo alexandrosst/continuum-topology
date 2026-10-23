@@ -86,18 +86,18 @@ func (c *Client) LinkReadings(ctx context.Context, s Scope) (LinkReadings, error
 	// The series of one pair can exist twice for a while (a rolled pod's last samples beside its successor's), and the order of
 	// a store's answer is not defined, so every query aggregates by the labels the caller reads: the worse loss and the smaller
 	// MTU win, which is what the dashboard shows too.
-	up := `(continuum_link_probe_up == 1)`
+	up := `(ikhnos_link_probe_up == 1)`
 	jobs := []job{
-		{`max by (cluster, peer, direction) (last_over_time(continuum_link_probe_loss_ratio[` + linkProbeLookback + `]) and on (cluster, peer, direction) ` + up + `)`, &out.Loss},
-		{`max by (cluster, peer, direction) (last_over_time(continuum_link_probe_delay_variation_seconds{stat="median"}[` + linkProbeLookback + `]) and on (cluster, peer, direction) ` + up + `)`, &out.Jitter},
-		{`sum by (cluster, peer) (rate(continuum_link_tcp_connect_seconds_sum[` + linkRTTWindow + `])) / sum by (cluster, peer) (rate(continuum_link_tcp_connect_seconds_count[` + linkRTTWindow + `]))`, &out.RTT},
-		{`min by (cluster, peer) (last_over_time(continuum_link_path_mtu_bytes[` + linkMTULookback + `]))`, &out.MTU},
-		{`max by (cluster, peer, direction) (last_over_time(continuum_link_throughput_bits_per_second{protocol="tcp",dscp="0"}[` + linkTestLookback + `]))`, &out.Throughput},
-		{`max by (cluster, peer, direction) (last_over_time(continuum_link_probe_last_success_timestamp_seconds[` + linkProbedLookback + `]))`, &out.Probed},
-		{`max by (cluster, peer) (last_over_time(continuum_link_throughput_last_success_timestamp_seconds[` + linkTestLookback + `]))`, &out.Tested},
-		{`max by (cluster, peer, direction) (continuum_link_probe_up)`, &out.Up},
-		{`topk by (cluster, peer, direction) (1, sum by (cluster, peer, direction, reason) (increase(continuum_link_probe_failures_total[` + linkFailureWindow + `])) > 0)`, &out.ProbeFailure},
-		{`topk by (cluster, peer) (1, sum by (cluster, peer, reason) (increase(continuum_link_tcp_connect_failures_total[` + linkFailureWindow + `])) > 0)`, &out.ConnectFailure},
+		{`max by (cluster, peer, direction) (last_over_time(ikhnos_link_probe_loss_ratio[` + linkProbeLookback + `]) and on (cluster, peer, direction) ` + up + `)`, &out.Loss},
+		{`max by (cluster, peer, direction) (last_over_time(ikhnos_link_probe_delay_variation_seconds{stat="median"}[` + linkProbeLookback + `]) and on (cluster, peer, direction) ` + up + `)`, &out.Jitter},
+		{`sum by (cluster, peer) (rate(ikhnos_link_tcp_connect_seconds_sum[` + linkRTTWindow + `])) / sum by (cluster, peer) (rate(ikhnos_link_tcp_connect_seconds_count[` + linkRTTWindow + `]))`, &out.RTT},
+		{`min by (cluster, peer) (last_over_time(ikhnos_link_path_mtu_bytes[` + linkMTULookback + `]))`, &out.MTU},
+		{`max by (cluster, peer, direction) (last_over_time(ikhnos_link_throughput_bits_per_second{protocol="tcp",dscp="0"}[` + linkTestLookback + `]))`, &out.Throughput},
+		{`max by (cluster, peer, direction) (last_over_time(ikhnos_link_probe_last_success_timestamp_seconds[` + linkProbedLookback + `]))`, &out.Probed},
+		{`max by (cluster, peer) (last_over_time(ikhnos_link_throughput_last_success_timestamp_seconds[` + linkTestLookback + `]))`, &out.Tested},
+		{`max by (cluster, peer, direction) (ikhnos_link_probe_up)`, &out.Up},
+		{`topk by (cluster, peer, direction) (1, sum by (cluster, peer, direction, reason) (increase(ikhnos_link_probe_failures_total[` + linkFailureWindow + `])) > 0)`, &out.ProbeFailure},
+		{`topk by (cluster, peer) (1, sum by (cluster, peer, reason) (increase(ikhnos_link_tcp_connect_failures_total[` + linkFailureWindow + `])) > 0)`, &out.ConnectFailure},
 	}
 	errs := make([]error, len(jobs))
 	var wg sync.WaitGroup

@@ -5,11 +5,11 @@ import (
 	"errors"
 	"sync"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/agents"
-	"continuum/internal/estate"
-	"continuum/internal/kernel"
-	"continuum/internal/store"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/agents"
+	"ikhnos/internal/estate"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/store"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -119,7 +119,7 @@ func (p *Platform) drop(id string) {
 }
 
 // Connect routes the agent's stream to its own organisation's hub.
-func (p *Platform) Connect(stream continuumv1.AgentService_ConnectServer) error {
+func (p *Platform) Connect(stream ikhnosv1.AgentService_ConnectServer) error {
 	a, ok := agents.AgentFrom(stream.Context())
 	if !ok {
 		return status.Error(codes.Unauthenticated, "no agent")

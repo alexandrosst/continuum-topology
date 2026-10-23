@@ -4,12 +4,12 @@ import (
 	"net/http"
 	"strings"
 
-	"continuum/internal/agents"
-	"continuum/internal/httpkit"
-	"continuum/internal/installcfg"
-	"continuum/internal/kernel"
-	"continuum/internal/operators"
-	"continuum/internal/store"
+	"ikhnos/internal/agents"
+	"ikhnos/internal/httpkit"
+	"ikhnos/internal/installcfg"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/operators"
+	"ikhnos/internal/store"
 )
 
 // API is the estate's routes: what a person does with the agents of an organisation (the tokens that enrol them, approving, rejecting and

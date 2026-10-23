@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/accounts"
-	"continuum/internal/fusion"
-	"continuum/internal/fusionpages"
-	"continuum/internal/kernel"
-	"continuum/internal/store"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/fusion"
+	"ikhnos/internal/fusionpages"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/store"
 )
 
 // pageCookie is the cookie a redeemed ticket sets, nil when there is none.
@@ -185,7 +185,7 @@ func TestOnlyAnAdministratorMayAskForAPageLink(t *testing.T) {
 	if r := ask("grafana", withCookie(p.admin)); r.Code != 200 || r.Header().Get("Cache-Control") != "no-store" {
 		t.Errorf("an administrator: %d %v", r.Code, r.Header())
 	}
-	p.kube.replicas["continuum-fusion-grafana"] = 0
+	p.kube.replicas["ikhnos-fusion-grafana"] = 0
 	if r := ask("grafana", withCookie(p.admin)); r.Code != 409 || !strings.Contains(r.Body.String(), "not running") {
 		t.Errorf("a page that is down: %d %s", r.Code, r.Body.String())
 	}

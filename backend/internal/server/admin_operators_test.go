@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"continuum/internal/accounts"
-	"continuum/internal/testkit"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/testkit"
 )
 
 func TestOperatorsHTTPCreateListGetRevokeDelete(t *testing.T) {
@@ -99,7 +99,7 @@ func TestOperatorsHTTPCreateListGetRevokeDelete(t *testing.T) {
 	// Revoking does not stop the receiver: the response says how to remove it.
 	if r := a.do("POST", "/api/v1/operators/"+id+"/revoke", map[string]string{"reason": "decommissioned"}, withCookie(cookie)); r.Code != 200 {
 		t.Fatalf("revoke: %d %s", r.Code, r.Body.String())
-	} else if got := r.json(t)["uninstall"]; got != "helm uninstall "+id+" --namespace continuum-system" {
+	} else if got := r.json(t)["uninstall"]; got != "helm uninstall "+id+" --namespace ikhnos-system" {
 		t.Fatalf("uninstall = %v", got)
 	}
 	if r := a.do("GET", "/api/v1/operators/"+id, nil, withCookie(cookie)); r.Code != 200 {
@@ -184,7 +184,7 @@ func TestOperatorsHTTPAcceptsChainingToAnActiveOperator(t *testing.T) {
 }
 
 // TestOperatorInstallCommandReleaseNameIsUniquePerOperator guards the chart-side fix in
-// continuum-regional-operator (operator.name now derives from .Release.Name, see _helpers.tpl): that fix
+// ikhnos-regional-operator (operator.name now derives from .Release.Name, see _helpers.tpl): that fix
 // only closes the collision if operatorInstallCommand actually hands each operator a distinct, valid
 // Helm release name in the first place, instead of always suggesting the same namespace+release for
 // every operator. newOperatorID already mints a short, lowercase, hyphenated id ("op-<12 hex>") per
@@ -235,8 +235,8 @@ func TestOperatorInstallCommandReleaseNameIsUniquePerOperator(t *testing.T) {
 	}
 	// Both still install into the same shared namespace - the fix is a unique release name, not a
 	// unique namespace, since the chart's own object names are now derived from .Release.Name.
-	if !strings.Contains(installA, "--namespace continuum-system") || !strings.Contains(installB, "--namespace continuum-system") {
-		t.Fatalf("expected both installs to target --namespace continuum-system:\nA: %s\nB: %s", installA, installB)
+	if !strings.Contains(installA, "--namespace ikhnos-system") || !strings.Contains(installB, "--namespace ikhnos-system") {
+		t.Fatalf("expected both installs to target --namespace ikhnos-system:\nA: %s\nB: %s", installA, installB)
 	}
 	// A valid Helm release name: lowercase alphanumeric and hyphens only.
 	validRelease := func(s string) bool {

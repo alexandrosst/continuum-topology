@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/accounts"
-	"continuum/internal/kernel"
-	"continuum/internal/operators"
-	"continuum/internal/operatorsapi"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/operators"
+	"ikhnos/internal/operatorsapi"
 )
 
 // inspectingKube is a fakeKube that can also say what the gateway's Service is.

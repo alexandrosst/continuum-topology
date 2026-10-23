@@ -7,11 +7,11 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"continuum/internal/connectivity"
-	"continuum/internal/fusionapi"
-	"continuum/internal/fusionhttp"
-	"continuum/internal/httpkit"
-	"continuum/internal/kernel"
+	"ikhnos/internal/connectivity"
+	"ikhnos/internal/fusionapi"
+	"ikhnos/internal/fusionhttp"
+	"ikhnos/internal/httpkit"
+	"ikhnos/internal/kernel"
 )
 
 // API is the links of the organisation as the server shows them: the latest figures of each watched pair for the Sites screen, the

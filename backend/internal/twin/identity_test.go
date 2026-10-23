@@ -5,18 +5,18 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/store"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/store"
 )
 
-func node(name, provider, sysUUID, machine string) *continuumv1.NodeFacts {
-	return &continuumv1.NodeFacts{Key: name, Name: name, ProviderId: provider, SystemUuid: sysUUID, MachineId: machine}
+func node(name, provider, sysUUID, machine string) *ikhnosv1.NodeFacts {
+	return &ikhnosv1.NodeFacts{Key: name, Name: name, ProviderId: provider, SystemUuid: sysUUID, MachineId: machine}
 }
 
 func TestNodeIdentityOrderAndWhatIsNotTrusted(t *testing.T) {
 	for _, c := range []struct {
 		name string
-		n    *continuumv1.NodeFacts
+		n    *ikhnosv1.NodeFacts
 		want NodeBasis
 	}{
 		{"cloud provider id wins", node("n", "aws:///eu-west-1a/i-0abc123def", "11111111-2222-3333-4444-555555555555", "abcdef0123456789"), BasisProviderID},
@@ -49,7 +49,7 @@ var t0 = time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
 
 func TestFirstSightKeepsTheIdNodesAlwaysHad(t *testing.T) {
 	r := NewRegistry()
-	got := r.Resolve("cl-1", []*continuumv1.NodeFacts{node("edge-1", "aws:///x/i-0abc123def", "", ""), node("edge-2", "", "", "")}, t0)
+	got := r.Resolve("cl-1", []*ikhnosv1.NodeFacts{node("edge-1", "aws:///x/i-0abc123def", "", ""), node("edge-2", "", "", "")}, t0)
 	if got["edge-1"].ID != LegacyNodeID("cl-1", "edge-1") || got["edge-2"].ID != LegacyNodeID("cl-1", "edge-2") {
 		t.Errorf("existing workspaces reference these ids: %+v", got)
 	}
@@ -61,8 +61,8 @@ func TestFirstSightKeepsTheIdNodesAlwaysHad(t *testing.T) {
 func TestARenamedMachineKeepsItsIdAndGainsAnAlias(t *testing.T) {
 	r := NewRegistry()
 	p := "aws:///eu/i-0abc123def"
-	first := r.Resolve("cl-1", []*continuumv1.NodeFacts{node("ip-10-0-0-1", p, "", "")}, t0)["ip-10-0-0-1"]
-	second := r.Resolve("cl-1", []*continuumv1.NodeFacts{node("worker-a", p, "", "")}, t0.Add(time.Hour))["worker-a"]
+	first := r.Resolve("cl-1", []*ikhnosv1.NodeFacts{node("ip-10-0-0-1", p, "", "")}, t0)["ip-10-0-0-1"]
+	second := r.Resolve("cl-1", []*ikhnosv1.NodeFacts{node("worker-a", p, "", "")}, t0.Add(time.Hour))["worker-a"]
 	if second.ID != first.ID {
 		t.Fatalf("a rename must not create a node: %s vs %s", second.ID, first.ID)
 	}
@@ -70,13 +70,13 @@ func TestARenamedMachineKeepsItsIdAndGainsAnAlias(t *testing.T) {
 		t.Errorf("%+v", second)
 	}
 	// Renamed again, and back: aliases accumulate without repeating.
-	third := r.Resolve("cl-1", []*continuumv1.NodeFacts{node("worker-b", p, "", "")}, t0.Add(2*time.Hour))["worker-b"]
-	back := r.Resolve("cl-1", []*continuumv1.NodeFacts{node("worker-a", p, "", "")}, t0.Add(3*time.Hour))["worker-a"]
+	third := r.Resolve("cl-1", []*ikhnosv1.NodeFacts{node("worker-b", p, "", "")}, t0.Add(2*time.Hour))["worker-b"]
+	back := r.Resolve("cl-1", []*ikhnosv1.NodeFacts{node("worker-a", p, "", "")}, t0.Add(3*time.Hour))["worker-a"]
 	if third.ID != first.ID || back.ID != first.ID || len(back.Aliases) != 3 {
 		t.Errorf("%+v %+v", third, back)
 	}
 	// Stable when nothing changed.
-	again := r.Resolve("cl-1", []*continuumv1.NodeFacts{node("worker-a", p, "", "")}, t0.Add(4*time.Hour))["worker-a"]
+	again := r.Resolve("cl-1", []*ikhnosv1.NodeFacts{node("worker-a", p, "", "")}, t0.Add(4*time.Hour))["worker-a"]
 	if again.Renamed || again.ID != first.ID {
 		t.Errorf("%+v", again)
 	}
@@ -84,14 +84,14 @@ func TestARenamedMachineKeepsItsIdAndGainsAnAlias(t *testing.T) {
 
 func TestADifferentMachineUnderAnOldNameIsANewNode(t *testing.T) {
 	r := NewRegistry()
-	old := r.Resolve("cl-1", []*continuumv1.NodeFacts{node("edge-1", "aws:///eu/i-0000000001", "", "")}, t0)["edge-1"]
+	old := r.Resolve("cl-1", []*ikhnosv1.NodeFacts{node("edge-1", "aws:///eu/i-0000000001", "", "")}, t0)["edge-1"]
 	// The instance was replaced; the new one took the same name.
-	fresh := r.Resolve("cl-1", []*continuumv1.NodeFacts{node("edge-1", "aws:///eu/i-0000000002", "", "")}, t0.Add(time.Hour))["edge-1"]
+	fresh := r.Resolve("cl-1", []*ikhnosv1.NodeFacts{node("edge-1", "aws:///eu/i-0000000002", "", "")}, t0.Add(time.Hour))["edge-1"]
 	if fresh.ID == old.ID || !fresh.Replaced {
 		t.Fatalf("a replaced machine must not inherit the old record: %+v vs %+v", fresh, old)
 	}
 	// And the old machine, if it comes back under another name, still has its own id.
-	oldAgain := r.Resolve("cl-1", []*continuumv1.NodeFacts{node("edge-9", "aws:///eu/i-0000000001", "", ""), node("edge-1", "aws:///eu/i-0000000002", "", "")}, t0.Add(2*time.Hour))
+	oldAgain := r.Resolve("cl-1", []*ikhnosv1.NodeFacts{node("edge-9", "aws:///eu/i-0000000001", "", ""), node("edge-1", "aws:///eu/i-0000000002", "", "")}, t0.Add(2*time.Hour))
 	if oldAgain["edge-9"].ID != old.ID || oldAgain["edge-1"].ID != fresh.ID {
 		t.Errorf("%+v", oldAgain)
 	}
@@ -100,9 +100,9 @@ func TestADifferentMachineUnderAnOldNameIsANewNode(t *testing.T) {
 func TestNameSwapInOnePassGivesEachMachineItsOwnId(t *testing.T) {
 	r := NewRegistry()
 	a, b := "aws:///eu/i-0000000001", "aws:///eu/i-0000000002"
-	first := r.Resolve("cl-1", []*continuumv1.NodeFacts{node("n1", a, "", "")}, t0)["n1"]
+	first := r.Resolve("cl-1", []*ikhnosv1.NodeFacts{node("n1", a, "", "")}, t0)["n1"]
 	// The first machine is renamed n2 while a new machine takes n1, in one snapshot.
-	got := r.Resolve("cl-1", []*continuumv1.NodeFacts{node("n2", a, "", ""), node("n1", b, "", "")}, t0.Add(time.Hour))
+	got := r.Resolve("cl-1", []*ikhnosv1.NodeFacts{node("n2", a, "", ""), node("n1", b, "", "")}, t0.Add(time.Hour))
 	if got["n2"].ID != first.ID {
 		t.Errorf("the renamed machine keeps its id: %+v", got["n2"])
 	}
@@ -113,7 +113,7 @@ func TestNameSwapInOnePassGivesEachMachineItsOwnId(t *testing.T) {
 
 func TestClonedMachineIDsIdentifyNeither(t *testing.T) {
 	r := NewRegistry()
-	got := r.Resolve("cl-1", []*continuumv1.NodeFacts{node("a", "", "", "cafebabecafebabe"), node("b", "", "", "cafebabecafebabe")}, t0)
+	got := r.Resolve("cl-1", []*ikhnosv1.NodeFacts{node("a", "", "", "cafebabecafebabe"), node("b", "", "", "cafebabecafebabe")}, t0)
 	if got["a"].Identity.Basis != BasisName || got["b"].Identity.Basis != BasisName || got["a"].ID == got["b"].ID {
 		t.Errorf("%+v", got)
 	}
@@ -124,8 +124,8 @@ func TestClonedMachineIDsIdentifyNeither(t *testing.T) {
 
 func TestSameNodeNamesInTwoClustersNeverCollide(t *testing.T) {
 	r := NewRegistry()
-	same := func() []*continuumv1.NodeFacts {
-		return []*continuumv1.NodeFacts{node("node-1", "", "", ""), node("node-2", "", "", "")}
+	same := func() []*ikhnosv1.NodeFacts {
+		return []*ikhnosv1.NodeFacts{node("node-1", "", "", ""), node("node-2", "", "", "")}
 	}
 	a, b := r.Resolve("cl-aaaa", same(), t0), r.Resolve("cl-bbbb", same(), t0)
 	seen := map[string]string{}
@@ -139,7 +139,7 @@ func TestSameNodeNamesInTwoClustersNeverCollide(t *testing.T) {
 	}
 	// Even the same machine identity in two clusters (a cloned image) stays separate.
 	ident := "aws:///eu/i-0abcdef012"
-	x, y := r.Resolve("cl-aaaa", []*continuumv1.NodeFacts{node("n", ident, "", "")}, t0)["n"], r.Resolve("cl-bbbb", []*continuumv1.NodeFacts{node("n", ident, "", "")}, t0)["n"]
+	x, y := r.Resolve("cl-aaaa", []*ikhnosv1.NodeFacts{node("n", ident, "", "")}, t0)["n"], r.Resolve("cl-bbbb", []*ikhnosv1.NodeFacts{node("n", ident, "", "")}, t0)["n"]
 	if x.ID == y.ID {
 		t.Errorf("one identity in two clusters must be two nodes")
 	}
@@ -148,8 +148,8 @@ func TestSameNodeNamesInTwoClustersNeverCollide(t *testing.T) {
 func TestRegistrySurvivesARestart(t *testing.T) {
 	r := NewRegistry()
 	p := "aws:///eu/i-0abc123def"
-	first := r.Resolve("cl-1", []*continuumv1.NodeFacts{node("old", p, "", "")}, t0)["old"]
-	r.Resolve("cl-1", []*continuumv1.NodeFacts{node("new", p, "", "")}, t0.Add(time.Hour))
+	first := r.Resolve("cl-1", []*ikhnosv1.NodeFacts{node("old", p, "", "")}, t0)["old"]
+	r.Resolve("cl-1", []*ikhnosv1.NodeFacts{node("new", p, "", "")}, t0.Add(time.Hour))
 	saved := r.Dirty()
 	if len(saved) != 1 || saved[0].Name != "new" || len(saved[0].Aliases) != 1 {
 		t.Fatalf("%+v", saved)
@@ -160,7 +160,7 @@ func TestRegistrySurvivesARestart(t *testing.T) {
 	// A new process loads what was stored and keeps the id.
 	r2 := NewRegistry()
 	r2.Load([]store.Identity(saved))
-	again := r2.Resolve("cl-1", []*continuumv1.NodeFacts{node("new", p, "", "")}, t0.Add(2*time.Hour))["new"]
+	again := r2.Resolve("cl-1", []*ikhnosv1.NodeFacts{node("new", p, "", "")}, t0.Add(2*time.Hour))["new"]
 	if again.ID != first.ID || len(again.Aliases) != 1 || again.Aliases[0] != "old" || again.Renamed {
 		t.Errorf("%+v", again)
 	}

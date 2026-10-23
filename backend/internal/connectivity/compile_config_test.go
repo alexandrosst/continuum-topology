@@ -4,28 +4,28 @@ import (
 	"fmt"
 	"testing"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/agents"
-	"continuum/internal/measure"
 	"google.golang.org/protobuf/proto"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/agents"
+	"ikhnos/internal/measure"
 )
 
 func baseFacts() ConfigFacts {
 	return ConfigFacts{
 		Tier: 2, ClusterID: "cl-a", Heartbeat: 30, Resync: 600, ServerTime: 1700000000, MeasureSeconds: 20,
-		Peers: []*continuumv1.LinkPeer{
+		Peers: []*ikhnosv1.LinkPeer{
 			{ClusterId: "cl-b", Name: "b", Addresses: []string{"10.0.0.2"}, Throughput: true},
 			{ClusterId: "cl-c", Name: "c", Addresses: []string{"10.0.0.3"}},
 		},
-		IperfClients:   map[string]*continuumv1.LinkIperfClient{"cl-b": {Username: "u", Password: "p"}, "cl-c": {Username: "x", Password: "y"}},
-		IperfServer:    &continuumv1.LinkIperfServer{UsersCsv: "u:p"},
+		IperfClients:   map[string]*ikhnosv1.LinkIperfClient{"cl-b": {Username: "u", Password: "p"}, "cl-c": {Username: "x", Password: "y"}},
+		IperfServer:    &ikhnosv1.LinkIperfServer{UsersCsv: "u:p"},
 		ManualTargets:  []IssuedTarget{{ID: "t-man", Host: "203.0.113.1", Port: 443, Source: "manual"}},
 		AddressTargets: []IssuedTarget{{ID: "t-addr", Host: "203.0.113.2", Port: 80}},
 		DerivedTargets: []IssuedTarget{{ID: "ob-1", Host: "203.0.113.3", Port: 8443, Source: "observed"}},
 	}
 }
 
-func targetIDs(cfg *continuumv1.Config) []string {
+func targetIDs(cfg *ikhnosv1.Config) []string {
 	var ids []string
 	for _, t := range cfg.ProbeTargets {
 		ids = append(ids, t.Id)
@@ -114,9 +114,9 @@ func TestCompileConfigHandsClientCredentialsOnlyToThePeersItTestsForThroughput(t
 func TestCompileConfigChangesNothingItIsGiven(t *testing.T) {
 	f := baseFacts()
 	f.Consent = agents.Consent{Paused: []string{"flow"}, Excluded: []string{"shop"}}
-	before := make([]*continuumv1.LinkPeer, len(f.Peers))
+	before := make([]*ikhnosv1.LinkPeer, len(f.Peers))
 	for i, p := range f.Peers {
-		before[i] = proto.Clone(p).(*continuumv1.LinkPeer)
+		before[i] = proto.Clone(p).(*ikhnosv1.LinkPeer)
 	}
 	cfg, _ := CompileConfig(f)
 	for i, p := range f.Peers {

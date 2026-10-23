@@ -4,20 +4,20 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 
-	"continuum/internal/accounts"
-	"continuum/internal/agents"
-	"continuum/internal/connectivity"
-	"continuum/internal/estate"
-	"continuum/internal/testkit"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/agents"
+	"ikhnos/internal/connectivity"
+	"ikhnos/internal/estate"
+	"ikhnos/internal/testkit"
 )
 
 // connectedAgent is an approved agent with a live view and a stream the hub can push a Config on.
-func connectedAgent(t *testing.T, a *adminRig) (agentID string, push chan *continuumv1.ServerMessage) {
+func connectedAgent(t *testing.T, a *adminRig) (agentID string, push chan *ikhnosv1.ServerMessage) {
 	t.Helper()
 	agentID = a.approvedAgentID(t, testkit.FP)
-	push = make(chan *continuumv1.ServerMessage, 8)
+	push = make(chan *ikhnosv1.ServerMessage, 8)
 	a.hub().Mu.Lock()
 	a.hub().Views[agentID] = liveView(*a.now, "n1")
 	a.hub().Sessions[agentID] = &estate.Session{Push: push, Cancel: func(estate.EndReason) {}}
@@ -82,7 +82,7 @@ func TestAnAddressIsTestedFromTheAgentAndTheResultReadBack(t *testing.T) {
 	if ids["10.20.0.15:4317"] == "" {
 		t.Fatalf("the bare host was not given the receiver's port: %v", ids)
 	}
-	a.hub().NoteMeasurements(agentID, &continuumv1.Measurements{Results: []*continuumv1.PathResult{
+	a.hub().NoteMeasurements(agentID, &ikhnosv1.Measurements{Results: []*ikhnosv1.PathResult{
 		{TargetId: ids["10.20.0.14:31317"], Samples: 5, Failed: 0, RttMinMs: 3, RttP50Ms: 4, RttP95Ms: 6},
 		{TargetId: ids["10.20.0.15:4317"], Samples: 5, Failed: 5},
 	}})
@@ -164,9 +164,9 @@ func TestAnAddressTestNeedsAnAgentThatCanMeasure(t *testing.T) {
 }
 
 // connectedAgent2 gives an agent that already exists a stream.
-func connectedAgent2(t *testing.T, a *adminRig, agentID string) (string, chan *continuumv1.ServerMessage) {
+func connectedAgent2(t *testing.T, a *adminRig, agentID string) (string, chan *ikhnosv1.ServerMessage) {
 	t.Helper()
-	push := make(chan *continuumv1.ServerMessage, 8)
+	push := make(chan *ikhnosv1.ServerMessage, 8)
 	a.hub().Mu.Lock()
 	a.hub().Sessions[agentID] = &estate.Session{Push: push, Cancel: func(estate.EndReason) {}}
 	a.hub().Mu.Unlock()
@@ -202,7 +202,7 @@ func TestTestingAnAddressAgainStartsFromScratch(t *testing.T) {
 	agentID, _ := connectedAgent(t, a)
 	startTests(t, a, cookie, agentID, "10.20.0.14:31317")
 	first := readTests(t, a, cookie, agentID)[0]
-	a.hub().NoteMeasurements(agentID, &continuumv1.Measurements{Results: []*continuumv1.PathResult{{TargetId: first["id"].(string), Samples: 5, Failed: 5}}})
+	a.hub().NoteMeasurements(agentID, &ikhnosv1.Measurements{Results: []*ikhnosv1.PathResult{{TargetId: first["id"].(string), Samples: 5, Failed: 5}}})
 	if g := readTests(t, a, cookie, agentID)[0]; g["state"] != "unreachable" {
 		t.Fatalf("first result: %v", g)
 	}
@@ -213,7 +213,7 @@ func TestTestingAnAddressAgainStartsFromScratch(t *testing.T) {
 		t.Fatalf("a second test must not pass for the first one's result: %v", again)
 	}
 	// A late result for the first test is for a target that is no longer issued, and is ignored.
-	a.hub().NoteMeasurements(agentID, &continuumv1.Measurements{Results: []*continuumv1.PathResult{{TargetId: first["id"].(string), Samples: 5, Failed: 0}}})
+	a.hub().NoteMeasurements(agentID, &ikhnosv1.Measurements{Results: []*ikhnosv1.PathResult{{TargetId: first["id"].(string), Samples: 5, Failed: 0}}})
 	if g := readTests(t, a, cookie, agentID)[0]; g["state"] != "pending" {
 		t.Fatalf("a stale result counted: %v", g)
 	}

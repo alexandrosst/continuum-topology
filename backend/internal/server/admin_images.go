@@ -1,6 +1,6 @@
 package server
 
-import "continuum/internal/kernel"
+import "ikhnos/internal/kernel"
 
 // The image settings the server was started with, and how an organisation's own settings take precedence over them. The shape of
 // the configuration and its checks are images.go's; what the flags say is the shell's.

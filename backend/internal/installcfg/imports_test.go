@@ -13,9 +13,9 @@ import (
 // The install settings stand on the kernel (the image configuration), the charts and the command writers, and on nothing else of this
 // repository: not the server, and not a module. They are the server's configuration, which every module that prints a command is given.
 var allowedRepoImports = map[string]bool{
-	"continuum/internal/kernel":  true,
-	"continuum/internal/chart":   true,
-	"continuum/internal/install": true,
+	"ikhnos/internal/kernel":  true,
+	"ikhnos/internal/chart":   true,
+	"ikhnos/internal/install": true,
 }
 
 func TestInstallcfgImportsOnlyTheKernelTheChartsAndTheCommandWriters(t *testing.T) {
@@ -34,7 +34,7 @@ func TestInstallcfgImportsOnlyTheKernelTheChartsAndTheCommandWriters(t *testing.
 		}
 		for _, im := range af.Imports {
 			p, _ := strconv.Unquote(im.Path.Value)
-			if strings.HasPrefix(p, "continuum/") && !allowedRepoImports[p] {
+			if strings.HasPrefix(p, "ikhnos/") && !allowedRepoImports[p] {
 				t.Errorf("%s imports %s: installcfg may import only %v", f, p, allowedRepoImports)
 			}
 		}

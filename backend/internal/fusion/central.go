@@ -3,8 +3,8 @@ package fusion
 import (
 	"context"
 
-	"continuum/internal/kernel"
-	"continuum/internal/operators"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/operators"
 )
 
 // Central is the control as the operators' port for the central operator (operators.Central). It is nil, an interface that holds

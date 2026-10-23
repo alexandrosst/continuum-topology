@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/accounts"
-	"continuum/internal/kernel"
-	"continuum/internal/store"
-	"continuum/internal/testkit"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/store"
+	"ikhnos/internal/testkit"
 )
 
 // failAudit is a store whose audit trail can be made unwritable.

@@ -5,11 +5,11 @@ import (
 	"net/url"
 	"time"
 
-	"continuum/internal/accounts"
-	"continuum/internal/fusionhttp"
-	"continuum/internal/fusionpages"
-	"continuum/internal/httpkit"
-	"continuum/internal/kernel"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/fusionhttp"
+	"ikhnos/internal/fusionpages"
+	"ikhnos/internal/httpkit"
+	"ikhnos/internal/kernel"
 )
 
 // fusionUISessionCaller is the person a page cookie stands for, if they are still an administrator of FUSION's organisation

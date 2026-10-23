@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"continuum/internal/model"
+	"ikhnos/internal/model"
 )
 
 // The topology of one Ikhnos application: its services, the traffic they have with each other and with everything else, and
@@ -96,7 +96,7 @@ type AppTelemetry struct {
 // AppTelemetryKey is the label values that select a service's series: its service names (its name and aliases) within its
 // namespace and cluster, and its workload for the metrics that name that instead.
 type AppTelemetryKey struct {
-	Cluster     string            `json:"continuum_cluster_id,omitempty"`
+	Cluster     string            `json:"ikhnos_cluster_id,omitempty"`
 	Namespace   string            `json:"k8s_namespace_name,omitempty"`
 	ServiceName []string          `json:"service_name"`
 	Workload    map[string]string `json:"workload,omitempty"`

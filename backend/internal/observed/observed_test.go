@@ -7,21 +7,21 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/facts"
-	"continuum/internal/flow/wire"
-	"continuum/internal/interpret"
-	"continuum/internal/model"
-	"continuum/internal/netid"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/facts"
+	"ikhnos/internal/flow/wire"
+	"ikhnos/internal/interpret"
+	"ikhnos/internal/model"
+	"ikhnos/internal/netid"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-func wk(ns, kind, name string, reach ...*continuumv1.Address) *continuumv1.WorkloadFacts {
-	return &continuumv1.WorkloadFacts{Key: ns + "/" + kind + "/" + name, Namespace: ns, Kind: kind, Name: name, Reachable: reach}
+func wk(ns, kind, name string, reach ...*ikhnosv1.Address) *ikhnosv1.WorkloadFacts {
+	return &ikhnosv1.WorkloadFacts{Key: ns + "/" + kind + "/" + name, Namespace: ns, Kind: kind, Name: name, Reachable: reach}
 }
 
-func cluster(id string, egress string, nodes []*continuumv1.NodeFacts, ws ...*continuumv1.WorkloadFacts) Cluster {
+func cluster(id string, egress string, nodes []*ikhnosv1.NodeFacts, ws ...*ikhnosv1.WorkloadFacts) Cluster {
 	st := facts.New()
 	for _, w := range ws {
 		st.Workloads[w.Key] = w
@@ -32,20 +32,20 @@ func cluster(id string, egress string, nodes []*continuumv1.NodeFacts, ws ...*co
 	return Cluster{ID: id, Name: id, AgentID: "ag-" + id, State: st, Flows: NewFlowTable(), EgressIP: egress}
 }
 
-func wep(key string) *continuumv1.FlowEndpoint {
-	return &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_WORKLOAD, Ref: key}
+func wep(key string) *ikhnosv1.FlowEndpoint {
+	return &ikhnosv1.FlowEndpoint{Kind: ikhnosv1.FlowEndpoint_WORKLOAD, Ref: key}
 }
 
-func xep(ip string) *continuumv1.FlowEndpoint {
-	return &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_EXTERNAL, Ip: ip}
+func xep(ip string) *ikhnosv1.FlowEndpoint {
+	return &ikhnosv1.FlowEndpoint{Kind: ikhnosv1.FlowEndpoint_EXTERNAL, Ip: ip}
 }
 
-func flowOf(src, dst *continuumv1.FlowEndpoint, port uint32, conns uint64) *continuumv1.Flow {
-	return &continuumv1.Flow{Src: src, Dst: dst, Port: port, Protocol: "tcp", Connections: conns, BytesOut: 1000 * conns, BytesIn: 3000 * conns, Method: "ebpf", BytesKnown: true}
+func flowOf(src, dst *ikhnosv1.FlowEndpoint, port uint32, conns uint64) *ikhnosv1.Flow {
+	return &ikhnosv1.Flow{Src: src, Dst: dst, Port: port, Protocol: "tcp", Connections: conns, BytesOut: 1000 * conns, BytesIn: 3000 * conns, Method: "ebpf", BytesKnown: true}
 }
 
-func feed(c *Cluster, at time.Time, window int32, fs ...*continuumv1.Flow) {
-	c.Flows.Apply(&continuumv1.FlowBatch{WindowSeconds: window, Flows: fs}, at)
+func feed(c *Cluster, at time.Time, window int32, fs ...*ikhnosv1.Flow) {
+	c.Flows.Apply(&ikhnosv1.FlowBatch{WindowSeconds: window, Flows: fs}, at)
 }
 
 func TestObservedTopologyAcrossClusters(t *testing.T) {
@@ -55,14 +55,14 @@ func TestObservedTopologyAcrossClusters(t *testing.T) {
 	// up unmatched/unlabeled (192.168.0.5, the ambiguous one) actually does, instead of being withheld as
 	// still-too-new. See unmatchedGrace's own comment in observed.go for why that grace period exists.
 	seenAt := now.Add(-1 * time.Minute)
-	lb := &continuumv1.Address{Ip: "198.51.100.7", Port: 443, Kind: "load-balancer"}
-	np := &continuumv1.Address{Port: 30080, Kind: "node-port"}
+	lb := &ikhnosv1.Address{Ip: "198.51.100.7", Port: 443, Kind: "load-balancer"}
+	np := &ikhnosv1.Address{Port: 30080, Kind: "node-port"}
 	edge := cluster("edge", "203.0.113.1", nil, wk("iot", "Deployment", "ingest"), wk("iot", "Deployment", "cache"))
 	cloud := cluster("cloud", "198.51.100.99",
-		[]*continuumv1.NodeFacts{{Key: "n1", InternalIps: []string{"10.0.0.5"}, ExternalIps: []string{"198.51.100.20"}}},
+		[]*ikhnosv1.NodeFacts{{Key: "n1", InternalIps: []string{"10.0.0.5"}, ExternalIps: []string{"198.51.100.20"}}},
 		wk("platform", "Deployment", "gateway", lb), wk("platform", "Deployment", "orchestrator", np), wk("platform", "Deployment", "db"))
-	other := cluster("other", "", nil, wk("x", "Deployment", "dup", &continuumv1.Address{Ip: "192.168.0.5", Port: 80, Kind: "load-balancer"}))
-	third := cluster("third", "", nil, wk("y", "Deployment", "dup2", &continuumv1.Address{Ip: "192.168.0.5", Port: 80, Kind: "load-balancer"}))
+	other := cluster("other", "", nil, wk("x", "Deployment", "dup", &ikhnosv1.Address{Ip: "192.168.0.5", Port: 80, Kind: "load-balancer"}))
+	third := cluster("third", "", nil, wk("y", "Deployment", "dup2", &ikhnosv1.Address{Ip: "192.168.0.5", Port: 80, Kind: "load-balancer"}))
 
 	ingest, cache := "iot/Deployment/ingest", "iot/Deployment/cache"
 	gw, orch, db := "platform/Deployment/gateway", "platform/Deployment/orchestrator", "platform/Deployment/db"
@@ -74,7 +74,7 @@ func TestObservedTopologyAcrossClusters(t *testing.T) {
 		flowOf(wep(ingest), xep("192.168.0.5"), 80, 1),      // an address two clusters both use
 		flowOf(wep(ingest), xep("93.184.216.34"), 5432, 4),  // the internet
 		flowOf(wep(ingest), xep("198.51.100.99"), 22, 1),    // another cluster's egress address, no workload
-		&continuumv1.Flow{Src: wep(ingest), Dst: wep(cache), Port: 53, Protocol: "tcp", Connections: 1, Method: "ebpf", Noise: "dns"}, // machinery
+		&ikhnosv1.Flow{Src: wep(ingest), Dst: wep(cache), Port: 53, Protocol: "tcp", Connections: 1, Method: "ebpf", Noise: "dns"}, // machinery
 	)
 	// The cloud side sees the same connection arrive; because the edge reported the outbound edge, no duplicate appears.
 	feed(&cloud, seenAt, 60,
@@ -202,13 +202,13 @@ func TestObservedTopologyResolvesOverlayTunnelAddress(t *testing.T) {
 	// match that address against, and this flow is permanently stuck as an unresolved external endpoint
 	// instead of the cross-cluster service dependency it actually is.
 	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
-	np := &continuumv1.Address{Port: 30444, Kind: "node-port"}
+	np := &ikhnosv1.Address{Port: 30444, Kind: "node-port"}
 	caller := cluster("caller-cluster", "", nil, wk("app", "Deployment", "client"))
 	target := cluster("target-cluster", "",
-		[]*continuumv1.NodeFacts{{
+		[]*ikhnosv1.NodeFacts{{
 			Key: "n1",
-			Probe: &continuumv1.HostProbe{
-				Tunnels: []*continuumv1.TunnelInterface{
+			Probe: &ikhnosv1.HostProbe{
+				Tunnels: []*ikhnosv1.TunnelInterface{
 					{Name: "wt0", Kind: "wireguard", Addresses: []string{"100.64.0.5/10"}, Up: true},
 				},
 			},
@@ -255,14 +255,14 @@ func TestObservedTopologyResolvesLoadBalancerServiceOverTunnelAddress(t *testing
 	// addresses, tunnel included, can.
 	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
 	seenAt := now.Add(-1 * time.Minute) // past unmatchedGrace, see TestObservedTopologyAcrossClusters' own comment
-	lb := &continuumv1.Address{Ip: "10.0.0.9", Port: 8080, Kind: "load-balancer"}
+	lb := &ikhnosv1.Address{Ip: "10.0.0.9", Port: 8080, Kind: "load-balancer"}
 	caller := cluster("caller-cluster", "", nil, wk("app", "Deployment", "client"))
 	target := cluster("target-cluster", "",
-		[]*continuumv1.NodeFacts{{
+		[]*ikhnosv1.NodeFacts{{
 			Key:         "n1",
 			InternalIps: []string{"10.0.0.9"}, // what the LB ingress status actually reports
-			Probe: &continuumv1.HostProbe{
-				Tunnels: []*continuumv1.TunnelInterface{
+			Probe: &ikhnosv1.HostProbe{
+				Tunnels: []*ikhnosv1.TunnelInterface{
 					{Name: "wt0", Kind: "wireguard", Addresses: []string{"100.64.0.9/10"}, Up: true},
 				},
 			},
@@ -304,15 +304,15 @@ func TestObservedTopologyNeverAttributesADedicatedLoadBalancerVIPToANodeAddress(
 	// host-network-bound one, since only its own ingress IP is actually one of the node's own.
 	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
 	seenAt := now.Add(-1 * time.Minute)
-	hostBound := &continuumv1.Address{Ip: "10.0.0.9", Port: 9000, Kind: "load-balancer"}        // == the node's own address
-	dedicatedVIP := &continuumv1.Address{Ip: "203.0.113.50", Port: 9000, Kind: "load-balancer"} // a floating VIP, same port, never a node address
+	hostBound := &ikhnosv1.Address{Ip: "10.0.0.9", Port: 9000, Kind: "load-balancer"}        // == the node's own address
+	dedicatedVIP := &ikhnosv1.Address{Ip: "203.0.113.50", Port: 9000, Kind: "load-balancer"} // a floating VIP, same port, never a node address
 	caller := cluster("caller-cluster", "", nil, wk("app", "Deployment", "client"))
 	target := cluster("target-cluster", "",
-		[]*continuumv1.NodeFacts{{
+		[]*ikhnosv1.NodeFacts{{
 			Key:         "n1",
 			InternalIps: []string{"10.0.0.9"},
-			Probe: &continuumv1.HostProbe{
-				Tunnels: []*continuumv1.TunnelInterface{
+			Probe: &ikhnosv1.HostProbe{
+				Tunnels: []*ikhnosv1.TunnelInterface{
 					{Name: "wt0", Kind: "wireguard", Addresses: []string{"100.64.0.9/10"}, Up: true},
 				},
 			},
@@ -401,10 +401,10 @@ func TestObservedStaleAndUnknownWorkloads(t *testing.T) {
 // refusal ends the agent's stream). Only a batch that is broken as a whole is refused.
 func TestFlowBatchBadItemsAreDroppedNotTheBatch(t *testing.T) {
 	good := flowOf(wep("a/Deployment/x"), xep("1.2.3.4"), 443, 1)
-	nodeEp := func(ref string) *continuumv1.FlowEndpoint {
-		return &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_NODE, Ref: ref}
+	nodeEp := func(ref string) *ikhnosv1.FlowEndpoint {
+		return &ikhnosv1.FlowEndpoint{Kind: ikhnosv1.FlowEndpoint_NODE, Ref: ref}
 	}
-	bad := map[string]*continuumv1.Flow{
+	bad := map[string]*ikhnosv1.Flow{
 		"no src":           {Dst: wep("a/Deployment/x"), Port: 1, Protocol: "tcp", Method: "ebpf"},
 		"port 0":           flowOf(wep("a"), xep("1.2.3.4"), 0, 1),
 		"sctp":             {Src: wep("a"), Dst: xep("1.2.3.4"), Port: 1, Protocol: "sctp", Method: "ebpf"},
@@ -412,12 +412,12 @@ func TestFlowBatchBadItemsAreDroppedNotTheBatch(t *testing.T) {
 		"unknown noise":    {Src: wep("a"), Dst: xep("1.2.3.4"), Port: 1, Protocol: "tcp", Method: "ebpf", Noise: "fun"},
 		"not an address":   flowOf(wep("a"), xep("evil.example.com"), 1, 1),
 		"non-canonical ip": flowOf(wep("a"), xep("::ffff:1.2.3.4"), 1, 1),
-		"unresolved kind":  flowOf(wep("a"), &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_UNRESOLVED, Ip: "1.2.3.4"}, 1, 1),
+		"unresolved kind":  flowOf(wep("a"), &ikhnosv1.FlowEndpoint{Kind: ikhnosv1.FlowEndpoint_UNRESOLVED, Ip: "1.2.3.4"}, 1, 1),
 		"two outside ends": flowOf(xep("1.2.3.4"), xep("5.6.7.8"), 1, 1),
 		"empty ref":        flowOf(wep(""), xep("1.2.3.4"), 1, 1),
 		"nameless node":    flowOf(nodeEp(""), xep("93.184.216.34"), 443, 1),
 		"node-level flow":  flowOf(nodeEp("n1"), xep("93.184.216.34"), 443, 1), // well-formed, but no dependency can come of it
-		"src_pod too long": func() *continuumv1.Flow {
+		"src_pod too long": func() *ikhnosv1.Flow {
 			f := flowOf(wep("a"), xep("1.2.3.4"), 1, 1)
 			f.SrcPod = strings.Repeat("x", wire.MaxName+1)
 			return f
@@ -425,31 +425,31 @@ func TestFlowBatchBadItemsAreDroppedNotTheBatch(t *testing.T) {
 	}
 	for name, f := range bad {
 		// the bad item travels with a good one, as a flow and as a pod flow
-		b := &continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{good, f}, PodFlows: []*continuumv1.Flow{f, good}}
+		b := &ikhnosv1.FlowBatch{WindowSeconds: 60, Flows: []*ikhnosv1.Flow{good, f}, PodFlows: []*ikhnosv1.Flow{f, good}}
 		d, err := SanitizeFlowBatch(b)
 		if err != nil || d.N != 2 || d.First == nil || len(b.Flows) != 1 || b.Flows[0] != good || len(b.PodFlows) != 1 || b.PodFlows[0] != good {
 			t.Errorf("%s: err %v, dropped %d (%v), %d flows, %d pod flows", name, err, d.N, d.First, len(b.Flows), len(b.PodFlows))
 		}
 	}
 	// A bad collector report goes the same way.
-	b := &continuumv1.FlowBatch{WindowSeconds: 60, Collectors: []*continuumv1.CollectorInfo{{Node: "n1", Method: "ebpf"}, {Node: "", Method: "ebpf"}, {Node: "n2", Method: "x"}, nil}}
+	b := &ikhnosv1.FlowBatch{WindowSeconds: 60, Collectors: []*ikhnosv1.CollectorInfo{{Node: "n1", Method: "ebpf"}, {Node: "", Method: "ebpf"}, {Node: "n2", Method: "x"}, nil}}
 	if d, err := SanitizeFlowBatch(b); err != nil || d.N != 3 || len(b.Collectors) != 1 {
 		t.Errorf("collectors: err %v, dropped %d, kept %d", err, d.N, len(b.Collectors))
 	}
 	// Free text that is merely too long is cut, not a reason to drop.
 	long := flowOf(wep("a/Deployment/x"), xep("1.2.3.4"), 443, 1)
 	long.SniHost, long.Iface, long.DnsQueryNames = strings.Repeat("s", 5000), strings.Repeat("i", 5000), make([]string, 100)
-	b = &continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{long}}
+	b = &ikhnosv1.FlowBatch{WindowSeconds: 60, Flows: []*ikhnosv1.Flow{long}}
 	if d, err := SanitizeFlowBatch(b); err != nil || d.N != 0 || len(long.SniHost) > wire.MaxName || len(long.Iface) > wire.MaxIface || len(long.DnsQueryNames) > wire.MaxDNSNames {
 		t.Errorf("long text: err %v, dropped %d, sni %d iface %d names %d", err, d.N, len(long.SniHost), len(long.Iface), len(long.DnsQueryNames))
 	}
 	// A batch that is broken as a whole is refused.
-	for name, b := range map[string]*continuumv1.FlowBatch{
-		"window of zero seconds": {WindowSeconds: 0, Flows: []*continuumv1.Flow{good}},
+	for name, b := range map[string]*ikhnosv1.FlowBatch{
+		"window of zero seconds": {WindowSeconds: 0, Flows: []*ikhnosv1.Flow{good}},
 		"window over a day":      {WindowSeconds: 24*3600 + 1},
-		"too many flows":         {WindowSeconds: 60, Flows: make([]*continuumv1.Flow, maxFlowsPerBatch+1)},
-		"too many pod flows":     {WindowSeconds: 60, PodFlows: make([]*continuumv1.Flow, maxPodFlowsPerBatch+1)},
-		"too many collectors":    {WindowSeconds: 60, Collectors: make([]*continuumv1.CollectorInfo, 5001)},
+		"too many flows":         {WindowSeconds: 60, Flows: make([]*ikhnosv1.Flow, maxFlowsPerBatch+1)},
+		"too many pod flows":     {WindowSeconds: 60, PodFlows: make([]*ikhnosv1.Flow, maxPodFlowsPerBatch+1)},
+		"too many collectors":    {WindowSeconds: 60, Collectors: make([]*ikhnosv1.CollectorInfo, 5001)},
 	} {
 		if _, err := SanitizeFlowBatch(b); err == nil {
 			t.Errorf("%s must be refused", name)
@@ -462,7 +462,7 @@ func TestFlowTableApplyAndPersistence(t *testing.T) {
 	// persistence round trip and the cap
 	tb := NewFlowTable()
 	now := time.Now()
-	tb.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{good}}, now)
+	tb.Apply(&ikhnosv1.FlowBatch{WindowSeconds: 60, Flows: []*ikhnosv1.Flow{good}}, now)
 	data, err := tb.Marshal()
 	if err != nil {
 		t.Fatal(err)
@@ -478,9 +478,9 @@ func TestFlowTableApplyAndPersistence(t *testing.T) {
 	}
 	for i := 0; i < MaxFlowEdges+50; i++ {
 		f := flowOf(wep("a/Deployment/x"), wep("b/Deployment/"+string(rune('a'+i%26))+time.Duration(i).String()), 80, 1)
-		tb.Edges[FlowKey(f)] = &continuumv1.FlowEdge{Key: f, FirstSeen: timestamppb.New(now), LastSeen: timestamppb.New(now.Add(time.Duration(i) * time.Second))}
+		tb.Edges[FlowKey(f)] = &ikhnosv1.FlowEdge{Key: f, FirstSeen: timestamppb.New(now), LastSeen: timestamppb.New(now.Add(time.Duration(i) * time.Second))}
 	}
-	tb.Apply(&continuumv1.FlowBatch{WindowSeconds: 60}, now)
+	tb.Apply(&ikhnosv1.FlowBatch{WindowSeconds: 60}, now)
 	if len(tb.Edges) != MaxFlowEdges {
 		t.Fatalf("the table is bounded: %d", len(tb.Edges))
 	}
@@ -495,11 +495,11 @@ func TestFlowCountersSaturateInsteadOfWrapping(t *testing.T) {
 	f.Connections, f.BytesOut, f.BytesIn = max-2, max-10, max
 	tb := NewFlowTable()
 	now := time.Now()
-	tb.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f}}, now)
+	tb.Apply(&ikhnosv1.FlowBatch{WindowSeconds: 60, Flows: []*ikhnosv1.Flow{f}}, now)
 	// A second batch that would wrap each counter past zero.
 	f2 := flowOf(wep("a/Deployment/x"), wep("b/Deployment/y"), 80, 1)
 	f2.Connections, f2.BytesOut, f2.BytesIn = 100, 100, 100
-	tb.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f2}}, now)
+	tb.Apply(&ikhnosv1.FlowBatch{WindowSeconds: 60, Flows: []*ikhnosv1.Flow{f2}}, now)
 	if len(tb.Edges) != 1 {
 		t.Fatalf("edges: %d", len(tb.Edges))
 	}
@@ -515,7 +515,7 @@ func TestFlowCountersSaturateInsteadOfWrapping(t *testing.T) {
 	tb2 := NewFlowTable()
 	f3 := flowOf(wep("a/Deployment/x"), wep("b/Deployment/y"), 80, 1)
 	f3.BytesOut, f3.BytesIn = max, max
-	tb2.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f3}}, now)
+	tb2.Apply(&ikhnosv1.FlowBatch{WindowSeconds: 60, Flows: []*ikhnosv1.Flow{f3}}, now)
 	for _, e := range tb2.Edges {
 		if e.WindowBytes != max {
 			t.Errorf("window bytes wrapped: %d", e.WindowBytes)
@@ -531,9 +531,9 @@ func TestFlowTableCarriesIfaceRetransmitsAndRTT(t *testing.T) {
 	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
 	tbl := NewFlowTable()
 	src, dst := wep("a/Deployment/x"), wep("a/Deployment/y")
-	f1 := &continuumv1.Flow{Src: src, Dst: dst, Port: 5432, Protocol: "tcp", Connections: 1, BytesOut: 100, BytesIn: 200,
+	f1 := &ikhnosv1.Flow{Src: src, Dst: dst, Port: 5432, Protocol: "tcp", Connections: 1, BytesOut: 100, BytesIn: 200,
 		Method: "ebpf", BytesKnown: true, Iface: "eth0", Retransmits: 3, RttUs: 15000}
-	tbl.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f1}}, now)
+	tbl.Apply(&ikhnosv1.FlowBatch{WindowSeconds: 60, Flows: []*ikhnosv1.Flow{f1}}, now)
 
 	k := FlowKey(f1)
 	e := tbl.Edges[k]
@@ -551,8 +551,8 @@ func TestFlowTableCarriesIfaceRetransmitsAndRTT(t *testing.T) {
 	}
 
 	// A route change and more loss on the next report: iface/rtt are gauges (latest wins), retransmits accumulate.
-	f2 := &continuumv1.Flow{Src: src, Dst: dst, Port: 5432, Protocol: "tcp", Connections: 1, Method: "ebpf", Iface: "wlan0", Retransmits: 2, RttUs: 20000}
-	tbl.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f2}}, now.Add(time.Minute))
+	f2 := &ikhnosv1.Flow{Src: src, Dst: dst, Port: 5432, Protocol: "tcp", Connections: 1, Method: "ebpf", Iface: "wlan0", Retransmits: 2, RttUs: 20000}
+	tbl.Apply(&ikhnosv1.FlowBatch{WindowSeconds: 60, Flows: []*ikhnosv1.Flow{f2}}, now.Add(time.Minute))
 	e = tbl.Edges[k]
 	if e.Key.Iface != "wlan0" {
 		t.Errorf("iface after route change = %q, want %q", e.Key.Iface, "wlan0")
@@ -565,8 +565,8 @@ func TestFlowTableCarriesIfaceRetransmitsAndRTT(t *testing.T) {
 	}
 
 	// A conntrack report (no iface, no RTT, no retransmits) must not blank out what eBPF already established.
-	f3 := &continuumv1.Flow{Src: src, Dst: dst, Port: 5432, Protocol: "tcp", Connections: 1, Method: "conntrack"}
-	tbl.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f3}}, now.Add(2*time.Minute))
+	f3 := &ikhnosv1.Flow{Src: src, Dst: dst, Port: 5432, Protocol: "tcp", Connections: 1, Method: "conntrack"}
+	tbl.Apply(&ikhnosv1.FlowBatch{WindowSeconds: 60, Flows: []*ikhnosv1.Flow{f3}}, now.Add(2*time.Minute))
 	e = tbl.Edges[k]
 	if e.Key.Iface != "wlan0" || e.Key.RttUs != 20000 {
 		t.Errorf("a zero-value report must not blank a previously known iface/rtt, got %q / %d", e.Key.Iface, e.Key.RttUs)
@@ -578,8 +578,8 @@ func TestFlowTableCarriesFailedAttempts(t *testing.T) {
 	tbl := NewFlowTable()
 	src, dst := wep("a/Deployment/x"), wep("a/Deployment/y")
 	// A window with nothing but failures: connections stays 0, failed_attempts carries the whole story.
-	f1 := &continuumv1.Flow{Src: src, Dst: dst, Port: 5432, Protocol: "tcp", Method: "ebpf", FailedAttempts: 2}
-	tbl.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f1}}, now)
+	f1 := &ikhnosv1.Flow{Src: src, Dst: dst, Port: 5432, Protocol: "tcp", Method: "ebpf", FailedAttempts: 2}
+	tbl.Apply(&ikhnosv1.FlowBatch{WindowSeconds: 60, Flows: []*ikhnosv1.Flow{f1}}, now)
 	k := FlowKey(f1)
 	e := tbl.Edges[k]
 	if e == nil {
@@ -588,8 +588,8 @@ func TestFlowTableCarriesFailedAttempts(t *testing.T) {
 	if e.Connections != 0 || e.FailedAttempts != 2 || e.WindowFailedAttempts != 2 {
 		t.Errorf("connections=%d failedAttempts=%d/%d, want 0, 2/2", e.Connections, e.FailedAttempts, e.WindowFailedAttempts)
 	}
-	f2 := &continuumv1.Flow{Src: src, Dst: dst, Port: 5432, Protocol: "tcp", Connections: 1, Method: "ebpf", FailedAttempts: 3}
-	tbl.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f2}}, now.Add(time.Minute))
+	f2 := &ikhnosv1.Flow{Src: src, Dst: dst, Port: 5432, Protocol: "tcp", Connections: 1, Method: "ebpf", FailedAttempts: 3}
+	tbl.Apply(&ikhnosv1.FlowBatch{WindowSeconds: 60, Flows: []*ikhnosv1.Flow{f2}}, now.Add(time.Minute))
 	e = tbl.Edges[k]
 	if e.FailedAttempts != 5 || e.WindowFailedAttempts != 3 || e.Connections != 1 {
 		t.Errorf("cumulative failedAttempts=%d window=%d connections=%d, want 5/3/1", e.FailedAttempts, e.WindowFailedAttempts, e.Connections)
@@ -602,7 +602,7 @@ func TestDependencyStatsIncludeRetransmitsAndRTT(t *testing.T) {
 	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
 	x, y := "a/Deployment/x", "a/Deployment/y"
 	c := cluster("a", "", nil, wk("a", "Deployment", "x"), wk("a", "Deployment", "y"))
-	f := &continuumv1.Flow{Src: wep(x), Dst: wep(y), Port: 5432, Protocol: "tcp", Connections: 2, BytesOut: 1000, BytesIn: 2000,
+	f := &ikhnosv1.Flow{Src: wep(x), Dst: wep(y), Port: 5432, Protocol: "tcp", Connections: 2, BytesOut: 1000, BytesIn: 2000,
 		Method: "ebpf", BytesKnown: true, Iface: "eth0", Retransmits: 4, RttUs: 8000}
 	feed(&c, now, 60, f)
 
@@ -654,11 +654,11 @@ func TestDependencyStatsIncludeJitterHandshakeAndLossPct(t *testing.T) {
 	x, y := "a/Deployment/x", "a/Deployment/y"
 	z := "a/Deployment/z"
 	c := cluster("a", "", nil, wk("a", "Deployment", "x"), wk("a", "Deployment", "y"), wk("a", "Deployment", "z"))
-	f := &continuumv1.Flow{Src: wep(x), Dst: wep(y), Port: 5432, Protocol: "tcp", Connections: 2, BytesOut: 1000, BytesIn: 2000,
+	f := &ikhnosv1.Flow{Src: wep(x), Dst: wep(y), Port: 5432, Protocol: "tcp", Connections: 2, BytesOut: 1000, BytesIn: 2000,
 		Method: "ebpf", BytesKnown: true, RttUs: 8000, JitterUs: 1500, HandshakeUs: 12000, Retransmits: 2, SegsOut: 100}
 	// A second dependency with retransmits but no segs_out at all (a conntrack-only report, say) - LossPct
 	// must stay nil for this one, not divide by zero into a fabricated 0%.
-	fNoSegs := &continuumv1.Flow{Src: wep(x), Dst: wep(z), Port: 5432, Protocol: "tcp", Connections: 1, Retransmits: 1}
+	fNoSegs := &ikhnosv1.Flow{Src: wep(x), Dst: wep(z), Port: 5432, Protocol: "tcp", Connections: 1, Retransmits: 1}
 	feed(&c, now, 60, f, fNoSegs)
 
 	deps, _ := Topology("org", []Cluster{c}, now, 24*time.Hour)
@@ -707,12 +707,12 @@ func TestDependencyStatsLossPctSumsAcrossMergedEdges(t *testing.T) {
 	c := cluster("a", "", nil,
 		wk("a", "Deployment", "x"),
 		wk("a", "Deployment", "y",
-			&continuumv1.Address{Ip: "203.0.113.10", Port: 5432, Kind: "load-balancer"},
-			&continuumv1.Address{Ip: "203.0.113.11", Port: 5432, Kind: "load-balancer"},
+			&ikhnosv1.Address{Ip: "203.0.113.10", Port: 5432, Kind: "load-balancer"},
+			&ikhnosv1.Address{Ip: "203.0.113.11", Port: 5432, Kind: "load-balancer"},
 		),
 	)
-	f1 := &continuumv1.Flow{Src: wep(x), Dst: xep("203.0.113.10"), Port: 5432, Protocol: "tcp", Connections: 1, Method: "ebpf", Retransmits: 10, SegsOut: 100}
-	f2 := &continuumv1.Flow{Src: wep(x), Dst: xep("203.0.113.11"), Port: 5432, Protocol: "tcp", Connections: 1, Method: "ebpf", Retransmits: 1, SegsOut: 1}
+	f1 := &ikhnosv1.Flow{Src: wep(x), Dst: xep("203.0.113.10"), Port: 5432, Protocol: "tcp", Connections: 1, Method: "ebpf", Retransmits: 10, SegsOut: 100}
+	f2 := &ikhnosv1.Flow{Src: wep(x), Dst: xep("203.0.113.11"), Port: 5432, Protocol: "tcp", Connections: 1, Method: "ebpf", Retransmits: 1, SegsOut: 1}
 	feed(&c, now, 60, f1, f2)
 
 	deps, _ := Topology("org", []Cluster{c}, now, 24*time.Hour)
@@ -746,7 +746,7 @@ func TestDependencyStatsIncludeCwndPacingAndBufferDrops(t *testing.T) {
 	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
 	x, y := "a/Deployment/x", "a/Deployment/y"
 	c := cluster("a", "", nil, wk("a", "Deployment", "x"), wk("a", "Deployment", "y"))
-	f := &continuumv1.Flow{Src: wep(x), Dst: wep(y), Port: 5432, Protocol: "tcp", Connections: 1, Method: "ebpf",
+	f := &ikhnosv1.Flow{Src: wep(x), Dst: wep(y), Port: 5432, Protocol: "tcp", Connections: 1, Method: "ebpf",
 		Cwnd: 10, PacingBps: 125000, BufferDrops: 3}
 	feed(&c, now, 60, f)
 
@@ -777,7 +777,7 @@ func TestDependencyStatsIncludeDnsRttMs(t *testing.T) {
 	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
 	x, y := "a/Deployment/x", "a/Deployment/y"
 	c := cluster("a", "", nil, wk("a", "Deployment", "x"), wk("a", "Deployment", "y"))
-	f := &continuumv1.Flow{Src: wep(x), Dst: wep(y), Port: 53, Protocol: "udp", Method: "ebpf", Noise: "dns", DnsRttUs: 4200}
+	f := &ikhnosv1.Flow{Src: wep(x), Dst: wep(y), Port: 53, Protocol: "udp", Method: "ebpf", Noise: "dns", DnsRttUs: 4200}
 	feed(&c, now, 60, f)
 
 	deps, _ := Topology("org", []Cluster{c}, now, 24*time.Hour)
@@ -801,7 +801,7 @@ func TestDependencyStatsIncludeFailedAttempts(t *testing.T) {
 	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
 	x, y := "a/Deployment/x", "a/Deployment/y"
 	c := cluster("a", "", nil, wk("a", "Deployment", "x"), wk("a", "Deployment", "y"))
-	f := &continuumv1.Flow{Src: wep(x), Dst: wep(y), Port: 5432, Protocol: "tcp", Method: "ebpf", FailedAttempts: 6}
+	f := &ikhnosv1.Flow{Src: wep(x), Dst: wep(y), Port: 5432, Protocol: "tcp", Method: "ebpf", FailedAttempts: 6}
 	feed(&c, now, 60, f)
 
 	deps, _ := Topology("org", []Cluster{c}, now, 24*time.Hour)
@@ -831,9 +831,9 @@ func TestDependencyStatsIncludeFailedAttempts(t *testing.T) {
 func TestFlowTableCarriesSniHostAndDnsQueryNames(t *testing.T) {
 	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
 	tbl := NewFlowTable()
-	src, dst := wep("a/Deployment/x"), &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_EXTERNAL, Ip: "93.184.216.34"}
-	f1 := &continuumv1.Flow{Src: src, Dst: dst, Port: 443, Protocol: "tcp", Connections: 1, Method: "ebpf", SniHost: "example.com"}
-	tbl.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f1}}, now)
+	src, dst := wep("a/Deployment/x"), &ikhnosv1.FlowEndpoint{Kind: ikhnosv1.FlowEndpoint_EXTERNAL, Ip: "93.184.216.34"}
+	f1 := &ikhnosv1.Flow{Src: src, Dst: dst, Port: 443, Protocol: "tcp", Connections: 1, Method: "ebpf", SniHost: "example.com"}
+	tbl.Apply(&ikhnosv1.FlowBatch{WindowSeconds: 60, Flows: []*ikhnosv1.Flow{f1}}, now)
 	k := FlowKey(f1)
 	e := tbl.Edges[k]
 	if e == nil || e.Key.SniHost != "example.com" {
@@ -841,18 +841,18 @@ func TestFlowTableCarriesSniHostAndDnsQueryNames(t *testing.T) {
 	}
 	// A later report on the same edge with no SNI (a conntrack report, or simply a window the eBPF
 	// collector never saw a fresh ClientHello in) must not blank out the hostname already known.
-	f2 := &continuumv1.Flow{Src: src, Dst: dst, Port: 443, Protocol: "tcp", Connections: 1, Method: "ebpf"}
-	tbl.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f2}}, now.Add(time.Minute))
+	f2 := &ikhnosv1.Flow{Src: src, Dst: dst, Port: 443, Protocol: "tcp", Connections: 1, Method: "ebpf"}
+	tbl.Apply(&ikhnosv1.FlowBatch{WindowSeconds: 60, Flows: []*ikhnosv1.Flow{f2}}, now.Add(time.Minute))
 	e = tbl.Edges[k]
 	if e.Key.SniHost != "example.com" {
 		t.Errorf("a report with no SNI must not blank a previously known one, got %q", e.Key.SniHost)
 	}
 
 	dnsSrc, resolver := wep("a/Deployment/x"), wep("kube-system/Deployment/coredns")
-	g1 := &continuumv1.Flow{Src: dnsSrc, Dst: resolver, Port: 53, Protocol: "udp", Connections: 1, Method: "ebpf", Noise: "dns", DnsQueryNames: []string{"api.example.com"}}
-	tbl.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{g1}}, now)
-	g2 := &continuumv1.Flow{Src: dnsSrc, Dst: resolver, Port: 53, Protocol: "udp", Connections: 1, Method: "ebpf", Noise: "dns", DnsQueryNames: []string{"cdn.example.com"}}
-	tbl.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{g2}}, now.Add(time.Minute))
+	g1 := &ikhnosv1.Flow{Src: dnsSrc, Dst: resolver, Port: 53, Protocol: "udp", Connections: 1, Method: "ebpf", Noise: "dns", DnsQueryNames: []string{"api.example.com"}}
+	tbl.Apply(&ikhnosv1.FlowBatch{WindowSeconds: 60, Flows: []*ikhnosv1.Flow{g1}}, now)
+	g2 := &ikhnosv1.Flow{Src: dnsSrc, Dst: resolver, Port: 53, Protocol: "udp", Connections: 1, Method: "ebpf", Noise: "dns", DnsQueryNames: []string{"cdn.example.com"}}
+	tbl.Apply(&ikhnosv1.FlowBatch{WindowSeconds: 60, Flows: []*ikhnosv1.Flow{g2}}, now.Add(time.Minute))
 	dk := FlowKey(g1)
 	de := tbl.Edges[dk]
 	if de == nil || len(de.DnsQueryNames) != 2 || de.DnsQueryNames[0] != "cdn.example.com" || de.DnsQueryNames[1] != "api.example.com" {
@@ -870,7 +870,7 @@ func TestDependencyIncludesSniHostAndDnsQueryNames(t *testing.T) {
 	seenAt := now.Add(-1 * time.Minute)
 	x := "a/Deployment/x"
 	c := cluster("a", "", nil, wk("a", "Deployment", "x"))
-	f := &continuumv1.Flow{Src: wep(x), Dst: xep("93.184.216.34"), Port: 443, Protocol: "tcp", Method: "ebpf", SniHost: "example.com", DnsQueryNames: []string{"example.com"}}
+	f := &ikhnosv1.Flow{Src: wep(x), Dst: xep("93.184.216.34"), Port: 443, Protocol: "tcp", Method: "ebpf", SniHost: "example.com", DnsQueryNames: []string{"example.com"}}
 	feed(&c, seenAt, 60, f)
 
 	deps, _ := Topology("org", []Cluster{c}, now, 24*time.Hour)

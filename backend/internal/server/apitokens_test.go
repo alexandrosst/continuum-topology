@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"continuum/internal/accounts"
-	"continuum/internal/kernel"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/kernel"
 )
 
 func (r resp) jsonArray(t *testing.T) []map[string]any {

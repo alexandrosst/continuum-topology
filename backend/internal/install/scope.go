@@ -23,7 +23,7 @@ var (
 
 	// The agent reads only labels on an allow-list, so a selector on any other key is refused instead of matching nothing.
 	selectableKeys     = map[string]bool{"app": true, "k8s-app": true, "istio-injection": true, "istio.io/rev": true, "istio.io/dataplane-mode": true}
-	selectablePrefixes = []string{"continuum.io/", "app.kubernetes.io/", "topology.kubernetes.io/"}
+	selectablePrefixes = []string{"ikhnos.io/", "app.kubernetes.io/", "topology.kubernetes.io/"}
 )
 
 func selectableKey(k string) bool {
@@ -64,7 +64,7 @@ func (s Scope) Problems() []string {
 		case !labelKey.MatchString(k):
 			out = append(out, fmt.Sprintf("%q is not a valid label key", k))
 		case !selectableKey(k):
-			out = append(out, fmt.Sprintf("The agent only reads a fixed list of labels, so select on one starting with continuum.io/ (for example continuum.io/scope=yes), not %q", k))
+			out = append(out, fmt.Sprintf("The agent only reads a fixed list of labels, so select on one starting with ikhnos.io/ (for example ikhnos.io/scope=yes), not %q", k))
 		case len(rest) > 1 || (len(rest) == 1 && !labelValue.MatchString(rest[0])):
 			out = append(out, "Write the label as key=value")
 		}

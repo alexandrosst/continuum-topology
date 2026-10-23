@@ -9,12 +9,12 @@ import (
 	"strings"
 	"time"
 
-	"continuum/internal/connectivity"
-	"continuum/internal/interpret"
-	"continuum/internal/kernel"
-	"continuum/internal/measure"
-	"continuum/internal/operators"
-	"continuum/internal/store"
+	"ikhnos/internal/connectivity"
+	"ikhnos/internal/interpret"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/measure"
+	"ikhnos/internal/operators"
+	"ikhnos/internal/store"
 )
 
 // pruneAddressTests drops the tests whose time is up. Called with h.mu held.

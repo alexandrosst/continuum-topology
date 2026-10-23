@@ -34,7 +34,7 @@ func TestRegionalOperatorMTLSOnlyRendersTheClientCertificateAsTheOnlyGate(t *tes
 	}
 	dep := r.deployments["op-regional-operator"].Spec.Template.Spec
 	for _, e := range dep.Containers[0].Env {
-		if e.Name == "CONTINUUM_OPERATOR_RECEIVER_AUTH" {
+		if e.Name == "IKHNOS_OPERATOR_RECEIVER_AUTH" {
 			t.Fatal("receiver token env var present for an mTLS-only operator (there is no such Secret)")
 		}
 	}
@@ -87,7 +87,7 @@ func TestRegionalOperatorRequireAuthSchema(t *testing.T) {
 
 func TestRegionalOperatorDocsDoNotClaimABearerTokenIsAlwaysRequired(t *testing.T) {
 	for _, f := range []string{"Chart.yaml", "values.yaml", "README.md", "templates/NOTES.txt"} {
-		b, err := operatorFiles.ReadFile("continuum-regional-operator/" + f)
+		b, err := operatorFiles.ReadFile("ikhnos-regional-operator/" + f)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -98,7 +98,7 @@ func TestRegionalOperatorDocsDoNotClaimABearerTokenIsAlwaysRequired(t *testing.T
 			}
 		}
 	}
-	b, _ := operatorFiles.ReadFile("continuum-regional-operator/Chart.yaml")
+	b, _ := operatorFiles.ReadFile("ikhnos-regional-operator/Chart.yaml")
 	if !strings.Contains(string(b), "mTLS client certificate") {
 		t.Error("Chart.yaml does not mention the client certificate gate")
 	}
@@ -109,7 +109,7 @@ func TestRegionalOperatorDocsDoNotClaimABearerTokenIsAlwaysRequired(t *testing.T
 // that were the current gate.
 func TestRegionalOperatorDocsNameThePerOperatorCA(t *testing.T) {
 	for _, f := range []string{"Chart.yaml", "values.yaml", "README.md"} {
-		b, err := operatorFiles.ReadFile("continuum-regional-operator/" + f)
+		b, err := operatorFiles.ReadFile("ikhnos-regional-operator/" + f)
 		if err != nil {
 			t.Fatal(err)
 		}

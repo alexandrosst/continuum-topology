@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"continuum/internal/fusionapi"
-	"continuum/internal/httpkit"
-	"continuum/internal/kernel"
+	"ikhnos/internal/fusionapi"
+	"ikhnos/internal/httpkit"
+	"ikhnos/internal/kernel"
 )
 
 import ()

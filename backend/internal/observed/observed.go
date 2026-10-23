@@ -10,13 +10,13 @@ import (
 	"strings"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/facts"
-	"continuum/internal/flow/wire"
-	"continuum/internal/interpret"
-	"continuum/internal/model"
-	"continuum/internal/netid"
-	"continuum/internal/probe"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/facts"
+	"ikhnos/internal/flow/wire"
+	"ikhnos/internal/interpret"
+	"ikhnos/internal/model"
+	"ikhnos/internal/netid"
+	"ikhnos/internal/probe"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -45,19 +45,19 @@ const (
 )
 
 type FlowTable struct {
-	Edges map[string]*continuumv1.FlowEdge
+	Edges map[string]*ikhnosv1.FlowEdge
 }
 
-func NewFlowTable() *FlowTable { return &FlowTable{Edges: map[string]*continuumv1.FlowEdge{}} }
+func NewFlowTable() *FlowTable { return &FlowTable{Edges: map[string]*ikhnosv1.FlowEdge{}} }
 
-func endpointKey(e *continuumv1.FlowEndpoint) string {
-	if e.Kind == continuumv1.FlowEndpoint_EXTERNAL {
+func endpointKey(e *ikhnosv1.FlowEndpoint) string {
+	if e.Kind == ikhnosv1.FlowEndpoint_EXTERNAL {
 		return "x:" + e.Ip
 	}
 	return fmt.Sprintf("%d:%s", e.Kind, e.Ref)
 }
 
-func FlowKey(f *continuumv1.Flow) string {
+func FlowKey(f *ikhnosv1.Flow) string {
 	return endpointKey(f.Src) + ">" + endpointKey(f.Dst) + fmt.Sprintf("/%s:%d", f.Protocol, f.Port)
 }
 
@@ -89,14 +89,14 @@ func (d *DroppedItems) note(err error) {
 // Flows with a NODE end (a node-level process or hostNetwork pod the agent could not pin to a pod) are well-formed
 // but are dropped and counted too: no dependency is derived from them (see Topology), so storing them would
 // only spend the edge budget.
-func SanitizeFlowBatch(b *continuumv1.FlowBatch) (d DroppedItems, err error) {
+func SanitizeFlowBatch(b *ikhnosv1.FlowBatch) (d DroppedItems, err error) {
 	if len(b.Flows) > maxFlowsPerBatch || len(b.PodFlows) > maxPodFlowsPerBatch || len(b.Collectors) > 5000 ||
 		b.WindowSeconds < 1 || b.WindowSeconds > 24*3600 {
 		return d, errors.New("flow batch is malformed")
 	}
-	keep := func(f *continuumv1.Flow) bool {
+	keep := func(f *ikhnosv1.Flow) bool {
 		err := wire.Check(f)
-		if err == nil && (f.Src.Kind == continuumv1.FlowEndpoint_NODE || f.Dst.Kind == continuumv1.FlowEndpoint_NODE) {
+		if err == nil && (f.Src.Kind == ikhnosv1.FlowEndpoint_NODE || f.Dst.Kind == ikhnosv1.FlowEndpoint_NODE) {
 			err = errNodeLevel
 		}
 		if err != nil {
@@ -106,9 +106,9 @@ func SanitizeFlowBatch(b *continuumv1.FlowBatch) (d DroppedItems, err error) {
 		wire.Clip(f)
 		return true
 	}
-	b.Flows = slices.DeleteFunc(b.Flows, func(f *continuumv1.Flow) bool { return !keep(f) })
-	b.PodFlows = slices.DeleteFunc(b.PodFlows, func(f *continuumv1.Flow) bool { return !keep(f) })
-	b.Collectors = slices.DeleteFunc(b.Collectors, func(c *continuumv1.CollectorInfo) bool {
+	b.Flows = slices.DeleteFunc(b.Flows, func(f *ikhnosv1.Flow) bool { return !keep(f) })
+	b.PodFlows = slices.DeleteFunc(b.PodFlows, func(f *ikhnosv1.Flow) bool { return !keep(f) })
+	b.Collectors = slices.DeleteFunc(b.Collectors, func(c *ikhnosv1.CollectorInfo) bool {
 		bad := c == nil || c.Node == "" || len(c.Node) > wire.MaxName || (c.Method != "ebpf" && c.Method != "conntrack")
 		if bad {
 			d.note(errors.New("a collector report is malformed"))
@@ -127,7 +127,7 @@ func SanitizeFlowBatch(b *continuumv1.FlowBatch) (d DroppedItems, err error) {
 // ThroughputBps on the same entry are left untouched, and the percentage is nulled - the same "not
 // reported" the field already uses when the interface's rated speed could not be read at all - never
 // clamped to 100, which would report a saturation level nothing actually measured.
-func BoundFlowFacts(b *continuumv1.FlowBatch) int {
+func BoundFlowFacts(b *ikhnosv1.FlowBatch) int {
 	n := 0
 	for _, c := range b.Collectors {
 		if c == nil {
@@ -155,7 +155,7 @@ func satAdd(a, b uint64) uint64 {
 	return math.MaxUint64
 }
 
-func (t *FlowTable) Apply(b *continuumv1.FlowBatch, now time.Time) {
+func (t *FlowTable) Apply(b *ikhnosv1.FlowBatch, now time.Time) {
 	// One batch, one instant: every edge touched by this call - new or existing, however many flows the
 	// batch carries - shares the exact same timestamp, so there is no need for a fresh *timestamppb.
 	// Timestamp allocation per flow. Nothing here ever mutates a Timestamp in place (every reader goes through
@@ -165,7 +165,7 @@ func (t *FlowTable) Apply(b *continuumv1.FlowBatch, now time.Time) {
 		k := FlowKey(f)
 		e := t.Edges[k]
 		if e == nil {
-			e = &continuumv1.FlowEdge{Key: &continuumv1.Flow{Src: f.Src, Dst: f.Dst, Port: f.Port, Protocol: f.Protocol, Method: f.Method}, FirstSeen: nowPb}
+			e = &ikhnosv1.FlowEdge{Key: &ikhnosv1.Flow{Src: f.Src, Dst: f.Dst, Port: f.Port, Protocol: f.Protocol, Method: f.Method}, FirstSeen: nowPb}
 			t.Edges[k] = e
 		}
 		e.LastSeen = nowPb
@@ -198,7 +198,7 @@ func (t *FlowTable) Apply(b *continuumv1.FlowBatch, now time.Time) {
 }
 
 func (t *FlowTable) Marshal() ([]byte, error) {
-	m := &continuumv1.FlowTable{}
+	m := &ikhnosv1.FlowTable{}
 	keys := make([]string, 0, len(t.Edges))
 	for k := range t.Edges {
 		keys = append(keys, k)
@@ -211,7 +211,7 @@ func (t *FlowTable) Marshal() ([]byte, error) {
 }
 
 func UnmarshalFlowTable(b []byte) (*FlowTable, error) {
-	var m continuumv1.FlowTable
+	var m ikhnosv1.FlowTable
 	if err := proto.Unmarshal(b, &m); err != nil {
 		return nil, err
 	}
@@ -704,12 +704,12 @@ func Topology(org string, cs []Cluster, now time.Time, stale time.Duration) ([]m
 
 	type pending struct {
 		c *Cluster
-		e *continuumv1.FlowEdge
+		e *ikhnosv1.FlowEdge
 	}
 	var inbound []pending
 	outboundTo := map[string]bool{} // "srcCluster>dstServiceID" for outbound edges that resolved to a workload in another cluster
 
-	add := func(from, fromKind, to, toKind string, e *continuumv1.FlowEdge, cross bool, note string) {
+	add := func(from, fromKind, to, toKind string, e *ikhnosv1.FlowEdge, cross bool, note string) {
 		port := int(e.Key.Port)
 		// Protocol is part of the identity, not just a field on it: a workload very commonly talks to
 		// the same peer on the same port over both UDP and TCP (DNS being the obvious case - UDP first,
@@ -779,9 +779,9 @@ func Topology(org string, cs []Cluster, now time.Time, stale time.Duration) ([]m
 		// mapped from the wire enum to that plain string here, at the one place a RawFlow's internal
 		// numbering turns into the model the rest of the server and the UI actually read.
 		switch e.Key.TlsHandshake {
-		case continuumv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_OK:
+		case ikhnosv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_OK:
 			d.TlsHandshake = "ok"
-		case continuumv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_FAILED:
+		case ikhnosv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_FAILED:
 			d.TlsHandshake = "failed"
 		}
 		d.Retransmits = satAdd(d.Retransmits, e.Retransmits)
@@ -833,7 +833,7 @@ func Topology(org string, cs []Cluster, now time.Time, stale time.Duration) ([]m
 	for i := range cs {
 		c := &cs[i]
 		for _, e := range c.Flows.Edges {
-			if e.Key.Src.Kind == continuumv1.FlowEndpoint_EXTERNAL {
+			if e.Key.Src.Kind == ikhnosv1.FlowEndpoint_EXTERNAL {
 				inbound = append(inbound, pending{c, e})
 				continue
 			}
@@ -845,11 +845,11 @@ func Topology(org string, cs []Cluster, now time.Time, stale time.Duration) ([]m
 				continue
 			}
 			switch e.Key.Dst.Kind {
-			case continuumv1.FlowEndpoint_WORKLOAD:
+			case ikhnosv1.FlowEndpoint_WORKLOAD:
 				if to, ok := serviceOf(c.ID, e.Key.Dst.Ref); ok {
 					add(from, "service", to, "service", e, false, "")
 				}
-			case continuumv1.FlowEndpoint_EXTERNAL:
+			case ikhnosv1.FlowEndpoint_EXTERNAL:
 				ip := e.Key.Dst.Ip
 				if t, note, ok := resolveExternal(c.ID, ip, e.Key.Port); ok {
 					if to, ok := serviceOf(t.cluster, t.workload); ok {
@@ -943,7 +943,7 @@ type ObserverDoc struct {
 
 type Health struct {
 	at         time.Time
-	collectors []*continuumv1.CollectorInfo
+	collectors []*ikhnosv1.CollectorInfo
 	lost       uint64
 	// dropped counts the items of accepted batches that SanitizeFlowBatch removed, since the server started;
 	// droppedLogged limits how often that is warned about.
@@ -961,7 +961,7 @@ func (o *Health) NoteDropped(n int, now time.Time) bool {
 	return true
 }
 
-func (o *Health) Note(b *continuumv1.FlowBatch, now time.Time) {
+func (o *Health) Note(b *ikhnosv1.FlowBatch, now time.Time) {
 	o.at, o.collectors = now, b.Collectors
 	o.lost += b.Lost
 }

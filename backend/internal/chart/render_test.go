@@ -135,10 +135,10 @@ func env(c corev1.Container, name string) (string, bool) {
 
 func TestOneImageThreeRoles(t *testing.T) {
 	r := render(t, "--set", "nodeProbe.enabled=true", "--set", "flowObserver.enabled=true")
-	agent := r.deployments["continuum-agent"].Spec.Template
-	probe := r.daemonsets["continuum-node-probe"].Spec.Template
-	flow := r.daemonsets["continuum-flow-collector"].Spec.Template
-	want := "continuum/continuum:0.2.0-dev"
+	agent := r.deployments["ikhnos-agent"].Spec.Template
+	probe := r.daemonsets["ikhnos-node-probe"].Spec.Template
+	flow := r.daemonsets["ikhnos-flow-collector"].Spec.Template
+	want := "ikhnos/ikhnos:0.2.0-dev"
 	for name, p := range map[string]corev1.PodTemplateSpec{"agent": agent, "probe": probe, "flow": flow} {
 		if len(p.Spec.Containers) != 1 {
 			t.Fatalf("%s: %d containers", name, len(p.Spec.Containers))
@@ -187,10 +187,10 @@ func TestOneImageThreeRoles(t *testing.T) {
 }
 
 // TestFlowNamesCapabilityIsOptIn checks flowObserver.names.enabled adds CAP_NET_ADMIN and turns on
-// CONTINUUM_FLOW_NAMES only when asked for, mirroring the existing liveBytes/hostPID conditional.
+// IKHNOS_FLOW_NAMES only when asked for, mirroring the existing liveBytes/hostPID conditional.
 func TestFlowNamesCapabilityIsOptIn(t *testing.T) {
 	on := render(t, "--set", "flowObserver.enabled=true", "--set", "flowObserver.names.enabled=true")
-	c := on.daemonsets["continuum-flow-collector"].Spec.Template.Spec.Containers[0]
+	c := on.daemonsets["ikhnos-flow-collector"].Spec.Template.Spec.Containers[0]
 	hasNetAdmin := false
 	for _, cap := range c.SecurityContext.Capabilities.Add {
 		if string(cap) == "NET_ADMIN" {
@@ -200,50 +200,50 @@ func TestFlowNamesCapabilityIsOptIn(t *testing.T) {
 	if !hasNetAdmin {
 		t.Errorf("capabilities.add = %v, want NET_ADMIN when flowObserver.names.enabled", c.SecurityContext.Capabilities.Add)
 	}
-	if v, ok := env(c, "CONTINUUM_FLOW_NAMES"); !ok || v != "true" {
-		t.Errorf("CONTINUUM_FLOW_NAMES = %q, ok=%v, want true", v, ok)
+	if v, ok := env(c, "IKHNOS_FLOW_NAMES"); !ok || v != "true" {
+		t.Errorf("IKHNOS_FLOW_NAMES = %q, ok=%v, want true", v, ok)
 	}
 
 	off := render(t, "--set", "flowObserver.enabled=true")
-	c2 := off.daemonsets["continuum-flow-collector"].Spec.Template.Spec.Containers[0]
+	c2 := off.daemonsets["ikhnos-flow-collector"].Spec.Template.Spec.Containers[0]
 	for _, cap := range c2.SecurityContext.Capabilities.Add {
 		if string(cap) == "NET_ADMIN" {
 			t.Error("NET_ADMIN granted by default; flowObserver.names must be opt-in")
 		}
 	}
-	if v, ok := env(c2, "CONTINUUM_FLOW_NAMES"); !ok || v != "false" {
-		t.Errorf("CONTINUUM_FLOW_NAMES default = %q, ok=%v, want false", v, ok)
+	if v, ok := env(c2, "IKHNOS_FLOW_NAMES"); !ok || v != "false" {
+		t.Errorf("IKHNOS_FLOW_NAMES default = %q, ok=%v, want false", v, ok)
 	}
 }
 
 func TestImageDigestWinsOverTag(t *testing.T) {
 	d := "sha256:" + strings.Repeat("ab", 32)
-	r := render(t, "--set", "image.repository=reg.example.com:8443/team/continuum", "--set", "image.tag=1.2.3", "--set", "image.digest="+d, "--set", "nodeProbe.enabled=true", "--set", "flowObserver.enabled=true")
-	want := "reg.example.com:8443/team/continuum@" + d
-	if got := r.deployments["continuum-agent"].Spec.Template.Spec.Containers[0].Image; got != want {
+	r := render(t, "--set", "image.repository=reg.example.com:8443/team/ikhnos", "--set", "image.tag=1.2.3", "--set", "image.digest="+d, "--set", "nodeProbe.enabled=true", "--set", "flowObserver.enabled=true")
+	want := "reg.example.com:8443/team/ikhnos@" + d
+	if got := r.deployments["ikhnos-agent"].Spec.Template.Spec.Containers[0].Image; got != want {
 		t.Errorf("agent image = %q, want %q", got, want)
 	}
-	if got := r.daemonsets["continuum-node-probe"].Spec.Template.Spec.Containers[0].Image; got != want {
+	if got := r.daemonsets["ikhnos-node-probe"].Spec.Template.Spec.Containers[0].Image; got != want {
 		t.Errorf("probe image = %q", got)
 	}
-	if got := r.daemonsets["continuum-flow-collector"].Spec.Template.Spec.Containers[0].Image; got != want {
+	if got := r.daemonsets["ikhnos-flow-collector"].Spec.Template.Spec.Containers[0].Image; got != want {
 		t.Errorf("flow image = %q", got)
 	}
-	r = render(t, "--set", "image.repository=reg.example.com/team/continuum", "--set", "image.tag=1.2.3")
-	if got := r.deployments["continuum-agent"].Spec.Template.Spec.Containers[0].Image; got != "reg.example.com/team/continuum:1.2.3" {
+	r = render(t, "--set", "image.repository=reg.example.com/team/ikhnos", "--set", "image.tag=1.2.3")
+	if got := r.deployments["ikhnos-agent"].Spec.Template.Spec.Containers[0].Image; got != "reg.example.com/team/ikhnos:1.2.3" {
 		t.Errorf("tag form = %q", got)
 	}
 }
 
 func TestAgentPodHygiene(t *testing.T) {
 	r := render(t, "--set", "nodeProbe.enabled=true", "--set", "flowObserver.enabled=true")
-	d := r.deployments["continuum-agent"]
+	d := r.deployments["ikhnos-agent"]
 	if d.Spec.Strategy.Type != appsv1.RecreateDeploymentStrategyType || d.Spec.Replicas == nil || *d.Spec.Replicas != 1 {
 		t.Errorf("the agent must be one replica with Recreate: %+v replicas=%v", d.Spec.Strategy, d.Spec.Replicas)
 	}
 	c := d.Spec.Template.Spec.Containers[0]
-	if v, _ := env(c, "CONTINUUM_HEALTH_LISTEN"); v != ":8082" {
-		t.Errorf("CONTINUUM_HEALTH_LISTEN = %q", v)
+	if v, _ := env(c, "IKHNOS_HEALTH_LISTEN"); v != ":8082" {
+		t.Errorf("IKHNOS_HEALTH_LISTEN = %q", v)
 	}
 	if c.LivenessProbe == nil || c.LivenessProbe.HTTPGet == nil || c.LivenessProbe.HTTPGet.Path != "/healthz" || c.ReadinessProbe == nil || c.ReadinessProbe.HTTPGet == nil || c.ReadinessProbe.HTTPGet.Path != "/readyz" {
 		t.Errorf("liveness/readiness probes are wrong: %+v / %+v", c.LivenessProbe, c.ReadinessProbe)
@@ -258,7 +258,7 @@ func TestAgentPodHygiene(t *testing.T) {
 			t.Errorf("annotation %s missing", k)
 		}
 	}
-	a2 := render(t, "--set", "nodeProbe.enabled=true", "--set", "flowObserver.enabled=true").deployments["continuum-agent"].Spec.Template.Annotations
+	a2 := render(t, "--set", "nodeProbe.enabled=true", "--set", "flowObserver.enabled=true").deployments["ikhnos-agent"].Spec.Template.Annotations
 	for k, v := range a1 {
 		if a2[k] != v {
 			t.Errorf("%s changed between two identical renders: the pods would restart on every upgrade", k)
@@ -266,17 +266,17 @@ func TestAgentPodHygiene(t *testing.T) {
 	}
 	// ...and they do move when what they stand for moves.
 	for _, ch := range []struct{ key, set string }{{"checksum/enrollment", "enrollment.token=other"}, {"checksum/probe-secret", "nodeProbe.secret=0123456789abcdef0123"}, {"checksum/flow-secret", "flowObserver.secret=0123456789abcdef0123"}} {
-		got := render(t, "--set", "nodeProbe.enabled=true", "--set", "flowObserver.enabled=true", "--set", ch.set).deployments["continuum-agent"].Spec.Template.Annotations[ch.key]
+		got := render(t, "--set", "nodeProbe.enabled=true", "--set", "flowObserver.enabled=true", "--set", ch.set).deployments["ikhnos-agent"].Spec.Template.Annotations[ch.key]
 		if got == a1[ch.key] {
 			t.Errorf("%s did not change with --set %s", ch.key, ch.set)
 		}
 	}
 	// A pending token is its own file, so its checksum is over the Secret alone.
-	if _, ok := r.secrets["continuum-agent-enrollment"]; !ok {
+	if _, ok := r.secrets["ikhnos-agent-enrollment"]; !ok {
 		t.Error("the enrollment Secret is missing")
 	}
 	// The probe and flow pods roll with their secret too.
-	if r.daemonsets["continuum-node-probe"].Spec.Template.Annotations["checksum/secret"] == "" || r.daemonsets["continuum-flow-collector"].Spec.Template.Annotations["checksum/secret"] == "" {
+	if r.daemonsets["ikhnos-node-probe"].Spec.Template.Annotations["checksum/secret"] == "" || r.daemonsets["ikhnos-flow-collector"].Spec.Template.Annotations["checksum/secret"] == "" {
 		t.Error("the DaemonSets carry no secret checksum")
 	}
 }
@@ -284,8 +284,8 @@ func TestAgentPodHygiene(t *testing.T) {
 func TestSchedulingAndProxyOptions(t *testing.T) {
 	r := render(t, "--set", "podLabels.team=a", "--set", "priorityClassName=high", "--set", "extraEnv[0].name=FOO", "--set", "extraEnv[0].value=bar",
 		"--set", "proxy.httpsProxy=http://proxy:3128", "--set", "proxy.noProxy=10.43.0.1", "--set", "nodeSelector.disk=ssd", "--set", "nodeProbe.enabled=true")
-	p := r.deployments["continuum-agent"].Spec.Template
-	if p.Labels["team"] != "a" || p.Labels["app.kubernetes.io/name"] != "continuum-agent" || p.Spec.PriorityClassName != "high" {
+	p := r.deployments["ikhnos-agent"].Spec.Template
+	if p.Labels["team"] != "a" || p.Labels["app.kubernetes.io/name"] != "ikhnos-agent" || p.Spec.PriorityClassName != "high" {
 		t.Errorf("labels/priority: %v %q", p.Labels, p.Spec.PriorityClassName)
 	}
 	if p.Spec.NodeSelector["disk"] != "ssd" || p.Spec.NodeSelector["kubernetes.io/os"] != "linux" {
@@ -302,15 +302,15 @@ func TestSchedulingAndProxyOptions(t *testing.T) {
 		t.Errorf("NO_PROXY = %q", v)
 	}
 	// The probe reports to the agent inside the cluster: no proxy there.
-	pc := r.daemonsets["continuum-node-probe"].Spec.Template.Spec.Containers[0]
+	pc := r.daemonsets["ikhnos-node-probe"].Spec.Template.Spec.Containers[0]
 	if _, ok := env(pc, "HTTPS_PROXY"); ok {
 		t.Error("the node probe must not get the proxy")
 	}
-	if v, _ := env(r.deployments["continuum-agent"].Spec.Template.Spec.Containers[0], "HTTP_PROXY"); v != "" {
+	if v, _ := env(r.deployments["ikhnos-agent"].Spec.Template.Spec.Containers[0], "HTTP_PROXY"); v != "" {
 		t.Error("HTTP_PROXY set although only httpsProxy was given")
 	}
 	// Nothing set: no proxy variables at all.
-	c = render(t).deployments["continuum-agent"].Spec.Template.Spec.Containers[0]
+	c = render(t).deployments["ikhnos-agent"].Spec.Template.Spec.Containers[0]
 	for _, n := range []string{"HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY"} {
 		if _, ok := env(c, n); ok {
 			t.Errorf("%s set by default", n)
@@ -319,7 +319,7 @@ func TestSchedulingAndProxyOptions(t *testing.T) {
 }
 
 func TestEgressPolicy(t *testing.T) {
-	if _, ok := render(t).policies["continuum-agent-egress"]; ok {
+	if _, ok := render(t).policies["ikhnos-agent-egress"]; ok {
 		t.Fatal("the egress policy must be off by default")
 	}
 	if out, err := helmTemplate(t, "--set", "networkPolicy.egress.enabled=true"); err == nil || !strings.Contains(out, "apiServerCIDRs") {
@@ -328,7 +328,7 @@ func TestEgressPolicy(t *testing.T) {
 	if out, err := helmTemplate(t, "--set", "networkPolicy.egress.enabled=true", "--set", "networkPolicy.egress.apiServerCIDRs={10.43.0.1/32}"); err == nil || !strings.Contains(out, "serverCIDRs") {
 		t.Errorf("enabling egress without the server's address must fail with a message, got err=%v\n%s", err, out)
 	}
-	p, ok := render(t, "--set", "networkPolicy.egress.enabled=true", "--set", "networkPolicy.egress.apiServerCIDRs={10.43.0.1/32,192.168.1.10/32}", "--set", "networkPolicy.egress.serverCIDRs={203.0.113.7/32}").policies["continuum-agent-egress"]
+	p, ok := render(t, "--set", "networkPolicy.egress.enabled=true", "--set", "networkPolicy.egress.apiServerCIDRs={10.43.0.1/32,192.168.1.10/32}", "--set", "networkPolicy.egress.serverCIDRs={203.0.113.7/32}").policies["ikhnos-agent-egress"]
 	if !ok {
 		t.Fatal("no egress policy")
 	}
@@ -353,7 +353,7 @@ func TestApiEndpointRoleIsOnByDefaultAndOffSwitchable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "continuum-agent-api-endpoint") || !strings.Contains(out, `resourceNames: ["kubernetes"]`) {
+	if !strings.Contains(out, "ikhnos-agent-api-endpoint") || !strings.Contains(out, `resourceNames: ["kubernetes"]`) {
 		t.Errorf("the api-endpoint Role/RoleBinding should be on by default:\n%s", out)
 	}
 	out, err = helmTemplate(t, "--set", "access.resolveApiEndpoint=false")
@@ -374,7 +374,7 @@ func TestFlowReceiverPolicyIsHonest(t *testing.T) {
 	if out, err := helmTemplate(t, "--set", "flowObserver.enabled=true", "--set", "flowObserver.networkPolicy=true"); err == nil || !strings.Contains(out, "nodeCIDRs") {
 		t.Errorf("networkPolicy=true without nodeCIDRs must fail, got err=%v\n%s", err, out)
 	}
-	p := render(t, "--set", "flowObserver.enabled=true", "--set", "flowObserver.networkPolicy=true", "--set", "flowObserver.nodeCIDRs={10.42.0.0/16}").policies["continuum-agent-probe"]
+	p := render(t, "--set", "flowObserver.enabled=true", "--set", "flowObserver.networkPolicy=true", "--set", "flowObserver.nodeCIDRs={10.42.0.0/16}").policies["ikhnos-agent-probe"]
 	found := false
 	for _, in := range p.Spec.Ingress {
 		for _, f := range in.From {
@@ -402,7 +402,7 @@ func TestNodeProbeReceiverPolicyIsHonest(t *testing.T) {
 	if out, err := helmTemplate(t, "--set", "nodeProbe.enabled=true", "--set", "nodeProbe.networkPolicy=true"); err == nil || !strings.Contains(out, "nodeCIDRs") {
 		t.Errorf("networkPolicy=true without nodeCIDRs must fail, got err=%v\n%s", err, out)
 	}
-	p := render(t, "--set", "nodeProbe.enabled=true", "--set", "nodeProbe.networkPolicy=true", "--set", "nodeProbe.nodeCIDRs={10.42.0.0/16}").policies["continuum-agent-probe"]
+	p := render(t, "--set", "nodeProbe.enabled=true", "--set", "nodeProbe.networkPolicy=true", "--set", "nodeProbe.nodeCIDRs={10.42.0.0/16}").policies["ikhnos-agent-probe"]
 	found := false
 	for _, in := range p.Spec.Ingress {
 		for _, f := range in.From {
@@ -424,34 +424,34 @@ func TestNodeProbeReceiverPolicyIsHonest(t *testing.T) {
 // separately; the chart must split it back into exactly what those two fields would have produced.
 func TestEnrollmentKeySplitsIntoCAPinAndToken(t *testing.T) {
 	pin := strings.Repeat("0f", 32)
-	r := render(t, "--set", "server.caPin=", "--set", "enrollment.token=", "--set", "enrollment.key="+pin+".cnt_xyz")
-	c := r.deployments["continuum-agent"].Spec.Template.Spec.Containers[0]
-	if v, _ := env(c, "CONTINUUM_CA_PIN"); v != pin {
-		t.Errorf("CONTINUUM_CA_PIN = %q, want %q", v, pin)
+	r := render(t, "--set", "server.caPin=", "--set", "enrollment.token=", "--set", "enrollment.key="+pin+".ikh_xyz")
+	c := r.deployments["ikhnos-agent"].Spec.Template.Spec.Containers[0]
+	if v, _ := env(c, "IKHNOS_CA_PIN"); v != pin {
+		t.Errorf("IKHNOS_CA_PIN = %q, want %q", v, pin)
 	}
-	if s, ok := r.secrets["continuum-agent-enrollment"]; !ok || s.StringData["token"] != "cnt_xyz" {
-		t.Errorf("enrollment secret token = %q, ok=%v, want \"cnt_xyz\"", s.StringData["token"], ok)
+	if s, ok := r.secrets["ikhnos-agent-enrollment"]; !ok || s.StringData["token"] != "ikh_xyz" {
+		t.Errorf("enrollment secret token = %q, ok=%v, want \"ikh_xyz\"", s.StringData["token"], ok)
 	}
 	// The public-key pin the install command prints ("sha256/<base64>", with + / and =) goes through the schema and
 	// the split intact, and so does the legacy hex form above.
 	spki := "sha256/" + strings.Repeat("A", 42) + "+="
-	r = render(t, "--set", "server.caPin=", "--set", "enrollment.token=", "--set", "enrollment.key="+spki+".cnt_xyz")
-	c = r.deployments["continuum-agent"].Spec.Template.Spec.Containers[0]
-	if v, _ := env(c, "CONTINUUM_CA_PIN"); v != spki {
-		t.Errorf("CONTINUUM_CA_PIN = %q, want %q", v, spki)
+	r = render(t, "--set", "server.caPin=", "--set", "enrollment.token=", "--set", "enrollment.key="+spki+".ikh_xyz")
+	c = r.deployments["ikhnos-agent"].Spec.Template.Spec.Containers[0]
+	if v, _ := env(c, "IKHNOS_CA_PIN"); v != spki {
+		t.Errorf("IKHNOS_CA_PIN = %q, want %q", v, spki)
 	}
 	// server.caPin and enrollment.token, given directly, win over enrollment.key: an operator's explicit override is
 	// never silently shadowed by the convenience field.
-	r = render(t, "--set", "server.caPin=ab", "--set", "enrollment.token=direct", "--set", "enrollment.key="+pin+".cnt_xyz")
-	c = r.deployments["continuum-agent"].Spec.Template.Spec.Containers[0]
-	if v, _ := env(c, "CONTINUUM_CA_PIN"); v != "ab" {
+	r = render(t, "--set", "server.caPin=ab", "--set", "enrollment.token=direct", "--set", "enrollment.key="+pin+".ikh_xyz")
+	c = r.deployments["ikhnos-agent"].Spec.Template.Spec.Containers[0]
+	if v, _ := env(c, "IKHNOS_CA_PIN"); v != "ab" {
 		t.Errorf("explicit server.caPin must win, got %q", v)
 	}
-	if s := r.secrets["continuum-agent-enrollment"]; s.StringData["token"] != "direct" {
+	if s := r.secrets["ikhnos-agent-enrollment"]; s.StringData["token"] != "direct" {
 		t.Errorf("explicit enrollment.token must win, got %q", s.StringData["token"])
 	}
 	// Neither the pin nor the token appears un-set when only enrollment.key was given: rendering must not fail.
-	if out, err := helmTemplate(t, "--set", "server.caPin=", "--set", "enrollment.token=", "--set", "enrollment.key="+pin+".cnt_xyz"); err != nil {
+	if out, err := helmTemplate(t, "--set", "server.caPin=", "--set", "enrollment.token=", "--set", "enrollment.key="+pin+".ikh_xyz"); err != nil {
 		t.Fatalf("enrollment.key alone should be enough: %v\n%s", err, out)
 	}
 	// Neither caPin nor enrollment.key: the chart still refuses to render, same as before this field existed.
@@ -465,14 +465,14 @@ func TestEnrollmentKeySplitsIntoCAPinAndToken(t *testing.T) {
 func TestSchemaAcceptsTheInstallCommandAndCatchesTypos(t *testing.T) {
 	d := "sha256:" + strings.Repeat("0f", 32)
 	for _, extra := range [][]string{
-		{"--set", "access.tier=1", "--set", "image.repository=reg.example.com/team/continuum", "--set", "image.tag=0.1.0-dev", "--set", "image.digest=" + d},
-		{"--set", "access.tier=0", "--set", "image.repository=alexandrosst/continuum"},
+		{"--set", "access.tier=1", "--set", "image.repository=reg.example.com/team/ikhnos", "--set", "image.tag=0.1.0-dev", "--set", "image.digest=" + d},
+		{"--set", "access.tier=0", "--set", "image.repository=alexandrosst/ikhnos"},
 		{"--set", "access.tier=2", "--set", "nodeProbe.enabled=true", "--set", "flowObserver.enabled=true"}, // what the wizard's checkboxes append
 		{"--set", "image.tag=1"},                        // helm turns a bare number into an integer
 		{"--set", "enrollment.token=1234567"},           // ...and so could a token
 		{"--set-string", "access.tier=1"},               // a string tier is accepted too
 		{"--set", "nodeProbe.image.repository=x/probe"}, // an older server's command: accepted, ignored
-		{"--set", "server.caPin=", "--set", "enrollment.token=", "--set", "enrollment.key=" + strings.Repeat("0f", 32) + ".cnt_ok"}, // what the install command prints now
+		{"--set", "server.caPin=", "--set", "enrollment.token=", "--set", "enrollment.key=" + strings.Repeat("0f", 32) + ".ikh_ok"}, // what the install command prints now
 	} {
 		if out, err := helmTemplate(t, extra...); err != nil {
 			t.Errorf("%v rejected: %v\n%s", extra, err, out)
@@ -485,7 +485,7 @@ func TestSchemaAcceptsTheInstallCommandAndCatchesTypos(t *testing.T) {
 		{"--set", "nodeProbe.enabled=yes"},
 		{"--set", "flowObserver.method=magic"},
 		{"--set", "servr.address=x"},
-		{"--set", "enrollment.key=notahexpin.cnt_ok"},           // the pin half must be 64 lowercase hex characters
+		{"--set", "enrollment.key=notahexpin.ikh_ok"},           // the pin half must be 64 lowercase hex characters
 		{"--set", "enrollment.key=" + strings.Repeat("0f", 32)}, // no ".<token>" half at all
 	} {
 		if out, err := helmTemplate(t, bad...); err == nil {
@@ -497,19 +497,19 @@ func TestSchemaAcceptsTheInstallCommandAndCatchesTypos(t *testing.T) {
 }
 
 // How quickly a new dependency shows up is set by two settings: how often each node's collector reports (the collector's
-// own --interval) and how often the agent forwards what it holds (CONTINUUM_FLOW_WINDOW). Both are chart values, and the
+// own --interval) and how often the agent forwards what it holds (IKHNOS_FLOW_WINDOW). Both are chart values, and the
 // agent is told its collectors' interval too, so it can tell a quiet collector from a silent one.
 func TestFlowTimingIsAChartValue(t *testing.T) {
 	check := func(name string, sets []string, interval, window string) {
 		t.Helper()
 		r := render(t, append([]string{"--set", "flowObserver.enabled=true"}, sets...)...)
-		agent := r.deployments["continuum-agent"].Spec.Template.Spec.Containers[0]
-		flow := r.daemonsets["continuum-flow-collector"].Spec.Template.Spec.Containers[0]
-		if got, _ := env(agent, "CONTINUUM_FLOW_WINDOW"); got != window {
-			t.Errorf("%s: CONTINUUM_FLOW_WINDOW = %q, want %q", name, got, window)
+		agent := r.deployments["ikhnos-agent"].Spec.Template.Spec.Containers[0]
+		flow := r.daemonsets["ikhnos-flow-collector"].Spec.Template.Spec.Containers[0]
+		if got, _ := env(agent, "IKHNOS_FLOW_WINDOW"); got != window {
+			t.Errorf("%s: IKHNOS_FLOW_WINDOW = %q, want %q", name, got, window)
 		}
-		if got, _ := env(agent, "CONTINUUM_FLOW_INTERVAL"); got != interval {
-			t.Errorf("%s: CONTINUUM_FLOW_INTERVAL = %q, want %q", name, got, interval)
+		if got, _ := env(agent, "IKHNOS_FLOW_INTERVAL"); got != interval {
+			t.Errorf("%s: IKHNOS_FLOW_INTERVAL = %q, want %q", name, got, interval)
 		}
 		if got := strings.Join(flow.Args, " "); !strings.Contains(got, "--interval="+interval) {
 			t.Errorf("%s: collector args %q do not carry --interval=%s", name, got, interval)

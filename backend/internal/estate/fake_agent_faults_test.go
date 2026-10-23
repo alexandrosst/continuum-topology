@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/testkit"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/testkit"
 
 	"google.golang.org/grpc/codes"
 )
@@ -14,8 +14,8 @@ import (
 // Faults that cross streams, which a test of one stream cannot make: a storm of reconnects, a message from a stream the server has
 // already replaced, a hello said twice, an agent that talks before it has said who it is, and one that talks too fast.
 
-func heartbeat(digest string) *continuumv1.AgentMessage {
-	return &continuumv1.AgentMessage{Msg: &continuumv1.AgentMessage_Heartbeat{Heartbeat: &continuumv1.Heartbeat{AppliedConfigDigest: digest}}}
+func heartbeat(digest string) *ikhnosv1.AgentMessage {
+	return &ikhnosv1.AgentMessage{Msg: &ikhnosv1.AgentMessage_Heartbeat{Heartbeat: &ikhnosv1.Heartbeat{AppliedConfigDigest: digest}}}
 }
 
 func TestAReconnectStormLeavesOneSessionAndTheLastStreamLive(t *testing.T) {
@@ -56,14 +56,14 @@ func TestAReconnectStormLeavesOneSessionAndTheLastStreamLive(t *testing.T) {
 func TestAMessageFromAReplacedStreamChangesNothing(t *testing.T) {
 	r := newHubRig(t)
 	f := r.newFakeAgent(t, fakeAgentCtx(t))
-	cluster := &continuumv1.ClusterFacts{Uid: testkit.FP}
-	if err := f.Send(testkit.SyncMsg(&continuumv1.Sync{Seq: 1, Full: true, Cluster: cluster, Nodes: nodes("a", 4)})); err != nil {
+	cluster := &ikhnosv1.ClusterFacts{Uid: testkit.FP}
+	if err := f.Send(testkit.SyncMsg(&ikhnosv1.Sync{Seq: 1, Full: true, Cluster: cluster, Nodes: nodes("a", 4)})); err != nil {
 		t.Fatal(err)
 	}
 	f.WaitUntil("the first picture", func() bool { n, _, _ := held(r, f.ID); return n == 4 })
 	old, oldIn := f.Stream, f.Incoming
 	f.Connect()
-	if err := f.Send(testkit.SyncMsg(&continuumv1.Sync{Seq: 2, Full: true, Cluster: cluster, Nodes: nodes("b", 2)})); err != nil {
+	if err := f.Send(testkit.SyncMsg(&ikhnosv1.Sync{Seq: 2, Full: true, Cluster: cluster, Nodes: nodes("b", 2)})); err != nil {
 		t.Fatal(err)
 	}
 	f.WaitUntil("the new stream's picture", func() bool { n, _, seq := held(r, f.ID); return n == 2 && seq == 2 })
@@ -77,7 +77,7 @@ func TestAMessageFromAReplacedStreamChangesNothing(t *testing.T) {
 	}
 	// The old stream speaks late, with a bigger picture, a different one and a heartbeat that names no Config. The send may fail or be
 	// swallowed by the transport; either way the server holds what the live stream said.
-	_ = old.Send(testkit.SyncMsg(&continuumv1.Sync{Seq: 9, Full: true, Cluster: cluster, Nodes: nodes("late", 7)}))
+	_ = old.Send(testkit.SyncMsg(&ikhnosv1.Sync{Seq: 9, Full: true, Cluster: cluster, Nodes: nodes("late", 7)}))
 	_ = old.Send(heartbeat("late"))
 	f.Beat(f.Configs[len(f.Configs)-1].Digest) // a marker on the live stream, handled after anything the old one got in
 	f.WaitUntil("the marker", func() bool { _, applied, _ := f.inForce(); return applied != "" })
@@ -92,10 +92,10 @@ func TestAMessageFromAReplacedStreamChangesNothing(t *testing.T) {
 
 func TestARepeatedHelloCannotChangeWhatTheFirstOneSaid(t *testing.T) {
 	r := newHubRig(t)
-	first := &continuumv1.Hello{AgentVersion: "1.0.0", ProtocolVersion: 1, Capabilities: []string{"config-digest"}}
+	first := &ikhnosv1.Hello{AgentVersion: "1.0.0", ProtocolVersion: 1, Capabilities: []string{"config-digest"}}
 	f := r.newFakeAgentWith(t, fakeAgentCtx(t), first)
-	f.Hello = &continuumv1.Hello{AgentVersion: "evil", ProtocolVersion: 9, Capabilities: []string{"diagnostics", "made-up"}, InstalledAccessTier: 4, Namespace: "kube-system", ReleaseName: "other"}
-	if err := f.Send(&continuumv1.AgentMessage{Msg: &continuumv1.AgentMessage_Hello{Hello: f.Hello}}); err != nil {
+	f.Hello = &ikhnosv1.Hello{AgentVersion: "evil", ProtocolVersion: 9, Capabilities: []string{"diagnostics", "made-up"}, InstalledAccessTier: 4, Namespace: "kube-system", ReleaseName: "other"}
+	if err := f.Send(&ikhnosv1.AgentMessage{Msg: &ikhnosv1.AgentMessage_Hello{Hello: f.Hello}}); err != nil {
 		t.Fatal(err)
 	}
 	cfg := f.Configs[0]
@@ -126,7 +126,7 @@ func TestAnAgentThatTalksBeforeItSaysWhoItIsIsRefused(t *testing.T) {
 	defer cancel()
 	id, key, leaf := r.approvedAgent(t, testkit.FP)
 	s := r.agentStreamNoHello(t, ctx, id, key, leaf)
-	if err := s.Send(testkit.SyncMsg(&continuumv1.Sync{Seq: 1, Full: true, Cluster: &continuumv1.ClusterFacts{Uid: testkit.FP}, Nodes: nodes("x", 3)})); err != nil {
+	if err := s.Send(testkit.SyncMsg(&ikhnosv1.Sync{Seq: 1, Full: true, Cluster: &ikhnosv1.ClusterFacts{Uid: testkit.FP}, Nodes: nodes("x", 3)})); err != nil {
 		t.Fatal(err)
 	}
 	_, err := s.Recv()

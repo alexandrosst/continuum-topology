@@ -10,16 +10,16 @@ import (
 	"strings"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/facts"
-	"continuum/internal/model"
-	"continuum/internal/store"
-	"continuum/internal/workspace"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/facts"
+	"ikhnos/internal/model"
+	"ikhnos/internal/store"
+	"ikhnos/internal/workspace"
 )
 
 // Contract names the shape of the document Build produces. It changes only for an incompatible change; adding
 // fields does not change it (readers must ignore fields they do not know).
-const Contract = "continuum.model/v1"
+const Contract = "ikhnos.model/v1"
 
 // The reasons the model gives when a capacity figure is unknown. Placement advice recognises them (to say what fixes
 // each one), so they are constants rather than free text.
@@ -422,7 +422,7 @@ func (b *builder) observed() {
 				if n.ThermalTripCount > 0 {
 					// Degraded, not reported at face value: the node's own thermal-throttling
 					// tracepoint (power:cpu_frequency/thermal:thermal_zone_trip, see
-					// continuumv1.ThermalThrottle's own doc comment) has fired at least once - the
+					// ikhnosv1.ThermalThrottle's own doc comment) has fired at least once - the
 					// firmware itself judged this node too hot and started shedding load, so the
 					// capacity Kubernetes still advertises may not be what the hardware can actually
 					// sustain. This is capacity derating from heat, never a power/energy reading - not
@@ -740,7 +740,7 @@ func (b *builder) siteLabelFor(clusterID string) string {
 	return ""
 }
 
-func (b *builder) nodeFacts(n *model.Node) *continuumv1.NodeFacts {
+func (b *builder) nodeFacts(n *model.Node) *ikhnosv1.NodeFacts {
 	st := b.in.Facts[n.ClusterID]
 	if st == nil {
 		return nil
@@ -748,7 +748,7 @@ func (b *builder) nodeFacts(n *model.Node) *continuumv1.NodeFacts {
 	return st.Nodes[strings.TrimPrefix(n.Key, n.ClusterID+"/node/")]
 }
 
-func (b *builder) workloadFacts(s *model.Service) *continuumv1.WorkloadFacts {
+func (b *builder) workloadFacts(s *model.Service) *ikhnosv1.WorkloadFacts {
 	st := b.in.Facts[s.ClusterID]
 	if st == nil {
 		return nil

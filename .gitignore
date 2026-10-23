@@ -53,6 +53,6 @@ playwright-report/
 *.sln
 *.sw?
 
-# The server chart bundles continuum-fusion as a dependency; `helm dependency update` / `helm package -u` writes it here.
-deploy/helm/continuum-server/charts/
-deploy/helm/continuum-server/Chart.lock
+# The server chart bundles ikhnos-fusion as a dependency; `helm dependency update` / `helm package -u` writes it here.
+deploy/helm/ikhnos-server/charts/
+deploy/helm/ikhnos-server/Chart.lock

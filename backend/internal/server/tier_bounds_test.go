@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"testing"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 
-	"continuum/internal/accounts"
-	"continuum/internal/decisionloop"
-	"continuum/internal/kernel"
-	"continuum/internal/testkit"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/decisionloop"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/testkit"
 )
 
 // Every place that asks "may this agent have this tier" answers from the same four numbers: the release's ceiling
@@ -45,7 +45,7 @@ func TestEachPlaceThatBoundsATierSaysWhatItSaidBefore(t *testing.T) {
 	secret, _, _ := e.core.Agents.CreateToken(e.ctx, "a", "c", 2)
 	d, _ := testkit.CSR(t)
 	enrollAt := func(tier uint32) error {
-		_, err := e.core.Agents.Enroll(e.ctx, "1.1.1.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: testkit.FP, InstalledAccessTier: tier, ApprovalCodeHash: testkit.HashFor(t, d)})
+		_, err := e.core.Agents.Enroll(e.ctx, "1.1.1.1", &ikhnosv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: testkit.FP, InstalledAccessTier: tier, ApprovalCodeHash: testkit.HashFor(t, d)})
 		return err
 	}
 	wantErr(t, "enrolling at 5", enrollAt(5), kernel.KindInvalid, "installed access tier out of range")
@@ -63,7 +63,7 @@ func TestEachPlaceThatBoundsATierSaysWhatItSaidBefore(t *testing.T) {
 	secret3, _, _ := e3.core.Agents.CreateToken(e3.ctx, "a", "c", 1) // token 1
 	d3, _ := testkit.CSR(t)
 	hash3, code3 := testkit.ApprovalFor(t, d3)
-	r3, err := e3.core.Agents.Enroll(e3.ctx, "1.1.1.1", &continuumv1.EnrollRequest{Token: secret3, CsrDer: d3, ClusterFingerprint: testkit.FP, InstalledAccessTier: 4, ApprovalCodeHash: hash3})
+	r3, err := e3.core.Agents.Enroll(e3.ctx, "1.1.1.1", &ikhnosv1.EnrollRequest{Token: secret3, CsrDer: d3, ClusterFingerprint: testkit.FP, InstalledAccessTier: 4, ApprovalCodeHash: hash3})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +152,7 @@ func TestATokensCapStopsATierThatTheInstallWouldAllow(t *testing.T) {
 	}
 	d, _ := testkit.CSR(t)
 	hash, code := testkit.ApprovalFor(t, d)
-	r, err := a.core.Agents.Enroll(a.ctx, "1.1.1.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: testkit.FP, InstalledAccessTier: 2, ApprovalCodeHash: hash})
+	r, err := a.core.Agents.Enroll(a.ctx, "1.1.1.1", &ikhnosv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: testkit.FP, InstalledAccessTier: 2, ApprovalCodeHash: hash})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -11,11 +11,11 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/accounts"
-	"continuum/internal/fusion"
-	"continuum/internal/fusionapi"
-	"continuum/internal/fusionpages"
-	"continuum/internal/kernel"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/fusion"
+	"ikhnos/internal/fusionapi"
+	"ikhnos/internal/fusionpages"
+	"ikhnos/internal/kernel"
 )
 
 // pageRig is the data rig with FUSION fully up, Grafana among it, and fake Prometheus and Grafana pages that remember how
@@ -32,7 +32,7 @@ func newPageRig(t *testing.T) *pageRig {
 	t.Helper()
 	d := newDataRig(t)
 	p := &pageRig{dataRig: d, seen: map[string]*http.Request{}}
-	p.kube = newFakeKube(append(append([]string{}, fusionNames...), "continuum-fusion-grafana")...)
+	p.kube = newFakeKube(append(append([]string{}, fusionNames...), "ikhnos-fusion-grafana")...)
 	for n := range p.kube.replicas {
 		p.kube.replicas[n] = 1
 	}
@@ -89,7 +89,7 @@ func newPageRig(t *testing.T) *pageRig {
 		w.Header().Set("Set-Cookie", "grafana_session=abc")
 		_, _ = w.Write([]byte("grafana " + r.URL.Path))
 	})
-	d.a.Fusion = &fusion.FusionControl{Name: "continuum-fusion", Namespace: "continuum", Kube: p.kube, Org: "org-1", StatusTTL: -1,
+	d.a.Fusion = &fusion.FusionControl{Name: "ikhnos-fusion", Namespace: "ikhnos", Kube: p.kube, Org: "org-1", StatusTTL: -1,
 		PrometheusUI: p.prom.URL, GrafanaUI: p.grafana.URL,
 		Data: &fusionapi.Client{Prometheus: d.stores.prom.URL, Loki: d.stores.loki.URL, Tempo: d.stores.tempo.URL}}
 	return p
@@ -187,7 +187,7 @@ func TestFusionPrometheusPageStripsItsPrefixAndKeepsToTheOrigin(t *testing.T) {
 // A page that is not up is not proxied (and the status offers no link to it); a change made from another origin is refused.
 func TestFusionPagesNeedTheirWorkloadsUpAndASameOriginWrite(t *testing.T) {
 	p := newPageRig(t)
-	p.kube.ready["continuum-fusion-grafana"] = 0
+	p.kube.ready["ikhnos-fusion-grafana"] = 0
 	if r := p.get(fusionGrafanaPath, withCookie(p.admin)); r.Code != 503 {
 		t.Fatalf("Grafana still starting: %d", r.Code)
 	}
@@ -203,7 +203,7 @@ func TestFusionPagesNeedTheirWorkloadsUpAndASameOriginWrite(t *testing.T) {
 	if links, _ := p.get("/api/v1/orgs/org-1/fusion", withCookie(p.admin)).json(t)["links"].(map[string]any); links["grafana"] != fusionGrafanaPath {
 		t.Fatalf("links with Grafana up = %v", links)
 	}
-	p.kube.ready["continuum-fusion-prometheus"] = 0
+	p.kube.ready["ikhnos-fusion-prometheus"] = 0
 	if r := p.get(fusionPromPath, withCookie(p.admin)); r.Code != 503 {
 		t.Fatalf("Prometheus down: %d", r.Code)
 	}
@@ -232,8 +232,8 @@ func TestFusionPagesNeedTheirWorkloadsUpAndASameOriginWrite(t *testing.T) {
 // own state back while it starts.
 func TestGrafanaIsSwitchedWithFusionWhereItExists(t *testing.T) {
 	a := newAdminRig(t)
-	k := newFakeKube(append(append([]string{}, fusionNames...), "continuum-fusion-grafana")...)
-	f := &fusion.FusionControl{Name: "continuum-fusion", Namespace: "continuum", Kube: k, Org: a.a.C.OrgID, StatusTTL: -1, Data: &fusionapi.Client{}}
+	k := newFakeKube(append(append([]string{}, fusionNames...), "ikhnos-fusion-grafana")...)
+	f := &fusion.FusionControl{Name: "ikhnos-fusion", Namespace: "ikhnos", Kube: k, Org: a.a.C.OrgID, StatusTTL: -1, Data: &fusionapi.Client{}}
 	ctx := t.Context()
 	if st := f.Status(ctx); len(st.Components) != 5 || st.State != "off" {
 		t.Fatalf("with Grafana: %+v", st)
@@ -241,13 +241,13 @@ func TestGrafanaIsSwitchedWithFusionWhereItExists(t *testing.T) {
 	if err := f.ScaleAll(ctx, 1); err != nil {
 		t.Fatal(err)
 	}
-	if k.replicas["continuum-fusion-grafana"] != 1 {
+	if k.replicas["ikhnos-fusion-grafana"] != 1 {
 		t.Fatal("Grafana was not switched on")
 	}
 	if err := f.ScaleAll(ctx, 0); err != nil {
 		t.Fatal(err)
 	}
-	if k.replicas["continuum-fusion-grafana"] != 0 {
+	if k.replicas["ikhnos-fusion-grafana"] != 0 {
 		t.Fatal("Grafana was not switched off")
 	}
 	// An install without Grafana (turned off in the chart, or an older release): nothing to scale, nothing missing.

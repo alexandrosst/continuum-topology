@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 )
 
 // What the shell asks of the Hub is a method each, not the Hub's lock and maps: these hold what each one answers.
@@ -46,7 +46,7 @@ func TestExportHealthOfSaysWhetherTheAgentIsConnectedAndWhatItReports(t *testing
 		t.Fatalf("a connected agent that sent no diagnostics: connected %v, health %+v", connected, doc)
 	}
 	v := NewView()
-	v.NoteDiagnostics(&continuumv1.Diagnostics{AgentVersion: "1", ExportHealth: &continuumv1.ExportHealth{PodsReached: 3, PodsFailed: 1}}, false, time.Now())
+	v.NoteDiagnostics(&ikhnosv1.Diagnostics{AgentVersion: "1", ExportHealth: &ikhnosv1.ExportHealth{PodsReached: 3, PodsFailed: 1}}, false, time.Now())
 	v.Connected = true
 	set("ag-1", v)
 	connected, doc := h.ExportHealthOf("ag-1")

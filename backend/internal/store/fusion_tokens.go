@@ -21,7 +21,7 @@ type FusionToken struct {
 	Name  string
 	// Signals limits the token to some of "metrics", "logs", "traces". Empty means all three.
 	Signals []string
-	// Namespaces and Clusters limit what it can see to telemetry whose k8s.namespace.name / continuum.cluster.id is
+	// Namespaces and Clusters limit what it can see to telemetry whose k8s.namespace.name / ikhnos.cluster.id is
 	// one of these. Empty means no limit on that dimension. A signal that carries no such attribute is invisible to
 	// a token that limits it: the limit fails closed.
 	Namespaces []string

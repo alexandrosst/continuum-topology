@@ -5,14 +5,14 @@ import (
 	"crypto/ecdsa"
 	"testing"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/agents"
-	"continuum/internal/approval"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/agents"
+	"ikhnos/internal/approval"
 )
 
 // Enroll makes a token and enrols an agent with it at the tier, returning the response, the token's secret and the approval code a
 // human would type to approve it.
-func Enroll(t *testing.T, ctx context.Context, ag *agents.Service, tier uint32, fingerprint string) (*continuumv1.EnrollResponse, string, string) {
+func Enroll(t *testing.T, ctx context.Context, ag *agents.Service, tier uint32, fingerprint string) (*ikhnosv1.EnrollResponse, string, string) {
 	t.Helper()
 	secret, _, err := ag.CreateToken(ctx, "admin", "edge-patras", 2)
 	if err != nil {
@@ -20,7 +20,7 @@ func Enroll(t *testing.T, ctx context.Context, ag *agents.Service, tier uint32, 
 	}
 	d, _ := CSR(t)
 	hash, code := ApprovalFor(t, d)
-	resp, err := ag.Enroll(ctx, "10.0.0.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fingerprint, InstalledAccessTier: tier, AgentVersion: "0.1.0", ApprovalCodeHash: hash})
+	resp, err := ag.Enroll(ctx, "10.0.0.1", &ikhnosv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fingerprint, InstalledAccessTier: tier, AgentVersion: "0.1.0", ApprovalCodeHash: hash})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,14 +36,14 @@ func ApprovedAgent(t *testing.T, ctx context.Context, ag *agents.Service, finger
 	}
 	d, key := CSR(t)
 	hash, code := ApprovalFor(t, d)
-	resp, err := ag.Enroll(ctx, "10.0.0.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fingerprint, InstalledAccessTier: 2, ApprovalCodeHash: hash})
+	resp, err := ag.Enroll(ctx, "10.0.0.1", &ikhnosv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: fingerprint, InstalledAccessTier: 2, ApprovalCodeHash: hash})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := ag.Approve(ctx, "alex", resp.AgentId, code, 2); err != nil {
 		t.Fatal(err)
 	}
-	p, err := ag.Poll(ctx, "10.0.0.1", &continuumv1.PollRequest{AgentId: resp.AgentId, PollSecret: resp.PollSecret})
+	p, err := ag.Poll(ctx, "10.0.0.1", &ikhnosv1.PollRequest{AgentId: resp.AgentId, PollSecret: resp.PollSecret})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,8 +52,8 @@ func ApprovedAgent(t *testing.T, ctx context.Context, ag *agents.Service, finger
 
 // Coded is one enrollment the way a current agent makes it: a key, a code, and only the code's hash sent.
 type Coded struct {
-	Resp  *continuumv1.EnrollResponse
-	Req   *continuumv1.EnrollRequest
+	Resp  *ikhnosv1.EnrollResponse
+	Req   *ikhnosv1.EnrollRequest
 	Code  string
 	Token string
 }
@@ -94,7 +94,7 @@ func TryEnroll(t *testing.T, ctx context.Context, ag *agents.Service, token, fin
 	if err != nil {
 		t.Fatal(err)
 	}
-	req := &continuumv1.EnrollRequest{Token: token, CsrDer: csrDER, ClusterFingerprint: fingerprint, InstalledAccessTier: 2, AgentVersion: "0.1.0", ApprovalCodeHash: hash}
+	req := &ikhnosv1.EnrollRequest{Token: token, CsrDer: csrDER, ClusterFingerprint: fingerprint, InstalledAccessTier: 2, AgentVersion: "0.1.0", ApprovalCodeHash: hash}
 	resp, err := ag.Enroll(ctx, "10.0.0.1", req)
 	return Coded{Resp: resp, Req: req, Code: code, Token: token}, err
 }

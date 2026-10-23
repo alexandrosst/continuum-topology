@@ -6,7 +6,7 @@ import (
 	"slices"
 	"testing"
 
-	"continuum/internal/fusionapi"
+	"ikhnos/internal/fusionapi"
 )
 
 type recorded struct {

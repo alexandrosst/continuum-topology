@@ -7,8 +7,8 @@
 
 # Ikhnos
 
-[![CI](https://github.com/alexandrosst/continuum-topology/actions/workflows/ci.yml/badge.svg)](https://github.com/alexandrosst/continuum-topology/actions/workflows/ci.yml)
-[![Docs](https://github.com/alexandrosst/continuum-topology/actions/workflows/docs.yml/badge.svg)](https://github.com/alexandrosst/continuum-topology/blob/main/docs-site)
+[![CI](https://github.com/alexandrosst/ikhnos/actions/workflows/ci.yml/badge.svg)](https://github.com/alexandrosst/ikhnos/actions/workflows/ci.yml)
+[![Docs](https://github.com/alexandrosst/ikhnos/actions/workflows/docs.yml/badge.svg)](https://github.com/alexandrosst/ikhnos/blob/main/docs-site)
 [![Go](https://img.shields.io/badge/backend-Go%201.25-00ADD8?logo=go&logoColor=white)](backend/go.mod)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
@@ -18,7 +18,7 @@ A Go server and an in-cluster Go agent discover the estate for you: nothing ever
 
 Stack: Vite · React 19 · TypeScript · Tailwind 4 · React Flow (`@xyflow/react`) · Zustand · React Router on the frontend, Go 1.25 on the backend. Styling follows the NetBird dashboard (dark neutrals, orange accent, sidebar + tables + modals).
 
-> **A note on the name.** Ikhnos (ἴχνος, "footprint, trace") was called Continuum until recently. Names that existing installs depend on keep the old spelling, on purpose: the `continuum-agent` chart and release, the `continuum-system` namespace, `CONTINUUM_*` environment variables, `continuum.*` telemetry attributes, `X-Continuum-*` headers, certificate names, the `continuum` binary and the GitHub repository. Only what people read has changed.
+> **The name.** Ikhnos (ἴχνος) is Greek for "footprint, trace": what the agents leave you with is the trace of where things run and how they talk to each other.
 
 ## Documentation
 
@@ -26,12 +26,12 @@ Stack: Vite · React 19 · TypeScript · Tailwind 4 · React Flow (`@xyflow/reac
 
 | Looking for... | Start here |
 |---|---|
-| Installing the server on Kubernetes, end to end | [Getting started → Quickstart](https://github.com/alexandrosst/continuum-topology/blob/main/docs-site/docs/getting-started/quickstart.md) |
-| Connecting a cluster, the approval code | [Installation → Connecting a cluster](https://github.com/alexandrosst/continuum-topology/blob/main/docs-site/docs/installation/connecting-a-cluster.md) |
-| How the server and agent fit together, the trust model | [Architecture → Overview](https://github.com/alexandrosst/continuum-topology/blob/main/docs-site/docs/architecture/overview.md), [Agent trust model](https://github.com/alexandrosst/continuum-topology/blob/main/docs-site/docs/architecture/agent-trust-model.md) |
-| Using the UI day to day (discovery, placement, history, teams) | [User guide](https://github.com/alexandrosst/continuum-topology/blob/main/docs-site/docs/user-guide/using-the-ui.md) |
-| Building and running this repo locally, tests, where things live | [Contributing → Developer guide](https://github.com/alexandrosst/continuum-topology/blob/main/docs-site/docs/contributing/developer-guide.md) |
-| Helm values, CLI flags, and the external decider webhook contract | [Reference](https://github.com/alexandrosst/continuum-topology/blob/main/docs-site/docs/reference/index.md) |
+| Installing the server on Kubernetes, end to end | [Getting started → Quickstart](https://github.com/alexandrosst/ikhnos/blob/main/docs-site/docs/getting-started/quickstart.md) |
+| Connecting a cluster, the approval code | [Installation → Connecting a cluster](https://github.com/alexandrosst/ikhnos/blob/main/docs-site/docs/installation/connecting-a-cluster.md) |
+| How the server and agent fit together, the trust model | [Architecture → Overview](https://github.com/alexandrosst/ikhnos/blob/main/docs-site/docs/architecture/overview.md), [Agent trust model](https://github.com/alexandrosst/ikhnos/blob/main/docs-site/docs/architecture/agent-trust-model.md) |
+| Using the UI day to day (discovery, placement, history, teams) | [User guide](https://github.com/alexandrosst/ikhnos/blob/main/docs-site/docs/user-guide/using-the-ui.md) |
+| Building and running this repo locally, tests, where things live | [Contributing → Developer guide](https://github.com/alexandrosst/ikhnos/blob/main/docs-site/docs/contributing/developer-guide.md) |
+| Helm values, CLI flags, and the external decider webhook contract | [Reference](https://github.com/alexandrosst/ikhnos/blob/main/docs-site/docs/reference/index.md) |
 
 The short version, to see it running right now:
 
@@ -52,11 +52,11 @@ Publishing your own images and chart, deploying with Helm, and the full detail o
 
 ```
 src/                             React + TypeScript frontend (Vite) — see the Developer guide for the full breakdown
-backend/                         Go module "continuum": the server, the in-cluster agent, the optional node probe
+backend/                         Go module "ikhnos": the server, the in-cluster agent, the optional node probe
                                   and traffic observer, and the CLI. backend/docs/ has the deep, code-adjacent
                                   references: the effective-model API, the placement cost function's exact
                                   formulas, the decider webhook's OpenAPI contract, and the twin's design.
-deploy/helm/continuum-server/    The server's own Helm chart
+deploy/helm/ikhnos-server/    The server's own Helm chart
 docs-site/                       This documentation site (Docusaurus)
 ```
 
@@ -72,7 +72,7 @@ The **pluggable `Decider` interface is the one deliberate gap worth calling out*
 2. **A feedback loop closing the read-only gap.** Nothing today records whether a person followed a recommendation or what happened after, so there's no way to tell a good decider from a lucky one. Even before "acting on advice" is unpaused, a lightweight "I did this" log would let a decider be scored against its own past predictions.
 3. **Offline replay for evaluation.** History already keeps thinned snapshots; replaying a sequence of them through several deciders and reporting the counterfactual cost each would have produced turns every recorded estate into a benchmark, no cluster required.
 4. **Acting on advice, narrowly first.** Applying a single already-computed recommendation as a Kubernetes-native hint (a `nodeAffinity`/`topologySpreadConstraint` patch, or cordoning a node before a planned move) behind an explicit, audited, one-recommendation-at-a-time approval — keeping "nothing moves without a person's say-so" intact.
-5. **A pluggable cost function, not just its weights.** Letting a decider supply its own scoring function (still checked against the same hard constraints) opens the door to objectives research increasingly cares about for edge/continuum placement — energy or carbon per site, tail latency instead of mean, fairness across tenants.
+5. **A pluggable cost function, not just its weights.** Letting a decider supply its own scoring function (still checked against the same hard constraints) opens the door to objectives research increasingly cares about for edge/ikhnos placement — energy or carbon per site, tail latency instead of mean, fairness across tenants.
 6. **A synthetic topology generator**, so an experiment is reproducible and shareable without hardware access — and a natural export/import point to and from established continuum simulators (iFogSim, EdgeCloudSim, PureEdgeSim).
 7. **Failure and churn injection** against a synthetic or sandbox topology, turning the project's existing honesty about degraded states into a resilience test suite.
 
@@ -102,7 +102,7 @@ The footer text in the app (`OWNER`, `COPYRIGHT_YEAR` and `LICENSE` in `src/comp
 
 ## Continuous integration and releases
 
-Three workflows: [`ci.yml`](.github/workflows/ci.yml) (build, vet, test and lint on every push and PR, plus two dependency scans), [`release.yml`](.github/workflows/release.yml) (publishes images and Helm charts to this repo's own GHCR namespace on a push to `main` or a version tag), and [`docs.yml`](.github/workflows/docs.yml) (publishes the docs site to GitHub Pages). The one-time setup each needs, and exactly what gets published where, is in the docs site's [Contributing → Release process](https://github.com/alexandrosst/continuum-topology/blob/main/docs-site/docs/contributing/release-process.md) page.
+Three workflows: [`ci.yml`](.github/workflows/ci.yml) (build, vet, test and lint on every push and PR, plus two dependency scans), [`release.yml`](.github/workflows/release.yml) (publishes images and Helm charts to this repo's own GHCR namespace on a push to `main` or a version tag), and [`docs.yml`](.github/workflows/docs.yml) (publishes the docs site to GitHub Pages). The one-time setup each needs, and exactly what gets published where, is in the docs site's [Contributing → Release process](https://github.com/alexandrosst/ikhnos/blob/main/docs-site/docs/contributing/release-process.md) page.
 
 ## License
 

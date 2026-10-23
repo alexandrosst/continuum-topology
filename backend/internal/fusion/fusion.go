@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"strings"
 
-	"continuum/internal/store"
+	"ikhnos/internal/store"
 )
 
-// FUSION is the continuum-fusion chart: Prometheus (metrics), Loki (logs) and Tempo (traces), each its own Service,
+// FUSION is the ikhnos-fusion chart: Prometheus (metrics), Loki (logs) and Tempo (traces), each its own Service,
 // bundled with the server and switched on and off by it (fusion_control.go). Nothing here is stored per operator: the
 // Service names, ports and OTLP paths follow from the chart's release name by the same convention the chart's own
 // helper uses (fusionName below mirrors its "fusion.name" define, fusion_test.go pins the two together, and the

@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/facts"
-	"continuum/internal/kernel"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/facts"
+	"ikhnos/internal/kernel"
 
 	"google.golang.org/protobuf/proto"
 )
@@ -30,7 +30,7 @@ type assembly struct {
 	total   int
 	next    int
 	started time.Time
-	merged  *continuumv1.Sync
+	merged  *ikhnosv1.Sync
 
 	nodes, namespaces, workloads int
 	bytes                        int64
@@ -42,11 +42,11 @@ type errChunk struct{ msg string }
 func (e *errChunk) Error() string { return e.msg }
 
 // isChunk says whether a message is one piece of a series.
-func isChunk(s *continuumv1.Sync) bool { return s.ChunkTotal > 1 }
+func isChunk(s *ikhnosv1.Sync) bool { return s.ChunkTotal > 1 }
 
 // add takes the next piece. It returns the whole picture when this was the last, and an error when the series broke a rule or
 // a limit; on error the caller drops the assembly.
-func (a *assembly) add(s *continuumv1.Sync, l facts.Limits) (done *continuumv1.Sync, err error) {
+func (a *assembly) add(s *ikhnosv1.Sync, l facts.Limits) (done *ikhnosv1.Sync, err error) {
 	if int(s.ChunkIndex) != a.next || int(s.ChunkTotal) != a.total || s.SyncId != a.id {
 		return nil, &errChunk{fmt.Sprintf("chunk %d of %d for %q arrived where chunk %d of %d for %q was expected", s.ChunkIndex, s.ChunkTotal, kernel.Printable(s.SyncId, 40), a.next, a.total, kernel.Printable(a.id, 40))}
 	}
@@ -105,7 +105,7 @@ func (a *assembly) add(s *continuumv1.Sync, l facts.Limits) (done *continuumv1.S
 }
 
 // newAssembly starts a series from its first piece, or says why it cannot be one.
-func newAssembly(s *continuumv1.Sync, now time.Time) (*assembly, error) {
+func newAssembly(s *ikhnosv1.Sync, now time.Time) (*assembly, error) {
 	switch {
 	case s.ChunkTotal > maxChunkTotal:
 		return nil, &errChunk{fmt.Sprintf("a picture may be split into at most %d messages (this one says %d)", maxChunkTotal, s.ChunkTotal)}
@@ -114,7 +114,7 @@ func newAssembly(s *continuumv1.Sync, now time.Time) (*assembly, error) {
 	case s.SyncId == "" || len(s.SyncId) > 64:
 		return nil, &errChunk{"a chunked picture needs a sync_id of at most 64 characters"}
 	}
-	return &assembly{id: s.SyncId, total: int(s.ChunkTotal), started: now, merged: &continuumv1.Sync{Seq: s.Seq, Full: s.Full}}, nil
+	return &assembly{id: s.SyncId, total: int(s.ChunkTotal), started: now, merged: &ikhnosv1.Sync{Seq: s.Seq, Full: s.Full}}, nil
 }
 
 func (a *assembly) expired(now time.Time) bool { return now.Sub(a.started) > assemblyTTL }

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"continuum/internal/accounts"
-	"continuum/internal/testkit"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/testkit"
 )
 
 // Organisation scope is a convention here: the store takes raw ids, and every handler has to look the id up through an

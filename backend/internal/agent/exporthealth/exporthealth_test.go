@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 )
 
 // The counters as the real collector (0.160.0) serves them: no _total suffix, the exporter id as the label,
@@ -115,7 +115,7 @@ func counter(exporter, signal string, sent, failed int) string {
 	return b.String()
 }
 
-func routeOf(t *testing.T, h *continuumv1.ExportHealth, exporter, signal string) *continuumv1.ExportRouteHealth {
+func routeOf(t *testing.T, h *ikhnosv1.ExportHealth, exporter, signal string) *ikhnosv1.ExportRouteHealth {
 	t.Helper()
 	if h == nil {
 		t.Fatal("no report")
@@ -141,7 +141,7 @@ func TestStateFollowsGrowthNotCounterValues(t *testing.T) {
 	// The first reading of a pod is a baseline: counters already above zero say nothing about now.
 	f.set("10.0.0.1:8888", counter("otlp", "log_records", 500, 0))
 	m.Scrape(ctx)
-	if got := routeOf(t, m.Report(), "otlp", "logs"); got.State != continuumv1.ExportRouteHealth_WAITING || got.Sent != 500 {
+	if got := routeOf(t, m.Report(), "otlp", "logs"); got.State != ikhnosv1.ExportRouteHealth_WAITING || got.Sent != 500 {
 		t.Fatalf("after the first reading: %+v, want waiting with 500 sent", got)
 	}
 
@@ -149,7 +149,7 @@ func TestStateFollowsGrowthNotCounterValues(t *testing.T) {
 	f.advance(30 * time.Second)
 	f.set("10.0.0.1:8888", counter("otlp", "log_records", 520, 0))
 	m.Scrape(ctx)
-	if got := routeOf(t, m.Report(), "otlp", "logs"); got.State != continuumv1.ExportRouteHealth_EXPORTING || got.LastSentAt == nil {
+	if got := routeOf(t, m.Report(), "otlp", "logs"); got.State != ikhnosv1.ExportRouteHealth_EXPORTING || got.LastSentAt == nil {
 		t.Fatalf("after growth: %+v, want exporting", got)
 	}
 
@@ -158,7 +158,7 @@ func TestStateFollowsGrowthNotCounterValues(t *testing.T) {
 		f.advance(30 * time.Second)
 		m.Scrape(ctx)
 	}
-	if got := routeOf(t, m.Report(), "otlp", "logs"); got.State != continuumv1.ExportRouteHealth_SILENT {
+	if got := routeOf(t, m.Report(), "otlp", "logs"); got.State != ikhnosv1.ExportRouteHealth_SILENT {
 		t.Fatalf("after 4 minutes without growth: %+v, want silent", got)
 	}
 
@@ -167,7 +167,7 @@ func TestStateFollowsGrowthNotCounterValues(t *testing.T) {
 	f.set("10.0.0.1:8888", counter("otlp", "log_records", 520, 4))
 	m.Scrape(ctx)
 	got := routeOf(t, m.Report(), "otlp", "logs")
-	if got.State != continuumv1.ExportRouteHealth_FAILING || got.Failed != 4 || got.LastFailedAt == nil {
+	if got.State != ikhnosv1.ExportRouteHealth_FAILING || got.Failed != 4 || got.LastFailedAt == nil {
 		t.Fatalf("after failures: %+v, want failing", got)
 	}
 
@@ -175,7 +175,7 @@ func TestStateFollowsGrowthNotCounterValues(t *testing.T) {
 	f.advance(30 * time.Second)
 	f.set("10.0.0.1:8888", counter("otlp", "log_records", 530, 4))
 	m.Scrape(ctx)
-	if got := routeOf(t, m.Report(), "otlp", "logs"); got.State != continuumv1.ExportRouteHealth_EXPORTING {
+	if got := routeOf(t, m.Report(), "otlp", "logs"); got.State != ikhnosv1.ExportRouteHealth_EXPORTING {
 		t.Fatalf("after recovery: %+v, want exporting", got)
 	}
 }
@@ -193,7 +193,7 @@ func TestFailuresWithNothingEverSentAreFailing(t *testing.T) {
 	f.advance(30 * time.Second)
 	f.set("10.0.0.9:8888", counter("zipkin/traces", "spans", 0, 2))
 	m.Scrape(context.Background())
-	if got := routeOf(t, m.Report(), "zipkin/traces", "traces"); got.State != continuumv1.ExportRouteHealth_FAILING {
+	if got := routeOf(t, m.Report(), "zipkin/traces", "traces"); got.State != ikhnosv1.ExportRouteHealth_FAILING {
 		t.Fatalf("got %+v, want failing", got)
 	}
 }
@@ -207,7 +207,7 @@ func TestRestartedPodCountsFromZeroAndIsNotMistakenForSilence(t *testing.T) {
 	f.advance(30 * time.Second)
 	f.set("10.0.0.1:8888", counter("otlp", "metric_points", 40, 0)) // the collector restarted
 	m.Scrape(context.Background())
-	if got := routeOf(t, m.Report(), "otlp", "metrics"); got.State != continuumv1.ExportRouteHealth_EXPORTING {
+	if got := routeOf(t, m.Report(), "otlp", "metrics"); got.State != ikhnosv1.ExportRouteHealth_EXPORTING {
 		t.Fatalf("got %+v, want exporting after a counter reset", got)
 	}
 }
@@ -234,7 +234,7 @@ func TestSumsOverPodsAndSurvivesOneUnreachablePod(t *testing.T) {
 	if h.PodsReached != 1 || h.PodsFailed != 1 || !strings.Contains(h.LastError, "10.0.0.2") {
 		t.Fatalf("report = %+v", h)
 	}
-	if got := routeOf(t, m.Report(), "otlp", "metrics"); got.State != continuumv1.ExportRouteHealth_EXPORTING {
+	if got := routeOf(t, m.Report(), "otlp", "metrics"); got.State != ikhnosv1.ExportRouteHealth_EXPORTING {
 		t.Fatalf("got %+v, want exporting from the pod that answered", got)
 	}
 

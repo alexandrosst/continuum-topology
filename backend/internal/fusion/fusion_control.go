@@ -10,18 +10,18 @@ import (
 	"sync"
 	"time"
 
-	"continuum/internal/accounts"
-	"continuum/internal/fusionapi"
-	"continuum/internal/kernel"
-	"continuum/internal/operators"
-	"continuum/internal/pki"
-	"continuum/internal/store"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/fusionapi"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/operators"
+	"ikhnos/internal/pki"
+	"ikhnos/internal/store"
 )
 
 // FUSION as part of the server. The server's own Helm chart carries FUSION - the three stores and a central gateway -
 // standing by at zero replicas. This file is the switch: it scales those workloads between 0 and 1, and before the
 // first start gives the gateway the certificates it needs. It does no rendering and installs nothing, so the
-// permission it needs is the small Role in deploy/helm/continuum-server/templates/fusion-rbac.yaml (see KubeAPI).
+// permission it needs is the small Role in deploy/helm/ikhnos-server/templates/fusion-rbac.yaml (see KubeAPI).
 //
 // The gateway is also a regional operator in this server's own list (CentralOperatorID): the one door into FUSION.
 // Other regional operators send to it over mTLS, with a client certificate this server issues from the gateway's own
@@ -44,7 +44,7 @@ type FusionControl struct {
 	Name          string
 	Namespace     string
 	PublicAddress string // host:port other clusters dial to reach the gateway ("" = reachable inside this cluster only)
-	// ClusterUID is the UID of this server's own kube-system namespace, which the chart passes in (CONTINUUM_CLUSTER_ID): the
+	// ClusterUID is the UID of this server's own kube-system namespace, which the chart passes in (IKHNOS_CLUSTER_ID): the
 	// cluster the gateway runs in is the server's, so the agent whose cluster has this identity is the one that reports it.
 	ClusterUID string
 	Kube       kernel.KubeAPI

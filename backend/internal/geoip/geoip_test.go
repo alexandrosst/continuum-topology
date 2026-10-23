@@ -437,11 +437,11 @@ func TestCorruptFilesNeverPanicOrHang(t *testing.T) {
 
 // Optional check against real databases, e.g.
 //
-//	CONTINUUM_GEOIP_TEST_DB=/tmp/claude-0/geo/country.mmdb CONTINUUM_GEOIP_TEST_CITY_DB=/tmp/claude-0/geo/city.mmdb go test ./internal/geoip -run Real -v
+//	IKHNOS_GEOIP_TEST_DB=/tmp/claude-0/geo/country.mmdb IKHNOS_GEOIP_TEST_CITY_DB=/tmp/claude-0/geo/city.mmdb go test ./internal/geoip -run Real -v
 func TestRealDatabases(t *testing.T) {
-	country, city := os.Getenv("CONTINUUM_GEOIP_TEST_DB"), os.Getenv("CONTINUUM_GEOIP_TEST_CITY_DB")
+	country, city := os.Getenv("IKHNOS_GEOIP_TEST_DB"), os.Getenv("IKHNOS_GEOIP_TEST_CITY_DB")
 	if country == "" && city == "" {
-		t.Skip("CONTINUUM_GEOIP_TEST_DB / CONTINUUM_GEOIP_TEST_CITY_DB not set")
+		t.Skip("IKHNOS_GEOIP_TEST_DB / IKHNOS_GEOIP_TEST_CITY_DB not set")
 	}
 	show := func(path string, want map[string]string) *DB {
 		db, err := Open(path)

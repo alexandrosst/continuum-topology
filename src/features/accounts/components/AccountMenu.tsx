@@ -800,7 +800,7 @@ function JoinModal({ onClose }: { onClose: () => void }) {
 // twoFactorNudgeKey namespaces the "don't ask again" flag per account, in this browser only: dismissing it
 // signed in as one person on one machine should not silence it for anyone else, and a shared machine with
 // several accounts should not have one account's dismissal hide the nudge for the next person who signs in.
-const twoFactorNudgeKey = (userId: string) => `continuum:2fa-nudge-dismissed:${userId}`
+const twoFactorNudgeKey = (userId: string) => `ikhnos:2fa-nudge-dismissed:${userId}`
 
 export default function AccountMenu() {
   const user = useServer((s) => s.user)

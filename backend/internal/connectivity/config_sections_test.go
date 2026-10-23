@@ -4,17 +4,17 @@ import (
 	"slices"
 	"testing"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
-	"continuum/internal/agents"
+	"ikhnos/internal/agents"
 )
 
 func configFieldNames() []string {
 	var names []string
-	fields := (&continuumv1.Config{}).ProtoReflect().Descriptor().Fields()
+	fields := (&ikhnosv1.Config{}).ProtoReflect().Descriptor().Fields()
 	for i := 0; i < fields.Len(); i++ {
 		names = append(names, string(fields.Get(i).Name()))
 	}
@@ -48,7 +48,7 @@ func TestASectionSetsOnlyTheFieldsItOwns(t *testing.T) {
 	f.Consent = agents.Consent{Paused: []string{"flow"}, Excluded: []string{"shop"}}
 	f.Tier = 2
 	for _, s := range configSections {
-		b := &configBuild{cfg: &continuumv1.Config{}}
+		b := &configBuild{cfg: &ikhnosv1.Config{}}
 		s.fill(f, b)
 		b.cfg.ProtoReflect().Range(func(fd protoreflect.FieldDescriptor, _ protoreflect.Value) bool {
 			if !slices.Contains(s.fields, string(fd.Name())) {
@@ -65,7 +65,7 @@ func TestASectionSetsEachFieldItOwnsWhenTheFactsHaveIt(t *testing.T) {
 	f.Consent = agents.Consent{Paused: []string{"x"}, Excluded: []string{"shop"}}
 	f.Tier = 2
 	for _, s := range configSections {
-		b := &configBuild{cfg: &continuumv1.Config{}}
+		b := &configBuild{cfg: &ikhnosv1.Config{}}
 		s.fill(f, b)
 		set := map[string]bool{}
 		b.cfg.ProtoReflect().Range(func(fd protoreflect.FieldDescriptor, _ protoreflect.Value) bool {
@@ -84,9 +84,9 @@ func TestTheSectionsTogetherMakeTheSameConfigAsAWholeCompile(t *testing.T) {
 	f := baseFacts()
 	f.Consent = agents.Consent{Paused: []string{"x"}, Excluded: []string{"shop"}}
 	whole, _ := CompileConfig(f)
-	merged := &continuumv1.Config{}
+	merged := &ikhnosv1.Config{}
 	for _, s := range configSections {
-		b := &configBuild{cfg: &continuumv1.Config{}}
+		b := &configBuild{cfg: &ikhnosv1.Config{}}
 		s.fill(f, b)
 		proto.Merge(merged, b.cfg)
 	}

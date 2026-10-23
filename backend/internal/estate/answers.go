@@ -3,11 +3,11 @@ package estate
 import (
 	"encoding/json"
 
-	"continuum/internal/agents"
-	"continuum/internal/connectivity"
-	"continuum/internal/graph"
-	"continuum/internal/history"
-	"continuum/internal/model"
+	"ikhnos/internal/agents"
+	"ikhnos/internal/connectivity"
+	"ikhnos/internal/graph"
+	"ikhnos/internal/history"
+	"ikhnos/internal/model"
 )
 
 // The answers this package's routes give that are not one of the larger documents (StateDoc, AgentDoc and the others in their own

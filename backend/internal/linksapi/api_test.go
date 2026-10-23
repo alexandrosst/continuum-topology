@@ -6,8 +6,8 @@ import (
 	"regexp"
 	"testing"
 
-	"continuum/internal/fusionhttp"
-	"continuum/internal/httpkit"
+	"ikhnos/internal/fusionhttp"
+	"ikhnos/internal/httpkit"
 )
 
 type recordedRoutes map[string]httpkit.Need

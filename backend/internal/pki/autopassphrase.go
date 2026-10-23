@@ -26,7 +26,7 @@ const autoPassphraseFile = "ca.passphrase"
 // This keeps the passphrase in the same place as the key it protects, which trades away the separation
 // ROTATION.md recommends (back up the passphrase somewhere other than the data directory) for needing no
 // Kubernetes permissions at all. The alternative - this process creating or updating a Secret object
-// itself - needs API access the continuum-server chart deliberately never grants it (see
+// itself - needs API access the ikhnos-server chart deliberately never grants it (see
 // templates/serviceaccount.yaml: "the server never talks to the Kubernetes API"). An operator who wants
 // that separation back supplies their own passphrase instead (--ca-key-passphrase-file, or
 // pki.caKeyPassphraseSecret.name in the chart); AutoPassphrase is never consulted when that is given.

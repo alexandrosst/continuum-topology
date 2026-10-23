@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"continuum/internal/kernel"
-	"continuum/internal/store"
-	"continuum/internal/testkit"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/store"
+	"ikhnos/internal/testkit"
 )
 
 func TestCreateTelemetryIntentHappyPath(t *testing.T) {

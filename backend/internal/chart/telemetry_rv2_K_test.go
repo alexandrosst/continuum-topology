@@ -24,7 +24,7 @@ import (
 func keplerDS(t *testing.T, extra ...string) (rendered, corev1.PodSpec) {
 	t.Helper()
 	r := render(t, append(append([]string{}, energyOn...), extra...)...)
-	ds, ok := r.daemonsets["continuum-telemetry-kepler"]
+	ds, ok := r.daemonsets["ikhnos-telemetry-kepler"]
 	if !ok {
 		t.Fatalf("no Kepler DaemonSet; have %v", keys(r.daemonsets))
 	}
@@ -57,7 +57,7 @@ func TestKeplerEbpfEngineIsTheDefaultAndIsChecked(t *testing.T) {
 	if len(main.Args) != 0 {
 		t.Errorf("the ebpf engine is configured by environment, args = %v", main.Args)
 	}
-	if _, ok := r.configmaps["continuum-telemetry-kepler-config"]; ok {
+	if _, ok := r.configmaps["ikhnos-telemetry-kepler-config"]; ok {
 		t.Error("a Kepler config file was rendered for the ebpf engine, which does not read one")
 	}
 	if pod.NodeSelector["kubernetes.io/arch"] != "" {
@@ -92,9 +92,9 @@ func TestKeplerEbpfEngineIsTheDefaultAndIsChecked(t *testing.T) {
 		t.Error("Kepler needs hostPID")
 	}
 	// Pods held on unsupported nodes are never available; a 10% budget would be used up by them and stop the rollout.
-	ru := r.daemonsets["continuum-telemetry-kepler"].Spec.UpdateStrategy.RollingUpdate
+	ru := r.daemonsets["ikhnos-telemetry-kepler"].Spec.UpdateStrategy.RollingUpdate
 	if ru == nil || ru.MaxUnavailable == nil || ru.MaxUnavailable.String() != "100%" {
-		t.Errorf("update strategy = %+v, want maxUnavailable 100%% (held pods count against it)", r.daemonsets["continuum-telemetry-kepler"].Spec.UpdateStrategy)
+		t.Errorf("update strategy = %+v, want maxUnavailable 100%% (held pods count against it)", r.daemonsets["ikhnos-telemetry-kepler"].Spec.UpdateStrategy)
 	}
 }
 
@@ -117,7 +117,7 @@ func TestKeplerPowercapEngineConfig(t *testing.T) {
 	if envSource(main, "NODE_NAME") == nil {
 		t.Error("NODE_NAME (the node whose pods the informer lists) is not set")
 	}
-	cm, ok := r.configmaps["continuum-telemetry-kepler-config"]
+	cm, ok := r.configmaps["ikhnos-telemetry-kepler-config"]
 	if !ok {
 		t.Fatalf("no config ConfigMap; have %v", keys(r.configmaps))
 	}
@@ -170,11 +170,11 @@ func TestKeplerPowercapEngineConfig(t *testing.T) {
 		t.Errorf("liveness = %+v, want /probe/livez", main.LivenessProbe)
 	}
 	// The permissions stay exactly the pods-only rule: a kubelet-mode Kepler would have needed nodes/proxy.
-	cr := r.clusterroles["continuum-agent-kepler"]
+	cr := r.clusterroles["ikhnos-agent-kepler"]
 	if len(cr.Rules) != 1 || strings.Join(cr.Rules[0].Resources, ",") != "pods" || strings.Join(cr.Rules[0].Verbs, ",") != "get,list,watch" {
 		t.Errorf("Kepler ClusterRole = %+v", cr.Rules)
 	}
-	if ann := r.daemonsets["continuum-telemetry-kepler"].Spec.Template.Annotations["checksum/config"]; ann == "" {
+	if ann := r.daemonsets["ikhnos-telemetry-kepler"].Spec.Template.Annotations["checksum/config"]; ann == "" {
 		t.Error("no checksum/config annotation: a changed Kepler config would not roll the pods")
 	}
 }
@@ -182,13 +182,13 @@ func TestKeplerPowercapEngineConfig(t *testing.T) {
 func TestKeplerPowercapConfigChangeRollsThePods(t *testing.T) {
 	a := render(t, append(append([]string{}, energyOn...), powercapOn()...)...)
 	b := render(t, append(append(append([]string{}, energyOn...), powercapOn()...), "--set", "telemetry.energy.metrics.powercap.metricLevels={node,pod,container}")...)
-	ca := a.daemonsets["continuum-telemetry-kepler"].Spec.Template.Annotations["checksum/config"]
-	cb := b.daemonsets["continuum-telemetry-kepler"].Spec.Template.Annotations["checksum/config"]
+	ca := a.daemonsets["ikhnos-telemetry-kepler"].Spec.Template.Annotations["checksum/config"]
+	cb := b.daemonsets["ikhnos-telemetry-kepler"].Spec.Template.Annotations["checksum/config"]
 	if ca == "" || ca == cb {
 		t.Errorf("checksums %q / %q: the levels changed, the pods must roll", ca, cb)
 	}
-	if !strings.Contains(b.configmaps["continuum-telemetry-kepler-config"].Data["config.yaml"], `["node","pod","container"]`) {
-		t.Errorf("levels not rendered: %s", b.configmaps["continuum-telemetry-kepler-config"].Data["config.yaml"])
+	if !strings.Contains(b.configmaps["ikhnos-telemetry-kepler-config"].Data["config.yaml"], `["node","pod","container"]`) {
+		t.Errorf("levels not rendered: %s", b.configmaps["ikhnos-telemetry-kepler-config"].Data["config.yaml"])
 	}
 }
 
@@ -247,7 +247,7 @@ func TestKeplerScrapeJobSkipsPodsThatNeverStarted(t *testing.T) {
 
 func energyScopeFilter(t *testing.T, r rendered) (map[string]any, []any) {
 	t.Helper()
-	cfg := otelConfig(t, r.configmaps["continuum-telemetry-cluster-config"].Data)
+	cfg := otelConfig(t, r.configmaps["ikhnos-telemetry-cluster-config"].Data)
 	procs := sub(t, cfg, "processors")
 	f, _ := procs["filter/scope_energy"].(map[string]any)
 	pipe := sub(t, cfg, "service", "pipelines", "metrics/infra")
@@ -484,8 +484,8 @@ func TestNotesTellAHeldKeplerPodFromABrokenOne(t *testing.T) {
 	if err != nil {
 		t.Skip("helm is not installed")
 	}
-	dir := filepath.Join(t.TempDir(), "continuum-agent")
-	copyTree(t, "continuum-agent", dir)
+	dir := filepath.Join(t.TempDir(), "ikhnos-agent")
+	copyTree(t, "ikhnos-agent", dir)
 	text, err := os.ReadFile(filepath.Join(dir, "templates", "NOTES.txt"))
 	if err != nil {
 		t.Fatal(err)

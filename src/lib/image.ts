@@ -14,7 +14,7 @@ export interface ImageSettings {
 export const emptyImage: ImageSettings = { registry: '', tag: '', digest: '' }
 
 /** The chart's own image name, used when no registry is configured. */
-export const CHART_DEFAULT_REPOSITORY = 'continuum/continuum'
+export const CHART_DEFAULT_REPOSITORY = 'ikhnos/ikhnos'
 
 const HOST = /^[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[0-9]{1,5})?$/
 const PART = /^[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*$/
@@ -92,7 +92,7 @@ export interface ImagePreview {
   reference: string
   /** The digest form, when pinned. */
   pinnedReference: string
-  /** oci://…/continuum-agent, or '' when the chart is the file this server serves. */
+  /** oci://…/ikhnos-agent, or '' when the chart is the file this server serves. */
   chartRef: string
 }
 
@@ -101,7 +101,7 @@ export function previewImage(own: ImageSettings, serverDefaults: ImageSettings =
   const useOwn = !!cleanRegistry(own.registry)
   const s = useOwn ? { registry: cleanRegistry(own.registry), tag: own.tag.trim(), digest: own.digest.trim() } : { registry: cleanRegistry(serverDefaults.registry), tag: serverDefaults.tag.trim(), digest: serverDefaults.digest.trim() }
   const configured = !!s.registry
-  const repository = configured ? `${s.registry}/continuum` : CHART_DEFAULT_REPOSITORY
+  const repository = configured ? `${s.registry}/ikhnos` : CHART_DEFAULT_REPOSITORY
   const pinnedReference = s.digest ? `${repository}@${s.digest}` : ''
   return {
     configured,
@@ -111,6 +111,6 @@ export function previewImage(own: ImageSettings, serverDefaults: ImageSettings =
     digest: s.digest,
     reference: pinnedReference || (s.tag ? `${repository}:${s.tag}` : repository),
     pinnedReference,
-    chartRef: configured ? `oci://${ociBase(s.registry)}/continuum-agent` : '',
+    chartRef: configured ? `oci://${ociBase(s.registry)}/ikhnos-agent` : '',
   }
 }

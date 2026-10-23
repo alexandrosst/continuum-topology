@@ -1,6 +1,6 @@
 {
-  "name": "continuum/v1/agent.proto",
-  "package": "continuum.v1",
+  "name": "ikhnos/v1/agent.proto",
+  "package": "ikhnos.v1",
   "dependency": [
     "google/protobuf/timestamp.proto"
   ],
@@ -198,7 +198,7 @@
           "number": 1,
           "label": "LABEL_OPTIONAL",
           "type": "TYPE_ENUM",
-          "typeName": ".continuum.v1.PollResponse.State",
+          "typeName": ".ikhnos.v1.PollResponse.State",
           "jsonName": "state"
         },
         {
@@ -316,7 +316,7 @@
           "number": 1,
           "label": "LABEL_OPTIONAL",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.Hello",
+          "typeName": ".ikhnos.v1.Hello",
           "oneofIndex": 0,
           "jsonName": "hello"
         },
@@ -325,7 +325,7 @@
           "number": 2,
           "label": "LABEL_OPTIONAL",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.Sync",
+          "typeName": ".ikhnos.v1.Sync",
           "oneofIndex": 0,
           "jsonName": "sync"
         },
@@ -334,7 +334,7 @@
           "number": 3,
           "label": "LABEL_OPTIONAL",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.Heartbeat",
+          "typeName": ".ikhnos.v1.Heartbeat",
           "oneofIndex": 0,
           "jsonName": "heartbeat"
         },
@@ -343,7 +343,7 @@
           "number": 4,
           "label": "LABEL_OPTIONAL",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.FlowBatch",
+          "typeName": ".ikhnos.v1.FlowBatch",
           "oneofIndex": 0,
           "jsonName": "flows"
         },
@@ -352,7 +352,7 @@
           "number": 5,
           "label": "LABEL_OPTIONAL",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.Measurements",
+          "typeName": ".ikhnos.v1.Measurements",
           "oneofIndex": 0,
           "jsonName": "measurements"
         }
@@ -392,7 +392,7 @@
           "number": 4,
           "label": "LABEL_OPTIONAL",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.Diagnostics",
+          "typeName": ".ikhnos.v1.Diagnostics",
           "jsonName": "diagnostics"
         },
         {
@@ -433,7 +433,7 @@
           "number": 1,
           "label": "LABEL_REPEATED",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.ModuleStatus",
+          "typeName": ".ikhnos.v1.ModuleStatus",
           "jsonName": "modules"
         },
         {
@@ -448,7 +448,7 @@
           "number": 3,
           "label": "LABEL_OPTIONAL",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.Diagnostics",
+          "typeName": ".ikhnos.v1.Diagnostics",
           "jsonName": "diagnostics"
         },
         {
@@ -456,7 +456,7 @@
           "number": 4,
           "label": "LABEL_OPTIONAL",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.SelfStats",
+          "typeName": ".ikhnos.v1.SelfStats",
           "jsonName": "selfStats"
         },
         {
@@ -464,7 +464,7 @@
           "number": 5,
           "label": "LABEL_OPTIONAL",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.LinkCapabilities",
+          "typeName": ".ikhnos.v1.LinkCapabilities",
           "jsonName": "linkCapabilities"
         },
         {
@@ -491,7 +491,7 @@
           "number": 2,
           "label": "LABEL_OPTIONAL",
           "type": "TYPE_ENUM",
-          "typeName": ".continuum.v1.ModuleStatus.State",
+          "typeName": ".ikhnos.v1.ModuleStatus.State",
           "jsonName": "state"
         },
         {
@@ -544,7 +544,7 @@
           "number": 3,
           "label": "LABEL_OPTIONAL",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.ClusterFacts",
+          "typeName": ".ikhnos.v1.ClusterFacts",
           "jsonName": "cluster"
         },
         {
@@ -552,7 +552,7 @@
           "number": 4,
           "label": "LABEL_REPEATED",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.NodeFacts",
+          "typeName": ".ikhnos.v1.NodeFacts",
           "jsonName": "nodes"
         },
         {
@@ -567,7 +567,7 @@
           "number": 6,
           "label": "LABEL_REPEATED",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.NamespaceFacts",
+          "typeName": ".ikhnos.v1.NamespaceFacts",
           "jsonName": "namespaces"
         },
         {
@@ -582,7 +582,7 @@
           "number": 8,
           "label": "LABEL_REPEATED",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.WorkloadFacts",
+          "typeName": ".ikhnos.v1.WorkloadFacts",
           "jsonName": "workloads"
         },
         {
@@ -597,7 +597,7 @@
           "number": 10,
           "label": "LABEL_REPEATED",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.ModuleStatus",
+          "typeName": ".ikhnos.v1.ModuleStatus",
           "jsonName": "modules"
         },
         {
@@ -674,7 +674,7 @@
           "number": 7,
           "label": "LABEL_OPTIONAL",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.ScopeFacts",
+          "typeName": ".ikhnos.v1.ScopeFacts",
           "jsonName": "scope"
         },
         {
@@ -682,7 +682,7 @@
           "number": 8,
           "label": "LABEL_OPTIONAL",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.MeshFacts",
+          "typeName": ".ikhnos.v1.MeshFacts",
           "jsonName": "mesh"
         },
         {
@@ -777,7 +777,7 @@
           "number": 6,
           "label": "LABEL_REPEATED",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.MeshFacts.NamespaceMtlsEntry",
+          "typeName": ".ikhnos.v1.MeshFacts.NamespaceMtlsEntry",
           "jsonName": "namespaceMtls"
         },
         {
@@ -1001,7 +1001,7 @@
           "number": 19,
           "label": "LABEL_REPEATED",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.NodeFacts.LabelsEntry",
+          "typeName": ".ikhnos.v1.NodeFacts.LabelsEntry",
           "jsonName": "labels"
         },
         {
@@ -1009,7 +1009,7 @@
           "number": 20,
           "label": "LABEL_REPEATED",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.NodeFacts.AnnotationsEntry",
+          "typeName": ".ikhnos.v1.NodeFacts.AnnotationsEntry",
           "jsonName": "annotations"
         },
         {
@@ -1045,7 +1045,7 @@
           "number": 25,
           "label": "LABEL_REPEATED",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.NodeFacts.ExtendedResourcesEntry",
+          "typeName": ".ikhnos.v1.NodeFacts.ExtendedResourcesEntry",
           "jsonName": "extendedResources"
         },
         {
@@ -1077,7 +1077,7 @@
           "number": 29,
           "label": "LABEL_OPTIONAL",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.HostProbe",
+          "typeName": ".ikhnos.v1.HostProbe",
           "jsonName": "probe"
         },
         {
@@ -1289,7 +1289,7 @@
           "number": 16,
           "label": "LABEL_REPEATED",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.NetworkInterface",
+          "typeName": ".ikhnos.v1.NetworkInterface",
           "jsonName": "interfaces"
         },
         {
@@ -1297,7 +1297,7 @@
           "number": 17,
           "label": "LABEL_REPEATED",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.Disk",
+          "typeName": ".ikhnos.v1.Disk",
           "jsonName": "disks"
         },
         {
@@ -1305,7 +1305,7 @@
           "number": 18,
           "label": "LABEL_REPEATED",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.TunnelInterface",
+          "typeName": ".ikhnos.v1.TunnelInterface",
           "jsonName": "tunnels"
         },
         {
@@ -1365,7 +1365,7 @@
           "number": 25,
           "label": "LABEL_REPEATED",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.HostAddress",
+          "typeName": ".ikhnos.v1.HostAddress",
           "jsonName": "hostAddresses"
         }
       ],
@@ -1548,7 +1548,7 @@
           "number": 3,
           "label": "LABEL_REPEATED",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.NamespaceFacts.LabelsEntry",
+          "typeName": ".ikhnos.v1.NamespaceFacts.LabelsEntry",
           "jsonName": "labels"
         },
         {
@@ -1556,7 +1556,7 @@
           "number": 4,
           "label": "LABEL_REPEATED",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.NamespaceFacts.AnnotationsEntry",
+          "typeName": ".ikhnos.v1.NamespaceFacts.AnnotationsEntry",
           "jsonName": "annotations"
         }
       ],
@@ -1676,7 +1676,7 @@
           "number": 7,
           "label": "LABEL_REPEATED",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.ContainerImage",
+          "typeName": ".ikhnos.v1.ContainerImage",
           "jsonName": "images"
         },
         {
@@ -1684,7 +1684,7 @@
           "number": 8,
           "label": "LABEL_REPEATED",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.WorkloadFacts.LabelsEntry",
+          "typeName": ".ikhnos.v1.WorkloadFacts.LabelsEntry",
           "jsonName": "labels"
         },
         {
@@ -1692,7 +1692,7 @@
           "number": 9,
           "label": "LABEL_REPEATED",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.WorkloadFacts.AnnotationsEntry",
+          "typeName": ".ikhnos.v1.WorkloadFacts.AnnotationsEntry",
           "jsonName": "annotations"
         },
         {
@@ -1756,7 +1756,7 @@
           "number": 18,
           "label": "LABEL_REPEATED",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.WorkloadFacts.NodeSelectorEntry",
+          "typeName": ".ikhnos.v1.WorkloadFacts.NodeSelectorEntry",
           "jsonName": "nodeSelector"
         },
         {
@@ -1786,7 +1786,7 @@
           "number": 22,
           "label": "LABEL_REPEATED",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.VolumeClaim",
+          "typeName": ".ikhnos.v1.VolumeClaim",
           "jsonName": "volumeClaims"
         },
         {
@@ -1794,7 +1794,7 @@
           "number": 23,
           "label": "LABEL_OPTIONAL",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.Autoscaler",
+          "typeName": ".ikhnos.v1.Autoscaler",
           "jsonName": "autoscaler"
         },
         {
@@ -1802,7 +1802,7 @@
           "number": 24,
           "label": "LABEL_OPTIONAL",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.Disruption",
+          "typeName": ".ikhnos.v1.Disruption",
           "jsonName": "disruption"
         },
         {
@@ -1810,7 +1810,7 @@
           "number": 25,
           "label": "LABEL_REPEATED",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.Address",
+          "typeName": ".ikhnos.v1.Address",
           "jsonName": "reachable"
         },
         {
@@ -1818,7 +1818,7 @@
           "number": 26,
           "label": "LABEL_OPTIONAL",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.WorkloadMesh",
+          "typeName": ".ikhnos.v1.WorkloadMesh",
           "jsonName": "mesh"
         },
         {
@@ -1833,7 +1833,7 @@
           "number": 28,
           "label": "LABEL_REPEATED",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.PodFacts",
+          "typeName": ".ikhnos.v1.PodFacts",
           "jsonName": "pods"
         }
       ],
@@ -2094,7 +2094,7 @@
           "number": 1,
           "label": "LABEL_OPTIONAL",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.Ack",
+          "typeName": ".ikhnos.v1.Ack",
           "oneofIndex": 0,
           "jsonName": "ack"
         },
@@ -2103,7 +2103,7 @@
           "number": 2,
           "label": "LABEL_OPTIONAL",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.Config",
+          "typeName": ".ikhnos.v1.Config",
           "oneofIndex": 0,
           "jsonName": "config"
         },
@@ -2112,7 +2112,7 @@
           "number": 3,
           "label": "LABEL_OPTIONAL",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.Revoked",
+          "typeName": ".ikhnos.v1.Revoked",
           "oneofIndex": 0,
           "jsonName": "revoked"
         }
@@ -2157,7 +2157,7 @@
           "number": 3,
           "label": "LABEL_REPEATED",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.ProbeTarget",
+          "typeName": ".ikhnos.v1.ProbeTarget",
           "jsonName": "probeTargets"
         },
         {
@@ -2207,7 +2207,7 @@
           "number": 10,
           "label": "LABEL_REPEATED",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.LinkPeer",
+          "typeName": ".ikhnos.v1.LinkPeer",
           "jsonName": "linkPeers"
         },
         {
@@ -2215,7 +2215,7 @@
           "number": 11,
           "label": "LABEL_OPTIONAL",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.LinkIperfServer",
+          "typeName": ".ikhnos.v1.LinkIperfServer",
           "jsonName": "linkIperfServer"
         },
         {
@@ -2298,7 +2298,7 @@
           "number": 10,
           "label": "LABEL_OPTIONAL",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.LinkIperfClient",
+          "typeName": ".ikhnos.v1.LinkIperfClient",
           "jsonName": "iperfClient"
         }
       ]
@@ -2384,7 +2384,7 @@
           "number": 1,
           "label": "LABEL_REPEATED",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.PathResult",
+          "typeName": ".ikhnos.v1.PathResult",
           "jsonName": "results"
         },
         {
@@ -2648,7 +2648,7 @@
           "number": 33,
           "label": "LABEL_OPTIONAL",
           "type": "TYPE_ENUM",
-          "typeName": ".continuum.v1.TlsHandshakeOutcome",
+          "typeName": ".ikhnos.v1.TlsHandshakeOutcome",
           "jsonName": "tlsHandshake"
         },
         {
@@ -2769,7 +2769,7 @@
           "number": 6,
           "label": "LABEL_REPEATED",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.RawFlow",
+          "typeName": ".ikhnos.v1.RawFlow",
           "jsonName": "flows"
         },
         {
@@ -2777,7 +2777,7 @@
           "number": 7,
           "label": "LABEL_REPEATED",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.LinkSaturation",
+          "typeName": ".ikhnos.v1.LinkSaturation",
           "jsonName": "linkSaturation"
         },
         {
@@ -2792,7 +2792,7 @@
           "number": 9,
           "label": "LABEL_OPTIONAL",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.ThermalThrottle",
+          "typeName": ".ikhnos.v1.ThermalThrottle",
           "jsonName": "thermalThrottle"
         }
       ]
@@ -2805,7 +2805,7 @@
           "number": 1,
           "label": "LABEL_OPTIONAL",
           "type": "TYPE_ENUM",
-          "typeName": ".continuum.v1.FlowEndpoint.Kind",
+          "typeName": ".ikhnos.v1.FlowEndpoint.Kind",
           "jsonName": "kind"
         },
         {
@@ -2855,7 +2855,7 @@
           "number": 1,
           "label": "LABEL_OPTIONAL",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.FlowEndpoint",
+          "typeName": ".ikhnos.v1.FlowEndpoint",
           "jsonName": "src"
         },
         {
@@ -2863,7 +2863,7 @@
           "number": 2,
           "label": "LABEL_OPTIONAL",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.FlowEndpoint",
+          "typeName": ".ikhnos.v1.FlowEndpoint",
           "jsonName": "dst"
         },
         {
@@ -3089,7 +3089,7 @@
           "number": 33,
           "label": "LABEL_OPTIONAL",
           "type": "TYPE_ENUM",
-          "typeName": ".continuum.v1.TlsHandshakeOutcome",
+          "typeName": ".ikhnos.v1.TlsHandshakeOutcome",
           "jsonName": "tlsHandshake"
         },
         {
@@ -3144,7 +3144,7 @@
           "number": 4,
           "label": "LABEL_REPEATED",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.LinkSaturation",
+          "typeName": ".ikhnos.v1.LinkSaturation",
           "jsonName": "linkSaturation"
         },
         {
@@ -3159,7 +3159,7 @@
           "number": 6,
           "label": "LABEL_OPTIONAL",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.ThermalThrottle",
+          "typeName": ".ikhnos.v1.ThermalThrottle",
           "jsonName": "thermalThrottle"
         }
       ]
@@ -3193,7 +3193,7 @@
           "number": 4,
           "label": "LABEL_REPEATED",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.Flow",
+          "typeName": ".ikhnos.v1.Flow",
           "jsonName": "flows"
         },
         {
@@ -3201,7 +3201,7 @@
           "number": 5,
           "label": "LABEL_REPEATED",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.CollectorInfo",
+          "typeName": ".ikhnos.v1.CollectorInfo",
           "jsonName": "collectors"
         },
         {
@@ -3209,7 +3209,7 @@
           "number": 6,
           "label": "LABEL_REPEATED",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.Flow",
+          "typeName": ".ikhnos.v1.Flow",
           "jsonName": "podFlows"
         }
       ]
@@ -3222,7 +3222,7 @@
           "number": 1,
           "label": "LABEL_OPTIONAL",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.Flow",
+          "typeName": ".ikhnos.v1.Flow",
           "jsonName": "key"
         },
         {
@@ -3384,7 +3384,7 @@
           "number": 1,
           "label": "LABEL_REPEATED",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.FlowEdge",
+          "typeName": ".ikhnos.v1.FlowEdge",
           "jsonName": "edges"
         }
       ]
@@ -3446,7 +3446,7 @@
           "number": 8,
           "label": "LABEL_OPTIONAL",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.ScopeFacts",
+          "typeName": ".ikhnos.v1.ScopeFacts",
           "jsonName": "scope"
         },
         {
@@ -3454,7 +3454,7 @@
           "number": 9,
           "label": "LABEL_REPEATED",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.CollectorDiag",
+          "typeName": ".ikhnos.v1.CollectorDiag",
           "jsonName": "collectors"
         },
         {
@@ -3462,7 +3462,7 @@
           "number": 10,
           "label": "LABEL_REPEATED",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.InformerDiag",
+          "typeName": ".ikhnos.v1.InformerDiag",
           "jsonName": "informers"
         },
         {
@@ -3470,7 +3470,7 @@
           "number": 11,
           "label": "LABEL_REPEATED",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.Problem",
+          "typeName": ".ikhnos.v1.Problem",
           "jsonName": "problems"
         },
         {
@@ -3521,7 +3521,7 @@
           "number": 18,
           "label": "LABEL_OPTIONAL",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.InstalledTelemetryConfig",
+          "typeName": ".ikhnos.v1.InstalledTelemetryConfig",
           "jsonName": "installedTelemetryConfig"
         },
         {
@@ -3529,7 +3529,7 @@
           "number": 19,
           "label": "LABEL_OPTIONAL",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.ExportHealth",
+          "typeName": ".ikhnos.v1.ExportHealth",
           "jsonName": "exportHealth"
         }
       ]
@@ -3571,7 +3571,7 @@
           "number": 5,
           "label": "LABEL_REPEATED",
           "type": "TYPE_MESSAGE",
-          "typeName": ".continuum.v1.ExportRouteHealth",
+          "typeName": ".ikhnos.v1.ExportRouteHealth",
           "jsonName": "routes"
         }
       ]
@@ -3598,7 +3598,7 @@
           "number": 3,
           "label": "LABEL_OPTIONAL",
           "type": "TYPE_ENUM",
-          "typeName": ".continuum.v1.ExportRouteHealth.State",
+          "typeName": ".ikhnos.v1.ExportRouteHealth.State",
           "jsonName": "state"
         },
         {
@@ -3844,7 +3844,7 @@
           "number": 2,
           "label": "LABEL_OPTIONAL",
           "type": "TYPE_ENUM",
-          "typeName": ".continuum.v1.Problem.Severity",
+          "typeName": ".ikhnos.v1.Problem.Severity",
           "jsonName": "severity"
         },
         {
@@ -4048,23 +4048,23 @@
       "method": [
         {
           "name": "Enroll",
-          "inputType": ".continuum.v1.EnrollRequest",
-          "outputType": ".continuum.v1.EnrollResponse"
+          "inputType": ".ikhnos.v1.EnrollRequest",
+          "outputType": ".ikhnos.v1.EnrollResponse"
         },
         {
           "name": "PollEnrollment",
-          "inputType": ".continuum.v1.PollRequest",
-          "outputType": ".continuum.v1.PollResponse"
+          "inputType": ".ikhnos.v1.PollRequest",
+          "outputType": ".ikhnos.v1.PollResponse"
         },
         {
           "name": "Rejoin",
-          "inputType": ".continuum.v1.RejoinRequest",
-          "outputType": ".continuum.v1.RenewResponse"
+          "inputType": ".ikhnos.v1.RejoinRequest",
+          "outputType": ".ikhnos.v1.RenewResponse"
         },
         {
           "name": "RenewTelemetryCert",
-          "inputType": ".continuum.v1.RenewTelemetryCertRequest",
-          "outputType": ".continuum.v1.RenewTelemetryCertResponse"
+          "inputType": ".ikhnos.v1.RenewTelemetryCertRequest",
+          "outputType": ".ikhnos.v1.RenewTelemetryCertResponse"
         }
       ]
     },
@@ -4073,21 +4073,21 @@
       "method": [
         {
           "name": "Connect",
-          "inputType": ".continuum.v1.AgentMessage",
-          "outputType": ".continuum.v1.ServerMessage",
+          "inputType": ".ikhnos.v1.AgentMessage",
+          "outputType": ".ikhnos.v1.ServerMessage",
           "clientStreaming": true,
           "serverStreaming": true
         },
         {
           "name": "Renew",
-          "inputType": ".continuum.v1.RenewRequest",
-          "outputType": ".continuum.v1.RenewResponse"
+          "inputType": ".ikhnos.v1.RenewRequest",
+          "outputType": ".ikhnos.v1.RenewResponse"
         }
       ]
     }
   ],
   "options": {
-    "goPackage": "continuum/gen/continuumv1;continuumv1"
+    "goPackage": "ikhnos/gen/ikhnosv1;ikhnosv1"
   },
   "syntax": "proto3"
 }

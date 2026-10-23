@@ -4,9 +4,9 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"continuum/internal/operators"
-	"continuum/internal/pki"
-	"continuum/internal/testkit"
+	"ikhnos/internal/operators"
+	"ikhnos/internal/pki"
+	"ikhnos/internal/testkit"
 )
 
 // countOpens counts how many times an operator CA is really opened (each is an Argon2id run) for the rest of the test.

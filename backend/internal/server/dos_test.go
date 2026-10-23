@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/accounts"
-	"continuum/internal/agents"
-	"continuum/internal/kernel"
-	"continuum/internal/pki"
-	"continuum/internal/testkit"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/agents"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/pki"
+	"ikhnos/internal/testkit"
 
 	"google.golang.org/grpc/codes"
 )
@@ -98,21 +98,21 @@ func TestUnauthenticatedEnrollmentCallsHaveASmallReceiveLimit(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	pin := r.core.CA.Pin()
-	enr := continuumv1.NewEnrollmentClient(r.dial(t, pki.ClientTLS(pin, "127.0.0.1", nil)))
+	enr := ikhnosv1.NewEnrollmentClient(r.dial(t, pki.ClientTLS(pin, "127.0.0.1", nil)))
 	d, _ := testkit.CSR(t)
 	// an ordinary request reaches the application (a bad token is Unauthenticated)
-	if _, err := enr.Enroll(ctx, &continuumv1.EnrollRequest{Token: "cnt_x", CsrDer: d, ClusterFingerprint: testkit.FP}); testkit.StatusCode(err) != codes.Unauthenticated {
+	if _, err := enr.Enroll(ctx, &ikhnosv1.EnrollRequest{Token: "ikh_x", CsrDer: d, ClusterFingerprint: testkit.FP}); testkit.StatusCode(err) != codes.Unauthenticated {
 		t.Fatalf("control: %v", err)
 	}
 	// 100 KiB is refused from the message header, before it is read
-	big := &continuumv1.EnrollRequest{Token: "cnt_x", CsrDer: make([]byte, 100<<10), ClusterFingerprint: testkit.FP}
+	big := &ikhnosv1.EnrollRequest{Token: "ikh_x", CsrDer: make([]byte, 100<<10), ClusterFingerprint: testkit.FP}
 	if _, err := enr.Enroll(ctx, big); testkit.StatusCode(err) != codes.ResourceExhausted {
 		t.Fatalf("100 KiB enrollment: %v", err)
 	}
-	if _, err := enr.PollEnrollment(ctx, &continuumv1.PollRequest{AgentId: strings.Repeat("a", 100<<10), PollSecret: "s"}); testkit.StatusCode(err) != codes.ResourceExhausted {
+	if _, err := enr.PollEnrollment(ctx, &ikhnosv1.PollRequest{AgentId: strings.Repeat("a", 100<<10), PollSecret: "s"}); testkit.StatusCode(err) != codes.ResourceExhausted {
 		t.Fatalf("100 KiB poll: %v", err)
 	}
-	if _, err := enr.Rejoin(ctx, &continuumv1.RejoinRequest{ExpiredLeafDer: make([]byte, 100<<10)}); testkit.StatusCode(err) != codes.ResourceExhausted {
+	if _, err := enr.Rejoin(ctx, &ikhnosv1.RejoinRequest{ExpiredLeafDer: make([]byte, 100<<10)}); testkit.StatusCode(err) != codes.ResourceExhausted {
 		t.Fatalf("100 KiB rejoin: %v", err)
 	}
 }
@@ -123,11 +123,11 @@ func TestAuthenticatedStreamsKeepTheLargeReceiveLimit(t *testing.T) {
 	defer cancel()
 	id, key, leaf := r.approvedAgent(t, testkit.FP)
 	s := r.agentStream(t, ctx, id, key, leaf)
-	var ws []*continuumv1.WorkloadFacts
+	var ws []*ikhnosv1.WorkloadFacts
 	for i := 0; i < 3000; i++ { // several hundred KiB in one message
-		ws = append(ws, &continuumv1.WorkloadFacts{Key: fmt.Sprintf("ns/Deployment/%d", i), Name: fmt.Sprintf("workload-%d", i), Labels: map[string]string{"app": strings.Repeat("a", 60)}})
+		ws = append(ws, &ikhnosv1.WorkloadFacts{Key: fmt.Sprintf("ns/Deployment/%d", i), Name: fmt.Sprintf("workload-%d", i), Labels: map[string]string{"app": strings.Repeat("a", 60)}})
 	}
-	m := &continuumv1.Sync{Seq: 1, Full: true, Cluster: &continuumv1.ClusterFacts{Uid: testkit.FP}, Workloads: ws}
+	m := &ikhnosv1.Sync{Seq: 1, Full: true, Cluster: &ikhnosv1.ClusterFacts{Uid: testkit.FP}, Workloads: ws}
 	if err := s.Send(testkit.SyncMsg(m)); err != nil {
 		t.Fatal(err)
 	}

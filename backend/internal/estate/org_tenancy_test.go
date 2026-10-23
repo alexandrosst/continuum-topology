@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/kernel"
-	"continuum/internal/pki"
-	"continuum/internal/store"
-	"continuum/internal/testkit"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/pki"
+	"ikhnos/internal/store"
+	"ikhnos/internal/testkit"
 )
 
 func TestAgentsAreServedByTheirOwnOrganisationsHubOnly(t *testing.T) {
@@ -40,12 +40,12 @@ func TestAgentsAreServedByTheirOwnOrganisationsHubOnly(t *testing.T) {
 	defer cancel()
 	connect := func(leaf []byte, key any) {
 		cert := &tls.Certificate{Certificate: [][]byte{leaf}, PrivateKey: key}
-		c := continuumv1.NewAgentServiceClient(r.dial(t, pki.ClientTLS(e.base.CA.Pin(), "127.0.0.1", cert)))
+		c := ikhnosv1.NewAgentServiceClient(r.dial(t, pki.ClientTLS(e.base.CA.Pin(), "127.0.0.1", cert)))
 		s, err := c.Connect(ctx)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := s.Send(&continuumv1.AgentMessage{Msg: &continuumv1.AgentMessage_Hello{Hello: &continuumv1.Hello{AgentVersion: "t"}}}); err != nil {
+		if err := s.Send(&ikhnosv1.AgentMessage{Msg: &ikhnosv1.AgentMessage_Hello{Hello: &ikhnosv1.Hello{AgentVersion: "t"}}}); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := s.Recv(); err != nil {

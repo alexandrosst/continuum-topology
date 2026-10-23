@@ -40,8 +40,8 @@ const (
 	modulesFile     = "testdata/modules.txt"
 	moduleEdgesFile = "testdata/module_edges.txt"
 	moduleStoreFile = "testdata/module_store.txt"
-	storePackage    = "continuum/internal/store"
-	serverPackage   = "continuum/internal/server"
+	storePackage    = "ikhnos/internal/store"
+	serverPackage   = "ikhnos/internal/server"
 )
 
 var moduleNames = map[string]bool{
@@ -468,9 +468,9 @@ func TestModulesShareStoreMethodsOnlyWhereTheListSays(t *testing.T) {
 
 // movedPackages are the modules that are packages of their own, with the import path of each.
 var movedPackages = map[string]string{
-	"accounts": "continuum/internal/accounts", "advice": "continuum/internal/decisionloop", "operators": "continuum/internal/operators",
-	"telemetry": "continuum/internal/telemetry", "fusion": "continuum/internal/fusion", "observed": "continuum/internal/observed",
-	"agents": "continuum/internal/agents", "connectivity": "continuum/internal/connectivity", "estate": "continuum/internal/estate",
+	"accounts": "ikhnos/internal/accounts", "advice": "ikhnos/internal/decisionloop", "operators": "ikhnos/internal/operators",
+	"telemetry": "ikhnos/internal/telemetry", "fusion": "ikhnos/internal/fusion", "observed": "ikhnos/internal/observed",
+	"agents": "ikhnos/internal/agents", "connectivity": "ikhnos/internal/connectivity", "estate": "ikhnos/internal/estate",
 }
 
 // readStoreUses reads which store methods a module that is a package of its own calls.

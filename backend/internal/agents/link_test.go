@@ -6,7 +6,7 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 )
 
 // TestLinkStatsFlowBytesCountsOnlyFlowMessages covers flowBytes: the same "as encoded on the wire"
@@ -16,9 +16,9 @@ import (
 func TestLinkStatsFlowBytesCountsOnlyFlowMessages(t *testing.T) {
 	var l linkStats
 	at := time.Unix(2000, 0)
-	flow1 := &continuumv1.AgentMessage{Msg: &continuumv1.AgentMessage_Flows{Flows: &continuumv1.FlowBatch{Seq: 1, Flows: []*continuumv1.Flow{{}, {}}}}}
-	flow2 := &continuumv1.AgentMessage{Msg: &continuumv1.AgentMessage_Flows{Flows: &continuumv1.FlowBatch{Seq: 2}}}
-	beat := &continuumv1.AgentMessage{Msg: &continuumv1.AgentMessage_Heartbeat{Heartbeat: &continuumv1.Heartbeat{}}}
+	flow1 := &ikhnosv1.AgentMessage{Msg: &ikhnosv1.AgentMessage_Flows{Flows: &ikhnosv1.FlowBatch{Seq: 1, Flows: []*ikhnosv1.Flow{{}, {}}}}}
+	flow2 := &ikhnosv1.AgentMessage{Msg: &ikhnosv1.AgentMessage_Flows{Flows: &ikhnosv1.FlowBatch{Seq: 2}}}
+	beat := &ikhnosv1.AgentMessage{Msg: &ikhnosv1.AgentMessage_Heartbeat{Heartbeat: &ikhnosv1.Heartbeat{}}}
 	l.Note(flow1, at)
 	l.Note(beat, at)
 	l.Note(flow2, at)
@@ -36,10 +36,10 @@ func TestLinkStatsFlowBytesCountsOnlyFlowMessages(t *testing.T) {
 func TestLinkStatsCountEachMessageByKind(t *testing.T) {
 	var l linkStats
 	at := time.Unix(1000, 0)
-	msgs := []*continuumv1.AgentMessage{
-		{Msg: &continuumv1.AgentMessage_Heartbeat{Heartbeat: &continuumv1.Heartbeat{}}},
-		{Msg: &continuumv1.AgentMessage_Heartbeat{Heartbeat: &continuumv1.Heartbeat{}}},
-		{Msg: &continuumv1.AgentMessage_Sync{Sync: &continuumv1.Sync{}}},
+	msgs := []*ikhnosv1.AgentMessage{
+		{Msg: &ikhnosv1.AgentMessage_Heartbeat{Heartbeat: &ikhnosv1.Heartbeat{}}},
+		{Msg: &ikhnosv1.AgentMessage_Heartbeat{Heartbeat: &ikhnosv1.Heartbeat{}}},
+		{Msg: &ikhnosv1.AgentMessage_Sync{Sync: &ikhnosv1.Sync{}}},
 	}
 	var want int64
 	for i, m := range msgs {

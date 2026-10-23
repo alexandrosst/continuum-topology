@@ -174,7 +174,7 @@ func TestAContextBindsASignatureToItsAPI(t *testing.T) {
 	secret := []byte("a-secret-of-sixteen-plus-chars")
 	now := time.Now()
 	ts := strconv.FormatInt(now.Unix(), 10)
-	const ctx = "continuum-test-v1"
+	const ctx = "ikhnos-test-v1"
 	if SignContext("", secret, ts, "n", nil) != Sign(secret, ts, "n", nil) {
 		t.Fatal("the default context is not the node probe's")
 	}

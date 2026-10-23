@@ -3,10 +3,10 @@ package server
 import (
 	"testing"
 
-	"continuum/internal/kernel"
-	"continuum/internal/operators"
-	"continuum/internal/store"
-	"continuum/internal/testkit"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/operators"
+	"ikhnos/internal/store"
+	"ikhnos/internal/testkit"
 )
 
 func operatorWithIntentRig(t *testing.T) (*env, store.Operator, string, store.TelemetryIntent) {

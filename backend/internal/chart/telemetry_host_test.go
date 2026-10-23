@@ -13,7 +13,7 @@ import (
 
 func hostPod(t *testing.T, extra ...string) corev1.PodSpec {
 	t.Helper()
-	return render(t, withTel(extra...)...).daemonsets["continuum-telemetry-host"].Spec.Template.Spec
+	return render(t, withTel(extra...)...).daemonsets["ikhnos-telemetry-host"].Spec.Template.Spec
 }
 
 func hasMount(c corev1.Container, name, path string) bool {
@@ -123,10 +123,10 @@ func TestHostmetricsFilesystemExclusionsMatchMountPointsAsTheHostSeesThem(t *tes
 // came out with device=lo only. The node's real network totals are in kubelet_stats' "node" group.
 func TestHostmetricsHasNoNetworkScraperThatWouldReadThePodsOwnInterfaces(t *testing.T) {
 	r := render(t, withTel("--set", "telemetry.resourceUsage.metrics.enabled=true", "--set", "telemetry.resourceUsage.metrics.hostFilesystem=true")...)
-	if pod := r.daemonsets["continuum-telemetry-host"].Spec.Template.Spec; pod.HostNetwork {
+	if pod := r.daemonsets["ikhnos-telemetry-host"].Spec.Template.Spec; pod.HostNetwork {
 		t.Skip("hostNetwork: the pod's interfaces are the node's")
 	}
-	cfg := otelConfig(t, r.configmaps["continuum-telemetry-host-config"].Data)
+	cfg := otelConfig(t, r.configmaps["ikhnos-telemetry-host-config"].Data)
 	scrapers := sub(t, cfg, "receivers", "hostmetrics", "scrapers")
 	if _, ok := scrapers["network"]; ok {
 		t.Errorf("hostmetrics' network scraper reports this pod's interfaces, not the node's: %v", scrapers)
@@ -147,7 +147,7 @@ func TestHostmetricsHasNoNetworkScraperThatWouldReadThePodsOwnInterfaces(t *test
 // arrived exactly once.
 func TestHostContainerLogsKeepTheirReadPositionAcrossARestart(t *testing.T) {
 	r := render(t, withTel("--set", "telemetry.systemLogs.logs.enabled=true")...)
-	cfg := otelConfig(t, r.configmaps["continuum-telemetry-host-config"].Data)
+	cfg := otelConfig(t, r.configmaps["ikhnos-telemetry-host-config"].Data)
 	fl := sub(t, cfg, "receivers", "filelog/containers")
 	if fl["storage"] != "file_storage/logs" {
 		t.Fatalf("filelog/containers storage = %v, want file_storage/logs", fl["storage"])
@@ -158,7 +158,7 @@ func TestHostContainerLogsKeepTheirReadPositionAcrossARestart(t *testing.T) {
 		t.Errorf("file_storage/logs is defined but not in service.extensions")
 	}
 	// The root filesystem is read-only: the directory has to be a writable volume.
-	pod := r.daemonsets["continuum-telemetry-host"].Spec.Template.Spec
+	pod := r.daemonsets["ikhnos-telemetry-host"].Spec.Template.Spec
 	if !hasMount(pod.Containers[0], "log-checkpoints", dir) {
 		t.Fatalf("nothing writable is mounted at %q: %+v", dir, pod.Containers[0].VolumeMounts)
 	}
@@ -177,13 +177,13 @@ func TestHostContainerLogsKeepTheirReadPositionAcrossARestart(t *testing.T) {
 
 	// Off with the logs: no extension, no volume, no mount.
 	off := render(t, withTel("--set", "telemetry.resourceUsage.metrics.enabled=true")...)
-	offCfg := otelConfig(t, off.configmaps["continuum-telemetry-host-config"].Data)
+	offCfg := otelConfig(t, off.configmaps["ikhnos-telemetry-host-config"].Data)
 	if exts, ok := offCfg["extensions"].(map[string]any); ok {
 		if _, has := exts["file_storage/logs"]; has {
 			t.Errorf("a log checkpoint store without logs")
 		}
 	}
-	for _, v := range off.daemonsets["continuum-telemetry-host"].Spec.Template.Spec.Volumes {
+	for _, v := range off.daemonsets["ikhnos-telemetry-host"].Spec.Template.Spec.Volumes {
 		if v.Name == "log-checkpoints" {
 			t.Errorf("a log checkpoint volume without logs")
 		}

@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/accounts"
-	"continuum/internal/kernel"
-	"continuum/internal/operators"
-	"continuum/internal/store"
-	"continuum/internal/testkit"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/operators"
+	"ikhnos/internal/store"
+	"ikhnos/internal/testkit"
 )
 
 // hbOperator creates an operator with its heartbeat on, returning it and the heartbeat secret.
@@ -513,7 +513,7 @@ func TestOperatorsHTTPHealthShapeAndHeartbeatEnableRoute(t *testing.T) {
 			t.Fatalf("install command lacks %q:\n%s", want, install)
 		}
 	}
-	if sc := on["heartbeatSecretCommand"].(string); !strings.Contains(sc, "token: \""+tok+"\"") || !strings.Contains(sc, "kubectl apply --server-side --force-conflicts -f - <<'CONTINUUM_SECRET'") || strings.Contains(sc, "--from-literal") {
+	if sc := on["heartbeatSecretCommand"].(string); !strings.Contains(sc, "token: \""+tok+"\"") || !strings.Contains(sc, "kubectl apply --server-side --force-conflicts -f - <<'IKHNOS_SECRET'") || strings.Contains(sc, "--from-literal") {
 		t.Fatalf("heartbeat secret command = %q", sc)
 	}
 	if on["heartbeatIntervalSeconds"] != float64(60) || on["heartbeatUrl"] != "http://example.com"+OperatorHeartbeatPath {

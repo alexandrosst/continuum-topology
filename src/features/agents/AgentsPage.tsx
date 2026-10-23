@@ -466,7 +466,7 @@ function AgentDetail({ agent: a, extras, canConsent, onRevoke }: { agent: Agent;
           <p className="max-w-2xl text-xs leading-relaxed text-nb-500">
             {a.status === 'revoked' ? 'Revoking closed the connection and stopped this agent from being trusted, but it did not remove anything from the cluster.' : 'Rejecting stopped this enrollment, but nothing already installed in the cluster was removed.'}
             {' '}The ServiceAccount, its RBAC and the running pods stay until you remove them there:
-            {a.teardown.namespaceGuessed && <span className="text-warn"> this agent never reported enough about its install to be sure — the commands below assume namespace <code>continuum-system</code> and release <code>continuum-agent</code>, so check both are right before running them.</span>}
+            {a.teardown.namespaceGuessed && <span className="text-warn"> this agent never reported enough about its install to be sure — the commands below assume namespace <code>ikhnos-system</code> and release <code>ikhnos-agent</code>, so check both are right before running them.</span>}
           </p>
           <div className="mt-2 space-y-2">
             <CopyableCommand text={a.teardown.helm} />

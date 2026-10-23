@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/agentcaps"
-	"continuum/internal/link"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/agentcaps"
+	"ikhnos/internal/link"
 )
 
 func TestTheHelloStatesTheProtocolVersionAndEveryCapabilityTheRegistryHolds(t *testing.T) {
@@ -58,9 +58,9 @@ var capabilityProbes = map[string]func(t *testing.T){
 		}
 	},
 	agentcaps.ChunkedSync: func(t *testing.T) {
-		big := &continuumv1.Sync{Seq: 1, Full: true}
+		big := &ikhnosv1.Sync{Seq: 1, Full: true}
 		for i := 0; i < 50; i++ {
-			big.Workloads = append(big.Workloads, &continuumv1.WorkloadFacts{Key: strings.Repeat("k", 40) + string(rune('a'+i%26)), Name: "w", Namespace: "ns", Kind: "Deployment"})
+			big.Workloads = append(big.Workloads, &ikhnosv1.WorkloadFacts{Key: strings.Repeat("k", 40) + string(rune('a'+i%26)), Name: "w", Namespace: "ns", Kind: "Deployment"})
 		}
 		if n := len(splitSync(big, 256)); n < 2 {
 			t.Fatalf("a large picture was sent in %d message(s)", n)

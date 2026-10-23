@@ -1,0 +1,51 @@
+Ikhnos server {{ .Chart.AppVersion }} — {{ if .Release.IsInstall }}installed{{ else }}upgraded{{ end }} as "{{ .Release.Name }}" in {{ .Release.Namespace }}.
+{{- $fn := include "ikhnos.fullname" . }}
+{{- $ns := .Release.Namespace }}
+
+  ✓ Agents dial: {{ .Values.agent.publicAddress }}
+  ✓ Web UI: {{ if .Values.httproute.enabled }}{{ range .Values.httproute.hostnames }}https://{{ . }}/ {{ end }}{{ else }}not exposed - port-forward only, see below{{ end }}
+  ✓ Registration: {{ .Values.registration }}
+  ✓ Neo4j: {{ .Values.neo4j.mode }}
+{{- if .Values.backup.volumeSnapshot.enabled }}
+  ✓ Backup: VolumeSnapshots on schedule "{{ .Values.backup.volumeSnapshot.schedule }}"
+{{- end }}
+{{- if and .Release.IsInstall (not .Values.admin.existingPasswordSecret) }}
+
+› NEXT STEP — sign in as admin
+  On a fresh database the server generates a one-time password for "admin" and prints it to its log, once:
+
+    kubectl -n {{ $ns }} logs deployment/{{ $fn }} | grep -A2 'First start'
+
+  You choose a new password at first sign-in. If the line is missing, the database already existed: see
+  "Recovery" in deploy/README.md.
+{{- else if .Release.IsInstall }}
+
+› NEXT STEP — sign in as admin
+  The first administrator "admin" takes its password from Secret {{ .Values.admin.existingPasswordSecret }}
+  (key {{ .Values.admin.existingPasswordSecretKey }}), on a fresh database only.
+{{- end }}
+{{- if not .Values.httproute.enabled }}
+
+  No route is exposed yet - reach the UI with:
+    kubectl -n {{ $ns }} port-forward service/{{ $fn }} {{ .Values.admin.service.port }}:{{ .Values.admin.service.port }}
+{{- end }}
+{{- $warnings := list }}
+{{- if not .Values.backup.volumeSnapshot.enabled }}{{- $warnings = append $warnings (printf "No automated backup is configured (backup.volumeSnapshot.enabled=false) - PersistentVolumeClaim %s holds your CA's private key. Back it up some other way: without it, every agent must be enrolled again." (include "ikhnos.dataClaim" .)) }}{{- end }}
+{{- if not .Values.pki.caKeyPassphraseSecret.name }}
+{{- if .Values.pki.encryptAtRest }}{{- $warnings = append $warnings (printf "The CA private key is encrypted under a passphrase this chart generated into Secret %s. Back that Secret up SEPARATELY from the data volume - without it, a backup of the CA key is useless." (include "ikhnos.caPassphraseSecretName" .)) }}
+{{- else }}{{- $warnings = append $warnings "pki.encryptAtRest is false: the CA private key is stored UNENCRYPTED on disk. Only use this for local/dev, or where disk-level encryption already covers it." }}{{- end }}
+{{- end }}
+{{- if not (include "ikhnos.sealingSecretName" .) }}{{- $warnings = append $warnings "sealing.keySecret.name is not set: people's second-factor secrets, the mail password and the decider secret are stored in the database as they are, readable to anyone who has a copy of it. Create a Secret holding a key and name it (README.md, \"Sealing secrets at rest\")." }}{{- end }}
+{{- if not .Values.networkPolicy.enabled }}{{- $warnings = append $warnings "networkPolicy.enabled is false: nothing restricts who may reach the admin port from inside the cluster." }}{{- end }}
+{{- if and .Values.fusion.enabled (not (dig "networkPolicy" "enabled" true .Values.fusion)) }}{{- $warnings = append $warnings "fusion.networkPolicy.enabled is false: FUSION's stores (Prometheus, Loki, Tempo) authenticate nothing, so any pod in the cluster can read or write their data, around the gateway's certificates and a token's limits." }}{{- end }}
+{{- if $warnings }}
+
+› WORTH DOING NOW
+{{- range $w := $warnings }}
+  ⚠ {{ $w }}
+{{- end }}
+{{- end }}
+
+────────────────────────────────────────────────────────────────────────────
+Full reference - exposing the agent port (LoadBalancer/NodePort/Gateway), connecting a cluster, Neo4j modes,
+backup and restore, and recovery: deploy/README.md.

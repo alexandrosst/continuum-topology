@@ -34,8 +34,8 @@ const createOperator = vi.fn(async (_c: unknown, name: string, sourceClusterIds:
     createdAt: '2026-01-01T00:00:00Z', createdBy: 'me',
   } as CreatedOperator['operator'],
   token: 'shown-once-secret',
-  install: 'helm install op-1 ./continuum-regional-operator-0.1.0.tgz \\\n  --namespace continuum-system --create-namespace \\\n  --set export.otlp.endpoint=backend.example.com:4317',
-  secretCommand: 'kubectl create secret generic op-1-receiver-auth --namespace continuum-system --from-literal=token=shown-once-secret',
+  install: 'helm install op-1 ./ikhnos-regional-operator-0.1.0.tgz \\\n  --namespace ikhnos-system --create-namespace \\\n  --set export.otlp.endpoint=backend.example.com:4317',
+  secretCommand: 'kubectl create secret generic op-1-receiver-auth --namespace ikhnos-system --from-literal=token=shown-once-secret',
   reminders: [] as string[],
 }))
 const reinstallOperator = vi.fn(async (_c: unknown, _id: string): Promise<CreatedOperator> => ({
@@ -48,14 +48,14 @@ const enableOperatorHeartbeat = vi.fn(async (_c: unknown, _id: string): Promise<
   operator: {} as RegionalOperator,
   rotated: false,
   heartbeatToken: 'cnh_secret',
-  heartbeatSecretCommand: 'kubectl create secret generic op-1-heartbeat-auth --namespace continuum-system --from-literal=token=cnh_secret',
-  heartbeatUpgradeCommand: 'helm upgrade op-1 ./chart.tgz --namespace continuum-system --reset-then-reuse-values --set heartbeat.enabled=true',
-  heartbeatUrl: 'https://continuum.example.com/api/v1/operator-heartbeat',
+  heartbeatSecretCommand: 'kubectl create secret generic op-1-heartbeat-auth --namespace ikhnos-system --from-literal=token=cnh_secret',
+  heartbeatUpgradeCommand: 'helm upgrade op-1 ./chart.tgz --namespace ikhnos-system --reset-then-reuse-values --set heartbeat.enabled=true',
+  heartbeatUrl: 'https://ikhnos.example.com/api/v1/operator-heartbeat',
   heartbeatIntervalSeconds: 60,
 }))
 const parts = (desired: number, ready: number) =>
   (['metrics', 'logs', 'traces', 'central'] as const).map((component) => ({ component, label: { metrics: 'Prometheus', logs: 'Loki', traces: 'Tempo', central: 'Central operator' }[component], desired, ready }))
-const central = { operatorId: 'op-central', endpoint: 'continuum-fusion-central.continuum.svc:4317', exposed: false, exists: true }
+const central = { operatorId: 'op-central', endpoint: 'ikhnos-fusion-central.ikhnos.svc:4317', exposed: false, exists: true }
 const fusionOff = (): FusionStatus => ({ available: true, state: 'off', components: parts(0, 0), central })
 const fusionStarting = (): FusionStatus => ({ available: true, state: 'starting', components: parts(1, 1).map((c, i) => (i < 2 ? c : { ...c, ready: 0 })), central })
 const fusionRunning = (): FusionStatus => ({ available: true, state: 'running', components: parts(1, 1), central })
@@ -143,7 +143,7 @@ const op = (over: Partial<RegionalOperator> = {}): RegionalOperator => ({
   ...over,
 })
 const centralOp = (over: Partial<RegionalOperator> = {}) =>
-  op({ id: 'op-central', name: 'Central (FUSION)', sourceClusterIds: [], destination: { kind: 'fusion', endpoint: '', fusionRelease: 'continuum-fusion', fusionNamespace: 'continuum' }, ...over })
+  op({ id: 'op-central', name: 'Central (FUSION)', sourceClusterIds: [], destination: { kind: 'fusion', endpoint: '', fusionRelease: 'ikhnos-fusion', fusionNamespace: 'ikhnos' }, ...over })
 
 type User = ReturnType<typeof userEvent.setup>
 
@@ -285,14 +285,14 @@ describe('PipelinePage', () => {
     expect(screen.queryByTestId('pipeline-attention')).not.toBeInTheDocument()
     unmount()
 
-    topologyState = { agents: [ag({ connected: false, lastHeartbeat: minutesAgo(130), namespace: 'continuum-system', releaseName: 'continuum-agent' })], clusters: [cl()] }
+    topologyState = { agents: [ag({ connected: false, lastHeartbeat: minutesAgo(130), namespace: 'ikhnos-system', releaseName: 'ikhnos-agent' })], clusters: [cl()] }
     renderPage()
     const strip = await screen.findByTestId('pipeline-attention')
     expect(strip).toHaveTextContent('edge-agent. Has not reported for 2 h 10 min')
     await user.click(within(strip).getByRole('button', { name: 'What to do about edge-agent' }))
     const dialog = screen.getByRole('dialog', { name: 'What to do about edge-agent' })
     expect(within(dialog).getByTestId('what-to-do-steps').children).toHaveLength(2)
-    expect(within(dialog).getByTestId('what-to-do-command-1')).toHaveTextContent('kubectl get pods --namespace continuum-system')
+    expect(within(dialog).getByTestId('what-to-do-command-1')).toHaveTextContent('kubectl get pods --namespace ikhnos-system')
     await user.click(within(dialog).getByTestId('what-to-do-action'))
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
@@ -515,7 +515,7 @@ describe('PipelinePage', () => {
     await fillCreateForm(user)
     expect(screen.getByTestId('operator-create')).toBeEnabled()
     await user.click(screen.getByTestId('operator-label-tag-add'))
-    await user.type(screen.getByTestId('operator-label-tag-key-0'), 'continuum.region')
+    await user.type(screen.getByTestId('operator-label-tag-key-0'), 'ikhnos.region')
     await user.type(screen.getByTestId('operator-label-tag-value-0'), 'x')
     expect(screen.getByTestId('operator-label-tag-problems')).toHaveTextContent('reserved')
     expect(screen.getByTestId('operator-create')).toBeDisabled()
@@ -588,8 +588,8 @@ describe('PipelinePage', () => {
       operator: { id: 'op-2', orgId: 'o', name, status: 'active' as const, sourceClusterIds, destination, createdAt: '2026-01-01T00:00:00Z', createdBy: 'me' } as CreatedOperator['operator'],
       token: 'shown-once-secret',
       install: 'INSTALL-CMD',
-      secretCommand: 'kubectl create secret generic op-2-receiver-auth --namespace continuum-system --from-literal=token=shown-once-secret',
-      tlsSecretCommand: 'kubectl create secret generic op-2-receiver-tls --namespace continuum-system --from-literal=tls.crt="-----BEGIN CERTIFICATE-----..."',
+      secretCommand: 'kubectl create secret generic op-2-receiver-auth --namespace ikhnos-system --from-literal=token=shown-once-secret',
+      tlsSecretCommand: 'kubectl create secret generic op-2-receiver-tls --namespace ikhnos-system --from-literal=tls.crt="-----BEGIN CERTIFICATE-----..."',
       reminders: [] as string[],
     }))
     const user = userEvent.setup()
@@ -731,10 +731,10 @@ describe('PipelinePage - the destination is picked from a list', () => {
   test('the created screen shows the client certificate Secret before the install, says FUSION is starting, and warns when the central operator is not reachable from elsewhere', async () => {
     createOperator.mockImplementationOnce(async (_c, name, sourceClusterIds, destination) => ({
       operator: { id: 'op-1', orgId: 'o', name, status: 'active' as const, sourceClusterIds, destination, createdAt: '2026-01-01T00:00:00Z', createdBy: 'me' } as CreatedOperator['operator'],
-      install: 'helm install op-1 ./op.tgz --set export.otlp.endpoint=continuum-fusion-central.continuum.svc:4317',
+      install: 'helm install op-1 ./op.tgz --set export.otlp.endpoint=ikhnos-fusion-central.ikhnos.svc:4317',
       reminders: [] as string[],
-      exportSecretCommand: 'kubectl create secret generic op-central-export-mtls --namespace continuum-system',
-      exportTarget: { operatorId: 'op-central', name: 'Central (FUSION)', endpoint: 'continuum-fusion-central.continuum.svc:4317', reachableFromOtherClusters: false },
+      exportSecretCommand: 'kubectl create secret generic op-central-export-mtls --namespace ikhnos-system',
+      exportTarget: { operatorId: 'op-central', name: 'Central (FUSION)', endpoint: 'ikhnos-fusion-central.ikhnos.svc:4317', reachableFromOtherClusters: false },
     }))
     fusionStatus = fusionStarting()
     const user = userEvent.setup()
@@ -826,7 +826,7 @@ describe('PipelinePage - the table', () => {
       heartbeatToken: 'cnh_new',
       heartbeatSecretCommand: 'HB-SECRET-CMD',
       heartbeatCaSecretCommand: 'HB-CA-SECRET-CMD',
-      heartbeatUrl: 'https://continuum.example.com/api/v1/operator-heartbeat',
+      heartbeatUrl: 'https://ikhnos.example.com/api/v1/operator-heartbeat',
       heartbeatIntervalSeconds: 60,
       restartCommand: 'RESTART-CMD',
       reminders: [] as string[],
@@ -899,13 +899,13 @@ describe('PipelinePage - revoking and deleting', () => {
   })
 
   test('after revoking, the command that removes it from the cluster is shown, since revoking never reaches the collector', async () => {
-    revokeOperator.mockResolvedValue({ uninstall: 'helm uninstall op-1 --namespace continuum-system' })
+    revokeOperator.mockResolvedValue({ uninstall: 'helm uninstall op-1 --namespace ikhnos-system' })
     listOperators.mockResolvedValue([op()])
     const user = userEvent.setup()
     renderPage()
     await rowAction(user, 'athens-regional', 'revoke')
     await user.click(screen.getByTestId('operator-remove-confirm'))
-    expect(await screen.findByTestId('operator-uninstall-command')).toHaveTextContent('helm uninstall op-1 --namespace continuum-system')
+    expect(await screen.findByTestId('operator-uninstall-command')).toHaveTextContent('helm uninstall op-1 --namespace ikhnos-system')
     expect(screen.getByTestId('operator-remove-uninstall-note')).toHaveTextContent('keeps running')
     await user.click(screen.getByTestId('operator-remove-done'))
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
@@ -955,7 +955,7 @@ describe('PipelinePage - local operators', () => {
   const intent = (over: Partial<TelemetryIntent> = {}): TelemetryIntent => ({
     id: 'ti-1', agentId: 'a1', name: 'to eu', status: 'active', namespaces: [], exclude: [],
     signals: [{ id: 'resourceUsage', source: 'builtin' }, { id: 'systemLogs', source: 'builtin' }],
-    destination: { kind: 'operator', endpoint: 'op-eu.continuum-system.svc:4317', targetOperatorId: 'op-eu' },
+    destination: { kind: 'operator', endpoint: 'op-eu.ikhnos-system.svc:4317', targetOperatorId: 'op-eu' },
     createdAt: '2026-01-01T00:00:00Z', createdBy: 'me', ...over,
   })
 
@@ -1108,7 +1108,7 @@ describe('PipelinePage - health reporting', () => {
     enableOperatorHeartbeat.mockResolvedValueOnce({
       operator: op(), rotated: false, heartbeatToken: 'cnh_new',
       heartbeatSecretCommand: 'SECRET-CMD', heartbeatUpgradeCommand: 'UPGRADE-CMD', heartbeatCaSecretCommand: 'CA-SECRET-CMD',
-      heartbeatUrl: 'https://continuum.local/api/v1/operator-heartbeat', heartbeatIntervalSeconds: 60,
+      heartbeatUrl: 'https://ikhnos.local/api/v1/operator-heartbeat', heartbeatIntervalSeconds: 60,
     })
     listOperators.mockResolvedValue([op()])
     const user = userEvent.setup()
@@ -1124,7 +1124,7 @@ describe('PipelinePage - health reporting', () => {
     enableOperatorHeartbeat.mockResolvedValueOnce({
       operator: op(), rotated: true, heartbeatToken: 'cnh_new',
       heartbeatSecretCommand: 'SECRET-CMD', heartbeatUpgradeCommand: 'UPGRADE-CMD', heartbeatRestartCommand: 'RESTART-CMD',
-      heartbeatUrl: 'http://continuum.local/api/v1/operator-heartbeat', heartbeatIntervalSeconds: 60,
+      heartbeatUrl: 'http://ikhnos.local/api/v1/operator-heartbeat', heartbeatIntervalSeconds: 60,
       heartbeatWarning: 'this address is plain HTTP',
     })
     listOperators.mockResolvedValue([op({ health: { state: 'online', lastSeenAt: minutesAgo(1), reporting: true } })])
@@ -1218,7 +1218,7 @@ describe('PipelinePage - creating with and without health reporting', () => {
       reminders: [] as string[],
       heartbeatToken: 'cnh_x',
       heartbeatSecretCommand: 'HEARTBEAT-SECRET-CMD',
-      heartbeatUrl: 'https://continuum.example.com/api/v1/operator-heartbeat',
+      heartbeatUrl: 'https://ikhnos.example.com/api/v1/operator-heartbeat',
       heartbeatIntervalSeconds: 60,
     }))
     const user = userEvent.setup()
@@ -1291,7 +1291,7 @@ describe('PipelinePage - where other clusters reach an operator', () => {
     const note = await screen.findByTestId('operator-created-address')
     expect(note).toHaveTextContent('Reachable at')
     // The load balancer line only, since that is what was chosen; it names the operator's own Service.
-    expect(screen.getByTestId('operator-created-find-lb')).toHaveTextContent('kubectl get svc op-1-regional-operator --namespace continuum-system')
+    expect(screen.getByTestId('operator-created-find-lb')).toHaveTextContent('kubectl get svc op-1-regional-operator --namespace ikhnos-system')
     expect(screen.queryByTestId('operator-created-find-np')).not.toBeInTheDocument()
   })
 
@@ -1352,19 +1352,19 @@ describe('PipelinePage - where other clusters reach an operator', () => {
     expect(screen.queryByTestId('operator-address-check')).not.toBeInTheDocument()
     await user.type(screen.getByTestId('operator-address-input'), 'otlp.eu.example.com')
     const check = screen.getByTestId('operator-address-check-command')
-    expect(check).toHaveTextContent('openssl s_client -connect otlp.eu.example.com:4317 -servername op-a.continuum-system.svc')
-    expect(screen.getByTestId('operator-address-check')).toHaveTextContent('DNS:op-a.continuum-system.svc')
+    expect(check).toHaveTextContent('openssl s_client -connect otlp.eu.example.com:4317 -servername op-a.ikhnos-system.svc')
+    expect(screen.getByTestId('operator-address-check')).toHaveTextContent('DNS:op-a.ikhnos-system.svc')
   })
 
   test('the central operator has its own Reachable at: it says how to expose the gateway and reads its address from the gateway Service', async () => {
-    fusionStatus = { ...fusionRunning(), central: { ...central, service: 'continuum-fusion-central', namespace: 'continuum' } }
+    fusionStatus = { ...fusionRunning(), central: { ...central, service: 'ikhnos-fusion-central', namespace: 'ikhnos' } }
     listOperators.mockResolvedValue([centralOp()])
     const user = userEvent.setup()
     renderPage()
     await screen.findByTestId('operator-Central (FUSION)')
     await rowAction(user, 'Central (FUSION)', 'address-open')
     expect(screen.getByTestId('operator-address-central')).toHaveTextContent('fusion.central.service.type')
-    expect(screen.getByTestId('operator-address-find-lb')).toHaveTextContent('kubectl get svc continuum-fusion-central --namespace continuum')
+    expect(screen.getByTestId('operator-address-find-lb')).toHaveTextContent('kubectl get svc ikhnos-fusion-central --namespace ikhnos')
     await user.type(screen.getByTestId('operator-address-input'), 'fusion.example.com')
     await user.click(screen.getByTestId('operator-address-save'))
     await waitFor(() => expect(setOperatorAddress).toHaveBeenCalledWith({ url: '', org: 'o' }, 'op-central', 'fusion.example.com'))

@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/agent/collect"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/agent/collect"
 )
 
 // remember keeps the workload a pod address belonged to for a while after the pod is gone, so short-lived
@@ -96,8 +96,8 @@ func normalize(s string) (string, bool) {
 	return a.String(), true
 }
 
-func workload(key string) *continuumv1.FlowEndpoint {
-	return &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_WORKLOAD, Ref: key}
+func workload(key string) *ikhnosv1.FlowEndpoint {
+	return &ikhnosv1.FlowEndpoint{Kind: ikhnosv1.FlowEndpoint_WORKLOAD, Ref: key}
 }
 
 // inClusterRange reports whether addr falls inside this cluster's own pod or Service network ranges - a
@@ -120,7 +120,7 @@ func inClusterRange(ix *collect.Index, addr string) bool {
 // admit is the first test every observation must pass, the one Resolve and Admits share: both addresses parse, the
 // protocol is tcp or udp, the port is a real one, and neither end belongs to a namespace the agent was told to leave out.
 // It returns the normalized addresses.
-func admit(raw *continuumv1.RawFlow, ix *collect.Index) (local, peer string, ok bool) {
+func admit(raw *ikhnosv1.RawFlow, ix *collect.Index) (local, peer string, ok bool) {
 	local, ok1 := normalize(raw.LocalIp)
 	peer, ok2 := normalize(raw.PeerIp)
 	if !ok1 || !ok2 || (raw.Protocol != "tcp" && raw.Protocol != "udp") || raw.Port == 0 || raw.Port > 65535 {
@@ -135,7 +135,7 @@ func admit(raw *continuumv1.RawFlow, ix *collect.Index) (local, peer string, ok 
 // Admits reports whether an observation may be counted at all anywhere: it is well formed and does not touch an excluded
 // namespace. It says nothing about whether the observation can be attributed to workloads, which Resolve decides and which
 // has no bearing on the link statistics (traffic to a peer cluster is real whether or not both ends are known).
-func (r *Resolver) Admits(raw *continuumv1.RawFlow) bool {
+func (r *Resolver) Admits(raw *ikhnosv1.RawFlow) bool {
 	ix, _ := r.index()
 	_, _, ok := admit(raw, ix)
 	return ok
@@ -148,7 +148,7 @@ func (r *Resolver) Admits(raw *continuumv1.RawFlow) bool {
 // A caller's side is always known (its pod). A connection that arrives from outside the cluster is
 // recorded from the receiving side, and only then: connections between pods of this cluster are
 // counted once, from the caller's side, so nothing is counted twice.
-func (r *Resolver) Resolve(raw *continuumv1.RawFlow, method string, bytesKnown bool) (*continuumv1.Flow, bool) {
+func (r *Resolver) Resolve(raw *ikhnosv1.RawFlow, method string, bytesKnown bool) (*ikhnosv1.Flow, bool) {
 	ix, hist := r.index()
 	local, peer, ok := admit(raw, ix)
 	if !ok {
@@ -163,7 +163,7 @@ func (r *Resolver) Resolve(raw *continuumv1.RawFlow, method string, bytesKnown b
 		}
 		return "", false
 	}
-	f := &continuumv1.Flow{Port: raw.Port, Protocol: raw.Protocol, Connections: raw.Connections, BytesOut: raw.BytesOut, BytesIn: raw.BytesIn, Method: method, BytesKnown: bytesKnown, Iface: raw.Iface,
+	f := &ikhnosv1.Flow{Port: raw.Port, Protocol: raw.Protocol, Connections: raw.Connections, BytesOut: raw.BytesOut, BytesIn: raw.BytesIn, Method: method, BytesKnown: bytesKnown, Iface: raw.Iface,
 		Retransmits: uint64(raw.Retransmits), RtoRetransmits: raw.RtoRetransmits, RttUs: raw.RttUs, JitterUs: raw.JitterUs, SegsOut: raw.SegsOut, HandshakeUs: raw.HandshakeUs, Cwnd: raw.Cwnd, PacingBps: raw.PacingBps, BufferDrops: raw.BufferDrops, DnsRttUs: raw.DnsRttUs, MeshBypassSyns: raw.MeshBypassSyns, MssBytes: raw.MssBytes, RcvWndBytes: raw.RcvWndBytes, SndWndBytes: raw.SndWndBytes, WmemQueuedBytes: raw.WmemQueuedBytes, SndbufBytes: raw.SndbufBytes, TlsHandshake: raw.TlsHandshake, CgroupId: raw.CgroupId, FailedAttempts: raw.FailedAttempts, SniHost: raw.SniHost}
 	if raw.DnsQueryName != "" {
 		f.DnsQueryNames = []string{raw.DnsQueryName}
@@ -189,7 +189,7 @@ func (r *Resolver) Resolve(raw *continuumv1.RawFlow, method string, bytesKnown b
 			if key, ok := ix.WorkloadForCgroup(raw.CgroupId); ok {
 				f.Src = workload(key)
 			} else {
-				f.Src = &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_NODE, Ref: nodeName}
+				f.Src = &ikhnosv1.FlowEndpoint{Kind: ikhnosv1.FlowEndpoint_NODE, Ref: nodeName}
 			}
 		} else {
 			return nil, false // neither a pod nor a node address this cluster's index recognizes
@@ -217,7 +217,7 @@ func (r *Resolver) Resolve(raw *continuumv1.RawFlow, method string, bytesKnown b
 				return nil, false // this cluster's own CNI plumbing or a pod/Service that churned - not a
 				// real external endpoint, and not attributable to a specific workload either
 			} else {
-				f.Dst = &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_EXTERNAL, Ip: peer}
+				f.Dst = &ikhnosv1.FlowEndpoint{Kind: ikhnosv1.FlowEndpoint_EXTERNAL, Ip: peer}
 			}
 		}
 	} else {
@@ -235,7 +235,7 @@ func (r *Resolver) Resolve(raw *continuumv1.RawFlow, method string, bytesKnown b
 			return nil, false // this cluster's own CNI plumbing or a pod/Service that churned - see the
 			// matching check in the raw.Client branch above
 		}
-		f.Src = &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_EXTERNAL, Ip: peer}
+		f.Src = &ikhnosv1.FlowEndpoint{Kind: ikhnosv1.FlowEndpoint_EXTERNAL, Ip: peer}
 		f.Dst = workload(dst)
 		if name, ok := ix.PodNames[local]; ok {
 			f.DstPod = name

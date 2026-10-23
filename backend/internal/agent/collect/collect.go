@@ -16,8 +16,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/facts"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/facts"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -107,7 +107,7 @@ type Collector struct {
 	// Service-mesh policy (Istio PeerAuthentication) is a custom resource, listed on a timer.
 	pol         policyCache
 	fetchPolicy policyFetcher // tests replace it
-	meshMod     *continuumv1.ModuleStatus
+	meshMod     *ikhnosv1.ModuleStatus
 
 	changed chan struct{}
 
@@ -416,7 +416,7 @@ func (c *Collector) probeAcross(ctx context.Context, nss []string, fn func(conte
 	return ""
 }
 
-func (c *Collector) moduleStatus() []*continuumv1.ModuleStatus {
+func (c *Collector) moduleStatus() []*ikhnosv1.ModuleStatus {
 	// A module is only as good as the watches behind it: one that is refused, or has not listed yet, makes it an error
 	// with the reason, not a quiet OK, because what it reports is then missing rather than empty.
 	infos := c.infoLocked()
@@ -437,31 +437,31 @@ func (c *Collector) moduleStatus() []*continuumv1.ModuleStatus {
 		}
 		return strings.Join(why, "; ")
 	}
-	st := func(name string, need int) *continuumv1.ModuleStatus {
+	st := func(name string, need int) *ikhnosv1.ModuleStatus {
 		if c.tier < need {
-			return &continuumv1.ModuleStatus{Name: name, State: continuumv1.ModuleStatus_SKIPPED, Reason: fmt.Sprintf("installed access is tier %d, this needs tier %d", c.tier, need)}
+			return &ikhnosv1.ModuleStatus{Name: name, State: ikhnosv1.ModuleStatus_SKIPPED, Reason: fmt.Sprintf("installed access is tier %d, this needs tier %d", c.tier, need)}
 		}
 		if why := broken(name); why != "" {
-			return &continuumv1.ModuleStatus{Name: name, State: continuumv1.ModuleStatus_ERROR, Reason: why}
+			return &ikhnosv1.ModuleStatus{Name: name, State: ikhnosv1.ModuleStatus_ERROR, Reason: why}
 		}
-		return &continuumv1.ModuleStatus{Name: name, State: continuumv1.ModuleStatus_OK}
+		return &ikhnosv1.ModuleStatus{Name: name, State: ikhnosv1.ModuleStatus_OK}
 	}
-	mods := []*continuumv1.ModuleStatus{st(ModInfrastructure, 1), st(ModServices, 2)}
+	mods := []*ikhnosv1.ModuleStatus{st(ModInfrastructure, 1), st(ModServices, 2)}
 	if c.tier >= 2 {
 		for _, name := range []string{ModStorage, ModScaling} {
 			if why, off := c.optional[name]; off {
-				mods = append(mods, &continuumv1.ModuleStatus{Name: name, State: continuumv1.ModuleStatus_SKIPPED, Reason: why})
+				mods = append(mods, &ikhnosv1.ModuleStatus{Name: name, State: ikhnosv1.ModuleStatus_SKIPPED, Reason: why})
 			} else if why := broken(name); why != "" {
-				mods = append(mods, &continuumv1.ModuleStatus{Name: name, State: continuumv1.ModuleStatus_ERROR, Reason: why})
+				mods = append(mods, &ikhnosv1.ModuleStatus{Name: name, State: ikhnosv1.ModuleStatus_ERROR, Reason: why})
 			} else {
-				mods = append(mods, &continuumv1.ModuleStatus{Name: name, State: continuumv1.ModuleStatus_OK})
+				mods = append(mods, &ikhnosv1.ModuleStatus{Name: name, State: ikhnosv1.ModuleStatus_OK})
 			}
 		}
 	}
 	return mods
 }
 
-func (c *Collector) Modules() []*continuumv1.ModuleStatus {
+func (c *Collector) Modules() []*ikhnosv1.ModuleStatus {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	mods := c.moduleStatus()
@@ -539,15 +539,15 @@ func (c *Collector) OwnScope() *Scope { return c.scope }
 
 // ScopeSummary counts what the scope in force leaves out, whether or not the namespaces are read (below tier 2 they are
 // not, and only the rule is known).
-func (c *Collector) ScopeSummary() *continuumv1.ScopeFacts {
+func (c *Collector) ScopeSummary() *ikhnosv1.ScopeFacts {
 	sc := c.scopeNow()
 	if c.ns == nil {
-		return &continuumv1.ScopeFacts{Description: sc.Public()}
+		return &ikhnosv1.ScopeFacts{Description: sc.Public()}
 	}
 	if f := c.scopeFacts(c.visible()); f != nil {
 		return f
 	}
-	f := &continuumv1.ScopeFacts{Description: sc.Public()}
+	f := &ikhnosv1.ScopeFacts{Description: sc.Public()}
 	each(c.ns.GetStore().List(), func(n *corev1.Namespace) {
 		if !isSystem(n.Name) {
 			f.NamespacesTotal++

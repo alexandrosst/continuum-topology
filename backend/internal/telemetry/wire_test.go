@@ -3,7 +3,7 @@ package telemetry
 import (
 	"testing"
 
-	"continuum/internal/wire"
+	"ikhnos/internal/wire"
 )
 
 func TestEveryDocumentIsListedForTheWire(t *testing.T) {

@@ -3,10 +3,10 @@ package server
 import (
 	"testing"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/agentcaps"
-	"continuum/internal/agents"
-	"continuum/internal/kernel"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/agentcaps"
+	"ikhnos/internal/agents"
+	"ikhnos/internal/kernel"
 )
 
 // ---------- through the hub: a real stream, an echo, a change, a drop ----------
@@ -30,7 +30,7 @@ func (f *fakeAgent) expect(typ, status, reason string) {
 
 func TestTheConditionsFollowAnAgentThatEchoesThroughAChangeAndADrop(t *testing.T) {
 	r := newHubRig(t)
-	f := r.connectedWith(t, &continuumv1.Hello{AgentVersion: "fake", ProtocolVersion: 1, Capabilities: agentcaps.Names()})
+	f := r.connectedWith(t, &ikhnosv1.Hello{AgentVersion: "fake", ProtocolVersion: 1, Capabilities: agentcaps.Names()})
 	f.expect(agents.CondConnected, agents.CondTrue, "Open")
 	f.expect(agents.CondCompatible, agents.CondTrue, "Current")
 	f.expect(agents.CondConfigInForce, agents.CondFalse, "NotEchoed") // it says it echoes, and has not yet
@@ -58,7 +58,7 @@ func TestTheConditionsFollowAnAgentThatEchoesThroughAChangeAndADrop(t *testing.T
 
 func TestAnAgentWithNoProtocolVersionIsLegacyAndIsJudgedByAnyEchoItGives(t *testing.T) {
 	r := newHubRig(t)
-	f := r.connectedWith(t, &continuumv1.Hello{AgentVersion: "old"})
+	f := r.connectedWith(t, &ikhnosv1.Hello{AgentVersion: "old"})
 	f.expect(agents.CondCompatible, agents.CondTrue, "LegacyAgent")
 	f.expect(agents.CondConfigInForce, agents.CondUnknown, "AgentDoesNotEcho")
 	f.Beat("") // an agent from before the echo says nothing
@@ -68,7 +68,7 @@ func TestAnAgentWithNoProtocolVersionIsLegacyAndIsJudgedByAnyEchoItGives(t *test
 
 func TestAnAgentFromTheFutureIsNotCompatibleAndIsServedAllTheSame(t *testing.T) {
 	r := newHubRig(t)
-	f := r.connectedWith(t, &continuumv1.Hello{ProtocolVersion: 99})
+	f := r.connectedWith(t, &ikhnosv1.Hello{ProtocolVersion: 99})
 	f.expect(agents.CondCompatible, agents.CondFalse, "ProtocolTooNew")
 	if len(f.Configs) != 1 {
 		t.Fatalf("%d Configs", len(f.Configs))
@@ -80,7 +80,7 @@ func TestAnAgentFromTheFutureIsNotCompatibleAndIsServedAllTheSame(t *testing.T) 
 // The number of seconds after which an agent is called late comes from the server's own stale setting, so the screens do not keep one.
 func TestTheLateAfterOfAnAgentFollowsTheStaleSetting(t *testing.T) {
 	r := newHubRig(t)
-	f := r.connectedWith(t, &continuumv1.Hello{AgentVersion: "fake", ProtocolVersion: 1, Capabilities: agentcaps.Names()})
+	f := r.connectedWith(t, &ikhnosv1.Hello{AgentVersion: "fake", ProtocolVersion: 1, Capabilities: agentcaps.Names()})
 	if got := r.agentDoc(t, f.ID).LateAfterSeconds; got != 75 {
 		t.Fatalf("at the default of four beats an agent is late after %d s, want 75", got)
 	}

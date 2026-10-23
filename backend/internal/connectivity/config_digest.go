@@ -5,8 +5,8 @@ import (
 	"encoding/hex"
 	"strings"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/interpret"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/interpret"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -29,12 +29,12 @@ type sectionDigest struct {
 
 // sectionDigests are the digests of the sections of c, in section order. A section whose digest differs is the part of the Config
 // that changed.
-func sectionDigests(c *continuumv1.Config) []sectionDigest {
+func sectionDigests(c *ikhnosv1.Config) []sectionDigest {
 	out := make([]sectionDigest, 0, len(configSections))
 	src := c.ProtoReflect()
 	fields := src.Descriptor().Fields()
 	for _, s := range configSections {
-		part := &continuumv1.Config{}
+		part := &ikhnosv1.Config{}
 		dst := part.ProtoReflect()
 		for _, name := range s.fields {
 			if fd := fields.ByName(protoreflect.Name(name)); fd != nil && src.Has(fd) {
@@ -46,7 +46,7 @@ func sectionDigests(c *continuumv1.Config) []sectionDigest {
 	return out
 }
 
-func digestOfSection(part *continuumv1.Config) string {
+func digestOfSection(part *ikhnosv1.Config) string {
 	b, err := proto.MarshalOptions{Deterministic: true}.Marshal(part)
 	if err != nil {
 		// A string that is not valid UTF-8 cannot be marshalled. It must still change the digest when it changes, or a change to it
@@ -58,7 +58,7 @@ func digestOfSection(part *continuumv1.Config) string {
 }
 
 // ConfigHash is the digest of the whole Config: a hash of the digests of its sections.
-func ConfigHash(c *continuumv1.Config) string {
+func ConfigHash(c *ikhnosv1.Config) string {
 	ds := sectionDigests(c)
 	parts := make([]string, 0, len(ds))
 	for _, d := range ds {

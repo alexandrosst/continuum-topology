@@ -28,7 +28,7 @@ import (
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 )
 
 const (
@@ -300,14 +300,14 @@ func grew(before, now uint64) bool {
 }
 
 // Report is what the agent says about export health, or nil before the first reading has finished.
-func (m *Monitor) Report() *continuumv1.ExportHealth {
+func (m *Monitor) Report() *ikhnosv1.ExportHealth {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.scrapedAt.IsZero() {
 		return nil
 	}
 	now := m.cfg.Now()
-	out := &continuumv1.ExportHealth{
+	out := &ikhnosv1.ExportHealth{
 		ScrapedAt: timestamppb.New(m.scrapedAt), PodsReached: uint32(m.reached), PodsFailed: uint32(m.failed), LastError: m.lastErr,
 	}
 	keys := make([]route, 0, len(m.routes))
@@ -322,7 +322,7 @@ func (m *Monitor) Report() *continuumv1.ExportHealth {
 	})
 	for _, k := range keys {
 		st := m.routes[k]
-		r := &continuumv1.ExportRouteHealth{Exporter: k.exporter, Signal: k.signal, State: m.state(st, now), Sent: st.sent, Failed: st.failed}
+		r := &ikhnosv1.ExportRouteHealth{Exporter: k.exporter, Signal: k.signal, State: m.state(st, now), Sent: st.sent, Failed: st.failed}
 		if !st.lastSent.IsZero() {
 			r.LastSentAt = timestamppb.New(st.lastSent)
 		}
@@ -334,19 +334,19 @@ func (m *Monitor) Report() *continuumv1.ExportHealth {
 	return out
 }
 
-func (m *Monitor) state(st *routeState, now time.Time) continuumv1.ExportRouteHealth_State {
+func (m *Monitor) state(st *routeState, now time.Time) ikhnosv1.ExportRouteHealth_State {
 	recent := func(t time.Time) bool { return !t.IsZero() && now.Sub(t) <= m.cfg.Window }
 	switch {
 	case recent(st.lastFailed) && !st.lastFailed.Before(st.lastSent):
-		return continuumv1.ExportRouteHealth_FAILING
+		return ikhnosv1.ExportRouteHealth_FAILING
 	case recent(st.lastSent):
-		return continuumv1.ExportRouteHealth_EXPORTING
+		return ikhnosv1.ExportRouteHealth_EXPORTING
 	case !st.ready:
-		return continuumv1.ExportRouteHealth_WAITING
+		return ikhnosv1.ExportRouteHealth_WAITING
 	case st.sent > 0 || st.failed > 0:
-		return continuumv1.ExportRouteHealth_SILENT
+		return ikhnosv1.ExportRouteHealth_SILENT
 	}
-	return continuumv1.ExportRouteHealth_WAITING
+	return ikhnosv1.ExportRouteHealth_WAITING
 }
 
 // parse reads the collector's Prometheus text for the exporter counters. It accepts the counter names with

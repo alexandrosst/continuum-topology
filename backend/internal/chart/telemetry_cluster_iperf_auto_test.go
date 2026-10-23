@@ -11,7 +11,7 @@ import (
 // that means for the pods: who mounts which Secret, that the responder never runs an open server, and that the manual mode
 // (auth.existingSecret) is untouched.
 
-const iperfSecretName = "continuum-agent-link-iperf"
+const iperfSecretName = "ikhnos-agent-link-iperf"
 
 func mountedSecrets(spec corev1.PodSpec) (out []string) {
 	for _, v := range spec.Volumes {
@@ -37,13 +37,13 @@ func TestIssuedCredentialsReachOnlyTheAgentAndTheResponder(t *testing.T) {
 	if !ok || len(sec.StringData["secret"]) < 32 {
 		t.Fatalf("the request secret %q is missing or short", sec.StringData["secret"])
 	}
-	for _, other := range []string{"continuum-agent-link-peers", "continuum-agent-flows"} {
+	for _, other := range []string{"ikhnos-agent-link-peers", "ikhnos-agent-flows"} {
 		if sec.StringData["secret"] == r.secrets[other].StringData["secret"] {
 			t.Errorf("the request secret equals %s: a pod holding that one could ask for the private key", other)
 		}
 	}
 
-	resp := r.daemonsets["continuum-link-responder"].Spec.Template.Spec
+	resp := r.daemonsets["ikhnos-link-responder"].Spec.Template.Spec
 	if got := mountedSecrets(resp); len(got) != 1 || got[0] != iperfSecretName {
 		t.Errorf("the responder mounts secrets %v, want only %s", got, iperfSecretName)
 	}
@@ -58,7 +58,7 @@ func TestIssuedCredentialsReachOnlyTheAgentAndTheResponder(t *testing.T) {
 		t.Errorf("the responder's iperf3 container runs %q: it must be the supervisor that fails closed, never iperf3 -s directly", got)
 	}
 	e := iperfPodEnv(srv)
-	if e["CONTINUUM_LINK_IPERF_SECRET_FILE"] != "/iperf-request/secret" || e["CONTINUUM_LINK_CAPACITY_PORT"] != "8862" {
+	if e["IKHNOS_LINK_IPERF_SECRET_FILE"] != "/iperf-request/secret" || e["IKHNOS_LINK_CAPACITY_PORT"] != "8862" {
 		t.Errorf("supervisor env = %v", e)
 	}
 	mounts := map[string]corev1.VolumeMount{}
@@ -82,12 +82,12 @@ func TestIssuedCredentialsReachOnlyTheAgentAndTheResponder(t *testing.T) {
 	}
 
 	// The prober holds the peers secret only, and gets the public side through the agent.
-	pr := r.deployments["continuum-link-prober"].Spec.Template.Spec
-	if got := mountedSecrets(pr); len(got) != 1 || got[0] != "continuum-agent-link-peers" {
-		t.Errorf("the prober mounts secrets %v, want only continuum-agent-link-peers", got)
+	pr := r.deployments["ikhnos-link-prober"].Spec.Template.Spec
+	if got := mountedSecrets(pr); len(got) != 1 || got[0] != "ikhnos-agent-link-peers" {
+		t.Errorf("the prober mounts secrets %v, want only ikhnos-agent-link-peers", got)
 	}
 	pe := proberEnv(t, r)
-	if pe["CONTINUUM_LINK_CAPACITY_AUTH_AUTO"] != "true" || pe["CONTINUUM_LINK_CAPACITY_AUTH_KEY_DIR"] == "" {
+	if pe["IKHNOS_LINK_CAPACITY_AUTH_AUTO"] != "true" || pe["IKHNOS_LINK_CAPACITY_AUTH_KEY_DIR"] == "" {
 		t.Errorf("the prober is not told to use issued credentials: %v", pe)
 	}
 	for _, c := range pr.Containers {
@@ -95,7 +95,7 @@ func TestIssuedCredentialsReachOnlyTheAgentAndTheResponder(t *testing.T) {
 			if e.ValueFrom != nil && e.ValueFrom.SecretKeyRef != nil && e.ValueFrom.SecretKeyRef.Name == iperfSecretName {
 				t.Errorf("the prober reads the request secret: %+v", e)
 			}
-			if e.Name == "CONTINUUM_LINK_IPERF_SECRET_FILE" {
+			if e.Name == "IKHNOS_LINK_IPERF_SECRET_FILE" {
 				t.Errorf("the prober is told where the request secret is: %+v", e)
 			}
 		}
@@ -107,9 +107,9 @@ func TestIssuedCredentialsReachOnlyTheAgentAndTheResponder(t *testing.T) {
 	}
 
 	// The agent verifies with it and mounts it, plus the others it had.
-	ag := r.deployments["continuum-agent"].Spec.Template
+	ag := r.deployments["ikhnos-agent"].Spec.Template
 	ae := iperfPodEnv(ag.Spec.Containers[0])
-	if ae["CONTINUUM_LINK_SERVE_IPERF"] != "true" || ae["CONTINUUM_LINK_IPERF_SECRET_FILE"] != "/link-iperf/secret" {
+	if ae["IKHNOS_LINK_SERVE_IPERF"] != "true" || ae["IKHNOS_LINK_IPERF_SECRET_FILE"] != "/link-iperf/secret" {
 		t.Errorf("agent env = %v", ae)
 	}
 	if got := mountedSecrets(ag.Spec); len(got) != 3 {
@@ -118,13 +118,13 @@ func TestIssuedCredentialsReachOnlyTheAgentAndTheResponder(t *testing.T) {
 	if ag.Annotations["checksum/link-iperf-secret"] == "" {
 		t.Error("the agent does not roll when the request secret is replaced")
 	}
-	if r.daemonsets["continuum-link-responder"].Spec.Template.Annotations["checksum/config"] == r2sum(t) {
+	if r.daemonsets["ikhnos-link-responder"].Spec.Template.Annotations["checksum/config"] == r2sum(t) {
 		t.Error("the responder's checksum does not tell the issued mode from the manual one")
 	}
 
 	// Nothing else in the release sees it: no collector, no other pod.
 	for n, d := range r.daemonsets {
-		if n == "continuum-link-responder" {
+		if n == "ikhnos-link-responder" {
 			continue
 		}
 		for _, s := range mountedSecrets(d.Spec.Template.Spec) {
@@ -134,7 +134,7 @@ func TestIssuedCredentialsReachOnlyTheAgentAndTheResponder(t *testing.T) {
 		}
 	}
 	for n, d := range r.deployments {
-		if n == "continuum-agent" {
+		if n == "ikhnos-agent" {
 			continue
 		}
 		for _, s := range mountedSecrets(d.Spec.Template.Spec) {
@@ -149,7 +149,7 @@ func TestIssuedCredentialsReachOnlyTheAgentAndTheResponder(t *testing.T) {
 // by source address, within flowObserver.nodeCIDRs.
 func TestTheNetworkPolicyLetsTheResponderAskTheAgent(t *testing.T) {
 	r := render(t, autoArgs("flowObserver.enabled=true", "flowObserver.networkPolicy=true", "flowObserver.nodeCIDRs={10.42.0.0/16}")...)
-	p, ok := r.policies["continuum-agent-probe"]
+	p, ok := r.policies["ikhnos-agent-probe"]
 	if !ok {
 		t.Fatal("no agent network policy")
 	}
@@ -168,7 +168,7 @@ func TestTheNetworkPolicyLetsTheResponderAskTheAgent(t *testing.T) {
 
 // r2sum is the responder checksum with a Secret of its own named.
 func r2sum(t *testing.T) string {
-	return render(t, capArgs("telemetry.clusterLinks.probe.capacity.auth.existingSecret=k")...).daemonsets["continuum-link-responder"].Spec.Template.Annotations["checksum/config"]
+	return render(t, capArgs("telemetry.clusterLinks.probe.capacity.auth.existingSecret=k")...).daemonsets["ikhnos-link-responder"].Spec.Template.Annotations["checksum/config"]
 }
 
 func TestAnOwnSecretWinsAndLeavesTheManualModeAsItWas(t *testing.T) {
@@ -176,7 +176,7 @@ func TestAnOwnSecretWinsAndLeavesTheManualModeAsItWas(t *testing.T) {
 	if _, ok := r.secrets[iperfSecretName]; ok {
 		t.Error("a request secret is generated although the credentials are the user's own")
 	}
-	resp := r.daemonsets["continuum-link-responder"].Spec.Template.Spec
+	resp := r.daemonsets["ikhnos-link-responder"].Spec.Template.Spec
 	srv := containerNamed(t, resp.Containers, "iperf3")
 	if got := strings.Join(srv.Args, " "); !strings.Contains(got, "--rsa-private-key-path /iperf-auth/private.pem --authorized-users-path /iperf-auth/users.csv") {
 		t.Errorf("args = %q", got)
@@ -185,16 +185,16 @@ func TestAnOwnSecretWinsAndLeavesTheManualModeAsItWas(t *testing.T) {
 		t.Errorf("the responder mounts %v", got)
 	}
 	pe := proberEnv(t, r)
-	if _, ok := pe["CONTINUUM_LINK_CAPACITY_AUTH_AUTO"]; ok {
+	if _, ok := pe["IKHNOS_LINK_CAPACITY_AUTH_AUTO"]; ok {
 		t.Error("the prober fetches credentials although it is given a Secret")
 	}
-	ae := iperfPodEnv(r.deployments["continuum-agent"].Spec.Template.Spec.Containers[0])
-	if _, ok := ae["CONTINUUM_LINK_SERVE_IPERF"]; ok {
+	ae := iperfPodEnv(r.deployments["ikhnos-agent"].Spec.Template.Spec.Containers[0])
+	if _, ok := ae["IKHNOS_LINK_SERVE_IPERF"]; ok {
 		t.Error("the agent serves issued credentials alongside a manual Secret")
 	}
 	// And the manual render is the same as it was before the automatic mode existed: same checksum with automatic on or off.
 	off := render(t, capArgs("telemetry.clusterLinks.probe.capacity.auth.existingSecret=iperf-keys")...)
-	if r.daemonsets["continuum-link-responder"].Spec.Template.Annotations["checksum/config"] != off.daemonsets["continuum-link-responder"].Spec.Template.Annotations["checksum/config"] {
+	if r.daemonsets["ikhnos-link-responder"].Spec.Template.Annotations["checksum/config"] != off.daemonsets["ikhnos-link-responder"].Spec.Template.Annotations["checksum/config"] {
 		t.Error("the manual mode's pod checksum depends on the automatic setting, so upgrading would restart every responder")
 	}
 }
@@ -204,7 +204,7 @@ func TestAutomaticOffWithoutASecretIsTheOpenServerAsBefore(t *testing.T) {
 	if _, ok := r.secrets[iperfSecretName]; ok {
 		t.Error("a request secret exists with automatic off")
 	}
-	srv := containerNamed(t, r.daemonsets["continuum-link-responder"].Spec.Template.Spec.Containers, "iperf3")
+	srv := containerNamed(t, r.daemonsets["ikhnos-link-responder"].Spec.Template.Spec.Containers, "iperf3")
 	if got := strings.Join(srv.Command, " ") + " " + strings.Join(srv.Args, " "); got != "/usr/local/bin/iperf3 -s -p 8862 --idle-timeout 60" {
 		t.Errorf("command = %q", got)
 	}
@@ -244,8 +244,8 @@ func TestNothingIsIssuedWithTheThroughputTestsOff(t *testing.T) {
 	if _, ok := r.secrets[iperfSecretName]; ok {
 		t.Error("a request secret exists with the throughput tests off")
 	}
-	ae := iperfPodEnv(r.deployments["continuum-agent"].Spec.Template.Spec.Containers[0])
-	if _, ok := ae["CONTINUUM_LINK_SERVE_IPERF"]; ok {
+	ae := iperfPodEnv(r.deployments["ikhnos-agent"].Spec.Template.Spec.Containers[0])
+	if _, ok := ae["IKHNOS_LINK_SERVE_IPERF"]; ok {
 		t.Error("the agent serves issued credentials with the throughput tests off")
 	}
 }

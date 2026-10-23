@@ -10,7 +10,7 @@ import (
 
 	"sigs.k8s.io/yaml"
 
-	"continuum/internal/fusionapi"
+	"ikhnos/internal/fusionapi"
 )
 
 // vocabNames is the vocabulary by the label the stores give each attribute.
@@ -22,7 +22,7 @@ func vocabNames() (names map[string]fusionapi.Label) {
 	return names
 }
 
-// inFamily is whether a label starts like the vocabulary's (k8s_, continuum_, ...): one that does and is not in the table is a
+// inFamily is whether a label starts like the vocabulary's (k8s_, ikhnos_, ...): one that does and is not in the table is a
 // typo or a rename nobody followed.
 func inFamily(label string) bool {
 	for _, l := range fusionapi.Vocabulary {
@@ -50,9 +50,9 @@ func doctorVocabulary(t *testing.T) {
 				t.Errorf("%s is listed twice (or collides with another attribute)", l.Attr)
 			}
 			seen[l.Name()] = true
-			stamped := strings.HasPrefix(l.Attr, "continuum.") || strings.HasPrefix(l.Attr, "ikhnos.")
+			stamped := strings.HasPrefix(l.Attr, "ikhnos.")
 			if stamped != (l.By != "") {
-				t.Errorf("%s: By = %q; exactly the continuum.* and ikhnos.* attributes are provenance somebody stamps", l.Attr, l.By)
+				t.Errorf("%s: By = %q; exactly the ikhnos.* attributes are provenance somebody stamps", l.Attr, l.By)
 			}
 			if !slices.Contains([]string{"", "agent", "extractor", "operator", "gateway"}, l.By) {
 				t.Errorf("%s: unknown stamper %q", l.Attr, l.By)
@@ -61,7 +61,7 @@ func doctorVocabulary(t *testing.T) {
 	})
 
 	t.Run("Prometheus promotes exactly the attributes the table says", func(t *testing.T) {
-		raw, err := os.ReadFile("../chart/continuum-fusion/values.yaml")
+		raw, err := os.ReadFile("../chart/ikhnos-fusion/values.yaml")
 		if err != nil {
 			t.Fatal(err)
 		}

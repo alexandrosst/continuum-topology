@@ -64,7 +64,7 @@
   <rect x="528" y="292" width="224" height="26" rx="6" fill="none" stroke="#f68330" stroke-width="1.1"/>
   <text x="640" y="309" font-size="8.6" font-weight="600" fill="#f68330" text-anchor="middle">batch</text>
   <text x="640" y="336" font-size="7.8" font-weight="400" fill="#59636c" text-anchor="middle">same processor ordering as</text>
-  <text x="640" y="349" font-size="7.8" font-weight="400" fill="#59636c" text-anchor="middle">continuum-agent's own collectors</text>
+  <text x="640" y="349" font-size="7.8" font-weight="400" fill="#59636c" text-anchor="middle">ikhnos-agent's own collectors</text>
   <text x="640" y="366" font-size="7.8" font-weight="400" fill="#59636c" text-anchor="middle">— no k8sattributes, nothing to</text>
   <text x="640" y="379" font-size="7.8" font-weight="400" fill="#59636c" text-anchor="middle">attach identity from here</text>
 

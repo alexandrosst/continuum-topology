@@ -4,7 +4,7 @@ import (
 	"encoding/binary"
 	"testing"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 )
 
 // TestHandleNameRecordNeverPanicsOnGarbage is the defense-in-depth complement to
@@ -78,17 +78,17 @@ func TestHandleNameRecordDecodesDnsLatencyPastNameCap(t *testing.T) {
 
 // TestTlsHandshakeOutcomeMapsCSideConstantsExplicitly locks in tlsHandshakeOutcome's deliberate,
 // non-numeric mapping from flow.c's own TLS_HANDSHAKE_* constants onto the wire-stable
-// continuumv1.TlsHandshakeOutcome enum (see tlsHandshakeOutcome's own doc comment for why the two
+// ikhnosv1.TlsHandshakeOutcome enum (see tlsHandshakeOutcome's own doc comment for why the two
 // numberings are not, and must never become, the same thing).
 func TestTlsHandshakeOutcomeMapsCSideConstantsExplicitly(t *testing.T) {
 	cases := []struct {
 		raw  uint8
-		want continuumv1.TlsHandshakeOutcome
+		want ikhnosv1.TlsHandshakeOutcome
 	}{
-		{0, continuumv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_UNKNOWN},  // TLS_HANDSHAKE_UNKNOWN
-		{1, continuumv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_OK},       // TLS_HANDSHAKE_OK
-		{2, continuumv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_FAILED},   // TLS_HANDSHAKE_FAILED
-		{99, continuumv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_UNKNOWN}, // anything unrecognized stays unknown, never guessed
+		{0, ikhnosv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_UNKNOWN},  // TLS_HANDSHAKE_UNKNOWN
+		{1, ikhnosv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_OK},       // TLS_HANDSHAKE_OK
+		{2, ikhnosv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_FAILED},   // TLS_HANDSHAKE_FAILED
+		{99, ikhnosv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_UNKNOWN}, // anything unrecognized stays unknown, never guessed
 	}
 	for _, c := range cases {
 		if got := tlsHandshakeOutcome(c.raw); got != c.want {

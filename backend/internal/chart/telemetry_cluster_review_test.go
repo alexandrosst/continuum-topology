@@ -13,7 +13,7 @@ import (
 func clusterCfg(t *testing.T, args ...string) (rendered, map[string]any) {
 	t.Helper()
 	r := render(t, append([]string{"--set", "telemetry.export.otlp.endpoint=x:4317"}, args...)...)
-	return r, otelConfig(t, r.configmaps["continuum-telemetry-cluster-config"].Data)
+	return r, otelConfig(t, r.configmaps["ikhnos-telemetry-cluster-config"].Data)
 }
 
 func scrapeJob(t *testing.T, cfg map[string]any, receiver, job string) map[string]any {
@@ -104,7 +104,7 @@ func TestTelemetryEgressPolicyLetsTheClusterCollectorScrape(t *testing.T) {
 	base := []string{"--set", "networkPolicy.telemetryEgress.enabled=true", "--set", "networkPolicy.telemetryEgress.allowedEgress[0].cidr=10.0.0.0/8",
 		"--set", "networkPolicy.telemetryEgress.allowedEgress[0].ports={4317}"}
 	r := render(t, append([]string{"--set", "telemetry.export.otlp.endpoint=x:4317", "--set", "telemetry.kubernetesState.metrics.enabled=true"}, base...)...)
-	if _, ok := r.policies["continuum-telemetry-scrape-egress"]; ok {
+	if _, ok := r.policies["ikhnos-telemetry-scrape-egress"]; ok {
 		t.Error("a scrape policy is rendered although nothing is scraped")
 	}
 
@@ -113,11 +113,11 @@ func TestTelemetryEgressPolicyLetsTheClusterCollectorScrape(t *testing.T) {
 		"--set", "telemetry.applicationMetrics.metrics.enabled=true",
 		"--set", "telemetry.applicationMetrics.metrics.scrapeTargets[0].jobName=shop", "--set", "telemetry.applicationMetrics.metrics.scrapeTargets[0].namespace=shop",
 		"--set", "telemetry.applicationMetrics.metrics.scrapeTargets[0].podLabelSelector=app=shop", "--set", "telemetry.applicationMetrics.metrics.scrapeTargets[0].port=9102"}, base...)...)
-	p, ok := r.policies["continuum-telemetry-scrape-egress"]
+	p, ok := r.policies["ikhnos-telemetry-scrape-egress"]
 	if !ok {
 		t.Fatal("no NetworkPolicy lets the cluster collector scrape Kepler, dcgm-exporter and the scrape targets")
 	}
-	if got := p.Spec.PodSelector.MatchLabels["app.kubernetes.io/name"]; got != "continuum-telemetry-cluster" {
+	if got := p.Spec.PodSelector.MatchLabels["app.kubernetes.io/name"]; got != "ikhnos-telemetry-cluster" {
 		t.Errorf("the scrape policy must select only the cluster collector, selects %q", got)
 	}
 	ports := map[int32]string{}
@@ -132,7 +132,7 @@ func TestTelemetryEgressPolicyLetsTheClusterCollectorScrape(t *testing.T) {
 			ports[pt.Port.IntVal] = to
 		}
 	}
-	want := map[int32]string{9103: "continuum-telemetry-kepler", 9400: "continuum-telemetry-dcgm", 9102: "ns:shop"}
+	want := map[int32]string{9103: "ikhnos-telemetry-kepler", 9400: "ikhnos-telemetry-dcgm", 9102: "ns:shop"}
 	for port, to := range want {
 		if ports[port] != to {
 			t.Errorf("egress to port %d goes to %q, want %q (all: %v)", port, ports[port], to, ports)
@@ -140,7 +140,7 @@ func TestTelemetryEgressPolicyLetsTheClusterCollectorScrape(t *testing.T) {
 	}
 	// And only when the egress lockdown itself is on.
 	r = render(t, "--set", "telemetry.export.otlp.endpoint=x:4317", "--set", "telemetry.energy.metrics.enabled=true")
-	if _, ok := r.policies["continuum-telemetry-scrape-egress"]; ok {
+	if _, ok := r.policies["ikhnos-telemetry-scrape-egress"]; ok {
 		t.Error("a scrape policy is rendered while telemetryEgress is off")
 	}
 }
@@ -170,7 +170,7 @@ func TestInfraEventScopeKeepsNodeEvents(t *testing.T) {
 // starts, before its receivers listen. The collector's own health_check extension answers once its pipelines are up.
 func TestClusterCollectorIsReadyOnlyWhenItsPipelinesRun(t *testing.T) {
 	r, cfg := clusterCfg(t, "--set", "telemetry.applicationMetrics.metrics.enabled=true")
-	c := r.deployments["continuum-telemetry-cluster"].Spec.Template.Spec.Containers[0]
+	c := r.deployments["ikhnos-telemetry-cluster"].Spec.Template.Spec.Containers[0]
 	if c.ReadinessProbe == nil || c.ReadinessProbe.HTTPGet == nil {
 		t.Fatal("the cluster collector has no HTTP readiness probe")
 	}
@@ -200,7 +200,7 @@ func TestClusterCollectorIsReadyOnlyWhenItsPipelinesRun(t *testing.T) {
 	}
 	// kubernetesState alone (no OTLP receiver, no Service) is probed too.
 	r, _ = clusterCfg(t, "--set", "telemetry.kubernetesState.metrics.enabled=true")
-	if r.deployments["continuum-telemetry-cluster"].Spec.Template.Spec.Containers[0].ReadinessProbe == nil {
+	if r.deployments["ikhnos-telemetry-cluster"].Spec.Template.Spec.Containers[0].ReadinessProbe == nil {
 		t.Error("no readiness probe when only cluster state is collected")
 	}
 }
@@ -235,7 +235,7 @@ func TestClusterConfigDefinesOnlyProcessorsAPipelineUses(t *testing.T) {
 // discard nearly all of them with a relabel rule. The API server can do the selecting (as the scrapeTargets job does).
 func TestBundledScrapeJobsOnlyDiscoverTheirOwnPods(t *testing.T) {
 	_, cfg := clusterCfg(t, "--set", "telemetry.energy.metrics.enabled=true", "--set", "telemetry.accelerators.metrics.enabled=true")
-	for job, name := range map[string]string{"kepler": "continuum-telemetry-kepler", "dcgm-exporter": "continuum-telemetry-dcgm"} {
+	for job, name := range map[string]string{"kepler": "ikhnos-telemetry-kepler", "dcgm-exporter": "ikhnos-telemetry-dcgm"} {
 		j := scrapeJob(t, cfg, "prometheus/infra", job)
 		sd, _ := j["kubernetes_sd_configs"].([]any)
 		if len(sd) != 1 {
@@ -274,7 +274,7 @@ func TestAcceleratorsIntervalIsUsedByItsScrapeJobs(t *testing.T) {
 func TestTelemetryRoleReadsNodesOnlyForClusterState(t *testing.T) {
 	has := func(args ...string) bool {
 		r := render(t, append([]string{"--set", "telemetry.export.otlp.endpoint=x:4317"}, args...)...)
-		for _, rule := range r.clusterroles["continuum-agent-telemetry"].Rules {
+		for _, rule := range r.clusterroles["ikhnos-agent-telemetry"].Rules {
 			for _, res := range rule.Resources {
 				if res == "nodes" {
 					return true

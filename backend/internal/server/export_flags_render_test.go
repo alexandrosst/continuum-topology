@@ -9,11 +9,11 @@ import (
 
 	"sigs.k8s.io/yaml"
 
-	"continuum/internal/chart"
-	"continuum/internal/install"
-	"continuum/internal/operators"
-	"continuum/internal/operatorsapi"
-	"continuum/internal/store"
+	"ikhnos/internal/chart"
+	"ikhnos/internal/install"
+	"ikhnos/internal/operators"
+	"ikhnos/internal/operatorsapi"
+	"ikhnos/internal/store"
 )
 
 // The flags the server prints for a source cluster are applied with --reset-then-reuse-values, on top of whatever an
@@ -131,14 +131,14 @@ func TestExportFlagsTakeEffectInTheRenderedExporter(t *testing.T) {
 		ep   string
 		want want
 	}{
-		{"regional operator in the same cluster", regional, operators.OperatorInClusterEndpoint(regional), want{"op-abc123-regional-operator.continuum-system.svc:4317", "op-abc123.continuum-system.svc", ""}},
-		{"regional operator at an advertised address", Advertised, Advertised.Address, want{"ops.example.com:4317", "op-abc123.continuum-system.svc", ""}},
-		{"central operator in its own cluster", central, "continuum-fusion-central.continuum-system.svc:4317", want{"continuum-fusion-central.continuum-system.svc:4317", "", ""}},
+		{"regional operator in the same cluster", regional, operators.OperatorInClusterEndpoint(regional), want{"op-abc123-regional-operator.ikhnos-system.svc:4317", "op-abc123.ikhnos-system.svc", ""}},
+		{"regional operator at an advertised address", Advertised, Advertised.Address, want{"ops.example.com:4317", "op-abc123.ikhnos-system.svc", ""}},
+		{"central operator in its own cluster", central, "ikhnos-fusion-central.ikhnos-system.svc:4317", want{"ikhnos-fusion-central.ikhnos-system.svc:4317", "", ""}},
 	}
 	for _, tc := range cases {
 		// The default exporter, and one route (logs).
 		for _, route := range []bool{false, true} {
-			prefix, exporter, dir, cm := "telemetry.export.otlp", "otlp", "/export-mtls", "continuum-telemetry-host-config"
+			prefix, exporter, dir, cm := "telemetry.export.otlp", "otlp", "/export-mtls", "ikhnos-telemetry-host-config"
 			if route {
 				prefix, exporter, dir = "telemetry.export.routes.logs", "otlp/logs", "/export-mtls-logs"
 			}
@@ -182,7 +182,7 @@ func TestExportFlagsWithoutAClientCertificateSwitchTheCertificateOff(t *testing.
 	op := store.Operator{ID: "op-abc123", ReceiverAuth: store.ReceiverAuthBearer}
 	extra := append(staleDestination("telemetry.export.otlp"), "--set", "telemetry.export.otlp.auth.secretName=my-token")
 	extra = append(extra, flagWords(t, install.Flags(operatorsapi.ExportBlock("telemetry.export.otlp", op, operators.OperatorInClusterEndpoint(op), false)))...)
-	ex := mustMap(t, agentExporters(t, "continuum-telemetry-host-config", extra)["otlp"], "exporter otlp")
+	ex := mustMap(t, agentExporters(t, "ikhnos-telemetry-host-config", extra)["otlp"], "exporter otlp")
 	tls := mustMap(t, ex["tls"], "tls")
 	if tls["cert_file"] != nil || tls["key_file"] != nil || tls["insecure"] != false {
 		t.Errorf("tls = %v: the client certificate of the earlier destination is still on", tls)
@@ -190,11 +190,11 @@ func TestExportFlagsWithoutAClientCertificateSwitchTheCertificateOff(t *testing.
 	if tls["ca_file"] != nil {
 		t.Errorf("tls.ca_file = %v: a path of the earlier destination is still trusted", tls["ca_file"])
 	}
-	if tls["server_name_override"] != "op-abc123.continuum-system.svc" {
+	if tls["server_name_override"] != "op-abc123.ikhnos-system.svc" {
 		t.Errorf("tls.server_name_override = %v", tls["server_name_override"])
 	}
 	h := mustMap(t, ex["headers"], "headers")
-	if h["Authorization"] != "${env:CONTINUUM_TELEMETRY_AUTH}" {
+	if h["Authorization"] != "${env:IKHNOS_TELEMETRY_AUTH}" {
 		t.Errorf("the person's credential header was cleared: %v", h)
 	}
 }

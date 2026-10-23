@@ -30,7 +30,7 @@ printed commands that were deliberately not changed. Merge into `deferred-work.m
 - gRPC `max_recv_msg_size` is not set on the regional operator receiver.
 - Collector `health_check` cannot show exporter failure (verified); the chart turns `selfMetrics` on for the regional
   operator instead.
-- The resource stamps `continuum.org.id` / `continuum.cluster.id` can be empty until the install command sets them.
+- The resource stamps `ikhnos.org.id` / `ikhnos.cluster.id` can be empty until the install command sets them.
 - Server: quoting in `installCommand`/`upgradeCommand` for unusual names, CGNAT range handling, duplicate
   `OperatorUsages` listing.
 
@@ -43,7 +43,7 @@ printed commands that were deliberately not changed. Merge into `deferred-work.m
 - **Pod Security** is now checked at install (`preflight.podSecurity`, see round two below); the telemetry wizard in the
   UI still does not mention it before the command is generated.
 - **Kepler needs perf/eBPF.** Handled in round two: a node pre-flight holds the pod with a reason instead of crash-looping.
-- **One agent release per cluster.** Cluster-scoped objects are named `continuum-agent*`, so a second release in another
+- **One agent release per cluster.** Cluster-scoped objects are named `ikhnos-agent*`, so a second release in another
   namespace is refused by Helm.
 - **NetworkPolicy and ClusterIP destinations.** Enforcement of `ipBlock` against a Service's ClusterIP differs between
   CNIs (some match after DNAT, so the pod IP is what is compared); `allowedEgress` for an in-cluster operator may need

@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"net/url"
 
-	"continuum/internal/fusionapi"
-	"continuum/internal/httpkit"
+	"ikhnos/internal/fusionapi"
+	"ikhnos/internal/httpkit"
 )
 
 import ()

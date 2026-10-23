@@ -12,7 +12,7 @@ func TestReleaseTargetIgnoresNamesThatAreNotKubernetesNames(t *testing.T) {
 	}
 	for _, bad := range []string{"x; rm -rf /", "Has Caps", "a b", "$(id)", "-lead", "trail-", "a\nb"} {
 		ns, rel, guessed = ReleaseTarget(bad, bad)
-		if ns != "continuum-system" || rel != "continuum-agent" || !guessed {
+		if ns != "ikhnos-system" || rel != "ikhnos-agent" || !guessed {
 			t.Fatalf("%q was used: %q %q %v", bad, ns, rel, guessed)
 		}
 	}

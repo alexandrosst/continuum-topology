@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/estate"
-	"continuum/internal/fusionapi"
-	"continuum/internal/model"
+	"ikhnos/internal/estate"
+	"ikhnos/internal/fusionapi"
+	"ikhnos/internal/model"
 )
 
 // appExtras serves applications from memory in place of the platform.
@@ -54,7 +54,7 @@ func TestTheApplicationFilterNarrowsEveryStructuredReadAndNothingElse(t *testing
 		if !strings.Contains(asked, svc) && !strings.Contains(asked, `service_name%3D~%22cart%7Ccart-app%7Cweb%22`) {
 			t.Errorf("%s did not carry the application's services:\n%s", path, asked)
 		}
-		if !strings.Contains(asked, "k8s_namespace_name") || !strings.Contains(asked, "continuum_cluster_id") {
+		if !strings.Contains(asked, "k8s_namespace_name") || !strings.Contains(asked, "ikhnos_cluster_id") {
 			t.Errorf("%s did not carry the application's namespace and cluster:\n%s", path, asked)
 		}
 	}

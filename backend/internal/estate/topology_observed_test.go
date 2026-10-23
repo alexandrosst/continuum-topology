@@ -4,10 +4,10 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/connectivity"
-	"continuum/internal/facts"
-	"continuum/internal/testkit"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/connectivity"
+	"ikhnos/internal/facts"
+	"ikhnos/internal/testkit"
 )
 
 // Traffic is drawn into the topology only from a cluster whose agent is allowed to report it (access tier 2 and above). A cluster
@@ -24,7 +24,7 @@ func TestOnlyAClusterAtTierTwoOrAboveDrawsObservedTraffic(t *testing.T) {
 	for id, port := range map[string]uint32{wide: 8080, narrow: 9090} {
 		st := facts.New()
 		if id == narrow {
-			st.Nodes["p"] = &continuumv1.NodeFacts{Key: "p", InternalIps: []string{"198.51.100.60"}}
+			st.Nodes["p"] = &ikhnosv1.NodeFacts{Key: "p", InternalIps: []string{"198.51.100.60"}}
 		}
 		for _, n := range []string{"x", "y"} {
 			w := testkit.Workload("a", "Deployment", n)
@@ -34,13 +34,13 @@ func TestOnlyAClusterAtTierTwoOrAboveDrawsObservedTraffic(t *testing.T) {
 		v.State = st
 		v.Connected = true
 		v.LastSync = time.Now()
-		fs := []*continuumv1.Flow{testkit.FlowOf(testkit.WorkloadEndpoint("a/Deployment/x"), testkit.WorkloadEndpoint("a/Deployment/y"), port, 5)}
+		fs := []*ikhnosv1.Flow{testkit.FlowOf(testkit.WorkloadEndpoint("a/Deployment/x"), testkit.WorkloadEndpoint("a/Deployment/y"), port, 5)}
 		if id == wide {
 			fs = append(fs, testkit.FlowOf(testkit.WorkloadEndpoint("a/Deployment/x"), testkit.ExternalEndpoint("198.51.100.60"), 6443, 50))
 		} else {
 			fs = append(fs, testkit.FlowOf(testkit.WorkloadEndpoint("a/Deployment/x"), testkit.ExternalEndpoint("203.0.113.9"), 6443, 50)) // what would be suspected, if this cluster's traffic counted
 		}
-		v.Flows.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: fs}, time.Now().Add(-time.Minute))
+		v.Flows.Apply(&ikhnosv1.FlowBatch{WindowSeconds: 60, Flows: fs}, time.Now().Add(-time.Minute))
 		if id == wide {
 			now := time.Now()
 			v.Paths["p"] = &connectivity.PathTrack{T: connectivity.IssuedTarget{ID: "p", Host: "198.51.100.60", Port: 6443, Source: "manual"}, At: now}

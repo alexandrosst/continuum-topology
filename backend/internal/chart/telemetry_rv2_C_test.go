@@ -16,7 +16,7 @@ import (
 // Cluster collector robustness across distributions and cluster sizes (review round 2, agent C). Each test pins one
 // behaviour that was verified against the real collector v0.160.0 and a real kube-apiserver.
 
-const rv2CCluster = "continuum-telemetry-cluster"
+const rv2CCluster = "ikhnos-telemetry-cluster"
 
 func rv2CDeployment(t *testing.T, args ...string) appsv1.Deployment {
 	t.Helper()
@@ -42,7 +42,7 @@ func rv2CService(t *testing.T, args ...string) map[string]any {
 func rv2CRBACResources(t *testing.T, args ...string) map[string][]string {
 	t.Helper()
 	got := map[string][]string{} // "group/resource" -> verbs
-	for _, rule := range render(t, args...).clusterroles["continuum-agent-telemetry"].Rules {
+	for _, rule := range render(t, args...).clusterroles["ikhnos-agent-telemetry"].Rules {
 		for _, g := range rule.APIGroups {
 			for _, res := range rule.Resources {
 				got[g+"/"+res] = rule.Verbs
@@ -473,7 +473,7 @@ func TestRV2CK8sAttributesWaitsForPodsAndAssociatesInOrder(t *testing.T) {
 func TestRV2CRenderedClusterConfigsLoadInTheRealCollector(t *testing.T) {
 	bin := os.Getenv("OTELCOL_CONTRIB")
 	if bin == "" {
-		bin = os.Getenv("CONTINUUM_OTELCOL")
+		bin = os.Getenv("IKHNOS_OTELCOL")
 	}
 	if bin == "" {
 		bin, _ = exec.LookPath("otelcol-contrib")
@@ -498,7 +498,7 @@ func TestRV2CRenderedClusterConfigsLoadInTheRealCollector(t *testing.T) {
 			t.Fatal(err)
 		}
 		cmd := exec.Command(bin, "validate", "--config", f)
-		cmd.Env = append(os.Environ(), "POD_IP=127.0.0.1", "NODE_NAME=n1", "CONTINUUM_TELEMETRY_RECEIVER_AUTH=t")
+		cmd.Env = append(os.Environ(), "POD_IP=127.0.0.1", "NODE_NAME=n1", "IKHNOS_TELEMETRY_RECEIVER_AUTH=t")
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Errorf("%s: the collector refuses the rendered config: %v\n%s", name, err, out)
 		}

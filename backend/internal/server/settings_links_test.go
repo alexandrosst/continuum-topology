@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"continuum/internal/kernel"
+	"ikhnos/internal/kernel"
 )
 
 func settingsWithLinks(ls ...kernel.LinkSetting) kernel.Settings {

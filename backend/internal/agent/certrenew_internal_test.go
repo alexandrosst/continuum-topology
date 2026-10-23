@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/certrenew"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/certrenew"
 )
 
-func findProblem(r *runner, code string) *continuumv1.Problem {
+func findProblem(r *runner, code string) *ikhnosv1.Problem {
 	for _, p := range r.probs.list() {
 		if p.Code == code {
 			return p
@@ -23,7 +23,7 @@ func findProblem(r *runner, code string) *continuumv1.Problem {
 // a success takes it away.
 func TestFailedCertRenewalBecomesAProblemOnlyWhenItMatters(t *testing.T) {
 	r := &runner{probs: newProblemSet()}
-	target := certrenew.Target{Namespace: "continuum-system", Name: "export-tls"}
+	target := certrenew.Target{Namespace: "ikhnos-system", Name: "export-tls"}
 	fail := func(left time.Duration, refused bool) certrenew.Result {
 		return certrenew.Result{Target: target, NotAfter: time.Now().Add(left), Err: errors.New("the server did not renew it: no longer sends"), Refused: refused}
 	}
@@ -34,11 +34,11 @@ func TestFailedCertRenewalBecomesAProblemOnlyWhenItMatters(t *testing.T) {
 	}
 	r.noteCertRenewal(fail(5*24*time.Hour, false))
 	p := findProblem(r, CodeCertRenewalFailing)
-	if p == nil || p.Severity != continuumv1.Problem_WARN || !strings.Contains(p.Message, "export-tls") || !strings.Contains(p.Message, "retried automatically") {
+	if p == nil || p.Severity != ikhnosv1.Problem_WARN || !strings.Contains(p.Message, "export-tls") || !strings.Contains(p.Message, "retried automatically") {
 		t.Fatalf("5 days left: %+v", p)
 	}
 	r.noteCertRenewal(fail(24*time.Hour, false))
-	if p = findProblem(r, CodeCertRenewalFailing); p == nil || p.Severity != continuumv1.Problem_ERROR {
+	if p = findProblem(r, CodeCertRenewalFailing); p == nil || p.Severity != ikhnosv1.Problem_ERROR {
 		t.Fatalf("1 day left: %+v", p)
 	}
 	r.noteCertRenewal(certrenew.Result{Target: target, NotAfter: time.Now().Add(10 * 24 * time.Hour), Renewed: true})

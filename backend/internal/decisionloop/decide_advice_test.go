@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"continuum/internal/advice"
-	"continuum/internal/twin"
+	"ikhnos/internal/advice"
+	"ikhnos/internal/twin"
 )
 
 var updateGolden = flag.Bool("update", false, "rewrite the golden files")

@@ -35,7 +35,7 @@ func TestClusterLinksAreOffByDefaultAndRenderNothing(t *testing.T) {
 	for name, d := range r.deployments {
 		for _, c := range d.Spec.Template.Spec.Containers {
 			for _, e := range c.Env {
-				if e.Name == "CONTINUUM_LINK_METRICS_LISTEN" {
+				if e.Name == "IKHNOS_LINK_METRICS_LISTEN" {
 					t.Errorf("%s sets %s while the signal is off", name, e.Name)
 				}
 			}
@@ -47,7 +47,7 @@ func TestClusterLinksAreOffByDefaultAndRenderNothing(t *testing.T) {
 		}
 	}
 	for _, d := range renderDocs(t, append(append([]string{}, agentTel...), "--set", "flowObserver.enabled=true")...) {
-		if d.name() == "continuum-agent-link-metrics" {
+		if d.name() == "ikhnos-agent-link-metrics" {
 			t.Error("the link metrics Service exists while the signal is off")
 		}
 	}
@@ -68,7 +68,7 @@ func TestClusterLinksAreServedByTheAgentAndScrapedByTheClusterCollector(t *testi
 	r := render(t, args...)
 
 	var agentContainer *corev1.Container
-	if d, ok := r.deployments["continuum-agent"]; ok {
+	if d, ok := r.deployments["ikhnos-agent"]; ok {
 		for i := range d.Spec.Template.Spec.Containers {
 			if d.Spec.Template.Spec.Containers[i].Name == "agent" {
 				agentContainer = &d.Spec.Template.Spec.Containers[i]
@@ -82,14 +82,14 @@ func TestClusterLinksAreServedByTheAgentAndScrapedByTheClusterCollector(t *testi
 	for _, e := range agentContainer.Env {
 		env[e.Name] = e.Value
 	}
-	if env["CONTINUUM_LINK_METRICS_LISTEN"] != ":9104" {
-		t.Errorf("CONTINUUM_LINK_METRICS_LISTEN = %q", env["CONTINUUM_LINK_METRICS_LISTEN"])
+	if env["IKHNOS_LINK_METRICS_LISTEN"] != ":9104" {
+		t.Errorf("IKHNOS_LINK_METRICS_LISTEN = %q", env["IKHNOS_LINK_METRICS_LISTEN"])
 	}
-	if env["CONTINUUM_FLOW_SECRET_FILE"] == "" {
+	if env["IKHNOS_FLOW_SECRET_FILE"] == "" {
 		t.Error("the agent has no flow secret to take reports with")
 	}
-	if got := env["CONTINUUM_TELEMETRY_SIGNALS"]; !strings.Contains(got, "clusterLinks") {
-		t.Errorf("the signal is not reported in CONTINUUM_TELEMETRY_SIGNALS: %q", got)
+	if got := env["IKHNOS_TELEMETRY_SIGNALS"]; !strings.Contains(got, "clusterLinks") {
+		t.Errorf("the signal is not reported in IKHNOS_TELEMETRY_SIGNALS: %q", got)
 	}
 	var port int32
 	for _, p := range agentContainer.Ports {
@@ -105,17 +105,17 @@ func TestClusterLinksAreServedByTheAgentAndScrapedByTheClusterCollector(t *testi
 	var cluster map[string]any
 	for _, d := range renderDocs(t, args...) {
 		switch {
-		case d.kind() == "Service" && d.name() == "continuum-agent-link-metrics":
+		case d.kind() == "Service" && d.name() == "ikhnos-agent-link-metrics":
 			svc = &corev1.Service{}
 			decodeInto(t, d, svc)
-		case d.kind() == "ConfigMap" && d.name() == "continuum-telemetry-cluster-config":
+		case d.kind() == "ConfigMap" && d.name() == "ikhnos-telemetry-cluster-config":
 			cluster = otelConfig(t, map[string]string{"otel-collector-config.yaml": d["data"].(map[string]any)["otel-collector-config.yaml"].(string)})
 		}
 	}
 	if svc == nil || len(svc.Spec.Ports) != 1 || svc.Spec.Ports[0].Port != 9104 || svc.Spec.Ports[0].TargetPort.StrVal != "link-metrics" {
 		t.Fatalf("service = %+v", svc)
 	}
-	if svc.Spec.Selector["app.kubernetes.io/name"] != "continuum-agent" {
+	if svc.Spec.Selector["app.kubernetes.io/name"] != "ikhnos-agent" {
 		t.Errorf("the Service selects %v, not the agent", svc.Spec.Selector)
 	}
 	if cluster == nil {
@@ -137,7 +137,7 @@ func TestClusterLinksAreServedByTheAgentAndScrapedByTheClusterCollector(t *testi
 		t.Fatalf("no cluster-links scrape job in %v", jobs)
 	}
 	target := job["static_configs"].([]any)[0].(map[string]any)["targets"].([]any)[0].(string)
-	if !strings.HasPrefix(target, "continuum-agent-link-metrics.") || !strings.HasSuffix(target, ".svc:9104") {
+	if !strings.HasPrefix(target, "ikhnos-agent-link-metrics.") || !strings.HasSuffix(target, ".svc:9104") {
 		t.Errorf("scrape target = %q", target)
 	}
 	if job["scrape_interval"] != "30s" {
@@ -171,7 +171,7 @@ func TestClusterLinksArePermittedThroughTheNetworkPolicies(t *testing.T) {
 	r := render(t, clusterLinksArgs(
 		"flowObserver.networkPolicy=true", "flowObserver.nodeCIDRs[0]=10.0.0.0/8",
 		"networkPolicy.telemetryEgress.enabled=true", "networkPolicy.telemetryEgress.allowedEgress[0].cidr=10.0.0.0/8", "networkPolicy.telemetryEgress.allowedEgress[0].ports[0]=4317")...)
-	ingress, ok := r.policies["continuum-agent-probe"]
+	ingress, ok := r.policies["ikhnos-agent-probe"]
 	if !ok {
 		t.Fatal("no agent ingress policy")
 	}
@@ -180,7 +180,7 @@ func TestClusterLinksArePermittedThroughTheNetworkPolicies(t *testing.T) {
 		for _, p := range rule.Ports {
 			if p.Port != nil && p.Port.IntValue() == 9104 {
 				found = true
-				if len(rule.From) != 1 || rule.From[0].PodSelector == nil || rule.From[0].PodSelector.MatchLabels["app.kubernetes.io/name"] != "continuum-telemetry-cluster" {
+				if len(rule.From) != 1 || rule.From[0].PodSelector == nil || rule.From[0].PodSelector.MatchLabels["app.kubernetes.io/name"] != "ikhnos-telemetry-cluster" {
 					t.Errorf("port 9104 is open to %+v, want only the cluster collector", rule.From)
 				}
 			}
@@ -189,7 +189,7 @@ func TestClusterLinksArePermittedThroughTheNetworkPolicies(t *testing.T) {
 	if !found {
 		t.Error("the agent's ingress policy does not let the collector reach port 9104, so the scrape would be refused")
 	}
-	scrape, ok := r.policies["continuum-telemetry-scrape-egress"]
+	scrape, ok := r.policies["ikhnos-telemetry-scrape-egress"]
 	if !ok {
 		t.Fatal("no scrape egress policy")
 	}
@@ -198,7 +198,7 @@ func TestClusterLinksArePermittedThroughTheNetworkPolicies(t *testing.T) {
 		for _, p := range rule.Ports {
 			if p.Port != nil && p.Port.IntValue() == 9104 {
 				found = true
-				if len(rule.To) != 1 || rule.To[0].PodSelector == nil || rule.To[0].PodSelector.MatchLabels["app.kubernetes.io/name"] != "continuum-agent" {
+				if len(rule.To) != 1 || rule.To[0].PodSelector == nil || rule.To[0].PodSelector.MatchLabels["app.kubernetes.io/name"] != "ikhnos-agent" {
 					t.Errorf("the collector may reach %+v on 9104, want only the agent", rule.To)
 				}
 			}
@@ -213,9 +213,9 @@ func TestClusterLinksArePermittedThroughTheNetworkPolicies(t *testing.T) {
 // itself are not counted as the link's traffic; with the signal off the variable is not there.
 func TestTheAgentIsToldItsOwnAddresses(t *testing.T) {
 	has := func(args []string) (corev1.EnvVar, bool) {
-		for _, c := range render(t, args...).deployments["continuum-agent"].Spec.Template.Spec.Containers {
+		for _, c := range render(t, args...).deployments["ikhnos-agent"].Spec.Template.Spec.Containers {
 			for _, e := range c.Env {
-				if e.Name == "CONTINUUM_LINK_OWN_ADDRESSES" {
+				if e.Name == "IKHNOS_LINK_OWN_ADDRESSES" {
 					return e, true
 				}
 			}
@@ -224,7 +224,7 @@ func TestTheAgentIsToldItsOwnAddresses(t *testing.T) {
 	}
 	e, ok := has(clusterLinksArgs())
 	if !ok || e.ValueFrom == nil || e.ValueFrom.FieldRef == nil || e.ValueFrom.FieldRef.FieldPath != "status.podIPs" {
-		t.Errorf("CONTINUUM_LINK_OWN_ADDRESSES = %+v (found %v), want the pod's status.podIPs", e, ok)
+		t.Errorf("IKHNOS_LINK_OWN_ADDRESSES = %+v (found %v), want the pod's status.podIPs", e, ok)
 	}
 	if _, ok := has(append(append([]string{}, agentTel...), "--set", "flowObserver.enabled=true")); ok {
 		t.Error("the own-addresses variable is set while the link metrics are off")

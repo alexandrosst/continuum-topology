@@ -18,7 +18,7 @@ import (
 	"strconv"
 	"strings"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 )
 
 // DefaultTable is where the kernel exposes the table. It is the host's table only when the collector
@@ -170,7 +170,7 @@ func (r *Reader) Close() error     { return nil }
 // Collect reads the table and returns what is new since the previous reading. Each connection is
 // offered from both ends (as the caller's outbound connection and as the callee's inbound one), and the
 // agent, which knows which addresses are its pods, keeps the one that applies.
-func (r *Reader) Collect() ([]*continuumv1.RawFlow, uint64, error) {
+func (r *Reader) Collect() ([]*ikhnosv1.RawFlow, uint64, error) {
 	f, err := os.Open(r.path)
 	if err != nil {
 		return nil, 0, err
@@ -187,14 +187,14 @@ func (r *Reader) Collect() ([]*continuumv1.RawFlow, uint64, error) {
 	return flows, 0, nil
 }
 
-func diff(in io.Reader, protos map[string]bool, prev map[tuple][2]uint64, baseline bool) ([]*continuumv1.RawFlow, map[tuple][2]uint64, bool, error) {
+func diff(in io.Reader, protos map[string]bool, prev map[tuple][2]uint64, baseline bool) ([]*ikhnosv1.RawFlow, map[tuple][2]uint64, bool, error) {
 	type ck struct {
 		proto    string
 		src, dst string
 		port     uint32
 		client   bool
 	}
-	sums := map[ck]*continuumv1.RawFlow{}
+	sums := map[ck]*ikhnosv1.RawFlow{}
 	next := map[tuple][2]uint64{}
 	known := false
 
@@ -204,7 +204,7 @@ func diff(in io.Reader, protos map[string]bool, prev map[tuple][2]uint64, baseli
 		}
 		s, ok := sums[k]
 		if !ok {
-			s = &continuumv1.RawFlow{Client: k.client, LocalIp: local, PeerIp: peer, Port: port, Protocol: k.proto}
+			s = &ikhnosv1.RawFlow{Client: k.client, LocalIp: local, PeerIp: peer, Port: port, Protocol: k.proto}
 			sums[k] = s
 		}
 		s.Connections += conns
@@ -248,7 +248,7 @@ func diff(in io.Reader, protos map[string]bool, prev map[tuple][2]uint64, baseli
 	if err := sc.Err(); err != nil {
 		return nil, nil, false, err
 	}
-	out := make([]*continuumv1.RawFlow, 0, len(sums))
+	out := make([]*ikhnosv1.RawFlow, 0, len(sums))
 	for _, s := range sums {
 		out = append(out, s)
 	}

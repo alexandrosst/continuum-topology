@@ -38,7 +38,7 @@ const cap = (w: string) => w.charAt(0).toUpperCase() + w.slice(1)
 /**
  * The tags a person puts on everything this install emits. Written to the chart as one list, inserted rather
  * than overwritten (a name an application already sets on its own telemetry keeps the application's value),
- * and the `continuum.` names are refused because those are what Ikhnos adds itself. `suggestion` is a
+ * and the `ikhnos.` names are refused because those are what Ikhnos adds itself. `suggestion` is a
  * name and value worth offering in one click (the cluster's own name), left out once it is already there.
  */
 export function TagEditor({ value, onChange, testIdPrefix, suggestion }: { value: TelemetryInput; onChange: (v: TelemetryInput) => void; testIdPrefix: string; suggestion?: TagEntry }) {
@@ -147,9 +147,9 @@ export default function ProcessOptions({
     <div className="space-y-3" data-testid={`${p}-step-process`}>
       <Card title="Added to everything" hint="So whoever reads this data can tell where it came from. These win over anything else that sets the same names." testId={`${p}-process-auto`}>
         <div className="flex flex-wrap gap-1.5">
-          <Fact name="continuum.org.id" testId={`${p}-fact-org`} />
-          <Fact name="continuum.cluster.id" testId={`${p}-fact-cluster`} />
-          {scope && <Fact name="continuum.scope" value={scope} testId={`${p}-fact-scope`} />}
+          <Fact name="ikhnos.org.id" testId={`${p}-fact-org`} />
+          <Fact name="ikhnos.cluster.id" testId={`${p}-fact-cluster`} />
+          {scope && <Fact name="ikhnos.scope" value={scope} testId={`${p}-fact-scope`} />}
         </div>
         {scope === '' && <p className="text-xs text-nb-500">No scope tag: this covers everything the agent can see.</p>}
       </Card>

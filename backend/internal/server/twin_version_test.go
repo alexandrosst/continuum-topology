@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/store"
-	"continuum/internal/testkit"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/store"
+	"ikhnos/internal/testkit"
 )
 
 // modelStateStore fails PutModelState while told to, and counts the calls that reached it.
@@ -37,7 +37,7 @@ func TestAModelVersionThatCouldNotBeSavedIsSavedLater(t *testing.T) {
 	ms := &modelStateStore{Store: h.C.Store}
 	h.C.Store = ms
 	ag := twinAgent(t, a.env, h, testkit.FP)
-	h.ApplySync(ag, testkit.TwinFull(testkit.FP, []*continuumv1.NodeFacts{testkit.TwinNode("n1", "")}, testkit.TwinWorkload("shop", "cart")), false)
+	h.ApplySync(ag, testkit.TwinFull(testkit.FP, []*ikhnosv1.NodeFacts{testkit.TwinNode("n1", "")}, testkit.TwinWorkload("shop", "cart")), false)
 
 	m1, _, err := h.Model(a.ctx)
 	if err != nil {
@@ -57,7 +57,7 @@ func TestAModelVersionThatCouldNotBeSavedIsSavedLater(t *testing.T) {
 
 	// The store stops accepting writes; the model changes and is read.
 	ms.fail.Store(true)
-	h.ApplySync(ag, testkit.TwinFull(testkit.FP, []*continuumv1.NodeFacts{testkit.TwinNode("n1", "")}, testkit.TwinWorkload("shop", "cart"), testkit.TwinWorkload("shop", "pay")), true)
+	h.ApplySync(ag, testkit.TwinFull(testkit.FP, []*ikhnosv1.NodeFacts{testkit.TwinNode("n1", "")}, testkit.TwinWorkload("shop", "cart"), testkit.TwinWorkload("shop", "pay")), true)
 	*a.now = a.now.Add(3 * time.Second) // past the short cache
 	m2, _, err := h.Model(a.ctx)
 	if err != nil {
@@ -123,7 +123,7 @@ func TestAModelVersionBeingSavedDoesNotHoldUpTheTwin(t *testing.T) {
 	bs := &blockingModelStore{Store: h.C.Store, arrived: make(chan struct{}, 1), release: make(chan struct{})}
 	h.C.Store = bs
 	ag := twinAgent(t, a.env, h, testkit.FP)
-	h.ApplySync(ag, testkit.TwinFull(testkit.FP, []*continuumv1.NodeFacts{testkit.TwinNode("n1", "")}, testkit.TwinWorkload("shop", "cart")), false)
+	h.ApplySync(ag, testkit.TwinFull(testkit.FP, []*ikhnosv1.NodeFacts{testkit.TwinNode("n1", "")}, testkit.TwinWorkload("shop", "cart")), false)
 
 	type result struct {
 		version int64

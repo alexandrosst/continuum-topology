@@ -101,7 +101,7 @@ An earlier version let the server mint a bearer token for an nginx gateway in fr
 ## The CA private key: bare binary vs. the chart you actually install
 
 `internal/pki`'s own warning, logged whenever `--ca-key-passphrase-file` isn't set, says the CA private key
-is stored **UNENCRYPTED on disk** (mode `0600`) — true, and worth taking seriously for a bare `continuum-server`
+is stored **UNENCRYPTED on disk** (mode `0600`) — true, and worth taking seriously for a bare `ikhnos-server`
 binary run without that flag. It is not, however, what most people actually get: the Helm chart installs
 with `pki.encryptAtRest: true` by default, managing an auto-generated passphrase `Secret` itself and
 encrypting the key (Argon2id + AES-256-GCM) the first time the server starts against it. That default is

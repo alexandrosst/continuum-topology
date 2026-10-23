@@ -14,9 +14,9 @@ import (
 	"sync"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/agent/collect"
-	"continuum/internal/measure"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/agent/collect"
+	"ikhnos/internal/measure"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -36,12 +36,12 @@ const maxChunks = 4096
 
 // splitSync cuts a Sync into messages of about `limit` encoded bytes, in order. The cluster facts and module list go in the
 // first. One message when it is small enough; then chunk_total stays 0 and it is an ordinary sync.
-func splitSync(s *continuumv1.Sync, limit int) []*continuumv1.Sync {
+func splitSync(s *ikhnosv1.Sync, limit int) []*ikhnosv1.Sync {
 	if limit <= 0 || proto.Size(s) <= limit {
-		return []*continuumv1.Sync{s}
+		return []*ikhnosv1.Sync{s}
 	}
-	var chunks []*continuumv1.Sync
-	cur, size := &continuumv1.Sync{Seq: s.Seq, Full: s.Full, Cluster: s.Cluster, Modules: s.Modules}, 0
+	var chunks []*ikhnosv1.Sync
+	cur, size := &ikhnosv1.Sync{Seq: s.Seq, Full: s.Full, Cluster: s.Cluster, Modules: s.Modules}, 0
 	if s.Cluster != nil {
 		size += proto.Size(s.Cluster) + 4
 	}
@@ -51,7 +51,7 @@ func splitSync(s *continuumv1.Sync, limit int) []*continuumv1.Sync {
 	room := func(n int) {
 		if size > 0 && size+n > limit {
 			chunks = append(chunks, cur)
-			cur, size = &continuumv1.Sync{Seq: s.Seq, Full: s.Full}, 0
+			cur, size = &ikhnosv1.Sync{Seq: s.Seq, Full: s.Full}, 0
 		}
 		size += n
 	}
@@ -109,7 +109,7 @@ type overrides struct {
 	ignored  []string        // what was not applied, and why
 }
 
-func resolveOverrides(c *continuumv1.Config, installedTier int) overrides {
+func resolveOverrides(c *ikhnosv1.Config, installedTier int) overrides {
 	o := overrides{approved: int(c.ApprovedAccessTier), paused: map[string]bool{}}
 	o.tier = min(o.approved, installedTier)
 	if o.approved > installedTier {
@@ -144,12 +144,12 @@ func resolveOverrides(c *continuumv1.Config, installedTier int) overrides {
 // applyLinks gives the link meter the peer clusters the server named. Links are labelled from observed traffic, which is
 // workload-level information, so they follow the same rules as flows: nothing is measured below access tier 2, or while the
 // server has paused the flow collector.
-func (r *runner) applyLinks(c *continuumv1.Config, o overrides) {
+func (r *runner) applyLinks(c *ikhnosv1.Config, o overrides) {
 	if r.cfg.Links == nil {
 		return
 	}
-	var peers []*continuumv1.LinkPeer
-	var iperf *continuumv1.LinkIperfServer
+	var peers []*ikhnosv1.LinkPeer
+	var iperf *ikhnosv1.LinkIperfServer
 	if o.tier >= 2 && !o.paused[collectorFlow] {
 		peers, iperf = c.LinkPeers, c.LinkIperfServer
 	}
@@ -188,7 +188,7 @@ func (r *runner) enforce(o overrides) {
 	r.dg.paused, r.dg.excluded = o.paused, o.excluded
 	r.dg.mu.Unlock()
 	if len(o.ignored) > 0 {
-		r.probs.raise("override", CodeOverrideIgnored, continuumv1.Problem_INFO, "Part of what the server pushed was not applied, because it would give the agent more than this install allows or is not something it can do: "+strings.Join(o.ignored, "; ")+". Only `helm upgrade --reset-then-reuse-values` can widen what the agent may do.", 0)
+		r.probs.raise("override", CodeOverrideIgnored, ikhnosv1.Problem_INFO, "Part of what the server pushed was not applied, because it would give the agent more than this install allows or is not something it can do: "+strings.Join(o.ignored, "; ")+". Only `helm upgrade --reset-then-reuse-values` can widen what the agent may do.", 0)
 	} else {
 		r.probs.clear("override")
 	}
@@ -231,8 +231,8 @@ func (r *runner) safelyReconnect(name string, fn func(), errs chan<- error) {
 
 func (r *runner) panicked(name string, p any) {
 	r.log.Error("internal error: a task panicked and was restarted", "task", name, "panic", fmt.Sprint(p), "stack", string(debug.Stack()))
-	r.probs.raise("internal:"+name, CodeInternalError, continuumv1.Problem_ERROR,
-		fmt.Sprintf("An internal error stopped the agent's %q task (%s). The agent restarted it and carries on; the stack is in the agent's log (kubectl -n continuum-system logs deploy/continuum-agent). Please report it.", name, clipMsg(fmt.Sprint(p), 120)), internalErrorRemembered)
+	r.probs.raise("internal:"+name, CodeInternalError, ikhnosv1.Problem_ERROR,
+		fmt.Sprintf("An internal error stopped the agent's %q task (%s). The agent restarted it and carries on; the stack is in the agent's log (kubectl -n ikhnos-system logs deploy/ikhnos-agent). Please report it.", name, clipMsg(fmt.Sprint(p), 120)), internalErrorRemembered)
 	r.panics.Add(1)
 }
 
@@ -250,9 +250,9 @@ func (r *runner) noteStreamError(err error) {
 	case codes.ResourceExhausted, codes.InvalidArgument:
 		msg := clipMsg(st.Message(), 300)
 		if strings.Contains(msg, "limit for") || strings.Contains(msg, "may carry at most") {
-			r.probs.raise("sync", CodeSyncTooLarge, continuumv1.Problem_ERROR, "The server refused this agent's picture of the cluster because it is larger than the server accepts ("+msg+"). Nothing new is arriving until it fits: narrow what the agent reports with scope.namespaces or scope.exclude (`helm upgrade --reset-then-reuse-values`), or ask whoever runs the server to raise its limits.", 0)
+			r.probs.raise("sync", CodeSyncTooLarge, ikhnosv1.Problem_ERROR, "The server refused this agent's picture of the cluster because it is larger than the server accepts ("+msg+"). Nothing new is arriving until it fits: narrow what the agent reports with scope.namespaces or scope.exclude (`helm upgrade --reset-then-reuse-values`), or ask whoever runs the server to raise its limits.", 0)
 		} else {
-			r.probs.raise("sync", CodeServerLimitsRefused, continuumv1.Problem_ERROR, "The server refused an update from this agent: "+msg+". The agent retries; if it keeps happening, look at the server's log.", 0)
+			r.probs.raise("sync", CodeServerLimitsRefused, ikhnosv1.Problem_ERROR, "The server refused an update from this agent: "+msg+". The agent retries; if it keeps happening, look at the server's log.", 0)
 		}
 	}
 }
@@ -285,7 +285,7 @@ func (r *runner) stream(ctx context.Context, id *Identity) error {
 	// and let the main select loop's existing `case err := <-recvErr: return err` do one honest thing: end this
 	// connection and let Run's outer loop (run.go) reconnect with backoff, rather than each goroutine silently
 	// going quiet in its own different way.
-	srv := make(chan *continuumv1.ServerMessage)
+	srv := make(chan *ikhnosv1.ServerMessage)
 	recvErr := make(chan error, 1)
 	bg.Add(1)
 	go func() {
@@ -298,12 +298,12 @@ func (r *runner) stream(ctx context.Context, id *Identity) error {
 		r.safelyReconnect("certificate renewal", func() { r.renewLoop(ctx, conn, id, renewAt, renewed) }, recvErr)
 	}()
 
-	s, err := continuumv1.NewAgentServiceClient(conn).Connect(sctx)
+	s, err := ikhnosv1.NewAgentServiceClient(conn).Connect(sctx)
 	if err != nil {
 		return err
 	}
 	// Hello says what this agent is and what its install allows: the ceiling, before anything else is known.
-	if err := s.Send(&continuumv1.AgentMessage{Msg: &continuumv1.AgentMessage_Hello{Hello: r.hello()}}); err != nil {
+	if err := s.Send(&ikhnosv1.AgentMessage{Msg: &ikhnosv1.AgentMessage_Hello{Hello: r.hello()}}); err != nil {
 		return err
 	}
 	bg.Add(1)
@@ -340,9 +340,9 @@ func (r *runner) stream(ctx context.Context, id *Identity) error {
 		}
 		return err
 	}
-	send := func(m *continuumv1.AgentMessage) error { return sendErr(s.Send(m)) }
+	send := func(m *ikhnosv1.AgentMessage) error { return sendErr(s.Send(m)) }
 
-	var cfg *continuumv1.Config
+	var cfg *ikhnosv1.Config
 	for cfg == nil {
 		select {
 		case m := <-srv:
@@ -370,18 +370,18 @@ func (r *runner) stream(ctx context.Context, id *Identity) error {
 	r.cfg.Health.Connected()
 
 	var seq, fullSeq uint64
-	var prev *continuumv1.Sync
+	var prev *ikhnosv1.Sync
 	chunkBytes := r.cfg.ChunkBytes
 	if chunkBytes == 0 {
 		chunkBytes = ChunkBytes
 	}
-	sendSync := func(out *continuumv1.Sync) error {
+	sendSync := func(out *ikhnosv1.Sync) error {
 		msgs := splitSync(out, chunkBytes)
 		if len(msgs) > maxChunks {
 			return fmt.Errorf("the picture of this cluster is too large to send even in pieces (%d messages)", len(msgs))
 		}
 		for _, m := range msgs {
-			if err := send(&continuumv1.AgentMessage{Msg: &continuumv1.AgentMessage_Sync{Sync: m}}); err != nil {
+			if err := send(&ikhnosv1.AgentMessage{Msg: &ikhnosv1.AgentMessage_Sync{Sync: m}}); err != nil {
 				return err
 			}
 		}
@@ -435,8 +435,8 @@ func (r *runner) stream(ctx context.Context, id *Identity) error {
 	// The digest of the last Config applied, echoed in every heartbeat so the server knows what is in force and can send again one
 	// that was lost. Empty from a server that names none.
 	appliedDigest := cfg.Digest
-	beatMsg := func(force bool) *continuumv1.AgentMessage {
-		return &continuumv1.AgentMessage{Msg: &continuumv1.AgentMessage_Heartbeat{Heartbeat: &continuumv1.Heartbeat{
+	beatMsg := func(force bool) *ikhnosv1.AgentMessage {
+		return &ikhnosv1.AgentMessage{Msg: &ikhnosv1.AgentMessage_Heartbeat{Heartbeat: &ikhnosv1.Heartbeat{
 			Modules: r.collector.Modules(), ClockSkewMs: r.clockSkewMs(), Diagnostics: r.diagToSend(force), SelfStats: r.selfStats(), LinkCapabilities: r.linkCapabilities(),
 			AppliedConfigDigest: appliedDigest}}}
 	}
@@ -457,7 +457,7 @@ func (r *runner) stream(ctx context.Context, id *Identity) error {
 	}
 	diagCheck := time.NewTicker(checkEvery)
 	defer diagCheck.Stop()
-	resyncEvery := func(c *continuumv1.Config) time.Duration {
+	resyncEvery := func(c *ikhnosv1.Config) time.Duration {
 		if c != nil && c.ResyncSeconds > 0 {
 			return r.cfg.Floors.resync(time.Duration(c.ResyncSeconds) * time.Second)
 		}
@@ -475,7 +475,7 @@ func (r *runner) stream(ctx context.Context, id *Identity) error {
 	var measureFirst <-chan time.Time
 	measurePaused := false
 	measureBusy := false
-	measured := make(chan *continuumv1.Measurements, 1)
+	measured := make(chan *ikhnosv1.Measurements, 1)
 	defer func() {
 		if measureTicker != nil {
 			measureTicker.Stop()
@@ -499,15 +499,15 @@ func (r *runner) stream(ctx context.Context, id *Identity) error {
 				if p := recover(); p != nil {
 					r.panicked("connection timing", p)
 					select {
-					case measured <- &continuumv1.Measurements{Refused: uint32(len(ts))}:
+					case measured <- &ikhnosv1.Measurements{Refused: uint32(len(ts))}:
 					case <-ctx.Done():
 					}
 				}
 			}()
 			res, refused := measure.Round(ctx, ts, r.cfg.MeasureDial, nil)
-			m := &continuumv1.Measurements{Refused: uint32(refused)}
+			m := &ikhnosv1.Measurements{Refused: uint32(refused)}
 			for _, x := range res {
-				m.Results = append(m.Results, &continuumv1.PathResult{TargetId: x.ID, Samples: uint32(x.Samples), Failed: uint32(x.Failed), RttMinMs: x.Min, RttP50Ms: x.P50, RttP95Ms: x.P95})
+				m.Results = append(m.Results, &ikhnosv1.PathResult{TargetId: x.ID, Samples: uint32(x.Samples), Failed: uint32(x.Failed), RttMinMs: x.Min, RttP50Ms: x.P50, RttP95Ms: x.P95})
 			}
 			select {
 			case measured <- m:
@@ -515,7 +515,7 @@ func (r *runner) stream(ctx context.Context, id *Identity) error {
 			}
 		}()
 	}
-	applyConfig := func(c *continuumv1.Config, o overrides) {
+	applyConfig := func(c *ikhnosv1.Config, o overrides) {
 		r.applyLinks(c, o)
 		if p := resyncEvery(c); p != resyncPeriod {
 			resyncPeriod = p
@@ -574,7 +574,7 @@ func (r *runner) stream(ctx context.Context, id *Identity) error {
 		r.dg.mu.Lock()
 		r.dg.lastFlowBatchFlows, r.dg.lastFlowBatchBytes = len(b.Flows), proto.Size(b)
 		r.dg.mu.Unlock()
-		return send(&continuumv1.AgentMessage{Msg: &continuumv1.AgentMessage_Flows{Flows: b}})
+		return send(&ikhnosv1.AgentMessage{Msg: &ikhnosv1.AgentMessage_Flows{Flows: b}})
 	}
 	if r.cfg.Flows != nil && tier >= 2 {
 		// The collectors keep reporting while there is no stream, so the aggregator holds what they saw during the
@@ -638,7 +638,7 @@ func (r *runner) stream(ctx context.Context, id *Identity) error {
 			}
 		case <-diagCheck.C:
 			if d := r.diagToSend(false); d != nil {
-				if err := send(&continuumv1.AgentMessage{Msg: &continuumv1.AgentMessage_Heartbeat{Heartbeat: &continuumv1.Heartbeat{
+				if err := send(&ikhnosv1.AgentMessage{Msg: &ikhnosv1.AgentMessage_Heartbeat{Heartbeat: &ikhnosv1.Heartbeat{
 					Modules: r.collector.Modules(), ClockSkewMs: r.clockSkewMs(), Diagnostics: d, SelfStats: r.selfStats(), LinkCapabilities: r.linkCapabilities()}}}); err != nil {
 					return err
 				}
@@ -669,7 +669,7 @@ func (r *runner) stream(ctx context.Context, id *Identity) error {
 			r.dg.mu.Lock()
 			r.dg.lastRound, r.dg.lastResults = time.Now(), len(m.Results)
 			r.dg.mu.Unlock()
-			if err := send(&continuumv1.AgentMessage{Msg: &continuumv1.AgentMessage_Measurements{Measurements: m}}); err != nil {
+			if err := send(&ikhnosv1.AgentMessage{Msg: &ikhnosv1.AgentMessage_Measurements{Measurements: m}}); err != nil {
 				return err
 			}
 		case <-flowTick:
@@ -698,5 +698,5 @@ func (r *runner) probeIdentity(ctx context.Context, id *Identity) {
 
 func (r *runner) identityUnwritable(err error) {
 	r.log.Error("cannot write the agent's identity", "err", err)
-	r.probs.raise("identity", CodeIdentityUnwritable, continuumv1.Problem_ERROR, "The agent cannot write its identity (the Secret it keeps its key and certificate in): "+clipMsg(err.Error(), 200)+". It works now, but the certificate it renews every day cannot be saved, so it will lose its identity when the current one expires. Check the Role that grants it update on that one Secret (`kubectl -n continuum-system get role,rolebinding`) and restore it with `helm upgrade --reset-then-reuse-values`.", 0)
+	r.probs.raise("identity", CodeIdentityUnwritable, ikhnosv1.Problem_ERROR, "The agent cannot write its identity (the Secret it keeps its key and certificate in): "+clipMsg(err.Error(), 200)+". It works now, but the certificate it renews every day cannot be saved, so it will lose its identity when the current one expires. Check the Role that grants it update on that one Secret (`kubectl -n ikhnos-system get role,rolebinding`) and restore it with `helm upgrade --reset-then-reuse-values`.", 0)
 }

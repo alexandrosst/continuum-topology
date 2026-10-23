@@ -14,10 +14,10 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/connectivity"
-	"continuum/internal/kernel"
-	"continuum/internal/link"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/connectivity"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/link"
 )
 
 // newOtherKey is the private key of some other cluster.
@@ -127,7 +127,7 @@ func TestRealIperf3AuthenticatedRunWithIssuedCredentials(t *testing.T) {
 		}
 		return p
 	}
-	client := func() *continuumv1.LinkIperfClient { return cr.cfg(cr.first).LinkPeers[0].IperfClient }
+	client := func() *ikhnosv1.LinkIperfClient { return cr.cfg(cr.first).LinkPeers[0].IperfClient }
 	c := client()
 
 	// The issued credentials work.

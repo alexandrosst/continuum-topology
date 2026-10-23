@@ -4,11 +4,11 @@ import (
 	"sort"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/agents"
-	"continuum/internal/interpret"
-	"continuum/internal/measure"
-	"continuum/internal/observed"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/agents"
+	"ikhnos/internal/interpret"
+	"ikhnos/internal/measure"
+	"ikhnos/internal/observed"
 
 	"google.golang.org/protobuf/proto"
 )
@@ -90,7 +90,7 @@ func DeriveTargets(ft *observed.FlowTable) []IssuedTarget {
 	byIP := map[string]*cand{}
 	for _, e := range ft.Edges {
 		k := e.Key
-		if k.Src.Kind != continuumv1.FlowEndpoint_WORKLOAD || k.Dst.Kind != continuumv1.FlowEndpoint_EXTERNAL || k.Noise != "" || k.Port == 0 {
+		if k.Src.Kind != ikhnosv1.FlowEndpoint_WORKLOAD || k.Dst.Kind != ikhnosv1.FlowEndpoint_EXTERNAL || k.Noise != "" || k.Port == 0 {
 			continue
 		}
 		if k.Protocol != "" && k.Protocol != "tcp" {
@@ -143,10 +143,10 @@ type ConfigFacts struct {
 	MeasureSeconds    int32
 
 	// Peers are the link peers as the organisation's pairs make them for this cluster, before credentials are handed out.
-	Peers []*continuumv1.LinkPeer
+	Peers []*ikhnosv1.LinkPeer
 	// IperfClients are the client credentials by the id of the peer they test; IperfServer is the server side for this cluster.
-	IperfClients map[string]*continuumv1.LinkIperfClient
-	IperfServer  *continuumv1.LinkIperfServer
+	IperfClients map[string]*ikhnosv1.LinkIperfClient
+	IperfServer  *ikhnosv1.LinkIperfServer
 
 	// The candidate probe targets, in the order they are issued: chosen by an administrator, derived to test an address, and derived
 	// from observed flows (only at tier 2 and above).
@@ -155,7 +155,7 @@ type ConfigFacts struct {
 
 // configBuild is a Config being compiled and the targets issued with it.
 type configBuild struct {
-	cfg    *continuumv1.Config
+	cfg    *ikhnosv1.Config
 	issued []IssuedTarget
 }
 
@@ -186,7 +186,7 @@ var configSections = []configSection{
 		// has the role: the client side to the runner's LinkPeer for the server, the server side to the server's own Config. The peers
 		// are copied, so the facts are left as they were given.
 		for _, p := range f.Peers {
-			lp := proto.Clone(p).(*continuumv1.LinkPeer)
+			lp := proto.Clone(p).(*ikhnosv1.LinkPeer)
 			if lp.Throughput {
 				lp.IperfClient = f.IperfClients[lp.ClusterId]
 			}
@@ -210,7 +210,7 @@ var configSections = []configSection{
 			ts = ts[:measure.MaxTargets]
 		}
 		for _, t := range ts {
-			b.cfg.ProbeTargets = append(b.cfg.ProbeTargets, &continuumv1.ProbeTarget{Id: t.ID, Host: t.Host, Port: uint32(t.Port)})
+			b.cfg.ProbeTargets = append(b.cfg.ProbeTargets, &ikhnosv1.ProbeTarget{Id: t.ID, Host: t.Host, Port: uint32(t.Port)})
 		}
 		if len(ts) > 0 {
 			b.cfg.MeasureSeconds = f.MeasureSeconds
@@ -226,8 +226,8 @@ var configEnvelope = []string{"server_time_unix", "digest"}
 // CompileConfig is the whole of what an agent is told, decided from the facts alone, section by section: what it may send, how
 // often to check itself, the link peers and which credentials go where, and which targets it measures. It returns the Config, with
 // its digest, and the targets it issued. It reads nothing and records nothing.
-func CompileConfig(f ConfigFacts) (*continuumv1.Config, []IssuedTarget) {
-	b := &configBuild{cfg: &continuumv1.Config{}}
+func CompileConfig(f ConfigFacts) (*ikhnosv1.Config, []IssuedTarget) {
+	b := &configBuild{cfg: &ikhnosv1.Config{}}
 	for _, s := range configSections {
 		s.fill(f, b)
 	}

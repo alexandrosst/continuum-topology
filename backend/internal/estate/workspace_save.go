@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 
-	"continuum/internal/kernel"
-	"continuum/internal/store"
-	"continuum/internal/workspace"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/store"
+	"ikhnos/internal/workspace"
 )
 
 // The human layer's document (saved views, declared applications): what may be stored, and what a save does besides storing it.

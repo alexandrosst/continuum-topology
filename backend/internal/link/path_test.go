@@ -33,7 +33,7 @@ func TestARouteChangeIsCountedOnlyWhenTheNewRouteIsSeenTwiceInARow(t *testing.T)
 	m := probeMeter(t)
 	m.EnableProbes()
 	changes := func() string {
-		return render(m)[`continuum_link_path_changes_total{cluster="cl-me",peer="cl-a"}`]
+		return render(m)[`ikhnos_link_path_changes_total{cluster="cl-me",peer="cl-a"}`]
 	}
 	obs := func(route string) { m.ObservePath("cl-a", PathResult{Route: route, Reached: true, Hops: 5, MTU: 1500}) }
 	obs("aaa")
@@ -70,7 +70,7 @@ func TestOnlyATraceThatReachedTheDestinationTakesPartInRouteChanges(t *testing.T
 	m := probeMeter(t)
 	m.EnableProbes()
 	changes := func() string {
-		return render(m)[`continuum_link_path_changes_total{cluster="cl-me",peer="cl-a"}`]
+		return render(m)[`ikhnos_link_path_changes_total{cluster="cl-me",peer="cl-a"}`]
 	}
 	cut := func(route string) { m.ObservePath("cl-a", PathResult{Route: route, Reached: false}) }
 	hole := func(route string) { m.ObservePath("cl-a", PathResult{Route: route, Blackhole: true}) }
@@ -100,10 +100,10 @@ func TestPathSeriesAreOnlyWrittenForWhatWasLearned(t *testing.T) {
 	got := render(m)
 	base := `{cluster="cl-me",peer="cl-a"}`
 	for k, want := range map[string]string{
-		"continuum_link_path_mtu_bytes" + base:                      "1400",
-		"continuum_link_path_reached" + base:                        "1",
-		"continuum_link_path_mtu_blackhole" + base:                  "0",
-		"continuum_link_path_last_success_timestamp_seconds" + base: "1700000000",
+		"ikhnos_link_path_mtu_bytes" + base:                      "1400",
+		"ikhnos_link_path_reached" + base:                        "1",
+		"ikhnos_link_path_mtu_blackhole" + base:                  "0",
+		"ikhnos_link_path_last_success_timestamp_seconds" + base: "1700000000",
 	} {
 		if got[k] != want {
 			t.Errorf("%s = %q, want %q", k, got[k], want)
@@ -115,11 +115,11 @@ func TestPathSeriesAreOnlyWrittenForWhatWasLearned(t *testing.T) {
 	if hasKey(got, "path_mtu_bytes") {
 		t.Errorf("values the latest probe did not learn are still shown: %v", got)
 	}
-	if got["continuum_link_path_mtu_blackhole"+base] != "1" || got["continuum_link_path_reached"+base] != "0" {
+	if got["ikhnos_link_path_mtu_blackhole"+base] != "1" || got["ikhnos_link_path_reached"+base] != "0" {
 		t.Errorf("black hole not shown: %v", got)
 	}
 	m.PathFailed("cl-a")
-	if render(m)["continuum_link_path_probe_failures_total"+base] != "1" {
+	if render(m)["ikhnos_link_path_probe_failures_total"+base] != "1" {
 		t.Error("failure not counted")
 	}
 }
@@ -157,14 +157,14 @@ func TestAPathProbeThatCannotRunIsCountedAndAnUnsupportedAddressIsSkippedQuietly
 	r.PathEvery = 10 * time.Minute
 	r.Path = func(context.Context, netip.Addr) (PathResult, error) { return PathResult{}, errors.New("boom") }
 	r.Round(context.Background())
-	if render(r.Meter)[`continuum_link_path_probe_failures_total{cluster="cl-me",peer="cl-a"}`] != "1" {
+	if render(r.Meter)[`ikhnos_link_path_probe_failures_total{cluster="cl-me",peer="cl-a"}`] != "1" {
 		t.Fatal("a failed trace was not counted")
 	}
 	r2 := runnerFor(t, f, "10.0.0.1")
 	r2.PathEvery = 10 * time.Minute
 	r2.Path = func(context.Context, netip.Addr) (PathResult, error) { return PathResult{}, ErrPathUnsupported }
 	r2.Round(context.Background())
-	if render(r2.Meter)[`continuum_link_path_probe_failures_total{cluster="cl-me",peer="cl-a"}`] != "0" {
+	if render(r2.Meter)[`ikhnos_link_path_probe_failures_total{cluster="cl-me",peer="cl-a"}`] != "0" {
 		t.Fatal("an unsupported address was counted as a failure")
 	}
 }

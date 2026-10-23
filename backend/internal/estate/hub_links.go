@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"net/netip"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/connectivity"
-	"continuum/internal/kernel"
-	"continuum/internal/link"
-	"continuum/internal/observed"
-	"continuum/internal/store"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/connectivity"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/link"
+	"ikhnos/internal/observed"
+	"ikhnos/internal/store"
 )
 
 // linkPeers builds the peer list for one agent: for each cluster it is paired with, the addresses that cluster's traffic
@@ -25,13 +25,13 @@ import (
 // tier 2, paused, silent, or whose list is full never leaves the pair with nobody measuring. flowPausedOf says which agents
 // (by agent id) have the flow collector paused; it is read by the caller beforehand because that may touch the store, and
 // only the runners' entries are looked at.
-func (h *Hub) linkPeers(a store.Agent, agentList []store.Agent, links []kernel.LinkSetting, flowPaused bool, flowPausedOf map[string]bool) []*continuumv1.LinkPeer {
+func (h *Hub) linkPeers(a store.Agent, agentList []store.Agent, links []kernel.LinkSetting, flowPaused bool, flowPausedOf map[string]bool) []*ikhnosv1.LinkPeer {
 	return h.peerList(a, agentList, links, flowPaused, flowPausedOf, true)
 }
 
 // peerList is linkPeers; assign says whether to hand out the second cluster's SkipProbe (false when working out what the
 // other side was told, which must not recurse).
-func (h *Hub) peerList(a store.Agent, agentList []store.Agent, links []kernel.LinkSetting, flowPaused bool, flowPausedOf map[string]bool, assign bool) []*continuumv1.LinkPeer {
+func (h *Hub) peerList(a store.Agent, agentList []store.Agent, links []kernel.LinkSetting, flowPaused bool, flowPausedOf map[string]bool, assign bool) []*ikhnosv1.LinkPeer {
 	if a.ClusterID == "" || a.AccessTier < 2 || flowPaused {
 		return nil
 	}
@@ -39,14 +39,14 @@ func (h *Hub) peerList(a store.Agent, agentList []store.Agent, links []kernel.Li
 	if len(pairs) == 0 {
 		return nil
 	}
-	var out []*continuumv1.LinkPeer
+	var out []*ikhnosv1.LinkPeer
 	for _, pp := range h.planPeers(a, agentList, links).Sent {
 		id := pp.ID
 		addrs := pp.Addrs
 		if len(addrs) > link.MaxAddresses {
 			addrs = addrs[:link.MaxAddresses]
 		}
-		lp := &continuumv1.LinkPeer{ClusterId: id, Name: pp.Agent.Name, Addresses: addrs}
+		lp := &ikhnosv1.LinkPeer{ClusterId: id, Name: pp.Agent.Name, Addresses: addrs}
 		l := pairs[id]
 		lp.NoProbe = l.NoProbe
 		lp.Via = string(l.Via)

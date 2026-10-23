@@ -1,8 +1,8 @@
 ---
-# Source: continuum-regional-operator/templates/serviceaccount.yaml
+# Source: ikhnos-regional-operator/templates/serviceaccount.yaml
 # This operator needs no Kubernetes API access of its own: it only relays and re-processes telemetry that
 # already arrived over OTLP, it never watches this cluster's own object graph (there is no k8sattributes
-# processor here, unlike continuum-agent's telemetry collectors - see values.yaml's own comment). No
+# processor here, unlike ikhnos-agent's telemetry collectors - see values.yaml's own comment). No
 # ClusterRole or ClusterRoleBinding is rendered by this chart at all.
 apiVersion: v1
 kind: ServiceAccount
@@ -10,25 +10,25 @@ metadata:
   name: op-regional-operator
   namespace: default
   labels:
-    app.kubernetes.io/name: continuum-regional-operator
+    app.kubernetes.io/name: ikhnos-regional-operator
     app.kubernetes.io/instance: op
-    app.kubernetes.io/part-of: continuum
+    app.kubernetes.io/part-of: ikhnos
     app.kubernetes.io/managed-by: Helm
-    helm.sh/chart: continuum-regional-operator-0.1.0
+    helm.sh/chart: ikhnos-regional-operator-0.1.0
 automountServiceAccountToken: false
 ---
-# Source: continuum-regional-operator/templates/config.yaml
+# Source: ikhnos-regional-operator/templates/config.yaml
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: op-regional-operator-config
   namespace: default
   labels:
-    app.kubernetes.io/name: continuum-regional-operator
+    app.kubernetes.io/name: ikhnos-regional-operator
     app.kubernetes.io/instance: op
-    app.kubernetes.io/part-of: continuum
+    app.kubernetes.io/part-of: ikhnos
     app.kubernetes.io/managed-by: Helm
-    helm.sh/chart: continuum-regional-operator-0.1.0
+    helm.sh/chart: ikhnos-regional-operator-0.1.0
 data:
   otel-collector-config.yaml: |
     receivers:
@@ -114,56 +114,56 @@ data:
           processors: ["memory_limiter","redaction","batch"]
           exporters: [otlp]
 ---
-# Source: continuum-regional-operator/templates/service.yaml
+# Source: ikhnos-regional-operator/templates/service.yaml
 # So a source cluster's own telemetry.export.otlp.endpoint can point at this operator without knowing its
-# pod IP - the same reason continuum-agent's cluster collector gets a Service.
+# pod IP - the same reason ikhnos-agent's cluster collector gets a Service.
 apiVersion: v1
 kind: Service
 metadata:
   name: op-regional-operator
   namespace: default
   labels:
-    app.kubernetes.io/name: continuum-regional-operator
+    app.kubernetes.io/name: ikhnos-regional-operator
     app.kubernetes.io/instance: op
-    app.kubernetes.io/part-of: continuum
+    app.kubernetes.io/part-of: ikhnos
     app.kubernetes.io/managed-by: Helm
-    helm.sh/chart: continuum-regional-operator-0.1.0
+    helm.sh/chart: ikhnos-regional-operator-0.1.0
 spec:
-  selector: {app.kubernetes.io/name: continuum-regional-operator, app.kubernetes.io/instance: op}
+  selector: {app.kubernetes.io/name: ikhnos-regional-operator, app.kubernetes.io/instance: op}
   ports:
     - {name: otlp-grpc, port: 4317, targetPort: 4317, protocol: TCP}
     - {name: otlp-http, port: 4318, targetPort: 4318, protocol: TCP}
     - {name: metrics, port: 8888, targetPort: 8888, protocol: TCP}
 ---
-# Source: continuum-regional-operator/templates/deployment.yaml
+# Source: ikhnos-regional-operator/templates/deployment.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: op-regional-operator
   namespace: default
   labels:
-    app.kubernetes.io/name: continuum-regional-operator
+    app.kubernetes.io/name: ikhnos-regional-operator
     app.kubernetes.io/instance: op
-    app.kubernetes.io/part-of: continuum
+    app.kubernetes.io/part-of: ikhnos
     app.kubernetes.io/managed-by: Helm
-    helm.sh/chart: continuum-regional-operator-0.1.0
+    helm.sh/chart: ikhnos-regional-operator-0.1.0
 spec:
   replicas: 1
   strategy: {type: Recreate}
   selector:
-    matchLabels: {app.kubernetes.io/name: continuum-regional-operator, app.kubernetes.io/instance: op}
+    matchLabels: {app.kubernetes.io/name: ikhnos-regional-operator, app.kubernetes.io/instance: op}
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: continuum-regional-operator
+        app.kubernetes.io/name: ikhnos-regional-operator
         app.kubernetes.io/instance: op
-        app.kubernetes.io/part-of: continuum
+        app.kubernetes.io/part-of: ikhnos
         app.kubernetes.io/component: receiver
         sidecar.istio.io/inject: "false"
         
       annotations:
         linkerd.io/inject: disabled
-        checksum/config: 61d856018e1585804d8b6e3afd55b411fcf42e5e03ff64333510092d97cbe5b4
+        checksum/config: 919f5377d6353d55fc923ba77712c741e4c938fca5bcef41ff8fea7340c64691
     spec:
       serviceAccountName: op-regional-operator
       automountServiceAccountToken: false

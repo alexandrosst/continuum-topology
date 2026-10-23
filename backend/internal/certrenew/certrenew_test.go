@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/pki"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/pki"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -34,7 +34,7 @@ type fakeServer struct {
 	refuse error
 }
 
-func (f *fakeServer) RenewTelemetryCert(_ context.Context, in *continuumv1.RenewTelemetryCertRequest, _ ...grpc.CallOption) (*continuumv1.RenewTelemetryCertResponse, error) {
+func (f *fakeServer) RenewTelemetryCert(_ context.Context, in *ikhnosv1.RenewTelemetryCertRequest, _ ...grpc.CallOption) (*ikhnosv1.RenewTelemetryCertResponse, error) {
 	f.calls++
 	if f.refuse != nil {
 		return nil, f.refuse
@@ -54,16 +54,16 @@ func (f *fakeServer) RenewTelemetryCert(_ context.Context, in *continuumv1.Renew
 	if err != nil {
 		return nil, err
 	}
-	return &continuumv1.RenewTelemetryCertResponse{LeafDer: der, CaPem: f.ca.CertPEM()}, nil
+	return &ikhnosv1.RenewTelemetryCertResponse{LeafDer: der, CaPem: f.ca.CertPEM()}, nil
 }
 
-func (f *fakeServer) Enroll(context.Context, *continuumv1.EnrollRequest, ...grpc.CallOption) (*continuumv1.EnrollResponse, error) {
+func (f *fakeServer) Enroll(context.Context, *ikhnosv1.EnrollRequest, ...grpc.CallOption) (*ikhnosv1.EnrollResponse, error) {
 	return nil, errors.New("not used")
 }
-func (f *fakeServer) PollEnrollment(context.Context, *continuumv1.PollRequest, ...grpc.CallOption) (*continuumv1.PollResponse, error) {
+func (f *fakeServer) PollEnrollment(context.Context, *ikhnosv1.PollRequest, ...grpc.CallOption) (*ikhnosv1.PollResponse, error) {
 	return nil, errors.New("not used")
 }
-func (f *fakeServer) Rejoin(context.Context, *continuumv1.RejoinRequest, ...grpc.CallOption) (*continuumv1.RenewResponse, error) {
+func (f *fakeServer) Rejoin(context.Context, *ikhnosv1.RejoinRequest, ...grpc.CallOption) (*ikhnosv1.RenewResponse, error) {
 	return nil, errors.New("not used")
 }
 
@@ -100,7 +100,7 @@ func newRig(t *testing.T, left time.Duration) *rig {
 	srv := &fakeServer{ca: issuer}
 	return &rig{srv: srv, client: client, key: key, cfg: Config{
 		Client: client, Targets: []Target{{"ns", "tls"}},
-		Dial: func() (continuumv1.EnrollmentClient, func(), error) { return srv, func() {}, nil },
+		Dial: func() (ikhnosv1.EnrollmentClient, func(), error) { return srv, func() {}, nil },
 	}}
 }
 

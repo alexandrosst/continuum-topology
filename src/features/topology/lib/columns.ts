@@ -11,7 +11,7 @@ export interface ColumnDef {
   width?: string
 }
 
-const PREFIX = 'continuum:columns:'
+const PREFIX = 'ikhnos:columns:'
 
 function readHidden(storageKey: string, defaultHidden: readonly string[]): Set<string> {
   try {

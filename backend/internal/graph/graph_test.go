@@ -14,13 +14,13 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/history"
-	"continuum/internal/model"
-	"continuum/internal/store"
+	"ikhnos/internal/history"
+	"ikhnos/internal/model"
+	"ikhnos/internal/store"
 )
 
-// The tests that need a database run against a real Neo4j when CONTINUUM_TEST_NEO4J is set
-// (http://127.0.0.1:7474, with CONTINUUM_TEST_NEO4J_USER / _PASSWORD) and are skipped otherwise.
+// The tests that need a database run against a real Neo4j when IKHNOS_TEST_NEO4J is set
+// (http://127.0.0.1:7474, with IKHNOS_TEST_NEO4J_USER / _PASSWORD) and are skipped otherwise.
 
 var orgSeq atomic.Int64
 
@@ -37,15 +37,15 @@ func testDB(t *testing.T) (*DB, string) {
 // this client's socket timeout is set to - so raising it here does not weaken what such a test proves.
 func testDBTimeout(t *testing.T, timeout time.Duration) (*DB, string) {
 	t.Helper()
-	u := os.Getenv("CONTINUUM_TEST_NEO4J")
+	u := os.Getenv("IKHNOS_TEST_NEO4J")
 	if u == "" {
-		t.Skip("set CONTINUUM_TEST_NEO4J to run the Neo4j tests")
+		t.Skip("set IKHNOS_TEST_NEO4J to run the Neo4j tests")
 	}
-	user := os.Getenv("CONTINUUM_TEST_NEO4J_USER")
+	user := os.Getenv("IKHNOS_TEST_NEO4J_USER")
 	if user == "" {
 		user = "neo4j"
 	}
-	c, err := NewClient(Config{URL: u, User: user, Password: os.Getenv("CONTINUUM_TEST_NEO4J_PASSWORD"), Timeout: timeout})
+	c, err := NewClient(Config{URL: u, User: user, Password: os.Getenv("IKHNOS_TEST_NEO4J_PASSWORD"), Timeout: timeout})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2135,9 +2135,9 @@ func TestBadConfigurationIsRefusedClearly(t *testing.T) {
 }
 
 func TestWrongPasswordIsReportedWithoutLeakingIt(t *testing.T) {
-	u := os.Getenv("CONTINUUM_TEST_NEO4J")
+	u := os.Getenv("IKHNOS_TEST_NEO4J")
 	if u == "" {
-		t.Skip("set CONTINUUM_TEST_NEO4J to run the Neo4j tests")
+		t.Skip("set IKHNOS_TEST_NEO4J to run the Neo4j tests")
 	}
 	c, _ := NewClient(Config{URL: u, User: "neo4j", Password: "definitely-wrong-password"})
 	err := c.Ping(context.Background())

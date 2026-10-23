@@ -6,10 +6,10 @@ import (
 	"regexp"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/agent/collect"
-	"continuum/internal/link"
-	"continuum/internal/probe"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/agent/collect"
+	"ikhnos/internal/link"
+	"ikhnos/internal/probe"
 
 	"google.golang.org/protobuf/encoding/protojson"
 )
@@ -63,7 +63,7 @@ func (p *Pipeline) Handler() http.Handler {
 			http.Error(w, http.StatusText(status), status)
 			return
 		}
-		var rep continuumv1.FlowReport
+		var rep ikhnosv1.FlowReport
 		if err := (protojson.UnmarshalOptions{DiscardUnknown: true}).Unmarshal(body, &rep); err != nil || len(rep.Flows) > MaxRawFlows {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
@@ -92,14 +92,14 @@ func (p *Pipeline) SetPaused(paused bool) {
 // was paused at the time, i.e. this report's data was read and verified but thrown away rather than
 // kept - the handler uses this to tell the collector it was ignored for that reason (see
 // probe.HeaderPaused), not merely accepted.
-func (p *Pipeline) Ingest(rep *continuumv1.FlowReport) bool {
+func (p *Pipeline) Ingest(rep *ikhnosv1.FlowReport) bool {
 	paused := p.Aggregator.Paused()
 	p.Aggregator.Seen(rep.Node, rep.Method, rep.BytesKnown, rep.LinkSaturation, rep.SnatExhaustion, rep.ThermalThrottle)
 	p.Aggregator.AddLost(rep.Lost)
 	if !paused && p.Links != nil {
 		// The link meter counts the traffic of the peer clusters' addresses, whatever the resolver can attribute, but not what
 		// the resolver is told to leave out (an excluded namespace) or cannot read (a malformed protocol or port).
-		kept := make([]*continuumv1.RawFlow, 0, len(rep.Flows))
+		kept := make([]*ikhnosv1.RawFlow, 0, len(rep.Flows))
 		for _, raw := range rep.Flows {
 			if raw != nil && p.Resolver.Admits(raw) {
 				kept = append(kept, raw)

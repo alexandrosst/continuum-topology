@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/kernel"
+	"ikhnos/internal/kernel"
 )
 
 // permissiveFinder builds a *PublicIPFinder that trusts loopback (an httptest.Server listens on

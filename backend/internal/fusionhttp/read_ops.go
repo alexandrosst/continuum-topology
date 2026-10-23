@@ -1,6 +1,6 @@
 package fusionhttp
 
-import "continuum/internal/fusionapi"
+import "ikhnos/internal/fusionapi"
 
 // ReadOps are the routes that read what FUSION saved, signal by signal and joined around a trace: the metrics, the logs and the
 // traces. Each is described here beside the handler that answers it.

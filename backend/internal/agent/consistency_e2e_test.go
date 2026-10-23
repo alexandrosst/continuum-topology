@@ -8,12 +8,12 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/agent"
-	"continuum/internal/estate"
-	"continuum/internal/kernel"
-	"continuum/internal/pki"
-	"continuum/internal/server"
-	"continuum/internal/store"
+	"ikhnos/internal/agent"
+	"ikhnos/internal/estate"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/pki"
+	"ikhnos/internal/server"
+	"ikhnos/internal/store"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"

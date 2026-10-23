@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/accounts"
-	"continuum/internal/agents"
-	"continuum/internal/store"
-	"continuum/internal/testkit"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/agents"
+	"ikhnos/internal/store"
+	"ikhnos/internal/testkit"
 )
 
 // The example advisor in docs/examples is run against the real handlers, so the script and the API cannot drift apart unseen.

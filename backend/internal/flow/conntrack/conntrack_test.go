@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 )
 
 const (
@@ -61,7 +61,7 @@ func table(t *testing.T, lines ...string) string {
 	return p
 }
 
-func find(fl []*continuumv1.RawFlow, client bool, local, peer string) *continuumv1.RawFlow {
+func find(fl []*ikhnosv1.RawFlow, client bool, local, peer string) *ikhnosv1.RawFlow {
 	for _, f := range fl {
 		if f.Client == client && f.LocalIp == local && f.PeerIp == peer {
 			return f

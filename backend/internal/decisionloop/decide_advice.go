@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"continuum/internal/advice"
-	"continuum/internal/twin"
+	"ikhnos/internal/advice"
+	"ikhnos/internal/twin"
 )
 
 // What the server adds to a decision request about capacity, worked out from the effective model and the rules in

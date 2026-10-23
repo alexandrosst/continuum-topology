@@ -22,8 +22,8 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/probe"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/probe"
 )
 
 // Distinctive strings, so that a test can look for them in anything that must not hold them.
@@ -59,14 +59,14 @@ func usersCSV(user, password string) string {
 	return user + "," + hex.EncodeToString(sum[:]) + "\n"
 }
 
-func clientProto(t testing.TB) *continuumv1.LinkIperfClient {
+func clientProto(t testing.TB) *ikhnosv1.LinkIperfClient {
 	_, pub := testKeys(t)
-	return &continuumv1.LinkIperfClient{PublicKeyPem: pub, Username: testUser, Password: testPassword}
+	return &ikhnosv1.LinkIperfClient{PublicKeyPem: pub, Username: testUser, Password: testPassword}
 }
 
-func serverProto(t testing.TB) *continuumv1.LinkIperfServer {
+func serverProto(t testing.TB) *ikhnosv1.LinkIperfServer {
 	priv, _ := testKeys(t)
-	return &continuumv1.LinkIperfServer{PrivateKeyPem: priv, UsersCsv: usersCSV(testUser, testPassword)}
+	return &ikhnosv1.LinkIperfServer{PrivateKeyPem: priv, UsersCsv: usersCSV(testUser, testPassword)}
 }
 
 // secretMarks are the things that must never appear in a log line, an error, a metric or an answer that is not the sealed one.
@@ -165,14 +165,14 @@ func TestACredentialIsCheckedAndTheErrorNamesNoValue(t *testing.T) {
 
 func TestAConfigsCredentialsAreKeptOnlyForThePeersThatRunTestsAndWhenValid(t *testing.T) {
 	p := NewPeers()
-	withCreds := func(id string, throughput bool, c *continuumv1.LinkIperfClient) *continuumv1.LinkPeer {
+	withCreds := func(id string, throughput bool, c *ikhnosv1.LinkIperfClient) *ikhnosv1.LinkPeer {
 		lp := peer(id, id, "10.0.0."+strconv.Itoa(len(id)))
 		lp.Throughput, lp.IperfClient = throughput, c
 		return lp
 	}
 	bad := clientProto(t)
 	bad.Password = "x"
-	dropped := p.Set("cl-me", []*continuumv1.LinkPeer{withCreds("cl-a", true, clientProto(t)), withCreds("cl-bb", false, clientProto(t)), withCreds("cl-ccc", true, bad)})
+	dropped := p.Set("cl-me", []*ikhnosv1.LinkPeer{withCreds("cl-a", true, clientProto(t)), withCreds("cl-bb", false, clientProto(t)), withCreds("cl-ccc", true, bad)})
 	by := map[string]Peer{}
 	for _, pe := range p.List() {
 		by[pe.ID] = pe
@@ -194,7 +194,7 @@ func TestAConfigsCredentialsAreKeptOnlyForThePeersThatRunTestsAndWhenValid(t *te
 	// An agent that does not serve the credentials to a prober does not keep them either.
 	q := NewPeers()
 	q.DropIperf(true)
-	q.Set("cl-me", []*continuumv1.LinkPeer{withCreds("cl-a", true, clientProto(t))})
+	q.Set("cl-me", []*ikhnosv1.LinkPeer{withCreds("cl-a", true, clientProto(t))})
 	if q.List()[0].Iperf != nil {
 		t.Error("an agent with a Secret of its own kept the issued credentials")
 	}
@@ -213,7 +213,7 @@ func newRig(t *testing.T, peersSecret, iperfSecret []byte) *rig {
 	p := NewPeers()
 	lp := peer("cl-a", "A", "10.0.0.1", "10.0.0.2")
 	lp.Throughput, lp.IperfClient = true, clientProto(t)
-	p.Set("cl-me", []*continuumv1.LinkPeer{lp})
+	p.Set("cl-me", []*ikhnosv1.LinkPeer{lp})
 	m := NewMeter(p)
 	r := &rig{meter: m, now: time.Now()}
 	m.now = func() time.Time { return r.now }

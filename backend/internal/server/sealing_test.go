@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/accounts"
-	"continuum/internal/decisionloop"
-	"continuum/internal/sealing"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/decisionloop"
+	"ikhnos/internal/sealing"
 )
 
 const (
@@ -61,7 +61,7 @@ func TestSealedSecretsStillWorkAndAreInNoFile(t *testing.T) {
 	var gotSig, gotTS string
 	var gotBody []byte
 	dec := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotSig, gotTS = r.Header.Get("X-Continuum-Signature"), r.Header.Get("X-Continuum-Timestamp")
+		gotSig, gotTS = r.Header.Get("X-Ikhnos-Signature"), r.Header.Get("X-Ikhnos-Timestamp")
 		gotBody, _ = io.ReadAll(r.Body)
 		_, _ = w.Write([]byte(`{"recommendations":[]}`))
 	}))

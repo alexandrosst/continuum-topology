@@ -31,9 +31,9 @@ var (
 
 func dcgmPod(t *testing.T, args ...string) corev1.PodSpec {
 	t.Helper()
-	ds, ok := render(t, append(append([]string{}, accelOn...), args...)...).daemonsets["continuum-telemetry-dcgm"]
+	ds, ok := render(t, append(append([]string{}, accelOn...), args...)...).daemonsets["ikhnos-telemetry-dcgm"]
 	if !ok {
-		t.Fatal("DaemonSet continuum-telemetry-dcgm not rendered")
+		t.Fatal("DaemonSet ikhnos-telemetry-dcgm not rendered")
 	}
 	return ds.Spec.Template.Spec
 }
@@ -42,31 +42,31 @@ func dcgmPod(t *testing.T, args ...string) corev1.PodSpec {
 // keeps the namespace's "default" account out of it.
 func TestDcgmHasItsOwnPermissionlessServiceAccount(t *testing.T) {
 	r := render(t, accelOn...)
-	pod := r.daemonsets["continuum-telemetry-dcgm"].Spec.Template.Spec
-	if pod.ServiceAccountName != "continuum-agent-dcgm" {
-		t.Fatalf("serviceAccountName = %q, want continuum-agent-dcgm (never \"default\", never the collectors' or Kepler's)", pod.ServiceAccountName)
+	pod := r.daemonsets["ikhnos-telemetry-dcgm"].Spec.Template.Spec
+	if pod.ServiceAccountName != "ikhnos-agent-dcgm" {
+		t.Fatalf("serviceAccountName = %q, want ikhnos-agent-dcgm (never \"default\", never the collectors' or Kepler's)", pod.ServiceAccountName)
 	}
 	if pod.AutomountServiceAccountToken == nil || *pod.AutomountServiceAccountToken {
 		t.Error("dcgm-exporter must not mount a token: it never talks to the Kubernetes API")
 	}
-	sa, ok := r.serviceaccounts["continuum-agent-dcgm"]
+	sa, ok := r.serviceaccounts["ikhnos-agent-dcgm"]
 	if !ok {
-		t.Fatal("ServiceAccount continuum-agent-dcgm not rendered")
+		t.Fatal("ServiceAccount ikhnos-agent-dcgm not rendered")
 	}
 	if sa.AutomountServiceAccountToken == nil || *sa.AutomountServiceAccountToken {
 		t.Error("the ServiceAccount itself must not auto-mount a token")
 	}
 	for name, b := range r.clusterrolebindings {
 		for _, s := range b.Subjects {
-			if s.Name == "continuum-agent-dcgm" {
-				t.Errorf("ClusterRoleBinding %s grants something to continuum-agent-dcgm: it needs no RBAC at all", name)
+			if s.Name == "ikhnos-agent-dcgm" {
+				t.Errorf("ClusterRoleBinding %s grants something to ikhnos-agent-dcgm: it needs no RBAC at all", name)
 			}
 		}
 	}
 	// and nothing is rendered when it is not bundled
 	for name, args := range map[string][]string{"off": nil, "existing": accelOperator} {
-		if _, ok := render(t, append([]string{"--set", "telemetry.export.otlp.endpoint=x:4317"}, args...)...).serviceaccounts["continuum-agent-dcgm"]; ok {
-			t.Errorf("%s: ServiceAccount continuum-agent-dcgm rendered without a bundled exporter", name)
+		if _, ok := render(t, append([]string{"--set", "telemetry.export.otlp.endpoint=x:4317"}, args...)...).serviceaccounts["ikhnos-agent-dcgm"]; ok {
+			t.Errorf("%s: ServiceAccount ikhnos-agent-dcgm rendered without a bundled exporter", name)
 		}
 	}
 }
@@ -249,7 +249,7 @@ func TestExistingAcceleratorsNeedsExactlyOneWayToFindTheExporter(t *testing.T) {
 // declares; pods that are not running are skipped; and the whole thing is one namespace or all.
 func TestExistingAcceleratorsAreScrapedPodByPod(t *testing.T) {
 	r := render(t, accelOperator...)
-	if len(r.daemonsets) != 0 && r.daemonsets["continuum-telemetry-dcgm"].Name != "" {
+	if len(r.daemonsets) != 0 && r.daemonsets["ikhnos-telemetry-dcgm"].Name != "" {
 		t.Error("source=existing deployed a second exporter")
 	}
 	job := scrapeConfigs(t, r)["dcgm-exporter"]
@@ -285,7 +285,7 @@ func TestExistingAcceleratorsAreScrapedPodByPod(t *testing.T) {
 // telemetry.scope.infra would read the operator's namespace as the namespace of every GPU.
 func TestExistingExporterPodsGetTheSameIdentityCleanup(t *testing.T) {
 	for name, args := range map[string][]string{"bundled": accelOn, "existing pods": accelOperator} {
-		cfg := otelConfig(t, render(t, args...).configmaps["continuum-telemetry-cluster-config"].Data)
+		cfg := otelConfig(t, render(t, args...).configmaps["ikhnos-telemetry-cluster-config"].Data)
 		tr, ok := cfg["processors"].(map[string]any)["transform/dcgm_node"]
 		if !ok {
 			t.Fatalf("%s: no transform/dcgm_node", name)
@@ -303,7 +303,7 @@ func TestExistingExporterPodsGetTheSameIdentityCleanup(t *testing.T) {
 	}
 	// an address is not a pod: nothing to clean, and the job keeps its own name
 	cfg := otelConfig(t, render(t, "--set", "telemetry.export.otlp.endpoint=x:4317", "--set", "telemetry.accelerators.metrics.enabled=true",
-		"--set", "telemetry.accelerators.metrics.source=existing", "--set", "telemetry.accelerators.metrics.existing.prometheusEndpoint=gpu:9400").configmaps["continuum-telemetry-cluster-config"].Data)
+		"--set", "telemetry.accelerators.metrics.source=existing", "--set", "telemetry.accelerators.metrics.existing.prometheusEndpoint=gpu:9400").configmaps["ikhnos-telemetry-cluster-config"].Data)
 	if _, has := cfg["processors"].(map[string]any)["transform/dcgm_node"]; has {
 		t.Error("transform/dcgm_node rendered for a single-address existing exporter")
 	}
@@ -319,7 +319,7 @@ func TestApplyScopeFollowsTheScrapeJobOfEverySource(t *testing.T) {
 		"existing pods": {accelOperator, "dcgm-exporter"},
 		"existing addr": {[]string{"--set", "telemetry.export.otlp.endpoint=x:4317", "--set", "telemetry.accelerators.metrics.enabled=true", "--set", "telemetry.accelerators.metrics.source=existing", "--set", "telemetry.accelerators.metrics.existing.prometheusEndpoint=gpu:9400"}, "accelerators-existing"},
 	} {
-		cfg := otelConfig(t, render(t, append(append([]string{}, c.args...), "--set", "telemetry.scope.namespaces={a,b}", "--set", "telemetry.accelerators.metrics.applyScope=true")...).configmaps["continuum-telemetry-cluster-config"].Data)
+		cfg := otelConfig(t, render(t, append(append([]string{}, c.args...), "--set", "telemetry.scope.namespaces={a,b}", "--set", "telemetry.accelerators.metrics.applyScope=true")...).configmaps["ikhnos-telemetry-cluster-config"].Data)
 		f, ok := cfg["processors"].(map[string]any)["filter/scope_accelerators"]
 		if !ok {
 			t.Errorf("%s: no filter/scope_accelerators with applyScope", name)
@@ -358,24 +358,24 @@ func TestDcgmEgressAllowsNothingAndExistingScrapeIsAllowed(t *testing.T) {
 	egress := []string{"--set", "networkPolicy.telemetryEgress.enabled=true",
 		"--set", "networkPolicy.telemetryEgress.allowedEgress[0].cidr=10.0.0.0/8", "--set", "networkPolicy.telemetryEgress.allowedEgress[0].ports={4317}"}
 	r := render(t, append(append([]string{}, accelOn...), egress...)...)
-	p, ok := r.policies["continuum-telemetry-dcgm-egress"]
+	p, ok := r.policies["ikhnos-telemetry-dcgm-egress"]
 	if !ok {
-		t.Fatal("no continuum-telemetry-dcgm-egress policy")
+		t.Fatal("no ikhnos-telemetry-dcgm-egress policy")
 	}
 	if len(p.Spec.Egress) != 0 || len(p.Spec.PolicyTypes) != 1 || p.Spec.PolicyTypes[0] != "Egress" {
 		t.Errorf("dcgm policy = %+v, want Egress with no rule at all", p.Spec)
 	}
-	if p.Spec.PodSelector.MatchLabels["app.kubernetes.io/name"] != "continuum-telemetry-dcgm" {
+	if p.Spec.PodSelector.MatchLabels["app.kubernetes.io/name"] != "ikhnos-telemetry-dcgm" {
 		t.Errorf("dcgm policy selects %v", p.Spec.PodSelector)
 	}
-	for _, e := range r.policies["continuum-telemetry-egress"].Spec.PodSelector.MatchExpressions {
+	for _, e := range r.policies["ikhnos-telemetry-egress"].Spec.PodSelector.MatchExpressions {
 		for _, v := range e.Values {
-			if v == "continuum-telemetry-dcgm" {
+			if v == "ikhnos-telemetry-dcgm" {
 				t.Error("the shared egress policy still selects the dcgm pods")
 			}
 		}
 	}
-	if _, ok := render(t, append(append([]string{}, accelOperator...), egress...)...).policies["continuum-telemetry-dcgm-egress"]; ok {
+	if _, ok := render(t, append(append([]string{}, accelOperator...), egress...)...).policies["ikhnos-telemetry-dcgm-egress"]; ok {
 		t.Error("dcgm egress policy rendered without a bundled exporter")
 	}
 	for name, c := range map[string]struct{ extra, ns string }{
@@ -383,7 +383,7 @@ func TestDcgmEgressAllowsNothingAndExistingScrapeIsAllowed(t *testing.T) {
 		"any namespace":   {"telemetry.accelerators.metrics.existing.pods.port=9400", ""},
 	} {
 		q := render(t, append(append(append([]string{}, accelOperator...), egress...), "--set", c.extra)...)
-		sp, ok := q.policies["continuum-telemetry-scrape-egress"]
+		sp, ok := q.policies["ikhnos-telemetry-scrape-egress"]
 		if !ok || len(sp.Spec.Egress) != 1 {
 			t.Fatalf("%s: scrape policy = %+v", name, sp.Spec)
 		}
@@ -407,7 +407,7 @@ func TestDcgmConfigurationsLoadInTheRealCollector(t *testing.T) {
 		"existing pods, any namespace": accelOperator,
 		"bundled with scope":           append(append([]string{}, accelOn...), "--set", "telemetry.scope.namespaces={a}", "--set", "telemetry.accelerators.metrics.applyScope=true"),
 	} {
-		cm := render(t, args...).configmaps["continuum-telemetry-cluster-config"]
+		cm := render(t, args...).configmaps["ikhnos-telemetry-cluster-config"]
 		f := filepath.Join(t.TempDir(), "cfg.yaml")
 		if err := os.WriteFile(f, []byte(cm.Data["otel-collector-config.yaml"]), 0o600); err != nil {
 			t.Fatal(err)
@@ -462,7 +462,7 @@ func TestDcgmScrapeTransformAndScopeFilterInTheRealCollector(t *testing.T) {
 		"existing pods": {append(append([]string{}, accelOperator...), "--set", "telemetry.accelerators.metrics.applyScope=true", "--set", "telemetry.accelerators.metrics.existing.pods.port="+port)},
 	} {
 		args := append(c.args, "--set", "telemetry.scope.namespaces={team-a}")
-		cm := render(t, args...).configmaps["continuum-telemetry-cluster-config"]
+		cm := render(t, args...).configmaps["ikhnos-telemetry-cluster-config"]
 		var cfg map[string]any
 		if err := sigsyaml.Unmarshal([]byte(cm.Data["otel-collector-config.yaml"]), &cfg); err != nil {
 			t.Fatal(err)
@@ -479,7 +479,7 @@ func TestDcgmScrapeTransformAndScopeFilterInTheRealCollector(t *testing.T) {
 				"__meta_kubernetes_pod_uid": "11111111-2222-3333-4444-555555555555", "__meta_kubernetes_pod_container_name": "dcgm-exporter",
 				"__meta_kubernetes_pod_container_port_name": "metrics", "__meta_kubernetes_pod_controller_kind": "DaemonSet", "__meta_kubernetes_pod_controller_name": "exporter",
 				"__meta_kubernetes_pod_phase": "Running", "__meta_kubernetes_pod_ip": host,
-				"__meta_kubernetes_pod_label_app_kubernetes_io_name": "continuum-telemetry-dcgm", "__meta_kubernetes_pod_label_app_kubernetes_io_instance": "ct"}}}
+				"__meta_kubernetes_pod_label_app_kubernetes_io_name": "ikhnos-telemetry-dcgm", "__meta_kubernetes_pod_label_app_kubernetes_io_instance": "ct"}}}
 		}
 		cfg["exporters"] = map[string]any{"file": map[string]any{"path": out}}
 		delete(cfg["processors"].(map[string]any), "k8sattributes")

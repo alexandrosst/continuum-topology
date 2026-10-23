@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"testing"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 )
 
-func edge(i int) *continuumv1.Flow {
-	return &continuumv1.Flow{
-		Src:         &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_WORKLOAD, Ref: fmt.Sprintf("ns/Deployment/a%d", i)},
-		Dst:         &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_EXTERNAL, Ip: "203.0.113.7"},
+func edge(i int) *ikhnosv1.Flow {
+	return &ikhnosv1.Flow{
+		Src:         &ikhnosv1.FlowEndpoint{Kind: ikhnosv1.FlowEndpoint_WORKLOAD, Ref: fmt.Sprintf("ns/Deployment/a%d", i)},
+		Dst:         &ikhnosv1.FlowEndpoint{Kind: ikhnosv1.FlowEndpoint_EXTERNAL, Ip: "203.0.113.7"},
 		Port:        443,
 		Protocol:    "tcp",
 		Connections: 1,

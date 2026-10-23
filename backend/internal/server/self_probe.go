@@ -1,7 +1,7 @@
 package server
 
 import (
-	"continuum/internal/estate"
+	"ikhnos/internal/estate"
 	"net/netip"
 	"sort"
 	"time"

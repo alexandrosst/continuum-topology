@@ -16,8 +16,8 @@ import (
 	"github.com/go-webauthn/webauthn/protocol"
 	"github.com/go-webauthn/webauthn/webauthn"
 
-	"continuum/internal/accounts"
-	"continuum/internal/store"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/store"
 )
 
 // Provider implements server.WebAuthnProvider with the real WebAuthn protocol. It holds no state of its

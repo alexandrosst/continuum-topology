@@ -9,9 +9,9 @@ import (
 	"syscall"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/agent/collect"
-	"continuum/internal/certrenew"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/agent/collect"
+	"ikhnos/internal/certrenew"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -68,7 +68,7 @@ const (
 	maxProblems             = 32
 	informerNotSyncedGrace  = 20 * time.Second
 
-	helmRestoreRBACAdvice = "Check the agent's ClusterRole (kubectl get clusterrole -l app.kubernetes.io/instance=continuum-agent -o yaml), then restore the chart's permissions with `helm upgrade --reset-then-reuse-values` on the same release and chart you installed with."
+	helmRestoreRBACAdvice = "Check the agent's ClusterRole (kubectl get clusterrole -l app.kubernetes.io/instance=ikhnos-agent -o yaml), then restore the chart's permissions with `helm upgrade --reset-then-reuse-values` on the same release and chart you installed with."
 	scopeEmptyAdvice      = "Change scope.namespaces, scope.exclude or scope.selector with `helm upgrade --reset-then-reuse-values`, or clear the server-side exclusions on this agent."
 	rbacWiderAdvice       = "If a `helm upgrade --set access.tier=N` to narrow this install was run recently, it may not have finished; otherwise it was never run against this cluster, or ran only partway. Run (or re-run) it with N set to this install's declared tier to remove the wider ClusterRole/ClusterRoleBinding."
 )
@@ -78,7 +78,7 @@ var CollectorNames = []string{collectorProbes, collectorFlow, collectorMeasure}
 
 type prob struct {
 	code    string
-	sev     continuumv1.Problem_Severity
+	sev     ikhnosv1.Problem_Severity
 	msg     string
 	since   time.Time
 	expires time.Time // zero: until cleared
@@ -96,7 +96,7 @@ func newProblemSet() *problemSet {
 }
 
 // raise records a problem that stays until clear is called (or its expiry passes). Raising it again keeps its `since`.
-func (p *problemSet) raise(key, code string, sev continuumv1.Problem_Severity, msg string, ttl time.Duration) {
+func (p *problemSet) raise(key, code string, sev ikhnosv1.Problem_Severity, msg string, ttl time.Duration) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	pr := &prob{code: code, sev: sev, msg: msg, since: time.Now()}
@@ -135,7 +135,7 @@ func (p *problemSet) replaceDerived(now []*prob) {
 }
 
 // list is everything that is a problem now, worst first.
-func (p *problemSet) list() []*continuumv1.Problem {
+func (p *problemSet) list() []*ikhnosv1.Problem {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	now := time.Now()
@@ -162,9 +162,9 @@ func (p *problemSet) list() []*continuumv1.Problem {
 	if len(all) > maxProblems {
 		all = all[:maxProblems]
 	}
-	out := make([]*continuumv1.Problem, 0, len(all))
+	out := make([]*ikhnosv1.Problem, 0, len(all))
 	for _, pr := range all {
-		out = append(out, &continuumv1.Problem{Code: pr.code, Severity: pr.sev, Message: pr.msg, Since: timestamppb.New(pr.since)})
+		out = append(out, &ikhnosv1.Problem{Code: pr.code, Severity: pr.sev, Message: pr.msg, Since: timestamppb.New(pr.since)})
 	}
 	return out
 }
@@ -205,13 +205,13 @@ func newDiagState() *diagState {
 }
 
 // diagnostics builds the message. It is cheap (no calls to the cluster) and safe to call from any goroutine.
-func (r *runner) diagnostics() *continuumv1.Diagnostics {
+func (r *runner) diagnostics() *ikhnosv1.Diagnostics {
 	now := time.Now()
 	r.mu.Lock()
 	c := r.collector
 	tier := r.collTier
 	r.mu.Unlock()
-	d := &continuumv1.Diagnostics{
+	d := &ikhnosv1.Diagnostics{
 		AgentVersion:  r.cfg.Version,
 		Arch:          runtime.GOARCH,
 		Os:            runtime.GOOS,
@@ -249,7 +249,7 @@ func (r *runner) diagnostics() *continuumv1.Diagnostics {
 		sort.Strings(d.InstalledTelemetrySignals)
 	}
 	if tc := r.cfg.TelemetryConfig; tc != nil {
-		d.InstalledTelemetryConfig = &continuumv1.InstalledTelemetryConfig{
+		d.InstalledTelemetryConfig = &ikhnosv1.InstalledTelemetryConfig{
 			ExportEndpoint:           tc.Destination,
 			RedactionEnabled:         tc.RedactionEnabled,
 			ResourceDetectionEnabled: tc.ResourceDetectionEnabled,
@@ -264,14 +264,14 @@ func (r *runner) diagnostics() *continuumv1.Diagnostics {
 	if c != nil {
 		d.Scope = c.ScopeSummary()
 	} else {
-		d.Scope = &continuumv1.ScopeFacts{Description: r.cfg.Scope.Public()}
+		d.Scope = &ikhnosv1.ScopeFacts{Description: r.cfg.Scope.Public()}
 	}
 	if r.cfg.Flows != nil {
 		d.FlowDropped = r.cfg.Flows.Aggregator.Dropped()
 	}
 
 	var derived []*prob
-	add := func(code string, sev continuumv1.Problem_Severity, msg string) {
+	add := func(code string, sev ikhnosv1.Problem_Severity, msg string) {
 		derived = append(derived, &prob{code: code, sev: sev, msg: msg, since: now})
 	}
 
@@ -279,36 +279,36 @@ func (r *runner) diagnostics() *continuumv1.Diagnostics {
 	if c != nil {
 		started := r.collectorStartedAt()
 		for _, i := range c.Informers() {
-			d.Informers = append(d.Informers, &continuumv1.InformerDiag{Name: i.Name, Synced: i.Synced, LastError: clipMsg(i.Err, 300), Objects: i.Objects, Module: i.Module})
+			d.Informers = append(d.Informers, &ikhnosv1.InformerDiag{Name: i.Name, Synced: i.Synced, LastError: clipMsg(i.Err, 300), Objects: i.Objects, Module: i.Module})
 			switch {
 			case i.Forbidden:
-				add(CodeRBACForbidden, continuumv1.Problem_ERROR, fmt.Sprintf("The cluster refuses this agent permission to %s %s (HTTP 403), so the agent cannot see it and reports none. %s", i.Verb, i.Name, helmRestoreRBACAdvice))
+				add(CodeRBACForbidden, ikhnosv1.Problem_ERROR, fmt.Sprintf("The cluster refuses this agent permission to %s %s (HTTP 403), so the agent cannot see it and reports none. %s", i.Verb, i.Name, helmRestoreRBACAdvice))
 			case !i.Synced && now.Sub(started) > informerNotSyncedGrace:
 				why := "it has not answered the first request yet (the Kubernetes API may be slow or unreachable)"
 				if i.Err != "" {
 					why = "the last error was: " + clipMsg(i.Err, 200)
 				}
-				add(CodeInformerNotSynced, continuumv1.Problem_ERROR, fmt.Sprintf("The agent has not finished reading %s: %s. Until it has, the agent holds back its picture of the cluster rather than send an incomplete one. Check that the pod can reach the Kubernetes API (network policy, proxy NO_PROXY).", i.Name, why))
+				add(CodeInformerNotSynced, ikhnosv1.Problem_ERROR, fmt.Sprintf("The agent has not finished reading %s: %s. Until it has, the agent holds back its picture of the cluster rather than send an incomplete one. Check that the pod can reach the Kubernetes API (network policy, proxy NO_PROXY).", i.Name, why))
 			case i.Synced && i.Err != "":
-				add(CodeInformerNotSynced, continuumv1.Problem_WARN, fmt.Sprintf("The watch on %s is failing (%s), so what the agent knows about it may be out of date. It keeps retrying.", i.Name, clipMsg(i.Err, 200)))
+				add(CodeInformerNotSynced, ikhnosv1.Problem_WARN, fmt.Sprintf("The watch on %s is failing (%s), so what the agent knows about it may be out of date. It keeps retrying.", i.Name, clipMsg(i.Err, 200)))
 			}
 		}
 		for mod, why := range c.OptionalOff() {
 			switch {
 			case strings.HasPrefix(why, "not permitted"):
-				add(CodeRBACForbidden, continuumv1.Problem_WARN, fmt.Sprintf("The %s module is off: the cluster refuses this agent permission to read what it needs. %s", mod, helmRestoreRBACAdvice))
+				add(CodeRBACForbidden, ikhnosv1.Problem_WARN, fmt.Sprintf("The %s module is off: the cluster refuses this agent permission to read what it needs. %s", mod, helmRestoreRBACAdvice))
 			case strings.HasPrefix(why, "unavailable"):
-				add(CodeInformerNotSynced, continuumv1.Problem_WARN, fmt.Sprintf("The %s module is off: %s.", mod, why))
+				add(CodeInformerNotSynced, ikhnosv1.Problem_WARN, fmt.Sprintf("The %s module is off: %s.", mod, why))
 			}
 		}
 		// A scope that leaves nothing in view
 		if tier >= 2 && d.Scope != nil && d.Scope.NamespacesTotal > 0 && d.Scope.NamespacesInScope == 0 {
-			add(CodeScopeEmpty, continuumv1.Problem_WARN, fmt.Sprintf("The scope (%s) matches none of this cluster's %d namespaces, so the agent reports no workloads. %s", d.Scope.Description, d.Scope.NamespacesTotal, scopeEmptyAdvice))
+			add(CodeScopeEmpty, ikhnosv1.Problem_WARN, fmt.Sprintf("The scope (%s) matches none of this cluster's %d namespaces, so the agent reports no workloads. %s", d.Scope.Description, d.Scope.NamespacesTotal, scopeEmptyAdvice))
 		}
 		// Namespaced RBAC (rbac.mode=namespaced) trades a real capability for a narrower blast radius; said plainly
 		// here, every time, rather than left for someone to discover only in the chart's own values.yaml comments.
 		if tier >= 2 && r.cfg.RBACNamespaced {
-			add(CodeRBACNamespacedMode, continuumv1.Problem_INFO, "This agent's tier 2 access is granted per namespace (rbac.mode=namespaced), not with one cluster-wide ClusterRole: namespace labels/creation time and persistent volumes are not read (only claims are), and a namespace added to the cluster later needs a helm upgrade with it added to scope.namespaces before this agent reports on it.")
+			add(CodeRBACNamespacedMode, ikhnosv1.Problem_INFO, "This agent's tier 2 access is granted per namespace (rbac.mode=namespaced), not with one cluster-wide ClusterRole: namespace labels/creation time and persistent volumes are not read (only claims are), and a namespace added to the cluster later needs a helm upgrade with it added to scope.namespaces before this agent reports on it.")
 		}
 	}
 	d.Collectors = r.collectorDiagnostics(c, tier, paused, now, add)
@@ -322,7 +322,7 @@ func (r *runner) diagnostics() *continuumv1.Diagnostics {
 		if skew < 0 {
 			dir = "behind"
 		}
-		add(CodeClockSkew, continuumv1.Problem_WARN, fmt.Sprintf("This machine's clock is %s %s the server's. Certificates may then look expired or not yet valid. Check time synchronisation (NTP) on the node this pod runs on.", skew.Abs().Round(time.Second), dir))
+		add(CodeClockSkew, ikhnosv1.Problem_WARN, fmt.Sprintf("This machine's clock is %s %s the server's. Certificates may then look expired or not yet valid. Check time synchronisation (NTP) on the node this pod runs on.", skew.Abs().Round(time.Second), dir))
 	}
 
 	// RBAC still wider than this install declares (rbac_check.go runs the actual check; this only reads its cache)
@@ -331,7 +331,7 @@ func (r *runner) diagnostics() *continuumv1.Diagnostics {
 		ceiling, checked := r.dg.rbacCeiling, !r.dg.rbacCheckedAt.IsZero()
 		r.dg.mu.Unlock()
 		if checked && ceiling > r.cfg.Tier {
-			add(CodeRBACWiderThanTier, continuumv1.Problem_WARN, fmt.Sprintf("The cluster still grants this agent permission to read at tier %d, wider than the tier %d this install declares (access.tier). %s", ceiling, r.cfg.Tier, rbacWiderAdvice))
+			add(CodeRBACWiderThanTier, ikhnosv1.Problem_WARN, fmt.Sprintf("The cluster still grants this agent permission to read at tier %d, wider than the tier %d this install declares (access.tier). %s", ceiling, r.cfg.Tier, rbacWiderAdvice))
 		}
 	}
 
@@ -344,7 +344,7 @@ func (r *runner) diagnostics() *continuumv1.Diagnostics {
 		at := r.dg.flowDropAt
 		r.dg.mu.Unlock()
 		if now.Sub(at) < flowDropRemembered {
-			add(CodeFlowDropped, continuumv1.Problem_WARN, fmt.Sprintf("%d observed connections were dropped because the agent held more than it may while it could not reach the server (the oldest go first). Traffic figures for that time are incomplete.", n))
+			add(CodeFlowDropped, ikhnosv1.Problem_WARN, fmt.Sprintf("%d observed connections were dropped because the agent held more than it may while it could not reach the server (the oldest go first). Traffic figures for that time are incomplete.", n))
 		}
 	}
 	r.probs.replaceDerived(derived)
@@ -357,10 +357,10 @@ func (r *runner) diagnostics() *continuumv1.Diagnostics {
 // this process, plus a couple of fields already sitting in memory (dg's last-flow-batch bookkeeping and
 // the already-parsed Config), never anything that touches the cluster. Safe to call from any goroutine,
 // same as diagnostics() above.
-func (r *runner) selfStats() *continuumv1.SelfStats {
+func (r *runner) selfStats() *ikhnosv1.SelfStats {
 	var mem runtime.MemStats
 	runtime.ReadMemStats(&mem)
-	s := &continuumv1.SelfStats{
+	s := &ikhnosv1.SelfStats{
 		RssBytes:   mem.Sys,
 		Goroutines: uint32(runtime.NumGoroutine()),
 		CpuSeconds: processCPUSeconds(),
@@ -385,7 +385,7 @@ func (r *runner) selfStats() *continuumv1.SelfStats {
 // and whether they deliver. A collector that is switched on but has said nothing for silentAfterIntervals of its own
 // interval is a problem (collector_silent): a node probe or flow collector that cannot reach the agent looks exactly
 // like a quiet one otherwise.
-func (r *runner) collectorDiagnostics(c *collect.Collector, tier int, paused map[string]bool, now time.Time, add func(string, continuumv1.Problem_Severity, string)) []*continuumv1.CollectorDiag {
+func (r *runner) collectorDiagnostics(c *collect.Collector, tier int, paused map[string]bool, now time.Time, add func(string, ikhnosv1.Problem_Severity, string)) []*ikhnosv1.CollectorDiag {
 	nodes := 0
 	if c != nil {
 		nodes = c.Nodes()
@@ -401,7 +401,7 @@ func (r *runner) collectorDiagnostics(c *collect.Collector, tier int, paused map
 	if r.cfg.CollectorStartupGrace > 0 {
 		startupGrace = r.cfg.CollectorStartupGrace
 	}
-	var out []*continuumv1.CollectorDiag
+	var out []*ikhnosv1.CollectorDiag
 	silent := func(name string, every time.Duration, last time.Time, where string) bool {
 		since := r.enabledSince(name, now)
 		ref := last
@@ -421,14 +421,14 @@ func (r *runner) collectorDiagnostics(c *collect.Collector, tier int, paused map
 			}
 		}
 		if now.Sub(ref) > threshold {
-			add(CodeCollectorSilent, continuumv1.Problem_WARN, fmt.Sprintf("The %s is switched on but nothing has arrived from it for more than %s (it should report about every %s). %s", where, threshold, every, silentAdvice(name)))
+			add(CodeCollectorSilent, ikhnosv1.Problem_WARN, fmt.Sprintf("The %s is switched on but nothing has arrived from it for more than %s (it should report about every %s). %s", where, threshold, every, silentAdvice(name)))
 			return true
 		}
 		return false
 	}
 
 	// node probe receiver
-	pd := &continuumv1.CollectorDiag{Name: collectorProbes, Configured: r.cfg.Probes != nil, PausedByServer: paused[collectorProbes]}
+	pd := &ikhnosv1.CollectorDiag{Name: collectorProbes, Configured: r.cfg.Probes != nil, PausedByServer: paused[collectorProbes]}
 	pd.Enabled = pd.Configured && !pd.PausedByServer && tier >= 1
 	switch {
 	case !pd.Configured:
@@ -453,7 +453,7 @@ func (r *runner) collectorDiagnostics(c *collect.Collector, tier int, paused map
 	out = append(out, pd)
 
 	// flow pipeline
-	fd := &continuumv1.CollectorDiag{Name: collectorFlow, Configured: r.cfg.Flows != nil, PausedByServer: paused[collectorFlow]}
+	fd := &ikhnosv1.CollectorDiag{Name: collectorFlow, Configured: r.cfg.Flows != nil, PausedByServer: paused[collectorFlow]}
 	fd.Enabled = fd.Configured && !fd.PausedByServer && tier >= 2
 	switch {
 	case !fd.Configured:
@@ -481,7 +481,7 @@ func (r *runner) collectorDiagnostics(c *collect.Collector, tier int, paused map
 	r.dg.mu.Lock()
 	targets, every, lastRound, results, tsince := r.dg.targets, r.dg.measureEvery, r.dg.lastRound, r.dg.lastResults, r.dg.targetsSince
 	r.dg.mu.Unlock()
-	md := &continuumv1.CollectorDiag{Name: collectorMeasure, Configured: r.cfg.Measure, PausedByServer: paused[collectorMeasure]}
+	md := &ikhnosv1.CollectorDiag{Name: collectorMeasure, Configured: r.cfg.Measure, PausedByServer: paused[collectorMeasure]}
 	md.Enabled = md.Configured && !md.PausedByServer
 	md.Expected = uint32(targets)
 	switch {
@@ -502,7 +502,7 @@ func (r *runner) collectorDiagnostics(c *collect.Collector, tier int, paused map
 				ref = tsince
 			}
 			if threshold := silentAfterIntervals*every + 10*time.Second; now.Sub(ref) > threshold {
-				add(CodeCollectorSilent, continuumv1.Problem_WARN, fmt.Sprintf("Connection timing is switched on with %d addresses to time, but no round has completed for more than %s (it should run about every %s). %s", targets, threshold, every, silentAdvice(collectorMeasure)))
+				add(CodeCollectorSilent, ikhnosv1.Problem_WARN, fmt.Sprintf("Connection timing is switched on with %d addresses to time, but no round has completed for more than %s (it should run about every %s). %s", targets, threshold, every, silentAdvice(collectorMeasure)))
 				md.Producing = false
 			}
 		}
@@ -514,9 +514,9 @@ func (r *runner) collectorDiagnostics(c *collect.Collector, tier int, paused map
 func silentAdvice(name string) string {
 	switch name {
 	case collectorProbes:
-		return "Check that the node probe DaemonSet is running (kubectl -n continuum-system get ds) and can reach the agent's Service on port 8081 (a NetworkPolicy may be blocking it)."
+		return "Check that the node probe DaemonSet is running (kubectl -n ikhnos-system get ds) and can reach the agent's Service on port 8081 (a NetworkPolicy may be blocking it)."
 	case collectorFlow:
-		return "Check that the flow collector DaemonSet is running (kubectl -n continuum-system get ds) and can reach the agent's Service on port 8081; on a node where eBPF is unavailable it falls back to conntrack, or reports nothing if neither works."
+		return "Check that the flow collector DaemonSet is running (kubectl -n ikhnos-system get ds) and can reach the agent's Service on port 8081; on a node where eBPF is unavailable it falls back to conntrack, or reports nothing if neither works."
 	}
 	return "Check that the agent can open connections to those addresses (egress policy, firewall)."
 }
@@ -551,8 +551,8 @@ func clipMsg(s string, n int) string {
 
 // diagSignature is what decides whether a message differs from the last one: everything except the numbers that change
 // all the time (uptime, timestamps, object counts, how long ago a collector last reported).
-func diagSignature(d *continuumv1.Diagnostics) []byte {
-	c := proto.Clone(d).(*continuumv1.Diagnostics)
+func diagSignature(d *ikhnosv1.Diagnostics) []byte {
+	c := proto.Clone(d).(*ikhnosv1.Diagnostics)
 	c.UptimeSeconds, c.GeneratedAt = 0, nil
 	for _, i := range c.Informers {
 		i.Objects = 0
@@ -577,7 +577,7 @@ func diagSignature(d *continuumv1.Diagnostics) []byte {
 
 // diagToSend returns the diagnostics for a heartbeat: the message if it changed since the last one sent (or if refreshEvery
 // has passed), nil otherwise. force sends it regardless.
-func (r *runner) diagToSend(force bool) *continuumv1.Diagnostics {
+func (r *runner) diagToSend(force bool) *ikhnosv1.Diagnostics {
 	d := r.diagnostics()
 	sig := diagSignature(d)
 	r.dg.mu.Lock()
@@ -620,9 +620,9 @@ func (r *runner) noteCertRenewal(res certrenew.Result) {
 	if !res.Refused && left > certRenewalWarnWithin {
 		return
 	}
-	sev := continuumv1.Problem_WARN
+	sev := ikhnosv1.Problem_WARN
 	if left < 2*24*time.Hour {
-		sev = continuumv1.Problem_ERROR
+		sev = ikhnosv1.Problem_ERROR
 	}
 	msg := fmt.Sprintf("The telemetry certificate in Secret %s ends on %s and could not be renewed: %v.", res.Target.Name, res.NotAfter.UTC().Format("2006-01-02"), res.Err)
 	if res.Refused {

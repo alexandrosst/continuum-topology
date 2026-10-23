@@ -1,0 +1,73 @@
+{{- if .Values.loki.enabled }}
+{{- $l := .Values.loki }}
+{{- $name := printf "%s-loki" (include "fusion.name" .) }}
+{{- $sel := include "fusion.selector" (dict "root" . "component" "loki") }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "fusion.labels" . | nindent 4 }}
+data:
+  loki.yaml: |
+    # One process, one volume. Logs arrive pushed, over OTLP, on /otlp (a regional operator's OTLP/HTTP exporter
+    # writes to /otlp/v1/logs).
+    auth_enabled: false
+    server:
+      http_listen_port: 3100
+      grpc_listen_port: 9096
+    common:
+      instance_addr: 127.0.0.1
+      path_prefix: /loki
+      replication_factor: 1
+      ring:
+        kvstore:
+          store: inmemory
+      storage:
+        filesystem:
+          chunks_directory: /loki/chunks
+          rules_directory: /loki/rules
+    schema_config:
+      configs:
+        - from: "2024-04-01"
+          store: tsdb
+          object_store: filesystem
+          schema: v13
+          index:
+            prefix: index_
+            period: 24h
+    limits_config:
+      # OTLP carries most of a log's context as structured metadata; this must be on for the OTLP endpoint.
+      allow_structured_metadata: true
+      # Loki's defaults (4 MB/s per tenant, a 6 MB burst, 5000 active streams) are sized for one small app; this is every
+      # pod of every connected cluster behind one tenant, so a busy minute would be answered with 429s the gateway
+      # retries and finally drops. Streams here are service x namespace x pod-level labels, hence the high ceiling.
+      ingestion_rate_mb: 32
+      ingestion_burst_size_mb: 64
+      max_global_streams_per_user: 100000
+      # The API accepts ranges of up to 31 days (744h); Loki's default stops at 30 days and an hour (721h).
+      max_query_length: 744h
+      # Loki indexes only a fixed list of OTLP resource attributes as stream labels (service.*, k8s.*, ...) and keeps the
+      # rest as structured metadata. Where the data came from is not on that list, so two clusters whose pods share a name
+      # (a StatefulSet's web-0) were merged into one stream and every per-cluster query read all of them. These two are
+      # added to the list. Filters on them after a pipe (| ikhnos_cluster_id="x") work the same as before.
+      otlp_config:
+        resource_attributes:
+          attributes_config:
+            - action: index_label
+              attributes: [ikhnos.cluster.id, ikhnos.org.id]
+      {{- if .Values.switch.managed }}
+      retention_period: ${LOKI_RETENTION}
+      {{- else }}
+      retention_period: {{ $l.retention }}
+      {{- end }}
+    # What Grafana's Drilldown > Logs needs for its patterns view; off by default. (The volume view it also uses is on.)
+    pattern_ingester:
+      enabled: true
+    compactor:
+      working_directory: /loki/compactor
+      retention_enabled: true
+      delete_request_store: filesystem
+    analytics:
+      reporting_enabled: false
+{{- end }}

@@ -7,11 +7,11 @@ import (
 	"io"
 	"net/http"
 
-	"continuum/internal/agents"
-	"continuum/internal/httpkit"
-	"continuum/internal/install"
-	"continuum/internal/kernel"
-	"continuum/internal/store"
+	"ikhnos/internal/agents"
+	"ikhnos/internal/httpkit"
+	"ikhnos/internal/install"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/store"
 )
 
 // IntentProvenanceValues are the values that stamp who an agent's telemetry belongs to on everything it sends, whatever a person adds

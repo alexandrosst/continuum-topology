@@ -1,7 +1,7 @@
 package fusion
 
 import (
-	"continuum/internal/wire"
+	"ikhnos/internal/wire"
 )
 
 // WireTypes are the shapes this package puts on the wire (or reads from it), for the TypeScript the server writes of them

@@ -19,7 +19,7 @@ func TestCredentialSecretsOfRoutes(t *testing.T) {
 		t.Fatalf("%+v", got)
 	}
 	// One Secret under two keys is one command with both, each read from its own variable.
-	if want := `kubectl create secret generic shared --namespace continuum-system --from-literal=a="${TELEMETRY_EXPORT_TOKEN_METRICS:?set TELEMETRY_EXPORT_TOKEN_METRICS to the credential first}" --from-literal=b="${TELEMETRY_EXPORT_TOKEN_LOGS:?set TELEMETRY_EXPORT_TOKEN_LOGS to the credential first}" --dry-run=client -o yaml | kubectl apply -f -`; got[0].Command != want {
+	if want := `kubectl create secret generic shared --namespace ikhnos-system --from-literal=a="${TELEMETRY_EXPORT_TOKEN_METRICS:?set TELEMETRY_EXPORT_TOKEN_METRICS to the credential first}" --from-literal=b="${TELEMETRY_EXPORT_TOKEN_LOGS:?set TELEMETRY_EXPORT_TOKEN_LOGS to the credential first}" --dry-run=client -o yaml | kubectl apply -f -`; got[0].Command != want {
 		t.Errorf("got\n%s\nwant\n%s", got[0].Command, want)
 	}
 	if got[0].Variable != "TELEMETRY_EXPORT_TOKEN_METRICS" || len(got[0].Lanes) != 2 || got[1].Variable != "TELEMETRY_EXPORT_TOKEN_TRACES" {
@@ -44,7 +44,7 @@ func TestCredentialSecretsOfOneDestination(t *testing.T) {
 		t.Fatalf("%+v", got)
 	}
 	// A namespace that is not a name is dropped for the default, not pasted.
-	if c := tel.CredentialCommand("x; rm -rf /"); !strings.Contains(c, "--namespace continuum-system") || strings.Contains(c, "rm") {
+	if c := tel.CredentialCommand("x; rm -rf /"); !strings.Contains(c, "--namespace ikhnos-system") || strings.Contains(c, "rm") {
 		t.Fatal(c)
 	}
 	// Nothing is created for telemetry that is off or has a problem: its upgrade command carries no credential flags either.

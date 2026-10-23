@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 
-	"continuum/internal/testkit"
+	"ikhnos/internal/testkit"
 )
 
 // The Run goroutine's ticker calls rec.tick (-> scan) while POST /history/record runs Hub.ScanNow (-> scan)
@@ -34,7 +34,7 @@ func TestRecorderTickAndScanNowDoNotRace(t *testing.T) {
 			if i%2 == 0 {
 				delete(st.Nodes, "n2")
 			} else {
-				st.Nodes["n2"] = &continuumv1.NodeFacts{Key: "n2", Name: "n2", Ready: true}
+				st.Nodes["n2"] = &ikhnosv1.NodeFacts{Key: "n2", Name: "n2", Ready: true}
 			}
 			r.hub.Mu.Unlock()
 			r.hub.ScanNow(r.ctx)

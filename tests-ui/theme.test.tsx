@@ -27,7 +27,7 @@ describe('theme at startup', () => {
 
   it('a pinned choice beats the OS', () => {
     osPrefers(true)
-    localStorage.setItem('continuum:theme', 'dark')
+    localStorage.setItem('ikhnos:theme', 'dark')
     initTheme()
     expect(document.documentElement.getAttribute('data-theme')).toBe('dark')
   })

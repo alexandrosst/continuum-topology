@@ -7,12 +7,12 @@ import (
 	"fmt"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/accounts"
-	"continuum/internal/approval"
-	"continuum/internal/kernel"
-	"continuum/internal/pki"
-	"continuum/internal/store"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/approval"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/pki"
+	"ikhnos/internal/store"
 
 	"crypto/subtle"
 )
@@ -38,7 +38,7 @@ func (c *Service) pollAfter() int32 {
 // request is recognised as the same enrollment, because it comes with the same token and the same key,
 // and it continues the same pending agent instead of failing or creating a second one. The agent gets a
 // fresh poll secret (the first was lost with the response). A different key with a spent token is refused.
-func (c *Service) Enroll(ctx context.Context, ip string, req *continuumv1.EnrollRequest) (*continuumv1.EnrollResponse, error) {
+func (c *Service) Enroll(ctx context.Context, ip string, req *ikhnosv1.EnrollRequest) (*ikhnosv1.EnrollResponse, error) {
 	if !c.EnrollRL.Allow("enroll:" + kernel.LimitKey(ip)) {
 		return nil, kernel.Errf(kernel.KindRateLimited, "too many attempts, slow down")
 	}
@@ -101,14 +101,14 @@ func (c *Service) Enroll(ctx context.Context, ip string, req *continuumv1.Enroll
 	return c.enrollResponse(a.ID, pollSecret), nil
 }
 
-func (c *Service) enrollResponse(agentID, pollSecret string) *continuumv1.EnrollResponse {
-	return &continuumv1.EnrollResponse{AgentId: agentID, PollSecret: pollSecret, PollIntervalSeconds: kernel.PollIntervalSecond,
+func (c *Service) enrollResponse(agentID, pollSecret string) *ikhnosv1.EnrollResponse {
+	return &ikhnosv1.EnrollResponse{AgentId: agentID, PollSecret: pollSecret, PollIntervalSeconds: kernel.PollIntervalSecond,
 		ServerTimeUnix: c.Now().Unix(), PendingTtlSeconds: int32(c.EffectivePendingTTL() / time.Second)}
 }
 
 // resumeEnrollment recognises a retried enrollment (a spent token, but the agent it was spent on has this
 // very key and cluster) and continues it. It returns nil, nil when the request is not a retry.
-func (c *Service) resumeEnrollment(ctx context.Context, ip string, req *continuumv1.EnrollRequest, tokenHash []byte, fresh store.Agent, pollSecret string) (*continuumv1.EnrollResponse, error) {
+func (c *Service) resumeEnrollment(ctx context.Context, ip string, req *ikhnosv1.EnrollRequest, tokenHash []byte, fresh store.Agent, pollSecret string) (*ikhnosv1.EnrollResponse, error) {
 	prev, err := c.Store.AgentByToken(ctx, tokenHash)
 	if errors.Is(err, store.ErrNotFound) {
 		return nil, nil
@@ -182,7 +182,7 @@ func (c *Service) ExpirePending(ctx context.Context, org string) int {
 }
 
 // Poll lets an enrolling agent learn its approval state and collect its certificate.
-func (c *Service) Poll(ctx context.Context, ip string, req *continuumv1.PollRequest) (*continuumv1.PollResponse, error) {
+func (c *Service) Poll(ctx context.Context, ip string, req *ikhnosv1.PollRequest) (*ikhnosv1.PollResponse, error) {
 	if !c.EnrollRL.Allow("poll:" + kernel.LimitKey(ip)) {
 		return nil, kernel.Errf(kernel.KindRateLimited, "too many attempts, slow down")
 	}
@@ -200,19 +200,19 @@ func (c *Service) Poll(ctx context.Context, ip string, req *continuumv1.PollRequ
 	}
 	switch a.Status {
 	case store.StatusApproved:
-		return &continuumv1.PollResponse{
-			State:          continuumv1.PollResponse_APPROVED,
+		return &ikhnosv1.PollResponse{
+			State:          ikhnosv1.PollResponse_APPROVED,
 			LeafDer:        a.LeafDER,
 			CaDer:          c.CA.DER,
 			NotAfter:       kernel.TSProto(a.LeafNotAfter),
 			ServerTimeUnix: now,
 		}, nil
 	case store.StatusRejected, store.StatusRevoked:
-		return &continuumv1.PollResponse{State: continuumv1.PollResponse_REJECTED, Reason: a.Reason, ServerTimeUnix: now}, nil
+		return &ikhnosv1.PollResponse{State: ikhnosv1.PollResponse_REJECTED, Reason: a.Reason, ServerTimeUnix: now}, nil
 	case store.StatusExpired:
-		return &continuumv1.PollResponse{State: continuumv1.PollResponse_EXPIRED, Reason: a.Reason, ServerTimeUnix: now}, nil
+		return &ikhnosv1.PollResponse{State: ikhnosv1.PollResponse_EXPIRED, Reason: a.Reason, ServerTimeUnix: now}, nil
 	default:
-		return &continuumv1.PollResponse{State: continuumv1.PollResponse_PENDING, PollAfterSeconds: c.pollAfter(), ServerTimeUnix: now}, nil
+		return &ikhnosv1.PollResponse{State: ikhnosv1.PollResponse_PENDING, PollAfterSeconds: c.pollAfter(), ServerTimeUnix: now}, nil
 	}
 }
 

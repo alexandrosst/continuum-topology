@@ -4,11 +4,11 @@ import (
 	"errors"
 	"net/http"
 
-	"continuum/internal/httpkit"
-	"continuum/internal/install"
-	"continuum/internal/kernel"
-	"continuum/internal/operators"
-	"continuum/internal/store"
+	"ikhnos/internal/httpkit"
+	"ikhnos/internal/install"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/operators"
+	"ikhnos/internal/store"
 )
 
 func (h *API) listOperators(w http.ResponseWriter, r *http.Request) {

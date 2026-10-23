@@ -62,11 +62,11 @@ func chartNotes(t *testing.T, chartDir, release string, args ...string) string {
 }
 
 func agentNotes(t *testing.T, extra ...string) string {
-	return chartNotes(t, "continuum-agent", "ct", append(append([]string{}, baseSet...), extra...)...)
+	return chartNotes(t, "ikhnos-agent", "ct", append(append([]string{}, baseSet...), extra...)...)
 }
 
 func operatorNotes(t *testing.T, extra ...string) string {
-	return chartNotes(t, "continuum-regional-operator", "op", append([]string{"--set", "export.otlp.endpoint=collector.example:4317"}, extra...)...)
+	return chartNotes(t, "ikhnos-regional-operator", "op", append([]string{"--set", "export.otlp.endpoint=collector.example:4317"}, extra...)...)
 }
 
 // Behind a proxy the collectors read HTTPS_PROXY / HTTP_PROXY / NO_PROXY from their environment (OTLP/HTTP and OTLP/gRPC
@@ -78,8 +78,8 @@ func TestAgentRv2XProxyEnvOnBothCollectors(t *testing.T) {
 		"--set", "telemetry.export.proxy.httpsProxy=http://proxy.corp:3128", "--set", "telemetry.export.proxy.httpProxy=http://proxy.corp:3128",
 		"--set", "telemetry.export.proxy.noProxy=.corp.example",
 		"--set", "telemetry.extraEnv[0].name=SSL_CERT_FILE", "--set", "telemetry.extraEnv[0].value=/etc/ssl/corp.pem")...)
-	host := r.daemonsets["continuum-telemetry-host"].Spec.Template.Spec.Containers[0]
-	cluster := r.deployments["continuum-telemetry-cluster"].Spec.Template.Spec.Containers[0]
+	host := r.daemonsets["ikhnos-telemetry-host"].Spec.Template.Spec.Containers[0]
+	cluster := r.deployments["ikhnos-telemetry-cluster"].Spec.Template.Spec.Containers[0]
 	for name, c := range map[string]corev1.Container{"host": host, "cluster": cluster} {
 		if v := envNamed(c, "HTTPS_PROXY"); v == nil || v.Value != "http://proxy.corp:3128" {
 			t.Errorf("%s HTTPS_PROXY = %v", name, v)
@@ -116,7 +116,7 @@ func TestAgentRv2XProxyEnvOnBothCollectors(t *testing.T) {
 	}
 	// A host collector that reads no kubelet does not name NODE_IP either.
 	logsOnly := render(t, withTel("--set", "telemetry.systemLogs.logs.enabled=true", "--set", "telemetry.export.proxy.httpsProxy=http://proxy.corp:3128")...)
-	if no := envNamed(logsOnly.daemonsets["continuum-telemetry-host"].Spec.Template.Spec.Containers[0], "NO_PROXY"); no == nil || strings.Contains(no.Value, "NODE_IP") {
+	if no := envNamed(logsOnly.daemonsets["ikhnos-telemetry-host"].Spec.Template.Spec.Containers[0], "NO_PROXY"); no == nil || strings.Contains(no.Value, "NODE_IP") {
 		t.Errorf("a host collector without kubelet metrics has NO_PROXY %v", no)
 	}
 }
@@ -124,8 +124,8 @@ func TestAgentRv2XProxyEnvOnBothCollectors(t *testing.T) {
 func TestAgentRv2XNoProxyConfiguredMeansNoProxyVariables(t *testing.T) {
 	r := render(t, withTel("--set", "telemetry.resourceUsage.metrics.enabled=true", "--set", "telemetry.kubernetesState.metrics.enabled=true")...)
 	for name, c := range map[string]corev1.Container{
-		"host":    r.daemonsets["continuum-telemetry-host"].Spec.Template.Spec.Containers[0],
-		"cluster": r.deployments["continuum-telemetry-cluster"].Spec.Template.Spec.Containers[0],
+		"host":    r.daemonsets["ikhnos-telemetry-host"].Spec.Template.Spec.Containers[0],
+		"cluster": r.deployments["ikhnos-telemetry-cluster"].Spec.Template.Spec.Containers[0],
 	} {
 		for _, v := range []string{"HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY"} {
 			if envNamed(c, v) != nil {
@@ -139,7 +139,7 @@ func TestAgentRv2XNoProxyConfiguredMeansNoProxyVariables(t *testing.T) {
 // out. HTTPS_PROXY is required (a missing key is CreateContainerConfigError, visible); HTTP_PROXY is optional.
 func TestAgentRv2XProxyFromASecret(t *testing.T) {
 	r := render(t, withTel("--set", "telemetry.resourceUsage.metrics.enabled=true", "--set", "telemetry.export.proxy.secretName=corp-proxy")...)
-	c := r.daemonsets["continuum-telemetry-host"].Spec.Template.Spec.Containers[0]
+	c := r.daemonsets["ikhnos-telemetry-host"].Spec.Template.Spec.Containers[0]
 	https := envNamed(c, "HTTPS_PROXY")
 	if https == nil || https.ValueFrom == nil || https.ValueFrom.SecretKeyRef == nil || https.ValueFrom.SecretKeyRef.Name != "corp-proxy" ||
 		https.ValueFrom.SecretKeyRef.Key != "HTTPS_PROXY" || (https.ValueFrom.SecretKeyRef.Optional != nil && *https.ValueFrom.SecretKeyRef.Optional) {
@@ -151,7 +151,7 @@ func TestAgentRv2XProxyFromASecret(t *testing.T) {
 	}
 	// A plain value next to the Secret wins for its own variable.
 	r = render(t, withTel("--set", "telemetry.kubernetesState.metrics.enabled=true", "--set", "telemetry.export.proxy.secretName=corp-proxy", "--set", "telemetry.export.proxy.httpsProxy=http://plain:3128")...)
-	if v := envNamed(r.deployments["continuum-telemetry-cluster"].Spec.Template.Spec.Containers[0], "HTTPS_PROXY"); v == nil || v.Value != "http://plain:3128" {
+	if v := envNamed(r.deployments["ikhnos-telemetry-cluster"].Spec.Template.Spec.Containers[0], "HTTPS_PROXY"); v == nil || v.Value != "http://plain:3128" {
 		t.Errorf("HTTPS_PROXY next to a Secret = %+v", v)
 	}
 	if n := agentNotes(t, withTel("--set", "telemetry.resourceUsage.metrics.enabled=true", "--set", "telemetry.export.proxy.secretName=corp-proxy")...); !strings.Contains(n, "corp-proxy (HTTPS_PROXY, HTTP_PROXY optional)") {
@@ -164,14 +164,14 @@ func TestAgentRv2XDNSConfigReachesBothPods(t *testing.T) {
 	r := render(t, withTel("--set", "telemetry.resourceUsage.metrics.enabled=true", "--set", "telemetry.kubernetesState.metrics.enabled=true",
 		"--set-string", "telemetry.dnsConfig.options[0].name=ndots", "--set-string", "telemetry.dnsConfig.options[0].value=2")...)
 	for name, spec := range map[string]corev1.PodSpec{
-		"host": r.daemonsets["continuum-telemetry-host"].Spec.Template.Spec, "cluster": r.deployments["continuum-telemetry-cluster"].Spec.Template.Spec,
+		"host": r.daemonsets["ikhnos-telemetry-host"].Spec.Template.Spec, "cluster": r.deployments["ikhnos-telemetry-cluster"].Spec.Template.Spec,
 	} {
 		if spec.DNSConfig == nil || len(spec.DNSConfig.Options) != 1 || spec.DNSConfig.Options[0].Name != "ndots" || *spec.DNSConfig.Options[0].Value != "2" {
 			t.Errorf("%s dnsConfig = %+v", name, spec.DNSConfig)
 		}
 	}
 	r = render(t, withTel("--set", "telemetry.resourceUsage.metrics.enabled=true")...)
-	if r.daemonsets["continuum-telemetry-host"].Spec.Template.Spec.DNSConfig != nil {
+	if r.daemonsets["ikhnos-telemetry-host"].Spec.Template.Spec.DNSConfig != nil {
 		t.Error("a dnsConfig without being asked for")
 	}
 }

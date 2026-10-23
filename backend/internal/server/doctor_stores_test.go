@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"continuum/internal/chart"
-	"continuum/internal/fusionapi"
+	"ikhnos/internal/chart"
+	"ikhnos/internal/fusionapi"
 )
 
 // lokiIndexedByDefault is what Loki indexes as a stream label out of an OTLP resource without being told (limits_config.
@@ -111,7 +111,7 @@ func doctorStores(t *testing.T) {
 			return out
 		}
 
-		// A sender's continuum.* on a data point, a record or a span would sit next to the resource's own as a second value;
+		// A sender's ikhnos.* on a data point, a record or a span would sit next to the resource's own as a second value;
 		// the resource is where the stores and the dashboards read it, so it is the one level not stripped.
 		strip := regexp.MustCompile(`^(\w+) delete_matching_keys\(attributes, "(.*)"\)$`)
 		for _, signal := range signals {
@@ -128,7 +128,7 @@ func doctorStores(t *testing.T) {
 					t.Fatal(err)
 				}
 				for _, l := range fusionapi.Vocabulary {
-					if strings.HasPrefix(l.Attr, "continuum.") && !regexp.MustCompile(pattern).MatchString(l.Attr) {
+					if strings.HasPrefix(l.Attr, "ikhnos.") && !regexp.MustCompile(pattern).MatchString(l.Attr) {
 						t.Errorf("transform/provenance (%s) leaves %s from a sender on the %s", m[2], l.Attr, m[1])
 					}
 				}

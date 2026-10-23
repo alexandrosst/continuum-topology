@@ -4,10 +4,10 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/accounts"
-	"continuum/internal/decisionloop"
-	"continuum/internal/store"
-	"continuum/internal/testkit"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/decisionloop"
+	"ikhnos/internal/store"
+	"ikhnos/internal/testkit"
 )
 
 func TestAPredictionHeldWhenEveryObservedMetricWentTheWayAndByHalfAsMuch(t *testing.T) {

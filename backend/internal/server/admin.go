@@ -12,27 +12,27 @@ import (
 	"sync"
 	"time"
 
-	"continuum/internal/accounts"
-	"continuum/internal/accountsapi"
-	"continuum/internal/chart"
-	"continuum/internal/decisionloop"
-	"continuum/internal/estate"
-	"continuum/internal/fusion"
-	"continuum/internal/fusionapi"
-	"continuum/internal/fusionhttp"
-	"continuum/internal/fusionpages"
-	"continuum/internal/httpkit"
-	"continuum/internal/install"
-	"continuum/internal/installcfg"
-	"continuum/internal/kernel"
-	"continuum/internal/linksapi"
-	"continuum/internal/operators"
-	"continuum/internal/operatorsapi"
-	"continuum/internal/probe"
-	"continuum/internal/settingsapi"
-	"continuum/internal/store"
-	"continuum/internal/telemetry"
-	"continuum/internal/twin"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/accountsapi"
+	"ikhnos/internal/chart"
+	"ikhnos/internal/decisionloop"
+	"ikhnos/internal/estate"
+	"ikhnos/internal/fusion"
+	"ikhnos/internal/fusionapi"
+	"ikhnos/internal/fusionhttp"
+	"ikhnos/internal/fusionpages"
+	"ikhnos/internal/httpkit"
+	"ikhnos/internal/install"
+	"ikhnos/internal/installcfg"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/linksapi"
+	"ikhnos/internal/operators"
+	"ikhnos/internal/operatorsapi"
+	"ikhnos/internal/probe"
+	"ikhnos/internal/settingsapi"
+	"ikhnos/internal/store"
+	"ikhnos/internal/telemetry"
+	"ikhnos/internal/twin"
 )
 
 // Admin is the JSON API the UI talks to. It listens on its own port, separate from the agent
@@ -107,7 +107,7 @@ type Admin struct {
 }
 
 const (
-	cookieName = "continuum_session"
+	cookieName = "ikhnos_session"
 	// hostCookieName is the session cookie's name when it is Secure. The __Host- prefix makes a browser
 	// refuse a cookie of that name unless it is Secure, has Path=/ and no Domain, so a sibling
 	// subdomain or a plain-HTTP response cannot plant or overwrite it.

@@ -4,9 +4,9 @@ import (
 	"net/http"
 	"time"
 
-	"continuum/internal/agents"
-	"continuum/internal/httpkit"
-	"continuum/internal/model"
+	"ikhnos/internal/agents"
+	"ikhnos/internal/httpkit"
+	"ikhnos/internal/model"
 )
 
 // SelfTelemetrySample is one point in one entity's self-telemetry history - see (*API).selfTelemetry's
@@ -23,10 +23,10 @@ type SelfTelemetrySample struct {
 	// including why both are cluster-wide figures rather than one specific node's own reading.
 	BandwidthSharePct *float64 `json:"bandwidthSharePct,omitempty"`
 	Watts             *float64 `json:"watts,omitempty"`
-	// ContinuumWattsEstimate is always omitted in this pass - see (*API).selfTelemetry's own "Deferred"
+	// IkhnosWattsEstimate is always omitted in this pass - see (*API).selfTelemetry's own "Deferred"
 	// paragraph for why. Kept in the shape now so a client written against it today needs no change
 	// once a later pass fills it in.
-	ContinuumWattsEstimate *float64 `json:"continuumWattsEstimate,omitempty"`
+	IkhnosWattsEstimate *float64 `json:"ikhnosWattsEstimate,omitempty"`
 	// FlowIntervalSeconds/ProbeIntervalSeconds are agent entities only, straight from that sample's own
 	// SelfStats - 0 (and so omitted) for the "server" entity, which has no such intervals of its own.
 	FlowIntervalSeconds  uint32 `json:"flowIntervalSeconds,omitempty"`
@@ -223,7 +223,7 @@ func serverTelemetrySamples(history []agents.ServerSelfStatsSample) []SelfTeleme
 //	       common case on this product's actual target hardware) - that cluster's current total host-
 //	       wide power draw, summed across every node that does; a live snapshot attached to every
 //	       sample, not a historical reading of its own>,
-//	    "continuumWattsEstimate": always omitted in this pass - see "Deferred" below,
+//	    "ikhnosWattsEstimate": always omitted in this pass - see "Deferred" below,
 //	    "flowIntervalSeconds": <uint32, agent entities only>,
 //	    "probeIntervalSeconds": <uint32, agent entities only>,
 //	    "connectedAgents": <int, server entity only, always present - len(sessions) at sample time>,
@@ -241,14 +241,14 @@ func serverTelemetrySamples(history []agents.ServerSelfStatsSample) []SelfTeleme
 // than included with an empty list.
 //
 // Deferred, both left out of this pass on purpose:
-//   - continuumWattsEstimate (Ikhnos's own estimated share of watts: hostWatts times Ikhnos's own
+//   - ikhnosWattsEstimate (Ikhnos's own estimated share of watts: hostWatts times Ikhnos's own
 //     cgroup CPU share of the node) needs Ikhnos's own cgroup CPU time summed across the agent, flow-
 //     observer and node-probe's own pods - today only the agent's own process CPU time
 //     (SelfStats.cpu_seconds) is reported anywhere; the other two have no self-telemetry channel in this
 //     pass. Adding one for each, correctly, is a separate piece of work, not a small addition here -
 //     left out as a clearly-labeled gap rather than forced as a fragile guess from incomplete data.
 //   - Regional-operator self-telemetry: a regional operator deliberately does not dial this server (an
-//     explicit trust-model invariant - see the continuum-regional-operator chart's own comments). Its only
+//     explicit trust-model invariant - see the ikhnos-regional-operator chart's own comments). Its only
 //     opt-in exception is the content-free heartbeat (operator_heartbeat.go), which reports liveness and
 //     nothing else, so there is still no channel for one to report resource usage back over, and this pass
 //     does not build one.

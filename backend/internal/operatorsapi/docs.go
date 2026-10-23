@@ -4,10 +4,10 @@ import (
 	"net/http"
 	"time"
 
-	"continuum/internal/destination"
-	"continuum/internal/kernel"
-	"continuum/internal/operators"
-	"continuum/internal/store"
+	"ikhnos/internal/destination"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/operators"
+	"ikhnos/internal/store"
 )
 
 // operatorHealthDoc is an operator's liveness as the UI reads it: computed at read time from the stored
@@ -114,7 +114,7 @@ type Doc struct {
 	SourceClusterIDs   []string             `json:"sourceClusterIds"`
 	Destination        destination.Doc      `json:"destination"`
 	AcceptedModalities []store.Modality     `json:"acceptedModalities,omitempty"`
-	// Labels are the tags this operator adds to everything it forwards, next to the continuum.operator.id and
+	// Labels are the tags this operator adds to everything it forwards, next to the ikhnos.operator.id and
 	// .name it always adds. Absent when there are none.
 	Labels    []labelDoc `json:"labels,omitempty"`
 	CreatedAt string     `json:"createdAt"`

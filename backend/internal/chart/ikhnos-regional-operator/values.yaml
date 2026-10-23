@@ -1,0 +1,458 @@
+# ikhnos-regional-operator: a standalone OTel Collector that aggregates telemetry a set of Ikhnos
+# agents' clusters already export (each cluster's own telemetry.export.otlp.endpoint is pointed at this
+# operator's receiver, separately - see the operator's own install command for the exact command to run
+# against each source cluster) and re-exports it to one destination below.
+#
+# Unlike ikhnos-agent, this chart does not dial the Ikhnos server by default: there is no
+# server.address or enrollment here at all. What it checks is on the INBOUND side only, when something
+# exports into it, never on startup: either the mTLS client certificate every source cluster presents,
+# signed by this operator's OWN private CA (the only gate for operators Ikhnos creates today - no bearer
+# token exists for them; a certificate from any other operator's CA, or the org CA, is rejected) or, for
+# operators created before that and as a fallback, a receiver bearer token. The one exception is the opt-in `heartbeat` block below: with heartbeat.enabled true
+# it sends a periodic, content-free "I am alive" request to the Ikhnos server, authenticated with a
+# second, separate secret (never the receiver token). It is off unless you turn it on. It also
+# needs no Kubernetes API access of its own (see serviceaccount.yaml): it only relays and re-processes
+# telemetry that already arrived over OTLP, it never watches this cluster's own object graph the way
+# ikhnos-agent's k8sattributes processor does.
+
+replicaCount: 1
+
+# With more than one replica a PodDisruptionBudget keeps a node drain from taking them all at once, and an upgrade
+# replaces them one at a time (a single replica is recreated). Not rendered for one replica: a budget of 1
+# available would stop its node from ever being drained.
+podDisruptionBudget:
+  enabled: true
+  maxUnavailable: 1
+
+# How the receiver's Service is reached. ClusterIP (the default) is this cluster only, which is all a regional operator
+# needs while every source cluster is this one. A cluster elsewhere needs LoadBalancer or NodePort, or your own
+# Ingress/Gateway in front of the Service (leave ClusterIP and expose it yourself); Ikhnos's install command sets
+# this when you pick an exposure for the operator. The address the Service ends up at is then recorded on the
+# operator in Ikhnos, and every command that points at it uses that address.
+#
+# A LoadBalancer or NodePort Service publishes only the OTLP/gRPC port (4317), which is the one clusters elsewhere
+# use: the OTLP/HTTP port and the self-metrics port stay on the ClusterIP form only, so exposing the receiver does
+# not also expose them. annotations and loadBalancerSourceRanges are how you keep it private (an internal load
+# balancer is an annotation your cloud defines; source ranges limit who may connect).
+#
+# nodePort pins the port a NodePort Service listens on, so the address recorded for this operator does not change
+# when the Service is recreated (Kubernetes otherwise picks a random one each time). 0 = let Kubernetes choose.
+# Only valid with type NodePort, and inside the range your cluster allows (30000-32767 unless it was started with another
+# --service-node-port-range; Kubernetes refuses the Service with a clear message when the port is outside it). A NodePort is reachable on
+# every node's address, but an address you hand to a sender is one node: if that node goes away so does the route,
+# and a node's address is often private. Put a load balancer or a DNS name over the nodes for anything lasting.
+service:
+  type: ClusterIP   # ClusterIP | LoadBalancer | NodePort
+  nodePort: 0       # NodePort only, inside the cluster's node-port range; 0 = assigned by Kubernetes
+  annotations: {}   # e.g. service.beta.kubernetes.io/aws-load-balancer-internal: "true"
+  loadBalancerSourceRanges: []   # e.g. ["203.0.113.0/24"]; LoadBalancer only
+
+# The upstream OpenTelemetry Collector Contrib distribution - the same image ikhnos-agent's telemetry
+# collectors run, for the same reason (this chart needs nothing beyond OTLP receive/process/export, which
+# the community "contrib" distribution already covers).
+image:
+  repository: otel/opentelemetry-collector-contrib
+  tag: "0.160.0"
+  digest: ""
+  pullPolicy: ""
+
+# Secrets (in the release namespace) that let the cluster pull the image from a private registry.
+imagePullSecrets: []
+
+# One registry for the image: replaces the registry HOST of image.repository and keeps the rest of its path
+# (otel/opentelemetry-collector-contrib -> <registry>/otel/opentelemetry-collector-contrib), the layout an air-gapped mirror or a
+# pull-through cache has. Same meaning as ikhnos-agent's global.imageRegistry. Empty: image.repository is used as written.
+global:
+  imageRegistry: ""
+
+# Who the pod runs as (runAsNonRoot: true; runAsUser/runAsGroup = runAsUser below).
+podSecurity:
+  runAsUser: 65532
+
+# Service mesh sidecar injection into the pod. disabled (default) labels it sidecar.istio.io/inject="false" and annotates it
+# linkerd.io/inject: disabled, so that a namespace which injects everything does not put a proxy in front of the receiver
+# (which terminates TLS/mTLS itself, receiver.tls) or refuse the pod under Pod Security restricted (the init container needs
+# NET_ADMIN). inherit changes nothing; a key set in podLabels/podAnnotations is never overridden.
+mesh:
+  injection: disabled   # disabled | inherit
+
+# Keeps this operator's own certificates from running out, with nobody doing anything. A small sidecar (the `ikhnos
+# cert-renew` role of the same image the discovery agent runs) looks at the receiver's certificate (receiver.tls) and the
+# client certificate of an mTLS destination (export.otlp.tls.mtls) and, with less than 20 days left, asks the Ikhnos
+# server for a new one: it makes a NEW key here and proves it holds the OLD one, so the key never leaves the pod and no
+# token or enrollment key is involved. The collector re-reads the files within minutes (reload_interval), no restart.
+# The server decides again at every renewal: an operator that was deleted, or a sender that is no longer approved,
+# is not renewed, and its certificate simply runs out.
+# The install command Ikhnos prints sets enabled, server and caPin; nothing else is needed. The sidecar may only get
+# and update the Secrets it renews (a Role with resourceNames), and gets the service-account token to do it; the
+# collector container does not. With networkPolicy.egress on, let the pod reach the Ikhnos server and the Kubernetes
+# API server too (networkPolicy.egress.extraEgress): the policy covers every container of the pod.
+renew:
+  enabled: false
+  server: ""        # the Ikhnos server's agent address, host:port (the enrollment listener)
+  caPin: ""         # pin of the server CA, sha256/<base64> as the install command prints it
+  # Extra Secrets in this namespace to renew besides the receiver's and the mTLS destination's; each holds tls.crt, tls.key and ca.crt.
+  extraSecrets: []
+  # How often the Secrets are looked at (a Go duration); a failed attempt is retried sooner.
+  interval: 1h
+  image:
+    repository: ikhnos/ikhnos
+    tag: ""         # defaults to the chart's appVersion
+    digest: ""
+  resources:
+    requests: {cpu: 10m, memory: 24Mi}
+    limits: {memory: 64Mi}
+
+# Restart the pod when a Secret it reads changes - a TLS Secret it mounts (the receiver's certificate, a destination's
+# client certificate, the heartbeat CA) or one it reads into an environment variable at start (the receiver's bearer
+# token, a destination's credential header, the heartbeat secret; a running container never sees those change) - so
+# that renewing a certificate or rotating a token and running the install command again takes effect at once. It is
+# a checksum annotation on the pod, computed with Helm's `lookup` at render time. Two limits, both harmless:
+#   - `helm template`, and so Argo CD and Flux, cannot look at the cluster: no checksum is rendered and nothing
+#     restarts. The collector still re-reads the certificate and key at the first new connection after each 5 minutes (reload_interval) without a restart,
+#     so a renewed certificate is in use from the first new connection after that, which a long-lived connection delays. A new CA (ca.crt) of a destination is not re-read, and neither
+#     is a token: restart the pod (`kubectl rollout restart`) after replacing one.
+# With renew.enabled the certificate and key (tls.crt, tls.key) are left out of the digest: the sidecar replaces them on
+# its own about every 10 days, and a restart for each of those would be pointless. The CA (ca.crt) stays in it.
+#   - Helm fails the render if the account running it may not `get` Secrets in this namespace. Set this to false then.
+rolloutOnSecretChange: true
+
+# Extra environment variables for the collector container, in the usual Kubernetes form, e.g.
+# [{name: SSL_CERT_FILE, value: /etc/ssl/corp-ca.pem}]. They come last, so one named like a variable this chart sets
+# (HTTPS_PROXY, NO_PROXY, GOMEMLIMIT, ...) replaces it - the container runtime keeps the last of two entries with the same name.
+extraEnv: []
+
+# dnsConfig of the pod (Kubernetes PodDNSConfig). A name with fewer dots than `ndots` (5 by default, so "otlp.example.com"
+# is one) is tried against every search domain first (otlp.example.com.<ns>.svc.cluster.local, ...), which costs lookups
+# and, when a search domain has a wildcard record, answers with the wrong host. Either write the destination with a
+# trailing dot (otlp.example.com.:4317; not for a certificate that names the host without it) or lower ndots here:
+# {options: [{name: ndots, value: "2"}]}. Empty (the default): the cluster's own setting.
+# https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/#pod-dns-config
+dnsConfig: {}
+
+# Where this operator sends whatever it aggregates: another regional operator's own receiver, or an
+# observability backend directly. Required.
+export:
+  # Reach the destinations (and the heartbeat's Ikhnos server) through an HTTP(S) proxy, for a cluster that gets out only
+  # through one. The exporters read the standard variables: OTLP/HTTP uses HTTPS_PROXY for an https:// URL and HTTP_PROXY for
+  # an http:// one; OTLP/gRPC asks the proxy for a CONNECT tunnel and uses HTTPS_PROXY for every destination, TLS or not
+  # (HTTP_PROXY is never used for gRPC) - so set `httpsProxy` whenever a gRPC destination is behind the proxy, and both
+  # when unsure. The proxy sees the destination's address only: TLS stays end to end (a proxy that terminates TLS makes the
+  # certificate check fail; trust its CA with caSecretName then). NO_PROXY always holds localhost, 127.0.0.1, ::1, .svc and
+  # .cluster.local (a next hop written <name>.<ns>.svc is reached directly, which is how a source cluster's agent reaches
+  # this operator too); `noProxy` is added to that: a destination reached directly, an internal gateway by short name or IP,
+  # a cluster domain other than cluster.local. This pod never talks to the Kubernetes API.
+  # Not in the URL: user:password@ would sit in clear text in the pod spec and in `helm get values`. Put the URL, credentials
+  # included, in a Secret you create under the key HTTPS_PROXY and/or HTTP_PROXY and name it in secretName (HTTPS_PROXY must
+  # be in it; HTTP_PROXY is optional; a plain value here wins over it). Empty (the default): no proxy.
+  # With networkPolicy.egress on, the proxy's address and port belong in allowedEgress instead of the destinations'.
+  proxy:
+    httpProxy: ""
+    httpsProxy: ""
+    noProxy: ""
+    secretName: ""
+  # How long one attempt to send may take before it counts as failed and is retried. Empty: the collector's own default (5s
+  # for gRPC, 30s for HTTP). Raise it on a slow link, where a 3 MiB request (queue.maxRequestBytes) cannot be sent in 5s and
+  # is retried until it is dropped. Applies to every destination.
+  timeout: ""
+  # gRPC only: pings while the connection is idle, so that a NAT gateway, load balancer or proxy that silently drops an idle
+  # connection is noticed within time + timeout, instead of after the operating system gives up on it (about 15 minutes).
+  # Empty `time` (the default) sends none. A server accepts pings no more often than its own policy allows - a stock OTLP/gRPC
+  # receiver, like grpc-go in general, one per 5 minutes - and answers a more frequent client with GOAWAY "too_many_pings"
+  # (an error level line in the log, the connection re-opened, the data still delivered). This chart's own receiver
+  # accepts a ping every 30s; for any other destination check its policy before setting this. At least 10s.
+  keepalive:
+    time: ""
+    timeout: 10s
+  # An endpoint that cannot work is refused when the chart is rendered, whatever this says: the wrong shape for its protocol
+  # (a path, or no port, on a gRPC endpoint), a scheme that contradicts tls.insecure, a client certificate with TLS off.
+  # This one is a guess, so it can be turned off: the other protocol's conventional port (:4318 with grpc, :4317 with http)
+  # - the collector answers a gRPC client on the HTTP port with an error that is dropped for good. Set it to false for a
+  # destination that really serves gRPC on 4318 or HTTP on 4317, e.g. behind a port mapping.
+  checkPorts: true
+  otlp:
+    endpoint: ""    # grpc: host:port, no path (api.example.com:443, [fd00::5]:4317; a leading https:// or dns:/// is accepted).
+                    # http: host[:port] or a base URL (https://otlp.example.com:4318, https://gw.example.net/otlp): the collector
+                    # appends /v1/metrics, /v1/logs or /v1/traces itself, so do not write them (a route can: see fullUrl below).
+                    # The next hop, e.g. an observability backend's OTLP endpoint.
+    protocol: grpc  # grpc | http. The conventional ports are 4317 for grpc and 4318 for http; a backend on 443 says which.
+    tls:
+      insecure: false
+      # To trust a CA the image does not already know (a private one), name a Secret in this release's namespace,
+      # created outside this chart, holding the bundle under ca.crt: it is mounted read-only and the exporter's
+      # ca_file points at it (the same idiom as heartbeat.tls.caSecretName). Ignored when mtls is on, whose own
+      # Secret's ca.crt is trusted instead.
+      caSecretName: ""
+      # A CA bundle path INSIDE the container, used verbatim. This chart does not mount anything there (the root
+      # filesystem is read-only), so it is only useful for a path the image already contains; to supply your own
+      # bundle use caSecretName, which takes priority over this.
+      caFile: ""
+      serverName: ""    # verify the destination's certificate against this name instead of the endpoint's host (see ikhnos-agent)
+      # Present a client certificate to the destination - the shape of a regional operator (or FUSION's central
+      # operator) whose receiver.tls.mtls is on. secretName is a Secret in this release's namespace, created
+      # outside this chart, holding tls.crt, tls.key (this operator's client certificate) and ca.crt (to verify
+      # the destination's own server certificate - takes priority over caSecretName and caFile). Ikhnos's install command
+      # always fills it in; this default only matters if you hand-edit these values.
+      mtls:
+        enabled: false
+        secretName: ""
+    # Same "point at a Secret you create yourself" convention as ikhnos-agent's telemetry.export.otlp.auth -
+    # never put the header's value directly in values.yaml.
+    auth:
+      headerName: Authorization
+      secretName: ""
+      secretKey: token
+  # What every exporter (the default and each route) does while its destination is unreachable. Retrying for
+  # retryMaxElapsedTime and holding up to `size` requests meanwhile is what makes a short outage of the next hop
+  # lossless. Once the queue is full the exporter makes the batch processor wait (block_on_overflow), so the
+  # receiver stops answering and the senders keep their data in their own queues and see the failure themselves; the
+  # collector's default would instead throw the batch away while the sender had already been told 200. After
+  # retryMaxElapsedTime a request is dropped, and so is one the destination refuses for good (a wrong CA, a bad
+  # token, an http exporter on a gRPC port: logged at error level, counted in otelcol_exporter_send_failed_*).
+  # retryMaxElapsedTime is at least 30s (the retry backoff's longest wait) or 0s for "until it answers".
+  # maxRequestBytes cuts a request into pieces of at most that many serialized bytes before it is sent, because the
+  # batch processor only counts items (processors.batch.sendBatchMaxSize) and 4096 log records of 2 KiB are 8 MiB, past
+  # the 4 MiB a collector's OTLP receiver (and Loki, Tempo) accepts: such a batch is refused whole and dropped. Keep it
+  # under the smallest limit on the way (3 MiB leaves room for the headers of every piece); 0 turns the cut off. One
+  # record bigger than this cannot be cut and is refused by a destination with a smaller limit.
+  # A request is held in memory (so a full queue can hold size times maxRequestBytes per signal type: raise `size`
+  # together with resources.limits.memory, memory_limiter refuses data before the container is killed) or, with
+  # `persistent`, on an emptyDir as well, which survives a container restart (not a rescheduled pod) and counts against
+  # the node's ephemeral storage up to sizeLimit: a full queue of all three signal types is 3 x size x maxRequestBytes,
+  # so keep sizeLimit above what you expect to back up. Off by default: the volume is one more thing to size, and a
+  # memory queue is enough when the next hop is in the same network.
+  queue:
+    size: 256
+    retryMaxElapsedTime: 30m
+    maxRequestBytes: 3145728
+    persistent:
+      enabled: false
+      sizeLimit: 1Gi
+  # Per-signal-type destinations. A route with an endpoint sends that signal type there instead of to `otlp`
+  # above; a type with no endpoint keeps going to `otlp`. Each route is its own exporter with its own protocol
+  # (grpc | http) and its own credential, and takes exactly the fields `otlp` takes. With a route for every type,
+  # `otlp.endpoint` can stay empty. An http endpoint may omit the scheme (tls.insecure picks http or https); the
+  # collector appends /v1/metrics, /v1/logs or /v1/traces to it. Leave every endpoint empty (the default) and
+  # nothing changes: everything goes to `otlp`.
+  # fullUrl (protocol http only): the endpoint is the whole URL this signal is posted to, nothing is appended - for a
+  # backend whose path is not <base>/v1/<signal> (Splunk Observability: https://ingest.<realm>.observability.splunkcloud.com/v2/trace/otlp
+  # for traces). An endpoint that already ends in /v1/<this signal> is read that way without it, since appending the path a
+  # second time (…/v1/traces/v1/traces) is a 404 that drops everything.
+  routes:
+    metrics: &route
+      endpoint: ""
+      protocol: grpc
+      fullUrl: false
+      tls:
+        insecure: false
+        caSecretName: ""
+        caFile: ""
+        serverName: ""
+        mtls:
+          enabled: false
+          secretName: ""
+      auth:
+        headerName: Authorization
+        secretName: ""
+        secretKey: token
+    logs: *route
+    traces: *route
+
+# The inbound side: what each source cluster's own telemetry.export.otlp.endpoint is pointed at. Both gates
+# are off in this file, which means an open receiver - this default only matters if you hand-edit these
+# values. The install command Ikhnos prints always turns one on: for an operator created today,
+# receiver.tls.enabled + receiver.tls.mtls (the ONLY gate: a client certificate signed by this operator's
+# own CA, no bearer token), with receiver.auth.enabled=false and receiver.requireAuth=true; for an older operator (or
+# one whose certificates could not be minted), receiver.auth.enabled=true with its bearer token.
+receiver:
+  # Safety interlock, off here so hand-written installs keep working: when true, rendering FAILS unless the
+  # receiver has a gate - receiver.auth.enabled, or receiver.tls.enabled with receiver.tls.mtls. Ikhnos's
+  # install command for an mTLS-only operator sets it, so that operator cannot be rendered open even if
+  # someone later turns the client-certificate requirement off while auth is off too.
+  requireAuth: false
+  auth:
+    enabled: false
+    secretName: ""   # a Secret in this release's namespace, created outside this chart, holding the shared
+                      # bearer token minted for this operator
+    secretKey: token
+  # TLS on the receiver itself. With mtls (below) it IS an authentication gate: only a client presenting a
+  # certificate signed by ca.crt gets as far as sending anything. It can stand alone (receiver.auth off - the
+  # shape for operators created today) or sit alongside receiver.auth's bearer token (the shape of older
+  # operators). The install command sets it on with the certificate minted alongside the operator (see
+  # CreateOperator/IssueOperatorReceiverTLS); this default only matters if you hand-edit these values or
+  # mint your own certificate some other way.
+  tls:
+    enabled: false
+    secretName: ""   # a Secret in this release's namespace, created outside this chart, holding tls.crt,
+                      # tls.key (this receiver's own server certificate) and ca.crt. For an operator created
+                      # today ca.crt is that operator's OWN private CA, which signed this certificate and every
+                      # client certificate its source clusters present, and is the only CA trusted for them. An
+                      # older mtls operator's ca.crt is the org-wide CA: it then accepts a client certificate
+                      # from ANY operator of that org (weaker; recreate the operator to get its own CA)
+    mtls: true        # when tls.enabled, also require and verify the exporting client's certificate
+                       # against ca.crt in the same Secret - off (tls.enabled with mtls: false) accepts any
+                       # client, encrypted but not authenticated by certificate, so with receiver.auth
+                       # also off that is an open receiver (receiver.requireAuth refuses to render it)
+  networkPolicy:
+    enabled: false
+    # Raw NetworkPolicy ingress "from" peer entries (namespaceSelector / podSelector / ipBlock) - the same
+    # shape ikhnos-agent's telemetry.receiver.networkPolicy.allowedIngress uses.
+    allowedIngress: []
+
+# Processor-level controls, deliberately the same shape as ikhnos-agent's telemetry.processors so the
+# same configuration UI works for both charts unmodified. memory_limiter is always rendered; the rest are
+# opt-in/opt-out as documented per field. There is no telemetry.scope or k8sattributes equivalent here -
+# this chart only relays and re-processes what already arrived, it does not interpret a Kubernetes object
+# graph of its own.
+processors:
+  memoryLimiter:
+    checkInterval: 1s
+    limitPercentage: 80
+    spikeLimitPercentage: 20
+  resourceDetection:
+    enabled: false
+    detectors: [env, system]
+    timeout: 5s
+  redaction:
+    enabled: true
+    blockedKeyPatterns:
+      - ".*token.*"
+      - ".*password.*"
+      - ".*secret.*"
+      - ".*api[_-]?key.*"
+      - ".*authorization.*"
+      - ".*cookie.*"
+  # The last processor of every pipeline. The sizes are explicit because the collector's default leaves a batch's
+  # maximum unbounded, and a batch past the next hop's receive limit (4 MiB on a collector's OTLP/gRPC receiver) is
+  # rejected whole and retried until it is dropped. sendBatchSize is when a batch is sent, timeout is how long a
+  # partly filled one waits, sendBatchMaxSize is the most it may ever hold.
+  batch:
+    timeout: 5s
+    sendBatchSize: 2048
+    sendBatchMaxSize: 4096
+  # Traces only. 100 (default) means no sampling.
+  tracesSampling:
+    percentage: 100
+  # Escape hatch for anything not covered above: raw processor definitions merged into the collector
+  # config's top-level "processors" map, and the names to reference (in this order) in every pipeline,
+  # right after redaction and before batch. The same src/lib/processorCatalog.ts-driven editor that builds
+  # these values for ikhnos-agent builds them for this chart too - see the values shape note above.
+  extraProcessors: {}
+  extraProcessorNames: []
+  # Traces-only extras (tail_sampling, or anything else that only implements the traces processor
+  # interface) - appended after extraProcessorNames, still before batch, in the traces pipeline only.
+  extraTracesProcessorNames: []
+
+# Health check for the collector process itself, independent of whatever it is relaying - the upstream
+# otel/opentelemetry-collector-contrib image already ships the health_check extension for this (always
+# wired into the generated config, see _telemetry.tpl). livenessProbe/readinessProbe below read from it.
+health:
+  port: 13133
+  livenessProbe:
+    initialDelaySeconds: 15
+    periodSeconds: 30
+    timeoutSeconds: 5
+    failureThreshold: 4
+  readinessProbe:
+    initialDelaySeconds: 5
+    periodSeconds: 15
+    timeoutSeconds: 5
+    failureThreshold: 2
+
+# The collector's own metrics about itself (queue depth, failed and refused exports, process memory) - separate
+# from whatever telemetry this operator relays. A standard OTel Collector service.telemetry.metrics Prometheus
+# reader on the pod's own address. ON by default, because it is the only way to see that this operator cannot
+# deliver: the health check above reports the process, and in the pinned collector no health setting reports a
+# failing exporter (measured), so a destination that is down, a CA that does not match or a token that is refused
+# leaves the pod Ready. Look at:
+#   otelcol_exporter_queue_size           above 0 and staying there: it cannot send (it is retrying)
+#   otelcol_exporter_send_failed_*        increasing: data was given up on (retry window over, or refused for good)
+#   otelcol_exporter_enqueue_failed_*     increasing: the queue was full
+#   otelcol_receiver_refused_*            increasing: it is pushing back on its senders
+# e.g. `kubectl -n <ns> port-forward deploy/<release>-regional-operator 8888` and open http://127.0.0.1:8888/metrics.
+# The port is also on the ClusterIP Service (not on a LoadBalancer or NodePort one). Turn off only if you must close the port.
+selfMetrics:
+  enabled: true
+  port: 8888
+  # The collector's own log level: info, or debug to see why a sender is refused. A refused TLS handshake (no client
+  # certificate, a certificate from another operator's CA, an expired one) is logged only at debug, as
+  # `Server.Serve failed to create ServerTransport ... tls: <reason>`; at info the receiver refuses silently and the
+  # only trace is on the sender's side. Debug is verbose: turn it on to find a problem, off again after.
+  logLevel: info
+
+# Heartbeat: OPT-IN, off by default. Everything above and below this block is unchanged by it - with
+# heartbeat.enabled false this chart never contacts the Ikhnos server at all, exactly as before.
+#
+# When on, the collector probes its OWN health_check endpoint (the same one the liveness probe reads, on
+# 127.0.0.1 inside the pod) every intervalSeconds with the httpcheck receiver, and a separate metrics
+# pipeline - which nothing else feeds - POSTs that one result to heartbeat.url with its own otlphttp
+# exporter. That is the entire message: the collector's own "httpcheck.status" (is my health endpoint
+# answering 200), carrying no telemetry you relay, no logs, no traces, no cluster or workload data, and
+# nothing from the export.* or receiver.* settings. The Ikhnos server throws the body away; all it
+# records is that an authenticated request arrived, and when - which is what turns an operator's status
+# in the UI into online/offline/last-seen. The existing receive-process-export pipelines are not touched.
+#
+# It uses its OWN credential (a heartbeat secret, minted separately in Ikhnos from the receiver bearer
+# token and shown once), never the receiver token: that one authenticates traffic coming INTO this
+# operator and must not be reused for a call going OUT. Ikhnos prints the exact `kubectl create secret`
+# and `helm` flags to apply when you create the operator, or on demand from its heartbeat action.
+heartbeat:
+  enabled: false
+  # The Ikhnos server's heartbeat address, e.g. https://ikhnos.example.com/api/v1/operator-heartbeat.
+  # Required when enabled, and must be https:// (the secret is sent with every request) unless
+  # allowPlainHTTP is set.
+  url: ""
+  # How often to report. The server counts an operator as online for three intervals after its last
+  # heartbeat, calibrated to 60s, so this may be lowered (down to 10) but not raised above 60.
+  intervalSeconds: 60
+  # A Secret in this release's namespace, created outside this chart, holding the heartbeat secret as-is
+  # (no "Bearer " prefix) - the same "point at a Secret you create yourself" convention as export.otlp.auth.
+  auth:
+    secretName: ""
+    secretKey: token
+  # The server's certificate is verified against the image's normal trust roots by default. If it is signed
+  # by a private CA, put that CA's certificate in a Secret (key ca.crt by default - the same key name
+  # ikhnos-agent's telemetry.export.otlp.tls.mtls.secretName and this chart's receiver.tls.secretName
+  # use) and name it here; it is mounted read-only and used as the only trusted root for this one
+  # connection. Verification is never turned off by anything in this chart.
+  tls:
+    caSecretName: ""
+    caSecretKey: ca.crt
+  # Permit a plain http:// url (a throwaway test server on a trusted network). The heartbeat secret then
+  # crosses the network unencrypted; leave this false for anything real.
+  allowPlainHTTP: false
+  # If networkPolicy.egress.enabled is on, the heartbeat url's address and port must be in
+  # networkPolicy.egress.allowedEgress as well - egress for the heartbeat is NOT added for you.
+
+# Who this operator is. Set by the install command Ikhnos generates (never typed by hand): the id and
+# name are stamped as ikhnos.operator.id / ikhnos.operator.name, and each label as its own attribute,
+# on every metric, log and trace this operator forwards - after any extraProcessors, with upsert, so a user
+# processor cannot change them. All empty by default: nothing is stamped and the pipelines are unchanged.
+operator:
+  id: ""
+  name: ""
+  labels: []   # [{key, value}] - e.g. region=eu-south. Keys must not start with ikhnos.
+
+resources:
+  requests: {cpu: 50m, memory: 96Mi}
+  limits: {memory: 384Mi}
+
+tolerations: []
+nodeSelector: {}
+affinity: {}
+podAnnotations: {}
+podLabels: {}
+priorityClassName: ""
+
+# Egress lockdown for this operator's pod. Off by default: the right answer depends on your CNI and
+# network, and a wrong policy silently cuts export off - same reasoning as ikhnos-agent's
+# networkPolicy.telemetryEgress.
+networkPolicy:
+  egress:
+    enabled: false
+    allowedEgress: []   # [{cidr, ports}] matching where export.otlp.endpoint actually resolves to
+    # DNS is always allowed to kube-dns/CoreDNS (kube-system), NodeLocal DNSCache
+    # (169.254.20.10). Add other resolver addresses here (e.g. the kube-dns ClusterIP when kube-proxy is in iptables mode with
+    # NodeLocal DNSCache, which then answers for it on the node).
+    dnsCIDRs: []
+    extraEgress: []

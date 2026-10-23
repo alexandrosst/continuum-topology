@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"continuum/internal/agents"
-	"continuum/internal/testkit"
+	"ikhnos/internal/agents"
+	"ikhnos/internal/testkit"
 )
 
 func TestAnAgentTheServerHasNotHeardFromSinceItStartedIsNotSeen(t *testing.T) {

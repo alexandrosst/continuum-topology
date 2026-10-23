@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"testing"
 
-	"continuum/internal/httpkit"
+	"ikhnos/internal/httpkit"
 )
 
 const open httpkit.Need = -1 // a route that asks nothing of the caller

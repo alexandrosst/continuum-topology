@@ -12,7 +12,7 @@ import useBaseUrl from '@docusaurus/useBaseUrl';
 Ikhnos models your Kubernetes clusters across the cloud-to-far-edge continuum and shows them to you as two connected views: an **Application view** (your services, grouped by cluster, with the dependencies between them) and an **Infrastructure view** (the nodes underneath, grouped the same way). Both are projections of one model, kept up to date by a small read-only agent you install in each cluster.
 
 :::note The name
-Ikhnos (ἴχνος, "footprint, trace") was called Continuum until recently. Names that existing installs depend on keep the old spelling on purpose: the `continuum-agent` chart and release, the `continuum-system` namespace, `CONTINUUM_*` environment variables, `continuum.*` telemetry attributes, `X-Continuum-*` headers, certificate names and the `continuum` binary. Where a command or value in these pages says `continuum`, that is why.
+Ikhnos (ἴχνος) is Greek for "footprint, trace".
 :::
 
 It does not deploy anything, and it does not move anything on its own. What it gives you is the picture — where things run, how healthy each cluster is, what talks to what, how far apart your sites really are — plus a **Placement** page that recommends where a service would run better and explains exactly why, with every recommendation showing its evidence and its confidence. Nothing moves until a person with the right role approves it.

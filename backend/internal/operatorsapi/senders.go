@@ -8,12 +8,12 @@ import (
 	"strings"
 	"time"
 
-	"continuum/internal/agents"
-	"continuum/internal/connectivity"
-	"continuum/internal/httpkit"
-	"continuum/internal/operators"
-	"continuum/internal/store"
-	"continuum/internal/telemetry"
+	"ikhnos/internal/agents"
+	"ikhnos/internal/connectivity"
+	"ikhnos/internal/httpkit"
+	"ikhnos/internal/operators"
+	"ikhnos/internal/store"
+	"ikhnos/internal/telemetry"
 )
 
 // The clusters that send to a regional operator, how each reaches it, and, where one is not getting through, which end
@@ -300,7 +300,7 @@ func diagnoseSender(in diagnosisInput) *SenderDiagnosisDoc {
 
 	switch {
 	case has("x509", "certificate", "tls:", "handshake", "unknown authority"):
-		d := "The connection was made, but the certificate was refused. The sender checks the operator by its name " + in.OperatorID + ".continuum-system.svc whatever address it dials, so the address itself is not the problem unless it leads to a different service."
+		d := "The connection was made, but the certificate was refused. The sender checks the operator by its name " + in.OperatorID + ".ikhnos-system.svc whatever address it dials, so the address itself is not the problem unless it leads to a different service."
 		renew := " (Renew certificates on the operator's row)"
 		if in.Central {
 			renew = ""
@@ -321,7 +321,7 @@ func diagnoseSender(in diagnosisInput) *SenderDiagnosisDoc {
 
 	if in.OperatorState == operators.HealthOffline && len(working) == 0 {
 		return &SenderDiagnosisDoc{Where: FaultOperator, Title: "The operator itself is not reporting",
-			Detail: "No other cluster is getting through, and the operator has stopped reporting its own health" + seen + ". Look at the operator first: `kubectl -n continuum-system get pods` in its cluster. " + who + "'s path is not shown to be at fault." + quote}
+			Detail: "No other cluster is getting through, and the operator has stopped reporting its own health" + seen + ". Look at the operator first: `kubectl -n ikhnos-system get pods` in its cluster. " + who + "'s path is not shown to be at fault." + quote}
 	}
 
 	private := false

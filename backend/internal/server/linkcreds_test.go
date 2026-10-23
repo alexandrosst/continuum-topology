@@ -12,14 +12,14 @@ import (
 	"strings"
 	"testing"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/connectivity"
-	"continuum/internal/estate"
-	"continuum/internal/kernel"
-	"continuum/internal/observed"
-	"continuum/internal/pki"
-	"continuum/internal/store"
-	"continuum/internal/testkit"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/connectivity"
+	"ikhnos/internal/estate"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/observed"
+	"ikhnos/internal/pki"
+	"ikhnos/internal/store"
+	"ikhnos/internal/testkit"
 
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/encoding/prototext"
@@ -65,7 +65,7 @@ func (cr *credRig) save(t *testing.T, links ...kernel.LinkSetting) {
 	}
 }
 
-func (cr *credRig) cfg(a store.Agent) *continuumv1.Config {
+func (cr *credRig) cfg(a store.Agent) *ikhnosv1.Config {
 	cr.hub.Mu.Lock()
 	v := cr.hub.Views[a.ID]
 	cr.hub.Mu.Unlock()
@@ -148,7 +148,7 @@ func TestEachClusterGetsOnlyTheIperfCredentialsOfItsRoles(t *testing.T) {
 	}
 
 	// Minimal exposure, checked on the whole of what each Config says in any text form.
-	for name, c := range map[string]*continuumv1.Config{"runner": runner, "third": third} {
+	for name, c := range map[string]*ikhnosv1.Config{"runner": runner, "third": third} {
 		for _, text := range []string{prototext.Format(c), protojson.Format(c), fmt.Sprint(c)} {
 			if strings.Contains(text, "PRIVATE KEY") && name != "server" {
 				t.Errorf("%s: a private key in %.60q", name, text)

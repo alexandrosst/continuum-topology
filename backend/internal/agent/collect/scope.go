@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -13,14 +13,14 @@ import (
 
 // OptOutLabel on a namespace keeps it out of view whatever the agent's own scope says: the people who own
 // a namespace can decline to be discovered without asking whoever installed the agent.
-const OptOutLabel = "continuum.io/observe"
+const OptOutLabel = "ikhnos.io/observe"
 
 // Scope says which namespaces the agent reports on. The zero value (or nil) means every namespace, which is
 // how the agent has always behaved. A namespace outside the scope is dropped here, in the agent: its
 // workloads, services and traffic never leave the cluster, and the server learns only how many there are.
 //
 // A namespace is in scope when it is selected (named in Include, or matching Selector; with neither set,
-// every namespace is selected) and is not named in Exclude and does not carry continuum.io/observe=false.
+// every namespace is selected) and is not named in Exclude and does not carry ikhnos.io/observe=false.
 // The cluster's own system namespaces are always read, because that is where the CNI and ingress
 // controller are recognised; the server keeps them out of the topology anyway.
 type Scope struct {
@@ -43,7 +43,7 @@ func ParseScope(include, exclude, selector string) (*Scope, error) {
 		reqs, _ := sel.Requirements()
 		for _, r := range reqs {
 			if !allowed(r.Key(), labelExact, labelPrefix) {
-				return nil, fmt.Errorf("scope label selector: the agent does not read the namespace label %q (it keeps only labels on its allow-list, such as continuum.io/*)", r.Key())
+				return nil, fmt.Errorf("scope label selector: the agent does not read the namespace label %q (it keeps only labels on its allow-list, such as ikhnos.io/*)", r.Key())
 			}
 		}
 		s.sel = sel
@@ -172,7 +172,7 @@ func (c *Collector) visible() func(string) bool {
 }
 
 // scopeFacts counts the namespaces the agent was told to leave out, without naming them.
-func (c *Collector) scopeFacts(visible func(string) bool) *continuumv1.ScopeFacts {
+func (c *Collector) scopeFacts(visible func(string) bool) *ikhnosv1.ScopeFacts {
 	sc := c.scopeNow()
 	if c.ns == nil {
 		// Below tier 2, or in namespaced mode: Namespace objects were never read, so there is nothing to count
@@ -181,12 +181,12 @@ func (c *Collector) scopeFacts(visible func(string) bool) *continuumv1.ScopeFact
 		if !sc.Active() {
 			return nil
 		}
-		return &continuumv1.ScopeFacts{Description: sc.Public()}
+		return &ikhnosv1.ScopeFacts{Description: sc.Public()}
 	}
 	if !sc.Active() && !c.anyOptOut() {
 		return nil
 	}
-	f := &continuumv1.ScopeFacts{Description: sc.Public()}
+	f := &ikhnosv1.ScopeFacts{Description: sc.Public()}
 	each(c.ns.GetStore().List(), func(n *corev1.Namespace) {
 		if isSystem(n.Name) {
 			return

@@ -31,7 +31,7 @@ func containerNamed(t *testing.T, cs []corev1.Container, name string) corev1.Con
 func proberEnv(t *testing.T, r rendered) map[string]string {
 	t.Helper()
 	out := map[string]string{}
-	for _, e := range containerNamed(t, r.deployments["continuum-link-prober"].Spec.Template.Spec.Containers, "prober").Env {
+	for _, e := range containerNamed(t, r.deployments["ikhnos-link-prober"].Spec.Template.Spec.Containers, "prober").Env {
 		out[e.Name] = e.Value
 	}
 	return out
@@ -39,12 +39,12 @@ func proberEnv(t *testing.T, r rendered) map[string]string {
 
 func TestThroughputTestsAreOffByDefault(t *testing.T) {
 	r := render(t, probeArgs()...)
-	rs := r.daemonsets["continuum-link-responder"].Spec.Template.Spec
+	rs := r.daemonsets["ikhnos-link-responder"].Spec.Template.Spec
 	if len(rs.Containers) != 1 {
 		t.Errorf("the responder runs %d containers with the throughput tests off", len(rs.Containers))
 	}
 	for k := range proberEnv(t, r) {
-		if strings.HasPrefix(k, "CONTINUUM_LINK_CAPACITY") {
+		if strings.HasPrefix(k, "IKHNOS_LINK_CAPACITY") {
 			t.Errorf("the prober is told %s with the tests off", k)
 		}
 	}
@@ -52,7 +52,7 @@ func TestThroughputTestsAreOffByDefault(t *testing.T) {
 
 func TestTheServerRunsBesideOwampWithTheSameRestrictions(t *testing.T) {
 	r := render(t, capArgs()...)
-	rs := r.daemonsets["continuum-link-responder"].Spec.Template.Spec
+	rs := r.daemonsets["ikhnos-link-responder"].Spec.Template.Spec
 	if len(rs.Containers) != 2 {
 		t.Fatalf("%d containers", len(rs.Containers))
 	}
@@ -77,18 +77,18 @@ func TestTheServerRunsBesideOwampWithTheSameRestrictions(t *testing.T) {
 	}
 	env := proberEnv(t, r)
 	for k, want := range map[string]string{
-		"CONTINUUM_LINK_CAPACITY": "true", "CONTINUUM_LINK_CAPACITY_PORT": "8862", "CONTINUUM_LINK_CAPACITY_INTERVAL": "12h",
-		"CONTINUUM_LINK_CAPACITY_DURATION": "10s", "CONTINUUM_LINK_CAPACITY_OMIT": "2s", "CONTINUUM_LINK_CAPACITY_PARALLEL": "4",
-		"CONTINUUM_LINK_CAPACITY_REVERSE": "true", "CONTINUUM_LINK_CAPACITY_BIDIR": "false", "CONTINUUM_LINK_CAPACITY_UDP_MAX": "200M",
-		"CONTINUUM_LINK_CAPACITY_UDP_START": "5M", "CONTINUUM_LINK_CAPACITY_UDP_STEP": "5s", "CONTINUUM_LINK_CAPACITY_UDP_LOSS": "1",
-		"CONTINUUM_LINK_CAPACITY_DSCP": "0", "CONTINUUM_LINK_CAPACITY_TCP_MAX_RATE": "0", "CONTINUUM_LINK_CAPACITY_BUDGET": "10Gi",
-		"CONTINUUM_LINK_CAPACITY_BUSY": "0.3", "CONTINUUM_LINK_CAPACITY_SKIP_ABOVE": "0", "CONTINUUM_LINK_CAPACITY_WINDOW": "",
+		"IKHNOS_LINK_CAPACITY": "true", "IKHNOS_LINK_CAPACITY_PORT": "8862", "IKHNOS_LINK_CAPACITY_INTERVAL": "12h",
+		"IKHNOS_LINK_CAPACITY_DURATION": "10s", "IKHNOS_LINK_CAPACITY_OMIT": "2s", "IKHNOS_LINK_CAPACITY_PARALLEL": "4",
+		"IKHNOS_LINK_CAPACITY_REVERSE": "true", "IKHNOS_LINK_CAPACITY_BIDIR": "false", "IKHNOS_LINK_CAPACITY_UDP_MAX": "200M",
+		"IKHNOS_LINK_CAPACITY_UDP_START": "5M", "IKHNOS_LINK_CAPACITY_UDP_STEP": "5s", "IKHNOS_LINK_CAPACITY_UDP_LOSS": "1",
+		"IKHNOS_LINK_CAPACITY_DSCP": "0", "IKHNOS_LINK_CAPACITY_TCP_MAX_RATE": "0", "IKHNOS_LINK_CAPACITY_BUDGET": "10Gi",
+		"IKHNOS_LINK_CAPACITY_BUSY": "0.3", "IKHNOS_LINK_CAPACITY_SKIP_ABOVE": "0", "IKHNOS_LINK_CAPACITY_WINDOW": "",
 	} {
 		if got, ok := env[k]; !ok || got != want {
 			t.Errorf("%s = %q (set %v), want %q", k, got, ok, want)
 		}
 	}
-	if _, ok := env["CONTINUUM_LINK_CAPACITY_AUTH_USER"]; ok {
+	if _, ok := env["IKHNOS_LINK_CAPACITY_AUTH_USER"]; ok {
 		t.Error("authentication is set without a secret")
 	}
 }
@@ -102,14 +102,14 @@ func TestEverySettingReachesTheProberAndTheServer(t *testing.T) {
 	)...)
 	env := proberEnv(t, r)
 	for k, want := range map[string]string{
-		"CONTINUUM_LINK_CAPACITY_PORT": "9000", "CONTINUUM_LINK_CAPACITY_INTERVAL": "6h", "CONTINUUM_LINK_CAPACITY_DSCP": "0,46",
-		"CONTINUUM_LINK_CAPACITY_WINDOW": "02:00-06:00", "CONTINUUM_LINK_CAPACITY_UDP_LOSS": "0.5", "CONTINUUM_LINK_CAPACITY_BUSY": "0",
+		"IKHNOS_LINK_CAPACITY_PORT": "9000", "IKHNOS_LINK_CAPACITY_INTERVAL": "6h", "IKHNOS_LINK_CAPACITY_DSCP": "0,46",
+		"IKHNOS_LINK_CAPACITY_WINDOW": "02:00-06:00", "IKHNOS_LINK_CAPACITY_UDP_LOSS": "0.5", "IKHNOS_LINK_CAPACITY_BUSY": "0",
 	} {
 		if env[k] != want {
 			t.Errorf("%s = %q, want %q", k, env[k], want)
 		}
 	}
-	c := containerNamed(t, r.daemonsets["continuum-link-responder"].Spec.Template.Spec.Containers, "iperf3")
+	c := containerNamed(t, r.daemonsets["ikhnos-link-responder"].Spec.Template.Spec.Containers, "iperf3")
 	if got := strings.Join(c.Args, " "); got != "-s -p 9000 --idle-timeout 30 --server-bitrate-limit 10G" {
 		t.Errorf("args = %q", got)
 	}
@@ -126,15 +126,15 @@ func TestZeroMeansOffWhetherYouTypeItAsANumberOrAString(t *testing.T) {
 		}
 	}
 	env := proberEnv(t, render(t, capArgs("telemetry.clusterLinks.probe.capacity.budget=0", "telemetry.clusterLinks.probe.capacity.udp.maxRate=0")...))
-	if env["CONTINUUM_LINK_CAPACITY_BUDGET"] != "0" || env["CONTINUUM_LINK_CAPACITY_UDP_MAX"] != "0" {
-		t.Errorf("%q %q", env["CONTINUUM_LINK_CAPACITY_BUDGET"], env["CONTINUUM_LINK_CAPACITY_UDP_MAX"])
+	if env["IKHNOS_LINK_CAPACITY_BUDGET"] != "0" || env["IKHNOS_LINK_CAPACITY_UDP_MAX"] != "0" {
+		t.Errorf("%q %q", env["IKHNOS_LINK_CAPACITY_BUDGET"], env["IKHNOS_LINK_CAPACITY_UDP_MAX"])
 	}
 }
 
 func TestTheCredentialsAreSplitBetweenServerAndClient(t *testing.T) {
 	r := render(t, capArgs("telemetry.clusterLinks.probe.capacity.auth.existingSecret=iperf-keys")...)
 
-	rs := r.daemonsets["continuum-link-responder"].Spec.Template.Spec
+	rs := r.daemonsets["ikhnos-link-responder"].Spec.Template.Spec
 	srv := containerNamed(t, rs.Containers, "iperf3")
 	if got := strings.Join(srv.Args, " "); !strings.Contains(got, "--rsa-private-key-path /iperf-auth/private.pem --authorized-users-path /iperf-auth/users.csv") {
 		t.Errorf("server args = %q", got)
@@ -162,7 +162,7 @@ func TestTheCredentialsAreSplitBetweenServerAndClient(t *testing.T) {
 		t.Errorf("the server gets %q: it needs the private key and the user list, and no password", got)
 	}
 
-	ps := r.deployments["continuum-link-prober"].Spec.Template.Spec
+	ps := r.deployments["ikhnos-link-prober"].Spec.Template.Spec
 	if got := items(ps.Volumes); got != "public.pem,password" {
 		t.Errorf("the prober gets %q: it must never hold the private key", got)
 	}
@@ -170,12 +170,12 @@ func TestTheCredentialsAreSplitBetweenServerAndClient(t *testing.T) {
 	for _, e := range containerNamed(t, ps.Containers, "prober").Env {
 		env[e.Name] = e
 	}
-	u := env["CONTINUUM_LINK_CAPACITY_AUTH_USER"]
+	u := env["IKHNOS_LINK_CAPACITY_AUTH_USER"]
 	if u.ValueFrom == nil || u.ValueFrom.SecretKeyRef == nil || u.ValueFrom.SecretKeyRef.Name != "iperf-keys" || u.ValueFrom.SecretKeyRef.Key != "username" {
 		t.Errorf("user = %+v", u)
 	}
-	if env["CONTINUUM_LINK_CAPACITY_AUTH_KEY_FILE"].Value != "/iperf-auth/public.pem" || env["CONTINUUM_LINK_CAPACITY_AUTH_PASSWORD_FILE"].Value != "/iperf-auth/password" {
-		t.Errorf("files = %+v / %+v", env["CONTINUUM_LINK_CAPACITY_AUTH_KEY_FILE"], env["CONTINUUM_LINK_CAPACITY_AUTH_PASSWORD_FILE"])
+	if env["IKHNOS_LINK_CAPACITY_AUTH_KEY_FILE"].Value != "/iperf-auth/public.pem" || env["IKHNOS_LINK_CAPACITY_AUTH_PASSWORD_FILE"].Value != "/iperf-auth/password" {
+		t.Errorf("files = %+v / %+v", env["IKHNOS_LINK_CAPACITY_AUTH_KEY_FILE"], env["IKHNOS_LINK_CAPACITY_AUTH_PASSWORD_FILE"])
 	}
 	// OWAMP's own container is untouched by it.
 	owamp := containerNamed(t, rs.Containers, "owampd")
@@ -211,7 +211,7 @@ func TestSettingsThatCannotWorkAreRefusedAtRenderTime(t *testing.T) {
 
 func TestTheResponderRestartsWhenTheServerSettingsChange(t *testing.T) {
 	sum := func(extra ...string) string {
-		return render(t, capArgs(extra...)...).daemonsets["continuum-link-responder"].Spec.Template.Annotations["checksum/config"]
+		return render(t, capArgs(extra...)...).daemonsets["ikhnos-link-responder"].Spec.Template.Annotations["checksum/config"]
 	}
 	base := sum()
 	if base == sum("telemetry.clusterLinks.probe.capacity.server.bitrateLimit=5G") || base == sum("telemetry.clusterLinks.probe.capacity.auth.existingSecret=k") {

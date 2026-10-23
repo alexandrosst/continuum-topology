@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 )
 
 // fakeIperf stands in for the iperf3 client. Its answers are the real outputs of iperf3 3.16 (testdata) for TCP, and
@@ -199,7 +199,7 @@ func capFor(t *testing.T, f *fakeIperf, mut func(*Capacity), addrs ...string) (*
 	p := NewPeers()
 	lp := peer("cl-a", "A", addrs...)
 	lp.Throughput = true
-	p.Set("cl-me", []*continuumv1.LinkPeer{lp})
+	p.Set("cl-me", []*ikhnosv1.LinkPeer{lp})
 	m := NewMeter(p)
 	m.EnableProbes()
 	ck := &clock{t: time.Unix(1_700_000_000, 0)}
@@ -307,28 +307,28 @@ func TestACycleRunsEveryTestOnceAndExportsWhatItFound(t *testing.T) {
 	got := render(c.Meter)
 	base := `{cluster="cl-me",peer="cl-a",method="iperf3",direction="`
 	for key, want := range map[string]string{
-		"continuum_link_throughput_bits_per_second" + base + `forward",protocol="tcp",streams="1",dscp="0"}`:   "1.3847713674505e+10",
-		"continuum_link_throughput_retransmits" + base + `forward",protocol="tcp",streams="1",dscp="0"}`:       "36346",
-		"continuum_link_throughput_retransmits" + base + `reverse",protocol="tcp",streams="1",dscp="0"}`:       "26052",
-		"continuum_link_throughput_bits_per_second" + base + `reverse",protocol="tcp",streams="1",dscp="0"}`:   "1.4543531405561e+10",
-		"continuum_link_throughput_udp_clean_bits_per_second" + base + `forward",dscp="0"}`:                    "8e+07",
-		"continuum_link_throughput_udp_saturated" + base + `forward",dscp="0"}`:                                "1",
-		"continuum_link_throughput_udp_loss_ratio" + base + `forward",dscp="0",point="clean"}`:                 "0",
-		"continuum_link_throughput_udp_point_bits_per_second" + base + `forward",dscp="0",point="clean"}`:      "8e+07",
-		"continuum_link_throughput_udp_point_bits_per_second" + base + `forward",dscp="0",point="first_loss"}`: "1.6e+08",
+		"ikhnos_link_throughput_bits_per_second" + base + `forward",protocol="tcp",streams="1",dscp="0"}`:   "1.3847713674505e+10",
+		"ikhnos_link_throughput_retransmits" + base + `forward",protocol="tcp",streams="1",dscp="0"}`:       "36346",
+		"ikhnos_link_throughput_retransmits" + base + `reverse",protocol="tcp",streams="1",dscp="0"}`:       "26052",
+		"ikhnos_link_throughput_bits_per_second" + base + `reverse",protocol="tcp",streams="1",dscp="0"}`:   "1.4543531405561e+10",
+		"ikhnos_link_throughput_udp_clean_bits_per_second" + base + `forward",dscp="0"}`:                    "8e+07",
+		"ikhnos_link_throughput_udp_saturated" + base + `forward",dscp="0"}`:                                "1",
+		"ikhnos_link_throughput_udp_loss_ratio" + base + `forward",dscp="0",point="clean"}`:                 "0",
+		"ikhnos_link_throughput_udp_point_bits_per_second" + base + `forward",dscp="0",point="clean"}`:      "8e+07",
+		"ikhnos_link_throughput_udp_point_bits_per_second" + base + `forward",dscp="0",point="first_loss"}`: "1.6e+08",
 	} {
 		if g := got[key]; !sameNumber(g, want) {
 			t.Errorf("%s = %q, want %q", key, g, want)
 		}
 	}
 	bi := `{cluster="cl-me",peer="cl-a",method="iperf3",direction="reverse",protocol="tcp_bidir",streams="1",dscp="0"}`
-	if got["continuum_link_throughput_retransmits"+bi] != "96" {
-		t.Errorf("the bidirectional test's own series: %q", got["continuum_link_throughput_retransmits"+bi])
+	if got["ikhnos_link_throughput_retransmits"+bi] != "96" {
+		t.Errorf("the bidirectional test's own series: %q", got["ikhnos_link_throughput_retransmits"+bi])
 	}
-	if l := got["continuum_link_throughput_udp_loss_ratio"+base+`forward",dscp="0",point="first_loss"}`]; l == "" || l == "0" {
+	if l := got["ikhnos_link_throughput_udp_loss_ratio"+base+`forward",dscp="0",point="first_loss"}`]; l == "" || l == "0" {
 		t.Errorf("the rung over the capacity shows no loss: %q", l)
 	}
-	if j := got["continuum_link_throughput_udp_jitter_seconds"+base+`forward",dscp="0",point="first_loss"}`]; j == "" {
+	if j := got["ikhnos_link_throughput_udp_jitter_seconds"+base+`forward",dscp="0",point="first_loss"}`]; j == "" {
 		t.Error("the first lossy rung has no jitter")
 	}
 	// Six rungs were run per direction, but only two points of each are exported: the series do not follow the rungs.
@@ -337,11 +337,11 @@ func TestACycleRunsEveryTestOnceAndExportsWhatItFound(t *testing.T) {
 			t.Errorf("a per-rung series is exported: %s", k)
 		}
 	}
-	if got["continuum_link_throughput_test_bytes_total"+base+`forward"}`] == "0" || got[`continuum_link_throughput_last_success_timestamp_seconds{cluster="cl-me",peer="cl-a",method="iperf3"}`] == "" {
+	if got["ikhnos_link_throughput_test_bytes_total"+base+`forward"}`] == "0" || got[`ikhnos_link_throughput_last_success_timestamp_seconds{cluster="cl-me",peer="cl-a",method="iperf3"}`] == "" {
 		t.Error("bytes carried / last success not recorded")
 	}
 	for _, r := range tpFailReasons {
-		if got[`continuum_link_throughput_test_failures_total{cluster="cl-me",peer="cl-a",method="iperf3",reason="`+r+`"}`] != "0" {
+		if got[`ikhnos_link_throughput_test_failures_total{cluster="cl-me",peer="cl-a",method="iperf3",reason="`+r+`"}`] != "0" {
 			t.Errorf("failure %s counted in a clean cycle", r)
 		}
 	}
@@ -372,8 +372,8 @@ func TestTheRampStopsAtTheTopWithoutSayingSaturated(t *testing.T) {
 	}
 	got := render(c.Meter)
 	base := `{cluster="cl-me",peer="cl-a",method="iperf3",direction="forward",dscp="0"}`
-	if got["continuum_link_throughput_udp_saturated"+base] != "0" || !sameNumber(got["continuum_link_throughput_udp_clean_bits_per_second"+base], "4e7") {
-		t.Errorf("saturated %q clean %q", got["continuum_link_throughput_udp_saturated"+base], got["continuum_link_throughput_udp_clean_bits_per_second"+base])
+	if got["ikhnos_link_throughput_udp_saturated"+base] != "0" || !sameNumber(got["ikhnos_link_throughput_udp_clean_bits_per_second"+base], "4e7") {
+		t.Errorf("saturated %q clean %q", got["ikhnos_link_throughput_udp_saturated"+base], got["ikhnos_link_throughput_udp_clean_bits_per_second"+base])
 	}
 }
 
@@ -386,16 +386,16 @@ func TestARampThatLosesFromTheFirstRungHasNoCleanRate(t *testing.T) {
 	settle(c)
 	got := render(c.Meter)
 	base := `{cluster="cl-me",peer="cl-a",method="iperf3",direction="forward",dscp="0"}`
-	if _, ok := got["continuum_link_throughput_udp_clean_bits_per_second"+base]; ok {
+	if _, ok := got["ikhnos_link_throughput_udp_clean_bits_per_second"+base]; ok {
 		t.Error("a clean rate is reported although every rung lost")
 	}
 	pt := func(m, point string) string {
-		return got["continuum_link_throughput_udp_"+m+`{cluster="cl-me",peer="cl-a",method="iperf3",direction="forward",dscp="0",point="`+point+`"}`]
+		return got["ikhnos_link_throughput_udp_"+m+`{cluster="cl-me",peer="cl-a",method="iperf3",direction="forward",dscp="0",point="`+point+`"}`]
 	}
 	if pt("loss_ratio", "clean") != "" || pt("point_bits_per_second", "clean") != "" || pt("loss_ratio", "first_loss") == "" || !sameNumber(pt("point_bits_per_second", "first_loss"), "1e7") {
 		t.Errorf("a ramp that lost at once has no clean point and its first rung as the first loss: %v", got)
 	}
-	if got["continuum_link_throughput_udp_saturated"+base] != "1" {
+	if got["ikhnos_link_throughput_udp_saturated"+base] != "1" {
 		t.Error("not saturated")
 	}
 }
@@ -409,10 +409,10 @@ func TestARampThatNeverLosesHasNoFirstLossPoint(t *testing.T) {
 	settle(c)
 	got := render(c.Meter)
 	base := `{cluster="cl-me",peer="cl-a",method="iperf3",direction="forward",dscp="0",point="`
-	if _, ok := got["continuum_link_throughput_udp_loss_ratio"+base+`clean"}`]; !ok {
+	if _, ok := got["ikhnos_link_throughput_udp_loss_ratio"+base+`clean"}`]; !ok {
 		t.Error("no clean point")
 	}
-	if !sameNumber(got["continuum_link_throughput_udp_point_bits_per_second"+base+`clean"}`], "4e7") {
+	if !sameNumber(got["ikhnos_link_throughput_udp_point_bits_per_second"+base+`clean"}`], "4e7") {
 		t.Errorf("the clean point is not the top rung: %v", got)
 	}
 	for k := range got {
@@ -461,10 +461,10 @@ func TestTheBudgetHoldsTestsBackAndTheWindowSlides(t *testing.T) {
 		t.Fatalf("%d runs under a budget for one", f.count())
 	}
 	got := render(c.Meter)
-	if got[`continuum_link_throughput_tests_skipped_total{cluster="cl-me",peer="cl-a",method="iperf3",reason="budget"}`] != "1" {
+	if got[`ikhnos_link_throughput_tests_skipped_total{cluster="cl-me",peer="cl-a",method="iperf3",reason="budget"}`] != "1" {
 		t.Errorf("skip not counted: %v", got)
 	}
-	if used, limit := c.ledger.Used(ck.now()), c.ledger.Limit; used < 5<<30 || used > limit || got[`continuum_link_throughput_budget_bytes{cluster="cl-me",method="iperf3"}`] != strconv.Itoa(7<<30) {
+	if used, limit := c.ledger.Used(ck.now()), c.ledger.Limit; used < 5<<30 || used > limit || got[`ikhnos_link_throughput_budget_bytes{cluster="cl-me",method="iperf3"}`] != strconv.Itoa(7<<30) {
 		t.Errorf("used %d of %d", used, limit)
 	}
 	ck.add(31 * time.Minute)
@@ -538,7 +538,7 @@ func TestTestsWaitWhileTheLinkIsBusyAndThenRun(t *testing.T) {
 	if f.count() != 0 {
 		t.Fatal("started a test on a link carrying 1 Gbit/s")
 	}
-	if render(c.Meter)[`continuum_link_throughput_tests_skipped_total{cluster="cl-me",peer="cl-a",method="iperf3",reason="link_busy"}`] != "1" {
+	if render(c.Meter)[`ikhnos_link_throughput_tests_skipped_total{cluster="cl-me",peer="cl-a",method="iperf3",reason="link_busy"}`] != "1" {
 		t.Error("the wait was not counted")
 	}
 	feed(60*1e9/8 + 1000) // quiet again
@@ -586,18 +586,18 @@ func TestABusyServerMovesOnToAnotherNodeAndOnlyWhenAllAreBusyTheTestWaits(t *tes
 	f := &fakeIperf{busy: map[string]bool{"10.0.0.1": true, "10.0.0.2": false}}
 	c, _ := capFor(t, f, func(c *Capacity) { c.Reverse, c.Parallel = false, 0 }, "10.0.0.1", "10.0.0.2")
 	settle(c)
-	if render(c.Meter)[`continuum_link_throughput_bits_per_second{cluster="cl-me",peer="cl-a",method="iperf3",direction="forward",protocol="tcp",streams="1",dscp="0"}`] == "" {
+	if render(c.Meter)[`ikhnos_link_throughput_bits_per_second{cluster="cl-me",peer="cl-a",method="iperf3",direction="forward",protocol="tcp",streams="1",dscp="0"}`] == "" {
 		t.Fatal("the free node was not used")
 	}
 	f2 := &fakeIperf{busy: map[string]bool{"10.0.0.1": true, "10.0.0.2": true}}
 	c2, _ := capFor(t, f2, func(c *Capacity) { c.Reverse, c.Parallel = false, 0 }, "10.0.0.1", "10.0.0.2")
 	settle(c2)
 	got := render(c2.Meter)
-	if got[`continuum_link_throughput_tests_skipped_total{cluster="cl-me",peer="cl-a",method="iperf3",reason="server_busy"}`] != "1" {
+	if got[`ikhnos_link_throughput_tests_skipped_total{cluster="cl-me",peer="cl-a",method="iperf3",reason="server_busy"}`] != "1" {
 		t.Errorf("not counted as a wait: %v", got)
 	}
 	for _, r := range tpFailReasons {
-		if got[`continuum_link_throughput_test_failures_total{cluster="cl-me",peer="cl-a",method="iperf3",reason="`+r+`"}`] != "0" {
+		if got[`ikhnos_link_throughput_test_failures_total{cluster="cl-me",peer="cl-a",method="iperf3",reason="`+r+`"}`] != "0" {
 			t.Errorf("a busy server was counted as a failure (%s)", r)
 		}
 	}
@@ -608,7 +608,7 @@ func TestAnUnreachablePeerIsOneFailureAndTheCycleIsDropped(t *testing.T) {
 	c, ck := capFor(t, f, nil, "10.0.0.1", "10.0.0.2")
 	settle(c)
 	got := render(c.Meter)
-	if got[`continuum_link_throughput_test_failures_total{cluster="cl-me",peer="cl-a",method="iperf3",reason="refused"}`] != "1" {
+	if got[`ikhnos_link_throughput_test_failures_total{cluster="cl-me",peer="cl-a",method="iperf3",reason="refused"}`] != "1" {
 		t.Errorf("failures: %v", got)
 	}
 	// One address after the other for the one test, then nothing else is tried this cycle.
@@ -776,7 +776,7 @@ func TestSeriesAreSilentUntilATestRanAndHaveOneHeaderPerFamily(t *testing.T) {
 	c.Meter.Write(&b)
 	types := map[string]int{}
 	for _, l := range strings.Split(b.String(), "\n") {
-		if strings.HasPrefix(l, "# TYPE continuum_link_throughput") {
+		if strings.HasPrefix(l, "# TYPE ikhnos_link_throughput") {
 			types[strings.Fields(l)[2]]++
 		}
 	}
@@ -798,7 +798,7 @@ func TestOnlyThePeersTheServerAskedForAreTested(t *testing.T) {
 	b := peer("cl-b", "B", "10.0.1.1") // not asked for: the other side runs the tests
 	a := peer("cl-a", "A", "10.0.0.1")
 	a.Throughput = true
-	c.Meter.Peers.Set("cl-me", []*continuumv1.LinkPeer{a, b})
+	c.Meter.Peers.Set("cl-me", []*ikhnosv1.LinkPeer{a, b})
 	settle(c)
 	if f.count() != 1 || !strings.Contains(f.argsOf(0), "10.0.0.1") {
 		t.Fatalf("runs: %v", f.calls)
@@ -811,7 +811,7 @@ func TestOnlyThePeersTheServerAskedForAreTested(t *testing.T) {
 	}
 	// Switching the tests off for a peer takes its series away on the next peer update.
 	a.Throughput = false
-	c.Meter.Peers.Set("cl-me", []*continuumv1.LinkPeer{a, b})
+	c.Meter.Peers.Set("cl-me", []*ikhnosv1.LinkPeer{a, b})
 	c.Meter.Forget()
 	for k := range render(c.Meter) {
 		if strings.Contains(k, "throughput") && strings.Contains(k, `peer="cl-a"`) {
@@ -830,7 +830,7 @@ func TestAPairsOwnIntervalReplacesTheClusters(t *testing.T) {
 	c, ck := capFor(t, f, func(c *Capacity) { c.Reverse, c.Parallel = false, 0; c.Every = 12 * time.Hour })
 	a := peer("cl-a", "A", "10.0.0.1")
 	a.Throughput, a.ThroughputIntervalSeconds = true, 3600
-	c.Meter.Peers.Set("cl-me", []*continuumv1.LinkPeer{a})
+	c.Meter.Peers.Set("cl-me", []*ikhnosv1.LinkPeer{a})
 	settle(c)
 	if f.count() != 1 {
 		t.Fatalf("%d", f.count())
@@ -854,7 +854,7 @@ func TestAPairCanHaveABudgetOfItsOwnBesideTheClustersAndItsSeriesSayHowMuchIsUse
 	a.Throughput, a.ThroughputBudgetBytes = true, 7<<30 // room for one fixture test (about 5.5 GB), not two
 	b := peer("cl-b", "B", "10.0.1.1")
 	b.Throughput = true // no budget of its own: only the cluster's
-	c.Meter.Peers.Set("cl-me", []*continuumv1.LinkPeer{a, b})
+	c.Meter.Peers.Set("cl-me", []*ikhnosv1.LinkPeer{a, b})
 	if err := c.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -862,14 +862,14 @@ func TestAPairCanHaveABudgetOfItsOwnBesideTheClustersAndItsSeriesSayHowMuchIsUse
 	ck.add(14 * time.Hour)
 	settle(c) // the second cycle of cl-a does not fit its budget; cl-b's does
 	got := render(c.Meter)
-	skip := `continuum_link_throughput_tests_skipped_total{cluster="cl-me",peer="%s",method="iperf3",reason="budget"}`
+	skip := `ikhnos_link_throughput_tests_skipped_total{cluster="cl-me",peer="%s",method="iperf3",reason="budget"}`
 	if got[fmt.Sprintf(skip, "cl-a")] != "1" || got[fmt.Sprintf(skip, "cl-b")] != "0" {
 		t.Errorf("skips: a=%s b=%s", got[fmt.Sprintf(skip, "cl-a")], got[fmt.Sprintf(skip, "cl-b")])
 	}
-	if got[`continuum_link_throughput_pair_budget_bytes{cluster="cl-me",peer="cl-a",method="iperf3"}`] != strconv.Itoa(7<<30) {
+	if got[`ikhnos_link_throughput_pair_budget_bytes{cluster="cl-me",peer="cl-a",method="iperf3"}`] != strconv.Itoa(7<<30) {
 		t.Errorf("pair budget gauge: %v", got)
 	}
-	if v, _ := strconv.ParseUint(got[`continuum_link_throughput_pair_budget_used_bytes{cluster="cl-me",peer="cl-a",method="iperf3"}`], 10, 64); v < 5<<30 || v > 7<<30 {
+	if v, _ := strconv.ParseUint(got[`ikhnos_link_throughput_pair_budget_used_bytes{cluster="cl-me",peer="cl-a",method="iperf3"}`], 10, 64); v < 5<<30 || v > 7<<30 {
 		t.Errorf("pair budget used = %d", v)
 	}
 	for k := range got {
@@ -879,7 +879,7 @@ func TestAPairCanHaveABudgetOfItsOwnBesideTheClustersAndItsSeriesSayHowMuchIsUse
 	}
 	// Dropping the budget lifts the limit at once.
 	a.ThroughputBudgetBytes = 0
-	c.Meter.Peers.Set("cl-me", []*continuumv1.LinkPeer{a, b})
+	c.Meter.Peers.Set("cl-me", []*ikhnosv1.LinkPeer{a, b})
 	ck.add(31 * time.Minute)
 	n := f.count()
 	settle(c)
@@ -900,7 +900,7 @@ func TestTheSchedulerAndAScrapeNeverWaitForEachOther(t *testing.T) {
 			if fail != nil {
 				a.ThroughputBudgetBytes = 1 << 40
 			}
-			c.Meter.Peers.Set("cl-me", []*continuumv1.LinkPeer{a})
+			c.Meter.Peers.Set("cl-me", []*ikhnosv1.LinkPeer{a})
 			if err := c.Start(); err != nil {
 				t.Fatal(err)
 			}
@@ -959,7 +959,7 @@ func TestATestThatFailsIsLeftOutAndTheOthersOfTheCycleStillRun(t *testing.T) {
 	if tcp < 2 || tcp > 3 || udp != tcp {
 		t.Errorf("tcp %d udp %d runs in a day with a cycle every 12 hours", tcp, udp)
 	}
-	if got := render(c.Meter)[`continuum_link_throughput_test_failures_total{cluster="cl-me",peer="cl-a",method="iperf3",reason="refused"}`]; got != strconv.Itoa(udp) {
+	if got := render(c.Meter)[`ikhnos_link_throughput_test_failures_total{cluster="cl-me",peer="cl-a",method="iperf3",reason="refused"}`]; got != strconv.Itoa(udp) {
 		t.Errorf("failures counted = %s want %d", got, udp)
 	}
 }
@@ -972,7 +972,7 @@ func TestAFailingTestInTheMiddleDoesNotStopTheTestsAfterIt(t *testing.T) {
 	})
 	settle(c)
 	got := render(c.Meter)
-	if got[`continuum_link_throughput_udp_saturated{cluster="cl-me",peer="cl-a",method="iperf3",direction="forward",dscp="0"}`] == "" {
+	if got[`ikhnos_link_throughput_udp_saturated{cluster="cl-me",peer="cl-a",method="iperf3",direction="forward",dscp="0"}`] == "" {
 		t.Errorf("the ramp after the failed parallel test did not run: %v", f.calls)
 	}
 }
@@ -1023,11 +1023,11 @@ func TestARampEndsAtTheLastRateTheSenderReallyDelivered(t *testing.T) {
 	}
 	got, n := run(40e6)
 	// tcp + 10, 20, 40 delivered, 80 asked but 40 sent: the ramp stops there, with 40 as the lower bound.
-	if n != 5 || !sameNumber(got["continuum_link_throughput_udp_clean_bits_per_second"+base], "4e7") || got["continuum_link_throughput_udp_saturated"+base] != "0" {
-		t.Errorf("runs %d clean %q saturated %q", n, got["continuum_link_throughput_udp_clean_bits_per_second"+base], got["continuum_link_throughput_udp_saturated"+base])
+	if n != 5 || !sameNumber(got["ikhnos_link_throughput_udp_clean_bits_per_second"+base], "4e7") || got["ikhnos_link_throughput_udp_saturated"+base] != "0" {
+		t.Errorf("runs %d clean %q saturated %q", n, got["ikhnos_link_throughput_udp_clean_bits_per_second"+base], got["ikhnos_link_throughput_udp_saturated"+base])
 	}
 	got, _ = run(1e6) // not even the first rung was delivered
-	if v, ok := got["continuum_link_throughput_udp_clean_bits_per_second"+base]; ok {
+	if v, ok := got["ikhnos_link_throughput_udp_clean_bits_per_second"+base]; ok {
 		t.Errorf("a clean rate %s although nothing was delivered", v)
 	}
 }
@@ -1058,11 +1058,11 @@ func TestAMissingRetransmitCountIsNoSampleNotAZero(t *testing.T) {
 	c.Meter.ObserveTCP("cl-a", IperfFlow{Direction: Forward, Bits: 1e9}, "tcp", 1, 0, false)
 	got := render(c.Meter)
 	key := `{cluster="cl-me",peer="cl-a",method="iperf3",direction="forward",protocol="tcp",streams="1",dscp="0"}`
-	if _, ok := got["continuum_link_throughput_retransmits"+key]; ok {
+	if _, ok := got["ikhnos_link_throughput_retransmits"+key]; ok {
 		t.Error("retransmits exported although the sender did not report them")
 	}
 	c.Meter.ObserveTCP("cl-a", IperfFlow{Direction: Forward, Bits: 1e9, HasRetrans: true}, "tcp", 1, 0, false)
-	if v, ok := render(c.Meter)["continuum_link_throughput_retransmits"+key]; !ok || v != "0" {
+	if v, ok := render(c.Meter)["ikhnos_link_throughput_retransmits"+key]; !ok || v != "0" {
 		t.Errorf("a reported zero is missing: %q", v)
 	}
 }
@@ -1082,8 +1082,8 @@ func TestARampWithAHighLossThresholdIsNotMistakenForASenderThatCouldNotKeepUp(t 
 	if n := f.count(); n != 5 {
 		t.Errorf("%d runs, want 5: %v", n, f.calls)
 	}
-	if !sameNumber(got["continuum_link_throughput_udp_clean_bits_per_second"+base], "4e7") || got["continuum_link_throughput_udp_saturated"+base] != "1" {
-		t.Errorf("clean %q saturated %q, want 4e7 and 1", got["continuum_link_throughput_udp_clean_bits_per_second"+base], got["continuum_link_throughput_udp_saturated"+base])
+	if !sameNumber(got["ikhnos_link_throughput_udp_clean_bits_per_second"+base], "4e7") || got["ikhnos_link_throughput_udp_saturated"+base] != "1" {
+		t.Errorf("clean %q saturated %q, want 4e7 and 1", got["ikhnos_link_throughput_udp_clean_bits_per_second"+base], got["ikhnos_link_throughput_udp_saturated"+base])
 	}
 }
 
@@ -1262,7 +1262,7 @@ func TestTheRampStopsAtTheHighestRateThatFitsItsShareOfASmallBudget(t *testing.T
 
 func boundedOf(got map[string]string, dir string) string {
 	for k, v := range got {
-		if strings.HasPrefix(k, "continuum_link_throughput_bounded{") && strings.Contains(k, `direction="`+dir+`"`) && strings.Contains(k, `protocol="tcp"`) {
+		if strings.HasPrefix(k, "ikhnos_link_throughput_bounded{") && strings.Contains(k, `direction="`+dir+`"`) && strings.Contains(k, `protocol="tcp"`) {
 			return v
 		}
 	}

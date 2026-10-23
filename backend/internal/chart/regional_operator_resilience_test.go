@@ -157,7 +157,7 @@ func TestRegionalOperatorHealthCheckDoesNotPretendToWatchTheExporters(t *testing
 			t.Errorf("health_check sets %q: %v - it is ignored (or reports nothing) for exporters in the pinned collector", k, hc)
 		}
 	}
-	text, err := os.ReadFile("continuum-regional-operator/templates/_telemetry.tpl")
+	text, err := os.ReadFile("ikhnos-regional-operator/templates/_telemetry.tpl")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,7 +214,7 @@ func TestRegionalOperatorChecksumCoversTheTokenSecrets(t *testing.T) {
 		"--set", "receiver.auth.enabled=true", "--set", "receiver.auth.secretName=recv-token",
 		"--set", "export.otlp.auth.secretName=dest-token",
 		"--set", "export.routes.logs.endpoint=loki.example:3100", "--set", "export.routes.logs.auth.secretName=logs-token",
-		"--set", "heartbeat.enabled=true", "--set", "heartbeat.url=https://continuum.example.com/api/v1/operator-heartbeat",
+		"--set", "heartbeat.enabled=true", "--set", "heartbeat.url=https://ikhnos.example.com/api/v1/operator-heartbeat",
 		"--set", "heartbeat.auth.secretName=hb-auth"}
 	read := func() string {
 		return podAnnotations(t, helmTemplateInCluster(t, RegionalOperator, kc, args...))["rel-regional-operator"]["checksum/mtls"]
@@ -242,8 +242,8 @@ func TestRegionalOperatorNotesSayHowToSeeDeliveryAndWarnAboutTheWrongPort(t *tes
 		if err != nil {
 			t.Skip("helm is not installed")
 		}
-		dir := filepath.Join(t.TempDir(), "continuum-regional-operator")
-		copyTree(t, "continuum-regional-operator", dir)
+		dir := filepath.Join(t.TempDir(), "ikhnos-regional-operator")
+		copyTree(t, "ikhnos-regional-operator", dir)
 		text, err := os.ReadFile(filepath.Join(dir, "templates", "NOTES.txt"))
 		if err != nil {
 			t.Fatal(err)

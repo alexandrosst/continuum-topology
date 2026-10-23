@@ -311,7 +311,7 @@ export function seedTopology(): Model {
 
   const applications: Application[] = [
     app('app-api', 'Platform API', 'Public entry point and orchestration.'),
-    app('app-ml', 'ML platform', 'Training, registry and inference across the continuum.'),
+    app('app-ml', 'ML platform', 'Training, registry and inference across the ikhnos.'),
     app('app-ingest', 'Sensor ingestion', 'Edge brokers, sensors and the streaming pipeline.', 'part-of'),
   ]
 

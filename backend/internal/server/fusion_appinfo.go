@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"time"
 
-	"continuum/internal/fusionapi"
+	"ikhnos/internal/fusionapi"
 )
 
 // appInfoEvery is how often the info series of the Ikhnos applications is written into FUSION's Prometheus. Prometheus

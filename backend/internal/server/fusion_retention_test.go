@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/accounts"
-	"continuum/internal/fusion"
-	"continuum/internal/fusionapi"
-	"continuum/internal/kernel"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/fusion"
+	"ikhnos/internal/fusionapi"
+	"ikhnos/internal/kernel"
 )
 
 func (k *fakeKube) Settings(_ context.Context, name string) (map[string]string, error) {
@@ -22,7 +22,7 @@ func (k *fakeKube) Settings(_ context.Context, name string) (map[string]string, 
 	if k.settingsErr != nil {
 		return nil, k.settingsErr
 	}
-	if k.settings == nil || name != "continuum-fusion-settings" {
+	if k.settings == nil || name != "ikhnos-fusion-settings" {
 		return nil, kernel.ErrKubeNotFound
 	}
 	out := map[string]string{}
@@ -102,7 +102,7 @@ func retentionRig(t *testing.T) (*fusion.FusionControl, *fakeKube, *adminRig) {
 	k.settings = map[string]string{"prometheus.retention": "15d", "prometheus.retentionSize": "8704MB", "loki.retention": "168h", "tempo.retention": "72h"}
 	k.rclaims = map[string]kernel.KubeClaim{}
 	for _, n := range []string{"prometheus", "loki", "tempo"} {
-		k.rclaims["data-continuum-fusion-"+n+"-0"] = kernel.KubeClaim{Phase: "Bound", StorageClass: "fast", Requested: 10 * gib, Capacity: 10 * gib, Created: created}
+		k.rclaims["data-ikhnos-fusion-"+n+"-0"] = kernel.KubeClaim{Phase: "Bound", StorageClass: "fast", Requested: 10 * gib, Capacity: 10 * gib, Created: created}
 	}
 	for n := range k.replicas {
 		k.replicas[n] = 1
@@ -176,7 +176,7 @@ func TestSetRetentionGrowsTheVolumeBeforeSavingAndRestartsOnlyWhatChanged(t *tes
 		t.Fatal(err)
 	}
 	// The volume grows first, the settings are saved, then the changed stores restart; Loki is untouched.
-	want := "resize:data-continuum-fusion-prometheus-0,settings,restart:continuum-fusion-prometheus-0,restart:continuum-fusion-tempo-0"
+	want := "resize:data-ikhnos-fusion-prometheus-0,settings,restart:ikhnos-fusion-prometheus-0,restart:ikhnos-fusion-tempo-0"
 	if got := strings.Join(k.ops, ","); got != want {
 		t.Errorf("ops = %s\nwant  %s", got, want)
 	}
@@ -214,7 +214,7 @@ func TestSetRetentionKeepsASizeLimitSomeoneChose(t *testing.T) {
 		t.Errorf("a chosen size limit was replaced: %q", k.settings["prometheus.retentionSize"])
 	}
 	// Growing the volume alone changes nothing the store reads, so it is not restarted.
-	if got := strings.Join(k.ops, ","); got != "resize:data-continuum-fusion-prometheus-0" {
+	if got := strings.Join(k.ops, ","); got != "resize:data-ikhnos-fusion-prometheus-0" {
 		t.Errorf("ops = %s", got)
 	}
 }
@@ -233,7 +233,7 @@ func TestSetRetentionLeavesTheSettingsAloneWhenTheVolumeCannotGrow(t *testing.T)
 
 func TestSetRetentionSaysWhatWasGrownWhenALaterVolumeFails(t *testing.T) {
 	f, k, a := retentionRig(t)
-	k.resizeErr, k.resizeErrOn = errors.New("quota exceeded"), "data-continuum-fusion-loki-0"
+	k.resizeErr, k.resizeErrOn = errors.New("quota exceeded"), "data-ikhnos-fusion-loki-0"
 	_, err := f.SetRetention(context.Background(), a.a.C.ForOrg("org-1").Fusion, "alex", fusion.RetentionRequest{
 		Metrics: &fusion.RetentionChange{Days: intp(30), VolumeGiB: intp(20)}, Logs: &fusion.RetentionChange{Days: intp(30), VolumeGiB: intp(20)}})
 	if err == nil || !strings.Contains(err.Error(), "Prometheus was already grown") || !strings.Contains(err.Error(), "no retention was changed") {
@@ -251,7 +251,7 @@ func TestSetRetentionSaysWhatWasGrownWhenALaterVolumeFails(t *testing.T) {
 
 func TestSetRetentionChecksEverythingBeforeChangingAnything(t *testing.T) {
 	f, k, a := retentionRig(t)
-	delete(k.rclaims, "data-continuum-fusion-loki-0") // its volume cannot be read
+	delete(k.rclaims, "data-ikhnos-fusion-loki-0") // its volume cannot be read
 	_, err := f.SetRetention(context.Background(), a.a.C.ForOrg("org-1").Fusion, "alex", fusion.RetentionRequest{
 		Metrics: &fusion.RetentionChange{VolumeGiB: intp(20)}, Logs: &fusion.RetentionChange{VolumeGiB: intp(20)}})
 	if err == nil || len(k.ops) != 0 {
@@ -283,9 +283,9 @@ func TestSetRetentionRefusesWhatCannotBeDone(t *testing.T) {
 		t.Errorf("a refused request changed %v", k.ops)
 	}
 	// A volume still growing from the last time is not grown again.
-	c := k.rclaims["data-continuum-fusion-loki-0"]
+	c := k.rclaims["data-ikhnos-fusion-loki-0"]
 	c.Requested = 20 * gib
-	k.rclaims["data-continuum-fusion-loki-0"] = c
+	k.rclaims["data-ikhnos-fusion-loki-0"] = c
 	if _, err := f.SetRetention(ctx, a.a.C.ForOrg("org-1").Fusion, "alex", fusion.RetentionRequest{Logs: &fusion.RetentionChange{VolumeGiB: intp(40)}}); err == nil || !strings.Contains(err.Error(), "still being grown") {
 		t.Errorf("growing twice: %v", err)
 	}
@@ -341,8 +341,8 @@ func TestRetentionMeasuresGrowthFromWhatTheStoresReport(t *testing.T) {
 			w.Write([]byte("prometheus_tsdb_storage_blocks_bytes 4e+09\nprometheus_tsdb_wal_storage_size_bytes 5e+08\nprometheus_tsdb_lowest_timestamp " + strconv.FormatInt(oldest, 10) + "\n"))
 		case "/api/v1/query":
 			w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[` +
-				`{"metric":{"k8s_persistentvolumeclaim_name":"data-continuum-fusion-loki-0","k8s_namespace_name":"continuum"},"value":[1,"3000000000"]},` +
-				`{"metric":{"k8s_persistentvolumeclaim_name":"data-continuum-fusion-tempo-0","k8s_namespace_name":"other"},"value":[1,"9000000000"]}]}}`))
+				`{"metric":{"k8s_persistentvolumeclaim_name":"data-ikhnos-fusion-loki-0","k8s_namespace_name":"ikhnos"},"value":[1,"3000000000"]},` +
+				`{"metric":{"k8s_persistentvolumeclaim_name":"data-ikhnos-fusion-tempo-0","k8s_namespace_name":"other"},"value":[1,"9000000000"]}]}}`))
 		}
 	}))
 	defer prom.Close()
@@ -428,7 +428,7 @@ func TestFusionRetentionOverHTTP(t *testing.T) {
 	k.settings = map[string]string{"prometheus.retention": "15d", "loki.retention": "168h", "tempo.retention": "72h"}
 	k.rclaims = map[string]kernel.KubeClaim{}
 	for _, n := range []string{"prometheus", "loki", "tempo"} {
-		k.rclaims["data-continuum-fusion-"+n+"-0"] = kernel.KubeClaim{Requested: 10 * gib, Capacity: 10 * gib}
+		k.rclaims["data-ikhnos-fusion-"+n+"-0"] = kernel.KubeClaim{Requested: 10 * gib, Capacity: 10 * gib}
 	}
 	r := a.do("GET", "/api/v1/fusion/retention", nil, withCookie(admin))
 	if doc := r.json(t); r.Code != 200 || doc["available"] != true || len(doc["stores"].([]any)) != 3 {
@@ -455,10 +455,10 @@ func TestFusionRetentionOverHTTP(t *testing.T) {
 func TestRetentionSaysBeforehandWhichVolumesCanGrow(t *testing.T) {
 	f, k, a := retentionRig(t)
 	ctx := context.Background()
-	k.resizeErr, k.resizeErrOn = kernel.ErrKubeNoResize, "data-continuum-fusion-loki-0"
-	c := k.rclaims["data-continuum-fusion-loki-0"]
+	k.resizeErr, k.resizeErrOn = kernel.ErrKubeNoResize, "data-ikhnos-fusion-loki-0"
+	c := k.rclaims["data-ikhnos-fusion-loki-0"]
 	c.Provisioner = "rancher.io/local-path"
-	k.rclaims["data-continuum-fusion-loki-0"] = c
+	k.rclaims["data-ikhnos-fusion-loki-0"] = c
 	d := f.Retention(ctx, a.a.C.ForOrg("org-1").Fusion)
 	if m := storeOf(t, d, "metrics"); m.CanGrow == nil || !*m.CanGrow || m.SizeNotEnforced {
 		t.Errorf("a class that grows: %+v", m)
@@ -474,21 +474,21 @@ func TestRetentionSaysBeforehandWhichVolumesCanGrow(t *testing.T) {
 		t.Errorf("trial resizes asked again: %d -> %d", n, len(k.checks))
 	}
 	// The trial changes nothing.
-	if len(k.ops) != 0 || k.rclaims["data-continuum-fusion-prometheus-0"].Requested != 10*gib {
+	if len(k.ops) != 0 || k.rclaims["data-ikhnos-fusion-prometheus-0"].Requested != 10*gib {
 		t.Errorf("a trial resize changed something: %v", k.ops)
 	}
 }
 
 func TestSetRetentionGrowsNothingIfAnyOfTheVolumesCannot(t *testing.T) {
 	f, k, a := retentionRig(t)
-	k.resizeErr, k.resizeErrOn = kernel.ErrKubeNoResize, "data-continuum-fusion-loki-0"
+	k.resizeErr, k.resizeErrOn = kernel.ErrKubeNoResize, "data-ikhnos-fusion-loki-0"
 	_, err := f.SetRetention(context.Background(), a.a.C.ForOrg("org-1").Fusion, "alex", fusion.RetentionRequest{
 		Metrics: &fusion.RetentionChange{VolumeGiB: intp(20)}, Logs: &fusion.RetentionChange{VolumeGiB: intp(20), Days: intp(30)}})
 	if err == nil || !strings.Contains(err.Error(), "Loki's volume cannot be grown") || !strings.Contains(err.Error(), "Nothing was changed") {
 		t.Fatalf("err = %v", err)
 	}
 	// Prometheus' volume, which could have grown, was not touched either.
-	if len(k.ops) != 0 || k.rclaims["data-continuum-fusion-prometheus-0"].Requested != 10*gib {
+	if len(k.ops) != 0 || k.rclaims["data-ikhnos-fusion-prometheus-0"].Requested != 10*gib {
 		t.Errorf("ops %v", k.ops)
 	}
 }

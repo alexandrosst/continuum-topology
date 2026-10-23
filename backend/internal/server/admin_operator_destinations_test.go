@@ -4,10 +4,10 @@ import (
 	"strings"
 	"testing"
 
-	"continuum/internal/accounts"
-	"continuum/internal/fusion"
-	"continuum/internal/operators"
-	"continuum/internal/testkit"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/fusion"
+	"ikhnos/internal/operators"
+	"ikhnos/internal/testkit"
 )
 
 func destByID(list []map[string]any, id string) map[string]any {
@@ -54,7 +54,7 @@ func TestOperatorDestinationsAreForEditorsAndHoldNoSecrets(t *testing.T) {
 	if m, _ := d["acceptedModalities"].([]any); len(m) != 1 || m[0] != "metrics" {
 		t.Fatalf("acceptedModalities = %v", d["acceptedModalities"])
 	}
-	if d["endpoint"] != operators.OperatorServiceName(id)+".continuum-system.svc:4317" {
+	if d["endpoint"] != operators.OperatorServiceName(id)+".ikhnos-system.svc:4317" {
 		t.Fatalf("endpoint = %v", d["endpoint"])
 	}
 	if h, _ := d["health"].(map[string]any); h["state"] != "unknown" {

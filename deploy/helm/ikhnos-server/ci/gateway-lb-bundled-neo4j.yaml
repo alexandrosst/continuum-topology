@@ -1,0 +1,45 @@
+# A cloud cluster: LoadBalancer for agents, Gateway API HTTPRoute (an existing Gateway with a TLS listener) for the UI,
+# bundled Neo4j, VolumeSnapshot backups.
+image:
+  repository: registry.example.com/ikhnos/server
+  digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+registration: invite
+agent:
+  publicAddress: ikhnos-agents.example.com:8443
+  extraHosts: [ikhnos-agents.internal.example.com]
+  service:
+    type: LoadBalancer
+    externalTrafficPolicy: Local
+    annotations:
+      service.beta.kubernetes.io/aws-load-balancer-type: nlb
+httproute:
+  enabled: true
+  parentRefs: [{name: shared-gateway, namespace: gateways, sectionName: https}]
+  hostnames: [ikhnos.example.com]
+agentInstall:
+  imageRegistry: registry.example.com/ikhnos
+  imageTag: 0.1.0
+  chartRef: oci://registry.example.com/ikhnos/ikhnos-agent
+persistence:
+  size: 10Gi
+  storageClass: fast
+neo4j:
+  mode: bundled
+  allowInsecureHttp: false
+  persistence:
+    size: 20Gi
+  memory: {heapInitial: 1g, heapMax: 1g, pagecache: 512m}
+  resources:
+    requests: {cpu: 500m, memory: 2Gi}
+    limits: {memory: 2560Mi}
+  networkPolicy:
+    enabled: true
+backup:
+  volumeSnapshot:
+    enabled: true
+    className: csi-snapclass
+    includeNeo4j: true
+    timeZone: Europe/Berlin
+podDisruptionBudget:
+  enabled: false
+priorityClassName: system-cluster-critical

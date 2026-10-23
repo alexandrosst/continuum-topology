@@ -6,7 +6,7 @@ import (
 	"math"
 	"sort"
 
-	"continuum/internal/store"
+	"ikhnos/internal/store"
 )
 
 // What each advisor has done so far: how many proposals, what people made of them, and whether what it predicted came true. It is

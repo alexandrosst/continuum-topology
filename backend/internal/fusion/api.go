@@ -4,9 +4,9 @@ import (
 	"context"
 	"net/http"
 
-	"continuum/internal/httpkit"
-	"continuum/internal/kernel"
-	"continuum/internal/operators"
+	"ikhnos/internal/httpkit"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/operators"
 )
 
 // API is the routes of the FUSION switch: its state, turning it on and off, and the retention of its stores. They call through the

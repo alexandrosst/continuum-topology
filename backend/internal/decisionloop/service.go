@@ -10,8 +10,8 @@ import (
 	"context"
 	"time"
 
-	"continuum/internal/kernel"
-	"continuum/internal/store"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/store"
 )
 
 // Service is the decision loop of one organisation.

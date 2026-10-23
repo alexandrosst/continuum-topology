@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 )
 
 func fixture(t *testing.T, name string) OwampResult {
@@ -154,12 +154,12 @@ func TestHopsAreExportedOnceFromTheTTLOfTheOneWayProbe(t *testing.T) {
 	m.ObservePath("cl-a", PathResult{MTU: 1500, Hops: 4, Reached: true, Route: "r"})
 	got := render(m)
 	L := func(d string) string {
-		return `continuum_link_probe_path_hops{cluster="cl-me",peer="cl-a",direction="` + d + `",method="owamp"}`
+		return `ikhnos_link_probe_path_hops{cluster="cl-me",peer="cl-a",direction="` + d + `",method="owamp"}`
 	}
 	if got[L("forward")] != "9" || got[L("reverse")] != "11" {
 		t.Errorf("hops per direction: %q / %q", got[L("forward")], got[L("reverse")])
 	}
-	if hasKey(got, "continuum_link_path_hops") {
+	if hasKey(got, "ikhnos_link_path_hops") {
 		t.Error("the path probe still exports its own hop count")
 	}
 }
@@ -169,11 +169,11 @@ func TestAFailedRunWithdrawsTheReadingsOfTheLastGoodOne(t *testing.T) {
 	m.EnableProbes()
 	m.ObserveProbe("cl-a", Forward, OwampResult{Sent: 100, Lost: 0, HasDelay: true, Min: 0.01, Median: 0.011, Max: 0.02, Synchronized: true, Hops: 5})
 	got := render(m)
-	up := `continuum_link_probe_up{cluster="cl-me",peer="cl-a",direction="forward",method="owamp"}`
+	up := `ikhnos_link_probe_up{cluster="cl-me",peer="cl-a",direction="forward",method="owamp"}`
 	if got[up] != "1" || !hasKey(got, "probe_loss_ratio{") {
 		t.Fatalf("after a good run: %v", got)
 	}
-	if _, ok := got[`continuum_link_probe_up{cluster="cl-me",peer="cl-a",direction="reverse",method="owamp"}`]; ok {
+	if _, ok := got[`ikhnos_link_probe_up{cluster="cl-me",peer="cl-a",direction="reverse",method="owamp"}`]; ok {
 		t.Error("up shown for a direction never tried")
 	}
 	m.ProbeFailed("cl-a", Forward, "timeout")
@@ -186,7 +186,7 @@ func TestAFailedRunWithdrawsTheReadingsOfTheLastGoodOne(t *testing.T) {
 			t.Errorf("a reading of the earlier run is still shown: %s", k)
 		}
 	}
-	if got[`continuum_link_probe_packets_sent_total{cluster="cl-me",peer="cl-a",direction="forward",method="owamp"}`] != "100" || !hasKey(got, "last_success") {
+	if got[`ikhnos_link_probe_packets_sent_total{cluster="cl-me",peer="cl-a",direction="forward",method="owamp"}`] != "100" || !hasKey(got, "last_success") {
 		t.Errorf("the totals or the last success were lost: %v", got)
 	}
 	m.ObserveProbe("cl-a", Forward, OwampResult{Sent: 100})
@@ -198,7 +198,7 @@ func TestAFailedRunWithdrawsTheReadingsOfTheLastGoodOne(t *testing.T) {
 func probeMeter(t *testing.T) *Meter {
 	t.Helper()
 	p := NewPeers()
-	p.Set("cl-me", []*continuumv1.LinkPeer{peer("cl-a", "A", "10.0.0.1")})
+	p.Set("cl-me", []*ikhnosv1.LinkPeer{peer("cl-a", "A", "10.0.0.1")})
 	m := NewMeter(p)
 	m.now = func() time.Time { return time.Unix(1_700_000_000, 0) }
 	return m
@@ -218,21 +218,21 @@ func TestProbeSeriesAreSilentUntilEnabledAndCountPerDirection(t *testing.T) {
 		return `{cluster="cl-me",peer="cl-a",direction="` + d + `",method="owamp"` + extra + `}`
 	}
 	want := map[string]string{
-		"continuum_link_probe_packets_sent_total" + L("forward", ""):              "200",
-		"continuum_link_probe_packets_lost_total" + L("forward", ""):              "15",
-		"continuum_link_probe_packets_lost_total" + L("reverse", ""):              "0",
-		"continuum_link_probe_loss_ratio" + L("forward", ""):                      "0.1",
-		"continuum_link_probe_loss_ratio" + L("reverse", ""):                      "0",
-		"continuum_link_probe_clock_synchronized" + L("reverse", ""):              "0",
-		"continuum_link_probe_last_success_timestamp_seconds" + L("forward", ""):  "1700000000",
-		"continuum_link_probe_failures_total" + L("forward", `,reason="timeout"`): "0",
+		"ikhnos_link_probe_packets_sent_total" + L("forward", ""):              "200",
+		"ikhnos_link_probe_packets_lost_total" + L("forward", ""):              "15",
+		"ikhnos_link_probe_packets_lost_total" + L("reverse", ""):              "0",
+		"ikhnos_link_probe_loss_ratio" + L("forward", ""):                      "0.1",
+		"ikhnos_link_probe_loss_ratio" + L("reverse", ""):                      "0",
+		"ikhnos_link_probe_clock_synchronized" + L("reverse", ""):              "0",
+		"ikhnos_link_probe_last_success_timestamp_seconds" + L("forward", ""):  "1700000000",
+		"ikhnos_link_probe_failures_total" + L("forward", `,reason="timeout"`): "0",
 	}
 	for k, v := range want {
 		if got[k] != v {
 			t.Errorf("%s = %q, want %q", k, got[k], v)
 		}
 	}
-	if v, err := strconv.ParseFloat(got["continuum_link_probe_delay_variation_seconds"+L("reverse", `,stat="median"`)], 64); err != nil || math.Abs(v-0.001) > 1e-9 {
+	if v, err := strconv.ParseFloat(got["ikhnos_link_probe_delay_variation_seconds"+L("reverse", `,stat="median"`)], 64); err != nil || math.Abs(v-0.001) > 1e-9 {
 		t.Errorf("delay variation = %v (%v)", v, err)
 	}
 	// the later forward run had no delays, so its absence is not a stale reading of the earlier one
@@ -285,7 +285,7 @@ func TestProbeFailuresAreCountedByReasonAndUnknownReasonsFoldIntoOther(t *testin
 	m.ProbeFailed("cl-a", Forward, "timeout")
 	m.ProbeFailed("cl-a", Forward, "weird\"reason")
 	got := render(m)
-	base := `continuum_link_probe_failures_total{cluster="cl-me",peer="cl-a",direction="forward",method="owamp",reason="`
+	base := `ikhnos_link_probe_failures_total{cluster="cl-me",peer="cl-a",direction="forward",method="owamp",reason="`
 	if got[base+`timeout"}`] != "2" || got[base+`other"}`] != "1" {
 		t.Fatalf("%v", got)
 	}
@@ -335,7 +335,7 @@ func TestProbeOutputIsWellFormedAndEachFamilyHasOneHeader(t *testing.T) {
 			t.Errorf("%s has %d TYPE headers", name, n)
 		}
 	}
-	if typed["continuum_link_probe_one_way_delay_seconds"] != 1 {
+	if typed["ikhnos_link_probe_one_way_delay_seconds"] != 1 {
 		t.Error("the probe families are missing")
 	}
 }

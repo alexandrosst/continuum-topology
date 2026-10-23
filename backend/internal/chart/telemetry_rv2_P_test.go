@@ -128,12 +128,12 @@ func TestAdmissionMatrix(t *testing.T) {
 		restricted bool // admitted by Pod Security restricted
 		baseline   bool // admitted by Pod Security baseline
 	}{
-		{podNamed(t, r, "continuum-telemetry-cluster"), "cluster collector", true, true},
-		{podNamed(t, rn, "continuum-telemetry-host"), "host collector, nodeRuntime only", true, true},
-		{podNamed(t, r, "continuum-telemetry-host"), "host collector, resourceUsage + container logs", false, false},
-		{podNamed(t, r, "continuum-telemetry-kepler"), "Kepler", false, false},
-		{podNamed(t, r, "continuum-telemetry-dcgm"), "dcgm-exporter", false, false},
-		{podNamed(t, r, "continuum-agent"), "agent", true, true},
+		{podNamed(t, r, "ikhnos-telemetry-cluster"), "cluster collector", true, true},
+		{podNamed(t, rn, "ikhnos-telemetry-host"), "host collector, nodeRuntime only", true, true},
+		{podNamed(t, r, "ikhnos-telemetry-host"), "host collector, resourceUsage + container logs", false, false},
+		{podNamed(t, r, "ikhnos-telemetry-kepler"), "Kepler", false, false},
+		{podNamed(t, r, "ikhnos-telemetry-dcgm"), "dcgm-exporter", false, false},
+		{podNamed(t, r, "ikhnos-agent"), "agent", true, true},
 	}
 	for _, c := range cases {
 		if got := ok(violatesRestricted(c.pod)); got != c.restricted {
@@ -150,8 +150,8 @@ func TestAdmissionMatrix(t *testing.T) {
 func TestHostAccessListIsExactlyThePodsPodSecurityRefuses(t *testing.T) {
 	r := render(t, everyWorkload()...)
 	byName := map[string]string{
-		"the host collector": "continuum-telemetry-host", "Kepler": "continuum-telemetry-kepler", "dcgm-exporter": "continuum-telemetry-dcgm",
-		"the node probe": "continuum-node-probe", "the traffic observer": "continuum-flow-collector",
+		"the host collector": "ikhnos-telemetry-host", "Kepler": "ikhnos-telemetry-kepler", "dcgm-exporter": "ikhnos-telemetry-dcgm",
+		"the node probe": "ikhnos-node-probe", "the traffic observer": "ikhnos-flow-collector",
 	}
 	refused := map[string]bool{}
 	for _, p := range podsOf(r) {
@@ -170,7 +170,7 @@ func TestHostAccessListIsExactlyThePodsPodSecurityRefuses(t *testing.T) {
 	}
 	// dcgm-exporter needs no hostPath without applyScope, but SYS_ADMIN alone is outside baseline: it must still be listed
 	d := render(t, withTel("--set", "telemetry.accelerators.metrics.enabled=true")...)
-	if v := pssBaselineViolation(podNamed(t, d, "continuum-telemetry-dcgm")); !strings.Contains(v, "SYS_ADMIN") {
+	if v := pssBaselineViolation(podNamed(t, d, "ikhnos-telemetry-dcgm")); !strings.Contains(v, "SYS_ADMIN") {
 		t.Errorf("dcgm-exporter without applyScope should be refused by baseline for SYS_ADMIN, got %q", v)
 	}
 }
@@ -179,26 +179,26 @@ func TestHostAccessListIsExactlyThePodsPodSecurityRefuses(t *testing.T) {
 // one - which RKE2's CIS profile also locks down - is not the thing to hand privileges to. It keeps no token and no RBAC.
 func TestDcgmHasItsOwnTokenlessServiceAccount(t *testing.T) {
 	r := render(t, withTel("--set", "telemetry.accelerators.metrics.enabled=true")...)
-	ps := podNamed(t, r, "continuum-telemetry-dcgm")
-	if ps.ServiceAccountName != "continuum-agent-dcgm" {
-		t.Fatalf("dcgm-exporter runs as %q, want continuum-agent-dcgm", ps.ServiceAccountName)
+	ps := podNamed(t, r, "ikhnos-telemetry-dcgm")
+	if ps.ServiceAccountName != "ikhnos-agent-dcgm" {
+		t.Fatalf("dcgm-exporter runs as %q, want ikhnos-agent-dcgm", ps.ServiceAccountName)
 	}
 	if ps.AutomountServiceAccountToken == nil || *ps.AutomountServiceAccountToken {
 		t.Errorf("dcgm-exporter must not mount a token")
 	}
-	sa, ok := r.serviceaccounts["continuum-agent-dcgm"]
+	sa, ok := r.serviceaccounts["ikhnos-agent-dcgm"]
 	if !ok || sa.AutomountServiceAccountToken == nil || *sa.AutomountServiceAccountToken {
-		t.Errorf("ServiceAccount continuum-agent-dcgm missing or mounting a token: %+v", sa)
+		t.Errorf("ServiceAccount ikhnos-agent-dcgm missing or mounting a token: %+v", sa)
 	}
 	for n, b := range r.clusterrolebindings {
 		for _, s := range b.Subjects {
-			if s.Name == "continuum-agent-dcgm" {
+			if s.Name == "ikhnos-agent-dcgm" {
 				t.Errorf("ClusterRoleBinding %s binds dcgm-exporter's account: it needs no API access", n)
 			}
 		}
 	}
 	// and nothing is rendered for it when it is not bundled
-	if _, ok := render(t, withTel("--set", "telemetry.kubernetesState.metrics.enabled=true")...).serviceaccounts["continuum-agent-dcgm"]; ok {
+	if _, ok := render(t, withTel("--set", "telemetry.kubernetesState.metrics.enabled=true")...).serviceaccounts["ikhnos-agent-dcgm"]; ok {
 		t.Errorf("the dcgm ServiceAccount is rendered without dcgm-exporter")
 	}
 }
@@ -211,16 +211,16 @@ func TestDcgmHasItsOwnTokenlessServiceAccount(t *testing.T) {
 func TestEveryContainerSatisfiesTheUsualAdmissionPolicies(t *testing.T) {
 	r := render(t, everyWorkload()...)
 	rootOK := map[string]string{ // pod -> why it is allowed to be root
-		"continuum-telemetry-host": "container log files are root-owned", "continuum-telemetry-kepler": "privileged by design", "continuum-telemetry-dcgm": "SYS_ADMIN by design",
-		"continuum-flow-collector": "loads eBPF",
+		"ikhnos-telemetry-host": "container log files are root-owned", "ikhnos-telemetry-kepler": "privileged by design", "ikhnos-telemetry-dcgm": "SYS_ADMIN by design",
+		"ikhnos-flow-collector": "loads eBPF",
 	}
-	probeOK := map[string]bool{"continuum-node-probe": true, "continuum-flow-collector": true} // not telemetry; neither serves a port
+	probeOK := map[string]bool{"ikhnos-node-probe": true, "ikhnos-flow-collector": true} // not telemetry; neither serves a port
 	for _, p := range podsOf(r) {
 		// Only Kepler's node pre-flight is an init container; it is held to the same checks that can apply to a container that
 		// is not meant to serve (requests, a pinned tag), and it is privileged like Kepler itself.
 		for _, c := range p.spec.InitContainers {
 			who := p.name + "/init:" + c.Name
-			if p.name != "continuum-telemetry-kepler" {
+			if p.name != "ikhnos-telemetry-kepler" {
 				t.Errorf("%s: only Kepler's pre-flight may be an init container", who)
 			}
 			if c.Resources.Requests.Cpu().IsZero() || c.Resources.Requests.Memory().IsZero() || c.Resources.Limits.Memory().IsZero() {
@@ -246,7 +246,7 @@ func TestEveryContainerSatisfiesTheUsualAdmissionPolicies(t *testing.T) {
 			}
 			sc := c.SecurityContext
 			if sc != nil && sc.Privileged != nil && *sc.Privileged {
-				if p.name != "continuum-telemetry-kepler" {
+				if p.name != "ikhnos-telemetry-kepler" {
 					t.Errorf("%s: privileged, which only Kepler may be", who)
 				}
 				continue // privileged implies every other setting
@@ -259,7 +259,7 @@ func TestEveryContainerSatisfiesTheUsualAdmissionPolicies(t *testing.T) {
 				t.Errorf("%s: must drop ALL capabilities", who)
 			}
 			if sc.ReadOnlyRootFilesystem == nil || !*sc.ReadOnlyRootFilesystem {
-				if p.name != "continuum-telemetry-dcgm" { // not verified on a GPU node: see the comment in telemetry.yaml
+				if p.name != "ikhnos-telemetry-dcgm" { // not verified on a GPU node: see the comment in telemetry.yaml
 					t.Errorf("%s: root filesystem should be read-only", who)
 				}
 			}
@@ -269,11 +269,11 @@ func TestEveryContainerSatisfiesTheUsualAdmissionPolicies(t *testing.T) {
 			}
 		}
 		if p.spec.EnableServiceLinks == nil || *p.spec.EnableServiceLinks {
-			if strings.HasPrefix(p.name, "continuum-telemetry") {
+			if strings.HasPrefix(p.name, "ikhnos-telemetry") {
 				t.Errorf("%s: enableServiceLinks should be false", p.name)
 			}
 		}
-		if strings.HasPrefix(p.name, "continuum-telemetry") && p.meta["app.kubernetes.io/component"] == "" {
+		if strings.HasPrefix(p.name, "ikhnos-telemetry") && p.meta["app.kubernetes.io/component"] == "" {
 			t.Errorf("%s: pod lacks app.kubernetes.io/component", p.name)
 		}
 		for _, k := range []string{"app.kubernetes.io/name", "app.kubernetes.io/instance", "app.kubernetes.io/part-of"} {
@@ -290,7 +290,7 @@ func TestTelemetryPodsOptOutOfMeshInjection(t *testing.T) {
 	telemetryPods := func(r rendered) []pod {
 		var out []pod
 		for _, p := range podsOf(r) {
-			if strings.HasPrefix(p.name, "continuum-telemetry") {
+			if strings.HasPrefix(p.name, "ikhnos-telemetry") {
 				out = append(out, p)
 			}
 		}
@@ -334,13 +334,13 @@ func TestGlobalImageRegistryReachesEveryImage(t *testing.T) {
 	def := images(render(t, everyWorkload()...))
 	got := images(render(t, everyWorkload("--set", "global.imageRegistry=registry.corp.example:5000/mirror/")...))
 	want := map[string]string{
-		"continuum-telemetry-host":    "registry.corp.example:5000/mirror/otel/opentelemetry-collector-contrib:0.160.0",
-		"continuum-telemetry-cluster": "registry.corp.example:5000/mirror/otel/opentelemetry-collector-contrib:0.160.0",
-		"continuum-telemetry-kepler":  "registry.corp.example:5000/mirror/sustainable_computing_io/kepler:release-0.7.12",
-		"continuum-telemetry-dcgm":    "registry.corp.example:5000/mirror/nvidia/k8s/dcgm-exporter:4.6.0-4.8.3-distroless",
-		"continuum-agent":             "registry.corp.example:5000/mirror/continuum/continuum:0.2.0-dev",
-		"continuum-node-probe":        "registry.corp.example:5000/mirror/continuum/continuum:0.2.0-dev",
-		"continuum-flow-collector":    "registry.corp.example:5000/mirror/continuum/continuum:0.2.0-dev",
+		"ikhnos-telemetry-host":    "registry.corp.example:5000/mirror/otel/opentelemetry-collector-contrib:0.160.0",
+		"ikhnos-telemetry-cluster": "registry.corp.example:5000/mirror/otel/opentelemetry-collector-contrib:0.160.0",
+		"ikhnos-telemetry-kepler":  "registry.corp.example:5000/mirror/sustainable_computing_io/kepler:release-0.7.12",
+		"ikhnos-telemetry-dcgm":    "registry.corp.example:5000/mirror/nvidia/k8s/dcgm-exporter:4.6.0-4.8.3-distroless",
+		"ikhnos-agent":             "registry.corp.example:5000/mirror/ikhnos/ikhnos:0.2.0-dev",
+		"ikhnos-node-probe":        "registry.corp.example:5000/mirror/ikhnos/ikhnos:0.2.0-dev",
+		"ikhnos-flow-collector":    "registry.corp.example:5000/mirror/ikhnos/ikhnos:0.2.0-dev",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("images with global.imageRegistry:\n got %v\nwant %v", got, want)
@@ -350,18 +350,18 @@ func TestGlobalImageRegistryReachesEveryImage(t *testing.T) {
 			t.Errorf("%s: default image %q leaks the override", k, v)
 		}
 	}
-	if def["continuum-telemetry-kepler"] != "quay.io/sustainable_computing_io/kepler:release-0.7.12" || def["continuum-telemetry-dcgm"] != "nvcr.io/nvidia/k8s/dcgm-exporter:4.6.0-4.8.3-distroless" {
+	if def["ikhnos-telemetry-kepler"] != "quay.io/sustainable_computing_io/kepler:release-0.7.12" || def["ikhnos-telemetry-dcgm"] != "nvcr.io/nvidia/k8s/dcgm-exporter:4.6.0-4.8.3-distroless" {
 		t.Errorf("default images changed: %v", def)
 	}
 	// a digest is kept, the host is replaced
 	dig := "sha256:" + strings.Repeat("a", 64)
 	g := images(render(t, everyWorkload("--set", "global.imageRegistry=r.example", "--set", "telemetry.energy.metrics.keplerImage.digest="+dig, "--set", "telemetry.collectorImage.digest="+dig)...))
-	if g["continuum-telemetry-kepler"] != "r.example/sustainable_computing_io/kepler@"+dig || g["continuum-telemetry-host"] != "r.example/otel/opentelemetry-collector-contrib@"+dig {
+	if g["ikhnos-telemetry-kepler"] != "r.example/sustainable_computing_io/kepler@"+dig || g["ikhnos-telemetry-host"] != "r.example/otel/opentelemetry-collector-contrib@"+dig {
 		t.Errorf("digests: %v", g)
 	}
 	// an image the operator spelled out itself still goes through the override; localhost counts as a host
 	g = images(render(t, withTel("--set", "global.imageRegistry=r.example", "--set", "telemetry.kubernetesState.metrics.enabled=true", "--set", "telemetry.collectorImage.repository=localhost/otelcol")...))
-	if g["continuum-telemetry-cluster"] != "r.example/otelcol:0.160.0" {
+	if g["ikhnos-telemetry-cluster"] != "r.example/otelcol:0.160.0" {
 		t.Errorf("localhost host not replaced: %v", g)
 	}
 
@@ -410,9 +410,9 @@ func TestEgressPoliciesReachEveryKindOfClusterDNS(t *testing.T) {
 	r := render(t, withTel("--set", "networkPolicy.telemetryEgress.enabled=true", "--set", "networkPolicy.telemetryEgress.allowedEgress[0].cidr=203.0.113.7/32",
 		"--set", "networkPolicy.telemetryEgress.allowedEgress[0].ports[0]=4317", "--set", "telemetry.kubernetesState.metrics.enabled=true",
 		"--set", "networkPolicy.telemetryEgress.dnsCIDRs[0]=169.254.20.10/32", "--set", "networkPolicy.telemetryEgress.dnsCIDRs[1]=10.96.0.10/32")...)
-	check("telemetry egress", r.policies["continuum-telemetry-egress"], "10.96.0.10/32")
+	check("telemetry egress", r.policies["ikhnos-telemetry-egress"], "10.96.0.10/32")
 	r = render(t, "--set", "networkPolicy.egress.enabled=true", "--set", "networkPolicy.egress.apiServerCIDRs[0]=10.0.0.1/32", "--set", "networkPolicy.egress.serverCIDRs[0]=203.0.113.7/32")
-	check("agent egress", r.policies["continuum-agent-egress"], "")
+	check("agent egress", r.policies["ikhnos-agent-egress"], "")
 	o := operatorRender(t, "--set", "networkPolicy.egress.enabled=true", "--set", "networkPolicy.egress.allowedEgress[0].cidr=203.0.113.7/32", "--set", "networkPolicy.egress.allowedEgress[0].ports[0]=4317")
 	for name, p := range o.policies {
 		if strings.HasSuffix(name, "-egress") {
@@ -424,13 +424,13 @@ func TestEgressPoliciesReachEveryKindOfClusterDNS(t *testing.T) {
 // The Pod Security pre-flight: a release that needs host access, in a namespace that enforces baseline or restricted, stops with the
 // kubectl command that fixes it, unless told to warn or stay silent. It is a no-op wherever nothing can be looked up.
 func TestPodSecurityPreflight(t *testing.T) {
-	kepler := withTel("--set", "telemetry.energy.metrics.enabled=true", "-n", "continuum-system")
+	kepler := withTel("--set", "telemetry.energy.metrics.enabled=true", "-n", "ikhnos-system")
 	for _, level := range []string{"baseline", "restricted"} {
 		out, err := helmTemplate(t, append(kepler, "--set", "preflight.assumeEnforce="+level)...)
 		if err == nil {
 			t.Fatalf("%s: the render must fail, Kepler cannot be admitted", level)
 		}
-		for _, s := range []string{"kubectl label namespace continuum-system pod-security.kubernetes.io/enforce=privileged --overwrite", level, "Kepler"} {
+		for _, s := range []string{"kubectl label namespace ikhnos-system pod-security.kubernetes.io/enforce=privileged --overwrite", level, "Kepler"} {
 			if !strings.Contains(out, s) {
 				t.Errorf("%s: message lacks %q:\n%s", level, s, out)
 			}
@@ -473,7 +473,7 @@ func TestPodSecurityPreflight(t *testing.T) {
 	}
 	// the NOTES carry the message in warn mode
 	notes := renderNotes(t, append(kepler, "--set", "preflight.assumeEnforce=restricted", "--set", "preflight.podSecurity=warn")...)
-	if !strings.Contains(notes, "PRE-FLIGHT") || !strings.Contains(notes, "kubectl label namespace continuum-system") {
+	if !strings.Contains(notes, "PRE-FLIGHT") || !strings.Contains(notes, "kubectl label namespace ikhnos-system") {
 		t.Errorf("warn mode: NOTES lack the pre-flight message:\n%s", notes)
 	}
 	if n := renderNotes(t, kepler...); strings.Contains(n, "PRE-FLIGHT") {
@@ -488,8 +488,8 @@ func renderNotes(t *testing.T, extra ...string) string {
 	if err != nil {
 		t.Skip("helm is not installed")
 	}
-	dir := filepath.Join(t.TempDir(), "continuum-agent")
-	copyTree(t, "continuum-agent", dir)
+	dir := filepath.Join(t.TempDir(), "ikhnos-agent")
+	copyTree(t, "ikhnos-agent", dir)
 	text, err := os.ReadFile(filepath.Join(dir, "templates", "NOTES.txt"))
 	if err != nil {
 		t.Fatal(err)
@@ -654,7 +654,7 @@ func TestPlatformValuesMayBeAbsent(t *testing.T) {
 		t.Errorf("a render without the platform blocks differs from one with the defaults")
 	}
 	// and the defaults written in the templates are the ones in values.yaml
-	b, err := os.ReadFile("continuum-agent/values.yaml")
+	b, err := os.ReadFile("ikhnos-agent/values.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}

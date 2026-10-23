@@ -14,7 +14,7 @@ import (
 func proberEnvWith(t *testing.T, args ...string) map[string]string {
 	t.Helper()
 	env := map[string]string{}
-	for _, e := range render(t, probeArgs(args...)...).deployments["continuum-link-prober"].Spec.Template.Spec.Containers[0].Env {
+	for _, e := range render(t, probeArgs(args...)...).deployments["ikhnos-link-prober"].Spec.Template.Spec.Containers[0].Env {
 		env[e.Name] = e.Value
 		if e.ValueFrom != nil && e.ValueFrom.FieldRef != nil {
 			env[e.Name] = "fieldRef:" + e.ValueFrom.FieldRef.FieldPath
@@ -25,14 +25,14 @@ func proberEnvWith(t *testing.T, args ...string) map[string]string {
 
 // The responder is the other half of the host-network pair: it stays there, in OWAMP's open mode, on the configured port.
 func TestTheResponderKeepsTheHostNetworkAndTheOpenModeArguments(t *testing.T) {
-	rs := render(t, probeArgs()...).daemonsets["continuum-link-responder"].Spec.Template.Spec
+	rs := render(t, probeArgs()...).daemonsets["ikhnos-link-responder"].Spec.Template.Spec
 	if !rs.HostNetwork || rs.DNSPolicy != corev1.DNSClusterFirstWithHostNet {
 		t.Errorf("hostNetwork = %v, dnsPolicy = %q", rs.HostNetwork, rs.DNSPolicy)
 	}
 	if got, want := strings.Join(rs.Containers[0].Args, " "), "-Z -a O -c /etc/owamp -d /data -R /run/owamp -S :8861"; got != want {
 		t.Errorf("owampd args = %q, want %q", got, want)
 	}
-	rs = render(t, probeArgs("telemetry.clusterLinks.probe.responder.port=9861")...).daemonsets["continuum-link-responder"].Spec.Template.Spec
+	rs = render(t, probeArgs("telemetry.clusterLinks.probe.responder.port=9861")...).daemonsets["ikhnos-link-responder"].Spec.Template.Spec
 	if got := strings.Join(rs.Containers[0].Args, " "); !strings.HasSuffix(got, "-Z -a O -c /etc/owamp -d /data -R /run/owamp -S :9861") && !strings.HasSuffix(got, "-S :9861") {
 		t.Errorf("owampd args = %q: the port is not followed", got)
 	}
@@ -42,28 +42,28 @@ func TestTheResponderKeepsTheHostNetworkAndTheOpenModeArguments(t *testing.T) {
 // and it can be moved when something else on the nodes has 9105.
 func TestTheProberServesItsMetricsOnTheNodeAddressAtTheListenPort(t *testing.T) {
 	env := proberEnvWith(t)
-	if env["POD_IP"] != "fieldRef:status.podIP" || env["CONTINUUM_LINK_PROBE_LISTEN"] != "$(POD_IP):9105" {
-		t.Errorf("default: POD_IP = %q, listen = %q", env["POD_IP"], env["CONTINUUM_LINK_PROBE_LISTEN"])
+	if env["POD_IP"] != "fieldRef:status.podIP" || env["IKHNOS_LINK_PROBE_LISTEN"] != "$(POD_IP):9105" {
+		t.Errorf("default: POD_IP = %q, listen = %q", env["POD_IP"], env["IKHNOS_LINK_PROBE_LISTEN"])
 	}
 
 	args := probeArgs("telemetry.clusterLinks.probe.listenPort=9200",
 		"flowObserver.networkPolicy=true", "flowObserver.nodeCIDRs[0]=10.0.0.0/8",
 		"networkPolicy.telemetryEgress.enabled=true", "networkPolicy.telemetryEgress.allowedEgress[0].cidr=10.0.0.0/8", "networkPolicy.telemetryEgress.allowedEgress[0].ports[0]=4317")
 	r := render(t, args...)
-	c := r.deployments["continuum-link-prober"].Spec.Template.Spec.Containers[0]
+	c := r.deployments["ikhnos-link-prober"].Spec.Template.Spec.Containers[0]
 	got := map[string]string{}
 	for _, e := range c.Env {
 		got[e.Name] = e.Value
 	}
-	if got["CONTINUUM_LINK_PROBE_LISTEN"] != "$(POD_IP):9200" {
-		t.Errorf("listen = %q", got["CONTINUUM_LINK_PROBE_LISTEN"])
+	if got["IKHNOS_LINK_PROBE_LISTEN"] != "$(POD_IP):9200" {
+		t.Errorf("listen = %q", got["IKHNOS_LINK_PROBE_LISTEN"])
 	}
 	if len(c.Ports) != 1 || c.Ports[0].ContainerPort != 9200 || c.ReadinessProbe == nil || c.ReadinessProbe.TCPSocket == nil {
 		t.Errorf("ports = %+v, readiness = %+v", c.Ports, c.ReadinessProbe)
 	}
 	// The Service keeps 9105, which is the scrape target; it forwards to the port the pod listens on.
 	for _, d := range renderDocs(t, args...) {
-		if d.kind() == "Service" && d.name() == "continuum-link-prober" {
+		if d.kind() == "Service" && d.name() == "ikhnos-link-prober" {
 			var svc corev1.Service
 			decodeInto(t, d, &svc)
 			if p := svc.Spec.Ports[0]; p.Port != 9105 || p.TargetPort.IntValue() != 9200 {
@@ -73,7 +73,7 @@ func TestTheProberServesItsMetricsOnTheNodeAddressAtTheListenPort(t *testing.T) 
 	}
 	// Policies see the backend's address and port, not the Service's.
 	scraped := false
-	for _, rule := range r.policies["continuum-telemetry-scrape-egress"].Spec.Egress {
+	for _, rule := range r.policies["ikhnos-telemetry-scrape-egress"].Spec.Egress {
 		for _, p := range rule.Ports {
 			if p.Port != nil && p.Port.IntValue() == 9200 && len(rule.To) == 1 && rule.To[0].IPBlock != nil {
 				scraped = true
@@ -102,7 +102,7 @@ func TestTheProberServesItsMetricsOnTheNodeAddressAtTheListenPort(t *testing.T) 
 // prober in, from any address, as the other host-network senders are.
 func TestTheAgentLetsTheHostNetworkProberInFromAnyAddressWhenNoNodeCIDRsAreSet(t *testing.T) {
 	r := render(t, probeArgs("nodeProbe.enabled=true", "nodeProbe.networkPolicy=true", "nodeProbe.hostNetwork=false")...)
-	pol, ok := r.policies["continuum-agent-probe"]
+	pol, ok := r.policies["ikhnos-agent-probe"]
 	if !ok {
 		t.Fatal("no agent policy")
 	}
@@ -114,7 +114,7 @@ func TestTheAgentLetsTheHostNetworkProberInFromAnyAddressWhenNoNodeCIDRsAreSet(t
 					if f.IPBlock != nil && f.IPBlock.CIDR == "0.0.0.0/0" {
 						open = true
 					}
-					if f.PodSelector != nil && f.PodSelector.MatchLabels["app.kubernetes.io/name"] == "continuum-link-prober" {
+					if f.PodSelector != nil && f.PodSelector.MatchLabels["app.kubernetes.io/name"] == "ikhnos-link-prober" {
 						t.Error("the prober is still named by pod selector")
 					}
 				}
@@ -131,8 +131,8 @@ func TestTheAgentLetsTheHostNetworkProberInFromAnyAddressWhenNoNodeCIDRsAreSet(t
 func TestTheProberAndTheResponderRunOnLinuxNodesOnly(t *testing.T) {
 	r := render(t, probeArgs()...)
 	for name, sel := range map[string]map[string]string{
-		"prober":    r.deployments["continuum-link-prober"].Spec.Template.Spec.NodeSelector,
-		"responder": r.daemonsets["continuum-link-responder"].Spec.Template.Spec.NodeSelector,
+		"prober":    r.deployments["ikhnos-link-prober"].Spec.Template.Spec.NodeSelector,
+		"responder": r.daemonsets["ikhnos-link-responder"].Spec.Template.Spec.NodeSelector,
 	} {
 		if sel["kubernetes.io/os"] != "linux" {
 			t.Errorf("%s nodeSelector = %v", name, sel)
@@ -141,8 +141,8 @@ func TestTheProberAndTheResponderRunOnLinuxNodesOnly(t *testing.T) {
 	// A selector of your own is added to it, not instead of it.
 	r = render(t, probeArgs("telemetry.clusterLinks.probe.nodeSelector.zone=edge", "telemetry.clusterLinks.probe.responder.nodeSelector.zone=edge")...)
 	for name, sel := range map[string]map[string]string{
-		"prober":    r.deployments["continuum-link-prober"].Spec.Template.Spec.NodeSelector,
-		"responder": r.daemonsets["continuum-link-responder"].Spec.Template.Spec.NodeSelector,
+		"prober":    r.deployments["ikhnos-link-prober"].Spec.Template.Spec.NodeSelector,
+		"responder": r.daemonsets["ikhnos-link-responder"].Spec.Template.Spec.NodeSelector,
 	} {
 		if sel["kubernetes.io/os"] != "linux" || sel["zone"] != "edge" {
 			t.Errorf("%s nodeSelector = %v", name, sel)
@@ -221,8 +221,8 @@ func TestTheNotesWarnWhenTheResponderIsOpen(t *testing.T) {
 	if err != nil {
 		t.Skip("helm is not installed")
 	}
-	dir := filepath.Join(t.TempDir(), "continuum-agent")
-	copyTree(t, "continuum-agent", dir)
+	dir := filepath.Join(t.TempDir(), "ikhnos-agent")
+	copyTree(t, "ikhnos-agent", dir)
 	text, err := os.ReadFile(filepath.Join(dir, "templates", "NOTES.txt"))
 	if err != nil {
 		t.Fatal(err)

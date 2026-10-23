@@ -3,18 +3,18 @@ package facts
 import (
 	"testing"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 )
 
 // A Snapshot is encoded after the lock that guarded the State is released, so later changes to the
 // State, including a full replacement and deletions, must not show up in it.
 func TestSnapshotIsUnaffectedByLaterChangesToTheState(t *testing.T) {
 	s := New()
-	s.Apply(&continuumv1.Sync{Seq: 1, Full: true, Nodes: []*continuumv1.NodeFacts{node("a"), node("b")}, Workloads: []*continuumv1.WorkloadFacts{wl("w", 8)}})
+	s.Apply(&ikhnosv1.Sync{Seq: 1, Full: true, Nodes: []*ikhnosv1.NodeFacts{node("a"), node("b")}, Workloads: []*ikhnosv1.WorkloadFacts{wl("w", 8)}})
 	snap := s.Snapshot()
 
-	s.Apply(&continuumv1.Sync{Seq: 2, DeletedNodes: []string{"a"}, Nodes: []*continuumv1.NodeFacts{{Key: "b", Name: "renamed"}}})
-	s.Apply(&continuumv1.Sync{Seq: 3, Full: true, Nodes: []*continuumv1.NodeFacts{node("z")}})
+	s.Apply(&ikhnosv1.Sync{Seq: 2, DeletedNodes: []string{"a"}, Nodes: []*ikhnosv1.NodeFacts{{Key: "b", Name: "renamed"}}})
+	s.Apply(&ikhnosv1.Sync{Seq: 3, Full: true, Nodes: []*ikhnosv1.NodeFacts{node("z")}})
 
 	if snap.Seq != 1 || len(snap.Nodes) != 2 || len(snap.Workloads) != 1 {
 		t.Fatalf("snapshot changed with the state: seq %d, %d nodes, %d workloads", snap.Seq, len(snap.Nodes), len(snap.Workloads))

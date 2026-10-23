@@ -236,15 +236,15 @@ func (m *Meter) writeThroughput(w io.Writer, own string, peerIDs []string) {
 			}
 		}
 	}
-	tcp("continuum_link_throughput_bits_per_second", "TCP throughput the latest test achieved in this direction, measured where the data arrived. streams is the number of parallel connections; dscp the class the packets were marked with.", func(v tpVal) (float64, bool) { return v.bits, true })
-	tcp("continuum_link_throughput_bounded", "1 when the latest test came up to its rate cap (set by the user, or by the byte budget), so the link carries at least the throughput reported and the figure is a floor; 0 when the link itself was the limit.", func(v tpVal) (float64, bool) {
+	tcp("ikhnos_link_throughput_bits_per_second", "TCP throughput the latest test achieved in this direction, measured where the data arrived. streams is the number of parallel connections; dscp the class the packets were marked with.", func(v tpVal) (float64, bool) { return v.bits, true })
+	tcp("ikhnos_link_throughput_bounded", "1 when the latest test came up to its rate cap (set by the user, or by the byte budget), so the link carries at least the throughput reported and the figure is a floor; 0 when the link itself was the limit.", func(v tpVal) (float64, bool) {
 		if v.bounded {
 			return 1, true
 		}
 		return 0, true
 	})
-	tcp("continuum_link_throughput_retransmits", "TCP segments the sender had to resend during the latest test: loss that the test itself provoked, at full rate.", func(v tpVal) (float64, bool) { return float64(v.retrans), v.hasRetr })
-	tcp("continuum_link_throughput_rtt_seconds", "Mean TCP round-trip time during the latest test. Compare it with the idle round-trip time: the difference is queueing delay (bufferbloat). Reported for the direction this cluster sends in only.", func(v tpVal) (float64, bool) { return v.rtt, v.hasRTT })
+	tcp("ikhnos_link_throughput_retransmits", "TCP segments the sender had to resend during the latest test: loss that the test itself provoked, at full rate.", func(v tpVal) (float64, bool) { return float64(v.retrans), v.hasRetr })
+	tcp("ikhnos_link_throughput_rtt_seconds", "Mean TCP round-trip time during the latest test. Compare it with the idle round-trip time: the difference is queueing delay (bufferbloat). Reported for the direction this cluster sends in only.", func(v tpVal) (float64, bool) { return v.rtt, v.hasRTT })
 
 	udpKeys := func(s *tpStats) []udpKey {
 		ks := make([]udpKey, 0, len(s.udp))
@@ -290,9 +290,9 @@ func (m *Meter) writeThroughput(w io.Writer, own string, peerIDs []string) {
 			}
 		}
 	}
-	udpPoints("continuum_link_throughput_udp_point_bits_per_second", "The UDP rate of each of the two points of the latest loss ramp that the loss and jitter below are read at: clean is the highest rate within the loss threshold, first_loss the first rate over it (absent if the ramp never exceeded it).", func(st UDPStep) float64 { return float64(st.Rate) })
-	udpPoints("continuum_link_throughput_udp_loss_ratio", "Fraction of UDP datagrams lost at a point of the latest loss ramp: the highest clean rate, and the first rate over the loss threshold.", func(st UDPStep) float64 { return st.Loss })
-	udpPoints("continuum_link_throughput_udp_jitter_seconds", "Receiver jitter at a point of the latest loss ramp: the highest clean rate, and the first rate over the loss threshold.", func(st UDPStep) float64 { return st.Jitter })
+	udpPoints("ikhnos_link_throughput_udp_point_bits_per_second", "The UDP rate of each of the two points of the latest loss ramp that the loss and jitter below are read at: clean is the highest rate within the loss threshold, first_loss the first rate over it (absent if the ramp never exceeded it).", func(st UDPStep) float64 { return float64(st.Rate) })
+	udpPoints("ikhnos_link_throughput_udp_loss_ratio", "Fraction of UDP datagrams lost at a point of the latest loss ramp: the highest clean rate, and the first rate over the loss threshold.", func(st UDPStep) float64 { return st.Loss })
+	udpPoints("ikhnos_link_throughput_udp_jitter_seconds", "Receiver jitter at a point of the latest loss ramp: the highest clean rate, and the first rate over the loss threshold.", func(st UDPStep) float64 { return st.Jitter })
 	udp := func(name, help string, ramp func(udpRamp) (float64, bool)) {
 		head(name, "gauge", help)
 		for _, p := range peerIDs {
@@ -307,9 +307,9 @@ func (m *Meter) writeThroughput(w io.Writer, own string, peerIDs []string) {
 			}
 		}
 	}
-	udp("continuum_link_throughput_udp_clean_bits_per_second", "The highest UDP rate of the latest ramp that stayed within the loss threshold. Absent if even the lowest rate lost more.",
+	udp("ikhnos_link_throughput_udp_clean_bits_per_second", "The highest UDP rate of the latest ramp that stayed within the loss threshold. Absent if even the lowest rate lost more.",
 		func(r udpRamp) (float64, bool) { return float64(r.clean), r.hasClean })
-	udp("continuum_link_throughput_udp_saturated", "1 if a higher rate than the clean one lost more than the threshold, so the clean rate is near what the link carries; 0 if the ramp ended at its top rate without exceeding it, so the link carries at least that.",
+	udp("ikhnos_link_throughput_udp_saturated", "1 if a higher rate than the clean one lost more than the threshold, so the clean rate is near what the link carries; 0 if the ramp ended at its top rate without exceeding it, so the link carries at least that.",
 		func(r udpRamp) (float64, bool) {
 			if r.saturated {
 				return 1, true
@@ -317,7 +317,7 @@ func (m *Meter) writeThroughput(w io.Writer, own string, peerIDs []string) {
 			return 0, true
 		})
 
-	head("continuum_link_throughput_test_bytes_total", "counter", "Bytes the throughput tests have put on the link in this direction: what they cost.")
+	head("ikhnos_link_throughput_test_bytes_total", "counter", "Bytes the throughput tests have put on the link in this direction: what they cost.")
 	for _, p := range peerIDs {
 		s := m.tp[p]
 		for _, d := range directions {
@@ -325,7 +325,7 @@ func (m *Meter) writeThroughput(w io.Writer, own string, peerIDs []string) {
 			if s != nil {
 				v = s.bytes[d]
 			}
-			fmt.Fprintf(w, "continuum_link_throughput_test_bytes_total{%s} %d\n", lbl(p, "direction", string(d)), v)
+			fmt.Fprintf(w, "ikhnos_link_throughput_test_bytes_total{%s} %d\n", lbl(p, "direction", string(d)), v)
 		}
 	}
 	reasons := func(name, help string, known []string, get func(*tpStats) map[string]uint64) {
@@ -341,12 +341,12 @@ func (m *Meter) writeThroughput(w io.Writer, own string, peerIDs []string) {
 			}
 		}
 	}
-	reasons("continuum_link_throughput_test_failures_total", "Throughput tests that could not be run or finished, by reason.", tpFailReasons, func(s *tpStats) map[string]uint64 { return s.failed })
-	reasons("continuum_link_throughput_tests_skipped_total", "Throughput tests held back to be tried later: the link was busy with real traffic, the byte budget was used up, or the peer's server was serving another test.", tpSkipReasons, func(s *tpStats) map[string]uint64 { return s.skipped })
-	head("continuum_link_throughput_last_success_timestamp_seconds", "gauge", "When a throughput test towards or from the peer last finished. Absent until the first time.")
+	reasons("ikhnos_link_throughput_test_failures_total", "Throughput tests that could not be run or finished, by reason.", tpFailReasons, func(s *tpStats) map[string]uint64 { return s.failed })
+	reasons("ikhnos_link_throughput_tests_skipped_total", "Throughput tests held back to be tried later: the link was busy with real traffic, the byte budget was used up, or the peer's server was serving another test.", tpSkipReasons, func(s *tpStats) map[string]uint64 { return s.skipped })
+	head("ikhnos_link_throughput_last_success_timestamp_seconds", "gauge", "When a throughput test towards or from the peer last finished. Absent until the first time.")
 	for _, p := range peerIDs {
 		if s := m.tp[p]; s != nil && !s.lastOK.IsZero() {
-			fmt.Fprintf(w, "continuum_link_throughput_last_success_timestamp_seconds{%s} %d\n", lbl(p), s.lastOK.Unix())
+			fmt.Fprintf(w, "ikhnos_link_throughput_last_success_timestamp_seconds{%s} %d\n", lbl(p), s.lastOK.Unix())
 		}
 	}
 	if m.pairBudget != nil {
@@ -361,22 +361,22 @@ func (m *Meter) writeThroughput(w io.Writer, own string, peerIDs []string) {
 			}
 		}
 		if len(rows) > 0 {
-			head("continuum_link_throughput_pair_budget_used_bytes", "gauge", "Bytes the throughput tests carried towards this peer in the budget window, for a peer with a budget of its own.")
+			head("ikhnos_link_throughput_pair_budget_used_bytes", "gauge", "Bytes the throughput tests carried towards this peer in the budget window, for a peer with a budget of its own.")
 			for _, r := range rows {
-				fmt.Fprintf(w, "continuum_link_throughput_pair_budget_used_bytes{%s} %d\n", lbl(r.peer), r.used)
+				fmt.Fprintf(w, "ikhnos_link_throughput_pair_budget_used_bytes{%s} %d\n", lbl(r.peer), r.used)
 			}
-			head("continuum_link_throughput_pair_budget_bytes", "gauge", "The daily byte budget of the peer's throughput tests.")
+			head("ikhnos_link_throughput_pair_budget_bytes", "gauge", "The daily byte budget of the peer's throughput tests.")
 			for _, r := range rows {
-				fmt.Fprintf(w, "continuum_link_throughput_pair_budget_bytes{%s} %d\n", lbl(r.peer), r.limit)
+				fmt.Fprintf(w, "ikhnos_link_throughput_pair_budget_bytes{%s} %d\n", lbl(r.peer), r.limit)
 			}
 		}
 	}
 	if m.budget != nil {
 		used, limit := m.budget()
 		cl := fmt.Sprintf(`cluster="%s",method="iperf3"`, esc(own))
-		head("continuum_link_throughput_budget_used_bytes", "gauge", "Bytes the throughput tests carried in the budget window, all peers together.")
-		fmt.Fprintf(w, "continuum_link_throughput_budget_used_bytes{%s} %d\n", cl, used)
-		head("continuum_link_throughput_budget_bytes", "gauge", "The byte budget of the throughput tests per window; 0 for none.")
-		fmt.Fprintf(w, "continuum_link_throughput_budget_bytes{%s} %d\n", cl, limit)
+		head("ikhnos_link_throughput_budget_used_bytes", "gauge", "Bytes the throughput tests carried in the budget window, all peers together.")
+		fmt.Fprintf(w, "ikhnos_link_throughput_budget_used_bytes{%s} %d\n", cl, used)
+		head("ikhnos_link_throughput_budget_bytes", "gauge", "The byte budget of the throughput tests per window; 0 for none.")
+		fmt.Fprintf(w, "ikhnos_link_throughput_budget_bytes{%s} %d\n", cl, limit)
 	}
 }

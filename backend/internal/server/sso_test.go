@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/store"
+	"ikhnos/internal/store"
 )
 
 // ssoRig is an adminRig with trusted-header SSO turned on, header named X-Remote-User.

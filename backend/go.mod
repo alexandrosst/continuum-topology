@@ -1,4 +1,4 @@
-module continuum
+module ikhnos
 
 go 1.26.0
 

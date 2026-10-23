@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 )
 
 // sysClassNet is where every physical and virtual network interface's sysfs directory lives - a plain
@@ -27,7 +27,7 @@ var sysClassNet = "/sys/class/net"
 // staleness). Flows with no resolved interface (RawFlow.iface empty - the kernel had not routed the
 // socket yet, or it raced into TCP_CLOSE first) contribute nothing: there is no interface to attribute
 // them to. Returns nil when there was nothing to report (no window, or no flow carried an interface).
-func rollupSaturation(flows []*continuumv1.RawFlow, window time.Duration) []*continuumv1.LinkSaturation {
+func rollupSaturation(flows []*ikhnosv1.RawFlow, window time.Duration) []*ikhnosv1.LinkSaturation {
 	if window <= 0 {
 		return nil
 	}
@@ -47,10 +47,10 @@ func rollupSaturation(flows []*continuumv1.RawFlow, window time.Duration) []*con
 	}
 	sort.Strings(names) // deterministic order: tests, and diffing one report against the next, both benefit
 
-	out := make([]*continuumv1.LinkSaturation, 0, len(names))
+	out := make([]*ikhnosv1.LinkSaturation, 0, len(names))
 	for _, name := range names {
 		bps := uint64(float64(totals[name]) * 8 / window.Seconds())
-		ls := &continuumv1.LinkSaturation{Iface: name, ThroughputBps: bps}
+		ls := &ikhnosv1.LinkSaturation{Iface: name, ThroughputBps: bps}
 		if mbps, ok := readIfaceSpeedMbps(name); ok {
 			capacityBps := mbps * 1_000_000
 			pct := float64(bps) / capacityBps * 100

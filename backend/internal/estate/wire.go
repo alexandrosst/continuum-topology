@@ -1,11 +1,11 @@
 package estate
 
 import (
-	"continuum/internal/agents"
-	"continuum/internal/model"
-	"continuum/internal/twin"
-	"continuum/internal/wire"
-	"continuum/internal/workspace"
+	"ikhnos/internal/agents"
+	"ikhnos/internal/model"
+	"ikhnos/internal/twin"
+	"ikhnos/internal/wire"
+	"ikhnos/internal/workspace"
 )
 
 // WireTypes are the shapes this package puts on the wire (or reads from it), for the TypeScript the server writes of them

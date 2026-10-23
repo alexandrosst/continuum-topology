@@ -4,7 +4,7 @@ import (
 	"runtime"
 	"time"
 
-	"continuum/internal/agents"
+	"ikhnos/internal/agents"
 )
 
 // SelfStatsFor returns a copy of one agent's self-telemetry history (see view.self/SelfStatsSample),

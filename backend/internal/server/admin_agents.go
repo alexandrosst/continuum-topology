@@ -1,8 +1,8 @@
 package server
 
 import (
-	"continuum/internal/estate"
-	"continuum/internal/kernel"
+	"ikhnos/internal/estate"
+	"ikhnos/internal/kernel"
 )
 
 // upgradeCommand is the command that changes the ceiling of an agent's install to a tier (estate.UpgradeCommand), for the namespace and

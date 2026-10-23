@@ -3,7 +3,7 @@ package server
 import (
 	"net/http"
 
-	"continuum/internal/httpkit"
+	"ikhnos/internal/httpkit"
 )
 
 // Every route under /api is mounted through Admin.handle, which records what the route asks of the caller. That record is

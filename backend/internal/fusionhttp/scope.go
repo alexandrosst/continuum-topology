@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"time"
 
-	"continuum/internal/fusionapi"
+	"ikhnos/internal/fusionapi"
 )
 
 // Range is the time range the request asks for: from and to, in the forms fusionapi.ParseRange reads.

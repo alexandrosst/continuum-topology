@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
-	"continuum/internal/kernel"
-	"continuum/internal/store"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/store"
 )
 
 // maxTelemetryIntentName mirrors maxOperatorName - both name the thing a person has to recognise later
@@ -200,7 +200,7 @@ func cleanTelemetryScope(namespaces, exclude []string, signals []store.SignalGra
 }
 
 // CreateTelemetryIntent grants one agent's local operator (the telemetry extractors bundled in its own
-// continuum-agent install) a scope to collect and where to export it. At most one active intent may
+// ikhnos-agent install) a scope to collect and where to export it. At most one active intent may
 // exist per agent at a time: a second one is refused with KindConflict rather than layering on top of the
 // first, since the resulting pair would otherwise have to be merged by whoever reads them later - the
 // caller updates the existing intent's scope/destination instead.

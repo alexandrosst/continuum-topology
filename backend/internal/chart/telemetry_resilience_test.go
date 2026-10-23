@@ -24,9 +24,9 @@ func TestAgentFullQueuePushesBackAndRequestsAreCutByBytes(t *testing.T) {
 			t.Errorf("%s %s sending_queue.batch = %v, want bytes, min 1, max 3 MiB", cm, name, b)
 		}
 	}
-	check("continuum-telemetry-host-config", "otlp")
-	check("continuum-telemetry-host-config", "otlphttp/logs")
-	check("continuum-telemetry-cluster-config", "otlp")
+	check("ikhnos-telemetry-host-config", "otlp")
+	check("ikhnos-telemetry-host-config", "otlphttp/logs")
+	check("ikhnos-telemetry-cluster-config", "otlp")
 
 	cfg := hostConfig(t, withTel("--set", "telemetry.resourceUsage.metrics.enabled=true", "--set", "telemetry.export.queue.maxRequestBytes=1048576")...)
 	if got := sub(t, cfg, "exporters", "otlp", "sending_queue", "batch")["max_size"]; got != float64(1048576) {

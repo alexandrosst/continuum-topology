@@ -14,16 +14,16 @@ func probeArgs(extra ...string) []string {
 
 func TestTheLinkProbeIsOffByDefaultAndRendersNothing(t *testing.T) {
 	r := render(t, clusterLinksArgs()...)
-	for _, n := range []string{"continuum-link-prober"} {
+	for _, n := range []string{"ikhnos-link-prober"} {
 		if _, ok := r.deployments[n]; ok {
 			t.Errorf("%s rendered while the probe is off", n)
 		}
 	}
-	if _, ok := r.daemonsets["continuum-link-responder"]; ok {
+	if _, ok := r.daemonsets["ikhnos-link-responder"]; ok {
 		t.Error("the responder rendered while the probe is off")
 	}
-	for _, e := range r.deployments["continuum-agent"].Spec.Template.Spec.Containers[0].Env {
-		if e.Name == "CONTINUUM_LINK_SERVE_PEERS" {
+	for _, e := range r.deployments["ikhnos-agent"].Spec.Template.Spec.Containers[0].Env {
+		if e.Name == "IKHNOS_LINK_SERVE_PEERS" {
 			t.Error("the agent serves peers while the probe is off")
 		}
 	}
@@ -39,7 +39,7 @@ func TestTheLinkProbeNeedsTheLinkMetrics(t *testing.T) {
 func TestTheProberAndResponderAreSeparateLeastPrivilegeWorkloads(t *testing.T) {
 	r := render(t, probeArgs()...)
 
-	prober, ok := r.deployments["continuum-link-prober"]
+	prober, ok := r.deployments["ikhnos-link-prober"]
 	if !ok {
 		t.Fatal("no prober")
 	}
@@ -69,16 +69,16 @@ func TestTheProberAndResponderAreSeparateLeastPrivilegeWorkloads(t *testing.T) {
 	for _, e := range c.Env {
 		env[e.Name] = e.Value
 	}
-	if !strings.HasPrefix(env["CONTINUUM_LINK_AGENT_URL"], "http://continuum-agent-link-metrics.") || !strings.HasSuffix(env["CONTINUUM_LINK_AGENT_URL"], ".svc:9104") {
-		t.Errorf("agent url = %q", env["CONTINUUM_LINK_AGENT_URL"])
+	if !strings.HasPrefix(env["IKHNOS_LINK_AGENT_URL"], "http://ikhnos-agent-link-metrics.") || !strings.HasSuffix(env["IKHNOS_LINK_AGENT_URL"], ".svc:9104") {
+		t.Errorf("agent url = %q", env["IKHNOS_LINK_AGENT_URL"])
 	}
-	for k, want := range map[string]string{"CONTINUUM_LINK_PACKETS": "100", "CONTINUUM_LINK_SPACING": "100ms", "CONTINUUM_LINK_INTERVAL": "1m", "CONTINUUM_LINK_RESPONDER_PORT": "8861"} {
+	for k, want := range map[string]string{"IKHNOS_LINK_PACKETS": "100", "IKHNOS_LINK_SPACING": "100ms", "IKHNOS_LINK_INTERVAL": "1m", "IKHNOS_LINK_RESPONDER_PORT": "8861"} {
 		if env[k] != want {
 			t.Errorf("%s = %q, want %q", k, env[k], want)
 		}
 	}
 
-	resp, ok := r.daemonsets["continuum-link-responder"]
+	resp, ok := r.daemonsets["ikhnos-link-responder"]
 	if !ok {
 		t.Fatal("no responder")
 	}
@@ -107,20 +107,20 @@ func TestTheProberAndResponderAreSeparateLeastPrivilegeWorkloads(t *testing.T) {
 	}
 	// the agent serves the peer list to the prober
 	env = map[string]string{}
-	for _, e := range r.deployments["continuum-agent"].Spec.Template.Spec.Containers[0].Env {
+	for _, e := range r.deployments["ikhnos-agent"].Spec.Template.Spec.Containers[0].Env {
 		env[e.Name] = e.Value
 	}
-	if env["CONTINUUM_LINK_SERVE_PEERS"] != "true" {
+	if env["IKHNOS_LINK_SERVE_PEERS"] != "true" {
 		t.Error("the agent does not answer the prober")
 	}
 }
 
 func TestTheResponderIsOpenOrLimitedToTheNetworksYouName(t *testing.T) {
-	open := render(t, probeArgs()...).configmaps["continuum-link-responder"].Data["owamp-server.limits"]
+	open := render(t, probeArgs()...).configmaps["ikhnos-link-responder"].Data["owamp-server.limits"]
 	if !strings.Contains(open, "assign default regular") || strings.Contains(open, "refused") {
 		t.Errorf("default limits:\n%s", open)
 	}
-	limited := render(t, probeArgs("telemetry.clusterLinks.probe.responder.allowFrom[0]=203.0.113.0/24", "telemetry.clusterLinks.probe.responder.allowFrom[1]=198.51.100.7/32")...).configmaps["continuum-link-responder"].Data["owamp-server.limits"]
+	limited := render(t, probeArgs("telemetry.clusterLinks.probe.responder.allowFrom[0]=203.0.113.0/24", "telemetry.clusterLinks.probe.responder.allowFrom[1]=198.51.100.7/32")...).configmaps["ikhnos-link-responder"].Data["owamp-server.limits"]
 	for _, want := range []string{"assign default refused", "assign net 203.0.113.0/24 regular", "assign net 198.51.100.7/32 regular"} {
 		if !strings.Contains(limited, want) {
 			t.Errorf("missing %q in:\n%s", want, limited)
@@ -157,12 +157,12 @@ func TestTheProbeSettingsAreChecked(t *testing.T) {
 
 func TestTheProbeImageHonoursTheGlobalRegistryAndADigest(t *testing.T) {
 	r := render(t, probeArgs("global.imageRegistry=registry.corp/mirror")...)
-	if got := r.deployments["continuum-link-prober"].Spec.Template.Spec.Containers[0].Image; !strings.HasPrefix(got, "registry.corp/mirror/") {
+	if got := r.deployments["ikhnos-link-prober"].Spec.Template.Spec.Containers[0].Image; !strings.HasPrefix(got, "registry.corp/mirror/") {
 		t.Errorf("image = %q", got)
 	}
 	digest := "sha256:" + strings.Repeat("a", 64)
 	r = render(t, probeArgs("telemetry.clusterLinks.probe.image.digest="+digest)...)
-	if got := r.daemonsets["continuum-link-responder"].Spec.Template.Spec.Containers[0].Image; !strings.HasSuffix(got, "@"+digest) {
+	if got := r.daemonsets["ikhnos-link-responder"].Spec.Template.Spec.Containers[0].Image; !strings.HasSuffix(got, "@"+digest) {
 		t.Errorf("image = %q", got)
 	}
 }
@@ -177,7 +177,7 @@ func TestTheProbeIsScrapedAndPermittedThroughTheNetworkPolicies(t *testing.T) {
 	// collector scrapes the prober by node address and the port the prober listens on.
 	from := map[string]bool{}
 	cidrs := map[string]bool{}
-	for _, rule := range r.policies["continuum-agent-probe"].Spec.Ingress {
+	for _, rule := range r.policies["ikhnos-agent-probe"].Spec.Ingress {
 		for _, p := range rule.Ports {
 			if p.Port != nil && p.Port.IntValue() == 9104 {
 				for _, f := range rule.From {
@@ -191,14 +191,14 @@ func TestTheProbeIsScrapedAndPermittedThroughTheNetworkPolicies(t *testing.T) {
 			}
 		}
 	}
-	if !from["continuum-telemetry-cluster"] || from["continuum-link-prober"] || len(from) != 1 {
+	if !from["ikhnos-telemetry-cluster"] || from["ikhnos-link-prober"] || len(from) != 1 {
 		t.Errorf("port 9104 is open by pod selector to %v, want the cluster collector only (the prober has no pod identity)", from)
 	}
 	if !cidrs["10.0.0.0/8"] || len(cidrs) != 1 {
 		t.Errorf("port 9104 is open by address to %v, want flowObserver.nodeCIDRs for the prober", cidrs)
 	}
 	scraped := false
-	for _, rule := range r.policies["continuum-telemetry-scrape-egress"].Spec.Egress {
+	for _, rule := range r.policies["ikhnos-telemetry-scrape-egress"].Spec.Egress {
 		for _, p := range rule.Ports {
 			if p.Port != nil && p.Port.IntValue() == 9105 && len(rule.To) == 1 && rule.To[0].PodSelector == nil && rule.To[0].IPBlock != nil && rule.To[0].IPBlock.CIDR == "10.0.0.0/8" {
 				scraped = true
@@ -213,10 +213,10 @@ func TestTheProbeIsScrapedAndPermittedThroughTheNetworkPolicies(t *testing.T) {
 	var cfg map[string]any
 	for _, d := range renderDocs(t, args...) {
 		switch {
-		case d.kind() == "Service" && d.name() == "continuum-link-prober":
+		case d.kind() == "Service" && d.name() == "ikhnos-link-prober":
 			svc = &corev1.Service{}
 			decodeInto(t, d, svc)
-		case d.kind() == "ConfigMap" && d.name() == "continuum-telemetry-cluster-config":
+		case d.kind() == "ConfigMap" && d.name() == "ikhnos-telemetry-cluster-config":
 			cfg = otelConfig(t, map[string]string{"otel-collector-config.yaml": d["data"].(map[string]any)["otel-collector-config.yaml"].(string)})
 		}
 	}
@@ -229,7 +229,7 @@ func TestTheProbeIsScrapedAndPermittedThroughTheNetworkPolicies(t *testing.T) {
 		if j.(map[string]any)["job_name"] == "cluster-links-probe" {
 			found = true
 			target := j.(map[string]any)["static_configs"].([]any)[0].(map[string]any)["targets"].([]any)[0].(string)
-			if !strings.HasPrefix(target, "continuum-link-prober.") || !strings.HasSuffix(target, ".svc:9105") {
+			if !strings.HasPrefix(target, "ikhnos-link-prober.") || !strings.HasSuffix(target, ".svc:9105") {
 				t.Errorf("target = %q", target)
 			}
 		}
@@ -249,18 +249,18 @@ func TestThePreflightNamesTheResponderWhereHostAccessIsRefused(t *testing.T) {
 func TestTheRouteTraceIntervalReachesTheProberAndCanBeSwitchedOff(t *testing.T) {
 	env := func(args ...string) map[string]string {
 		out := map[string]string{}
-		for _, e := range render(t, probeArgs(args...)...).deployments["continuum-link-prober"].Spec.Template.Spec.Containers[0].Env {
+		for _, e := range render(t, probeArgs(args...)...).deployments["ikhnos-link-prober"].Spec.Template.Spec.Containers[0].Env {
 			out[e.Name] = e.Value
 		}
 		return out
 	}
-	if got := env()["CONTINUUM_LINK_PATH_INTERVAL"]; got != "10m" {
+	if got := env()["IKHNOS_LINK_PATH_INTERVAL"]; got != "10m" {
 		t.Errorf("default = %q", got)
 	}
-	if got := env("telemetry.clusterLinks.probe.pathInterval=30m")["CONTINUUM_LINK_PATH_INTERVAL"]; got != "30m" {
+	if got := env("telemetry.clusterLinks.probe.pathInterval=30m")["IKHNOS_LINK_PATH_INTERVAL"]; got != "30m" {
 		t.Errorf("set = %q", got)
 	}
-	if got := env("telemetry.clusterLinks.probe.pathInterval=0")["CONTINUUM_LINK_PATH_INTERVAL"]; got != "0" {
+	if got := env("telemetry.clusterLinks.probe.pathInterval=0")["IKHNOS_LINK_PATH_INTERVAL"]; got != "0" {
 		t.Errorf("off = %q", got)
 	}
 }
@@ -268,19 +268,19 @@ func TestTheRouteTraceIntervalReachesTheProberAndCanBeSwitchedOff(t *testing.T) 
 func TestTheConnectTimingIsOnByDefaultAndTheSettingsReachTheProber(t *testing.T) {
 	env := func(args ...string) map[string]string {
 		out := map[string]string{}
-		for _, e := range render(t, probeArgs(args...)...).deployments["continuum-link-prober"].Spec.Template.Spec.Containers[0].Env {
+		for _, e := range render(t, probeArgs(args...)...).deployments["ikhnos-link-prober"].Spec.Template.Spec.Containers[0].Env {
 			out[e.Name] = e.Value
 		}
 		return out
 	}
 	e := env()
-	if e["CONTINUUM_LINK_TCP_INTERVAL"] != "15s" || e["CONTINUUM_LINK_TCP_TIMEOUT"] != "3s" {
+	if e["IKHNOS_LINK_TCP_INTERVAL"] != "15s" || e["IKHNOS_LINK_TCP_TIMEOUT"] != "3s" {
 		t.Errorf("defaults: %v", e)
 	}
-	if got := env("telemetry.clusterLinks.probe.tcpConnect.interval=0")["CONTINUUM_LINK_TCP_INTERVAL"]; got != "0" {
+	if got := env("telemetry.clusterLinks.probe.tcpConnect.interval=0")["IKHNOS_LINK_TCP_INTERVAL"]; got != "0" {
 		t.Errorf("off = %q", got)
 	}
-	if got := env("telemetry.clusterLinks.probe.tcpConnect.interval=1m")["CONTINUUM_LINK_TCP_INTERVAL"]; got != "1m" {
+	if got := env("telemetry.clusterLinks.probe.tcpConnect.interval=1m")["IKHNOS_LINK_TCP_INTERVAL"]; got != "1m" {
 		t.Errorf("set = %q", got)
 	}
 	if _, err := helmTemplate(t, probeArgs("telemetry.clusterLinks.probe.tcpConnect.interval=often")...); err == nil {
@@ -294,7 +294,7 @@ func TestThePingBaselineIsGone(t *testing.T) {
 	if out, err := helmTemplate(t, probeArgs("telemetry.clusterLinks.probe.icmp.enabled=true")...); err == nil {
 		t.Errorf("icmp values accepted\n%s", out)
 	}
-	if len(render(t, probeArgs()...).deployments["continuum-link-prober"].Spec.Template.Spec.SecurityContext.Sysctls) != 0 {
+	if len(render(t, probeArgs()...).deployments["ikhnos-link-prober"].Spec.Template.Spec.SecurityContext.Sysctls) != 0 {
 		t.Error("the prober pod sets a sysctl")
 	}
 }
@@ -304,19 +304,19 @@ func TestThePingBaselineIsGone(t *testing.T) {
 func TestTheAgentIsToldTheProbersPorts(t *testing.T) {
 	agentEnv := func(r rendered) map[string]string {
 		env := map[string]string{}
-		for _, e := range r.deployments["continuum-agent"].Spec.Template.Spec.Containers[0].Env {
+		for _, e := range r.deployments["ikhnos-agent"].Spec.Template.Spec.Containers[0].Env {
 			env[e.Name] = e.Value
 		}
 		return env
 	}
-	if got := agentEnv(render(t, probeArgs()...))["CONTINUUM_LINK_PROBER_PORTS"]; got != "8861,18900-18919" {
+	if got := agentEnv(render(t, probeArgs()...))["IKHNOS_LINK_PROBER_PORTS"]; got != "8861,18900-18919" {
 		t.Errorf("probe on: ports = %q", got)
 	}
 	r := render(t, capArgs("telemetry.clusterLinks.probe.responder.port=9100", "telemetry.clusterLinks.probe.responder.testPorts=20000-20009", "telemetry.clusterLinks.probe.capacity.port=9000")...)
-	if got := agentEnv(r)["CONTINUUM_LINK_PROBER_PORTS"]; got != "9100,20000-20009,9000" {
+	if got := agentEnv(r)["IKHNOS_LINK_PROBER_PORTS"]; got != "9100,20000-20009,9000" {
 		t.Errorf("throughput tests on: ports = %q", got)
 	}
-	if _, ok := agentEnv(render(t, clusterLinksArgs()...))["CONTINUUM_LINK_PROBER_PORTS"]; ok {
+	if _, ok := agentEnv(render(t, clusterLinksArgs()...))["IKHNOS_LINK_PROBER_PORTS"]; ok {
 		t.Error("the agent is told the prober's ports with the probe off")
 	}
 }
@@ -333,42 +333,42 @@ func TestTheProberMountsItsOwnSecretAndNotTheFlowSecret(t *testing.T) {
 		}
 		return secrets
 	}
-	ps := r.deployments["continuum-link-prober"].Spec.Template.Spec
-	if got := mounted(ps); len(got) != 1 || got[0] != "continuum-agent-link-peers" {
-		t.Errorf("the prober mounts secrets %v, want only continuum-agent-link-peers", got)
+	ps := r.deployments["ikhnos-link-prober"].Spec.Template.Spec
+	if got := mounted(ps); len(got) != 1 || got[0] != "ikhnos-agent-link-peers" {
+		t.Errorf("the prober mounts secrets %v, want only ikhnos-agent-link-peers", got)
 	}
 	for _, v := range ps.Volumes {
-		if v.Secret != nil && v.Secret.SecretName == "continuum-agent-flows" {
+		if v.Secret != nil && v.Secret.SecretName == "ikhnos-agent-flows" {
 			t.Errorf("the prober mounts the flow secret: %+v", v)
 		}
 	}
 	for _, c := range ps.Containers {
 		for _, e := range c.Env {
-			if e.Name == "CONTINUUM_FLOW_SECRET_FILE" || (e.ValueFrom != nil && e.ValueFrom.SecretKeyRef != nil && e.ValueFrom.SecretKeyRef.Name == "continuum-agent-flows") {
+			if e.Name == "IKHNOS_FLOW_SECRET_FILE" || (e.ValueFrom != nil && e.ValueFrom.SecretKeyRef != nil && e.ValueFrom.SecretKeyRef.Name == "ikhnos-agent-flows") {
 				t.Errorf("the prober is handed the flow secret: %+v", e)
 			}
-			if e.Name == "CONTINUUM_LINK_PEERS_SECRET_FILE" && e.Value != "/secret/secret" {
+			if e.Name == "IKHNOS_LINK_PEERS_SECRET_FILE" && e.Value != "/secret/secret" {
 				t.Errorf("peers secret file = %q", e.Value)
 			}
 		}
 	}
-	if _, ok := r.deployments["continuum-link-prober"].Spec.Template.Annotations["checksum/flow-secret"]; ok {
+	if _, ok := r.deployments["ikhnos-link-prober"].Spec.Template.Annotations["checksum/flow-secret"]; ok {
 		t.Error("the prober pod rolls on the flow secret, which it does not read")
 	}
-	if r.deployments["continuum-link-prober"].Spec.Template.Annotations["checksum/link-peers-secret"] == "" {
+	if r.deployments["ikhnos-link-prober"].Spec.Template.Annotations["checksum/link-peers-secret"] == "" {
 		t.Error("the prober does not roll when its secret is replaced")
 	}
 
 	// the agent verifies with that secret, still reads the flow secret for the collectors, and the Secret is the chart's own
-	ag := r.deployments["continuum-agent"].Spec.Template
+	ag := r.deployments["ikhnos-agent"].Spec.Template
 	env := map[string]string{}
 	for _, e := range ag.Spec.Containers[0].Env {
 		env[e.Name] = e.Value
 	}
-	if env["CONTINUUM_LINK_PEERS_SECRET_FILE"] != "/link-peers/secret" || env["CONTINUUM_FLOW_SECRET_FILE"] != "/flows/secret" {
-		t.Errorf("agent env: peers %q, flow %q", env["CONTINUUM_LINK_PEERS_SECRET_FILE"], env["CONTINUUM_FLOW_SECRET_FILE"])
+	if env["IKHNOS_LINK_PEERS_SECRET_FILE"] != "/link-peers/secret" || env["IKHNOS_FLOW_SECRET_FILE"] != "/flows/secret" {
+		t.Errorf("agent env: peers %q, flow %q", env["IKHNOS_LINK_PEERS_SECRET_FILE"], env["IKHNOS_FLOW_SECRET_FILE"])
 	}
-	if got := mounted(ag.Spec); len(got) != 2 || got[0] != "continuum-agent-flows" || got[1] != "continuum-agent-link-peers" {
+	if got := mounted(ag.Spec); len(got) != 2 || got[0] != "ikhnos-agent-flows" || got[1] != "ikhnos-agent-link-peers" {
 		t.Errorf("the agent mounts secrets %v", got)
 	}
 	mounts := map[string]string{}
@@ -381,18 +381,18 @@ func TestTheProberMountsItsOwnSecretAndNotTheFlowSecret(t *testing.T) {
 	if ag.Annotations["checksum/link-peers-secret"] == "" {
 		t.Error("the agent does not roll when the peers secret is replaced")
 	}
-	peers, flows := r.secrets["continuum-agent-link-peers"], r.secrets["continuum-agent-flows"]
+	peers, flows := r.secrets["ikhnos-agent-link-peers"], r.secrets["ikhnos-agent-flows"]
 	if len(peers.StringData["secret"]) < 32 || peers.StringData["secret"] == flows.StringData["secret"] {
 		t.Errorf("peers secret %q, flow secret %q: the first must be generated and different", peers.StringData["secret"], flows.StringData["secret"])
 	}
 
 	// with the probe off there is no such Secret, no mount and no variable
 	off := render(t, clusterLinksArgs()...)
-	if _, ok := off.secrets["continuum-agent-link-peers"]; ok {
+	if _, ok := off.secrets["ikhnos-agent-link-peers"]; ok {
 		t.Error("the peers secret exists with the probe off")
 	}
-	offAgent := off.deployments["continuum-agent"].Spec.Template
-	if got := mounted(offAgent.Spec); len(got) != 1 || got[0] != "continuum-agent-flows" {
+	offAgent := off.deployments["ikhnos-agent"].Spec.Template
+	if got := mounted(offAgent.Spec); len(got) != 1 || got[0] != "ikhnos-agent-flows" {
 		t.Errorf("probe off: the agent mounts %v", got)
 	}
 	if offAgent.Annotations["checksum/link-peers-secret"] != "" {
@@ -402,17 +402,17 @@ func TestTheProberMountsItsOwnSecretAndNotTheFlowSecret(t *testing.T) {
 
 func TestThePeersSecretIsGivenKeptOnUpgradeAndNeverTheFlowSecret(t *testing.T) {
 	r := render(t, probeArgs("telemetry.clusterLinks.probe.peersSecret=an-operator-chosen-peers-secret-1234")...)
-	if got := r.secrets["continuum-agent-link-peers"].StringData["secret"]; got != "an-operator-chosen-peers-secret-1234" {
+	if got := r.secrets["ikhnos-agent-link-peers"].StringData["secret"]; got != "an-operator-chosen-peers-secret-1234" {
 		t.Errorf("secret = %q", got)
 	}
 	a := render(t, probeArgs("telemetry.clusterLinks.probe.peersSecret=one-secret-of-sixteen-plus")...)
 	b := render(t, probeArgs("telemetry.clusterLinks.probe.peersSecret=two-secret-of-sixteen-plus")...)
-	if a.deployments["continuum-agent"].Spec.Template.Annotations["checksum/link-peers-secret"] == b.deployments["continuum-agent"].Spec.Template.Annotations["checksum/link-peers-secret"] ||
-		a.deployments["continuum-link-prober"].Spec.Template.Annotations["checksum/link-peers-secret"] == b.deployments["continuum-link-prober"].Spec.Template.Annotations["checksum/link-peers-secret"] {
+	if a.deployments["ikhnos-agent"].Spec.Template.Annotations["checksum/link-peers-secret"] == b.deployments["ikhnos-agent"].Spec.Template.Annotations["checksum/link-peers-secret"] ||
+		a.deployments["ikhnos-link-prober"].Spec.Template.Annotations["checksum/link-peers-secret"] == b.deployments["ikhnos-link-prober"].Spec.Template.Annotations["checksum/link-peers-secret"] {
 		t.Error("a new peers secret does not roll the agent and the prober")
 	}
-	x := render(t, probeArgs()...).deployments["continuum-agent"].Spec.Template.Annotations["checksum/link-peers-secret"]
-	y := render(t, probeArgs()...).deployments["continuum-agent"].Spec.Template.Annotations["checksum/link-peers-secret"]
+	x := render(t, probeArgs()...).deployments["ikhnos-agent"].Spec.Template.Annotations["checksum/link-peers-secret"]
+	y := render(t, probeArgs()...).deployments["ikhnos-agent"].Spec.Template.Annotations["checksum/link-peers-secret"]
 	if x != y {
 		t.Error("a generated peers secret changes the checksum on every render, so every upgrade would roll the pods")
 	}
@@ -424,7 +424,7 @@ func TestThePeersSecretIsGivenKeptOnUpgradeAndNeverTheFlowSecret(t *testing.T) {
 
 	// an upgrade keeps the generated value that is already in the cluster
 	k, kc := startFakeKubernetes(t)
-	k.set("continuum-agent-link-peers", map[string]string{"secret": "kept-from-the-first-install-0123456789"})
+	k.set("ikhnos-agent-link-peers", map[string]string{"secret": "kept-from-the-first-install-0123456789"})
 	args := append(append([]string{}, baseSet...), probeArgs()...)
 	if out := helmTemplateInCluster(t, Agent, kc, args...); !strings.Contains(out, "kept-from-the-first-install-0123456789") {
 		t.Errorf("the existing peers secret was not kept:\n%s", out)

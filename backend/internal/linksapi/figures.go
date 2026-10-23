@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"continuum/internal/connectivity"
-	"continuum/internal/fusionapi"
-	"continuum/internal/kernel"
+	"ikhnos/internal/connectivity"
+	"ikhnos/internal/fusionapi"
+	"ikhnos/internal/kernel"
 )
 
 // The latest figures of each watched pair, for the Sites screen. The pairs come from the organisation's settings; the numbers

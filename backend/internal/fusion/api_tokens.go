@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"time"
 
-	"continuum/internal/httpkit"
-	"continuum/internal/kernel"
+	"ikhnos/internal/httpkit"
+	"ikhnos/internal/kernel"
 )
 
 // The token routes: administrators of the organisation FUSION belongs to, and no other.

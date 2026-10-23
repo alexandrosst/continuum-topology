@@ -2,19 +2,19 @@ package server
 
 import (
 	"context"
-	"continuum/internal/store"
-	"continuum/internal/testkit"
 	"encoding/json"
+	"ikhnos/internal/store"
+	"ikhnos/internal/testkit"
 	"strings"
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/accounts"
-	"continuum/internal/decisionloop"
-	"continuum/internal/estate"
-	"continuum/internal/facts"
-	"continuum/internal/twin"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/decisionloop"
+	"ikhnos/internal/estate"
+	"ikhnos/internal/facts"
+	"ikhnos/internal/twin"
 )
 
 func TestSameNamesInTwoClustersAndTwoOrganisationsNeverCollide(t *testing.T) {
@@ -29,8 +29,8 @@ func TestSameNamesInTwoClustersAndTwoOrganisationsNeverCollide(t *testing.T) {
 	a2 := twinAgent(t, a.env, t1.Hub, fpB)
 	e2 := &env{base: a.base, core: t2.C, st: a.st, now: a.now, ctx: a.ctx}
 	b1 := twinAgent(t, e2, t2.Hub, fpC)
-	same := func(c string) *continuumv1.Sync {
-		return testkit.TwinFull(c, []*continuumv1.NodeFacts{testkit.TwinNode("node-1", "")}, testkit.TwinWorkload("shop", "cart"), testkit.TwinWorkload("shop", "pay"))
+	same := func(c string) *ikhnosv1.Sync {
+		return testkit.TwinFull(c, []*ikhnosv1.NodeFacts{testkit.TwinNode("node-1", "")}, testkit.TwinWorkload("shop", "cart"), testkit.TwinWorkload("shop", "pay"))
 	}
 	t1.Hub.ApplySync(a1, same(testkit.FP), false)
 	t1.Hub.ApplySync(a2, same(fpB), false)
@@ -88,11 +88,11 @@ func TestModelAPIContractETagAndTenancy(t *testing.T) {
 	bobCookie, bobOrg := a.register(t, "bob", "Bob Works")
 	h := a.hub()
 	ag := twinAgent(t, a.env, h, testkit.FP)
-	h.ApplySync(ag, testkit.TwinFull(testkit.FP, []*continuumv1.NodeFacts{testkit.TwinNode("n1", "")}, testkit.TwinWorkload("shop", "cart")), false)
+	h.ApplySync(ag, testkit.TwinFull(testkit.FP, []*ikhnosv1.NodeFacts{testkit.TwinNode("n1", "")}, testkit.TwinWorkload("shop", "cart")), false)
 	t2, _ := a.a.P.Tenant(a.ctx, bobOrg)
 	e2 := &env{base: a.base, core: t2.C, st: a.st, now: a.now, ctx: a.ctx}
 	bag := twinAgent(t, e2, t2.Hub, "cccccccc-bbbb-4ccc-8ddd-eeeeeeeeeeee")
-	t2.Hub.ApplySync(bag, testkit.TwinFull("cccccccc-bbbb-4ccc-8ddd-eeeeeeeeeeee", []*continuumv1.NodeFacts{testkit.TwinNode("bob-node", "")}, testkit.TwinWorkload("bobs", "secret")), false)
+	t2.Hub.ApplySync(bag, testkit.TwinFull("cccccccc-bbbb-4ccc-8ddd-eeeeeeeeeeee", []*ikhnosv1.NodeFacts{testkit.TwinNode("bob-node", "")}, testkit.TwinWorkload("bobs", "secret")), false)
 
 	r := a.do("GET", "/api/v1/model", nil)
 	if r.Code != 401 {
@@ -146,7 +146,7 @@ func TestModelAPIContractETagAndTenancy(t *testing.T) {
 		t.Fatalf("the clock alone changed the model: %d", r.Code)
 	}
 	// A real change moves the version forward, monotonically, and the tag with it.
-	h.ApplySync(ag, testkit.TwinFull(testkit.FP, []*continuumv1.NodeFacts{testkit.TwinNode("n1", "")}, testkit.TwinWorkload("shop", "cart"), testkit.TwinWorkload("shop", "pay")), true)
+	h.ApplySync(ag, testkit.TwinFull(testkit.FP, []*ikhnosv1.NodeFacts{testkit.TwinNode("n1", "")}, testkit.TwinWorkload("shop", "cart"), testkit.TwinWorkload("shop", "pay")), true)
 	*a.now = a.now.Add(3 * time.Second) // past the short cache
 	r = a.do("GET", "/api/v1/model", nil, withCookie(ownerCookie), withHeader("If-None-Match", etag))
 	if r.Code != 200 {
@@ -181,7 +181,7 @@ func TestModelCacheHitsAndMissesAreCounted(t *testing.T) {
 	a := newAdminRig(t)
 	h := a.hub()
 	ag := twinAgent(t, a.env, h, testkit.FP)
-	h.ApplySync(ag, testkit.TwinFull(testkit.FP, []*continuumv1.NodeFacts{testkit.TwinNode("n1", "")}, testkit.TwinWorkload("shop", "cart")), false)
+	h.ApplySync(ag, testkit.TwinFull(testkit.FP, []*ikhnosv1.NodeFacts{testkit.TwinNode("n1", "")}, testkit.TwinWorkload("shop", "cart")), false)
 
 	if h.Tw.CacheHits.Load() != 0 || h.Tw.CacheMisses.Load() != 0 {
 		t.Fatalf("before any call: hits=%d misses=%d, want 0/0", h.Tw.CacheHits.Load(), h.Tw.CacheMisses.Load())
@@ -200,7 +200,7 @@ func TestModelCacheHitsAndMissesAreCounted(t *testing.T) {
 		t.Fatalf("second call (cached): hits=%d misses=%d, want 1/1", h.Tw.CacheHits.Load(), h.Tw.CacheMisses.Load())
 	}
 	// A real change (gen bumps) forces a rebuild on the next call: another miss, not a third hit.
-	h.ApplySync(ag, testkit.TwinFull(testkit.FP, []*continuumv1.NodeFacts{testkit.TwinNode("n1", "")}, testkit.TwinWorkload("shop", "cart"), testkit.TwinWorkload("shop", "pay")), true)
+	h.ApplySync(ag, testkit.TwinFull(testkit.FP, []*ikhnosv1.NodeFacts{testkit.TwinNode("n1", "")}, testkit.TwinWorkload("shop", "cart"), testkit.TwinWorkload("shop", "pay")), true)
 	*a.now = a.now.Add(3 * time.Second) // past the short cache, same as TestModelAPIContractETagAndTenancy
 	if _, _, err := h.Model(a.ctx); err != nil {
 		t.Fatal(err)

@@ -3,7 +3,7 @@ package agents
 import (
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 
 	"google.golang.org/protobuf/proto"
 )
@@ -49,21 +49,21 @@ type linkStats struct {
 	FlowBytes int64
 }
 
-func (l *linkStats) Note(m *continuumv1.AgentMessage, at time.Time) {
+func (l *linkStats) Note(m *ikhnosv1.AgentMessage, at time.Time) {
 	n := int64(proto.Size(m))
 	l.Bytes += n
 	l.lastAny = at
 	switch m.Msg.(type) {
-	case *continuumv1.AgentMessage_Sync:
+	case *ikhnosv1.AgentMessage_Sync:
 		l.Syncs++
 		l.LastSync = at
-	case *continuumv1.AgentMessage_Flows:
+	case *ikhnosv1.AgentMessage_Flows:
 		l.Flows++
 		l.FlowBytes += n
 		l.LastFlows = at
-	case *continuumv1.AgentMessage_Measurements:
+	case *ikhnosv1.AgentMessage_Measurements:
 		l.Meas++
-	case *continuumv1.AgentMessage_Heartbeat:
+	case *ikhnosv1.AgentMessage_Heartbeat:
 		l.Beats++
 	}
 }

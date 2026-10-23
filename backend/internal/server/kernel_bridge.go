@@ -4,17 +4,17 @@ package server
 import (
 	"log/slog"
 
-	"continuum/internal/accounts"
-	"continuum/internal/agents"
-	"continuum/internal/connectivity"
-	"continuum/internal/decisionloop"
-	"continuum/internal/estate"
-	"continuum/internal/fusion"
-	"continuum/internal/kernel"
-	"continuum/internal/operators"
-	"continuum/internal/pki"
-	"continuum/internal/store"
-	"continuum/internal/telemetry"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/agents"
+	"ikhnos/internal/connectivity"
+	"ikhnos/internal/decisionloop"
+	"ikhnos/internal/estate"
+	"ikhnos/internal/fusion"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/operators"
+	"ikhnos/internal/pki"
+	"ikhnos/internal/store"
+	"ikhnos/internal/telemetry"
 )
 
 // Core is the kernel's Core with what the modules do with it. The kernel does not know the modules, so each module that is a package

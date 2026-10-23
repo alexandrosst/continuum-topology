@@ -13,7 +13,7 @@ import (
 	"strings"
 	"sync"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
@@ -707,25 +707,25 @@ func ifaceName(b [16]int8) string {
 }
 
 // tlsHandshakeOutcome maps flow.c's own TLS_HANDSHAKE_* constants (flow_val.tls_handshake - see its doc
-// comment there) onto the wire-stable continuumv1.TlsHandshakeOutcome enum. The two do not share numeric
+// comment there) onto the wire-stable ikhnosv1.TlsHandshakeOutcome enum. The two do not share numeric
 // values on purpose: flow.c's constants are this program's own internal detail, free to renumber without
 // touching the proto wire format, while the proto enum's numbering is load-bearing (persisted, sent
 // between versions) the moment it ships - so this mapping is written out explicitly rather than cast.
-func tlsHandshakeOutcome(raw uint8) continuumv1.TlsHandshakeOutcome {
+func tlsHandshakeOutcome(raw uint8) ikhnosv1.TlsHandshakeOutcome {
 	switch raw {
 	case 1: // TLS_HANDSHAKE_OK
-		return continuumv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_OK
+		return ikhnosv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_OK
 	case 2: // TLS_HANDSHAKE_FAILED
-		return continuumv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_FAILED
+		return ikhnosv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_FAILED
 	default: // TLS_HANDSHAKE_UNKNOWN (0), or anything this Go build does not yet know about
-		return continuumv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_UNKNOWN
+		return ikhnosv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_UNKNOWN
 	}
 }
 
 // Collect returns everything counted since the previous call, and empties the counters. A connection is
 // counted when it is established. Its bytes are counted when it closes, and also once per call while it
 // is open when live counting is running.
-func (o *Observer) Collect() ([]*continuumv1.RawFlow, uint64, error) {
+func (o *Observer) Collect() ([]*ikhnosv1.RawFlow, uint64, error) {
 	if o.iter != nil {
 		if err := o.snapshot(); err != nil {
 			return nil, 0, err
@@ -744,7 +744,7 @@ func (o *Observer) Collect() ([]*continuumv1.RawFlow, uint64, error) {
 		return nil, 0, fmt.Errorf("reading counters: %w", err)
 	}
 
-	var out []*continuumv1.RawFlow
+	var out []*ikhnosv1.RawFlow
 	for _, key := range keys {
 		vals = vals[:0]
 		// LookupAndDelete is atomic where the kernel supports it, so nothing counted between the read and
@@ -856,7 +856,7 @@ func (o *Observer) Collect() ([]*continuumv1.RawFlow, uint64, error) {
 		if sum.Connections == 0 && sum.BytesOut == 0 && sum.BytesIn == 0 && sum.FailedAttempts == 0 && sum.MeshBypassSyns == 0 {
 			continue
 		}
-		out = append(out, &continuumv1.RawFlow{
+		out = append(out, &ikhnosv1.RawFlow{
 			Client:            key.Role == 1,
 			LocalIp:           addr(key.Local),
 			PeerIp:            addr(key.Peer),
@@ -896,7 +896,7 @@ func (o *Observer) Collect() ([]*continuumv1.RawFlow, uint64, error) {
 	// RawFlow row, with no counts of its own, purely so the same attribution and merge-by-attributed-key
 	// logic already applied to every other row (see resolve.go, aggregate.go) applies to these too.
 	for _, n := range o.takeNames() {
-		rf := &continuumv1.RawFlow{Client: true, LocalIp: n.local, PeerIp: n.peer, Port: uint32(n.port)}
+		rf := &ikhnosv1.RawFlow{Client: true, LocalIp: n.local, PeerIp: n.peer, Port: uint32(n.port)}
 		switch n.kind {
 		case nameKindDNSQuery:
 			rf.Protocol = "udp"

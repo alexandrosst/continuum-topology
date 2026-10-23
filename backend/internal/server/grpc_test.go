@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/agents"
-	"continuum/internal/pki"
-	"continuum/internal/testkit"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/agents"
+	"ikhnos/internal/pki"
+	"ikhnos/internal/testkit"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -57,9 +57,9 @@ func TestAgentBehindProxyUsesTheDeclaredAddressNotTheTCPPeer(t *testing.T) {
 	defer cancel()
 	secret, _, _ := r.core.Agents.CreateToken(ctx, "admin", "edge", 2)
 	d, _ := testkit.CSR(t)
-	enr := continuumv1.NewEnrollmentClient(r.dialProxied(t, pki.ClientTLS(r.core.CA.Pin(), "127.0.0.1", nil), "203.0.113.42"))
+	enr := ikhnosv1.NewEnrollmentClient(r.dialProxied(t, pki.ClientTLS(r.core.CA.Pin(), "127.0.0.1", nil), "203.0.113.42"))
 	hash, _ := testkit.ApprovalFor(t, d)
-	resp, err := enr.Enroll(ctx, &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: testkit.FP, InstalledAccessTier: 2, ApprovalCodeHash: hash})
+	resp, err := enr.Enroll(ctx, &ikhnosv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: testkit.FP, InstalledAccessTier: 2, ApprovalCodeHash: hash})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,8 +79,8 @@ func TestAgentBehindProxyRefusesAConnectionThatSkippedTheProxy(t *testing.T) {
 	d, _ := testkit.CSR(t)
 	// A plain dial with no PROXY protocol header in front - what a client would look like if it reached
 	// this listener directly, bypassing the proxy TrustAgentProxy assumes is the only way in.
-	enr := continuumv1.NewEnrollmentClient(r.dial(t, pki.ClientTLS(r.core.CA.Pin(), "127.0.0.1", nil)))
-	if _, err := enr.Enroll(ctx, &continuumv1.EnrollRequest{Token: "cnt_x", CsrDer: d, ClusterFingerprint: testkit.FP}); testkit.StatusCode(err) != codes.Unavailable {
+	enr := ikhnosv1.NewEnrollmentClient(r.dial(t, pki.ClientTLS(r.core.CA.Pin(), "127.0.0.1", nil)))
+	if _, err := enr.Enroll(ctx, &ikhnosv1.EnrollRequest{Token: "ikh_x", CsrDer: d, ClusterFingerprint: testkit.FP}); testkit.StatusCode(err) != codes.Unavailable {
 		t.Fatalf("connection without a PROXY protocol header was accepted: %v", err)
 	}
 }
@@ -94,9 +94,9 @@ func TestTransportEnrollThenMutualTLS(t *testing.T) {
 	// 1. Enroll over pinned TLS, no client certificate.
 	secret, _, _ := r.core.Agents.CreateToken(ctx, "admin", "edge", 2)
 	d, key := testkit.CSR(t)
-	enr := continuumv1.NewEnrollmentClient(r.dial(t, pki.ClientTLS(pin, "127.0.0.1", nil)))
+	enr := ikhnosv1.NewEnrollmentClient(r.dial(t, pki.ClientTLS(pin, "127.0.0.1", nil)))
 	hash, appr := testkit.ApprovalFor(t, d)
-	resp, err := enr.Enroll(ctx, &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: testkit.FP, InstalledAccessTier: 2, ApprovalCodeHash: hash})
+	resp, err := enr.Enroll(ctx, &ikhnosv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: testkit.FP, InstalledAccessTier: 2, ApprovalCodeHash: hash})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,28 +104,28 @@ func TestTransportEnrollThenMutualTLS(t *testing.T) {
 	if err := r.core.Agents.Approve(ctx, "alex", resp.AgentId, appr, 2); err != nil {
 		t.Fatal(err)
 	}
-	poll, err := enr.PollEnrollment(ctx, &continuumv1.PollRequest{AgentId: resp.AgentId, PollSecret: resp.PollSecret})
-	if err != nil || poll.State != continuumv1.PollResponse_APPROVED {
+	poll, err := enr.PollEnrollment(ctx, &ikhnosv1.PollRequest{AgentId: resp.AgentId, PollSecret: resp.PollSecret})
+	if err != nil || poll.State != ikhnosv1.PollResponse_APPROVED {
 		t.Fatalf("poll: %v %v", poll, err)
 	}
 	cert := &tls.Certificate{Certificate: [][]byte{poll.LeafDer}, PrivateKey: key}
 
 	// 3. Mutual TLS: Renew works with the certificate...
-	ag := continuumv1.NewAgentServiceClient(r.dial(t, pki.ClientTLS(pin, "127.0.0.1", cert)))
+	ag := ikhnosv1.NewAgentServiceClient(r.dial(t, pki.ClientTLS(pin, "127.0.0.1", cert)))
 	nd, _ := testkit.CSR(t)
-	if _, err := ag.Renew(ctx, &continuumv1.RenewRequest{CsrDer: nd}); err != nil {
+	if _, err := ag.Renew(ctx, &ikhnosv1.RenewRequest{CsrDer: nd}); err != nil {
 		t.Fatalf("renew over mTLS: %v", err)
 	}
 	// ...and is refused without one, at the application layer, not just the handshake.
-	anon := continuumv1.NewAgentServiceClient(r.dial(t, pki.ClientTLS(pin, "127.0.0.1", nil)))
-	if _, err := anon.Renew(ctx, &continuumv1.RenewRequest{CsrDer: nd}); testkit.StatusCode(err) != codes.Unauthenticated {
+	anon := ikhnosv1.NewAgentServiceClient(r.dial(t, pki.ClientTLS(pin, "127.0.0.1", nil)))
+	if _, err := anon.Renew(ctx, &ikhnosv1.RenewRequest{CsrDer: nd}); testkit.StatusCode(err) != codes.Unauthenticated {
 		t.Fatalf("renew without client cert: %v", err)
 	}
 	// 4. Revocation is effective on the very next call even though the certificate is still valid.
 	if err := r.core.Agents.Revoke(ctx, "alex", resp.AgentId, "test"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ag.Renew(ctx, &continuumv1.RenewRequest{CsrDer: nd}); testkit.StatusCode(err) != codes.Unauthenticated {
+	if _, err := ag.Renew(ctx, &ikhnosv1.RenewRequest{CsrDer: nd}); testkit.StatusCode(err) != codes.Unauthenticated {
 		t.Fatalf("renew after revoke: %v", err)
 	}
 }
@@ -136,8 +136,8 @@ func TestTransportRefusesWrongPinForeignCAAndOldTLS(t *testing.T) {
 	defer cancel()
 	d, _ := testkit.CSR(t)
 	call := func(cfg *tls.Config) error {
-		enr := continuumv1.NewEnrollmentClient(r.dial(t, cfg))
-		_, err := enr.Enroll(ctx, &continuumv1.EnrollRequest{Token: "cnt_x", CsrDer: d, ClusterFingerprint: testkit.FP})
+		enr := ikhnosv1.NewEnrollmentClient(r.dial(t, cfg))
+		_, err := enr.Enroll(ctx, &ikhnosv1.EnrollRequest{Token: "ikh_x", CsrDer: d, ClusterFingerprint: testkit.FP})
 		return err
 	}
 	// Reaching the application layer answers Unauthenticated (bad token); anything else means the handshake failed.
@@ -182,8 +182,8 @@ func TestForgedIdentityFromOurCAButUnknownAgentIsRefused(t *testing.T) {
 	parsed, _ := pki.ParseCSR(req)
 	leaf, _, _ := r.core.CA.IssueAgent(parsed, "ag-never-approved", "org-1", time.Hour)
 	cert := &tls.Certificate{Certificate: [][]byte{leaf}, PrivateKey: key}
-	ag := continuumv1.NewAgentServiceClient(r.dial(t, pki.ClientTLS(r.core.CA.Pin(), "127.0.0.1", cert)))
-	if _, err := ag.Renew(ctx, &continuumv1.RenewRequest{CsrDer: req}); testkit.StatusCode(err) != codes.Unauthenticated {
+	ag := ikhnosv1.NewAgentServiceClient(r.dial(t, pki.ClientTLS(r.core.CA.Pin(), "127.0.0.1", cert)))
+	if _, err := ag.Renew(ctx, &ikhnosv1.RenewRequest{CsrDer: req}); testkit.StatusCode(err) != codes.Unauthenticated {
 		t.Fatalf("unknown agent with a valid certificate: %v", err)
 	}
 }

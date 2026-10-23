@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"continuum/internal/chart"
-	"continuum/internal/store"
+	"ikhnos/internal/chart"
+	"ikhnos/internal/store"
 )
 
 func TestGuardCentralStillProtectsEverythingElse(t *testing.T) {
@@ -31,7 +31,7 @@ func TestOperatorServiceNameFollowsTheChartAndIsOnTheCertificate(t *testing.T) {
 		}
 	}
 	op := store.Operator{ID: "op-abc"}
-	if got := OperatorInClusterEndpoint(op); got != "op-abc-regional-operator.continuum-system.svc:4317" {
+	if got := OperatorInClusterEndpoint(op); got != "op-abc-regional-operator.ikhnos-system.svc:4317" {
 		t.Fatalf("in-cluster endpoint: %s", got)
 	}
 	if !OperatorNeedsServerName(op) || OperatorNeedsServerName(store.Operator{ID: CentralOperatorID}) || !OperatorNeedsServerName(store.Operator{ID: CentralOperatorID, Address: "a:1"}) {
@@ -74,7 +74,7 @@ func TestTheDialledServiceNameIsTheOneTheChartRenders(t *testing.T) {
 		if svc == "" || svc != OperatorServiceName(id) {
 			t.Fatalf("release %s renders Service %q, the server dials %q", id, svc, OperatorServiceName(id))
 		}
-		if want := svc + ".continuum-system.svc:4317"; OperatorInClusterEndpoint(store.Operator{ID: id}) != want {
+		if want := svc + ".ikhnos-system.svc:4317"; OperatorInClusterEndpoint(store.Operator{ID: id}) != want {
 			t.Fatalf("endpoint %s, want %s", OperatorInClusterEndpoint(store.Operator{ID: id}), want)
 		}
 	}
@@ -126,12 +126,12 @@ func TestValidOperatorAddress(t *testing.T) {
 
 // What `kubectl get svc` prints cannot be reached from another cluster, however well it is spelled.
 func TestAddressRefusesNamesThatOnlyResolveInsideOneCluster(t *testing.T) {
-	for _, in := range []string{"op-a.continuum-system.svc", "op-a.continuum-system.svc:4317", "op-a.continuum-system.svc.cluster.local:4317", "x.cluster.local", "OP-A.NS.SVC.", "svc"} {
+	for _, in := range []string{"op-a.ikhnos-system.svc", "op-a.ikhnos-system.svc:4317", "op-a.ikhnos-system.svc.cluster.local:4317", "x.cluster.local", "OP-A.NS.SVC.", "svc"} {
 		if _, err := ValidOperatorAddress(in); err == nil {
 			t.Errorf("%q was accepted", in)
 		}
 	}
-	for in, want := range map[string]string{"op-a.continuum-system.svc.clusterset.local": "op-a.continuum-system.svc.clusterset.local:4317", "svc.example.com:4317": "svc.example.com:4317", "mysvc.example.com": "mysvc.example.com:4317"} {
+	for in, want := range map[string]string{"op-a.ikhnos-system.svc.clusterset.local": "op-a.ikhnos-system.svc.clusterset.local:4317", "svc.example.com:4317": "svc.example.com:4317", "mysvc.example.com": "mysvc.example.com:4317"} {
 		if got, err := ValidOperatorAddress(in); err != nil || got != want {
 			t.Errorf("%q = %q, %v", in, got, err)
 		}

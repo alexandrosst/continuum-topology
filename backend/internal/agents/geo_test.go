@@ -4,8 +4,8 @@ import (
 	"net/netip"
 	"testing"
 
-	"continuum/internal/geoip"
-	"continuum/internal/geoip/geoiptest"
+	"ikhnos/internal/geoip"
+	"ikhnos/internal/geoip/geoiptest"
 )
 
 func TestGeoAttribution(t *testing.T) {

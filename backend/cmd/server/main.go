@@ -19,31 +19,31 @@ import (
 	"syscall"
 	"time"
 
-	"continuum/internal/accounts"
-	"continuum/internal/agents"
-	"continuum/internal/fusion"
-	"continuum/internal/geoip"
-	"continuum/internal/graph"
-	"continuum/internal/installcfg"
-	"continuum/internal/kernel"
-	"continuum/internal/operators"
-	"continuum/internal/passkey"
-	"continuum/internal/pki"
-	"continuum/internal/probe"
-	"continuum/internal/server"
-	"continuum/internal/store"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/agents"
+	"ikhnos/internal/fusion"
+	"ikhnos/internal/geoip"
+	"ikhnos/internal/graph"
+	"ikhnos/internal/installcfg"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/operators"
+	"ikhnos/internal/passkey"
+	"ikhnos/internal/pki"
+	"ikhnos/internal/probe"
+	"ikhnos/internal/server"
+	"ikhnos/internal/store"
 )
 
 var version = "0.1.0-dev"
 
-// agentChartVersion is the continuum-agent chart version actually published alongside this server build - set at
+// agentChartVersion is the ikhnos-agent chart version actually published alongside this server build - set at
 // link time (-X main.agentChartVersion=...) by the release pipeline, which packages the chart with an explicit
 // `helm package --version` that has nothing to do with what's checked into the chart's own Chart.yaml (edge builds
 // get 0.0.0-edge.<sha>; a tagged release gets the tag). Left at its zero value, Admin falls back to chart.Version()
 // (the Chart.yaml literal), which is only ever right by coincidence - see Admin.agentChartVersion's doc comment.
 var agentChartVersion = ""
 
-// operatorChartVersion is agentChartVersion's twin for the continuum-regional-operator chart: the release pipeline
+// operatorChartVersion is agentChartVersion's twin for the ikhnos-regional-operator chart: the release pipeline
 // packages every chart of a run under the same version, so the same value is linked in. Without it the regional
 // operator install command would name the Chart.yaml literal, which the registry does not hold for an edge build.
 var operatorChartVersion = ""
@@ -73,8 +73,8 @@ func main() {
 			os.Exit(restoreCmd(os.Args[2:], os.Stdout, os.Stderr))
 		}
 	}
-	probeListen := flag.String("probe-listen", os.Getenv("CONTINUUM_PROBE_LISTEN"), "address to listen on for the reports of the node probes the server's chart runs, e.g. :8083 (empty: no node probes). Plain HTTP inside the cluster; every report is signed with the secret in --probe-secret-file. env CONTINUUM_PROBE_LISTEN")
-	probeSecretFile := flag.String("probe-secret-file", os.Getenv("CONTINUUM_PROBE_SECRET_FILE"), "file holding the secret shared with those node probes (at least 16 characters). env CONTINUUM_PROBE_SECRET_FILE")
+	probeListen := flag.String("probe-listen", os.Getenv("IKHNOS_PROBE_LISTEN"), "address to listen on for the reports of the node probes the server's chart runs, e.g. :8083 (empty: no node probes). Plain HTTP inside the cluster; every report is signed with the secret in --probe-secret-file. env IKHNOS_PROBE_LISTEN")
+	probeSecretFile := flag.String("probe-secret-file", os.Getenv("IKHNOS_PROBE_SECRET_FILE"), "file holding the secret shared with those node probes (at least 16 characters). env IKHNOS_PROBE_SECRET_FILE")
 	probeEvery := flag.Duration("probe-interval", 3*time.Minute, "how often those node probes were told to report (the chart's nodeProbe.interval); one silent for three of these is no longer believed")
 	var origins multi
 	dataDir := flag.String("data-dir", "./data", "where the database and CA live")
@@ -90,40 +90,40 @@ func main() {
 	adminCert := flag.String("admin-tls-cert", "", "TLS certificate for the admin listener (needed when it is not on loopback)")
 	adminKey := flag.String("admin-tls-key", "", "TLS key for the admin listener")
 	behindProxy := flag.Bool("admin-behind-tls-proxy", false, "serve plain HTTP on a non-loopback address because a TLS-terminating proxy in front protects it. With it, the client address (used for rate limits and the audit trail) is the LAST entry of X-Forwarded-For, the address your proxy itself saw, and X-Forwarded-Proto: https marks the session cookie Secure and enables HSTS. Only set it when the proxy is the sole way to reach this port and overwrites those headers; otherwise a client can forge them")
-	ssoHeader := flag.String("admin-sso-header", os.Getenv("CONTINUUM_ADMIN_SSO_HEADER"), "name of a request header a trusted reverse proxy sets to a signed-in person's username (e.g. X-Remote-User), after verifying who they are itself (an OAuth2 proxy, an Envoy/Istio ext_authz filter, an IdP-integrated gateway). When set, GET /api/v1/auth/sso signs that username straight in - no password, no second factor - if it already names an existing, enabled account; it never creates or changes one. Requires --admin-behind-tls-proxy, because trusting this header is only safe when that proxy is the sole way to reach this port and always overwrites it, for every request; otherwise anyone who can reach this port directly could set it themselves and sign in as anyone. Empty (default) disables the endpoint entirely; env CONTINUUM_ADMIN_SSO_HEADER")
-	agentBehindProxy := flag.Bool("agent-behind-proxy", os.Getenv("CONTINUUM_AGENT_BEHIND_PROXY") == "true", "an L4 load balancer or reverse proxy sits in front of --agent-listen and is configured to send a PROXY protocol header (v1 or v2) ahead of each connection - the way to preserve the real client address through a TCP passthrough, since the agent's own mTLS handshake rules out a TLS-terminating HTTP proxy here. With it, every connection must carry that header (one that doesn't is refused) and its declared address - not the proxy's own - is what approval cards, rate limits, the audit trail and an agent's suggested location use. Only set it when the proxy is the sole way to reach this port and is actually configured to send the header; env CONTINUUM_AGENT_BEHIND_PROXY=true")
-	deciderAllow := flag.String("decider-allow-cidrs", os.Getenv("CONTINUUM_DECIDER_ALLOW_CIDRS"), "comma-separated CIDRs (10.0.0.0/8,127.0.0.1/32) the server may call for the external decider although they are private or loopback. By default only public addresses are allowed, so a decider address cannot be used to reach internal services. Cloud metadata and link-local addresses are never allowed; env CONTINUUM_DECIDER_ALLOW_CIDRS")
-	caPassFile := flag.String("ca-key-passphrase-file", os.Getenv("CONTINUUM_CA_KEY_PASSPHRASE_FILE"), "file holding a passphrase (at least 12 characters) that encrypts the CA private key at rest (argon2id + AES-256-GCM). A plaintext key is encrypted the first time this is given; an encrypted key without it stops the server. Never give the passphrase itself as a flag value; env CONTINUUM_CA_KEY_PASSPHRASE_FILE. Without it the key is stored unencrypted (mode 0600) and a warning is logged. See internal/pki/ROTATION.md")
-	caAutoPass := flag.Bool("ca-key-auto-passphrase", os.Getenv("CONTINUUM_CA_KEY_AUTO_PASSPHRASE") == "true", "generate the CA key passphrase ourselves with crypto/rand on first start and persist it at <data-dir>/pki/ca.passphrase (mode 0600), reused on every restart, instead of requiring --ca-key-passphrase-file. Mutually exclusive with it. This is what the continuum-server chart passes by default (pki.encryptAtRest, with no pki.caKeyPassphraseSecret.name given) now that it no longer generates the passphrase itself in the chart template; give --ca-key-passphrase-file instead if you want the passphrase kept apart from the data directory. env CONTINUUM_CA_KEY_AUTO_PASSPHRASE=true")
-	sealKeyFile := flag.String("sealing-key-file", os.Getenv("CONTINUUM_SEALING_KEY_FILE"), "file holding the key that seals the secrets this server must read back: the second-factor secrets, the mail password and an organisation's decider secret (AES-256-GCM). One key per line, at least 32 characters (openssl rand -base64 48); the first seals, the others only open, so a key is replaced by putting the new one on top and removing the old one later. Without it those secrets are stored as they are and a warning is logged. Once any secret is sealed, the server refuses to start without the key that sealed it. Keep the key apart from the data directory and its backups; env CONTINUUM_SEALING_KEY_FILE")
-	looseOK := flag.Bool("allow-loose-permissions", os.Getenv("CONTINUUM_ALLOW_LOOSE_PERMISSIONS") == "true", "start although the data directory, the CA key or the database is readable or writable by group or other users (by default the server refuses and prints the chmod to run). For platforms that set modes themselves, such as a Kubernetes fsGroup volume only this pod can reach; env CONTINUUM_ALLOW_LOOSE_PERMISSIONS=true")
+	ssoHeader := flag.String("admin-sso-header", os.Getenv("IKHNOS_ADMIN_SSO_HEADER"), "name of a request header a trusted reverse proxy sets to a signed-in person's username (e.g. X-Remote-User), after verifying who they are itself (an OAuth2 proxy, an Envoy/Istio ext_authz filter, an IdP-integrated gateway). When set, GET /api/v1/auth/sso signs that username straight in - no password, no second factor - if it already names an existing, enabled account; it never creates or changes one. Requires --admin-behind-tls-proxy, because trusting this header is only safe when that proxy is the sole way to reach this port and always overwrites it, for every request; otherwise anyone who can reach this port directly could set it themselves and sign in as anyone. Empty (default) disables the endpoint entirely; env IKHNOS_ADMIN_SSO_HEADER")
+	agentBehindProxy := flag.Bool("agent-behind-proxy", os.Getenv("IKHNOS_AGENT_BEHIND_PROXY") == "true", "an L4 load balancer or reverse proxy sits in front of --agent-listen and is configured to send a PROXY protocol header (v1 or v2) ahead of each connection - the way to preserve the real client address through a TCP passthrough, since the agent's own mTLS handshake rules out a TLS-terminating HTTP proxy here. With it, every connection must carry that header (one that doesn't is refused) and its declared address - not the proxy's own - is what approval cards, rate limits, the audit trail and an agent's suggested location use. Only set it when the proxy is the sole way to reach this port and is actually configured to send the header; env IKHNOS_AGENT_BEHIND_PROXY=true")
+	deciderAllow := flag.String("decider-allow-cidrs", os.Getenv("IKHNOS_DECIDER_ALLOW_CIDRS"), "comma-separated CIDRs (10.0.0.0/8,127.0.0.1/32) the server may call for the external decider although they are private or loopback. By default only public addresses are allowed, so a decider address cannot be used to reach internal services. Cloud metadata and link-local addresses are never allowed; env IKHNOS_DECIDER_ALLOW_CIDRS")
+	caPassFile := flag.String("ca-key-passphrase-file", os.Getenv("IKHNOS_CA_KEY_PASSPHRASE_FILE"), "file holding a passphrase (at least 12 characters) that encrypts the CA private key at rest (argon2id + AES-256-GCM). A plaintext key is encrypted the first time this is given; an encrypted key without it stops the server. Never give the passphrase itself as a flag value; env IKHNOS_CA_KEY_PASSPHRASE_FILE. Without it the key is stored unencrypted (mode 0600) and a warning is logged. See internal/pki/ROTATION.md")
+	caAutoPass := flag.Bool("ca-key-auto-passphrase", os.Getenv("IKHNOS_CA_KEY_AUTO_PASSPHRASE") == "true", "generate the CA key passphrase ourselves with crypto/rand on first start and persist it at <data-dir>/pki/ca.passphrase (mode 0600), reused on every restart, instead of requiring --ca-key-passphrase-file. Mutually exclusive with it. This is what the ikhnos-server chart passes by default (pki.encryptAtRest, with no pki.caKeyPassphraseSecret.name given) now that it no longer generates the passphrase itself in the chart template; give --ca-key-passphrase-file instead if you want the passphrase kept apart from the data directory. env IKHNOS_CA_KEY_AUTO_PASSPHRASE=true")
+	sealKeyFile := flag.String("sealing-key-file", os.Getenv("IKHNOS_SEALING_KEY_FILE"), "file holding the key that seals the secrets this server must read back: the second-factor secrets, the mail password and an organisation's decider secret (AES-256-GCM). One key per line, at least 32 characters (openssl rand -base64 48); the first seals, the others only open, so a key is replaced by putting the new one on top and removing the old one later. Without it those secrets are stored as they are and a warning is logged. Once any secret is sealed, the server refuses to start without the key that sealed it. Keep the key apart from the data directory and its backups; env IKHNOS_SEALING_KEY_FILE")
+	looseOK := flag.Bool("allow-loose-permissions", os.Getenv("IKHNOS_ALLOW_LOOSE_PERMISSIONS") == "true", "start although the data directory, the CA key or the database is readable or writable by group or other users (by default the server refuses and prints the chmod to run). For platforms that set modes themselves, such as a Kubernetes fsGroup volume only this pod can reach; env IKHNOS_ALLOW_LOOSE_PERMISSIONS=true")
 	uiDir := flag.String("ui-dir", "", "built UI to serve (dist/)")
-	chartRef := flag.String("chart-ref", "", "Helm chart to install, as shown in install commands (an OCI, repository or https reference). Empty: oci://<image-registry>/continuum-agent. \"local\": the copy of the chart this server serves, which the wizard offers as a download")
-	imageRegistry := flag.String("image-registry", os.Getenv("CONTINUUM_IMAGE_REGISTRY"), "registry and path that hold the agent image and chart you published (registry.example.com/team, or a bare Docker Hub name; see scripts/publish.sh). Install commands then point the chart at <registry>/continuum and fetch the chart itself from the same place as an OCI artifact. There is no built-in default: with none, the command uses the chart's own image name (continuum/continuum) and the chart file this server serves. This is the server-wide default; an organisation's Settings → Installation overrides it; env CONTINUUM_IMAGE_REGISTRY")
-	imageTag := flag.String("image-tag", os.Getenv("CONTINUUM_IMAGE_TAG"), "image tag for install commands; empty means the chart's own appVersion. Needs --image-registry; env CONTINUUM_IMAGE_TAG")
-	imageDigest := flag.String("image-digest", os.Getenv("CONTINUUM_IMAGE_DIGEST"), "image digest (sha256:<64 hex>, printed by scripts/publish.sh) to pin install commands to, which makes them immutable and reproducible; the tag is then ignored by the chart. Needs --image-registry; env CONTINUUM_IMAGE_DIGEST")
+	chartRef := flag.String("chart-ref", "", "Helm chart to install, as shown in install commands (an OCI, repository or https reference). Empty: oci://<image-registry>/ikhnos-agent. \"local\": the copy of the chart this server serves, which the wizard offers as a download")
+	imageRegistry := flag.String("image-registry", os.Getenv("IKHNOS_IMAGE_REGISTRY"), "registry and path that hold the agent image and chart you published (registry.example.com/team, or a bare Docker Hub name; see scripts/publish.sh). Install commands then point the chart at <registry>/ikhnos and fetch the chart itself from the same place as an OCI artifact. There is no built-in default: with none, the command uses the chart's own image name (ikhnos/ikhnos) and the chart file this server serves. This is the server-wide default; an organisation's Settings → Installation overrides it; env IKHNOS_IMAGE_REGISTRY")
+	imageTag := flag.String("image-tag", os.Getenv("IKHNOS_IMAGE_TAG"), "image tag for install commands; empty means the chart's own appVersion. Needs --image-registry; env IKHNOS_IMAGE_TAG")
+	imageDigest := flag.String("image-digest", os.Getenv("IKHNOS_IMAGE_DIGEST"), "image digest (sha256:<64 hex>, printed by scripts/publish.sh) to pin install commands to, which makes them immutable and reproducible; the tag is then ignored by the chart. Needs --image-registry; env IKHNOS_IMAGE_DIGEST")
 	org := flag.String("org", "default", "id of the organization created together with the first account, on a fresh database")
-	registration := flag.String("registration", os.Getenv("CONTINUUM_REGISTRATION"), "who may create an account: open (anyone, and they get an organization of their own), invite (only with an invitation from an organization) or closed (nobody; use the create-org and reset-password commands); env CONTINUUM_REGISTRATION. Default: open while --admin-listen is a loopback address (local use), invite otherwise")
-	multiOrg := flag.Bool("multi-organisation", os.Getenv("CONTINUUM_MULTI_ORGANISATION") == "true", "let this server host more than one organisation: people can create further ones (where registration is open) and open registration gives every newcomer an organisation of their own. Without it the server is one organisation's: the one created with the first account, joined by invitation. Organisations that already exist go on working either way; env CONTINUUM_MULTI_ORGANISATION=true")
-	geoDB := flag.String("geoip-db", os.Getenv("CONTINUUM_GEOIP_DB"), "optional MaxMind-format .mmdb (DB-IP Lite, GeoLite2) used offline to suggest a location for each agent's connecting address; env CONTINUUM_GEOIP_DB")
-	geoPublicIP := flag.String("geoip-public-ip-service", os.Getenv("CONTINUUM_GEOIP_PUBLIC_IP_SERVICE"), "needs --geoip-db. An http(s) URL that answers with this server's own public IP as plain text (a well known one: https://api.ipify.org). Used only as a fallback: when an agent's connecting address cannot be located at all (private, loopback, CGNAT - agent and server sharing a network is exactly why it looks that way), this server's own public address is the closest honest guess, looked up and returned marked estimated rather than exact. Called once at startup and then on an hourly cache, never per request; empty (default) never guesses, only an agent's own address is ever used. Nothing about your topology, applications or data goes out in the request - just an empty GET, to a URL you chose; env CONTINUUM_GEOIP_PUBLIC_IP_SERVICE")
-	geoASNDB := flag.String("geoip-asn-db", os.Getenv("CONTINUUM_GEOIP_ASN_DB"), "needs --geoip-db. A second, optional MaxMind-format .mmdb in ASN shape (GeoLite2-ASN, DB-IP ASN Lite) rather than city/country shape. Whenever --geoip-db places an address (including an --geoip-public-ip-service estimate), this adds which network it belongs to - its AS number and the organisation that announces it, e.g. 15169 / \"Google LLC\" - a steadier signal than city or country, and unaffected by a VPN or cloud egress moving the place shown. Shown only alongside a location, never on its own: an address --geoip-db has no record for stays unanswered even when this database recognises it. Entirely offline, same as --geoip-db: nothing is looked up over the network; env CONTINUUM_GEOIP_ASN_DB")
-	neoURL := flag.String("neo4j-url", os.Getenv("CONTINUUM_NEO4J_URL"), "Neo4j HTTP address (http://host:7474). When set, topology history, events, audit and workspace revisions are kept in a Neo4j graph; env CONTINUUM_NEO4J_URL")
-	neoUser := flag.String("neo4j-user", envOr("CONTINUUM_NEO4J_USER", "neo4j"), "Neo4j user; env CONTINUUM_NEO4J_USER")
-	neoDB := flag.String("neo4j-database", envOr("CONTINUUM_NEO4J_DATABASE", "neo4j"), "Neo4j database name; env CONTINUUM_NEO4J_DATABASE")
-	neoPassFile := flag.String("neo4j-password-file", os.Getenv("CONTINUUM_NEO4J_PASSWORD_FILE"), "file holding the Neo4j password (or set CONTINUUM_NEO4J_PASSWORD); env CONTINUUM_NEO4J_PASSWORD_FILE")
-	neoInsecure := flag.Bool("neo4j-allow-insecure-http", os.Getenv("CONTINUUM_NEO4J_ALLOW_INSECURE_HTTP") == "true", "allow the Neo4j password and the topology to be sent over plain HTTP to a host that is not loopback. By default the server refuses to start: use an https:// address, or, on a network you trust (a pod-to-pod link inside one cluster, say), pass this flag; env CONTINUUM_NEO4J_ALLOW_INSECURE_HTTP=true")
-	smtpHost := flag.String("smtp-host", os.Getenv("CONTINUUM_SMTP_HOST"), "SMTP server for outgoing mail (a login or email-verification code - nothing else is ever sent), and the default until an owner of the default organisation sets one in Settings instead. Without either, email is simply not offered as a second factor; env CONTINUUM_SMTP_HOST")
-	smtpPort := flag.String("smtp-port", envOr("CONTINUUM_SMTP_PORT", "587"), "SMTP submission port. STARTTLS is used automatically when the server offers it; env CONTINUUM_SMTP_PORT")
-	smtpUser := flag.String("smtp-username", os.Getenv("CONTINUUM_SMTP_USERNAME"), "SMTP username, if the relay requires authentication; env CONTINUUM_SMTP_USERNAME")
-	smtpPassFile := flag.String("smtp-password-file", os.Getenv("CONTINUUM_SMTP_PASSWORD_FILE"), "file holding the SMTP password (or set CONTINUUM_SMTP_PASSWORD); never given as a flag value, which would show in the process list; env CONTINUUM_SMTP_PASSWORD_FILE")
-	smtpFrom := flag.String("smtp-from", os.Getenv("CONTINUUM_SMTP_FROM"), "From: address on mailed codes. Required with --smtp-host; env CONTINUUM_SMTP_FROM")
+	registration := flag.String("registration", os.Getenv("IKHNOS_REGISTRATION"), "who may create an account: open (anyone, and they get an organization of their own), invite (only with an invitation from an organization) or closed (nobody; use the create-org and reset-password commands); env IKHNOS_REGISTRATION. Default: open while --admin-listen is a loopback address (local use), invite otherwise")
+	multiOrg := flag.Bool("multi-organisation", os.Getenv("IKHNOS_MULTI_ORGANISATION") == "true", "let this server host more than one organisation: people can create further ones (where registration is open) and open registration gives every newcomer an organisation of their own. Without it the server is one organisation's: the one created with the first account, joined by invitation. Organisations that already exist go on working either way; env IKHNOS_MULTI_ORGANISATION=true")
+	geoDB := flag.String("geoip-db", os.Getenv("IKHNOS_GEOIP_DB"), "optional MaxMind-format .mmdb (DB-IP Lite, GeoLite2) used offline to suggest a location for each agent's connecting address; env IKHNOS_GEOIP_DB")
+	geoPublicIP := flag.String("geoip-public-ip-service", os.Getenv("IKHNOS_GEOIP_PUBLIC_IP_SERVICE"), "needs --geoip-db. An http(s) URL that answers with this server's own public IP as plain text (a well known one: https://api.ipify.org). Used only as a fallback: when an agent's connecting address cannot be located at all (private, loopback, CGNAT - agent and server sharing a network is exactly why it looks that way), this server's own public address is the closest honest guess, looked up and returned marked estimated rather than exact. Called once at startup and then on an hourly cache, never per request; empty (default) never guesses, only an agent's own address is ever used. Nothing about your topology, applications or data goes out in the request - just an empty GET, to a URL you chose; env IKHNOS_GEOIP_PUBLIC_IP_SERVICE")
+	geoASNDB := flag.String("geoip-asn-db", os.Getenv("IKHNOS_GEOIP_ASN_DB"), "needs --geoip-db. A second, optional MaxMind-format .mmdb in ASN shape (GeoLite2-ASN, DB-IP ASN Lite) rather than city/country shape. Whenever --geoip-db places an address (including an --geoip-public-ip-service estimate), this adds which network it belongs to - its AS number and the organisation that announces it, e.g. 15169 / \"Google LLC\" - a steadier signal than city or country, and unaffected by a VPN or cloud egress moving the place shown. Shown only alongside a location, never on its own: an address --geoip-db has no record for stays unanswered even when this database recognises it. Entirely offline, same as --geoip-db: nothing is looked up over the network; env IKHNOS_GEOIP_ASN_DB")
+	neoURL := flag.String("neo4j-url", os.Getenv("IKHNOS_NEO4J_URL"), "Neo4j HTTP address (http://host:7474). When set, topology history, events, audit and workspace revisions are kept in a Neo4j graph; env IKHNOS_NEO4J_URL")
+	neoUser := flag.String("neo4j-user", envOr("IKHNOS_NEO4J_USER", "neo4j"), "Neo4j user; env IKHNOS_NEO4J_USER")
+	neoDB := flag.String("neo4j-database", envOr("IKHNOS_NEO4J_DATABASE", "neo4j"), "Neo4j database name; env IKHNOS_NEO4J_DATABASE")
+	neoPassFile := flag.String("neo4j-password-file", os.Getenv("IKHNOS_NEO4J_PASSWORD_FILE"), "file holding the Neo4j password (or set IKHNOS_NEO4J_PASSWORD); env IKHNOS_NEO4J_PASSWORD_FILE")
+	neoInsecure := flag.Bool("neo4j-allow-insecure-http", os.Getenv("IKHNOS_NEO4J_ALLOW_INSECURE_HTTP") == "true", "allow the Neo4j password and the topology to be sent over plain HTTP to a host that is not loopback. By default the server refuses to start: use an https:// address, or, on a network you trust (a pod-to-pod link inside one cluster, say), pass this flag; env IKHNOS_NEO4J_ALLOW_INSECURE_HTTP=true")
+	smtpHost := flag.String("smtp-host", os.Getenv("IKHNOS_SMTP_HOST"), "SMTP server for outgoing mail (a login or email-verification code - nothing else is ever sent), and the default until an owner of the default organisation sets one in Settings instead. Without either, email is simply not offered as a second factor; env IKHNOS_SMTP_HOST")
+	smtpPort := flag.String("smtp-port", envOr("IKHNOS_SMTP_PORT", "587"), "SMTP submission port. STARTTLS is used automatically when the server offers it; env IKHNOS_SMTP_PORT")
+	smtpUser := flag.String("smtp-username", os.Getenv("IKHNOS_SMTP_USERNAME"), "SMTP username, if the relay requires authentication; env IKHNOS_SMTP_USERNAME")
+	smtpPassFile := flag.String("smtp-password-file", os.Getenv("IKHNOS_SMTP_PASSWORD_FILE"), "file holding the SMTP password (or set IKHNOS_SMTP_PASSWORD); never given as a flag value, which would show in the process list; env IKHNOS_SMTP_PASSWORD_FILE")
+	smtpFrom := flag.String("smtp-from", os.Getenv("IKHNOS_SMTP_FROM"), "From: address on mailed codes. Required with --smtp-host; env IKHNOS_SMTP_FROM")
 	flag.Var(&origins, "allow-origin", "browser origin allowed to call the API cross-origin (repeatable, development)")
 	flag.Parse()
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	if *agentAddr == "" {
-		fatal(log, errors.New("--agent-address is required, for example continuum.example.com:8443"))
+		fatal(log, errors.New("--agent-address is required, for example ikhnos.example.com:8443"))
 	}
 	regMode, regWhy := resolveRegistration(*registration, *adminListen)
 	switch regMode {
@@ -147,7 +147,7 @@ func main() {
 	}
 	var neo *graph.Config
 	if *neoURL != "" {
-		pw := os.Getenv("CONTINUUM_NEO4J_PASSWORD")
+		pw := os.Getenv("IKHNOS_NEO4J_PASSWORD")
 		if *neoPassFile != "" {
 			b, err := os.ReadFile(*neoPassFile)
 			if err != nil {
@@ -156,7 +156,7 @@ func main() {
 			pw = strings.TrimSpace(string(b))
 		}
 		if pw == "" {
-			fatal(log, errors.New("--neo4j-url needs a password: set CONTINUUM_NEO4J_PASSWORD or --neo4j-password-file (it is not accepted as a flag value, which would show in the process list)"))
+			fatal(log, errors.New("--neo4j-url needs a password: set IKHNOS_NEO4J_PASSWORD or --neo4j-password-file (it is not accepted as a flag value, which would show in the process list)"))
 		}
 		neo = &graph.Config{URL: *neoURL, User: *neoUser, Password: pw, Database: *neoDB}
 		if err := checkNeo4jTransport(log, *neoURL, *neoInsecure); err != nil {
@@ -177,7 +177,7 @@ func main() {
 		if *smtpFrom == "" {
 			fatal(log, errors.New("--smtp-host needs --smtp-from"))
 		}
-		pw := os.Getenv("CONTINUUM_SMTP_PASSWORD")
+		pw := os.Getenv("IKHNOS_SMTP_PASSWORD")
 		if *smtpPassFile != "" {
 			b, err := os.ReadFile(*smtpPassFile)
 			if err != nil {
@@ -312,7 +312,7 @@ func run(log *slog.Logger, selfProbe probeOpts, dataDir, agentListen, agentAddr,
 	if err != nil {
 		return err
 	}
-	sqlite, err := store.OpenSQLite(filepath.Join(dataDir, "continuum.db"))
+	sqlite, err := store.OpenSQLite(filepath.Join(dataDir, "ikhnos.db"))
 	if err != nil {
 		return err
 	}
@@ -381,7 +381,7 @@ func run(log *slog.Logger, selfProbe probeOpts, dataDir, agentListen, agentAddr,
 	// Unlike Mailer, passkeys need no operator configuration - go-webauthn works out of the relying party
 	// info Admin derives from each request's own Host header, so the provider is simply always on.
 	core.Accounts.SetWebAuthn(passkey.New())
-	created, firstPassword, err := core.Accounts.BootstrapAdmin(context.Background(), os.Getenv("CONTINUUM_ADMIN_PASSWORD"))
+	created, firstPassword, err := core.Accounts.BootstrapAdmin(context.Background(), os.Getenv("IKHNOS_ADMIN_PASSWORD"))
 	if err != nil {
 		return err
 	}
@@ -407,7 +407,7 @@ func run(log *slog.Logger, selfProbe probeOpts, dataDir, agentListen, agentAddr,
 
 	admin := &server.Admin{P: platform, C: core, TrustProxy: behindProxy, SSOHeaderName: ssoHeader, SecureCookies: !isLoopback(adminListen), Origins: origins, UIDir: uiDir, Version: version,
 		Settings: installcfg.Settings{AgentAddr: agentAddr, AgentExposure: agentExposure, ReleaseName: releaseName, ReleaseNamespace: releaseNamespace, ChartRef: chartRef,
-			ImageRegistry: img.Registry, ImageTag: img.Tag, ImageDigest: img.Digest, PublicURL: os.Getenv("CONTINUUM_PUBLIC_URL"),
+			ImageRegistry: img.Registry, ImageTag: img.Tag, ImageDigest: img.Digest, PublicURL: os.Getenv("IKHNOS_PUBLIC_URL"),
 			AgentChartVersion: agentChartVersion, OperatorChartVersion: operatorChartVersion}}
 	if err := admin.CheckInstallConfig(); err != nil {
 		return err
@@ -415,10 +415,10 @@ func run(log *slog.Logger, selfProbe probeOpts, dataDir, agentListen, agentAddr,
 	// The private CA that signed this server's own HTTPS certificate, when it has one: handed to a regional operator so its
 	// heartbeat can verify the server. A file the administrator mounts (extraVolumes); unreadable is a startup error, not a
 	// silent heartbeat that can never connect.
-	if f := os.Getenv("CONTINUUM_HEARTBEAT_CA_FILE"); f != "" {
+	if f := os.Getenv("IKHNOS_HEARTBEAT_CA_FILE"); f != "" {
 		pem, err := os.ReadFile(f)
 		if err != nil {
-			return fmt.Errorf("read CONTINUUM_HEARTBEAT_CA_FILE: %w", err)
+			return fmt.Errorf("read IKHNOS_HEARTBEAT_CA_FILE: %w", err)
 		}
 		admin.HeartbeatCAPEM = pem
 	}
@@ -472,7 +472,7 @@ func run(log *slog.Logger, selfProbe probeOpts, dataDir, agentListen, agentAddr,
 		}
 	}()
 
-	log.Info("continuum server started", "agents", agentListen, "admin", adminListen, "registration", registration, "ca_pin", ca.Pin(), "ca_spki_pin", ca.SPKIPin())
+	log.Info("ikhnos server started", "agents", agentListen, "admin", adminListen, "registration", registration, "ca_pin", ca.Pin(), "ca_spki_pin", ca.SPKIPin())
 	if created && firstPassword != "" {
 		// Shown once, never stored in readable form. It must be replaced at first sign-in.
 		fmt.Fprintf(os.Stderr, "\n  First start: sign in as  admin  with the one-time password  %s\n  You will be asked to choose a new password straight away.\n\n", firstPassword)
@@ -509,7 +509,7 @@ func run(log *slog.Logger, selfProbe probeOpts, dataDir, agentListen, agentAddr,
 // unless the operator says so. why is what the startup log tells the operator.
 func resolveRegistration(explicit, adminListen string) (mode, why string) {
 	if explicit != "" {
-		return explicit, "set explicitly by --registration or CONTINUUM_REGISTRATION"
+		return explicit, "set explicitly by --registration or IKHNOS_REGISTRATION"
 	}
 	if isLoopback(adminListen) {
 		return accounts.RegOpen, "default: the admin listener " + adminListen + " is loopback, so only this machine can reach it"
@@ -528,7 +528,7 @@ func verifyAudit(args []string, out, errw io.Writer) int {
 		fs.Usage()
 		return 2
 	}
-	path := filepath.Join(*dataDir, "continuum.db")
+	path := filepath.Join(*dataDir, "ikhnos.db")
 	if _, err := os.Stat(path); err != nil {
 		fmt.Fprintf(errw, "verify-audit: %v\n", err)
 		return 2
@@ -577,7 +577,7 @@ func checkNeo4jTransport(log *slog.Logger, raw string, allowInsecure bool) error
 		return nil
 	}
 	if !allowInsecure {
-		return fmt.Errorf("refusing to send the Neo4j password over plain HTTP to %s: it and the topology would cross the network in clear text. Use an https:// address, or pass --neo4j-allow-insecure-http (env CONTINUUM_NEO4J_ALLOW_INSECURE_HTTP=true) if the network between the two is one you trust", u.Host)
+		return fmt.Errorf("refusing to send the Neo4j password over plain HTTP to %s: it and the topology would cross the network in clear text. Use an https:// address, or pass --neo4j-allow-insecure-http (env IKHNOS_NEO4J_ALLOW_INSECURE_HTTP=true) if the network between the two is one you trust", u.Host)
 	}
 	log.Warn("the Neo4j connection is plain HTTP to another host (--neo4j-allow-insecure-http): the password and the topology cross the network in clear text", "host", u.Host)
 	return nil
@@ -603,7 +603,7 @@ func isLoopback(addr string) bool {
 func resetPassword(args []string) {
 	fs := flag.NewFlagSet("reset-password", flag.ExitOnError)
 	dataDir := fs.String("data-dir", "./data", "the server's data directory")
-	sealKey := fs.String("sealing-key-file", os.Getenv("CONTINUUM_SEALING_KEY_FILE"), "the server's sealing key file, if it has one (a user's second-factor secret cannot be read without it); env CONTINUUM_SEALING_KEY_FILE")
+	sealKey := fs.String("sealing-key-file", os.Getenv("IKHNOS_SEALING_KEY_FILE"), "the server's sealing key file, if it has one (a user's second-factor secret cannot be read without it); env IKHNOS_SEALING_KEY_FILE")
 	fs.Usage = func() {
 		fmt.Fprintln(os.Stderr, "usage: server reset-password [--data-dir DIR] [--sealing-key-file FILE] USERNAME")
 	}
@@ -633,7 +633,7 @@ func createOrg(args []string) {
 	fs := flag.NewFlagSet("create-org", flag.ExitOnError)
 	dataDir := fs.String("data-dir", "./data", "the server's data directory")
 	owner := fs.String("owner", "", "username of the account that will own it (required)")
-	sealKey := fs.String("sealing-key-file", os.Getenv("CONTINUUM_SEALING_KEY_FILE"), "the server's sealing key file, if it has one; env CONTINUUM_SEALING_KEY_FILE")
+	sealKey := fs.String("sealing-key-file", os.Getenv("IKHNOS_SEALING_KEY_FILE"), "the server's sealing key file, if it has one; env IKHNOS_SEALING_KEY_FILE")
 	fs.Usage = func() {
 		fmt.Fprintln(os.Stderr, "usage: server create-org [--data-dir DIR] [--sealing-key-file FILE] --owner USERNAME NAME")
 	}
@@ -676,9 +676,9 @@ func renewFusionCertificate(log *slog.Logger, f *fusion.FusionControl, core *fus
 func fusionControl(log *slog.Logger, name, namespace, publicAddress, org string) *fusion.FusionControl {
 	f := &fusion.FusionControl{Name: name, Namespace: namespace, PublicAddress: strings.TrimSpace(publicAddress), Org: org}
 	// The chart passes the UID of the kube-system namespace it was installed into: the cluster this server, and FUSION, are in.
-	f.ClusterUID = strings.TrimSpace(os.Getenv("CONTINUUM_CLUSTER_ID"))
+	f.ClusterUID = strings.TrimSpace(os.Getenv("IKHNOS_CLUSTER_ID"))
 	if _, ok := kernel.ClusterIDForUID(org, f.ClusterUID); f.ClusterUID != "" && !ok {
-		log.Warn("CONTINUUM_CLUSTER_ID is not a namespace UID; ignored", "value", f.ClusterUID)
+		log.Warn("IKHNOS_CLUSTER_ID is not a namespace UID; ignored", "value", f.ClusterUID)
 		f.ClusterUID = ""
 	}
 	if f.Namespace == "" {

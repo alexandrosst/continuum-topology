@@ -32,9 +32,9 @@ func TestOperatorServiceTypeFollowsTheExposureAndDefaultsToClusterIP(t *testing.
 func TestOperatorExporterCanVerifyAStableServerName(t *testing.T) {
 	c := operatorCollectorConfig(t, "--set", "export.otlp.endpoint=203.0.113.7:4317",
 		"--set", "export.otlp.tls.mtls.enabled=true", "--set", "export.otlp.tls.mtls.secretName=x",
-		"--set", "export.otlp.tls.serverName=op-1.continuum-system.svc")
+		"--set", "export.otlp.tls.serverName=op-1.ikhnos-system.svc")
 	tls, _ := c.exporters["otlp"]["tls"].(map[string]any)
-	if tls["server_name_override"] != "op-1.continuum-system.svc" || tls["ca_file"] == nil {
+	if tls["server_name_override"] != "op-1.ikhnos-system.svc" || tls["ca_file"] == nil {
 		t.Fatalf("exporter tls = %v", tls)
 	}
 	// Left alone it is not rendered, so nothing that already works changes.
@@ -47,21 +47,21 @@ func TestOperatorExporterCanVerifyAStableServerName(t *testing.T) {
 func TestAgentExportersCanVerifyAStableServerName(t *testing.T) {
 	args := append([]string{}, allSignals...)
 	args = append(args, "--set-string", "telemetry.export.otlp.endpoint=203.0.113.7:4317", "--set", "telemetry.export.otlp.tls.mtls.enabled=true",
-		"--set", "telemetry.export.otlp.tls.mtls.secretName=x", "--set", "telemetry.export.otlp.tls.serverName=op-1.continuum-system.svc")
-	args = append(args, routeFlags("traces", "203.0.113.7:4317", "grpc", "tls.mtls.enabled=true", "tls.mtls.secretName=x", "tls.serverName=op-1.continuum-system.svc")...)
+		"--set", "telemetry.export.otlp.tls.mtls.secretName=x", "--set", "telemetry.export.otlp.tls.serverName=op-1.ikhnos-system.svc")
+	args = append(args, routeFlags("traces", "203.0.113.7:4317", "grpc", "tls.mtls.enabled=true", "tls.mtls.secretName=x", "tls.serverName=op-1.ikhnos-system.svc")...)
 	r := render(t, args...)
-	cluster := otelConfig(t, r.configmaps["continuum-telemetry-cluster-config"].Data)
+	cluster := otelConfig(t, r.configmaps["ikhnos-telemetry-cluster-config"].Data)
 	exporters, _ := cluster["exporters"].(map[string]any)
 	for _, name := range []string{"otlp", "otlp/traces"} {
 		e, _ := exporters[name].(map[string]any)
 		tls, _ := e["tls"].(map[string]any)
-		if tls["server_name_override"] != "op-1.continuum-system.svc" {
+		if tls["server_name_override"] != "op-1.ikhnos-system.svc" {
 			t.Errorf("%s: tls = %v (exporters %v)", name, tls, keys(exporters))
 		}
 	}
 	// And not by default.
 	pr := render(t, append(append([]string{}, allSignals...), "--set-string", "telemetry.export.otlp.endpoint=c:4317")...)
-	plain := otelConfig(t, pr.configmaps["continuum-telemetry-cluster-config"].Data)
+	plain := otelConfig(t, pr.configmaps["ikhnos-telemetry-cluster-config"].Data)
 	pe, _ := plain["exporters"].(map[string]any)["otlp"].(map[string]any)
 	if tls, _ := pe["tls"].(map[string]any); tls["server_name_override"] != nil {
 		t.Fatalf("a server name rendered by default: %v", tls)

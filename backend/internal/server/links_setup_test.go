@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/accounts"
-	"continuum/internal/agents"
-	"continuum/internal/connectivity"
-	"continuum/internal/kernel"
-	"continuum/internal/testkit"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/agents"
+	"ikhnos/internal/connectivity"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/testkit"
 )
 
 func with(what string) func(*agents.LinkCaps) {

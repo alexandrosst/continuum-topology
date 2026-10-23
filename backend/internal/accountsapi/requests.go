@@ -3,7 +3,7 @@ package accountsapi
 import (
 	"encoding/json"
 
-	"continuum/internal/accounts"
+	"ikhnos/internal/accounts"
 )
 
 // The bodies the routes read, one type to a route, so that the page can be given the shape it must send (internal/wire).

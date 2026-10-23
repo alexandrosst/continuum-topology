@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/accounts"
-	"continuum/internal/store"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/store"
 
 	_ "modernc.org/sqlite"
 )
@@ -46,7 +46,7 @@ func TestRegistrationDefaultFollowsTheListener(t *testing.T) {
 
 func TestVerifyAuditReportsTheFirstBrokenLink(t *testing.T) {
 	dir := t.TempDir()
-	st, err := store.OpenSQLite(filepath.Join(dir, "continuum.db"))
+	st, err := store.OpenSQLite(filepath.Join(dir, "ikhnos.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestVerifyAuditReportsTheFirstBrokenLink(t *testing.T) {
 	}
 
 	// tamper directly in the file, as an attacker with the database would
-	raw, err := sql.Open("sqlite", filepath.Join(dir, "continuum.db"))
+	raw, err := sql.Open("sqlite", filepath.Join(dir, "ikhnos.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

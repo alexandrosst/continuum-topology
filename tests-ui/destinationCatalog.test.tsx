@@ -87,7 +87,7 @@ describe('buildDestinationCatalog: regional operators', () => {
       isAdmin: true,
     })
     const op = entries.find((e) => e.kind === 'operator')
-    expect(op).toMatchObject({ exportEndpoint: 'op-eu.continuum-system.svc:4317', exportProtocol: 'grpc' })
+    expect(op).toMatchObject({ exportEndpoint: 'op-eu.ikhnos-system.svc:4317', exportProtocol: 'grpc' })
   })
 })
 
@@ -251,7 +251,7 @@ describe('applyDestination', () => {
     const op = catalog.entries.find((e) => e.kind === 'operator')!
     const leftover = { ...emptyTelemetry, exportProtocol: 'http' as const, exportInsecure: true, exportAuthHeaderName: 'x-honeycomb-team', exportAuthSecretName: 'honeycomb-token', exportAuthSecretKey: 'k' }
     const next = applyDestination(leftover, op)
-    expect(next.exportEndpoint).toBe('op-1.continuum-system.svc:4317')
+    expect(next.exportEndpoint).toBe('op-1.ikhnos-system.svc:4317')
     expect(next.exportProtocol).toBe('grpc')
     expect(next.exportOperatorId).toBe('op-1')
     // The receiver is mutual TLS: a previous preset's skip-verify and credential header/Secret must not ride along.
@@ -301,7 +301,7 @@ describe('detectBackends', () => {
     const found = detectBackends(
       [
         svc({ id: 'a', clusterId: 'cl-2' }),
-        svc({ id: 'b', namespace: 'continuum-system', image: 'otel/opentelemetry-collector-contrib:0.160.0' }),
+        svc({ id: 'b', namespace: 'ikhnos-system', image: 'otel/opentelemetry-collector-contrib:0.160.0' }),
         svc({ id: 'c', image: 'nginx:1.27' }),
         svc({ id: 'd', ports: [3101] }),
       ],

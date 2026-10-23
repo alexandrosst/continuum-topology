@@ -3,7 +3,7 @@ package operators
 import (
 	"context"
 
-	"continuum/internal/kernel"
+	"ikhnos/internal/kernel"
 )
 
 // Central is the central operator as the server itself runs it: the gateway of the FUSION bundled with the server's chart. The operators

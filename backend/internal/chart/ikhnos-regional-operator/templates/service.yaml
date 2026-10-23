@@ -1,0 +1,29 @@
+# So a source cluster's own telemetry.export.otlp.endpoint can point at this operator without knowing its
+# pod IP - the same reason ikhnos-agent's cluster collector gets a Service.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "operator.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "operator.labels" . | nindent 4 }}
+  {{- with .Values.service.annotations }}
+  annotations: {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if ne .Values.service.type "ClusterIP" }}
+  type: {{ .Values.service.type }}
+  {{- with .Values.service.loadBalancerSourceRanges }}
+  {{- if eq $.Values.service.type "LoadBalancer" }}
+  loadBalancerSourceRanges: {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- end }}
+  {{- end }}
+  selector: {app.kubernetes.io/name: ikhnos-regional-operator, app.kubernetes.io/instance: {{ .Release.Name }}}
+  ports:
+    - {name: otlp-grpc, port: 4317, targetPort: 4317, protocol: TCP{{ if and (eq .Values.service.type "NodePort") .Values.service.nodePort }}, nodePort: {{ .Values.service.nodePort }}{{ end }}}
+    {{- if eq .Values.service.type "ClusterIP" }}
+    - {name: otlp-http, port: 4318, targetPort: 4318, protocol: TCP}
+    {{- end }}
+    {{- if and .Values.selfMetrics.enabled (eq .Values.service.type "ClusterIP") }}
+    - {name: metrics, port: {{ .Values.selfMetrics.port }}, targetPort: {{ .Values.selfMetrics.port }}, protocol: TCP}
+    {{- end }}

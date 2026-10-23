@@ -52,7 +52,7 @@ type Scope struct {
 	// Signals the caller may read, from Signals. Empty means none (a token with "all" is stored with all three listed
 	// by the server; see NormalizeSignals).
 	Signals []string
-	// Namespaces and Clusters limit what is visible to telemetry whose k8s.namespace.name / continuum.cluster.id is
+	// Namespaces and Clusters limit what is visible to telemetry whose k8s.namespace.name / ikhnos.cluster.id is
 	// one of them. Empty means no limit on that dimension. Telemetry without the attribute is invisible to a Scope
 	// that limits it.
 	Namespaces []string

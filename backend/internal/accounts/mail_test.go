@@ -130,7 +130,7 @@ func (s *fakeSMTPServer) serveOne(t *testing.T) {
 
 func TestSendMailOverLoopbackWithoutSTARTTLS(t *testing.T) {
 	s := startFakeSMTP(t) // advertises nothing beyond the greeting - no STARTTLS, no AUTH
-	err := sendMail(s.addr(), nil, "continuum@example.com", []string{"person@example.com"}, mimeMessage("continuum@example.com", "person@example.com", "Your code", "123456"))
+	err := sendMail(s.addr(), nil, "ikhnos@example.com", []string{"person@example.com"}, mimeMessage("ikhnos@example.com", "person@example.com", "Your code", "123456"))
 	if err != nil {
 		t.Fatalf("sendMail to a loopback server with no STARTTLS: %v", err)
 	}
@@ -170,7 +170,7 @@ func TestSendMailTimesOutRatherThanHangingForever(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		done <- sendMail(ln.Addr().String(), nil, "continuum@example.com", []string{"person@example.com"}, mimeMessage("continuum@example.com", "person@example.com", "Your code", "000000"))
+		done <- sendMail(ln.Addr().String(), nil, "ikhnos@example.com", []string{"person@example.com"}, mimeMessage("ikhnos@example.com", "person@example.com", "Your code", "000000"))
 	}()
 
 	select {
@@ -186,7 +186,7 @@ func TestSendMailTimesOutRatherThanHangingForever(t *testing.T) {
 func TestSendMailAuthenticatesWhenOffered(t *testing.T) {
 	s := startFakeSMTP(t, "AUTH PLAIN")
 	auth := smtp.PlainAuth("", "user", "pass", "127.0.0.1")
-	if err := sendMail(s.addr(), auth, "continuum@example.com", []string{"person@example.com"}, mimeMessage("continuum@example.com", "person@example.com", "Your code", "654321")); err != nil {
+	if err := sendMail(s.addr(), auth, "ikhnos@example.com", []string{"person@example.com"}, mimeMessage("ikhnos@example.com", "person@example.com", "Your code", "654321")); err != nil {
 		t.Fatalf("sendMail with AUTH offered: %v", err)
 	}
 	select {

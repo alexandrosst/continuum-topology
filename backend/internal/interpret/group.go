@@ -5,13 +5,13 @@ import (
 	"encoding/hex"
 	"strings"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/model"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/model"
 )
 
 // Grouping origins, strongest first.
 const (
-	OriginExplicit  = "explicit"  // continuum.io/application
+	OriginExplicit  = "explicit"  // ikhnos.io/application
 	OriginArgo      = "argo"      // Argo CD tracking id / instance
 	OriginHelm      = "helm"      // Helm release
 	OriginPartOf    = "part-of"   // app.kubernetes.io/part-of
@@ -25,7 +25,7 @@ type appRef struct {
 // applicationFor decides which application a workload belongs to: the strongest match from
 // applicationCandidates. Everything here works from labels and annotations alone; nothing needs a
 // service mesh or any other tool to be installed.
-func applicationFor(w *continuumv1.WorkloadFacts) appRef {
+func applicationFor(w *ikhnosv1.WorkloadFacts) appRef {
 	return applicationCandidates(w)[0]
 }
 
@@ -33,11 +33,11 @@ func applicationFor(w *continuumv1.WorkloadFacts) appRef {
 // stopping at the first match: applicationFor uses only the first result, and the rest are offered as
 // alternatives a person can regroup onto instead of the winning one, without typing a name by hand.
 // Always returns at least one candidate (the namespace fallback never fails to match).
-func applicationCandidates(w *continuumv1.WorkloadFacts) []appRef {
+func applicationCandidates(w *ikhnosv1.WorkloadFacts) []appRef {
 	l, a := w.Labels, w.Annotations
 	var out []appRef
-	if v := l["continuum.io/application"]; v != "" {
-		out = append(out, appRef{v, OriginExplicit, "high", "label continuum.io/application=" + v})
+	if v := l["ikhnos.io/application"]; v != "" {
+		out = append(out, appRef{v, OriginExplicit, "high", "label ikhnos.io/application=" + v})
 	}
 	// Argo CD's tracking id looks like "<app>:<group>/<kind>:<namespace>/<name>". A malformed one (no
 	// colon) is not usable, so the instance label is tried next, same as applicationFor used to fall through.
@@ -60,7 +60,7 @@ func applicationCandidates(w *continuumv1.WorkloadFacts) []appRef {
 	return out
 }
 
-func managedBy(w *continuumv1.WorkloadFacts) model.ManagedBy {
+func managedBy(w *ikhnosv1.WorkloadFacts) model.ManagedBy {
 	l, a := w.Labels, w.Annotations
 	switch {
 	case a["argocd.argoproj.io/tracking-id"] != "" || l["argocd.argoproj.io/instance"] != "":

@@ -1,8 +1,8 @@
 package operatorsapi
 
 import (
-	"continuum/internal/destination"
-	"continuum/internal/install"
+	"ikhnos/internal/destination"
+	"ikhnos/internal/install"
 )
 
 // The bodies this package's routes read. They were anonymous structs at the handlers; naming them puts them in the TypeScript written

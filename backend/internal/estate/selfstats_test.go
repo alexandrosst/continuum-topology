@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 
-	"continuum/internal/kernel"
+	"ikhnos/internal/kernel"
 )
 
 // TestNoteSelfStatsIgnoresANilSelfStats covers an agent older than the field, or a heartbeat that for
@@ -26,7 +26,7 @@ func TestNoteSelfStatsIgnoresANilSelfStats(t *testing.T) {
 func TestNoteSelfStatsCopiesEveryField(t *testing.T) {
 	v := NewView()
 	at := time.Unix(5000, 0)
-	v.NoteSelfStats(&continuumv1.SelfStats{
+	v.NoteSelfStats(&ikhnosv1.SelfStats{
 		RssBytes: 123 << 20, Goroutines: 42, CpuSeconds: 3.5,
 		FlowIntervalSeconds: 30, ProbeIntervalSeconds: 180,
 		LastFlowBatchFlows: 17, LastFlowBatchBytes: 4096,

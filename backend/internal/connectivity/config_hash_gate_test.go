@@ -3,7 +3,7 @@ package connectivity
 import (
 	"testing"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -18,18 +18,18 @@ import (
 //
 // A field that is meant to stay out of the hash is listed below with the reason. That is the only way to leave one out.
 var outOfTheConfigHash = map[protoreflect.FullName]string{
-	"continuum.v1.Config.server_time_unix": "the server's clock at the moment of sending: it changes on every send, and a Config that differs only by it is the same Config",
-	"continuum.v1.Config.digest":           "the hash itself, set after it is computed",
+	"ikhnos.v1.Config.server_time_unix": "the server's clock at the moment of sending: it changes on every send, and a Config that differs only by it is the same Config",
+	"ikhnos.v1.Config.digest":           "the hash itself, set after it is computed",
 }
 
 func TestEveryFieldOfAConfigIsInItsHash(t *testing.T) {
-	full := &continuumv1.Config{}
+	full := &ikhnosv1.Config{}
 	fillEveryField(t, full.ProtoReflect())
 	base := ConfigHash(full)
-	if base == "" || base != ConfigHash(proto.Clone(full).(*continuumv1.Config)) {
+	if base == "" || base != ConfigHash(proto.Clone(full).(*ikhnosv1.Config)) {
 		t.Fatalf("the hash of a full Config is empty or not stable: %q", base)
 	}
-	if base == ConfigHash(&continuumv1.Config{}) {
+	if base == ConfigHash(&ikhnosv1.Config{}) {
 		t.Fatal("a full Config hashes as an empty one")
 	}
 
@@ -47,7 +47,7 @@ func TestEveryFieldOfAConfigIsInItsHash(t *testing.T) {
 			}
 			changes := func(what string, edit func(m protoreflect.Message)) {
 				t.Helper()
-				c := proto.Clone(full).(*continuumv1.Config)
+				c := proto.Clone(full).(*ikhnosv1.Config)
 				edit(at(c))
 				if ConfigHash(c) == base {
 					t.Errorf("%s: %s does not change the hash, so a change to it would never be pushed to an agent. Add it to configHash, or list it in outOfTheConfigHash with the reason", fd.FullName(), what)

@@ -6,7 +6,7 @@ import (
 	"io"
 	"testing"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 )
 
 func TestEscLeavesAPlainValueAloneAndEscapesTheRest(t *testing.T) {
@@ -34,7 +34,7 @@ func TestEscLeavesAPlainValueAloneAndEscapesTheRest(t *testing.T) {
 }
 
 func BenchmarkMeterWrite64Peers(b *testing.B) {
-	var lps []*continuumv1.LinkPeer
+	var lps []*ikhnosv1.LinkPeer
 	for i := 0; i < MaxPeers; i++ {
 		lp := peer(fmt.Sprintf("cl-%02d", i), fmt.Sprintf("Cluster %02d", i), fmt.Sprintf("10.%d.0.1", i+1))
 		lp.Throughput = true
@@ -46,7 +46,7 @@ func BenchmarkMeterWrite64Peers(b *testing.B) {
 	m.EnableProbes()
 	m.EnableConnects()
 	for _, pe := range p.List() {
-		m.Observe([]*continuumv1.RawFlow{{Client: true, PeerIp: pe.Addresses[0].String(), Connections: 3, BytesOut: 1 << 20, RttUs: 1200}})
+		m.Observe([]*ikhnosv1.RawFlow{{Client: true, PeerIp: pe.Addresses[0].String(), Connections: 3, BytesOut: 1 << 20, RttUs: 1200}})
 		m.ObserveProbe(pe.ID, Forward, OwampResult{Sent: 100, Lost: 1, HasDelay: true, Min: 0.01, Median: 0.012, Max: 0.03})
 		m.ObserveProbe(pe.ID, Reverse, OwampResult{Sent: 100, Lost: 1, HasDelay: true, Min: 0.01, Median: 0.012, Max: 0.03})
 		m.ObserveConnect(pe.ID, 1500000)

@@ -10,14 +10,14 @@ import (
 	"strings"
 	"time"
 
-	"continuum/internal/server"
+	"ikhnos/internal/server"
 )
 
 var (
-	metricsListen = flag.String("metrics-listen", os.Getenv("CONTINUUM_METRICS_LISTEN"),
-		"address to serve Prometheus metrics on (GET /metrics), for example 127.0.0.1:9090. Off by default. Counts only: agents by status, syncs applied and refused, failed sign-ins, rate-limited requests, recovered panics, store errors; no names or cluster data. It is separate from the admin listener so it can stay on a network only your monitoring reaches; give --metrics-token-file when that is not loopback; env CONTINUUM_METRICS_LISTEN")
-	metricsTokenFile = flag.String("metrics-token-file", os.Getenv("CONTINUUM_METRICS_TOKEN_FILE"),
-		"file holding a bearer token that scrapers must present to read /metrics; env CONTINUUM_METRICS_TOKEN_FILE")
+	metricsListen = flag.String("metrics-listen", os.Getenv("IKHNOS_METRICS_LISTEN"),
+		"address to serve Prometheus metrics on (GET /metrics), for example 127.0.0.1:9090. Off by default. Counts only: agents by status, syncs applied and refused, failed sign-ins, rate-limited requests, recovered panics, store errors; no names or cluster data. It is separate from the admin listener so it can stay on a network only your monitoring reaches; give --metrics-token-file when that is not loopback; env IKHNOS_METRICS_LISTEN")
+	metricsTokenFile = flag.String("metrics-token-file", os.Getenv("IKHNOS_METRICS_TOKEN_FILE"),
+		"file holding a bearer token that scrapers must present to read /metrics; env IKHNOS_METRICS_TOKEN_FILE")
 )
 
 // serveMetrics starts the metrics listener when one was asked for and returns what to shut down.

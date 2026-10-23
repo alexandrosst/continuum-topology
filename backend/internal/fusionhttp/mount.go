@@ -3,7 +3,7 @@ package fusionhttp
 import (
 	"net/http"
 
-	"continuum/internal/fusionapi"
+	"ikhnos/internal/fusionapi"
 )
 
 // Router is where the data API is mounted. The server records each route in its route table, so a route cannot be mounted

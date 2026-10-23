@@ -158,18 +158,18 @@ func TestOperatorEachRouteHasItsOwnCredential(t *testing.T) {
 			}
 		}
 	}
-	if env["CONTINUUM_OPERATOR_EXPORT_AUTH_METRICS"] != [2]string{"prom-token", "token"} || env["CONTINUUM_OPERATOR_EXPORT_AUTH_TRACES"] != [2]string{"tempo-token", "key"} {
+	if env["IKHNOS_OPERATOR_EXPORT_AUTH_METRICS"] != [2]string{"prom-token", "token"} || env["IKHNOS_OPERATOR_EXPORT_AUTH_TRACES"] != [2]string{"tempo-token", "key"} {
 		t.Errorf("credential env = %v", env)
 	}
-	if _, ok := env["CONTINUUM_OPERATOR_EXPORT_AUTH_LOGS"]; ok {
+	if _, ok := env["IKHNOS_OPERATOR_EXPORT_AUTH_LOGS"]; ok {
 		t.Error("logs has no credential but got an env entry")
 	}
-	if _, ok := env["CONTINUUM_OPERATOR_EXPORT_AUTH"]; ok {
+	if _, ok := env["IKHNOS_OPERATOR_EXPORT_AUTH"]; ok {
 		t.Error("the default destination is unused, so its credential must not be injected")
 	}
 	c := operatorCollectorConfig(t, args...)
 	headers, _ := c.exporters["otlphttp/metrics"]["headers"].(map[string]any)
-	if headers["X-Token"] != "${env:CONTINUUM_OPERATOR_EXPORT_AUTH_METRICS}" {
+	if headers["X-Token"] != "${env:IKHNOS_OPERATOR_EXPORT_AUTH_METRICS}" {
 		t.Errorf("metrics headers = %v", headers)
 	}
 	// The value itself never reaches the config, only a reference to the variable.

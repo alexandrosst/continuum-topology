@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/measure"
+	"ikhnos/internal/measure"
 )
 
 func TestPathSummaryMergesRounds(t *testing.T) {

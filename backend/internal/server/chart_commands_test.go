@@ -11,11 +11,11 @@ import (
 	"strings"
 	"testing"
 
-	"continuum/internal/accounts"
-	"continuum/internal/chart"
-	"continuum/internal/operators"
-	"continuum/internal/operatorsapi"
-	"continuum/internal/store"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/chart"
+	"ikhnos/internal/operators"
+	"ikhnos/internal/operatorsapi"
+	"ikhnos/internal/store"
 
 	"k8s.io/apimachinery/pkg/util/yaml"
 	sigyaml "sigs.k8s.io/yaml"
@@ -484,7 +484,7 @@ func TestPrintedAgentCommandsRenderTheDeclaredExporters(t *testing.T) {
 			b, _ := json.Marshal(cfg)
 			all += string(b)
 		}
-		for _, want := range []string{`"continuum.org.id"`, `"continuum.cluster.id"`, `"continuum.intent.id"`} {
+		for _, want := range []string{`"ikhnos.org.id"`, `"ikhnos.cluster.id"`, `"ikhnos.intent.id"`} {
 			if !strings.Contains(all, want) {
 				t.Errorf("the rendered collectors never stamp %s", want)
 			}
@@ -566,7 +566,7 @@ func onlyCollector(t *testing.T, r renderedChart) map[string]any {
 // collector then receives the way the operator says (mutual TLS only, or a bearer token) and exports where it says.
 func TestPrintedOperatorInstallsRenderTheDeclaredReceiverAndExporter(t *testing.T) {
 	a := newIntentRig(t)
-	a.a.PublicURL = "https://continuum.example.com" // the chart refuses a plain-HTTP heartbeat, and a test server's own address is plain HTTP
+	a.a.PublicURL = "https://ikhnos.example.com" // the chart refuses a plain-HTTP heartbeat, and a test server's own address is plain HTTP
 	f, _ := newFusion(t, a.adminRig)
 	a.a.Fusion = f
 	if _, err := f.Enable(a.ctx, a.core.Fusion, "alex"); err != nil {

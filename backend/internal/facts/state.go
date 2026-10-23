@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
@@ -14,11 +14,11 @@ import (
 
 // State is everything currently known about one cluster.
 type State struct {
-	Cluster    *continuumv1.ClusterFacts
-	Nodes      map[string]*continuumv1.NodeFacts
-	Namespaces map[string]*continuumv1.NamespaceFacts
-	Workloads  map[string]*continuumv1.WorkloadFacts
-	Modules    []*continuumv1.ModuleStatus
+	Cluster    *ikhnosv1.ClusterFacts
+	Nodes      map[string]*ikhnosv1.NodeFacts
+	Namespaces map[string]*ikhnosv1.NamespaceFacts
+	Workloads  map[string]*ikhnosv1.WorkloadFacts
+	Modules    []*ikhnosv1.ModuleStatus
 	Seq        uint64
 
 	// Encoded sizes of what each map holds, kept up to date by Apply so that limits can be checked in
@@ -28,19 +28,19 @@ type State struct {
 
 func New() *State {
 	return &State{
-		Nodes:      map[string]*continuumv1.NodeFacts{},
-		Namespaces: map[string]*continuumv1.NamespaceFacts{},
-		Workloads:  map[string]*continuumv1.WorkloadFacts{},
+		Nodes:      map[string]*ikhnosv1.NodeFacts{},
+		Namespaces: map[string]*ikhnosv1.NamespaceFacts{},
+		Workloads:  map[string]*ikhnosv1.WorkloadFacts{},
 	}
 }
 
 // Apply merges a Sync into the state. A full sync replaces everything. It does not enforce limits: call
 // Check first with the limits that apply.
-func (s *State) Apply(m *continuumv1.Sync) {
+func (s *State) Apply(m *ikhnosv1.Sync) {
 	if m.Full {
-		s.Nodes = map[string]*continuumv1.NodeFacts{}
-		s.Namespaces = map[string]*continuumv1.NamespaceFacts{}
-		s.Workloads = map[string]*continuumv1.WorkloadFacts{}
+		s.Nodes = map[string]*ikhnosv1.NodeFacts{}
+		s.Namespaces = map[string]*ikhnosv1.NamespaceFacts{}
+		s.Workloads = map[string]*ikhnosv1.WorkloadFacts{}
 		s.nodeBytes, s.nsBytes, s.wlBytes = 0, 0, 0
 	}
 	if m.Cluster != nil {
@@ -93,8 +93,8 @@ func drop[T proto.Message](m map[string]T, k string) int64 {
 // Snapshot is the state as one full Sync. It copies the maps into slices of pointers and nothing
 // more: Apply replaces the messages it holds and never edits them, so the result stays valid when the
 // state moves on, and can be encoded without holding whatever lock guards the State.
-func (s *State) Snapshot() *continuumv1.Sync {
-	m := &continuumv1.Sync{Seq: s.Seq, Full: true, Cluster: s.Cluster, Modules: s.Modules}
+func (s *State) Snapshot() *ikhnosv1.Sync {
+	m := &ikhnosv1.Sync{Seq: s.Seq, Full: true, Cluster: s.Cluster, Modules: s.Modules}
 	for _, n := range s.Nodes {
 		m.Nodes = append(m.Nodes, n)
 	}
@@ -111,7 +111,7 @@ func (s *State) Snapshot() *continuumv1.Sync {
 func (s *State) Marshal() ([]byte, error) { return proto.Marshal(s.Snapshot()) }
 
 func Unmarshal(b []byte) (*State, error) {
-	var m continuumv1.Sync
+	var m ikhnosv1.Sync
 	if err := proto.Unmarshal(b, &m); err != nil {
 		return nil, err
 	}
@@ -158,7 +158,7 @@ func (d Drift) String() string {
 
 // CheckDrift compares the state as the server holds it with a full picture from the agent. It
 // changes nothing; applying the full picture afterwards is what repairs the difference.
-func (s *State) CheckDrift(full *continuumv1.Sync) Drift {
+func (s *State) CheckDrift(full *ikhnosv1.Sync) Drift {
 	var d Drift
 	note := func(kind, key string) {
 		if len(d.Samples) < 5 {

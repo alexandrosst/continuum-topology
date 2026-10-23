@@ -3,11 +3,11 @@ package server
 import (
 	"testing"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 
-	"continuum/internal/accounts"
-	"continuum/internal/operators"
-	"continuum/internal/testkit"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/operators"
+	"ikhnos/internal/testkit"
 )
 
 func TestOperatorAddressCandidatesComeFromWhatDiscoveryReportsForItsCluster(t *testing.T) {
@@ -43,17 +43,17 @@ func TestOperatorAddressCandidatesComeFromWhatDiscoveryReportsForItsCluster(t *t
 
 	v := liveView(*a.now, "athens-edge-1")
 	v.State.Nodes["athens-edge-1"].InternalIps = []string{"10.20.0.14"}
-	v.State.Nodes["athens-edge-1"].Probe = &continuumv1.HostProbe{HostAddresses: []*continuumv1.HostAddress{
+	v.State.Nodes["athens-edge-1"].Probe = &ikhnosv1.HostProbe{HostAddresses: []*ikhnosv1.HostAddress{
 		{Interface: "eth0", Address: "10.20.0.14/24"}, {Interface: "tailscale0", Kind: "tun", Address: "100.64.3.7/32"},
 	}}
-	v.State.Workloads["continuum-system/Deployment/"+operators.OperatorServiceName(id)] = &continuumv1.WorkloadFacts{
-		Key: "continuum-system/Deployment/" + operators.OperatorServiceName(id), Namespace: "continuum-system", Kind: "Deployment", Name: operators.OperatorServiceName(id),
-		NodeNames: []string{"athens-edge-1"}, Reachable: []*continuumv1.Address{{Port: 31317, Kind: "node-port"}},
+	v.State.Workloads["ikhnos-system/Deployment/"+operators.OperatorServiceName(id)] = &ikhnosv1.WorkloadFacts{
+		Key: "ikhnos-system/Deployment/" + operators.OperatorServiceName(id), Namespace: "ikhnos-system", Kind: "Deployment", Name: operators.OperatorServiceName(id),
+		NodeNames: []string{"athens-edge-1"}, Reachable: []*ikhnosv1.Address{{Port: 31317, Kind: "node-port"}},
 	}
 	// A workload of the same name in another namespace is somebody else's.
-	v.State.Workloads["other/Deployment/"+operators.OperatorServiceName(id)] = &continuumv1.WorkloadFacts{
+	v.State.Workloads["other/Deployment/"+operators.OperatorServiceName(id)] = &ikhnosv1.WorkloadFacts{
 		Key: "other/Deployment/" + operators.OperatorServiceName(id), Namespace: "other", Kind: "Deployment", Name: operators.OperatorServiceName(id),
-		Reachable: []*continuumv1.Address{{Ip: "198.51.100.77", Port: 4317, Kind: "load-balancer"}},
+		Reachable: []*ikhnosv1.Address{{Ip: "198.51.100.77", Port: 4317, Kind: "load-balancer"}},
 	}
 	a.hub().Mu.Lock()
 	a.hub().Views[agentID] = v

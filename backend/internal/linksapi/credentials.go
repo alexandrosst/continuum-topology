@@ -4,9 +4,9 @@ import (
 	"net/http"
 	"strings"
 
-	"continuum/internal/connectivity"
-	"continuum/internal/httpkit"
-	"continuum/internal/kernel"
+	"ikhnos/internal/connectivity"
+	"ikhnos/internal/httpkit"
+	"ikhnos/internal/kernel"
 )
 
 // rotateCredentials is POST /api/v1/orgs/{org}/links/rotate-credentials: it replaces the iperf3 credentials the server issued for the

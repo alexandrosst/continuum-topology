@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"continuum/internal/accounts"
-	"continuum/internal/kernel"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/kernel"
 )
 
 func TestRotatingLinkCredentialsIsAnAdminActionThatShowsNoSecrets(t *testing.T) {

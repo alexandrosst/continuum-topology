@@ -6,7 +6,7 @@ import { isSampleData } from '@/lib/seed'
 import { useServer } from '@/store/server'
 import { useRawTopology } from '@/store/topology'
 
-const KEY = 'continuum-sample-banner/dismissed'
+const KEY = 'ikhnos-sample-banner/dismissed'
 const read = () => {
   try {
     return sessionStorage.getItem(KEY) === '1'

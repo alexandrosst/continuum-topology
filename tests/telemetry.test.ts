@@ -208,7 +208,7 @@ const on: TelemetryInput = { ...emptyTelemetry, resourceUsage: true, exportEndpo
 
 test('tag problems: reserved prefix, limit, duplicates, missing parts, spaces', () => {
   assert.deepEqual(tagProblems([{ key: 'team', value: 'x' }]), [])
-  assert.match(tagProblems([{ key: 'Continuum.org.id', value: 'x' }])[0], /reserved/)
+  assert.match(tagProblems([{ key: 'Ikhnos.org.id', value: 'x' }])[0], /reserved/)
   assert.match(tagProblems(Array.from({ length: TAG_LIMIT + 1 }, (_, i) => ({ key: `k${i}`, value: 'v' })))[0], /At most 8/)
   assert.match(tagProblems([{ key: 'a', value: '1' }, { key: 'a', value: '2' }])[0], /listed twice/)
   assert.match(tagProblems([{ key: 'a', value: ' ' }])[0], /needs a value/)
@@ -325,7 +325,7 @@ test('lanes start from the single destination where it fits, and keep what they 
   assert.equal(zip.exportLanes.traces.exportEndpoint, 'z:9411/api/v2/spans')
   assert.equal(zip.exportLanes.metrics.exportEndpoint, '')
   // A regional operator is carried into the lanes too: each lane then states its own mutual-TLS route.
-  const op = startLanes({ ...single, exportEndpoint: 'op-eu.continuum-system.svc:4317', exportOperatorId: 'op-eu' })
+  const op = startLanes({ ...single, exportEndpoint: 'op-eu.ikhnos-system.svc:4317', exportOperatorId: 'op-eu' })
   assert.equal(op.exportLanes.metrics.exportOperatorId, 'op-eu')
 })
 

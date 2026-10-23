@@ -54,8 +54,8 @@ func TestTelemetryRoutesSendEachSignalTypeToItsOwnExporter(t *testing.T) {
 	args = append(args, routeFlags("traces", "zipkin.obs.svc:9411", "zipkin", "tls.insecure=true")...)
 	r := render(t, args...)
 
-	host := otelConfig(t, r.configmaps["continuum-telemetry-host-config"].Data)
-	cluster := otelConfig(t, r.configmaps["continuum-telemetry-cluster-config"].Data)
+	host := otelConfig(t, r.configmaps["ikhnos-telemetry-host-config"].Data)
+	cluster := otelConfig(t, r.configmaps["ikhnos-telemetry-cluster-config"].Data)
 	for name, cfg := range map[string]map[string]any{"host": host, "cluster": cluster} {
 		exporters, _ := cfg["exporters"].(map[string]any)
 		for _, absent := range []string{"otlp", "otlphttp", "zipkin"} {
@@ -100,7 +100,7 @@ func TestTelemetryRouteSecretsReachOnlyTheCollectorThatUsesThem(t *testing.T) {
 	args := append([]string{"--set", "telemetry.export.otlp.endpoint=gw:4317"}, allSignals...)
 	args = append(args, routeFlags("traces", "tempo:4317", "grpc", "auth.secretName=tempo-token", "tls.mtls.enabled=true", "tls.mtls.secretName=tempo-cert")...)
 	r := render(t, args...)
-	host := r.daemonsets["continuum-telemetry-host"].Spec.Template.Spec
+	host := r.daemonsets["ikhnos-telemetry-host"].Spec.Template.Spec
 	for _, e := range host.Containers[0].Env {
 		if strings.Contains(e.Name, "AUTH") {
 			t.Errorf("the host DaemonSet got %s", e.Name)
@@ -111,8 +111,8 @@ func TestTelemetryRouteSecretsReachOnlyTheCollectorThatUsesThem(t *testing.T) {
 			t.Errorf("the host DaemonSet mounts Secret %s", v.Secret.SecretName)
 		}
 	}
-	cl := r.deployments["continuum-telemetry-cluster"].Spec.Template.Spec
-	if _, ok := envOf(cl.Containers[0])["CONTINUUM_TELEMETRY_AUTH_TRACES"]; !ok {
+	cl := r.deployments["ikhnos-telemetry-cluster"].Spec.Template.Spec
+	if _, ok := envOf(cl.Containers[0])["IKHNOS_TELEMETRY_AUTH_TRACES"]; !ok {
 		t.Error("the cluster collector is missing the traces credential")
 	}
 }
@@ -121,7 +121,7 @@ func TestTelemetryRouteForOneTypeLeavesTheRestOnTheDefault(t *testing.T) {
 	args := append([]string{"--set", "telemetry.export.otlp.endpoint=gw.example.com:4317"}, allSignals...)
 	args = append(args, routeFlags("traces", "zipkin.obs.svc:9411", "zipkin", "tls.insecure=true")...)
 	r := render(t, args...)
-	cluster := otelConfig(t, r.configmaps["continuum-telemetry-cluster-config"].Data)
+	cluster := otelConfig(t, r.configmaps["ikhnos-telemetry-cluster-config"].Data)
 	exporters, _ := cluster["exporters"].(map[string]any)
 	if _, ok := exporters["otlp"]; !ok {
 		t.Fatalf("the default otlp exporter is missing: %+v", exporters)
@@ -139,7 +139,7 @@ func TestTelemetryRouteForOneTypeLeavesTheRestOnTheDefault(t *testing.T) {
 		}
 	}
 	// The host collector carries no traces, so it has the default only.
-	host := otelConfig(t, r.configmaps["continuum-telemetry-host-config"].Data)
+	host := otelConfig(t, r.configmaps["ikhnos-telemetry-host-config"].Data)
 	hexp, _ := host["exporters"].(map[string]any)
 	if _, ok := hexp["zipkin/traces"]; ok {
 		t.Errorf("the host collector rendered a traces route though it has no traces pipeline")
@@ -150,14 +150,14 @@ func TestTelemetryRouteForOneTypeLeavesTheRestOnTheDefault(t *testing.T) {
 func TestTelemetryRoutesKeepCredentialsAndCertificatesSeparate(t *testing.T) {
 	args := append([]string{}, allSignals...)
 	args = append(args, routeFlags("metrics", "prom.example.com:443", "http", "auth.secretName=prom-token", "auth.headerName=X-Prom")...)
-	args = append(args, routeFlags("logs", "op-eu1.continuum-system.svc:4317", "grpc", "tls.mtls.enabled=true", "tls.mtls.secretName=op-eu1-client")...)
+	args = append(args, routeFlags("logs", "op-eu1.ikhnos-system.svc:4317", "grpc", "tls.mtls.enabled=true", "tls.mtls.secretName=op-eu1-client")...)
 	args = append(args, routeFlags("traces", "tempo.example.com:4317", "grpc", "auth.secretName=tempo-token", "auth.secretKey=key")...)
 	r := render(t, args...)
 
-	cluster := otelConfig(t, r.configmaps["continuum-telemetry-cluster-config"].Data)
+	cluster := otelConfig(t, r.configmaps["ikhnos-telemetry-cluster-config"].Data)
 	exporters, _ := cluster["exporters"].(map[string]any)
 	metrics, _ := exporters["otlphttp/metrics"].(map[string]any)
-	if h, _ := metrics["headers"].(map[string]any); h["X-Prom"] != "${env:CONTINUUM_TELEMETRY_AUTH_METRICS}" {
+	if h, _ := metrics["headers"].(map[string]any); h["X-Prom"] != "${env:IKHNOS_TELEMETRY_AUTH_METRICS}" {
 		t.Errorf("metrics headers = %+v", metrics["headers"])
 	}
 	logs, _ := exporters["otlp/logs"].(map[string]any)
@@ -165,29 +165,29 @@ func TestTelemetryRoutesKeepCredentialsAndCertificatesSeparate(t *testing.T) {
 		t.Errorf("logs tls = %+v", logs["tls"])
 	}
 	traces, _ := exporters["otlp/traces"].(map[string]any)
-	if h, _ := traces["headers"].(map[string]any); h["Authorization"] != "${env:CONTINUUM_TELEMETRY_AUTH_TRACES}" {
+	if h, _ := traces["headers"].(map[string]any); h["Authorization"] != "${env:IKHNOS_TELEMETRY_AUTH_TRACES}" {
 		t.Errorf("traces headers = %+v", traces["headers"])
 	}
 
-	dep := r.deployments["continuum-telemetry-cluster"]
+	dep := r.deployments["ikhnos-telemetry-cluster"]
 	if dep.Name == "" {
 		t.Fatalf("no cluster deployment rendered: %v", keys(r.deployments))
 	}
 	c := dep.Spec.Template.Spec.Containers[0]
 	env := envOf(c)
 	for name, want := range map[string][2]string{
-		"CONTINUUM_TELEMETRY_AUTH_METRICS": {"prom-token", "token"},
-		"CONTINUUM_TELEMETRY_AUTH_TRACES":  {"tempo-token", "key"},
+		"IKHNOS_TELEMETRY_AUTH_METRICS": {"prom-token", "token"},
+		"IKHNOS_TELEMETRY_AUTH_TRACES":  {"tempo-token", "key"},
 	} {
 		ref := env[name].ValueFrom
 		if ref == nil || ref.SecretKeyRef.Name != want[0] || ref.SecretKeyRef.Key != want[1] {
 			t.Errorf("%s = %+v, want secret %s key %s", name, env[name], want[0], want[1])
 		}
 	}
-	if _, ok := env["CONTINUUM_TELEMETRY_AUTH"]; ok {
+	if _, ok := env["IKHNOS_TELEMETRY_AUTH"]; ok {
 		t.Error("the default credential variable is set though no default destination is in use")
 	}
-	if _, ok := env["CONTINUUM_TELEMETRY_AUTH_LOGS"]; ok {
+	if _, ok := env["IKHNOS_TELEMETRY_AUTH_LOGS"]; ok {
 		t.Error("the logs route has no credential but got a variable")
 	}
 	mounts := map[string]string{}
@@ -221,13 +221,13 @@ func TestTelemetryWithoutRoutesIsExactlyTheDefault(t *testing.T) {
 	args := append([]string{"--set", "telemetry.export.otlp.endpoint=gw:4317", "--set", "telemetry.export.otlp.auth.secretName=tok",
 		"--set", "telemetry.export.otlp.tls.mtls.enabled=true", "--set", "telemetry.export.otlp.tls.mtls.secretName=cli"}, allSignals...)
 	r := render(t, args...)
-	cluster := otelConfig(t, r.configmaps["continuum-telemetry-cluster-config"].Data)
+	cluster := otelConfig(t, r.configmaps["ikhnos-telemetry-cluster-config"].Data)
 	exporters, _ := cluster["exporters"].(map[string]any)
 	if len(exporters) != 1 {
 		t.Errorf("exporters = %+v, want just otlp", exporters)
 	}
-	c := r.deployments["continuum-telemetry-cluster"].Spec.Template.Spec.Containers[0]
-	if _, ok := envOf(c)["CONTINUUM_TELEMETRY_AUTH"]; !ok {
+	c := r.deployments["ikhnos-telemetry-cluster"].Spec.Template.Spec.Containers[0]
+	if _, ok := envOf(c)["IKHNOS_TELEMETRY_AUTH"]; !ok {
 		t.Error("the default credential variable is missing")
 	}
 	var mounted bool

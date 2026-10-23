@@ -90,7 +90,7 @@ func TestFusedMetricsAndContextLogsStayInTheClustersOfTheResource(t *testing.T) 
 		t.Fatalf("%v", queries)
 	}
 	for _, q := range queries {
-		if !strings.Contains(q, `continuum_cluster_id="cl-1"`) {
+		if !strings.Contains(q, `ikhnos_cluster_id="cl-1"`) {
 			t.Errorf("a resource of cl-1 read the series of every cluster: %s", q)
 		}
 	}

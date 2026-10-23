@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"continuum/internal/fusionapi"
-	"continuum/internal/kernel"
-	"continuum/internal/store"
+	"ikhnos/internal/fusionapi"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/store"
 )
 
 // The chart stages render the real charts with `helm template`, and skip when helm is not installed (the repository has no
@@ -61,7 +61,7 @@ func setFlags(t *testing.T, cmd string) map[string]string {
 // agentValue is the chart value that feeds each attribute an agent stamps; an attribute the vocabulary says an agent stamps
 // and this does not know is one nobody has wired into the command yet.
 var agentValue = map[string]string{
-	"continuum.org.id": "orgId", "continuum.cluster.id": "clusterId", "continuum.intent.id": "intentId", "continuum.scope": "scope",
+	"ikhnos.org.id": "orgId", "ikhnos.cluster.id": "clusterId", "ikhnos.intent.id": "intentId", "ikhnos.scope": "scope",
 }
 
 func doctorCommands(t *testing.T) {
@@ -88,10 +88,10 @@ func doctorCommands(t *testing.T) {
 			want[attr] = given["telemetry.resource."+key]
 		}
 		// What the command says is what the cluster is: the id the stores will group by is the one the server gave it.
-		if want["continuum.org.id"] != a.core.OrgID || want["continuum.cluster.id"] != kernel.ClusterIDFor(a.core.OrgID, ag.Fingerprint) || want["continuum.cluster.id"] != ag.ClusterID {
-			t.Errorf("the command stamps org %q and cluster %q; the server knows org %q and cluster %q", want["continuum.org.id"], want["continuum.cluster.id"], a.core.OrgID, ag.ClusterID)
+		if want["ikhnos.org.id"] != a.core.OrgID || want["ikhnos.cluster.id"] != kernel.ClusterIDFor(a.core.OrgID, ag.Fingerprint) || want["ikhnos.cluster.id"] != ag.ClusterID {
+			t.Errorf("the command stamps org %q and cluster %q; the server knows org %q and cluster %q", want["ikhnos.org.id"], want["ikhnos.cluster.id"], a.core.OrgID, ag.ClusterID)
 		}
-		if ti, err := a.core.Telemetry.GetTelemetryIntent(a.ctx, want["continuum.intent.id"]); err != nil || ti.AgentID != agentID || ti.Status != store.TelemetryIntentActive {
+		if ti, err := a.core.Telemetry.GetTelemetryIntent(a.ctx, want["ikhnos.intent.id"]); err != nil || ti.AgentID != agentID || ti.Status != store.TelemetryIntentActive {
 			t.Errorf("the intent the command stamps is not this agent's active one: %v", err)
 		}
 
@@ -100,7 +100,7 @@ func doctorCommands(t *testing.T) {
 			t.Fatal("no collector rendered")
 		}
 		for name, cfg := range cfgs {
-			got := resourceAttrs(cfg, "resource/continuum")
+			got := resourceAttrs(cfg, "resource/ikhnos")
 			for attr, value := range want {
 				if g := got[attr]; g == nil || g["value"] != value || g["action"] != "upsert" {
 					t.Errorf("%s: %s is %v, want %q upserted (an insert would keep what a workload set itself)", name, attr, g, value)
@@ -108,17 +108,17 @@ func doctorCommands(t *testing.T) {
 			}
 			for attr := range got {
 				if _, ok := want[attr]; !ok {
-					t.Errorf("%s: resource/continuum sets %s, which the vocabulary does not say an agent stamps", name, attr)
+					t.Errorf("%s: resource/ikhnos sets %s, which the vocabulary does not say an agent stamps", name, attr)
 				}
 			}
 			for pipeline, procs := range pipelines(cfg) {
 				// Last but for the batch, so that nothing a workload or a user processor sets can override it.
-				if n := len(procs); n < 2 || procs[n-2] != "resource/continuum" || procs[n-1] != "batch" {
-					t.Errorf("%s: pipeline %s runs %v; resource/continuum must be the last processor before batch", name, pipeline, procs)
+				if n := len(procs); n < 2 || procs[n-2] != "resource/ikhnos" || procs[n-1] != "batch" {
+					t.Errorf("%s: pipeline %s runs %v; resource/ikhnos must be the last processor before batch", name, pipeline, procs)
 				}
 				// And whatever the person's own processors did, the extractor of each record is set after them.
 				for _, attr := range stampedBy("extractor") {
-					if !slices.ContainsFunc(procs, func(p string) bool { return strings.HasPrefix(p, "transform/continuum_source") }) {
+					if !slices.ContainsFunc(procs, func(p string) bool { return strings.HasPrefix(p, "transform/ikhnos_source") }) {
 						t.Errorf("%s: pipeline %s runs %v; nothing stamps %s", name, pipeline, procs, attr)
 					}
 				}
@@ -136,7 +136,7 @@ func doctorCommands(t *testing.T) {
 		}
 		cfg := onlyCollector(t, operatorRender(t, doc["install"].(string)))
 		got := resourceAttrs(cfg, "resource/operator")
-		want := map[string]string{"continuum.operator.id": op.ID, "continuum.operator.name": op.Name}
+		want := map[string]string{"ikhnos.operator.id": op.ID, "ikhnos.operator.name": op.Name}
 		for _, attr := range stampedBy("operator") {
 			if _, ok := want[attr]; !ok {
 				t.Errorf("the vocabulary says an operator stamps %s, but no operator value is known to feed it", attr)

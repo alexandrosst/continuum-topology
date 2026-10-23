@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"continuum/internal/fusion"
-	"continuum/internal/fusionpages"
-	"continuum/internal/httpkit"
-	"continuum/internal/kernel"
+	"ikhnos/internal/fusion"
+	"ikhnos/internal/fusionpages"
+	"ikhnos/internal/httpkit"
+	"ikhnos/internal/kernel"
 )
 
 // The two pages FUSION has of its own - Prometheus's and Grafana's - are opened from the Ikhnos UI through the server, so

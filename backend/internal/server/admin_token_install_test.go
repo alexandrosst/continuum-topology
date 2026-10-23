@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"continuum/internal/accounts"
-	"continuum/internal/install"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/install"
 )
 
 // The install command a new token is shown with is written by the server from what the person chose: which per-node collectors to
@@ -40,7 +40,7 @@ func TestATokenIsShownWithTheCollectorsAndScopeChosen(t *testing.T) {
 	body := map[string]any{
 		"name": "chosen", "tier": 2,
 		"collectors": map[string]any{"nodeProbe": true, "flowObserver": true, "measurements": true},
-		"scope":      map[string]any{"namespaces": []string{"shop", "pay"}, "exclude": []string{"pay-test"}, "selector": "continuum.io/scope=yes"},
+		"scope":      map[string]any{"namespaces": []string{"shop", "pay"}, "exclude": []string{"pay-test"}, "selector": "ikhnos.io/scope=yes"},
 	}
 	code, chosen, chosenSecret := a.newToken(t, admin, body)
 	if code != 201 {
@@ -49,7 +49,7 @@ func TestATokenIsShownWithTheCollectorsAndScopeChosen(t *testing.T) {
 	// Apart from the token, it is the plain command with the choices after it, each on a line of its own, in the order the page always printed.
 	want := plain + install.Continued([]install.Value{
 		install.Set("nodeProbe.enabled", "true"), install.Set("flowObserver.enabled", "true"), install.Set("measurements.enabled", "true"),
-		install.Strings("scope.namespaces", []string{"shop", "pay"}), install.Strings("scope.exclude", []string{"pay-test"}), install.SetString("scope.selector", "continuum.io/scope=yes"),
+		install.Strings("scope.namespaces", []string{"shop", "pay"}), install.Strings("scope.exclude", []string{"pay-test"}), install.SetString("scope.selector", "ikhnos.io/scope=yes"),
 	})
 	if got := strings.ReplaceAll(chosen, chosenSecret, plainSecret); got != want {
 		t.Fatalf("the command is\n%s\nwant\n%s", got, want)
@@ -82,8 +82,8 @@ func TestACollectorOrScopeThatCannotBeHonouredIsRefusedBeforeAnyTokenExists(t *t
 		"a namespace that is a shell command":         {"name": "x", "tier": 1, "scope": map[string]any{"namespaces": []string{"a; rm -rf /"}}},
 		"an exclusion that is not a name":             {"name": "x", "tier": 1, "scope": map[string]any{"exclude": []string{"$(id)"}}},
 		"a selector on a label the agent never reads": {"name": "x", "tier": 1, "scope": map[string]any{"selector": "team=a"}},
-		"a selector value that is a command":          {"name": "x", "tier": 1, "scope": map[string]any{"selector": "continuum.io/scope=$(id)"}},
-		"a selector that is not key=value":            {"name": "x", "tier": 1, "scope": map[string]any{"selector": "continuum.io/scope=a=b"}},
+		"a selector value that is a command":          {"name": "x", "tier": 1, "scope": map[string]any{"selector": "ikhnos.io/scope=$(id)"}},
+		"a selector that is not key=value":            {"name": "x", "tier": 1, "scope": map[string]any{"selector": "ikhnos.io/scope=a=b"}},
 		"a collector nobody knows":                    {"name": "x", "tier": 1, "collectors": map[string]any{"keylogger": true}},
 		"a scope field nobody knows":                  {"name": "x", "tier": 1, "scope": map[string]any{"everything": true}},
 	} {

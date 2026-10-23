@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/fusionapi"
+	"ikhnos/internal/fusionapi"
 )
 
 // The central gateway must not lose data silently when a store is down, and must not let a sender write the
@@ -45,7 +45,7 @@ func TestFusionCentralDropsProvenanceWrittenBelowTheResource(t *testing.T) {
 			t.Errorf("%s = %v, want one %s statement", key, st, ctx)
 			continue
 		}
-		if s := st[0].(map[string]any)["statements"].([]any); len(s) != 1 || !strings.Contains(s[0].(string), `delete_matching_keys(attributes, "^continuum\\..*")`) {
+		if s := st[0].(map[string]any)["statements"].([]any); len(s) != 1 || !strings.Contains(s[0].(string), `delete_matching_keys(attributes, "^ikhnos\\..*")`) {
 			t.Errorf("%s statements = %v", key, s)
 		}
 	}
@@ -155,7 +155,7 @@ func TestFusionCentralStampsEachSignalWithItsCategoryByTheAPIsRule(t *testing.T)
 	}
 	for _, name := range []string{"system.cpu.time", "system.memory.usage", "process.runtime.jvm.memory.usage", "process.cpu.time", "node_cpu_seconds_total",
 		"kepler_node_platform_joules_total", "kepler.container.joules", "dcgm_gpu_utilization", "DCGM_FI_DEV_GPU_UTIL", "DCGM_FI_PROF_GR_ENGINE_ACTIVE", "otelcol_exporter_sent_spans", "otelcol.receiver.accepted",
-		"scrape_duration_seconds", "up", "target_info", "continuum.link.probe.loss_ratio", "continuum_link_path_mtu_bytes", "continuum_links_total", "continuum_syncs_applied_total", "k8s.pod.cpu.usage", "k8s.node.condition_ready", "container.cpu.usage", "kube_pod_info",
+		"scrape_duration_seconds", "up", "target_info", "ikhnos.link.probe.loss_ratio", "ikhnos_link_path_mtu_bytes", "ikhnos_links_total", "ikhnos_syncs_applied_total", "k8s.pod.cpu.usage", "k8s.node.condition_ready", "container.cpu.usage", "kube_pod_info",
 		"http.server.request.duration", "http_server_request_count_total", "jvm.memory.used", "systemd_units", "uploads_total", "uptime", "node", "process",
 		"system", "k8sx.thing", "containerd_thing", "fusion_demo_requests", "ikhnos_application_info", "queue.depth"} {
 		if want := fusionapi.MetricCategory(strings.ReplaceAll(name, ".", "_")); got(name) != want {
@@ -223,7 +223,7 @@ func TestFusionStoresAcceptTheLongestRangeAndIndexTheCluster(t *testing.T) {
 			}
 		}
 	}
-	for _, n := range []string{"continuum.cluster.id", "continuum.org.id"} {
+	for _, n := range []string{"ikhnos.cluster.id", "ikhnos.org.id"} {
 		if !indexed[n] {
 			t.Errorf("loki does not index %s as a stream label: %v", n, indexed)
 		}
@@ -272,7 +272,7 @@ func TestFusionGatewayReportsItsOwnHealth(t *testing.T) {
 				continue
 			}
 			found++
-			if strings.Contains(q.Expr, "continuum_cluster_id") {
+			if strings.Contains(q.Expr, "ikhnos_cluster_id") {
 				t.Errorf("%q narrows the gateway's own metrics by cluster, which they do not carry: %s", p.Title, q.Expr)
 			}
 			// rate() or increase() of a selector on several metric names collides on identical label sets.

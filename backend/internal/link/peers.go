@@ -1,7 +1,7 @@
 // Package link measures the links between this cluster and the other clusters an administrator asked to watch.
 //
 // The server is the only place that knows which address belongs to which cluster, so it names the peers in the
-// agent's Config (continuumv1.LinkPeer) and this package only ever works from that list: it labels what the node flow
+// agent's Config (ikhnosv1.LinkPeer) and this package only ever works from that list: it labels what the node flow
 // collectors already observe by the cluster pair it belongs to and publishes the result as Prometheus metrics. It
 // reads no payloads and opens no connections of its own; active measurement lives in its sibling files.
 package link
@@ -14,7 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 )
 
 const (
@@ -96,13 +96,13 @@ func NewPeers() *Peers {
 // Set replaces the peers with those a Config names. It returns what it dropped and why, so the agent can say so. An
 // address two peers both claim is dropped from both (a flow to it cannot be placed), and a peer with no usable
 // address is dropped.
-func (p *Peers) Set(own string, in []*continuumv1.LinkPeer) (dropped []string) {
+func (p *Peers) Set(own string, in []*ikhnosv1.LinkPeer) (dropped []string) {
 	return p.set(own, in, nil)
 }
 
 // set is Set with the addresses in use, by peer id, which only the prober is told (the agent keeps its own table in the
 // meter). An address that is not among the peer's usable ones is ignored.
-func (p *Peers) set(own string, in []*continuumv1.LinkPeer, preferred map[string][]string) (dropped []string) {
+func (p *Peers) set(own string, in []*ikhnosv1.LinkPeer, preferred map[string][]string) (dropped []string) {
 	next := &peerSet{own: own, byIP: map[netip.Addr]string{}}
 	owner := map[netip.Addr]string{}
 	clash := map[netip.Addr]bool{}

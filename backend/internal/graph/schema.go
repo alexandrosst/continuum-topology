@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"continuum/internal/model"
+	"ikhnos/internal/model"
 )
 
 // SchemaVersion is bumped when the shape of the graph changes; Ensure applies what is missing.

@@ -14,12 +14,12 @@ import (
 // repository: not the server, and not another module. FUSION manages the central operator and calls this package; this package is
 // handed what it needs to know of that (ManagedStatus) and does not import it.
 var allowedRepoImports = map[string]bool{
-	"continuum/internal/kernel": true,
-	"continuum/internal/store":  true,
-	"continuum/internal/pki":    true,
-	// accounts: the names the server acts under; continuumv1: the renewal call's messages.
-	"continuum/internal/accounts": true,
-	"continuum/gen/continuumv1":   true,
+	"ikhnos/internal/kernel": true,
+	"ikhnos/internal/store":  true,
+	"ikhnos/internal/pki":    true,
+	// accounts: the names the server acts under; ikhnosv1: the renewal call's messages.
+	"ikhnos/internal/accounts": true,
+	"ikhnos/gen/ikhnosv1":      true,
 }
 
 func TestOperatorsImportNoOtherModuleOfTheServer(t *testing.T) {
@@ -38,7 +38,7 @@ func TestOperatorsImportNoOtherModuleOfTheServer(t *testing.T) {
 		}
 		for _, im := range af.Imports {
 			p, _ := strconv.Unquote(im.Path.Value)
-			if strings.HasPrefix(p, "continuum/") && !allowedRepoImports[p] {
+			if strings.HasPrefix(p, "ikhnos/") && !allowedRepoImports[p] {
 				t.Errorf("%s imports %s: operators may import only %v", f, p, allowedRepoImports)
 			}
 		}

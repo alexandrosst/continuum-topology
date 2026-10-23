@@ -98,7 +98,7 @@ func TestTelemetryProblems(t *testing.T) {
 		{"sampling under 0", mut(func(t *Telemetry) { t.Processing.TracesSamplingPercent = pct(-1) }), "Traces sampling must be between 0 and 100"},
 		{"sampling not a number", mut(func(t *Telemetry) { t.Processing.TracesSamplingPercent = nil }), "Traces sampling must be between 0 and 100"},
 		{"sampling 0 is a choice", mut(func(t *Telemetry) { t.Processing.TracesSamplingPercent = pct(0) }), ""},
-		{"a reserved tag", mut(func(t *Telemetry) { t.Processing.Tags = []Tag{{"Continuum.org", "x"}} }), "is reserved for what Ikhnos adds itself"},
+		{"a reserved tag", mut(func(t *Telemetry) { t.Processing.Tags = []Tag{{"Ikhnos.org", "x"}} }), "is reserved for what Ikhnos adds itself"},
 		{"a bad namespace in an application scope", mut(func(t *Telemetry) {
 			t.Signals.ApplicationLogs = true
 			t.Scopes.ApplicationLogs.Namespaces = []string{"Bad_Name"}

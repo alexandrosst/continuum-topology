@@ -1,0 +1,159 @@
+{{- define "agent.name" -}}ikhnos-agent{{- end -}}
+{{- define "agent.labels" -}}
+app.kubernetes.io/name: ikhnos-agent
+app.kubernetes.io/instance: {{ .Release.Name }}
+app.kubernetes.io/part-of: ikhnos
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+{{- end -}}
+{{- define "agent.identitySecret" -}}ikhnos-agent-identity{{- end -}}
+{{- define "agent.tier" -}}
+{{- $t := int .Values.access.tier -}}
+{{- if or (lt $t 0) (gt $t 2) -}}{{- fail "access.tier must be 0, 1 or 2 in this release" -}}{{- end -}}
+{{- $t -}}
+{{- end -}}
+
+{{/* A short human name for agent.tier's number - NOTES.txt's own status block, so it reads as a name, not just a digit. */}}
+{{- define "agent.tierName" -}}
+{{- $t := int (include "agent.tier" .) -}}
+{{- if eq $t 0 -}}registered only
+{{- else if eq $t 1 -}}infrastructure
+{{- else -}}services
+{{- end -}}
+{{- end -}}
+
+{{/* The one image for every role. A digest wins over the tag: repository@sha256:... */}}
+{{- define "agent.image" -}}
+{{- $i := .Values.image -}}
+{{- if $i.digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" (toString $i.digest)) -}}{{- fail (printf "image.digest must look like sha256:<64 hex characters>, got %q" (toString $i.digest)) -}}{{- end -}}
+{{- printf "%s@%s" (include "agent.imageRepo" (dict "root" . "repo" $i.repository)) $i.digest -}}
+{{- else -}}
+{{- printf "%s:%s" (include "agent.imageRepo" (dict "root" . "repo" $i.repository)) (toString ($i.tag | default .Chart.AppVersion)) -}}
+{{- end -}}
+{{- end -}}
+
+{{/* The image of the cluster-link prober and responder (telemetry.clusterLinks.probe.image): the `link` image, which is the
+     `ikhnos` image plus OWAMP. Same rules as agent.image. */}}
+{{- define "agent.linkImage" -}}
+{{- $i := .Values.telemetry.clusterLinks.probe.image -}}
+{{- if $i.digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" (toString $i.digest)) -}}{{- fail (printf "telemetry.clusterLinks.probe.image.digest must look like sha256:<64 hex characters>, got %q" (toString $i.digest)) -}}{{- end -}}
+{{- printf "%s@%s" (include "agent.imageRepo" (dict "root" . "repo" $i.repository)) $i.digest -}}
+{{- else -}}
+{{- printf "%s:%s" (include "agent.imageRepo" (dict "root" . "repo" $i.repository)) (toString ($i.tag | default .Chart.AppVersion)) -}}
+{{- end -}}
+{{- end -}}
+{{- define "agent.linkImagePullPolicy" -}}
+{{- $i := .Values.telemetry.clusterLinks.probe.image -}}
+{{- if $i.pullPolicy -}}{{- $i.pullPolicy -}}
+{{- else if eq (toString ($i.tag | default .Chart.AppVersion)) "edge" -}}Always
+{{- else -}}IfNotPresent
+{{- end -}}
+{{- end -}}
+
+{{/* Effective imagePullPolicy: an explicit value always wins; otherwise Always when the resolved tag is the
+     moving `edge` tag (a node that already cached anything named edge won't re-pull under IfNotPresent even
+     after the registry moves on), else IfNotPresent. */}}
+{{- define "agent.imagePullPolicy" -}}
+{{- $i := .Values.image -}}
+{{- if $i.pullPolicy -}}
+{{- $i.pullPolicy -}}
+{{- else if eq (toString ($i.tag | default .Chart.AppVersion)) "edge" -}}
+Always
+{{- else -}}
+IfNotPresent
+{{- end -}}
+{{- end -}}
+
+{{/* Extra pod labels from values, one per line, refusing the labels the chart's selectors depend on. Indent with nindent. */}}
+{{- define "agent.podLabels" -}}
+{{- range $k, $v := .Values.podLabels }}
+{{- if or (hasPrefix "app.kubernetes.io/" $k) (hasPrefix "helm.sh/" $k) }}{{ fail (printf "podLabels: %q is set by the chart and cannot be overridden" $k) }}{{ end }}
+{{ $k }}: {{ $v | quote }}
+{{- end }}
+{{- end -}}
+
+{{- define "agent.probeSecretName" -}}ikhnos-agent-probe{{- end -}}
+{{- define "agent.probeSecret" -}}
+{{- $existing := lookup "v1" "Secret" .Release.Namespace (include "agent.probeSecretName" .) -}}
+{{- if .Values.nodeProbe.secret -}}{{- .Values.nodeProbe.secret -}}
+{{- else if and $existing $existing.data (hasKey $existing.data "secret") -}}{{- index $existing.data "secret" | b64dec -}}
+{{- else -}}{{- randAlphaNum 48 -}}
+{{- end -}}
+{{- end -}}
+{{- define "agent.flowSecretName" -}}ikhnos-agent-flows{{- end -}}
+{{- define "agent.flowSecret" -}}
+{{- $existing := lookup "v1" "Secret" .Release.Namespace (include "agent.flowSecretName" .) -}}
+{{- if .Values.flowObserver.secret -}}{{- .Values.flowObserver.secret -}}
+{{- else if and $existing $existing.data (hasKey $existing.data "secret") -}}{{- index $existing.data "secret" | b64dec -}}
+{{- else -}}{{- randAlphaNum 48 -}}
+{{- end -}}
+{{- end -}}
+
+{{/* The secret the link prober signs its peer-list request with, shared with the agent and with nothing else (the prober runs
+     measurement tools against other clusters' responders, so it must not hold the flow secret). Same mechanism as the flow
+     secret: given, or generated once and kept by `lookup`. */}}
+{{- define "agent.linkPeersSecretName" -}}ikhnos-agent-link-peers{{- end -}}
+{{- define "agent.linkPeersSecret" -}}
+{{- $existing := lookup "v1" "Secret" .Release.Namespace (include "agent.linkPeersSecretName" .) -}}
+{{- if .Values.telemetry.clusterLinks.probe.peersSecret -}}{{- .Values.telemetry.clusterLinks.probe.peersSecret -}}
+{{- else if and $existing $existing.data (hasKey $existing.data "secret") -}}{{- index $existing.data "secret" | b64dec -}}
+{{- else -}}{{- randAlphaNum 48 -}}
+{{- end -}}
+{{- end -}}
+{{/* The secret the responder's iperf3-server pods sign their request for the server credentials with (telemetry.clusterLinks.probe.capacity,
+     when the Ikhnos server issues the credentials). Shared with the agent and the responder pods only: not with the prober, which would
+     otherwise be able to ask for the private key, and not with anything that signs flow reports. Same mechanism as the secrets above. */}}
+{{- define "agent.linkIperfSecretName" -}}ikhnos-agent-link-iperf{{- end -}}
+{{- define "agent.linkIperfSecret" -}}
+{{- $existing := lookup "v1" "Secret" .Release.Namespace (include "agent.linkIperfSecretName" .) -}}
+{{- if .Values.telemetry.clusterLinks.probe.capacity.auth.requestSecret -}}{{- .Values.telemetry.clusterLinks.probe.capacity.auth.requestSecret -}}
+{{- else if and $existing $existing.data (hasKey $existing.data "secret") -}}{{- index $existing.data "secret" | b64dec -}}
+{{- else -}}{{- randAlphaNum 48 -}}
+{{- end -}}
+{{- end -}}
+{{- define "agent.linkIperfSecretRevision" -}}{{ .Values.telemetry.clusterLinks.probe.capacity.auth.requestSecret | default "generated" | sha256sum }}{{- end -}}
+{{/* True when the Ikhnos server issues the iperf3 credentials of the throughput tests and delivers them through the agent: the tests are
+     on, no Secret of your own is named (that wins), and auth.automatic has not been switched off. */}}
+{{- define "agent.linkIperf" -}}{{- $c := .Values.telemetry.clusterLinks.probe.capacity -}}{{- if and .Values.telemetry.clusterLinks.metrics.enabled .Values.telemetry.clusterLinks.probe.enabled $c.enabled $c.auth.automatic (not $c.auth.existingSecret) -}}true{{- end -}}{{- end -}}
+{{/* True when the agent answers the prober (and so mounts the secret above). */}}
+{{- define "agent.linkPeers" -}}{{- if and .Values.telemetry.clusterLinks.metrics.enabled .Values.telemetry.clusterLinks.probe.enabled -}}true{{- end -}}{{- end -}}
+
+{{/*
+  What goes into a pod's "checksum/..." annotation, so that changing a secret rolls the pods that read it at start.
+  The probe and flow secrets are generated (randAlphaNum) unless given, and every render draws a fresh random value on a first
+  install, so hashing the rendered Secret would make the annotation differ from one render to the next and roll the pods on
+  every upgrade. This hashes only what the operator controls: the value they gave, or the fixed word "generated" (a
+  generated secret is created once and then kept by `lookup`, so it never changes underneath the pods).
+*/}}
+{{- define "agent.probeSecretRevision" -}}{{ .Values.nodeProbe.secret | default "generated" | sha256sum }}{{- end -}}
+{{- define "agent.flowSecretRevision" -}}{{ .Values.flowObserver.secret | default "generated" | sha256sum }}{{- end -}}
+{{- define "agent.linkPeersSecretRevision" -}}{{ .Values.telemetry.clusterLinks.probe.peersSecret | default "generated" | sha256sum }}{{- end -}}
+
+{{- define "agent.receiver" -}}{{- if or .Values.nodeProbe.enabled .Values.flowObserver.enabled -}}true{{- end -}}{{- end -}}
+
+{{/* The port of server.address (host:port; the last colon wins, so [::1]:8443 works too). */}}
+{{- define "agent.serverPort" -}}{{- regexReplaceAll "^.*:" (toString .Values.server.address) "" -}}{{- end -}}
+
+{{/* enrollment.key is "<caPin>.<token>": the install command's one convenience flag for the two values below. It is
+     split here, once, at render time - server.caPin / enrollment.token set directly always win when both are given. */}}
+{{- define "agent.caPin" -}}
+{{- if .Values.server.caPin -}}{{- .Values.server.caPin -}}
+{{- else if .Values.enrollment.key -}}
+{{- $p := splitList "." (toString .Values.enrollment.key) -}}{{- if eq (len $p) 2 -}}{{- index $p 0 -}}{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- define "agent.enrollToken" -}}
+{{- if .Values.enrollment.token -}}{{- .Values.enrollment.token -}}
+{{- else if .Values.enrollment.key -}}
+{{- $p := splitList "." (toString .Values.enrollment.key) -}}{{- if eq (len $p) 2 -}}{{- index $p 1 -}}{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/* Values that were added after 0.1.0 may be missing when `helm upgrade --reuse-values` carries the old release's values
+     over an older chart (the documented upgrade is --reset-then-reuse-values, which keeps the new chart's defaults; see
+     agent.telemetryDefaults for the telemetry values). These read them without failing. */}}
+{{- define "agent.healthEnabled" -}}{{- if (dig "health" "enabled" true .Values.AsMap) -}}true{{- end -}}{{- end -}}
+{{- define "agent.healthPort" -}}{{- dig "health" "port" 8082 .Values.AsMap | int -}}{{- end -}}
+

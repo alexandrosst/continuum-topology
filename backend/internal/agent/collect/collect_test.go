@@ -9,8 +9,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/facts"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/facts"
 
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
@@ -580,7 +580,7 @@ func TestNamespacedRBACIsolatesAPerNamespaceFailure(t *testing.T) {
 	// The Deployment informer for payments is unaffected (only its pods list was forbidden), so its workload still
 	// appears - built, like any workload, from the Deployment object - but without any of the pod-derived facts
 	// (ready replicas, restarts, node placement) that only a working pods watch can supply.
-	var shop, payments *continuumv1.WorkloadFacts
+	var shop, payments *ikhnosv1.WorkloadFacts
 	for _, w := range s.Workloads {
 		switch w.Namespace {
 		case "shop":
@@ -633,8 +633,8 @@ func TestNamespacedRBACRequiresNamespaces(t *testing.T) {
 // whenever the API server was unreachable; the agent cuts it (on a character boundary) instead.
 func TestModuleReasonsAreClipped(t *testing.T) {
 	c, _ := start(t, 2)
-	mods := c.setMeshModule(&continuumv1.MeshFacts{PolicyNote: strings.Repeat("é", 1000)})
-	var mesh *continuumv1.ModuleStatus
+	mods := c.setMeshModule(&ikhnosv1.MeshFacts{PolicyNote: strings.Repeat("é", 1000)})
+	var mesh *ikhnosv1.ModuleStatus
 	for _, m := range mods {
 		if len(m.Reason) > facts.MaxReason || !utf8.ValidString(m.Reason) {
 			t.Errorf("%s: reason is %d bytes (valid utf-8: %v)", m.Name, len(m.Reason), utf8.ValidString(m.Reason))
@@ -643,7 +643,7 @@ func TestModuleReasonsAreClipped(t *testing.T) {
 			mesh = m
 		}
 	}
-	if mesh == nil || mesh.State != continuumv1.ModuleStatus_SKIPPED || !strings.HasPrefix(mesh.Reason, "policy objects not read: é") {
+	if mesh == nil || mesh.State != ikhnosv1.ModuleStatus_SKIPPED || !strings.HasPrefix(mesh.Reason, "policy objects not read: é") {
 		t.Fatalf("the mesh module = %v", mesh)
 	}
 }

@@ -259,7 +259,7 @@ function ExternalConfig({ admin, connected, conn }: { admin: boolean; connected:
         <>
           <p className="mb-4 max-w-2xl text-sm text-nb-400">
             Any HTTP service that accepts a JSON POST of the estate and answers with recommendations: a scheduler, an optimiser, a learned policy, a script. The server calls it, refuses redirects and internal addresses it should not reach, and every answer is checked like the built-in ones. The full contract - what is sent, what to answer with, and how to check a signed request - is in the{' '}
-            <a className="text-accent hover:underline" href="https://github.com/alexandrosst/continuum-topology/blob/main/backend/docs/decider-webhook.openapi.yaml" target="_blank" rel="noreferrer">
+            <a className="text-accent hover:underline" href="https://github.com/alexandrosst/ikhnos/blob/main/backend/docs/decider-webhook.openapi.yaml" target="_blank" rel="noreferrer">
               decider webhook spec
             </a>.
           </p>

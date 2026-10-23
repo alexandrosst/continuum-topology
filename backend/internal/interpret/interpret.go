@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/facts"
-	"continuum/internal/model"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/facts"
+	"ikhnos/internal/model"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -28,13 +28,13 @@ type Input struct {
 	// historically accumulated). Joined onto this same agent's own Service.Pods by pod name below -
 	// never another agent's, since pod identity is only ever meaningful within the cluster that resolved
 	// it. Nil below access tier 2 or before this agent's first flow report.
-	PodFlows []*continuumv1.Flow
+	PodFlows []*ikhnosv1.Flow
 	// LinkSaturation is this agent's latest per-node, per-interface link throughput/saturation, keyed by
 	// node name (Hub.noteFlows copies FlowBatch.collectors[].link_saturation into view.linkSat wholesale
 	// on every report, mirroring PodFlows above). Nil before this agent's first flow report that actually
 	// carried any, or when its flow collectors never turned on link-saturation reporting at all (an older
 	// collector binary, say) - either way, a node simply gets no LinkSaturation facts, not zeroed ones.
-	LinkSaturation map[string][]*continuumv1.LinkSaturation
+	LinkSaturation map[string][]*ikhnosv1.LinkSaturation
 	// SnatExhaustion is this agent's latest per-node SNAT/ephemeral-port-exhaustion reading, keyed by
 	// node name (Hub.noteFlows copies FlowBatch.collectors[].snat_exhaustion into view.snatExhaustion,
 	// mirroring LinkSaturation above) - a collector-side running total (see flow.c's own
@@ -43,11 +43,11 @@ type Input struct {
 	SnatExhaustion map[string]uint64
 	// ThermalThrottle is this agent's latest per-node CPU thermal-throttling tracepoint reading, keyed
 	// by node name (Hub.noteFlows copies FlowBatch.collectors[].thermal_throttle into
-	// view.thermalThrottle, mirroring SnatExhaustion above) - see continuumv1.ThermalThrottle's own doc
+	// view.thermalThrottle, mirroring SnatExhaustion above) - see ikhnosv1.ThermalThrottle's own doc
 	// comment for what each of its two counters means, and why only one of them (thermal_trip_count) is
 	// ever treated as throttling evidence. Absent for a node with nothing to report here, the same
 	// "no entry, not a zeroed one" treatment SnatExhaustion gets.
-	ThermalThrottle map[string]*continuumv1.ThermalThrottle
+	ThermalThrottle map[string]*ikhnosv1.ThermalThrottle
 	// SelfStats is this agent's own most recent self-telemetry sample (RSS/goroutines as of its last
 	// heartbeat that carried one) - Hub.buildTopology reads it straight off view.self (the ring
 	// Hub.noteSelfStats already keeps), never recomputed here. Nil before the agent's first such
@@ -62,20 +62,20 @@ func systemNamespace(ns string) bool {
 	return ns == "kube-system" || ns == "kube-public" || ns == "kube-node-lease"
 }
 
-// continuumOwnedNamespaces finds namespaces whose only workloads are continuum's own agent/server -
+// ikhnosOwnedNamespaces finds namespaces whose only workloads are ikhnos's own agent/server -
 // installed into a cluster it also happens to be monitoring. Those workloads are already left out of the
-// topology (below, by the app.kubernetes.io/part-of=continuum label), but without this the namespace that
+// topology (below, by the app.kubernetes.io/part-of=ikhnos label), but without this the namespace that
 // held them would still show up as if it were a namespace of the user's own, just an empty-looking one. This
-// works regardless of what the namespace happens to be named (continuum, continuum-system, or anything an
+// works regardless of what the namespace happens to be named (ikhnos, ikhnos-system, or anything an
 // operator chose at install time), by asking what is actually in it rather than matching a fixed name.
 // A namespace the agent never saw any workload in at all is left alone: it may simply be a real, empty
 // namespace of the user's, and there is nothing here to tell the two cases apart.
-func continuumOwnedNamespaces(st *facts.State) map[string]bool {
+func ikhnosOwnedNamespaces(st *facts.State) map[string]bool {
 	hasOther := map[string]bool{}
 	hasAny := map[string]bool{}
 	for _, w := range st.Workloads {
 		hasAny[w.Namespace] = true
-		if w.Labels["app.kubernetes.io/part-of"] != "continuum" {
+		if w.Labels["app.kubernetes.io/part-of"] != "ikhnos" {
 			hasOther[w.Namespace] = true
 		}
 	}
@@ -120,18 +120,18 @@ type podKey struct{ ns, pod string }
 // that resolution needs every cluster's reachability data assembled together, which only happens later
 // in buildTopology, well after this one agent's own Interpret call returns - so it stays the raw address,
 // same as Dependency already shows for the cases resolveExternal itself cannot place either.
-func buildPodTraffic(flows []*continuumv1.Flow, clusterID string) map[podKey][]model.PodPeer {
+func buildPodTraffic(flows []*ikhnosv1.Flow, clusterID string) map[podKey][]model.PodPeer {
 	if len(flows) == 0 {
 		return nil
 	}
-	endpoint := func(e *continuumv1.FlowEndpoint) (ref, kind string) {
+	endpoint := func(e *ikhnosv1.FlowEndpoint) (ref, kind string) {
 		if e == nil {
 			return "", ""
 		}
-		if e.Kind == continuumv1.FlowEndpoint_EXTERNAL {
+		if e.Kind == ikhnosv1.FlowEndpoint_EXTERNAL {
 			return e.Ip, "external"
 		}
-		if e.Kind != continuumv1.FlowEndpoint_WORKLOAD {
+		if e.Kind != ikhnosv1.FlowEndpoint_WORKLOAD {
 			return "", "" // a node (or an address the agent could not place) is not a service: no peer is shown for it
 		}
 		return svcID(clusterID, e.Ref), "service"
@@ -139,8 +139,8 @@ func buildPodTraffic(flows []*continuumv1.Flow, clusterID string) map[podKey][]m
 	out := map[podKey][]model.PodPeer{}
 	// The pod is one of the workload on its own side of the flow, and a pod lives in its workload's namespace
 	// (the first part of the "namespace/Kind/name" ref).
-	add := func(self *continuumv1.FlowEndpoint, pod, peer, peerKind, direction string, f *continuumv1.Flow) {
-		if pod == "" || peer == "" || self == nil || self.Kind != continuumv1.FlowEndpoint_WORKLOAD {
+	add := func(self *ikhnosv1.FlowEndpoint, pod, peer, peerKind, direction string, f *ikhnosv1.Flow) {
+		if pod == "" || peer == "" || self == nil || self.Kind != ikhnosv1.FlowEndpoint_WORKLOAD {
 			return
 		}
 		ns, _, _ := strings.Cut(self.Ref, "/")
@@ -352,7 +352,7 @@ func Interpret(in Input) model.Topology {
 	})
 
 	// ---- namespaces ----
-	ownNS := continuumOwnedNamespaces(st)
+	ownNS := ikhnosOwnedNamespaces(st)
 	var nsNames []string
 	for _, n := range st.Namespaces {
 		if !systemNamespace(n.Name) && !ownNS[n.Name] {
@@ -380,9 +380,9 @@ func Interpret(in Input) model.Topology {
 		ns   map[string]bool
 	}
 	groups := map[string]*group{}
-	var wl []*continuumv1.WorkloadFacts
+	var wl []*ikhnosv1.WorkloadFacts
 	for _, w := range st.Workloads {
-		if systemNamespace(w.Namespace) || w.Labels["app.kubernetes.io/part-of"] == "continuum" {
+		if systemNamespace(w.Namespace) || w.Labels["app.kubernetes.io/part-of"] == "ikhnos" {
 			continue
 		}
 		wl = append(wl, w)
@@ -545,7 +545,7 @@ func clusterStatus(total, healthy int) model.Status {
 	return "degraded"
 }
 
-func serviceStatus(w *continuumv1.WorkloadFacts) model.Status {
+func serviceStatus(w *ikhnosv1.WorkloadFacts) model.Status {
 	switch {
 	case w.Replicas == 0:
 		return "unknown"
@@ -557,7 +557,7 @@ func serviceStatus(w *continuumv1.WorkloadFacts) model.Status {
 	return "degraded"
 }
 
-func accelerators(n *continuumv1.NodeFacts) []model.Accelerator {
+func accelerators(n *ikhnosv1.NodeFacts) []model.Accelerator {
 	var out []model.Accelerator
 	for res, c := range n.ExtendedResources {
 		if c <= 0 {
@@ -576,8 +576,8 @@ func accelerators(n *continuumv1.NodeFacts) []model.Accelerator {
 	return out
 }
 
-func sortedNodes(st *facts.State) []*continuumv1.NodeFacts {
-	out := make([]*continuumv1.NodeFacts, 0, len(st.Nodes))
+func sortedNodes(st *facts.State) []*ikhnosv1.NodeFacts {
+	out := make([]*ikhnosv1.NodeFacts, 0, len(st.Nodes))
 	for _, n := range st.Nodes {
 		out = append(out, n)
 	}
@@ -590,7 +590,7 @@ func sortedNodes(st *facts.State) []*continuumv1.NodeFacts {
 // unconditionally on every stateFor call. That's fixed for free by stateFor's own topology cache
 // (server/hub.go's buildTopology, gated on tw.gen): Interpret now only runs on an actual cache miss,
 // so this scan is no longer redundant. Nothing here needed to change.
-func detectAddons(st *facts.State, nodes []*continuumv1.NodeFacts) (cni, ingress string) {
+func detectAddons(st *facts.State, nodes []*ikhnosv1.NodeFacts) (cni, ingress string) {
 	names := map[string]bool{}
 	for _, w := range st.Workloads {
 		names[w.Name] = true

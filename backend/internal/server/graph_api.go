@@ -1,6 +1,6 @@
 package server
 
-import "continuum/internal/estate"
+import "ikhnos/internal/estate"
 
 func (a *Admin) graphAPI() estate.GraphAPI {
 	g, _ := a.C.Store.(estate.GraphAPI)

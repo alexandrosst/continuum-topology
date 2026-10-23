@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/agentcaps"
-	"continuum/internal/kernel"
+	"ikhnos/internal/agentcaps"
+	"ikhnos/internal/kernel"
 )
 
 var t0 = time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)

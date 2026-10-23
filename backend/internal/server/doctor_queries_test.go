@@ -14,10 +14,10 @@ import (
 
 	"google.golang.org/protobuf/encoding/protowire"
 
-	"continuum/internal/estate"
-	"continuum/internal/fusionapi"
-	"continuum/internal/fusionhttp"
-	"continuum/internal/model"
+	"ikhnos/internal/estate"
+	"ikhnos/internal/fusionapi"
+	"ikhnos/internal/fusionhttp"
+	"ikhnos/internal/model"
 )
 
 // vocName is the label the stores give an attribute of the vocabulary.
@@ -258,7 +258,7 @@ func doctorQueries(t *testing.T) {
 	})
 
 	t.Run("an application is narrowed by the labels the dashboards join it on", func(t *testing.T) {
-		dims := []string{vocName(t, "service.name"), vocName(t, "k8s.namespace.name"), vocName(t, "continuum.cluster.id")}
+		dims := []string{vocName(t, "service.name"), vocName(t, "k8s.namespace.name"), vocName(t, "ikhnos.cluster.id")}
 		slices.Sort(dims)
 		before := d.stores.count()
 		for _, p := range []string{"/metrics/series", "/logs", "/traces"} {

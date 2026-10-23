@@ -8,7 +8,7 @@ import (
 	"net/mail"
 	"strings"
 
-	"continuum/internal/kernel"
+	"ikhnos/internal/kernel"
 )
 
 // emailCodeDigits matches totpDigits: one shape of code to type back, whether it came from an app or an

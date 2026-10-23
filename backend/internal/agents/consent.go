@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/accounts"
-	"continuum/internal/kernel"
-	"continuum/internal/store"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/store"
 
 	"google.golang.org/protobuf/proto"
 )
@@ -94,7 +94,7 @@ func CleanConsent(in Consent) (Consent, error) {
 
 // ViewExt is what the server keeps per agent about its own account of itself and the overrides pushed to it.
 type ViewExt struct {
-	Diag        *continuumv1.Diagnostics
+	Diag        *ikhnosv1.Diagnostics
 	DiagAt      time.Time
 	DiagPartial bool // only what Hello carried: the ceiling, before the agent had looked at the cluster
 	// LinkCaps is what this agent's heartbeat last said its install can do for the cluster-link telemetry (see LinkCaps).
@@ -104,11 +104,11 @@ type ViewExt struct {
 	ConsentLoad bool
 	// namespace is this agent's own Kubernetes namespace, from its Hello (empty before an agent that reports it has
 	// connected at least once since this server started; not persisted, same as diagnostics). Used to print a
-	// helm command against the release that is actually running instead of guessing continuum-system.
+	// helm command against the release that is actually running instead of guessing ikhnos-system.
 	Namespace string
 	// releaseName is the Helm release this agent's Hello says it was installed as (empty under the same conditions as
 	// namespace). Every object the chart creates has a fixed name regardless of the release, so this only matters for
-	// the two `helm` commands themselves; guessed as "continuum-agent" when unknown, same as namespace.
+	// the two `helm` commands themselves; guessed as "ikhnos-agent" when unknown, same as namespace.
 	ReleaseName string
 	// protocol and caps are what the agent's last Hello said about the protocol it speaks and what it does (see
 	// internal/agentcaps). They are replaced by every Hello, so a stream that says nothing records protocol 0 and no names and
@@ -150,7 +150,7 @@ func ActingAs(ctx context.Context, role string) context.Context {
 
 // ApplyConsent cuts a picture down to what an agent's overrides leave it: the node probe's machine-identifying
 // fields when that collector is paused, and every namespace (and workload in one) on the excluded list.
-func ApplyConsent(c Consent, s *continuumv1.Sync) {
+func ApplyConsent(c Consent, s *ikhnosv1.Sync) {
 	if c.Has("probes") {
 		for _, n := range s.Nodes {
 			n.MachineId, n.SystemUuid, n.ProviderId = "", "", ""
@@ -164,14 +164,14 @@ func ApplyConsent(c Consent, s *continuumv1.Sync) {
 	for _, ns := range c.Excluded {
 		excluded[ns] = true
 	}
-	namespaces := make([]*continuumv1.NamespaceFacts, 0, len(s.Namespaces))
+	namespaces := make([]*ikhnosv1.NamespaceFacts, 0, len(s.Namespaces))
 	for _, n := range s.Namespaces {
 		if !excluded[n.Name] {
 			namespaces = append(namespaces, n)
 		}
 	}
 	s.Namespaces = namespaces
-	workloads := make([]*continuumv1.WorkloadFacts, 0, len(s.Workloads))
+	workloads := make([]*ikhnosv1.WorkloadFacts, 0, len(s.Workloads))
 	for _, w := range s.Workloads {
 		if !excluded[w.Namespace] {
 			workloads = append(workloads, w)
@@ -182,7 +182,7 @@ func ApplyConsent(c Consent, s *continuumv1.Sync) {
 
 // DropAboveTier removes from a picture whatever the approved tier does not cover. The agent already sends no more than
 // it is approved for; this is the server not taking the agent's word for it.
-func DropAboveTier(tier int, s *continuumv1.Sync) {
+func DropAboveTier(tier int, s *ikhnosv1.Sync) {
 	if tier < 1 {
 		s.Nodes, s.DeletedNodes = nil, nil
 		if s.Cluster != nil { // storage and ingress classes are tier-1 facts
@@ -359,11 +359,11 @@ type ExportRouteHealthDoc struct {
 
 // ExportHealthStates names the agent's states; one this server does not know is shown as waiting, the one
 // that claims nothing.
-var ExportHealthStates = map[continuumv1.ExportRouteHealth_State]ExportState{
-	continuumv1.ExportRouteHealth_WAITING:   ExportWaiting,
-	continuumv1.ExportRouteHealth_EXPORTING: ExportExporting,
-	continuumv1.ExportRouteHealth_SILENT:    ExportSilent,
-	continuumv1.ExportRouteHealth_FAILING:   ExportFailing,
+var ExportHealthStates = map[ikhnosv1.ExportRouteHealth_State]ExportState{
+	ikhnosv1.ExportRouteHealth_WAITING:   ExportWaiting,
+	ikhnosv1.ExportRouteHealth_EXPORTING: ExportExporting,
+	ikhnosv1.ExportRouteHealth_SILENT:    ExportSilent,
+	ikhnosv1.ExportRouteHealth_FAILING:   ExportFailing,
 }
 
 // TelemetryConfigDoc is the effective configuration behind DiagnosticsDoc.InstalledTelemetryConfig - see
@@ -405,14 +405,14 @@ func TierName(t int) string {
 
 // noteDiagnostics keeps an agent's latest account of itself. It never refuses one: a diagnostics message that is too big is
 // cut down, because an agent that is in trouble is the one whose account is most wanted. Caller holds h.mu.
-func (v *View) NoteDiagnostics(d *continuumv1.Diagnostics, partial bool, at time.Time) {
+func (v *View) NoteDiagnostics(d *ikhnosv1.Diagnostics, partial bool, at time.Time) {
 	if d == nil {
 		return
 	}
 	if proto.Size(d) > maxDiagBytes {
 		return // keep the previous account rather than hold an oversized one
 	}
-	d = proto.Clone(d).(*continuumv1.Diagnostics)
+	d = proto.Clone(d).(*ikhnosv1.Diagnostics)
 	if len(d.Collectors) > maxDiagCollectors {
 		d.Collectors = d.Collectors[:maxDiagCollectors]
 	}

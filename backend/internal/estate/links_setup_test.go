@@ -6,12 +6,12 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/agents"
-	"continuum/internal/connectivity"
-	"continuum/internal/kernel"
-	"continuum/internal/store"
-	"continuum/internal/testkit"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/agents"
+	"ikhnos/internal/connectivity"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/store"
+	"ikhnos/internal/testkit"
 )
 
 func TestTheServerKeepsWhatAnAgentReportedAndNeverReadsSilenceAsOff(t *testing.T) {
@@ -20,7 +20,7 @@ func TestTheServerKeepsWhatAnAgentReportedAndNeverReadsSilenceAsOff(t *testing.T
 	if !v.Ext.LinkCaps.Reported.IsZero() {
 		t.Fatal("a heartbeat without the report made one up")
 	}
-	v.NoteLinkCaps(&continuumv1.LinkCapabilities{LinkMetrics: true, ProbeEnabled: true, CapacityEnabled: true, TelemetryExport: true, ProberSeenUnix: testkit.SetupNow.Add(-time.Minute).Unix()}, testkit.SetupNow, 0)
+	v.NoteLinkCaps(&ikhnosv1.LinkCapabilities{LinkMetrics: true, ProbeEnabled: true, CapacityEnabled: true, TelemetryExport: true, ProberSeenUnix: testkit.SetupNow.Add(-time.Minute).Unix()}, testkit.SetupNow, 0)
 	c := v.Ext.LinkCaps
 	if !c.LinkMetrics || !c.ProbeEnabled || !c.CapacityEnabled || !c.TelemetryExport || !c.Reported.Equal(testkit.SetupNow) || !c.ProberSeen.Equal(testkit.SetupNow.Add(-time.Minute)) {
 		t.Fatalf("%+v", c)
@@ -31,7 +31,7 @@ func TestTheServerKeepsWhatAnAgentReportedAndNeverReadsSilenceAsOff(t *testing.T
 		t.Fatal("silence replaced the report")
 	}
 	// an agent that says Cluster links is off is a report too
-	v.NoteLinkCaps(&continuumv1.LinkCapabilities{}, testkit.SetupNow, 0)
+	v.NoteLinkCaps(&ikhnosv1.LinkCapabilities{}, testkit.SetupNow, 0)
 	if v.Ext.LinkCaps.Reported.IsZero() || v.Ext.LinkCaps.LinkMetrics {
 		t.Fatalf("%+v", v.Ext.LinkCaps)
 	}
@@ -40,7 +40,7 @@ func TestTheServerKeepsWhatAnAgentReportedAndNeverReadsSilenceAsOff(t *testing.T
 func TestWhatAnAgentSaysAboutTheProberIsBounded(t *testing.T) {
 	at := func(unix int64, skewMs int64) agents.LinkCaps {
 		v := NewView()
-		v.NoteLinkCaps(&continuumv1.LinkCapabilities{ProberSeenUnix: unix}, testkit.SetupNow, skewMs)
+		v.NoteLinkCaps(&ikhnosv1.LinkCapabilities{ProberSeenUnix: unix}, testkit.SetupNow, skewMs)
 		return v.Ext.LinkCaps
 	}
 	for name, tc := range map[string]struct {
@@ -99,7 +99,7 @@ func TestTheHeartbeatCarriesWhatTheInstallCanDo(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	id, key, leaf := r.approvedAgent(t, testkit.FP)
-	s := r.connect(t, ctx, key, leaf, &continuumv1.Hello{AgentVersion: "9.9", InstalledAccessTier: 2})
+	s := r.connect(t, ctx, key, leaf, &ikhnosv1.Hello{AgentVersion: "9.9", InstalledAccessTier: 2})
 
 	caps := func() agents.LinkCaps {
 		r.hub.Mu.Lock()
@@ -121,7 +121,7 @@ func TestTheHeartbeatCarriesWhatTheInstallCanDo(t *testing.T) {
 		t.Fatalf("%s: %+v", what, caps())
 	}
 	// an old agent's heartbeat says nothing about links
-	if err := s.Send(&continuumv1.AgentMessage{Msg: &continuumv1.AgentMessage_Heartbeat{Heartbeat: &continuumv1.Heartbeat{}}}); err != nil {
+	if err := s.Send(&ikhnosv1.AgentMessage{Msg: &ikhnosv1.AgentMessage_Heartbeat{Heartbeat: &ikhnosv1.Heartbeat{}}}); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(100 * time.Millisecond)
@@ -129,8 +129,8 @@ func TestTheHeartbeatCarriesWhatTheInstallCanDo(t *testing.T) {
 		t.Fatalf("an old agent's heartbeat produced a report: %+v", caps())
 	}
 	seen := time.Now().Add(-2 * time.Minute).Unix()
-	if err := s.Send(&continuumv1.AgentMessage{Msg: &continuumv1.AgentMessage_Heartbeat{Heartbeat: &continuumv1.Heartbeat{
-		LinkCapabilities: &continuumv1.LinkCapabilities{LinkMetrics: true, ProbeEnabled: true, TelemetryExport: true, ProberSeenUnix: seen}}}}); err != nil {
+	if err := s.Send(&ikhnosv1.AgentMessage{Msg: &ikhnosv1.AgentMessage_Heartbeat{Heartbeat: &ikhnosv1.Heartbeat{
+		LinkCapabilities: &ikhnosv1.LinkCapabilities{LinkMetrics: true, ProbeEnabled: true, TelemetryExport: true, ProberSeenUnix: seen}}}}); err != nil {
 		t.Fatal(err)
 	}
 	wait("the report is kept", func(c agents.LinkCaps) bool {

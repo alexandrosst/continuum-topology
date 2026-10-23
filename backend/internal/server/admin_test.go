@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/accounts"
-	"continuum/internal/estate"
-	"continuum/internal/installcfg"
-	"continuum/internal/kernel"
-	"continuum/internal/store"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/estate"
+	"ikhnos/internal/installcfg"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/store"
 )
 
 func init() { // cheap argon2 for tests; production values are exercised by TestProductionArgonParameters

@@ -5,8 +5,8 @@ import (
 	"strings"
 	"sync"
 
-	"continuum/internal/geoip"
-	"continuum/internal/kernel"
+	"ikhnos/internal/geoip"
+	"ikhnos/internal/kernel"
 )
 
 const geoCacheMax = 4096

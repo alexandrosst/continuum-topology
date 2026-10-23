@@ -8,9 +8,9 @@ import (
 	"strconv"
 	"strings"
 
-	"continuum/internal/accounts"
-	"continuum/internal/httpkit"
-	"continuum/internal/kernel"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/httpkit"
+	"ikhnos/internal/kernel"
 )
 
 // API is the settings' routes. For is the Core of the organisation a request is for; ImageDefaults is what the server's --image-*

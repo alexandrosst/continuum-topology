@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"continuum/internal/accounts"
-	"continuum/internal/install"
-	"continuum/internal/testkit"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/install"
+	"ikhnos/internal/testkit"
 )
 
 // The processors a person adds to a regional operator are chart values and nothing else: the operator record does not keep them, so the

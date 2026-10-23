@@ -53,7 +53,7 @@ describe('the sender picks the address of a regional operator it dials', () => {
     candidates.mockResolvedValue({
       found: true,
       candidates: [],
-      expose: { service: 'fusion-central', namespace: 'continuum-system', value: 'fusion.central.service.type', commands: { nodePort: 'kubectl patch NODEPORT', loadBalancer: 'kubectl patch LB' } },
+      expose: { service: 'fusion-central', namespace: 'ikhnos-system', value: 'fusion.central.service.type', commands: { nodePort: 'kubectl patch NODEPORT', loadBalancer: 'kubectl patch LB' } },
     })
     render(<Harness />)
     expect((await screen.findByTestId('sa-expose')).textContent).toContain('not reachable from other clusters yet')

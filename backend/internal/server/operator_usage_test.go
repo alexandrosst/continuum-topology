@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"continuum/internal/accounts"
-	"continuum/internal/testkit"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/testkit"
 )
 
 // What depends on an operator is shown on it, and revoking or deleting it then needs force; the audit entry says what
@@ -53,7 +53,7 @@ func TestRevokeAndDeleteAnOperatorSomethingSendsToNeedForce(t *testing.T) {
 	}
 
 	r = a.do("POST", "/api/v1/operators/"+target+"/revoke", map[string]any{"reason": "retire", "force": true}, withCookie(cookie))
-	if r.Code != 200 || r.json(t)["uninstall"] != "helm uninstall "+target+" --namespace continuum-system" {
+	if r.Code != 200 || r.json(t)["uninstall"] != "helm uninstall "+target+" --namespace ikhnos-system" {
 		t.Fatalf("forced revoke: %d %s", r.Code, r.Body.String())
 	}
 	if n, detail := (&env{st: a.st, ctx: a.ctx}).countAudit(t, "operator-revoked"); n != 1 || detail != "retire (forced; operators=1 intents=1 clusters=1)" {

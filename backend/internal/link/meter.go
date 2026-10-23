@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/probe"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/probe"
 )
 
 // Bucket upper bounds, in seconds. Explicit buckets keep the series count fixed whatever the traffic does. The kernel's RTT
@@ -183,7 +183,7 @@ func (m *Meter) IgnoreOwn(spec string) error {
 }
 
 // ownRow says whether the row is a connection of the agent itself. Called with m.mu held.
-func (m *Meter) ownRow(r *continuumv1.RawFlow) bool {
+func (m *Meter) ownRow(r *ikhnosv1.RawFlow) bool {
 	if len(m.ownAddrs) == 0 {
 		return false
 	}
@@ -192,7 +192,7 @@ func (m *Meter) ownRow(r *continuumv1.RawFlow) bool {
 }
 
 // Observe adds one flow report's rows, which carry byte counts. See ObserveRows.
-func (m *Meter) Observe(rows []*continuumv1.RawFlow) { m.ObserveRows(rows, true) }
+func (m *Meter) Observe(rows []*ikhnosv1.RawFlow) { m.ObserveRows(rows, true) }
 
 // ObserveRows adds one flow report's rows. A row whose far end is not a peer is ignored, and so is one on a port of the link
 // prober's own (see IgnorePorts). bytesKnown is the report's own flag: when false (the conntrack collector with no byte
@@ -202,7 +202,7 @@ func (m *Meter) Observe(rows []*continuumv1.RawFlow) { m.ObserveRows(rows, true)
 // Direction: bytes_out is what the caller sent and bytes_in what the callee sent, so what *this* cluster sent is bytes_out
 // when it dialed (client) and bytes_in when it accepted. Retransmits and segments are the local socket's own, so they
 // always describe what this cluster sent towards the peer.
-func (m *Meter) ObserveRows(rows []*continuumv1.RawFlow, bytesKnown bool) {
+func (m *Meter) ObserveRows(rows []*ikhnosv1.RawFlow, bytesKnown bool) {
 	if m == nil || m.Peers.Empty() {
 		return
 	}
@@ -269,7 +269,7 @@ func (m *Meter) ObserveRows(rows []*continuumv1.RawFlow, bytesKnown bool) {
 
 // onlyFailed says whether a row shows attempts that all failed: some failed, none got a round trip measured, and no byte was
 // carried (bytes the report does not count are not evidence either way, so they do not make a row "carried").
-func onlyFailed(r *continuumv1.RawFlow, carried uint64) bool {
+func onlyFailed(r *ikhnosv1.RawFlow, carried uint64) bool {
 	return r.FailedAttempts > 0 && r.FailedAttempts >= r.Connections && r.RttUs == 0 && carried == 0
 }
 
@@ -411,9 +411,9 @@ func (m *Meter) write(w io.Writer, own string, peers []Peer) {
 		return l
 	}
 	head := func(name, typ, help string) { fmt.Fprintf(w, "# HELP %s %s\n# TYPE %s %s\n", name, help, name, typ) }
-	head("continuum_link_peer_info", "gauge", "A cluster this one measures its links to; always 1. The name is for display only, series are keyed by the peer id.")
+	head("ikhnos_link_peer_info", "gauge", "A cluster this one measures its links to; always 1. The name is for display only, series are keyed by the peer id.")
 	for _, p := range peers {
-		fmt.Fprintf(w, "continuum_link_peer_info{%s,peer_name=\"%s\"} 1\n", lbl(p.ID), esc(p.Name))
+		fmt.Fprintf(w, "ikhnos_link_peer_info{%s,peer_name=\"%s\"} 1\n", lbl(p.ID), esc(p.Name))
 	}
 	counterFor := func(list []Peer, name, help string, get func(*stats) uint64) {
 		head(name, "counter", help)
@@ -426,7 +426,7 @@ func (m *Meter) write(w io.Writer, own string, peers []Peer) {
 		}
 	}
 	counter := func(name, help string, get func(*stats) uint64) { counterFor(peers, name, help, get) }
-	counter("continuum_link_connections_total", "Connections observed to or from the peer.", func(s *stats) uint64 { return s.connections })
+	counter("ikhnos_link_connections_total", "Connections observed to or from the peer.", func(s *stats) uint64 { return s.connections })
 	// A peer whose reports could not count bytes has no byte series: zero would read as a quiet link.
 	known := peers[:0:0]
 	for _, p := range peers {
@@ -434,20 +434,20 @@ func (m *Meter) write(w io.Writer, own string, peers []Peer) {
 			known = append(known, p)
 		}
 	}
-	counterFor(known, "continuum_link_sent_bytes_total", "Bytes this cluster sent to the peer, from observed connections. Absent for a peer whose traffic is seen only by a collector that cannot count bytes (conntrack without nf_conntrack_acct).", func(s *stats) uint64 { return s.bytesSent })
-	counterFor(known, "continuum_link_received_bytes_total", "Bytes this cluster received from the peer, from observed connections. Absent for a peer whose traffic is seen only by a collector that cannot count bytes (conntrack without nf_conntrack_acct).", func(s *stats) uint64 { return s.bytesReceived })
-	counter("continuum_link_segments_sent_total", "TCP segments this cluster sent towards the peer; the denominator for the retransmit ratio.", func(s *stats) uint64 { return s.segmentsSent })
-	counter("continuum_link_retransmits_total", "TCP segments this cluster had to resend towards the peer (the kernel's own counter). The best passive sign of packet loss on the link.", func(s *stats) uint64 { return s.retransmits })
-	counter("continuum_link_rto_retransmits_total", "Of the retransmits, those the retransmission timer fired for: nothing came back at all.", func(s *stats) uint64 { return s.rtoRetrans })
-	counter("continuum_link_receive_drops_total", "Receive-side socket drops on connections with the peer: the local application not draining, not the network.", func(s *stats) uint64 { return s.bufferDrops })
-	head("continuum_link_connection_failures_total", "counter", "Connection attempts to or from the peer that never established, by the kernel's reason.")
+	counterFor(known, "ikhnos_link_sent_bytes_total", "Bytes this cluster sent to the peer, from observed connections. Absent for a peer whose traffic is seen only by a collector that cannot count bytes (conntrack without nf_conntrack_acct).", func(s *stats) uint64 { return s.bytesSent })
+	counterFor(known, "ikhnos_link_received_bytes_total", "Bytes this cluster received from the peer, from observed connections. Absent for a peer whose traffic is seen only by a collector that cannot count bytes (conntrack without nf_conntrack_acct).", func(s *stats) uint64 { return s.bytesReceived })
+	counter("ikhnos_link_segments_sent_total", "TCP segments this cluster sent towards the peer; the denominator for the retransmit ratio.", func(s *stats) uint64 { return s.segmentsSent })
+	counter("ikhnos_link_retransmits_total", "TCP segments this cluster had to resend towards the peer (the kernel's own counter). The best passive sign of packet loss on the link.", func(s *stats) uint64 { return s.retransmits })
+	counter("ikhnos_link_rto_retransmits_total", "Of the retransmits, those the retransmission timer fired for: nothing came back at all.", func(s *stats) uint64 { return s.rtoRetrans })
+	counter("ikhnos_link_receive_drops_total", "Receive-side socket drops on connections with the peer: the local application not draining, not the network.", func(s *stats) uint64 { return s.bufferDrops })
+	head("ikhnos_link_connection_failures_total", "counter", "Connection attempts to or from the peer that never established, by the kernel's reason.")
 	for _, p := range peers {
 		for _, r := range failReasons {
 			v := uint64(0)
 			if s := m.per[p.ID]; s != nil {
 				v = s.failed[r]
 			}
-			fmt.Fprintf(w, "continuum_link_connection_failures_total{%s} %d\n", lbl(p.ID, "reason", r), v)
+			fmt.Fprintf(w, "ikhnos_link_connection_failures_total{%s} %d\n", lbl(p.ID, "reason", r), v)
 		}
 	}
 	histo := func(name, help string, bounds []float64, get func(*stats) *hist) {
@@ -467,11 +467,11 @@ func (m *Meter) write(w io.Writer, own string, peers []Peer) {
 			fmt.Fprintf(w, "%s_sum{%s} %g\n%s_count{%s} %d\n", name, lbl(p.ID), h.sum, name, lbl(p.ID), h.n)
 		}
 	}
-	histo("continuum_link_rtt_seconds", "Smoothed TCP round-trip time of observed connections to the peer, one sample per connection group per report window.", rttBuckets, func(s *stats) *hist { return s.rtt })
-	head("continuum_link_last_observation_timestamp_seconds", "gauge", "When traffic with the peer was last observed. Absent until the first time.")
+	histo("ikhnos_link_rtt_seconds", "Smoothed TCP round-trip time of observed connections to the peer, one sample per connection group per report window.", rttBuckets, func(s *stats) *hist { return s.rtt })
+	head("ikhnos_link_last_observation_timestamp_seconds", "gauge", "When traffic with the peer was last observed. Absent until the first time.")
 	for _, p := range peers {
 		if s := m.per[p.ID]; s != nil && !s.lastSeen.IsZero() {
-			fmt.Fprintf(w, "continuum_link_last_observation_timestamp_seconds{%s} %d\n", lbl(p.ID), s.lastSeen.Unix())
+			fmt.Fprintf(w, "ikhnos_link_last_observation_timestamp_seconds{%s} %d\n", lbl(p.ID), s.lastSeen.Unix())
 		}
 	}
 	if m.probing {

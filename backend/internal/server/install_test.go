@@ -7,11 +7,11 @@ import (
 	"strings"
 	"testing"
 
-	"continuum/internal/accounts"
-	"continuum/internal/chart"
-	"continuum/internal/installcfg"
-	"continuum/internal/kernel"
-	"continuum/internal/store"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/chart"
+	"ikhnos/internal/installcfg"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/store"
 )
 
 const goodDigest = "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
@@ -23,7 +23,7 @@ func testAdmin(t *testing.T) *Admin {
 }
 
 func cmdFor(a *Admin, img kernel.ImageConfig) string {
-	cmd, err := a.installCommand(img, "cnt_1", store.Token{AccessTier: 2})
+	cmd, err := a.installCommand(img, "ikh_1", store.Token{AccessTier: 2})
 	if err != nil {
 		panic(err)
 	}
@@ -67,7 +67,7 @@ func TestInstallCommandForTheFourImageSettings(t *testing.T) {
 
 	// 2. Registry only: one image, the chart from the same registry, no tag and no digest.
 	cmd = cmdFor(a, kernel.ImageConfig{Registry: "myteam"})
-	for _, want := range []string{"helm install continuum-agent oci://registry-1.docker.io/myteam/continuum-agent" + ver + "\\\n", "--set image.repository=myteam/continuum", "--set enrollment.key=" + a.C.CA.SPKIPin() + ".cnt_1"} {
+	for _, want := range []string{"helm install ikhnos-agent oci://registry-1.docker.io/myteam/ikhnos-agent" + ver + "\\\n", "--set image.repository=myteam/ikhnos", "--set enrollment.key=" + a.C.CA.SPKIPin() + ".ikh_1"} {
 		if !strings.Contains(cmd, want) {
 			t.Fatalf("missing %q in:\n%s", want, cmd)
 		}
@@ -80,7 +80,7 @@ func TestInstallCommandForTheFourImageSettings(t *testing.T) {
 
 	// 3. Registry and tag.
 	cmd = cmdFor(a, kernel.ImageConfig{Registry: "ghcr.io/me/x", Tag: "1.2.3"})
-	for _, want := range []string{"oci://ghcr.io/me/x/continuum-agent" + ver, "--set image.repository=ghcr.io/me/x/continuum", "--set image.tag=1.2.3"} {
+	for _, want := range []string{"oci://ghcr.io/me/x/ikhnos-agent" + ver, "--set image.repository=ghcr.io/me/x/ikhnos", "--set image.tag=1.2.3"} {
 		if !strings.Contains(cmd, want) {
 			t.Fatalf("missing %q in:\n%s", want, cmd)
 		}
@@ -91,7 +91,7 @@ func TestInstallCommandForTheFourImageSettings(t *testing.T) {
 
 	// 4. Registry, tag and digest: the digest is printed too (the chart then pins by it).
 	cmd = cmdFor(a, kernel.ImageConfig{Registry: "reg.example.com:8443/team", Tag: "1.2.3", Digest: goodDigest})
-	for _, want := range []string{"--set image.repository=reg.example.com:8443/team/continuum", "--set image.tag=1.2.3", "--set image.digest=" + goodDigest} {
+	for _, want := range []string{"--set image.repository=reg.example.com:8443/team/ikhnos", "--set image.tag=1.2.3", "--set image.digest=" + goodDigest} {
 		if !strings.Contains(cmd, want) {
 			t.Fatalf("missing %q in:\n%s", want, cmd)
 		}
@@ -101,7 +101,7 @@ func TestInstallCommandForTheFourImageSettings(t *testing.T) {
 		t.Fatalf("digest without a tag:\n%s", cmd)
 	}
 	// The only secret on the command line is the enrollment token, as before; no image value carries one.
-	if strings.Count(cmd, "cnt_1") != 1 {
+	if strings.Count(cmd, "ikh_1") != 1 {
 		t.Fatalf("the token appears once:\n%s", cmd)
 	}
 }
@@ -111,7 +111,7 @@ func TestInstallCommandForTheFourImageSettings(t *testing.T) {
 func TestInstallCommandBundlesTheCAPinAndToken(t *testing.T) {
 	a := testAdmin(t)
 	cmd := cmdFor(a, kernel.ImageConfig{})
-	want := "--set enrollment.key=" + a.C.CA.SPKIPin() + ".cnt_1"
+	want := "--set enrollment.key=" + a.C.CA.SPKIPin() + ".ikh_1"
 	if !strings.Contains(cmd, want) {
 		t.Fatalf("missing %q in:\n%s", want, cmd)
 	}
@@ -161,7 +161,7 @@ func TestInstallCommandUsesThePublishedChartVersionWhenKnown(t *testing.T) {
 
 	// upgradeCommand (the tier-ceiling "harden" hint) must agree with installCommand.
 	a.ChartRef = ""
-	if cmd, err := a.upgradeCommand(img, 2, "continuum-system", "continuum-agent"); err != nil || !strings.Contains(cmd, " --version 0.0.0-edge.5fb6022 ") {
+	if cmd, err := a.upgradeCommand(img, 2, "ikhnos-system", "ikhnos-agent"); err != nil || !strings.Contains(cmd, " --version 0.0.0-edge.5fb6022 ") {
 		t.Fatalf("upgradeCommand should also use AgentChartVersion:\n%s", cmd)
 	}
 }
@@ -171,9 +171,9 @@ func TestExplicitChartRef(t *testing.T) {
 	a := testAdmin(t)
 	img := kernel.ImageConfig{Registry: "reg.example.com/team/", Tag: "1.2.3"}
 	img, _ = img.Normalize()
-	a.ChartRef = "oci://reg.example.com/charts/continuum-agent"
+	a.ChartRef = "oci://reg.example.com/charts/ikhnos-agent"
 	cmd := cmdFor(a, img)
-	if !strings.Contains(cmd, "oci://reg.example.com/charts/continuum-agent --version "+chart.Version()+" ") || strings.Contains(cmd, "./continuum-agent") || !strings.Contains(cmd, "image.repository=reg.example.com/team/continuum") {
+	if !strings.Contains(cmd, "oci://reg.example.com/charts/ikhnos-agent --version "+chart.Version()+" ") || strings.Contains(cmd, "./ikhnos-agent") || !strings.Contains(cmd, "image.repository=reg.example.com/team/ikhnos") {
 		t.Fatalf("an explicit chart reference replaces the local file but not the image:\n%s", cmd)
 	}
 	a.ChartRef = "local"
@@ -255,7 +255,7 @@ func TestImagePrecedenceAndTheEndpoints(t *testing.T) {
 
 	// Flags only.
 	a.a.ImageRegistry, a.a.ImageTag, a.a.ImageDigest = "flagreg/team", "9.9.9", ""
-	if c := install(); !strings.Contains(c, "image.repository=flagreg/team/continuum") || !strings.Contains(c, "image.tag=9.9.9") {
+	if c := install(); !strings.Contains(c, "image.repository=flagreg/team/ikhnos") || !strings.Contains(c, "image.tag=9.9.9") {
 		t.Fatalf("flags:\n%s", c)
 	}
 	if r := a.do("GET", "/api/v1/settings", nil, withCookie(admin)).json(t); r["imageRegistry"] != "" {
@@ -270,10 +270,10 @@ func TestImagePrecedenceAndTheEndpoints(t *testing.T) {
 		t.Fatalf("put: %d %s", put.Code, put.Body.String())
 	}
 	c := install()
-	if !strings.Contains(c, "image.repository=uireg/x/continuum") || !strings.Contains(c, "image.digest="+goodDigest) || strings.Contains(c, "flagreg") || strings.Contains(c, "9.9.9") || strings.Contains(c, "image.tag") {
+	if !strings.Contains(c, "image.repository=uireg/x/ikhnos") || !strings.Contains(c, "image.digest="+goodDigest) || strings.Contains(c, "flagreg") || strings.Contains(c, "9.9.9") || strings.Contains(c, "image.tag") {
 		t.Fatalf("the setting must beat the flag:\n%s", c)
 	}
-	if i := info(); i["imageRegistry"] != "uireg/x" || i["imageDigest"] != goodDigest || i["imageTag"] != "" || i["imagesConfigured"] != true || i["chartRef"] != "oci://registry-1.docker.io/uireg/x/continuum-agent" {
+	if i := info(); i["imageRegistry"] != "uireg/x" || i["imageDigest"] != goodDigest || i["imageTag"] != "" || i["imagesConfigured"] != true || i["chartRef"] != "oci://registry-1.docker.io/uireg/x/ikhnos-agent" {
 		t.Fatalf("info follows the setting: %v", i)
 	}
 
@@ -281,7 +281,7 @@ func TestImagePrecedenceAndTheEndpoints(t *testing.T) {
 	if r := a.do("PUT", "/api/v1/settings", kernel.Settings{}, withCookie(admin)); r.Code != 200 {
 		t.Fatalf("clear: %d %s", r.Code, r.Body.String())
 	}
-	if c := install(); !strings.Contains(c, "flagreg/team/continuum") || strings.Contains(c, "uireg") {
+	if c := install(); !strings.Contains(c, "flagreg/team/ikhnos") || strings.Contains(c, "uireg") {
 		t.Fatalf("cleared setting falls back to the flag:\n%s", c)
 	}
 
@@ -400,16 +400,16 @@ func TestOperatorChartRefIsDerivedFromTheAgentChartRef(t *testing.T) {
 		name, chartRef, wantRef string
 		wantVersion             bool
 	}{
-		{"oci", "oci://ghcr.io/acme/charts/continuum-agent", "oci://ghcr.io/acme/charts/continuum-regional-operator", true},
-		{"oci with a trailing slash", "oci://ghcr.io/acme/charts/continuum-agent/", local, false}, // not recognisable: the file
-		{"https repository", "https://charts.example.com/stable/continuum-agent", "https://charts.example.com/stable/continuum-regional-operator", true},
-		{"repo alias", "acme/continuum-agent", "acme/continuum-regional-operator", true},
-		{"a packaged agent chart", "https://charts.example.com/continuum-agent-0.3.1.tgz", local, false},
-		{"a local .tgz", "./continuum-agent-0.3.1.tgz", local, false},
+		{"oci", "oci://ghcr.io/acme/charts/ikhnos-agent", "oci://ghcr.io/acme/charts/ikhnos-regional-operator", true},
+		{"oci with a trailing slash", "oci://ghcr.io/acme/charts/ikhnos-agent/", local, false}, // not recognisable: the file
+		{"https repository", "https://charts.example.com/stable/ikhnos-agent", "https://charts.example.com/stable/ikhnos-regional-operator", true},
+		{"repo alias", "acme/ikhnos-agent", "acme/ikhnos-regional-operator", true},
+		{"a packaged agent chart", "https://charts.example.com/ikhnos-agent-0.3.1.tgz", local, false},
+		{"a local .tgz", "./ikhnos-agent-0.3.1.tgz", local, false},
 		{"a name that is not the agent chart", "oci://ghcr.io/acme/charts/something-else", local, false},
-		{"a longer name that ends in it", "oci://ghcr.io/acme/charts/my-continuum-agent", local, false},
+		{"a longer name that ends in it", "oci://ghcr.io/acme/charts/my-ikhnos-agent", local, false},
 		{"local", "local", local, false},
-		{"nothing set: the image registry's own", "", "oci://reg.example.com/team/continuum-regional-operator", true},
+		{"nothing set: the image registry's own", "", "oci://reg.example.com/team/ikhnos-regional-operator", true},
 	} {
 		a.ChartRef = c.chartRef
 		ref, version := a.OperatorChart(img)
@@ -419,7 +419,7 @@ func TestOperatorChartRefIsDerivedFromTheAgentChartRef(t *testing.T) {
 		if (version != "") != c.wantVersion {
 			t.Errorf("%s: version %q, want a --version: %v", c.name, version, c.wantVersion)
 		}
-		if strings.Contains(ref, "continuum-agent") && c.chartRef != "" {
+		if strings.Contains(ref, "ikhnos-agent") && c.chartRef != "" {
 			t.Errorf("%s: the operator command names the agent chart: %q", c.name, ref)
 		}
 	}

@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"continuum/internal/accounts"
-	"continuum/internal/chart"
-	"continuum/internal/testkit"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/chart"
+	"ikhnos/internal/testkit"
 )
 
 // FUSION is part of the server and reached through its central operator: nobody creates a "fusion" destination by hand.

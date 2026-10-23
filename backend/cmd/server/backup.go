@@ -18,13 +18,13 @@ import (
 	"strings"
 	"time"
 
-	"continuum/internal/store"
+	"ikhnos/internal/store"
 )
 
 // A backup is one .tar.gz file holding what the server cannot recreate:
 //
 //	manifest.json  what is in it, with a checksum of every file, the format version and the database schema version
-//	continuum.db   a consistent copy of the database (accounts, agents, settings, workspace, audit, tombstones, ...)
+//	ikhnos.db   a consistent copy of the database (accounts, agents, settings, workspace, audit, tombstones, ...)
 //	pki/*          the certificate authority (ca.crt, ca.key): without it every enrolled agent must enrol again
 //
 // What is NOT in it, because it comes back by itself: what agents observe (they send a full picture when they
@@ -73,7 +73,7 @@ func backupCmd(args []string, out, errw io.Writer) int {
 func makeBackup(ctx context.Context, dataDir, dest string) (backupManifest, error) {
 	if dest == "-" {
 		// To stdout, so a backup can be taken out of a container with no shell and no tar:
-		//   kubectl exec deploy/continuum-server -- /server backup --out - > backup.tar.gz
+		//   kubectl exec deploy/ikhnos-server -- /server backup --out - > backup.tar.gz
 		// The working files go in a private directory inside the data directory, and are removed afterwards.
 		return writeBackup(ctx, dataDir, dataDir, os.Stdout)
 	}
@@ -102,12 +102,12 @@ func writeBackup(ctx context.Context, dataDir, work string, w io.Writer) (backup
 		return m, err
 	}
 	defer os.RemoveAll(tmp)
-	dbCopy := filepath.Join(tmp, "continuum.db")
-	schema, err := store.BackupDatabase(ctx, filepath.Join(dataDir, "continuum.db"), dbCopy)
+	dbCopy := filepath.Join(tmp, "ikhnos.db")
+	schema, err := store.BackupDatabase(ctx, filepath.Join(dataDir, "ikhnos.db"), dbCopy)
 	if err != nil {
 		return m, err
 	}
-	files := map[string]string{"continuum.db": dbCopy}
+	files := map[string]string{"ikhnos.db": dbCopy}
 	entries, err := os.ReadDir(filepath.Join(dataDir, "pki"))
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return m, err
@@ -234,7 +234,7 @@ func restoreBackup(ctx context.Context, from, dataDir string, force bool) (backu
 			return m, fmt.Errorf("the backup is damaged: %w", err)
 		}
 		name := path.Clean(h.Name)
-		if h.Typeflag != tar.TypeReg || !(name == "manifest.json" || name == "continuum.db" || (path.Dir(name) == "pki" && path.Base(name) != "." && !strings.HasPrefix(path.Base(name), "."))) {
+		if h.Typeflag != tar.TypeReg || !(name == "manifest.json" || name == "ikhnos.db" || (path.Dir(name) == "pki" && path.Base(name) != "." && !strings.HasPrefix(path.Base(name), "."))) {
 			return m, fmt.Errorf("the backup contains an unexpected entry %q", h.Name)
 		}
 		dst := filepath.Join(stage, filepath.FromSlash(name))
@@ -284,16 +284,16 @@ func restoreBackup(ctx context.Context, from, dataDir string, force bool) (backu
 			return m, fmt.Errorf("the backup contains %s, which its manifest does not list", n)
 		}
 	}
-	if !listed["continuum.db"] || !listed["pki/ca.key"] || !listed["pki/ca.crt"] {
+	if !listed["ikhnos.db"] || !listed["pki/ca.key"] || !listed["pki/ca.crt"] {
 		return m, errors.New("the backup lacks the database or the CA")
 	}
-	if _, err := store.CheckDatabase(ctx, filepath.Join(stage, "continuum.db")); err != nil {
+	if _, err := store.CheckDatabase(ctx, filepath.Join(stage, "ikhnos.db")); err != nil {
 		return m, err // damaged, or written by a newer server (the message says so)
 	}
 
 	// Put it in place. Anything already there is moved aside, never deleted.
 	existing := []string{}
-	for _, n := range []string{"continuum.db", "continuum.db-wal", "continuum.db-shm", "pki"} {
+	for _, n := range []string{"ikhnos.db", "ikhnos.db-wal", "ikhnos.db-shm", "pki"} {
 		if _, err := os.Lstat(filepath.Join(dataDir, n)); err == nil {
 			existing = append(existing, n)
 		}
@@ -315,7 +315,7 @@ func restoreBackup(ctx context.Context, from, dataDir string, force bool) (backu
 	if err := os.Rename(filepath.Join(stage, "pki"), filepath.Join(dataDir, "pki")); err != nil {
 		return m, err
 	}
-	if err := os.Rename(filepath.Join(stage, "continuum.db"), filepath.Join(dataDir, "continuum.db")); err != nil {
+	if err := os.Rename(filepath.Join(stage, "ikhnos.db"), filepath.Join(dataDir, "ikhnos.db")); err != nil {
 		return m, err
 	}
 	_ = os.Chmod(filepath.Join(dataDir, "pki"), 0o700)

@@ -12,18 +12,18 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/accounts"
-	"continuum/internal/agent"
-	"continuum/internal/agent/collect"
-	"continuum/internal/agents"
-	"continuum/internal/estate"
-	"continuum/internal/facts"
-	"continuum/internal/flow"
-	"continuum/internal/kernel"
-	"continuum/internal/pki"
-	"continuum/internal/probe"
-	"continuum/internal/server"
-	"continuum/internal/store"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/agent"
+	"ikhnos/internal/agent/collect"
+	"ikhnos/internal/agents"
+	"ikhnos/internal/estate"
+	"ikhnos/internal/facts"
+	"ikhnos/internal/flow"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/pki"
+	"ikhnos/internal/probe"
+	"ikhnos/internal/server"
+	"ikhnos/internal/store"
 
 	appsv1 "k8s.io/api/apps/v1"
 	authorizationv1 "k8s.io/api/authorization/v1"
@@ -286,10 +286,10 @@ func TestAnOverCeilingTierIsRefusedWithTheHelmCommand(t *testing.T) {
 	d := newDx(t, dxOpts{installed: 1, approve: 1})
 	waitFor(t, "first picture", 15*time.Second, func() bool { return d.agentDoc().Synced })
 	_, err := d.hub.SetAgentTier(agents.ActingAs(context.Background(), accounts.RoleAdmin), "test", d.id, 2, func(n int) string {
-		return fmt.Sprintf("helm upgrade continuum-agent ./chart.tgz --namespace continuum-system --reset-then-reuse-values --set access.tier=%d", n)
+		return fmt.Sprintf("helm upgrade ikhnos-agent ./chart.tgz --namespace ikhnos-system --reset-then-reuse-values --set access.tier=%d", n)
 	})
 	var se *kernel.Error
-	if !errors.As(err, &se) || !strings.Contains(se.Msg, "helm upgrade continuum-agent ./chart.tgz --namespace continuum-system --reset-then-reuse-values --set access.tier=2") {
+	if !errors.As(err, &se) || !strings.Contains(se.Msg, "helm upgrade ikhnos-agent ./chart.tgz --namespace ikhnos-system --reset-then-reuse-values --set access.tier=2") {
 		t.Fatalf("err = %v", err)
 	}
 	if a, _ := d.st.GetAgent(context.Background(), "org", d.id); a.AccessTier != 1 || a.InstalledTier != 1 {
@@ -301,7 +301,7 @@ func TestForbiddenResourcesAreReportedAndTheAgentCarriesOn(t *testing.T) {
 	d := newDx(t, dxOpts{tune: func(c *agent.Config, _ *server.Core, _ *estate.Hub) {
 		kube := c.Kube.(*fake.Clientset)
 		kube.PrependReactor("list", "deployments", func(k8stesting.Action) (bool, runtime.Object, error) {
-			return true, nil, apierrors.NewForbidden(schema.GroupResource{Group: "apps", Resource: "deployments"}, "", errors.New(`User "system:serviceaccount:continuum-system:continuum-agent" cannot list resource "deployments" in API group "apps" at the cluster scope`))
+			return true, nil, apierrors.NewForbidden(schema.GroupResource{Group: "apps", Resource: "deployments"}, "", errors.New(`User "system:serviceaccount:ikhnos-system:ikhnos-agent" cannot list resource "deployments" in API group "apps" at the cluster scope`))
 		})
 	}})
 	g := d.waitDiag("an rbac problem", func(g *agents.DiagnosticsDoc) bool { return problem(g, "rbac_forbidden") != nil })
@@ -658,7 +658,7 @@ type failingSave struct {
 
 func (f *failingSave) Save(ctx context.Context, id *agent.Identity) error {
 	if f.armed.Load() {
-		return errors.New("secrets \"continuum-agent-identity\" is forbidden: cannot update")
+		return errors.New("secrets \"ikhnos-agent-identity\" is forbidden: cannot update")
 	}
 	return f.IdentityStore.Save(ctx, id)
 }

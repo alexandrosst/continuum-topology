@@ -37,7 +37,7 @@ test('image settings: a tag or digest needs a registry, and everything empty is 
 })
 
 test('ociBase mirrors the server: a bare name is a Docker Hub namespace', () => {
-  for (const [i, o] of Object.entries({ myteam: 'registry-1.docker.io/myteam', 'docker.io/myteam/': 'registry-1.docker.io/myteam', 'index.docker.io/team/sub': 'registry-1.docker.io/team/sub', 'ghcr.io/me/continuum': 'ghcr.io/me/continuum', 'localhost:5000/x': 'localhost:5000/x', 'reg.example.com:8443/team': 'reg.example.com:8443/team' })) {
+  for (const [i, o] of Object.entries({ myteam: 'registry-1.docker.io/myteam', 'docker.io/myteam/': 'registry-1.docker.io/myteam', 'index.docker.io/team/sub': 'registry-1.docker.io/team/sub', 'ghcr.io/me/ikhnos': 'ghcr.io/me/ikhnos', 'localhost:5000/x': 'localhost:5000/x', 'reg.example.com:8443/team': 'reg.example.com:8443/team' })) {
     assert.equal(ociBase(i), o)
   }
 })
@@ -45,23 +45,23 @@ test('ociBase mirrors the server: a bare name is a Docker Hub namespace', () => 
 test('previewImage: four cases and precedence', () => {
   const none = previewImage({ registry: '', tag: '', digest: '' })
   assert.equal(none.configured, false)
-  assert.equal(none.reference, 'continuum/continuum')
+  assert.equal(none.reference, 'ikhnos/ikhnos')
   assert.equal(none.chartRef, '')
 
   const reg = previewImage({ registry: 'myteam/', tag: '', digest: '' })
-  assert.deepEqual([reg.configured, reg.repository, reg.reference, reg.chartRef], [true, 'myteam/continuum', 'myteam/continuum', 'oci://registry-1.docker.io/myteam/continuum-agent'])
+  assert.deepEqual([reg.configured, reg.repository, reg.reference, reg.chartRef], [true, 'myteam/ikhnos', 'myteam/ikhnos', 'oci://registry-1.docker.io/myteam/ikhnos-agent'])
 
   const tagged = previewImage({ registry: 'ghcr.io/me/x', tag: '1.2.3', digest: '' })
-  assert.deepEqual([tagged.reference, tagged.pinnedReference, tagged.chartRef], ['ghcr.io/me/x/continuum:1.2.3', '', 'oci://ghcr.io/me/x/continuum-agent'])
+  assert.deepEqual([tagged.reference, tagged.pinnedReference, tagged.chartRef], ['ghcr.io/me/x/ikhnos:1.2.3', '', 'oci://ghcr.io/me/x/ikhnos-agent'])
 
   const pinned = previewImage({ registry: 'ghcr.io/me/x', tag: '1.2.3', digest: D })
-  assert.equal(pinned.reference, `ghcr.io/me/x/continuum@${D}`)
+  assert.equal(pinned.reference, `ghcr.io/me/x/ikhnos@${D}`)
   assert.equal(pinned.pinnedReference, pinned.reference)
 
   // the organisation's own registry beats the server's default, as a whole; empty falls back to it
   const server = { registry: 'flag.io/t', tag: '9', digest: '' }
   const own = previewImage({ registry: 'own.io', tag: '', digest: '' }, server)
-  assert.deepEqual([own.repository, own.tag, own.fromServer], ['own.io/continuum', '', false])
+  assert.deepEqual([own.repository, own.tag, own.fromServer], ['own.io/ikhnos', '', false])
   const inherited = previewImage({ registry: '', tag: '', digest: '' }, server)
-  assert.deepEqual([inherited.repository, inherited.tag, inherited.fromServer, inherited.reference], ['flag.io/t/continuum', '9', true, 'flag.io/t/continuum:9'])
+  assert.deepEqual([inherited.repository, inherited.tag, inherited.fromServer, inherited.reference], ['flag.io/t/ikhnos', '9', true, 'flag.io/t/ikhnos:9'])
 })

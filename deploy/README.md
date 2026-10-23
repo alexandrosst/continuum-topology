@@ -1,6 +1,6 @@
 # Deploying the Ikhnos server on Kubernetes
 
-This guide covers the **server** (control plane and web UI) and its databases. The chart is [`deploy/helm/continuum-server`](helm/continuum-server) (its [README](helm/continuum-server/README.md) documents every value and which server flags each one needs). Agents run in the clusters you observe and are installed with the command the server prints; see [Connect the first cluster](#connect-the-first-cluster).
+This guide covers the **server** (control plane and web UI) and its databases. The chart is [`deploy/helm/ikhnos-server`](helm/ikhnos-server) (its [README](helm/ikhnos-server/README.md) documents every value and which server flags each one needs). Agents run in the clusters you observe and are installed with the command the server prints; see [Connect the first cluster](#connect-the-first-cluster).
 
 > **Status of this guide.** The chart was checked with `helm lint`, `helm template` over many value combinations, and `kubectl apply --dry-run=server` against a single-node k3s API. The server binary was built and started locally with the exact arguments the chart renders. **No pod has run in a cluster, no container image has been built, and the backup CronJob has not run against a real CSI driver.** Treat the first install as a trial run.
 
@@ -42,20 +42,20 @@ This guide covers the **server** (control plane and web UI) and its databases. T
 
 ### Using this repo's own published images (zero-config)
 
-Every push to `main` and every `vX.Y.Z` tag runs [`.github/workflows/release.yml`](../.github/workflows/release.yml): it builds and pushes the `continuum` image (agent, node probe and flow collector - one binary, three roles) and the `server` image, packages the four Helm charts (`continuum-agent`, `continuum-regional-operator`, `continuum-fusion`, `continuum-server`), and pushes everything to **this repository's own GitHub Container Registry namespace**, `ghcr.io/<owner>` (lower-cased automatically; `<owner>` is the GitHub user or organisation the repo lives under). Everything it pushes is signed with cosign, keylessly, off the workflow's own OIDC token - nothing to generate or store as a secret (see [Signing and verifying releases](#signing-and-verifying-releases)).
+Every push to `main` and every `vX.Y.Z` tag runs [`.github/workflows/release.yml`](../.github/workflows/release.yml): it builds and pushes the `ikhnos` image (agent, node probe and flow collector - one binary, three roles) and the `server` image, packages the four Helm charts (`ikhnos-agent`, `ikhnos-regional-operator`, `ikhnos-fusion`, `ikhnos-server`), and pushes everything to **this repository's own GitHub Container Registry namespace**, `ghcr.io/<owner>` (lower-cased automatically; `<owner>` is the GitHub user or organisation the repo lives under). Everything it pushes is signed with cosign, keylessly, off the workflow's own OIDC token - nothing to generate or store as a secret (see [Signing and verifying releases](#signing-and-verifying-releases)).
 
-The part that actually makes this zero-config: packaging bakes that same `ghcr.io/<owner>` namespace into the chart's own default values (`image.repository` in the agent and server charts, the only two that carry an image, and the server chart's `agentInstall.imageRegistry`) before pushing the `.tgz`, rather than leaving the source tree's placeholder names (`continuum/continuum`, `continuum/server`) in the published chart. That means:
+The part that actually makes this zero-config: packaging bakes that same `ghcr.io/<owner>` namespace into the chart's own default values (`image.repository` in the agent and server charts, the only two that carry an image, and the server chart's `agentInstall.imageRegistry`) before pushing the `.tgz`, rather than leaving the source tree's placeholder names (`ikhnos/ikhnos`, `ikhnos/server`) in the published chart. That means:
 
 * Installing the **server** straight from the published chart needs no `--set image.repository=...` at all:
 
   ```console
-  helm install continuum-server oci://ghcr.io/<owner>/continuum-server --version <chart version> \
+  helm install ikhnos-server oci://ghcr.io/<owner>/ikhnos-server --version <chart version> \
     --set agent.publicAddress=... [the rest of your usual values]
   ```
 
 * The **"Connect a cluster"** screen's printed `helm install` command for the *agent* already points at the same registry, because the server chart's `agentInstall.imageRegistry` (what that command uses) came pre-set to `ghcr.io/<owner>` in the same step - nobody installing the server from this chart has to visit **Settings → Installation** or pass `--image-registry` at all.
 
-**One manual, one-time step this workflow cannot do for you**: GHCR creates a newly-pushed package as **private**, even from a public repository's own Actions run. After the workflow's first run, the repo's right sidebar on GitHub shows a **Packages** section; open each of the four (`continuum`, `server`, `continuum-agent`, `continuum-server`), **Package settings** at the bottom, **Change visibility → Public** (and confirm "Link to this repository" is checked so they show up on the repo's page). Every later push publishes new versions into the same, already-public packages - this is a once-per-repository step, not a once-per-release one.
+**One manual, one-time step this workflow cannot do for you**: GHCR creates a newly-pushed package as **private**, even from a public repository's own Actions run. After the workflow's first run, the repo's right sidebar on GitHub shows a **Packages** section; open each of the four (`ikhnos`, `server`, `ikhnos-agent`, `ikhnos-server`), **Package settings** at the bottom, **Change visibility → Public** (and confirm "Link to this repository" is checked so they show up on the repo's page). Every later push publishes new versions into the same, already-public packages - this is a once-per-repository step, not a once-per-release one.
 
 `main` publishes a floating `edge` tag (and a `sha-<short>` one); a `vX.Y.Z` tag publishes that exact version and moves `latest` to it. Pin to a real version or a digest for anything other than a trial, the same as with any other registry.
 
@@ -71,16 +71,16 @@ Agents reach a node address on a NodePort (the first line only looks that addres
 ```console
 NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
 
-helm install continuum-server deploy/helm/continuum-server -n continuum --create-namespace \
+helm install ikhnos-server deploy/helm/ikhnos-server -n ikhnos --create-namespace \
   --set image.repository=REGISTRY/server \
   --set agent.publicAddress=$NODE_IP:30443 --set agent.service.type=NodePort
 
-kubectl -n continuum logs deployment/continuum-server | grep -A2 'First start'   # the one-time admin password
+kubectl -n ikhnos logs deployment/ikhnos-server | grep -A2 'First start'   # the one-time admin password
 
-kubectl -n continuum port-forward service/continuum-server 8080:8080              # then open https://localhost:8080
+kubectl -n ikhnos port-forward service/ikhnos-server 8080:8080              # then open https://localhost:8080
 ```
 
-`https://localhost:8080` shows a "not private" warning the first time — the certificate is self-signed, generated automatically, not signed by anything your browser trusts. Click through it; this is fine for a trial, but do not expose this address further. Prefer plain HTTP over the tunnel instead (no warning, since `kubectl port-forward` already runs over an encrypted connection to the API server)? Add `--set admin.behindTlsProxy=true` and use `http://localhost:8080`. (With the release named `continuum-server` the objects are called `continuum-server`; any other release name gives `<release>-continuum-server`.)
+`https://localhost:8080` shows a "not private" warning the first time — the certificate is self-signed, generated automatically, not signed by anything your browser trusts. Click through it; this is fine for a trial, but do not expose this address further. Prefer plain HTTP over the tunnel instead (no warning, since `kubectl port-forward` already runs over an encrypted connection to the API server)? Add `--set admin.behindTlsProxy=true` and use `http://localhost:8080`. (With the release named `ikhnos-server` the objects are called `ikhnos-server`; any other release name gives `<release>-ikhnos-server`.)
 
 ### A cloud cluster: LoadBalancer for agents, Gateway API and cert-manager for the UI
 
@@ -90,12 +90,12 @@ Assumes a `Gateway` named `shared-gateway` already exists in a `gateways` namesp
 
 ```yaml
 image:
-  repository: registry.example.com/continuum/server
+  repository: registry.example.com/ikhnos/server
   digest: sha256:...            # immutable
 registration: invite
 
 agent:
-  publicAddress: agents.continuum.example.com:8443     # what agents dial; a DNS name that points at the agent LoadBalancer
+  publicAddress: agents.ikhnos.example.com:8443     # what agents dial; a DNS name that points at the agent LoadBalancer
   service:
     type: LoadBalancer
     externalTrafficPolicy: Local                       # the chart's own default too - shown for clarity
@@ -108,7 +108,7 @@ httproute:
     - name: shared-gateway
       namespace: gateways
       sectionName: https
-  hostnames: [continuum.example.com]
+  hostnames: [ikhnos.example.com]
 
 persistence: {size: 10Gi}
 neo4j: {mode: bundled}
@@ -118,8 +118,8 @@ networkPolicy: {enabled: true}
 ```
 
 ```console
-helm install continuum-server deploy/helm/continuum-server -n continuum --create-namespace -f values-prod.yaml
-kubectl -n continuum get service continuum-server-agent -w     # wait for EXTERNAL-IP, then create the DNS record
+helm install ikhnos-server deploy/helm/ikhnos-server -n ikhnos --create-namespace -f values-prod.yaml
+kubectl -n ikhnos get service ikhnos-server-agent -w     # wait for EXTERNAL-IP, then create the DNS record
 ```
 
 Read `NOTES.txt` in the output: it prints what agents will dial, how to see the UI address, and the exact `kubectl logs` for the first password.
@@ -138,7 +138,7 @@ flowchart LR
   subgraph k["Cluster running the server"]
     LB["L4 LoadBalancer or NodePort<br/>(or a Gateway TLSRoute, passthrough)"]
     IG["Gateway (HTTPRoute)<br/>terminates TLS"]
-    subgraph pod["Pod: continuum server"]
+    subgraph pod["Pod: ikhnos server"]
       P1[":8443 agents<br/>gRPC, mutual TLS,<br/>own private CA"]
       P2[":8080 admin API + UI<br/>plain HTTP"]
     end
@@ -152,7 +152,7 @@ flowchart LR
   pod --- D
 ```
 
-* **Agent port (8443).** Agents dial out to it with gRPC over *mutual* TLS. The server signs each agent's certificate with its own private CA and the agents pin that CA, so the TLS session must run from the agent all the way into the pod. An L7 proxy that terminates TLS (a normal Ingress, a CDN, an HTTP load balancer) breaks the handshake for every agent. Expose it with a `LoadBalancer` or `NodePort` Service (L4), or with TLS **passthrough** via a Gateway API `TLSRoute` behind a `protocol: TLS` / `mode: Passthrough` listener (`agent.tlsRoute`) - not both: enabling `agent.tlsRoute` also requires `agent.service.type=ClusterIP` (the chart refuses to install otherwise), so the Gateway is the only way in rather than a second, unintended `LoadBalancer` or `NodePort` sitting next to it for the same port. With passthrough the Gateway routes on the SNI host, so agents dial that hostname on the Gateway's port (usually 443): `agent.publicAddress=continuum.example.com:443`. Already run your own reverse proxy (nginx, Traefik, Caddy...)? It can't terminate this port either, for the same reason - either let a `LoadBalancer`/`NodePort` bypass it for this one port, or use its own raw TCP/SNI passthrough mode (nginx `stream`, Traefik TCP routers, Caddy `layer4`) instead of terminating. See [Exposing the agent port](../docs-site/docs/architecture/exposure-options.md#already-run-your-own-reverse-proxy) for the full walkthrough.
+* **Agent port (8443).** Agents dial out to it with gRPC over *mutual* TLS. The server signs each agent's certificate with its own private CA and the agents pin that CA, so the TLS session must run from the agent all the way into the pod. An L7 proxy that terminates TLS (a normal Ingress, a CDN, an HTTP load balancer) breaks the handshake for every agent. Expose it with a `LoadBalancer` or `NodePort` Service (L4), or with TLS **passthrough** via a Gateway API `TLSRoute` behind a `protocol: TLS` / `mode: Passthrough` listener (`agent.tlsRoute`) - not both: enabling `agent.tlsRoute` also requires `agent.service.type=ClusterIP` (the chart refuses to install otherwise), so the Gateway is the only way in rather than a second, unintended `LoadBalancer` or `NodePort` sitting next to it for the same port. With passthrough the Gateway routes on the SNI host, so agents dial that hostname on the Gateway's port (usually 443): `agent.publicAddress=ikhnos.example.com:443`. Already run your own reverse proxy (nginx, Traefik, Caddy...)? It can't terminate this port either, for the same reason - either let a `LoadBalancer`/`NodePort` bypass it for this one port, or use its own raw TCP/SNI passthrough mode (nginx `stream`, Traefik TCP routers, Caddy `layer4`) instead of terminating. See [Exposing the agent port](../docs-site/docs/architecture/exposure-options.md#already-run-your-own-reverse-proxy) for the full walkthrough.
   A passthrough hop like that (or `agent.service.externalTrafficPolicy` explicitly set back to `Cluster` on a multi-node cluster - `Local` is the chart's default, since this server is always exactly one replica) can still lose an agent's real source address to SNAT along the way - which shows up as a missing or wrong location suggestion, since that address is what geoip looks up. Leaving `agent.service.externalTrafficPolicy` at its `Local` default fixes the Service-level case with nothing further to configure; when that's not an option (a multi-node cluster reached over `NodePort` through a fixed, non-node-aware address is the main one - see the values.yaml comment) and something in front is configured to send a PROXY protocol header (v1 or v2), `agent.behindProxy=true` makes the server require and trust it instead of the raw TCP peer. See [Exposing the agent port](../docs-site/docs/architecture/exposure-options.md#passthrough-loses-the-clients-own-address-unless-the-proxy-sends-it-separately) for when each applies.
 * **Admin port (8080).** The JSON API and the web UI. Inside the pod it is plain HTTP, and the server **refuses to start** on a non-loopback address in clear text unless it is told a TLS proxy protects it (`--admin-behind-tls-proxy`) or it serves TLS itself (`--admin-tls-cert/-key`). The chart sets the first automatically when `httproute` is enabled; use `admin.tls.secretName` for the second. If none of that applies, the chart generates and manages a self-signed certificate for the pod to serve instead (`admin.tls.selfSigned`, on by default) rather than stopping - real HTTPS with zero external dependencies, at the cost of a one-time browser warning. `admin.tls.selfSigned=false` restores the old behavior of stopping with a message until you pick one of the other options explicitly.
 
@@ -171,14 +171,14 @@ DNS: one name for the UI (to the Gateway's address) and one for agents (to the a
 On a fresh database the server creates the user `admin` with a random one-time password and prints it **once**, to stderr:
 
 ```console
-kubectl -n continuum logs deployment/continuum-server | grep -A2 'First start'
+kubectl -n ikhnos logs deployment/ikhnos-server | grep -A2 'First start'
 ```
 
 Sign in with `admin` and that password; the server makes you choose a new one immediately. The chart never generates or stores an admin password.
 
-Alternative: create a Secret and set `admin.existingPasswordSecret` (key `password` by default). It becomes the first administrator's password (`CONTINUUM_ADMIN_PASSWORD`), subject to the password policy, on a fresh database only. It is not forced to change, so treat the Secret as the credential. If the database already has users the Secret is ignored.
+Alternative: create a Secret and set `admin.existingPasswordSecret` (key `password` by default). It becomes the first administrator's password (`IKHNOS_ADMIN_PASSWORD`), subject to the password policy, on a fresh database only. It is not forced to change, so treat the Secret as the credential. If the database already has users the Secret is ignored.
 
-If you lost the password: `kubectl -n continuum exec deployment/continuum-server -- /server reset-password --data-dir=/data admin` prints a new one-time password, ends the account's sessions and revokes its personal access tokens (the image has no shell, but `exec` of the binary works). `server create-org --owner USER NAME` and `server verify-audit` are the other maintenance commands. These are run in the pod; not verified in a cluster.
+If you lost the password: `kubectl -n ikhnos exec deployment/ikhnos-server -- /server reset-password --data-dir=/data admin` prints a new one-time password, ends the account's sessions and revokes its personal access tokens (the image has no shell, but `exec` of the binary works). `server create-org --owner USER NAME` and `server verify-audit` are the other maintenance commands. These are run in the pod; not verified in a cluster.
 
 `registration` defaults to `invite`: people join through an invitation created by an organization administrator. `closed` disables self-registration entirely (accounts are provisioned with the commands above). `open` lets anyone who can reach the admin address create an account and an organization; use it only on a private network.
 
@@ -195,13 +195,13 @@ A server is one organization's. FUSION, the stack that stores the telemetry, is 
 The CA pin can also be read without the UI:
 
 ```console
-kubectl -n continuum logs deployment/continuum-server | grep -o 'ca_spki_pin=[^ ]*'
+kubectl -n ikhnos logs deployment/ikhnos-server | grep -o 'ca_spki_pin=[^ ]*'
 ```
 
 or, after signing in and choosing your own password, from the API (the org id is the chart's `org`, `default` unless changed):
 
 ```console
-UI=https://continuum.example.com
+UI=https://ikhnos.example.com
 curl -sc jar -H 'X-Requested-With: curl' -H 'Content-Type: application/json' \
      -d '{"username":"admin","password":"..."}' $UI/api/v1/auth/login
 curl -sb jar $UI/api/v1/orgs/default/info | jq -r .caPin
@@ -209,7 +209,7 @@ curl -sb jar $UI/api/v1/orgs/default/info | jq -r .caPin
 
 ### The agent's namespace and RBAC
 
-The printed command installs into `continuum-system` by default, but nothing in the chart requires that name: every template is namespaced with `{{ .Release.Namespace }}`, so `helm install continuum-agent ... -n observability --create-namespace` works exactly the same. Pick whatever namespace matches how you organise observability tooling in that cluster; the server tracks the namespace each agent actually reports (from the pod's own downward-API namespace, sent with its first Hello) and uses it when it later prints `helm upgrade`/`helm uninstall` commands for that agent, so this is safe to change per install without breaking anything shown in the UI later.
+The printed command installs into `ikhnos-system` by default, but nothing in the chart requires that name: every template is namespaced with `{{ .Release.Namespace }}`, so `helm install ikhnos-agent ... -n observability --create-namespace` works exactly the same. Pick whatever namespace matches how you organise observability tooling in that cluster; the server tracks the namespace each agent actually reports (from the pod's own downward-API namespace, sent with its first Hello) and uses it when it later prints `helm upgrade`/`helm uninstall` commands for that agent, so this is safe to change per install without breaking anything shown in the UI later.
 
 **Whoever runs `helm install`/`helm upgrade` for the agent needs cluster-scoped RBAC-write permission**, not just a namespace role: each access tier adds a `ClusterRole` + `ClusterRoleBinding` (read-only: nodes, namespaces, workloads, pods, services, ingresses — never Secrets or ConfigMaps), because tier 1+ reads across the whole cluster, not one namespace. If the person or pipeline installing the chart cannot create `ClusterRole`/`ClusterRoleBinding` objects, the install fails at that resource with a normal Kubernetes forbidden error — grant `cluster-admin` for that one apply, or a narrower role scoped to just those two resource kinds, rather than to the installer generally.
 
@@ -218,7 +218,7 @@ The printed command installs into `continuum-system` by default, but nothing in 
 * **Multi-tenant platforms and vclusters** that intentionally disallow `ClusterRole` for tenants. Set `rbac.mode=namespaced` and list the namespaces to watch in `scope.namespaces`: tier 2 is then granted with a `Role`/`RoleBinding` per namespace instead of one cluster-wide `ClusterRole` (tier 1 — nodes, storage classes, ingress classes — is unaffected: those are cluster-scoped types with no namespaced form, so they still need the tier-1 `ClusterRole` regardless). It is a real trade-off, not a strict downgrade: `scope.selector` cannot be used in this mode (evaluating a label selector needs to list namespaces cluster-wide, exactly what this mode avoids), a namespace added to the cluster later needs a `helm upgrade` with it added to `scope.namespaces` before the agent reports on it, and namespace metadata (labels, creation time) and persistent volumes are never read at all — no `Role`, in any namespace, can grant either (both are cluster-scoped types), so only claims are shown, not volumes.
 
   ```console
-  helm install continuum-agent deploy/... -n shop \
+  helm install ikhnos-agent deploy/... -n shop \
     --set access.tier=2 --set rbac.mode=namespaced --set 'scope.namespaces={shop,payments}' ...
   ```
 * **OpenShift.** The chart's `ClusterRole`s apply cleanly, but the flow collector's DaemonSet pod runs as root with `CAP_BPF`/`CAP_PERFMON` for eBPF, which needs a custom `SecurityContextConstraints` beyond the defaults (`restricted`/`privileged`) — this is not currently generated by the chart. Either disable the flow collector (`flow.enabled: false`) on OpenShift for now, or create a matching SCC and bind it to the agent's ServiceAccount before installing tier 2.
@@ -233,7 +233,7 @@ Narrowing `scope.namespaces`/`scope.exclude`/`scope.selector` is a third, separa
 Telemetry (`telemetry.*`) is a separate, opt-in OpenTelemetry pipeline, independent of everything above: its own `ServiceAccount` and `ClusterRole` (never bound to `access.tier`), and data that goes straight to the backend you configure, never through this server. Two of its pieces need real host access — the host collector (`resourceUsage`/`nodeRuntime`/`systemLogs`, a DaemonSet reading kubelet stats and container/journal logs) and, if bundled rather than pointed at one you already run, Kepler (`energy`, privileged) and dcgm-exporter (`accelerators`, `SYS_ADMIN`) — and that host access is what varies by platform:
 
 * **Namespaces enforcing Pod Security "baseline" or "restricted"** (via `pod-security.kubernetes.io/enforce` labels, or a policy engine like Kyverno/OPA Gatekeeper enforcing the same standard) refuse all three outright — `baseline` alone already disallows hostPath volumes, before even getting to Kepler's `privileged: true` or dcgm-exporter's `SYS_ADMIN`. Label the namespace `pod-security.kubernetes.io/enforce=privileged` (the chart's own `helm install` output prints this exact command when it applies to your configuration).
-* **OpenShift** gates on `SecurityContextConstraints`, not Pod Security labels: grant the telemetry `ServiceAccount` the built-in `privileged` SCC before installing any of the three — `oc adm policy add-scc-to-user privileged -z continuum-agent-telemetry -n <namespace>` (matching the existing flow-collector caveat above, telemetry needs this independently of it).
+* **OpenShift** gates on `SecurityContextConstraints`, not Pod Security labels: grant the telemetry `ServiceAccount` the built-in `privileged` SCC before installing any of the three — `oc adm policy add-scc-to-user privileged -z ikhnos-agent-telemetry -n <namespace>` (matching the existing flow-collector caveat above, telemetry needs this independently of it).
 * **GKE Autopilot and EKS Fargate** don't have an opt-out: both platforms categorically refuse privileged containers and hostPath volumes, and Fargate refuses DaemonSets entirely, so none of the three can ever schedule there, allowlist or not. Use `telemetry.energy.metrics.source=existing` / `telemetry.accelerators.metrics.source=existing` to scrape a Kepler/dcgm-exporter running on a non-Fargate node group or a non-Autopilot cluster instead, or collect only the cluster-scoped signals (`kubernetesState`, `applicationMetrics`, `applicationLogs`, `traces`), which need none of this.
 * **Mixed-architecture clusters** (an amd64 control/cloud tier plus arm64 edge nodes — Graviton, Ampere, most Arm SBCs) are otherwise fine: the OTel Collector and dcgm-exporter images are published multi-arch, but Kepler's upstream image (`quay.io/sustainable_computing_io/kepler`) is not, so its DaemonSet ships with `nodeSelector: {kubernetes.io/arch: amd64}` by default — it simply doesn't schedule onto arm64 nodes rather than `ImagePullBackOff`-looping on them forever. Remove that line only if you build or source your own arm64 Kepler image.
 
@@ -242,7 +242,7 @@ None of this is a Kubernetes-vs-Kubernetes compatibility problem — kubelet's o
 ## Upgrades
 
 ```console
-helm upgrade continuum-server deploy/helm/continuum-server -n continuum -f values-prod.yaml --set image.tag=NEW
+helm upgrade ikhnos-server deploy/helm/ikhnos-server -n ikhnos -f values-prod.yaml --set image.tag=NEW
 ```
 
 * Use your values file rather than `--reuse-values`, so new chart values pick up their defaults deliberately.
@@ -260,7 +260,7 @@ helm upgrade continuum-server deploy/helm/continuum-server -n continuum -f value
 
 | Path | What |
 |---|---|
-| `continuum.db` (+ `continuum.db-wal`, `continuum.db-shm`) | SQLite: accounts, sessions, tokens, workspace, and everything not in Neo4j |
+| `ikhnos.db` (+ `ikhnos.db-wal`, `ikhnos.db-shm`) | SQLite: accounts, sessions, tokens, workspace, and everything not in Neo4j |
 | `pki/` | the enrollment CA **and its private key**: the trust root of every agent |
 
 The server also has its own `server backup` and `server restore` commands: a consistent copy of the database and the CA taken **while it runs**, checked on restore, on any kind of install. They, what is and is not worth backing up, and how the database and workspace format versions behave on upgrade and rollback are in **[BACKUP.md](BACKUP.md)**.
@@ -269,16 +269,16 @@ The server also has its own `server backup` and `server restore` commands: a con
 
 ### Sealing secrets at rest
 
-A password is stored as a hash, because nothing needs it again. Three secrets cannot be: people's second-factor (TOTP) secrets, which a sign-in must read to check a live code, the mail relay's password, and an organisation's decider secret, which signs the requests the server sends to its decider. They are encrypted in the database (AES-256-GCM, each bound to the user or organisation it belongs to) under a key that is **not** in the database and not on the data volume: a Secret you create, mounted as a file (the chart gives the server its path in `CONTINUUM_SEALING_KEY_FILE`, so `kubectl exec ... /server reset-password` finds it too).
+A password is stored as a hash, because nothing needs it again. Three secrets cannot be: people's second-factor (TOTP) secrets, which a sign-in must read to check a live code, the mail relay's password, and an organisation's decider secret, which signs the requests the server sends to its decider. They are encrypted in the database (AES-256-GCM, each bound to the user or organisation it belongs to) under a key that is **not** in the database and not on the data volume: a Secret you create, mounted as a file (the chart gives the server its path in `IKHNOS_SEALING_KEY_FILE`, so `kubectl exec ... /server reset-password` finds it too).
 
 ```console
-kubectl -n continuum create secret generic continuum-sealing --from-literal=sealing.key="$(openssl rand -base64 48)"
-helm upgrade continuum ... --set sealing.keySecret.name=continuum-sealing
+kubectl -n ikhnos create secret generic ikhnos-sealing --from-literal=sealing.key="$(openssl rand -base64 48)"
+helm upgrade ikhnos ... --set sealing.keySecret.name=ikhnos-sealing
 ```
 
 Without `sealing.keySecret.name` the secrets are stored as they are, as before, and the install notes say so. When the key is first given, the server seals what is already stored and rewrites the database file once, so the old text is not left in it.
 
-**The key is part of the backup, and kept apart from it.** A copy of the database is useless for these secrets without the key, and the server refuses to start on a database that holds sealed secrets without it (or with another key), naming the key it needs, instead of failing at the first sign-in. Keep the key where you keep other long-lived credentials, not on the data volume or in the volume's snapshots: that is the point of it. (`kubectl -n continuum get secret continuum-sealing -o yaml`, stored with the archive's decryption key.)
+**The key is part of the backup, and kept apart from it.** A copy of the database is useless for these secrets without the key, and the server refuses to start on a database that holds sealed secrets without it (or with another key), naming the key it needs, instead of failing at the first sign-in. Keep the key where you keep other long-lived credentials, not on the data volume or in the volume's snapshots: that is the point of it. (`kubectl -n ikhnos get secret ikhnos-sealing -o yaml`, stored with the archive's decryption key.)
 
 **Replacing the key.** The key file holds one key per line; the first seals, the others only open. Put the new key on top (`printf '%s\n%s\n' "$(openssl rand -base64 48)" "$(old line)"`), upgrade, and the server seals everything again under it at the next start; remove the old line at a later upgrade. A start with only the old key afterwards is refused.
 
@@ -296,14 +296,14 @@ Turning encryption off (`pki.encryptAtRest=false`) goes back to the key sitting 
 
 See `internal/pki/ROTATION.md` in the server source for the full backup/restore/rotation mechanics.
 
-**Why not just copy the file.** The database runs in WAL mode: recent commits live in `continuum.db-wal`. Copying `continuum.db` while the server runs gives a backup that silently misses them, and a second pod cannot mount the ReadWriteOnce volume unless it lands on the same node. The two safe options are below.
+**Why not just copy the file.** The database runs in WAL mode: recent commits live in `ikhnos.db-wal`. Copying `ikhnos.db` while the server runs gives a backup that silently misses them, and a second pod cannot mount the ReadWriteOnce volume unless it lands on the same node. The two safe options are below.
 
 ### 1. Scheduled snapshots (the chart's option)
 
 `backup.volumeSnapshot.enabled=true` creates a CronJob that takes a CSI `VolumeSnapshot` of the data volume on `schedule` (default daily at 03:17), waits until it is `readyToUse`, and keeps the newest `retain` (7). With `includeNeo4j` it does the same for the bundled Neo4j volume. A snapshot captures the whole volume at one instant, so the database, its WAL and the CA key are consistent with each other; it is *crash-consistent*, which SQLite in WAL mode recovers from like a power cut (the last moments before the snapshot can be missing, the database is not corrupted).
 
 ```console
-kubectl -n continuum get volumesnapshot -l app.kubernetes.io/component=backup
+kubectl -n ikhnos get volumesnapshot -l app.kubernetes.io/component=backup
 ```
 
 Limits: it needs snapshot CRDs, a driver with snapshot support and a `VolumeSnapshotClass`; a snapshot usually lives on the same storage system as the volume, so it does not protect you from losing that system. Copy snapshots out with your storage tooling, or add the cold backup. This CronJob is not tested against a real driver; a failing snapshot makes the Job fail (visible in `kubectl get jobs`), it does not pass silently.
@@ -313,7 +313,7 @@ Restore from a snapshot: create a PVC from it, and point the release at it.
 ```yaml
 apiVersion: v1
 kind: PersistentVolumeClaim
-metadata: {name: continuum-data-restored, namespace: continuum}
+metadata: {name: ikhnos-data-restored, namespace: ikhnos}
 spec:
   accessModes: [ReadWriteOnce]
   resources: {requests: {storage: 10Gi}}
@@ -321,7 +321,7 @@ spec:
 ```
 
 ```console
-helm upgrade continuum-server deploy/helm/continuum-server -n continuum -f values-prod.yaml --set persistence.existingClaim=continuum-data-restored
+helm upgrade ikhnos-server deploy/helm/ikhnos-server -n ikhnos -f values-prod.yaml --set persistence.existingClaim=ikhnos-data-restored
 ```
 
 ### 2. Cold backup (works everywhere, needs a brief stop)
@@ -329,11 +329,11 @@ helm upgrade continuum-server deploy/helm/continuum-server -n continuum -f value
 Stopping the server checkpoints the WAL (a clean shutdown closes the database), so the files are consistent. It is also the only way to get the CA key out without snapshots.
 
 ```console
-kubectl -n continuum scale deployment/continuum-server --replicas=0
-kubectl -n continuum apply -f - <<'EOF'
+kubectl -n ikhnos scale deployment/ikhnos-server --replicas=0
+kubectl -n ikhnos apply -f - <<'EOF'
 apiVersion: v1
 kind: Pod
-metadata: {name: continuum-backup}
+metadata: {name: ikhnos-backup}
 spec:
   restartPolicy: Never
   securityContext: {runAsNonRoot: true, runAsUser: 65532, runAsGroup: 65532, fsGroup: 65532, seccompProfile: {type: RuntimeDefault}}
@@ -343,27 +343,27 @@ spec:
       command: [sleep, "3600"]
       securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}}
       volumeMounts: [{name: data, mountPath: /data, readOnly: true}]
-  volumes: [{name: data, persistentVolumeClaim: {claimName: continuum-server-data}}]
+  volumes: [{name: data, persistentVolumeClaim: {claimName: ikhnos-server-data}}]
 EOF
-kubectl -n continuum wait --for=condition=Ready pod/continuum-backup
-kubectl -n continuum exec continuum-backup -- tar czf - -C /data . > continuum-data-$(date +%F).tgz
-kubectl -n continuum delete pod continuum-backup
-kubectl -n continuum scale deployment/continuum-server --replicas=1
+kubectl -n ikhnos wait --for=condition=Ready pod/ikhnos-backup
+kubectl -n ikhnos exec ikhnos-backup -- tar czf - -C /data . > ikhnos-data-$(date +%F).tgz
+kubectl -n ikhnos delete pod ikhnos-backup
+kubectl -n ikhnos scale deployment/ikhnos-server --replicas=1
 ```
 
-(Replace `continuum-server-data` with your PVC name. `helm upgrade` also resets replicas to 1.) Encrypt the archive (`age`, `gpg`) before it leaves your workstation: it contains the CA private key (encrypted under the passphrase, by default — see "Encrypting the CA key at rest" above — but treat the archive as sensitive regardless).
+(Replace `ikhnos-server-data` with your PVC name. `helm upgrade` also resets replicas to 1.) Encrypt the archive (`age`, `gpg`) before it leaves your workstation: it contains the CA private key (encrypted under the passphrase, by default — see "Encrypting the CA key at rest" above — but treat the archive as sensitive regardless).
 
 With the default `--ca-key-auto-passphrase` (no `pki.caKeyPassphraseSecret.name`), the passphrase lives at `pki/ca.passphrase` inside `/data` itself, so this archive already contains it - nothing extra to export, which is exactly the trade-off that default makes (see "Encrypting the CA key at rest" above).
 
 If you instead brought your own passphrase with `pki.caKeyPassphraseSecret.name`, also export that Secret alongside this archive — the key in the archive is useless without it, so a backup missing the passphrase is not really a backup:
 
 ```console
-kubectl -n continuum get secret <your-passphrase-secret> -o yaml > continuum-ca-passphrase-$(date +%F).yaml
+kubectl -n ikhnos get secret <your-passphrase-secret> -o yaml > ikhnos-ca-passphrase-$(date +%F).yaml
 ```
 
 Keep this file wherever you keep the archive's decryption key: together they reconstruct the CA, separately neither does much.
 
-Restore: scale to 0, run the same pod with the volume writable (drop `readOnly`) and `kubectl exec -i ... -- sh -c 'cd /data && tar xzf -' < archive.tgz`, make sure the files end up owned by 65532 (`fsGroup` and the pod's user do that), delete the pod, scale back to 1. With the default auto-generated passphrase this also restores `pki/ca.passphrase`, so there is nothing else to do. With your own passphrase Secret (`pki.caKeyPassphraseSecret.name`), and the one currently in the cluster is not the one this archive's key was encrypted under (a rare case: the Secret was deleted and regenerated since this backup was taken), restore it too with `kubectl apply -f continuum-ca-passphrase-....yaml` before scaling back up, or the server will refuse to start with `ErrWrongPassphrase`. The server logs `continuum server started` with the same `ca_pin` as before; if it differs, agents will not connect.
+Restore: scale to 0, run the same pod with the volume writable (drop `readOnly`) and `kubectl exec -i ... -- sh -c 'cd /data && tar xzf -' < archive.tgz`, make sure the files end up owned by 65532 (`fsGroup` and the pod's user do that), delete the pod, scale back to 1. With the default auto-generated passphrase this also restores `pki/ca.passphrase`, so there is nothing else to do. With your own passphrase Secret (`pki.caKeyPassphraseSecret.name`), and the one currently in the cluster is not the one this archive's key was encrypted under (a rare case: the Secret was deleted and regenerated since this backup was taken), restore it too with `kubectl apply -f ikhnos-ca-passphrase-....yaml` before scaling back up, or the server will refuse to start with `ErrWrongPassphrase`. The server logs `ikhnos server started` with the same `ca_pin` as before; if it differs, agents will not connect.
 
 ### Neo4j
 
@@ -402,7 +402,7 @@ These are starting points, not measurements; watch memory and the `/api/v1/orgs/
 
 ## Signing and verifying releases
 
-`scripts/publish.sh` (builds and pushes the `continuum` agent/probe/flow image, the `server` image, and the four Helm
+`scripts/publish.sh` (builds and pushes the `ikhnos` agent/probe/flow image, the `server` image, and the four Helm
 charts: agent, regional operator, FUSION and server) signs everything it pushes with [cosign](https://docs.sigstore.dev/), automatically when cosign is on your
 `PATH`. It signs keylessly by default: cosign gets a short-lived certificate from Sigstore's public Fulcio CA off
 an OIDC login (your GitHub/Google/Microsoft account interactively, or the CI provider's own OIDC token in GitHub
@@ -417,7 +417,7 @@ skip the public transparency log entirely.
 picked a tag out of `helm show values`:
 
 ```console
-cosign verify --certificate-identity-regexp '.*' --certificate-oidc-issuer-regexp '.*' myname/continuum:0.2.0
+cosign verify --certificate-identity-regexp '.*' --certificate-oidc-issuer-regexp '.*' myname/ikhnos:0.2.0
 ```
 
 This only proves *some* Sigstore identity signed it, which is enough to see what to pin: read the `Issuer` and
@@ -481,7 +481,7 @@ As of this writing, a scan of this module found two kinds of reachable vulnerabi
   already in `go.mod` (`grpc` v1.84.0, `cilium/ebpf` v0.22.0) - confirmed by the same `govulncheck` re-run, and by
   a full `go test ./...` pass (zero regressions) both before and after the bump.
 
-**Frontend (JS/TS): `npm audit`** at the repo root (`/home/claude/k8s-topology`, not `backend/`):
+**Frontend (JS/TS): `npm audit`** at the repo root (`<repo root>`, not `backend/`):
 
 ```console
 npm audit
@@ -501,15 +501,15 @@ dependency and drop `continue-on-error` so a genuinely new, fixable finding bloc
 
 ## Air-gapped installs
 
-1. **Images to mirror** into your registry: the server image (you build it: `--target server`), `neo4j:5.26.30-community` if bundled, `alpine/k8s:1.34.11` (or your own image with `sh` and `kubectl`) if `backup.volumeSnapshot` is on, and the one `continuum` agent image (the agent, probe and flow roles are the same image) for the clusters you will connect. Set `image.repository`, `neo4j.image.repository`, `backup.volumeSnapshot.image.repository` and `imagePullSecrets`. Digest pins work: `image.digest`, `neo4j.image.digest`.
-2. **The chart**: on a connected machine `helm pull` it from wherever you publish it (or `helm package deploy/helm/continuum-server`) and carry the `.tgz` in; `helm install ./continuum-server-0.1.0.tgz ...`.
+1. **Images to mirror** into your registry: the server image (you build it: `--target server`), `neo4j:5.26.30-community` if bundled, `alpine/k8s:1.34.11` (or your own image with `sh` and `kubectl`) if `backup.volumeSnapshot` is on, and the one `ikhnos` agent image (the agent, probe and flow roles are the same image) for the clusters you will connect. Set `image.repository`, `neo4j.image.repository`, `backup.volumeSnapshot.image.repository` and `imagePullSecrets`. Digest pins work: `image.digest`, `neo4j.image.digest`.
+2. **The chart**: on a connected machine `helm pull` it from wherever you publish it (or `helm package deploy/helm/ikhnos-server`) and carry the `.tgz` in; `helm install ./ikhnos-server-0.1.0.tgz ...`.
 3. **The agent chart and images**: set `agentInstall.imageRegistry` to your mirror (the printed install command then points every image there) and `agentInstall.chartRef` to either an OCI location in your registry or `local`, so the server hands out its embedded agent chart itself (no registry needed for the chart). `agentInstall.imageTag` pins the agent version.
 4. **GeoIP**: the server image already bundles a small, free DB-IP City Lite database *and* a DB-IP ASN Lite database, both downloaded once when the image was *built* - a genuinely air-gapped runtime cluster needs nothing further for either, since the files already sit in the image you mirrored in step 1. Set `geoip.path` or `geoip.asnPath` (and a volume) only to use a different `.mmdb` instead; nothing else is downloaded at runtime either way. The UI loads no third-party assets (its Content-Security-Policy is `'self'` only), so all of this works offline. Leave `geoip.publicIpService` unset here: it is the one feature in this chart that makes its own outbound call *at runtime* to a third party (an IP-echo service you choose, to estimate a same-network agent's location - see the values reference below), which an air-gapped install by definition cannot reach; it fails soft (that one estimate is just never available) rather than blocking startup, but there is no point configuring it.
 5. cert-manager with an internal issuer, or your own TLS Secret, replaces Let's Encrypt.
 
 ## Values reference
 
-The important values; all of them are documented in `values.yaml` and tabulated in the [chart README](helm/continuum-server/README.md).
+The important values; all of them are documented in `values.yaml` and tabulated in the [chart README](helm/ikhnos-server/README.md).
 
 | Value | Default | What it does |
 |---|---|---|
@@ -535,20 +535,20 @@ The important values; all of them are documented in `values.yaml` and tabulated 
 | `sealing.keySecret.name` / `key` | `""` / `sealing.key` | a Secret holding the key that seals the second-factor secrets, the mail password and the decider secret in the database (`--sealing-key-file`); empty: they are stored as they are |
 | `neo4j.mode` | `bundled` | `bundled` / `external` (mandatory: no `none`) |
 | `agentInstall.imageRegistry` / `imageTag` / `chartRef` | `""` | what the printed agent install command uses |
-| `image.repository` / `tag` / `digest` | `continuum/server` / appVersion / `""` | the server image |
+| `image.repository` / `tag` / `digest` | `ikhnos/server` / appVersion / `""` | the server image |
 | `networkPolicy.enabled` | `false` | ingress on the two ports; egress DNS, Neo4j, deciders |
 | `backup.volumeSnapshot.enabled` | `false` | scheduled CSI snapshots |
 | `podDisruptionBudget.enabled` | `false` | see [Scaling limits](#scaling-limits) |
 
-Ready-made combinations to copy from live in `helm/continuum-server/ci/`.
+Ready-made combinations to copy from live in `helm/ikhnos-server/ci/`.
 
 ## Troubleshooting
 
 **An agent cannot connect.**
 * *TLS handshake fails, `x509` or `certificate is valid for ... not ...` in the agent log*: the name the agent dials is not in the server certificate. Compare `server.address` on the agent with `agent.publicAddress` and `agent.extraHosts`; they must match exactly (IP vs DNS name counts). Fix the value and `helm upgrade`; the server issues a new certificate.
 * *Handshake fails or resets and the address is right*: something in the path terminates TLS or speaks HTTP. Check the path is L4 or passthrough: a plain Ingress, an HTTP load balancer, a CDN or a proxy with TLS inspection all break mutual TLS. With a Gateway API `TLSRoute`, check the Gateway's listener is actually `protocol: TLS` with `tls.mode: Passthrough` (not `Terminate`), and that agents dial the Gateway's port (usually 443).
-* *Certificate signed by unknown authority / pin mismatch*: the agent was installed with another server's CA pin, or the server's data volume was replaced (a new CA). Compare `ca_spki_pin=` in the server log with the pin half of the agent's `enrollment.key` (or `server.caPin`, if it was set directly) — `kubectl -n continuum-system get deployment continuum-agent -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="CONTINUUM_CA_PIN")].value}'` shows the value it's actually running with either way.
-* *Timeouts*: the LoadBalancer is still `<pending>` (`kubectl -n continuum get service continuum-server-agent`; no load balancer controller: use NodePort or install MetalLB), a firewall or `loadBalancerSourceRanges` blocks the agent's network, or a NodePort is not open on that node.
+* *Certificate signed by unknown authority / pin mismatch*: the agent was installed with another server's CA pin, or the server's data volume was replaced (a new CA). Compare `ca_spki_pin=` in the server log with the pin half of the agent's `enrollment.key` (or `server.caPin`, if it was set directly) — `kubectl -n ikhnos-system get deployment ikhnos-agent -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="IKHNOS_CA_PIN")].value}'` shows the value it's actually running with either way.
+* *Timeouts*: the LoadBalancer is still `<pending>` (`kubectl -n ikhnos get service ikhnos-server-agent`; no load balancer controller: use NodePort or install MetalLB), a firewall or `loadBalancerSourceRanges` blocks the agent's network, or a NodePort is not open on that node.
 * With `networkPolicy.enabled`, `networkPolicy.ingress.agent.from` must allow the agents' networks (empty means anywhere).
 
 **The pod crash-loops with `refusing to serve the admin API in clear text`.** The admin listener is HTTP and nothing says a TLS proxy protects it. Enable `httproute` (which turns `--admin-behind-tls-proxy` on), set `admin.tls.secretName`, or set `admin.behindTlsProxy=true` if you terminate TLS yourself. The chart's own self-signed fallback (`admin.tls.selfSigned`, on by default) normally prevents this at install time already; you only reach it through `extraArgs`, or by explicitly setting `admin.tls.selfSigned=false` without picking one of the other options.
@@ -561,13 +561,13 @@ Ready-made combinations to copy from live in `helm/continuum-server/ci/`.
 
 **You'd like more than city/country for a connecting address - which network it's actually on.** The server image already bundles a free DB-IP ASN Lite database and uses it by default, same as the city/country one - there is usually nothing to configure. `geoip.asnPath` overrides it with a different offline `.mmdb` in ASN shape rather than city/country shape (MaxMind's GeoLite2-ASN is the other common free choice) if you want a different source. Wherever the city/country database places an address - including a `geoip.publicIpService` estimate - the AS number and the organisation that announces it (e.g. `15169` / "Google LLC") are added alongside it. It's often a steadier signal than city or country: a VPN or a cloud provider's egress can move the place shown, but not who is actually carrying the traffic. Same mount, same fail-closed behavior as `geoip.path`, when you do override it; nothing about it calls out to the network either way.
 
-**The pod is `Pending` or stuck `ContainerCreating`.** The PVC is unbound: no default StorageClass (`persistence.storageClass`), or the volume cannot attach where the pod is scheduled. `kubectl -n continuum describe pvc,pod`.
+**The pod is `Pending` or stuck `ContainerCreating`.** The PVC is unbound: no default StorageClass (`persistence.storageClass`), or the volume cannot attach where the pod is scheduled. `kubectl -n ikhnos describe pvc,pod`.
 
 **`permission denied` on `/data` (server crash, `mkdir` or `open` errors).** The volume is not writable by uid 65532. The chart sets `fsGroup: 65532`; some storage (NFS with root squash, hostPath) ignores `fsGroup`. Fix the volume's ownership (`chown 65532:65532`) or run an init container (`extraInitContainers`) that does. For bundled Neo4j the uid is 7474 (`neo4j.podSecurityContext`).
 
 **`flag provided but not defined: -ca-key-passphrase-file` (or `-neo4j-allow-insecure-http`).** The image is older than the feature. Update the image or clear the value.
 
-**Bundled Neo4j does not start.** `kubectl -n continuum logs statefulset/continuum-server-neo4j`. Out-of-memory kills mean the pod limit is below heap + pagecache + JVM overhead (raise `neo4j.resources.limits.memory` or lower `neo4j.memory.*`). `Authentication` errors after re-creating the release mean the Secret no longer matches the password inside the retained volume: restore the old Secret (it is kept on uninstall), or change the password in Neo4j.
+**Bundled Neo4j does not start.** `kubectl -n ikhnos logs statefulset/ikhnos-server-neo4j`. Out-of-memory kills mean the pod limit is below heap + pagecache + JVM overhead (raise `neo4j.resources.limits.memory` or lower `neo4j.memory.*`). `Authentication` errors after re-creating the release mean the Secret no longer matches the password inside the retained volume: restore the old Secret (it is kept on uninstall), or change the password in Neo4j.
 
 **`helm template` renders a different Neo4j password each time.** `lookup` returns nothing without a cluster. Use `neo4j.auth.existingSecret`.
 

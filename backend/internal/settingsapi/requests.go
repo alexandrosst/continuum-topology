@@ -1,6 +1,6 @@
 package settingsapi
 
-import "continuum/internal/kernel"
+import "ikhnos/internal/kernel"
 
 // saveSettingsRequest is the body of PUT .../settings: the settings as the page holds them, and whether to clear the decider secret (a body
 // that leaves the secret empty keeps the one that is set, so that a client that never saw it cannot blank it by accident).

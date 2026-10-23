@@ -11,7 +11,7 @@ import (
 
 func TestTheServerChartRunsNodeProbesThatReportToTheServer(t *testing.T) {
 	r := serverRenderWith(t, "ik")
-	ds, ok := r.daemonsets["ik-continuum-server-probe"]
+	ds, ok := r.daemonsets["ik-ikhnos-server-probe"]
 	if !ok {
 		t.Fatalf("no node probe DaemonSet: %v", r.daemonsets)
 	}
@@ -33,20 +33,20 @@ func TestTheServerChartRunsNodeProbesThatReportToTheServer(t *testing.T) {
 	}
 	url := ""
 	for _, e := range c.Env {
-		if e.Name == "CONTINUUM_PROBE_URL" {
+		if e.Name == "IKHNOS_PROBE_URL" {
 			url = e.Value
 		}
 	}
-	if url != "http://ik-continuum-server-probe.continuum.svc:8083" {
+	if url != "http://ik-ikhnos-server-probe.ikhnos.svc:8083" {
 		t.Fatalf("probe URL: %q", url)
 	}
-	if svc, ok := r.services["ik-continuum-server-probe"]; !ok || svc.Spec.Ports[0].Port != 8083 {
+	if svc, ok := r.services["ik-ikhnos-server-probe"]; !ok || svc.Spec.Ports[0].Port != 8083 {
 		t.Fatalf("the Service the probes report to: %+v", r.services)
 	}
 
-	srv := r.deployments["ik-continuum-server"].Spec.Template
+	srv := r.deployments["ik-ikhnos-server"].Spec.Template
 	args := strings.Join(srv.Spec.Containers[0].Args, " ")
-	for _, want := range []string{"--probe-listen=:8083", "--probe-secret-file=/etc/continuum/probe/secret", "--probe-interval=3m"} {
+	for _, want := range []string{"--probe-listen=:8083", "--probe-secret-file=/etc/ikhnos/probe/secret", "--probe-interval=3m"} {
 		if !strings.Contains(args, want) {
 			t.Fatalf("the server is not told %q: %s", want, args)
 		}
@@ -61,10 +61,10 @@ func TestTheServerChartRunsNoNodeProbesWhenTheyAreSwitchedOff(t *testing.T) {
 	if len(r.daemonsets) != 0 {
 		t.Fatalf("DaemonSets: %v", r.daemonsets)
 	}
-	if _, ok := r.services["ik-continuum-server-probe"]; ok {
+	if _, ok := r.services["ik-ikhnos-server-probe"]; ok {
 		t.Fatal("the probe Service is left behind")
 	}
-	args := strings.Join(r.deployments["ik-continuum-server"].Spec.Template.Spec.Containers[0].Args, " ")
+	args := strings.Join(r.deployments["ik-ikhnos-server"].Spec.Template.Spec.Containers[0].Args, " ")
 	if strings.Contains(args, "--probe-") {
 		t.Fatalf("the server listens for probes that do not exist: %s", args)
 	}

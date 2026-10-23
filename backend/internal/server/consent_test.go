@@ -10,14 +10,14 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/accounts"
-	"continuum/internal/agents"
-	"continuum/internal/estate"
-	"continuum/internal/installcfg"
-	"continuum/internal/kernel"
-	"continuum/internal/pki"
-	"continuum/internal/testkit"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/agents"
+	"ikhnos/internal/estate"
+	"ikhnos/internal/installcfg"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/pki"
+	"ikhnos/internal/testkit"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -110,7 +110,7 @@ func TestTierChangeStaysWithinTheInstalledCeilingAndIsAudited(t *testing.T) {
 	msg, _ := j["error"].(string)
 	helm, _ := j["helm"].(string)
 	want := "--reset-then-reuse-values --set access.tier=2"
-	if !strings.Contains(msg, "helm upgrade continuum-agent") || !strings.Contains(msg, want) || !strings.Contains(helm, want) {
+	if !strings.Contains(msg, "helm upgrade ikhnos-agent") || !strings.Contains(msg, want) || !strings.Contains(helm, want) {
 		t.Fatalf("the refusal does not carry the helm command: %v", j)
 	}
 	if got, _ := a.st.GetAgent(a.ctx, "org-1", id); got.AccessTier != 1 {
@@ -143,8 +143,8 @@ func TestNarrowingATierDropsWhatTheServerHoldsAboveIt(t *testing.T) {
 	_, editor := a.user(t, "edith", accounts.RoleEditor)
 	id, _, _ := a.approvedAgent(t, testkit.FP)
 	v := liveView(*a.now, "n1")
-	v.State.Apply(&continuumv1.Sync{Namespaces: []*continuumv1.NamespaceFacts{{Key: "ns/shop", Name: "shop"}},
-		Workloads: []*continuumv1.WorkloadFacts{{Key: "shop/Deployment/web", Name: "web"}}})
+	v.State.Apply(&ikhnosv1.Sync{Namespaces: []*ikhnosv1.NamespaceFacts{{Key: "ns/shop", Name: "shop"}},
+		Workloads: []*ikhnosv1.WorkloadFacts{{Key: "shop/Deployment/web", Name: "web"}}})
 	a.hub().Mu.Lock()
 	a.hub().Views[id] = v
 	a.hub().Mu.Unlock()
@@ -167,9 +167,9 @@ func TestNarrowingConsentDropsWhatTheServerAlreadyHolds(t *testing.T) {
 	id, _, _ := a.approvedAgent(t, testkit.FP)
 	v := liveView(*a.now, "n1")
 	v.State.Nodes["n1"].MachineId, v.State.Nodes["n1"].KernelVersion = "mid-1", "6.1"
-	v.State.Apply(&continuumv1.Sync{
-		Namespaces: []*continuumv1.NamespaceFacts{{Key: "ns/shop", Name: "shop"}, {Key: "ns/batch", Name: "batch"}},
-		Workloads:  []*continuumv1.WorkloadFacts{{Key: "shop/Deployment/web", Name: "web", Namespace: "shop"}, {Key: "batch/Job/etl", Name: "etl", Namespace: "batch"}},
+	v.State.Apply(&ikhnosv1.Sync{
+		Namespaces: []*ikhnosv1.NamespaceFacts{{Key: "ns/shop", Name: "shop"}, {Key: "ns/batch", Name: "batch"}},
+		Workloads:  []*ikhnosv1.WorkloadFacts{{Key: "shop/Deployment/web", Name: "web", Namespace: "shop"}, {Key: "batch/Job/etl", Name: "etl", Namespace: "batch"}},
 	})
 	a.hub().Mu.Lock()
 	a.hub().Views[id] = v
@@ -317,15 +317,15 @@ func TestConsentOverridesAreValidatedPersistedAndPushed(t *testing.T) {
 
 // ---- hello, diagnostics, ceiling ----
 
-func (r *hubRig) connect(t *testing.T, ctx context.Context, key any, leaf []byte, hello *continuumv1.Hello) continuumv1.AgentService_ConnectClient {
+func (r *hubRig) connect(t *testing.T, ctx context.Context, key any, leaf []byte, hello *ikhnosv1.Hello) ikhnosv1.AgentService_ConnectClient {
 	t.Helper()
 	cert := &tls.Certificate{Certificate: [][]byte{leaf}, PrivateKey: key}
-	c := continuumv1.NewAgentServiceClient(r.dial(t, pki.ClientTLS(r.core.CA.Pin(), "127.0.0.1", cert)))
+	c := ikhnosv1.NewAgentServiceClient(r.dial(t, pki.ClientTLS(r.core.CA.Pin(), "127.0.0.1", cert)))
 	s, err := c.Connect(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Send(&continuumv1.AgentMessage{Msg: &continuumv1.AgentMessage_Hello{Hello: hello}}); err != nil {
+	if err := s.Send(&ikhnosv1.AgentMessage{Msg: &ikhnosv1.AgentMessage_Hello{Hello: hello}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.Recv(); err != nil {
@@ -398,8 +398,8 @@ func TestMetricsTextAndToken(t *testing.T) {
 	if r.Code != 200 {
 		t.Fatalf("%d %s", r.Code, body)
 	}
-	for _, want := range []string{`continuum_agents{status="approved"} 1`, `continuum_agents{status="pending"} 0`, "continuum_agents_connected 0", "continuum_syncs_applied_total", "continuum_syncs_refused_total",
-		"continuum_auth_failures_total", "continuum_rate_limited_total", "continuum_stream_panics_total", "continuum_store_errors_total", `continuum_build_info{version="v-test"`, "# TYPE continuum_agents gauge"} {
+	for _, want := range []string{`ikhnos_agents{status="approved"} 1`, `ikhnos_agents{status="pending"} 0`, "ikhnos_agents_connected 0", "ikhnos_syncs_applied_total", "ikhnos_syncs_refused_total",
+		"ikhnos_auth_failures_total", "ikhnos_rate_limited_total", "ikhnos_stream_panics_total", "ikhnos_store_errors_total", `ikhnos_build_info{version="v-test"`, "# TYPE ikhnos_agents gauge"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("metrics lack %q", want)
 		}
@@ -412,10 +412,10 @@ func TestMetricsTextAndToken(t *testing.T) {
 // ---- panics and shutdown ----
 
 type panickyAgents struct {
-	continuumv1.UnimplementedAgentServiceServer
+	ikhnosv1.UnimplementedAgentServiceServer
 }
 
-func (panickyAgents) Connect(continuumv1.AgentService_ConnectServer) error { panic("boom") }
+func (panickyAgents) Connect(ikhnosv1.AgentService_ConnectServer) error { panic("boom") }
 
 func TestAPanicInAnAgentStreamIsRecoveredAndTheServerKeepsServing(t *testing.T) {
 	e := newEnv(t)
@@ -429,7 +429,7 @@ func TestAPanicInAnAgentStreamIsRecoveredAndTheServerKeepsServing(t *testing.T) 
 	before := kernel.Metrics.StreamPanics.Load()
 	for i := 0; i < 2; i++ { // the second connection proves the process is still serving
 		cert := &tls.Certificate{Certificate: [][]byte{leaf}, PrivateKey: key}
-		c := continuumv1.NewAgentServiceClient(r.dial(t, pki.ClientTLS(e.base.CA.Pin(), "127.0.0.1", cert)))
+		c := ikhnosv1.NewAgentServiceClient(r.dial(t, pki.ClientTLS(e.base.CA.Pin(), "127.0.0.1", cert)))
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		s, err := c.Connect(ctx)
 		if err == nil {
@@ -516,7 +516,7 @@ func TestHelloNamespaceIsRecordedAndUsedInGeneratedCommands(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	hello := &continuumv1.Hello{AgentVersion: "9.9", InstalledAccessTier: 2, Namespace: "observability", ReleaseName: "obs-agent"}
+	hello := &ikhnosv1.Hello{AgentVersion: "9.9", InstalledAccessTier: 2, Namespace: "observability", ReleaseName: "obs-agent"}
 	rr.connect(t, ctx, key, leaf, hello)
 	doc, _ := tn.Hub.State(ctx)
 	if doc.Agents[0].Namespace != "observability" || doc.Agents[0].ReleaseName != "obs-agent" {
@@ -565,7 +565,7 @@ func TestRevokedAgentCarriesTeardownCommandsOnlyForEditorsAndAbove(t *testing.T)
 	}
 
 	d := agentDoc(t, a, editor, id)
-	if d.Teardown == nil || !strings.Contains(d.Teardown.Helm, "helm uninstall continuum-agent") || !strings.Contains(d.Teardown.Secret, "continuum-agent-identity") {
+	if d.Teardown == nil || !strings.Contains(d.Teardown.Helm, "helm uninstall ikhnos-agent") || !strings.Contains(d.Teardown.Secret, "ikhnos-agent-identity") {
 		t.Fatalf("teardown missing for an editor: %+v", d)
 	}
 	if !d.Teardown.NamespaceGuessed {

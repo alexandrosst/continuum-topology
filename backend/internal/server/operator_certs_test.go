@@ -4,12 +4,12 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/kernel"
-	"continuum/internal/operators"
-	"continuum/internal/operatorsapi"
-	"continuum/internal/pki"
-	"continuum/internal/store"
-	"continuum/internal/testkit"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/operators"
+	"ikhnos/internal/operatorsapi"
+	"ikhnos/internal/pki"
+	"ikhnos/internal/store"
+	"ikhnos/internal/testkit"
 )
 
 const day = 24 * time.Hour

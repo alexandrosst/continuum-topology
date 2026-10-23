@@ -6,12 +6,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"continuum/internal/agents"
-	"continuum/internal/connectivity"
-	"continuum/internal/history"
-	"continuum/internal/kernel"
-	"continuum/internal/model"
-	"continuum/internal/store"
+	"ikhnos/internal/agents"
+	"ikhnos/internal/connectivity"
+	"ikhnos/internal/history"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/model"
+	"ikhnos/internal/store"
 )
 
 func bg() context.Context { return context.Background() }

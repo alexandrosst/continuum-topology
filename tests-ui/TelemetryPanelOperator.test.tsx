@@ -72,16 +72,16 @@ const intent = (overrides: Partial<TelemetryIntent> = {}): TelemetryIntent => ({
   namespaces: [],
   exclude: [],
   signals: [{ id: 'resourceUsage', source: 'builtin' }],
-  destination: { kind: 'operator', endpoint: 'op-eu.continuum-system.svc:4317', targetOperatorId: 'op-eu' },
+  destination: { kind: 'operator', endpoint: 'op-eu.ikhnos-system.svc:4317', targetOperatorId: 'op-eu' },
   createdAt: '2026-01-01T00:00:00Z',
   createdBy: 'alice',
   ...overrides,
 })
-const SECRET = 'kubectl create secret generic op-eu-export-mtls --namespace continuum-system \\\n  --from-literal=tls.crt="CERT" \\\n  --from-literal=tls.key="KEY" \\\n  --from-literal=ca.crt="CA"'
-const FRAGMENT = '--set telemetry.resource.orgId=org-1 --set telemetry.resource.clusterId=cl-1 --set telemetry.resource.intentId=ti-1 --set telemetry.export.otlp.endpoint=op-eu.continuum-system.svc:4317 --set telemetry.export.otlp.tls.mtls.enabled=true --set telemetry.export.otlp.tls.mtls.secretName=op-eu-export-mtls'
+const SECRET = 'kubectl create secret generic op-eu-export-mtls --namespace ikhnos-system \\\n  --from-literal=tls.crt="CERT" \\\n  --from-literal=tls.key="KEY" \\\n  --from-literal=ca.crt="CA"'
+const FRAGMENT = '--set telemetry.resource.orgId=org-1 --set telemetry.resource.clusterId=cl-1 --set telemetry.resource.intentId=ti-1 --set telemetry.export.otlp.endpoint=op-eu.ikhnos-system.svc:4317 --set telemetry.export.otlp.tls.mtls.enabled=true --set telemetry.export.otlp.tls.mtls.secretName=op-eu-export-mtls'
 /** The block as the server writes it: the certificate Secret, then the upgrade, which ends with the server's own fragment. */
-const blockOf = (fragment: string, tag = 'one') => `${SECRET} && \\\nhelm upgrade continuum-agent ./continuum-agent-0.4.0.tgz --namespace continuum-system --reset-then-reuse-values \\\n  --set telemetry.resourceUsage.metrics.enabled=true # ${tag} \\\n  ${fragment}`
-const answer = (over: Record<string, unknown> = {}) => ({ installFragment: FRAGMENT, secretCommands: [SECRET], command: blockOf(FRAGMENT), problems: [], endpoint: 'op-eu.continuum-system.svc:4317', ...over })
+const blockOf = (fragment: string, tag = 'one') => `${SECRET} && \\\nhelm upgrade ikhnos-agent ./ikhnos-agent-0.4.0.tgz --namespace ikhnos-system --reset-then-reuse-values \\\n  --set telemetry.resourceUsage.metrics.enabled=true # ${tag} \\\n  ${fragment}`
+const answer = (over: Record<string, unknown> = {}) => ({ installFragment: FRAGMENT, secretCommands: [SECRET], command: blockOf(FRAGMENT), problems: [], endpoint: 'op-eu.ikhnos-system.svc:4317', ...over })
 
 beforeEach(() => {
   forgetUpgrades()
@@ -166,7 +166,7 @@ describe('TelemetryPanel with a regional operator destination', () => {
       [],
       [],
       [{ id: 'resourceUsage', source: 'builtin' }],
-      { kind: 'operator', endpoint: 'op-eu.continuum-system.svc:4317', targetOperatorId: 'op-eu' },
+      { kind: 'operator', endpoint: 'op-eu.ikhnos-system.svc:4317', targetOperatorId: 'op-eu' },
     )
     expect(updateTelemetryIntentScope).not.toHaveBeenCalled()
     // The server is told what the page holds, in the words the renderer takes, and writes the block from it.
@@ -176,7 +176,7 @@ describe('TelemetryPanel with a regional operator destination', () => {
       'ti-1',
       expect.objectContaining({
         signals: expect.objectContaining({ resourceUsage: true, traces: false }),
-        destination: expect.objectContaining({ endpoint: 'op-eu.continuum-system.svc:4317', operator: 'op-eu' }),
+        destination: expect.objectContaining({ endpoint: 'op-eu.ikhnos-system.svc:4317', operator: 'op-eu' }),
         routes: expect.objectContaining({ split: false }),
       }),
     )
@@ -190,7 +190,7 @@ describe('TelemetryPanel with a regional operator destination', () => {
 
   test('an operator reached at an address the server knows: the note says the commands send there, without a warning', async () => {
     const real = 'otlp.eu.example.com:4317'
-    getTelemetryIntentCommand.mockResolvedValue(answer({ endpoint: real, command: blockOf(FRAGMENT.replace('op-eu.continuum-system.svc:4317', real)) }))
+    getTelemetryIntentCommand.mockResolvedValue(answer({ endpoint: real, command: blockOf(FRAGMENT.replace('op-eu.ikhnos-system.svc:4317', real)) }))
     const user = userEvent.setup()
     render(tree())
     await pickOperator(user)
@@ -222,7 +222,7 @@ describe('TelemetryPanel with a regional operator destination', () => {
     await screen.findByTestId('tp-operator-command')
 
     expect(createTelemetryIntent).not.toHaveBeenCalled()
-    expect(updateTelemetryIntentDestination).toHaveBeenCalledWith(CONN, 'ti-9', { kind: 'operator', endpoint: 'op-eu.continuum-system.svc:4317', targetOperatorId: 'op-eu' })
+    expect(updateTelemetryIntentDestination).toHaveBeenCalledWith(CONN, 'ti-9', { kind: 'operator', endpoint: 'op-eu.ikhnos-system.svc:4317', targetOperatorId: 'op-eu' })
     expect(updateTelemetryIntentScope).toHaveBeenCalledWith(CONN, 'ti-9', [], [], [{ id: 'resourceUsage', source: 'builtin' }])
     expect(getTelemetryIntentCommand).toHaveBeenCalledWith(CONN, 'ti-9', expect.objectContaining({ destination: expect.objectContaining({ operator: 'op-eu' }) }))
   })
@@ -364,9 +364,9 @@ describe('TelemetryPanel with a regional operator destination', () => {
 describe('TelemetryPanel with signal types going to different destinations', () => {
   const ROUTE_FRAGMENT =
     '--set telemetry.resource.orgId=org-1 --set telemetry.resource.clusterId=cl-1 --set telemetry.resource.intentId=ti-1' +
-    ' --set telemetry.export.routes.logs.endpoint=op-eu.continuum-system.svc:4317 --set telemetry.export.routes.logs.tls.mtls.enabled=true --set telemetry.export.routes.logs.tls.mtls.secretName=op-eu-export-mtls' +
-    ' --set telemetry.export.routes.metrics.endpoint=op-eu.continuum-system.svc:4317 --set telemetry.export.routes.metrics.tls.mtls.enabled=true --set telemetry.export.routes.metrics.tls.mtls.secretName=op-eu-export-mtls'
-  const OP_DEST = { kind: 'operator', endpoint: 'op-eu.continuum-system.svc:4317', targetOperatorId: 'op-eu' }
+    ' --set telemetry.export.routes.logs.endpoint=op-eu.ikhnos-system.svc:4317 --set telemetry.export.routes.logs.tls.mtls.enabled=true --set telemetry.export.routes.logs.tls.mtls.secretName=op-eu-export-mtls' +
+    ' --set telemetry.export.routes.metrics.endpoint=op-eu.ikhnos-system.svc:4317 --set telemetry.export.routes.metrics.tls.mtls.enabled=true --set telemetry.export.routes.metrics.tls.mtls.secretName=op-eu-export-mtls'
+  const OP_DEST = { kind: 'operator', endpoint: 'op-eu.ikhnos-system.svc:4317', targetOperatorId: 'op-eu' }
 
   /** Metrics and logs on, split into one destination each: the lone operator is picked for both on arrival. */
   async function splitToRun(user: ReturnType<typeof userEvent.setup>) {
@@ -411,8 +411,8 @@ describe('TelemetryPanel with signal types going to different destinations', () 
         signals: expect.objectContaining({ resourceUsage: true, systemLogs: true }),
         routes: expect.objectContaining({
           split: true,
-          metrics: expect.objectContaining({ endpoint: 'op-eu.continuum-system.svc:4317', operator: 'op-eu' }),
-          logs: expect.objectContaining({ endpoint: 'op-eu.continuum-system.svc:4317', operator: 'op-eu' }),
+          metrics: expect.objectContaining({ endpoint: 'op-eu.ikhnos-system.svc:4317', operator: 'op-eu' }),
+          logs: expect.objectContaining({ endpoint: 'op-eu.ikhnos-system.svc:4317', operator: 'op-eu' }),
         }),
       }),
     )

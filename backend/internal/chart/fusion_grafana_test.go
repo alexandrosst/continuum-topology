@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"continuum/internal/fusionapi"
+	"ikhnos/internal/fusionapi"
 
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/yaml"
@@ -234,7 +234,7 @@ func TestStarterDashboardDoesNotDependOnTargetInfo(t *testing.T) {
 	if strings.Contains(body, "target_info") {
 		t.Fatalf("the starter dashboard reads target_info:\n%s", body)
 	}
-	if !strings.Contains(body, "continuum_cluster_id") {
+	if !strings.Contains(body, "ikhnos_cluster_id") {
 		t.Fatal("the starter dashboard no longer counts clusters")
 	}
 }
@@ -499,7 +499,7 @@ func TestFusionDashboardQueriesMeanWhatTheirTitlesSay(t *testing.T) {
 					t.Errorf("applications: %q does not look for %ss: %s", titles[e], kind, e)
 				}
 			}
-			if !strings.Contains(e, "and on(service_name, k8s_namespace_name, continuum_cluster_id) ikhnos_application_info") {
+			if !strings.Contains(e, "and on(service_name, k8s_namespace_name, ikhnos_cluster_id) ikhnos_application_info") {
 				t.Errorf("applications: %q is not cut to the chosen members: %s", titles[e], e)
 			}
 		case strings.Contains(e, "service_name=~"):
@@ -588,7 +588,7 @@ func TestFusionApplicationPickerLeavesAllAsItWas(t *testing.T) {
 		// True exactly when the picker is on its All marker: whether to fall back to everything depends on the choice, never on
 		// whether the info series has data (a gap in it must not turn one application into the whole cluster).
 		allChosen = `(label_replace(vector(1), "application", ${application:doublequote}, "", "") and on(application) label_replace(vector(1), "application", "__all__", "", ""))`
-		join      = "and on(service_name, k8s_namespace_name, continuum_cluster_id) ikhnos_application_info{application=${application:doublequote}, member=~\"$member\"}"
+		join      = "and on(service_name, k8s_namespace_name, ikhnos_cluster_id) ikhnos_application_info{application=${application:doublequote}, member=~\"$member\"}"
 	)
 	// Panels that must follow the picker (and, for the others, must not).
 	follows := map[string][]int{
@@ -667,7 +667,7 @@ func TestFusionDashboardsKeepClustersApartAndAreCheapToRefresh(t *testing.T) {
 		} `json:"templating"`
 	}
 	byClause := regexp.MustCompile(`by \(([^)]*)\)`)
-	nameless := regexp.MustCompile(`(^|[^\w])\{continuum_`)
+	nameless := regexp.MustCompile(`(^|[^\w])\{ikhnos_`)
 	for _, name := range []string{"clusters", "workloads", "delivery", "applications", "categories", "arriving"} {
 		var d dashboard
 		if err := json.Unmarshal([]byte(r.configs["f-fusion-grafana-dashboards"].Data[name+".json"]), &d); err != nil {
@@ -676,7 +676,7 @@ func TestFusionDashboardsKeepClustersApartAndAreCheapToRefresh(t *testing.T) {
 		for _, p := range d.Panels {
 			for _, q := range p.Targets {
 				for _, m := range byClause.FindAllStringSubmatch(q.Expr, -1) {
-					if (strings.Contains(m[1], "k8s_pod_name") || strings.Contains(m[1], "k8s_deployment_name")) && !strings.Contains(m[1], "continuum_cluster_id") {
+					if (strings.Contains(m[1], "k8s_pod_name") || strings.Contains(m[1], "k8s_deployment_name")) && !strings.Contains(m[1], "ikhnos_cluster_id") {
 						t.Errorf("%s: %q groups by %q without the cluster, so same-named pods of two clusters become one series", name, p.Title, m[1])
 					}
 				}
@@ -699,7 +699,7 @@ func TestFusionDashboardsKeepClustersApartAndAreCheapToRefresh(t *testing.T) {
 		for _, p := range d.Panels {
 			for _, q := range p.Targets {
 				if p.Title == "Slowest cluster, seconds since data" {
-					if strings.Contains(q.Expr, "k8s_node_condition_ready") || !strings.Contains(q.Expr, "max by (continuum_cluster_id) (") || strings.Contains(q.Expr, "continuum_operator_id") {
+					if strings.Contains(q.Expr, "k8s_node_condition_ready") || !strings.Contains(q.Expr, "max by (ikhnos_cluster_id) (") || strings.Contains(q.Expr, "ikhnos_operator_id") {
 						t.Errorf("delivery: the headline must be the oldest cluster by any metric, grouped by cluster alone: %s", q.Expr)
 					}
 				}

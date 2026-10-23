@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"continuum/internal/kernel"
-	"continuum/internal/store"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/store"
 )
 
 // MailConfig is how this server sends the handful of messages it ever sends: a login or email-verification

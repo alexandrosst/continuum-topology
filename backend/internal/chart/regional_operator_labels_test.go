@@ -38,7 +38,7 @@ func TestRegionalOperatorStampsItsIdentityAndLabelsLastBeforeBatch(t *testing.T)
 	}
 	ro, _ := processors["resource/operator"].(map[string]any)
 	attrs, _ := ro["attributes"].([]any)
-	want := map[string]string{"continuum.operator.id": "op-eu1", "continuum.operator.name": "Athens regional", "region": "eu-south", "env": "prod"}
+	want := map[string]string{"ikhnos.operator.id": "op-eu1", "ikhnos.operator.name": "Athens regional", "region": "eu-south", "env": "prod"}
 	if len(attrs) != len(want) {
 		t.Fatalf("attributes = %+v, want %v", attrs, want)
 	}
@@ -72,8 +72,8 @@ func TestRegionalOperatorWithoutIdentityRendersNoStampProcessor(t *testing.T) {
 
 func TestRegionalOperatorSchemaRejectsReservedAndMalformedLabels(t *testing.T) {
 	for name, labels := range map[string]string{
-		"reserved prefix":  `[{"key":"continuum.region","value":"x"}]`,
-		"uppercase prefix": `[{"key":"Continuum.region","value":"x"}]`,
+		"reserved prefix":  `[{"key":"ikhnos.region","value":"x"}]`,
+		"uppercase prefix": `[{"key":"Ikhnos.region","value":"x"}]`,
 		"bad key":          `[{"key":"has space","value":"x"}]`,
 		"empty value":      `[{"key":"region","value":""}]`,
 		"too many":         `[{"key":"a","value":"1"},{"key":"b","value":"1"},{"key":"c","value":"1"},{"key":"d","value":"1"},{"key":"e","value":"1"},{"key":"f","value":"1"},{"key":"g","value":"1"},{"key":"h","value":"1"},{"key":"i","value":"1"}]`,

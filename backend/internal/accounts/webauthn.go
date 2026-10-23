@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"continuum/internal/kernel"
-	"continuum/internal/store"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/store"
 )
 
 // webauthnCeremonyTTL bounds how long a passkey registration or sign-in challenge stays valid: long enough
@@ -28,8 +28,8 @@ const maxPasskeyName = 60
 // hosted SaaS would - whatever address the browser actually has loaded is what ID and Origin must say back,
 // or the browser refuses the ceremony outright as a mismatch.
 type RelyingParty struct {
-	ID     string // the domain alone, no scheme or port (e.g. "continuum.example.com", or "localhost")
-	Origin string // the full origin the browser sees (e.g. "https://continuum.example.com")
+	ID     string // the domain alone, no scheme or port (e.g. "ikhnos.example.com", or "localhost")
+	Origin string // the full origin the browser sees (e.g. "https://ikhnos.example.com")
 	Name   string // shown in the OS/browser's own passkey picker
 }
 

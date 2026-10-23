@@ -4,8 +4,8 @@ import (
 	"regexp"
 	"strings"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/model"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/model"
 )
 
 // vmSignatures map what virtual machines write into firmware to the platform's name. They are
@@ -51,7 +51,7 @@ var cpuidHypervisorNames = map[string]string{
 	"ACRNACRNACRN": "ACRN",
 }
 
-func vmPlatform(h *continuumv1.HostProbe) string {
+func vmPlatform(h *ikhnosv1.HostProbe) string {
 	if name, ok := cpuidHypervisorNames[h.HypervisorVendorId]; ok {
 		return name
 	}
@@ -75,7 +75,7 @@ var revSuffix = regexp.MustCompile(`(?i)\s+rev(ision)?\s+[0-9.]+$`)
 // Chassis types that mean "portable or tiny": notebook, laptop, handheld, tablet, mini PC, stick PC.
 var portableChassis = map[int32]bool{8: true, 9: true, 10: true, 11: true, 14: true, 30: true, 31: true, 32: true, 35: true, 36: true}
 
-func machineModel(h *continuumv1.HostProbe) string {
+func machineModel(h *ikhnosv1.HostProbe) string {
 	vendor, product := firstNonEmpty(h.SysVendor, h.BoardVendor), firstNonEmpty(h.ProductName, h.BoardName)
 	switch {
 	case product == "":
@@ -86,7 +86,7 @@ func machineModel(h *continuumv1.HostProbe) string {
 	return vendor + " " + product
 }
 
-func uplinkOf(h *continuumv1.HostProbe) (string, *model.Evidence) {
+func uplinkOf(h *ikhnosv1.HostProbe) (string, *model.Evidence) {
 	if len(h.Uplinks) == 0 {
 		return "", nil
 	}
@@ -108,7 +108,7 @@ func uplinkOf(h *continuumv1.HostProbe) (string, *model.Evidence) {
 // kindFromProbe decides vm / bare-metal / edge-device from what the machine reports about itself.
 // It returns ok=false when the probe saw nothing decisive (for example an ARM machine with neither
 // firmware tables nor a device tree), and the API-based heuristics then decide.
-func kindFromProbe(n *continuumv1.NodeFacts, apiHardware string, apiHwEv *model.Evidence) (nodeKindResult, bool) {
+func kindFromProbe(n *ikhnosv1.NodeFacts, apiHardware string, apiHwEv *model.Evidence) (nodeKindResult, bool) {
 	h := n.Probe
 	arm := strings.HasPrefix(n.Architecture, "arm")
 	platform := vmPlatform(h)

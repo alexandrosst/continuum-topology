@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"continuum/internal/accounts"
+	"ikhnos/internal/accounts"
 )
 
 // uiRig is an admin server that also serves a (tiny) built UI.

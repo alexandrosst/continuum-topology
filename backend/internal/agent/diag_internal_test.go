@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/probe"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/probe"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -16,17 +16,17 @@ import (
 )
 
 func TestSplitSyncKeepsSmallPicturesWholeAndChunksLargeOnes(t *testing.T) {
-	small := &continuumv1.Sync{Seq: 3, Full: true, Cluster: &continuumv1.ClusterFacts{Uid: "u"}, Workloads: []*continuumv1.WorkloadFacts{{Key: "a"}}}
+	small := &ikhnosv1.Sync{Seq: 3, Full: true, Cluster: &ikhnosv1.ClusterFacts{Uid: "u"}, Workloads: []*ikhnosv1.WorkloadFacts{{Key: "a"}}}
 	if got := splitSync(small, 1<<20); len(got) != 1 || got[0] != small || got[0].ChunkTotal != 0 || got[0].SyncId != "" {
 		t.Fatalf("a small picture must be sent as it is: %+v", got)
 	}
 
-	big := &continuumv1.Sync{Seq: 7, Full: true, Cluster: &continuumv1.ClusterFacts{Uid: "u", Version: "v1.30"}, Modules: []*continuumv1.ModuleStatus{{Name: "m"}}}
+	big := &ikhnosv1.Sync{Seq: 7, Full: true, Cluster: &ikhnosv1.ClusterFacts{Uid: "u", Version: "v1.30"}, Modules: []*ikhnosv1.ModuleStatus{{Name: "m"}}}
 	for i := 0; i < 20; i++ {
-		big.Nodes = append(big.Nodes, &continuumv1.NodeFacts{Key: fmt.Sprint("n", i), Name: fmt.Sprint("n", i)})
+		big.Nodes = append(big.Nodes, &ikhnosv1.NodeFacts{Key: fmt.Sprint("n", i), Name: fmt.Sprint("n", i)})
 	}
 	for i := 0; i < 60000; i++ {
-		big.Workloads = append(big.Workloads, &continuumv1.WorkloadFacts{Key: fmt.Sprintf("ns%d/Deployment/w%d", i%50, i), Name: fmt.Sprint("w", i), Namespace: fmt.Sprint("ns", i%50), Kind: "Deployment",
+		big.Workloads = append(big.Workloads, &ikhnosv1.WorkloadFacts{Key: fmt.Sprintf("ns%d/Deployment/w%d", i%50, i), Name: fmt.Sprint("w", i), Namespace: fmt.Sprint("ns", i%50), Kind: "Deployment",
 			Labels: map[string]string{"app": fmt.Sprint("w", i), "tier": "backend"}})
 	}
 	for i := 0; i < 500; i++ {
@@ -64,7 +64,7 @@ func TestSplitSyncKeepsSmallPicturesWholeAndChunksLargeOnes(t *testing.T) {
 func TestOverridesCanOnlyNarrow(t *testing.T) {
 	for installed := 0; installed <= 2; installed++ {
 		for approved := 0; approved <= 4; approved++ {
-			o := resolveOverrides(&continuumv1.Config{ApprovedAccessTier: uint32(approved)}, installed)
+			o := resolveOverrides(&ikhnosv1.Config{ApprovedAccessTier: uint32(approved)}, installed)
 			if o.tier > installed || o.tier > approved {
 				t.Fatalf("installed %d, approved %d: collects at %d", installed, approved, o.tier)
 			}
@@ -73,7 +73,7 @@ func TestOverridesCanOnlyNarrow(t *testing.T) {
 			}
 		}
 	}
-	o := resolveOverrides(&continuumv1.Config{ApprovedAccessTier: 2,
+	o := resolveOverrides(&ikhnosv1.Config{ApprovedAccessTier: 2,
 		PausedCollectors:   []string{"flow", "cameras", "flow", "measure"},
 		ExcludedNamespaces: []string{"shop", "Bad_Name", "kube-system", "batch", "shop"}}, 2)
 	if o.tier != 2 || len(o.paused) != 2 || !o.paused["flow"] || !o.paused["measure"] || strings.Join(o.excluded, ",") != "batch,shop" {
@@ -83,7 +83,7 @@ func TestOverridesCanOnlyNarrow(t *testing.T) {
 		t.Fatalf("ignored: %v", o.ignored)
 	}
 	// Nothing pushed means nothing paused and nothing excluded: an empty Config restores what the install allows.
-	if o := resolveOverrides(&continuumv1.Config{ApprovedAccessTier: 1}, 2); len(o.paused) != 0 || len(o.excluded) != 0 || len(o.ignored) != 0 {
+	if o := resolveOverrides(&ikhnosv1.Config{ApprovedAccessTier: 1}, 2); len(o.paused) != 0 || len(o.excluded) != 0 || len(o.ignored) != 0 {
 		t.Fatalf("empty overrides: %+v", o)
 	}
 }
@@ -92,8 +92,8 @@ func newTestRunner() *runner {
 	return &runner{log: slog.Default(), probs: newProblemSet(), dg: newDiagState(), started: time.Now()}
 }
 
-func codesOf(r *runner) map[string]*continuumv1.Problem {
-	out := map[string]*continuumv1.Problem{}
+func codesOf(r *runner) map[string]*ikhnosv1.Problem {
+	out := map[string]*ikhnosv1.Problem{}
 	for _, p := range r.probs.list() {
 		out[p.Code] = p
 	}
@@ -212,12 +212,12 @@ func TestProcessCPUSecondsIsPositiveAndMonotonicallyNonDecreasing(t *testing.T) 
 
 func TestOverridesIgnoredAreReportedAndClearedWhenPutRight(t *testing.T) {
 	r := newTestRunner()
-	r.enforce(resolveOverrides(&continuumv1.Config{ApprovedAccessTier: 2}, 1))
+	r.enforce(resolveOverrides(&ikhnosv1.Config{ApprovedAccessTier: 2}, 1))
 	p := codesOf(r)[CodeOverrideIgnored]
-	if p == nil || !strings.Contains(p.Message, "helm upgrade --reset-then-reuse-values") || p.Severity != continuumv1.Problem_INFO {
+	if p == nil || !strings.Contains(p.Message, "helm upgrade --reset-then-reuse-values") || p.Severity != ikhnosv1.Problem_INFO {
 		t.Fatalf("problem = %v", p)
 	}
-	r.enforce(resolveOverrides(&continuumv1.Config{ApprovedAccessTier: 1}, 1))
+	r.enforce(resolveOverrides(&ikhnosv1.Config{ApprovedAccessTier: 1}, 1))
 	if codesOf(r)[CodeOverrideIgnored] != nil {
 		t.Fatal("the problem stayed after the server pushed something the agent can honour")
 	}
@@ -236,7 +236,7 @@ func TestStreamErrorsBecomeTypedProblems(t *testing.T) {
 	for _, c := range cases {
 		r := newTestRunner()
 		r.noteStreamError(c.err)
-		if p := codesOf(r)[c.code]; p == nil || p.Severity != continuumv1.Problem_ERROR {
+		if p := codesOf(r)[c.code]; p == nil || p.Severity != ikhnosv1.Problem_ERROR {
 			t.Errorf("%v: %v", c.err, codesOf(r))
 		}
 	}
@@ -255,7 +255,7 @@ func TestPanicsAreRecoveredCountedAndReported(t *testing.T) {
 		t.Fatal("not counted")
 	}
 	p := codesOf(r)[CodeInternalError]
-	if p == nil || !strings.Contains(p.Message, "worker") || !strings.Contains(p.Message, "kaboom") || p.Severity != continuumv1.Problem_ERROR {
+	if p == nil || !strings.Contains(p.Message, "worker") || !strings.Contains(p.Message, "kaboom") || p.Severity != ikhnosv1.Problem_ERROR {
 		t.Fatalf("problem = %v", p)
 	}
 }
@@ -277,7 +277,7 @@ func TestSafelyReconnectPushesAnErrorInsteadOfJustLoggingIt(t *testing.T) {
 		t.Fatal("not counted")
 	}
 	p := codesOf(r)[CodeInternalError]
-	if p == nil || !strings.Contains(p.Message, "receive loop") || !strings.Contains(p.Message, "kaboom") || p.Severity != continuumv1.Problem_ERROR {
+	if p == nil || !strings.Contains(p.Message, "receive loop") || !strings.Contains(p.Message, "kaboom") || p.Severity != ikhnosv1.Problem_ERROR {
 		t.Fatalf("problem = %v", p)
 	}
 	select {
@@ -305,26 +305,26 @@ func TestSafelyReconnectPushesAnErrorInsteadOfJustLoggingIt(t *testing.T) {
 
 func TestProblemsKeepTheirSinceAndExpire(t *testing.T) {
 	ps := newProblemSet()
-	ps.raise("k", "x", continuumv1.Problem_WARN, "first", 0)
+	ps.raise("k", "x", ikhnosv1.Problem_WARN, "first", 0)
 	first := ps.list()[0].Since.AsTime()
 	time.Sleep(10 * time.Millisecond)
-	ps.raise("k", "x", continuumv1.Problem_WARN, "again", 0)
+	ps.raise("k", "x", ikhnosv1.Problem_WARN, "again", 0)
 	if got := ps.list(); len(got) != 1 || !got[0].Since.AsTime().Equal(first) || got[0].Message != "again" {
 		t.Fatalf("raising again must keep since: %v", got)
 	}
-	ps.raise("t", "y", continuumv1.Problem_INFO, "brief", 20*time.Millisecond)
+	ps.raise("t", "y", ikhnosv1.Problem_INFO, "brief", 20*time.Millisecond)
 	time.Sleep(40 * time.Millisecond)
 	if len(ps.list()) != 1 {
 		t.Fatal("an expired problem is still listed")
 	}
-	ps.replaceDerived([]*prob{{code: "d", sev: continuumv1.Problem_ERROR, msg: "m", since: time.Now()}})
+	ps.replaceDerived([]*prob{{code: "d", sev: ikhnosv1.Problem_ERROR, msg: "m", since: time.Now()}})
 	before := ps.list()[0]
 	if before.Code != "d" { // worst first
 		t.Fatalf("order: %v", ps.list())
 	}
 	since := before.Since.AsTime()
 	time.Sleep(5 * time.Millisecond)
-	ps.replaceDerived([]*prob{{code: "d", sev: continuumv1.Problem_ERROR, msg: "m", since: time.Now()}})
+	ps.replaceDerived([]*prob{{code: "d", sev: ikhnosv1.Problem_ERROR, msg: "m", since: time.Now()}})
 	if !ps.list()[0].Since.AsTime().Equal(since) {
 		t.Fatal("a derived problem that still holds lost its since")
 	}
@@ -342,7 +342,7 @@ func TestDiagnosticsAreSentWhenTheyChangeAndAtLeastEveryFiveMinutes(t *testing.T
 	if r.diagToSend(false) != nil {
 		t.Fatal("an unchanged account was sent again")
 	}
-	r.probs.raise("x", "internal_error", continuumv1.Problem_ERROR, "changed", 0)
+	r.probs.raise("x", "internal_error", ikhnosv1.Problem_ERROR, "changed", 0)
 	if d := r.diagToSend(false); d == nil || len(d.Problems) != 1 {
 		t.Fatal("a changed account was not sent")
 	}
@@ -375,7 +375,7 @@ func TestASilentCollectorIsOneProblemWhoseMessageDoesNotTick(t *testing.T) {
 	r.collTier = 1
 	r.started = time.Now().Add(-time.Hour)
 	first := r.diagnostics()
-	var p1 *continuumv1.Problem
+	var p1 *ikhnosv1.Problem
 	for _, p := range first.Problems {
 		if p.Code == CodeCollectorSilent {
 			p1 = p

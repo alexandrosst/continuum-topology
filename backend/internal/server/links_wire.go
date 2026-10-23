@@ -5,10 +5,10 @@ import (
 	"net/http"
 	"time"
 
-	"continuum/internal/connectivity"
-	"continuum/internal/fusionapi"
-	"continuum/internal/kernel"
-	"continuum/internal/linksapi"
+	"ikhnos/internal/connectivity"
+	"ikhnos/internal/fusionapi"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/linksapi"
 )
 
 // linksAPI is the organisation's links API (the Sites screen's figures, FUSION's /links, the credential rotation). Built on first use,

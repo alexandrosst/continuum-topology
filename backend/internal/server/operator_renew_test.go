@@ -12,13 +12,13 @@ import (
 
 	"google.golang.org/grpc/codes"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/certrenew"
-	"continuum/internal/kernel"
-	"continuum/internal/operators"
-	"continuum/internal/pki"
-	"continuum/internal/store"
-	"continuum/internal/testkit"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/certrenew"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/operators"
+	"ikhnos/internal/pki"
+	"ikhnos/internal/store"
+	"ikhnos/internal/testkit"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -40,7 +40,7 @@ func keyFromPEM(t *testing.T, keyPEM []byte) *ecdsa.PrivateKey {
 
 // renewalFor is what a holder of certPEM/keyPEM sends: the old certificate, a request for a NEW key, and the old key's
 // proof over that request.
-func renewalFor(t *testing.T, certPEM, keyPEM []byte) (*continuumv1.RenewTelemetryCertRequest, *ecdsa.PrivateKey) {
+func renewalFor(t *testing.T, certPEM, keyPEM []byte) (*ikhnosv1.RenewTelemetryCertRequest, *ecdsa.PrivateKey) {
 	t.Helper()
 	oldCert, err := pki.ParseCertificate(certPEM)
 	if err != nil {
@@ -52,7 +52,7 @@ func renewalFor(t *testing.T, certPEM, keyPEM []byte) (*continuumv1.RenewTelemet
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &continuumv1.RenewTelemetryCertRequest{OldLeafDer: oldCert.Raw, CsrDer: csrDER, Proof: proof}, newKey
+	return &ikhnosv1.RenewTelemetryCertRequest{OldLeafDer: oldCert.Raw, CsrDer: csrDER, Proof: proof}, newKey
 }
 
 type renewSetup struct {
@@ -176,12 +176,12 @@ func TestRenewalNeedsThePossessionProof(t *testing.T) {
 	good, _ := renewalFor(t, sc.CertPEM, sc.KeyPEM)
 	thief, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	// someone with the certificate but not its key
-	wrongKey := &continuumv1.RenewTelemetryCertRequest{OldLeafDer: good.OldLeafDer, CsrDer: good.CsrDer}
+	wrongKey := &ikhnosv1.RenewTelemetryCertRequest{OldLeafDer: good.OldLeafDer, CsrDer: good.CsrDer}
 	wrongKey.Proof, _ = pki.ProveRenewal(thief, good.CsrDer)
 	// the proof was made for a different request
-	swapped := &continuumv1.RenewTelemetryCertRequest{OldLeafDer: good.OldLeafDer, CsrDer: testkit.CSRWith(t, thief), Proof: good.Proof}
-	empty := &continuumv1.RenewTelemetryCertRequest{OldLeafDer: good.OldLeafDer, CsrDer: good.CsrDer}
-	for name, r := range map[string]*continuumv1.RenewTelemetryCertRequest{"wrong key": wrongKey, "other request": swapped, "no proof": empty, "garbage certificate": {OldLeafDer: []byte("x"), CsrDer: good.CsrDer, Proof: good.Proof}} {
+	swapped := &ikhnosv1.RenewTelemetryCertRequest{OldLeafDer: good.OldLeafDer, CsrDer: testkit.CSRWith(t, thief), Proof: good.Proof}
+	empty := &ikhnosv1.RenewTelemetryCertRequest{OldLeafDer: good.OldLeafDer, CsrDer: good.CsrDer}
+	for name, r := range map[string]*ikhnosv1.RenewTelemetryCertRequest{"wrong key": wrongKey, "other request": swapped, "no proof": empty, "garbage certificate": {OldLeafDer: []byte("x"), CsrDer: good.CsrDer, Proof: good.Proof}} {
 		if _, err := s.e.base.Operators.RenewTelemetryCert(s.e.ctx, "203.0.113.5", r); testkit.KindOf(err) != kernel.KindUnauthenticated {
 			t.Errorf("%s: %v", name, err)
 		}
@@ -292,7 +292,7 @@ func TestRenewTelemetryCertOverTheAnonymousListener(t *testing.T) {
 	req, _ := renewalFor(t, bundle.Senders[0].CertPEM, bundle.Senders[0].KeyPEM)
 	ctx, cancel := context.WithTimeout(r.ctx, 20*time.Second)
 	defer cancel()
-	enr := continuumv1.NewEnrollmentClient(r.dial(t, pki.ClientTLS(r.base.CA.SPKIPin(), "127.0.0.1", nil)))
+	enr := ikhnosv1.NewEnrollmentClient(r.dial(t, pki.ClientTLS(r.base.CA.SPKIPin(), "127.0.0.1", nil)))
 	resp, err := enr.RenewTelemetryCert(ctx, req)
 	if err != nil {
 		t.Fatal(err)
@@ -300,7 +300,7 @@ func TestRenewTelemetryCertOverTheAnonymousListener(t *testing.T) {
 	if len(resp.LeafDer) == 0 || len(resp.CaPem) == 0 || resp.NotAfter == nil {
 		t.Fatalf("incomplete answer: %+v", resp)
 	}
-	bad := &continuumv1.RenewTelemetryCertRequest{OldLeafDer: req.OldLeafDer, CsrDer: req.CsrDer, Proof: []byte("no")}
+	bad := &ikhnosv1.RenewTelemetryCertRequest{OldLeafDer: req.OldLeafDer, CsrDer: req.CsrDer, Proof: []byte("no")}
 	if _, err := enr.RenewTelemetryCert(ctx, bad); testkit.StatusCode(err) != codes.Unauthenticated {
 		t.Fatalf("a bad proof: %v", err)
 	}
@@ -317,19 +317,19 @@ func TestRenewerAgainstTheRealServerReplacesTheSecret(t *testing.T) {
 		t.Fatal(err)
 	}
 	sc := bundle.Senders[0]
-	kube := fake.NewSimpleClientset(&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "continuum-system", Name: "export-tls"}, Data: map[string][]byte{
+	kube := fake.NewSimpleClientset(&corev1.Secret{ObjectMeta: metav1.ObjectMeta{Namespace: "ikhnos-system", Name: "export-tls"}, Data: map[string][]byte{
 		"tls.crt": sc.CertPEM, "tls.key": sc.KeyPEM, "ca.crt": bundle.CACertPEM,
 	}})
 	cfg := certrenew.Config{
-		Client: kube, Targets: certrenew.ParseTargets("continuum-system", "export-tls"), RenewBefore: 1000 * day,
-		Dial: func() (continuumv1.EnrollmentClient, func(), error) {
-			return continuumv1.NewEnrollmentClient(r.dial(t, pki.ClientTLS(r.base.CA.SPKIPin(), "127.0.0.1", nil))), func() {}, nil
+		Client: kube, Targets: certrenew.ParseTargets("ikhnos-system", "export-tls"), RenewBefore: 1000 * day,
+		Dial: func() (ikhnosv1.EnrollmentClient, func(), error) {
+			return ikhnosv1.NewEnrollmentClient(r.dial(t, pki.ClientTLS(r.base.CA.SPKIPin(), "127.0.0.1", nil))), func() {}, nil
 		},
 	}
 	if failed := certrenew.Once(r.ctx, cfg); failed != 0 {
 		t.Fatal("the renewer failed")
 	}
-	got, _ := kube.CoreV1().Secrets("continuum-system").Get(r.ctx, "export-tls", metav1.GetOptions{})
+	got, _ := kube.CoreV1().Secrets("ikhnos-system").Get(r.ctx, "export-tls", metav1.GetOptions{})
 	if string(got.Data["tls.crt"]) == string(sc.CertPEM) || string(got.Data["tls.key"]) == string(sc.KeyPEM) {
 		t.Fatal("the Secret still holds the old certificate or key")
 	}

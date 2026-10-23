@@ -3,10 +3,10 @@ package estate
 import (
 	"net/http"
 
-	"continuum/internal/agents"
-	"continuum/internal/httpkit"
-	"continuum/internal/install"
-	"continuum/internal/kernel"
+	"ikhnos/internal/agents"
+	"ikhnos/internal/httpkit"
+	"ikhnos/internal/install"
+	"ikhnos/internal/kernel"
 )
 
 // agentUpgradeRequest is what the page asks for a command from: where the agent's release lives, the access ceiling to set, and the

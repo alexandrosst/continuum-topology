@@ -8,7 +8,7 @@ we" without re-implementing discovery.
 * **Who may call it:** any member of the organisation (viewer or above), with a session cookie or, for
   tooling, the same credentials as the rest of the admin API. Organisations are isolated: the model of one is
   never visible through another's path.
-* **Contract:** `continuum.model/v1`. The string changes only for an incompatible change. Adding fields does not
+* **Contract:** `ikhnos.model/v1`. The string changes only for an incompatible change. Adding fields does not
   change it, so **readers must ignore fields they do not know**.
 * **It reads; it never changes anything.** Requests do not make agents do anything.
 
@@ -30,7 +30,7 @@ fine.
 
 ```json
 {
-  "contract": "continuum.model/v1",
+  "contract": "ikhnos.model/v1",
   "modelVersion": 5,
   "generatedAt": "2026-09-21T03:17:16Z",
   "observation": { "staleAfterSeconds": 120, "tombstoneRetentionDays": 7 },
@@ -157,7 +157,7 @@ cluster). Attribute lists are cut to a few entries.
 
 ```json
 {
-  "contract": "continuum.model/v1",
+  "contract": "ikhnos.model/v1",
   "modelVersion": 5,
   "generatedAt": "2026-09-21T03:17:16Z",
   "observation": { "staleAfterSeconds": 120, "tombstoneRetentionDays": 7 },
@@ -252,7 +252,7 @@ cluster). Attribute lists are cut to a few entries.
 A `304` looks like this:
 
 ```console
-$ curl -si -H "If-None-Match: \"m5-568fbcca9f17\"" https://continuum.example/api/v1/orgs/org-aa04dadc3067/model
+$ curl -si -H "If-None-Match: \"m5-568fbcca9f17\"" https://ikhnos.example/api/v1/orgs/org-aa04dadc3067/model
 HTTP/1.1 304 Not Modified
 ETag: "m5-568fbcca9f17"
 Cache-Control: no-cache

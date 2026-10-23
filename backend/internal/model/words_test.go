@@ -3,7 +3,7 @@ package model
 import (
 	"testing"
 
-	"continuum/internal/wire"
+	"ikhnos/internal/wire"
 )
 
 func TestEveryWordOfTheRecordsIsListed(t *testing.T) {

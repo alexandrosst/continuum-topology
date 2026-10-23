@@ -58,7 +58,7 @@ Limits: 1 to 1095 days for Prometheus, 1 to 365 for Loki and Tempo; volumes up t
 
 ## System logs and scope
 
-The **System logs** signal reads the node's container logs. It now respects the scope you chose: pods in excluded namespaces are not read, and the release's own pods (`continuum-*`) are always excluded, so debug output can never feed itself back in. Records with no namespace (the journal, if you enable it) pass through. `journaling` defaults to `none`: the pinned collector image is built from scratch and has no `journalctl`, so journald needs a `collectorImage` that ships it.
+The **System logs** signal reads the node's container logs. It now respects the scope you chose: pods in excluded namespaces are not read, and the release's own pods (`ikhnos-*`) are always excluded, so debug output can never feed itself back in. Records with no namespace (the journal, if you enable it) pass through. `journaling` defaults to `none`: the pinned collector image is built from scratch and has no `journalctl`, so journald needs a `collectorImage` that ships it.
 
 ## Kubelet metrics and self-signed kubelets
 

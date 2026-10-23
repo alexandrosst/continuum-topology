@@ -11,7 +11,7 @@ import (
 // Grafana dashboards use it, so "application" means the same thing everywhere.
 //
 //   - system: the machine and the telemetry pipeline themselves: CPU, memory and disk of a host, energy, scrape health, the
-//     collectors' own metrics, and the measurements of the links between clusters (continuum_link_*: loss, delay, MTU,
+//     collectors' own metrics, and the measurements of the links between clusters (ikhnos_link_*: loss, delay, MTU,
 //     throughput), which describe the network between clusters and not any application. Logs with no Kubernetes namespace
 //     (a node's own journal, kubelet) are system logs.
 //   - kubernetes: the cluster's objects: the k8s_* and container_* metrics (pods, nodes, deployments, containers), and the
@@ -36,7 +36,7 @@ var SystemNamespaces = []string{"kube-system", "kube-public", "kube-node-lease"}
 // The metric-name families of the two categories that are named by prefix. Everything else is an application metric.
 // They are Prometheus (RE2) regular expressions over the whole name, which Prometheus anchors itself.
 const (
-	SystemMetricNames     = `(system_.*|process_.*|node_.*|kepler_.*|(dcgm|DCGM)_.*|otelcol_.*|continuum_link_.*|scrape_.*|up|target_info)`
+	SystemMetricNames     = `(system_.*|process_.*|node_.*|kepler_.*|(dcgm|DCGM)_.*|otelcol_.*|ikhnos_link_.*|scrape_.*|up|target_info)`
 	KubernetesMetricNames = `(k8s_.*|container_.*|kube_.*)`
 )
 

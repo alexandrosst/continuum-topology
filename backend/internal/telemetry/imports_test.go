@@ -14,11 +14,11 @@ import (
 // not another module. An intent may point at an operator, and asks the operators through a port it owns (Operators); the operators do not
 // import telemetry, and telemetry no longer imports them.
 var allowedRepoImports = map[string]bool{
-	"continuum/internal/httpkit":     true,
-	"continuum/internal/kernel":      true,
-	"continuum/internal/wire":        true,
-	"continuum/internal/store":       true,
-	"continuum/internal/destination": true,
+	"ikhnos/internal/httpkit":     true,
+	"ikhnos/internal/kernel":      true,
+	"ikhnos/internal/wire":        true,
+	"ikhnos/internal/store":       true,
+	"ikhnos/internal/destination": true,
 }
 
 func TestTelemetryImportsOnlyTheKernelTheStoreAndTheDestinationDocument(t *testing.T) {
@@ -37,7 +37,7 @@ func TestTelemetryImportsOnlyTheKernelTheStoreAndTheDestinationDocument(t *testi
 		}
 		for _, im := range af.Imports {
 			p, _ := strconv.Unquote(im.Path.Value)
-			if strings.HasPrefix(p, "continuum/") && !allowedRepoImports[p] {
+			if strings.HasPrefix(p, "ikhnos/") && !allowedRepoImports[p] {
 				t.Errorf("%s imports %s: telemetry may import only %v", f, p, allowedRepoImports)
 			}
 		}

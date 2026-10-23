@@ -52,7 +52,7 @@ type serverRender struct {
 	daemonsets  map[string]appsv1.DaemonSet
 }
 
-// serverRenderWith renders deploy/helm/continuum-server with the FUSION subchart in place, as `helm package -u` would
+// serverRenderWith renders deploy/helm/ikhnos-server with the FUSION subchart in place, as `helm package -u` would
 // assemble it, so the test does not write into the source tree.
 func serverRenderWith(t *testing.T, release string, extra ...string) serverRender {
 	t.Helper()
@@ -60,10 +60,10 @@ func serverRenderWith(t *testing.T, release string, extra ...string) serverRende
 	if err != nil {
 		t.Skip("helm is not installed")
 	}
-	dir := filepath.Join(t.TempDir(), "continuum-server")
-	copyTree(t, filepath.Join("..", "..", "..", "deploy", "helm", "continuum-server"), dir)
-	copyTree(t, "continuum-fusion", filepath.Join(dir, "charts", "continuum-fusion"))
-	args := append([]string{"template", release, dir, "-n", "continuum",
+	dir := filepath.Join(t.TempDir(), "ikhnos-server")
+	copyTree(t, filepath.Join("..", "..", "..", "deploy", "helm", "ikhnos-server"), dir)
+	copyTree(t, "ikhnos-fusion", filepath.Join(dir, "charts", "ikhnos-fusion"))
+	args := append([]string{"template", release, dir, "-n", "ikhnos",
 		"--set", "agent.publicAddress=192.0.2.10:30443", "--set", "agent.service.type=NodePort", "--set", "admin.behindTlsProxy=true"}, extra...)
 	out, err := exec.Command(h, args...).CombinedOutput()
 	if err != nil {
@@ -124,12 +124,12 @@ func serverRenderWith(t *testing.T, release string, extra ...string) serverRende
 
 func fusionWorkloads(r serverRender, release string) (sets, deploys []string) {
 	for n, v := range r.sets {
-		if v.Labels["app.kubernetes.io/name"] == "continuum-fusion" {
+		if v.Labels["app.kubernetes.io/name"] == "ikhnos-fusion" {
 			sets = append(sets, n)
 		}
 	}
 	for n, v := range r.deployments {
-		if v.Labels["app.kubernetes.io/name"] == "continuum-fusion" {
+		if v.Labels["app.kubernetes.io/name"] == "ikhnos-fusion" {
 			deploys = append(deploys, n)
 		}
 	}
@@ -139,9 +139,9 @@ func fusionWorkloads(r serverRender, release string) (sets, deploys []string) {
 }
 
 func TestServerChartBundlesFusionStandingBy(t *testing.T) {
-	r := serverRenderWith(t, "continuum")
-	sets, deploys := fusionWorkloads(r, "continuum")
-	if strings.Join(sets, ",") != "continuum-fusion-grafana,continuum-fusion-loki,continuum-fusion-prometheus,continuum-fusion-tempo" || strings.Join(deploys, ",") != "continuum-fusion-central" {
+	r := serverRenderWith(t, "ikhnos")
+	sets, deploys := fusionWorkloads(r, "ikhnos")
+	if strings.Join(sets, ",") != "ikhnos-fusion-grafana,ikhnos-fusion-loki,ikhnos-fusion-prometheus,ikhnos-fusion-tempo" || strings.Join(deploys, ",") != "ikhnos-fusion-central" {
 		t.Fatalf("FUSION workloads = %v %v", sets, deploys)
 	}
 	for _, n := range sets {
@@ -149,7 +149,7 @@ func TestServerChartBundlesFusionStandingBy(t *testing.T) {
 			t.Errorf("%s replicas = %d, want 0 (standing by until the UI turns FUSION on)", n, *r.sets[n].Spec.Replicas)
 		}
 	}
-	if *r.deployments["continuum-fusion-central"].Spec.Replicas != 0 {
+	if *r.deployments["ikhnos-fusion-central"].Spec.Replicas != 0 {
 		t.Error("the central gateway is not standing by")
 	}
 }
@@ -157,7 +157,7 @@ func TestServerChartBundlesFusionStandingBy(t *testing.T) {
 // Whatever the release is called, the Role covers exactly the workloads and Secret the subchart rendered, and
 // nothing else.
 func TestServerFusionRoleCoversExactlyWhatTheSubchartNames(t *testing.T) {
-	for _, release := range []string{"continuum", "prod", "my-fusion", "relname-relname-relname-relname-relname-relname-abcde"} {
+	for _, release := range []string{"ikhnos", "prod", "my-fusion", "relname-relname-relname-relname-relname-relname-abcde"} {
 		r := serverRenderWith(t, release)
 		sets, deploys := fusionWorkloads(r, release)
 		if len(sets) != 4 || len(deploys) != 1 { // Prometheus, Loki, Tempo and Grafana, and the gateway
@@ -291,7 +291,7 @@ func TestServerFusionRoleCoversExactlyWhatTheSubchartNames(t *testing.T) {
 func serverContainer(t *testing.T, r serverRender) (args []string, automount *bool) {
 	t.Helper()
 	for _, d := range r.deployments {
-		if d.Labels["app.kubernetes.io/name"] == "continuum-fusion" || d.Labels["app.kubernetes.io/component"] != "server" {
+		if d.Labels["app.kubernetes.io/name"] == "ikhnos-fusion" || d.Labels["app.kubernetes.io/component"] != "server" {
 			continue
 		}
 		return d.Spec.Template.Spec.Containers[0].Args, d.Spec.Template.Spec.AutomountServiceAccountToken
@@ -301,12 +301,12 @@ func serverContainer(t *testing.T, r serverRender) (args []string, automount *bo
 }
 
 func TestServerGetsATokenAndTheFusionNameOnlyWhenItControlsFusion(t *testing.T) {
-	r := serverRenderWith(t, "continuum")
+	r := serverRenderWith(t, "ikhnos")
 	args, auto := serverContainer(t, r)
 	if auto == nil || !*auto {
 		t.Error("the server pod gets no API token, so it cannot switch FUSION")
 	}
-	if !containsStr(args, "--fusion-name=continuum-fusion") {
+	if !containsStr(args, "--fusion-name=ikhnos-fusion") {
 		t.Errorf("args = %v, want --fusion-name", args)
 	}
 	if len(r.bindings) == 0 {
@@ -314,7 +314,7 @@ func TestServerGetsATokenAndTheFusionNameOnlyWhenItControlsFusion(t *testing.T) 
 	}
 
 	for _, off := range [][]string{{"--set", "fusionControl.enabled=false"}, {"--set", "fusion.enabled=false"}} {
-		r = serverRenderWith(t, "continuum", off...)
+		r = serverRenderWith(t, "ikhnos", off...)
 		args, auto = serverContainer(t, r)
 		if auto != nil && *auto {
 			t.Errorf("%v: the pod still gets an API token", off)
@@ -335,8 +335,8 @@ func TestServerGetsATokenAndTheFusionNameOnlyWhenItControlsFusion(t *testing.T) 
 		}
 	}
 	// Without the bundled FUSION nothing of it is rendered at all.
-	r = serverRenderWith(t, "continuum", "--set", "fusion.enabled=false")
-	if sets, deploys := fusionWorkloads(r, "continuum"); len(sets)+len(deploys) != 0 {
+	r = serverRenderWith(t, "ikhnos", "--set", "fusion.enabled=false")
+	if sets, deploys := fusionWorkloads(r, "ikhnos"); len(sets)+len(deploys) != 0 {
 		t.Errorf("FUSION workloads rendered though fusion.enabled=false: %v %v", sets, deploys)
 	}
 }
@@ -344,14 +344,14 @@ func TestServerGetsATokenAndTheFusionNameOnlyWhenItControlsFusion(t *testing.T) 
 // The shared data API reads the three stores from the server pod, so a server under its own egress policy must be
 // allowed to reach them - and only them, never the central gateway.
 func TestServerEgressPolicyReachesTheFusionStoresOnly(t *testing.T) {
-	r := serverRenderWith(t, "continuum", "--set", "networkPolicy.enabled=true", "--set", "networkPolicy.egress.enabled=true")
+	r := serverRenderWith(t, "ikhnos", "--set", "networkPolicy.enabled=true", "--set", "networkPolicy.egress.enabled=true")
 	var found bool
 	for _, p := range r.policies {
 		if p.Labels["app.kubernetes.io/component"] != "server" {
 			continue
 		}
 		for _, e := range p.Spec.Egress {
-			if len(e.To) != 1 || e.To[0].PodSelector == nil || e.To[0].PodSelector.MatchLabels["app.kubernetes.io/name"] != "continuum-fusion" {
+			if len(e.To) != 1 || e.To[0].PodSelector == nil || e.To[0].PodSelector.MatchLabels["app.kubernetes.io/name"] != "ikhnos-fusion" {
 				continue
 			}
 			found = true
@@ -371,10 +371,10 @@ func TestServerEgressPolicyReachesTheFusionStoresOnly(t *testing.T) {
 	if !found {
 		t.Error("the server's egress policy has no rule to FUSION's stores")
 	}
-	r = serverRenderWith(t, "continuum", "--set", "networkPolicy.enabled=true", "--set", "networkPolicy.egress.enabled=true", "--set", "fusion.enabled=false")
+	r = serverRenderWith(t, "ikhnos", "--set", "networkPolicy.enabled=true", "--set", "networkPolicy.egress.enabled=true", "--set", "fusion.enabled=false")
 	for _, p := range r.policies {
 		for _, e := range p.Spec.Egress {
-			if len(e.To) == 1 && e.To[0].PodSelector != nil && e.To[0].PodSelector.MatchLabels["app.kubernetes.io/name"] == "continuum-fusion" {
+			if len(e.To) == 1 && e.To[0].PodSelector != nil && e.To[0].PodSelector.MatchLabels["app.kubernetes.io/name"] == "ikhnos-fusion" {
 				t.Error("a rule to FUSION's stores without FUSION")
 			}
 		}
@@ -383,7 +383,7 @@ func TestServerEgressPolicyReachesTheFusionStoresOnly(t *testing.T) {
 
 // Without Grafana the Role has no grant for its pod or claim.
 func TestServerFusionRoleLeavesOutGrafanaWhenItIsOff(t *testing.T) {
-	r := serverRenderWith(t, "continuum", "--set", "fusion.grafana.enabled=false")
+	r := serverRenderWith(t, "ikhnos", "--set", "fusion.grafana.enabled=false")
 	for n, role := range r.roles {
 		if !strings.HasSuffix(n, "-fusion-switch") {
 			continue
@@ -401,12 +401,12 @@ func TestServerFusionRoleLeavesOutGrafanaWhenItIsOff(t *testing.T) {
 // The stores authenticate nothing: their NetworkPolicy is on by default in the server chart, and turning it off is said
 // out loud in the install notes.
 func TestServerChartKeepsTheStoresNetworkPolicyOnAndSaysWhenItIsOff(t *testing.T) {
-	r := serverRenderWith(t, "continuum")
-	if _, ok := r.policies["continuum-fusion"]; !ok {
+	r := serverRenderWith(t, "ikhnos")
+	if _, ok := r.policies["ikhnos-fusion"]; !ok {
 		t.Fatalf("the stores have no NetworkPolicy by default: %v", policyNames(r.policies))
 	}
-	r = serverRenderWith(t, "continuum", "--set", "fusion.networkPolicy.enabled=false")
-	if _, ok := r.policies["continuum-fusion"]; ok {
+	r = serverRenderWith(t, "ikhnos", "--set", "fusion.networkPolicy.enabled=false")
+	if _, ok := r.policies["ikhnos-fusion"]; ok {
 		t.Error("the stores' NetworkPolicy is rendered though it was turned off")
 	}
 
@@ -416,9 +416,9 @@ func TestServerChartKeepsTheStoresNetworkPolicyOnAndSaysWhenItIsOff(t *testing.T
 	}
 	// `helm template` does not print NOTES.txt (and `helm install --dry-run` wants a cluster), so the notes are rendered
 	// through a ConfigMap: the same text, the same values.
-	dir := filepath.Join(t.TempDir(), "continuum-server")
-	copyTree(t, filepath.Join("..", "..", "..", "deploy", "helm", "continuum-server"), dir)
-	copyTree(t, "continuum-fusion", filepath.Join(dir, "charts", "continuum-fusion"))
+	dir := filepath.Join(t.TempDir(), "ikhnos-server")
+	copyTree(t, filepath.Join("..", "..", "..", "deploy", "helm", "ikhnos-server"), dir)
+	copyTree(t, "ikhnos-fusion", filepath.Join(dir, "charts", "ikhnos-fusion"))
 	text, err := os.ReadFile(filepath.Join(dir, "templates", "NOTES.txt"))
 	if err != nil {
 		t.Fatal(err)
@@ -433,7 +433,7 @@ func TestServerChartKeepsTheStoresNetworkPolicyOnAndSaysWhenItIsOff(t *testing.T
 		}
 	}
 	notes := func(extra ...string) string {
-		args := append([]string{"template", "continuum", dir, "-n", "continuum", "--show-only", "templates/notes.yaml", "--set", "agent.publicAddress=192.0.2.10:30443",
+		args := append([]string{"template", "ikhnos", dir, "-n", "ikhnos", "--show-only", "templates/notes.yaml", "--set", "agent.publicAddress=192.0.2.10:30443",
 			"--set", "agent.service.type=NodePort", "--set", "admin.behindTlsProxy=true"}, extra...)
 		out, err := exec.Command(h, args...).CombinedOutput()
 		if err != nil {
@@ -462,27 +462,27 @@ func policyNames[V any](m map[string]V) []string {
 	return out
 }
 
-// admin.publicURL reaches the server as CONTINUUM_PUBLIC_URL (what the heartbeat address of an operator's install command is
+// admin.publicURL reaches the server as IKHNOS_PUBLIC_URL (what the heartbeat address of an operator's install command is
 // built from), and only when it is set; a value that is not an http(s) URL is refused by the schema.
 func TestServerPassesItsPublicURLOnlyWhenOneIsGiven(t *testing.T) {
 	publicEnv := func(r serverRender) string {
 		for _, d := range r.deployments {
-			if d.Labels["app.kubernetes.io/name"] == "continuum-fusion" || d.Labels["app.kubernetes.io/component"] != "server" {
+			if d.Labels["app.kubernetes.io/name"] == "ikhnos-fusion" || d.Labels["app.kubernetes.io/component"] != "server" {
 				continue
 			}
 			for _, e := range d.Spec.Template.Spec.Containers[0].Env {
-				if e.Name == "CONTINUUM_PUBLIC_URL" {
+				if e.Name == "IKHNOS_PUBLIC_URL" {
 					return e.Value
 				}
 			}
 		}
 		return ""
 	}
-	if got := publicEnv(serverRenderWith(t, "continuum")); got != "" {
-		t.Errorf("CONTINUUM_PUBLIC_URL = %q with none given", got)
+	if got := publicEnv(serverRenderWith(t, "ikhnos")); got != "" {
+		t.Errorf("IKHNOS_PUBLIC_URL = %q with none given", got)
 	}
-	if got := publicEnv(serverRenderWith(t, "continuum", "--set", "admin.publicURL=https://ikhnos.example.com/ui")); got != "https://ikhnos.example.com/ui" {
-		t.Errorf("CONTINUUM_PUBLIC_URL = %q", got)
+	if got := publicEnv(serverRenderWith(t, "ikhnos", "--set", "admin.publicURL=https://ikhnos.example.com/ui")); got != "https://ikhnos.example.com/ui" {
+		t.Errorf("IKHNOS_PUBLIC_URL = %q", got)
 	}
 }
 
@@ -494,17 +494,17 @@ func TestServerPassesTheHeartbeatCAFileOnlyWhenSet(t *testing.T) {
 				continue
 			}
 			for _, e := range d.Spec.Template.Spec.Containers[0].Env {
-				if e.Name == "CONTINUUM_HEARTBEAT_CA_FILE" {
+				if e.Name == "IKHNOS_HEARTBEAT_CA_FILE" {
 					return e.Value, true
 				}
 			}
 		}
 		return "", false
 	}
-	if _, ok := has(serverRenderWith(t, "continuum")); ok {
+	if _, ok := has(serverRenderWith(t, "ikhnos")); ok {
 		t.Error("the CA file is passed with nothing configured")
 	}
-	if v, ok := has(serverRenderWith(t, "continuum", "--set", "admin.heartbeatCAFile=/etc/continuum/hb-ca/ca.crt")); !ok || v != "/etc/continuum/hb-ca/ca.crt" {
-		t.Errorf("CONTINUUM_HEARTBEAT_CA_FILE = %q, %v", v, ok)
+	if v, ok := has(serverRenderWith(t, "ikhnos", "--set", "admin.heartbeatCAFile=/etc/ikhnos/hb-ca/ca.crt")); !ok || v != "/etc/ikhnos/hb-ca/ca.crt" {
+		t.Errorf("IKHNOS_HEARTBEAT_CA_FILE = %q, %v", v, ok)
 	}
 }

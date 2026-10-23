@@ -9,7 +9,7 @@ description: Exposing the server properly on a managed cloud cluster, with a rea
 This builds on the [Quickstart](../getting-started/quickstart.md) — same chart, but exposed the way you'd actually want it running for more than a trial: a real DNS name for agents to dial, a load balancer instead of a bare node IP, and the UI behind a Gateway that terminates TLS instead of `kubectl port-forward`.
 
 :::tip[Pinning a version]
-The commands below install the newest release, same as the Quickstart. For a production rollout you'll usually want a reproducible, pinned version instead — add `--version X.Y.Z` to each command below (see the [Releases page](https://github.com/alexandrosst/continuum-topology/releases)), and use the same pinned version for the install and every upgrade that follows.
+The commands below install the newest release, same as the Quickstart. For a production rollout you'll usually want a reproducible, pinned version instead — add `--version X.Y.Z` to each command below (see the [Releases page](https://github.com/alexandrosst/ikhnos/releases)), and use the same pinned version for the install and every upgrade that follows.
 :::
 
 ## The two-step address problem
@@ -19,8 +19,8 @@ The commands below install the newest release, same as the Quickstart. For a pro
 **Install once**, with a placeholder address (the chart just needs something shaped like `host:port` — it doesn't have to resolve yet):
 
 ```bash
-helm install continuum-server oci://ghcr.io/alexandrosst/continuum-server \
-  --namespace continuum --create-namespace \
+helm install ikhnos-server oci://ghcr.io/alexandrosst/ikhnos-server \
+  --namespace ikhnos --create-namespace \
   --set agent.publicAddress=pending.example.com:8443
 ```
 
@@ -31,7 +31,7 @@ The admin port carries your sign-in password and session cookie, so the chart re
 `agent.service.type` defaults to `LoadBalancer`, so this already asked your cloud for one. **Watch for the address:**
 
 ```bash
-kubectl -n continuum get service continuum-server-agent -w
+kubectl -n ikhnos get service ikhnos-server-agent -w
 ```
 
 Once `EXTERNAL-IP` is no longer `<pending>`, point your real DNS name at it (an `A`/`AAAA` record, or a `CNAME` if your cloud gave you a hostname instead of an IP).
@@ -39,9 +39,9 @@ Once `EXTERNAL-IP` is no longer `<pending>`, point your real DNS name at it (an 
 **Upgrade with the real address:**
 
 ```bash
-helm upgrade continuum-server oci://ghcr.io/alexandrosst/continuum-server \
-  --namespace continuum --reuse-values \
-  --set agent.publicAddress=continuum.example.com:8443
+helm upgrade ikhnos-server oci://ghcr.io/alexandrosst/ikhnos-server \
+  --namespace ikhnos --reuse-values \
+  --set agent.publicAddress=ikhnos.example.com:8443
 ```
 
 Changing this issues the server a new certificate, but it doesn't break anything already enrolled — agents trust the CA, not the specific certificate, so they keep working straight through the change. If `EXTERNAL-IP` stays `<pending>` for more than a couple of minutes, your cluster has no load-balancer controller; use `agent.service.type=NodePort` instead (see the [Quickstart](../getting-started/quickstart.md)), or install one such as MetalLB.
@@ -55,11 +55,11 @@ Once the server is up — even with the placeholder address — **Settings → S
 Instead of `port-forward`, put the admin port behind a Gateway that terminates TLS: an `HTTPRoute` attached to a `Gateway` that already has an HTTPS listener set up (its certificate is cert-manager's or however else you manage it — that's configured on the Gateway itself, not by this chart).
 
 ```bash
-helm upgrade continuum-server oci://ghcr.io/alexandrosst/continuum-server \
-  --namespace continuum --reuse-values \
+helm upgrade ikhnos-server oci://ghcr.io/alexandrosst/ikhnos-server \
+  --namespace ikhnos --reuse-values \
   --set httproute.enabled=true \
   --set-json httproute.parentRefs='[{"name":"shared-gateway","namespace":"gateways","sectionName":"https"}]' \
-  --set-json httproute.hostnames='["continuum.example.com"]'
+  --set-json httproute.hostnames='["ikhnos.example.com"]'
 ```
 
 Once this is set, `admin.behindTlsProxy` switches on automatically (the server trusts `X-Forwarded-For`/`X-Forwarded-Proto` from whatever sits in front of it) — you don't need to set it yourself. This needs the Gateway API CRDs and a `Gateway` already running in the cluster; the agent port has the same requirement for [Gateway API TLSRoute](../architecture/exposure-options.md#gateway-api-tlsroute-agenttlsroute).

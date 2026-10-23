@@ -10,8 +10,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"continuum/internal/history"
-	"continuum/internal/store"
+	"ikhnos/internal/history"
+	"ikhnos/internal/store"
 )
 
 // Store is the server's store when a graph database is configured. Control state (accounts, sessions,

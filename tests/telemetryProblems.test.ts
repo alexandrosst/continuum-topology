@@ -69,7 +69,7 @@ function problem(name: string, t: TelemetryInput, measurementsOn?: boolean) {
   problem('an unnamed filter', to({ applicationLogs: true, extraProcessors: [{ ...newProcessorEntry('filter'), id: 'p1' }] }))
   problem('a named filter with a condition', to({ applicationLogs: true, extraProcessors: [namedFilter] }))
   problem('two processors of one name', to({ applicationLogs: true, extraProcessors: [namedFilter, { ...namedFilter, id: 'other' }] }))
-  problem('a reserved tag', to({ resourceUsage: true, tags: [{ key: 'continuum.x', value: 'y' }] }))
+  problem('a reserved tag', to({ resourceUsage: true, tags: [{ key: 'ikhnos.x', value: 'y' }] }))
   problem('a tag with a space in its name', to({ resourceUsage: true, tags: [{ key: 'a b', value: 'y' }] }))
   problem('a tag listed twice', to({ resourceUsage: true, tags: [{ key: 'a', value: 'y' }, { key: 'a', value: 'z' }] }))
   problem('a tag with no name', to({ resourceUsage: true, tags: [{ key: '', value: 'y' }] }))

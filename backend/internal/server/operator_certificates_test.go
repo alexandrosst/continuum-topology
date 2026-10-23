@@ -4,10 +4,10 @@ import (
 	"strings"
 	"testing"
 
-	"continuum/internal/accounts"
-	"continuum/internal/operators"
-	"continuum/internal/operatorsapi"
-	"continuum/internal/testkit"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/operators"
+	"ikhnos/internal/operatorsapi"
+	"ikhnos/internal/testkit"
 )
 
 // Creating an operator for two clusters issues each its own certificate, and the ledger says so: one receiver
@@ -74,7 +74,7 @@ func TestOperatorCertificatesLedgerNamesWhoHoldsWhat(t *testing.T) {
 // like any other operator's.
 func TestCentralOperatorCAIsReportedWhenItsEndIsNear(t *testing.T) {
 	e := newEnv(t)
-	op, _, err := e.core.Fusion.EnsureCentralOperator(e.ctx, "alex", extDest("c:4317"), []string{"op-central.continuum-system.svc"})
+	op, _, err := e.core.Fusion.EnsureCentralOperator(e.ctx, "alex", extDest("c:4317"), []string{"op-central.ikhnos-system.svc"})
 	if err != nil {
 		t.Fatal(err)
 	}

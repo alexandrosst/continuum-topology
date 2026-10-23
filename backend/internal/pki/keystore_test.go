@@ -200,7 +200,7 @@ func TestSPKIPinSurvivesReissuingTheCertificateButLegacyPinDoesNot(t *testing.T)
 	}
 	// Same key, new certificate: what a CA renewal looks like.
 	tmpl := &x509.Certificate{
-		SerialNumber: big.NewInt(42), Subject: pkix.Name{CommonName: "Continuum internal CA", Organization: []string{"Continuum"}},
+		SerialNumber: big.NewInt(42), Subject: pkix.Name{CommonName: "Ikhnos internal CA", Organization: []string{"Ikhnos"}},
 		NotBefore: time.Now().Add(-time.Minute), NotAfter: time.Now().Add(24 * time.Hour),
 		KeyUsage: x509.KeyUsageCertSign, BasicConstraintsValid: true, IsCA: true,
 	}

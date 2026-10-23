@@ -13,8 +13,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"continuum/internal/kernel"
-	"continuum/internal/store"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/store"
 )
 
 // Roles inside an organisation, weakest first. A person can hold a different one in each.
@@ -1288,7 +1288,7 @@ func (c *Service) BootstrapAdmin(ctx context.Context, password string) (created 
 		}
 		must, generated = true, pw
 	} else if err := CheckPasswordPolicy("admin", pw); err != nil {
-		return false, "", fmt.Errorf("CONTINUUM_ADMIN_PASSWORD: %w", err)
+		return false, "", fmt.Errorf("IKHNOS_ADMIN_PASSWORD: %w", err)
 	}
 	hash, err := c.hashPassword(ctx, pw)
 	if err != nil {

@@ -14,13 +14,13 @@ import (
 // libraries it computes with: the capacity advice and the twin it reads. It does not import the server or another module: what it needs
 // of agents and of the estate it is given as a port (Access, Load), so that the line between them is the compiler's and not a habit.
 var allowedRepoImports = map[string]bool{
-	"continuum/internal/httpkit":  true,
-	"continuum/internal/kernel":   true,
-	"continuum/internal/wire":     true,
-	"continuum/internal/accounts": true,
-	"continuum/internal/store":    true,
-	"continuum/internal/advice":   true,
-	"continuum/internal/twin":     true,
+	"ikhnos/internal/httpkit":  true,
+	"ikhnos/internal/kernel":   true,
+	"ikhnos/internal/wire":     true,
+	"ikhnos/internal/accounts": true,
+	"ikhnos/internal/store":    true,
+	"ikhnos/internal/advice":   true,
+	"ikhnos/internal/twin":     true,
 }
 
 func TestTheDecisionLoopImportsNoOtherModuleOfTheServer(t *testing.T) {
@@ -39,7 +39,7 @@ func TestTheDecisionLoopImportsNoOtherModuleOfTheServer(t *testing.T) {
 		}
 		for _, im := range af.Imports {
 			p, _ := strconv.Unquote(im.Path.Value)
-			if strings.HasPrefix(p, "continuum/") && !allowedRepoImports[p] {
+			if strings.HasPrefix(p, "ikhnos/") && !allowedRepoImports[p] {
 				t.Errorf("%s imports %s: the decision loop may import only %v", f, p, allowedRepoImports)
 			}
 		}

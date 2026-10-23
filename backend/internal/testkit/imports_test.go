@@ -13,17 +13,17 @@ import (
 // The test kit may stand on the modules that hold the types the tests build (agents, connectivity, the store, the kernel) and on the
 // vocabularies, but not on the estate or the server: both import it from their tests, so it would be a cycle.
 var allowedRepoImports = map[string]bool{
-	"continuum/gen/continuumv1":       true,
-	"continuum/internal/accounts":     true,
-	"continuum/internal/agents":       true,
-	"continuum/internal/approval":     true,
-	"continuum/internal/connectivity": true,
-	"continuum/internal/facts":        true,
-	"continuum/internal/graph":        true,
-	"continuum/internal/kernel":       true,
-	"continuum/internal/observed":     true,
-	"continuum/internal/pki":          true,
-	"continuum/internal/store":        true,
+	"ikhnos/gen/ikhnosv1":          true,
+	"ikhnos/internal/accounts":     true,
+	"ikhnos/internal/agents":       true,
+	"ikhnos/internal/approval":     true,
+	"ikhnos/internal/connectivity": true,
+	"ikhnos/internal/facts":        true,
+	"ikhnos/internal/graph":        true,
+	"ikhnos/internal/kernel":       true,
+	"ikhnos/internal/observed":     true,
+	"ikhnos/internal/pki":          true,
+	"ikhnos/internal/store":        true,
 }
 
 func TestTestkitImportsNothingOfTheEstateOrTheServer(t *testing.T) {
@@ -42,7 +42,7 @@ func TestTestkitImportsNothingOfTheEstateOrTheServer(t *testing.T) {
 		}
 		for _, im := range af.Imports {
 			p, _ := strconv.Unquote(im.Path.Value)
-			if strings.HasPrefix(p, "continuum/") && !allowedRepoImports[p] {
+			if strings.HasPrefix(p, "ikhnos/") && !allowedRepoImports[p] {
 				t.Errorf("%s imports %s: the test kit may not stand on it", f, p)
 			}
 		}

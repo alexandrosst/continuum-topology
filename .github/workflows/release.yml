@@ -1,6 +1,6 @@
 name: Release
 
-# Builds and publishes the ONE thing an install command needs to exist for: the `continuum` image (agent, probe
+# Builds and publishes the ONE thing an install command needs to exist for: the `ikhnos` image (agent, probe
 # and flow collector - one binary, three roles), the `server` image, and the three Helm charts (agent, regional operator, server), all to this repo's own
 # GitHub Container Registry namespace (ghcr.io/<owner>) - no separate registry to set up, and nothing for anyone
 # installing this to type in beyond the command the server's "Connect a cluster" screen already prints.
@@ -18,7 +18,7 @@ name: Release
 #   - workflow_dispatch, for a manual re-run without needing a new commit or tag.
 #
 # One-time setup this workflow cannot do for you: the first time this runs, GHCR creates the six packages
-# (continuum, server, continuum-agent, continuum-regional-operator, continuum-fusion, continuum-server) as PRIVATE by default, even in a public repo. Nothing
+# (ikhnos, server, ikhnos-agent, ikhnos-regional-operator, ikhnos-fusion, ikhnos-server) as PRIVATE by default, even in a public repo. Nothing
 # using the published install command will work until you flip that: on GitHub, the repo's right sidebar has a
 # "Packages" section once this has run once - open each of the six, "Package settings" at the bottom, "Change
 # visibility" to Public (and confirm "Link to this repository" is checked, so they show up on the repo's page).
@@ -94,8 +94,8 @@ jobs:
         include:
           # One image, three roles (agent/probe/flow), chosen by the container's args - see backend/Dockerfile's
           # own comment. Multi-arch: an edge board pulls the same tag a cloud node does.
-          - target: continuum
-            image: continuum
+          - target: ikhnos
+            image: ikhnos
             platforms: linux/amd64,linux/arm64
           # The cluster-link prober and responder: the same binary plus OWAMP and iperf3, built from pinned commits (see the
           # `owamp`, `iperf3` and `link` stages of backend/Dockerfile). Only pulled when telemetry.clusterLinks.probe is turned on.
@@ -162,20 +162,20 @@ jobs:
     strategy:
       matrix:
         include:
-          - dir: backend/internal/chart/continuum-agent
-            name: continuum-agent
+          - dir: backend/internal/chart/ikhnos-agent
+            name: ikhnos-agent
           # No image of its own to bake in (it runs the upstream OpenTelemetry Collector image its values.yaml
           # names), so the "Bake" step below has no case for it. It still needs publishing: the install command
-          # the server prints for a regional operator names oci://ghcr.io/<owner>/continuum-regional-operator.
-          - dir: backend/internal/chart/continuum-regional-operator
-            name: continuum-regional-operator
+          # the server prints for a regional operator names oci://ghcr.io/<owner>/ikhnos-regional-operator.
+          - dir: backend/internal/chart/ikhnos-regional-operator
+            name: ikhnos-regional-operator
           # FUSION: Prometheus, Loki and Tempo, from their upstream images (named in its values.yaml), so the
           # "Bake" step has no case for it either. The install command the server prints for FUSION names
-          # oci://ghcr.io/<owner>/continuum-fusion.
-          - dir: backend/internal/chart/continuum-fusion
-            name: continuum-fusion
-          - dir: deploy/helm/continuum-server
-            name: continuum-server
+          # oci://ghcr.io/<owner>/ikhnos-fusion.
+          - dir: backend/internal/chart/ikhnos-fusion
+            name: ikhnos-fusion
+          - dir: deploy/helm/ikhnos-server
+            name: ikhnos-server
     steps:
       - uses: actions/checkout@v4
       - uses: azure/setup-helm@v4
@@ -188,8 +188,8 @@ jobs:
 
       - uses: sigstore/cosign-installer@v3
 
-      # The chart's own values.yaml ships with a placeholder image name (continuum/continuum,
-      # continuum/server - not a real, pullable image anywhere) so the source tree stays registry-agnostic and a
+      # The chart's own values.yaml ships with a placeholder image name (ikhnos/ikhnos,
+      # ikhnos/server - not a real, pullable image anywhere) so the source tree stays registry-agnostic and a
       # fork does not silently point at someone else's images. This step patches a throwaway copy right before
       # packaging, baking in THIS repo's own GHCR namespace so the chart works with no --set at all once
       # installed from here. The grep-count check before each sed is deliberate: if the line it expects to find
@@ -213,14 +213,14 @@ jobs:
           }
 
           case "${{ matrix.name }}" in
-            continuum-agent)
-              patch_one "  repository: continuum/continuum\$" "  repository: ghcr.io/${owner}/continuum"
-              patch_one "        repository: continuum/link\$" "        repository: ghcr.io/${owner}/link"
+            ikhnos-agent)
+              patch_one "  repository: ikhnos/ikhnos\$" "  repository: ghcr.io/${owner}/ikhnos"
+              patch_one "        repository: ikhnos/link\$" "        repository: ghcr.io/${owner}/link"
               ;;
-            continuum-server)
-              patch_one "  repository: continuum/server\$" "  repository: ghcr.io/${owner}/server"
+            ikhnos-server)
+              patch_one "  repository: ikhnos/server\$" "  repository: ghcr.io/${owner}/server"
               # Leaving chartRef empty is deliberate: main.go documents that an empty --chart-ref resolves to
-              # oci://<image-registry>/continuum-agent, which is exactly where the continuum-agent job in this
+              # oci://<image-registry>/ikhnos-agent, which is exactly where the ikhnos-agent job in this
               # same workflow run just published to.
               patch_one "  imageRegistry: \"\"" "  imageRegistry: \"ghcr.io/${owner}\""
               ;;

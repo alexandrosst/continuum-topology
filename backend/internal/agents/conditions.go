@@ -5,8 +5,8 @@ import (
 	"slices"
 	"time"
 
-	"continuum/internal/agentcaps"
-	"continuum/internal/kernel"
+	"ikhnos/internal/agentcaps"
+	"ikhnos/internal/kernel"
 )
 
 // A Condition is one fact about an agent that is either true, false or not known, with a short code for why and a sentence for a

@@ -14,9 +14,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"continuum/internal/pki"
-	"continuum/internal/sealing"
-	"continuum/internal/store"
+	"ikhnos/internal/pki"
+	"ikhnos/internal/sealing"
+	"ikhnos/internal/store"
 )
 
 type Kind int

@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"continuum/internal/link"
+	"ikhnos/internal/link"
 )
 
 // The pairs of clusters whose link an administrator asked to watch are part of the Settings document, so their shape and the

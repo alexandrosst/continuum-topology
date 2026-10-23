@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 )
 
 // A peer list that is empty for a moment (the agent answers with one around a restart, or while its flow collector is paused)
@@ -13,10 +13,10 @@ import (
 func TestABlipInThePeerListKeepsTheScheduleAndTheBudgetLedger(t *testing.T) {
 	f := &fakeIperf{}
 	c, ck := capFor(t, f, func(c *Capacity) { c.Reverse, c.Parallel = false, 0 })
-	list := func() []*continuumv1.LinkPeer {
+	list := func() []*ikhnosv1.LinkPeer {
 		lp := peer("cl-a", "A", "10.0.0.1")
 		lp.Throughput, lp.ThroughputBudgetBytes = true, 7<<30
-		return []*continuumv1.LinkPeer{lp}
+		return []*ikhnosv1.LinkPeer{lp}
 	}
 	c.Meter.Peers.Set("cl-me", list())
 	settle(c)
@@ -61,7 +61,7 @@ func TestAnEmptyPeerListStillWipesTheStateAfterTheGrace(t *testing.T) {
 	c, ck := capFor(t, f, func(c *Capacity) { c.Reverse, c.Parallel = false, 0 })
 	lp := peer("cl-a", "A", "10.0.0.1")
 	lp.Throughput, lp.ThroughputBudgetBytes = true, 7<<30
-	c.Meter.Peers.Set("cl-me", []*continuumv1.LinkPeer{lp})
+	c.Meter.Peers.Set("cl-me", []*ikhnosv1.LinkPeer{lp})
 	settle(c)
 
 	c.Meter.Peers.Set("cl-me", nil)
@@ -91,14 +91,14 @@ func TestABlipKeepsTheMetersProbeAndConnectState(t *testing.T) {
 	m.ObserveProbe("cl-a", Forward, OwampResult{Sent: 100, Lost: 2})
 	m.ProbeFailed("cl-a", Reverse, "timeout")
 	m.ObserveConnect("cl-a", 2*time.Millisecond)
-	m.Observe([]*continuumv1.RawFlow{flow("10.0.0.1", 4, 1000)})
+	m.Observe([]*ikhnosv1.RawFlow{flow("10.0.0.1", 4, 1000)})
 	before := render(m)
 
 	m.Peers.Set("cl-me", nil)
 	m.Forget()
 	ck.add(10 * time.Second)
 	m.Forget()
-	m.Peers.Set("cl-me", []*continuumv1.LinkPeer{peer("cl-a", "A", "10.0.0.1")})
+	m.Peers.Set("cl-me", []*ikhnosv1.LinkPeer{peer("cl-a", "A", "10.0.0.1")})
 	m.Forget() // the peer is back: the clock for its absence starts again
 	after := render(m)
 	for k, v := range before {
@@ -115,7 +115,7 @@ func TestABlipKeepsTheMetersProbeAndConnectState(t *testing.T) {
 	m.Peers.Set("cl-me", nil)
 	m.Forget()
 	ck.add(peerGrace - time.Minute)
-	m.Peers.Set("cl-me", []*continuumv1.LinkPeer{peer("cl-a", "A", "10.0.0.1")})
+	m.Peers.Set("cl-me", []*ikhnosv1.LinkPeer{peer("cl-a", "A", "10.0.0.1")})
 	m.Forget()
 	m.Peers.Set("cl-me", nil)
 	ck.add(2 * time.Minute)

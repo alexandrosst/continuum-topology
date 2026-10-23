@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/estate"
-	"continuum/internal/kernel"
-	"continuum/internal/pki"
-	"continuum/internal/testkit"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/estate"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/pki"
+	"ikhnos/internal/testkit"
 
 	"google.golang.org/grpc/codes"
 )
@@ -36,7 +36,7 @@ func TestFingerprintMustBeCanonicalUUID(t *testing.T) {
 	} {
 		secret, _, _ := e.core.Agents.CreateToken(e.ctx, "admin", "c", 1)
 		d, _ := testkit.CSR(t)
-		_, err := e.core.Agents.Enroll(e.ctx, "10.0.0.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: bad})
+		_, err := e.core.Agents.Enroll(e.ctx, "10.0.0.1", &ikhnosv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: bad})
 		if testkit.KindOf(err) != kernel.KindInvalid {
 			t.Errorf("fingerprint %q: %v, want invalid", bad, err)
 		}
@@ -47,11 +47,11 @@ func TestEnrollRejectsOversizedVersionAndScrubsControlCharacters(t *testing.T) {
 	e := newEnv(t)
 	secret, _, _ := e.core.Agents.CreateToken(e.ctx, "admin", "c", 1)
 	d, _ := testkit.CSR(t)
-	_, err := e.core.Agents.Enroll(e.ctx, "10.0.0.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: testkit.FP, AgentVersion: strings.Repeat("x", 65)})
+	_, err := e.core.Agents.Enroll(e.ctx, "10.0.0.1", &ikhnosv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: testkit.FP, AgentVersion: strings.Repeat("x", 65)})
 	if testkit.KindOf(err) != kernel.KindInvalid {
 		t.Fatalf("long version: %v", err)
 	}
-	resp, err := e.core.Agents.Enroll(e.ctx, "10.0.0.1", &continuumv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: testkit.FP, AgentVersion: "1.0\n\x1b[31mred", ApprovalCodeHash: testkit.HashFor(t, d)})
+	resp, err := e.core.Agents.Enroll(e.ctx, "10.0.0.1", &ikhnosv1.EnrollRequest{Token: secret, CsrDer: d, ClusterFingerprint: testkit.FP, AgentVersion: "1.0\n\x1b[31mred", ApprovalCodeHash: testkit.HashFor(t, d)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func TestRejoinAfterOutageAndItsLimits(t *testing.T) {
 	id, key, leaf := e.approvedAgent(t, testkit.FP)
 	real := *e.now
 	rejoin := func(leafDER []byte, k *ecdsa.PrivateKey) error {
-		_, err := e.core.Agents.Rejoin(e.ctx, "10.0.0.1", &continuumv1.RejoinRequest{ExpiredLeafDer: leafDER, CsrDer: testkit.CSRWith(t, k)})
+		_, err := e.core.Agents.Rejoin(e.ctx, "10.0.0.1", &ikhnosv1.RejoinRequest{ExpiredLeafDer: leafDER, CsrDer: testkit.CSRWith(t, k)})
 		return err
 	}
 
@@ -115,7 +115,7 @@ func TestRejoinIsRateLimitedPerAddress(t *testing.T) {
 	e := newEnv(t)
 	e.core.EnrollRL = kernel.NewLimiter(1, 2)
 	for i := 0; i < 5; i++ {
-		_, err := e.core.Agents.Rejoin(e.ctx, "10.9.9.9", &continuumv1.RejoinRequest{ExpiredLeafDer: []byte("x"), CsrDer: []byte("x")})
+		_, err := e.core.Agents.Rejoin(e.ctx, "10.9.9.9", &ikhnosv1.RejoinRequest{ExpiredLeafDer: []byte("x"), CsrDer: []byte("x")})
 		want := kernel.KindUnauthenticated
 		if i >= 2 {
 			want = kernel.KindRateLimited
@@ -180,10 +180,10 @@ func TestTapCutsOffUnauthenticatedCallersBeforeTheBodyIsRead(t *testing.T) {
 	pin := r.core.CA.Pin()
 
 	// Enrollment: the third call from one address in a burst is refused by the tap.
-	enr := continuumv1.NewEnrollmentClient(r.dial(t, pki.ClientTLS(pin, "127.0.0.1", nil)))
+	enr := ikhnosv1.NewEnrollmentClient(r.dial(t, pki.ClientTLS(pin, "127.0.0.1", nil)))
 	var limited int
 	for i := 0; i < 4; i++ {
-		_, err := enr.PollEnrollment(ctx, &continuumv1.PollRequest{AgentId: "ag-x", PollSecret: "s"})
+		_, err := enr.PollEnrollment(ctx, &ikhnosv1.PollRequest{AgentId: "ag-x", PollSecret: "s"})
 		if testkit.StatusCode(err) == codes.ResourceExhausted {
 			limited++
 		}
@@ -193,8 +193,8 @@ func TestTapCutsOffUnauthenticatedCallersBeforeTheBodyIsRead(t *testing.T) {
 	}
 
 	// AgentService without a certificate: refused even with a 12 MB message.
-	anon := continuumv1.NewAgentServiceClient(r.dial(t, pki.ClientTLS(pin, "127.0.0.1", nil)))
-	if _, err := anon.Renew(ctx, &continuumv1.RenewRequest{CsrDer: make([]byte, 12<<20)}); testkit.StatusCode(err) != codes.Unauthenticated {
+	anon := ikhnosv1.NewAgentServiceClient(r.dial(t, pki.ClientTLS(pin, "127.0.0.1", nil)))
+	if _, err := anon.Renew(ctx, &ikhnosv1.RenewRequest{CsrDer: make([]byte, 12<<20)}); testkit.StatusCode(err) != codes.Unauthenticated {
 		t.Fatalf("large anonymous message: %v", err)
 	}
 }

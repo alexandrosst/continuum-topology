@@ -5,10 +5,10 @@ import (
 	"io"
 	"net/http"
 
-	"continuum/internal/httpkit"
-	"continuum/internal/kernel"
-	"continuum/internal/operators"
-	"continuum/internal/operatorsapi"
+	"ikhnos/internal/httpkit"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/operators"
+	"ikhnos/internal/operatorsapi"
 )
 
 // OperatorHeartbeatPath is where an opted-in regional operator's collector POSTs its heartbeat. The route is the shell's
@@ -35,7 +35,7 @@ func (a *Admin) operatorHeartbeat(w http.ResponseWriter, r *http.Request) {
 			httpkit.WriteErr(w, http.StatusTooManyRequests, "too many failed attempts, wait a minute")
 			return
 		}
-		w.Header().Set("WWW-Authenticate", `Bearer realm="continuum operator heartbeat"`)
+		w.Header().Set("WWW-Authenticate", `Bearer realm="ikhnos operator heartbeat"`)
 		httpkit.WriteErr(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}

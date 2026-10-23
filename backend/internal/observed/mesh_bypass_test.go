@@ -4,9 +4,9 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/facts"
-	"continuum/internal/model"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/facts"
+	"ikhnos/internal/model"
 )
 
 // TestFlowTableCarriesMeshBypassSyns mirrors TestFlowTableCarriesFailedAttempts (observed_test.go) for the
@@ -15,8 +15,8 @@ func TestFlowTableCarriesMeshBypassSyns(t *testing.T) {
 	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
 	tbl := NewFlowTable()
 	src, dst := wep("a/Deployment/x"), wep("a/Deployment/y")
-	f1 := &continuumv1.Flow{Src: src, Dst: dst, Port: 443, Protocol: "tcp", Method: "ebpf", MeshBypassSyns: 2}
-	tbl.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f1}}, now)
+	f1 := &ikhnosv1.Flow{Src: src, Dst: dst, Port: 443, Protocol: "tcp", Method: "ebpf", MeshBypassSyns: 2}
+	tbl.Apply(&ikhnosv1.FlowBatch{WindowSeconds: 60, Flows: []*ikhnosv1.Flow{f1}}, now)
 	k := FlowKey(f1)
 	e := tbl.Edges[k]
 	if e == nil {
@@ -25,8 +25,8 @@ func TestFlowTableCarriesMeshBypassSyns(t *testing.T) {
 	if e.MeshBypassSyns != 2 || e.WindowMeshBypassSyns != 2 {
 		t.Errorf("meshBypassSyns=%d/%d, want 2/2", e.MeshBypassSyns, e.WindowMeshBypassSyns)
 	}
-	f2 := &continuumv1.Flow{Src: src, Dst: dst, Port: 443, Protocol: "tcp", Method: "ebpf", MeshBypassSyns: 1}
-	tbl.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f2}}, now.Add(time.Minute))
+	f2 := &ikhnosv1.Flow{Src: src, Dst: dst, Port: 443, Protocol: "tcp", Method: "ebpf", MeshBypassSyns: 1}
+	tbl.Apply(&ikhnosv1.FlowBatch{WindowSeconds: 60, Flows: []*ikhnosv1.Flow{f2}}, now.Add(time.Minute))
 	e = tbl.Edges[k]
 	if e.MeshBypassSyns != 3 || e.WindowMeshBypassSyns != 1 {
 		t.Errorf("cumulative meshBypassSyns=%d window=%d, want 3/1", e.MeshBypassSyns, e.WindowMeshBypassSyns)
@@ -40,7 +40,7 @@ func TestObservedTopologySetsTentativeMeshBypass(t *testing.T) {
 	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
 	x, y := "a/Deployment/x", "a/Deployment/y"
 	c := cluster("a", "", nil, wk("a", "Deployment", "x"), wk("a", "Deployment", "y"))
-	f := &continuumv1.Flow{Src: wep(x), Dst: wep(y), Port: 443, Protocol: "tcp", Connections: 1, Method: "ebpf", MeshBypassSyns: 1}
+	f := &ikhnosv1.Flow{Src: wep(x), Dst: wep(y), Port: 443, Protocol: "tcp", Connections: 1, Method: "ebpf", MeshBypassSyns: 1}
 	feed(&c, now, 60, f)
 
 	deps, _ := Topology("org", []Cluster{c}, now, 24*time.Hour)

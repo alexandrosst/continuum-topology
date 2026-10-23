@@ -44,7 +44,7 @@ describe('operatorLiveness', () => {
 // What the command states about a receiver's credential is the server's (backend/internal/install pins it against what the page used to
 // paste). What the page keeps is the draft it checks and shows hints from.
 describe('operatorCommandDraft and receiver authentication', () => {
-  const draft: TelemetryInput = { ...emptyTelemetry, resourceUsage: true, exportEndpoint: 'op-eu.continuum-system.svc:4317', exportOperatorId: 'op-eu', exportAuthSecretName: 'receiver-token' }
+  const draft: TelemetryInput = { ...emptyTelemetry, resourceUsage: true, exportEndpoint: 'op-eu.ikhnos-system.svc:4317', exportOperatorId: 'op-eu', exportAuthSecretName: 'receiver-token' }
 
   test('a bearer (or unspecified) receiver keeps the credential Secret', () => {
     for (const receiverAuth of [undefined, 'bearer' as const]) expect(operatorCommandDraft(draft, receiverAuth).exportAuthSecretName).toBe('receiver-token')

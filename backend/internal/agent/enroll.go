@@ -14,9 +14,9 @@ import (
 	"sync"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/approval"
-	"continuum/internal/pki"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/approval"
+	"ikhnos/internal/pki"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -69,7 +69,7 @@ func (r *runner) logCode(id *Identity, why string) {
 	// label in the message plus the single value in "code" still leads the line and is still its own
 	// field for anything that searches logs by field, without the duplication.
 	r.log.Info("APPROVAL CODE (enter it in Ikhnos to approve this cluster)",
-		"code", id.ApprovalCode, "why", why, "kubectl", "kubectl -n continuum-system logs deploy/continuum-agent | grep -i 'approval code'")
+		"code", id.ApprovalCode, "why", why, "kubectl", "kubectl -n ikhnos-system logs deploy/ikhnos-agent | grep -i 'approval code'")
 }
 
 // enroll takes the agent from "no certificate" to "approved": it sends the enrollment (again, if it was
@@ -143,7 +143,7 @@ func (r *runner) sendEnrollment(ctx context.Context, id *Identity) (*Identity, t
 		return nil, 0, err
 	}
 	defer conn.Close()
-	resp, err := continuumv1.NewEnrollmentClient(conn).Enroll(ctx, &continuumv1.EnrollRequest{
+	resp, err := ikhnosv1.NewEnrollmentClient(conn).Enroll(ctx, &ikhnosv1.EnrollRequest{
 		Token: r.cfg.Token, CsrDer: csr, ClusterFingerprint: fp, AgentVersion: r.cfg.Version, KubernetesVersion: kver,
 		InstalledAccessTier: uint32(r.cfg.Tier), ApprovalCodeHash: hash,
 	})
@@ -179,13 +179,13 @@ func (r *runner) awaitApproval(ctx context.Context, id *Identity, hint time.Dura
 		return nil, false, err
 	}
 	defer conn.Close()
-	cl := continuumv1.NewEnrollmentClient(conn)
+	cl := ikhnosv1.NewEnrollmentClient(conn)
 	base := r.cfg.Floors.poll(hint)
 	failures := 0
 	remind := time.Now().Add(codeReminder)
 	for {
 		r.cfg.Health.Beat()
-		p, err := cl.PollEnrollment(ctx, &continuumv1.PollRequest{AgentId: id.AgentID, PollSecret: id.PollSecret})
+		p, err := cl.PollEnrollment(ctx, &ikhnosv1.PollRequest{AgentId: id.AgentID, PollSecret: id.PollSecret})
 		if status.Code(err) == codes.Unauthenticated {
 			// Another instance of this agent (a rolling update) may have enrolled again and been given a new
 			// poll secret: what is stored then is the truth, and this one carries on with it.
@@ -210,7 +210,7 @@ func (r *runner) awaitApproval(ctx context.Context, id *Identity, hint time.Dura
 		r.cfg.Health.Enrolling() // the server answered: waiting for approval is normal, not a fault
 		r.noteServerTime(p.ServerTimeUnix)
 		switch p.State {
-		case continuumv1.PollResponse_APPROVED:
+		case ikhnosv1.PollResponse_APPROVED:
 			leaf, err := x509.ParseCertificate(p.LeafDer)
 			if err != nil {
 				return nil, false, err
@@ -227,13 +227,13 @@ func (r *runner) awaitApproval(ctx context.Context, id *Identity, hint time.Dura
 			}
 			r.log.Info("approved", "agent", id.AgentID, "certificate_expires", p.NotAfter.AsTime())
 			return id, false, nil
-		case continuumv1.PollResponse_REJECTED:
+		case ikhnosv1.PollResponse_REJECTED:
 			reason := p.Reason
 			if reason == "" {
 				reason = "rejected by an administrator"
 			}
 			return nil, false, r.ended(ctx, id, reason)
-		case continuumv1.PollResponse_EXPIRED:
+		case ikhnosv1.PollResponse_EXPIRED:
 			code, err := approval.New()
 			if err != nil {
 				return nil, false, err
@@ -362,7 +362,7 @@ func revokedDetail(err error) (string, bool) {
 		return "", false
 	}
 	for _, d := range st.Details() {
-		if rv, ok := d.(*continuumv1.Revoked); ok {
+		if rv, ok := d.(*ikhnosv1.Revoked); ok {
 			if rv.Reason == "" {
 				return "revoked by an administrator", true
 			}

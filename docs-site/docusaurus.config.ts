@@ -7,7 +7,7 @@ import type * as Preset from '@docusaurus/preset-classic';
 // GitHub Pages project-page settings. If you ever rename the repo or move to a custom
 // domain, these three plus the workflow's Pages source setting are the only things to change.
 const GITHUB_OWNER = 'alexandrosst';
-const GITHUB_REPO = 'continuum-topology';
+const GITHUB_REPO = 'ikhnos';
 
 const config: Config = {
   title: 'Ikhnos',

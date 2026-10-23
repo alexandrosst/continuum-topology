@@ -14,31 +14,31 @@ import (
 // calling, on the decision loop whose ports it supplies, on the HTTP kit and the install settings its routes are written with, and on the models, vocabularies and stores the twin is built from. It does not
 // import the server (the shell is the one that wires it and serves it) and does not import fusion or telemetry.
 var allowedRepoImports = map[string]bool{
-	"continuum/gen/continuumv1":       true,
-	"continuum/internal/accounts":     true,
-	"continuum/internal/agentcaps":    true,
-	"continuum/internal/agents":       true,
-	"continuum/internal/connectivity": true,
-	"continuum/internal/decisionloop": true,
-	"continuum/internal/facts":        true,
-	"continuum/internal/flow/wire":    true,
-	"continuum/internal/geoip":        true,
-	"continuum/internal/graph":        true,
-	"continuum/internal/history":      true,
-	"continuum/internal/httpkit":      true,
-	"continuum/internal/install":      true,
-	"continuum/internal/installcfg":   true,
-	"continuum/internal/interpret":    true,
-	"continuum/internal/kernel":       true,
-	"continuum/internal/wire":         true,
-	"continuum/internal/link":         true,
-	"continuum/internal/measure":      true,
-	"continuum/internal/model":        true,
-	"continuum/internal/observed":     true,
-	"continuum/internal/operators":    true,
-	"continuum/internal/store":        true,
-	"continuum/internal/twin":         true,
-	"continuum/internal/workspace":    true,
+	"ikhnos/gen/ikhnosv1":          true,
+	"ikhnos/internal/accounts":     true,
+	"ikhnos/internal/agentcaps":    true,
+	"ikhnos/internal/agents":       true,
+	"ikhnos/internal/connectivity": true,
+	"ikhnos/internal/decisionloop": true,
+	"ikhnos/internal/facts":        true,
+	"ikhnos/internal/flow/wire":    true,
+	"ikhnos/internal/geoip":        true,
+	"ikhnos/internal/graph":        true,
+	"ikhnos/internal/history":      true,
+	"ikhnos/internal/httpkit":      true,
+	"ikhnos/internal/install":      true,
+	"ikhnos/internal/installcfg":   true,
+	"ikhnos/internal/interpret":    true,
+	"ikhnos/internal/kernel":       true,
+	"ikhnos/internal/wire":         true,
+	"ikhnos/internal/link":         true,
+	"ikhnos/internal/measure":      true,
+	"ikhnos/internal/model":        true,
+	"ikhnos/internal/observed":     true,
+	"ikhnos/internal/operators":    true,
+	"ikhnos/internal/store":        true,
+	"ikhnos/internal/twin":         true,
+	"ikhnos/internal/workspace":    true,
 }
 
 func TestEstateImportsNothingOfTheServer(t *testing.T) {
@@ -57,7 +57,7 @@ func TestEstateImportsNothingOfTheServer(t *testing.T) {
 		}
 		for _, im := range af.Imports {
 			p, _ := strconv.Unquote(im.Path.Value)
-			if strings.HasPrefix(p, "continuum/") && !allowedRepoImports[p] {
+			if strings.HasPrefix(p, "ikhnos/") && !allowedRepoImports[p] {
 				t.Errorf("%s imports %s: the estate may not stand on it", f, p)
 			}
 		}

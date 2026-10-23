@@ -13,8 +13,8 @@ import (
 	"slices"
 	"strings"
 
-	"continuum/internal/fusionapi"
-	"continuum/internal/kernel"
+	"ikhnos/internal/fusionapi"
+	"ikhnos/internal/kernel"
 )
 
 // The data API, described once. Every route, and every parameter it takes, is an entry here; the router is built from
@@ -171,7 +171,7 @@ var ParamDefs = map[string]Param{
 	"node":        {Type: "string", Desc: "Only this node."},
 	"cluster":     {Type: "string", Example: "cl-1", Desc: "Only this cluster (its Ikhnos cluster id)."},
 	"peer":        {Type: "string", Example: "cl-2", Desc: "Only the link to this cluster (its Ikhnos cluster id); needs `cluster`."},
-	"category":    {Type: "string", Example: "application", Desc: "Only this kind of telemetry (or a comma-separated list of kinds): `system` (the machine and the telemetry pipeline: host CPU, memory and disk, energy, scrape health, the collectors' own metrics, the `continuum_link_*` measurements between clusters; and logs written outside any namespace), `kubernetes` (the cluster's own objects: the `k8s_*`, `container_*` and `kube_*` metrics, and the logs and spans of `kube-system`, `kube-public` and `kube-node-lease`) or `application` (everything else: what an application reports about itself, and the logs and spans of every other namespace). A metric is placed by its name, a log line or a span by its namespace; the category is what the signal is about, not who owns it, so a pod's CPU is `kubernetes` whichever application the pod is in (use `application` for whose). Traces have no `system` category, and a span with no namespace attribute is in neither of the others. Every metric series and log line also says its own `category`. All three kinds, or none, is no filter."},
+	"category":    {Type: "string", Example: "application", Desc: "Only this kind of telemetry (or a comma-separated list of kinds): `system` (the machine and the telemetry pipeline: host CPU, memory and disk, energy, scrape health, the collectors' own metrics, the `ikhnos_link_*` measurements between clusters; and logs written outside any namespace), `kubernetes` (the cluster's own objects: the `k8s_*`, `container_*` and `kube_*` metrics, and the logs and spans of `kube-system`, `kube-public` and `kube-node-lease`) or `application` (everything else: what an application reports about itself, and the logs and spans of every other namespace). A metric is placed by its name, a log line or a span by its namespace; the category is what the signal is about, not who owns it, so a pod's CPU is `kubernetes` whichever application the pod is in (use `application` for whose). Traces have no `system` category, and a span with no namespace attribute is in neither of the others. Every metric series and log line also says its own `category`. All three kinds, or none, is no filter."},
 	"application": {Type: "string", Example: "Shop", Desc: "Only this Ikhnos application: the id or the name (any case) of one listed by `/applications`. It is resolved when you ask, from the services Ikhnos groups into it, to their service names within their namespaces and clusters, so a change to the application shows at once and the stored telemetry carries no application label. It narrows alongside the other filters and your own access, and cannot be combined with a query you write yourself (`query`, `q`). When two members of the application share a service name in different namespaces, a same-named service of the application's other namespaces may show too: telemetry says which service it is from, not which application."},
 
 	// metrics

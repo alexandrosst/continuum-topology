@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/pki"
-	"continuum/internal/store"
+	"ikhnos/internal/pki"
+	"ikhnos/internal/store"
 )
 
 // liveDataDir makes a data directory the way a running server has one: a database that is open (so part of what
@@ -27,7 +27,7 @@ func liveDataDir(t *testing.T) (dir string, st *store.SQLite) {
 	if _, err := pki.LoadOrCreate(filepath.Join(dir, "pki")); err != nil {
 		t.Fatal(err)
 	}
-	st, err := store.OpenSQLite(filepath.Join(dir, "continuum.db"))
+	st, err := store.OpenSQLite(filepath.Join(dir, "ikhnos.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +70,7 @@ func TestBackupOfARunningServerRestoresEverythingItHeld(t *testing.T) {
 		t.Fatalf("restore: %d %s", code, errw.String())
 	}
 	// The restored server opens (and finds nothing to migrate), holds what the original held, and has the same CA.
-	st2, err := store.OpenSQLite(filepath.Join(target, "continuum.db"))
+	st2, err := store.OpenSQLite(filepath.Join(target, "ikhnos.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +107,7 @@ func TestBackupOfARunningServerRestoresEverythingItHeld(t *testing.T) {
 	if code := restoreCmd([]string{"--data-dir", target, "--from", file, "--force"}, &out, &errw); code != 0 {
 		t.Fatalf("forced restore: %d %s", code, errw.String())
 	}
-	matches, _ := filepath.Glob(filepath.Join(target, "pre-restore-*", "continuum.db"))
+	matches, _ := filepath.Glob(filepath.Join(target, "pre-restore-*", "ikhnos.db"))
 	if len(matches) != 1 {
 		t.Fatalf("the replaced database was not kept aside: %v", matches)
 	}
@@ -180,7 +180,7 @@ func TestRestoreRefusesWhatItCannotTrust(t *testing.T) {
 		if code := restoreCmd([]string{"--data-dir", target, "--from", p}, &out, &errw); code == 0 || !strings.Contains(errw.String(), want) {
 			t.Errorf("%s: code %d, message %q (want %q)", name, code, errw.String(), want)
 		}
-		if _, err := os.Stat(filepath.Join(target, "continuum.db")); err == nil {
+		if _, err := os.Stat(filepath.Join(target, "ikhnos.db")); err == nil {
 			t.Errorf("%s: a refused restore left a database behind", name)
 		}
 	}
@@ -205,12 +205,12 @@ func TestRestoreRefusesWhatItCannotTrust(t *testing.T) {
 	})
 	try("tampered", tampered, "checksum")
 	try("newer archive format", pack(t, files, func(m *backupManifest) { m.Format = 99 }), "newer Ikhnos")
-	try("stray entry", pack(t, map[string][]byte{"continuum.db": files["continuum.db"], "pki/ca.crt": files["pki/ca.crt"], "pki/ca.key": files["pki/ca.key"], "../evil": []byte("x")}, nil), "unexpected entry")
-	try("no CA", pack(t, map[string][]byte{"continuum.db": files["continuum.db"]}, nil), "lacks")
+	try("stray entry", pack(t, map[string][]byte{"ikhnos.db": files["ikhnos.db"], "pki/ca.crt": files["pki/ca.crt"], "pki/ca.key": files["pki/ca.key"], "../evil": []byte("x")}, nil), "unexpected entry")
+	try("no CA", pack(t, map[string][]byte{"ikhnos.db": files["ikhnos.db"]}, nil), "lacks")
 
 	// A database written by a newer server is refused with the reason, and nothing is put in place.
 	newer := filepath.Join(t.TempDir(), "newer.db")
-	if err := os.WriteFile(newer, files["continuum.db"], 0o600); err != nil {
+	if err := os.WriteFile(newer, files["ikhnos.db"], 0o600); err != nil {
 		t.Fatal(err)
 	}
 	db, _ := sql.Open("sqlite", "file:"+newer)
@@ -219,7 +219,7 @@ func TestRestoreRefusesWhatItCannotTrust(t *testing.T) {
 	}
 	db.Close()
 	nb, _ := os.ReadFile(newer)
-	nf := map[string][]byte{"continuum.db": nb, "pki/ca.crt": files["pki/ca.crt"], "pki/ca.key": files["pki/ca.key"]}
+	nf := map[string][]byte{"ikhnos.db": nb, "pki/ca.crt": files["pki/ca.crt"], "pki/ca.key": files["pki/ca.key"]}
 	try("newer database", pack(t, nf, nil), "newer Ikhnos")
 	try("not a backup", filepath.Join(t.TempDir(), "missing"), "no such file")
 }
@@ -227,7 +227,7 @@ func TestRestoreRefusesWhatItCannotTrust(t *testing.T) {
 func TestBackupOfANewerDatabaseIsRefused(t *testing.T) {
 	dir, st := liveDataDir(t)
 	st.Close()
-	db, _ := sql.Open("sqlite", "file:"+filepath.Join(dir, "continuum.db"))
+	db, _ := sql.Open("sqlite", "file:"+filepath.Join(dir, "ikhnos.db"))
 	db.Exec("PRAGMA user_version = 99")
 	db.Close()
 	file := filepath.Join(t.TempDir(), "b.tar.gz")
@@ -260,7 +260,7 @@ func TestBackupToAStreamRestoresAndLeavesNothingBehind(t *testing.T) {
 	if code := restoreCmd([]string{"--data-dir", target, "--from", file}, &out, &errw); code != 0 {
 		t.Fatalf("restore of a streamed backup: %d %s", code, errw.String())
 	}
-	st2, err := store.OpenSQLite(filepath.Join(target, "continuum.db"))
+	st2, err := store.OpenSQLite(filepath.Join(target, "ikhnos.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -293,7 +293,7 @@ func TestRestoreFromStandardInput(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(target, "pki", "ca.key")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.CheckDatabase(context.Background(), filepath.Join(target, "continuum.db")); err != nil {
+	if _, err := store.CheckDatabase(context.Background(), filepath.Join(target, "ikhnos.db")); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -16,8 +16,8 @@ import (
 	"net/http"
 	"time"
 
-	"continuum/internal/accounts"
-	"continuum/internal/kernel"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/kernel"
 )
 
 // WriteJSON writes v as the body of the answer, with the status code.

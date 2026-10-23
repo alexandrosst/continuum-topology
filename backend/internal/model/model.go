@@ -148,7 +148,7 @@ type Disk struct {
 }
 
 // TunnelInterface is one overlay/tunnel network interface a node probe found up on the machine -
-// identified generically from the kernel's own link kind (see continuumv1.TunnelInterface's doc for the
+// identified generically from the kernel's own link kind (see ikhnosv1.TunnelInterface's doc for the
 // full list of covered drivers and the documented gaps), never guessed from an interface's name. Confirmed
 // carries this node's own server-side correlation verdict for whether another onboarded node's address
 // falls inside one of Routes' prefixes - see Confirmed's own comment for what that does and does not
@@ -231,7 +231,7 @@ type Node struct {
 	// route-based IPsec, ...) - see TunnelInterface's own comment for exactly what is, and is not, covered.
 	Tunnels []TunnelInterface `json:"tunnels,omitempty"`
 	// HostSubnets are this node's own routable network prefix(es) (e.g. "10.0.5.12/24"), taken only from
-	// whichever interface owns the machine's default route - see continuumv1.HostProbe.host_subnets' own
+	// whichever interface owns the machine's default route - see ikhnosv1.HostProbe.host_subnets' own
 	// doc. Used server-side, alongside Tunnels, to look for two onboarded clusters joined at the network
 	// level (see ClusterLink); never shown as a claim on its own that two addresses are related.
 	HostSubnets  []string      `json:"hostSubnets,omitempty"`
@@ -270,7 +270,7 @@ type Node struct {
 	// the node-side explanation retransmit growth alone could never provide.
 	OomKillCount *uint64 `json:"oomKillCount,omitempty"`
 	// HostWatts is this node's host-wide power draw, in watts, averaged over a brief sampling window the
-	// node probe itself takes (see continuumv1.HostProbe.host_watts' own doc comment) - from intel-rapl's
+	// node probe itself takes (see ikhnosv1.HostProbe.host_watts' own doc comment) - from intel-rapl's
 	// package-0 energy counter, when the hardware exposes one. This is host-wide power, honestly
 	// documented as such: it is not, and must never be shown as, Ikhnos's own share of it - a separate,
 	// clearly-labeled estimate derived elsewhere (see the server's self-telemetry endpoint) divides this
@@ -281,7 +281,7 @@ type Node struct {
 	HostWatts *float64 `json:"hostWatts,omitempty"`
 	// LinkSaturation is this node's current per-interface network throughput and, where the interface's
 	// own rated speed could be read, what share of it is in use - computed by the flow collector from
-	// this window's actual flow byte counters (see continuumv1.LinkSaturation's own doc comment), not by
+	// this window's actual flow byte counters (see ikhnosv1.LinkSaturation's own doc comment), not by
 	// the node probe: a live, traffic-driven utilization gauge, distinct from NetworkInterfaces[].SpeedMbps
 	// above, which is only ever a static, unrelated reading of the interface's own rated capacity with no
 	// throughput attached. Nil when the flow collector never reported one for this node (an older
@@ -289,7 +289,7 @@ type Node struct {
 	LinkSaturation []LinkSaturation `json:"linkSaturation,omitempty"`
 	// SnatExhaustion is how many connect() attempts on this node have failed with EADDRNOTAVAIL
 	// (ephemeral port / SNAT exhaustion) since its flow collector's eBPF program was loaded - computed
-	// by the collector (see continuumv1.FlowReport.snat_exhaustion's own doc comment, and flow.c's
+	// by the collector (see ikhnosv1.FlowReport.snat_exhaustion's own doc comment, and flow.c's
 	// snat_exhaustion map, for the full story, including why the kernel function this hooks is an
 	// internal one with no ABI stability guarantee). 0 when the collector never reported one for this
 	// node (an older collector, conntrack rather than eBPF, or a kernel where neither the fexit nor the
@@ -304,7 +304,7 @@ type Node struct {
 	SnatExhaustion uint64 `json:"snatExhaustion,omitempty"`
 	// CpuFreqChangeCount/ThermalTripCount are this node's current tracepoint-derived CPU
 	// thermal-throttling counters (power:cpu_frequency / thermal:thermal_zone_trip - see
-	// continuumv1.ThermalThrottle's own doc comment for the full story) - computed by the flow
+	// ikhnosv1.ThermalThrottle's own doc comment for the full story) - computed by the flow
 	// collector's eBPF program, not the node probe, the same collector-sourced origin SnatExhaustion
 	// above has. CpuFreqChangeCount is corroboration only, never itself throttling evidence (a cpufreq
 	// governor fires it constantly under completely ordinary load); ThermalTripCount is the decisive
@@ -323,7 +323,7 @@ type Node struct {
 
 // LinkSaturation is one physical network interface's current send+receive throughput on a node, and,
 // when its rated speed could be read, what share of it is currently in use - see Node.LinkSaturation's
-// own doc comment, and continuumv1.LinkSaturation's, for the fuller story of where this comes from.
+// own doc comment, and ikhnosv1.LinkSaturation's, for the fuller story of where this comes from.
 type LinkSaturation struct {
 	Iface         string   `json:"iface"`
 	ThroughputBps uint64   `json:"throughputBps"`

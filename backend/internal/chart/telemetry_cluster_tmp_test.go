@@ -24,8 +24,8 @@ func TestEveryReadOnlyLinkContainerHasAWritableTemporaryDirectory(t *testing.T) 
 	} {
 		r := render(t, args...)
 		pods := map[string]corev1.PodSpec{
-			"prober":    r.deployments["continuum-link-prober"].Spec.Template.Spec,
-			"responder": r.daemonsets["continuum-link-responder"].Spec.Template.Spec,
+			"prober":    r.deployments["ikhnos-link-prober"].Spec.Template.Spec,
+			"responder": r.daemonsets["ikhnos-link-responder"].Spec.Template.Spec,
 		}
 		for pod, ps := range pods {
 			if len(ps.Containers) == 0 {
@@ -68,8 +68,8 @@ func hasWritableEmptyDir(ps corev1.PodSpec, c corev1.Container, dir string) bool
 func TestTheTemporaryDirectoryIsASmallScratchVolume(t *testing.T) {
 	r := render(t, capArgs()...)
 	for pod, ps := range map[string]corev1.PodSpec{
-		"prober":    r.deployments["continuum-link-prober"].Spec.Template.Spec,
-		"responder": r.daemonsets["continuum-link-responder"].Spec.Template.Spec,
+		"prober":    r.deployments["ikhnos-link-prober"].Spec.Template.Spec,
+		"responder": r.daemonsets["ikhnos-link-responder"].Spec.Template.Spec,
 	} {
 		found := false
 		for _, v := range ps.Volumes {
@@ -107,8 +107,8 @@ func TestTheNotesWarnWhenTheThroughputServerIsOpen(t *testing.T) {
 	if err != nil {
 		t.Skip("helm is not installed")
 	}
-	dir := filepath.Join(t.TempDir(), "continuum-agent")
-	copyTree(t, "continuum-agent", dir)
+	dir := filepath.Join(t.TempDir(), "ikhnos-agent")
+	copyTree(t, "ikhnos-agent", dir)
 	text, err := os.ReadFile(filepath.Join(dir, "templates", "NOTES.txt"))
 	if err != nil {
 		t.Fatal(err)

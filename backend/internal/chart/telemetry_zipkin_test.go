@@ -13,7 +13,7 @@ func TestTelemetryExportProtocolZipkinRendersTheZipkinExporter(t *testing.T) {
 	} {
 		r := render(t, "--set", "telemetry.export.otlp.endpoint="+endpoint, "--set", "telemetry.export.otlp.protocol=zipkin",
 			"--set", "telemetry.traces.traces.enabled=true")
-		cfg := otelConfig(t, r.configmaps["continuum-telemetry-cluster-config"].Data)
+		cfg := otelConfig(t, r.configmaps["ikhnos-telemetry-cluster-config"].Data)
 		exporters, _ := cfg["exporters"].(map[string]any)
 		if _, ok := exporters["otlp"]; ok {
 			t.Errorf("%s: an otlp exporter rendered alongside protocol=zipkin", endpoint)
@@ -44,7 +44,7 @@ func TestTelemetryExportProtocolZipkinRendersTheZipkinExporter(t *testing.T) {
 func TestTelemetryZipkinExporterCarriesInsecureAuthTLSAndDebug(t *testing.T) {
 	r := render(t, "--set", "telemetry.export.otlp.endpoint=zipkin.svc:9411", "--set", "telemetry.export.otlp.protocol=zipkin",
 		"--set", "telemetry.export.otlp.tls.insecure=true", "--set", "telemetry.traces.traces.enabled=true")
-	cfg := otelConfig(t, r.configmaps["continuum-telemetry-cluster-config"].Data)
+	cfg := otelConfig(t, r.configmaps["ikhnos-telemetry-cluster-config"].Data)
 	exporters, _ := cfg["exporters"].(map[string]any)
 	if z, _ := exporters["zipkin"].(map[string]any); z["endpoint"] != "http://zipkin.svc:9411/api/v2/spans" {
 		t.Errorf("insecure zipkin endpoint = %v, want http://", z["endpoint"])
@@ -54,12 +54,12 @@ func TestTelemetryZipkinExporterCarriesInsecureAuthTLSAndDebug(t *testing.T) {
 		"--set", "telemetry.traces.traces.enabled=true", "--set", "telemetry.debug.verbosity=basic",
 		"--set", "telemetry.export.otlp.tls.caFile=/ca/ca.crt",
 		"--set", "telemetry.export.otlp.auth.headerName=Authorization", "--set", "telemetry.export.otlp.auth.secretName=zipkin-token", "--set", "telemetry.export.otlp.auth.secretKey=token")
-	cfg = otelConfig(t, r.configmaps["continuum-telemetry-cluster-config"].Data)
+	cfg = otelConfig(t, r.configmaps["ikhnos-telemetry-cluster-config"].Data)
 	exporters, _ = cfg["exporters"].(map[string]any)
 	z, _ := exporters["zipkin"].(map[string]any)
 	tls, _ := z["tls"].(map[string]any)
 	headers, _ := z["headers"].(map[string]any)
-	if tls["ca_file"] != "/ca/ca.crt" || headers["Authorization"] != "${env:CONTINUUM_TELEMETRY_AUTH}" {
+	if tls["ca_file"] != "/ca/ca.crt" || headers["Authorization"] != "${env:IKHNOS_TELEMETRY_AUTH}" {
 		t.Errorf("zipkin tls/headers = %+v / %+v", tls, headers)
 	}
 	if _, ok := exporters["debug"]; !ok {

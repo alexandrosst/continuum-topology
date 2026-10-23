@@ -26,7 +26,7 @@ describe('useColumnVisibility', () => {
   })
 
   test('a choice made before the default existed is kept as it was', () => {
-    localStorage.setItem('continuum:columns:t', JSON.stringify(['a']))
+    localStorage.setItem('ikhnos:columns:t', JSON.stringify(['a']))
     const { result } = renderHook(() => useColumnVisibility('t', ['b']))
     expect(result.current.isVisible('a')).toBe(false)
     expect(result.current.isVisible('b')).toBe(true)

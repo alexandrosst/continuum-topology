@@ -8,7 +8,7 @@ import (
 	"github.com/jsimonetti/rtnetlink/v2"
 	"golang.org/x/sys/unix"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 )
 
 // overlayKinds is every kernel link driver name (netlink's IFLA_INFO_KIND, the same field `ip -d link
@@ -56,7 +56,7 @@ const maxTunnelRoutes = 8
 // readers already treat a missing file - never a fatal error for the rest of the probe. The three dumps
 // (links, addresses, routes) are kept as thin, untestable I/O here; buildTunnels and buildHostSubnets
 // below, which do the actual matching and shaping, take plain data and are what tunnels_test.go exercises.
-func networkEvidence() ([]*continuumv1.TunnelInterface, []string, []*continuumv1.HostAddress) {
+func networkEvidence() ([]*ikhnosv1.TunnelInterface, []string, []*ikhnosv1.HostAddress) {
 	conn, err := rtnetlink.Dial(nil)
 	if err != nil {
 		return nil, nil, nil
@@ -81,10 +81,10 @@ func networkEvidence() ([]*continuumv1.TunnelInterface, []string, []*continuumv1
 // buildTunnels matches a netlink link/address/route dump into one TunnelInterface per link whose kind is
 // in overlayKinds - pure data shaping, with no netlink I/O of its own, so it can be exercised directly
 // with hand-built messages (see tunnels_test.go) without needing a real tunnel interface or root.
-func buildTunnels(links []rtnetlink.LinkMessage, addrs []rtnetlink.AddressMessage, routes []rtnetlink.RouteMessage) []*continuumv1.TunnelInterface {
+func buildTunnels(links []rtnetlink.LinkMessage, addrs []rtnetlink.AddressMessage, routes []rtnetlink.RouteMessage) []*ikhnosv1.TunnelInterface {
 	// One entry per matched interface index, so addresses and routes can be attached to the right
 	// interface in the two passes below.
-	byIndex := map[uint32]*continuumv1.TunnelInterface{}
+	byIndex := map[uint32]*ikhnosv1.TunnelInterface{}
 	for _, l := range links {
 		if l.Attributes == nil || l.Attributes.Info == nil || !overlayKinds[l.Attributes.Info.Kind] {
 			continue
@@ -94,7 +94,7 @@ func buildTunnels(links []rtnetlink.LinkMessage, addrs []rtnetlink.AddressMessag
 		// `ip link set up/down` toggles), not the kernel's operational-state attribute: several common
 		// tunnel drivers (WireGuard among them) never report anything but "unknown" operationally even
 		// while fully up and passing traffic, which would make that signal actively misleading here.
-		byIndex[l.Index] = &continuumv1.TunnelInterface{
+		byIndex[l.Index] = &ikhnosv1.TunnelInterface{
 			Name: Clean(l.Attributes.Name),
 			Kind: l.Attributes.Info.Kind,
 			Mtu:  int32(l.Attributes.MTU),
@@ -131,7 +131,7 @@ func buildTunnels(links []rtnetlink.LinkMessage, addrs []rtnetlink.AddressMessag
 		t.Routes = append(t.Routes, r.Attributes.Dst.String()+"/"+strconv.Itoa(int(r.DstLength)))
 	}
 
-	out := make([]*continuumv1.TunnelInterface, 0, len(byIndex))
+	out := make([]*ikhnosv1.TunnelInterface, 0, len(byIndex))
 	for _, t := range byIndex {
 		sort.Strings(t.Addresses)
 		sort.Strings(t.Routes)
@@ -218,8 +218,8 @@ const maxHostAddresses = 16
 // reached (see HostAddress): every address of an interface that is up, other than the loopback, link-local and multicast
 // ones and the interfaces a container network makes. Pure data shaping, like buildTunnels, so it is tested with hand-built
 // messages. Which of them a given sender can actually reach is a different question, answered by trying (the address test).
-func buildHostAddresses(links []rtnetlink.LinkMessage, addrs []rtnetlink.AddressMessage) []*continuumv1.HostAddress {
-	usable := map[uint32]*continuumv1.HostAddress{}
+func buildHostAddresses(links []rtnetlink.LinkMessage, addrs []rtnetlink.AddressMessage) []*ikhnosv1.HostAddress {
+	usable := map[uint32]*ikhnosv1.HostAddress{}
 	for _, l := range links {
 		if l.Attributes == nil || l.Flags&unix.IFF_UP == 0 || l.Flags&unix.IFF_LOOPBACK != 0 {
 			continue
@@ -231,9 +231,9 @@ func buildHostAddresses(links []rtnetlink.LinkMessage, addrs []rtnetlink.Address
 		if name == "" || ContainerNetworkInterface(name, kind) {
 			continue
 		}
-		usable[l.Index] = &continuumv1.HostAddress{Interface: name, Kind: kind}
+		usable[l.Index] = &ikhnosv1.HostAddress{Interface: name, Kind: kind}
 	}
-	var out []*continuumv1.HostAddress
+	var out []*ikhnosv1.HostAddress
 	seen := map[string]bool{}
 	for _, a := range addrs {
 		h, ok := usable[a.Index]
@@ -259,7 +259,7 @@ func buildHostAddresses(links []rtnetlink.LinkMessage, addrs []rtnetlink.Address
 			continue
 		}
 		seen[key] = true
-		out = append(out, &continuumv1.HostAddress{Interface: h.Interface, Kind: h.Kind, Address: ip.String() + "/" + strconv.Itoa(int(a.PrefixLength))})
+		out = append(out, &ikhnosv1.HostAddress{Interface: h.Interface, Kind: h.Kind, Address: ip.String() + "/" + strconv.Itoa(int(a.PrefixLength))})
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Interface != out[j].Interface {

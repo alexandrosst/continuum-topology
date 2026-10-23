@@ -6,7 +6,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
@@ -70,7 +70,7 @@ func Sanitize(m proto.Message) error { return walk(m.ProtoReflect(), 0) }
 // SanitizeSync applies Sanitize to every fact a message carries. The message's own lists of nodes, namespaces
 // and workloads are not subject to MaxRepeated (the counts are limited separately, in total, by Check). A deleted
 // key over MaxString cannot name anything the server holds and is dropped.
-func SanitizeSync(m *continuumv1.Sync) error {
+func SanitizeSync(m *ikhnosv1.Sync) error {
 	var all []proto.Message
 	if m.Cluster != nil {
 		all = append(all, m.Cluster)
@@ -243,10 +243,10 @@ func project[T proto.Message](cur map[string]T, curBytes int64, full bool, add [
 
 // Check reports whether merging m would leave the state within the limits, without changing anything.
 // Apply after a successful Check cannot exceed them.
-func (s *State) Check(m *continuumv1.Sync, l Limits) error {
-	nn, nb := project(s.Nodes, s.nodeBytes, m.Full, m.Nodes, func(n *continuumv1.NodeFacts) string { return n.Key }, m.DeletedNodes)
-	sn, sb := project(s.Namespaces, s.nsBytes, m.Full, m.Namespaces, func(n *continuumv1.NamespaceFacts) string { return n.Key }, m.DeletedNamespaces)
-	wn, wb := project(s.Workloads, s.wlBytes, m.Full, m.Workloads, func(w *continuumv1.WorkloadFacts) string { return w.Key }, m.DeletedWorkloads)
+func (s *State) Check(m *ikhnosv1.Sync, l Limits) error {
+	nn, nb := project(s.Nodes, s.nodeBytes, m.Full, m.Nodes, func(n *ikhnosv1.NodeFacts) string { return n.Key }, m.DeletedNodes)
+	sn, sb := project(s.Namespaces, s.nsBytes, m.Full, m.Namespaces, func(n *ikhnosv1.NamespaceFacts) string { return n.Key }, m.DeletedNamespaces)
+	wn, wb := project(s.Workloads, s.wlBytes, m.Full, m.Workloads, func(w *ikhnosv1.WorkloadFacts) string { return w.Key }, m.DeletedWorkloads)
 	switch {
 	case nn > l.Nodes:
 		return &LimitError{"nodes", int64(nn), int64(l.Nodes)}
@@ -268,7 +268,7 @@ func (s *State) Check(m *continuumv1.Sync, l Limits) error {
 	return nil
 }
 
-func modulesSize(ms []*continuumv1.ModuleStatus) int64 {
+func modulesSize(ms []*ikhnosv1.ModuleStatus) int64 {
 	var n int64
 	for _, m := range ms {
 		n += int64(proto.Size(m))

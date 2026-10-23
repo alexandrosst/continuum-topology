@@ -12,9 +12,9 @@ import (
 	"strconv"
 	"strings"
 
-	"continuum/internal/chart"
-	"continuum/internal/install"
-	"continuum/internal/kernel"
+	"ikhnos/internal/chart"
+	"ikhnos/internal/install"
+	"ikhnos/internal/kernel"
 )
 
 // Settings is what the server was started with. Zero values are meaningful: no chart reference means the chart file the server serves,
@@ -36,13 +36,13 @@ type Settings struct {
 	// Settings → Installation wins over them; with neither, the chart's built-in image names apply. There is no
 	// built-in default registry: see kernel's images.
 	ImageRegistry, ImageTag, ImageDigest string
-	// AgentChartVersion is the continuum-agent chart version the release pipeline actually published alongside
+	// AgentChartVersion is the ikhnos-agent chart version the release pipeline actually published alongside
 	// this exact server build (edge: 0.0.0-edge.<sha>; a tagged release: the tag) - set at link time, empty on a
 	// build that skipped that (a local `go build`, or an image scripts/publish.sh built without it). Only matters
 	// for a `--version` flag against an OCI/registry chart reference; a local ./file.tgz reference (no registry
 	// configured) always serves the exact chart this binary was built from and needs no version at all.
 	AgentChartVersion string
-	// OperatorChartVersion is continuum-regional-operator's own equivalent of AgentChartVersion above - the
+	// OperatorChartVersion is ikhnos-regional-operator's own equivalent of AgentChartVersion above - the
 	// version the release pipeline published this build's regional-operator chart under, when known.
 	OperatorChartVersion string
 	// PublicURL is the address operators and people outside the cluster reach this server at (scheme and host, and a
@@ -87,7 +87,7 @@ const ChartDefaultAccessTier = 2
 func (s Settings) AgentInstallCommand(img kernel.ImageConfig, caPin, secret string, tier int, extra ...install.Value) (string, error) {
 	ref, version := s.AgentChart(img)
 	// enrollment.key packs the CA pin and the one-time token into the single flag the chart splits back apart at
-	// render time (see continuum-agent's _helpers.tpl): one thing to paste instead of two, without hiding either
+	// render time (see ikhnos-agent's _helpers.tpl): one thing to paste instead of two, without hiding either
 	// value's own text - the pin is the CA's public-key pin (sha256/<base64>, which survives re-issuing the CA
 	// certificate), the token cannot contain ".", and base64 has no ".", so joining them is unambiguous.
 	values := []install.Value{
@@ -98,7 +98,7 @@ func (s Settings) AgentInstallCommand(img kernel.ImageConfig, caPin, secret stri
 		values = append(values, install.Set("access.tier", strconv.Itoa(tier)))
 	}
 	if img.Configured() {
-		values = append(values, install.Set("image.repository", img.Registry+"/continuum"))
+		values = append(values, install.Set("image.repository", img.Registry+"/ikhnos"))
 		if img.Tag != "" {
 			values = append(values, install.Set("image.tag", img.Tag))
 		}
@@ -108,7 +108,7 @@ func (s Settings) AgentInstallCommand(img kernel.ImageConfig, caPin, secret stri
 	}
 	// What the person chose to switch on or narrow, after what every install has.
 	values = append(values, extra...)
-	return install.Helm{Verb: install.Install, Release: "continuum-agent", Chart: ref, Version: version, Namespace: "continuum-system", CreateNamespace: true,
+	return install.Helm{Verb: install.Install, Release: "ikhnos-agent", Chart: ref, Version: version, Namespace: "ikhnos-system", CreateNamespace: true,
 		Values: values, Layout: install.Wrapped}.Render()
 }
 
@@ -143,27 +143,27 @@ func (s Settings) AgentRef(img kernel.ImageConfig) string {
 	case s.ChartRef != "":
 		return s.ChartRef
 	case img.Configured():
-		return "oci://" + OCIBase(img.Registry) + "/continuum-agent"
+		return "oci://" + OCIBase(img.Registry) + "/ikhnos-agent"
 	}
 	return ""
 }
 
 // OperatorChartFile/OperatorRef are AgentChartFile/AgentRef's own twins for the regional-operator chart -
-// same rules, parameterized on chart.RegionalOperator and the "continuum-regional-operator" OCI artifact
-// name instead of chart.Agent and "continuum-agent". There is no separate --chart-ref flag for it, and s.ChartRef
+// same rules, parameterized on chart.RegionalOperator and the "ikhnos-regional-operator" OCI artifact
+// name instead of chart.Agent and "ikhnos-agent". There is no separate --chart-ref flag for it, and s.ChartRef
 // (set once, server-wide) names the AGENT chart - the flag's own help says so, and every agent install command uses it
 // as it is. Used verbatim here it installed the agent chart with the regional operator's flags (export.otlp.endpoint,
 // receiver.tls...): wrong chart, wrong values, a failed or - worse - half-working install. So the operator chart is derived
 // from it, on the one assumption that is safe to make: the two charts are published side by side under their own names.
 //
-//	oci://ghcr.io/acme/charts/continuum-agent          -> oci://ghcr.io/acme/charts/continuum-regional-operator
-//	https://charts.example.com/stable/continuum-agent  -> https://charts.example.com/stable/continuum-regional-operator
-//	acme/continuum-agent (a configured repo alias)     -> acme/continuum-regional-operator
+//	oci://ghcr.io/acme/charts/ikhnos-agent          -> oci://ghcr.io/acme/charts/ikhnos-regional-operator
+//	https://charts.example.com/stable/ikhnos-agent  -> https://charts.example.com/stable/ikhnos-regional-operator
+//	acme/ikhnos-agent (a configured repo alias)     -> acme/ikhnos-regional-operator
 //
 // Only a reference whose last path segment is exactly the agent chart's name is rewritten. Everything else - a .tgz (a
 // packaged file of one chart, which says nothing about where the other is), a name that is not the agent chart's, "local" -
 // cannot be turned into the operator chart's address by guessing, so the command names the operator chart file this server
-// serves (the "./continuum-regional-operator-<version>.tgz" the page offers as a download, which the operator chart's install arguments
+// serves (the "./ikhnos-regional-operator-<version>.tgz" the page offers as a download, which the operator chart's install arguments
 // prints and which needs no --version), exactly as it does when there is no registry. That fallback is deliberate:
 // it is the only reference that is known to be the right chart.
 func (s Settings) OperatorChartFile() string { return chart.RegionalOperator.Filename() }
@@ -177,12 +177,12 @@ func (s Settings) OperatorRef(img kernel.ImageConfig) string {
 		if strings.HasSuffix(ref, ".tgz") {
 			return "" // a packaged agent chart: the operator's is the file this server serves
 		}
-		if i := strings.LastIndexByte(ref, '/'); ref[i+1:] == "continuum-agent" {
-			return ref[:i+1] + "continuum-regional-operator"
+		if i := strings.LastIndexByte(ref, '/'); ref[i+1:] == "ikhnos-agent" {
+			return ref[:i+1] + "ikhnos-regional-operator"
 		}
 		return "" // not recognisably the agent chart's address: serve the operator chart file instead of guessing
 	case img.Configured():
-		return "oci://" + OCIBase(img.Registry) + "/continuum-regional-operator"
+		return "oci://" + OCIBase(img.Registry) + "/ikhnos-regional-operator"
 	}
 	return ""
 }

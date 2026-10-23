@@ -79,20 +79,20 @@ func TestTheOperatorBlockRunsThroughAShellToTheHelmStep(t *testing.T) {
 	if _, err := exec.LookPath("bash"); err != nil {
 		t.Skip("no bash")
 	}
-	secret := "kubectl apply -f - <<'CONTINUUM_SECRET'\napiVersion: v1\nkind: Secret\nstringData:\n  tls.key: |\n    -----BEGIN EC PRIVATE KEY-----\n    abc\n    -----END EC PRIVATE KEY-----\nCONTINUUM_SECRET"
+	secret := "kubectl apply -f - <<'IKHNOS_SECRET'\napiVersion: v1\nkind: Secret\nstringData:\n  tls.key: |\n    -----BEGIN EC PRIVATE KEY-----\n    abc\n    -----END EC PRIVATE KEY-----\nIKHNOS_SECRET"
 	spec := Telemetry{
 		Signals:     Signals{ResourceUsage: true},
-		Destination: Destination{Endpoint: "op-central.continuum-system.svc:4317", Protocol: "grpc", Operator: "op-central"},
+		Destination: Destination{Endpoint: "op-central.ikhnos-system.svc:4317", Protocol: "grpc", Operator: "op-central"},
 		Processing:  Processing{TracesSamplingPercent: new(float64)},
 	}
 	block, err := OperatorTelemetry{
 		AgentUpgrade: AgentUpgrade{Telemetry: &spec}, Certificates: []string{secret},
-		Restated: []Value{Set("telemetry.export.otlp.endpoint", "op-central.continuum-system.svc:4317")}, ReceiverAuth: map[string]string{"op-central": "mtls"},
+		Restated: []Value{Set("telemetry.export.otlp.endpoint", "op-central.ikhnos-system.svc:4317")}, ReceiverAuth: map[string]string{"op-central": "mtls"},
 	}.Render()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains("\n"+block+"\n", "\nCONTINUUM_SECRET\n") {
+	if !strings.Contains("\n"+block+"\n", "\nIKHNOS_SECRET\n") {
 		t.Fatalf("the closing word is not alone on its line:\n%s", block)
 	}
 	run := func(applyOK bool) (string, string, error) {

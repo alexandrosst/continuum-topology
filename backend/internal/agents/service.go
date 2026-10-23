@@ -10,15 +10,15 @@ package agents
 import (
 	"context"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/kernel"
-	"continuum/internal/telemetry"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/telemetry"
 )
 
 // TelemetryCerts renews the certificate of an agent's telemetry on the agent's stream. The operators do it; this package asks and knows
 // nothing else of them.
 type TelemetryCerts interface {
-	RenewTelemetryCert(ctx context.Context, ip string, req *continuumv1.RenewTelemetryCertRequest) (*continuumv1.RenewTelemetryCertResponse, error)
+	RenewTelemetryCert(ctx context.Context, ip string, req *ikhnosv1.RenewTelemetryCertRequest) (*ikhnosv1.RenewTelemetryCertResponse, error)
 }
 
 // Service is what the agents do with the Core of one organisation. Telemetry is told when an agent is revoked, so the intents that were

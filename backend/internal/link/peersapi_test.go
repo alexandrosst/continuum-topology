@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/probe"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/probe"
 )
 
 var testSecret = []byte("a-secret-of-sixteen-plus-chars")
@@ -17,7 +17,7 @@ var testSecret = []byte("a-secret-of-sixteen-plus-chars")
 func peersServer(t *testing.T, enable bool) (*httptest.Server, *Meter) {
 	t.Helper()
 	p := NewPeers()
-	p.Set("cl-me", []*continuumv1.LinkPeer{peer("cl-a", "A", "10.0.0.1", "10.0.0.2")})
+	p.Set("cl-me", []*ikhnosv1.LinkPeer{peer("cl-a", "A", "10.0.0.1", "10.0.0.2")})
 	m := NewMeter(p)
 	if enable {
 		m.ServePeers(testSecret)
@@ -158,15 +158,15 @@ func TestAnAgentAnswerThatIsNotAPeerListIsRefused(t *testing.T) {
 
 func TestThePeersDocumentCarriesTheTrafficTotalsForTheLoadCheck(t *testing.T) {
 	p := NewPeers()
-	p.Set("cl-me", []*continuumv1.LinkPeer{peer("cl-a", "A", "10.0.0.1")})
+	p.Set("cl-me", []*ikhnosv1.LinkPeer{peer("cl-a", "A", "10.0.0.1")})
 	m := NewMeter(p)
-	m.Observe([]*continuumv1.RawFlow{{Client: true, PeerIp: "10.0.0.1", BytesOut: 1000, BytesIn: 400, Connections: 1}})
+	m.Observe([]*ikhnosv1.RawFlow{{Client: true, PeerIp: "10.0.0.1", BytesOut: 1000, BytesIn: 400, Connections: 1}})
 	d := m.peersDoc()
 	if len(d.Peers) != 1 || d.Peers[0].BytesSent != 1000 || d.Peers[0].BytesReceived != 400 {
 		t.Fatalf("%+v", d)
 	}
 	// A peer nothing was seen with has totals of zero, which the JSON leaves out.
-	p.Set("cl-me", []*continuumv1.LinkPeer{peer("cl-b", "B", "10.0.0.9")})
+	p.Set("cl-me", []*ikhnosv1.LinkPeer{peer("cl-b", "B", "10.0.0.9")})
 	if d := m.peersDoc(); d.Peers[0].BytesSent != 0 {
 		t.Errorf("%+v", d)
 	}
@@ -174,7 +174,7 @@ func TestThePeersDocumentCarriesTheTrafficTotalsForTheLoadCheck(t *testing.T) {
 
 func TestWhatToMeasureTravelsFromTheConfigThroughThePeersDocumentAndIsBounded(t *testing.T) {
 	p := NewPeers()
-	p.Set("cl-me", []*continuumv1.LinkPeer{
+	p.Set("cl-me", []*ikhnosv1.LinkPeer{
 		{ClusterId: "cl-a", Name: "A", Addresses: []string{"10.0.0.1"}, NoProbe: true, Throughput: true, ThroughputIntervalSeconds: 3600, ThroughputBudgetBytes: 5 << 30},
 		{ClusterId: "cl-b", Name: "B", Addresses: []string{"10.0.1.1"}, Throughput: true, ThroughputIntervalSeconds: 5, ThroughputBudgetBytes: 1 << 50},
 		{ClusterId: "cl-c", Name: "C", Addresses: []string{"10.0.2.1"}, ThroughputIntervalSeconds: 3600, ThroughputBudgetBytes: 99}, // not asked to run: the extras mean nothing
@@ -205,7 +205,7 @@ func TestWhatToMeasureTravelsFromTheConfigThroughThePeersDocumentAndIsBounded(t 
 
 func TestSkippingTheProbeTravelsFromTheConfigThroughThePeersDocument(t *testing.T) {
 	p := NewPeers()
-	p.Set("cl-me", []*continuumv1.LinkPeer{
+	p.Set("cl-me", []*ikhnosv1.LinkPeer{
 		{ClusterId: "cl-a", Name: "A", Addresses: []string{"10.0.0.1"}, SkipProbe: true},
 		{ClusterId: "cl-b", Name: "B", Addresses: []string{"10.0.1.1"}},
 		{ClusterId: "cl-c", Name: "C", Addresses: []string{"10.0.2.1"}, SkipProbe: true, NoProbe: true},

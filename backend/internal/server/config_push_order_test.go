@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/estate"
-	"continuum/internal/store"
-	"continuum/internal/testkit"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/estate"
+	"ikhnos/internal/store"
+	"ikhnos/internal/testkit"
 )
 
 // holdingStore lets a test stop one GetAgent call after it has read the record and before it returns it, which is exactly the
@@ -31,11 +31,11 @@ func (s *holdingStore) GetAgent(ctx context.Context, org, id string) (store.Agen
 	return a, err
 }
 
-func pushRig(t *testing.T) (*adminRig, *estate.Hub, string, chan *continuumv1.ServerMessage) {
+func pushRig(t *testing.T) (*adminRig, *estate.Hub, string, chan *ikhnosv1.ServerMessage) {
 	t.Helper()
 	a := newAdminRig(t)
 	agentID := a.approvedAgentID(t, testkit.FP)
-	push := make(chan *continuumv1.ServerMessage, 64)
+	push := make(chan *ikhnosv1.ServerMessage, 64)
 	h := a.hub()
 	h.Mu.Lock()
 	h.Views[agentID] = liveView(*a.now, "n1")
@@ -44,8 +44,8 @@ func pushRig(t *testing.T) (*adminRig, *estate.Hub, string, chan *continuumv1.Se
 	return a, h, agentID, push
 }
 
-func drain(push chan *continuumv1.ServerMessage) []*continuumv1.Config {
-	var out []*continuumv1.Config
+func drain(push chan *ikhnosv1.ServerMessage) []*ikhnosv1.Config {
+	var out []*ikhnosv1.Config
 	for {
 		select {
 		case m := <-push:

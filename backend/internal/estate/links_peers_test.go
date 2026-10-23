@@ -7,14 +7,14 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/connectivity"
-	"continuum/internal/facts"
-	"continuum/internal/kernel"
-	"continuum/internal/link"
-	"continuum/internal/observed"
-	"continuum/internal/store"
-	"continuum/internal/testkit"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/connectivity"
+	"ikhnos/internal/facts"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/link"
+	"ikhnos/internal/observed"
+	"ikhnos/internal/store"
+	"ikhnos/internal/testkit"
 )
 
 // hubOfPeers is a hub with one runner (cl-a) and n peers cl-p000.., each with a node address of its own, the first `missing` of
@@ -37,7 +37,7 @@ func hubOfPeers(n, missing int) (*Hub, store.Agent, []store.Agent, []kernel.Link
 	return linkHub(views), a, agentList, links
 }
 
-func peerIDs(ps []*continuumv1.LinkPeer) []string {
+func peerIDs(ps []*ikhnosv1.LinkPeer) []string {
 	var out []string
 	for _, p := range ps {
 		out = append(out, p.ClusterId)
@@ -95,17 +95,17 @@ func TestThePeerListIsCutAfterFilteringNotBefore(t *testing.T) {
 }
 
 // A mixed node: a flannel.1 device and a wireguard mesh device, plus the addresses the probe lists for the host.
-func overlayNode() *continuumv1.NodeFacts {
-	return &continuumv1.NodeFacts{
+func overlayNode() *ikhnosv1.NodeFacts {
+	return &ikhnosv1.NodeFacts{
 		InternalIps: []string{"192.168.1.10"},
 		PodCidrs:    []string{"10.42.2.0/24"},
-		Probe: &continuumv1.HostProbe{
-			Tunnels: []*continuumv1.TunnelInterface{
+		Probe: &ikhnosv1.HostProbe{
+			Tunnels: []*ikhnosv1.TunnelInterface{
 				{Name: "flannel.1", Kind: "vxlan", Addresses: []string{"10.42.2.0/32"}},
 				{Name: "wt0", Kind: "wireguard", Addresses: []string{"100.64.0.45/16"}},
 				{Name: "tunl0", Kind: "ipip", Addresses: []string{"10.42.3.1/32"}},
 			},
-			HostAddresses: []*continuumv1.HostAddress{
+			HostAddresses: []*ikhnosv1.HostAddress{
 				{Interface: "tailscale0", Kind: "tun", Address: "100.100.1.2/32"},
 				{Interface: "eth1", Address: "172.16.0.9/24"},
 				{Interface: "cni0", Kind: "bridge", Address: "10.42.2.1/24"},
@@ -116,7 +116,7 @@ func overlayNode() *continuumv1.NodeFacts {
 }
 
 func TestOverlayAndPodRangeAddressesAreNeverOfferedButMeshAndHostOnesAre(t *testing.T) {
-	st := &facts.State{Nodes: map[string]*continuumv1.NodeFacts{"n1": overlayNode()}, Cluster: &continuumv1.ClusterFacts{ServiceCidr: "10.43.0.0/16"}}
+	st := &facts.State{Nodes: map[string]*ikhnosv1.NodeFacts{"n1": overlayNode()}, Cluster: &ikhnosv1.ClusterFacts{ServiceCidr: "10.43.0.0/16"}}
 	got := observed.LinkPeerAddresses(st)
 	for _, bad := range []string{"10.42.2.0", "10.42.3.1", "10.42.2.1", "10.42.2.77"} {
 		if hasAddr(got, bad) {
@@ -129,17 +129,17 @@ func TestOverlayAndPodRangeAddressesAreNeverOfferedButMeshAndHostOnesAre(t *test
 		}
 	}
 	// Probe-sourced addresses in the service range go too.
-	st.Nodes["n1"].Probe.HostAddresses = append(st.Nodes["n1"].Probe.HostAddresses, &continuumv1.HostAddress{Interface: "eth3", Address: "10.43.0.1/32"})
+	st.Nodes["n1"].Probe.HostAddresses = append(st.Nodes["n1"].Probe.HostAddresses, &ikhnosv1.HostAddress{Interface: "eth3", Address: "10.43.0.1/32"})
 	if got := observed.LinkPeerAddresses(st); hasAddr(got, "10.43.0.1") {
 		t.Errorf("a service-range address was offered: %v", got)
 	}
 	// The node's own reported addresses are never tested against the pod ranges: on a flat network the pod range holds them.
-	flat := &facts.State{Nodes: map[string]*continuumv1.NodeFacts{"n1": {InternalIps: []string{"10.0.1.5"}, ExternalIps: []string{"10.0.1.6"}, PodCidrs: []string{"10.0.0.0/16"}}}}
+	flat := &facts.State{Nodes: map[string]*ikhnosv1.NodeFacts{"n1": {InternalIps: []string{"10.0.1.5"}, ExternalIps: []string{"10.0.1.6"}, PodCidrs: []string{"10.0.0.0/16"}}}}
 	if got := observed.LinkPeerAddresses(flat); !reflect.DeepEqual(connectivity.DedupeSorted(got), []string{"10.0.1.5", "10.0.1.6"}) {
 		t.Errorf("flat network: %v", got)
 	}
 	// An IPv4-mapped IPv6 spelling is the IPv4 address.
-	mapped := &facts.State{Nodes: map[string]*continuumv1.NodeFacts{"n1": {InternalIps: []string{"::ffff:192.168.1.10", "192.168.1.10"}}}}
+	mapped := &facts.State{Nodes: map[string]*ikhnosv1.NodeFacts{"n1": {InternalIps: []string{"::ffff:192.168.1.10", "192.168.1.10"}}}}
 	if got := connectivity.DedupeSorted(observed.LinkPeerAddresses(mapped)); !reflect.DeepEqual(got, []string{"192.168.1.10"}) {
 		t.Errorf("mapped: %v", got)
 	}
@@ -147,7 +147,7 @@ func TestOverlayAndPodRangeAddressesAreNeverOfferedButMeshAndHostOnesAre(t *test
 	// End to end: the peer list carries them, and a cluster with a smaller flannel range than the peer's does not get the peer's
 	// flannel.1 addresses either.
 	a, b := testkit.Agent("ag-a", "cl-a", "alpha", "", 2), testkit.Agent("ag-b", "cl-b", "beta", "", 2)
-	h := linkHub(map[string]*View{"ag-a": {EstView: EstView{State: testkit.NodeState("10.0.0.1")}}, "ag-b": {EstView: EstView{State: &facts.State{Nodes: map[string]*continuumv1.NodeFacts{"n1": overlayNode()}}}}})
+	h := linkHub(map[string]*View{"ag-a": {EstView: EstView{State: testkit.NodeState("10.0.0.1")}}, "ag-b": {EstView: EstView{State: &facts.State{Nodes: map[string]*ikhnosv1.NodeFacts{"n1": overlayNode()}}}}})
 	sent := h.linkPeers(a, []store.Agent{a, b}, []kernel.LinkSetting{{A: "cl-a", B: "cl-b"}}, false, nil)
 	if len(sent) != 1 || hasAddr(sent[0].Addresses, "10.42.2.0") || !hasAddr(sent[0].Addresses, "100.64.0.45") || !hasAddr(sent[0].Addresses, "100.100.1.2") {
 		t.Fatalf("%+v", sent)
@@ -159,14 +159,14 @@ func TestOverlayAndPodRangeAddressesAreNeverOfferedButMeshAndHostOnesAre(t *test
 func TestAnAddressBothClustersHoldIsRemovedWhateverInterfaceReportsIt(t *testing.T) {
 	a, b := testkit.Agent("ag-a", "cl-a", "alpha", "", 2), testkit.Agent("ag-b", "cl-b", "beta", "", 2)
 	nodeWith := func(internal string, tunnel, host string) *facts.State {
-		n := &continuumv1.NodeFacts{InternalIps: []string{internal}, Probe: &continuumv1.HostProbe{}}
+		n := &ikhnosv1.NodeFacts{InternalIps: []string{internal}, Probe: &ikhnosv1.HostProbe{}}
 		if tunnel != "" {
-			n.Probe.Tunnels = []*continuumv1.TunnelInterface{{Name: "wt0", Kind: "wireguard", Addresses: []string{tunnel}}}
+			n.Probe.Tunnels = []*ikhnosv1.TunnelInterface{{Name: "wt0", Kind: "wireguard", Addresses: []string{tunnel}}}
 		}
 		if host != "" {
-			n.Probe.HostAddresses = []*continuumv1.HostAddress{{Interface: "tailscale0", Kind: "tun", Address: host}}
+			n.Probe.HostAddresses = []*ikhnosv1.HostAddress{{Interface: "tailscale0", Kind: "tun", Address: host}}
 		}
-		return &facts.State{Nodes: map[string]*continuumv1.NodeFacts{"n1": n}}
+		return &facts.State{Nodes: map[string]*ikhnosv1.NodeFacts{"n1": n}}
 	}
 	h := linkHub(map[string]*View{
 		"ag-a": {EstView: EstView{State: nodeWith("10.0.0.1", "", "100.64.9.9/32")}},
@@ -282,11 +282,11 @@ func TestTheEgressAddressStaysListedButDoesNotSilenceThePrivateRangeHint(t *test
 
 func TestNotesNameAtMostSixAddresses(t *testing.T) {
 	a, b := testkit.Agent("ag-a", "cl-a", "alpha", "", 2), testkit.Agent("ag-b", "cl-b", "beta", "", 2)
-	n := &continuumv1.NodeFacts{}
+	n := &ikhnosv1.NodeFacts{}
 	for i := 1; i <= 20; i++ {
 		n.InternalIps = append(n.InternalIps, fmt.Sprintf("10.1.0.%d", i))
 	}
-	h := linkHub(map[string]*View{"ag-a": {EstView: EstView{State: testkit.NodeState("10.0.0.1")}}, "ag-b": {EstView: EstView{State: &facts.State{Nodes: map[string]*continuumv1.NodeFacts{"n1": n}}}}})
+	h := linkHub(map[string]*View{"ag-a": {EstView: EstView{State: testkit.NodeState("10.0.0.1")}}, "ag-b": {EstView: EstView{State: &facts.State{Nodes: map[string]*ikhnosv1.NodeFacts{"n1": n}}}}})
 	var text string
 	for _, x := range h.LinkNotes([]kernel.LinkSetting{{A: "cl-a", B: "cl-b"}}, []store.Agent{a, b}, nil) {
 		if x.Code == "private-range" && x.Cluster == "cl-a" {

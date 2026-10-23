@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/accounts"
-	"continuum/internal/fusion"
-	"continuum/internal/fusionapi"
-	"continuum/internal/fusionhttp"
-	"continuum/internal/kernel"
-	"continuum/internal/store"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/fusion"
+	"ikhnos/internal/fusionapi"
+	"ikhnos/internal/fusionhttp"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/store"
 )
 
 const testTraceID = "0af7651916cd43dd8448eb211c80319c"
@@ -123,7 +123,7 @@ func newDataRig(t *testing.T) *dataRig {
 	a := newAdminRig(t)
 	st := newFusionStores(t)
 	k := newFakeKube(fusionNames...)
-	a.a.Fusion = &fusion.FusionControl{Name: "continuum-fusion", Namespace: "continuum", Kube: k, Org: "org-1", StatusTTL: -1,
+	a.a.Fusion = &fusion.FusionControl{Name: "ikhnos-fusion", Namespace: "ikhnos", Kube: k, Org: "org-1", StatusTTL: -1,
 		Data: &fusionapi.Client{Prometheus: st.prom.URL, Loki: st.loki.URL, Tempo: st.tempo.URL}}
 	id, cookie := a.user(t, "root", accounts.RoleAdmin)
 	return &dataRig{adminRig: a, stores: st, admin: cookie, adminID: id}

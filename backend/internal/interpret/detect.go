@@ -9,8 +9,8 @@ import (
 	"regexp"
 	"strings"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/model"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/model"
 )
 
 func ev(signal, conf, detail string) model.Evidence {
@@ -37,7 +37,7 @@ const (
 
 // detectDistribution combines the API server's version string, node labels and OS image.
 // Order matters: the most specific, least spoofable signal wins.
-func detectDistribution(c *continuumv1.ClusterFacts, nodes []*continuumv1.NodeFacts) (string, model.Evidence) {
+func detectDistribution(c *ikhnosv1.ClusterFacts, nodes []*ikhnosv1.NodeFacts) (string, model.Evidence) {
 	ver := ""
 	if c != nil {
 		ver = c.Version
@@ -54,7 +54,7 @@ func detectDistribution(c *continuumv1.ClusterFacts, nodes []*continuumv1.NodeFa
 	case strings.Contains(ver, "-gke."):
 		return DistGKE, ev("API version "+ver, "high", "version contains -gke.")
 	}
-	has := func(match func(n *continuumv1.NodeFacts) (string, bool)) (string, bool) {
+	has := func(match func(n *ikhnosv1.NodeFacts) (string, bool)) (string, bool) {
 		for _, n := range nodes {
 			if s, ok := match(n); ok {
 				return s, true
@@ -62,19 +62,19 @@ func detectDistribution(c *continuumv1.ClusterFacts, nodes []*continuumv1.NodeFa
 		}
 		return "", false
 	}
-	label := func(key string) func(n *continuumv1.NodeFacts) (string, bool) {
-		return func(n *continuumv1.NodeFacts) (string, bool) {
+	label := func(key string) func(n *ikhnosv1.NodeFacts) (string, bool) {
+		return func(n *ikhnosv1.NodeFacts) (string, bool) {
 			_, ok := n.Labels[key]
 			return "node label " + key, ok
 		}
 	}
-	if s, ok := has(func(n *continuumv1.NodeFacts) (string, bool) {
+	if s, ok := has(func(n *ikhnosv1.NodeFacts) (string, bool) {
 		v := n.Labels["node.kubernetes.io/instance-type"]
 		return "node label node.kubernetes.io/instance-type=" + v, v == "k3s"
 	}); ok {
 		return DistK3s, ev(s, "high", "")
 	}
-	if s, ok := has(func(n *continuumv1.NodeFacts) (string, bool) {
+	if s, ok := has(func(n *ikhnosv1.NodeFacts) (string, bool) {
 		return "node providerID " + n.ProviderId, strings.HasPrefix(n.ProviderId, "k3s://")
 	}); ok {
 		return DistK3s, ev(s, "medium", "")
@@ -93,12 +93,12 @@ func detectDistribution(c *continuumv1.ClusterFacts, nodes []*continuumv1.NodeFa
 			return r.dist, ev(s, "high", "")
 		}
 	}
-	if s, ok := has(func(n *continuumv1.NodeFacts) (string, bool) {
+	if s, ok := has(func(n *ikhnosv1.NodeFacts) (string, bool) {
 		return "node providerID " + n.ProviderId, strings.HasPrefix(n.ProviderId, "kind://")
 	}); ok {
 		return DistKind, ev(s, "high", "")
 	}
-	if s, ok := has(func(n *continuumv1.NodeFacts) (string, bool) {
+	if s, ok := has(func(n *ikhnosv1.NodeFacts) (string, bool) {
 		return "node OS image " + n.OsImage, strings.HasPrefix(n.OsImage, "Talos")
 	}); ok {
 		return DistTalos, ev(s, "high", "")
@@ -106,7 +106,7 @@ func detectDistribution(c *continuumv1.ClusterFacts, nodes []*continuumv1.NodeFa
 	if len(nodes) == 1 && nodes[0].Name == "docker-desktop" {
 		return DistDocker, ev("single node named docker-desktop", "medium", "")
 	}
-	if s, ok := has(func(n *continuumv1.NodeFacts) (string, bool) {
+	if s, ok := has(func(n *ikhnosv1.NodeFacts) (string, bool) {
 		_, ok := n.Annotations["kubeadm.alpha.kubernetes.io/cri-socket"]
 		return "node annotation kubeadm.alpha.kubernetes.io/cri-socket", ok
 	}); ok {
@@ -118,7 +118,7 @@ func detectDistribution(c *continuumv1.ClusterFacts, nodes []*continuumv1.NodeFa
 var metalInstance = regexp.MustCompile(`\.metal(-[a-z0-9]+)?$`)
 
 // detectProvider reads the cloud from providerID / labels.
-func detectProvider(nodes []*continuumv1.NodeFacts) (string, model.Evidence) {
+func detectProvider(nodes []*ikhnosv1.NodeFacts) (string, model.Evidence) {
 	for _, n := range nodes {
 		p := n.ProviderId
 		for prefix, name := range map[string]string{
@@ -155,7 +155,7 @@ func memGB(b int64) float64 { return float64(b) / (1 << 30) }
 // detectNodeKind decides vm / bare-metal / edge-device from what the Kubernetes API exposes.
 // Without a node probe (DMI, hypervisor flag) a plain x86 host on-prem is genuinely ambiguous,
 // and the result says so with low confidence rather than guessing quietly.
-func detectNodeKind(n *continuumv1.NodeFacts) nodeKindResult {
+func detectNodeKind(n *ikhnosv1.NodeFacts) nodeKindResult {
 	inst := firstNonEmpty(n.Labels["node.kubernetes.io/instance-type"], n.Labels["beta.kubernetes.io/instance-type"])
 	if inst == "k3s" {
 		inst = ""
@@ -198,7 +198,7 @@ func detectNodeKind(n *continuumv1.NodeFacts) nodeKindResult {
 	return nodeKindResult{kind: "vm", hardware: hw, kindEv: ev("no hypervisor or hardware signal in the Kubernetes API", "low", "could be bare metal; the node probe can decide"), hwEv: hwEv}
 }
 
-func detectHardware(n *continuumv1.NodeFacts) (string, *model.Evidence) {
+func detectHardware(n *ikhnosv1.NodeFacts) (string, *model.Evidence) {
 	k := strings.ToLower(n.KernelVersion)
 	switch {
 	case strings.Contains(k, "tegra"):
@@ -231,7 +231,7 @@ func firstNonEmpty(v ...string) string {
 	return ""
 }
 
-func nodeRole(n *continuumv1.NodeFacts) model.NodeRole {
+func nodeRole(n *ikhnosv1.NodeFacts) model.NodeRole {
 	for k := range n.Labels {
 		if k == "node-role.kubernetes.io/control-plane" || k == "node-role.kubernetes.io/master" {
 			return "control-plane"
@@ -240,7 +240,7 @@ func nodeRole(n *continuumv1.NodeFacts) model.NodeRole {
 	return "worker"
 }
 
-func nodeStatus(n *continuumv1.NodeFacts) model.Status {
+func nodeStatus(n *ikhnosv1.NodeFacts) model.Status {
 	switch {
 	case !n.Ready:
 		return "offline"
@@ -250,9 +250,9 @@ func nodeStatus(n *continuumv1.NodeFacts) model.Status {
 	return "healthy"
 }
 
-// tierFor places a cluster on the continuum. It is a suggestion the UI lets a person override -
+// tierFor places a cluster on the ikhnos. It is a suggestion the UI lets a person override -
 // see Cluster.overrides in the frontend model, which keeps a corrected tier even after rediscovery.
-func tierFor(provider string, nodes []*continuumv1.NodeFacts, kinds map[string]string) (string, model.Evidence) {
+func tierFor(provider string, nodes []*ikhnosv1.NodeFacts, kinds map[string]string) (string, model.Evidence) {
 	switch provider {
 	// A hyperscaler or another public cloud API: real VMs, not something anyone racked themselves.
 	// Hetzner's dedicated-server product (Robot, hrobot://) is deliberately left out here - it is rented
@@ -284,7 +284,7 @@ func tierFor(provider string, nodes []*continuumv1.NodeFacts, kinds map[string]s
 }
 
 // commonPodCIDR returns the smallest prefix covering all nodes' pod CIDRs.
-func commonPodCIDR(nodes []*continuumv1.NodeFacts) string {
+func commonPodCIDR(nodes []*ikhnosv1.NodeFacts) string {
 	var first netip.Prefix
 	bits := 128
 	n := 0

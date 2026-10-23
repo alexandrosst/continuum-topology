@@ -123,7 +123,7 @@ func TestParseCSRRejectsWeakOrForeignKeys(t *testing.T) {
 
 func TestServerCertCoversHostsAndIsReused(t *testing.T) {
 	ca, _ := LoadOrCreate(t.TempDir())
-	sc := NewServerCerts(ca, []string{"continuum.example.com", "10.0.0.5"})
+	sc := NewServerCerts(ca, []string{"ikhnos.example.com", "10.0.0.5"})
 	c1, err := sc.GetCertificate(nil)
 	if err != nil {
 		t.Fatal(err)
@@ -133,7 +133,7 @@ func TestServerCertCoversHostsAndIsReused(t *testing.T) {
 		t.Fatal("certificate should be cached")
 	}
 	leaf, _ := x509.ParseCertificate(c1.Certificate[0])
-	if err := leaf.VerifyHostname("continuum.example.com"); err != nil {
+	if err := leaf.VerifyHostname("ikhnos.example.com"); err != nil {
 		t.Error(err)
 	}
 	if err := leaf.VerifyHostname("10.0.0.5"); err != nil {
@@ -142,7 +142,7 @@ func TestServerCertCoversHostsAndIsReused(t *testing.T) {
 	if err := leaf.VerifyHostname("other.example.com"); err == nil {
 		t.Error("unexpected host accepted")
 	}
-	if _, err := leaf.Verify(x509.VerifyOptions{Roots: ca.Pool(), KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, DNSName: "continuum.example.com"}); err != nil {
+	if _, err := leaf.Verify(x509.VerifyOptions{Roots: ca.Pool(), KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, DNSName: "ikhnos.example.com"}); err != nil {
 		t.Errorf("server cert does not verify: %v", err)
 	}
 }
@@ -150,7 +150,7 @@ func TestServerCertCoversHostsAndIsReused(t *testing.T) {
 func TestIssueOperatorReceiverAndClientTLS(t *testing.T) {
 	ca, _ := LoadOrCreate(t.TempDir())
 
-	rCertPEM, rKeyPEM, err := ca.IssueOperatorReceiverTLS("op-1", "org-1", []string{"op-1.continuum-system.svc", "203.0.113.9"})
+	rCertPEM, rKeyPEM, err := ca.IssueOperatorReceiverTLS("op-1", "org-1", []string{"op-1.ikhnos-system.svc", "203.0.113.9"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,14 +161,14 @@ func TestIssueOperatorReceiverAndClientTLS(t *testing.T) {
 	if len(rCert.ExtKeyUsage) != 1 || rCert.ExtKeyUsage[0] != x509.ExtKeyUsageServerAuth {
 		t.Fatalf("receiver cert usage = %v, want ServerAuth only", rCert.ExtKeyUsage)
 	}
-	if len(rCert.DNSNames) != 1 || rCert.DNSNames[0] != "op-1.continuum-system.svc" {
+	if len(rCert.DNSNames) != 1 || rCert.DNSNames[0] != "op-1.ikhnos-system.svc" {
 		t.Fatalf("receiver DNS SANs = %v", rCert.DNSNames)
 	}
 	if len(rCert.IPAddresses) != 1 || rCert.IPAddresses[0].String() != "203.0.113.9" {
 		t.Fatalf("receiver IP SANs = %v", rCert.IPAddresses)
 	}
 	mustMatchKey(t, rCert, rKeyPEM)
-	if _, err := rCert.Verify(x509.VerifyOptions{Roots: ca.Pool(), KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, DNSName: "op-1.continuum-system.svc"}); err != nil {
+	if _, err := rCert.Verify(x509.VerifyOptions{Roots: ca.Pool(), KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}, DNSName: "op-1.ikhnos-system.svc"}); err != nil {
 		t.Fatalf("receiver cert does not verify: %v", err)
 	}
 

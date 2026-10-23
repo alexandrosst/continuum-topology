@@ -13,7 +13,7 @@ func wl(namespace string, labels, annotations map[string]string) *W {
 }
 
 func TestApplicationForIsTheStrongestCandidate(t *testing.T) {
-	w := wl("shop", map[string]string{"continuum.io/application": "checkout", "app.kubernetes.io/part-of": "shop-suite"}, nil)
+	w := wl("shop", map[string]string{"ikhnos.io/application": "checkout", "app.kubernetes.io/part-of": "shop-suite"}, nil)
 	got := applicationFor(w)
 	cands := applicationCandidates(w)
 	if got != cands[0] {
@@ -26,7 +26,7 @@ func TestApplicationForIsTheStrongestCandidate(t *testing.T) {
 
 func TestApplicationCandidatesListsEveryTierThatMatched(t *testing.T) {
 	w := wl("shop", map[string]string{
-		"continuum.io/application":     "checkout",
+		"ikhnos.io/application":        "checkout",
 		"app.kubernetes.io/part-of":    "shop-suite",
 		"app.kubernetes.io/managed-by": "Helm",
 		"app.kubernetes.io/instance":   "checkout-release",

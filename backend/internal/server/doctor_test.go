@@ -95,7 +95,7 @@ type dashboardVar struct {
 // variables, each by the store it asks (prometheus, loki, tempo).
 func dashboards(t *testing.T) (queries []dashboardQuery, vars map[string][]dashboardVar) {
 	t.Helper()
-	files, _ := filepath.Glob("../chart/continuum-fusion/files/dashboards/*.json")
+	files, _ := filepath.Glob("../chart/ikhnos-fusion/files/dashboards/*.json")
 	if len(files) == 0 {
 		t.Fatal("no dashboards found next to the chart")
 	}

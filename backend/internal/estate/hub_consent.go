@@ -9,12 +9,12 @@ import (
 	"strings"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/accounts"
-	"continuum/internal/agentcaps"
-	"continuum/internal/agents"
-	"continuum/internal/kernel"
-	"continuum/internal/store"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/agentcaps"
+	"ikhnos/internal/agents"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/store"
 
 	"google.golang.org/protobuf/proto"
 )
@@ -220,7 +220,7 @@ func (h *Hub) SetConsent(ctx context.Context, actor, agentID string, in agents.C
 // function already drops it), so the edge has nothing to attach to and stays inert rather than invisible. Worth
 // tightening later if that residual is ever a problem in practice; not attempted here because it would mean
 // parsing a flow key's namespace reliably enough to trust filtering by it.
-func (h *Hub) dropConsentOverrides(id string, s *continuumv1.Sync) {
+func (h *Hub) dropConsentOverrides(id string, s *ikhnosv1.Sync) {
 	agents.ApplyConsent(h.ConsentOf(id), s)
 }
 
@@ -234,12 +234,12 @@ func (h *Hub) narrowState(id string, tier int) {
 		return
 	}
 	st := v.State
-	s := &continuumv1.Sync{Full: true, Seq: st.Seq}
+	s := &ikhnosv1.Sync{Full: true, Seq: st.Seq}
 	if st.Cluster != nil {
-		s.Cluster = proto.Clone(st.Cluster).(*continuumv1.ClusterFacts)
+		s.Cluster = proto.Clone(st.Cluster).(*ikhnosv1.ClusterFacts)
 	}
 	for _, n := range st.Nodes {
-		s.Nodes = append(s.Nodes, proto.Clone(n).(*continuumv1.NodeFacts))
+		s.Nodes = append(s.Nodes, proto.Clone(n).(*ikhnosv1.NodeFacts))
 	}
 	for _, n := range st.Namespaces {
 		s.Namespaces = append(s.Namespaces, n)
@@ -263,12 +263,12 @@ func (h *Hub) narrowConsent(id string, c agents.Consent) {
 		return
 	}
 	st := v.State
-	s := &continuumv1.Sync{Full: true, Seq: st.Seq}
+	s := &ikhnosv1.Sync{Full: true, Seq: st.Seq}
 	if st.Cluster != nil {
-		s.Cluster = proto.Clone(st.Cluster).(*continuumv1.ClusterFacts)
+		s.Cluster = proto.Clone(st.Cluster).(*ikhnosv1.ClusterFacts)
 	}
 	for _, n := range st.Nodes {
-		s.Nodes = append(s.Nodes, proto.Clone(n).(*continuumv1.NodeFacts)) // cloned: agents.ApplyConsent blanks fields in place
+		s.Nodes = append(s.Nodes, proto.Clone(n).(*ikhnosv1.NodeFacts)) // cloned: agents.ApplyConsent blanks fields in place
 	}
 	for _, n := range st.Namespaces {
 		s.Namespaces = append(s.Namespaces, n)
@@ -456,7 +456,7 @@ func (v *View) diagDoc() *agents.DiagnosticsDoc {
 		out.Informers = append(out.Informers, agents.InformerDoc{Name: kernel.Printable(i.Name, 80), Module: kernel.Printable(i.Module, 20), Synced: i.Synced, Objects: i.Objects, LastError: kernel.Printable(i.LastError, 300)})
 	}
 	for _, p := range d.Problems {
-		pd := agents.ProblemDoc{Code: kernel.Printable(p.Code, 40), Severity: map[continuumv1.Problem_Severity]string{continuumv1.Problem_INFO: "info", continuumv1.Problem_WARN: "warn", continuumv1.Problem_ERROR: "error"}[p.Severity], Message: kernel.Printable(p.Message, 700)}
+		pd := agents.ProblemDoc{Code: kernel.Printable(p.Code, 40), Severity: map[ikhnosv1.Problem_Severity]string{ikhnosv1.Problem_INFO: "info", ikhnosv1.Problem_WARN: "warn", ikhnosv1.Problem_ERROR: "error"}[p.Severity], Message: kernel.Printable(p.Message, 700)}
 		if p.Since != nil {
 			pd.Since = kernel.RFC(p.Since.AsTime())
 		}

@@ -20,7 +20,7 @@ const hbBase = "--set"
 // hbOn is the minimum that enables the heartbeat.
 var hbOn = []string{
 	"--set", "heartbeat.enabled=true",
-	"--set", "heartbeat.url=https://continuum.example.com/api/v1/operator-heartbeat",
+	"--set", "heartbeat.url=https://ikhnos.example.com/api/v1/operator-heartbeat",
 	"--set", "heartbeat.auth.secretName=op-1-heartbeat-auth",
 }
 
@@ -43,7 +43,7 @@ func TestRegionalOperatorDefaultRenderIsByteIdenticalToBeforeTheHeartbeat(t *tes
 	}
 	// Setting the heartbeat's other values while it stays off changes nothing either.
 	got, err = operatorHelmTemplate(t, "--set", "heartbeat.enabled=false",
-		"--set", "heartbeat.url=https://continuum.example.com/api/v1/operator-heartbeat",
+		"--set", "heartbeat.url=https://ikhnos.example.com/api/v1/operator-heartbeat",
 		"--set", "heartbeat.auth.secretName=whatever", "--set", "heartbeat.tls.caSecretName=my-ca", "--set", "heartbeat.intervalSeconds=15")
 	if err != nil {
 		t.Fatalf("%v\n%s", err, got)
@@ -103,10 +103,10 @@ func TestRegionalOperatorHeartbeatAddsOneSelfContainedPipeline(t *testing.T) {
 
 	// The exporter: its own, to the heartbeat URL, with the bearer header from the env var.
 	exp := sub(cfgOn, "exporters", "otlphttp/heartbeat")
-	if exp["metrics_endpoint"] != "https://continuum.example.com/api/v1/operator-heartbeat" {
+	if exp["metrics_endpoint"] != "https://ikhnos.example.com/api/v1/operator-heartbeat" {
 		t.Fatalf("metrics_endpoint = %v", exp["metrics_endpoint"])
 	}
-	if h, _ := exp["headers"].(map[string]any); h["Authorization"] != "Bearer ${env:CONTINUUM_OPERATOR_HEARTBEAT_AUTH}" || len(h) != 1 {
+	if h, _ := exp["headers"].(map[string]any); h["Authorization"] != "Bearer ${env:IKHNOS_OPERATOR_HEARTBEAT_AUTH}" || len(h) != 1 {
 		t.Fatalf("heartbeat headers = %v", exp["headers"])
 	}
 	if _, has := exp["tls"]; has {
@@ -180,11 +180,11 @@ func TestRegionalOperatorHeartbeatAddsOneSelfContainedPipeline(t *testing.T) {
 	for _, e := range dep.Spec.Template.Spec.Containers[0].Env {
 		env[e.Name] = e
 	}
-	hbEnv, ok := env["CONTINUUM_OPERATOR_HEARTBEAT_AUTH"]
+	hbEnv, ok := env["IKHNOS_OPERATOR_HEARTBEAT_AUTH"]
 	if !ok || hbEnv.ValueFrom == nil || hbEnv.ValueFrom.SecretKeyRef == nil || hbEnv.ValueFrom.SecretKeyRef.Name != "op-1-heartbeat-auth" || hbEnv.ValueFrom.SecretKeyRef.Key != "token" {
 		t.Fatalf("heartbeat env = %+v", hbEnv)
 	}
-	if rcv := env["CONTINUUM_OPERATOR_RECEIVER_AUTH"]; rcv.ValueFrom == nil || rcv.ValueFrom.SecretKeyRef.Name != "op-receiver-auth" {
+	if rcv := env["IKHNOS_OPERATOR_RECEIVER_AUTH"]; rcv.ValueFrom == nil || rcv.ValueFrom.SecretKeyRef.Name != "op-receiver-auth" {
 		t.Fatalf("receiver env disturbed: %+v", rcv)
 	}
 	if strings.Contains(on.configmaps["op-regional-operator-config"].Data["otel-collector-config.yaml"], "cnh_") {
@@ -269,8 +269,8 @@ func TestRegionalOperatorHeartbeatSchemaRejectsMalformedValues(t *testing.T) {
 		"interval above 60 (the server's offline threshold is 3x60s)": {"heartbeat.intervalSeconds=300"},
 		"interval not a number":       {"heartbeat.intervalSeconds=soon"},
 		"enabled not a boolean":       {"heartbeat.enabled=yes"},
-		"url not a url":               {"heartbeat.url=continuum.example.com"},
-		"url with a scheme we refuse": {"heartbeat.url=ftp://continuum.example.com/x"},
+		"url not a url":               {"heartbeat.url=ikhnos.example.com"},
+		"url with a scheme we refuse": {"heartbeat.url=ftp://ikhnos.example.com/x"},
 		"unknown key":                 {"heartbeat.verifyTLS=false"},
 		"unknown nested key":          {"heartbeat.tls.insecureSkipVerify=true"},
 		"empty secret key":            {"heartbeat.auth.secretKey="},
@@ -293,7 +293,7 @@ func TestRegionalOperatorHeartbeatSchemaRejectsMalformedValues(t *testing.T) {
 }
 
 func TestRegionalOperatorChartYamlSaysWhatTheHeartbeatIsAndIsNot(t *testing.T) {
-	b, err := operatorFiles.ReadFile("continuum-regional-operator/Chart.yaml")
+	b, err := operatorFiles.ReadFile("ikhnos-regional-operator/Chart.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -8,11 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/accounts"
-	"continuum/internal/kernel"
-	"continuum/internal/operators"
-	"continuum/internal/store"
-	"continuum/internal/testkit"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/operators"
+	"ikhnos/internal/store"
+	"ikhnos/internal/testkit"
 )
 
 // pemAfter is the PEM value of one key of a generated Secret manifest, as the cluster would read it.

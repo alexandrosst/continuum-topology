@@ -13,8 +13,8 @@ type Label struct {
 	// Index: Loki keeps it as a stream label, so a selector may name it; otherwise it is structured metadata, which only a
 	// filter after the pipe can read.
 	Index bool
-	// By is who stamps it as provenance: "agent" (resource/continuum), "extractor" (the agent's
-	// transform/continuum_source_* processors, one per pipeline), "operator" (resource/operator) or "gateway"
+	// By is who stamps it as provenance: "agent" (resource/ikhnos), "extractor" (the agent's
+	// transform/ikhnos_source_* processors, one per pipeline), "operator" (resource/operator) or "gateway"
 	// (transform/category). Empty: the sender or the collectors' own enrichment, nothing of ours.
 	By string
 }
@@ -32,7 +32,7 @@ var (
 	vocStatefulSet = Label{Attr: "k8s.statefulset.name", Promote: true, Index: true}
 	vocDaemonSet   = Label{Attr: "k8s.daemonset.name", Promote: true, Index: true}
 	vocVolumeClaim = Label{Attr: "k8s.persistentvolumeclaim.name", Promote: true}
-	vocCluster     = Label{Attr: "continuum.cluster.id", Promote: true, Index: true, By: "agent"}
+	vocCluster     = Label{Attr: "ikhnos.cluster.id", Promote: true, Index: true, By: "agent"}
 )
 
 // Vocabulary is every attribute the pipeline carries.
@@ -47,12 +47,12 @@ var Vocabulary = []Label{
 	{Attr: "k8s.hpa.name", Promote: true},
 	{Attr: "k8s.resourcequota.name", Promote: true},
 	{Attr: "k8s.volume.name", Promote: true},
-	{Attr: "continuum.org.id", Promote: true, Index: true, By: "agent"},
-	{Attr: "continuum.source", Promote: true, By: "extractor"},
-	{Attr: "continuum.intent.id", By: "agent"},
-	{Attr: "continuum.scope", By: "agent"},
-	{Attr: "continuum.operator.id", Promote: true, By: "operator"},
-	{Attr: "continuum.operator.name", By: "operator"},
+	{Attr: "ikhnos.org.id", Promote: true, Index: true, By: "agent"},
+	{Attr: "ikhnos.source", Promote: true, By: "extractor"},
+	{Attr: "ikhnos.intent.id", By: "agent"},
+	{Attr: "ikhnos.scope", By: "agent"},
+	{Attr: "ikhnos.operator.id", Promote: true, By: "operator"},
+	{Attr: "ikhnos.operator.name", By: "operator"},
 	{Attr: "ikhnos.category", By: "gateway"},
 }
 

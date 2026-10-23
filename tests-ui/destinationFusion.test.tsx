@@ -77,8 +77,8 @@ describe('the catalog with FUSION', () => {
   })
 
   test('the central operator is the server\'s own record once there is one, otherwise a stand-in', () => {
-    const real = { ...op('op-central'), name: 'Central (FUSION)', endpoint: 'continuum-fusion-central.continuum.svc:4317' }
-    expect(fusionForCatalog({ status: status({}), operators: [real], destinations: [], isAdmin: true })?.central.endpoint).toBe('continuum-fusion-central.continuum.svc:4317')
+    const real = { ...op('op-central'), name: 'Central (FUSION)', endpoint: 'ikhnos-fusion-central.ikhnos.svc:4317' }
+    expect(fusionForCatalog({ status: status({}), operators: [real], destinations: [], isAdmin: true })?.central.endpoint).toBe('ikhnos-fusion-central.ikhnos.svc:4317')
     expect(fusionForCatalog({ status: status({}), operators: [], destinations: [], isAdmin: true })?.central.id).toBe('op-central')
     expect(fusionForCatalog({ status: status({ available: false, state: 'off', reason: 'not-configured' }), operators: [], destinations: [], isAdmin: true })).toBeUndefined()
   })

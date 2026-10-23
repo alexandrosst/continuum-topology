@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"testing"
 
-	"continuum/internal/httpkit"
+	"ikhnos/internal/httpkit"
 )
 
 type recordedRoutes map[string]httpkit.Need

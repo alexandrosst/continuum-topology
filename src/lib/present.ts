@@ -32,7 +32,7 @@ export function countryName(code?: string): string {
 
 /** How a grouping's origin reads in a sentence: `Application.origin` and a `Suggestion`'s are the same vocabulary. */
 export const ORIGIN_LABEL: Record<string, string> = {
-  explicit: 'continuum.io/application label',
+  explicit: 'ikhnos.io/application label',
   argo: 'Argo CD app',
   helm: 'Helm release',
   'part-of': 'part-of label',

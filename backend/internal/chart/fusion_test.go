@@ -16,7 +16,7 @@ import (
 	sigsyaml "sigs.k8s.io/yaml"
 )
 
-// continuum-fusion: Prometheus, Loki and Tempo, one durable pod per signal type. A regional operator is pointed at
+// ikhnos-fusion: Prometheus, Loki and Tempo, one durable pod per signal type. A regional operator is pointed at
 // the Services by name, so the names are a contract these tests pin down.
 
 type fusionRendered struct {
@@ -125,7 +125,7 @@ func TestFusionPackageIsLintableAndComplete(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if Fusion.Filename() != "continuum-fusion-"+Fusion.Version()+".tgz" || Fusion.Version() == "0.0.0" {
+	if Fusion.Filename() != "ikhnos-fusion-"+Fusion.Version()+".tgz" || Fusion.Version() == "0.0.0" {
 		t.Fatalf("filename/version wrong: %s %s", Fusion.Filename(), Fusion.Version())
 	}
 	if h, err := exec.LookPath("helm"); err == nil {
@@ -140,7 +140,7 @@ func TestFusionPackageIsLintableAndComplete(t *testing.T) {
 // The Service names are what the server prints into a regional operator's command: a release already called
 // "...fusion" is not doubled, and any other gets "-fusion" appended.
 func TestFusionServiceNamesAreTheContract(t *testing.T) {
-	for release, prefix := range map[string]string{"f": "f-fusion", "continuum-fusion": "continuum-fusion", "prod": "prod-fusion"} {
+	for release, prefix := range map[string]string{"f": "f-fusion", "ikhnos-fusion": "ikhnos-fusion", "prod": "prod-fusion"} {
 		r := fusionRender(t, release)
 		for _, c := range []string{"prometheus", "loki", "tempo"} {
 			if _, ok := r.services[prefix+"-"+c]; !ok {
@@ -196,7 +196,7 @@ func TestFusionPrometheusTakesOTLPAndKeepsTheJoinLabels(t *testing.T) {
 		have[p.(string)] = true
 	}
 	// What lets a metric be joined to a span or a log line later.
-	for _, k := range []string{"service.name", "k8s.pod.name", "k8s.namespace.name", "continuum.cluster.id"} {
+	for _, k := range []string{"service.name", "k8s.pod.name", "k8s.namespace.name", "ikhnos.cluster.id"} {
 		if !have[k] {
 			t.Errorf("resource attribute %s is not promoted to a label", k)
 		}

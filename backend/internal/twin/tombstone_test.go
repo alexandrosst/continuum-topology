@@ -5,21 +5,21 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/facts"
-	"continuum/internal/store"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/facts"
+	"ikhnos/internal/store"
 )
 
 func state(nodes, namespaces, workloads []string) *facts.State {
 	st := facts.New()
 	for _, k := range nodes {
-		st.Nodes[k] = &continuumv1.NodeFacts{Key: k, Name: k}
+		st.Nodes[k] = &ikhnosv1.NodeFacts{Key: k, Name: k}
 	}
 	for _, k := range namespaces {
-		st.Namespaces[k] = &continuumv1.NamespaceFacts{Key: k, Name: k}
+		st.Namespaces[k] = &ikhnosv1.NamespaceFacts{Key: k, Name: k}
 	}
 	for _, k := range workloads {
-		st.Workloads[k] = &continuumv1.WorkloadFacts{Key: k}
+		st.Workloads[k] = &ikhnosv1.WorkloadFacts{Key: k}
 	}
 	return st
 }
@@ -34,10 +34,10 @@ func keys(v []Vanished) []string {
 
 func TestDisappearedFullPictureRemovesEverythingItLeavesOut(t *testing.T) {
 	st := state([]string{"n1", "n2"}, []string{"shop"}, []string{"shop/Deployment/cart", "shop/Deployment/pay"})
-	full := &continuumv1.Sync{Full: true,
-		Nodes:      []*continuumv1.NodeFacts{{Key: "n1"}},
-		Namespaces: []*continuumv1.NamespaceFacts{{Key: "shop"}},
-		Workloads:  []*continuumv1.WorkloadFacts{{Key: "shop/Deployment/cart"}}}
+	full := &ikhnosv1.Sync{Full: true,
+		Nodes:      []*ikhnosv1.NodeFacts{{Key: "n1"}},
+		Namespaces: []*ikhnosv1.NamespaceFacts{{Key: "shop"}},
+		Workloads:  []*ikhnosv1.WorkloadFacts{{Key: "shop/Deployment/cart"}}}
 	got := Disappeared(st, full, 2)
 	want := []string{"node:n2", "service:shop/Deployment/pay"}
 	if fmt.Sprint(keys(got)) != fmt.Sprint(want) {
@@ -54,9 +54,9 @@ func TestDisappearedFullPictureRemovesEverythingItLeavesOut(t *testing.T) {
 
 func TestDisappearedDeltaOnlyDeletesWhatIsHeld(t *testing.T) {
 	st := state([]string{"n1"}, nil, []string{"a/Deployment/x"})
-	d := &continuumv1.Sync{DeletedWorkloads: []string{"a/Deployment/x", "a/Deployment/never-held"}, DeletedNodes: []string{"ghost"},
+	d := &ikhnosv1.Sync{DeletedWorkloads: []string{"a/Deployment/x", "a/Deployment/never-held"}, DeletedNodes: []string{"ghost"},
 		// deleted and re-sent in one message: it is back, not gone
-		Nodes: []*continuumv1.NodeFacts{{Key: "n1"}}}
+		Nodes: []*ikhnosv1.NodeFacts{{Key: "n1"}}}
 	d.DeletedNodes = append(d.DeletedNodes, "n1")
 	got := Disappeared(st, d, 2)
 	if fmt.Sprint(keys(got)) != "[service:a/Deployment/x]" {
@@ -66,14 +66,14 @@ func TestDisappearedDeltaOnlyDeletesWhatIsHeld(t *testing.T) {
 		t.Errorf("reason %q", got[0].Reason)
 	}
 	// A delta that is not a full picture never implies absence.
-	if len(Disappeared(st, &continuumv1.Sync{Nodes: []*continuumv1.NodeFacts{{Key: "n1"}}}, 2)) != 0 {
+	if len(Disappeared(st, &ikhnosv1.Sync{Nodes: []*ikhnosv1.NodeFacts{{Key: "n1"}}}, 2)) != 0 {
 		t.Error("a delta must not tombstone what it does not mention")
 	}
 }
 
 func TestDisappearedBecauseOfLoweredConsentSaysSo(t *testing.T) {
 	st := state([]string{"n1"}, []string{"shop"}, []string{"shop/Deployment/cart"})
-	full := &continuumv1.Sync{Full: true}
+	full := &ikhnosv1.Sync{Full: true}
 	got := Disappeared(st, full, 1) // infrastructure only: namespaces and workloads are no longer reported
 	for _, v := range got {
 		switch v.Kind {

@@ -118,14 +118,14 @@ func TestFusionProxyPolicy(t *testing.T) {
 }
 
 func TestLocalLocation(t *testing.T) {
-	up, _ := url.Parse("http://continuum-fusion-prometheus.continuum.svc:9090")
+	up, _ := url.Parse("http://ikhnos-fusion-prometheus.ikhnos.svc:9090")
 	for loc, want := range map[string]string{
 		"/fusion/prometheus/graph": "/fusion/prometheus/graph",
 		"graph":                    "graph",
 		"?x=1":                     "?x=1",
-		"http://localhost:3000/fusion/grafana/login":                  "/fusion/grafana/login",
-		"http://continuum-fusion-prometheus.continuum.svc:9090/graph": "/graph",
-		"https://ikhnos.example/fusion/grafana/":                      "/fusion/grafana/",
+		"http://localhost:3000/fusion/grafana/login":            "/fusion/grafana/login",
+		"http://ikhnos-fusion-prometheus.ikhnos.svc:9090/graph": "/graph",
+		"https://ikhnos.example/fusion/grafana/":                "/fusion/grafana/",
 	} {
 		if got, err := LocalLocation(loc, "ikhnos.example", up); err != nil || got != want {
 			t.Errorf("%q: %q %v, want %q", loc, got, err, want)

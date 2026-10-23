@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/kernel"
-	"continuum/internal/pki"
-	"continuum/internal/testkit"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/pki"
+	"ikhnos/internal/testkit"
 
 	"google.golang.org/grpc/codes"
 )
@@ -61,7 +61,7 @@ func TestRejoinHoldsACertificateToWhatItStatesAndAnOldOneWorksUntilTheURIIsRequi
 	e := newEnv(t)
 	id, key, leaf := e.approvedAgent(t, testkit.FP)
 	rejoin := func(der []byte) error {
-		_, err := e.core.Agents.Rejoin(e.ctx, "10.0.0.1", &continuumv1.RejoinRequest{ExpiredLeafDer: der, CsrDer: testkit.CSRWith(t, key)})
+		_, err := e.core.Agents.Rejoin(e.ctx, "10.0.0.1", &ikhnosv1.RejoinRequest{ExpiredLeafDer: der, CsrDer: testkit.CSRWith(t, key)})
 		return err
 	}
 	if err := rejoin(leaf); err != nil {
@@ -92,8 +92,8 @@ func TestAConnectionIsHeldToWhatItsCertificateStates(t *testing.T) {
 	id, key, leaf := r.env.approvedAgent(t, testkit.FP)
 	renew := func(der []byte) codes.Code {
 		cert := &tls.Certificate{Certificate: [][]byte{der}, PrivateKey: key}
-		c := continuumv1.NewAgentServiceClient(r.dial(t, pki.ClientTLS(r.core.CA.Pin(), "127.0.0.1", cert)))
-		_, err := c.Renew(ctx, &continuumv1.RenewRequest{CsrDer: testkit.CSRWith(t, key)})
+		c := ikhnosv1.NewAgentServiceClient(r.dial(t, pki.ClientTLS(r.core.CA.Pin(), "127.0.0.1", cert)))
+		_, err := c.Renew(ctx, &ikhnosv1.RenewRequest{CsrDer: testkit.CSRWith(t, key)})
 		return testkit.StatusCode(err)
 	}
 	if c := renew(leaf); c != codes.OK {

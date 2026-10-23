@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 
-	"continuum/internal/testkit"
+	"ikhnos/internal/testkit"
 )
 
 // On a real stream: the agent names an older Config than the one the server sent (as if the newer one never arrived), and the
@@ -36,7 +36,7 @@ func TestALostConfigIsSentAgainWhenTheAgentNamesAnOlderOne(t *testing.T) {
 	r.hub.Mu.Lock()
 	r.hub.Views[id].CfgSentAt = time.Now().Add(-time.Minute)
 	r.hub.Mu.Unlock()
-	beat := &continuumv1.AgentMessage{Msg: &continuumv1.AgentMessage_Heartbeat{Heartbeat: &continuumv1.Heartbeat{AppliedConfigDigest: "an-older-digest"}}}
+	beat := &ikhnosv1.AgentMessage{Msg: &ikhnosv1.AgentMessage_Heartbeat{Heartbeat: &ikhnosv1.Heartbeat{AppliedConfigDigest: "an-older-digest"}}}
 	if err := s.Send(beat); err != nil {
 		t.Fatal(err)
 	}

@@ -1,0 +1,95 @@
+{{- if .Values.nodeProbe.enabled }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "agent.probeSecretName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "agent.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  secret: {{ include "agent.probeSecret" . | quote }}
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: ikhnos-node-probe
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "agent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: node-probe
+spec:
+  selector:
+    matchLabels: {app.kubernetes.io/name: ikhnos-node-probe, app.kubernetes.io/instance: {{ .Release.Name }}}
+  updateStrategy: {type: RollingUpdate, rollingUpdate: {maxUnavailable: 10%}}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ikhnos-node-probe
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/part-of: ikhnos
+        {{- include "agent.podLabels" . | nindent 8 }}
+      annotations:
+        checksum/secret: {{ include "agent.probeSecretRevision" . }}   # a new secret rolls the pods: they read it at start
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . | quote }}
+      {{- end }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      automountServiceAccountToken: false   # the probe never talks to the Kubernetes API
+      {{- if .Values.nodeProbe.hostNetwork }}
+      # Network facts (TunnelInterface, host_subnets) come from a netlink link/address/route dump,
+      # which - unlike /proc/cpuinfo and the hostSys-mounted /sys above - is scoped to the reading
+      # process's own network namespace, not the machine's: without this, the probe's netlink socket
+      # only ever sees its own pod's veth and loopback, never the host's real interfaces (a physical
+      # uplink, a WireGuard/overlay tunnel, ...), silently reporting zero tunnels on every node
+      # regardless of what is actually up on the machine. dnsPolicy is set alongside it because a
+      # hostNetwork pod otherwise stops using the cluster's own DNS, and IKHNOS_PROBE_URL below
+      # names the agent by its in-cluster Service DNS name. Same trade-off nodeProbe.hostSys documents
+      # in values.yaml: a namespace enforcing the Pod Security "baseline" or "restricted" profile
+      # refuses hostNetwork - label the namespace privileged, or set this to false and the probe still
+      # reports everything except TunnelInterface/host_subnets.
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      {{- end }}
+      securityContext: {{- include "agent.nonRootPodSecurityContext" (dict "root" . "fsGroup" true) | nindent 8 }}   # fsGroup lets the non-root probe read the mounted secret
+      containers:
+        - name: probe
+          image: {{ include "agent.image" . | quote }}
+          imagePullPolicy: {{ include "agent.imagePullPolicy" . }}
+          args: ["probe", "--interval={{ .Values.nodeProbe.interval }}"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          env:
+            - name: NODE_NAME
+              valueFrom: {fieldRef: {fieldPath: spec.nodeName}}
+            - {name: IKHNOS_PROBE_URL, value: "http://ikhnos-agent-probe.{{ .Release.Namespace }}.svc:8081"}
+            - {name: IKHNOS_PROBE_SECRET_FILE, value: /secret/secret}
+            {{- if .Values.nodeProbe.hostSys }}
+            - {name: IKHNOS_PROBE_SYS, value: /host/sys}
+            {{- end }}
+          volumeMounts:
+            - {name: secret, mountPath: /secret, readOnly: true}
+            {{- if .Values.nodeProbe.hostSys }}
+            - {name: host-sys, mountPath: /host/sys, readOnly: true}
+            {{- end }}
+          resources: {{- toYaml .Values.nodeProbe.resources | nindent 12 }}
+      volumes:
+        - name: secret
+          secret: {secretName: {{ include "agent.probeSecretName" . }}, defaultMode: 0440}
+        {{- if .Values.nodeProbe.hostSys }}
+        - name: host-sys
+          hostPath: {path: /sys, type: Directory}
+        {{- end }}
+      {{- with .Values.nodeProbe.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeProbe.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

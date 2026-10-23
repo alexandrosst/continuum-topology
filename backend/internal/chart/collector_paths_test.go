@@ -16,14 +16,14 @@ var collectorStorageDir = regexp.MustCompile(`(?m)^(\s*directory:\s*)(/queue|/va
 
 // collectorConfig is a rendered config made ready for the real collector to validate: its paths moved (collectorPaths), on a machine
 // that has what the kubelet receiver reads from the pod it runs in. That one cannot be moved, because the Kubernetes client looks for
-// it at a fixed place, so a machine without it skips the test, and CI (CONTINUUM_REQUIRE_TOOLS=1) fails instead of skipping.
+// it at a fixed place, so a machine without it skips the test, and CI (IKHNOS_REQUIRE_TOOLS=1) fails instead of skipping.
 func collectorConfig(t *testing.T, cfg string) string {
 	t.Helper()
 	for _, f := range []string{"token", "ca.crt"} {
 		p := filepath.Join(podIdentityDir, f)
 		if _, err := os.Stat(p); err != nil {
 			if toolsRequired() {
-				t.Fatalf("%s is missing and CONTINUUM_REQUIRE_TOOLS is set: %v", p, err)
+				t.Fatalf("%s is missing and IKHNOS_REQUIRE_TOOLS is set: %v", p, err)
 			}
 			t.Skipf("%s is missing: the collector's kubelet receiver reads the pod's service account there, and this machine has none", p)
 		}

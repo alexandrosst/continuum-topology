@@ -13,7 +13,7 @@ import (
 	"google.golang.org/protobuf/reflect/protodesc"
 	"google.golang.org/protobuf/types/descriptorpb"
 
-	"continuum/gen/continuumv1"
+	"ikhnos/gen/ikhnosv1"
 )
 
 var update = flag.Bool("update", false, "write the baseline from the schema as it stands")
@@ -21,11 +21,11 @@ var update = flag.Bool("update", false, "write the baseline from the schema as i
 const baselineFile = "testdata/agent.baseline.json"
 
 // acceptBreak is the one way a breaking change gets into the baseline: said out loud, in the environment of the person making it.
-const acceptBreak = "CONTINUUM_ACCEPT_PROTO_BREAK"
+const acceptBreak = "IKHNOS_ACCEPT_PROTO_BREAK"
 
 func current(t *testing.T) *descriptorpb.FileDescriptorProto {
 	t.Helper()
-	return protodesc.ToFileDescriptorProto(continuumv1.File_continuum_v1_agent_proto)
+	return protodesc.ToFileDescriptorProto(ikhnosv1.File_ikhnos_v1_agent_proto)
 }
 
 func readBaseline(t *testing.T) *descriptorpb.FileDescriptorProto {

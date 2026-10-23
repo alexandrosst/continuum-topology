@@ -5,15 +5,15 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 
-	"continuum/internal/accounts"
-	"continuum/internal/connectivity"
-	"continuum/internal/estate"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/connectivity"
+	"ikhnos/internal/estate"
 )
 
 // driftRig is an operator with one sender that chose an address, the sender connected and able to time connections.
-func driftRig(t *testing.T) (a *adminRig, cookie, opID, agentID string, push chan *continuumv1.ServerMessage) {
+func driftRig(t *testing.T) (a *adminRig, cookie, opID, agentID string, push chan *ikhnosv1.ServerMessage) {
 	t.Helper()
 	a = newAdminRig(t)
 	_, cookie = a.user(t, "alex", accounts.RoleAdmin)
@@ -27,7 +27,7 @@ func driftRig(t *testing.T) (a *adminRig, cookie, opID, agentID string, push cha
 	if r := a.do("POST", "/api/v1/telemetry-intents/"+intentID+"/destination", dest, withCookie(cookie)); r.Code != 200 {
 		t.Fatalf("destination: %d %s", r.Code, r.Body.String())
 	}
-	push = make(chan *continuumv1.ServerMessage, 16)
+	push = make(chan *ikhnosv1.ServerMessage, 16)
 	v := liveView(*a.now, "n1")
 	v.Connected = true
 	a.hub().Mu.Lock()
@@ -85,7 +85,7 @@ func TestTheServerRetestsASendersAddressOnItsOwnAndKeepsTheResult(t *testing.T) 
 	}
 
 	// The agent reports that nothing answered: the result is kept and the senders list says so.
-	h.NoteMeasurements(agentID, &continuumv1.Measurements{Results: []*continuumv1.PathResult{{TargetId: q["10.20.0.14:31317"], Samples: 5, Failed: 5}}})
+	h.NoteMeasurements(agentID, &ikhnosv1.Measurements{Results: []*ikhnosv1.PathResult{{TargetId: q["10.20.0.14:31317"], Samples: 5, Failed: 5}}})
 	if r := h.ReachOf(agentID, "10.20.0.14:31317", a.h2now(t)); r == nil || r.State != "unreachable" {
 		t.Fatalf("reach: %+v", r)
 	}

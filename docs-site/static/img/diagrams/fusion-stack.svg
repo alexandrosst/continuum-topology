@@ -42,7 +42,7 @@
 
   <!-- Server cluster panel -->
   <rect x="290" y="60" width="690" height="540" rx="14" fill="#25282c" stroke="#3f444b" stroke-width="1.5" filter="url(#soft-shadow)"/>
-  <text x="314" y="88" font-size="13" font-weight="700" fill="#e4e7e9">The server's cluster: one Helm release (continuum-server)</text>
+  <text x="314" y="88" font-size="13" font-weight="700" fill="#e4e7e9">The server's cluster: one Helm release (ikhnos-server)</text>
   <text x="314" y="104" font-size="9" fill="#59636c">the FUSION workloads ship in that release, switched off (0 replicas) until FUSION is enabled</text>
 
   <!-- central operator -->

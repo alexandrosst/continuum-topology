@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 
-	"continuum/internal/kernel"
-	"continuum/internal/store"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/store"
 )
 
 // Decision log: a record of what each decider recommended, kept so a decider's quality can later be

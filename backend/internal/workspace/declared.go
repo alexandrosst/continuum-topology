@@ -1,6 +1,6 @@
 package workspace
 
-import "continuum/internal/model"
+import "ikhnos/internal/model"
 
 // The records a person declares and no agent observes. The workspace document is kept and replayed as JSON without
 // knowing these shapes, on purpose: a document written by a newer client keeps every field it has. They are written

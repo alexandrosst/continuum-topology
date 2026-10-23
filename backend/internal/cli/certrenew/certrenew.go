@@ -1,4 +1,4 @@
-// Package certrenew is the "continuum cert-renew" role: the sidecar of a regional operator that keeps the operator's own
+// Package certrenew is the "ikhnos cert-renew" role: the sidecar of a regional operator that keeps the operator's own
 // TLS Secrets (its receiver certificate, and the client certificate its exporter presents to another operator) from
 // running out. The discovery agent does the same for the Secrets of its own cluster's collectors; both use
 // internal/certrenew.
@@ -15,8 +15,8 @@ import (
 	"syscall"
 	"time"
 
-	"continuum/internal/certrenew"
-	"continuum/internal/cli"
+	"ikhnos/internal/certrenew"
+	"ikhnos/internal/cli"
 
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -25,11 +25,11 @@ import (
 
 // Main returns the process exit code.
 func Main(args []string) int {
-	fs := cli.NewFlagSet("continuum cert-renew", os.Stderr)
-	server := fs.String("server", cli.Env("CONTINUUM_SERVER", ""), "the Ikhnos server's agent address, host:port")
-	pin := fs.String("ca-pin", cli.Env("CONTINUUM_CA_PIN", ""), "pin of the server CA (sha256/... or the legacy hex fingerprint)")
+	fs := cli.NewFlagSet("ikhnos cert-renew", os.Stderr)
+	server := fs.String("server", cli.Env("IKHNOS_SERVER", ""), "the Ikhnos server's agent address, host:port")
+	pin := fs.String("ca-pin", cli.Env("IKHNOS_CA_PIN", ""), "pin of the server CA (sha256/... or the legacy hex fingerprint)")
 	ns := fs.String("namespace", cli.Env("POD_NAMESPACE", ""), "the namespace of the Secrets (the pod's own)")
-	secrets := fs.String("secrets", cli.Env("CONTINUUM_RENEW_SECRETS", ""), "Secrets to keep renewed, comma separated; each holds tls.crt, tls.key and ca.crt")
+	secrets := fs.String("secrets", cli.Env("IKHNOS_RENEW_SECRETS", ""), "Secrets to keep renewed, comma separated; each holds tls.crt, tls.key and ca.crt")
 	every := fs.Duration("every", time.Hour, "how often the Secrets are looked at")
 	renewBefore := fs.Duration("renew-before", 0, "renew a certificate with less than this left (default: the server's 20 days)")
 	once := fs.Bool("once", false, "check every Secret one time and exit (non-zero if one could not be renewed)")
@@ -61,7 +61,7 @@ func Main(args []string) int {
 	if err != nil {
 		return cli.Fatal(log, err)
 	}
-	rc.UserAgent = "continuum-cert-renew/" + cli.Version
+	rc.UserAgent = "ikhnos-cert-renew/" + cli.Version
 	client, err := kubernetes.NewForConfig(rc)
 	if err != nil {
 		return cli.Fatal(log, err)
@@ -73,7 +73,7 @@ func Main(args []string) int {
 	for i, t := range targets {
 		names[i] = t.String()
 	}
-	log.Info("continuum cert-renew starting", "version", cli.Version, "server", *server, "secrets", strings.Join(names, ","))
+	log.Info("ikhnos cert-renew starting", "version", cli.Version, "server", *server, "secrets", strings.Join(names, ","))
 	if *once {
 		if certrenew.Once(ctx, cfg) > 0 {
 			return 1

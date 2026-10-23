@@ -6,7 +6,7 @@
 // and decides when to push, is the estate's and stands on this package: the network part of the view is NetView here.
 package connectivity
 
-import "continuum/internal/kernel"
+import "ikhnos/internal/kernel"
 
 // Service is what connectivity does with the Core of one organisation: the sealed credentials of the links.
 type Service struct {

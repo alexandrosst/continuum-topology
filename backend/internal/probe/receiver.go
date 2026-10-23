@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
@@ -29,7 +29,7 @@ type Receiver struct {
 	changes chan struct{}
 
 	mu     sync.Mutex
-	nodes  map[string]*continuumv1.HostProbe
+	nodes  map[string]*ikhnosv1.HostProbe
 	seen   map[string]time.Time // when each node last reported
 	paused bool
 }
@@ -38,7 +38,7 @@ func NewReceiver(secret []byte, log *slog.Logger) *Receiver {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Receiver{secret: secret, replay: NewReplayCache(0), log: log, now: time.Now, changes: make(chan struct{}, 1), nodes: map[string]*continuumv1.HostProbe{}, seen: map[string]time.Time{}}
+	return &Receiver{secret: secret, replay: NewReplayCache(0), log: log, now: time.Now, changes: make(chan struct{}, 1), nodes: map[string]*ikhnosv1.HostProbe{}, seen: map[string]time.Time{}}
 }
 
 // Changes receives a signal whenever a report differs from the previous one for its node.
@@ -50,7 +50,7 @@ func (r *Receiver) Changes() <-chan struct{} {
 }
 
 // Get returns a copy of the latest observation for a node, or nil.
-func (r *Receiver) Get(node string) *continuumv1.HostProbe {
+func (r *Receiver) Get(node string) *ikhnosv1.HostProbe {
 	if r == nil {
 		return nil
 	}
@@ -60,27 +60,27 @@ func (r *Receiver) Get(node string) *continuumv1.HostProbe {
 		return nil
 	}
 	if h := r.nodes[node]; h != nil {
-		return proto.Clone(h).(*continuumv1.HostProbe)
+		return proto.Clone(h).(*ikhnosv1.HostProbe)
 	}
 	return nil
 }
 
 // Snapshot returns a copy of what every node reported within the last `within`, by node name: the nodes that are still
 // talking, not those that reported once and went quiet. Empty while paused.
-func (r *Receiver) Snapshot(within time.Duration) map[string]*continuumv1.HostProbe {
+func (r *Receiver) Snapshot(within time.Duration) map[string]*ikhnosv1.HostProbe {
 	if r == nil {
 		return nil
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	out := map[string]*continuumv1.HostProbe{}
+	out := map[string]*ikhnosv1.HostProbe{}
 	if r.paused {
 		return out
 	}
 	now := r.now()
 	for name, h := range r.nodes {
 		if at, ok := r.seen[name]; ok && now.Sub(at) <= within {
-			out[name] = proto.Clone(h).(*continuumv1.HostProbe)
+			out[name] = proto.Clone(h).(*ikhnosv1.HostProbe)
 		}
 	}
 	return out
@@ -111,7 +111,7 @@ func (r *Receiver) SetPaused(paused bool) {
 	changed := r.paused != paused
 	r.paused = paused
 	if paused {
-		r.nodes, r.seen = map[string]*continuumv1.HostProbe{}, map[string]time.Time{}
+		r.nodes, r.seen = map[string]*ikhnosv1.HostProbe{}, map[string]time.Time{}
 	}
 	r.mu.Unlock()
 	if changed {
@@ -143,7 +143,7 @@ func (r *Receiver) Presence(within time.Duration) (nodes int, last time.Time) {
 
 // put stores one node's report, unless the receiver is paused (then the report is answered as usual
 // but thrown away - paused is reported true so the caller can tell the collector it was ignored).
-func (r *Receiver) put(node string, h *continuumv1.HostProbe) (accepted, paused bool) {
+func (r *Receiver) put(node string, h *ikhnosv1.HostProbe) (accepted, paused bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.paused {
@@ -176,7 +176,7 @@ func (r *Receiver) Handler() http.Handler {
 			http.Error(w, http.StatusText(status), status)
 			return
 		}
-		var h continuumv1.HostProbe
+		var h ikhnosv1.HostProbe
 		if err := (protojson.UnmarshalOptions{DiscardUnknown: true}).Unmarshal(body, &h); err != nil {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return

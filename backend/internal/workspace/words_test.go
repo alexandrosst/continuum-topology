@@ -3,7 +3,7 @@ package workspace
 import (
 	"testing"
 
-	"continuum/internal/wire"
+	"ikhnos/internal/wire"
 )
 
 func TestEveryWordOfTheDeclaredRecordsIsListed(t *testing.T) {

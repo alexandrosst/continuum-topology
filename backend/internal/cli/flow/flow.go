@@ -11,11 +11,11 @@ import (
 	"syscall"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/cli"
-	"continuum/internal/flow/collector"
-	"continuum/internal/flow/conntrack"
-	"continuum/internal/flow/ebpf"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/cli"
+	"ikhnos/internal/flow/collector"
+	"ikhnos/internal/flow/conntrack"
+	"ikhnos/internal/flow/ebpf"
 
 	"google.golang.org/protobuf/encoding/protojson"
 )
@@ -31,15 +31,15 @@ import (
 // --names needs CAP_NET_ADMIN in addition, to attach the cgroup/skb program that reads the hostnames. Nothing at startup of
 // the other roles touches the kernel, so importing this here costs `agent` and `probe` no privileges.
 func Main(args []string) int {
-	fs := cli.NewFlagSet("continuum flow", os.Stderr)
-	agentURL := fs.String("agent", cli.Env("CONTINUUM_FLOW_URL", ""), "URL of the agent's flow receiver, e.g. http://continuum-agent-probe.continuum-system.svc:8081")
-	secretFile := fs.String("secret-file", cli.Env("CONTINUUM_FLOW_SECRET_FILE", ""), "file holding the flow secret")
+	fs := cli.NewFlagSet("ikhnos flow", os.Stderr)
+	agentURL := fs.String("agent", cli.Env("IKHNOS_FLOW_URL", ""), "URL of the agent's flow receiver, e.g. http://ikhnos-agent-probe.ikhnos-system.svc:8081")
+	secretFile := fs.String("secret-file", cli.Env("IKHNOS_FLOW_SECRET_FILE", ""), "file holding the flow secret")
 	node := fs.String("node", cli.Env("NODE_NAME", ""), "this node's Kubernetes name (from the downward API)")
-	method := fs.String("method", cli.Env("CONTINUUM_FLOW_METHOD", "auto"), "auto | ebpf | conntrack")
-	udp := fs.String("udp", cli.Env("CONTINUUM_FLOW_UDP", "auto"), "also observe UDP through the connection-tracking table: auto (when the eBPF method is in use and the table is readable) | on | off")
-	table := fs.String("conntrack-table", cli.Env("CONTINUUM_FLOW_CONNTRACK", conntrack.DefaultTable), "the connection-tracking table")
-	live := fs.Bool("live", cli.Env("CONTINUUM_FLOW_LIVE", "") == "true", "count the bytes of connections that are still open (eBPF only; needs the host's process namespace, or it sees only its own)")
-	names := fs.Bool("names", cli.Env("CONTINUUM_FLOW_NAMES", "") == "true", "capture the DNS query name and TLS SNI hostname each connection carries in the clear (eBPF only; needs CAP_NET_ADMIN; off by default)")
+	method := fs.String("method", cli.Env("IKHNOS_FLOW_METHOD", "auto"), "auto | ebpf | conntrack")
+	udp := fs.String("udp", cli.Env("IKHNOS_FLOW_UDP", "auto"), "also observe UDP through the connection-tracking table: auto (when the eBPF method is in use and the table is readable) | on | off")
+	table := fs.String("conntrack-table", cli.Env("IKHNOS_FLOW_CONNTRACK", conntrack.DefaultTable), "the connection-tracking table")
+	live := fs.Bool("live", cli.Env("IKHNOS_FLOW_LIVE", "") == "true", "count the bytes of connections that are still open (eBPF only; needs the host's process namespace, or it sees only its own)")
+	names := fs.Bool("names", cli.Env("IKHNOS_FLOW_NAMES", "") == "true", "capture the DNS query name and TLS SNI hostname each connection carries in the clear (eBPF only; needs CAP_NET_ADMIN; off by default)")
 	every := fs.Duration("interval", 10*time.Second, "how often to report")
 	print := fs.Duration("print", 0, "observe for this long, print the report and exit; sends nothing")
 	if code, done := cli.Parse(fs, args); done {
@@ -100,11 +100,11 @@ func Main(args []string) int {
 			if se, ok := s.(collector.SnatExhaustionSource); ok {
 				snatExhaustion = se.SnatExhaustion()
 			}
-			var thermalThrottle *continuumv1.ThermalThrottle
+			var thermalThrottle *ikhnosv1.ThermalThrottle
 			if tt, ok := s.(collector.ThermalThrottleSource); ok {
 				cpuFreqChangeCount, thermalTripCount := tt.ThermalThrottle()
 				if cpuFreqChangeCount > 0 || thermalTripCount > 0 {
-					thermalThrottle = &continuumv1.ThermalThrottle{CpuFreqChangeCount: cpuFreqChangeCount, ThermalTripCount: thermalTripCount}
+					thermalThrottle = &ikhnosv1.ThermalThrottle{CpuFreqChangeCount: cpuFreqChangeCount, ThermalTripCount: thermalTripCount}
 				}
 			}
 			b, _ := protojson.MarshalOptions{Multiline: true}.Marshal(collector.Report(s, *node, *print, flows, lost, snatExhaustion, thermalThrottle))
@@ -128,7 +128,7 @@ func Main(args []string) int {
 	for _, s := range sources {
 		methods = append(methods, s.Method())
 	}
-	log.Info("continuum flow collector starting", "version", cli.Version, "node", *node, "methods", methods, "live", *live, "names", *names, "agent", *agentURL)
+	log.Info("ikhnos flow collector starting", "version", cli.Version, "node", *node, "methods", methods, "live", *live, "names", *names, "agent", *agentURL)
 	var wg sync.WaitGroup
 	for _, s := range sources {
 		wg.Add(1)

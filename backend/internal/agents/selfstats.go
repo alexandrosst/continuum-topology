@@ -5,7 +5,7 @@ import (
 	"syscall"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 )
 
 // SelfStatsWindow is how far back a self-telemetry ring (per agent, or the server's own) keeps samples -
@@ -92,7 +92,7 @@ type SelfStatsSample struct {
 // holds h.mu" convention noteDiagnostics (consent.go) uses - called from Hub.Connect's own Heartbeat
 // case. A nil ss (an agent older than the field, or a heartbeat that for whatever reason carried none)
 // is simply ignored: there is nothing to add, never a fabricated zero-valued sample.
-func (v *View) NoteSelfStats(ss *continuumv1.SelfStats, now time.Time) {
+func (v *View) NoteSelfStats(ss *ikhnosv1.SelfStats, now time.Time) {
 	if ss == nil {
 		return
 	}

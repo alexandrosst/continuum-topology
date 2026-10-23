@@ -5,13 +5,13 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/facts"
-	"continuum/internal/model"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/facts"
+	"ikhnos/internal/model"
 )
 
-type N = continuumv1.NodeFacts
-type W = continuumv1.WorkloadFacts
+type N = ikhnosv1.NodeFacts
+type W = ikhnosv1.WorkloadFacts
 
 func node(name string, mod func(n *N)) *N {
 	n := &N{Key: name, Name: name, Architecture: "amd64", Ready: true, CpuCapacityMillis: 4000, MemoryCapacityBytes: 16 << 30,
@@ -50,7 +50,7 @@ func TestDistributionDetection(t *testing.T) {
 		{"nothing to go on", "v1.30.0", node("a", nil), DistUnknown, "low"},
 	}
 	for _, c := range cases {
-		got, e := detectDistribution(&continuumv1.ClusterFacts{Version: c.version}, []*N{c.node})
+		got, e := detectDistribution(&ikhnosv1.ClusterFacts{Version: c.version}, []*N{c.node})
 		if got != c.want || string(e.Confidence) != c.conf || e.Signal == "" {
 			t.Errorf("%s: got %q (%s, %q), want %q (%s)", c.name, got, e.Confidence, e.Signal, c.want, c.conf)
 		}
@@ -106,7 +106,7 @@ func TestApplicationGroupingPrecedence(t *testing.T) {
 		app, origin   string
 		conf, managed string
 	}{
-		{"explicit wins over everything", &W{Namespace: "n", Labels: map[string]string{"continuum.io/application": "Shop", "app.kubernetes.io/part-of": "other"},
+		{"explicit wins over everything", &W{Namespace: "n", Labels: map[string]string{"ikhnos.io/application": "Shop", "app.kubernetes.io/part-of": "other"},
 			Annotations: map[string]string{"meta.helm.sh/release-name": "rel"}}, "Shop", OriginExplicit, "high", "helm"},
 		{"argo tracking id", &W{Namespace: "n", Annotations: map[string]string{"argocd.argoproj.io/tracking-id": "shop-prod:apps/Deployment:n/cart"}}, "shop-prod", OriginArgo, "high", "argo"},
 		{"argo instance label", &W{Namespace: "n", Labels: map[string]string{"argocd.argoproj.io/instance": "shop"}}, "shop", OriginArgo, "high", "argo"},
@@ -136,7 +136,7 @@ func TestApplicationGroupingPrecedence(t *testing.T) {
 
 func k3sFixture() *facts.State {
 	s := facts.New()
-	s.Cluster = &continuumv1.ClusterFacts{
+	s.Cluster = &ikhnosv1.ClusterFacts{
 		Uid: "8f3c2a9e-1111-4222-8333-944455556666", Version: "v1.30.5+k3s1", ApiHost: "10.0.0.5:6443",
 		StorageClasses: []string{"local-path"}, ServiceCidr: "10.43.5.0/24",
 	}
@@ -154,27 +154,27 @@ func k3sFixture() *facts.State {
 		n.PodCidrs = []string{"10.42.1.0/24"}
 		n.Ready = false
 	})
-	for _, ns := range []string{"kube-system", "default", "shop", "continuum-system"} {
-		s.Namespaces[ns] = &continuumv1.NamespaceFacts{Key: ns, Name: ns}
+	for _, ns := range []string{"kube-system", "default", "shop", "ikhnos-system"} {
+		s.Namespaces[ns] = &ikhnosv1.NamespaceFacts{Key: ns, Name: ns}
 	}
 	s.Workloads["kube-system/Deployment/traefik"] = &W{Key: "kube-system/Deployment/traefik", Namespace: "kube-system", Kind: "Deployment", Name: "traefik", Replicas: 1, ReadyReplicas: 1}
 	s.Workloads["kube-system/DaemonSet/svclb-traefik"] = &W{Key: "kube-system/DaemonSet/svclb-traefik", Namespace: "kube-system", Kind: "DaemonSet", Name: "svclb-traefik"}
 	s.Workloads["shop/Deployment/cart"] = &W{Key: "shop/Deployment/cart", Namespace: "shop", Kind: "Deployment", Name: "cart", Replicas: 2, ReadyReplicas: 1,
-		Images: []*continuumv1.ContainerImage{{Image: "ghcr.io/acme/cart:1.4", Digest: "sha256:abc"}}, NodeNames: []string{"edge-1", "ghost-node"},
+		Images: []*ikhnosv1.ContainerImage{{Image: "ghcr.io/acme/cart:1.4", Digest: "sha256:abc"}}, NodeNames: []string{"edge-1", "ghost-node"},
 		Annotations: map[string]string{"meta.helm.sh/release-name": "shop"}, Labels: map[string]string{"app.kubernetes.io/managed-by": "Helm"},
 		MemoryRequestBytes: 256 << 20, CpuRequestMillis: 100, Ports: []int32{8080}, Exposure: "ingress", Hosts: []string{"shop.example.com"},
 		// One pod on a known node, one on a node this topology doesn't know (same "ghost-node" NodeNames
 		// already exercises for the aggregate NodeIDs filtering above) - so Pod.NodeID's own "empty when
 		// the node isn't known" rule gets exercised too, not just the service-wide NodeIDs list's.
-		Pods: []*continuumv1.PodFacts{
+		Pods: []*ikhnosv1.PodFacts{
 			{Name: "cart-abc-1", NodeName: "edge-1", Phase: "Running", Ready: true, Restarts: 3},
 			{Name: "cart-abc-2", NodeName: "ghost-node", Phase: "Pending"},
 		}}
 	s.Workloads["shop/StatefulSet/db"] = &W{Key: "shop/StatefulSet/db", Namespace: "shop", Kind: "StatefulSet", Name: "db", Replicas: 1, ReadyReplicas: 1,
 		Annotations: map[string]string{"meta.helm.sh/release-name": "shop"}}
 	s.Workloads["default/Deployment/hello"] = &W{Key: "default/Deployment/hello", Namespace: "default", Kind: "Deployment", Name: "hello", Replicas: 0}
-	s.Workloads["continuum-system/Deployment/agent"] = &W{Key: "continuum-system/Deployment/agent", Namespace: "continuum-system", Kind: "Deployment", Name: "agent",
-		Labels: map[string]string{"app.kubernetes.io/part-of": "continuum"}, Replicas: 1, ReadyReplicas: 1}
+	s.Workloads["ikhnos-system/Deployment/agent"] = &W{Key: "ikhnos-system/Deployment/agent", Namespace: "ikhnos-system", Kind: "Deployment", Name: "agent",
+		Labels: map[string]string{"app.kubernetes.io/part-of": "ikhnos"}, Replicas: 1, ReadyReplicas: 1}
 	return s
 }
 
@@ -207,14 +207,14 @@ func TestInterpretK3sCluster(t *testing.T) {
 	if out.Nodes[0].InstanceType != "" {
 		t.Error("the k3s pseudo instance type should not be shown as an instance type")
 	}
-	// kube-system is a system namespace, and continuum-system holds nothing but continuum's own agent here -
+	// kube-system is a system namespace, and ikhnos-system holds nothing but ikhnos's own agent here -
 	// neither belongs in the topology as if it were one of the user's own namespaces.
 	for _, ns := range out.Namespaces {
 		if ns.Name == "kube-system" {
 			t.Error("kube-system leaked into namespaces")
 		}
-		if ns.Name == "continuum-system" {
-			t.Error("a namespace holding only continuum's own workloads leaked into namespaces")
+		if ns.Name == "ikhnos-system" {
+			t.Error("a namespace holding only ikhnos's own workloads leaked into namespaces")
 		}
 	}
 	if len(out.Namespaces) != 2 {
@@ -280,9 +280,9 @@ func TestInterpretK3sCluster(t *testing.T) {
 // when both sides are pods of this same agent's cluster, and a pod this batch says nothing about keeps
 // a nil Traffic rather than an empty-but-present slice.
 func TestInterpretAttachesPerPodTraffic(t *testing.T) {
-	in := Input{OrgID: "org", AgentID: "ag-1", ClusterID: "cl-x", Name: "edge-patras", State: k3sFixture(), Now: time.Now(), PodFlows: []*continuumv1.Flow{
-		{Src: &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_WORKLOAD, Ref: "shop/Deployment/cart"}, Dst: &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_WORKLOAD, Ref: "shop/StatefulSet/db"}, Port: 5432, Protocol: "tcp", Connections: 3, BytesOut: 100, SrcPod: "cart-abc-1", DstPod: "db-0"},
-		{Src: &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_WORKLOAD, Ref: "shop/Deployment/cart"}, Dst: &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_EXTERNAL, Ip: "93.184.216.34"}, Port: 443, Protocol: "tcp", Connections: 1, BytesOut: 50, SrcPod: "cart-abc-1"},
+	in := Input{OrgID: "org", AgentID: "ag-1", ClusterID: "cl-x", Name: "edge-patras", State: k3sFixture(), Now: time.Now(), PodFlows: []*ikhnosv1.Flow{
+		{Src: &ikhnosv1.FlowEndpoint{Kind: ikhnosv1.FlowEndpoint_WORKLOAD, Ref: "shop/Deployment/cart"}, Dst: &ikhnosv1.FlowEndpoint{Kind: ikhnosv1.FlowEndpoint_WORKLOAD, Ref: "shop/StatefulSet/db"}, Port: 5432, Protocol: "tcp", Connections: 3, BytesOut: 100, SrcPod: "cart-abc-1", DstPod: "db-0"},
+		{Src: &ikhnosv1.FlowEndpoint{Kind: ikhnosv1.FlowEndpoint_WORKLOAD, Ref: "shop/Deployment/cart"}, Dst: &ikhnosv1.FlowEndpoint{Kind: ikhnosv1.FlowEndpoint_EXTERNAL, Ip: "93.184.216.34"}, Port: 443, Protocol: "tcp", Connections: 1, BytesOut: 50, SrcPod: "cart-abc-1"},
 	}}
 	out := Interpret(in)
 	var cart model.Service
@@ -315,14 +315,14 @@ func TestInterpretAttachesPerPodTraffic(t *testing.T) {
 func TestPodTrafficOfSameNamedPodsInOtherNamespacesIsNotMixed(t *testing.T) {
 	st := k3sFixture()
 	st.Workloads["staging/StatefulSet/db"] = &W{Key: "staging/StatefulSet/db", Namespace: "staging", Kind: "StatefulSet", Name: "db", Replicas: 1, ReadyReplicas: 1,
-		Pods: []*continuumv1.PodFacts{{Name: "db-0", Phase: "Running", Ready: true}}}
-	st.Workloads["shop/StatefulSet/db"].Pods = []*continuumv1.PodFacts{{Name: "db-0", Phase: "Running", Ready: true}}
-	wl := func(ref string) *continuumv1.FlowEndpoint {
-		return &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_WORKLOAD, Ref: ref}
+		Pods: []*ikhnosv1.PodFacts{{Name: "db-0", Phase: "Running", Ready: true}}}
+	st.Workloads["shop/StatefulSet/db"].Pods = []*ikhnosv1.PodFacts{{Name: "db-0", Phase: "Running", Ready: true}}
+	wl := func(ref string) *ikhnosv1.FlowEndpoint {
+		return &ikhnosv1.FlowEndpoint{Kind: ikhnosv1.FlowEndpoint_WORKLOAD, Ref: ref}
 	}
-	out := Interpret(Input{OrgID: "org", AgentID: "ag-1", ClusterID: "cl-x", Name: "e", State: st, Now: time.Now(), PodFlows: []*continuumv1.Flow{
+	out := Interpret(Input{OrgID: "org", AgentID: "ag-1", ClusterID: "cl-x", Name: "e", State: st, Now: time.Now(), PodFlows: []*ikhnosv1.Flow{
 		{Src: wl("shop/Deployment/cart"), Dst: wl("shop/StatefulSet/db"), Port: 5432, Protocol: "tcp", Connections: 3, SrcPod: "cart-abc-1", DstPod: "db-0"},
-		{Src: wl("staging/StatefulSet/db"), Dst: &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_EXTERNAL, Ip: "93.184.216.34"}, Port: 443, Protocol: "tcp", Connections: 9, SrcPod: "db-0"},
+		{Src: wl("staging/StatefulSet/db"), Dst: &ikhnosv1.FlowEndpoint{Kind: ikhnosv1.FlowEndpoint_EXTERNAL, Ip: "93.184.216.34"}, Port: 443, Protocol: "tcp", Connections: 9, SrcPod: "db-0"},
 	}})
 	pods := map[string]model.Pod{}
 	for _, s := range out.Services {
@@ -371,7 +371,7 @@ func TestInterpretIsDeterministicAndIDsSurviveChanges(t *testing.T) {
 // (never widened to a guessed default), and no Service CIDR at all leaves the field simply unset.
 func TestServiceCIDRPassesThroughOnNonK3sDistributions(t *testing.T) {
 	s := facts.New()
-	s.Cluster = &continuumv1.ClusterFacts{Uid: "u", Version: "v1.29.3-eks-abc123", ServiceCidr: "172.20.0.0/16"}
+	s.Cluster = &ikhnosv1.ClusterFacts{Uid: "u", Version: "v1.29.3-eks-abc123", ServiceCidr: "172.20.0.0/16"}
 	out := Interpret(Input{OrgID: "org", AgentID: "ag-1", ClusterID: "cl-x", Name: "eks", State: s, Now: time.Now()})
 	cl := out.Clusters[0]
 	if cl.Distribution != DistEKS {
@@ -385,7 +385,7 @@ func TestServiceCIDRPassesThroughOnNonK3sDistributions(t *testing.T) {
 	}
 
 	s2 := facts.New()
-	s2.Cluster = &continuumv1.ClusterFacts{Uid: "u"}
+	s2.Cluster = &ikhnosv1.ClusterFacts{Uid: "u"}
 	out2 := Interpret(Input{OrgID: "org", AgentID: "ag-1", ClusterID: "cl-y", Name: "bare", State: s2, Now: time.Now()})
 	if got := out2.Clusters[0].ServiceCIDR; got != "" {
 		t.Errorf("serviceCidr = %q, want unset when the agent never reported one", got)
@@ -439,16 +439,16 @@ func TestAddonsAndAccelerators(t *testing.T) {
 
 func TestInterpretPopulatesCPUAndInterfacesFromProbe(t *testing.T) {
 	s := facts.New()
-	s.Cluster = &continuumv1.ClusterFacts{Uid: "cl-probe"}
+	s.Cluster = &ikhnosv1.ClusterFacts{Uid: "cl-probe"}
 	s.Nodes["a"] = node("a", func(n *N) {
 		cpuPsi, memPsi, ioPsi, oomKills, watts := 2.5, 0.0, 13.75, uint64(2), 185.5
 		n.Probe = &P{
 			SysVendor: "Dell Inc.", ProductName: "PowerEdge R640",
 			CpuModel: "Intel(R) Xeon(R) Platinum 8259CL CPU @ 2.50GHz", CpuThreads: 32,
-			Interfaces:        []*continuumv1.NetworkInterface{{Name: "eno1", Kind: "ethernet", SpeedMbps: 10000, Mtu: 9000}},
-			Disks:             []*continuumv1.Disk{{Name: "nvme0n1", Model: "Samsung SSD 970 EVO", SizeBytes: 1 << 40, Type: "nvme"}},
+			Interfaces:        []*ikhnosv1.NetworkInterface{{Name: "eno1", Kind: "ethernet", SpeedMbps: 10000, Mtu: 9000}},
+			Disks:             []*ikhnosv1.Disk{{Name: "nvme0n1", Model: "Samsung SSD 970 EVO", SizeBytes: 1 << 40, Type: "nvme"}},
 			HostSubnets:       []string{"10.0.5.0/24"},
-			Tunnels:           []*continuumv1.TunnelInterface{{Name: "wg0", Kind: "wireguard", Addresses: []string{"10.8.0.1/24"}, Routes: []string{"10.8.0.0/24"}, Mtu: 1420, Up: true}},
+			Tunnels:           []*ikhnosv1.TunnelInterface{{Name: "wg0", Kind: "wireguard", Addresses: []string{"10.8.0.1/24"}, Routes: []string{"10.8.0.0/24"}, Mtu: 1420, Up: true}},
 			CpuPressurePct:    &cpuPsi,
 			MemoryPressurePct: &memPsi,
 			IoPressurePct:     &ioPsi,
@@ -510,7 +510,7 @@ func TestInterpretPopulatesCPUAndInterfacesFromProbe(t *testing.T) {
 // wire, and that absence must survive as nil, never get treated as a measured 0%.
 func TestInterpretLeavesPressureNilWhenProbeDidNotReadIt(t *testing.T) {
 	s := facts.New()
-	s.Cluster = &continuumv1.ClusterFacts{Uid: "cl-probe-nopsi"}
+	s.Cluster = &ikhnosv1.ClusterFacts{Uid: "cl-probe-nopsi"}
 	s.Nodes["a"] = node("a", func(n *N) {
 		n.Probe = &P{CpuModel: "Cortex-A72", CpuThreads: 4}
 	})
@@ -528,17 +528,17 @@ func TestInterpretLeavesPressureNilWhenProbeDidNotReadIt(t *testing.T) {
 }
 
 // TestInterpretPopulatesLinkSaturationFromFlowCollector covers the per-node network-capacity fact the
-// flow collector reports (continuumv1.LinkSaturation), keyed by node name - a wholly separate pipeline
+// flow collector reports (ikhnosv1.LinkSaturation), keyed by node name - a wholly separate pipeline
 // from the node probe (n.Probe) above, so it must be copied across unconditionally, independent of
 // whether a probe ran on this node at all.
 func TestInterpretPopulatesLinkSaturationFromFlowCollector(t *testing.T) {
 	s := facts.New()
-	s.Cluster = &continuumv1.ClusterFacts{Uid: "cl-linksat"}
+	s.Cluster = &ikhnosv1.ClusterFacts{Uid: "cl-linksat"}
 	s.Nodes["a"] = node("a", nil)
 	pct := 42.5
 	out := Interpret(Input{
 		OrgID: "org", AgentID: "ag-1", ClusterID: "cl-x", Name: "n", State: s, Now: time.Now(),
-		LinkSaturation: map[string][]*continuumv1.LinkSaturation{
+		LinkSaturation: map[string][]*ikhnosv1.LinkSaturation{
 			"a": {{Iface: "eth0", ThroughputBps: 800_000_000, SaturationPct: &pct}, {Iface: "veth1", ThroughputBps: 10}},
 		},
 	})
@@ -560,16 +560,16 @@ func TestInterpretPopulatesLinkSaturationFromFlowCollector(t *testing.T) {
 }
 
 // TestInterpretPopulatesThermalThrottleFromFlowCollector covers the per-node CPU thermal-throttling
-// counters the flow collector reports (continuumv1.ThermalThrottle), keyed by node name - the same
+// counters the flow collector reports (ikhnosv1.ThermalThrottle), keyed by node name - the same
 // wholly-separate-from-the-node-probe pipeline as LinkSaturation above, copied across unconditionally,
 // independent of whether a probe ran on this node at all.
 func TestInterpretPopulatesThermalThrottleFromFlowCollector(t *testing.T) {
 	s := facts.New()
-	s.Cluster = &continuumv1.ClusterFacts{Uid: "cl-thermal"}
+	s.Cluster = &ikhnosv1.ClusterFacts{Uid: "cl-thermal"}
 	s.Nodes["a"] = node("a", nil)
 	out := Interpret(Input{
 		OrgID: "org", AgentID: "ag-1", ClusterID: "cl-x", Name: "n", State: s, Now: time.Now(),
-		ThermalThrottle: map[string]*continuumv1.ThermalThrottle{
+		ThermalThrottle: map[string]*ikhnosv1.ThermalThrottle{
 			"a": {CpuFreqChangeCount: 500, ThermalTripCount: 3},
 		},
 	})
@@ -587,7 +587,7 @@ func TestInterpretPopulatesThermalThrottleFromFlowCollector(t *testing.T) {
 // a node the map does not name, and no entry naming some other node must leak onto this one.
 func TestInterpretLeavesThermalThrottleZeroForAnUnreportedNode(t *testing.T) {
 	s := facts.New()
-	s.Cluster = &continuumv1.ClusterFacts{Uid: "cl-thermal-none"}
+	s.Cluster = &ikhnosv1.ClusterFacts{Uid: "cl-thermal-none"}
 	s.Nodes["a"] = node("a", nil)
 	out := Interpret(Input{OrgID: "org", AgentID: "ag-1", ClusterID: "cl-x", Name: "n", State: s, Now: time.Now()})
 	if n := out.Nodes[0]; n.CpuFreqChangeCount != 0 || n.ThermalTripCount != 0 {
@@ -596,7 +596,7 @@ func TestInterpretLeavesThermalThrottleZeroForAnUnreportedNode(t *testing.T) {
 
 	out2 := Interpret(Input{
 		OrgID: "org", AgentID: "ag-1", ClusterID: "cl-x", Name: "n", State: s, Now: time.Now(),
-		ThermalThrottle: map[string]*continuumv1.ThermalThrottle{"b": {ThermalTripCount: 9}},
+		ThermalThrottle: map[string]*ikhnosv1.ThermalThrottle{"b": {ThermalTripCount: 9}},
 	})
 	if n := out2.Nodes[0]; n.CpuFreqChangeCount != 0 || n.ThermalTripCount != 0 {
 		t.Errorf("cpuFreqChangeCount/thermalTripCount = %d/%d, want 0/0 (report was for a different node)", n.CpuFreqChangeCount, n.ThermalTripCount)
@@ -608,7 +608,7 @@ func TestInterpretLeavesThermalThrottleZeroForAnUnreportedNode(t *testing.T) {
 // mentioning "a" by name must never leak another node's figures onto it.
 func TestInterpretLeavesLinkSaturationNilForAnUnreportedNode(t *testing.T) {
 	s := facts.New()
-	s.Cluster = &continuumv1.ClusterFacts{Uid: "cl-linksat-none"}
+	s.Cluster = &ikhnosv1.ClusterFacts{Uid: "cl-linksat-none"}
 	s.Nodes["a"] = node("a", nil)
 	out := Interpret(Input{OrgID: "org", AgentID: "ag-1", ClusterID: "cl-x", Name: "n", State: s, Now: time.Now()})
 	if n := out.Nodes[0]; n.LinkSaturation != nil {
@@ -617,7 +617,7 @@ func TestInterpretLeavesLinkSaturationNilForAnUnreportedNode(t *testing.T) {
 
 	out2 := Interpret(Input{
 		OrgID: "org", AgentID: "ag-1", ClusterID: "cl-x", Name: "n", State: s, Now: time.Now(),
-		LinkSaturation: map[string][]*continuumv1.LinkSaturation{"b": {{Iface: "eth0", ThroughputBps: 1}}},
+		LinkSaturation: map[string][]*ikhnosv1.LinkSaturation{"b": {{Iface: "eth0", ThroughputBps: 1}}},
 	})
 	if n := out2.Nodes[0]; n.LinkSaturation != nil {
 		t.Errorf("linkSaturation = %+v, want nil (report was for a different node)", n.LinkSaturation)
@@ -629,7 +629,7 @@ func TestInterpretLeavesLinkSaturationNilForAnUnreportedNode(t *testing.T) {
 // CPU/MemoryGb are, distinct from the node probe's own per-physical-disk sizes above.
 func TestInterpretPopulatesDiskCapacity(t *testing.T) {
 	s := facts.New()
-	s.Cluster = &continuumv1.ClusterFacts{Uid: "cl-disk"}
+	s.Cluster = &ikhnosv1.ClusterFacts{Uid: "cl-disk"}
 	s.Nodes["a"] = node("a", func(n *N) {
 		n.EphemeralStorageCapacityBytes = 32 << 30
 		n.EphemeralStorageAllocatableBytes = 28 << 30
@@ -650,7 +650,7 @@ func TestInterpretPopulatesDiskCapacity(t *testing.T) {
 func TestInterpretPopulatesPendingPodCount(t *testing.T) {
 	pending := int32(4)
 	s := facts.New()
-	s.Cluster = &continuumv1.ClusterFacts{Uid: "cl-pending", PendingPodCount: &pending}
+	s.Cluster = &ikhnosv1.ClusterFacts{Uid: "cl-pending", PendingPodCount: &pending}
 	out := Interpret(Input{OrgID: "org", AgentID: "ag-1", ClusterID: "cl-x", Name: "n", State: s, Now: time.Now()})
 	if len(out.Clusters) != 1 {
 		t.Fatalf("clusters = %+v", out.Clusters)
@@ -663,7 +663,7 @@ func TestInterpretPopulatesPendingPodCount(t *testing.T) {
 
 func TestInterpretLeavesPendingPodCountNilWhenNeverRead(t *testing.T) {
 	s := facts.New()
-	s.Cluster = &continuumv1.ClusterFacts{Uid: "cl-unread"}
+	s.Cluster = &ikhnosv1.ClusterFacts{Uid: "cl-unread"}
 	out := Interpret(Input{OrgID: "org", AgentID: "ag-1", ClusterID: "cl-x", Name: "n", State: s, Now: time.Now()})
 	c := out.Clusters[0]
 	if c.PendingPodCount != nil {
@@ -677,7 +677,7 @@ func TestInterpretLeavesPendingPodCountNilWhenNeverRead(t *testing.T) {
 // observed facts unrelated to that kind decision, not something to lose just because the kind guess did.
 func TestInterpretKeepsProbeFactsWhenKindFromProbeGivesUp(t *testing.T) {
 	s := facts.New()
-	s.Cluster = &continuumv1.ClusterFacts{Uid: "cl-probe-2"}
+	s.Cluster = &ikhnosv1.ClusterFacts{Uid: "cl-probe-2"}
 	s.Nodes["a"] = node("a", func(n *N) {
 		n.Architecture = "arm64"
 		n.Probe = &P{CpuModel: "Cortex-A72", CpuThreads: 4}

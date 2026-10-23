@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/kernel"
-	"continuum/internal/testkit"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/testkit"
 )
 
 func TestAddressWarningsSayWhatLooksWrongAndNothingElse(t *testing.T) {

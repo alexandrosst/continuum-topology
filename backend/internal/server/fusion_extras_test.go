@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/estate"
-	"continuum/internal/fusionapi"
-	"continuum/internal/fusionhttp"
-	"continuum/internal/model"
-	"continuum/internal/store"
+	"ikhnos/internal/estate"
+	"ikhnos/internal/fusionapi"
+	"ikhnos/internal/fusionhttp"
+	"ikhnos/internal/model"
+	"ikhnos/internal/store"
 )
 
 func TestYourPromQLIsExpandedPerResourceAndReachesPrometheus(t *testing.T) {

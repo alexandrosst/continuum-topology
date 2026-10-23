@@ -8,11 +8,11 @@ import (
 	"strconv"
 	"strings"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/httpkit"
-	"continuum/internal/install"
-	"continuum/internal/kernel"
-	"continuum/internal/operators"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/httpkit"
+	"ikhnos/internal/install"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/operators"
 )
 
 // serverClusterHost finds the cluster FUSION's gateway runs in, and says how it is known. A cluster a person chose, or the
@@ -28,7 +28,7 @@ func (h *API) serverClusterHost(ctx context.Context, hub *Hub, cen operators.Cen
 // person's choice and the registered agents say.
 func (h *API) serverClusterFromAgents(ctx context.Context, hub *Hub, cen operators.Central, namespace, workload string, gateway *kernel.KubeService) (operatorHost, bool, *ServerClusterDoc) {
 	hosts := hubHosts{hub}
-	gatewayWorkload := func(w *continuumv1.WorkloadFacts) bool { return w.Namespace == namespace && w.Name == workload }
+	gatewayWorkload := func(w *ikhnosv1.WorkloadFacts) bool { return w.Namespace == namespace && w.Name == workload }
 	id, source := hub.C.Settings().ServerClusterID, ServerClusterChosen
 	if id == "" {
 		id, source = "", ServerClusterInstall

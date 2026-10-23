@@ -2,7 +2,7 @@
 // at an operator or an external backend both carry. It is a document and nothing more: what makes a destination acceptable is the operators'.
 package destination
 
-import "continuum/internal/store"
+import "ikhnos/internal/store"
 
 // Doc is a destination as the API carries it, for the operators' routes and for the telemetry intents that point at an
 // operator or at an external backend.
@@ -20,7 +20,7 @@ type Doc struct {
 	// Address is only meaningful for destination kind "operator" - see store.Destination's own field.
 	Address string `json:"address,omitempty"`
 	// FusionRelease and FusionNamespace are only meaningful for destination kind "fusion" - see
-	// store.Destination's own fields. Both default (to "fusion" and "continuum-system") when left empty.
+	// store.Destination's own fields. Both default (to "fusion" and "ikhnos-system") when left empty.
 	FusionRelease   string `json:"fusionRelease,omitempty"`
 	FusionNamespace string `json:"fusionNamespace,omitempty"`
 }

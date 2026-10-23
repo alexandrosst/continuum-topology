@@ -254,7 +254,7 @@ export interface AppTelemetry {
 }
 
 export interface AppTelemetryKey {
-  continuum_cluster_id?: string
+  ikhnos_cluster_id?: string
   k8s_namespace_name?: string
   service_name: string[]
   workload?: Record<string, string>
@@ -2388,7 +2388,7 @@ export interface SelfTelemetrySample {
   cpuPct?: number
   bandwidthSharePct?: number
   watts?: number
-  continuumWattsEstimate?: number
+  ikhnosWattsEstimate?: number
   flowIntervalSeconds?: number
   probeIntervalSeconds?: number
   connectedAgents?: number

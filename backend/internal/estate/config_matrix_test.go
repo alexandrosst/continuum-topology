@@ -7,12 +7,12 @@ import (
 	"strings"
 	"testing"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/accounts"
-	"continuum/internal/agents"
-	"continuum/internal/kernel"
-	"continuum/internal/store"
-	"continuum/internal/testkit"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/agents"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/store"
+	"ikhnos/internal/testkit"
 
 	"google.golang.org/protobuf/encoding/protojson"
 )
@@ -117,7 +117,7 @@ func TestTheConfigEachClusterIsSentIsPinned(t *testing.T) {
 
 // pinnedConfig writes a Config as indented JSON with sorted keys (protojson alone is not stable between runs), with the
 // run-dependent parts made comparable as the test above says.
-func pinnedConfig(t *testing.T, cfg *continuumv1.Config, names map[string]string) string {
+func pinnedConfig(t *testing.T, cfg *ikhnosv1.Config, names map[string]string) string {
 	t.Helper()
 	raw, err := protojson.MarshalOptions{UseProtoNames: true, EmitUnpopulated: false}.Marshal(cfg)
 	if err != nil {

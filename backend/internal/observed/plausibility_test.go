@@ -3,7 +3,7 @@ package observed
 import (
 	"testing"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 )
 
 // TestBoundFlowFactsOmitsOnlyTheImplausibleSaturation is boundSyncFacts' flow-side counterpart: one bad
@@ -11,8 +11,8 @@ import (
 // the other entries) untouched.
 func TestBoundFlowFactsOmitsOnlyTheImplausibleSaturation(t *testing.T) {
 	good, bad := 55.0, 140.0
-	b := &continuumv1.FlowBatch{WindowSeconds: 60, Collectors: []*continuumv1.CollectorInfo{
-		{Node: "n1", Method: "ebpf", LinkSaturation: []*continuumv1.LinkSaturation{
+	b := &ikhnosv1.FlowBatch{WindowSeconds: 60, Collectors: []*ikhnosv1.CollectorInfo{
+		{Node: "n1", Method: "ebpf", LinkSaturation: []*ikhnosv1.LinkSaturation{
 			{Iface: "eth0", ThroughputBps: 1000, SaturationPct: &good},
 			{Iface: "wlan0", ThroughputBps: 2000, SaturationPct: &bad},
 			{Iface: "veth1", ThroughputBps: 500}, // unset: no rated speed read, must be left alone

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"continuum/internal/accounts"
-	"continuum/internal/store"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/store"
 )
 
 // fakeWebAuthnResponse is the only shape fakeWebAuthn's Finish methods understand: real WebAuthn responses

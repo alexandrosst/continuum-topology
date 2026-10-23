@@ -9,11 +9,11 @@ import (
 	"sync"
 	"time"
 
-	"continuum/internal/agents"
-	"continuum/internal/history"
-	"continuum/internal/httpkit"
-	"continuum/internal/kernel"
-	"continuum/internal/store"
+	"ikhnos/internal/agents"
+	"ikhnos/internal/history"
+	"ikhnos/internal/httpkit"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/store"
 )
 
 func (h *API) historyIndex(w http.ResponseWriter, r *http.Request) {

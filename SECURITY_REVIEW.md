@@ -94,7 +94,7 @@ DoS knob.
 
 ### Low — the optional flow-collector DaemonSet is a materially larger blast radius (by design, off by default)
 
-`backend/internal/chart/continuum-agent/templates/flow.yaml` runs the opt-in flow collector as root with
+`backend/internal/chart/ikhnos-agent/templates/flow.yaml` runs the opt-in flow collector as root with
 `hostNetwork`, `hostPID` (when byte-level flow capture is on), and `seccompProfile: Unconfined`, plus
 `CAP_BPF`/`CAP_PERFMON`/`CAP_SYS_RESOURCE` — a real departure from the otherwise strict
 non-root/read-only/all-capabilities-dropped posture the rest of both charts hold to. It's disabled by default

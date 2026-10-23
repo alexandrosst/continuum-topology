@@ -5,8 +5,8 @@ import (
 	"sync"
 	"testing"
 
-	"continuum/internal/kernel"
-	"continuum/internal/testkit"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/testkit"
 )
 
 func TestWorkspaceSavesRaceExactlyOneWinner(t *testing.T) {

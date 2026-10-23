@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/model"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/model"
 )
 
 // TestFlowTableCarriesRtoRetransmits mirrors TestFlowTableCarriesFailedAttempts/MeshBypassSyns: cumulative
@@ -14,8 +14,8 @@ func TestFlowTableCarriesRtoRetransmits(t *testing.T) {
 	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
 	tbl := NewFlowTable()
 	src, dst := wep("a/Deployment/x"), wep("a/Deployment/y")
-	f1 := &continuumv1.Flow{Src: src, Dst: dst, Port: 5432, Protocol: "tcp", Method: "ebpf", Retransmits: 5, RtoRetransmits: 2}
-	tbl.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f1}}, now)
+	f1 := &ikhnosv1.Flow{Src: src, Dst: dst, Port: 5432, Protocol: "tcp", Method: "ebpf", Retransmits: 5, RtoRetransmits: 2}
+	tbl.Apply(&ikhnosv1.FlowBatch{WindowSeconds: 60, Flows: []*ikhnosv1.Flow{f1}}, now)
 	k := FlowKey(f1)
 	e := tbl.Edges[k]
 	if e == nil {
@@ -24,8 +24,8 @@ func TestFlowTableCarriesRtoRetransmits(t *testing.T) {
 	if e.RtoRetransmits != 2 || e.WindowRtoRetransmits != 2 {
 		t.Errorf("rtoRetransmits=%d/%d, want 2/2", e.RtoRetransmits, e.WindowRtoRetransmits)
 	}
-	f2 := &continuumv1.Flow{Src: src, Dst: dst, Port: 5432, Protocol: "tcp", Method: "ebpf", Retransmits: 1, RtoRetransmits: 1}
-	tbl.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f2}}, now.Add(time.Minute))
+	f2 := &ikhnosv1.Flow{Src: src, Dst: dst, Port: 5432, Protocol: "tcp", Method: "ebpf", Retransmits: 1, RtoRetransmits: 1}
+	tbl.Apply(&ikhnosv1.FlowBatch{WindowSeconds: 60, Flows: []*ikhnosv1.Flow{f2}}, now.Add(time.Minute))
 	e = tbl.Edges[k]
 	if e.RtoRetransmits != 3 || e.WindowRtoRetransmits != 1 {
 		t.Errorf("cumulative rtoRetransmits=%d window=%d, want 3/1", e.RtoRetransmits, e.WindowRtoRetransmits)
@@ -39,7 +39,7 @@ func TestDependencyStatsIncludeRtoRetransmits(t *testing.T) {
 	now := time.Date(2026, 9, 19, 12, 0, 0, 0, time.UTC)
 	x, y := "a/Deployment/x", "a/Deployment/y"
 	c := cluster("a", "", nil, wk("a", "Deployment", "x"), wk("a", "Deployment", "y"))
-	f := &continuumv1.Flow{Src: wep(x), Dst: wep(y), Port: 5432, Protocol: "tcp", Connections: 1, Method: "ebpf", Retransmits: 10, RtoRetransmits: 4}
+	f := &ikhnosv1.Flow{Src: wep(x), Dst: wep(y), Port: 5432, Protocol: "tcp", Connections: 1, Method: "ebpf", Retransmits: 10, RtoRetransmits: 4}
 	feed(&c, now, 60, f)
 
 	deps, _ := Topology("org", []Cluster{c}, now, 24*time.Hour)

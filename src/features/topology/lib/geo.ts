@@ -21,7 +21,7 @@ export interface MapSite {
   nodes: number
   services: number
   status: Status
-  /** What kind of place this is on the continuum: the tier most of its clusters are in (devices alone count as far edge). */
+  /** What kind of place this is on the ikhnos: the tier most of its clusters are in (devices alone count as far edge). */
   tier?: Tier
   /** Public addresses its clusters reach the outside world from, without duplicates. */
   exitIps: string[]

@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"continuum/internal/accounts"
+	"ikhnos/internal/accounts"
 )
 
 func TestTheActorOfAContextIsTheSignedInPerson(t *testing.T) {

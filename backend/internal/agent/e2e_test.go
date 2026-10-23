@@ -12,18 +12,18 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/agent"
-	"continuum/internal/agent/collect"
-	"continuum/internal/estate"
-	"continuum/internal/flow"
-	"continuum/internal/kernel"
-	"continuum/internal/model"
-	"continuum/internal/observed"
-	"continuum/internal/pki"
-	"continuum/internal/probe"
-	"continuum/internal/server"
-	"continuum/internal/store"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/agent"
+	"ikhnos/internal/agent/collect"
+	"ikhnos/internal/estate"
+	"ikhnos/internal/flow"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/model"
+	"ikhnos/internal/observed"
+	"ikhnos/internal/pki"
+	"ikhnos/internal/probe"
+	"ikhnos/internal/server"
+	"ikhnos/internal/store"
 
 	"google.golang.org/protobuf/encoding/protojson"
 	appsv1 "k8s.io/api/apps/v1"
@@ -308,7 +308,7 @@ func TestNodeProbeReachesTopology(t *testing.T) {
 	url := "http://" + probeAddr
 	hc := &http.Client{Timeout: 5 * time.Second}
 	waitFor(t, "probe receiver", 5*time.Second, func() bool {
-		_, err := probe.Push(ctx, hc, url, []byte("not the right secret, not at all"), "n1", &continuumv1.HostProbe{}, time.Now())
+		_, err := probe.Push(ctx, hc, url, []byte("not the right secret, not at all"), "n1", &ikhnosv1.HostProbe{}, time.Now())
 		return err != nil
 	})
 	time.Sleep(300 * time.Millisecond)
@@ -316,10 +316,10 @@ func TestNodeProbeReachesTopology(t *testing.T) {
 		t.Fatal("a report signed with the wrong secret must change nothing")
 	}
 	// A report about a node the cluster does not have is accepted but never shown.
-	if _, err := probe.Push(ctx, hc, url, secret, "ghost", &continuumv1.HostProbe{SysVendor: "Ghost"}, time.Now()); err != nil {
+	if _, err := probe.Push(ctx, hc, url, secret, "ghost", &ikhnosv1.HostProbe{SysVendor: "Ghost"}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := probe.Push(ctx, hc, url, secret, "n1", &continuumv1.HostProbe{SysVendor: "Dell Inc.", ProductName: "PowerEdge R640", Uplinks: []string{"ethernet"}}, time.Now()); err != nil {
+	if _, err := probe.Push(ctx, hc, url, secret, "n1", &ikhnosv1.HostProbe{SysVendor: "Dell Inc.", ProductName: "PowerEdge R640", Uplinks: []string{"ethernet"}}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, "probe facts in the topology", 10*time.Second, func() bool { return state().Topology.Nodes[0].Probed })
@@ -389,7 +389,7 @@ func TestObservedTrafficReachesTopology(t *testing.T) {
 	}
 	waitFor(t, "workloads", 15*time.Second, func() bool { return len(state().Topology.Services) == 2 })
 
-	post := func(secret []byte, rep *continuumv1.FlowReport) error {
+	post := func(secret []byte, rep *ikhnosv1.FlowReport) error {
 		body, _ := protojson.Marshal(rep)
 		ts := strconv.FormatInt(time.Now().Unix(), 10)
 		req, _ := http.NewRequest("POST", "http://"+addr+flow.PathReport, bytes.NewReader(body))
@@ -406,7 +406,7 @@ func TestObservedTrafficReachesTopology(t *testing.T) {
 		}
 		return nil
 	}
-	rep := &continuumv1.FlowReport{Method: "ebpf", Node: "n1", BytesKnown: true, Flows: []*continuumv1.RawFlow{
+	rep := &ikhnosv1.FlowReport{Method: "ebpf", Node: "n1", BytesKnown: true, Flows: []*ikhnosv1.RawFlow{
 		{Client: true, LocalIp: "10.42.0.5", PeerIp: "10.43.0.21", Port: 5432, Protocol: "tcp", Connections: 7, BytesOut: 700, BytesIn: 2100},
 		{Client: true, LocalIp: "10.42.0.5", PeerIp: "93.184.216.34", Port: 443, Protocol: "tcp", Connections: 2},
 	}}
@@ -446,7 +446,7 @@ func TestObservedTrafficReachesTopology(t *testing.T) {
 		t.Errorf("collector = %+v", c)
 	}
 	// A quiet window from the same collector keeps it listed: silence must not read as "no observer".
-	quiet := &continuumv1.FlowReport{Method: "ebpf", Node: "n1", BytesKnown: true}
+	quiet := &ikhnosv1.FlowReport{Method: "ebpf", Node: "n1", BytesKnown: true}
 	if err := post(flowSecret, quiet); err != nil {
 		t.Fatal(err)
 	}

@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"continuum/internal/connectivity"
-	"continuum/internal/operators"
+	"ikhnos/internal/connectivity"
+	"ikhnos/internal/operators"
 )
 
 func failing(err string) *SenderDeliveryDoc {
@@ -56,7 +56,7 @@ func TestDiagnosisSaysWhichEndIsAtFault(t *testing.T) {
 			in.Delivery = failing("tls: failed to verify certificate: x509: certificate has expired")
 			in.Peers = peerOK
 		}, "certificate", []string{"client certificate", "run its generated command again"}},
-		{"certificate, nothing to compare", func(in *diagnosisInput) { in.Delivery = failing("x509: certificate signed by unknown authority") }, "certificate", []string{"op-1.continuum-system.svc", "Renew"}},
+		{"certificate, nothing to compare", func(in *diagnosisInput) { in.Delivery = failing("x509: certificate signed by unknown authority") }, "certificate", []string{"op-1.ikhnos-system.svc", "Renew"}},
 		{"credential", func(in *diagnosisInput) { in.Delivery = failing("rpc error: code = Unauthenticated desc = bad token") }, "credential", []string{"credentials"}},
 		{"a chosen private address gets no private-address warning", func(in *diagnosisInput) {
 			in.AddrSource = "chosen"

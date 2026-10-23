@@ -17,7 +17,7 @@ import (
 //
 // into FUSION's Prometheus, so a query joins on the id:
 //
-//	continuum_link_probe_loss_ratio * on (cluster) group_left (cluster_name) ikhnos_cluster_info
+//	ikhnos_link_probe_loss_ratio * on (cluster) group_left (cluster_name) ikhnos_cluster_info
 //
 // It is written again every minute with the application series (see AppInfoMetric), so a renamed cluster shows its new name
 // within a minute and one that is gone falls out within five.

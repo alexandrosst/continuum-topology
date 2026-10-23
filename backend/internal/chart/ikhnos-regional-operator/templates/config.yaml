@@ -1,0 +1,148 @@
+{{- include "operator.validate" . -}}
+{{/* Processor chains per pipeline: memory_limiter always first, then resourcedetection/redaction (if
+     enabled), then - traces only - sampling, then the extraProcessorNames escape hatch (every pipeline),
+     then - traces only - extraTracesProcessorNames as well, then batch always last. Same ordering
+     discipline as ikhnos-agent's telemetry-cluster-config.yaml, minus k8sattributes and any scope
+     filter - this chart has neither, see values.yaml's own comment on why. */}}
+{{- $commonMid := list }}
+{{- if .Values.processors.resourceDetection.enabled }}{{ $commonMid = append $commonMid "resourcedetection" }}{{ end }}
+{{- if .Values.processors.redaction.enabled }}{{ $commonMid = append $commonMid "redaction" }}{{ end }}
+{{- $extraNames := .Values.processors.extraProcessorNames }}
+
+{{- /* resource/operator stamps who this operator is and its labels. It goes after every user-supplied
+     processor and right before batch, with action: upsert, so nothing a user's own extraProcessors set for
+     the same key can win - the same rule as ikhnos-agent's resource/ikhnos. Left out entirely when no
+     `operator` value is set, so an operator installed without one renders exactly what it always did. */ -}}
+{{- $stamp := list }}
+{{- if or .Values.operator.id .Values.operator.name .Values.operator.labels }}{{ $stamp = list "resource/operator" }}{{ end }}
+
+{{- $procSignal := concat (list "memory_limiter") $commonMid $extraNames $stamp (list "batch") }}
+
+{{- $procTraces := concat (list "memory_limiter") $commonMid }}
+{{- if lt (int .Values.processors.tracesSampling.percentage) 100 }}{{ $procTraces = append $procTraces "probabilistic_sampler" }}{{ end }}
+{{- $procTraces = concat $procTraces $extraNames .Values.processors.extraTracesProcessorNames $stamp (list "batch") }}
+
+{{/* health_check is always on (see operator.healthCheckExtensionYAML) - livenessProbe/readinessProbe in
+     deployment.yaml depend on it, unlike bearertokenauth which only applies when receiver.auth is on. */}}
+{{- $extensions := list "health_check" }}
+{{- if .Values.export.queue.persistent.enabled }}{{ $extensions = append $extensions "file_storage/queue" }}{{ end }}
+{{- if .Values.receiver.auth.enabled }}{{ $extensions = append $extensions "bearertokenauth" }}{{ end }}
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "operator.configMapName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "operator.labels" . | nindent 4 }}
+data:
+  otel-collector-config.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: "0.0.0.0:4317"
+            # A sender with exporter keepalive pings an idle connection (telemetry.export.keepalive.time on the agent). The
+            # server's default is one ping per 5 minutes and anything faster is answered with GOAWAY "too_many_pings"; this
+            # accepts one every 30s, also with no call in flight, so keepalive set to 30s or more is never refused here.
+            keepalive:
+              enforcement_policy:
+                min_time: 30s
+                permit_without_stream: true
+            {{- if .Values.receiver.tls.enabled }}
+            tls:
+              cert_file: /receiver-tls/tls.crt
+              key_file: /receiver-tls/tls.key
+              {{- if .Values.receiver.tls.mtls }}
+              client_ca_file: /receiver-tls/ca.crt
+              # Without this the CA that signs the clients is read once, at start: a renewed or added CA in the Secret is
+              # not trusted until the pod restarts, and every client signed by it is refused ("bad certificate").
+              client_ca_file_reload: true
+              {{- end }}
+              # Re-read the certificate and key from the mounted Secret, so a renewed certificate takes effect
+              # without a restart (Kubernetes refreshes the mount itself within about a minute). The renewer
+              # (renew.enabled) replaces it every ~10 days, so this is how soon the new one is used.
+              reload_interval: 5m
+              # This receiver is ours: its clients are the collectors of the same release family, which all speak 1.3.
+              min_version: "1.3"
+            {{- end }}
+            {{- if .Values.receiver.auth.enabled }}
+            auth:
+              authenticator: bearertokenauth
+            {{- end }}
+          http:
+            endpoint: "0.0.0.0:4318"
+            {{- if .Values.receiver.tls.enabled }}
+            tls:
+              cert_file: /receiver-tls/tls.crt
+              key_file: /receiver-tls/tls.key
+              {{- if .Values.receiver.tls.mtls }}
+              client_ca_file: /receiver-tls/ca.crt
+              # Without this the CA that signs the clients is read once, at start: a renewed or added CA in the Secret is
+              # not trusted until the pod restarts, and every client signed by it is refused ("bad certificate").
+              client_ca_file_reload: true
+              {{- end }}
+              # Re-read the certificate and key from the mounted Secret, so a renewed certificate takes effect
+              # without a restart (Kubernetes refreshes the mount itself within about a minute). The renewer
+              # (renew.enabled) replaces it every ~10 days, so this is how soon the new one is used.
+              reload_interval: 5m
+              # This receiver is ours: its clients are the collectors of the same release family, which all speak 1.3.
+              min_version: "1.3"
+            {{- end }}
+            {{- if .Values.receiver.auth.enabled }}
+            auth:
+              authenticator: bearertokenauth
+            {{- end }}
+      {{- if .Values.heartbeat.enabled }}
+      {{- include "operator.heartbeatReceiverYAML" . | nindent 6 }}
+      {{- end }}
+
+    processors:
+      {{- include "operator.memoryLimiterYAML" . | nindent 6 }}
+      {{- include "operator.resourceDetectionYAML" . | nindent 6 }}
+      {{- include "operator.redactionYAML" . | nindent 6 }}
+      {{- include "operator.probabilisticSamplerYAML" . | nindent 6 }}
+      {{- with .Values.processors.extraProcessors }}
+      {{- toYaml . | nindent 6 }}
+      {{- end }}
+      {{- if $stamp }}
+      {{- include "operator.resourceOperatorYAML" . | nindent 6 }}
+      {{- end }}
+      {{- include "operator.batchYAML" . | nindent 6 }}
+      {{- if .Values.heartbeat.enabled }}
+      {{- include "operator.heartbeatProcessorYAML" . | nindent 6 }}
+      {{- end }}
+
+    extensions:
+      {{- include "operator.healthCheckExtensionYAML" . | nindent 6 }}
+      {{- include "operator.receiverAuthExtensionYAML" . | nindent 6 }}
+      {{- include "operator.queueExtensionYAML" . | nindent 6 }}
+
+    exporters:
+      {{- include "operator.exporterYAML" . | nindent 6 }}
+      {{- if .Values.heartbeat.enabled }}
+      {{- include "operator.heartbeatExporterYAML" . | nindent 6 }}
+      {{- end }}
+
+    service:
+      extensions: {{ $extensions | toJson }}
+      {{- include "operator.selfMetricsYAML" . | nindent 6 }}
+      pipelines:
+        metrics:
+          receivers: [otlp]
+          processors: {{ $procSignal | toJson }}
+          exporters: [{{ include "operator.exporterFor" (dict "root" . "m" "metrics") }}]
+        logs:
+          receivers: [otlp]
+          processors: {{ $procSignal | toJson }}
+          exporters: [{{ include "operator.exporterFor" (dict "root" . "m" "logs") }}]
+        traces:
+          receivers: [otlp]
+          processors: {{ $procTraces | toJson }}
+          exporters: [{{ include "operator.exporterFor" (dict "root" . "m" "traces") }}]
+        {{- if .Values.heartbeat.enabled }}
+        # The heartbeat: its own receiver, processor and exporter, shared with no other pipeline above.
+        metrics/heartbeat:
+          receivers: [httpcheck/heartbeat]
+          processors: [filter/heartbeat]
+          exporters: [otlphttp/heartbeat]
+        {{- end }}

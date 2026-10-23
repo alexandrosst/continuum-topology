@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 )
 
-type P = continuumv1.HostProbe
+type P = ikhnosv1.HostProbe
 
 func TestNodeKindFromProbe(t *testing.T) {
 	cases := []struct {

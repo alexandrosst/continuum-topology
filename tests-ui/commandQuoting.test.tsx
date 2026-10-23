@@ -18,7 +18,7 @@ describe.skipIf(!hasBash)('a line that has typed text in it, run in bash', () =>
     const typed = 'otlp.example.com:4317; touch /tmp/pwned $(id)'
     const r = words(connectionCheckCommand(typed, 'op-1').split(' </dev/null')[0], ['openssl'])
     expect(r.stderr).toBe('')
-    expect(r.args).toEqual(['s_client', '-connect', typed, '-servername', 'op-1.continuum-system.svc'])
+    expect(r.args).toEqual(['s_client', '-connect', typed, '-servername', 'op-1.ikhnos-system.svc'])
   })
 
   test('the address lookups name the Service and namespace as one word each', () => {
@@ -28,7 +28,7 @@ describe.skipIf(!hasBash)('a line that has typed text in it, run in bash', () =>
   })
 
   test('the server address upgrade carries the typed address as one value', () => {
-    const r = words(serverAddressUpgradeCommand({ releaseName: 'continuum', releaseNamespace: 'ops' }, 'host:8443 & echo hi').replace('<chart>', 'chart'), ['helm']) // <chart> is the person's to fill in
+    const r = words(serverAddressUpgradeCommand({ releaseName: 'ikhnos', releaseNamespace: 'ops' }, 'host:8443 & echo hi').replace('<chart>', 'chart'), ['helm']) // <chart> is the person's to fill in
     expect(r.stderr).toBe('')
     expect(r.args).toContain('agent.publicAddress=host:8443 & echo hi')
   })

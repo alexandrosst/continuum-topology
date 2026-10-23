@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 
 	"google.golang.org/grpc"
 )
@@ -30,28 +30,28 @@ type FakeAgent struct {
 	ID    string
 	Key   any
 	Leaf  []byte
-	Hello *continuumv1.Hello
+	Hello *ikhnosv1.Hello
 	// Dial opens a connection to the server with the certificate given as the client's.
 	Dial func(cert *tls.Certificate) *grpc.ClientConn
 
 	Cancel   context.CancelFunc // ends the current stream
-	Stream   continuumv1.AgentService_ConnectClient
+	Stream   ikhnosv1.AgentService_ConnectClient
 	Incoming chan Recvd
-	Configs  []*continuumv1.Config       // every Config received on any stream, in order
-	Sent     []*continuumv1.AgentMessage // everything sent with Send, Beat, Replay and SendReordered, on any stream, in order
+	Configs  []*ikhnosv1.Config       // every Config received on any stream, in order
+	Sent     []*ikhnosv1.AgentMessage // everything sent with Send, Beat, Replay and SendReordered, on any stream, in order
 }
 
 // Recvd is one thing the server said, or the error that ended the stream.
 type Recvd struct {
-	M   *continuumv1.ServerMessage
+	M   *ikhnosv1.ServerMessage
 	Err error
 }
 
 // Connect opens a stream, says hello and waits for the Config the server sends in answer.
-func (f *FakeAgent) Connect() *continuumv1.Config {
+func (f *FakeAgent) Connect() *ikhnosv1.Config {
 	f.T.Helper()
 	cert := &tls.Certificate{Certificate: [][]byte{f.Leaf}, PrivateKey: f.Key}
-	c := continuumv1.NewAgentServiceClient(f.Dial(cert))
+	c := ikhnosv1.NewAgentServiceClient(f.Dial(cert))
 	sctx, cancel := context.WithCancel(f.Ctx)
 	s, err := c.Connect(sctx)
 	if err != nil {
@@ -71,7 +71,7 @@ func (f *FakeAgent) Connect() *continuumv1.Config {
 			}
 		}
 	}()
-	if err := s.Send(&continuumv1.AgentMessage{Msg: &continuumv1.AgentMessage_Hello{Hello: f.Hello}}); err != nil {
+	if err := s.Send(&ikhnosv1.AgentMessage{Msg: &ikhnosv1.AgentMessage_Hello{Hello: f.Hello}}); err != nil {
 		f.T.Fatalf("hello: %v", err)
 	}
 	cfg := f.NextConfig(5 * time.Second)
@@ -82,7 +82,7 @@ func (f *FakeAgent) Connect() *continuumv1.Config {
 }
 
 // NextConfig waits up to d for the next Config on the current stream and returns nil if none comes. Other messages are skipped.
-func (f *FakeAgent) NextConfig(d time.Duration) *continuumv1.Config {
+func (f *FakeAgent) NextConfig(d time.Duration) *ikhnosv1.Config {
 	f.T.Helper()
 	timer := time.NewTimer(d)
 	defer timer.Stop()
@@ -105,7 +105,7 @@ func (f *FakeAgent) NextConfig(d time.Duration) *continuumv1.Config {
 // Beat sends a heartbeat that names digest as the Config in force ("" says nothing, as an older agent does).
 func (f *FakeAgent) Beat(digest string) {
 	f.T.Helper()
-	m := &continuumv1.AgentMessage{Msg: &continuumv1.AgentMessage_Heartbeat{Heartbeat: &continuumv1.Heartbeat{AppliedConfigDigest: digest}}}
+	m := &ikhnosv1.AgentMessage{Msg: &ikhnosv1.AgentMessage_Heartbeat{Heartbeat: &ikhnosv1.Heartbeat{AppliedConfigDigest: digest}}}
 	if err := f.Send(m); err != nil {
 		f.T.Fatalf("heartbeat: %v", err)
 	}
@@ -113,7 +113,7 @@ func (f *FakeAgent) Beat(digest string) {
 
 // Send sends any message on the current stream and remembers it. The error is the test's to judge: a stream the server has ended
 // refuses the send, and a test of what happens after that wants to see it.
-func (f *FakeAgent) Send(m *continuumv1.AgentMessage) error {
+func (f *FakeAgent) Send(m *ikhnosv1.AgentMessage) error {
 	f.Sent = append(f.Sent, m)
 	return f.Stream.Send(m)
 }
@@ -133,7 +133,7 @@ func (f *FakeAgent) Replay(i int) error {
 
 // SendReordered sends msgs in the order given by order, which are indexes into msgs (so 2, 0, 1 sends the third first). A stream is
 // ordered, so this is how an agent that numbered its messages one way and sent them another looks to the server.
-func (f *FakeAgent) SendReordered(msgs []*continuumv1.AgentMessage, order ...int) error {
+func (f *FakeAgent) SendReordered(msgs []*ikhnosv1.AgentMessage, order ...int) error {
 	f.T.Helper()
 	for _, i := range order {
 		if err := f.Send(msgs[i]); err != nil {

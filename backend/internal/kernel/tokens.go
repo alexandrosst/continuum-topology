@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-const tokenPrefix = "cnt_"
+const tokenPrefix = "ikh_"
 
 // OperatorPrefix marks a regional operator's receiver bearer token - distinct from an enrollment
 // token, since an operator never enrolls (see store.Operator's own comment); it is only ever checked

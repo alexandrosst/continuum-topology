@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"continuum/internal/kernel"
+	"ikhnos/internal/kernel"
 )
 
 // Opening Prometheus or Grafana from the UI is a link into a new tab. The session cookie is SameSite=Strict, which a browser

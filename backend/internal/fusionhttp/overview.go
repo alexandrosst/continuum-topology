@@ -5,10 +5,10 @@ import (
 	"net/http"
 	"time"
 
-	"continuum/internal/fusion"
-	"continuum/internal/fusionapi"
-	"continuum/internal/httpkit"
-	"continuum/internal/kernel"
+	"ikhnos/internal/fusion"
+	"ikhnos/internal/fusionapi"
+	"ikhnos/internal/httpkit"
+	"ikhnos/internal/kernel"
 )
 
 func (g *Guard) Status(w http.ResponseWriter, r *http.Request, c *fusionapi.Client, who Caller) {

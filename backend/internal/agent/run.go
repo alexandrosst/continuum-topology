@@ -15,15 +15,15 @@ import (
 	"sync/atomic"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/agent/collect"
-	"continuum/internal/agent/exporthealth"
-	"continuum/internal/certrenew"
-	"continuum/internal/flow"
-	"continuum/internal/link"
-	"continuum/internal/measure"
-	"continuum/internal/pki"
-	"continuum/internal/probe"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/agent/collect"
+	"ikhnos/internal/agent/exporthealth"
+	"ikhnos/internal/certrenew"
+	"ikhnos/internal/flow"
+	"ikhnos/internal/link"
+	"ikhnos/internal/measure"
+	"ikhnos/internal/pki"
+	"ikhnos/internal/probe"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -39,7 +39,7 @@ import (
 // TelemetryConfig is the effective telemetry configuration one chart install rendered - the destination,
 // the processor settings telemetry-intent.md names as mattering most for "safe by default" (redaction,
 // resourcedetection, traces sampling), and which source backs energy/accelerators when either signal is
-// on. Built once, in cli/agent/agent.go, from the chart's own CONTINUUM_TELEMETRY_* env vars - never
+// on. Built once, in cli/agent/agent.go, from the chart's own IKHNOS_TELEMETRY_* env vars - never
 // re-derived or re-validated here, the same "the chart's rendered config IS the effective config" stance
 // TelemetrySignals already takes (telemetry is declarative-only; there is no runtime drift to chase).
 // TracesSamplingPercentage/EnergySource/AcceleratorsSource are pointers because each is only meaningful
@@ -67,22 +67,22 @@ type Config struct {
 	Log      *slog.Logger
 	// Namespace is this agent's own Kubernetes namespace (its pod's, not a value it can be told). Sent in Hello
 	// so the server can print a `helm upgrade`/`helm uninstall` that targets the release that is actually
-	// running, instead of guessing "continuum-system". Empty outside a cluster (dev, tests).
+	// running, instead of guessing "ikhnos-system". Empty outside a cluster (dev, tests).
 	Namespace string
 	// ReleaseName is the Helm release this agent was installed as (the chart templates `.Release.Name` in as an
 	// environment variable, since Helm has no downward-API equivalent for it). Sent in Hello for the same reason as
 	// Namespace: so the server's `helm upgrade`/`helm uninstall` commands name the right release instead of guessing
-	// "continuum-agent". Empty outside the chart (dev, tests, an install that predates this field).
+	// "ikhnos-agent". Empty outside the chart (dev, tests, an install that predates this field).
 	ReleaseName string
 	// TelemetrySignals is which telemetry.*.enabled signals this install's chart turned on (the chart computes
-	// and injects CONTINUUM_TELEMETRY_SIGNALS as a comma-separated list of signal names). Reported in
+	// and injects IKHNOS_TELEMETRY_SIGNALS as a comma-separated list of signal names). Reported in
 	// Diagnostics, exactly like Tier - the agent never interprets or enforces these names itself; it only says
 	// what the chart was told to install, so the UI can show real state instead of a blind guess. Nil outside
 	// the chart, or when no telemetry signal is enabled.
 	TelemetrySignals []string
 	// TelemetryConfig is the effective configuration behind TelemetrySignals above - not just which signals
 	// are on, but how each is actually configured (the chart computes and injects it as a handful of sibling
-	// CONTINUUM_TELEMETRY_* env vars, read in cli/agent/agent.go). Reported in Diagnostics as
+	// IKHNOS_TELEMETRY_* env vars, read in cli/agent/agent.go). Reported in Diagnostics as
 	// InstalledTelemetryConfig, the same "effective value the chart rendered" treatment Tier/
 	// TelemetrySignals already get. Nil outside the chart, when no telemetry signal is enabled, or when the
 	// chart predates this field (an older chart only sets the signals list above).
@@ -387,7 +387,7 @@ func (r *runner) rejoin(ctx context.Context, id *Identity) (*Identity, error) {
 		return nil, err
 	}
 	defer conn.Close()
-	resp, err := continuumv1.NewEnrollmentClient(conn).Rejoin(ctx, &continuumv1.RejoinRequest{ExpiredLeafDer: id.CertDER, CsrDer: csr})
+	resp, err := ikhnosv1.NewEnrollmentClient(conn).Rejoin(ctx, &ikhnosv1.RejoinRequest{ExpiredLeafDer: id.CertDER, CsrDer: csr})
 	if status.Code(err) == codes.Unauthenticated {
 		return nil, r.ended(ctx, id, "the certificate expired too long ago or the agent was revoked")
 	}
@@ -465,7 +465,7 @@ func (r *runner) ensureCollector(tier int) error {
 
 // snapshot adds the cluster identity to what the collector saw. The cluster's UID never changes
 // so it is read once; the version is refreshed every ten minutes.
-func (r *runner) snapshot(ctx context.Context) *continuumv1.Sync {
+func (r *runner) snapshot(ctx context.Context) *ikhnosv1.Sync {
 	r.mu.Lock()
 	c := r.collector
 	needUID := r.uid == ""
@@ -560,7 +560,7 @@ func (r *runner) renew(ctx context.Context, conn *grpc.ClientConn, id *Identity)
 	if err != nil {
 		return err
 	}
-	resp, err := continuumv1.NewAgentServiceClient(conn).Renew(ctx, &continuumv1.RenewRequest{CsrDer: csr})
+	resp, err := ikhnosv1.NewAgentServiceClient(conn).Renew(ctx, &ikhnosv1.RenewRequest{CsrDer: csr})
 	if err != nil {
 		return err
 	}
@@ -585,13 +585,13 @@ func (r *runner) renew(ctx context.Context, conn *grpc.ClientConn, id *Identity)
 // ---- deltas ----
 
 // diff returns what changed from prev to cur, or nil if nothing did.
-func diff(prev, cur *continuumv1.Sync) *continuumv1.Sync {
-	out := &continuumv1.Sync{}
+func diff(prev, cur *ikhnosv1.Sync) *ikhnosv1.Sync {
+	out := &ikhnosv1.Sync{}
 	changed := false
 	if !proto.Equal(prev.Cluster, cur.Cluster) {
 		out.Cluster, changed = cur.Cluster, true
 	}
-	pn := map[string]*continuumv1.NodeFacts{}
+	pn := map[string]*ikhnosv1.NodeFacts{}
 	for _, n := range prev.Nodes {
 		pn[n.Key] = n
 	}
@@ -607,7 +607,7 @@ func diff(prev, cur *continuumv1.Sync) *continuumv1.Sync {
 			out.DeletedNodes, changed = append(out.DeletedNodes, k), true
 		}
 	}
-	pns := map[string]*continuumv1.NamespaceFacts{}
+	pns := map[string]*ikhnosv1.NamespaceFacts{}
 	for _, n := range prev.Namespaces {
 		pns[n.Key] = n
 	}
@@ -623,7 +623,7 @@ func diff(prev, cur *continuumv1.Sync) *continuumv1.Sync {
 			out.DeletedNamespaces, changed = append(out.DeletedNamespaces, k), true
 		}
 	}
-	pw := map[string]*continuumv1.WorkloadFacts{}
+	pw := map[string]*ikhnosv1.WorkloadFacts{}
 	for _, w := range prev.Workloads {
 		pw[w.Key] = w
 	}

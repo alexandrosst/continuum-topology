@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"continuum/internal/kernel"
+	"ikhnos/internal/kernel"
 )
 
 func TestOCIBase(t *testing.T) {
@@ -12,7 +12,7 @@ func TestOCIBase(t *testing.T) {
 		"myteam":                    "registry-1.docker.io/myteam",
 		"docker.io/myteam/":         "registry-1.docker.io/myteam",
 		"index.docker.io/team/sub":  "registry-1.docker.io/team/sub",
-		"ghcr.io/me/continuum":      "ghcr.io/me/continuum",
+		"ghcr.io/me/ikhnos":         "ghcr.io/me/ikhnos",
 		"localhost:5000/x":          "localhost:5000/x",
 		"reg.example.com:8443/team": "reg.example.com:8443/team",
 	} {
@@ -24,11 +24,11 @@ func TestOCIBase(t *testing.T) {
 
 func TestTheOperatorChartIsDerivedFromTheAgentsOnlyWhereThatIsSafe(t *testing.T) {
 	for ref, want := range map[string]string{
-		"oci://ghcr.io/acme/charts/continuum-agent":         "oci://ghcr.io/acme/charts/continuum-regional-operator",
-		"https://charts.example.com/stable/continuum-agent": "https://charts.example.com/stable/continuum-regional-operator",
-		"acme/continuum-agent":                              "acme/continuum-regional-operator",
-		"./continuum-agent-0.4.0.tgz":                       "", // a packaged file of one chart says nothing about where the other is
-		"oci://ghcr.io/acme/charts/something-else":          "",
+		"oci://ghcr.io/acme/charts/ikhnos-agent":         "oci://ghcr.io/acme/charts/ikhnos-regional-operator",
+		"https://charts.example.com/stable/ikhnos-agent": "https://charts.example.com/stable/ikhnos-regional-operator",
+		"acme/ikhnos-agent":                              "acme/ikhnos-regional-operator",
+		"./ikhnos-agent-0.4.0.tgz":                       "", // a packaged file of one chart says nothing about where the other is
+		"oci://ghcr.io/acme/charts/something-else":       "",
 		"local": "",
 	} {
 		if got := (Settings{ChartRef: ref}).OperatorRef(kernel.ImageConfig{}); got != want {
@@ -36,7 +36,7 @@ func TestTheOperatorChartIsDerivedFromTheAgentsOnlyWhereThatIsSafe(t *testing.T)
 		}
 	}
 	// With no explicit reference, a configured registry holds both charts side by side.
-	if got := (Settings{}).OperatorRef(kernel.ImageConfig{Registry: "ghcr.io/me"}); got != "oci://ghcr.io/me/continuum-regional-operator" {
+	if got := (Settings{}).OperatorRef(kernel.ImageConfig{Registry: "ghcr.io/me"}); got != "oci://ghcr.io/me/ikhnos-regional-operator" {
 		t.Errorf("from the registry: %q", got)
 	}
 	if got := (Settings{}).AgentRef(kernel.ImageConfig{}); got != "" {
@@ -56,7 +56,7 @@ func TestImagesTakeTheOrganisationsWholeSettingOrTheServersAndNeverAMix(t *testi
 
 func TestACommandThatCannotNameItsChartIsRefusedNotPrinted(t *testing.T) {
 	s := Settings{AgentAddr: "srv:8443", ChartRef: "--post-renderer=/tmp/x"}
-	if cmd, err := s.AgentInstallCommand(kernel.ImageConfig{}, "sha256/pin", "cnt_1", 2); err == nil {
+	if cmd, err := s.AgentInstallCommand(kernel.ImageConfig{}, "sha256/pin", "ikh_1", 2); err == nil {
 		t.Errorf("install: %s", cmd)
 	}
 	if cmd, err := s.AgentUpgradeCommand(kernel.ImageConfig{}, 2, "ns", "rel"); err == nil {
@@ -66,11 +66,11 @@ func TestACommandThatCannotNameItsChartIsRefusedNotPrinted(t *testing.T) {
 
 func TestTheInstallCommandPacksThePinAndTheTokenAndOmitsTheDefaultTier(t *testing.T) {
 	s := Settings{AgentAddr: "srv:8443"}
-	cmd, err := s.AgentInstallCommand(kernel.ImageConfig{}, "sha256/PIN", "cnt_secret", ChartDefaultAccessTier)
+	cmd, err := s.AgentInstallCommand(kernel.ImageConfig{}, "sha256/PIN", "ikh_secret", ChartDefaultAccessTier)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(cmd, "sha256/PIN.cnt_secret") || !strings.Contains(cmd, "server.address=srv:8443") {
+	if !strings.Contains(cmd, "sha256/PIN.ikh_secret") || !strings.Contains(cmd, "server.address=srv:8443") {
 		t.Errorf("the pin and the token are one flag, joined by a dot:\n%s", cmd)
 	}
 	if strings.Contains(cmd, "access.tier") {

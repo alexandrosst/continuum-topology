@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"continuum/internal/link"
+	"ikhnos/internal/link"
 )
 
 type linksDashboard struct {
@@ -96,7 +96,7 @@ func TestFusionLinksDashboardIsProvisioned(t *testing.T) {
 		if v.Name == "peer" && !strings.Contains(v.Definition, `cluster=~"$cluster"`) {
 			t.Errorf("the peer list does not depend on the chosen cluster: %s", v.Definition)
 		}
-		if !strings.Contains(v.Definition, "continuum_link_peer_info") {
+		if !strings.Contains(v.Definition, "ikhnos_link_peer_info") {
 			t.Errorf("variable %q is not read from the peer info series: %s", v.Name, v.Definition)
 		}
 	}
@@ -155,7 +155,7 @@ func TestFusionLinksDashboardIsProvisioned(t *testing.T) {
 }
 
 var (
-	linkMetricRE = regexp.MustCompile(`continuum_link_[a-z0-9_]+`)
+	linkMetricRE = regexp.MustCompile(`ikhnos_link_[a-z0-9_]+`)
 	byClauseRE   = regexp.MustCompile(`\bby\s*\(([^)]*)\)`)
 	matcherRE    = regexp.MustCompile(`\b([a-zA-Z_]\w*)\s*(?:=~|!=|!~|=)\s*"`)
 )
@@ -232,9 +232,9 @@ func unnamed(expr string) (core string, named, ok bool) {
 
 // directional says whether a family has a direction label: grouping it without one would add the two directions together.
 func directional(family string) bool {
-	return strings.HasPrefix(family, "continuum_link_probe_") ||
-		slices.Contains([]string{"throughput_bits_per_second", "throughput_retransmits", "throughput_rtt_seconds", "throughput_test_bytes_total"}, strings.TrimPrefix(family, "continuum_link_")) ||
-		strings.HasPrefix(family, "continuum_link_throughput_udp_")
+	return strings.HasPrefix(family, "ikhnos_link_probe_") ||
+		slices.Contains([]string{"throughput_bits_per_second", "throughput_retransmits", "throughput_rtt_seconds", "throughput_test_bytes_total"}, strings.TrimPrefix(family, "ikhnos_link_")) ||
+		strings.HasPrefix(family, "ikhnos_link_throughput_udp_")
 }
 
 // linkFamily maps a series name to its family: a histogram's series carry _bucket, _sum or _count.
@@ -276,7 +276,7 @@ func TestFusionLinksDashboardNamesOnlyWhatTheMeterExports(t *testing.T) {
 			used[fam] = true
 			hasDirection = hasDirection || directional(fam)
 		}
-		if strings.Contains(expr, "continuum_link_jitter_seconds") {
+		if strings.Contains(expr, "ikhnos_link_jitter_seconds") {
 			t.Errorf("%s: reads the passive jitter series, which is being dropped: %s", where, expr)
 		}
 		for _, m := range matcherRE.FindAllStringSubmatch(expr, -1) {
@@ -284,7 +284,7 @@ func TestFusionLinksDashboardNamesOnlyWhatTheMeterExports(t *testing.T) {
 				t.Errorf("%s: selects on %q, which the link series do not carry: %s", where, m[1], expr)
 			}
 		}
-		if strings.Contains(expr, "continuum_cluster_id") {
+		if strings.Contains(expr, "ikhnos_cluster_id") {
 			t.Errorf("%s: uses the sending resource's label; the pair is the series' own cluster and peer: %s", where, expr)
 		}
 		for _, m := range byClauseRE.FindAllStringSubmatch(expr, -1) {
@@ -337,8 +337,8 @@ func TestFusionLinksDashboardNamesOnlyWhatTheMeterExports(t *testing.T) {
 	}
 	// The dashboard covers every kind of measurement, not one: a source it forgot would be a gap nobody notices.
 	for _, f := range []string{"probe_loss_ratio", "probe_up", "tcp_connect_seconds", "rtt_seconds", "retransmits_total", "path_mtu_bytes", "path_changes_total", "throughput_bits_per_second", "throughput_udp_saturated", "throughput_budget_used_bytes", "throughput_tests_skipped_total"} {
-		if !used["continuum_link_"+f] {
-			t.Errorf("no panel reads continuum_link_%s", f)
+		if !used["ikhnos_link_"+f] {
+			t.Errorf("no panel reads ikhnos_link_%s", f)
 		}
 	}
 }
@@ -357,7 +357,7 @@ func TestFusionLinksDashboardNeverDrawsAbsentDataAsHealthy(t *testing.T) {
 	}
 	// "Probes failing now" is zero only when probes are reporting.
 	for _, p := range d.Panels {
-		if p.Title == "Probes failing now" && !strings.Contains(p.Targets[0].Expr, "0 * count(continuum_link_probe_up") {
+		if p.Title == "Probes failing now" && !strings.Contains(p.Targets[0].Expr, "0 * count(ikhnos_link_probe_up") {
 			t.Errorf("failing probes are zero even when nothing reports: %s", p.Targets[0].Expr)
 		}
 	}
@@ -432,8 +432,8 @@ func (d linksDashboard) panelNamed(t *testing.T, title string) linksPanel {
 func TestFusionLinksDashboardDrawsADirectionThatNeverSucceededAtTheTopOfTheScale(t *testing.T) {
 	d := loadLinksDashboard(t, fusionRender(t, "f"))
 	for _, c := range []struct{ title, last, present string }{
-		{"Seconds since the last completed probe", "continuum_link_probe_last_success_timestamp_seconds", "continuum_link_probe_up"},
-		{"Seconds since the last connection opened", "continuum_link_tcp_connect_last_success_timestamp_seconds", "continuum_link_tcp_connect_seconds_count"},
+		{"Seconds since the last completed probe", "ikhnos_link_probe_last_success_timestamp_seconds", "ikhnos_link_probe_up"},
+		{"Seconds since the last connection opened", "ikhnos_link_tcp_connect_last_success_timestamp_seconds", "ikhnos_link_tcp_connect_seconds_count"},
 	} {
 		p := d.panelNamed(t, c.title)
 		core, _, ok := unnamed(p.Expr)
@@ -463,7 +463,7 @@ func TestFusionLinksDashboardProbeStateTellsAnAllLostRunFromAHealthyOne(t *testi
 	if !ok {
 		t.Fatalf("not in the dashboard's way of naming clusters: %s", p.Expr)
 	}
-	if !strings.Contains(core, "continuum_link_probe_loss_ratio") || !strings.Contains(core, ">= 0.99") || !strings.Contains(core, "== 1) and on (cluster, peer, direction)") {
+	if !strings.Contains(core, "ikhnos_link_probe_loss_ratio") || !strings.Contains(core, ">= 0.99") || !strings.Contains(core, "== 1) and on (cluster, peer, direction)") {
 		t.Errorf("the state does not look at the loss of a run that is up: %s", core)
 	}
 	if got := []string{p.Colors["failed"], p.Colors["up"], p.Colors["up, all packets lost"]}; !slices.Equal(got, []string{"red", "green", "purple"}) {

@@ -9,7 +9,7 @@
 // configured per certificate. The collector re-reads the files on its own (the chart's reload_interval), so no
 // restart is involved.
 //
-// Two programs run it: the discovery agent (for the cluster's own collectors) and the "continuum cert-renew"
+// Two programs run it: the discovery agent (for the cluster's own collectors) and the "ikhnos cert-renew"
 // sidecar of a regional operator (for the operator's own receiver and exporter). Each needs permission to get and
 // update exactly the Secrets it names, nothing wider.
 package certrenew
@@ -28,8 +28,8 @@ import (
 	"strings"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/pki"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/pki"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -45,7 +45,7 @@ type Target struct{ Namespace, Name string }
 
 func (t Target) String() string { return t.Namespace + "/" + t.Name }
 
-// ParseTargets reads "name1,name2" (as in CONTINUUM_RENEW_SECRETS) into targets in namespace.
+// ParseTargets reads "name1,name2" (as in IKHNOS_RENEW_SECRETS) into targets in namespace.
 func ParseTargets(namespace, list string) []Target {
 	var out []Target
 	seen := map[string]bool{}
@@ -85,7 +85,7 @@ type Config struct {
 	// Report, when set, is told what each check found, so a caller can show "renewal failing" somewhere people look.
 	Report func(Result)
 	// Dial, when set, replaces the pinned TLS dial (tests).
-	Dial func() (continuumv1.EnrollmentClient, func(), error)
+	Dial func() (ikhnosv1.EnrollmentClient, func(), error)
 	// Now is the clock (tests).
 	Now func() time.Time
 }
@@ -108,7 +108,7 @@ func (c *Config) defaults() {
 	}
 }
 
-func (c *Config) dialServer() (continuumv1.EnrollmentClient, func(), error) {
+func (c *Config) dialServer() (ikhnosv1.EnrollmentClient, func(), error) {
 	host, _, err := net.SplitHostPort(c.Server)
 	if err != nil {
 		return nil, nil, fmt.Errorf("server address must be host:port: %w", err)
@@ -117,7 +117,7 @@ func (c *Config) dialServer() (continuumv1.EnrollmentClient, func(), error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	return continuumv1.NewEnrollmentClient(cc), func() { cc.Close() }, nil
+	return ikhnosv1.NewEnrollmentClient(cc), func() { cc.Close() }, nil
 }
 
 // Run checks the Secrets now and then every Config.Every until ctx ends. After a failure it tries again sooner
@@ -216,7 +216,7 @@ func renewOne(ctx context.Context, cfg *Config, t Target) Result {
 	defer closeConn()
 	callCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	resp, err := client.RenewTelemetryCert(callCtx, &continuumv1.RenewTelemetryCertRequest{OldLeafDer: old.Raw, CsrDer: csr, Proof: proof})
+	resp, err := client.RenewTelemetryCert(callCtx, &ikhnosv1.RenewTelemetryCertRequest{OldLeafDer: old.Raw, CsrDer: csr, Proof: proof})
 	if err != nil {
 		res.Err = fmt.Errorf("the server did not renew it: %s", status.Convert(err).Message())
 		switch status.Code(err) {

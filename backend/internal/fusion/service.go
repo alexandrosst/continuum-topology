@@ -6,8 +6,8 @@
 package fusion
 
 import (
-	"continuum/internal/kernel"
-	"continuum/internal/operators"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/operators"
 )
 
 // Service is the FUSION control's view of one organisation: its Core and the operators the central operator is one of.

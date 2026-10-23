@@ -1,0 +1,185 @@
+{{- include "operator.validate" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "operator.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "operator.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- if gt (int .Values.replicaCount) 1 }}
+  # More than one replica is there to stay available: replace them one at a time, never all at once.
+  strategy: {type: RollingUpdate, rollingUpdate: {maxUnavailable: 0, maxSurge: 1}}
+  {{- else }}
+  strategy: {type: Recreate}
+  {{- end }}
+  selector:
+    matchLabels: {app.kubernetes.io/name: ikhnos-regional-operator, app.kubernetes.io/instance: {{ .Release.Name }}}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ikhnos-regional-operator
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/part-of: ikhnos
+        app.kubernetes.io/component: receiver
+        {{- include "operator.meshOptOutLabels" . | nindent 8 }}
+        {{- include "operator.podLabels" . | nindent 8 }}
+      annotations:
+        {{- include "operator.meshOptOutAnnotations" . | nindent 8 }}
+        checksum/config: {{ include (print $.Template.BasePath "/config.yaml") . | sha256sum }}
+        {{- with include "operator.tlsChecksum" . }}
+        checksum/mtls: {{ . }}
+        {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . | quote }}
+      {{- end }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "operator.name" . }}
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      # Nothing here needs a fsGroup: every volume is a ConfigMap, a Secret (mode 0644) or an emptyDir (0777).
+      securityContext: {{- include "operator.podSecurityContext" . | nindent 8 }}
+      containers:
+        - name: otel-collector
+          image: {{ include "operator.image" . | quote }}
+          imagePullPolicy: {{ include "operator.imagePullPolicy" . }}
+          args: ["--config=/conf/otel-collector-config.yaml"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          env:
+            {{- include "operator.exporterEnv" . | nindent 12 }}
+            {{- include "operator.receiverAuthEnv" . | nindent 12 }}
+            {{- if .Values.heartbeat.enabled }}
+            {{- include "operator.heartbeatEnv" . | nindent 12 }}
+            {{- end }}
+            {{- if .Values.selfMetrics.enabled }}
+            # The pod's own address, which the self-metrics reader binds to (see operator.selfMetricsYAML).
+            - name: POD_IP
+              valueFrom: {fieldRef: {fieldPath: status.podIP}}
+            {{- end }}
+            {{- $gml := include "operator.gomemlimit" .Values.resources }}
+            {{- if $gml }}
+            - name: GOMEMLIMIT
+              value: {{ $gml | quote }}
+            {{- end }}
+            {{- /* Proxy variables, then extraEnv last: a variable named like one above replaces it. */}}
+            {{- with include "operator.proxyEnv" . }}
+            {{- . | nindent 12 }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - {name: otlp-grpc, containerPort: 4317, protocol: TCP}
+            - {name: otlp-http, containerPort: 4318, protocol: TCP}
+            - {name: health, containerPort: {{ include "operator.healthPort" . }}, protocol: TCP}
+            {{- if .Values.selfMetrics.enabled }}
+            - {name: metrics, containerPort: {{ .Values.selfMetrics.port }}, protocol: TCP}
+            {{- end }}
+          # health_check always on (see config.yaml); liveness fails only once the collector itself has
+          # stopped answering, readiness the same but checked more eagerly and recovers faster - neither
+          # knows whether the export destination is reachable, only that this process is alive and its
+          # pipelines started. The collector cannot tell the probe more (see operator.healthCheckExtensionYAML);
+          # whether it is delivering is in its self metrics (port `metrics`): otelcol_exporter_queue_size,
+          # otelcol_exporter_send_failed_* and otelcol_exporter_enqueue_failed_*.
+          livenessProbe:
+            httpGet: {path: /, port: health}
+            initialDelaySeconds: {{ .Values.health.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.health.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.health.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.health.livenessProbe.failureThreshold }}
+          readinessProbe:
+            httpGet: {path: /, port: health}
+            initialDelaySeconds: {{ .Values.health.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.health.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.health.readinessProbe.timeoutSeconds }}
+            failureThreshold: {{ .Values.health.readinessProbe.failureThreshold }}
+          volumeMounts:
+            - {name: config, mountPath: /conf, readOnly: true}
+            {{- if .Values.receiver.tls.enabled }}
+            - {name: receiver-tls, mountPath: /receiver-tls, readOnly: true}
+            {{- end }}
+            {{- with include "operator.exporterMtlsMounts" . }}
+            {{- . | nindent 12 }}
+            {{- end }}
+            {{- with include "operator.exporterCAMounts" . }}
+            {{- . | nindent 12 }}
+            {{- end }}
+            {{- if and .Values.heartbeat.enabled .Values.heartbeat.tls.caSecretName }}
+            - {name: heartbeat-ca, mountPath: /heartbeat-ca, readOnly: true}
+            {{- end }}
+            {{- if .Values.export.queue.persistent.enabled }}
+            - {name: queue, mountPath: /queue}
+            {{- end }}
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+        {{- if include "operator.renewOn" . }}
+        # Keeps the certificates in the Secrets mounted above from running out (see renew in values.yaml). Same image as the
+        # discovery agent, a different role. It alone gets the service-account token, through the projected volume below.
+        - name: cert-renew
+          image: {{ include "operator.renewImage" . | quote }}
+          imagePullPolicy: {{ include "operator.imagePullPolicy" . }}
+          args: ["cert-renew", "--every={{ dig "renew" "interval" "1h" .Values.AsMap }}"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          env:
+            - {name: IKHNOS_SERVER, value: {{ .Values.renew.server | quote }}}
+            - {name: IKHNOS_CA_PIN, value: {{ .Values.renew.caPin | quote }}}
+            - {name: IKHNOS_RENEW_SECRETS, value: {{ include "operator.renewSecretNames" . | fromJsonArray | join "," | quote }}}
+            - name: POD_NAMESPACE
+              valueFrom: {fieldRef: {fieldPath: metadata.namespace}}
+          volumeMounts:
+            - {name: kube-api-access, mountPath: /var/run/secrets/kubernetes.io/serviceaccount, readOnly: true}
+          resources: {{- toYaml (dig "renew" "resources" (dict) .Values.AsMap) | nindent 12 }}
+        {{- end }}
+      volumes:
+        {{- if include "operator.renewOn" . }}
+        - name: kube-api-access
+          projected:
+            defaultMode: 0444
+            sources:
+              - serviceAccountToken: {path: token, expirationSeconds: 3600}
+              - configMap: {name: kube-root-ca.crt, items: [{key: ca.crt, path: ca.crt}]}
+              - downwardAPI: {items: [{path: namespace, fieldRef: {fieldPath: metadata.namespace}}]}
+        {{- end }}
+        - name: config
+          configMap: {name: {{ include "operator.configMapName" . }}}
+        {{- if .Values.receiver.tls.enabled }}
+        - name: receiver-tls
+          secret: {secretName: {{ .Values.receiver.tls.secretName }}}
+        {{- end }}
+        {{- with include "operator.exporterMtlsVolumes" . }}
+        {{- . | nindent 8 }}
+        {{- end }}
+        {{- with include "operator.exporterCAVolumes" . }}
+        {{- . | nindent 8 }}
+        {{- end }}
+        {{- if and .Values.heartbeat.enabled .Values.heartbeat.tls.caSecretName }}
+        - name: heartbeat-ca
+          secret: {secretName: {{ .Values.heartbeat.tls.caSecretName }}}
+        {{- end }}
+        {{- if .Values.export.queue.persistent.enabled }}
+        # The root filesystem is read-only, so the persistent sending queue lives here. It survives a container
+        # restart but not a rescheduled pod, and counts against the node's ephemeral storage.
+        - name: queue
+          emptyDir: {sizeLimit: {{ .Values.export.queue.persistent.sizeLimit | quote }}}
+        {{- end }}
+      {{- with .Values.dnsConfig }}
+      dnsConfig: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      nodeSelector: {{- toYaml .Values.nodeSelector | nindent 8 }}

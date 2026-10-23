@@ -8,16 +8,16 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/accounts"
-	"continuum/internal/agent"
-	"continuum/internal/agent/collect"
-	"continuum/internal/agents"
-	"continuum/internal/estate"
-	"continuum/internal/flow"
-	"continuum/internal/kernel"
-	"continuum/internal/link"
-	"continuum/internal/server"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/agent"
+	"ikhnos/internal/agent/collect"
+	"ikhnos/internal/agents"
+	"ikhnos/internal/estate"
+	"ikhnos/internal/flow"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/link"
+	"ikhnos/internal/server"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -128,16 +128,16 @@ func TestTheServerNamesLinkPeersAndTheAgentLabelsTrafficWithThem(t *testing.T) {
 	}
 
 	// Traffic seen to the peer's node is labelled with the pair; traffic anywhere else is not.
-	pipe.Ingest(&continuumv1.FlowReport{Method: "ebpf", Node: "n1", BytesKnown: true, Flows: []*continuumv1.RawFlow{
+	pipe.Ingest(&ikhnosv1.FlowReport{Method: "ebpf", Node: "n1", BytesKnown: true, Flows: []*ikhnosv1.RawFlow{
 		{Client: true, LocalIp: "10.0.0.5", PeerIp: "10.9.9.9", Port: 443, Protocol: "tcp", Connections: 3, BytesOut: 5000, BytesIn: 200, SegsOut: 40, Retransmits: 2, RttUs: 25000},
 		{Client: true, LocalIp: "10.0.0.5", PeerIp: "8.8.8.8", Port: 443, Protocol: "tcp", Connections: 9, BytesOut: 1},
 	}})
 	out := metricsOf(meter)
 	for _, want := range []string{
-		`continuum_link_connections_total{cluster="` + mine + `",peer="` + peer + `"} 3`,
-		`continuum_link_retransmits_total{cluster="` + mine + `",peer="` + peer + `"} 2`,
-		`continuum_link_sent_bytes_total{cluster="` + mine + `",peer="` + peer + `"} 5000`,
-		`continuum_link_rtt_seconds_count{cluster="` + mine + `",peer="` + peer + `"} 1`,
+		`ikhnos_link_connections_total{cluster="` + mine + `",peer="` + peer + `"} 3`,
+		`ikhnos_link_retransmits_total{cluster="` + mine + `",peer="` + peer + `"} 2`,
+		`ikhnos_link_sent_bytes_total{cluster="` + mine + `",peer="` + peer + `"} 5000`,
+		`ikhnos_link_rtt_seconds_count{cluster="` + mine + `",peer="` + peer + `"} 1`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in:\n%s", want, out)

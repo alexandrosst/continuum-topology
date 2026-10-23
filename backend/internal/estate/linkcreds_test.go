@@ -4,10 +4,10 @@ import (
 	"strings"
 	"testing"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/connectivity"
-	"continuum/internal/kernel"
-	"continuum/internal/store"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/connectivity"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/store"
 )
 
 func TestTheConfigHashFollowsTheCredentialsWithoutHoldingThem(t *testing.T) {
@@ -37,24 +37,24 @@ func TestTheConfigHashFollowsTheCredentialsWithoutHoldingThem(t *testing.T) {
 		t.Error("a rotated key pair did not change the hash")
 	}
 	// The hash is of the Config text and holds no credential: build one with a distinctive password.
-	c := &continuumv1.Config{ClusterId: "cl-a", LinkPeers: []*continuumv1.LinkPeer{{ClusterId: "cl-b", Throughput: true, IperfClient: &continuumv1.LinkIperfClient{PublicKeyPem: "pub", Username: "u", Password: "PASSWORDMARK"}}}, LinkIperfServer: &continuumv1.LinkIperfServer{PrivateKeyPem: "KEYMARK", UsersCsv: "u,HASHMARK"}}
+	c := &ikhnosv1.Config{ClusterId: "cl-a", LinkPeers: []*ikhnosv1.LinkPeer{{ClusterId: "cl-b", Throughput: true, IperfClient: &ikhnosv1.LinkIperfClient{PublicKeyPem: "pub", Username: "u", Password: "PASSWORDMARK"}}}, LinkIperfServer: &ikhnosv1.LinkIperfServer{PrivateKeyPem: "KEYMARK", UsersCsv: "u,HASHMARK"}}
 	h := connectivity.ConfigHash(c)
 	for _, m := range []string{"PASSWORDMARK", "KEYMARK", "HASHMARK"} {
 		if strings.Contains(h, m) {
 			t.Errorf("the hash contains %s", m)
 		}
 	}
-	c2 := &continuumv1.Config{ClusterId: "cl-a", LinkPeers: []*continuumv1.LinkPeer{{ClusterId: "cl-b", Throughput: true, IperfClient: &continuumv1.LinkIperfClient{PublicKeyPem: "pub", Username: "u", Password: "PASSWORDMARK2"}}}, LinkIperfServer: c.LinkIperfServer}
+	c2 := &ikhnosv1.Config{ClusterId: "cl-a", LinkPeers: []*ikhnosv1.LinkPeer{{ClusterId: "cl-b", Throughput: true, IperfClient: &ikhnosv1.LinkIperfClient{PublicKeyPem: "pub", Username: "u", Password: "PASSWORDMARK2"}}}, LinkIperfServer: c.LinkIperfServer}
 	if connectivity.ConfigHash(c2) == h {
 		t.Error("a different password gave the same hash")
 	}
-	c3 := &continuumv1.Config{ClusterId: "cl-a", LinkPeers: c.LinkPeers, LinkIperfServer: &continuumv1.LinkIperfServer{PrivateKeyPem: "KEYMARK2", UsersCsv: "u,HASHMARK"}}
+	c3 := &ikhnosv1.Config{ClusterId: "cl-a", LinkPeers: c.LinkPeers, LinkIperfServer: &ikhnosv1.LinkIperfServer{PrivateKeyPem: "KEYMARK2", UsersCsv: "u,HASHMARK"}}
 	if connectivity.ConfigHash(c3) == h {
 		t.Error("a different server key gave the same hash")
 	}
 	// A Config without credentials hashes as it always did.
-	plain := &continuumv1.Config{ClusterId: "cl-a", LinkPeers: []*continuumv1.LinkPeer{{ClusterId: "cl-b", Name: "B", Addresses: []string{"10.0.0.1"}}}}
-	if connectivity.ConfigHash(plain) != connectivity.ConfigHash(&continuumv1.Config{ClusterId: "cl-a", LinkPeers: []*continuumv1.LinkPeer{{ClusterId: "cl-b", Name: "B", Addresses: []string{"10.0.0.1"}}}}) {
+	plain := &ikhnosv1.Config{ClusterId: "cl-a", LinkPeers: []*ikhnosv1.LinkPeer{{ClusterId: "cl-b", Name: "B", Addresses: []string{"10.0.0.1"}}}}
+	if connectivity.ConfigHash(plain) != connectivity.ConfigHash(&ikhnosv1.Config{ClusterId: "cl-a", LinkPeers: []*ikhnosv1.LinkPeer{{ClusterId: "cl-b", Name: "B", Addresses: []string{"10.0.0.1"}}}}) {
 		t.Error("unstable hash")
 	}
 }

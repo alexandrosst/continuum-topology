@@ -3,10 +3,10 @@ package operatorsapi
 import (
 	"net/http"
 
-	"continuum/internal/httpkit"
-	"continuum/internal/kernel"
-	"continuum/internal/operators"
-	"continuum/internal/store"
+	"ikhnos/internal/httpkit"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/operators"
+	"ikhnos/internal/store"
 )
 
 // DestinationRole says whether a destination is the gateway in front of FUSION or an operator someone installed.

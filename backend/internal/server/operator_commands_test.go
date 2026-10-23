@@ -5,12 +5,12 @@ import (
 	"strings"
 	"testing"
 
-	"continuum/internal/accounts"
-	"continuum/internal/kernel"
-	"continuum/internal/operators"
-	"continuum/internal/operatorsapi"
-	"continuum/internal/store"
-	"continuum/internal/testkit"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/operators"
+	"ikhnos/internal/operatorsapi"
+	"ikhnos/internal/store"
+	"ikhnos/internal/testkit"
 )
 
 // Whatever reaches a command line is validated first: an external destination is a host and a port or a URL, a file
@@ -120,7 +120,7 @@ func TestSourceRemindersStateTheWholeBlockAndOneSecretPerCluster(t *testing.T) {
 	keys := map[string]bool{}
 	for i, cl := range []string{clA, clB} {
 		secret := reminders[i].(string)
-		if !strings.HasPrefix(secret, "# in cluster "+cl+" (namespace continuum-system)") || strings.Count(secret, "BEGIN EC PRIVATE KEY") != 1 {
+		if !strings.HasPrefix(secret, "# in cluster "+cl+" (namespace ikhnos-system)") || strings.Count(secret, "BEGIN EC PRIVATE KEY") != 1 {
 			t.Fatalf("secret reminder for %s:\n%s", cl, secret)
 		}
 		keys[secret[strings.Index(secret, "BEGIN EC PRIVATE KEY"):][:80]] = true
@@ -130,9 +130,9 @@ func TestSourceRemindersStateTheWholeBlockAndOneSecretPerCluster(t *testing.T) {
 	}
 	for _, r := range reminders[2:] {
 		up := r.(string)
-		for _, want := range []string{"--reset-then-reuse-values", "--set telemetry.export.otlp.endpoint=" + operators.OperatorServiceName(id) + ".continuum-system.svc:4317", "--set telemetry.export.otlp.protocol=grpc",
+		for _, want := range []string{"--reset-then-reuse-values", "--set telemetry.export.otlp.endpoint=" + operators.OperatorServiceName(id) + ".ikhnos-system.svc:4317", "--set telemetry.export.otlp.protocol=grpc",
 			"--set telemetry.export.otlp.tls.insecure=false", "--set telemetry.export.otlp.tls.caFile= ", "--set telemetry.export.otlp.tls.mtls.enabled=true",
-			"--set telemetry.export.otlp.tls.mtls.secretName=" + id + "-export-mtls", "--set telemetry.export.otlp.tls.serverName=" + id + ".continuum-system.svc", "--set telemetry.export.otlp.auth.secretName="} {
+			"--set telemetry.export.otlp.tls.mtls.secretName=" + id + "-export-mtls", "--set telemetry.export.otlp.tls.serverName=" + id + ".ikhnos-system.svc", "--set telemetry.export.otlp.auth.secretName="} {
 			if !strings.Contains(up, want) {
 				t.Fatalf("upgrade lacks %q:\n%s", want, up)
 			}
@@ -230,7 +230,7 @@ func TestHeartbeatURLPrefersThePublicURLAndWarnsAboutAddressesThatCannotWork(t *
 		"https://203.0.113.9" + OperatorHeartbeatPath:                 "",
 		"https://localhost:8443" + OperatorHeartbeatPath:              "this machine",
 		"https://127.0.0.1" + OperatorHeartbeatPath:                   "this machine",
-		"https://ikhnos.continuum-system.svc" + OperatorHeartbeatPath: "only exists inside one Kubernetes cluster",
+		"https://ikhnos.ikhnos-system.svc" + OperatorHeartbeatPath:    "only exists inside one Kubernetes cluster",
 		"https://x.ns.svc.cluster.local:8443" + OperatorHeartbeatPath: "only exists inside one Kubernetes cluster",
 		"https://10.1.2.3" + OperatorHeartbeatPath:                    "a private address",
 		"https://192.168.1.5" + OperatorHeartbeatPath:                 "a private address",

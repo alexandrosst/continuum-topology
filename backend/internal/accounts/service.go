@@ -3,7 +3,7 @@
 // nothing else of the server.
 package accounts
 
-import "continuum/internal/kernel"
+import "ikhnos/internal/kernel"
 
 // Service is the kernel's Core with what accounts does with it. The server's Core holds one (Core.Accounts), made for the same
 // organisation view as the Core it sits in.

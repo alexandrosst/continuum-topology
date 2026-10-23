@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/agentcaps"
-	"continuum/internal/testkit"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/agentcaps"
+	"ikhnos/internal/testkit"
 )
 
 // A hello that says the install allows tier 0 is believed only from an agent that states its ceiling: a hello that says 0 because
@@ -16,19 +16,19 @@ import (
 // for one that does not, it is whether the hello carried diagnostics. Either way the ceiling can only go down by a hello: nothing
 // here raises an approval.
 func TestWhoseZeroCeilingIsBelieved(t *testing.T) {
-	diag := &continuumv1.Diagnostics{AgentVersion: "9", InstalledTier: 0}
+	diag := &ikhnosv1.Diagnostics{AgentVersion: "9", InstalledTier: 0}
 	cases := []struct {
 		name      string
-		hello     *continuumv1.Hello
+		hello     *ikhnosv1.Hello
 		wantTier  int // the installed tier recorded afterwards (it was 2)
 		wantAcces int // and the approved tier (it was 2)
 	}{
-		{"protocol 0, no diagnostics: an agent that does not say, kept", &continuumv1.Hello{AgentVersion: "9"}, 2, 2},
-		{"protocol 0, diagnostics in the hello: the old inference, believed", &continuumv1.Hello{AgentVersion: "9", Diagnostics: diag}, 0, 0},
-		{"protocol 1 declaring diagnostics, none in the hello: believed", &continuumv1.Hello{AgentVersion: "9", ProtocolVersion: 1, Capabilities: []string{agentcaps.Diagnostics}}, 0, 0},
-		{"protocol 1 not declaring it, diagnostics in the hello: the capability decides, kept", &continuumv1.Hello{AgentVersion: "9", ProtocolVersion: 1, Capabilities: []string{agentcaps.SelfStats}, Diagnostics: diag}, 2, 2},
-		{"protocol 1 declaring nothing: kept", &continuumv1.Hello{AgentVersion: "9", ProtocolVersion: 1}, 2, 2},
-		{"protocol 99 declaring it: believed", &continuumv1.Hello{AgentVersion: "9", ProtocolVersion: 99, Capabilities: []string{agentcaps.Diagnostics}}, 0, 0},
+		{"protocol 0, no diagnostics: an agent that does not say, kept", &ikhnosv1.Hello{AgentVersion: "9"}, 2, 2},
+		{"protocol 0, diagnostics in the hello: the old inference, believed", &ikhnosv1.Hello{AgentVersion: "9", Diagnostics: diag}, 0, 0},
+		{"protocol 1 declaring diagnostics, none in the hello: believed", &ikhnosv1.Hello{AgentVersion: "9", ProtocolVersion: 1, Capabilities: []string{agentcaps.Diagnostics}}, 0, 0},
+		{"protocol 1 not declaring it, diagnostics in the hello: the capability decides, kept", &ikhnosv1.Hello{AgentVersion: "9", ProtocolVersion: 1, Capabilities: []string{agentcaps.SelfStats}, Diagnostics: diag}, 2, 2},
+		{"protocol 1 declaring nothing: kept", &ikhnosv1.Hello{AgentVersion: "9", ProtocolVersion: 1}, 2, 2},
+		{"protocol 99 declaring it: believed", &ikhnosv1.Hello{AgentVersion: "9", ProtocolVersion: 99, Capabilities: []string{agentcaps.Diagnostics}}, 0, 0},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -50,8 +50,8 @@ func TestWhoseZeroCeilingIsBelieved(t *testing.T) {
 
 // A hello that states a ceiling above what is recorded does not raise the approval, with or without the capability.
 func TestAHigherCeilingNeverRaisesAnApproval(t *testing.T) {
-	for _, h := range []*continuumv1.Hello{
-		{AgentVersion: "9", InstalledAccessTier: 2, Diagnostics: &continuumv1.Diagnostics{AgentVersion: "9"}},
+	for _, h := range []*ikhnosv1.Hello{
+		{AgentVersion: "9", InstalledAccessTier: 2, Diagnostics: &ikhnosv1.Diagnostics{AgentVersion: "9"}},
 		{AgentVersion: "9", InstalledAccessTier: 2, ProtocolVersion: 1, Capabilities: []string{agentcaps.Diagnostics}},
 	} {
 		r := newHubRig(t)

@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/facts"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/facts"
 
 	"google.golang.org/protobuf/proto"
 )
@@ -15,17 +15,17 @@ import (
 // leaves the server's state within the limits and with no value no kubelet could have read, and the checks agree with themselves when
 // they are run again. The seeds run with every `go test`; `go test -fuzz=FuzzSyncIntake ./internal/estate` looks for more.
 
-func syncSeeds() []*continuumv1.Sync {
-	node := func(key string, pod *int32, cpu *float64) *continuumv1.NodeFacts {
-		return &continuumv1.NodeFacts{Key: key, Name: key, PodCount: pod, Probe: &continuumv1.HostProbe{CpuPressurePct: cpu, HostWatts: f64(-3)}}
+func syncSeeds() []*ikhnosv1.Sync {
+	node := func(key string, pod *int32, cpu *float64) *ikhnosv1.NodeFacts {
+		return &ikhnosv1.NodeFacts{Key: key, Name: key, PodCount: pod, Probe: &ikhnosv1.HostProbe{CpuPressurePct: cpu, HostWatts: f64(-3)}}
 	}
-	return []*continuumv1.Sync{
-		{Seq: 1, Full: true, Cluster: &continuumv1.ClusterFacts{Uid: "c1", PendingPodCount: i32(-1)},
-			Nodes:      []*continuumv1.NodeFacts{node("n1", i32(4), f64(12)), node("n2", i32(-7), f64(180)), node("n1", nil, nil)},
-			Namespaces: []*continuumv1.NamespaceFacts{{Key: "ns", Name: "shop"}},
-			Workloads:  []*continuumv1.WorkloadFacts{{Key: "w", Namespace: "shop", Name: "web"}}},
+	return []*ikhnosv1.Sync{
+		{Seq: 1, Full: true, Cluster: &ikhnosv1.ClusterFacts{Uid: "c1", PendingPodCount: i32(-1)},
+			Nodes:      []*ikhnosv1.NodeFacts{node("n1", i32(4), f64(12)), node("n2", i32(-7), f64(180)), node("n1", nil, nil)},
+			Namespaces: []*ikhnosv1.NamespaceFacts{{Key: "ns", Name: "shop"}},
+			Workloads:  []*ikhnosv1.WorkloadFacts{{Key: "w", Namespace: "shop", Name: "web"}}},
 		{Seq: 2, DeletedNodes: []string{"n1", "gone"}, DeletedWorkloads: []string{"w"}},
-		{Seq: 3, Nodes: []*continuumv1.NodeFacts{{Key: ""}}},
+		{Seq: 3, Nodes: []*ikhnosv1.NodeFacts{{Key: ""}}},
 		{Seq: 4, Full: true},
 	}
 }
@@ -39,7 +39,7 @@ func FuzzSyncIntake(f *testing.F) {
 		f.Add(b)
 	}
 	f.Fuzz(func(t *testing.T, data []byte) {
-		s := &continuumv1.Sync{}
+		s := &ikhnosv1.Sync{}
 		if proto.Unmarshal(data, s) != nil {
 			return
 		}
@@ -108,9 +108,9 @@ func FuzzChunkSeries(f *testing.F) {
 		for len(data) >= 5 {
 			b := data[:5]
 			data = data[5:]
-			s := &continuumv1.Sync{ChunkIndex: uint32(b[0] % 6), ChunkTotal: uint32(b[1] % 6), SyncId: []string{"", "a", "b"}[b[2]%3], Seq: uint64(b[3] % 2), Full: b[3]&2 != 0}
+			s := &ikhnosv1.Sync{ChunkIndex: uint32(b[0] % 6), ChunkTotal: uint32(b[1] % 6), SyncId: []string{"", "a", "b"}[b[2]%3], Seq: uint64(b[3] % 2), Full: b[3]&2 != 0}
 			for i := 0; i < int(b[4]%4); i++ {
-				s.Nodes = append(s.Nodes, &continuumv1.NodeFacts{Key: fmt.Sprint("n", len(data), i)})
+				s.Nodes = append(s.Nodes, &ikhnosv1.NodeFacts{Key: fmt.Sprint("n", len(data), i)})
 			}
 			if !isChunk(s) {
 				asm = nil

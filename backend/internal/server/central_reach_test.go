@@ -4,16 +4,16 @@ import (
 	"strings"
 	"testing"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 
-	"continuum/internal/fusion"
-	"continuum/internal/kernel"
-	"continuum/internal/operators"
+	"ikhnos/internal/fusion"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/operators"
 )
 
 // The central operator is reached the same way a regional one is: a sender can choose the address it dials, and when
 // one cannot get through the page says which end is at fault. What differs is where the facts come from. Its health is
-// FUSION's own state (it has no heartbeat), and its Service belongs to the server's install, not to continuum-system.
+// FUSION's own state (it has no heartbeat), and its Service belongs to the server's install, not to ikhnos-system.
 
 func TestCentralOperatorAddressCandidatesAndSendersComeFromTheGatewayAndFusion(t *testing.T) {
 	a := newIntentRig(t)
@@ -43,8 +43,8 @@ func TestCentralOperatorAddressCandidatesAndSendersComeFromTheGatewayAndFusion(t
 	v := liveView(*a.now, "server-node-1")
 	v.State.Nodes["server-node-1"].InternalIps = []string{"10.0.0.7"}
 	key := f.Namespace + "/Deployment/" + f.ServiceName()
-	v.State.Workloads[key] = &continuumv1.WorkloadFacts{Key: key, Namespace: f.Namespace, Kind: "Deployment", Name: f.ServiceName(), NodeNames: []string{"server-node-1"},
-		Reachable: []*continuumv1.Address{{Port: 31317, Kind: "node-port"}}}
+	v.State.Workloads[key] = &ikhnosv1.WorkloadFacts{Key: key, Namespace: f.Namespace, Kind: "Deployment", Name: f.ServiceName(), NodeNames: []string{"server-node-1"},
+		Reachable: []*ikhnosv1.Address{{Port: 31317, Kind: "node-port"}}}
 	a.hub().Mu.Lock()
 	a.hub().Views[agentID] = v
 	a.hub().Mu.Unlock()
@@ -89,11 +89,11 @@ func TestCentralNodeAddressesNeedOnlyTheClusterAndTheServicesNodePort(t *testing
 	agentID := a.agent(t)
 	v := liveView(*a.now, "server-node-1")
 	v.State.Nodes["server-node-1"].InternalIps = []string{"10.0.0.7"}
-	v.State.Nodes["server-node-1"].Probe = &continuumv1.HostProbe{HostAddresses: []*continuumv1.HostAddress{
+	v.State.Nodes["server-node-1"].Probe = &ikhnosv1.HostProbe{HostAddresses: []*ikhnosv1.HostAddress{
 		{Interface: "eth0", Address: "10.0.0.7/24"}, {Interface: "wg0", Kind: "wireguard", Address: "10.8.0.3/24"},
 	}}
-	key := f.Namespace + "/Deployment/continuum-server"
-	v.State.Workloads[key] = &continuumv1.WorkloadFacts{Key: key, Namespace: f.Namespace, Kind: "Deployment", Name: "continuum-server"}
+	key := f.Namespace + "/Deployment/ikhnos-server"
+	v.State.Workloads[key] = &ikhnosv1.WorkloadFacts{Key: key, Namespace: f.Namespace, Kind: "Deployment", Name: "ikhnos-server"}
 	a.hub().Mu.Lock()
 	a.hub().Views[agentID] = v
 	a.hub().Mu.Unlock()
@@ -135,11 +135,11 @@ func TestCentralClusterIsFoundByTheNodeThatHasTheLoadBalancersAddress(t *testing
 			agentID := a.agent(t)
 			v := liveView(*a.now, "edge-node-1")
 			v.State.Nodes["edge-node-1"].InternalIps = []string{"10.0.0.7"}
-			v.State.Nodes["edge-node-1"].Probe = &continuumv1.HostProbe{HostAddresses: []*continuumv1.HostAddress{
+			v.State.Nodes["edge-node-1"].Probe = &ikhnosv1.HostProbe{HostAddresses: []*ikhnosv1.HostAddress{
 				{Interface: "eth0", Address: "10.0.0.7/24"}, {Interface: "wt0", Kind: "wireguard", Address: "100.64.0.139/24"},
 			}}
 			// Only something in the agent's own namespace is reported, nothing in the server's.
-			v.State.Workloads = map[string]*continuumv1.WorkloadFacts{"continuum-system/Deployment/agent": {Key: "continuum-system/Deployment/agent", Namespace: "continuum-system", Kind: "Deployment", Name: "agent"}}
+			v.State.Workloads = map[string]*ikhnosv1.WorkloadFacts{"ikhnos-system/Deployment/agent": {Key: "ikhnos-system/Deployment/agent", Namespace: "ikhnos-system", Kind: "Deployment", Name: "agent"}}
 			a.hub().Mu.Lock()
 			a.hub().Views[agentID] = v
 			a.hub().Mu.Unlock()
@@ -206,11 +206,11 @@ func centralRig(t *testing.T, uid string) (*intentRig, *fusion.FusionControl, st
 	agentID := a.approvedAgentID(t, uid)
 	v := liveView(*a.now, "nuc-1")
 	v.State.Nodes["nuc-1"].InternalIps = []string{"10.0.0.7"}
-	v.State.Nodes["nuc-1"].Probe = &continuumv1.HostProbe{HostAddresses: []*continuumv1.HostAddress{
+	v.State.Nodes["nuc-1"].Probe = &ikhnosv1.HostProbe{HostAddresses: []*ikhnosv1.HostAddress{
 		{Interface: "eth0", Address: "10.0.0.7/24"}, {Interface: "wt0", Kind: "wireguard", Address: "100.64.0.139/24"},
 	}}
 	// Nothing in the server's namespace is reported: only the cluster's identity can say where the gateway is.
-	v.State.Workloads = map[string]*continuumv1.WorkloadFacts{}
+	v.State.Workloads = map[string]*ikhnosv1.WorkloadFacts{}
 	a.hub().Mu.Lock()
 	a.hub().Views[agentID] = v
 	a.hub().Mu.Unlock()

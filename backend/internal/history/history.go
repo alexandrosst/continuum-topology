@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"continuum/internal/model"
-	"continuum/internal/store"
+	"ikhnos/internal/model"
+	"ikhnos/internal/store"
 )
 
 // Compact drops what a snapshot does not need (evidence strings, labels of nodes and services, open

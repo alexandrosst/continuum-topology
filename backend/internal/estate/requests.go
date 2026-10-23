@@ -1,6 +1,6 @@
 package estate
 
-import "continuum/internal/install"
+import "ikhnos/internal/install"
 
 // The bodies this package's routes read. They were anonymous structs at the handlers; naming them puts them in the TypeScript written
 // from the Go types (internal/wire), so the page sends what the server reads.

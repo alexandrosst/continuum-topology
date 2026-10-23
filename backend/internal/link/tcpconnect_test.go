@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 )
 
-func connectFor(t *testing.T, dial DialFunc, peers ...*continuumv1.LinkPeer) *TCPConnect {
+func connectFor(t *testing.T, dial DialFunc, peers ...*ikhnosv1.LinkPeer) *TCPConnect {
 	t.Helper()
 	p := NewPeers()
 	p.Set("cl-me", peers)
@@ -54,18 +54,18 @@ func TestAConnectionThatOpensIsTimedAndCounted(t *testing.T) {
 	c.Round(context.Background())
 	c.Round(context.Background())
 	got := render(c.Meter)
-	if got[`continuum_link_tcp_connect_seconds_count{cluster="cl-me",peer="cl-a"}`] != "2" {
+	if got[`ikhnos_link_tcp_connect_seconds_count{cluster="cl-me",peer="cl-a"}`] != "2" {
 		t.Fatalf("two connections should be counted: %v", got)
 	}
-	if got[`continuum_link_tcp_connect_seconds_bucket{cluster="cl-me",peer="cl-a",le="+Inf"}`] != "2" {
+	if got[`ikhnos_link_tcp_connect_seconds_bucket{cluster="cl-me",peer="cl-a",le="+Inf"}`] != "2" {
 		t.Fatalf("buckets: %v", got)
 	}
 	for _, r := range failReasons {
-		if got[`continuum_link_tcp_connect_failures_total{cluster="cl-me",peer="cl-a",reason="`+r+`"}`] != "0" {
+		if got[`ikhnos_link_tcp_connect_failures_total{cluster="cl-me",peer="cl-a",reason="`+r+`"}`] != "0" {
 			t.Fatalf("no failure expected for %s: %v", r, got)
 		}
 	}
-	if _, ok := got[`continuum_link_tcp_connect_last_success_timestamp_seconds{cluster="cl-me",peer="cl-a"}`]; !ok {
+	if _, ok := got[`ikhnos_link_tcp_connect_last_success_timestamp_seconds{cluster="cl-me",peer="cl-a"}`]; !ok {
 		t.Fatal("last success missing")
 	}
 }
@@ -82,14 +82,14 @@ func TestFailuresAreCountedByTheirReason(t *testing.T) {
 		c := connectFor(t, func(context.Context, string, string) (net.Conn, error) { return nil, err }, peer("cl-a", "A", "10.0.0.1"))
 		c.Round(context.Background())
 		got := render(c.Meter)
-		key := `continuum_link_tcp_connect_failures_total{cluster="cl-me",peer="cl-a",reason="` + reason + `"}`
+		key := `ikhnos_link_tcp_connect_failures_total{cluster="cl-me",peer="cl-a",reason="` + reason + `"}`
 		if got[key] != "1" {
 			t.Errorf("%s: want one failure, got %v", reason, got)
 		}
-		if got[`continuum_link_tcp_connect_seconds_count{cluster="cl-me",peer="cl-a"}`] != "0" {
+		if got[`ikhnos_link_tcp_connect_seconds_count{cluster="cl-me",peer="cl-a"}`] != "0" {
 			t.Errorf("%s: a failure must not be timed", reason)
 		}
-		if _, ok := got[`continuum_link_tcp_connect_last_success_timestamp_seconds{cluster="cl-me",peer="cl-a"}`]; ok {
+		if _, ok := got[`ikhnos_link_tcp_connect_last_success_timestamp_seconds{cluster="cl-me",peer="cl-a"}`]; ok {
 			t.Errorf("%s: no success to report", reason)
 		}
 	}
@@ -113,10 +113,10 @@ func TestADownNodeIsSkippedNotCountedAsALinkFailure(t *testing.T) {
 		c.Round(context.Background())
 	}
 	got := render(c.Meter)
-	if got[`continuum_link_tcp_connect_seconds_count{cluster="cl-me",peer="cl-a"}`] != "4" {
+	if got[`ikhnos_link_tcp_connect_seconds_count{cluster="cl-me",peer="cl-a"}`] != "4" {
 		t.Fatalf("the second address answers every time: %v", got)
 	}
-	if got[`continuum_link_tcp_connect_failures_total{cluster="cl-me",peer="cl-a",reason="refused"}`] != "0" {
+	if got[`ikhnos_link_tcp_connect_failures_total{cluster="cl-me",peer="cl-a",reason="refused"}`] != "0" {
 		t.Fatalf("a down node is not a link failure: %v", got)
 	}
 	mu.Lock()
@@ -144,7 +144,7 @@ func TestAPeerThatIsNotProbedIsNotTimed(t *testing.T) {
 
 func TestConnectSeriesAreAbsentUntilTurnedOn(t *testing.T) {
 	p := NewPeers()
-	p.Set("cl-me", []*continuumv1.LinkPeer{peer("cl-a", "A", "10.0.0.1")})
+	p.Set("cl-me", []*ikhnosv1.LinkPeer{peer("cl-a", "A", "10.0.0.1")})
 	m := NewMeter(p)
 	m.EnableProbes()
 	for k := range render(m) {
@@ -219,11 +219,11 @@ func TestNoSampleIsTakenWhileAThroughputTestRuns(t *testing.T) {
 		t.Errorf("%d connections were opened during a test", dialed)
 	}
 	got := render(c.Meter)
-	if got[`continuum_link_tcp_connect_seconds_count{cluster="cl-me",peer="cl-a"}`] != "0" {
+	if got[`ikhnos_link_tcp_connect_seconds_count{cluster="cl-me",peer="cl-a"}`] != "0" {
 		t.Errorf("a sample was taken during a test: %v", got)
 	}
 	for _, r := range connectFailReasons {
-		if got[`continuum_link_tcp_connect_failures_total{cluster="cl-me",peer="cl-a",reason="`+r+`"}`] != "0" {
+		if got[`ikhnos_link_tcp_connect_failures_total{cluster="cl-me",peer="cl-a",reason="`+r+`"}`] != "0" {
 			t.Errorf("a failure (%s) was counted during a test", r)
 		}
 	}
@@ -234,8 +234,8 @@ func TestNoSampleIsTakenWhileAThroughputTestRuns(t *testing.T) {
 	fail = true
 	c.Round(context.Background())
 	got = render(c.Meter)
-	if got[`continuum_link_tcp_connect_seconds_count{cluster="cl-me",peer="cl-a"}`] != "1" ||
-		got[`continuum_link_tcp_connect_failures_total{cluster="cl-me",peer="cl-a",reason="refused"}`] != "1" {
+	if got[`ikhnos_link_tcp_connect_seconds_count{cluster="cl-me",peer="cl-a"}`] != "1" ||
+		got[`ikhnos_link_tcp_connect_failures_total{cluster="cl-me",peer="cl-a",reason="refused"}`] != "1" {
 		t.Errorf("after the test: %v", got)
 	}
 }
@@ -250,12 +250,12 @@ func TestASampleThatOverlapsAThroughputTestStartIsDropped(t *testing.T) {
 	}, peer("cl-a", "A", "10.0.0.1"))
 	c.Testing = &Flag{}
 	c.Round(context.Background())
-	if got := render(c.Meter); got[`continuum_link_tcp_connect_seconds_count{cluster="cl-me",peer="cl-a"}`] != "0" {
+	if got := render(c.Meter); got[`ikhnos_link_tcp_connect_seconds_count{cluster="cl-me",peer="cl-a"}`] != "0" {
 		t.Errorf("a sample that overlapped a test was kept: %v", got)
 	}
 	c.Dial = listener(t)
 	c.Round(context.Background())
-	if got := render(c.Meter); got[`continuum_link_tcp_connect_seconds_count{cluster="cl-me",peer="cl-a"}`] != "1" {
+	if got := render(c.Meter); got[`ikhnos_link_tcp_connect_seconds_count{cluster="cl-me",peer="cl-a"}`] != "1" {
 		t.Errorf("the next, clean sample was not taken: %v", got)
 	}
 }

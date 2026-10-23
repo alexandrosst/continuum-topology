@@ -4,10 +4,10 @@ import (
 	"strings"
 	"testing"
 
-	"continuum/internal/accounts"
-	"continuum/internal/install"
-	"continuum/internal/operators"
-	"continuum/internal/testkit"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/install"
+	"ikhnos/internal/operators"
+	"ikhnos/internal/testkit"
 )
 
 // The page used to build the block that points an agent at a regional operator and merge what this endpoint returned into it by pattern.
@@ -83,7 +83,7 @@ func (b blockRig) certificates(t *testing.T) int {
 func singleSpec(over func(*install.Telemetry)) *install.Telemetry {
 	t := install.Telemetry{
 		Signals:     install.Signals{ResourceUsage: true},
-		Destination: install.Destination{Endpoint: "placeholder.continuum-system.svc:4317", Protocol: "http", Insecure: true, AuthHeader: "x-api-key", AuthSecret: "old-token", AuthKey: "k"},
+		Destination: install.Destination{Endpoint: "placeholder.ikhnos-system.svc:4317", Protocol: "http", Insecure: true, AuthHeader: "x-api-key", AuthSecret: "old-token", AuthKey: "k"},
 		Processing:  install.Processing{TracesSamplingPercent: ptr(100.0)},
 	}
 	if over != nil {
@@ -113,20 +113,20 @@ func TestTheServerWritesTheWholeBlockForAnOperatorDestination(t *testing.T) {
 		t.Fatalf("one operator, so one certificate Secret: %v", secrets)
 	}
 	// The certificate Secret first, and the upgrade last with the server's fragment as its end.
-	if !strings.HasPrefix(block, "{ "+secrets[0].(string)+"\n} && \\\nhelm upgrade continuum-agent ") {
+	if !strings.HasPrefix(block, "{ "+secrets[0].(string)+"\n} && \\\nhelm upgrade ikhnos-agent ") {
 		t.Fatalf("the block does not start with the certificate Secret and then the upgrade:\n%.400s", block)
 	}
 	if !strings.HasSuffix(block, " \\\n  "+fragment) {
 		t.Fatalf("the block does not end with the server's own fragment:\n%s", block)
 	}
 	// The operator's address is stated once, by the server; what the page held (HTTP, skip-verify, a token) is not in the command.
-	endpoint := operators.OperatorServiceName(b.opID) + ".continuum-system.svc:4317"
+	endpoint := operators.OperatorServiceName(b.opID) + ".ikhnos-system.svc:4317"
 	for _, want := range []string{"--set telemetry.export.otlp.endpoint=" + endpoint, "telemetry.export.otlp.protocol=grpc", "telemetry.export.otlp.tls.insecure=false", "telemetry.export.otlp.tls.mtls.enabled=true"} {
 		if !strings.Contains(block, want) {
 			t.Errorf("the block lacks %q", want)
 		}
 	}
-	for _, not := range []string{"placeholder.continuum-system", "otlp.protocol=http", "tls.insecure=true", "old-token", "x-api-key", "mtls.enabled=false"} {
+	for _, not := range []string{"placeholder.ikhnos-system", "otlp.protocol=http", "tls.insecure=true", "old-token", "x-api-key", "mtls.enabled=false"} {
 		if strings.Contains(block, not) {
 			t.Errorf("the block has %q", not)
 		}
@@ -141,7 +141,7 @@ func TestTheServerWritesTheWholeBlockForAnOperatorDestination(t *testing.T) {
 		t.Errorf("problems = %v", p)
 	}
 	// The chart is the one this server serves, not one the page names.
-	if !strings.Contains(block, "--namespace continuum-system --reset-then-reuse-values") {
+	if !strings.Contains(block, "--namespace ikhnos-system --reset-then-reuse-values") {
 		t.Errorf("the upgrade does not say where it runs:\n%.600s", block)
 	}
 }
@@ -240,7 +240,7 @@ func TestEachSignalTypeGoesWhereTheIntentSays(t *testing.T) {
 	if after := b.certificates(t); after != before+1 {
 		t.Fatalf("two signal types to one operator are one certificate: %d -> %d", before, after)
 	}
-	svc := operators.OperatorServiceName(b.opID) + ".continuum-system.svc:4317"
+	svc := operators.OperatorServiceName(b.opID) + ".ikhnos-system.svc:4317"
 	for _, want := range []string{"telemetry.export.routes.metrics.endpoint=" + svc, "telemetry.export.routes.logs.endpoint=" + svc, "routes.metrics.tls.mtls.enabled=true", "routes.logs.tls.mtls.enabled=true", "--set telemetry.export.routes.traces.tls.mtls.enabled=false"} {
 		if !strings.Contains(block, want) {
 			t.Errorf("the block lacks %q", want)

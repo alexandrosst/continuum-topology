@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/kernel"
+	"ikhnos/internal/kernel"
 )
 
 func TestPasswordHashWorkIsBoundedInNumberAndQueue(t *testing.T) {

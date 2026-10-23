@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"continuum/internal/kernel"
-	"continuum/internal/store"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/store"
 )
 
 // A claim whose provisioner does not enforce the requested size (the local-path one) is told apart from one that does.
@@ -47,7 +47,7 @@ func TestExplainPod(t *testing.T) {
 	}
 }
 
-// fusionName must give the same prefix the continuum-fusion chart's own "name" helper does: the operator's
+// fusionName must give the same prefix the ikhnos-fusion chart's own "name" helper does: the operator's
 // route endpoints are derived from it, and a mismatch would point an operator at Services that do not exist.
 // The cases below are the ones internal/chart/fusion_test.go pins on the chart side.
 func TestFusionNameMatchesTheChartHelper(t *testing.T) {
@@ -69,11 +69,11 @@ func TestFusionNameMatchesTheChartHelper(t *testing.T) {
 }
 
 func TestFusionRoutesAreEachStoresInClusterAddress(t *testing.T) {
-	routes := fusionRoutes(store.Destination{Kind: store.DestinationFusion, FusionRelease: "fusion", FusionNamespace: "continuum-system"})
+	routes := fusionRoutes(store.Destination{Kind: store.DestinationFusion, FusionRelease: "fusion", FusionNamespace: "ikhnos-system"})
 	want := []fusionRoute{
-		{store.ModalityMetrics, "fusion-prometheus.continuum-system.svc:9090/api/v1/otlp", "http"},
-		{store.ModalityLogs, "fusion-loki.continuum-system.svc:3100/otlp", "http"},
-		{store.ModalityTraces, "fusion-tempo.continuum-system.svc:4317", "grpc"},
+		{store.ModalityMetrics, "fusion-prometheus.ikhnos-system.svc:9090/api/v1/otlp", "http"},
+		{store.ModalityLogs, "fusion-loki.ikhnos-system.svc:3100/otlp", "http"},
+		{store.ModalityTraces, "fusion-tempo.ikhnos-system.svc:4317", "grpc"},
 	}
 	if len(routes) != len(want) {
 		t.Fatalf("routes = %+v", routes)

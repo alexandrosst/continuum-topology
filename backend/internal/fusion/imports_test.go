@@ -14,14 +14,14 @@ import (
 // under), operators (the central operator is one of them) and the data API's client library, and on nothing else of this repository:
 // not the server, and not another module. Operators do not import it.
 var allowedRepoImports = map[string]bool{
-	"continuum/internal/httpkit":   true,
-	"continuum/internal/kernel":    true,
-	"continuum/internal/wire":      true,
-	"continuum/internal/store":     true,
-	"continuum/internal/pki":       true,
-	"continuum/internal/accounts":  true,
-	"continuum/internal/operators": true,
-	"continuum/internal/fusionapi": true,
+	"ikhnos/internal/httpkit":   true,
+	"ikhnos/internal/kernel":    true,
+	"ikhnos/internal/wire":      true,
+	"ikhnos/internal/store":     true,
+	"ikhnos/internal/pki":       true,
+	"ikhnos/internal/accounts":  true,
+	"ikhnos/internal/operators": true,
+	"ikhnos/internal/fusionapi": true,
 }
 
 func TestFusionImportsNoOtherModuleOfTheServer(t *testing.T) {
@@ -40,7 +40,7 @@ func TestFusionImportsNoOtherModuleOfTheServer(t *testing.T) {
 		}
 		for _, im := range af.Imports {
 			p, _ := strconv.Unquote(im.Path.Value)
-			if strings.HasPrefix(p, "continuum/") && !allowedRepoImports[p] {
+			if strings.HasPrefix(p, "ikhnos/") && !allowedRepoImports[p] {
 				t.Errorf("%s imports %s: fusion may import only %v", f, p, allowedRepoImports)
 			}
 		}

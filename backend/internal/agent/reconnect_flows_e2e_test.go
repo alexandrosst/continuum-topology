@@ -5,13 +5,13 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/agent"
-	"continuum/internal/agent/collect"
-	"continuum/internal/estate"
-	"continuum/internal/flow"
-	"continuum/internal/pki"
-	"continuum/internal/server"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/agent"
+	"ikhnos/internal/agent/collect"
+	"ikhnos/internal/estate"
+	"ikhnos/internal/flow"
+	"ikhnos/internal/pki"
+	"ikhnos/internal/server"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -45,7 +45,7 @@ func TestTrafficSeenWhileDisconnectedIsSentOnReconnect(t *testing.T) {
 		},
 	})
 	waitFor(t, "the first picture, with the pod", 20*time.Second, func() bool { return services(d, "shop") >= 1 && d.agentDoc().Connected })
-	probe := &continuumv1.RawFlow{Client: true, LocalIp: "10.42.0.5", PeerIp: "93.184.216.34", Port: 443, Protocol: "tcp", Connections: 1}
+	probe := &ikhnosv1.RawFlow{Client: true, LocalIp: "10.42.0.5", PeerIp: "93.184.216.34", Port: 443, Protocol: "tcp", Connections: 1}
 	waitFor(t, "the resolver to know the pod", 20*time.Second, func() bool {
 		_, ok := pipe.Resolver.Resolve(probe, "ebpf", true)
 		return ok
@@ -57,7 +57,7 @@ func TestTrafficSeenWhileDisconnectedIsSentOnReconnect(t *testing.T) {
 	waitFor(t, "the agent to be seen as disconnected", 20*time.Second, func() bool { return !d.agentDoc().Connected })
 
 	// While it is away the node's collector still reports.
-	if pipe.Ingest(&continuumv1.FlowReport{Method: "ebpf", Node: "n1", BytesKnown: true, Flows: []*continuumv1.RawFlow{
+	if pipe.Ingest(&ikhnosv1.FlowReport{Method: "ebpf", Node: "n1", BytesKnown: true, Flows: []*ikhnosv1.RawFlow{
 		{Client: true, LocalIp: "10.42.0.5", PeerIp: "93.184.216.34", Port: 443, Protocol: "tcp", Connections: 4, BytesOut: 400, BytesIn: 1200},
 	}}) {
 		t.Fatal("the pipeline was paused, so it threw the report away")

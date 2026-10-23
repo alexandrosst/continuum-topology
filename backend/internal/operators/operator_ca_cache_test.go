@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/pki"
+	"ikhnos/internal/pki"
 )
 
 // What was opened from one sealed key is never served for another: a key that changed in the database is opened afresh.

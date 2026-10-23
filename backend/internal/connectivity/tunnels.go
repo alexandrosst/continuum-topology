@@ -5,7 +5,7 @@ import (
 	"net"
 	"sort"
 
-	"continuum/internal/model"
+	"ikhnos/internal/model"
 )
 
 // minRoutePrefixV4/minRoutePrefixV6 are the narrowest-allowed (i.e. the SMALLEST acceptable prefix

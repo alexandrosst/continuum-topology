@@ -47,7 +47,7 @@ func replicas(n int) map[string]any {
 		pod := "cart-" + strconv.Itoa(i)
 		rss = append(rss, map[string]any{
 			"resource": map[string]any{"attributes": []any{kv("service.name", "cart"), kv("k8s.namespace.name", "shop"), kv("k8s.pod.name", pod),
-				kv("k8s.node.name", "node-1"), kv("continuum.cluster.id", "cl-1")}},
+				kv("k8s.node.name", "node-1"), kv("ikhnos.cluster.id", "cl-1")}},
 			"scopeSpans": []any{map[string]any{"spans": []any{map[string]any{"traceId": traceHex, "spanId": "00000000000000" + strconv.Itoa(10+i),
 				"name": "GET " + pod, "startTimeUnixNano": json.Number(itoa(base)), "endTimeUnixNano": json.Number(itoa(base + 1e6))}}}},
 		})

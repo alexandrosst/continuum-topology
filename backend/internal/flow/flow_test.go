@@ -15,10 +15,10 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/agent/collect"
-	"continuum/internal/link"
-	"continuum/internal/probe"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/agent/collect"
+	"ikhnos/internal/link"
+	"ikhnos/internal/probe"
 
 	"google.golang.org/protobuf/encoding/protojson"
 )
@@ -36,8 +36,8 @@ func testIndex() *collect.Index {
 	}
 }
 
-func raw(client bool, local, peer string, port uint32) *continuumv1.RawFlow {
-	return &continuumv1.RawFlow{Client: client, LocalIp: local, PeerIp: peer, Port: port, Protocol: "tcp", Connections: 3, BytesOut: 300, BytesIn: 900}
+func raw(client bool, local, peer string, port uint32) *ikhnosv1.RawFlow {
+	return &ikhnosv1.RawFlow{Client: client, LocalIp: local, PeerIp: peer, Port: port, Protocol: "tcp", Connections: 3, BytesOut: 300, BytesIn: 900}
 }
 
 func TestResolveAttributesAndDrops(t *testing.T) {
@@ -45,13 +45,13 @@ func TestResolveAttributesAndDrops(t *testing.T) {
 	type want struct {
 		ok            bool
 		src, dst      string
-		srcKind, dstK continuumv1.FlowEndpoint_Kind
+		srcKind, dstK ikhnosv1.FlowEndpoint_Kind
 		noise         string
 	}
-	W, E, N := continuumv1.FlowEndpoint_WORKLOAD, continuumv1.FlowEndpoint_EXTERNAL, continuumv1.FlowEndpoint_NODE
+	W, E, N := ikhnosv1.FlowEndpoint_WORKLOAD, ikhnosv1.FlowEndpoint_EXTERNAL, ikhnosv1.FlowEndpoint_NODE
 	cases := []struct {
 		name string
-		in   *continuumv1.RawFlow
+		in   *ikhnosv1.RawFlow
 		want want
 	}{
 		{"pod calls a Service by cluster IP", raw(true, "10.42.0.5", "10.43.0.21", 5432), want{true, "shop/Deployment/cart", "shop/Deployment/db", W, W, ""}},
@@ -112,7 +112,7 @@ func TestResolveAttributesAndDrops(t *testing.T) {
 // onto the resolved Flow rather than dropped for having nothing else to say.
 func TestResolveCarriesFailedAttemptsThroughUnattributedOtherwise(t *testing.T) {
 	r := NewResolver(testIndex)
-	fr := &continuumv1.RawFlow{Client: true, LocalIp: "10.42.0.5", PeerIp: "93.184.216.34", Port: 443, Protocol: "tcp",
+	fr := &ikhnosv1.RawFlow{Client: true, LocalIp: "10.42.0.5", PeerIp: "93.184.216.34", Port: 443, Protocol: "tcp",
 		FailedAttempts: 4, FailedRefused: 1, FailedTimeout: 3}
 	f, ok := r.Resolve(fr, "ebpf", true)
 	if !ok {
@@ -121,7 +121,7 @@ func TestResolveCarriesFailedAttemptsThroughUnattributedOtherwise(t *testing.T) 
 	if f.Connections != 0 || f.FailedAttempts != 4 {
 		t.Errorf("got connections=%d failedAttempts=%d, want 0 and 4", f.Connections, f.FailedAttempts)
 	}
-	if ref(f.Src) != "shop/Deployment/cart" || f.Dst.Kind != continuumv1.FlowEndpoint_EXTERNAL {
+	if ref(f.Src) != "shop/Deployment/cart" || f.Dst.Kind != ikhnosv1.FlowEndpoint_EXTERNAL {
 		t.Errorf("attribution should be unaffected by this being a failure: %v -> %v", f.Src, f.Dst)
 	}
 }
@@ -175,7 +175,7 @@ func TestResolveDisambiguatesAHostNetworkPodByItsCgroupID(t *testing.T) {
 	in := raw(true, "192.168.1.10", "93.184.216.34", 443)
 	in.CgroupId = id
 	f, ok := r.Resolve(in, "ebpf", true)
-	if !ok || ref(f.Src) != "shop/Deployment/cart" || f.Src.Kind != continuumv1.FlowEndpoint_WORKLOAD {
+	if !ok || ref(f.Src) != "shop/Deployment/cart" || f.Src.Kind != ikhnosv1.FlowEndpoint_WORKLOAD {
 		t.Errorf("hostNetwork pod resolved by cgroup id: got %v ok=%v, want shop/Deployment/cart (WORKLOAD)", f, ok)
 	}
 
@@ -184,7 +184,7 @@ func TestResolveDisambiguatesAHostNetworkPodByItsCgroupID(t *testing.T) {
 	in2 := raw(true, "192.168.1.10", "93.184.216.34", 443)
 	in2.CgroupId = 424242
 	f2, ok2 := r.Resolve(in2, "ebpf", true)
-	if !ok2 || f2.Src.Kind != continuumv1.FlowEndpoint_NODE || ref(f2.Src) != "n1" {
+	if !ok2 || f2.Src.Kind != ikhnosv1.FlowEndpoint_NODE || ref(f2.Src) != "n1" {
 		t.Errorf("unresolvable cgroup id must fall back to FlowEndpoint_NODE: got %v ok=%v", f2, ok2)
 	}
 }
@@ -249,8 +249,8 @@ func TestAggregatorSumsAndBounds(t *testing.T) {
 	t0 := time.Now()
 	a.now = func() time.Time { return t0 }
 	a.since = t0
-	mk := func(src, dst string, conns uint64) *continuumv1.Flow {
-		return &continuumv1.Flow{Src: workload(src), Dst: workload(dst), Port: 80, Protocol: "tcp", Connections: conns, BytesOut: 10, BytesIn: 20, Method: "conntrack", BytesKnown: true}
+	mk := func(src, dst string, conns uint64) *ikhnosv1.Flow {
+		return &ikhnosv1.Flow{Src: workload(src), Dst: workload(dst), Port: 80, Protocol: "tcp", Connections: conns, BytesOut: 10, BytesIn: 20, Method: "conntrack", BytesKnown: true}
 	}
 	withFailure := mk("a", "b", 2)
 	withFailure.FailedAttempts = 1
@@ -283,8 +283,8 @@ func TestAggregatorSumsAndBounds(t *testing.T) {
 
 func TestAggregatorCarriesSniHostAndDnsQueryNames(t *testing.T) {
 	a := NewAggregator()
-	base := func() *continuumv1.Flow {
-		return &continuumv1.Flow{Src: workload("app"), Dst: workload("coredns"), Port: 53, Protocol: "udp", Connections: 1, Method: "ebpf"}
+	base := func() *ikhnosv1.Flow {
+		return &ikhnosv1.Flow{Src: workload("app"), Dst: workload("coredns"), Port: 53, Protocol: "udp", Connections: 1, Method: "ebpf"}
 	}
 	f1 := base()
 	f1.DnsQueryNames = []string{"first.example.com"}
@@ -309,9 +309,9 @@ func TestAggregatorCarriesSniHostAndDnsQueryNames(t *testing.T) {
 	}
 
 	sni := a2(t)
-	tf1 := &continuumv1.Flow{Src: workload("app"), Dst: &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_EXTERNAL, Ip: "93.184.216.34"}, Port: 443, Protocol: "tcp", Connections: 1, Method: "ebpf", SniHost: "example.com"}
+	tf1 := &ikhnosv1.Flow{Src: workload("app"), Dst: &ikhnosv1.FlowEndpoint{Kind: ikhnosv1.FlowEndpoint_EXTERNAL, Ip: "93.184.216.34"}, Port: 443, Protocol: "tcp", Connections: 1, Method: "ebpf", SniHost: "example.com"}
 	sni.Add(tf1)
-	tf2 := &continuumv1.Flow{Src: workload("app"), Dst: &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_EXTERNAL, Ip: "93.184.216.34"}, Port: 443, Protocol: "tcp", Connections: 1, Method: "ebpf"} // no SNI on this report
+	tf2 := &ikhnosv1.Flow{Src: workload("app"), Dst: &ikhnosv1.FlowEndpoint{Kind: ikhnosv1.FlowEndpoint_EXTERNAL, Ip: "93.184.216.34"}, Port: 443, Protocol: "tcp", Connections: 1, Method: "ebpf"} // no SNI on this report
 	sni.Add(tf2)
 	sb := sni.Flush()
 	if len(sb.Flows) != 1 || sb.Flows[0].SniHost != "example.com" || sb.Flows[0].Connections != 2 {
@@ -324,13 +324,13 @@ func TestAggregatorCarriesSniHostAndDnsQueryNames(t *testing.T) {
 // ClientHello seen that window (UNKNOWN, the zero value) must never blank out an already-decided one.
 func TestAggregatorCarriesTlsHandshake(t *testing.T) {
 	a := a2(t)
-	dst := &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_EXTERNAL, Ip: "93.184.216.34"}
-	f1 := &continuumv1.Flow{Src: workload("app"), Dst: dst, Port: 443, Protocol: "tcp", Connections: 1, Method: "ebpf", TlsHandshake: continuumv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_OK}
+	dst := &ikhnosv1.FlowEndpoint{Kind: ikhnosv1.FlowEndpoint_EXTERNAL, Ip: "93.184.216.34"}
+	f1 := &ikhnosv1.Flow{Src: workload("app"), Dst: dst, Port: 443, Protocol: "tcp", Connections: 1, Method: "ebpf", TlsHandshake: ikhnosv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_OK}
 	a.Add(f1)
-	f2 := &continuumv1.Flow{Src: workload("app"), Dst: dst, Port: 443, Protocol: "tcp", Connections: 1, Method: "ebpf"} // no ClientHello seen this window
+	f2 := &ikhnosv1.Flow{Src: workload("app"), Dst: dst, Port: 443, Protocol: "tcp", Connections: 1, Method: "ebpf"} // no ClientHello seen this window
 	a.Add(f2)
 	b := a.Flush()
-	if len(b.Flows) != 1 || b.Flows[0].TlsHandshake != continuumv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_OK {
+	if len(b.Flows) != 1 || b.Flows[0].TlsHandshake != ikhnosv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_OK {
 		t.Errorf("tlsHandshake = %v, want OK (a report with none must not blank a known one)", b.Flows[0].TlsHandshake)
 	}
 }
@@ -341,9 +341,9 @@ func TestAggregatorCarriesTlsHandshake(t *testing.T) {
 // no sample (0) must never blank out an already-known one.
 func TestAggregatorCarriesJitterSegsOutAndHandshake(t *testing.T) {
 	a := a2(t)
-	f1 := &continuumv1.Flow{Src: workload("app"), Dst: workload("db"), Port: 5432, Protocol: "tcp", Connections: 1, Method: "ebpf", JitterUs: 500, SegsOut: 10, HandshakeUs: 2000}
+	f1 := &ikhnosv1.Flow{Src: workload("app"), Dst: workload("db"), Port: 5432, Protocol: "tcp", Connections: 1, Method: "ebpf", JitterUs: 500, SegsOut: 10, HandshakeUs: 2000}
 	a.Add(f1)
-	f2 := &continuumv1.Flow{Src: workload("app"), Dst: workload("db"), Port: 5432, Protocol: "tcp", Connections: 1, Method: "ebpf", SegsOut: 15} // no jitter/handshake sample this time
+	f2 := &ikhnosv1.Flow{Src: workload("app"), Dst: workload("db"), Port: 5432, Protocol: "tcp", Connections: 1, Method: "ebpf", SegsOut: 15} // no jitter/handshake sample this time
 	a.Add(f2)
 	b := a.Flush()
 	if len(b.Flows) != 1 {
@@ -366,9 +366,9 @@ func TestAggregatorCarriesJitterSegsOutAndHandshake(t *testing.T) {
 // sums like SegsOut/Retransmits (it is the receive-side counterpart to those two sender-side counters).
 func TestAggregatorCarriesCwndPacingAndBufferDrops(t *testing.T) {
 	a := a2(t)
-	f1 := &continuumv1.Flow{Src: workload("app"), Dst: workload("db"), Port: 5432, Protocol: "tcp", Connections: 1, Method: "ebpf", Cwnd: 10, PacingBps: 125000, BufferDrops: 1}
+	f1 := &ikhnosv1.Flow{Src: workload("app"), Dst: workload("db"), Port: 5432, Protocol: "tcp", Connections: 1, Method: "ebpf", Cwnd: 10, PacingBps: 125000, BufferDrops: 1}
 	a.Add(f1)
-	f2 := &continuumv1.Flow{Src: workload("app"), Dst: workload("db"), Port: 5432, Protocol: "tcp", Connections: 1, Method: "ebpf", BufferDrops: 2} // no cwnd/pacing sample this time
+	f2 := &ikhnosv1.Flow{Src: workload("app"), Dst: workload("db"), Port: 5432, Protocol: "tcp", Connections: 1, Method: "ebpf", BufferDrops: 2} // no cwnd/pacing sample this time
 	a.Add(f2)
 	b := a.Flush()
 	if len(b.Flows) != 1 {
@@ -392,9 +392,9 @@ func TestAggregatorCarriesCwndPacingAndBufferDrops(t *testing.T) {
 // no counts of its own) the same way a DnsQueryNames row already merges into the same held edge.
 func TestAggregatorCarriesDnsRttUs(t *testing.T) {
 	a := a2(t)
-	f1 := &continuumv1.Flow{Src: workload("app"), Dst: workload("resolver"), Port: 53, Protocol: "udp", Method: "ebpf", DnsRttUs: 4200}
+	f1 := &ikhnosv1.Flow{Src: workload("app"), Dst: workload("resolver"), Port: 53, Protocol: "udp", Method: "ebpf", DnsRttUs: 4200}
 	a.Add(f1)
-	f2 := &continuumv1.Flow{Src: workload("app"), Dst: workload("resolver"), Port: 53, Protocol: "udp", Method: "ebpf", Connections: 1} // no latency sample this time
+	f2 := &ikhnosv1.Flow{Src: workload("app"), Dst: workload("resolver"), Port: 53, Protocol: "udp", Method: "ebpf", Connections: 1} // no latency sample this time
 	a.Add(f2)
 	b := a.Flush()
 	if len(b.Flows) != 1 {
@@ -411,15 +411,15 @@ func TestAggregatorCarriesDnsRttUs(t *testing.T) {
 // collapses them into one edge.
 func TestAggregatorBuildsASeparatePodLevelBreakdown(t *testing.T) {
 	a := a2(t)
-	f1 := &continuumv1.Flow{Src: workload("shop/Deployment/cart"), Dst: workload("shop/Deployment/db"), Port: 5432, Protocol: "tcp", Connections: 2, BytesOut: 100, SrcPod: "cart-aaa", DstPod: "db-xxx"}
+	f1 := &ikhnosv1.Flow{Src: workload("shop/Deployment/cart"), Dst: workload("shop/Deployment/db"), Port: 5432, Protocol: "tcp", Connections: 2, BytesOut: 100, SrcPod: "cart-aaa", DstPod: "db-xxx"}
 	a.Add(f1)
-	f2 := &continuumv1.Flow{Src: workload("shop/Deployment/cart"), Dst: workload("shop/Deployment/db"), Port: 5432, Protocol: "tcp", Connections: 3, BytesOut: 200, SrcPod: "cart-bbb", DstPod: "db-xxx"}
+	f2 := &ikhnosv1.Flow{Src: workload("shop/Deployment/cart"), Dst: workload("shop/Deployment/db"), Port: 5432, Protocol: "tcp", Connections: 3, BytesOut: 200, SrcPod: "cart-bbb", DstPod: "db-xxx"}
 	a.Add(f2)
 	// a second report for the first pod pair must merge, not duplicate.
-	f3 := &continuumv1.Flow{Src: workload("shop/Deployment/cart"), Dst: workload("shop/Deployment/db"), Port: 5432, Protocol: "tcp", Connections: 1, BytesOut: 10, SrcPod: "cart-aaa", DstPod: "db-xxx"}
+	f3 := &ikhnosv1.Flow{Src: workload("shop/Deployment/cart"), Dst: workload("shop/Deployment/db"), Port: 5432, Protocol: "tcp", Connections: 1, BytesOut: 10, SrcPod: "cart-aaa", DstPod: "db-xxx"}
 	a.Add(f3)
 	// traffic with no pod identity on either side must not appear in podFlows at all.
-	a.Add(&continuumv1.Flow{Src: workload("shop/Deployment/cart"), Dst: &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_EXTERNAL, Ip: "93.184.216.34"}, Port: 443, Protocol: "tcp", Connections: 1})
+	a.Add(&ikhnosv1.Flow{Src: workload("shop/Deployment/cart"), Dst: &ikhnosv1.FlowEndpoint{Kind: ikhnosv1.FlowEndpoint_EXTERNAL, Ip: "93.184.216.34"}, Port: 443, Protocol: "tcp", Connections: 1})
 	b := a.Flush()
 	if len(b.Flows) != 2 {
 		t.Fatalf("the workload-level table still collapses by pod: %d flows, want 2 (cart->db, cart->internet)", len(b.Flows))
@@ -427,7 +427,7 @@ func TestAggregatorBuildsASeparatePodLevelBreakdown(t *testing.T) {
 	if len(b.PodFlows) != 2 {
 		t.Fatalf("the pod-level table keeps the two distinct pod pairs apart: %d, want 2", len(b.PodFlows))
 	}
-	byPods := map[string]*continuumv1.Flow{}
+	byPods := map[string]*ikhnosv1.Flow{}
 	for _, f := range b.PodFlows {
 		byPods[f.SrcPod+">"+f.DstPod] = f
 	}
@@ -445,9 +445,9 @@ func TestAggregatorBuildsASeparatePodLevelBreakdown(t *testing.T) {
 // inflate this pod pair's already-flushed-independent counters too.
 func TestPodFlowsNeverAliasesTheWorkloadLevelEntry(t *testing.T) {
 	a := a2(t)
-	f1 := &continuumv1.Flow{Src: workload("cart"), Dst: workload("db"), Port: 5432, Protocol: "tcp", Connections: 1, SrcPod: "cart-aaa"}
+	f1 := &ikhnosv1.Flow{Src: workload("cart"), Dst: workload("db"), Port: 5432, Protocol: "tcp", Connections: 1, SrcPod: "cart-aaa"}
 	a.Add(f1) // first touch of key k: flows[k] is literally f1, and podFlows[pk1] must be a clone of it
-	f2 := &continuumv1.Flow{Src: workload("cart"), Dst: workload("db"), Port: 5432, Protocol: "tcp", Connections: 100, SrcPod: "cart-bbb"}
+	f2 := &ikhnosv1.Flow{Src: workload("cart"), Dst: workload("db"), Port: 5432, Protocol: "tcp", Connections: 100, SrcPod: "cart-bbb"}
 	a.Add(f2) // same k, a different pod pair: this merges into flows[k] (now f1, mutated in place)
 	b := a.Flush()
 	for _, f := range b.PodFlows {
@@ -461,7 +461,7 @@ func TestPodFlowsNeverAliasesTheWorkloadLevelEntry(t *testing.T) {
 // about it survives a Flush, even though the exact same pod pair keeps reporting traffic.
 func TestPodFlowsResetsEveryFlushUnlikeFlows(t *testing.T) {
 	a := a2(t)
-	a.Add(&continuumv1.Flow{Src: workload("cart"), Dst: workload("db"), Port: 5432, Protocol: "tcp", Connections: 5, SrcPod: "cart-aaa"})
+	a.Add(&ikhnosv1.Flow{Src: workload("cart"), Dst: workload("db"), Port: 5432, Protocol: "tcp", Connections: 5, SrcPod: "cart-aaa"})
 	b1 := a.Flush()
 	if len(b1.PodFlows) != 1 || b1.PodFlows[0].Connections != 5 {
 		t.Fatalf("first window = %v", b1.PodFlows)
@@ -469,7 +469,7 @@ func TestPodFlowsResetsEveryFlushUnlikeFlows(t *testing.T) {
 	if b2 := a.Flush(); b2 != nil {
 		t.Fatalf("an immediate second flush with nothing new added must report nothing: %v", b2)
 	}
-	a.Add(&continuumv1.Flow{Src: workload("cart"), Dst: workload("db"), Port: 5432, Protocol: "tcp", Connections: 2, SrcPod: "cart-aaa"})
+	a.Add(&ikhnosv1.Flow{Src: workload("cart"), Dst: workload("db"), Port: 5432, Protocol: "tcp", Connections: 2, SrcPod: "cart-aaa"})
 	b3 := a.Flush()
 	if len(b3.PodFlows) != 1 || b3.PodFlows[0].Connections != 2 {
 		t.Fatalf("a later window must start from zero, not carry the first window's 5 forward: %v", b3.PodFlows)
@@ -482,13 +482,13 @@ func TestPodFlowsIsBoundedAndPausingForgetsIt(t *testing.T) {
 	a := NewAggregator()
 	a.SetPodMax(10)
 	for i := 0; i < 100; i++ {
-		a.Add(&continuumv1.Flow{Src: workload("cart"), Dst: workload("db"), Port: 5432, Protocol: "tcp", Connections: 1, SrcPod: "cart-" + strconv.Itoa(i)})
+		a.Add(&ikhnosv1.Flow{Src: workload("cart"), Dst: workload("db"), Port: 5432, Protocol: "tcp", Connections: 1, SrcPod: "cart-" + strconv.Itoa(i)})
 	}
 	b := a.Flush()
 	if len(b.PodFlows) > 20 {
 		t.Fatalf("holding %d pod-level entries with a cap of 10", len(b.PodFlows))
 	}
-	a.Add(&continuumv1.Flow{Src: workload("cart"), Dst: workload("db"), Port: 5432, Protocol: "tcp", Connections: 1, SrcPod: "cart-x"})
+	a.Add(&ikhnosv1.Flow{Src: workload("cart"), Dst: workload("db"), Port: 5432, Protocol: "tcp", Connections: 1, SrcPod: "cart-x"})
 	a.SetPaused(true)
 	if b := a.Flush(); b != nil {
 		t.Fatal("pausing must forget the pod-level table too")
@@ -511,7 +511,7 @@ func TestReceiverVerifiesAndAttributes(t *testing.T) {
 	p := NewPipeline(secret, testIndex, nil)
 	srv := httptest.NewServer(p.Handler())
 	defer srv.Close()
-	post := func(sec []byte, node string, rep *continuumv1.FlowReport, mutate func(*http.Request)) int {
+	post := func(sec []byte, node string, rep *ikhnosv1.FlowReport, mutate func(*http.Request)) int {
 		body, _ := protojson.Marshal(rep)
 		ts := strconv.FormatInt(time.Now().Unix(), 10)
 		req, _ := http.NewRequest("POST", srv.URL+PathReport, bytes.NewReader(body))
@@ -528,7 +528,7 @@ func TestReceiverVerifiesAndAttributes(t *testing.T) {
 		resp.Body.Close()
 		return resp.StatusCode
 	}
-	rep := &continuumv1.FlowReport{Method: "ebpf", Node: "n1", BytesKnown: true, Lost: 2, Flows: []*continuumv1.RawFlow{raw(true, "10.42.0.5", "10.43.0.21", 5432), raw(true, "10.42.0.5", "10.43.0.1", 443)}}
+	rep := &ikhnosv1.FlowReport{Method: "ebpf", Node: "n1", BytesKnown: true, Lost: 2, Flows: []*ikhnosv1.RawFlow{raw(true, "10.42.0.5", "10.43.0.21", 5432), raw(true, "10.42.0.5", "10.43.0.1", 443)}}
 	if c := post(secret, "n1", rep, nil); c != 204 {
 		t.Fatalf("status %d", c)
 	}
@@ -547,17 +547,17 @@ func TestReceiverVerifiesAndAttributes(t *testing.T) {
 	if c := post(secret, "../x", rep, nil); c != 400 {
 		t.Errorf("bad node name: %d", c)
 	}
-	if c := post(secret, "n1", &continuumv1.FlowReport{Method: "magic"}, nil); c != 400 {
+	if c := post(secret, "n1", &ikhnosv1.FlowReport{Method: "magic"}, nil); c != 400 {
 		t.Errorf("unknown method: %d", c)
 	}
-	big := &continuumv1.FlowReport{Method: "ebpf"}
+	big := &ikhnosv1.FlowReport{Method: "ebpf"}
 	for i := 0; i < MaxRawFlows+1; i++ {
-		big.Flows = append(big.Flows, &continuumv1.RawFlow{Client: true, LocalIp: "10.42.0.5", PeerIp: "1.1.1.1", Port: 1, Protocol: "tcp"})
+		big.Flows = append(big.Flows, &ikhnosv1.RawFlow{Client: true, LocalIp: "10.42.0.5", PeerIp: "1.1.1.1", Port: 1, Protocol: "tcp"})
 	}
 	if c := post(secret, "n1", big, nil); c != 400 && c != 413 {
 		t.Errorf("too many flows: %d", c)
 	}
-	huge := &continuumv1.FlowReport{Method: "ebpf", Node: strings.Repeat("x", MaxBody)}
+	huge := &ikhnosv1.FlowReport{Method: "ebpf", Node: strings.Repeat("x", MaxBody)}
 	if c := post(secret, "n1", huge, nil); c != 413 {
 		t.Errorf("oversized body: %d", c)
 	}
@@ -570,7 +570,7 @@ func TestReceiverVerifiesAndAttributes(t *testing.T) {
 // Exactly one of them may survive attribution, or traffic would be counted twice.
 func TestOfferingBothEndsCountsEachConnectionOnce(t *testing.T) {
 	r := NewResolver(testIndex)
-	count := func(raws ...*continuumv1.RawFlow) int {
+	count := func(raws ...*ikhnosv1.RawFlow) int {
 		n := 0
 		for _, rw := range raws {
 			if _, ok := r.Resolve(rw, "conntrack", true); ok {
@@ -612,12 +612,12 @@ func TestQuietCollectorsAreStillReported(t *testing.T) {
 }
 
 // TestAggregatorCarriesLinkSaturation covers Seen's own per-collector link-saturation reading
-// (continuumv1.LinkSaturation): a gauge of the window just reported, replaced wholesale on the next
+// (ikhnosv1.LinkSaturation): a gauge of the window just reported, replaced wholesale on the next
 // Seen for the same node/method, never accumulated across windows the way flows/bytes are.
 func TestAggregatorCarriesLinkSaturation(t *testing.T) {
 	a := NewAggregator()
 	pct := 61.0
-	a.Seen("n1", "ebpf", true, []*continuumv1.LinkSaturation{{Iface: "eth0", ThroughputBps: 123, SaturationPct: &pct}}, 0, nil)
+	a.Seen("n1", "ebpf", true, []*ikhnosv1.LinkSaturation{{Iface: "eth0", ThroughputBps: 123, SaturationPct: &pct}}, 0, nil)
 	b := a.Flush()
 	if b == nil || len(b.Collectors) != 1 {
 		t.Fatalf("batch = %+v", b)
@@ -636,7 +636,7 @@ func TestAggregatorCarriesLinkSaturation(t *testing.T) {
 }
 
 // TestAggregatorCarriesSnatExhaustion covers Seen's own per-collector SNAT/ephemeral-port-exhaustion
-// reading (continuumv1.FlowReport.snat_exhaustion -> CollectorInfo.snat_exhaustion): wholesale-replaced
+// reading (ikhnosv1.FlowReport.snat_exhaustion -> CollectorInfo.snat_exhaustion): wholesale-replaced
 // on the next Seen for the same node/method, the same treatment TestAggregatorCarriesLinkSaturation
 // above covers for link saturation - even though the number itself is already a running total on the
 // collector's own side (see flow.c's snat_exhaustion doc comment), the aggregator never sums reports
@@ -662,7 +662,7 @@ func TestAggregatorCarriesSnatExhaustion(t *testing.T) {
 // node/method, nil (not a zeroed message) once a report stops naming one.
 func TestAggregatorCarriesThermalThrottle(t *testing.T) {
 	a := NewAggregator()
-	a.Seen("n1", "ebpf", true, nil, 0, &continuumv1.ThermalThrottle{CpuFreqChangeCount: 500, ThermalTripCount: 3})
+	a.Seen("n1", "ebpf", true, nil, 0, &ikhnosv1.ThermalThrottle{CpuFreqChangeCount: 500, ThermalTripCount: 3})
 	b := a.Flush()
 	if b == nil || len(b.Collectors) != 1 || b.Collectors[0].ThermalThrottle == nil ||
 		b.Collectors[0].ThermalThrottle.CpuFreqChangeCount != 500 || b.Collectors[0].ThermalThrottle.ThermalTripCount != 3 {
@@ -681,7 +681,7 @@ func TestTrafficTouchingAnOutOfScopeNamespaceIsDropped(t *testing.T) {
 	ix := testIndex()
 	ix.Hidden = map[string]bool{"10.42.0.30": true, "10.43.0.30": true} // a pod and a Service of the excluded namespace
 	r := NewResolver(func() *collect.Index { return ix })
-	for name, in := range map[string]*continuumv1.RawFlow{
+	for name, in := range map[string]*ikhnosv1.RawFlow{
 		"a reported pod calls an excluded pod":     raw(true, "10.42.0.5", "10.42.0.30", 5432),
 		"a reported pod calls an excluded Service": raw(true, "10.42.0.5", "10.43.0.30", 5432),
 		"an excluded pod calls a reported pod":     raw(false, "10.42.0.5", "10.42.0.30", 8080),
@@ -702,15 +702,15 @@ func TestLinkMeterSkipsExcludedNamespacesAndMalformedRows(t *testing.T) {
 	ix.Hidden = map[string]bool{"10.42.0.30": true}
 	p := NewPipeline([]byte("flow-secret-0123456789abcdef0123"), func() *collect.Index { return ix }, nil)
 	peers := link.NewPeers()
-	peers.Set("me", []*continuumv1.LinkPeer{{ClusterId: "cl-a", Name: "A", Addresses: []string{"203.0.113.9"}}})
+	peers.Set("me", []*ikhnosv1.LinkPeer{{ClusterId: "cl-a", Name: "A", Addresses: []string{"203.0.113.9"}}})
 	p.Links = link.NewMeter(peers)
-	count := func(rows ...*continuumv1.RawFlow) string {
+	count := func(rows ...*ikhnosv1.RawFlow) string {
 		p.Links = link.NewMeter(peers)
-		p.Ingest(&continuumv1.FlowReport{Method: "ebpf", Node: "n1", BytesKnown: true, Flows: rows})
+		p.Ingest(&ikhnosv1.FlowReport{Method: "ebpf", Node: "n1", BytesKnown: true, Flows: rows})
 		var b bytes.Buffer
 		p.Links.Write(&b)
 		for _, l := range strings.Split(b.String(), "\n") {
-			if strings.HasPrefix(l, "continuum_link_connections_total{") {
+			if strings.HasPrefix(l, "ikhnos_link_connections_total{") {
 				return l[strings.LastIndex(l, " ")+1:]
 			}
 		}
@@ -741,7 +741,7 @@ func TestReplayedFlowReportIsRejectedAndNotCountedTwice(t *testing.T) {
 	defer srv.Close()
 	f := raw(true, "10.42.0.5", "10.43.0.21", 5432)
 	f.BytesOut, f.BytesIn, f.Connections = 1000, 2000, 1
-	rep := &continuumv1.FlowReport{Method: "ebpf", Node: "n1", BytesKnown: true, Flows: []*continuumv1.RawFlow{f}}
+	rep := &ikhnosv1.FlowReport{Method: "ebpf", Node: "n1", BytesKnown: true, Flows: []*ikhnosv1.RawFlow{f}}
 	body, _ := protojson.Marshal(rep)
 	ts := strconv.FormatInt(now.Unix(), 10)
 	send := func() int {
@@ -813,9 +813,9 @@ func TestFlowReceiverBoundsTheBodyAndHonoursTheWindow(t *testing.T) {
 func TestAFullReportFitsTheReceiverLimit(t *testing.T) {
 	long := "2001:0db8:85a3:0000:0000:8a2e:0370:7334"
 	max := ^uint64(0)
-	rep := &continuumv1.FlowReport{Method: "conntrack", Node: strings.Repeat("n", 253), BytesKnown: true, Lost: max}
+	rep := &ikhnosv1.FlowReport{Method: "conntrack", Node: strings.Repeat("n", 253), BytesKnown: true, Lost: max}
 	for i := 0; i < MaxRawFlows; i++ {
-		rep.Flows = append(rep.Flows, &continuumv1.RawFlow{Client: true, LocalIp: long, PeerIp: long, Port: 65535, Protocol: "tcp", Connections: max, BytesOut: max, BytesIn: max})
+		rep.Flows = append(rep.Flows, &ikhnosv1.RawFlow{Client: true, LocalIp: long, PeerIp: long, Port: 65535, Protocol: "tcp", Connections: max, BytesOut: max, BytesIn: max})
 	}
 	body, err := protojson.Marshal(rep)
 	if err != nil {

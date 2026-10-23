@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"continuum/internal/accounts"
-	"continuum/internal/agents"
-	"continuum/internal/httpkit"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/agents"
+	"ikhnos/internal/httpkit"
 )
 
 // What the server lets a role do is decided in policy.go. These pin the answers - who may give or take away which role, who may

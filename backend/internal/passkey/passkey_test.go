@@ -6,8 +6,8 @@ import (
 
 	"github.com/go-webauthn/webauthn/webauthn"
 
-	"continuum/internal/accounts"
-	"continuum/internal/store"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/store"
 )
 
 // These tests only exercise this package's own plumbing - JSON round-tripping, the RelyingParty→Config

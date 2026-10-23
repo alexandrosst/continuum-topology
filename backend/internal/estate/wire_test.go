@@ -4,12 +4,12 @@ import (
 	"encoding/json"
 	"testing"
 
-	"continuum/internal/agents"
-	"continuum/internal/connectivity"
-	"continuum/internal/graph"
-	"continuum/internal/history"
-	"continuum/internal/model"
-	"continuum/internal/wire"
+	"ikhnos/internal/agents"
+	"ikhnos/internal/connectivity"
+	"ikhnos/internal/graph"
+	"ikhnos/internal/history"
+	"ikhnos/internal/model"
+	"ikhnos/internal/wire"
 )
 
 func TestEveryDocumentIsListedForTheWire(t *testing.T) {

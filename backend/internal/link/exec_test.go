@@ -34,8 +34,8 @@ func TestOutputIsCappedWhileTheProgramKeepsRunningToTheEnd(t *testing.T) {
 }
 
 func TestTheProgramRunsWithAMinimalEnvironmentPlusWhatIsAskedFor(t *testing.T) {
-	t.Setenv("CONTINUUM_SECRET_TEST", "leak")
-	out, _, err := runTool(context.Background(), []string{"EXTRA=1"}, "/bin/sh", "-c", `echo "$LC_ALL $EXTRA [$CONTINUUM_SECRET_TEST]"`)
+	t.Setenv("IKHNOS_SECRET_TEST", "leak")
+	out, _, err := runTool(context.Background(), []string{"EXTRA=1"}, "/bin/sh", "-c", `echo "$LC_ALL $EXTRA [$IKHNOS_SECRET_TEST]"`)
 	if err != nil || strings.TrimSpace(string(out)) != "C 1 []" {
 		t.Errorf("out %q err %v", out, err)
 	}

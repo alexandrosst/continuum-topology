@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"continuum/internal/kernel"
-	"continuum/internal/operators"
-	"continuum/internal/store"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/operators"
+	"ikhnos/internal/store"
 )
 
 // Advertised is op as a caller elsewhere sees it: the central operator is reached at the address FUSION is exposed at

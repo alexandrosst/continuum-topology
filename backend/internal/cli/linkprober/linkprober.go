@@ -1,4 +1,4 @@
-// Package linkprober is `continuum link-prober`: the active half of the cluster-link measurements. It asks the agent which
+// Package linkprober is `ikhnos link-prober`: the active half of the cluster-link measurements. It asks the agent which
 // clusters this one is paired with, measures the loss and delay of the path to each in both directions with OWAMP (only for the
 // pairs where the other cluster does not, see link.Peer.SkipProbe; it still traces the route to all), and
 // serves the result as Prometheus text for the cluster's collector. It runs in a pod of its own so that the agent image
@@ -16,25 +16,25 @@ import (
 	"syscall"
 	"time"
 
-	"continuum/internal/cli"
-	"continuum/internal/link"
+	"ikhnos/internal/cli"
+	"ikhnos/internal/link"
 )
 
 // Main runs the prober until it is signalled.
 func Main(args []string) int {
-	fs := cli.NewFlagSet("continuum link-prober", os.Stderr)
-	agentURL := fs.String("agent", cli.Env("CONTINUUM_LINK_AGENT_URL", ""), "URL of the agent's link address, e.g. http://continuum-agent-link-metrics.continuum-system.svc:9104")
-	secretFile := fs.String("secret-file", cli.Env("CONTINUUM_LINK_PEERS_SECRET_FILE", ""), "file holding the secret shared with the agent for the peer-list request (not the flow secret: this pod runs measurement tools against remote peers and must not hold the secret that signs flow reports)")
-	listen := fs.String("listen", cli.Env("CONTINUUM_LINK_PROBE_LISTEN", ":9105"), "address to serve the probe metrics on")
-	owping := fs.String("owping", cli.Env("CONTINUUM_LINK_OWPING", "/usr/local/bin/owping"), "the owping program")
-	port := fs.Int("responder-port", cli.Atoi(cli.Env("CONTINUUM_LINK_RESPONDER_PORT", "8861")), "the control port every cluster's link responder listens on")
-	packets := fs.Int("packets", cli.Atoi(cli.Env("CONTINUUM_LINK_PACKETS", "100")), "test packets per run and direction")
-	spacing := fs.Duration("spacing", durEnv("CONTINUUM_LINK_SPACING", 100*time.Millisecond), "average time between test packets")
-	every := fs.Duration("interval", durEnv("CONTINUUM_LINK_INTERVAL", time.Minute), "how often each peer is measured")
-	pathEvery := fs.Duration("path-interval", durEnv("CONTINUUM_LINK_PATH_INTERVAL", 10*time.Minute), "how often the route and path MTU to each peer are traced (0: never)")
+	fs := cli.NewFlagSet("ikhnos link-prober", os.Stderr)
+	agentURL := fs.String("agent", cli.Env("IKHNOS_LINK_AGENT_URL", ""), "URL of the agent's link address, e.g. http://ikhnos-agent-link-metrics.ikhnos-system.svc:9104")
+	secretFile := fs.String("secret-file", cli.Env("IKHNOS_LINK_PEERS_SECRET_FILE", ""), "file holding the secret shared with the agent for the peer-list request (not the flow secret: this pod runs measurement tools against remote peers and must not hold the secret that signs flow reports)")
+	listen := fs.String("listen", cli.Env("IKHNOS_LINK_PROBE_LISTEN", ":9105"), "address to serve the probe metrics on")
+	owping := fs.String("owping", cli.Env("IKHNOS_LINK_OWPING", "/usr/local/bin/owping"), "the owping program")
+	port := fs.Int("responder-port", cli.Atoi(cli.Env("IKHNOS_LINK_RESPONDER_PORT", "8861")), "the control port every cluster's link responder listens on")
+	packets := fs.Int("packets", cli.Atoi(cli.Env("IKHNOS_LINK_PACKETS", "100")), "test packets per run and direction")
+	spacing := fs.Duration("spacing", durEnv("IKHNOS_LINK_SPACING", 100*time.Millisecond), "average time between test packets")
+	every := fs.Duration("interval", durEnv("IKHNOS_LINK_INTERVAL", time.Minute), "how often each peer is measured")
+	pathEvery := fs.Duration("path-interval", durEnv("IKHNOS_LINK_PATH_INTERVAL", 10*time.Minute), "how often the route and path MTU to each peer are traced (0: never)")
 	capFlags := addCapacityFlags(fs)
 	baseFlags := addBaselineFlags(fs)
-	dscp := fs.Int("dscp", cli.Atoi(cli.Env("CONTINUUM_LINK_DSCP", "0")), "DSCP value to mark test packets with (0: unmarked)")
+	dscp := fs.Int("dscp", cli.Atoi(cli.Env("IKHNOS_LINK_DSCP", "0")), "DSCP value to mark test packets with (0: unmarked)")
 	if code, done := cli.Parse(fs, args); done {
 		return code
 	}

@@ -28,6 +28,6 @@ export const usePolicy = create<PolicyStore>()(
       set: (p) => set((s) => ({ policy: clean({ ...s.policy, ...p }) })),
       reset: () => set({ policy: DEFAULT_POLICY }),
     }),
-    { name: 'continuum-placement/policy', version: 1, partialize: (s) => ({ policy: s.policy }), merge: (saved, cur) => ({ ...cur, policy: clean((saved as { policy?: Partial<Policy> } | undefined)?.policy) }) },
+    { name: 'ikhnos-placement/policy', version: 1, partialize: (s) => ({ policy: s.policy }), merge: (saved, cur) => ({ ...cur, policy: clean((saved as { policy?: Partial<Policy> } | undefined)?.policy) }) },
   ),
 )

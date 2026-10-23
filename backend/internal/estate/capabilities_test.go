@@ -5,12 +5,12 @@ import (
 	"strings"
 	"testing"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 )
 
 func TestTheAgentDocumentCarriesWhatTheAgentDeclared(t *testing.T) {
 	r := newHubRig(t)
-	f := r.connectedWith(t, &continuumv1.Hello{ProtocolVersion: 1, Capabilities: []string{"self-stats", "config-digest"}})
+	f := r.connectedWith(t, &ikhnosv1.Hello{ProtocolVersion: 1, Capabilities: []string{"self-stats", "config-digest"}})
 	doc := r.agentDoc(t, f.ID)
 	if doc.ProtocolVersion != 1 || strings.Join(doc.Capabilities, ",") != "config-digest,self-stats" {
 		t.Fatalf("document says protocol %d, names %v", doc.ProtocolVersion, doc.Capabilities)

@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/kernel"
-	"continuum/internal/operators"
-	"continuum/internal/store"
-	"continuum/internal/testkit"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/operators"
+	"ikhnos/internal/store"
+	"ikhnos/internal/testkit"
 )
 
 // approvedCluster enrolls and approves one agent, returning the cluster id CreateOperator's own
@@ -314,7 +314,7 @@ func TestOperatorLabelsAreValidatedTrimmedAndStored(t *testing.T) {
 		return op, err
 	}
 	bad := map[string][]store.OperatorLabel{
-		"reserved prefix": {{Key: "continuum.region", Value: "x"}},
+		"reserved prefix": {{Key: "ikhnos.region", Value: "x"}},
 		"empty key":       {{Key: " ", Value: "x"}},
 		"bad key":         {{Key: "has space", Value: "x"}},
 		"empty value":     {{Key: "region", Value: "  "}},

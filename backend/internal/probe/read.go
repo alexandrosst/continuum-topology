@@ -24,7 +24,7 @@ import (
 	"time"
 	"unicode"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 )
 
 // Version is reported with every observation so the server can tell old probes from new ones.
@@ -94,13 +94,13 @@ func readText(path string) string {
 
 // Read observes the machine. Fields the machine does not expose stay empty: absence is a fact too
 // (a Raspberry Pi has no DMI; a VM has a hypervisor bit).
-func Read(p Paths) *continuumv1.HostProbe {
+func Read(p Paths) *ikhnosv1.HostProbe {
 	dmi := filepath.Join(p.Sys, "class", "dmi", "id")
 	hyp := cpuHypervisorBit(filepath.Join(p.Proc, "cpuinfo"))
 	cpuinfo := filepath.Join(p.Proc, "cpuinfo")
 	ifaces := interfaces(filepath.Join(p.Sys, "class", "net"))
 	tuns, hostSubnets, hostAddrs := networkEvidence()
-	h := &continuumv1.HostProbe{
+	h := &ikhnosv1.HostProbe{
 		ProbeVersion:       Version,
 		HypervisorBit:      hyp,
 		HypervisorVendorId: hypervisorVendorID(hyp),
@@ -412,12 +412,12 @@ func cpuHypervisorBit(path string) bool {
 // interfaces lists the physical network interfaces that are up, with whatever speed and MTU sysfs
 // reports for each. Virtual interfaces (veth, bridges, tunnels, VLANs) live under
 // /sys/devices/virtual and are skipped. Never carries an address: this package never reads MACs.
-func interfaces(dir string) []*continuumv1.NetworkInterface {
+func interfaces(dir string) []*ikhnosv1.NetworkInterface {
 	ents, err := os.ReadDir(dir)
 	if err != nil {
 		return nil
 	}
-	var out []*continuumv1.NetworkInterface
+	var out []*ikhnosv1.NetworkInterface
 	for _, e := range ents {
 		name := e.Name()
 		target, err := os.Readlink(filepath.Join(dir, name))
@@ -437,7 +437,7 @@ func interfaces(dir string) []*continuumv1.NetworkInterface {
 		default:
 			kind = "ethernet"
 		}
-		iface := &continuumv1.NetworkInterface{Name: Clean(name), Kind: kind}
+		iface := &ikhnosv1.NetworkInterface{Name: Clean(name), Kind: kind}
 		// speed_mbps: absent, unreadable, or -1 (no link) all mean "not known"; 0 says that, not "no link".
 		if n, err := strconv.Atoi(strings.TrimSpace(readText(filepath.Join(dir, name, "speed")))); err == nil && n > 0 {
 			iface.SpeedMbps = int32(n)
@@ -453,7 +453,7 @@ func interfaces(dir string) []*continuumv1.NetworkInterface {
 
 // uplinkKinds derives the legacy kind-only uplinks list from the richer interfaces list, kept for
 // consumers that only ever cared about which kinds of link a node has.
-func uplinkKinds(ifaces []*continuumv1.NetworkInterface) []string {
+func uplinkKinds(ifaces []*ikhnosv1.NetworkInterface) []string {
 	seen := map[string]bool{}
 	for _, i := range ifaces {
 		seen[i.Kind] = true
@@ -471,12 +471,12 @@ func uplinkKinds(ifaces []*continuumv1.NetworkInterface) []string {
 // /sys/devices/virtual and are skipped, the same way virtual network interfaces are; optical drives
 // (sr*) are skipped too, since they are not storage capacity in any useful sense here. Never reads a
 // disk's serial, WWN or any other per-disk identifier - see the package doc.
-func disks(dir string) []*continuumv1.Disk {
+func disks(dir string) []*ikhnosv1.Disk {
 	ents, err := os.ReadDir(dir)
 	if err != nil {
 		return nil
 	}
-	var out []*continuumv1.Disk
+	var out []*ikhnosv1.Disk
 	for _, e := range ents {
 		name := e.Name()
 		if strings.HasPrefix(name, "sr") {
@@ -486,7 +486,7 @@ func disks(dir string) []*continuumv1.Disk {
 		if err != nil || strings.Contains(target, "/virtual/") {
 			continue
 		}
-		d := &continuumv1.Disk{Name: Clean(name)}
+		d := &ikhnosv1.Disk{Name: Clean(name)}
 		d.Model = firmware(readText(filepath.Join(dir, name, "device", "model")))
 		if n, err := strconv.ParseInt(strings.TrimSpace(readText(filepath.Join(dir, name, "size"))), 10, 64); err == nil && n > 0 {
 			d.SizeBytes = n * 512 // sysfs always reports size in 512-byte sectors, regardless of the real sector size
@@ -567,11 +567,11 @@ func sanitizeWatts(v *float64) *float64 {
 
 // Sanitize bounds and cleans an observation received from the network, so a hostile or buggy sender
 // cannot store anything but short printable strings and known values.
-func Sanitize(h *continuumv1.HostProbe) *continuumv1.HostProbe {
+func Sanitize(h *ikhnosv1.HostProbe) *ikhnosv1.HostProbe {
 	if h == nil {
 		return nil
 	}
-	out := &continuumv1.HostProbe{
+	out := &ikhnosv1.HostProbe{
 		ProbeVersion: Clean(h.ProbeVersion), HypervisorBit: h.HypervisorBit, HypervisorVendorId: Clean(h.HypervisorVendorId), HypervisorType: Clean(h.HypervisorType),
 		SysVendor: Clean(h.SysVendor), ProductName: Clean(h.ProductName), BoardVendor: Clean(h.BoardVendor), BoardName: Clean(h.BoardName),
 		BiosVendor: Clean(h.BiosVendor), DeviceTreeModel: Clean(h.DeviceTreeModel), HasBattery: h.HasBattery,
@@ -606,7 +606,7 @@ func Sanitize(h *continuumv1.HostProbe) *continuumv1.HostProbe {
 		if name == "" || (iface.Kind != "ethernet" && iface.Kind != "wifi" && iface.Kind != "cellular") {
 			continue
 		}
-		ni := &continuumv1.NetworkInterface{Name: name, Kind: iface.Kind}
+		ni := &ikhnosv1.NetworkInterface{Name: name, Kind: iface.Kind}
 		if iface.SpeedMbps > 0 && iface.SpeedMbps <= 1_000_000 {
 			ni.SpeedMbps = iface.SpeedMbps
 		}
@@ -625,7 +625,7 @@ func Sanitize(h *continuumv1.HostProbe) *continuumv1.HostProbe {
 		if name == "" || (d.Type != "" && d.Type != "hdd" && d.Type != "ssd" && d.Type != "nvme") {
 			continue
 		}
-		nd := &continuumv1.Disk{Name: name, Model: Clean(d.Model), Type: d.Type}
+		nd := &ikhnosv1.Disk{Name: name, Model: Clean(d.Model), Type: d.Type}
 		if d.SizeBytes > 0 && d.SizeBytes <= 1<<60 { // 1 EiB: generous headroom, not a real disk size
 			nd.SizeBytes = d.SizeBytes
 		}
@@ -655,7 +655,7 @@ func Sanitize(h *continuumv1.HostProbe) *continuumv1.HostProbe {
 		if name == "" || !overlayKinds[t.Kind] {
 			continue
 		}
-		nt := &continuumv1.TunnelInterface{Name: name, Kind: t.Kind, Up: t.Up}
+		nt := &ikhnosv1.TunnelInterface{Name: name, Kind: t.Kind, Up: t.Up}
 		if t.Mtu > 0 && t.Mtu <= 65536 {
 			nt.Mtu = t.Mtu
 		}
@@ -691,7 +691,7 @@ func Sanitize(h *continuumv1.HostProbe) *continuumv1.HostProbe {
 		if ip := pfx.Addr(); ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() || ip.IsUnspecified() {
 			continue
 		}
-		out.HostAddresses = append(out.HostAddresses, &continuumv1.HostAddress{Interface: name, Kind: Clean(a.Kind), Address: pfx.String()})
+		out.HostAddresses = append(out.HostAddresses, &ikhnosv1.HostAddress{Interface: name, Kind: Clean(a.Kind), Address: pfx.String()})
 	}
 	return out
 }

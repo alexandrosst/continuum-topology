@@ -6,7 +6,7 @@ import (
 	"sort"
 	"time"
 
-	"continuum/internal/store"
+	"ikhnos/internal/store"
 )
 
 // AddEvents stores change events for one tenant and returns them with their ids.

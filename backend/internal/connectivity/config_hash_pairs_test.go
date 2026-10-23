@@ -3,15 +3,15 @@ package connectivity
 import (
 	"testing"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 )
 
 func TestTheConfigHashChangesWithThePeers(t *testing.T) {
-	base := &continuumv1.Config{ApprovedAccessTier: 2, ClusterId: "cl-a"}
+	base := &ikhnosv1.Config{ApprovedAccessTier: 2, ClusterId: "cl-a"}
 	h1 := ConfigHash(base)
-	withPeer := &continuumv1.Config{ApprovedAccessTier: 2, ClusterId: "cl-a", LinkPeers: []*continuumv1.LinkPeer{{ClusterId: "cl-b", Name: "beta", Addresses: []string{"10.1.0.1"}}}}
+	withPeer := &ikhnosv1.Config{ApprovedAccessTier: 2, ClusterId: "cl-a", LinkPeers: []*ikhnosv1.LinkPeer{{ClusterId: "cl-b", Name: "beta", Addresses: []string{"10.1.0.1"}}}}
 	h2 := ConfigHash(withPeer)
-	moved := &continuumv1.Config{ApprovedAccessTier: 2, ClusterId: "cl-a", LinkPeers: []*continuumv1.LinkPeer{{ClusterId: "cl-b", Name: "beta", Addresses: []string{"10.1.0.2"}}}}
+	moved := &ikhnosv1.Config{ApprovedAccessTier: 2, ClusterId: "cl-a", LinkPeers: []*ikhnosv1.LinkPeer{{ClusterId: "cl-b", Name: "beta", Addresses: []string{"10.1.0.2"}}}}
 	if h1 == h2 || h2 == ConfigHash(moved) {
 		t.Fatal("a change in the peer list does not change the config hash, so it would never be pushed")
 	}
@@ -21,13 +21,13 @@ func TestTheConfigHashChangesWithThePeers(t *testing.T) {
 }
 
 func TestTheConfigHashChangesWithThePairChoices(t *testing.T) {
-	mk := func(lp *continuumv1.LinkPeer) string {
+	mk := func(lp *ikhnosv1.LinkPeer) string {
 		lp.ClusterId, lp.Name, lp.Addresses = "cl-b", "beta", []string{"10.1.0.1"}
-		return ConfigHash(&continuumv1.Config{ApprovedAccessTier: 2, ClusterId: "cl-a", LinkPeers: []*continuumv1.LinkPeer{lp}})
+		return ConfigHash(&ikhnosv1.Config{ApprovedAccessTier: 2, ClusterId: "cl-a", LinkPeers: []*ikhnosv1.LinkPeer{lp}})
 	}
-	base := mk(&continuumv1.LinkPeer{})
+	base := mk(&ikhnosv1.LinkPeer{})
 	seen := map[string]bool{base: true}
-	for name, lp := range map[string]*continuumv1.LinkPeer{
+	for name, lp := range map[string]*ikhnosv1.LinkPeer{
 		"no probe": {NoProbe: true}, "skip probe": {SkipProbe: true}, "via mesh": {Via: "mesh"}, "via public": {Via: "public"}, "throughput": {Throughput: true}, "interval": {Throughput: true, ThroughputIntervalSeconds: 600}, "budget": {Throughput: true, ThroughputBudgetBytes: 1 << 20},
 	} {
 		h := mk(lp)

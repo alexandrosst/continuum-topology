@@ -24,24 +24,24 @@ func TestAgentUpgrade(t *testing.T) {
 		want string
 	}{
 		{"nothing known: the documented defaults", AgentUpgrade{},
-			"helm upgrade continuum-agent ./continuum-agent.tgz --namespace continuum-system --reset-then-reuse-values"},
+			"helm upgrade ikhnos-agent ./ikhnos-agent.tgz --namespace ikhnos-system --reset-then-reuse-values"},
 		{"a tier", AgentUpgrade{Tier: intp(0)},
-			"helm upgrade continuum-agent ./continuum-agent.tgz --namespace continuum-system --reset-then-reuse-values --set access.tier=0"},
-		{"a registry chart is fetched at a version", AgentUpgrade{ChartRef: "oci://r.example/continuum-agent", ChartVersion: "0.4.0", Tier: intp(2)},
-			"helm upgrade continuum-agent oci://r.example/continuum-agent --version 0.4.0 --namespace continuum-system --reset-then-reuse-values --set access.tier=2"},
+			"helm upgrade ikhnos-agent ./ikhnos-agent.tgz --namespace ikhnos-system --reset-then-reuse-values --set access.tier=0"},
+		{"a registry chart is fetched at a version", AgentUpgrade{ChartRef: "oci://r.example/ikhnos-agent", ChartVersion: "0.4.0", Tier: intp(2)},
+			"helm upgrade ikhnos-agent oci://r.example/ikhnos-agent --version 0.4.0 --namespace ikhnos-system --reset-then-reuse-values --set access.tier=2"},
 		{"a chart file given by reference has no version", AgentUpgrade{ChartRef: "./agent-0.4.0.tgz", ChartVersion: "0.4.0"},
-			"helm upgrade continuum-agent ./agent-0.4.0.tgz --namespace continuum-system --reset-then-reuse-values"},
-		{"a registry chart with no known version", AgentUpgrade{ChartRef: "oci://r.example/continuum-agent"},
-			"helm upgrade continuum-agent oci://r.example/continuum-agent --namespace continuum-system --reset-then-reuse-values"},
-		{"a chart file", AgentUpgrade{ChartFile: "continuum-agent-0.4.0.tgz"},
-			"helm upgrade continuum-agent ./continuum-agent-0.4.0.tgz --namespace continuum-system --reset-then-reuse-values"},
+			"helm upgrade ikhnos-agent ./agent-0.4.0.tgz --namespace ikhnos-system --reset-then-reuse-values"},
+		{"a registry chart with no known version", AgentUpgrade{ChartRef: "oci://r.example/ikhnos-agent"},
+			"helm upgrade ikhnos-agent oci://r.example/ikhnos-agent --namespace ikhnos-system --reset-then-reuse-values"},
+		{"a chart file", AgentUpgrade{ChartFile: "ikhnos-agent-0.4.0.tgz"},
+			"helm upgrade ikhnos-agent ./ikhnos-agent-0.4.0.tgz --namespace ikhnos-system --reset-then-reuse-values"},
 		{"where the agent lives", AgentUpgrade{Namespace: "ikhnos", Release: "edge-agent"},
-			"helm upgrade edge-agent ./continuum-agent.tgz --namespace ikhnos --reset-then-reuse-values"},
+			"helm upgrade edge-agent ./ikhnos-agent.tgz --namespace ikhnos --reset-then-reuse-values"},
 		// The names come from what the agent reported; one that is not a plain Kubernetes name is not pasted.
 		{"a reported name that is not plain is dropped", AgentUpgrade{Namespace: "x; rm -rf /", Release: "Bad_Name"},
-			"helm upgrade continuum-agent ./continuum-agent.tgz --namespace continuum-system --reset-then-reuse-values"},
+			"helm upgrade ikhnos-agent ./ikhnos-agent.tgz --namespace ikhnos-system --reset-then-reuse-values"},
 		{"a chart reference is quoted", AgentUpgrade{ChartRef: "oci://r.example/it's"},
-			"helm upgrade continuum-agent 'oci://r.example/it'\\''s' --namespace continuum-system --reset-then-reuse-values"},
+			"helm upgrade ikhnos-agent 'oci://r.example/it'\\''s' --namespace ikhnos-system --reset-then-reuse-values"},
 	} {
 		got, err := c.up.Render()
 		if err != nil {

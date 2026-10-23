@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/facts"
-	"continuum/internal/store"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/facts"
+	"ikhnos/internal/store"
 )
 
 // DefaultRetention is how long a tombstone is kept: long enough to explain a change after a weekend, short
@@ -36,7 +36,7 @@ type Vanished struct {
 // Disappeared lists what a sync takes away from the state: everything not in a full picture, and everything a
 // delta deletes. tier is the access tier a human approved: facts above it are not reported at all, which is
 // consent narrowing, not a deletion, and the reason says so. It changes nothing.
-func Disappeared(st *facts.State, s *continuumv1.Sync, tier int) []Vanished {
+func Disappeared(st *facts.State, s *ikhnosv1.Sync, tier int) []Vanished {
 	var out []Vanished
 	add := func(kind, key, reason string) { out = append(out, Vanished{kind, key, reason}) }
 	const gone = "no longer reported by its agent (deleted, or outside what the agent is told to look at)"

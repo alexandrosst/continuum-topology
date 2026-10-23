@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"continuum/internal/accounts"
-	"continuum/internal/store"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/store"
 )
 
 // The audit trail names who did a thing. For a person that is their username, and for the server itself it is a fixed word:

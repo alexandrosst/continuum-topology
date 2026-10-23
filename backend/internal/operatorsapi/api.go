@@ -12,16 +12,16 @@ import (
 	"time"
 
 	"context"
-	"continuum/internal/agents"
-	"continuum/internal/connectivity"
-	"continuum/internal/telemetry"
+	"ikhnos/internal/agents"
+	"ikhnos/internal/connectivity"
+	"ikhnos/internal/telemetry"
 	"net"
 	"net/http"
 
-	"continuum/internal/httpkit"
-	"continuum/internal/installcfg"
-	"continuum/internal/kernel"
-	"continuum/internal/operators"
+	"ikhnos/internal/httpkit"
+	"ikhnos/internal/installcfg"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/operators"
 )
 
 // HeartbeatPath is where an opted-in regional operator's collector POSTs its heartbeat (its otlphttp exporter's metrics_endpoint). It is

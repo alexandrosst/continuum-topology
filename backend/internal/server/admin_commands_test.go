@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"continuum/internal/accounts"
-	"continuum/internal/install"
-	"continuum/internal/kernel"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/install"
+	"ikhnos/internal/kernel"
 )
 
 const (
@@ -73,13 +73,13 @@ func TestAgentUpgradeCommandNamesTheChartTheServerServes(t *testing.T) {
 
 	a.a.ChartRef = ""
 	_, out := a.upgrade(t, cookie, map[string]any{"tier": tier})
-	if want := "helm upgrade continuum-agent ./" + a.a.AgentChartFile() + " --namespace continuum-system --reset-then-reuse-values --set access.tier=2"; out.Command != want || out.Upgrade != want {
+	if want := "helm upgrade ikhnos-agent ./" + a.a.AgentChartFile() + " --namespace ikhnos-system --reset-then-reuse-values --set access.tier=2"; out.Command != want || out.Upgrade != want {
 		t.Fatalf("a chart file: %q", out.Command)
 	}
 
-	a.a.ChartRef = "oci://registry.example.com/continuum-agent"
+	a.a.ChartRef = "oci://registry.example.com/ikhnos-agent"
 	_, out = a.upgrade(t, cookie, map[string]any{"tier": tier, "namespace": "ikhnos", "release": "edge-agent"})
-	if !strings.Contains(out.Command, "helm upgrade edge-agent oci://registry.example.com/continuum-agent --version "+a.a.AgentVersion()+" --namespace ikhnos ") {
+	if !strings.Contains(out.Command, "helm upgrade edge-agent oci://registry.example.com/ikhnos-agent --version "+a.a.AgentVersion()+" --namespace ikhnos ") {
 		t.Fatalf("a registry chart: %q", out.Command)
 	}
 
@@ -117,7 +117,7 @@ func TestAgentUpgradeCommandNeverPastesAHostileName(t *testing.T) {
 	_, cookie := a.user(t, "ed", accounts.RoleEditor)
 	for _, hostile := range []string{"x; rm -rf /", "$(id)", "a b", "`id`", "A", "--set x=1", "x\ny"} {
 		_, out := a.upgrade(t, cookie, map[string]any{"tier": 1, "namespace": hostile, "release": hostile})
-		if strings.Contains(out.Command, hostile) || !strings.Contains(out.Command, "helm upgrade continuum-agent ") || !strings.Contains(out.Command, "--namespace continuum-system ") {
+		if strings.Contains(out.Command, hostile) || !strings.Contains(out.Command, "helm upgrade ikhnos-agent ") || !strings.Contains(out.Command, "--namespace ikhnos-system ") {
 			t.Errorf("%q reached the command: %q", hostile, out.Command)
 		}
 	}

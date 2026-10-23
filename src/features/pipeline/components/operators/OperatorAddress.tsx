@@ -21,7 +21,7 @@ export const EXPOSURE_OPTIONS: { id: OperatorExposure; label: string; hint: stri
 export function addressCommands(id: string, svc?: { service: string; namespace: string }): { loadBalancer: string; nodePort: string } {
   // Names the server reported (or built from an operator's id): quoted all the same, since each lands in a line a person pastes.
   const name = shArg(svc?.service || operatorServiceName(id))
-  const ns = shArg(svc?.namespace || 'continuum-system')
+  const ns = shArg(svc?.namespace || 'ikhnos-system')
   return {
     loadBalancer: `kubectl get svc ${name} --namespace ${ns} -o jsonpath='{.status.loadBalancer.ingress[0].hostname}{.status.loadBalancer.ingress[0].ip}{"\\n"}'`,
     nodePort: `kubectl get svc ${name} --namespace ${ns} -o jsonpath='{.spec.ports[?(@.name=="otlp-grpc")].nodePort}{"\\n"}'`,
@@ -41,7 +41,7 @@ export function withDefaultPort(value: string): string {
  *  must include the operator's stable one. Nothing printed means the address is not reachable from there. */
 export function connectionCheckCommand(address: string, id: string): string {
   // The address is typed text: quoted, so a `;` or `$(...)` in it is part of the address and not a second command.
-  return `openssl s_client -connect ${shArg(address)} -servername ${shArg(`${id}.continuum-system.svc`)} </dev/null 2>/dev/null | openssl x509 -noout -ext subjectAltName`
+  return `openssl s_client -connect ${shArg(address)} -servername ${shArg(`${id}.ikhnos-system.svc`)} </dev/null 2>/dev/null | openssl x509 -noout -ext subjectAltName`
 }
 
 /** How to find the address, in the order a person does it. Shown after creating an exposed operator and in the
@@ -200,7 +200,7 @@ export function OperatorAddressModal({ operator, central, onClose, onDone }: { o
         {withDefaultPort(value) && (
           <div data-testid="operator-address-check">
             <div className="mb-1 text-xs text-nb-500">
-              Check it before you save: run this from a machine in the cluster that will send. It should list <span className="font-mono">DNS:{operator.id}.continuum-system.svc</span>; no output means that machine cannot reach the address.
+              Check it before you save: run this from a machine in the cluster that will send. It should list <span className="font-mono">DNS:{operator.id}.ikhnos-system.svc</span>; no output means that machine cannot reach the address.
             </div>
             <CopyCommand text={connectionCheckCommand(withDefaultPort(value), operator.id)} testId="operator-address-check-command" />
           </div>

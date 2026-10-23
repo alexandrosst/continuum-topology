@@ -8,24 +8,24 @@ import (
 	"strings"
 	"time"
 
-	"continuum/internal/agents"
-	"continuum/internal/chart"
-	"continuum/internal/httpkit"
-	"continuum/internal/install"
-	"continuum/internal/kernel"
-	"continuum/internal/operators"
-	"continuum/internal/store"
+	"ikhnos/internal/agents"
+	"ikhnos/internal/chart"
+	"ikhnos/internal/httpkit"
+	"ikhnos/internal/install"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/operators"
+	"ikhnos/internal/store"
 )
 
 // RestartCommand restarts the operator's pods, which is how they pick up a Secret read into the environment.
 func RestartCommand(op store.Operator) (string, error) {
-	return install.RestartDeployment{Deployment: operators.OperatorServiceName(op.ID), Namespace: "continuum-system"}.Render()
+	return install.RestartDeployment{Deployment: operators.OperatorServiceName(op.ID), Namespace: "ikhnos-system"}.Render()
 }
 
 // UninstallCommand removes the receiver. Revoking or deleting an operator in the server does not touch the
 // running one - it keeps receiving, and trusting its own CA, until it is uninstalled - so the response says how.
 func UninstallCommand(id string) (string, error) {
-	return install.Uninstall{Release: id, Namespace: "continuum-system"}.Render()
+	return install.Uninstall{Release: id, Namespace: "ikhnos-system"}.Render()
 }
 
 // operatorReceiverTLSSecretName and ClientTLSSecretName are the fixed Secret names the operator
@@ -44,7 +44,7 @@ func TLSSecretCommand(op store.Operator, b operators.OperatorTLSBundle) (string,
 	if len(b.ReceiverCertPEM) == 0 {
 		return "", nil
 	}
-	return install.Secret{Name: operatorReceiverTLSSecretName(op), Namespace: "continuum-system", EnsureNamespace: true, Entries: []install.Entry{
+	return install.Secret{Name: operatorReceiverTLSSecretName(op), Namespace: "ikhnos-system", EnsureNamespace: true, Entries: []install.Entry{
 		{Key: "tls.crt", Value: string(b.ReceiverCertPEM)}, {Key: "tls.key", Value: string(b.ReceiverKeyPEM)}, {Key: "ca.crt", Value: string(b.CACertPEM)}}}.Render()
 }
 
@@ -235,7 +235,7 @@ func (h *API) InstallCommand(img kernel.ImageConfig, secret string, op store.Ope
 		set("renew.server", h.Settings.AgentAddr)
 		set("renew.caPin", h.CAPin())
 		if img.Configured() {
-			set("renew.image.repository", img.Registry+"/continuum")
+			set("renew.image.repository", img.Registry+"/ikhnos")
 			if img.Tag != "" {
 				set("renew.image.tag", img.Tag)
 			}
@@ -249,8 +249,8 @@ func (h *API) InstallCommand(img kernel.ImageConfig, secret string, op store.Ope
 	}
 	v = append(v, install.SetJSON("operator", operatorProvenanceJSON(op)))
 	// No image flags, on purpose. The operator runs the upstream OpenTelemetry Collector image the chart
-	// already names - not the `continuum` image the configured registry holds - so pointing it at
-	// <registry>/continuum-regional-operator (an image nothing ever published) made every install of it
+	// already names - not the `ikhnos` image the configured registry holds - so pointing it at
+	// <registry>/ikhnos-regional-operator (an image nothing ever published) made every install of it
 	// fail with ImagePullBackOff. A cluster that must pull from its own registry sets image.repository
 	// and image.tag itself (see the chart's values.yaml).
 	//
@@ -259,7 +259,7 @@ func (h *API) InstallCommand(img kernel.ImageConfig, secret string, op store.Ope
 		set("service.type", svcType)
 	}
 	ref, version := h.Settings.OperatorChart(img)
-	helm := install.Helm{Verb: install.Install, Release: op.ID, Chart: ref, Version: version, Namespace: "continuum-system", CreateNamespace: true, Values: v, Layout: install.Wrapped}
+	helm := install.Helm{Verb: install.Install, Release: op.ID, Chart: ref, Version: version, Namespace: "ikhnos-system", CreateNamespace: true, Values: v, Layout: install.Wrapped}
 	if reissue {
 		helm.Verb, helm.ResetThenReuse = install.UpgradeInstall, true
 	}
@@ -267,7 +267,7 @@ func (h *API) InstallCommand(img kernel.ImageConfig, secret string, op store.Ope
 		return "", "", err
 	}
 	if !mtlsOnly {
-		if secretCmd, err = (install.Secret{Name: op.ID + "-receiver-auth", Namespace: "continuum-system", EnsureNamespace: true, Entries: []install.Entry{{Key: "token", Value: secret}}}).Render(); err != nil {
+		if secretCmd, err = (install.Secret{Name: op.ID + "-receiver-auth", Namespace: "ikhnos-system", EnsureNamespace: true, Entries: []install.Entry{{Key: "token", Value: secret}}}).Render(); err != nil {
 			return "", "", err
 		}
 	}
@@ -275,7 +275,7 @@ func (h *API) InstallCommand(img kernel.ImageConfig, secret string, op store.Ope
 }
 
 // operatorProvenanceJSON is the chart's `operator` value: who this operator is (stamped as
-// continuum.operator.id and .name on everything it forwards) and the labels set when it was created. One
+// ikhnos.operator.id and .name on everything it forwards) and the labels set when it was created. One
 // --set-json object rather than separate --set flags, so a comma or a space in a name or a value needs no
 // escaping beyond the shell quoting around it.
 func operatorProvenanceJSON(op store.Operator) string {
@@ -296,7 +296,7 @@ func operatorProvenanceJSON(op store.Operator) string {
 }
 
 // SourceReminders is informational only, not applied: for each source cluster, the exact `helm
-// upgrade` a person would run against that cluster's own continuum-agent release to actually point its
+// upgrade` a person would run against that cluster's own ikhnos-agent release to actually point its
 // telemetry.export.otlp.endpoint at this operator - there is no live reparenting in this release (see the
 // plan), so nothing here is executed on the caller's behalf. Uses the same release-name/namespace guess
 // upgradeCommand/agents.TeardownCommands already fall back to when an agent has never reported its own.
@@ -485,7 +485,7 @@ func (h *API) operatorTargetExport(r *http.Request, op store.Operator) (secretCo
 	if err != nil || len(certPEM) == 0 {
 		return "", nil
 	}
-	secretCmd, err := ClientSecretCommand(target, certPEM, keyPEM, caPEM, "continuum-system", true)
+	secretCmd, err := ClientSecretCommand(target, certPEM, keyPEM, caPEM, "ikhnos-system", true)
 	if err != nil {
 		h.cfgErr(r, err) // logged; the response is without the Secret
 		return "", nil

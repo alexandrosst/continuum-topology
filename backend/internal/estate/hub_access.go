@@ -3,9 +3,9 @@ package estate
 import (
 	"context"
 
-	"continuum/internal/agents"
-	"continuum/internal/decisionloop"
-	"continuum/internal/store"
+	"ikhnos/internal/agents"
+	"ikhnos/internal/decisionloop"
+	"ikhnos/internal/store"
 )
 
 // hubAccess is the agents' answer to the decision loop (decisionloop.Access).

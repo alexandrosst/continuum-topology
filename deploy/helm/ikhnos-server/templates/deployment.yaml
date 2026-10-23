@@ -1,0 +1,292 @@
+{{- $tls := include "ikhnos.adminTLS" . }}
+{{- $neo := include "ikhnos.neo4jEnabled" . }}
+{{- $passName := include "ikhnos.caPassphraseSecretName" . }}
+{{- $passKey := include "ikhnos.caPassphraseSecretKey" . }}
+{{- $sealName := include "ikhnos.sealingSecretName" . }}
+{{- $sealKey := include "ikhnos.sealingSecretKey" . }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ikhnos.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "ikhnos.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+spec:
+  # One replica, always. The server owns a SQLite database and the enrollment CA in /data and keeps agent sessions in memory:
+  # a second copy would corrupt the first's view, not add capacity. Not a value on purpose.
+  replicas: 1
+  # A ReadWriteOnce volume cannot be mounted by the old and the new pod together, and two servers must never share /data.
+  strategy:
+    type: Recreate
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels: {{- include "ikhnos.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "ikhnos.selectorLabels" . | nindent 8 }}
+        helm.sh/chart: {{ include "ikhnos.chart" . }}
+        app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+        app.kubernetes.io/part-of: ikhnos
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- if or .Values.podAnnotations .Values.nodeProbe.enabled }}
+      annotations:
+        {{- if .Values.nodeProbe.enabled }}
+        checksum/node-probe-secret: {{ include "ikhnos.probeSecretRevision" . }}   # the server reads the secret at start
+        {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "ikhnos.serviceAccountName" . }}
+      automountServiceAccountToken: {{ or .Values.automountServiceAccountToken (include "ikhnos.fusionControl" . | ne "") }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . | quote }}
+      {{- end }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      securityContext: {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.extraInitContainers }}
+      initContainers: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: server
+          image: {{ include "ikhnos.imageRef" (dict "image" .Values.image "defaultTag" .Chart.AppVersion) | quote }}
+          imagePullPolicy: {{ include "ikhnos.imagePullPolicy" (dict "image" .Values.image "defaultTag" .Chart.AppVersion) }}
+          securityContext: {{- toYaml .Values.securityContext | nindent 12 }}
+          # The image's ENTRYPOINT is /server with --data-dir=/data --ui-dir=/ui; these args repeat what matters (the last
+          # occurrence of a flag wins) so the pod does not depend on the image's defaults.
+          args:
+            - --data-dir=/data
+            - --ui-dir=/ui
+            - --agent-listen=:{{ .Values.agent.port }}
+            - --agent-address={{ .Values.agent.publicAddress }}
+            - --agent-exposure={{ include "ikhnos.agentExposure" . }}
+            - --release-name={{ .Release.Name }}
+            - --release-namespace={{ .Release.Namespace }}
+            {{- if .Values.fusion.enabled }}
+            # The bundled FUSION's name: the shared data API reads its stores by it, and the switch (when allowed) scales it.
+            - --fusion-name={{ include "ikhnos.fusionName" . }}
+            {{- with .Values.fusionControl.centralAddress }}
+            - {{ printf "--fusion-central-address=%s" . | quote }}
+            {{- end }}
+            {{- end }}
+            {{- with .Values.agent.extraHosts }}
+            - --agent-hosts={{ join "," . }}
+            {{- end }}
+            {{- if .Values.agent.behindProxy }}
+            - --agent-behind-proxy
+            {{- end }}
+            - --admin-listen=0.0.0.0:{{ .Values.admin.port }}
+            {{- if $tls }}
+            - --admin-tls-cert=/etc/ikhnos/admin-tls/{{ .Values.admin.tls.certKey }}
+            - --admin-tls-key=/etc/ikhnos/admin-tls/{{ .Values.admin.tls.keyKey }}
+            {{- end }}
+            {{- if include "ikhnos.behindProxy" . }}
+            - --admin-behind-tls-proxy
+            {{- end }}
+            {{- with .Values.admin.sso.headerName }}
+            - {{ printf "--admin-sso-header=%s" . | quote }}
+            {{- end }}
+            - --registration={{ .Values.registration }}
+            {{- if .Values.multiOrganisation }}
+            - --multi-organisation
+            {{- end }}
+            - {{ printf "--org=%s" .Values.org | quote }}
+            {{- with .Values.agentInstall.imageRegistry }}
+            - {{ printf "--image-registry=%s" . | quote }}
+            {{- end }}
+            {{- with .Values.agentInstall.imageTag }}
+            - {{ printf "--image-tag=%s" . | quote }}
+            {{- end }}
+            {{- with .Values.agentInstall.chartRef }}
+            - {{ printf "--chart-ref=%s" . | quote }}
+            {{- end }}
+            {{- with .Values.geoip.path }}
+            - {{ printf "--geoip-db=%s" . | quote }}
+            {{- end }}
+            {{- with .Values.geoip.publicIpService }}
+            - {{ printf "--geoip-public-ip-service=%s" . | quote }}
+            {{- end }}
+            {{- with .Values.geoip.asnPath }}
+            - {{ printf "--geoip-asn-db=%s" . | quote }}
+            {{- end }}
+            {{- with .Values.decider.allowCIDRs }}
+            - --decider-allow-cidrs={{ join "," . }}
+            {{- end }}
+            {{- if $neo }}
+            - --neo4j-url={{ include "ikhnos.neo4jURL" . }}
+            - --neo4j-database={{ .Values.neo4j.database }}
+            - --neo4j-password-file=/etc/ikhnos/neo4j/password
+            {{- /* the chart has already refused plain http to anything outside the cluster (see validate/_helpers), so the server's own check is told */ -}}
+            {{- if hasPrefix "http://" (include "ikhnos.neo4jURL" .) }}
+            - --neo4j-allow-insecure-http
+            {{- end }}
+            {{- end }}
+            {{- if .Values.allowLoosePermissions }}
+            - --allow-loose-permissions
+            {{- end }}
+            {{- if $passName }}
+            - --ca-key-passphrase-file=/etc/ikhnos/ca/{{ $passKey }}
+            {{- else if .Values.pki.encryptAtRest }}
+            - --ca-key-auto-passphrase
+            {{- end }}
+            {{- if .Values.nodeProbe.enabled }}
+            - --probe-listen=:{{ .Values.nodeProbe.port }}
+            - --probe-secret-file=/etc/ikhnos/probe/secret
+            - --probe-interval={{ .Values.nodeProbe.interval }}
+            {{- end }}
+            {{- range .Values.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          env:
+            {{- if $sealName }}
+            # Read from the environment rather than a flag so that `kubectl exec ... /server reset-password` finds the key too.
+            - name: IKHNOS_SEALING_KEY_FILE
+              value: /etc/ikhnos/sealing/{{ $sealKey }}
+            {{- end }}
+            {{- with .Values.admin.publicURL }}
+            # Where people and regional operators outside the cluster reach this server: the heartbeat address in the
+            # commands a regional operator is installed with.
+            - name: IKHNOS_PUBLIC_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.admin.heartbeatCAFile }}
+            # The private CA that signed this server's HTTPS certificate (a file you mount with extraVolumes): regional
+            # operators are given it so their heartbeat can verify the server.
+            - name: IKHNOS_HEARTBEAT_CA_FILE
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if .Values.tuning.goMemLimit }}
+            - name: GOMEMLIMIT
+              value: {{ .Values.tuning.goMemLimit | quote }}
+            {{- end }}
+            {{- if .Values.admin.existingPasswordSecret }}
+            # Read only while the database has no user yet (first start); afterwards the account in the database rules.
+            - name: IKHNOS_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.admin.existingPasswordSecret }}
+                  key: {{ .Values.admin.existingPasswordSecretKey }}
+            {{- end }}
+            {{- if eq .Values.neo4j.mode "bundled" }}
+            - {name: IKHNOS_NEO4J_USER, value: neo4j}
+            {{- else if eq .Values.neo4j.mode "external" }}
+            {{- if .Values.neo4j.external.usernameKey }}
+            - name: IKHNOS_NEO4J_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.neo4j.external.existingSecret }}
+                  key: {{ .Values.neo4j.external.usernameKey }}
+            {{- else }}
+            - name: IKHNOS_NEO4J_USER
+              value: {{ .Values.neo4j.user | quote }}
+            {{- end }}
+            {{- end }}
+            {{- /* The cluster's identity (its kube-system UID), so the server knows which agent's cluster it, and FUSION's gateway, are in. lookup finds nothing under helm template; clusterId is for that case. */}}
+            {{- $clusterId := .Values.clusterId | default (dig "metadata" "uid" "" (lookup "v1" "Namespace" "" "kube-system")) }}
+            {{- if $clusterId }}
+            - name: IKHNOS_CLUSTER_ID
+              value: {{ $clusterId | quote }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - {name: agent, containerPort: {{ .Values.agent.port }}, protocol: TCP}
+            - {name: admin, containerPort: {{ .Values.admin.port }}, protocol: TCP}
+            {{- if .Values.nodeProbe.enabled }}
+            - {name: probe, containerPort: {{ .Values.nodeProbe.port }}, protocol: TCP}
+            {{- end }}
+          {{- $probe := dict "path" "/healthz" "port" "admin" "scheme" (ternary "HTTPS" "HTTP" (not (empty $tls))) }}
+          startupProbe:
+            httpGet: {{- toYaml $probe | nindent 14 }}
+            {{- toYaml .Values.probes.startup | nindent 12 }}
+          readinessProbe:
+            httpGet: {{- toYaml $probe | nindent 14 }}
+            {{- toYaml .Values.probes.readiness | nindent 12 }}
+          livenessProbe:
+            httpGet: {{- toYaml $probe | nindent 14 }}
+            {{- toYaml .Values.probes.liveness | nindent 12 }}
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - {name: data, mountPath: /data}
+            # SQLite may spill temporary files; the root filesystem is read-only.
+            - {name: tmp, mountPath: /tmp}
+            {{- if $tls }}
+            - {name: admin-tls, mountPath: /etc/ikhnos/admin-tls, readOnly: true}
+            {{- end }}
+            {{- if $neo }}
+            - {name: neo4j-auth, mountPath: /etc/ikhnos/neo4j, readOnly: true}
+            {{- end }}
+            {{- if $passName }}
+            - {name: ca-passphrase, mountPath: /etc/ikhnos/ca, readOnly: true}
+            {{- end }}
+            {{- if $sealName }}
+            - {name: sealing-key, mountPath: /etc/ikhnos/sealing, readOnly: true}
+            {{- end }}
+            {{- if .Values.nodeProbe.enabled }}
+            - {name: node-probe-secret, mountPath: /etc/ikhnos/probe, readOnly: true}
+            {{- end }}
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "ikhnos.dataClaim" . }}
+        - name: tmp
+          emptyDir: {sizeLimit: 256Mi}
+        {{- if $tls }}
+        - name: admin-tls
+          secret:
+            secretName: {{ include "ikhnos.adminTLSSecretName" . }}
+            defaultMode: 0440
+        {{- end }}
+        {{- if $neo }}
+        - name: neo4j-auth
+          secret:
+            secretName: {{ include "ikhnos.neo4jSecretName" . }}
+            defaultMode: 0440
+            items:
+              - key: {{ include "ikhnos.neo4jSecretKey" . }}
+                path: password
+        {{- end }}
+        {{- if $passName }}
+        - name: ca-passphrase
+          secret:
+            secretName: {{ $passName }}
+            defaultMode: 0440
+            items:
+              - key: {{ $passKey }}
+                path: {{ $passKey }}
+        {{- end }}
+        {{- if $sealName }}
+        - name: sealing-key
+          secret:
+            secretName: {{ $sealName }}
+            defaultMode: 0440
+            items:
+              - key: {{ $sealKey }}
+                path: {{ $sealKey }}
+        {{- end }}
+        {{- if .Values.nodeProbe.enabled }}
+        - name: node-probe-secret
+          secret: {secretName: {{ include "ikhnos.probeName" . }}, defaultMode: 0440}
+        {{- end }}
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}

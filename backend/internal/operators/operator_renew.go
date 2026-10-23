@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/accounts"
-	"continuum/internal/kernel"
-	"continuum/internal/pki"
-	"continuum/internal/store"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/pki"
+	"ikhnos/internal/store"
 )
 
 // RenewTelemetryCert renews an operator certificate for whoever holds its private key: a regional operator's receiver
@@ -33,7 +33,7 @@ import (
 // have been signed by the operator's own CA and ended no more than pki.OperatorRenewGrace ago. What the new
 // certificate says (name, organisation, usage, hosts) is copied from the old one, which this server wrote; nothing
 // the caller asks for is used except the public key.
-func (c *Service) RenewTelemetryCert(ctx context.Context, ip string, req *continuumv1.RenewTelemetryCertRequest) (*continuumv1.RenewTelemetryCertResponse, error) {
+func (c *Service) RenewTelemetryCert(ctx context.Context, ip string, req *ikhnosv1.RenewTelemetryCertRequest) (*ikhnosv1.RenewTelemetryCertResponse, error) {
 	if !c.EnrollRL.Allow("renew-cert:" + kernel.LimitKey(ip)) {
 		return nil, kernel.Errf(kernel.KindRateLimited, "too many attempts, slow down")
 	}
@@ -141,7 +141,7 @@ func (c *Service) RenewTelemetryCert(ctx context.Context, ip string, req *contin
 	if t := CertNotAfter(leafPEM); t != nil {
 		notAfter = *t
 	}
-	return &continuumv1.RenewTelemetryCertResponse{LeafDer: der, CaPem: caPEM, NotAfter: kernel.TSProto(&notAfter)}, nil
+	return &ikhnosv1.RenewTelemetryCertResponse{LeafDer: der, CaPem: caPEM, NotAfter: kernel.TSProto(&notAfter)}, nil
 }
 
 // entitledSender says which current sender of op a client certificate named cn belongs to. The name is made from

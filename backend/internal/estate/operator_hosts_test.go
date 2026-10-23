@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 )
 
 func addrs(list []AddressCandidate) []string {
@@ -152,7 +152,7 @@ func TestHintsSuggestTheNodeProbeAndTheProviderTheClusterAlreadyHas(t *testing.T
 }
 
 func TestProvidersAreFoundAmongTheClustersWorkloads(t *testing.T) {
-	got := providersIn(map[string]*continuumv1.WorkloadFacts{
+	got := providersIn(map[string]*ikhnosv1.WorkloadFacts{
 		"a": {Namespace: "metallb-system", Name: "controller"}, "b": {Namespace: "metallb-system", Name: "speaker"},
 		"c": {Namespace: "kube-system", Name: "kube-vip-ds"}, "d": {Namespace: "tailscale", Name: "operator"}, "e": {Namespace: "default", Name: "web"},
 	})

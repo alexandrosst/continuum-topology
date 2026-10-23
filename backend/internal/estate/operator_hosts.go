@@ -8,11 +8,11 @@ import (
 	"strconv"
 	"strings"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/facts"
-	"continuum/internal/install"
-	"continuum/internal/operators"
-	"continuum/internal/store"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/facts"
+	"ikhnos/internal/install"
+	"ikhnos/internal/operators"
+	"ikhnos/internal/store"
 )
 
 // Where a regional operator can be reached from other clusters, worked out from what discovery already knows.
@@ -20,7 +20,7 @@ import (
 // A person used to read an operator's address off the cluster with kubectl and type it in. The agent in the operator's
 // own cluster already reports that cluster's nodes and, for each workload, the addresses its Services are reachable on
 // (a load balancer's address, an external IP, a node port). The operator is a Deployment named after its id in
-// continuum-system, so those facts are enough to list the addresses it can be reached at. Nothing here is a claim that
+// ikhnos-system, so those facts are enough to list the addresses it can be reached at. Nothing here is a claim that
 // an address works from anywhere: that is a separate test, made from the sending cluster (see the address check).
 
 // CandidateKind is the kind of address a candidate is.
@@ -212,22 +212,22 @@ func (h hubHosts) operatorHost(ctx context.Context, operatorID string) (operator
 }
 
 // workloadHost finds the cluster a Deployment runs in, from what the approved agents report about their clusters.
-// The regional operators are all in continuum-system under a name worked out from their id; the central operator's
+// The regional operators are all in ikhnos-system under a name worked out from their id; the central operator's
 // gateway is the server's own install, in the server's namespace under FUSION's name.
 func (h hubHosts) workloadHost(ctx context.Context, namespace, want string) (operatorHost, bool) {
-	return h.hostWhere(ctx, func(w *continuumv1.WorkloadFacts) bool { return w.Namespace == namespace && w.Name == want })
+	return h.hostWhere(ctx, func(w *ikhnosv1.WorkloadFacts) bool { return w.Namespace == namespace && w.Name == want })
 }
 
 // namespaceHost finds a cluster by something else running in a namespace, for when the Deployment itself is not among
 // what an agent reports (the agent is there, but has not been told to read that Deployment or its Service). It says which
 // cluster, and so which nodes; it says nothing about the Deployment's Service, which the caller must get another way.
 func (h hubHosts) namespaceHost(ctx context.Context, namespace string) (operatorHost, bool) {
-	host, ok := h.hostWhere(ctx, func(w *continuumv1.WorkloadFacts) bool { return w.Namespace == namespace })
+	host, ok := h.hostWhere(ctx, func(w *ikhnosv1.WorkloadFacts) bool { return w.Namespace == namespace })
 	host.Reachable, host.PodNodes = nil, nil
 	return host, ok
 }
 
-func (h hubHosts) hostWhere(ctx context.Context, match func(*continuumv1.WorkloadFacts) bool) (operatorHost, bool) {
+func (h hubHosts) hostWhere(ctx context.Context, match func(*ikhnosv1.WorkloadFacts) bool) (operatorHost, bool) {
 	agentList, err := h.C.Store.ListAgents(ctx, h.C.OrgID)
 	if err != nil {
 		return operatorHost{}, false
@@ -254,7 +254,7 @@ func (h hubHosts) hostWhere(ctx context.Context, match func(*continuumv1.Workloa
 // clusterHost finds a cluster by its id. It is found whenever an approved agent is registered there, even one that has
 // reported nothing yet (then it has no nodes to list). A workload that match accepts, if the agent reports one, says which
 // node the pod is on.
-func (h hubHosts) clusterHost(ctx context.Context, clusterID string, match func(*continuumv1.WorkloadFacts) bool) (operatorHost, bool) {
+func (h hubHosts) clusterHost(ctx context.Context, clusterID string, match func(*ikhnosv1.WorkloadFacts) bool) (operatorHost, bool) {
 	agentList, err := h.C.Store.ListAgents(ctx, h.C.OrgID)
 	if err != nil {
 		return operatorHost{}, false
@@ -273,7 +273,7 @@ func (h hubHosts) clusterHost(ctx context.Context, clusterID string, match func(
 				}
 				continue
 			}
-			var wl *continuumv1.WorkloadFacts
+			var wl *ikhnosv1.WorkloadFacts
 			for _, w := range st.Workloads {
 				if match != nil && match(w) {
 					wl = w
@@ -363,7 +363,7 @@ func (h hubHosts) nodeHost(ctx context.Context, ip string) (operatorHost, bool) 
 
 // clusterHost describes the cluster of an agent's view, with what the agent says about the workload w (nil when it is not
 // known). The caller holds the hub's lock.
-func clusterHost(a store.Agent, st *facts.State, w *continuumv1.WorkloadFacts) operatorHost {
+func clusterHost(a store.Agent, st *facts.State, w *ikhnosv1.WorkloadFacts) operatorHost {
 	host := operatorHost{ClusterID: a.ClusterID, ClusterName: a.Name}
 	if w != nil {
 		host.PodNodes = append([]string(nil), w.NodeNames...)
@@ -432,7 +432,7 @@ func classifyNetwork(iface, kind, ip string) AddressNetwork {
 }
 
 // providersIn finds the load balancer and mesh providers among a cluster's reported workloads.
-func providersIn(ws map[string]*continuumv1.WorkloadFacts) []string {
+func providersIn(ws map[string]*ikhnosv1.WorkloadFacts) []string {
 	var out []string
 	seen := map[string]bool{}
 	add := func(p string) {
@@ -463,7 +463,7 @@ var providerHint = map[string]string{
 }
 
 // operatorNamespace is where every install command puts a regional operator.
-const operatorNamespace = "continuum-system"
+const operatorNamespace = "ikhnos-system"
 
 // addressCandidates lists the addresses an operator can be reached at, best guess first: a load balancer's address,
 // then a node port on the nodes its pods run on, then external IPs, then node ports on the nodes' external addresses,

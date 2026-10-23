@@ -91,8 +91,8 @@ test('agentVerdict: connected is Healthy, a late heartbeat Needs attention, disc
   assert.equal(down.state, 'down')
   assert.match(down.reason!, /Has not reported for 2 h 8 min/)
   // The steps carry the exact commands, in the agent's own namespace and release (the defaults when it did not say).
-  assert.equal(down.todo?.steps[0].command, 'kubectl get pods --namespace continuum-system')
-  assert.match(down.todo!.steps[1].command!, /--selector app\.kubernetes\.io\/instance=continuum-agent/)
+  assert.equal(down.todo?.steps[0].command, 'kubectl get pods --namespace ikhnos-system')
+  assert.match(down.todo!.steps[1].command!, /--selector app\.kubernetes\.io\/instance=ikhnos-agent/)
   assert.equal(agentVerdict(ag({ namespace: 'ikhnos', releaseName: 'edge' }), NOW).todo, undefined)
   assert.equal(agentVerdict(ag({ connected: false, namespace: 'ikhnos', releaseName: 'edge' }), NOW).todo?.steps[0].command, 'kubectl get pods --namespace ikhnos')
   assert.equal(agentVerdict(ag({ connected: undefined }), NOW).state, 'unknown')
@@ -155,7 +155,7 @@ test('operatorVerdict: the worst thing wins and is said once, each with what to 
   assert.equal(failing.state, 'attention')
   assert.match(failing.reason!, /^Certificate renewal is failing\. The current one is valid until /)
   assert.equal(failing.todo?.action?.kind, 'renew')
-  assert.match(failing.todo!.steps[1].command!, /^kubectl logs deployment\/op-eu-regional-operator --namespace continuum-system/)
+  assert.match(failing.todo!.steps[1].command!, /^kubectl logs deployment\/op-eu-regional-operator --namespace ikhnos-system/)
   const expired = v(op({ certState: 'expired', certs: { receiverNotAfter: ago(DAY) } }))
   assert.equal(expired.state, 'down')
   // Offline beats a failing renewal; a revoked one is Not working and says so.

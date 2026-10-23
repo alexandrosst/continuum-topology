@@ -49,7 +49,7 @@ func operatorHelmTemplate(t *testing.T, extra ...string) (string, error) {
 // operatorHelmTemplateNamed is operatorHelmTemplate with the release name as a parameter, instead of the
 // fixed "op" - used to check that two different releases of this chart never collide on object names
 // (see operator.name in _helpers.tpl: this chart is designed to run many instances per namespace, unlike
-// continuum-agent, which is 1:1 with a cluster).
+// ikhnos-agent, which is 1:1 with a cluster).
 func operatorHelmTemplateNamed(t *testing.T, release string, extra ...string) (string, error) {
 	t.Helper()
 	h, err := exec.LookPath("helm")
@@ -235,7 +235,7 @@ func TestRegionalOperatorReceiverAuthWiresBearerToken(t *testing.T) {
 	dep := r.deployments["op-regional-operator"]
 	found := false
 	for _, e := range dep.Spec.Template.Spec.Containers[0].Env {
-		if e.Name == "CONTINUUM_OPERATOR_RECEIVER_AUTH" {
+		if e.Name == "IKHNOS_OPERATOR_RECEIVER_AUTH" {
 			found = true
 			if e.ValueFrom == nil || e.ValueFrom.SecretKeyRef == nil || e.ValueFrom.SecretKeyRef.Name != "op-receiver-auth" {
 				t.Fatalf("receiver auth env not wired to the secret: %+v", e)
@@ -243,7 +243,7 @@ func TestRegionalOperatorReceiverAuthWiresBearerToken(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatal("CONTINUUM_OPERATOR_RECEIVER_AUTH env var missing")
+		t.Fatal("IKHNOS_OPERATOR_RECEIVER_AUTH env var missing")
 	}
 }
 
@@ -312,10 +312,10 @@ func TestRegionalOperatorReceiverTLSRequiresSecretName(t *testing.T) {
 }
 
 // TestRegionalOperatorObjectNamesDontCollideAcrossReleases guards the regression this chart actually hit:
-// operator.name used to be a hardcoded literal ("continuum-regional-operator"), so every ServiceAccount,
+// operator.name used to be a hardcoded literal ("ikhnos-regional-operator"), so every ServiceAccount,
 // ConfigMap, Service and Deployment from two operators installed into the same namespace collided byte
 // for byte - the second `helm install` would silently adopt (and then fight over) the first operator's
-// objects. Unlike continuum-agent (1:1 with a cluster, so a fixed name is safe), this chart is designed
+// objects. Unlike ikhnos-agent (1:1 with a cluster, so a fixed name is safe), this chart is designed
 // to run many instances per namespace, so object names must be derived from .Release.Name.
 func TestRegionalOperatorObjectNamesDontCollideAcrossReleases(t *testing.T) {
 	outA, err := operatorHelmTemplateNamed(t, "op-aaa111")

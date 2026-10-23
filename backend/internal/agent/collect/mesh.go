@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/facts"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/facts"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -36,7 +36,7 @@ var proxyContainers = map[string]string{
 var linkerdNamespaces = map[string]bool{"linkerd": true, "linkerd-viz": true, "linkerd-jaeger": true, "linkerd-multicluster": true}
 
 // controlPlaneOf names the mesh a workload is the control plane (or a gateway) of, or "".
-func controlPlaneOf(w *continuumv1.WorkloadFacts, tmplLabels map[string]string) string {
+func controlPlaneOf(w *ikhnosv1.WorkloadFacts, tmplLabels map[string]string) string {
 	n := w.Name
 	switch {
 	case n == "istiod" || strings.HasPrefix(n, "istiod-"), tmplLabels["app"] == "istiod", tmplLabels["istio"] == "pilot",
@@ -72,10 +72,10 @@ func excludedPorts(ann map[string]string) []string {
 }
 
 // workloadMesh works out one workload's relation to the mesh. pods are its pods (as far as they were observed).
-func workloadMesh(w *wl, nsLabels, nsAnn map[string]string) *continuumv1.WorkloadMesh {
+func workloadMesh(w *wl, nsLabels, nsAnn map[string]string) *ikhnosv1.WorkloadMesh {
 	f := w.facts
 	if k := controlPlaneOf(f, w.tmplLabels); k != "" {
-		return &continuumv1.WorkloadMesh{Mesh: k, ControlPlane: true, Source: "workload"}
+		return &ikhnosv1.WorkloadMesh{Mesh: k, ControlPlane: true, Source: "workload"}
 	}
 	// 1. What the pods show.
 	observed, proxy := "", ""
@@ -95,16 +95,16 @@ func workloadMesh(w *wl, nsLabels, nsAnn map[string]string) *continuumv1.Workloa
 	}
 	ann := merge(w.tmplAnn, f.Annotations)
 	if observed != "" {
-		return &continuumv1.WorkloadMesh{Mesh: observed, Proxy: proxy, ExcludedPorts: excludedPorts(ann), Source: "pods"}
+		return &ikhnosv1.WorkloadMesh{Mesh: observed, Proxy: proxy, ExcludedPorts: excludedPorts(ann), Source: "pods"}
 	}
 	// 2. What the workload itself asks for.
 	inj := strings.ToLower(firstOf(w.tmplLabels["sidecar.istio.io/inject"], w.tmplAnn["sidecar.istio.io/inject"]))
 	lk := strings.ToLower(w.tmplAnn["linkerd.io/inject"])
 	switch {
 	case inj == "false":
-		return &continuumv1.WorkloadMesh{Mesh: facts.MeshIstio, Bypass: true, Source: "workload"}
+		return &ikhnosv1.WorkloadMesh{Mesh: facts.MeshIstio, Bypass: true, Source: "workload"}
 	case lk == "disabled":
-		return &continuumv1.WorkloadMesh{Mesh: facts.MeshLinkerd, Bypass: true, Source: "workload"}
+		return &ikhnosv1.WorkloadMesh{Mesh: facts.MeshLinkerd, Bypass: true, Source: "workload"}
 	}
 	// 3. What its namespace asks for. Pods that exist without a proxy are reported as not proxied; a workload with no
 	// pods yet is shown as it will be.
@@ -119,9 +119,9 @@ func workloadMesh(w *wl, nsLabels, nsAnn map[string]string) *continuumv1.Workloa
 		return nil
 	}
 	if off {
-		return &continuumv1.WorkloadMesh{Mesh: mesh, Bypass: true, Source: "namespace"}
+		return &ikhnosv1.WorkloadMesh{Mesh: mesh, Bypass: true, Source: "namespace"}
 	}
-	m := &continuumv1.WorkloadMesh{Mesh: mesh, ExcludedPorts: excludedPorts(ann), Source: "namespace"}
+	m := &ikhnosv1.WorkloadMesh{Mesh: mesh, ExcludedPorts: excludedPorts(ann), Source: "namespace"}
 	if len(w.pods) == 0 {
 		m.Proxy = want
 	}
@@ -167,14 +167,14 @@ func imageTag(image string) string {
 
 // detectMesh sets the mesh markers on every workload and describes the mesh they add up to. vis limits the
 // per-namespace policy to namespaces the agent may report.
-func (c *Collector) detectMesh(all map[string]*wl, vis func(string) bool) *continuumv1.MeshFacts {
+func (c *Collector) detectMesh(all map[string]*wl, vis func(string) bool) *ikhnosv1.MeshFacts {
 	nsLabels, nsAnn := map[string]map[string]string{}, map[string]map[string]string{}
 	if c.ns != nil {
 		each(c.ns.GetStore().List(), func(n *corev1.Namespace) { nsLabels[n.Name], nsAnn[n.Name] = n.Labels, n.Annotations })
 	}
 	counts := map[string]int{}
 	cp := map[string][]string{}
-	var cpFacts []*continuumv1.WorkloadFacts
+	var cpFacts []*ikhnosv1.WorkloadFacts
 	ztunnel := false
 	for _, w := range all {
 		m := workloadMesh(w, nsLabels[w.facts.Namespace], nsAnn[w.facts.Namespace])
@@ -211,7 +211,7 @@ func (c *Collector) detectMesh(all map[string]*wl, vis func(string) bool) *conti
 	if kind == "" {
 		return nil
 	}
-	mf := &continuumv1.MeshFacts{Kind: kind, Mode: facts.ProxySidecar, ControlPlane: cp[kind]}
+	mf := &ikhnosv1.MeshFacts{Kind: kind, Mode: facts.ProxySidecar, ControlPlane: cp[kind]}
 	sort.Strings(mf.ControlPlane)
 	if kind == facts.MeshIstio && ztunnel {
 		mf.Mode = facts.ProxyAmbient
@@ -399,7 +399,7 @@ func (c *Collector) watchPolicy(ctx context.Context) {
 
 // istioPolicy sets the mesh-wide and per-namespace mutual-TLS mode from the PeerAuthentication objects. A policy with a
 // selector applies to some workloads only, so it does not change what is said about the whole namespace.
-func (c *Collector) istioPolicy(mf *continuumv1.MeshFacts, controlPlane []string, all map[string]*wl, vis func(string) bool) {
+func (c *Collector) istioPolicy(mf *ikhnosv1.MeshFacts, controlPlane []string, all map[string]*wl, vis func(string) bool) {
 	c.pol.mu.Lock()
 	items, read, note := c.pol.items, c.pol.read, c.pol.note
 	c.pol.mu.Unlock()

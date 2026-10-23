@@ -25,11 +25,11 @@ func TestPackagesImportEachOtherOnlyWhereTheListSays(t *testing.T) {
 	if testing.Short() {
 		t.Skip("reads the module with go list")
 	}
-	out, err := exec.Command("go", "list", "-json=ImportPath,Imports", "continuum/internal/...").Output()
+	out, err := exec.Command("go", "list", "-json=ImportPath,Imports", "ikhnos/internal/...").Output()
 	if err != nil {
 		t.Fatalf("go list: %v", err)
 	}
-	const root = "continuum/internal/"
+	const root = "ikhnos/internal/"
 	var lines []string
 	byPkg := map[string][]string{}
 	for dec := json.NewDecoder(strings.NewReader(string(out))); dec.More(); {

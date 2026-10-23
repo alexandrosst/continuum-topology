@@ -6,14 +6,6 @@ package testkit
 import (
 	"bytes"
 	"context"
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/accounts"
-	"continuum/internal/agents"
-	"continuum/internal/approval"
-	"continuum/internal/connectivity"
-	"continuum/internal/facts"
-	"continuum/internal/kernel"
-	"continuum/internal/observed"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -21,14 +13,22 @@ import (
 	"errors"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/agents"
+	"ikhnos/internal/approval"
+	"ikhnos/internal/connectivity"
+	"ikhnos/internal/facts"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/observed"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"continuum/internal/graph"
-	"continuum/internal/store"
+	"ikhnos/internal/graph"
+	"ikhnos/internal/store"
 )
 
 // LinkSpy is a store that keeps what the graph would be asked to link.
@@ -97,7 +97,7 @@ func ExtEdge(ft *observed.FlowTable, src, dstIP string, port uint32, proto strin
 	f := FlowOf(WorkloadEndpoint(src), ExternalEndpoint(dstIP), port, conns)
 	f.Protocol = proto
 	f.Noise = noise
-	ft.Apply(&continuumv1.FlowBatch{WindowSeconds: 60, Flows: []*continuumv1.Flow{f}}, time.Now())
+	ft.Apply(&ikhnosv1.FlowBatch{WindowSeconds: 60, Flows: []*ikhnosv1.Flow{f}}, time.Now())
 }
 
 // FailHistory fails the event and snapshot writes while its flags are set.
@@ -123,8 +123,8 @@ func (f *FailHistory) AddHistory(ctx context.Context, org string, at time.Time, 
 }
 
 // SyncMsg wraps a picture as the message an agent sends.
-func SyncMsg(s *continuumv1.Sync) *continuumv1.AgentMessage {
-	return &continuumv1.AgentMessage{Msg: &continuumv1.AgentMessage_Sync{Sync: s}}
+func SyncMsg(s *ikhnosv1.Sync) *ikhnosv1.AgentMessage {
+	return &ikhnosv1.AgentMessage{Msg: &ikhnosv1.AgentMessage_Sync{Sync: s}}
 }
 
 // FP3 is the fingerprint of a third cluster.
@@ -201,13 +201,13 @@ func StepNamed(t *testing.T, steps []connectivity.LinkSetupStep, code connectivi
 
 // NodeState is one node with the given internal address and, if any, external ones.
 func NodeState(internal string, external ...string) *facts.State {
-	n := &continuumv1.NodeFacts{InternalIps: []string{internal}}
+	n := &ikhnosv1.NodeFacts{InternalIps: []string{internal}}
 	for _, e := range external {
 		if e != "" {
 			n.ExternalIps = append(n.ExternalIps, e)
 		}
 	}
-	return &facts.State{Nodes: map[string]*continuumv1.NodeFacts{"n1": n}}
+	return &facts.State{Nodes: map[string]*ikhnosv1.NodeFacts{"n1": n}}
 }
 
 // Agent is an approved agent for a cluster, at a tier, connecting from ip.
@@ -216,23 +216,23 @@ func Agent(id, cluster, name, ip string, tier int) store.Agent {
 }
 
 // Workload is a workload fact with the key a namespace, kind and name make, and the addresses it is reachable on.
-func Workload(ns, kind, name string, reach ...*continuumv1.Address) *continuumv1.WorkloadFacts {
-	return &continuumv1.WorkloadFacts{Key: ns + "/" + kind + "/" + name, Namespace: ns, Kind: kind, Name: name, Reachable: reach}
+func Workload(ns, kind, name string, reach ...*ikhnosv1.Address) *ikhnosv1.WorkloadFacts {
+	return &ikhnosv1.WorkloadFacts{Key: ns + "/" + kind + "/" + name, Namespace: ns, Kind: kind, Name: name, Reachable: reach}
 }
 
 // WorkloadEndpoint is the end of a flow that is a workload.
-func WorkloadEndpoint(key string) *continuumv1.FlowEndpoint {
-	return &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_WORKLOAD, Ref: key}
+func WorkloadEndpoint(key string) *ikhnosv1.FlowEndpoint {
+	return &ikhnosv1.FlowEndpoint{Kind: ikhnosv1.FlowEndpoint_WORKLOAD, Ref: key}
 }
 
 // ExternalEndpoint is the end of a flow that is an address outside the cluster.
-func ExternalEndpoint(ip string) *continuumv1.FlowEndpoint {
-	return &continuumv1.FlowEndpoint{Kind: continuumv1.FlowEndpoint_EXTERNAL, Ip: ip}
+func ExternalEndpoint(ip string) *ikhnosv1.FlowEndpoint {
+	return &ikhnosv1.FlowEndpoint{Kind: ikhnosv1.FlowEndpoint_EXTERNAL, Ip: ip}
 }
 
 // FlowOf is a TCP flow with the connections given and the bytes they imply.
-func FlowOf(src, dst *continuumv1.FlowEndpoint, port uint32, conns uint64) *continuumv1.Flow {
-	return &continuumv1.Flow{Src: src, Dst: dst, Port: port, Protocol: "tcp", Connections: conns, BytesOut: 1000 * conns, BytesIn: 3000 * conns, Method: "ebpf", BytesKnown: true}
+func FlowOf(src, dst *ikhnosv1.FlowEndpoint, port uint32, conns uint64) *ikhnosv1.Flow {
+	return &ikhnosv1.Flow{Src: src, Dst: dst, Port: port, Protocol: "tcp", Connections: conns, BytesOut: 1000 * conns, BytesIn: 3000 * conns, Method: "ebpf", BytesKnown: true}
 }
 
 // FP2 is the fingerprint of a second cluster.
@@ -298,18 +298,18 @@ func CertOrg(t *testing.T, der []byte) string {
 }
 
 // TwinNode is a ready node of 4 CPUs and 8 GiB with the machine id given.
-func TwinNode(name, machine string) *continuumv1.NodeFacts {
-	return &continuumv1.NodeFacts{Key: name, Name: name, MachineId: machine, CpuCapacityMillis: 4000, CpuAllocatableMillis: 3800,
+func TwinNode(name, machine string) *ikhnosv1.NodeFacts {
+	return &ikhnosv1.NodeFacts{Key: name, Name: name, MachineId: machine, CpuCapacityMillis: 4000, CpuAllocatableMillis: 3800,
 		MemoryCapacityBytes: 8 << 30, MemoryAllocatableBytes: 7 << 30, Ready: true}
 }
 
 // TwinWorkload is a Deployment with one ready replica.
-func TwinWorkload(ns, name string) *continuumv1.WorkloadFacts {
-	return &continuumv1.WorkloadFacts{Key: ns + "/Deployment/" + name, Namespace: ns, Kind: "Deployment", Name: name, Replicas: 1, ReadyReplicas: 1, CpuRequestMillis: 250, MemoryRequestBytes: 256 << 20}
+func TwinWorkload(ns, name string) *ikhnosv1.WorkloadFacts {
+	return &ikhnosv1.WorkloadFacts{Key: ns + "/Deployment/" + name, Namespace: ns, Kind: "Deployment", Name: name, Replicas: 1, ReadyReplicas: 1, CpuRequestMillis: 250, MemoryRequestBytes: 256 << 20}
 }
 
 // TwinFull is a full picture of a cluster with the nodes and workloads given.
-func TwinFull(cluster string, nodes []*continuumv1.NodeFacts, ws ...*continuumv1.WorkloadFacts) *continuumv1.Sync {
-	return &continuumv1.Sync{Full: true, Cluster: &continuumv1.ClusterFacts{Uid: cluster}, Nodes: nodes, Workloads: ws,
-		Namespaces: []*continuumv1.NamespaceFacts{{Key: "shop", Name: "shop"}}}
+func TwinFull(cluster string, nodes []*ikhnosv1.NodeFacts, ws ...*ikhnosv1.WorkloadFacts) *ikhnosv1.Sync {
+	return &ikhnosv1.Sync{Full: true, Cluster: &ikhnosv1.ClusterFacts{Uid: cluster}, Nodes: nodes, Workloads: ws,
+		Namespaces: []*ikhnosv1.NamespaceFacts{{Key: "shop", Name: "shop"}}}
 }

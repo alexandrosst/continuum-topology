@@ -3,7 +3,7 @@ package agent
 import (
 	"testing"
 
-	"continuum/internal/link"
+	"ikhnos/internal/link"
 )
 
 func TestTheAgentReportsWhatItsInstallCanDoForLinks(t *testing.T) {

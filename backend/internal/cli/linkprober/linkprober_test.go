@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/cli"
-	"continuum/internal/link"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/cli"
+	"ikhnos/internal/link"
 )
 
 func run(t *testing.T, args ...string) (int, string) {
@@ -69,7 +69,7 @@ func followsPeers(t *testing.T, load *link.Load) {
 	agentPeers := link.NewPeers()
 	agentMeter := link.NewMeter(agentPeers)
 	agentMeter.ServePeers(secret)
-	agentPeers.Set("cl-me", []*continuumv1.LinkPeer{{ClusterId: "cl-a", Name: "A", Addresses: []string{"10.0.0.1"}}})
+	agentPeers.Set("cl-me", []*ikhnosv1.LinkPeer{{ClusterId: "cl-a", Name: "A", Addresses: []string{"10.0.0.1"}}})
 	srv := httptest.NewServer(agentMeter.Handler())
 	defer srv.Close()
 
@@ -104,7 +104,7 @@ func TestAnAgentWithoutAConfigDoesNotMakeTheProberForgetItsPeers(t *testing.T) {
 	defer srv.Close()
 
 	peers := link.NewPeers()
-	peers.Set("cl-me", []*continuumv1.LinkPeer{{ClusterId: "cl-a", Name: "A", Addresses: []string{"10.0.0.1"}}})
+	peers.Set("cl-me", []*ikhnosv1.LinkPeer{{ClusterId: "cl-a", Name: "A", Addresses: []string{"10.0.0.1"}}})
 	meter := link.NewMeter(peers)
 	meter.OnlyProbes()
 	meter.ObserveProbe("cl-a", link.Forward, link.OwampResult{Sent: 100, Lost: 1})

@@ -13,12 +13,12 @@ func TestAServerWithoutAControlHasNoCentralOperatorAndNotATypedNil(t *testing.T)
 }
 
 func TestTheCentralOperatorPortReadsTheControlsFieldsAndState(t *testing.T) {
-	f := &FusionControl{Name: "fusion", Namespace: "continuum-system", Org: "org-1", ClusterUID: "uid-1"}
+	f := &FusionControl{Name: "fusion", Namespace: "ikhnos-system", Org: "org-1", ClusterUID: "uid-1"}
 	c := f.Central()
 	if c == nil {
 		t.Fatal("a control gave no central operator")
 	}
-	if c.Org() != "org-1" || c.Namespace() != "continuum-system" || c.ClusterUID() != "uid-1" || c.ServiceName() != "fusion-central" {
+	if c.Org() != "org-1" || c.Namespace() != "ikhnos-system" || c.ClusterUID() != "uid-1" || c.ServiceName() != "fusion-central" {
 		t.Errorf("port reads org %q namespace %q cluster %q service %q", c.Org(), c.Namespace(), c.ClusterUID(), c.ServiceName())
 	}
 	if c.Exposed() {

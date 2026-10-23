@@ -4,8 +4,8 @@ import (
 	"slices"
 	"strings"
 
-	"continuum/internal/kernel"
-	"continuum/internal/store"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/store"
 )
 
 // What a change to an agent's access does to the agent is the agents' to say: which tiers its install and its token allow, which

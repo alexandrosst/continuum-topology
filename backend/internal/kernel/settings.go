@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	"continuum/internal/link"
-	"continuum/internal/measure"
-	"continuum/internal/store"
+	"ikhnos/internal/link"
+	"ikhnos/internal/measure"
+	"ikhnos/internal/store"
 )
 
 // Settings are the knobs an administrator can turn without redeploying anything. They are stored
@@ -72,7 +72,7 @@ type Settings struct {
 	ImageTag      string `json:"imageTag"`
 	ImageDigest   string `json:"imageDigest"`
 	// ServerClusterID is the cluster (an agent's cluster id) this server, and so FUSION's gateway, runs in, when a person
-	// chose it. Empty: the install told the server (CONTINUUM_CLUSTER_ID), or it is worked out from what agents report.
+	// chose it. Empty: the install told the server (IKHNOS_CLUSTER_ID), or it is worked out from what agents report.
 	ServerClusterID string `json:"serverClusterId,omitempty"`
 }
 

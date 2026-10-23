@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"continuum/internal/kernel"
-	"continuum/internal/pki"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/pki"
 )
 
 // Opening an operator's CA runs Argon2id at 64 MiB (see pki/keystore.go), and a pod that runs at 512 Mi has room

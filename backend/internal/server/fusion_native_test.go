@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"continuum/internal/fusionhttp"
+	"ikhnos/internal/fusionhttp"
 )
 
 func (d *dataRig) form(path string, form url.Values, opts ...opt) resp {

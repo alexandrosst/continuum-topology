@@ -6,8 +6,8 @@ import (
 	"sort"
 	"strings"
 
-	"continuum/internal/kernel"
-	"continuum/internal/store"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/store"
 )
 
 // OperatorRef names an operator that another one depends on or is depended on by.

@@ -6,15 +6,15 @@ import (
 	"strings"
 	"testing"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 )
 
-func ep(kind continuumv1.FlowEndpoint_Kind, ref, ip string) *continuumv1.FlowEndpoint {
-	return &continuumv1.FlowEndpoint{Kind: kind, Ref: ref, Ip: ip}
+func ep(kind ikhnosv1.FlowEndpoint_Kind, ref, ip string) *ikhnosv1.FlowEndpoint {
+	return &ikhnosv1.FlowEndpoint{Kind: kind, Ref: ref, Ip: ip}
 }
 
-func good() *continuumv1.Flow {
-	return &continuumv1.Flow{Src: ep(continuumv1.FlowEndpoint_WORKLOAD, "a/Deployment/x", ""), Dst: ep(continuumv1.FlowEndpoint_EXTERNAL, "", "93.184.216.34"), Port: 443, Protocol: "tcp", Method: "ebpf"}
+func good() *ikhnosv1.Flow {
+	return &ikhnosv1.Flow{Src: ep(ikhnosv1.FlowEndpoint_WORKLOAD, "a/Deployment/x", ""), Dst: ep(ikhnosv1.FlowEndpoint_EXTERNAL, "", "93.184.216.34"), Port: 443, Protocol: "tcp", Method: "ebpf"}
 }
 
 func TestCheck(t *testing.T) {
@@ -22,24 +22,24 @@ func TestCheck(t *testing.T) {
 		t.Fatal(err)
 	}
 	node := good()
-	node.Src = ep(continuumv1.FlowEndpoint_NODE, "n1", "")
+	node.Src = ep(ikhnosv1.FlowEndpoint_NODE, "n1", "")
 	if err := Check(node); err != nil {
 		t.Errorf("a node-level flow is well-formed: %v", err)
 	}
-	for name, mutate := range map[string]func(*continuumv1.Flow){
-		"no src":           func(f *continuumv1.Flow) { f.Src = nil },
-		"port 0":           func(f *continuumv1.Flow) { f.Port = 0 },
-		"port 65536":       func(f *continuumv1.Flow) { f.Port = 65536 },
-		"sctp":             func(f *continuumv1.Flow) { f.Protocol = "sctp" },
-		"unknown method":   func(f *continuumv1.Flow) { f.Method = "x" },
-		"unknown noise":    func(f *continuumv1.Flow) { f.Noise = "fun" },
-		"not an address":   func(f *continuumv1.Flow) { f.Dst.Ip = "evil.example.com" },
-		"non-canonical ip": func(f *continuumv1.Flow) { f.Dst.Ip = "::ffff:1.2.3.4" },
-		"unresolved kind":  func(f *continuumv1.Flow) { f.Dst = ep(continuumv1.FlowEndpoint_UNRESOLVED, "", "1.2.3.4") },
-		"two outside ends": func(f *continuumv1.Flow) { f.Src = ep(continuumv1.FlowEndpoint_EXTERNAL, "", "1.2.3.4") },
-		"empty ref":        func(f *continuumv1.Flow) { f.Src.Ref = "" },
-		"long ref":         func(f *continuumv1.Flow) { f.Src.Ref = strings.Repeat("r", MaxRef+1) },
-		"long pod name":    func(f *continuumv1.Flow) { f.DstPod = strings.Repeat("p", MaxName+1) },
+	for name, mutate := range map[string]func(*ikhnosv1.Flow){
+		"no src":           func(f *ikhnosv1.Flow) { f.Src = nil },
+		"port 0":           func(f *ikhnosv1.Flow) { f.Port = 0 },
+		"port 65536":       func(f *ikhnosv1.Flow) { f.Port = 65536 },
+		"sctp":             func(f *ikhnosv1.Flow) { f.Protocol = "sctp" },
+		"unknown method":   func(f *ikhnosv1.Flow) { f.Method = "x" },
+		"unknown noise":    func(f *ikhnosv1.Flow) { f.Noise = "fun" },
+		"not an address":   func(f *ikhnosv1.Flow) { f.Dst.Ip = "evil.example.com" },
+		"non-canonical ip": func(f *ikhnosv1.Flow) { f.Dst.Ip = "::ffff:1.2.3.4" },
+		"unresolved kind":  func(f *ikhnosv1.Flow) { f.Dst = ep(ikhnosv1.FlowEndpoint_UNRESOLVED, "", "1.2.3.4") },
+		"two outside ends": func(f *ikhnosv1.Flow) { f.Src = ep(ikhnosv1.FlowEndpoint_EXTERNAL, "", "1.2.3.4") },
+		"empty ref":        func(f *ikhnosv1.Flow) { f.Src.Ref = "" },
+		"long ref":         func(f *ikhnosv1.Flow) { f.Src.Ref = strings.Repeat("r", MaxRef+1) },
+		"long pod name":    func(f *ikhnosv1.Flow) { f.DstPod = strings.Repeat("p", MaxName+1) },
 	} {
 		f := good()
 		mutate(f)
@@ -47,7 +47,7 @@ func TestCheck(t *testing.T) {
 			t.Errorf("%s was accepted", name)
 		}
 	}
-	if CheckKey(&continuumv1.Flow{Src: good().Src, Dst: good().Dst, Port: 1, Protocol: "udp"}) != nil {
+	if CheckKey(&ikhnosv1.Flow{Src: good().Src, Dst: good().Dst, Port: 1, Protocol: "udp"}) != nil {
 		t.Error("a stored key has no method to check")
 	}
 }
@@ -68,7 +68,7 @@ func TestMergeGaugesReplacesReadingsAndKeepsWhatIsMissing(t *testing.T) {
 	zero, five := uint32(0), uint32(5)
 	cur := good()
 	cur.Iface, cur.RttUs, cur.Method, cur.Noise, cur.RcvWndBytes = "eth0", 100, "conntrack", "dns", &five
-	add := &continuumv1.Flow{Method: "ebpf", RcvWndBytes: &zero, SniHost: "a.example", BytesKnown: true}
+	add := &ikhnosv1.Flow{Method: "ebpf", RcvWndBytes: &zero, SniHost: "a.example", BytesKnown: true}
 	MergeGauges(cur, add)
 	if cur.Iface != "eth0" || cur.RttUs != 100 {
 		t.Errorf("an absent reading replaced a real one: %v", cur)
@@ -79,7 +79,7 @@ func TestMergeGaugesReplacesReadingsAndKeepsWhatIsMissing(t *testing.T) {
 	if cur.RcvWndBytes == nil || *cur.RcvWndBytes != 0 {
 		t.Error("a present 0 is a real sample and must replace the last one")
 	}
-	MergeGauges(cur, &continuumv1.Flow{Iface: "eth1", RttUs: 7, Method: "conntrack"})
+	MergeGauges(cur, &ikhnosv1.Flow{Iface: "eth1", RttUs: 7, Method: "conntrack"})
 	if cur.Iface != "eth1" || cur.RttUs != 7 || cur.Method != "ebpf" {
 		t.Errorf("the latest sample replaces the last, and ebpf is not downgraded: %v", cur)
 	}

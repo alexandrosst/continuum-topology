@@ -5,8 +5,8 @@ import (
 	"slices"
 	"testing"
 
-	"continuum/internal/model"
-	"continuum/internal/testkit"
+	"ikhnos/internal/model"
+	"ikhnos/internal/testkit"
 )
 
 // Membership can change without a workspace being saved (a hint starts to apply once its service appears), so the recorder's

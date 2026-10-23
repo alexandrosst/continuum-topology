@@ -98,12 +98,12 @@ func TestOperatorCertificatesVerifyOnlyAgainstTheirOwnOperatorsCA(t *testing.T) 
 		t.Error("a certificate with another subject from the same CA must verify (by design, the CA is the gate)")
 	}
 	// The receiver's own certificate is signed by the same CA, for ServerAuth and the Service names.
-	srv, _, err := issA.IssueOperatorReceiverTLS("op-aaa", "org-1", []string{"op-aaa.continuum-system.svc"})
+	srv, _, err := issA.IssueOperatorReceiverTLS("op-aaa", "org-1", []string{"op-aaa.ikhnos-system.svc"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	sc := parseLeaf(t, srv)
-	if _, err := sc.Verify(x509.VerifyOptions{Roots: poolA, DNSName: "op-aaa.continuum-system.svc", KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}); err != nil {
+	if _, err := sc.Verify(x509.VerifyOptions{Roots: poolA, DNSName: "op-aaa.ikhnos-system.svc", KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}); err != nil {
 		t.Errorf("receiver certificate does not verify against its operator CA: %v", err)
 	}
 	if verifies(sc, poolB, x509.ExtKeyUsageServerAuth) || verifies(sc, org.Pool(), x509.ExtKeyUsageServerAuth) {
@@ -135,7 +135,7 @@ func TestOperatorCAIsAStandaloneLeafOnlyRoot(t *testing.T) {
 	if err := c.CheckSignatureFrom(org.cert); err == nil {
 		t.Fatal("operator CA is signed by the org CA; it must be a separate root")
 	}
-	if c.Subject.CommonName != "Continuum operator CA op-aaa" || c.Subject.Organization[0] != "org-1" {
+	if c.Subject.CommonName != "Ikhnos operator CA op-aaa" || c.Subject.Organization[0] != "org-1" {
 		t.Fatalf("subject = %v", c.Subject)
 	}
 	if got := time.Until(c.NotAfter); got < 9*365*24*time.Hour || got > OperatorCATTL {

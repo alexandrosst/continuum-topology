@@ -53,12 +53,12 @@ func renderDocs(t *testing.T, extra ...string) []doc {
 func (d doc) kind() string { return fmt.Sprint(d["kind"]) }
 func (d doc) name() string { return fmt.Sprint(d["metadata"].(map[string]any)["name"]) }
 
-// telemetryObjects is what a render holds that belongs to telemetry (everything named continuum-telemetry*, and the
+// telemetryObjects is what a render holds that belongs to telemetry (everything named ikhnos-telemetry*, and the
 // telemetry ServiceAccount, ClusterRole and ClusterRoleBinding), as "Kind/name" -> manifest.
 func telemetryObjects(docs []doc) map[string]doc {
 	out := map[string]doc{}
 	for _, d := range docs {
-		if strings.HasPrefix(d.name(), "continuum-telemetry") || strings.HasPrefix(d.name(), "continuum-agent-telemetry") {
+		if strings.HasPrefix(d.name(), "ikhnos-telemetry") || strings.HasPrefix(d.name(), "ikhnos-agent-telemetry") {
 			out[d.kind()+"/"+d.name()] = d
 		}
 	}
@@ -122,15 +122,15 @@ func TestSingleSignalIntentsDeployOnlyTheirOwnExtractors(t *testing.T) {
 		ports     map[string][]int32  // workload -> container ports
 		receivers map[string][]string // collector ConfigMap -> receivers
 	}
-	hostObjs := []string{"ClusterRole/continuum-agent-telemetry", "ClusterRoleBinding/continuum-agent-telemetry-default", "ServiceAccount/continuum-agent-telemetry",
-		"ConfigMap/continuum-telemetry-host-config", "DaemonSet/continuum-telemetry-host", "Service/continuum-telemetry-host-metrics", "NetworkPolicy/continuum-telemetry-host-health"}
-	clusterObjs := []string{"ClusterRole/continuum-agent-telemetry", "ClusterRoleBinding/continuum-agent-telemetry-default", "ServiceAccount/continuum-agent-telemetry",
-		"ConfigMap/continuum-telemetry-cluster-config", "Deployment/continuum-telemetry-cluster", "Service/continuum-telemetry-cluster-metrics"}
-	withOTLP := append(append([]string{}, clusterObjs...), "Service/continuum-telemetry-cluster")
-	withKepler := append(append([]string{}, clusterObjs...), "DaemonSet/continuum-telemetry-kepler", "Service/continuum-telemetry-kepler")
-	withDCGM := append(append([]string{}, clusterObjs...), "DaemonSet/continuum-telemetry-dcgm", "Service/continuum-telemetry-dcgm")
-	host, cluster := "continuum-telemetry-host-config", "continuum-telemetry-cluster-config"
-	const hp, cp = "DaemonSet/continuum-telemetry-host", "Deployment/continuum-telemetry-cluster"
+	hostObjs := []string{"ClusterRole/ikhnos-agent-telemetry", "ClusterRoleBinding/ikhnos-agent-telemetry-default", "ServiceAccount/ikhnos-agent-telemetry",
+		"ConfigMap/ikhnos-telemetry-host-config", "DaemonSet/ikhnos-telemetry-host", "Service/ikhnos-telemetry-host-metrics", "NetworkPolicy/ikhnos-telemetry-host-health"}
+	clusterObjs := []string{"ClusterRole/ikhnos-agent-telemetry", "ClusterRoleBinding/ikhnos-agent-telemetry-default", "ServiceAccount/ikhnos-agent-telemetry",
+		"ConfigMap/ikhnos-telemetry-cluster-config", "Deployment/ikhnos-telemetry-cluster", "Service/ikhnos-telemetry-cluster-metrics"}
+	withOTLP := append(append([]string{}, clusterObjs...), "Service/ikhnos-telemetry-cluster")
+	withKepler := append(append([]string{}, clusterObjs...), "DaemonSet/ikhnos-telemetry-kepler", "Service/ikhnos-telemetry-kepler")
+	withDCGM := append(append([]string{}, clusterObjs...), "DaemonSet/ikhnos-telemetry-dcgm", "Service/ikhnos-telemetry-dcgm")
+	host, cluster := "ikhnos-telemetry-host-config", "ikhnos-telemetry-cluster-config"
+	const hp, cp = "DaemonSet/ikhnos-telemetry-host", "Deployment/ikhnos-telemetry-cluster"
 	cases := map[string]want{
 		"resourceUsage": {
 			set: []string{"telemetry.resourceUsage.metrics.enabled=true"}, objects: hostObjs, rules: kubelet,
@@ -149,15 +149,15 @@ func TestSingleSignalIntentsDeployOnlyTheirOwnExtractors(t *testing.T) {
 			ports: map[string][]int32{cp: {13133}}, receivers: map[string][]string{cluster: {"k8sobjects"}}},
 		"energy (bundled Kepler)": {
 			set: []string{"telemetry.energy.metrics.enabled=true"}, objects: withKepler, rules: podsOnly,
-			hostPaths: map[string][]string{"DaemonSet/continuum-telemetry-kepler": {"/proc", "/sys"}},
-			ports:     map[string][]int32{cp: {13133}, "DaemonSet/continuum-telemetry-kepler": {9103}}, receivers: map[string][]string{cluster: {"prometheus/infra"}}},
+			hostPaths: map[string][]string{"DaemonSet/ikhnos-telemetry-kepler": {"/proc", "/sys"}},
+			ports:     map[string][]int32{cp: {13133}, "DaemonSet/ikhnos-telemetry-kepler": {9103}}, receivers: map[string][]string{cluster: {"prometheus/infra"}}},
 		"energy (existing endpoint)": {
 			set:     []string{"telemetry.energy.metrics.enabled=true", "telemetry.energy.metrics.source=existing", "telemetry.energy.metrics.existing.prometheusEndpoint=kepler.x:9102"},
 			objects: clusterObjs, rules: podsOnly, ports: map[string][]int32{cp: {13133}}, receivers: map[string][]string{cluster: {"prometheus/infra"}}},
 		"accelerators (bundled dcgm)": {
 			set: []string{"telemetry.accelerators.metrics.enabled=true"}, objects: withDCGM, rules: podsOnly,
 			// no hostPath: the kubelet pod-resources socket is mounted only with applyScope
-			ports: map[string][]int32{cp: {13133}, "DaemonSet/continuum-telemetry-dcgm": {9400}}, receivers: map[string][]string{cluster: {"prometheus/infra"}}},
+			ports: map[string][]int32{cp: {13133}, "DaemonSet/ikhnos-telemetry-dcgm": {9400}}, receivers: map[string][]string{cluster: {"prometheus/infra"}}},
 		"accelerators (existing endpoint)": {
 			set:     []string{"telemetry.accelerators.metrics.enabled=true", "telemetry.accelerators.metrics.source=existing", "telemetry.accelerators.metrics.existing.prometheusEndpoint=dcgm.x:9400"},
 			objects: clusterObjs, rules: podsOnly, ports: map[string][]int32{cp: {13133}}, receivers: map[string][]string{cluster: {"prometheus/infra"}}},
@@ -189,7 +189,7 @@ func TestSingleSignalIntentsDeployOnlyTheirOwnExtractors(t *testing.T) {
 			if got, want := sortedKeys(objs), append([]string(nil), w.objects...); !reflect.DeepEqual(got, sortedStrings(want)) {
 				t.Errorf("telemetry objects\n got %v\nwant %v", got, sortedStrings(want))
 			}
-			if got := ruleStrings(objs["ClusterRole/continuum-agent-telemetry"]); !reflect.DeepEqual(got, sortedStrings(w.rules)) {
+			if got := ruleStrings(objs["ClusterRole/ikhnos-agent-telemetry"]); !reflect.DeepEqual(got, sortedStrings(w.rules)) {
 				t.Errorf("ClusterRole rules\n got %v\nwant %v", got, sortedStrings(w.rules))
 			}
 			for key, d := range objs {
@@ -244,13 +244,13 @@ func TestClusterCollectorMountsNothingFromTheHostAndRunsRestricted(t *testing.T)
 	all := append(append([]string{}, agentTel...), allSignals...)
 	all = append(all, "--set", "telemetry.energy.metrics.enabled=true", "--set", "telemetry.accelerators.metrics.enabled=true")
 	r := render(t, all...)
-	ps := r.deployments["continuum-telemetry-cluster"].Spec.Template.Spec
+	ps := r.deployments["ikhnos-telemetry-cluster"].Spec.Template.Spec
 	if reason := violatesRestricted(ps); reason != "" {
 		t.Errorf("the cluster collector no longer passes the Pod Security restricted profile: %s", reason)
 	}
 	// nodeRuntime reads the kubelet over the network and mounts nothing, so it stays restricted too.
 	r = render(t, append(append([]string{}, agentTel...), "--set", "telemetry.nodeRuntime.metrics.enabled=true")...)
-	if reason := violatesRestricted(r.daemonsets["continuum-telemetry-host"].Spec.Template.Spec); reason != "" {
+	if reason := violatesRestricted(r.daemonsets["ikhnos-telemetry-host"].Spec.Template.Spec); reason != "" {
 		t.Errorf("the nodeRuntime-only host collector no longer passes restricted: %s", reason)
 	}
 }
@@ -298,8 +298,8 @@ func TestCollectorsAreProbedOnTheirHealthCheck(t *testing.T) {
 		pod corev1.PodSpec
 		cm  string
 	}{
-		"host":    {r.daemonsets["continuum-telemetry-host"].Spec.Template.Spec, "continuum-telemetry-host-config"},
-		"cluster": {r.deployments["continuum-telemetry-cluster"].Spec.Template.Spec, "continuum-telemetry-cluster-config"},
+		"host":    {r.daemonsets["ikhnos-telemetry-host"].Spec.Template.Spec, "ikhnos-telemetry-host-config"},
+		"cluster": {r.deployments["ikhnos-telemetry-cluster"].Spec.Template.Spec, "ikhnos-telemetry-cluster-config"},
 	} {
 		c := tc.pod.Containers[0]
 		var health *corev1.ContainerPort
@@ -335,19 +335,19 @@ func TestCollectorsAreProbedOnTheirHealthCheck(t *testing.T) {
 	}
 	// The probe does not depend on the export-health switch.
 	r = render(t, append(args, "--set", "telemetry.health.enabled=false")...)
-	if r.deployments["continuum-telemetry-cluster"].Spec.Template.Spec.Containers[0].ReadinessProbe == nil {
+	if r.deployments["ikhnos-telemetry-cluster"].Spec.Template.Spec.Containers[0].ReadinessProbe == nil {
 		t.Error("telemetry.health.enabled=false removed the readiness probe")
 	}
 }
 
 // The collector's real readiness check is the real binary's: this is skipped unless one is on the machine
-// (CONTINUUM_OTELCOL, the path to otelcol-contrib), and then every configuration the chart renders must validate.
+// (IKHNOS_OTELCOL, the path to otelcol-contrib), and then every configuration the chart renders must validate.
 func TestRenderedCollectorConfigsValidateWithTheRealCollector(t *testing.T) {
-	bin := os.Getenv("CONTINUUM_OTELCOL")
+	bin := os.Getenv("IKHNOS_OTELCOL")
 	if bin == "" {
-		t.Skip("set CONTINUUM_OTELCOL to the otelcol-contrib binary (the version telemetry.collectorImage.tag names) to run this")
+		t.Skip("set IKHNOS_OTELCOL to the otelcol-contrib binary (the version telemetry.collectorImage.tag names) to run this")
 	}
-	envs := append(os.Environ(), "POD_IP=10.0.0.5", "NODE_NAME=n1", "NODE_IP=10.0.0.1", "CONTINUUM_TELEMETRY_AUTH=x", "CONTINUUM_TELEMETRY_RECEIVER_AUTH=t")
+	envs := append(os.Environ(), "POD_IP=10.0.0.5", "NODE_NAME=n1", "NODE_IP=10.0.0.1", "IKHNOS_TELEMETRY_AUTH=x", "IKHNOS_TELEMETRY_RECEIVER_AUTH=t")
 	every := append(append([]string{}, agentTel...), allSignals...)
 	every = append(every, "--set", "telemetry.energy.metrics.enabled=true", "--set", "telemetry.accelerators.metrics.enabled=true", "--set", "telemetry.accelerators.metrics.applyScope=true",
 		"--set", "telemetry.applicationMetrics.metrics.enabled=true", "--set", "telemetry.applicationLogs.logs.enabled=true",
@@ -355,7 +355,7 @@ func TestRenderedCollectorConfigsValidateWithTheRealCollector(t *testing.T) {
 		"--set", "telemetry.export.queue.persistent.enabled=true")
 	for name, args := range map[string][]string{"every signal": every, "kepler only": withTel("--set", "telemetry.energy.metrics.enabled=true"), "dcgm only": withTel("--set", "telemetry.accelerators.metrics.enabled=true")} {
 		r := render(t, args...)
-		for _, cm := range []string{"continuum-telemetry-host-config", "continuum-telemetry-cluster-config"} {
+		for _, cm := range []string{"ikhnos-telemetry-host-config", "ikhnos-telemetry-cluster-config"} {
 			c, ok := r.configmaps[cm]
 			if !ok {
 				continue
@@ -404,7 +404,7 @@ func TestTelemetryRBACIsPodsUnlessASignalNeedsMore(t *testing.T) {
 			args = append(args, "--set", s)
 		}
 		r := render(t, args...)
-		for _, rule := range r.clusterroles["continuum-agent-telemetry"].Rules {
+		for _, rule := range r.clusterroles["ikhnos-agent-telemetry"].Rules {
 			if !reflect.DeepEqual(rule.Resources, []string{"pods"}) {
 				t.Errorf("%s: telemetry ClusterRole grants %v, want pods only", name, rule.Resources)
 			}
@@ -418,7 +418,7 @@ func TestTelemetryRBACIsPodsUnlessASignalNeedsMore(t *testing.T) {
 	// Namespaces and nodes are there once the cluster-state receiver is.
 	r := render(t, withTel("--set", "telemetry.kubernetesState.metrics.enabled=true")...)
 	got := map[string]bool{}
-	for _, rule := range r.clusterroles["continuum-agent-telemetry"].Rules {
+	for _, rule := range r.clusterroles["ikhnos-agent-telemetry"].Rules {
 		for _, res := range rule.Resources {
 			got[res] = true
 		}
@@ -432,7 +432,7 @@ func TestTelemetryRBACIsPodsUnlessASignalNeedsMore(t *testing.T) {
 // its own namespace (not every pod of the cluster), by the exact labels the DaemonSet's pods carry.
 func TestBundledScrapeJobsOnlyWatchTheirOwnPods(t *testing.T) {
 	r := render(t, withTel("--set", "telemetry.energy.metrics.enabled=true", "--set", "telemetry.accelerators.metrics.enabled=true")...)
-	cfg := otelConfig(t, r.configmaps["continuum-telemetry-cluster-config"].Data)
+	cfg := otelConfig(t, r.configmaps["ikhnos-telemetry-cluster-config"].Data)
 	jobs := sub(t, cfg, "receivers", "prometheus/infra", "config")["scrape_configs"].([]any)
 	if len(jobs) != 2 {
 		t.Fatalf("scrape jobs = %v", jobs)
@@ -457,16 +457,16 @@ func TestBundledScrapeJobsOnlyWatchTheirOwnPods(t *testing.T) {
 			continue
 		}
 		sel := sels[0].(map[string]any)
-		want := map[string]string{"kepler": "continuum-telemetry-kepler", "dcgm-exporter": "continuum-telemetry-dcgm"}[name]
+		want := map[string]string{"kepler": "ikhnos-telemetry-kepler", "dcgm-exporter": "ikhnos-telemetry-dcgm"}[name]
 		if sel["role"] != "pod" || sel["label"] != "app.kubernetes.io/name="+want+",app.kubernetes.io/instance=ct" {
 			t.Errorf("%s: selector = %v", name, sel)
 		}
 		// The label the selector uses is the one the pods carry.
 		var carried map[string]string
 		if name == "kepler" {
-			carried = r.daemonsets["continuum-telemetry-kepler"].Spec.Template.Labels
+			carried = r.daemonsets["ikhnos-telemetry-kepler"].Spec.Template.Labels
 		} else {
-			carried = r.daemonsets["continuum-telemetry-dcgm"].Spec.Template.Labels
+			carried = r.daemonsets["ikhnos-telemetry-dcgm"].Spec.Template.Labels
 		}
 		if carried["app.kubernetes.io/name"] != want || carried["app.kubernetes.io/instance"] != "ct" {
 			t.Errorf("%s: pod labels %v do not match the selector", name, carried)
@@ -474,7 +474,7 @@ func TestBundledScrapeJobsOnlyWatchTheirOwnPods(t *testing.T) {
 	}
 	// The dcgm scrape follows telemetry.accelerators.metrics.interval (it used to be read nowhere).
 	r = render(t, withTel("--set", "telemetry.accelerators.metrics.enabled=true", "--set", "telemetry.accelerators.metrics.interval=45s")...)
-	cfg = otelConfig(t, r.configmaps["continuum-telemetry-cluster-config"].Data)
+	cfg = otelConfig(t, r.configmaps["ikhnos-telemetry-cluster-config"].Data)
 	job := sub(t, cfg, "receivers", "prometheus/infra", "config")["scrape_configs"].([]any)[0].(map[string]any)
 	if job["scrape_interval"] != "45s" {
 		t.Errorf("dcgm scrape_interval = %v, want 45s", job["scrape_interval"])
@@ -501,21 +501,21 @@ func TestTelemetryEgressLockdownStillAllowsTheInClusterScrapes(t *testing.T) {
 	}
 	// Locked down, nothing scraped inside the cluster: no extra policy.
 	r := render(t, flags(lock, []string{"telemetry.kubernetesState.metrics.enabled=true"})...)
-	if _, ok := r.policies["continuum-telemetry-scrape-egress"]; ok {
+	if _, ok := r.policies["ikhnos-telemetry-scrape-egress"]; ok {
 		t.Error("a scrape-egress policy although nothing is scraped inside the cluster")
 	}
 	// Not locked down: no policy at all (a selected pod would be cut off from everything else).
 	r = render(t, flags(scrape, []string{"telemetry.energy.metrics.enabled=true"})...)
-	if _, ok := r.policies["continuum-telemetry-scrape-egress"]; ok || len(r.policies["continuum-telemetry-egress"].Spec.Egress) != 0 {
+	if _, ok := r.policies["ikhnos-telemetry-scrape-egress"]; ok || len(r.policies["ikhnos-telemetry-egress"].Spec.Egress) != 0 {
 		t.Error("an egress policy although telemetryEgress is off")
 	}
 
 	r = render(t, flags(lock, scrape, []string{"telemetry.energy.metrics.enabled=true", "telemetry.accelerators.metrics.enabled=true"})...)
-	p, ok := r.policies["continuum-telemetry-scrape-egress"]
+	p, ok := r.policies["ikhnos-telemetry-scrape-egress"]
 	if !ok {
 		t.Fatal("no scrape-egress policy: the locked-down cluster collector cannot reach Kepler, dcgm-exporter or its scrape targets")
 	}
-	if got := p.Spec.PodSelector.MatchLabels["app.kubernetes.io/name"]; got != "continuum-telemetry-cluster" || len(p.Spec.PodSelector.MatchExpressions) != 0 {
+	if got := p.Spec.PodSelector.MatchLabels["app.kubernetes.io/name"]; got != "ikhnos-telemetry-cluster" || len(p.Spec.PodSelector.MatchExpressions) != 0 {
 		t.Errorf("selects %v: only the cluster collector may be given these", p.Spec.PodSelector)
 	}
 	got := map[string]string{}
@@ -533,12 +533,12 @@ func TestTelemetryEgressLockdownStillAllowsTheInClusterScrapes(t *testing.T) {
 			t.Errorf("rule %+v is neither a pod nor a namespace", e)
 		}
 	}
-	want := map[string]string{"continuum-telemetry-kepler": "9103", "continuum-telemetry-dcgm": "9400", "ns:shop": "9090"}
+	want := map[string]string{"ikhnos-telemetry-kepler": "9103", "ikhnos-telemetry-dcgm": "9400", "ns:shop": "9090"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("scrape-egress rules = %v, want %v", got, want)
 	}
 	// The ports allowed are the ports the scraped containers declare.
-	for name, ds := range map[string]string{"continuum-telemetry-kepler": "9103", "continuum-telemetry-dcgm": "9400"} {
+	for name, ds := range map[string]string{"ikhnos-telemetry-kepler": "9103", "ikhnos-telemetry-dcgm": "9400"} {
 		var declared []string
 		for _, c := range r.daemonsets[name].Spec.Template.Spec.Containers {
 			for _, pt := range c.Ports {
@@ -558,8 +558,8 @@ func TestEveryTelemetryWorkloadGetsPriorityClassAndPullSecrets(t *testing.T) {
 		"--set", "priorityClassName=high", "--set", "imagePullSecrets[0].name=rc")
 	r := render(t, args...)
 	pods := map[string]corev1.PodSpec{
-		"host": r.daemonsets["continuum-telemetry-host"].Spec.Template.Spec, "cluster": r.deployments["continuum-telemetry-cluster"].Spec.Template.Spec,
-		"kepler": r.daemonsets["continuum-telemetry-kepler"].Spec.Template.Spec, "dcgm": r.daemonsets["continuum-telemetry-dcgm"].Spec.Template.Spec,
+		"host": r.daemonsets["ikhnos-telemetry-host"].Spec.Template.Spec, "cluster": r.deployments["ikhnos-telemetry-cluster"].Spec.Template.Spec,
+		"kepler": r.daemonsets["ikhnos-telemetry-kepler"].Spec.Template.Spec, "dcgm": r.daemonsets["ikhnos-telemetry-dcgm"].Spec.Template.Spec,
 	}
 	for name, ps := range pods {
 		if ps.PriorityClassName != "high" || len(ps.ImagePullSecrets) != 1 {
@@ -590,7 +590,7 @@ func TestCollectorsRestartWhenACredentialSecretChanges(t *testing.T) {
 		"--set", "telemetry.receiver.auth.enabled=true", "--set", "telemetry.receiver.auth.secretName=recv-token")
 	sums := func() (string, string) {
 		a := podAnnotations(t, helmTemplateInCluster(t, Agent, kc, args...))
-		return a["continuum-telemetry-host"]["checksum/auth"], a["continuum-telemetry-cluster"]["checksum/auth"]
+		return a["ikhnos-telemetry-host"]["checksum/auth"], a["ikhnos-telemetry-cluster"]["checksum/auth"]
 	}
 	h1, c1 := sums()
 	if h1 == "" || c1 == "" {
@@ -615,10 +615,10 @@ func TestCollectorsRestartWhenACredentialSecretChanges(t *testing.T) {
 		t.Errorf("rotating the metrics route credential did not change the host checksum: %q -> %q", h1, h)
 	}
 	// Offline (helm template, Argo CD, Flux) and with the switch off: no annotation, and nothing fails.
-	if a := podAnnotations(t, helmTemplateInCluster(t, Agent, "", args...))["continuum-telemetry-host"]; a["checksum/auth"] != "" || a["checksum/config"] == "" {
+	if a := podAnnotations(t, helmTemplateInCluster(t, Agent, "", args...))["ikhnos-telemetry-host"]; a["checksum/auth"] != "" || a["checksum/config"] == "" {
 		t.Errorf("offline render annotations = %v", a)
 	}
-	if a := podAnnotations(t, helmTemplateInCluster(t, Agent, kc, append(args, "--set", "telemetry.rolloutOnSecretChange=false")...))["continuum-telemetry-host"]; a["checksum/auth"] != "" {
+	if a := podAnnotations(t, helmTemplateInCluster(t, Agent, kc, append(args, "--set", "telemetry.rolloutOnSecretChange=false")...))["ikhnos-telemetry-host"]; a["checksum/auth"] != "" {
 		t.Errorf("rolloutOnSecretChange=false still renders a checksum: %v", a)
 	}
 }
@@ -640,10 +640,10 @@ func TestTelemetryDefaultsFileMatchesValues(t *testing.T) {
 		}
 		return m
 	}
-	values := read("continuum-agent/values.yaml")
+	values := read("ikhnos-agent/values.yaml")
 	want := map[string]any{"telemetry": values["telemetry"], "measurements": values["measurements"],
 		"networkPolicy": map[string]any{"telemetryEgress": values["networkPolicy"].(map[string]any)["telemetryEgress"]}}
-	got := read("continuum-agent/files/telemetry-defaults.yaml")
+	got := read("ikhnos-agent/files/telemetry-defaults.yaml")
 	if !reflect.DeepEqual(got, want) {
 		wb, _ := sigsyaml.Marshal(want)
 		t.Errorf("files/telemetry-defaults.yaml differs from values.yaml (telemetry, measurements, networkPolicy.telemetryEgress); it must be:\n%s", wb)
@@ -653,7 +653,7 @@ func TestTelemetryDefaultsFileMatchesValues(t *testing.T) {
 // Whatever block of the telemetry values is missing, the chart renders exactly what it renders with the default there:
 // no "nil pointer evaluating interface {}", with telemetry in use or not.
 func TestTelemetryRendersWhateverBlockOfTheValuesIsMissing(t *testing.T) {
-	b, err := os.ReadFile("continuum-agent/values.yaml")
+	b, err := os.ReadFile("ikhnos-agent/values.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -739,7 +739,7 @@ func TestTelemetryRendersWhateverBlockOfTheValuesIsMissing(t *testing.T) {
 func TestMissingTelemetryDefaultsDoNotOverrideWhatTheReleaseSets(t *testing.T) {
 	r := render(t, withTel("--set", "telemetry.resourceUsage.metrics.enabled=true", "--set", "telemetry.processors.redaction.enabled=false",
 		"--set", "telemetry.health.enabled=false", "--set", "telemetry.rolloutOnSecretChange=false", "--set", "telemetry.processors.batch=null")...)
-	cfg := otelConfig(t, r.configmaps["continuum-telemetry-host-config"].Data)
+	cfg := otelConfig(t, r.configmaps["ikhnos-telemetry-host-config"].Data)
 	procs := stringsOf(t, sub(t, cfg, "service", "pipelines", "metrics")["processors"])
 	for _, p := range procs {
 		if p == "redaction" {
@@ -756,7 +756,7 @@ func TestMissingTelemetryDefaultsDoNotOverrideWhatTheReleaseSets(t *testing.T) {
 
 // The upgrade command in the README is the one the server prints.
 func TestReadmeUpgradesWithResetThenReuseValues(t *testing.T) {
-	b, err := os.ReadFile("continuum-agent/README.md")
+	b, err := os.ReadFile("ikhnos-agent/README.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -769,17 +769,17 @@ func TestReadmeUpgradesWithResetThenReuseValues(t *testing.T) {
 		t.Error("README.md has no --reset-then-reuse-values upgrade command")
 	}
 	if strings.Contains(string(b), "-z <release>-telemetry") {
-		t.Error("README.md names a ServiceAccount <release>-telemetry; it is continuum-agent-telemetry whatever the release is called")
+		t.Error("README.md names a ServiceAccount <release>-telemetry; it is ikhnos-agent-telemetry whatever the release is called")
 	}
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Images: a default that names a tag the registry does not have is an ImagePullBackOff on every node. This needs the
-// network and is opt-in: CONTINUUM_CHECK_IMAGES=1 go test -run DefaultImagesExist ./internal/chart/
+// network and is opt-in: IKHNOS_CHECK_IMAGES=1 go test -run DefaultImagesExist ./internal/chart/
 
 func TestDefaultImagesExistOnTheirRegistries(t *testing.T) {
-	if os.Getenv("CONTINUUM_CHECK_IMAGES") == "" {
-		t.Skip("set CONTINUUM_CHECK_IMAGES=1 (needs the network) to check the default image tags against their registries")
+	if os.Getenv("IKHNOS_CHECK_IMAGES") == "" {
+		t.Skip("set IKHNOS_CHECK_IMAGES=1 (needs the network) to check the default image tags against their registries")
 	}
 	var v struct {
 		Telemetry struct {
@@ -796,7 +796,7 @@ func TestDefaultImagesExistOnTheirRegistries(t *testing.T) {
 			} `json:"accelerators"`
 		} `json:"telemetry"`
 	}
-	b, _ := os.ReadFile("continuum-agent/values.yaml")
+	b, _ := os.ReadFile("ikhnos-agent/values.yaml")
 	if err := sigsyaml.Unmarshal(b, &v); err != nil {
 		t.Fatal(err)
 	}

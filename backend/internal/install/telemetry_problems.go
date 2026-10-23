@@ -11,7 +11,7 @@ const (
 	// TagLimit is how many tags a person can add: each is stamped on every record, so it costs storage and cardinality.
 	TagLimit = 8
 	// ReservedTagPrefix is the provenance the chart stamps itself; a tag under it would be refused by the chart.
-	ReservedTagPrefix = "continuum."
+	ReservedTagPrefix = "ikhnos."
 )
 
 var (

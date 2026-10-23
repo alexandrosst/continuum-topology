@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"continuum/internal/kernel"
-	"continuum/internal/pki"
-	"continuum/internal/store"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/pki"
+	"ikhnos/internal/store"
 )
 
 // Operator certificates renew themselves (internal/certrenew, run by the discovery agent and by the operator chart's

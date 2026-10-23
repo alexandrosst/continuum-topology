@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/model"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/model"
 )
 
 type (
@@ -16,13 +16,13 @@ type (
 
 func TestInterpretCarriesTheMeshAndKeepsItsControlPlaneOutOfApplications(t *testing.T) {
 	st := k3sFixture()
-	st.Namespaces["meshed"] = &continuumv1.NamespaceFacts{Key: "meshed", Name: "meshed", Labels: map[string]string{"istio-injection": "enabled"}}
-	st.Namespaces["opt"] = &continuumv1.NamespaceFacts{Key: "opt", Name: "opt", Annotations: map[string]string{"linkerd.io/inject": "disabled"}}
+	st.Namespaces["meshed"] = &ikhnosv1.NamespaceFacts{Key: "meshed", Name: "meshed", Labels: map[string]string{"istio-injection": "enabled"}}
+	st.Namespaces["opt"] = &ikhnosv1.NamespaceFacts{Key: "opt", Name: "opt", Annotations: map[string]string{"linkerd.io/inject": "disabled"}}
 	st.Workloads["istio-system/Deployment/istiod"] = &W{Key: "istio-system/Deployment/istiod", Namespace: "istio-system", Kind: "Deployment", Name: "istiod", Replicas: 1, ReadyReplicas: 1,
-		Mesh: &continuumv1.WorkloadMesh{Mesh: "istio", ControlPlane: true, Source: "workload"}}
+		Mesh: &ikhnosv1.WorkloadMesh{Mesh: "istio", ControlPlane: true, Source: "workload"}}
 	st.Workloads["meshed/Deployment/web"] = &W{Key: "meshed/Deployment/web", Namespace: "meshed", Kind: "Deployment", Name: "web", Replicas: 1, ReadyReplicas: 1,
-		Mesh: &continuumv1.WorkloadMesh{Mesh: "istio", Proxy: "sidecar", ExcludedPorts: []string{"out:5432"}, Source: "pods"}}
-	st.Cluster.Mesh = &continuumv1.MeshFacts{Kind: "istio", Mode: "sidecar", Version: "1.22.3", Mtls: "strict", PolicyRead: true,
+		Mesh: &ikhnosv1.WorkloadMesh{Mesh: "istio", Proxy: "sidecar", ExcludedPorts: []string{"out:5432"}, Source: "pods"}}
+	st.Cluster.Mesh = &ikhnosv1.MeshFacts{Kind: "istio", Mode: "sidecar", Version: "1.22.3", Mtls: "strict", PolicyRead: true,
 		NamespaceMtls: map[string]string{"meshed": "permissive"},
 		ControlPlane:  []string{"istio-system/Deployment/istiod", "kube-system/Deployment/gateway"}}
 

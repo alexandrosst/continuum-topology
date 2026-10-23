@@ -18,15 +18,15 @@ function Wrapper({ initial = { ...emptyTelemetry, resourceUsage: true }, cluster
 describe('ProcessOptions', () => {
   test('says what is always added, and mentions no scope tag when nothing is narrowed', () => {
     render(<Wrapper />)
-    expect(screen.getByTestId('t-guided-fact-org')).toHaveTextContent('continuum.org.id')
-    expect(screen.getByTestId('t-guided-fact-cluster')).toHaveTextContent('continuum.cluster.id')
+    expect(screen.getByTestId('t-guided-fact-org')).toHaveTextContent('ikhnos.org.id')
+    expect(screen.getByTestId('t-guided-fact-cluster')).toHaveTextContent('ikhnos.cluster.id')
     expect(screen.queryByTestId('t-guided-fact-scope')).not.toBeInTheDocument()
     expect(screen.getByTestId('t-guided-process-auto')).toHaveTextContent('covers everything the agent can see')
   })
 
   test('a narrowed application signal adds the scope tag, with its value', () => {
     render(<Wrapper initial={{ ...emptyTelemetry, traces: true, tracesScope: { namespaces: ['shop'], exclude: [], workloads: [] } }} />)
-    expect(screen.getByTestId('t-guided-fact-scope')).toHaveTextContent('continuum.scope=shop')
+    expect(screen.getByTestId('t-guided-fact-scope')).toHaveTextContent('ikhnos.scope=shop')
   })
 
   test('tags: add, edit and remove a row; the count follows what is filled in', async () => {
@@ -50,11 +50,11 @@ describe('ProcessOptions', () => {
     expect(screen.queryByTestId('t-tag-suggest')).not.toBeInTheDocument()
   })
 
-  test('the continuum. prefix is refused with a reason until it is fixed', async () => {
+  test('the ikhnos. prefix is refused with a reason until it is fixed', async () => {
     const user = userEvent.setup()
     render(<Wrapper />)
     await user.click(screen.getByTestId('t-tag-add'))
-    await user.type(screen.getByTestId('t-tag-key-0'), 'continuum.org.id')
+    await user.type(screen.getByTestId('t-tag-key-0'), 'ikhnos.org.id')
     await user.type(screen.getByTestId('t-tag-value-0'), 'me')
     expect(screen.getByTestId('t-tag-problems')).toHaveTextContent('reserved')
     await user.clear(screen.getByTestId('t-tag-key-0'))

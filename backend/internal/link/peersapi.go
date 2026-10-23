@@ -14,8 +14,8 @@ import (
 	"strconv"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/probe"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/probe"
 )
 
 // The prober runs in a pod of its own and learns who to measure from the agent, which is the only part of the cluster
@@ -30,7 +30,7 @@ const (
 	ProberNode   = "link-prober"
 	maxPeersBody = 1 << 20
 	// peersContext is what the MAC of a peers request is bound to (see probe.SignContext).
-	peersContext = "continuum-link-peers-v1"
+	peersContext = "ikhnos-link-peers-v1"
 )
 
 // PeersDoc is what the agent returns: this cluster's id and the peers it is paired with.
@@ -117,13 +117,13 @@ func inList(used []netip.Addr, list []string) []string {
 // SetFromDoc replaces the peers with those of a PeersDoc fetched from the agent, with the same checks as a Config from the
 // server (the prober does not trust the agent's answer more than the agent trusts the server's).
 func (p *Peers) SetFromDoc(d PeersDoc) []string {
-	lps := make([]*continuumv1.LinkPeer, 0, len(d.Peers))
+	lps := make([]*ikhnosv1.LinkPeer, 0, len(d.Peers))
 	preferred := map[string][]string{}
 	for _, pe := range d.Peers {
-		lps = append(lps, &continuumv1.LinkPeer{ClusterId: pe.ID, Name: pe.Name, Addresses: pe.Addresses, NoProbe: pe.NoProbe, SkipProbe: pe.SkipProbe, Via: pe.Via, Throughput: pe.Throughput,
+		lps = append(lps, &ikhnosv1.LinkPeer{ClusterId: pe.ID, Name: pe.Name, Addresses: pe.Addresses, NoProbe: pe.NoProbe, SkipProbe: pe.SkipProbe, Via: pe.Via, Throughput: pe.Throughput,
 			ThroughputIntervalSeconds: pe.ThroughputIntervalSeconds, ThroughputBudgetBytes: pe.ThroughputBudgetBytes})
 		if pe.Iperf != nil {
-			lps[len(lps)-1].IperfClient = &continuumv1.LinkIperfClient{PublicKeyPem: pe.Iperf.PublicKeyPEM, Username: pe.Iperf.Username, Password: pe.Iperf.Password.Reveal()}
+			lps[len(lps)-1].IperfClient = &ikhnosv1.LinkIperfClient{PublicKeyPem: pe.Iperf.PublicKeyPEM, Username: pe.Iperf.Username, Password: pe.Iperf.Password.Reveal()}
 		}
 		preferred[pe.ID] = pe.Preferred
 	}

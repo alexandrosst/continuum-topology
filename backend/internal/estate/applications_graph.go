@@ -7,10 +7,10 @@ import (
 	"strings"
 	"time"
 
-	"continuum/internal/agents"
-	"continuum/internal/graph"
-	"continuum/internal/store"
-	"continuum/internal/workspace"
+	"ikhnos/internal/agents"
+	"ikhnos/internal/graph"
+	"ikhnos/internal/store"
+	"ikhnos/internal/workspace"
 )
 
 // ---- versioning applications in the graph ----

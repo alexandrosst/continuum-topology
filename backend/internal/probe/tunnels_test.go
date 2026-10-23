@@ -9,7 +9,7 @@ import (
 	"github.com/jsimonetti/rtnetlink/v2"
 	"golang.org/x/sys/unix"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 )
 
 func link(index uint32, name, kind string) rtnetlink.LinkMessage {
@@ -133,7 +133,7 @@ func TestBuildTunnelsReadsMtuAndUpFromTheSameLinkDump(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("got %d tunnels, want 2", len(got))
 	}
-	byName := map[string]*continuumv1.TunnelInterface{}
+	byName := map[string]*ikhnosv1.TunnelInterface{}
 	for _, tu := range got {
 		byName[tu.Name] = tu
 	}
@@ -271,7 +271,7 @@ func TestBuildHostAddressesIsBounded(t *testing.T) {
 }
 
 func TestSanitizeKeepsOnlyValidOfferableHostAddresses(t *testing.T) {
-	s := Sanitize(&continuumv1.HostProbe{HostAddresses: []*continuumv1.HostAddress{
+	s := Sanitize(&ikhnosv1.HostProbe{HostAddresses: []*ikhnosv1.HostAddress{
 		{Interface: "wg0", Kind: "wireguard", Address: "10.8.0.3/24"},
 		{Interface: "lo", Address: "127.0.0.1/8"}, {Interface: "eth0", Address: "fe80::1/64"}, {Interface: "eth0", Address: "not-an-ip"}, {Interface: "", Address: "10.0.0.1/24"}, nil,
 	}})

@@ -14,20 +14,20 @@ import (
 	"sync"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/accounts"
-	"continuum/internal/agentcaps"
-	"continuum/internal/agents"
-	"continuum/internal/connectivity"
-	"continuum/internal/facts"
-	"continuum/internal/flow/wire"
-	"continuum/internal/geoip"
-	"continuum/internal/interpret"
-	"continuum/internal/kernel"
-	"continuum/internal/model"
-	"continuum/internal/observed"
-	"continuum/internal/store"
-	"continuum/internal/twin"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/agentcaps"
+	"ikhnos/internal/agents"
+	"ikhnos/internal/connectivity"
+	"ikhnos/internal/facts"
+	"ikhnos/internal/flow/wire"
+	"ikhnos/internal/geoip"
+	"ikhnos/internal/interpret"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/model"
+	"ikhnos/internal/observed"
+	"ikhnos/internal/store"
+	"ikhnos/internal/twin"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
@@ -69,12 +69,12 @@ type EstView struct {
 	// above is, so it is always "what this agent's pods were doing as of its last report", not a running
 	// total. Not persisted across a server restart (same as the rest of view): a fresh snapshot arrives
 	// with the agent's next report anyway, and nothing here is meant to survive longer than that.
-	podFlows []*continuumv1.Flow
+	podFlows []*ikhnosv1.Flow
 	// linkSat is this agent's latest per-node, per-interface link throughput/saturation
 	// (FlowBatch.collectors[].link_saturation), keyed by node name - replaced wholesale on every accepted
 	// batch, the same "right now, not accumulated" treatment as podFlows above and for the same reason:
 	// it is a gauge of the window the collector just reported, not a running total.
-	linkSat map[string][]*continuumv1.LinkSaturation
+	linkSat map[string][]*ikhnosv1.LinkSaturation
 	// snatExhaustion is this agent's latest per-node SNAT/ephemeral-port-exhaustion reading
 	// (FlowBatch.collectors[].snat_exhaustion) - the same wholesale-replaced-every-batch treatment as
 	// linkSat right above, and for the same reason: a collector's own counter is a running total since
@@ -84,7 +84,7 @@ type EstView struct {
 	// thermalThrottle is this agent's latest per-node CPU thermal-throttling tracepoint reading
 	// (FlowBatch.collectors[].thermal_throttle) - the same wholesale-replaced-every-batch treatment as
 	// linkSat/snatExhaustion above, and for the same reason.
-	thermalThrottle map[string]*continuumv1.ThermalThrottle
+	thermalThrottle map[string]*ikhnosv1.ThermalThrottle
 
 	// The last consistency check: a full picture compared with what the server held.
 	consAt    time.Time
@@ -107,7 +107,7 @@ type Session struct {
 	// Cancel ends the stream.
 	Cancel func(EndReason)
 	// Push carries messages for the stream's own goroutine to send (only it may write to the stream).
-	Push chan *continuumv1.ServerMessage
+	Push chan *ikhnosv1.ServerMessage
 }
 
 // Hub receives agent streams, keeps their facts, and builds the topology the UI reads.
@@ -279,7 +279,7 @@ func peerNotAfter(ctx context.Context) time.Time {
 }
 
 // Connect is the long-lived agent stream.
-func (h *Hub) Connect(stream continuumv1.AgentService_ConnectServer) error {
+func (h *Hub) Connect(stream ikhnosv1.AgentService_ConnectServer) error {
 	ctx := stream.Context()
 	agent, ok := agents.AgentFrom(ctx)
 	if !ok {
@@ -289,7 +289,7 @@ func (h *Hub) Connect(stream continuumv1.AgentService_ConnectServer) error {
 	log := h.Log.With("agent", agent.ID, "name", agent.Name)
 
 	type recvd struct {
-		m   *continuumv1.AgentMessage
+		m   *ikhnosv1.AgentMessage
 		err error
 	}
 	msgs := make(chan recvd)
@@ -321,7 +321,7 @@ func (h *Hub) Connect(stream continuumv1.AgentService_ConnectServer) error {
 
 	// One session per agent: a new connection replaces the old one.
 	ended := make(chan EndReason, 1)
-	sess := &Session{Push: make(chan *continuumv1.ServerMessage, 4), Cancel: func(reason EndReason) {
+	sess := &Session{Push: make(chan *ikhnosv1.ServerMessage, 4), Cancel: func(reason EndReason) {
 		select {
 		case ended <- reason:
 		default:
@@ -369,7 +369,7 @@ func (h *Hub) Connect(stream continuumv1.AgentService_ConnectServer) error {
 	defer lifetime.Stop()
 
 	// First message must be Hello.
-	var hello *continuumv1.Hello
+	var hello *ikhnosv1.Hello
 	select {
 	case r := <-msgs:
 		if r.err != nil {
@@ -405,7 +405,7 @@ func (h *Hub) Connect(stream continuumv1.AgentService_ConnectServer) error {
 	v.Ext.Protocol, v.Ext.Caps = hello.ProtocolVersion, agentcaps.Clean(hello.Capabilities)
 	h.Mu.Unlock()
 	agent = h.NoteCeiling(ctx, agent, fresh, int(hello.InstalledAccessTier))
-	if err := stream.Send(&continuumv1.ServerMessage{Msg: &continuumv1.ServerMessage_Config{Config: h.ConfigFor(agent, v)}}); err != nil {
+	if err := stream.Send(&ikhnosv1.ServerMessage{Msg: &ikhnosv1.ServerMessage_Config{Config: h.ConfigFor(agent, v)}}); err != nil {
 		return err
 	}
 	h.Mu.Lock()
@@ -419,7 +419,7 @@ func (h *Hub) Connect(stream continuumv1.AgentService_ConnectServer) error {
 		select {
 		case end := <-ended:
 			if end.revoked { // only a real revocation tells the agent to stop for good
-				_ = stream.Send(&continuumv1.ServerMessage{Msg: &continuumv1.ServerMessage_Revoked{Revoked: &continuumv1.Revoked{Reason: end.text}}})
+				_ = stream.Send(&ikhnosv1.ServerMessage{Msg: &ikhnosv1.ServerMessage_Revoked{Revoked: &ikhnosv1.Revoked{Reason: end.text}}})
 			}
 			return status.Error(codes.Aborted, end.text)
 		case m := <-sess.Push:
@@ -448,7 +448,7 @@ func (h *Hub) Connect(stream continuumv1.AgentService_ConnectServer) error {
 				return agents.ToStatus(err)
 			}
 			switch m := r.m.Msg.(type) {
-			case *continuumv1.AgentMessage_Sync:
+			case *ikhnosv1.AgentMessage_Sync:
 				// An agent speaks only for the cluster a human approved.
 				if c := m.Sync.Cluster; c != nil && c.Uid != cur.Fingerprint {
 					kernel.Metrics.SyncsRefused.Add(1)
@@ -510,11 +510,11 @@ func (h *Hub) Connect(stream continuumv1.AgentService_ConnectServer) error {
 					h.reportConsistency(ctx, cur, drift)
 				}
 				h.rec.changed.Store(true)
-				if err := stream.Send(&continuumv1.ServerMessage{Msg: &continuumv1.ServerMessage_Ack{Ack: &continuumv1.Ack{Seq: sy.Seq}}}); err != nil {
+				if err := stream.Send(&ikhnosv1.ServerMessage{Msg: &ikhnosv1.ServerMessage_Ack{Ack: &ikhnosv1.Ack{Seq: sy.Seq}}}); err != nil {
 					return err
 				}
 				h.persist(ctx, agent.ID, sy.Full)
-			case *continuumv1.AgentMessage_Flows:
+			case *ikhnosv1.AgentMessage_Flows:
 				applied, err := h.noteFlows(agent.ID, cur.AccessTier, m.Flows, h.C.Now())
 				if err != nil {
 					h.refuseSync(ctx, cur, v, err)
@@ -524,9 +524,9 @@ func (h *Hub) Connect(stream continuumv1.AgentService_ConnectServer) error {
 					h.rec.changed.Store(true)
 					h.persistFlows(ctx, agent.ID, false)
 				}
-			case *continuumv1.AgentMessage_Measurements:
+			case *ikhnosv1.AgentMessage_Measurements:
 				h.NoteMeasurements(agent.ID, m.Measurements)
-			case *continuumv1.AgentMessage_Heartbeat:
+			case *ikhnosv1.AgentMessage_Heartbeat:
 				if err := validateModules(m.Heartbeat.Modules); err != nil {
 					h.refuseSync(ctx, cur, v, err)
 					return status.Error(codes.InvalidArgument, err.Error())
@@ -558,7 +558,7 @@ func (h *Hub) Connect(stream continuumv1.AgentService_ConnectServer) error {
 					_ = h.C.Store.SetClockSkew(ctx, h.C.OrgID, agent.ID, skew)
 				}
 				_ = h.C.Store.Touch(ctx, h.C.OrgID, agent.ID, ip, "", "", h.C.Now())
-			case *continuumv1.AgentMessage_Hello:
+			case *ikhnosv1.AgentMessage_Hello:
 				// ignore repeats
 			}
 		}
@@ -568,7 +568,7 @@ func (h *Hub) Connect(stream continuumv1.AgentService_ConnectServer) error {
 // ApplySync merges facts, first dropping anything above the tier a human approved. When the message
 // is a full picture that is not the first of its connection, it also says how far the server's own
 // picture had drifted from it (checked is true); applying it afterwards repairs the difference.
-func (h *Hub) ApplySync(a store.Agent, s *continuumv1.Sync, fullSeen bool) (drift facts.Drift, checked bool, err error) {
+func (h *Hub) ApplySync(a store.Agent, s *ikhnosv1.Sync, fullSeen bool) (drift facts.Drift, checked bool, err error) {
 	agents.DropAboveTier(a.AccessTier, s)
 	// Captured after the tier ceiling has narrowed s but before an admin's own exclusion list does, so a
 	// namespace the admin has asked to leave out is still counted as "reported" - see agents.ViewExt.knownNamespaces.
@@ -605,7 +605,7 @@ func (h *Hub) ApplySync(a store.Agent, s *continuumv1.Sync, fullSeen bool) (drif
 // gRPC stream loop used to check inline. It reports whether the batch was applied (false when it was quietly
 // ignored because the approval doesn't cover workloads yet, or the "flow" collector is paused) and any protocol
 // error the batch itself contains (which the caller turns into a refused sync, unlike the two quiet cases).
-func (h *Hub) noteFlows(agentID string, tier int, fb *continuumv1.FlowBatch, now time.Time) (applied bool, err error) {
+func (h *Hub) noteFlows(agentID string, tier int, fb *ikhnosv1.FlowBatch, now time.Time) (applied bool, err error) {
 	// Observed traffic is workload-level information: it is only accepted when the approval covers workloads.
 	if tier < 2 {
 		return false, nil
@@ -645,9 +645,9 @@ func (h *Hub) noteFlows(agentID string, tier int, fb *continuumv1.FlowBatch, now
 	v.Flows.Apply(fb, now)
 	v.obs.Note(fb, now)
 	v.podFlows = fb.PodFlows
-	linkSat := map[string][]*continuumv1.LinkSaturation{}
+	linkSat := map[string][]*ikhnosv1.LinkSaturation{}
 	snatExhaustion := map[string]uint64{}
-	thermalThrottle := map[string]*continuumv1.ThermalThrottle{}
+	thermalThrottle := map[string]*ikhnosv1.ThermalThrottle{}
 	for _, c := range fb.Collectors {
 		if len(c.LinkSaturation) > 0 {
 			linkSat[c.Node] = c.LinkSaturation
@@ -716,7 +716,7 @@ func loadState(data []byte, l facts.Limits) (*facts.State, error) {
 	if len(data) > snapshotCap(l) {
 		return nil, fmt.Errorf("the stored snapshot is %d bytes, over the limit of %d", len(data), snapshotCap(l))
 	}
-	var m continuumv1.Sync
+	var m ikhnosv1.Sync
 	if err := proto.Unmarshal(data, &m); err != nil {
 		return nil, err
 	}
@@ -775,7 +775,7 @@ const (
 	maxStr        = 512
 )
 
-func validateSync(s *continuumv1.Sync) error {
+func validateSync(s *ikhnosv1.Sync) error {
 	if len(s.Nodes) > maxNodes || len(s.DeletedNodes) > maxNodes ||
 		len(s.Namespaces) > maxNamespaces || len(s.DeletedNamespaces) > maxNamespaces ||
 		len(s.Workloads) > maxWorkloads || len(s.DeletedWorkloads) > maxWorkloads {
@@ -795,7 +795,7 @@ func validateSync(s *continuumv1.Sync) error {
 	return facts.SanitizeSync(s)
 }
 
-func syncKeys(s *continuumv1.Sync) []string {
+func syncKeys(s *ikhnosv1.Sync) []string {
 	var keys []string
 	for _, n := range s.Nodes {
 		keys = append(keys, n.Key)
@@ -865,7 +865,7 @@ func boundCount(p *int32) (out *int32, dropped bool) {
 // produce, leaving the rest of every record untouched, and returns how many fields it dropped - see
 // this section's own doc comment above for why a field is nulled rather than dropping the record or
 // clamping the value.
-func boundSyncFacts(s *continuumv1.Sync) int {
+func boundSyncFacts(s *ikhnosv1.Sync) int {
 	n := 0
 	if c := s.Cluster; c != nil {
 		if v, dropped := boundCount(c.PendingPodCount); dropped {
@@ -920,7 +920,7 @@ func (h *Hub) noteImplausibleFacts(agentID string, v *View, n int) {
 	}
 }
 
-func validateModules(ms []*continuumv1.ModuleStatus) error {
+func validateModules(ms []*ikhnosv1.ModuleStatus) error {
 	if len(ms) > 64 {
 		return errors.New("an agent may report at most 64 modules")
 	}
@@ -1304,8 +1304,8 @@ func (h *Hub) buildAgentDocs(ctx context.Context, now time.Time) ([]AgentDoc, []
 				}
 			}
 			for _, m := range v.State.Modules {
-				d.Modules = append(d.Modules, ModuleDoc{Name: m.Name, Status: map[continuumv1.ModuleStatus_State]string{
-					continuumv1.ModuleStatus_OK: "ok", continuumv1.ModuleStatus_SKIPPED: "skipped", continuumv1.ModuleStatus_ERROR: "error"}[m.State], Reason: m.Reason})
+				d.Modules = append(d.Modules, ModuleDoc{Name: m.Name, Status: map[ikhnosv1.ModuleStatus_State]string{
+					ikhnosv1.ModuleStatus_OK: "ok", ikhnosv1.ModuleStatus_SKIPPED: "skipped", ikhnosv1.ModuleStatus_ERROR: "error"}[m.State], Reason: m.Reason})
 			}
 			if v.Refusal != "" { // why nothing new is arriving from this agent
 				d.Modules = append(d.Modules, ModuleDoc{Name: "server limits", Status: "error", Reason: v.Refusal})

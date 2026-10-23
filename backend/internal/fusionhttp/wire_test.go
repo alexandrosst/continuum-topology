@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/fusion"
-	"continuum/internal/fusionapi"
-	"continuum/internal/wire"
+	"ikhnos/internal/fusion"
+	"ikhnos/internal/fusionapi"
+	"ikhnos/internal/wire"
 )
 
 func TestEveryDocumentIsListedForTheWire(t *testing.T) {

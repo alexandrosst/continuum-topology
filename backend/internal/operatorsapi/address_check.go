@@ -15,10 +15,10 @@ import (
 	"syscall"
 	"time"
 
-	"continuum/internal/httpkit"
-	"continuum/internal/kernel"
-	"continuum/internal/operators"
-	"continuum/internal/store"
+	"ikhnos/internal/httpkit"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/operators"
+	"ikhnos/internal/store"
 )
 
 // What this server can say about the "Reachable at" address of an operator without being told, which is every

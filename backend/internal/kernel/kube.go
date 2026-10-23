@@ -23,7 +23,7 @@ import (
 // KubeAPI is the whole of what this server may do with the Kubernetes API, and it is deliberately tiny: read the
 // replica counts of the FUSION workloads, scale them, put certificates into the central gateway's Secret, and read
 // (never change) the few objects that explain why a store is not starting or where the gateway is reachable. The chart's
-// Role (deploy/helm/continuum-server/templates/fusion-rbac.yaml) grants exactly these calls on exactly these named
+// Role (deploy/helm/ikhnos-server/templates/fusion-rbac.yaml) grants exactly these calls on exactly these named
 // objects and nothing more - there is no list, no create, no delete, no way to read a Secret back.
 type KubeAPI interface {
 	// Workload reads a StatefulSet or Deployment ("statefulsets", "deployments") by name.

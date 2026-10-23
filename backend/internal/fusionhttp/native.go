@@ -6,7 +6,7 @@ import (
 	"net/url"
 	"strings"
 
-	"continuum/internal/fusionapi"
+	"ikhnos/internal/fusionapi"
 )
 
 // The native mirror (internal/fusionapi/mirror.go): Prometheus', Loki's and Tempo's own read endpoints under

@@ -36,7 +36,7 @@ func permProblems(dataDir string) []string {
 		{filepath.Join(dataDir, "pki", "ca.key"), false},
 	}
 	for _, suffix := range []string{"", "-wal", "-shm", "-journal"} {
-		items = append(items, item{filepath.Join(dataDir, "continuum.db"+suffix), false})
+		items = append(items, item{filepath.Join(dataDir, "ikhnos.db"+suffix), false})
 	}
 	var out []string
 	for _, it := range items {
@@ -73,7 +73,7 @@ func checkPermissions(log *slog.Logger, dataDir string, allowLoose bool) error {
 		return nil
 	}
 	return fmt.Errorf("the data directory is not private enough:\n  %s\nThe CA key and the database let whoever reads them act as this server. Fix the modes as shown. "+
-		"If a platform sets them (a Kubernetes fsGroup volume, for example) and only this pod's user can reach the volume, start with --allow-loose-permissions (env CONTINUUM_ALLOW_LOOSE_PERMISSIONS=true) to accept them",
+		"If a platform sets them (a Kubernetes fsGroup volume, for example) and only this pod's user can reach the volume, start with --allow-loose-permissions (env IKHNOS_ALLOW_LOOSE_PERMISSIONS=true) to accept them",
 		strings.Join(probs, "\n  "))
 }
 

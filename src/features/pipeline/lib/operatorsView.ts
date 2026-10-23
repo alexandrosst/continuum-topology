@@ -198,8 +198,8 @@ function agentSteps(a: Pick<Agent, 'namespace' | 'releaseName'> | undefined, wha
 
 function operatorSteps(op: RegionalOperator): Todo['steps'] {
   return [
-    { title: 'Check that the operator is running', command: podsOf('continuum-system') },
-    { title: 'Read what it says', text: 'Look for a line about reaching this server or its certificate.', command: `kubectl logs deployment/${operatorServiceName(op.id)} --namespace continuum-system --all-containers --tail 50` },
+    { title: 'Check that the operator is running', command: podsOf('ikhnos-system') },
+    { title: 'Read what it says', text: 'Look for a line about reaching this server or its certificate.', command: `kubectl logs deployment/${operatorServiceName(op.id)} --namespace ikhnos-system --all-containers --tail 50` },
   ]
 }
 

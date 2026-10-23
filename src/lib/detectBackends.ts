@@ -35,7 +35,7 @@ export const DETECTED_KINDS: DetectedKind[] = [
 ]
 
 /** The namespace this platform's own components run in: its collectors are not somewhere to send to. */
-const OWN_NAMESPACE = 'continuum-system'
+const OWN_NAMESPACE = 'ikhnos-system'
 
 /** "docker.io/grafana/loki:3.1@sha256:…" -> "grafana/loki" (registry host, tag and digest dropped). */
 export function imageRepository(image: string): string {

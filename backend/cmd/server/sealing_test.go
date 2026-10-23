@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/accounts"
-	"continuum/internal/sealing"
-	"continuum/internal/server"
-	"continuum/internal/store"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/sealing"
+	"ikhnos/internal/server"
+	"ikhnos/internal/store"
 )
 
 const (
@@ -64,7 +64,7 @@ func sealedWorld(t *testing.T) (st *store.SQLite, dir string) {
 	t.Helper()
 	dir = t.TempDir()
 	ctx := context.Background()
-	st, err := store.OpenSQLite(filepath.Join(dir, "continuum.db"))
+	st, err := store.OpenSQLite(filepath.Join(dir, "ikhnos.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +122,7 @@ func TestResetSealingRemovesOnlyWhatCannotBeReadAndLeavesTheServerStartable(t *t
 	ctx := context.Background()
 	st.Close()
 	// A fresh start with no key: refused.
-	st, err := store.OpenSQLite(filepath.Join(dir, "continuum.db"))
+	st, err := store.OpenSQLite(filepath.Join(dir, "ikhnos.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +167,7 @@ func TestResetSealingRemovesOnlyWhatCannotBeReadAndLeavesTheServerStartable(t *t
 }
 
 func TestResetSealingOnADatabaseThatWasNeverSealedDoesNothing(t *testing.T) {
-	st, err := store.OpenSQLite(filepath.Join(t.TempDir(), "continuum.db"))
+	st, err := store.OpenSQLite(filepath.Join(t.TempDir(), "ikhnos.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

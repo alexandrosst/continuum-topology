@@ -55,13 +55,14 @@ func TestTwoSealsOfOneValueDiffer(t *testing.T) {
 func TestATamperedValueDoesNotOpen(t *testing.T) {
 	s := mustNew(t, keyA)
 	sealed, _ := s.Seal("mail", "", "secret-password")
-	// Flip the last character of the body.
-	last := sealed[len(sealed)-1]
+	// Flip a character in the middle of the body. (Not the last one: when the body's length is not a multiple of four, the last
+	// character carries bits that decoding ignores, and changing only those leaves the same bytes.)
+	i := len(sealed) - 8
 	flip := byte('A')
-	if last == 'A' {
+	if sealed[i] == 'A' {
 		flip = 'B'
 	}
-	if _, err := s.Open("mail", "", sealed[:len(sealed)-1]+string(flip)); !errors.Is(err, ErrCorrupt) {
+	if _, err := s.Open("mail", "", sealed[:i]+string(flip)+sealed[i+1:]); !errors.Is(err, ErrCorrupt) {
 		t.Fatalf("a changed value opened: %v", err)
 	}
 	for _, bad := range []string{"sealed:v1:", "sealed:v1:nocolon", sealed[:len(sealed)/2], "sealed:v1:" + s.KeyID() + ":!!!"} {

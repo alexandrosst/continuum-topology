@@ -7,14 +7,14 @@ import (
 	"sync"
 	"time"
 
-	"continuum/internal/kernel"
-	"continuum/internal/store"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/store"
 )
 
 // Operator heartbeat. A regional operator never dials this server by default (see store.Operator): the
 // server learns an operator exists from its own record, and nothing else about it. An operator can OPT IN
 // to a heartbeat - its collector's own health_check endpoint is probed locally and the bare result of that
-// probe is POSTed here on a timer (see the continuum-regional-operator chart's `heartbeat` values). It
+// probe is POSTed here on a timer (see the ikhnos-regional-operator chart's `heartbeat` values). It
 // carries no telemetry: this server drains and ignores the body entirely and records only that a
 // correctly-authenticated request arrived, and when. That is what powers online/offline/last-seen.
 

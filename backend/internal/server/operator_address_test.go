@@ -4,12 +4,12 @@ import (
 	"strings"
 	"testing"
 
-	"continuum/internal/accounts"
-	"continuum/internal/install"
-	"continuum/internal/operators"
-	"continuum/internal/operatorsapi"
-	"continuum/internal/store"
-	"continuum/internal/testkit"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/install"
+	"ikhnos/internal/operators"
+	"ikhnos/internal/operatorsapi"
+	"ikhnos/internal/store"
+	"ikhnos/internal/testkit"
 )
 
 func TestAnOperatorAddressIsSetShownAuditedAndUsedByEveryCommandThatPointsAtIt(t *testing.T) {
@@ -58,7 +58,7 @@ func TestAnOperatorAddressIsSetShownAuditedAndUsedByEveryCommandThatPointsAtIt(t
 	// While there is no address, an operator pointing at it gets its Service name in the cluster, and verifies the
 	// certificate by the stable name (the Service name is not on it).
 	down := create("edge", map[string]any{"kind": "operator", "targetOperatorId": upID}, nil)
-	if !strings.Contains(down["install"].(string), "--set export.otlp.endpoint="+operators.OperatorServiceName(upID)+".continuum-system.svc:4317") || !strings.Contains(down["install"].(string), "--set export.otlp.tls.serverName="+upID+".continuum-system.svc") {
+	if !strings.Contains(down["install"].(string), "--set export.otlp.endpoint="+operators.OperatorServiceName(upID)+".ikhnos-system.svc:4317") || !strings.Contains(down["install"].(string), "--set export.otlp.tls.serverName="+upID+".ikhnos-system.svc") {
 		t.Fatalf("before an address is set: %v", down["install"])
 	}
 
@@ -90,7 +90,7 @@ func TestAnOperatorAddressIsSetShownAuditedAndUsedByEveryCommandThatPointsAtIt(t
 	// Now an operator created to export to it dials the address and verifies its stable name.
 	down2 := create("edge2", map[string]any{"kind": "operator", "targetOperatorId": upID}, nil)
 	inst := down2["install"].(string)
-	if !strings.Contains(inst, "--set export.otlp.endpoint=otlp.eu.example.com:4317") || !strings.Contains(inst, "--set export.otlp.tls.serverName="+upID+".continuum-system.svc") {
+	if !strings.Contains(inst, "--set export.otlp.endpoint=otlp.eu.example.com:4317") || !strings.Contains(inst, "--set export.otlp.tls.serverName="+upID+".ikhnos-system.svc") {
 		t.Fatalf("an operator pointing at an addressed operator: %s", inst)
 	}
 	if et, _ := down2["exportTarget"].(map[string]any); et["reachableFromOtherClusters"] != true || et["endpoint"] != "otlp.eu.example.com:4317" {
@@ -131,7 +131,7 @@ func TestTheCentralOperatorsAddressIsSetFromTheUIAndUsedByEveryCommand(t *testin
 		}
 		return r.json(t)
 	}
-	if d := central(); d["reachableFromOtherClusters"] != false || d["address"] != nil || d["endpoint"] != "continuum-fusion-central.continuum.svc:4317" {
+	if d := central(); d["reachableFromOtherClusters"] != false || d["address"] != nil || d["endpoint"] != "ikhnos-fusion-central.ikhnos.svc:4317" {
 		t.Fatalf("before an address: %v", d)
 	}
 	path := "/api/v1/operators/" + operators.CentralOperatorID + "/address"
@@ -150,7 +150,7 @@ func TestTheCentralOperatorsAddressIsSetFromTheUIAndUsedByEveryCommand(t *testin
 	if !f.Exposed() || f.CentralEndpoint() != "fusion.example.com:4317" {
 		t.Fatalf("the switch does not know: %v %q", f.Exposed(), f.CentralEndpoint())
 	}
-	if r := a.do("GET", "/api/v1/fusion", nil, withCookie(cookie)); !strings.Contains(r.Body.String(), `"service":"continuum-fusion-central"`) || !strings.Contains(r.Body.String(), `"exposed":true`) {
+	if r := a.do("GET", "/api/v1/fusion", nil, withCookie(cookie)); !strings.Contains(r.Body.String(), `"service":"ikhnos-fusion-central"`) || !strings.Contains(r.Body.String(), `"exposed":true`) {
 		t.Fatalf("fusion status: %s", r.Body.String())
 	}
 	// A cluster's own telemetry pointed at it dials that address and verifies the stable name.
@@ -160,7 +160,7 @@ func TestTheCentralOperatorsAddressIsSetFromTheUIAndUsedByEveryCommand(t *testin
 		t.Fatalf("create: %d %s", r.Code, r.Body.String())
 	}
 	install, _ := r.json(t)["install"].(string)
-	for _, w := range []string{"--set export.otlp.endpoint=fusion.example.com:4317", "--set export.otlp.tls.serverName=op-central.continuum-system.svc"} {
+	for _, w := range []string{"--set export.otlp.endpoint=fusion.example.com:4317", "--set export.otlp.tls.serverName=op-central.ikhnos-system.svc"} {
 		if !strings.Contains(install, w) {
 			t.Errorf("install lacks %q:\n%s", w, install)
 		}
@@ -200,7 +200,7 @@ func TestATelemetryIntentCommandDialsTheOperatorsAddress(t *testing.T) {
 		t.Fatalf("command: %d %s", r.Code, r.Body.String())
 	}
 	frag, _ := r.json(t)["installFragment"].(string)
-	if !strings.Contains(frag, "--set telemetry.export.otlp.endpoint=203.0.113.7:4317") || !strings.Contains(frag, "--set telemetry.export.otlp.tls.serverName="+opID+".continuum-system.svc") {
+	if !strings.Contains(frag, "--set telemetry.export.otlp.endpoint=203.0.113.7:4317") || !strings.Contains(frag, "--set telemetry.export.otlp.tls.serverName="+opID+".ikhnos-system.svc") {
 		t.Fatalf("installFragment: %q", frag)
 	}
 }
@@ -209,16 +209,16 @@ func TestATelemetryIntentCommandDialsTheOperatorsAddress(t *testing.T) {
 func TestAnOperatorRouteVerifiesTheStableNameWhenItHasAnAddress(t *testing.T) {
 	op := store.Operator{ID: "op-abc", Address: "otlp.example.com:4317"}
 	got := install.Flags(operatorsapi.RouteValues(op, op.Address, store.ModalityTraces))
-	if !strings.Contains(got, "--set telemetry.export.routes.traces.tls.serverName=op-abc.continuum-system.svc") {
+	if !strings.Contains(got, "--set telemetry.export.routes.traces.tls.serverName=op-abc.ikhnos-system.svc") {
 		t.Fatalf("%s", got)
 	}
 	// With no address it is dialled by its Service name, which is not on the certificate: the stable name still is.
-	if !strings.Contains(install.Flags(operatorsapi.RouteValues(store.Operator{ID: "op-abc"}, "op-abc-regional-operator.continuum-system.svc:4317", store.ModalityTraces)), "--set telemetry.export.routes.traces.tls.serverName=op-abc.continuum-system.svc") {
+	if !strings.Contains(install.Flags(operatorsapi.RouteValues(store.Operator{ID: "op-abc"}, "op-abc-regional-operator.ikhnos-system.svc:4317", store.ModalityTraces)), "--set telemetry.export.routes.traces.tls.serverName=op-abc.ikhnos-system.svc") {
 		t.Fatal("a regional operator with no address must still be verified by its stable name")
 	}
 	// The central operator in its own cluster is dialled by a name its certificate carries.
 	// The route states the name anyway, empty, so a server name left by an earlier destination cannot linger.
-	inCluster := install.Flags(operatorsapi.RouteValues(store.Operator{ID: operators.CentralOperatorID}, "x.continuum.svc:4317", store.ModalityTraces))
+	inCluster := install.Flags(operatorsapi.RouteValues(store.Operator{ID: operators.CentralOperatorID}, "x.ikhnos.svc:4317", store.ModalityTraces))
 	if !strings.Contains(inCluster, "--set telemetry.export.routes.traces.tls.serverName= --set") {
 		t.Fatalf("the in-cluster central operator needs no server name override, and must clear any earlier one: %s", inCluster)
 	}

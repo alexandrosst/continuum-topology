@@ -5,14 +5,14 @@ import (
 	"strings"
 	"testing"
 
-	"continuum/internal/accounts"
-	"continuum/internal/chart"
-	"continuum/internal/install"
-	"continuum/internal/kernel"
-	"continuum/internal/operators"
-	"continuum/internal/operatorsapi"
-	"continuum/internal/store"
-	"continuum/internal/testkit"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/chart"
+	"ikhnos/internal/install"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/operators"
+	"ikhnos/internal/operatorsapi"
+	"ikhnos/internal/store"
+	"ikhnos/internal/testkit"
 )
 
 // failTLSMint makes every operator TLS mint fail for the rest of the test.
@@ -68,7 +68,7 @@ func TestInstallCommandForABearerOperatorIsUnchanged(t *testing.T) {
 	got, secretCmd := operatorInstall(a.a, kernel.ImageConfig{}, "cno_SECRET", op, withTLS, "")
 	// The rig's ChartRef ("chart") is not the agent chart's address, so the operator chart is the file the server serves: an explicit
 	// reference is the AGENT chart and is never used as it is for the operator (see operatorChartRef).
-	want := "helm install op-abc123 ./" + chart.RegionalOperator.Filename() + " \\\n  --namespace continuum-system --create-namespace \\\n  --set export.otlp.endpoint=c:4317" +
+	want := "helm install op-abc123 ./" + chart.RegionalOperator.Filename() + " \\\n  --namespace ikhnos-system --create-namespace \\\n  --set export.otlp.endpoint=c:4317" +
 		" \\\n  --set receiver.auth.enabled=true \\\n  --set receiver.auth.secretName=op-abc123-receiver-auth" +
 		" \\\n  --set receiver.tls.enabled=true \\\n  --set receiver.tls.secretName=op-abc123-receiver-tls \\\n  --set receiver.tls.mtls=true" +
 		// The renewer: where the server is, which CA to trust, and the image of the sidecar (the agent's, not the collector's).
@@ -78,7 +78,7 @@ func TestInstallCommandForABearerOperatorIsUnchanged(t *testing.T) {
 	if got != want {
 		t.Fatalf("bearer install command changed:\n got: %q\nwant: %q", got, want)
 	}
-	wantSecret := "kubectl create namespace continuum-system --dry-run=client -o yaml | kubectl apply -f - && \\\nkubectl apply --server-side --force-conflicts -f - <<'CONTINUUM_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: op-abc123-receiver-auth\n  namespace: continuum-system\ntype: Opaque\nstringData:\n  token: \"cno_SECRET\"\nCONTINUUM_SECRET"
+	wantSecret := "kubectl create namespace ikhnos-system --dry-run=client -o yaml | kubectl apply -f - && \\\nkubectl apply --server-side --force-conflicts -f - <<'IKHNOS_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: op-abc123-receiver-auth\n  namespace: ikhnos-system\ntype: Opaque\nstringData:\n  token: \"cno_SECRET\"\nIKHNOS_SECRET"
 	if secretCmd != wantSecret {
 		t.Fatalf("secret command = %q", secretCmd)
 	}
@@ -116,11 +116,11 @@ func TestCreateOperatorFailsWhenTheTLSMintFails(t *testing.T) {
 func TestOperatorDestinationCommandIsTheSameForBothAuthModes(t *testing.T) {
 	for _, mode := range []store.ReceiverAuth{store.ReceiverAuthMTLS, store.ReceiverAuthBearer} {
 		op := store.Operator{ID: "op-abc123", ReceiverAuth: mode}
-		values, secret, err := operatorsapi.DestinationCommand(op, "op-abc123-regional-operator.continuum-system.svc:4317", []byte("CERT"), []byte("KEY"), []byte("CA"), "ns1")
+		values, secret, err := operatorsapi.DestinationCommand(op, "op-abc123-regional-operator.ikhnos-system.svc:4317", []byte("CERT"), []byte("KEY"), []byte("CA"), "ns1")
 		// The whole destination block, every field stated (the unused ones empty), so --reset-then-reuse-values leaves nothing stale.
-		wantFlags := "--set telemetry.export.otlp.endpoint=op-abc123-regional-operator.continuum-system.svc:4317 --set telemetry.export.otlp.protocol=grpc --set telemetry.export.otlp.tls.insecure=false --set telemetry.export.otlp.tls.caFile= " +
-			"--set telemetry.export.otlp.tls.mtls.enabled=true --set telemetry.export.otlp.tls.mtls.secretName=op-abc123-export-mtls --set telemetry.export.otlp.tls.serverName=op-abc123.continuum-system.svc --set telemetry.export.otlp.auth.secretName="
-		wantSecret := "kubectl apply --server-side --force-conflicts -f - <<'CONTINUUM_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: op-abc123-export-mtls\n  namespace: ns1\ntype: Opaque\nstringData:\n  tls.crt: \"CERT\"\n  tls.key: \"KEY\"\n  ca.crt: \"CA\"\nCONTINUUM_SECRET"
+		wantFlags := "--set telemetry.export.otlp.endpoint=op-abc123-regional-operator.ikhnos-system.svc:4317 --set telemetry.export.otlp.protocol=grpc --set telemetry.export.otlp.tls.insecure=false --set telemetry.export.otlp.tls.caFile= " +
+			"--set telemetry.export.otlp.tls.mtls.enabled=true --set telemetry.export.otlp.tls.mtls.secretName=op-abc123-export-mtls --set telemetry.export.otlp.tls.serverName=op-abc123.ikhnos-system.svc --set telemetry.export.otlp.auth.secretName="
+		wantSecret := "kubectl apply --server-side --force-conflicts -f - <<'IKHNOS_SECRET'\napiVersion: v1\nkind: Secret\nmetadata:\n  name: op-abc123-export-mtls\n  namespace: ns1\ntype: Opaque\nstringData:\n  tls.crt: \"CERT\"\n  tls.key: \"KEY\"\n  ca.crt: \"CA\"\nIKHNOS_SECRET"
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -161,7 +161,7 @@ func TestIntentCommandReportsTheOperatorsReceiverAuth(t *testing.T) {
 		if r.Code != 200 || doc["receiverAuth"] != c.want {
 			t.Fatalf("%s: %d %v", c.want, r.Code, doc)
 		}
-		if frag := doc["installFragment"].(string); !strings.Contains(frag, "--set telemetry.export.otlp.endpoint="+operators.OperatorServiceName(c.id)+".continuum-system.svc:4317") {
+		if frag := doc["installFragment"].(string); !strings.Contains(frag, "--set telemetry.export.otlp.endpoint="+operators.OperatorServiceName(c.id)+".ikhnos-system.svc:4317") {
 			t.Fatalf("%s: %s", c.want, frag)
 		}
 		// Retire the intent so the next operator can be targeted (one active intent per agent).
@@ -221,10 +221,10 @@ func TestOperatorOwnSecretsEnsureTheNamespaceFirst(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(tls, "kubectl create namespace continuum-system --dry-run=client -o yaml | kubectl apply -f - && \\\n") || !strings.Contains(tls, "name: op-abc-receiver-tls") {
+	if !strings.HasPrefix(tls, "kubectl create namespace ikhnos-system --dry-run=client -o yaml | kubectl apply -f - && \\\n") || !strings.Contains(tls, "name: op-abc-receiver-tls") {
 		t.Fatalf("receiver TLS secret command: %q", tls)
 	}
-	client, err := operatorsapi.ClientSecretCommand(store.Operator{ID: "op-abc"}, []byte("C"), []byte("K"), []byte("A"), "continuum-system", false)
+	client, err := operatorsapi.ClientSecretCommand(store.Operator{ID: "op-abc"}, []byte("C"), []byte("K"), []byte("A"), "ikhnos-system", false)
 	if err != nil {
 		t.Fatal(err)
 	}

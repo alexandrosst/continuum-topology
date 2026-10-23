@@ -6,7 +6,7 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 )
 
-// This file renders continuum-agent's rbac.yaml for every implemented access tier (0, 1, 2) and checks the
+// This file renders ikhnos-agent's rbac.yaml for every implemented access tier (0, 1, 2) and checks the
 // real ClusterRole/Role rules against the same claims src/lib/types.ts's ACCESS_TIER_GRANTS makes to a
 // person picking a tier in the UI (surfaced by TierLevels.tsx's "What this grants" disclosure, wherever a
 // tier is picked or viewed: ApprovalCard, ConnectClusterWizard, AgentInsight). ACCESS_TIER_GRANTS is
@@ -61,9 +61,9 @@ func hasExactRule(rules []rbacv1.PolicyRule, apiGroup, resource string, resource
 // is" - get on exactly the one resourceName "kube-system", and no t1/t2 ClusterRole at all.
 func TestAccessTier0GrantsMatchRBAC(t *testing.T) {
 	r := render(t, "--set", "access.tier=0")
-	t0, ok := r.clusterroles["continuum-agent-t0"]
+	t0, ok := r.clusterroles["ikhnos-agent-t0"]
 	if !ok {
-		t.Fatal("no continuum-agent-t0 ClusterRole rendered")
+		t.Fatal("no ikhnos-agent-t0 ClusterRole rendered")
 	}
 	if len(t0.Rules) != 1 {
 		t.Errorf("tier 0 ClusterRole has %d rules, want exactly 1 (ACCESS_TIER_GRANTS[0] claims nothing beyond cluster identity): %+v", len(t0.Rules), t0.Rules)
@@ -71,10 +71,10 @@ func TestAccessTier0GrantsMatchRBAC(t *testing.T) {
 	if !hasExactRule(t0.Rules, "", "namespaces", []string{"kube-system"}, "get") {
 		t.Errorf("tier 0 ClusterRole does not grant exactly get on namespaces/kube-system: %+v", t0.Rules)
 	}
-	if _, ok := r.clusterroles["continuum-agent-t1"]; ok {
+	if _, ok := r.clusterroles["ikhnos-agent-t1"]; ok {
 		t.Error("access.tier=0 must not render a t1 ClusterRole")
 	}
-	if _, ok := r.clusterroles["continuum-agent-t2"]; ok {
+	if _, ok := r.clusterroles["ikhnos-agent-t2"]; ok {
 		t.Error("access.tier=0 must not render a t2 ClusterRole")
 	}
 }
@@ -84,12 +84,12 @@ func TestAccessTier0GrantsMatchRBAC(t *testing.T) {
 // own wording too.
 func TestAccessTier1GrantsMatchRBAC(t *testing.T) {
 	r := render(t, "--set", "access.tier=1")
-	if _, ok := r.clusterroles["continuum-agent-t0"]; !ok {
+	if _, ok := r.clusterroles["ikhnos-agent-t0"]; !ok {
 		t.Error("access.tier=1 must still render (and bind) the t0 ClusterRole")
 	}
-	t1, ok := r.clusterroles["continuum-agent-t1"]
+	t1, ok := r.clusterroles["ikhnos-agent-t1"]
 	if !ok {
-		t.Fatal("no continuum-agent-t1 ClusterRole rendered")
+		t.Fatal("no ikhnos-agent-t1 ClusterRole rendered")
 	}
 	for _, want := range []struct{ group, resource string }{
 		{"", "nodes"},
@@ -100,7 +100,7 @@ func TestAccessTier1GrantsMatchRBAC(t *testing.T) {
 			t.Errorf("tier 1 ClusterRole missing get/list/watch on %s/%s (ACCESS_TIER_GRANTS[1] claims it): %+v", want.group, want.resource, t1.Rules)
 		}
 	}
-	if _, ok := r.clusterroles["continuum-agent-t2"]; ok {
+	if _, ok := r.clusterroles["ikhnos-agent-t2"]; ok {
 		t.Error("access.tier=1 must not render a t2 ClusterRole")
 	}
 }
@@ -110,9 +110,9 @@ func TestAccessTier1GrantsMatchRBAC(t *testing.T) {
 // Istio rule (on by default) and that it is removed when that flag is off.
 func TestAccessTier2GrantsMatchRBAC(t *testing.T) {
 	r := render(t, "--set", "access.tier=2")
-	t2, ok := r.clusterroles["continuum-agent-t2"]
+	t2, ok := r.clusterroles["ikhnos-agent-t2"]
 	if !ok {
-		t.Fatal("no continuum-agent-t2 ClusterRole rendered")
+		t.Fatal("no ikhnos-agent-t2 ClusterRole rendered")
 	}
 	for _, want := range []struct{ group, resource string }{
 		{"", "namespaces"},
@@ -137,7 +137,7 @@ func TestAccessTier2GrantsMatchRBAC(t *testing.T) {
 	}
 
 	rNoMesh := render(t, "--set", "access.tier=2", "--set", "mesh.readPolicy=false")
-	if hasExactRule(rNoMesh.clusterroles["continuum-agent-t2"].Rules, "security.istio.io", "peerauthentications", nil, "get", "list") {
+	if hasExactRule(rNoMesh.clusterroles["ikhnos-agent-t2"].Rules, "security.istio.io", "peerauthentications", nil, "get", "list") {
 		t.Error("mesh.readPolicy=false must drop the PeerAuthentication rule tier 2's grant list calls out as conditional")
 	}
 }
@@ -147,7 +147,7 @@ func TestAccessTier2GrantsMatchRBAC(t *testing.T) {
 // Confirmed here instead of just asserted in prose, per the task that added ACCESS_TIER_GRANTS.
 func TestAccessTierGrantsAreReadOnly(t *testing.T) {
 	r := render(t, "--set", "access.tier=2")
-	for _, name := range []string{"continuum-agent-t0", "continuum-agent-t1", "continuum-agent-t2"} {
+	for _, name := range []string{"ikhnos-agent-t0", "ikhnos-agent-t1", "ikhnos-agent-t2"} {
 		cr, ok := r.clusterroles[name]
 		if !ok {
 			t.Fatalf("no %s ClusterRole rendered at access.tier=2", name)
@@ -168,26 +168,26 @@ func TestAccessTierGrantsAreReadOnly(t *testing.T) {
 // Endpoints object in the default namespace.
 func TestAccessTierBaselineGrantMatchesRBAC(t *testing.T) {
 	r := render(t, "--set", "access.tier=0")
-	identity, ok := r.roles["continuum-agent-identity"]
+	identity, ok := r.roles["ikhnos-agent-identity"]
 	if !ok {
-		t.Fatal("no continuum-agent-identity Role rendered")
+		t.Fatal("no ikhnos-agent-identity Role rendered")
 	}
-	if !hasExactRule(identity.Rules, "", "secrets", []string{"continuum-agent-identity"}, "get", "update", "patch") {
-		t.Errorf("identity Role does not grant exactly get/update/patch on secrets/continuum-agent-identity: %+v", identity.Rules)
+	if !hasExactRule(identity.Rules, "", "secrets", []string{"ikhnos-agent-identity"}, "get", "update", "patch") {
+		t.Errorf("identity Role does not grant exactly get/update/patch on secrets/ikhnos-agent-identity: %+v", identity.Rules)
 	}
 
 	// access.resolveApiEndpoint defaults to true (see values.yaml): the endpoint Role is rendered unless
 	// it is explicitly turned off.
-	ep, ok := r.roles["continuum-agent-api-endpoint"]
+	ep, ok := r.roles["ikhnos-agent-api-endpoint"]
 	if !ok {
-		t.Fatal("no continuum-agent-api-endpoint Role rendered under the default access.resolveApiEndpoint=true")
+		t.Fatal("no ikhnos-agent-api-endpoint Role rendered under the default access.resolveApiEndpoint=true")
 	}
 	if !hasExactRule(ep.Rules, "", "endpoints", []string{"kubernetes"}, "get") {
 		t.Errorf("api-endpoint Role does not grant exactly get on endpoints/kubernetes: %+v", ep.Rules)
 	}
 
 	rOff := render(t, "--set", "access.tier=0", "--set", "access.resolveApiEndpoint=false")
-	if _, ok := rOff.roles["continuum-agent-api-endpoint"]; ok {
+	if _, ok := rOff.roles["ikhnos-agent-api-endpoint"]; ok {
 		t.Error("access.resolveApiEndpoint=false must drop the api-endpoint Role entirely")
 	}
 }

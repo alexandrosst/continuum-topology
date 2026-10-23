@@ -17,10 +17,10 @@ import (
 	"strings"
 	"sync"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/kernel"
-	"continuum/internal/link"
-	"continuum/internal/store"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/link"
+	"ikhnos/internal/store"
 )
 
 // The iperf3 credentials of the throughput tests, issued and kept by the server so that nobody has to create Secrets by hand.
@@ -346,9 +346,9 @@ func (c *Service) LinkCredentials(ctx context.Context, links []kernel.LinkSettin
 // LinkCredDelivery is what one cluster's Config carries.
 type LinkCredDelivery struct {
 	// clients are the client credentials by the id of the peer they test (this cluster is the runner of those pairs).
-	Clients map[string]*continuumv1.LinkIperfClient
+	Clients map[string]*ikhnosv1.LinkIperfClient
 	// server is this cluster's own server identity and users; nil when it serves no pair.
-	Server *continuumv1.LinkIperfServer
+	Server *ikhnosv1.LinkIperfServer
 }
 
 func (d LinkCredDelivery) String() string {
@@ -367,9 +367,9 @@ func (s *linkCredSet) ForCluster(cluster string) LinkCredDelivery {
 		case runner:
 			if k, ok := s.Clusters[server]; ok {
 				if d.Clients == nil {
-					d.Clients = map[string]*continuumv1.LinkIperfClient{}
+					d.Clients = map[string]*ikhnosv1.LinkIperfClient{}
 				}
-				d.Clients[server] = &continuumv1.LinkIperfClient{PublicKeyPem: k.Public, Username: login.User, Password: login.Password.Reveal()}
+				d.Clients[server] = &ikhnosv1.LinkIperfClient{PublicKeyPem: k.Public, Username: login.User, Password: login.Password.Reveal()}
 			}
 		case server:
 			lines = append(lines, login.usersLine())
@@ -378,7 +378,7 @@ func (s *linkCredSet) ForCluster(cluster string) LinkCredDelivery {
 	if len(lines) > 0 {
 		if k, ok := s.Clusters[cluster]; ok {
 			sort.Strings(lines)
-			d.Server = &continuumv1.LinkIperfServer{PrivateKeyPem: k.Private.Reveal(), UsersCsv: strings.Join(lines, "\n") + "\n"}
+			d.Server = &ikhnosv1.LinkIperfServer{PrivateKeyPem: k.Private.Reveal(), UsersCsv: strings.Join(lines, "\n") + "\n"}
 		}
 	}
 	return d

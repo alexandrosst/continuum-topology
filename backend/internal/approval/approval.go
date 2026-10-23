@@ -112,7 +112,7 @@ func Hash(code string, csrDER []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return argon2.IDKey([]byte("continuum-approval-v1:"+norm), salt, argonTime, argonMemKiB, argonThreads, HashLen), nil
+	return argon2.IDKey([]byte("ikhnos-approval-v1:"+norm), salt, argonTime, argonMemKiB, argonThreads, HashLen), nil
 }
 
 // Matches reports, in constant time, whether typed is the code behind hash for the request csrDER.

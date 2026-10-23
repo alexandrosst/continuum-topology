@@ -6,16 +6,16 @@ import (
 	"net"
 	"testing"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/agents"
-	"continuum/internal/pki"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/agents"
+	"ikhnos/internal/pki"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
 
 // Serve starts the agents' gRPC listener on a free local port with svc behind it, and stops it when the test ends. It returns the address.
-func Serve(t *testing.T, ag *agents.Service, certs *pki.ServerCerts, svc continuumv1.AgentServiceServer) string {
+func Serve(t *testing.T, ag *agents.Service, certs *pki.ServerCerts, svc ikhnosv1.AgentServiceServer) string {
 	t.Helper()
 	srv := ag.NewGRPC(certs, svc)
 	l, err := net.Listen("tcp", "127.0.0.1:0")

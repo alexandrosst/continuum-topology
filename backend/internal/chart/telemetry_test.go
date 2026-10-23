@@ -28,9 +28,9 @@ func otelConfig(t *testing.T, cm map[string]string) map[string]any {
 
 func TestTelemetryRBACHasNoNodesProxy(t *testing.T) {
 	r := render(t, "--set", "telemetry.export.otlp.endpoint=x:4317", "--set", "telemetry.resourceUsage.metrics.enabled=true", "--set", "telemetry.nodeRuntime.metrics.enabled=true")
-	cr, ok := r.clusterroles["continuum-agent-telemetry"]
+	cr, ok := r.clusterroles["ikhnos-agent-telemetry"]
 	if !ok {
-		t.Fatal("no continuum-agent-telemetry ClusterRole rendered")
+		t.Fatal("no ikhnos-agent-telemetry ClusterRole rendered")
 	}
 	for _, rule := range cr.Rules {
 		for _, res := range rule.Resources {
@@ -63,7 +63,7 @@ func TestTelemetryOpampRequiresEndpoint(t *testing.T) {
 
 func TestTelemetryOpampOffByDefaultOnWhenEnabled(t *testing.T) {
 	r := render(t, "--set", "telemetry.export.otlp.endpoint=x:4317", "--set", "telemetry.resourceUsage.metrics.enabled=true")
-	cm := r.configmaps["continuum-telemetry-host-config"]
+	cm := r.configmaps["ikhnos-telemetry-host-config"]
 	cfg := otelConfig(t, cm.Data)
 	// health_check is always there (the pod's probes ask it); opamp is not.
 	if ext, _ := cfg["extensions"].(map[string]any); len(ext) != 1 || ext["health_check"] == nil {
@@ -77,7 +77,7 @@ func TestTelemetryOpampOffByDefaultOnWhenEnabled(t *testing.T) {
 
 	r = render(t, "--set", "telemetry.export.otlp.endpoint=x:4317", "--set", "telemetry.resourceUsage.metrics.enabled=true",
 		"--set", "telemetry.opamp.enabled=true", "--set", "telemetry.opamp.server.endpoint=wss://opamp.example.com:4320/v1/opamp")
-	cm = r.configmaps["continuum-telemetry-host-config"]
+	cm = r.configmaps["ikhnos-telemetry-host-config"]
 	cfg = otelConfig(t, cm.Data)
 	ext, ok := cfg["extensions"].(map[string]any)
 	if !ok {
@@ -108,7 +108,7 @@ func TestTelemetryScopeSplitsAppAndInfraPipelines(t *testing.T) {
 		"--set", "telemetry.kubernetesEvents.logs.enabled=true",
 		"--set", "telemetry.scope.namespaces[0]=shop",
 	)
-	cm := r.configmaps["continuum-telemetry-cluster-config"]
+	cm := r.configmaps["ikhnos-telemetry-cluster-config"]
 	cfg := otelConfig(t, cm.Data)
 	procs, _ := cfg["processors"].(map[string]any)
 	if _, ok := procs["filter/scope"]; !ok {
@@ -162,8 +162,8 @@ func TestTelemetryPerWorkloadResourcesOverrideAndFallBack(t *testing.T) {
 	// No override: both workloads fall back to the shared default.
 	r := render(t, "--set", "telemetry.export.otlp.endpoint=x:4317", "--set", "telemetry.resourceUsage.metrics.enabled=true",
 		"--set", "telemetry.energy.metrics.enabled=true", "--set", "telemetry.energy.metrics.source=bundle-kepler")
-	hostReq := r.daemonsets["continuum-telemetry-host"].Spec.Template.Spec.Containers[0].Resources.Requests
-	keplerReq := r.daemonsets["continuum-telemetry-kepler"].Spec.Template.Spec.Containers[0].Resources.Requests
+	hostReq := r.daemonsets["ikhnos-telemetry-host"].Spec.Template.Spec.Containers[0].Resources.Requests
+	keplerReq := r.daemonsets["ikhnos-telemetry-kepler"].Spec.Template.Spec.Containers[0].Resources.Requests
 	if hostReq.Cpu().String() != "20m" {
 		t.Errorf("host collector should fall back to telemetry.resources (20m), got %v", hostReq)
 	}
@@ -174,7 +174,7 @@ func TestTelemetryPerWorkloadResourcesOverrideAndFallBack(t *testing.T) {
 	}
 	r = render(t, "--set", "telemetry.export.otlp.endpoint=x:4317", "--set", "telemetry.energy.metrics.enabled=true",
 		"--set", "telemetry.energy.metrics.source=bundle-kepler", "--set", "telemetry.energy.metrics.resources=null")
-	if got := r.daemonsets["continuum-telemetry-kepler"].Spec.Template.Spec.Containers[0].Resources.Requests.Cpu().String(); got != "100m" {
+	if got := r.daemonsets["ikhnos-telemetry-kepler"].Spec.Template.Spec.Containers[0].Resources.Requests.Cpu().String(); got != "100m" {
 		// null removes the key in Helm; agent.telemetryDefaults then restores the chart's own default for it.
 		t.Errorf("kepler with its own resources unset should get the chart default (100m), got %v", got)
 	}
@@ -184,8 +184,8 @@ func TestTelemetryPerWorkloadResourcesOverrideAndFallBack(t *testing.T) {
 		"--set", "telemetry.energy.metrics.enabled=true", "--set", "telemetry.energy.metrics.source=bundle-kepler",
 		"--set", "telemetry.hostCollector.resources.requests.cpu=111m",
 		"--set", "telemetry.energy.metrics.resources.requests.cpu=222m")
-	hostReq = r.daemonsets["continuum-telemetry-host"].Spec.Template.Spec.Containers[0].Resources.Requests
-	keplerReq = r.daemonsets["continuum-telemetry-kepler"].Spec.Template.Spec.Containers[0].Resources.Requests
+	hostReq = r.daemonsets["ikhnos-telemetry-host"].Spec.Template.Spec.Containers[0].Resources.Requests
+	keplerReq = r.daemonsets["ikhnos-telemetry-kepler"].Spec.Template.Spec.Containers[0].Resources.Requests
 	if hostReq.Cpu().String() != "111m" {
 		t.Errorf("host collector override = %v, want 111m", hostReq)
 	}
@@ -198,28 +198,28 @@ func TestTelemetrySignalsEnvVarMatchesEnabledSignals(t *testing.T) {
 	r := render(t, "--set", "telemetry.export.otlp.endpoint=x:4317",
 		"--set", "telemetry.energy.metrics.enabled=true", "--set", "telemetry.energy.metrics.source=bundle-kepler",
 		"--set", "telemetry.traces.traces.enabled=true")
-	c := r.deployments["continuum-agent"].Spec.Template.Spec.Containers[0]
-	v, ok := env(c, "CONTINUUM_TELEMETRY_SIGNALS")
+	c := r.deployments["ikhnos-agent"].Spec.Template.Spec.Containers[0]
+	v, ok := env(c, "IKHNOS_TELEMETRY_SIGNALS")
 	if !ok {
-		t.Fatal("CONTINUUM_TELEMETRY_SIGNALS not set on the agent container")
+		t.Fatal("IKHNOS_TELEMETRY_SIGNALS not set on the agent container")
 	}
 	if v != "energy,traces" {
-		t.Errorf("CONTINUUM_TELEMETRY_SIGNALS = %q, want %q", v, "energy,traces")
+		t.Errorf("IKHNOS_TELEMETRY_SIGNALS = %q, want %q", v, "energy,traces")
 	}
 
 	// No telemetry signal enabled: the env var must be entirely absent, not present-and-empty.
 	r = render(t)
-	c = r.deployments["continuum-agent"].Spec.Template.Spec.Containers[0]
-	if _, ok := env(c, "CONTINUUM_TELEMETRY_SIGNALS"); ok {
-		t.Error("CONTINUUM_TELEMETRY_SIGNALS should be entirely absent when no telemetry signal is enabled")
+	c = r.deployments["ikhnos-agent"].Spec.Template.Spec.Containers[0]
+	if _, ok := env(c, "IKHNOS_TELEMETRY_SIGNALS"); ok {
+		t.Error("IKHNOS_TELEMETRY_SIGNALS should be entirely absent when no telemetry signal is enabled")
 	}
 }
 
 // TestTelemetryEffectiveConfigEnvVars covers the three things telemetry-intent.md names as missing from the
 // agent's self-report: the effective export destination, the effective processor settings (redaction,
 // resourcedetection, traces sampling), and which source backs energy/accelerators - rendered as siblings of
-// CONTINUUM_TELEMETRY_SIGNALS on the agent container, not the collector's own ConfigMap, so the agent can
-// report them in Diagnostics the same way it already reports CONTINUUM_TIER.
+// IKHNOS_TELEMETRY_SIGNALS on the agent container, not the collector's own ConfigMap, so the agent can
+// report them in Diagnostics the same way it already reports IKHNOS_TIER.
 func TestTelemetryEffectiveConfigEnvVars(t *testing.T) {
 	r := render(t, "--set", "telemetry.export.otlp.endpoint=otel-collector.example:4317",
 		"--set", "telemetry.energy.metrics.enabled=true", "--set", "telemetry.energy.metrics.source=bundle-kepler",
@@ -228,14 +228,14 @@ func TestTelemetryEffectiveConfigEnvVars(t *testing.T) {
 		"--set", "telemetry.traces.traces.enabled=true", "--set", "telemetry.processors.tracesSampling.percentage=20",
 		"--set", "telemetry.processors.resourceDetection.enabled=true",
 	)
-	c := r.deployments["continuum-agent"].Spec.Template.Spec.Containers[0]
+	c := r.deployments["ikhnos-agent"].Spec.Template.Spec.Containers[0]
 	want := map[string]string{
-		"CONTINUUM_TELEMETRY_DESTINATION":         "otel-collector.example:4317",
-		"CONTINUUM_TELEMETRY_REDACTION":           "true", // on by default
-		"CONTINUUM_TELEMETRY_RESOURCE_DETECTION":  "true",
-		"CONTINUUM_TELEMETRY_TRACES_SAMPLING":     "20",
-		"CONTINUUM_TELEMETRY_ENERGY_SOURCE":       "bundle-kepler",
-		"CONTINUUM_TELEMETRY_ACCELERATORS_SOURCE": "existing",
+		"IKHNOS_TELEMETRY_DESTINATION":         "otel-collector.example:4317",
+		"IKHNOS_TELEMETRY_REDACTION":           "true", // on by default
+		"IKHNOS_TELEMETRY_RESOURCE_DETECTION":  "true",
+		"IKHNOS_TELEMETRY_TRACES_SAMPLING":     "20",
+		"IKHNOS_TELEMETRY_ENERGY_SOURCE":       "bundle-kepler",
+		"IKHNOS_TELEMETRY_ACCELERATORS_SOURCE": "existing",
 	}
 	for name, wantVal := range want {
 		v, ok := env(c, name)
@@ -250,21 +250,21 @@ func TestTelemetryEffectiveConfigEnvVars(t *testing.T) {
 
 	// Redaction turned off explicitly: the env var must follow, not stay stuck at the chart's own default.
 	r2 := render(t, "--set", "telemetry.export.otlp.endpoint=x:4317", "--set", "telemetry.resourceUsage.metrics.enabled=true", "--set", "telemetry.processors.redaction.enabled=false")
-	c2 := r2.deployments["continuum-agent"].Spec.Template.Spec.Containers[0]
-	if v, ok := env(c2, "CONTINUUM_TELEMETRY_REDACTION"); !ok || v != "false" {
-		t.Errorf("CONTINUUM_TELEMETRY_REDACTION = %q, ok=%v, want \"false\"", v, ok)
+	c2 := r2.deployments["ikhnos-agent"].Spec.Template.Spec.Containers[0]
+	if v, ok := env(c2, "IKHNOS_TELEMETRY_REDACTION"); !ok || v != "false" {
+		t.Errorf("IKHNOS_TELEMETRY_REDACTION = %q, ok=%v, want \"false\"", v, ok)
 	}
 	// Neither traces nor energy nor accelerators is enabled here, so their own env vars must be absent too.
-	for _, name := range []string{"CONTINUUM_TELEMETRY_TRACES_SAMPLING", "CONTINUUM_TELEMETRY_ENERGY_SOURCE", "CONTINUUM_TELEMETRY_ACCELERATORS_SOURCE"} {
+	for _, name := range []string{"IKHNOS_TELEMETRY_TRACES_SAMPLING", "IKHNOS_TELEMETRY_ENERGY_SOURCE", "IKHNOS_TELEMETRY_ACCELERATORS_SOURCE"} {
 		if _, ok := env(c2, name); ok {
 			t.Errorf("%s should be absent when its own signal is not enabled", name)
 		}
 	}
 
 	// No telemetry signal enabled at all: the whole family of env vars is entirely absent, matching
-	// CONTINUUM_TELEMETRY_SIGNALS's own "absent, not present-and-empty" contract.
+	// IKHNOS_TELEMETRY_SIGNALS's own "absent, not present-and-empty" contract.
 	r3 := render(t)
-	c3 := r3.deployments["continuum-agent"].Spec.Template.Spec.Containers[0]
+	c3 := r3.deployments["ikhnos-agent"].Spec.Template.Spec.Containers[0]
 	for name := range want {
 		if _, ok := env(c3, name); ok {
 			t.Errorf("%s should be entirely absent when no telemetry signal is enabled", name)
@@ -274,7 +274,7 @@ func TestTelemetryEffectiveConfigEnvVars(t *testing.T) {
 
 func TestTelemetryKubeletStatsUsesCanonicalReceiverName(t *testing.T) {
 	r := render(t, "--set", "telemetry.export.otlp.endpoint=x:4317", "--set", "telemetry.resourceUsage.metrics.enabled=true")
-	cm := r.configmaps["continuum-telemetry-host-config"]
+	cm := r.configmaps["ikhnos-telemetry-host-config"]
 	cfg := otelConfig(t, cm.Data)
 	receivers, _ := cfg["receivers"].(map[string]any)
 	if _, ok := receivers["kubelet_stats"]; !ok {
@@ -287,7 +287,7 @@ func TestTelemetryKubeletStatsUsesCanonicalReceiverName(t *testing.T) {
 
 func TestTelemetryMemoryLimiterAlwaysFirstAndRedactionOnByDefault(t *testing.T) {
 	r := render(t, "--set", "telemetry.export.otlp.endpoint=x:4317", "--set", "telemetry.resourceUsage.metrics.enabled=true")
-	cm := r.configmaps["continuum-telemetry-host-config"]
+	cm := r.configmaps["ikhnos-telemetry-host-config"]
 	cfg := otelConfig(t, cm.Data)
 	procs, _ := cfg["processors"].(map[string]any)
 	if _, ok := procs["memory_limiter"]; !ok {
@@ -320,7 +320,7 @@ func TestTelemetryProcessorOrderMatchesSpec(t *testing.T) {
 		"--set", "telemetry.processors.tracesSampling.percentage=50",
 		"--set", "telemetry.scope.namespaces[0]=shop",
 	)
-	cm := r.configmaps["continuum-telemetry-cluster-config"]
+	cm := r.configmaps["ikhnos-telemetry-cluster-config"]
 	cfg := otelConfig(t, cm.Data)
 	svc, _ := cfg["service"].(map[string]any)
 	pipelines, _ := svc["pipelines"].(map[string]any)
@@ -331,7 +331,7 @@ func TestTelemetryProcessorOrderMatchesSpec(t *testing.T) {
 	got, _ := traces["processors"].([]any)
 	// The scope filter right after k8sattributes: redaction and detection then only ever work on what is kept, and no
 	// redaction pattern can alter the namespace the scope reads.
-	want := []any{"memory_limiter", "k8sattributes", "filter/scope", "resourcedetection", "redaction", "probabilistic_sampler", "transform/continuum_source_traces", "resource/continuum", "batch"}
+	want := []any{"memory_limiter", "k8sattributes", "filter/scope", "resourcedetection", "redaction", "probabilistic_sampler", "transform/ikhnos_source_traces", "resource/ikhnos", "batch"}
 	if len(got) != len(want) {
 		t.Fatalf("traces processors = %v, want %v", got, want)
 	}
@@ -356,7 +356,7 @@ func TestTelemetryGomemlimitParsesResourceQuantities(t *testing.T) {
 	for _, c := range cases {
 		r := render(t, "--set", "telemetry.export.otlp.endpoint=x:4317", "--set", "telemetry.resourceUsage.metrics.enabled=true",
 			"--set", "telemetry.hostCollector.resources.limits.memory="+c.limit)
-		cont := r.daemonsets["continuum-telemetry-host"].Spec.Template.Spec.Containers[0]
+		cont := r.daemonsets["ikhnos-telemetry-host"].Spec.Template.Spec.Containers[0]
 		got, ok := env(cont, "GOMEMLIMIT")
 		if !ok {
 			t.Errorf("limit %q: GOMEMLIMIT not set", c.limit)
@@ -370,14 +370,14 @@ func TestTelemetryGomemlimitParsesResourceQuantities(t *testing.T) {
 	// No memory limit at all: GOMEMLIMIT must be entirely absent, not present-and-empty.
 	r := render(t, "--set", "telemetry.export.otlp.endpoint=x:4317", "--set", "telemetry.resourceUsage.metrics.enabled=true",
 		"--set", "telemetry.hostCollector.resources.requests.cpu=20m", "--set", "telemetry.hostCollector.resources.limits=null")
-	cont := r.daemonsets["continuum-telemetry-host"].Spec.Template.Spec.Containers[0]
+	cont := r.daemonsets["ikhnos-telemetry-host"].Spec.Template.Spec.Containers[0]
 	if _, ok := env(cont, "GOMEMLIMIT"); ok {
 		t.Error("GOMEMLIMIT should be absent when there is no memory limit to compute it from")
 	}
 }
 
 func TestTelemetryEgressPolicyOffByDefaultAndRequiresAllowedEgress(t *testing.T) {
-	if _, ok := render(t).policies["continuum-telemetry-egress"]; ok {
+	if _, ok := render(t).policies["ikhnos-telemetry-egress"]; ok {
 		t.Fatal("the telemetry egress policy must be off by default")
 	}
 	if out, err := helmTemplate(t, "--set", "networkPolicy.telemetryEgress.enabled=true"); err == nil || !strings.Contains(out, "allowedEgress") {
@@ -387,7 +387,7 @@ func TestTelemetryEgressPolicyOffByDefaultAndRequiresAllowedEgress(t *testing.T)
 		"--set", "networkPolicy.telemetryEgress.enabled=true",
 		"--set", "networkPolicy.telemetryEgress.allowedEgress[0].cidr=203.0.113.7/32",
 		"--set", "networkPolicy.telemetryEgress.allowedEgress[0].ports[0]=4317",
-	).policies["continuum-telemetry-egress"]
+	).policies["ikhnos-telemetry-egress"]
 	if !ok {
 		t.Fatal("no telemetry egress policy rendered")
 	}
@@ -402,7 +402,7 @@ func TestTelemetryEgressPolicyOffByDefaultAndRequiresAllowedEgress(t *testing.T)
 
 func TestTelemetryReceiverAuthWiresExtensionAndOtlpAuth(t *testing.T) {
 	r := render(t, "--set", "telemetry.export.otlp.endpoint=x:4317", "--set", "telemetry.applicationMetrics.metrics.enabled=true")
-	cm := r.configmaps["continuum-telemetry-cluster-config"]
+	cm := r.configmaps["ikhnos-telemetry-cluster-config"]
 	cfg := otelConfig(t, cm.Data)
 	if ext, _ := cfg["extensions"].(map[string]any); ext["bearertokenauth"] != nil {
 		t.Errorf("bearertokenauth present when telemetry.receiver.auth.enabled is false (default): %v", cfg["extensions"])
@@ -410,7 +410,7 @@ func TestTelemetryReceiverAuthWiresExtensionAndOtlpAuth(t *testing.T) {
 
 	r = render(t, "--set", "telemetry.export.otlp.endpoint=x:4317", "--set", "telemetry.applicationMetrics.metrics.enabled=true",
 		"--set", "telemetry.receiver.auth.enabled=true", "--set", "telemetry.receiver.auth.secretName=tok")
-	cm = r.configmaps["continuum-telemetry-cluster-config"]
+	cm = r.configmaps["ikhnos-telemetry-cluster-config"]
 	cfg = otelConfig(t, cm.Data)
 	ext, ok := cfg["extensions"].(map[string]any)
 	if !ok {
@@ -427,14 +427,14 @@ func TestTelemetryReceiverAuthWiresExtensionAndOtlpAuth(t *testing.T) {
 	if auth["authenticator"] != "bearertokenauth" {
 		t.Errorf("otlp grpc protocol auth.authenticator = %v, want bearertokenauth", auth)
 	}
-	cont := r.deployments["continuum-telemetry-cluster"].Spec.Template.Spec.Containers[0]
-	if _, ok := env(cont, "CONTINUUM_TELEMETRY_RECEIVER_AUTH"); !ok {
-		t.Error("CONTINUUM_TELEMETRY_RECEIVER_AUTH env var not set on the cluster collector container")
+	cont := r.deployments["ikhnos-telemetry-cluster"].Spec.Template.Spec.Containers[0]
+	if _, ok := env(cont, "IKHNOS_TELEMETRY_RECEIVER_AUTH"); !ok {
+		t.Error("IKHNOS_TELEMETRY_RECEIVER_AUTH env var not set on the cluster collector container")
 	}
 }
 
 func TestTelemetryReceiverNetworkPolicyOffByDefaultAndRequiresAllowedIngress(t *testing.T) {
-	if _, ok := render(t).policies["continuum-telemetry-receiver-ingress"]; ok {
+	if _, ok := render(t).policies["ikhnos-telemetry-receiver-ingress"]; ok {
 		t.Fatal("the receiver ingress policy must be off by default")
 	}
 	if out, err := helmTemplate(t, "--set", "telemetry.export.otlp.endpoint=x:4317", "--set", "telemetry.receiver.networkPolicy.enabled=true"); err == nil || !strings.Contains(out, "allowedIngress") {
@@ -444,7 +444,7 @@ func TestTelemetryReceiverNetworkPolicyOffByDefaultAndRequiresAllowedIngress(t *
 		"--set", "telemetry.export.otlp.endpoint=x:4317",
 		"--set", "telemetry.receiver.networkPolicy.enabled=true",
 		"--set-string", "telemetry.receiver.networkPolicy.allowedIngress[0].namespaceSelector.matchLabels.team=shop",
-	).policies["continuum-telemetry-receiver-ingress"]
+	).policies["ikhnos-telemetry-receiver-ingress"]
 	if !ok {
 		t.Fatal("no receiver ingress policy rendered")
 	}
@@ -457,7 +457,7 @@ func TestTelemetryExtraProcessorsEscapeHatch(t *testing.T) {
 	r := render(t, "--set", "telemetry.export.otlp.endpoint=x:4317", "--set", "telemetry.traces.traces.enabled=true",
 		"--set-json", `telemetry.processors.extraProcessors={"attributes/drop_x":{"actions":[{"key":"x","action":"delete"}]}}`,
 		"--set", "telemetry.processors.extraProcessorNames[0]=attributes/drop_x")
-	cm := r.configmaps["continuum-telemetry-cluster-config"]
+	cm := r.configmaps["ikhnos-telemetry-cluster-config"]
 	cfg := otelConfig(t, cm.Data)
 	procs, _ := cfg["processors"].(map[string]any)
 	if _, ok := procs["attributes/drop_x"]; !ok {
@@ -484,7 +484,7 @@ func TestTelemetryExtraTracesProcessorNamesOnlyInTracesPipeline(t *testing.T) {
 		"--set", "telemetry.applicationMetrics.metrics.enabled=true", "--set", "telemetry.traces.traces.enabled=true",
 		"--set-json", `telemetry.processors.extraProcessors={"tail_sampling":{"decision_wait":"10s","policies":[{"name":"errors","type":"status_code","status_code":{"status_codes":["ERROR"]}}]}}`,
 		"--set", "telemetry.processors.extraTracesProcessorNames[0]=tail_sampling")
-	cm := r.configmaps["continuum-telemetry-cluster-config"]
+	cm := r.configmaps["ikhnos-telemetry-cluster-config"]
 	cfg := otelConfig(t, cm.Data)
 	procs, _ := cfg["processors"].(map[string]any)
 	if _, ok := procs["tail_sampling"]; !ok {
@@ -517,9 +517,9 @@ func TestTelemetryExtraTracesProcessorNamesOnlyInTracesPipeline(t *testing.T) {
 func TestTelemetryAcceleratorsBundleDcgmRendersDaemonSetWithNarrowSecurityContext(t *testing.T) {
 	r := render(t, "--set", "telemetry.export.otlp.endpoint=x:4317",
 		"--set", "telemetry.accelerators.metrics.enabled=true", "--set", "telemetry.accelerators.metrics.source=bundle-dcgm")
-	ds, ok := r.daemonsets["continuum-telemetry-dcgm"]
+	ds, ok := r.daemonsets["ikhnos-telemetry-dcgm"]
 	if !ok {
-		t.Fatal("no continuum-telemetry-dcgm DaemonSet rendered")
+		t.Fatal("no ikhnos-telemetry-dcgm DaemonSet rendered")
 	}
 	c := ds.Spec.Template.Spec.Containers[0]
 	if c.SecurityContext == nil || c.SecurityContext.Privileged != nil && *c.SecurityContext.Privileged {
@@ -562,10 +562,10 @@ func TestTelemetryAcceleratorsNoNewRBAC(t *testing.T) {
 	// anything beyond that, which it should not (dcgm-exporter reads GPU hardware and the kubelet
 	// pod-resources socket directly, never the Kubernetes API, exactly like Kepler).
 	withEnergy := render(t, "--set", "telemetry.export.otlp.endpoint=x:4317",
-		"--set", "telemetry.energy.metrics.enabled=true", "--set", "telemetry.energy.metrics.source=bundle-kepler").clusterroles["continuum-agent-telemetry"]
+		"--set", "telemetry.energy.metrics.enabled=true", "--set", "telemetry.energy.metrics.source=bundle-kepler").clusterroles["ikhnos-agent-telemetry"]
 	withEnergyAndAccel := render(t, "--set", "telemetry.export.otlp.endpoint=x:4317",
 		"--set", "telemetry.energy.metrics.enabled=true", "--set", "telemetry.energy.metrics.source=bundle-kepler",
-		"--set", "telemetry.accelerators.metrics.enabled=true", "--set", "telemetry.accelerators.metrics.source=bundle-dcgm").clusterroles["continuum-agent-telemetry"]
+		"--set", "telemetry.accelerators.metrics.enabled=true", "--set", "telemetry.accelerators.metrics.source=bundle-dcgm").clusterroles["ikhnos-agent-telemetry"]
 	if len(withEnergy.Rules) != len(withEnergyAndAccel.Rules) {
 		t.Errorf("enabling telemetry.accelerators changed the telemetry ClusterRole's rule count: %d -> %d", len(withEnergy.Rules), len(withEnergyAndAccel.Rules))
 	}
@@ -574,7 +574,7 @@ func TestTelemetryAcceleratorsNoNewRBAC(t *testing.T) {
 func TestTelemetryAcceleratorsScrapeJobIsolatedFromEnergy(t *testing.T) {
 	r := render(t, "--set", "telemetry.export.otlp.endpoint=x:4317",
 		"--set", "telemetry.accelerators.metrics.enabled=true", "--set", "telemetry.accelerators.metrics.source=bundle-dcgm")
-	cm := r.configmaps["continuum-telemetry-cluster-config"]
+	cm := r.configmaps["ikhnos-telemetry-cluster-config"]
 	cfg := otelConfig(t, cm.Data)
 	receivers, _ := cfg["receivers"].(map[string]any)
 	prom, _ := receivers["prometheus/infra"].(map[string]any)
@@ -593,9 +593,9 @@ func TestTelemetryAcceleratorsScrapeJobIsolatedFromEnergy(t *testing.T) {
 func TestTelemetryAcceleratorsSignalNameAndExistingEndpointValidation(t *testing.T) {
 	r := render(t, "--set", "telemetry.export.otlp.endpoint=x:4317",
 		"--set", "telemetry.accelerators.metrics.enabled=true", "--set", "telemetry.accelerators.metrics.source=bundle-dcgm")
-	c := r.deployments["continuum-agent"].Spec.Template.Spec.Containers[0]
-	if v, ok := env(c, "CONTINUUM_TELEMETRY_SIGNALS"); !ok || v != "accelerators" {
-		t.Errorf("CONTINUUM_TELEMETRY_SIGNALS = %q, ok=%v, want \"accelerators\"", v, ok)
+	c := r.deployments["ikhnos-agent"].Spec.Template.Spec.Containers[0]
+	if v, ok := env(c, "IKHNOS_TELEMETRY_SIGNALS"); !ok || v != "accelerators" {
+		t.Errorf("IKHNOS_TELEMETRY_SIGNALS = %q, ok=%v, want \"accelerators\"", v, ok)
 	}
 
 	out, err := helmTemplate(t, "--set", "telemetry.export.otlp.endpoint=x:4317",
@@ -609,44 +609,44 @@ func TestTelemetryCollectorsUseOwnServiceAccountIsolatedFromAccessTier(t *testin
 	r := render(t, "--set", "telemetry.export.otlp.endpoint=x:4317",
 		"--set", "telemetry.resourceUsage.metrics.enabled=true", "--set", "telemetry.kubernetesState.metrics.enabled=true", "--set", "access.tier=2")
 
-	host := r.daemonsets["continuum-telemetry-host"].Spec.Template.Spec
-	cluster := r.deployments["continuum-telemetry-cluster"].Spec.Template.Spec
-	if host.ServiceAccountName != "continuum-agent-telemetry" {
-		t.Errorf("host collector ServiceAccountName = %q, want continuum-agent-telemetry", host.ServiceAccountName)
+	host := r.daemonsets["ikhnos-telemetry-host"].Spec.Template.Spec
+	cluster := r.deployments["ikhnos-telemetry-cluster"].Spec.Template.Spec
+	if host.ServiceAccountName != "ikhnos-agent-telemetry" {
+		t.Errorf("host collector ServiceAccountName = %q, want ikhnos-agent-telemetry", host.ServiceAccountName)
 	}
-	if cluster.ServiceAccountName != "continuum-agent-telemetry" {
-		t.Errorf("cluster collector ServiceAccountName = %q, want continuum-agent-telemetry", cluster.ServiceAccountName)
+	if cluster.ServiceAccountName != "ikhnos-agent-telemetry" {
+		t.Errorf("cluster collector ServiceAccountName = %q, want ikhnos-agent-telemetry", cluster.ServiceAccountName)
 	}
 	// The discovery agent's own Deployment must be unaffected: still its own ServiceAccount, not the
 	// telemetry one and vice versa - the whole point is that these are two separate identities now.
-	if agentSA := r.deployments["continuum-agent"].Spec.Template.Spec.ServiceAccountName; agentSA != "continuum-agent" {
-		t.Errorf("discovery agent ServiceAccountName = %q, want continuum-agent (unaffected by telemetry)", agentSA)
+	if agentSA := r.deployments["ikhnos-agent"].Spec.Template.Spec.ServiceAccountName; agentSA != "ikhnos-agent" {
+		t.Errorf("discovery agent ServiceAccountName = %q, want ikhnos-agent (unaffected by telemetry)", agentSA)
 	}
 
-	if _, ok := r.serviceaccounts["continuum-agent-telemetry"]; !ok {
-		t.Fatal("expected a dedicated continuum-agent-telemetry ServiceAccount to be rendered")
+	if _, ok := r.serviceaccounts["ikhnos-agent-telemetry"]; !ok {
+		t.Fatal("expected a dedicated ikhnos-agent-telemetry ServiceAccount to be rendered")
 	}
 
-	binding, ok := r.clusterrolebindings["continuum-agent-telemetry-default"]
+	binding, ok := r.clusterrolebindings["ikhnos-agent-telemetry-default"]
 	if !ok {
-		t.Fatal("expected the telemetry ClusterRoleBinding continuum-agent-telemetry-default")
+		t.Fatal("expected the telemetry ClusterRoleBinding ikhnos-agent-telemetry-default")
 	}
-	if binding.RoleRef.Name != "continuum-agent-telemetry" {
-		t.Errorf("telemetry ClusterRoleBinding roleRef = %q, want continuum-agent-telemetry", binding.RoleRef.Name)
+	if binding.RoleRef.Name != "ikhnos-agent-telemetry" {
+		t.Errorf("telemetry ClusterRoleBinding roleRef = %q, want ikhnos-agent-telemetry", binding.RoleRef.Name)
 	}
-	if len(binding.Subjects) != 1 || binding.Subjects[0].Name != "continuum-agent-telemetry" {
-		t.Errorf("telemetry ClusterRoleBinding subjects = %+v, want exactly [continuum-agent-telemetry]", binding.Subjects)
+	if len(binding.Subjects) != 1 || binding.Subjects[0].Name != "ikhnos-agent-telemetry" {
+		t.Errorf("telemetry ClusterRoleBinding subjects = %+v, want exactly [ikhnos-agent-telemetry]", binding.Subjects)
 	}
 
 	// Isolation, the actual point of this change: with access.tier=2 the discovery agent holds t0/t1/t2
 	// ClusterRoleBindings too - none of THOSE may name the telemetry ServiceAccount as a subject, or the
 	// split would be cosmetic rather than a real credential boundary.
 	for name, b := range r.clusterrolebindings {
-		if name == "continuum-agent-telemetry-default" {
+		if name == "ikhnos-agent-telemetry-default" {
 			continue
 		}
 		for _, subj := range b.Subjects {
-			if subj.Name == "continuum-agent-telemetry" {
+			if subj.Name == "ikhnos-agent-telemetry" {
 				t.Errorf("ClusterRoleBinding %q (roleRef %q) must not bind the telemetry ServiceAccount - that would leak access.tier permissions into the telemetry identity", name, b.RoleRef.Name)
 			}
 		}
@@ -668,7 +668,7 @@ func TestTelemetryApplicationScopeOverrideFallsBackToGlobal(t *testing.T) {
 		"--set", "telemetry.traces.traces.enabled=true",
 		"--set", "telemetry.scope.namespaces[0]=shop",
 	)
-	cm := r.configmaps["continuum-telemetry-cluster-config"]
+	cm := r.configmaps["ikhnos-telemetry-cluster-config"]
 	cfg := otelConfig(t, cm.Data)
 	procs, _ := cfg["processors"].(map[string]any)
 	if _, ok := procs["filter/scope"]; !ok {
@@ -702,7 +702,7 @@ func TestTelemetryApplicationMetricsScopeOverrideUsesOwnProcessor(t *testing.T) 
 		"--set", "telemetry.scope.namespaces[0]=payments",
 		"--set", "telemetry.applicationMetrics.metrics.scope.namespaces[0]=shop",
 	)
-	cm := r.configmaps["continuum-telemetry-cluster-config"]
+	cm := r.configmaps["ikhnos-telemetry-cluster-config"]
 	cfg := otelConfig(t, cm.Data)
 	procs, _ := cfg["processors"].(map[string]any)
 	amProc, ok := procs["filter/scope_applicationMetrics"].(map[string]any)
@@ -748,7 +748,7 @@ func TestTelemetryNetworkLatencyExemptFromApplicationScopeFilter(t *testing.T) {
 		"--set", "measurements.enabled=true",
 		"--set", "telemetry.scope.namespaces[0]=shop",
 	)
-	cm := r.configmaps["continuum-telemetry-cluster-config"]
+	cm := r.configmaps["ikhnos-telemetry-cluster-config"]
 	cfg := otelConfig(t, cm.Data)
 	procs, _ := cfg["processors"].(map[string]any)
 	shared, ok := procs["filter/scope"].(map[string]any)
@@ -756,8 +756,8 @@ func TestTelemetryNetworkLatencyExemptFromApplicationScopeFilter(t *testing.T) {
 		t.Fatalf("filter/scope missing: %v", procs)
 	}
 	conds, _ := shared["metric_conditions"].([]any)
-	if len(conds) != 1 || !strings.Contains(conds[0].(string), `service.name"] != "continuum-network-latency"`) {
-		t.Errorf("filter/scope should exempt continuum-network-latency when networkLatency is enabled, got %v", conds)
+	if len(conds) != 1 || !strings.Contains(conds[0].(string), `service.name"] != "ikhnos-network-latency"`) {
+		t.Errorf("filter/scope should exempt ikhnos-network-latency when networkLatency is enabled, got %v", conds)
 	}
 }
 
@@ -767,7 +767,7 @@ func TestTelemetryNoNetworkLatencyExemptionWhenSignalDisabled(t *testing.T) {
 		"--set", "telemetry.applicationMetrics.metrics.enabled=true",
 		"--set", "telemetry.scope.namespaces[0]=shop",
 	)
-	cm := r.configmaps["continuum-telemetry-cluster-config"]
+	cm := r.configmaps["ikhnos-telemetry-cluster-config"]
 	cfg := otelConfig(t, cm.Data)
 	procs, _ := cfg["processors"].(map[string]any)
 	shared, ok := procs["filter/scope"].(map[string]any)
@@ -775,7 +775,7 @@ func TestTelemetryNoNetworkLatencyExemptionWhenSignalDisabled(t *testing.T) {
 		t.Fatalf("filter/scope missing: %v", procs)
 	}
 	conds, _ := shared["metric_conditions"].([]any)
-	if len(conds) != 1 || strings.Contains(conds[0].(string), "continuum-network-latency") {
+	if len(conds) != 1 || strings.Contains(conds[0].(string), "ikhnos-network-latency") {
 		t.Errorf("filter/scope should carry no networkLatency exemption clause when the signal is off, got %v", conds)
 	}
 }
@@ -790,7 +790,7 @@ func TestTelemetryAcceleratorsApplyScopeOffByDefaultRendersIdenticalConfig(t *te
 	r := render(t, "--set", "telemetry.export.otlp.endpoint=x:4317",
 		"--set", "telemetry.accelerators.metrics.enabled=true", "--set", "telemetry.accelerators.metrics.source=bundle-dcgm",
 		"--set", "telemetry.scope.namespaces[0]=shop", "--set", "telemetry.accelerators.metrics.applyScope=false")
-	cm := r.configmaps["continuum-telemetry-cluster-config"]
+	cm := r.configmaps["ikhnos-telemetry-cluster-config"]
 	cfg := otelConfig(t, cm.Data)
 	procs, _ := cfg["processors"].(map[string]any)
 	for _, unwanted := range []string{"transform/dcgm_pod", "filter/scope_accelerators"} {
@@ -801,9 +801,9 @@ func TestTelemetryAcceleratorsApplyScopeOffByDefaultRendersIdenticalConfig(t *te
 	if _, ok := procs["transform/dcgm_node"]; !ok {
 		t.Error("transform/dcgm_node (takes the exporter pod's own identity off the GPU data) renders whenever dcgm is bundled")
 	}
-	ds, ok := r.daemonsets["continuum-telemetry-dcgm"]
+	ds, ok := r.daemonsets["ikhnos-telemetry-dcgm"]
 	if !ok {
-		t.Fatal("no continuum-telemetry-dcgm DaemonSet rendered")
+		t.Fatal("no ikhnos-telemetry-dcgm DaemonSet rendered")
 	}
 	// DCGM_EXPORTER_LISTEN and NODE_NAME are always set (rv2 D); only the pod-attribution switch belongs to applyScope.
 	for _, e := range ds.Spec.Template.Spec.Containers[0].Env {
@@ -819,7 +819,7 @@ func TestTelemetryAcceleratorsApplyScopeAddsTransformAndScopedFilter(t *testing.
 		"--set", "telemetry.accelerators.metrics.applyScope=true",
 		"--set", "telemetry.energy.metrics.enabled=true", "--set", "telemetry.energy.metrics.source=bundle-kepler",
 		"--set", "telemetry.scope.namespaces[0]=shop")
-	cm := r.configmaps["continuum-telemetry-cluster-config"]
+	cm := r.configmaps["ikhnos-telemetry-cluster-config"]
 	cfg := otelConfig(t, cm.Data)
 	procs, _ := cfg["processors"].(map[string]any)
 
@@ -866,9 +866,9 @@ func TestTelemetryAcceleratorsApplyScopeSetsDcgmEnvVars(t *testing.T) {
 	r := render(t, "--set", "telemetry.export.otlp.endpoint=x:4317",
 		"--set", "telemetry.accelerators.metrics.enabled=true", "--set", "telemetry.accelerators.metrics.source=bundle-dcgm",
 		"--set", "telemetry.accelerators.metrics.applyScope=true")
-	ds, ok := r.daemonsets["continuum-telemetry-dcgm"]
+	ds, ok := r.daemonsets["ikhnos-telemetry-dcgm"]
 	if !ok {
-		t.Fatal("no continuum-telemetry-dcgm DaemonSet rendered")
+		t.Fatal("no ikhnos-telemetry-dcgm DaemonSet rendered")
 	}
 	env := map[string]string{}
 	for _, e := range ds.Spec.Template.Spec.Containers[0].Env {
@@ -890,7 +890,7 @@ func TestTelemetryAcceleratorsApplyScopeNoopWithoutGlobalScope(t *testing.T) {
 	r := render(t, "--set", "telemetry.export.otlp.endpoint=x:4317",
 		"--set", "telemetry.accelerators.metrics.enabled=true", "--set", "telemetry.accelerators.metrics.source=bundle-dcgm",
 		"--set", "telemetry.accelerators.metrics.applyScope=true")
-	cm := r.configmaps["continuum-telemetry-cluster-config"]
+	cm := r.configmaps["ikhnos-telemetry-cluster-config"]
 	cfg := otelConfig(t, cm.Data)
 	procs, _ := cfg["processors"].(map[string]any)
 	if _, ok := procs["filter/scope_accelerators"]; ok {
@@ -909,7 +909,7 @@ func TestTelemetryExporterMTLSWiresCertAndKey(t *testing.T) {
 		"--set", "telemetry.kubernetesState.metrics.enabled=true",
 		"--set", "telemetry.export.otlp.tls.mtls.enabled=true", "--set", "telemetry.export.otlp.tls.mtls.secretName=op-export-mtls")
 
-	for _, cm := range []string{"continuum-telemetry-host-config", "continuum-telemetry-cluster-config"} {
+	for _, cm := range []string{"ikhnos-telemetry-host-config", "ikhnos-telemetry-cluster-config"} {
 		cfg := otelConfig(t, r.configmaps[cm].Data)
 		exporters, _ := cfg["exporters"].(map[string]any)
 		otlp, _ := exporters["otlp"].(map[string]any)
@@ -919,8 +919,8 @@ func TestTelemetryExporterMTLSWiresCertAndKey(t *testing.T) {
 		}
 	}
 
-	host := r.daemonsets["continuum-telemetry-host"].Spec.Template.Spec
-	cluster := r.deployments["continuum-telemetry-cluster"].Spec.Template.Spec
+	host := r.daemonsets["ikhnos-telemetry-host"].Spec.Template.Spec
+	cluster := r.deployments["ikhnos-telemetry-cluster"].Spec.Template.Spec
 
 	foundHostMount, foundHostVol := false, false
 	for _, m := range host.Containers[0].VolumeMounts {
@@ -973,7 +973,7 @@ func TestTelemetryExportProtocolHTTPUsesOtlphttpExporter(t *testing.T) {
 	r := render(t, "--set", "telemetry.export.otlp.endpoint=otlp-gateway.example.com/otlp", "--set", "telemetry.export.otlp.protocol=http",
 		"--set", "telemetry.resourceUsage.metrics.enabled=true", "--set", "telemetry.kubernetesState.metrics.enabled=true")
 
-	for _, cm := range []string{"continuum-telemetry-host-config", "continuum-telemetry-cluster-config"} {
+	for _, cm := range []string{"ikhnos-telemetry-host-config", "ikhnos-telemetry-cluster-config"} {
 		cfg := otelConfig(t, r.configmaps[cm].Data)
 		exporters, _ := cfg["exporters"].(map[string]any)
 		if _, ok := exporters["otlp"]; ok {
@@ -1006,7 +1006,7 @@ func TestTelemetryExportProtocolHTTPUsesOtlphttpExporter(t *testing.T) {
 	// Plaintext (insecure) still switches the URL scheme, the only lever confighttp actually has for it.
 	ri := render(t, "--set", "telemetry.export.otlp.endpoint=collector.local:4318", "--set", "telemetry.export.otlp.protocol=http",
 		"--set", "telemetry.export.otlp.tls.insecure=true", "--set", "telemetry.resourceUsage.metrics.enabled=true")
-	cfg := otelConfig(t, ri.configmaps["continuum-telemetry-host-config"].Data)
+	cfg := otelConfig(t, ri.configmaps["ikhnos-telemetry-host-config"].Data)
 	exporters, _ := cfg["exporters"].(map[string]any)
 	otlphttp, _ := exporters["otlphttp"].(map[string]any)
 	if otlphttp["endpoint"] != "http://collector.local:4318" {
@@ -1015,7 +1015,7 @@ func TestTelemetryExportProtocolHTTPUsesOtlphttpExporter(t *testing.T) {
 
 	// grpc (the default) is unaffected: still the plain "otlp" exporter, referenced by the same name.
 	rg := render(t, "--set", "telemetry.export.otlp.endpoint=x:4317", "--set", "telemetry.resourceUsage.metrics.enabled=true")
-	cfgG := otelConfig(t, rg.configmaps["continuum-telemetry-host-config"].Data)
+	cfgG := otelConfig(t, rg.configmaps["ikhnos-telemetry-host-config"].Data)
 	expG, _ := cfgG["exporters"].(map[string]any)
 	if _, ok := expG["otlp"]; !ok {
 		t.Fatalf("default protocol dropped the plain otlp exporter: %+v", expG)
@@ -1026,11 +1026,11 @@ func TestTelemetryExportProtocolHTTPUsesOtlphttpExporter(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------------------------------------
-// resource/continuum: Ikhnos's own org/cluster/intent provenance, stamped last before batch so it
+// resource/ikhnos: Ikhnos's own org/cluster/intent provenance, stamped last before batch so it
 // always wins over a user's own telemetry.processors.extraProcessors (action: upsert, last in the list).
 // -----------------------------------------------------------------------------------------------------
 
-func TestTelemetryContinuumProvenanceProcessorStampsResourceAttributes(t *testing.T) {
+func TestTelemetryIkhnosProvenanceProcessorStampsResourceAttributes(t *testing.T) {
 	r := render(t, "--set", "telemetry.export.otlp.endpoint=x:4317",
 		"--set", "telemetry.resourceUsage.metrics.enabled=true",
 		"--set", "telemetry.kubernetesState.metrics.enabled=true",
@@ -1042,40 +1042,40 @@ func TestTelemetryContinuumProvenanceProcessorStampsResourceAttributes(t *testin
 	checkAttrs := func(t *testing.T, cmName string, attrs []any) {
 		t.Helper()
 		want := map[string]string{
-			"continuum.org.id":     "org-1",
-			"continuum.cluster.id": "cluster-1",
-			"continuum.intent.id":  "intent-1",
+			"ikhnos.org.id":     "org-1",
+			"ikhnos.cluster.id": "cluster-1",
+			"ikhnos.intent.id":  "intent-1",
 		}
 		if len(attrs) != len(want) {
-			t.Fatalf("%s: resource/continuum attributes = %v, want %d entries", cmName, attrs, len(want))
+			t.Fatalf("%s: resource/ikhnos attributes = %v, want %d entries", cmName, attrs, len(want))
 		}
 		for _, a := range attrs {
 			m, _ := a.(map[string]any)
 			key, _ := m["key"].(string)
 			wantVal, ok := want[key]
 			if !ok {
-				t.Errorf("%s: unexpected attribute key %q in resource/continuum: %v", cmName, key, m)
+				t.Errorf("%s: unexpected attribute key %q in resource/ikhnos: %v", cmName, key, m)
 				continue
 			}
 			if m["value"] != wantVal {
-				t.Errorf("%s: resource/continuum[%s].value = %v, want %q", cmName, key, m["value"], wantVal)
+				t.Errorf("%s: resource/ikhnos[%s].value = %v, want %q", cmName, key, m["value"], wantVal)
 			}
 			if m["action"] != "upsert" {
-				t.Errorf("%s: resource/continuum[%s].action = %v, want upsert", cmName, key, m["action"])
+				t.Errorf("%s: resource/ikhnos[%s].action = %v, want upsert", cmName, key, m["action"])
 			}
 			delete(want, key)
 		}
 		if len(want) != 0 {
-			t.Errorf("%s: resource/continuum missing attribute keys: %v", cmName, want)
+			t.Errorf("%s: resource/ikhnos missing attribute keys: %v", cmName, want)
 		}
 	}
 
-	for _, cmName := range []string{"continuum-telemetry-host-config", "continuum-telemetry-cluster-config"} {
+	for _, cmName := range []string{"ikhnos-telemetry-host-config", "ikhnos-telemetry-cluster-config"} {
 		cfg := otelConfig(t, r.configmaps[cmName].Data)
 		procs, _ := cfg["processors"].(map[string]any)
-		rc, ok := procs["resource/continuum"].(map[string]any)
+		rc, ok := procs["resource/ikhnos"].(map[string]any)
 		if !ok {
-			t.Fatalf("%s: resource/continuum processor missing: %v", cmName, procs)
+			t.Fatalf("%s: resource/ikhnos processor missing: %v", cmName, procs)
 		}
 		attrs, _ := rc["attributes"].([]any)
 		checkAttrs(t, cmName, attrs)
@@ -1088,19 +1088,19 @@ func TestTelemetryContinuumProvenanceProcessorStampsResourceAttributes(t *testin
 		for name, raw := range pipelines {
 			p, _ := raw.(map[string]any)
 			procList, _ := p["processors"].([]any)
-			if len(procList) < 2 || procList[len(procList)-1] != "batch" || procList[len(procList)-2] != "resource/continuum" {
-				t.Errorf("%s pipeline %q processors = %v, want resource/continuum immediately before batch", cmName, name, procList)
+			if len(procList) < 2 || procList[len(procList)-1] != "batch" || procList[len(procList)-2] != "resource/ikhnos" {
+				t.Errorf("%s pipeline %q processors = %v, want resource/ikhnos immediately before batch", cmName, name, procList)
 			}
 		}
 	}
 }
 
-func TestTelemetryContinuumProvenanceAlwaysAfterUsersExtraProcessor(t *testing.T) {
+func TestTelemetryIkhnosProvenanceAlwaysAfterUsersExtraProcessor(t *testing.T) {
 	r := render(t, "--set", "telemetry.export.otlp.endpoint=x:4317", "--set", "telemetry.traces.traces.enabled=true",
 		"--set", "telemetry.resource.orgId=org-1", "--set", "telemetry.resource.clusterId=cluster-1", "--set", "telemetry.resource.intentId=intent-1",
-		"--set-json", `telemetry.processors.extraProcessors={"attributes/spoof_org":{"actions":[{"key":"continuum.org.id","value":"attacker","action":"upsert"}]}}`,
+		"--set-json", `telemetry.processors.extraProcessors={"attributes/spoof_org":{"actions":[{"key":"ikhnos.org.id","value":"attacker","action":"upsert"}]}}`,
 		"--set", "telemetry.processors.extraProcessorNames[0]=attributes/spoof_org")
-	cm := r.configmaps["continuum-telemetry-cluster-config"]
+	cm := r.configmaps["ikhnos-telemetry-cluster-config"]
 	cfg := otelConfig(t, cm.Data)
 	svc, _ := cfg["service"].(map[string]any)
 	pipelines, _ := svc["pipelines"].(map[string]any)
@@ -1115,61 +1115,61 @@ func TestTelemetryContinuumProvenanceAlwaysAfterUsersExtraProcessor(t *testing.T
 		if p == "attributes/spoof_org" {
 			spoofIdx = i
 		}
-		if p == "resource/continuum" {
+		if p == "resource/ikhnos" {
 			provIdx = i
 		}
 	}
 	if spoofIdx == -1 || provIdx == -1 {
-		t.Fatalf("expected both attributes/spoof_org and resource/continuum in traces processors, got %v", procList)
+		t.Fatalf("expected both attributes/spoof_org and resource/ikhnos in traces processors, got %v", procList)
 	}
 	// Position is what proves the point: processors run in list order and a later action:upsert on the
-	// same key wins, so resource/continuum must sit after the user's own extra processor, not before it.
+	// same key wins, so resource/ikhnos must sit after the user's own extra processor, not before it.
 	if provIdx <= spoofIdx {
-		t.Errorf("resource/continuum (index %d) must come after the user's own extra processor (index %d) so its action:upsert wins, got %v", provIdx, spoofIdx, procList)
+		t.Errorf("resource/ikhnos (index %d) must come after the user's own extra processor (index %d) so its action:upsert wins, got %v", provIdx, spoofIdx, procList)
 	}
 	if procList[len(procList)-1] != "batch" {
-		t.Errorf("batch must stay last even with resource/continuum added, got %v", procList)
+		t.Errorf("batch must stay last even with resource/ikhnos added, got %v", procList)
 	}
-	if procList[len(procList)-2] != "resource/continuum" {
-		t.Errorf("resource/continuum must sit immediately before batch, got %v", procList)
+	if procList[len(procList)-2] != "resource/ikhnos" {
+		t.Errorf("resource/ikhnos must sit immediately before batch, got %v", procList)
 	}
 }
 
-func TestTelemetryContinuumProvenanceDefaultsToEmptyAttributesAndStillRenders(t *testing.T) {
+func TestTelemetryIkhnosProvenanceDefaultsToEmptyAttributesAndStillRenders(t *testing.T) {
 	r := render(t, "--set", "telemetry.export.otlp.endpoint=x:4317", "--set", "telemetry.resourceUsage.metrics.enabled=true")
-	cm := r.configmaps["continuum-telemetry-host-config"]
+	cm := r.configmaps["ikhnos-telemetry-host-config"]
 	cfg := otelConfig(t, cm.Data)
 	procs, _ := cfg["processors"].(map[string]any)
-	rc, ok := procs["resource/continuum"].(map[string]any)
+	rc, ok := procs["resource/ikhnos"].(map[string]any)
 	if !ok {
-		t.Fatalf("resource/continuum processor missing even with telemetry.resource left at its empty-string defaults: %v", procs)
+		t.Fatalf("resource/ikhnos processor missing even with telemetry.resource left at its empty-string defaults: %v", procs)
 	}
 	attrs, _ := rc["attributes"].([]any)
 	// Org and cluster are always listed; the intent and the scope only when there is one to say (an empty
-	// continuum.intent.id on every record would be noise, not provenance).
+	// ikhnos.intent.id on every record would be noise, not provenance).
 	if len(attrs) != 2 {
-		t.Fatalf("resource/continuum attributes = %v, want the org and cluster entries even with empty values", attrs)
+		t.Fatalf("resource/ikhnos attributes = %v, want the org and cluster entries even with empty values", attrs)
 	}
 	for _, a := range attrs {
 		m, _ := a.(map[string]any)
 		if m["value"] != "" {
-			t.Errorf("resource/continuum attribute %v should default to an empty string, not be hand-typed", m)
+			t.Errorf("resource/ikhnos attribute %v should default to an empty string, not be hand-typed", m)
 		}
 		if m["action"] != "upsert" {
-			t.Errorf("resource/continuum attribute %v should still use action: upsert at defaults", m)
+			t.Errorf("resource/ikhnos attribute %v should still use action: upsert at defaults", m)
 		}
 	}
 }
 
 // -----------------------------------------------------------------------------------------------------
-// telemetry.resource.attributes (tags), continuum.scope, and the debug exporter.
+// telemetry.resource.attributes (tags), ikhnos.scope, and the debug exporter.
 // -----------------------------------------------------------------------------------------------------
 
 // pipelineLists returns every pipeline's processors and exporters across both collector ConfigMaps.
 func pipelineLists(t *testing.T, r rendered) map[string][2][]any {
 	t.Helper()
 	out := map[string][2][]any{}
-	for _, name := range []string{"continuum-telemetry-host-config", "continuum-telemetry-cluster-config"} {
+	for _, name := range []string{"ikhnos-telemetry-host-config", "ikhnos-telemetry-cluster-config"} {
 		cm, ok := r.configmaps[name]
 		if !ok {
 			continue
@@ -1195,7 +1195,7 @@ func TestTelemetryResourceTagsAreInsertedAfterUserProcessorsAndBeforeProvenance(
 		"--set", "telemetry.resource.scope=shop; payments: api+worker",
 		"--set", "telemetry.resource.orgId=org-1", "--set", "telemetry.resource.clusterId=cl-1", "--set", "telemetry.resource.intentId=ti-1",
 	)
-	for _, name := range []string{"continuum-telemetry-host-config", "continuum-telemetry-cluster-config"} {
+	for _, name := range []string{"ikhnos-telemetry-host-config", "ikhnos-telemetry-cluster-config"} {
 		cfg := otelConfig(t, r.configmaps[name].Data)
 		procs, _ := cfg["processors"].(map[string]any)
 		tags, ok := procs["resource/tags"].(map[string]any)
@@ -1214,28 +1214,28 @@ func TestTelemetryResourceTagsAreInsertedAfterUserProcessorsAndBeforeProvenance(
 		if got["team"] != "payments" || got["k8s.cluster.name"] != "prod-eu" || len(got) != 2 {
 			t.Errorf("%s: tags = %v", name, got)
 		}
-		rc := procs["resource/continuum"].(map[string]any)
+		rc := procs["resource/ikhnos"].(map[string]any)
 		keys := map[string]string{}
 		for _, a := range rc["attributes"].([]any) {
 			m := a.(map[string]any)
 			keys[m["key"].(string)] = m["value"].(string)
 		}
-		if keys["continuum.scope"] != "shop; payments: api+worker" || keys["continuum.intent.id"] != "ti-1" {
+		if keys["ikhnos.scope"] != "shop; payments: api+worker" || keys["ikhnos.intent.id"] != "ti-1" {
 			t.Errorf("%s: provenance = %v, want scope and intent stamped", name, keys)
 		}
 	}
 	for pn, pe := range pipelineLists(t, r) {
 		procs := pe[0]
 		n := len(procs)
-		if n < 3 || procs[n-1] != "batch" || procs[n-2] != "resource/continuum" || procs[n-3] != "resource/tags" {
-			t.Errorf("%s processors = %v, want ... resource/tags, resource/continuum, batch", pn, procs)
+		if n < 3 || procs[n-1] != "batch" || procs[n-2] != "resource/ikhnos" || procs[n-3] != "resource/tags" {
+			t.Errorf("%s processors = %v, want ... resource/tags, resource/ikhnos, batch", pn, procs)
 		}
 	}
 }
 
 func TestTelemetryWithoutTagsRendersNoTagProcessor(t *testing.T) {
 	r := render(t, "--set", "telemetry.export.otlp.endpoint=x:4317", "--set", "telemetry.resourceUsage.metrics.enabled=true")
-	cfg := otelConfig(t, r.configmaps["continuum-telemetry-host-config"].Data)
+	cfg := otelConfig(t, r.configmaps["ikhnos-telemetry-host-config"].Data)
 	if _, ok := cfg["processors"].(map[string]any)["resource/tags"]; ok {
 		t.Error("resource/tags rendered with no telemetry.resource.attributes")
 	}
@@ -1247,10 +1247,10 @@ func TestTelemetryWithoutTagsRendersNoTagProcessor(t *testing.T) {
 		}
 	}
 	// And no scope/intent entries when there is nothing to say.
-	rc := cfg["processors"].(map[string]any)["resource/continuum"].(map[string]any)
+	rc := cfg["processors"].(map[string]any)["resource/ikhnos"].(map[string]any)
 	for _, a := range rc["attributes"].([]any) {
 		k := a.(map[string]any)["key"]
-		if k == "continuum.scope" || k == "continuum.intent.id" {
+		if k == "ikhnos.scope" || k == "ikhnos.intent.id" {
 			t.Errorf("%v stamped with an empty value", k)
 		}
 	}
@@ -1258,9 +1258,9 @@ func TestTelemetryWithoutTagsRendersNoTagProcessor(t *testing.T) {
 
 func TestTelemetryTagsRefuseTheReservedPrefixAndTooManyTags(t *testing.T) {
 	out, err := helmTemplate(t, "--set", "telemetry.export.otlp.endpoint=x:4317", "--set", "telemetry.resourceUsage.metrics.enabled=true",
-		"--set-json", `telemetry.resource.attributes=[{"key":"continuum.org.id","value":"attacker"}]`)
+		"--set-json", `telemetry.resource.attributes=[{"key":"ikhnos.org.id","value":"attacker"}]`)
 	if err == nil || !strings.Contains(out, "reserved") {
-		t.Errorf("a continuum.* tag must be refused as reserved, got err=%v out=%s", err, out)
+		t.Errorf("a ikhnos.* tag must be refused as reserved, got err=%v out=%s", err, out)
 	}
 	var many []string
 	for i := 0; i < 11; i++ {
@@ -1285,7 +1285,7 @@ func TestTelemetryDebugExporterIsOffByDefaultAndOnEveryPipelineWhenSet(t *testin
 	base := []string{"--set", "telemetry.export.otlp.endpoint=x:4317", "--set", "telemetry.resourceUsage.metrics.enabled=true", "--set", "telemetry.traces.traces.enabled=true"}
 
 	off := render(t, base...)
-	for _, name := range []string{"continuum-telemetry-host-config", "continuum-telemetry-cluster-config"} {
+	for _, name := range []string{"ikhnos-telemetry-host-config", "ikhnos-telemetry-cluster-config"} {
 		cfg := otelConfig(t, off.configmaps[name].Data)
 		if _, ok := cfg["exporters"].(map[string]any)["debug"]; ok {
 			t.Errorf("%s: a debug exporter is configured with telemetry.debug.verbosity unset", name)
@@ -1299,7 +1299,7 @@ func TestTelemetryDebugExporterIsOffByDefaultAndOnEveryPipelineWhenSet(t *testin
 
 	for _, verbosity := range []string{"basic", "detailed"} {
 		on := render(t, append(append([]string{}, base...), "--set", "telemetry.debug.verbosity="+verbosity)...)
-		for _, name := range []string{"continuum-telemetry-host-config", "continuum-telemetry-cluster-config"} {
+		for _, name := range []string{"ikhnos-telemetry-host-config", "ikhnos-telemetry-cluster-config"} {
 			cfg := otelConfig(t, on.configmaps[name].Data)
 			d, ok := cfg["exporters"].(map[string]any)["debug"].(map[string]any)
 			if !ok || d["verbosity"] != verbosity {
@@ -1344,7 +1344,7 @@ func TestTelemetryWorkloadScopeKeepsOnlyChosenWorkloadsOfANamespace(t *testing.T
 		"--set-json", `telemetry.scope.namespaces=["checkout","payments"]`,
 		"--set-json", `telemetry.scope.workloads=[{"namespace":"checkout","names":["cart","payment-api"]}]`,
 	)
-	cfg := otelConfig(t, r.configmaps["continuum-telemetry-cluster-config"].Data)
+	cfg := otelConfig(t, r.configmaps["ikhnos-telemetry-cluster-config"].Data)
 	procs, _ := cfg["processors"].(map[string]any)
 	conds := conditionsOf(t, procs, "filter/scope", "trace_conditions")
 	if len(conds) != 2 {
@@ -1370,7 +1370,7 @@ func TestTelemetryWorkloadScopeEmptyListKeepsNothingOfThatNamespace(t *testing.T
 		"--set", "telemetry.traces.traces.enabled=true",
 		"--set-json", `telemetry.scope.workloads=[{"namespace":"checkout","names":[]}]`,
 	)
-	cfg := otelConfig(t, r.configmaps["continuum-telemetry-cluster-config"].Data)
+	cfg := otelConfig(t, r.configmaps["ikhnos-telemetry-cluster-config"].Data)
 	procs, _ := cfg["processors"].(map[string]any)
 	conds := conditionsOf(t, procs, "filter/scope", "trace_conditions")
 	if len(conds) != 1 || conds[0] != `(resource.attributes["k8s.namespace.name"] == "checkout")` {
@@ -1380,7 +1380,7 @@ func TestTelemetryWorkloadScopeEmptyListKeepsNothingOfThatNamespace(t *testing.T
 
 func TestTelemetryWorkloadNamesAreExtracted(t *testing.T) {
 	meta := func(r rendered) []any {
-		cfg := otelConfig(t, r.configmaps["continuum-telemetry-cluster-config"].Data)
+		cfg := otelConfig(t, r.configmaps["ikhnos-telemetry-cluster-config"].Data)
 		procs, _ := cfg["processors"].(map[string]any)
 		k, _ := procs["k8sattributes"].(map[string]any)
 		ex, _ := k["extract"].(map[string]any)
@@ -1421,7 +1421,7 @@ func TestTelemetryPerSignalWorkloadScopeGetsItsOwnProcessor(t *testing.T) {
 		"--set", "telemetry.applicationLogs.logs.enabled=true",
 		"--set-json", `telemetry.traces.traces.scope.workloads=[{"namespace":"shop","names":["api"]}]`,
 	)
-	cfg := otelConfig(t, r.configmaps["continuum-telemetry-cluster-config"].Data)
+	cfg := otelConfig(t, r.configmaps["ikhnos-telemetry-cluster-config"].Data)
 	procs, _ := cfg["processors"].(map[string]any)
 	if _, ok := procs["filter/scope_traces"]; !ok {
 		t.Fatalf("traces with its own workload scope should get filter/scope_traces: %v", procs)
@@ -1447,7 +1447,7 @@ func TestTelemetryInfraScopeOffByDefaultRendersNoInfraFilters(t *testing.T) {
 		"--set", "telemetry.kubernetesEvents.logs.enabled=true",
 		"--set", "telemetry.resourceUsage.metrics.enabled=true",
 	)
-	for _, cm := range []string{"continuum-telemetry-cluster-config", "continuum-telemetry-host-config"} {
+	for _, cm := range []string{"ikhnos-telemetry-cluster-config", "ikhnos-telemetry-host-config"} {
 		if strings.Contains(r.configmaps[cm].Data["otel-collector-config.yaml"], "scope_infra") {
 			t.Errorf("%s renders an infra scope filter by default", cm)
 		}
@@ -1464,7 +1464,7 @@ func TestTelemetryInfraScopeNarrowsOnlyRecordsThatCarryANamespace(t *testing.T) 
 		"--set-json", `telemetry.scope.infra.namespaces=["checkout"]`,
 		"--set-json", `telemetry.scope.infra.workloads=[{"namespace":"checkout","names":["cart"]}]`,
 	)
-	cluster := otelConfig(t, r.configmaps["continuum-telemetry-cluster-config"].Data)
+	cluster := otelConfig(t, r.configmaps["ikhnos-telemetry-cluster-config"].Data)
 	procs, _ := cluster["processors"].(map[string]any)
 	state := conditionsOf(t, procs, "filter/scope_infra", "metric_conditions")
 	if len(state) != 2 || !strings.HasPrefix(state[0], `(resource.attributes["k8s.namespace.name"] != nil and not IsMatch(`) {
@@ -1494,7 +1494,7 @@ func TestTelemetryInfraScopeNarrowsOnlyRecordsThatCarryANamespace(t *testing.T) 
 		t.Errorf("logs/infra lacks the events filter")
 	}
 
-	host := otelConfig(t, r.configmaps["continuum-telemetry-host-config"].Data)
+	host := otelConfig(t, r.configmaps["ikhnos-telemetry-host-config"].Data)
 	hp, _ := host["processors"].(map[string]any)
 	if got := conditionsOf(t, hp, "filter/scope_infra", "metric_conditions"); len(got) != 2 {
 		t.Errorf("host metrics filter: %v", got)
@@ -1517,7 +1517,7 @@ func TestApplicationMetricsWithoutScrapeTargetsRendersNoPrometheusReceiver(t *te
 	base := []string{"--set", "telemetry.export.otlp.endpoint=x:4317", "--set", "telemetry.applicationMetrics.metrics.enabled=true"}
 	cfg := func(args ...string) map[string]any {
 		r := render(t, append(append([]string{}, base...), args...)...)
-		return otelConfig(t, r.configmaps["continuum-telemetry-cluster-config"].Data)
+		return otelConfig(t, r.configmaps["ikhnos-telemetry-cluster-config"].Data)
 	}
 	c := cfg()
 	receivers, _ := c["receivers"].(map[string]any)
@@ -1556,7 +1556,7 @@ func TestApplicationMetricsWithoutScrapeTargetsRendersNoPrometheusReceiver(t *te
 // refused" while the pod reported Ready, and the collector's only output was its own `up` series (found on a real cluster).
 func TestKeplerListensOnThePortItDeclaresAndIsNotReadyUntilItDoes(t *testing.T) {
 	r := render(t, "--set", "telemetry.export.otlp.endpoint=x:4317", "--set", "telemetry.energy.metrics.enabled=true", "--set", "telemetry.energy.metrics.source=bundle-kepler")
-	c := r.daemonsets["continuum-telemetry-kepler"].Spec.Template.Spec.Containers[0]
+	c := r.daemonsets["ikhnos-telemetry-kepler"].Spec.Template.Spec.Containers[0]
 	var port int32
 	for _, p := range c.Ports {
 		if p.Name == "metrics" {

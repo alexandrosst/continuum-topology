@@ -7,7 +7,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"continuum/internal/kernel"
+	"ikhnos/internal/kernel"
 )
 
 // recoverPanic turns a panic in a gRPC handler into an Internal status for that one call or stream: the process keeps

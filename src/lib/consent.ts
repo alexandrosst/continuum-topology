@@ -491,8 +491,8 @@ const KUBE_NAME = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/
  */
 export function releaseTarget(t?: ReleaseTarget): { namespace: string; release: string } {
   return {
-    namespace: t?.namespace && KUBE_NAME.test(t.namespace) ? t.namespace : 'continuum-system',
-    release: t?.release && KUBE_NAME.test(t.release) ? t.release : 'continuum-agent',
+    namespace: t?.namespace && KUBE_NAME.test(t.namespace) ? t.namespace : 'ikhnos-system',
+    release: t?.release && KUBE_NAME.test(t.release) ? t.release : 'ikhnos-agent',
   }
 }
 

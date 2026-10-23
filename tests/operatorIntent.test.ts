@@ -4,14 +4,14 @@ import { emptyExportTarget, emptyTelemetry, type TelemetryInput } from '../src/l
 import { operatorReceiverEndpoint } from '../src/lib/operatorReceiver'
 import { exportOperatorId, intentDestinations, intentScope, intentSignals, laneOperatorId, operatorCommandDraft, operatorTargets } from '../src/features/pipeline/lib/operatorIntent'
 
-const operatorDraft = (over: Partial<TelemetryInput> = {}): TelemetryInput => ({ ...emptyTelemetry, resourceUsage: true, exportEndpoint: 'op-eu.continuum-system.svc:4317', exportOperatorId: 'op-eu', ...over })
+const operatorDraft = (over: Partial<TelemetryInput> = {}): TelemetryInput => ({ ...emptyTelemetry, resourceUsage: true, exportEndpoint: 'op-eu.ikhnos-system.svc:4317', exportOperatorId: 'op-eu', ...over })
 
 test('exportOperatorId is only honoured while the endpoint still is that operator\'s receiver', () => {
   assert.equal(exportOperatorId(operatorDraft()), 'op-eu')
-  assert.equal(exportOperatorId(operatorDraft({ exportEndpoint: ' op-eu.continuum-system.svc:4317 ' })), 'op-eu')
+  assert.equal(exportOperatorId(operatorDraft({ exportEndpoint: ' op-eu.ikhnos-system.svc:4317 ' })), 'op-eu')
   assert.equal(exportOperatorId(operatorDraft({ exportEndpoint: 'otel.example.com:4317' })), '', 'a stale id must not trigger a certificate')
   assert.equal(exportOperatorId(operatorDraft({ exportOperatorId: '' })), '')
-  assert.equal(operatorReceiverEndpoint({ id: 'op-eu' }), 'op-eu.continuum-system.svc:4317')
+  assert.equal(operatorReceiverEndpoint({ id: 'op-eu' }), 'op-eu.ikhnos-system.svc:4317')
 })
 
 test('intentSignals: one grant per signal that is on, source from the draft\'s own source choices', () => {
@@ -54,7 +54,7 @@ test('intentScope never records a scope narrower than what is collected', () => 
 
 /* ---------- signal types going to different destinations ---------- */
 
-const opLane = (id: string, over: Partial<typeof emptyExportTarget> = {}) => ({ ...emptyExportTarget, exportEndpoint: `${id}.continuum-system.svc:4317`, exportOperatorId: id, ...over })
+const opLane = (id: string, over: Partial<typeof emptyExportTarget> = {}) => ({ ...emptyExportTarget, exportEndpoint: `${id}.ikhnos-system.svc:4317`, exportOperatorId: id, ...over })
 const splitDraft = (over: Partial<TelemetryInput> = {}): TelemetryInput => ({
   ...emptyTelemetry,
   resourceUsage: true,
@@ -76,18 +76,18 @@ test('operatorTargets lists each operator once, with the signal types that go to
   const stale = splitDraft({ exportLanes: { ...splitDraft().exportLanes, metrics: { ...opLane('op-eu'), exportEndpoint: 'edited:4317' } } })
   assert.equal(laneOperatorId(stale, 'metrics'), '')
   // One destination's operator id is not read while sending each signal type separately.
-  assert.equal(exportOperatorId(splitDraft({ exportOperatorId: 'op-eu', exportEndpoint: 'op-eu.continuum-system.svc:4317' })), '')
+  assert.equal(exportOperatorId(splitDraft({ exportOperatorId: 'op-eu', exportEndpoint: 'op-eu.ikhnos-system.svc:4317' })), '')
 })
 
 test('the intent records every signal type\'s destination, the first as the default, and one destination as no routes', () => {
   const d = intentDestinations(splitDraft(), 'op-eu')
-  assert.deepEqual(d.routes?.metrics, { kind: 'operator', endpoint: 'op-eu.continuum-system.svc:4317', targetOperatorId: 'op-eu' })
+  assert.deepEqual(d.routes?.metrics, { kind: 'operator', endpoint: 'op-eu.ikhnos-system.svc:4317', targetOperatorId: 'op-eu' })
   assert.deepEqual(d.routes?.logs, d.routes?.metrics)
   assert.deepEqual(d.routes?.traces, { kind: 'external', endpoint: 'z:9411/api/v2/spans', insecure: true })
   assert.deepEqual(d.destination, d.routes?.metrics)
   const single = intentDestinations(operatorDraft(), 'op-eu')
   assert.equal(single.routes, undefined)
-  assert.deepEqual(single.destination, { kind: 'operator', endpoint: 'op-eu.continuum-system.svc:4317', targetOperatorId: 'op-eu' })
+  assert.deepEqual(single.destination, { kind: 'operator', endpoint: 'op-eu.ikhnos-system.svc:4317', targetOperatorId: 'op-eu' })
   // A credential is recorded by the names of its Secret and header, never by a value.
   const named = splitDraft({ exportLanes: { ...splitDraft().exportLanes, traces: { ...emptyExportTarget, exportEndpoint: 't:4317', exportAuthSecretName: 'tempo-token' } } })
   assert.deepEqual(intentDestinations(named, 'op-eu').routes?.traces, { kind: 'external', endpoint: 't:4317', authHeaderName: 'Authorization', authSecretName: 'tempo-token', authSecretKey: 'token' })
@@ -111,10 +111,10 @@ test('each operator lane drops a credential its operator does not take; the othe
 
 test('the address this sender chose is recorded with the operator destination, one or per signal type, and left out when none was chosen', () => {
   const chosen = intentDestinations(operatorDraft({ exportOperatorAddress: ' 10.20.0.14:31317 ' }), 'op-eu')
-  assert.deepEqual(chosen.destination, { kind: 'operator', endpoint: 'op-eu.continuum-system.svc:4317', targetOperatorId: 'op-eu', address: '10.20.0.14:31317' })
-  assert.deepEqual(intentDestinations(operatorDraft(), 'op-eu').destination, { kind: 'operator', endpoint: 'op-eu.continuum-system.svc:4317', targetOperatorId: 'op-eu' })
+  assert.deepEqual(chosen.destination, { kind: 'operator', endpoint: 'op-eu.ikhnos-system.svc:4317', targetOperatorId: 'op-eu', address: '10.20.0.14:31317' })
+  assert.deepEqual(intentDestinations(operatorDraft(), 'op-eu').destination, { kind: 'operator', endpoint: 'op-eu.ikhnos-system.svc:4317', targetOperatorId: 'op-eu' })
   // Each signal type keeps the address of its own lane.
-  const lane = (address: string) => ({ ...emptyExportTarget, exportEndpoint: 'op-eu.continuum-system.svc:4317', exportOperatorId: 'op-eu', exportOperatorAddress: address })
+  const lane = (address: string) => ({ ...emptyExportTarget, exportEndpoint: 'op-eu.ikhnos-system.svc:4317', exportOperatorId: 'op-eu', exportOperatorAddress: address })
   const split = { ...emptyTelemetry, resourceUsage: true, systemLogs: true, exportSplit: true, exportLanes: { metrics: lane('10.20.0.14:31317'), logs: lane(''), traces: emptyExportTarget } } as TelemetryInput
   const d = intentDestinations(split, 'op-eu')
   assert.equal(d.routes?.metrics?.address, '10.20.0.14:31317')

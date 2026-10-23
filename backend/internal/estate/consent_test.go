@@ -7,13 +7,13 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/accounts"
-	"continuum/internal/agents"
-	"continuum/internal/connectivity"
-	"continuum/internal/facts"
-	"continuum/internal/kernel"
-	"continuum/internal/testkit"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/agents"
+	"ikhnos/internal/connectivity"
+	"ikhnos/internal/facts"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/testkit"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -27,7 +27,7 @@ func TestHelloAdvertisesTheCeilingAndDiagnosticsFollowHeartbeats(t *testing.T) {
 	id, key, leaf := r.approvedAgent(t, testkit.FP) // approved at 2, installed 2
 
 	// The owner has since run `helm upgrade --set access.tier=1`: the hello says so, the server records it and the approval follows it down.
-	hello := &continuumv1.Hello{AgentVersion: "9.9", InstalledAccessTier: 1, Diagnostics: &continuumv1.Diagnostics{AgentVersion: "9.9", Arch: "arm64", InstalledTier: 1, EffectiveTier: 1, ApprovedTier: 2}}
+	hello := &ikhnosv1.Hello{AgentVersion: "9.9", InstalledAccessTier: 1, Diagnostics: &ikhnosv1.Diagnostics{AgentVersion: "9.9", Arch: "arm64", InstalledTier: 1, EffectiveTier: 1, ApprovedTier: 2}}
 	s := r.connect(t, ctx, key, leaf, hello)
 	a, _ := r.st.GetAgent(ctx, "org-1", id)
 	if a.InstalledTier != 1 || a.AccessTier != 1 {
@@ -49,11 +49,11 @@ func TestHelloAdvertisesTheCeilingAndDiagnosticsFollowHeartbeats(t *testing.T) {
 	}
 
 	// A heartbeat carries a fuller account, with typed problems.
-	beat := &continuumv1.Diagnostics{AgentVersion: "9.9", InstalledTier: 1, EffectiveTier: 1, ApprovedTier: 1, UptimeSeconds: 42,
-		Collectors: []*continuumv1.CollectorDiag{{Name: "flow", Configured: true, Enabled: true, Producing: true, Reporting: 2, Expected: 3, LastData: timestamppb.Now()}},
-		Informers:  []*continuumv1.InformerDiag{{Name: "nodes", Synced: true, Objects: 3}},
-		Problems:   []*continuumv1.Problem{{Code: "rbac_forbidden", Severity: continuumv1.Problem_ERROR, Message: strings.Repeat("x", 5000), Since: timestamppb.Now()}}}
-	if err := s.Send(&continuumv1.AgentMessage{Msg: &continuumv1.AgentMessage_Heartbeat{Heartbeat: &continuumv1.Heartbeat{Diagnostics: beat}}}); err != nil {
+	beat := &ikhnosv1.Diagnostics{AgentVersion: "9.9", InstalledTier: 1, EffectiveTier: 1, ApprovedTier: 1, UptimeSeconds: 42,
+		Collectors: []*ikhnosv1.CollectorDiag{{Name: "flow", Configured: true, Enabled: true, Producing: true, Reporting: 2, Expected: 3, LastData: timestamppb.Now()}},
+		Informers:  []*ikhnosv1.InformerDiag{{Name: "nodes", Synced: true, Objects: 3}},
+		Problems:   []*ikhnosv1.Problem{{Code: "rbac_forbidden", Severity: ikhnosv1.Problem_ERROR, Message: strings.Repeat("x", 5000), Since: timestamppb.Now()}}}
+	if err := s.Send(&ikhnosv1.AgentMessage{Msg: &ikhnosv1.AgentMessage_Heartbeat{Heartbeat: &ikhnosv1.Heartbeat{Diagnostics: beat}}}); err != nil {
 		t.Fatal(err)
 	}
 	var got *agents.DiagnosticsDoc
@@ -75,19 +75,19 @@ func TestHelloAdvertisesTheCeilingAndDiagnosticsFollowHeartbeats(t *testing.T) {
 
 func TestAnOversizedDiagnosticsAccountIsIgnoredNotRefused(t *testing.T) {
 	v := NewView()
-	v.NoteDiagnostics(&continuumv1.Diagnostics{AgentVersion: "1"}, false, time.Now())
-	huge := &continuumv1.Diagnostics{AgentVersion: "2"}
+	v.NoteDiagnostics(&ikhnosv1.Diagnostics{AgentVersion: "1"}, false, time.Now())
+	huge := &ikhnosv1.Diagnostics{AgentVersion: "2"}
 	for i := 0; i < 5000; i++ {
-		huge.Problems = append(huge.Problems, &continuumv1.Problem{Code: "x", Message: strings.Repeat("m", 100)})
+		huge.Problems = append(huge.Problems, &ikhnosv1.Problem{Code: "x", Message: strings.Repeat("m", 100)})
 	}
 	v.NoteDiagnostics(huge, false, time.Now())
 	if v.Ext.Diag.AgentVersion != "1" {
 		t.Fatal("an oversized account replaced the previous one")
 	}
-	many := &continuumv1.Diagnostics{AgentVersion: "3"}
+	many := &ikhnosv1.Diagnostics{AgentVersion: "3"}
 	for i := 0; i < 100; i++ {
-		many.Problems = append(many.Problems, &continuumv1.Problem{Code: "x"})
-		many.Informers = append(many.Informers, &continuumv1.InformerDiag{Name: "i"})
+		many.Problems = append(many.Problems, &ikhnosv1.Problem{Code: "x"})
+		many.Informers = append(many.Informers, &ikhnosv1.InformerDiag{Name: "i"})
 	}
 	v.NoteDiagnostics(many, false, time.Now())
 	if len(v.Ext.Diag.Problems) != agents.MaxDiagProblems || len(v.Ext.Diag.Informers) != agents.MaxDiagInformers {
@@ -97,7 +97,7 @@ func TestAnOversizedDiagnosticsAccountIsIgnoredNotRefused(t *testing.T) {
 
 func TestInstalledTelemetrySignalsRoundTripAndTruncate(t *testing.T) {
 	v := NewView()
-	v.NoteDiagnostics(&continuumv1.Diagnostics{AgentVersion: "1", InstalledTelemetrySignals: []string{"traces", "energy"}}, false, time.Now())
+	v.NoteDiagnostics(&ikhnosv1.Diagnostics{AgentVersion: "1", InstalledTelemetrySignals: []string{"traces", "energy"}}, false, time.Now())
 	doc := v.diagDoc()
 	if got := strings.Join(doc.InstalledTelemetry, ","); got != "traces,energy" {
 		t.Fatalf("InstalledTelemetry = %v, want [traces energy] (order preserved, the agent already sorts it)", doc.InstalledTelemetry)
@@ -105,7 +105,7 @@ func TestInstalledTelemetrySignalsRoundTripAndTruncate(t *testing.T) {
 
 	// A longer-than-bound list is truncated, not refused outright - same treatment as PausedCollectors/Problems.
 	v2 := NewView()
-	long := &continuumv1.Diagnostics{AgentVersion: "1"}
+	long := &ikhnosv1.Diagnostics{AgentVersion: "1"}
 	for i := 0; i < agents.MaxDiagTelemetrySignals+5; i++ {
 		long.InstalledTelemetrySignals = append(long.InstalledTelemetrySignals, fmt.Sprintf("signal%d", i))
 	}
@@ -119,10 +119,10 @@ func TestInstalledTelemetryConfigRoundTrips(t *testing.T) {
 	v := NewView()
 	tracesPct := uint32(20)
 	energySource := "bundle-kepler"
-	v.NoteDiagnostics(&continuumv1.Diagnostics{
+	v.NoteDiagnostics(&ikhnosv1.Diagnostics{
 		AgentVersion:              "1",
 		InstalledTelemetrySignals: []string{"traces", "energy"},
-		InstalledTelemetryConfig: &continuumv1.InstalledTelemetryConfig{
+		InstalledTelemetryConfig: &ikhnosv1.InstalledTelemetryConfig{
 			ExportEndpoint:           "otel-collector.example:4317",
 			RedactionEnabled:         true,
 			ResourceDetectionEnabled: false,
@@ -153,7 +153,7 @@ func TestInstalledTelemetryConfigRoundTrips(t *testing.T) {
 
 	// No telemetry config reported at all: the doc field stays nil, not present-with-zero-values.
 	v2 := NewView()
-	v2.NoteDiagnostics(&continuumv1.Diagnostics{AgentVersion: "1"}, false, time.Now())
+	v2.NoteDiagnostics(&ikhnosv1.Diagnostics{AgentVersion: "1"}, false, time.Now())
 	if doc2 := v2.diagDoc(); doc2.InstalledTelemetryConfig != nil {
 		t.Fatalf("InstalledTelemetryConfig = %v, want nil when the agent reported none", doc2.InstalledTelemetryConfig)
 	}
@@ -162,14 +162,14 @@ func TestInstalledTelemetryConfigRoundTrips(t *testing.T) {
 func TestExportHealthRelaysTheAgentsStatesAndBoundsThem(t *testing.T) {
 	at := time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
 	v := NewView()
-	h := &continuumv1.ExportHealth{
+	h := &ikhnosv1.ExportHealth{
 		ScrapedAt: timestamppb.New(at), PodsReached: 3, PodsFailed: 1, LastError: "read 10.0.0.2:8888: connection reset",
-		Routes: []*continuumv1.ExportRouteHealth{
-			{Exporter: "otlphttp/logs", Signal: "logs", State: continuumv1.ExportRouteHealth_FAILING, Sent: 5, Failed: 9, LastSentAt: timestamppb.New(at.Add(-time.Hour)), LastFailedAt: timestamppb.New(at)},
-			{Exporter: "zipkin/traces", Signal: "traces", State: continuumv1.ExportRouteHealth_State(99)},
+		Routes: []*ikhnosv1.ExportRouteHealth{
+			{Exporter: "otlphttp/logs", Signal: "logs", State: ikhnosv1.ExportRouteHealth_FAILING, Sent: 5, Failed: 9, LastSentAt: timestamppb.New(at.Add(-time.Hour)), LastFailedAt: timestamppb.New(at)},
+			{Exporter: "zipkin/traces", Signal: "traces", State: ikhnosv1.ExportRouteHealth_State(99)},
 		},
 	}
-	v.NoteDiagnostics(&continuumv1.Diagnostics{AgentVersion: "1", ExportHealth: h}, false, at)
+	v.NoteDiagnostics(&ikhnosv1.Diagnostics{AgentVersion: "1", ExportHealth: h}, false, at)
 	got := v.diagDoc().ExportHealth
 	if got == nil || got.PodsReached != 3 || got.PodsFailed != 1 || got.ScrapedAt != "2026-10-06T12:00:00Z" || got.LastError == "" || len(got.Routes) != 2 {
 		t.Fatalf("ExportHealth = %+v", got)
@@ -185,38 +185,38 @@ func TestExportHealthRelaysTheAgentsStatesAndBoundsThem(t *testing.T) {
 
 	// Nothing reported (health off, or an older agent): no field at all, not an empty one.
 	v2 := NewView()
-	v2.NoteDiagnostics(&continuumv1.Diagnostics{AgentVersion: "1"}, false, at)
+	v2.NoteDiagnostics(&ikhnosv1.Diagnostics{AgentVersion: "1"}, false, at)
 	if v2.diagDoc().ExportHealth != nil {
 		t.Error("ExportHealth must be nil when the agent reported none")
 	}
 
 	// An agent cannot make the server hold more routes than it should.
-	many := &continuumv1.ExportHealth{}
+	many := &ikhnosv1.ExportHealth{}
 	for i := 0; i < agents.MaxDiagExportRoutes+10; i++ {
-		many.Routes = append(many.Routes, &continuumv1.ExportRouteHealth{Exporter: "e", Signal: "logs"})
+		many.Routes = append(many.Routes, &ikhnosv1.ExportRouteHealth{Exporter: "e", Signal: "logs"})
 	}
 	v3 := NewView()
-	v3.NoteDiagnostics(&continuumv1.Diagnostics{AgentVersion: "1", ExportHealth: many}, false, at)
+	v3.NoteDiagnostics(&ikhnosv1.Diagnostics{AgentVersion: "1", ExportHealth: many}, false, at)
 	if n := len(v3.diagDoc().ExportHealth.Routes); n != agents.MaxDiagExportRoutes {
 		t.Errorf("%d routes kept, want %d", n, agents.MaxDiagExportRoutes)
 	}
 }
 
-func workloads(n int, prefix string) []*continuumv1.WorkloadFacts {
-	out := make([]*continuumv1.WorkloadFacts, n)
+func workloads(n int, prefix string) []*ikhnosv1.WorkloadFacts {
+	out := make([]*ikhnosv1.WorkloadFacts, n)
 	for i := range out {
-		out[i] = &continuumv1.WorkloadFacts{Key: fmt.Sprintf("ns%d/Deployment/%s%d", i%50, prefix, i), Name: fmt.Sprintf("%s%d", prefix, i), Namespace: fmt.Sprintf("ns%d", i%50), Kind: "Deployment",
+		out[i] = &ikhnosv1.WorkloadFacts{Key: fmt.Sprintf("ns%d/Deployment/%s%d", i%50, prefix, i), Name: fmt.Sprintf("%s%d", prefix, i), Namespace: fmt.Sprintf("ns%d", i%50), Kind: "Deployment",
 			Labels: map[string]string{"app": fmt.Sprintf("%s%d", prefix, i), "tier": "backend"}}
 	}
 	return out
 }
 
 // pieces cuts a full picture into n chunks the way an agent does (cluster facts in the first).
-func pieces(seq uint64, cluster *continuumv1.ClusterFacts, nodes []*continuumv1.NodeFacts, ws []*continuumv1.WorkloadFacts, n int, id string) []*continuumv1.Sync {
-	var out []*continuumv1.Sync
+func pieces(seq uint64, cluster *ikhnosv1.ClusterFacts, nodes []*ikhnosv1.NodeFacts, ws []*ikhnosv1.WorkloadFacts, n int, id string) []*ikhnosv1.Sync {
+	var out []*ikhnosv1.Sync
 	per := (len(ws) + n - 1) / n
 	for i := 0; i < n; i++ {
-		s := &continuumv1.Sync{Seq: seq, Full: true, ChunkIndex: uint32(i), ChunkTotal: uint32(n), SyncId: id}
+		s := &ikhnosv1.Sync{Seq: seq, Full: true, ChunkIndex: uint32(i), ChunkTotal: uint32(n), SyncId: id}
 		if i == 0 {
 			s.Cluster, s.Nodes = cluster, nodes
 		}
@@ -243,10 +243,10 @@ func TestSixtyThousandWorkloadsArriveInChunksAndApplyOnTheLastOne(t *testing.T) 
 	defer cancel()
 	id, key, leaf := r.approvedAgent(t, testkit.FP)
 	s := r.agentStream(t, ctx, id, key, leaf)
-	cluster := &continuumv1.ClusterFacts{Uid: testkit.FP}
+	cluster := &ikhnosv1.ClusterFacts{Uid: testkit.FP}
 
 	// An earlier, smaller picture is what a reader sees until the whole new one is in.
-	if err := s.Send(testkit.SyncMsg(&continuumv1.Sync{Seq: 1, Full: true, Cluster: cluster, Nodes: nodes("old", 2), Workloads: workloads(10, "old")})); err != nil {
+	if err := s.Send(testkit.SyncMsg(&ikhnosv1.Sync{Seq: 1, Full: true, Cluster: cluster, Nodes: nodes("old", 2), Workloads: workloads(10, "old")})); err != nil {
 		t.Fatal(err)
 	}
 	if m, err := s.Recv(); err != nil || m.GetAck().GetSeq() != 1 {
@@ -277,7 +277,7 @@ func TestSixtyThousandWorkloadsArriveInChunksAndApplyOnTheLastOne(t *testing.T) 
 		t.Fatal("the chunked picture was not counted")
 	}
 	// The stream still works for ordinary messages afterwards.
-	if err := s.Send(testkit.SyncMsg(&continuumv1.Sync{Seq: 3, Workloads: workloads(1, "late")})); err != nil {
+	if err := s.Send(testkit.SyncMsg(&ikhnosv1.Sync{Seq: 3, Workloads: workloads(1, "late")})); err != nil {
 		t.Fatal(err)
 	}
 	if m, err := s.Recv(); err != nil || m.GetAck().GetSeq() != 3 {
@@ -290,10 +290,10 @@ func TestAConnectionDroppedMidPictureLeavesThePreviousStateAlone(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	id, key, leaf := r.approvedAgent(t, testkit.FP)
-	cluster := &continuumv1.ClusterFacts{Uid: testkit.FP}
+	cluster := &ikhnosv1.ClusterFacts{Uid: testkit.FP}
 	cctx, ccancel := context.WithCancel(ctx)
 	s := r.agentStream(t, cctx, id, key, leaf)
-	if err := s.Send(testkit.SyncMsg(&continuumv1.Sync{Seq: 1, Full: true, Cluster: cluster, Nodes: nodes("old", 4), Workloads: workloads(20, "old")})); err != nil {
+	if err := s.Send(testkit.SyncMsg(&ikhnosv1.Sync{Seq: 1, Full: true, Cluster: cluster, Nodes: nodes("old", 4), Workloads: workloads(20, "old")})); err != nil {
 		t.Fatal(err)
 	}
 	if m, err := s.Recv(); err != nil || m.GetAck() == nil {
@@ -335,40 +335,40 @@ func TestAConnectionDroppedMidPictureLeavesThePreviousStateAlone(t *testing.T) {
 }
 
 func TestChunkSeriesBreakingARuleAreRefusedAndChangeNothing(t *testing.T) {
-	cluster := &continuumv1.ClusterFacts{Uid: testkit.FP}
+	cluster := &ikhnosv1.ClusterFacts{Uid: testkit.FP}
 	cases := []struct {
 		name   string
 		limits *facts.Limits
-		send   func(id string) []*continuumv1.Sync
+		send   func(id string) []*ikhnosv1.Sync
 		code   codes.Code
 		text   string
 	}{
-		{"chunk out of order", nil, func(string) []*continuumv1.Sync {
+		{"chunk out of order", nil, func(string) []*ikhnosv1.Sync {
 			p := pieces(2, cluster, nil, workloads(30, "w"), 3, "2-a")
-			return []*continuumv1.Sync{p[0], p[2]}
+			return []*ikhnosv1.Sync{p[0], p[2]}
 		}, codes.InvalidArgument, "was expected"},
-		{"a continuation with no start", nil, func(string) []*continuumv1.Sync {
+		{"a continuation with no start", nil, func(string) []*ikhnosv1.Sync {
 			return pieces(2, cluster, nil, workloads(30, "w"), 3, "2-a")[1:2]
 		}, codes.InvalidArgument, "no chunk 0"},
-		{"another series in the middle", nil, func(string) []*continuumv1.Sync {
+		{"another series in the middle", nil, func(string) []*ikhnosv1.Sync {
 			a, b := pieces(2, cluster, nil, workloads(30, "w"), 3, "2-a"), pieces(2, cluster, nil, workloads(30, "w"), 3, "2-b")
-			return []*continuumv1.Sync{a[0], b[1]}
+			return []*ikhnosv1.Sync{a[0], b[1]}
 		}, codes.InvalidArgument, "was expected"},
-		{"too many chunks", nil, func(string) []*continuumv1.Sync {
+		{"too many chunks", nil, func(string) []*ikhnosv1.Sync {
 			s := pieces(2, cluster, nil, workloads(3, "w"), 3, "2-a")[0]
 			s.ChunkTotal = maxChunkTotal + 1
-			return []*continuumv1.Sync{s}
+			return []*ikhnosv1.Sync{s}
 		}, codes.InvalidArgument, "at most"},
-		{"no sync id", nil, func(string) []*continuumv1.Sync {
+		{"no sync id", nil, func(string) []*ikhnosv1.Sync {
 			s := pieces(2, cluster, nil, workloads(3, "w"), 3, "")[0]
-			return []*continuumv1.Sync{s}
+			return []*ikhnosv1.Sync{s}
 		}, codes.InvalidArgument, "sync_id"},
-		{"cluster facts in a later chunk", nil, func(string) []*continuumv1.Sync {
+		{"cluster facts in a later chunk", nil, func(string) []*ikhnosv1.Sync {
 			p := pieces(2, cluster, nil, workloads(30, "w"), 3, "2-a")
 			p[1].Cluster = cluster
 			return p[:2]
 		}, codes.InvalidArgument, "first chunk"},
-		{"over the limits, caught before the rest is buffered", &facts.Limits{Nodes: 10, Namespaces: 10, Workloads: 50, Bytes: 1 << 20}, func(string) []*continuumv1.Sync {
+		{"over the limits, caught before the rest is buffered", &facts.Limits{Nodes: 10, Namespaces: 10, Workloads: 50, Bytes: 1 << 20}, func(string) []*ikhnosv1.Sync {
 			return pieces(2, cluster, nil, workloads(120, "w"), 4, "2-a") // 30 per chunk: the second takes it to 60
 		}, codes.ResourceExhausted, "workloads"},
 	}
@@ -382,7 +382,7 @@ func TestChunkSeriesBreakingARuleAreRefusedAndChangeNothing(t *testing.T) {
 			defer cancel()
 			id, key, leaf := r.approvedAgent(t, testkit.FP)
 			s := r.agentStream(t, ctx, id, key, leaf)
-			if err := s.Send(testkit.SyncMsg(&continuumv1.Sync{Seq: 1, Full: true, Cluster: cluster, Nodes: nodes("old", 2), Workloads: workloads(5, "old")})); err != nil {
+			if err := s.Send(testkit.SyncMsg(&ikhnosv1.Sync{Seq: 1, Full: true, Cluster: cluster, Nodes: nodes("old", 2), Workloads: workloads(5, "old")})); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := s.Recv(); err != nil {
@@ -408,13 +408,13 @@ func TestChunkSeriesBreakingARuleAreRefusedAndChangeNothing(t *testing.T) {
 
 func TestAnAssembledPictureMustMeetTheLimitsAsAWhole(t *testing.T) {
 	// Every piece is within the limits, and so is each running total until the last piece takes it over: the assembly refuses that piece.
-	a, err := newAssembly(&continuumv1.Sync{Seq: 1, Full: true, ChunkTotal: 3, SyncId: "1-a"}, time.Now())
+	a, err := newAssembly(&ikhnosv1.Sync{Seq: 1, Full: true, ChunkTotal: 3, SyncId: "1-a"}, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}
 	l := facts.Limits{Nodes: 10, Namespaces: 10, Workloads: 25, Bytes: 1 << 20}
 	for i := 0; i < 3; i++ {
-		_, err = a.add(&continuumv1.Sync{Seq: 1, Full: true, ChunkIndex: uint32(i), ChunkTotal: 3, SyncId: "1-a", Workloads: workloads(10, fmt.Sprint("p", i))}, l)
+		_, err = a.add(&ikhnosv1.Sync{Seq: 1, Full: true, ChunkIndex: uint32(i), ChunkTotal: 3, SyncId: "1-a", Workloads: workloads(10, fmt.Sprint("p", i))}, l)
 		if i < 2 && err != nil {
 			t.Fatalf("piece %d: %v", i, err)
 		}
@@ -423,8 +423,8 @@ func TestAnAssembledPictureMustMeetTheLimitsAsAWhole(t *testing.T) {
 		t.Fatalf("the third piece: %v", err)
 	}
 	// The byte limit is enforced on what is buffered, too.
-	a, _ = newAssembly(&continuumv1.Sync{Seq: 1, Full: true, ChunkTotal: 2, SyncId: "1-a"}, time.Now())
-	if _, err := a.add(&continuumv1.Sync{Seq: 1, Full: true, ChunkTotal: 2, SyncId: "1-a", Workloads: workloads(100, "b")}, facts.Limits{Nodes: 1, Namespaces: 1, Workloads: 1000, Bytes: 500}); err == nil {
+	a, _ = newAssembly(&ikhnosv1.Sync{Seq: 1, Full: true, ChunkTotal: 2, SyncId: "1-a"}, time.Now())
+	if _, err := a.add(&ikhnosv1.Sync{Seq: 1, Full: true, ChunkTotal: 2, SyncId: "1-a", Workloads: workloads(100, "b")}, facts.Limits{Nodes: 1, Namespaces: 1, Workloads: 1000, Bytes: 500}); err == nil {
 		t.Fatal("a piece over the byte limit was buffered")
 	}
 	if a.expired(time.Now()) || !a.expired(time.Now().Add(assemblyTTL+time.Second)) {
@@ -444,9 +444,9 @@ func TestDropConsentOverridesStripsPausedProbeFields(t *testing.T) {
 	r.hub.Mu.Lock()
 	r.hub.Views[id] = NewView()
 	r.hub.Mu.Unlock()
-	n := &continuumv1.NodeFacts{Key: "n", Name: "n", MachineId: "m", SystemUuid: "u", ProviderId: "p",
+	n := &ikhnosv1.NodeFacts{Key: "n", Name: "n", MachineId: "m", SystemUuid: "u", ProviderId: "p",
 		OsImage: "o", KernelVersion: "k", ContainerRuntime: "c", KubeletVersion: "kv", Architecture: "amd64"}
-	if _, _, err := r.hub.ApplySync(a, &continuumv1.Sync{Full: true, Cluster: &continuumv1.ClusterFacts{Uid: testkit.FP}, Nodes: []*continuumv1.NodeFacts{n}}, false); err != nil {
+	if _, _, err := r.hub.ApplySync(a, &ikhnosv1.Sync{Full: true, Cluster: &ikhnosv1.ClusterFacts{Uid: testkit.FP}, Nodes: []*ikhnosv1.NodeFacts{n}}, false); err != nil {
 		t.Fatal(err)
 	}
 	got := r.hub.Views[id].State.Nodes["n"]
@@ -461,9 +461,9 @@ func TestDropConsentOverridesStripsPausedProbeFields(t *testing.T) {
 	if _, err := r.hub.SetConsent(testkit.AsRole(accounts.RoleAdmin), "actor", id, agents.Consent{}); err != nil {
 		t.Fatal(err)
 	}
-	n2 := &continuumv1.NodeFacts{Key: "n", Name: "n", MachineId: "m", SystemUuid: "u", ProviderId: "p",
+	n2 := &ikhnosv1.NodeFacts{Key: "n", Name: "n", MachineId: "m", SystemUuid: "u", ProviderId: "p",
 		OsImage: "o", KernelVersion: "k", ContainerRuntime: "c", KubeletVersion: "kv", Architecture: "amd64"}
-	if _, _, err := r.hub.ApplySync(a, &continuumv1.Sync{Cluster: &continuumv1.ClusterFacts{Uid: testkit.FP}, Nodes: []*continuumv1.NodeFacts{n2}}, true); err != nil {
+	if _, _, err := r.hub.ApplySync(a, &ikhnosv1.Sync{Cluster: &ikhnosv1.ClusterFacts{Uid: testkit.FP}, Nodes: []*ikhnosv1.NodeFacts{n2}}, true); err != nil {
 		t.Fatal(err)
 	}
 	if got := r.hub.Views[id].State.Nodes["n"]; got.MachineId != "m" || got.Architecture != "amd64" {
@@ -484,9 +484,9 @@ func TestDropConsentOverridesFiltersExcludedNamespaces(t *testing.T) {
 	r.hub.Mu.Lock()
 	r.hub.Views[id] = NewView()
 	r.hub.Mu.Unlock()
-	sy := &continuumv1.Sync{Full: true, Cluster: &continuumv1.ClusterFacts{Uid: testkit.FP},
-		Namespaces: []*continuumv1.NamespaceFacts{{Key: "ns/shop", Name: "shop"}, {Key: "ns/batch", Name: "batch"}},
-		Workloads:  []*continuumv1.WorkloadFacts{{Key: "shop/Deployment/web", Namespace: "shop"}, {Key: "batch/Job/x", Namespace: "batch"}}}
+	sy := &ikhnosv1.Sync{Full: true, Cluster: &ikhnosv1.ClusterFacts{Uid: testkit.FP},
+		Namespaces: []*ikhnosv1.NamespaceFacts{{Key: "ns/shop", Name: "shop"}, {Key: "ns/batch", Name: "batch"}},
+		Workloads:  []*ikhnosv1.WorkloadFacts{{Key: "shop/Deployment/web", Namespace: "shop"}, {Key: "batch/Job/x", Namespace: "batch"}}}
 	if _, _, err := r.hub.ApplySync(a, sy, false); err != nil {
 		t.Fatal(err)
 	}
@@ -515,7 +515,7 @@ func TestNoteFlowsRespectsTierAndPauseConsent(t *testing.T) {
 	r.hub.Mu.Lock()
 	r.hub.Views[id] = NewView()
 	r.hub.Mu.Unlock()
-	fb := &continuumv1.FlowBatch{WindowSeconds: 60}
+	fb := &ikhnosv1.FlowBatch{WindowSeconds: 60}
 
 	if applied, err := r.hub.noteFlows(id, 1, fb, time.Now()); applied || err != nil {
 		t.Fatalf("tier 1 (workloads not approved) should be quietly ignored: applied=%v err=%v", applied, err)
@@ -546,7 +546,7 @@ func TestNoteFlowsRespectsTierAndPauseConsent(t *testing.T) {
 		t.Fatal("a paused batch was applied anyway")
 	}
 
-	bad := &continuumv1.FlowBatch{WindowSeconds: 0} // malformed: still an error, not just skipped
+	bad := &ikhnosv1.FlowBatch{WindowSeconds: 0} // malformed: still an error, not just skipped
 	if _, err := r.hub.SetConsent(testkit.AsRole(accounts.RoleAdmin), "actor", id, agents.Consent{}); err != nil {
 		t.Fatal(err)
 	}
@@ -568,7 +568,7 @@ func TestNoteFlowsReplacesPodFlowsWholesale(t *testing.T) {
 
 	first := testkit.FlowOf(testkit.WorkloadEndpoint("a/Deployment/x"), testkit.ExternalEndpoint("1.2.3.4"), 443, 1)
 	first.SrcPod = "x-abc-1"
-	if applied, err := r.hub.noteFlows(id, 2, &continuumv1.FlowBatch{WindowSeconds: 60, PodFlows: []*continuumv1.Flow{first}}, time.Now()); !applied || err != nil {
+	if applied, err := r.hub.noteFlows(id, 2, &ikhnosv1.FlowBatch{WindowSeconds: 60, PodFlows: []*ikhnosv1.Flow{first}}, time.Now()); !applied || err != nil {
 		t.Fatalf("applied=%v err=%v", applied, err)
 	}
 	r.hub.Mu.Lock()
@@ -580,7 +580,7 @@ func TestNoteFlowsReplacesPodFlowsWholesale(t *testing.T) {
 
 	second := testkit.FlowOf(testkit.WorkloadEndpoint("a/Deployment/x"), testkit.ExternalEndpoint("1.2.3.4"), 443, 1)
 	second.SrcPod = "x-abc-2"
-	if applied, err := r.hub.noteFlows(id, 2, &continuumv1.FlowBatch{WindowSeconds: 60, PodFlows: []*continuumv1.Flow{second}}, time.Now()); !applied || err != nil {
+	if applied, err := r.hub.noteFlows(id, 2, &ikhnosv1.FlowBatch{WindowSeconds: 60, PodFlows: []*ikhnosv1.Flow{second}}, time.Now()); !applied || err != nil {
 		t.Fatalf("applied=%v err=%v", applied, err)
 	}
 	r.hub.Mu.Lock()
@@ -590,7 +590,7 @@ func TestNoteFlowsReplacesPodFlowsWholesale(t *testing.T) {
 		t.Fatalf("a second batch must replace the first pod pair, not add to it: %v", got)
 	}
 
-	if applied, err := r.hub.noteFlows(id, 2, &continuumv1.FlowBatch{WindowSeconds: 60}, time.Now()); !applied || err != nil {
+	if applied, err := r.hub.noteFlows(id, 2, &ikhnosv1.FlowBatch{WindowSeconds: 60}, time.Now()); !applied || err != nil {
 		t.Fatalf("applied=%v err=%v", applied, err)
 	}
 	r.hub.Mu.Lock()
@@ -613,8 +613,8 @@ func TestNoteFlowsReplacesLinkSaturationWholesale(t *testing.T) {
 	r.hub.Mu.Unlock()
 
 	pct := 55.0
-	first := &continuumv1.FlowBatch{WindowSeconds: 60, Collectors: []*continuumv1.CollectorInfo{
-		{Node: "n1", Method: "ebpf", LinkSaturation: []*continuumv1.LinkSaturation{{Iface: "eth0", ThroughputBps: 1, SaturationPct: &pct}}},
+	first := &ikhnosv1.FlowBatch{WindowSeconds: 60, Collectors: []*ikhnosv1.CollectorInfo{
+		{Node: "n1", Method: "ebpf", LinkSaturation: []*ikhnosv1.LinkSaturation{{Iface: "eth0", ThroughputBps: 1, SaturationPct: &pct}}},
 	}}
 	if applied, err := r.hub.noteFlows(id, 2, first, time.Now()); !applied || err != nil {
 		t.Fatalf("applied=%v err=%v", applied, err)
@@ -626,7 +626,7 @@ func TestNoteFlowsReplacesLinkSaturationWholesale(t *testing.T) {
 		t.Fatalf("linkSat after the first batch = %v", got)
 	}
 
-	second := &continuumv1.FlowBatch{WindowSeconds: 60, Collectors: []*continuumv1.CollectorInfo{{Node: "n1", Method: "ebpf"}}}
+	second := &ikhnosv1.FlowBatch{WindowSeconds: 60, Collectors: []*ikhnosv1.CollectorInfo{{Node: "n1", Method: "ebpf"}}}
 	if applied, err := r.hub.noteFlows(id, 2, second, time.Now()); !applied || err != nil {
 		t.Fatalf("applied=%v err=%v", applied, err)
 	}
@@ -649,7 +649,7 @@ func TestNoteMeasurementsRespectsPauseConsent(t *testing.T) {
 	r.hub.Views[id] = v
 	r.hub.Mu.Unlock()
 
-	m := &continuumv1.Measurements{Results: []*continuumv1.PathResult{{TargetId: "t1", Samples: 5, RttMinMs: 1, RttP50Ms: 2, RttP95Ms: 3}}}
+	m := &ikhnosv1.Measurements{Results: []*ikhnosv1.PathResult{{TargetId: "t1", Samples: 5, RttMinMs: 1, RttP50Ms: 2, RttP95Ms: 3}}}
 	r.hub.NoteMeasurements(id, m)
 	if len(v.Paths["t1"].Rounds) != 1 {
 		t.Fatalf("a measurement with no pause in force should be recorded: %+v", v.Paths["t1"])
@@ -694,7 +694,7 @@ func TestConsentDocSaysWhetherTheAgentHasConfirmedANarrowing(t *testing.T) {
 	// The agent reports back something that does not yet match (an older report, or a different pause):
 	// still unconfirmed.
 	r.hub.Mu.Lock()
-	v.NoteDiagnostics(&continuumv1.Diagnostics{AgentVersion: "1", PausedCollectors: []string{}}, false, *r.now)
+	v.NoteDiagnostics(&ikhnosv1.Diagnostics{AgentVersion: "1", PausedCollectors: []string{}}, false, *r.now)
 	r.hub.Mu.Unlock()
 	if cd := v.consentDoc(); cd.Confirmed || cd.SetAt == "" {
 		t.Fatalf("a report that does not yet show the pause should stay unconfirmed: %+v", cd)
@@ -702,7 +702,7 @@ func TestConsentDocSaysWhetherTheAgentHasConfirmedANarrowing(t *testing.T) {
 
 	// The agent catches up: confirmed, and SetAt drops off since there is nothing stale to show any more.
 	r.hub.Mu.Lock()
-	v.NoteDiagnostics(&continuumv1.Diagnostics{AgentVersion: "1", PausedCollectors: []string{"flow"}}, false, *r.now)
+	v.NoteDiagnostics(&ikhnosv1.Diagnostics{AgentVersion: "1", PausedCollectors: []string{"flow"}}, false, *r.now)
 	r.hub.Mu.Unlock()
 	if cd := v.consentDoc(); !cd.Confirmed || cd.SetAt != "" {
 		t.Fatalf("a report matching the ask should be confirmed with no SetAt: %+v", cd)
@@ -727,7 +727,7 @@ func TestConsentDocSaysWhetherTheAgentHasConfirmedANarrowing(t *testing.T) {
 	// of excluded namespaces reads as confirmed even though this test cannot tell the diagnostic "batch" is
 	// the same namespace, which is the documented, accepted limitation.
 	r.hub.Mu.Lock()
-	v.NoteDiagnostics(&continuumv1.Diagnostics{AgentVersion: "1", PausedCollectors: []string{"flow"}, ExcludedNamespaces: 1}, false, *r.now)
+	v.NoteDiagnostics(&ikhnosv1.Diagnostics{AgentVersion: "1", PausedCollectors: []string{"flow"}, ExcludedNamespaces: 1}, false, *r.now)
 	r.hub.Mu.Unlock()
 	if cd := v.consentDoc(); !cd.Confirmed {
 		t.Fatalf("matching pause and matching excluded count should confirm: %+v", cd)
@@ -757,8 +757,8 @@ func TestConsentDocWarnsAboutExcludedNamespacesTheAgentHasNeverReported(t *testi
 
 	// The agent's first picture reports "shop" only. "batch" was asked to be excluded but the agent has
 	// never actually seen it - a likely typo, or one that has not rolled out yet either way.
-	sy := &continuumv1.Sync{Full: true, Cluster: &continuumv1.ClusterFacts{Uid: testkit.FP},
-		Namespaces: []*continuumv1.NamespaceFacts{{Key: "ns/shop", Name: "shop"}}}
+	sy := &ikhnosv1.Sync{Full: true, Cluster: &ikhnosv1.ClusterFacts{Uid: testkit.FP},
+		Namespaces: []*ikhnosv1.NamespaceFacts{{Key: "ns/shop", Name: "shop"}}}
 	if _, _, err := r.hub.ApplySync(a, sy, false); err != nil {
 		t.Fatal(err)
 	}
@@ -778,7 +778,7 @@ func TestConsentDocWarnsAboutExcludedNamespacesTheAgentHasNeverReported(t *testi
 	// The agent's next picture (a delta, on top of what it already reported) includes "batch" too - even
 	// though it is excluded and dropConsentOverrides strips it back out before it is ever stored, the name
 	// itself was seen before that filter ran, so the warning about it clears on the very next read.
-	sy2 := &continuumv1.Sync{Namespaces: []*continuumv1.NamespaceFacts{{Key: "ns/batch", Name: "batch"}}}
+	sy2 := &ikhnosv1.Sync{Namespaces: []*ikhnosv1.NamespaceFacts{{Key: "ns/batch", Name: "batch"}}}
 	if _, _, err := r.hub.ApplySync(a, sy2, false); err != nil {
 		t.Fatal(err)
 	}
@@ -803,8 +803,8 @@ func TestKnownNamespacesOnlyLearnsFromASyncTheServerActuallyAccepted(t *testing.
 	a, _ := r.st.GetAgent(r.ctx, "org-1", id)
 
 	// Two namespaces against a limit of one: refused outright, nothing merged.
-	sy := &continuumv1.Sync{Full: true, Cluster: &continuumv1.ClusterFacts{Uid: testkit.FP},
-		Namespaces: []*continuumv1.NamespaceFacts{{Key: "ns/shop", Name: "shop"}, {Key: "ns/batch", Name: "batch"}}}
+	sy := &ikhnosv1.Sync{Full: true, Cluster: &ikhnosv1.ClusterFacts{Uid: testkit.FP},
+		Namespaces: []*ikhnosv1.NamespaceFacts{{Key: "ns/shop", Name: "shop"}, {Key: "ns/batch", Name: "batch"}}}
 	if _, _, err := r.hub.ApplySync(a, sy, false); err == nil {
 		t.Fatal("a sync over the namespace limit should have been refused")
 	}

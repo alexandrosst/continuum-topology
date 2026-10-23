@@ -10,10 +10,10 @@ import (
 	"sync"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/kernel"
-	"continuum/internal/pki"
-	"continuum/internal/store"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/pki"
+	"ikhnos/internal/store"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -98,7 +98,7 @@ func (c *Service) identity(ctx context.Context) (store.Agent, error) {
 		// server issued to that very agent, so telling it its own state discloses nothing.
 		if prev, gerr := c.Store.FindAgent(ctx, leaf.Subject.CommonName); gerr == nil && (prev.Status == store.StatusRevoked || prev.Status == store.StatusRejected) {
 			st := status.New(codes.Unauthenticated, "agent is not approved")
-			if withDetail, derr := st.WithDetails(&continuumv1.Revoked{Reason: prev.Reason}); derr == nil {
+			if withDetail, derr := st.WithDetails(&ikhnosv1.Revoked{Reason: prev.Reason}); derr == nil {
 				st = withDetail
 			}
 			return store.Agent{}, st.Err()
@@ -138,7 +138,7 @@ func (c *Service) tap(ctx context.Context, info *tap.Info) (context.Context, err
 	return nil, status.Error(codes.Unauthenticated, "a client certificate is required")
 }
 
-const enrollmentPrefix = "/continuum.v1.Enrollment/"
+const enrollmentPrefix = "/ikhnos.v1.Enrollment/"
 
 func (c *Service) unary(ctx context.Context, req any, info *grpc.UnaryServerInfo, h grpc.UnaryHandler) (resp any, err error) {
 	defer c.RecoverPanic(info.FullMethod, &err)
@@ -206,7 +206,7 @@ type GRPCServer struct {
 
 // NewGRPC builds the listener-facing gRPC server. Every method not under the Enrollment service
 // requires an approved agent's client certificate.
-func (c *Service) NewGRPC(certs *pki.ServerCerts, agentSvc continuumv1.AgentServiceServer) *GRPCServer {
+func (c *Service) NewGRPC(certs *pki.ServerCerts, agentSvc ikhnosv1.AgentServiceServer) *GRPCServer {
 	cfg := c.ServerTLS(certs)
 	cfg.NextProtos = []string{"h2"}
 	build := func(maxRecv int) *grpc.Server {
@@ -218,8 +218,8 @@ func (c *Service) NewGRPC(certs *pki.ServerCerts, agentSvc continuumv1.AgentServ
 			grpc.MaxRecvMsgSize(maxRecv),
 			grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{MinTime: 20 * time.Second, PermitWithoutStream: true}),
 		)
-		continuumv1.RegisterEnrollmentServer(s, &enrollmentServer{c: c})
-		continuumv1.RegisterAgentServiceServer(s, agentSvc)
+		ikhnosv1.RegisterEnrollmentServer(s, &enrollmentServer{c: c})
+		ikhnosv1.RegisterAgentServiceServer(s, agentSvc)
 		return s
 	}
 	return &GRPCServer{tlsCfg: cfg, anon: build(maxEnrollMessage), auth: build(maxAgentMessage), trustProxy: c.TrustAgentProxy}
@@ -416,37 +416,37 @@ func (g *GRPCServer) markStopped() {
 }
 
 type enrollmentServer struct {
-	continuumv1.UnimplementedEnrollmentServer
+	ikhnosv1.UnimplementedEnrollmentServer
 	c *Service
 }
 
-func (e *enrollmentServer) Enroll(ctx context.Context, r *continuumv1.EnrollRequest) (*continuumv1.EnrollResponse, error) {
+func (e *enrollmentServer) Enroll(ctx context.Context, r *ikhnosv1.EnrollRequest) (*ikhnosv1.EnrollResponse, error) {
 	resp, err := e.c.Enroll(ctx, PeerIP(ctx), r)
 	return resp, ToStatus(err)
 }
 
-func (e *enrollmentServer) Rejoin(ctx context.Context, r *continuumv1.RejoinRequest) (*continuumv1.RenewResponse, error) {
+func (e *enrollmentServer) Rejoin(ctx context.Context, r *ikhnosv1.RejoinRequest) (*ikhnosv1.RenewResponse, error) {
 	resp, err := e.c.Rejoin(ctx, PeerIP(ctx), r)
 	return resp, ToStatus(err)
 }
 
-func (e *enrollmentServer) RenewTelemetryCert(ctx context.Context, r *continuumv1.RenewTelemetryCertRequest) (*continuumv1.RenewTelemetryCertResponse, error) {
+func (e *enrollmentServer) RenewTelemetryCert(ctx context.Context, r *ikhnosv1.RenewTelemetryCertRequest) (*ikhnosv1.RenewTelemetryCertResponse, error) {
 	resp, err := e.c.Certs.RenewTelemetryCert(ctx, PeerIP(ctx), r)
 	return resp, ToStatus(err)
 }
 
-func (e *enrollmentServer) PollEnrollment(ctx context.Context, r *continuumv1.PollRequest) (*continuumv1.PollResponse, error) {
+func (e *enrollmentServer) PollEnrollment(ctx context.Context, r *ikhnosv1.PollRequest) (*ikhnosv1.PollResponse, error) {
 	resp, err := e.c.Poll(ctx, PeerIP(ctx), r)
 	return resp, ToStatus(err)
 }
 
 // BaseAgentService implements Renew; Connect is provided by the sync hub.
 type BaseAgentService struct {
-	continuumv1.UnimplementedAgentServiceServer
+	ikhnosv1.UnimplementedAgentServiceServer
 	C *Service
 }
 
-func (b *BaseAgentService) Renew(ctx context.Context, r *continuumv1.RenewRequest) (*continuumv1.RenewResponse, error) {
+func (b *BaseAgentService) Renew(ctx context.Context, r *ikhnosv1.RenewRequest) (*ikhnosv1.RenewResponse, error) {
 	a, ok := AgentFrom(ctx)
 	if !ok {
 		return nil, status.Error(codes.Unauthenticated, "no agent")
@@ -455,5 +455,5 @@ func (b *BaseAgentService) Renew(ctx context.Context, r *continuumv1.RenewReques
 	if err != nil {
 		return nil, ToStatus(err)
 	}
-	return &continuumv1.RenewResponse{LeafDer: leaf, CaDer: b.C.CA.DER, NotAfter: kernel.TSProto(&notAfter)}, nil
+	return &ikhnosv1.RenewResponse{LeafDer: leaf, CaDer: b.C.CA.DER, NotAfter: kernel.TSProto(&notAfter)}, nil
 }

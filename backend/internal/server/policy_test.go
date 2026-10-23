@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"continuum/internal/accounts"
+	"ikhnos/internal/accounts"
 )
 
 func TestDecideFailsClosed(t *testing.T) {

@@ -100,7 +100,7 @@ export default function MailSettings({ conn }: { conn: Conn }) {
             <Input value={username} onChange={(e) => { setSaved(false); setUsername(e.target.value) }} data-testid="mail-username" />
           </Field>
           <Field label="From address" hint={badFrom ? 'Looks incomplete.' : 'What recipients see the code arrive from.'} hintId="mail-from-hint">
-            <Input value={from} onChange={(e) => { setSaved(false); setFrom(e.target.value) }} placeholder="continuum@example.com" aria-invalid={badFrom} aria-describedby="mail-from-hint" className={clsx(badFrom && 'border-bad/60')} data-testid="mail-from" />
+            <Input value={from} onChange={(e) => { setSaved(false); setFrom(e.target.value) }} placeholder="ikhnos@example.com" aria-invalid={badFrom} aria-describedby="mail-from-hint" className={clsx(badFrom && 'border-bad/60')} data-testid="mail-from" />
           </Field>
         </div>
 

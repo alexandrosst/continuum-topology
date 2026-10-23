@@ -1,6 +1,6 @@
 # CA key: backup, restore and rotation
 
-The Continuum CA (`<data-dir>/pki/ca.crt` and `ca.key`) signs every agent certificate and the
+The Ikhnos CA (`<data-dir>/pki/ca.crt` and `ca.key`) signs every agent certificate and the
 agent-facing server certificate. Whoever holds `ca.key` can issue certificates the server trusts, so
 treat it like any other signing key.
 
@@ -37,9 +37,9 @@ Back up **both** files together, and the passphrase separately from them:
 If the key is encrypted (`--ca-key-passphrase-file`), the backup is encrypted too: argon2id
 (64 MiB, 3 passes) with AES-256-GCM. Losing the passphrase is losing the CA.
 
-The iperf3 credentials the server issues for cluster-link throughput tests (`link_iperf_credentials` in `continuum.db`) are sealed under a key derived from `ca.key`. A database restored with a different CA key cannot open them; the server then treats them as missing and makes new ones, which reach the clusters in their next configuration. Nothing is done on the clusters.
+The iperf3 credentials the server issues for cluster-link throughput tests (`link_iperf_credentials` in `ikhnos.db`) are sealed under a key derived from `ca.key`. A database restored with a different CA key cannot open them; the server then treats them as missing and makes new ones, which reach the clusters in their next configuration. Nothing is done on the clusters.
 
-`continuum.db` (agents, tokens, audit trail) is separate. The CA is enough to keep existing agents
+`ikhnos.db` (agents, tokens, audit trail) is separate. The CA is enough to keep existing agents
 working; the database is needed to keep their approvals and history.
 
 ## Restore
@@ -54,14 +54,14 @@ Restoring only the database onto a new CA creates a different pin: every agent w
 
 ## Encrypting an existing key
 
-Add `--ca-key-passphrase-file /path/to/file` (or `CONTINUUM_CA_KEY_PASSPHRASE_FILE`) and restart. The
+Add `--ca-key-passphrase-file /path/to/file` (or `IKHNOS_CA_KEY_PASSPHRASE_FILE`) and restart. The
 plaintext key is replaced by an encrypted one after it has been read back successfully. The pin does
 not change. The file holds the passphrase (at least 12 characters); a single trailing newline is
 ignored. Keep it `0400`/`0600` and outside the data directory (a mounted Kubernetes Secret works).
 Removing the flag later does not decrypt the key; the server will refuse to start until the passphrase
 is supplied again.
 
-**The `continuum-server` Helm chart does this for you by default** (`pki.encryptAtRest`, on unless set
+**The `ikhnos-server` Helm chart does this for you by default** (`pki.encryptAtRest`, on unless set
 to `false`): it passes `--ca-key-auto-passphrase`, so the server mints its own passphrase with
 `crypto/rand` on first start and persists it at `<data-dir>/pki/ca.passphrase`, reusing it on every
 restart. See deploy/README.md, "Encrypting the CA key at rest", for what that trades away, how to back
@@ -97,7 +97,7 @@ both CAs are trusted.
 
 ## Operator CAs and operator certificates
 
-A regional operator has its own CA, separate from the Continuum CA above. Its receiver and client
+A regional operator has its own CA, separate from the Ikhnos CA above. Its receiver and client
 certificates last 30 days and are renewed by their holders (an install from before renewal keeps its
 365-day certificates until its first renewal). Revoking an operator or a sender stops renewal; it does
 not revoke a certificate, which stops working when it ends, within 30 days (up to 365 for a legacy

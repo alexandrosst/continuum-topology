@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"time"
 
-	"continuum/internal/httpkit"
-	"continuum/internal/kernel"
-	"continuum/internal/store"
+	"ikhnos/internal/httpkit"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/store"
 )
 
 // mountProposals puts the proposals' routes on r. Every one needs an editor.

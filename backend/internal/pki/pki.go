@@ -136,7 +136,7 @@ func LoadOrCreateWith(dir string, opts Options) (*CA, error) {
 	now := time.Now()
 	tmpl := &x509.Certificate{
 		SerialNumber:          serial,
-		Subject:               pkix.Name{CommonName: "Continuum internal CA", Organization: []string{"Continuum"}},
+		Subject:               pkix.Name{CommonName: "Ikhnos internal CA", Organization: []string{"Ikhnos"}},
 		NotBefore:             now.Add(-clockSkew),
 		NotAfter:              now.Add(caTTL),
 		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
@@ -165,7 +165,7 @@ func LoadOrCreateWith(dir string, opts Options) (*CA, error) {
 }
 
 func warnUnencrypted(log *slog.Logger, keyPath string) {
-	log.Warn("the CA private key is stored UNENCRYPTED on disk (mode 0600). Anyone who can read this file, or a backup of it, can issue certificates that this server trusts. Set --ca-key-passphrase-file (env CONTINUUM_CA_KEY_PASSPHRASE_FILE) to encrypt it", "file", keyPath)
+	log.Warn("the CA private key is stored UNENCRYPTED on disk (mode 0600). Anyone who can read this file, or a backup of it, can issue certificates that this server trusts. Set --ca-key-passphrase-file (env IKHNOS_CA_KEY_PASSPHRASE_FILE) to encrypt it", "file", keyPath)
 }
 
 // writeKey writes the CA key, encrypted when a passphrase is given, atomically and with mode 0600. An
@@ -553,7 +553,7 @@ func senderLabel(sender string, max int) string {
 var OperatorCATTL = 10 * 365 * 24 * time.Hour
 
 // NewOperatorCA mints a private issuing CA for one regional operator: a fresh ECDSA P-256 key and a SELF-SIGNED
-// certificate (CN "Continuum operator CA <operatorID>", O orgID), NOT chained to this CA. Being its own root is
+// certificate (CN "Ikhnos operator CA <operatorID>", O orgID), NOT chained to this CA. Being its own root is
 // the point: a receiver that trusts only this certificate rejects every certificate this org CA, or any other
 // operator's CA, ever signed. MaxPathLen 0 lets it sign leaves and nothing else.
 //
@@ -576,7 +576,7 @@ func (ca *CA) NewOperatorCA(operatorID, orgID string) (issuer *CA, certPEM, keyP
 	now := time.Now()
 	tmpl := &x509.Certificate{
 		SerialNumber:          serial,
-		Subject:               pkix.Name{CommonName: "Continuum operator CA " + operatorID, Organization: []string{orgID}},
+		Subject:               pkix.Name{CommonName: "Ikhnos operator CA " + operatorID, Organization: []string{orgID}},
 		NotBefore:             now.Add(-clockSkew),
 		NotAfter:              now.Add(OperatorCATTL),
 		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
@@ -600,7 +600,7 @@ func (ca *CA) NewOperatorCA(operatorID, orgID string) (issuer *CA, certPEM, keyP
 		if log == nil {
 			log = slog.Default()
 		}
-		log.Warn("a per-operator CA private key is stored UNENCRYPTED in the database, like the org CA key. Set --ca-key-passphrase-file (env CONTINUUM_CA_KEY_PASSPHRASE_FILE) to encrypt operator CA keys at rest", "operator", operatorID)
+		log.Warn("a per-operator CA private key is stored UNENCRYPTED in the database, like the org CA key. Set --ca-key-passphrase-file (env IKHNOS_CA_KEY_PASSPHRASE_FILE) to encrypt operator CA keys at rest", "operator", operatorID)
 	}
 	issuer = &CA{cert: cert, key: key, DER: der, passphrase: ca.passphrase, log: ca.log}
 	return issuer, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), keyPEM, nil
@@ -650,7 +650,7 @@ func (ca *CA) VerifyExpiredAgent(der []byte) (*x509.Certificate, error) {
 
 // renewContext is mixed into what a renewal proof signs, so a signature made for this purpose can never be
 // replayed as any other signature by the same key.
-const renewContext = "continuum telemetry certificate renewal v1\x00"
+const renewContext = "ikhnos telemetry certificate renewal v1\x00"
 
 // ProveRenewal is what the holder of a certificate's private key sends to renew it: an ECDSA signature,
 // by that key, over the new certificate request. Together with the old certificate it shows the request comes
@@ -707,7 +707,7 @@ func (s *ServerCerts) GetCertificate(*tls.ClientHelloInfo) (*tls.Certificate, er
 	now := time.Now()
 	tmpl := &x509.Certificate{
 		SerialNumber:          serial,
-		Subject:               pkix.Name{CommonName: "Continuum server", Organization: []string{"Continuum"}},
+		Subject:               pkix.Name{CommonName: "Ikhnos server", Organization: []string{"Ikhnos"}},
 		NotBefore:             now.Add(-clockSkew),
 		NotAfter:              now.Add(serverTTL),
 		KeyUsage:              x509.KeyUsageDigitalSignature,

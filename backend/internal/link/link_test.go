@@ -11,16 +11,16 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 )
 
-func peer(id, name string, addrs ...string) *continuumv1.LinkPeer {
-	return &continuumv1.LinkPeer{ClusterId: id, Name: name, Addresses: addrs}
+func peer(id, name string, addrs ...string) *ikhnosv1.LinkPeer {
+	return &ikhnosv1.LinkPeer{ClusterId: id, Name: name, Addresses: addrs}
 }
 
 func TestPeersPlaceAnAddressAndDropWhatCannotBePlaced(t *testing.T) {
 	p := NewPeers()
-	dropped := p.Set("cl-me", []*continuumv1.LinkPeer{
+	dropped := p.Set("cl-me", []*ikhnosv1.LinkPeer{
 		peer("cl-a", "A", "10.0.0.1", "10.0.0.2", "::ffff:10.0.0.9", "127.0.0.1", "169.254.1.1", "not-an-ip", "0.0.0.0"),
 		peer("cl-b", "B", "10.0.0.2", "192.168.5.5"), // 10.0.0.2 is claimed by both
 		peer("cl-me", "me", "10.9.9.9"),              // never a peer of itself
@@ -55,7 +55,7 @@ func TestPeersPlaceAnAddressAndDropWhatCannotBePlaced(t *testing.T) {
 }
 
 func TestPeersAreBounded(t *testing.T) {
-	var in []*continuumv1.LinkPeer
+	var in []*ikhnosv1.LinkPeer
 	for i := 0; i < MaxPeers+10; i++ {
 		in = append(in, peer("cl-"+string(rune('a'+i%26))+string(rune('a'+i/26)), "", "10.1."+itoaT(i)+".1"))
 	}
@@ -71,7 +71,7 @@ func TestPeersAreBounded(t *testing.T) {
 	for i := range addrs {
 		addrs[i] = "10.2." + itoaT(i/250) + "." + itoaT(i%250+1)
 	}
-	p.Set("me", []*continuumv1.LinkPeer{peer("cl-x", "", addrs...)})
+	p.Set("me", []*ikhnosv1.LinkPeer{peer("cl-x", "", addrs...)})
 	if n := len(p.List()[0].Addresses); n != MaxAddresses {
 		t.Fatalf("kept %d addresses, want %d", n, MaxAddresses)
 	}
@@ -79,7 +79,7 @@ func TestPeersAreBounded(t *testing.T) {
 
 func TestAnEmptyConfigClearsThePeers(t *testing.T) {
 	p := NewPeers()
-	p.Set("me", []*continuumv1.LinkPeer{peer("cl-a", "A", "10.0.0.1")})
+	p.Set("me", []*ikhnosv1.LinkPeer{peer("cl-a", "A", "10.0.0.1")})
 	p.Set("me", nil)
 	if !p.Empty() || p.Lookup("10.0.0.1") != "" {
 		t.Fatal("peers survived an empty Config")
@@ -88,9 +88,9 @@ func TestAnEmptyConfigClearsThePeers(t *testing.T) {
 
 func TestMeterCountsPerPeerAndIgnoresEveryoneElse(t *testing.T) {
 	p := NewPeers()
-	p.Set("cl-me", []*continuumv1.LinkPeer{peer("cl-a", "Alpha", "10.0.0.1"), peer("cl-b", "Beta", "10.0.0.2")})
+	p.Set("cl-me", []*ikhnosv1.LinkPeer{peer("cl-a", "Alpha", "10.0.0.1"), peer("cl-b", "Beta", "10.0.0.2")})
 	m := NewMeter(p)
-	m.Observe([]*continuumv1.RawFlow{
+	m.Observe([]*ikhnosv1.RawFlow{
 		// we dialed A: we sent bytes_out
 		{Client: true, PeerIp: "10.0.0.1", Connections: 2, BytesOut: 1000, BytesIn: 50, SegsOut: 100, Retransmits: 3, RtoRetransmits: 1, RttUs: 12000, JitterUs: 800, HandshakeUs: 30000},
 		// A dialed us: what we sent is bytes_in
@@ -101,23 +101,23 @@ func TestMeterCountsPerPeerAndIgnoresEveryoneElse(t *testing.T) {
 	})
 	got := render(m)
 	want := map[string]string{
-		`continuum_link_connections_total{cluster="cl-me",peer="cl-a"}`:                          "3",
-		`continuum_link_sent_bytes_total{cluster="cl-me",peer="cl-a"}`:                           "1400", // 1000 as caller + 400 as callee
-		`continuum_link_received_bytes_total{cluster="cl-me",peer="cl-a"}`:                       "57",
-		`continuum_link_segments_sent_total{cluster="cl-me",peer="cl-a"}`:                        "110",
-		`continuum_link_retransmits_total{cluster="cl-me",peer="cl-a"}`:                          "3",
-		`continuum_link_rto_retransmits_total{cluster="cl-me",peer="cl-a"}`:                      "1",
-		`continuum_link_connection_failures_total{cluster="cl-me",peer="cl-a",reason="refused"}`: "1",
-		`continuum_link_connection_failures_total{cluster="cl-me",peer="cl-a",reason="timeout"}`: "2",
-		`continuum_link_connection_failures_total{cluster="cl-me",peer="cl-a",reason="other"}`:   "2", // 5 failed, 3 named
-		`continuum_link_connections_total{cluster="cl-me",peer="cl-b"}`:                          "1",
-		`continuum_link_rtt_seconds_count{cluster="cl-me",peer="cl-a"}`:                          "1",
-		`continuum_link_rtt_seconds_bucket{cluster="cl-me",peer="cl-a",le="0.02"}`:               "1",
-		`continuum_link_rtt_seconds_bucket{cluster="cl-me",peer="cl-a",le="0.01"}`:               "0",
-		`continuum_link_rtt_seconds_bucket{cluster="cl-me",peer="cl-b",le="0.2"}`:                "0",
-		`continuum_link_rtt_seconds_bucket{cluster="cl-me",peer="cl-b",le="0.5"}`:                "1",
-		`continuum_link_rtt_seconds_bucket{cluster="cl-me",peer="cl-b",le="+Inf"}`:               "1",
-		`continuum_link_peer_info{cluster="cl-me",peer="cl-a",peer_name="Alpha"}`:                "1",
+		`ikhnos_link_connections_total{cluster="cl-me",peer="cl-a"}`:                          "3",
+		`ikhnos_link_sent_bytes_total{cluster="cl-me",peer="cl-a"}`:                           "1400", // 1000 as caller + 400 as callee
+		`ikhnos_link_received_bytes_total{cluster="cl-me",peer="cl-a"}`:                       "57",
+		`ikhnos_link_segments_sent_total{cluster="cl-me",peer="cl-a"}`:                        "110",
+		`ikhnos_link_retransmits_total{cluster="cl-me",peer="cl-a"}`:                          "3",
+		`ikhnos_link_rto_retransmits_total{cluster="cl-me",peer="cl-a"}`:                      "1",
+		`ikhnos_link_connection_failures_total{cluster="cl-me",peer="cl-a",reason="refused"}`: "1",
+		`ikhnos_link_connection_failures_total{cluster="cl-me",peer="cl-a",reason="timeout"}`: "2",
+		`ikhnos_link_connection_failures_total{cluster="cl-me",peer="cl-a",reason="other"}`:   "2", // 5 failed, 3 named
+		`ikhnos_link_connections_total{cluster="cl-me",peer="cl-b"}`:                          "1",
+		`ikhnos_link_rtt_seconds_count{cluster="cl-me",peer="cl-a"}`:                          "1",
+		`ikhnos_link_rtt_seconds_bucket{cluster="cl-me",peer="cl-a",le="0.02"}`:               "1",
+		`ikhnos_link_rtt_seconds_bucket{cluster="cl-me",peer="cl-a",le="0.01"}`:               "0",
+		`ikhnos_link_rtt_seconds_bucket{cluster="cl-me",peer="cl-b",le="0.2"}`:                "0",
+		`ikhnos_link_rtt_seconds_bucket{cluster="cl-me",peer="cl-b",le="0.5"}`:                "1",
+		`ikhnos_link_rtt_seconds_bucket{cluster="cl-me",peer="cl-b",le="+Inf"}`:               "1",
+		`ikhnos_link_peer_info{cluster="cl-me",peer="cl-a",peer_name="Alpha"}`:                "1",
 	}
 	for k, v := range want {
 		if got[k] != v {
@@ -129,7 +129,7 @@ func TestMeterCountsPerPeerAndIgnoresEveryoneElse(t *testing.T) {
 			t.Errorf("a non-peer leaked into the output: %s", k)
 		}
 		// The kernel's RTT mean deviation is not kept; the one-way probe's delay variation replaces it.
-		if strings.Contains(k, "continuum_link_jitter_seconds") {
+		if strings.Contains(k, "ikhnos_link_jitter_seconds") {
 			t.Errorf("the passive jitter histogram is back: %s", k)
 		}
 	}
@@ -137,19 +137,19 @@ func TestMeterCountsPerPeerAndIgnoresEveryoneElse(t *testing.T) {
 
 func TestMeterShowsPeersBeforeAnyTrafficAndForgetsRemovedOnes(t *testing.T) {
 	p := NewPeers()
-	p.Set("cl-me", []*continuumv1.LinkPeer{peer("cl-a", "A", "10.0.0.1")})
+	p.Set("cl-me", []*ikhnosv1.LinkPeer{peer("cl-a", "A", "10.0.0.1")})
 	m := NewMeter(p)
 	ck := &clock{t: time.Unix(1_700_000_000, 0)}
 	m.now = ck.now
 	got := render(m)
-	if got[`continuum_link_retransmits_total{cluster="cl-me",peer="cl-a"}`] != "0" {
+	if got[`ikhnos_link_retransmits_total{cluster="cl-me",peer="cl-a"}`] != "0" {
 		t.Fatal("a configured peer with no traffic should report zero, not be absent")
 	}
-	if _, ok := got[`continuum_link_last_observation_timestamp_seconds{cluster="cl-me",peer="cl-a"}`]; ok {
+	if _, ok := got[`ikhnos_link_last_observation_timestamp_seconds{cluster="cl-me",peer="cl-a"}`]; ok {
 		t.Fatal("a last-observation time was reported before any traffic")
 	}
-	m.Observe([]*continuumv1.RawFlow{{Client: true, PeerIp: "10.0.0.1", Connections: 1}})
-	p.Set("cl-me", []*continuumv1.LinkPeer{peer("cl-b", "B", "10.0.0.2")})
+	m.Observe([]*ikhnosv1.RawFlow{{Client: true, PeerIp: "10.0.0.1", Connections: 1}})
+	p.Set("cl-me", []*ikhnosv1.LinkPeer{peer("cl-b", "B", "10.0.0.2")})
 	m.Forget()
 	got = render(m)
 	for k := range got {
@@ -169,20 +169,20 @@ func TestMeterShowsPeersBeforeAnyTrafficAndForgetsRemovedOnes(t *testing.T) {
 
 func TestMeterWithNoPeersIsSilentAndANilMeterIsSafe(t *testing.T) {
 	m := NewMeter(NewPeers())
-	m.Observe([]*continuumv1.RawFlow{{Client: true, PeerIp: "10.0.0.1", Connections: 1}})
+	m.Observe([]*ikhnosv1.RawFlow{{Client: true, PeerIp: "10.0.0.1", Connections: 1}})
 	if len(m.per) != 0 {
 		t.Fatal("recorded traffic with no peers")
 	}
 	var nilMeter *Meter
-	nilMeter.Observe([]*continuumv1.RawFlow{{PeerIp: "10.0.0.1"}})
+	nilMeter.Observe([]*ikhnosv1.RawFlow{{PeerIp: "10.0.0.1"}})
 	nilMeter.Forget()
 }
 
 func TestOutputIsWellFormedPrometheusText(t *testing.T) {
 	p := NewPeers()
-	p.Set(`we"ird`, []*continuumv1.LinkPeer{peer("cl-a", "A \"quoted\"\nname", "10.0.0.1")})
+	p.Set(`we"ird`, []*ikhnosv1.LinkPeer{peer("cl-a", "A \"quoted\"\nname", "10.0.0.1")})
 	m := NewMeter(p)
-	m.Observe([]*continuumv1.RawFlow{{Client: true, PeerIp: "10.0.0.1", RttUs: 5000}})
+	m.Observe([]*ikhnosv1.RawFlow{{Client: true, PeerIp: "10.0.0.1", RttUs: 5000}})
 	var b bytes.Buffer
 	m.Write(&b)
 	text := b.String() // the scanner below drains the buffer
@@ -255,9 +255,9 @@ func itoaT(n int) string {
 
 func TestMetricsEndpointServesTheMeterAndOnlyGET(t *testing.T) {
 	p := NewPeers()
-	p.Set("cl-me", []*continuumv1.LinkPeer{peer("cl-a", "A", "10.0.0.1")})
+	p.Set("cl-me", []*ikhnosv1.LinkPeer{peer("cl-a", "A", "10.0.0.1")})
 	m := NewMeter(p)
-	m.Observe([]*continuumv1.RawFlow{{Client: true, PeerIp: "10.0.0.1", Connections: 4}})
+	m.Observe([]*ikhnosv1.RawFlow{{Client: true, PeerIp: "10.0.0.1", Connections: 4}})
 	srv := httptest.NewServer(m.Handler())
 	defer srv.Close()
 	resp, err := http.Get(srv.URL + "/metrics")
@@ -269,7 +269,7 @@ func TestMetricsEndpointServesTheMeterAndOnlyGET(t *testing.T) {
 	if resp.StatusCode != 200 || !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/plain") {
 		t.Fatalf("status %d, type %q", resp.StatusCode, resp.Header.Get("Content-Type"))
 	}
-	if !strings.Contains(string(body), `continuum_link_connections_total{cluster="cl-me",peer="cl-a"} 4`) {
+	if !strings.Contains(string(body), `ikhnos_link_connections_total{cluster="cl-me",peer="cl-a"} 4`) {
 		t.Fatalf("body:\n%s", body)
 	}
 	for _, path := range []string{"/", "/healthz", "/debug/pprof/"} {
@@ -292,7 +292,7 @@ func TestMetricsEndpointServesTheMeterAndOnlyGET(t *testing.T) {
 // An address two peers both claim is unusable for both, whichever came first: it must leave the first one's address list too,
 // or the probes would aim at it and record the results under one peer only.
 func TestAClashingAddressLeavesEveryPeersList(t *testing.T) {
-	for name, in := range map[string][]*continuumv1.LinkPeer{
+	for name, in := range map[string][]*ikhnosv1.LinkPeer{
 		"a first": {peer("a", "A", "10.0.0.1", "10.0.0.2"), peer("b", "B", "10.0.0.1", "10.0.0.3")},
 		"b first": {peer("b", "B", "10.0.0.1", "10.0.0.3"), peer("a", "A", "10.0.0.1", "10.0.0.2")},
 	} {
@@ -319,7 +319,7 @@ func TestAClashingAddressLeavesEveryPeersList(t *testing.T) {
 		}
 	}
 	// A peer left with only clashing addresses is dropped, in either order.
-	for name, in := range map[string][]*continuumv1.LinkPeer{
+	for name, in := range map[string][]*ikhnosv1.LinkPeer{
 		"a first": {peer("a", "A", "10.0.0.5", "10.0.0.9"), peer("b", "B", "10.0.0.9")},
 		"b first": {peer("b", "B", "10.0.0.9"), peer("a", "A", "10.0.0.5", "10.0.0.9")},
 	} {
@@ -339,7 +339,7 @@ func TestAClashingAddressLeavesEveryPeersList(t *testing.T) {
 
 func TestARepeatedAddressOfOnePeerIsKeptOnce(t *testing.T) {
 	p := NewPeers()
-	p.Set("me", []*continuumv1.LinkPeer{peer("a", "A", "203.0.113.5", "203.0.113.5", "::ffff:203.0.113.5")})
+	p.Set("me", []*ikhnosv1.LinkPeer{peer("a", "A", "203.0.113.5", "203.0.113.5", "::ffff:203.0.113.5")})
 	l := p.List()
 	if len(l) != 1 || len(l[0].Addresses) != 1 || p.Lookup("203.0.113.5") != "a" {
 		t.Fatalf("%+v", l)
@@ -349,7 +349,7 @@ func TestARepeatedAddressOfOnePeerIsKeptOnce(t *testing.T) {
 // A scrape is rendered before it is written to the client, so a client that reads slowly cannot hold the meter's lock.
 func TestAStalledScraperDoesNotBlockTheMeter(t *testing.T) {
 	p := NewPeers()
-	p.Set("me", []*continuumv1.LinkPeer{peer("a", "A", "10.0.0.1")})
+	p.Set("me", []*ikhnosv1.LinkPeer{peer("a", "A", "10.0.0.1")})
 	m := NewMeter(p)
 	w := &blockingWriter{entered: make(chan struct{}), release: make(chan struct{})}
 	done := make(chan struct{})
@@ -357,7 +357,7 @@ func TestAStalledScraperDoesNotBlockTheMeter(t *testing.T) {
 	<-w.entered
 	observed := make(chan struct{})
 	go func() {
-		m.Observe([]*continuumv1.RawFlow{{Client: true, PeerIp: "10.0.0.1", Connections: 1}})
+		m.Observe([]*ikhnosv1.RawFlow{{Client: true, PeerIp: "10.0.0.1", Connections: 1}})
 		close(observed)
 	}()
 	select {
@@ -367,7 +367,7 @@ func TestAStalledScraperDoesNotBlockTheMeter(t *testing.T) {
 	}
 	close(w.release)
 	<-done
-	if !strings.Contains(w.buf.String(), "continuum_link_peer_info") {
+	if !strings.Contains(w.buf.String(), "ikhnos_link_peer_info") {
 		t.Errorf("incomplete scrape:\n%s", w.buf.String())
 	}
 }
@@ -389,15 +389,15 @@ func (b *blockingWriter) Write(p []byte) (int, error) {
 // rate from them.
 func TestUnknownBytesAreNotReportedAsZero(t *testing.T) {
 	p := NewPeers()
-	p.Set("me", []*continuumv1.LinkPeer{peer("a", "A", "10.0.0.1"), peer("b", "B", "10.0.0.2")})
+	p.Set("me", []*ikhnosv1.LinkPeer{peer("a", "A", "10.0.0.1"), peer("b", "B", "10.0.0.2")})
 	m := NewMeter(p)
-	m.ObserveRows([]*continuumv1.RawFlow{{Client: true, PeerIp: "10.0.0.1", Connections: 3, BytesOut: 0}}, false)
-	m.ObserveRows([]*continuumv1.RawFlow{{Client: true, PeerIp: "10.0.0.2", Connections: 1, BytesOut: 500}}, true)
+	m.ObserveRows([]*ikhnosv1.RawFlow{{Client: true, PeerIp: "10.0.0.1", Connections: 3, BytesOut: 0}}, false)
+	m.ObserveRows([]*ikhnosv1.RawFlow{{Client: true, PeerIp: "10.0.0.2", Connections: 1, BytesOut: 500}}, true)
 	got := render(m)
-	if _, ok := got[`continuum_link_sent_bytes_total{cluster="me",peer="a"}`]; ok {
+	if _, ok := got[`ikhnos_link_sent_bytes_total{cluster="me",peer="a"}`]; ok {
 		t.Error("a byte counter of zero was written for a peer whose bytes are unknown")
 	}
-	if got[`continuum_link_sent_bytes_total{cluster="me",peer="b"}`] != "500" || got[`continuum_link_connections_total{cluster="me",peer="a"}`] != "3" {
+	if got[`ikhnos_link_sent_bytes_total{cluster="me",peer="b"}`] != "500" || got[`ikhnos_link_connections_total{cluster="me",peer="a"}`] != "3" {
 		t.Errorf("the rest must be unaffected: %v", got)
 	}
 	d := m.peersDoc()
@@ -405,8 +405,8 @@ func TestUnknownBytesAreNotReportedAsZero(t *testing.T) {
 		t.Errorf("%+v", d)
 	}
 	// Once a node that can count bytes reports, the counters appear.
-	m.ObserveRows([]*continuumv1.RawFlow{{Client: true, PeerIp: "10.0.0.1", BytesOut: 70}}, true)
-	if render(m)[`continuum_link_sent_bytes_total{cluster="me",peer="a"}`] != "70" || m.peersDoc().Peers[0].BytesUnknown {
+	m.ObserveRows([]*ikhnosv1.RawFlow{{Client: true, PeerIp: "10.0.0.1", BytesOut: 70}}, true)
+	if render(m)[`ikhnos_link_sent_bytes_total{cluster="me",peer="a"}`] != "70" || m.peersDoc().Peers[0].BytesUnknown {
 		t.Error("known bytes did not clear the unknown state")
 	}
 	// The load check takes no rate from an unknown total, and does not treat it as an idle link.
@@ -423,15 +423,15 @@ func TestUnknownBytesAreNotReportedAsZero(t *testing.T) {
 // it must not show in any series nor in the totals the throughput gate reads as load.
 func TestTheProbersOwnPortsAreNotCounted(t *testing.T) {
 	p := NewPeers()
-	p.Set("me", []*continuumv1.LinkPeer{peer("a", "A", "10.0.0.1")})
+	p.Set("me", []*ikhnosv1.LinkPeer{peer("a", "A", "10.0.0.1")})
 	m := NewMeter(p)
 	if err := m.IgnorePorts("8861, 18900-18999,8862"); err != nil {
 		t.Fatal(err)
 	}
-	row := func(client bool, proto string, port uint32) *continuumv1.RawFlow {
-		return &continuumv1.RawFlow{Client: client, Protocol: proto, PeerIp: "10.0.0.1", Port: port, Connections: 1, BytesOut: 1000, BytesIn: 1000, RttUs: 500, HandshakeUs: 300, FailedAttempts: 1, FailedTimeout: 1}
+	row := func(client bool, proto string, port uint32) *ikhnosv1.RawFlow {
+		return &ikhnosv1.RawFlow{Client: client, Protocol: proto, PeerIp: "10.0.0.1", Port: port, Connections: 1, BytesOut: 1000, BytesIn: 1000, RttUs: 500, HandshakeUs: 300, FailedAttempts: 1, FailedTimeout: 1}
 	}
-	m.Observe([]*continuumv1.RawFlow{
+	m.Observe([]*ikhnosv1.RawFlow{
 		row(true, "tcp", 8861), row(false, "tcp", 8861), // OWAMP control, both ends
 		row(true, "tcp", 8862), row(false, "tcp", 8862), row(true, "udp", 8862), // iperf3
 		row(false, "udp", 18900), row(true, "udp", 18999), // OWAMP test packets
@@ -443,7 +443,7 @@ func TestTheProbersOwnPortsAreNotCounted(t *testing.T) {
 		t.Errorf("%+v", d)
 	}
 	// The ports just outside the ranges, and real traffic, are still the link's.
-	m.Observe([]*continuumv1.RawFlow{row(true, "tcp", 8860), row(true, "udp", 19000), row(true, "tcp", 443)})
+	m.Observe([]*ikhnosv1.RawFlow{row(true, "tcp", 8860), row(true, "udp", 19000), row(true, "tcp", 443)})
 	if s := m.per["a"]; s == nil || s.connections != 3 {
 		t.Errorf("%+v", s)
 	}
@@ -461,19 +461,19 @@ func TestTheProbersOwnPortsAreNotCounted(t *testing.T) {
 // cluster) are not the link's traffic, whoever they go to; a workload's, from another address, still are.
 func TestTheAgentsOwnConnectionsAreNotCounted(t *testing.T) {
 	p := NewPeers()
-	p.Set("me", []*continuumv1.LinkPeer{peer("a", "A", "10.0.0.1")})
+	p.Set("me", []*ikhnosv1.LinkPeer{peer("a", "A", "10.0.0.1")})
 	m := NewMeter(p)
 	if err := m.IgnoreOwn("10.1.2.3, fd00::5"); err != nil {
 		t.Fatal(err)
 	}
-	row := func(local string) *continuumv1.RawFlow {
-		return &continuumv1.RawFlow{Client: true, Protocol: "tcp", LocalIp: local, PeerIp: "10.0.0.1", Port: 5559, Connections: 1, FailedAttempts: 1}
+	row := func(local string) *ikhnosv1.RawFlow {
+		return &ikhnosv1.RawFlow{Client: true, Protocol: "tcp", LocalIp: local, PeerIp: "10.0.0.1", Port: 5559, Connections: 1, FailedAttempts: 1}
 	}
-	m.Observe([]*continuumv1.RawFlow{row("10.1.2.3"), row("::ffff:10.1.2.3"), row("fd00::5")})
+	m.Observe([]*ikhnosv1.RawFlow{row("10.1.2.3"), row("::ffff:10.1.2.3"), row("fd00::5")})
 	if len(m.per) != 0 {
 		t.Fatalf("the agent's own connections were counted: %+v", m.per["a"])
 	}
-	m.Observe([]*continuumv1.RawFlow{row("10.1.2.4")})
+	m.Observe([]*ikhnosv1.RawFlow{row("10.1.2.4")})
 	if s := m.per["a"]; s == nil || s.connections != 1 || s.failed["other"] != 1 {
 		t.Errorf("a workload's connection was not counted: %+v", s)
 	}
@@ -491,9 +491,9 @@ func TestTheAgentsOwnConnectionsAreNotCounted(t *testing.T) {
 // measurements try first. One that carried anything, or got a round trip, still is.
 func TestAnAddressOnlyFailedAttemptsWereSeenOnIsNotPreferred(t *testing.T) {
 	p := NewPeers()
-	p.Set("me", []*continuumv1.LinkPeer{peer("a", "A", "10.0.0.1", "100.64.0.45")})
+	p.Set("me", []*ikhnosv1.LinkPeer{peer("a", "A", "10.0.0.1", "100.64.0.45")})
 	m := NewMeter(p)
-	m.Observe([]*continuumv1.RawFlow{
+	m.Observe([]*ikhnosv1.RawFlow{
 		{Client: true, Protocol: "tcp", PeerIp: "100.64.0.45", Port: 5559, FailedAttempts: 40, FailedTimeout: 40},
 		{Client: true, Protocol: "tcp", PeerIp: "10.0.0.1", Port: 443, Connections: 1, BytesOut: 10, RttUs: 500},
 	})

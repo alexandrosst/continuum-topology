@@ -50,7 +50,7 @@ interface Workspace {
 }
 
 const SAVE_DELAY_MS = 1500
-const PENDING_PREFIX = 'continuum-workspace-pending'
+const PENDING_PREFIX = 'ikhnos-workspace-pending'
 /** One marker per organisation: unsaved edits made in one are never applied on top of another. */
 const pendingKey = () => `${PENDING_PREFIX}/${conn?.org ?? ''}`
 

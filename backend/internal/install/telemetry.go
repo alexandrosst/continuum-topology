@@ -171,7 +171,7 @@ type Processing struct {
 	Extra []Processor `json:"extra"`
 }
 
-// Owner is who the telemetry belongs to, stamped on everything as continuum.org.id and continuum.cluster.id. Empty: not stamped.
+// Owner is who the telemetry belongs to, stamped on everything as ikhnos.org.id and ikhnos.cluster.id. Empty: not stamped.
 type Owner struct {
 	OrgID     string `json:"orgId"`
 	ClusterID string `json:"clusterId"`

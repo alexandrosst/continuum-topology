@@ -11,13 +11,13 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/accounts"
-	"continuum/internal/fusion"
-	"continuum/internal/fusionapi"
-	"continuum/internal/kernel"
-	"continuum/internal/operators"
-	"continuum/internal/store"
-	"continuum/internal/testkit"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/fusion"
+	"ikhnos/internal/fusionapi"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/operators"
+	"ikhnos/internal/store"
+	"ikhnos/internal/testkit"
 )
 
 // fakeKube is the cluster as FusionControl sees it: four named workloads, a Secret, and the calls made on them.
@@ -154,14 +154,14 @@ func (k *fakeKube) allReady() {
 	}
 }
 
-var fusionNames = []string{"continuum-fusion-prometheus", "continuum-fusion-loki", "continuum-fusion-tempo", "continuum-fusion-central"}
+var fusionNames = []string{"ikhnos-fusion-prometheus", "ikhnos-fusion-loki", "ikhnos-fusion-tempo", "ikhnos-fusion-central"}
 
 func newFusion(t *testing.T, a *adminRig) (*fusion.FusionControl, *fakeKube) {
 	t.Helper()
 	k := newFakeKube(fusionNames...)
 	// No cache and no Prometheus to ask: a test changes the fake cluster between two calls and expects to see it. The
 	// cache has its own tests (TestStatusIsReadOnceForEveryoneAsking and friends).
-	f := &fusion.FusionControl{Name: "continuum-fusion", Namespace: "continuum", Kube: k, Org: "org-1", StatusTTL: -1, Data: &fusionapi.Client{}}
+	f := &fusion.FusionControl{Name: "ikhnos-fusion", Namespace: "ikhnos", Kube: k, Org: "org-1", StatusTTL: -1, Data: &fusionapi.Client{}}
 	return f, k
 }
 
@@ -182,7 +182,7 @@ func TestFusionStatusFollowsTheWorkloads(t *testing.T) {
 		t.Fatalf("started, none ready: %+v", st)
 	}
 	now = now.Add(2 * time.Minute)
-	k.ready["continuum-fusion-loki"] = 1
+	k.ready["ikhnos-fusion-loki"] = 1
 	if st := f.Status(ctx); st.State != "starting" {
 		t.Fatalf("some ready: %+v", st)
 	}
@@ -237,11 +237,11 @@ func TestEnableFusionPreparesTheCentralOperatorThenStartsEverything(t *testing.T
 		t.Errorf("state after enable = %q", st.State)
 	}
 	// The gateway's certificate went in before anything started, under the name the chart's Secret has.
-	if k.secretIn != "continuum-fusion-central-receiver-tls" || len(k.secret["tls.crt"]) == 0 || len(k.secret["tls.key"]) == 0 || len(k.secret["ca.crt"]) == 0 {
+	if k.secretIn != "ikhnos-fusion-central-receiver-tls" || len(k.secret["tls.crt"]) == 0 || len(k.secret["tls.key"]) == 0 || len(k.secret["ca.crt"]) == 0 {
 		t.Fatalf("secret %q keys %v", k.secretIn, keysOf(k.secret))
 	}
 	// Stores first, the gateway last.
-	if got := strings.Join(k.calls, ","); got != "continuum-fusion-prometheus,continuum-fusion-loki,continuum-fusion-tempo,continuum-fusion-central" {
+	if got := strings.Join(k.calls, ","); got != "ikhnos-fusion-prometheus,ikhnos-fusion-loki,ikhnos-fusion-tempo,ikhnos-fusion-central" {
 		t.Errorf("scale order = %s", got)
 	}
 	for n, r := range k.replicas {
@@ -254,7 +254,7 @@ func TestEnableFusionPreparesTheCentralOperatorThenStartsEverything(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if op.Status != store.OperatorActive || op.ReceiverAuth != store.ReceiverAuthMTLS || op.Destination.Kind != store.DestinationFusion || op.Destination.FusionRelease != "continuum-fusion" || op.Destination.FusionNamespace != "continuum" {
+	if op.Status != store.OperatorActive || op.ReceiverAuth != store.ReceiverAuthMTLS || op.Destination.Kind != store.DestinationFusion || op.Destination.FusionRelease != "ikhnos-fusion" || op.Destination.FusionNamespace != "ikhnos" {
 		t.Errorf("central operator = %+v", op)
 	}
 	// Its server certificate chains to its own CA and names every way the gateway is reached.
@@ -265,7 +265,7 @@ func TestEnableFusionPreparesTheCentralOperatorThenStartsEverything(t *testing.T
 	}
 	pool := x509.NewCertPool()
 	pool.AppendCertsFromPEM(k.secret["ca.crt"])
-	for _, host := range []string{"continuum-fusion-central.continuum.svc", "fusion.example.com", "op-central.continuum-system.svc"} {
+	for _, host := range []string{"ikhnos-fusion-central.ikhnos.svc", "fusion.example.com", "op-central.ikhnos-system.svc"} {
 		if _, err := cert.Verify(x509.VerifyOptions{Roots: pool, DNSName: host}); err != nil {
 			t.Errorf("certificate not valid for %s: %v", host, err)
 		}
@@ -328,7 +328,7 @@ func TestDisableFusionStopsTheGatewayFirstAndKeepsTheOperator(t *testing.T) {
 	if st.State != "off" {
 		t.Errorf("state = %q", st.State)
 	}
-	if got := strings.Join(k.calls, ","); got != "continuum-fusion-central,continuum-fusion-tempo,continuum-fusion-loki,continuum-fusion-prometheus" {
+	if got := strings.Join(k.calls, ","); got != "ikhnos-fusion-central,ikhnos-fusion-tempo,ikhnos-fusion-loki,ikhnos-fusion-prometheus" {
 		t.Errorf("scale-down order = %s", got)
 	}
 	if op, err := a.a.C.ForOrg("org-1").Operators.GetOperator(ctx, operators.CentralOperatorID); err != nil || op.Status != store.OperatorActive {
@@ -397,7 +397,7 @@ func TestFusionHTTPSwitch(t *testing.T) {
 	}
 	doc := r.json(t)
 	central, _ := doc["central"].(map[string]any)
-	if central["operatorId"] != operators.CentralOperatorID || central["exposed"] != false || central["exists"] != true || central["endpoint"] != "continuum-fusion-central.continuum.svc:4317" {
+	if central["operatorId"] != operators.CentralOperatorID || central["exposed"] != false || central["exists"] != true || central["endpoint"] != "ikhnos-fusion-central.ikhnos.svc:4317" {
 		t.Errorf("central = %v", central)
 	}
 	k.allReady()
@@ -420,7 +420,7 @@ func TestFusionHTTPSwitch(t *testing.T) {
 // certificate from the gateway's own CA, and nothing else about FUSION appears in its command.
 func TestAnOperatorSendingToTheCentralOperator(t *testing.T) {
 	for _, tc := range []struct{ public, endpoint string }{
-		{"", "continuum-fusion-central.continuum.svc:4317"},
+		{"", "ikhnos-fusion-central.ikhnos.svc:4317"},
 		{"fusion.example.com:4317", "fusion.example.com:4317"},
 	} {
 		a := newAdminRig(t)
@@ -446,7 +446,7 @@ func TestAnOperatorSendingToTheCentralOperator(t *testing.T) {
 		}
 		// Dialled at a public address, the gateway is verified by the name that never changes, so the address (or the IP
 		// behind it) can move without reissuing its certificate; in-cluster the name is the one dialled.
-		const stable = "--set export.otlp.tls.serverName=op-central.continuum-system.svc"
+		const stable = "--set export.otlp.tls.serverName=op-central.ikhnos-system.svc"
 		if tc.public != "" {
 			want = append(want, stable)
 		} else if strings.Contains(install, "serverName") {
@@ -533,7 +533,7 @@ func TestARestartLongAfterAHealthyStartIsStartingNotAttention(t *testing.T) {
 		t.Fatalf("healthy: %+v", st)
 	}
 	now = now.Add(30 * 24 * time.Hour)
-	k.ready["continuum-fusion-loki"] = 0 // one pod restarts a month later
+	k.ready["ikhnos-fusion-loki"] = 0 // one pod restarts a month later
 	if st := f.Status(ctx); st.State != "starting" || st.Message != "" {
 		t.Fatalf("a month after a healthy start, one pod not ready: %+v", st)
 	}
@@ -547,7 +547,7 @@ func TestARestartLongAfterAHealthyStartIsStartingNotAttention(t *testing.T) {
 	}
 	k.allReady()
 	f.Status(ctx)
-	k.ready["continuum-fusion-loki"] = 0
+	k.ready["ikhnos-fusion-loki"] = 0
 	if st := f.Status(ctx); st.State != "starting" {
 		t.Fatalf("a second restart starts a fresh grace period: %+v", st)
 	}

@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/store"
+	"ikhnos/internal/store"
 )
 
 // A characterization test of the real binary: it builds cmd/server, starts it on loopback with an empty data
@@ -144,7 +144,7 @@ func TestServerBinaryStartsAnswersProbesAndStopsCleanlyOnSIGTERM(t *testing.T) {
 	if m == nil {
 		t.Fatalf("the first start must print the one-time admin password:\n%s", logs)
 	}
-	if !strings.Contains(logs, "continuum server started") {
+	if !strings.Contains(logs, "ikhnos server started") {
 		t.Fatalf("no start-up line:\n%s", logs)
 	}
 	s.stop(t)
@@ -153,7 +153,7 @@ func TestServerBinaryStartsAnswersProbesAndStopsCleanlyOnSIGTERM(t *testing.T) {
 	}
 
 	// What it leaves behind: a healthy database at the current schema, a CA, private permissions.
-	db := filepath.Join(dataDir, "continuum.db")
+	db := filepath.Join(dataDir, "ikhnos.db")
 	v, err := store.CheckDatabase(context.Background(), db)
 	if err != nil || v != store.SchemaVersion {
 		t.Fatalf("the database after a clean stop: version %d, %v", v, err)

@@ -9,12 +9,12 @@ import (
 	"strings"
 	"testing"
 
-	"continuum/internal/accounts"
-	"continuum/internal/kernel"
-	"continuum/internal/operators"
-	"continuum/internal/pki"
-	"continuum/internal/store"
-	"continuum/internal/testkit"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/operators"
+	"ikhnos/internal/pki"
+	"ikhnos/internal/store"
+	"ikhnos/internal/testkit"
 
 	_ "modernc.org/sqlite"
 )
@@ -103,11 +103,11 @@ func TestCreateOperatorMintsItsOwnCAAndStoresNoPlaintextKey(t *testing.T) {
 	if !clientOK(certOf(t, sc.CertPEM), opPool) {
 		t.Fatal("client certificate does not verify against the operator CA")
 	}
-	if _, err := certOf(t, bundle.ReceiverCertPEM).Verify(x509.VerifyOptions{Roots: opPool, DNSName: op.ID + ".continuum-system.svc", KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}); err != nil {
+	if _, err := certOf(t, bundle.ReceiverCertPEM).Verify(x509.VerifyOptions{Roots: opPool, DNSName: op.ID + ".ikhnos-system.svc", KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}); err != nil {
 		t.Fatalf("receiver certificate does not verify against the operator CA: %v", err)
 	}
 	// And by the Service name the chart creates, which is what a sender in the same cluster dials.
-	if _, err := certOf(t, bundle.ReceiverCertPEM).Verify(x509.VerifyOptions{Roots: opPool, DNSName: operators.OperatorServiceName(op.ID) + ".continuum-system.svc", KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}); err != nil {
+	if _, err := certOf(t, bundle.ReceiverCertPEM).Verify(x509.VerifyOptions{Roots: opPool, DNSName: operators.OperatorServiceName(op.ID) + ".ikhnos-system.svc", KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}); err != nil {
 		t.Fatalf("receiver certificate does not carry the Service name: %v", err)
 	}
 	if clientOK(certOf(t, sc.CertPEM), e.core.CA.Pool()) {
@@ -125,7 +125,7 @@ func TestCreateOperatorMintsItsOwnCAAndStoresNoPlaintextKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if blk, _ := pem.Decode(key); blk == nil || blk.Type != "CONTINUUM ENCRYPTED CA KEY" {
+	if blk, _ := pem.Decode(key); blk == nil || blk.Type != "IKHNOS ENCRYPTED CA KEY" {
 		t.Fatalf("the stored key is not an encrypted CA key block: %q", key)
 	}
 	// Nothing in the operator row is a plaintext private key or the receiver/client keys that were shown once.

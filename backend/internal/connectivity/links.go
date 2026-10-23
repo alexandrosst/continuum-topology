@@ -6,9 +6,9 @@ import (
 	"sort"
 	"strings"
 
-	"continuum/internal/kernel"
-	"continuum/internal/link"
-	"continuum/internal/store"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/link"
+	"ikhnos/internal/store"
 )
 
 // PairsOf is the pairs a cluster is in, by the id of the cluster at the other end.

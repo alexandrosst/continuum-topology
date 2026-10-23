@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/probe"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/probe"
 )
 
 // The node probes the server's own chart runs report to a receiver in the server. They make the server's cluster known, with
@@ -20,15 +20,15 @@ import (
 const selfProbeSecret = "0123456789abcdef0123456789abcdef"
 
 // selfProbes starts a receiver on the rig's admin, and returns a function that has a node's probe report to it.
-func selfProbes(t *testing.T, a *intentRig, every time.Duration) func(node string, addrs ...*continuumv1.HostAddress) {
+func selfProbes(t *testing.T, a *intentRig, every time.Duration) func(node string, addrs ...*ikhnosv1.HostAddress) {
 	t.Helper()
 	rcv := probe.NewReceiver([]byte(selfProbeSecret), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	srv := httptest.NewServer(rcv.Handler())
 	t.Cleanup(srv.Close)
 	a.a.SelfProbe, a.a.SelfProbeEvery = rcv, every
-	return func(node string, addrs ...*continuumv1.HostAddress) {
+	return func(node string, addrs ...*ikhnosv1.HostAddress) {
 		t.Helper()
-		if _, err := probe.Push(context.Background(), http.DefaultClient, srv.URL, []byte(selfProbeSecret), node, &continuumv1.HostProbe{HostAddresses: addrs}, time.Now()); err != nil {
+		if _, err := probe.Push(context.Background(), http.DefaultClient, srv.URL, []byte(selfProbeSecret), node, &ikhnosv1.HostProbe{HostAddresses: addrs}, time.Now()); err != nil {
 			t.Fatalf("report from %s: %v", node, err)
 		}
 	}
@@ -47,7 +47,7 @@ func TestNodeProbesOfTheServersChartListTheNodesWhenNoAgentIsInTheCluster(t *tes
 	a, f, _ := centralRig(t, "3f2b6c1e-9a4d-4e7b-8c55-0d1e2f3a4b5c")
 	f.ClusterUID = "11111111-2222-4333-8444-555555555555" // the install's cluster has no agent
 	report := selfProbes(t, a, time.Minute)
-	report("k3s-1", &continuumv1.HostAddress{Interface: "eth0", Address: "10.1.0.5/24"}, &continuumv1.HostAddress{Interface: "wt0", Kind: "wireguard", Address: "100.64.0.9/10"})
+	report("k3s-1", &ikhnosv1.HostAddress{Interface: "eth0", Address: "10.1.0.5/24"}, &ikhnosv1.HostAddress{Interface: "wt0", Kind: "wireguard", Address: "100.64.0.9/10"})
 
 	got := centralCandidates(t, a)
 	sc := serverCluster(t, got)
@@ -65,7 +65,7 @@ func TestNodeProbesSayWhichClusterTheServerIsInWhenNothingElseDid(t *testing.T) 
 	if sc := serverCluster(t, centralCandidates(t, a)); sc["state"] != "unknown" {
 		t.Fatalf("before any probe: %v", sc)
 	}
-	selfProbes(t, a, time.Minute)("k3s-1", &continuumv1.HostAddress{Interface: "eth0", Address: "10.1.0.5/24"})
+	selfProbes(t, a, time.Minute)("k3s-1", &ikhnosv1.HostAddress{Interface: "eth0", Address: "10.1.0.5/24"})
 	sc := serverCluster(t, centralCandidates(t, a))
 	if sc["state"] != "known" || sc["source"] != "probe" || sc["nodes"] != "probe" {
 		t.Fatalf("server cluster: %v", sc)
@@ -78,7 +78,7 @@ func TestAnAgentsOwnInterfaceAddressesAreNotReplacedByTheProbes(t *testing.T) {
 	f.ClusterUID = uid
 	report := selfProbes(t, a, time.Minute)
 	// The agent already lists nuc-1's interfaces (centralRig); the probe on the same node says something else.
-	report("nuc-1", &continuumv1.HostAddress{Interface: "wt0", Kind: "wireguard", Address: "100.64.0.77/10"})
+	report("nuc-1", &ikhnosv1.HostAddress{Interface: "wt0", Kind: "wireguard", Address: "100.64.0.77/10"})
 	by := candidateSet(t, centralCandidates(t, a))
 	if !by["100.64.0.139:31999"] || by["100.64.0.77:31999"] {
 		t.Fatalf("the agent's address wins: %v", by)
@@ -92,7 +92,7 @@ func TestProbesFillInWhatAnAgentWithoutItsOwnNodeProbeCannotSee(t *testing.T) {
 	a.hub().Mu.Lock()
 	a.hub().Views[agentID].State.Nodes["nuc-1"].Probe = nil // the agent's chart runs no node probe
 	a.hub().Mu.Unlock()
-	selfProbes(t, a, time.Minute)("nuc-1", &continuumv1.HostAddress{Interface: "wt0", Kind: "wireguard", Address: "100.64.0.77/10"})
+	selfProbes(t, a, time.Minute)("nuc-1", &ikhnosv1.HostAddress{Interface: "wt0", Kind: "wireguard", Address: "100.64.0.77/10"})
 	sc := serverCluster(t, centralCandidates(t, a))
 	if sc["nodes"] != "agent" {
 		t.Fatalf("an agent lists the nodes: %v", sc)
@@ -105,7 +105,7 @@ func TestProbesFillInWhatAnAgentWithoutItsOwnNodeProbeCannotSee(t *testing.T) {
 func TestAProbeThatWentQuietIsNoLongerBelieved(t *testing.T) {
 	a, f, _ := centralRig(t, "3f2b6c1e-9a4d-4e7b-8c55-0d1e2f3a4b5c")
 	f.ClusterUID = "11111111-2222-4333-8444-555555555555"
-	selfProbes(t, a, 5*time.Millisecond)("k3s-1", &continuumv1.HostAddress{Interface: "eth0", Address: "10.1.0.5/24"})
+	selfProbes(t, a, 5*time.Millisecond)("k3s-1", &ikhnosv1.HostAddress{Interface: "eth0", Address: "10.1.0.5/24"})
 	time.Sleep(60 * time.Millisecond) // three silent intervals is 15ms
 	got := centralCandidates(t, a)
 	if sc := serverCluster(t, got); sc["state"] != "noAgent" {
@@ -122,7 +122,7 @@ func TestAReportWithTheWrongSecretIsRefused(t *testing.T) {
 	rcv := probe.NewReceiver([]byte(selfProbeSecret), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	srv := httptest.NewServer(rcv.Handler())
 	defer srv.Close()
-	_, err := probe.Push(context.Background(), http.DefaultClient, srv.URL, []byte("some-other-secret-entirely-0000"), "k3s-1", &continuumv1.HostProbe{}, time.Now())
+	_, err := probe.Push(context.Background(), http.DefaultClient, srv.URL, []byte("some-other-secret-entirely-0000"), "k3s-1", &ikhnosv1.HostProbe{}, time.Now())
 	if err == nil || len(rcv.Snapshot(time.Hour)) != 0 {
 		t.Fatalf("an unsigned-by-us report must not be kept: %v", err)
 	}

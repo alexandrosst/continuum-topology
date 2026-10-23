@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"continuum/internal/accounts"
-	"continuum/internal/testkit"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/testkit"
 )
 
 // Every route the server mounts, and what it asks of the caller, is written down in testdata/routes.txt, one line each: the access

@@ -3,12 +3,12 @@ package estate
 import (
 	"testing"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/connectivity"
-	"continuum/internal/kernel"
-	"continuum/internal/observed"
-	"continuum/internal/store"
-	"continuum/internal/testkit"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/connectivity"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/observed"
+	"ikhnos/internal/store"
+	"ikhnos/internal/testkit"
 )
 
 // While the organisation's agents cannot be read the peer list would come out empty, not because nobody is paired: pushing that
@@ -31,7 +31,7 @@ func TestAPushIsSkippedWhileTheAgentsCannotBeRead(t *testing.T) {
 		return &View{EstView: EstView{State: testkit.NodeState(ip), Flows: observed.NewFlowTable()}, NetView: connectivity.NetView{Paths: map[string]*connectivity.PathTrack{}, Targets: map[string]connectivity.IssuedTarget{}}}
 	}
 	fv, sv := newV("10.0.0.1"), newV("10.9.0.1")
-	push := make(chan *continuumv1.ServerMessage, 4)
+	push := make(chan *ikhnosv1.ServerMessage, 4)
 	r.hub.Mu.Lock()
 	r.hub.Views[first.ID], r.hub.Views[second.ID] = fv, sv
 	r.hub.Sessions[second.ID] = &Session{Push: push, Cancel: func(EndReason) {}}

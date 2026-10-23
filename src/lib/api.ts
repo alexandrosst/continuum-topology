@@ -77,7 +77,7 @@ export type OperatorRemoval = W.OperatorUninstallDoc
  *  it is sent explicitly (never left to the server's default) so what the person saw is what was asked for. */
 export interface CreateOperatorOptions {
   heartbeat?: boolean
-  /** Stamped on everything the operator forwards, next to continuum.operator.id/.name. Half-filled rows are
+  /** Stamped on everything the operator forwards, next to ikhnos.operator.id/.name. Half-filled rows are
    *  the caller's to drop (cleanTags); the server validates the rest. */
   labels?: { key: string; value: string }[]
   /** How the operator's Service is made reachable from other clusters. Only sets the install command's
@@ -266,7 +266,7 @@ async function call<T>(c: Conn, method: string, path: string, body?: unknown, he
       method,
       credentials: 'include',
       headers: {
-        'X-Requested-With': 'continuum-ui',
+        'X-Requested-With': 'ikhnos-ui',
         ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
         ...headers,
       },
@@ -367,7 +367,7 @@ export const api = {
     try {
       res = await fetch(`${c.url.replace(/\/$/, '')}${scoped(c, '/api/v1/model')}`, {
         credentials: 'include',
-        headers: { 'X-Requested-With': 'continuum-ui', ...(etag ? { 'If-None-Match': etag } : {}) },
+        headers: { 'X-Requested-With': 'ikhnos-ui', ...(etag ? { 'If-None-Match': etag } : {}) },
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       })
     } catch {
@@ -567,7 +567,7 @@ export type ProbeResult = { status: 'session'; session: Session } | { status: 's
  */
 export async function probe(c: Conn): Promise<ProbeResult> {
   try {
-    const res = await fetch(`${c.url.replace(/\/$/, '')}/api/v1/auth/me`, { credentials: 'include', headers: { 'X-Requested-With': 'continuum-ui' } })
+    const res = await fetch(`${c.url.replace(/\/$/, '')}/api/v1/auth/me`, { credentials: 'include', headers: { 'X-Requested-With': 'ikhnos-ui' } })
     if (!(res.headers.get('content-type') ?? '').includes('application/json')) return { status: 'none' }
     if (res.status === 200) {
       const session = (await res.json().catch(() => undefined)) as Session | undefined

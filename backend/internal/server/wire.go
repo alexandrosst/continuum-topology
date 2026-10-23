@@ -1,17 +1,17 @@
 package server
 
 import (
-	"continuum/internal/accountsapi"
-	"continuum/internal/decisionloop"
-	"continuum/internal/estate"
-	"continuum/internal/fusion"
-	"continuum/internal/fusionhttp"
-	"continuum/internal/httpkit"
-	"continuum/internal/linksapi"
-	"continuum/internal/operatorsapi"
-	"continuum/internal/settingsapi"
-	"continuum/internal/telemetry"
-	"continuum/internal/wire"
+	"ikhnos/internal/accountsapi"
+	"ikhnos/internal/decisionloop"
+	"ikhnos/internal/estate"
+	"ikhnos/internal/fusion"
+	"ikhnos/internal/fusionhttp"
+	"ikhnos/internal/httpkit"
+	"ikhnos/internal/linksapi"
+	"ikhnos/internal/operatorsapi"
+	"ikhnos/internal/settingsapi"
+	"ikhnos/internal/telemetry"
+	"ikhnos/internal/wire"
 )
 
 // WireTypes are the shapes the shell puts on the wire itself, and the ones every module's routes share (the refusal, "ok", a reason), for

@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 )
 
 func TestAddressesAreSortedIntoMeshPrivateAndPublic(t *testing.T) {
@@ -67,7 +67,7 @@ func pinned(via string, preferred ...string) Peer {
 	lp := peer("cl-a", "A", "100.64.0.7", "10.0.0.1", "203.0.113.1", "203.0.113.2")
 	lp.Via = via
 	p := NewPeers()
-	p.set("cl-me", []*continuumv1.LinkPeer{lp}, map[string][]string{"cl-a": preferred})
+	p.set("cl-me", []*ikhnosv1.LinkPeer{lp}, map[string][]string{"cl-a": preferred})
 	return p.List()[0]
 }
 
@@ -150,7 +150,7 @@ func TestAPinToAKindThePeerHasNoneOfOffersNothingAndFallsBackToNothing(t *testin
 	lp := peer("cl-a", "A", "10.0.0.1", "203.0.113.1")
 	lp.Via = "mesh"
 	p := NewPeers()
-	p.Set("cl-me", []*continuumv1.LinkPeer{lp})
+	p.Set("cl-me", []*ikhnosv1.LinkPeer{lp})
 	pe := p.List()[0]
 	if got := orderAddresses(pe, "10.0.0.1", 5); len(got) != 0 {
 		t.Fatalf("offered %v", got)
@@ -185,7 +185,7 @@ func TestTheRouteIsTracedTowardsTheFirstOfTheOrderAndStaysThereFromOneTraceToThe
 }
 
 // clockedMeter is a meter whose clock the test moves.
-func clockedMeter(peers ...*continuumv1.LinkPeer) (*Meter, *clock) {
+func clockedMeter(peers ...*ikhnosv1.LinkPeer) (*Meter, *clock) {
 	p := NewPeers()
 	p.Set("cl-me", peers)
 	m := NewMeter(p)
@@ -194,8 +194,8 @@ func clockedMeter(peers ...*continuumv1.LinkPeer) (*Meter, *clock) {
 	return m, ck
 }
 
-func flow(ip string, connections, bytes uint64) *continuumv1.RawFlow {
-	return &continuumv1.RawFlow{Client: true, PeerIp: ip, Connections: connections, BytesOut: bytes, SegsOut: 10}
+func flow(ip string, connections, bytes uint64) *ikhnosv1.RawFlow {
+	return &ikhnosv1.RawFlow{Client: true, PeerIp: ip, Connections: connections, BytesOut: bytes, SegsOut: 10}
 }
 
 func preferredOf(m *Meter, peer string) []string {
@@ -212,13 +212,13 @@ func TestTheMeterRemembersWhichAddressesTrafficUsesBusiestFirst(t *testing.T) {
 	if got := preferredOf(m, "cl-a"); len(got) != 0 {
 		t.Fatalf("nothing seen yet: %v", got)
 	}
-	m.Observe([]*continuumv1.RawFlow{flow("100.64.0.7", 1, 1000), flow("203.0.113.1", 5, 4<<20), flow("203.0.113.1", 1, 0)})
+	m.Observe([]*ikhnosv1.RawFlow{flow("100.64.0.7", 1, 1000), flow("203.0.113.1", 5, 4<<20), flow("203.0.113.1", 1, 0)})
 	if got := preferredOf(m, "cl-a"); !slices.Equal(got, []string{"203.0.113.1", "100.64.0.7"}) {
 		t.Fatalf("%v", got)
 	}
 	// What is busy now outweighs what was busy a while ago.
 	ck.add(40 * time.Minute)
-	m.Observe([]*continuumv1.RawFlow{flow("10.0.0.1", 3, 1<<20)})
+	m.Observe([]*ikhnosv1.RawFlow{flow("10.0.0.1", 3, 1<<20)})
 	if got := preferredOf(m, "cl-a"); got[0] != "10.0.0.1" || len(got) != 3 {
 		t.Fatalf("%v", got)
 	}
@@ -232,7 +232,7 @@ func TestTheMeterRemembersWhichAddressesTrafficUsesBusiestFirst(t *testing.T) {
 		t.Errorf("the expired entries are still held: %d", n)
 	}
 	// Rows with no byte counts still count their connections, and a row that is not a peer's counts for nothing.
-	m.ObserveRows([]*continuumv1.RawFlow{flow("203.0.113.1", 2, 0), flow("198.51.100.1", 9, 9<<20)}, false)
+	m.ObserveRows([]*ikhnosv1.RawFlow{flow("203.0.113.1", 2, 0), flow("198.51.100.1", 9, 9<<20)}, false)
 	if got := preferredOf(m, "cl-a"); !slices.Equal(got, []string{"10.0.0.1", "203.0.113.1"}) {
 		t.Errorf("%v", got)
 	}
@@ -246,7 +246,7 @@ func TestTheTableOfAddressesInUseIsBounded(t *testing.T) {
 	m, ck := clockedMeter(peer("cl-a", "A", addrs...))
 	for i, a := range addrs {
 		ck.add(time.Second)
-		m.Observe([]*continuumv1.RawFlow{flow(a, 1, uint64(i+1)<<10)})
+		m.Observe([]*ikhnosv1.RawFlow{flow(a, 1, uint64(i+1)<<10)})
 	}
 	if n := len(m.per["cl-a"].used); n != maxUsedAddresses {
 		t.Fatalf("%d addresses held", n)
@@ -257,7 +257,7 @@ func TestTheTableOfAddressesInUseIsBounded(t *testing.T) {
 	}
 	// The strongest stay when a new one comes in.
 	ck.add(time.Second)
-	m.Observe([]*continuumv1.RawFlow{flow("10.0.0.1", 1, 0)})
+	m.Observe([]*ikhnosv1.RawFlow{flow("10.0.0.1", 1, 0)})
 	if got := preferredOf(m, "cl-a"); !slices.Contains(got, "10.0.0.40") || !slices.Contains(got, "10.0.0.1") {
 		t.Errorf("%v", got)
 	}
@@ -265,9 +265,9 @@ func TestTheTableOfAddressesInUseIsBounded(t *testing.T) {
 
 func TestWhatTheMeterRemembersFollowsThePeerListAndIsForgottenWithThePeer(t *testing.T) {
 	m, ck := clockedMeter(peer("cl-a", "A", "10.0.0.1", "10.0.0.2"), peer("cl-b", "B", "10.1.0.1"))
-	m.Observe([]*continuumv1.RawFlow{flow("10.0.0.1", 1, 10), flow("10.0.0.2", 1, 10<<10), flow("10.1.0.1", 1, 1)})
+	m.Observe([]*ikhnosv1.RawFlow{flow("10.0.0.1", 1, 10), flow("10.0.0.2", 1, 10<<10), flow("10.1.0.1", 1, 1)})
 	// The peer loses an address: the document never names it, and Forget drops it.
-	m.Peers.Set("cl-me", []*continuumv1.LinkPeer{peer("cl-a", "A", "10.0.0.2"), peer("cl-b", "B", "10.1.0.1")})
+	m.Peers.Set("cl-me", []*ikhnosv1.LinkPeer{peer("cl-a", "A", "10.0.0.2"), peer("cl-b", "B", "10.1.0.1")})
 	if got := preferredOf(m, "cl-a"); !slices.Equal(got, []string{"10.0.0.2"}) {
 		t.Errorf("%v", got)
 	}
@@ -276,11 +276,11 @@ func TestWhatTheMeterRemembersFollowsThePeerListAndIsForgottenWithThePeer(t *tes
 		t.Errorf("%d held", n)
 	}
 	// The peer goes away for longer than the grace and comes back: nothing is remembered.
-	m.Peers.Set("cl-me", []*continuumv1.LinkPeer{peer("cl-b", "B", "10.1.0.1")})
+	m.Peers.Set("cl-me", []*ikhnosv1.LinkPeer{peer("cl-b", "B", "10.1.0.1")})
 	m.Forget()
 	ck.add(peerGrace + time.Minute)
 	m.Forget()
-	m.Peers.Set("cl-me", []*continuumv1.LinkPeer{peer("cl-a", "A", "10.0.0.2"), peer("cl-b", "B", "10.1.0.1")})
+	m.Peers.Set("cl-me", []*ikhnosv1.LinkPeer{peer("cl-a", "A", "10.0.0.2"), peer("cl-b", "B", "10.1.0.1")})
 	if got := preferredOf(m, "cl-a"); len(got) != 0 {
 		t.Errorf("%v", got)
 	}
@@ -289,7 +289,7 @@ func TestWhatTheMeterRemembersFollowsThePeerListAndIsForgottenWithThePeer(t *tes
 func TestNoAddressInUseBecomesALabelOrASeries(t *testing.T) {
 	m, _ := clockedMeter(peer("cl-a", "A", "10.0.0.1", "100.64.0.7", "203.0.113.1"))
 	m.EnableProbes()
-	m.Observe([]*continuumv1.RawFlow{flow("100.64.0.7", 1, 1000), flow("203.0.113.1", 5, 4<<20), flow("10.0.0.1", 1, 1)})
+	m.Observe([]*ikhnosv1.RawFlow{flow("100.64.0.7", 1, 1000), flow("203.0.113.1", 5, 4<<20), flow("10.0.0.1", 1, 1)})
 	after := render(m)
 	for k := range after {
 		for _, bad := range []string{"10.0.0.1", "100.64.0.7", "203.0.113.1", "address", "via"} {
@@ -301,7 +301,7 @@ func TestNoAddressInUseBecomesALabelOrASeries(t *testing.T) {
 	// The count of series is the same whichever addresses carry the traffic.
 	m2, _ := clockedMeter(peer("cl-a", "A", "10.0.0.1", "100.64.0.7", "203.0.113.1"))
 	m2.EnableProbes()
-	m2.Observe([]*continuumv1.RawFlow{flow("10.0.0.1", 1, 1)})
+	m2.Observe([]*ikhnosv1.RawFlow{flow("10.0.0.1", 1, 1)})
 	if a, b := len(render(m2)), len(after); a != b {
 		t.Errorf("%d series with one address in use, %d with three", a, b)
 	}
@@ -314,7 +314,7 @@ func TestThePinAndThePreferenceTravelFromTheAgentThroughTheDocumentToTheProber(t
 	lpC := peer("cl-c", "C", "10.2.0.1")
 	lpC.Via = "something-new"
 	m, _ := clockedMeter(lpA, lpB, lpC)
-	m.Observe([]*continuumv1.RawFlow{flow("203.0.113.1", 2, 1<<20), flow("100.64.0.7", 1, 1)})
+	m.Observe([]*ikhnosv1.RawFlow{flow("203.0.113.1", 2, 1<<20), flow("100.64.0.7", 1, 1)})
 	got := map[string]Peer{}
 	for _, x := range m.Peers.List() {
 		got[x.ID] = x
@@ -346,7 +346,7 @@ func TestThePinAndThePreferenceTravelFromTheAgentThroughTheDocumentToTheProber(t
 	}
 	// A Config does not carry a preference: only the prober is given one.
 	cfgPeers := NewPeers()
-	cfgPeers.Set("cl-me", []*continuumv1.LinkPeer{lpA})
+	cfgPeers.Set("cl-me", []*ikhnosv1.LinkPeer{lpA})
 	if p := cfgPeers.List()[0]; len(p.Preferred) != 0 || p.Via != "public" {
 		t.Errorf("%+v", p)
 	}
@@ -361,7 +361,7 @@ func TestTheProbeFollowsTheTrafficAndTriesTheOthersWhenItDoesNotAnswer(t *testin
 		return summary(t, "owping_to.txt"), nil, nil
 	}
 	r := runnerFor(t, f, "10.0.0.1", "100.64.0.7", "203.0.113.2")
-	r.Meter.Peers.set("cl-me", []*continuumv1.LinkPeer{peer("cl-a", "A", "10.0.0.1", "100.64.0.7", "203.0.113.2")}, map[string][]string{"cl-a": {"203.0.113.2", "100.64.0.7"}})
+	r.Meter.Peers.set("cl-me", []*ikhnosv1.LinkPeer{peer("cl-a", "A", "10.0.0.1", "100.64.0.7", "203.0.113.2")}, map[string][]string{"cl-a": {"203.0.113.2", "100.64.0.7"}})
 	r.Round(context.Background())
 	if len(f.calls) != 4 || !strings.Contains(strings.Join(f.calls[0], " "), "203.0.113.2:861") || !strings.Contains(strings.Join(f.calls[1], " "), "100.64.0.7:861") {
 		t.Fatalf("the address the traffic uses is not tried first, then the next: %v", f.calls)
@@ -376,7 +376,7 @@ func TestAProbePinnedToAKindUsesOnlyAddressesOfThatKind(t *testing.T) {
 	lp := peer("cl-a", "A", "10.0.0.1", "100.64.0.7", "203.0.113.2")
 	lp.Via = "mesh"
 	r := runnerFor(t, f, "10.0.0.1")
-	r.Meter.Peers.Set("cl-me", []*continuumv1.LinkPeer{lp})
+	r.Meter.Peers.Set("cl-me", []*ikhnosv1.LinkPeer{lp})
 	r.Round(context.Background())
 	if len(f.calls) != 1 { // the peer did not answer, so the other direction is not tried either (see measurePeer)
 		t.Fatalf("%d runs: %v", len(f.calls), f.calls)
@@ -399,7 +399,7 @@ func TestAProbePinnedToAKindThePeerHasNoneOfFailsWithAReasonAndDoesNotFallBack(t
 		traced = append(traced, dst.String())
 		return PathResult{MTU: 1500, Reached: true, Route: "r"}, nil
 	}
-	r.Meter.Peers.Set("cl-me", []*continuumv1.LinkPeer{lp})
+	r.Meter.Peers.Set("cl-me", []*ikhnosv1.LinkPeer{lp})
 	r.Round(context.Background())
 	r.Round(context.Background())
 	if len(f.calls) != 0 || len(traced) != 0 {
@@ -407,21 +407,21 @@ func TestAProbePinnedToAKindThePeerHasNoneOfFailsWithAReasonAndDoesNotFallBack(t
 	}
 	got := render(r.Meter)
 	for _, d := range []string{"forward", "reverse"} {
-		k := `continuum_link_probe_failures_total{cluster="cl-me",peer="cl-a",direction="` + d + `",method="owamp",reason="no_such_kind"}`
+		k := `ikhnos_link_probe_failures_total{cluster="cl-me",peer="cl-a",direction="` + d + `",method="owamp",reason="no_such_kind"}`
 		if got[k] != "2" { // one per round, and the peer is not backed off from: the next round counts again
 			t.Errorf("%s = %q", k, got[k])
 		}
-		if got[`continuum_link_probe_up{cluster="cl-me",peer="cl-a",direction="`+d+`",method="owamp"}`] != "0" {
+		if got[`ikhnos_link_probe_up{cluster="cl-me",peer="cl-a",direction="`+d+`",method="owamp"}`] != "0" {
 			t.Errorf("the probe of %s reads as up", d)
 		}
 	}
-	if got[`continuum_link_path_probe_failures_total{cluster="cl-me",peer="cl-a"}`] != "2" {
+	if got[`ikhnos_link_path_probe_failures_total{cluster="cl-me",peer="cl-a"}`] != "2" {
 		t.Errorf("the route trace did not fail: %v", got)
 	}
 	// Once the peer has a mesh address, measuring resumes at once.
 	lp2 := peer("cl-a", "A", "10.0.0.1", "100.64.0.9")
 	lp2.Via = "mesh"
-	r.Meter.Peers.Set("cl-me", []*continuumv1.LinkPeer{lp2})
+	r.Meter.Peers.Set("cl-me", []*ikhnosv1.LinkPeer{lp2})
 	r.Round(context.Background())
 	if len(f.calls) != 2 || !strings.Contains(strings.Join(f.calls[0], " "), "100.64.0.9:861") {
 		t.Errorf("%v", f.calls)
@@ -429,7 +429,7 @@ func TestAProbePinnedToAKindThePeerHasNoneOfFailsWithAReasonAndDoesNotFallBack(t
 }
 
 func TestTheRouteTraceFollowsTheTrafficThenThePin(t *testing.T) {
-	trace := func(lp *continuumv1.LinkPeer, preferred ...string) string {
+	trace := func(lp *ikhnosv1.LinkPeer, preferred ...string) string {
 		f := &fakeOwping{run: func([]string) ([]byte, []byte, error) { return summary(t, "owping_to.txt"), nil, nil }}
 		var dst string
 		r := runnerFor(t, f, "10.0.0.1")
@@ -438,7 +438,7 @@ func TestTheRouteTraceFollowsTheTrafficThenThePin(t *testing.T) {
 			dst = a.String()
 			return PathResult{MTU: 1500, Reached: true, Route: "r"}, nil
 		}
-		r.Meter.Peers.set("cl-me", []*continuumv1.LinkPeer{lp}, map[string][]string{"cl-a": preferred})
+		r.Meter.Peers.set("cl-me", []*ikhnosv1.LinkPeer{lp}, map[string][]string{"cl-a": preferred})
 		r.Round(context.Background())
 		return dst
 	}
@@ -476,7 +476,7 @@ func TestTheConnectTimingFollowsThePreferenceAndThePin(t *testing.T) {
 	}
 	lp := peer("cl-a", "A", "10.0.0.1", "100.64.0.7", "203.0.113.2")
 	c := connectFor(t, dial, lp)
-	c.Meter.Peers.set("cl-me", []*continuumv1.LinkPeer{lp}, map[string][]string{"cl-a": {"203.0.113.2"}})
+	c.Meter.Peers.set("cl-me", []*ikhnosv1.LinkPeer{lp}, map[string][]string{"cl-a": {"203.0.113.2"}})
 	c.Round(context.Background())
 	if len(dialed) != 2 || dialed[0] != "203.0.113.2:8861" {
 		t.Errorf("the address the traffic uses is not dialed first: %v", dialed)
@@ -485,7 +485,7 @@ func TestTheConnectTimingFollowsThePreferenceAndThePin(t *testing.T) {
 	dialed = nil
 	pin := peer("cl-a", "A", "10.0.0.1", "100.64.0.7", "203.0.113.2")
 	pin.Via = "public"
-	c.Meter.Peers.Set("cl-me", []*continuumv1.LinkPeer{pin})
+	c.Meter.Peers.Set("cl-me", []*ikhnosv1.LinkPeer{pin})
 	c.Round(context.Background())
 	if !slices.Equal(dialed, []string{"203.0.113.2:8861"}) {
 		t.Errorf("a pin to public addresses dialed %v", dialed)
@@ -494,23 +494,23 @@ func TestTheConnectTimingFollowsThePreferenceAndThePin(t *testing.T) {
 	dialed = nil
 	none := peer("cl-a", "A", "10.0.0.1", "203.0.113.2")
 	none.Via = "mesh"
-	c.Meter.Peers.Set("cl-me", []*continuumv1.LinkPeer{none})
+	c.Meter.Peers.Set("cl-me", []*ikhnosv1.LinkPeer{none})
 	c.Round(context.Background())
 	if len(dialed) != 0 {
 		t.Errorf("dialed %v with no address of the kind", dialed)
 	}
 	got := render(c.Meter)
-	if got[`continuum_link_tcp_connect_failures_total{cluster="cl-me",peer="cl-a",reason="no_such_kind"}`] != "1" {
+	if got[`ikhnos_link_tcp_connect_failures_total{cluster="cl-me",peer="cl-a",reason="no_such_kind"}`] != "1" {
 		t.Errorf("the failure is not counted: %v", got)
 	}
 }
 
 func TestThroughputTestsFollowThePreferenceAndThePin(t *testing.T) {
-	run := func(lp *continuumv1.LinkPeer, preferred ...string) (*Capacity, *fakeIperf) {
+	run := func(lp *ikhnosv1.LinkPeer, preferred ...string) (*Capacity, *fakeIperf) {
 		f := &fakeIperf{capacity: 100e6}
 		c, _ := capFor(t, f, nil)
 		lp.Throughput = true
-		c.Meter.Peers.set("cl-me", []*continuumv1.LinkPeer{lp}, map[string][]string{"cl-a": preferred})
+		c.Meter.Peers.set("cl-me", []*ikhnosv1.LinkPeer{lp}, map[string][]string{"cl-a": preferred})
 		if err := c.Start(); err != nil {
 			t.Fatal(err)
 		}
@@ -541,7 +541,7 @@ func TestThroughputTestsFollowThePreferenceAndThePin(t *testing.T) {
 		t.Fatalf("tests ran through another kind of address: %v", f.calls)
 	}
 	got := render(c.Meter)
-	if got[`continuum_link_throughput_test_failures_total{cluster="cl-me",peer="cl-a",method="iperf3",reason="no_such_kind"}`] == "0" || !hasKey(got, `reason="no_such_kind"`) {
+	if got[`ikhnos_link_throughput_test_failures_total{cluster="cl-me",peer="cl-a",method="iperf3",reason="no_such_kind"}`] == "0" || !hasKey(got, `reason="no_such_kind"`) {
 		t.Errorf("the failure is not counted: %v", got)
 	}
 }

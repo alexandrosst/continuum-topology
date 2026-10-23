@@ -5,14 +5,14 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/agents"
-	"continuum/internal/connectivity"
-	"continuum/internal/facts"
-	"continuum/internal/kernel"
-	"continuum/internal/observed"
-	"continuum/internal/store"
-	"continuum/internal/testkit"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/agents"
+	"ikhnos/internal/connectivity"
+	"ikhnos/internal/facts"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/observed"
+	"ikhnos/internal/store"
+	"ikhnos/internal/testkit"
 )
 
 func TestApplySyncReportsDriftOnlyForLaterFullPictures(t *testing.T) {
@@ -24,36 +24,36 @@ func TestApplySyncReportsDriftOnlyForLaterFullPictures(t *testing.T) {
 	r.hub.Views[id] = &View{EstView: EstView{State: facts.New()}}
 	r.hub.Mu.Unlock()
 
-	n1 := &continuumv1.NodeFacts{Key: "n1", Name: "n1"}
-	w1 := &continuumv1.WorkloadFacts{Key: "ns/Deployment/a", Namespace: "ns", Kind: "Deployment", Name: "a", Replicas: 1}
-	full := func(nodes []*continuumv1.NodeFacts, ws ...*continuumv1.WorkloadFacts) *continuumv1.Sync {
-		return &continuumv1.Sync{Full: true, Cluster: &continuumv1.ClusterFacts{Uid: testkit.FP}, Nodes: nodes, Workloads: ws}
+	n1 := &ikhnosv1.NodeFacts{Key: "n1", Name: "n1"}
+	w1 := &ikhnosv1.WorkloadFacts{Key: "ns/Deployment/a", Namespace: "ns", Kind: "Deployment", Name: "a", Replicas: 1}
+	full := func(nodes []*ikhnosv1.NodeFacts, ws ...*ikhnosv1.WorkloadFacts) *ikhnosv1.Sync {
+		return &ikhnosv1.Sync{Full: true, Cluster: &ikhnosv1.ClusterFacts{Uid: testkit.FP}, Nodes: nodes, Workloads: ws}
 	}
-	if _, checked, _ := r.hub.ApplySync(a, full([]*continuumv1.NodeFacts{n1}, w1), false); checked {
+	if _, checked, _ := r.hub.ApplySync(a, full([]*ikhnosv1.NodeFacts{n1}, w1), false); checked {
 		t.Fatal("the first full picture was treated as a check")
 	}
-	d, checked, _ := r.hub.ApplySync(a, full([]*continuumv1.NodeFacts{n1}, w1), true)
+	d, checked, _ := r.hub.ApplySync(a, full([]*ikhnosv1.NodeFacts{n1}, w1), true)
 	if !checked || d.Total() != 0 {
 		t.Fatalf("identical picture: checked=%v drift=%+v", checked, d)
 	}
 	// The cluster changed behind the server's back: a workload scaled and a node appeared.
-	w1b := &continuumv1.WorkloadFacts{Key: "ns/Deployment/a", Namespace: "ns", Kind: "Deployment", Name: "a", Replicas: 5}
-	n2 := &continuumv1.NodeFacts{Key: "n2", Name: "n2"}
-	d, checked, _ = r.hub.ApplySync(a, full([]*continuumv1.NodeFacts{n1, n2}, w1b), true)
+	w1b := &ikhnosv1.WorkloadFacts{Key: "ns/Deployment/a", Namespace: "ns", Kind: "Deployment", Name: "a", Replicas: 5}
+	n2 := &ikhnosv1.NodeFacts{Key: "n2", Name: "n2"}
+	d, checked, _ = r.hub.ApplySync(a, full([]*ikhnosv1.NodeFacts{n1, n2}, w1b), true)
 	if !checked || d.Changed != 1 || d.Missing != 1 || d.Extra != 0 {
 		t.Fatalf("drift = %+v", d)
 	}
 	if got := r.hub.Views[id].State.Workloads["ns/Deployment/a"].Replicas; got != 5 {
 		t.Fatalf("the server was not corrected: %d replicas", got)
 	}
-	d, _, _ = r.hub.ApplySync(a, full([]*continuumv1.NodeFacts{n1}), true) // n2 and the workload are gone
+	d, _, _ = r.hub.ApplySync(a, full([]*ikhnosv1.NodeFacts{n1}), true) // n2 and the workload are gone
 	if d.Extra != 2 || d.Missing != 0 || d.Changed != 0 {
 		t.Fatalf("removals: %+v", d)
 	}
 	if !strings.Contains(d.String(), "no longer has") {
 		t.Fatalf("description: %q", d.String())
 	}
-	if _, checked, _ := r.hub.ApplySync(a, &continuumv1.Sync{Nodes: []*continuumv1.NodeFacts{n2}}, true); checked {
+	if _, checked, _ := r.hub.ApplySync(a, &ikhnosv1.Sync{Nodes: []*ikhnosv1.NodeFacts{n2}}, true); checked {
 		t.Fatal("a delta was treated as a check")
 	}
 }
@@ -80,7 +80,7 @@ func TestNoteMeasurementsAcceptsOnlyIssuedTargetsAndSaneNumbers(t *testing.T) {
 	r.hub.Mu.Lock()
 	r.hub.Views[id] = &View{EstView: EstView{State: facts.New()}, NetView: connectivity.NetView{Paths: map[string]*connectivity.PathTrack{}, Targets: map[string]connectivity.IssuedTarget{"t1": {ID: "t1", Host: "203.0.113.10", Port: 443, Source: "manual"}}}}
 	r.hub.Mu.Unlock()
-	r.hub.NoteMeasurements(id, &continuumv1.Measurements{Results: []*continuumv1.PathResult{
+	r.hub.NoteMeasurements(id, &ikhnosv1.Measurements{Results: []*ikhnosv1.PathResult{
 		{TargetId: "t1", Samples: 5, Failed: 1, RttMinMs: 10, RttP50Ms: 12, RttP95Ms: 1e12},
 		{TargetId: "made-up", Samples: 5, RttP50Ms: 1}, // never issued
 		{TargetId: "t1", Samples: 0},                   // nothing measured
@@ -94,7 +94,7 @@ func TestNoteMeasurementsAcceptsOnlyIssuedTargetsAndSaneNumbers(t *testing.T) {
 	if got := v.Paths["t1"].Rounds[0].P95; got != 60000 {
 		t.Fatalf("an absurd time was not clamped: %v", got)
 	}
-	r.hub.NoteMeasurements("unknown-agent", &continuumv1.Measurements{}) // must not panic
+	r.hub.NoteMeasurements("unknown-agent", &ikhnosv1.Measurements{}) // must not panic
 }
 
 func TestConfigForIssuesManualAndObservedTargetsByTier(t *testing.T) {

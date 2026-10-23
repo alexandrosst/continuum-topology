@@ -29,7 +29,7 @@ func TestSealingImportsNothingOfTheRepository(t *testing.T) {
 		}
 		for _, im := range af.Imports {
 			p, _ := strconv.Unquote(im.Path.Value)
-			if strings.HasPrefix(p, "continuum/") && !allowedRepoImports[p] {
+			if strings.HasPrefix(p, "ikhnos/") && !allowedRepoImports[p] {
 				t.Errorf("%s imports %s: sealing may import %v", f, p, allowedRepoImports)
 			}
 		}

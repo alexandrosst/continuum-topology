@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/fusionapi"
-	"continuum/internal/kernel"
+	"ikhnos/internal/fusionapi"
+	"ikhnos/internal/kernel"
 )
 
 func lr(cluster, peer, dir string, v float64) fusionapi.LinkReading {

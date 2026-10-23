@@ -8,11 +8,11 @@ import (
 	"strings"
 	"time"
 
-	"continuum/internal/httpkit"
-	"continuum/internal/install"
-	"continuum/internal/kernel"
-	"continuum/internal/operators"
-	"continuum/internal/store"
+	"ikhnos/internal/httpkit"
+	"ikhnos/internal/install"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/operators"
+	"ikhnos/internal/store"
 )
 
 // enableOperatorHeartbeat mints (or rotates) an existing operator's heartbeat secret and returns the
@@ -117,7 +117,7 @@ func HeartbeatURLWarning(heartbeatURL string) string {
 	}
 	if u, err := url.Parse(heartbeatURL); err == nil {
 		if why := UnreachableHostWhy(u.Hostname()); why != "" {
-			warn = append(warn, fmt.Sprintf("%s is %s, which an operator in another cluster or network cannot reach. Give the server a public URL (admin.publicURL in the chart, or CONTINUUM_PUBLIC_URL), or set heartbeat.url to the address the operator can use", u.Hostname(), why))
+			warn = append(warn, fmt.Sprintf("%s is %s, which an operator in another cluster or network cannot reach. Give the server a public URL (admin.publicURL in the chart, or IKHNOS_PUBLIC_URL), or set heartbeat.url to the address the operator can use", u.Hostname(), why))
 		}
 	}
 	return strings.Join(warn, ". ")
@@ -151,7 +151,7 @@ func operatorHeartbeatCASecretName(op store.Operator) string { return op.ID + "-
 // HeartbeatUpgradeCommand is the upgrade that turns the heartbeat on for a release that already runs.
 func (h *API) HeartbeatUpgradeCommand(img kernel.ImageConfig, op store.Operator, heartbeatURL string) (string, error) {
 	ref, version := h.Settings.OperatorChart(img)
-	return install.Helm{Verb: install.Upgrade, Release: op.ID, Chart: ref, Version: version, Namespace: "continuum-system", ResetThenReuse: true,
+	return install.Helm{Verb: install.Upgrade, Release: op.ID, Chart: ref, Version: version, Namespace: "ikhnos-system", ResetThenReuse: true,
 		Values: h.HeartbeatValues(op, heartbeatURL)}.Render()
 }
 
@@ -176,13 +176,13 @@ func (h *API) HeartbeatCASecretCommand(op store.Operator) (string, error) {
 	if len(h.Settings.HeartbeatCAPEM) == 0 {
 		return "", nil
 	}
-	return install.Secret{Name: operatorHeartbeatCASecretName(op), Namespace: "continuum-system", EnsureNamespace: true,
+	return install.Secret{Name: operatorHeartbeatCASecretName(op), Namespace: "ikhnos-system", EnsureNamespace: true,
 		Entries: []install.Entry{{Key: "ca.crt", Value: string(h.Settings.HeartbeatCAPEM)}}}.Render()
 }
 
 // HeartbeatSecretCommand creates the Secret the chart's heartbeat.auth.secretName points at. A first install and
 // a rotation are the same create-or-update command, and it makes the namespace first, so it can be the first thing run.
 func HeartbeatSecretCommand(op store.Operator, secret string) (string, error) {
-	return install.Secret{Name: operatorHeartbeatSecretName(op), Namespace: "continuum-system", EnsureNamespace: true,
+	return install.Secret{Name: operatorHeartbeatSecretName(op), Namespace: "ikhnos-system", EnsureNamespace: true,
 		Entries: []install.Entry{{Key: "token", Value: secret}}}.Render()
 }

@@ -8,13 +8,13 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/accounts"
-	"continuum/internal/estate"
-	"continuum/internal/kernel"
-	"continuum/internal/pki"
-	"continuum/internal/store"
-	"continuum/internal/testkit"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/estate"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/pki"
+	"ikhnos/internal/store"
+	"ikhnos/internal/testkit"
 )
 
 // register signs someone up through the API and returns their cookie and the id of the organisation they got.
@@ -201,7 +201,7 @@ func TestNobodyReachesAnotherOrganisation(t *testing.T) {
 	}
 	d, _ := testkit.CSR(t)
 	hash, code := testkit.ApprovalFor(t, d)
-	resp, err := a.base.Agents.Enroll(a.ctx, "10.0.0.9", &continuumv1.EnrollRequest{Token: tok.json(t)["token"].(string), CsrDer: d, ClusterFingerprint: testkit.FP, InstalledAccessTier: 1, ApprovalCodeHash: hash})
+	resp, err := a.base.Agents.Enroll(a.ctx, "10.0.0.9", &ikhnosv1.EnrollRequest{Token: tok.json(t)["token"].(string), CsrDer: d, ClusterFingerprint: testkit.FP, InstalledAccessTier: 1, ApprovalCodeHash: hash})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,7 +232,7 @@ func TestNobodyReachesAnotherOrganisation(t *testing.T) {
 	btok := a.do("POST", org(bOrg, "tokens"), map[string]any{"name": "edge-b", "tier": 1}, withCookie(bob)).json(t)["token"].(string)
 	d2, _ := testkit.CSR(t)
 	fp2 := "11111111-2222-4333-8444-555555555555"
-	r2, err := a.base.Agents.Enroll(a.ctx, "10.0.0.9", &continuumv1.EnrollRequest{Token: btok, CsrDer: d2, ClusterFingerprint: fp2, InstalledAccessTier: 1, ApprovalCodeHash: testkit.HashFor(t, d2)})
+	r2, err := a.base.Agents.Enroll(a.ctx, "10.0.0.9", &ikhnosv1.EnrollRequest{Token: btok, CsrDer: d2, ClusterFingerprint: fp2, InstalledAccessTier: 1, ApprovalCodeHash: testkit.HashFor(t, d2)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -249,7 +249,7 @@ func TestSameClusterCanBeRegisteredByTwoTenantsIndependently(t *testing.T) {
 		tok := a.do("POST", "/api/v1/orgs/"+org+"/tokens", map[string]any{"name": "shared", "tier": 1}, withCookie(cookie)).json(t)["token"].(string)
 		d, _ := testkit.CSR(t)
 		hash, code := testkit.ApprovalFor(t, d)
-		r, err := a.base.Agents.Enroll(a.ctx, "10.0.0.9", &continuumv1.EnrollRequest{Token: tok, CsrDer: d, ClusterFingerprint: testkit.FP, InstalledAccessTier: 1, ApprovalCodeHash: hash})
+		r, err := a.base.Agents.Enroll(a.ctx, "10.0.0.9", &ikhnosv1.EnrollRequest{Token: tok, CsrDer: d, ClusterFingerprint: testkit.FP, InstalledAccessTier: 1, ApprovalCodeHash: hash})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -466,7 +466,7 @@ func TestDeletingAnOrganisationErasesItsDataAndEndsItsAgents(t *testing.T) {
 	a.do("PUT", org(bOrg, "workspace"), []byte(`{"schemaVersion":3,"keep":true}`), withCookie(bob), withHeader("If-Match", "0"))
 	tok := a.do("POST", org(aOrg, "tokens"), map[string]any{"name": "edge", "tier": 1}, withCookie(alice)).json(t)["token"].(string)
 	d, _ := testkit.CSR(t)
-	resp, err := a.base.Agents.Enroll(a.ctx, "10.0.0.9", &continuumv1.EnrollRequest{Token: tok, CsrDer: d, ClusterFingerprint: testkit.FP, InstalledAccessTier: 1, ApprovalCodeHash: testkit.HashFor(t, d)})
+	resp, err := a.base.Agents.Enroll(a.ctx, "10.0.0.9", &ikhnosv1.EnrollRequest{Token: tok, CsrDer: d, ClusterFingerprint: testkit.FP, InstalledAccessTier: 1, ApprovalCodeHash: testkit.HashFor(t, d)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -529,10 +529,10 @@ func TestRejoinKeepsTheAgentsOwnOrganisation(t *testing.T) {
 	parsed, _ := pki.ParseCSR(testkit.CSRWith(t, key))
 	wrong, _, _ := e.core.CA.IssueAgent(parsed, id, "org-9", time.Hour)
 	*e.now = e.now.Add(2 * time.Hour)
-	if _, err := e.base.Agents.Rejoin(e.ctx, "10.0.0.1", &continuumv1.RejoinRequest{ExpiredLeafDer: wrong, CsrDer: testkit.CSRWith(t, key)}); testkit.KindOf(err) != kernel.KindUnauthenticated {
+	if _, err := e.base.Agents.Rejoin(e.ctx, "10.0.0.1", &ikhnosv1.RejoinRequest{ExpiredLeafDer: wrong, CsrDer: testkit.CSRWith(t, key)}); testkit.KindOf(err) != kernel.KindUnauthenticated {
 		t.Fatalf("certificate for the wrong organisation: %v", err)
 	}
-	resp, err := e.base.Agents.Rejoin(e.ctx, "10.0.0.1", &continuumv1.RejoinRequest{ExpiredLeafDer: leaf, CsrDer: testkit.CSRWith(t, key)})
+	resp, err := e.base.Agents.Rejoin(e.ctx, "10.0.0.1", &ikhnosv1.RejoinRequest{ExpiredLeafDer: leaf, CsrDer: testkit.CSRWith(t, key)})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -11,8 +11,8 @@ import (
 	"net/url"
 	"time"
 
-	"continuum/internal/httpkit"
-	"continuum/internal/kernel"
+	"ikhnos/internal/httpkit"
+	"ikhnos/internal/kernel"
 )
 
 const (
@@ -74,11 +74,11 @@ func (h API) decide(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "continuum-server/"+h.Version)
+	req.Header.Set("User-Agent", "ikhnos-server/"+h.Version)
 	if set.DeciderSecret != "" {
 		ts, sig := SignDeciderRequest(set.DeciderSecret, body, c.Now())
-		req.Header.Set("X-Continuum-Timestamp", ts)
-		req.Header.Set("X-Continuum-Signature", "sha256="+sig)
+		req.Header.Set("X-Ikhnos-Timestamp", ts)
+		req.Header.Set("X-Ikhnos-Signature", "sha256="+sig)
 	}
 	resp, err := c.Decider.Client(time.Duration(set.DeciderTimeoutSec) * time.Second).Do(req)
 	if err != nil {

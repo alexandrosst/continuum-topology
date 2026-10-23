@@ -49,12 +49,12 @@ func TestPackageIsAChartHelmAccepts(t *testing.T) {
 	}
 	dir := t.TempDir()
 	names := unpack(t, b, dir)
-	want := map[string]bool{"continuum-agent/Chart.yaml": false, "continuum-agent/values.yaml": false, "continuum-agent/templates/_helpers.tpl": false, "continuum-agent/templates/rbac.yaml": false, "continuum-agent/values.schema.json": false, "continuum-agent/templates/NOTES.txt": false, "continuum-agent/README.md": false}
+	want := map[string]bool{"ikhnos-agent/Chart.yaml": false, "ikhnos-agent/values.yaml": false, "ikhnos-agent/templates/_helpers.tpl": false, "ikhnos-agent/templates/rbac.yaml": false, "ikhnos-agent/values.schema.json": false, "ikhnos-agent/templates/NOTES.txt": false, "ikhnos-agent/README.md": false}
 	for _, n := range names {
 		if _, ok := want[n]; ok {
 			want[n] = true
 		}
-		if !strings.HasPrefix(n, "continuum-agent/") {
+		if !strings.HasPrefix(n, "ikhnos-agent/") {
 			t.Fatalf("entry outside the chart directory: %s", n)
 		}
 	}
@@ -63,7 +63,7 @@ func TestPackageIsAChartHelmAccepts(t *testing.T) {
 			t.Fatalf("%s is missing from the package", n)
 		}
 	}
-	if Filename() != "continuum-agent-"+Version()+".tgz" || Version() == "0.0.0" {
+	if Filename() != "ikhnos-agent-"+Version()+".tgz" || Version() == "0.0.0" {
 		t.Fatalf("filename/version wrong: %s %s", Filename(), Version())
 	}
 	// When helm is on the machine, let it judge the archive itself.

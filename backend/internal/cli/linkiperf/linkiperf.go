@@ -1,4 +1,4 @@
-// Package linkiperf is `continuum link-iperf-server`: the iperf3 server of the throughput tests, run in the responder pod when the
+// Package linkiperf is `ikhnos link-iperf-server`: the iperf3 server of the throughput tests, run in the responder pod when the
 // Ikhnos server issues the credentials. It fetches this cluster's server key and users from the agent (a signed request with a
 // secret of its own, answered sealed), writes them to a private in-memory directory, and runs iperf3 -s in authenticated mode
 // with them. With no credentials it runs nothing. See link.IperfServerRunner.
@@ -15,20 +15,20 @@ import (
 	"syscall"
 	"time"
 
-	"continuum/internal/cli"
-	"continuum/internal/link"
+	"ikhnos/internal/cli"
+	"ikhnos/internal/link"
 )
 
 // Main runs the supervisor until it is signalled.
 func Main(args []string) int {
-	fs := cli.NewFlagSet("continuum link-iperf-server", os.Stderr)
-	agentURL := fs.String("agent", cli.Env("CONTINUUM_LINK_AGENT_URL", ""), "URL of the agent's link address, e.g. http://continuum-agent-link-metrics.continuum-system.svc:9104")
-	secretFile := fs.String("secret-file", cli.Env("CONTINUUM_LINK_IPERF_SECRET_FILE", ""), "file holding the secret shared with the agent for the iperf3-server credentials request (a secret of its own: not the prober's, not the flow secret)")
-	dir := fs.String("dir", cli.Env("CONTINUUM_LINK_IPERF_DIR", "/iperf-auth"), "private in-memory directory for the key and the users file")
-	bin := fs.String("iperf3", cli.Env("CONTINUUM_LINK_IPERF3", "/usr/local/bin/iperf3"), "the iperf3 program")
-	port := fs.Int("port", cli.Atoi(cli.Env("CONTINUUM_LINK_CAPACITY_PORT", "8862")), "the port the iperf3 server listens on")
-	idle := fs.Int("idle-timeout", cli.Atoi(cli.Env("CONTINUUM_LINK_CAPACITY_IDLE_TIMEOUT", "60")), "seconds after which a stuck test is dropped")
-	limit := fs.String("bitrate-limit", cli.Env("CONTINUUM_LINK_CAPACITY_BITRATE_LIMIT", ""), "iperf3 --server-bitrate-limit (empty: none)")
+	fs := cli.NewFlagSet("ikhnos link-iperf-server", os.Stderr)
+	agentURL := fs.String("agent", cli.Env("IKHNOS_LINK_AGENT_URL", ""), "URL of the agent's link address, e.g. http://ikhnos-agent-link-metrics.ikhnos-system.svc:9104")
+	secretFile := fs.String("secret-file", cli.Env("IKHNOS_LINK_IPERF_SECRET_FILE", ""), "file holding the secret shared with the agent for the iperf3-server credentials request (a secret of its own: not the prober's, not the flow secret)")
+	dir := fs.String("dir", cli.Env("IKHNOS_LINK_IPERF_DIR", "/iperf-auth"), "private in-memory directory for the key and the users file")
+	bin := fs.String("iperf3", cli.Env("IKHNOS_LINK_IPERF3", "/usr/local/bin/iperf3"), "the iperf3 program")
+	port := fs.Int("port", cli.Atoi(cli.Env("IKHNOS_LINK_CAPACITY_PORT", "8862")), "the port the iperf3 server listens on")
+	idle := fs.Int("idle-timeout", cli.Atoi(cli.Env("IKHNOS_LINK_CAPACITY_IDLE_TIMEOUT", "60")), "seconds after which a stuck test is dropped")
+	limit := fs.String("bitrate-limit", cli.Env("IKHNOS_LINK_CAPACITY_BITRATE_LIMIT", ""), "iperf3 --server-bitrate-limit (empty: none)")
 	every := fs.Duration("interval", time.Minute, "how often the agent is asked for the credentials")
 	if code, done := cli.Parse(fs, args); done {
 		return code

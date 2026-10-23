@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"continuum/internal/agents"
-	"continuum/internal/httpkit"
-	"continuum/internal/wire"
+	"ikhnos/internal/agents"
+	"ikhnos/internal/httpkit"
+	"ikhnos/internal/wire"
 )
 
 // wireFile is the TypeScript the API's shapes are written to, beside the page that reads them.

@@ -89,7 +89,7 @@ export default function InstallationSettings({ conn }: { conn: Conn }) {
             disabled={!admin}
             placeholder="registry.example.com/team"
             testId="image-registry"
-            help={<>Host and optional path, lowercase, no <Code>https://</Code>. A bare name such as <Code>myteam</Code> is a Docker Hub namespace. The image is <Code>&lt;registry&gt;/continuum</Code>; the chart is fetched from the same place.</>}
+            help={<>Host and optional path, lowercase, no <Code>https://</Code>. A bare name such as <Code>myteam</Code> is a Docker Hub namespace. The image is <Code>&lt;registry&gt;/ikhnos</Code>; the chart is fetched from the same place.</>}
           />
           <TextField
             label="Image tag"
@@ -110,7 +110,7 @@ export default function InstallationSettings({ conn }: { conn: Conn }) {
               disabled={!admin}
               placeholder="sha256:…"
               testId="image-digest"
-              help={<>Optional, and the safest choice: <Code>sha256:</Code> and 64 hex digits pin the image so it can never change under you (the tag is then ignored). Whatever published the image should have printed its digest; or find it yourself with <Code>docker buildx imagetools inspect &lt;registry&gt;/continuum:&lt;tag&gt;</Code>.</>}
+              help={<>Optional, and the safest choice: <Code>sha256:</Code> and 64 hex digits pin the image so it can never change under you (the tag is then ignored). Whatever published the image should have printed its digest; or find it yourself with <Code>docker buildx imagetools inspect &lt;registry&gt;/ikhnos:&lt;tag&gt;</Code>.</>}
             />
           </div>
         </div>

@@ -4,15 +4,15 @@ import (
 	"strings"
 	"testing"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 
-	"continuum/internal/accounts"
+	"ikhnos/internal/accounts"
 )
 
-func exportHealth(state, signal, lastErr string, sent, failed uint64) *continuumv1.Diagnostics {
-	st := map[string]continuumv1.ExportRouteHealth_State{"exporting": continuumv1.ExportRouteHealth_EXPORTING, "failing": continuumv1.ExportRouteHealth_FAILING}[state]
-	return &continuumv1.Diagnostics{ExportHealth: &continuumv1.ExportHealth{PodsReached: 1, LastError: lastErr,
-		Routes: []*continuumv1.ExportRouteHealth{{Exporter: "otlp", Signal: signal, State: st, Sent: sent, Failed: failed}}}}
+func exportHealth(state, signal, lastErr string, sent, failed uint64) *ikhnosv1.Diagnostics {
+	st := map[string]ikhnosv1.ExportRouteHealth_State{"exporting": ikhnosv1.ExportRouteHealth_EXPORTING, "failing": ikhnosv1.ExportRouteHealth_FAILING}[state]
+	return &ikhnosv1.Diagnostics{ExportHealth: &ikhnosv1.ExportHealth{PodsReached: 1, LastError: lastErr,
+		Routes: []*ikhnosv1.ExportRouteHealth{{Exporter: "otlp", Signal: signal, State: st, Sent: sent, Failed: failed}}}}
 }
 
 func TestSendersOfAnOperatorShowTheirAddressesAndHowDeliveryGoes(t *testing.T) {

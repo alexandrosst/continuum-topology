@@ -15,13 +15,13 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/agent"
-	agentcli "continuum/internal/cli/agent"
-	"continuum/internal/estate"
-	"continuum/internal/kernel"
-	"continuum/internal/pki"
-	"continuum/internal/server"
-	"continuum/internal/store"
+	"ikhnos/internal/agent"
+	agentcli "ikhnos/internal/cli/agent"
+	"ikhnos/internal/estate"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/pki"
+	"ikhnos/internal/server"
+	"ikhnos/internal/store"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -533,7 +533,7 @@ users: [{name: u, user: {token: t}}]
 `), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("CONTINUUM_TOKEN", "")
+	t.Setenv("IKHNOS_TOKEN", "")
 	code := agentcli.Main([]string{"--server", "127.0.0.1:1", "--ca-pin", "00", "--kubeconfig", kc, "--state-dir", filepath.Join(dir, "state"), "--revoked-hold", "-1ns"})
 	if code != agent.ExitRevoked || agent.ExitRevoked != 3 {
 		t.Fatalf("exit code = %d, want 3", code)

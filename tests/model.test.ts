@@ -1867,9 +1867,9 @@ test('mesh: anyMesh looks at live clusters only, and the saved-view URL keeps th
 test('scope: names are split and checked, and a selector must be on a label the agent reads', () => {
   assert.deepEqual(splitNames('shop, payments  ops\nshop'), ['shop', 'payments', 'ops'])
   assert.deepEqual(scopeProblems({ ...emptyScope, namespaces: ['shop', 'Bad_Name'] }), ['"Bad_Name" is not a valid namespace name'])
-  assert.equal(scopeProblems({ ...emptyScope, selector: 'continuum.io/scope=yes' }).length, 0)
-  assert.match(scopeProblems({ ...emptyScope, selector: 'team=a' })[0], /continuum\.io\//)
-  assert.match(scopeProblems({ ...emptyScope, selector: 'continuum.io/x=a=b' })[0], /key=value/)
+  assert.equal(scopeProblems({ ...emptyScope, selector: 'ikhnos.io/scope=yes' }).length, 0)
+  assert.match(scopeProblems({ ...emptyScope, selector: 'team=a' })[0], /ikhnos\.io\//)
+  assert.match(scopeProblems({ ...emptyScope, selector: 'ikhnos.io/x=a=b' })[0], /key=value/)
 })
 
 test('cluster stats: singular and plural, and "not fully up" counts only the services that are drawn', () => {

@@ -1,6 +1,6 @@
 package operatorsapi
 
-import "continuum/internal/store"
+import "ikhnos/internal/store"
 
 // The answers this package's routes give that were maps at the handler. The fields are in the alphabetical order of their JSON names,
 // which is the order a map was encoded in: the bytes on the wire are the ones they were before. A key that a map had only sometimes is an

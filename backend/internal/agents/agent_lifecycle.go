@@ -8,11 +8,11 @@ import (
 	"strings"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/accounts"
-	"continuum/internal/kernel"
-	"continuum/internal/pki"
-	"continuum/internal/store"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/pki"
+	"ikhnos/internal/store"
 )
 
 // The life of an agent's identity: the token that enrols it, rejecting and revoking it, the certificate it renews and the
@@ -153,7 +153,7 @@ func (c *Service) Renew(ctx context.Context, agentID string, csrDER []byte) ([]b
 // It needs no token, so it is tightly bounded: the expired certificate must be ours, must have
 // expired no more than pki.RejoinWindow ago, the request must be signed by the same key, the
 // agent must still be approved right now, and the call is rate limited per address and per agent.
-func (c *Service) Rejoin(ctx context.Context, ip string, req *continuumv1.RejoinRequest) (*continuumv1.RenewResponse, error) {
+func (c *Service) Rejoin(ctx context.Context, ip string, req *ikhnosv1.RejoinRequest) (*ikhnosv1.RenewResponse, error) {
 	if !c.EnrollRL.Allow("rejoin:" + kernel.LimitKey(ip)) {
 		return nil, kernel.Errf(kernel.KindRateLimited, "too many attempts, slow down")
 	}
@@ -195,5 +195,5 @@ func (c *Service) Rejoin(ctx context.Context, ip string, req *continuumv1.Rejoin
 		return nil, err
 	}
 	c.AuditOrg(ctx, ag.OrgID, accounts.AgentActor(id).String(), "agent-rejoined", "agent", id, fmt.Sprintf("from %s after its certificate expired at %s", ip, kernel.RFC(leaf.NotAfter)))
-	return &continuumv1.RenewResponse{LeafDer: der, CaDer: c.CA.DER, NotAfter: kernel.TSProto(&notAfter)}, nil
+	return &ikhnosv1.RenewResponse{LeafDer: der, CaDer: c.CA.DER, NotAfter: kernel.TSProto(&notAfter)}, nil
 }

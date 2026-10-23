@@ -1,10 +1,10 @@
 package server
 
 import (
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/accounts"
-	"continuum/internal/agents"
-	"continuum/internal/testkit"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/agents"
+	"ikhnos/internal/testkit"
 	"testing"
 	"time"
 )
@@ -33,7 +33,7 @@ func TestSelfTelemetryEndpointShapeAndRBAC(t *testing.T) {
 	}
 
 	ag := twinAgent(t, a.env, h, testkit.FP)
-	h.ApplySync(ag, testkit.TwinFull(testkit.FP, []*continuumv1.NodeFacts{testkit.TwinNode("n1", "")}), false)
+	h.ApplySync(ag, testkit.TwinFull(testkit.FP, []*ikhnosv1.NodeFacts{testkit.TwinNode("n1", "")}), false)
 
 	// This agent has an approved cluster but has never sent a heartbeat carrying SelfStats: still absent,
 	// not listed with an empty samples list.
@@ -89,8 +89,8 @@ func TestSelfTelemetryEndpointShapeAndRBAC(t *testing.T) {
 	if _, has := first["bandwidthSharePct"]; has {
 		t.Fatalf("no flow collector has reported LinkSaturation for this cluster: bandwidthSharePct must be omitted, got %v", first)
 	}
-	if _, has := first["continuumWattsEstimate"]; has {
-		t.Fatalf("continuumWattsEstimate is deferred in this pass and must always be omitted, got %v", first)
+	if _, has := first["ikhnosWattsEstimate"]; has {
+		t.Fatalf("ikhnosWattsEstimate is deferred in this pass and must always be omitted, got %v", first)
 	}
 	second := samples[1].(map[string]any)
 	if pct, ok := second["cpuPct"].(float64); !ok || pct != 10 {

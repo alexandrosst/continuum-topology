@@ -52,7 +52,7 @@ func TestRegionalOperatorRenewerIsOffUnlessAskedFor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	for _, s := range []string{"cert-renew", "kube-api-access", "CONTINUUM_RENEW_SECRETS", "kind: Role"} {
+	for _, s := range []string{"cert-renew", "kube-api-access", "IKHNOS_RENEW_SECRETS", "kind: Role"} {
 		if strings.Contains(out, s) {
 			t.Errorf("a render without renew.enabled contains %q", s)
 		}
@@ -107,16 +107,16 @@ func TestRegionalOperatorRenewerGetsOnlyWhatItNeeds(t *testing.T) {
 			for _, e := range c.Env {
 				env[e.Name] = e.Value
 			}
-			if env["CONTINUUM_SERVER"] != "ikhnos.example:8443" || env["CONTINUUM_CA_PIN"] != testCAPin ||
-				env["CONTINUUM_RENEW_SECRETS"] != "op-receiver-tls,op-client-tls" {
+			if env["IKHNOS_SERVER"] != "ikhnos.example:8443" || env["IKHNOS_CA_PIN"] != testCAPin ||
+				env["IKHNOS_RENEW_SECRETS"] != "op-receiver-tls,op-client-tls" {
 				t.Errorf("sidecar env = %v", env)
 			}
 			if c.SecurityContext == nil || c.SecurityContext.ReadOnlyRootFilesystem == nil || !*c.SecurityContext.ReadOnlyRootFilesystem ||
 				c.SecurityContext.AllowPrivilegeEscalation == nil || *c.SecurityContext.AllowPrivilegeEscalation {
 				t.Errorf("sidecar security context = %+v", c.SecurityContext)
 			}
-			if !strings.Contains(c.Image, "continuum") {
-				t.Errorf("sidecar image = %s: it is the continuum image, not the collector's", c.Image)
+			if !strings.Contains(c.Image, "ikhnos") {
+				t.Errorf("sidecar image = %s: it is the ikhnos image, not the collector's", c.Image)
 			}
 		case "otel-collector":
 			collector = true
@@ -194,7 +194,7 @@ func TestAgentRenewsItsClientCertificatesAndNothingElse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	role, ok := renderedRoles(t, out)["continuum-agent-cert-renew"]
+	role, ok := renderedRoles(t, out)["ikhnos-agent-cert-renew"]
 	if !ok || len(role.Rules) != 1 {
 		t.Fatalf("no cert-renew Role with one rule in the render")
 	}
@@ -202,7 +202,7 @@ func TestAgentRenewsItsClientCertificatesAndNothingElse(t *testing.T) {
 	if !sameSet(r.ResourceNames, []string{"op-client-tls", "logs-client-tls"}) || !sameSet(r.Verbs, []string{"get", "update", "patch"}) {
 		t.Errorf("rule = %+v", r)
 	}
-	if !strings.Contains(out, `CONTINUUM_RENEW_SECRETS, value: "op-client-tls,logs-client-tls"`) && !strings.Contains(out, `CONTINUUM_RENEW_SECRETS, value: "logs-client-tls,op-client-tls"`) {
+	if !strings.Contains(out, `IKHNOS_RENEW_SECRETS, value: "op-client-tls,logs-client-tls"`) && !strings.Contains(out, `IKHNOS_RENEW_SECRETS, value: "logs-client-tls,op-client-tls"`) {
 		t.Errorf("the agent is not told which Secrets to renew:\n%s", grepLines(out, "RENEW"))
 	}
 
@@ -211,7 +211,7 @@ func TestAgentRenewsItsClientCertificatesAndNothingElse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	if strings.Contains(out, "cert-renew") || strings.Contains(out, "CONTINUUM_RENEW_SECRETS") {
+	if strings.Contains(out, "cert-renew") || strings.Contains(out, "IKHNOS_RENEW_SECRETS") {
 		t.Error("a render without a client certificate has a renewer")
 	}
 }

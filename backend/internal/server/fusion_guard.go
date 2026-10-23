@@ -3,8 +3,8 @@ package server
 import (
 	"time"
 
-	"continuum/internal/fusion"
-	"continuum/internal/fusionhttp"
+	"ikhnos/internal/fusion"
+	"ikhnos/internal/fusionhttp"
 )
 
 // newDataGuard is the guard of the data API over FUSION, with what the server supplies it: the credentials a request carries,

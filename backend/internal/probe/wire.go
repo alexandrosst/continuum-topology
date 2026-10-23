@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 
 	"google.golang.org/protobuf/encoding/protojson"
 )
@@ -23,9 +23,9 @@ import (
 // inside it (see ReplayCache), so a captured report cannot be sent again.
 const (
 	PathReport = "/v1/probe"
-	HeaderNode = "X-Continuum-Node"
-	HeaderTime = "X-Continuum-Timestamp"
-	HeaderSig  = "X-Continuum-Signature"
+	HeaderNode = "X-Ikhnos-Node"
+	HeaderTime = "X-Ikhnos-Timestamp"
+	HeaderSig  = "X-Ikhnos-Signature"
 	// HeaderPaused marks a response to a report that the receiver still answered 2xx (the signature and
 	// freshness were checked as usual, so a bad secret or clock is still reported the ordinary way) but
 	// whose data went nowhere, because the server has asked this collector to pause. It rides along on
@@ -33,7 +33,7 @@ const (
 	// which has never heard of pausing, still sees a plain success and simply never finds out it was
 	// wasted; a collector that does know looks for this header and treats it as the backoff signal
 	// PauseBackoff below is for, never as a transport error.
-	HeaderPaused = "X-Continuum-Paused"
+	HeaderPaused = "X-Ikhnos-Paused"
 	// MaxBody bounds a node probe report (a hardware description is a few KiB).
 	MaxBody = 128 << 10
 	// MaxClockSkew is the default timestamp window.
@@ -41,13 +41,13 @@ const (
 )
 
 // signContext is what a MAC is bound to unless the receiver says otherwise: the node probe and flow reports.
-const signContext = "continuum-probe-v1"
+const signContext = "ikhnos-probe-v1"
 
 func Sign(secret []byte, ts, node string, body []byte) string {
 	return SignContext(signContext, secret, ts, node, body)
 }
 
-// SignContext is Sign for an API of its own: the context (a fixed string such as "continuum-link-peers-v1") goes into the
+// SignContext is Sign for an API of its own: the context (a fixed string such as "ikhnos-link-peers-v1") goes into the
 // MAC, so a signature made for one API is never valid for another even if the two were ever given the same secret.
 func SignContext(context string, secret []byte, ts, node string, body []byte) string {
 	if context == "" {
@@ -67,7 +67,7 @@ func Verify(secret []byte, ts, node, sig string, body []byte, now time.Time) err
 // Push sends one observation to the agent. paused reports whether the agent's response said this
 // report was ignored because the agent is currently paused (see HeaderPaused) - true is possible even
 // when err is nil, since a paused receiver still answers 2xx.
-func Push(ctx context.Context, hc *http.Client, url string, secret []byte, node string, h *continuumv1.HostProbe, now time.Time) (paused bool, err error) {
+func Push(ctx context.Context, hc *http.Client, url string, secret []byte, node string, h *ikhnosv1.HostProbe, now time.Time) (paused bool, err error) {
 	body, err := protojson.Marshal(h)
 	if err != nil {
 		return false, err

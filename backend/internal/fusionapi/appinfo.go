@@ -11,13 +11,13 @@ import (
 
 	"google.golang.org/protobuf/encoding/protowire"
 
-	"continuum/internal/model"
+	"ikhnos/internal/model"
 )
 
 // The application info series: what lets the tools that read Prometheus directly (Grafana, PromQL written by hand) filter by
 // Ikhnos application, which telemetry itself does not carry. For each service of each application the server writes
 //
-//	ikhnos_application_info{application, application_id, service_name, k8s_namespace_name, continuum_cluster_id, member, service_id} 1
+//	ikhnos_application_info{application, application_id, service_name, k8s_namespace_name, ikhnos_cluster_id, member, service_id} 1
 //
 // into FUSION's Prometheus, the same labels the telemetry's own series have for the service, so a query joins on them:
 //

@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"continuum/internal/accounts"
-	"continuum/internal/httpkit"
-	"continuum/internal/kernel"
-	"continuum/internal/workspace"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/httpkit"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/workspace"
 )
 
 // getWorkspace returns the stored document. "?meta=1" returns only the revision, which is what the

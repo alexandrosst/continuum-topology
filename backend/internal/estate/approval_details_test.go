@@ -3,7 +3,7 @@ package estate
 import (
 	"testing"
 
-	"continuum/internal/testkit"
+	"ikhnos/internal/testkit"
 )
 
 func TestStateShowsApprovalDetailsForPendingAgents(t *testing.T) {

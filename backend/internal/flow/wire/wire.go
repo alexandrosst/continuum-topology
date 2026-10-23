@@ -12,8 +12,8 @@ import (
 	"iter"
 	"net/netip"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/facts"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/facts"
 )
 
 const (
@@ -41,7 +41,7 @@ var (
 
 // CheckKey reports why f cannot identify an edge: both ends, the port and the protocol. It is what a stored edge
 // must pass again when it is loaded.
-func CheckKey(f *continuumv1.Flow) error {
+func CheckKey(f *ikhnosv1.Flow) error {
 	switch {
 	case f == nil || f.Src == nil || f.Dst == nil:
 		return errNoEnds
@@ -50,15 +50,15 @@ func CheckKey(f *continuumv1.Flow) error {
 	case f.Protocol != "tcp" && f.Protocol != "udp":
 		return errProtocol
 	}
-	for _, e := range []*continuumv1.FlowEndpoint{f.Src, f.Dst} {
+	for _, e := range []*ikhnosv1.FlowEndpoint{f.Src, f.Dst} {
 		switch e.Kind {
-		case continuumv1.FlowEndpoint_WORKLOAD, continuumv1.FlowEndpoint_NODE:
+		case ikhnosv1.FlowEndpoint_WORKLOAD, ikhnosv1.FlowEndpoint_NODE:
 			// A NODE endpoint is a node-level process, or a hostNetwork pod that could not be pinned to a pod: its ref
 			// is the node's name, bounded like a workload key.
 			if e.Ref == "" || len(e.Ref) > MaxRef {
 				return errEndpoint
 			}
-		case continuumv1.FlowEndpoint_EXTERNAL:
+		case ikhnosv1.FlowEndpoint_EXTERNAL:
 			if a, err := netip.ParseAddr(e.Ip); err != nil || a.String() != e.Ip || a.Is4In6() || a.IsLoopback() || a.IsUnspecified() || a.IsMulticast() {
 				return errEndpoint
 			}
@@ -66,7 +66,7 @@ func CheckKey(f *continuumv1.Flow) error {
 			return errEndpoint
 		}
 	}
-	if f.Src.Kind == continuumv1.FlowEndpoint_EXTERNAL && f.Dst.Kind == continuumv1.FlowEndpoint_EXTERNAL {
+	if f.Src.Kind == ikhnosv1.FlowEndpoint_EXTERNAL && f.Dst.Kind == ikhnosv1.FlowEndpoint_EXTERNAL {
 		return errOutside
 	}
 	return nil
@@ -74,7 +74,7 @@ func CheckKey(f *continuumv1.Flow) error {
 
 // Check reports why f is not a flow the server takes, or nil. Text that is merely too long is not a reason: Clip
 // cuts it.
-func Check(f *continuumv1.Flow) error {
+func Check(f *ikhnosv1.Flow) error {
 	if err := CheckKey(f); err != nil {
 		return err
 	}
@@ -90,7 +90,7 @@ func Check(f *continuumv1.Flow) error {
 }
 
 // Clip cuts the free-text fields of f to what the server keeps.
-func Clip(f *continuumv1.Flow) {
+func Clip(f *ikhnosv1.Flow) {
 	f.SniHost = facts.Cut(f.SniHost, MaxName)
 	f.Iface = facts.Cut(f.Iface, MaxIface)
 	if len(f.DnsQueryNames) > MaxDNSNames {
@@ -105,7 +105,7 @@ func Clip(f *continuumv1.Flow) {
 // The latest sample replaces the last (a route changes, RTT drifts), and a missing one (empty, zero, nil) never
 // replaces a real one. Counters and DNS names are not touched; each side keeps them where it keeps them (the agent
 // on the Flow, the server on the FlowEdge, adding in its own width, without wrapping).
-func MergeGauges(dst, src *continuumv1.Flow) {
+func MergeGauges(dst, src *ikhnosv1.Flow) {
 	if src.Method == "ebpf" {
 		dst.Method = "ebpf" // a flow seen by eBPF at all is described by it
 	}
@@ -152,7 +152,7 @@ func MergeGauges(dst, src *continuumv1.Flow) {
 	if src.SndbufBytes != nil {
 		dst.SndbufBytes = src.SndbufBytes
 	}
-	if src.TlsHandshake != continuumv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_UNKNOWN {
+	if src.TlsHandshake != ikhnosv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_UNKNOWN {
 		dst.TlsHandshake = src.TlsHandshake
 	}
 }

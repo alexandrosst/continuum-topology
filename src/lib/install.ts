@@ -22,7 +22,7 @@ export const DNS_LABEL = /^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$/
 const LABEL_KEY = /^([a-z0-9]([-a-z0-9.]{0,251}[a-z0-9])?\/)?[A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$/
 /** The agent only reads labels on its allow-list, so it refuses a selector on any other key rather than silently matching nothing. */
 const SELECTABLE_EXACT = ['app', 'k8s-app', 'istio-injection', 'istio.io/rev', 'istio.io/dataplane-mode']
-const SELECTABLE_PREFIX = ['continuum.io/', 'app.kubernetes.io/', 'topology.kubernetes.io/']
+const SELECTABLE_PREFIX = ['ikhnos.io/', 'app.kubernetes.io/', 'topology.kubernetes.io/']
 const selectableKey = (k: string) => SELECTABLE_EXACT.includes(k) || SELECTABLE_PREFIX.some((p) => k.startsWith(p))
 
 const LABEL_VALUE = /^([A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?)?$/
@@ -38,7 +38,7 @@ export function scopeProblems(s: ScopeInput): string[] {
   if (s.selector.trim()) {
     const [k, ...rest] = s.selector.trim().split('=')
     if (!LABEL_KEY.test(k)) out.push(`"${k}" is not a valid label key`)
-    else if (!selectableKey(k)) out.push(`The agent only reads a fixed list of labels, so select on one starting with continuum.io/ (for example continuum.io/scope=yes), not "${k}"`)
+    else if (!selectableKey(k)) out.push(`The agent only reads a fixed list of labels, so select on one starting with ikhnos.io/ (for example ikhnos.io/scope=yes), not "${k}"`)
     else if (rest.length > 1 || !LABEL_VALUE.test(rest[0] ?? '')) out.push('Write the label as key=value')
   }
   return out
@@ -248,12 +248,12 @@ export interface TelemetryInput {
    *  hatch; the chart's own memory_limiter-first/batch-last pipeline skeleton is never touched. */
   extraProcessors: ProcessorEntry[]
   /** Tags the person put on everything this install emits (`telemetry.resource.attributes`). At most
-   *  `TAG_LIMIT`, none under the reserved `continuum.` prefix - see `tagProblems`. */
+   *  `TAG_LIMIT`, none under the reserved `ikhnos.` prefix - see `tagProblems`. */
   tags: TagEntry[]
   /** A debug exporter beside the real one, writing to the collector's own log: '' off, 'basic' counts what
    *  passed (no content), 'detailed' logs every record's content. */
   debugVerbosity: DebugVerbosity
-  /** Who this telemetry belongs to, stamped as continuum.org.id / continuum.cluster.id. Not a form field: the
+  /** Who this telemetry belongs to, stamped as ikhnos.org.id / ikhnos.cluster.id. Not a form field: the
    *  panel fills them in from the signed-in organisation and the agent's cluster when it builds the command,
    *  so the wizard never holds or shows them. Empty (a test, a standalone use) means not stamped. */
   resourceOrgId: string
@@ -364,7 +364,7 @@ export type DebugVerbosity = '' | 'basic' | 'detailed'
 /** How many tags a person can add: each one is stamped on every record, so it costs storage and cardinality. */
 export const TAG_LIMIT = 8
 /** Names under this prefix are the provenance the chart stamps itself; a tag of one would be refused by it. */
-const RESERVED_TAG_PREFIX = 'continuum.'
+const RESERVED_TAG_PREFIX = 'ikhnos.'
 
 export const emptyTelemetry: TelemetryInput = {
   resourceUsage: false,
@@ -444,7 +444,7 @@ export function tagProblems(tags: TagEntry[]): string[] {
 export const cleanTags = (tags: TagEntry[]): TagEntry[] => tags.map((t) => ({ key: t.key.trim(), value: t.value.trim() })).filter((t) => t.key !== '' || t.value !== '')
 
 /**
- * What this telemetry covers, for the continuum.scope tag: the namespaces of the application signals that are
+ * What this telemetry covers, for the ikhnos.scope tag: the namespaces of the application signals that are
  * narrowed ("shop; payments"), a namespace narrowed to workloads as "payments: api+worker", plus what they
  * leave out ("- excluding legacy+tmp"). No commas: the value travels through `helm --set`. Empty when nothing
  * is narrowed (everything the agent can see).

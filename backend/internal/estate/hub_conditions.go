@@ -1,7 +1,7 @@
 package estate
 
 import (
-	"continuum/internal/agents"
+	"ikhnos/internal/agents"
 )
 
 // condInputsOf copies what agents.AgentConditions needs out of a view (nil: an agent the hub has no view of). The caller holds h.mu.

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"continuum/internal/sealing"
+	"ikhnos/internal/sealing"
 
 	_ "modernc.org/sqlite" // pure-Go driver: no cgo, so the server cross-compiles to a scratch image
 )

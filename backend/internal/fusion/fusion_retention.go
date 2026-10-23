@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"continuum/internal/fusionapi"
-	"continuum/internal/kernel"
+	"ikhnos/internal/fusionapi"
+	"ikhnos/internal/kernel"
 )
 
 // How long FUSION keeps what it has saved, set from the FUSION card without touching Helm.

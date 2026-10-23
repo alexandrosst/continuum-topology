@@ -9,9 +9,9 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"continuum/internal/sealing"
-	"continuum/internal/server"
-	"continuum/internal/store"
+	"ikhnos/internal/sealing"
+	"ikhnos/internal/server"
+	"ikhnos/internal/store"
 )
 
 // loadSealer reads the sealing key file: one key per line, the first seals. No path is no sealing, and says so; a path that cannot be read is an
@@ -47,7 +47,7 @@ func openSealedStore(ctx context.Context, log *slog.Logger, dataDir, keyFile str
 	if err != nil {
 		return nil, err
 	}
-	st, err := store.OpenSQLite(filepath.Join(dataDir, "continuum.db"))
+	st, err := store.OpenSQLite(filepath.Join(dataDir, "ikhnos.db"))
 	if err != nil {
 		return nil, err
 	}
@@ -70,7 +70,7 @@ func resetSealing(args []string) {
 	}
 	_ = f.Parse(args)
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	st, err := store.OpenSQLite(filepath.Join(*dataDir, "continuum.db"))
+	st, err := store.OpenSQLite(filepath.Join(*dataDir, "ikhnos.db"))
 	if err != nil {
 		fatal(log, err)
 	}

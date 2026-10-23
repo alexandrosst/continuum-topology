@@ -10,9 +10,9 @@ runs**.
 
 | Where | What | Lose it and… |
 |---|---|---|
-| `<data-dir>/continuum.db` (+ `-wal`, `-shm`) | SQLite: accounts, sessions, organisations, enrolment tokens, agents and their approvals, settings, **the workspace** (what people declared), **tombstones**, the node identity registry, the model version, audit | everything people entered is gone. This is the file to protect. |
+| `<data-dir>/ikhnos.db` (+ `-wal`, `-shm`) | SQLite: accounts, sessions, organisations, enrolment tokens, agents and their approvals, settings, **the workspace** (what people declared), **tombstones**, the node identity registry, the model version, audit | everything people entered is gone. This is the file to protect. |
 | `<data-dir>/pki/` (`ca.crt`, `ca.key`) | the certificate authority every agent pinned at enrolment | **every agent is orphaned**: they refuse a server with a different CA and each cluster must be enrolled again |
-| the sealing key (`sealing.keySecret`, a Kubernetes Secret) | the key that seals second-factor secrets, the mail password and decider secrets inside `continuum.db` | the database still restores, but those secrets cannot be read: the server refuses to start on it until `server reset-sealing` removes them (people set their second factor up again, the mail password and deciders are entered again). **Back it up apart from the data volume**, not with it |
+| the sealing key (`sealing.keySecret`, a Kubernetes Secret) | the key that seals second-factor secrets, the mail password and decider secrets inside `ikhnos.db` | the database still restores, but those secrets cannot be read: the server refuses to start on it until `server reset-sealing` removes them (people set their second factor up again, the mail password and deciders are entered again). **Back it up apart from the data volume**, not with it |
 | Neo4j (optional) | topology history, events, audit and workspace revisions | you lose history and the ability to look at the past; nothing else. Not the trust root. |
 | what agents observe | clusters, nodes, workloads, traffic | nothing: it is **not stored in a backup and not needed in one**. Agents send a full picture when they reconnect. |
 
@@ -24,15 +24,15 @@ returns within a heartbeat or two of the agents reconnecting.
 ## Take a backup
 
 ```console
-server backup --data-dir /data --out /backups/continuum-2026-09-21.tar.gz
+server backup --data-dir /data --out /backups/ikhnos-2026-09-21.tar.gz
 ```
 
 * It is safe **while the server is running**. The database is copied with SQLite's `VACUUM INTO`, which is one
   read transaction: a single moment in time, including what is still in the write-ahead log. Copying
-  `continuum.db` with `cp` is not safe for that reason.
+  `ikhnos.db` with `cp` is not safe for that reason.
 * It never migrates or otherwise touches the source database.
 * The archive is a `.tar.gz` holding `manifest.json` (format version, schema version, a SHA-256 of every file),
-  `continuum.db` and `pki/*`. It refuses to overwrite an existing file and writes it with mode `0600`.
+  `ikhnos.db` and `pki/*`. It refuses to overwrite an existing file and writes it with mode `0600`.
 * **The archive contains the CA private key.** Treat it like the data directory itself: encrypt it (`age`, `gpg`)
   before it leaves the machine, and keep it away from the systems it protects.
 * `--out -` writes the archive to standard output instead, for a container that has no shell or `tar`.
@@ -40,7 +40,7 @@ server backup --data-dir /data --out /backups/continuum-2026-09-21.tar.gz
 In Kubernetes (the image's entry point is the server, so give the command explicitly):
 
 ```console
-kubectl -n continuum exec deploy/continuum-server -- /server backup --data-dir /data --out - > continuum-$(date +%F).tar.gz
+kubectl -n ikhnos exec deploy/ikhnos-server -- /server backup --data-dir /data --out - > ikhnos-$(date +%F).tar.gz
 ```
 
 The command needs somewhere to put its working copy of the database: it uses a private directory inside the data
@@ -59,12 +59,12 @@ Restore into an **empty data directory**, with the server **stopped**. The serve
 overwrite the files.
 
 ```console
-server restore --data-dir /data --from /backups/continuum-2026-09-21.tar.gz
+server restore --data-dir /data --from /backups/ikhnos-2026-09-21.tar.gz
 ```
 
 What it does, in this order, and stops at the first thing that is wrong:
 
-1. Unpacks into a staging directory. Only the expected names are accepted (`manifest.json`, `continuum.db`,
+1. Unpacks into a staging directory. Only the expected names are accepted (`manifest.json`, `ikhnos.db`,
    `pki/<file>`); anything else, or a path that leads elsewhere, is refused.
 2. Checks the format: an archive written by a **newer** Ikhnos is refused ("Restore it with that version").
 3. Checks every file against the manifest's SHA-256, so a truncated or edited archive is refused.
@@ -74,7 +74,7 @@ What it does, in this order, and stops at the first thing that is wrong:
 6. Puts the files in place. If the data directory already holds a database or a CA it refuses unless you pass
    `--force`, and then it **moves them aside** into `<data-dir>/pre-restore-<time>/` rather than deleting them.
 
-Then start the server. It logs `continuum server started` with the same `ca_pin` as before (if it differs,
+Then start the server. It logs `ikhnos server started` with the same `ca_pin` as before (if it differs,
 agents will not connect). Agents reconnect on their own and send a fresh picture; no agent is enrolled again.
 The restored database is older than what you had, so anything decided after the backup (approvals, workspace
 saves, new organisations) is missing: that is the price of restoring, and why the schedule matters.
@@ -82,16 +82,16 @@ saves, new organisations) is missing: that is the price of restoring, and why th
 In Kubernetes, restore into the volume from a pod that is not the server, with the server scaled to zero:
 
 ```console
-kubectl -n continuum scale deployment/continuum-server --replicas=0
-kubectl -n continuum run continuum-restore -i --rm --restart=Never \
-  --image=continuum/server:TAG \
+kubectl -n ikhnos scale deployment/ikhnos-server --replicas=0
+kubectl -n ikhnos run ikhnos-restore -i --rm --restart=Never \
+  --image=ikhnos/server:TAG \
   --overrides='{"spec":{"securityContext":{"runAsUser":65532,"runAsGroup":65532,"fsGroup":65532},
-    "containers":[{"name":"continuum-restore","image":"continuum/server:TAG","stdin":true,
+    "containers":[{"name":"ikhnos-restore","image":"ikhnos/server:TAG","stdin":true,
       "command":["/server","restore","--data-dir","/data","--from","-","--force"],
       "volumeMounts":[{"name":"data","mountPath":"/data"}]}],
-    "volumes":[{"name":"data","persistentVolumeClaim":{"claimName":"continuum-server-data"}}]}}' \
-  < continuum-2026-09-21.tar.gz
-kubectl -n continuum scale deployment/continuum-server --replicas=1
+    "volumes":[{"name":"data","persistentVolumeClaim":{"claimName":"ikhnos-server-data"}}]}}' \
+  < ikhnos-2026-09-21.tar.gz
+kubectl -n ikhnos scale deployment/ikhnos-server --replicas=1
 ```
 
 (Use your image and PVC name. `--from -` reads the archive from standard input.) Drop `--force` for a volume you
@@ -102,8 +102,8 @@ know is empty.
 A backup you have not restored is a hope, not a backup. On any machine:
 
 ```console
-server restore --data-dir /tmp/continuum-check --from continuum-2026-09-21.tar.gz
-server --data-dir /tmp/continuum-check --admin-listen 127.0.0.1:18080 --agent-listen 127.0.0.1:18443 --agent-address 127.0.0.1:18443
+server restore --data-dir /tmp/ikhnos-check --from ikhnos-2026-09-21.tar.gz
+server --data-dir /tmp/ikhnos-check --admin-listen 127.0.0.1:18080 --agent-listen 127.0.0.1:18443 --agent-address 127.0.0.1:18443
 ```
 
 Sign in, look at the workspace, stop it and delete the directory.

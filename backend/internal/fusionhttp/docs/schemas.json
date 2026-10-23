@@ -48,7 +48,7 @@
       "id": {"type": "string", "description": "The service's id in Ikhnos."}, "name": {"type": "string"}, "namespace": {"type": "string"}, "cluster": {"type": "string"}, "kind": {"type": "string"},
       "image": {"type": "string"}, "status": {"type": "string"}, "replicas": {"type": "integer"}, "readyReplicas": {"type": "integer"}, "restarts": {"type": "integer"},
       "telemetry": {"type": "object", "properties": {"member": {"type": "string"}, "filter": {"type": "object", "description": "The label values its telemetry carries.", "properties": {
-        "continuum_cluster_id": {"type": "string"}, "k8s_namespace_name": {"type": "string"}, "service_name": {"type": "array", "items": {"type": "string"}, "description": "Its name and its aliases."},
+        "ikhnos_cluster_id": {"type": "string"}, "k8s_namespace_name": {"type": "string"}, "service_name": {"type": "array", "items": {"type": "string"}, "description": "Its name and its aliases."},
         "workload": {"type": "object", "additionalProperties": {"type": "string"}, "description": "For the metrics the cluster reports about the workload itself, the label that names it (`k8s_deployment_name`, `k8s_statefulset_name` or `k8s_daemonset_name`)."}}}}}}}},
     "links": {"type": "array", "description": "Live links first, the busiest first.", "items": {"type": "object", "properties": {
       "from": {"type": "string", "description": "A service's key, or the id of an address in `externals`."}, "fromKind": {"type": "string", "enum": ["service", "external"]},

@@ -343,7 +343,7 @@ func (m *Meter) writeConnects(w io.Writer, own string, peerIDs []string) {
 		return l
 	}
 	head := func(name, typ, help string) { fmt.Fprintf(w, "# HELP %s %s\n# TYPE %s %s\n", name, help, name, typ) }
-	const name = "continuum_link_tcp_connect_seconds"
+	const name = "ikhnos_link_tcp_connect_seconds"
 	head(name, "histogram", "Time to open a TCP connection to the peer's link responder, from SYN to established: a round trip as the TCP stack sees it, sampled every few seconds without sending data.")
 	for _, id := range peerIDs {
 		h := newHist(connectBuckets)
@@ -359,20 +359,20 @@ func (m *Meter) writeConnects(w io.Writer, own string, peerIDs []string) {
 		fmt.Fprintf(w, "%s_bucket{%s} %d\n", name, lbl(id, "le", "+Inf"), cum)
 		fmt.Fprintf(w, "%s_sum{%s} %g\n%s_count{%s} %d\n", name, lbl(id), h.sum, name, lbl(id), h.n)
 	}
-	head("continuum_link_tcp_connect_failures_total", "counter", "Rounds in which no address of the peer's link responder opened a TCP connection, by the reason of the last attempt; a round where a later address answered counts nothing here. The loss ratio, per round, is this over this plus the histogram's count (whose samples may come from different nodes of the peer).")
+	head("ikhnos_link_tcp_connect_failures_total", "counter", "Rounds in which no address of the peer's link responder opened a TCP connection, by the reason of the last attempt; a round where a later address answered counts nothing here. The loss ratio, per round, is this over this plus the histogram's count (whose samples may come from different nodes of the peer).")
 	for _, id := range peerIDs {
 		for _, r := range connectFailReasons {
 			v := uint64(0)
 			if s := m.connects[id]; s != nil {
 				v = s.failed[r]
 			}
-			fmt.Fprintf(w, "continuum_link_tcp_connect_failures_total{%s} %d\n", lbl(id, "reason", r), v)
+			fmt.Fprintf(w, "ikhnos_link_tcp_connect_failures_total{%s} %d\n", lbl(id, "reason", r), v)
 		}
 	}
-	head("continuum_link_tcp_connect_last_success_timestamp_seconds", "gauge", "When a connection to the peer's link responder last opened. Absent until the first time.")
+	head("ikhnos_link_tcp_connect_last_success_timestamp_seconds", "gauge", "When a connection to the peer's link responder last opened. Absent until the first time.")
 	for _, id := range peerIDs {
 		if s := m.connects[id]; s != nil && !s.lastOK.IsZero() {
-			fmt.Fprintf(w, "continuum_link_tcp_connect_last_success_timestamp_seconds{%s} %d\n", lbl(id), s.lastOK.Unix())
+			fmt.Fprintf(w, "ikhnos_link_tcp_connect_last_success_timestamp_seconds{%s} %d\n", lbl(id), s.lastOK.Unix())
 		}
 	}
 }

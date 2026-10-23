@@ -4,9 +4,9 @@ import (
 	"context"
 	"net/http"
 
-	"continuum/internal/accounts"
-	"continuum/internal/httpkit"
-	"continuum/internal/kernel"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/httpkit"
+	"ikhnos/internal/kernel"
 )
 
 // The HTTP side of the server's mail settings. What they are, how they are checked and sent is the accounts' (mail.go); who may change

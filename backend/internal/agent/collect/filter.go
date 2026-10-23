@@ -19,7 +19,7 @@ var labelExact = map[string]bool{
 }
 
 var labelPrefix = []string{
-	"app.kubernetes.io/", "continuum.io/", "topology.kubernetes.io/", "failure-domain.beta.kubernetes.io/",
+	"app.kubernetes.io/", "ikhnos.io/", "topology.kubernetes.io/", "failure-domain.beta.kubernetes.io/",
 	"node.kubernetes.io/", "node-role.kubernetes.io/", "beta.kubernetes.io/",
 	"feature.node.kubernetes.io/cpu-", "nvidia.com/gpu.", "microk8s.io/", "minikube.k8s.io/", "node.openshift.io/",
 }
@@ -36,7 +36,7 @@ var annotationExact = map[string]bool{
 }
 
 // The prefixes hold the port lists a workload excludes from its proxy.
-var annotationPrefix = []string{"continuum.io/", "traffic.sidecar.istio.io/", "config.linkerd.io/skip-"}
+var annotationPrefix = []string{"ikhnos.io/", "traffic.sidecar.istio.io/", "config.linkerd.io/skip-"}
 
 const (
 	maxEntries  = 60

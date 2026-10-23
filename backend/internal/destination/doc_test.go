@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"continuum/internal/store"
+	"ikhnos/internal/store"
 )
 
 // Of and ToStore are written out field by field. A destination that has every field set must come back as it went in, so a field added to

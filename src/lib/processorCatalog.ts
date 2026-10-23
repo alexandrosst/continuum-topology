@@ -1,7 +1,7 @@
 // The OTel Collector processor pipeline editor's data model: typed configs for a small, common-case set of
 // extra processors (filter, tail_sampling, transform), each compiling to the exact raw processor body the
 // chart's own extraProcessors/extraProcessorNames escape hatch already accepts (see values.yaml and
-// telemetry-cluster-config.yaml in backend/internal/chart/continuum-agent) - this file only ever produces
+// telemetry-cluster-config.yaml in backend/internal/chart/ikhnos-agent) - this file only ever produces
 // what a person could otherwise have typed into that escape hatch by hand, just with a form and validation
 // in front of it. A `raw` override on any entry bypasses the typed config entirely, for anything a
 // three-kind catalog can't express (an unusual OTTL statement, a tail_sampling policy type not listed here).

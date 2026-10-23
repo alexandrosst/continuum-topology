@@ -23,7 +23,7 @@ import (
 // raised later without invalidating keys already written. Version 1 is the only one defined; a
 // reader refuses any other rather than guess.
 const (
-	encryptedKeyType = "CONTINUUM ENCRYPTED CA KEY"
+	encryptedKeyType = "IKHNOS ENCRYPTED CA KEY"
 	plainKeyType     = "EC PRIVATE KEY"
 
 	keyMagic   = "CCK1"
@@ -49,7 +49,7 @@ var (
 )
 
 // ErrPassphraseRequired means the key is encrypted and no passphrase was given.
-var ErrPassphraseRequired = errors.New("pki: the CA key is encrypted; give the passphrase with --ca-key-passphrase-file (or CONTINUUM_CA_KEY_PASSPHRASE_FILE)")
+var ErrPassphraseRequired = errors.New("pki: the CA key is encrypted; give the passphrase with --ca-key-passphrase-file (or IKHNOS_CA_KEY_PASSPHRASE_FILE)")
 
 // ErrWrongPassphrase means decryption failed: the passphrase is wrong or the file was altered.
 var ErrWrongPassphrase = errors.New("pki: the CA key could not be decrypted: wrong passphrase, or the key file is damaged")

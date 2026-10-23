@@ -14,7 +14,7 @@ Builds, vets and race-tests the Go backend; lints, type-checks, builds and unit-
 
 ## `release.yml` — a push to `main`, or a version tag
 
-Builds and publishes the `continuum` and `server` images (multi-arch for the agent image; amd64 for the server) and the four Helm charts (`continuum-agent`, `continuum-regional-operator`, `continuum-fusion`, `continuum-server`) to this repository's own `ghcr.io/<owner>` namespace, signs everything keylessly with cosign, and bakes that GHCR namespace into the agent and server charts' own defaults — which is what lets every install command on this site skip `--set image.repository=...` entirely.
+Builds and publishes the `ikhnos` and `server` images (multi-arch for the agent image; amd64 for the server) and the four Helm charts (`ikhnos-agent`, `ikhnos-regional-operator`, `ikhnos-fusion`, `ikhnos-server`) to this repository's own `ghcr.io/<owner>` namespace, signs everything keylessly with cosign, and bakes that GHCR namespace into the agent and server charts' own defaults — which is what lets every install command on this site skip `--set image.repository=...` entirely.
 
 - A push straight to `main` publishes the **`edge`** tag and a chart version like `0.0.0-edge.g<sha>` — always whatever `main` currently is, never meant to be depended on for anything you'd call a release.
 
@@ -29,7 +29,7 @@ Builds and publishes the `continuum` and `server` images (multi-arch for the age
   git push origin v0.3.0
   ```
 
-**The one manual step:** the very first time this workflow runs, GitHub creates its six packages (`continuum`, `server`, `continuum-agent`, `continuum-regional-operator`, `continuum-fusion`, `continuum-server`) as **private**, even in a public repository. Flip each to public once, from the repo's **Packages** sidebar → **Package settings** → **Change visibility**. Nothing after that needs repeating — every later push publishes into the same, already-public packages. See [Common errors](../troubleshooting/common-errors.md) if you hit this after the fact.
+**The one manual step:** the very first time this workflow runs, GitHub creates its six packages (`ikhnos`, `server`, `ikhnos-agent`, `ikhnos-regional-operator`, `ikhnos-fusion`, `ikhnos-server`) as **private**, even in a public repository. Flip each to public once, from the repo's **Packages** sidebar → **Package settings** → **Change visibility**. Nothing after that needs repeating — every later push publishes into the same, already-public packages. See [Common errors](../troubleshooting/common-errors.md) if you hit this after the fact.
 
 ## `docs.yml` — a push to `main` that touches `docs-site/**`
 

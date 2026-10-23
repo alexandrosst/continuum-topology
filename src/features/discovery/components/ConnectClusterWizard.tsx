@@ -364,7 +364,7 @@ export default function ConnectClusterWizard({ open, onClose, nodeProbe }: { ope
                           <span className="block text-sm font-medium text-nb-300">Only look at some namespaces</span>
                           <span className="block text-sm text-nb-500">
                             By default the agent reports every namespace. What is left out never leaves the cluster.
-                            <InfoTip>This is a privacy boundary, not a permission: the agent's read-only access is unchanged. System namespaces are still read to recognise the cluster but never drawn. Any namespace labelled continuum.io/observe=false is left out whatever you choose here.</InfoTip>
+                            <InfoTip>This is a privacy boundary, not a permission: the agent's read-only access is unchanged. System namespaces are still read to recognise the cluster but never drawn. Any namespace labelled ikhnos.io/observe=false is left out whatever you choose here.</InfoTip>
                           </span>
                         </span>
                       </label>
@@ -376,8 +376,8 @@ export default function ConnectClusterWizard({ open, onClose, nodeProbe }: { ope
                           <Field label="Never these" hint="Wins over the other two.">
                             <TagsInput value={exc} onChange={setExc} placeholder="hr-data" data-testid="scope-exclude" />
                           </Field>
-                          <Field label="Or namespaces with this label" hint="key=value, on a label starting continuum.io/; added to the names on the left.">
-                            <Input value={sel} onChange={(e) => setSel(e.target.value)} placeholder="continuum.io/scope=yes" data-testid="scope-label" />
+                          <Field label="Or namespaces with this label" hint="key=value, on a label starting ikhnos.io/; added to the names on the left.">
+                            <Input value={sel} onChange={(e) => setSel(e.target.value)} placeholder="ikhnos.io/scope=yes" data-testid="scope-label" />
                           </Field>
                           <p className="self-end text-xs text-nb-500">
                             {scopeActive(scope) ? 'The install command below will carry this scope.' : 'Nothing narrowed yet: the agent would report every namespace.'}
@@ -411,10 +411,10 @@ export default function ConnectClusterWizard({ open, onClose, nodeProbe }: { ope
               <pre className="whitespace-pre-wrap break-all rounded-md border border-nb-850 bg-nb-950 px-3 py-3 font-mono text-xs leading-relaxed text-nb-300" data-testid="install-command">{created.install}</pre>
               <p className="mt-2 text-xs text-nb-500">
                 {/nodeProbe\.enabled=true/.test(created.install) && (
-                  <>The node probe mounts the host's <code className="font-mono">/sys</code> read-only. If the namespace enforces the Pod Security “baseline” profile, its pods are refused until you run <code className="font-mono">kubectl label namespace continuum-system pod-security.kubernetes.io/enforce=privileged --overwrite</code>. </>
+                  <>The node probe mounts the host's <code className="font-mono">/sys</code> read-only. If the namespace enforces the Pod Security “baseline” profile, its pods are refused until you run <code className="font-mono">kubectl label namespace ikhnos-system pod-security.kubernetes.io/enforce=privileged --overwrite</code>. </>
                 )}
                 {/flowObserver\.enabled=true/.test(created.install) && (
-                  <>The traffic observer runs as root with only CAP_BPF, CAP_PERFMON and CAP_SYS_RESOURCE and an unconfined seccomp profile, in the host network. A namespace that enforces the Pod Security “baseline” profile refuses it until you run <code className="font-mono">kubectl label namespace continuum-system pod-security.kubernetes.io/enforce=privileged --overwrite</code>. </>
+                  <>The traffic observer runs as root with only CAP_BPF, CAP_PERFMON and CAP_SYS_RESOURCE and an unconfined seccomp profile, in the host network. A namespace that enforces the Pod Security “baseline” profile refuses it until you run <code className="font-mono">kubectl label namespace ikhnos-system pod-security.kubernetes.io/enforce=privileged --overwrite</code>. </>
                 )}
                 The token works once and expires at {new Date(created.meta.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}. It is shown only here and cannot be retrieved later.
               </p>
@@ -463,7 +463,7 @@ export default function ConnectClusterWizard({ open, onClose, nodeProbe }: { ope
                     <p className="mt-1">
                       They have not been published yet, or the registry is private. Ask whoever manages this Ikhnos server to publish them (see the deployment guide) or grant the cluster's registry credentials access.
                       {info?.install?.chartFile && (
-                        <> To skip the registry for just the chart, use the copy this server already serves: <code className="font-mono">curl -fLO {shArg(`${baseUrl || window.location.origin}/charts/${info.install.chartFile}`)}</code>, then change the start of the command to <code className="font-mono">helm install continuum-agent ./{info.install.chartFile}</code> and drop <code className="font-mono">--version</code>.</>
+                        <> To skip the registry for just the chart, use the copy this server already serves: <code className="font-mono">curl -fLO {shArg(`${baseUrl || window.location.origin}/charts/${info.install.chartFile}`)}</code>, then change the start of the command to <code className="font-mono">helm install ikhnos-agent ./{info.install.chartFile}</code> and drop <code className="font-mono">--version</code>.</>
                       )}
                     </p>
                   </details>

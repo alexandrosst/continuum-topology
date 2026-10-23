@@ -1,6 +1,6 @@
 package estate
 
-import "continuum/internal/decisionloop"
+import "ikhnos/internal/decisionloop"
 
 // What the decision loop reads of an agent: its own load, and which Config it has confirmed. The loop does not see the hub's views;
 // this is the one place that says what of them it may have.

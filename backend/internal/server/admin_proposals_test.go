@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"continuum/internal/accounts"
-	"continuum/internal/store"
-	"continuum/internal/testkit"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/store"
+	"ikhnos/internal/testkit"
 )
 
 func TestTheProposalRoutesAreForEditorsAndAWideningAcceptanceNeedsAnAdministrator(t *testing.T) {

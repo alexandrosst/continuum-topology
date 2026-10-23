@@ -18,12 +18,12 @@ func withTel(extra ...string) []string { return append(append([]string{}, agentT
 
 func hostConfig(t *testing.T, extra ...string) map[string]any {
 	t.Helper()
-	return otelConfig(t, render(t, extra...).configmaps["continuum-telemetry-host-config"].Data)
+	return otelConfig(t, render(t, extra...).configmaps["ikhnos-telemetry-host-config"].Data)
 }
 
 func clusterConfig(t *testing.T, extra ...string) map[string]any {
 	t.Helper()
-	return otelConfig(t, render(t, extra...).configmaps["continuum-telemetry-cluster-config"].Data)
+	return otelConfig(t, render(t, extra...).configmaps["ikhnos-telemetry-cluster-config"].Data)
 }
 
 func stringsOf(t *testing.T, v any) []string {
@@ -66,7 +66,7 @@ func TestAgentExportersReloadTheirClientCertificate(t *testing.T) {
 		"--set", "telemetry.export.routes.metrics.endpoint=prom.example:9090", "--set", "telemetry.export.routes.metrics.protocol=http",
 		"--set", "telemetry.export.routes.metrics.tls.mtls.enabled=true", "--set", "telemetry.export.routes.metrics.tls.mtls.secretName=m-client")
 	r := render(t, both...)
-	for _, cm := range []string{"continuum-telemetry-host-config", "continuum-telemetry-cluster-config"} {
+	for _, cm := range []string{"ikhnos-telemetry-host-config", "ikhnos-telemetry-cluster-config"} {
 		ex := sub(t, otelConfig(t, r.configmaps[cm].Data), "exporters")
 		if got := sub(t, ex, "otlp", "tls")["reload_interval"]; got != "5m" {
 			t.Errorf("%s: grpc exporter reload_interval = %v, want 5m", cm, got)
@@ -94,30 +94,30 @@ func TestAgentExportersHaveABoundedQueueAndARetryWindow(t *testing.T) {
 			t.Errorf("%s %s sending_queue = %v, want a memory queue of %v", cm, name, q, size)
 		}
 	}
-	check("continuum-telemetry-host-config", "otlp", 256, "30m")
-	check("continuum-telemetry-cluster-config", "otlp", 256, "30m")
-	check("continuum-telemetry-cluster-config", "zipkin/traces", 256, "30m")
+	check("ikhnos-telemetry-host-config", "otlp", 256, "30m")
+	check("ikhnos-telemetry-cluster-config", "otlp", 256, "30m")
+	check("ikhnos-telemetry-cluster-config", "zipkin/traces", 256, "30m")
 
 	r = render(t, withTel("--set", "telemetry.resourceUsage.metrics.enabled=true", "--set", "telemetry.export.queue.size=64", "--set", "telemetry.export.queue.retryMaxElapsedTime=10m")...)
-	check("continuum-telemetry-host-config", "otlp", 64, "10m")
+	check("ikhnos-telemetry-host-config", "otlp", 64, "10m")
 }
 
 func TestAgentPersistentQueueIsOptInAndUsesAnEmptyDirOnBothCollectors(t *testing.T) {
 	base := withTel("--set", "telemetry.resourceUsage.metrics.enabled=true", "--set", "telemetry.kubernetesState.metrics.enabled=true", "--set", "telemetry.opamp.enabled=true", "--set", "telemetry.opamp.server.endpoint=wss://opamp.example/v1")
 	r := render(t, base...)
-	for _, v := range r.daemonsets["continuum-telemetry-host"].Spec.Template.Spec.Volumes {
+	for _, v := range r.daemonsets["ikhnos-telemetry-host"].Spec.Template.Spec.Volumes {
 		if v.Name == "queue" {
 			t.Fatalf("a queue volume by default")
 		}
 	}
-	if ext := stringsOf(t, sub(t, otelConfig(t, r.configmaps["continuum-telemetry-host-config"].Data), "service")["extensions"]); len(ext) != 2 || ext[0] != "health_check" || ext[1] != "opamp" {
+	if ext := stringsOf(t, sub(t, otelConfig(t, r.configmaps["ikhnos-telemetry-host-config"].Data), "service")["extensions"]); len(ext) != 2 || ext[0] != "health_check" || ext[1] != "opamp" {
 		t.Errorf("default service.extensions = %v, want health_check (the readiness probe) and opamp, no queue storage", ext)
 	}
 
 	r = render(t, append(append([]string{}, base...), "--set", "telemetry.export.queue.persistent.enabled=true", "--set", "telemetry.export.queue.persistent.sizeLimit=2Gi")...)
 	pods := map[string]corev1.PodSpec{
-		"continuum-telemetry-host-config":    r.daemonsets["continuum-telemetry-host"].Spec.Template.Spec,
-		"continuum-telemetry-cluster-config": r.deployments["continuum-telemetry-cluster"].Spec.Template.Spec,
+		"ikhnos-telemetry-host-config":    r.daemonsets["ikhnos-telemetry-host"].Spec.Template.Spec,
+		"ikhnos-telemetry-cluster-config": r.deployments["ikhnos-telemetry-cluster"].Spec.Template.Spec,
 	}
 	for cm, pod := range pods {
 		var vol *corev1.Volume
@@ -193,29 +193,29 @@ func TestAgentBatchSizesAreExplicitAndChecked(t *testing.T) {
 // kubelet unless that is switched off on purpose.
 func TestAgentKubeletStatsUsesTheHostIPAndVerifiesByDefault(t *testing.T) {
 	r := render(t, withTel("--set", "telemetry.resourceUsage.metrics.enabled=true")...)
-	ks := sub(t, otelConfig(t, r.configmaps["continuum-telemetry-host-config"].Data), "receivers", "kubelet_stats")
+	ks := sub(t, otelConfig(t, r.configmaps["ikhnos-telemetry-host-config"].Data), "receivers", "kubelet_stats")
 	if ks["endpoint"] != "https://${env:NODE_IP}:10250" {
 		t.Errorf("kubelet_stats endpoint = %v", ks["endpoint"])
 	}
 	if ks["insecure_skip_verify"] != false {
 		t.Errorf("insecure_skip_verify = %v, want false", ks["insecure_skip_verify"])
 	}
-	ip := containerEnv(r.daemonsets["continuum-telemetry-host"].Spec.Template.Spec.Containers[0], "NODE_IP")
+	ip := containerEnv(r.daemonsets["ikhnos-telemetry-host"].Spec.Template.Spec.Containers[0], "NODE_IP")
 	if ip == nil || ip.ValueFrom == nil || ip.ValueFrom.FieldRef == nil || ip.ValueFrom.FieldRef.FieldPath != "status.hostIP" {
 		t.Errorf("NODE_IP must come from status.hostIP, got %+v", ip)
 	}
 
 	opt := render(t, withTel("--set", "telemetry.nodeRuntime.metrics.enabled=true", "--set", "telemetry.kubelet.insecureSkipVerify=true")...)
-	if got := sub(t, otelConfig(t, opt.configmaps["continuum-telemetry-host-config"].Data), "receivers", "kubelet_stats")["insecure_skip_verify"]; got != true {
+	if got := sub(t, otelConfig(t, opt.configmaps["ikhnos-telemetry-host-config"].Data), "receivers", "kubelet_stats")["insecure_skip_verify"]; got != true {
 		t.Errorf("telemetry.kubelet.insecureSkipVerify=true not honoured: %v", got)
 	}
-	if containerEnv(opt.daemonsets["continuum-telemetry-host"].Spec.Template.Spec.Containers[0], "NODE_IP") == nil {
+	if containerEnv(opt.daemonsets["ikhnos-telemetry-host"].Spec.Template.Spec.Containers[0], "NODE_IP") == nil {
 		t.Errorf("nodeRuntime alone also runs kubelet_stats and needs NODE_IP")
 	}
 
 	// A collector with no kubelet_stats has no use for the address.
 	logs := render(t, withTel("--set", "telemetry.systemLogs.logs.enabled=true")...)
-	if containerEnv(logs.daemonsets["continuum-telemetry-host"].Spec.Template.Spec.Containers[0], "NODE_IP") != nil {
+	if containerEnv(logs.daemonsets["ikhnos-telemetry-host"].Spec.Template.Spec.Containers[0], "NODE_IP") != nil {
 		t.Errorf("NODE_IP set although kubelet_stats is not running")
 	}
 }
@@ -224,15 +224,15 @@ func TestAgentKubeletStatsUsesTheHostIPAndVerifiesByDefault(t *testing.T) {
 // sees records from anywhere.
 func TestAgentHostK8sAttributesIsFilteredToItsNode(t *testing.T) {
 	r := render(t, withTel("--set", "telemetry.resourceUsage.metrics.enabled=true", "--set", "telemetry.kubernetesState.metrics.enabled=true")...)
-	host := sub(t, otelConfig(t, r.configmaps["continuum-telemetry-host-config"].Data), "processors", "k8sattributes")
+	host := sub(t, otelConfig(t, r.configmaps["ikhnos-telemetry-host-config"].Data), "processors", "k8sattributes")
 	if f := sub(t, host, "filter"); f["node_from_env_var"] != "NODE_NAME" {
 		t.Errorf("host k8sattributes filter = %v, want node_from_env_var NODE_NAME", f)
 	}
-	nn := containerEnv(r.daemonsets["continuum-telemetry-host"].Spec.Template.Spec.Containers[0], "NODE_NAME")
+	nn := containerEnv(r.daemonsets["ikhnos-telemetry-host"].Spec.Template.Spec.Containers[0], "NODE_NAME")
 	if nn == nil || nn.ValueFrom == nil || nn.ValueFrom.FieldRef == nil || nn.ValueFrom.FieldRef.FieldPath != "spec.nodeName" {
 		t.Errorf("the filter reads NODE_NAME, which must come from spec.nodeName, got %+v", nn)
 	}
-	cluster := sub(t, otelConfig(t, r.configmaps["continuum-telemetry-cluster-config"].Data), "processors", "k8sattributes")
+	cluster := sub(t, otelConfig(t, r.configmaps["ikhnos-telemetry-cluster-config"].Data), "processors", "k8sattributes")
 	if _, ok := cluster["filter"]; ok {
 		t.Errorf("the cluster collector must see every node's pods, got a filter: %v", cluster["filter"])
 	}
@@ -241,7 +241,7 @@ func TestAgentHostK8sAttributesIsFilteredToItsNode(t *testing.T) {
 // Container logs are application output, so the scope applies to them, and the collectors' own logs are never read.
 func TestAgentSystemLogsDefaultToNoJournalAndNeverReadTheirOwnPods(t *testing.T) {
 	r := render(t, withTel("--set", "telemetry.systemLogs.logs.enabled=true")...)
-	cfg := otelConfig(t, r.configmaps["continuum-telemetry-host-config"].Data)
+	cfg := otelConfig(t, r.configmaps["ikhnos-telemetry-host-config"].Data)
 	rec := sub(t, cfg, "receivers")
 	if _, ok := rec["journald"]; ok {
 		t.Errorf("journald is on by default; the collector image has no journalctl and runs unprivileged")
@@ -250,7 +250,7 @@ func TestAgentSystemLogsDefaultToNoJournalAndNeverReadTheirOwnPods(t *testing.T)
 	if got := stringsOf(t, logs["receivers"]); len(got) != 1 || got[0] != "filelog/containers" {
 		t.Errorf("logs receivers = %v, want only filelog/containers", got)
 	}
-	pod := r.daemonsets["continuum-telemetry-host"].Spec.Template.Spec
+	pod := r.daemonsets["ikhnos-telemetry-host"].Spec.Template.Spec
 	for _, v := range pod.Volumes {
 		if v.Name == "journal" {
 			t.Errorf("the journal is mounted by default")
@@ -260,14 +260,14 @@ func TestAgentSystemLogsDefaultToNoJournalAndNeverReadTheirOwnPods(t *testing.T)
 	if inc := stringsOf(t, fl["include"]); len(inc) != 1 || inc[0] != "/var/log/pods/*/*/*.log" {
 		t.Errorf("include = %v", inc)
 	}
-	// The release's own namespace, pods named continuum-*: the DaemonSet, the Deployment, the agent itself.
-	if exc := stringsOf(t, fl["exclude"]); len(exc) != 1 || exc[0] != "/var/log/pods/default_continuum-*/*/*.log" {
+	// The release's own namespace, pods named ikhnos-*: the DaemonSet, the Deployment, the agent itself.
+	if exc := stringsOf(t, fl["exclude"]); len(exc) != 1 || exc[0] != "/var/log/pods/default_ikhnos-*/*/*.log" {
 		t.Errorf("exclude = %v, want the release's own pods", exc)
 	}
 	// The debug exporter writes to the collector's own log: with it on, reading that log back would be a feedback loop.
 	dbg := render(t, withTel("--set", "telemetry.systemLogs.logs.enabled=true", "--set", "telemetry.debug.verbosity=basic")...)
-	dfl := sub(t, otelConfig(t, dbg.configmaps["continuum-telemetry-host-config"].Data), "receivers", "filelog/containers")
-	if exc := stringsOf(t, dfl["exclude"]); indexOf(exc, "/var/log/pods/default_continuum-*/*/*.log") < 0 {
+	dfl := sub(t, otelConfig(t, dbg.configmaps["ikhnos-telemetry-host-config"].Data), "receivers", "filelog/containers")
+	if exc := stringsOf(t, dfl["exclude"]); indexOf(exc, "/var/log/pods/default_ikhnos-*/*/*.log") < 0 {
 		t.Errorf("with the debug exporter on, the collectors' own logs are read back: exclude = %v", exc)
 	}
 	// With no scope there is no filter to run.
@@ -277,23 +277,23 @@ func TestAgentSystemLogsDefaultToNoJournalAndNeverReadTheirOwnPods(t *testing.T)
 
 	// The journal is still there for whoever opts in.
 	j := render(t, withTel("--set", "telemetry.systemLogs.logs.enabled=true", "--set", "telemetry.systemLogs.logs.journaling=journald")...)
-	if _, ok := sub(t, otelConfig(t, j.configmaps["continuum-telemetry-host-config"].Data), "receivers")["journald"]; !ok {
+	if _, ok := sub(t, otelConfig(t, j.configmaps["ikhnos-telemetry-host-config"].Data), "receivers")["journald"]; !ok {
 		t.Errorf("journaling=journald no longer enables the journald receiver")
 	}
 
 	// The release's own namespace follows the release, not a constant.
 	out, err := helmTemplate(t, append(withTel("--set", "telemetry.systemLogs.logs.enabled=true"), "--namespace", "ikhnos-system")...)
-	if err != nil || !strings.Contains(out, `/var/log/pods/ikhnos-system_continuum-*/*/*.log`) {
+	if err != nil || !strings.Contains(out, `/var/log/pods/ikhnos-system_ikhnos-*/*/*.log`) {
 		t.Errorf("the own-pods exclusion does not follow the release namespace (err=%v)", err)
 	}
 }
 
 func TestAgentSystemLogsFollowTheScope(t *testing.T) {
 	r := render(t, withTel("--set", "telemetry.systemLogs.logs.enabled=true", "--set-json", `telemetry.scope.exclude=["kube-system","monitoring"]`)...)
-	cfg := otelConfig(t, r.configmaps["continuum-telemetry-host-config"].Data)
+	cfg := otelConfig(t, r.configmaps["ikhnos-telemetry-host-config"].Data)
 	fl := sub(t, cfg, "receivers", "filelog/containers")
 	exc := stringsOf(t, fl["exclude"])
-	for _, want := range []string{"/var/log/pods/default_continuum-*/*/*.log", "/var/log/pods/kube-system_*/*/*.log", "/var/log/pods/monitoring_*/*/*.log"} {
+	for _, want := range []string{"/var/log/pods/default_ikhnos-*/*/*.log", "/var/log/pods/kube-system_*/*/*.log", "/var/log/pods/monitoring_*/*/*.log"} {
 		if indexOf(exc, want) < 0 {
 			t.Errorf("exclude %v lacks %s", exc, want)
 		}
@@ -309,7 +309,7 @@ func TestAgentSystemLogsFollowTheScope(t *testing.T) {
 
 	// A namespace allow-list becomes include globs; excluded ones still win.
 	r = render(t, withTel("--set", "telemetry.systemLogs.logs.enabled=true", "--set-json", `telemetry.scope.namespaces=["shop","payments"]`, "--set-json", `telemetry.scope.exclude=["payments"]`)...)
-	cfg = otelConfig(t, r.configmaps["continuum-telemetry-host-config"].Data)
+	cfg = otelConfig(t, r.configmaps["ikhnos-telemetry-host-config"].Data)
 	fl = sub(t, cfg, "receivers", "filelog/containers")
 	inc := stringsOf(t, fl["include"])
 	if len(inc) != 2 || inc[0] != "/var/log/pods/shop_*/*/*.log" || inc[1] != "/var/log/pods/payments_*/*/*.log" {
@@ -326,7 +326,7 @@ func TestAgentSystemLogsFollowTheScope(t *testing.T) {
 	// telemetry.scope.infra wins for the namespaces to keep and adds to the ones to drop.
 	r = render(t, withTel("--set", "telemetry.systemLogs.logs.enabled=true", "--set-json", `telemetry.scope.namespaces=["shop"]`,
 		"--set-json", `telemetry.scope.infra.namespaces=["ops"]`, "--set-json", `telemetry.scope.exclude=["a"]`, "--set-json", `telemetry.scope.infra.exclude=["b"]`)...)
-	fl = sub(t, otelConfig(t, r.configmaps["continuum-telemetry-host-config"].Data), "receivers", "filelog/containers")
+	fl = sub(t, otelConfig(t, r.configmaps["ikhnos-telemetry-host-config"].Data), "receivers", "filelog/containers")
 	if inc := stringsOf(t, fl["include"]); len(inc) != 1 || inc[0] != "/var/log/pods/ops_*/*/*.log" {
 		t.Errorf("include = %v, want the infra namespaces", inc)
 	}
@@ -386,7 +386,7 @@ func TestAgentScrapedMetricsCarryTheirPodIdentity(t *testing.T) {
 // default is sized for that, and GOMEMLIMIT follows it. The host collector keeps the shared default (512Mi).
 func TestAgentClusterCollectorDefaultsAreSizedForTheClusterAndGOMEMLIMITFollows(t *testing.T) {
 	r := render(t, withTel("--set", "telemetry.resourceUsage.metrics.enabled=true", "--set", "telemetry.kubernetesState.metrics.enabled=true")...)
-	cl := r.deployments["continuum-telemetry-cluster"].Spec.Template.Spec.Containers[0]
+	cl := r.deployments["ikhnos-telemetry-cluster"].Spec.Template.Spec.Containers[0]
 	if got := cl.Resources.Limits.Memory().String(); got != "1Gi" {
 		t.Errorf("cluster collector memory limit = %s, want 1Gi", got)
 	}
@@ -399,12 +399,12 @@ func TestAgentClusterCollectorDefaultsAreSizedForTheClusterAndGOMEMLIMITFollows(
 	if g := containerEnv(cl, "GOMEMLIMIT"); g == nil || g.Value != "858993459" {
 		t.Errorf("cluster GOMEMLIMIT = %+v, want 858993459 (80%% of 1Gi)", g)
 	}
-	host := r.daemonsets["continuum-telemetry-host"].Spec.Template.Spec.Containers[0]
+	host := r.daemonsets["ikhnos-telemetry-host"].Spec.Template.Spec.Containers[0]
 	if got := host.Resources.Limits.Memory().String(); got != "512Mi" {
 		t.Errorf("host collector memory limit = %s, want the shared 512Mi (sized by measurement: see telemetry.resources in values.yaml)", got)
 	}
 	o := render(t, withTel("--set", "telemetry.kubernetesState.metrics.enabled=true", "--set", "telemetry.clusterCollector.resources.limits.memory=2Gi")...)
-	if got := o.deployments["continuum-telemetry-cluster"].Spec.Template.Spec.Containers[0].Resources.Limits.Memory().String(); got != "2Gi" {
+	if got := o.deployments["ikhnos-telemetry-cluster"].Spec.Template.Spec.Containers[0].Resources.Limits.Memory().String(); got != "2Gi" {
 		t.Errorf("an override of the cluster collector's limit = %s, want 2Gi", got)
 	}
 }

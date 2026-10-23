@@ -6,8 +6,8 @@ import (
 	"sort"
 	"strings"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/facts"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/facts"
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 	appsv1 "k8s.io/api/apps/v1"
@@ -40,9 +40,9 @@ func each[T any](items []any, fn func(T)) {
 }
 
 // Snapshot returns the complete current state as one full Sync (seq is set by the sender).
-func (c *Collector) Snapshot() *continuumv1.Sync {
-	s := &continuumv1.Sync{Full: true, Modules: c.Modules()}
-	s.Cluster = &continuumv1.ClusterFacts{ApiHost: c.apiHost}
+func (c *Collector) Snapshot() *ikhnosv1.Sync {
+	s := &ikhnosv1.Sync{Full: true, Modules: c.Modules()}
+	s.Cluster = &ikhnosv1.ClusterFacts{ApiHost: c.apiHost}
 
 	var pods []*corev1.Pod
 	observed := c.pods != nil // pods are only read at tier 2; below that "requested" and "pod count" are unknown, not zero
@@ -80,12 +80,12 @@ func (c *Collector) Snapshot() *continuumv1.Sync {
 				if !vis(n.Name) {
 					return // outside the scope: not even its name leaves the cluster
 				}
-				s.Namespaces = append(s.Namespaces, &continuumv1.NamespaceFacts{Key: n.Name, Name: n.Name, Labels: n.Labels, Annotations: n.Annotations})
+				s.Namespaces = append(s.Namespaces, &ikhnosv1.NamespaceFacts{Key: n.Name, Name: n.Name, Labels: n.Labels, Annotations: n.Annotations})
 			})
 		}
 		s.Cluster.Scope = c.scopeFacts(vis)
 		sort.Slice(s.Namespaces, func(i, j int) bool { return s.Namespaces[i].Key < s.Namespaces[j].Key })
-		var mesh *continuumv1.MeshFacts
+		var mesh *ikhnosv1.MeshFacts
 		s.Workloads, mesh = c.workloads(pods)
 		s.Cluster.Mesh = mesh
 		s.Modules = c.setMeshModule(mesh)
@@ -116,8 +116,8 @@ func ts(t metav1.Time) *timestamppb.Timestamp {
 	return timestamppb.New(t.Time)
 }
 
-func nodeFacts(n *corev1.Node, req corev1.ResourceList, podsObserved bool) *continuumv1.NodeFacts {
-	f := &continuumv1.NodeFacts{
+func nodeFacts(n *corev1.Node, req corev1.ResourceList, podsObserved bool) *ikhnosv1.NodeFacts {
+	f := &ikhnosv1.NodeFacts{
 		Key: n.Name, Name: n.Name, Uid: string(n.UID),
 		MachineId: n.Status.NodeInfo.MachineID, SystemUuid: n.Status.NodeInfo.SystemUUID, ProviderId: n.Spec.ProviderID,
 		OsImage: n.Status.NodeInfo.OSImage, KernelVersion: n.Status.NodeInfo.KernelVersion,
@@ -219,28 +219,28 @@ func requestsByNode(pods []*corev1.Pod) (map[string]corev1.ResourceList, map[str
 }
 
 type wl struct {
-	facts    *continuumv1.WorkloadFacts
+	facts    *ikhnosv1.WorkloadFacts
 	selector labels.Labels // pod-template labels, used only to join Services
 	// The pod template's labels and allow-listed annotations, read for service-mesh markers only.
 	tmplLabels, tmplAnn map[string]string
 	pods                []*corev1.Pod
 }
 
-func (c *Collector) workloads(pods []*corev1.Pod) ([]*continuumv1.WorkloadFacts, *continuumv1.MeshFacts) {
+func (c *Collector) workloads(pods []*corev1.Pod) ([]*ikhnosv1.WorkloadFacts, *ikhnosv1.MeshFacts) {
 	all := map[string]*wl{} // "ns/Kind/name"
 	vis := c.visible()
 	add := func(kind, ns, name string, created metav1.Time, meta map[string]string, ann map[string]string, tmpl corev1.PodTemplateSpec, replicas, ready int32) {
 		if !vis(ns) {
 			return
 		}
-		f := &continuumv1.WorkloadFacts{
+		f := &ikhnosv1.WorkloadFacts{
 			CreatedAt: ts(created),
 			Key:       ns + "/" + kind + "/" + name, Namespace: ns, Kind: kind, Name: name, Replicas: replicas, ReadyReplicas: ready,
 			Labels: meta, Annotations: ann, NodeSelector: tmpl.Spec.NodeSelector, Exposure: "internal",
 		}
 		var cpu, mem, lcpu, lmem int64
 		for _, ct := range tmpl.Spec.Containers {
-			f.Images = append(f.Images, &continuumv1.ContainerImage{Image: sanitizeImage(ct.Image)})
+			f.Images = append(f.Images, &ikhnosv1.ContainerImage{Image: sanitizeImage(ct.Image)})
 			cpu += ct.Resources.Requests.Cpu().MilliValue()
 			mem += ct.Resources.Requests.Memory().Value()
 			lcpu += ct.Resources.Limits.Cpu().MilliValue()
@@ -313,7 +313,7 @@ func (c *Collector) workloads(pods []*corev1.Pod) ([]*continuumv1.WorkloadFacts,
 					w.facts.Images[0].Digest = digestOf(cs.ImageID)
 				}
 			}
-			w.facts.Pods = append(w.facts.Pods, &continuumv1.PodFacts{
+			w.facts.Pods = append(w.facts.Pods, &ikhnosv1.PodFacts{
 				Name: p.Name, NodeName: p.Spec.NodeName, Phase: string(p.Status.Phase), Ready: podReady(p), Restarts: podRestarts, CreatedAt: ts(p.CreationTimestamp),
 			})
 		}
@@ -331,7 +331,7 @@ func (c *Collector) workloads(pods []*corev1.Pod) ([]*continuumv1.WorkloadFacts,
 	c.joinScaling(all)
 	mesh := c.detectMesh(all, vis)
 
-	out := make([]*continuumv1.WorkloadFacts, 0, len(all))
+	out := make([]*ikhnosv1.WorkloadFacts, 0, len(all))
 	for _, w := range all {
 		sort.Slice(w.facts.Ports, func(i, j int) bool { return w.facts.Ports[i] < w.facts.Ports[j] })
 		out = append(out, w.facts)
@@ -342,12 +342,12 @@ func (c *Collector) workloads(pods []*corev1.Pod) ([]*continuumv1.WorkloadFacts,
 
 // setMeshModule records whether the mesh module is worth showing (only when a mesh was found) and returns the full
 // module list for this snapshot.
-func (c *Collector) setMeshModule(m *continuumv1.MeshFacts) []*continuumv1.ModuleStatus {
-	var st *continuumv1.ModuleStatus
+func (c *Collector) setMeshModule(m *ikhnosv1.MeshFacts) []*ikhnosv1.ModuleStatus {
+	var st *ikhnosv1.ModuleStatus
 	if m != nil {
-		st = &continuumv1.ModuleStatus{Name: ModMesh, State: continuumv1.ModuleStatus_OK}
+		st = &ikhnosv1.ModuleStatus{Name: ModMesh, State: ikhnosv1.ModuleStatus_OK}
 		if !m.PolicyRead && m.PolicyNote != "" {
-			st.State, st.Reason = continuumv1.ModuleStatus_SKIPPED, "policy objects not read: "+m.PolicyNote
+			st.State, st.Reason = ikhnosv1.ModuleStatus_SKIPPED, "policy objects not read: "+m.PolicyNote
 		}
 	}
 	c.mu.Lock()
@@ -473,7 +473,7 @@ func (c *Collector) joinServices(all map[string]*wl) {
 	})
 }
 
-func raise(f *continuumv1.WorkloadFacts, exp string) {
+func raise(f *ikhnosv1.WorkloadFacts, exp string) {
 	if exposureRank[exp] > exposureRank[f.Exposure] {
 		f.Exposure = exp
 	}
@@ -569,7 +569,7 @@ func (c *Collector) joinStorage(all map[string]*wl) {
 				if pvc == nil {
 					continue
 				}
-				vc := &continuumv1.VolumeClaim{Name: pvc.Name, Phase: string(pvc.Status.Phase), PinnedNodes: pinned[pvc.Spec.VolumeName]}
+				vc := &ikhnosv1.VolumeClaim{Name: pvc.Name, Phase: string(pvc.Status.Phase), PinnedNodes: pinned[pvc.Spec.VolumeName]}
 				if pvc.Spec.StorageClassName != nil {
 					vc.StorageClass = *pvc.Spec.StorageClassName
 				}
@@ -624,7 +624,7 @@ func (c *Collector) joinScaling(all map[string]*wl) {
 			if w == nil {
 				return
 			}
-			a := &continuumv1.Autoscaler{MaxReplicas: h.Spec.MaxReplicas, MinReplicas: ptrOr(h.Spec.MinReplicas, 1), CurrentReplicas: h.Status.CurrentReplicas}
+			a := &ikhnosv1.Autoscaler{MaxReplicas: h.Spec.MaxReplicas, MinReplicas: ptrOr(h.Spec.MinReplicas, 1), CurrentReplicas: h.Status.CurrentReplicas}
 			for _, m := range h.Spec.Metrics {
 				a.Targets = append(a.Targets, metricTarget(m))
 			}
@@ -640,7 +640,7 @@ func (c *Collector) joinScaling(all map[string]*wl) {
 			if err != nil || sel.Empty() {
 				return
 			}
-			d := &continuumv1.Disruption{DisruptionsAllowed: b.Status.DisruptionsAllowed}
+			d := &ikhnosv1.Disruption{DisruptionsAllowed: b.Status.DisruptionsAllowed}
 			if b.Spec.MinAvailable != nil {
 				d.MinAvailable = b.Spec.MinAvailable.String()
 			}
@@ -694,8 +694,8 @@ func metricTarget(m autoscalingv2.MetricSpec) string {
 // appendReachable lists the addresses a Service can be reached on from outside its cluster: load
 // balancer addresses, external IPs and node ports. A load balancer that is only a host name is not
 // listed, because traffic is seen by IP address and the name's addresses are not known here.
-func appendReachable(out []*continuumv1.Address, s *corev1.Service) []*continuumv1.Address {
-	add := func(a *continuumv1.Address) {
+func appendReachable(out []*ikhnosv1.Address, s *corev1.Service) []*ikhnosv1.Address {
+	add := func(a *ikhnosv1.Address) {
 		for _, x := range out {
 			if x.Ip == a.Ip && x.Port == a.Port && x.Kind == a.Kind {
 				return
@@ -706,14 +706,14 @@ func appendReachable(out []*continuumv1.Address, s *corev1.Service) []*continuum
 	for _, p := range s.Spec.Ports {
 		for _, ing := range s.Status.LoadBalancer.Ingress {
 			if ing.IP != "" {
-				add(&continuumv1.Address{Ip: ing.IP, Port: p.Port, Kind: "load-balancer"})
+				add(&ikhnosv1.Address{Ip: ing.IP, Port: p.Port, Kind: "load-balancer"})
 			}
 		}
 		for _, ip := range s.Spec.ExternalIPs {
-			add(&continuumv1.Address{Ip: ip, Port: p.Port, Kind: "external-ip"})
+			add(&ikhnosv1.Address{Ip: ip, Port: p.Port, Kind: "external-ip"})
 		}
 		if p.NodePort != 0 && (s.Spec.Type == corev1.ServiceTypeNodePort || s.Spec.Type == corev1.ServiceTypeLoadBalancer) {
-			add(&continuumv1.Address{Port: p.NodePort, Kind: "node-port"})
+			add(&ikhnosv1.Address{Port: p.NodePort, Kind: "node-port"})
 		}
 	}
 	sort.Slice(out, func(i, j int) bool {

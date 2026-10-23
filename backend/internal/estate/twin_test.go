@@ -1,17 +1,17 @@
 package estate
 
 import (
-	"continuum/internal/store"
-	"continuum/internal/testkit"
 	"encoding/json"
+	"ikhnos/internal/store"
+	"ikhnos/internal/testkit"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/kernel"
-	"continuum/internal/twin"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/twin"
 )
 
 func entityOf(m twin.Model, kind, name string) *twin.Entity {
@@ -27,7 +27,7 @@ func TestObservationStateFollowsTheClockTheConnectionAndRevocation(t *testing.T)
 	r := newHubRig(t)
 	h := r.hub
 	a := twinAgent(t, r.env, h, testkit.FP)
-	if _, _, err := h.ApplySync(a, testkit.TwinFull(testkit.FP, []*continuumv1.NodeFacts{testkit.TwinNode("n1", "")}, testkit.TwinWorkload("shop", "cart")), false); err != nil {
+	if _, _, err := h.ApplySync(a, testkit.TwinFull(testkit.FP, []*ikhnosv1.NodeFacts{testkit.TwinNode("n1", "")}, testkit.TwinWorkload("shop", "cart")), false); err != nil {
 		t.Fatal(err)
 	}
 	state := func() string {
@@ -106,7 +106,7 @@ func TestAgentSelfStatsFlowsIntoTheTopologyEntity(t *testing.T) {
 	r := newHubRig(t)
 	h := r.hub
 	a := twinAgent(t, r.env, h, testkit.FP)
-	if _, _, err := h.ApplySync(a, testkit.TwinFull(testkit.FP, []*continuumv1.NodeFacts{testkit.TwinNode("n1", "")}), false); err != nil {
+	if _, _, err := h.ApplySync(a, testkit.TwinFull(testkit.FP, []*ikhnosv1.NodeFacts{testkit.TwinNode("n1", "")}), false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -119,7 +119,7 @@ func TestAgentSelfStatsFlowsIntoTheTopologyEntity(t *testing.T) {
 	}
 
 	h.Mu.Lock()
-	h.Views[a.ID].NoteSelfStats(&continuumv1.SelfStats{RssBytes: 123456, Goroutines: 42}, h.C.Now())
+	h.Views[a.ID].NoteSelfStats(&ikhnosv1.SelfStats{RssBytes: 123456, Goroutines: 42}, h.C.Now())
 	h.Mu.Unlock()
 	// Bust stateFor's own short (modelCacheTTL) cache: a self-stats sample never bumps tw.gen (see
 	// Hub.SampleSelfStats' own doc for why that counter, like a tier narrowing, deliberately does not),
@@ -141,7 +141,7 @@ func TestARevokedAgentsPictureSurvivesARestartAsRevoked(t *testing.T) {
 	r := newHubRig(t)
 	h := r.hub
 	a := twinAgent(t, r.env, h, testkit.FP)
-	if _, _, err := h.ApplySync(a, testkit.TwinFull(testkit.FP, []*continuumv1.NodeFacts{testkit.TwinNode("n1", "")}, testkit.TwinWorkload("shop", "cart")), false); err != nil {
+	if _, _, err := h.ApplySync(a, testkit.TwinFull(testkit.FP, []*ikhnosv1.NodeFacts{testkit.TwinNode("n1", "")}, testkit.TwinWorkload("shop", "cart")), false); err != nil {
 		t.Fatal(err)
 	}
 	h.persist(r.ctx, a.ID, true)
@@ -163,7 +163,7 @@ func TestADeletedWorkloadBecomesATombstoneAndComesBack(t *testing.T) {
 	r := newHubRig(t)
 	h := r.hub
 	a := twinAgent(t, r.env, h, testkit.FP)
-	nodes := []*continuumv1.NodeFacts{testkit.TwinNode("n1", "")}
+	nodes := []*ikhnosv1.NodeFacts{testkit.TwinNode("n1", "")}
 	cart, pay := testkit.TwinWorkload("shop", "cart"), testkit.TwinWorkload("shop", "pay")
 	h.ApplySync(a, testkit.TwinFull(testkit.FP, nodes, cart, pay), false)
 	*r.now = r.now.Add(time.Minute)
@@ -192,7 +192,7 @@ func TestADeletedWorkloadBecomesATombstoneAndComesBack(t *testing.T) {
 		t.Fatalf("after restart: %+v", got)
 	}
 	// A Job finishing is not news.
-	job := &continuumv1.WorkloadFacts{Key: "shop/Job/migrate", Namespace: "shop", Kind: "Job", Name: "migrate", Replicas: 1}
+	job := &ikhnosv1.WorkloadFacts{Key: "shop/Job/migrate", Namespace: "shop", Kind: "Job", Name: "migrate", Replicas: 1}
 	h.ApplySync(a, testkit.TwinFull(testkit.FP, nodes, cart, job), true)
 	h.ApplySync(a, testkit.TwinFull(testkit.FP, nodes, cart), true)
 	if doc, _ = h.State(r.ctx); len(doc.Tombstones) != 1 {
@@ -227,7 +227,7 @@ func TestLoweringTheAccessTierIsNotADeletion(t *testing.T) {
 	r := newHubRig(t)
 	h := r.hub
 	a := twinAgent(t, r.env, h, testkit.FP)
-	nodes := []*continuumv1.NodeFacts{testkit.TwinNode("n1", "")}
+	nodes := []*ikhnosv1.NodeFacts{testkit.TwinNode("n1", "")}
 	h.ApplySync(a, testkit.TwinFull(testkit.FP, nodes, testkit.TwinWorkload("shop", "cart")), false)
 	a.AccessTier = 1 // workloads are no longer read
 	h.ApplySync(a, testkit.TwinFull(testkit.FP, nodes), true)
@@ -252,13 +252,13 @@ func TestRenamedNodeKeepsItsIdAndReplacedNodeGetsANewOne(t *testing.T) {
 		}
 		return ""
 	}
-	h.ApplySync(a, testkit.TwinFull(testkit.FP, []*continuumv1.NodeFacts{testkit.TwinNode("worker-1", "4f1c0a9b2d7e4c3a8b6d5e2f1a0b9c8d")}), false)
+	h.ApplySync(a, testkit.TwinFull(testkit.FP, []*ikhnosv1.NodeFacts{testkit.TwinNode("worker-1", "4f1c0a9b2d7e4c3a8b6d5e2f1a0b9c8d")}), false)
 	first := idOf("worker-1")
 	if first == "" {
 		t.Fatal("no node")
 	}
 	// The same machine under a new name is the same record, and remembers its old name.
-	h.ApplySync(a, testkit.TwinFull(testkit.FP, []*continuumv1.NodeFacts{testkit.TwinNode("edge-7", "4f1c0a9b2d7e4c3a8b6d5e2f1a0b9c8d")}), true)
+	h.ApplySync(a, testkit.TwinFull(testkit.FP, []*ikhnosv1.NodeFacts{testkit.TwinNode("edge-7", "4f1c0a9b2d7e4c3a8b6d5e2f1a0b9c8d")}), true)
 	if got := idOf("edge-7"); got != first {
 		t.Fatalf("a rename created a new node: %s vs %s", got, first)
 	}
@@ -267,7 +267,7 @@ func TestRenamedNodeKeepsItsIdAndReplacedNodeGetsANewOne(t *testing.T) {
 		t.Fatalf("aliases/basis: %+v %s", n.Aliases, n.IdentityBasis)
 	}
 	// A different machine that takes the old name is a different node.
-	h.ApplySync(a, testkit.TwinFull(testkit.FP, []*continuumv1.NodeFacts{testkit.TwinNode("edge-7", "4f1c0a9b2d7e4c3a8b6d5e2f1a0b9c8d"), testkit.TwinNode("worker-1", "aaaaaaaabbbbccccddddeeeeffff0000")}), true)
+	h.ApplySync(a, testkit.TwinFull(testkit.FP, []*ikhnosv1.NodeFacts{testkit.TwinNode("edge-7", "4f1c0a9b2d7e4c3a8b6d5e2f1a0b9c8d"), testkit.TwinNode("worker-1", "aaaaaaaabbbbccccddddeeeeffff0000")}), true)
 	if idOf("worker-1") == first || idOf("worker-1") == "" {
 		t.Fatalf("a replaced node inherited the old id: %s", idOf("worker-1"))
 	}
@@ -292,7 +292,7 @@ func TestStateForCachesTopologyButNeverAgentDocsOrAudit(t *testing.T) {
 	r := newHubRig(t)
 	h := r.hub
 	a := twinAgent(t, r.env, h, testkit.FP)
-	nodes := []*continuumv1.NodeFacts{testkit.TwinNode("n1", "")}
+	nodes := []*ikhnosv1.NodeFacts{testkit.TwinNode("n1", "")}
 	h.ApplySync(a, testkit.TwinFull(testkit.FP, nodes, testkit.TwinWorkload("shop", "cart")), false)
 
 	first, _ := h.State(r.ctx)
@@ -340,7 +340,7 @@ func TestStateForTopologyCacheHitMissAndTTL(t *testing.T) {
 	r := newHubRig(t)
 	h := r.hub
 	a := twinAgent(t, r.env, h, testkit.FP)
-	nodes := []*continuumv1.NodeFacts{testkit.TwinNode("n1", "")}
+	nodes := []*ikhnosv1.NodeFacts{testkit.TwinNode("n1", "")}
 	h.ApplySync(a, testkit.TwinFull(testkit.FP, nodes, testkit.TwinWorkload("shop", "cart")), false)
 
 	var auditFetches int

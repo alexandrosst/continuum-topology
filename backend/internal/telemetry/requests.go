@@ -1,6 +1,6 @@
 package telemetry
 
-import "continuum/internal/destination"
+import "ikhnos/internal/destination"
 
 // The bodies this package's routes read. They were anonymous structs at the handlers; naming them puts them in the TypeScript written
 // from the Go types (internal/wire), so the page sends what the server reads.

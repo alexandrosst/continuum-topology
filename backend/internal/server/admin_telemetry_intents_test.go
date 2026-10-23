@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"continuum/internal/accounts"
-	"continuum/internal/operators"
-	"continuum/internal/testkit"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/operators"
+	"ikhnos/internal/testkit"
 )
 
 func TestTelemetryIntentsHTTPCreateListGetScopeDestinationRevokeDelete(t *testing.T) {
@@ -218,7 +218,7 @@ func TestTelemetryIntentCommandOperatorDestinationReissuesEachTime(t *testing.T)
 	}
 
 	frag1, secret1 := command()
-	if !strings.Contains(frag1, "--set telemetry.export.otlp.endpoint="+operators.OperatorServiceName(opID)+".continuum-system.svc:4317") {
+	if !strings.Contains(frag1, "--set telemetry.export.otlp.endpoint="+operators.OperatorServiceName(opID)+".ikhnos-system.svc:4317") {
 		t.Fatalf("installFragment missing the resolved operator endpoint: %q", frag1)
 	}
 	if !strings.Contains(frag1, "telemetry.export.otlp.tls.mtls.enabled=true") {
@@ -237,11 +237,11 @@ func TestTelemetryIntentCommandOperatorDestinationReissuesEachTime(t *testing.T)
 	}
 	// The Secret goes where the caller's upgrade will run, and the response says where that is, so the
 	// caller never has to guess (this agent never reported its own: the chart's documented defaults).
-	if !strings.Contains(secret1, "namespace: continuum-system\n") || !strings.HasPrefix(secret1, "kubectl apply --server-side --force-conflicts -f - <<'CONTINUUM_SECRET'") || strings.Contains(secret1, "--from-literal") {
+	if !strings.Contains(secret1, "namespace: ikhnos-system\n") || !strings.HasPrefix(secret1, "kubectl apply --server-side --force-conflicts -f - <<'IKHNOS_SECRET'") || strings.Contains(secret1, "--from-literal") {
 		t.Fatalf("secret command is not a create-or-update in the release namespace: %q", secret1)
 	}
 	doc := a.do("POST", "/api/v1/telemetry-intents/"+id+"/command", nil, withCookie(cookie)).json(t)
-	if doc["namespace"] != "continuum-system" || doc["release"] != "continuum-agent" {
+	if doc["namespace"] != "ikhnos-system" || doc["release"] != "ikhnos-agent" {
 		t.Fatalf("namespace/release = %v/%v", doc["namespace"], doc["release"])
 	}
 }
@@ -319,7 +319,7 @@ func TestTelemetryIntentCommandRoutesShareOneCertificatePerOperator(t *testing.T
 	secret := opID + "-export-mtls"
 	for _, m := range []string{"metrics", "logs"} {
 		for _, want := range []string{
-			"--set telemetry.export.routes." + m + ".endpoint=" + operators.OperatorServiceName(opID) + ".continuum-system.svc:4317",
+			"--set telemetry.export.routes." + m + ".endpoint=" + operators.OperatorServiceName(opID) + ".ikhnos-system.svc:4317",
 			"--set telemetry.export.routes." + m + ".tls.mtls.enabled=true",
 			"--set telemetry.export.routes." + m + ".tls.mtls.secretName=" + secret,
 		} {

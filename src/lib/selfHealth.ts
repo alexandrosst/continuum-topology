@@ -25,7 +25,7 @@ export interface SelfTelemetrySample {
   /** Always omitted in this pass of the backend (Ikhnos's own estimated share of watts is deferred -
    *  see admin_telemetry.go's own "Deferred" paragraph). Kept in the type so a client written against it
    *  today needs no change once a later backend pass fills it in. */
-  continuumWattsEstimate?: number
+  ikhnosWattsEstimate?: number
   /** Agent entities only. */
   flowIntervalSeconds?: number
   /** Agent entities only. */
@@ -61,7 +61,7 @@ export type OptionalSampleKey =
   | 'cpuPct'
   | 'bandwidthSharePct'
   | 'watts'
-  | 'continuumWattsEstimate'
+  | 'ikhnosWattsEstimate'
   | 'connectedAgents'
   | 'flowIngestBytesPerSec'
   | 'modelCacheHitPct'

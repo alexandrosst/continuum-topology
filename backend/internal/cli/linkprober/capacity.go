@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"continuum/internal/cli"
-	"continuum/internal/link"
+	"ikhnos/internal/cli"
+	"ikhnos/internal/link"
 )
 
 // capacityFlags are the settings of the throughput tests. They are all read from the environment the chart sets, as the
@@ -33,10 +33,10 @@ type capacityFlags struct {
 }
 
 func addCapacityFlags(fs *flag.FlagSet) capacityFlags {
-	const p = "CONTINUUM_LINK_CAPACITY_"
+	const p = "IKHNOS_LINK_CAPACITY_"
 	f := capacityFlags{}
-	f.enabled = fs.Bool("capacity", boolEnv("CONTINUUM_LINK_CAPACITY", false), "run iperf3 throughput tests to the paired clusters now and then")
-	f.bin = fs.String("iperf3", cli.Env("CONTINUUM_LINK_IPERF3", "/usr/local/bin/iperf3"), "the iperf3 program")
+	f.enabled = fs.Bool("capacity", boolEnv("IKHNOS_LINK_CAPACITY", false), "run iperf3 throughput tests to the paired clusters now and then")
+	f.bin = fs.String("iperf3", cli.Env("IKHNOS_LINK_IPERF3", "/usr/local/bin/iperf3"), "the iperf3 program")
 	f.port = fs.Int("iperf-port", cli.Atoi(cli.Env(p+"PORT", "8862")), "the port every cluster's iperf3 server listens on")
 	f.every = fs.Duration("capacity-interval", durEnv(p+"INTERVAL", 12*time.Hour), "how often each paired cluster is put through its set of throughput tests")
 	f.duration = fs.Duration("capacity-duration", durEnv(p+"DURATION", 10*time.Second), "how long each TCP test sends")

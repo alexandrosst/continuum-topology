@@ -226,7 +226,7 @@ function Canvas() {
   // The legend is a small chip until someone wants it, so it does not sit on top of the graph; the choice is remembered.
   const [legendOpen, setLegendOpen] = useState(() => {
     try {
-      return localStorage.getItem('continuum:topology-legend') === '1'
+      return localStorage.getItem('ikhnos:topology-legend') === '1'
     } catch {
       return false
     }
@@ -234,7 +234,7 @@ function Canvas() {
   const toggleLegend = (open: boolean) => {
     setLegendOpen(open)
     try {
-      localStorage.setItem('continuum:topology-legend', open ? '1' : '0')
+      localStorage.setItem('ikhnos:topology-legend', open ? '1' : '0')
     } catch {
       /* private mode: the choice just isn't remembered */
     }

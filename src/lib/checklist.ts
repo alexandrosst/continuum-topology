@@ -134,7 +134,7 @@ export function deriveChecklist(input: ChecklistInput): Checklist {
 
 /* ---------- dismissal, per organisation ---------- */
 
-const KEY = 'continuum-getting-started/dismissed'
+const KEY = 'ikhnos-getting-started/dismissed'
 const keyFor = (org: string) => `${KEY}/${org}`
 
 /** Whether this organisation's list was dismissed in this browser. Storage that is blocked reads as "not dismissed". */
@@ -158,7 +158,7 @@ export function dismiss(org: string | undefined, storage?: Pick<Storage, 'setIte
 
 /* ---------- "already shown once this session", so onboarding doesn't visibly repeat on a second page ---------- */
 
-const SEEN_KEY = 'continuum-getting-started/seen-on'
+const SEEN_KEY = 'ikhnos-getting-started/seen-on'
 
 /**
  * True once the checklist has already been shown on a *different* page this session. The first page that asks

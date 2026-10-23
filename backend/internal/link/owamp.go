@@ -333,59 +333,59 @@ func (m *Meter) writeProbes(w io.Writer, own string, peerIDs []string) {
 		}
 		return []sample{{v: v}}
 	}
-	counter("continuum_link_probe_packets_sent_total", "Test packets sent in this direction by the active one-way probe.", func(s *probeStats) uint64 { return s.sent })
-	counter("continuum_link_probe_packets_lost_total", "Test packets that never arrived, counted per direction from sequence numbers. rate(lost)/rate(sent) is the loss on that direction alone.", func(s *probeStats) uint64 { return s.lost })
-	counter("continuum_link_probe_packets_duplicated_total", "Test packets that arrived more than once.", func(s *probeStats) uint64 { return s.dups })
-	head("continuum_link_probe_failures_total", "counter", "Probe runs that could not be completed, by reason.")
+	counter("ikhnos_link_probe_packets_sent_total", "Test packets sent in this direction by the active one-way probe.", func(s *probeStats) uint64 { return s.sent })
+	counter("ikhnos_link_probe_packets_lost_total", "Test packets that never arrived, counted per direction from sequence numbers. rate(lost)/rate(sent) is the loss on that direction alone.", func(s *probeStats) uint64 { return s.lost })
+	counter("ikhnos_link_probe_packets_duplicated_total", "Test packets that arrived more than once.", func(s *probeStats) uint64 { return s.dups })
+	head("ikhnos_link_probe_failures_total", "counter", "Probe runs that could not be completed, by reason.")
 	each(func(p string, d Direction, s *probeStats) {
 		for _, r := range probeFailReasons {
 			v := uint64(0)
 			if s != nil {
 				v = s.failed[r]
 			}
-			fmt.Fprintf(w, "continuum_link_probe_failures_total{%s} %d\n", lbl(p, d, "reason", r), v)
+			fmt.Fprintf(w, "ikhnos_link_probe_failures_total{%s} %d\n", lbl(p, d, "reason", r), v)
 		}
 	})
-	gauge("continuum_link_probe_loss_ratio", "Fraction of test packets lost in the most recent run in this direction.", func(r *OwampResult) []sample {
+	gauge("ikhnos_link_probe_loss_ratio", "Fraction of test packets lost in the most recent run in this direction.", func(r *OwampResult) []sample {
 		if r.Sent == 0 {
 			return nil
 		}
 		return one(float64(r.Lost)/float64(r.Sent), true)
 	})
-	gauge("continuum_link_probe_delay_variation_seconds", "How far the one-way delay rose above its minimum in the most recent run. Valid whether or not the clocks agree.", func(r *OwampResult) []sample {
+	gauge("ikhnos_link_probe_delay_variation_seconds", "How far the one-way delay rose above its minimum in the most recent run. Valid whether or not the clocks agree.", func(r *OwampResult) []sample {
 		if !r.HasDelay {
 			return nil
 		}
 		return []sample{{"median", r.Median - r.Min}, {"max", r.Max - r.Min}}
 	})
-	gauge("continuum_link_probe_one_way_delay_seconds", "Absolute one-way delay in the most recent run. Present only when both clocks were synchronised, because otherwise it includes the offset between them.", func(r *OwampResult) []sample {
+	gauge("ikhnos_link_probe_one_way_delay_seconds", "Absolute one-way delay in the most recent run. Present only when both clocks were synchronised, because otherwise it includes the offset between them.", func(r *OwampResult) []sample {
 		if !r.HasDelay || !r.Synchronized {
 			return nil
 		}
 		return []sample{{"min", r.Min}, {"median", r.Median}, {"max", r.Max}}
 	})
-	gauge("continuum_link_probe_clock_synchronized", "1 if both ends had a synchronised clock during the most recent run, so absolute one-way delay can be trusted.", func(r *OwampResult) []sample {
+	gauge("ikhnos_link_probe_clock_synchronized", "1 if both ends had a synchronised clock during the most recent run, so absolute one-way delay can be trusted.", func(r *OwampResult) []sample {
 		if r.Synchronized {
 			return one(1, true)
 		}
 		return one(0, true)
 	})
-	gauge("continuum_link_probe_clock_error_seconds", "The bound on the clock error the tool derived for the most recent run. Present only when the clocks were synchronised.", func(r *OwampResult) []sample { return one(r.ClockError, r.HasClockError && r.Synchronized) })
-	gauge("continuum_link_probe_path_hops", "Routers crossed by the test packets in the most recent run, from the TTL they arrived with.", func(r *OwampResult) []sample { return one(float64(r.Hops), r.Hops > 0) })
-	head("continuum_link_probe_up", "gauge", "1 if the latest probe run in this direction completed, 0 if it failed (the per-run gauges are then absent). Absent until the first attempt.")
+	gauge("ikhnos_link_probe_clock_error_seconds", "The bound on the clock error the tool derived for the most recent run. Present only when the clocks were synchronised.", func(r *OwampResult) []sample { return one(r.ClockError, r.HasClockError && r.Synchronized) })
+	gauge("ikhnos_link_probe_path_hops", "Routers crossed by the test packets in the most recent run, from the TTL they arrived with.", func(r *OwampResult) []sample { return one(float64(r.Hops), r.Hops > 0) })
+	head("ikhnos_link_probe_up", "gauge", "1 if the latest probe run in this direction completed, 0 if it failed (the per-run gauges are then absent). Absent until the first attempt.")
 	each(func(p string, d Direction, s *probeStats) {
 		if s != nil && s.tried {
 			v := 1
 			if s.failedLast {
 				v = 0
 			}
-			fmt.Fprintf(w, "continuum_link_probe_up{%s} %d\n", lbl(p, d), v)
+			fmt.Fprintf(w, "ikhnos_link_probe_up{%s} %d\n", lbl(p, d), v)
 		}
 	})
-	head("continuum_link_probe_last_success_timestamp_seconds", "gauge", "When a probe run in this direction last completed. Absent until the first time.")
+	head("ikhnos_link_probe_last_success_timestamp_seconds", "gauge", "When a probe run in this direction last completed. Absent until the first time.")
 	each(func(p string, d Direction, s *probeStats) {
 		if s != nil && !s.lastOK.IsZero() {
-			fmt.Fprintf(w, "continuum_link_probe_last_success_timestamp_seconds{%s} %d\n", lbl(p, d), s.lastOK.Unix())
+			fmt.Fprintf(w, "ikhnos_link_probe_last_success_timestamp_seconds{%s} %d\n", lbl(p, d), s.lastOK.Unix())
 		}
 	})
 }
@@ -410,29 +410,29 @@ func (m *Meter) writePaths(w io.Writer, own string, peerIDs []string) {
 		}
 		return 0
 	}
-	gauge("continuum_link_path_mtu_bytes", "The largest packet that fits the whole way to the peer, as the routers on the path reported it. Absent until learned.", func(r *PathResult) (float64, bool) { return float64(r.MTU), r.MTU > 0 })
-	gauge("continuum_link_path_reached", "1 if the probe's last step was answered by the peer's address. Networks that drop the answer report 0 without being broken.", func(r *PathResult) (float64, bool) { return b2f(r.Reached), true })
-	gauge("continuum_link_path_mtu_blackhole", "1 if a router passed small packets and silently dropped full-size ones: the path's MTU is smaller than this host believes and nothing said so, so large packets vanish.", func(r *PathResult) (float64, bool) { return b2f(r.Blackhole), true })
-	head("continuum_link_path_changes_total", "counter", "Times the route to the peer changed, counted when a new route has been seen on two probes in a row. The route itself is not exported.")
+	gauge("ikhnos_link_path_mtu_bytes", "The largest packet that fits the whole way to the peer, as the routers on the path reported it. Absent until learned.", func(r *PathResult) (float64, bool) { return float64(r.MTU), r.MTU > 0 })
+	gauge("ikhnos_link_path_reached", "1 if the probe's last step was answered by the peer's address. Networks that drop the answer report 0 without being broken.", func(r *PathResult) (float64, bool) { return b2f(r.Reached), true })
+	gauge("ikhnos_link_path_mtu_blackhole", "1 if a router passed small packets and silently dropped full-size ones: the path's MTU is smaller than this host believes and nothing said so, so large packets vanish.", func(r *PathResult) (float64, bool) { return b2f(r.Blackhole), true })
+	head("ikhnos_link_path_changes_total", "counter", "Times the route to the peer changed, counted when a new route has been seen on two probes in a row. The route itself is not exported.")
 	for _, p := range peerIDs {
 		v := uint64(0)
 		if s := m.paths[p]; s != nil {
 			v = s.changes
 		}
-		fmt.Fprintf(w, "continuum_link_path_changes_total{%s} %d\n", lbl(p), v)
+		fmt.Fprintf(w, "ikhnos_link_path_changes_total{%s} %d\n", lbl(p), v)
 	}
-	head("continuum_link_path_probe_failures_total", "counter", "Path probes that could not be run.")
+	head("ikhnos_link_path_probe_failures_total", "counter", "Path probes that could not be run.")
 	for _, p := range peerIDs {
 		v := uint64(0)
 		if s := m.paths[p]; s != nil {
 			v = s.failed
 		}
-		fmt.Fprintf(w, "continuum_link_path_probe_failures_total{%s} %d\n", lbl(p), v)
+		fmt.Fprintf(w, "ikhnos_link_path_probe_failures_total{%s} %d\n", lbl(p), v)
 	}
-	head("continuum_link_path_last_success_timestamp_seconds", "gauge", "When the path to the peer was last probed. Absent until the first time.")
+	head("ikhnos_link_path_last_success_timestamp_seconds", "gauge", "When the path to the peer was last probed. Absent until the first time.")
 	for _, p := range peerIDs {
 		if s := m.paths[p]; s != nil && !s.lastOK.IsZero() {
-			fmt.Fprintf(w, "continuum_link_path_last_success_timestamp_seconds{%s} %d\n", lbl(p), s.lastOK.Unix())
+			fmt.Fprintf(w, "ikhnos_link_path_last_success_timestamp_seconds{%s} %d\n", lbl(p), s.lastOK.Unix())
 		}
 	}
 }

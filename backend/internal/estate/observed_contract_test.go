@@ -6,8 +6,8 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/facts"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/facts"
 
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
@@ -15,14 +15,14 @@ import (
 // A module reason is raw error text from the agent. Over facts.MaxReason it is cut, not a reason to refuse the
 // message (which ended the stream and so hid the very error the reason was reporting).
 func TestValidateModulesCutsALongReason(t *testing.T) {
-	ms := []*continuumv1.ModuleStatus{{Name: "services", State: continuumv1.ModuleStatus_ERROR, Reason: strings.Repeat("é", 1000) + "\n"}}
+	ms := []*ikhnosv1.ModuleStatus{{Name: "services", State: ikhnosv1.ModuleStatus_ERROR, Reason: strings.Repeat("é", 1000) + "\n"}}
 	if err := validateModules(ms); err != nil {
 		t.Fatalf("a long reason was refused: %v", err)
 	}
 	if len(ms[0].Reason) > facts.MaxReason || !utf8.ValidString(ms[0].Reason) {
 		t.Errorf("reason is %d bytes, valid utf-8 %v", len(ms[0].Reason), utf8.ValidString(ms[0].Reason))
 	}
-	if err := validateModules(make([]*continuumv1.ModuleStatus, 65)); err == nil {
+	if err := validateModules(make([]*ikhnosv1.ModuleStatus, 65)); err == nil {
 		t.Error("more than 64 modules must still be refused")
 	}
 }
@@ -117,8 +117,8 @@ func fill(m protoreflect.Message, round, depth int) {
 // hand-written server limit that the agent does not apply, fails here instead of in a customer's cluster.
 func TestAMaximalSnapshotIsAcceptedAndSurvivesARestart(t *testing.T) {
 	for round := 0; round < 6; round++ {
-		s := &continuumv1.Sync{Full: true, Cluster: &continuumv1.ClusterFacts{}, Nodes: []*continuumv1.NodeFacts{{}}, Namespaces: []*continuumv1.NamespaceFacts{{}}, Workloads: []*continuumv1.WorkloadFacts{{}},
-			Modules: []*continuumv1.ModuleStatus{{}, {}}}
+		s := &ikhnosv1.Sync{Full: true, Cluster: &ikhnosv1.ClusterFacts{}, Nodes: []*ikhnosv1.NodeFacts{{}}, Namespaces: []*ikhnosv1.NamespaceFacts{{}}, Workloads: []*ikhnosv1.WorkloadFacts{{}},
+			Modules: []*ikhnosv1.ModuleStatus{{}, {}}}
 		for _, m := range []protoreflect.Message{s.Cluster.ProtoReflect(), s.Nodes[0].ProtoReflect(), s.Namespaces[0].ProtoReflect(), s.Workloads[0].ProtoReflect(), s.Modules[0].ProtoReflect(), s.Modules[1].ProtoReflect()} {
 			fill(m, round, 0)
 		}

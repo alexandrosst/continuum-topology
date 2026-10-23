@@ -12,13 +12,13 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/accounts"
-	"continuum/internal/fusion"
-	"continuum/internal/fusionapi"
-	"continuum/internal/fusionhttp"
-	"continuum/internal/kernel"
-	"continuum/internal/linksapi"
-	"continuum/internal/testkit"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/fusion"
+	"ikhnos/internal/fusionapi"
+	"ikhnos/internal/fusionhttp"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/linksapi"
+	"ikhnos/internal/testkit"
 )
 
 // linkStore is a metrics store that answers the link queries, and counts them.
@@ -52,7 +52,7 @@ func TestLatestFiguresOverHTTP(t *testing.T) {
 	if doc["available"] != false || doc["reason"] != "no-fusion" {
 		t.Fatalf("without FUSION: %v", doc)
 	}
-	a.a.Fusion = &fusion.FusionControl{Name: "continuum-fusion", Namespace: "continuum", Kube: newFakeKube(fusionNames...), Org: "org-1", StatusTTL: -1,
+	a.a.Fusion = &fusion.FusionControl{Name: "ikhnos-fusion", Namespace: "ikhnos", Kube: newFakeKube(fusionNames...), Org: "org-1", StatusTTL: -1,
 		Data: &fusionapi.Client{Prometheus: st.URL}}
 	// no pairs: nothing to read
 	if doc := a.do("GET", "/api/v1/links/latest", nil, withCookie(viewer)).json(t); doc["available"] != true || len(doc["pairs"].([]any)) != 0 || calls.Load() != 0 {
@@ -92,7 +92,7 @@ func TestAStoreThatFailsIsUnavailableAndNothingOfItsErrorIsShown(t *testing.T) {
 		w.Write([]byte("panic at /srv/secret.go host=10.2.3.4"))
 	}))
 	defer bad.Close()
-	a.a.Fusion = &fusion.FusionControl{Name: "continuum-fusion", Namespace: "continuum", Kube: newFakeKube(fusionNames...), Org: "org-1", StatusTTL: -1,
+	a.a.Fusion = &fusion.FusionControl{Name: "ikhnos-fusion", Namespace: "ikhnos", Kube: newFakeKube(fusionNames...), Org: "org-1", StatusTTL: -1,
 		Data: &fusionapi.Client{Prometheus: bad.URL}}
 	a.do("PUT", "/api/v1/settings", kernel.Settings{SnapshotMinutes: 7, Links: []kernel.LinkSetting{{A: "cl-a", B: "cl-b"}}}, withCookie(admin))
 	r := a.do("GET", "/api/v1/links/latest", nil, withCookie(admin))
@@ -328,7 +328,7 @@ func probeStore(t *testing.T) *httptest.Server {
 		switch {
 		case strings.Contains(q, "probe_failures_total"):
 			res = append(res, row("reverse", "6", "reason", "other"))
-		case strings.HasPrefix(q, "max by (cluster, peer, direction) (continuum_link_probe_up)"):
+		case strings.HasPrefix(q, "max by (cluster, peer, direction) (ikhnos_link_probe_up)"):
 			res = append(res, row("forward", "1"), row("reverse", "0"))
 		case strings.Contains(q, "probe_loss_ratio"):
 			res = append(res, row("forward", "1"))
@@ -346,7 +346,7 @@ func probeStore(t *testing.T) *httptest.Server {
 func TestAFailingProbeIsShownWithItsReasonAndNotItsLastGoodFigures(t *testing.T) {
 	a := newAdminRig(t)
 	_, admin := a.user(t, "ada", accounts.RoleAdmin)
-	a.a.Fusion = &fusion.FusionControl{Name: "continuum-fusion", Namespace: "continuum", Kube: newFakeKube(fusionNames...), Org: "org-1", StatusTTL: -1,
+	a.a.Fusion = &fusion.FusionControl{Name: "ikhnos-fusion", Namespace: "ikhnos", Kube: newFakeKube(fusionNames...), Org: "org-1", StatusTTL: -1,
 		Data: &fusionapi.Client{Prometheus: probeStore(t).URL}}
 	a.do("PUT", "/api/v1/settings", kernel.Settings{SnapshotMinutes: 7, Links: []kernel.LinkSetting{{A: "cl-a", B: "cl-b"}}}, withCookie(admin))
 	doc := a.do("GET", "/api/v1/links/latest", nil, withCookie(admin)).json(t)
@@ -364,7 +364,7 @@ func TestLatestFiguresOfAnotherOrganisationThanFusionsAreNotServed(t *testing.T)
 	var calls atomic.Int32
 	a := newAdminRig(t)
 	_, owner := a.user(t, "boss", accounts.RoleOwner)
-	a.a.Fusion = &fusion.FusionControl{Name: "continuum-fusion", Namespace: "continuum", Kube: newFakeKube(fusionNames...), Org: "org-1", StatusTTL: -1,
+	a.a.Fusion = &fusion.FusionControl{Name: "ikhnos-fusion", Namespace: "ikhnos", Kube: newFakeKube(fusionNames...), Org: "org-1", StatusTTL: -1,
 		Data: &fusionapi.Client{Prometheus: linkStore(t, &calls, "0.01").URL}}
 	r := a.do("POST", "/api/v1/orgs", map[string]any{"name": "Org Two"}, withCookie(owner))
 	if r.Code != 201 {
@@ -394,7 +394,7 @@ func TestLinkReportFailsWhenTheAgentsCannotBeReadAndTheScreenSaysSo(t *testing.T
 	a := newAdminRig(t)
 	_, admin := a.user(t, "ada", accounts.RoleAdmin)
 	var calls atomic.Int32
-	a.a.Fusion = &fusion.FusionControl{Name: "continuum-fusion", Namespace: "continuum", Kube: newFakeKube(fusionNames...), Org: "org-1", StatusTTL: -1,
+	a.a.Fusion = &fusion.FusionControl{Name: "ikhnos-fusion", Namespace: "ikhnos", Kube: newFakeKube(fusionNames...), Org: "org-1", StatusTTL: -1,
 		Data: &fusionapi.Client{Prometheus: linkStore(t, &calls, "0.01").URL}}
 	links := []kernel.LinkSetting{{A: "cl-a", B: "cl-b"}}
 	a.do("PUT", "/api/v1/settings", kernel.Settings{SnapshotMinutes: 7, Links: links}, withCookie(admin))
@@ -446,7 +446,7 @@ func TestAStoreThatStopsAnsweringKeepsTheScreenOnItsLastFiguresMarkedStale(t *te
 		w.Write(b)
 	}))
 	defer proxy.Close()
-	a.a.Fusion = &fusion.FusionControl{Name: "continuum-fusion", Namespace: "continuum", Kube: newFakeKube(fusionNames...), Org: "org-1", StatusTTL: -1,
+	a.a.Fusion = &fusion.FusionControl{Name: "ikhnos-fusion", Namespace: "ikhnos", Kube: newFakeKube(fusionNames...), Org: "org-1", StatusTTL: -1,
 		Data: &fusionapi.Client{Prometheus: proxy.URL}}
 	a.do("PUT", "/api/v1/settings", kernel.Settings{SnapshotMinutes: 7, Links: []kernel.LinkSetting{{A: "cl-a", B: "cl-b"}}}, withCookie(admin))
 	first := a.do("GET", "/api/v1/links/latest", nil, withCookie(admin)).json(t)

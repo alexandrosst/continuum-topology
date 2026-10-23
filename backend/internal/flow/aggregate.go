@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/flow/wire"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/flow/wire"
 
 	"google.golang.org/protobuf/proto"
 )
@@ -28,7 +28,7 @@ const MaxHeldFlows = 20000
 const MaxHeldPodFlows = 4000
 
 type key struct {
-	srcKind, dstKind continuumv1.FlowEndpoint_Kind
+	srcKind, dstKind ikhnosv1.FlowEndpoint_Kind
 	src, dst         string
 	port             uint32
 	proto            string
@@ -48,9 +48,9 @@ type Aggregator struct {
 	now func() time.Time
 
 	mu         sync.Mutex
-	flows      map[key]*continuumv1.Flow
+	flows      map[key]*ikhnosv1.Flow
 	touched    map[key]uint64 // when (in touches) each held edge was last added to
-	podFlows   map[podKey]*continuumv1.Flow
+	podFlows   map[podKey]*ikhnosv1.Flow
 	podTouched map[podKey]uint64
 	touches    uint64
 	since      time.Time
@@ -65,7 +65,7 @@ type Aggregator struct {
 }
 
 type collectorSeen struct {
-	info *continuumv1.CollectorInfo
+	info *ikhnosv1.CollectorInfo
 	at   time.Time
 }
 
@@ -74,13 +74,13 @@ type collectorSeen struct {
 const collectorTTL = 5 * time.Minute
 
 func NewAggregator() *Aggregator {
-	a := &Aggregator{now: time.Now, flows: map[key]*continuumv1.Flow{}, touched: map[key]uint64{}, podFlows: map[podKey]*continuumv1.Flow{}, podTouched: map[podKey]uint64{}, collectors: map[string]collectorSeen{}, max: MaxHeldFlows, podMax: MaxHeldPodFlows}
+	a := &Aggregator{now: time.Now, flows: map[key]*ikhnosv1.Flow{}, touched: map[key]uint64{}, podFlows: map[podKey]*ikhnosv1.Flow{}, podTouched: map[podKey]uint64{}, collectors: map[string]collectorSeen{}, max: MaxHeldFlows, podMax: MaxHeldPodFlows}
 	a.since = a.now()
 	return a
 }
 
-func ref(e *continuumv1.FlowEndpoint) string {
-	if e.Kind == continuumv1.FlowEndpoint_EXTERNAL {
+func ref(e *ikhnosv1.FlowEndpoint) string {
+	if e.Kind == ikhnosv1.FlowEndpoint_EXTERNAL {
 		return e.Ip
 	}
 	return e.Ref
@@ -89,7 +89,7 @@ func ref(e *continuumv1.FlowEndpoint) string {
 // mergeFlowCounters folds add into cur in place - the one rule set for every field Flow carries, shared by flows and
 // podFlows below: counters add up, and the readings (wire.MergeGauges, the same rules the server applies across
 // windows) are replaced by the latest sample.
-func mergeFlowCounters(cur, add *continuumv1.Flow) {
+func mergeFlowCounters(cur, add *ikhnosv1.Flow) {
 	cur.Connections += add.Connections
 	cur.BytesOut += add.BytesOut
 	cur.BytesIn += add.BytesIn
@@ -103,7 +103,7 @@ func mergeFlowCounters(cur, add *continuumv1.Flow) {
 	cur.DnsQueryNames = wire.MergeDNSNames(cur.DnsQueryNames, add.DnsQueryNames)
 }
 
-func (a *Aggregator) Add(f *continuumv1.Flow) {
+func (a *Aggregator) Add(f *ikhnosv1.Flow) {
 	wire.Clip(f)
 	k := key{f.Src.Kind, f.Dst.Kind, ref(f.Src), ref(f.Dst), f.Port, f.Protocol}
 	a.mu.Lock()
@@ -128,10 +128,10 @@ func (a *Aggregator) Add(f *continuumv1.Flow) {
 // side resolved to a specific live pod (f.SrcPod/f.DstPod - see resolve.go). Keyed by k plus those pod
 // names, so distinct pod pairs behind the same workload pair stay distinguishable here even though
 // flows above deliberately collapses them. A brand-new entry is stored as an independent clone, never
-// the same *continuumv1.Flow pointer handed to flows above - the two tables hold genuinely separate
+// the same *ikhnosv1.Flow pointer handed to flows above - the two tables hold genuinely separate
 // counters per pod pair, and aliasing one edge's object between both tables would let an unrelated pod
 // pair's traffic silently inflate this one's counters the next time flows' own entry for k is merged.
-func (a *Aggregator) addPod(k key, f *continuumv1.Flow) {
+func (a *Aggregator) addPod(k key, f *ikhnosv1.Flow) {
 	if f.SrcPod == "" && f.DstPod == "" {
 		return
 	}
@@ -141,7 +141,7 @@ func (a *Aggregator) addPod(k key, f *continuumv1.Flow) {
 		mergeFlowCounters(cur, f)
 		return
 	}
-	a.podFlows[pk] = proto.Clone(f).(*continuumv1.Flow)
+	a.podFlows[pk] = proto.Clone(f).(*ikhnosv1.Flow)
 	if len(a.podFlows) > a.podMax {
 		a.evictPod()
 	}
@@ -221,8 +221,8 @@ func (a *Aggregator) SetPaused(p bool) {
 	}
 	a.paused = p
 	if p {
-		a.flows, a.touched, a.collectors, a.lost = map[key]*continuumv1.Flow{}, map[key]uint64{}, map[string]collectorSeen{}, 0
-		a.podFlows, a.podTouched = map[podKey]*continuumv1.Flow{}, map[podKey]uint64{}
+		a.flows, a.touched, a.collectors, a.lost = map[key]*ikhnosv1.Flow{}, map[key]uint64{}, map[string]collectorSeen{}, 0
+		a.podFlows, a.podTouched = map[podKey]*ikhnosv1.Flow{}, map[podKey]uint64{}
 	} else {
 		a.since = a.now()
 	}
@@ -258,13 +258,13 @@ func (a *Aggregator) Presence() (collectors int, last time.Time) {
 // own doc comment) - nil, not a zeroed message, when the collector never reported one (an older
 // collector, or neither tracepoint ever attached on that node), the same wholesale-replace-every-report
 // treatment snatExhaustion above gets.
-func (a *Aggregator) Seen(node, method string, bytesKnown bool, linkSaturation []*continuumv1.LinkSaturation, snatExhaustion uint64, thermalThrottle *continuumv1.ThermalThrottle) {
+func (a *Aggregator) Seen(node, method string, bytesKnown bool, linkSaturation []*ikhnosv1.LinkSaturation, snatExhaustion uint64, thermalThrottle *ikhnosv1.ThermalThrottle) {
 	a.mu.Lock()
 	if a.paused {
 		a.mu.Unlock()
 		return
 	}
-	a.collectors[node+"/"+method] = collectorSeen{&continuumv1.CollectorInfo{Node: node, Method: method, BytesKnown: bytesKnown, LinkSaturation: linkSaturation, SnatExhaustion: snatExhaustion, ThermalThrottle: thermalThrottle}, a.now()}
+	a.collectors[node+"/"+method] = collectorSeen{&ikhnosv1.CollectorInfo{Node: node, Method: method, BytesKnown: bytesKnown, LinkSaturation: linkSaturation, SnatExhaustion: snatExhaustion, ThermalThrottle: thermalThrottle}, a.now()}
 	a.mu.Unlock()
 }
 
@@ -277,7 +277,7 @@ func (a *Aggregator) AddLost(n uint64) {
 }
 
 // Flush returns everything seen since the last flush, or nil when there was nothing to say.
-func (a *Aggregator) Flush() *continuumv1.FlowBatch {
+func (a *Aggregator) Flush() *ikhnosv1.FlowBatch {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	now := a.now()
@@ -289,9 +289,9 @@ func (a *Aggregator) Flush() *continuumv1.FlowBatch {
 		return nil
 	}
 	flows, podFlows, lost := a.flows, a.podFlows, a.lost
-	a.flows, a.touched, a.since, a.lost = map[key]*continuumv1.Flow{}, map[key]uint64{}, now, 0
-	a.podFlows, a.podTouched = map[podKey]*continuumv1.Flow{}, map[podKey]uint64{}
-	var collectors []*continuumv1.CollectorInfo
+	a.flows, a.touched, a.since, a.lost = map[key]*ikhnosv1.Flow{}, map[key]uint64{}, now, 0
+	a.podFlows, a.podTouched = map[podKey]*ikhnosv1.Flow{}, map[podKey]uint64{}
+	var collectors []*ikhnosv1.CollectorInfo
 	for k, c := range a.collectors {
 		if now.Sub(c.at) > collectorTTL {
 			delete(a.collectors, k)
@@ -305,7 +305,7 @@ func (a *Aggregator) Flush() *continuumv1.FlowBatch {
 	if len(flows) == 0 && len(podFlows) == 0 && lost == 0 && len(collectors) == 0 {
 		return nil
 	}
-	b := &continuumv1.FlowBatch{WindowSeconds: window, Lost: lost, Collectors: collectors}
+	b := &ikhnosv1.FlowBatch{WindowSeconds: window, Lost: lost, Collectors: collectors}
 	for _, f := range flows {
 		b.Flows = append(b.Flows, f)
 	}

@@ -65,7 +65,7 @@ func TestTelemetryIntentRoutesRoundTripAndAreReplacedWhole(t *testing.T) {
 		t.Fatalf("routes after create = %+v", got.Routes)
 	}
 	routes := map[Modality]Destination{
-		ModalityMetrics: {Kind: DestinationOperator, TargetOperatorID: "op-eu", Endpoint: "op-eu.continuum-system.svc:4317"},
+		ModalityMetrics: {Kind: DestinationOperator, TargetOperatorID: "op-eu", Endpoint: "op-eu.ikhnos-system.svc:4317"},
 		ModalityLogs:    extTestDest("loki:3100"),
 	}
 	if err := st.UpdateTelemetryIntentDestinations(ctx, "o", "ti-r", extTestDest("other:4317"), routes); err != nil {

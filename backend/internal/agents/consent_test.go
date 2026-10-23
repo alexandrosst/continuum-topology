@@ -29,14 +29,14 @@ func TestUpgradeAndTeardownCommandsGuessTheNamespaceWhenNeverReported(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !guessed || !strings.Contains(helm, "helm uninstall continuum-agent ") || !strings.Contains(helm, "--namespace continuum-system") || !strings.Contains(secret, "--namespace continuum-system") {
+	if !guessed || !strings.Contains(helm, "helm uninstall ikhnos-agent ") || !strings.Contains(helm, "--namespace ikhnos-system") || !strings.Contains(secret, "--namespace ikhnos-system") {
 		t.Fatalf("teardown with nothing reported: %q %q %v", helm, secret, guessed)
 	}
 	helm, secret, guessed, err = TeardownCommands("apps-team", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !guessed || !strings.Contains(helm, "helm uninstall continuum-agent ") || !strings.Contains(helm, "--namespace apps-team") || !strings.Contains(secret, "--namespace apps-team") {
+	if !guessed || !strings.Contains(helm, "helm uninstall ikhnos-agent ") || !strings.Contains(helm, "--namespace apps-team") || !strings.Contains(secret, "--namespace apps-team") {
 		t.Fatalf("teardown with a known namespace but no release: %q %q %v", helm, secret, guessed)
 	}
 	helm, secret, guessed, err = TeardownCommands("apps-team", "obs-agent")
@@ -47,7 +47,7 @@ func TestUpgradeAndTeardownCommandsGuessTheNamespaceWhenNeverReported(t *testing
 		t.Fatalf("teardown with a known namespace and release: %q %q %v", helm, secret, guessed)
 	}
 	// The identity Secret's own name never depends on the release: every chart object has a fixed name.
-	if !strings.Contains(secret, "continuum-agent-identity") {
+	if !strings.Contains(secret, "ikhnos-agent-identity") {
 		t.Fatalf("secret name should stay fixed regardless of release name: %q", secret)
 	}
 }

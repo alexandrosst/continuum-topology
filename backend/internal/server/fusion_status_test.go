@@ -14,11 +14,11 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/accounts"
-	"continuum/internal/fusion"
-	"continuum/internal/fusionapi"
-	"continuum/internal/kernel"
-	"continuum/internal/operators"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/fusion"
+	"ikhnos/internal/fusionapi"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/operators"
 )
 
 // cachedFusion is a FusionControl with the status cache on and a clock the test moves, over a fake cluster with all four
@@ -246,7 +246,7 @@ func TestAFailedScaleKeepsNothing(t *testing.T) {
 	ctx := context.Background()
 	f.Status(ctx)
 	k.mu.Lock()
-	delete(k.replicas, "continuum-fusion-central") // the gateway cannot be scaled: the stores before it were
+	delete(k.replicas, "ikhnos-fusion-central") // the gateway cannot be scaled: the stores before it were
 	k.mu.Unlock()
 	if _, err := f.Enable(ctx, a.a.C.ForOrg("org-1").Fusion, "alex"); err == nil {
 		t.Fatal("enabled with a workload missing")
@@ -306,9 +306,9 @@ func TestTheTokenStatusRouteDoesNotReadTheCluster(t *testing.T) {
 func TestStatusNamesWhyAPartIsNotReady(t *testing.T) {
 	f, k, now := cachedFusion(t)
 	f.StatusTTL = -1
-	k.ready["continuum-fusion-loki"], k.ready["continuum-fusion-tempo"], k.ready["continuum-fusion-central"] = 1, 1, 1
-	k.pods["continuum-fusion-prometheus-0"] = kernel.KubePod{Phase: "Pending", WaitingReason: "ContainerCreating"}
-	k.claims["data-continuum-fusion-prometheus-0"] = "Pending"
+	k.ready["ikhnos-fusion-loki"], k.ready["ikhnos-fusion-tempo"], k.ready["ikhnos-fusion-central"] = 1, 1, 1
+	k.pods["ikhnos-fusion-prometheus-0"] = kernel.KubePod{Phase: "Pending", WaitingReason: "ContainerCreating"}
+	k.claims["data-ikhnos-fusion-prometheus-0"] = "Pending"
 	st := f.Status(context.Background())
 	if st.State != "starting" {
 		t.Fatalf("%+v", st)
@@ -369,7 +369,7 @@ func TestWhyIsLeftOutWhenThePodCannotBeRead(t *testing.T) {
 func TestAHardReasonShortensTheGrace(t *testing.T) {
 	f, k, now := cachedFusion(t)
 	f.StatusTTL = -1
-	k.pods["continuum-fusion-loki-0"] = kernel.KubePod{Phase: "Pending", WaitingReason: "ImagePullBackOff"}
+	k.pods["ikhnos-fusion-loki-0"] = kernel.KubePod{Phase: "Pending", WaitingReason: "ImagePullBackOff"}
 	ctx := context.Background()
 	if st := f.Status(ctx); st.State != "starting" {
 		t.Fatalf("at the start: %+v", st)
@@ -388,7 +388,7 @@ func TestAHardReasonShortensTheGrace(t *testing.T) {
 	for _, pod := range []kernel.KubePod{{Phase: "Pending", WaitingReason: "ContainerCreating"}, {Phase: "Pending", WaitingReason: "SomethingNew"}, {}} {
 		f2, k2, now2 := cachedFusion(t)
 		f2.StatusTTL = -1
-		k2.pods["continuum-fusion-loki-0"] = pod
+		k2.pods["ikhnos-fusion-loki-0"] = pod
 		f2.Status(ctx)
 		*now2 = now2.Add(100 * time.Second)
 		if st := f2.Status(ctx); st.State != "starting" {

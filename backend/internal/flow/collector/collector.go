@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/flow"
-	"continuum/internal/probe"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/flow"
+	"ikhnos/internal/probe"
 
 	"google.golang.org/protobuf/encoding/protojson"
 )
@@ -23,7 +23,7 @@ type Source interface {
 	Method() string
 	BytesKnown() bool
 	// Collect returns what was counted since the previous call, and how many observations were dropped.
-	Collect() ([]*continuumv1.RawFlow, uint64, error)
+	Collect() ([]*ikhnosv1.RawFlow, uint64, error)
 	Close() error
 }
 
@@ -84,7 +84,7 @@ func Choose(mode string, ebpf, conntrack Opener) (Source, []string, error) {
 // Report builds the wire message for one window. snatExhaustion is this node's current lifetime total
 // (see SnatExhaustionSource), 0 when src does not implement it or has not attached either way of
 // counting it.
-func Report(src Source, node string, window time.Duration, flows []*continuumv1.RawFlow, lost uint64, snatExhaustion uint64, thermalThrottle *continuumv1.ThermalThrottle) *continuumv1.FlowReport {
+func Report(src Source, node string, window time.Duration, flows []*ikhnosv1.RawFlow, lost uint64, snatExhaustion uint64, thermalThrottle *ikhnosv1.ThermalThrottle) *ikhnosv1.FlowReport {
 	// Computed from every flow this window actually saw, before the busiest-first truncation below drops
 	// the rest: a quiet, low-connection-count flow can still carry real bytes on an interface, and the
 	// saturation rollup must not miss those just because the flow list itself got trimmed for size.
@@ -95,7 +95,7 @@ func Report(src Source, node string, window time.Duration, flows []*continuumv1.
 		sortByWeight(flows)
 		flows = flows[:flow.MaxRawFlows]
 	}
-	return &continuumv1.FlowReport{
+	return &ikhnosv1.FlowReport{
 		Method:          src.Method(),
 		Node:            node,
 		WindowSeconds:   int32(window / time.Second),
@@ -121,7 +121,7 @@ func Report(src Source, node string, window time.Duration, flows []*continuumv1.
 // next due tick - which is what notices it - is at most that many ticks away.
 func Run(ctx context.Context, src Source, agentURL string, secret []byte, node string, every time.Duration, logf func(msg string, kv ...any)) {
 	hc := &http.Client{Timeout: 15 * time.Second}
-	var pending []*continuumv1.RawFlow
+	var pending []*ikhnosv1.RawFlow
 	var pendingLost uint64
 	last := time.Now()
 	tick := time.NewTicker(every)
@@ -153,11 +153,11 @@ func Run(ctx context.Context, src Source, agentURL string, secret []byte, node s
 		// (not a zeroed message) when src does not implement ThermalThrottleSource or neither
 		// tracepoint ever attached - see ThermalThrottle's own doc comment for why that ambiguity is
 		// accepted here the same way it already is for snatExhaustion.
-		var thermalThrottle *continuumv1.ThermalThrottle
+		var thermalThrottle *ikhnosv1.ThermalThrottle
 		if s, ok := src.(ThermalThrottleSource); ok {
 			cpuFreqChangeCount, thermalTripCount := s.ThermalThrottle()
 			if cpuFreqChangeCount > 0 || thermalTripCount > 0 {
-				thermalThrottle = &continuumv1.ThermalThrottle{CpuFreqChangeCount: cpuFreqChangeCount, ThermalTripCount: thermalTripCount}
+				thermalThrottle = &ikhnosv1.ThermalThrottle{CpuFreqChangeCount: cpuFreqChangeCount, ThermalTripCount: thermalTripCount}
 			}
 		}
 		// A window with nothing in it is still reported: it is how the agent, and then the dashboard,
@@ -188,11 +188,11 @@ type rawKey struct {
 	port              uint32
 }
 
-func merge(a, b []*continuumv1.RawFlow) []*continuumv1.RawFlow {
+func merge(a, b []*ikhnosv1.RawFlow) []*ikhnosv1.RawFlow {
 	if len(a) == 0 {
 		return b
 	}
-	idx := make(map[rawKey]*continuumv1.RawFlow, len(a))
+	idx := make(map[rawKey]*ikhnosv1.RawFlow, len(a))
 	for _, f := range a {
 		idx[rawKey{f.Client, f.LocalIp, f.PeerIp, f.Protocol, f.Port}] = f
 	}
@@ -210,7 +210,7 @@ func merge(a, b []*continuumv1.RawFlow) []*continuumv1.RawFlow {
 
 // addRaw folds a newer reading of the same flow into an older one that was not sent yet: what was counted since is
 // added, and what was sampled (a round-trip time, a window, a route) is replaced by the newer sample unless it has none.
-func addRaw(cur, f *continuumv1.RawFlow) {
+func addRaw(cur, f *ikhnosv1.RawFlow) {
 	cur.Connections += f.Connections
 	cur.BytesOut += f.BytesOut
 	cur.BytesIn += f.BytesIn
@@ -260,12 +260,12 @@ func addRaw(cur, f *continuumv1.RawFlow) {
 	if f.SndbufBytes != nil {
 		cur.SndbufBytes = f.SndbufBytes
 	}
-	if f.TlsHandshake != continuumv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_UNKNOWN {
+	if f.TlsHandshake != ikhnosv1.TlsHandshakeOutcome_TLS_HANDSHAKE_OUTCOME_UNKNOWN {
 		cur.TlsHandshake = f.TlsHandshake
 	}
 }
 
-func sortByWeight(fl []*continuumv1.RawFlow) {
-	w := func(f *continuumv1.RawFlow) uint64 { return f.Connections + (f.BytesOut+f.BytesIn)/1024 }
+func sortByWeight(fl []*ikhnosv1.RawFlow) {
+	w := func(f *ikhnosv1.RawFlow) uint64 { return f.Connections + (f.BytesOut+f.BytesIn)/1024 }
 	sort.Slice(fl, func(i, j int) bool { return w(fl[i]) > w(fl[j]) })
 }

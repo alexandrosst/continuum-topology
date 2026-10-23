@@ -14,8 +14,8 @@ import (
 // nothing else of this repository: not the server, and not another module. What a handler needs from a module it is given, so that the
 // line between them is the compiler's and not a habit.
 var allowedRepoImports = map[string]bool{
-	"continuum/internal/kernel":   true,
-	"continuum/internal/accounts": true,
+	"ikhnos/internal/kernel":   true,
+	"ikhnos/internal/accounts": true,
 }
 
 func TestTheKitImportsOnlyTheKernelAndTheAccounts(t *testing.T) {
@@ -34,7 +34,7 @@ func TestTheKitImportsOnlyTheKernelAndTheAccounts(t *testing.T) {
 		}
 		for _, im := range af.Imports {
 			p, _ := strconv.Unquote(im.Path.Value)
-			if strings.HasPrefix(p, "continuum/") && !allowedRepoImports[p] {
+			if strings.HasPrefix(p, "ikhnos/") && !allowedRepoImports[p] {
 				t.Errorf("%s imports %s: the kit may import only %v", f, p, allowedRepoImports)
 			}
 		}

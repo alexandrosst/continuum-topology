@@ -1,8 +1,8 @@
 package estate
 
 import (
-	"continuum/internal/agents"
-	"continuum/internal/model"
+	"ikhnos/internal/agents"
+	"ikhnos/internal/model"
 	"testing"
 	"time"
 )

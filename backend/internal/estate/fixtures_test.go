@@ -2,22 +2,22 @@ package estate
 
 import (
 	"context"
-	"continuum/internal/testkit"
 	"crypto/ecdsa"
 	"crypto/tls"
 	"flag"
+	"ikhnos/internal/testkit"
 	"log/slog"
 	"strings"
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/connectivity"
-	"continuum/internal/facts"
-	"continuum/internal/kernel"
-	"continuum/internal/observed"
-	"continuum/internal/pki"
-	"continuum/internal/store"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/connectivity"
+	"ikhnos/internal/facts"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/observed"
+	"ikhnos/internal/pki"
+	"ikhnos/internal/store"
 
 	"google.golang.org/grpc"
 )
@@ -31,7 +31,7 @@ import (
 // ---- from capabilities_test.go ----
 
 // connectedWith is a fake agent whose hello is h.
-func (r *hubRig) connectedWith(t *testing.T, h *continuumv1.Hello) *fakeAgent {
+func (r *hubRig) connectedWith(t *testing.T, h *ikhnosv1.Hello) *fakeAgent {
 	t.Helper()
 	f := r.newFakeAgentWith(t, fakeAgentCtx(t), h)
 	return f
@@ -59,15 +59,15 @@ var updateGolden = flag.Bool("update", false, "rewrite the golden files")
 
 // ---- from consent_test.go ----
 
-func (r *hubRig) connect(t *testing.T, ctx context.Context, key any, leaf []byte, hello *continuumv1.Hello) continuumv1.AgentService_ConnectClient {
+func (r *hubRig) connect(t *testing.T, ctx context.Context, key any, leaf []byte, hello *ikhnosv1.Hello) ikhnosv1.AgentService_ConnectClient {
 	t.Helper()
 	cert := &tls.Certificate{Certificate: [][]byte{leaf}, PrivateKey: key}
-	c := continuumv1.NewAgentServiceClient(r.dial(t, pki.ClientTLS(r.core.CA.Pin(), "127.0.0.1", cert)))
+	c := ikhnosv1.NewAgentServiceClient(r.dial(t, pki.ClientTLS(r.core.CA.Pin(), "127.0.0.1", cert)))
 	s, err := c.Connect(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Send(&continuumv1.AgentMessage{Msg: &continuumv1.AgentMessage_Hello{Hello: hello}}); err != nil {
+	if err := s.Send(&ikhnosv1.AgentMessage{Msg: &ikhnosv1.AgentMessage_Hello{Hello: hello}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.Recv(); err != nil {
@@ -140,11 +140,11 @@ type fakeAgent struct {
 // received before it returns.
 func (r *hubRig) newFakeAgent(t *testing.T, ctx context.Context) *fakeAgent {
 	t.Helper()
-	return r.newFakeAgentWith(t, ctx, &continuumv1.Hello{AgentVersion: "fake"})
+	return r.newFakeAgentWith(t, ctx, &ikhnosv1.Hello{AgentVersion: "fake"})
 }
 
 // newFakeAgentWith is newFakeAgent with a hello of the test's choosing.
-func (r *hubRig) newFakeAgentWith(t *testing.T, ctx context.Context, hello *continuumv1.Hello) *fakeAgent {
+func (r *hubRig) newFakeAgentWith(t *testing.T, ctx context.Context, hello *ikhnosv1.Hello) *fakeAgent {
 	t.Helper()
 	id, key, leaf := r.approvedAgent(t, testkit.FP)
 	f := &fakeAgent{r: r, FakeAgent: &testkit.FakeAgent{T: t, Ctx: ctx, ID: id, Key: key, Leaf: leaf, Hello: hello,
@@ -167,7 +167,7 @@ func (f *fakeAgent) drop() {
 }
 
 // restart is a drop and a new stream with the same identity, which is what a restarted agent pod does.
-func (f *fakeAgent) restart() *continuumv1.Config {
+func (f *fakeAgent) restart() *ikhnosv1.Config {
 	f.T.Helper()
 	f.drop()
 	return f.Connect()
@@ -182,7 +182,7 @@ func (f *fakeAgent) inForce() (sent, applied string, since time.Time) {
 }
 
 // changeTier is an administrator's change that makes the next Config differ, and the push that follows it.
-func (f *fakeAgent) changeTier() *continuumv1.Config {
+func (f *fakeAgent) changeTier() *ikhnosv1.Config {
 	f.T.Helper()
 	cur, err := f.r.st.GetAgent(f.Ctx, "org-1", f.ID)
 	if err != nil {
@@ -215,9 +215,9 @@ func (r *rig) dial(t *testing.T, cfg *tls.Config) *grpc.ClientConn {
 
 func liveView(now time.Time, nodes ...string) *View {
 	st := facts.New()
-	st.Cluster = &continuumv1.ClusterFacts{Uid: testkit.FP}
+	st.Cluster = &ikhnosv1.ClusterFacts{Uid: testkit.FP}
 	for _, n := range nodes {
-		st.Nodes[n] = &continuumv1.NodeFacts{Key: n, Name: n, Ready: true}
+		st.Nodes[n] = &ikhnosv1.NodeFacts{Key: n, Name: n, Ready: true}
 	}
 	return &View{EstView: EstView{State: st, LastSync: now, LastBeat: now, Flows: observed.NewFlowTable()}, NetView: connectivity.NetView{Paths: map[string]*connectivity.PathTrack{}, Targets: map[string]connectivity.IssuedTarget{}}}
 }
@@ -225,15 +225,15 @@ func liveView(now time.Time, nodes ...string) *View {
 // ---- from limits_test.go ----
 
 // agentStream connects an approved agent and returns its stream, past the hello.
-func (r *hubRig) agentStream(t *testing.T, ctx context.Context, id string, key any, leaf []byte) continuumv1.AgentService_ConnectClient {
+func (r *hubRig) agentStream(t *testing.T, ctx context.Context, id string, key any, leaf []byte) ikhnosv1.AgentService_ConnectClient {
 	t.Helper()
 	cert := &tls.Certificate{Certificate: [][]byte{leaf}, PrivateKey: key}
-	c := continuumv1.NewAgentServiceClient(r.dial(t, pki.ClientTLS(r.core.CA.Pin(), "127.0.0.1", cert)))
+	c := ikhnosv1.NewAgentServiceClient(r.dial(t, pki.ClientTLS(r.core.CA.Pin(), "127.0.0.1", cert)))
 	s, err := c.Connect(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Send(&continuumv1.AgentMessage{Msg: &continuumv1.AgentMessage_Hello{Hello: &continuumv1.Hello{AgentVersion: "t"}}}); err != nil {
+	if err := s.Send(&ikhnosv1.AgentMessage{Msg: &ikhnosv1.AgentMessage_Hello{Hello: &ikhnosv1.Hello{AgentVersion: "t"}}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.Recv(); err != nil { // config
@@ -284,7 +284,7 @@ func (cr *credRig) save(t *testing.T, links ...kernel.LinkSetting) {
 	}
 }
 
-func (cr *credRig) cfg(a store.Agent) *continuumv1.Config {
+func (cr *credRig) cfg(a store.Agent) *ikhnosv1.Config {
 	cr.hub.Mu.Lock()
 	v := cr.hub.Views[a.ID]
 	cr.hub.Mu.Unlock()
@@ -390,10 +390,10 @@ func fakeAgentCtx(t *testing.T) context.Context {
 }
 
 // agentStreamNoHello opens an approved agent's stream and says nothing: the test says what the first message is.
-func (r *hubRig) agentStreamNoHello(t *testing.T, ctx context.Context, id string, key any, leaf []byte) continuumv1.AgentService_ConnectClient {
+func (r *hubRig) agentStreamNoHello(t *testing.T, ctx context.Context, id string, key any, leaf []byte) ikhnosv1.AgentService_ConnectClient {
 	t.Helper()
 	cert := &tls.Certificate{Certificate: [][]byte{leaf}, PrivateKey: key}
-	c := continuumv1.NewAgentServiceClient(r.dial(t, pki.ClientTLS(r.core.CA.Pin(), "127.0.0.1", cert)))
+	c := ikhnosv1.NewAgentServiceClient(r.dial(t, pki.ClientTLS(r.core.CA.Pin(), "127.0.0.1", cert)))
 	s, err := c.Connect(ctx)
 	if err != nil {
 		t.Fatal(err)

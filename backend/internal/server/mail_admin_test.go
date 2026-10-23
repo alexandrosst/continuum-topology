@@ -3,8 +3,8 @@ package server
 import (
 	"testing"
 
-	"continuum/internal/accounts"
-	"continuum/internal/store"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/store"
 )
 
 // TestMailConfigOnlyDefaultOrgOwnerMayReadOrWrite checks that /api/v1/mail is gated to an owner of the
@@ -39,7 +39,7 @@ func TestMailConfigOnlyDefaultOrgOwnerMayReadOrWrite(t *testing.T) {
 	if r := a.do("GET", "/api/v1/mail", nil, withCookie(ownerCookie)); r.Code != 200 {
 		t.Fatalf("GET as the default org's owner: %d %s", r.Code, r.Body.String())
 	}
-	if r := a.do("PUT", "/api/v1/mail", map[string]any{"host": "mail.example.com", "port": "587", "from": "continuum@example.com"}, withCookie(ownerCookie)); r.Code != 200 {
+	if r := a.do("PUT", "/api/v1/mail", map[string]any{"host": "mail.example.com", "port": "587", "from": "ikhnos@example.com"}, withCookie(ownerCookie)); r.Code != 200 {
 		t.Fatalf("PUT as the default org's owner: %d %s", r.Code, r.Body.String())
 	}
 }
@@ -51,7 +51,7 @@ func TestMailConfigMasksThePasswordAndKeepsItWhenOmitted(t *testing.T) {
 	a := newAdminRig(t)
 	_, cookie := a.user(t, "org1-boss", accounts.RoleOwner)
 
-	r := a.do("PUT", "/api/v1/mail", map[string]any{"host": "mail.example.com", "port": "587", "username": "bot", "password": "s3cret", "from": "continuum@example.com"}, withCookie(cookie))
+	r := a.do("PUT", "/api/v1/mail", map[string]any{"host": "mail.example.com", "port": "587", "username": "bot", "password": "s3cret", "from": "ikhnos@example.com"}, withCookie(cookie))
 	if r.Code != 200 {
 		t.Fatalf("initial PUT: %d %s", r.Code, r.Body.String())
 	}
@@ -67,7 +67,7 @@ func TestMailConfigMasksThePasswordAndKeepsItWhenOmitted(t *testing.T) {
 	}
 
 	// Updating another field without sending a password must not blank the stored one.
-	r = a.do("PUT", "/api/v1/mail", map[string]any{"host": "mail.example.com", "port": "2525", "username": "bot", "from": "continuum@example.com"}, withCookie(cookie))
+	r = a.do("PUT", "/api/v1/mail", map[string]any{"host": "mail.example.com", "port": "2525", "username": "bot", "from": "ikhnos@example.com"}, withCookie(cookie))
 	if r.Code != 200 {
 		t.Fatalf("second PUT: %d %s", r.Code, r.Body.String())
 	}
@@ -76,7 +76,7 @@ func TestMailConfigMasksThePasswordAndKeepsItWhenOmitted(t *testing.T) {
 	}
 
 	// clearPassword removes it explicitly.
-	r = a.do("PUT", "/api/v1/mail", map[string]any{"host": "mail.example.com", "port": "2525", "username": "bot", "from": "continuum@example.com", "clearPassword": true}, withCookie(cookie))
+	r = a.do("PUT", "/api/v1/mail", map[string]any{"host": "mail.example.com", "port": "2525", "username": "bot", "from": "ikhnos@example.com", "clearPassword": true}, withCookie(cookie))
 	if r.Code != 200 {
 		t.Fatalf("clearing PUT: %d %s", r.Code, r.Body.String())
 	}
@@ -97,7 +97,7 @@ func TestMailConfigIsSharedByEveryOrganisation(t *testing.T) {
 	if e.core.Accounts.Mailer().Enabled() {
 		t.Fatal("mail should start disabled")
 	}
-	if _, err := e.base.Accounts.SaveMailConfig(e.ctx, "org1-owner", accounts.MailConfig{Host: "mail.example.com", Port: "587", From: "continuum@example.com"}); err != nil {
+	if _, err := e.base.Accounts.SaveMailConfig(e.ctx, "org1-owner", accounts.MailConfig{Host: "mail.example.com", Port: "587", From: "ikhnos@example.com"}); err != nil {
 		t.Fatalf("SaveMailConfig: %v", err)
 	}
 	if !e.core.Accounts.Mailer().Enabled() {

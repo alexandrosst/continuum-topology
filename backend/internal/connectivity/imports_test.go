@@ -14,15 +14,15 @@ import (
 // leads to), and on the vocabularies of the measurements, the links and the model. It does not import the server, so not the hub that
 // keeps the live picture of it and decides when to push.
 var allowedRepoImports = map[string]bool{
-	"continuum/gen/continuumv1":    true,
-	"continuum/internal/kernel":    true,
-	"continuum/internal/store":     true,
-	"continuum/internal/agents":    true,
-	"continuum/internal/observed":  true,
-	"continuum/internal/measure":   true,
-	"continuum/internal/link":      true,
-	"continuum/internal/model":     true,
-	"continuum/internal/interpret": true,
+	"ikhnos/gen/ikhnosv1":       true,
+	"ikhnos/internal/kernel":    true,
+	"ikhnos/internal/store":     true,
+	"ikhnos/internal/agents":    true,
+	"ikhnos/internal/observed":  true,
+	"ikhnos/internal/measure":   true,
+	"ikhnos/internal/link":      true,
+	"ikhnos/internal/model":     true,
+	"ikhnos/internal/interpret": true,
 }
 
 func TestConnectivityImportsNothingOfTheServerOrAModuleAboveIt(t *testing.T) {
@@ -41,7 +41,7 @@ func TestConnectivityImportsNothingOfTheServerOrAModuleAboveIt(t *testing.T) {
 		}
 		for _, im := range af.Imports {
 			p, _ := strconv.Unquote(im.Path.Value)
-			if strings.HasPrefix(p, "continuum/") && !allowedRepoImports[p] {
+			if strings.HasPrefix(p, "ikhnos/") && !allowedRepoImports[p] {
 				t.Errorf("%s imports %s: connectivity may not stand on it", f, p)
 			}
 		}

@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/facts"
-	"continuum/internal/pki"
-	"continuum/internal/testkit"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/facts"
+	"ikhnos/internal/pki"
+	"ikhnos/internal/testkit"
 
 	"google.golang.org/grpc/codes"
 )
@@ -25,13 +25,13 @@ func TestSyncMustMatchTheApprovedClusterAndStayInsideItsTier(t *testing.T) {
 	_ = r.st.Touch(ctx, "org-1", id, "203.0.113.7", "", "", *r.now)
 
 	cert := &tls.Certificate{Certificate: [][]byte{leaf}, PrivateKey: key}
-	connect := func() continuumv1.AgentService_ConnectClient {
-		c := continuumv1.NewAgentServiceClient(r.dial(t, pki.ClientTLS(r.core.CA.Pin(), "127.0.0.1", cert)))
+	connect := func() ikhnosv1.AgentService_ConnectClient {
+		c := ikhnosv1.NewAgentServiceClient(r.dial(t, pki.ClientTLS(r.core.CA.Pin(), "127.0.0.1", cert)))
 		s, err := c.Connect(ctx)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := s.Send(&continuumv1.AgentMessage{Msg: &continuumv1.AgentMessage_Hello{Hello: &continuumv1.Hello{AgentVersion: "t"}}}); err != nil {
+		if err := s.Send(&ikhnosv1.AgentMessage{Msg: &ikhnosv1.AgentMessage_Hello{Hello: &ikhnosv1.Hello{AgentVersion: "t"}}}); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := s.Recv(); err != nil { // config
@@ -42,9 +42,9 @@ func TestSyncMustMatchTheApprovedClusterAndStayInsideItsTier(t *testing.T) {
 
 	// A sync claiming another cluster is refused and the stream ends.
 	s := connect()
-	_ = s.Send(&continuumv1.AgentMessage{Msg: &continuumv1.AgentMessage_Sync{Sync: &continuumv1.Sync{Seq: 1, Full: true,
-		Cluster: &continuumv1.ClusterFacts{Uid: "11111111-2222-4333-8444-555555555555"},
-		Nodes:   []*continuumv1.NodeFacts{{Key: "n1", Name: "n1"}}}}})
+	_ = s.Send(&ikhnosv1.AgentMessage{Msg: &ikhnosv1.AgentMessage_Sync{Sync: &ikhnosv1.Sync{Seq: 1, Full: true,
+		Cluster: &ikhnosv1.ClusterFacts{Uid: "11111111-2222-4333-8444-555555555555"},
+		Nodes:   []*ikhnosv1.NodeFacts{{Key: "n1", Name: "n1"}}}}})
 	if _, err := s.Recv(); testkit.StatusCode(err) != codes.PermissionDenied {
 		t.Fatalf("foreign cluster uid: %v", err)
 	}
@@ -54,11 +54,11 @@ func TestSyncMustMatchTheApprovedClusterAndStayInsideItsTier(t *testing.T) {
 
 	// A sync with too many items is refused.
 	s = connect()
-	big := make([]*continuumv1.NodeFacts, maxNodes+1)
+	big := make([]*ikhnosv1.NodeFacts, maxNodes+1)
 	for i := range big {
-		big[i] = &continuumv1.NodeFacts{Key: fmt.Sprint(i)}
+		big[i] = &ikhnosv1.NodeFacts{Key: fmt.Sprint(i)}
 	}
-	_ = s.Send(&continuumv1.AgentMessage{Msg: &continuumv1.AgentMessage_Sync{Sync: &continuumv1.Sync{Seq: 1, Full: true, Cluster: &continuumv1.ClusterFacts{Uid: testkit.FP}, Nodes: big}}})
+	_ = s.Send(&ikhnosv1.AgentMessage{Msg: &ikhnosv1.AgentMessage_Sync{Sync: &ikhnosv1.Sync{Seq: 1, Full: true, Cluster: &ikhnosv1.ClusterFacts{Uid: testkit.FP}, Nodes: big}}})
 	if _, err := s.Recv(); testkit.StatusCode(err) != codes.InvalidArgument {
 		t.Fatalf("oversized sync: %v", err)
 	}
@@ -85,9 +85,9 @@ func TestTierZeroDropsClassListsToo(t *testing.T) {
 	r.hub.Mu.Lock()
 	r.hub.Views[id] = &View{EstView: EstView{State: facts.New()}}
 	r.hub.Mu.Unlock()
-	r.hub.ApplySync(a, &continuumv1.Sync{Full: true,
-		Cluster: &continuumv1.ClusterFacts{Uid: testkit.FP, StorageClasses: []string{"gp3"}, IngressClasses: []string{"nginx"}},
-		Nodes:   []*continuumv1.NodeFacts{{Key: "n", Name: "n"}}}, false)
+	r.hub.ApplySync(a, &ikhnosv1.Sync{Full: true,
+		Cluster: &ikhnosv1.ClusterFacts{Uid: testkit.FP, StorageClasses: []string{"gp3"}, IngressClasses: []string{"nginx"}},
+		Nodes:   []*ikhnosv1.NodeFacts{{Key: "n", Name: "n"}}}, false)
 	st := r.hub.Views[id].State
 	if len(st.Nodes) != 0 || len(st.Cluster.StorageClasses) != 0 || len(st.Cluster.IngressClasses) != 0 {
 		t.Fatalf("tier 0 kept tier 1 facts: %+v", st.Cluster)
@@ -105,10 +105,10 @@ func TestTierOneDropsPodDerivedNodeFigures(t *testing.T) {
 	r.hub.Views[id] = &View{EstView: EstView{State: facts.New()}}
 	r.hub.Mu.Unlock()
 	cnt := int32(12)
-	r.hub.ApplySync(a, &continuumv1.Sync{Full: true,
-		Cluster:   &continuumv1.ClusterFacts{Uid: testkit.FP},
-		Nodes:     []*continuumv1.NodeFacts{{Key: "n", Name: "n", PodCapacity: 110, PodCount: &cnt, CpuRequestedMillis: 900, MemoryRequestedBytes: 1 << 30}},
-		Workloads: []*continuumv1.WorkloadFacts{{Key: "ns/Deployment/x", VolumeClaims: []*continuumv1.VolumeClaim{{Name: "v"}}}}}, false)
+	r.hub.ApplySync(a, &ikhnosv1.Sync{Full: true,
+		Cluster:   &ikhnosv1.ClusterFacts{Uid: testkit.FP},
+		Nodes:     []*ikhnosv1.NodeFacts{{Key: "n", Name: "n", PodCapacity: 110, PodCount: &cnt, CpuRequestedMillis: 900, MemoryRequestedBytes: 1 << 30}},
+		Workloads: []*ikhnosv1.WorkloadFacts{{Key: "ns/Deployment/x", VolumeClaims: []*ikhnosv1.VolumeClaim{{Name: "v"}}}}}, false)
 	st := r.hub.Views[id].State
 	n := st.Nodes["n"]
 	if n == nil || n.PodCapacity != 110 || n.PodCount != nil || n.CpuRequestedMillis != 0 || n.MemoryRequestedBytes != 0 {
@@ -121,14 +121,14 @@ func TestTierOneDropsPodDerivedNodeFigures(t *testing.T) {
 
 // What is merely too big is cut, not refused: a refusal ends the agent's stream and the cluster never gets in.
 func TestValidateSyncCutsOversizedFacts(t *testing.T) {
-	claims := make([]*continuumv1.VolumeClaim, facts.MaxRepeated+1)
+	claims := make([]*ikhnosv1.VolumeClaim, facts.MaxRepeated+1)
 	for i := range claims {
-		claims[i] = &continuumv1.VolumeClaim{Name: "v"}
+		claims[i] = &ikhnosv1.VolumeClaim{Name: "v"}
 	}
-	w := &continuumv1.WorkloadFacts{Key: "k", VolumeClaims: claims, Hosts: make([]string, facts.MaxRepeated+1),
-		Autoscaler: &continuumv1.Autoscaler{Targets: []string{strings.Repeat("a", facts.MaxString+1)}}}
-	cl := &continuumv1.ClusterFacts{Scope: &continuumv1.ScopeFacts{Description: strings.Repeat("ns,", 1000)}}
-	s := &continuumv1.Sync{Cluster: cl, Workloads: []*continuumv1.WorkloadFacts{w}, DeletedNodes: []string{strings.Repeat("n", facts.MaxString+1)}}
+	w := &ikhnosv1.WorkloadFacts{Key: "k", VolumeClaims: claims, Hosts: make([]string, facts.MaxRepeated+1),
+		Autoscaler: &ikhnosv1.Autoscaler{Targets: []string{strings.Repeat("a", facts.MaxString+1)}}}
+	cl := &ikhnosv1.ClusterFacts{Scope: &ikhnosv1.ScopeFacts{Description: strings.Repeat("ns,", 1000)}}
+	s := &ikhnosv1.Sync{Cluster: cl, Workloads: []*ikhnosv1.WorkloadFacts{w}, DeletedNodes: []string{strings.Repeat("n", facts.MaxString+1)}}
 	if err := validateSync(s); err != nil {
 		t.Fatalf("an oversized cluster was refused: %v", err)
 	}
@@ -136,9 +136,9 @@ func TestValidateSyncCutsOversizedFacts(t *testing.T) {
 		t.Errorf("not cut: %d claims, %d hosts, %d target bytes, %d description bytes, %d deleted keys", len(w.VolumeClaims), len(w.Hosts), len(w.Autoscaler.Targets[0]), len(cl.Scope.Description), len(s.DeletedNodes))
 	}
 	// What cannot be cut is refused: a fact that names nothing.
-	for name, bad := range map[string]*continuumv1.Sync{
-		"no key":   {Workloads: []*continuumv1.WorkloadFacts{{}}},
-		"long key": {Nodes: []*continuumv1.NodeFacts{{Key: strings.Repeat("k", maxStr+1)}}},
+	for name, bad := range map[string]*ikhnosv1.Sync{
+		"no key":   {Workloads: []*ikhnosv1.WorkloadFacts{{}}},
+		"long key": {Nodes: []*ikhnosv1.NodeFacts{{Key: strings.Repeat("k", maxStr+1)}}},
 	} {
 		if validateSync(bad) == nil {
 			t.Errorf("%s was accepted", name)

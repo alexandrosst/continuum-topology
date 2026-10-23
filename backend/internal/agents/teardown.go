@@ -3,7 +3,7 @@ package agents
 import (
 	"regexp"
 
-	"continuum/internal/install"
+	"ikhnos/internal/install"
 )
 
 // TeardownCommands is what the owner of a cluster runs there to remove an agent's install for good: helm uninstall drops
@@ -16,7 +16,7 @@ func TeardownCommands(namespace, release string) (helm, secret string, guessed b
 	if helm, err = (install.Uninstall{Release: name, Namespace: ns}).Render(); err != nil {
 		return "", "", guessed, err
 	}
-	if secret, err = (install.DeleteSecret{Name: "continuum-agent-identity", Namespace: ns}).Render(); err != nil {
+	if secret, err = (install.DeleteSecret{Name: "ikhnos-agent-identity", Namespace: ns}).Render(); err != nil {
 		return "", "", guessed, err
 	}
 	return helm, secret, guessed, nil
@@ -41,10 +41,10 @@ func ReleaseTarget(namespace, release string) (ns, name string, guessed bool) {
 	}
 	ns, name = namespace, release
 	if ns == "" {
-		ns, guessed = "continuum-system", true
+		ns, guessed = "ikhnos-system", true
 	}
 	if name == "" {
-		name, guessed = "continuum-agent", true
+		name, guessed = "ikhnos-agent", true
 	}
 	return ns, name, guessed
 }

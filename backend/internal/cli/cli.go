@@ -1,6 +1,6 @@
 // Package cli is what the three Ikhnos roles share: the in-cluster agent (cli/agent), the node probe (cli/probe) and the
-// node flow collector (cli/flow). They ship as ONE binary, `continuum`, that picks its role from its first argument
-// (`continuum agent ...`, `continuum probe ...`, `continuum flow ...`), so a cluster pulls a single image. cmd/agent,
+// node flow collector (cli/flow). They ship as ONE binary, `ikhnos`, that picks its role from its first argument
+// (`ikhnos agent ...`, `ikhnos probe ...`, `ikhnos flow ...`), so a cluster pulls a single image. cmd/agent,
 // cmd/probe and cmd/flow are thin wrappers over the same Main functions, for development and for anything that still runs
 // the old binary names. Each role lives in its own package so a wrapper links only what its role needs (the probe does not
 // carry the Kubernetes client, the agent does not carry the eBPF loader).
@@ -20,7 +20,7 @@ import (
 // Version is what the roles report about themselves. The binary's main sets it (from a linker flag) before calling a role.
 var Version = "0.1.0-dev"
 
-// Roles names the subcommands `continuum` accepts, in the order help lists them.
+// Roles names the subcommands `ikhnos` accepts, in the order help lists them.
 var Roles = []struct{ Name, Summary string }{
 	{"agent", "the in-cluster agent: discovers the cluster and reports to the Ikhnos server (read-only)"},
 	{"probe", "the optional node probe: tells the agent what kind of machine a node is (read-only)"},

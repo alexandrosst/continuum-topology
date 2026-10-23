@@ -26,7 +26,7 @@
  */
 export type ThemePreference = 'system' | 'light' | 'dark'
 
-const KEY = 'continuum:theme'
+const KEY = 'ikhnos:theme'
 
 function systemPrefersLight(): boolean {
   try {

@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"continuum/internal/pki"
-	"continuum/internal/store"
+	"ikhnos/internal/pki"
+	"ikhnos/internal/store"
 )
 
 func testLog() (*slog.Logger, *bytes.Buffer) {
@@ -41,7 +41,7 @@ func TestFilesTheServerCreatesArePrivate(t *testing.T) {
 	if _, err := pki.LoadOrCreate(filepath.Join(dir, "pki")); err != nil {
 		t.Fatal(err)
 	}
-	st, err := store.OpenSQLite(filepath.Join(dir, "continuum.db"))
+	st, err := store.OpenSQLite(filepath.Join(dir, "ikhnos.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,7 +50,7 @@ func TestFilesTheServerCreatesArePrivate(t *testing.T) {
 	if _, err := st.ListMembers(t.Context(), ""); err != nil {
 		t.Fatal(err)
 	}
-	for _, p := range []string{"", "pki", "pki/ca.key", "continuum.db", "continuum.db-wal", "continuum.db-shm"} {
+	for _, p := range []string{"", "pki", "pki/ca.key", "ikhnos.db", "ikhnos.db-wal", "ikhnos.db-shm"} {
 		fi, err := os.Stat(filepath.Join(dir, p))
 		if err != nil {
 			t.Fatalf("%s: %v", p, err)
@@ -72,7 +72,7 @@ func TestLooseModesAreRefusedWithTheFix(t *testing.T) {
 		t.Fatal(err)
 	}
 	key := filepath.Join(dir, "pki", "ca.key")
-	dbf := filepath.Join(dir, "continuum.db")
+	dbf := filepath.Join(dir, "ikhnos.db")
 	for _, f := range []string{key, dbf} {
 		if err := os.WriteFile(f, []byte("x"), 0o600); err != nil {
 			t.Fatal(err)

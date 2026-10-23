@@ -1,0 +1,401 @@
+{{- $probe := .Values.telemetry.clusterLinks.probe }}
+{{- if $probe.enabled }}
+{{- $cap := $probe.capacity }}
+{{- $auth := and $cap.enabled $cap.auth.existingSecret }}
+{{- /* $auto: the Ikhnos server issues the iperf3 credentials and the pods fetch them from the agent (no Secret of your own named). */ -}}
+{{- $auto := include "agent.linkIperf" . }}
+{{- if and $probe.peersSecret .Values.flowObserver.secret (eq (toString $probe.peersSecret) (toString .Values.flowObserver.secret)) }}
+{{- fail "telemetry.clusterLinks.probe.peersSecret must differ from flowObserver.secret: the link prober holds the first, and with the second it could sign flow reports." }}
+{{- end }}
+# The secret the prober signs its peer-list request with. The agent verifies with it, and nothing else holds it. It is not the flow
+# secret, which the prober must not have: it runs measurement tools that parse what other clusters' responders send, and with
+# the flow secret a compromised one could forge flow reports to the agent.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "agent.linkPeersSecretName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "agent.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  secret: {{ include "agent.linkPeersSecret" . | quote }}
+---
+{{- if $auto }}
+# The secret the responder's iperf3 pods sign their request for the server credentials with. The agent verifies with it; only the agent and
+# the responder pods mount it. The prober does not (it holds the peers secret above, which cannot ask for the private key), and neither do the
+# node collectors, and it is not the flow secret.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "agent.linkIperfSecretName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "agent.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  secret: {{ include "agent.linkIperfSecret" . | quote }}
+---
+{{- end }}
+{{- /* The responder's configuration. The default class is rate- and disk-limited; with allowFrom the default is a class that
+       refuses everything, and only the listed networks get the limited one. (Tested: a connection from outside the listed
+       networks is refused at the control port.) */ -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ikhnos-link-responder
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "agent.labels" . | nindent 4 }}
+data:
+  owamp-server.conf: |
+    testports {{ $probe.responder.testPorts }}
+  owamp-server.limits: |
+    limit root with disk=0, bandwidth=0, delete_on_fetch=on
+    limit regular with parent=root, disk=256M, bandwidth=20M, test_sessions=4
+    {{- if $probe.responder.allowFrom }}
+    limit refused with parent=root, disk=1, bandwidth=1, allow_open_mode=off
+    assign default refused
+    {{- range $probe.responder.allowFrom }}
+    assign net {{ . }} regular
+    {{- end }}
+    {{- else }}
+    assign default regular
+    {{- end }}
+---
+# The responder: OWAMP's server, on every node and in the host network, because the other clusters' probers are given this
+# cluster's node addresses and try them. It answers test requests and keeps nothing of this cluster: it reads no traffic and has
+# no access to the Kubernetes API.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: ikhnos-link-responder
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "agent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: link-responder
+spec:
+  selector:
+    matchLabels: {app.kubernetes.io/name: ikhnos-link-responder, app.kubernetes.io/instance: {{ .Release.Name }}}
+  updateStrategy: {type: RollingUpdate, rollingUpdate: {maxUnavailable: 10%}}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ikhnos-link-responder
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/part-of: ikhnos
+        {{- include "agent.meshOptOutLabels" . | nindent 8 }}
+        {{- include "agent.podLabels" . | nindent 8 }}
+      annotations:
+        {{- /* The automatic mode adds its key to the dict only when on, so the checksum of an install with a Secret of its own does not change. */}}
+        {{- $capDict := dict "port" $cap.port "idle" $cap.server.idleTimeout "limit" (toString $cap.server.bitrateLimit) "auth" $cap.auth.existingSecret }}
+        {{- if $auto }}{{- $_ := set $capDict "auto" (include "agent.linkIperfSecretRevision" .) }}{{- end }}
+        checksum/config: {{ toJson (dict "ports" $probe.responder.testPorts "from" $probe.responder.allowFrom "capacity" (ternary $capDict (dict) $cap.enabled)) | sha256sum }}
+        {{- include "agent.meshOptOutAnnotations" . | nindent 8 }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . | quote }}
+      {{- end }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      automountServiceAccountToken: false
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      securityContext: {{- include "agent.nonRootPodSecurityContext" (dict "root" . "fsGroup" (or (ne (toString $auth) "") (ne (toString $auto) ""))) | nindent 8 }}
+      containers:
+        - name: owampd
+          image: {{ include "agent.linkImage" . | quote }}
+          imagePullPolicy: {{ include "agent.linkImagePullPolicy" . }}
+          command: ["/usr/local/bin/owampd"]
+          # -Z: stay in the foreground (the container's log is the daemon's), -a O: open mode, which the limits file above
+          # restricts; a port above 1024, so no capability is needed.
+          args: ["-Z", "-a", "O", "-c", "/etc/owamp", "-d", "/data", "-R", "/run/owamp", "-S", ":{{ $probe.responder.port }}"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          ports:
+            - {name: owamp, containerPort: {{ $probe.responder.port }}, protocol: TCP}
+          readinessProbe:
+            tcpSocket: {port: {{ $probe.responder.port }}}
+            periodSeconds: 30
+          resources: {{- toYaml $probe.responder.resources | nindent 12 }}
+          volumeMounts:
+            - {name: config, mountPath: /etc/owamp, readOnly: true}
+            - {name: data, mountPath: /data}
+            - {name: run, mountPath: /run/owamp}
+            # The daemon is the sender for the "from" direction, and a sender keeps its skip records in an unlinked temp file
+            # under TMPDIR or /tmp; on a read-only root that fails unless /tmp is a volume.
+            - {name: tmp, mountPath: /tmp}
+        {{- if and $cap.enabled $auto }}
+        # iperf3's server, for the throughput tests, when the Ikhnos server issues the credentials. `ikhnos link-iperf-server` asks the
+        # agent for this cluster's key and users (a signed request, answered sealed), writes them to the in-memory volume below and runs
+        # iperf3 -s with them. It runs no server at all until it has them: there is never an unauthenticated one. It has no access to the
+        # Kubernetes API, and it mounts the request secret, which no other container of the pod (nor the prober) has.
+        - name: iperf3
+          image: {{ include "agent.linkImage" . | quote }}
+          imagePullPolicy: {{ include "agent.linkImagePullPolicy" . }}
+          args: ["link-iperf-server"]
+          env:
+            # In the host network this is the node's address, so the metrics port is not served on every interface of the node.
+            - name: POD_IP
+              valueFrom: {fieldRef: {fieldPath: status.podIP}}
+            - {name: IKHNOS_LINK_AGENT_URL, value: "http://ikhnos-agent-link-metrics.{{ .Release.Namespace }}.svc:9104"}
+            - {name: IKHNOS_LINK_IPERF_SECRET_FILE, value: /iperf-request/secret}
+            - {name: IKHNOS_LINK_IPERF_DIR, value: /iperf-auth}
+            - {name: IKHNOS_LINK_CAPACITY_PORT, value: {{ $cap.port | quote }}}
+            - {name: IKHNOS_LINK_CAPACITY_IDLE_TIMEOUT, value: {{ $cap.server.idleTimeout | quote }}}
+            - {name: IKHNOS_LINK_CAPACITY_BITRATE_LIMIT, value: {{ toString $cap.server.bitrateLimit | quote }}}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          ports:
+            - {name: iperf3, containerPort: {{ $cap.port }}, protocol: TCP}
+          # No readiness probe on the port: with no pair asking this cluster to serve tests, no server runs, and that is not a fault.
+          resources: {{- toYaml $cap.server.resources | nindent 12 }}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+            - {name: iperf-request, mountPath: /iperf-request, readOnly: true}
+            - {name: iperf-auth, mountPath: /iperf-auth}
+        {{- else if $cap.enabled }}
+        # iperf3's server, for the throughput tests: one test at a time (it refuses a second client while one is running).
+        # Same image and the same restrictions as OWAMP's; it keeps nothing.
+        - name: iperf3
+          image: {{ include "agent.linkImage" . | quote }}
+          imagePullPolicy: {{ include "agent.linkImagePullPolicy" . }}
+          command: ["/usr/local/bin/iperf3"]
+          args:
+            - "-s"
+            - "-p"
+            - {{ $cap.port | quote }}
+            - "--idle-timeout"
+            - {{ $cap.server.idleTimeout | quote }}
+            {{- if $cap.server.bitrateLimit }}
+            - "--server-bitrate-limit"
+            - {{ toString $cap.server.bitrateLimit | quote }}
+            {{- end }}
+            {{- if $auth }}
+            - "--rsa-private-key-path"
+            - "/iperf-auth/private.pem"
+            - "--authorized-users-path"
+            - "/iperf-auth/users.csv"
+            {{- end }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          ports:
+            - {name: iperf3, containerPort: {{ $cap.port }}, protocol: TCP}
+          readinessProbe:
+            tcpSocket: {port: {{ $cap.port }}}
+            periodSeconds: 30
+          resources: {{- toYaml $cap.server.resources | nindent 12 }}
+          volumeMounts:
+            # iperf3 makes a temp file in /tmp for every test stream (and unlinks it at once); on a read-only root that fails
+            # every test unless /tmp is a volume.
+            - {name: tmp, mountPath: /tmp}
+            {{- if $auth }}
+            - {name: iperf-auth, mountPath: /iperf-auth, readOnly: true}
+            {{- end }}
+        {{- end }}
+      volumes:
+        - name: config
+          configMap: {name: ikhnos-link-responder}
+        # Test results wait here until the prober that asked for them has fetched them (and is then deleted); the limit above
+        # keeps a prober that never fetches from filling the disk, and a restart empties it.
+        - name: data
+          emptyDir: {sizeLimit: 512Mi}
+        - name: run
+          emptyDir: {sizeLimit: 1Mi}
+        # The scratch space owampd and iperf3 need for their per-test temp files (the root filesystem is read-only). The files
+        # are unlinked as soon as they are made and are small, so the limit is generous.
+        - name: tmp
+          emptyDir: {sizeLimit: 16Mi}
+        {{- if $auth }}
+        # Only what a server needs of the credentials: the key it decrypts with and the users it accepts.
+        - name: iperf-auth
+          secret:
+            secretName: {{ $cap.auth.existingSecret | quote }}
+            defaultMode: 0440
+            items:
+              - {key: private.pem, path: private.pem}
+              - {key: users.csv, path: users.csv}
+        {{- else if $auto }}
+        # The credentials the Ikhnos server issued, fetched from the agent: in memory, private to this pod, gone with it. Never a Secret.
+        - name: iperf-auth
+          emptyDir: {medium: Memory, sizeLimit: 1Mi}
+        - name: iperf-request
+          secret: {secretName: {{ include "agent.linkIperfSecretName" . }}, defaultMode: 0440}
+        {{- end }}
+      {{- with $probe.responder.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $probe.responder.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+# The prober: one pod. It asks the agent which clusters this one is paired with and measures the path to each, one test at a
+# time, both directions. It has no access to the Kubernetes API, and it is configured to talk only to the agent's link address
+# and the paired clusters' responders. That is a property of its code and settings, not of the network: no NetworkPolicy
+# restricts what the pod can reach.
+#
+# It runs in the host network, like the responder, because OWAMP in open mode compares addresses. owping announces the address of
+# its control socket as the sender and receiver of the test, and owampd refuses a reverse test ("Test Denied: OpenMode
+# recieve_addr != control_client") and drops every packet of a forward one when that is not the address it sees the connection
+# and the packets come from. A pod behind the CNI's masquerade announces its pod IP while the responder sees the node's, so
+# without the host network every reverse test is refused and every forward test reports all packets lost. In the host network
+# the announced address is the node's own, which is what the responder sees as long as nothing translates addresses between the
+# two clusters. The prober therefore has the node's network, not a pod's: it stays non-root, drops every capability, has a
+# read-only root filesystem and no ServiceAccount token. Its metrics port binds the node address only (listenPort, default
+# 9105), and the agent and the collector reach each other through ipBlock rules (receiver.yaml, telemetry-network.yaml) because
+# a host-network pod has no pod identity for a podSelector to match.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ikhnos-link-prober
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "agent.labels" . | nindent 4 }}
+    app.kubernetes.io/component: link-prober
+spec:
+  replicas: 1   # exactly one: a second would measure every link twice and double the load on it
+  strategy: {type: Recreate}
+  selector:
+    matchLabels: {app.kubernetes.io/name: ikhnos-link-prober, app.kubernetes.io/instance: {{ .Release.Name }}}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ikhnos-link-prober
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/part-of: ikhnos
+        {{- include "agent.meshOptOutLabels" . | nindent 8 }}
+        {{- include "agent.podLabels" . | nindent 8 }}
+      annotations:
+        checksum/link-peers-secret: {{ include "agent.linkPeersSecretRevision" . }}
+        {{- include "agent.meshOptOutAnnotations" . | nindent 8 }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . | quote }}
+      {{- end }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      automountServiceAccountToken: false
+      hostNetwork: true
+      # The agent is reached by a Service name, which the host's resolver does not know.
+      dnsPolicy: ClusterFirstWithHostNet
+      securityContext: {{- include "agent.nonRootPodSecurityContext" (dict "root" . "fsGroup" true) | nindent 8 }}
+      containers:
+        - name: prober
+          image: {{ include "agent.linkImage" . | quote }}
+          imagePullPolicy: {{ include "agent.linkImagePullPolicy" . }}
+          args: ["link-prober"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          env:
+            # In the host network this is the node's address, so the metrics port is not served on every interface of the node.
+            - name: POD_IP
+              valueFrom: {fieldRef: {fieldPath: status.podIP}}
+            - {name: IKHNOS_LINK_AGENT_URL, value: "http://ikhnos-agent-link-metrics.{{ .Release.Namespace }}.svc:9104"}
+            - {name: IKHNOS_LINK_PEERS_SECRET_FILE, value: /secret/secret}
+            - {name: IKHNOS_LINK_PROBE_LISTEN, value: "$(POD_IP):{{ $probe.listenPort }}"}
+            - {name: IKHNOS_LINK_RESPONDER_PORT, value: {{ $probe.responder.port | quote }}}
+            - {name: IKHNOS_LINK_PACKETS, value: {{ $probe.packets | quote }}}
+            - {name: IKHNOS_LINK_SPACING, value: {{ $probe.spacing | quote }}}
+            - {name: IKHNOS_LINK_INTERVAL, value: {{ $probe.interval | quote }}}
+            - {name: IKHNOS_LINK_DSCP, value: {{ $probe.dscp | quote }}}
+            - {name: IKHNOS_LINK_PATH_INTERVAL, value: {{ $probe.pathInterval | quote }}}
+            - {name: IKHNOS_LINK_TCP_INTERVAL, value: {{ $probe.tcpConnect.interval | quote }}}
+            - {name: IKHNOS_LINK_TCP_TIMEOUT, value: {{ $probe.tcpConnect.timeout | quote }}}
+            {{- if $cap.enabled }}
+            - {name: IKHNOS_LINK_CAPACITY, value: "true"}
+            - {name: IKHNOS_LINK_CAPACITY_PORT, value: {{ $cap.port | quote }}}
+            - {name: IKHNOS_LINK_CAPACITY_INTERVAL, value: {{ $cap.interval | quote }}}
+            - {name: IKHNOS_LINK_CAPACITY_DURATION, value: {{ $cap.duration | quote }}}
+            - {name: IKHNOS_LINK_CAPACITY_OMIT, value: {{ toString $cap.omit | quote }}}
+            - {name: IKHNOS_LINK_CAPACITY_PARALLEL, value: {{ $cap.parallel | quote }}}
+            - {name: IKHNOS_LINK_CAPACITY_REVERSE, value: {{ $cap.reverse | quote }}}
+            - {name: IKHNOS_LINK_CAPACITY_BIDIR, value: {{ $cap.bidir | quote }}}
+            - {name: IKHNOS_LINK_CAPACITY_UDP_MAX, value: {{ toString $cap.udp.maxRate | quote }}}
+            - {name: IKHNOS_LINK_CAPACITY_UDP_START, value: {{ toString $cap.udp.startRate | quote }}}
+            - {name: IKHNOS_LINK_CAPACITY_UDP_STEP, value: {{ $cap.udp.step | quote }}}
+            - {name: IKHNOS_LINK_CAPACITY_UDP_LOSS, value: {{ $cap.udp.lossPercent | quote }}}
+            - {name: IKHNOS_LINK_CAPACITY_DSCP, value: {{ $cap.dscp | toStrings | join "," | quote }}}
+            - {name: IKHNOS_LINK_CAPACITY_TCP_MAX_RATE, value: {{ toString $cap.tcpMaxRate | quote }}}
+            - {name: IKHNOS_LINK_CAPACITY_BUDGET, value: {{ toString $cap.budget | quote }}}
+            - {name: IKHNOS_LINK_CAPACITY_BUSY, value: {{ $cap.busyFraction | quote }}}
+            - {name: IKHNOS_LINK_CAPACITY_SKIP_ABOVE, value: {{ toString $cap.skipAbove | quote }}}
+            - {name: IKHNOS_LINK_CAPACITY_WINDOW, value: {{ $cap.window | quote }}}
+            {{- if $auth }}
+            - name: IKHNOS_LINK_CAPACITY_AUTH_USER
+              valueFrom: {secretKeyRef: {name: {{ $cap.auth.existingSecret | quote }}, key: username}}
+            - {name: IKHNOS_LINK_CAPACITY_AUTH_KEY_FILE, value: /iperf-auth/public.pem}
+            - {name: IKHNOS_LINK_CAPACITY_AUTH_PASSWORD_FILE, value: /iperf-auth/password}
+            {{- else if $auto }}
+            # The credentials come from the agent with the peer list (sealed, client side only: peers' public keys and the passwords of the pairs
+            # this cluster tests, never a private key); a peer without them is not tested. The public keys are written to the scratch volume.
+            - {name: IKHNOS_LINK_CAPACITY_AUTH_AUTO, value: "true"}
+            - {name: IKHNOS_LINK_CAPACITY_AUTH_KEY_DIR, value: /iperf-keys}
+            {{- end }}
+            {{- end }}
+          ports:
+            - {name: link-probe, containerPort: {{ $probe.listenPort }}, protocol: TCP}
+          readinessProbe:
+            tcpSocket: {port: link-probe}
+            periodSeconds: 30
+          resources: {{- toYaml $probe.resources | nindent 12 }}
+          volumeMounts:
+            - {name: secret, mountPath: /secret, readOnly: true}
+            # owping (and the iperf3 client) make a temp file in /tmp for every test; the Go side runs them with a cleared
+            # environment, so TMPDIR is not set and /tmp is what they use. Without a volume here every test fails on the
+            # read-only root.
+            - {name: tmp, mountPath: /tmp}
+            {{- if $auth }}
+            - {name: iperf-auth, mountPath: /iperf-auth, readOnly: true}
+            {{- else if $auto }}
+            - {name: iperf-keys, mountPath: /iperf-keys}
+            {{- end }}
+      volumes:
+        - name: secret
+          secret: {secretName: {{ include "agent.linkPeersSecretName" . }}, defaultMode: 0440}
+        - name: tmp
+          emptyDir: {sizeLimit: 16Mi}
+        {{- if $auth }}
+        # Only what a client needs: the servers' public key and the password (the user name is an environment variable).
+        - name: iperf-auth
+          secret:
+            secretName: {{ $cap.auth.existingSecret | quote }}
+            defaultMode: 0440
+            items:
+              - {key: public.pem, path: public.pem}
+              - {key: password, path: password}
+        {{- else if $auto }}
+        # Public keys only, written by the prober for iperf3 to read; the passwords are passed in the environment and never touch a file.
+        - name: iperf-keys
+          emptyDir: {medium: Memory, sizeLimit: 1Mi}
+        {{- end }}
+      {{- with $probe.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $probe.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ikhnos-link-prober
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "agent.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector: {app.kubernetes.io/name: ikhnos-link-prober, app.kubernetes.io/instance: {{ .Release.Name }}}
+  ports:
+    # The Service keeps port 9105 (the collector's scrape target); the pod's port is listenPort, as it is bound on the node.
+    - {name: link-probe, port: 9105, targetPort: {{ $probe.listenPort }}, protocol: TCP}
+{{- end }}

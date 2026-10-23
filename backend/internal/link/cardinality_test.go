@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 )
 
 // The most series one peer may cost with the default settings. A fully active peer is the pair's first cluster, which runs
@@ -25,7 +25,7 @@ const (
 func seriesLines(m *Meter) int {
 	n := 0
 	for k := range render(m) {
-		if strings.HasPrefix(k, "continuum_link_") {
+		if strings.HasPrefix(k, "ikhnos_link_") {
 			n++
 		}
 	}
@@ -47,9 +47,9 @@ func checkSeriesPerPeer(t *testing.T, dscp []int, bidir bool, maxSeries int) {
 	t.Helper()
 	// The passive series alone (what the agent serves), with traffic that fills every histogram.
 	p := NewPeers()
-	p.Set("cl-me", []*continuumv1.LinkPeer{peer("cl-a", "A", "10.0.0.1")})
+	p.Set("cl-me", []*ikhnosv1.LinkPeer{peer("cl-a", "A", "10.0.0.1")})
 	passive := NewMeter(p)
-	passive.Observe([]*continuumv1.RawFlow{{Client: true, PeerIp: "10.0.0.1", Connections: 2, BytesOut: 1000, BytesIn: 50, SegsOut: 100, Retransmits: 3, RttUs: 12000, JitterUs: 800, FailedAttempts: 5, FailedRefused: 1, FailedTimeout: 1, FailedReset: 1, FailedUnreachable: 1}})
+	passive.Observe([]*ikhnosv1.RawFlow{{Client: true, PeerIp: "10.0.0.1", Connections: 2, BytesOut: 1000, BytesIn: 50, SegsOut: 100, Retransmits: 3, RttUs: 12000, JitterUs: 800, FailedAttempts: 5, FailedRefused: 1, FailedTimeout: 1, FailedReset: 1, FailedUnreachable: 1}})
 	nPassive := seriesLines(passive)
 
 	// Everything the prober adds, for one peer with a throughput budget of its own.
@@ -62,13 +62,13 @@ func checkSeriesPerPeer(t *testing.T, dscp []int, bidir bool, maxSeries int) {
 	})
 	a := peer("cl-a", "A", "10.0.0.1", "10.0.0.2", "10.0.0.3")
 	a.Throughput, a.ThroughputBudgetBytes = true, 1<<41 // the widest settings send many gigabytes of fixtures
-	c.Meter.Peers.Set("cl-me", []*continuumv1.LinkPeer{a})
+	c.Meter.Peers.Set("cl-me", []*ikhnosv1.LinkPeer{a})
 	if err := c.Start(); err != nil {
 		t.Fatal(err)
 	}
 	m := c.Meter
 	m.EnableConnects()
-	m.Observe([]*continuumv1.RawFlow{{Client: true, PeerIp: "10.0.0.1", Connections: 2, BytesOut: 1000, BytesIn: 50, SegsOut: 100, Retransmits: 3, RttUs: 12000, JitterUs: 800, FailedAttempts: 5, FailedRefused: 1, FailedTimeout: 1, FailedReset: 1, FailedUnreachable: 1}})
+	m.Observe([]*ikhnosv1.RawFlow{{Client: true, PeerIp: "10.0.0.1", Connections: 2, BytesOut: 1000, BytesIn: 50, SegsOut: 100, Retransmits: 3, RttUs: 12000, JitterUs: 800, FailedAttempts: 5, FailedRefused: 1, FailedTimeout: 1, FailedReset: 1, FailedUnreachable: 1}})
 	for _, d := range []Direction{Forward, Reverse} {
 		m.ObserveProbe("cl-a", d, OwampResult{Sent: 100, Lost: 2, HasDelay: true, Min: 0.01, Median: 0.011, Max: 0.02, Synchronized: true, ClockError: 1e-4, HasClockError: true, Hops: 9})
 		for _, r := range probeFailReasons {
@@ -90,7 +90,7 @@ func checkSeriesPerPeer(t *testing.T, dscp []int, bidir bool, maxSeries int) {
 	}
 	settle(c)
 	got := render(m)
-	if _, ok := got[`continuum_link_throughput_udp_point_bits_per_second{cluster="cl-me",peer="cl-a",method="iperf3",direction="forward",dscp="0",point="first_loss"}`]; !ok {
+	if _, ok := got[`ikhnos_link_throughput_udp_point_bits_per_second{cluster="cl-me",peer="cl-a",method="iperf3",direction="forward",dscp="0",point="first_loss"}`]; !ok {
 		for k := range got {
 			if strings.Contains(k, "udp_point") {
 				t.Log(k)
@@ -101,7 +101,7 @@ func checkSeriesPerPeer(t *testing.T, dscp []int, bidir bool, maxSeries int) {
 	nAll := seriesLines(m)
 	nThroughput := 0
 	for k := range got {
-		if strings.HasPrefix(k, "continuum_link_throughput_") {
+		if strings.HasPrefix(k, "ikhnos_link_throughput_") {
 			nThroughput++
 		}
 	}
@@ -111,11 +111,11 @@ func checkSeriesPerPeer(t *testing.T, dscp []int, bidir bool, maxSeries int) {
 	sp := NewPeers()
 	skip := peer("cl-a", "A", "10.0.0.1")
 	skip.SkipProbe = true
-	sp.Set("cl-me", []*continuumv1.LinkPeer{skip})
+	sp.Set("cl-me", []*ikhnosv1.LinkPeer{skip})
 	sm := NewMeter(sp)
 	sm.EnableProbes()
 	sm.EnableConnects()
-	sm.Observe([]*continuumv1.RawFlow{{Client: true, PeerIp: "10.0.0.1", Connections: 2, BytesOut: 1000, BytesIn: 50, SegsOut: 100, Retransmits: 3, RttUs: 12000, FailedAttempts: 5, FailedRefused: 1, FailedTimeout: 1, FailedReset: 1, FailedUnreachable: 1}})
+	sm.Observe([]*ikhnosv1.RawFlow{{Client: true, PeerIp: "10.0.0.1", Connections: 2, BytesOut: 1000, BytesIn: 50, SegsOut: 100, Retransmits: 3, RttUs: 12000, FailedAttempts: 5, FailedRefused: 1, FailedTimeout: 1, FailedReset: 1, FailedUnreachable: 1}})
 	for _, d := range []Direction{Forward, Reverse} { // what an older prober, or a stray result, would record
 		sm.ObserveProbe("cl-a", d, OwampResult{Sent: 100})
 		sm.ProbeFailed("cl-a", d, "timeout")
@@ -126,7 +126,7 @@ func checkSeriesPerPeer(t *testing.T, dscp []int, bidir bool, maxSeries int) {
 	sm.ConnectFailed("cl-a", "timeout")
 	nServing := seriesLines(sm)
 	for k := range render(sm) {
-		if strings.Contains(k, "continuum_link_probe_") || strings.Contains(k, "tcp_connect") || strings.Contains(k, "continuum_link_throughput_") {
+		if strings.Contains(k, "ikhnos_link_probe_") || strings.Contains(k, "tcp_connect") || strings.Contains(k, "ikhnos_link_throughput_") {
 			t.Errorf("the cluster that only serves exports %s", k)
 		}
 	}

@@ -8,15 +8,15 @@ import (
 	"strings"
 	"testing"
 
-	"continuum/internal/agents"
-	"continuum/internal/chart"
-	"continuum/internal/estate"
-	"continuum/internal/install"
-	"continuum/internal/kernel"
-	"continuum/internal/operators"
-	"continuum/internal/operatorsapi"
-	"continuum/internal/store"
-	"continuum/internal/testkit"
+	"ikhnos/internal/agents"
+	"ikhnos/internal/chart"
+	"ikhnos/internal/estate"
+	"ikhnos/internal/install"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/operators"
+	"ikhnos/internal/operatorsapi"
+	"ikhnos/internal/store"
+	"ikhnos/internal/testkit"
 )
 
 // The commands this server prints for a person to paste into a shell are pinned here, as text, in testdata/install_commands.golden.json.
@@ -133,16 +133,16 @@ func (p *pinRig) agentCommands() {
 		{"default", nil},
 		{"local", func(a *Admin) { a.ChartRef = "local" }},
 		{"repository", func(a *Admin) {
-			a.ChartRef = "oci://charts.example.com/stable/continuum-agent"
+			a.ChartRef = "oci://charts.example.com/stable/ikhnos-agent"
 			a.AgentChartVersion = "2.3.4"
 		}},
-		{"packaged", func(a *Admin) { a.ChartRef = "./continuum-agent-1.0.0.tgz" }},
+		{"packaged", func(a *Admin) { a.ChartRef = "./ikhnos-agent-1.0.0.tgz" }},
 	}
 	for _, c := range charts {
 		a := p.admin(c.tweak)
 		for _, i := range images {
 			for _, tier := range []int{0, 1, 2} {
-				p.add(a, fmt.Sprintf("agent/install/%s/%s/tier%d", c.name, i.name, tier), "agent", p.ok(a.installCommand(i.img, "cnt_SECRET", store.Token{AccessTier: tier})))
+				p.add(a, fmt.Sprintf("agent/install/%s/%s/tier%d", c.name, i.name, tier), "agent", p.ok(a.installCommand(i.img, "ikh_SECRET", store.Token{AccessTier: tier})))
 			}
 		}
 	}
@@ -208,7 +208,7 @@ func (p *pinRig) operatorCommands() {
 		{"no-registry", kernel.ImageConfig{}, nil},
 		{"registry", kernel.ImageConfig{Registry: "registry.example.com/team", Tag: "1.4.0"}, nil},
 		{"repository", kernel.ImageConfig{}, func(a *Admin) {
-			a.ChartRef = "oci://charts.example.com/stable/continuum-agent"
+			a.ChartRef = "oci://charts.example.com/stable/ikhnos-agent"
 			a.OperatorChartVersion = "0.9.1"
 		}},
 		{"no-server", kernel.ImageConfig{}, func(a *Admin) { a.AgentAddr = "" }},
@@ -235,8 +235,8 @@ func (p *pinRig) operatorCommands() {
 	p.add(a, "operator/client-secret", "", p.ok(operatorsapi.ClientSecretCommand(mtls(ext), pinBundle.Senders[0].CertPEM, pinBundle.Senders[0].KeyPEM, pinBundle.CACertPEM, "apps-team", false)))
 	p.add(a, "operator/restart", "", p.ok(operatorsapi.RestartCommand(mtls(ext))))
 	p.add(a, "operator/uninstall", "", p.ok(operatorsapi.UninstallCommand("athens")))
-	p.add(a, "operator/expose/nodeport", "", p.ok(estate.ExposeCommand("continuum-system", "athens-regional-operator", install.NodePort)))
-	p.add(a, "operator/expose/loadbalancer", "", p.ok(estate.ExposeCommand("continuum-system", "athens-regional-operator", install.LoadBalancer)))
+	p.add(a, "operator/expose/nodeport", "", p.ok(estate.ExposeCommand("ikhnos-system", "athens-regional-operator", install.NodePort)))
+	p.add(a, "operator/expose/loadbalancer", "", p.ok(estate.ExposeCommand("ikhnos-system", "athens-regional-operator", install.LoadBalancer)))
 
 	// The heartbeat: the upgrade that turns it on, the Secret that carries its token and, for a private CA, the Secret for that.
 	hbURL := "https://ikhnos.example.com/api/v1/operator-heartbeat"
@@ -250,7 +250,7 @@ func (p *pinRig) operatorCommands() {
 	p.add(private, "operator/heartbeat/private-ca/secret", "", p.ok(private.operatorsAPI().HeartbeatCASecretCommand(mtls(ext))))
 
 	// What the source clusters of an operator are told: a Secret for each distinct namespace and an upgrade of each cluster's agent.
-	targets := []operatorsapi.SourceTarget{{Cluster: "cl-a", NS: "continuum-system", Name: "continuum-agent"}, {Cluster: "cl-b", NS: "apps-team", Name: "obs-agent"}}
+	targets := []operatorsapi.SourceTarget{{Cluster: "cl-a", NS: "ikhnos-system", Name: "ikhnos-agent"}, {Cluster: "cl-b", NS: "apps-team", Name: "obs-agent"}}
 	for _, i := range images[:2] {
 		a := p.admin(i.tweak)
 		for n, line := range p.reminders(a, i.img, mtls(ext), pinBundle, targets) {

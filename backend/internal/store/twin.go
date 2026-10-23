@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"continuum/internal/workspace"
+	"ikhnos/internal/workspace"
 )
 
 // SchemaVersion is the newest database format this build reads and writes (PRAGMA user_version). The rule:

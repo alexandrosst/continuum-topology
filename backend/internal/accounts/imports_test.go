@@ -13,8 +13,8 @@ import (
 // Accounts stands on the kernel and the store and on nothing else of this repository: not the server, and not another module. What it
 // needs from another module it is given (a callback on the Core), so that the line between them is the compiler's and not a habit.
 var allowedRepoImports = map[string]bool{
-	"continuum/internal/kernel": true,
-	"continuum/internal/store":  true,
+	"ikhnos/internal/kernel": true,
+	"ikhnos/internal/store":  true,
 }
 
 func TestAccountsImportsOnlyTheKernelAndTheStore(t *testing.T) {
@@ -33,7 +33,7 @@ func TestAccountsImportsOnlyTheKernelAndTheStore(t *testing.T) {
 		}
 		for _, im := range af.Imports {
 			p, _ := strconv.Unquote(im.Path.Value)
-			if strings.HasPrefix(p, "continuum/") && !allowedRepoImports[p] {
+			if strings.HasPrefix(p, "ikhnos/") && !allowedRepoImports[p] {
 				t.Errorf("%s imports %s: accounts may import only %v", f, p, allowedRepoImports)
 			}
 		}

@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/pki"
-	"continuum/internal/testkit"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/pki"
+	"ikhnos/internal/testkit"
 
 	"google.golang.org/grpc"
 )
@@ -24,11 +24,11 @@ type fakeAgent struct {
 // received before it returns.
 func (r *hubRig) newFakeAgent(t *testing.T, ctx context.Context) *fakeAgent {
 	t.Helper()
-	return r.newFakeAgentWith(t, ctx, &continuumv1.Hello{AgentVersion: "fake"})
+	return r.newFakeAgentWith(t, ctx, &ikhnosv1.Hello{AgentVersion: "fake"})
 }
 
 // newFakeAgentWith is newFakeAgent with a hello of the test's choosing.
-func (r *hubRig) newFakeAgentWith(t *testing.T, ctx context.Context, hello *continuumv1.Hello) *fakeAgent {
+func (r *hubRig) newFakeAgentWith(t *testing.T, ctx context.Context, hello *ikhnosv1.Hello) *fakeAgent {
 	t.Helper()
 	id, key, leaf := r.approvedAgent(t, testkit.FP)
 	f := &fakeAgent{r: r, FakeAgent: &testkit.FakeAgent{T: t, Ctx: ctx, ID: id, Key: key, Leaf: leaf, Hello: hello,
@@ -51,7 +51,7 @@ func (f *fakeAgent) drop() {
 }
 
 // restart is a drop and a new stream with the same identity, which is what a restarted agent pod does.
-func (f *fakeAgent) restart() *continuumv1.Config {
+func (f *fakeAgent) restart() *ikhnosv1.Config {
 	f.T.Helper()
 	f.drop()
 	return f.Connect()
@@ -66,7 +66,7 @@ func (f *fakeAgent) inForce() (sent, applied string, since time.Time) {
 }
 
 // changeTier is an administrator's change that makes the next Config differ, and the push that follows it.
-func (f *fakeAgent) changeTier() *continuumv1.Config {
+func (f *fakeAgent) changeTier() *ikhnosv1.Config {
 	f.T.Helper()
 	cur, err := f.r.st.GetAgent(f.Ctx, "org-1", f.ID)
 	if err != nil {

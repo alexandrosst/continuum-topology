@@ -3,8 +3,8 @@ package fusionhttp
 import (
 	"net/http"
 
-	"continuum/internal/fusionapi"
-	"continuum/internal/httpkit"
+	"ikhnos/internal/fusionapi"
+	"ikhnos/internal/httpkit"
 )
 
 import ()

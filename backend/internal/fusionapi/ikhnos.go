@@ -6,7 +6,7 @@ import (
 	"sort"
 	"time"
 
-	"continuum/internal/model"
+	"ikhnos/internal/model"
 )
 
 // What Ikhnos itself knows about the things a trace ran on, joined to the fused object: which services each service

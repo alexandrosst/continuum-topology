@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"continuum/internal/accounts"
-	"continuum/internal/fusionapi"
-	"continuum/internal/kernel"
-	"continuum/internal/store"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/fusionapi"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/store"
 )
 
 // FUSION access tokens: read-only credentials for the shared data API, minted by an administrator of the server's main organisation,

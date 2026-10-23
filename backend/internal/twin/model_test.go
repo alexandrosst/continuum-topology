@@ -6,12 +6,12 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/facts"
-	"continuum/internal/interpret"
-	"continuum/internal/model"
-	"continuum/internal/store"
-	"continuum/internal/workspace"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/facts"
+	"ikhnos/internal/interpret"
+	"ikhnos/internal/model"
+	"ikhnos/internal/store"
+	"ikhnos/internal/workspace"
 )
 
 var now = time.Date(2026, 3, 1, 12, 0, 0, 0, time.UTC)
@@ -22,15 +22,15 @@ func i32(n int32) *int32 { return &n }
 func fixture(t *testing.T, clusterID, agentID string, tier int) (Input, *facts.State) {
 	t.Helper()
 	st := facts.New()
-	st.Cluster = &continuumv1.ClusterFacts{Uid: "0a1b2c3d-0000-4000-8000-000000000001", Version: "v1.30.2+k3s1"}
-	st.Nodes["edge-1"] = &continuumv1.NodeFacts{Key: "edge-1", Name: "edge-1", Ready: true, Architecture: "arm64", OsImage: "Debian", CpuCapacityMillis: 4000, MemoryCapacityBytes: 8 << 30,
+	st.Cluster = &ikhnosv1.ClusterFacts{Uid: "0a1b2c3d-0000-4000-8000-000000000001", Version: "v1.30.2+k3s1"}
+	st.Nodes["edge-1"] = &ikhnosv1.NodeFacts{Key: "edge-1", Name: "edge-1", Ready: true, Architecture: "arm64", OsImage: "Debian", CpuCapacityMillis: 4000, MemoryCapacityBytes: 8 << 30,
 		CpuAllocatableMillis: 3900, MemoryAllocatableBytes: 7 << 30, PodCount: i32(5), CpuRequestedMillis: 1500, MemoryRequestedBytes: 2 << 30, PodCapacity: 110, InternalIps: []string{"10.0.0.1"},
 		Labels: map[string]string{"node-role.kubernetes.io/control-plane": ""}}
-	st.Nodes["edge-2"] = &continuumv1.NodeFacts{Key: "edge-2", Name: "edge-2", Ready: true, CpuCapacityMillis: 2000, MemoryCapacityBytes: 4 << 30, CpuAllocatableMillis: 1900, MemoryAllocatableBytes: 3 << 30}
-	st.Namespaces["shop"] = &continuumv1.NamespaceFacts{Key: "shop", Name: "shop"}
-	st.Workloads["shop/Deployment/cart"] = &continuumv1.WorkloadFacts{Key: "shop/Deployment/cart", Namespace: "shop", Kind: "Deployment", Name: "cart", Replicas: 3, ReadyReplicas: 3,
-		CpuRequestMillis: 250, MemoryRequestBytes: 256 << 20, CpuLimitMillis: 500, Images: []*continuumv1.ContainerImage{{Image: "cart:1"}}, NodeNames: []string{"edge-1"}}
-	st.Workloads["shop/Deployment/bare"] = &continuumv1.WorkloadFacts{Key: "shop/Deployment/bare", Namespace: "shop", Kind: "Deployment", Name: "bare", Replicas: 1, ReadyReplicas: 1}
+	st.Nodes["edge-2"] = &ikhnosv1.NodeFacts{Key: "edge-2", Name: "edge-2", Ready: true, CpuCapacityMillis: 2000, MemoryCapacityBytes: 4 << 30, CpuAllocatableMillis: 1900, MemoryAllocatableBytes: 3 << 30}
+	st.Namespaces["shop"] = &ikhnosv1.NamespaceFacts{Key: "shop", Name: "shop"}
+	st.Workloads["shop/Deployment/cart"] = &ikhnosv1.WorkloadFacts{Key: "shop/Deployment/cart", Namespace: "shop", Kind: "Deployment", Name: "cart", Replicas: 3, ReadyReplicas: 3,
+		CpuRequestMillis: 250, MemoryRequestBytes: 256 << 20, CpuLimitMillis: 500, Images: []*ikhnosv1.ContainerImage{{Image: "cart:1"}}, NodeNames: []string{"edge-1"}}
+	st.Workloads["shop/Deployment/bare"] = &ikhnosv1.WorkloadFacts{Key: "shop/Deployment/bare", Namespace: "shop", Kind: "Deployment", Name: "bare", Replicas: 1, ReadyReplicas: 1}
 	topo := interpret.Interpret(interpret.Input{OrgID: "org", AgentID: agentID, ClusterID: clusterID, Name: "edge-a", State: st, Now: now, AccessTier: tier})
 	obs := map[string]Observation{agentID: Assess(AssessInput{Now: now, LastObserved: now.Add(-5 * time.Second), Connected: true, StaleAfter: 2 * time.Minute})}
 	return Input{Now: now, StaleAfter: 2 * time.Minute, Retention: DefaultRetention, Topology: topo, Facts: map[string]*facts.State{clusterID: st},
@@ -433,17 +433,17 @@ func TestModelOrderIsDeterministic(t *testing.T) {
 
 // TestThermalTripDowngradesCpuCapacityConfidenceWithoutChangingTheFigure covers the cpuCapacity
 // confidence-degradation hook in the node loop above: a node whose flow collector reported at least one
-// thermal:thermal_zone_trip tracepoint firing (continuumv1.ThermalThrottle.ThermalTripCount > 0) keeps
+// thermal:thermal_zone_trip tracepoint firing (ikhnosv1.ThermalThrottle.ThermalTripCount > 0) keeps
 // the exact same reported cpuCapacity figure (this signal never changes WHAT Kubernetes reports, only
 // how much to trust it), but the attribute's own Source/Confidence move from the plain FromAgent/
 // Reported pair every other node gets to FromInferred/Inferred, with Evidence naming why - the same
 // "less trustworthy, not a different number" treatment the task behind this test exists to lock in.
 func TestThermalTripDowngradesCpuCapacityConfidenceWithoutChangingTheFigure(t *testing.T) {
 	st := facts.New()
-	st.Cluster = &continuumv1.ClusterFacts{Uid: "0a1b2c3d-0000-4000-8000-000000000002", Version: "v1.30.2"}
-	st.Nodes["hot-1"] = &continuumv1.NodeFacts{Key: "hot-1", Name: "hot-1", Ready: true, CpuCapacityMillis: 4000, MemoryCapacityBytes: 8 << 30}
+	st.Cluster = &ikhnosv1.ClusterFacts{Uid: "0a1b2c3d-0000-4000-8000-000000000002", Version: "v1.30.2"}
+	st.Nodes["hot-1"] = &ikhnosv1.NodeFacts{Key: "hot-1", Name: "hot-1", Ready: true, CpuCapacityMillis: 4000, MemoryCapacityBytes: 8 << 30}
 	topo := interpret.Interpret(interpret.Input{OrgID: "org", AgentID: "ag-2", ClusterID: "cl-2", Name: "edge-b", State: st, Now: now, AccessTier: 2,
-		ThermalThrottle: map[string]*continuumv1.ThermalThrottle{"hot-1": {ThermalTripCount: 3, CpuFreqChangeCount: 500}}})
+		ThermalThrottle: map[string]*ikhnosv1.ThermalThrottle{"hot-1": {ThermalTripCount: 3, CpuFreqChangeCount: 500}}})
 	obs := map[string]Observation{"ag-2": Assess(AssessInput{Now: now, LastObserved: now.Add(-5 * time.Second), Connected: true, StaleAfter: 2 * time.Minute})}
 	in := Input{Now: now, StaleAfter: 2 * time.Minute, Retention: DefaultRetention, Topology: topo, Facts: map[string]*facts.State{"cl-2": st},
 		Agents: map[string]AgentInfo{"ag-2": {ID: "ag-2", ClusterID: "cl-2", Tier: 2}}, Observations: obs}

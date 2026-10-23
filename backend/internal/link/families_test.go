@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 )
 
 // MetricFamilies is what other packages check the series they name against (the FUSION dashboards do). It is held to the
@@ -20,13 +20,13 @@ func TestMetricFamiliesAreWhatTheMeterExports(t *testing.T) {
 	c, _ := capFor(t, fk, func(c *Capacity) { c.UDP = UDPRamp{Enabled: true}; c.Budget = 100 << 30 })
 	a := peer("cl-a", "A", "10.0.0.1", "10.0.0.2", "10.0.0.3")
 	a.Throughput, a.ThroughputBudgetBytes = true, 50<<30
-	c.Meter.Peers.Set("cl-me", []*continuumv1.LinkPeer{a})
+	c.Meter.Peers.Set("cl-me", []*ikhnosv1.LinkPeer{a})
 	if err := c.Start(); err != nil {
 		t.Fatal(err)
 	}
 	m := c.Meter
 	m.EnableConnects()
-	m.Observe([]*continuumv1.RawFlow{{Client: true, PeerIp: "10.0.0.1", Connections: 2, BytesOut: 1000, BytesIn: 50, SegsOut: 100, Retransmits: 3, RttUs: 12000, JitterUs: 800, FailedAttempts: 5, FailedRefused: 1}})
+	m.Observe([]*ikhnosv1.RawFlow{{Client: true, PeerIp: "10.0.0.1", Connections: 2, BytesOut: 1000, BytesIn: 50, SegsOut: 100, Retransmits: 3, RttUs: 12000, JitterUs: 800, FailedAttempts: 5, FailedRefused: 1}})
 	for _, d := range []Direction{Forward, Reverse} {
 		m.ObserveProbe("cl-a", d, OwampResult{Sent: 100, Lost: 2, HasDelay: true, Min: 0.01, Median: 0.011, Max: 0.02, Synchronized: true, ClockError: 1e-4, HasClockError: true, Hops: 9})
 	}

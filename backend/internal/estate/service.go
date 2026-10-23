@@ -9,10 +9,10 @@
 package estate
 
 import (
-	"continuum/internal/agents"
-	"continuum/internal/connectivity"
-	"continuum/internal/decisionloop"
-	"continuum/internal/kernel"
+	"ikhnos/internal/agents"
+	"ikhnos/internal/connectivity"
+	"ikhnos/internal/decisionloop"
+	"ikhnos/internal/kernel"
 )
 
 // Service is what the estate does with the Core of one organisation: it stands on the agents, on connectivity, and on the decision loop

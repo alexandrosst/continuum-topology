@@ -19,20 +19,20 @@ info:
     certified to fit) before a person ever sees it as an option.
 
     This document mirrors, field for field, the TypeScript contract in
-    [`src/lib/placement/deciders.ts`](https://github.com/alexandrosst/continuum-topology/blob/main/src/lib/placement/deciders.ts)
+    [`src/lib/placement/deciders.ts`](https://github.com/alexandrosst/ikhnos/blob/main/src/lib/placement/deciders.ts)
     (`DecisionInput`, `DecisionOutput`) and the Go side that builds and sends it
     (`internal/server/admin_history.go`, `internal/server/decide_advice.go`, `internal/advice`). None of
     the three may add a field the others do not know about; `schema` changes only for a break, and a
     reader must ignore fields it does not recognise. See
-    [`backend/docs/model-api.md#the-placement-decider-request`](https://github.com/alexandrosst/continuum-topology/blob/main/backend/docs/model-api.md#the-placement-decider-request)
+    [`backend/docs/model-api.md#the-placement-decider-request`](https://github.com/alexandrosst/ikhnos/blob/main/backend/docs/model-api.md#the-placement-decider-request)
     for the prose walkthrough this schema formalises, and
-    [`backend/docs/advice.md`](https://github.com/alexandrosst/continuum-topology/blob/main/backend/docs/advice.md)
+    [`backend/docs/advice.md`](https://github.com/alexandrosst/ikhnos/blob/main/backend/docs/advice.md)
     for the uncertainty rules behind `verdict`, `confidence`, `facts` and `wouldChange`.
   contact:
-    url: https://github.com/alexandrosst/continuum-topology
+    url: https://github.com/alexandrosst/ikhnos
 externalDocs:
   description: The effective model and decision-request contract, in prose
-  url: https://github.com/alexandrosst/continuum-topology/blob/main/backend/docs/model-api.md#the-placement-decider-request
+  url: https://github.com/alexandrosst/ikhnos/blob/main/backend/docs/model-api.md#the-placement-decider-request
 
 webhooks:
   decide:
@@ -47,11 +47,11 @@ webhooks:
         could not be reached or did not answer in time" / "answered with status …").
 
         **Signing (optional, recommended).** When an administrator sets a shared secret (Settings →
-        Deciders → Shared secret), every request carries `X-Continuum-Signature` and
-        `X-Continuum-Timestamp`, computed the way Stripe and GitHub sign their own webhooks:
+        Deciders → Shared secret), every request carries `X-Ikhnos-Signature` and
+        `X-Ikhnos-Timestamp`, computed the way Stripe and GitHub sign their own webhooks:
 
         ```text
-        signature = hex(HMAC-SHA256(secret, "<X-Continuum-Timestamp>." + <raw request body>))
+        signature = hex(HMAC-SHA256(secret, "<X-Ikhnos-Timestamp>." + <raw request body>))
         ```
 
         Recompute it over the exact bytes you received (not a re-serialisation — whitespace and key
@@ -62,21 +62,21 @@ webhooks:
         or a captured request replayed later. A reference implementation
         (`signDeciderRequest`/`verifyDeciderSignature`, deliberately small enough to port line for line
         into whatever language a decider is written in) lives next to the server code that calls it, in
-        [`internal/server/decide_sign.go`](https://github.com/alexandrosst/continuum-topology/blob/main/backend/internal/server/decide_sign.go).
+        [`internal/server/decide_sign.go`](https://github.com/alexandrosst/ikhnos/blob/main/backend/internal/server/decide_sign.go).
         No secret configured means no signature headers at all — a decider that never checks them works
         exactly as it did before one existed.
       security:
         - {}
         - deciderSignature: []
       parameters:
-        - name: X-Continuum-Signature
+        - name: X-Ikhnos-Signature
           in: header
           required: false
           description: Present only when a shared secret is configured. `sha256=<hex HMAC-SHA256 digest>`.
           schema:
             type: string
             pattern: '^sha256=[0-9a-f]{64}$'
-        - name: X-Continuum-Timestamp
+        - name: X-Ikhnos-Timestamp
           in: header
           required: false
           description: Present only alongside the signature. Unix seconds, the instant the request was signed; part of what is signed, so it cannot be changed without invalidating the signature.
@@ -109,8 +109,8 @@ components:
     deciderSignature:
       type: apiKey
       in: header
-      name: X-Continuum-Signature
-      description: HMAC-SHA256 over `"<X-Continuum-Timestamp>." + body`, keyed by the organisation's decider secret. See the `decide` operation description for the exact scheme and a reference implementation.
+      name: X-Ikhnos-Signature
+      description: HMAC-SHA256 over `"<X-Ikhnos-Timestamp>." + body`, keyed by the organisation's decider secret. See the `decide` operation description for the exact scheme and a reference implementation.
 
   schemas:
     Policy:

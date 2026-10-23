@@ -4,11 +4,11 @@ import (
 	"strings"
 	"testing"
 
-	"continuum/internal/accounts"
-	"continuum/internal/kernel"
-	"continuum/internal/operators"
-	"continuum/internal/store"
-	"continuum/internal/testkit"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/operators"
+	"ikhnos/internal/store"
+	"ikhnos/internal/testkit"
 )
 
 // A server told to name a chart that Helm would read as an option does not print a command for it, and it finds that before the
@@ -44,7 +44,7 @@ func TestAChartTheCommandCannotNameSpendsNoToken(t *testing.T) {
 func TestTheAgentCommandsAreRefusedForAnOptionAsChart(t *testing.T) {
 	a := testAdmin(t)
 	a.ChartRef = "--kubeconfig=/x"
-	if cmd, err := a.installCommand(kernel.ImageConfig{}, "cnt_1", store.Token{AccessTier: 2}); err == nil {
+	if cmd, err := a.installCommand(kernel.ImageConfig{}, "ikh_1", store.Token{AccessTier: 2}); err == nil {
 		t.Errorf("install: %s", cmd)
 	}
 	if cmd, err := a.upgradeCommand(kernel.ImageConfig{}, 2, "", ""); err == nil {
@@ -72,7 +72,7 @@ func TestAnOperatorChartTheCommandCannotNameMintsNoHeartbeatSecret(t *testing.T)
 	cl := a.approvedCluster(t, testkit.FP)
 	id := a.createOperatorDoc(t, cookie, extBody("athens", cl))["operator"].(map[string]any)["id"].(string)
 
-	a.a.ChartRef = "--post-renderer=/tmp/x/continuum-agent" // the operator chart is derived from it
+	a.a.ChartRef = "--post-renderer=/tmp/x/ikhnos-agent" // the operator chart is derived from it
 	if r := a.do("POST", "/api/v1/operators/"+id+"/heartbeat", nil, withCookie(cookie)); r.Code != 500 {
 		t.Fatalf("a chart that cannot be named: %d %s", r.Code, r.Body.String())
 	}
@@ -107,7 +107,7 @@ func TestAnOperatorChartTheCommandCannotNameMakesNoOperatorAndRotatesNothing(t *
 		t.Fatalf("the operator has no certificates on record to compare with: %v %v", len(before), err)
 	}
 
-	a.a.ChartRef = "--post-renderer=/tmp/x/continuum-agent" // the operator chart is derived from it
+	a.a.ChartRef = "--post-renderer=/tmp/x/ikhnos-agent" // the operator chart is derived from it
 	if r := a.do("POST", "/api/v1/operators", extBody("oslo", cl), withCookie(cookie)); r.Code != 500 {
 		t.Fatalf("create with a chart that cannot be named: %d %s", r.Code, r.Body.String())
 	}

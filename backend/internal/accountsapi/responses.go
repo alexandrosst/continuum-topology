@@ -1,6 +1,6 @@
 package accountsapi
 
-import "continuum/internal/accounts"
+import "ikhnos/internal/accounts"
 
 // The answers the routes write that are not one of the documents above. Each is a type of its own, with its fields in the order of
 // their JSON names, the order an encoded map had, so that what is on the wire is byte for byte what it was.

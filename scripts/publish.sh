@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Publish what an install command needs, in one go: ONE container image (the `continuum` image: agent, node probe and flow
+# Publish what an install command needs, in one go: ONE container image (the `ikhnos` image: agent, node probe and flow
 # collector are roles of the same binary; x86 and ARM in one tag) and the Helm chart, under one registry namespace. The
 # server (once you set the same registry in Settings → Installation, or --image-registry) then prints a command that pulls both, with nothing built or downloaded on the cluster's side.
 #
@@ -8,12 +8,12 @@
 #   DRY_RUN=1 scripts/publish.sh myname    # print what it would run
 #   ONLY=image scripts/publish.sh myname   # just the image  (image | chart)
 #   ONLY=chart scripts/publish.sh myname   # just the charts (the agent's, the regional operator's and FUSION's)
-#   ONLY=link scripts/publish.sh myname    # the cluster-link image (<registry>/link: the continuum binary plus OWAMP), needed only when telemetry.clusterLinks.probe is on
-#   ONLY=server scripts/publish.sh myname  # the server image (<registry>/server) and the server chart (oci://<registry>/continuum-server)
+#   ONLY=link scripts/publish.sh myname    # the cluster-link image (<registry>/link: the ikhnos binary plus OWAMP), needed only when telemetry.clusterLinks.probe is on
+#   ONLY=server scripts/publish.sh myname  # the server image (<registry>/server) and the server chart (oci://<registry>/ikhnos-server)
 #
 # There is no default registry on purpose: where you publish is your decision, and nothing in the source points at anyone's namespace.
 #
-# The image is <registry>/continuum:<tag>; the chart is oci://<registry>/continuum-agent. At the end the script prints the
+# The image is <registry>/ikhnos:<tag>; the chart is oci://<registry>/ikhnos-agent. At the end the script prints the
 # image's digest (sha256:...). A tag can be moved to a different image later; a digest cannot, so pin installs to it:
 # `--set image.digest=sha256:...` (the chart then pulls repository@digest and ignores the tag).
 #
@@ -36,11 +36,11 @@ cd "$(dirname "$0")/.."
 
 REG="${1:-${REGISTRY:-}}"
 if [[ -z "$REG" ]]; then echo "usage: scripts/publish.sh REGISTRY [TAG]   e.g. scripts/publish.sh myname   (a Docker Hub namespace, or ghcr.io/me, reg.example.com:8443/team)" >&2; exit 2; fi
-CHART_DIR=backend/internal/chart/continuum-agent
+CHART_DIR=backend/internal/chart/ikhnos-agent
 TAG="${2:-${TAG:-$(sed -n 's/^appVersion:[[:space:]]*"\{0,1\}\([^"]*\)"\{0,1\}[[:space:]]*$/\1/p' "$CHART_DIR/Chart.yaml")}}"
 ONLY="${ONLY:-}"
 PLATFORMS="${PLATFORMS:-linux/amd64,linux/arm64}"
-IMAGE="${REG%/}/continuum"
+IMAGE="${REG%/}/ikhnos"
 
 case "$ONLY" in
   ""|image|chart|server|link) ;;
@@ -80,12 +80,12 @@ sign() {
   run "$COSIGN_BIN" "${args[@]}" "$1"
 }
 
-echo "registry: $REG   image: $IMAGE:$TAG   chart: $(oci_base "$REG")/continuum-agent"
+echo "registry: $REG   image: $IMAGE:$TAG   chart: $(oci_base "$REG")/ikhnos-agent"
 
 DIGEST=""
 if want image; then
   meta="$(mktemp)"
-  run docker buildx build -f backend/Dockerfile --platform "$PLATFORMS" --target continuum -t "$IMAGE:$TAG" --metadata-file "$meta" --push .
+  run docker buildx build -f backend/Dockerfile --platform "$PLATFORMS" --target ikhnos -t "$IMAGE:$TAG" --metadata-file "$meta" --push .
   if [[ -n "${DRY_RUN:-}" ]]; then
     rm -f "$meta"
     DIGEST="sha256:<the digest of the pushed image>"
@@ -103,7 +103,7 @@ fi
 
 # The cluster-link image (prober and responder: see backend/Dockerfile's `link` stage) is separate and optional, so a plain run
 # of this script does not build it: it needs a C toolchain and, on a cross-build, emulation. ONLY=link builds it, with the
-# same tag as the continuum image. The chart's telemetry.clusterLinks.probe.image.repository then points at <registry>/link.
+# same tag as the ikhnos image. The chart's telemetry.clusterLinks.probe.image.repository then points at <registry>/link.
 if [[ "$ONLY" == "link" ]]; then
   meta="$(mktemp)"
   run docker buildx build -f backend/Dockerfile --platform "$PLATFORMS" --target link -t "${REG%/}/link:$TAG" --metadata-file "$meta" --push .
@@ -140,19 +140,19 @@ chart_push() {
 }
 
 if want chart; then
-  chart_push "$CHART_DIR" "$(oci_base "$REG")" continuum-agent
+  chart_push "$CHART_DIR" "$(oci_base "$REG")" ikhnos-agent
   # The regional operator's chart goes next to it: the install command the server prints for an operator
-  # names oci://<registry>/continuum-regional-operator. It has no image of its own to publish - it runs the
+  # names oci://<registry>/ikhnos-regional-operator. It has no image of its own to publish - it runs the
   # upstream OpenTelemetry Collector image - so only the chart is pushed.
-  chart_push backend/internal/chart/continuum-regional-operator "$(oci_base "$REG")" continuum-regional-operator
+  chart_push backend/internal/chart/ikhnos-regional-operator "$(oci_base "$REG")" ikhnos-regional-operator
   # FUSION (Prometheus + Loki + Tempo) likewise runs upstream images only, so it is just a chart. The command the
-  # server prints to deploy it names oci://<registry>/continuum-fusion.
-  chart_push backend/internal/chart/continuum-fusion "$(oci_base "$REG")" continuum-fusion
+  # server prints to deploy it names oci://<registry>/ikhnos-fusion.
+  chart_push backend/internal/chart/ikhnos-fusion "$(oci_base "$REG")" ikhnos-fusion
 fi
 
 # The server (control plane + UI) is a separate image and chart. It runs in ONE place, so amd64 only by default
 # (SERVER_PLATFORMS=linux/amd64,linux/arm64 for a Raspberry Pi control plane).
-SERVER_TAG="${SERVER_TAG:-$(sed -n 's/^appVersion:[[:space:]]*"\{0,1\}\([^"]*\)"\{0,1\}[[:space:]]*$/\1/p' deploy/helm/continuum-server/Chart.yaml)}"
+SERVER_TAG="${SERVER_TAG:-$(sed -n 's/^appVersion:[[:space:]]*"\{0,1\}\([^"]*\)"\{0,1\}[[:space:]]*$/\1/p' deploy/helm/ikhnos-server/Chart.yaml)}"
 SERVER_DIGEST=""
 if want server; then
   meta="$(mktemp)"
@@ -164,12 +164,12 @@ if want server; then
     rm -f "$meta"
   fi
   [[ -n "$SERVER_DIGEST" && "$SERVER_DIGEST" != sha256:\<* ]] && sign "${REG%/}/server@$SERVER_DIGEST"
-  chart_push deploy/helm/continuum-server "$(oci_base "$REG")" continuum-server
+  chart_push deploy/helm/ikhnos-server "$(oci_base "$REG")" ikhnos-server
 fi
 
 echo
 echo "Done. The server prints commands that pull from here when started with:  --image-registry $REG"
-echo "Check:  helm show chart oci://$(oci_base "$REG")/continuum-agent --version <chart version>"
+echo "Check:  helm show chart oci://$(oci_base "$REG")/ikhnos-agent --version <chart version>"
 if [[ -n "$DIGEST" ]]; then
   echo
   echo "=================================================================================="
@@ -181,7 +181,7 @@ if [[ -n "$DIGEST" ]]; then
 fi
 if [[ -n "$SERVER_DIGEST" ]]; then
   echo
-  echo "Server:  helm install continuum-server oci://$(oci_base "$REG")/continuum-server --version <chart version> -n continuum --create-namespace \\"
+  echo "Server:  helm install ikhnos-server oci://$(oci_base "$REG")/ikhnos-server --version <chart version> -n ikhnos --create-namespace \\"
   echo "           --set image.repository=${REG%/}/server --set image.digest=$SERVER_DIGEST ..."
   echo "         (the rest of the values: deploy/README.md)"
 fi

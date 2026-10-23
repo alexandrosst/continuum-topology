@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"continuum/internal/kernel"
-	"continuum/internal/pki"
-	"continuum/internal/store"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/pki"
+	"ikhnos/internal/store"
 )
 
 // CentralOperatorID is the id of the server-owned regional operator that fronts FUSION. One FUSION per server, so one
@@ -102,8 +102,8 @@ var MintOperatorTLS = func(c *kernel.Core, operatorID string, hosts []string) (b
 // and the stable name (the first group) that senders verify it by whatever address they actually dial.
 func operatorReceiverHosts(id string) []string {
 	svc := OperatorServiceName(id)
-	return []string{id + ".continuum-system", id + ".continuum-system.svc", id + ".continuum-system.svc.cluster.local",
-		svc + ".continuum-system", svc + ".continuum-system.svc", svc + ".continuum-system.svc.cluster.local"}
+	return []string{id + ".ikhnos-system", id + ".ikhnos-system.svc", id + ".ikhnos-system.svc.cluster.local",
+		svc + ".ikhnos-system", svc + ".ikhnos-system.svc", svc + ".ikhnos-system.svc.cluster.local"}
 }
 
 // certNotAfter is the expiry of a certificate just issued, nil when it cannot be read (nothing is then recorded and
@@ -291,7 +291,7 @@ const MaxOperatorLabels = 8
 var operatorLabelKey = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]{0,62}$`)
 
 // validOperatorLabels trims and checks an operator's labels: at most maxOperatorLabels, each key once, a key
-// an OpenTelemetry attribute can carry, never the reserved continuum. prefix (the operator's own id and
+// an OpenTelemetry attribute can carry, never the reserved ikhnos. prefix (the operator's own id and
 // name, and the agent's provenance, live there), and a short printable value.
 func validOperatorLabels(in []store.OperatorLabel) ([]store.OperatorLabel, error) {
 	if len(in) == 0 {
@@ -307,8 +307,8 @@ func validOperatorLabels(in []store.OperatorLabel) ([]store.OperatorLabel, error
 		switch {
 		case !operatorLabelKey.MatchString(k):
 			return nil, kernel.Errf(kernel.KindInvalid, "label key %q is not valid (letters, digits, . _ / -, up to 63 characters)", k)
-		case strings.HasPrefix(strings.ToLower(k), "continuum."):
-			return nil, kernel.Errf(kernel.KindInvalid, "label key %q uses the continuum. prefix, which is reserved", k)
+		case strings.HasPrefix(strings.ToLower(k), "ikhnos."):
+			return nil, kernel.Errf(kernel.KindInvalid, "label key %q uses the ikhnos. prefix, which is reserved", k)
 		case seen[k]:
 			return nil, kernel.Errf(kernel.KindInvalid, "label %q is listed twice", k)
 		case v == "" || len(v) > 64:
@@ -737,7 +737,7 @@ func (c *Service) RecordOperatorAddressIfUnset(ctx context.Context, actor, id, a
 
 // operatorServerName is the name on an operator's receiver certificate that never changes (the SANs
 // CreateOperator asks for): callers that reach the operator at an advertised address verify against this.
-func OperatorServerName(op store.Operator) string { return op.ID + ".continuum-system.svc" }
+func OperatorServerName(op store.Operator) string { return op.ID + ".ikhnos-system.svc" }
 
 // operatorServiceName is the name of the Kubernetes Service the regional-operator chart creates for a release named
 // after the operator (what the install command does): the chart's own "operator.name" rule, which appends
@@ -758,7 +758,7 @@ func OperatorServiceName(id string) string {
 // operatorInClusterEndpoint is where a sender inside the same cluster dials a regional operator: its Service in the
 // namespace the install commands use.
 func OperatorInClusterEndpoint(op store.Operator) string {
-	return fmt.Sprintf("%s.continuum-system.svc:%d", OperatorServiceName(op.ID), DefaultOperatorPort)
+	return fmt.Sprintf("%s.ikhnos-system.svc:%d", OperatorServiceName(op.ID), DefaultOperatorPort)
 }
 
 // operatorNeedsServerName says whether a sender must verify op's certificate by its stable name instead of the name it

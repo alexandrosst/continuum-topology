@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regenerates backend/gen/continuumv1/*.pb.go from backend/proto/continuum/v1/agent.proto.
+# Regenerates backend/gen/ikhnosv1/*.pb.go from backend/proto/ikhnos/v1/agent.proto.
 #
 # Run from anywhere; this script locates the backend module root itself:
 #   backend/proto/generate.sh
@@ -10,7 +10,7 @@
 #   protoc-gen-go-grpc v1.5.1    (go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.5.1)
 #
 # The versions above match what is recorded in the header comments of the currently checked-in
-# generated files (gen/continuumv1/*.pb.go). Using different versions is not an error, but it will
+# generated files (gen/ikhnosv1/*.pb.go). Using different versions is not an error, but it will
 # show up as unrelated churn in `git diff` beyond the schema change you actually meant to make -
 # match them when you can.
 #
@@ -53,8 +53,8 @@ cd "$backend_dir"
 protoc \
   --proto_path=proto \
   --proto_path="$include_dir" \
-  --go_out=. --go_opt=module=continuum \
-  --go-grpc_out=. --go-grpc_opt=module=continuum \
-  proto/continuum/v1/agent.proto
+  --go_out=. --go_opt=module=ikhnos \
+  --go-grpc_out=. --go-grpc_opt=module=ikhnos \
+  proto/ikhnos/v1/agent.proto
 
-echo "generate.sh: wrote gen/continuumv1/agent.pb.go and gen/continuumv1/agent_grpc.pb.go"
+echo "generate.sh: wrote gen/ikhnosv1/agent.pb.go and gen/ikhnosv1/agent_grpc.pb.go"

@@ -78,10 +78,10 @@ func TestEnergyAndGPUFollowTheScopeByDefault(t *testing.T) {
 	both := append(append([]string{}, energyOn...), "--set", "telemetry.accelerators.metrics.enabled=true", "--set", "telemetry.accelerators.metrics.source=bundle-dcgm")
 	filters := func(args ...string) (energy, gpu bool, socket bool) {
 		r := render(t, append(append([]string{}, both...), args...)...)
-		procs := sub(t, otelConfig(t, r.configmaps["continuum-telemetry-cluster-config"].Data), "processors")
+		procs := sub(t, otelConfig(t, r.configmaps["ikhnos-telemetry-cluster-config"].Data), "processors")
 		_, energy = procs["filter/scope_energy"]
 		_, gpu = procs["filter/scope_accelerators"]
-		for _, v := range r.daemonsets["continuum-telemetry-dcgm"].Spec.Template.Spec.Volumes {
+		for _, v := range r.daemonsets["ikhnos-telemetry-dcgm"].Spec.Template.Spec.Volumes {
 			if v.HostPath != nil && v.HostPath.Path == "/var/lib/kubelet/pod-resources" {
 				socket = true
 			}

@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"continuum/internal/accounts"
-	"continuum/internal/kernel"
-	"continuum/internal/store"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/store"
 )
 
 // The decision loop for agent access (design note: slice 3). An advisor looks at what the server knows and proposes a change

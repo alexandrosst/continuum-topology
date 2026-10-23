@@ -5,15 +5,15 @@ import (
 	"log/slog"
 	"sync"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/agents"
-	"continuum/internal/connectivity"
-	"continuum/internal/decisionloop"
-	"continuum/internal/kernel"
-	"continuum/internal/operators"
-	"continuum/internal/pki"
-	"continuum/internal/store"
-	"continuum/internal/telemetry"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/agents"
+	"ikhnos/internal/connectivity"
+	"ikhnos/internal/decisionloop"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/operators"
+	"ikhnos/internal/pki"
+	"ikhnos/internal/store"
+	"ikhnos/internal/telemetry"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -81,7 +81,7 @@ func (p *testPlatform) Tenant(ctx context.Context, id string) (*testTenant, erro
 }
 
 // Connect routes the agent's stream to its own organisation's hub.
-func (p *testPlatform) Connect(stream continuumv1.AgentService_ConnectServer) error {
+func (p *testPlatform) Connect(stream ikhnosv1.AgentService_ConnectServer) error {
 	a, ok := agents.AgentFrom(stream.Context())
 	if !ok {
 		return status.Error(codes.Unauthenticated, "no agent")

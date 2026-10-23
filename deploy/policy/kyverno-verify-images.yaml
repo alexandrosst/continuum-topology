@@ -22,17 +22,17 @@
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:
-  name: verify-continuum-images
+  name: verify-ikhnos-images
   annotations:
     policies.kyverno.io/title: Verify Ikhnos image signatures
     policies.kyverno.io/description: >-
-      Requires every continuum-agent and continuum-server image to carry a valid cosign signature from the
+      Requires every ikhnos-agent and ikhnos-server image to carry a valid cosign signature from the
       identity/issuer that scripts/publish.sh signs releases with, before Kubernetes admits the pod.
 spec:
   validationFailureAction: Audit # change to Enforce only once PolicyReport shows this catches what it should
   webhookTimeoutSeconds: 30
   rules:
-    - name: verify-continuum-signature
+    - name: verify-ikhnos-signature
       match:
         any:
           - resources:
@@ -40,11 +40,11 @@ spec:
       verifyImages:
         - imageReferences:
             # Match by repository name, whatever registry/namespace you publish to (scripts/publish.sh's REGISTRY
-            # argument): the images are always named .../continuum and .../server. Narrow this to your exact
-            # registry (e.g. "ghcr.io/yourname/continuum") once you have one, so a same-named image from
+            # argument): the images are always named .../ikhnos and .../server. Narrow this to your exact
+            # registry (e.g. "ghcr.io/yourname/ikhnos") once you have one, so a same-named image from
             # elsewhere can never satisfy this rule by accident.
-            - "*/continuum"
-            - "*/continuum:*"
+            - "*/ikhnos"
+            - "*/ikhnos:*"
             - "*/server"
             - "*/server:*"
           attestors:
@@ -54,7 +54,7 @@ spec:
                     # sign, or a CI provider's own workflow identity. Find out what a specific tag was actually
                     # signed with (rather than guess) with:
                     #   cosign verify --certificate-identity-regexp '.*' --certificate-oidc-issuer-regexp '.*' \
-                    #     <registry>/continuum:<tag>
+                    #     <registry>/ikhnos:<tag>
                     # which prints the real "Issuer" and "Subject" from the signature's certificate - copy those
                     # here exactly, then re-run the same command WITHOUT the "-regexp" suffixes (using
                     # --certificate-identity and --certificate-oidc-issuer instead) to confirm it still passes

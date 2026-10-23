@@ -14,11 +14,11 @@ import (
 // store, the CA, the sealer of its secrets and the two libraries its settings use (link and measure), none of which knows the server. A package that wants to be reached from the kernel is not under it. (The compiler already refuses a cycle with
 // a package that imports the kernel; this refuses the import that would be allowed because that package does not yet.)
 var allowedRepoImports = map[string]bool{
-	"continuum/internal/store":   true,
-	"continuum/internal/pki":     true,
-	"continuum/internal/link":    true,
-	"continuum/internal/measure": true,
-	"continuum/internal/sealing": true,
+	"ikhnos/internal/store":   true,
+	"ikhnos/internal/pki":     true,
+	"ikhnos/internal/link":    true,
+	"ikhnos/internal/measure": true,
+	"ikhnos/internal/sealing": true,
 }
 
 func TestTheKernelImportsNoModule(t *testing.T) {
@@ -37,7 +37,7 @@ func TestTheKernelImportsNoModule(t *testing.T) {
 		}
 		for _, im := range af.Imports {
 			p, _ := strconv.Unquote(im.Path.Value)
-			if strings.HasPrefix(p, "continuum/") && !allowedRepoImports[p] && !strings.HasPrefix(p, "continuum/gen/") {
+			if strings.HasPrefix(p, "ikhnos/") && !allowedRepoImports[p] && !strings.HasPrefix(p, "ikhnos/gen/") {
 				t.Errorf("%s imports %s: the kernel may import only %v", f, p, allowedRepoImports)
 			}
 		}

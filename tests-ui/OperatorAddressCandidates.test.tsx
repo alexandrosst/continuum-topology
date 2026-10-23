@@ -80,11 +80,11 @@ describe('the address dialog offers what discovery found', () => {
       candidates: [],
       expose: {
         service: 'fusion-central',
-        namespace: 'continuum-system',
+        namespace: 'ikhnos-system',
         value: 'fusion.central.service.type',
         commands: {
-          nodePort: `kubectl --namespace continuum-system patch svc fusion-central -p '{"spec":{"type":"NodePort"}}'`,
-          loadBalancer: `kubectl --namespace continuum-system patch svc fusion-central -p '{"spec":{"type":"LoadBalancer"}}'`,
+          nodePort: `kubectl --namespace ikhnos-system patch svc fusion-central -p '{"spec":{"type":"NodePort"}}'`,
+          loadBalancer: `kubectl --namespace ikhnos-system patch svc fusion-central -p '{"spec":{"type":"LoadBalancer"}}'`,
         },
       },
     })
@@ -128,7 +128,7 @@ describe('the address dialog offers what discovery found', () => {
 describe('the central operator is offered what was found for its gateway too', () => {
   it('lists the gateway\'s addresses in its own dialog', async () => {
     candidates.mockResolvedValue({ found: true, candidates: [{ id: 'load-balancer|203.0.113.50:4317', address: '203.0.113.50:4317', kind: 'load-balancer', source: 'The address the load balancer gave the operator\'s Service.' }] })
-    render(<OperatorAddressModal operator={{ id: 'op-central', name: 'Central (FUSION)' } as RegionalOperator} central={{ service: 'continuum-fusion-central', namespace: 'continuum' }} onClose={() => {}} onDone={() => {}} />)
+    render(<OperatorAddressModal operator={{ id: 'op-central', name: 'Central (FUSION)' } as RegionalOperator} central={{ service: 'ikhnos-fusion-central', namespace: 'ikhnos' }} onClose={() => {}} onDone={() => {}} />)
     expect(await screen.findAllByTestId('operator-address-candidate')).toHaveLength(1)
     expect(candidates).toHaveBeenCalledWith(expect.anything(), 'op-central')
     await userEvent.click(screen.getByRole('button', { name: 'Use 203.0.113.50:4317' }))
@@ -139,7 +139,7 @@ describe('the central operator is offered what was found for its gateway too', (
 
 describe('the central operator says which cluster the server runs in', () => {
   const central = { id: 'op-central', name: 'Central (FUSION)', exposure: 'nodeport' } as RegionalOperator
-  const openCentral = () => render(<MemoryRouter><OperatorAddressModal operator={central} central={{ service: 'fusion-central', namespace: 'continuum' }} onClose={() => {}} onDone={() => {}} /></MemoryRouter>)
+  const openCentral = () => render(<MemoryRouter><OperatorAddressModal operator={central} central={{ service: 'fusion-central', namespace: 'ikhnos' }} onClose={() => {}} onDone={() => {}} /></MemoryRouter>)
   const lb = { id: 'load-balancer|203.0.113.9:4317', address: '203.0.113.9:4317', kind: 'load-balancer' as const, source: 'The address the load balancer gave the Service.' }
 
   it('marks the cluster the server runs in, says how it knows, and lets it be changed', async () => {
@@ -191,7 +191,7 @@ describe('the central operator says which cluster the server runs in', () => {
   })
 
   it('fills the list in by itself once the command has been run, without reopening the dialog', async () => {
-    const expose = { service: 'fusion-central', namespace: 'continuum', value: 'fusion.central.service.type', commands: { nodePort: 'kubectl patch np', loadBalancer: 'kubectl patch lb' } }
+    const expose = { service: 'fusion-central', namespace: 'ikhnos', value: 'fusion.central.service.type', commands: { nodePort: 'kubectl patch np', loadBalancer: 'kubectl patch lb' } }
     candidates.mockResolvedValueOnce({ found: true, candidates: [], expose, serverCluster: { state: 'known', source: 'install' } })
     candidates.mockResolvedValue({
       found: true,

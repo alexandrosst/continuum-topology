@@ -25,11 +25,11 @@ vi.mock('@/lib/api', async (importOriginal) => {
 })
 
 const NONE = { collectors: { nodeProbe: false, flowObserver: false, measurements: false }, scope: { namespaces: [], exclude: [], selector: '' } }
-const SERVED = 'helm install continuum-agent oci://r.example/continuum-agent \\\n  --namespace continuum-system \\\n  --set enrollment.key=PIN.cnt_x'
+const SERVED = 'helm install ikhnos-agent oci://r.example/ikhnos-agent \\\n  --namespace ikhnos-system \\\n  --set enrollment.key=PIN.ikh_x'
 
 beforeEach(() => {
   createToken.mockReset()
-  createToken.mockResolvedValue({ token: 'cnt_x', install: SERVED, meta: { id: 't1', name: 'cluster-1', tier: 2, createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 3_600_000).toISOString() } })
+  createToken.mockResolvedValue({ token: 'ikh_x', install: SERVED, meta: { id: 't1', name: 'cluster-1', tier: 2, createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 3_600_000).toISOString() } })
 })
 
 const wizard = (props: { nodeProbe?: boolean } = {}) =>
@@ -54,7 +54,7 @@ describe('ConnectClusterWizard: what is sent for the command', () => {
     const user = userEvent.setup()
     wizard()
     await create(user)
-    expect(await screen.findByTestId('install-command')).toHaveTextContent('--set enrollment.key=PIN.cnt_x')
+    expect(await screen.findByTestId('install-command')).toHaveTextContent('--set enrollment.key=PIN.ikh_x')
     expect(screen.getByTestId('install-command').textContent).toBe(SERVED)
   })
 
@@ -68,12 +68,12 @@ describe('ConnectClusterWizard: what is sent for the command', () => {
     await user.click(screen.getByTestId('scope-toggle'))
     await user.type(screen.getByTestId('scope-include'), 'shop{enter}pay{enter}')
     await user.type(screen.getByTestId('scope-exclude'), 'pay-test{enter}')
-    await user.type(screen.getByTestId('scope-label'), 'continuum.io/scope=yes')
+    await user.type(screen.getByTestId('scope-label'), 'ikhnos.io/scope=yes')
     await create(user)
     await waitFor(() => expect(createToken).toHaveBeenCalledTimes(1))
     expect(createToken).toHaveBeenCalledWith(CONN, 'cluster-1', 2, {
       collectors: { nodeProbe: true, flowObserver: true, measurements: true },
-      scope: { namespaces: ['shop', 'pay'], exclude: ['pay-test'], selector: 'continuum.io/scope=yes' },
+      scope: { namespaces: ['shop', 'pay'], exclude: ['pay-test'], selector: 'ikhnos.io/scope=yes' },
     })
   })
 

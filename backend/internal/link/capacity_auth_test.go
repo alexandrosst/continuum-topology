@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	continuumv1 "continuum/gen/continuumv1"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
 )
 
-func capWithIssuedCredentials(t *testing.T, f *fakeIperf, creds *continuumv1.LinkIperfClient, mut func(*Capacity)) (*Capacity, *bytes.Buffer) {
+func capWithIssuedCredentials(t *testing.T, f *fakeIperf, creds *ikhnosv1.LinkIperfClient, mut func(*Capacity)) (*Capacity, *bytes.Buffer) {
 	t.Helper()
 	log := &bytes.Buffer{}
 	c, _ := capFor(t, f, func(c *Capacity) {
@@ -22,7 +22,7 @@ func capWithIssuedCredentials(t *testing.T, f *fakeIperf, creds *continuumv1.Lin
 	})
 	lp := peer("cl-a", "A", "10.0.0.1")
 	lp.Throughput, lp.IperfClient = true, creds
-	c.Meter.Peers.Set("cl-me", []*continuumv1.LinkPeer{lp})
+	c.Meter.Peers.Set("cl-me", []*ikhnosv1.LinkPeer{lp})
 	return c, log
 }
 

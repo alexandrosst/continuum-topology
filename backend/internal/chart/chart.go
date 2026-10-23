@@ -1,8 +1,8 @@
 // Package chart carries the server's Helm charts inside the server binary, so an install command never
 // points at a directory that only exists in a source checkout: the server hands out the packaged chart
-// itself. It holds three charts today - Agent (continuum-agent, dialed out to by every enrolled cluster),
-// RegionalOperator (continuum-regional-operator, a standalone aggregation point - see its own Chart.yaml) and
-// Fusion (continuum-fusion, the stores a regional operator saves into) - each embedded and packaged
+// itself. It holds three charts today - Agent (ikhnos-agent, dialed out to by every enrolled cluster),
+// RegionalOperator (ikhnos-regional-operator, a standalone aggregation point - see its own Chart.yaml) and
+// Fusion (ikhnos-fusion, the stores a regional operator saves into) - each embedded and packaged
 // independently.
 package chart
 
@@ -19,28 +19,28 @@ import (
 	"sync"
 )
 
-//go:embed all:continuum-agent
+//go:embed all:ikhnos-agent
 var agentFiles embed.FS
 
-//go:embed all:continuum-regional-operator
+//go:embed all:ikhnos-regional-operator
 var operatorFiles embed.FS
 
-//go:embed all:continuum-fusion
+//go:embed all:ikhnos-fusion
 var fusionFiles embed.FS
 
-// Agent is the continuum-agent chart: what every enrolled cluster installs.
-var Agent = newChart(agentFiles, "continuum-agent")
+// Agent is the ikhnos-agent chart: what every enrolled cluster installs.
+var Agent = newChart(agentFiles, "ikhnos-agent")
 
-// RegionalOperator is the continuum-regional-operator chart: a standalone OTel Collector that aggregates
+// RegionalOperator is the ikhnos-regional-operator chart: a standalone OTel Collector that aggregates
 // telemetry already exported by a set of agents' clusters and re-exports it further up. It does not dial
 // the Ikhnos server unless its opt-in heartbeat is turned on (see store.Operator's own comment) - its
 // only relationship to Agent is that both are packaged and served the same way.
-var RegionalOperator = newChart(operatorFiles, "continuum-regional-operator")
+var RegionalOperator = newChart(operatorFiles, "ikhnos-regional-operator")
 
-// Fusion is the continuum-fusion chart: Prometheus, Loki and Tempo, one durable pod per signal type, which a
+// Fusion is the ikhnos-fusion chart: Prometheus, Loki and Tempo, one durable pod per signal type, which a
 // regional operator exports into. It never talks to the Ikhnos server. The Service names a regional operator is
 // pointed at are a contract of this chart (fusion.name in its _helpers.tpl), so changing them is a breaking change.
-var Fusion = newChart(fusionFiles, "continuum-fusion")
+var Fusion = newChart(fusionFiles, "ikhnos-fusion")
 
 // Chart is one Helm chart embedded in the server binary, packaged and versioned independently of any
 // other chart this package also carries.

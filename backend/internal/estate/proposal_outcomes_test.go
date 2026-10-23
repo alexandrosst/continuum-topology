@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/connectivity"
+	"ikhnos/internal/connectivity"
 )
 
 // The agent echoing its Config digest is what marks a change in force, and the time is that of the first echo of the Config now held.

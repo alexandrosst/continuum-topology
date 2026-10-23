@@ -7,11 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/accounts"
-	"continuum/internal/agents"
-	"continuum/internal/decisionloop"
-	"continuum/internal/store"
-	"continuum/internal/testkit"
+	"ikhnos/internal/accounts"
+	"ikhnos/internal/agents"
+	"ikhnos/internal/decisionloop"
+	"ikhnos/internal/store"
+	"ikhnos/internal/testkit"
 )
 
 // feed adds heartbeat self-telemetry samples to the agent's view: one every 30 seconds for the given span, with the link byte

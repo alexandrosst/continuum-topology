@@ -55,7 +55,7 @@ func TestKubeletEndpointIsAValidURLForEachAddressMode(t *testing.T) {
 			set = append(set, "--set", "telemetry.kubelet.address="+tc.address)
 		}
 		r := render(t, withTel(set...)...)
-		ep, _ := sub(t, otelConfig(t, r.configmaps["continuum-telemetry-host-config"].Data), "receivers", "kubelet_stats")["endpoint"].(string)
+		ep, _ := sub(t, otelConfig(t, r.configmaps["ikhnos-telemetry-host-config"].Data), "receivers", "kubelet_stats")["endpoint"].(string)
 		ep = strings.NewReplacer("${env:NODE_IP}", tc.nodeIP, "${env:NODE_NAME}", "n1").Replace(ep)
 		u, err := url.Parse(ep)
 		if err != nil {
@@ -65,7 +65,7 @@ func TestKubeletEndpointIsAValidURLForEachAddressMode(t *testing.T) {
 		if u.Hostname() != tc.host || u.Port() != "10250" || u.Scheme != "https" {
 			t.Errorf("%s: endpoint %q parses to host %q port %q, want %q 10250", tc.name, ep, u.Hostname(), u.Port(), tc.host)
 		}
-		env := containerEnv(r.daemonsets["continuum-telemetry-host"].Spec.Template.Spec.Containers[0], "NODE_IP")
+		env := containerEnv(r.daemonsets["ikhnos-telemetry-host"].Spec.Template.Spec.Containers[0], "NODE_IP")
 		if (env != nil) != tc.wantNodeIPEnv {
 			t.Errorf("%s: NODE_IP set = %v, want %v", tc.name, env != nil, tc.wantNodeIPEnv)
 		}
@@ -83,18 +83,18 @@ func TestKubeletViaAPIServerAsksTheAPIServerAndPaysForItInRBAC(t *testing.T) {
 		"--set", "networkPolicy.telemetryEgress.allowedEgress[0].ports[0]=4317", "--set", "networkPolicy.telemetryEgress.apiServerCIDRs[0]=10.1.1.1/32"}
 	args := withTel(append([]string{"--set", "telemetry.resourceUsage.metrics.enabled=true", "--set", "telemetry.kubelet.viaAPIServer=true"}, lock...)...)
 	r := render(t, args...)
-	ks := sub(t, otelConfig(t, r.configmaps["continuum-telemetry-host-config"].Data), "receivers", "kubelet_stats")
+	ks := sub(t, otelConfig(t, r.configmaps["ikhnos-telemetry-host-config"].Data), "receivers", "kubelet_stats")
 	if ks["auth_type"] != "kubeConfig" || ks["endpoint"] != "${env:NODE_NAME}" {
 		t.Errorf("kubelet_stats = %v, want auth_type kubeConfig and the bare node name as endpoint", ks)
 	}
 	if v, ok := ks["insecure_skip_verify"]; ok {
 		t.Errorf("insecure_skip_verify = %v: with kubeConfig it would switch off the check of the API server", v)
 	}
-	if containerEnv(r.daemonsets["continuum-telemetry-host"].Spec.Template.Spec.Containers[0], "NODE_IP") != nil {
+	if containerEnv(r.daemonsets["ikhnos-telemetry-host"].Spec.Template.Spec.Containers[0], "NODE_IP") != nil {
 		t.Error("NODE_IP is set although the kubelet is never dialled")
 	}
 	var proxy, stats bool
-	for _, rule := range r.clusterroles["continuum-agent-telemetry"].Rules {
+	for _, rule := range r.clusterroles["ikhnos-agent-telemetry"].Rules {
 		for _, res := range rule.Resources {
 			proxy = proxy || res == "nodes/proxy"
 			stats = stats || res == "nodes/stats"
@@ -103,7 +103,7 @@ func TestKubeletViaAPIServerAsksTheAPIServerAndPaysForItInRBAC(t *testing.T) {
 	if !proxy || stats {
 		t.Errorf("RBAC: nodes/proxy = %v, nodes/stats = %v; viaAPIServer needs nodes/proxy and nothing of nodes/stats", proxy, stats)
 	}
-	for _, e := range r.policies["continuum-telemetry-egress"].Spec.Egress {
+	for _, e := range r.policies["ikhnos-telemetry-egress"].Spec.Egress {
 		for _, p := range e.Ports {
 			if p.Port != nil && p.Port.String() == "10250" {
 				t.Errorf("an egress rule for the kubelet port although the pod never dials a kubelet: %+v", e)
@@ -113,7 +113,7 @@ func TestKubeletViaAPIServerAsksTheAPIServerAndPaysForItInRBAC(t *testing.T) {
 	// ... and the default is unchanged: direct, nodes/stats only, the kubelet port open.
 	d := render(t, withTel(append([]string{"--set", "telemetry.resourceUsage.metrics.enabled=true"}, lock...)...)...)
 	var open bool
-	for _, e := range d.policies["continuum-telemetry-egress"].Spec.Egress {
+	for _, e := range d.policies["ikhnos-telemetry-egress"].Spec.Egress {
 		for _, p := range e.Ports {
 			open = open || p.Port != nil && p.Port.String() == "10250"
 		}
@@ -121,7 +121,7 @@ func TestKubeletViaAPIServerAsksTheAPIServerAndPaysForItInRBAC(t *testing.T) {
 	if !open {
 		t.Error("the default no longer allows the kubelet port in the egress policy")
 	}
-	for _, rule := range d.clusterroles["continuum-agent-telemetry"].Rules {
+	for _, rule := range d.clusterroles["ikhnos-agent-telemetry"].Rules {
 		for _, res := range rule.Resources {
 			if res == "nodes/proxy" {
 				t.Errorf("nodes/proxy granted without telemetry.kubelet.viaAPIServer: %+v", rule)
@@ -139,11 +139,11 @@ func TestKubeletCABundleIsMountedWhereTheReceiverReadsIt(t *testing.T) {
 	}{{"configMap", "telemetry.kubelet.ca.configMap=kubelet-serving-ca", false}, {"secret", "telemetry.kubelet.ca.secret=kubelet-serving-ca", true}} {
 		args := withTel("--set", "telemetry.nodeRuntime.metrics.enabled=true", "--set", tc.set, "--set", "telemetry.kubelet.ca.key=ca-bundle.crt")
 		r := render(t, args...)
-		ks := sub(t, otelConfig(t, r.configmaps["continuum-telemetry-host-config"].Data), "receivers", "kubelet_stats")
-		if ks["ca_file"] != "/etc/continuum/kubelet-ca/ca.crt" {
+		ks := sub(t, otelConfig(t, r.configmaps["ikhnos-telemetry-host-config"].Data), "receivers", "kubelet_stats")
+		if ks["ca_file"] != "/etc/ikhnos/kubelet-ca/ca.crt" {
 			t.Errorf("%s: ca_file = %v", tc.name, ks["ca_file"])
 		}
-		ps := r.daemonsets["continuum-telemetry-host"].Spec.Template.Spec
+		ps := r.daemonsets["ikhnos-telemetry-host"].Spec.Template.Spec
 		v := volumeNamed(ps, "kubelet-ca")
 		if v == nil {
 			t.Fatalf("%s: no kubelet-ca volume", tc.name)
@@ -166,10 +166,10 @@ func TestKubeletCABundleIsMountedWhereTheReceiverReadsIt(t *testing.T) {
 		}
 		var mounted bool
 		for _, m := range ps.Containers[0].VolumeMounts {
-			mounted = mounted || m.Name == "kubelet-ca" && m.MountPath == "/etc/continuum/kubelet-ca" && m.ReadOnly
+			mounted = mounted || m.Name == "kubelet-ca" && m.MountPath == "/etc/ikhnos/kubelet-ca" && m.ReadOnly
 		}
 		if !mounted {
-			t.Errorf("%s: the bundle is not mounted read-only at /etc/continuum/kubelet-ca", tc.name)
+			t.Errorf("%s: the bundle is not mounted read-only at /etc/ikhnos/kubelet-ca", tc.name)
 		}
 		// nodeRuntime with a CA bundle still mounts no HOST path: it stays in a restricted namespace.
 		for _, vol := range ps.Volumes {
@@ -231,14 +231,14 @@ func TestContainerLogsPollGentlyAndPauseInsteadOfDroppingWhenTheDownstreamRefuse
 func TestContainerLogDirectoryAndSymlinkTargetsAreMountedAndRead(t *testing.T) {
 	r := render(t, withTel("--set", "telemetry.systemLogs.logs.enabled=true", "--set", "telemetry.systemLogs.logs.podLogsDir=/data/kubelet-pods/",
 		"--set", "telemetry.systemLogs.logs.extraHostPaths[0]=/var/lib/docker/containers", "--set", "telemetry.scope.namespaces[0]=shop")...)
-	fl := sub(t, otelConfig(t, r.configmaps["continuum-telemetry-host-config"].Data), "receivers", "filelog/containers")
+	fl := sub(t, otelConfig(t, r.configmaps["ikhnos-telemetry-host-config"].Data), "receivers", "filelog/containers")
 	if got := stringsOf(t, fl["include"]); len(got) != 1 || got[0] != "/data/kubelet-pods/shop_*/*/*.log" {
 		t.Errorf("include = %v, want the namespace glob under podLogsDir", got)
 	}
 	if got := stringsOf(t, fl["exclude"]); !strings.HasPrefix(got[0], "/data/kubelet-pods/") {
 		t.Errorf("exclude = %v: this release's own pods are looked up under podLogsDir too", got)
 	}
-	ps := r.daemonsets["continuum-telemetry-host"].Spec.Template.Spec
+	ps := r.daemonsets["ikhnos-telemetry-host"].Spec.Template.Spec
 	for name, path := range map[string]string{"var-log-pods": "/data/kubelet-pods", "log-extra-0": "/var/lib/docker/containers"} {
 		v := volumeNamed(ps, name)
 		if v == nil || v.HostPath == nil || v.HostPath.Path != path {
@@ -269,14 +269,14 @@ func TestContainerLogDirectoryAndSymlinkTargetsAreMountedAndRead(t *testing.T) {
 // fails to start (`fork/exec /usr/bin/journalctl: operation not permitted`), which takes the whole collector down.
 func TestJournalingHostChrootsIntoTheNodeAndOnlyThenAddsTheCapability(t *testing.T) {
 	r := render(t, withTel("--set", "telemetry.systemLogs.logs.enabled=true", "--set", "telemetry.systemLogs.logs.journaling=host")...)
-	j := sub(t, otelConfig(t, r.configmaps["continuum-telemetry-host-config"].Data), "receivers", "journald")
+	j := sub(t, otelConfig(t, r.configmaps["ikhnos-telemetry-host-config"].Data), "receivers", "journald")
 	if j["root_path"] != "/hostfs" || j["journalctl_path"] != "/usr/bin/journalctl" {
 		t.Errorf("journald = %v", j)
 	}
 	if _, ok := j["directory"]; ok {
 		t.Errorf("journald sets a directory (%v): journalctl must look in the node's own locations, volatile and persistent", j["directory"])
 	}
-	ps := r.daemonsets["continuum-telemetry-host"].Spec.Template.Spec
+	ps := r.daemonsets["ikhnos-telemetry-host"].Spec.Template.Spec
 	c := ps.Containers[0].SecurityContext
 	if c == nil || c.Capabilities == nil || len(c.Capabilities.Add) != 1 || c.Capabilities.Add[0] != "SYS_CHROOT" || len(c.Capabilities.Drop) != 1 || c.Capabilities.Drop[0] != "ALL" {
 		t.Errorf("capabilities = %+v, want drop ALL and add only SYS_CHROOT", c.Capabilities)
@@ -406,9 +406,9 @@ func TestHostCollectorPrivilegeFollowsTheSignalsEnabled(t *testing.T) {
 // Every new setting reaches a configuration the real collector accepts. The pod-only things (the CA bundle's path, the
 // in-cluster credentials of viaAPIServer) are given to the validation the way the pod has them.
 func TestHostConfigVariantsValidateWithTheRealCollector(t *testing.T) {
-	bin := os.Getenv("CONTINUUM_OTELCOL")
+	bin := os.Getenv("IKHNOS_OTELCOL")
 	if bin == "" {
-		t.Skip("set CONTINUUM_OTELCOL to the otelcol-contrib binary (the version telemetry.collectorImage.tag names) to run this")
+		t.Skip("set IKHNOS_OTELCOL to the otelcol-contrib binary (the version telemetry.collectorImage.tag names) to run this")
 	}
 	all := []string{"--set", "telemetry.resourceUsage.metrics.enabled=true", "--set", "telemetry.nodeRuntime.metrics.enabled=true", "--set", "telemetry.systemLogs.logs.enabled=true"}
 	for name, extra := range map[string][]string{
@@ -424,7 +424,7 @@ func TestHostConfigVariantsValidateWithTheRealCollector(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(ca, "ca.crt"), testCAPEM(t), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		cfg := collectorConfig(t, strings.NewReplacer("/hostfs", root, "/etc/continuum/kubelet-ca", ca).Replace(r.configmaps["continuum-telemetry-host-config"].Data["otel-collector-config.yaml"]))
+		cfg := collectorConfig(t, strings.NewReplacer("/hostfs", root, "/etc/ikhnos/kubelet-ca", ca).Replace(r.configmaps["ikhnos-telemetry-host-config"].Data["otel-collector-config.yaml"]))
 		f := filepath.Join(t.TempDir(), "c.yaml")
 		if err := os.WriteFile(f, []byte(cfg), 0o600); err != nil {
 			t.Fatal(err)

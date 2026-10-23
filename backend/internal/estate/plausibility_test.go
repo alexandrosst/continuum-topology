@@ -5,10 +5,10 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/kernel"
-	"continuum/internal/model"
-	"continuum/internal/testkit"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/kernel"
+	"ikhnos/internal/model"
+	"ikhnos/internal/testkit"
 )
 
 func f64(v float64) *float64 { return &v }
@@ -105,12 +105,12 @@ func TestBoundCountKeepsPlausibleAndNullsNegative(t *testing.T) {
 // every other field entirely (Key, Name, a second node) kept exactly as reported - and the anomaly count
 // must match exactly how many fields were actually dropped.
 func TestBoundSyncFactsOmitsOnlyTheImplausibleFieldAcrossARecord(t *testing.T) {
-	s := &continuumv1.Sync{
-		Cluster: &continuumv1.ClusterFacts{Uid: testkit.FP, PendingPodCount: i32(-4)}, // implausible
-		Nodes: []*continuumv1.NodeFacts{
+	s := &ikhnosv1.Sync{
+		Cluster: &ikhnosv1.ClusterFacts{Uid: testkit.FP, PendingPodCount: i32(-4)}, // implausible
+		Nodes: []*ikhnosv1.NodeFacts{
 			{
 				Key: "n1", Name: "n1", PodCount: i32(-1), // implausible
-				Probe: &continuumv1.HostProbe{
+				Probe: &ikhnosv1.HostProbe{
 					CpuPressurePct:    f64(150),   // implausible: over 100
 					MemoryPressurePct: f64(37.5),  // plausible: just inside the range
 					IoPressurePct:     f64(-0.5),  // implausible: negative
@@ -119,7 +119,7 @@ func TestBoundSyncFactsOmitsOnlyTheImplausibleFieldAcrossARecord(t *testing.T) {
 			},
 			{
 				Key: "n2", Name: "n2", PodCount: i32(3), // plausible
-				Probe: &continuumv1.HostProbe{CpuPressurePct: f64(0)}, // plausible: zero is a real reading
+				Probe: &ikhnosv1.HostProbe{CpuPressurePct: f64(0)}, // plausible: zero is a real reading
 			},
 		},
 	}
@@ -170,8 +170,8 @@ func TestNoteFlowsAppliesTheWholeBatchDespiteOneImplausibleSaturation(t *testing
 
 	before := kernel.Metrics.ImplausibleFacts.Load()
 	good, bad := 10.0, -5.0
-	b := &continuumv1.FlowBatch{WindowSeconds: 60, Collectors: []*continuumv1.CollectorInfo{
-		{Node: "n1", Method: "ebpf", LinkSaturation: []*continuumv1.LinkSaturation{
+	b := &ikhnosv1.FlowBatch{WindowSeconds: 60, Collectors: []*ikhnosv1.CollectorInfo{
+		{Node: "n1", Method: "ebpf", LinkSaturation: []*ikhnosv1.LinkSaturation{
 			{Iface: "eth0", ThroughputBps: 100, SaturationPct: &good},
 			{Iface: "eth1", ThroughputBps: 200, SaturationPct: &bad},
 		}},
@@ -221,9 +221,9 @@ func TestApplySyncKeepsTheWholeRecordDespiteOneImplausibleReading(t *testing.T) 
 	r.hub.Views[id] = v
 	r.hub.Mu.Unlock()
 
-	s := &continuumv1.Sync{Full: true, Cluster: &continuumv1.ClusterFacts{Uid: testkit.FP}, Nodes: []*continuumv1.NodeFacts{{
+	s := &ikhnosv1.Sync{Full: true, Cluster: &ikhnosv1.ClusterFacts{Uid: testkit.FP}, Nodes: []*ikhnosv1.NodeFacts{{
 		Key: "n1", Name: "n1", Ready: true,
-		Probe: &continuumv1.HostProbe{CpuPressurePct: f64(150), MemoryPressurePct: f64(12.5)},
+		Probe: &ikhnosv1.HostProbe{CpuPressurePct: f64(150), MemoryPressurePct: f64(12.5)},
 	}}}
 	if err := validateSync(s); err != nil {
 		t.Fatalf("a shape-valid sync must not be refused: %v", err)

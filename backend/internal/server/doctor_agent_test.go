@@ -8,14 +8,14 @@ import (
 	"testing"
 	"time"
 
-	continuumv1 "continuum/gen/continuumv1"
-	"continuum/internal/agent/collect"
-	"continuum/internal/flow"
-	"continuum/internal/flow/wire"
-	"continuum/internal/interpret"
-	"continuum/internal/netid"
-	"continuum/internal/observed"
-	"continuum/internal/testkit"
+	ikhnosv1 "ikhnos/gen/ikhnosv1"
+	"ikhnos/internal/agent/collect"
+	"ikhnos/internal/flow"
+	"ikhnos/internal/flow/wire"
+	"ikhnos/internal/interpret"
+	"ikhnos/internal/netid"
+	"ikhnos/internal/observed"
+	"ikhnos/internal/testkit"
 
 	"google.golang.org/protobuf/proto"
 )
@@ -42,20 +42,20 @@ func doctorAgentToServer(t *testing.T) {
 			ServiceCIDR: netip.MustParsePrefix("10.43.0.0/16"),
 		}
 		const cart, db = "shop/Deployment/cart", "shop/Deployment/db"
-		c := cluster("c", "", []*continuumv1.NodeFacts{{Key: "n1"}}, testkit.Workload("shop", "Deployment", "cart"), testkit.Workload("shop", "Deployment", "db"),
+		c := cluster("c", "", []*ikhnosv1.NodeFacts{{Key: "n1"}}, testkit.Workload("shop", "Deployment", "cart"), testkit.Workload("shop", "Deployment", "db"),
 			testkit.Workload("shop", "StatefulSet", strings.TrimPrefix(long, "shop/StatefulSet/")))
 
 		// What each node's collector sees, and what the server is to make of it: a dependency between the two ends (a
 		// workload by its key, an outside address by its IP), or nothing, because the traffic is a node's own.
 		type seen struct {
 			name     string
-			raw      *continuumv1.RawFlow
+			raw      *ikhnosv1.RawFlow
 			from, to string
 			port     int
 			dropped  bool
 		}
-		rawFlow := func(client bool, local, peer string, port uint32, proto string) *continuumv1.RawFlow {
-			return &continuumv1.RawFlow{Client: client, LocalIp: local, PeerIp: peer, Port: port, Protocol: proto, Connections: 3, BytesOut: 300, BytesIn: 900}
+		rawFlow := func(client bool, local, peer string, port uint32, proto string) *ikhnosv1.RawFlow {
+			return &ikhnosv1.RawFlow{Client: client, LocalIp: local, PeerIp: peer, Port: port, Protocol: proto, Connections: 3, BytesOut: 300, BytesIn: 900}
 		}
 		withText := rawFlow(true, "10.42.0.5", "93.184.216.34", 443, "tcp")
 		withText.SniHost, withText.Iface, withText.DnsQueryName = strings.Repeat("s", 5000), strings.Repeat("i", 5000), strings.Repeat("d", 5000)
@@ -85,7 +85,7 @@ func doctorAgentToServer(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		var arrived continuumv1.FlowBatch
+		var arrived ikhnosv1.FlowBatch
 		if err := proto.Unmarshal(wireBytes, &arrived); err != nil {
 			t.Fatal(err)
 		}

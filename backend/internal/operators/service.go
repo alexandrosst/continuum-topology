@@ -5,7 +5,7 @@
 // knows that only as an id and as a ManagedStatus it is handed, so FUSION calls operators and operators do not know FUSION.
 package operators
 
-import "continuum/internal/kernel"
+import "ikhnos/internal/kernel"
 
 // Service is the operators of one organisation.
 type Service struct{ *kernel.Core }

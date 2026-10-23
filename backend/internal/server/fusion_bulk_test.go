@@ -9,9 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"continuum/internal/fusionapi"
-	"continuum/internal/fusionhttp"
-	"continuum/internal/kernel"
+	"ikhnos/internal/fusionapi"
+	"ikhnos/internal/fusionhttp"
+	"ikhnos/internal/kernel"
 )
 
 // post calls a data-API route that takes a body (it is not under an organisation's path).

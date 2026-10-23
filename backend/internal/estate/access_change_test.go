@@ -4,8 +4,8 @@ import (
 	"reflect"
 	"testing"
 
-	"continuum/internal/agents"
-	"continuum/internal/decisionloop"
+	"ikhnos/internal/agents"
+	"ikhnos/internal/decisionloop"
 )
 
 // The loop records a change to access in its own shape and the agents judge it in theirs; the hub converts one into the other. With every

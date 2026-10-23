@@ -6,7 +6,7 @@ import (
 	"sort"
 	"time"
 
-	"continuum/internal/store"
+	"ikhnos/internal/store"
 )
 
 // TenantInfo is an organisation as the graph records it. SQLite stays authoritative for tenants and

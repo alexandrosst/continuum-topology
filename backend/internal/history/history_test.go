@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"continuum/internal/model"
-	"continuum/internal/store"
+	"ikhnos/internal/model"
+	"ikhnos/internal/store"
 )
 
 var t0 = time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC)

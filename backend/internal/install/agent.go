@@ -33,10 +33,10 @@ func (c Collectors) Values() []Value {
 
 const (
 	// DefaultNamespace and DefaultRelease are where the agent chart installs itself unless told otherwise.
-	DefaultNamespace = "continuum-system"
-	DefaultRelease   = "continuum-agent"
+	DefaultNamespace = "ikhnos-system"
+	DefaultRelease   = "ikhnos-agent"
 	// DefaultChartFile is the chart file a person is told to use when the install is not known to have come from a registry.
-	DefaultChartFile = "continuum-agent.tgz"
+	DefaultChartFile = "ikhnos-agent.tgz"
 )
 
 // plainName is a release or namespace written as the agent reports it: lowercase letters, digits and dashes, nothing a shell could read.

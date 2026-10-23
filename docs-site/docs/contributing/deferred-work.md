@@ -35,7 +35,7 @@ Things that were found, designed or discussed and left for later on purpose. Eac
 
 ## Commands and charts
 
-- **The operator chart file is never offered for download** in the default setup (no registry, no `--chart-ref`): the printed command names `./continuum-regional-operator-<v>.tgz` but nothing tells the user to fetch it. Expose it in `info` and add a step.
+- **The operator chart file is never offered for download** in the default setup (no registry, no `--chart-ref`): the printed command names `./ikhnos-regional-operator-<v>.tgz` but nothing tells the user to fetch it. Expose it in `info` and add a step.
 - Several chart value blocks are dereferenced without a `default` (heartbeat, health, export.queue, export.routes, tls, telemetry.\*). The printed commands now use `--reset-then-reuse-values`, which hides this for upgrades through the product, but Argo CD or Flux users with older stored values can still hit nil-pointer errors. Guard with `dig` and add a render test with each block removed.
 - Chart-reference and version logic exists four times on the server and twice in the browser; fold into one helper.
 - The server chart's `agentInstall.imageRegistry: "none"` is documented but the binary exits on it; the chart has no `imageDigest` value.

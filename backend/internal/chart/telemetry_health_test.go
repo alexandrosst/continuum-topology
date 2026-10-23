@@ -29,7 +29,7 @@ func TestTelemetryHealthIsOnWithAnySignalAndReachesBothCollectors(t *testing.T) 
 	args := append([]string{"--set", "telemetry.export.otlp.endpoint=gw:4317"}, allSignals...)
 	r := render(t, args...)
 
-	for name, cm := range map[string]string{"host": "continuum-telemetry-host-config", "cluster": "continuum-telemetry-cluster-config"} {
+	for name, cm := range map[string]string{"host": "ikhnos-telemetry-host-config", "cluster": "ikhnos-telemetry-cluster-config"} {
 		h, port, ok := healthReader(t, otelConfig(t, r.configmaps[cm].Data))
 		if !ok {
 			t.Errorf("%s collector: no metrics reader for its own counters", name)
@@ -42,27 +42,27 @@ func TestTelemetryHealthIsOnWithAnySignalAndReachesBothCollectors(t *testing.T) 
 		}
 	}
 	for name, env := range map[string]map[string]string{
-		"host":    podIPFieldPath(r.daemonsets["continuum-telemetry-host"].Spec.Template.Spec.Containers[0]),
-		"cluster": podIPFieldPath(r.deployments["continuum-telemetry-cluster"].Spec.Template.Spec.Containers[0]),
+		"host":    podIPFieldPath(r.daemonsets["ikhnos-telemetry-host"].Spec.Template.Spec.Containers[0]),
+		"cluster": podIPFieldPath(r.deployments["ikhnos-telemetry-cluster"].Spec.Template.Spec.Containers[0]),
 	} {
 		if env["POD_IP"] != "status.podIP" {
 			t.Errorf("%s collector: POD_IP = %q, want the downward-API status.podIP", name, env["POD_IP"])
 		}
 	}
 
-	agent := r.deployments["continuum-agent"].Spec.Template.Spec.Containers[0]
-	got, _ := env(agent, "CONTINUUM_TELEMETRY_HEALTH_TARGETS")
+	agent := r.deployments["ikhnos-agent"].Spec.Template.Spec.Containers[0]
+	got, _ := env(agent, "IKHNOS_TELEMETRY_HEALTH_TARGETS")
 	// One headless-Service name per collector; the namespace is whatever the test's helm run used.
 	targets := strings.Split(got, ",")
-	if len(targets) != 2 || !strings.HasPrefix(targets[0], "continuum-telemetry-host-metrics.") || !strings.HasPrefix(targets[1], "continuum-telemetry-cluster-metrics.") || !strings.HasSuffix(targets[1], ".svc:8888") {
-		t.Errorf("CONTINUUM_TELEMETRY_HEALTH_TARGETS = %q, want one headless-Service name per collector", got)
+	if len(targets) != 2 || !strings.HasPrefix(targets[0], "ikhnos-telemetry-host-metrics.") || !strings.HasPrefix(targets[1], "ikhnos-telemetry-cluster-metrics.") || !strings.HasSuffix(targets[1], ".svc:8888") {
+		t.Errorf("IKHNOS_TELEMETRY_HEALTH_TARGETS = %q, want one headless-Service name per collector", got)
 	}
 
 	out, err := helmTemplate(t, args...)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, svc := range []string{"continuum-telemetry-host-metrics", "continuum-telemetry-cluster-metrics"} {
+	for _, svc := range []string{"ikhnos-telemetry-host-metrics", "ikhnos-telemetry-cluster-metrics"} {
 		if !strings.Contains(out, "name: "+svc+"\n") {
 			t.Errorf("no headless Service %s rendered", svc)
 		}
@@ -72,18 +72,18 @@ func TestTelemetryHealthIsOnWithAnySignalAndReachesBothCollectors(t *testing.T) 
 	}
 
 	// The host collector has no receiver, so it is isolated: only the agent reaches the counters.
-	p, ok := r.policies["continuum-telemetry-host-health"]
+	p, ok := r.policies["ikhnos-telemetry-host-health"]
 	if !ok {
 		t.Fatal("no NetworkPolicy for the host collector's counters")
 	}
 	if len(p.Spec.Ingress) != 1 || len(p.Spec.Ingress[0].From) != 1 || len(p.Spec.Ingress[0].Ports) != 1 {
 		t.Fatalf("host health policy ingress = %+v", p.Spec.Ingress)
 	}
-	if p.Spec.Ingress[0].From[0].PodSelector.MatchLabels["app.kubernetes.io/name"] != "continuum-agent" {
+	if p.Spec.Ingress[0].From[0].PodSelector.MatchLabels["app.kubernetes.io/name"] != "ikhnos-agent" {
 		t.Errorf("host health policy admits %+v, want only the agent", p.Spec.Ingress[0].From[0].PodSelector)
 	}
 	// ...but the cluster collector also takes OTLP from applications, so no policy of ours may isolate it.
-	if _, ok := r.policies["continuum-telemetry-cluster-health"]; ok {
+	if _, ok := r.policies["ikhnos-telemetry-cluster-health"]; ok {
 		t.Error("a NetworkPolicy on the cluster collector would cut off its OTLP receiver")
 	}
 }
@@ -105,14 +105,14 @@ func TestTelemetryHealthAbsentWithoutTelemetryOrWhenOff(t *testing.T) {
 		"disabled":  append([]string{"--set", "telemetry.export.otlp.endpoint=gw:4317", "--set", "telemetry.health.enabled=false"}, allSignals...),
 	} {
 		r := render(t, args...)
-		agent := r.deployments["continuum-agent"].Spec.Template.Spec.Containers[0]
-		if _, ok := env(agent, "CONTINUUM_TELEMETRY_HEALTH_TARGETS"); ok {
+		agent := r.deployments["ikhnos-agent"].Spec.Template.Spec.Containers[0]
+		if _, ok := env(agent, "IKHNOS_TELEMETRY_HEALTH_TARGETS"); ok {
 			t.Errorf("%s: the agent was told where to read counters", name)
 		}
-		if _, ok := r.policies["continuum-telemetry-host-health"]; ok {
+		if _, ok := r.policies["ikhnos-telemetry-host-health"]; ok {
 			t.Errorf("%s: a health NetworkPolicy was rendered", name)
 		}
-		if cm, ok := r.configmaps["continuum-telemetry-host-config"]; ok {
+		if cm, ok := r.configmaps["ikhnos-telemetry-host-config"]; ok {
 			if _, _, has := healthReader(t, otelConfig(t, cm.Data)); has {
 				t.Errorf("%s: the host collector serves counters", name)
 			}
@@ -130,16 +130,16 @@ func TestTelemetryHealthAbsentWithoutTelemetryOrWhenOff(t *testing.T) {
 func TestTelemetryHealthOnlyNamesCollectorsThatExist(t *testing.T) {
 	// Host signals only: there is no cluster collector to read.
 	r := render(t, "--set", "telemetry.export.otlp.endpoint=gw:4317", "--set", "telemetry.resourceUsage.metrics.enabled=true")
-	agent := r.deployments["continuum-agent"].Spec.Template.Spec.Containers[0]
-	got, _ := env(agent, "CONTINUUM_TELEMETRY_HEALTH_TARGETS")
-	if strings.Contains(got, "cluster") || !strings.Contains(got, "continuum-telemetry-host-metrics") {
+	agent := r.deployments["ikhnos-agent"].Spec.Template.Spec.Containers[0]
+	got, _ := env(agent, "IKHNOS_TELEMETRY_HEALTH_TARGETS")
+	if strings.Contains(got, "cluster") || !strings.Contains(got, "ikhnos-telemetry-host-metrics") {
 		t.Errorf("targets = %q, want just the host collector", got)
 	}
 }
 
 func TestTelemetryHealthPortIsConfigurableAndSchemaChecked(t *testing.T) {
 	r := render(t, "--set", "telemetry.export.otlp.endpoint=gw:4317", "--set", "telemetry.resourceUsage.metrics.enabled=true", "--set", "telemetry.health.port=9464")
-	if _, port, _ := healthReader(t, otelConfig(t, r.configmaps["continuum-telemetry-host-config"].Data)); port != float64(9464) {
+	if _, port, _ := healthReader(t, otelConfig(t, r.configmaps["ikhnos-telemetry-host-config"].Data)); port != float64(9464) {
 		t.Errorf("port = %v, want 9464", port)
 	}
 	if _, err := helmTemplate(t, "--set", "telemetry.health.port=0"); err == nil {
@@ -155,12 +155,12 @@ func TestTelemetryHealthIsAllowedThroughTheOtherNetworkPolicies(t *testing.T) {
 		"--set", "telemetry.receiver.networkPolicy.enabled=true", "--set-string", "telemetry.receiver.networkPolicy.allowedIngress[0].namespaceSelector.matchLabels.team=shop",
 		"--set", "networkPolicy.egress.enabled=true", "--set", "networkPolicy.egress.apiServerCIDRs={10.0.0.1/32}", "--set", "networkPolicy.egress.serverCIDRs={10.0.0.2/32}",
 	)
-	in := r.policies["continuum-telemetry-receiver-ingress"].Spec.Ingress
-	if len(in) != 2 || len(in[1].Ports) != 1 || in[1].Ports[0].Port.IntValue() != 8888 || in[1].From[0].PodSelector.MatchLabels["app.kubernetes.io/name"] != "continuum-agent" {
+	in := r.policies["ikhnos-telemetry-receiver-ingress"].Spec.Ingress
+	if len(in) != 2 || len(in[1].Ports) != 1 || in[1].Ports[0].Port.IntValue() != 8888 || in[1].From[0].PodSelector.MatchLabels["app.kubernetes.io/name"] != "ikhnos-agent" {
 		t.Errorf("receiver ingress = %+v, want the application rule and then the agent's access to port 8888", in)
 	}
 	var found bool
-	for _, e := range r.policies["continuum-agent-egress"].Spec.Egress {
+	for _, e := range r.policies["ikhnos-agent-egress"].Spec.Egress {
 		for _, p := range e.Ports {
 			if p.Port != nil && p.Port.IntValue() == 8888 {
 				found = true

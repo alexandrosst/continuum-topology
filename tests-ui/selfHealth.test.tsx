@@ -60,7 +60,7 @@ describe('fieldEverReported / latestDefined', () => {
   })
   test('fieldEverReported is false when no sample ever carried it', () => {
     expect(fieldEverReported(e, 'bandwidthSharePct')).toBe(false)
-    expect(fieldEverReported(e, 'continuumWattsEstimate')).toBe(false)
+    expect(fieldEverReported(e, 'ikhnosWattsEstimate')).toBe(false)
   })
   test('latestDefined skips back past a trailing sample where the field is momentarily missing', () => {
     expect(latestDefined(e, 'watts')).toBe(12.5)
