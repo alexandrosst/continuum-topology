@@ -409,12 +409,17 @@ func (h *Hub) Connect(stream ikhnosv1.AgentService_ConnectServer) error {
 	v.Ext.Protocol, v.Ext.Caps = hello.ProtocolVersion, agentcaps.Clean(hello.Capabilities)
 	h.Mu.Unlock()
 	agent = h.NoteCeiling(ctx, agent, fresh, int(hello.InstalledAccessTier))
+	// A new stream: what the agent had in force on the last one says nothing about this one. It is forgotten before the Config goes out,
+	// not after: an agent that has the Config can be read at once, and must not be read as having in force what the old stream echoed.
+	h.Mu.Lock()
+	v.CfgInForceAt = time.Time{}
+	v.CfgApplied = ""
+	h.Mu.Unlock()
 	if err := stream.Send(&ikhnosv1.ServerMessage{Msg: &ikhnosv1.ServerMessage_Config{Config: h.ConfigFor(agent, v)}}); err != nil {
 		return err
 	}
 	h.Mu.Lock()
-	v.CfgInForceAt = time.Time{}
-	v.CfgSentAt, v.CfgApplied = h.C.Now(), "" // a new stream: what the agent had in force on the last one says nothing about this
+	v.CfgSentAt = h.C.Now()
 	h.Mu.Unlock()
 	fullSeen := false                     // a full picture is a consistency check only after the first one of this connection
 	var asm *assembly                     // the pieces of a picture that arrives in several messages, until the last one
