@@ -18,7 +18,9 @@ import (
 //
 // Faults it can make, each one a call: Cancel (the stream ends with no goodbye), Connect again (a new stream from the same
 // identity), Beat with any digest (an echo that is late, from an older Config, or from one the server never sent), say nothing at all
-// (the default), and send what it likes after being replaced.
+// (the default), Send any message at all (a second hello, a sync before the hello, a flood), Replay one it sent before, SendReordered
+// in an order of the test's choosing, and Ended to learn what ended the stream. A stream that was replaced by a Connect is kept by a
+// test that wants it (its Stream, Incoming and Cancel are fields), and can be sent on after it has been replaced.
 //
 // What it cannot do is look inside the server: whether the server has noticed the stream end, which Config it believes is in force.
 // That is the package's own, which embeds a FakeAgent and adds it.
@@ -35,7 +37,8 @@ type FakeAgent struct {
 	Cancel   context.CancelFunc // ends the current stream
 	Stream   continuumv1.AgentService_ConnectClient
 	Incoming chan Recvd
-	Configs  []*continuumv1.Config // every Config received on any stream, in order
+	Configs  []*continuumv1.Config       // every Config received on any stream, in order
+	Sent     []*continuumv1.AgentMessage // everything sent with Send, Beat, Replay and SendReordered, on any stream, in order
 }
 
 // Recvd is one thing the server said, or the error that ended the stream.
@@ -103,8 +106,57 @@ func (f *FakeAgent) NextConfig(d time.Duration) *continuumv1.Config {
 func (f *FakeAgent) Beat(digest string) {
 	f.T.Helper()
 	m := &continuumv1.AgentMessage{Msg: &continuumv1.AgentMessage_Heartbeat{Heartbeat: &continuumv1.Heartbeat{AppliedConfigDigest: digest}}}
-	if err := f.Stream.Send(m); err != nil {
+	if err := f.Send(m); err != nil {
 		f.T.Fatalf("heartbeat: %v", err)
+	}
+}
+
+// Send sends any message on the current stream and remembers it. The error is the test's to judge: a stream the server has ended
+// refuses the send, and a test of what happens after that wants to see it.
+func (f *FakeAgent) Send(m *continuumv1.AgentMessage) error {
+	f.Sent = append(f.Sent, m)
+	return f.Stream.Send(m)
+}
+
+// Replay sends again, unchanged, the i-th message sent so far (a negative i counts from the last), on the current stream, which may be
+// a newer one than it first went on.
+func (f *FakeAgent) Replay(i int) error {
+	f.T.Helper()
+	if i < 0 {
+		i += len(f.Sent)
+	}
+	if i < 0 || i >= len(f.Sent) {
+		f.T.Fatalf("there is no message %d to replay among the %d sent", i, len(f.Sent))
+	}
+	return f.Stream.Send(f.Sent[i])
+}
+
+// SendReordered sends msgs in the order given by order, which are indexes into msgs (so 2, 0, 1 sends the third first). A stream is
+// ordered, so this is how an agent that numbered its messages one way and sent them another looks to the server.
+func (f *FakeAgent) SendReordered(msgs []*continuumv1.AgentMessage, order ...int) error {
+	f.T.Helper()
+	for _, i := range order {
+		if err := f.Send(msgs[i]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Ended waits up to d for the current stream to end and returns what ended it, or nil if it is still open. Whatever the server said
+// on the way is read and dropped.
+func (f *FakeAgent) Ended(d time.Duration) error {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	for {
+		select {
+		case in := <-f.Incoming:
+			if in.Err != nil {
+				return in.Err
+			}
+		case <-timer.C:
+			return nil
+		}
 	}
 }
 

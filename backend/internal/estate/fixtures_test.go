@@ -388,3 +388,15 @@ func fakeAgentCtx(t *testing.T) context.Context {
 	t.Cleanup(cancel)
 	return ctx
 }
+
+// agentStreamNoHello opens an approved agent's stream and says nothing: the test says what the first message is.
+func (r *hubRig) agentStreamNoHello(t *testing.T, ctx context.Context, id string, key any, leaf []byte) continuumv1.AgentService_ConnectClient {
+	t.Helper()
+	cert := &tls.Certificate{Certificate: [][]byte{leaf}, PrivateKey: key}
+	c := continuumv1.NewAgentServiceClient(r.dial(t, pki.ClientTLS(r.core.CA.Pin(), "127.0.0.1", cert)))
+	s, err := c.Connect(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
