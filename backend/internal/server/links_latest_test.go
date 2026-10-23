@@ -402,6 +402,9 @@ func TestLinkReportFailsWhenTheAgentsCannotBeReadAndTheScreenSaysSo(t *testing.T
 	if _, _, err := h.LinkReport(context.Background(), links, true); err != nil {
 		t.Fatal(err)
 	}
+	// Saving the settings started work in the background that reads the store (the link credentials). It is done before the store is
+	// swapped, or the swap is a race with a goroutine this test did not start.
+	h.Settle()
 	real := h.C.Store
 	h.C.Store = testkit.AgentsDown{Store: real}
 	t.Cleanup(func() { h.C.Store = real })

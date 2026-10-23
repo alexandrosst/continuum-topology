@@ -47,6 +47,8 @@ jobs:
           # "Dependency scanning" section), so this always builds with at least that patch version without
           # needing to also update this workflow file every time that line changes.
           go-version-file: backend/go.mod
+          # go.sum is in backend/, not at the root where the action looks by default (it warned that the cache could not be restored).
+          cache-dependency-path: backend/go.sum
 
       - name: Build
         working-directory: backend

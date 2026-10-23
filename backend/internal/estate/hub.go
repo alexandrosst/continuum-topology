@@ -116,6 +116,10 @@ type Hub struct {
 	C   *Service
 	Log *slog.Logger
 
+	// pushing counts the background work a saved change of the settings starts (making the link credentials and pushing the Configs
+	// that depend on them), so that a caller who needs it finished can wait for it: see Settle.
+	pushing sync.WaitGroup
+
 	// FlowStaleAfter, when set, overrides the setting: an observed edge unseen for this long is shown as
 	// stale, never deleted.
 	FlowStaleAfter time.Duration

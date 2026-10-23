@@ -140,11 +140,18 @@ func (h *Hub) PushOne(id string) {
 }
 
 func (h *Hub) settingsChanged(kernel.Settings) {
+	h.pushing.Add(1)
 	go func() {
+		defer h.pushing.Done()
 		h.SyncLinkCredentials() // make what new pairs need and drop what is no longer needed, before the Configs are built
 		h.PushConfigs()
 	}()
 }
+
+// Settle waits for the background work that a saved change of the settings started. The server never needs to: the work is
+// meant to run on its own. It is for a test that is about to change what that work reads (the store a Hub holds, say), which would
+// otherwise be a race with a goroutine the test did not start and cannot see.
+func (h *Hub) Settle() { h.pushing.Wait() }
 
 // NoteMeasurements stores what an agent measured, for the targets the server issued.
 func (h *Hub) NoteMeasurements(agentID string, m *ikhnosv1.Measurements) {
