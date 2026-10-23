@@ -19,10 +19,16 @@ The commands below install the newest release, same as the Quickstart. For a pro
 **Install once**, with a placeholder address (the chart just needs something shaped like `host:port` — it doesn't have to resolve yet):
 
 ```bash
+kubectl create namespace ikhnos
+kubectl -n ikhnos create secret generic ikhnos-sealing --from-literal=sealing.key="$(openssl rand -base64 48)"
+
 helm install ikhnos-server oci://ghcr.io/alexandrosst/ikhnos-server \
-  --namespace ikhnos --create-namespace \
+  --namespace ikhnos \
+  --set sealing.keySecret.name=ikhnos-sealing \
   --set agent.publicAddress=pending.example.com:8443
 ```
+
+The Secret holds the key that encrypts people's second-factor secrets, the mail password and the decider secret in the database. A new install does not render without it. Keep a copy of the key apart from the cluster and its backups: a copy of the database is of no use for those secrets without it.
 
 :::info[Reaching the UI before the Gateway is set up]
 The admin port carries your sign-in password and session cookie, so the chart refuses to serve it in clear text unless something is already protecting it. At this point in the two-step process there's no Gateway (HTTPRoute) in front of it yet, so the chart generates a self-signed certificate for it automatically (`admin.tls.selfSigned`, on by default) rather than refusing to install — use `kubectl port-forward` and `https://localhost:8080` (with a one-time browser warning to click through) to reach the UI until [Exposing the UI properly](#exposing-the-ui-properly), below, is done. If you'd rather have plain HTTP over the tunnel with no warning at all, add `--set admin.behindTlsProxy=true` instead and use `http://localhost:8080`. Either way, once `httproute` is enabled below, the chart switches to trusting that Gateway automatically and stops using the self-signed certificate.

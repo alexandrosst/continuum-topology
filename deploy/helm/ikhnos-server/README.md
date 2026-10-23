@@ -5,8 +5,12 @@ Helm chart for the Ikhnos **server**: the control plane that agents report to, a
 The full deployment guide, with diagrams, backup and restore, upgrades and troubleshooting, is [`deploy/README.md`](../../README.md). This file documents the chart itself.
 
 ```console
+kubectl create namespace ikhnos
+kubectl -n ikhnos create secret generic ikhnos-sealing --from-literal=sealing.key="$(openssl rand -base64 48)"
+
 helm install ikhnos-server deploy/helm/ikhnos-server \
-  --namespace ikhnos --create-namespace \
+  --namespace ikhnos \
+  --set sealing.keySecret.name=ikhnos-sealing \
   --set image.repository=REGISTRY/server \
   --set agent.publicAddress=ikhnos.example.com:8443 \
   --set httproute.enabled=true \
@@ -117,12 +121,13 @@ Everything is documented in `values.yaml`; these are the ones you are likely to 
 | `admin.existingPasswordSecret` / `...Key` | `""` / `password` | first administrator's password (`IKHNOS_ADMIN_PASSWORD`) |
 | `admin.sso.headerName` | `""` (off) | pass `--admin-sso-header`: trust a header your reverse proxy already verified identity into (e.g. `X-Remote-User`) as an alternative to password/2FA sign-in - see the values.yaml comment. Requires `admin.behindTlsProxy=true` (or `httproute.enabled`); the chart refuses to render otherwise |
 | `httproute.enabled` / `parentRefs` / `hostnames` / `annotations` | `false` ... | UI Gateway API HTTPRoute |
+| `sealing.disabled` | `false` | store those secrets as they are instead of sealing them (a trial, a laptop). Setting it together with a key name is refused |
 | `persistence.existingClaim` | `""` | use your own PVC |
 | `persistence.storageClass` | `""` | `""` cluster default, `"-"` none |
 | `persistence.size` / `accessModes` | `5Gi` / `[ReadWriteOnce]` | |
 | `persistence.keepOnUninstall` | `true` | `helm.sh/resource-policy: keep` on the PVC |
 | `pki.caKeyPassphraseSecret.name` / `key` | `""` / `passphrase` | bring your own CA key passphrase Secret instead of letting the server mint and persist one itself (needs a newer server either way) |
-| `sealing.keySecret.name` / `key` | `""` / `sealing.key` | a Secret holding the key that seals the second-factor secrets, the mail password and the decider secret in the database (`--sealing-key-file`); empty: stored as they are. See deploy/README.md, "Sealing secrets at rest" |
+| `sealing.keySecret.name` / `key` | `""` / `sealing.key` | a Secret holding the key that seals the second-factor secrets, the mail password and the decider secret in the database (`--sealing-key-file`). Required: with no name the chart does not render, unless `sealing.disabled` is true See deploy/README.md, "Sealing secrets at rest" |
 | `neo4j.mode` | `bundled` | `bundled`, `external` (mandatory: no `none`) |
 | `neo4j.allowInsecureHttp` | `false` | pass `--neo4j-allow-insecure-http` (needs a newer server) |
 | `neo4j.user` / `database` | `neo4j` / `neo4j` | |

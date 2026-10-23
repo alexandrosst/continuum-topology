@@ -23,11 +23,17 @@ Copy one `EXTERNAL-IP` (or `INTERNAL-IP` if there isn't one — fine for a trial
 Replace `NODE_IP` with the address from the previous step:
 
 ```bash
+kubectl create namespace ikhnos
+kubectl -n ikhnos create secret generic ikhnos-sealing --from-literal=sealing.key="$(openssl rand -base64 48)"
+
 helm install ikhnos-server oci://ghcr.io/alexandrosst/ikhnos-server \
-  --namespace ikhnos --create-namespace \
+  --namespace ikhnos \
+  --set sealing.keySecret.name=ikhnos-sealing \
   --set agent.service.type=NodePort \
   --set agent.publicAddress=NODE_IP:30443
 ```
+
+The first two lines create the key that encrypts people's second-factor secrets, the mail password and the decider secret inside the server's database; the chart does not install without one. Keep a copy of that key somewhere other than the cluster. For a throwaway trial where that does not matter, skip them and add `--set sealing.disabled=true` instead.
 
 This installs the latest release. `agent.publicAddress` is the one value the chart cannot guess for you — it's the address your future agents will dial, and it's baked into the server's own TLS certificate, so it has to be exactly right. The admin port carries your sign-in password and session cookie, so the server refuses to serve it in clear text — since nothing here tells it a proxy protects it, the chart generates a self-signed certificate for it automatically, which is what step 5 below reaches over `kubectl port-forward`. [Installation](../installation/index.md) covers the other exposure options (a cloud load balancer, a Gateway) once you're ready to move past a trial.
 

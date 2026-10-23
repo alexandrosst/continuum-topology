@@ -64,7 +64,9 @@ func serverRenderWith(t *testing.T, release string, extra ...string) serverRende
 	copyTree(t, filepath.Join("..", "..", "..", "deploy", "helm", "ikhnos-server"), dir)
 	copyTree(t, "ikhnos-fusion", filepath.Join(dir, "charts", "ikhnos-fusion"))
 	args := append([]string{"template", release, dir, "-n", "ikhnos",
-		"--set", "agent.publicAddress=192.0.2.10:30443", "--set", "agent.service.type=NodePort", "--set", "admin.behindTlsProxy=true"}, extra...)
+		"--set", "agent.publicAddress=192.0.2.10:30443", "--set", "agent.service.type=NodePort", "--set", "admin.behindTlsProxy=true",
+		// A server is not installed without a sealing key unless that is said; these tests are about other things, and the ones about the key say otherwise in extra.
+		"--set", "sealing.disabled=true"}, extra...)
 	out, err := exec.Command(h, args...).CombinedOutput()
 	if err != nil {
 		t.Fatalf("helm template %v: %v\n%s", extra, err, out)
@@ -434,7 +436,7 @@ func TestServerChartKeepsTheStoresNetworkPolicyOnAndSaysWhenItIsOff(t *testing.T
 	}
 	notes := func(extra ...string) string {
 		args := append([]string{"template", "ikhnos", dir, "-n", "ikhnos", "--show-only", "templates/notes.yaml", "--set", "agent.publicAddress=192.0.2.10:30443",
-			"--set", "agent.service.type=NodePort", "--set", "admin.behindTlsProxy=true"}, extra...)
+			"--set", "agent.service.type=NodePort", "--set", "admin.behindTlsProxy=true", "--set", "sealing.keySecret.name=ikhnos-sealing"}, extra...)
 		out, err := exec.Command(h, args...).CombinedOutput()
 		if err != nil {
 			t.Fatalf("helm template of the notes: %v\n%s", err, out)
@@ -450,6 +452,14 @@ func TestServerChartKeepsTheStoresNetworkPolicyOnAndSaysWhenItIsOff(t *testing.T
 	}
 	if out := notes("--set", "fusion.networkPolicy.enabled=false", "--set", "fusion.enabled=false"); strings.Contains(out, warning) {
 		t.Error("a warning about stores that are not installed")
+	}
+	// Secrets stored as they are is a thing the install notes say, and only when that was chosen: a named key is not warned about.
+	const unsealed = "sealing.disabled is true"
+	if out := notes(); strings.Contains(out, unsealed) {
+		t.Error("an install with a sealing key is warned that it has none")
+	}
+	if out := notes("--set", "sealing.keySecret.name=", "--set", "sealing.disabled=true"); !strings.Contains(out, unsealed) {
+		t.Errorf("no warning with sealing switched off:\n%s", out)
 	}
 }
 

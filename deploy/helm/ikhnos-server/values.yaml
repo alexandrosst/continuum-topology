@@ -275,13 +275,17 @@ pki:
 
 # Sealing: the few secrets this server must be able to read back - people's second-factor (TOTP) secrets, the mail
 # password, and an organisation's decider secret - are encrypted in the database (AES-256-GCM) under a key that is NOT in
-# the database and not on the data volume: a Secret you create, mounted as a file. Without it they are stored as they are.
+# the database and not on the data volume: a Secret you create, mounted as a file.
 # Create the Secret once, and keep a copy of the key apart from the volume and its backups (a backup of the database is
 # useless for these secrets without it, and the server refuses to start on a sealed database without it):
 #   kubectl -n <ns> create secret generic ikhnos-sealing --from-literal=sealing.key="$(openssl rand -base64 48)"
 # The file holds one key per line; the first seals, the others only open. To replace the key, put the new one on top (a new
 # Secret value), upgrade, and remove the old line at a later upgrade. README.md, "Sealing secrets at rest".
+#
+# A new install needs a key: with no keySecret.name the chart stops with the commands above. Storing them as they are is possible,
+# but it has to be said: sealing.disabled=true (a trial, a laptop). Do not set both.
 sealing:
+  disabled: false
   keySecret:
     name: ""
     key: sealing.key

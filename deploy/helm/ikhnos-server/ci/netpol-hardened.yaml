@@ -35,3 +35,7 @@ podDisruptionBudget:
   enabled: true
   minAvailable: null
   maxUnavailable: 1
+
+# The secrets the server must read back are stored as they are here; a real install names a key Secret (sealing.keySecret.name).
+sealing:
+  disabled: true

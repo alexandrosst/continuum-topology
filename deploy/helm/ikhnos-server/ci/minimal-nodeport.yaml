@@ -7,3 +7,7 @@ agent:
 admin:
   # No ingress here: the admin listener is plain HTTP and only ever reached through port-forward to localhost.
   behindTlsProxy: true
+
+# The secrets the server must read back are stored as they are here; a real install names a key Secret (sealing.keySecret.name).
+sealing:
+  disabled: true

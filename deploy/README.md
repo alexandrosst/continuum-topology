@@ -50,7 +50,7 @@ The part that actually makes this zero-config: packaging bakes that same `ghcr.i
 
   ```console
   helm install ikhnos-server oci://ghcr.io/<owner>/ikhnos-server --version <chart version> \
-    --set agent.publicAddress=... [the rest of your usual values]
+    --set agent.publicAddress=... --set sealing.keySecret.name=... [the rest of your usual values]
   ```
 
 * The **"Connect a cluster"** screen's printed `helm install` command for the *agent* already points at the same registry, because the server chart's `agentInstall.imageRegistry` (what that command uses) came pre-set to `ghcr.io/<owner>` in the same step - nobody installing the server from this chart has to visit **Settings → Installation** or pass `--image-registry` at all.
@@ -71,9 +71,14 @@ Agents reach a node address on a NodePort (the first line only looks that addres
 ```console
 NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}')
 
-helm install ikhnos-server deploy/helm/ikhnos-server -n ikhnos --create-namespace \
+# The key that seals the second-factor, mail and decider secrets in the database (see "Sealing secrets at rest"). Keep a copy of it.
+kubectl create namespace ikhnos
+kubectl -n ikhnos create secret generic ikhnos-sealing --from-literal=sealing.key="$(openssl rand -base64 48)"
+
+helm install ikhnos-server deploy/helm/ikhnos-server -n ikhnos \
   --set image.repository=REGISTRY/server \
-  --set agent.publicAddress=$NODE_IP:30443 --set agent.service.type=NodePort
+  --set agent.publicAddress=$NODE_IP:30443 --set agent.service.type=NodePort \
+  --set sealing.keySecret.name=ikhnos-sealing        # a throwaway trial can say --set sealing.disabled=true instead
 
 kubectl -n ikhnos logs deployment/ikhnos-server | grep -A2 'First start'   # the one-time admin password
 
@@ -109,6 +114,9 @@ httproute:
       namespace: gateways
       sectionName: https
   hostnames: [ikhnos.example.com]
+
+sealing:
+  keySecret: {name: ikhnos-sealing}                  # created beforehand, see "Sealing secrets at rest"; a new install does not render without it
 
 persistence: {size: 10Gi}
 neo4j: {mode: bundled}
@@ -276,7 +284,7 @@ kubectl -n ikhnos create secret generic ikhnos-sealing --from-literal=sealing.ke
 helm upgrade ikhnos ... --set sealing.keySecret.name=ikhnos-sealing
 ```
 
-Without `sealing.keySecret.name` the secrets are stored as they are, as before, and the install notes say so. When the key is first given, the server seals what is already stored and rewrites the database file once, so the old text is not left in it.
+A new install needs the key: without `sealing.keySecret.name` the chart stops with these two commands, unless `sealing.disabled=true` says that the secrets are to be stored as they are (a trial or a laptop; the install notes then say so). Naming both is refused. When a key is given to a database that holds secrets stored as they are, the server seals what is already stored and rewrites the database file once, so the old text is not left in it.
 
 **The key is part of the backup, and kept apart from it.** A copy of the database is useless for these secrets without the key, and the server refuses to start on a database that holds sealed secrets without it (or with another key), naming the key it needs, instead of failing at the first sign-in. Keep the key where you keep other long-lived credentials, not on the data volume or in the volume's snapshots: that is the point of it. (`kubectl -n ikhnos get secret ikhnos-sealing -o yaml`, stored with the archive's decryption key.)
 
@@ -576,7 +584,7 @@ Ready-made combinations to copy from live in `helm/ikhnos-server/ci/`.
 * **Registration.** Leave it `invite` (default) or `closed` on any reachable server. `open` gives anyone with network access an account and an organization of their own.
 * **Who can reach the admin port.** Everything a signed-in person does goes through it, and in proxy mode the server trusts `X-Forwarded-For` and `X-Forwarded-Proto` from whoever connects, so a client that can reach port 8080 directly can forge its address. Only the proxy should be able to. Use `networkPolicy.enabled` with `networkPolicy.ingress.admin.from` set to your Gateway's namespace; do not put `admin.service.type` on a LoadBalancer without TLS in front.
 * **The agent port** is the trust boundary for agents: mutual TLS with a private CA, agents pinned to it, enrollment by one-time token and explicit approval. Restrict who can connect with `agent.service.loadBalancerSourceRanges` or `networkPolicy.ingress.agent.from` when you know the agents' networks.
-* **Sealed secrets.** Second-factor secrets, the mail password and the decider secret are encrypted in the database when `sealing.keySecret.name` is set (see "Sealing secrets at rest"); keep that key apart from the volume and its backups, or a stolen backup opens them.
+* **Sealed secrets.** Second-factor secrets, the mail password and the decider secret are encrypted in the database under the key `sealing.keySecret.name` names (required; `sealing.disabled=true` is the written-down way out; see "Sealing secrets at rest"); keep that key apart from the volume and its backups, or a stolen backup opens them.
 * **The CA key** is the crown jewel: it is encrypted at rest by default (`pki.encryptAtRest`, see "Encrypting the CA key at rest" above), but that only protects the key on disk — still guard the PVC, its snapshots and backups (encrypted, off-cluster). The default auto-generated passphrase lives on that same PVC (no Kubernetes permissions needed to put it anywhere else); bring your own passphrase Secret with `pki.caKeyPassphraseSecret.name` and guard it separately if you want a stolen PVC backup alone to be useless.
 * **Content-Security-Policy and headers.** The server sets a strict CSP (`'self'` only, no framing), `X-Content-Type-Options`, `Referrer-Policy`, and HSTS when the request was HTTPS. Do not weaken them at the proxy.
 * **The pod** runs as 65532 with a read-only root file system, all capabilities dropped, `RuntimeDefault` seccomp, no privilege escalation and no service-account token: the server never talks to the Kubernetes API, so it holds no cluster permissions. Only the optional backup CronJob has a token, limited to `VolumeSnapshot`s in the release namespace.

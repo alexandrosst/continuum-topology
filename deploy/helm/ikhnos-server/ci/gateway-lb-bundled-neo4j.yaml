@@ -43,3 +43,7 @@ backup:
 podDisruptionBudget:
   enabled: false
 priorityClassName: system-cluster-critical
+
+# The secrets the server must read back are stored as they are here; a real install names a key Secret (sealing.keySecret.name).
+sealing:
+  disabled: true

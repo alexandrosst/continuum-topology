@@ -181,7 +181,8 @@ if [[ -n "$DIGEST" ]]; then
 fi
 if [[ -n "$SERVER_DIGEST" ]]; then
   echo
-  echo "Server:  helm install ikhnos-server oci://$(oci_base "$REG")/ikhnos-server --version <chart version> -n ikhnos --create-namespace \\"
+  echo "Server:  helm install ikhnos-server oci://$(oci_base "$REG")/ikhnos-server --version <chart version> -n ikhnos \\"
+  echo "           --set sealing.keySecret.name=ikhnos-sealing   (a Secret you create first; deploy/README.md, \"Sealing secrets at rest\")"
   echo "           --set image.repository=${REG%/}/server --set image.digest=$SERVER_DIGEST ..."
   echo "         (the rest of the values: deploy/README.md)"
 fi

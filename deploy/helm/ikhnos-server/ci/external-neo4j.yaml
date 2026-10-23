@@ -24,3 +24,7 @@ extraVolumeMounts:
   - {name: geoip, mountPath: /geoip, readOnly: true}
 decider:
   allowCIDRs: ["10.20.0.0/16"]
+
+# The secrets the server must read back are stored as they are here; a real install names a key Secret (sealing.keySecret.name).
+sealing:
+  disabled: true

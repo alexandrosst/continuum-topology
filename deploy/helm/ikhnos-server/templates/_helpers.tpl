@@ -245,9 +245,15 @@ is non-empty. */}}
 {{- if and .Values.pki.caKeyPassphraseSecret.name (not .Values.pki.caKeyPassphraseSecret.key) -}}
 {{- fail "pki.caKeyPassphraseSecret.key must be set together with .name" -}}
 {{- end -}}
-{{- /* sealing */ -}}
+{{- /* sealing: a key is part of a new install, and leaving it out is a choice that is written down (sealing.disabled) */ -}}
 {{- if and (include "ikhnos.sealingSecretName" .) (not ((.Values.sealing).keySecret).key) -}}
 {{- fail "sealing.keySecret.key must be set together with .name" -}}
+{{- end -}}
+{{- if and (include "ikhnos.sealingSecretName" .) ((.Values.sealing).disabled) -}}
+{{- fail "sealing.disabled=true and sealing.keySecret.name are both set: either the secrets are sealed under that key or they are not" -}}
+{{- end -}}
+{{- if not (or (include "ikhnos.sealingSecretName" .) ((.Values.sealing).disabled)) -}}
+{{- fail "sealing.keySecret.name is not set. People's second-factor secrets, the mail password and the decider secret are encrypted in the database under a key you provide, and this chart does not install without one. Create it once and name it:\n  kubectl -n <namespace> create secret generic ikhnos-sealing --from-literal=sealing.key=\"$(openssl rand -base64 48)\"\n  helm install ... --set sealing.keySecret.name=ikhnos-sealing\nKeep a copy of the key apart from the volume and its backups. For a trial or a laptop where that does not matter, say so with --set sealing.disabled=true (the secrets are then stored as they are)." -}}
 {{- end -}}
 {{- /* neo4j: mandatory, so only the two real deployment choices are accepted */ -}}
 {{- if not (has .Values.neo4j.mode (list "bundled" "external")) -}}
