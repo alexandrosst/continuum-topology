@@ -1,0 +1,4093 @@
+{
+  "name": "continuum/v1/agent.proto",
+  "package": "continuum.v1",
+  "dependency": [
+    "google/protobuf/timestamp.proto"
+  ],
+  "messageType": [
+    {
+      "name": "RenewTelemetryCertRequest",
+      "field": [
+        {
+          "name": "old_leaf_der",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_BYTES",
+          "jsonName": "oldLeafDer"
+        },
+        {
+          "name": "csr_der",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_BYTES",
+          "jsonName": "csrDer"
+        },
+        {
+          "name": "proof",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_BYTES",
+          "jsonName": "proof"
+        }
+      ]
+    },
+    {
+      "name": "RenewTelemetryCertResponse",
+      "field": [
+        {
+          "name": "leaf_der",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_BYTES",
+          "jsonName": "leafDer"
+        },
+        {
+          "name": "ca_pem",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_BYTES",
+          "jsonName": "caPem"
+        },
+        {
+          "name": "not_after",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".google.protobuf.Timestamp",
+          "jsonName": "notAfter"
+        }
+      ]
+    },
+    {
+      "name": "RejoinRequest",
+      "field": [
+        {
+          "name": "expired_leaf_der",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_BYTES",
+          "jsonName": "expiredLeafDer"
+        },
+        {
+          "name": "csr_der",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_BYTES",
+          "jsonName": "csrDer"
+        }
+      ]
+    },
+    {
+      "name": "EnrollRequest",
+      "field": [
+        {
+          "name": "token",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "token"
+        },
+        {
+          "name": "csr_der",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_BYTES",
+          "jsonName": "csrDer"
+        },
+        {
+          "name": "cluster_fingerprint",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "clusterFingerprint"
+        },
+        {
+          "name": "agent_version",
+          "number": 4,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "agentVersion"
+        },
+        {
+          "name": "kubernetes_version",
+          "number": 5,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "kubernetesVersion"
+        },
+        {
+          "name": "installed_access_tier",
+          "number": 6,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "jsonName": "installedAccessTier"
+        },
+        {
+          "name": "approval_code_hash",
+          "number": 7,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_BYTES",
+          "jsonName": "approvalCodeHash"
+        }
+      ]
+    },
+    {
+      "name": "EnrollResponse",
+      "field": [
+        {
+          "name": "agent_id",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "agentId"
+        },
+        {
+          "name": "poll_secret",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "pollSecret"
+        },
+        {
+          "name": "poll_interval_seconds",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_INT32",
+          "jsonName": "pollIntervalSeconds"
+        },
+        {
+          "name": "server_time_unix",
+          "number": 4,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_INT64",
+          "jsonName": "serverTimeUnix"
+        },
+        {
+          "name": "pending_ttl_seconds",
+          "number": 5,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_INT32",
+          "jsonName": "pendingTtlSeconds"
+        }
+      ]
+    },
+    {
+      "name": "PollRequest",
+      "field": [
+        {
+          "name": "agent_id",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "agentId"
+        },
+        {
+          "name": "poll_secret",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "pollSecret"
+        }
+      ]
+    },
+    {
+      "name": "PollResponse",
+      "field": [
+        {
+          "name": "state",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_ENUM",
+          "typeName": ".continuum.v1.PollResponse.State",
+          "jsonName": "state"
+        },
+        {
+          "name": "leaf_der",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_BYTES",
+          "jsonName": "leafDer"
+        },
+        {
+          "name": "ca_der",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_BYTES",
+          "jsonName": "caDer"
+        },
+        {
+          "name": "not_after",
+          "number": 4,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".google.protobuf.Timestamp",
+          "jsonName": "notAfter"
+        },
+        {
+          "name": "reason",
+          "number": 5,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "reason"
+        },
+        {
+          "name": "poll_after_seconds",
+          "number": 6,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_INT32",
+          "jsonName": "pollAfterSeconds"
+        },
+        {
+          "name": "server_time_unix",
+          "number": 7,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_INT64",
+          "jsonName": "serverTimeUnix"
+        }
+      ],
+      "enumType": [
+        {
+          "name": "State",
+          "value": [
+            {
+              "name": "PENDING",
+              "number": 0
+            },
+            {
+              "name": "APPROVED",
+              "number": 1
+            },
+            {
+              "name": "REJECTED",
+              "number": 2
+            },
+            {
+              "name": "EXPIRED",
+              "number": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "RenewRequest",
+      "field": [
+        {
+          "name": "csr_der",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_BYTES",
+          "jsonName": "csrDer"
+        }
+      ]
+    },
+    {
+      "name": "RenewResponse",
+      "field": [
+        {
+          "name": "leaf_der",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_BYTES",
+          "jsonName": "leafDer"
+        },
+        {
+          "name": "ca_der",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_BYTES",
+          "jsonName": "caDer"
+        },
+        {
+          "name": "not_after",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".google.protobuf.Timestamp",
+          "jsonName": "notAfter"
+        }
+      ]
+    },
+    {
+      "name": "AgentMessage",
+      "field": [
+        {
+          "name": "hello",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.Hello",
+          "oneofIndex": 0,
+          "jsonName": "hello"
+        },
+        {
+          "name": "sync",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.Sync",
+          "oneofIndex": 0,
+          "jsonName": "sync"
+        },
+        {
+          "name": "heartbeat",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.Heartbeat",
+          "oneofIndex": 0,
+          "jsonName": "heartbeat"
+        },
+        {
+          "name": "flows",
+          "number": 4,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.FlowBatch",
+          "oneofIndex": 0,
+          "jsonName": "flows"
+        },
+        {
+          "name": "measurements",
+          "number": 5,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.Measurements",
+          "oneofIndex": 0,
+          "jsonName": "measurements"
+        }
+      ],
+      "oneofDecl": [
+        {
+          "name": "msg"
+        }
+      ]
+    },
+    {
+      "name": "Hello",
+      "field": [
+        {
+          "name": "agent_version",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "agentVersion"
+        },
+        {
+          "name": "kubernetes_version",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "kubernetesVersion"
+        },
+        {
+          "name": "installed_access_tier",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "jsonName": "installedAccessTier"
+        },
+        {
+          "name": "diagnostics",
+          "number": 4,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.Diagnostics",
+          "jsonName": "diagnostics"
+        },
+        {
+          "name": "namespace",
+          "number": 5,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "namespace"
+        },
+        {
+          "name": "release_name",
+          "number": 6,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "releaseName"
+        },
+        {
+          "name": "protocol_version",
+          "number": 7,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "jsonName": "protocolVersion"
+        },
+        {
+          "name": "capabilities",
+          "number": 8,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_STRING",
+          "jsonName": "capabilities"
+        }
+      ]
+    },
+    {
+      "name": "Heartbeat",
+      "field": [
+        {
+          "name": "modules",
+          "number": 1,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.ModuleStatus",
+          "jsonName": "modules"
+        },
+        {
+          "name": "clock_skew_ms",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_INT64",
+          "jsonName": "clockSkewMs"
+        },
+        {
+          "name": "diagnostics",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.Diagnostics",
+          "jsonName": "diagnostics"
+        },
+        {
+          "name": "self_stats",
+          "number": 4,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.SelfStats",
+          "jsonName": "selfStats"
+        },
+        {
+          "name": "link_capabilities",
+          "number": 5,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.LinkCapabilities",
+          "jsonName": "linkCapabilities"
+        },
+        {
+          "name": "applied_config_digest",
+          "number": 6,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "appliedConfigDigest"
+        }
+      ]
+    },
+    {
+      "name": "ModuleStatus",
+      "field": [
+        {
+          "name": "name",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "name"
+        },
+        {
+          "name": "state",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_ENUM",
+          "typeName": ".continuum.v1.ModuleStatus.State",
+          "jsonName": "state"
+        },
+        {
+          "name": "reason",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "reason"
+        }
+      ],
+      "enumType": [
+        {
+          "name": "State",
+          "value": [
+            {
+              "name": "OK",
+              "number": 0
+            },
+            {
+              "name": "SKIPPED",
+              "number": 1
+            },
+            {
+              "name": "ERROR",
+              "number": 2
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Sync",
+      "field": [
+        {
+          "name": "seq",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT64",
+          "jsonName": "seq"
+        },
+        {
+          "name": "full",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_BOOL",
+          "jsonName": "full"
+        },
+        {
+          "name": "cluster",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.ClusterFacts",
+          "jsonName": "cluster"
+        },
+        {
+          "name": "nodes",
+          "number": 4,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.NodeFacts",
+          "jsonName": "nodes"
+        },
+        {
+          "name": "deleted_nodes",
+          "number": 5,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_STRING",
+          "jsonName": "deletedNodes"
+        },
+        {
+          "name": "namespaces",
+          "number": 6,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.NamespaceFacts",
+          "jsonName": "namespaces"
+        },
+        {
+          "name": "deleted_namespaces",
+          "number": 7,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_STRING",
+          "jsonName": "deletedNamespaces"
+        },
+        {
+          "name": "workloads",
+          "number": 8,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.WorkloadFacts",
+          "jsonName": "workloads"
+        },
+        {
+          "name": "deleted_workloads",
+          "number": 9,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_STRING",
+          "jsonName": "deletedWorkloads"
+        },
+        {
+          "name": "modules",
+          "number": 10,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.ModuleStatus",
+          "jsonName": "modules"
+        },
+        {
+          "name": "chunk_index",
+          "number": 11,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "jsonName": "chunkIndex"
+        },
+        {
+          "name": "chunk_total",
+          "number": 12,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "jsonName": "chunkTotal"
+        },
+        {
+          "name": "sync_id",
+          "number": 13,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "syncId"
+        }
+      ]
+    },
+    {
+      "name": "ClusterFacts",
+      "field": [
+        {
+          "name": "uid",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "uid"
+        },
+        {
+          "name": "version",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "version"
+        },
+        {
+          "name": "api_host",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "apiHost"
+        },
+        {
+          "name": "storage_classes",
+          "number": 4,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_STRING",
+          "jsonName": "storageClasses"
+        },
+        {
+          "name": "ingress_classes",
+          "number": 5,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_STRING",
+          "jsonName": "ingressClasses"
+        },
+        {
+          "name": "created_at",
+          "number": 6,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".google.protobuf.Timestamp",
+          "jsonName": "createdAt"
+        },
+        {
+          "name": "scope",
+          "number": 7,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.ScopeFacts",
+          "jsonName": "scope"
+        },
+        {
+          "name": "mesh",
+          "number": 8,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.MeshFacts",
+          "jsonName": "mesh"
+        },
+        {
+          "name": "service_cidr",
+          "number": 9,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "serviceCidr"
+        },
+        {
+          "name": "pending_pod_count",
+          "number": 10,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_INT32",
+          "oneofIndex": 0,
+          "jsonName": "pendingPodCount",
+          "proto3Optional": true
+        }
+      ],
+      "oneofDecl": [
+        {
+          "name": "_pending_pod_count"
+        }
+      ]
+    },
+    {
+      "name": "ScopeFacts",
+      "field": [
+        {
+          "name": "description",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "description"
+        },
+        {
+          "name": "namespaces_total",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_INT32",
+          "jsonName": "namespacesTotal"
+        },
+        {
+          "name": "namespaces_in_scope",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_INT32",
+          "jsonName": "namespacesInScope"
+        }
+      ]
+    },
+    {
+      "name": "MeshFacts",
+      "field": [
+        {
+          "name": "kind",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "kind"
+        },
+        {
+          "name": "mode",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "mode"
+        },
+        {
+          "name": "version",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "version"
+        },
+        {
+          "name": "control_plane",
+          "number": 4,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_STRING",
+          "jsonName": "controlPlane"
+        },
+        {
+          "name": "mtls",
+          "number": 5,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "mtls"
+        },
+        {
+          "name": "namespace_mtls",
+          "number": 6,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.MeshFacts.NamespaceMtlsEntry",
+          "jsonName": "namespaceMtls"
+        },
+        {
+          "name": "policy_read",
+          "number": 7,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_BOOL",
+          "jsonName": "policyRead"
+        },
+        {
+          "name": "policy_note",
+          "number": 8,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "policyNote"
+        }
+      ],
+      "nestedType": [
+        {
+          "name": "NamespaceMtlsEntry",
+          "field": [
+            {
+              "name": "key",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING",
+              "jsonName": "key"
+            },
+            {
+              "name": "value",
+              "number": 2,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING",
+              "jsonName": "value"
+            }
+          ],
+          "options": {
+            "mapEntry": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "WorkloadMesh",
+      "field": [
+        {
+          "name": "mesh",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "mesh"
+        },
+        {
+          "name": "proxy",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "proxy"
+        },
+        {
+          "name": "bypass",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_BOOL",
+          "jsonName": "bypass"
+        },
+        {
+          "name": "excluded_ports",
+          "number": 4,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_STRING",
+          "jsonName": "excludedPorts"
+        },
+        {
+          "name": "control_plane",
+          "number": 5,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_BOOL",
+          "jsonName": "controlPlane"
+        },
+        {
+          "name": "source",
+          "number": 6,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "source"
+        }
+      ]
+    },
+    {
+      "name": "NodeFacts",
+      "field": [
+        {
+          "name": "key",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "key"
+        },
+        {
+          "name": "name",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "name"
+        },
+        {
+          "name": "uid",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "uid"
+        },
+        {
+          "name": "machine_id",
+          "number": 4,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "machineId"
+        },
+        {
+          "name": "system_uuid",
+          "number": 5,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "systemUuid"
+        },
+        {
+          "name": "provider_id",
+          "number": 6,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "providerId"
+        },
+        {
+          "name": "internal_ips",
+          "number": 7,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_STRING",
+          "jsonName": "internalIps"
+        },
+        {
+          "name": "os_image",
+          "number": 8,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "osImage"
+        },
+        {
+          "name": "kernel_version",
+          "number": 9,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "kernelVersion"
+        },
+        {
+          "name": "container_runtime",
+          "number": 10,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "containerRuntime"
+        },
+        {
+          "name": "kubelet_version",
+          "number": 11,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "kubeletVersion"
+        },
+        {
+          "name": "architecture",
+          "number": 12,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "architecture"
+        },
+        {
+          "name": "cpu_capacity_millis",
+          "number": 13,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_INT64",
+          "jsonName": "cpuCapacityMillis"
+        },
+        {
+          "name": "memory_capacity_bytes",
+          "number": 14,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_INT64",
+          "jsonName": "memoryCapacityBytes"
+        },
+        {
+          "name": "cpu_allocatable_millis",
+          "number": 15,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_INT64",
+          "jsonName": "cpuAllocatableMillis"
+        },
+        {
+          "name": "memory_allocatable_bytes",
+          "number": 16,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_INT64",
+          "jsonName": "memoryAllocatableBytes"
+        },
+        {
+          "name": "cpu_requested_millis",
+          "number": 17,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_INT64",
+          "jsonName": "cpuRequestedMillis"
+        },
+        {
+          "name": "memory_requested_bytes",
+          "number": 18,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_INT64",
+          "jsonName": "memoryRequestedBytes"
+        },
+        {
+          "name": "labels",
+          "number": 19,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.NodeFacts.LabelsEntry",
+          "jsonName": "labels"
+        },
+        {
+          "name": "annotations",
+          "number": 20,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.NodeFacts.AnnotationsEntry",
+          "jsonName": "annotations"
+        },
+        {
+          "name": "taints",
+          "number": 21,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_STRING",
+          "jsonName": "taints"
+        },
+        {
+          "name": "ready",
+          "number": 22,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_BOOL",
+          "jsonName": "ready"
+        },
+        {
+          "name": "problem_conditions",
+          "number": 23,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_STRING",
+          "jsonName": "problemConditions"
+        },
+        {
+          "name": "pod_cidrs",
+          "number": 24,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_STRING",
+          "jsonName": "podCidrs"
+        },
+        {
+          "name": "extended_resources",
+          "number": 25,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.NodeFacts.ExtendedResourcesEntry",
+          "jsonName": "extendedResources"
+        },
+        {
+          "name": "created_at",
+          "number": 26,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".google.protobuf.Timestamp",
+          "jsonName": "createdAt"
+        },
+        {
+          "name": "pod_capacity",
+          "number": 27,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_INT32",
+          "jsonName": "podCapacity"
+        },
+        {
+          "name": "pod_count",
+          "number": 28,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_INT32",
+          "oneofIndex": 0,
+          "jsonName": "podCount",
+          "proto3Optional": true
+        },
+        {
+          "name": "probe",
+          "number": 29,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.HostProbe",
+          "jsonName": "probe"
+        },
+        {
+          "name": "external_ips",
+          "number": 30,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_STRING",
+          "jsonName": "externalIps"
+        },
+        {
+          "name": "ephemeral_storage_capacity_bytes",
+          "number": 31,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_INT64",
+          "jsonName": "ephemeralStorageCapacityBytes"
+        },
+        {
+          "name": "ephemeral_storage_allocatable_bytes",
+          "number": 32,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_INT64",
+          "jsonName": "ephemeralStorageAllocatableBytes"
+        }
+      ],
+      "nestedType": [
+        {
+          "name": "LabelsEntry",
+          "field": [
+            {
+              "name": "key",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING",
+              "jsonName": "key"
+            },
+            {
+              "name": "value",
+              "number": 2,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING",
+              "jsonName": "value"
+            }
+          ],
+          "options": {
+            "mapEntry": true
+          }
+        },
+        {
+          "name": "AnnotationsEntry",
+          "field": [
+            {
+              "name": "key",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING",
+              "jsonName": "key"
+            },
+            {
+              "name": "value",
+              "number": 2,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING",
+              "jsonName": "value"
+            }
+          ],
+          "options": {
+            "mapEntry": true
+          }
+        },
+        {
+          "name": "ExtendedResourcesEntry",
+          "field": [
+            {
+              "name": "key",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING",
+              "jsonName": "key"
+            },
+            {
+              "name": "value",
+              "number": 2,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_INT64",
+              "jsonName": "value"
+            }
+          ],
+          "options": {
+            "mapEntry": true
+          }
+        }
+      ],
+      "oneofDecl": [
+        {
+          "name": "_pod_count"
+        }
+      ]
+    },
+    {
+      "name": "HostProbe",
+      "field": [
+        {
+          "name": "probe_version",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "probeVersion"
+        },
+        {
+          "name": "hypervisor_bit",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_BOOL",
+          "jsonName": "hypervisorBit"
+        },
+        {
+          "name": "hypervisor_type",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "hypervisorType"
+        },
+        {
+          "name": "sys_vendor",
+          "number": 4,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "sysVendor"
+        },
+        {
+          "name": "product_name",
+          "number": 5,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "productName"
+        },
+        {
+          "name": "board_vendor",
+          "number": 6,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "boardVendor"
+        },
+        {
+          "name": "board_name",
+          "number": 7,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "boardName"
+        },
+        {
+          "name": "bios_vendor",
+          "number": 8,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "biosVendor"
+        },
+        {
+          "name": "chassis_type",
+          "number": 9,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_INT32",
+          "jsonName": "chassisType"
+        },
+        {
+          "name": "device_tree_model",
+          "number": 10,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "deviceTreeModel"
+        },
+        {
+          "name": "uplinks",
+          "number": 11,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_STRING",
+          "jsonName": "uplinks"
+        },
+        {
+          "name": "has_battery",
+          "number": 12,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_BOOL",
+          "jsonName": "hasBattery"
+        },
+        {
+          "name": "hypervisor_vendor_id",
+          "number": 13,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "hypervisorVendorId"
+        },
+        {
+          "name": "cpu_model",
+          "number": 14,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "cpuModel"
+        },
+        {
+          "name": "cpu_threads",
+          "number": 15,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_INT32",
+          "jsonName": "cpuThreads"
+        },
+        {
+          "name": "interfaces",
+          "number": 16,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.NetworkInterface",
+          "jsonName": "interfaces"
+        },
+        {
+          "name": "disks",
+          "number": 17,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.Disk",
+          "jsonName": "disks"
+        },
+        {
+          "name": "tunnels",
+          "number": 18,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.TunnelInterface",
+          "jsonName": "tunnels"
+        },
+        {
+          "name": "host_subnets",
+          "number": 19,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_STRING",
+          "jsonName": "hostSubnets"
+        },
+        {
+          "name": "cpu_pressure_pct",
+          "number": 20,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_DOUBLE",
+          "oneofIndex": 0,
+          "jsonName": "cpuPressurePct",
+          "proto3Optional": true
+        },
+        {
+          "name": "memory_pressure_pct",
+          "number": 21,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_DOUBLE",
+          "oneofIndex": 1,
+          "jsonName": "memoryPressurePct",
+          "proto3Optional": true
+        },
+        {
+          "name": "io_pressure_pct",
+          "number": 22,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_DOUBLE",
+          "oneofIndex": 2,
+          "jsonName": "ioPressurePct",
+          "proto3Optional": true
+        },
+        {
+          "name": "oom_kill_count",
+          "number": 23,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT64",
+          "oneofIndex": 3,
+          "jsonName": "oomKillCount",
+          "proto3Optional": true
+        },
+        {
+          "name": "host_watts",
+          "number": 24,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_DOUBLE",
+          "oneofIndex": 4,
+          "jsonName": "hostWatts",
+          "proto3Optional": true
+        },
+        {
+          "name": "host_addresses",
+          "number": 25,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.HostAddress",
+          "jsonName": "hostAddresses"
+        }
+      ],
+      "oneofDecl": [
+        {
+          "name": "_cpu_pressure_pct"
+        },
+        {
+          "name": "_memory_pressure_pct"
+        },
+        {
+          "name": "_io_pressure_pct"
+        },
+        {
+          "name": "_oom_kill_count"
+        },
+        {
+          "name": "_host_watts"
+        }
+      ]
+    },
+    {
+      "name": "NetworkInterface",
+      "field": [
+        {
+          "name": "name",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "name"
+        },
+        {
+          "name": "kind",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "kind"
+        },
+        {
+          "name": "speed_mbps",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_INT32",
+          "jsonName": "speedMbps"
+        },
+        {
+          "name": "mtu",
+          "number": 4,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_INT32",
+          "jsonName": "mtu"
+        }
+      ]
+    },
+    {
+      "name": "Disk",
+      "field": [
+        {
+          "name": "name",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "name"
+        },
+        {
+          "name": "model",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "model"
+        },
+        {
+          "name": "size_bytes",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_INT64",
+          "jsonName": "sizeBytes"
+        },
+        {
+          "name": "type",
+          "number": 4,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "type"
+        }
+      ]
+    },
+    {
+      "name": "TunnelInterface",
+      "field": [
+        {
+          "name": "name",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "name"
+        },
+        {
+          "name": "kind",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "kind"
+        },
+        {
+          "name": "addresses",
+          "number": 3,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_STRING",
+          "jsonName": "addresses"
+        },
+        {
+          "name": "routes",
+          "number": 4,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_STRING",
+          "jsonName": "routes"
+        },
+        {
+          "name": "mtu",
+          "number": 5,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_INT32",
+          "jsonName": "mtu"
+        },
+        {
+          "name": "up",
+          "number": 6,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_BOOL",
+          "jsonName": "up"
+        }
+      ]
+    },
+    {
+      "name": "HostAddress",
+      "field": [
+        {
+          "name": "interface",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "interface"
+        },
+        {
+          "name": "kind",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "kind"
+        },
+        {
+          "name": "address",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "address"
+        }
+      ]
+    },
+    {
+      "name": "NamespaceFacts",
+      "field": [
+        {
+          "name": "key",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "key"
+        },
+        {
+          "name": "name",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "name"
+        },
+        {
+          "name": "labels",
+          "number": 3,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.NamespaceFacts.LabelsEntry",
+          "jsonName": "labels"
+        },
+        {
+          "name": "annotations",
+          "number": 4,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.NamespaceFacts.AnnotationsEntry",
+          "jsonName": "annotations"
+        }
+      ],
+      "nestedType": [
+        {
+          "name": "LabelsEntry",
+          "field": [
+            {
+              "name": "key",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING",
+              "jsonName": "key"
+            },
+            {
+              "name": "value",
+              "number": 2,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING",
+              "jsonName": "value"
+            }
+          ],
+          "options": {
+            "mapEntry": true
+          }
+        },
+        {
+          "name": "AnnotationsEntry",
+          "field": [
+            {
+              "name": "key",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING",
+              "jsonName": "key"
+            },
+            {
+              "name": "value",
+              "number": 2,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING",
+              "jsonName": "value"
+            }
+          ],
+          "options": {
+            "mapEntry": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "ContainerImage",
+      "field": [
+        {
+          "name": "image",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "image"
+        },
+        {
+          "name": "digest",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "digest"
+        }
+      ]
+    },
+    {
+      "name": "WorkloadFacts",
+      "field": [
+        {
+          "name": "key",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "key"
+        },
+        {
+          "name": "namespace",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "namespace"
+        },
+        {
+          "name": "kind",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "kind"
+        },
+        {
+          "name": "name",
+          "number": 4,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "name"
+        },
+        {
+          "name": "replicas",
+          "number": 5,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_INT32",
+          "jsonName": "replicas"
+        },
+        {
+          "name": "ready_replicas",
+          "number": 6,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_INT32",
+          "jsonName": "readyReplicas"
+        },
+        {
+          "name": "images",
+          "number": 7,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.ContainerImage",
+          "jsonName": "images"
+        },
+        {
+          "name": "labels",
+          "number": 8,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.WorkloadFacts.LabelsEntry",
+          "jsonName": "labels"
+        },
+        {
+          "name": "annotations",
+          "number": 9,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.WorkloadFacts.AnnotationsEntry",
+          "jsonName": "annotations"
+        },
+        {
+          "name": "node_names",
+          "number": 10,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_STRING",
+          "jsonName": "nodeNames"
+        },
+        {
+          "name": "cpu_request_millis",
+          "number": 11,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_INT64",
+          "jsonName": "cpuRequestMillis"
+        },
+        {
+          "name": "memory_request_bytes",
+          "number": 12,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_INT64",
+          "jsonName": "memoryRequestBytes"
+        },
+        {
+          "name": "cpu_limit_millis",
+          "number": 13,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_INT64",
+          "jsonName": "cpuLimitMillis"
+        },
+        {
+          "name": "memory_limit_bytes",
+          "number": 14,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_INT64",
+          "jsonName": "memoryLimitBytes"
+        },
+        {
+          "name": "ports",
+          "number": 15,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_INT32",
+          "jsonName": "ports"
+        },
+        {
+          "name": "exposure",
+          "number": 16,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "exposure"
+        },
+        {
+          "name": "hosts",
+          "number": 17,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_STRING",
+          "jsonName": "hosts"
+        },
+        {
+          "name": "node_selector",
+          "number": 18,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.WorkloadFacts.NodeSelectorEntry",
+          "jsonName": "nodeSelector"
+        },
+        {
+          "name": "tolerations",
+          "number": 19,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_STRING",
+          "jsonName": "tolerations"
+        },
+        {
+          "name": "restarts",
+          "number": 20,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_INT32",
+          "jsonName": "restarts"
+        },
+        {
+          "name": "created_at",
+          "number": 21,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".google.protobuf.Timestamp",
+          "jsonName": "createdAt"
+        },
+        {
+          "name": "volume_claims",
+          "number": 22,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.VolumeClaim",
+          "jsonName": "volumeClaims"
+        },
+        {
+          "name": "autoscaler",
+          "number": 23,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.Autoscaler",
+          "jsonName": "autoscaler"
+        },
+        {
+          "name": "disruption",
+          "number": 24,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.Disruption",
+          "jsonName": "disruption"
+        },
+        {
+          "name": "reachable",
+          "number": 25,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.Address",
+          "jsonName": "reachable"
+        },
+        {
+          "name": "mesh",
+          "number": 26,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.WorkloadMesh",
+          "jsonName": "mesh"
+        },
+        {
+          "name": "oom_kills",
+          "number": 27,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_INT32",
+          "jsonName": "oomKills"
+        },
+        {
+          "name": "pods",
+          "number": 28,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.PodFacts",
+          "jsonName": "pods"
+        }
+      ],
+      "nestedType": [
+        {
+          "name": "LabelsEntry",
+          "field": [
+            {
+              "name": "key",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING",
+              "jsonName": "key"
+            },
+            {
+              "name": "value",
+              "number": 2,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING",
+              "jsonName": "value"
+            }
+          ],
+          "options": {
+            "mapEntry": true
+          }
+        },
+        {
+          "name": "AnnotationsEntry",
+          "field": [
+            {
+              "name": "key",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING",
+              "jsonName": "key"
+            },
+            {
+              "name": "value",
+              "number": 2,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING",
+              "jsonName": "value"
+            }
+          ],
+          "options": {
+            "mapEntry": true
+          }
+        },
+        {
+          "name": "NodeSelectorEntry",
+          "field": [
+            {
+              "name": "key",
+              "number": 1,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING",
+              "jsonName": "key"
+            },
+            {
+              "name": "value",
+              "number": 2,
+              "label": "LABEL_OPTIONAL",
+              "type": "TYPE_STRING",
+              "jsonName": "value"
+            }
+          ],
+          "options": {
+            "mapEntry": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "PodFacts",
+      "field": [
+        {
+          "name": "name",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "name"
+        },
+        {
+          "name": "node_name",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "nodeName"
+        },
+        {
+          "name": "phase",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "phase"
+        },
+        {
+          "name": "ready",
+          "number": 4,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_BOOL",
+          "jsonName": "ready"
+        },
+        {
+          "name": "restarts",
+          "number": 5,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_INT32",
+          "jsonName": "restarts"
+        },
+        {
+          "name": "created_at",
+          "number": 6,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".google.protobuf.Timestamp",
+          "jsonName": "createdAt"
+        }
+      ]
+    },
+    {
+      "name": "Address",
+      "field": [
+        {
+          "name": "ip",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "ip"
+        },
+        {
+          "name": "port",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_INT32",
+          "jsonName": "port"
+        },
+        {
+          "name": "kind",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "kind"
+        }
+      ]
+    },
+    {
+      "name": "VolumeClaim",
+      "field": [
+        {
+          "name": "name",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "name"
+        },
+        {
+          "name": "storage_class",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "storageClass"
+        },
+        {
+          "name": "requested_bytes",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_INT64",
+          "jsonName": "requestedBytes"
+        },
+        {
+          "name": "access_modes",
+          "number": 4,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_STRING",
+          "jsonName": "accessModes"
+        },
+        {
+          "name": "phase",
+          "number": 5,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "phase"
+        },
+        {
+          "name": "pinned_nodes",
+          "number": 6,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_STRING",
+          "jsonName": "pinnedNodes"
+        }
+      ]
+    },
+    {
+      "name": "Autoscaler",
+      "field": [
+        {
+          "name": "min_replicas",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_INT32",
+          "jsonName": "minReplicas"
+        },
+        {
+          "name": "max_replicas",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_INT32",
+          "jsonName": "maxReplicas"
+        },
+        {
+          "name": "current_replicas",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_INT32",
+          "jsonName": "currentReplicas"
+        },
+        {
+          "name": "targets",
+          "number": 4,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_STRING",
+          "jsonName": "targets"
+        }
+      ]
+    },
+    {
+      "name": "Disruption",
+      "field": [
+        {
+          "name": "min_available",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "minAvailable"
+        },
+        {
+          "name": "max_unavailable",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "maxUnavailable"
+        },
+        {
+          "name": "disruptions_allowed",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_INT32",
+          "jsonName": "disruptionsAllowed"
+        }
+      ]
+    },
+    {
+      "name": "ServerMessage",
+      "field": [
+        {
+          "name": "ack",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.Ack",
+          "oneofIndex": 0,
+          "jsonName": "ack"
+        },
+        {
+          "name": "config",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.Config",
+          "oneofIndex": 0,
+          "jsonName": "config"
+        },
+        {
+          "name": "revoked",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.Revoked",
+          "oneofIndex": 0,
+          "jsonName": "revoked"
+        }
+      ],
+      "oneofDecl": [
+        {
+          "name": "msg"
+        }
+      ]
+    },
+    {
+      "name": "Ack",
+      "field": [
+        {
+          "name": "seq",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT64",
+          "jsonName": "seq"
+        }
+      ]
+    },
+    {
+      "name": "Config",
+      "field": [
+        {
+          "name": "approved_access_tier",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "jsonName": "approvedAccessTier"
+        },
+        {
+          "name": "heartbeat_seconds",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_INT32",
+          "jsonName": "heartbeatSeconds"
+        },
+        {
+          "name": "probe_targets",
+          "number": 3,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.ProbeTarget",
+          "jsonName": "probeTargets"
+        },
+        {
+          "name": "measure_seconds",
+          "number": 4,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_INT32",
+          "jsonName": "measureSeconds"
+        },
+        {
+          "name": "resync_seconds",
+          "number": 5,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_INT32",
+          "jsonName": "resyncSeconds"
+        },
+        {
+          "name": "server_time_unix",
+          "number": 6,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_INT64",
+          "jsonName": "serverTimeUnix"
+        },
+        {
+          "name": "paused_collectors",
+          "number": 7,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_STRING",
+          "jsonName": "pausedCollectors"
+        },
+        {
+          "name": "excluded_namespaces",
+          "number": 8,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_STRING",
+          "jsonName": "excludedNamespaces"
+        },
+        {
+          "name": "cluster_id",
+          "number": 9,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "clusterId"
+        },
+        {
+          "name": "link_peers",
+          "number": 10,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.LinkPeer",
+          "jsonName": "linkPeers"
+        },
+        {
+          "name": "link_iperf_server",
+          "number": 11,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.LinkIperfServer",
+          "jsonName": "linkIperfServer"
+        },
+        {
+          "name": "digest",
+          "number": 12,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "digest"
+        }
+      ]
+    },
+    {
+      "name": "LinkPeer",
+      "field": [
+        {
+          "name": "cluster_id",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "clusterId"
+        },
+        {
+          "name": "name",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "name"
+        },
+        {
+          "name": "addresses",
+          "number": 3,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_STRING",
+          "jsonName": "addresses"
+        },
+        {
+          "name": "no_probe",
+          "number": 4,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_BOOL",
+          "jsonName": "noProbe"
+        },
+        {
+          "name": "throughput",
+          "number": 5,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_BOOL",
+          "jsonName": "throughput"
+        },
+        {
+          "name": "throughput_interval_seconds",
+          "number": 6,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "jsonName": "throughputIntervalSeconds"
+        },
+        {
+          "name": "throughput_budget_bytes",
+          "number": 7,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT64",
+          "jsonName": "throughputBudgetBytes"
+        },
+        {
+          "name": "skip_probe",
+          "number": 8,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_BOOL",
+          "jsonName": "skipProbe"
+        },
+        {
+          "name": "via",
+          "number": 9,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "via"
+        },
+        {
+          "name": "iperf_client",
+          "number": 10,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.LinkIperfClient",
+          "jsonName": "iperfClient"
+        }
+      ]
+    },
+    {
+      "name": "ProbeTarget",
+      "field": [
+        {
+          "name": "id",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "id"
+        },
+        {
+          "name": "host",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "host"
+        },
+        {
+          "name": "port",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "jsonName": "port"
+        }
+      ]
+    },
+    {
+      "name": "PathResult",
+      "field": [
+        {
+          "name": "target_id",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "targetId"
+        },
+        {
+          "name": "samples",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "jsonName": "samples"
+        },
+        {
+          "name": "failed",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "jsonName": "failed"
+        },
+        {
+          "name": "rtt_min_ms",
+          "number": 4,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_DOUBLE",
+          "jsonName": "rttMinMs"
+        },
+        {
+          "name": "rtt_p50_ms",
+          "number": 5,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_DOUBLE",
+          "jsonName": "rttP50Ms"
+        },
+        {
+          "name": "rtt_p95_ms",
+          "number": 6,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_DOUBLE",
+          "jsonName": "rttP95Ms"
+        }
+      ]
+    },
+    {
+      "name": "Measurements",
+      "field": [
+        {
+          "name": "results",
+          "number": 1,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.PathResult",
+          "jsonName": "results"
+        },
+        {
+          "name": "refused",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "jsonName": "refused"
+        }
+      ]
+    },
+    {
+      "name": "Revoked",
+      "field": [
+        {
+          "name": "reason",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "reason"
+        }
+      ]
+    },
+    {
+      "name": "RawFlow",
+      "field": [
+        {
+          "name": "client",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_BOOL",
+          "jsonName": "client"
+        },
+        {
+          "name": "local_ip",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "localIp"
+        },
+        {
+          "name": "peer_ip",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "peerIp"
+        },
+        {
+          "name": "port",
+          "number": 4,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "jsonName": "port"
+        },
+        {
+          "name": "protocol",
+          "number": 5,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "protocol"
+        },
+        {
+          "name": "connections",
+          "number": 6,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT64",
+          "jsonName": "connections"
+        },
+        {
+          "name": "bytes_out",
+          "number": 7,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT64",
+          "jsonName": "bytesOut"
+        },
+        {
+          "name": "bytes_in",
+          "number": 8,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT64",
+          "jsonName": "bytesIn"
+        },
+        {
+          "name": "iface",
+          "number": 9,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "iface"
+        },
+        {
+          "name": "retransmits",
+          "number": 10,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "jsonName": "retransmits"
+        },
+        {
+          "name": "rto_retransmits",
+          "number": 27,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "jsonName": "rtoRetransmits"
+        },
+        {
+          "name": "rtt_us",
+          "number": 11,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "jsonName": "rttUs"
+        },
+        {
+          "name": "failed_attempts",
+          "number": 12,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT64",
+          "jsonName": "failedAttempts"
+        },
+        {
+          "name": "failed_refused",
+          "number": 13,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT64",
+          "jsonName": "failedRefused"
+        },
+        {
+          "name": "failed_timeout",
+          "number": 14,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT64",
+          "jsonName": "failedTimeout"
+        },
+        {
+          "name": "failed_reset",
+          "number": 15,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT64",
+          "jsonName": "failedReset"
+        },
+        {
+          "name": "failed_unreachable",
+          "number": 16,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT64",
+          "jsonName": "failedUnreachable"
+        },
+        {
+          "name": "sni_host",
+          "number": 17,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "sniHost"
+        },
+        {
+          "name": "dns_query_name",
+          "number": 18,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "dnsQueryName"
+        },
+        {
+          "name": "jitter_us",
+          "number": 19,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "jsonName": "jitterUs"
+        },
+        {
+          "name": "segs_out",
+          "number": 20,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "jsonName": "segsOut"
+        },
+        {
+          "name": "handshake_us",
+          "number": 21,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "jsonName": "handshakeUs"
+        },
+        {
+          "name": "cwnd",
+          "number": 22,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "jsonName": "cwnd"
+        },
+        {
+          "name": "pacing_bps",
+          "number": 23,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT64",
+          "jsonName": "pacingBps"
+        },
+        {
+          "name": "buffer_drops",
+          "number": 24,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "jsonName": "bufferDrops"
+        },
+        {
+          "name": "dns_rtt_us",
+          "number": 25,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "jsonName": "dnsRttUs"
+        },
+        {
+          "name": "mesh_bypass_syns",
+          "number": 26,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "jsonName": "meshBypassSyns"
+        },
+        {
+          "name": "mss_bytes",
+          "number": 28,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "jsonName": "mssBytes"
+        },
+        {
+          "name": "rcv_wnd_bytes",
+          "number": 29,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "oneofIndex": 0,
+          "jsonName": "rcvWndBytes",
+          "proto3Optional": true
+        },
+        {
+          "name": "snd_wnd_bytes",
+          "number": 30,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "oneofIndex": 1,
+          "jsonName": "sndWndBytes",
+          "proto3Optional": true
+        },
+        {
+          "name": "wmem_queued_bytes",
+          "number": 31,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "oneofIndex": 2,
+          "jsonName": "wmemQueuedBytes",
+          "proto3Optional": true
+        },
+        {
+          "name": "sndbuf_bytes",
+          "number": 32,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "oneofIndex": 3,
+          "jsonName": "sndbufBytes",
+          "proto3Optional": true
+        },
+        {
+          "name": "tls_handshake",
+          "number": 33,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_ENUM",
+          "typeName": ".continuum.v1.TlsHandshakeOutcome",
+          "jsonName": "tlsHandshake"
+        },
+        {
+          "name": "cgroup_id",
+          "number": 34,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT64",
+          "jsonName": "cgroupId"
+        }
+      ],
+      "oneofDecl": [
+        {
+          "name": "_rcv_wnd_bytes"
+        },
+        {
+          "name": "_snd_wnd_bytes"
+        },
+        {
+          "name": "_wmem_queued_bytes"
+        },
+        {
+          "name": "_sndbuf_bytes"
+        }
+      ]
+    },
+    {
+      "name": "LinkSaturation",
+      "field": [
+        {
+          "name": "iface",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "iface"
+        },
+        {
+          "name": "throughput_bps",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT64",
+          "jsonName": "throughputBps"
+        },
+        {
+          "name": "saturation_pct",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_DOUBLE",
+          "oneofIndex": 0,
+          "jsonName": "saturationPct",
+          "proto3Optional": true
+        }
+      ],
+      "oneofDecl": [
+        {
+          "name": "_saturation_pct"
+        }
+      ]
+    },
+    {
+      "name": "ThermalThrottle",
+      "field": [
+        {
+          "name": "cpu_freq_change_count",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT64",
+          "jsonName": "cpuFreqChangeCount"
+        },
+        {
+          "name": "thermal_trip_count",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT64",
+          "jsonName": "thermalTripCount"
+        }
+      ]
+    },
+    {
+      "name": "FlowReport",
+      "field": [
+        {
+          "name": "method",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "method"
+        },
+        {
+          "name": "node",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "node"
+        },
+        {
+          "name": "window_seconds",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_INT32",
+          "jsonName": "windowSeconds"
+        },
+        {
+          "name": "bytes_known",
+          "number": 4,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_BOOL",
+          "jsonName": "bytesKnown"
+        },
+        {
+          "name": "lost",
+          "number": 5,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT64",
+          "jsonName": "lost"
+        },
+        {
+          "name": "flows",
+          "number": 6,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.RawFlow",
+          "jsonName": "flows"
+        },
+        {
+          "name": "link_saturation",
+          "number": 7,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.LinkSaturation",
+          "jsonName": "linkSaturation"
+        },
+        {
+          "name": "snat_exhaustion",
+          "number": 8,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT64",
+          "jsonName": "snatExhaustion"
+        },
+        {
+          "name": "thermal_throttle",
+          "number": 9,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.ThermalThrottle",
+          "jsonName": "thermalThrottle"
+        }
+      ]
+    },
+    {
+      "name": "FlowEndpoint",
+      "field": [
+        {
+          "name": "kind",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_ENUM",
+          "typeName": ".continuum.v1.FlowEndpoint.Kind",
+          "jsonName": "kind"
+        },
+        {
+          "name": "ref",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "ref"
+        },
+        {
+          "name": "ip",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "ip"
+        }
+      ],
+      "enumType": [
+        {
+          "name": "Kind",
+          "value": [
+            {
+              "name": "UNRESOLVED",
+              "number": 0
+            },
+            {
+              "name": "WORKLOAD",
+              "number": 1
+            },
+            {
+              "name": "NODE",
+              "number": 2
+            },
+            {
+              "name": "EXTERNAL",
+              "number": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Flow",
+      "field": [
+        {
+          "name": "src",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.FlowEndpoint",
+          "jsonName": "src"
+        },
+        {
+          "name": "dst",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.FlowEndpoint",
+          "jsonName": "dst"
+        },
+        {
+          "name": "port",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "jsonName": "port"
+        },
+        {
+          "name": "protocol",
+          "number": 4,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "protocol"
+        },
+        {
+          "name": "connections",
+          "number": 5,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT64",
+          "jsonName": "connections"
+        },
+        {
+          "name": "bytes_out",
+          "number": 6,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT64",
+          "jsonName": "bytesOut"
+        },
+        {
+          "name": "bytes_in",
+          "number": 7,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT64",
+          "jsonName": "bytesIn"
+        },
+        {
+          "name": "method",
+          "number": 8,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "method"
+        },
+        {
+          "name": "bytes_known",
+          "number": 9,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_BOOL",
+          "jsonName": "bytesKnown"
+        },
+        {
+          "name": "noise",
+          "number": 10,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "noise"
+        },
+        {
+          "name": "iface",
+          "number": 11,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "iface"
+        },
+        {
+          "name": "retransmits",
+          "number": 12,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT64",
+          "jsonName": "retransmits"
+        },
+        {
+          "name": "rtt_us",
+          "number": 13,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "jsonName": "rttUs"
+        },
+        {
+          "name": "failed_attempts",
+          "number": 14,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT64",
+          "jsonName": "failedAttempts"
+        },
+        {
+          "name": "sni_host",
+          "number": 15,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "sniHost"
+        },
+        {
+          "name": "dns_query_names",
+          "number": 16,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_STRING",
+          "jsonName": "dnsQueryNames"
+        },
+        {
+          "name": "jitter_us",
+          "number": 17,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "jsonName": "jitterUs"
+        },
+        {
+          "name": "segs_out",
+          "number": 18,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "jsonName": "segsOut"
+        },
+        {
+          "name": "handshake_us",
+          "number": 19,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "jsonName": "handshakeUs"
+        },
+        {
+          "name": "cwnd",
+          "number": 20,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "jsonName": "cwnd"
+        },
+        {
+          "name": "pacing_bps",
+          "number": 21,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT64",
+          "jsonName": "pacingBps"
+        },
+        {
+          "name": "buffer_drops",
+          "number": 22,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "jsonName": "bufferDrops"
+        },
+        {
+          "name": "dns_rtt_us",
+          "number": 23,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "jsonName": "dnsRttUs"
+        },
+        {
+          "name": "src_pod",
+          "number": 24,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "srcPod"
+        },
+        {
+          "name": "dst_pod",
+          "number": 25,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "dstPod"
+        },
+        {
+          "name": "mesh_bypass_syns",
+          "number": 26,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "jsonName": "meshBypassSyns"
+        },
+        {
+          "name": "rto_retransmits",
+          "number": 27,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "jsonName": "rtoRetransmits"
+        },
+        {
+          "name": "mss_bytes",
+          "number": 28,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "jsonName": "mssBytes"
+        },
+        {
+          "name": "rcv_wnd_bytes",
+          "number": 29,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "oneofIndex": 0,
+          "jsonName": "rcvWndBytes",
+          "proto3Optional": true
+        },
+        {
+          "name": "snd_wnd_bytes",
+          "number": 30,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "oneofIndex": 1,
+          "jsonName": "sndWndBytes",
+          "proto3Optional": true
+        },
+        {
+          "name": "wmem_queued_bytes",
+          "number": 31,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "oneofIndex": 2,
+          "jsonName": "wmemQueuedBytes",
+          "proto3Optional": true
+        },
+        {
+          "name": "sndbuf_bytes",
+          "number": 32,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "oneofIndex": 3,
+          "jsonName": "sndbufBytes",
+          "proto3Optional": true
+        },
+        {
+          "name": "tls_handshake",
+          "number": 33,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_ENUM",
+          "typeName": ".continuum.v1.TlsHandshakeOutcome",
+          "jsonName": "tlsHandshake"
+        },
+        {
+          "name": "cgroup_id",
+          "number": 34,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT64",
+          "jsonName": "cgroupId"
+        }
+      ],
+      "oneofDecl": [
+        {
+          "name": "_rcv_wnd_bytes"
+        },
+        {
+          "name": "_snd_wnd_bytes"
+        },
+        {
+          "name": "_wmem_queued_bytes"
+        },
+        {
+          "name": "_sndbuf_bytes"
+        }
+      ]
+    },
+    {
+      "name": "CollectorInfo",
+      "field": [
+        {
+          "name": "node",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "node"
+        },
+        {
+          "name": "method",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "method"
+        },
+        {
+          "name": "bytes_known",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_BOOL",
+          "jsonName": "bytesKnown"
+        },
+        {
+          "name": "link_saturation",
+          "number": 4,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.LinkSaturation",
+          "jsonName": "linkSaturation"
+        },
+        {
+          "name": "snat_exhaustion",
+          "number": 5,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT64",
+          "jsonName": "snatExhaustion"
+        },
+        {
+          "name": "thermal_throttle",
+          "number": 6,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.ThermalThrottle",
+          "jsonName": "thermalThrottle"
+        }
+      ]
+    },
+    {
+      "name": "FlowBatch",
+      "field": [
+        {
+          "name": "seq",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT64",
+          "jsonName": "seq"
+        },
+        {
+          "name": "window_seconds",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_INT32",
+          "jsonName": "windowSeconds"
+        },
+        {
+          "name": "lost",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT64",
+          "jsonName": "lost"
+        },
+        {
+          "name": "flows",
+          "number": 4,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.Flow",
+          "jsonName": "flows"
+        },
+        {
+          "name": "collectors",
+          "number": 5,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.CollectorInfo",
+          "jsonName": "collectors"
+        },
+        {
+          "name": "pod_flows",
+          "number": 6,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.Flow",
+          "jsonName": "podFlows"
+        }
+      ]
+    },
+    {
+      "name": "FlowEdge",
+      "field": [
+        {
+          "name": "key",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.Flow",
+          "jsonName": "key"
+        },
+        {
+          "name": "first_seen",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".google.protobuf.Timestamp",
+          "jsonName": "firstSeen"
+        },
+        {
+          "name": "last_seen",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".google.protobuf.Timestamp",
+          "jsonName": "lastSeen"
+        },
+        {
+          "name": "connections",
+          "number": 4,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT64",
+          "jsonName": "connections"
+        },
+        {
+          "name": "bytes_out",
+          "number": 5,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT64",
+          "jsonName": "bytesOut"
+        },
+        {
+          "name": "bytes_in",
+          "number": 6,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT64",
+          "jsonName": "bytesIn"
+        },
+        {
+          "name": "window_seconds",
+          "number": 7,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_INT32",
+          "jsonName": "windowSeconds"
+        },
+        {
+          "name": "window_connections",
+          "number": 8,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT64",
+          "jsonName": "windowConnections"
+        },
+        {
+          "name": "window_bytes",
+          "number": 9,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT64",
+          "jsonName": "windowBytes"
+        },
+        {
+          "name": "retransmits",
+          "number": 10,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT64",
+          "jsonName": "retransmits"
+        },
+        {
+          "name": "window_retransmits",
+          "number": 11,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT64",
+          "jsonName": "windowRetransmits"
+        },
+        {
+          "name": "failed_attempts",
+          "number": 12,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT64",
+          "jsonName": "failedAttempts"
+        },
+        {
+          "name": "window_failed_attempts",
+          "number": 13,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT64",
+          "jsonName": "windowFailedAttempts"
+        },
+        {
+          "name": "dns_query_names",
+          "number": 14,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_STRING",
+          "jsonName": "dnsQueryNames"
+        },
+        {
+          "name": "segs_out",
+          "number": 15,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT64",
+          "jsonName": "segsOut"
+        },
+        {
+          "name": "window_segs_out",
+          "number": 16,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT64",
+          "jsonName": "windowSegsOut"
+        },
+        {
+          "name": "buffer_drops",
+          "number": 17,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT64",
+          "jsonName": "bufferDrops"
+        },
+        {
+          "name": "window_buffer_drops",
+          "number": 18,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT64",
+          "jsonName": "windowBufferDrops"
+        },
+        {
+          "name": "mesh_bypass_syns",
+          "number": 19,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT64",
+          "jsonName": "meshBypassSyns"
+        },
+        {
+          "name": "window_mesh_bypass_syns",
+          "number": 20,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT64",
+          "jsonName": "windowMeshBypassSyns"
+        },
+        {
+          "name": "rto_retransmits",
+          "number": 21,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT64",
+          "jsonName": "rtoRetransmits"
+        },
+        {
+          "name": "window_rto_retransmits",
+          "number": 22,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT64",
+          "jsonName": "windowRtoRetransmits"
+        }
+      ]
+    },
+    {
+      "name": "FlowTable",
+      "field": [
+        {
+          "name": "edges",
+          "number": 1,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.FlowEdge",
+          "jsonName": "edges"
+        }
+      ]
+    },
+    {
+      "name": "Diagnostics",
+      "field": [
+        {
+          "name": "agent_version",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "agentVersion"
+        },
+        {
+          "name": "arch",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "arch"
+        },
+        {
+          "name": "os",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "os"
+        },
+        {
+          "name": "uptime_seconds",
+          "number": 4,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_INT64",
+          "jsonName": "uptimeSeconds"
+        },
+        {
+          "name": "installed_tier",
+          "number": 5,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "jsonName": "installedTier"
+        },
+        {
+          "name": "effective_tier",
+          "number": 6,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "jsonName": "effectiveTier"
+        },
+        {
+          "name": "approved_tier",
+          "number": 7,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "jsonName": "approvedTier"
+        },
+        {
+          "name": "scope",
+          "number": 8,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.ScopeFacts",
+          "jsonName": "scope"
+        },
+        {
+          "name": "collectors",
+          "number": 9,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.CollectorDiag",
+          "jsonName": "collectors"
+        },
+        {
+          "name": "informers",
+          "number": 10,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.InformerDiag",
+          "jsonName": "informers"
+        },
+        {
+          "name": "problems",
+          "number": 11,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.Problem",
+          "jsonName": "problems"
+        },
+        {
+          "name": "paused_collectors",
+          "number": 12,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_STRING",
+          "jsonName": "pausedCollectors"
+        },
+        {
+          "name": "excluded_namespaces",
+          "number": 13,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "jsonName": "excludedNamespaces"
+        },
+        {
+          "name": "flow_dropped",
+          "number": 14,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT64",
+          "jsonName": "flowDropped"
+        },
+        {
+          "name": "generated_at",
+          "number": 15,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".google.protobuf.Timestamp",
+          "jsonName": "generatedAt"
+        },
+        {
+          "name": "own_excluded_namespaces",
+          "number": 16,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "jsonName": "ownExcludedNamespaces"
+        },
+        {
+          "name": "installed_telemetry_signals",
+          "number": 17,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_STRING",
+          "jsonName": "installedTelemetrySignals"
+        },
+        {
+          "name": "installed_telemetry_config",
+          "number": 18,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.InstalledTelemetryConfig",
+          "jsonName": "installedTelemetryConfig"
+        },
+        {
+          "name": "export_health",
+          "number": 19,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.ExportHealth",
+          "jsonName": "exportHealth"
+        }
+      ]
+    },
+    {
+      "name": "ExportHealth",
+      "field": [
+        {
+          "name": "scraped_at",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".google.protobuf.Timestamp",
+          "jsonName": "scrapedAt"
+        },
+        {
+          "name": "pods_reached",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "jsonName": "podsReached"
+        },
+        {
+          "name": "pods_failed",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "jsonName": "podsFailed"
+        },
+        {
+          "name": "last_error",
+          "number": 4,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "lastError"
+        },
+        {
+          "name": "routes",
+          "number": 5,
+          "label": "LABEL_REPEATED",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".continuum.v1.ExportRouteHealth",
+          "jsonName": "routes"
+        }
+      ]
+    },
+    {
+      "name": "ExportRouteHealth",
+      "field": [
+        {
+          "name": "exporter",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "exporter"
+        },
+        {
+          "name": "signal",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "signal"
+        },
+        {
+          "name": "state",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_ENUM",
+          "typeName": ".continuum.v1.ExportRouteHealth.State",
+          "jsonName": "state"
+        },
+        {
+          "name": "sent",
+          "number": 4,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT64",
+          "jsonName": "sent"
+        },
+        {
+          "name": "failed",
+          "number": 5,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT64",
+          "jsonName": "failed"
+        },
+        {
+          "name": "last_sent_at",
+          "number": 6,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".google.protobuf.Timestamp",
+          "jsonName": "lastSentAt"
+        },
+        {
+          "name": "last_failed_at",
+          "number": 7,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".google.protobuf.Timestamp",
+          "jsonName": "lastFailedAt"
+        }
+      ],
+      "enumType": [
+        {
+          "name": "State",
+          "value": [
+            {
+              "name": "WAITING",
+              "number": 0
+            },
+            {
+              "name": "EXPORTING",
+              "number": 1
+            },
+            {
+              "name": "SILENT",
+              "number": 2
+            },
+            {
+              "name": "FAILING",
+              "number": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "InstalledTelemetryConfig",
+      "field": [
+        {
+          "name": "export_endpoint",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "exportEndpoint"
+        },
+        {
+          "name": "redaction_enabled",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_BOOL",
+          "jsonName": "redactionEnabled"
+        },
+        {
+          "name": "resource_detection_enabled",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_BOOL",
+          "jsonName": "resourceDetectionEnabled"
+        },
+        {
+          "name": "traces_sampling_percentage",
+          "number": 4,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "oneofIndex": 0,
+          "jsonName": "tracesSamplingPercentage",
+          "proto3Optional": true
+        },
+        {
+          "name": "energy_source",
+          "number": 5,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "oneofIndex": 1,
+          "jsonName": "energySource",
+          "proto3Optional": true
+        },
+        {
+          "name": "accelerators_source",
+          "number": 6,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "oneofIndex": 2,
+          "jsonName": "acceleratorsSource",
+          "proto3Optional": true
+        }
+      ],
+      "oneofDecl": [
+        {
+          "name": "_traces_sampling_percentage"
+        },
+        {
+          "name": "_energy_source"
+        },
+        {
+          "name": "_accelerators_source"
+        }
+      ]
+    },
+    {
+      "name": "CollectorDiag",
+      "field": [
+        {
+          "name": "name",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "name"
+        },
+        {
+          "name": "configured",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_BOOL",
+          "jsonName": "configured"
+        },
+        {
+          "name": "enabled",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_BOOL",
+          "jsonName": "enabled"
+        },
+        {
+          "name": "paused_by_server",
+          "number": 4,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_BOOL",
+          "jsonName": "pausedByServer"
+        },
+        {
+          "name": "producing",
+          "number": 5,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_BOOL",
+          "jsonName": "producing"
+        },
+        {
+          "name": "reporting",
+          "number": 6,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "jsonName": "reporting"
+        },
+        {
+          "name": "expected",
+          "number": 7,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "jsonName": "expected"
+        },
+        {
+          "name": "note",
+          "number": 8,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "note"
+        },
+        {
+          "name": "last_data",
+          "number": 9,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".google.protobuf.Timestamp",
+          "jsonName": "lastData"
+        }
+      ]
+    },
+    {
+      "name": "InformerDiag",
+      "field": [
+        {
+          "name": "name",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "name"
+        },
+        {
+          "name": "synced",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_BOOL",
+          "jsonName": "synced"
+        },
+        {
+          "name": "last_error",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "lastError"
+        },
+        {
+          "name": "objects",
+          "number": 4,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_INT64",
+          "jsonName": "objects"
+        },
+        {
+          "name": "module",
+          "number": 5,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "module"
+        }
+      ]
+    },
+    {
+      "name": "Problem",
+      "field": [
+        {
+          "name": "code",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "code"
+        },
+        {
+          "name": "severity",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_ENUM",
+          "typeName": ".continuum.v1.Problem.Severity",
+          "jsonName": "severity"
+        },
+        {
+          "name": "message",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "message"
+        },
+        {
+          "name": "since",
+          "number": 4,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_MESSAGE",
+          "typeName": ".google.protobuf.Timestamp",
+          "jsonName": "since"
+        }
+      ],
+      "enumType": [
+        {
+          "name": "Severity",
+          "value": [
+            {
+              "name": "INFO",
+              "number": 0
+            },
+            {
+              "name": "WARN",
+              "number": 1
+            },
+            {
+              "name": "ERROR",
+              "number": 2
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "SelfStats",
+      "field": [
+        {
+          "name": "rss_bytes",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT64",
+          "jsonName": "rssBytes"
+        },
+        {
+          "name": "goroutines",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "jsonName": "goroutines"
+        },
+        {
+          "name": "cpu_seconds",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_DOUBLE",
+          "jsonName": "cpuSeconds"
+        },
+        {
+          "name": "flow_interval_seconds",
+          "number": 4,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "jsonName": "flowIntervalSeconds"
+        },
+        {
+          "name": "probe_interval_seconds",
+          "number": 5,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "jsonName": "probeIntervalSeconds"
+        },
+        {
+          "name": "last_flow_batch_flows",
+          "number": 6,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "jsonName": "lastFlowBatchFlows"
+        },
+        {
+          "name": "last_flow_batch_bytes",
+          "number": 7,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_UINT32",
+          "jsonName": "lastFlowBatchBytes"
+        }
+      ]
+    },
+    {
+      "name": "LinkCapabilities",
+      "field": [
+        {
+          "name": "link_metrics",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_BOOL",
+          "jsonName": "linkMetrics"
+        },
+        {
+          "name": "probe_enabled",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_BOOL",
+          "jsonName": "probeEnabled"
+        },
+        {
+          "name": "prober_seen_unix",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_INT64",
+          "jsonName": "proberSeenUnix"
+        },
+        {
+          "name": "capacity_enabled",
+          "number": 4,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_BOOL",
+          "jsonName": "capacityEnabled"
+        },
+        {
+          "name": "telemetry_export",
+          "number": 5,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_BOOL",
+          "jsonName": "telemetryExport"
+        }
+      ]
+    },
+    {
+      "name": "LinkIperfServer",
+      "field": [
+        {
+          "name": "private_key_pem",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "privateKeyPem"
+        },
+        {
+          "name": "users_csv",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "usersCsv"
+        }
+      ]
+    },
+    {
+      "name": "LinkIperfClient",
+      "field": [
+        {
+          "name": "public_key_pem",
+          "number": 1,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "publicKeyPem"
+        },
+        {
+          "name": "username",
+          "number": 2,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "username"
+        },
+        {
+          "name": "password",
+          "number": 3,
+          "label": "LABEL_OPTIONAL",
+          "type": "TYPE_STRING",
+          "jsonName": "password"
+        }
+      ]
+    }
+  ],
+  "enumType": [
+    {
+      "name": "TlsHandshakeOutcome",
+      "value": [
+        {
+          "name": "TLS_HANDSHAKE_OUTCOME_UNKNOWN",
+          "number": 0
+        },
+        {
+          "name": "TLS_HANDSHAKE_OUTCOME_FAILED",
+          "number": 1
+        },
+        {
+          "name": "TLS_HANDSHAKE_OUTCOME_OK",
+          "number": 2
+        }
+      ]
+    }
+  ],
+  "service": [
+    {
+      "name": "Enrollment",
+      "method": [
+        {
+          "name": "Enroll",
+          "inputType": ".continuum.v1.EnrollRequest",
+          "outputType": ".continuum.v1.EnrollResponse"
+        },
+        {
+          "name": "PollEnrollment",
+          "inputType": ".continuum.v1.PollRequest",
+          "outputType": ".continuum.v1.PollResponse"
+        },
+        {
+          "name": "Rejoin",
+          "inputType": ".continuum.v1.RejoinRequest",
+          "outputType": ".continuum.v1.RenewResponse"
+        },
+        {
+          "name": "RenewTelemetryCert",
+          "inputType": ".continuum.v1.RenewTelemetryCertRequest",
+          "outputType": ".continuum.v1.RenewTelemetryCertResponse"
+        }
+      ]
+    },
+    {
+      "name": "AgentService",
+      "method": [
+        {
+          "name": "Connect",
+          "inputType": ".continuum.v1.AgentMessage",
+          "outputType": ".continuum.v1.ServerMessage",
+          "clientStreaming": true,
+          "serverStreaming": true
+        },
+        {
+          "name": "Renew",
+          "inputType": ".continuum.v1.RenewRequest",
+          "outputType": ".continuum.v1.RenewResponse"
+        }
+      ]
+    }
+  ],
+  "options": {
+    "goPackage": "continuum/gen/continuumv1;continuumv1"
+  },
+  "syntax": "proto3"
+}
