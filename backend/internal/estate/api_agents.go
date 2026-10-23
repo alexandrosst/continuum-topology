@@ -139,7 +139,7 @@ func (h *API) createToken(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	extra, err := installChoices(req.Tier, req.Collectors, req.Scope)
+	extra, err := installChoices(req.Tier, req.Collectors, req.Scope, req.PurgeIdentity)
 	if err != nil {
 		h.fail(w, r, err)
 		return

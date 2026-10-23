@@ -38,6 +38,7 @@ const sidebars: SidebarsConfig = {
         'architecture/fusion-api',
         'architecture/fusion-grafana',
         'architecture/regional-operators-lifecycle',
+        'architecture/lifecycle',
         'architecture/system-memory',
         'architecture/exposure-options',
       ],

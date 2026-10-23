@@ -24,7 +24,7 @@ vi.mock('@/lib/api', async (importOriginal) => {
   return { ...actual, api: { ...actual.api, createToken: (...a: unknown[]) => createToken(...a) } }
 })
 
-const NONE = { collectors: { nodeProbe: false, flowObserver: false, measurements: false }, scope: { namespaces: [], exclude: [], selector: '' } }
+const NONE = { collectors: { nodeProbe: false, flowObserver: false, measurements: false }, scope: { namespaces: [], exclude: [], selector: '' }, purgeIdentity: false }
 const SERVED = 'helm install ikhnos-agent oci://r.example/ikhnos-agent \\\n  --namespace ikhnos-system \\\n  --set enrollment.key=PIN.ikh_x'
 
 beforeEach(() => {
@@ -74,6 +74,7 @@ describe('ConnectClusterWizard: what is sent for the command', () => {
     expect(createToken).toHaveBeenCalledWith(CONN, 'cluster-1', 2, {
       collectors: { nodeProbe: true, flowObserver: true, measurements: true },
       scope: { namespaces: ['shop', 'pay'], exclude: ['pay-test'], selector: 'ikhnos.io/scope=yes' },
+      purgeIdentity: false,
     })
   })
 
@@ -89,7 +90,18 @@ describe('ConnectClusterWizard: what is sent for the command', () => {
     await user.click(screen.getByTestId('wizard-tier-1'))
     await create(user)
     await waitFor(() => expect(createToken).toHaveBeenCalledTimes(1))
-    expect(createToken).toHaveBeenCalledWith(CONN, 'cluster-1', 1, { collectors: { nodeProbe: true, flowObserver: false, measurements: false }, scope: NONE.scope })
+    expect(createToken).toHaveBeenCalledWith(CONN, 'cluster-1', 1, { collectors: { nodeProbe: true, flowObserver: false, measurements: false }, scope: NONE.scope, purgeIdentity: false })
+  })
+
+  test('the identity is only asked to be deleted at uninstall when that was ticked', async () => {
+    const user = userEvent.setup()
+    wizard()
+    await open(user)
+    expect(screen.getByTestId('purge-identity-toggle')).not.toBeChecked()
+    await user.click(screen.getByTestId('purge-identity-toggle'))
+    await create(user)
+    await waitFor(() => expect(createToken).toHaveBeenCalledTimes(1))
+    expect(createToken.mock.calls[0][3].purgeIdentity).toBe(true)
   })
 
   test('a node probe asked for by the page that opened this is on from the start', async () => {

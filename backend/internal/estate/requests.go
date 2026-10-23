@@ -15,6 +15,9 @@ type createTokenRequest struct {
 	// parts of the command and of nothing else: the token does not record them.
 	Collectors install.Collectors `json:"collectors"`
 	Scope      install.Scope      `json:"scope"`
+	// PurgeIdentity asks the install to delete the agent's identity Secret when the release is uninstalled (a post-delete hook in the
+	// chart). Helm uninstall takes no values, so this has to be chosen when the agent is installed; an upgrade keeps it.
+	PurgeIdentity bool `json:"purgeIdentity"`
 }
 
 // approveAgentRequest is the body of POST /agents/{id}/approve.

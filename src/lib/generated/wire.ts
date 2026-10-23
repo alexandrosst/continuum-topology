@@ -1012,6 +1012,7 @@ export interface EstateCreateTokenRequest {
   expectedCluster: string
   collectors: Collectors
   scope: Scope
+  purgeIdentity: boolean
 }
 
 export interface EstateCreatedTokenDoc {

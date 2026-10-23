@@ -102,6 +102,12 @@ name and namespace finds its identity again. To remove that too:
 kubectl -n <namespace> delete secret ikhnos-agent-identity
 ```
 
+To have `helm uninstall` remove it as well, install (or upgrade) with `--set identity.purgeOnUninstall=true`. A post-delete hook then runs a
+short Job (`ikhnos purge-identity`) with a Role of its own that can read and delete that one Secret and nothing else, and removes the Role and
+the Job again when it has finished; a failed Job stays, for `kubectl logs`, and fails the uninstall. The agent is not coming back under that
+identity, so remove its record in Ikhnos too. `helm uninstall --no-hooks` skips the hook, as it skips every hook. Leave the option off when an
+uninstall might be a mistake: the kept Secret is what lets a reinstall pick the same agent up.
+
 Ikhnos's server keeps its record of this cluster until you remove it on the Discovery page — uninstalling
 the chart does not do that for you.
 

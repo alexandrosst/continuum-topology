@@ -42,6 +42,16 @@
         }
       }
     },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "purgeOnUninstall": {
+          "type": "boolean",
+          "description": "true: helm uninstall also deletes the identity Secret, through a post-delete hook limited to that one Secret. false (default): the Secret stays, so an uninstall by mistake does not cost the agent its identity."
+        }
+      }
+    },
     "rbac": {
       "type": "object",
       "additionalProperties": false,

@@ -55,6 +55,7 @@ cli/linkprober > cli
 cli/linkprober > link
 cli/probe > cli
 cli/probe > probe
+cli/purge > cli
 connectivity > agents
 connectivity > interpret
 connectivity > kernel

@@ -87,10 +87,11 @@ func (h *API) agentUpgradeCommand(w http.ResponseWriter, r *http.Request) {
 	httpkit.WriteJSON(w, http.StatusOK, doc)
 }
 
-// installChoices are the Helm values for what a new install is asked to switch on or narrow: the collectors, then the scope. A collector
+// installChoices are the Helm values for what a new install is asked to switch on or narrow: the collectors, then the scope, then whether
+// uninstalling it also deletes its identity Secret. A collector
 // that needs more access than the install is given, or a scope the agent would refuse, is the caller's to correct and is said so, where
 // the page used to leave it out of the command without a word.
-func installChoices(tier int, c install.Collectors, s install.Scope) ([]install.Value, error) {
+func installChoices(tier int, c install.Collectors, s install.Scope, purgeIdentity bool) ([]install.Value, error) {
 	// Each collector needs the access tier that lets the agent read what it counts or times.
 	for _, need := range []struct {
 		on   bool
@@ -104,5 +105,9 @@ func installChoices(tier int, c install.Collectors, s install.Scope) ([]install.
 	if p := s.Problems(); len(p) > 0 {
 		return nil, kernel.Errf(kernel.KindInvalid, "%s", p[0])
 	}
-	return append(c.Values(), s.Values()...), nil
+	v := append(c.Values(), s.Values()...)
+	if purgeIdentity {
+		v = append(v, install.Set("identity.purgeOnUninstall", "true"))
+	}
+	return v, nil
 }

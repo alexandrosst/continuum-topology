@@ -96,3 +96,32 @@ func TestACollectorOrScopeThatCannotBeHonouredIsRefusedBeforeAnyTokenExists(t *t
 		}
 	}
 }
+
+// Whether uninstalling also deletes the identity Secret is chosen when the agent is installed, because `helm uninstall` takes no values:
+// the command says so only when it was asked for, and never otherwise.
+func TestAnInstallThatAsksForItsIdentityToBePurgedSaysSoInTheCommand(t *testing.T) {
+	a := newAdminRig(t)
+	_, admin := a.user(t, "ada", accounts.RoleAdmin)
+
+	_, plain, plainSecret := a.newToken(t, admin, map[string]any{"name": "plain", "tier": 1})
+	if strings.Contains(plain, "purgeOnUninstall") {
+		t.Fatalf("a plain install carries the purge option:\n%s", plain)
+	}
+	_, off, _ := a.newToken(t, admin, map[string]any{"name": "off", "tier": 1, "purgeIdentity": false})
+	if strings.Contains(off, "purgeOnUninstall") {
+		t.Fatalf("an explicit no reached the command:\n%s", off)
+	}
+	code, on, onSecret := a.newToken(t, admin, map[string]any{"name": "on", "tier": 1, "purgeIdentity": true})
+	if code != 201 {
+		t.Fatalf("%d %s", code, on)
+	}
+	want := plain + install.Continued([]install.Value{install.Set("identity.purgeOnUninstall", "true")})
+	if got := strings.ReplaceAll(on, onSecret, plainSecret); got != want {
+		t.Fatalf("the command is\n%s\nwant\n%s", got, want)
+	}
+	// It composes with the other choices, after them.
+	_, both, _ := a.newToken(t, admin, map[string]any{"name": "both", "tier": 1, "purgeIdentity": true, "collectors": map[string]any{"nodeProbe": true}})
+	if i, j := strings.Index(both, "nodeProbe.enabled"), strings.Index(both, "identity.purgeOnUninstall"); i < 0 || j < i {
+		t.Fatalf("the purge option should follow the collectors:\n%s", both)
+	}
+}

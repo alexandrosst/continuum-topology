@@ -7,6 +7,7 @@
 //	ikhnos link-prober   the optional cluster-link prober (Deployment; OWAMP is in the link image)
 //	ikhnos link-iperf-server   the iperf3 server of the throughput tests when Ikhnos issues the credentials (runs in the responder pod)
 //	ikhnos cert-renew   the regional operator's sidecar that keeps its TLS Secrets from expiring
+//	ikhnos purge-identity   deletes the agent's identity Secret (the agent chart's post-delete hook, when asked for)
 //	ikhnos version
 //
 // Each role takes exactly the flags and environment variables the separate binaries (cmd/agent, cmd/probe, cmd/flow, now
@@ -26,6 +27,7 @@ import (
 	linkiperfcli "ikhnos/internal/cli/linkiperf"
 	linkprobercli "ikhnos/internal/cli/linkprober"
 	probecli "ikhnos/internal/cli/probe"
+	purgecli "ikhnos/internal/cli/purge"
 )
 
 var version = "0.1.0-dev"
@@ -54,6 +56,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return linkiperfcli.Main(args[1:])
 	case "cert-renew":
 		return renewcli.Main(args[1:])
+	case "purge-identity":
+		return purgecli.Main(args[1:])
 	case "version", "--version", "-version":
 		fmt.Fprintf(stdout, "ikhnos %s (%s/%s, %s)\n", version, runtime.GOOS, runtime.GOARCH, runtime.Version())
 		return 0
@@ -70,7 +74,7 @@ func usage(w io.Writer) {
 	fmt.Fprintln(w, "usage: ikhnos <role> [flags]   (ikhnos <role> --help lists a role's flags)")
 	fmt.Fprintln(w)
 	for _, r := range cli.Roles {
-		fmt.Fprintf(w, "  %-10s %s\n", r.Name, r.Summary)
+		fmt.Fprintf(w, "  %-18s %s\n", r.Name, r.Summary)
 	}
-	fmt.Fprintf(w, "  %-10s %s\n", "version", "print the version")
+	fmt.Fprintf(w, "  %-18s %s\n", "version", "print the version")
 }

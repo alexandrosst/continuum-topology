@@ -470,7 +470,7 @@ function AgentDetail({ agent: a, extras, canConsent, onRevoke }: { agent: Agent;
           </p>
           <div className="mt-2 space-y-2">
             <CopyableCommand text={a.teardown.helm} />
-            <p className="text-xs text-nb-600">The identity Secret survives an uninstall on purpose (so a mistaken uninstall can&apos;t orphan re-enrollment). Delete it too only if you want a clean slate before installing fresh here:</p>
+            <p className="text-xs text-nb-600">The identity Secret survives an uninstall unless this agent was installed with &ldquo;Delete the agent&apos;s identity when it is uninstalled&rdquo;, so a mistaken uninstall can&apos;t orphan re-enrollment. If it was installed with that option, the uninstall above removes the Secret too and there is nothing more to do. If not (or you are not sure), delete it as well when you want a clean slate before installing fresh here:</p>
             <CopyableCommand text={a.teardown.secret} />
           </div>
         </div>

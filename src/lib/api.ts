@@ -37,6 +37,8 @@ export type ServerInfo = W.InfoDoc
 export interface TokenInstallOptions {
   collectors: { nodeProbe: boolean; flowObserver: boolean; measurements: boolean }
   scope: { namespaces: string[]; exclude: string[]; selector: string }
+  /** Whether uninstalling the agent also deletes its identity Secret. Helm takes no values at uninstall, so it is chosen at install. */
+  purgeIdentity?: boolean
 }
 
 export interface CreatedToken {

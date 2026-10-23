@@ -37,6 +37,14 @@ access:
 rbac:
   mode: cluster
 
+identity:
+  # false (default): `helm uninstall` leaves the identity Secret (the agent's key and certificate) in the namespace on purpose, so an
+  # uninstall by mistake cannot cost the agent its identity, and installing the chart again picks the same agent up. true: a
+  # post-delete hook (a Job that runs `ikhnos purge-identity` with a Role that can delete that one Secret and nothing else) removes
+  # it too, so one `helm uninstall` leaves nothing of the agent in the cluster. The agent is not coming back under that identity,
+  # so decommission it in Ikhnos as well (the page says so). `helm uninstall --no-hooks` skips the hook.
+  purgeOnUninstall: false
+
 enrollment:
   # One-time token, valid for one hour. Only used on first start; afterwards it does nothing,
   # so you may remove it with `helm upgrade --reset-then-reuse-values --set enrollment.token=`.

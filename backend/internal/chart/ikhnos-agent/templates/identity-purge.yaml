@@ -1,0 +1,101 @@
+{{- if (dig "identity" "purgeOnUninstall" false .Values.AsMap) }}
+{{- /*
+  identity.purgeOnUninstall: `helm uninstall` also deletes the identity Secret. Without it the Secret stays (rbac.yaml marks it
+  helm.sh/resource-policy: keep), so an uninstall by mistake cannot cost an agent its identity.
+
+  A post-delete hook, so the agent is gone by then and nothing writes the Secret again. Its objects are hooks of their own: the
+  agent's ServiceAccount and Role are deleted by the uninstall before a post-delete hook runs, and this one needs a Role that can
+  delete exactly one Secret, which the agent's must never have. Helm removes them again when the Job has succeeded (hook-succeeded
+  is applied after every hook of the phase has finished, so the Role is still there while the Job runs). A failed Job stays, for
+  `kubectl logs`, and is replaced by the next attempt (before-hook-creation).
+
+  `helm uninstall --no-hooks` skips it, as it skips every hook; the Secret is then deleted by hand, as it always was.
+*/ -}}
+{{- $name := printf "%s-purge-identity" (include "agent.name" .) }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "agent.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-delete
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+automountServiceAccountToken: true
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "agent.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-delete
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: [{{ include "agent.identitySecret" . | quote }}]
+    verbs: ["get", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "agent.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-delete
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: {{ $name }}}
+subjects: [{kind: ServiceAccount, name: {{ $name }}, namespace: {{ .Release.Namespace }}}]
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "agent.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-delete
+    helm.sh/hook-weight: "0"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 120
+  template:
+    metadata:
+      labels:
+        {{- include "agent.labels" . | nindent 8 }}
+        {{- include "agent.meshOptOutLabels" . | nindent 8 }}
+      {{- with include "agent.meshOptOutAnnotations" . }}
+      annotations:
+        {{- . | nindent 8 }}
+      {{- end }}
+    spec:
+      restartPolicy: OnFailure
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ $name }}
+      securityContext: {{- include "agent.nonRootPodSecurityContext" (dict "root" . "fsGroup" false) | nindent 8 }}
+      containers:
+        - name: purge
+          image: {{ include "agent.image" . | quote }}
+          imagePullPolicy: {{ include "agent.imagePullPolicy" . }}
+          args: ["purge-identity"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: ["ALL"]}
+          env:
+            - {name: IKHNOS_IDENTITY_SECRET, value: {{ include "agent.identitySecret" . | quote }}}
+            - name: POD_NAMESPACE
+              valueFrom: {fieldRef: {fieldPath: metadata.namespace}}
+          resources:
+            requests: {cpu: 10m, memory: 32Mi}
+            limits: {memory: 64Mi}
+{{- end }}

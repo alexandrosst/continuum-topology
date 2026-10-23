@@ -28,6 +28,7 @@ var Roles = []struct{ Name, Summary string }{
 	{"link-prober", "the optional cluster-link prober: measures loss and delay to paired clusters in both directions (OWAMP)"},
 	{"link-iperf-server", "the iperf3 server of the throughput tests when Ikhnos issues the credentials: fetches them from the agent, fails closed"},
 	{"cert-renew", "the regional operator's sidecar: renews its TLS certificates before they expire"},
+	{"purge-identity", "deletes the agent's identity Secret: the chart's post-delete hook, when the install asked for it"},
 }
 
 func Env(k, d string) string {
