@@ -57,7 +57,7 @@ No open defects. The quick-start gateway tokens are removed (the endpoints, the 
 
 The three documents were read in full and measured against the repository. The structure the plan asked for is in place (the server package is about 2,000 lines of wiring, 21 packages hold an import rule, no cross-module use is listed, every route and every store method's organisation scope is pinned). What was promised and is not built, in the order it is worth doing:
 
-1. This file and the plan page say what the code says (done in this change). CI runs the Neo4j tests, the real-collector tests and the helm renderings it skips today, and fails when a tool it relies on is missing (next change).
+1. This file and the plan page say what the code says (done in this change). CI runs the Neo4j tests, the real-collector tests and the helm renderings it used to skip, and fails when a tool it relies on is missing (`CONTINUUM_REQUIRE_TOOLS`, done in the change after this one).
 2. Fuzz tests for what arrives from outside (the hello, sync and flow batches, install values), and a fake agent that can drop, reorder and delay messages.
 3. A contract test that runs the previous release's agent against the new server, so the version-skew rule is checked and not only stated.
 4. Secrets at rest (TOTP secrets and the mail password are stored in clear), the audit chain's retention, a URI name in certificates that says whether one is an agent's or an operator's, and a written story for rotating the CA.

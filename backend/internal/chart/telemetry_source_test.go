@@ -107,7 +107,7 @@ func TestSourceProcessorsLoadInTheRealCollector(t *testing.T) {
 	for name, c := range cases {
 		cm := render(t, withTel(c.args...)...).configmaps[c.cm]
 		f := filepath.Join(t.TempDir(), "cfg.yaml")
-		if err := os.WriteFile(f, []byte(cm.Data["otel-collector-config.yaml"]), 0o600); err != nil {
+		if err := os.WriteFile(f, []byte(collectorConfig(t, cm.Data["otel-collector-config.yaml"])), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		cmd := exec.Command(bin, "validate", "--config", f)

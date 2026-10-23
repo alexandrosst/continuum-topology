@@ -424,7 +424,7 @@ func TestHostConfigVariantsValidateWithTheRealCollector(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(ca, "ca.crt"), testCAPEM(t), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		cfg := strings.NewReplacer("/hostfs", root, "/etc/continuum/kubelet-ca", ca).Replace(r.configmaps["continuum-telemetry-host-config"].Data["otel-collector-config.yaml"])
+		cfg := collectorConfig(t, strings.NewReplacer("/hostfs", root, "/etc/continuum/kubelet-ca", ca).Replace(r.configmaps["continuum-telemetry-host-config"].Data["otel-collector-config.yaml"]))
 		f := filepath.Join(t.TempDir(), "c.yaml")
 		if err := os.WriteFile(f, []byte(cfg), 0o600); err != nil {
 			t.Fatal(err)

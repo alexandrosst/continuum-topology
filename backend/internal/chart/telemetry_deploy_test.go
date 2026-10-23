@@ -362,7 +362,7 @@ func TestRenderedCollectorConfigsValidateWithTheRealCollector(t *testing.T) {
 			}
 			f := filepath.Join(t.TempDir(), "c.yaml")
 			// hostmetrics insists its root_path exists where the validation runs; in the pod it is the host mounted at /hostfs.
-			cfg := strings.ReplaceAll(c.Data["otel-collector-config.yaml"], "/hostfs", t.TempDir())
+			cfg := collectorConfig(t, c.Data["otel-collector-config.yaml"])
 			os.WriteFile(f, []byte(cfg), 0o600)
 			cmd := exec.Command(bin, "validate", "--config="+f)
 			cmd.Env = envs
