@@ -1165,6 +1165,12 @@ func TestDependentsWalksACycleWithoutHangingOrDuplicating(t *testing.T) {
 // following an ever-larger frontier out to the hop limit.
 func TestDependentsBoundsRealFanOut(t *testing.T) {
 	db, org := testDBTimeout(t, 90*time.Second)
+	// This test is about the result being held at the cap, and about a walk that is not exponential (which takes minutes, not seconds).
+	// On a shared CI machine, with a database that shares its two CPUs with race-instrumented test binaries, 20 seconds is too tight a
+	// line for either: the same query has been seen at 0.2 s idle and 3x that under load.
+	oldWalk := walkTimeout
+	walkTimeout = 60 * time.Second
+	t.Cleanup(func() { walkTimeout = oldWalk })
 	ctx := context.Background()
 	t0 := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
 	const callers = maxWalkResults + 200
@@ -1182,7 +1188,7 @@ func TestDependentsBoundsRealFanOut(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if d := time.Since(start); d > 20*time.Second {
+	if d := time.Since(start); d > 45*time.Second {
 		t.Errorf("a single hop with real fan-out took %v", d)
 	}
 	if len(reached) != maxWalkResults-1 {

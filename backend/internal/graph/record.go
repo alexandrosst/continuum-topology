@@ -1185,13 +1185,19 @@ func (d *DB) walk(ctx context.Context, org string, at time.Time, kind, id string
 		return time.Time{}, nil, store.ErrNotFound
 	}
 
+	// Every statement of the walk starts each row at one entity by its unique key, and the hint says so to the planner: without it
+	// the plan was chosen from statistics, and on a database that had just been written to (estimates of zero rows) it sometimes
+	// picked an index scan of all entities for every one of 4,000 rows, which took 11 to 15 seconds on a laptop-sized machine where the
+	// seek takes a fifth of a second. SEEK, not just INDEX: the plain hint is also satisfied by a scan of the same index.
 	step := fmt.Sprintf(`UNWIND $frontier AS fr
 MATCH (f:Entity {org:$org, kind:fr.kind, id:fr.id})<-[rel:%s]-(n:Entity {org:$org})
+USING INDEX SEEK f:Entity(org, kind, id)
 WHERE rel.validFrom <= datetime($at) AND (rel.validTo IS NULL OR rel.validTo > datetime($at))
 RETURN DISTINCT n.kind AS kind, n.id AS id`, strings.Join(relTypes, "|"))
 	if forward {
 		step = fmt.Sprintf(`UNWIND $frontier AS fr
 MATCH (f:Entity {org:$org, kind:fr.kind, id:fr.id})-[rel:%s]->(n:Entity {org:$org})
+USING INDEX SEEK f:Entity(org, kind, id)
 WHERE rel.validFrom <= datetime($at) AND (rel.validTo IS NULL OR rel.validTo > datetime($at))
 RETURN DISTINCT n.kind AS kind, n.id AS id`, strings.Join(relTypes, "|"))
 	}
@@ -1237,6 +1243,7 @@ RETURN DISTINCT n.kind AS kind, n.id AS id`, strings.Join(relTypes, "|"))
 	}
 	res, err := d.C.Run(ctx, sc.S(`UNWIND $pairs AS p
 MATCH (e:Entity {org:$org, kind:p.kind, id:p.id})-[:HAS_VERSION]->(v:Version {org:$org})
+USING INDEX SEEK e:Entity(org, kind, id)
 WHERE v.validFrom <= datetime($at) AND (v.validTo IS NULL OR v.validTo > datetime($at))
 RETURN v.kind, v.id, v.name, v.status, v.cluster, v.doc`, map[string]any{"pairs": pairs, "at": atS}))
 	if err != nil {
