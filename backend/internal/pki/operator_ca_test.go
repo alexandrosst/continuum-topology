@@ -90,7 +90,7 @@ func TestOperatorCertificatesVerifyOnlyAgainstTheirOwnOperatorsCA(t *testing.T) 
 		t.Error("an operator-CA client certificate verifies against the org CA")
 	}
 	// A different subject from the same operator CA is accepted: the gate is the CA, not the subject.
-	other, _, err := issA.issueLeaf(pkixName("anything-at-all", "some-other-org"), time.Hour, x509.ExtKeyUsageClientAuth, nil)
+	other, _, err := issA.issueLeaf(pkixName("anything-at-all", "some-other-org"), time.Hour, x509.ExtKeyUsageClientAuth, nil, Identity{Kind: HolderSender, Org: "some-other-org", ID: "anything-at-all"})
 	if err != nil {
 		t.Fatal(err)
 	}

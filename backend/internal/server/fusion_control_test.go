@@ -161,7 +161,7 @@ func newFusion(t *testing.T, a *adminRig) (*fusion.FusionControl, *fakeKube) {
 	k := newFakeKube(fusionNames...)
 	// No cache and no Prometheus to ask: a test changes the fake cluster between two calls and expects to see it. The
 	// cache has its own tests (TestStatusIsReadOnceForEveryoneAsking and friends).
-	f := &fusion.FusionControl{Name: "continuum-fusion", Namespace: "continuum", Kube: k, Org: a.a.C.OrgID, StatusTTL: -1, Data: &fusionapi.Client{}}
+	f := &fusion.FusionControl{Name: "continuum-fusion", Namespace: "continuum", Kube: k, Org: "org-1", StatusTTL: -1, Data: &fusionapi.Client{}}
 	return f, k
 }
 
@@ -229,7 +229,7 @@ func TestEnableFusionPreparesTheCentralOperatorThenStartsEverything(t *testing.T
 	f.PublicAddress = "fusion.example.com:4317"
 	ctx := context.Background()
 
-	st, err := f.Enable(ctx, a.a.C.Fusion, "alex")
+	st, err := f.Enable(ctx, a.a.C.ForOrg("org-1").Fusion, "alex")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,7 +250,7 @@ func TestEnableFusionPreparesTheCentralOperatorThenStartsEverything(t *testing.T
 		}
 	}
 	// The central operator is a real, active, mTLS regional operator whose destination is the three stores.
-	op, err := a.a.C.Operators.GetOperator(ctx, operators.CentralOperatorID)
+	op, err := a.a.C.ForOrg("org-1").Operators.GetOperator(ctx, operators.CentralOperatorID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -275,7 +275,7 @@ func TestEnableFusionPreparesTheCentralOperatorThenStartsEverything(t *testing.T
 	}
 
 	// A sender's client certificate, issued from the same CA, is accepted by it.
-	certPEM, _, caPEM, err := a.a.C.Operators.IssueOperatorClientCertFor(ctx, "alex", operators.CentralOperatorID, "cl-test", "")
+	certPEM, _, caPEM, err := a.a.C.ForOrg("org-1").Operators.IssueOperatorClientCertFor(ctx, "alex", operators.CentralOperatorID, "cl-test", "")
 	if err != nil || string(caPEM) != string(k.secret["ca.crt"]) {
 		t.Fatalf("client cert: %v (CA matches the gateway's: %v)", err, string(caPEM) == string(k.secret["ca.crt"]))
 	}
@@ -287,13 +287,13 @@ func TestEnableFusionPreparesTheCentralOperatorThenStartsEverything(t *testing.T
 
 	// Enabling again changes nothing about who is trusted: same operator, same CA, a fresh server certificate.
 	first := string(k.secret["ca.crt"])
-	if _, err := f.Enable(ctx, a.a.C.Fusion, "alex"); err != nil {
+	if _, err := f.Enable(ctx, a.a.C.ForOrg("org-1").Fusion, "alex"); err != nil {
 		t.Fatal(err)
 	}
 	if string(k.secret["ca.crt"]) != first {
 		t.Error("a second enable replaced the CA, which would orphan every sender's certificate")
 	}
-	ops, _ := a.a.C.Operators.ListOperators(ctx)
+	ops, _ := a.a.C.ForOrg("org-1").Operators.ListOperators(ctx)
 	n := 0
 	for _, o := range ops {
 		if o.ID == operators.CentralOperatorID {
@@ -317,11 +317,11 @@ func TestDisableFusionStopsTheGatewayFirstAndKeepsTheOperator(t *testing.T) {
 	a := newAdminRig(t)
 	f, k := newFusion(t, a)
 	ctx := context.Background()
-	if _, err := f.Enable(ctx, a.a.C.Fusion, "alex"); err != nil {
+	if _, err := f.Enable(ctx, a.a.C.ForOrg("org-1").Fusion, "alex"); err != nil {
 		t.Fatal(err)
 	}
 	k.calls = nil
-	st, err := f.Disable(ctx, a.a.C.Fusion, "alex")
+	st, err := f.Disable(ctx, a.a.C.ForOrg("org-1").Fusion, "alex")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -331,7 +331,7 @@ func TestDisableFusionStopsTheGatewayFirstAndKeepsTheOperator(t *testing.T) {
 	if got := strings.Join(k.calls, ","); got != "continuum-fusion-central,continuum-fusion-tempo,continuum-fusion-loki,continuum-fusion-prometheus" {
 		t.Errorf("scale-down order = %s", got)
 	}
-	if op, err := a.a.C.Operators.GetOperator(ctx, operators.CentralOperatorID); err != nil || op.Status != store.OperatorActive {
+	if op, err := a.a.C.ForOrg("org-1").Operators.GetOperator(ctx, operators.CentralOperatorID); err != nil || op.Status != store.OperatorActive {
 		t.Errorf("turning FUSION off must keep the central operator (its CA is what every sender trusts): %+v %v", op, err)
 	}
 }
@@ -341,17 +341,17 @@ func TestEnableFusionRefusesWhatItCannotDo(t *testing.T) {
 	ctx := context.Background()
 	f, k := newFusion(t, a)
 	k.err = kernel.ErrKubeForbidden
-	if _, err := f.Enable(ctx, a.a.C.Fusion, "alex"); err == nil {
+	if _, err := f.Enable(ctx, a.a.C.ForOrg("org-1").Fusion, "alex"); err == nil {
 		t.Error("enabled without permission")
 	}
-	if _, err := a.a.C.Operators.GetOperator(ctx, operators.CentralOperatorID); err == nil {
+	if _, err := a.a.C.ForOrg("org-1").Operators.GetOperator(ctx, operators.CentralOperatorID); err == nil {
 		t.Error("a central operator was created though FUSION could not be started")
 	}
 
 	f, _ = newFusion(t, a)
 	f.Org = "some-other-org"
 	var e *kernel.Error
-	if _, err := f.Enable(ctx, a.a.C.Fusion, "alex"); !errors.As(err, &e) || e.Kind != kernel.KindForbidden {
+	if _, err := f.Enable(ctx, a.a.C.ForOrg("org-1").Fusion, "alex"); !errors.As(err, &e) || e.Kind != kernel.KindForbidden {
 		t.Errorf("another organisation enabled FUSION: %v", err)
 	}
 }
@@ -360,13 +360,13 @@ func TestTheCentralOperatorIsNotEditableByHand(t *testing.T) {
 	a := newAdminRig(t)
 	f, _ := newFusion(t, a)
 	ctx := context.Background()
-	if _, err := f.Enable(ctx, a.a.C.Fusion, "alex"); err != nil {
+	if _, err := f.Enable(ctx, a.a.C.ForOrg("org-1").Fusion, "alex"); err != nil {
 		t.Fatal(err)
 	}
 	for name, err := range map[string]error{
-		"revoke": a.a.C.Operators.RevokeOperator(ctx, "alex", operators.CentralOperatorID, "x"),
-		"delete": a.a.C.Operators.DeleteOperator(ctx, "alex", operators.CentralOperatorID),
-		"scope":  a.a.C.Operators.UpdateOperatorScope(ctx, "alex", operators.CentralOperatorID, nil, store.Destination{Kind: store.DestinationExternal, Endpoint: "x:1"}, nil),
+		"revoke": a.a.C.ForOrg("org-1").Operators.RevokeOperator(ctx, "alex", operators.CentralOperatorID, "x"),
+		"delete": a.a.C.ForOrg("org-1").Operators.DeleteOperator(ctx, "alex", operators.CentralOperatorID),
+		"scope":  a.a.C.ForOrg("org-1").Operators.UpdateOperatorScope(ctx, "alex", operators.CentralOperatorID, nil, store.Destination{Kind: store.DestinationExternal, Endpoint: "x:1"}, nil),
 	} {
 		var e *kernel.Error
 		if !errors.As(err, &e) || e.Kind != kernel.KindConflict {
@@ -477,16 +477,16 @@ func TestRenewReissuesTheGatewayCertificateOnlyWhileFusionIsOn(t *testing.T) {
 	a := newAdminRig(t)
 	f, k := newFusion(t, a)
 	ctx := context.Background()
-	if err := f.Renew(ctx, a.a.C.Fusion); err != nil || k.secretIn != "" {
+	if err := f.Renew(ctx, a.a.C.ForOrg("org-1").Fusion); err != nil || k.secretIn != "" {
 		t.Fatalf("renewed while it was never enabled: %v (secret %q)", err, k.secretIn)
 	}
-	if _, err := f.Enable(ctx, a.a.C.Fusion, "alex"); err != nil {
+	if _, err := f.Enable(ctx, a.a.C.ForOrg("org-1").Fusion, "alex"); err != nil {
 		t.Fatal(err)
 	}
 	first := string(k.secret["tls.crt"])
 	// The address is set after FUSION was first enabled: the next renewal gives the certificate its name.
 	f.PublicAddress = "fusion.example.com:4317"
-	if err := f.Renew(ctx, a.a.C.Fusion); err != nil {
+	if err := f.Renew(ctx, a.a.C.ForOrg("org-1").Fusion); err != nil {
 		t.Fatal(err)
 	}
 	if string(k.secret["tls.crt"]) == first {
@@ -504,14 +504,14 @@ func TestRenewReissuesTheGatewayCertificateOnlyWhileFusionIsOn(t *testing.T) {
 	}
 	// A second call changes nothing: the certificate is fresh and its names are unchanged.
 	again := string(k.secret["tls.crt"])
-	if err := f.Renew(ctx, a.a.C.Fusion); err != nil || string(k.secret["tls.crt"]) != again {
+	if err := f.Renew(ctx, a.a.C.ForOrg("org-1").Fusion); err != nil || string(k.secret["tls.crt"]) != again {
 		t.Errorf("a fresh gateway certificate was replaced again (err %v)", err)
 	}
-	if _, err := f.Disable(ctx, a.a.C.Fusion, "alex"); err != nil {
+	if _, err := f.Disable(ctx, a.a.C.ForOrg("org-1").Fusion, "alex"); err != nil {
 		t.Fatal(err)
 	}
 	k.secret, k.secretIn = nil, ""
-	if err := f.Renew(ctx, a.a.C.Fusion); err != nil || k.secretIn != "" {
+	if err := f.Renew(ctx, a.a.C.ForOrg("org-1").Fusion); err != nil || k.secretIn != "" {
 		t.Fatalf("renewed while off: %v (secret %q)", err, k.secretIn)
 	}
 }

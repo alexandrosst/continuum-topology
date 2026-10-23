@@ -85,6 +85,12 @@ func (c *Service) identity(ctx context.Context) (store.Agent, error) {
 	if !hasClientAuth(leaf) {
 		return store.Agent{}, status.Error(codes.Unauthenticated, "certificate is not valid for client authentication")
 	}
+	// The certificate states whose it is: an operator's certificate is refused here by what it says it is, not by happening not to match an
+	// agent's name.
+	if _, _, err := pki.Holder(leaf, pki.HolderAgent); err != nil {
+		kernel.Metrics.AuthFailures.Add(1)
+		return store.Agent{}, status.Error(codes.Unauthenticated, "this certificate was not issued to an agent")
+	}
 	a, err := c.AuthorizeAgent(ctx, leaf.Subject.CommonName)
 	if err != nil {
 		// An agent that was revoked (or removed) while it was offline should learn that it is over, not

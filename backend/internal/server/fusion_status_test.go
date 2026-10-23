@@ -133,7 +133,7 @@ func TestEnableAndDisableAnswerWithoutReadingAgain(t *testing.T) {
 	f.Now = func() time.Time { return now }
 	ctx := context.Background()
 
-	st, err := f.Enable(ctx, a.a.C.Fusion, "alex")
+	st, err := f.Enable(ctx, a.a.C.ForOrg("org-1").Fusion, "alex")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +153,7 @@ func TestEnableAndDisableAnswerWithoutReadingAgain(t *testing.T) {
 	if st := f.Status(ctx); st.State != "running" {
 		t.Fatalf("a minute later: %+v", st)
 	}
-	st, err = f.Disable(ctx, a.a.C.Fusion, "alex")
+	st, err = f.Disable(ctx, a.a.C.ForOrg("org-1").Fusion, "alex")
 	if err != nil || st.State != "off" || st.Since != nil || st.Components[0].Desired != 0 {
 		t.Fatalf("after Disable: %+v %v", st, err)
 	}
@@ -165,13 +165,13 @@ func TestEnableAndDisableAnswerWithoutReadingAgain(t *testing.T) {
 	// Enabling something that is already running keeps what is ready: it must not flap to "starting".
 	k.allReady()
 	f.Invalidate()
-	f.Enable(ctx, a.a.C.Fusion, "alex")
+	f.Enable(ctx, a.a.C.ForOrg("org-1").Fusion, "alex")
 	k.allReady()
 	now = now.Add(time.Minute)
 	if st := f.Status(ctx); st.State != "running" {
 		t.Fatalf("running: %+v", st)
 	}
-	st, err = f.Enable(ctx, a.a.C.Fusion, "alex")
+	st, err = f.Enable(ctx, a.a.C.ForOrg("org-1").Fusion, "alex")
 	if err != nil || st.State != "running" {
 		t.Fatalf("a second Enable on a running FUSION: %+v %v", st, err)
 	}
@@ -248,7 +248,7 @@ func TestAFailedScaleKeepsNothing(t *testing.T) {
 	k.mu.Lock()
 	delete(k.replicas, "continuum-fusion-central") // the gateway cannot be scaled: the stores before it were
 	k.mu.Unlock()
-	if _, err := f.Enable(ctx, a.a.C.Fusion, "alex"); err == nil {
+	if _, err := f.Enable(ctx, a.a.C.ForOrg("org-1").Fusion, "alex"); err == nil {
 		t.Fatal("enabled with a workload missing")
 	}
 	valid := f.CacheValid()
@@ -500,7 +500,7 @@ func enabledCentral(t *testing.T) (*adminRig, *fusion.FusionControl, *fakeKube, 
 	f, k := newFusion(t, a)
 	now := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
 	f.Now = func() time.Time { return now }
-	if _, err := f.Enable(context.Background(), a.a.C.Fusion, "alex"); err != nil {
+	if _, err := f.Enable(context.Background(), a.a.C.ForOrg("org-1").Fusion, "alex"); err != nil {
 		t.Fatal(err)
 	}
 	return a, f, k, &now
@@ -511,20 +511,20 @@ func TestTheGatewaysAddressIsRecordedWhenNoneIs(t *testing.T) {
 	ctx := context.Background()
 
 	// The cloud has not given the load balancer an address yet: nothing to record, and it is asked again later, not at once.
-	if addr, err := f.DiscoverAddress(ctx, a.a.C.Fusion); addr != "" || err != nil || f.Exposed() {
+	if addr, err := f.DiscoverAddress(ctx, a.a.C.ForOrg("org-1").Fusion); addr != "" || err != nil || f.Exposed() {
 		t.Fatalf("no address yet: %q %v", addr, err)
 	}
 	k.svcAddr = "203.0.113.7:4317"
-	if addr, _ := f.DiscoverAddress(ctx, a.a.C.Fusion); addr != "" || k.svcReads != 1 {
+	if addr, _ := f.DiscoverAddress(ctx, a.a.C.ForOrg("org-1").Fusion); addr != "" || k.svcReads != 1 {
 		t.Fatalf("asked again at once: %q (%d reads)", addr, k.svcReads)
 	}
 	*now = now.Add(31 * time.Second)
-	addr, err := f.DiscoverAddress(ctx, a.a.C.Fusion)
+	addr, err := f.DiscoverAddress(ctx, a.a.C.ForOrg("org-1").Fusion)
 	if err != nil || addr != "203.0.113.7:4317" {
 		t.Fatalf("recorded %q: %v", addr, err)
 	}
 	// Recorded where the screens read it, and in use at once.
-	op, _ := a.a.C.Operators.GetOperator(ctx, operators.CentralOperatorID)
+	op, _ := a.a.C.ForOrg("org-1").Operators.GetOperator(ctx, operators.CentralOperatorID)
 	if op.Address != "203.0.113.7:4317" || !f.Exposed() || f.CentralEndpoint() != "203.0.113.7:4317" {
 		t.Fatalf("operator address %q, exposed %v, endpoint %q", op.Address, f.Exposed(), f.CentralEndpoint())
 	}
@@ -540,7 +540,7 @@ func TestTheGatewaysAddressIsRecordedWhenNoneIs(t *testing.T) {
 	// With one recorded the Service is not looked at again.
 	reads := k.svcReads
 	*now = now.Add(time.Hour)
-	if addr, _ := f.DiscoverAddress(ctx, a.a.C.Fusion); addr != "" || k.svcReads != reads {
+	if addr, _ := f.DiscoverAddress(ctx, a.a.C.ForOrg("org-1").Fusion); addr != "" || k.svcReads != reads {
 		t.Errorf("looked again with an address recorded: %q (%d reads)", addr, k.svcReads)
 	}
 }
@@ -549,15 +549,15 @@ func TestTheGatewaysAddressIsRecordedWhenNoneIs(t *testing.T) {
 func TestAManuallyRecordedAddressIsNeverReplaced(t *testing.T) {
 	a, f, k, _ := enabledCentral(t)
 	ctx := context.Background()
-	if _, err := a.a.C.Operators.SetOperatorAddress(ctx, "alex", operators.CentralOperatorID, "fusion.example.com:4317"); err != nil {
+	if _, err := a.a.C.ForOrg("org-1").Operators.SetOperatorAddress(ctx, "alex", operators.CentralOperatorID, "fusion.example.com:4317"); err != nil {
 		t.Fatal(err)
 	}
 	k.svcAddr = "203.0.113.7:4317"
 	// This server has not heard of it (another replica, or it was typed before this one started): it learns it.
-	if addr, err := f.DiscoverAddress(ctx, a.a.C.Fusion); addr != "" || err != nil {
+	if addr, err := f.DiscoverAddress(ctx, a.a.C.ForOrg("org-1").Fusion); addr != "" || err != nil {
 		t.Fatalf("%q %v", addr, err)
 	}
-	if op, _ := a.a.C.Operators.GetOperator(ctx, operators.CentralOperatorID); op.Address != "fusion.example.com:4317" {
+	if op, _ := a.a.C.ForOrg("org-1").Operators.GetOperator(ctx, operators.CentralOperatorID); op.Address != "fusion.example.com:4317" {
 		t.Fatalf("the manual address was replaced by %q", op.Address)
 	}
 	if f.CentralEndpoint() != "fusion.example.com:4317" {
@@ -571,8 +571,8 @@ func TestAManuallyRecordedAddressIsNeverReplaced(t *testing.T) {
 	b, f2, k2, _ := enabledCentral(t)
 	f2.PublicAddress = "flag.example.com:4317"
 	k2.svcAddr = "203.0.113.7:4317"
-	f2.DiscoverAddress(ctx, b.a.C.Fusion)
-	if op, _ := b.a.C.Operators.GetOperator(ctx, operators.CentralOperatorID); op.Address != "" || f2.CentralEndpoint() != "flag.example.com:4317" || k2.svcReads != 0 {
+	f2.DiscoverAddress(ctx, b.a.C.ForOrg("org-1").Fusion)
+	if op, _ := b.a.C.ForOrg("org-1").Operators.GetOperator(ctx, operators.CentralOperatorID); op.Address != "" || f2.CentralEndpoint() != "flag.example.com:4317" || k2.svcReads != 0 {
 		t.Errorf("the flag's address was overridden: operator %q, endpoint %q", op.Address, f2.CentralEndpoint())
 	}
 }
@@ -586,15 +586,15 @@ func TestAnAddressTypedWhileTheServerIsAskingTheClusterIsKept(t *testing.T) {
 	k.svcAddr = "203.0.113.7:4317"
 	k.onService = func() {
 		// What the "Reachable at" handler does: record it, then tell the running switch.
-		if _, err := a.a.C.Operators.SetOperatorAddress(ctx, "alex", operators.CentralOperatorID, "fusion.example.com:4317"); err != nil {
+		if _, err := a.a.C.ForOrg("org-1").Operators.SetOperatorAddress(ctx, "alex", operators.CentralOperatorID, "fusion.example.com:4317"); err != nil {
 			t.Error(err)
 		}
 		f.SetPublicAddress("fusion.example.com:4317")
 	}
-	if addr, err := f.DiscoverAddress(ctx, a.a.C.Fusion); addr != "" || err != nil {
+	if addr, err := f.DiscoverAddress(ctx, a.a.C.ForOrg("org-1").Fusion); addr != "" || err != nil {
 		t.Fatalf("the server reported recording %q (%v) over a person's address", addr, err)
 	}
-	if op, _ := a.a.C.Operators.GetOperator(ctx, operators.CentralOperatorID); op.Address != "fusion.example.com:4317" {
+	if op, _ := a.a.C.ForOrg("org-1").Operators.GetOperator(ctx, operators.CentralOperatorID); op.Address != "fusion.example.com:4317" {
 		t.Fatalf("the person's address was overwritten by %q", op.Address)
 	}
 	if f.CentralEndpoint() != "fusion.example.com:4317" {
@@ -614,17 +614,17 @@ func TestDiscoveringTheAddressNeverGetsInTheWay(t *testing.T) {
 	a := newAdminRig(t)
 	f, k := newFusion(t, a)
 	k.svcAddr = "203.0.113.7:4317"
-	if addr, err := f.DiscoverAddress(ctx, a.a.C.Fusion); addr != "" || err != nil || k.svcReads != 0 {
+	if addr, err := f.DiscoverAddress(ctx, a.a.C.ForOrg("org-1").Fusion); addr != "" || err != nil || k.svcReads != 0 {
 		t.Errorf("before FUSION is enabled: %q %v (%d reads)", addr, err, k.svcReads)
 	}
 	// Another organisation never records one.
 	f.Org = "some-other-org"
-	if addr, _ := f.DiscoverAddress(ctx, a.a.C.Fusion); addr != "" {
+	if addr, _ := f.DiscoverAddress(ctx, a.a.C.ForOrg("org-1").Fusion); addr != "" {
 		t.Errorf("another organisation recorded %q", addr)
 	}
 	// A nil switch, or one with no cluster, is nothing to do.
 	var none *fusion.FusionControl
-	if addr, err := none.DiscoverAddress(ctx, a.a.C.Fusion); addr != "" || err != nil {
+	if addr, err := none.DiscoverAddress(ctx, a.a.C.ForOrg("org-1").Fusion); addr != "" || err != nil {
 		t.Errorf("nil: %q %v", addr, err)
 	}
 
@@ -632,24 +632,24 @@ func TestDiscoveringTheAddressNeverGetsInTheWay(t *testing.T) {
 	for name, kerr := range map[string]error{"forbidden": kernel.ErrKubeForbidden, "missing": kernel.ErrKubeNotFound} {
 		b, f, k, _ := enabledCentral(t)
 		k.svcErr = kerr
-		if addr, err := f.DiscoverAddress(ctx, b.a.C.Fusion); addr != "" || err != nil {
+		if addr, err := f.DiscoverAddress(ctx, b.a.C.ForOrg("org-1").Fusion); addr != "" || err != nil {
 			t.Errorf("%s: %q %v", name, addr, err)
 		}
 	}
 	// A failing API is reported to the caller, which logs it; an address the server would not accept is too.
 	b, f3, k3, _ := enabledCentral(t)
 	k3.svcErr = errors.New("connection refused")
-	if _, err := f3.DiscoverAddress(ctx, b.a.C.Fusion); err == nil {
+	if _, err := f3.DiscoverAddress(ctx, b.a.C.ForOrg("org-1").Fusion); err == nil {
 		t.Error("a failing API went unreported")
 	}
 	c, f4, k4, now := enabledCentral(t)
 	k4.svcAddr = "localhost:4317"
-	if _, err := f4.DiscoverAddress(ctx, c.a.C.Fusion); err == nil || f4.Exposed() {
+	if _, err := f4.DiscoverAddress(ctx, c.a.C.ForOrg("org-1").Fusion); err == nil || f4.Exposed() {
 		t.Errorf("an address other clusters cannot use was recorded: %v", err)
 	}
 	*now = now.Add(time.Minute)
 	k4.svcAddr = "198.51.100.9:4317"
-	if addr, err := f4.DiscoverAddress(ctx, c.a.C.Fusion); addr != "198.51.100.9:4317" || err != nil {
+	if addr, err := f4.DiscoverAddress(ctx, c.a.C.ForOrg("org-1").Fusion); addr != "198.51.100.9:4317" || err != nil {
 		t.Errorf("after the Service shows a good one: %q %v", addr, err)
 	}
 }

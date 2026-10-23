@@ -166,6 +166,9 @@ func (c *Service) Rejoin(ctx context.Context, ip string, req *continuumv1.Rejoin
 	if len(leaf.Subject.Organization) != 1 || now.Before(leaf.NotBefore) || now.Sub(leaf.NotAfter) > pki.RejoinWindow {
 		return nil, deny
 	}
+	if _, _, err := pki.Holder(leaf, pki.HolderAgent); err != nil {
+		return nil, deny
+	}
 	csr, err := pki.ParseCSR(req.CsrDer)
 	if err != nil {
 		return nil, kernel.Errf(kernel.KindInvalid, "%v", err)

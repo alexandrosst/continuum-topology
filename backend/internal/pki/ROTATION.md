@@ -103,3 +103,47 @@ certificates last 30 days and are renewed by their holders (an install from befo
 not revoke a certificate, which stops working when it ends, within 30 days (up to 365 for a legacy
 certificate that was never renewed). An immediate cut-off means rotating the operator CA: put the new
 `ca.crt` on the receiver and restart it. There is no overlap period.
+
+## What a certificate says about who holds it
+
+Every certificate this server issues carries one URI name in its subject alternative names, in the SPIFFE form, next to the common
+name and organisation that were always there:
+
+| Issued to | URI name | Used for |
+|---|---|---|
+| an agent | `spiffe://ikhnos/org/<org>/agent/<agent id>` | the agent's connection, rejoin |
+| an operator's receiver | `spiffe://ikhnos/org/<org>/operator/<operator id>/receiver` | server use |
+| an operator's sender | `spiffe://ikhnos/org/<org>/operator/<operator id>/sender` | client use |
+
+The name must agree with the common name, the organisation and the permitted use of the same certificate; one that does not is refused as
+a whole and never read as an older certificate. What the name buys is that a certificate of one kind cannot be used as another: an agent's
+certificate is refused where an operator's is expected, and the reverse. Three places enforce it: the agent connection, rejoin, and the renewal of operator certificates.
+
+Certificates issued before this change have no such name. They keep working while `pki.RequireIdentityURI` is off, which is the setting
+of the release that introduces the name. Agent certificates last 24 hours and operator TLS certificates 30 days, so after one release
+cycle every certificate in use has the name; the release after that turns the requirement on (a certificate without a name is then
+refused, and the holder is told to enrol or install again). Operator certificates from before renewal existed last 365 days; check the
+operators page for any that are still on the old lifetime before turning it on.
+
+## Rotation at a glance
+
+| What changed | Pin changes | Agents need | Operators need | Overlap |
+|---|---|---|---|---|
+| passphrase of `ca.key` | no | nothing | nothing | not needed |
+| CA certificate re-issued over the same key | legacy pin yes, `sha256/` pin no | re-install only if on a legacy pin | nothing | not needed |
+| new CA key (compromise) | yes | re-install and approve again | nothing, unless the operator's own CA is also suspect | none |
+| operator CA key | no (agents are not involved) | nothing | new `ca.crt` on the receiver, restart | none |
+
+Two things are worth knowing before you need this:
+
+* **The cost of a new CA key is a cluster-by-cluster re-install, not a server operation.** Agents hold nothing that lets them move to a
+  new CA by themselves, because trusting a CA they have not been told to trust is exactly what the pin prevents. A controller that
+  applies desired state over the existing channel could carry a new pin to an agent that still trusts the old CA, which is the main
+  reason an overlap period is worth designing when the lifecycle controller is built; today there is none.
+* **A 24-hour agent certificate bounds what a stolen agent key is worth** without any rotation: it stops being accepted a day after the
+  agent last renewed, and revoking the agent stops the renewal sooner. Rotating the CA is for the case where the *CA* key is lost, not an
+  agent's.
+
+An exercise worth doing once, on a copy of the data directory: stop the server, remove `pki/ca.crt` and `pki/ca.key`, start it, and
+check that an enrolled agent reports the pin mismatch in its log and does not send its token. That is the behaviour step 3 above
+relies on.

@@ -57,6 +57,17 @@ func (c *Service) RenewTelemetryCert(ctx context.Context, ip string, req *contin
 	default:
 		return nil, deny
 	}
+	// A certificate that states what it was issued to is held to it: the kind and the operator it names must be what the name and the use
+	// above made of it, and an agent's certificate is not an operator's. One that states nothing is a legacy certificate (see pki.RequireIdentityURI).
+	holder, stated, err := pki.IdentityOf(old)
+	switch {
+	case err != nil:
+		return nil, deny
+	case !stated && pki.RequireIdentityURI:
+		return nil, deny
+	case stated && (holder.ID != opID || holder.Kind != holderOf(eku)):
+		return nil, deny
+	}
 	// The organisation is the certificate's claim too, and the store looks the operator up inside it.
 	op, err := c.Store.GetOperator(ctx, old.Subject.Organization[0], opID)
 	if err != nil || len(op.ClientCACertPEM) == 0 {
@@ -113,7 +124,9 @@ func (c *Service) RenewTelemetryCert(ctx context.Context, ip string, req *contin
 		hosts = append(hosts, net.IP(a).String())
 	}
 	subject := pkix.Name{CommonName: old.Subject.CommonName, Organization: old.Subject.Organization}
-	der, err := issuer.SignLeaf(csr.PublicKey, subject, pki.OperatorTLSTTL, eku, hosts)
+	// What the new certificate states comes from what this server knows of the holder now, never from the old certificate's text.
+	stateAs := pki.Identity{Kind: holderOf(eku), Org: op.OrgID, ID: op.ID}
+	der, err := issuer.SignLeafAs(csr.PublicKey, subject, pki.OperatorTLSTTL, eku, hosts, &stateAs)
 	if err != nil {
 		return nil, err
 	}
@@ -145,4 +158,12 @@ func (c *Service) entitledSender(ctx context.Context, op store.Operator, cn stri
 		}
 	}
 	return "", false, nil
+}
+
+// holderOf is the kind of holder an operator certificate with this use was issued to.
+func holderOf(eku x509.ExtKeyUsage) pki.HolderKind {
+	if eku == x509.ExtKeyUsageServerAuth {
+		return pki.HolderReceiver
+	}
+	return pki.HolderSender
 }

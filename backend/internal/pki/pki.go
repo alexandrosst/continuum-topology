@@ -21,6 +21,7 @@ import (
 	"log/slog"
 	"math/big"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sync"
@@ -360,11 +361,16 @@ func (ca *CA) IssueAgent(csr *x509.CertificateRequest, agentID, orgID string, tt
 	if err != nil {
 		return nil, time.Time{}, err
 	}
+	uri, err := Identity{Kind: HolderAgent, Org: orgID, ID: agentID}.URI()
+	if err != nil {
+		return nil, time.Time{}, err
+	}
 	now := time.Now()
 	notAfter = now.Add(ttl)
 	tmpl := &x509.Certificate{
 		SerialNumber:          serial,
 		Subject:               pkix.Name{CommonName: agentID, Organization: []string{orgID}},
+		URIs:                  []*url.URL{uri},
 		NotBefore:             now.Add(-clockSkew),
 		NotAfter:              notAfter,
 		KeyUsage:              x509.KeyUsageDigitalSignature,
@@ -410,6 +416,11 @@ func (ca *CA) CertPEM() []byte {
 // caller passes, never what the key holder asked for. The TTL is capped to what is left of this CA, because a
 // leaf valid past its issuer verifies nowhere.
 func (ca *CA) SignLeaf(pub crypto.PublicKey, subject pkix.Name, ttl time.Duration, eku x509.ExtKeyUsage, hosts []string) ([]byte, error) {
+	return ca.SignLeafAs(pub, subject, ttl, eku, hosts, nil)
+}
+
+// SignLeafAs is SignLeaf for a leaf that states who it was issued to (see Identity); a nil identity states none.
+func (ca *CA) SignLeafAs(pub crypto.PublicKey, subject pkix.Name, ttl time.Duration, eku x509.ExtKeyUsage, hosts []string, holder *Identity) ([]byte, error) {
 	serial, err := newSerial()
 	if err != nil {
 		return nil, err
@@ -436,6 +447,13 @@ func (ca *CA) SignLeaf(pub crypto.PublicKey, subject pkix.Name, ttl time.Duratio
 			tmpl.DNSNames = append(tmpl.DNSNames, h)
 		}
 	}
+	if holder != nil {
+		uri, err := holder.URI()
+		if err != nil {
+			return nil, err
+		}
+		tmpl.URIs = []*url.URL{uri}
+	}
 	return x509.CreateCertificate(rand.Reader, tmpl, ca.cert, pub, ca.key)
 }
 
@@ -443,12 +461,12 @@ func (ca *CA) SignLeaf(pub crypto.PublicKey, subject pkix.Name, ttl time.Duratio
 // first certificate an operator's receiver and each sender get is pasted into a Secret by hand, so there is
 // no process yet that could generate a key and send a CSR. Every renewal after that generates its key where
 // it is used.
-func (ca *CA) issueLeaf(subject pkix.Name, ttl time.Duration, eku x509.ExtKeyUsage, hosts []string) (certPEM, keyPEM []byte, err error) {
+func (ca *CA) issueLeaf(subject pkix.Name, ttl time.Duration, eku x509.ExtKeyUsage, hosts []string, holder Identity) (certPEM, keyPEM []byte, err error) {
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, nil, err
 	}
-	der, err := ca.SignLeaf(&key.PublicKey, subject, ttl, eku, hosts)
+	der, err := ca.SignLeafAs(&key.PublicKey, subject, ttl, eku, hosts, &holder)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -470,7 +488,7 @@ func (ca *CA) IssueOperatorReceiverTLS(operatorID, orgID string, hosts []string)
 		return nil, nil, errors.New("pki: operator id required")
 	}
 	subject := pkix.Name{CommonName: operatorID, Organization: []string{orgID}}
-	return ca.issueLeaf(subject, OperatorTLSTTL, x509.ExtKeyUsageServerAuth, hosts)
+	return ca.issueLeaf(subject, OperatorTLSTTL, x509.ExtKeyUsageServerAuth, hosts, Identity{Kind: HolderReceiver, Org: orgID, ID: operatorID})
 }
 
 // IssueOperatorClientTLS mints the client certificate ONE sender presents to that operator's receiver, so its mTLS
@@ -484,7 +502,7 @@ func (ca *CA) IssueOperatorClientTLS(operatorID, orgID, sender string) (certPEM,
 		return nil, nil, errors.New("pki: operator id required")
 	}
 	subject := pkix.Name{CommonName: OperatorClientCN(operatorID, sender), Organization: []string{orgID}}
-	return ca.issueLeaf(subject, OperatorTLSTTL, x509.ExtKeyUsageClientAuth, nil)
+	return ca.issueLeaf(subject, OperatorTLSTTL, x509.ExtKeyUsageClientAuth, nil, Identity{Kind: HolderSender, Org: orgID, ID: operatorID})
 }
 
 // OperatorClientCN is the common name of the client certificate sender holds for operatorID. The server uses it

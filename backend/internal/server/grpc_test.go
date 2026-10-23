@@ -144,7 +144,13 @@ func TestTransportRefusesWrongPinForeignCAAndOldTLS(t *testing.T) {
 	if err := call(pki.ClientTLS(r.core.CA.Pin(), "127.0.0.1", nil)); testkit.StatusCode(err) != codes.Unauthenticated {
 		t.Fatalf("control: expected to reach the server, got %v", err)
 	}
-	wrong := pki.ClientTLS("00"+r.core.CA.Pin()[2:], "127.0.0.1", nil)
+	// One digit changed: always another pin (prefixing "00" is the same pin 1 time in 256).
+	pin := r.core.CA.Pin()
+	flip := map[byte]byte{'0': '1'}[pin[0]]
+	if flip == 0 {
+		flip = '0'
+	}
+	wrong := pki.ClientTLS(string(flip)+pin[1:], "127.0.0.1", nil)
 	if err := call(wrong); testkit.StatusCode(err) != codes.Unavailable {
 		t.Fatalf("wrong pin was accepted: %v", err)
 	}
