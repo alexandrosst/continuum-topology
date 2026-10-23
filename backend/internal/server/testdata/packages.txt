@@ -64,6 +64,7 @@ connectivity > measure
 connectivity > model
 connectivity > observed
 connectivity > store
+controller > install
 decisionloop > accounts
 decisionloop > advice
 decisionloop > httpkit

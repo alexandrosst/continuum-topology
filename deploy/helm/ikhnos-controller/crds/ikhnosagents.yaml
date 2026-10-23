@@ -1,0 +1,166 @@
+# An IkhnosAgent asks the controller to keep one Ikhnos agent installed in this cluster. The controller is optional: it installs the same
+# agent chart the Connect page's `helm install` does, from the same choices. See docs-site/docs/architecture/lifecycle.md.
+#
+# Helm installs what is in a chart's crds/ directory once and never changes it afterwards, so a new version of this definition is applied
+# by hand: `kubectl apply -f` this file (the chart's README says so on every upgrade).
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: ikhnosagents.ikhnos.io
+spec:
+  group: ikhnos.io
+  scope: Namespaced
+  names:
+    kind: IkhnosAgent
+    listKind: IkhnosAgentList
+    plural: ikhnosagents
+    singular: ikhnosagent
+    shortNames: [ikagent]
+    categories: [ikhnos]
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Server
+          type: string
+          jsonPath: .spec.server.address
+        - name: Chart
+          type: string
+          jsonPath: .status.release.chartVersion
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: IkhnosAgent keeps one Ikhnos agent installed in its namespace.
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [server]
+              properties:
+                server:
+                  type: object
+                  description: The server the agent enrols with.
+                  required: [address, caPin]
+                  properties:
+                    address:
+                      type: string
+                      description: host:port of the server's agent listener.
+                      minLength: 3
+                    caPin:
+                      type: string
+                      description: Pin of the server's CA (sha256/...), shown by the Connect page.
+                      minLength: 1
+                enrollment:
+                  type: object
+                  properties:
+                    tokenSecretRef:
+                      type: object
+                      description: >-
+                        A Secret in this namespace that holds the one-time enrolment token. Needed until the agent has enrolled;
+                        after that it may be removed.
+                      required: [name]
+                      properties:
+                        name:
+                          type: string
+                          minLength: 1
+                        key:
+                          type: string
+                          description: The key that holds the token. Default token.
+                accessTier:
+                  type: integer
+                  description: The access ceiling to install with. Absent, the chart's default (2).
+                  minimum: 0
+                  maximum: 2
+                collectors:
+                  type: object
+                  description: The parts of the agent that run on every node. Each is off unless asked for.
+                  properties:
+                    nodeProbe:
+                      type: boolean
+                      description: Reads facts about each machine. Needs accessTier 1 or more.
+                    flowObserver:
+                      type: boolean
+                      description: Counts which workloads talk to which. Needs accessTier 2.
+                    measurements:
+                      type: boolean
+                      description: Times TCP connections to addresses the server names. Needs accessTier 2.
+                scope:
+                  type: object
+                  description: Which namespaces the agent reports. Empty, all of them.
+                  properties:
+                    namespaces:
+                      type: array
+                      items:
+                        type: string
+                    exclude:
+                      type: array
+                      items:
+                        type: string
+                    selector:
+                      type: string
+                      description: Adds the namespaces carrying a label, written key=value (or just key).
+                purgeIdentityOnDelete:
+                  type: boolean
+                  description: Deleting this resource also deletes the agent's identity Secret, which an uninstall keeps by default.
+                image:
+                  type: object
+                  description: Where the agent's image comes from, when not the chart's own.
+                  properties:
+                    repository:
+                      type: string
+                    tag:
+                      type: string
+                    digest:
+                      type: string
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  enum: [Pending, Installing, Ready, Failed, Invalid, Blocked, Deleting]
+                observedGeneration:
+                  type: integer
+                  format: int64
+                release:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                    revision:
+                      type: integer
+                    chartVersion:
+                      type: string
+                valuesHash:
+                  type: string
+                conditions:
+                  type: array
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys: [type]
+                  items:
+                    type: object
+                    required: [type, status]
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                        enum: ["True", "False", "Unknown"]
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      observedGeneration:
+                        type: integer
+                        format: int64
