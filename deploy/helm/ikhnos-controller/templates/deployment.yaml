@@ -1,0 +1,82 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "controller.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "controller.labels" . | nindent 4 }}
+spec:
+  # One controller, never two at once: it works on one release, and two of them would fight over it. Recreate, so a new version does
+  # not run beside the old one for a moment.
+  replicas: 1
+  strategy: {type: Recreate}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ikhnos-controller
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ikhnos-controller
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/part-of: ikhnos
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "controller.name" . }}
+      automountServiceAccountToken: true
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: controller
+          image: {{ include "controller.image" . | quote }}
+          imagePullPolicy: {{ include "controller.pullPolicy" . }}
+          args:
+            - --max-access-tier={{ .Values.maxAccessTier }}
+            - --timeout={{ .Values.timeout }}
+          env:
+            - name: POD_NAMESPACE
+              valueFrom: {fieldRef: {fieldPath: metadata.namespace}}
+            - name: IKHNOS_AGENT_IMAGE_REPOSITORY
+              value: {{ .Values.agent.image.repository | quote }}
+            - name: IKHNOS_AGENT_IMAGE_TAG
+              value: {{ .Values.agent.image.tag | quote }}
+            - name: IKHNOS_LINK_IMAGE_REPOSITORY
+              value: {{ .Values.agent.linkImage.repository | quote }}
+          ports:
+            - {name: health, containerPort: 8081, protocol: TCP}
+          livenessProbe:
+            httpGet: {path: /healthz, port: health}
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          readinessProbe:
+            httpGet: {path: /healthz, port: health}
+            periodSeconds: 10
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: tmp, mountPath: /tmp}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}

@@ -40,13 +40,15 @@ spec:
       verifyImages:
         - imageReferences:
             # Match by repository name, whatever registry/namespace you publish to (scripts/publish.sh's REGISTRY
-            # argument): the images are always named .../ikhnos and .../server. Narrow this to your exact
+            # argument): the images are always named .../ikhnos, .../server and, when the optional controller is used, .../controller. Narrow this to your exact
             # registry (e.g. "ghcr.io/yourname/ikhnos") once you have one, so a same-named image from
             # elsewhere can never satisfy this rule by accident.
             - "*/ikhnos"
             - "*/ikhnos:*"
             - "*/server"
             - "*/server:*"
+            - "*/controller"
+            - "*/controller:*"
           attestors:
             - entries:
                 - keyless:

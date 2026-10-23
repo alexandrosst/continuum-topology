@@ -1,12 +1,12 @@
 ---
 id: lifecycle
 title: Installing and removing what Ikhnos installs
-description: Who owns the desired state of the agents, regional operators and FUSION, why Ikhnos does not integrate with GitOps, how removal works today, and the one optional step planned after it (a controller with a single CRD).
+description: Who owns the desired state of the agents, regional operators and FUSION, why Ikhnos does not integrate with GitOps, how removal works today, and the optional controller with a single CRD that lets `kubectl apply` be the way an agent is asked for.
 ---
 
 # Installing and removing what Ikhnos installs
 
-Ikhnos puts four things into other people's clusters: the agent, the regional operator, the FUSION stack and the server itself. This page says who decides what is installed, how removal works now, and what is planned.
+Ikhnos puts four things into other people's clusters: the agent, the regional operator, the FUSION stack and the server itself. This page says who decides what is installed, how removal works, and the optional controller.
 
 ## One owner: the server, through its own pages
 
@@ -26,13 +26,14 @@ It has to be chosen when the agent is installed or upgraded, because `helm unins
 
 Removing the Secret does not make the server forget the agent. Revoke it in the page as well.
 
-## Planned: a controller with one CRD (optional)
+## The controller with one CRD (optional)
 
-If it is built, it is an optional extra for people who want `kubectl` to be the way they ask for an agent. It stays inside the rule above: the server remains the owner.
+For people who want a resource in the cluster to be the way an agent is asked for, there is an optional controller (chart `ikhnos-controller`, image `controller`). It stays inside the rule above: the server remains the owner, and the controller is only another way to run the same `helm install` the Connect page prints.
 
-- **Pull, not push.** The controller runs in the agent's own cluster and uses the connection the agent already makes to the server (outbound, mutual TLS). The server never gets a credential for the cluster.
-- **One CRD that wraps the existing charts.** A resource says "this cluster runs an Ikhnos agent with these options"; the controller installs the existing chart through the Helm SDK, so there is one install path and not two.
-- **A finalizer** runs the cleanup (including the identity) before the resource goes.
-- **Costs, said now:** a controller cannot uninstall itself; it needs RBAC wide enough to install the chart, and Kubernetes only lets it grant what it holds; Helm does not upgrade CRDs, so the CRD has its own upgrade path; and it must stay optional, so a cluster without it works exactly as above.
-
-None of this exists yet. Nothing in the agent or the server depends on it.
+- **A resource, not a connection.** An `IkhnosAgent` in the controller's namespace says which server to enrol with (its address and CA pin), where the one-time token is (a Secret, never the resource's own text) and the choices the Connect page offers: the access tier, the collectors, the namespaces to report and whether the identity goes with the agent. The controller never talks to the server and holds no credential for it. The agent that gets installed enrols and is approved on the server's page like any other.
+- **The same install.** The controller carries the agent chart in its own image and installs it with the Helm library as a release called `ikhnos-agent` (so `helm list` shows it, and `helm get values` tells what it was given). The choices become Helm values through the same code the Connect page's command uses, and a test holds that code to Helm's own parser, so the two cannot disagree about what a choice means.
+- **It only changes what differs.** It installs when there is no release and the token Secret is there; it upgrades when the resource, the controller's chart or the state of the release differs; otherwise it does nothing, and writes nothing. Once the agent has enrolled the token Secret may be removed: the release is upgraded without the token and the agent keeps its identity.
+- **One agent per namespace.** The agent chart's objects have fixed names, so a second `IkhnosAgent` in the namespace is reported `Blocked` and does nothing; the oldest owns the release, and deleting a blocked one never uninstalls what is not its.
+- **Deleting uninstalls, then lets go.** A finalizer holds the resource until the release is uninstalled, including the post-delete hook that deletes the identity when `purgeIdentityOnDelete` is set (the controller first applies that choice to the release if it differs, since the hook belongs to the release as installed). If an uninstall cannot finish, the annotation `ikhnos.io/skip-uninstall: "true"` lets the resource go without touching the release.
+- **Permissions, said plainly.** Kubernetes lets nobody create a ClusterRole that grants what they do not hold, so a controller that installs a tier 2 agent holds, cluster-wide, everything tier 2 reads. The chart's `maxAccessTier` is the way to hold less: at 1 the controller holds only what tier 1 reads, at 0 only the name of one namespace, and a resource that asks for more is refused with a message, not trimmed. A test renders the agent chart for every choice a resource can make and holds the controller's permissions to it in both directions: nothing the chart creates is out of reach, and nothing is held that no rendered object asks for.
+- **What it does not do.** It cannot uninstall itself; Helm installs a chart's CRD once and never upgrades it, so a new version of the definition is applied by hand (`kubectl apply -f` the file the chart's notes name); it runs as one replica, because two would fight over the release; and a resource cannot yet choose telemetry, the agent's other options being the chart's defaults. The controller has not yet been run against a real cluster: its logic is tested against a fake release store and Helm's in-memory one, its permissions by rendering, and the Helm library's own behaviour (creating, waiting, watching a hook Job) is the part that only a cluster shows.

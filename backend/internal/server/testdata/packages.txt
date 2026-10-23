@@ -43,6 +43,10 @@ cli/agent > flow
 cli/agent > link
 cli/agent > measure
 cli/agent > probe
+cli/agentcontroller > chart
+cli/agentcontroller > cli
+cli/agentcontroller > controller
+cli/agentcontroller > controller/helminstall
 cli/certrenew > certrenew
 cli/certrenew > cli
 cli/flow > cli
@@ -65,6 +69,8 @@ connectivity > model
 connectivity > observed
 connectivity > store
 controller > install
+controller/helminstall > chart
+controller/helminstall > controller
 decisionloop > accounts
 decisionloop > advice
 decisionloop > httpkit

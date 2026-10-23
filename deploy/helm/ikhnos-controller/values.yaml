@@ -1,0 +1,41 @@
+# Optional. The Connect a cluster page's `helm install` is the way to add an agent; this controller is for people who want a resource
+# in the cluster to be that way. It watches the IkhnosAgent resources of ITS OWN namespace and installs the agent there.
+
+image:
+  # A placeholder, like the other charts': a release build bakes in the registry it published to.
+  repository: ikhnos/controller
+  tag: ""        # empty -> the chart's appVersion
+  digest: ""     # sha256:..., wins over the tag
+  pullPolicy: "" # empty -> Always for the moving edge tag, IfNotPresent otherwise
+imagePullSecrets: []
+
+# The agent images the controller installs. The agent chart it carries is the source tree's, whose image names are placeholders; a
+# release build bakes the registry it published to in here (the published agent chart has it baked in the same way). An IkhnosAgent
+# can still name its own image (spec.image).
+agent:
+  image:
+    repository: ikhnos/ikhnos
+    tag: ""      # empty -> the agent chart's appVersion, which is this controller's own version
+  linkImage:
+    repository: ikhnos/link
+
+# The highest access tier (0, 1 or 2) an IkhnosAgent may ask for, and the most this chart gives the controller permission for.
+#
+# Kubernetes lets nobody create a ClusterRole that grants what they do not hold themselves. To install an agent at tier 2 the
+# controller therefore holds, cluster-wide, everything tier 2 reads (pods, services, workloads, ingresses, ...), and at tier 1 what
+# tier 1 reads (nodes and classes). Set this to the tier you will use and the controller holds no more: 0 holds one namespace's name.
+# An IkhnosAgent that asks for a tier above it is refused with a message, not trimmed.
+maxAccessTier: 2
+
+# How long one install, upgrade or uninstall (with its hooks) may take.
+timeout: 5m
+
+resources:
+  requests: {cpu: 10m, memory: 48Mi}
+  limits: {memory: 256Mi}
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+podAnnotations: {}
+podLabels: {}

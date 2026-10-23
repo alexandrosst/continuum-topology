@@ -63,8 +63,15 @@ type Reconciler struct {
 	Kube      kubernetes.Interface
 	Installer Installer
 	Namespace string
-	Log       *slog.Logger
-	Now       func() time.Time
+	// Defaults are Helm values every release gets under whatever the resource says: where this build's images are, for one. They are
+	// part of what the release is compared with, so a change in them upgrades it like a change in the resource does.
+	Defaults map[string]any
+	// MaxTier is the highest access tier this controller installs an agent at (nil: 2, the highest there is). It is the ceiling of the
+	// permissions the controller was given: to create the agent's ClusterRoles it must hold what they grant (Kubernetes lets nobody
+	// hand out what they do not have), so a controller that is to install only tier 0 or 1 agents is given no more than those need.
+	MaxTier *int
+	Log     *slog.Logger
+	Now     func() time.Time
 }
 
 func (r *Reconciler) now() time.Time {
@@ -160,7 +167,7 @@ func (r *Reconciler) apply(ctx context.Context, obj *unstructured.Unstructured) 
 		return WaitingForSecret, r.setStatus(ctx, obj, Status{Phase: PhasePending, ObservedGeneration: obj.GetGeneration()},
 			r.cond(obj, "False", "WaitingForToken", wait))
 	}
-	values, err := spec.Values(token)
+	values, err := r.values(spec, token)
 	if err != nil {
 		return 0, r.setStatus(ctx, obj, Status{Phase: PhaseInvalid, ObservedGeneration: obj.GetGeneration()},
 			r.cond(obj, "False", "InvalidSpec", err.Error()))
@@ -182,6 +189,31 @@ func (r *Reconciler) apply(ctx context.Context, obj *unstructured.Unstructured) 
 	}
 	r.log().Info("agent release applied", "release", ReleaseName, "revision", rel.Revision, "chart", rel.ChartVersion)
 	return 0, r.setStatus(ctx, obj, r.ready(obj, rel, want), r.cond(obj, "True", "Installed", "the release is installed as the spec asks"))
+}
+
+// ceiling is the highest tier this controller may install.
+func (r *Reconciler) ceiling() int {
+	if r.MaxTier != nil {
+		return *r.MaxTier
+	}
+	return DefaultTier
+}
+
+// values are the spec's Helm values over the defaults. A spec that does not name a tier gets the highest this controller may give
+// (the chart's own default, 2, when it has no lower ceiling); one that names a tier above it is refused, not trimmed.
+func (r *Reconciler) values(spec Spec, token string) (map[string]any, error) {
+	if spec.AccessTier == nil && r.ceiling() < DefaultTier {
+		t := r.ceiling()
+		spec.AccessTier = &t
+	}
+	if spec.AccessTier != nil && *spec.AccessTier > r.ceiling() {
+		return nil, &install.ProblemsError{Problems: []string{fmt.Sprintf("spec.accessTier %d is above the %d this controller was given the permissions for (maxAccessTier in its chart)", *spec.AccessTier, r.ceiling())}}
+	}
+	v, err := spec.Values(token)
+	if err != nil {
+		return nil, err
+	}
+	return Merge(r.Defaults, v), nil
 }
 
 func (r *Reconciler) ready(obj *unstructured.Unstructured, rel *Release, hash string) Status {
@@ -253,7 +285,7 @@ func (r *Reconciler) matchPurge(ctx context.Context, obj *unstructured.Unstructu
 	if err != nil {
 		return err
 	}
-	values, err := spec.Values(token)
+	values, err := r.values(spec, token)
 	if err != nil {
 		return nil
 	}

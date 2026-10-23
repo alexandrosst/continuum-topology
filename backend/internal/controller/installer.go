@@ -37,3 +37,36 @@ func Hash(values map[string]any) string {
 	sum := sha256.Sum256(b)
 	return hex.EncodeToString(sum[:8])
 }
+
+// Merge is over laid on under: a key in over replaces the one in under, except that two documents are merged key by key. Neither is
+// changed.
+func Merge(under, over map[string]any) map[string]any {
+	out := make(map[string]any, len(under)+len(over))
+	for k, v := range under {
+		out[k] = clone(v)
+	}
+	for k, v := range over {
+		if o, ok := v.(map[string]any); ok {
+			if u, ok := out[k].(map[string]any); ok {
+				out[k] = Merge(u, o)
+				continue
+			}
+		}
+		out[k] = clone(v)
+	}
+	return out
+}
+
+func clone(v any) any {
+	switch t := v.(type) {
+	case map[string]any:
+		return Merge(nil, t)
+	case []any:
+		o := make([]any, len(t))
+		for i, x := range t {
+			o[i] = clone(x)
+		}
+		return o
+	}
+	return v
+}

@@ -163,9 +163,9 @@ func (c *Collector) Start(ctx context.Context) error {
 		})
 		// A refused or failed list or watch is what "the agent cannot see this" looks like from the inside. The reflector
 		// keeps retrying on its own; this only records what it ran into so the agent can say so.
-		_ = inf.SetWatchErrorHandler(func(r *cache.Reflector, err error) {
+		_ = inf.SetWatchErrorHandlerWithContext(func(ctx context.Context, r *cache.Reflector, err error) {
 			c.noteInformerError(st, err)
-			cache.DefaultWatchErrorHandler(r, err)
+			cache.DefaultWatchErrorHandler(ctx, r, err)
 		})
 		syncs = append(syncs, inf.HasSynced)
 		return inf

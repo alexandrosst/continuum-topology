@@ -17,10 +17,10 @@ name: Release
 #     A pre-release tag like v1.2.3-rc1 publishes its own version but leaves "latest" where it was.
 #   - workflow_dispatch, for a manual re-run without needing a new commit or tag.
 #
-# One-time setup this workflow cannot do for you: the first time this runs, GHCR creates the six packages
-# (ikhnos, server, ikhnos-agent, ikhnos-regional-operator, ikhnos-fusion, ikhnos-server) as PRIVATE by default, even in a public repo. Nothing
+# One-time setup this workflow cannot do for you: the first time this runs, GHCR creates the eight packages
+# (images: ikhnos, server, link, controller; charts: ikhnos-agent, ikhnos-regional-operator, ikhnos-fusion, ikhnos-server, ikhnos-controller) as PRIVATE by default, even in a public repo. Nothing
 # using the published install command will work until you flip that: on GitHub, the repo's right sidebar has a
-# "Packages" section once this has run once - open each of the six, "Package settings" at the bottom, "Change
+# "Packages" section once this has run once - open each of the eight, "Package settings" at the bottom, "Change
 # visibility" to Public (and confirm "Link to this repository" is checked, so they show up on the repo's page).
 # You only need to do this once; every later push publishes new versions into the same, already-public packages.
 on:
@@ -102,6 +102,11 @@ jobs:
           - target: link
             image: link
             platforms: linux/amd64,linux/arm64
+          # The optional controller (keeps an agent installed from an IkhnosAgent resource). Its own image because it carries the Helm
+          # library; it runs in the clusters that have agents, so it is multi-arch like the agent.
+          - target: controller
+            image: controller
+            platforms: linux/amd64,linux/arm64
           # The server runs in one place (the control plane), so amd64 only by default - matches
           # scripts/publish.sh's SERVER_PLATFORMS default. Fork this workflow and widen it if yours is ARM.
           - target: server
@@ -176,6 +181,9 @@ jobs:
             name: ikhnos-fusion
           - dir: deploy/helm/ikhnos-server
             name: ikhnos-server
+          # The controller's chart: the controller image and, in its values, the agent images it installs.
+          - dir: deploy/helm/ikhnos-controller
+            name: ikhnos-controller
     steps:
       - uses: actions/checkout@v4
       - uses: azure/setup-helm@v4
@@ -216,6 +224,13 @@ jobs:
             ikhnos-agent)
               patch_one "  repository: ikhnos/ikhnos\$" "  repository: ghcr.io/${owner}/ikhnos"
               patch_one "        repository: ikhnos/link\$" "        repository: ghcr.io/${owner}/link"
+              ;;
+            ikhnos-controller)
+              patch_one "  repository: ikhnos/controller\$" "  repository: ghcr.io/${owner}/controller"
+              # The agent images the controller installs: the agent chart it carries is the source tree's, with placeholder names, and
+              # the published agent chart's baked-in ones are given to it here instead.
+              patch_one "    repository: ikhnos/ikhnos\$" "    repository: ghcr.io/${owner}/ikhnos"
+              patch_one "    repository: ikhnos/link\$" "    repository: ghcr.io/${owner}/link"
               ;;
             ikhnos-server)
               patch_one "  repository: ikhnos/server\$" "  repository: ghcr.io/${owner}/server"

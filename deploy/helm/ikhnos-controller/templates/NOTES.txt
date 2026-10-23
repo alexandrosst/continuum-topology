@@ -1,0 +1,32 @@
+The Ikhnos controller is installed in {{ .Release.Namespace }}. It watches the IkhnosAgent resources of this namespace and keeps one
+agent installed in it.
+
+Ask for an agent (the Connect a cluster page shows the server address, the CA pin and the one-time token):
+
+  kubectl -n {{ .Release.Namespace }} create secret generic ikhnos-enrollment --from-literal=token=<the token>
+
+  kubectl -n {{ .Release.Namespace }} apply -f - <<'YAML'
+  apiVersion: ikhnos.io/v1alpha1
+  kind: IkhnosAgent
+  metadata:
+    name: this-cluster
+  spec:
+    server:
+      address: <host:port of the server's agent listener>
+      caPin: <sha256/... from the Connect page>
+    enrollment:
+      tokenSecretRef: {name: ikhnos-enrollment}
+    accessTier: {{ .Values.maxAccessTier }}
+  YAML
+
+  kubectl -n {{ .Release.Namespace }} get ikhnosagents
+
+The agent then appears on the server's page for approval, as any agent does. Deleting the resource uninstalls the agent; add
+spec.purgeIdentityOnDelete: true to also delete its identity Secret. This controller never talks to the server.
+
+This controller may install agents up to access tier {{ .Values.maxAccessTier }}.
+{{- if .Release.IsUpgrade }}
+
+Helm does not upgrade a chart's CRDs. If this version changes the IkhnosAgent definition, apply it yourself:
+  kubectl apply -f https://raw.githubusercontent.com/<owner>/ikhnos/<this version>/deploy/helm/ikhnos-controller/crds/ikhnosagents.yaml
+{{- end }}

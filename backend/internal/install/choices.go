@@ -72,19 +72,24 @@ func HelmValues(vs []Value) (map[string]any, error) {
 	return out, nil
 }
 
-// plainValue reads a `--set` value the way Helm does for the plain ones this package writes: true and false are booleans, null is
-// nothing, an integer is a number, anything else is a string. (Helm reads these as int64; a float is not written anywhere.)
+// plainValue reads a `--set` value the way Helm's own parser does (strvals.typedVal): true, false and null in any case are a boolean or
+// nothing, "0" is zero, a value that does not start with a zero and is an integer is a number, anything else is a string. A test holds
+// it to Helm's parser, because the two have differed before (a leading plus sign is a number to Helm).
 func plainValue(s string) any {
-	switch s {
-	case "true":
+	switch {
+	case strings.EqualFold(s, "true"):
 		return true
-	case "false":
+	case strings.EqualFold(s, "false"):
 		return false
-	case "null":
+	case strings.EqualFold(s, "null"):
 		return nil
+	case s == "0":
+		return int64(0)
 	}
-	if n, err := strconv.ParseInt(s, 10, 64); err == nil && strconv.FormatInt(n, 10) == s {
-		return n
+	if s != "" && s[0] != '0' {
+		if n, err := strconv.ParseInt(s, 10, 64); err == nil {
+			return n
+		}
 	}
 	return s
 }

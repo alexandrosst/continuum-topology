@@ -1,0 +1,11 @@
+apiVersion: v2
+name: ikhnos-controller
+description: Optional. Keeps an Ikhnos agent installed in this cluster from an IkhnosAgent resource, so `kubectl apply` can be the way an agent is asked for. It installs the same agent chart the Connect page's helm command does, and never talks to the Ikhnos server.
+type: application
+version: 0.1.0
+appVersion: "0.1.0-dev"
+# The "-0" lets managed clusters with suffixed versions (v1.29.3-gke.100, v1.30.2-eks-...) satisfy the constraint.
+kubeVersion: ">=1.25.0-0"
+keywords: [ikhnos, controller, crd]
+annotations:
+  ikhnos.io/agent-chart: "the agent chart is embedded in the controller's image; this chart does not depend on the registry copy"

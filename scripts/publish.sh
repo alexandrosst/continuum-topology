@@ -10,6 +10,7 @@
 #   ONLY=chart scripts/publish.sh myname   # just the charts (the agent's, the regional operator's and FUSION's)
 #   ONLY=link scripts/publish.sh myname    # the cluster-link image (<registry>/link: the ikhnos binary plus OWAMP), needed only when telemetry.clusterLinks.probe is on
 #   ONLY=server scripts/publish.sh myname  # the server image (<registry>/server) and the server chart (oci://<registry>/ikhnos-server)
+#   ONLY=controller scripts/publish.sh myname  # the controller image (<registry>/controller) and chart (oci://<registry>/ikhnos-controller), optional
 #
 # There is no default registry on purpose: where you publish is your decision, and nothing in the source points at anyone's namespace.
 #
@@ -43,9 +44,9 @@ PLATFORMS="${PLATFORMS:-linux/amd64,linux/arm64}"
 IMAGE="${REG%/}/ikhnos"
 
 case "$ONLY" in
-  ""|image|chart|server|link) ;;
+  ""|image|chart|server|link|controller) ;;
   agent|probe|flow) echo "ONLY=$ONLY is gone: agent, probe and flow are one image now. Use ONLY=image or ONLY=chart." >&2; exit 2 ;;
-  *) echo "ONLY must be image, chart, server or link (or empty for everything), not '$ONLY'." >&2; exit 2 ;;
+  *) echo "ONLY must be image, chart, server, link or controller (or empty for everything), not '$ONLY'." >&2; exit 2 ;;
 esac
 
 # Where an OCI registry keeps things for this setting: a bare name is a Docker Hub namespace.
@@ -165,6 +166,22 @@ if want server; then
   fi
   [[ -n "$SERVER_DIGEST" && "$SERVER_DIGEST" != sha256:\<* ]] && sign "${REG%/}/server@$SERVER_DIGEST"
   chart_push deploy/helm/ikhnos-server "$(oci_base "$REG")" ikhnos-server
+fi
+
+# The controller (optional, like the link image): a separate image and chart, built only when asked for. It installs the agent chart
+# embedded in its binary, so the agent image it installs must be named: the chart's agent.image.repository (below).
+CONTROLLER_TAG="${CONTROLLER_TAG:-$(sed -n 's/^appVersion:[[:space:]]*"\{0,1\}\([^"]*\)"\{0,1\}[[:space:]]*$/\1/p' deploy/helm/ikhnos-controller/Chart.yaml)}"
+if [[ "$ONLY" == "controller" ]]; then
+  meta="$(mktemp)"
+  run docker buildx build -f backend/Dockerfile --platform "$PLATFORMS" --target controller -t "${REG%/}/controller:$CONTROLLER_TAG" --metadata-file "$meta" --push .
+  if [[ -z "${DRY_RUN:-}" ]]; then
+    CONTROLLER_DIGEST="$(sed -n 's/.*"containerimage.digest"[[:space:]]*:[[:space:]]*"\(sha256:[0-9a-f]\{64\}\)".*/\1/p' "$meta" | head -n1)"
+    [[ -n "$CONTROLLER_DIGEST" ]] && sign "${REG%/}/controller@$CONTROLLER_DIGEST"
+    echo "controller image  ${REG%/}/controller:$CONTROLLER_TAG   digest ${CONTROLLER_DIGEST:-<read it with: docker buildx imagetools inspect ${REG%/}/controller:$CONTROLLER_TAG>}"
+  fi
+  rm -f "$meta"
+  chart_push deploy/helm/ikhnos-controller "$(oci_base "$REG")" ikhnos-controller
+  echo "Install it with:  --set image.repository=${REG%/}/controller --set agent.image.repository=${REG%/}/ikhnos"
 fi
 
 echo

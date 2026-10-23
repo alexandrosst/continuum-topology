@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -582,5 +583,86 @@ func TestATokenWithTheNewlineAnEditorLeftIsTheTokenWithoutIt(t *testing.T) {
 	got := g.inst.lastApplied()["enrollment"].(map[string]any)["token"]
 	if got != "ikh_abc" {
 		t.Fatalf("token %q", got)
+	}
+}
+
+func TestWhatThisBuildDefaultsIsUnderTheSpecAndIsPartOfWhatTheReleaseIsComparedWith(t *testing.T) {
+	g := newRig(t)
+	g.r.Defaults = map[string]any{"image": map[string]any{"repository": "ghcr.io/acme/ikhnos", "tag": "1.2.3"}, "telemetry": map[string]any{"x": "y"}}
+	g.secret("enroll", "token", "ikh_abc")
+	spec := goodSpec()
+	g.agent("a", spec)
+	g.must("a")
+	img := g.inst.lastApplied()["image"].(map[string]any)
+	if img["repository"] != "ghcr.io/acme/ikhnos" || img["tag"] != "1.2.3" {
+		t.Fatalf("defaults not applied: %v", img)
+	}
+	// Looked at again: the release has the defaults in it and is the same thing, not a change.
+	g.must("a")
+	if g.inst.applies() != 1 {
+		t.Fatalf("the defaults made a release look changed: %d applies", g.inst.applies())
+	}
+
+	// The resource's own image wins key by key, and the key it does not name keeps the default.
+	spec = goodSpec()
+	spec["image"] = map[string]any{"repository": "registry.example/mine"}
+	g.setSpec("a", spec)
+	g.must("a")
+	img = g.inst.lastApplied()["image"].(map[string]any)
+	if img["repository"] != "registry.example/mine" || img["tag"] != "1.2.3" {
+		t.Fatalf("image %v", img)
+	}
+
+	// A different default (a new controller version) is an upgrade.
+	g.r.Defaults = map[string]any{"image": map[string]any{"repository": "ghcr.io/acme/ikhnos", "tag": "1.2.4"}}
+	g.must("a")
+	if tag := g.inst.lastApplied()["image"].(map[string]any)["tag"]; g.inst.applies() != 3 || tag != "1.2.4" {
+		t.Fatalf("applies %d, image %v", g.inst.applies(), g.inst.lastApplied()["image"])
+	}
+}
+
+func TestMergeKeepsBothSidesAndChangesNeither(t *testing.T) {
+	under := map[string]any{"a": map[string]any{"x": 1, "y": 2}, "l": []any{"p"}, "s": "keep"}
+	over := map[string]any{"a": map[string]any{"y": 3}, "l": []any{"q"}, "n": "new"}
+	got := Merge(under, over)
+	want := map[string]any{"a": map[string]any{"x": 1, "y": 3}, "l": []any{"q"}, "s": "keep", "n": "new"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Fatalf("%v", got)
+	}
+	got["a"].(map[string]any)["x"] = 99
+	if under["a"].(map[string]any)["x"] != 1 || over["a"].(map[string]any)["y"] != 3 {
+		t.Fatal("a merge changed its inputs")
+	}
+}
+
+func TestAControllerGivenLessThanTheTopTierInstallsNothingAboveIt(t *testing.T) {
+	one := 1
+	g := newRig(t)
+	g.r.MaxTier = &one
+	g.secret("enroll", "token", "ikh_abc")
+
+	// No tier named: the highest it may give, not the chart's 2.
+	g.agent("a", goodSpec())
+	g.must("a")
+	if tier := g.inst.lastApplied()["access"].(map[string]any)["tier"]; tier != int64(1) {
+		t.Fatalf("installed at tier %v", tier)
+	}
+
+	// A tier above it is refused and said, and the release stays as it was.
+	spec := goodSpec()
+	spec["accessTier"] = int64(2)
+	g.setSpec("a", spec)
+	g.must("a")
+	st := g.status("a")
+	if st.Phase != PhaseInvalid || !strings.Contains(st.Conditions[0].Message, "above the 1") || g.inst.applies() != 1 {
+		t.Fatalf("status %+v, applies %d", st, g.inst.applies())
+	}
+
+	// A tier at or below it is fine.
+	spec["accessTier"] = int64(0)
+	g.setSpec("a", spec)
+	g.must("a")
+	if g.status("a").Phase != PhaseReady || g.inst.lastApplied()["access"].(map[string]any)["tier"] != int64(0) {
+		t.Fatalf("status %+v", g.status("a"))
 	}
 }

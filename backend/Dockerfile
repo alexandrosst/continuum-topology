@@ -1,7 +1,8 @@
-# Three images come out of this file (the `link` one is optional, see its stage below). Build from the repository root:
+# Four images come out of this file (the `link` one and the `controller` one are optional, see their stages below). Build from the repository root:
 #   docker build -f backend/Dockerfile --target ikhnos -t ikhnos/ikhnos:0.1.0-dev .   # everything that runs in a cluster
 #   docker build -f backend/Dockerfile --target server    -t ikhnos/server:0.1.0-dev .      # the control plane and the UI
 #   docker build -f backend/Dockerfile --target link      -t ikhnos/link:0.1.0-dev .        # cluster-link prober and responder (OWAMP)
+#   docker build -f backend/Dockerfile --target controller -t ikhnos/controller:0.1.0-dev .  # keeps an agent installed from an IkhnosAgent resource
 # Multi-arch (one tag that runs on x86 servers and ARM boards; scripts/publish.sh does this and prints the digest):
 #   docker buildx build -f backend/Dockerfile --platform linux/amd64,linux/arm64 --target ikhnos -t REGISTRY/ikhnos:0.1.0-dev --push .
 #
@@ -80,14 +81,25 @@ ARG VERSION=0.1.0-dev
 # can disagree for a CI-published image.
 ARG CHART_VERSION=
 ENV CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH}
+# The controller is its own binary because it carries the Helm library. It installs the agent chart that is embedded in it at CHART_VERSION
+# (and appVersion VERSION) when those are given, which is what the published agent chart was packaged with.
 RUN go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /out/ikhnos ./cmd/ikhnos \
- && go build -trimpath -ldflags "-s -w -X main.version=${VERSION} -X main.agentChartVersion=${CHART_VERSION} -X main.operatorChartVersion=${CHART_VERSION}" -o /out/server ./cmd/server
+ && go build -trimpath -ldflags "-s -w -X main.version=${VERSION} -X main.agentChartVersion=${CHART_VERSION} -X main.operatorChartVersion=${CHART_VERSION}" -o /out/server ./cmd/server \
+ && go build -trimpath -ldflags "-s -w -X main.version=${VERSION} -X ikhnos/internal/cli/agentcontroller.ChartVersion=${CHART_VERSION}" -o /out/controller ./cmd/controller
 
 # The default user of this base image is 65532 (nonroot); nothing here overrides it, so a pod that needs root (the flow
 # collector) asks for it in its own securityContext.
 FROM gcr.io/distroless/static-debian12:nonroot AS ikhnos
 COPY --from=build /out/ikhnos /ikhnos
 ENTRYPOINT ["/ikhnos"]
+
+# The controller (optional): `controller` watches the IkhnosAgent resources of its namespace and keeps one release of the agent chart
+# (embedded in the binary) installed to match. Its chart is deploy/helm/ikhnos-controller; it gives the pod the namespace and the agent
+# image to install. No shell, nonroot, and it holds no credential for the Ikhnos server: it never talks to it.
+FROM gcr.io/distroless/static-debian12:nonroot AS controller
+COPY --from=build /out/controller /controller
+USER 65532:65532
+ENTRYPOINT ["/controller"]
 
 # OWAMP (RFC 4656, from perfSONAR) is what measures the loss and delay of each direction of a link between clusters. It is built
 # here from two pinned commits (tags v5.2.6 of perfsonar/owamp and perfsonar/i2util, the small helper library it needs) rather than

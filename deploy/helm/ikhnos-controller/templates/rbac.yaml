@@ -1,0 +1,144 @@
+{{- include "controller.validate" . -}}
+{{- $tier := .Values.maxAccessTier | int -}}
+{{- $sa := include "controller.name" . -}}
+# What the controller may do, and why each part is there. The controller installs the agent chart as a Helm release, so it needs
+# whatever Helm needs to create, change and delete the objects that chart makes -- and, because Kubernetes lets nobody create a Role
+# or ClusterRole that grants what they do not hold, it needs the permissions those objects grant too. A test renders the agent chart
+# for every choice an IkhnosAgent can make and holds this file to both: nothing the chart creates is out of reach, and nothing here
+# is held that no rendered object asks for.
+#
+# 1. In the release's namespace: the IkhnosAgents themselves; the Secrets (Helm keeps its release records as Secrets, the enrolment
+#    token is one, and the agent's identity Secret is one); and the kinds the agent chart creates there. The RBAC objects are limited
+#    to the names that chart gives them (create cannot be limited by name; the rest are).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $sa }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "controller.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [ikhnos.io]
+    resources: [ikhnosagents]
+    verbs: [get, list, watch, update, patch]
+  - apiGroups: [ikhnos.io]
+    resources: [ikhnosagents/status]
+    verbs: [get, update, patch]
+  - apiGroups: [""]
+    resources: [secrets, serviceaccounts, services]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [apps]
+    resources: [deployments, daemonsets]
+    verbs: [get, list, watch, create, update, patch, delete]
+  # The identity purge is a post-delete hook Job; Helm watches it until it finishes.
+  - apiGroups: [batch]
+    resources: [jobs]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [roles, rolebindings]
+    verbs: [create]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [roles, rolebindings]
+    resourceNames: [ikhnos-agent-identity, ikhnos-agent-purge-identity]
+    verbs: [get, list, watch, update, patch, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $sa }}
+  namespace: {{ .Release.Namespace }}
+  labels: {{- include "controller.labels" . | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: {{ $sa }}}
+subjects: [{kind: ServiceAccount, name: {{ $sa }}, namespace: {{ .Release.Namespace }}}]
+---
+# 2. In the "default" namespace: the agent chart puts one small Role there (it lets the agent read the address of the API server from
+#    the "kubernetes" Endpoints), so the controller may create that Role and its binding, and holds what it grants.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $sa }}
+  namespace: default
+  labels: {{- include "controller.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [roles, rolebindings]
+    verbs: [create]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [roles, rolebindings]
+    resourceNames: [ikhnos-agent-api-endpoint]
+    verbs: [get, list, watch, update, patch, delete]
+  - apiGroups: [""]
+    resources: [endpoints]
+    resourceNames: [kubernetes]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $sa }}
+  namespace: default
+  labels: {{- include "controller.labels" . | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: {{ $sa }}}
+subjects: [{kind: ServiceAccount, name: {{ $sa }}, namespace: {{ .Release.Namespace }}}]
+---
+# 3. Cluster-wide: the agent's ClusterRoles and their bindings (limited to the names that chart gives them, for tiers 0 to 2 whatever
+#    the ceiling, so that lowering it can still remove a role the agent had), and what those ClusterRoles grant, up to maxAccessTier.
+#    The three blocks below are the agent chart's tier 0, 1 and 2 rules; the test holds them to what the chart renders.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $sa }}
+  labels: {{- include "controller.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [clusterroles, clusterrolebindings]
+    verbs: [create]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [clusterroles, clusterrolebindings]
+    resourceNames: {{- include "controller.agentClusterNames" . | nindent 6 }}
+    verbs: [get, list, watch, update, patch, delete]
+  # Tier 0: the identity of the cluster (the UID of kube-system).
+  - apiGroups: [""]
+    resources: [namespaces]
+    resourceNames: [kube-system]
+    verbs: [get]
+{{- if ge $tier 1 }}
+  # Tier 1: what the cluster is made of.
+  - apiGroups: [""]
+    resources: [nodes]
+    verbs: [get, list, watch]
+  - apiGroups: [storage.k8s.io]
+    resources: [storageclasses]
+    verbs: [get, list, watch]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingressclasses]
+    verbs: [get, list, watch]
+{{- end }}
+{{- if ge $tier 2 }}
+  # Tier 2: what runs on it.
+  - apiGroups: [""]
+    resources: [namespaces, pods, services, persistentvolumeclaims, persistentvolumes]
+    verbs: [get, list, watch]
+  - apiGroups: [autoscaling]
+    resources: [horizontalpodautoscalers]
+    verbs: [get, list, watch]
+  - apiGroups: [policy]
+    resources: [poddisruptionbudgets]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [deployments, statefulsets, daemonsets, replicasets]
+    verbs: [get, list, watch]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses]
+    verbs: [get, list, watch]
+  - apiGroups: [security.istio.io]
+    resources: [peerauthentications]
+    verbs: [get, list]
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $sa }}-{{ .Release.Namespace }}
+  labels: {{- include "controller.labels" . | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: {{ $sa }}}
+subjects: [{kind: ServiceAccount, name: {{ $sa }}, namespace: {{ .Release.Namespace }}}]
