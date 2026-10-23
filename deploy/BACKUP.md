@@ -12,6 +12,7 @@ runs**.
 |---|---|---|
 | `<data-dir>/continuum.db` (+ `-wal`, `-shm`) | SQLite: accounts, sessions, organisations, enrolment tokens, agents and their approvals, settings, **the workspace** (what people declared), **tombstones**, the node identity registry, the model version, audit | everything people entered is gone. This is the file to protect. |
 | `<data-dir>/pki/` (`ca.crt`, `ca.key`) | the certificate authority every agent pinned at enrolment | **every agent is orphaned**: they refuse a server with a different CA and each cluster must be enrolled again |
+| the sealing key (`sealing.keySecret`, a Kubernetes Secret) | the key that seals second-factor secrets, the mail password and decider secrets inside `continuum.db` | the database still restores, but those secrets cannot be read: the server refuses to start on it until `server reset-sealing` removes them (people set their second factor up again, the mail password and deciders are entered again). **Back it up apart from the data volume**, not with it |
 | Neo4j (optional) | topology history, events, audit and workspace revisions | you lose history and the ability to look at the past; nothing else. Not the trust root. |
 | what agents observe | clusters, nodes, workloads, traffic | nothing: it is **not stored in a backup and not needed in one**. Agents send a full picture when they reconnect. |
 

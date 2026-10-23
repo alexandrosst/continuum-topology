@@ -267,6 +267,23 @@ The server also has its own `server backup` and `server restore` commands: a con
 
 **If the CA key is lost, every enrolled agent is orphaned.** A new CA has a new fingerprint, so agents (which pin the old one) can no longer connect: each cluster has to be enrolled again with a new pin and token, and appears as a new, unapproved agent. Treat the backup like a private key: encrypt it and store it off the cluster.
 
+### Sealing secrets at rest
+
+A password is stored as a hash, because nothing needs it again. Three secrets cannot be: people's second-factor (TOTP) secrets, which a sign-in must read to check a live code, the mail relay's password, and an organisation's decider secret, which signs the requests the server sends to its decider. They are encrypted in the database (AES-256-GCM, each bound to the user or organisation it belongs to) under a key that is **not** in the database and not on the data volume: a Secret you create, mounted as a file (the chart gives the server its path in `CONTINUUM_SEALING_KEY_FILE`, so `kubectl exec ... /server reset-password` finds it too).
+
+```console
+kubectl -n continuum create secret generic continuum-sealing --from-literal=sealing.key="$(openssl rand -base64 48)"
+helm upgrade continuum ... --set sealing.keySecret.name=continuum-sealing
+```
+
+Without `sealing.keySecret.name` the secrets are stored as they are, as before, and the install notes say so. When the key is first given, the server seals what is already stored and rewrites the database file once, so the old text is not left in it.
+
+**The key is part of the backup, and kept apart from it.** A copy of the database is useless for these secrets without the key, and the server refuses to start on a database that holds sealed secrets without it (or with another key), naming the key it needs, instead of failing at the first sign-in. Keep the key where you keep other long-lived credentials, not on the data volume or in the volume's snapshots: that is the point of it. (`kubectl -n continuum get secret continuum-sealing -o yaml`, stored with the archive's decryption key.)
+
+**Replacing the key.** The key file holds one key per line; the first seals, the others only open. Put the new key on top (`printf '%s\n%s\n' "$(openssl rand -base64 48)" "$(old line)"`), upgrade, and the server seals everything again under it at the next start; remove the old line at a later upgrade. A start with only the old key afterwards is refused.
+
+**A lost key.** There is no way to read what was sealed without it. `server reset-sealing` (run in the pod, or against the data directory) says what it would remove and, with `--yes`, removes exactly the secrets that can no longer be opened: the second factor of the people who had one (they set it up again; their recovery codes go with it), the mail password (entered again in Settings), and each organisation's decider (set up again; its address is cleared too, so nothing is ever sent unsigned). Nothing else is touched, and the server starts afterwards without a key or with a new one. Restoring a backup taken before the loss, with the key that belongs to it, is the other way out.
+
 ### Encrypting the CA key at rest
 
 `pki.encryptAtRest` (default `true`) means the key on disk is never plaintext: the server encrypts it under a passphrase (argon2id + AES-256-GCM) the moment it starts. You do not need to set anything for this; it is the default, not an opt-in.
@@ -515,6 +532,7 @@ The important values; all of them are documented in `values.yaml` and tabulated 
 | `persistence.size` / `storageClass` / `existingClaim` | `5Gi` / default / `""` | the `/data` volume |
 | `pki.encryptAtRest` | `true` | encrypt the CA key at rest; the server mints and persists its own passphrase (`--ca-key-auto-passphrase`) |
 | `pki.caKeyPassphraseSecret.name` | `""` | bring your own passphrase Secret instead |
+| `sealing.keySecret.name` / `key` | `""` / `sealing.key` | a Secret holding the key that seals the second-factor secrets, the mail password and the decider secret in the database (`--sealing-key-file`); empty: they are stored as they are |
 | `neo4j.mode` | `bundled` | `bundled` / `external` (mandatory: no `none`) |
 | `agentInstall.imageRegistry` / `imageTag` / `chartRef` | `""` | what the printed agent install command uses |
 | `image.repository` / `tag` / `digest` | `continuum/server` / appVersion / `""` | the server image |
@@ -558,6 +576,7 @@ Ready-made combinations to copy from live in `helm/continuum-server/ci/`.
 * **Registration.** Leave it `invite` (default) or `closed` on any reachable server. `open` gives anyone with network access an account and an organization of their own.
 * **Who can reach the admin port.** Everything a signed-in person does goes through it, and in proxy mode the server trusts `X-Forwarded-For` and `X-Forwarded-Proto` from whoever connects, so a client that can reach port 8080 directly can forge its address. Only the proxy should be able to. Use `networkPolicy.enabled` with `networkPolicy.ingress.admin.from` set to your Gateway's namespace; do not put `admin.service.type` on a LoadBalancer without TLS in front.
 * **The agent port** is the trust boundary for agents: mutual TLS with a private CA, agents pinned to it, enrollment by one-time token and explicit approval. Restrict who can connect with `agent.service.loadBalancerSourceRanges` or `networkPolicy.ingress.agent.from` when you know the agents' networks.
+* **Sealed secrets.** Second-factor secrets, the mail password and the decider secret are encrypted in the database when `sealing.keySecret.name` is set (see "Sealing secrets at rest"); keep that key apart from the volume and its backups, or a stolen backup opens them.
 * **The CA key** is the crown jewel: it is encrypted at rest by default (`pki.encryptAtRest`, see "Encrypting the CA key at rest" above), but that only protects the key on disk — still guard the PVC, its snapshots and backups (encrypted, off-cluster). The default auto-generated passphrase lives on that same PVC (no Kubernetes permissions needed to put it anywhere else); bring your own passphrase Secret with `pki.caKeyPassphraseSecret.name` and guard it separately if you want a stolen PVC backup alone to be useless.
 * **Content-Security-Policy and headers.** The server sets a strict CSP (`'self'` only, no framing), `X-Content-Type-Options`, `Referrer-Policy`, and HSTS when the request was HTTPS. Do not weaken them at the proxy.
 * **The pod** runs as 65532 with a read-only root file system, all capabilities dropped, `RuntimeDefault` seccomp, no privilege escalation and no service-account token: the server never talks to the Kubernetes API, so it holds no cluster permissions. Only the optional backup CronJob has a token, limited to `VolumeSnapshot`s in the release namespace.

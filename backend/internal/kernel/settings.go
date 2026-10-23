@@ -451,6 +451,15 @@ func (c *Core) LoadSettings(ctx context.Context) {
 		return
 	}
 	s := st.Settings
+	// The decider secret is kept sealed. One that cannot be opened switches the decider off, never leaves it on without its signature:
+	// requests that are no longer signed would be accepted by a decider that was set up to check them, and trusted by one that is not.
+	stored := s.DeciderSecret
+	if plain, err := c.Sealer.Open(SealDeciderSecret, c.OrgID, stored); err != nil {
+		c.Log.Error("the stored decider secret cannot be opened, so the external decider is switched off; "+err.Error(), "org", c.OrgID)
+		s.DeciderURL, s.DeciderSecret = "", ""
+	} else {
+		s.DeciderSecret = plain
+	}
 	// A decider saved by an earlier version (or under a wider allow-list) may no longer be permitted. Switch
 	// only the decider off, loudly, and keep everything else; the dial-time check would refuse it anyway.
 	if u := strings.TrimSpace(s.DeciderURL); u != "" {
@@ -470,6 +479,28 @@ func (c *Core) LoadSettings(ctx context.Context) {
 	c.settings.mu.Lock()
 	c.settings.s, c.settings.rev, c.settings.ok = n, st.Rev, true
 	c.settings.mu.Unlock()
+	// Plain, or sealed under a key that is no longer the first: stored again under the first, as the same revision (nothing the person sees
+	// changed).
+	if !c.Sealer.Current(stored) && n.DeciderSecret != "" {
+		if body, err := c.storedSettings(n, st.Rev); err != nil {
+			c.Log.Error("the decider secret could not be sealed", "org", c.OrgID, "err", err)
+		} else if err := c.Store.PutSettings(ctx, c.OrgID, body, c.Now()); err != nil {
+			c.Log.Error("the decider secret could not be stored sealed", "org", c.OrgID, "err", err)
+		}
+	}
+}
+
+// SealDeciderSecret is what the decider secret of an organisation is bound to when it is sealed.
+const SealDeciderSecret = "decider-secret"
+
+// storedSettings is the document as it is written: the secret in it sealed (when the server has a key), the rest as it is.
+func (c *Core) storedSettings(s Settings, rev int64) ([]byte, error) {
+	sealed, err := c.Sealer.Seal(SealDeciderSecret, c.OrgID, s.DeciderSecret)
+	if err != nil {
+		return nil, err
+	}
+	s.DeciderSecret = sealed
+	return json.Marshal(StoredSettings{Settings: s, Rev: rev})
 }
 
 // SaveSettings validates, stores and applies new settings, and records who changed what. It replaces the document
@@ -499,7 +530,10 @@ func (c *Core) SaveSettingsAt(ctx context.Context, actor string, expect *int64, 
 		return old, rev, Errf(KindConflict, "someone else changed the settings since you opened them")
 	}
 	next := rev + 1
-	data, _ := json.Marshal(StoredSettings{Settings: n, Rev: next})
+	data, err := c.storedSettings(n, next)
+	if err != nil {
+		return Settings{}, 0, err
+	}
 	apply := func(opts ...store.WriteOption) error {
 		if err := c.Store.PutSettings(ctx, c.OrgID, data, c.Now(), opts...); err != nil {
 			return err
@@ -744,3 +778,28 @@ func throughputBrief(t *LinkThroughput) string {
 	}
 	return " (" + every + ", " + budget + ")"
 }
+
+// DiscardSealedSettings is the recovery from a lost sealing key: if this organisation's stored settings hold a sealed decider secret, which can no
+// longer be opened, the external decider is cleared (its address too, so that nothing is sent unsigned) and the rest is kept. It reports whether
+// anything was cleared.
+func (c *Core) DiscardSealedSettings(ctx context.Context) (bool, error) {
+	data, err := c.Store.GetSettings(ctx, c.OrgID)
+	if err != nil || data == nil {
+		return false, err
+	}
+	var st StoredSettings
+	if err := json.Unmarshal(data, &st); err != nil {
+		return false, nil
+	}
+	if !sealedText(st.DeciderSecret) {
+		return false, nil
+	}
+	st.DeciderURL, st.DeciderSecret = "", ""
+	body, err := json.Marshal(st)
+	if err != nil {
+		return false, err
+	}
+	return true, c.Store.PutSettings(ctx, c.OrgID, body, c.Now())
+}
+
+func sealedText(s string) bool { return strings.HasPrefix(s, "sealed:v1:") }

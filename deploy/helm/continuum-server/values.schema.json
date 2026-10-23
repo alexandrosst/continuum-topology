@@ -334,6 +334,22 @@
         }
       }
     },
+    "sealing": {
+      "type": "object",
+      "properties": {
+        "keySecret": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "key": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
     "neo4j": {
       "type": "object",
       "properties": {

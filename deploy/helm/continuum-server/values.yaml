@@ -273,6 +273,19 @@ pki:
     name: ""
     key: passphrase
 
+# Sealing: the few secrets this server must be able to read back - people's second-factor (TOTP) secrets, the mail
+# password, and an organisation's decider secret - are encrypted in the database (AES-256-GCM) under a key that is NOT in
+# the database and not on the data volume: a Secret you create, mounted as a file. Without it they are stored as they are.
+# Create the Secret once, and keep a copy of the key apart from the volume and its backups (a backup of the database is
+# useless for these secrets without it, and the server refuses to start on a sealed database without it):
+#   kubectl -n <ns> create secret generic continuum-sealing --from-literal=sealing.key="$(openssl rand -base64 48)"
+# The file holds one key per line; the first seals, the others only open. To replace the key, put the new one on top (a new
+# Secret value), upgrade, and remove the old line at a later upgrade. README.md, "Sealing secrets at rest".
+sealing:
+  keySecret:
+    name: ""
+    key: sealing.key
+
 # ---------------------------------------------------------------------------------------------------------------------
 # Neo4j: the graph store for topology history, events, the audit trail and workspace revisions (--neo4j-url). This
 # chart always deploys it, one way or the other; there is no "none" — without it those features are degraded or

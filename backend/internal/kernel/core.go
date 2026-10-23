@@ -15,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	"continuum/internal/pki"
+	"continuum/internal/sealing"
 	"continuum/internal/store"
 )
 
@@ -74,7 +75,10 @@ var FingerprintRe = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-
 type Core struct {
 	Store store.Store
 	CA    *pki.CA
-	OrgID string
+	// Sealer seals the secrets the server keeps and must read back (an organisation's decider secret, the mail password). Nil or off:
+	// they are stored as they come. It is the one the store was given, so every kind of secret is sealed under the same key.
+	Sealer *sealing.Sealer
+	OrgID  string
 	// DefaultOrg names the organisation created together with the first account.
 	DefaultOrg string
 	Log        *slog.Logger

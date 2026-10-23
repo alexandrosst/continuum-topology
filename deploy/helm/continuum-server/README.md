@@ -122,6 +122,7 @@ Everything is documented in `values.yaml`; these are the ones you are likely to 
 | `persistence.size` / `accessModes` | `5Gi` / `[ReadWriteOnce]` | |
 | `persistence.keepOnUninstall` | `true` | `helm.sh/resource-policy: keep` on the PVC |
 | `pki.caKeyPassphraseSecret.name` / `key` | `""` / `passphrase` | bring your own CA key passphrase Secret instead of letting the server mint and persist one itself (needs a newer server either way) |
+| `sealing.keySecret.name` / `key` | `""` / `sealing.key` | a Secret holding the key that seals the second-factor secrets, the mail password and the decider secret in the database (`--sealing-key-file`); empty: stored as they are. See deploy/README.md, "Sealing secrets at rest" |
 | `neo4j.mode` | `bundled` | `bundled`, `external` (mandatory: no `none`) |
 | `neo4j.allowInsecureHttp` | `false` | pass `--neo4j-allow-insecure-http` (needs a newer server) |
 | `neo4j.user` / `database` | `neo4j` / `neo4j` | |

@@ -2,6 +2,8 @@
 {{- $neo := include "continuum.neo4jEnabled" . }}
 {{- $passName := include "continuum.caPassphraseSecretName" . }}
 {{- $passKey := include "continuum.caPassphraseSecretKey" . }}
+{{- $sealName := include "continuum.sealingSecretName" . }}
+{{- $sealKey := include "continuum.sealingSecretKey" . }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -142,6 +144,11 @@ spec:
             - {{ . | quote }}
             {{- end }}
           env:
+            {{- if $sealName }}
+            # Read from the environment rather than a flag so that `kubectl exec ... /server reset-password` finds the key too.
+            - name: CONTINUUM_SEALING_KEY_FILE
+              value: /etc/continuum/sealing/{{ $sealKey }}
+            {{- end }}
             {{- with .Values.admin.publicURL }}
             # Where people and regional operators outside the cluster reach this server: the heartbeat address in the
             # commands a regional operator is installed with.
@@ -219,6 +226,9 @@ spec:
             {{- if $passName }}
             - {name: ca-passphrase, mountPath: /etc/continuum/ca, readOnly: true}
             {{- end }}
+            {{- if $sealName }}
+            - {name: sealing-key, mountPath: /etc/continuum/sealing, readOnly: true}
+            {{- end }}
             {{- if .Values.nodeProbe.enabled }}
             - {name: node-probe-secret, mountPath: /etc/continuum/probe, readOnly: true}
             {{- end }}
@@ -254,6 +264,15 @@ spec:
             items:
               - key: {{ $passKey }}
                 path: {{ $passKey }}
+        {{- end }}
+        {{- if $sealName }}
+        - name: sealing-key
+          secret:
+            secretName: {{ $sealName }}
+            defaultMode: 0440
+            items:
+              - key: {{ $sealKey }}
+                path: {{ $sealKey }}
         {{- end }}
         {{- if .Values.nodeProbe.enabled }}
         - name: node-probe-secret

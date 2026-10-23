@@ -134,6 +134,7 @@ interpret > model
 kernel > link
 kernel > measure
 kernel > pki
+kernel > sealing
 kernel > store
 link > probe
 linksapi > connectivity
@@ -170,6 +171,7 @@ settingsapi > accounts
 settingsapi > httpkit
 settingsapi > kernel
 settingsapi > wire
+store > sealing
 store > workspace
 telemetry > destination
 telemetry > httpkit

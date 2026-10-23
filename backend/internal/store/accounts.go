@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 )
 
@@ -96,7 +97,7 @@ func parseWebAuthnCredentials(s string) []WebAuthnCredential {
 	return out
 }
 
-func scanUser(r scanner) (User, error) {
+func (s *SQLite) scanUser(r scanner) (User, error) {
 	var u User
 	var mc int
 	var created int64
@@ -108,6 +109,11 @@ func scanUser(r scanner) (User, error) {
 		}
 		return User{}, err
 	}
+	secret, err := s.sealer.Open(sealTOTP, u.ID, u.TOTPSecret)
+	if err != nil {
+		return User{}, fmt.Errorf("the second-factor secret of user %s: %w", u.ID, err)
+	}
+	u.TOTPSecret = secret
 	u.MustChange, u.CreatedAt, u.DisabledAt, u.LastLogin = mc != 0, fromMS(created), fromNullMS(dis), fromNullMS(last)
 	u.TOTPEnabledAt = fromNullMS(enabledAt)
 	u.TOTPRecovery = parseTOTPRecovery(recovery)
@@ -134,7 +140,11 @@ func (s *SQLite) SetTOTP(ctx context.Context, id, secret string, enabledAt *time
 	if enabledAt != nil {
 		v = ms(*enabledAt)
 	}
-	res, err := s.db.ExecContext(ctx, `UPDATE users SET totp_secret=?, totp_enabled_at=?, totp_recovery=? WHERE id=?`, secret, v, totpRecoveryJSON(recovery), id)
+	stored, err := s.sealer.Seal(sealTOTP, id, secret)
+	if err != nil {
+		return err
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE users SET totp_secret=?, totp_enabled_at=?, totp_recovery=? WHERE id=?`, stored, v, totpRecoveryJSON(recovery), id)
 	if err != nil {
 		return err
 	}
@@ -254,11 +264,11 @@ func (s *SQLite) updateWebAuthnCredentials(ctx context.Context, id string, fn fu
 }
 
 func (s *SQLite) GetUser(ctx context.Context, id string) (User, error) {
-	return scanUser(s.db.QueryRowContext(ctx, `SELECT `+userCols+` FROM users WHERE id=?`, id))
+	return s.scanUser(s.db.QueryRowContext(ctx, `SELECT `+userCols+` FROM users WHERE id=?`, id))
 }
 
 func (s *SQLite) GetUserByName(ctx context.Context, username string) (User, error) {
-	return scanUser(s.db.QueryRowContext(ctx, `SELECT `+userCols+` FROM users WHERE lower(username)=lower(?)`, username))
+	return s.scanUser(s.db.QueryRowContext(ctx, `SELECT `+userCols+` FROM users WHERE lower(username)=lower(?)`, username))
 }
 
 func (s *SQLite) CountUsers(ctx context.Context) (int, error) {

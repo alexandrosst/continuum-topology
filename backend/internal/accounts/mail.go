@@ -96,7 +96,37 @@ func (c *Service) LoadMailConfig(ctx context.Context) {
 	if err := json.Unmarshal(data, &m); err != nil {
 		return
 	}
+	stored := m.Password
+	plain, err := c.Sealer.Open(SealMailPassword, "", stored)
+	if err != nil {
+		// The settings that were there before stay in force (the flags' value, or none): mail goes on being sent with the relay the flags
+		// name, or is off, and the owner is told why.
+		c.Log.Error("the stored mail password cannot be opened, so the stored mail configuration is not used; "+err.Error(), "err", err)
+		return
+	}
+	m.Password = plain
 	c.mailSt().set(m)
+	// Plain, or sealed under a key that is no longer the first: stored again under the first.
+	if !c.Sealer.Current(stored) {
+		if body, err := c.mailJSON(m); err != nil {
+			c.Log.Error("the mail password could not be sealed", "err", err)
+		} else if err := c.Store.PutMailConfig(ctx, body, c.Now()); err != nil {
+			c.Log.Error("the mail password could not be stored sealed", "err", err)
+		}
+	}
+}
+
+// SealMailPassword is what the mail password is bound to when it is sealed. There is one mail configuration for the whole server.
+const SealMailPassword = "mail-password"
+
+// mailJSON is the configuration as it is stored: the password in it sealed when the server has a key.
+func (c *Service) mailJSON(m MailConfig) ([]byte, error) {
+	sealed, err := c.Sealer.Seal(SealMailPassword, "", m.Password)
+	if err != nil {
+		return nil, err
+	}
+	m.Password = sealed
+	return json.Marshal(m)
 }
 
 // SaveMailConfig validates, persists and makes a new mail configuration visible to every organisation's
@@ -109,7 +139,7 @@ func (c *Service) SaveMailConfig(ctx context.Context, by string, m MailConfig) (
 	if err != nil {
 		return MailConfig{}, kernel.Errf(kernel.KindInvalid, "%v", err)
 	}
-	data, err := json.Marshal(m)
+	data, err := c.mailJSON(m)
 	if err != nil {
 		return MailConfig{}, err
 	}
@@ -278,4 +308,23 @@ func NewMailConfigDoc(m MailConfig) MailConfigDoc {
 // same way Decider being nil keeps decider-only paths unreachable.
 func (c *Service) mailSt() *mailHolder {
 	return kernel.ServerState(c, "accounts.mail", func() *mailHolder { return &mailHolder{} })
+}
+
+// DiscardSealedMail is the recovery from a lost sealing key: a stored mail configuration whose password is sealed loses the password (the rest is
+// kept, and mail needs it entered again). It reports whether anything was cleared.
+func (c *Service) DiscardSealedMail(ctx context.Context) (bool, error) {
+	data, err := c.Store.GetMailConfig(ctx)
+	if err != nil || data == nil {
+		return false, err
+	}
+	var m MailConfig
+	if err := json.Unmarshal(data, &m); err != nil || !strings.HasPrefix(m.Password, "sealed:v1:") {
+		return false, nil
+	}
+	m.Password = ""
+	body, err := json.Marshal(m)
+	if err != nil {
+		return false, err
+	}
+	return true, c.Store.PutMailConfig(ctx, body, c.Now())
 }

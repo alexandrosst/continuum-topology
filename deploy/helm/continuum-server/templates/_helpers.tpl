@@ -174,6 +174,17 @@ is non-empty. */}}
 {{- .Values.pki.caKeyPassphraseSecret.name -}}
 {{- end -}}
 
+{{/* The Secret that holds the sealing key (empty: secrets are stored as they are), and the file name its key has inside it. */}}
+{{- define "continuum.sealingSecretName" -}}
+{{- (.Values.sealing | default dict).keySecret | default dict | dig "name" "" -}}
+{{- end -}}
+
+{{- define "continuum.sealingSecretKey" -}}
+{{- if include "continuum.sealingSecretName" . -}}
+{{- (.Values.sealing.keySecret).key | default "sealing.key" -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "continuum.caPassphraseSecretKey" -}}
 {{- if .Values.pki.caKeyPassphraseSecret.name -}}
 {{- .Values.pki.caKeyPassphraseSecret.key | default "passphrase" -}}
@@ -233,6 +244,10 @@ is non-empty. */}}
 {{- /* pki */ -}}
 {{- if and .Values.pki.caKeyPassphraseSecret.name (not .Values.pki.caKeyPassphraseSecret.key) -}}
 {{- fail "pki.caKeyPassphraseSecret.key must be set together with .name" -}}
+{{- end -}}
+{{- /* sealing */ -}}
+{{- if and (include "continuum.sealingSecretName" .) (not ((.Values.sealing).keySecret).key) -}}
+{{- fail "sealing.keySecret.key must be set together with .name" -}}
 {{- end -}}
 {{- /* neo4j: mandatory, so only the two real deployment choices are accepted */ -}}
 {{- if not (has .Values.neo4j.mode (list "bundled" "external")) -}}

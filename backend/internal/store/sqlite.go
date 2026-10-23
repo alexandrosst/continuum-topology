@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"continuum/internal/sealing"
+
 	_ "modernc.org/sqlite" // pure-Go driver: no cgo, so the server cross-compiles to a scratch image
 )
 
@@ -271,7 +273,12 @@ CREATE TABLE IF NOT EXISTS proposal_outcomes (
 );
 `
 
-type SQLite struct{ db *sql.DB }
+type SQLite struct {
+	db *sql.DB
+	// sealer seals the secrets this database must be able to read back (see UseSealer). Nil until it is given one: a value is then stored
+	// as it comes.
+	sealer *sealing.Sealer
+}
 
 // OpenSQLite opens (creating if needed) a database file.
 func OpenSQLite(path string) (*SQLite, error) {

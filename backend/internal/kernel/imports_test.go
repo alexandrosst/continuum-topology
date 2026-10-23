@@ -11,13 +11,14 @@ import (
 )
 
 // The kernel is what every module stands on, so it may import nothing a module could be: of this repository's packages only the
-// store, the CA and the two libraries its settings use (link and measure), none of which knows the server. A package that wants to be reached from the kernel is not under it. (The compiler already refuses a cycle with
+// store, the CA, the sealer of its secrets and the two libraries its settings use (link and measure), none of which knows the server. A package that wants to be reached from the kernel is not under it. (The compiler already refuses a cycle with
 // a package that imports the kernel; this refuses the import that would be allowed because that package does not yet.)
 var allowedRepoImports = map[string]bool{
 	"continuum/internal/store":   true,
 	"continuum/internal/pki":     true,
 	"continuum/internal/link":    true,
 	"continuum/internal/measure": true,
+	"continuum/internal/sealing": true,
 }
 
 func TestTheKernelImportsNoModule(t *testing.T) {

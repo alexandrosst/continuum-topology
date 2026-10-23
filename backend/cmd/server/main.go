@@ -62,6 +62,9 @@ func main() {
 		case "create-org":
 			createOrg(os.Args[2:])
 			return
+		case "reset-sealing":
+			resetSealing(os.Args[2:])
+			return
 		case "verify-audit":
 			os.Exit(verifyAudit(os.Args[2:], os.Stdout, os.Stderr))
 		case "backup":
@@ -92,6 +95,7 @@ func main() {
 	deciderAllow := flag.String("decider-allow-cidrs", os.Getenv("CONTINUUM_DECIDER_ALLOW_CIDRS"), "comma-separated CIDRs (10.0.0.0/8,127.0.0.1/32) the server may call for the external decider although they are private or loopback. By default only public addresses are allowed, so a decider address cannot be used to reach internal services. Cloud metadata and link-local addresses are never allowed; env CONTINUUM_DECIDER_ALLOW_CIDRS")
 	caPassFile := flag.String("ca-key-passphrase-file", os.Getenv("CONTINUUM_CA_KEY_PASSPHRASE_FILE"), "file holding a passphrase (at least 12 characters) that encrypts the CA private key at rest (argon2id + AES-256-GCM). A plaintext key is encrypted the first time this is given; an encrypted key without it stops the server. Never give the passphrase itself as a flag value; env CONTINUUM_CA_KEY_PASSPHRASE_FILE. Without it the key is stored unencrypted (mode 0600) and a warning is logged. See internal/pki/ROTATION.md")
 	caAutoPass := flag.Bool("ca-key-auto-passphrase", os.Getenv("CONTINUUM_CA_KEY_AUTO_PASSPHRASE") == "true", "generate the CA key passphrase ourselves with crypto/rand on first start and persist it at <data-dir>/pki/ca.passphrase (mode 0600), reused on every restart, instead of requiring --ca-key-passphrase-file. Mutually exclusive with it. This is what the continuum-server chart passes by default (pki.encryptAtRest, with no pki.caKeyPassphraseSecret.name given) now that it no longer generates the passphrase itself in the chart template; give --ca-key-passphrase-file instead if you want the passphrase kept apart from the data directory. env CONTINUUM_CA_KEY_AUTO_PASSPHRASE=true")
+	sealKeyFile := flag.String("sealing-key-file", os.Getenv("CONTINUUM_SEALING_KEY_FILE"), "file holding the key that seals the secrets this server must read back: the second-factor secrets, the mail password and an organisation's decider secret (AES-256-GCM). One key per line, at least 32 characters (openssl rand -base64 48); the first seals, the others only open, so a key is replaced by putting the new one on top and removing the old one later. Without it those secrets are stored as they are and a warning is logged. Once any secret is sealed, the server refuses to start without the key that sealed it. Keep the key apart from the data directory and its backups; env CONTINUUM_SEALING_KEY_FILE")
 	looseOK := flag.Bool("allow-loose-permissions", os.Getenv("CONTINUUM_ALLOW_LOOSE_PERMISSIONS") == "true", "start although the data directory, the CA key or the database is readable or writable by group or other users (by default the server refuses and prints the chmod to run). For platforms that set modes themselves, such as a Kubernetes fsGroup volume only this pod can reach; env CONTINUUM_ALLOW_LOOSE_PERMISSIONS=true")
 	uiDir := flag.String("ui-dir", "", "built UI to serve (dist/)")
 	chartRef := flag.String("chart-ref", "", "Helm chart to install, as shown in install commands (an OCI, repository or https reference). Empty: oci://<image-registry>/continuum-agent. \"local\": the copy of the chart this server serves, which the wizard offers as a download")
@@ -186,7 +190,7 @@ func main() {
 	if (*probeListen == "") != (*probeSecretFile == "") {
 		fatal(log, errors.New("--probe-listen and --probe-secret-file must be given together"))
 	}
-	if err := run(log, probeOpts{Listen: *probeListen, SecretFile: *probeSecretFile, Every: *probeEvery}, *dataDir, *agentListen, *agentAddr, *agentExposure, *releaseName, *releaseNamespace, *fusionName, *fusionCentralAddress, *extraHosts, *adminListen, *adminCert, *adminKey, *behindProxy, *agentBehindProxy, *multiOrg, *ssoHeader, *uiDir, *chartRef, img, *org, regMode, *geoDB, *geoPublicIP, *geoASNDB, decider, neo, mail, keyOpts{PassphraseFile: *caPassFile, AutoPassphrase: *caAutoPass, AllowLoose: *looseOK}, origins); err != nil {
+	if err := run(log, probeOpts{Listen: *probeListen, SecretFile: *probeSecretFile, Every: *probeEvery}, *dataDir, *agentListen, *agentAddr, *agentExposure, *releaseName, *releaseNamespace, *fusionName, *fusionCentralAddress, *extraHosts, *adminListen, *adminCert, *adminKey, *behindProxy, *agentBehindProxy, *multiOrg, *ssoHeader, *uiDir, *chartRef, img, *org, regMode, *geoDB, *geoPublicIP, *geoASNDB, decider, neo, mail, keyOpts{PassphraseFile: *caPassFile, AutoPassphrase: *caAutoPass, AllowLoose: *looseOK, SealingKeyFile: *sealKeyFile}, origins); err != nil {
 		fatal(log, err)
 	}
 }
@@ -228,6 +232,7 @@ type keyOpts struct {
 	PassphraseFile string
 	AutoPassphrase bool
 	AllowLoose     bool
+	SealingKeyFile string
 }
 
 // resolveCAPassphrase decides what (if anything) protects the CA key at rest, from how the operator
@@ -303,9 +308,23 @@ func run(log *slog.Logger, selfProbe probeOpts, dataDir, agentListen, agentAddr,
 	if err != nil {
 		return err
 	}
+	sealer, err := loadSealer(log, keys.SealingKeyFile)
+	if err != nil {
+		return err
+	}
 	sqlite, err := store.OpenSQLite(filepath.Join(dataDir, "continuum.db"))
 	if err != nil {
 		return err
+	}
+	// A database that holds sealed secrets stops here without their key, or with another one, and not at the first login.
+	if err := sqlite.UseSealer(context.Background(), sealer); err != nil {
+		sqlite.Close()
+		return err
+	}
+	if sealer.Enabled() {
+		log.Info("secrets are sealed at rest", "key", sealer.KeyID(), "keys", len(sealer.KeyIDs()))
+	} else {
+		log.Warn("secrets are stored as they are: the second-factor secrets, the mail password and the deciders' secrets are readable to anyone who has the database file; give --sealing-key-file to seal them")
 	}
 	// The database's -wal and -shm files exist only now.
 	if err := checkPermissions(log, dataDir, keys.AllowLoose); err != nil {
@@ -350,6 +369,7 @@ func run(log *slog.Logger, selfProbe probeOpts, dataDir, agentListen, agentAddr,
 	// before an agent is known belong to it, and each organization gets a scoped view of it.
 	core := server.NewCore(st, ca, "", log)
 	core.DefaultOrg, core.RegMode, core.Decider = org, registration, decider
+	core.Sealer = sealer
 	core.SingleOrg = !multiOrg
 	// mail is the --smtp-* flags' value: the boot-time default, in effect until an owner of the default
 	// organisation saves one through Settings, and again after that if the database is ever reset without
@@ -367,6 +387,10 @@ func run(log *slog.Logger, selfProbe probeOpts, dataDir, agentListen, agentAddr,
 	}
 	platform := server.NewPlatform(core, geo)
 	if err := platform.Start(runCtx); err != nil {
+		return err
+	}
+	// Every document that holds a secret has been read, and sealed if it was in the clear: now the file is rewritten so the old text is not left in it.
+	if err := sqlite.ScrubPlaintext(context.Background()); err != nil {
 		return err
 	}
 	grpcSrv := core.Agents.NewGRPC(certs, platform)
@@ -579,19 +603,24 @@ func isLoopback(addr string) bool {
 func resetPassword(args []string) {
 	fs := flag.NewFlagSet("reset-password", flag.ExitOnError)
 	dataDir := fs.String("data-dir", "./data", "the server's data directory")
-	fs.Usage = func() { fmt.Fprintln(os.Stderr, "usage: server reset-password [--data-dir DIR] USERNAME") }
+	sealKey := fs.String("sealing-key-file", os.Getenv("CONTINUUM_SEALING_KEY_FILE"), "the server's sealing key file, if it has one (a user's second-factor secret cannot be read without it); env CONTINUUM_SEALING_KEY_FILE")
+	fs.Usage = func() {
+		fmt.Fprintln(os.Stderr, "usage: server reset-password [--data-dir DIR] [--sealing-key-file FILE] USERNAME")
+	}
 	_ = fs.Parse(args)
 	if fs.NArg() != 1 {
 		fs.Usage()
 		os.Exit(2)
 	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	st, err := store.OpenSQLite(filepath.Join(*dataDir, "continuum.db"))
+	st, err := openSealedStore(context.Background(), log, *dataDir, *sealKey)
 	if err != nil {
 		fatal(log, err)
 	}
 	defer st.Close()
-	pw, err := server.NewCore(st, nil, "", log).Accounts.RecoverPassword(context.Background(), fs.Arg(0))
+	rc := server.NewCore(st, nil, "", log)
+	rc.Sealer = st.Sealer()
+	pw, err := rc.Accounts.RecoverPassword(context.Background(), fs.Arg(0))
 	if err != nil {
 		fatal(log, err)
 	}
@@ -604,8 +633,9 @@ func createOrg(args []string) {
 	fs := flag.NewFlagSet("create-org", flag.ExitOnError)
 	dataDir := fs.String("data-dir", "./data", "the server's data directory")
 	owner := fs.String("owner", "", "username of the account that will own it (required)")
+	sealKey := fs.String("sealing-key-file", os.Getenv("CONTINUUM_SEALING_KEY_FILE"), "the server's sealing key file, if it has one; env CONTINUUM_SEALING_KEY_FILE")
 	fs.Usage = func() {
-		fmt.Fprintln(os.Stderr, "usage: server create-org [--data-dir DIR] --owner USERNAME NAME")
+		fmt.Fprintln(os.Stderr, "usage: server create-org [--data-dir DIR] [--sealing-key-file FILE] --owner USERNAME NAME")
 	}
 	_ = fs.Parse(args)
 	if fs.NArg() != 1 || *owner == "" {
@@ -613,12 +643,14 @@ func createOrg(args []string) {
 		os.Exit(2)
 	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
-	st, err := store.OpenSQLite(filepath.Join(*dataDir, "continuum.db"))
+	st, err := openSealedStore(context.Background(), log, *dataDir, *sealKey)
 	if err != nil {
 		fatal(log, err)
 	}
 	defer st.Close()
-	o, err := server.NewCore(st, nil, "", log).Accounts.CreateOrgFor(context.Background(), *owner, fs.Arg(0))
+	oc := server.NewCore(st, nil, "", log)
+	oc.Sealer = st.Sealer()
+	o, err := oc.Accounts.CreateOrgFor(context.Background(), *owner, fs.Arg(0))
 	if err != nil {
 		fatal(log, err)
 	}
