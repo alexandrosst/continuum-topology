@@ -1303,13 +1303,6 @@ export interface FusionTokenDoc {
   lastUsedAt?: string
 }
 
-export interface GatewayTokenDoc {
-  active: boolean
-  createdAt?: string
-  expired?: boolean
-  expiresAt?: string
-}
-
 export interface GeoInfo {
   enabled: boolean
   database?: string
@@ -1690,16 +1683,6 @@ export interface MetricSeriesDoc {
   series: (Record<string, string>)[]
   to: string
   truncated: boolean
-}
-
-export interface MintGatewayTokenRequest {
-  ttlSeconds: number
-}
-
-export interface MintedGatewayTokenDoc {
-  createdAt: string
-  expiresAt: string
-  token: string
 }
 
 export type Modality = 'metrics' | 'logs' | 'traces' | 'unreadable'

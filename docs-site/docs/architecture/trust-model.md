@@ -1,7 +1,7 @@
 ---
 id: trust-model
 title: Trust model
-description: One assembled answer to "should I trust this with my infrastructure" — agent enrollment, regional operators, the quick-start gateway token, and what the model deliberately does not cover.
+description: One assembled answer to "should I trust this with my infrastructure" — agent enrollment, regional operators, and what the model deliberately does not cover.
 ---
 
 # Trust model
@@ -94,46 +94,9 @@ needs to watch this cluster's object graph the way a cluster's own collectors do
 scope is assigned and why chaining operators is rejected in this release, is in [Regional
 operators](./regional-operators.md).
 
-## The quick-start gateway token: an accepted tradeoff, not an oversight
+## The quick-start gateway token: removed
 
-The quick-start flow lets an administrator stand up a backend (Jaeger, Zipkin, Prometheus, or Loki) in-cluster and
-front it with a minimal nginx gateway (an exact, pinned nginx stable-line version) so it isn't open to anything that can reach the Service
-directly. That gateway is Part C of quick-start (`src/lib/quickStartGateway.ts`); the token it checks is
-minted by the server (`backend/internal/server/quickstart.go`, `admin_quickstart.go`) and handed to the
-admin exactly once, the same convention every other secret in this app follows (enrollment tokens, operator
-receiver tokens).
-
-**What it actually is:** a random 32-byte secret (`cnq_...`), stored by the server only as a hash
-(`tokens.go`) and minted with a TTL that defaults to 24 hours and is clamped into `[5m, 7d]`
-(`DefaultGatewayTokenTTL`, `MinGatewayTokenTTL`, `MaxGatewayTokenTTL` in `quickstart.go`). There is no path
-in `store.Store` to revoke one — the interface has exactly `CreateGatewayToken` and `LatestGatewayToken`
-(`store/store.go:372-377`) and nothing else.
-
-**What checks it:** nothing on the Ikhnos server. The plaintext token is templated directly into a
-static nginx configuration, held in a Kubernetes `Secret` (not a `ConfigMap`, which more people can usually read), at generation time, as a literal string an `if ($http_authorization = "Bearer
-<token>")` block compares against. Ikhnos's own role ends the moment that manifest is generated; from
-then on, the admin's own gateway pod is the entire enforcement mechanism, and the server never sees that
-traffic or dials the fronted backend itself.
-
-**What its blast radius actually is, precisely:** whatever single backend Service the gateway was generated
-for — never more than one, and never anything Ikhnos itself holds. For Jaeger (port `16686`, the
-http-query service) and Prometheus (port `80`→`9090`, the query/web API), that's read/query access to that
-one tool. For Loki, it's worth being exact rather than assuming "read-only" across the board: Loki serves
-both its query API *and* OTLP log ingestion (`/otlp`) on the same port `3100`, and the gateway fronts that
-whole Service — so a leaked Loki quick-start token can write (ingest) as well as read, not just read. In
-every case the ceiling is still just that one backend, bounded by the token's TTL, with a hard cap of 7
-days.
-
-**The accepted tradeoff:** a leaked quick-start gateway token is valid until it expires, and there is
-currently nothing Ikhnos itself can do to shorten that — the only way to invalidate it early is for the
-admin to manually redeploy the gateway (re-mint a token in the UI, re-apply the generated manifest, which
-overwrites the `Secret`'s literal comparison string; the pod template carries a fingerprint of that configuration, so the re-apply rolls the pod, which a `subPath` mount would otherwise never pick up on its own). This is named here as a conscious decision for this
-project's current stage — a single operator fronting their own deployment, not a multi-tenant SaaS handing
-out credentials across organizations — rather than a bug to quietly patch. If a future need calls for real
-revocation, the shape of it is: a store-level revoke call (marking a `GatewayToken` invalid before its
-`ExpiresAt`), plus some way for the gateway's running nginx config to actually learn about that without a
-person redeploying it — a short poll against a status endpoint, or a redeploy webhook triggered by the
-revoke call. Neither is designed here; this just names what the gap would need filled.
+An earlier version let the server mint a bearer token for an nginx gateway in front of a quick-started backend. The token could not be revoked before it expired (up to seven days), the server never checked it, and the generator that used it is gone, so the endpoints, the store methods and the table were removed. A gateway someone applied while the feature existed keeps working as it was deployed: its token is a string in the Secret that person applied, and the server never sees that traffic. Replacing it is a change to that Secret, by hand. Nothing on this server mints or stores such a token now.
 
 ## The CA private key: bare binary vs. the chart you actually install
 
@@ -163,8 +126,6 @@ rather than letting it go unsaid:
 - **A regional operator's isolation is a missing credential, not a network wall**, as above: with egress
   `NetworkPolicy` off by default, a compromised operator pod can still attempt outbound calls to the server;
   it just has nothing the handshake would accept.
-- **The quick-start gateway token can't be revoked before it expires**, as above — up to 7 days of exposure
-  from a leaked token, closeable today only by a manual gateway redeploy.
 - **The CA key is unencrypted by default outside the chart**, as above — real protection depends on either
   the chart's default or deliberately setting `--ca-key-passphrase-file` yourself.
 - **The audit trail proves internal consistency, not tamper-proofing against raw file access.** The hash

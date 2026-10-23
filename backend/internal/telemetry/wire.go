@@ -11,11 +11,8 @@ func WireTypes() []wire.Root {
 	return []wire.Root{
 		{Value: telemetryIntentDoc{}},
 		{Value: signalGrantDoc{}},
-		{Value: mintedGatewayTokenDoc{}},
-		{Value: gatewayTokenDoc{}},
 		{Value: createTelemetryIntentRequest{}},
 		{Value: telemetryIntentScopeRequest{}},
 		{Value: telemetryIntentDestinationRequest{}},
-		{Value: mintGatewayTokenRequest{}},
 	}
 }

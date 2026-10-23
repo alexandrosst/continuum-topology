@@ -31,9 +31,6 @@ func TestTelemetryMountsItsRoutesWithTheRolesTheyAsk(t *testing.T) {
 		"POST " + o + "/telemetry-intents/{id}/destination": httpkit.EditorRole,
 		"POST " + o + "/telemetry-intents/{id}/revoke":      httpkit.EditorRole,
 		"DELETE " + o + "/telemetry-intents/{id}":           httpkit.EditorRole,
-		// A gateway token is credential material.
-		"POST " + o + "/quick-start/{id}/gateway-token": httpkit.AdminRole,
-		"GET " + o + "/quick-start/{id}/gateway-token":  httpkit.AdminRole,
 	}
 	if len(got) != len(want) {
 		t.Fatalf("mounted %d routes, want %d: %v", len(got), len(want), got)

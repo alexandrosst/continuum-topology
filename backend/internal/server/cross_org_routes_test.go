@@ -41,16 +41,15 @@ func TestAnotherOrganisationsIdIsNotFoundOnEveryRouteThatTakesAnId(t *testing.T)
 			return a.do("GET", org(aOrg, "invites"), nil, withCookie(alice)).jsonArray(t)[0]["id"].(string)
 		}()
 		member   = a.do("GET", "/api/v1/auth/me", nil, withCookie(alice)).json(t)["user"].(map[string]any)["id"].(string)
-		backend  = a.savedBackend(t, "jaeger", "traces")
 		intent   = a.do("POST", org(aOrg, "telemetry-intents"), map[string]any{"agentId": agent, "name": "edge", "namespaces": []string{"checkout"}, "signals": []map[string]any{{"id": "resourceUsage", "source": "builtin"}}, "destination": map[string]any{"kind": "external", "endpoint": "collector.example:4317"}}, withCookie(alice)).json(t)["id"].(string)
 		proposal = a.do("POST", org(aOrg, "proposals"), map[string]any{"advisor": "rules-v1", "modelVersion": 1, "change": map[string]any{"agentId": agent, "pause": []string{"flow"}}, "evidence": []map[string]any{{"name": "flow bytes", "value": "1 MB/s", "class": "measured"}}, "predicted": map[string]any{"link_bytes_per_sec": -0.5}}, withCookie(alice)).json(t)["id"].(string)
 	)
-	for kind, id := range map[string]string{"agent": agent, "operator": operator, "token": token, "invite": invite, "member": member, "backend": backend, "intent": intent, "proposal": proposal} {
+	for kind, id := range map[string]string{"agent": agent, "operator": operator, "token": token, "invite": invite, "member": member, "intent": intent, "proposal": proposal} {
 		if id == "" {
 			t.Fatalf("no %s was made for Alice", kind)
 		}
 	}
-	ids := map[string]string{"agent": agent, "operator": operator, "token": token, "invite": invite, "member": member, "backend": backend, "intent": intent, "proposal": proposal}
+	ids := map[string]string{"agent": agent, "operator": operator, "token": token, "invite": invite, "member": member, "intent": intent, "proposal": proposal}
 
 	// What each route's id names, and the body it is sent (some routes validate a body before they look the id up).
 	type call struct {
@@ -91,8 +90,6 @@ func TestAnotherOrganisationsIdIsNotFoundOnEveryRouteThatTakesAnId(t *testing.T)
 		"DELETE /invites/{id}":                     {"invite", nil},
 		"POST /members/{id}/role":                  {"member", map[string]any{"role": accounts.RoleViewer}},
 		"POST /members/{id}/remove":                {"member", nil},
-		"GET /quick-start/{id}/gateway-token":      {"backend", nil},
-		"POST /quick-start/{id}/gateway-token":     {"backend", map[string]any{}},
 	}
 	// Routes with an id that have no case, and why. A reason that stops being true is a reason to add the case.
 	exempt := map[string]string{

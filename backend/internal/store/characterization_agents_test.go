@@ -577,7 +577,7 @@ func TestEveryOrganisationScopedTableIsAccountedForByDeleteOrg(t *testing.T) {
 
 	want := []string{
 		// emptied by DeleteOrg
-		"agents", "decisions", "events", "fusion_tokens", "gateway_tokens", "history", "identities", "link_iperf_credentials",
+		"agents", "decisions", "events", "fusion_tokens", "history", "identities", "link_iperf_credentials",
 		"model_state", "operator_certs", "operators", "proposal_outcomes", "proposals", "settings", "telemetry_intents", "tokens", "tombstones", "workspace",
 		// removed with the organisation row (ON DELETE CASCADE)
 		"invites", "memberships",

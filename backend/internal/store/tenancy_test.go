@@ -159,7 +159,7 @@ func TestListMembersDoesNotLoadPasswordHashes(t *testing.T) {
 }
 
 // Deleting an organisation removes everything keyed to it, including operators (with their sealed CA keys and
-// credential hashes), the certificate ledger, intents, gateway tokens, decisions and FUSION tokens - and
+// credential hashes), the certificate ledger, intents, decisions and FUSION tokens - and
 // leaves another organisation's rows alone.
 func TestDeleteOrgRemovesEveryTableKeyedToIt(t *testing.T) {
 	ctx := context.Background()
@@ -183,7 +183,6 @@ func TestDeleteOrgRemovesEveryTableKeyedToIt(t *testing.T) {
 		must(s.CreateOperator(ctx, Operator{ID: "op-" + org, OrgID: org, Name: "op", Status: OperatorActive, HeartbeatHash: []byte("hb-" + org), CreatedBy: "x", CreatedAt: now}, []byte("recv-"+org)))
 		must(s.AddOperatorCert(ctx, OperatorCert{Serial: "s-" + org, OrgID: org, OperatorID: "op-" + org, Kind: "receiver", IssuedAt: now, NotBefore: now, NotAfter: now}))
 		must(s.CreateTelemetryIntent(ctx, TelemetryIntent{ID: "ti-" + org, OrgID: org, AgentID: "a", Name: "n", Status: TelemetryIntentActive, CreatedBy: "x", CreatedAt: now}))
-		must(s.CreateGatewayToken(ctx, GatewayToken{ID: "gt-" + org, OrgID: org, BackendID: "b", CreatedBy: "x", CreatedAt: now, ExpiresAt: now}, []byte("gt-"+org)))
 		must(s.AddDecisions(ctx, []DecisionLog{{OrgID: org, At: now, DeciderID: "d", ServiceID: "svc"}}))
 		must(s.CreateFusionToken(ctx, FusionToken{ID: "ft-" + org, OrgID: org, Name: "n", CreatedAt: now, ExpiresAt: now.Add(time.Hour)}, []byte("ft-"+org)))
 		must(s.PutLinkCredential(ctx, LinkCredential{OrgID: org, Kind: "cluster", ID: "cl-" + org, Sealed: []byte("sealed"), CreatedAt: now}))
@@ -197,7 +196,7 @@ func TestDeleteOrgRemovesEveryTableKeyedToIt(t *testing.T) {
 	if _, err := s.GetOperatorByHeartbeatHash(ctx, []byte("hb-gone")); !errors.Is(err, ErrNotFound) {
 		t.Errorf("a deleted organisation's operator still authenticates: %v", err)
 	}
-	for _, table := range []string{"operators", "operator_certs", "telemetry_intents", "gateway_tokens", "decisions", "fusion_tokens", "link_iperf_credentials"} {
+	for _, table := range []string{"operators", "operator_certs", "telemetry_intents", "decisions", "fusion_tokens", "link_iperf_credentials"} {
 		var gone, kept int
 		if err := s.db.QueryRow(`SELECT COUNT(*) FROM ` + table + ` WHERE org_id='gone'`).Scan(&gone); err != nil {
 			t.Fatal(err)

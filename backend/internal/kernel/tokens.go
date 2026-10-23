@@ -28,11 +28,6 @@ const HeartbeatPrefix = "cnh_"
 // looks it up.
 const PatPrefix = "cnk_"
 
-// gatewayTokenPrefix marks a quick-start gateway token (see store.GatewayToken) - distinct from every
-// other secret this package mints, so its own shape says which kind it is. Checked entirely by the Part C
-// nginx gateway the admin deploys alongside a quick-start backend, never by this server.
-const gatewayTokenPrefix = "cnq_"
-
 // FusionTokenPrefix marks a FUSION access token (see store.FusionToken): a read credential for FUSION's data API,
 // distinct from a personal access token so its own shape says which kind it is - and so one can never be pasted where
 // the other is expected and be taken for it.
@@ -97,13 +92,6 @@ func NewAPITokenSecret() (string, error) {
 	return PatPrefix + s, err
 }
 
-// NewGatewayTokenSecret returns a fresh quick-start gateway bearer token. Only HashSecret(secret) is
-// stored - the same rule as every other secret this package mints.
-func NewGatewayTokenSecret() (string, error) {
-	s, err := NewSecret()
-	return gatewayTokenPrefix + s, err
-}
-
 // NewFusionTokenSecret returns a fresh FUSION access token. Only HashSecret(secret) is stored.
 func NewFusionTokenSecret() (string, error) {
 	s, err := NewSecret()
@@ -141,7 +129,6 @@ func NewTokenID() string           { return "tk-" + RandHex(6) }
 func NewAPITokenID() string        { return "pat-" + RandHex(6) }
 func NewFusionTokenID() string     { return "fk-" + RandHex(6) }
 func NewOperatorID() string        { return "op-" + RandHex(6) }
-func NewGatewayTokenID() string    { return "gwt-" + RandHex(6) }
 func NewTelemetryIntentID() string { return "ti-" + RandHex(6) }
 
 // ClusterIDFor is stable for a cluster (its kube-system UID), so records keep the same id

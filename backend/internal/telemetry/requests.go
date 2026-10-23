@@ -31,8 +31,3 @@ type telemetryIntentDestinationRequest struct {
 	// default; absent leaves them as they are.
 	Routes map[string]destination.Doc `json:"routes"`
 }
-
-// mintGatewayTokenRequest is the body of the call that mints a gateway token. TTLSeconds is optional.
-type mintGatewayTokenRequest struct {
-	TTLSeconds int `json:"ttlSeconds"`
-}

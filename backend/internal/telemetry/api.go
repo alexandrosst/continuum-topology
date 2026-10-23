@@ -1,9 +1,7 @@
 package telemetry
 
 import (
-	"errors"
 	"net/http"
-	"time"
 
 	"continuum/internal/destination"
 	"continuum/internal/httpkit"
@@ -11,7 +9,7 @@ import (
 	"continuum/internal/store"
 )
 
-// The HTTP side of telemetry: the intents' routes and the quick-start gateway tokens. What an intent may say, and how it is audited, is
+// The HTTP side of telemetry: the intents' routes. What an intent may say, and how it is audited, is
 // telemetry_intents.go's. The command that points an agent at what an intent grants is the shell's: it is built from the install settings
 // and from the operators' addresses, which are not this package's.
 
@@ -29,9 +27,6 @@ func (h API) Mount(r httpkit.Router) {
 	r.Handle("POST "+httpkit.OrgPath+"/telemetry-intents/{id}/destination", httpkit.EditorRole, h.updateTelemetryIntentDestination)
 	r.Handle("POST "+httpkit.OrgPath+"/telemetry-intents/{id}/revoke", httpkit.EditorRole, h.revokeTelemetryIntent)
 	r.Handle("DELETE "+httpkit.OrgPath+"/telemetry-intents/{id}", httpkit.EditorRole, h.deleteTelemetryIntent)
-	// A gateway token is credential material for a quick-start backend: an administrator's.
-	r.Handle("POST "+httpkit.OrgPath+"/quick-start/{id}/gateway-token", httpkit.AdminRole, h.mintGatewayToken)
-	r.Handle("GET "+httpkit.OrgPath+"/quick-start/{id}/gateway-token", httpkit.AdminRole, h.getGatewayToken)
 }
 
 type signalGrantDoc struct {
@@ -218,44 +213,4 @@ func (h API) deleteTelemetryIntent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-}
-
-// ---- quick-start gateway tokens (Part B of the quick-start gateway: see QuickStartBackend and
-// MintGatewayToken) ----
-
-// mintGatewayToken mints a fresh gateway token for one quick-start backend instance and returns the
-// plaintext once - never stored, never logged, the same convention createOperator's receiver token and
-// createToken's enrollment token both already follow. TTLSeconds is optional; zero (or out of range) is
-// clamped server-side, see MintGatewayToken's own comment.
-func (h API) mintGatewayToken(w http.ResponseWriter, r *http.Request) {
-	s := h.For(r)
-	var req mintGatewayTokenRequest
-	if err := httpkit.Decode(r, &req); err != nil {
-		httpkit.Fail(w, s.Log, err)
-		return
-	}
-	t, secret, err := s.MintGatewayToken(r.Context(), httpkit.Actor(r), r.PathValue("id"), time.Duration(req.TTLSeconds)*time.Second)
-	if err != nil {
-		httpkit.Fail(w, s.Log, err)
-		return
-	}
-	httpkit.WriteJSON(w, 201, mintedGatewayTokenDoc{Token: secret, CreatedAt: kernel.RFC(t.CreatedAt), ExpiresAt: kernel.RFC(t.ExpiresAt)})
-}
-
-// getGatewayToken reports whether a gateway token has been minted for this backend and, if so, when it
-// expires - never the secret itself, which is shown once, at mint time, and nowhere else. No token minted
-// yet is not an error: it is simply {"active": false}, the normal state for a backend nobody has gated yet.
-func (h API) getGatewayToken(w http.ResponseWriter, r *http.Request) {
-	s := h.For(r)
-	t, err := s.LatestGatewayToken(r.Context(), r.PathValue("id"))
-	if errors.Is(err, store.ErrNotFound) {
-		httpkit.WriteJSON(w, 200, gatewayTokenDoc{})
-		return
-	}
-	if err != nil {
-		httpkit.Fail(w, s.Log, err)
-		return
-	}
-	expired := !s.Now().Before(t.ExpiresAt)
-	httpkit.WriteJSON(w, 200, gatewayTokenDoc{Active: true, Expired: &expired, CreatedAt: kernel.RFC(t.CreatedAt), ExpiresAt: kernel.RFC(t.ExpiresAt)})
 }

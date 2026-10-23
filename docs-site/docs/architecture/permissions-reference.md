@@ -124,4 +124,4 @@ NetworkPolicies (on the agent's egress, and optionally in front of the telemetry
 mechanism in the opposite direction — they restrict what a pod may reach on the network, they don't grant
 API access, and they're off by default on every chart here like the rest of this project's networking
 posture. See [Trust model](./trust-model.md) for how all of this fits into the bigger picture, including
-the one open item (the quick-start gateway token) that isn't a Kubernetes permission at all.
+what is not a Kubernetes permission at all.

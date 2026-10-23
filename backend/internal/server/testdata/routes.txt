@@ -13,7 +13,6 @@ admin	GET /api/v1/orgs/{org}/operators/{id}
 admin	GET /api/v1/orgs/{org}/operators/{id}/address-candidates
 admin	GET /api/v1/orgs/{org}/operators/{id}/certificates
 admin	GET /api/v1/orgs/{org}/operators/{id}/senders
-admin	GET /api/v1/orgs/{org}/quick-start/{id}/gateway-token
 admin	GET /api/v1/orgs/{org}/tokens
 admin	POST /api/v1/orgs/{org}/agents/{id}/address-tests
 admin	POST /api/v1/orgs/{org}/agents/{id}/approve
@@ -35,7 +34,6 @@ admin	POST /api/v1/orgs/{org}/operators/{id}/heartbeat
 admin	POST /api/v1/orgs/{org}/operators/{id}/install
 admin	POST /api/v1/orgs/{org}/operators/{id}/revoke
 admin	POST /api/v1/orgs/{org}/operators/{id}/scope
-admin	POST /api/v1/orgs/{org}/quick-start/{id}/gateway-token
 admin	POST /api/v1/orgs/{org}/telemetry-intents/{id}/command
 admin	POST /api/v1/orgs/{org}/tokens
 admin	PUT /api/v1/orgs/{org}/fusion/retention

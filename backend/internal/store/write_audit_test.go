@@ -353,13 +353,11 @@ func TestTokenSettingsAndMailWritesRollBackWithTheirAuditRow(t *testing.T) {
 	if _, err := s.db.Exec(`CREATE TRIGGER no_audit BEFORE INSERT ON audit BEGIN SELECT RAISE(ABORT, 'disk full'); END`); err != nil {
 		t.Fatal(err)
 	}
-	gt := GatewayToken{ID: "gt-1", OrgID: "o1", BackendID: "b", CreatedBy: "alex", CreatedAt: now, ExpiresAt: now.Add(time.Hour)}
 	for name, err := range map[string]error{
-		"fusion create":  s.CreateFusionToken(ctx, FusionToken{ID: "ft-2", OrgID: "o1", Name: "m", CreatedBy: "a", CreatedAt: now, ExpiresAt: now.Add(time.Hour)}, []byte("h2"), ev("x")),
-		"fusion delete":  s.DeleteFusionToken(ctx, "o1", "ft-1", ev("x")),
-		"gateway create": s.CreateGatewayToken(ctx, gt, []byte("g"), ev("x")),
-		"settings":       s.PutSettings(ctx, "o1", []byte(`{"a":2}`), now, ev("x")),
-		"mail":           s.PutMailConfig(ctx, []byte(`{"host":"x"}`), now, ev("x")),
+		"fusion create": s.CreateFusionToken(ctx, FusionToken{ID: "ft-2", OrgID: "o1", Name: "m", CreatedBy: "a", CreatedAt: now, ExpiresAt: now.Add(time.Hour)}, []byte("h2"), ev("x")),
+		"fusion delete": s.DeleteFusionToken(ctx, "o1", "ft-1", ev("x")),
+		"settings":      s.PutSettings(ctx, "o1", []byte(`{"a":2}`), now, ev("x")),
+		"mail":          s.PutMailConfig(ctx, []byte(`{"host":"x"}`), now, ev("x")),
 	} {
 		if !errors.Is(err, ErrAuditWrite) {
 			t.Errorf("%s: %v, want ErrAuditWrite", name, err)
@@ -373,8 +371,5 @@ func TestTokenSettingsAndMailWritesRollBackWithTheirAuditRow(t *testing.T) {
 	}
 	if d, _ := s.GetMailConfig(ctx); d != nil {
 		t.Fatalf("mail config stored without its audit row: %s", d)
-	}
-	if _, err := s.LatestGatewayToken(ctx, "o1", "b"); !errors.Is(err, ErrNotFound) {
-		t.Fatalf("a gateway token was stored without its audit row: %v", err)
 	}
 }

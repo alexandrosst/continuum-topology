@@ -15,7 +15,7 @@ import (
 var withoutAnOrganisation = map[string]string{
 	// The row is inserted with its organisation in it, so there is no id of another organisation's to name.
 	"CreateToken": "carries its organisation", "CreateOperator": "carries its organisation", "AddOperatorCert": "carries its organisation",
-	"CreateTelemetryIntent": "carries its organisation", "CreateGatewayToken": "carries its organisation", "CreateFusionToken": "carries its organisation",
+	"CreateTelemetryIntent": "carries its organisation", "CreateFusionToken": "carries its organisation",
 	"PutLinkCredential": "carries its organisation", "AddAudit": "carries its organisation", "AddDecisions": "carries its organisation",
 	"CreateProposal": "carries its organisation", "RecordProposalOutcome": "carries its organisation", "AddMember": "carries its organisation",
 	"CreateInvite": "carries its organisation", "CreateOrg": "makes the organisation", "EnrollAgent": "the token it consumes belongs to one",

@@ -256,13 +256,6 @@ func (f *failAudit) DeleteFusionToken(ctx context.Context, org, id string, opts 
 	return f.Store.DeleteFusionToken(ctx, org, id, opts...)
 }
 
-func (f *failAudit) CreateGatewayToken(ctx context.Context, tk store.GatewayToken, hash []byte, opts ...store.WriteOption) error {
-	if err := f.broken(opts); err != nil {
-		return err
-	}
-	return f.Store.CreateGatewayToken(ctx, tk, hash, opts...)
-}
-
 func (f *failAudit) PutSettings(ctx context.Context, org string, data []byte, now time.Time, opts ...store.WriteOption) error {
 	if err := f.broken(opts); err != nil {
 		return err

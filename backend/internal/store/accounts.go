@@ -394,7 +394,6 @@ func deleteOrgRows(ctx context.Context, tx *sql.Tx, id string) error {
 		`DELETE FROM operators WHERE org_id=?`, // with their sealed CA keys and credential hashes
 		`DELETE FROM operator_certs WHERE org_id=?`,
 		`DELETE FROM telemetry_intents WHERE org_id=?`,
-		`DELETE FROM gateway_tokens WHERE org_id=?`,
 		`DELETE FROM decisions WHERE org_id=?`,
 		`DELETE FROM proposal_outcomes WHERE org_id=?`,
 		`DELETE FROM proposals WHERE org_id=?`,

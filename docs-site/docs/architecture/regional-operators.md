@@ -157,4 +157,4 @@ Two things worth naming here on purpose, the same way [Telemetry intent's own ga
 
 Neither gap is urgent, and neither is an oversight — both are the same kind of "decide this on purpose later" the rest of this project's telemetry documentation is honest about elsewhere.
 
-For how a regional operator's own trust boundary (absence of a credential, not absence of a network path) fits alongside agent enrollment and the quick-start gateway token, see [Trust model](./trust-model.md).
+For how a regional operator's own trust boundary (absence of a credential, not absence of a network path) fits alongside agent enrollment, see [Trust model](./trust-model.md).
