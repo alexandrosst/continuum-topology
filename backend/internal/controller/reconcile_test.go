@@ -10,6 +10,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -548,6 +549,29 @@ func TestAResourceCanBeLetGoWithoutTouchingTheReleaseWhenItIsToldTo(t *testing.T
 	g.must("a")
 	if g.inst.removed != 0 || g.inst.rel == nil || len(finalizers(g.get("a"))) != 0 {
 		t.Fatalf("removed %d, release %v, finalizers %v", g.inst.removed, g.inst.rel, finalizers(g.get("a")))
+	}
+}
+
+// A namespace that is being deleted takes the release with it; the identity-purge Job cannot be created in it, so the uninstall fails
+// for ever, and the finalizer would hold the namespace in Terminating. The resource is let go.
+func TestAResourceInANamespaceThatIsBeingDeletedIsLetGo(t *testing.T) {
+	for name, err := range map[string]error{
+		"by its cause": &apierrors.StatusError{ErrStatus: metav1.Status{Status: metav1.StatusFailure, Code: 403, Reason: metav1.StatusReasonForbidden,
+			Message: "jobs.batch is forbidden", Details: &metav1.StatusDetails{Causes: []metav1.StatusCause{{Type: corev1.NamespaceTerminatingCause}}}}},
+		"by its words": errors.New("post-delete hook failed: unable to create new content in namespace ikhnos-system because it is being terminated"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			g := newRig(t)
+			g.secret("enroll", "token", "ikh_abc")
+			g.agent("a", goodSpec())
+			g.must("a")
+			g.delete("a")
+			g.inst.rmErr = err
+			g.must("a")
+			if len(finalizers(g.get("a"))) != 0 {
+				t.Fatalf("the resource is held by %v", finalizers(g.get("a")))
+			}
+		})
 	}
 }
 

@@ -290,10 +290,25 @@ func (r *Reconciler) finish(ctx context.Context, obj *unstructured.Unstructured)
 			return err
 		}
 		if err := r.Installer.Uninstall(ctx, r.Namespace, ReleaseName); err != nil {
+			if namespaceIsGoing(err) {
+				// The whole namespace is being deleted, and with it the release and everything it made: there is nothing left to uninstall,
+				// and trying again would fail the same way for ever (the identity-purge Job cannot be created in a terminating
+				// namespace) and hold the namespace in Terminating. The resource is let go.
+				r.log().Warn("letting an IkhnosAgent go: its namespace is being deleted", "name", obj.GetName(), "err", err)
+				return r.setFinalizer(ctx, obj, false)
+			}
 			return fmt.Errorf("uninstalling the agent release: %w", err)
 		}
 	}
 	return r.setFinalizer(ctx, obj, false)
+}
+
+// namespaceIsGoing says whether an error is the cluster refusing to create something because the namespace is being deleted.
+func namespaceIsGoing(err error) bool {
+	if apierrors.HasStatusCause(err, corev1.NamespaceTerminatingCause) {
+		return true
+	}
+	return strings.Contains(err.Error(), "because it is being terminated")
 }
 
 // matchPurge makes the installed release agree with the spec on deleting the identity before it is uninstalled: the hook that does it
