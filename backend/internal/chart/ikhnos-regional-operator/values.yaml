@@ -46,6 +46,9 @@ service:
   nodePort: 0       # NodePort only, inside the cluster's node-port range; 0 = assigned by Kubernetes
   annotations: {}   # e.g. service.beta.kubernetes.io/aws-load-balancer-internal: "true"
   loadBalancerSourceRanges: []   # e.g. ["203.0.113.0/24"]; LoadBalancer only
+  # A LoadBalancer or NodePort Service is refused unless the receiver authenticates its senders (receiver.auth, or receiver.tls with
+  # receiver.tls.mtls). True says the receiver is meant to be open to whoever can reach it.
+  allowUnauthenticated: false
 
 # The upstream OpenTelemetry Collector Contrib distribution - the same image ikhnos-agent's telemetry
 # collectors run, for the same reason (this chart needs nothing beyond OTLP receive/process/export, which

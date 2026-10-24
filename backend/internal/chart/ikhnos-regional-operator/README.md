@@ -153,6 +153,8 @@ OTLP/gRPC port. A `NodePort` gets a random port from Kubernetes each time its Se
 `service.nodePort` to keep it (it must be inside your cluster's node-port range, 30000-32767 by default). Remember that a node address is one node, and often a private one. An
 Ingress in front must pass TLS through to the pod (the client certificate is checked here, not at the Ingress).
 
+Publishing the receiver is refused at render time unless it authenticates its senders (`receiver.auth.enabled`, or `receiver.tls.enabled` with `receiver.tls.mtls`), so an install cannot put an open receiver on an address anyone can reach; `service.allowUnauthenticated=true` says that is meant. The install command Ikhnos prints always sets a gate.
+
 ## Checking on it
 
 ```

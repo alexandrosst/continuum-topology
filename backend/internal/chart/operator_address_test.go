@@ -11,7 +11,7 @@ func TestOperatorServiceTypeFollowsTheExposureAndDefaultsToClusterIP(t *testing.
 		t.Fatalf("default Service type = %q", r.services["op"].Spec.Type)
 	}
 	for _, typ := range []string{"LoadBalancer", "NodePort"} {
-		r := operatorRender(t, "--set", "service.type="+typ)
+		r := operatorRender(t, "--set", "service.type="+typ, "--set", "receiver.auth.enabled=true", "--set", "receiver.auth.secretName=tok")
 		found := false
 		for _, s := range r.services {
 			if string(s.Spec.Type) == typ {
@@ -83,7 +83,7 @@ func TestAnExposedOperatorServicePublishesOnlyTheGRPCPort(t *testing.T) {
 	if got := strings.Join(ports(operatorRender(t, "--set", "selfMetrics.enabled=true")), ","); got != "otlp-grpc,otlp-http,metrics" {
 		t.Fatalf("default ports = %s", got)
 	}
-	r := operatorRender(t, "--set", "selfMetrics.enabled=true", "--set", "service.type=LoadBalancer",
+	r := operatorRender(t, "--set", "selfMetrics.enabled=true", "--set", "service.type=LoadBalancer", "--set", "receiver.auth.enabled=true", "--set", "receiver.auth.secretName=tok",
 		"--set", "service.loadBalancerSourceRanges={203.0.113.0/24}",
 		"--set-string", `service.annotations.service\.beta\.kubernetes\.io/aws-load-balancer-internal=true`)
 	if got := strings.Join(ports(r), ","); got != "otlp-grpc" {
@@ -95,9 +95,37 @@ func TestAnExposedOperatorServicePublishesOnlyTheGRPCPort(t *testing.T) {
 		}
 	}
 	// Source ranges mean nothing to a NodePort Service and are not rendered there.
-	for _, s := range operatorRender(t, "--set", "service.type=NodePort", "--set", "service.loadBalancerSourceRanges={203.0.113.0/24}").services {
+	for _, s := range operatorRender(t, "--set", "service.type=NodePort", "--set", "receiver.auth.enabled=true", "--set", "receiver.auth.secretName=tok", "--set", "service.loadBalancerSourceRanges={203.0.113.0/24}").services {
 		if len(s.Spec.LoadBalancerSourceRanges) != 0 {
 			t.Fatalf("a NodePort Service got source ranges: %+v", s)
 		}
+	}
+}
+
+// A receiver published outside the cluster must authenticate its senders, or say that it is meant to be open: the warning in the
+// notes comes after the install, so the render stops before it.
+func TestAnExposedOperatorWithNothingToAuthenticateItIsNotRendered(t *testing.T) {
+	for _, typ := range []string{"LoadBalancer", "NodePort"} {
+		out, err := operatorHelmTemplate(t, "--set", "service.type="+typ)
+		if err == nil || !strings.Contains(out+err.Error(), "nothing to authenticate it") {
+			t.Errorf("service.type=%s rendered an open receiver: %v\n%s", typ, err, out)
+		}
+		for name, gate := range map[string][]string{
+			"a bearer token":          {"--set", "receiver.auth.enabled=true", "--set", "receiver.auth.secretName=tok"},
+			"a client certificate":    {"--set", "receiver.tls.enabled=true", "--set", "receiver.tls.secretName=tls"},
+			"the open one on purpose": {"--set", "service.allowUnauthenticated=true"},
+		} {
+			if out, err := operatorHelmTemplate(t, append([]string{"--set", "service.type=" + typ}, gate...)...); err != nil {
+				t.Errorf("service.type=%s with %s was refused: %v\n%s", typ, name, err, out)
+			}
+		}
+	}
+	// A receiver that stays inside the cluster is as it was.
+	if _, err := operatorHelmTemplate(t); err != nil {
+		t.Errorf("the default install was refused: %v", err)
+	}
+	// With tls on but the client certificate not required, nothing authenticates: refused too.
+	if _, err := operatorHelmTemplate(t, "--set", "service.type=LoadBalancer", "--set", "receiver.tls.enabled=true", "--set", "receiver.tls.secretName=tls", "--set", "receiver.tls.mtls=false"); err == nil {
+		t.Error("service.type=LoadBalancer with tls but no client certificate was rendered")
 	}
 }

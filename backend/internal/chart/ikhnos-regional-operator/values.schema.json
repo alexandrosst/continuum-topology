@@ -12,7 +12,8 @@
         "type": { "type": "string", "enum": ["ClusterIP", "LoadBalancer", "NodePort"] },
         "nodePort": { "type": "integer", "minimum": 0, "maximum": 65535 },
         "annotations": { "type": "object", "additionalProperties": { "type": "string" } },
-        "loadBalancerSourceRanges": { "type": "array", "items": { "type": "string" } }
+        "loadBalancerSourceRanges": { "type": "array", "items": { "type": "string" } },
+        "allowUnauthenticated": { "type": "boolean" }
       }
     },
     "replicaCount": { "type": "integer", "minimum": 1 },

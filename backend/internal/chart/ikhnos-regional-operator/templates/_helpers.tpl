@@ -227,6 +227,12 @@ linkerd.io/inject: disabled
 {{- if and .Values.receiver.requireAuth (not .Values.receiver.auth.enabled) (not (and .Values.receiver.tls.enabled .Values.receiver.tls.mtls)) -}}
 {{- fail "receiver.requireAuth is set, but nothing would authenticate the receiver: enable receiver.auth (a bearer token) or receiver.tls with receiver.tls.mtls (a required client certificate). Refusing to render an open receiver." -}}
 {{- end -}}
+{{- /* An exposed receiver that nothing authenticates takes telemetry from anyone who can reach the address. The warning in NOTES comes
+       after the install; this stops before it. service.allowUnauthenticated is for a receiver that is meant to be open (a lab, a
+       network that is closed by other means), and is written out so that it is a decision. */ -}}
+{{- if and (ne (toString .Values.service.type) "ClusterIP") (not .Values.service.allowUnauthenticated) (not .Values.receiver.auth.enabled) (not (and .Values.receiver.tls.enabled .Values.receiver.tls.mtls)) -}}
+{{- fail (printf "service.type=%s would publish the receiver outside the cluster with nothing to authenticate it. Enable receiver.auth (a bearer token) or receiver.tls with receiver.tls.mtls (a required client certificate), or set service.allowUnauthenticated=true if the receiver is meant to be open." .Values.service.type) -}}
+{{- end -}}
 {{- if .Values.heartbeat.enabled -}}
 {{- if not .Values.heartbeat.url -}}{{- fail "heartbeat.enabled requires heartbeat.url (the Ikhnos server's heartbeat address, https://<server>/api/v1/operator-heartbeat)" -}}{{- end -}}
 {{- if not (regexMatch "^https?://[^\\s/]+" (toString .Values.heartbeat.url)) -}}{{- fail (printf "heartbeat.url must be an http(s) URL, got %q" (toString .Values.heartbeat.url)) -}}{{- end -}}

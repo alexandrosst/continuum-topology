@@ -188,7 +188,7 @@ func TestRegionalOperatorGOMEMLIMITFollowsTheMemoryLimit(t *testing.T) {
 // the operator breaks whenever the Service is recreated, unless the port is pinned.
 func TestRegionalOperatorNodePortCanBePinned(t *testing.T) {
 	port := func(extra ...string) (int32, bool) {
-		r := operatorRender(t, extra...)
+		r := operatorRender(t, append([]string{"--set", "receiver.auth.enabled=true", "--set", "receiver.auth.secretName=tok"}, extra...)...)
 		for _, p := range r.services["op-regional-operator"].Spec.Ports {
 			if p.Name == "otlp-grpc" {
 				return p.NodePort, true
