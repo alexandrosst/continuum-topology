@@ -118,8 +118,27 @@ func (s Settings) AgentValues(img kernel.ImageConfig, caPin, secret string, tier
 			values = append(values, install.Set("image.digest", img.Digest))
 		}
 	}
+	// The cluster-link prober runs its own image, published beside the agent's under the same registry and tag. Without these two values
+	// it keeps the chart's placeholder repository, which no registry serves, and the prober never starts.
+	if img.Configured() && probeSwitchedOn(extra) {
+		values = append(values, install.Set("telemetry.clusterLinks.probe.image.repository", img.Registry+"/link"))
+		if img.Tag != "" {
+			values = append(values, install.Set("telemetry.clusterLinks.probe.image.tag", img.Tag))
+		}
+	}
 	// What the person chose to switch on or narrow, after what every install has.
 	return append(values, extra...)
+}
+
+// probeSwitchedOn says whether the values the person chose turn the cluster-link prober on.
+func probeSwitchedOn(vals []install.Value) bool {
+	on := false
+	for _, v := range vals {
+		if v.Key == "telemetry.clusterLinks.probe.enabled" {
+			on = v.Value == "true"
+		}
+	}
+	return on
 }
 
 // AgentUpgradeCommand is what the owner of a cluster runs there to change the ceiling of an agent's install to a tier: raise it

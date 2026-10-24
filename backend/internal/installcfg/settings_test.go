@@ -154,3 +154,35 @@ func TestTheAgentInstallCommandIsMadeOfAgentValues(t *testing.T) {
 		}
 	}
 }
+
+// The cluster-link prober runs its own image. With a registry configured, an install that turns the prober on names it under the same
+// registry and tag, and not the chart's placeholder repository; an install without the prober does not mention it.
+func TestAnInstallThatTurnsTheLinkProberOnNamesItsImageUnderTheRegistry(t *testing.T) {
+	s := Settings{AgentAddr: "srv:8443"}
+	img := kernel.ImageConfig{Registry: "registry.example/acme", Tag: "1.4.0"}
+	on := []install.Value{install.Set("telemetry.clusterLinks.probe.enabled", "true")}
+	cmd, err := s.AgentInstallCommand(img, "p", "t", 1, on...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"telemetry.clusterLinks.probe.image.repository=registry.example/acme/link", "telemetry.clusterLinks.probe.image.tag=1.4.0"} {
+		if !strings.Contains(cmd, want) {
+			t.Errorf("missing %q:\n%s", want, cmd)
+		}
+	}
+	for name, extra := range map[string][]install.Value{
+		"no prober":        nil,
+		"the prober off":   {install.Set("telemetry.clusterLinks.probe.enabled", "false")},
+		"switched on, off": {install.Set("telemetry.clusterLinks.probe.enabled", "true"), install.Set("telemetry.clusterLinks.probe.enabled", "false")},
+	} {
+		cmd, _ := s.AgentInstallCommand(img, "p", "t", 1, extra...)
+		if strings.Contains(cmd, "probe.image") {
+			t.Errorf("%s: the link image is named although the prober is off:\n%s", name, cmd)
+		}
+	}
+	// Without a registry the chart's own names stand.
+	cmd, _ = s.AgentInstallCommand(kernel.ImageConfig{}, "p", "t", 1, on...)
+	if strings.Contains(cmd, "probe.image") {
+		t.Errorf("no registry, and yet the link image is named:\n%s", cmd)
+	}
+}
