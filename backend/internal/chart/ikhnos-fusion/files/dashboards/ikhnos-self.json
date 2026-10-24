@@ -3,7 +3,8 @@
   "title": "Ikhnos self",
   "description": "What running Ikhnos costs and whether it is healthy: the server process (memory, CPU, goroutines, garbage collection, agents connected, flow received) and the agent of each cluster, by cluster name. Written by the Ikhnos server into FUSION every minute; it replaces the System health page.",
   "tags": [
-    "ikhnos"
+    "ikhnos",
+    "self"
   ],
   "schemaVersion": 39,
   "version": 1,

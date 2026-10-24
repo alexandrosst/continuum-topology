@@ -3,10 +3,11 @@
   "title": "Applications",
   "description": "One Ikhnos application at a glance: the services it is made of, and their pods, traces and logs. Pick the application, then its services: each entry is a service in one namespace of one cluster, so a selection is exact for metrics, pods and logs. Pods are matched by the name of their Deployment, StatefulSet or DaemonSet being the service, in the namespace and cluster of the entry. Traces are matched by service name only (a span says nothing reliable about its cluster, and the trace store cannot filter on a pair of attributes taken from a list), so two entries with the same service name in different namespaces share their traces.",
   "tags": [
-    "ikhnos"
+    "ikhnos",
+    "applications"
   ],
   "schemaVersion": 39,
-  "version": 7,
+  "version": 8,
   "editable": false,
   "graphTooltip": 1,
   "time": {
@@ -74,10 +75,10 @@
           "uid": "fusion-metrics"
         },
         "query": {
-          "query": "label_values(ikhnos_application_info{application=${application:doublequote}}, ikhnos_cluster_id)",
+          "query": "query_result((max by (ikhnos_cluster_id) (ikhnos_application_info{application=${application:doublequote}})) * on (ikhnos_cluster_id) group_left (cluster_name) label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"ikhnos_cluster_id\", \"$1\", \"cluster\", \"(.+)\") or ignoring (cluster_name) label_replace((max by (ikhnos_cluster_id) (ikhnos_application_info{application=${application:doublequote}})), \"cluster_name\", \"$1\", \"ikhnos_cluster_id\", \"(.+)\"))",
           "refId": "v-cluster"
         },
-        "definition": "label_values(ikhnos_application_info{application=${application:doublequote}}, ikhnos_cluster_id)",
+        "definition": "query_result((max by (ikhnos_cluster_id) (ikhnos_application_info{application=${application:doublequote}})) * on (ikhnos_cluster_id) group_left (cluster_name) label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"ikhnos_cluster_id\", \"$1\", \"cluster\", \"(.+)\") or ignoring (cluster_name) label_replace((max by (ikhnos_cluster_id) (ikhnos_application_info{application=${application:doublequote}})), \"cluster_name\", \"$1\", \"ikhnos_cluster_id\", \"(.+)\"))",
         "refresh": 2,
         "sort": 1,
         "multi": true,
@@ -91,8 +92,9 @@
             "$__all"
           ]
         },
-        "description": "Narrows the list of members below to those in these clusters. A member Ikhnos knows no cluster for is kept by All.",
-        "allValue": ".*"
+        "description": "The clusters, by name. All includes a cluster whose name the server does not know (shown by its id).",
+        "allValue": ".*",
+        "regex": "/cluster_name=\"(?<text>[^\"]*)\",\\s*ikhnos_cluster_id=\"(?<value>[^\"]+)\"/"
       },
       {
         "name": "member",
@@ -154,7 +156,21 @@
     ]
   },
   "annotations": {
-    "list": []
+    "list": [
+      {
+        "name": "Container restarts",
+        "enable": false,
+        "iconColor": "orange",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "fusion-metrics"
+        },
+        "expr": "increase(k8s_container_restarts{ikhnos_cluster_id=~\"$cluster\"}[5m]) > 0",
+        "step": "5m",
+        "titleFormat": "Restart: {{k8s_pod_name}}",
+        "textFormat": "Namespace {{k8s_namespace_name}}, cluster {{ikhnos_cluster_id}}"
+      }
+    ]
   },
   "links": [
     {
@@ -167,6 +183,30 @@
       "includeVars": true,
       "keepTime": true,
       "icon": "dashboard"
+    },
+    {
+      "type": "link",
+      "title": "Namespaces and workloads",
+      "url": "/d/ikhnos-workloads",
+      "tooltip": "All pods, not only the application's",
+      "icon": "dashboard",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false,
+      "asDropdown": false,
+      "tags": []
+    },
+    {
+      "type": "link",
+      "title": "Telemetry by category",
+      "url": "/d/ikhnos-categories",
+      "tooltip": "What the application's services report",
+      "icon": "dashboard",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false,
+      "asDropdown": false,
+      "tags": []
     }
   ],
   "panels": [
@@ -352,7 +392,19 @@
                 "value": 1
               }
             ]
-          }
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "none",
+                  "color": "green",
+                  "index": 0
+                }
+              }
+            }
+          ]
         },
         "overrides": []
       },
@@ -462,7 +514,19 @@
                 "value": null
               }
             ]
-          }
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "none",
+                  "color": "green",
+                  "index": 0
+                }
+              }
+            }
+          ]
         },
         "overrides": []
       },
@@ -601,12 +665,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (ikhnos_cluster_id, k8s_namespace_name, k8s_pod_name) (((label_replace(k8s_pod_cpu_usage{k8s_deployment_name=~\"$service\"}, \"service_name\", \"$1\", \"k8s_deployment_name\", \"(.+)\") or label_replace(k8s_pod_cpu_usage{k8s_statefulset_name=~\"$service\"}, \"service_name\", \"$1\", \"k8s_statefulset_name\", \"(.+)\") or label_replace(k8s_pod_cpu_usage{k8s_daemonset_name=~\"$service\"}, \"service_name\", \"$1\", \"k8s_daemonset_name\", \"(.+)\")) and on(service_name, k8s_namespace_name, ikhnos_cluster_id) ikhnos_application_info{application=${application:doublequote}, member=~\"$member\"}))",
+          "expr": "(sum by (ikhnos_cluster_id, k8s_namespace_name, k8s_pod_name) (((label_replace(k8s_pod_cpu_usage{k8s_deployment_name=~\"$service\"}, \"service_name\", \"$1\", \"k8s_deployment_name\", \"(.+)\") or label_replace(k8s_pod_cpu_usage{k8s_statefulset_name=~\"$service\"}, \"service_name\", \"$1\", \"k8s_statefulset_name\", \"(.+)\") or label_replace(k8s_pod_cpu_usage{k8s_daemonset_name=~\"$service\"}, \"service_name\", \"$1\", \"k8s_daemonset_name\", \"(.+)\")) and on(service_name, k8s_namespace_name, ikhnos_cluster_id) ikhnos_application_info{application=${application:doublequote}, member=~\"$member\"}))) * on (ikhnos_cluster_id) group_left (cluster_name) label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"ikhnos_cluster_id\", \"$1\", \"cluster\", \"(.+)\") or ignoring (cluster_name) label_replace((sum by (ikhnos_cluster_id, k8s_namespace_name, k8s_pod_name) (((label_replace(k8s_pod_cpu_usage{k8s_deployment_name=~\"$service\"}, \"service_name\", \"$1\", \"k8s_deployment_name\", \"(.+)\") or label_replace(k8s_pod_cpu_usage{k8s_statefulset_name=~\"$service\"}, \"service_name\", \"$1\", \"k8s_statefulset_name\", \"(.+)\") or label_replace(k8s_pod_cpu_usage{k8s_daemonset_name=~\"$service\"}, \"service_name\", \"$1\", \"k8s_daemonset_name\", \"(.+)\")) and on(service_name, k8s_namespace_name, ikhnos_cluster_id) ikhnos_application_info{application=${application:doublequote}, member=~\"$member\"}))), \"cluster_name\", \"$1\", \"ikhnos_cluster_id\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{ikhnos_cluster_id}}/{{k8s_namespace_name}}/{{k8s_pod_name}}"
+          "legendFormat": "{{cluster_name}}/{{k8s_namespace_name}}/{{k8s_pod_name}}"
         }
       ],
       "description": "Cores in use.",
@@ -626,8 +690,16 @@
       },
       "options": {
         "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ],
+          "sortBy": "Last *",
+          "sortDesc": true
         },
         "tooltip": {
           "mode": "multi",
@@ -652,12 +724,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (ikhnos_cluster_id, k8s_namespace_name, k8s_pod_name) (((label_replace(k8s_pod_memory_working_set_bytes{k8s_deployment_name=~\"$service\"}, \"service_name\", \"$1\", \"k8s_deployment_name\", \"(.+)\") or label_replace(k8s_pod_memory_working_set_bytes{k8s_statefulset_name=~\"$service\"}, \"service_name\", \"$1\", \"k8s_statefulset_name\", \"(.+)\") or label_replace(k8s_pod_memory_working_set_bytes{k8s_daemonset_name=~\"$service\"}, \"service_name\", \"$1\", \"k8s_daemonset_name\", \"(.+)\")) and on(service_name, k8s_namespace_name, ikhnos_cluster_id) ikhnos_application_info{application=${application:doublequote}, member=~\"$member\"}))",
+          "expr": "(sum by (ikhnos_cluster_id, k8s_namespace_name, k8s_pod_name) (((label_replace(k8s_pod_memory_working_set_bytes{k8s_deployment_name=~\"$service\"}, \"service_name\", \"$1\", \"k8s_deployment_name\", \"(.+)\") or label_replace(k8s_pod_memory_working_set_bytes{k8s_statefulset_name=~\"$service\"}, \"service_name\", \"$1\", \"k8s_statefulset_name\", \"(.+)\") or label_replace(k8s_pod_memory_working_set_bytes{k8s_daemonset_name=~\"$service\"}, \"service_name\", \"$1\", \"k8s_daemonset_name\", \"(.+)\")) and on(service_name, k8s_namespace_name, ikhnos_cluster_id) ikhnos_application_info{application=${application:doublequote}, member=~\"$member\"}))) * on (ikhnos_cluster_id) group_left (cluster_name) label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"ikhnos_cluster_id\", \"$1\", \"cluster\", \"(.+)\") or ignoring (cluster_name) label_replace((sum by (ikhnos_cluster_id, k8s_namespace_name, k8s_pod_name) (((label_replace(k8s_pod_memory_working_set_bytes{k8s_deployment_name=~\"$service\"}, \"service_name\", \"$1\", \"k8s_deployment_name\", \"(.+)\") or label_replace(k8s_pod_memory_working_set_bytes{k8s_statefulset_name=~\"$service\"}, \"service_name\", \"$1\", \"k8s_statefulset_name\", \"(.+)\") or label_replace(k8s_pod_memory_working_set_bytes{k8s_daemonset_name=~\"$service\"}, \"service_name\", \"$1\", \"k8s_daemonset_name\", \"(.+)\")) and on(service_name, k8s_namespace_name, ikhnos_cluster_id) ikhnos_application_info{application=${application:doublequote}, member=~\"$member\"}))), \"cluster_name\", \"$1\", \"ikhnos_cluster_id\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{ikhnos_cluster_id}}/{{k8s_namespace_name}}/{{k8s_pod_name}}"
+          "legendFormat": "{{cluster_name}}/{{k8s_namespace_name}}/{{k8s_pod_name}}"
         }
       ],
       "description": "Working set.",
@@ -677,8 +749,16 @@
       },
       "options": {
         "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ],
+          "sortBy": "Last *",
+          "sortDesc": true
         },
         "tooltip": {
           "mode": "multi",
@@ -795,8 +875,16 @@
       },
       "options": {
         "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ],
+          "sortBy": "Last *",
+          "sortDesc": true
         },
         "tooltip": {
           "mode": "multi",
@@ -847,8 +935,16 @@
       },
       "options": {
         "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ],
+          "sortBy": "Last *",
+          "sortDesc": true
         },
         "tooltip": {
           "mode": "multi",
@@ -934,8 +1030,16 @@
       },
       "options": {
         "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ],
+          "sortBy": "Last *",
+          "sortDesc": true
         },
         "tooltip": {
           "mode": "multi",
@@ -985,8 +1089,16 @@
       },
       "options": {
         "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ],
+          "sortBy": "Last *",
+          "sortDesc": true
         },
         "tooltip": {
           "mode": "multi",
@@ -1027,7 +1139,8 @@
         "sortOrder": "Descending",
         "wrapLogMessage": true,
         "showTime": true
-      }
+      },
+      "description": "Log lines of the application's services, newest first."
     }
   ],
   "timepicker": {

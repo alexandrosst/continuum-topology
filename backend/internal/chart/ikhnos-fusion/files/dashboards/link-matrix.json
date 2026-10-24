@@ -1,0 +1,1468 @@
+{
+  "uid": "ikhnos-link-matrix",
+  "title": "Link quality matrix",
+  "description": "Every cluster against every other at a glance: loss, delay, jitter, connect time, throughput and how fresh each measurement is, as matrices with the sending cluster in the row and the receiving cluster in the column, and every pair on one line. Cluster names, where Ikhnos has one. Follow a pair into Cluster links for its history.",
+  "tags": [
+    "ikhnos",
+    "links"
+  ],
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "graphTooltip": 1,
+  "time": {
+    "from": "now-3h",
+    "to": "now"
+  },
+  "refresh": "30s",
+  "timezone": "browser",
+  "templating": {
+    "list": [
+      {
+        "name": "cluster",
+        "label": "Cluster",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "fusion-metrics"
+        },
+        "query": {
+          "query": "query_result((max by (cluster) (ikhnos_link_peer_info)) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) or ignoring (cluster_name) label_replace(max by (cluster) (ikhnos_link_peer_info), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"))",
+          "refId": "v-cluster"
+        },
+        "definition": "query_result((max by (cluster) (ikhnos_link_peer_info)) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) or ignoring (cluster_name) label_replace(max by (cluster) (ikhnos_link_peer_info), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"))",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "description": "The cluster that measured, by name. The one-way probe, the connect timing and the throughput tests of a pair run from one of its clusters (the one whose id sorts first) and carry that cluster here; the traffic and route series come from both. Choose All to see both.",
+        "regex": "/cluster=\"(?<value>[^\"]+)\",\\s*cluster_name=\"(?<text>[^\"]*)\"/"
+      },
+      {
+        "name": "peer",
+        "label": "Peer",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "fusion-metrics"
+        },
+        "query": {
+          "query": "query_result((max by (peer) (ikhnos_link_peer_info{cluster=~\"$cluster\"})) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (peer_name) label_replace(max by (peer) (ikhnos_link_peer_info{cluster=~\"$cluster\"}), \"peer_name\", \"$1\", \"peer\", \"(.+)\"))",
+          "refId": "v-peer"
+        },
+        "definition": "query_result((max by (peer) (ikhnos_link_peer_info{cluster=~\"$cluster\"})) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (peer_name) label_replace(max by (peer) (ikhnos_link_peer_info{cluster=~\"$cluster\"}), \"peer_name\", \"$1\", \"peer\", \"(.+)\"))",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "description": "The other cluster of the pair, by name, among those the chosen clusters measure.",
+        "regex": "/peer=\"(?<value>[^\"]+)\",\\s*peer_name=\"(?<text>[^\"]*)\"/"
+      }
+    ]
+  },
+  "annotations": {
+    "list": []
+  },
+  "links": [
+    {
+      "type": "dashboards",
+      "title": "Ikhnos",
+      "tags": [
+        "ikhnos"
+      ],
+      "asDropdown": true,
+      "includeVars": true,
+      "keepTime": true,
+      "icon": "dashboard"
+    },
+    {
+      "type": "link",
+      "title": "Cluster links",
+      "url": "/d/ikhnos-links",
+      "tooltip": "The history of every measurement, pair by pair",
+      "icon": "dashboard",
+      "keepTime": true,
+      "includeVars": true,
+      "targetBlank": false,
+      "asDropdown": false,
+      "tags": []
+    },
+    {
+      "type": "link",
+      "title": "Fleet overview",
+      "url": "/d/ikhnos-fleet",
+      "tooltip": "All clusters side by side",
+      "icon": "dashboard",
+      "keepTime": true,
+      "includeVars": false,
+      "targetBlank": false,
+      "asDropdown": false,
+      "tags": []
+    }
+  ],
+  "timepicker": {
+    "refresh_intervals": [
+      "10s",
+      "30s",
+      "1m",
+      "5m",
+      "15m",
+      "1h"
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Now",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Pairs probed",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fusion-metrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "count(count by (cluster, peer) (ikhnos_link_probe_up{cluster=~\"$cluster\", peer=~\"$peer\"})) or vector(0)",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fusion-metrics"
+          },
+          "instant": true,
+          "range": false
+        }
+      ],
+      "description": "Cluster pairs whose one-way probe has reported. The probe runs from one cluster of each pair (the one whose id sorts first), so a pair is counted once. A pair with probing switched off has no probe series and is not counted. Zero (orange) means no probe has reported to FUSION yet: the pair may not be set up or the cluster that runs the probes may send no telemetry here. Sites > Cluster links > Setup lists what each pair still needs.",
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "orange",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "noValue": "0"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Worst probe loss now",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fusion-metrics"
+      },
+      "gridPos": {
+        "x": 4,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(ikhnos_link_probe_loss_ratio{cluster=~\"$cluster\", peer=~\"$peer\"})",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fusion-metrics"
+          },
+          "instant": true,
+          "range": false
+        }
+      ],
+      "description": "The highest loss ratio among the latest one-way probe runs, either direction. Amber from 1 %, red from 5 %, as on the Sites screen. Empty (not zero) when no probe has reported: a run that failed withdraws its figures.",
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.01
+              },
+              {
+                "color": "red",
+                "value": 0.05
+              }
+            ]
+          },
+          "unit": "percentunit",
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Probes failing now",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fusion-metrics"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "count(ikhnos_link_probe_up{cluster=~\"$cluster\", peer=~\"$peer\"} == 0) or (0 * count(ikhnos_link_probe_up{cluster=~\"$cluster\", peer=~\"$peer\"}))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fusion-metrics"
+          },
+          "instant": true,
+          "range": false
+        }
+      ],
+      "description": "Directions whose latest probe run did not complete (probe_up is 0). Zero only when probes are reporting and all completed; empty when no probe reports at all.",
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Clusters running throughput tests",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fusion-metrics"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "count(ikhnos_link_throughput_budget_bytes{cluster=~\"$cluster\"})",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fusion-metrics"
+          },
+          "instant": true,
+          "range": false
+        }
+      ],
+      "description": "How many clusters report the throughput tests at all. Empty means no cluster runs them: a pair is tested only when throughput is switched on for it, on both of its clusters, and only by the cluster of the pair whose id sorts first. Until then every panel below is empty, and nothing is wrong.",
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 0,
+          "noValue": "None: throughput tests are off"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Pairs with a result",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fusion-metrics"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "count(count by (cluster, peer) (ikhnos_link_throughput_bits_per_second{cluster=~\"$cluster\", peer=~\"$peer\"}))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fusion-metrics"
+          },
+          "instant": true,
+          "range": false
+        }
+      ],
+      "description": "Pairs for which a throughput test has finished and the prober still reports it. Empty while tests are on but none has finished: the first test starts up to ten minutes after the peer is learned, and after the prober restarts the results are gone until the next test (the interval is hours by default).",
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 0,
+          "noValue": "None yet"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      }
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "Newest result",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fusion-metrics"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "time() - max(ikhnos_link_throughput_last_success_timestamp_seconds{cluster=~\"$cluster\", peer=~\"$peer\"})",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fusion-metrics"
+          },
+          "instant": true,
+          "range": false
+        }
+      ],
+      "description": "How long ago the most recent throughput test finished, over the selected pairs. The interval between tests is set per pair, so a long time is normal when it is long.",
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "unit": "s",
+          "noValue": "No test has finished"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "gridPos": {
+        "x": 20,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      }
+    },
+    {
+      "id": 8,
+      "type": "row",
+      "title": "Matrices: a row is the sending cluster, a column the receiving one",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 9,
+      "type": "table",
+      "title": "Loss, latest run",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fusion-metrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 6,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "((max by (cluster, peer) (ikhnos_link_probe_loss_ratio{cluster=~\"$cluster\", peer=~\"$peer\", direction=\"forward\"})) or (max by (cluster, peer) (label_replace(label_replace(label_replace((max by (cluster, peer) (ikhnos_link_probe_loss_ratio{cluster=~\"$cluster\", peer=~\"$peer\", direction=\"reverse\"})), \"swap\", \"$1\", \"cluster\", \"(.+)\"), \"cluster\", \"$1\", \"peer\", \"(.+)\"), \"peer\", \"$1\", \"swap\", \"(.+)\")))) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace(((max by (cluster, peer) (ikhnos_link_probe_loss_ratio{cluster=~\"$cluster\", peer=~\"$peer\", direction=\"forward\"})) or (max by (cluster, peer) (label_replace(label_replace(label_replace((max by (cluster, peer) (ikhnos_link_probe_loss_ratio{cluster=~\"$cluster\", peer=~\"$peer\", direction=\"reverse\"})), \"swap\", \"$1\", \"cluster\", \"(.+)\"), \"cluster\", \"$1\", \"peer\", \"(.+)\"), \"peer\", \"$1\", \"swap\", \"(.+)\")))), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fusion-metrics"
+          },
+          "instant": true,
+          "range": false,
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "center",
+            "cellOptions": {
+              "type": "color-background",
+              "mode": "basic"
+            }
+          },
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.01
+              },
+              {
+                "color": "red",
+                "value": 0.05
+              }
+            ]
+          },
+          "noValue": "-",
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "footer": {
+          "show": false
+        },
+        "cellHeight": "md"
+      },
+      "transformations": [
+        {
+          "id": "groupingToMatrix",
+          "options": {
+            "columnField": "peer_name",
+            "rowField": "cluster_name",
+            "valueField": "Value",
+            "emptyValue": "null"
+          }
+        }
+      ],
+      "description": "Packet loss of the one-way probe, from the row's cluster to the column's. Amber from 1 %, red from 5 %, as on the Sites screen. The reverse direction of a pair is filled in from the same probe, so the matrix is complete from one measurement per pair. A dash is a pair or direction with no figure."
+    },
+    {
+      "id": 10,
+      "type": "table",
+      "title": "One-way delay, median",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fusion-metrics"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 6,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "((max by (cluster, peer) (ikhnos_link_probe_one_way_delay_seconds{cluster=~\"$cluster\", peer=~\"$peer\", stat=\"median\", direction=\"forward\"})) or (max by (cluster, peer) (label_replace(label_replace(label_replace((max by (cluster, peer) (ikhnos_link_probe_one_way_delay_seconds{cluster=~\"$cluster\", peer=~\"$peer\", stat=\"median\", direction=\"reverse\"})), \"swap\", \"$1\", \"cluster\", \"(.+)\"), \"cluster\", \"$1\", \"peer\", \"(.+)\"), \"peer\", \"$1\", \"swap\", \"(.+)\")))) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace(((max by (cluster, peer) (ikhnos_link_probe_one_way_delay_seconds{cluster=~\"$cluster\", peer=~\"$peer\", stat=\"median\", direction=\"forward\"})) or (max by (cluster, peer) (label_replace(label_replace(label_replace((max by (cluster, peer) (ikhnos_link_probe_one_way_delay_seconds{cluster=~\"$cluster\", peer=~\"$peer\", stat=\"median\", direction=\"reverse\"})), \"swap\", \"$1\", \"cluster\", \"(.+)\"), \"cluster\", \"$1\", \"peer\", \"(.+)\"), \"peer\", \"$1\", \"swap\", \"(.+)\")))), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fusion-metrics"
+          },
+          "instant": true,
+          "range": false,
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "center",
+            "cellOptions": {
+              "type": "color-background",
+              "mode": "basic"
+            }
+          },
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "-",
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "footer": {
+          "show": false
+        },
+        "cellHeight": "md"
+      },
+      "transformations": [
+        {
+          "id": "groupingToMatrix",
+          "options": {
+            "columnField": "peer_name",
+            "rowField": "cluster_name",
+            "valueField": "Value",
+            "emptyValue": "null"
+          }
+        }
+      ],
+      "description": "Median one-way delay from the row's cluster to the column's. It is only drawn where the two clocks are synchronised (the figure is withheld otherwise; Cluster links shows which pairs). No colour steps: what is fast depends on how far apart the clusters are. The reverse direction of a pair is filled in from the same probe, so the matrix is complete from one measurement per pair. A dash is a pair or direction with no figure."
+    },
+    {
+      "id": 11,
+      "type": "table",
+      "title": "Delay variation, median",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fusion-metrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "((max by (cluster, peer) (ikhnos_link_probe_delay_variation_seconds{cluster=~\"$cluster\", peer=~\"$peer\", stat=\"median\", direction=\"forward\"})) or (max by (cluster, peer) (label_replace(label_replace(label_replace((max by (cluster, peer) (ikhnos_link_probe_delay_variation_seconds{cluster=~\"$cluster\", peer=~\"$peer\", stat=\"median\", direction=\"reverse\"})), \"swap\", \"$1\", \"cluster\", \"(.+)\"), \"cluster\", \"$1\", \"peer\", \"(.+)\"), \"peer\", \"$1\", \"swap\", \"(.+)\")))) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace(((max by (cluster, peer) (ikhnos_link_probe_delay_variation_seconds{cluster=~\"$cluster\", peer=~\"$peer\", stat=\"median\", direction=\"forward\"})) or (max by (cluster, peer) (label_replace(label_replace(label_replace((max by (cluster, peer) (ikhnos_link_probe_delay_variation_seconds{cluster=~\"$cluster\", peer=~\"$peer\", stat=\"median\", direction=\"reverse\"})), \"swap\", \"$1\", \"cluster\", \"(.+)\"), \"cluster\", \"$1\", \"peer\", \"(.+)\"), \"peer\", \"$1\", \"swap\", \"(.+)\")))), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fusion-metrics"
+          },
+          "instant": true,
+          "range": false,
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "center",
+            "cellOptions": {
+              "type": "color-background",
+              "mode": "basic"
+            }
+          },
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.005
+              },
+              {
+                "color": "red",
+                "value": 0.02
+              }
+            ]
+          },
+          "noValue": "-",
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "footer": {
+          "show": false
+        },
+        "cellHeight": "md"
+      },
+      "transformations": [
+        {
+          "id": "groupingToMatrix",
+          "options": {
+            "columnField": "peer_name",
+            "rowField": "cluster_name",
+            "valueField": "Value",
+            "emptyValue": "null"
+          }
+        }
+      ],
+      "description": "Median variation in delay (jitter) of the one-way probe, from the row's cluster to the column's. It does not need synchronised clocks. Amber from 5 ms, red from 20 ms. The reverse direction of a pair is filled in from the same probe, so the matrix is complete from one measurement per pair. A dash is a pair or direction with no figure."
+    },
+    {
+      "id": 12,
+      "type": "table",
+      "title": "TCP connect time, p95",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fusion-metrics"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 14,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(max by (cluster, peer) (histogram_quantile(0.95, sum by (cluster, peer, le) (rate(ikhnos_link_tcp_connect_seconds_bucket{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval]))))) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((max by (cluster, peer) (histogram_quantile(0.95, sum by (cluster, peer, le) (rate(ikhnos_link_tcp_connect_seconds_bucket{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval]))))), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fusion-metrics"
+          },
+          "instant": true,
+          "range": false,
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "center",
+            "cellOptions": {
+              "type": "color-background",
+              "mode": "basic"
+            }
+          },
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "noValue": "-",
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "footer": {
+          "show": false
+        },
+        "cellHeight": "md"
+      },
+      "transformations": [
+        {
+          "id": "groupingToMatrix",
+          "options": {
+            "columnField": "peer_name",
+            "rowField": "cluster_name",
+            "valueField": "Value",
+            "emptyValue": "null"
+          }
+        }
+      ],
+      "description": "95th percentile of the time to open a TCP connection from the row's cluster to the column's. It is measured from one cluster of each pair (the one whose id sorts first), so only that direction has a cell."
+    },
+    {
+      "id": 13,
+      "type": "table",
+      "title": "Latest TCP throughput (last 8 days)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fusion-metrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 22,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "((max by (cluster, peer) (last_over_time(ikhnos_link_throughput_bits_per_second{cluster=~\"$cluster\", peer=~\"$peer\", protocol=\"tcp\", dscp=\"0\", direction=\"forward\"}[8d]))) or (max by (cluster, peer) (label_replace(label_replace(label_replace((max by (cluster, peer) (last_over_time(ikhnos_link_throughput_bits_per_second{cluster=~\"$cluster\", peer=~\"$peer\", protocol=\"tcp\", dscp=\"0\", direction=\"reverse\"}[8d]))), \"swap\", \"$1\", \"cluster\", \"(.+)\"), \"cluster\", \"$1\", \"peer\", \"(.+)\"), \"peer\", \"$1\", \"swap\", \"(.+)\")))) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace(((max by (cluster, peer) (last_over_time(ikhnos_link_throughput_bits_per_second{cluster=~\"$cluster\", peer=~\"$peer\", protocol=\"tcp\", dscp=\"0\", direction=\"forward\"}[8d]))) or (max by (cluster, peer) (label_replace(label_replace(label_replace((max by (cluster, peer) (last_over_time(ikhnos_link_throughput_bits_per_second{cluster=~\"$cluster\", peer=~\"$peer\", protocol=\"tcp\", dscp=\"0\", direction=\"reverse\"}[8d]))), \"swap\", \"$1\", \"cluster\", \"(.+)\"), \"cluster\", \"$1\", \"peer\", \"(.+)\"), \"peer\", \"$1\", \"swap\", \"(.+)\")))), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fusion-metrics"
+          },
+          "instant": true,
+          "range": false,
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "center",
+            "cellOptions": {
+              "type": "color-background",
+              "mode": "basic"
+            }
+          },
+          "unit": "bps",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 100000000.0
+              },
+              {
+                "color": "green",
+                "value": 1000000000.0
+              }
+            ]
+          },
+          "noValue": "-",
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "footer": {
+          "show": false
+        },
+        "cellHeight": "md"
+      },
+      "transformations": [
+        {
+          "id": "groupingToMatrix",
+          "options": {
+            "columnField": "peer_name",
+            "rowField": "cluster_name",
+            "valueField": "Value",
+            "emptyValue": "null"
+          }
+        }
+      ],
+      "description": "Highest TCP rate the throughput tests reached from the row's cluster to the column's, over the last eight days like the console. Blank until the pair has a throughput test (Sites > Cluster links > Setup) and it has finished once. Red below 100 Mbit/s, green from 1 Gbit/s. The reverse direction of a pair is filled in from the same probe, so the matrix is complete from one measurement per pair. A dash is a pair or direction with no figure."
+    },
+    {
+      "id": 14,
+      "type": "table",
+      "title": "Seconds since the last completed probe",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fusion-metrics"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 22,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "((max by (cluster, peer) (clamp_max(time() - (ikhnos_link_probe_last_success_timestamp_seconds{cluster=~\"$cluster\", peer=~\"$peer\", direction=\"forward\"} or (0 * ikhnos_link_probe_up{cluster=~\"$cluster\", peer=~\"$peer\", direction=\"forward\"})), 86400))) or (max by (cluster, peer) (label_replace(label_replace(label_replace((max by (cluster, peer) (clamp_max(time() - (ikhnos_link_probe_last_success_timestamp_seconds{cluster=~\"$cluster\", peer=~\"$peer\", direction=\"reverse\"} or (0 * ikhnos_link_probe_up{cluster=~\"$cluster\", peer=~\"$peer\", direction=\"reverse\"})), 86400))), \"swap\", \"$1\", \"cluster\", \"(.+)\"), \"cluster\", \"$1\", \"peer\", \"(.+)\"), \"peer\", \"$1\", \"swap\", \"(.+)\")))) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace(((max by (cluster, peer) (clamp_max(time() - (ikhnos_link_probe_last_success_timestamp_seconds{cluster=~\"$cluster\", peer=~\"$peer\", direction=\"forward\"} or (0 * ikhnos_link_probe_up{cluster=~\"$cluster\", peer=~\"$peer\", direction=\"forward\"})), 86400))) or (max by (cluster, peer) (label_replace(label_replace(label_replace((max by (cluster, peer) (clamp_max(time() - (ikhnos_link_probe_last_success_timestamp_seconds{cluster=~\"$cluster\", peer=~\"$peer\", direction=\"reverse\"} or (0 * ikhnos_link_probe_up{cluster=~\"$cluster\", peer=~\"$peer\", direction=\"reverse\"})), 86400))), \"swap\", \"$1\", \"cluster\", \"(.+)\"), \"cluster\", \"$1\", \"peer\", \"(.+)\"), \"peer\", \"$1\", \"swap\", \"(.+)\")))), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fusion-metrics"
+          },
+          "instant": true,
+          "range": false,
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "center",
+            "cellOptions": {
+              "type": "color-background",
+              "mode": "basic"
+            }
+          },
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 180
+              },
+              {
+                "color": "red",
+                "value": 900
+              }
+            ]
+          },
+          "noValue": "-",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "footer": {
+          "show": false
+        },
+        "cellHeight": "md"
+      },
+      "transformations": [
+        {
+          "id": "groupingToMatrix",
+          "options": {
+            "columnField": "peer_name",
+            "rowField": "cluster_name",
+            "valueField": "Value",
+            "emptyValue": "null"
+          }
+        }
+      ],
+      "description": "How long ago a probe last completed in each direction. A direction that never completed is drawn at the top of the scale, one day. Amber from 3 minutes, red from 15. The reverse direction of a pair is filled in from the same probe, so the matrix is complete from one measurement per pair. A dash is a pair or direction with no figure."
+    },
+    {
+      "id": 15,
+      "type": "row",
+      "title": "Every pair on one line",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 30,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 16,
+      "type": "table",
+      "title": "Pairs side by side",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fusion-metrics"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 31,
+        "w": 24,
+        "h": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(max by (cluster, peer) (ikhnos_link_probe_loss_ratio{cluster=~\"$cluster\", peer=~\"$peer\", direction=\"forward\"})) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((max by (cluster, peer) (ikhnos_link_probe_loss_ratio{cluster=~\"$cluster\", peer=~\"$peer\", direction=\"forward\"})), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fusion-metrics"
+          },
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "refId": "B",
+          "expr": "(max by (cluster, peer) (ikhnos_link_probe_loss_ratio{cluster=~\"$cluster\", peer=~\"$peer\", direction=\"reverse\"})) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((max by (cluster, peer) (ikhnos_link_probe_loss_ratio{cluster=~\"$cluster\", peer=~\"$peer\", direction=\"reverse\"})), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fusion-metrics"
+          },
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "refId": "C",
+          "expr": "(max by (cluster, peer) (ikhnos_link_probe_one_way_delay_seconds{cluster=~\"$cluster\", peer=~\"$peer\", direction=\"forward\", stat=\"median\"})) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((max by (cluster, peer) (ikhnos_link_probe_one_way_delay_seconds{cluster=~\"$cluster\", peer=~\"$peer\", direction=\"forward\", stat=\"median\"})), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fusion-metrics"
+          },
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "refId": "D",
+          "expr": "(max by (cluster, peer) (ikhnos_link_probe_one_way_delay_seconds{cluster=~\"$cluster\", peer=~\"$peer\", direction=\"reverse\", stat=\"median\"})) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((max by (cluster, peer) (ikhnos_link_probe_one_way_delay_seconds{cluster=~\"$cluster\", peer=~\"$peer\", direction=\"reverse\", stat=\"median\"})), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fusion-metrics"
+          },
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "refId": "E",
+          "expr": "(max by (cluster, peer) (ikhnos_link_probe_delay_variation_seconds{cluster=~\"$cluster\", peer=~\"$peer\", stat=\"median\"})) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((max by (cluster, peer) (ikhnos_link_probe_delay_variation_seconds{cluster=~\"$cluster\", peer=~\"$peer\", stat=\"median\"})), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fusion-metrics"
+          },
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "refId": "F",
+          "expr": "(max by (cluster, peer) (histogram_quantile(0.95, sum by (cluster, peer, le) (rate(ikhnos_link_tcp_connect_seconds_bucket{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval]))))) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((max by (cluster, peer) (histogram_quantile(0.95, sum by (cluster, peer, le) (rate(ikhnos_link_tcp_connect_seconds_bucket{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval]))))), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fusion-metrics"
+          },
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "refId": "G",
+          "expr": "(max by (cluster, peer) (last_over_time(ikhnos_link_throughput_bits_per_second{cluster=~\"$cluster\", peer=~\"$peer\", protocol=\"tcp\", dscp=\"0\", direction=\"forward\"}[8d]))) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((max by (cluster, peer) (last_over_time(ikhnos_link_throughput_bits_per_second{cluster=~\"$cluster\", peer=~\"$peer\", protocol=\"tcp\", dscp=\"0\", direction=\"forward\"}[8d]))), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fusion-metrics"
+          },
+          "instant": true,
+          "range": false,
+          "format": "table"
+        },
+        {
+          "refId": "H",
+          "expr": "(max by (cluster, peer) (last_over_time(ikhnos_link_throughput_bits_per_second{cluster=~\"$cluster\", peer=~\"$peer\", protocol=\"tcp\", dscp=\"0\", direction=\"reverse\"}[8d]))) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((max by (cluster, peer) (last_over_time(ikhnos_link_throughput_bits_per_second{cluster=~\"$cluster\", peer=~\"$peer\", protocol=\"tcp\", dscp=\"0\", direction=\"reverse\"}[8d]))), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fusion-metrics"
+          },
+          "instant": true,
+          "range": false,
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "cluster"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "peer"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Loss forward"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "noValue",
+                "value": "-"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 0.01
+                    },
+                    {
+                      "color": "red",
+                      "value": 0.05
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Loss reverse"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "noValue",
+                "value": "-"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 0.01
+                    },
+                    {
+                      "color": "red",
+                      "value": 0.05
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Delay forward"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "noValue",
+                "value": "-"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Delay reverse"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "noValue",
+                "value": "-"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Jitter, worst direction"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 2
+              },
+              {
+                "id": "noValue",
+                "value": "-"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 0.005
+                    },
+                    {
+                      "color": "red",
+                      "value": 0.02
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "TCP connect p95"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "noValue",
+                "value": "-"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Throughput forward"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bps"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "noValue",
+                "value": "-"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 100000000.0
+                    },
+                    {
+                      "color": "green",
+                      "value": 1000000000.0
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Throughput reverse"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bps"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "noValue",
+                "value": "-"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 100000000.0
+                    },
+                    {
+                      "color": "green",
+                      "value": 1000000000.0
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "From"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Open Cluster links for this pair",
+                    "url": "/d/ikhnos-links?var-cluster=${__data.fields.cluster}&var-peer=${__data.fields.peer}&${__url_time_range}"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "footer": {
+          "show": false
+        },
+        "sortBy": [
+          {
+            "displayName": "From",
+            "desc": false
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "cluster_name": "From",
+              "peer_name": "To",
+              "Value #A": "Loss forward",
+              "Value #B": "Loss reverse",
+              "Value #C": "Delay forward",
+              "Value #D": "Delay reverse",
+              "Value #E": "Jitter, worst direction",
+              "Value #F": "TCP connect p95",
+              "Value #G": "Throughput forward",
+              "Value #H": "Throughput reverse"
+            },
+            "indexByName": {
+              "cluster_name": 0,
+              "peer_name": 1,
+              "Value #A": 2,
+              "Value #B": 3,
+              "Value #C": 4,
+              "Value #D": 5,
+              "Value #E": 6,
+              "Value #F": 7,
+              "Value #G": 8,
+              "Value #H": 9
+            }
+          }
+        }
+      ],
+      "description": "One row for each pair that is probed, from the cluster that runs the probes to its peer, with both directions of loss, delay and throughput. Click the pair for its history on Cluster links."
+    }
+  ]
+}

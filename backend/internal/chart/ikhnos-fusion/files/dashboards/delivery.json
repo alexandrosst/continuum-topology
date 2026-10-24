@@ -3,10 +3,11 @@
   "title": "Delivery health",
   "description": "Is the data arriving: how fresh each cluster is, through which operator, which signals are flowing, and whether the collectors themselves are healthy.",
   "tags": [
-    "ikhnos"
+    "ikhnos",
+    "delivery"
   ],
   "schemaVersion": 39,
-  "version": 3,
+  "version": 5,
   "editable": false,
   "graphTooltip": 1,
   "time": {
@@ -26,10 +27,10 @@
           "uid": "fusion-metrics"
         },
         "query": {
-          "query": "label_values(ikhnos_cluster_id)",
+          "query": "query_result(max by (ikhnos_cluster_id, cluster_name) (label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"ikhnos_cluster_id\", \"$1\", \"cluster\", \"(.+)\")))",
           "refId": "v-cluster"
         },
-        "definition": "label_values(ikhnos_cluster_id)",
+        "definition": "query_result(max by (ikhnos_cluster_id, cluster_name) (label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"ikhnos_cluster_id\", \"$1\", \"cluster\", \"(.+)\")))",
         "refresh": 2,
         "sort": 1,
         "multi": true,
@@ -43,12 +44,57 @@
           "value": [
             "$__all"
           ]
-        }
+        },
+        "regex": "/cluster_name=\"(?<text>[^\"]*)\",\\s*ikhnos_cluster_id=\"(?<value>[^\"]+)\"/",
+        "description": "The clusters, by name. All includes a cluster whose name the server does not know (shown by its id)."
+      },
+      {
+        "name": "operator",
+        "label": "Operator",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "fusion-metrics"
+        },
+        "query": {
+          "query": "label_values(ikhnos_operator_id)",
+          "refId": "v-operator"
+        },
+        "definition": "label_values(ikhnos_operator_id)",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "description": "The regional operators the data came through. Narrows the table of data age and the series arriving by operator."
       }
     ]
   },
   "annotations": {
-    "list": []
+    "list": [
+      {
+        "name": "Agents joined or left",
+        "enable": true,
+        "iconColor": "blue",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "fusion-metrics"
+        },
+        "expr": "changes(ikhnos_self_connected_agents[2m]) > 0",
+        "step": "1m",
+        "titleFormat": "Agents connected changed",
+        "textFormat": "The server's connected agents changed; see Ikhnos self."
+      }
+    ]
   },
   "links": [
     {
@@ -61,6 +107,42 @@
       "includeVars": true,
       "keepTime": true,
       "icon": "dashboard"
+    },
+    {
+      "type": "link",
+      "title": "Fleet overview",
+      "url": "/d/ikhnos-fleet",
+      "tooltip": "All clusters side by side",
+      "icon": "dashboard",
+      "keepTime": true,
+      "includeVars": true,
+      "targetBlank": false,
+      "asDropdown": false,
+      "tags": []
+    },
+    {
+      "type": "link",
+      "title": "Ikhnos self",
+      "url": "/d/ikhnos-self",
+      "tooltip": "The server and the agents themselves",
+      "icon": "dashboard",
+      "keepTime": true,
+      "includeVars": true,
+      "targetBlank": false,
+      "asDropdown": false,
+      "tags": []
+    },
+    {
+      "type": "link",
+      "title": "Clusters and nodes",
+      "url": "/d/ikhnos-clusters",
+      "tooltip": "The nodes of the chosen clusters",
+      "icon": "dashboard",
+      "keepTime": true,
+      "includeVars": true,
+      "targetBlank": false,
+      "asDropdown": false,
+      "tags": []
     }
   ],
   "panels": [
@@ -220,7 +302,19 @@
                 "value": 1
               }
             ]
-          }
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "all up",
+                  "color": "green",
+                  "index": 0
+                }
+              }
+            }
+          ]
         },
         "overrides": []
       },
@@ -276,7 +370,19 @@
                 "value": 1
               }
             ]
-          }
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "none",
+                  "color": "green",
+                  "index": 0
+                }
+              }
+            }
+          ]
         },
         "overrides": []
       },
@@ -308,7 +414,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "time() - (max by (ikhnos_cluster_id, ikhnos_operator_id) (timestamp({ikhnos_cluster_id=~\"$cluster\", ikhnos_cluster_id!=\"\", __name__!~\"ikhnos_application_info|ikhnos_agent_self_.*\"})) or max by (ikhnos_cluster_id, ikhnos_operator_id) (max_over_time(timestamp({ikhnos_cluster_id=~\"$cluster\", ikhnos_cluster_id!=\"\", __name__!~\"ikhnos_application_info|ikhnos_agent_self_.*\"})[1d:5m])))",
+          "expr": "((time() - (max by (ikhnos_cluster_id, ikhnos_operator_id) (timestamp({ikhnos_operator_id=~\"$operator\", ikhnos_cluster_id=~\"$cluster\", ikhnos_cluster_id!=\"\", __name__!~\"ikhnos_application_info|ikhnos_agent_self_.*\"})) or max by (ikhnos_cluster_id, ikhnos_operator_id) (max_over_time(timestamp({ikhnos_operator_id=~\"$operator\", ikhnos_cluster_id=~\"$cluster\", ikhnos_cluster_id!=\"\", __name__!~\"ikhnos_application_info|ikhnos_agent_self_.*\"})[1d:5m])))) * on (ikhnos_cluster_id) group_left (cluster_name) label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"ikhnos_cluster_id\", \"$1\", \"cluster\", \"(.+)\") or ignoring (cluster_name) label_replace((time() - (max by (ikhnos_cluster_id, ikhnos_operator_id) (timestamp({ikhnos_operator_id=~\"$operator\", ikhnos_cluster_id=~\"$cluster\", ikhnos_cluster_id!=\"\", __name__!~\"ikhnos_application_info|ikhnos_agent_self_.*\"})) or max by (ikhnos_cluster_id, ikhnos_operator_id) (max_over_time(timestamp({ikhnos_operator_id=~\"$operator\", ikhnos_cluster_id=~\"$cluster\", ikhnos_cluster_id!=\"\", __name__!~\"ikhnos_application_info|ikhnos_agent_self_.*\"})[1d:5m])))), \"cluster_name\", \"$1\", \"ikhnos_cluster_id\", \"(.+)\")) * on (ikhnos_cluster_id) group_left (cluster_name) label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"ikhnos_cluster_id\", \"$1\", \"cluster\", \"(.+)\") or ignoring (cluster_name) label_replace(((time() - (max by (ikhnos_cluster_id, ikhnos_operator_id) (timestamp({ikhnos_operator_id=~\"$operator\", ikhnos_cluster_id=~\"$cluster\", ikhnos_cluster_id!=\"\", __name__!~\"ikhnos_application_info|ikhnos_agent_self_.*\"})) or max by (ikhnos_cluster_id, ikhnos_operator_id) (max_over_time(timestamp({ikhnos_operator_id=~\"$operator\", ikhnos_cluster_id=~\"$cluster\", ikhnos_cluster_id!=\"\", __name__!~\"ikhnos_application_info|ikhnos_agent_self_.*\"})[1d:5m])))) * on (ikhnos_cluster_id) group_left (cluster_name) label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"ikhnos_cluster_id\", \"$1\", \"cluster\", \"(.+)\") or ignoring (cluster_name) label_replace((time() - (max by (ikhnos_cluster_id, ikhnos_operator_id) (timestamp({ikhnos_operator_id=~\"$operator\", ikhnos_cluster_id=~\"$cluster\", ikhnos_cluster_id!=\"\", __name__!~\"ikhnos_application_info|ikhnos_agent_self_.*\"})) or max by (ikhnos_cluster_id, ikhnos_operator_id) (max_over_time(timestamp({ikhnos_operator_id=~\"$operator\", ikhnos_cluster_id=~\"$cluster\", ikhnos_cluster_id!=\"\", __name__!~\"ikhnos_application_info|ikhnos_agent_self_.*\"})[1d:5m])))), \"cluster_name\", \"$1\", \"ikhnos_cluster_id\", \"(.+)\")), \"cluster_name\", \"$1\", \"ikhnos_cluster_id\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
@@ -371,12 +477,16 @@
           "id": "organize",
           "options": {
             "excludeByName": {
-              "Time": true
+              "Time": true,
+              "ikhnos_cluster_id": true
             },
             "renameByName": {
-              "ikhnos_cluster_id": "Cluster",
               "ikhnos_operator_id": "Operator",
-              "Value": "Seconds since data"
+              "Value": "Seconds since data",
+              "cluster_name": "Cluster"
+            },
+            "indexByName": {
+              "cluster_name": 0
             }
           }
         },
@@ -410,12 +520,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "count by (ikhnos_cluster_id) ({ikhnos_cluster_id=~\".+\", ikhnos_cluster_id=~\"$cluster\", __name__!~\"ikhnos_application_info|ikhnos_agent_self_.*\"})",
+          "expr": "(count by (ikhnos_cluster_id) ({ikhnos_cluster_id=~\".+\", ikhnos_cluster_id=~\"$cluster\", __name__!~\"ikhnos_application_info|ikhnos_agent_self_.*\"})) * on (ikhnos_cluster_id) group_left (cluster_name) label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"ikhnos_cluster_id\", \"$1\", \"cluster\", \"(.+)\") or ignoring (cluster_name) label_replace((count by (ikhnos_cluster_id) ({ikhnos_cluster_id=~\".+\", ikhnos_cluster_id=~\"$cluster\", __name__!~\"ikhnos_application_info|ikhnos_agent_self_.*\"})), \"cluster_name\", \"$1\", \"ikhnos_cluster_id\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{ikhnos_cluster_id}}",
+          "legendFormat": "{{cluster_name}}",
           "interval": "5m"
         }
       ],
@@ -435,8 +545,16 @@
       },
       "options": {
         "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ],
+          "sortBy": "Last *",
+          "sortDesc": true
         },
         "tooltip": {
           "mode": "multi",
@@ -461,7 +579,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "count by (ikhnos_operator_id) ({ikhnos_operator_id=~\".+\"})",
+          "expr": "count by (ikhnos_operator_id) ({ikhnos_operator_id=~\".+\", ikhnos_operator_id=~\"$operator\"})",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
@@ -485,14 +603,23 @@
       },
       "options": {
         "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ],
+          "sortBy": "Last *",
+          "sortDesc": true
         },
         "tooltip": {
           "mode": "multi",
           "sort": "desc"
         }
-      }
+      },
+      "description": "How many series each regional operator is delivering. A line that drops to zero is an operator that stopped sending."
     },
     {
       "id": 8,
@@ -511,7 +638,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "up{ikhnos_cluster_id=~\"$cluster\"}",
+          "expr": "((up{ikhnos_cluster_id=~\"$cluster\"}) * on (ikhnos_cluster_id) group_left (cluster_name) label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"ikhnos_cluster_id\", \"$1\", \"cluster\", \"(.+)\") or ignoring (cluster_name) label_replace((up{ikhnos_cluster_id=~\"$cluster\"}), \"cluster_name\", \"$1\", \"ikhnos_cluster_id\", \"(.+)\")) * on (ikhnos_cluster_id) group_left (cluster_name) label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"ikhnos_cluster_id\", \"$1\", \"cluster\", \"(.+)\") or ignoring (cluster_name) label_replace(((up{ikhnos_cluster_id=~\"$cluster\"}) * on (ikhnos_cluster_id) group_left (cluster_name) label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"ikhnos_cluster_id\", \"$1\", \"cluster\", \"(.+)\") or ignoring (cluster_name) label_replace((up{ikhnos_cluster_id=~\"$cluster\"}), \"cluster_name\", \"$1\", \"ikhnos_cluster_id\", \"(.+)\")), \"cluster_name\", \"$1\", \"ikhnos_cluster_id\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
@@ -573,14 +700,18 @@
               "ikhnos_operator_id": true,
               "ikhnos_org_id": true,
               "node": true,
-              "service_name": true
+              "service_name": true,
+              "ikhnos_cluster_id": true
             },
             "renameByName": {
-              "ikhnos_cluster_id": "Cluster",
               "job": "Target",
               "instance": "Address",
               "k8s_node_name": "Node",
-              "Value": "Up"
+              "Value": "Up",
+              "cluster_name": "Cluster"
+            },
+            "indexByName": {
+              "cluster_name": 0
             }
           }
         }
@@ -603,12 +734,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (ikhnos_cluster_id, k8s_pod_name) (k8s_pod_memory_working_set_bytes{ikhnos_cluster_id=~\"$cluster\", k8s_pod_name=~\"ikhnos-telemetry.*|.*regional-operator.*\"})",
+          "expr": "(sum by (ikhnos_cluster_id, k8s_pod_name) (k8s_pod_memory_working_set_bytes{ikhnos_cluster_id=~\"$cluster\", k8s_pod_name=~\"ikhnos-telemetry.*|.*regional-operator.*\"})) * on (ikhnos_cluster_id) group_left (cluster_name) label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"ikhnos_cluster_id\", \"$1\", \"cluster\", \"(.+)\") or ignoring (cluster_name) label_replace((sum by (ikhnos_cluster_id, k8s_pod_name) (k8s_pod_memory_working_set_bytes{ikhnos_cluster_id=~\"$cluster\", k8s_pod_name=~\"ikhnos-telemetry.*|.*regional-operator.*\"})), \"cluster_name\", \"$1\", \"ikhnos_cluster_id\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{ikhnos_cluster_id}}/{{k8s_pod_name}} memory"
+          "legendFormat": "{{cluster_name}}/{{k8s_pod_name}} memory"
         }
       ],
       "description": "Working-set memory of the collector and operator pods.",
@@ -628,8 +759,16 @@
       },
       "options": {
         "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ],
+          "sortBy": "Last *",
+          "sortDesc": true
         },
         "tooltip": {
           "mode": "multi",
@@ -654,12 +793,12 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (ikhnos_cluster_id, k8s_pod_name) (k8s_pod_cpu_usage{ikhnos_cluster_id=~\"$cluster\", k8s_pod_name=~\"ikhnos-telemetry.*|.*regional-operator.*\"})",
+          "expr": "(sum by (ikhnos_cluster_id, k8s_pod_name) (k8s_pod_cpu_usage{ikhnos_cluster_id=~\"$cluster\", k8s_pod_name=~\"ikhnos-telemetry.*|.*regional-operator.*\"})) * on (ikhnos_cluster_id) group_left (cluster_name) label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"ikhnos_cluster_id\", \"$1\", \"cluster\", \"(.+)\") or ignoring (cluster_name) label_replace((sum by (ikhnos_cluster_id, k8s_pod_name) (k8s_pod_cpu_usage{ikhnos_cluster_id=~\"$cluster\", k8s_pod_name=~\"ikhnos-telemetry.*|.*regional-operator.*\"})), \"cluster_name\", \"$1\", \"ikhnos_cluster_id\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{ikhnos_cluster_id}}/{{k8s_pod_name}}"
+          "legendFormat": "{{cluster_name}}/{{k8s_pod_name}}"
         }
       ],
       "fieldConfig": {
@@ -678,14 +817,23 @@
       },
       "options": {
         "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ],
+          "sortBy": "Last *",
+          "sortDesc": true
         },
         "tooltip": {
           "mode": "multi",
           "sort": "desc"
         }
-      }
+      },
+      "description": "CPU cores used by the collectors and regional operators that carry the data."
     },
     {
       "id": 11,
@@ -728,8 +876,16 @@
       },
       "options": {
         "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ],
+          "sortBy": "Last *",
+          "sortDesc": true
         },
         "tooltip": {
           "mode": "multi",
@@ -780,8 +936,16 @@
       },
       "options": {
         "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ],
+          "sortBy": "Last *",
+          "sortDesc": true
         },
         "tooltip": {
           "mode": "multi",
@@ -831,7 +995,19 @@
                 "value": 1
               }
             ]
-          }
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "none",
+                  "color": "green",
+                  "index": 0
+                }
+              }
+            }
+          ]
         },
         "overrides": []
       },
@@ -890,8 +1066,16 @@
       },
       "options": {
         "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ],
+          "sortBy": "Last *",
+          "sortDesc": true
         },
         "tooltip": {
           "mode": "multi",
@@ -950,8 +1134,16 @@
       },
       "options": {
         "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull",
+            "mean",
+            "max"
+          ],
+          "sortBy": "Last *",
+          "sortDesc": true
         },
         "tooltip": {
           "mode": "multi",
