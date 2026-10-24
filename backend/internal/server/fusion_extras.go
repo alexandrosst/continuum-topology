@@ -279,10 +279,9 @@ func (e fusionExtras) Changes(ctx context.Context, since, until time.Time, clust
 	if err != nil {
 		return nil, err
 	}
-	q := store.EventQuery{Since: since, Until: until, TargetIDs: targetIDs, Limit: limit}
-	if len(clusters) == 1 {
-		q.ClusterID = clusters[0]
-	}
+	// The clusters are part of the question, not a filter on its answer: with the limit applied first, other clusters' events
+	// would fill the window and a token's own events would vanish from it.
+	q := store.EventQuery{Since: since, Until: until, TargetIDs: targetIDs, ClusterIDs: clusters, Limit: limit}
 	evs, err := t.C.Store.ListEvents(ctx, t.C.OrgID, q)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {

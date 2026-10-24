@@ -264,12 +264,13 @@ type fakeExtras struct {
 	until  time.Time
 	cls    []string
 	ids    []string
+	limit  int
 }
 
 func (f *fakeExtras) Topology(context.Context) (*TopologyView, error)  { return f.view, f.err }
 func (f *fakeExtras) Applications(context.Context) ([]AppGroup, error) { return f.groups, f.err }
-func (f *fakeExtras) Changes(_ context.Context, since, until time.Time, clusters, ids []string, _ int) ([]ChangeEvent, error) {
-	f.since, f.until, f.cls, f.ids = since, until, clusters, ids
+func (f *fakeExtras) Changes(_ context.Context, since, until time.Time, clusters, ids []string, limit int) ([]ChangeEvent, error) {
+	f.since, f.until, f.cls, f.ids, f.limit = since, until, clusters, ids, limit
 	return f.events, f.err
 }
 
@@ -524,5 +525,33 @@ func TestExtrasThatAreMissingOrFailingAreReportedNotFatal(t *testing.T) {
 	got, err = f.client().FuseTrace(context.Background(), AllSignals(), traceHex, FuseOptions{Topology: true, Extras: &fakeExtras{err: errf(503, "down")}})
 	if err != nil || got.Sources[SourceTopology] != SourceUnavailable || got.Sources[SourceChanges] != "" {
 		t.Fatalf("%v %v", got.Sources, err)
+	}
+}
+
+// A window that holds more events than one read takes says so, and asks for one more than it keeps to know.
+func TestFuseTraceSaysWhenTheWindowHeldMoreEventsThanItRead(t *testing.T) {
+	f := newFake(t)
+	f.tempo = func(w http.ResponseWriter, r *http.Request) { writeJSON(w, tempoTraceOnNode()) }
+	at := time.Date(2026, 10, 5, 11, 20, 0, 0, time.UTC)
+	var evs []ChangeEvent
+	for i := 0; i <= changesRead; i++ { // newest first, one more than is read
+		evs = append(evs, ChangeEvent{Time: at.Add(-time.Duration(i) * time.Second), Kind: "node-status", TargetKind: "node", TargetID: "node-a", Name: "node-a", Cluster: "cl-1"})
+	}
+	ex := &fakeExtras{view: testView(), events: evs}
+	got, err := f.client().FuseTrace(context.Background(), AllSignals(), traceHex, FuseOptions{Changes: true, Extras: ex, ChangesBefore: time.Hour, MaxChanges: 500})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ex.limit != changesRead+1 {
+		t.Errorf("asked for %d events, want %d (one more than it keeps)", ex.limit, changesRead+1)
+	}
+	if w := strings.Join(got.Warnings, " "); !strings.Contains(w, "more than 2000 events") {
+		t.Errorf("a cut window is not reported: %v", got.Warnings)
+	}
+	// A window that holds exactly what one read takes is not reported as cut.
+	ex = &fakeExtras{view: testView(), events: evs[:changesRead]}
+	got, _ = f.client().FuseTrace(context.Background(), AllSignals(), traceHex, FuseOptions{Changes: true, Extras: ex, ChangesBefore: time.Hour, MaxChanges: 500})
+	if w := strings.Join(got.Warnings, " "); strings.Contains(w, "more than 2000 events") {
+		t.Errorf("a complete window is reported as cut: %v", got.Warnings)
 	}
 }

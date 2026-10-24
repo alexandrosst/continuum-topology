@@ -68,6 +68,10 @@ func (d *DB) Events(ctx context.Context, org string, q store.EventQuery) ([]stor
 		and("e.clusterId = $cluster")
 		p["cluster"] = q.ClusterID
 	}
+	if len(q.ClusterIDs) > 0 {
+		and("e.clusterId IN $clusters")
+		p["clusters"] = q.ClusterIDs
+	}
 	if q.TargetID != "" {
 		and("e.targetId = $target")
 		p["target"] = q.TargetID

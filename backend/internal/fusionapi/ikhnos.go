@@ -503,10 +503,15 @@ func (c *Client) fuseIkhnos(ctx context.Context, s Scope, f *Fused, looked []*Re
 		return // nothing of the trace is known to have events
 	}
 	// Only the events about the trace's own targets are read; what is left to drop afterwards is what the Scope may not see.
-	evs, err := opts.Extras.Changes(ctx, since, until, clusters, ids, 2000)
+	// One more than is kept, to tell a window that held exactly the limit from one that held more.
+	evs, err := opts.Extras.Changes(ctx, since, until, clusters, ids, changesRead+1)
 	if err != nil {
 		warn(SourceChanges, err)
 		return
+	}
+	if len(evs) > changesRead {
+		evs = evs[:changesRead] // newest first
+		note("changes: the window holds more than %d events; only the newest %d were read", changesRead, changesRead)
 	}
 	kept := relevantChanges(evs, view, s, f.Trace)
 	sort.SliceStable(kept, func(i, j int) bool { return kept[i].Time.Before(kept[j].Time) })
@@ -517,6 +522,9 @@ func (c *Client) fuseIkhnos(ctx context.Context, s Scope, f *Fused, looked []*Re
 	}
 	f.Changes = kept
 }
+
+// changesRead is how many events one fused read takes from the record before it scopes and trims them.
+const changesRead = 2000
 
 func (o *FuseOptions) ikhnosJoins(f *Fused) {
 	if o.Topology {

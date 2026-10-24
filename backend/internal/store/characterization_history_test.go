@@ -134,14 +134,19 @@ func TestEventsAreStoredFilteredAndOrderedNewestFirst(t *testing.T) {
 	}{
 		"kind":      {EventQuery{Kind: "service-scaled"}, []string{"service-scaled/pay", "service-scaled/cart"}},
 		"cluster":   {EventQuery{ClusterID: "cl-b"}, []string{"service-scaled/pay"}},
-		"target":    {EventQuery{TargetID: "cart"}, []string{"drift/cart", "service-scaled/cart"}},
-		"targets":   {EventQuery{TargetIDs: []string{"n1", "pay"}}, []string{"service-scaled/pay", "node-status/n1"}},
-		"since":     {EventQuery{Since: now.Add(2 * time.Minute)}, []string{"drift/cart", "service-scaled/pay"}},
-		"until":     {EventQuery{Until: now.Add(time.Minute)}, []string{"node-status/n1", "service-scaled/cart"}},
-		"limit":     {EventQuery{Limit: 1}, []string{"drift/cart"}},
-		"no match":  {EventQuery{Kind: "nothing"}, nil},
-		"combined":  {EventQuery{Kind: "service-scaled", ClusterID: "cl-a"}, []string{"service-scaled/cart"}},
-		"time rows": {EventQuery{Since: now.Add(time.Minute), Until: now.Add(2 * time.Minute)}, []string{"service-scaled/pay", "node-status/n1"}},
+		"clusters":  {EventQuery{ClusterIDs: []string{"cl-b", "cl-x"}}, []string{"service-scaled/pay"}},
+		"clusters2": {EventQuery{ClusterIDs: []string{"cl-a", "cl-b"}, Kind: "service-scaled"}, []string{"service-scaled/pay", "service-scaled/cart"}},
+		// The clusters narrow the read before its limit: the newest event of all is cl-a's, and it does not take the only place
+		// in a window of one away from cl-b's.
+		"clusters under a limit": {EventQuery{ClusterIDs: []string{"cl-b"}, Limit: 1}, []string{"service-scaled/pay"}},
+		"target":                 {EventQuery{TargetID: "cart"}, []string{"drift/cart", "service-scaled/cart"}},
+		"targets":                {EventQuery{TargetIDs: []string{"n1", "pay"}}, []string{"service-scaled/pay", "node-status/n1"}},
+		"since":                  {EventQuery{Since: now.Add(2 * time.Minute)}, []string{"drift/cart", "service-scaled/pay"}},
+		"until":                  {EventQuery{Until: now.Add(time.Minute)}, []string{"node-status/n1", "service-scaled/cart"}},
+		"limit":                  {EventQuery{Limit: 1}, []string{"drift/cart"}},
+		"no match":               {EventQuery{Kind: "nothing"}, nil},
+		"combined":               {EventQuery{Kind: "service-scaled", ClusterID: "cl-a"}, []string{"service-scaled/cart"}},
+		"time rows":              {EventQuery{Since: now.Add(time.Minute), Until: now.Add(2 * time.Minute)}, []string{"service-scaled/pay", "node-status/n1"}},
 	} {
 		if got := kinds(c.q); !reflect.DeepEqual(got, c.want) {
 			t.Errorf("%s: got %v, want %v", name, got, c.want)

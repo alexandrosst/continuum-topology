@@ -949,6 +949,7 @@ type EventQuery struct {
 	Since, Until time.Time
 	Kind         string
 	ClusterID    string
+	ClusterIDs   []string // events of any of these clusters (applied before Limit, so other clusters' events never fill the window)
 	TargetID     string
 	TargetIDs    []string // events about any of these
 	Limit        int      // default 200, at most 2000
