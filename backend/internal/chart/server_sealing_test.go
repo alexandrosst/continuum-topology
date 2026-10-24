@@ -166,3 +166,25 @@ func TestEveryReadyMadeServerValuesFileRendersByItself(t *testing.T) {
 		}
 	}
 }
+
+// The server asks for certificates that state their holder unless the chart is told not to, and the chart tells it only then: a default
+// install adds no flag (the server's own default is on), so it also works with a server that has not got the flag.
+func TestTheServerChartRequiresTheIdentityURIUnlessSwitchedOff(t *testing.T) {
+	has := func(extra ...string) (found bool, arg string) {
+		for _, a := range serverPod(t, serverRenderWith(t, "ikhnos", extra...)).Containers[0].Args {
+			if strings.Contains(a, "require-identity-uri") {
+				return true, a
+			}
+		}
+		return false, ""
+	}
+	if found, a := has(); found {
+		t.Errorf("a default install passes %q", a)
+	}
+	if found, a := has("--set", "pki.requireIdentityURI=true"); found {
+		t.Errorf("requireIdentityURI=true passes %q", a)
+	}
+	if found, a := has("--set", "pki.requireIdentityURI=false"); !found || a != "--require-identity-uri=false" {
+		t.Errorf("requireIdentityURI=false passes %q (found %v)", a, found)
+	}
+}

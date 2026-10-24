@@ -135,6 +135,9 @@ spec:
             {{- else if .Values.pki.encryptAtRest }}
             - --ca-key-auto-passphrase
             {{- end }}
+            {{- if not .Values.pki.requireIdentityURI }}
+            - --require-identity-uri=false
+            {{- end }}
             {{- if .Values.nodeProbe.enabled }}
             - --probe-listen=:{{ .Values.nodeProbe.port }}
             - --probe-secret-file=/etc/ikhnos/probe/secret

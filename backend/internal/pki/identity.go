@@ -24,9 +24,10 @@ import (
 // TrustDomain is the host part of every identity URI.
 const TrustDomain = "ikhnos"
 
-// RequireIdentityURI refuses a certificate that has no identity URI. It is off while certificates issued before the URI existed are still
-// in use (an agent's lasts AgentCertTTL, an operator's OperatorTLSTTL, a legacy operator's LegacyOperatorTLSTTL); it is turned on in the
-// release after the one that first issues them.
+// RequireIdentityURI refuses a certificate that has no identity URI. The package default is off, so a library user or a test that builds its
+// own certificates is not surprised; the server binary turns it on (--require-identity-uri, default true) and says so in its log. It is
+// switched off there only while certificates issued before the URI existed are still in use (an agent's lasts AgentCertTTL, an operator's
+// OperatorTLSTTL, a legacy operator's LegacyOperatorTLSTTL).
 var RequireIdentityURI = false
 
 // HolderKind says what a certificate was issued to.

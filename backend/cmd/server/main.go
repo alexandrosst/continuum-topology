@@ -126,6 +126,7 @@ func main() {
 	flag.Parse()
 
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	applyIdentityPolicy(log, *requireIdentityURI)
 	if *agentAddr == "" {
 		fatal(log, errors.New("--agent-address is required, for example ikhnos.example.com:8443"))
 	}

@@ -267,8 +267,14 @@ persistence:
 #                   only for local/dev use or a cluster where disk-level or volume encryption already covers this
 # caKeyPassphraseSecret.name, if set, always wins over both of the above: bring your own Secret (from an external
 # secret manager, say) instead, kept apart from the PVC rather than on it.
+#
+# requireIdentityURI (default true): the server refuses an agent or operator certificate that does not state who it was issued to (the
+# URI name every certificate it issues now carries). Set it to false only while certificates from before that are still in use: an
+# agent's lasts a day and renews itself; an operator's lasts 30 days, or up to a year for one installed before certificates renewed
+# themselves, and one without the name cannot renew while this is on (reinstall it from its page). Turn it on again afterwards.
 pki:
   encryptAtRest: true
+  requireIdentityURI: true
   caKeyPassphraseSecret:
     name: ""
     key: passphrase

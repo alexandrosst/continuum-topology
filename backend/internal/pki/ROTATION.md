@@ -119,11 +119,15 @@ The name must agree with the common name, the organisation and the permitted use
 a whole and never read as an older certificate. What the name buys is that a certificate of one kind cannot be used as another: an agent's
 certificate is refused where an operator's is expected, and the reverse. Three places enforce it: the agent connection, rejoin, and the renewal of operator certificates.
 
-Certificates issued before this change have no such name. They keep working while `pki.RequireIdentityURI` is off, which is the setting
-of the release that introduces the name. Agent certificates last 24 hours and operator TLS certificates 30 days, so after one release
-cycle every certificate in use has the name; the release after that turns the requirement on (a certificate without a name is then
-refused, and the holder is told to enrol or install again). Operator certificates from before renewal existed last 365 days; check the
-operators page for any that are still on the old lifetime before turning it on.
+Certificates issued before the name existed have none, and the server now refuses them: `--require-identity-uri` (env
+`IKHNOS_REQUIRE_IDENTITY_URI`, chart value `pki.requireIdentityURI`) is on by default, and the server says which it is in the first lines of
+its log. A holder of such a certificate is told to enrol or install again. Agent certificates last 24 hours and renew themselves, so an
+agent is only caught if it was offline for longer. Operator TLS certificates last 30 days and renew themselves; an operator installed before
+certificates renewed (365 days) has no name and **cannot renew while this is on**: the operators page shows the ones still on the old
+lifetime, and each is reinstalled from its page. To run a server through that period, set `--require-identity-uri=false` (chart:
+`pki.requireIdentityURI=false`; the server logs a warning while it is off) and turn it on again once every certificate in use has the name.
+The package default of `pki.RequireIdentityURI` stays off, so a test or library user that builds its own certificates is not surprised; the
+server binary is what turns it on.
 
 ## Rotation at a glance
 
