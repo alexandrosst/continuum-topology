@@ -4,6 +4,8 @@ import RowMenu, { type RowMenuItem } from '@/features/pipeline/components/operat
 import SetupSteps from '@/features/pipeline/components/operators/SetupSteps'
 import StateChip from '@/features/pipeline/components/operators/StateChip'
 import { Button, ChipList, CopyIconButton, ICON_SM, Pill, Table, Td, Th, TierBadge } from '@/components/ui/primitives'
+import { SortTh, useSort } from '@/components/ui/sort'
+import { severity } from '@/lib/status'
 import { certLife } from '@/features/pipeline/lib/certLifetime'
 import { addressCell, KIND_LABEL, lastDataText, type CertCell, type ComponentRow } from '@/features/pipeline/lib/operatorsView'
 
@@ -33,11 +35,21 @@ const Label = ({ children }: { children: string }) => <span className="mr-1 text
  * Every component of the data path in one table, whatever its kind: the same columns, the same state words and the same menu in the same
  * place on every row. Below the md breakpoint each row is a card with its state first.
  */
-export default function ComponentsTable({ rows, now, menuFor, onWhatToDo }: { rows: ComponentRow[]; now: number; menuFor: (row: ComponentRow) => RowMenuItem[]; onWhatToDo: (row: ComponentRow) => void }) {
+const SORT_BY = {
+  name: (r: ComponentRow) => r.name,
+  // Worst first when sorted ascending, so what needs a look comes to the top.
+  state: (r: ComponentRow) => severity(r.verdict.state),
+  version: (r: ComponentRow) => r.version,
+  sendsTo: (r: ComponentRow) => r.sendsTo || undefined,
+  lastData: (r: ComponentRow) => (r.lastData ? Date.parse(r.lastData) || undefined : undefined),
+}
+
+export default function ComponentsTable({ rows: unsorted, now, menuFor, onWhatToDo }: { rows: ComponentRow[]; now: number; menuFor: (row: ComponentRow) => RowMenuItem[]; onWhatToDo: (row: ComponentRow) => void }) {
+  const { sorted: rows, sort, toggle } = useSort(unsorted, SORT_BY)
   return (
     <Table cols={COLS} stack data-testid="components-table">
       <thead>
-        <tr><Th>Name</Th><Th>State</Th><Th>Version</Th><Th>Certificate</Th><Th>Sends to</Th><Th>Last data</Th><Th className="sticky right-0 bg-nb-925" actionsLabel="Actions" /></tr>
+        <tr><SortTh id="name" sort={sort} onSort={toggle}>Name</SortTh><SortTh id="state" sort={sort} onSort={toggle}>State</SortTh><SortTh id="version" sort={sort} onSort={toggle}>Version</SortTh><Th>Certificate</Th><SortTh id="sendsTo" sort={sort} onSort={toggle}>Sends to</SortTh><SortTh id="lastData" sort={sort} onSort={toggle}>Last data</SortTh><Th className="sticky right-0 bg-nb-925" actionsLabel="Actions" /></tr>
       </thead>
       <tbody>
         {rows.map((r) => {
