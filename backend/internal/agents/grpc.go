@@ -8,6 +8,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	ikhnosv1 "ikhnos/gen/ikhnosv1"
@@ -293,7 +294,8 @@ func (g *GRPCServer) Serve(l net.Listener) error {
 	go func() { _ = g.anon.Serve(anonQ); close(anonDone) }()
 	go func() { _ = g.auth.Serve(authQ); close(authDone) }()
 	err := g.accept(l, anonQ, authQ)
-	if err != nil { // the listener failed on its own: take the servers down with it
+	if err != nil { // the listener failed on its own: take the servers down with it, and stop saying the server is serving
+		g.markStopped()
 		anonQ.Close()
 		authQ.Close()
 		g.anon.Stop()
@@ -305,8 +307,31 @@ func (g *GRPCServer) Serve(l net.Listener) error {
 	return err
 }
 
+// acceptBackoff are the first and the longest wait after an Accept that failed for a moment (net/http waits the same way).
+const (
+	acceptBackoffFirst = 5 * time.Millisecond
+	acceptBackoffMax   = time.Second
+)
+
+// acceptPasses reports whether an error from Accept is a moment and not the end of the listener: a timeout, and the errors a
+// process gets when it is out of file descriptors or buffers or a peer gave up before it was accepted. The listener goes on
+// after these, as net/http's does; any other error means it is gone.
+func acceptPasses(err error) bool {
+	var ne net.Error
+	if errors.As(err, &ne) && ne.Timeout() {
+		return true
+	}
+	for _, errno := range []syscall.Errno{syscall.EMFILE, syscall.ENFILE, syscall.ENOBUFS, syscall.ENOMEM, syscall.ECONNABORTED, syscall.EINTR} {
+		if errors.Is(err, errno) {
+			return true
+		}
+	}
+	return false
+}
+
 func (g *GRPCServer) accept(l net.Listener, anonQ, authQ *connQueue) error {
 	slots := make(chan struct{}, maxHandshakes)
+	var wait time.Duration
 	for {
 		conn, err := l.Accept()
 		if err != nil {
@@ -316,12 +341,18 @@ func (g *GRPCServer) accept(l net.Listener, anonQ, authQ *connQueue) error {
 			if stopped {
 				return nil
 			}
-			var ne net.Error
-			if errors.As(err, &ne) && ne.Timeout() {
+			if acceptPasses(err) {
+				if wait == 0 {
+					wait = acceptBackoffFirst
+				} else if wait *= 2; wait > acceptBackoffMax {
+					wait = acceptBackoffMax
+				}
+				time.Sleep(wait)
 				continue
 			}
 			return err
 		}
+		wait = 0
 		select {
 		case slots <- struct{}{}:
 		default:

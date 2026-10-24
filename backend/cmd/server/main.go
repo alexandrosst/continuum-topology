@@ -404,9 +404,11 @@ func run(log *slog.Logger, selfProbe probeOpts, dataDir, agentListen, agentAddr,
 	if err != nil {
 		return err
 	}
+	fatal := make(chan error, 2) // a listener that stops on its own ends the server: it cannot do its work without one
 	go func() {
 		if err := grpcSrv.Serve(l); err != nil {
 			log.Error("agent listener stopped", "err", err)
+			fatal <- fmt.Errorf("the agent listener stopped: %w", err)
 		}
 	}()
 
@@ -474,6 +476,7 @@ func run(log *slog.Logger, selfProbe probeOpts, dataDir, agentListen, agentAddr,
 		}
 		if !errors.Is(err, http.ErrServerClosed) {
 			log.Error("admin listener stopped", "err", err)
+			fatal <- fmt.Errorf("the admin listener stopped: %w", err)
 		}
 	}()
 
@@ -488,7 +491,7 @@ func run(log *slog.Logger, selfProbe probeOpts, dataDir, agentListen, agentAddr,
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
-	<-sig
+	endErr := waitForEnd(sig, fatal)
 	log.Info("shutting down")
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -505,7 +508,18 @@ func run(log *slog.Logger, selfProbe probeOpts, dataDir, agentListen, agentAddr,
 	flushCtx, flushCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer flushCancel()
 	platform.FlushAll(flushCtx)
-	return nil
+	return endErr
+}
+
+// waitForEnd blocks until the server is asked to stop (nil) or a listener it cannot work without stopped on its own (that error,
+// so the process exits with a failure and whatever supervises it starts it again instead of leaving it running and unreachable).
+func waitForEnd(sig <-chan os.Signal, fatal <-chan error) error {
+	select {
+	case <-sig:
+		return nil
+	case err := <-fatal:
+		return err
+	}
 }
 
 // resolveRegistration picks the registration mode. An explicit flag or environment value always wins. Without
