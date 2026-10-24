@@ -81,7 +81,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "max(time() - (max by (ikhnos_cluster_id) (timestamp({ikhnos_cluster_id=~\"$cluster\", ikhnos_cluster_id!=\"\", __name__!=\"ikhnos_application_info\"})) or max by (ikhnos_cluster_id) (max_over_time(timestamp({ikhnos_cluster_id=~\"$cluster\", ikhnos_cluster_id!=\"\", __name__!=\"ikhnos_application_info\"})[1d:5m]))))",
+          "expr": "max(time() - (max by (ikhnos_cluster_id) (timestamp({ikhnos_cluster_id=~\"$cluster\", ikhnos_cluster_id!=\"\", __name__!~\"ikhnos_application_info|ikhnos_agent_self_.*\"})) or max by (ikhnos_cluster_id) (max_over_time(timestamp({ikhnos_cluster_id=~\"$cluster\", ikhnos_cluster_id!=\"\", __name__!~\"ikhnos_application_info|ikhnos_agent_self_.*\"})[1d:5m]))))",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
@@ -142,7 +142,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "count(count by (ikhnos_cluster_id) ({ikhnos_cluster_id=~\"$cluster\", ikhnos_cluster_id!=\"\", __name__!=\"ikhnos_application_info\"})) or vector(0)",
+          "expr": "count(count by (ikhnos_cluster_id) ({ikhnos_cluster_id=~\"$cluster\", ikhnos_cluster_id!=\"\", __name__!~\"ikhnos_application_info|ikhnos_agent_self_.*\"})) or vector(0)",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
@@ -308,7 +308,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "time() - (max by (ikhnos_cluster_id, ikhnos_operator_id) (timestamp({ikhnos_cluster_id=~\"$cluster\", ikhnos_cluster_id!=\"\", __name__!=\"ikhnos_application_info\"})) or max by (ikhnos_cluster_id, ikhnos_operator_id) (max_over_time(timestamp({ikhnos_cluster_id=~\"$cluster\", ikhnos_cluster_id!=\"\", __name__!=\"ikhnos_application_info\"})[1d:5m])))",
+          "expr": "time() - (max by (ikhnos_cluster_id, ikhnos_operator_id) (timestamp({ikhnos_cluster_id=~\"$cluster\", ikhnos_cluster_id!=\"\", __name__!~\"ikhnos_application_info|ikhnos_agent_self_.*\"})) or max by (ikhnos_cluster_id, ikhnos_operator_id) (max_over_time(timestamp({ikhnos_cluster_id=~\"$cluster\", ikhnos_cluster_id!=\"\", __name__!~\"ikhnos_application_info|ikhnos_agent_self_.*\"})[1d:5m])))",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
@@ -410,7 +410,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "count by (ikhnos_cluster_id) ({ikhnos_cluster_id=~\".+\", ikhnos_cluster_id=~\"$cluster\", __name__!=\"ikhnos_application_info\"})",
+          "expr": "count by (ikhnos_cluster_id) ({ikhnos_cluster_id=~\".+\", ikhnos_cluster_id=~\"$cluster\", __name__!~\"ikhnos_application_info|ikhnos_agent_self_.*\"})",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"

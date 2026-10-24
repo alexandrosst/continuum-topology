@@ -39,6 +39,7 @@ docs.go shell
 fusion_appinfo.go shell
 fusion_extras.go shell
 fusion_guard.go shell
+fusion_selfmetrics.go shell
 fusion_ui_access.go shell
 graph_api.go shell
 kernel_bridge.go                kernel

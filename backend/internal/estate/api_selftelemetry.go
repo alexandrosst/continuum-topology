@@ -1,6 +1,7 @@
 package estate
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -260,6 +261,23 @@ func (h *API) selfTelemetry(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := []SelfTelemetryEntity{}
+	for _, e := range selfTelemetryEntities(hub, doc) {
+		out = append(out, e.SelfTelemetryEntity)
+	}
+	httpkit.WriteJSON(w, 200, out)
+}
+
+// selfEntity is an entity of the response with what the response itself leaves out: the id of the cluster an agent entity
+// is in, which the Grafana emitter (LatestSelfTelemetry) keys its series by.
+type selfEntity struct {
+	ClusterID string
+	SelfTelemetryEntity
+}
+
+// selfTelemetryEntities is the response of selfTelemetry, agents first and the server last: every agent with at least one
+// self-stats sample, then the server itself once it has sampled.
+func selfTelemetryEntities(hub *Hub, doc StateDoc) []selfEntity {
+	var out []selfEntity
 	for _, ag := range doc.Agents {
 		history := hub.SelfStatsFor(ag.ID)
 		if len(history) == 0 {
@@ -270,11 +288,44 @@ func (h *API) selfTelemetry(w http.ResponseWriter, r *http.Request) {
 		if wattsKnown {
 			watts = &wattsSum
 		}
-		out = append(out, SelfTelemetryEntity{ID: ag.ID, Kind: "agent", ClusterName: ag.Name,
-			Samples: agentTelemetrySamples(history, throughputBps, watts)})
+		out = append(out, selfEntity{ClusterID: ag.ClusterID, SelfTelemetryEntity: SelfTelemetryEntity{ID: ag.ID, Kind: "agent", ClusterName: ag.Name,
+			Samples: agentTelemetrySamples(history, throughputBps, watts)}})
 	}
 	if serverHistory := hub.ServerSelfStats(); len(serverHistory) > 0 {
-		out = append(out, SelfTelemetryEntity{ID: "server", Kind: "server", Samples: serverTelemetrySamples(serverHistory)})
+		out = append(out, selfEntity{SelfTelemetryEntity: SelfTelemetryEntity{ID: "server", Kind: "server", Samples: serverTelemetrySamples(serverHistory)}})
 	}
-	httpkit.WriteJSON(w, 200, out)
+	return out
+}
+
+// SelfReading is the newest self-telemetry sample of one entity, with the time the server took it (not the agent's clock).
+type SelfReading struct {
+	// AgentID, ClusterID and ClusterName say which agent an agent's reading is from; they are empty for the server's own.
+	AgentID, ClusterID, ClusterName string
+	At                              time.Time
+	Sample                          SelfTelemetrySample
+}
+
+// LatestSelfTelemetry is the newest sample of the server itself (nil until it has sampled) and of every agent that has sent
+// one: the figures of the response of selfTelemetry, as they stand now, for whoever wants to publish them (the Grafana
+// emitter writes them as gauges). The values are those the endpoint returns for its last sample, derived the same way.
+func (h *Hub) LatestSelfTelemetry(ctx context.Context) (server *SelfReading, agents []SelfReading, err error) {
+	doc, err := h.StateFor(ctx, false)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, e := range selfTelemetryEntities(h, doc) {
+		if len(e.Samples) == 0 {
+			continue
+		}
+		last := e.Samples[len(e.Samples)-1]
+		at, _ := time.Parse(time.RFC3339, last.T)
+		r := SelfReading{At: at, Sample: last}
+		if e.Kind == "server" {
+			server = &r
+			continue
+		}
+		r.AgentID, r.ClusterID, r.ClusterName = e.ID, e.ClusterID, e.ClusterName
+		agents = append(agents, r)
+	}
+	return server, agents, nil
 }

@@ -442,6 +442,8 @@ func run(log *slog.Logger, selfProbe probeOpts, dataDir, agentListen, agentAddr,
 		// Telemetry does not carry which Ikhnos application a service is in, so the tools that read Prometheus directly
 		// are given it as a series of its own.
 		go admin.RunApplicationInfo(context.Background(), log)
+		// What running Ikhnos costs (the server's and each cluster's agent's memory, CPU and so on) is the Ikhnos self dashboard's.
+		go admin.RunSelfMetrics(context.Background(), log)
 	}
 	probes, probeSrv, err := serveSelfProbe(log, selfProbe)
 	if err != nil {

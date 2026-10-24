@@ -5,8 +5,8 @@
 {{- $panels := list -}}
 {{- $y := 0 -}}
 {{- if .Values.prometheus.enabled -}}
-{{- $panels = append $panels (dict "id" 1 "type" "stat" "title" "Clusters reporting" "datasource" (dict "type" "prometheus" "uid" "fusion-metrics") "gridPos" (dict "h" 5 "w" 6 "x" 0 "y" $y) "targets" (list (dict "refId" "A" "expr" "count(count by (ikhnos_cluster_id) ({ikhnos_cluster_id!=\"\", __name__!=\"ikhnos_application_info\"})) or vector(0)" "instant" true)) "options" (dict "reduceOptions" (dict "calcs" (list "lastNotNull")))) -}}
-{{- $panels = append $panels (dict "id" 2 "type" "timeseries" "title" "Series by cluster" "datasource" (dict "type" "prometheus" "uid" "fusion-metrics") "gridPos" (dict "h" 5 "w" 18 "x" 6 "y" $y) "targets" (list (dict "refId" "A" "expr" "count by (ikhnos_cluster_id) ({ikhnos_cluster_id!=\"\", __name__!=\"ikhnos_application_info\"})" "legendFormat" "{{ikhnos_cluster_id}}" "interval" "5m"))) -}}
+{{- $panels = append $panels (dict "id" 1 "type" "stat" "title" "Clusters reporting" "datasource" (dict "type" "prometheus" "uid" "fusion-metrics") "gridPos" (dict "h" 5 "w" 6 "x" 0 "y" $y) "targets" (list (dict "refId" "A" "expr" "count(count by (ikhnos_cluster_id) ({ikhnos_cluster_id!=\"\", __name__!~\"ikhnos_application_info|ikhnos_agent_self_.*\"})) or vector(0)" "instant" true)) "options" (dict "reduceOptions" (dict "calcs" (list "lastNotNull")))) -}}
+{{- $panels = append $panels (dict "id" 2 "type" "timeseries" "title" "Series by cluster" "datasource" (dict "type" "prometheus" "uid" "fusion-metrics") "gridPos" (dict "h" 5 "w" 18 "x" 6 "y" $y) "targets" (list (dict "refId" "A" "expr" "count by (ikhnos_cluster_id) ({ikhnos_cluster_id!=\"\", __name__!~\"ikhnos_application_info|ikhnos_agent_self_.*\"})" "legendFormat" "{{ikhnos_cluster_id}}" "interval" "5m"))) -}}
 {{- $y = add $y 5 -}}
 {{- end -}}
 {{- if .Values.loki.enabled -}}

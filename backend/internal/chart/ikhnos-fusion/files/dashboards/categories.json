@@ -298,7 +298,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "count({__name__=~\"(system_.*|process_.*|node_.*|kepler_.*|(dcgm|DCGM)_.*|otelcol_.*|ikhnos_link_.*|scrape_.*|up|target_info)\", ikhnos_cluster_id=~\"$cluster\"})",
+          "expr": "count({__name__=~\"(system_.*|process_.*|node_.*|kepler_.*|(dcgm|DCGM)_.*|otelcol_.*|ikhnos_link_.*|ikhnos_(agent_)?self_.*|scrape_.*|up|target_info)\", ikhnos_cluster_id=~\"$cluster\"})",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
@@ -1096,7 +1096,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "count(count by (service_name) ((({__name__=~\".+\", __name__!~\"(system_.*|process_.*|node_.*|kepler_.*|(dcgm|DCGM)_.*|otelcol_.*|ikhnos_link_.*|scrape_.*|up|target_info)|(k8s_.*|container_.*|kube_.*)\", __name__!=\"ikhnos_application_info\", service_name!=\"\", service_name=~\"$service\", ikhnos_cluster_id=~\"$cluster\"} and on(service_name, k8s_namespace_name, ikhnos_cluster_id) ikhnos_application_info{application=${application:doublequote}, member=~\"$member\"}) or ({__name__=~\".+\", __name__!~\"(system_.*|process_.*|node_.*|kepler_.*|(dcgm|DCGM)_.*|otelcol_.*|ikhnos_link_.*|scrape_.*|up|target_info)|(k8s_.*|container_.*|kube_.*)\", __name__!=\"ikhnos_application_info\", service_name!=\"\", ikhnos_cluster_id=~\"$cluster\"} and on() (label_replace(vector(1), \"application\", ${application:doublequote}, \"\", \"\") and on(application) label_replace(vector(1), \"application\", \"__all__\", \"\", \"\"))))))",
+          "expr": "count(count by (service_name) ((({__name__=~\".+\", __name__!~\"(system_.*|process_.*|node_.*|kepler_.*|(dcgm|DCGM)_.*|otelcol_.*|ikhnos_link_.*|ikhnos_(agent_)?self_.*|scrape_.*|up|target_info)|(k8s_.*|container_.*|kube_.*)\", __name__!=\"ikhnos_application_info\", service_name!=\"\", service_name=~\"$service\", ikhnos_cluster_id=~\"$cluster\"} and on(service_name, k8s_namespace_name, ikhnos_cluster_id) ikhnos_application_info{application=${application:doublequote}, member=~\"$member\"}) or ({__name__=~\".+\", __name__!~\"(system_.*|process_.*|node_.*|kepler_.*|(dcgm|DCGM)_.*|otelcol_.*|ikhnos_link_.*|ikhnos_(agent_)?self_.*|scrape_.*|up|target_info)|(k8s_.*|container_.*|kube_.*)\", __name__!=\"ikhnos_application_info\", service_name!=\"\", ikhnos_cluster_id=~\"$cluster\"} and on() (label_replace(vector(1), \"application\", ${application:doublequote}, \"\", \"\") and on(application) label_replace(vector(1), \"application\", \"__all__\", \"\", \"\"))))))",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
@@ -1149,7 +1149,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "count((({__name__=~\".+\", __name__!~\"(system_.*|process_.*|node_.*|kepler_.*|(dcgm|DCGM)_.*|otelcol_.*|ikhnos_link_.*|scrape_.*|up|target_info)|(k8s_.*|container_.*|kube_.*)\", __name__!=\"ikhnos_application_info\", service_name=~\"$service\", ikhnos_cluster_id=~\"$cluster\"} and on(service_name, k8s_namespace_name, ikhnos_cluster_id) ikhnos_application_info{application=${application:doublequote}, member=~\"$member\"}) or ({__name__=~\".+\", __name__!~\"(system_.*|process_.*|node_.*|kepler_.*|(dcgm|DCGM)_.*|otelcol_.*|ikhnos_link_.*|scrape_.*|up|target_info)|(k8s_.*|container_.*|kube_.*)\", __name__!=\"ikhnos_application_info\", ikhnos_cluster_id=~\"$cluster\"} and on() (label_replace(vector(1), \"application\", ${application:doublequote}, \"\", \"\") and on(application) label_replace(vector(1), \"application\", \"__all__\", \"\", \"\")))))",
+          "expr": "count((({__name__=~\".+\", __name__!~\"(system_.*|process_.*|node_.*|kepler_.*|(dcgm|DCGM)_.*|otelcol_.*|ikhnos_link_.*|ikhnos_(agent_)?self_.*|scrape_.*|up|target_info)|(k8s_.*|container_.*|kube_.*)\", __name__!=\"ikhnos_application_info\", service_name=~\"$service\", ikhnos_cluster_id=~\"$cluster\"} and on(service_name, k8s_namespace_name, ikhnos_cluster_id) ikhnos_application_info{application=${application:doublequote}, member=~\"$member\"}) or ({__name__=~\".+\", __name__!~\"(system_.*|process_.*|node_.*|kepler_.*|(dcgm|DCGM)_.*|otelcol_.*|ikhnos_link_.*|ikhnos_(agent_)?self_.*|scrape_.*|up|target_info)|(k8s_.*|container_.*|kube_.*)\", __name__!=\"ikhnos_application_info\", ikhnos_cluster_id=~\"$cluster\"} and on() (label_replace(vector(1), \"application\", ${application:doublequote}, \"\", \"\") and on(application) label_replace(vector(1), \"application\", \"__all__\", \"\", \"\")))))",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
@@ -1202,7 +1202,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "count by (service_name, __name__) ((({__name__=~\".+\", __name__!~\"(system_.*|process_.*|node_.*|kepler_.*|(dcgm|DCGM)_.*|otelcol_.*|ikhnos_link_.*|scrape_.*|up|target_info)|(k8s_.*|container_.*|kube_.*)\", __name__!=\"ikhnos_application_info\", service_name!=\"\", service_name=~\"$service\", ikhnos_cluster_id=~\"$cluster\"} and on(service_name, k8s_namespace_name, ikhnos_cluster_id) ikhnos_application_info{application=${application:doublequote}, member=~\"$member\"}) or ({__name__=~\".+\", __name__!~\"(system_.*|process_.*|node_.*|kepler_.*|(dcgm|DCGM)_.*|otelcol_.*|ikhnos_link_.*|scrape_.*|up|target_info)|(k8s_.*|container_.*|kube_.*)\", __name__!=\"ikhnos_application_info\", service_name!=\"\", ikhnos_cluster_id=~\"$cluster\"} and on() (label_replace(vector(1), \"application\", ${application:doublequote}, \"\", \"\") and on(application) label_replace(vector(1), \"application\", \"__all__\", \"\", \"\")))))",
+          "expr": "count by (service_name, __name__) ((({__name__=~\".+\", __name__!~\"(system_.*|process_.*|node_.*|kepler_.*|(dcgm|DCGM)_.*|otelcol_.*|ikhnos_link_.*|ikhnos_(agent_)?self_.*|scrape_.*|up|target_info)|(k8s_.*|container_.*|kube_.*)\", __name__!=\"ikhnos_application_info\", service_name!=\"\", service_name=~\"$service\", ikhnos_cluster_id=~\"$cluster\"} and on(service_name, k8s_namespace_name, ikhnos_cluster_id) ikhnos_application_info{application=${application:doublequote}, member=~\"$member\"}) or ({__name__=~\".+\", __name__!~\"(system_.*|process_.*|node_.*|kepler_.*|(dcgm|DCGM)_.*|otelcol_.*|ikhnos_link_.*|ikhnos_(agent_)?self_.*|scrape_.*|up|target_info)|(k8s_.*|container_.*|kube_.*)\", __name__!=\"ikhnos_application_info\", service_name!=\"\", ikhnos_cluster_id=~\"$cluster\"} and on() (label_replace(vector(1), \"application\", ${application:doublequote}, \"\", \"\") and on(application) label_replace(vector(1), \"application\", \"__all__\", \"\", \"\")))))",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
@@ -1253,7 +1253,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "count by (service_name) ((({__name__=~\".+\", __name__!~\"(system_.*|process_.*|node_.*|kepler_.*|(dcgm|DCGM)_.*|otelcol_.*|ikhnos_link_.*|scrape_.*|up|target_info)|(k8s_.*|container_.*|kube_.*)\", __name__!=\"ikhnos_application_info\", service_name!=\"\", service_name=~\"$service\", ikhnos_cluster_id=~\"$cluster\"} and on(service_name, k8s_namespace_name, ikhnos_cluster_id) ikhnos_application_info{application=${application:doublequote}, member=~\"$member\"}) or ({__name__=~\".+\", __name__!~\"(system_.*|process_.*|node_.*|kepler_.*|(dcgm|DCGM)_.*|otelcol_.*|ikhnos_link_.*|scrape_.*|up|target_info)|(k8s_.*|container_.*|kube_.*)\", __name__!=\"ikhnos_application_info\", service_name!=\"\", ikhnos_cluster_id=~\"$cluster\"} and on() (label_replace(vector(1), \"application\", ${application:doublequote}, \"\", \"\") and on(application) label_replace(vector(1), \"application\", \"__all__\", \"\", \"\")))))",
+          "expr": "count by (service_name) ((({__name__=~\".+\", __name__!~\"(system_.*|process_.*|node_.*|kepler_.*|(dcgm|DCGM)_.*|otelcol_.*|ikhnos_link_.*|ikhnos_(agent_)?self_.*|scrape_.*|up|target_info)|(k8s_.*|container_.*|kube_.*)\", __name__!=\"ikhnos_application_info\", service_name!=\"\", service_name=~\"$service\", ikhnos_cluster_id=~\"$cluster\"} and on(service_name, k8s_namespace_name, ikhnos_cluster_id) ikhnos_application_info{application=${application:doublequote}, member=~\"$member\"}) or ({__name__=~\".+\", __name__!~\"(system_.*|process_.*|node_.*|kepler_.*|(dcgm|DCGM)_.*|otelcol_.*|ikhnos_link_.*|ikhnos_(agent_)?self_.*|scrape_.*|up|target_info)|(k8s_.*|container_.*|kube_.*)\", __name__!=\"ikhnos_application_info\", service_name!=\"\", ikhnos_cluster_id=~\"$cluster\"} and on() (label_replace(vector(1), \"application\", ${application:doublequote}, \"\", \"\") and on(application) label_replace(vector(1), \"application\", \"__all__\", \"\", \"\")))))",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"

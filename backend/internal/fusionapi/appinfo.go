@@ -125,17 +125,27 @@ func EncodeAppInfo(series []AppInfoSeries, at time.Time) []byte {
 
 // gaugeRequest wraps data points (already encoded Gauge.data_points) into an OTLP/HTTP metrics request body for one gauge.
 func gaugeRequest(name, description string, points []byte) []byte {
+	return metricsRequest(gaugeMetric(name, description, points))
+}
+
+// gaugeMetric is one gauge, as the Metric message that goes in ScopeMetrics.metrics.
+func gaugeMetric(name, description string, points []byte) []byte {
 	var metric []byte
 	metric = protowire.AppendTag(metric, 1, protowire.BytesType) // name
 	metric = protowire.AppendString(metric, name)
 	metric = protowire.AppendTag(metric, 2, protowire.BytesType) // description
 	metric = protowire.AppendString(metric, description)
 	metric = protowire.AppendTag(metric, 5, protowire.BytesType) // gauge
-	metric = protowire.AppendBytes(metric, points)
+	return protowire.AppendBytes(metric, points)
+}
 
+// metricsRequest wraps metrics (see gaugeMetric) into one OTLP/HTTP request body, in one resource and one scope.
+func metricsRequest(metrics ...[]byte) []byte {
 	var scope []byte
-	scope = protowire.AppendTag(scope, 2, protowire.BytesType) // ScopeMetrics.metrics
-	scope = protowire.AppendBytes(scope, metric)
+	for _, m := range metrics {
+		scope = protowire.AppendTag(scope, 2, protowire.BytesType) // ScopeMetrics.metrics
+		scope = protowire.AppendBytes(scope, m)
+	}
 	var rm []byte
 	rm = protowire.AppendTag(rm, 2, protowire.BytesType) // ResourceMetrics.scope_metrics
 	rm = protowire.AppendBytes(rm, scope)
