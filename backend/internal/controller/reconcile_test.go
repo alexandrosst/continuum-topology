@@ -783,21 +783,27 @@ func TestTelemetryThatCannotBeInstalledIsInvalidWithTheReasonAndInstallsNothing(
 	g := newRig(t)
 	g.r.AllowTelemetry = true
 	g.secret("enroll", "token", "ikh_abc")
-	for name, tel := range map[string]map[string]any{
-		"no destination":          {"signals": map[string]any{"resourceUsage": true}},
-		"cluster links at tier 1": {"signals": map[string]any{"clusterLinks": true}, "destination": map[string]any{"endpoint": "x:1"}},
+	// An ordered list, and each object is gone before the next arrives: two resources that both want the
+	// release would otherwise compete for it by creation time (one second apart at best), and the loser's
+	// phase would depend on the order the map happened to be walked.
+	for _, c := range []struct {
+		name string
+		tier int64
+		tel  map[string]any
+	}{
+		{"no destination", 2, map[string]any{"signals": map[string]any{"resourceUsage": true}}},
+		{"cluster links at tier 1", 1, map[string]any{"signals": map[string]any{"clusterLinks": true}, "destination": map[string]any{"endpoint": "x:1"}}},
 	} {
-		spec := specWithTelemetry(tel)
-		spec["accessTier"] = int64(1)
-		if name == "no destination" {
-			spec["accessTier"] = int64(2)
-		}
-		g.agent(name2obj(name), spec)
-		g.must(name2obj(name))
-		st := g.status(name2obj(name))
+		spec := specWithTelemetry(c.tel)
+		spec["accessTier"] = c.tier
+		obj := name2obj(c.name)
+		g.agent(obj, spec)
+		g.must(obj)
+		st := g.status(obj)
 		if st.Phase != PhaseInvalid || !strings.Contains(st.Conditions[0].Message, "spec.telemetry") {
-			t.Errorf("%s: %+v", name, st)
+			t.Errorf("%s: %+v", c.name, st)
 		}
+		g.delete(obj)
 	}
 	if g.inst.applies() != 0 {
 		t.Fatalf("applies %d", g.inst.applies())
