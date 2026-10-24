@@ -1,5 +1,6 @@
 import { describe, expect, test, vi } from 'vitest'
-import { render } from '@testing-library/react'
+import { act, render } from '@testing-library/react'
+import { createRoot } from 'react-dom/client'
 import { holdReload, isReloadHeld, isStaleChunkError, reloadForNewVersion } from '@/lib/staleBuild'
 import { useHoldReload } from '@/lib/useHoldReload'
 
@@ -73,6 +74,38 @@ describe('holdReload', () => {
     rerender(<Held active />)
     expect(isReloadHeld()).toBe(true)
     unmount()
+    expect(isReloadHeld()).toBe(false)
+  })
+
+  // The hold is taken in the commit that puts the secret on the screen, not a moment after it: a test (or a person) that sees the dialog
+  // can rely on the page not reloading. A passive effect runs after the browser has painted, which on a busy machine is later than the
+  // first thing that can observe the dialog.
+  test('useHoldReload holds as soon as what it guards is in the document', async () => {
+    const Secret = () => {
+      useHoldReload()
+      return <p>the secret</p>
+    }
+    const env = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+    const before = env.IS_REACT_ACT_ENVIRONMENT
+    env.IS_REACT_ACT_ENVIRONMENT = false // let React schedule its own work, as it does in a browser
+    const el = document.createElement('div')
+    document.body.append(el)
+    const root = createRoot(el)
+    try {
+      const held = await new Promise<boolean>((resolve) => {
+        const watch = new MutationObserver(() => {
+          watch.disconnect()
+          resolve(isReloadHeld())
+        })
+        watch.observe(el, { childList: true, subtree: true })
+        root.render(<Secret />)
+      })
+      expect(held).toBe(true)
+    } finally {
+      env.IS_REACT_ACT_ENVIRONMENT = before
+      await act(async () => root.unmount())
+      el.remove()
+    }
     expect(isReloadHeld()).toBe(false)
   })
 })
