@@ -38,6 +38,37 @@ func (p *pageRig) ticketPath(t *testing.T, page string, session ...string) strin
 	return r.json(t)["path"].(string)
 }
 
+// A dashboard can be asked for by its uid, with the cluster its picker starts on; anything that could not be one is refused, and a
+// dashboard is only for Grafana.
+func TestAGrafanaDashboardCanBeAskedForByUID(t *testing.T) {
+	p := newPageRig(t)
+	ask := func(body map[string]string) resp {
+		return p.do("POST", "/api/v1/fusion/pages", body, withCookie(p.admin))
+	}
+	r := ask(map[string]string{"page": "grafana", "dashboard": "ikhnos-self", "cluster": "c-1"})
+	if r.Code != 200 {
+		t.Fatalf("pages: %d %s", r.Code, r.Body.String())
+	}
+	path := r.json(t)["path"].(string)
+	if !strings.HasPrefix(path, fusionGrafanaPath+"d/ikhnos-self?var-cluster=c-1&"+fusionpages.TicketParam+"=") {
+		t.Fatalf("path = %s", path)
+	}
+	if r := ask(map[string]string{"page": "grafana", "dashboard": "ikhnos-self"}); r.Code != 200 || !strings.HasPrefix(r.json(t)["path"].(string), fusionGrafanaPath+"d/ikhnos-self?"+fusionpages.TicketParam+"=") {
+		t.Fatalf("without a cluster: %d %s", r.Code, r.Body.String())
+	}
+	for name, body := range map[string]map[string]string{
+		"a path in the uid":      {"page": "grafana", "dashboard": "../admin"},
+		"upper case":             {"page": "grafana", "dashboard": "Ikhnos"},
+		"a query in the cluster": {"page": "grafana", "dashboard": "ikhnos-self", "cluster": "a&b=c"},
+		"a cluster alone":        {"page": "grafana", "cluster": "c-1"},
+		"not grafana":            {"page": "prometheus", "dashboard": "ikhnos-self"},
+	} {
+		if r := ask(body); r.Code != http.StatusBadRequest {
+			t.Errorf("%s: %d %s", name, r.Code, r.Body.String())
+		}
+	}
+}
+
 // A link opened in a new tab carries no session cookie (it is SameSite=Strict), so the page is reached with a one-time
 // ticket instead: it sets a cookie for the pages alone, redirects to the page without the ticket, and the page then loads on
 // that cookie - and none of it reaches Grafana.

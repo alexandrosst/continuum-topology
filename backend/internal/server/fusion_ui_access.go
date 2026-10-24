@@ -3,6 +3,8 @@ package server
 import (
 	"net/http"
 	"net/url"
+	"regexp"
+	"strings"
 	"time"
 
 	"ikhnos/internal/accounts"
@@ -81,7 +83,12 @@ func (a *Admin) redeemFusionTicket(w http.ResponseWriter, r *http.Request, ticke
 	http.Redirect(w, r, to.String(), http.StatusSeeOther)
 }
 
-// openFusionPage is POST /fusion/pages {"page": "grafana" | "prometheus"}: the path to open, with a ticket in it.
+var (
+	dashboardUID = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,39}$`)
+	clusterRef   = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$`)
+)
+
+// openFusionPage is POST /fusion/pages {"page": "grafana" | "prometheus", "dashboard"?, "cluster"?}: the path to open, with a ticket in it.
 func (a *Admin) openFusionPage(w http.ResponseWriter, r *http.Request) {
 	var req openFusionPageRequest
 	if err := httpkit.Decode(r, &req); err != nil {
@@ -111,6 +118,23 @@ func (a *Admin) openFusionPage(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, kernel.Errf(kernel.KindConflict, "%s is not running yet", map[string]string{"grafana": "Grafana", "prometheus": "Prometheus"}[req.Page]))
 		return
 	}
+	// Where in the page: a shipped dashboard, and the cluster its picker starts on. Both end up in an address, so each is held to the few
+	// characters a dashboard uid and a cluster id are made of.
+	query := ""
+	switch {
+	case req.Dashboard == "" && req.Cluster == "":
+	case req.Page != "grafana":
+		a.fail(w, kernel.Errf(kernel.KindInvalid, "a dashboard can only be asked for with page grafana"))
+		return
+	case req.Dashboard == "" || !dashboardUID.MatchString(req.Dashboard) || (req.Cluster != "" && !clusterRef.MatchString(req.Cluster)):
+		a.fail(w, kernel.Errf(kernel.KindInvalid, "dashboard must be a dashboard uid (lowercase letters, digits and hyphens), and cluster a cluster id"))
+		return
+	default:
+		base = strings.TrimSuffix(base, "/") + "/d/" + req.Dashboard
+		if req.Cluster != "" {
+			query = "var-cluster=" + url.QueryEscape(req.Cluster) + "&"
+		}
+	}
 	p := httpkit.Principal(r)
 	t := a.fusionUIAccess.Ticket(p.User.ID, p.User.Username, a.core(r).Now())
 	if t == "" {
@@ -118,5 +142,5 @@ func (a *Admin) openFusionPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	httpkit.WriteJSON(w, 200, fusionPageDoc{Path: base + "?" + fusionpages.TicketParam + "=" + t})
+	httpkit.WriteJSON(w, 200, fusionPageDoc{Path: base + "?" + query + fusionpages.TicketParam + "=" + t})
 }

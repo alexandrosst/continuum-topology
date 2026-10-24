@@ -15,7 +15,7 @@ export function useOpenPage() {
   const [error, setError] = useState('')
   const openingRef = useRef(false)
   const [opening, setOpening] = useState(false)
-  const open = async (page: 'grafana' | 'prometheus') => {
+  const open = async (page: 'grafana' | 'prometheus', where?: { dashboard: string; cluster?: string }) => {
     const c = conn()
     if (!c || openingRef.current) return
     setError('')
@@ -28,7 +28,7 @@ export function useOpenPage() {
     openingRef.current = true
     setOpening(true)
     try {
-      const r = await api.openFusionPage(c, page)
+      const r = await api.openFusionPage(c, page, where)
       tab.location.href = `${c.url.replace(/\/$/, '')}${r.path}`
     } catch (e) {
       tab.close()

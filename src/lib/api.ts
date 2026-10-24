@@ -426,7 +426,8 @@ export const api = {
   getFusion: (c: Conn) => call<FusionStatus>(c, 'GET', '/api/v1/fusion'),
   enableFusion: (c: Conn) => call<FusionStatus>(c, 'POST', '/api/v1/fusion/enable'),
   /** The path that opens one of FUSION's own pages in a new tab, with a ticket that works once for thirty seconds: the session cookie does not come with a link into a new tab, so the link carries its own way in. */
-  openFusionPage: (c: Conn, page: 'grafana' | 'prometheus') => call<W.FusionPageDoc>(c, 'POST', '/api/v1/fusion/pages', { page } satisfies W.OpenFusionPageRequest),
+  /** `where` (Grafana only) lands on one of the dashboards that come with FUSION, by uid, with its cluster picker on a cluster. */
+  openFusionPage: (c: Conn, page: 'grafana' | 'prometheus', where?: { dashboard: string; cluster?: string }) => call<W.FusionPageDoc>(c, 'POST', '/api/v1/fusion/pages', { page, ...where } satisfies W.OpenFusionPageRequest),
   disableFusion: (c: Conn) => call<FusionStatus>(c, 'POST', '/api/v1/fusion/disable'),
   listFusionTokens: (c: Conn) => call<FusionAccessToken[]>(c, 'GET', '/api/v1/fusion/tokens'),
   createFusionToken: (c: Conn, req: NewFusionAccessToken) => call<CreatedFusionAccessToken>(c, 'POST', '/api/v1/fusion/tokens', req),

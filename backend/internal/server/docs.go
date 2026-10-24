@@ -46,6 +46,10 @@ type infoInstallDoc struct {
 // openFusionPageRequest is the body of POST .../fusion/pages: which of FUSION's pages to open ("grafana" or "prometheus").
 type openFusionPageRequest struct {
 	Page string `json:"page"`
+	// Dashboard, for Grafana, is the uid of one of the dashboards that come with FUSION ("ikhnos-self"), to land on it instead of on Grafana's home.
+	Dashboard string `json:"dashboard,omitempty"`
+	// Cluster, with a dashboard, is the id of the cluster its cluster picker starts on.
+	Cluster string `json:"cluster,omitempty"`
 }
 
 // fusionPageDoc answers it: the path to open, with a ticket in it.

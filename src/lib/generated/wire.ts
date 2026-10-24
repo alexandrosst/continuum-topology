@@ -1859,6 +1859,8 @@ export interface ObserverDoc {
 
 export interface OpenFusionPageRequest {
   page: string
+  dashboard?: string
+  cluster?: string
 }
 
 export interface OperatorCertificatesDoc {
