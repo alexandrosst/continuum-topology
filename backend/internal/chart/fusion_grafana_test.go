@@ -324,7 +324,7 @@ func TestFusionIkhnosDashboards(t *testing.T) {
 		}
 	}
 	for _, e := range full.sets["f-fusion-grafana"].Spec.Template.Spec.Containers[0].Env {
-		if e.Name == "GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH" && e.Value != "/etc/grafana/dashboards/clusters.json" {
+		if e.Name == "GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH" && e.Value != "/etc/grafana/dashboards/fleet.json" {
 			t.Errorf("home dashboard = %q", e.Value)
 		}
 	}

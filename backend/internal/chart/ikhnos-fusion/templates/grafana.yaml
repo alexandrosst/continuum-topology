@@ -106,7 +106,10 @@ spec:
             - {name: GF_LIVE_MAX_CONNECTIONS, value: "0"}
             - {name: GF_LOG_MODE, value: console}
             - {name: GF_PATHS_DATA, value: /var/lib/grafana}
-            - {name: GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH, value: /etc/grafana/dashboards/{{ ternary "clusters" "arriving" .Values.prometheus.enabled }}.json}
+            - {name: GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH, value: /etc/grafana/dashboards/{{ ternary "fleet" "arriving" .Values.prometheus.enabled }}.json}
+            - {name: GF_DASHBOARDS_MIN_REFRESH_INTERVAL, value: 10s}
+            - {name: GF_USERS_DEFAULT_THEME, value: system}
+            - {name: GF_DATE_FORMATS_USE_BROWSER_LOCALE, value: "true"}
           ports:
             - {name: http, containerPort: 3000, protocol: TCP}
           readinessProbe:
