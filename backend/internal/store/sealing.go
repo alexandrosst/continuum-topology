@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -171,17 +172,24 @@ func (s *SQLite) ScrubPlaintext(ctx context.Context) error {
 	if err != nil || pending == nil {
 		return err
 	}
-	if _, err := s.db.ExecContext(ctx, `DELETE FROM settings WHERE org_id=?`, sealingScrubKey); err != nil {
-		return err
-	}
-	if _, err := s.db.ExecContext(ctx, `VACUUM`); err != nil {
-		// Put the mark back: it was not done.
-		_ = s.PutSettings(ctx, sealingScrubKey, pending, time.Now())
+	// The mark stays until the file has been rewritten and the log emptied: a start that is killed in the middle of the rewrite must
+	// find it and do the work again, and not find a database that says nothing is left to do while the old text is in the free pages.
+	if err := vacuumFile(ctx, s.db); err != nil {
 		return fmt.Errorf("rewriting the database to remove secrets that were stored in the clear: %w", err)
 	}
 	var busy, logFrames, checkpointed int
 	if err := s.db.QueryRowContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`).Scan(&busy, &logFrames, &checkpointed); err != nil {
 		return err
 	}
+	// The mark holds no secret, so taking it away after the rewrite leaves nothing behind that the rewrite removed.
+	if _, err := s.db.ExecContext(ctx, `DELETE FROM settings WHERE org_id=?`, sealingScrubKey); err != nil {
+		return err
+	}
 	return nil
+}
+
+// vacuumFile rewrites the database file. It is a variable so that a test can look at the database at the moment of the rewrite.
+var vacuumFile = func(ctx context.Context, db *sql.DB) error {
+	_, err := db.ExecContext(ctx, `VACUUM`)
+	return err
 }

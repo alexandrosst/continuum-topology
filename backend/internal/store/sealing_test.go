@@ -3,6 +3,7 @@ package store
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"errors"
 	"os"
 	"path/filepath"
@@ -294,5 +295,51 @@ func TestALostKeyCanBeLeftBehindAndOnlyTheSealedSecretsGo(t *testing.T) {
 	// A new key then seals from a clean start.
 	if err := st.UseSealer(ctx, sealerOf(t, sealKeyB)); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// The mark that says the file still has to be rewritten stays in the database until the rewrite is done. A start that is killed
+// in the middle of it (or whose rewrite fails) then finds the mark and does the work again; with the mark gone first, it would
+// find nothing to do and the old text would stay in the free pages for good.
+func TestTheMarkToScrubStaysUntilTheFileHasBeenRewritten(t *testing.T) {
+	dir := t.TempDir()
+	ctx := context.Background()
+	st, _ := OpenSQLite(filepath.Join(dir, "acc.db"))
+	mustUser(t, st, "u1", "quinn", testNow)
+	if err := st.SetTOTP(ctx, "u1", secretA, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	st.Close()
+	st = reopen(t, dir)
+	if err := st.UseSealer(ctx, sealerOf(t, sealKeyA)); err != nil {
+		t.Fatal(err)
+	}
+	real := vacuumFile
+	defer func() { vacuumFile = real }()
+	var markDuringRewrite bool
+	vacuumFile = func(c context.Context, db *sql.DB) error {
+		m, err := st.GetSettings(c, sealingScrubKey)
+		markDuringRewrite = err == nil && m != nil
+		return errors.New("killed during the rewrite")
+	}
+	if err := st.ScrubPlaintext(ctx); err == nil {
+		t.Fatal("a rewrite that failed was reported as done")
+	}
+	if !markDuringRewrite {
+		t.Error("the mark was already gone when the file was rewritten")
+	}
+	if m, _ := st.GetSettings(ctx, sealingScrubKey); m == nil {
+		t.Fatal("a failed rewrite left no mark, so the next start would not try again")
+	}
+	vacuumFile = real
+	if err := st.ScrubPlaintext(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if m, _ := st.GetSettings(ctx, sealingScrubKey); m != nil {
+		t.Error("the mark is still there after the rewrite")
+	}
+	st.Close()
+	if filesHold(t, dir, secretA) {
+		t.Fatal("the secret is still readable in the files")
 	}
 }
