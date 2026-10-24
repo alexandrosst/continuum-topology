@@ -82,7 +82,7 @@ export default function PlacementPage() {
         <EmptyState
           title="Placement needs somewhere to compare"
           description="Advice needs at least two clusters and some services. Connect clusters and let their agents report, then come back."
-          action={<Link className="text-sm text-accent hover:underline" to="/discovery">Go to discovery</Link>}
+          action={<Link className="text-sm text-accent hover:underline" to="/agents?tab=suggestions">Go to suggestions</Link>}
         />
       ) : (
         <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_20rem]">

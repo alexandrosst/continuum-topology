@@ -1,11 +1,14 @@
 import clsx from 'clsx'
-import { Tabs } from '@/components/ui/Tabs'
 import { ChevronDown, ChevronRight, List, Network, Plug, Radio, Server } from 'lucide-react'
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { CanSee, ConsentPanel, DiscoveryChip, HealthChip, Problems } from '@/features/agents/components/AgentInsight'
 import { TelemetryPanel } from '@/features/pipeline/components/telemetry/TelemetryPanel'
 import { StatusBadge } from '@/components/ui/Status'
+import { SortTh, useSort } from '@/components/ui/sort'
+import { TabPanel, Tabs } from '@/components/ui/Tabs'
+import DiscoveryPanel from '@/features/discovery/components/DiscoveryPanel'
+import { usePlacementSuggestions } from '@/lib/usePlacement'
 import { CopyCommand as CopyableCommand } from '@/components/ui/CopyCommand'
 import { CheckLine, MODULE_STYLE, ObserverLine, ScopeLine, ApprovalStatus, when } from '@/features/discovery/components/AgentParts'
 import ApprovalCard from '@/features/discovery/components/ApprovalCard'
@@ -18,7 +21,7 @@ import { Button, EmptyState, ErrorBanner, ICON_SM, LiveDot, type LiveKind, PageH
 import { api, ApiError } from '@/lib/api'
 import { skewLabel, skewWarning } from '@/lib/clock'
 import { extrasOf, type AgentExtras } from '@/lib/consent'
-import { healthOf, type AgentHealth } from '@/features/agents/lib/agentHealth'
+import { HEALTH_ORDER, healthOf, type AgentHealth } from '@/features/agents/lib/agentHealth'
 import { ageOf } from '@/lib/history'
 import { bytesTotal } from '@/lib/observed'
 import { GEO_UNLOCATABLE_HELP, GEO_UNLOCATABLE_LABEL, ipScope, ipScopeLabel } from '@/lib/present'
@@ -49,8 +52,10 @@ const shortAge = (iso: string, now = Date.now()) => {
 const num = (n: number) => n.toLocaleString()
 
 export default function AgentsPage() {
-  const { agents, clusters, sites } = useTopology()
+  const { agents, clusters, sites, suggestions } = useTopology()
+  const openSuggestions = suggestions.filter((x) => x.status === 'open').length + usePlacementSuggestions().suggestions.length
   const [sp, setSp] = useSearchParams()
+  const tab = ((t) => (t === 'suggestions' || t === 'seen' ? t : 'agents'))(sp.get('tab'))
   const map = sp.get('view') === 'map'
   const [open, setOpen] = useState<string | null>(null)
   const [filter, setFilter] = useState<'all' | AgentHealth>('all')
@@ -100,7 +105,17 @@ export default function AgentsPage() {
     for (const r of rows) c[r.h] = (c[r.h] ?? 0) + 1
     return c
   }, [rows])
-  const shown = rows.filter((r) => filter === 'all' || r.h === filter)
+  const filtered = useMemo(() => rows.filter((r) => filter === 'all' || r.h === filter), [rows, filter])
+  // Worst first when sorting by connection, so that "ascending" brings what needs a look to the top.
+  const sortBy = useMemo(() => ({
+    agent: (r: (typeof rows)[number]) => r.a.name,
+    runsIn: (r: (typeof rows)[number]) => clusters.find((c) => c.id === r.a.clusterId)?.name,
+    connection: (r: (typeof rows)[number]) => HEALTH_ORDER.indexOf(r.h),
+    sent: (r: (typeof rows)[number]) => r.a.link?.bytes,
+    access: (r: (typeof rows)[number]) => r.a.accessTier,
+    status: (r: (typeof rows)[number]) => r.a.status,
+  }), [clusters])
+  const { sorted: shown, sort, toggle } = useSort(filtered, sortBy)
   const sent = agents.reduce((n, a) => n + (a.link?.bytes ?? 0), 0)
   const soonest = agents.filter((a) => a.status === 'approved' && a.connected !== undefined).map((a) => msUntil(a.certExpiresAt, now)).filter((d): d is number => d !== undefined).sort((x, y) => x - y)[0]
   const openAgent = agents.find((a) => a.id === open)
@@ -159,6 +174,20 @@ export default function AgentsPage() {
         </section>
       )}
 
+      <Tabs
+        label="Agents"
+        idBase="agents"
+        className="mb-6"
+        value={tab}
+        onChange={(id) => setSp((p) => { const n = new URLSearchParams(p); if (id === 'agents') n.delete('tab'); else n.set('tab', id); n.delete('view'); return n }, { replace: true })}
+        items={[
+          { id: 'agents', label: 'Agents', count: agents.length || undefined, testId: 'tab-agents' },
+          { id: 'suggestions', label: 'Suggestions', count: openSuggestions || undefined, testId: 'tab-suggestions', title: 'What the agents found that needs your decision' },
+          { id: 'seen', label: 'Seen and gone', testId: 'tab-seen', title: 'Clusters the agents have seen but nobody connected, and records that are no longer reported' },
+        ]}
+      />
+
+      <TabPanel idBase="agents" id="agents" active={tab === 'agents'}>
       {agents.length === 0 ? (
         <EmptyState
           title="No cluster is connected yet"
@@ -206,7 +235,7 @@ export default function AgentsPage() {
             <Table data-testid="agents-table">
               <thead>
                 <tr>
-                  <Th>Agent</Th><Th>Runs in</Th><Th>Connection</Th><Th>Sent</Th><Th>Access</Th><Th>Status</Th>
+                  <SortTh id="agent" sort={sort} onSort={toggle}>Agent</SortTh><SortTh id="runsIn" sort={sort} onSort={toggle}>Runs in</SortTh><SortTh id="connection" sort={sort} onSort={toggle}>Connection</SortTh><SortTh id="sent" sort={sort} onSort={toggle}>Sent</SortTh><SortTh id="access" sort={sort} onSort={toggle}>Access</SortTh><SortTh id="status" sort={sort} onSort={toggle}>Status</SortTh>
                   <Th className="w-10" actionsLabel="Details" />
                 </tr>
               </thead>
@@ -313,6 +342,13 @@ export default function AgentsPage() {
           )}
         </>
       )}
+      </TabPanel>
+      <TabPanel idBase="agents" id="suggestions" active={tab === 'suggestions'}>
+        <DiscoveryPanel connect={connect} part="inbox" />
+      </TabPanel>
+      <TabPanel idBase="agents" id="seen" active={tab === 'seen'}>
+        <DiscoveryPanel connect={connect} part="seen" />
+      </TabPanel>
 
       {connect.dialogs}
       {telemetry.dialogs}

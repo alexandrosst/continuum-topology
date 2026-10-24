@@ -11,7 +11,7 @@ import type { Agent, Cluster } from '@/lib/types'
 const cl = (over: Partial<Cluster> = {}) => ({ id: 'c1', name: 'edge-1', tier: 'edge', source: 'discovered', state: 'live', orgId: 'o', ...over }) as Cluster
 const ag = (over: Partial<Agent> = {}) => ({ id: 'a1', clusterId: 'c1', status: 'approved', accessTier: 2, name: 'edge-1', version: '1.0.0', modules: [], fingerprint: 'x', ...over }) as Agent
 
-let topologyState: { agents: Agent[]; clusters: Cluster[]; sites: never[] }
+let topologyState: { agents: Agent[]; clusters: Cluster[]; sites: never[]; suggestions: never[] }
 let serverState: { status: string; canEdit: () => boolean; state?: { agents: Agent[] } }
 
 vi.mock('@/store/topology', () => ({
@@ -34,14 +34,14 @@ function renderPage() {
 
 describe('AgentsPage', () => {
   test('"Set up telemetry" is hidden entirely for a viewer who cannot edit', () => {
-    topologyState = { agents: [ag()], clusters: [cl()], sites: [] }
+    topologyState = { agents: [ag()], clusters: [cl()], sites: [], suggestions: [] }
     serverState = { status: 'connected', canEdit: () => false }
     renderPage()
     expect(screen.queryByRole('button', { name: /Set up telemetry/ })).not.toBeInTheDocument()
   })
 
   test('with no approved cluster yet, the button is disabled with an explanatory title - discovery is a prerequisite', () => {
-    topologyState = { agents: [], clusters: [], sites: [] }
+    topologyState = { agents: [], clusters: [], sites: [], suggestions: [] }
     serverState = { status: 'connected', canEdit: () => true }
     renderPage()
     const btn = screen.getByRole('button', { name: /Set up telemetry/ })
@@ -50,7 +50,7 @@ describe('AgentsPage', () => {
   })
 
   test('once a cluster is approved, an editor can open the telemetry flow', () => {
-    topologyState = { agents: [ag()], clusters: [cl()], sites: [] }
+    topologyState = { agents: [ag()], clusters: [cl()], sites: [], suggestions: [] }
     serverState = { status: 'connected', canEdit: () => true }
     renderPage()
     const btn = screen.getByRole('button', { name: /Set up telemetry/ })

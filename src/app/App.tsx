@@ -14,7 +14,6 @@ const ActivityPage = lazy(routeLoaders['/activity'])
 const ApplicationsPage = lazy(routeLoaders['/applications'])
 const ClustersPage = lazy(routeLoaders['/clusters'])
 const DevicesPage = lazy(routeLoaders['/devices'])
-const DiscoveryPage = lazy(routeLoaders['/discovery'])
 const HistoryPage = lazy(routeLoaders['/history'])
 const SystemHealthPage = lazy(routeLoaders['/system-health'])
 const NamespacesPage = lazy(routeLoaders['/namespaces'])
@@ -30,6 +29,14 @@ const ServicesPage = lazy(routeLoaders['/services'])
 function OperatorsRedirect() {
   const { search } = useLocation()
   return <Navigate to={`/pipeline${search}`} replace />
+}
+
+/** Discovery is the Agents page's Suggestions tab now; old links and `?connect=1` carry over. */
+function DiscoveryRedirect() {
+  const { search } = useLocation()
+  const q = new URLSearchParams(search)
+  if (!q.has('tab')) q.set('tab', 'suggestions')
+  return <Navigate to={`/agents?${q.toString()}`} replace />
 }
 
 export default function App() {
@@ -75,7 +82,7 @@ export default function App() {
           <Route path="/devices" element={<DevicesPage />} />
           <Route path="/applications" element={<ApplicationsPage />} />
           <Route path="/sites" element={<SitesPage />} />
-          <Route path="/discovery" element={<DiscoveryPage />} />
+          <Route path="/discovery" element={<DiscoveryRedirect />} />
           <Route path="/agents" element={<AgentsPage />} />
           <Route path="/proposals" element={<ProposalsPage />} />
           <Route path="/pipeline" element={<PipelinePage />} />

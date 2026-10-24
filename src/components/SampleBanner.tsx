@@ -41,7 +41,7 @@ export default function SampleBanner() {
         <strong className="font-medium text-nb-300">Sample data.</strong> This is a made-up cloud → edge → far-edge example, not your infrastructure. Connect a cluster to see the real thing.
       </span>
       <span className="flex items-center gap-2">
-        <Button size="sm" variant="primary" onClick={() => navigate('/discovery?connect=1')}>Connect a cluster</Button>
+        <Button size="sm" variant="primary" onClick={() => navigate('/agents?connect=1')}>Connect a cluster</Button>
         <Button size="sm" onClick={() => { clear(); dismiss() }}>Start empty</Button>
         <button onClick={dismiss} aria-label="Dismiss" className="rounded p-1 text-nb-500 hover:bg-nb-930 hover:text-nb-300"><X size={ICON_MD} /></button>
       </span>

@@ -64,8 +64,8 @@ export default function PlatformPanel({ part, platform, onSelect }: { part: Plat
         </Section>
       )}
       <div className="border-t border-nb-850 px-5 py-4">
-        <Link to={part.kind === 'agent' ? '/discovery' : '/pipeline'} className="inline-flex items-center gap-1.5 text-sm text-accent hover:underline">
-          {part.kind === 'agent' ? 'Open in Discovery' : 'Open in Pipeline'} <ArrowRight size={ICON_SM} aria-hidden />
+        <Link to={part.kind === 'agent' ? '/agents' : '/pipeline'} className="inline-flex items-center gap-1.5 text-sm text-accent hover:underline">
+          {part.kind === 'agent' ? 'Open in Agents' : 'Open in Pipeline'} <ArrowRight size={ICON_SM} aria-hidden />
         </Link>
         {self && (
           <div className="pt-2">

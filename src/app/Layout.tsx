@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { BookOpen, Boxes, Cable, ClipboardCheck, Database, Folders, HeartPulse, History, Keyboard, Layers, MapPin, Menu, Network, Package, Radar, Radio, Route, Search, Server, Settings2, Waypoints } from 'lucide-react'
+import { BookOpen, Boxes, Cable, ClipboardCheck, Database, Folders, HeartPulse, History, Keyboard, Layers, MapPin, Menu, Network, Package, Radio, Route, Search, Server, Settings2, Waypoints } from 'lucide-react'
 import { Suspense, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { BrandMark, Copyright } from '@/components/ui/brand'
@@ -55,7 +55,6 @@ const NAV_GROUPS: { label: string; items: NavEntry[] }[] = [
   {
     label: 'Manage',
     items: [
-      { to: '/discovery', label: 'Discovery', icon: Radar },
       { to: '/agents', label: 'Agents', icon: Cable },
       { to: '/proposals', label: 'Proposals', icon: ClipboardCheck },
       { to: '/placement', label: 'Placement', icon: Route },
@@ -248,7 +247,7 @@ function SidebarNav({
             <div key={group.label} className="flex flex-col gap-1">
               <div className="px-3 text-[11px] font-medium uppercase tracking-wide text-nb-600">{group.label}</div>
               {group.items.map((n) => (
-                <NavItem key={n.to} {...n} slid badge={n.to === '/discovery' ? found : n.to === '/agents' ? approvals : n.to === '/proposals' ? proposals : undefined} />
+                <NavItem key={n.to} {...n} slid badge={n.to === '/agents' ? (approvals ?? 0) + (found ?? 0) : n.to === '/proposals' ? proposals : undefined} />
               ))}
             </div>
           ))}
@@ -309,7 +308,7 @@ function LoadingShell() {
 }
 
 function Shell() {
-  // Approving is done on Agents; Discovery holds what agents found for a person to decide.
+  // Agents holds both what is waiting for an approval and what the agents found for a person to decide (its Suggestions tab): one badge for both.
   const approvals = useRawTopology((s) => s.agents.filter((a) => a.status === 'pending' && a.requestedAt).length)
   const found = useRawTopology((s) => s.suggestions.filter((x) => x.status === 'open').length)
   const proposals = useWaitingProposals((s) => s.count)

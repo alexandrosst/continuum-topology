@@ -94,7 +94,7 @@ describe('Inspector · platform part', () => {
     renderPlatform(part({ id: 'agent:ag-1', kind: 'agent', name: 'Discovery agent', sendsTo: [] }))
     expect(screen.getByText('256 MB')).toBeTruthy()
     expect(screen.getByText('View full history').closest('a')).toHaveAttribute('href', '/system-health')
-    expect(screen.getByText('Open in Discovery').closest('a')).toHaveAttribute('href', '/discovery')
+    expect(screen.getByText('Open in Agents').closest('a')).toHaveAttribute('href', '/agents')
     discoveryAgentsFixture = []
   })
 

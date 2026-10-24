@@ -1,17 +1,15 @@
 import clsx from 'clsx'
-import { ArrowRight, Check, KeyRound, Plug, PlugZap, X } from 'lucide-react'
+import { Check, Plug, X } from 'lucide-react'
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
 import { when } from '@/features/discovery/components/AgentParts'
-import { useConnectFlow } from '@/features/discovery/components/ConnectFlow'
+
+import type { useConnectFlow } from '@/features/discovery/components/ConnectFlow'
 import GettingStarted, { useGettingStarted } from '@/components/GettingStarted'
 import { GroupingPicker } from '@/components/GroupingPicker'
 import { GoneRecords, ObservedClusters } from '@/components/Observations'
-import { Button, EmptyState, ICON_SM, PageHeader, Pill } from '@/components/ui/primitives'
+import { Button, EmptyState, ICON_SM, Pill } from '@/components/ui/primitives'
 import type { GroupingAlternative, Suggestion } from '@/lib/types'
 import { usePlacementSuggestions } from '@/lib/usePlacement'
-import { useApprovalLocks } from '@/store/approvalLocks'
-import { useServer } from '@/store/server'
 import { useTopology } from '@/store/topology'
 
 /**
@@ -26,19 +24,12 @@ function AlternativeLabelPicker({ suggestion, alternatives }: { suggestion: Sugg
   return <GroupingPicker label="Use a different label instead" alternatives={alternatives} onPick={(alt) => applyAlternative(suggestion.id, alt)} />
 }
 
-export default function DiscoveryPage() {
+/** What the agents found that needs a decision (the inbox of suggestions), and what they have seen and lost: the second tab of the Agents page. */
+export default function DiscoveryPanel({ connect, part }: { connect: ReturnType<typeof useConnectFlow>; part: 'inbox' | 'seen' }) {
   const { agents, suggestions, decideSuggestion, decideDerived } = useTopology()
   const placement = usePlacementSuggestions().suggestions
-  const server = useServer()
-  // One flow, shared with the Agents page: the same wizard, the same `?connect=1` link.
-  const connect = useConnectFlow()
   const started = useGettingStarted('discovery')
-  const connected = server.status === 'connected'
   const canAdminister = connect.canStart
-  // Approving is done on the Agents page. Here it is only pointed at: a request rejected for too many wrong codes counts too, because it still needs a look.
-  const locked = useApprovalLocks((s) => s.locked)
-  const waiting = agents.filter((a) => a.status === 'pending' && a.requestedAt)
-  const rejectedLocked = agents.filter((a) => a.status === 'rejected' && locked[a.id])
   const derivedIds = new Set(placement.map((s) => s.id))
   const open = [...suggestions.filter((s) => s.status === 'open'), ...placement]
   // A decided suggestion eases out instead of cutting to the next row: the row plays its exit animation
@@ -53,55 +44,18 @@ export default function DiscoveryPage() {
   const agentName = (id?: string) => agents.find((a) => a.id === id)?.name
   const showStarted = started && !started.dismissed
   const approved = agents.filter((a) => a.status === 'approved')
-  const needAttention = waiting.length + rejectedLocked.length
 
   return (
     <>
-      <PageHeader
-        title="Discovery"
-        description="What the agents found that needs your decision, and what they see now. Nothing here changes your topology until you accept it. Once you decide, the outcome shows up in History and who approved it shows up in Activity."
-        actions={
-          canAdminister && (
-            <Button variant="primary" onClick={connect.start}>
-              <Plug size={ICON_SM} /> Connect a cluster
-            </Button>
-          )
-        }
-      />
-
-      {!connected && (
-        <div className="mb-6 flex items-center justify-between gap-4 rounded-xl border border-nb-850 bg-nb-925 px-5 py-3" data-testid="server-status">
-          <div className="flex items-center gap-3 text-sm text-nb-400">
-            <PlugZap size={ICON_SM} className="shrink-0 text-nb-500" />
-            {server.status === 'error' ? server.error : 'Not connected to an Ikhnos server. Without one you can still model topologies by hand.'}
-          </div>
-          <Button size="sm" onClick={connect.start}>Connect to server</Button>
-        </div>
-      )}
-      {connected && server.error && <p role="status" className="mb-4 text-sm text-warn">{server.error} Retrying…</p>}
-
-      {/* Approving is the Agents page's job: this page only says that something waits there. */}
-      {needAttention > 0 && (
-        <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-warn/30 bg-warn/5 px-5 py-3" role="status" data-testid="approvals-banner">
-          <p className="flex items-center gap-2.5 text-sm text-warn">
-            <KeyRound size={ICON_SM} className="shrink-0" aria-hidden />
-            {waiting.length > 0
-              ? `${waiting.length} cluster${waiting.length === 1 ? ' is' : 's are'} waiting for approval.${canAdminister ? '' : ' An administrator has to approve it.'}`
-              : `${rejectedLocked.length} request${rejectedLocked.length === 1 ? ' was' : 's were'} rejected after too many wrong codes.`}
-          </p>
-          <Link to="/agents#approvals" className="inline-flex items-center gap-1.5 text-sm text-accent hover:underline" data-testid="review-approvals">
-            {canAdminister ? 'Review on Agents' : 'See on Agents'} <ArrowRight size={ICON_SM} aria-hidden />
-          </Link>
-        </div>
-      )}
-
+      {part === 'inbox' ? (
+        <>
       {showStarted && started && (
         <div className="mb-8">
           <GettingStarted checklist={started.checklist} onConnect={connect.start} onDismiss={started.dismiss} />
         </div>
       )}
 
-      <h2 className="mb-2 text-sm font-medium text-nb-300">Inbox {open.length > 0 && <span className="ml-1 text-nb-500">({open.length})</span>}</h2>
+      <p className="mb-3 max-w-3xl text-sm text-nb-500">What the agents found that needs your decision. Nothing here changes your topology until you accept it; once you decide, the outcome shows up in History and who approved it shows up in Activity.</p>
       {open.length === 0 ? (
         <div className="mb-8">
           {approved.length === 0 ? (
@@ -168,22 +122,14 @@ export default function DiscoveryPage() {
         </div>
       )}
 
-      {agents.length > 0 && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-nb-850 bg-nb-925 px-5 py-4" data-testid="agents-summary">
-          <p className="text-sm text-nb-300">
-            {approved.length} approved · {agents.filter((a) => a.connected).length} connected now
-            {waiting.length > 0 && <span className="text-warn"> · {waiting.length} waiting for approval</span>}
-          </p>
-          <Link to="/agents" className="inline-flex items-center gap-1.5 text-sm text-accent hover:underline" data-testid="see-agents">
-            Agents: enrollment, approval, observability intent and health <ArrowRight size={ICON_SM} aria-hidden />
-          </Link>
-        </div>
-      )}
-
-      <ObservedClusters className="mt-8" />
+        </>
+      ) : (
+        <>
+      <ObservedClusters />
       <GoneRecords className="mt-8" />
 
-      {connect.dialogs}
+        </>
+      )}
     </>
   )
 }

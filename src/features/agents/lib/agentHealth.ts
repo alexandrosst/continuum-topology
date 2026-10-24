@@ -13,3 +13,6 @@ export function healthOf(a: Agent, now: number): AgentHealth {
   // Sample and hand-made agents have no live link to judge, so they are not called disconnected.
   return OF_LIVENESS[agentLiveness(a, now).state]
 }
+
+/** Worst first: the order a column of connections sorts in. */
+export const HEALTH_ORDER: readonly AgentHealth[] = ['offline', 'late', 'waiting', 'expired', 'gone', 'unknown', 'ok']
