@@ -77,6 +77,12 @@ const sidebars: SidebarsConfig = {
       link: {type: 'doc', id: 'contributing/developer-guide'},
       items: ['contributing/developer-guide', 'contributing/release-process'],
     },
+    {
+      type: 'category',
+      label: 'Project',
+      link: {type: 'doc', id: 'project/status-and-limits'},
+      items: ['project/status-and-limits', 'project/roadmap'],
+    },
   ],
 };
 
