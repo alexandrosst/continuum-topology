@@ -1,15 +1,21 @@
 import { ageOf } from '@/lib/history'
-import { TONE_CLASS } from '@/lib/provenance'
+import { StatusBadge, type StatusTone } from '@/components/ui/Status'
 import type { Agent } from '@/lib/types'
 
 export const when = (iso?: string) => (iso ? new Date(iso).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : '—')
 
-export const STATUS_STYLE: Record<Agent['status'], string> = {
-  approved: TONE_CLASS.ok,
-  pending: TONE_CLASS.warn,
-  revoked: TONE_CLASS.bad,
-  rejected: TONE_CLASS.bad,
-  expired: TONE_CLASS.muted,
+const APPROVAL: Record<Agent['status'], { tone: StatusTone; word: string }> = {
+  approved: { tone: 'healthy', word: 'Approved' },
+  pending: { tone: 'attention', word: 'Pending' },
+  revoked: { tone: 'down', word: 'Revoked' },
+  rejected: { tone: 'down', word: 'Rejected' },
+  expired: { tone: 'off', word: 'Expired' },
+}
+
+/** Where an agent stands with its approval, drawn as every other status is. */
+export function ApprovalStatus({ status }: { status: Agent['status'] }) {
+  const { tone, word } = APPROVAL[status]
+  return <StatusBadge tone={tone} label={word} data-approval={status} />
 }
 
 export const MODULE_STYLE = { ok: 'text-ok', skipped: 'text-nb-500', error: 'text-bad' } as const

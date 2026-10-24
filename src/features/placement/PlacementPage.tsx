@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import { Tabs } from '@/components/ui/Tabs'
 import { Info } from 'lucide-react'
 import { useMemo } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
@@ -61,28 +62,21 @@ export default function PlacementPage() {
         </p>
       )}
 
-      <div className="mb-5 flex flex-wrap gap-1 border-b border-nb-850" role="tablist" aria-label="Placement views">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            role="tab"
-            aria-selected={tab === t.id}
-            onClick={() => {
-              const next = new URLSearchParams(params)
-              next.set('tab', t.id)
-              if (t.id !== 'whatif') {
-                next.delete('service')
-                next.delete('to')
-              }
-              setParams(next, { replace: true })
-            }}
-            className={clsx('-mb-px border-b-2 px-4 py-2 text-sm transition-colors', tab === t.id ? 'border-accent text-nb-300' : 'border-transparent text-nb-400 hover:text-nb-300')}
-            data-testid={`tab-${t.id}`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        label="Placement views"
+        className="mb-5"
+        value={tab}
+        items={TABS.map((t) => ({ id: t.id, label: t.label, testId: `tab-${t.id}` }))}
+        onChange={(id) => {
+          const next = new URLSearchParams(params)
+          next.set('tab', id)
+          if (id !== 'whatif') {
+            next.delete('service')
+            next.delete('to')
+          }
+          setParams(next, { replace: true })
+        }}
+      />
 
       {empty ? (
         <EmptyState

@@ -1,38 +1,35 @@
 import clsx from 'clsx'
-import { AlertCircle, AlertTriangle, Check, Info, Loader2, ShieldCheck } from 'lucide-react'
+import { StatusBadge, type StatusTone } from '@/components/ui/Status'
 import { useEffect, useMemo, useState } from 'react'
-import { Button, Field, ICON_SM, TagsInput } from '@/components/ui/primitives'
+import { Button, Field, TagsInput } from '@/components/ui/primitives'
 import { CopyCommand } from '@/components/ui/CopyCommand'
 import { ServerCommand } from '@/components/ui/ServerCommand'
 import TierLevels from '@/components/TierLevels'
 import { upgradeRequest, useAgentUpgradeCommand } from '@/lib/agentUpgrade'
 import { api, ApiError, type ServerInfo } from '@/lib/api'
 import { COLLECTORS, collectorState, consentChange, discoveryStatus, effectiveNote, healthSummary, inForce, parseExclusions, scopeWords, sortProblems, tierName, uptimeWords, type AgentConsent, type AgentDiagnostics, type AgentProblem, type HealthSummary, type Severity } from '@/lib/consent'
-import { TONE_CLASS } from '@/lib/provenance'
 import type { Agent, AccessTier } from '@/lib/types'
 import { useServer } from '@/store/server'
 
-const SEVERITY_STYLE: Record<Severity, { chip: string; icon: typeof Info; label: string }> = {
-  error: { chip: TONE_CLASS.bad, icon: AlertCircle, label: 'Error' },
-  warn: { chip: TONE_CLASS.warn, icon: AlertTriangle, label: 'Warning' },
-  info: { chip: TONE_CLASS.muted, icon: Info, label: 'Notice' },
+const SEVERITY_STYLE: Record<Severity, { tone: StatusTone; label: string }> = {
+  error: { tone: 'down', label: 'Error' },
+  warn: { tone: 'attention', label: 'Warning' },
+  info: { tone: 'notice', label: 'Notice' },
 }
 
-const LEVEL_STYLE: Record<HealthSummary['level'], string> = {
-  unknown: TONE_CLASS.muted,
-  healthy: TONE_CLASS.ok,
-  warn: SEVERITY_STYLE.warn.chip,
-  error: SEVERITY_STYLE.error.chip,
-}
+const LEVEL_TONE: Record<HealthSummary['level'], StatusTone> = { unknown: 'unknown', healthy: 'healthy', warn: 'attention', error: 'down' }
 
 /** The agent's health in a few words, for a table row: "Healthy", "2 problems". */
 export function HealthChip({ diagnostics, connected }: { diagnostics?: AgentDiagnostics; connected?: boolean }) {
   const h = healthSummary(diagnostics, { now: Date.now(), connected })
   return (
-    <span className={clsx('inline-flex items-center gap-1 rounded-full border px-2 py-px text-[11px] font-medium', LEVEL_STYLE[h.level])} data-testid="health-chip" data-level={h.level} title={h.level === 'unknown' ? (diagnostics ? 'The agent’s last self-report is old, or the agent is not connected: what it said then may no longer be true.' : 'The agent has not sent a self-report yet (or this is an older agent).') : 'From the agent’s own account of itself'}>
-      {h.level === 'healthy' ? <ShieldCheck size={ICON_SM} aria-hidden /> : h.level === 'unknown' ? null : <AlertTriangle size={ICON_SM} aria-hidden />}
-      {h.line}
-    </span>
+    <StatusBadge
+      tone={LEVEL_TONE[h.level]}
+      label={h.line}
+      data-testid="health-chip"
+      data-level={h.level}
+      title={h.level === 'unknown' ? (diagnostics ? 'The agent’s last self-report is old, or the agent is not connected: what it said then may no longer be true.' : 'The agent has not sent a self-report yet (or this is an older agent).') : 'From the agent’s own account of itself'}
+    />
   )
 }
 
@@ -45,27 +42,9 @@ export function DiscoveryChip({ diagnostics }: { diagnostics?: AgentDiagnostics 
   const s = discoveryStatus(diagnostics)
   if (s.state === 'unknown') return null
   if (s.state === 'done') {
-    return (
-      <span
-        className="inline-flex items-center gap-1 rounded-full border border-ok/30 bg-ok/10 px-2 py-px text-[11px] font-medium text-ok"
-        data-testid="discovery-chip"
-        data-state="done"
-        title={`Every watch this agent runs (${s.total}) has completed its first full read of the cluster.`}
-      >
-        <Check size={ICON_SM} aria-hidden /> Fully discovered
-      </span>
-    )
+    return <StatusBadge tone="healthy" label="Fully discovered" data-testid="discovery-chip" data-state="done" title={`Every watch this agent runs (${s.total}) has completed its first full read of the cluster.`} />
   }
-  return (
-    <span
-      className="inline-flex items-center gap-1 rounded-full border border-nb-700 bg-nb-930 px-2 py-px text-[11px] font-medium text-nb-400"
-      data-testid="discovery-chip"
-      data-state="discovering"
-      title="Still doing its first full read of the cluster (a one-time pass, separate from how busy it is once caught up)."
-    >
-      <Loader2 size={ICON_SM} className="animate-spin" aria-hidden /> Discovering {s.synced}/{s.total}
-    </span>
-  )
+  return <StatusBadge tone="setup" label={`Discovering ${s.synced}/${s.total}`} data-testid="discovery-chip" data-state="discovering" title="Still doing its first full read of the cluster (a one-time pass, separate from how busy it is once caught up)." />
 }
 
 /** What the agent says is wrong, worst first, each with what to do about it. */
@@ -75,11 +54,10 @@ export function Problems({ problems }: { problems: AgentProblem[] }) {
     <ul className="space-y-2" data-testid="agent-problems">
       {sortProblems(problems).map((p, i) => {
         const s = SEVERITY_STYLE[p.severity]
-        const I = s.icon
         return (
           <li key={`${p.code}-${i}`} className="rounded-md border border-nb-850 bg-nb-950/60 px-3 py-2" data-testid="agent-problem" data-code={p.code}>
             <div className="flex flex-wrap items-center gap-2">
-              <span className={clsx('inline-flex items-center gap-1 rounded-full border px-2 py-px text-[11px] font-medium', s.chip)}><I size={ICON_SM} aria-hidden /> {s.label}</span>
+              <StatusBadge tone={s.tone} label={s.label} />
               <code className="font-mono text-xs text-nb-300">{p.code}</code>
               {p.since && <span className="text-xs text-nb-600">since {new Date(p.since).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</span>}
             </div>

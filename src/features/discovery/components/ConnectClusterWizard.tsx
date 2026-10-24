@@ -1,4 +1,4 @@
-import clsx from 'clsx'
+import { Tabs } from '@/components/ui/Tabs'
 import { CheckCircle2, ChevronRight, Loader2, MapPin, Pin } from 'lucide-react'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
@@ -424,21 +424,13 @@ export default function ConnectClusterWizard({ open, onClose, nodeProbe }: { ope
           />
           {(phase === 'waiting' || phase === 'approve') && (
             <div>
-              <div className="mb-3 flex gap-1 border-b border-nb-850" role="tablist" aria-label="How to install the agent">
-                {([['helm', 'helm'], ['controller', 'kubectl (controller)']] as const).map(([id, label]) => (
-                  <button
-                    key={id}
-                    type="button"
-                    role="tab"
-                    aria-selected={via === id}
-                    onClick={() => setVia(id)}
-                    className={clsx('-mb-px border-b-2 px-3 py-1.5 text-sm transition-colors', via === id ? 'border-accent text-nb-300' : 'border-transparent text-nb-400 hover:text-nb-300')}
-                    data-testid={`install-tab-${id}`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
+              <Tabs
+                label="How to install the agent"
+                className="mb-3"
+                value={via}
+                onChange={setVia}
+                items={[{ id: 'helm', label: 'helm', testId: 'install-tab-helm' }, { id: 'controller', label: 'kubectl (controller)', testId: 'install-tab-controller' }]}
+              />
               {via === 'helm' ? (
                 <>
                   <div className="mb-1 flex items-center justify-between text-sm text-nb-300">

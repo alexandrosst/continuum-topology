@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import { tabClass } from '@/components/ui/Tabs'
 import { Database, KeyRound, LayoutDashboard, Settings2 } from 'lucide-react'
 import { type ReactNode, useMemo } from 'react'
 import { Navigate, NavLink, Route, Routes } from 'react-router-dom'
@@ -24,11 +25,11 @@ const TABS = [
 
 /** The sections of FUSION, as the app's segmented control (the Local / Regional switch of the Pipeline page): each is a route, so the
  *  address says which is open and Back goes to the one before. */
-function Tabs() {
+function SectionTabs() {
   return (
-    <nav className="flex w-fit max-w-full overflow-hidden rounded-md border border-nb-850" aria-label="FUSION sections">
+    <nav className="flex w-fit max-w-full overflow-x-auto border-b border-nb-850" aria-label="FUSION sections">
       {TABS.map(({ to, end, label, icon: Icon }) => (
-        <NavLink key={to} to={to} end={end} className={({ isActive }) => clsx('flex items-center gap-1.5 px-2.5 py-1.5 text-sm sm:px-3', isActive ? 'bg-nb-940 text-nb-300' : 'text-nb-400 hover:text-nb-300')}>
+        <NavLink key={to} to={to} end={end} className={({ isActive }) => clsx('tab-link', tabClass(isActive))}>
           <Icon size={ICON_SM} className="hidden sm:block" aria-hidden /> {label}
         </NavLink>
       ))}
@@ -84,7 +85,7 @@ export default function FusionPage() {
         actions={on ? <OpenPages links={status.links} opening={page.opening} onOpen={(p) => void page.open(p)} /> : undefined}
       />
       <div className="mb-6 flex flex-wrap items-center gap-x-4 gap-y-2">
-        <Tabs />
+        <SectionTabs />
         {status && (
           <span className="flex items-center gap-2 text-xs text-nb-500" data-testid="fusion-state">
             {/* Only the state's word, so that a change (Starting, then Healthy) is announced and "last data 12 s ago" counting up is not. */}

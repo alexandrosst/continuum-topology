@@ -1,11 +1,13 @@
 import clsx from 'clsx'
+import { Tabs } from '@/components/ui/Tabs'
 import { ChevronDown, ChevronRight, List, Network, Plug, Radio, Server } from 'lucide-react'
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, useLocation, useSearchParams } from 'react-router-dom'
 import { CanSee, ConsentPanel, DiscoveryChip, HealthChip, Problems } from '@/features/agents/components/AgentInsight'
 import { TelemetryPanel } from '@/features/pipeline/components/telemetry/TelemetryPanel'
+import { StatusBadge } from '@/components/ui/Status'
 import { CopyCommand as CopyableCommand } from '@/components/ui/CopyCommand'
-import { CheckLine, MODULE_STYLE, ObserverLine, ScopeLine, STATUS_STYLE, when } from '@/features/discovery/components/AgentParts'
+import { CheckLine, MODULE_STYLE, ObserverLine, ScopeLine, ApprovalStatus, when } from '@/features/discovery/components/AgentParts'
 import ApprovalCard from '@/features/discovery/components/ApprovalCard'
 import { useConnectFlow } from '@/features/discovery/components/ConnectFlow'
 import { useTelemetryFlow } from '@/features/pipeline/components/telemetry/TelemetryFlow'
@@ -187,20 +189,13 @@ export default function AgentsPage() {
                   </button>
                 ))}
             </div>
-            <div className="flex overflow-hidden rounded-md border border-nb-850" role="tablist" aria-label="How to show agents">
-              {[{ id: false, label: 'List', icon: List }, { id: true, label: 'Map', icon: Network }].map(({ id, label, icon: I }) => (
-                <button
-                  key={label}
-                  role="tab"
-                  aria-selected={map === id}
-                  onClick={() => setSp((p) => { const n = new URLSearchParams(p); if (id) n.set('view', 'map'); else n.delete('view'); return n }, { replace: true })}
-                  className={clsx('flex items-center gap-1.5 px-3 py-1.5 text-sm', map === id ? 'bg-nb-940 text-nb-300' : 'text-nb-400 hover:text-nb-300')}
-                  data-testid={`agents-${label.toLowerCase()}`}
-                >
-                  <I size={ICON_SM} aria-hidden /> {label}
-                </button>
-              ))}
-            </div>
+            <Tabs
+              label="How to show agents"
+              variant="segmented"
+              value={map}
+              onChange={(id) => setSp((p) => { const n = new URLSearchParams(p); if (id) n.set('view', 'map'); else n.delete('view'); return n }, { replace: true })}
+              items={[{ id: false, label: 'List', icon: <List size={ICON_SM} aria-hidden />, testId: 'agents-list' }, { id: true, label: 'Map', icon: <Network size={ICON_SM} aria-hidden />, testId: 'agents-map' }]}
+            />
           </div>
 
           {error && <ErrorBanner className="mb-4">{error}</ErrorBanner>}
@@ -271,9 +266,7 @@ export default function AgentsPage() {
                             </div>
                           )}
                           {skewWarning(a.clockSkewMs) && a.clockSkewMs !== undefined && (
-                            <span className="mt-1 inline-block rounded-full border border-warn/40 bg-warn/10 px-2 py-px text-[11px] font-medium text-warn" title={skewWarning(a.clockSkewMs)} data-testid="clock-chip">
-                              {skewLabel(a.clockSkewMs)}
-                            </span>
+                            <StatusBadge tone="attention" label={skewLabel(a.clockSkewMs)} title={skewWarning(a.clockSkewMs)} data-testid="clock-chip" className="mt-1" />
                           )}
                         </Td>
                         <Td valign="top" className="whitespace-nowrap tabular-nums">
@@ -288,7 +281,7 @@ export default function AgentsPage() {
                         </Td>
                         <Td valign="top" className="whitespace-nowrap" title={`Tier ${a.accessTier}`}>{tierOf(a)}</Td>
                         <Td valign="top">
-                          <span className={clsx('rounded-full border px-2 py-0.5 text-xs font-medium capitalize', STATUS_STYLE[a.status])}>{a.status}</span>
+                          <ApprovalStatus status={a.status} />
                         </Td>
                         <Td valign="top" className="text-nb-600" />
                       </tr>

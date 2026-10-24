@@ -11,6 +11,7 @@ import type { Completeness as CompletenessInfo } from '@/lib/completeness'
 import { IP_SCOPE_HELP, ipScope, ipScopeLabel, loadBand } from '@/lib/present'
 import { rttLabel } from '@/lib/metrics'
 import { ageLabel, EVIDENCE_HELP, EVIDENCE_LABEL, EVIDENCE_TONE, needsEvidenceChip, TONE_CLASS, type EvidenceLevel, type ObsInfo, type Tone } from '@/lib/provenance'
+import { StatusBadge, StatusPip, type StatusTone } from '@/components/ui/Status'
 import { STATUS_COLOR, TIER_COLOR, type Source, type Status, type Tier } from '@/lib/types'
 
 /** The app's whole icon-size scale: every lucide-react (and brand.tsx) icon's `size` prop should come
@@ -666,11 +667,16 @@ export function useFlash<T>(value: T, ms = 800): boolean {
   return flash
 }
 
+const STATUS_TONE: Record<Status, StatusTone> = { healthy: 'healthy', degraded: 'attention', offline: 'down', unknown: 'unknown' }
+
 export function StatusDot({ status, withLabel, notCurrent }: { status: Status; withLabel?: boolean; notCurrent?: string }) {
-  const flash = useFlash(status)
   return (
     <span className="inline-flex items-center gap-2 text-sm" title={notCurrent ? `Last known: ${status}. ${notCurrent}` : undefined}>
-      <span className={clsx('size-2 rounded-full', flash && 'flash-ring', notCurrent && 'border bg-transparent')} style={notCurrent ? { borderColor: STATUS_COLOR[status] } : { background: STATUS_COLOR[status] }} />
+      {notCurrent ? (
+        <span className="size-2 rounded-full border bg-transparent" style={{ borderColor: STATUS_COLOR[status] }} />
+      ) : (
+        <StatusPip tone={STATUS_TONE[status] ?? 'unknown'} size="size-2" />
+      )}
       {withLabel && <span className={clsx('capitalize', notCurrent ? 'text-nb-500' : 'text-nb-400')}>{notCurrent ? `was ${status}` : status}</span>}
     </span>
   )
@@ -730,22 +736,10 @@ export function SourceBadge({ source, overridden, stacked }: { source: Source; o
  * meaning; the dot only repeats it. Use this, not a hand-picked colour, wherever an entity has a liveness.
  */
 export type LiveKind = 'online' | 'offline' | 'late' | 'starting' | 'idle'
+const LIVE_TONE: Record<LiveKind, StatusTone> = { online: 'healthy', offline: 'down', late: 'attention', starting: 'setup', idle: 'unknown' }
 export function LiveDot({ kind, size = 'size-1.5', className }: { kind: LiveKind; size?: string; className?: string }) {
-  // A change of state rings the dot once (the same cue StatusDot gives), so a status that flips while someone is looking is noticed.
-  const flash = useFlash(kind)
-  const cls = clsx(className, flash && 'flash-ring rounded-full')
-  switch (kind) {
-    case 'online':
-      return <PulseDot color="bg-ok" pulse size={size} className={cls} />
-    case 'offline':
-      return <PulseDot color="bg-bad" size={size} className={cls} />
-    case 'late':
-      return <PulseDot color="bg-warn" size={size} className={cls} />
-    case 'starting':
-      return <span className={clsx('inline-block shrink-0 rounded-full border border-warn animate-pulse', size, cls)} aria-hidden />
-    default:
-      return <span className={clsx('inline-block shrink-0 rounded-full border border-nb-500', size, cls)} aria-hidden />
-  }
+  // The same pip every status in the product uses; a change of state rings it once, so one that flips while someone is looking is noticed.
+  return <StatusPip tone={LIVE_TONE[kind]} pulse={kind === 'online'} size={size} className={className} />
 }
 
 /**
@@ -782,31 +776,19 @@ export function PulseDot({ color, pulse, size = 'size-2', className }: { color: 
  * nobody observes (typed by hand): they have nothing to be stale about. The tooltip says why.
  */
 export function ObservationChip({ info, className, quiet }: { info: ObsInfo | undefined; className?: string; quiet?: boolean }) {
-  const flash = useFlash(info?.kind)
   if (!info) return null
+  const tone = OBS_TONE[info.kind]
   // In a table of records that are mostly fine, the ordinary case is a small dot; anything else keeps its chip.
   if (quiet && info.kind === 'live') {
     return (
-      <span title="Live: connected and heard from recently." data-observation="live" role="img" aria-label="live" className={clsx('inline-block align-middle rounded-full', flash && 'flash-ring')}>
-        <PulseDot color="bg-ok" pulse size="size-1.5" className={className} />
+      <span title="Live: connected and heard from recently." data-observation="live" role="img" aria-label="live" className="inline-block align-middle">
+        <StatusPip tone={tone} pulse className={className} />
       </span>
     )
   }
-  return (
-    <span
-      title={info.reason ?? (info.kind === 'live' ? 'Connected and heard from recently.' : info.label)}
-      data-observation={info.kind}
-      className={clsx('inline-flex items-center gap-1 whitespace-nowrap rounded border px-1.5 py-px text-[11px] font-medium leading-4', TONE_CLASS[info.tone], flash && 'flash-bg', className)}
-    >
-      <PulseDot
-        color={info.kind === 'live' ? 'bg-ok' : info.kind === 'gone' ? 'bg-nb-500' : info.kind === 'revoked' ? 'bg-bad' : 'bg-warn'}
-        pulse={info.kind === 'live'}
-        size="size-1.5"
-      />
-      {info.label}
-    </span>
-  )
+  return <StatusBadge tone={tone} label={info.label} title={info.reason ?? (info.kind === 'live' ? 'Connected and heard from recently.' : info.label)} className={className} data-observation={info.kind} />
 }
+const OBS_TONE: Record<ObsInfo['kind'], StatusTone> = { live: 'healthy', disconnected: 'attention', stale: 'attention', revoked: 'down', gone: 'off' }
 
 /**
  * How sure the system is of one value: measured, reported, inferred, a guess or unknown. Shown where a value is
