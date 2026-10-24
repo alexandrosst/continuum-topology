@@ -4,6 +4,7 @@ import (
 	"embed"
 	"encoding/json"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 )
@@ -111,6 +112,9 @@ func OpenAPI(ops []Op) obj {
 		}
 		for _, n := range op.Params {
 			pm := openAPIParam(n, "query", ParamDefs[n], op.Notes[n])
+			if slices.Contains(op.Required, n) {
+				pm["required"] = true
+			}
 			if ex := op.Conflicts(n); len(ex) > 0 { // the page greys the others out while this one is filled in
 				pm["x-excludes"] = ex
 			}

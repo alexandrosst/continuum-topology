@@ -31,6 +31,7 @@ type Op struct {
 	Description  string
 	PathParams   []string          // names in PathParamDefs
 	Params       []string          // query parameter names in ParamDefs, in the order they are shown
+	Required     []string          // the ones among Params the handler refuses to answer without (the description says it, and the page shows it)
 	Notes        map[string]string // what a parameter means on this route, where that is more than its shared description
 	Body         string            // name of the request body schema, for POST
 	BodyExample  string            // a JSON example of it

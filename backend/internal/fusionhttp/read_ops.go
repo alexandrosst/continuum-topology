@@ -27,10 +27,10 @@ func (g *Guard) ReadOps() []Op {
 			Excludes: map[string][]string{"name": {"metric"}}, Response: "MetricRange", Handler: g.MetricRange},
 		{Method: "GET", Path: "/metrics/query", Tag: "Metrics", Summary: "Run a PromQL instant query",
 			Description: "PromQL as written, answered the way Prometheus answers. Only for a caller whose access is not limited to certain namespaces or clusters.",
-			Params:      []string{"query", "time"}, Response: "PromResult", Handler: g.MetricRaw("query")},
+			Params:      []string{"query", "time"}, Required: []string{"query"}, Response: "PromResult", Handler: g.MetricRaw("query")},
 		{Method: "GET", Path: "/metrics/query_range", Tag: "Metrics", Summary: "Run a PromQL range query",
 			Description: "PromQL over a range, answered the way Prometheus answers. Only for a caller whose access is not limited. `start`, `end` and `step` are all required.",
-			Params:      []string{"query", "start", "end", "step"}, Response: "PromResult", Handler: g.MetricRaw("query_range")},
+			Params:      []string{"query", "start", "end", "step"}, Required: []string{"query", "start", "end", "step"}, Response: "PromResult", Handler: g.MetricRaw("query_range")},
 
 		{Method: "GET", Path: "/logs", Tag: "Logs", Summary: "Search log lines",
 			Description: "Lines matching every filter given, in the range. A line carries the trace and span id it was written under, so `trace_id` finds everything a request logged.",

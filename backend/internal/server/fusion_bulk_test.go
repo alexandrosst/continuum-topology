@@ -342,3 +342,27 @@ func fusionOps(a *Admin) []fusionhttp.Op {
 	}
 	return g.Ops()
 }
+
+// A parameter the description marks required is one the route really refuses to answer without.
+func TestTheParametersTheDescriptionCallsRequiredAreRefusedWhenMissing(t *testing.T) {
+	d := newDataRig(t)
+	checked := 0
+	for _, op := range fusionOps(nil) {
+		for _, missing := range op.Required {
+			var q []string
+			for _, p := range op.Required {
+				if p != missing {
+					q = append(q, p+"=1")
+				}
+			}
+			r := d.get(fusionhttp.APIPath+op.Path+"?"+strings.Join(q, "&"), withCookie(d.admin))
+			if r.Code != 400 {
+				t.Errorf("%s without %s: %d %s", op.Path, missing, r.Code, r.Body.String())
+			}
+			checked++
+		}
+	}
+	if checked == 0 {
+		t.Fatal("nothing was checked")
+	}
+}

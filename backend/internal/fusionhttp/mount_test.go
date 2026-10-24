@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"testing"
 
 	"ikhnos/internal/fusionapi"
@@ -71,4 +72,34 @@ func TestARouteWithoutAHandlerIsNotMounted(t *testing.T) {
 		}
 	}()
 	newGuard(fakeAccounts{}, fakeTokens{}).Mount(&recorded{mux: http.NewServeMux()}, []Op{{Method: "GET", Path: "/x", Tag: "T", Response: "R"}})
+}
+
+func TestAParameterARouteCannotRunWithoutIsMarkedRequiredInTheDescription(t *testing.T) {
+	var g *Guard
+	ops := g.Ops()
+	spec := OpenAPI(ops)["paths"].(obj)
+	n := 0
+	for _, op := range ops {
+		params := spec[APIPath+op.Path].(obj)[strings.ToLower(op.Method)].(obj)["parameters"].([]obj)
+		for _, p := range params {
+			name, _ := p["name"].(string)
+			in, _ := p["in"].(string)
+			want := in == "path" || slices.Contains(op.Required, name)
+			got, _ := p["required"].(bool)
+			if got != want {
+				t.Errorf("%s %s %s: required = %v, want %v", op.Method, op.Path, name, got, want)
+			}
+			if in == "query" && want {
+				n++
+			}
+		}
+		for _, r := range op.Required {
+			if !slices.Contains(op.Params, r) {
+				t.Errorf("%s %s requires %q, which it does not take", op.Method, op.Path, r)
+			}
+		}
+	}
+	if n == 0 {
+		t.Error("no route marks a query parameter required")
+	}
 }
