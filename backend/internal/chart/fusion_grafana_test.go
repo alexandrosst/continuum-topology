@@ -283,7 +283,7 @@ func TestFusionIkhnosDashboards(t *testing.T) {
 		provisioned[d.UID] = true
 	}
 	uids := map[string]bool{}
-	for name, want := range map[string]string{"clusters": "ikhnos-clusters", "workloads": "ikhnos-workloads", "delivery": "ikhnos-delivery", "applications": "ikhnos-applications", "categories": "ikhnos-categories", "links": "ikhnos-links"} {
+	for name, want := range map[string]string{"clusters": "ikhnos-clusters", "workloads": "ikhnos-workloads", "delivery": "ikhnos-delivery", "applications": "ikhnos-applications", "categories": "ikhnos-categories", "links": "ikhnos-links", "ikhnos-self": "ikhnos-self"} {
 		d := load(full, name)
 		if d.UID != want || d.Title == "" || len(d.Panels) < 8 {
 			t.Errorf("%s: uid %q title %q with %d panels", name, d.UID, d.Title, len(d.Panels))
@@ -330,7 +330,7 @@ func TestFusionIkhnosDashboards(t *testing.T) {
 	}
 
 	only := fusionRender(t, "f", "--set", "loki.enabled=false", "--set", "tempo.enabled=false")
-	for _, name := range []string{"clusters", "workloads", "delivery", "applications", "categories", "links"} {
+	for _, name := range []string{"clusters", "workloads", "delivery", "applications", "categories", "links", "ikhnos-self"} {
 		for _, p := range load(only, name).Panels {
 			if p.Type != "row" && p.Datasource.UID != "fusion-metrics" {
 				t.Errorf("%s with only Prometheus on still has panel %q on %q", name, p.Title, p.Datasource.UID)
@@ -339,7 +339,7 @@ func TestFusionIkhnosDashboards(t *testing.T) {
 	}
 	// Without Prometheus there is nothing for their variables to read: only the starter dashboard remains, and it is the home.
 	noProm := fusionRender(t, "f", "--set", "prometheus.enabled=false")
-	for _, name := range []string{"clusters.json", "workloads.json", "delivery.json", "applications.json", "categories.json", "links.json"} {
+	for _, name := range []string{"clusters.json", "workloads.json", "delivery.json", "applications.json", "categories.json", "links.json", "ikhnos-self.json"} {
 		if _, ok := noProm.configs["f-fusion-grafana-dashboards"].Data[name]; ok {
 			t.Errorf("%s rendered with Prometheus off", name)
 		}
@@ -520,7 +520,7 @@ func TestFusionDashboardQueriesMeanWhatTheirTitlesSay(t *testing.T) {
 // groups with exactly the rule the API's category filter uses, so a plot and an API call never disagree about what is system.
 func TestFusionDashboardsRefreshAndCategories(t *testing.T) {
 	r := fusionRender(t, "f")
-	for _, name := range []string{"clusters", "workloads", "delivery", "applications", "categories", "arriving"} {
+	for _, name := range []string{"clusters", "workloads", "delivery", "applications", "categories", "ikhnos-self", "arriving"} {
 		raw := r.configs["f-fusion-grafana-dashboards"].Data[name+".json"]
 		var d struct {
 			Refresh    string `json:"refresh"`
@@ -668,7 +668,7 @@ func TestFusionDashboardsKeepClustersApartAndAreCheapToRefresh(t *testing.T) {
 	}
 	byClause := regexp.MustCompile(`by \(([^)]*)\)`)
 	nameless := regexp.MustCompile(`(^|[^\w])\{ikhnos_`)
-	for _, name := range []string{"clusters", "workloads", "delivery", "applications", "categories", "arriving"} {
+	for _, name := range []string{"clusters", "workloads", "delivery", "applications", "categories", "ikhnos-self", "arriving"} {
 		var d dashboard
 		if err := json.Unmarshal([]byte(r.configs["f-fusion-grafana-dashboards"].Data[name+".json"]), &d); err != nil {
 			t.Fatal(err)
