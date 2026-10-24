@@ -166,7 +166,8 @@ func (c *Service) Rejoin(ctx context.Context, ip string, req *ikhnosv1.RejoinReq
 	if len(leaf.Subject.Organization) != 1 || now.Before(leaf.NotBefore) || now.Sub(leaf.NotAfter) > pki.RejoinWindow {
 		return nil, deny
 	}
-	if _, _, err := pki.Holder(leaf, pki.HolderAgent); err != nil {
+	holder, stated, err := pki.Holder(leaf, pki.HolderAgent)
+	if err != nil || (stated && holder.ID != leaf.Subject.CommonName) {
 		return nil, deny
 	}
 	csr, err := pki.ParseCSR(req.CsrDer)
@@ -181,7 +182,7 @@ func (c *Service) Rejoin(ctx context.Context, ip string, req *ikhnosv1.RejoinReq
 	id := leaf.Subject.CommonName
 	ag, err := c.AuthorizeAgent(ctx, id)
 	// The certificate must name the organisation the agent belongs to now.
-	if err != nil || leaf.Subject.Organization[0] != ag.OrgID {
+	if err != nil || !holdsOrg(leaf, holder, stated, ag.OrgID) {
 		return nil, deny
 	}
 	if c.RenewRL != nil && !c.RenewRL.Allow("renew:"+id) {

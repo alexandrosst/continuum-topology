@@ -88,9 +88,14 @@ func (c *Service) identity(ctx context.Context) (store.Agent, error) {
 	}
 	// The certificate states whose it is: an operator's certificate is refused here by what it says it is, not by happening not to match an
 	// agent's name.
-	if _, _, err := pki.Holder(leaf, pki.HolderAgent); err != nil {
+	holder, stated, err := pki.Holder(leaf, pki.HolderAgent)
+	if err != nil {
 		kernel.Metrics.AuthFailures.Add(1)
 		return store.Agent{}, status.Error(codes.Unauthenticated, "this certificate was not issued to an agent")
+	}
+	if stated && holder.ID != leaf.Subject.CommonName {
+		kernel.Metrics.AuthFailures.Add(1)
+		return store.Agent{}, status.Error(codes.Unauthenticated, "this certificate names one agent in its name and another in its identity")
 	}
 	a, err := c.AuthorizeAgent(ctx, leaf.Subject.CommonName)
 	if err != nil {
@@ -106,9 +111,23 @@ func (c *Service) identity(ctx context.Context) (store.Agent, error) {
 		}
 		return store.Agent{}, ToStatus(err)
 	}
+	// The certificate names the organisation the agent belongs to now, in its subject and in the identity it states: what separates
+	// one organisation's agents from another's is this comparison, not that agent ids happen to be random.
+	if !holdsOrg(leaf, holder, stated, a.OrgID) {
+		kernel.Metrics.AuthFailures.Add(1)
+		return store.Agent{}, status.Error(codes.Unauthenticated, "this certificate was issued for another organisation")
+	}
 	// The certificate must be the one currently issued to this agent or an earlier one from the
 	// same identity; revocation is what matters, and that is checked above on every call.
 	return a, nil
+}
+
+// holdsOrg says whether a certificate names the organisation: its subject does, and so does the identity it states when it states one.
+func holdsOrg(leaf *x509.Certificate, holder pki.Identity, stated bool, org string) bool {
+	if len(leaf.Subject.Organization) != 1 || leaf.Subject.Organization[0] != org {
+		return false
+	}
+	return !stated || holder.Org == org
 }
 
 func hasClientAuth(c *x509.Certificate) bool {
