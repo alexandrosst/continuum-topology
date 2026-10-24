@@ -40,15 +40,23 @@ spec:
       verifyImages:
         - imageReferences:
             # Match by repository name, whatever registry/namespace you publish to (scripts/publish.sh's REGISTRY
-            # argument): the images are always named .../ikhnos, .../server and, when the optional controller is used, .../controller. Narrow this to your exact
+            # argument): the images are always named .../ikhnos, .../server, .../link (only with the cluster-link prober) and, when the optional controller is used, .../controller. Narrow this to your exact
             # registry (e.g. "ghcr.io/yourname/ikhnos") once you have one, so a same-named image from
             # elsewhere can never satisfy this rule by accident.
+            # Each image in the three forms a pod can name it: bare, with a tag, and pinned by digest (the form the install commands
+            # print when scripts/publish.sh's digest is given). The cluster-link image (<registry>/link) is one of them.
             - "*/ikhnos"
             - "*/ikhnos:*"
+            - "*/ikhnos@*"
             - "*/server"
             - "*/server:*"
+            - "*/server@*"
             - "*/controller"
             - "*/controller:*"
+            - "*/controller@*"
+            - "*/link"
+            - "*/link:*"
+            - "*/link@*"
           attestors:
             - entries:
                 - keyless:
