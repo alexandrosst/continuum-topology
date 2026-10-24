@@ -46,7 +46,7 @@ Once `EXTERNAL-IP` is no longer `<pending>`, point your real DNS name at it (an 
 
 ```bash
 helm upgrade ikhnos-server oci://ghcr.io/alexandrosst/ikhnos-server \
-  --namespace ikhnos --reuse-values \
+  --namespace ikhnos --reset-then-reuse-values \
   --set agent.publicAddress=ikhnos.example.com:8443
 ```
 
@@ -62,7 +62,7 @@ Instead of `port-forward`, put the admin port behind a Gateway that terminates T
 
 ```bash
 helm upgrade ikhnos-server oci://ghcr.io/alexandrosst/ikhnos-server \
-  --namespace ikhnos --reuse-values \
+  --namespace ikhnos --reset-then-reuse-values \
   --set httproute.enabled=true \
   --set-json httproute.parentRefs='[{"name":"shared-gateway","namespace":"gateways","sectionName":"https"}]' \
   --set-json httproute.hostnames='["ikhnos.example.com"]'

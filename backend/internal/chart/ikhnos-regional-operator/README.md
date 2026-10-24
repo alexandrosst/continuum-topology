@@ -54,7 +54,7 @@ on, or from the operator's heartbeat action - and prints the exact commands:
 
 ```
 kubectl create secret generic <release>-heartbeat-auth --namespace <ns> --from-literal=token=<heartbeat secret>
-helm upgrade <release> <chart> --namespace <ns> --reuse-values \
+helm upgrade <release> <chart> --namespace <ns> --reset-then-reuse-values \
   --set heartbeat.enabled=true --set heartbeat.url=https://<server>/api/v1/operator-heartbeat \
   --set heartbeat.auth.secretName=<release>-heartbeat-auth
 ```
@@ -166,7 +166,7 @@ receiving on `:4317`/`:4318` (grpc/http) and re-exporting to `export.otlp.endpoi
 ## Connecting a source cluster
 
 This chart's own install does not reach into any other cluster. Each source cluster's own
-`ikhnos-agent` release needs a separate `helm upgrade --reuse-values --set telemetry.export.otlp.endpoint=...`
+`ikhnos-agent` release needs a separate `helm upgrade --reset-then-reuse-values --set telemetry.export.otlp.endpoint=...`
 pointed at this operator's receiver (`<release>.<namespace>.svc:4317`) — Ikhnos prints the exact command
 for every source cluster named when the operator was created. Nothing here applies that for you, and adding
 a cluster later is the same `helm upgrade` against that cluster's own release, not against this chart.

@@ -29,7 +29,7 @@ Lets the agent port share the same `:443` a Gateway already uses, routed by SNI 
 
 ```bash
 helm upgrade ikhnos-server oci://ghcr.io/alexandrosst/ikhnos-server \
-  --namespace ikhnos --reuse-values \
+  --namespace ikhnos --reset-then-reuse-values \
   --set agent.service.type=ClusterIP \
   --set agent.tlsRoute.enabled=true \
   --set-json agent.tlsRoute.parentRefs='[{"name":"shared-gateway","namespace":"gateways","sectionName":"agents-tls"}]' \
