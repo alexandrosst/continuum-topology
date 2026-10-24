@@ -1,7 +1,9 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -104,5 +106,44 @@ func TestTheDescriptionCarriesTheGuideAndTheNotFoundOfRoutesThatNameOneThing(t *
 	}
 	if _, ok := paths[fusionhttp.APIPath+"/status"].(obj)["get"].(obj)["responses"].(obj)["404"]; ok {
 		t.Error("/status describes a 404")
+	}
+}
+
+// An example in the description is an answer the server could give: it decodes into the type the handler encodes, with no field the type
+// does not have, and encodes back to what was written, so it cannot show a field that is not sent or leave out one that always is.
+func TestTheExamplesOfTheDescriptionAreWhatTheServerEncodes(t *testing.T) {
+	spec := fusionhttp.OpenAPI(nil)
+	schemas := spec["components"].(obj)["schemas"].(obj)
+	byGo := map[string]reflect.Type{}
+	for _, r := range fusionhttp.WireTypes() {
+		byGo[deref(reflect.TypeOf(r.Value)).Name()] = deref(reflect.TypeOf(r.Value))
+	}
+	pairs := map[string]string{"Status": "statusDoc", "NameList": "metricNamesDoc", "ServiceList": "servicesDoc", "LogResult": "logsDoc"}
+	for schema, goName := range pairs {
+		ex := schemas[schema].(obj)["example"]
+		if ex == nil {
+			t.Errorf("%s has no example", schema)
+			continue
+		}
+		raw, _ := json.Marshal(ex)
+		typ, ok := byGo[goName]
+		if !ok {
+			t.Errorf("no go type %s", goName)
+			continue
+		}
+		v := reflect.New(typ)
+		dec := json.NewDecoder(bytes.NewReader(raw))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(v.Interface()); err != nil {
+			t.Errorf("%s: the example does not decode into %s: %v", schema, goName, err)
+			continue
+		}
+		back, _ := json.Marshal(v.Interface())
+		var a, b any
+		_ = json.Unmarshal(raw, &a)
+		_ = json.Unmarshal(back, &b)
+		if !reflect.DeepEqual(a, b) {
+			t.Errorf("%s: the example is not what %s encodes\nwritten: %s\nencoded: %s", schema, goName, raw, back)
+		}
 	}
 }
