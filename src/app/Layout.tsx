@@ -389,7 +389,7 @@ function Shell() {
               {full ? (
                 <Outlet />
               ) : (
-                <div className="fade-in mx-auto max-w-[1680px] px-4 py-6 sm:px-8 sm:py-8">
+                <div className="rise-in mx-auto max-w-[1680px] px-4 py-6 sm:px-8 sm:py-8">
                   <Outlet />
                 </div>
               )}

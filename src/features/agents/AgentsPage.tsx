@@ -19,7 +19,7 @@ import { useTelemetryFlow } from '@/features/pipeline/components/telemetry/Telem
 import EntityHistory from '@/features/history/components/EntityHistory'
 import { ConfirmModal } from '@/components/forms'
 import { DistroIcon, Flag, WithIcon } from '@/components/ui/brand'
-import { Button, EmptyState, ErrorBanner, ICON_SM, LiveDot, type LiveKind, PageHeader, StatTile, Table, Td, Th, TierBadge } from '@/components/ui/primitives'
+import { Button, EmptyState, ErrorBanner, ICON_SM, LiveDot, type LiveKind, PageHeader, SkeletonBlock, StatTile, Table, TableSkeleton, Td, Th, TierBadge } from '@/components/ui/primitives'
 import { api, ApiError } from '@/lib/api'
 import { skewLabel, skewWarning } from '@/lib/clock'
 import { extrasOf, type AgentExtras } from '@/lib/consent'
@@ -81,6 +81,8 @@ export default function AgentsPage() {
   // Diagnostics and overrides are in the raw state document, and only for people who may change an agent's access.
   const rawAgents = useServer((s) => s.state?.agents)
   const connected = useServer((s) => s.status === 'connected')
+  // Connected, and the first state has not arrived: an empty list now would say "no cluster is connected" about something not yet looked at.
+  const loading = useServer((s) => s.status === 'connected' && !s.state)
   const canConsent = useServer((s) => s.status === 'connected' && s.canEdit())
   const conn = useServer((s) => s.conn)
   const refresh = useServer((s) => s.refresh)
@@ -193,7 +195,9 @@ export default function AgentsPage() {
       />
 
       <TabPanel idBase="agents" id="agents" active={tab === 'agents'}>
-      {agents.length === 0 ? (
+      {agents.length === 0 && loading ? (
+        <div className="space-y-3" aria-busy><div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{[0, 1, 2, 3].map((i) => <SkeletonBlock key={i} className="h-20 w-full rounded-xl" />)}</div><TableSkeleton colCount={6} rows={4} /></div>
+      ) : agents.length === 0 ? (
         <EmptyState
           title="No cluster is connected yet"
           description="Agents run inside your clusters and report to this server. Connect a cluster to install one: it dials out to this server, and nothing is read until you approve it."
@@ -201,7 +205,7 @@ export default function AgentsPage() {
         />
       ) : (
         <>
-          <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4" data-testid="agent-stats">
+          <div className="stagger mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4" data-testid="agent-stats">
             <StatTile label="Connected" value={`${counts.ok ?? 0} of ${rows.filter((r) => r.a.status === 'approved' && r.h !== 'unknown').length}`} sub={(counts.late ?? 0) + (counts.offline ?? 0) > 0 ? `${(counts.late ?? 0) + (counts.offline ?? 0)} need a look` : (counts.ok ?? 0) === 0 ? 'no agent is reporting live' : 'all approved agents are up'} tone={(counts.late ?? 0) + (counts.offline ?? 0) > 0 ? 'warn' : undefined} />
             <StatTile label="Waiting for approval" value={String(counts.waiting ?? 0)} sub={counts.waiting ? 'review them above' : 'no request is waiting'} tone={counts.waiting ? 'warn' : undefined} />
             <StatTile label="Received" value={connected ? bytesTotal(sent) : '—'} sub={connected ? 'since the server started' : 'needs a server'} />
