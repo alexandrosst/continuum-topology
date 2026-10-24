@@ -1,0 +1,86 @@
+name: Fuzz
+
+# The fuzz targets (the Go functions named Fuzz*) run in CI only as their seeds, inside `go test`. That keeps a known-bad input from coming
+# back; it does not look for new ones. This looks: each target runs for a while, once a week, from the coverage the last run reached (the
+# fuzz cache is kept between runs). It never blocks a push or a pull request, and a crash fails the run and keeps the input that caused it
+# as an artifact: add that file to the package's testdata/fuzz/<Target>/ and it is a regression test from then on.
+#
+# The list of targets is found in the code (scripts/fuzz-targets.sh), not written here.
+on:
+  schedule:
+    - cron: '41 3 * * 0'
+  workflow_dispatch:
+    inputs:
+      fuzztime:
+        description: How long each target runs (a Go duration, for example 30s or 10m)
+        default: 5m
+      target:
+        description: Only this target (for example FuzzSyncIntake). Empty runs them all.
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fuzz-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  targets:
+    name: Find the targets
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.find.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: find
+        env:
+          TARGET: ${{ github.event.inputs.target }}
+        # Assigned first, so that a name that matches no target fails the step instead of passing an empty list on.
+        run: |
+          matrix=$(scripts/fuzz-targets.sh "$TARGET")
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+  fuzz:
+    name: ${{ matrix.name }}
+    needs: targets
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.targets.outputs.matrix) }}
+    env:
+      FUZZTIME: ${{ github.event.inputs.fuzztime || '5m' }}
+      PKG: ${{ matrix.pkg }}
+      TARGET: ${{ matrix.name }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      # What the fuzzer has learned about the target (the inputs that reached new code). Saved at the end of every run, so the next one
+      # starts where this one stopped instead of from the seeds.
+      - name: Fuzz cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/go-build/fuzz
+          key: fuzz-${{ matrix.name }}-${{ github.run_id }}
+          restore-keys: fuzz-${{ matrix.name }}-
+
+      - name: Fuzz
+        working-directory: backend
+        # -run '^$' skips the ordinary tests of the package: they run in CI already. A target is matched whole, so one named FuzzX does
+        # not also run FuzzXY.
+        run: go test "$PKG" -run '^$' -fuzz "^${TARGET}\$" -fuzztime "$FUZZTIME"
+
+      - name: The input that made it fail
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crash-${{ matrix.name }}
+          path: backend/${{ matrix.pkg }}/testdata/fuzz/${{ matrix.name }}
+          if-no-files-found: warn
