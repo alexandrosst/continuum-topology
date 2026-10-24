@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"ikhnos/internal/accounts"
@@ -111,6 +112,22 @@ func Reasoned(w http.ResponseWriter, r *http.Request, log *slog.Logger, do func(
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// QueryLimit reads the `limit` query parameter of a list: 0 when it is not there (the route's own default applies), the number when it is
+// a positive whole number, and a 400 for anything else. A list that quietly ignored "limit=abc" or "limit=-5" would answer with its
+// default and leave the caller believing it had asked for what it typed. A number above what a route returns is the route's to
+// clamp (and to say it did).
+func QueryLimit(r *http.Request) (int, error) {
+	v := r.URL.Query().Get("limit")
+	if v == "" {
+		return 0, nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 1 {
+		return 0, kernel.Errf(kernel.KindInvalid, "limit must be a positive whole number")
+	}
+	return n, nil
 }
 
 // ParseTime reads the RFC 3339 time in the query parameter name: the zero time if it is not there.

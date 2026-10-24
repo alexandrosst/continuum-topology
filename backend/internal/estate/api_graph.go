@@ -192,7 +192,11 @@ func (h *API) timeline(w http.ResponseWriter, r *http.Request) {
 		httpkit.WriteErr(w, 400, "give kind and id")
 		return
 	}
-	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	limit, err := httpkit.QueryLimit(r)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
 	tl, err := g.Timeline(r.Context(), h.For(r).C.OrgID, kind, id, limit)
 	if errors.Is(err, store.ErrNotFound) {
 		httpkit.WriteErr(w, 404, "no history for that record")
@@ -224,7 +228,11 @@ func (h *API) audit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := graph.AuditQuery{Actor: r.URL.Query().Get("actor"), Action: r.URL.Query().Get("action"), TargetID: r.URL.Query().Get("target"), Since: since, Until: until}
-	q.Limit, _ = strconv.Atoi(r.URL.Query().Get("limit"))
+	var limErr error
+	if q.Limit, limErr = httpkit.QueryLimit(r); limErr != nil {
+		h.fail(w, r, limErr)
+		return
+	}
 	org := h.For(r).C.OrgID
 	if g := h.graph(r); g != nil {
 		if rows, err := g.Audit(r.Context(), org, q); err == nil {
@@ -259,7 +267,11 @@ func (h *API) workspaceRevisions(w http.ResponseWriter, r *http.Request) {
 		httpkit.WriteJSON(w, 200, workspaceRevisionsDoc{Revisions: []graph.WorkspaceRev{}})
 		return
 	}
-	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	limit, err := httpkit.QueryLimit(r)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
 	revs, err := g.WorkspaceRevs(r.Context(), h.For(r).C.OrgID, limit)
 	if err != nil {
 		h.fail(w, r, err)
@@ -326,10 +338,10 @@ func (h *API) listEvents(w http.ResponseWriter, r *http.Request) {
 		since = h.For(r).C.Now().Add(-7 * 24 * time.Hour)
 	}
 	q := store.EventQuery{Since: since, Until: until, Kind: r.URL.Query().Get("kind"), ClusterID: r.URL.Query().Get("cluster"), TargetID: r.URL.Query().Get("target")}
-	if v := r.URL.Query().Get("limit"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			q.Limit = n
-		}
+	var limErr error
+	if q.Limit, limErr = httpkit.QueryLimit(r); limErr != nil {
+		h.fail(w, r, limErr)
+		return
 	}
 	evs, err := h.For(r).C.Store.ListEvents(r.Context(), h.For(r).C.OrgID, q)
 	if err != nil {

@@ -558,7 +558,7 @@ func TestHistoryEndpoints(t *testing.T) {
 	if r := a.do("GET", "/api/v1/history/snapshot?at=2000-01-01T00:00:00Z", nil, withCookie(viewer)); r.Code != 404 {
 		t.Fatalf("before any record: %d", r.Code)
 	}
-	for _, bad := range []string{"/api/v1/history/snapshot", "/api/v1/history/snapshot?at=yesterday", "/api/v1/history?since=x", "/api/v1/events?until=x", "/api/v1/history/traffic?hours=0", "/api/v1/history/traffic?hours=9999"} {
+	for _, bad := range []string{"/api/v1/history/snapshot", "/api/v1/history/snapshot?at=yesterday", "/api/v1/history?since=x", "/api/v1/events?until=x", "/api/v1/history/traffic?hours=0", "/api/v1/history/traffic?hours=9999", "/api/v1/events?limit=abc", "/api/v1/events?limit=-1", "/api/v1/events?limit=0", "/api/v1/decisions?limit=abc"} {
 		if r := a.do("GET", bad, nil, withCookie(viewer)); r.Code != 400 {
 			t.Errorf("%s: %d", bad, r.Code)
 		}

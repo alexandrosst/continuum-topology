@@ -115,13 +115,12 @@ type decisionLogDoc struct {
 
 // list is GET .../decisions: any member may read it back, the same reach as /events and /history.
 func (h API) list(w http.ResponseWriter, r *http.Request) {
-	limit := 0
-	if v := r.URL.Query().Get("limit"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			limit = n
-		}
-	}
 	s := h.For(r)
+	limit, lerr := httpkit.QueryLimit(r)
+	if lerr != nil {
+		httpkit.Fail(w, s.Log, lerr)
+		return
+	}
 	ds, err := s.Store.ListDecisions(r.Context(), s.OrgID, limit)
 	if err != nil {
 		httpkit.Fail(w, s.Log, err)

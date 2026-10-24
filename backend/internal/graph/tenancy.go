@@ -148,8 +148,11 @@ WITH r MATCH (t:Tenant {id:$org}) MERGE (t)-[:HAS_WORKSPACE_REV]->(r)`, map[stri
 
 // WorkspaceRevs lists saved revisions, newest first, without their content.
 func (d *DB) WorkspaceRevs(ctx context.Context, org string, limit int) ([]WorkspaceRev, error) {
-	if limit <= 0 || limit > maxWorkspaceRevs {
+	if limit <= 0 {
 		limit = 50
+	}
+	if limit > maxWorkspaceRevs {
+		limit = maxWorkspaceRevs
 	}
 	res, err := d.C.Run(ctx, d.C.For(org).S(`MATCH (r:WorkspaceRev {org:$org}) RETURN r.rev, toString(r.at), r.by, r.bytes ORDER BY r.rev DESC LIMIT $limit`, map[string]any{"limit": limit}))
 	if err != nil {
@@ -243,8 +246,11 @@ func diffDocs(older, newer map[string]any) []Change {
 
 // Timeline gathers the history of one entity.
 func (d *DB) Timeline(ctx context.Context, org, kind, id string, limit int) (Timeline, error) {
-	if limit <= 0 || limit > 500 {
+	if limit <= 0 {
 		limit = 100
+	}
+	if limit > 500 {
+		limit = 500
 	}
 	sc := d.C.For(org)
 	res, err := d.C.Run(ctx, sc.S(`MATCH (v:Version {org:$org, kind:$kind, id:$id})

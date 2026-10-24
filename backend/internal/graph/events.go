@@ -169,8 +169,11 @@ MERGE (e)-[:BY]->(a)`, map[string]any{"rows": rs}))
 // Audit searches one tenant's trail, newest first.
 func (d *DB) Audit(ctx context.Context, org string, q AuditQuery) ([]AuditRow, error) {
 	limit := q.Limit
-	if limit <= 0 || limit > 1000 {
+	if limit <= 0 {
 		limit = 200
+	}
+	if limit > 1000 {
+		limit = 1000
 	}
 	p := map[string]any{"limit": limit}
 	where := ""
