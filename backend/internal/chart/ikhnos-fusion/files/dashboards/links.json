@@ -6,7 +6,7 @@
     "ikhnos"
   ],
   "schemaVersion": 39,
-  "version": 1,
+  "version": 2,
   "editable": false,
   "graphTooltip": 1,
   "time": {
@@ -1105,13 +1105,122 @@
       }
     },
     {
+      "id": 57,
+      "type": "timeseries",
+      "title": "Clock error bound",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fusion-metrics"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(max by (cluster, peer, direction) (ikhnos_link_probe_clock_error_seconds{cluster=~\"$cluster\", peer=~\"$peer\"})) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((max by (cluster, peer, direction) (ikhnos_link_probe_clock_error_seconds{cluster=~\"$cluster\", peer=~\"$peer\"})), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fusion-metrics"
+          },
+          "legendFormat": "{{cluster_name}} → {{peer_name}} {{direction}}"
+        }
+      ],
+      "description": "How far the clocks of the two ends may differ, as the probe tool derived for the latest run. Present only for runs whose clocks were synchronised. Read it beside One-way delay: delay figures smaller than this bound are noise.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "none"
+            },
+            "spanNulls": false
+          },
+          "unit": "s",
+          "noValue": "No synchronised run (run chrony or ntpd on the nodes)",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 42,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "id": 58,
+      "type": "timeseries",
+      "title": "Duplicate test packets",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fusion-metrics"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum by (cluster, peer, direction) (increase(ikhnos_link_probe_packets_duplicated_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])) > 0) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((sum by (cluster, peer, direction) (increase(ikhnos_link_probe_packets_duplicated_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])) > 0), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fusion-metrics"
+          },
+          "legendFormat": "{{cluster_name}} → {{peer_name}} {{direction}}"
+        }
+      ],
+      "description": "Probe packets that arrived more than once. A steady trickle points at a path that duplicates packets (a misconfigured bond or mirror), not at loss. Only intervals with duplicates are drawn.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 60,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "none"
+            },
+            "spanNulls": false,
+            "drawStyle": "bars"
+          },
+          "unit": "short",
+          "noValue": "No duplicates in this range (or no probe is running)",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 42,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
       "id": 18,
       "type": "row",
       "title": "Round trip: TCP connect timing (from one cluster of each pair) and the round trip of real connections (both)",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 42,
+        "y": 50,
         "w": 24,
         "h": 1
       },
@@ -1127,7 +1236,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 43,
+        "y": 51,
         "w": 12,
         "h": 8
       },
@@ -1180,7 +1289,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 43,
+        "y": 51,
         "w": 12,
         "h": 8
       },
@@ -1251,7 +1360,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 51,
+        "y": 59,
         "w": 12,
         "h": 8
       },
@@ -1313,7 +1422,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 51,
+        "y": 59,
         "w": 12,
         "h": 8
       },
@@ -1386,7 +1495,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 59,
+        "y": 67,
         "w": 12,
         "h": 8
       },
@@ -1441,7 +1550,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 59,
+        "y": 67,
         "w": 12,
         "h": 8
       },
@@ -1511,7 +1620,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 67,
+        "y": 75,
         "w": 24,
         "h": 1
       },
@@ -1527,7 +1636,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 68,
+        "y": 76,
         "w": 12,
         "h": 8
       },
@@ -1589,7 +1698,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 68,
+        "y": 76,
         "w": 12,
         "h": 8
       },
@@ -1642,7 +1751,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 76,
+        "y": 84,
         "w": 12,
         "h": 8
       },
@@ -1724,7 +1833,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 76,
+        "y": 84,
         "w": 12,
         "h": 8
       },
@@ -1779,7 +1888,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 84,
+        "y": 92,
         "w": 12,
         "h": 8
       },
@@ -1832,7 +1941,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 84,
+        "y": 92,
         "w": 12,
         "h": 8
       },
@@ -1882,7 +1991,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 92,
+        "y": 100,
         "w": 24,
         "h": 1
       },
@@ -1898,7 +2007,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 93,
+        "y": 101,
         "w": 8,
         "h": 8
       },
@@ -1952,7 +2061,7 @@
       },
       "gridPos": {
         "x": 8,
-        "y": 93,
+        "y": 101,
         "w": 8,
         "h": 8
       },
@@ -2032,7 +2141,7 @@
       },
       "gridPos": {
         "x": 16,
-        "y": 93,
+        "y": 101,
         "w": 8,
         "h": 8
       },
@@ -2112,7 +2221,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 101,
+        "y": 109,
         "w": 12,
         "h": 8
       },
@@ -2175,7 +2284,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 101,
+        "y": 109,
         "w": 12,
         "h": 8
       },
@@ -2220,17 +2329,395 @@
       }
     },
     {
+      "id": 59,
+      "type": "timeseries",
+      "title": "Seconds since the last route trace",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fusion-metrics"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(time() - max by (cluster, peer) (ikhnos_link_path_last_success_timestamp_seconds{cluster=~\"$cluster\", peer=~\"$peer\"})) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((time() - max by (cluster, peer) (ikhnos_link_path_last_success_timestamp_seconds{cluster=~\"$cluster\", peer=~\"$peer\"})), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fusion-metrics"
+          },
+          "legendFormat": "{{cluster_name}} → {{peer_name}}"
+        }
+      ],
+      "description": "How long ago the route to the peer was last traced from each side. A value far above the trace interval means the trace has stopped; Route trace reached the peer says whether the last one arrived.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "none"
+            },
+            "spanNulls": false
+          },
+          "unit": "s",
+          "noValue": "No route trace has finished",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 117,
+        "w": 24,
+        "h": 6
+      }
+    },
+    {
       "id": 38,
       "type": "row",
       "title": "Capacity: the throughput tests (iperf3, run from one cluster of each pair, rarely and within a byte budget)",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 109,
+        "y": 123,
         "w": 24,
         "h": 1
       },
       "panels": []
+    },
+    {
+      "id": 49,
+      "type": "stat",
+      "title": "Clusters running throughput tests",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fusion-metrics"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "count(ikhnos_link_throughput_budget_bytes{cluster=~\"$cluster\"})",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fusion-metrics"
+          },
+          "instant": true,
+          "range": false
+        }
+      ],
+      "description": "How many clusters report the throughput tests at all. Empty means no cluster runs them: a pair is tested only when throughput is switched on for it, on both of its clusters, and only by the cluster of the pair whose id sorts first. Until then every panel below is empty, and nothing is wrong.",
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 0,
+          "noValue": "None: throughput tests are off"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 124,
+        "w": 6,
+        "h": 4
+      }
+    },
+    {
+      "id": 50,
+      "type": "stat",
+      "title": "Pairs with a result",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fusion-metrics"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "count(count by (cluster, peer) (ikhnos_link_throughput_bits_per_second{cluster=~\"$cluster\", peer=~\"$peer\"}))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fusion-metrics"
+          },
+          "instant": true,
+          "range": false
+        }
+      ],
+      "description": "Pairs for which a throughput test has finished and the prober still reports it. Empty while tests are on but none has finished: the first test starts up to ten minutes after the peer is learned, and after the prober restarts the results are gone until the next test (the interval is hours by default).",
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "decimals": 0,
+          "noValue": "None yet"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 124,
+        "w": 6,
+        "h": 4
+      }
+    },
+    {
+      "id": 51,
+      "type": "stat",
+      "title": "Newest result",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fusion-metrics"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "time() - max(ikhnos_link_throughput_last_success_timestamp_seconds{cluster=~\"$cluster\", peer=~\"$peer\"})",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fusion-metrics"
+          },
+          "instant": true,
+          "range": false
+        }
+      ],
+      "description": "How long ago the most recent throughput test finished, over the selected pairs. The interval between tests is set per pair, so a long time is normal when it is long.",
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "unit": "s",
+          "noValue": "No test has finished"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 124,
+        "w": 6,
+        "h": 4
+      }
+    },
+    {
+      "id": 52,
+      "type": "stat",
+      "title": "Tests failed in range",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fusion-metrics"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(ikhnos_link_throughput_test_failures_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__range]))",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fusion-metrics"
+          },
+          "instant": true,
+          "range": false
+        }
+      ],
+      "description": "Tests that could not be run or finished in the selected time range (unreachable, refused, timeout, auth, other). Red when any did. Zero means tests are running and none failed; empty means no cluster reports tests. A pair that fails from its very first test shows no increase until a second failure, so check the failures table below as well.",
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "decimals": 0,
+          "noValue": "No data (tests are off)"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 124,
+        "w": 6,
+        "h": 4
+      }
+    },
+    {
+      "id": 53,
+      "type": "bargauge",
+      "title": "Latest TCP throughput (last 8 days)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fusion-metrics"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(max by (cluster, peer, direction) (last_over_time(ikhnos_link_throughput_bits_per_second{cluster=~\"$cluster\", peer=~\"$peer\", protocol=\"tcp\", dscp=\"0\"}[8d]))) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((max by (cluster, peer, direction) (last_over_time(ikhnos_link_throughput_bits_per_second{cluster=~\"$cluster\", peer=~\"$peer\", protocol=\"tcp\", dscp=\"0\"}[8d]))), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fusion-metrics"
+          },
+          "legendFormat": "{{cluster_name}} → {{peer_name}} {{direction}}",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "description": "The best TCP figure each test found in each direction, looking back eight days, as the console does. It does not blank when the prober restarts or when the interval is longer than the dashboard's time range. A figure at the cap of a test (see Throughput, bounded) is a floor, not what the link carries.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bps",
+          "min": 0,
+          "noValue": "No throughput figure in the last 8 days"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "showUnfilled": true,
+        "minVizHeight": 16,
+        "valueMode": "color"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 128,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "id": 54,
+      "type": "timeseries",
+      "title": "TCP retransmits during the tests",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fusion-metrics"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(max by (cluster, peer, direction, streams, dscp) (ikhnos_link_throughput_retransmits{cluster=~\"$cluster\", peer=~\"$peer\"})) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((max by (cluster, peer, direction, streams, dscp) (ikhnos_link_throughput_retransmits{cluster=~\"$cluster\", peer=~\"$peer\"})), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fusion-metrics"
+          },
+          "legendFormat": "{{cluster_name}} → {{peer_name}} {{direction}} {{streams}} streams, dscp {{dscp}}"
+        }
+      ],
+      "description": "Segments the sender had to resend during the latest test: loss that the test itself provoked at full rate. A high count with a clean probe loss is queueing at the bottleneck, not a lossy link.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "none"
+            },
+            "spanNulls": false
+          },
+          "unit": "short",
+          "noValue": "No retransmit figures (no test has finished, or none reported them)",
+          "decimals": 0,
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 128,
+        "w": 12,
+        "h": 8
+      }
     },
     {
       "id": 39,
@@ -2242,7 +2729,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 110,
+        "y": 136,
         "w": 12,
         "h": 8
       },
@@ -2266,7 +2753,7 @@
           "legendFormat": "≥ {{cluster_name}} → {{peer_name}} {{direction}} {{protocol}} {{streams}} streams, dscp {{dscp}}"
         }
       ],
-      "description": "What the latest TCP test achieved, measured where the data arrived. The line holds the last result until the next test, which can be days away. A single stream far below several streams points at the window or at loss on a long path; tcp_bidir loads both directions at once and is not comparable with a single direction. A line starting with ≥ is a floor: the test came up to its rate cap (the one set in the settings, or what the pair's byte budget pays for), so the link carries at least that much and the real figure is unknown. A line without it is what the link carried.",
+      "description": "What the latest TCP test achieved, measured where the data arrived. The line holds the last result until the next test, which can be days away. A single stream far below several streams points at the window or at loss on a long path; tcp_bidir loads both directions at once and is not comparable with a single direction. A line starting with ≥ is a floor: the test came up to its rate cap (the one set in the settings, or what the pair's byte budget pays for), so the link carries at least that much and the real figure is unknown. A line without it is what the link carried. It shows only what the prober holds now: after the prober restarts it is empty until the next test finishes (Latest TCP throughput looks back eight days).",
       "fieldConfig": {
         "defaults": {
           "custom": {
@@ -2323,7 +2810,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 110,
+        "y": 136,
         "w": 12,
         "h": 8
       },
@@ -2376,7 +2863,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 118,
+        "y": 144,
         "w": 12,
         "h": 8
       },
@@ -2456,7 +2943,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 118,
+        "y": 144,
         "w": 12,
         "h": 8
       },
@@ -2509,7 +2996,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 126,
+        "y": 152,
         "w": 12,
         "h": 8
       },
@@ -2571,7 +3058,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 126,
+        "y": 152,
         "w": 12,
         "h": 8
       },
@@ -2643,112 +3130,170 @@
     },
     {
       "id": 45,
-      "type": "timeseries",
-      "title": "Throughput tests skipped by reason",
+      "type": "table",
+      "title": "Throughput tests skipped, by reason",
       "datasource": {
         "type": "prometheus",
         "uid": "fusion-metrics"
       },
-      "gridPos": {
-        "x": 0,
-        "y": 134,
-        "w": 12,
-        "h": 8
-      },
       "targets": [
         {
           "refId": "A",
-          "expr": "(sum by (cluster, peer, reason) (increase(ikhnos_link_throughput_tests_skipped_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])) > 0) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((sum by (cluster, peer, reason) (increase(ikhnos_link_throughput_tests_skipped_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])) > 0), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
+          "expr": "(sum by (cluster, peer, reason) (increase(ikhnos_link_throughput_tests_skipped_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__range])) > 0) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((sum by (cluster, peer, reason) (increase(ikhnos_link_throughput_tests_skipped_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__range])) > 0), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{cluster_name}} → {{peer_name}} {{reason}}"
+          "instant": true,
+          "range": false,
+          "format": "table"
         }
       ],
-      "description": "Tests held back: link_busy (real traffic on the link), budget (used up) or server_busy (the peer's server was serving another test). A skipped test is tried again later.",
+      "description": "Tests held back in the whole selected time range, by pair and reason: link_busy (real traffic on the link), budget (used up) or server_busy (the peer's server was serving another test). A skipped test is tried again later. Counted over the range, not per interval, because tests are hours apart.",
       "fieldConfig": {
         "defaults": {
-          "custom": {
-            "lineWidth": 1,
-            "fillOpacity": 60,
-            "showPoints": "never",
-            "stacking": {
-              "mode": "none"
-            },
-            "spanNulls": false,
-            "drawStyle": "bars"
-          },
-          "unit": "short",
           "noValue": "No tests skipped in this range (or no throughput tests are configured)",
           "decimals": 0
         },
         "overrides": []
       },
       "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "cluster_name",
+                "peer_name",
+                "reason",
+                "Value"
+              ]
+            }
+          }
         },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
+        {
+          "id": "organize",
+          "options": {
+            "indexByName": {
+              "cluster_name": 0,
+              "peer_name": 1,
+              "reason": 2,
+              "Value": 3
+            },
+            "renameByName": {
+              "cluster_name": "Measured by",
+              "peer_name": "Peer",
+              "reason": "Reason",
+              "Value": "Tests in range"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "field": "Tests in range",
+                "desc": true
+              }
+            ]
+          }
         }
+      ],
+      "gridPos": {
+        "x": 0,
+        "y": 160,
+        "w": 12,
+        "h": 8
       }
     },
     {
       "id": 46,
-      "type": "timeseries",
-      "title": "Throughput tests failed by reason",
+      "type": "table",
+      "title": "Throughput tests failed, by reason",
       "datasource": {
         "type": "prometheus",
         "uid": "fusion-metrics"
       },
-      "gridPos": {
-        "x": 12,
-        "y": 134,
-        "w": 12,
-        "h": 8
-      },
       "targets": [
         {
           "refId": "A",
-          "expr": "(sum by (cluster, peer, reason) (increase(ikhnos_link_throughput_test_failures_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])) > 0) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((sum by (cluster, peer, reason) (increase(ikhnos_link_throughput_test_failures_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__rate_interval])) > 0), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
+          "expr": "(sum by (cluster, peer, reason) (increase(ikhnos_link_throughput_test_failures_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__range])) > 0) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((sum by (cluster, peer, reason) (increase(ikhnos_link_throughput_test_failures_total{cluster=~\"$cluster\", peer=~\"$peer\"}[$__range])) > 0), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
           "datasource": {
             "type": "prometheus",
             "uid": "fusion-metrics"
           },
-          "legendFormat": "{{cluster_name}} → {{peer_name}} {{reason}}"
+          "instant": true,
+          "range": false,
+          "format": "table"
         }
       ],
-      "description": "Tests that could not be run or finished (unreachable, refused, timeout, auth, other). auth means the iperf3 credentials differ between the clusters.",
+      "description": "Tests that could not be run or finished in the whole selected time range, by pair and reason (unreachable, refused, timeout, auth, other). auth means the iperf3 credentials differ between the clusters. Counted over the range, not per interval, because tests are hours apart; a counter that first appears with a failure already in it shows nothing until the next one.",
       "fieldConfig": {
         "defaults": {
-          "custom": {
-            "lineWidth": 1,
-            "fillOpacity": 60,
-            "showPoints": "never",
-            "stacking": {
-              "mode": "none"
-            },
-            "spanNulls": false,
-            "drawStyle": "bars"
-          },
-          "unit": "short",
           "noValue": "No test failures in this range (or no throughput tests are configured)",
           "decimals": 0
         },
         "overrides": []
       },
       "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "cluster_name",
+                "peer_name",
+                "reason",
+                "Value"
+              ]
+            }
+          }
         },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
+        {
+          "id": "organize",
+          "options": {
+            "indexByName": {
+              "cluster_name": 0,
+              "peer_name": 1,
+              "reason": 2,
+              "Value": 3
+            },
+            "renameByName": {
+              "cluster_name": "Measured by",
+              "peer_name": "Peer",
+              "reason": "Reason",
+              "Value": "Tests in range"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "fields": {},
+            "sort": [
+              {
+                "field": "Tests in range",
+                "desc": true
+              }
+            ]
+          }
         }
+      ],
+      "gridPos": {
+        "x": 12,
+        "y": 160,
+        "w": 12,
+        "h": 8
       }
     },
     {
@@ -2761,7 +3306,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 142,
+        "y": 168,
         "w": 12,
         "h": 8
       },
@@ -2815,7 +3360,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 142,
+        "y": 168,
         "w": 12,
         "h": 8
       },
@@ -2830,7 +3375,7 @@
           "legendFormat": "{{cluster_name}} → {{peer_name}}"
         }
       ],
-      "description": "How long ago a test with the peer last finished. The interval between tests is set per pair, from 10 minutes to 7 days, so a long time is normal when the interval is long.",
+      "description": "How long ago a test with the peer last finished. The interval between tests is set per pair, from 10 minutes to 7 days, so a long time is normal when the interval is long. Empty when no test has finished since the prober started.",
       "fieldConfig": {
         "defaults": {
           "custom": {
@@ -2856,6 +3401,114 @@
           "mode": "multi",
           "sort": "desc"
         }
+      }
+    },
+    {
+      "id": 55,
+      "type": "timeseries",
+      "title": "UDP: rate at the two ramp points",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fusion-metrics"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(max by (cluster, peer, direction, dscp, point) (ikhnos_link_throughput_udp_point_bits_per_second{cluster=~\"$cluster\", peer=~\"$peer\"})) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((max by (cluster, peer, direction, dscp, point) (ikhnos_link_throughput_udp_point_bits_per_second{cluster=~\"$cluster\", peer=~\"$peer\"})), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fusion-metrics"
+          },
+          "legendFormat": "{{cluster_name}} → {{peer_name}} {{direction}} dscp {{dscp}} {{point}}"
+        }
+      ],
+      "description": "The rates of the two points of the latest UDP ramp that the loss and jitter panels are read at: clean is the highest rate within the loss threshold, first_loss the first rate over it (absent if the ramp never exceeded it).",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "none"
+            },
+            "spanNulls": false
+          },
+          "unit": "bps",
+          "noValue": "No UDP ramp has finished",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 176,
+        "w": 12,
+        "h": 8
+      }
+    },
+    {
+      "id": 56,
+      "type": "timeseries",
+      "title": "UDP: jitter at the two ramp points",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "fusion-metrics"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(max by (cluster, peer, direction, dscp, point) (ikhnos_link_throughput_udp_jitter_seconds{cluster=~\"$cluster\", peer=~\"$peer\"})) * on (cluster) group_left (cluster_name) topk by (cluster) (1, ikhnos_cluster_info) * on (peer) group_left (peer_name) label_replace(label_replace(topk by (cluster) (1, ikhnos_cluster_info), \"peer\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"cluster_name\", \"(.+)\") or ignoring (cluster_name, peer_name) label_replace(label_replace((max by (cluster, peer, direction, dscp, point) (ikhnos_link_throughput_udp_jitter_seconds{cluster=~\"$cluster\", peer=~\"$peer\"})), \"cluster_name\", \"$1\", \"cluster\", \"(.+)\"), \"peer_name\", \"$1\", \"peer\", \"(.+)\")",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "fusion-metrics"
+          },
+          "legendFormat": "{{cluster_name}} → {{peer_name}} {{direction}} dscp {{dscp}} {{point}}"
+        }
+      ],
+      "description": "Receiver jitter at the clean point and at the first rate over the loss threshold. Jitter that climbs sharply between the two is a queue filling up.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 12,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "none"
+            },
+            "spanNulls": false
+          },
+          "unit": "s",
+          "noValue": "No UDP ramp has finished",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 176,
+        "w": 12,
+        "h": 8
       }
     }
   ]

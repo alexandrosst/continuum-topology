@@ -301,7 +301,7 @@ func TestFusionLinksDashboardNamesOnlyWhatTheMeterExports(t *testing.T) {
 			if !slices.Contains(labels, "cluster") && where != "variable peer" {
 				t.Errorf("%s: groups without cluster, which adds different clusters' series together: %s", where, expr)
 			}
-			if hasDirection && !slices.Contains(labels, "direction") && !strings.Contains(where, "Pairs probed") && !strings.Contains(where, "Clusters reporting") {
+			if hasDirection && !slices.Contains(labels, "direction") && !strings.Contains(where, "Pairs probed") && !strings.Contains(where, "Clusters reporting") && !strings.Contains(where, "Pairs with a result") {
 				t.Errorf("%s: groups a per-direction series without direction, which adds forward and reverse together: %s", where, expr)
 			}
 		}
@@ -499,5 +499,81 @@ func TestFusionLinksDashboardColoursOnlyWarningsAmber(t *testing.T) {
 	}
 	if !strings.Contains(pairs.Description, "Sites") || !strings.Contains(pairs.Description, "Setup") {
 		t.Errorf("the description does not send the reader to the Setup list on the Sites screen: %q", pairs.Description)
+	}
+}
+
+// The throughput tests are rare, so a dashboard that cannot say why it is empty reads as broken. The top of the Capacity row
+// says whether the tests are on, whether any finished and whether any failed; failures and skips are counted over the whole
+// range (they happen hours apart, so a per-interval window draws nothing most of the time); and the throughput figure looks
+// back as far as the console does, so a restarted prober does not blank it.
+func TestFusionLinksDashboardSaysWhyThroughputIsEmpty(t *testing.T) {
+	d := loadLinksDashboard(t, fusionRender(t, "f"))
+	by := map[string]int{}
+	for i, p := range d.Panels {
+		by[p.Title] = i
+	}
+	capRow := -1
+	for i, p := range d.Panels {
+		if p.Type == "row" && strings.HasPrefix(p.Title, "Capacity") {
+			capRow = i
+		}
+	}
+	if capRow < 0 {
+		t.Fatal("no Capacity row")
+	}
+	for k, title := range []string{"Clusters running throughput tests", "Pairs with a result", "Newest result", "Tests failed in range"} {
+		i, ok := by[title]
+		if !ok || i != capRow+1+k {
+			t.Errorf("%q is not number %d in the Capacity row (at %d, row at %d)", title, k+1, i, capRow)
+			continue
+		}
+		p := d.Panels[i]
+		if p.Type != "stat" || len(p.FieldConfig.Defaults.Thresholds.Steps) == 0 {
+			t.Errorf("%q: %s", title, p.Type)
+		}
+	}
+	for _, title := range []string{"Throughput tests skipped, by reason", "Throughput tests failed, by reason"} {
+		i, ok := by[title]
+		if !ok {
+			t.Errorf("no panel %q", title)
+			continue
+		}
+		for _, q := range d.Panels[i].Targets {
+			if strings.Contains(q.Expr, "$__rate_interval") || !strings.Contains(q.Expr, "[$__range]") {
+				t.Errorf("%q counts per interval, so tests hours apart draw nothing: %s", title, q.Expr)
+			}
+		}
+		if d.Panels[i].Type != "table" {
+			t.Errorf("%q is a %s, want a table over the range", title, d.Panels[i].Type)
+		}
+	}
+	if i, ok := by["Latest TCP throughput (last 8 days)"]; !ok || !strings.Contains(d.Panels[i].Targets[0].Expr, "last_over_time(ikhnos_link_throughput_bits_per_second") || !strings.Contains(d.Panels[i].Targets[0].Expr, "[8d]") {
+		t.Error("the throughput figure does not look back eight days as the console does")
+	}
+}
+
+// Every family the meter exports is drawn somewhere, or is named here with the reason it is not. A family that is exported and
+// never shown is a measurement nobody can see; the list below is short on purpose.
+func TestFusionLinksDashboardDrawsEveryFamilyTheMeterExports(t *testing.T) {
+	d := loadLinksDashboard(t, fusionRender(t, "f"))
+	fams := link.MetricFamilies()
+	used := map[string]bool{}
+	for _, p := range d.Panels {
+		for _, q := range p.Targets {
+			for _, s := range linkMetricRE.FindAllString(q.Expr, -1) {
+				if f, ok := linkFamily(s, fams); ok {
+					used[f] = true
+				}
+			}
+		}
+	}
+	notDrawn := map[string]string{}
+	for _, f := range fams {
+		if !used[f.Name] {
+			notDrawn[f.Name] = f.Type
+		}
+	}
+	if len(notDrawn) > 0 {
+		t.Errorf("exported by the meter and drawn by no panel: %v", notDrawn)
 	}
 }
