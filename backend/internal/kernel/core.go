@@ -33,6 +33,10 @@ const (
 	// account also needs a TOTP code: not a failure, a second step, so callers can tell it apart from a wrong
 	// password and prompt for the code instead of showing an error.
 	KindTwoFactorRequired
+	// KindUnavailable is a store or a service the request needs that cannot answer right now (the graph database is
+	// restarting, a walk ran out of time): the record may well exist, and asking again later may work. It is not "not found",
+	// and it is not a bug in the server, so monitoring that counts 500s does not count it.
+	KindUnavailable
 )
 
 // Error carries a category the transport layers map to gRPC codes / HTTP statuses.

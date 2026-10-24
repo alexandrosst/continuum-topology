@@ -59,7 +59,11 @@ var status = map[kernel.Kind]int{
 	kernel.KindInternal:          http.StatusInternalServerError,
 	kernel.KindForbidden:         http.StatusForbidden,
 	kernel.KindTwoFactorRequired: http.StatusUnauthorized,
+	kernel.KindUnavailable:       http.StatusServiceUnavailable,
 }
+
+// RetryAfterSeconds is what a client is told to wait before asking again when a store it needs cannot answer.
+const RetryAfterSeconds = "5"
 
 // Fail answers with the error. A kernel.Error becomes its kind's status and its message (and its Data, when it carries some, as
 // more fields of the same object); anything else is logged and answered as an internal error that says nothing about what happened.
@@ -67,6 +71,9 @@ func Fail(w http.ResponseWriter, log *slog.Logger, err error) {
 	var e *kernel.Error
 	if errors.As(err, &e) {
 		code := status[e.Kind]
+		if e.Kind == kernel.KindUnavailable {
+			w.Header().Set("Retry-After", RetryAfterSeconds)
+		}
 		if len(e.Data) > 0 {
 			out := map[string]any{"error": e.Msg}
 			for k, v := range e.Data {

@@ -44,7 +44,7 @@ func ToStatus(err error) error {
 	}
 	code := map[kernel.Kind]codes.Code{
 		kernel.KindInvalid: codes.InvalidArgument, kernel.KindUnauthenticated: codes.Unauthenticated, kernel.KindNotFound: codes.NotFound,
-		kernel.KindConflict: codes.FailedPrecondition, kernel.KindRateLimited: codes.ResourceExhausted, kernel.KindInternal: codes.Internal, kernel.KindForbidden: codes.PermissionDenied,
+		kernel.KindConflict: codes.FailedPrecondition, kernel.KindRateLimited: codes.ResourceExhausted, kernel.KindInternal: codes.Internal, kernel.KindForbidden: codes.PermissionDenied, kernel.KindUnavailable: codes.Unavailable,
 		kernel.KindTwoFactorRequired: codes.Unauthenticated, // never actually reached over gRPC (agents don't sign in), kept correct for safety
 	}[e.Kind]
 	return status.Error(code, e.Msg)

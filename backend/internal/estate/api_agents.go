@@ -1,10 +1,13 @@
 package estate
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"strings"
 
 	"ikhnos/internal/agents"
+	"ikhnos/internal/graph"
 	"ikhnos/internal/httpkit"
 	"ikhnos/internal/install"
 	"ikhnos/internal/installcfg"
@@ -47,7 +50,24 @@ func (h *API) serverNodes() []HostNode {
 }
 
 func (h *API) fail(w http.ResponseWriter, r *http.Request, err error) {
-	httpkit.Fail(w, h.For(r).Log, err)
+	httpkit.Fail(w, h.For(r).Log, unavailableOr(err))
+}
+
+// unavailableOr turns the two ways the graph database fails a request that is not the request's fault into the error that says
+// so: it cannot be reached, or the walk ran out of its time. The record the caller asked for may exist, so this is neither "not
+// found" nor an internal error; asking again later may work.
+func unavailableOr(err error) error {
+	var ke *kernel.Error
+	if errors.As(err, &ke) {
+		return err
+	}
+	switch {
+	case errors.Is(err, graph.ErrUnavailable):
+		return kernel.Errf(kernel.KindUnavailable, "the graph database cannot be reached right now; try again in a moment")
+	case errors.Is(err, context.DeadlineExceeded):
+		return kernel.Errf(kernel.KindUnavailable, "the answer took longer than the server allows; narrow the question (fewer hops, a shorter range) or try again")
+	}
+	return err
 }
 
 // Mount puts the routes on r.
