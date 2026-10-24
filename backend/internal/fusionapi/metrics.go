@@ -28,10 +28,12 @@ type MetricSeries struct {
 	Category string            `json:"category,omitempty"`
 	Labels   map[string]string `json:"labels"`
 	Points   []Point           `json:"points,omitempty"`
-	Min      float64           `json:"min"`
-	Max      float64           `json:"max"`
-	Avg      float64           `json:"avg"`
-	Last     float64           `json:"last"`
+	// Min, Max, Avg and Last summarise the points. They are absent (not zero) when the series has no usable point in the
+	// range: a pod that stopped reporting has no last value, which is not the same as an idle one.
+	Min  *float64 `json:"min,omitempty"`
+	Max  *float64 `json:"max,omitempty"`
+	Avg  *float64 `json:"avg,omitempty"`
+	Last *float64 `json:"last,omitempty"`
 }
 
 // MetricFilter picks series. Every field is an exact match except NameRegex, which is a regular expression over the
@@ -360,17 +362,18 @@ func decodeMatrix(data json.RawMessage, s Scope, maxSeries int) (series []Metric
 }
 
 func (m *MetricSeries) summarise() {
+	m.Min, m.Max, m.Avg, m.Last = nil, nil, nil, nil
 	if len(m.Points) == 0 {
 		return
 	}
-	m.Min, m.Max = math.Inf(1), math.Inf(-1)
+	lo, hi := math.Inf(1), math.Inf(-1)
 	var sum float64
 	for _, p := range m.Points {
-		m.Min, m.Max = math.Min(m.Min, p[1]), math.Max(m.Max, p[1])
+		lo, hi = math.Min(lo, p[1]), math.Max(hi, p[1])
 		sum += p[1]
 	}
-	m.Avg = sum / float64(len(m.Points))
-	m.Last = m.Points[len(m.Points)-1][1]
+	avg, last := sum/float64(len(m.Points)), m.Points[len(m.Points)-1][1]
+	m.Min, m.Max, m.Avg, m.Last = &lo, &hi, &avg, &last
 }
 
 func labelKey(l map[string]string) string {

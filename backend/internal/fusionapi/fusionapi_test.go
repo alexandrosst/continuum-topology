@@ -253,7 +253,7 @@ func TestMetricRangeNormalisesSamples(t *testing.T) {
 		t.Fatalf("series = %+v", series)
 	}
 	m := series[0]
-	if m.Name != "cpu" || len(m.Points) != 2 || m.Min != 1 || m.Max != 3 || m.Avg != 2 || m.Last != 3 || m.Labels["__name__"] != "" {
+	if m.Name != "cpu" || len(m.Points) != 2 || got4(m) != [4]float64{1, 3, 2, 3} || m.Labels["__name__"] != "" {
 		t.Fatalf("series = %+v", m)
 	}
 	b, _ := json.Marshal(m.Points)
@@ -799,7 +799,7 @@ func TestFuseTraceCutsEachResourcesSeriesToEachSpansOwnTime(t *testing.T) {
 		t.Fatalf("cart metrics = %+v", cart)
 	}
 	m := cart.Metrics[0]
-	if m.Name != "cpu" || len(m.Points) != 3 || m.Min != 3 || m.Max != 5 || m.Last != 5 || m.Avg != 4 {
+	if m.Name != "cpu" || len(m.Points) != 3 || got4(m) != [4]float64{3, 5, 4, 5} {
 		t.Fatalf("the span's cut = %+v", m)
 	}
 	// The resource still has the whole series over the trace's window.
@@ -840,7 +840,7 @@ func TestSpanMetricsStayWithinAPointBudget(t *testing.T) {
 	}
 	points, summaryOnly := 0, 0
 	for _, sp := range f.Spans {
-		if len(sp.Metrics) != 1 || sp.Metrics[0].Max == 0 {
+		if len(sp.Metrics) != 1 || sp.Metrics[0].Max == nil || *sp.Metrics[0].Max == 0 {
 			t.Fatalf("a span lost its summary: %+v", sp.Metrics)
 		}
 		points += len(sp.Metrics[0].Points)

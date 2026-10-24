@@ -1693,10 +1693,10 @@ export interface MetricSeries {
   category?: string
   labels: Record<string, string>
   points?: number[][]
-  min: number
-  max: number
-  avg: number
-  last: number
+  min?: number
+  max?: number
+  avg?: number
+  last?: number
 }
 
 export interface MetricSeriesDoc {
