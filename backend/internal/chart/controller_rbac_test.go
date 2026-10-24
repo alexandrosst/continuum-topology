@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -394,6 +395,10 @@ func TestTheControllerHoldsNothingThatNoRenderedObjectOrRoleAsksFor(t *testing.T
 		}
 	}
 	onlyTheControllers := map[string]bool{"ikhnos.io/ikhnosagents": true, "ikhnos.io/ikhnosagents/status": true}
+	rendered := map[string]bool{} // what rendering the chart reads is asked for too, without being something the chart makes
+	for _, r := range agentLookups(t) {
+		rendered[r.group+"/"+r.resource] = true
+	}
 
 	for _, withTelemetry := range []bool{false, true} {
 		for ceiling := 0; ceiling <= 2; ceiling++ {
@@ -420,7 +425,7 @@ func TestTheControllerHoldsNothingThatNoRenderedObjectOrRoleAsksFor(t *testing.T
 					for _, g := range r.APIGroups {
 						for _, res := range r.Resources {
 							key := g + "/" + res
-							asked := kinds[key] || onlyTheControllers[key]
+							asked := kinds[key] || rendered[key] || onlyTheControllers[key]
 							// What an agent role grants is held so that it can be created; that is a reason of its own.
 							held := len(missing(agentRules, rbacv1.PolicyRule{APIGroups: []string{g}, Resources: []string{res}, Verbs: r.Verbs, ResourceNames: r.ResourceNames})) == 0
 							if !asked && !held {
@@ -454,6 +459,10 @@ func TestTheControllersClusterWideReadsAreExactlyWhatTheAgentsClusterRolesGrant(
 			}
 			for _, r := range ctl.cluster {
 				if has(r.Resources, "clusterroles") || has(r.Resources, "clusterrolebindings") {
+					continue
+				}
+				// The one namespace it renders the agent chart into, to read (TestTheControllerCanMakeEveryReadTheAgentChartMakesWhileRendering).
+				if has(r.Resources, "namespaces") && len(r.ResourceNames) == 1 && r.ResourceNames[0] == ctlNamespace && len(r.Verbs) == 1 && r.Verbs[0] == "get" {
 					continue
 				}
 				if m := missing(agent, r); len(m) > 0 {
@@ -535,3 +544,82 @@ func TestTheControllersOwnResourceIsTheOneItsDefinitionDeclares(t *testing.T) {
 }
 
 func writeFile(path string, b []byte) error { return os.WriteFile(path, b, 0o644) }
+
+// ---- what rendering the agent chart reads ----
+
+// lookupRead is one read the agent chart's templates make of the cluster while Helm renders them (`lookup`). Helm turns an API error other
+// than "not found" into a failed install, so a read the controller may not make fails every install it does, and nothing else shows it:
+// `helm template` has no cluster, and the objects the chart makes are what the other tests hold the permissions to.
+type lookupRead struct {
+	group, resource, verb, name string
+	namespaced                  bool
+	file                        string
+}
+
+var lookupCall = regexp.MustCompile(`lookup\s+"([^"]*)"\s+"([^"]*)"\s+(\S+)\s+(\S+)`)
+
+var lookupResources = map[string][2]string{
+	"v1/Namespace": {"", "namespaces"},
+	"v1/Node":      {"", "nodes"},
+	"v1/Secret":    {"", "secrets"},
+}
+
+func agentLookups(t *testing.T) []lookupRead {
+	t.Helper()
+	var out []lookupRead
+	files, _ := filepath.Glob("ikhnos-agent/templates/*")
+	for _, f := range files {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range lookupCall.FindAllStringSubmatch(string(b), -1) {
+			res, ok := lookupResources[m[1]+"/"+m[2]]
+			if !ok {
+				t.Fatalf("%s reads a %s/%s with lookup, and the controller's permissions do not say whether it may: decide in templates/rbac.yaml, then name it in lookupResources", f, m[1], m[2])
+			}
+			r := lookupRead{group: res[0], resource: res[1], verb: "get", namespaced: m[3] != `""`, file: filepath.Base(f)}
+			switch {
+			case m[4] == `""` || strings.HasPrefix(m[4], `""`):
+				r.verb = "list"
+			case strings.HasPrefix(m[4], ".Release.Namespace"):
+				r.name = ctlNamespace
+			}
+			out = append(out, r)
+		}
+	}
+	if len(out) == 0 {
+		t.Fatal("no lookup found in the agent chart: the pattern that finds them is wrong")
+	}
+	return out
+}
+
+// Rendering the agent chart reads the cluster, and the controller does the rendering: it must be able to make every read, at every ceiling
+// (the telemetry's reads only when it was given telemetry). This is the test that a controller at a low ceiling can still install.
+func TestTheControllerCanMakeEveryReadTheAgentChartMakesWhileRendering(t *testing.T) {
+	reads := agentLookups(t)
+	var sawNamespace bool
+	for _, withTelemetry := range []bool{false, true} {
+		for ceiling := 0; ceiling <= 2; ceiling++ {
+			ctl := controllerPerms(t, helmObjects(t, controllerChart(), "--set", fmt.Sprintf("maxAccessTier=%d", ceiling), "--set", fmt.Sprintf("allowTelemetry=%v", withTelemetry)))
+			for _, r := range reads {
+				if r.file == "_telemetry.tpl" && !withTelemetry {
+					continue
+				}
+				if r.resource == "namespaces" {
+					sawNamespace = true
+				}
+				ns := ""
+				if r.namespaced {
+					ns = ctlNamespace
+				}
+				if !anyAllows(ctl.in(ns), r.group, r.resource, r.verb, r.name) {
+					t.Errorf("ceiling %d telemetry=%v: the controller cannot %s %s (%+v), which %s reads while it renders", ceiling, withTelemetry, r.verb, r.resource, r, r.file)
+				}
+			}
+		}
+	}
+	if !sawNamespace {
+		t.Error("the pod-security pre-flight's read of the namespace was not found")
+	}
+}

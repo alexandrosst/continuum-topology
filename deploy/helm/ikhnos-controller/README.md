@@ -66,6 +66,8 @@ The agent then appears on the server's page for approval, as any agent does. Del
 
 Kubernetes lets nobody create a ClusterRole that grants what they do not hold. To install an agent at tier 2 the controller therefore holds, cluster-wide, everything tier 2 reads (pods, services, workloads, ingresses, mesh policy); at tier 1 what tier 1 reads (nodes and classes); at tier 0 the name of one namespace. `maxAccessTier` is how to hold less: the chart renders only the rules up to it, and the controller refuses a resource that asks for more. A test renders the agent chart for every choice a resource can make and holds this chart's rules to it in both directions (nothing the agent chart creates is out of reach, nothing is held that nothing asks for).
 
+It also holds `get` on its own namespace, by name, at every ceiling: the agent chart reads the namespace's Pod Security label while Helm renders it (`lookup`), and Helm turns a refused read into a failed install. A test finds every `lookup` in the agent chart and holds the controller to being able to make each one.
+
 It also holds, in its own namespace, Secrets (Helm keeps its release records there, and the token and the agent's identity are Secrets) and the kinds the agent chart makes; and, in the `default` namespace, the one small Role and binding the agent chart puts there.
 
 ### Telemetry

@@ -110,6 +110,12 @@ rules:
     resources: [namespaces]
     resourceNames: [kube-system]
     verbs: [get]
+  # Not for the agent: for rendering its chart. The chart's pod-security pre-flight reads the labels of the namespace it is installed in
+  # (Helm's lookup), and Helm turns "forbidden" into a failed install. One namespace, by name, to read.
+  - apiGroups: [""]
+    resources: [namespaces]
+    resourceNames: [{{ .Release.Namespace | quote }}]
+    verbs: [get]
 {{- if ge $tier 1 }}
   # Tier 1: what the cluster is made of.
   - apiGroups: [""]

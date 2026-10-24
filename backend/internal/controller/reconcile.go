@@ -181,9 +181,13 @@ func (r *Reconciler) apply(ctx context.Context, obj *unstructured.Unstructured) 
 	if cur != nil && cur.Deployed && cur.ChartVersion == chartVersion && Hash(cur.Values) == want {
 		return 0, r.setStatus(ctx, obj, r.ready(obj, cur, want), r.cond(obj, "True", "Installed", "the release is installed as the spec asks"))
 	}
-	if err := r.setStatus(ctx, obj, Status{Phase: PhaseInstalling, ObservedGeneration: obj.GetGeneration(), ValuesHash: want},
-		r.cond(obj, "False", "Installing", "the release is being installed or changed")); err != nil {
-		return 0, err
+	// An attempt that has failed before, for this very resource and these very values, is tried again with its failure still on the resource:
+	// writing "Installing" over it for the length of each attempt leaves the reason there for a moment and gone the rest of the time.
+	if !failedBefore(obj, want) {
+		if err := r.setStatus(ctx, obj, Status{Phase: PhaseInstalling, ObservedGeneration: obj.GetGeneration(), ValuesHash: want},
+			r.cond(obj, "False", "Installing", "the release is being installed or changed")); err != nil {
+			return 0, err
+		}
 	}
 	rel, err := r.Installer.Apply(ctx, r.Namespace, ReleaseName, values)
 	if err != nil {
@@ -193,6 +197,20 @@ func (r *Reconciler) apply(ctx context.Context, obj *unstructured.Unstructured) 
 	}
 	r.log().Info("agent release applied", "release", ReleaseName, "revision", rel.Revision, "chart", rel.ChartVersion)
 	return 0, r.setStatus(ctx, obj, r.ready(obj, rel, want), r.cond(obj, "True", "Installed", "the release is installed as the spec asks"))
+}
+
+// failedBefore is whether the resource, as it is now, already says that installing these values failed (the values are what makes it the
+// same attempt: an edit of the resource that comes to the same values is the same attempt).
+func failedBefore(obj *unstructured.Unstructured, hash string) bool {
+	raw, ok := obj.Object["status"].(map[string]any)
+	if !ok {
+		return false
+	}
+	var st Status
+	if runtime.DefaultUnstructuredConverter.FromUnstructured(raw, &st) != nil {
+		return false
+	}
+	return st.Phase == PhaseFailed && st.ValuesHash == hash
 }
 
 // ceiling is the highest tier this controller may install.

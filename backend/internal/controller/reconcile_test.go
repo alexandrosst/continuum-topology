@@ -30,6 +30,8 @@ type fakeInstaller struct {
 	events   []string
 	applyErr error
 	rmErr    error
+	// onApply, when set, is called as an install starts (before it fails or succeeds): it sees what the resource says while it is tried.
+	onApply func()
 }
 
 func newInstaller() *fakeInstaller { return &fakeInstaller{chart: "0.1.0"} }
@@ -52,6 +54,9 @@ func (f *fakeInstaller) Current(_ context.Context, namespace, release string) (*
 func (f *fakeInstaller) Apply(_ context.Context, namespace, release string, values map[string]any) (*Release, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.onApply != nil {
+		f.onApply()
+	}
 	if namespace != ns || release != ReleaseName {
 		return nil, fmt.Errorf("applied to %s/%s", namespace, release)
 	}
@@ -418,10 +423,60 @@ func TestAnInstallThatFailsIsReportedAndRetriedAndNothingIsHiddenInTheStatus(t *
 	if st.Phase != PhaseFailed || st.Conditions[0].Reason != "InstallFailed" || st.Conditions[0].Message != "rendering the chart: boom" {
 		t.Fatalf("status %+v", st)
 	}
+	// While the retry runs the resource still says what went wrong: it is not turned back to "Installing" for the length of every attempt,
+	// which with the retries a failing install has would leave the reason visible for a moment between attempts and gone the rest of the time.
+	var during Status
+	g.inst.onApply = func() { during = g.status("a") }
+	if _, err := g.reconcile("a"); err == nil {
+		t.Fatal("a failed install was not returned for a retry")
+	}
+	if during.Phase != PhaseFailed || during.Conditions[0].Message != "rendering the chart: boom" {
+		t.Fatalf("while it was tried again: %+v", during)
+	}
+	// A change to the resource is a new attempt, and says so.
+	spec := goodSpec()
+	spec["accessTier"] = int64(1)
+	g.setSpec("a", spec)
+	if _, err := g.reconcile("a"); err == nil {
+		t.Fatal("a failed install was not returned for a retry")
+	}
+	if during.Phase != PhaseInstalling {
+		t.Fatalf("a changed resource, tried: %+v", during)
+	}
+	// So are other values with the resource itself the same (the token here, rotated): not the attempt that failed. Once that has failed in
+	// its turn, trying it again keeps its failure on the resource.
+	if _, err := g.kube.CoreV1().Secrets(ns).Update(context.Background(), &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "enroll", Namespace: ns}, Data: map[string][]byte{"token": []byte("ikh_other")}}, metav1.UpdateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	for i, want := range []string{PhaseInstalling, PhaseFailed} {
+		during = Status{}
+		if _, err := g.reconcile("a"); err == nil {
+			t.Fatal("a failed install was not returned for a retry")
+		}
+		if during.Phase != want {
+			t.Fatalf("attempt %d with the token rotated: %q, want %q", i+1, during.Phase, want)
+		}
+	}
+	g.inst.onApply = nil
 	g.inst.applyErr = nil
 	g.must("a")
 	if g.status("a").Phase != PhaseReady {
 		t.Fatalf("after the retry: %+v", g.status("a"))
+	}
+}
+
+// A release that was changed by hand is put back, and while it is the resource says that it is being changed, not that it is Ready.
+func TestARepairIsSaidToBeAChangeWhileItRuns(t *testing.T) {
+	g := newRig(t)
+	g.secret("enroll", "token", "ikh_abc")
+	g.agent("a", goodSpec())
+	g.must("a")
+	g.inst.rel.Values = map[string]any{"access": map[string]any{"tier": int64(0)}}
+	var during string
+	g.inst.onApply = func() { during = g.status("a").Phase }
+	g.must("a")
+	if during != PhaseInstalling || g.status("a").Phase != PhaseReady {
+		t.Fatalf("while it ran: %q, after: %q", during, g.status("a").Phase)
 	}
 }
 
